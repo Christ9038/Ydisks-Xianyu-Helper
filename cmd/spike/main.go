@@ -1,0 +1,122 @@
+//go:build debug || tools
+
+// spike 是 Phase 0 协议可行性验证程序（go/no-go 闸门）。
+//
+// 串起单账号完整链路：
+//
+//	cookie → mtop token API（签名）→ accessToken → WS 连接 → /reg 注册 → 心跳 → 收消息 → ACK → 解密
+//
+// 用法：
+//
+//	export XIANYU_COOKIE='unb=...; _m_h5_tk=...; cookie2=...; ...'
+//	go run -tags debug ./cmd/spike
+//
+// 或从文件读取（避免 cookie 出现在进程列表）：
+//
+//	go run -tags debug ./cmd/spike -cookie-file /path/to/cookie.txt
+//
+// 真机验证成功（能收到并解密一条闲鱼消息）即视为 Phase 0 通过。
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"xianyu-go/internal/logsafe"
+	"xianyu-go/internal/xianyu/mtop"
+	"xianyu-go/internal/xianyu/protocol"
+	"xianyu-go/internal/xianyu/ws"
+)
+
+func main() {
+	cookieFile := flag.String("cookie-file", "", "从文件读取 cookie（首行）")
+	verbose := flag.Bool("v", false, "调试日志")
+	flag.Parse()
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	if *verbose {
+		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	}
+
+	cookieStr := strings.TrimSpace(os.Getenv("XIANYU_COOKIE"))
+	if *cookieFile != "" {
+		b, err := os.ReadFile(*cookieFile)
+		if err != nil {
+			logger.Error("读取 cookie 文件失败", "err", err)
+			os.Exit(1)
+		}
+		cookieStr = strings.TrimSpace(strings.SplitN(string(b), "\n", 2)[0])
+	}
+	if cookieStr == "" {
+		fmt.Fprintln(os.Stderr, "缺少 cookie：请设置 XIANYU_COOKIE 环境变量或用 -cookie-file 指定")
+		os.Exit(2)
+	}
+
+	// 基本校验：必须有 unb 和 _m_h5_tk。
+	c := protocol.TransCookies(cookieStr)
+	if c["unb"] == "" || c["_m_h5_tk"] == "" {
+		fmt.Fprintln(os.Stderr, "cookie 缺少 unb 或 _m_h5_tk 字段")
+		os.Exit(2)
+	}
+	logger.Info("cookie 已加载", "account_hash", logsafe.ID(c["unb"]), "fields", len(c))
+
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	// 1) mtop token API → accessToken。
+	mc := &mtop.Client{}
+	logger.Info("步骤 1/3：刷新 token")
+	res, err := mc.RefreshToken(cookieStr)
+	if err != nil {
+		logger.Error("刷新 token 失败", "err", err)
+		os.Exit(1)
+	}
+	logger.Info("token 刷新成功", "accessToken_len", len(res.AccessToken))
+
+	// 2) WS 连接 + 注册。
+	deviceID := protocol.GenerateDeviceID(c["unb"])
+	cfg := ws.Config{
+		CookieStr:   res.UpdatedCookies,
+		DeviceID:    deviceID,
+		AccessToken: res.AccessToken,
+	}
+	logger.Info("步骤 2/3：连接 WebSocket", "device_id", deviceID)
+	conn, err := ws.Dial(ctx, cfg, logger)
+	if err != nil {
+		logger.Error("WS 连接/注册失败", "err", err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+
+	// 3) 心跳 + 收消息。
+	logger.Info("步骤 3/3：心跳与消息接收（等待闲鱼消息…）")
+	go func() {
+		if err := conn.HeartbeatLoop(ctx, 15*time.Second); err != nil {
+			logger.Error("心跳循环退出", "err", err)
+			cancel()
+		}
+	}()
+
+	gotMessage := false
+	err = conn.ReceiveLoop(ctx, func(decrypted map[string]any) {
+		gotMessage = true
+		b, _ := json.MarshalIndent(decrypted, "", "  ")
+		fmt.Println("\n========== 收到并解密一条消息 ==========")
+		fmt.Println(string(b))
+		fmt.Println("========================================")
+		logger.Info("✅ 成功收到并解密消息，Phase 0 闸门通过")
+		cancel()
+	})
+	if !gotMessage {
+		logger.Error("未收到消息即退出", "err", err)
+		os.Exit(1)
+	}
+}

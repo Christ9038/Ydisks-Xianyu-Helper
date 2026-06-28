@@ -1,0 +1,27 @@
+# Build outputs
+/server
+/xianyu-server
+/xianyu-init-admin
+/init-admin
+*.exe
+*.test
+*.out
+
+# Runtime data
+/data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Uploads / temporary files
+/uploads/
+/tmp/
+*.log
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
