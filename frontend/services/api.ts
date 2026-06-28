@@ -120,6 +120,10 @@ export const updateAccountCookie = async (id: string, value: string): Promise<an
   return put(`/cookies/${id}`, { id, value });
 };
 
+export const refreshAccountProfile = async (id: string): Promise<any> => {
+  return post(`/cookies/${id}/refresh-profile`, {});
+};
+
 export const updateAccountLoginInfo = async (id: string, data: {
   username?: string;
   login_password?: string;

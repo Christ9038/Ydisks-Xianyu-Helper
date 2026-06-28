@@ -14,6 +14,7 @@ import {
   updateAccountAutoConfirm,
   updateAccountPauseDuration,
   updateAccountCookie,
+  refreshAccountProfile,
   updateAccountLoginInfo,
   updateAccountAISettings,
   getAllAISettings,
@@ -30,6 +31,8 @@ type ModalType = 'edit' | 'ai-settings' | null;
 const AccountList: React.FC = () => {
   const [accounts, setAccounts] = useState<AccountDetail[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accountSearch, setAccountSearch] = useState('');
+  const [refreshingProfileId, setRefreshingProfileId] = useState<string>('');
   const [showQRModal, setShowQRModal] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   const [qrStatus, setQrStatus] = useState<string>('pending');
@@ -152,6 +155,22 @@ const AccountList: React.FC = () => {
     if (confirm('确认删除该账号吗？')) {
       await deleteAccount(id);
       loadAccounts();
+    }
+  };
+
+  const handleRefreshProfile = async (account: AccountDetail) => {
+    setRefreshingProfileId(account.id);
+    try {
+      const res = await refreshAccountProfile(account.id);
+      if (res?.profile_error) {
+        alert('资料刷新失败：' + res.profile_error);
+      }
+      await loadAccounts();
+    } catch (error: any) {
+      console.error('刷新账号资料失败:', error);
+      alert(error?.message || '刷新账号资料失败，请先重新授权该账号');
+    } finally {
+      setRefreshingProfileId('');
     }
   };
 
@@ -352,25 +371,51 @@ const AccountList: React.FC = () => {
 
   if (loading) return <div className="p-20 flex justify-center"><Loader2 className="w-8 h-8 text-[#0094f7] animate-spin"/></div>;
 
+  const filteredAccounts = accounts.filter(account => {
+    const keyword = accountSearch.trim().toLowerCase();
+    if (!keyword) return true;
+    return [
+      account.id,
+      account.nickname,
+      account.remark,
+      account.note,
+      account.username,
+      account.runtime_message,
+    ].some(value => (value || '').toLowerCase().includes(keyword));
+  });
+
   return (
     <div className="space-y-8 animate-fade-in relative">
-      <div className="flex justify-between items-end">
+      <div className="flex flex-col xl:flex-row xl:justify-between xl:items-end gap-4">
         <div>
           <h2 className="text-4xl font-extrabold text-gray-900 tracking-tight">账号管理</h2>
-          <p className="text-gray-500 mt-2 font-medium">管理您的闲鱼授权账号及设置。</p>
+          <p className="text-gray-500 mt-2 font-medium">管理您的闲鱼授权账号及设置。建议给账号填写备注，便于多账号区分。</p>
         </div>
-        <button
+        <div className="flex flex-col sm:flex-row gap-3">
+          <input
+            value={accountSearch}
+            onChange={event => setAccountSearch(event.target.value)}
+            placeholder="搜索昵称 / 备注 / 账号ID"
+            className="ios-input px-4 py-3 rounded-2xl text-sm w-full sm:w-72"
+          />
+          <button
             onClick={() => startQRLogin()}
             className="ios-btn-primary flex items-center gap-2 px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-transform hover:scale-105 active:scale-95"
-        >
-          <QrCode className="w-5 h-5" />
-          扫码添加新账号
-        </button>
+          >
+            <QrCode className="w-5 h-5" />
+            扫码添加新账号
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4 text-sm text-blue-900 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+        <div className="font-bold">当前显示 {filteredAccounts.length} / {accounts.length} 个账号</div>
+        <div className="text-blue-700">如果某个账号只显示 ID，点该账号右侧“刷新资料”；若刷新失败，先点二维码重新授权。</div>
       </div>
 
       {/* Account Grid */}
       <div className="grid grid-cols-1 gap-6">
-        {accounts.map((account) => {
+        {filteredAccounts.map((account) => {
           const runtime = runtimePresentation(account);
           const requiresLogin = account.runtime_state === 'auth_expired' || account.runtime_state === 'verification_required';
           return (
@@ -410,7 +455,10 @@ const AccountList: React.FC = () => {
                         </span>
                     )}
                 </div>
-                <p className="text-sm text-gray-500 font-medium mb-3">{account.remark || account.note || '暂无备注'}</p>
+                <div className="text-sm text-gray-500 font-medium mb-3 space-y-1">
+                  <p>{account.remark || account.note || '暂无备注'}</p>
+                  <p className="font-mono text-xs text-gray-400">ID: {account.id}</p>
+                </div>
                 {account.runtime_message && account.runtime_state !== 'online' && account.runtime_state !== 'disabled' && (
                   <div className={`mb-3 flex flex-wrap items-center gap-2 text-sm font-medium ${requiresLogin ? 'text-red-700' : 'text-amber-700'}`}>
                     <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -433,6 +481,14 @@ const AccountList: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center gap-3 self-end lg:self-auto flex-shrink-0">
+                <button
+                    onClick={() => handleRefreshProfile(account)}
+                    disabled={refreshingProfileId === account.id}
+                    className="p-3 rounded-xl transition-colors text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+                    title="刷新昵称和头像"
+                >
+                    <RefreshCw className={`w-5 h-5 ${refreshingProfileId === account.id ? 'animate-spin' : ''}`} />
+                </button>
                 <button
                     onClick={() => startQRLogin(account)}
                     className={`p-3 rounded-xl transition-colors ${requiresLogin ? 'text-red-600 bg-red-50 hover:bg-red-100' : 'text-blue-600 hover:bg-blue-50'}`}
@@ -478,6 +534,12 @@ const AccountList: React.FC = () => {
                 </div>
                 <h3 className="text-lg font-bold text-gray-900">暂无账号</h3>
                 <p className="text-gray-500 mt-1">请点击右上角扫码添加您的闲鱼账号</p>
+            </div>
+        )}
+        {accounts.length > 0 && filteredAccounts.length === 0 && (
+            <div className="ios-card p-12 text-center">
+                <h3 className="text-lg font-bold text-gray-900">没有匹配的账号</h3>
+                <p className="text-gray-500 mt-1">换一个关键词搜索昵称、备注或账号ID。</p>
             </div>
         )}
       </div>

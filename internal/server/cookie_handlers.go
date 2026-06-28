@@ -22,6 +22,7 @@ func (s *Server) mountCookies(r chi.Router) {
 	r.Post("/cookies", s.addCookie)
 	r.Put("/cookies/{cid}", s.updateCookie)
 	r.Put("/cookies/{cid}/login-info", s.updateCookieLoginInfo)
+	r.Post("/cookies/{cid}/refresh-profile", s.refreshCookieProfile)
 	r.Get("/cookie/{cid}/details", s.getCookieDetails)
 	r.Put("/cookies/{cid}/status", s.setCookieStatus)
 	r.Delete("/cookies/{cid}", s.deleteCookie)
@@ -88,7 +89,6 @@ func (s *Server) listCookieDetails(w http.ResponseWriter, r *http.Request) {
 		if err != nil || d == nil {
 			continue
 		}
-		nickname, avatarURL, profileErr := s.refreshAccountProfile(r.Context(), d)
 		result = append(result, map[string]any{
 			"id":             d.ID,
 			"has_cookie":     true,
@@ -97,9 +97,9 @@ func (s *Server) listCookieDetails(w http.ResponseWriter, r *http.Request) {
 			"remark":         d.Remark,
 			"pause_duration": d.PauseDuration,
 			"username":       d.Username,
-			"nickname":       nickname,
-			"avatar_url":     avatarURL,
-			"profile_error":  profileErr,
+			"nickname":       cachedAccountNickname(d),
+			"avatar_url":     d.AvatarURL,
+			"profile_error":  "",
 			"ai_enabled":     false,
 		})
 	}
@@ -120,7 +120,6 @@ func (s *Server) getCookieDetails(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "账号不存在")
 		return
 	}
-	nickname, avatarURL, profileErr := s.refreshAccountProfile(r.Context(), d)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":             d.ID,
 		"enabled":        s.Store.Cookies.GetStatus(r.Context(), cid),
@@ -129,10 +128,34 @@ func (s *Server) getCookieDetails(w http.ResponseWriter, r *http.Request) {
 		"pause_duration": d.PauseDuration,
 		"show_browser":   d.ShowBrowser,
 		"username":       d.Username,
-		"nickname":       nickname,
-		"avatar_url":     avatarURL,
-		"profile_error":  profileErr,
+		"nickname":       cachedAccountNickname(d),
+		"avatar_url":     d.AvatarURL,
+		"profile_error":  "",
 		"has_cookie":     true,
+	})
+}
+
+// refreshCookieProfile 主动刷新账号昵称/头像。列表接口不自动刷新，避免 100 个账号时对闲鱼打 100 次请求。
+func (s *Server) refreshCookieProfile(w http.ResponseWriter, r *http.Request) {
+	cid := chi.URLParam(r, "cid")
+	sess := auth.SessionFromContext(r.Context())
+	all, _ := s.Store.Cookies.AllForUser(r.Context(), sess.UserID)
+	if _, ok := all[cid]; !ok {
+		writeErr(w, http.StatusForbidden, "无权限操作该账号")
+		return
+	}
+	d, err := s.Store.Cookies.GetDetails(r.Context(), cid)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "账号不存在")
+		return
+	}
+	nickname, avatarURL, profileErr := s.refreshAccountProfile(r.Context(), d)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":       profileErr == "",
+		"id":            d.ID,
+		"nickname":      nickname,
+		"avatar_url":    avatarURL,
+		"profile_error": profileErr,
 	})
 }
 
@@ -324,7 +347,7 @@ func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) 
 		return "", "", ""
 	}
 	if s.MTop == nil {
-		return accountProfileFallback(d), "", "账号资料客户端未初始化"
+		return cachedAccountNickname(d), d.AvatarURL, "账号资料客户端未初始化"
 	}
 
 	profile, err := s.MTop.FetchUserProfile(ctx, d.Value)
@@ -332,7 +355,7 @@ func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) 
 		if s.Logger != nil {
 			s.Logger.Warn("刷新账号资料失败", "account", d.ID, "err", err)
 		}
-		return accountProfileFallback(d), "", truncate(err.Error(), 180)
+		return cachedAccountNickname(d), d.AvatarURL, truncate(err.Error(), 180)
 	}
 
 	if profile.UpdatedCookies != "" && profile.UpdatedCookies != d.Value {
@@ -348,9 +371,22 @@ func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) 
 		s.Logger.Warn("保存账号资料失败", "account", d.ID, "err", err)
 	}
 	if apiNickname == "" {
-		apiNickname = accountProfileFallback(d)
+		apiNickname = cachedAccountNickname(d)
+	}
+	if apiAvatarURL == "" {
+		apiAvatarURL = d.AvatarURL
 	}
 	return apiNickname, apiAvatarURL, ""
+}
+
+func cachedAccountNickname(d *db.CookieDetail) string {
+	if strings.TrimSpace(d.Remark) != "" {
+		return strings.TrimSpace(d.Remark)
+	}
+	if strings.TrimSpace(d.Nickname) != "" {
+		return strings.TrimSpace(d.Nickname)
+	}
+	return "账号 " + truncate(d.ID, 6)
 }
 
 func accountProfileFallback(d *db.CookieDetail) string {
