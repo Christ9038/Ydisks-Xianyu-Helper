@@ -365,6 +365,26 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     }
   };
 
+  const downloadPublishTemplate = () => {
+    const headers = ['账号ID', '标题', '描述', '价格', '原价', '库存', '邮费模式', '邮费', '图片', '自动创建发货规则', '卡密组ID', '发货数量'];
+    const rows = [
+      ['', '会员月卡自动发货', '下单后自动发货，请按说明使用。', '19.90', '29.90', '10', 'free', '', 'images/month-card-1.jpg;images/month-card-2.jpg', '是', '请填写卡密页看到的ID', '1'],
+      ['', '会员季卡自动发货', '支持自动发货。', '49.90', '', '10', 'fixed', '8.00', 'https://example.com/product.jpg', '否', '', '1'],
+    ];
+    const csv = [headers, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '批量铺货模板.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const toggleMultiSpec = async (item: Item) => {
     const next = !Boolean(item.is_multi_spec);
     setItems(prev => prev.map(i =>
@@ -815,7 +835,19 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
               {batchPhase === 'upload' && (
                 <div className="space-y-5">
                   <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900 leading-6">
-                    表格字段至少包含：标题、价格、图片。图片字段写 zip 内相对路径，多个图片用英文分号分隔，例如 <span className="font-mono font-bold">images/a.jpg;images/b.jpg</span>。也支持直接填写图片 URL。
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                      <div>
+                        <div className="font-extrabold">先下载模板，再按字段填写。</div>
+                        <div>图片字段写 zip 内相对路径，多个图片用英文分号分隔，例如 <span className="font-mono font-bold">images/a.jpg;images/b.jpg</span>。也支持直接填写图片 URL。</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={downloadPublishTemplate}
+                        className="shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-blue-700"
+                      >
+                        下载CSV模板
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -856,10 +888,43 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                     </label>
                   </div>
 
-                  <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4">
-                    <div className="text-sm font-extrabold text-gray-900 mb-2">模板列建议</div>
-                    <div className="text-xs text-gray-600 leading-6">
-                      账号ID、标题、描述、价格、原价、库存、邮费模式、邮费、图片、自动创建发货规则、卡密组ID、发货数量
+                  <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4 space-y-3">
+                    <div>
+                      <div className="text-sm font-extrabold text-gray-900">字段说明</div>
+                      <p className="text-xs text-gray-500 mt-1">必填字段缺失会在预检阶段拦截，不会发布。</p>
+                    </div>
+                    <div className="overflow-x-auto rounded-xl border border-gray-100 bg-white">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-gray-50 text-gray-500">
+                          <tr>
+                            <th className="px-3 py-2">字段</th>
+                            <th className="px-3 py-2">是否必填</th>
+                            <th className="px-3 py-2">说明</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50 text-gray-700">
+                          {[
+                            ['账号ID', '可空', '空时使用上方选择的默认发布账号'],
+                            ['标题', '必填', '商品标题'],
+                            ['描述', '可空', '空时默认等于标题'],
+                            ['价格', '必填', '售价，例如 19.90'],
+                            ['原价', '可空', '展示原价，例如 29.90'],
+                            ['库存', '可空', '默认 1，必须大于 0'],
+                            ['邮费模式', '可空', '默认 free；支持 free / fixed'],
+                            ['邮费', '条件必填', '邮费模式 fixed 时填写，例如 8.00'],
+                            ['图片', '必填', 'zip 内相对路径或 URL，多张用英文分号分隔'],
+                            ['自动创建发货规则', '可空', '填 是/true/1 表示发布成功后创建自动发货规则'],
+                            ['卡密组ID', '条件必填', '自动创建发货规则=是 时必填；在“卡密库存”页复制'],
+                            ['发货数量', '可空', '默认 1，每个订单发送几份卡密'],
+                          ].map(([name, required, desc]) => (
+                            <tr key={name}>
+                              <td className="px-3 py-2 font-bold text-gray-900 whitespace-nowrap">{name}</td>
+                              <td className={`px-3 py-2 whitespace-nowrap font-bold ${required === '必填' || required === '条件必填' ? 'text-red-600' : 'text-gray-500'}`}>{required}</td>
+                              <td className="px-3 py-2 min-w-[260px]">{desc}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 </div>

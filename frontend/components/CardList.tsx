@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Card } from '../types';
 import { getCards, createCard, updateCard, deleteCard } from '../services/api';
-import { Plus, CreditCard, Clock, FileText, Image as ImageIcon, Code, Edit, Trash2, Save, X, Eye, EyeOff, Package } from 'lucide-react';
+import { Plus, CreditCard, Clock, FileText, Image as ImageIcon, Code, Edit, Trash2, Save, X, Eye, EyeOff, Package, Copy } from 'lucide-react';
 
 type AddCardForm = {
   name: string;
@@ -185,6 +185,15 @@ const CardList: React.FC = () => {
     }
   };
 
+  const copyCardID = async (id: string | number) => {
+    try {
+      await navigator.clipboard.writeText(String(id));
+      alert(`已复制卡密组ID：${id}`);
+    } catch {
+      prompt('复制卡密组ID', String(id));
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex justify-between items-center">
@@ -206,10 +215,11 @@ const CardList: React.FC = () => {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-white text-gray-400 text-xs font-bold uppercase tracking-wider border-b border-gray-50">
-                <th className="px-8 py-5 w-[15%]">卡密名称</th>
-                <th className="px-6 py-5 w-[12%]">类型</th>
-                <th className="px-6 py-5 w-[25%]">内容/库存</th>
-                <th className="px-6 py-5 w-[20%]">描述</th>
+                <th className="px-8 py-5 w-[18%]">卡密名称</th>
+                <th className="px-6 py-5 w-[12%]">卡密组ID</th>
+                <th className="px-6 py-5 w-[10%]">类型</th>
+                <th className="px-6 py-5 w-[22%]">内容/库存</th>
+                <th className="px-6 py-5 w-[18%]">描述</th>
                 <th className="px-6 py-5 w-[10%]">状态</th>
                 <th className="px-6 py-5 w-[10%] text-right">操作</th>
               </tr>
@@ -238,6 +248,16 @@ const CardList: React.FC = () => {
                         </div>
                         <span className="font-bold text-gray-900">{card.name}</span>
                       </div>
+                    </td>
+                    <td className="px-6 py-5">
+                      <button
+                        onClick={() => copyCardID(card.id)}
+                        className="inline-flex items-center gap-2 rounded-xl bg-gray-100 px-3 py-2 font-mono text-xs font-extrabold text-gray-700 hover:bg-gray-200 transition-colors"
+                        title="复制卡密组ID，用于批量铺货表格"
+                      >
+                        {card.id}
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
                     </td>
                     <td className="px-6 py-5">
                       <span className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
