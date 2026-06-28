@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AdminStats, OrderAnalytics, Order, OrderStatus, Item } from '../types';
 import { getAdminStats, getOrderAnalytics, getValidOrders, getItems } from '../services/api';
 import { TrendingUp, Users, ShoppingCart, AlertCircle, DollarSign, Activity, Package, ArrowUpRight, Calendar, X, BarChart3, PackageCheck, ExternalLink, Eye, Edit } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
 
 // 状态徽章组件
 const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
@@ -70,6 +70,7 @@ const Dashboard: React.FC = () => {
 
   // 颜色配置
   const COLORS = ['#0094f7', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6'];
+  const formatCurrency = (value: number) => `¥${Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
   const loadAnalytics = (range: TimeRange) => {
     // 使用本地时间而不是UTC时间
@@ -323,6 +324,7 @@ const Dashboard: React.FC = () => {
     }))
     .sort((a, b) => b.sales - a.sales)
     .slice(0, 10) : [];
+  const maxProductSales = Math.max(...productSalesData.map(item => item.sales), 1);
 
   // 2. 商品下单占比：每个商品的订单数占总订单数的百分比
   const sourceDataData = itemStats.length > 0 ? itemStats
@@ -368,6 +370,7 @@ const Dashboard: React.FC = () => {
     { key: '30days' as TimeRange, label: '一个月内' },
     { key: 'custom' as TimeRange, label: '自定义' },
   ];
+  const selectedRangeLabel = timeRangeOptions.find(option => option.key === timeRange)?.label || '所选范围';
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -457,7 +460,7 @@ const Dashboard: React.FC = () => {
       <div className="ios-card p-8 rounded-[2rem]">
         <div className="mb-10">
           <h3 className="text-xl font-bold text-gray-900">营收趋势分析</h3>
-          <p className="text-sm text-gray-400 mt-1">最近7天的销售额走势</p>
+          <p className="text-sm text-gray-400 mt-1">{selectedRangeLabel}的销售额走势</p>
         </div>
         <div className="h-[350px] w-full">
           {chartData.length === 0 || analytics.revenue_stats.total_amount === 0 ? (
@@ -469,7 +472,7 @@ const Dashboard: React.FC = () => {
           ) : chartData.length <= 2 ? (
             // 数据点少于等于2个时使用美化柱状图
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 30, right: 20, left: -20, bottom: 30 }} barCategoryGap={30}>
+              <BarChart data={chartData} margin={{ top: 30, right: 20, left: 0, bottom: 30 }} barCategoryGap="45%">
                 <XAxis
                   dataKey="name"
                   axisLine={false}
@@ -500,6 +503,7 @@ const Dashboard: React.FC = () => {
                 <Bar
                   dataKey="amount"
                   fill="#0094f7"
+                  maxBarSize={72}
                   radius={[12, 12, 0, 0]}
                   stroke="#000000"
                   strokeWidth={0}
@@ -539,7 +543,7 @@ const Dashboard: React.FC = () => {
                   labelStyle={{ color: '#888' }}
                   cursor={{ stroke: '#0094f7', strokeWidth: 2, strokeDasharray: '4 4' }}
                 />
-                <Area type="monotone" dataKey="amount" stroke="#FACC15" strokeWidth={4} fillOpacity={1} fill="url(#colorAmount)" activeDot={{ r: 8, fill: '#1A1A1A', stroke: "#0094f7", strokeWidth: 2 }} />
+                <Area type="monotone" dataKey="amount" stroke="#0094f7" strokeWidth={4} fillOpacity={1} fill="url(#colorAmount)" activeDot={{ r: 8, fill: '#1A1A1A', stroke: "#0094f7", strokeWidth: 2 }} />
               </AreaChart>
             </ResponsiveContainer>
           )}
@@ -555,34 +559,27 @@ const Dashboard: React.FC = () => {
             {productSalesData.length === 0 ? (
               <div className="flex items-center justify-center h-full text-gray-400">暂无数据</div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={productSalesData} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f0f0f0" />
-                  <XAxis
-                    type="number"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: '#6B7280', fontSize: 12 }}
-                    width={100}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#fff',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: '12px',
-                      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
-                    }}
-                  />
-                  <Bar dataKey="sales" fill="#000000" radius={[0, 8, 8, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="h-full space-y-4 overflow-y-auto pr-2">
+                {productSalesData.map((item, index) => (
+                  <div key={`${item.name}-${index}`} className="space-y-2">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs font-extrabold ${index < 3 ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                          {index + 1}
+                        </span>
+                        <span className="font-bold text-gray-800 text-sm truncate">{item.name}</span>
+                      </div>
+                      <span className="font-mono text-sm font-extrabold text-gray-900">{item.sales} 单</span>
+                    </div>
+                    <div className="h-3 rounded-full bg-gray-100 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-[#0094f7]"
+                        style={{ width: `${Math.max(8, (item.sales / maxProductSales) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -604,7 +601,7 @@ const Dashboard: React.FC = () => {
                     outerRadius={90}
                     paddingAngle={2}
                     dataKey="value"
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    label={({ name, payload }) => `${name} ${Number(payload?.percent || 0).toFixed(1)}%`}
                     labelLine={false}
                   >
                     {sourceDataData.map((entry, index) => (
@@ -737,7 +734,7 @@ const Dashboard: React.FC = () => {
                       outerRadius={100}
                       paddingAngle={2}
                       dataKey="value"
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      label={({ name, payload }) => `${name} ${payload?.percentage || '0.0'}%`}
                     >
                       {categoryDataData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.color || COLORS[index % COLORS.length]} />
