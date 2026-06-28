@@ -1,0 +1,385 @@
+/* Tailwind CSS 指令 */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Ydisks 超椭圆 logo 容器：用 squircle mask 实现真超椭圆（比圆角矩形更鼓）。
+   mask 让容器背景色（蓝）也裁成超椭圆形状。
+   shadow 改用 filter:drop-shadow，跟随 mask 后的实际形状（box-shadow 会被 mask 裁掉）。 */
+.squircle {
+  -webkit-mask-image: url(/static/squircle.svg);
+  mask-image: url(/static/squircle.svg);
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  border-radius: 0;
+}
+
+/* 闲鱼自动回复系统 - 全局样式 */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  background-color: #F4F5F7;
+  color: #ffffff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 闲鱼风格卡片 */
+.ios-card {
+  background: #FFFFFF;
+  border-radius: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.02);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.04);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ios-card:hover {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.06);
+}
+
+/* 闲鱼风格输入框 */
+.ios-input {
+  background: #F7F8FA;
+  border: 1px solid transparent;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  color: #111;
+  font-weight: 500;
+}
+
+.ios-input:focus {
+  background: #FFFFFF;
+  border-color: #0094f7;
+  box-shadow: 0 0 0 4px rgba(0, 148, 247, 0.3);
+  outline: none;
+}
+
+.ios-input::placeholder {
+  color: #9CA3AF;
+  font-weight: 400;
+}
+
+/* 主按钮 */
+.ios-btn-primary {
+  background: #0094f7;
+  color: #ffffff;
+  font-weight: 700;
+  border: none;
+  transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+  cursor: pointer;
+}
+
+.ios-btn-primary:hover:not(:disabled) {
+  background: #0071e3;
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(0, 148, 247, 0.3);
+}
+
+.ios-btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 0 2px 8px rgba(0, 148, 247, 0.2);
+}
+
+.ios-btn-primary:disabled {
+  background: #F0F0F0;
+  color: #AAAAAA;
+  box-shadow: none;
+  transform: none;
+  cursor: not-allowed;
+}
+
+/* 次要按钮 */
+.ios-btn-secondary {
+  background: #F7F8FA;
+  color: #ffffff;
+  font-weight: 600;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.ios-btn-secondary:hover {
+  background: #E5E7EB;
+  border-color: #D1D5DB;
+}
+
+/* 危险按钮 */
+.ios-btn-danger {
+  background: #FEE2E2;
+  color: #DC2626;
+  font-weight: 600;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.ios-btn-danger:hover {
+  background: #FECACA;
+  border-color: #FCA5A5;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* 动画 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* 文本选择 */
+::selection {
+  background: #0094f7;
+  color: #fff;
+}
+
+/* 工具类 */
+.text-brand {
+  color: #0094f7;
+}
+
+.bg-brand {
+  background-color: #0094f7;
+}
+
+.border-brand {
+  border-color: #0094f7;
+}
+
+/* 状态徽章 */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-badge-success {
+  background-color: #D1FAE5;
+  color: #065F46;
+}
+
+.status-badge-warning {
+  background-color: #FEF3C7;
+  color: #92400E;
+}
+
+.status-badge-error {
+  background-color: #FEE2E2;
+  color: #991B1B;
+}
+
+.status-badge-info {
+  background-color: #DBEAFE;
+  color: #1E40AF;
+}
+
+/* 加载状态 */
+.loading-skeleton {
+  background: linear-gradient(90deg,
+    #F3F4F6 0%,
+    #E5E7EB 50%,
+    #F3F4F6 100%);
+  background-size: 200% 100%;
+  animation: loading 1.5s ease-in-out infinite;
+}
+
+@keyframes loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* 模态框优化 - 修复遮挡和滚动问题 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.modal-container {
+  position: relative;
+  width: 100%;
+  max-width: 42rem; /* max-w-2xl */
+  max-height: 85vh;
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  background-color: white;
+  border-radius: 2.5rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+
+.modal-header {
+  flex-shrink: 0;
+  padding: 2rem 2rem 1.5rem;
+  border-bottom: 1px solid #F3F4F6;
+  background-color: white;
+  z-index: 10;
+}
+
+.modal-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 2rem;
+}
+
+.modal-footer {
+  flex-shrink: 0;
+  padding: 1.5rem 2rem 2rem;
+  border-top: 1px solid #F3F4F6;
+  background-color: white;
+  z-index: 10;
+}
+
+/* 大模态框 */
+.modal-container-lg {
+  max-width: 64rem; /* max-w-4xl */
+}
+
+/* 自定义弹窗定位 - 上下参考侧边栏中间，左右居中 */
+.modal-overlay-centered {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.modal-overlay-centered .modal-container {
+  position: relative;
+  width: 100%;
+  max-width: 42rem;
+  max-height: 85vh;
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  background-color: white;
+  border-radius: 2.5rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+
+/* 响应式工具类 */
+@media (max-width: 768px) {
+  .ios-card {
+    border-radius: 16px;
+  }
+
+  .ios-input {
+    font-size: 16px; /* 防止iOS自动缩放 */
+  }
+
+  .modal-container {
+    max-width: calc(100% - 2rem);
+    max-height: 90vh;
+    border-radius: 1.5rem;
+  }
+
+  .modal-header,
+  .modal-body,
+  .modal-footer {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}

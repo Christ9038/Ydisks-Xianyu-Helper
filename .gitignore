@@ -20,8 +20,12 @@
 /tmp/
 *.log
 
+# Frontend dependencies
+/frontend/node_modules/
+/frontend/.env.local
+/frontend/.env.*.local
+
 # OS / editor
 .DS_Store
 .idea/
 .vscode/
-
