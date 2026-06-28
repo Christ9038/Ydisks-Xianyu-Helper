@@ -36,6 +36,7 @@ const AccountList: React.FC = () => {
   const [verificationUrl, setVerificationUrl] = useState<string>('');
   const [verificationScreenshot, setVerificationScreenshot] = useState<string>('');
   const [qrSessionId, setQrSessionId] = useState<string>('');
+  const [qrReauthTarget, setQrReauthTarget] = useState<AccountDetail | null>(null);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [editingAccount, setEditingAccount] = useState<AccountDetail | null>(null);
 
@@ -256,9 +257,33 @@ const AccountList: React.FC = () => {
     }
   };
 
-  const startQRLogin = async () => {
+  const persistQRLoginResult = async (cookies: string, unb?: string, target?: AccountDetail | null) => {
+    if (target) {
+      if (unb && unb !== target.id) {
+        const ok = confirm(`扫码返回的账号ID是 ${unb}，当前要重新授权的是 ${target.id}。确认用本次扫码结果覆盖当前账号授权吗？`);
+        if (!ok) {
+          throw new Error('已取消覆盖当前账号授权');
+        }
+      }
+      await updateAccountCookie(target.id, cookies);
+      return target.id;
+    }
+    if (!unb) {
+      throw new Error('扫码结果缺少账号ID，无法添加账号');
+    }
+    await addAccount(unb, cookies);
+    return unb;
+  };
+
+  const startQRLogin = async (target?: AccountDetail) => {
+    const targetAccount = target || null;
+    setQrReauthTarget(targetAccount);
     setShowQRModal(true);
     setQrStatus('loading');
+    setQrCodeUrl('');
+    setQrSessionId('');
+    setVerificationUrl('');
+    setVerificationScreenshot('');
     try {
       const res = await generateQRLogin();
       if (res.success && res.qr_code_url && res.session_id) {
@@ -271,12 +296,12 @@ const AccountList: React.FC = () => {
           if (statusRes.status === 'success') {
             clearInterval(interval);
             setQrStatus('success');
-            // 把扫码拿到的 cookie 入库（cookie_id 用 unb）。
             if (statusRes.cookies && statusRes.unb) {
               try {
-                await addAccount(statusRes.unb, statusRes.cookies);
+                await persistQRLoginResult(statusRes.cookies, statusRes.unb, targetAccount);
               } catch (e) {
-                console.error('保存扫码账号失败', e);
+                console.error('保存扫码授权失败', e);
+                setQrStatus('error');
               }
             }
             setTimeout(() => {
@@ -309,7 +334,7 @@ const AccountList: React.FC = () => {
     try {
       const res = await completeQRVerification(qrSessionId);
       if (res.success && res.cookies && res.unb) {
-        await addAccount(res.unb, res.cookies);
+        await persistQRLoginResult(res.cookies, res.unb, qrReauthTarget);
         setQrStatus('success');
         setTimeout(() => {
           setShowQRModal(false);
@@ -335,7 +360,7 @@ const AccountList: React.FC = () => {
           <p className="text-gray-500 mt-2 font-medium">管理您的闲鱼授权账号及设置。</p>
         </div>
         <button
-            onClick={startQRLogin}
+            onClick={() => startQRLogin()}
             className="ios-btn-primary flex items-center gap-2 px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-transform hover:scale-105 active:scale-95"
         >
           <QrCode className="w-5 h-5" />
@@ -393,10 +418,10 @@ const AccountList: React.FC = () => {
                     {requiresLogin && (
                       <button
                         type="button"
-                        onClick={startQRLogin}
+                        onClick={() => startQRLogin(account)}
                         className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-2.5 py-1 text-xs font-bold text-red-700 hover:bg-red-100"
                       >
-                        <QrCode className="w-3.5 h-3.5" /> 重新扫码登录
+                        <QrCode className="w-3.5 h-3.5" /> 重新授权
                       </button>
                     )}
                   </div>
@@ -408,6 +433,13 @@ const AccountList: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center gap-3 self-end lg:self-auto flex-shrink-0">
+                <button
+                    onClick={() => startQRLogin(account)}
+                    className={`p-3 rounded-xl transition-colors ${requiresLogin ? 'text-red-600 bg-red-50 hover:bg-red-100' : 'text-blue-600 hover:bg-blue-50'}`}
+                    title="重新扫码授权当前账号"
+                >
+                    <QrCode className="w-5 h-5" />
+                </button>
                 <button
                     onClick={() => openEditModal(account)}
                     className="p-3 rounded-xl hover:bg-gray-100 transition-colors text-gray-600"
@@ -463,8 +495,14 @@ const AccountList: React.FC = () => {
 
                   <div className="modal-body">
                       <div className="text-center">
-                          <h3 className="text-2xl font-extrabold text-gray-900 mb-2">扫码登录</h3>
-                          <p className="text-gray-500 mb-8 font-medium">请打开闲鱼APP扫描下方二维码</p>
+                          <h3 className="text-2xl font-extrabold text-gray-900 mb-2">
+                            {qrReauthTarget ? '重新授权账号' : '扫码添加账号'}
+                          </h3>
+                          <p className="text-gray-500 mb-8 font-medium">
+                            {qrReauthTarget
+                              ? `请用闲鱼APP扫码，为「${qrReauthTarget.nickname || qrReauthTarget.remark || qrReauthTarget.id}」刷新授权`
+                              : '请打开闲鱼APP扫描下方二维码'}
+                          </p>
 
                           <div className="w-64 h-64 bg-[#F7F8FA] rounded-[2rem] mx-auto flex items-center justify-center overflow-hidden border-4 border-white shadow-inner mb-8 relative">
                               {qrStatus === 'loading' && <Loader2 className="w-10 h-10 text-[#0094f7] animate-spin" />}
@@ -480,7 +518,7 @@ const AccountList: React.FC = () => {
                               {qrStatus === 'error' && (
                                   <div className="flex flex-col items-center">
                                       <span className="text-red-500 font-bold mb-2">获取失败</span>
-                                      <button onClick={startQRLogin} className="text-xs bg-gray-200 px-3 py-1 rounded-full flex items-center gap-1 hover:bg-gray-300"><RefreshCw className="w-3 h-3"/> 重试</button>
+                                      <button onClick={() => startQRLogin(qrReauthTarget || undefined)} className="text-xs bg-gray-200 px-3 py-1 rounded-full flex items-center gap-1 hover:bg-gray-300"><RefreshCw className="w-3 h-3"/> 重试</button>
                                   </div>
                               )}
                               {qrStatus === 'verification' && (
