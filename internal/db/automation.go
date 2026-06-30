@@ -319,13 +319,30 @@ SELECT order_id,item_id,buyer_id,spec_name,spec_value,quantity,amount,order_stat
 	for rows.Next() {
 		var ord Order
 		var isBargain, version, sysShipped int
-		if err := rows.Scan(&ord.OrderID, &ord.ItemID, &ord.BuyerID, &ord.SpecName, &ord.SpecValue, &ord.Quantity,
-			&ord.Amount, &ord.OrderStatus, &ord.CookieID, &isBargain, &ord.ReceiverName, &ord.ReceiverPhone,
-			&ord.ReceiverAddr, &ord.ReceiverCity, &version, &ord.ChatID, &sysShipped, &ord.PaidAt,
+		// orders 表的可空 TEXT 列必须用 NullString 扫描，旧库数据可能为 NULL
+		// （spec_name/spec_value 等在 init schema 中无 NOT NULL 约束）。
+		var itemID, buyerID, specName, specValue, qty, amount, status, cookieID,
+			receiverName, receiverPhone, receiverAddr, receiverCity, chatID sql.NullString
+		if err := rows.Scan(&ord.OrderID, &itemID, &buyerID, &specName, &specValue, &qty, &amount,
+			&status, &cookieID, &isBargain, &receiverName, &receiverPhone, &receiverAddr,
+			&receiverCity, &version, &chatID, &sysShipped, &ord.PaidAt,
 			&ord.ShippedAt, &ord.CompletedAt, &ord.BuyerReviewedAt, &ord.LastReviewRequestAt,
 			&ord.ReviewRequestCount, &ord.CreatedAt, &ord.UpdatedAt); err != nil {
 			return nil, err
 		}
+		ord.ItemID = itemID.String
+		ord.BuyerID = buyerID.String
+		ord.SpecName = specName.String
+		ord.SpecValue = specValue.String
+		ord.Quantity = qty.String
+		ord.Amount = amount.String
+		ord.OrderStatus = status.String
+		ord.CookieID = cookieID.String
+		ord.ReceiverName = receiverName.String
+		ord.ReceiverPhone = receiverPhone.String
+		ord.ReceiverAddr = receiverAddr.String
+		ord.ReceiverCity = receiverCity.String
+		ord.ChatID = chatID.String
 		ord.IsBargain = isBargain
 		ord.Version = version
 		ord.SystemShipped = sysShipped != 0

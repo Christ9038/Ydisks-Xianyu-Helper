@@ -386,3 +386,29 @@ func TestCenterNoNotifyWhenNoMatchingRule(t *testing.T) {
 		t.Fatalf("无匹配规则不应发通知，got %v", notifier.messages())
 	}
 }
+
+// TestDueReviewRequestOrdersHandlesNullSpecColumns 验证订单 spec_name/spec_value 为 NULL
+// 时（旧库升级数据常见）DueReviewRequestOrders 不报扫描错误。
+func TestDueReviewRequestOrdersHandlesNullSpecColumns(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// 插入一条已发货、未评价、spec_name/spec_value 为 NULL 的订单（旧库常见形态）。
+	if _, err := store.DB.ExecContext(ctx, `INSERT INTO orders
+		(order_id, cookie_id, chat_id, system_shipped, spec_name, spec_value, quantity, amount)
+		VALUES ('o-null', 'cid', 'chat-1', 1, NULL, NULL, NULL, NULL)`); err != nil {
+		t.Fatal(err)
+	}
+
+	orders, err := store.Automation.DueReviewRequestOrders(ctx, 200)
+	if err != nil {
+		t.Fatalf("DueReviewRequestOrders 扫描 NULL 列失败: %v", err)
+	}
+	if len(orders) != 1 || orders[0].OrderID != "o-null" {
+		t.Fatalf("应返回 1 条订单，got %+v", orders)
+	}
+	if orders[0].SpecName != "" || orders[0].SpecValue != "" {
+		t.Fatalf("NULL 列应归一为空串，got spec=%q/%q", orders[0].SpecName, orders[0].SpecValue)
+	}
+}
