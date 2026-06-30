@@ -50,7 +50,7 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
-      '/delivery-rules': {
+      '/automation-rules': {
         target: 'http://localhost:8080',
         changeOrigin: true,
       },

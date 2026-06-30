@@ -8,7 +8,7 @@ import (
 )
 
 // TestMigrate_AppliesCleanSchema 在临时库上跑迁移，验证全量 schema 干净落地、
-// 关键不一致列（orders.system_shipped / delivery_rules.user_id）存在、默认设置就位。
+// 关键不一致列（orders.system_shipped 等）存在、默认设置就位。
 func TestMigrate_AppliesCleanSchema(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "test.db")
@@ -27,7 +27,6 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 		{"orders", "system_shipped"},
 		{"orders", "receiver_city"},
 		{"orders", "version"},
-		{"delivery_rules", "user_id"},
 		{"cards", "image_url"},
 		{"cards", "delay_seconds"},
 		{"keywords", "item_id"},

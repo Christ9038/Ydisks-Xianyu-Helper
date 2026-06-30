@@ -1,9 +1,6 @@
 // Package engine 实现单账号运行时：WebSocket 连接生命周期、token 刷新、
 // 消息分发主循环（信号量限并发 + 防抖 + 去重）、重连策略。
 //
-// 移植自 Python XianyuAutoAsync.py 的 main() / handle_message /
-// _handle_message_with_semaphore / _schedule_debounced_reply / token_refresh_loop。
-//
 // 业务逻辑（自动发货、回复）在 Phase 3 通过 Handler 接口注入，
 // Phase 2 先搭好骨架并跑通"收消息→解密→去重→防抖→回调"。
 package engine
@@ -16,13 +13,14 @@ import (
 	"sync"
 	"time"
 
+	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
 	"xianyu-go/internal/xianyu/protocol"
 	"xianyu-go/internal/xianyu/ws"
 )
 
-// 常量，与 Python 端一致。
+// 账号运行时参数。
 const (
 	MaxConnectionFailures = 5               // 连续失败上限，触发密码登录刷新
 	MessageSemaphoreSize  = 100             // 并发消息处理上限
@@ -38,11 +36,14 @@ const (
 
 // Handler 是业务逻辑注入点（Phase 3 实现）。
 // 收到一条防抖后的聊天消息时回调；返回错误仅记录日志、不影响主循环。
+// 注：生产 handlerAdapter.HandleChatMessage 当前为 no-op，留作未来注入聊天旁路处理
+// （如外部消息持久化）。回复链由 ReplyService.Handle 完成，不依赖本回调。
 type Handler interface {
 	HandleChatMessage(ctx context.Context, m ChatMessage) error
-	// HandleSystemMessage 处理订单状态等非聊天消息（如 redReminder）。
-	HandleSystemMessage(ctx context.Context, m SystemMessage) error
-	// OnPasswordLoginRefresh 连续失败触发密码登录刷新（Phase 5 sidecar）；返回是否成功。
+	// HandleSystemEvent 处理平台系统事件。系统卡片永远不进入 AI 回复链，
+	// 这里只把事件交给自动化中心，由自动化规则决定是否执行。
+	HandleSystemEvent(ctx context.Context, task automation.Task) error
+	// OnPasswordLoginRefresh 连续失败时触发浏览器密码登录刷新；返回是否成功。
 	OnPasswordLoginRefresh(ctx context.Context, cookieID string) bool
 }
 
@@ -56,15 +57,6 @@ type ChatMessage struct {
 	Text         string
 	ItemID       string
 	Raw          map[string]any // 解密后的完整消息
-}
-
-// SystemMessage 订单状态等系统消息。
-type SystemMessage struct {
-	AccountID   string
-	CookieStr   string
-	RedReminder string // message["3"]["redReminder"]，订单状态文本
-	UserID      string
-	Raw         map[string]any
 }
 
 // RuntimeStatus 是账号引擎的实时连接状态，不写入数据库。
@@ -125,8 +117,7 @@ type Account struct {
 	// 消息处理信号量
 	sem chan struct{}
 
-	delivery *DeliveryService
-	reply    *ReplyService
+	reply *ReplyService
 }
 
 type debounceEntry struct {
@@ -181,12 +172,6 @@ func New(cfg Config) *Account {
 		runtimeUpdatedAt: time.Now(),
 	}
 	if cfg.Store != nil {
-		var orderFetcher OrderDetailFetcher
-		if fetcher, ok := cfg.Handler.(OrderDetailFetcher); ok {
-			orderFetcher = fetcher
-		}
-		a.delivery = NewDeliveryService(cfg.CookieID, cfg.Store, a, orderFetcher, nil, logger)
-		a.delivery.SetCookieSource(a.currentCookieStr, a.replaceCookieStr)
 		a.reply = NewReplyService(cfg.CookieID, cfg.Store, a, nil, NewAIReplier(cfg.CookieID, cfg.Store, logger), logger)
 	}
 	return a
@@ -447,7 +432,7 @@ func (a *Account) refreshToken(ctx context.Context) (string, string, error) {
 	if res == nil {
 		return "", "", fmt.Errorf("token API 未返回结果")
 	}
-	// 若 cookie 被刷新，持久化回 DB（与 Python update_config_cookies 一致）。
+	// 若 cookie 被刷新，持久化回数据库。
 	if res.UpdatedCookies != cookieStr {
 		a.mu.Lock()
 		a.CookieStr = res.UpdatedCookies
@@ -518,7 +503,7 @@ func (a *Account) SendImage(ctx context.Context, chatID, toUserID, imageURL stri
 		return nil
 	}
 	if strings.HasPrefix(imageURL, "/static/") || strings.HasPrefix(imageURL, "static/") {
-		return fmt.Errorf("Go 运行时暂不支持本地图片自动上传到闲鱼 CDN: %s", imageURL)
+		return fmt.Errorf("当前运行时暂不支持本地图片自动上传到闲鱼 CDN: %s", imageURL)
 	}
 	conn, myID, err := a.currentSenderState()
 	if err != nil {
@@ -527,71 +512,6 @@ func (a *Account) SendImage(ctx context.Context, chatID, toUserID, imageURL stri
 	sendCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	return conn.SendImage(sendCtx, myID, chatID, toUserID, imageURL, 800, 600)
-}
-
-// ManualFullDelivery 对已存在订单执行完整手动发货：匹配卡券、确认发货、发送给买家并更新本地订单。
-func (a *Account) ManualFullDelivery(ctx context.Context, order *db.Order) (int, error) {
-	if order == nil {
-		return 0, fmt.Errorf("订单不存在")
-	}
-	if a.delivery == nil {
-		return 0, fmt.Errorf("账号 %s 未初始化发货服务", a.CookieID)
-	}
-	if strings.TrimSpace(order.ItemID) == "" {
-		return 0, fmt.Errorf("订单缺少商品ID，无法匹配发货规则")
-	}
-	if strings.TrimSpace(order.BuyerID) == "" {
-		return 0, fmt.Errorf("订单缺少买家ID，无法发送卡券")
-	}
-	if strings.TrimSpace(order.ChatID) == "" {
-		return 0, fmt.Errorf("订单缺少 chat_id，无法发送卡券；请等待买家发消息后再试")
-	}
-	if _, _, err := a.currentSenderState(); err != nil {
-		return 0, err
-	}
-
-	quantity := 1
-	if a.store.Items.MultiQuantityDelivery(ctx, a.CookieID, order.ItemID) {
-		if q := parseIntSafe(order.Quantity); q > 1 {
-			quantity = q
-		}
-	}
-	contents, err := a.delivery.collectDeliveryContentsWithSpec(ctx, order.ItemID, order.OrderID, order.BuyerID, order.SpecName, order.SpecValue, quantity)
-	if err != nil {
-		return 0, err
-	}
-	if len(contents) == 0 {
-		return 0, fmt.Errorf("未匹配到发货规则或卡券获取失败")
-	}
-	for i, content := range contents {
-		if err := a.delivery.sendContent(ctx, content, order.ChatID, order.BuyerID); err != nil {
-			return i, err
-		}
-		if len(contents) > 1 && i < len(contents)-1 {
-			if err := sleepCtx(ctx, time.Second); err != nil {
-				return i + 1, err
-			}
-		}
-	}
-	a.delivery.markDeliverySent(order.OrderID)
-	sysShip := true
-	_ = a.store.Orders.Upsert(ctx, order.OrderID, db.OrderUpsertOpts{
-		CookieID:      order.CookieID,
-		OrderStatus:   "shipped",
-		SystemShipped: &sysShip,
-		ItemID:        order.ItemID,
-		BuyerID:       order.BuyerID,
-		ReceiverName:  order.ReceiverName,
-		ReceiverPhone: order.ReceiverPhone,
-		ReceiverAddr:  order.ReceiverAddr,
-		ReceiverCity:  order.ReceiverCity,
-		ChatID:        order.ChatID,
-		SpecName:      order.SpecName,
-		SpecValue:     order.SpecValue,
-		Quantity:      order.Quantity,
-		Amount:        order.Amount,
-	})
-	return len(contents), nil
 }
 
 func (a *Account) currentSenderState() (*ws.Conn, string, error) {

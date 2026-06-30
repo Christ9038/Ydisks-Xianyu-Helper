@@ -1,0 +1,75 @@
+package automation
+
+import (
+	"encoding/json"
+	"testing"
+)
+
+func TestExtractTaskFromWS_BuyerReviewed(t *testing.T) {
+	raw := mustMap(t, `{
+	  "1": {
+	    "2": "62904549781@goofish",
+	    "10": {
+	      "redReminder": "有新交易评价",
+	      "reminderContent": "[我完成了评价]",
+	      "reminderTitle": "我完成了评价",
+	      "senderUserId": "2222315258815",
+	      "reminderUrl": "fleamarket://message_chat?itemId=1063217820795&peerUserId=2222315258815&sid=62904549781&messageId=abc&adv=no",
+	      "extJson": "{\"updateKey\":\"62904549781:3310145690545023994:10:BUYER_RATE_SELLER:26\",\"contentType\":\"26\"}"
+	    }
+	  }
+	}`)
+	task := ExtractTaskFromWS("acc1", "cookie", raw)
+	if task == nil {
+		t.Fatal("评价卡片应解析为自动化事件")
+	}
+	if task.TriggerType != TriggerBuyerReviewed || task.OrderID != "3310145690545023994" ||
+		task.ChatID != "62904549781" || task.ItemID != "1063217820795" || task.BuyerID != "2222315258815" {
+		t.Fatalf("task=%+v", task)
+	}
+}
+
+func TestExtractTaskFromWS_ServiceReviewInvitationIgnored(t *testing.T) {
+	raw := mustMap(t, `{
+	  "1": {
+	    "2": "62854995941@goofish",
+	    "10": {
+	      "reminderContent": "为了给您提供更好的服务，诚邀您参与服务评价>>",
+	      "reminderTitle": "闲小蜜发来一条新消息",
+	      "senderUserId": "1400",
+	      "extJson": "{\"messageId\":\"e5e96\"}"
+	    }
+	  }
+	}`)
+	if task := ExtractTaskFromWS("acc1", "cookie", raw); task != nil {
+		t.Fatalf("服务评价邀请不能触发买家评价赠品: %+v", task)
+	}
+}
+
+func TestExtractTaskFromWS_OrderPaid(t *testing.T) {
+	raw := mustMap(t, `{
+	  "1": {
+	    "2": "63107041124@goofish",
+	    "10": {
+	      "redReminder": "等待卖家发货",
+	      "reminderContent": "[我已付款，等待你发货]",
+	      "senderUserId": "2222315258815",
+	      "reminderUrl": "fleamarket://message_chat?itemId=1063177864132&peerUserId=2222315258815&sid=63107041124"
+	    },
+	    "6": {"3": {"5": "{\"dxCard\":{\"item\":{\"main\":{\"targetUrl\":\"fleamarket://order_detail?id=3310145690545023994&role=seller\"}}}}"}}
+	  }
+	}`)
+	task := ExtractTaskFromWS("acc1", "cookie", raw)
+	if task == nil || task.TriggerType != TriggerOrderPaid || task.OrderID != "3310145690545023994" {
+		t.Fatalf("task=%+v", task)
+	}
+}
+
+func mustMap(t *testing.T, s string) map[string]any {
+	t.Helper()
+	var m map[string]any
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}

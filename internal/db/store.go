@@ -10,7 +10,7 @@ type Store struct {
 	Cookies        *Cookies
 	Items          *Items
 	Cards          *Cards
-	DeliveryRules  *DeliveryRules
+	Automation     *AutomationRules
 	Orders         *Orders
 	Keywords       *Keywords
 	DefaultReps    *DefaultReplies
@@ -31,7 +31,7 @@ func NewStore(db *sql.DB) *Store {
 		Cookies:        &Cookies{DB: db},
 		Items:          &Items{DB: db},
 		Cards:          &Cards{DB: db},
-		DeliveryRules:  &DeliveryRules{DB: db},
+		Automation:     &AutomationRules{DB: db},
 		Orders:         &Orders{DB: db},
 		Keywords:       &Keywords{DB: db},
 		DefaultReps:    &DefaultReplies{DB: db},

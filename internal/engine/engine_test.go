@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
 )
 
-// recordingHandler 记录收到的聊天/系统消息，用于断言防抖与去重行为。
+// recordingHandler 记录收到的聊天消息，用于断言防抖与去重行为。
 type recordingHandler struct {
 	mu      sync.Mutex
 	chats   []ChatMessage
-	systems []SystemMessage
 	refresh int
 }
 
@@ -26,10 +26,10 @@ func (h *recordingHandler) HandleChatMessage(_ context.Context, m ChatMessage) e
 	h.chats = append(h.chats, m)
 	return nil
 }
-func (h *recordingHandler) HandleSystemMessage(_ context.Context, m SystemMessage) error {
+func (h *recordingHandler) HandleSystemEvent(_ context.Context, task automation.Task) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.systems = append(h.systems, m)
+	_ = task
 	return nil
 }
 func (h *recordingHandler) OnPasswordLoginRefresh(_ context.Context, _ string) bool {
@@ -94,26 +94,14 @@ func TestExtractChatMessage_FiltersRefundTradeCard(t *testing.T) {
 	}
 }
 
-func TestExtractChatMessage_KeepsPaidDeliveryCard(t *testing.T) {
+func TestExtractChatMessage_FiltersPaidDeliveryCardFromChat(t *testing.T) {
 	decrypted := mustPaidDeliveryCard(t)
-	chat := extractChatMessage(decrypted, "cid", "cookie")
-	if chat == nil {
-		t.Fatal("付款待发货卡片应保留用于自动发货")
+	if chat := extractChatMessage(decrypted, "cid", "cookie"); chat != nil {
+		t.Fatalf("付款待发货系统卡片不应进入聊天回复链: %+v", chat)
 	}
-	if chat.Text != "[我已付款，等待你发货]" {
-		t.Fatalf("Text=%q", chat.Text)
-	}
-	if chat.ItemID != "1063177864132" {
-		t.Fatalf("ItemID=%q", chat.ItemID)
-	}
-}
-
-func TestIsAutoDeliveryTriggerPaidCard(t *testing.T) {
-	if !IsAutoDeliveryTrigger("[我已付款，等待你发货]") {
-		t.Fatal("付款待发货卡片应触发自动发货")
-	}
-	if IsAutoDeliveryTrigger("[我已拍下，待付款]") {
-		t.Fatal("仅拍下未付款不应触发自动发货")
+	task := automation.ExtractTaskFromWS("cid", "cookie", decrypted)
+	if task == nil || task.TriggerType != automation.TriggerOrderPaid {
+		t.Fatalf("付款待发货卡片应进入自动化中心: %+v", task)
 	}
 }
 
@@ -283,18 +271,6 @@ func mustPaidDeliveryCard(t *testing.T) map[string]any {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	return m
-}
-
-// TestExtractSystemMessage 系统消息提取。
-func TestExtractSystemMessage(t *testing.T) {
-	m := mustDecryptGoldenSample(t)
-	sys := extractSystemMessage(m, "cid", "cookie")
-	if sys == nil {
-		t.Fatal("应为系统消息")
-	}
-	if sys.RedReminder != "等待买家付款" {
-		t.Errorf("RedReminder=%q", sys.RedReminder)
-	}
 }
 
 // TestRetryDelay 复刻 _calculate_retry_delay 的分段逻辑。

@@ -1,6 +1,7 @@
 // ai.go AI 回复实现（优先级3）。调用 OpenAI 兼容 chat completions 接口。
-// 移植自 Python ai_reply_engine.generate_reply 的核心：用商品信息 + 自定义 prompt 生成回复。
+// 使用商品信息和自定义提示词生成回复。
 // 砍价/对话历史追踪（bargain_count、ai_conversations）留后续完善，本实现为单轮无状态回复。
+
 package engine
 
 import (
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/sashabaranov/go-openai"
@@ -174,13 +176,12 @@ func buildSystemPrompt(customPrompts, itemTitle string, itemPrice float64, itemD
 
 var priceRe = regexp.MustCompile(`[^\d.]`)
 
-// parsePrice 复刻 Python _parse_price：移除非数字字符后转 float。
+// parsePrice 移除非数字字符后转换为 float。
 func parsePrice(s string) float64 {
 	cleaned := priceRe.ReplaceAllString(s, "")
 	if cleaned == "" {
 		return 0
 	}
-	var f float64
-	fmt.Sscanf(cleaned, "%f", &f)
+	f, _ := strconv.ParseFloat(cleaned, 64)
 	return f
 }

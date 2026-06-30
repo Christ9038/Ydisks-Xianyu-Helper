@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"xianyu-go/internal/account"
+	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
 )
@@ -53,7 +54,7 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 type noopHandler struct{}
 
 func (noopHandler) HandleChatMessage(context.Context, engine.ChatMessage) error     { return nil }
-func (noopHandler) HandleSystemMessage(context.Context, engine.SystemMessage) error { return nil }
+func (noopHandler) HandleSystemEvent(context.Context, automation.Task) error        { return nil }
 func (noopHandler) OnPasswordLoginRefresh(context.Context, string) bool             { return false }
 
 // TestLoginVerifyLogout 登录→verify→登出 全链路。

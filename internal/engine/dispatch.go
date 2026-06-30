@@ -3,8 +3,11 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strings"
 	"time"
+
+	"xianyu-go/internal/automation"
 )
 
 // dispatch 是 ws.ReceiveLoop 的回调，对每条解密后的消息做：
@@ -29,39 +32,26 @@ func (a *Account) dispatch(decrypted map[string]any) {
 
 // handleMessage 分类并投递消息。
 func (a *Account) handleMessage(decrypted map[string]any) {
+	// 第一优先级：系统卡片和平台通知进入自动化中心。
+	// 这里不判断具体业务，只做“平台事件”事实解析；系统消息永远不进入 AI 回复范围。
+	if task := automation.ExtractTaskFromWS(a.CookieID, a.currentCookieStr(), decrypted); task != nil {
+		if a.handler != nil {
+			if err := a.handler.HandleSystemEvent(context.Background(), *task); err != nil {
+				a.logger.Error("处理系统自动化事件失败", "err", err, "trigger", task.TriggerType)
+			}
+		}
+		return
+	}
+
 	chat := extractChatMessage(decrypted, a.CookieID, a.currentCookieStr())
 	if chat != nil && chat.Text != "" {
 		// 去重。
 		if !a.markAndCheckDedup(decrypted, chat) {
 			return
 		}
-		// 自动发货触发消息必须立即处理，不能进入普通聊天防抖。
-		// 否则闲鱼紧随其后的系统提示（如“不想宝贝被砍价”）可能覆盖付款卡片，
-		// 造成未发货且进入 AI 回复。
-		if IsAutoDeliveryTrigger(chat.Text) {
-			a.cancelDebouncedReply(chat.ChatID)
-			if a.delivery != nil {
-				if err := a.delivery.Handle(context.Background(), *chat); err != nil {
-					a.logger.Error("处理自动发货失败", "err", err, "chat_id", chat.ChatID)
-				}
-			}
-			if a.handler != nil {
-				if err := a.handler.HandleChatMessage(context.Background(), *chat); err != nil {
-					a.logger.Error("处理聊天消息失败", "err", err, "chat_id", chat.ChatID)
-				}
-			}
-			return
-		}
-
-		// 普通聊天消息走防抖，合并连续文本后再自动回复。
+		// 用户消息走防抖，合并连续文本后再进入关键词/AI/默认回复链。
 		a.scheduleDebouncedReply(*chat)
 		return
-	}
-	sys := extractSystemMessage(decrypted, a.CookieID, a.currentCookieStr())
-	if sys != nil && sys.RedReminder != "" && a.handler != nil {
-		if err := a.handler.HandleSystemMessage(context.Background(), *sys); err != nil {
-			a.logger.Error("处理系统消息失败", "err", err)
-		}
 	}
 }
 
@@ -119,7 +109,7 @@ func (a *Account) cleanupDedupLocked(now time.Time) {
 		}
 	}
 	if len(a.processed) > ProcessedIDsMaxSize {
-		// 删最旧一半。
+		// 仍超上限：按时间升序排序后删最旧一半。
 		type kv struct {
 			id string
 			t  time.Time
@@ -128,14 +118,7 @@ func (a *Account) cleanupDedupLocked(now time.Time) {
 		for id, t := range a.processed {
 			all = append(all, kv{id, t})
 		}
-		// 简单选择：按时间升序，删前一半。
-		for i := 0; i < len(all); i++ {
-			for j := i + 1; j < len(all); j++ {
-				if all[j].t.Before(all[i].t) {
-					all[i], all[j] = all[j], all[i]
-				}
-			}
-		}
+		sort.Slice(all, func(i, j int) bool { return all[i].t.Before(all[j].t) })
 		remove := len(all) / 2
 		for i := 0; i < remove; i++ {
 			delete(a.processed, all[i].id)
@@ -169,14 +152,6 @@ func (a *Account) scheduleDebouncedReply(chat ChatMessage) {
 		lastMsg := cur.lastMsg
 		a.debounceMu.Unlock()
 
-		if a.delivery != nil {
-			if err := a.delivery.Handle(context.Background(), lastMsg); err != nil {
-				a.logger.Error("处理自动发货失败", "err", err, "chat_id", chat.ChatID)
-			}
-			if IsAutoDeliveryTrigger(lastMsg.Text) {
-				return
-			}
-		}
 		if a.reply != nil {
 			if err := a.reply.Handle(context.Background(), lastMsg); err != nil {
 				a.logger.Error("处理自动回复失败", "err", err, "chat_id", chat.ChatID)
@@ -264,18 +239,18 @@ func extractChatMessage(decrypted map[string]any, accountID, cookieStr string) *
 	}
 }
 
-// isNonUserChatNotice 判断闲鱼 IM 中不应进入自动回复/自动发货的系统提示或交易卡片。
+// isNonUserChatNotice 判断闲鱼 IM 中不应进入自动回复的系统提示或交易卡片。
 // 典型样本：
 // - contentType=14：“有蚂蚁森林能量可领”“不想宝贝被砍价?设置不砍价回复”“退款成功”
 // - contentType=26：交易卡片，如“我已拍下，待付款”“我发起了退款申请”
-// 例外：付款待发货卡片要进入自动发货，因此保留。
+// 付款待发货卡片已经在 handleMessage 前半段进入 automation.Center，这里不能再进入聊天回复链。
 func isNonUserChatNotice(m1, m10 map[string]any, reminder string) bool {
 	contentType := messageContentType(m1, m10)
 	switch contentType {
 	case "14":
 		return true
 	case "26":
-		return !IsAutoDeliveryTrigger(reminder)
+		return true
 	}
 	return false
 }
@@ -307,26 +282,6 @@ func messageContentType(m1, m10 map[string]any) string {
 		}
 	}
 	return ""
-}
-
-// extractSystemMessage 提取订单状态等系统消息（message["3"]）。
-func extractSystemMessage(decrypted map[string]any, accountID, cookieStr string) *SystemMessage {
-	m3, ok := decrypted["3"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	red, _ := m3["redReminder"].(string)
-	uid, _ := m3["userId"].(string)
-	if red == "" && uid == "" {
-		return nil
-	}
-	return &SystemMessage{
-		AccountID:   accountID,
-		CookieStr:   cookieStr,
-		RedReminder: red,
-		UserID:      uid,
-		Raw:         decrypted,
-	}
 }
 
 // extractItemID 从 reminderUrl 中正则提取 itemId=xxx。
@@ -428,11 +383,4 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	case <-t.C:
 		return nil
 	}
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

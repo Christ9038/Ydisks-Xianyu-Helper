@@ -25,6 +25,12 @@ type Order struct {
 	Version       int
 	ChatID        string
 	SystemShipped bool
+	PaidAt        string
+	ShippedAt     string
+	CompletedAt   string
+	BuyerReviewedAt string
+	LastReviewRequestAt string
+	ReviewRequestCount int
 	CreatedAt     string
 	UpdatedAt     string
 }
@@ -32,8 +38,9 @@ type Order struct {
 // Orders 订单操作。
 type Orders struct{ DB *sql.DB }
 
-// Upsert 插入或更新订单。仅更新提供的非零字段，使用 version 乐观锁。
-// 对应 Python insert_or_update_order 的核心行为。
+// Upsert 插入或更新订单。仅更新提供的非零字段（INSERT OR IGNORE 占位 + 动态 UPDATE）。
+// 注：orders.version 列当前仅作占位读取，不参与并发控制——SQLite 单写者序列化写入，
+// 且本场景无多进程/多协程并发更新同一订单的需求，故未实现乐观锁以避免引入失败重试复杂度。
 func (o *Orders) Upsert(ctx context.Context, orderID string, opts OrderUpsertOpts) error {
 	if orderID == "" {
 		return errors.New("order_id 不能为空")
@@ -138,15 +145,19 @@ type OrderUpsertOpts struct {
 func (o *Orders) Get(ctx context.Context, orderID string) (*Order, error) {
 	var ord Order
 	var isBargain, version, sysShipped int
-	var itemID, buyerID, specName, specValue, qty, amount, status, cookieID, receiverName, receiverPhone, receiverAddr, receiverCity, chatID, createdAt, updatedAt sql.NullString
+	var itemID, buyerID, specName, specValue, qty, amount, status, cookieID, receiverName, receiverPhone, receiverAddr, receiverCity, chatID, paidAt, shippedAt, completedAt, buyerReviewedAt, lastReviewRequestAt, createdAt, updatedAt sql.NullString
 	err := o.DB.QueryRowContext(ctx,
 		`SELECT order_id, item_id, buyer_id, spec_name, spec_value, quantity, amount,
 		        order_status, cookie_id, is_bargain, receiver_name, receiver_phone, receiver_address,
-		        receiver_city, version, chat_id, system_shipped, created_at, updated_at
+		        receiver_city, version, chat_id, system_shipped,
+		        COALESCE(paid_at,''),COALESCE(shipped_at,''),COALESCE(completed_at,''),
+		        COALESCE(buyer_reviewed_at,''),COALESCE(last_review_request_at,''),review_request_count,
+		        created_at, updated_at
 		 FROM orders WHERE order_id=?`, orderID).Scan(
 		&ord.OrderID, &itemID, &buyerID, &specName, &specValue, &qty, &amount,
 		&status, &cookieID, &isBargain, &receiverName, &receiverPhone, &receiverAddr,
-		&receiverCity, &version, &chatID, &sysShipped, &createdAt, &updatedAt)
+		&receiverCity, &version, &chatID, &sysShipped, &paidAt, &shippedAt, &completedAt,
+		&buyerReviewedAt, &lastReviewRequestAt, &ord.ReviewRequestCount, &createdAt, &updatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -169,6 +180,11 @@ func (o *Orders) Get(ctx context.Context, orderID string) (*Order, error) {
 	ord.Version = version
 	ord.ChatID = chatID.String
 	ord.SystemShipped = sysShipped != 0
+	ord.PaidAt = paidAt.String
+	ord.ShippedAt = shippedAt.String
+	ord.CompletedAt = completedAt.String
+	ord.BuyerReviewedAt = buyerReviewedAt.String
+	ord.LastReviewRequestAt = lastReviewRequestAt.String
 	ord.CreatedAt = createdAt.String
 	ord.UpdatedAt = updatedAt.String
 	return &ord, nil

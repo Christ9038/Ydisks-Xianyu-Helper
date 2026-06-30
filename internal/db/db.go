@@ -1,8 +1,8 @@
 // Package db 提供 SQLite 连接管理与迁移。
 // 使用 modernc.org/sqlite（纯 Go，免 CGO，跨平台编译友好），WAL 模式 + busy_timeout。
-// 迁移用 goose 嵌入式执行，schema 从 Python db_manager.py 收敛而来——把历史上 12+ 处
-// 运行时 ALTER TABLE 补齐到 CREATE TABLE，并修复 schema 不一致
-// （orders.system_shipped、delivery_rules.user_id 等列在原 CREATE 中缺失却被引用）。
+// 迁移用 goose 嵌入式执行，把历史 schema 变更收敛为有序 migration。
+// 00001 初始 schema 已把历史上运行时 ALTER TABLE 的列补齐到 CREATE TABLE，
+// 并修复 schema 不一致（如 orders.system_shipped 原 CREATE 缺失却被引用）。
 package db
 
 import (
@@ -34,12 +34,12 @@ func Open(ctx context.Context, dbPath string) (*sql.DB, error) {
 	db.SetConnMaxLifetime(time.Hour)
 
 	if err := db.PingContext(ctx); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("ping 数据库: %w", err)
 	}
 
 	if err := Migrate(ctx, db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return db, nil

@@ -1,8 +1,9 @@
 // reply.go 四级回复引擎：API → 关键词 → AI → 默认回复。
-// 移植自 Python _process_chat_message_reply + get_keyword_reply/get_default_reply/get_ai_reply。
+// 实现关键词回复、默认回复和 AI 回复的调度。
 //
 // Phase 3 实现：关键词（含商品ID优先+变量替换+空回复标记）、默认回复（指定商品优先+reply_once+变量替换）。
 // API 回复（调外部 /xianyu/reply 接口）和 AI 回复（OpenAI 兼容）留接口注入。
+
 package engine
 
 import (
@@ -32,18 +33,24 @@ type AIReplier interface {
 	Reply(ctx context.Context, m ChatMessage) (*ReplyResult, error)
 }
 
+// MessageSender 是回复服务发送文本/图片所需的最小接口。
+type MessageSender interface {
+	SendText(ctx context.Context, chatID, toUserID, text string) error
+	SendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64) error
+}
+
 // ReplyService 单账号回复服务。
 type ReplyService struct {
 	cookieID string
 	store    *db.Store
-	api      APIReplier  // 可为 nil
-	ai       AIReplier   // 可为 nil
-	sender   DeliverySender
+	api      APIReplier // 可为 nil
+	ai       AIReplier  // 可为 nil
+	sender   MessageSender
 	logger   *slog.Logger
 }
 
 // NewReplyService 构造。
-func NewReplyService(cookieID string, store *db.Store, sender DeliverySender,
+func NewReplyService(cookieID string, store *db.Store, sender MessageSender,
 	api APIReplier, ai AIReplier, logger *slog.Logger) *ReplyService {
 	if logger == nil {
 		logger = slog.Default()
@@ -190,7 +197,7 @@ func (r *ReplyService) defaultReply(ctx context.Context, m ChatMessage) *ReplyRe
 }
 
 // formatReply 变量替换：{send_user_name} {send_user_id} {send_message}。
-// 复刻 Python reply.format(...)；若替换出错返回原文。
+// 替换回复模板变量；若替换出错则返回原文。
 func formatReply(template string, m ChatMessage) string {
 	return safeFormat(template, map[string]string{
 		"send_user_name": m.SenderName,
@@ -209,8 +216,7 @@ func formatReplyWithItem(template string, m ChatMessage) string {
 	})
 }
 
-// safeFormat 实现 Python str.format 的命名占位符子集。
-// Python 用 {send_user_name}，Go 标准库不支持，手动替换。
+// safeFormat 实现命名占位符替换。
 func safeFormat(template string, vars map[string]string) string {
 	out := template
 	for k, v := range vars {
