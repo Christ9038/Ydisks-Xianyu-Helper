@@ -424,16 +424,18 @@ const Dashboard: React.FC = () => {
                 />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: '#1F2937',
+                    backgroundColor: '#fff',
                     borderRadius: '16px',
-                    border: 'none',
-                    boxShadow: '0 20px 40px rgba(0, 0, 0, 0.3)',
+                    border: '1px solid #e5e7eb',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
                     padding: '12px 16px'
                   }}
+                  labelStyle={{ color: '#6b7280', fontWeight: 500 }}
                   itemStyle={{ color: '#0094f7', fontWeight: 600 }}
+                  cursor={{ fill: 'rgba(0, 148, 247, 0.08)' }}
                   formatter={(value) => {
                     const num = Number(value);
-                    return `营收: ¥${num.toFixed(2)}`;
+                    return [`¥${num.toFixed(2)}`, '营收'];
                   }}
                 />
                 <Bar
@@ -474,12 +476,18 @@ const Dashboard: React.FC = () => {
                 />
                 <CartesianGrid vertical={false} stroke="#F3F4F6" strokeDasharray="3 3" />
                 <Tooltip
-                  contentStyle={{ background: '#1A1A1A', borderRadius: '16px', border: 'none', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}
+                  contentStyle={{
+                    backgroundColor: '#fff',
+                    borderRadius: '16px',
+                    border: '1px solid #e5e7eb',
+                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
+                    padding: '12px 16px'
+                  }}
+                  labelStyle={{ color: '#6b7280', fontWeight: 500 }}
                   itemStyle={{ color: '#0094f7', fontWeight: 600 }}
-                  labelStyle={{ color: '#888' }}
                   cursor={{ stroke: '#0094f7', strokeWidth: 2, strokeDasharray: '4 4' }}
                 />
-                <Area type="monotone" dataKey="amount" stroke="#0094f7" strokeWidth={4} fillOpacity={1} fill="url(#colorAmount)" activeDot={{ r: 8, fill: '#1A1A1A', stroke: "#0094f7", strokeWidth: 2 }} />
+                <Area type="monotone" dataKey="amount" stroke="#0094f7" strokeWidth={4} fillOpacity={1} fill="url(#colorAmount)" activeDot={{ r: 8, fill: '#fff', stroke: "#0094f7", strokeWidth: 2 }} />
               </AreaChart>
             </ResponsiveContainer>
           )}
