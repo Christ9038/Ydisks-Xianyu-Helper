@@ -1,12 +1,5 @@
-// Package browser 用 playwright-go 在进程内驱动 Chromium，替换原 Python sidecar。
-// 首次使用时自动下载 Chromium（playwright.Install），无需手动启动任何外部服务。
-//
-// 移植自原项目：
-//   - utils/browser_pool.py           → Manager 上下文池
-//   - utils/xianyu_slider_stealth.py  → stealth.go + slider.go
-//   - utils/item_search.py            → search.go
-//   - utils/order_fetcher_optimized.py → orders.go
-//   - XianyuAutoAsync.refresh_cookies_from_qr_login → qrrefresh.go
+// Package browser 用 playwright-go 在进程内驱动 Chromium。
+// 首次使用时自动下载 Chromium（playwright.Install），无需手动启动外部服务。
 package browser
 
 import (
@@ -22,7 +15,7 @@ import (
 	"xianyu-go/internal/xianyu"
 )
 
-// 默认 UA / 视口，与 Python 端一致。
+// 默认 UA、语言、时区与视口。
 const (
 	defaultUA    = xianyu.BrowserUA
 	defaultW     = 1920
@@ -33,7 +26,7 @@ const (
 	goofishIMURL = "https://www.goofish.com/im"
 )
 
-// chromiumLaunchArgs 统一 Chromium 启动参数（取自 browser_pool._create_browser）。
+// chromiumLaunchArgs 统一 Chromium 启动参数。
 func chromiumLaunchArgs() []string {
 	return []string{
 		"--no-sandbox",
@@ -78,12 +71,10 @@ type Manager struct {
 }
 
 type poolEntry struct {
-	cookieID  string
-	browser   playwright.Browser
-	context   playwright.BrowserContext
-	lastUsed  time.Time
-	userData  string // 持久化目录（密码登录用），空表示非持久化
-	persistent bool
+	cookieID string
+	browser  playwright.Browser
+	context  playwright.BrowserContext
+	lastUsed time.Time
 }
 
 // NewManager 构造。logger 为 nil 用默认。
@@ -146,14 +137,6 @@ func (m *Manager) Close() error {
 	return nil
 }
 
-// ping 暴露给 health 检查：playwright 是否就绪。
-func (m *Manager) ping(ctx context.Context) error {
-	if err := m.init(); err != nil {
-		return err
-	}
-	return nil
-}
-
 // newPage 从池中取（或创建）一个 context，返回新 page + 释放函数。
 // 每次请求新建 page，避免并发导航冲突（与 browser_pool.get_browser 一致）。
 func (m *Manager) newPage(ctx context.Context, cookieID, cookieStr string, headless bool) (playwright.Page, func(), error) {
@@ -208,8 +191,8 @@ func (m *Manager) createEntry(cookieID, cookieStr string, headless bool) (*poolE
 	}
 	context, err := browser.NewContext(playwright.BrowserNewContextOptions{
 		UserAgent:  playwright.String(defaultUA),
-		Viewport:  &playwright.Size{Width: defaultW, Height: defaultH},
-		Locale:    playwright.String(defaultLang),
+		Viewport:   &playwright.Size{Width: defaultW, Height: defaultH},
+		Locale:     playwright.String(defaultLang),
 		TimezoneId: playwright.String(defaultTZ),
 	})
 	if err != nil {

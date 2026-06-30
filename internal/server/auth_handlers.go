@@ -10,7 +10,7 @@ import (
 	"xianyu-go/internal/db"
 )
 
-// loginRequest 对应 Python LoginRequest。
+// loginRequest 是登录请求体。
 type loginRequest struct {
 	Username         string `json:"username,omitempty"`
 	Email            string `json:"email,omitempty"`
@@ -18,7 +18,7 @@ type loginRequest struct {
 	VerificationCode string `json:"verification_code,omitempty"`
 }
 
-// loginResponse 对应 Python LoginResponse。
+// loginResponse 是登录响应体。
 type loginResponse struct {
 	Success  bool    `json:"success"`
 	Token    *string `json:"token"`

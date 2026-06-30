@@ -1,4 +1,4 @@
-// Package mtop 实现闲鱼 mtop H5 API 客户端，移植自 Python 端 refresh_token()。
+// Package mtop 实现闲鱼 mtop H5 API 客户端。
 // 关键：签名只覆盖 (t, token, data_val)，与 URL query 参数无关；token 取自 cookie _m_h5_tk 前半段。
 package mtop
 
@@ -17,7 +17,7 @@ import (
 	"xianyu-go/internal/xianyu/protocol"
 )
 
-// WS 注册用的 appKey（注意与签名用的 protocol.SignAppKey=34839810 不同）。
+// RegAppKey 是 WS 注册用的 appKey（与签名用的 protocol.SignAppKey 不同）。
 const RegAppKey = "444e9908a51d1cb236a27862abc769c9"
 
 // TokenAPI 取 access token 的端点。
@@ -801,7 +801,7 @@ func (c *Client) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID stri
 	t := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	dataVal := `{"appKey":"` + RegAppKey + `","deviceId":"` + deviceID + `"}`
 
-	// query 参数（值按 Python 端原样构造；签名不覆盖 query，故编码细节不影响验签）。
+	// 签名不覆盖 query，因此 query 的编码细节不影响验签。
 	query := buildTokenQuery(t, protocol.GenerateSign(t, token, dataVal))
 
 	body := "data=" + url.QueryEscape(dataVal)
@@ -854,7 +854,7 @@ func (c *Client) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID stri
 	return res.Data.AccessToken, res.Ret, updated, resp.StatusCode, nil
 }
 
-// buildTokenQuery 构造 token API 的 query string，参数顺序与 Python 端一致。
+// buildTokenQuery 构造 token API 的 query string。
 // 值按原样拼接（dangerouslySetWindvaneParams 已是单次编码），不做二次编码。
 func buildTokenQuery(t, sign string) string {
 	parts := [][2]string{

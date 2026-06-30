@@ -19,7 +19,7 @@ type Users struct {
 }
 
 // IsSystemInitialized 系统是否已初始化（至少存在 admin 用户）。
-// 对应 Python db_manager.is_system_initialized()。
+// IsSystemInitialized 判断系统是否已有管理员账号。
 func (u *Users) IsSystemInitialized(ctx context.Context) (bool, error) {
 	var exists int
 	err := u.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE is_admin=1)`).Scan(&exists)
@@ -36,7 +36,7 @@ func (u *Users) GetAdmin(ctx context.Context) (*User, error) {
 }
 
 // Create 创建用户，密码用 bcrypt 哈希。
-// 用户名或邮箱重复时返回 false（对应 Python IntegrityError → return False）。
+// 用户名或邮箱重复时返回 false。
 func (u *Users) Create(ctx context.Context, username, email, plainPassword string) (bool, error) {
 	hash, err := HashPassword(plainPassword)
 	if err != nil {
@@ -135,9 +135,9 @@ func (u *Users) UpdateCredentials(ctx context.Context, userID int64, username, p
 
 	var res sql.Result
 	if plainPassword != "" {
-		hash, err := HashPassword(plainPassword)
-		if err != nil {
-			return fmt.Errorf("哈希密码: %w", err)
+		hash, hashErr := HashPassword(plainPassword)
+		if hashErr != nil {
+			return fmt.Errorf("哈希密码: %w", hashErr)
 		}
 		res, err = tx.ExecContext(ctx,
 			`UPDATE users SET username=?, password_hash=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,

@@ -6,9 +6,9 @@ import (
 	"math"
 )
 
-// msgpackDecoder 是 Python MessagePackDecoder 的逐格式移植。
+// msgpackDecoder 解析闲鱼消息使用的 MessagePack 数据。
 // 解码结果类型：int64/uint64/float64/string/bool/nil/[]byte/[]any/map[any]any。
-// 与 Python 实现一致：bin → []byte，map 键保留原类型（整数键为 int64）。
+// bin 解码为 []byte，map 键保留原类型（整数键为 int64）。
 type msgpackDecoder struct {
 	data []byte
 	pos  int
@@ -112,25 +112,26 @@ func (d *msgpackDecoder) decodeValue() (any, error) {
 		return binary.BigEndian.Uint64(b), nil
 	case 0xd0: // int 8
 		n, err := d.readByte()
+		// #nosec G115 -- MessagePack 有符号整数使用二进制补码编码，此转换用于符号扩展。
 		return int64(int8(n)), err
 	case 0xd1: // int 16
 		b, err := d.readBytes(2)
 		if err != nil {
 			return nil, err
 		}
-		return int64(int16(binary.BigEndian.Uint16(b))), nil
+		return int64(int16(binary.BigEndian.Uint16(b))), nil // #nosec G115 -- 协议要求的符号扩展
 	case 0xd2: // int 32
 		b, err := d.readBytes(4)
 		if err != nil {
 			return nil, err
 		}
-		return int64(int32(binary.BigEndian.Uint32(b))), nil
+		return int64(int32(binary.BigEndian.Uint32(b))), nil // #nosec G115 -- 协议要求的符号扩展
 	case 0xd3: // int 64
 		b, err := d.readBytes(8)
 		if err != nil {
 			return nil, err
 		}
-		return int64(binary.BigEndian.Uint64(b)), nil
+		return int64(binary.BigEndian.Uint64(b)), nil // #nosec G115 -- 协议要求的符号扩展
 	case 0xd9: // str 8
 		n, err := d.readByte()
 		if err != nil {
@@ -176,6 +177,7 @@ func (d *msgpackDecoder) decodeValue() (any, error) {
 	}
 	// negative fixint
 	if fb >= 0xe0 {
+		// #nosec G115 -- negative fixint 使用二进制补码编码。
 		return int64(int8(fb)), nil
 	}
 	return nil, fmt.Errorf("msgpack: unknown format byte 0x%02x", fb)
@@ -186,7 +188,7 @@ func (d *msgpackDecoder) readString(n int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return string(b), nil // UTF-8，与 Python .decode('utf-8') 一致
+	return string(b), nil // UTF-8
 }
 
 func (d *msgpackDecoder) decodeArray(n int) (any, error) {

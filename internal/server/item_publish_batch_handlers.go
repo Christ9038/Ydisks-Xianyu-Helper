@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"xianyu-go/internal/auth"
+	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
 )
@@ -30,39 +32,64 @@ import (
 const maxPublishBatchRows = 50
 
 type publishBatchPreviewRow struct {
-	RowNo                  int      `json:"row_no"`
-	Valid                  bool     `json:"valid"`
-	Errors                 []string `json:"errors,omitempty"`
-	CookieID               string   `json:"cookie_id"`
-	Title                  string   `json:"title"`
-	Price                  string   `json:"price"`
-	Quantity               int      `json:"quantity"`
-	Images                 []string `json:"images"`
-	AutoCreateDeliveryRule bool     `json:"auto_create_delivery_rule"`
-	CardGroupID            int64    `json:"card_group_id"`
-	DeliveryCount          int      `json:"delivery_count"`
+	RowNo      int                     `json:"row_no"`
+	Valid      bool                    `json:"valid"`
+	Errors     []string                `json:"errors,omitempty"`
+	CookieID   string                  `json:"cookie_id"`
+	Title      string                  `json:"title"`
+	Price      string                  `json:"price"`
+	Quantity   int                     `json:"quantity"`
+	Images     []string                `json:"images"`
+	Automation publishAutomationConfig `json:"automation"`
 }
 
 type publishBatchParsedRow struct {
-	RowNo                  int
-	CookieID               string
-	Title                  string
-	Description            string
-	Price                  string
-	OriginalPrice          string
-	Quantity               int
-	PostageMode            string
-	Postage                string
-	Images                 []string
-	AutoCreateDeliveryRule bool
-	CardGroupID            int64
-	DeliveryCount          int
-	Errors                 []string
-	Raw                    map[string]any
+	RowNo         int
+	CookieID      string
+	Title         string
+	Description   string
+	Price         string
+	OriginalPrice string
+	Quantity      int
+	PostageMode   string
+	Postage       string
+	Images        []string
+	Automation    publishAutomationConfig
+	Errors        []string
+	Raw           map[string]any
+}
+
+type publishAutomationConfig struct {
+	PaidDelivery  publishCardAutomation   `json:"paid_delivery"`
+	ReviewGift    publishCardAutomation   `json:"review_gift"`
+	ReviewRequest publishReviewRequestCfg `json:"review_request"`
+}
+
+type publishCardAutomation struct {
+	Enabled    bool                `json:"enabled"`
+	Actions    []publishCardAction `json:"actions"`
+	ParseError string              `json:"-"`
+}
+
+type publishCardAction struct {
+	CardID        int64 `json:"card_id"`
+	DeliveryCount int   `json:"delivery_count"`
+	DelaySeconds  int   `json:"delay_seconds"`
+}
+
+type publishReviewRequestCfg struct {
+	Enabled           bool   `json:"enabled"`
+	AfterShippedHours int    `json:"after_shipped_hours"`
+	Message           string `json:"message"`
+	MaxAttempts       int    `json:"max_attempts"`
+	DelaySeconds      int    `json:"delay_seconds"`
 }
 
 func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
+	// 表格最大 20 MiB，图片压缩包最大 200 MiB，额外预留 multipart 元数据空间。
+	r.Body = http.MaxBytesReader(w, r.Body, 224<<20)
+	// #nosec G120 -- 请求体已由 MaxBytesReader 限制为 224 MiB。
 	if err := r.ParseMultipartForm(256 << 20); err != nil {
 		writeErr(w, http.StatusBadRequest, "解析上传文件失败")
 		return
@@ -85,7 +112,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 	}
 	batchID := "batch_" + randomHex(12)
 	uploadDir := filepath.Join(s.publishUploadRoot(), "publish_batches", batchID)
-	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
+	if err := os.MkdirAll(uploadDir, 0o750); err != nil {
 		writeErr(w, http.StatusInternalServerError, "创建上传目录失败")
 		return
 	}
@@ -93,7 +120,10 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 	if sourceName == "" {
 		sourceName = "products.csv"
 	}
-	_ = os.WriteFile(filepath.Join(uploadDir, sourceName), sourceBytes, 0o644)
+	if err := writeFileWithinRoot(uploadDir, sourceName, sourceBytes); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存商品表格失败")
+		return
+	}
 
 	if zipFile, zipHeader, err := r.FormFile("images_zip"); err == nil {
 		defer zipFile.Close()
@@ -106,7 +136,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 		if zipName == "" {
 			zipName = "images.zip"
 		}
-		if err := os.WriteFile(filepath.Join(uploadDir, zipName), zipBytes, 0o644); err != nil {
+		if err := writeFileWithinRoot(uploadDir, zipName, zipBytes); err != nil {
 			writeErr(w, http.StatusInternalServerError, "保存图片 zip 失败")
 			return
 		}
@@ -137,6 +167,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 			invalid++
 		}
 		imagesJSON, _ := json.Marshal(p.Images)
+		automationJSON, _ := json.Marshal(p.Automation)
 		rawJSON, _ := json.Marshal(p.Raw)
 		status := "pending"
 		errMsg := ""
@@ -145,35 +176,31 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 			errMsg = strings.Join(p.Errors, "；")
 		}
 		rows = append(rows, db.ItemPublishBatchRow{
-			RowNo:                  p.RowNo,
-			CookieID:               p.CookieID,
-			Title:                  p.Title,
-			Description:            p.Description,
-			Price:                  p.Price,
-			OriginalPrice:          p.OriginalPrice,
-			Quantity:               p.Quantity,
-			PostageMode:            p.PostageMode,
-			Postage:                p.Postage,
-			ImagesJSON:             string(imagesJSON),
-			AutoCreateDeliveryRule: p.AutoCreateDeliveryRule,
-			CardGroupID:            p.CardGroupID,
-			DeliveryCount:          p.DeliveryCount,
-			Status:                 status,
-			ErrorMessage:           errMsg,
-			RawJSON:                string(rawJSON),
+			RowNo:          p.RowNo,
+			CookieID:       p.CookieID,
+			Title:          p.Title,
+			Description:    p.Description,
+			Price:          p.Price,
+			OriginalPrice:  p.OriginalPrice,
+			Quantity:       p.Quantity,
+			PostageMode:    p.PostageMode,
+			Postage:        p.Postage,
+			ImagesJSON:     string(imagesJSON),
+			AutomationJSON: string(automationJSON),
+			Status:         status,
+			ErrorMessage:   errMsg,
+			RawJSON:        string(rawJSON),
 		})
 		previewRows = append(previewRows, publishBatchPreviewRow{
-			RowNo:                  p.RowNo,
-			Valid:                  isValid,
-			Errors:                 p.Errors,
-			CookieID:               p.CookieID,
-			Title:                  p.Title,
-			Price:                  p.Price,
-			Quantity:               p.Quantity,
-			Images:                 p.Images,
-			AutoCreateDeliveryRule: p.AutoCreateDeliveryRule,
-			CardGroupID:            p.CardGroupID,
-			DeliveryCount:          p.DeliveryCount,
+			RowNo:      p.RowNo,
+			Valid:      isValid,
+			Errors:     p.Errors,
+			CookieID:   p.CookieID,
+			Title:      p.Title,
+			Price:      p.Price,
+			Quantity:   p.Quantity,
+			Images:     p.Images,
+			Automation: p.Automation,
 		})
 	}
 	if len(rows) == 0 {
@@ -242,7 +269,12 @@ func (s *Server) startItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "启动任务失败")
 		return
 	}
-	go s.runItemPublishBatch(context.Background(), sess.UserID, batch.ID, false)
+	// #nosec G118 -- 批处理必须在请求结束后继续，并由 30 分钟超时保证退出。
+	go func() {
+		jobCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		s.runItemPublishBatch(jobCtx, sess.UserID, batch.ID, false)
+	}()
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "batch_id": batch.ID})
 }
 
@@ -292,7 +324,12 @@ func (s *Server) retryFailedItemPublishBatch(w http.ResponseWriter, r *http.Requ
 		writeErr(w, http.StatusInternalServerError, "启动重试失败")
 		return
 	}
-	go s.runItemPublishBatch(context.Background(), sess.UserID, batchID, false)
+	// #nosec G118 -- 批处理必须在请求结束后继续，并由 30 分钟超时保证退出。
+	go func() {
+		jobCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		s.runItemPublishBatch(jobCtx, sess.UserID, batchID, false)
+	}()
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "batch_id": batchID})
 }
 
@@ -431,35 +468,65 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client *mtop
 			ItemDetail:            string(detailJSON),
 			MultiQuantityDelivery: row.Quantity > 1,
 		})
-		if row.AutoCreateDeliveryRule && row.CardGroupID > 0 {
-			_ = s.createPublishDeliveryRule(ctx, userID, row, res)
-		}
+		_ = s.createPublishAutomationRules(ctx, userID, row, res)
 	}
 	rawJSON, _ := json.Marshal(res.RawData)
 	return s.Store.PublishBatches.MarkRowSuccess(ctx, row.ID, res.ItemID, res.ItemURL, string(rawJSON))
 }
 
-func (s *Server) createPublishDeliveryRule(ctx context.Context, userID int64, row db.ItemPublishBatchRow, res *mtop.PublishItemResult) error {
-	tx, err := s.Store.DB.BeginTx(ctx, nil)
-	if err != nil {
+func (s *Server) createPublishAutomationRules(ctx context.Context, userID int64, row db.ItemPublishBatchRow, res *mtop.PublishItemResult) error {
+	var cfg publishAutomationConfig
+	if err := json.Unmarshal([]byte(row.AutomationJSON), &cfg); err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	req := []deliveryVariantRequest{{CardID: row.CardGroupID, DeliveryCount: row.DeliveryCount}}
-	ruleRes, err := tx.ExecContext(ctx,
-		`INSERT INTO delivery_rules
-		 (keyword,card_id,delivery_count,enabled,description,user_id,cookie_id,item_id)
-		 VALUES (?,?,?,?,?,?,?,?)`,
-		firstNonEmpty(res.Title, row.Title), row.CardGroupID, row.DeliveryCount, true, "批量铺货自动创建",
-		userID, row.CookieID, res.ItemID)
-	if err != nil {
-		return err
+	title := firstNonEmpty(res.Title, row.Title)
+	if cfg.PaidDelivery.Enabled {
+		actions := make([]db.AutomationActionInput, 0, len(cfg.PaidDelivery.Actions)+1)
+		for index, action := range cfg.PaidDelivery.Actions {
+			actions = append(actions, db.AutomationActionInput{
+				ActionType: automation.ActionSendCard, CardID: action.CardID,
+				DeliveryCount: action.DeliveryCount, DelaySeconds: action.DelaySeconds,
+				Enabled: true, SortOrder: index + 1,
+			})
+		}
+		actions = append(actions, db.AutomationActionInput{
+			ActionType: automation.ActionConfirmShipment, Enabled: true, SortOrder: len(actions) + 1,
+		})
+		_, _ = s.Store.Automation.Create(ctx, db.AutomationRuleInput{
+			UserID: userID, CookieID: row.CookieID, ItemID: res.ItemID,
+			Name: "付款后自动发货 - " + title, TriggerType: automation.TriggerOrderPaid,
+			Enabled: true, Priority: 100, ConfigJSON: "{}",
+			Actions: actions,
+		})
 	}
-	ruleID, _ := ruleRes.LastInsertId()
-	if err := insertDeliveryVariants(ctx, tx, userID, ruleID, req); err != nil {
-		return err
+	if cfg.ReviewGift.Enabled {
+		actions := make([]db.AutomationActionInput, 0, len(cfg.ReviewGift.Actions))
+		for index, action := range cfg.ReviewGift.Actions {
+			actions = append(actions, db.AutomationActionInput{
+				ActionType: automation.ActionSendCard, CardID: action.CardID,
+				DeliveryCount: action.DeliveryCount, DelaySeconds: action.DelaySeconds,
+				Enabled: true, SortOrder: index + 1,
+			})
+		}
+		_, _ = s.Store.Automation.Create(ctx, db.AutomationRuleInput{
+			UserID: userID, CookieID: row.CookieID, ItemID: res.ItemID,
+			Name: "评价后发送赠品 - " + title, TriggerType: automation.TriggerBuyerReviewed,
+			Enabled: true, Priority: 100, ConfigJSON: "{}",
+			Actions: actions,
+		})
 	}
-	return tx.Commit()
+	if cfg.ReviewRequest.Enabled {
+		cfgJSON, _ := json.Marshal(map[string]any{"after_shipped_hours": cfg.ReviewRequest.AfterShippedHours, "max_attempts": cfg.ReviewRequest.MaxAttempts})
+		_, _ = s.Store.Automation.Create(ctx, db.AutomationRuleInput{
+			UserID: userID, CookieID: row.CookieID, ItemID: res.ItemID,
+			Name: "超时未评价求评价 - " + title, TriggerType: automation.TriggerReviewMissingTimeout,
+			Enabled: true, Priority: 100, ConfigJSON: string(cfgJSON),
+			Actions: []db.AutomationActionInput{
+				{ActionType: automation.ActionSendText, MessageTemplate: cfg.ReviewRequest.Message, DelaySeconds: cfg.ReviewRequest.DelaySeconds, Enabled: true, SortOrder: 1},
+			},
+		})
+	}
+	return nil
 }
 
 func (s *Server) parsePublishRows(ctx context.Context, userID int64, defaultCookieID, uploadDir string, input []map[string]any) []publishBatchParsedRow {
@@ -493,9 +560,7 @@ func (s *Server) parsePublishRows(ctx context.Context, userID int64, defaultCook
 			row.PostageMode = "fixed"
 		}
 		row.Quantity = atoiPublishDefault(firstImportString(m, "quantity", "库存", "数量"), 1)
-		row.DeliveryCount = atoiPublishDefault(firstImportString(m, "delivery_count", "发货数量"), 1)
-		row.CardGroupID = int64(atoiPublishDefault(firstImportString(m, "card_group_id", "卡密组ID", "卡密组id", "卡密ID", "卡密id"), 0))
-		row.AutoCreateDeliveryRule = parseLooseBool(firstImportString(m, "auto_create_delivery_rule", "自动创建发货规则"))
+		row.Automation = parsePublishAutomation(m)
 		row.Images = splitImageRefs(firstImportString(m, "images", "image", "图片", "商品图片"))
 		if row.CookieID == "" {
 			row.Errors = append(row.Errors, "缺少账号ID")
@@ -530,19 +595,114 @@ func (s *Server) parsePublishRows(ctx context.Context, userID int64, defaultCook
 				row.Errors = append(row.Errors, err.Error())
 			}
 		}
-		if row.AutoCreateDeliveryRule {
-			if row.CardGroupID <= 0 {
-				row.Errors = append(row.Errors, "自动创建发货规则需要填写卡密组ID")
-			} else if !s.cardOwnedByUser(ctx, userID, row.CardGroupID) {
-				row.Errors = append(row.Errors, "卡密组不存在或不属于当前用户")
-			}
-			if row.DeliveryCount <= 0 {
-				row.Errors = append(row.Errors, "发货数量必须大于 0")
-			}
-		}
+		row.Errors = append(row.Errors, s.validatePublishAutomation(ctx, userID, row.Automation)...)
 		out = append(out, row)
 	}
 	return out
+}
+
+func parsePublishAutomation(m map[string]any) publishAutomationConfig {
+	cfg := publishAutomationConfig{}
+	paidActions, paidParseErr := parsePublishCardActions(firstImportString(m, "paid_delivery_contents", "付款发货内容"))
+	cfg.PaidDelivery = publishCardAutomation{
+		Enabled:    parseLooseBool(firstImportString(m, "paid_delivery_enabled", "付款发货启用")),
+		Actions:    paidActions,
+		ParseError: paidParseErr,
+	}
+	reviewGiftActions, reviewGiftParseErr := parsePublishCardActions(firstImportString(m, "review_gift_contents", "评价赠品内容"))
+	cfg.ReviewGift = publishCardAutomation{
+		Enabled:    parseLooseBool(firstImportString(m, "review_gift_enabled", "评价赠品启用")),
+		Actions:    reviewGiftActions,
+		ParseError: reviewGiftParseErr,
+	}
+	cfg.ReviewRequest = publishReviewRequestCfg{
+		Enabled:           parseLooseBool(firstImportString(m, "review_request_enabled", "求评价启用")),
+		AfterShippedHours: atoiPublishDefault(firstImportString(m, "review_request_after_hours", "求评价等待小时"), 72),
+		Message:           firstImportString(m, "review_request_message", "求评价文案"),
+		MaxAttempts:       atoiPublishDefault(firstImportString(m, "review_request_max_attempts", "求评价最多次数"), 1),
+		DelaySeconds:      atoiPublishDefault(firstImportString(m, "review_request_delay_seconds", "求评价延迟秒"), 0),
+	}
+	return cfg
+}
+
+// parsePublishCardActions 解析“卡密组ID:每件份数:延迟秒”，多条内容用分号或换行分隔。
+func parsePublishCardActions(raw string) ([]publishCardAction, string) {
+	entries := strings.FieldsFunc(strings.TrimSpace(raw), func(r rune) bool {
+		return r == ';' || r == '；' || r == '\n' || r == '\r'
+	})
+	if len(entries) == 0 {
+		return nil, ""
+	}
+	actions := make([]publishCardAction, 0, len(entries))
+	for index, entry := range entries {
+		parts := strings.Split(strings.ReplaceAll(strings.TrimSpace(entry), "：", ":"), ":")
+		if len(parts) < 1 || len(parts) > 3 || strings.TrimSpace(parts[0]) == "" {
+			return nil, fmt.Sprintf("第%d项格式错误，应为 卡密组ID:每件份数:延迟秒", index+1)
+		}
+		cardID, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
+		if err != nil || cardID <= 0 {
+			return nil, fmt.Sprintf("第%d项卡密组ID无效", index+1)
+		}
+		count := 1
+		if len(parts) >= 2 && strings.TrimSpace(parts[1]) != "" {
+			count, err = strconv.Atoi(strings.TrimSpace(parts[1]))
+			if err != nil || count <= 0 {
+				return nil, fmt.Sprintf("第%d项每件份数必须大于0", index+1)
+			}
+		}
+		delay := 0
+		if len(parts) == 3 && strings.TrimSpace(parts[2]) != "" {
+			delay, err = strconv.Atoi(strings.TrimSpace(parts[2]))
+			if err != nil || delay < 0 {
+				return nil, fmt.Sprintf("第%d项延迟秒不能小于0", index+1)
+			}
+		}
+		actions = append(actions, publishCardAction{CardID: cardID, DeliveryCount: count, DelaySeconds: delay})
+	}
+	return actions, ""
+}
+
+func (s *Server) validatePublishAutomation(ctx context.Context, userID int64, cfg publishAutomationConfig) []string {
+	var errs []string
+	validateCards := func(config publishCardAutomation, label string) {
+		if !config.Enabled {
+			return
+		}
+		if config.ParseError != "" {
+			errs = append(errs, label+config.ParseError)
+			return
+		}
+		if len(config.Actions) == 0 {
+			errs = append(errs, label+"需要至少配置一条发货内容")
+			return
+		}
+		for index, action := range config.Actions {
+			prefix := fmt.Sprintf("%s第%d项", label, index+1)
+			if !s.cardOwnedByUser(ctx, userID, action.CardID) {
+				errs = append(errs, prefix+"卡密组不存在或不属于当前用户")
+			}
+			if action.DeliveryCount <= 0 {
+				errs = append(errs, prefix+"每件份数必须大于0")
+			}
+			if action.DelaySeconds < 0 {
+				errs = append(errs, prefix+"延迟秒不能小于0")
+			}
+		}
+	}
+	validateCards(cfg.PaidDelivery, "付款发货")
+	validateCards(cfg.ReviewGift, "评价赠品")
+	if cfg.ReviewRequest.Enabled {
+		if cfg.ReviewRequest.AfterShippedHours <= 0 {
+			errs = append(errs, "求评价等待小时必须大于 0")
+		}
+		if strings.TrimSpace(cfg.ReviewRequest.Message) == "" {
+			errs = append(errs, "求评价文案不能为空")
+		}
+		if cfg.ReviewRequest.MaxAttempts <= 0 {
+			errs = append(errs, "求评价最多次数必须大于 0")
+		}
+	}
+	return errs
 }
 
 func parsePublishSheetBytes(raw []byte, filename string) ([]map[string]any, error) {
@@ -669,12 +829,24 @@ func normalizePublishHeader(header string) string {
 		return "postage"
 	case "images", "image", "图片", "商品图片":
 		return "images"
-	case "autocreatedeliveryrule", "自动创建发货规则":
-		return "auto_create_delivery_rule"
-	case "cardgroupid", "cardid", "卡密组id", "卡密id":
-		return "card_group_id"
-	case "deliverycount", "发货数量":
-		return "delivery_count"
+	case "paiddeliveryenabled", "付款发货启用", "付款后自动发货":
+		return "paid_delivery_enabled"
+	case "paiddeliverycontents", "付款发货内容", "付款后发送的卡密":
+		return "paid_delivery_contents"
+	case "reviewgiftenabled", "评价赠品启用", "评价后发送赠品":
+		return "review_gift_enabled"
+	case "reviewgiftcontents", "评价赠品内容", "评价后发送的卡密":
+		return "review_gift_contents"
+	case "reviewrequestenabled", "求评价启用", "超时未评价时提醒":
+		return "review_request_enabled"
+	case "reviewrequestafterhours", "求评价等待小时", "发货几小时后提醒":
+		return "review_request_after_hours"
+	case "reviewrequestmessage", "求评价文案", "提醒内容":
+		return "review_request_message"
+	case "reviewrequestmaxattempts", "求评价最多次数", "最多提醒几次":
+		return "review_request_max_attempts"
+	case "reviewrequestdelayseconds", "求评价延迟秒":
+		return "review_request_delay_seconds"
 	default:
 		return strings.TrimSpace(header)
 	}
@@ -693,11 +865,12 @@ func extractPublishImagesZip(raw []byte, dest string) error {
 		if err != nil {
 			return err
 		}
-		target := filepath.Join(dest, rel)
-		if !strings.HasPrefix(target, filepath.Clean(dest)+string(os.PathSeparator)) {
-			return fmt.Errorf("zip 内路径不安全: %s", f.Name)
+		root, err := os.OpenRoot(dest)
+		if err != nil {
+			return err
 		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		if err := root.MkdirAll(filepath.Dir(rel), 0o750); err != nil {
+			_ = root.Close()
 			return err
 		}
 		rc, err := f.Open()
@@ -715,7 +888,16 @@ func extractPublishImagesZip(raw []byte, dest string) error {
 		if !strings.HasPrefix(http.DetectContentType(data), "image/") {
 			continue
 		}
-		if err := os.WriteFile(target, data, 0o644); err != nil {
+		file, err := root.OpenFile(rel, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+		if err == nil {
+			_, err = file.Write(data)
+			closeErr := file.Close()
+			if err == nil {
+				err = closeErr
+			}
+		}
+		_ = root.Close()
+		if err != nil {
 			return err
 		}
 	}
@@ -755,10 +937,19 @@ func readBatchImageFile(uploadDir, ref string) ([]byte, string, string, error) {
 	if err != nil {
 		return nil, "", "", err
 	}
-	path := filepath.Join(uploadDir, rel)
-	data, err := os.ReadFile(path)
+	root, err := os.OpenRoot(uploadDir)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("打开图片目录失败")
+	}
+	defer root.Close()
+	file, err := root.Open(rel)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("读取图片失败: %s", ref)
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, (10<<20)+1))
+	if err != nil || len(data) > 10<<20 {
+		return nil, "", "", fmt.Errorf("读取图片失败或文件过大: %s", ref)
 	}
 	if len(data) == 0 {
 		return nil, "", "", fmt.Errorf("图片文件为空: %s", ref)
@@ -770,12 +961,31 @@ func readBatchImageFile(uploadDir, ref string) ([]byte, string, string, error) {
 	return data, contentType, filepath.Base(rel), nil
 }
 
+// writeFileWithinRoot 将上传文件限制在指定根目录内，拒绝符号链接和路径逃逸。
+func writeFileWithinRoot(rootDir, name string, data []byte) error {
+	root, err := os.OpenRoot(rootDir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	file, err := root.OpenFile(name, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
+}
+
 func downloadImageURL(ctx context.Context, rawURL string) ([]byte, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
+	if err != nil || (req.URL.Scheme != "http" && req.URL.Scheme != "https") || req.URL.Hostname() == "" {
 		return nil, "", fmt.Errorf("图片 URL 无效: %s", rawURL)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	client := publicHTTPClient()
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, "", fmt.Errorf("下载图片失败: %s", rawURL)
 	}
@@ -783,9 +993,12 @@ func downloadImageURL(ctx context.Context, rawURL string) ([]byte, string, error
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, "", fmt.Errorf("下载图片失败: %s HTTP %d", rawURL, resp.StatusCode)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, (10<<20)+1))
 	if err != nil {
 		return nil, "", fmt.Errorf("读取远程图片失败: %s", rawURL)
+	}
+	if len(data) > 10<<20 {
+		return nil, "", fmt.Errorf("远程图片不能超过 10 MiB: %s", rawURL)
 	}
 	contentType := resp.Header.Get("Content-Type")
 	if i := strings.Index(contentType, ";"); i >= 0 {
@@ -798,6 +1011,48 @@ func downloadImageURL(ctx context.Context, rawURL string) ([]byte, string, error
 		return nil, "", fmt.Errorf("远程文件不是图片: %s", rawURL)
 	}
 	return data, contentType, nil
+}
+
+// publicHTTPClient 只允许连接公网地址，防止批量铺货图片 URL 访问本机或内网服务。
+func publicHTTPClient() *http.Client {
+	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			for _, resolved := range ips {
+				if isPublicIP(resolved.IP) {
+					return dialer.DialContext(ctx, network, net.JoinHostPort(resolved.IP.String(), port))
+				}
+			}
+			return nil, fmt.Errorf("拒绝访问非公网地址")
+		},
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	return &http.Client{
+		Transport: transport,
+		Timeout:   30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("图片 URL 重定向次数过多")
+			}
+			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+				return fmt.Errorf("图片 URL 重定向协议不安全")
+			}
+			return nil
+		},
+	}
+}
+
+func isPublicIP(ip net.IP) bool {
+	return ip != nil && !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() &&
+		!ip.IsLinkLocalMulticast() && !ip.IsUnspecified() && !ip.IsMulticast()
 }
 
 func validateBatchImageRef(uploadDir, ref string) error {
@@ -829,12 +1084,13 @@ func publishBatchToMap(batch *db.ItemPublishBatch, rows []db.ItemPublishBatchRow
 		}
 		var refs []string
 		_ = json.Unmarshal([]byte(row.ImagesJSON), &refs)
+		var automationCfg publishAutomationConfig
+		_ = json.Unmarshal([]byte(row.AutomationJSON), &automationCfg)
 		outRows = append(outRows, map[string]any{
 			"id": row.ID, "row_no": row.RowNo, "cookie_id": row.CookieID, "title": row.Title,
 			"price": row.Price, "quantity": row.Quantity, "images": refs,
-			"auto_create_delivery_rule": row.AutoCreateDeliveryRule,
-			"card_group_id":             row.CardGroupID, "delivery_count": row.DeliveryCount,
-			"status": row.Status, "item_id": row.ItemID, "item_url": row.ItemURL,
+			"automation": automationCfg,
+			"status":     row.Status, "item_id": row.ItemID, "item_url": row.ItemURL,
 			"error_message": row.ErrorMessage,
 		})
 	}

@@ -1,6 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
--- 闲鱼管家全量 schema（从 Python db_manager.py 收敛）。
+-- 闲鱼管家初始 schema。
 -- 把历史上 12+ 处运行时 ALTER TABLE 补齐到 CREATE，并修复 schema 不一致：
 --   - orders.system_shipped：原 CREATE 缺失却被 insert_or_update_order 引用 → 补齐
 --   - orders.receiver_city：原为运行时补齐 → 补齐

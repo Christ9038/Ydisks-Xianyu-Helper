@@ -40,6 +40,9 @@ func (s *Server) mountItemsReal(r chi.Router) {
 }
 
 func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
+	// 最多 9 张 10 MiB 图片，额外预留 multipart 元数据空间。
+	r.Body = http.MaxBytesReader(w, r.Body, 96<<20)
+	// #nosec G120 -- 请求体已由 MaxBytesReader 限制为 96 MiB。
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误，请使用 multipart/form-data")
 		return

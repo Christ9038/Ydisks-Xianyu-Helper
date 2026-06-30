@@ -1,7 +1,6 @@
 package browser
 
-// stealthTemplate 是从 utils/xianyu_slider_stealth.py _get_stealth_script 原样移植的
-// 浏览器侧反检测 JS。Python 用 f-string 插入随机值，这里用 {{占位符}}，由
+// stealthTemplate 是浏览器侧反检测 JS。模板使用 {{占位符}}，由
 // stealthScript() 在 Go 侧生成随机值后替换。JS 本身未改动。
 const stealthTemplate = `
             // 隐藏webdriver属性

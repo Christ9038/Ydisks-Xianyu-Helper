@@ -1,7 +1,6 @@
 package browser
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"strings"
@@ -17,10 +16,6 @@ var sliderButtonSelectors = []string{
 }
 var sliderTrackSelectors = []string{
 	"#nc_1_n1t", ".nc_scale", ".nc_1_n1t",
-}
-var sliderContainerSelectors = []string{
-	"#nc_1_n1z", "#baxia-dialog-content", ".nc-container", ".nc_wrapper",
-	"#nocaptcha", ".scratch-captcha-container",
 }
 var sliderRetrySelectors = []string{
 	".nc-lang-cnt", "#nc_1_n1z",
@@ -45,7 +40,7 @@ func generateTrajectory(distance float64) []trajectoryPoint {
 		progress := float64(i+1) / float64(steps)
 		x := overshoot * math.Pow(progress, 1.5)
 		y := float64(rng.Intn(3)) // 0-2 px
-		d := time.Duration((baseDelay*(0.9+0.2*float64(rng.Intn(11))/10.0))*float64(time.Millisecond))
+		d := time.Duration((baseDelay * (0.9 + 0.2*float64(rng.Intn(11))/10.0)) * float64(time.Millisecond))
 		pts[i] = trajectoryPoint{x: x, y: y, delay: d}
 	}
 	return pts
@@ -56,42 +51,6 @@ func isScratchCaptcha(content string) bool {
 	return strings.Contains(content, "scratch-captcha") ||
 		strings.Contains(content, "scratch-captcha-btn") ||
 		strings.Contains(content, "scratch-captcha-slider")
-}
-
-// SliderVerify 访问风控验证 URL，自动过滑块，返回更新后的 cookie map（含 x5sec）。
-// 移植自 xianyu_slider_stealth.py run() + solve_slider()。
-func (m *Manager) SliderVerify(ctx context.Context, url, cookieID string, headless bool) (map[string]string, error) {
-	if err := m.init(); err != nil {
-		return nil, err
-	}
-	page, release, err := m.newPage(ctx, cookieID, "", headless)
-	if err != nil {
-		return nil, err
-	}
-	defer release()
-
-	if _, err := page.Goto(url, playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(30000),
-	}); err != nil {
-		return nil, fmt.Errorf("访问验证 URL 失败: %w", err)
-	}
-	time.Sleep(300 + time.Duration(rng.Intn(500))*time.Millisecond)
-
-	content, _ := page.Content()
-	if !strings.Contains(content, "验证") && !strings.Contains(content, "captcha") && !strings.Contains(content, "slider") {
-		// 页面不含验证码，直接提取 cookie。
-		m.logger.Info("页面无验证码，直接提取 cookie")
-		return extractPageCookies(page)
-	}
-
-	scratch := isScratchCaptcha(content)
-	if err := solveSlider(page, scratch, m.logger); err != nil {
-		return nil, fmt.Errorf("滑块验证失败: %w", err)
-	}
-
-	time.Sleep(1 * time.Second)
-	return extractPageCookies(page)
 }
 
 // solveSlider 在 page 上求解滑块，最多重试 3 次。
@@ -176,7 +135,7 @@ func calculateSlideDistance(btn, track playwright.ElementHandle, scratch bool) (
 	return dist, nil
 }
 
-// simulateSlide 模拟人类滑动（移植自 simulate_slide）。
+// simulateSlide 模拟人类滑动。
 func simulateSlide(page playwright.Page, btn playwright.ElementHandle, distance float64) error {
 	bb, err := btn.BoundingBox()
 	if err != nil || bb == nil {

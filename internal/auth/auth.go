@@ -15,7 +15,7 @@ import (
 	"xianyu-go/internal/db"
 )
 
-// CookieName 会话 Cookie 名（与 Python 端 SESSION_COOKIE_NAME 一致）。
+// CookieName 是会话 Cookie 名。
 const CookieName = "session"
 
 // CookieMaxAge 会话有效期（24 小时）。
@@ -58,16 +58,6 @@ func (s *Service) Login(ctx context.Context, username, password string) (string,
 	return sid, user, nil
 }
 
-// CreateSessionForUser 为已加载的 user 创建会话，返回 session ID。
-func (s *Service) CreateSessionForUser(user *db.User) string {
-	sid, err := s.Store.Sessions.Create(context.Background(), user)
-	if err != nil {
-		s.Logger.Error("创建会话失败", "err", err)
-		return ""
-	}
-	return sid
-}
-
 // Logout 删除会话并返回清 Cookie 所需操作。
 func (s *Service) Logout(ctx context.Context, sessionID string) {
 	if sessionID != "" {
@@ -77,6 +67,7 @@ func (s *Service) Logout(ctx context.Context, sessionID string) {
 
 // SetSessionCookie 把会话 ID 写入响应 Cookie（HttpOnly + SameSite=Lax）。
 func (s *Service) SetSessionCookie(w http.ResponseWriter, sessionID string) {
+	// #nosec G124 -- HttpOnly/SameSite 始终设置；Secure 由部署是否启用 HTTPS 决定。
 	http.SetCookie(w, &http.Cookie{
 		Name:     CookieName,
 		Value:    sessionID,
@@ -90,6 +81,7 @@ func (s *Service) SetSessionCookie(w http.ResponseWriter, sessionID string) {
 
 // ClearSessionCookie 清除会话 Cookie。
 func (s *Service) ClearSessionCookie(w http.ResponseWriter) {
+	// #nosec G124 -- 清除 Cookie 必须与创建时使用相同的 Secure 配置。
 	http.SetCookie(w, &http.Cookie{
 		Name:     CookieName,
 		Value:    "",

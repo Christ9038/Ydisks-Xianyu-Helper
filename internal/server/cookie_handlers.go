@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -290,8 +289,11 @@ func (s *Server) setCookieAutoConfirm(w http.ResponseWriter, r *http.Request) {
 	if req.AutoConfirm {
 		v = 1
 	}
-	s.Store.DB.ExecContext(r.Context(),
-		`UPDATE cookies SET auto_confirm=? WHERE id=?`, v, cid)
+	if _, err := s.Store.DB.ExecContext(r.Context(),
+		`UPDATE cookies SET auto_confirm=? WHERE id=?`, v, cid); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存自动确认设置失败")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
@@ -316,8 +318,11 @@ func (s *Server) setCookieRemark(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	s.Store.DB.ExecContext(r.Context(),
-		`UPDATE cookies SET remark=? WHERE id=?`, req.Remark, cid)
+	if _, err := s.Store.DB.ExecContext(r.Context(),
+		`UPDATE cookies SET remark=? WHERE id=?`, req.Remark, cid); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存账号备注失败")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
@@ -331,8 +336,15 @@ func (s *Server) setCookiePauseDuration(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	s.Store.DB.ExecContext(r.Context(),
-		`UPDATE cookies SET pause_duration=? WHERE id=?`, req.PauseDuration, cid)
+	if req.PauseDuration < 0 {
+		writeErr(w, http.StatusBadRequest, "暂停时长不能为负数")
+		return
+	}
+	if _, err := s.Store.DB.ExecContext(r.Context(),
+		`UPDATE cookies SET pause_duration=? WHERE id=?`, req.PauseDuration, cid); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存暂停时长失败")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
@@ -389,10 +401,6 @@ func cachedAccountNickname(d *db.CookieDetail) string {
 	return "账号 " + truncate(d.ID, 6)
 }
 
-func accountProfileFallback(d *db.CookieDetail) string {
-	return fallback(d.Remark, "账号 "+truncate(d.ID, 6))
-}
-
 func normalizeProfileAvatarURL(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -413,5 +421,3 @@ func truncate(s string, n int) string {
 	}
 	return s[:n]
 }
-
-func atoi(s string) int { n, _ := strconv.Atoi(s); return n }

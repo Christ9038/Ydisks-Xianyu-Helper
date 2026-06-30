@@ -2,6 +2,8 @@ package qrlogin
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,7 +11,11 @@ import (
 	"time"
 )
 
-func TestCompleteVerificationRequiresSidecarWhenHTTPMissingUNB(t *testing.T) {
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, errors.New("entropy unavailable") }
+
+func TestCompleteVerificationRequiresBrowserWhenHTTPMissingUNB(t *testing.T) {
 	m := NewManager(nil)
 	m.sessions["s1"] = testVerificationSession()
 	oldTarget := qrVerifyTargetURL
@@ -22,12 +28,12 @@ func TestCompleteVerificationRequiresSidecarWhenHTTPMissingUNB(t *testing.T) {
 	}
 }
 
-func TestCompleteVerificationSidecarSuccess(t *testing.T) {
+func TestCompleteVerificationBrowserSuccess(t *testing.T) {
 	m := NewManager(nil)
 	m.sessions["s1"] = testVerificationSession()
-	m.SetSidecarRefresher(func(ctx context.Context, tmpCookies, verificationURL string, onScreenshot func(string)) (string, string, error) {
+	m.SetBrowserRefresher(func(ctx context.Context, tmpCookies, verificationURL string, onScreenshot func(string)) (string, string, error) {
 		if !strings.Contains(tmpCookies, "tmp=1") {
-			t.Fatalf("sidecar 收到临时 cookie 异常: %q", tmpCookies)
+			t.Fatalf("浏览器刷新器收到临时 cookie 异常: %q", tmpCookies)
 		}
 		return "unb=999; cookie2=abc", "999", nil
 	})
@@ -47,10 +53,10 @@ func TestCompleteVerificationSidecarSuccess(t *testing.T) {
 	}
 }
 
-func TestCompleteVerificationSidecarUNBFromCookieMap(t *testing.T) {
+func TestCompleteVerificationBrowserUNBFromCookieMap(t *testing.T) {
 	m := NewManager(nil)
 	m.sessions["s1"] = testVerificationSession()
-	m.SetSidecarRefresher(func(ctx context.Context, tmpCookies, verificationURL string, onScreenshot func(string)) (string, string, error) {
+	m.SetBrowserRefresher(func(ctx context.Context, tmpCookies, verificationURL string, onScreenshot func(string)) (string, string, error) {
 		return "unb=888; cookie2=abc", "", nil
 	})
 	oldTarget := qrVerifyTargetURL
@@ -71,6 +77,20 @@ func TestCompleteVerificationMissingSession(t *testing.T) {
 	_, _, err := m.CompleteVerification(context.Background(), "missing")
 	if err == nil || !strings.Contains(err.Error(), "会话不存在") {
 		t.Fatalf("错误异常: %v", err)
+	}
+}
+
+func TestRandomUUIDRequiresEntropy(t *testing.T) {
+	original := randReader
+	t.Cleanup(func() { randReader = original })
+	randReader = failingReader{}
+	if _, err := randomUUID(); err == nil {
+		t.Fatal("randomUUID should fail when entropy source fails")
+	}
+	randReader = io.LimitReader(strings.NewReader("0123456789abcdef"), 16)
+	id, err := randomUUID()
+	if err != nil || len(id) != 36 || id[14] != '4' {
+		t.Fatalf("randomUUID() = %q, %v", id, err)
 	}
 }
 

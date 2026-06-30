@@ -152,47 +152,5 @@ func (m *Manager) QRCookieRefresh(ctx context.Context, tmpCookies, verificationU
 	return cookieStr, unb, nil
 }
 
-// gotoWithFallback 访问 URL，超时降级（domcontentloaded→load→无等待）。
-func gotoWithFallback(page playwright.Page, url string) error {
-	to := func(ms float64) *float64 { return &ms }
-	if _, err := page.Goto(url, playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   to(15000),
-	}); err == nil {
-		return nil
-	}
-	if _, err := page.Goto(url, playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateLoad,
-		Timeout:   to(20000),
-	}); err == nil {
-		return nil
-	}
-	_, err := page.Goto(url, playwright.PageGotoOptions{Timeout: to(25000)})
-	return err
-}
-
-func reloadWithFallback(page playwright.Page) error {
-	to := func(ms float64) *float64 { return &ms }
-	if _, err := page.Reload(playwright.PageReloadOptions{
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   to(12000),
-	}); err == nil {
-		return nil
-	}
-	_, err := page.Reload(playwright.PageReloadOptions{
-		WaitUntil: playwright.WaitUntilStateLoad,
-		Timeout:   to(15000),
-	})
-	return err
-}
-
 // sleep 可被测试替换。
 var sleep = time.Sleep
-
-func cookieNames(m map[string]string) []string {
-	names := make([]string, 0, len(m))
-	for k := range m {
-		names = append(names, k)
-	}
-	return names
-}

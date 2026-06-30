@@ -15,11 +15,10 @@ func (s *Server) mountAnalyticsReal(r chi.Router) {
 	r.Get("/analytics/orders/valid", s.validOrders)
 }
 
-// 有效订单状态（只统计这几种，与 Python 一致）。
+// 有效订单状态只统计以下几种。
 var validOrderStatuses = []string{"pending_ship", "shipped", "completed"}
 
-// orderAnalytics 订单分析：收益统计 + 按日/状态/城市/商品分布。
-// 移植自 Python get_order_analytics。
+// orderAnalytics 汇总指定日期范围内的收益以及按日、状态、城市和商品分布。
 func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	startDate := r.URL.Query().Get("start_date")
@@ -39,11 +38,14 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 		UniqueBuyers int
 		UniqueItems  int
 	}
-	s.Store.DB.QueryRowContext(r.Context(), `
+	if err := s.Store.DB.QueryRowContext(r.Context(), `
 		SELECT COUNT(DISTINCT order_id), COALESCE(SUM(`+amountClean+`),0),
 		       COALESCE(AVG(`+amountClean+`),0), COUNT(DISTINCT buyer_id), COUNT(DISTINCT item_id)
 		FROM orders `+where+amountFilter, params...).Scan(
-		&rev.TotalOrders, &rev.TotalAmount, &rev.AvgAmount, &rev.UniqueBuyers, &rev.UniqueItems)
+		&rev.TotalOrders, &rev.TotalAmount, &rev.AvgAmount, &rev.UniqueBuyers, &rev.UniqueItems); err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询收益统计失败")
+		return
+	}
 
 	// 2. 按日统计。
 	daily := []map[string]any{}
@@ -51,19 +53,21 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 		SELECT DATE(created_at), COUNT(DISTINCT order_id), COALESCE(SUM(`+amountClean+`),0)
 		FROM orders `+where+amountFilter+`
 		GROUP BY DATE(created_at) ORDER BY DATE(created_at) DESC LIMIT 30`, params...)
-	if err == nil {
-		for rows.Next() {
-			var date string
-			var count int
-			var amount float64
-			if rows.Scan(&date, &count, &amount) == nil {
-				daily = append(daily, map[string]any{
-					"date": date, "order_count": count, "amount": round2(amount),
-				})
-			}
-		}
-		rows.Close()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询每日统计失败")
+		return
 	}
+	for rows.Next() {
+		var date string
+		var count int
+		var amount float64
+		if rows.Scan(&date, &count, &amount) == nil {
+			daily = append(daily, map[string]any{
+				"date": date, "order_count": count, "amount": round2(amount),
+			})
+		}
+	}
+	_ = rows.Close()
 
 	// 3. 按状态统计。
 	statusStats := []map[string]any{}
@@ -71,19 +75,21 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 		SELECT COALESCE(order_status,'unknown'), COUNT(DISTINCT order_id), COALESCE(SUM(`+amountClean+`),0)
 		FROM orders `+where+amountFilter+`
 		GROUP BY order_status ORDER BY COUNT(DISTINCT order_id) DESC`, params...)
-	if err == nil {
-		for rows.Next() {
-			var status string
-			var count int
-			var amount float64
-			if rows.Scan(&status, &count, &amount) == nil {
-				statusStats = append(statusStats, map[string]any{
-					"status": status, "count": count, "amount": round2(amount),
-				})
-			}
-		}
-		rows.Close()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询状态统计失败")
+		return
 	}
+	for rows.Next() {
+		var status string
+		var count int
+		var amount float64
+		if rows.Scan(&status, &count, &amount) == nil {
+			statusStats = append(statusStats, map[string]any{
+				"status": status, "count": count, "amount": round2(amount),
+			})
+		}
+	}
+	_ = rows.Close()
 
 	// 4. 按城市统计。
 	cityStats := []map[string]any{}
@@ -92,19 +98,21 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 		FROM orders `+where+amountFilter+`
 		  AND receiver_city IS NOT NULL AND receiver_city != ''
 		GROUP BY receiver_city ORDER BY COUNT(DISTINCT order_id) DESC LIMIT 50`, params...)
-	if err == nil {
-		for rows.Next() {
-			var city string
-			var count int
-			var amount float64
-			if rows.Scan(&city, &count, &amount) == nil {
-				cityStats = append(cityStats, map[string]any{
-					"city": city, "order_count": count, "total_amount": round2(amount),
-				})
-			}
-		}
-		rows.Close()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询城市统计失败")
+		return
 	}
+	for rows.Next() {
+		var city string
+		var count int
+		var amount float64
+		if rows.Scan(&city, &count, &amount) == nil {
+			cityStats = append(cityStats, map[string]any{
+				"city": city, "order_count": count, "total_amount": round2(amount),
+			})
+		}
+	}
+	_ = rows.Close()
 
 	// 5. 商品排行。
 	itemStats := []map[string]any{}
@@ -113,20 +121,22 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 		FROM orders `+where+amountFilter+`
 		  AND item_id IS NOT NULL AND item_id != ''
 		GROUP BY item_id ORDER BY COUNT(DISTINCT order_id) DESC LIMIT 20`, params...)
-	if err == nil {
-		for rows.Next() {
-			var itemID string
-			var count int
-			var total, avg float64
-			if rows.Scan(&itemID, &count, &total, &avg) == nil {
-				itemStats = append(itemStats, map[string]any{
-					"item_id": itemID, "order_count": count,
-					"total_amount": round2(total), "avg_amount": round2(avg),
-				})
-			}
-		}
-		rows.Close()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询商品统计失败")
+		return
 	}
+	for rows.Next() {
+		var itemID string
+		var count int
+		var total, avg float64
+		if rows.Scan(&itemID, &count, &total, &avg) == nil {
+			itemStats = append(itemStats, map[string]any{
+				"item_id": itemID, "order_count": count,
+				"total_amount": round2(total), "avg_amount": round2(avg),
+			})
+		}
+	}
+	_ = rows.Close()
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"revenue_stats": map[string]any{
@@ -134,10 +144,10 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 			"avg_amount": round2(rev.AvgAmount), "unique_buyers": rev.UniqueBuyers,
 			"unique_items": rev.UniqueItems,
 		},
-		"daily_stats":   daily,
-		"status_stats":  statusStats,
-		"city_stats":    cityStats,
-		"item_stats":    itemStats,
+		"daily_stats":  daily,
+		"status_stats": statusStats,
+		"city_stats":   cityStats,
+		"item_stats":   itemStats,
 	})
 }
 
@@ -147,10 +157,15 @@ func (s *Server) validOrders(w http.ResponseWriter, r *http.Request) {
 	startDate := r.URL.Query().Get("start_date")
 	endDate := r.URL.Query().Get("end_date")
 	where, params := buildAnalyticsWhere(startDate, endDate, sess.UserID, validOrderStatuses)
+	amountFilter := ` AND orders.amount IS NOT NULL AND orders.amount != '' AND orders.amount != 'N/A'`
 
 	rows, err := s.Store.DB.QueryContext(r.Context(), `
-		SELECT order_id, item_id, buyer_id, amount, order_status, cookie_id, created_at
-		FROM orders `+where+` ORDER BY created_at DESC LIMIT 500`, params...)
+		SELECT orders.order_id, orders.item_id, COALESCE(item_info.item_title, ''),
+		       COALESCE(item_info.item_detail, ''), orders.buyer_id, COALESCE(orders.quantity, '1'),
+		       orders.amount, orders.order_status, orders.cookie_id, orders.created_at
+		FROM orders
+		LEFT JOIN item_info ON item_info.cookie_id = orders.cookie_id AND item_info.item_id = orders.item_id
+		`+qualifyAnalyticsWhere(where)+amountFilter+` ORDER BY orders.created_at DESC LIMIT 500`, params...)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
@@ -158,16 +173,23 @@ func (s *Server) validOrders(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	out := []map[string]any{}
 	for rows.Next() {
-		var orderID, itemID, buyerID, amount, status, cookieID, createdAt string
-		if rows.Scan(&orderID, &itemID, &buyerID, &amount, &status, &cookieID, &createdAt) == nil {
+		var orderID, itemID, itemTitle, itemDetail, buyerID, quantity, amount, status, cookieID, createdAt string
+		if rows.Scan(&orderID, &itemID, &itemTitle, &itemDetail, &buyerID, &quantity, &amount, &status, &cookieID, &createdAt) == nil {
 			out = append(out, map[string]any{
 				"order_id": orderID, "item_id": itemID, "buyer_id": buyerID,
-				"amount": amount, "order_status": status, "cookie_id": cookieID,
-				"created_at": createdAt,
+				"item_title": itemTitle, "item_image": itemImageFromDetail(itemDetail),
+				"quantity": quantity, "amount": amount, "order_status": status,
+				"status": status, "cookie_id": cookieID, "created_at": createdAt,
 			})
 		}
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, map[string]any{"orders": out})
+}
+
+func qualifyAnalyticsWhere(where string) string {
+	where = strings.ReplaceAll(where, "DATE(created_at)", "DATE(orders.created_at)")
+	where = strings.ReplaceAll(where, "order_status IN", "orders.order_status IN")
+	return where
 }
 
 // buildAnalyticsWhere 构建 WHERE 子句（user_id 经 cookies 关联过滤 + 日期 + 状态）。

@@ -1,4 +1,4 @@
-// init-admin 交互式初始化管理员账号，移植自 Python init_admin.py。
+// Package main 交互式初始化管理员账号。
 // 沿用 Fork 安全基线：不创建默认口令，密码不回显、二次确认，bcrypt 哈希。
 //
 // 用法：go run ./cmd/init-admin -db data/xianyu_data.db

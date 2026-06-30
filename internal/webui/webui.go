@@ -1,3 +1,4 @@
+// Package webui 提供嵌入式前端构建产物。
 package webui
 
 import (

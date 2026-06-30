@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"database/sql"
-	"fmt"
 )
 
 // ---- 关键字 CRUD ----
@@ -257,7 +256,7 @@ func (s *SystemSettings) Set(ctx context.Context, key, value string) error {
 	return err
 }
 
-// PublicKeys 公开设置键白名单（前端登录页等无需登录可读）。
+// PublicSystemKeys 是公开设置键白名单（前端登录页等无需登录可读）。
 var PublicSystemKeys = map[string]bool{
 	"theme_color": true, "registration_enabled": true,
 	"show_default_login_info": true, "login_captcha_enabled": true,
@@ -371,6 +370,3 @@ func (i *Items) SetMultiQuantity(ctx context.Context, cookieID, itemID string, o
 		boolToInt(on), cookieID, itemID)
 	return err
 }
-
-// 防止 fmt 未用。
-var _ = fmt.Sprintf

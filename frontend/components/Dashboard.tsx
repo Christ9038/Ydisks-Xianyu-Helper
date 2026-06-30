@@ -71,106 +71,60 @@ const Dashboard: React.FC = () => {
   // 颜色配置
   const COLORS = ['#0094f7', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6'];
   const formatCurrency = (value: number) => `¥${Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
+  const formatLocalDate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getDatesForRange = (range: TimeRange) => {
+    const now = new Date();
+    const endDate = formatLocalDate(now);
+    let startDate = endDate;
+
+    if (range === 'yesterday') {
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = formatLocalDate(yesterday);
+      return { startDate: yesterdayStr, endDate: yesterdayStr };
+    }
+    if (range === '3days') {
+      const threeDaysAgo = new Date(now);
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      startDate = formatLocalDate(threeDaysAgo);
+    } else if (range === '7days') {
+      const sevenDaysAgo = new Date(now);
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      startDate = formatLocalDate(sevenDaysAgo);
+    } else if (range === '30days') {
+      const thirtyDaysAgo = new Date(now);
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      startDate = formatLocalDate(thirtyDaysAgo);
+    } else if (range === 'custom' && customStartDate && customEndDate) {
+      return { startDate: customStartDate, endDate: customEndDate };
+    } else if (range === 'custom') {
+      const sevenDaysAgo = new Date(now);
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      startDate = formatLocalDate(sevenDaysAgo);
+    }
+
+    return { startDate, endDate };
+  };
+
+  const loadValidOrders = (range: TimeRange) => {
+    const { startDate, endDate } = getDatesForRange(range);
+    setOrdersLoading(true);
+    getValidOrders({ start_date: startDate, end_date: endDate })
+      .then(setValidOrders)
+      .catch(console.error)
+      .finally(() => setOrdersLoading(false));
+  };
 
   const loadAnalytics = (range: TimeRange) => {
-    // 使用本地时间而不是UTC时间
     const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const todayStr = `${year}-${month}-${day}`;
-
-    let params: { start_date: string; end_date: string };
-
-    switch (range) {
-      case 'today':
-        // 今天：从今天00:00:00到今天23:59:59
-        params = {
-          start_date: todayStr,
-          end_date: todayStr
-        };
-        break;
-      case 'yesterday':
-        // 昨天：从昨天00:00:00到昨天23:59:59
-        const yesterday = new Date(now);
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yYear = yesterday.getFullYear();
-        const yMonth = String(yesterday.getMonth() + 1).padStart(2, '0');
-        const yDay = String(yesterday.getDate()).padStart(2, '0');
-        const yesterdayStr = `${yYear}-${yMonth}-${yDay}`;
-        params = {
-          start_date: yesterdayStr,
-          end_date: yesterdayStr
-        };
-        break;
-      case '3days':
-        // 3天：从3天前到今天
-        const threeDaysAgo = new Date(now);
-        threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-        const tdYear = threeDaysAgo.getFullYear();
-        const tdMonth = String(threeDaysAgo.getMonth() + 1).padStart(2, '0');
-        const tdDay = String(threeDaysAgo.getDate()).padStart(2, '0');
-        params = {
-          start_date: `${tdYear}-${tdMonth}-${tdDay}`,
-          end_date: todayStr
-        };
-        break;
-      case '7days':
-        // 7天：从7天前到今天
-        const sevenDaysAgo = new Date(now);
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        const sdYear = sevenDaysAgo.getFullYear();
-        const sdMonth = String(sevenDaysAgo.getMonth() + 1).padStart(2, '0');
-        const sdDay = String(sevenDaysAgo.getDate()).padStart(2, '0');
-        params = {
-          start_date: `${sdYear}-${sdMonth}-${sdDay}`,
-          end_date: todayStr
-        };
-        break;
-      case '30days':
-        // 30天：从30天前到今天
-        const thirtyDaysAgo = new Date(now);
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        const tdYear2 = thirtyDaysAgo.getFullYear();
-        const tdMonth2 = String(thirtyDaysAgo.getMonth() + 1).padStart(2, '0');
-        const tdDay2 = String(thirtyDaysAgo.getDate()).padStart(2, '0');
-        params = {
-          start_date: `${tdYear2}-${tdMonth2}-${tdDay2}`,
-          end_date: todayStr
-        };
-        break;
-      case 'custom':
-        // 自定义范围
-        if (customStartDate && customEndDate) {
-          params = {
-            start_date: customStartDate,
-            end_date: customEndDate
-          };
-        } else {
-          // 默认7天
-          const defaultDaysAgo = new Date(now);
-          defaultDaysAgo.setDate(defaultDaysAgo.getDate() - 7);
-          const ddYear = defaultDaysAgo.getFullYear();
-          const ddMonth = String(defaultDaysAgo.getMonth() + 1).padStart(2, '0');
-          const ddDay = String(defaultDaysAgo.getDate()).padStart(2, '0');
-          params = {
-            start_date: `${ddYear}-${ddMonth}-${ddDay}`,
-            end_date: todayStr
-          };
-        }
-        break;
-      default:
-        // 默认7天
-        const defaultStart = new Date(now);
-        defaultStart.setDate(defaultStart.getDate() - 7);
-        const dsYear = defaultStart.getFullYear();
-        const dsMonth = String(defaultStart.getMonth() + 1).padStart(2, '0');
-        const dsDay = String(defaultStart.getDate()).padStart(2, '0');
-        params = {
-          start_date: `${dsYear}-${dsMonth}-${dsDay}`,
-          end_date: todayStr
-        };
-    }
+    const { startDate, endDate } = getDatesForRange(range);
+    const params = { start_date: startDate, end_date: endDate };
 
     // 同时获取上一个周期的数据用于趋势对比
     const previousParams = getPreviousPeriodParams(range, now);
@@ -268,37 +222,8 @@ const Dashboard: React.FC = () => {
 
   // 加载订单列表
   useEffect(() => {
-    const { startDate, endDate } = getDatesForRange(timeRange);
-
-    // 获取参与统计的订单列表
-    setOrdersLoading(true);
-    getValidOrders({ start_date: startDate, end_date: endDate })
-      .then(orders => {
-        setValidOrders(orders);
-      })
-      .catch(console.error)
-      .finally(() => setOrdersLoading(false));
+    loadValidOrders(timeRange);
   }, [timeRange]);
-
-  // 辅助函数：获取时间范围的日期
-  const getDatesForRange = (range: TimeRange) => {
-    const now = new Date();
-    const endDate = now.toISOString().split('T')[0];
-    let startDate = endDate;
-
-    if (range === '7days') {
-      const sevenDaysAgo = new Date(now);
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      startDate = sevenDaysAgo.toISOString().split('T')[0];
-    } else if (range === '30days') {
-      const thirtyDaysAgo = new Date(now);
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      startDate = thirtyDaysAgo.toISOString().split('T')[0];
-    }
-    // 其他范围类似处理...
-
-    return { startDate, endDate };
-  };
 
   if (!stats || !analytics) return <div className="p-8 flex justify-center text-gray-400"><Activity className="w-8 h-8 animate-spin text-[#0094f7]" /></div>;
 
@@ -371,6 +296,14 @@ const Dashboard: React.FC = () => {
     { key: 'custom' as TimeRange, label: '自定义' },
   ];
   const selectedRangeLabel = timeRangeOptions.find(option => option.key === timeRange)?.label || '所选范围';
+  const currentRangeDates = getDatesForRange(timeRange);
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase();
+  const filteredValidOrders = validOrders.filter((order) =>
+    order.order_id?.toLowerCase().includes(normalizedSearchTerm) ||
+    order.item_id?.toLowerCase().includes(normalizedSearchTerm) ||
+    order.item_title?.toLowerCase().includes(normalizedSearchTerm) ||
+    order.buyer_id?.toLowerCase().includes(normalizedSearchTerm)
+  );
 
   return (
     <div className="space-y-8 animate-fade-in">
@@ -418,7 +351,10 @@ const Dashboard: React.FC = () => {
               className="px-3 py-2 rounded-xl text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#0094f7]"
             />
             <button
-              onClick={() => loadAnalytics('custom')}
+              onClick={() => {
+                loadAnalytics('custom');
+                loadValidOrders('custom');
+              }}
               className="px-4 py-2 rounded-xl text-sm font-bold bg-black text-white hover:bg-gray-800 transition-colors"
             >
               应用
@@ -643,13 +579,28 @@ const Dashboard: React.FC = () => {
                 <Activity className="w-6 h-6 animate-spin mr-2" />
                 加载中...
               </div>
-            ) : validOrders.filter((order) =>
-              order.order_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              order.item_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              order.buyer_id?.toLowerCase().includes(searchTerm.toLowerCase())
-            ).length === 0 ? (
-              <div className="flex items-center justify-center py-20 text-gray-400">
-                暂无订单数据
+            ) : filteredValidOrders.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 px-8 text-center">
+                <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
+                  <PackageCheck className="w-7 h-7 text-gray-300" />
+                </div>
+                {normalizedSearchTerm ? (
+                  <>
+                    <div className="text-sm font-extrabold text-gray-900">没有匹配的订单</div>
+                    <div className="text-xs text-gray-400 mt-2 max-w-md">
+                      当前共有 {validOrders.length} 单参与统计，但没有订单号、商品、买家匹配“{searchTerm}”。
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-sm font-extrabold text-gray-900">当前范围内没有参与统计的订单</div>
+                    <div className="text-xs text-gray-400 mt-2 max-w-lg leading-6">
+                      日期范围：{currentRangeDates.startDate} 至 {currentRangeDates.endDate}；
+                      统计口径：待发货、已发货、已完成，且订单金额不为空。
+                      当前统计卡片订单数：{analytics.revenue_stats.total_orders} 单。
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <table className="w-full text-left border-collapse">
@@ -663,13 +614,7 @@ const Dashboard: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {validOrders
-                    .filter((order) =>
-                      order.order_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      order.item_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      order.buyer_id?.toLowerCase().includes(searchTerm.toLowerCase())
-                    )
-                    .map((order) => (
+                  {filteredValidOrders.map((order) => (
                       <tr key={order.order_id} className="hover:bg-[#FFFDE7]/50 transition-colors group">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">

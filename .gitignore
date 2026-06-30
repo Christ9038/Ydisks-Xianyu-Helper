@@ -25,6 +25,9 @@
 /frontend/.env.local
 /frontend/.env.*.local
 
+# Frontend build artifacts (hash 化文件名，每次构建变化，不入库；index.html 与稳定 SVG 仍跟踪)
+/internal/webui/static/assets/
+
 # OS / editor
 .DS_Store
 .idea/

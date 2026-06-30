@@ -1,5 +1,4 @@
 // Package ws 实现闲鱼 WebSocket 连接生命周期：握手、/reg 注册、心跳、ACK、消息解密。
-// 移植自 Python XianyuAutoAsync.py 的 main/init/send_heartbeat/handle_message。
 package ws
 
 import (
@@ -76,7 +75,7 @@ func Dial(ctx context.Context, cfg Config, logger *slog.Logger) (*Conn, error) {
 
 	conn := &Conn{ws: c, cfg: cfg, logger: logger, recorder: cfg.Recorder}
 	if err := conn.register(ctx); err != nil {
-		c.CloseNow()
+		_ = c.CloseNow()
 		return nil, err
 	}
 	return conn, nil
@@ -102,7 +101,7 @@ func (c *Conn) register(ctx context.Context) error {
 		return fmt.Errorf("发送 /reg 失败: %w", err)
 	}
 
-	// Python 端在 /reg 后 sleep 1s 再发 ackDiff，这里用 1s 等待。
+	// /reg 后等待 1 秒再发送 ackDiff。
 	select {
 	case <-time.After(time.Second):
 	case <-ctx.Done():
@@ -196,7 +195,7 @@ func (c *Conn) ReceiveLoop(ctx context.Context, onMessage func(decrypted map[str
 			c.logger.Debug("收到响应", "code", code)
 		}
 
-		// 先回 ACK（与 Python handle_message 一致）。
+		// 收到消息后先回复 ACK。
 		c.sendACK(ctx, raw)
 
 		// 仅处理同步包：body.syncPushPackage.data[0].data
@@ -226,7 +225,7 @@ func (c *Conn) ReceiveLoop(ctx context.Context, onMessage func(decrypted map[str
 	}
 }
 
-// sendACK 回复 {"code":200, headers:{mid,sid,...}}，失败静默（与 Python except: pass 一致）。
+// sendACK 回复 {"code":200, headers:{mid,sid,...}}，失败时仅记录日志。
 func (c *Conn) sendACK(ctx context.Context, msg map[string]any) {
 	headers, _ := msg["headers"].(map[string]any)
 	ack := map[string]any{
@@ -280,7 +279,7 @@ func extractSyncPayload(msg map[string]any) (string, bool) {
 
 // decodeSyncData 先尝试 base64+JSON（未加密系统消息），失败则 base64+msgpack 解密。
 func decodeSyncData(data string) (map[string]any, error) {
-	// 1) 先按 Python：base64 解码 → 尝试 JSON
+	// 1) base64 解码后尝试解析 JSON。
 	if dec, err := base64.StdEncoding.DecodeString(data); err == nil {
 		var parsed map[string]any
 		if jsonErr := json.Unmarshal(dec, &parsed); jsonErr == nil {

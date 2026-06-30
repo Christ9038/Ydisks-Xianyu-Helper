@@ -12,7 +12,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// errDetail 构造 {"detail": msg} 错误体（与 Python FastAPI 默认错误格式一致）。
+// errDetail 构造 {"detail": msg} 错误体。
 func errDetail(msg string) map[string]any {
 	return map[string]any{"detail": msg}
 }
@@ -26,12 +26,4 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 func decodeJSON(r *http.Request, v any) error {
 	dec := json.NewDecoder(r.Body)
 	return dec.Decode(v)
-}
-
-// fallback 空字符串返回默认值。
-func fallback(s, def string) string {
-	if s == "" {
-		return def
-	}
-	return s
 }

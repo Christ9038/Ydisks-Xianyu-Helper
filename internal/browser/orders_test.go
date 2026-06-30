@@ -20,20 +20,6 @@ func TestOrderStatusMap(t *testing.T) {
 	}
 }
 
-func TestParseWantCount(t *testing.T) {
-	cases := map[string]int{
-		"3":    3,
-		"1.5万": 15000,
-		"2万":   20000,
-		"100":  100,
-	}
-	for in, want := range cases {
-		if got := parseWantCount(in); got != want {
-			t.Errorf("parseWantCount(%q) = %d, want %d", in, got, want)
-		}
-	}
-}
-
 func TestParseAPIResponseStatusCode(t *testing.T) {
 	od := &OrderDetail{}
 	data := map[string]any{

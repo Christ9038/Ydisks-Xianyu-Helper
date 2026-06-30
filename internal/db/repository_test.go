@@ -80,8 +80,7 @@ func TestUserLifecycle(t *testing.T) {
 	}
 
 	// 改密后旧密码失效。
-	if _, _ = s.Users.UpdatePassword(ctx, "admin", "newpw"); true {
-	}
+	_, _ = s.Users.UpdatePassword(ctx, "admin", "newpw")
 	_, okOld, _ := s.Users.VerifyAndUpgrade(ctx, "admin", "pw123")
 	if okOld {
 		t.Fatal("旧密码应失效")

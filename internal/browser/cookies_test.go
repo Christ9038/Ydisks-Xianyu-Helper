@@ -80,10 +80,3 @@ func TestStealthScriptUnique(t *testing.T) {
 		t.Fatal("stealth 脚本多次生成应出现随机差异")
 	}
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

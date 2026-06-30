@@ -1,8 +1,6 @@
 # 闲鱼管家
 
-这是当前活跃版本：Go 后端 + React 前端。
-
-旧目录 `../xianyu-super-butler/` 是历史 Python/FastAPI 版本。当前 `xianyu-go` 仓库已经包含自己的前端源码，后续功能迭代应改这里：
+这是当前活跃版本：Go 后端 + React 前端。后续功能迭代均在此目录进行：
 
 ```text
 xianyu-go/
@@ -32,10 +30,10 @@ xianyu-go/internal/webui/static/
 
 ```bash
 cd /Users/christ/Workspace/git/xianyu/xianyu-go
-go run ./cmd/server -init-admin -db data/xianyu_data.db
+go run ./cmd/init-admin -db data/xianyu_data.db
 ```
 
-也可以非交互传密码：
+也可以通过服务入口非交互初始化：
 
 ```bash
 go run ./cmd/server \
@@ -140,4 +138,3 @@ go test ./...
 cd /Users/christ/Workspace/git/xianyu/xianyu-go/frontend
 npm run build
 ```
-

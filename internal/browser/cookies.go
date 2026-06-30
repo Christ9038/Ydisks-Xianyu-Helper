@@ -66,17 +66,12 @@ func cookiesToMap(cs []playwright.Cookie) map[string]string {
 	return m
 }
 
-// cookiesToStr 把 playwright Cookie 切片拼成字符串。
-func cookiesToStr(cs []playwright.Cookie) string {
-	m := cookiesToMap(cs)
-	return cookieMarshal(m)
-}
-
-// rng 用于浏览器流程的随机化（轨迹、stealth 参数）。全局，进程级足够。
+// rng 只用于模拟浏览器轨迹和指纹扰动，不用于凭证或安全令牌。
+// #nosec G404 -- 此处需要可重复的非密码学伪随机序列。
 var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 // stealthScript 生成隐身 JS（移植自 xianyu_slider_stealth._get_stealth_script）。
-// 原 Python 用 f-string 插入随机值；这里用占位符 + Go 运行时替换。
+// 使用占位符并在 Go 运行时替换随机值。
 func stealthScript() string {
 	pluginCount := rng.Intn(6) + 3 // 3-8
 	hwCores := []int{2, 4, 6, 8}[rng.Intn(4)]

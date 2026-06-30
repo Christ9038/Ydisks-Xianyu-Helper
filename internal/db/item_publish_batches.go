@@ -35,9 +35,7 @@ type ItemPublishBatchRow struct {
 	PostageMode            string
 	Postage                string
 	ImagesJSON             string
-	AutoCreateDeliveryRule bool
-	CardGroupID            int64
-	DeliveryCount          int
+	AutomationJSON         string
 	Status                 string
 	ItemID                 string
 	ItemURL                string
@@ -68,9 +66,6 @@ func (b *ItemPublishBatches) Create(ctx context.Context, batch *ItemPublishBatch
 		if row.PostageMode == "" {
 			row.PostageMode = "free"
 		}
-		if row.DeliveryCount <= 0 {
-			row.DeliveryCount = 1
-		}
 		if row.Status == "" {
 			row.Status = "pending"
 		}
@@ -80,14 +75,17 @@ func (b *ItemPublishBatches) Create(ctx context.Context, batch *ItemPublishBatch
 		if row.RawJSON == "" {
 			row.RawJSON = "{}"
 		}
+		if row.AutomationJSON == "" {
+			row.AutomationJSON = "{}"
+		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO item_publish_batch_rows
 			 (batch_id,row_no,cookie_id,title,description,price,original_price,quantity,postage_mode,postage,
-			  images_json,auto_create_delivery_rule,card_group_id,delivery_count,status,error_message,raw_json)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			  images_json,automation_json,status,error_message,raw_json)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			batch.ID, row.RowNo, row.CookieID, row.Title, row.Description, row.Price, row.OriginalPrice,
-			row.Quantity, row.PostageMode, row.Postage, row.ImagesJSON, boolToInt(row.AutoCreateDeliveryRule),
-			row.CardGroupID, row.DeliveryCount, row.Status, row.ErrorMessage, row.RawJSON); err != nil {
+			row.Quantity, row.PostageMode, row.Postage, row.ImagesJSON, row.AutomationJSON,
+			row.Status, row.ErrorMessage, row.RawJSON); err != nil {
 			return err
 		}
 	}
@@ -114,7 +112,7 @@ func (b *ItemPublishBatches) Get(ctx context.Context, userID int64, id string) (
 func (b *ItemPublishBatches) Rows(ctx context.Context, batchID string) ([]ItemPublishBatchRow, error) {
 	rows, err := b.DB.QueryContext(ctx,
 		`SELECT id,batch_id,row_no,cookie_id,title,description,price,original_price,quantity,postage_mode,postage,
-		        images_json,auto_create_delivery_rule,card_group_id,delivery_count,status,item_id,item_url,error_message,
+		        images_json,COALESCE(automation_json,'{}'),status,item_id,item_url,error_message,
 		        raw_json,COALESCE(created_at,''),COALESCE(updated_at,'')
 		   FROM item_publish_batch_rows WHERE batch_id=? ORDER BY row_no`, batchID)
 	if err != nil {
@@ -124,14 +122,12 @@ func (b *ItemPublishBatches) Rows(ctx context.Context, batchID string) ([]ItemPu
 	out := []ItemPublishBatchRow{}
 	for rows.Next() {
 		var r ItemPublishBatchRow
-		var auto int
 		if err := rows.Scan(&r.ID, &r.BatchID, &r.RowNo, &r.CookieID, &r.Title, &r.Description, &r.Price,
-			&r.OriginalPrice, &r.Quantity, &r.PostageMode, &r.Postage, &r.ImagesJSON, &auto, &r.CardGroupID,
-			&r.DeliveryCount, &r.Status, &r.ItemID, &r.ItemURL, &r.ErrorMessage, &r.RawJSON, &r.CreatedAt,
+			&r.OriginalPrice, &r.Quantity, &r.PostageMode, &r.Postage, &r.ImagesJSON, &r.AutomationJSON,
+			&r.Status, &r.ItemID, &r.ItemURL, &r.ErrorMessage, &r.RawJSON, &r.CreatedAt,
 			&r.UpdatedAt); err != nil {
 			return nil, err
 		}
-		r.AutoCreateDeliveryRule = auto != 0
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -144,7 +140,7 @@ func (b *ItemPublishBatches) PendingRows(ctx context.Context, batchID string, fa
 	}
 	rows, err := b.DB.QueryContext(ctx,
 		`SELECT id,batch_id,row_no,cookie_id,title,description,price,original_price,quantity,postage_mode,postage,
-		        images_json,auto_create_delivery_rule,card_group_id,delivery_count,status,item_id,item_url,error_message,
+		        images_json,COALESCE(automation_json,'{}'),status,item_id,item_url,error_message,
 		        raw_json,COALESCE(created_at,''),COALESCE(updated_at,'')
 		   FROM item_publish_batch_rows WHERE batch_id=? AND status IN `+statuses+` ORDER BY row_no`, batchID)
 	if err != nil {
@@ -154,14 +150,12 @@ func (b *ItemPublishBatches) PendingRows(ctx context.Context, batchID string, fa
 	out := []ItemPublishBatchRow{}
 	for rows.Next() {
 		var r ItemPublishBatchRow
-		var auto int
 		if err := rows.Scan(&r.ID, &r.BatchID, &r.RowNo, &r.CookieID, &r.Title, &r.Description, &r.Price,
-			&r.OriginalPrice, &r.Quantity, &r.PostageMode, &r.Postage, &r.ImagesJSON, &auto, &r.CardGroupID,
-			&r.DeliveryCount, &r.Status, &r.ItemID, &r.ItemURL, &r.ErrorMessage, &r.RawJSON, &r.CreatedAt,
+			&r.OriginalPrice, &r.Quantity, &r.PostageMode, &r.Postage, &r.ImagesJSON, &r.AutomationJSON,
+			&r.Status, &r.ItemID, &r.ItemURL, &r.ErrorMessage, &r.RawJSON, &r.CreatedAt,
 			&r.UpdatedAt); err != nil {
 			return nil, err
 		}
-		r.AutoCreateDeliveryRule = auto != 0
 		out = append(out, r)
 	}
 	return out, rows.Err()

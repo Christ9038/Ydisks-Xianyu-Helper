@@ -71,9 +71,8 @@ func TestSendTelegram(t *testing.T) {
 	cfg := map[string]any{"bot_token": "TOKEN", "chat_id": "123"}
 	// 临时替换 httpc 的 URL：用 srv.URL 作为 webhook。sendTelegram 硬编码了 telegram API，
 	// 这里改用 dingtalk server 验证 JSON 形状已覆盖；Telegram 单独验证配置校验。
-	if err := n.sendTelegram(cfg, "hi"); err == nil {
-		// 实际会尝试连 api.telegram.org，可能失败；仅验证不 panic。
-	}
+	// 实际会尝试连 api.telegram.org，可能失败；仅验证不 panic。
+	_ = n.sendTelegram(cfg, "hi")
 	// 配置不全应返回 error。
 	if err := n.sendTelegram(map[string]any{"bot_token": ""}, "hi"); err == nil {
 		t.Fatal("缺 chat_id 应报错")

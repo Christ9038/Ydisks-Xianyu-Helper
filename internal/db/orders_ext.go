@@ -29,7 +29,7 @@ type OrderRow struct {
 	UpdatedAt     string
 }
 
-// OrdersByCookie 取某账号的订单（limit 上限）。移植自 get_orders_by_cookie。
+// ByCookie 取某账号的订单（limit 上限）。
 func (o *Orders) ByCookie(ctx context.Context, cookieID string, limit int) ([]OrderRow, error) {
 	if limit <= 0 {
 		limit = 1000
@@ -71,7 +71,7 @@ func (o *Orders) ByCookie(ctx context.Context, cookieID string, limit int) ([]Or
 	return out, rows.Err()
 }
 
-// OrderStatusMap 数字状态码 → 文本（移植自 Python order_status_handler）。
+// OrderStatusMap 将数字状态码转换为文本状态。
 var OrderStatusMap = map[string]string{
 	"1": "processing", "2": "pending_ship", "3": "shipped", "4": "completed",
 	"5": "refunding", "6": "cancelled", "7": "refunding", "8": "cancelled",
@@ -89,7 +89,7 @@ func NormalizeOrderStatus(s string) string {
 	return s
 }
 
-// AllItemTitles 取全部 item_id → item_title 映射（订单列表用）。
+// AllTitles 取全部 item_id → item_title 映射（订单列表用）。
 func (i *Items) AllTitles(ctx context.Context) (map[string]string, error) {
 	rows, err := i.DB.QueryContext(ctx, `SELECT item_id, item_title FROM item_info`)
 	if err != nil {
@@ -127,7 +127,7 @@ type CardFull struct {
 	UserID       int64  `json:"user_id"`
 }
 
-// GetCard 取单个卡券。
+// Get 取单个卡券。
 func (c *Cards) Get(ctx context.Context, cardID int64) (*CardFull, error) {
 	var cf CardFull
 	var enabled, isMultiSpec int
@@ -156,7 +156,7 @@ func (c *Cards) Get(ctx context.Context, cardID int64) (*CardFull, error) {
 	return &cf, nil
 }
 
-// AllCardsForUser 取某用户全部卡券。
+// AllForUser 取某用户全部卡券。
 func (c *Cards) AllForUser(ctx context.Context, userID int64) ([]CardFull, error) {
 	rows, err := c.DB.QueryContext(ctx,
 		`SELECT id, name, type, api_config, text_content, data_content, image_url, description,
@@ -189,7 +189,7 @@ func (c *Cards) AllForUser(ctx context.Context, userID int64) ([]CardFull, error
 	return out, rows.Err()
 }
 
-// CreateCard 创建卡券，返回新 ID。
+// Create 创建卡券，返回新 ID。
 func (c *Cards) Create(ctx context.Context, cf *CardFull) (int64, error) {
 	res, err := c.DB.ExecContext(ctx,
 		`INSERT INTO cards (name, type, api_config, text_content, data_content, image_url, description,
@@ -204,7 +204,7 @@ func (c *Cards) Create(ctx context.Context, cf *CardFull) (int64, error) {
 	return res.LastInsertId()
 }
 
-// UpdateCard 更新卡券。
+// Update 更新卡券。
 func (c *Cards) Update(ctx context.Context, cf *CardFull) error {
 	_, err := c.DB.ExecContext(ctx,
 		`UPDATE cards SET name=?, type=?, api_config=?, text_content=?, data_content=?, image_url=?,
@@ -216,7 +216,7 @@ func (c *Cards) Update(ctx context.Context, cf *CardFull) error {
 	return err
 }
 
-// DeleteCard 删除卡券。
+// Delete 删除卡券。
 func (c *Cards) Delete(ctx context.Context, cardID int64) error {
 	_, err := c.DB.ExecContext(ctx, `DELETE FROM cards WHERE id=?`, cardID)
 	return err

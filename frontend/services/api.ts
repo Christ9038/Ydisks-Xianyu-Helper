@@ -2,7 +2,7 @@ import { get, post, put, del, postForm } from '../request';
 import {
   LoginResponse, AccountDetail, Order, PaginatedResponse,
   AdminStats, Card, SystemSettings, ApiResponse, OrderAnalytics,
-  Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply
+  Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction
 } from '../types';
 
 // Auth
@@ -258,7 +258,13 @@ export const getValidOrders = async (dateRange: {start_date: string; end_date: s
         start_date: dateRange.start_date,
         end_date: dateRange.end_date
     });
-    return res.orders || [];
+    const orders = Array.isArray(res) ? res : (res.orders || []);
+    return orders.map((order: any) => ({
+        ...order,
+        id: order.id || order.order_id,
+        status: order.status || order.order_status || 'processing',
+        quantity: Number(order.quantity || 1),
+    }));
 }
 
 // Cards
@@ -303,13 +309,18 @@ export const getCardDetails = async (cardId: string | number): Promise<any> => {
 };
 
 // Items
+const normalizeBooleanFlag = (value: unknown): boolean =>
+    value === true || value === 1 || value === '1';
+
 export const getItems = async (): Promise<Item[]> => {
     const res = await get<any>('/items');
     const items = Array.isArray(res) ? res : (res.items || []);
     return items.map((item: any) => ({
       ...item,
       id: item.id || `${item.cookie_id}-${item.item_id}`,
-      is_multi_qty_ship: item.is_multi_qty_ship ?? item.multi_quantity_delivery ?? false,
+      is_multi_spec: normalizeBooleanFlag(item.is_multi_spec),
+      is_multi_qty_ship: normalizeBooleanFlag(item.is_multi_qty_ship ?? item.multi_quantity_delivery),
+      multi_quantity_delivery: normalizeBooleanFlag(item.multi_quantity_delivery ?? item.is_multi_qty_ship),
     }));
 }
 
@@ -383,66 +394,120 @@ export const updateItem = async (cookieId: string, itemId: string, data: any): P
     return put(`/items/${cookieId}/${itemId}`, data);
 }
 
-export const setItemMultiSpec = async (cookieId: string, itemId: string, enabled: boolean): Promise<any> => {
-    return put(`/items/${cookieId}/${itemId}/multi-spec`, { is_multi_spec: enabled });
-}
-
-export const setItemMultiQuantity = async (cookieId: string, itemId: string, enabled: boolean): Promise<any> => {
-    return put(`/items/${cookieId}/${itemId}/multi-quantity-delivery`, { multi_quantity_delivery: enabled });
-}
-
-// Rules - 发货规则 (使用正确的后端API)
+// Rules - 自动化规则
 export const getShippingRules = async (): Promise<ShippingRule[]> => {
-    const res = await get<any>('/delivery-rules');
+    const res = await get<any>('/automation-rules');
     const rules = Array.isArray(res) ? res : (res.data || res.rules || []);
-    // 转换后端数据格式到前端格式
     return rules.map((item: any) => ({
         id: String(item.id),
-        name: item.description || item.keyword || '',
-        item_keyword: item.keyword || '',
+        name: item.name || '',
+        trigger_type: item.trigger_type || 'order_paid',
+        item_keyword: item.item_title || item.item_id || '',
         cookie_id: item.cookie_id || '',
         item_id: item.item_id || '',
         item_title: item.item_title || '',
-        card_group_id: item.card_id || 0,
-        card_group_name: item.card_name || '',
-        priority: item.delivery_count || 1,
+        card_group_id: Number((item.actions || []).find((a: any) => a.action_type === 'send_card')?.card_id || 0),
+        card_group_name: (item.actions || []).find((a: any) => a.action_type === 'send_card')?.card_name || '',
+        priority: item.priority || 100,
         enabled: item.enabled || false,
-        variants: (item.variants || []).map((variant: any) => ({
-          id: variant.id ? String(variant.id) : undefined,
-          spec_name: variant.spec_name || '',
-          spec_value: variant.spec_value || '',
-          card_id: Number(variant.card_id || 0),
-          card_name: variant.card_name || '',
-          card_type: variant.card_type,
-          delivery_count: Number(variant.delivery_count || 1),
-          enabled: variant.enabled !== false,
+        config_json: item.config_json || '{}',
+        actions: (item.actions || []).map((action: any) => ({
+          id: action.id ? String(action.id) : undefined,
+          action_type: action.action_type,
+          card_id: Number(action.card_id || 0),
+          card_name: action.card_name || '',
+          delivery_count: Number(action.delivery_count || 1),
+          message_template: action.message_template || '',
+          delay_seconds: Number(action.delay_seconds || 0),
+          config_json: action.config_json || '{}',
+          enabled: action.enabled !== false,
+          sort_order: Number(action.sort_order || 0),
         })),
+        variants: (item.actions || [])
+          .filter((action: any) => action.action_type === 'send_card')
+          .map((action: any) => {
+            let cfg: any = {};
+            try { cfg = JSON.parse(action.config_json || '{}'); } catch {}
+            return {
+              id: action.id ? String(action.id) : undefined,
+              spec_name: cfg.spec_name || '',
+              spec_value: cfg.spec_value || '',
+              card_id: Number(action.card_id || 0),
+              card_name: action.card_name || '',
+              delivery_count: Number(action.delivery_count || 1),
+              enabled: action.enabled !== false,
+              config_json: action.config_json || '{}',
+            };
+          }),
     }));
 }
 
+const orderAutomationActions = (triggerType: string, actions: AutomationAction[]) => {
+    if (triggerType !== 'order_paid') {
+      return actions.map((action, index) => ({ ...action, sort_order: action.sort_order || index + 1 }));
+    }
+    const sendCards = actions
+      .filter(action => action.action_type === 'send_card')
+      .map((action, index) => ({ ...action, sort_order: index + 1 }));
+    const others = actions.filter(action => action.action_type !== 'send_card' && action.action_type !== 'confirm_shipment');
+    return [
+      ...sendCards,
+      ...others.map((action, index) => ({ ...action, sort_order: sendCards.length + index + 1 })),
+      { action_type: 'confirm_shipment' as const, enabled: true, sort_order: sendCards.length + others.length + 1 },
+    ];
+};
+
 export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<any> => {
+    const triggerType = rule.trigger_type || 'order_paid';
+    const triggerName: Record<string, string> = {
+      order_paid: '付款后自动发货',
+      buyer_reviewed: '评价后发送赠品',
+      review_missing_timeout: '超时未评价求评价',
+    };
+    const generatedName = [
+      triggerName[triggerType] || '自动化规则',
+      rule.item_title || rule.item_id || rule.cookie_id || '',
+    ].filter(Boolean).join(' - ');
+    const baseActions: AutomationAction[] = rule.variants && rule.variants.length > 0
+      ? rule.variants.map((variant, index) => ({
+            action_type: 'send_card' as const,
+            card_id: variant.card_id,
+            delivery_count: variant.delivery_count || 1,
+            enabled: variant.enabled !== false,
+            sort_order: index + 1,
+            config_json: JSON.stringify({ spec_name: variant.spec_name || '', spec_value: variant.spec_value || '' }),
+          }))
+      : (rule.actions && rule.actions.length > 0 ? rule.actions : [{
+          action_type: 'send_card' as const,
+          card_id: rule.card_group_id || 0,
+          delivery_count: 1,
+          enabled: true,
+          sort_order: 1,
+        }]);
+    const actions = orderAutomationActions(triggerType, baseActions);
     const payload = {
-        keyword: rule.item_keyword,
         cookie_id: rule.cookie_id || '',
         item_id: rule.item_id || '',
-        card_id: rule.card_group_id,
-        delivery_count: rule.priority,
+        name: (rule.name || '').trim() || generatedName || '自动化规则',
+        trigger_type: triggerType,
         enabled: rule.enabled ?? true,
-        description: rule.name,
-        // 规格映射更新时后端会删除旧记录并重建；不要回传只用于展示的
-        // id/card_name/card_type，避免把字符串 id 解码到 Go int64 时失败。
-        variants: (rule.variants || []).map((variant) => ({
-          spec_name: variant.spec_name,
-          spec_value: variant.spec_value,
-          card_id: variant.card_id,
-          delivery_count: variant.delivery_count,
-          enabled: variant.enabled,
+        priority: rule.priority || 100,
+        config_json: rule.config_json || '{}',
+        actions: actions.map((action, index) => ({
+          action_type: action.action_type,
+          card_id: action.card_id || 0,
+          delivery_count: action.delivery_count || 1,
+          message_template: action.message_template || '',
+          delay_seconds: action.delay_seconds || 0,
+          config_json: action.config_json || '{}',
+          enabled: action.enabled !== false,
+          sort_order: action.sort_order || index + 1,
         })),
     };
-    return rule.id ? put(`/delivery-rules/${rule.id}`, payload) : post('/delivery-rules', payload);
+    return rule.id ? put(`/automation-rules/${rule.id}`, payload) : post('/automation-rules', payload);
 }
 
-export const deleteShippingRule = async (id: string): Promise<any> => del(`/delivery-rules/${id}`);
+export const deleteShippingRule = async (id: string): Promise<any> => del(`/automation-rules/${id}`);
 
 // Rules - 关键词回复规则 (使用关键词API)
 export const getReplyRules = async (cookieId?: string): Promise<ReplyRule[]> => {

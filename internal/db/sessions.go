@@ -11,7 +11,7 @@ import (
 	"encoding/base64"
 )
 
-// SessionTTL 会话有效期（24 小时，与 Python SESSION_EXPIRE_SECONDS 一致）。
+// SessionTTL 是 24 小时的会话有效期。
 const SessionTTL = 24 * time.Hour
 
 // Sessions 会话表操作（HttpOnly Cookie 会话）。
@@ -81,7 +81,7 @@ func (s *Sessions) DeleteExpired(ctx context.Context) (int64, error) {
 	return n, nil
 }
 
-// randomSessionID 生成 URL 安全的随机会话 ID（对应 Python secrets.token_urlsafe(32)）。
+// randomSessionID 生成 URL 安全的随机会话 ID。
 func randomSessionID() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {

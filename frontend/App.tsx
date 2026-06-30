@@ -6,7 +6,7 @@ import OrderList from './components/OrderList';
 import CardList from './components/CardList';
 import ItemList from './components/ItemList';
 import Settings from './components/Settings';
-import Keywords from './components/Keywords';
+import Rules from './components/Rules';
 import { login, verifySession } from './services/api';
 import { ShieldCheck, ArrowRight, Loader2, User, Lock } from 'lucide-react';
 
@@ -96,7 +96,7 @@ const App: React.FC = () => {
           <div className="space-y-4">
             <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100">
               <div className="text-sm font-bold text-gray-900 mb-2">请在服务器上执行：</div>
-              <pre className="text-xs bg-black text-white p-4 rounded-2xl overflow-x-auto">python3 init_admin.py</pre>
+              <pre className="text-xs bg-black text-white p-4 rounded-2xl overflow-x-auto">./xianyu-server -init-admin -db data/xianyu_data.db -admin-password '请设置密码'</pre>
               <div className="text-xs text-gray-500 mt-2">完成后刷新页面即可进入登录。</div>
             </div>
 
@@ -196,9 +196,9 @@ const App: React.FC = () => {
       case 'cards': return <CardList />;
       case 'items': return <ItemList onConfigureDelivery={(item) => {
         setDeliveryRuleTarget({ cookieId: item.cookie_id, itemId: item.item_id, requestId: Date.now() });
-        setActiveTab('keywords');
+        setActiveTab('rules');
       }} />;
-      case 'keywords': return <Keywords
+      case 'rules': return <Rules
         initialDeliveryTarget={deliveryRuleTarget}
         onDeliveryTargetHandled={() => setDeliveryRuleTarget(undefined)}
       />;

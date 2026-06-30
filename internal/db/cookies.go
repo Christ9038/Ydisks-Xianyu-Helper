@@ -13,7 +13,7 @@ type Cookies struct {
 }
 
 // Save 保存/更新 cookie。user_id 为 0 时：复用现有记录的 user_id，若无则报错
-// （对应 Python 端"系统未初始化不应兜底为 1"的安全修正）。
+// 系统未初始化时不兜底到默认用户。
 func (c *Cookies) Save(ctx context.Context, cookieID, cookieValue string, userID int64) error {
 	if userID == 0 {
 		var existing int64
@@ -111,7 +111,7 @@ func (c *Cookies) GetDetails(ctx context.Context, cookieID string) (*CookieDetai
 	d.ShowBrowser = showBrowser != 0
 	d.PauseDuration = 10
 	if pauseDuration.Valid {
-		// 0 是有效值（表示不暂停），与 Python 端一致。
+		// 0 是有效值，表示不暂停。
 		d.PauseDuration = int(pauseDuration.Int64)
 	}
 	return &d, nil

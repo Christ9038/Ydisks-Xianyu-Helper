@@ -1,5 +1,5 @@
 // Package notify 多渠道通知：dingtalk/feishu/lark/bark/webhook/wechat/telegram/email。
-// 移植自 Python _send_*_notification 系列。每个渠道解析 config JSON 后 POST。
+// 每个渠道解析 config JSON 后发送 HTTP 请求。
 // email 用 SMTP（net/smtp）；其余为 HTTP POST。
 package notify
 
@@ -22,7 +22,7 @@ import (
 	"xianyu-go/internal/db"
 )
 
-// Notifier 通知发送器（实现 engine.Notifier 接口）。
+// Notifier 通知发送器。
 type Notifier struct {
 	cookieID string
 	store    *db.Store
@@ -43,14 +43,14 @@ func New(cookieID string, store *db.Store, logger *slog.Logger) *Notifier {
 	}
 }
 
-// NotifyDelivery 实现 engine.Notifier.NotifyDelivery。
+// NotifyDelivery 发送发货结果通知。
 // accountID 为 cookie_id。向该账号所有已启用渠道发送发货通知。
 func (n *Notifier) NotifyDelivery(accountID, buyerName, buyerID, itemID, message, chatID string) {
 	channels, err := n.store.Notifications.AccountChannels(context.Background(), accountID)
 	if err != nil || len(channels) == 0 {
 		return
 	}
-	// 复刻 Python 通知文案。
+	// 构造通知文案。
 	body := fmt.Sprintf("🚨 自动发货通知\n\n账号: %s\n买家: %s (ID: %s)\n商品ID: %s\n聊天ID: %s\n结果: %s\n时间: %s\n\n请及时处理！",
 		accountID, buyerName, buyerID, itemID, fallback(chatID, "未知"), message, time.Now().Format("2006-01-02 15:04:05"))
 	for _, ch := range channels {
@@ -131,8 +131,8 @@ func (n *Notifier) sendFeishu(cfg map[string]any, message string) error {
 	}
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	data := map[string]any{
-		"msg_type": "text",
-		"content":  map[string]any{"text": message},
+		"msg_type":  "text",
+		"content":   map[string]any{"text": message},
 		"timestamp": ts,
 	}
 	if secret != "" {
@@ -197,7 +197,9 @@ func (n *Notifier) sendWebhook(cfg map[string]any, message string) error {
 		return err
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return err
+	}
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("webhook 状态码 %d", resp.StatusCode)
 	}
@@ -270,7 +272,9 @@ func (n *Notifier) postJSON(url string, payload any) error {
 		return err
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return err
+	}
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("状态码 %d", resp.StatusCode)
 	}

@@ -14,11 +14,9 @@ import {
   retryFailedItemPublishBatch,
   updateItem,
   deleteItem,
-  setItemMultiSpec,
-  setItemMultiQuantity,
   getShippingRules
 } from '../services/api';
-import { ArrowRight, Box, CheckCircle2, CircleDashed, CopyPlus, Edit, Layers3, Link2, PackagePlus, Plus, RefreshCw, Save, ShoppingBag, Trash2, UploadCloud, X } from 'lucide-react';
+import { ArrowRight, Box, CheckCircle2, CircleDashed, Edit, Link2, PackagePlus, Plus, RefreshCw, Save, ShoppingBag, Trash2, UploadCloud, X } from 'lucide-react';
 
 interface ItemListProps {
   onConfigureDelivery: (item: Item) => void;
@@ -35,9 +33,6 @@ interface PublishBatchPreviewRow {
   price: string;
   quantity: number;
   images: string[];
-  auto_create_delivery_rule: boolean;
-  card_group_id: number;
-  delivery_count: number;
 }
 
 interface PublishBatchDetailRow {
@@ -47,9 +42,6 @@ interface PublishBatchDetailRow {
   title: string;
   price: string;
   quantity: number;
-  auto_create_delivery_rule: boolean;
-  card_group_id: number;
-  delivery_count: number;
   status: string;
   item_id: string;
   item_url: string;
@@ -68,6 +60,12 @@ interface PublishBatchDetail {
   running: number;
   rows: PublishBatchDetailRow[];
 }
+
+const formatItemPrice = (price?: string) => {
+  const value = String(price || '').trim();
+  if (!value) return '-';
+  return /^[¥￥]/.test(value) ? value : `¥${value}`;
+};
 
 const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   const [items, setItems] = useState<Item[]>([]);
@@ -99,9 +97,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     item_id: '',
     item_title: '',
     item_price: '',
-    item_image: '',
-    is_multi_spec: false,
-    is_multi_qty_ship: false
+    item_image: ''
   });
   const [publishForm, setPublishForm] = useState({
     cookie_id: '',
@@ -182,8 +178,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
         item_category: editForm.item_category || '',
         item_price: editForm.item_price || '',
         item_detail: editForm.item_detail || selectedItem.item_detail || '',
-        is_multi_spec: Boolean(editForm.is_multi_spec),
-        multi_quantity_delivery: Boolean(editForm.is_multi_qty_ship ?? editForm.multi_quantity_delivery),
       });
       await loadItems();
       await loadShippingRules();
@@ -218,8 +212,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
         item_title: addForm.item_title,
         item_price: addForm.item_price,
         item_detail: addForm.item_image ? JSON.stringify({ item_image: addForm.item_image }) : '',
-        is_multi_spec: addForm.is_multi_spec,
-        is_multi_qty_ship: addForm.is_multi_qty_ship,
       });
       await loadItems();
       setShowAddModal(false);
@@ -228,9 +220,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
         item_id: '',
         item_title: '',
         item_price: '',
-        item_image: '',
-        is_multi_spec: false,
-        is_multi_qty_ship: false
+        item_image: ''
       });
     } catch (error) {
       console.error('添加商品失败:', error);
@@ -366,10 +356,14 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   };
 
   const downloadPublishTemplate = () => {
-    const headers = ['账号ID', '标题', '描述', '价格', '原价', '库存', '邮费模式', '邮费', '图片', '自动创建发货规则', '卡密组ID', '发货数量'];
+    const headers = [
+      '账号ID', '标题', '描述', '价格', '原价', '库存', '邮费模式', '邮费', '图片',
+      '付款后自动发货', '付款后发送的卡密', '评价后发送赠品', '评价后发送的卡密',
+      '超时未评价时提醒', '发货几小时后提醒', '提醒内容', '最多提醒几次',
+    ];
     const rows = [
-      ['', '会员月卡自动发货', '下单后自动发货，请按说明使用。', '19.90', '29.90', '10', 'free', '', 'images/month-card-1.jpg;images/month-card-2.jpg', '是', '请填写卡密页看到的ID', '1'],
-      ['', '会员季卡自动发货', '支持自动发货。', '49.90', '', '10', 'fixed', '8.00', 'https://example.com/product.jpg', '否', '', '1'],
+      ['', '会员组合包自动发货', '下单后发送主卡和附赠卡。', '19.90', '29.90', '10', 'free', '', 'images/bundle-1.jpg;images/bundle-2.jpg', '是', '101:1;102:1', '是', '201:1;202:2', '是', '72', '亲，满意的话麻烦给个评价，谢谢～', '1'],
+      ['', '普通商品', '仅发布商品，不创建自动化规则。', '49.90', '', '10', 'fixed', '8.00', 'https://example.com/product.jpg', '否', '', '否', '', '否', '', '', ''],
     ];
     const csv = [headers, ...rows]
       .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
@@ -383,36 +377,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-  };
-
-  const toggleMultiSpec = async (item: Item) => {
-    const next = !Boolean(item.is_multi_spec);
-    setItems(prev => prev.map(i =>
-      i.cookie_id === item.cookie_id && i.item_id === item.item_id
-        ? { ...i, is_multi_spec: next }
-        : i
-    ));
-    try {
-      await setItemMultiSpec(item.cookie_id, item.item_id, next);
-    } catch (error) {
-      console.error('切换状态失败:', error);
-      await loadItems();
-    }
-  };
-
-  const toggleMultiQty = async (item: Item) => {
-    const next = !Boolean(item.is_multi_qty_ship);
-    setItems(prev => prev.map(i =>
-      i.cookie_id === item.cookie_id && i.item_id === item.item_id
-        ? { ...i, is_multi_qty_ship: next, multi_quantity_delivery: next }
-        : i
-    ));
-    try {
-      await setItemMultiQuantity(item.cookie_id, item.item_id, next);
-    } catch (error) {
-      console.error('切换状态失败:', error);
-      await loadItems();
-    }
   };
 
   const openAddModal = () => {
@@ -508,23 +472,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white border border-blue-100 rounded-2xl p-5 flex items-start gap-4 shadow-sm">
-          <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#0094f7] flex items-center justify-center shrink-0"><Layers3 className="w-5 h-5" /></div>
-          <div>
-            <div className="font-extrabold text-gray-900">多规格：按买家选择匹配库存</div>
-            <p className="text-sm text-gray-500 mt-1 leading-6">开启后，在发货规则中配置“规格名称 + 规格值 → 卡密库存”，例如套餐 / 30天。</p>
-          </div>
-        </div>
-        <div className="bg-white border border-emerald-100 rounded-2xl p-5 flex items-start gap-4 shadow-sm">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0"><CopyPlus className="w-5 h-5" /></div>
-          <div>
-            <div className="font-extrabold text-gray-900">按购买数量发货：自动倍增份数</div>
-            <p className="text-sm text-gray-500 mt-1 leading-6">开启后，买家购买 3 件就执行规则 3 次；规则中的“每件份数”会继续相乘。</p>
-          </div>
-        </div>
-      </div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {items.map(item => {
             const linkedRules = rulesForItem(item);
@@ -556,7 +503,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                           </div>
                       )}
                       <div className="absolute top-2 left-2 bg-black/50 backdrop-blur-md text-white text-xs font-bold px-2 py-1 rounded-lg">
-                          ¥{item.item_price}
+                          {formatItemPrice(item.item_price)}
                       </div>
                   </div>
                   <h3 className="font-bold text-gray-900 line-clamp-2 text-sm mb-2 h-10">{item.item_title}</h3>
@@ -568,30 +515,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                       </span>
                   </div>
                   <div className="space-y-2 mt-auto">
-                      <button
-                        onClick={() => toggleMultiSpec(item)}
-                        aria-pressed={Boolean(item.is_multi_spec)}
-                        className={`w-full text-left flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl transition-colors border ${
-                          item.is_multi_spec
-                            ? 'bg-blue-50 text-blue-700 border-blue-200'
-                            : 'bg-gray-50 text-gray-600 border-gray-100 hover:border-gray-200'
-                        }`}
-                      >
-                        <span className="flex items-center gap-2"><Layers3 className="w-4 h-4" /><span><span className="block text-xs font-extrabold">多规格匹配</span><span className="block text-[11px] font-medium opacity-70 mt-0.5">按订单规格选择库存</span></span></span>
-                        <span className={`text-[10px] font-extrabold px-2 py-1 rounded-full ${item.is_multi_spec ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'}`}>{item.is_multi_spec ? '已开启' : '关闭'}</span>
-                      </button>
-                      <button
-                        onClick={() => toggleMultiQty(item)}
-                        aria-pressed={Boolean(item.is_multi_qty_ship)}
-                        className={`w-full text-left flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl transition-colors border ${
-                          item.is_multi_qty_ship
-                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                            : 'bg-gray-50 text-gray-600 border-gray-100 hover:border-gray-200'
-                        }`}
-                      >
-                        <span className="flex items-center gap-2"><CopyPlus className="w-4 h-4" /><span><span className="block text-xs font-extrabold">按购买数量发货</span><span className="block text-[11px] font-medium opacity-70 mt-0.5">购买几件就执行几次</span></span></span>
-                        <span className={`text-[10px] font-extrabold px-2 py-1 rounded-full ${item.is_multi_qty_ship ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-500'}`}>{item.is_multi_qty_ship ? '已开启' : '关闭'}</span>
-                      </button>
                       <button
                         onClick={() => onConfigureDelivery(item)}
                         className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-extrabold transition-all ${hasRule ? 'bg-gray-900 text-white hover:bg-black' : 'bg-[#0094f7] text-white hover:bg-[#0071e3] shadow-md shadow-blue-100'}`}
@@ -628,16 +551,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
               <input className="w-full ios-input px-4 py-3 rounded-xl" placeholder="价格" value={editForm.item_price || ''} onChange={e => setEditForm({...editForm, item_price: e.target.value})} />
               <input className="w-full ios-input px-4 py-3 rounded-xl" placeholder="分类" value={editForm.item_category || ''} onChange={e => setEditForm({...editForm, item_category: e.target.value})} />
               <textarea className="w-full ios-input px-4 py-3 rounded-xl h-28 resize-none" placeholder="描述" value={editForm.item_description || ''} onChange={e => setEditForm({...editForm, item_description: e.target.value})} />
-              <div className="grid grid-cols-2 gap-3">
-                <label className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl text-sm font-bold text-gray-700">
-                  <input type="checkbox" checked={Boolean(editForm.is_multi_spec)} onChange={e => setEditForm({...editForm, is_multi_spec: e.target.checked})} />
-                  多规格
-                </label>
-                <label className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl text-sm font-bold text-gray-700">
-                  <input type="checkbox" checked={Boolean(editForm.is_multi_qty_ship ?? editForm.multi_quantity_delivery)} onChange={e => setEditForm({...editForm, is_multi_qty_ship: e.target.checked})} />
-                  多数量发货
-                </label>
-              </div>
             </div>
             <div className="modal-footer">
               <button onClick={handleSaveEdit} className="w-full ios-btn-primary px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2">
@@ -686,16 +599,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
               <div className="space-y-2">
                 <label className="block text-sm font-bold text-gray-700">图片 URL</label>
                 <input className="w-full ios-input px-4 py-3 rounded-xl" placeholder="https://..." value={addForm.item_image} onChange={e => setAddForm({...addForm, item_image: e.target.value})} />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <label className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl text-sm font-bold text-gray-700">
-                  <input type="checkbox" checked={addForm.is_multi_spec} onChange={e => setAddForm({...addForm, is_multi_spec: e.target.checked})} />
-                  多规格
-                </label>
-                <label className="flex items-center gap-2 p-3 bg-gray-50 rounded-xl text-sm font-bold text-gray-700">
-                  <input type="checkbox" checked={addForm.is_multi_qty_ship} onChange={e => setAddForm({...addForm, is_multi_qty_ship: e.target.checked})} />
-                  多数量发货
-                </label>
               </div>
             </div>
             <div className="modal-footer">
@@ -891,35 +794,61 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                   <div className="rounded-2xl bg-gray-50 border border-gray-100 p-4 space-y-3">
                     <div>
                       <div className="text-sm font-extrabold text-gray-900">字段说明</div>
-                      <p className="text-xs text-gray-500 mt-1">必填字段缺失会在预检阶段拦截，不会发布。</p>
+                      <p className="text-xs text-gray-500 mt-1">照着下面的“什么时候填写”处理即可。预检发现问题时，会指出具体哪一行需要修改。</p>
+                    </div>
+
+                    <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-xs text-blue-950">
+                      <div className="text-sm font-extrabold">“付款后发送的卡密”怎么填</div>
+                      <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-3">
+                        <div className="rounded-lg bg-white/80 p-3">
+                          <code className="font-bold text-blue-700">101</code>
+                          <p className="mt-1 leading-5">从卡密组 101 立即发送 1 份。卡密组 ID 可以在“卡密库存”页面查看。</p>
+                        </div>
+                        <div className="rounded-lg bg-white/80 p-3">
+                          <code className="font-bold text-blue-700">101:2</code>
+                          <p className="mt-1 leading-5">每购买 1 件，就从卡密组 101 发送 2 份。买家购买 3 件时会发送 6 份。</p>
+                        </div>
+                        <div className="rounded-lg bg-white/80 p-3">
+                          <code className="font-bold text-blue-700">101:1:0;102:2:3</code>
+                          <p className="mt-1 leading-5">先立即发送卡密组 101 的 1 份，再等待 3 秒发送卡密组 102 的 2 份。</p>
+                        </div>
+                      </div>
+                      <p className="mt-3 leading-5 text-blue-800">
+                        每一组依次写“卡密组 ID : 每件发送几份 : 等待几秒”。份数不写时按 1 份处理，等待时间不写时立即发送。需要发送多种卡密时，用英文分号 <code className="font-bold">;</code> 隔开。
+                      </p>
                     </div>
                     <div className="overflow-x-auto rounded-xl border border-gray-100 bg-white">
                       <table className="w-full text-left text-xs">
                         <thead className="bg-gray-50 text-gray-500">
                           <tr>
                             <th className="px-3 py-2">字段</th>
-                            <th className="px-3 py-2">是否必填</th>
-                            <th className="px-3 py-2">说明</th>
+                            <th className="px-3 py-2">什么时候填写</th>
+                            <th className="px-3 py-2">填写方法</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50 text-gray-700">
                           {[
-                            ['账号ID', '可空', '空时使用上方选择的默认发布账号'],
-                            ['标题', '必填', '商品标题'],
-                            ['描述', '可空', '空时默认等于标题'],
-                            ['价格', '必填', '售价，例如 19.90'],
-                            ['原价', '可空', '展示原价，例如 29.90'],
-                            ['库存', '可空', '默认 1，必须大于 0'],
-                            ['邮费模式', '可空', '默认 free；支持 free / fixed'],
-                            ['邮费', '条件必填', '邮费模式 fixed 时填写，例如 8.00'],
-                            ['图片', '必填', 'zip 内相对路径或 URL，多张用英文分号分隔'],
-                            ['自动创建发货规则', '可空', '填 是/true/1 表示发布成功后创建自动发货规则'],
-                            ['卡密组ID', '条件必填', '自动创建发货规则=是 时必填；在“卡密库存”页复制'],
-                            ['发货数量', '可空', '默认 1，每个订单发送几份卡密'],
-                          ].map(([name, required, desc]) => (
+                            ['账号ID', '没有在上方选择默认账号时填写', '填写账号 ID；已经选择默认账号时可以留空'],
+                            ['标题', '每个商品都要填', '填写买家能看到的商品标题'],
+                            ['描述', '可以留空', '留空时会使用商品标题作为描述'],
+                            ['价格', '每个商品都要填', '只填数字，例如 19.90'],
+                            ['原价', '可以留空', '需要展示划线原价时填写，例如 29.90'],
+                            ['库存', '可以留空', '留空按 1 件处理；填写时必须大于 0'],
+                            ['邮费模式', '可以留空', '留空表示包邮；包邮填 free，固定邮费填 fixed'],
+                            ['邮费', '邮费模式填 fixed 时填写', '只填数字，例如 8.00'],
+                            ['图片', '每个商品都要填', '填写 zip 内图片路径或图片网址；多张图片用英文分号隔开'],
+                            ['付款后自动发货', '需要付款后自动发货时填写', '填“是”表示开启；不需要时填“否”或留空'],
+                            ['付款后发送的卡密', '“付款后自动发货”填“是”时填写', '从“卡密库存”页面取得卡密组 ID，按上方示例填写'],
+                            ['评价后发送赠品', '需要评价赠品时填写', '填“是”表示开启；不需要时填“否”或留空'],
+                            ['评价后发送的卡密', '“评价后发送赠品”填“是”时填写', '格式和付款后发送的卡密相同，也可以同时发送多个卡密组'],
+                            ['超时未评价时提醒', '需要自动求评价时填写', '填“是”表示开启；不需要时填“否”或留空'],
+                            ['发货几小时后提醒', '“超时未评价时提醒”填“是”时填写', '填写等待小时数；留空按 72 小时处理'],
+                            ['提醒内容', '“超时未评价时提醒”填“是”时填写', '填写要发送给买家的求评价消息'],
+                            ['最多提醒几次', '可以留空', '留空只提醒 1 次'],
+                          ].map(([name, when, desc]) => (
                             <tr key={name}>
                               <td className="px-3 py-2 font-bold text-gray-900 whitespace-nowrap">{name}</td>
-                              <td className={`px-3 py-2 whitespace-nowrap font-bold ${required === '必填' || required === '条件必填' ? 'text-red-600' : 'text-gray-500'}`}>{required}</td>
+                              <td className={`px-3 py-2 min-w-[210px] font-bold ${when === '每个商品都要填' ? 'text-red-600' : when === '可以留空' ? 'text-gray-500' : 'text-amber-700'}`}>{when}</td>
                               <td className="px-3 py-2 min-w-[260px]">{desc}</td>
                             </tr>
                           ))}

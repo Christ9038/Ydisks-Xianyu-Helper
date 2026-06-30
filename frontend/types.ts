@@ -76,6 +76,7 @@ export interface Order {
   quantity: number;
   amount: string;
   status: OrderStatus;
+  order_status?: OrderStatus;
   receiver_name?: string;
   receiver_phone?: string;
   receiver_address?: string;
@@ -131,19 +132,38 @@ export interface Item {
   created_at?: string;
 }
 
+export type AutomationTriggerType = 'order_paid' | 'buyer_reviewed' | 'review_missing_timeout';
+export type AutomationActionType = 'confirm_shipment' | 'send_card' | 'send_text';
+
 // Rules
 export interface ShippingRule {
   id: string;
   name: string;
-  item_keyword: string; // Matches item title
+  trigger_type: AutomationTriggerType;
+  item_keyword: string; // Legacy UI helper
   cookie_id?: string;
   item_id?: string;
   item_title?: string;
-  card_group_id: number; // ID from Card list
+  card_group_id: number; // First send_card action card id
   card_group_name?: string; // UI helper
   priority: number;
   enabled: boolean;
+  config_json?: string;
+  actions: AutomationAction[];
   variants: ShippingVariant[];
+}
+
+export interface AutomationAction {
+  id?: string;
+  action_type: AutomationActionType;
+  card_id?: number;
+  card_name?: string;
+  delivery_count?: number;
+  message_template?: string;
+  delay_seconds?: number;
+  config_json?: string;
+  enabled: boolean;
+  sort_order?: number;
 }
 
 export interface ShippingVariant {
@@ -155,6 +175,7 @@ export interface ShippingVariant {
   card_type?: Card['type'];
   delivery_count: number;
   enabled: boolean;
+  config_json?: string;
 }
 
 export interface ReplyRule {

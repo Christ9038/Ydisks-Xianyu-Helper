@@ -1,5 +1,4 @@
 // Package qrlogin 实现闲鱼扫码登录；风控验证场景可通过浏览器提取真实 cookie。
-// 移植自 Python utils/qr_login.py 的 QRLoginManager。
 package qrlogin
 
 import (
@@ -69,10 +68,10 @@ func (s *Session) isExpired() bool {
 	return time.Since(s.createdTime) > s.expireTime
 }
 
-// SidecarRefresher 由外部注入的浏览器刷新函数。
+// BrowserRefresher 由外部注入的浏览器刷新函数。
 // tmpCookies: 扫码临时 cookie；verificationURL: Chromium 打开后持有 session 等待验证。
 // onScreenshot: 每次截图时回调（data:image/png;base64,...），前端实时显示验证页画面。
-type SidecarRefresher func(ctx context.Context, tmpCookies, verificationURL string, onScreenshot func(string)) (realCookies string, unb string, err error)
+type BrowserRefresher func(ctx context.Context, tmpCookies, verificationURL string, onScreenshot func(string)) (realCookies string, unb string, err error)
 
 // Manager 扫码登录管理器。
 type Manager struct {
@@ -80,12 +79,12 @@ type Manager struct {
 	sessions map[string]*Session
 	httpc    *http.Client
 	logger   *slog.Logger
-	sidecar  SidecarRefresher // 可选：风控验证后用浏览器提取真实 cookie
+	browser  BrowserRefresher // 可选：风控验证后用浏览器提取真实 cookie
 }
 
-// SetSidecarRefresher 注入 sidecar 刷新函数（风控验证场景必需）。
-func (m *Manager) SetSidecarRefresher(f SidecarRefresher) {
-	m.sidecar = f
+// SetBrowserRefresher 注入浏览器刷新函数（风控验证场景必需）。
+func (m *Manager) SetBrowserRefresher(f BrowserRefresher) {
+	m.browser = f
 }
 
 // NewManager 构造。
@@ -102,7 +101,10 @@ func NewManager(logger *slog.Logger) *Manager {
 
 // GenerateQRCode 生成扫码登录二维码。返回 session_id + qr_code_url（base64 data URL）。
 func (m *Manager) GenerateQRCode(ctx context.Context) (sessionID string, qrCodeURL string, err error) {
-	sessionID = randomUUID()
+	sessionID, err = randomUUID()
+	if err != nil {
+		return "", "", fmt.Errorf("生成扫码会话 ID: %w", err)
+	}
 	sess := &Session{
 		SessionID:   sessionID,
 		Status:      "waiting",
@@ -186,8 +188,13 @@ func (m *Manager) GenerateQRCode(ctx context.Context) (sessionID string, qrCodeU
 	m.sessions[sessionID] = sess
 	m.mu.Unlock()
 
-	// 5. 后台轮询扫码状态。
-	go m.monitorQRStatus(context.Background(), sessionID)
+	// 5. 扫码会话独立于生成二维码的 HTTP 请求，但受会话有效期约束。
+	// #nosec G118 -- 后台任务必须跨越原请求，且由超时上下文保证退出。
+	go func() {
+		monitorCtx, cancel := context.WithTimeout(context.Background(), sess.expireTime)
+		defer cancel()
+		m.monitorQRStatus(monitorCtx, sessionID)
+	}()
 
 	m.logger.Info("二维码生成成功", "session_id", sessionID)
 	return sessionID, qrCodeURL, nil
@@ -222,19 +229,7 @@ func (m *Manager) GetSessionStatus(sessionID string) map[string]any {
 	return result
 }
 
-// CleanupExpired 清理过期会话。
-func (m *Manager) CleanupExpired() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for id, s := range m.sessions {
-		if s.isExpired() && s.Status != "success" {
-			delete(m.sessions, id)
-			m.logger.Info("清理过期扫码会话", "session_id", id)
-		}
-	}
-}
-
-// monitorQRStatus 后台轮询扫码状态（移植自 Python _monitor_qr_status）。
+// monitorQRStatus 后台轮询扫码状态。
 func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 	m.mu.Lock()
 	sess := m.sessions[sessionID]
@@ -266,8 +261,12 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 			time.Sleep(2 * time.Second)
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		closeErr := resp.Body.Close()
+		if readErr != nil || closeErr != nil {
+			m.logger.Warn("读取扫码状态响应失败", "read_err", readErr, "close_err", closeErr)
+			continue
+		}
 
 		var qrResult struct {
 			Content struct {
@@ -278,7 +277,10 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 				} `json:"data"`
 			} `json:"content"`
 		}
-		json.Unmarshal(body, &qrResult)
+		if err := json.Unmarshal(body, &qrResult); err != nil {
+			m.logger.Warn("解析扫码状态响应失败", "err", err)
+			continue
+		}
 
 		status := qrResult.Content.Data.QRCodeStatus
 		switch status {
@@ -298,11 +300,14 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 					// 用户在手机完成验证后，服务端回调打到这个 Chromium 页面（redirect 到 ivCheckLogin.htm），
 					// Chromium 才能拿到授权 session，再访问 /im 得到 unb。
 					// 不能等用户点按钮——那时验证已绑定到用户浏览器 session，与此 Chromium 无关。
-					if m.sidecar != nil {
-						sidecarFn := m.sidecar
+					if m.browser != nil {
+						browserFn := m.browser
 						cookieStr := cookieMarshal(sess.cookies)
 						verURL := sess.verificationURL
+						// #nosec G118 -- 浏览器验证必须跨越轮询请求，浏览器实现本身有超时限制。
 						go func() {
+							verifyCtx, cancel := context.WithTimeout(context.Background(), sess.expireTime)
+							defer cancel()
 							onScreenshot := func(dataURL string) {
 								m.mu.Lock()
 								if s, ok := m.sessions[sessionID]; ok {
@@ -310,7 +315,7 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 								}
 								m.mu.Unlock()
 							}
-							realCookies, unb, err := sidecarFn(context.Background(), cookieStr, verURL, onScreenshot)
+							realCookies, unb, err := browserFn(verifyCtx, cookieStr, verURL, onScreenshot)
 							m.mu.Lock()
 							defer m.mu.Unlock()
 							s, ok := m.sessions[sessionID]
@@ -374,7 +379,6 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 
 // CompleteVerification 用户完成风控验证后调用：先用扫码临时 cookie 访问 goofish.com/im，
 // 必要时再使用浏览器提取真实 cookie（含 unb）。
-// 移植自 Python refresh_cookies_from_qr_login 的核心，并保留浏览器兜底。
 func (m *Manager) CompleteVerification(ctx context.Context, sessionID string) (cookies string, unb string, err error) {
 	m.mu.Lock()
 	sess, ok := m.sessions[sessionID]
@@ -399,13 +403,15 @@ func (m *Manager) CompleteVerification(ctx context.Context, sessionID string) (c
 
 	resp, err := jarClient.Do(req)
 	if err != nil {
-		if m.sidecar == nil {
+		if m.browser == nil {
 			return "", "", fmt.Errorf("访问 goofish.com/im 失败: %w", err)
 		}
-		m.logger.Warn("纯 HTTP 访问 goofish.com/im 失败，改用 sidecar 提取", "session_id", sessionID, "err", err)
+		m.logger.Warn("纯 HTTP 访问 goofish.com/im 失败，改用浏览器提取", "session_id", sessionID, "err", err)
 	} else {
 		defer resp.Body.Close()
-		io.Copy(io.Discard, resp.Body)
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+			return "", "", fmt.Errorf("读取验证响应失败: %w", err)
+		}
 
 		// 收集 Set-Cookie。
 		for _, c := range resp.Cookies() {
@@ -416,9 +422,9 @@ func (m *Manager) CompleteVerification(ctx context.Context, sessionID string) (c
 		}
 	}
 
-	// 如果还没 unb 且没有 sidecar，再访问 mtop token API 触发（有时需要额外请求）。
-	// 有 sidecar 时直接走浏览器路径，避免在风控场景中重复纯 HTTP 请求。
-	if sess.unb == "" && m.sidecar == nil {
+	// 如果还没 unb 且没有浏览器刷新器，再访问 mtop token API 触发（有时需要额外请求）。
+	// 有浏览器刷新器时直接走浏览器路径，避免在风控场景中重复纯 HTTP 请求。
+	if sess.unb == "" && m.browser == nil {
 		m.logger.Info("首次访问未拿到 unb，尝试 mtop token API", "session_id", sessionID)
 		if err := m.getMH5TK(ctx, sess); err != nil {
 			m.logger.Warn("mtop token API 失败", "err", err)
@@ -433,30 +439,30 @@ func (m *Manager) CompleteVerification(ctx context.Context, sessionID string) (c
 	}
 
 	// 纯 HTTP 拿不到 unb（闲鱼真实 cookie 由页面 JS 异步下发），
-	// 风控验证后的 cookie 提取必须依赖 sidecar（playwright 浏览器）。
-	if m.sidecar == nil {
+	// 风控验证后的 cookie 提取必须依赖浏览器。
+	if m.browser == nil {
 		return "", "", fmt.Errorf("风控验证后的 cookie 提取需要浏览器支持（请勿使用 -no-browser 启动）")
 	}
 
-	m.logger.Info("纯 HTTP 未拿到 unb，调用 sidecar 浏览器提取", "session_id", sessionID)
-	realCookies, sidecarUNB, err := m.sidecar(ctx, cookieMarshal(sess.cookies), sess.verificationURL, nil)
+	m.logger.Info("纯 HTTP 未拿到 unb，调用浏览器提取", "session_id", sessionID)
+	realCookies, browserUNB, err := m.browser(ctx, cookieMarshal(sess.cookies), sess.verificationURL, nil)
 	if err != nil {
-		m.logger.Error("sidecar 提取失败", "err", err)
+		m.logger.Error("浏览器提取失败", "err", err)
 		return "", "", fmt.Errorf("浏览器提取 cookie 失败: %w", err)
 	}
 	parsedCookies := parseCookieStr(realCookies)
 	if len(parsedCookies) == 0 {
-		return "", "", fmt.Errorf("浏览器提取 cookie 失败: sidecar 未返回有效 cookie")
+		return "", "", fmt.Errorf("浏览器提取 cookie 失败: 未返回有效 cookie")
 	}
 	sess.cookies = parsedCookies
-	sess.unb = sidecarUNB
+	sess.unb = browserUNB
 	if sess.unb == "" {
 		sess.unb = sess.cookies["unb"]
 	}
 	if sess.unb == "" {
 		return "", "", fmt.Errorf("验证后仍未获取到 unb，可能验证未完成或临时 cookie 已失效")
 	}
-	m.logger.Info("sidecar 提取成功", "session_id", sessionID, "account_hash", logsafe.ID(sess.unb), "cookie_count", len(sess.cookies))
+	m.logger.Info("浏览器提取成功", "session_id", sessionID, "account_hash", logsafe.ID(sess.unb), "cookie_count", len(sess.cookies))
 
 	sess.Status = "success"
 	return cookieMarshal(sess.cookies), sess.unb, nil
@@ -473,7 +479,7 @@ func parseCookieStr(s string) map[string]string {
 	return m
 }
 
-// getMH5TK 获取 m_h5_tk（移植自 Python _get_mh5tk）。
+// getMH5TK 获取 m_h5_tk。
 func (m *Manager) getMH5TK(ctx context.Context, sess *Session) error {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, apiH5TK, nil)
 	m.setHeaders(req)
@@ -483,7 +489,9 @@ func (m *Manager) getMH5TK(ctx context.Context, sess *Session) error {
 		return err
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return err
+	}
 
 	// 合并 Set-Cookie。
 	for _, c := range resp.Cookies() {
@@ -522,7 +530,9 @@ func (m *Manager) getMH5TK(ctx context.Context, sess *Session) error {
 		return err
 	}
 	defer resp2.Body.Close()
-	io.Copy(io.Discard, resp2.Body)
+	if _, err := io.Copy(io.Discard, resp2.Body); err != nil {
+		return err
+	}
 
 	// 更新 cookie。
 	for _, c := range resp2.Cookies() {
@@ -531,7 +541,7 @@ func (m *Manager) getMH5TK(ctx context.Context, sess *Session) error {
 	return nil
 }
 
-// getLoginParams 获取登录表单参数（移植自 Python _get_login_params）。
+// getLoginParams 获取登录表单参数。
 func (m *Manager) getLoginParams(ctx context.Context, sess *Session) (map[string]string, error) {
 	params := url.Values{}
 	params.Set("lang", "zh_cn")
@@ -617,6 +627,7 @@ func (m *Manager) setHeaders(req *http.Request) {
 // ---- 工具函数 ----
 
 func md5hex(s string) string {
+	// #nosec G401 -- 闲鱼登录协议明确要求 MD5，不能替换为其他摘要算法。
 	h := md5.Sum([]byte(s))
 	return hex.EncodeToString(h[:])
 }
@@ -629,18 +640,15 @@ func cookieMarshal(cookies map[string]string) string {
 	return strings.Join(parts, "; ")
 }
 
-func randomUUID() string {
+func randomUUID() (string, error) {
 	b := make([]byte, 16)
 	if _, err := io.ReadFull(randReader, b); err != nil {
-		// 降级到时间种子（极少见）
-		for i := range b {
-			b[i] = byte(time.Now().UnixNano() >> (i * 8))
-		}
+		return "", err
 	}
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
 var randReader io.Reader = rand.Reader

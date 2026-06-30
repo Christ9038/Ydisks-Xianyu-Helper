@@ -161,10 +161,8 @@ func parseAPIResponse(od *OrderDetail, data map[string]any) {
 	}
 }
 
-var amountRE = regexp.MustCompile(`[\d.]+`)
 var currencyAmountRE = regexp.MustCompile(`[¥￥]\s*([0-9]+(?:\.[0-9]{1,2})?)`)
 var plainAmountRE = regexp.MustCompile(`^\s*([0-9]+(?:\.[0-9]{1,2})?)\s*$`)
-var orderTimeRE = regexp.MustCompile(`\d{4}[-/]\d{2}[-/]\d{2}\s+\d{2}:\d{2}(?::\d{2})?`)
 
 func parseDOMContent(page playwright.Page, od *OrderDetail) {
 	// 金额。

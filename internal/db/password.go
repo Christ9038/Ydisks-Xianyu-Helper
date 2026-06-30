@@ -21,7 +21,7 @@ func HashPassword(plain string) (string, error) {
 	return string(b), nil
 }
 
-// legacySHA256 复刻 Python 端 hashlib.sha256(password).hexdigest()，用于兼容老库。
+// legacySHA256 兼容旧数据库中的 SHA-256 密码摘要。
 func legacySHA256(plain string) string {
 	sum := sha256.Sum256([]byte(plain))
 	return hex.EncodeToString(sum[:])
@@ -36,6 +36,7 @@ func isLegacyHash(h string) bool {
 // VerifyPassword 校验明文与存储哈希。
 //   - bcrypt 哈希：bcrypt.CompareHashAndPassword
 //   - 老 SHA-256 哈希：逐字节对比（兼容老库）
+//
 // 返回 (matched, needsUpgrade)。needsUpgrade=true 表示命中老哈希、应升级到 bcrypt。
 func VerifyPassword(stored, plain string) (matched bool, needsUpgrade bool, err error) {
 	if isLegacyHash(stored) {
