@@ -1,4 +1,4 @@
-// Package server 实现 HTTP API 服务（chi 路由），移植自 Python reply_server.py 的 ~115 端点。
+// Package server 实现 HTTP API 服务（chi 路由）。
 // 复用 internal/auth 中间件、internal/db.Store、internal/account.Manager。
 // 端点按分组组织在同一 package 的多个 handler 文件中。
 package server
@@ -19,8 +19,10 @@ import (
 
 	"xianyu-go/internal/account"
 	"xianyu-go/internal/auth"
+	"xianyu-go/internal/automation"
 	"xianyu-go/internal/browser"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/notify"
 	"xianyu-go/internal/webui"
 	"xianyu-go/internal/xianyu/mtop"
 	"xianyu-go/internal/xianyu/qrlogin"
@@ -28,15 +30,17 @@ import (
 
 // Server 聚合 HTTP 服务依赖。
 type Server struct {
-	Store   *db.Store
-	Auth    *auth.Service
-	Manager *account.Manager
-	Browser *browser.Manager
-	MTop    *mtop.Client
-	QRLogin *qrlogin.Manager
-	Logger  *slog.Logger
-	WebDir  string // 前端静态资源目录（含 index.html）
-	Addr    string
+	Store      *db.Store
+	Auth       *auth.Service
+	Manager    *account.Manager
+	Automation *automation.Center
+	Browser    *browser.Manager
+	Notifier   *notify.Notifier
+	MTop       *mtop.Client
+	QRLogin    *qrlogin.Manager
+	Logger     *slog.Logger
+	WebDir     string // 前端静态资源目录（含 index.html）
+	Addr       string
 }
 
 // New 构造。bm 为浏览器管理器（风控验证后用浏览器提取 cookie；为 nil 则禁用浏览器自动化）。
@@ -46,7 +50,7 @@ func New(store *db.Store, manager *account.Manager, bm *browser.Manager, secure 
 	}
 	qrMgr := qrlogin.NewManager(logger)
 	if bm != nil {
-		qrMgr.SetSidecarRefresher(func(ctx context.Context, tmpCookies, verificationURL string, onScreenshot func(string)) (string, string, error) {
+		qrMgr.SetBrowserRefresher(func(ctx context.Context, tmpCookies, verificationURL string, onScreenshot func(string)) (string, string, error) {
 			return bm.QRCookieRefresh(ctx, tmpCookies, verificationURL, onScreenshot)
 		})
 	}
@@ -66,7 +70,6 @@ func New(store *db.Store, manager *account.Manager, bm *browser.Manager, secure 
 // Router 构建完整路由树。
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
-	r.Use(middleware.RealIP)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 	// 请求日志（精简）。
@@ -101,6 +104,8 @@ func (s *Server) Router() http.Handler {
 		s.mountAnalyticsReal(r)
 		// 卡密 + 发货规则
 		s.mountCardsReal(r)
+		// 自动化规则
+		s.mountAutomation(r)
 		// 商品
 		s.mountItemsReal(r)
 		// 关键字 + 指定商品回复
@@ -111,16 +116,16 @@ func (s *Server) Router() http.Handler {
 		// 通知
 		s.mountNotificationsReal(r)
 		// 系统设置（已认证）
-		s.mountSettings(r)
+		s.mountSettingsReal(r)
 		// AI 设置
-		s.mountAIReply(r)
+		s.mountAIReplyReal(r)
 		// 用户
-		s.mountUser(r)
+		s.mountUserReal(r)
 
 		// 管理员专用。
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireAdmin)
-			s.mountAdmin(r)
+			s.mountAdminReal(r)
 		})
 	})
 
@@ -247,22 +252,18 @@ func setNoStore(w http.ResponseWriter) {
 }
 
 // isAPIPath 判断是否为 API 路径（不应被 SPA 拦截）。
-// 覆盖前端 vite proxy 列表中的所有后端前缀。
+// 仅保留实际挂载的路由前缀，与 Router() 中的 mount* 一一对应。
 func isAPIPath(path string) bool {
 	apiPrefixes := []string{
 		"/api/", "/admin/", "/health", "/login", "/logout", "/verify",
 		"/change-password", "/change-admin-password", "/account/",
 		"/cookies", "/cookie/", "/orders", "/analytics",
-		"/cards", "/delivery-rules", "/items", "/keywords", "/default-replies", "/default-reply",
+		"/cards", "/automation-rules", "/items", "/keywords", "/default-replies", "/default-reply",
 		"/notification-channels", "/message-notifications",
-		"/system-settings", "/ai-reply", "/ai-reply-settings",
-		"/ai-models",
-		"/user-settings", "/logs", "/risk-control",
+		"/system-settings", "/ai-reply", "/ai-models",
+		"/user-settings",
 		"/item-reply", "/itemReplays",
-		"/register", "/registration-status", "/login-info-status",
-		"/qr-login", "/password-login", "/face-verification",
-		"/generate-captcha", "/verify-captcha", "/geetest", "/send-verification-code",
-		"/backup", "/upload-image", "/send-message", "/xianyu",
+		"/qr-login",
 		"/static/", // 静态资源（由 /static/* handler 处理，不进 catch-all）
 	}
 	for _, p := range apiPrefixes {
@@ -278,15 +279,19 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
-// 占位：各分组 mount 方法在 handlers 文件中实现。
-// 为避免大文件，mount* 方法分文件定义但属于 Server。
+// 各分组 mount*Real 方法在 handlers 文件中实现；为避免单文件过大，按业务域分文件。
 
 // Run 启动 HTTP 服务（阻塞）。
 func (s *Server) Run(ctx context.Context) error {
 	srv := &http.Server{
-		Addr:    s.Addr,
-		Handler: s.Router(),
+		Addr:              s.Addr,
+		Handler:           s.Router(),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      2 * time.Minute,
+		IdleTimeout:       2 * time.Minute,
 	}
+	// #nosec G118 -- 关闭协程由传入的服务生命周期上下文控制。
 	go func() {
 		<-ctx.Done()
 		shCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

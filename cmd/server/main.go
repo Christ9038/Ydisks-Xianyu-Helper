@@ -1,4 +1,4 @@
-// cmd/server 是闲鱼管家 Go 主进程入口。
+// Package main 是闲鱼管家 Go 主进程入口。
 // 启动：DB 迁移 → 加载账号引擎 → HTTP API 服务。
 //
 // 用法：
@@ -8,8 +8,8 @@
 //
 // 首次使用可直接用本二进制初始化管理员，不再需要单独 init-admin。
 //
-// 浏览器自动化（扫码风控验证、滑块、密码登录、搜索、订单抓取）内置 playwright-go，
-// 首次使用时自动下载 Chromium，无需手动启动 sidecar。加 -no-browser 可禁用。
+// 浏览器自动化（扫码风控验证、密码登录、订单抓取）内置 playwright-go，
+// 首次使用时自动下载 Chromium。加 -no-browser 可禁用。
 package main
 
 import (
@@ -25,9 +25,11 @@ import (
 	"time"
 
 	"xianyu-go/internal/account"
+	"xianyu-go/internal/automation"
 	"xianyu-go/internal/browser"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
+	"xianyu-go/internal/notify"
 	"xianyu-go/internal/server"
 )
 
@@ -36,7 +38,7 @@ func main() {
 	addr := flag.String("addr", ":8080", "HTTP 监听地址")
 	webDir := flag.String("web", "", "前端静态资源目录（含 index.html）")
 	secure := flag.Bool("secure", false, "HTTPS 模式（Cookie 加 Secure）")
-	noBrowser := flag.Bool("no-browser", false, "禁用内置浏览器自动化（扫码风控验证/滑块/搜索/订单抓取将不可用）")
+	noBrowser := flag.Bool("no-browser", false, "禁用内置浏览器自动化（扫码风控验证/密码登录/订单抓取将不可用）")
 	verbose := flag.Bool("v", false, "调试日志")
 	initAdmin := flag.Bool("init-admin", false, "初始化或重置 admin 管理员后退出")
 	adminEmail := flag.String("admin-email", "admin@example.com", "初始化 admin 的邮箱")
@@ -80,25 +82,46 @@ func main() {
 	if !*noBrowser {
 		bm = browser.NewManager(logger)
 	}
-	mgr := account.NewManager(store, &handlerAdapter{store: store, browser: bm, logger: logger}, logger)
+	var mgr *account.Manager
+	adapter := &handlerAdapter{store: store, browser: bm, logger: logger}
+	mgr = account.NewManager(store, adapter, logger)
+	autoCenter := automation.New(store, mgr, logger)
+	autoCenter.SetOrderDetailFetcher(adapter)
+	notifier := notify.New("", store, logger)
+	autoCenter.SetNotifier(notifier)
+	adapter.automation = autoCenter
 	if err := mgr.StartAll(ctx); err != nil {
 		logger.Error("启动账号引擎失败", "err", err)
 	}
+	go automation.NewScheduler(autoCenter).Run(ctx)
 
 	// 3) HTTP 服务。
 	srv := server.New(store, mgr, bm, *secure, *webDir, *addr, logger)
+	srv.Automation = autoCenter
+	srv.Notifier = notifier
 	if err := srv.Run(ctx); err != nil {
 		logger.Error("HTTP 服务退出", "err", err)
+		// 即便出错也尝试清理已启动的账号与浏览器。
+		mgr.StopAll()
+		if bm != nil {
+			_ = bm.Close()
+		}
 		os.Exit(1)
+	}
+	// HTTP 服务正常退出（ctx 取消触发 Shutdown）：停账号引擎、关浏览器。
+	mgr.StopAll()
+	if bm != nil {
+		_ = bm.Close()
 	}
 }
 
-// handlerAdapter 实现 engine.Handler，把系统消息/密码登录刷新接到浏览器。
-// 聊天消息的发货/回复由 Account 内部 DeliveryService/ReplyService 处理。
+// handlerAdapter 实现 engine.Handler，把系统消息、订单详情抓取和密码登录刷新接到浏览器。
+// 自动发货只走 automation.Center；用户聊天消息由 Account 内部 ReplyService 处理。
 type handlerAdapter struct {
-	store   *db.Store
-	browser *browser.Manager
-	logger  *slog.Logger
+	store      *db.Store
+	browser    *browser.Manager
+	logger     *slog.Logger
+	automation *automation.Center
 
 	mu             sync.Mutex
 	lastLoginByCID map[string]time.Time
@@ -110,28 +133,31 @@ func (h *handlerAdapter) HandleChatMessage(ctx context.Context, m engine.ChatMes
 	return nil
 }
 
-func (h *handlerAdapter) HandleSystemMessage(ctx context.Context, m engine.SystemMessage) error {
-	h.logger.Info("系统消息", "account", m.AccountID, "reminder", m.RedReminder)
-	return nil
+func (h *handlerAdapter) HandleSystemEvent(ctx context.Context, task automation.Task) error {
+	if h.automation == nil {
+		return nil
+	}
+	h.logger.Info("系统自动化事件", "account", task.AccountID, "trigger", task.TriggerType, "order_id", task.OrderID)
+	return h.automation.HandleTask(ctx, task)
 }
 
-// Fetch 实现 engine.OrderDetailFetcher。只在本地订单缺少规格时启动浏览器，
+// FetchOrderDetail 实现 automation.OrderDetailFetcher。只在本地订单缺少关键字段时启动浏览器，
 // 并将所有账号的详情请求串行化、至少间隔 3 秒，避免短时间高频访问闲鱼。
-func (h *handlerAdapter) Fetch(ctx context.Context, cookieID, orderID, itemID, buyerID, cookieStr string) (*engine.OrderDetail, error) {
+func (h *handlerAdapter) FetchOrderDetail(ctx context.Context, cookieID, orderID, itemID, buyerID, cookieStr string) (*automation.OrderDetail, error) {
 	if order, err := h.store.Orders.Get(ctx, orderID); err == nil && order != nil && order.Amount != "" && order.Quantity != "" &&
-		(!h.store.Items.IsMultiSpec(ctx, cookieID, itemID) || (order.SpecName != "" && order.SpecValue != "")) {
-		return &engine.OrderDetail{Quantity: order.Quantity, SpecName: order.SpecName, SpecValue: order.SpecValue, Amount: order.Amount, OrderStatus: order.OrderStatus}, nil
+		order.SpecName != "" && order.SpecValue != "" {
+		return &automation.OrderDetail{Quantity: order.Quantity, SpecName: order.SpecName, SpecValue: order.SpecValue, Amount: order.Amount, OrderStatus: order.OrderStatus}, nil
 	}
 	if h.browser == nil {
-		return nil, fmt.Errorf("订单缺少规格信息且浏览器自动化未启用")
+		return nil, fmt.Errorf("订单缺少规格/数量信息且浏览器自动化未启用")
 	}
 
 	h.orderFetchMu.Lock()
 	defer h.orderFetchMu.Unlock()
 	// 等锁期间其他流程可能已经补齐订单，再检查一次。
 	if order, err := h.store.Orders.Get(ctx, orderID); err == nil && order != nil && order.Amount != "" && order.Quantity != "" &&
-		(!h.store.Items.IsMultiSpec(ctx, cookieID, itemID) || (order.SpecName != "" && order.SpecValue != "")) {
-		return &engine.OrderDetail{Quantity: order.Quantity, SpecName: order.SpecName, SpecValue: order.SpecValue, Amount: order.Amount, OrderStatus: order.OrderStatus}, nil
+		order.SpecName != "" && order.SpecValue != "" {
+		return &automation.OrderDetail{Quantity: order.Quantity, SpecName: order.SpecName, SpecValue: order.SpecValue, Amount: order.Amount, OrderStatus: order.OrderStatus}, nil
 	}
 	if remain := 3*time.Second - time.Since(h.lastOrderFetch); !h.lastOrderFetch.IsZero() && remain > 0 {
 		timer := time.NewTimer(remain)
@@ -143,14 +169,14 @@ func (h *handlerAdapter) Fetch(ctx context.Context, cookieID, orderID, itemID, b
 		}
 	}
 	h.lastOrderFetch = time.Now()
-	detail, err := h.browser.FetchOrderDetail(ctx, orderID, cookieID, cookieStr, h.store.Items.IsMultiSpec(ctx, cookieID, itemID))
+	detail, err := h.browser.FetchOrderDetail(ctx, orderID, cookieID, cookieStr, true)
 	if err != nil {
 		return nil, err
 	}
 	if detail.UpdatedCookies != "" && detail.UpdatedCookies != cookieStr {
 		_ = h.store.Cookies.Save(ctx, cookieID, detail.UpdatedCookies, 0)
 	}
-	return &engine.OrderDetail{
+	return &automation.OrderDetail{
 		Quantity: detail.Quantity, SpecName: detail.SpecName, SpecValue: detail.SpecValue,
 		Amount: detail.Amount, OrderStatus: detail.OrderStatus,
 	}, nil

@@ -2,7 +2,7 @@
 // 从 DB 加载启用的闲鱼账号，为每个账号起一个 engine.Account goroutine，
 // 支持动态启停、状态查询、跨层 GetInstance（供 HTTP 手动发货等操作调用）。
 //
-// 对应 Python cookie_manager.CookieManager + XianyuLive._instances。
+// Manager 管理所有启用账号的运行实例。
 package account
 
 import (
@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
 )
@@ -137,19 +138,6 @@ func (m *Manager) Stop(cookieID string) {
 	m.logger.Info("账号已停止", "account", cookieID)
 }
 
-// StopAll 停止所有账号。
-func (m *Manager) StopAll() {
-	m.mu.Lock()
-	ids := make([]string, 0, len(m.accounts))
-	for id := range m.accounts {
-		ids = append(ids, id)
-	}
-	m.mu.Unlock()
-	for _, id := range ids {
-		m.Stop(id)
-	}
-}
-
 // GetInstance 跨层获取账号运行时（供 HTTP 手动发货等操作）。
 func (m *Manager) GetInstance(cookieID string) (*engine.Account, bool) {
 	m.mu.Lock()
@@ -161,20 +149,9 @@ func (m *Manager) GetInstance(cookieID string) (*engine.Account, bool) {
 	return ma.acc, true
 }
 
-// RunningAccounts 返回当前运行的账号 ID 列表（用于状态展示）。
-func (m *Manager) RunningAccounts() []string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	ids := make([]string, 0, len(m.accounts))
-	for id, ma := range m.accounts {
-		select {
-		case <-ma.done:
-			continue
-		default:
-			ids = append(ids, id)
-		}
-	}
-	return ids
+// Sender 实现 automation.SenderProvider，供自动化中心复用当前在线账号的 WS 发送能力。
+func (m *Manager) Sender(cookieID string) (automation.MessageSender, bool) {
+	return m.GetInstance(cookieID)
 }
 
 // RuntimeStatuses 返回所有已启动账号的实时状态快照。
@@ -210,4 +187,18 @@ func (m *Manager) Restart(ctx context.Context, cookieID string) error {
 		return fmt.Errorf("读取账号详情失败: %w", err)
 	}
 	return m.Start(ctx, cookieID, d.Value)
+}
+
+// StopAll 停止所有运行中的账号，用于进程优雅退出。
+// 先在锁内收集 cookieID 列表再解锁逐个停，避免持锁等待 goroutine 退出。
+func (m *Manager) StopAll() {
+	m.mu.Lock()
+	ids := make([]string, 0, len(m.accounts))
+	for id := range m.accounts {
+		ids = append(ids, id)
+	}
+	m.mu.Unlock()
+	for _, id := range ids {
+		m.Stop(id)
+	}
 }

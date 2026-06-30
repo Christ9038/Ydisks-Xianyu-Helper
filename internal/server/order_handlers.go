@@ -454,21 +454,21 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if req.ShipMode == "full_delivery" {
-			if s.Manager == nil {
+			if s.Manager == nil || s.Automation == nil {
 				failedCount++
-				results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "账号管理器未初始化"})
+				results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "自动化中心未初始化"})
 				continue
 			}
-			acc, running := s.Manager.GetInstance(order.CookieID)
-			if !running {
+			if _, running := s.Manager.GetInstance(order.CookieID); !running {
 				failedCount++
 				results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "该账号未在线运行，无法执行完整发货"})
 				continue
 			}
-			sent, err := acc.ManualFullDelivery(r.Context(), order)
+			sent, err := s.Automation.ManualFullDelivery(r.Context(), order)
 			if err != nil {
 				failedCount++
 				results = append(results, map[string]any{"order_id": orderID, "success": false, "message": err.Error()})
+				s.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID, "手动完整发货失败: "+err.Error())
 				continue
 			}
 			successCount++
@@ -477,6 +477,8 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 				"success":  true,
 				"message":  fmt.Sprintf("完整发货成功，已发送%d条卡券信息给买家", sent),
 			})
+			s.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID,
+				fmt.Sprintf("手动完整发货成功（订单 %s，已发送 %d 条）", orderID, sent))
 			continue
 		}
 		if s.MTop == nil {
@@ -488,6 +490,7 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			failedCount++
 			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "确认发货异常: " + err.Error()})
+			s.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID, "手动确认发货异常: "+err.Error())
 			continue
 		}
 		if updatedCookies != "" && updatedCookies != cookieValue {
@@ -505,6 +508,7 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 				msg += ": " + strings.Join(ret, "; ")
 			}
 			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": msg})
+			s.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID, "手动确认发货失败: "+msg)
 			continue
 		}
 		sysShip := true
@@ -526,6 +530,8 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 		})
 		successCount++
 		results = append(results, map[string]any{"order_id": orderID, "success": true, "message": "已成功修改闲鱼发货状态"})
+		s.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID,
+			fmt.Sprintf("手动确认发货成功（订单 %s）", orderID))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success":       failedCount == 0,
@@ -537,7 +543,7 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) importOrders(w http.ResponseWriter, r *http.Request) {
-	orders, err := parseImportedOrders(r)
+	orders, err := parseImportedOrders(w, r)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -644,6 +650,14 @@ func isStableOrderStatus(status string) bool {
 	}
 }
 
+// notifyDelivery 在 Notifier 已注入时发送发货结果通知，未注入则跳过。
+func (s *Server) notifyDelivery(cookieID, buyerID, itemID, chatID, message string) {
+	if s.Notifier == nil {
+		return
+	}
+	s.Notifier.NotifyDelivery(cookieID, "", buyerID, itemID, message, chatID)
+}
+
 func stringFromAny(v any) string {
 	switch x := v.(type) {
 	case nil:
@@ -668,9 +682,12 @@ func stringFromAny(v any) string {
 	}
 }
 
-func parseImportedOrders(r *http.Request) ([]map[string]any, error) {
+func parseImportedOrders(w http.ResponseWriter, r *http.Request) ([]map[string]any, error) {
 	ct := r.Header.Get("Content-Type")
 	if strings.HasPrefix(ct, "multipart/form-data") {
+		// 订单文件上限 32 MiB；MaxBytesReader 必须在 ParseMultipartForm 前应用。
+		r.Body = http.MaxBytesReader(w, r.Body, 32<<20)
+		// #nosec G120 -- 请求体已由 MaxBytesReader 限制为 32 MiB。
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
 			return nil, fmt.Errorf("解析上传文件失败: %w", err)
 		}
@@ -679,15 +696,21 @@ func parseImportedOrders(r *http.Request) ([]map[string]any, error) {
 			return nil, fmt.Errorf("缺少上传文件")
 		}
 		defer file.Close()
-		raw, err := io.ReadAll(file)
+		raw, err := io.ReadAll(io.LimitReader(file, (32<<20)+1))
 		if err != nil {
 			return nil, fmt.Errorf("读取上传文件失败: %w", err)
 		}
+		if len(raw) > 32<<20 {
+			return nil, fmt.Errorf("上传文件不能超过 32 MiB")
+		}
 		return parseImportedOrderBytes(raw, header.Filename)
 	}
-	raw, err := io.ReadAll(r.Body)
+	raw, err := io.ReadAll(io.LimitReader(r.Body, (32<<20)+1))
 	if err != nil {
 		return nil, fmt.Errorf("读取请求失败: %w", err)
+	}
+	if len(raw) > 32<<20 {
+		return nil, fmt.Errorf("导入内容不能超过 32 MiB")
 	}
 	return parseImportedOrderBytes(raw, "orders.json")
 }
