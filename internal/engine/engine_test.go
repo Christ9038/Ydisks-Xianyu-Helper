@@ -43,11 +43,11 @@ func (h *recordingHandler) OnAccountAlert(_ context.Context, _, _, _, _ string) 
 func newAccountForTest(t *testing.T) (*Account, *recordingHandler, *db.Store, func()) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	d, err := db.Open(context.Background(), dbPath)
+	d, _, err := db.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	store := db.NewStore(d)
+	store := db.NewStore(d, db.DialectSQLite)
 	store.Users.Create(context.Background(), "admin", "a@e.com", "pw")
 	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
 	store.Cookies.Save(context.Background(), "cid", "unb=123; _m_h5_tk=tk_1;", admin.ID)

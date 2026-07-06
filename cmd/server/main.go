@@ -34,7 +34,8 @@ import (
 )
 
 func main() {
-	dbPath := flag.String("db", "data/xianyu_data.db", "SQLite 数据库路径")
+	dbPath := flag.String("db", "data/xianyu_data.db", "SQLite 数据库路径（兼容旧用法）")
+	dbURL := flag.String("db-url", "", "数据库连接 URL（sqlite:// mysql:// postgres://），优先级高于 -db；也可用 DATABASE_URL 环境变量")
 	addr := flag.String("addr", ":8080", "HTTP 监听地址")
 	webDir := flag.String("web", "", "前端静态资源目录（含 index.html）")
 	secure := flag.Bool("secure", false, "HTTPS 模式（Cookie 加 Secure）")
@@ -44,6 +45,15 @@ func main() {
 	adminEmail := flag.String("admin-email", "admin@example.com", "初始化 admin 的邮箱")
 	adminPassword := flag.String("admin-password", "", "初始化/重置 admin 密码；也可用 XIANYU_ADMIN_PASSWORD 环境变量")
 	flag.Parse()
+
+	// 解析数据库连接：DATABASE_URL > -db-url > -db（SQLite 路径，向后兼容）。
+	resolvedDBURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if resolvedDBURL == "" {
+		resolvedDBURL = strings.TrimSpace(*dbURL)
+	}
+	if resolvedDBURL == "" {
+		resolvedDBURL = *dbPath
+	}
 
 	level := slog.LevelInfo
 	if *verbose {
@@ -55,13 +65,14 @@ func main() {
 	defer cancel()
 
 	// 1) DB。
-	database, err := db.Open(ctx, *dbPath)
+	database, dialect, err := db.Open(ctx, resolvedDBURL)
 	if err != nil {
 		logger.Error("打开数据库失败", "err", err)
 		os.Exit(1)
 	}
+	logger.Info("数据库已就绪", "dialect", dialect)
+	store := db.NewStore(database, dialect)
 	defer database.Close()
-	store := db.NewStore(database)
 
 	if *initAdmin {
 		if err := ensureAdmin(ctx, store, *adminEmail, *adminPassword); err != nil {

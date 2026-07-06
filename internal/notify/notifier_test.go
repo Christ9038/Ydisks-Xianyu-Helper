@@ -14,11 +14,11 @@ import (
 
 func newNotifyStore(t *testing.T) (*db.Store, func()) {
 	t.Helper()
-	d, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
+	d, _, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	s := db.NewStore(d)
+	s := db.NewStore(d, db.DialectSQLite)
 	s.Users.Create(context.Background(), "admin", "a@e.com", "pw")
 	admin, _ := s.Users.GetByUsername(context.Background(), "admin")
 	s.Cookies.Save(context.Background(), "cid", "unb=123; _m_h5_tk=tk_1;", admin.ID)

@@ -18,16 +18,26 @@ import (
 )
 
 func main() {
-	dbPath := flag.String("db", "data/xianyu_data.db", "SQLite 数据库路径")
+	dbPath := flag.String("db", "data/xianyu_data.db", "SQLite 数据库路径（兼容旧用法）")
+	dbURL := flag.String("db-url", "", "数据库连接 URL（sqlite:// mysql:// postgres://），优先级高于 -db；也可用 DATABASE_URL 环境变量")
 	flag.Parse()
 
+	// 解析数据库连接：DATABASE_URL > -db-url > -db。
+	resolved := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if resolved == "" {
+		resolved = strings.TrimSpace(*dbURL)
+	}
+	if resolved == "" {
+		resolved = *dbPath
+	}
+
 	ctx := context.Background()
-	database, err := db.Open(ctx, *dbPath)
+	database, dialect, err := db.Open(ctx, resolved)
 	if err != nil {
 		fatalf("打开数据库失败: %v", err)
 	}
 	defer database.Close()
-	store := db.NewStore(database)
+	store := db.NewStore(database, dialect)
 	users := store.Users
 
 	reader := bufio.NewReader(os.Stdin)

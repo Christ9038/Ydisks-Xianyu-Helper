@@ -14,7 +14,7 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 	dbPath := filepath.Join(tmp, "test.db")
 
 	ctx := context.Background()
-	db, err := Open(ctx, dbPath)
+	db, _, err := Open(ctx, dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	db2, err := Open(ctx, dbPath)
+	db2, _, err := Open(ctx, dbPath)
 	if err != nil {
 		t.Fatalf("二次 Open 幂等失败: %v", err)
 	}

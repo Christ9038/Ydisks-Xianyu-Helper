@@ -19,11 +19,11 @@ import (
 func newTestServer(t *testing.T) (*Server, *db.Store, func()) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	d, err := db.Open(context.Background(), dbPath)
+	d, _, err := db.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	store := db.NewStore(d)
+	store := db.NewStore(d, db.DialectSQLite)
 	store.Users.Create(context.Background(), "admin", "a@e.com", "pw")
 	store.Users.SetAdmin(context.Background(), "admin")
 	// 一个账号。

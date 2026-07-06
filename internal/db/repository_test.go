@@ -9,11 +9,11 @@ import (
 func newTestDB(t *testing.T) (*Store, func()) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := Open(context.Background(), dbPath)
+	db, _, err := Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	s := NewStore(db)
+	s := NewStore(db, DialectSQLite)
 	return s, func() { db.Close() }
 }
 

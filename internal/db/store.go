@@ -5,6 +5,7 @@ import "database/sql"
 // Store 聚合各 repository，供上层（HTTP server、account supervisor 等）统一持有。
 type Store struct {
 	DB             *sql.DB
+	Dialect        Dialect
 	Users          *Users
 	Sessions       *Sessions
 	Cookies        *Cookies
@@ -22,10 +23,11 @@ type Store struct {
 	PublishBatches *ItemPublishBatches
 }
 
-// NewStore 基于 *sql.DB 构造聚合 store。
-func NewStore(db *sql.DB) *Store {
+// NewStore 基于 *sql.DB 构造聚合 store。dialect 用于业务 SQL 方言分支。
+func NewStore(db *sql.DB, dialect Dialect) *Store {
 	return &Store{
 		DB:             db,
+		Dialect:        dialect,
 		Users:          &Users{DB: db},
 		Sessions:       &Sessions{DB: db},
 		Cookies:        &Cookies{DB: db},

@@ -14,11 +14,11 @@ import (
 func newAuth(t *testing.T) (*Service, func()) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	d, err := db.Open(context.Background(), dbPath)
+	d, _, err := db.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	store := db.NewStore(d)
+	store := db.NewStore(d, db.DialectSQLite)
 	// 初始化 admin。
 	if ok, _ := store.Users.Create(context.Background(), "admin", "a@e.com", "pw"); !ok {
 		t.Fatal("create admin")

@@ -41,11 +41,11 @@ func (f testFetcher) FetchOrderDetail(context.Context, string, string, string, s
 
 func newAutomationTestStore(t *testing.T) (*db.Store, func()) {
 	t.Helper()
-	database, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
+	database, _, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	store := db.NewStore(database)
+	store := db.NewStore(database, db.DialectSQLite)
 	if _, err := store.Users.Create(context.Background(), "admin", "admin@example.com", "pw"); err != nil {
 		t.Fatalf("create user: %v", err)
 	}

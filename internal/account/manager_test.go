@@ -22,12 +22,12 @@ func (noopHandler) OnAccountAlert(context.Context, string, string, string, strin
 // 用无效 cookie 让账号快速进入重连等待（不会真正连上），验证管理逻辑而非网络。
 func TestManagerStartStop(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	d, err := db.Open(context.Background(), dbPath)
+	d, _, err := db.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer d.Close()
-	store := db.NewStore(d)
+	store := db.NewStore(d, db.DialectSQLite)
 	store.Users.Create(context.Background(), "admin", "a@e.com", "pw")
 	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
 
@@ -76,12 +76,12 @@ func TestManagerStartStop(t *testing.T) {
 // TestManagerStopAll 验证 StopAll 停止所有运行中的账号，用于进程优雅退出。
 func TestManagerStopAll(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	d, err := db.Open(context.Background(), dbPath)
+	d, _, err := db.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer d.Close()
-	store := db.NewStore(d)
+	store := db.NewStore(d, db.DialectSQLite)
 	store.Users.Create(context.Background(), "admin", "a@e.com", "pw")
 	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
 	// 三个启用账号。
