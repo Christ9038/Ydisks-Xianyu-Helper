@@ -9,7 +9,8 @@ import (
 
 // Cookies 闲鱼账号（cookie）相关操作。
 type Cookies struct {
-	DB *sql.DB
+	DB      *sql.DB
+	Dialect Dialect
 }
 
 // Save 保存/更新 cookie。user_id 为 0 时：复用现有记录的 user_id，若无则报错
@@ -28,11 +29,12 @@ func (c *Cookies) Save(ctx context.Context, cookieID, cookieValue string, userID
 	}
 	_, err := c.DB.ExecContext(ctx,
 		`INSERT INTO cookies (id, value, user_id, updated_at)
-		 VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-		 ON CONFLICT(id) DO UPDATE SET
-		   value=excluded.value,
-		   user_id=excluded.user_id,
-		   updated_at=CURRENT_TIMESTAMP`,
+		 VALUES (?, ?, ?, CURRENT_TIMESTAMP)`+
+			dialectUpsert(c.Dialect, []string{"id"}, map[string]string{
+				"value":      "excluded.value",
+				"user_id":    "excluded.user_id",
+				"updated_at": "CURRENT_TIMESTAMP",
+			}),
 		cookieID, cookieValue, userID)
 	return err
 }

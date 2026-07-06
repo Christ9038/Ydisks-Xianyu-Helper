@@ -36,7 +36,10 @@ type Order struct {
 }
 
 // Orders 订单操作。
-type Orders struct{ DB *sql.DB }
+type Orders struct {
+	DB      *sql.DB
+	Dialect Dialect
+}
 
 // Upsert 插入或更新订单。仅更新提供的非零字段（INSERT OR IGNORE 占位 + 动态 UPDATE）。
 // 注：orders.version 列当前仅作占位读取，不参与并发控制——SQLite 单写者序列化写入，
@@ -45,10 +48,10 @@ func (o *Orders) Upsert(ctx context.Context, orderID string, opts OrderUpsertOpt
 	if orderID == "" {
 		return errors.New("order_id 不能为空")
 	}
-	// 先尝试 INSERT OR IGNORE 占位。
+	// 先尝试插入占位（冲突忽略）。order_id 是主键。
 	_, err := o.DB.ExecContext(ctx,
-		`INSERT OR IGNORE INTO orders (order_id, item_id, buyer_id, cookie_id, order_status, version)
-		 VALUES (?, ?, ?, ?, 'unknown', 1)`,
+		dialectInsertIgnorePrefix(o.Dialect)+` INTO orders (order_id, item_id, buyer_id, cookie_id, order_status, version)
+		 VALUES (?, ?, ?, ?, 'unknown', 1)`+dialectInsertIgnore(o.Dialect, []string{"order_id"}),
 		orderID, opts.ItemID, opts.BuyerID, opts.CookieID)
 	if err != nil {
 		return err

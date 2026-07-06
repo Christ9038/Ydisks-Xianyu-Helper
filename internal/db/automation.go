@@ -11,7 +11,10 @@ import (
 //
 // 自动化中心不区分触发来源：WS 系统事件、计划任务、后台手动触发都通过
 // trigger_type + action 编排表达；真正的防重由 automation_runs.trigger_key 保证。
-type AutomationRules struct{ DB *sql.DB }
+type AutomationRules struct {
+	DB      *sql.DB
+	Dialect Dialect
+}
 
 // AutomationRule 是一条自动化规则。规则只描述“什么时候、对哪个商品生效”，
 // 具体做什么放在 AutomationAction 中，便于组合付款发货、评价赠品、求评价等流程。
@@ -247,10 +250,10 @@ SELECT a.id,a.rule_id,a.action_type,COALESCE(a.card_id,0),COALESCE(c.name,''),a.
 // TryStartRun 以 UNIQUE(rule_id, trigger_key) 作为持久化防重。
 // 返回 started=false 表示该规则对该触发已执行或正在执行，调用方应直接跳过。
 func (a *AutomationRules) TryStartRun(ctx context.Context, run AutomationRun) (int64, bool, error) {
-	res, err := a.DB.ExecContext(ctx, `
-INSERT OR IGNORE INTO automation_runs
+	res, err := a.DB.ExecContext(ctx,
+		dialectInsertIgnorePrefix(a.Dialect)+` INTO automation_runs
     (rule_id,cookie_id,item_id,order_id,buyer_id,chat_id,trigger_type,trigger_key,status,raw_event_json)
-VALUES (?,?,?,?,?,?,?,?,?,?)`,
+VALUES (?,?,?,?,?,?,?,?,?,?)`+dialectInsertIgnore(a.Dialect, []string{"rule_id", "trigger_key"}),
 		run.RuleID, run.CookieID, run.ItemID, run.OrderID, run.BuyerID, run.ChatID, run.TriggerType,
 		run.TriggerKey, "running", validJSON(run.RawEventJSON))
 	if err != nil {

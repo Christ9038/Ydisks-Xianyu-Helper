@@ -1,10 +1,9 @@
 -- +goose Up
 -- +goose StatementBegin
-ALTER TABLE cookies ADD COLUMN nickname TEXT DEFAULT '';
-ALTER TABLE cookies ADD COLUMN avatar_url TEXT DEFAULT '';
+ALTER TABLE cookies ADD COLUMN nickname VARCHAR(255) DEFAULT '';
+ALTER TABLE cookies ADD COLUMN avatar_url TEXT;
 ALTER TABLE cookies ADD COLUMN updated_at TIMESTAMP;
-UPDATE cookies
-SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP);
+UPDATE cookies SET updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP);
 -- +goose StatementEnd
 
 -- +goose Down

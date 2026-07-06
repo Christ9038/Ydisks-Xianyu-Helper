@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
+	"xianyu-go/internal/db"
 )
 
 // btoi bool→int（SQLite 无原生 bool）。
@@ -61,8 +63,14 @@ func (s *Server) setDefaultReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err := s.Store.DB.ExecContext(r.Context(),
-		`INSERT OR REPLACE INTO default_replies (cookie_id, enabled, reply_content, reply_image_url, reply_once, updated_at)
-		 VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)`,
+		`INSERT INTO default_replies (cookie_id, enabled, reply_content, reply_image_url, reply_once, updated_at)
+		 VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)`+db.DialectUpsert(s.Store.Dialect, []string{"cookie_id"}, map[string]string{
+			"enabled":         "EXCLUDED.enabled",
+			"reply_content":   "EXCLUDED.reply_content",
+			"reply_image_url": "EXCLUDED.reply_image_url",
+			"reply_once":      "EXCLUDED.reply_once",
+			"updated_at":      "CURRENT_TIMESTAMP",
+		}),
 		cid, btoi(req.Enabled), req.ReplyContent, nullIfEmpty(req.ReplyImageURL), btoi(req.ReplyOnce))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")

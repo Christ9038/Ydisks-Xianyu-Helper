@@ -14,7 +14,10 @@ type NotificationChannel struct {
 }
 
 // Notifications 通知绑定操作。
-type Notifications struct{ DB *sql.DB }
+type Notifications struct {
+	DB      *sql.DB
+	Dialect Dialect
+}
 
 // AccountChannels 取某账号已启用的通知渠道（message_notifications JOIN notification_channels）。
 // 移植自 get_account_notifications。

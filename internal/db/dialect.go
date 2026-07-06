@@ -1,0 +1,92 @@
+package db
+
+import "strings"
+
+// DialectUpsert 生成 UPSERT 子句，处理三种数据库的语法差异。
+//
+// SQLite/Postgres: ON CONFLICT (conflictCols) DO UPDATE SET col=expr, ...
+//	MySQL:           ON DUPLICATE KEY UPDATE col=expr, ...
+//
+// updateAssignments 是 列名 -> SQL表达式 的映射。表达式里用 "EXCLUDED.col"
+// 表示插入值（SQLite/Postgres 语法），MySQL 下自动转成 "VALUES(col)"。
+// 其他表达式（如 "CURRENT_TIMESTAMP"）原样保留。
+func DialectUpsert(d Dialect, conflictCols []string, updateAssignments map[string]string) string {
+	if len(conflictCols) == 0 || len(updateAssignments) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(updateAssignments))
+	for k := range updateAssignments {
+		keys = append(keys, k)
+	}
+	sortStrings(keys)
+	sets := make([]string, 0, len(keys))
+	for _, col := range keys {
+		expr := updateAssignments[col]
+		if d == DialectMySQL {
+			if strings.HasPrefix(expr, "EXCLUDED.") {
+				field := strings.TrimPrefix(expr, "EXCLUDED.")
+				expr = "VALUES(" + field + ")"
+			}
+		}
+		sets = append(sets, col+"="+expr)
+	}
+	switch d {
+	case DialectMySQL:
+		return " ON DUPLICATE KEY UPDATE " + strings.Join(sets, ", ")
+	default:
+		return " ON CONFLICT (" + strings.Join(conflictCols, ", ") + ") DO UPDATE SET " + strings.Join(sets, ", ")
+	}
+}
+
+// dialectUpsert 包内别名（db 包内部用小写）。
+func dialectUpsert(d Dialect, cols []string, m map[string]string) string {
+	return DialectUpsert(d, cols, m)
+}
+
+// DialectInsertIgnore 返回"冲突即忽略"子句（VALUES 之后拼接）。
+//
+//	SQLite/Postgres: ON CONFLICT (cols) DO NOTHING
+//	MySQL: 空（调用方应用 DialectInsertIgnorePrefix）
+func DialectInsertIgnore(d Dialect, conflictCols []string) string {
+	if d == DialectMySQL {
+		return ""
+	}
+	if len(conflictCols) == 0 {
+		return ""
+	}
+	return " ON CONFLICT (" + strings.Join(conflictCols, ", ") + ") DO NOTHING"
+}
+
+func dialectInsertIgnore(d Dialect, cols []string) string { return DialectInsertIgnore(d, cols) }
+
+// DialectInsertIgnorePrefix 返回 INSERT 前缀（MySQL 用 INSERT IGNORE）。
+func DialectInsertIgnorePrefix(d Dialect) string {
+	if d == DialectMySQL {
+		return "INSERT IGNORE"
+	}
+	return "INSERT"
+}
+
+func dialectInsertIgnorePrefix(d Dialect) string { return DialectInsertIgnorePrefix(d) }
+
+// DialectQuote 返回方言下的标识符引用。
+//
+//	SQLite/MySQL: `name`（反引号）
+//	Postgres:     "name"（双引号）
+func DialectQuote(d Dialect, name string) string {
+	if d == DialectPostgres {
+		return "\"" + name + "\""
+	}
+	return "`" + name + "`"
+}
+
+func dialectQuote(d Dialect, name string) string { return DialectQuote(d, name) }
+
+// sortStrings 原地排序字符串切片。
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j-1] > s[j]; j-- {
+			s[j-1], s[j] = s[j], s[j-1]
+		}
+	}
+}

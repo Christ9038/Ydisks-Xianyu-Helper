@@ -54,7 +54,10 @@ func (k *Keywords) AllWithType(ctx context.Context, cookieID string) ([]Keyword,
 }
 
 // DefaultReplies 默认回复操作。
-type DefaultReplies struct{ DB *sql.DB }
+type DefaultReplies struct {
+	DB      *sql.DB
+	Dialect Dialect
+}
 
 // Get 取某账号默认回复设置。不存在返回 ErrNotFound。
 func (d *DefaultReplies) Get(ctx context.Context, cookieID string) (*DefaultReply, error) {
@@ -89,13 +92,16 @@ func (d *DefaultReplies) HasRecord(ctx context.Context, cookieID, chatID string)
 // AddRecord 记录已回复（reply_once 防重复）。
 func (d *DefaultReplies) AddRecord(ctx context.Context, cookieID, chatID string) error {
 	_, err := d.DB.ExecContext(ctx,
-		`INSERT OR IGNORE INTO default_reply_records (cookie_id, chat_id) VALUES (?, ?)`,
+		dialectInsertIgnorePrefix(d.Dialect)+` INTO default_reply_records (cookie_id, chat_id) VALUES (?, ?)`+dialectInsertIgnore(d.Dialect, []string{"cookie_id", "chat_id"}),
 		cookieID, chatID)
 	return err
 }
 
 // ItemReplies 指定商品回复操作。
-type ItemReplies struct{ DB *sql.DB }
+type ItemReplies struct {
+	DB      *sql.DB
+	Dialect Dialect
+}
 
 // Get 取某账号某商品的指定回复。
 func (i *ItemReplies) Get(ctx context.Context, cookieID, itemID string) (*ItemReply, error) {

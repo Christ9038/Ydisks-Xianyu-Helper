@@ -82,10 +82,21 @@ func (k *Keywords) DeleteByIndex(ctx context.Context, cookieID string, index int
 
 // Set 设置指定商品回复。
 func (i *ItemReplies) Set(ctx context.Context, cookieID, itemID, content string) error {
-	_, err := i.DB.ExecContext(ctx,
-		`INSERT OR REPLACE INTO item_replay (item_id, cookie_id, reply_content, updated_at)
-		 VALUES (?,?,?,CURRENT_TIMESTAMP)`, itemID, cookieID, content)
-	return err
+	tx, err := i.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// 先删后插，跨 SQLite/MySQL/Postgres 一致（item_replay 无自然唯一键）。
+	if _, err := tx.ExecContext(ctx, `DELETE FROM item_replay WHERE cookie_id=? AND item_id=?`, cookieID, itemID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO item_replay (item_id, cookie_id, reply_content, updated_at)
+		 VALUES (?,?,?,CURRENT_TIMESTAMP)`, itemID, cookieID, content); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // Delete 删除指定商品回复。
@@ -218,7 +229,7 @@ func (n *Notifications) SetBindings(ctx context.Context, cookieID string, channe
 	}
 	for _, cid := range channelIDs {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT OR IGNORE INTO message_notifications (cookie_id, channel_id, enabled) VALUES (?,?,1)`,
+			`INSERT INTO message_notifications (cookie_id, channel_id, enabled) VALUES (?,?,1)`,
 			cookieID, cid); err != nil {
 			return err
 		}
@@ -229,7 +240,10 @@ func (n *Notifications) SetBindings(ctx context.Context, cookieID string, channe
 // ---- 系统设置 ----
 
 // SystemSettings 系统设置操作。
-type SystemSettings struct{ DB *sql.DB }
+type SystemSettings struct {
+	DB      *sql.DB
+	Dialect Dialect
+}
 
 // Get 取单项设置。
 func (s *SystemSettings) Get(ctx context.Context, key string) (string, error) {
@@ -264,8 +278,13 @@ func (s *SystemSettings) All(ctx context.Context) (map[string]string, error) {
 
 // Set 设置单项。
 func (s *SystemSettings) Set(ctx context.Context, key, value string) error {
+	keyCol := dialectQuote(s.Dialect, "key")
 	_, err := s.DB.ExecContext(ctx,
-		`INSERT OR REPLACE INTO system_settings (key, value, updated_at) VALUES (?,?,CURRENT_TIMESTAMP)`,
+		`INSERT INTO system_settings (`+keyCol+`, value, updated_at) VALUES (?,?,CURRENT_TIMESTAMP)`+
+			dialectUpsert(s.Dialect, []string{keyCol}, map[string]string{
+				"value":      "EXCLUDED.value",
+				"updated_at": "CURRENT_TIMESTAMP",
+			}),
 		key, value)
 	return err
 }
@@ -336,9 +355,19 @@ func (i *Items) AllForCookie(ctx context.Context, cookieID string) ([]ItemInfoRo
 // Upsert 插入或更新商品信息。
 func (i *Items) Upsert(ctx context.Context, r *ItemInfoRow) error {
 	_, err := i.DB.ExecContext(ctx,
-		`INSERT OR REPLACE INTO item_info (cookie_id, item_id, item_title, item_description,
+		`INSERT INTO item_info (cookie_id, item_id, item_title, item_description,
 		    item_category, item_price, item_detail, is_multi_spec, multi_quantity_delivery, updated_at)
-		 VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`,
+		 VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`+
+			dialectUpsert(i.Dialect, []string{"cookie_id", "item_id"}, map[string]string{
+				"item_title":              "EXCLUDED.item_title",
+				"item_description":        "EXCLUDED.item_description",
+				"item_category":           "EXCLUDED.item_category",
+				"item_price":              "EXCLUDED.item_price",
+				"item_detail":             "EXCLUDED.item_detail",
+				"is_multi_spec":           "EXCLUDED.is_multi_spec",
+				"multi_quantity_delivery": "EXCLUDED.multi_quantity_delivery",
+				"updated_at":              "CURRENT_TIMESTAMP",
+			}),
 		r.CookieID, r.ItemID, nullable(r.ItemTitle), nullable(r.ItemDescription),
 		nullable(r.ItemCategory), nullable(r.ItemPrice), nullable(r.ItemDetail),
 		boolToInt(r.IsMultiSpec), boolToInt(r.MultiQuantityDelivery))

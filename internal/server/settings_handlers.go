@@ -140,14 +140,14 @@ func (s *Server) setAIReply(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO ai_reply_settings
 		 (cookie_id, ai_enabled, max_discount_percent, max_discount_amount,
 		  max_bargain_rounds, custom_prompts, updated_at)
-		 VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)
-		 ON CONFLICT(cookie_id) DO UPDATE SET
-		   ai_enabled=excluded.ai_enabled,
-		   max_discount_percent=excluded.max_discount_percent,
-		   max_discount_amount=excluded.max_discount_amount,
-		   max_bargain_rounds=excluded.max_bargain_rounds,
-		   custom_prompts=excluded.custom_prompts,
-		   updated_at=CURRENT_TIMESTAMP`,
+		 VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)`+db.DialectUpsert(s.Store.Dialect, []string{"cookie_id"}, map[string]string{
+			"ai_enabled":            "EXCLUDED.ai_enabled",
+			"max_discount_percent":  "EXCLUDED.max_discount_percent",
+			"max_discount_amount":   "EXCLUDED.max_discount_amount",
+			"max_bargain_rounds":    "EXCLUDED.max_bargain_rounds",
+			"custom_prompts":        "EXCLUDED.custom_prompts",
+			"updated_at":            "CURRENT_TIMESTAMP",
+		}),
 		cid, btoi(req.AIEnabled), req.MaxDiscountPercent, req.MaxDiscountAmount,
 		req.MaxBargainRounds, nullIfEmpty(req.CustomPrompts))
 	if err != nil {
@@ -326,8 +326,13 @@ func (s *Server) setUserSetting(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
+	keyCol := db.DialectQuote(s.Store.Dialect, "key")
 	_, err := s.Store.DB.ExecContext(r.Context(),
-		`INSERT OR REPLACE INTO user_settings (user_id, key, value, updated_at) VALUES (?,?,?,CURRENT_TIMESTAMP)`,
+		`INSERT INTO user_settings (user_id, `+keyCol+`, value, updated_at) VALUES (?,?,?,CURRENT_TIMESTAMP)`+
+			db.DialectUpsert(s.Store.Dialect, []string{"user_id", keyCol}, map[string]string{
+				"value":      "EXCLUDED.value",
+				"updated_at": "CURRENT_TIMESTAMP",
+			}),
 		sess.UserID, key, req.Value)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")

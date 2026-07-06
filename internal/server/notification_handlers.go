@@ -175,10 +175,10 @@ func (s *Server) setAccountBindings(w http.ResponseWriter, r *http.Request) {
 		}
 		_, err := s.Store.DB.ExecContext(r.Context(),
 			`INSERT INTO message_notifications (cookie_id, channel_id, enabled)
-			 VALUES (?, ?, ?)
-			 ON CONFLICT(cookie_id, channel_id) DO UPDATE SET
-			   enabled=excluded.enabled,
-			   updated_at=CURRENT_TIMESTAMP`,
+			 VALUES (?, ?, ?)`+db.DialectUpsert(s.Store.Dialect, []string{"cookie_id", "channel_id"}, map[string]string{
+				"enabled":     "EXCLUDED.enabled",
+				"updated_at": "CURRENT_TIMESTAMP",
+			}),
 			cid, req.ChannelID, btoi(enabled))
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "保存失败")

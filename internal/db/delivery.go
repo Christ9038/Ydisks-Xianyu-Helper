@@ -40,7 +40,10 @@ type Card struct {
 }
 
 // Items 商品信息操作。
-type Items struct{ DB *sql.DB }
+type Items struct {
+	DB      *sql.DB
+	Dialect Dialect
+}
 
 // Get 取某账号下某商品信息。不存在返回 ErrNotFound。
 func (i *Items) Get(ctx context.Context, cookieID, itemID string) (*ItemInfo, error) {
@@ -90,7 +93,10 @@ func (i *Items) MultiQuantityDelivery(ctx context.Context, cookieID, itemID stri
 }
 
 // Cards 卡券操作。
-type Cards struct{ DB *sql.DB }
+type Cards struct {
+	DB      *sql.DB
+	Dialect Dialect
+}
 
 // ConsumeBatchData 消费一条批量数据卡券（data 类型），返回内容。
 // ConsumeBatchData 取 data_content 第一行，删除已消费行，发完置空。

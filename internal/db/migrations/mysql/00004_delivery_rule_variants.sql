@@ -1,22 +1,22 @@
 -- +goose Up
 -- +goose StatementBegin
-ALTER TABLE delivery_rules ADD COLUMN cookie_id TEXT NOT NULL DEFAULT '';
-ALTER TABLE delivery_rules ADD COLUMN item_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE delivery_rules ADD COLUMN cookie_id VARCHAR(255) NOT NULL DEFAULT '';
+ALTER TABLE delivery_rules ADD COLUMN item_id VARCHAR(255) NOT NULL DEFAULT '';
 
 CREATE TABLE delivery_rule_variants (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    rule_id INTEGER NOT NULL,
-    spec_name TEXT NOT NULL DEFAULT '',
-    spec_value TEXT NOT NULL DEFAULT '',
-    card_id INTEGER NOT NULL,
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    rule_id BIGINT NOT NULL,
+    spec_name VARCHAR(255) NOT NULL DEFAULT '',
+    spec_value VARCHAR(255) NOT NULL DEFAULT '',
+    card_id BIGINT NOT NULL,
     delivery_count INTEGER NOT NULL DEFAULT 1,
-    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (rule_id) REFERENCES delivery_rules(id) ON DELETE CASCADE,
-    FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE RESTRICT,
-    UNIQUE(rule_id, spec_name, spec_value)
-);
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_delivery_rule_variants_rule FOREIGN KEY (rule_id) REFERENCES delivery_rules(id) ON DELETE CASCADE,
+    CONSTRAINT fk_delivery_rule_variants_card FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE RESTRICT,
+    UNIQUE KEY uk_delivery_rule_variants (rule_id, spec_name, spec_value)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE INDEX idx_delivery_rules_cookie_item ON delivery_rules(cookie_id, item_id);
 CREATE INDEX idx_delivery_rule_variants_rule ON delivery_rule_variants(rule_id);
@@ -38,7 +38,7 @@ JOIN cards c ON c.id = dr.card_id;
 -- +goose Down
 -- +goose StatementBegin
 DROP TABLE delivery_rule_variants;
-DROP INDEX IF EXISTS idx_delivery_rules_cookie_item;
+DROP INDEX idx_delivery_rules_cookie_item ON delivery_rules;
 ALTER TABLE delivery_rules DROP COLUMN item_id;
 ALTER TABLE delivery_rules DROP COLUMN cookie_id;
 -- +goose StatementEnd
