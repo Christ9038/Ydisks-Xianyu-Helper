@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -15,6 +16,7 @@ func (s *Server) mountNotificationsReal(r chi.Router) {
 	r.Post("/notification-channels", s.createChannel)
 	r.Put("/notification-channels/{channel_id}", s.updateChannel)
 	r.Delete("/notification-channels/{channel_id}", s.deleteChannel)
+	r.Post("/notification-channels/{channel_id}/test", s.testChannel)
 	r.Get("/message-notifications", s.listMessageNotifications)
 	r.Delete("/message-notifications/account/{cid}", s.deleteAccountNotifications)
 	r.Delete("/message-notifications/{notification_id}", s.deleteMessageNotification)
@@ -87,6 +89,26 @@ func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.Store.Notifications.DeleteChannel(r.Context(), id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+// testChannel 向指定渠道发送一条测试通知，便于用户验证配置是否正确。
+func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "channel_id"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "无效ID")
+		return
+	}
+	if s.Notifier == nil {
+		writeErr(w, http.StatusServiceUnavailable, "通知器未启用")
+		return
+	}
+	body := "🧪 通知渠道测试\n\n这是一条来自闲鱼助手的测试通知，收到说明渠道配置正常。\n时间: " +
+		time.Now().Format("2006-01-02 15:04:05")
+	if err := s.Notifier.SendToChannel(id, body); err != nil {
+		writeErr(w, http.StatusInternalServerError, "发送失败: "+err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})

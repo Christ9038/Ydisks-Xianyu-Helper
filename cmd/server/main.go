@@ -90,6 +90,7 @@ func main() {
 	notifier := notify.New("", store, logger)
 	autoCenter.SetNotifier(notifier)
 	adapter.automation = autoCenter
+	adapter.notifier = notifier
 	if err := mgr.StartAll(ctx); err != nil {
 		logger.Error("启动账号引擎失败", "err", err)
 	}
@@ -122,6 +123,7 @@ type handlerAdapter struct {
 	browser    *browser.Manager
 	logger     *slog.Logger
 	automation *automation.Center
+	notifier   *notify.Notifier
 
 	mu             sync.Mutex
 	lastLoginByCID map[string]time.Time
@@ -131,6 +133,16 @@ type handlerAdapter struct {
 
 func (h *handlerAdapter) HandleChatMessage(ctx context.Context, m engine.ChatMessage) error {
 	return nil
+}
+
+// OnAccountAlert 把账号告警（token 失效/自动恢复失败/风控验证等）转发给通知器，
+// 推送到该账号已绑定的通知渠道。
+func (h *handlerAdapter) OnAccountAlert(_ context.Context, cookieID, level, title, body string) {
+	if h.notifier == nil {
+		h.logger.Warn("告警通知未发送：通知器未注入", "account", cookieID, "level", level, "title", title)
+		return
+	}
+	h.notifier.NotifyAccountAlert(cookieID, level, title, body)
 }
 
 func (h *handlerAdapter) HandleSystemEvent(ctx context.Context, task automation.Task) error {

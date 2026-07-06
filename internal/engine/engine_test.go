@@ -38,6 +38,7 @@ func (h *recordingHandler) OnPasswordLoginRefresh(_ context.Context, _ string) b
 	h.refresh++
 	return true
 }
+func (h *recordingHandler) OnAccountAlert(_ context.Context, _, _, _, _ string) {}
 
 func newAccountForTest(t *testing.T) (*Account, *recordingHandler, *db.Store, func()) {
 	t.Helper()
@@ -305,13 +306,13 @@ func TestRuntimeStatusClassifiesAuthenticationFailures(t *testing.T) {
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 
-	acc.setRuntimeError(fmt.Errorf("token API 登录凭证已失效: FAIL_SYS_TOKEN_EXOIRED"))
+	acc.setRuntimeError(context.Background(), fmt.Errorf("token API 登录凭证已失效: FAIL_SYS_TOKEN_EXOIRED"))
 	status := acc.RuntimeStatus()
 	if status.State != RuntimeAuthExpired || status.Connected {
 		t.Fatalf("status=%+v", status)
 	}
 
-	acc.setRuntimeError(fmt.Errorf("FAIL_SYS_USER_VALIDATE: captcha required"))
+	acc.setRuntimeError(context.Background(), fmt.Errorf("FAIL_SYS_USER_VALIDATE: captcha required"))
 	status = acc.RuntimeStatus()
 	if status.State != RuntimeVerificationRequired {
 		t.Fatalf("status=%+v", status)

@@ -308,6 +308,24 @@ export const getCardDetails = async (cardId: string | number): Promise<any> => {
   return normalizeCard(card);
 };
 
+// 批量创建卡密组（上传表格）
+export const batchCreateCards = async (file: File): Promise<{
+  success: boolean;
+  total: number;
+  created: number;
+  failed: number;
+  rows: { row_no: number; success: boolean; id?: number; name: string; type?: string; error?: string }[];
+}> => {
+  const body = new FormData();
+  body.append('file', file);
+  return postForm('/cards/batch', body);
+};
+
+// 往 data 类型卡密组批量追加卡密号
+export const appendCardData = async (cardId: string | number, content: string): Promise<{ success: boolean; added: number }> => {
+  return post(`/cards/${cardId}/append-data`, { content });
+};
+
 // Items
 const normalizeBooleanFlag = (value: unknown): boolean =>
     value === true || value === 1 || value === '1';
@@ -638,7 +656,7 @@ export const createNotificationChannel = async (data: { name: string; type: stri
   });
 }
 
-export const updateNotificationChannel = async (channelId: string, data: { name?: string; config?: Record<string, unknown>; enabled?: boolean }): Promise<ApiResponse> => {
+export const updateNotificationChannel = async (channelId: string, data: { name?: string; type?: string; config?: Record<string, unknown>; enabled?: boolean }): Promise<ApiResponse> => {
   const payload: Record<string, unknown> = { ...data };
   if ('config' in data) {
     payload.config = JSON.stringify(data.config);
@@ -679,6 +697,21 @@ export const deleteMessageNotification = async (notificationId: string): Promise
 
 export const deleteAccountNotifications = async (cookieId: string): Promise<ApiResponse> => {
   return del(`/message-notifications/account/${cookieId}`);
+}
+
+// 账号 ↔ 渠道 绑定（覆盖式）
+export const getAccountBindings = async (cookieId: string): Promise<number[]> => {
+  const result = await get<{ cookie_id: string; channel_ids: number[] }>(`/message-notifications/${cookieId}`);
+  return result?.channel_ids || [];
+}
+
+export const setAccountBindings = async (cookieId: string, channelIds: number[]): Promise<ApiResponse> => {
+  return post(`/message-notifications/${cookieId}`, { channel_ids: channelIds });
+}
+
+// 测试发送
+export const testNotificationChannel = async (channelId: string): Promise<ApiResponse> => {
+  return post(`/notification-channels/${channelId}/test`, {});
 }
 
 // Default Reply

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AccountDetail, AIReplySettings } from '../types';
+import { AccountDetail, AIReplySettings, NotificationChannel } from '../types';
 import {
   getAccountDetails,
   getAccountRuntimeStatuses,
@@ -18,12 +18,15 @@ import {
   updateAccountLoginInfo,
   updateAccountAISettings,
   getAllAISettings,
-  getAccountAISettings
+  getAccountAISettings,
+  getNotificationChannels,
+  getAccountBindings,
+  setAccountBindings,
 } from '../services/api';
 import {
   Plus, Power, Edit2, Trash2, QrCode, X, Check, Loader2,
   RefreshCw, Save, User, Clock, MessageCircle,
-  Upload, Key, Eye, EyeOff, Bot, Settings, AlertCircle, ExternalLink
+  Upload, Key, Eye, EyeOff, Bot, Settings, AlertCircle, ExternalLink, Bell
 } from 'lucide-react';
 
 type ModalType = 'edit' | 'ai-settings' | null;
@@ -42,6 +45,10 @@ const AccountList: React.FC = () => {
   const [qrReauthTarget, setQrReauthTarget] = useState<AccountDetail | null>(null);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [editingAccount, setEditingAccount] = useState<AccountDetail | null>(null);
+
+  // 通知渠道绑定（编辑弹窗用）
+  const [notifChannels, setNotifChannels] = useState<NotificationChannel[]>([]);
+  const [selectedChannelIds, setSelectedChannelIds] = useState<number[]>([]);
 
   // 编辑表单状态
   const [editForm, setEditForm] = useState({
@@ -174,7 +181,7 @@ const AccountList: React.FC = () => {
     }
   };
 
-  const openEditModal = (account: AccountDetail) => {
+  const openEditModal = async (account: AccountDetail) => {
     setEditingAccount(account);
     setEditForm({
       remark: account.remark || account.note || '',
@@ -187,6 +194,19 @@ const AccountList: React.FC = () => {
       showLoginPassword: false,
     });
     setActiveModal('edit');
+    // 并行加载通知渠道列表 + 当前账号已绑定渠道
+    try {
+      const [chRes, bindings] = await Promise.all([
+        getNotificationChannels(),
+        getAccountBindings(account.id).catch(() => [] as number[]),
+      ]);
+      setNotifChannels(chRes.data || []);
+      setSelectedChannelIds(bindings || []);
+    } catch (e) {
+      console.error('加载通知渠道绑定失败', e);
+      setNotifChannels([]);
+      setSelectedChannelIds([]);
+    }
   };
 
   const openAIModal = async (account: AccountDetail) => {
@@ -248,6 +268,9 @@ const AccountList: React.FC = () => {
           show_browser: editForm.show_browser,
         }));
       }
+
+      // 更新通知渠道绑定（覆盖式，总是提交以支持解绑）
+      promises.push(setAccountBindings(editingAccount.id, selectedChannelIds));
 
       await Promise.all(promises);
       setActiveModal(null);
@@ -419,17 +442,17 @@ const AccountList: React.FC = () => {
           const runtime = runtimePresentation(account);
           const requiresLogin = account.runtime_state === 'auth_expired' || account.runtime_state === 'verification_required';
           return (
-          <div key={account.id} className="ios-card p-6 rounded-[2rem] flex flex-col lg:flex-row lg:items-center justify-between gap-5 group hover:border-[#0094f7] transition-all duration-300">
+          <div key={account.id} className="ios-card p-6 rounded-xl flex flex-col lg:flex-row lg:items-center justify-between gap-5 group hover:border-[#0094f7] transition-all duration-300">
             <div className="flex items-center gap-5 sm:gap-8 min-w-0">
               <div className="relative">
                 {account.avatar_url ? (
                   <img
                     src={account.avatar_url}
                     alt={account.nickname || '账号头像'}
-                    className="w-20 h-20 rounded-3xl object-cover shadow-md ring-4 ring-white bg-gray-100"
+                    className="w-20 h-20 rounded-full object-cover shadow-md ring-4 ring-white bg-gray-100"
                   />
                 ) : (
-                  <div className="w-20 h-20 rounded-3xl bg-gray-100 text-gray-400 shadow-md ring-4 ring-white flex items-center justify-center">
+                  <div className="w-20 h-20 rounded-full bg-gray-100 text-gray-400 shadow-md ring-4 ring-white flex items-center justify-center">
                     <User className="w-9 h-9" />
                   </div>
                 )}
@@ -566,7 +589,7 @@ const AccountList: React.FC = () => {
                               : '请打开闲鱼APP扫描下方二维码'}
                           </p>
 
-                          <div className="w-64 h-64 bg-[#F7F8FA] rounded-[2rem] mx-auto flex items-center justify-center overflow-hidden border-4 border-white shadow-inner mb-8 relative">
+                          <div className="w-64 h-64 bg-[#F7F8FA] rounded-xl mx-auto flex items-center justify-center overflow-hidden border-4 border-white shadow-inner mb-8 relative">
                               {qrStatus === 'loading' && <Loader2 className="w-10 h-10 text-[#0094f7] animate-spin" />}
                               {qrStatus === 'waiting' && <img src={qrCodeUrl} alt="QR Code" className="w-full h-full p-2" />}
                               {qrStatus === 'success' && (
@@ -761,6 +784,46 @@ const AccountList: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {/* 通知渠道绑定 */}
+              {notifChannels.length > 0 && (
+                <div className="border-t border-gray-200 pt-6">
+                  <h3 className="text-lg font-bold text-gray-900 mb-1 flex items-center gap-2">
+                    <Bell className="w-5 h-5 text-blue-500" />
+                    通知渠道绑定
+                  </h3>
+                  <p className="text-xs text-gray-500 mb-4">勾选后，该账号的 token 失效、自动恢复失败、风控验证等事件会推送到这些渠道</p>
+                  <div className="space-y-2">
+                    {notifChannels.map(ch => {
+                      const checked = selectedChannelIds.includes(Number(ch.id));
+                      return (
+                        <label
+                          key={ch.id}
+                          className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedChannelIds(prev =>
+                                checked ? prev.filter(id => id !== Number(ch.id)) : [...prev, Number(ch.id)]
+                              );
+                            }}
+                            className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
+                              checked ? 'bg-[#0094f7] border-[#0094f7]' : 'bg-white border-gray-300'
+                            }`}
+                          >
+                            {checked && <Check className="w-3.5 h-3.5 text-white" />}
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-bold text-gray-900 text-sm">{ch.name}</div>
+                            <div className="text-xs text-gray-500">{ch.type}{ch.enabled ? '' : ' · 已停用'}</div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="modal-footer">

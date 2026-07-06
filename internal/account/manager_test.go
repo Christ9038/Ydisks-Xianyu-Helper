@@ -16,6 +16,7 @@ type noopHandler struct{}
 func (noopHandler) HandleChatMessage(context.Context, engine.ChatMessage) error     { return nil }
 func (noopHandler) HandleSystemEvent(context.Context, automation.Task) error        { return nil }
 func (noopHandler) OnPasswordLoginRefresh(context.Context, string) bool             { return false }
+func (noopHandler) OnAccountAlert(context.Context, string, string, string, string) {}
 
 // TestManagerStartStop 验证从 DB 加载账号、启停和 GetInstance。
 // 用无效 cookie 让账号快速进入重连等待（不会真正连上），验证管理逻辑而非网络。

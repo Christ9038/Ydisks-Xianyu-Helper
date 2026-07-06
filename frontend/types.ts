@@ -241,3 +241,16 @@ export interface DefaultReply {
   reply_once: boolean;
   reply_image_url?: string;
 }
+
+// 通知渠道
+export type NotificationChannelType = 'dingtalk' | 'feishu' | 'bark' | 'webhook' | 'wechat' | 'telegram' | 'email';
+
+export interface NotificationChannel {
+  id: string;
+  name: string;
+  type: NotificationChannelType;
+  config: Record<string, unknown>;
+  enabled: boolean;
+  created_at?: string;
+  updated_at?: string;
+}

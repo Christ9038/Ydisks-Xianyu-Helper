@@ -312,6 +312,13 @@ func (c *Conn) sendJSON(ctx context.Context, v any) error {
 	return c.ws.Write(ctx, websocket.MessageText, b)
 }
 
+// SetAccessToken 在线更新 token（仅在连接保持期间用于定时刷新）。
+func (c *Conn) SetAccessToken(token string) {
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	c.cfg.AccessToken = token
+}
+
 // SendText 发送一条闲鱼聊天文本消息。
 func (c *Conn) SendText(ctx context.Context, myID, cid, toID, text string) error {
 	content := map[string]any{

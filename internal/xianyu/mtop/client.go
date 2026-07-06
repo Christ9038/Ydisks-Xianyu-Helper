@@ -677,11 +677,25 @@ func hasMTopSuccess(ret []string) bool {
 func isTokenExpiredRet(ret []string) bool {
 	for _, r := range ret {
 		lower := strings.ToLower(r)
-		if strings.Contains(lower, "token") || strings.Contains(r, "FAIL_SYS_TOKEN_EXOIRED") || strings.Contains(r, "FAIL_SYS_TOKEN_EXPIRED") {
+		if strings.Contains(lower, "token") ||
+			strings.Contains(r, "FAIL_SYS_TOKEN_EXOIRED") ||
+			strings.Contains(r, "FAIL_SYS_TOKEN_EXPIRED") ||
+			strings.Contains(r, "FAIL_SYS_SESSION_EXPIRED") {
 			return true
 		}
 	}
 	return false
+}
+
+// IsSessionExpiredErr 判断错误是否表示 cookie/session 已彻底失效（需密码登录刷新）。
+func IsSessionExpiredErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "fail_sys_session_expired") ||
+		strings.Contains(msg, "session过期") ||
+		strings.Contains(msg, "登录凭证已失效")
 }
 
 func mtopString(v any) string {

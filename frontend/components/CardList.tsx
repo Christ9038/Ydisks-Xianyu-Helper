@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Card } from '../types';
-import { getCards, createCard, updateCard, deleteCard } from '../services/api';
-import { Plus, CreditCard, Clock, FileText, Image as ImageIcon, Code, Edit, Trash2, Save, X, Eye, EyeOff, Package, Copy } from 'lucide-react';
+import { getCards, createCard, updateCard, deleteCard, batchCreateCards, appendCardData } from '../services/api';
+import { Plus, CreditCard, Clock, FileText, Image as ImageIcon, Code, Edit, Trash2, Save, X, Eye, EyeOff, Package, Copy, Upload, Loader2, FileDown, ListPlus } from 'lucide-react';
 
 type AddCardForm = {
   name: string;
@@ -37,6 +37,16 @@ const CardList: React.FC = () => {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [editForm, setEditForm] = useState<Partial<Card>>({});
   const [addForm, setAddForm] = useState<AddCardForm>(emptyAddForm);
+
+  // 批量导入
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchTab, setBatchTab] = useState<'create' | 'append'>('create');
+  const [batchFile, setBatchFile] = useState<File | null>(null);
+  const [batchResult, setBatchResult] = useState<any>(null);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [appendTargetId, setAppendTargetId] = useState<string>('');
+  const [appendContent, setAppendContent] = useState('');
+  const [appendResult, setAppendResult] = useState<{ added: number } | null>(null);
 
   useEffect(() => {
     getCards().then(setCards);
@@ -194,23 +204,100 @@ const CardList: React.FC = () => {
     }
   };
 
+  const dataCards = cards.filter(c => c.type === 'data');
+
+  const downloadCardTemplate = () => {
+    const headers = ['名称', '类型', '内容', '描述', '启用', '延迟秒', '多规格', '规格名', '规格值'];
+    const rows = [
+      ['VIP月卡', 'data', 'VIP-MONTH-001\nVIP-MONTH-002\nVIP-MONTH-003', '按行消费的卡密队列', '是', '0', '否', '', ''],
+      ['感谢文案', 'text', '感谢购买，如有问题联系客服～', '固定文本', '是', '0', '否', '', ''],
+      ['教程图', 'image', 'https://cdn.example.com/tutorial.jpg', '图片URL', '是', '0', '否', '', ''],
+    ];
+    const csv = [headers, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '卡密组批量导入模板.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleBatchCreate = async () => {
+    if (!batchFile) return;
+    setBatchBusy(true);
+    setBatchResult(null);
+    try {
+      const res = await batchCreateCards(batchFile);
+      setBatchResult(res);
+      if (res.created > 0) {
+        const fresh = await getCards();
+        setCards(fresh);
+      }
+    } catch (e: any) {
+      setBatchResult({ error: e?.message || '上传失败' });
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
+  const handleBatchAppend = async () => {
+    if (!appendTargetId || !appendContent.trim()) return;
+    setBatchBusy(true);
+    setAppendResult(null);
+    try {
+      const res = await appendCardData(appendTargetId, appendContent);
+      setAppendResult({ added: res.added });
+      setAppendContent('');
+      const fresh = await getCards();
+      setCards(fresh);
+    } catch (e: any) {
+      alert('追加失败：' + (e?.message || '未知错误'));
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
+  const openBatchModal = () => {
+    setBatchTab('create');
+    setBatchFile(null);
+    setBatchResult(null);
+    setAppendTargetId(dataCards[0]?.id ? String(dataCards[0].id) : '');
+    setAppendContent('');
+    setAppendResult(null);
+    setShowBatchModal(true);
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col md:flex-row justify-between md:items-end gap-4">
         <div>
-          <h2 className="text-3xl font-bold text-gray-900">卡密库存</h2>
-          <p className="text-gray-500 mt-2 text-sm">管理自动发货的卡密、链接或图片资源。</p>
+          <h2 className="text-4xl font-extrabold text-gray-900 tracking-tight">卡密库存</h2>
+          <p className="text-gray-500 mt-2 font-medium">管理自动发货的卡密、链接或图片资源。</p>
         </div>
-        <button
+        <div className="flex items-center gap-3">
+          <button
+            onClick={openBatchModal}
+            className="px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-2xl font-bold text-gray-700 flex items-center gap-2 transition-colors"
+          >
+            <Upload className="w-5 h-5" />
+            批量导入
+          </button>
+          <button
             onClick={() => setShowAddModal(true)}
             className="ios-btn-primary flex items-center gap-2 px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-transform hover:scale-105 active:scale-95"
         >
           <Plus className="w-5 h-5" />
           添加新卡密
         </button>
+        </div>
       </div>
 
-      <div className="ios-card rounded-[2rem] overflow-hidden shadow-lg border-0 bg-white">
+      <div className="ios-card rounded-xl overflow-hidden shadow-lg border-0 bg-white">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -727,6 +814,147 @@ const CardList: React.FC = () => {
                   添加卡密
                 </button>
               </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* 批量导入弹窗 */}
+      {showBatchModal && createPortal(
+        <div className="modal-overlay">
+          <div className="modal-container" style={{ maxWidth: '40rem' }}>
+            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="text-xl font-extrabold text-gray-900">批量导入卡密</h3>
+              <button
+                onClick={() => setShowBatchModal(false)}
+                className="w-10 h-10 rounded-2xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
+              >
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-5">
+              {/* Tab 切换 */}
+              <div className="flex flex-wrap gap-2 p-2 bg-gray-100/50 rounded-2xl">
+                <button
+                  onClick={() => setBatchTab('create')}
+                  className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${batchTab === 'create' ? 'bg-[#0094f7] text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                >
+                  <ListPlus className="w-4 h-4" />
+                  批量创建卡密组
+                </button>
+                <button
+                  onClick={() => setBatchTab('append')}
+                  className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${batchTab === 'append' ? 'bg-[#0094f7] text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                >
+                  <Upload className="w-4 h-4" />
+                  往单个组充卡密
+                </button>
+              </div>
+
+              {batchTab === 'create' ? (
+                <div className="space-y-4">
+                  <div className="rounded-xl bg-blue-50 border border-blue-100 p-4 text-xs text-blue-900 leading-5">
+                    上传表格，每行一个卡密组。表头：<code className="bg-blue-100/70 px-1.5 py-0.5 rounded">名称,类型,内容,描述,启用,延迟秒,多规格,规格名,规格值</code>。
+                    类型填 text/data/image/api；data 类型的"内容"按行存卡密（CSV 单元格内换行需用引号包裹）。
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={downloadCardTemplate}
+                      className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-xl font-bold text-gray-700 flex items-center gap-2 text-sm transition-colors"
+                    >
+                      <FileDown className="w-4 h-4" />
+                      下载模板
+                    </button>
+                    <label className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-xl font-bold text-gray-700 flex items-center gap-2 text-sm cursor-pointer transition-colors">
+                      <Upload className="w-4 h-4" />
+                      {batchFile ? batchFile.name : '选择 .xlsx / .csv / .tsv'}
+                      <input type="file" accept=".xlsx,.csv,.tsv" className="hidden" onChange={e => setBatchFile(e.target.files?.[0] || null)} />
+                    </label>
+                  </div>
+                  {batchResult && !batchResult.error && (
+                    <div className="rounded-xl border border-gray-200 p-4 space-y-2">
+                      <div className="text-sm font-bold text-gray-900">
+                        共 {batchResult.total} 行 · 成功 {batchResult.created} · 失败 {batchResult.failed}
+                      </div>
+                      {batchResult.failed > 0 && (
+                        <div className="max-h-48 overflow-y-auto space-y-1">
+                          {batchResult.rows.filter((r: any) => !r.success).map((r: any) => (
+                            <div key={r.row_no} className="text-xs text-red-600">第 {r.row_no} 行「{r.name}」：{r.error}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {dataCards.length === 0 ? (
+                    <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800">
+                      暂无 data（批量卡密）类型的卡密组，请先创建一个再充卡密。
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-2">
+                        <label className="block text-sm font-bold text-gray-800">选择卡密组</label>
+                        <select
+                          value={appendTargetId}
+                          onChange={e => setAppendTargetId(e.target.value)}
+                          className="w-full ios-input px-4 py-3 rounded-xl text-sm"
+                        >
+                          {dataCards.map(c => (
+                            <option key={c.id} value={String(c.id)}>{c.name}（ID: {c.id}）</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="block text-sm font-bold text-gray-800">卡密号（每行一个）</label>
+                        <textarea
+                          value={appendContent}
+                          onChange={e => setAppendContent(e.target.value)}
+                          placeholder={'VIP-001\nVIP-002\nVIP-003'}
+                          className="w-full ios-input px-4 py-3 rounded-xl text-sm font-mono h-40 resize-y"
+                        />
+                        <p className="text-xs text-gray-500">一行一个卡密号，空行自动忽略。会追加到该组现有库存末尾。</p>
+                      </div>
+                      {appendResult && (
+                        <div className="rounded-xl bg-green-50 border border-green-200 p-3 text-sm text-green-700 font-bold">
+                          已追加 {appendResult.added} 个卡密
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3">
+              <button
+                onClick={() => setShowBatchModal(false)}
+                className="px-5 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 font-bold text-gray-700 transition-colors"
+              >
+                关闭
+              </button>
+              {batchTab === 'create' ? (
+                <button
+                  onClick={handleBatchCreate}
+                  disabled={!batchFile || batchBusy}
+                  className="ios-btn-primary px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50"
+                >
+                  {batchBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                  {batchBusy ? '处理中...' : '上传创建'}
+                </button>
+              ) : (
+                <button
+                  onClick={handleBatchAppend}
+                  disabled={!appendTargetId || !appendContent.trim() || batchBusy || dataCards.length === 0}
+                  className="ios-btn-primary px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50"
+                >
+                  {batchBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  {batchBusy ? '处理中...' : '追加卡密'}
+                </button>
+              )}
             </div>
           </div>
         </div>,

@@ -43,7 +43,7 @@ body {
 /* 闲鱼风格卡片 */
 .ios-card {
   background: #FFFFFF;
-  border-radius: 24px;
+  border-radius: 8px;
   border: 1px solid rgba(0, 0, 0, 0.02);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.04);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
@@ -300,7 +300,7 @@ body {
   display: flex;
   flex-direction: column;
   background-color: white;
-  border-radius: 2.5rem;
+  border-radius: 10px;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   overflow: hidden;
 }
@@ -355,7 +355,7 @@ body {
   display: flex;
   flex-direction: column;
   background-color: white;
-  border-radius: 2.5rem;
+  border-radius: 10px;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
   overflow: hidden;
 }
@@ -363,7 +363,7 @@ body {
 /* 响应式工具类 */
 @media (max-width: 768px) {
   .ios-card {
-    border-radius: 16px;
+    border-radius: 6px;
   }
 
   .ios-input {
@@ -373,7 +373,7 @@ body {
   .modal-container {
     max-width: calc(100% - 2rem);
     max-height: 90vh;
-    border-radius: 1.5rem;
+    border-radius: 8px;
   }
 
   .modal-header,

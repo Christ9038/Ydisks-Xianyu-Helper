@@ -358,8 +358,8 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   const downloadPublishTemplate = () => {
     const headers = [
       '账号ID', '标题', '描述', '价格', '原价', '库存', '邮费模式', '邮费', '图片',
-      '付款后自动发货', '付款后发送的卡密', '评价后发送赠品', '评价后发送的卡密',
-      '超时未评价时提醒', '发货几小时后提醒', '提醒内容', '最多提醒几次',
+      '付款发货启用', '付款发货内容', '评价赠品启用', '评价赠品内容',
+      '求评价启用', '求评价等待小时', '求评价文案', '求评价最多次数',
     ];
     const rows = [
       ['', '会员组合包自动发货', '下单后发送主卡和附赠卡。', '19.90', '29.90', '10', 'free', '', 'images/bundle-1.jpg;images/bundle-2.jpg', '是', '101:1;102:1', '是', '201:1;202:2', '是', '72', '亲，满意的话麻烦给个评价，谢谢～', '1'],
@@ -472,55 +472,55 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {items.map(item => {
             const linkedRules = rulesForItem(item);
             const hasRule = linkedRules.length > 0;
             return (
-              <div key={`${item.cookie_id}-${item.item_id}`} className="ios-card p-4 rounded-3xl hover:shadow-lg transition-all group relative flex flex-col">
-                  <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+              <div key={`${item.cookie_id}-${item.item_id}`} className="ios-card p-3 rounded-2xl hover:shadow-lg transition-all group relative flex flex-col">
+                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                       <button
                         onClick={() => handleEdit(item)}
-                        className="p-2 bg-white/90 backdrop-blur rounded-lg shadow-md text-gray-600 hover:bg-[#0094f7] hover:text-white transition-colors"
+                        className="p-1.5 bg-white/90 backdrop-blur rounded-lg shadow-md text-gray-600 hover:bg-[#0094f7] hover:text-white transition-colors"
                         title="编辑"
                       >
-                        <Edit className="w-4 h-4" />
+                        <Edit className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => handleDelete(item)}
-                        className="p-2 bg-white/90 backdrop-blur rounded-lg shadow-md hover:bg-red-100 text-red-500 transition-colors"
+                        className="p-1.5 bg-white/90 backdrop-blur rounded-lg shadow-md hover:bg-red-100 text-red-500 transition-colors"
                         title="删除"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                   </div>
-                  <div className="aspect-square bg-gray-100 rounded-2xl mb-4 overflow-hidden relative">
+                  <div className="aspect-square bg-gray-100 rounded-xl mb-2.5 overflow-hidden relative">
                       {item.item_image ? (
                           <img src={item.item_image} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                       ) : (
                           <div className="w-full h-full flex items-center justify-center text-gray-300">
-                              <Box className="w-10 h-10" />
+                              <Box className="w-8 h-8" />
                           </div>
                       )}
-                      <div className="absolute top-2 left-2 bg-black/50 backdrop-blur-md text-white text-xs font-bold px-2 py-1 rounded-lg">
+                      <div className="absolute top-1.5 left-1.5 bg-black/50 backdrop-blur-md text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md">
                           {formatItemPrice(item.item_price)}
                       </div>
                   </div>
-                  <h3 className="font-bold text-gray-900 line-clamp-2 text-sm mb-2 h-10">{item.item_title}</h3>
-                  <div className="flex justify-between items-center text-xs text-gray-500 mb-3">
-                      <span className="bg-gray-100 px-2 py-1 rounded-md truncate max-w-[100px]">ID: {item.item_id}</span>
+                  <h3 className="font-bold text-gray-900 line-clamp-2 text-xs mb-1.5 h-8 leading-4">{item.item_title}</h3>
+                  <div className="flex justify-between items-center text-[10px] text-gray-500 mb-2">
+                      <span className="bg-gray-100 px-1.5 py-0.5 rounded truncate max-w-[80px]">ID: {item.item_id}</span>
                       <span className={`inline-flex items-center gap-1 font-bold ${hasRule ? 'text-emerald-600' : 'text-amber-600'}`}>
-                        {hasRule ? <CheckCircle2 className="w-3.5 h-3.5" /> : <CircleDashed className="w-3.5 h-3.5" />}
-                        {hasRule ? `${linkedRules.length} 条规则` : '未配置规则'}
+                        {hasRule ? <CheckCircle2 className="w-3 h-3" /> : <CircleDashed className="w-3 h-3" />}
+                        {hasRule ? `${linkedRules.length} 规则` : '未配置'}
                       </span>
                   </div>
                   <div className="space-y-2 mt-auto">
                       <button
                         onClick={() => onConfigureDelivery(item)}
-                        className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-extrabold transition-all ${hasRule ? 'bg-gray-900 text-white hover:bg-black' : 'bg-[#0094f7] text-white hover:bg-[#0071e3] shadow-md shadow-blue-100'}`}
+                        className={`w-full flex items-center justify-between gap-1 px-2.5 py-2 rounded-lg text-[11px] font-extrabold transition-all ${hasRule ? 'bg-gray-900 text-white hover:bg-black' : 'bg-[#0094f7] text-white hover:bg-[#0071e3] shadow-md shadow-blue-100'}`}
                       >
-                        <span className="flex items-center gap-2"><Link2 className="w-4 h-4" />{hasRule ? '查看并编辑发货规则' : '关联自动发货规则'}</span>
-                        <ArrowRight className="w-4 h-4" />
+                        <span className="flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5" />{hasRule ? '查看发货规则' : '关联发货规则'}</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
                       </button>
                   </div>
               </div>

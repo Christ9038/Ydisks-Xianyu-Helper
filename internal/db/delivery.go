@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 )
 
 // ItemInfo 对应 item_info 表。
@@ -129,6 +130,38 @@ func (c *Cards) ConsumeBatchData(ctx context.Context, cardID int64) (string, err
 		return "", err
 	}
 	return content, nil
+}
+
+// AppendBatchData 往 data 类型卡密组追加卡密号（按行）。返回新增的有效（非空）行数。
+// 已有 data_content 非空时在末尾换行追加，否则直接写入。
+func (c *Cards) AppendBatchData(ctx context.Context, cardID int64, content string) (int, error) {
+	lines := splitLines(content)
+	valid := 0
+	for _, l := range lines {
+		if strings.TrimSpace(l) != "" {
+			valid++
+		}
+	}
+	if valid == 0 {
+		return 0, errors.New("无有效卡密行")
+	}
+	var existing sql.NullString
+	err := c.DB.QueryRowContext(ctx, `SELECT data_content FROM cards WHERE id=?`, cardID).Scan(&existing)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrNotFound
+		}
+		return 0, err
+	}
+	merged := content
+	if existing.Valid && existing.String != "" {
+		merged = existing.String + "\n" + content
+	}
+	if _, err := c.DB.ExecContext(ctx,
+		`UPDATE cards SET data_content=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, merged, cardID); err != nil {
+		return 0, err
+	}
+	return valid, nil
 }
 
 // splitLines / joinLines 统一处理多行库存内容。

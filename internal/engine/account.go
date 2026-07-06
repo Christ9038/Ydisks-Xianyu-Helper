@@ -28,10 +28,20 @@ const (
 	MessageExpireTime     = time.Hour       // 去重有效期
 	ProcessedIDsMaxSize   = 10000           // 去重表上限，超限清理
 	HeartbeatInterval     = 15 * time.Second
-	TokenRefreshInterval  = 1 * time.Hour
+	// token 心跳间隔。主动刷新 token 让服务端持续续期 cookie（_m_h5_tk /
+	// sgcookie 等），避免 cookie 自然滑向过期。15 分钟一次，平衡保活与风控。
+	// 不宜过短，否则易触发阿里系滑块风控。
+	TokenRefreshInterval  = 15 * time.Minute
 	TokenRefreshMinGap    = time.Minute
 	MessageCooldown       = 5 * time.Minute // 收到消息后 5 分钟内不刷 cookie
 	PasswordLoginMinGap   = 30 * time.Minute
+)
+
+// 告警级别（OnAccountAlert 的 level 参数）。
+const (
+	AlertLevelInfo     = "info"
+	AlertLevelWarn     = "warn"
+	AlertLevelCritical = "critical"
 )
 
 // Handler 是业务逻辑注入点（Phase 3 实现）。
@@ -45,6 +55,9 @@ type Handler interface {
 	HandleSystemEvent(ctx context.Context, task automation.Task) error
 	// OnPasswordLoginRefresh 连续失败时触发浏览器密码登录刷新；返回是否成功。
 	OnPasswordLoginRefresh(ctx context.Context, cookieID string) bool
+	// OnAccountAlert 账号告警通知（token 失效/自动恢复失败/风控验证等）。
+	// level 取 AlertLevel* 常量。实现方应把告警推送到该账号绑定的通知渠道。
+	OnAccountAlert(ctx context.Context, cookieID, level, title, body string)
 }
 
 // ChatMessage 防抖后投递给业务层的一条聊天消息。
@@ -195,7 +208,8 @@ func (a *Account) Run(parent context.Context) error {
 			return nil
 		}
 
-		// 1) 刷新 token。
+		// 1) 刷新 token。若服务端返回 session 过期，直接跳到密码登录刷新，
+		// 不再空跑 5 次冷却重试。
 		token, cookieStr, err := a.refreshToken(ctx)
 		if err != nil {
 			a.logger.Error("刷新 token 失败", "err", err)
@@ -203,7 +217,16 @@ func (a *Account) Run(parent context.Context) error {
 			a.connFailures++
 			failures := a.connFailures
 			a.mu.Unlock()
-			a.setRuntimeError(err)
+			a.setRuntimeError(ctx, err)
+			if mtop.IsSessionExpiredErr(err) {
+				a.logger.Warn("session 已失效，直接触发密码登录刷新", "err", err)
+				a.alert(ctx, AlertLevelWarn, "账号 session 已失效",
+					"登录凭证已被闲鱼服务端判定为失效，系统正在尝试通过浏览器密码登录自动恢复。若长时间未恢复，请人工处理。")
+				if err := a.handleMaxFailures(ctx); err != nil {
+					return err
+				}
+				continue
+			}
 			if failures >= MaxConnectionFailures {
 				if err := a.handleMaxFailures(ctx); err != nil {
 					return err
@@ -220,6 +243,7 @@ func (a *Account) Run(parent context.Context) error {
 		a.CookieStr = cookieStr
 		a.connFailures = 0
 		a.mu.Unlock()
+		a.logger.Info("token 刷新成功")
 		a.setRuntimeState(RuntimeConnecting, "登录凭证有效，正在连接消息服务")
 
 		// 2) 连接 WS + 注册。
@@ -269,7 +293,7 @@ func (a *Account) Run(parent context.Context) error {
 		a.mu.Unlock()
 		a.setRuntimeState(RuntimeOnline, "消息服务连接正常")
 
-		// 3) 心跳 + 消息接收。
+		// 3) 心跳 + 消息接收，并并行运行 token 定时刷新。
 		hbCtx, hbCancel := context.WithCancel(ctx)
 		var hbErr error
 		go func() {
@@ -277,8 +301,15 @@ func (a *Account) Run(parent context.Context) error {
 			hbCancel()
 		}()
 
+		refreshDone := make(chan struct{})
+		go func() {
+			a.tokenRefreshLoop(hbCtx, conn)
+			close(refreshDone)
+		}()
+
 		recvErr := conn.ReceiveLoop(ctx, a.dispatch)
 		hbCancel()
+		<-refreshDone
 		_ = conn.Close()
 
 		// 连接结束：清 token，统计失败，决定重连或密码刷新。
@@ -361,7 +392,17 @@ func (a *Account) handleMaxFailures(ctx context.Context) error {
 	}
 	a.resetFailures()
 	a.setRuntimeState(RuntimeAuthExpired, "登录凭证已失效，请重新扫码登录")
+	a.alert(ctx, AlertLevelCritical, "账号自动恢复失败，需人工处理",
+		fmt.Sprintf("账号 %s 连续失败 %d 次，浏览器密码登录刷新未能恢复登录凭证，账号已停止运行。请前往后台重新扫码授权或检查账号用户名/密码配置。", a.CookieID, MaxConnectionFailures))
 	return fmt.Errorf("账号 %s 连续失败 %d 次且密码登录刷新失败，需重启实例", a.CookieID, MaxConnectionFailures)
+}
+
+// alert 触发账号告警通知。handler 未注入或为 nil 时静默跳过。
+func (a *Account) alert(ctx context.Context, level, title, body string) {
+	if a.handler == nil {
+		return
+	}
+	a.handler.OnAccountAlert(ctx, a.CookieID, level, title, body)
 }
 
 func (a *Account) resetFailures() {
@@ -448,6 +489,39 @@ func (a *Account) refreshToken(ctx context.Context) (string, string, error) {
 	return res.AccessToken, cookieStr, nil
 }
 
+// tokenRefreshLoop 在 WS 在线期间按 TokenRefreshInterval 定时刷新 token。
+// 刷新失败不重连（让心跳/接收循环去判定），仅记录日志；session 过期会触发
+// 接收循环断开，主循环再走 handleMaxFailures 兜底。
+func (a *Account) tokenRefreshLoop(ctx context.Context, conn *ws.Conn) {
+	ticker := time.NewTicker(TokenRefreshInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		token, _, err := a.refreshToken(ctx)
+		if err != nil {
+			a.logger.Warn("定时刷新 token 失败", "err", err)
+			if mtop.IsSessionExpiredErr(err) {
+				// session 失效：让接收循环尽快断开走兜底，主动关闭连接。
+				_ = conn.Close()
+				return
+			}
+			continue
+		}
+		a.mu.Lock()
+		a.currentToken = token
+		a.mu.Unlock()
+		conn.SetAccessToken(token)
+		a.logger.Info("定时刷新 token 成功")
+	}
+}
+
 // RuntimeStatus 返回账号当前连接状态的线程安全快照。
 func (a *Account) RuntimeStatus() RuntimeStatus {
 	a.mu.Lock()
@@ -469,11 +543,17 @@ func (a *Account) setRuntimeState(state, message string) {
 	a.runtimeUpdatedAt = time.Now()
 }
 
-func (a *Account) setRuntimeError(err error) {
+func (a *Account) setRuntimeError(ctx context.Context, err error) {
 	msg := strings.ToLower(errString(err))
+	prev := a.runtimeState
 	switch {
 	case strings.Contains(msg, "验证"), strings.Contains(msg, "captcha"), strings.Contains(msg, "risk"), strings.Contains(msg, "rgv587"), strings.Contains(msg, "fail_sys_user_validate"):
 		a.setRuntimeState(RuntimeVerificationRequired, "闲鱼要求安全验证，请重新扫码并完成验证")
+		// 仅在从非验证状态转入时告警一次，避免重复刷屏。
+		if prev != RuntimeVerificationRequired {
+			a.alert(ctx, AlertLevelWarn, "闲鱼要求安全验证",
+				"账号触发闲鱼风控验证（滑块/短信/人脸等）。系统可能无法自动恢复，请前往后台扫码完成验证。")
+		}
 	case strings.Contains(msg, "登录凭证已失效"), strings.Contains(msg, "fail_sys_token_exoired"), strings.Contains(msg, "fail_sys_token_expired"), strings.Contains(msg, "cookie 缺少 unb"):
 		a.setRuntimeState(RuntimeAuthExpired, "登录凭证已失效，请重新扫码登录")
 	default:

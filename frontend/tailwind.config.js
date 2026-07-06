@@ -21,9 +21,16 @@ export default {
         canvas: '#fbfbfd',    // 页面背景
         surface: '#f5f5f7',   // 卡片背景/区块
       },
+      // 圆角统一收紧到 5–10px 区间，UI 更紧凑、信息密度更高。
       borderRadius: {
-        '2xl': '1.5rem',
-        '3xl': '2rem',
+        'none': '0px',
+        'sm': '5px',
+        DEFAULT: '6px',
+        'md': '6px',
+        'lg': '7px',
+        'xl': '8px',
+        '2xl': '10px',
+        '3xl': '10px',
       },
       fontFamily: {
         sans: [

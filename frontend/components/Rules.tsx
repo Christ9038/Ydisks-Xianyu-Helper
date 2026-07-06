@@ -682,101 +682,69 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       : '编辑默认回复';
 
   return (
-    <div className="space-y-6 animate-fade-in pb-20">
-      <div className="relative overflow-hidden rounded-[2rem] bg-[#101827] text-white p-8 shadow-2xl">
-        <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-[#0094f7]/30 blur-3xl" />
-        <div className="absolute right-32 bottom-0 h-32 w-32 rounded-full bg-emerald-400/20 blur-2xl" />
-        <div className="relative flex flex-col lg:flex-row lg:items-end justify-between gap-6">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-blue-100 mb-4">
-              <Zap className="w-3.5 h-3.5" />
-              自动化中心
-            </div>
-            <h2 className="text-4xl font-black tracking-tight">自动化规则</h2>
-            <p className="text-blue-100/80 mt-3 max-w-2xl leading-7">
-              系统通知卡片只进入自动化判断；买家用户消息才进入关键词、默认回复或 AI 回复。
-            </p>
-          </div>
-          <div className="grid grid-cols-3 gap-3 min-w-[360px]">
-            {triggerOrder.map(trigger => {
-              const meta = triggerMeta[trigger];
-              const Icon = meta.icon;
-              return (
-                <button
-                  key={trigger}
-                  onClick={() => openNewAutomationRule(trigger)}
-                  className="rounded-2xl bg-white/10 hover:bg-white/15 border border-white/10 p-4 text-left transition-colors"
-                >
-                  <Icon className="w-5 h-5 text-white mb-3" />
-                  <div className="text-sm font-extrabold">{meta.shortLabel}</div>
-                  <div className="text-[11px] text-blue-100/70 mt-1">{rulesByTrigger[trigger].length} 条规则</div>
-                </button>
-              );
-            })}
-          </div>
+    <div className="space-y-8 animate-fade-in">
+      <div className="flex flex-col md:flex-row justify-between md:items-end gap-4">
+        <div>
+          <h2 className="text-4xl font-extrabold text-gray-900 tracking-tight">自动化规则</h2>
+          <p className="text-gray-500 mt-2 font-medium">系统通知卡片只进入自动化判断；买家消息进入关键词、默认或 AI 回复。</p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <select
+            value={selectedAccountId}
+            onChange={event => setSelectedAccountId(event.target.value)}
+            className="ios-input px-4 py-3 rounded-2xl text-sm min-w-64"
+          >
+            <option value="">全部账号</option>
+            {accounts.map(account => (
+              <option key={account.id} value={account.id}>{accountLabel(account)}</option>
+            ))}
+          </select>
+          <button
+            onClick={refresh}
+            className="px-4 py-3 rounded-2xl font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center gap-2 transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            刷新
+          </button>
+          <button
+            onClick={activeTab === 'automation' ? () => openNewAutomationRule('order_paid') : activeTab === 'reply' ? handleAddReplyRule : () => void openDefaultReplyModal()}
+            disabled={!selectedAccountId}
+            className="ios-btn-primary px-5 py-3 rounded-2xl text-sm font-extrabold flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            <Plus className="w-4 h-4" />
+            {primaryActionLabel}
+          </button>
         </div>
       </div>
 
-      <div className="sticky top-0 z-40 -mx-8 md:-mx-12 px-8 md:px-12 py-3 bg-[#F4F5F7] shadow-[0_18px_34px_rgba(244,245,247,0.96)]">
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 rounded-3xl bg-white p-3 shadow-sm border border-gray-100">
-          <div className="flex flex-wrap gap-2">
-            {[
-              { id: 'automation' as const, label: '交易自动化', icon: Zap },
-              { id: 'reply' as const, label: '关键词回复', icon: MessageCircle },
-              { id: 'default' as const, label: '账号默认回复', icon: Bot },
-            ].map(tab => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`inline-flex items-center gap-2 px-5 py-3 rounded-2xl text-sm font-extrabold transition-all ${
-                    activeTab === tab.id
-                      ? 'bg-gray-900 text-white shadow-lg'
-                      : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-3">
-            <select
-              value={selectedAccountId}
-              onChange={event => setSelectedAccountId(event.target.value)}
-              className="ios-input px-4 py-3 rounded-2xl text-sm min-w-64"
-            >
-              <option value="">全部账号</option>
-              {accounts.map(account => (
-                <option key={account.id} value={account.id}>{accountLabel(account)}</option>
-              ))}
-            </select>
+      <div className="flex flex-wrap gap-2 p-2 bg-gray-100/50 rounded-2xl">
+        {[
+          { id: 'automation' as const, label: '交易自动化', icon: Zap },
+          { id: 'reply' as const, label: '关键词回复', icon: MessageCircle },
+          { id: 'default' as const, label: '账号默认回复', icon: Bot },
+        ].map(tab => {
+          const Icon = tab.icon;
+          return (
             <button
-              onClick={refresh}
-              className="px-4 py-3 rounded-2xl font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center gap-2 transition-colors"
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                activeTab === tab.id
+                  ? 'bg-[#0094f7] text-white shadow-md'
+                  : 'bg-white text-gray-600 hover:text-black hover:bg-gray-50'
+              }`}
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              刷新
+              <Icon className="w-4 h-4" />
+              {tab.label}
             </button>
-            <button
-              onClick={activeTab === 'automation' ? () => openNewAutomationRule('order_paid') : activeTab === 'reply' ? handleAddReplyRule : () => void openDefaultReplyModal()}
-              disabled={!selectedAccountId}
-              className="ios-btn-primary px-5 py-3 rounded-2xl text-sm font-extrabold flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              <Plus className="w-4 h-4" />
-              {primaryActionLabel}
-            </button>
-          </div>
-        </div>
+          );
+        })}
       </div>
 
       {activeTab === 'automation' && (
         <div className="grid grid-cols-1 2xl:grid-cols-[360px_1fr] gap-6">
           <aside className="space-y-4">
-            <div className="bg-white rounded-[2rem] p-5 border border-gray-100 shadow-sm">
+            <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
               <h3 className="font-black text-gray-900 mb-1">新建规则</h3>
               <p className="text-sm text-gray-500 mb-4">先选自动化类型，再配置对应动作。</p>
               <div className="space-y-3">
@@ -805,7 +773,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
               </div>
             </div>
 
-            <div className="bg-white rounded-[2rem] p-5 border border-gray-100 shadow-sm">
+            <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
               <h3 className="font-black text-gray-900 mb-4">规则概览</h3>
               <div className="space-y-3">
                 {triggerOrder.map(trigger => {
@@ -827,7 +795,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 
           <section className="space-y-4">
             {visibleAutomationRules.length === 0 ? (
-              <div className="bg-white rounded-[2rem] border border-dashed border-gray-200 p-16 text-center">
+              <div className="bg-white rounded-xl border border-dashed border-gray-200 p-16 text-center">
                 <Zap className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                 <h3 className="text-xl font-black text-gray-900">还没有自动化规则</h3>
                 <p className="text-gray-500 mt-2">从左侧选择一个模板开始配置。</p>
@@ -837,7 +805,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                 const meta = triggerMeta[rule.trigger_type];
                 const Icon = meta.icon;
                 return (
-                  <article key={rule.id} className="bg-white rounded-[2rem] border border-gray-100 p-5 shadow-sm hover:shadow-lg transition-all">
+                  <article key={rule.id} className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm hover:shadow-lg transition-all">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                       <div className="flex items-start gap-4 min-w-0">
                         <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${accentClasses(meta.accent, true)}`}>
@@ -890,7 +858,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       )}
 
       {activeTab === 'reply' && (
-        <section className="bg-white rounded-[2rem] border border-gray-100 p-6 shadow-sm">
+        <section className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
           <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-50 px-4 py-2 rounded-xl mb-5 w-fit">
             <AlertCircle className="w-4 h-4" />
             这里只处理买家用户消息；系统通知不会进入关键词或 AI 回复。
@@ -930,7 +898,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       )}
 
       {activeTab === 'default' && (
-        <section className="bg-white rounded-[2rem] border border-gray-100 p-6 shadow-sm">
+        <section className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
           <div className="flex items-center gap-2 text-sm text-blue-700 bg-blue-50 px-4 py-2 rounded-xl mb-5 w-fit">
             <AlertCircle className="w-4 h-4" />
             默认回复只处理买家用户消息；关键词未命中且 AI 未接管时才会使用。

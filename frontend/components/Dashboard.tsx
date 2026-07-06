@@ -32,7 +32,7 @@ const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
 };
 
 const StatCard: React.FC<{ title: string; value: string | number; icon: React.ElementType; colorClass: string; trend?: string }> = ({ title, value, icon: Icon, colorClass, trend }) => (
-  <div className="ios-card p-6 rounded-[2rem] flex flex-col justify-between hover:translate-y-[-4px] transition-all duration-300 h-full relative overflow-hidden group border-0">
+  <div className="ios-card p-6 rounded-xl flex flex-col justify-between hover:translate-y-[-4px] transition-all duration-300 h-full relative overflow-hidden group border-0">
     <div className={`absolute -right-6 -top-6 w-32 h-32 ${colorClass} opacity-10 rounded-full group-hover:scale-125 transition-transform duration-500 blur-2xl`}></div>
     <div className="flex justify-between items-start mb-6">
       <div className={`p-4 rounded-2xl ${colorClass} bg-opacity-10 backdrop-blur-sm`}>
@@ -393,7 +393,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Main Chart Section */}
-      <div className="ios-card p-8 rounded-[2rem]">
+      <div className="ios-card p-8 rounded-xl">
         <div className="mb-10">
           <h3 className="text-xl font-bold text-gray-900">营收趋势分析</h3>
           <p className="text-sm text-gray-400 mt-1">{selectedRangeLabel}的销售额走势</p>
@@ -425,7 +425,7 @@ const Dashboard: React.FC = () => {
                 <Tooltip
                   contentStyle={{
                     backgroundColor: '#fff',
-                    borderRadius: '16px',
+                    borderRadius: '8px',
                     border: '1px solid #e5e7eb',
                     boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
                     padding: '12px 16px'
@@ -478,7 +478,7 @@ const Dashboard: React.FC = () => {
                 <Tooltip
                   contentStyle={{
                     backgroundColor: '#fff',
-                    borderRadius: '16px',
+                    borderRadius: '8px',
                     border: '1px solid #e5e7eb',
                     boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
                     padding: '12px 16px'
@@ -497,7 +497,7 @@ const Dashboard: React.FC = () => {
       {/* 商品销量排行和订单来源分布 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* 商品销量排行 */}
-        <div className="ios-card p-6 rounded-[2rem]">
+        <div className="ios-card p-6 rounded-xl">
           <h3 className="font-bold text-lg text-gray-900 mb-6">商品销量排行</h3>
           <div className="h-[280px]">
             {productSalesData.length === 0 ? (
@@ -529,7 +529,7 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* 商品下单占比 */}
-        <div className="ios-card p-6 rounded-[2rem]">
+        <div className="ios-card p-6 rounded-xl">
           <h3 className="font-bold text-lg text-gray-900 mb-6">商品下单占比</h3>
           <div className="h-[280px]">
             {sourceDataData.length === 0 ? (
@@ -568,7 +568,7 @@ const Dashboard: React.FC = () => {
       {/* 收支明细和品类营收 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* 参与统计的订单列表 */}
-        <div className="lg:col-span-2 ios-card p-0 rounded-[2rem] border-0 bg-white overflow-hidden flex flex-col">
+        <div className="lg:col-span-2 ios-card p-0 rounded-xl border-0 bg-white overflow-hidden flex flex-col">
           <div className="p-6 border-b border-gray-50 flex justify-between items-center bg-[#FAFAFA]">
             <h3 className="font-bold text-lg text-gray-900">参与统计的订单</h3>
             <div className="relative">
@@ -670,7 +670,7 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* 商品金额分析 */}
-        <div className="ios-card p-6 rounded-[2rem] bg-white">
+        <div className="ios-card p-6 rounded-xl bg-white">
           <h3 className="font-bold text-lg text-gray-900 mb-6">商品金额分析 (TOP5)</h3>
           {categoryDataData.length === 0 ? (
             <div className="flex items-center justify-center h-[300px] text-gray-400">暂无数据</div>
@@ -697,7 +697,7 @@ const Dashboard: React.FC = () => {
                       contentStyle={{
                         backgroundColor: '#fff',
                         border: '1px solid #e5e7eb',
-                        borderRadius: '12px',
+                        borderRadius: '6px',
                         boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
                       }}
                       formatter={(value: number) => `¥${value.toLocaleString()}`}

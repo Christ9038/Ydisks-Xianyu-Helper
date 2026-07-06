@@ -56,6 +56,7 @@ type noopHandler struct{}
 func (noopHandler) HandleChatMessage(context.Context, engine.ChatMessage) error     { return nil }
 func (noopHandler) HandleSystemEvent(context.Context, automation.Task) error        { return nil }
 func (noopHandler) OnPasswordLoginRefresh(context.Context, string) bool             { return false }
+func (noopHandler) OnAccountAlert(context.Context, string, string, string, string) {}
 
 // TestLoginVerifyLogout 登录→verify→登出 全链路。
 func TestLoginVerifyLogout(t *testing.T) {

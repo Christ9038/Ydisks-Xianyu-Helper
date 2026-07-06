@@ -8,7 +8,7 @@ import {
 } from '../services/api';
 import { SystemSettings } from '../types';
 import {
-  Save, Sparkles, Mail, Settings as SettingsIcon,
+  Save, Sparkles, Settings as SettingsIcon,
   Eye, EyeOff, RefreshCw, Database, ChevronDown, Check,
   LockKeyhole, UserRound, ShieldCheck
 } from 'lucide-react';
@@ -27,7 +27,6 @@ const Settings: React.FC = () => {
 
   // Password visibility states
   const [showApiKey, setShowApiKey] = useState(false);
-  const [showSmtpPassword, setShowSmtpPassword] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [credentialsSaving, setCredentialsSaving] = useState(false);
@@ -93,7 +92,9 @@ const Settings: React.FC = () => {
       if(!settings) return;
       setSaving(true);
       try {
-        await updateSystemSettings(settings);
+        // SMTP 字段已移至「通知设置」页面，这里不保存，避免覆盖那边已存的值。
+        const { smtp_server, smtp_port, smtp_user, smtp_password, smtp_from, ...rest } = settings;
+        await updateSystemSettings(rest);
         alert('系统配置已保存');
       } catch (e) {
         alert('保存失败：' + (e as Error).message);
@@ -181,7 +182,7 @@ const Settings: React.FC = () => {
                 基础设置
             </h3>
 
-            <div className="ios-card rounded-[2rem] p-6 bg-white space-y-4">
+            <div className="ios-card rounded-xl p-6 bg-white space-y-4">
               <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
                 <div>
                   <div className="font-bold text-gray-900">允许用户注册</div>
@@ -298,7 +299,7 @@ const Settings: React.FC = () => {
                 AI 智能回复配置
             </h3>
 
-            <div className="ios-card rounded-[2rem] p-6 bg-white space-y-6">
+            <div className="ios-card rounded-xl p-6 bg-white space-y-6">
               <div className="space-y-3">
                 <label className="block text-sm font-bold text-gray-800">API 地址</label>
                 <input
@@ -431,7 +432,7 @@ const Settings: React.FC = () => {
               登录凭据
             </h3>
 
-            <form onSubmit={handleCredentialsSave} className="ios-card rounded-[2rem] p-6 bg-white space-y-5">
+            <form onSubmit={handleCredentialsSave} className="ios-card rounded-xl p-6 bg-white space-y-5">
               <div className="space-y-2">
                 <label className="block text-sm font-bold text-gray-800">登录用户名</label>
                 <div className="relative">
@@ -511,85 +512,7 @@ const Settings: React.FC = () => {
             </form>
           </section>
 
-          {/* SMTP Settings */}
-          <section className="space-y-4">
-            <h3 className="text-lg font-extrabold text-gray-800 flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-blue-100 text-blue-600">
-                    <Mail className="w-4 h-4" />
-                </div>
-                SMTP 邮件配置
-            </h3>
-
-            <div className="ios-card rounded-[2rem] p-6 bg-white space-y-6">
-              <p className="text-sm text-gray-500">配置SMTP服务器用于发送注册验证码等邮件通知</p>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-3">
-                  <label className="block text-sm font-bold text-gray-800">SMTP服务器</label>
-                  <input
-                    type="text"
-                    value={settings.smtp_server || ''}
-                    onChange={e => setSettings({...settings, smtp_server: e.target.value})}
-                    placeholder="smtp.qq.com"
-                    className="w-full ios-input px-4 py-3 rounded-xl text-sm"
-                  />
-                </div>
-                <div className="space-y-3">
-                  <label className="block text-sm font-bold text-gray-800">SMTP端口</label>
-                  <input
-                    type="number"
-                    value={settings.smtp_port || 587}
-                    onChange={e => setSettings({...settings, smtp_port: parseInt(e.target.value)})}
-                    placeholder="587"
-                    className="w-full ios-input px-4 py-3 rounded-xl text-sm"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <label className="block text-sm font-bold text-gray-800">发件邮箱</label>
-                <input
-                  type="email"
-                  value={settings.smtp_user || ''}
-                  onChange={e => setSettings({...settings, smtp_user: e.target.value})}
-                  placeholder="your-email@qq.com"
-                  className="w-full ios-input px-4 py-3 rounded-xl text-sm"
-                />
-              </div>
-
-              <div className="space-y-3">
-                <label className="block text-sm font-bold text-gray-800">邮箱密码/授权码</label>
-                <div className="relative">
-                  <input
-                    type={showSmtpPassword ? 'text' : 'password'}
-                    value={settings.smtp_password || ''}
-                    onChange={e => setSettings({...settings, smtp_password: e.target.value})}
-                    placeholder="输入密码或授权码"
-                    className="w-full ios-input px-4 py-3 pr-12 rounded-xl text-sm"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSmtpPassword(!showSmtpPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    {showSmtpPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-                <p className="text-xs text-gray-500">QQ邮箱需要使用授权码</p>
-              </div>
-
-              <div className="space-y-3">
-                <label className="block text-sm font-bold text-gray-800">发件人显示名（可选）</label>
-                <input
-                  type="text"
-                  value={settings.smtp_from || ''}
-                  onChange={e => setSettings({...settings, smtp_from: e.target.value})}
-                  placeholder="闲鱼自动回复系统"
-                  className="w-full ios-input px-4 py-3 rounded-xl text-sm"
-                />
-              </div>
-            </div>
-          </section>
+          {/* SMTP 配置已移至「通知设置」页面 */}
         </div>
       </div>
 
@@ -598,7 +521,7 @@ const Settings: React.FC = () => {
         <button
             onClick={handleSave}
             disabled={saving}
-            className="ios-btn-primary px-10 py-5 rounded-[2rem] text-lg shadow-2xl shadow-blue-200 flex items-center gap-3 transform hover:scale-105 active:scale-95 transition-all disabled:opacity-70"
+            className="ios-btn-primary px-10 py-5 rounded-xl text-lg shadow-2xl shadow-blue-200 flex items-center gap-3 transform hover:scale-105 active:scale-95 transition-all disabled:opacity-70"
         >
             <Save className="w-6 h-6" />
             {saving ? '保存中...' : '保存所有配置'}

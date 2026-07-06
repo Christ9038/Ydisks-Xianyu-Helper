@@ -7,6 +7,7 @@ import CardList from './components/CardList';
 import ItemList from './components/ItemList';
 import Settings from './components/Settings';
 import Rules from './components/Rules';
+import Notifications from './components/Notifications';
 import { login, verifySession } from './services/api';
 import { ShieldCheck, ArrowRight, Loader2, User, Lock } from 'lucide-react';
 
@@ -16,9 +17,30 @@ interface DeliveryRuleTarget {
   requestId: number;
 }
 
+// 路由：URL path ↔ tab id。所有 SPA 路由统一挂 /app/ 前缀，避免和后端 API
+// 路径（/orders、/cards、/items 等）冲突——后者在 chi 里先注册，刷新会直接
+// 返回 JSON 而不是 SPA 页面。
+const ROUTES: Record<string, string> = {
+  '/app/dashboard': 'dashboard',
+  '/app/accounts': 'accounts',
+  '/app/orders': 'orders',
+  '/app/cards': 'cards',
+  '/app/items': 'items',
+  '/app/rules': 'rules',
+  '/app/notifications': 'notifications',
+  '/app/settings': 'settings',
+};
+const TAB_TO_PATH: Record<string, string> = Object.fromEntries(
+  Object.entries(ROUTES).map(([path, tab]) => [tab, path])
+);
+const tabFromPath = (): string => ROUTES[window.location.pathname] || 'dashboard';
+
+// 检测 Windows 以显示对应的 CLI 命令（路径分隔符、引号、.exe 后缀）。
+const isWindows = /Win/i.test(navigator.platform || navigator.userAgent);
+
 const App: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(tabFromPath);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [needsInit, setNeedsInit] = useState(false);
   const [username, setUsername] = useState('');
@@ -26,6 +48,22 @@ const App: React.FC = () => {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [deliveryRuleTarget, setDeliveryRuleTarget] = useState<DeliveryRuleTarget | undefined>();
+
+  // 切换 tab 并同步 URL。若 tab 没有对应 path（不应发生）则只切 tab。
+  const navigate = (tab: string) => {
+    const path = TAB_TO_PATH[tab];
+    if (path && path !== window.location.pathname) {
+      window.history.pushState({}, '', path);
+    }
+    setActiveTab(tab);
+  };
+
+  // 浏览器后退/前进同步 tab。
+  useEffect(() => {
+    const onPopState = () => setActiveTab(tabFromPath());
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   // Check auth on mount
   useEffect(() => {
@@ -84,7 +122,7 @@ const App: React.FC = () => {
         <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-blue-200/40 rounded-full blur-[120px] animate-pulse"></div>
         <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-blue-200/30 rounded-full blur-[120px] animate-pulse" style={{animationDelay: '2s'}}></div>
 
-        <div className="bg-white/80 backdrop-blur-3xl p-8 md:p-12 rounded-[3rem] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] w-full max-w-xl border border-white relative z-10 animate-fade-in">
+        <div className="bg-white/80 backdrop-blur-3xl p-8 md:p-12 rounded-xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] w-full max-w-xl border border-white relative z-10 animate-fade-in">
           <div className="text-center mb-8">
             <div className="w-24 h-24 bg-[#0094f7] squircle flex items-center justify-center mx-auto mb-6 transition-all duration-500 p-4" style={{ filter: 'drop-shadow(0 8px 20px rgba(0,148,247,0.3))' }}>
               <img src="/static/ydisks-logo.svg" alt="Ydisks" className="w-full h-full" />
@@ -96,7 +134,9 @@ const App: React.FC = () => {
           <div className="space-y-4">
             <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100">
               <div className="text-sm font-bold text-gray-900 mb-2">请在服务器上执行：</div>
-              <pre className="text-xs bg-black text-white p-4 rounded-2xl overflow-x-auto">./xianyu-server -init-admin -db data/xianyu_data.db -admin-password '请设置密码'</pre>
+              <pre className="text-xs bg-black text-white p-4 rounded-2xl overflow-x-auto">{isWindows
+                ? '.\\xianyu-server.exe -init-admin -db data\\xianyu_data.db -admin-password "请设置密码"'
+                : './xianyu-server -init-admin -db data/xianyu_data.db -admin-password \'请设置密码\''}</pre>
               <div className="text-xs text-gray-500 mt-2">完成后刷新页面即可进入登录。</div>
             </div>
 
@@ -125,7 +165,7 @@ const App: React.FC = () => {
         <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-blue-200/40 rounded-full blur-[120px] animate-pulse"></div>
         <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-blue-200/30 rounded-full blur-[120px] animate-pulse" style={{animationDelay: '2s'}}></div>
 
-        <div className="bg-white/80 backdrop-blur-3xl p-8 md:p-12 rounded-[3rem] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] w-full max-w-lg border border-white relative z-10 animate-fade-in">
+        <div className="bg-white/80 backdrop-blur-3xl p-8 md:p-12 rounded-xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] w-full max-w-lg border border-white relative z-10 animate-fade-in">
           
           {/* Header with Logo */}
           <div className="text-center mb-10">
@@ -196,12 +236,13 @@ const App: React.FC = () => {
       case 'cards': return <CardList />;
       case 'items': return <ItemList onConfigureDelivery={(item) => {
         setDeliveryRuleTarget({ cookieId: item.cookie_id, itemId: item.item_id, requestId: Date.now() });
-        setActiveTab('rules');
+        navigate('rules');
       }} />;
       case 'rules': return <Rules
         initialDeliveryTarget={deliveryRuleTarget}
         onDeliveryTargetHandled={() => setDeliveryRuleTarget(undefined)}
       />;
+      case 'notifications': return <Notifications />;
       case 'settings': return <Settings />;
       default: return <Dashboard />;
     }
@@ -209,9 +250,9 @@ const App: React.FC = () => {
 
   return (
     <div className="flex min-h-screen bg-[#F4F5F7] text-[#111]">
-      <Sidebar 
-        activeTab={activeTab} 
-        setActiveTab={setActiveTab} 
+      <Sidebar
+        activeTab={activeTab}
+        onNavigate={navigate}
         onLogout={() => {
             setIsLoggedIn(false);
         }}

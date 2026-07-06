@@ -118,12 +118,12 @@ func (i *ItemReplies) AllForUser(ctx context.Context, cookieID string) ([]ItemRe
 
 // NotificationChannelRow 通知渠道完整行（含 id）。
 type NotificationChannelRow struct {
-	ID      int64
-	Name    string
-	Type    string
-	Config  string
-	Enabled bool
-	UserID  int64
+	ID      int64  `json:"id"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Config  string `json:"config"`
+	Enabled bool   `json:"enabled"`
+	UserID  int64  `json:"user_id,omitempty"`
 }
 
 // AllChannelsForUser 取某用户全部通知渠道。
@@ -171,6 +171,20 @@ func (n *Notifications) UpdateChannel(ctx context.Context, c *NotificationChanne
 func (n *Notifications) DeleteChannel(ctx context.Context, id int64) error {
 	_, err := n.DB.ExecContext(ctx, `DELETE FROM notification_channels WHERE id=?`, id)
 	return err
+}
+
+// GetChannel 按 ID 取单个通知渠道（含 config）。未找到返回 nil。
+func (n *Notifications) GetChannel(ctx context.Context, id int64) (*NotificationChannel, error) {
+	row := n.DB.QueryRowContext(ctx,
+		`SELECT id, name, type, config FROM notification_channels WHERE id=?`, id)
+	var c NotificationChannel
+	if err := row.Scan(&c.ID, &c.Name, &c.Type, &c.Config); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &c, nil
 }
 
 // AccountBindings 取某账号已绑定的通知渠道 ID 列表。

@@ -14,6 +14,8 @@ import (
 func (s *Server) mountCardsReal(r chi.Router) {
 	r.Get("/cards", s.listCards)
 	r.Post("/cards", s.createCard)
+	r.Post("/cards/batch", s.batchCreateCards)
+	r.Post("/cards/{card_id}/append-data", s.appendCardData)
 	r.Get("/cards/{card_id}/details", s.getCard)
 	r.Get("/cards/{card_id}", s.getCard)
 	r.Put("/cards/{card_id}", s.updateCard)

@@ -348,13 +348,23 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 		case "NEW":
 			// 未扫码，继续
 		case "EXPIRED":
-			// 验证中的 EXPIRED 是正常的（验证通过后二维码 session 结束），
-			// 保持 verification_required 状态，等用户点"我已完成验证"。
-			if sess.Status != "verification_required" {
+			// 浏览器自动验证可能已把状态置为 success：二维码 session 结束是
+			// 验证通过后的正常现象，此时绝不能把 success 覆盖回 expired，
+			// 否则前端轮询会错过自动完成的登录、不存 cookie、不重启账号。
+			m.mu.Lock()
+			curStatus := sess.Status
+			if curStatus == "success" {
+				m.mu.Unlock()
+				m.logger.Info("验证已自动完成，二维码 session 结束", "session_id", sessionID)
+				return
+			}
+			if curStatus != "verification_required" {
 				sess.Status = "expired"
+				m.mu.Unlock()
 				m.logger.Info("二维码已过期", "session_id", sessionID)
 				return
 			}
+			m.mu.Unlock()
 			m.logger.Info("验证中收到 EXPIRED，保持验证状态", "session_id", sessionID)
 			time.Sleep(2 * time.Second)
 			continue

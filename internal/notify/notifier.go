@@ -60,6 +60,53 @@ func (n *Notifier) NotifyDelivery(accountID, buyerName, buyerID, itemID, message
 	}
 }
 
+// NotifyAccountAlert 发送账号告警通知（token 失效/自动恢复失败/风控验证等）。
+// level 取 AlertLevel* 常量。向该账号所有已启用渠道发送。
+func (n *Notifier) NotifyAccountAlert(accountID, level, title, body string) {
+	if n.store == nil {
+		return
+	}
+	channels, err := n.store.Notifications.AccountChannels(context.Background(), accountID)
+	if err != nil || len(channels) == 0 {
+		return
+	}
+	full := fmt.Sprintf("🚨 [%s] %s\n\n账号: %s\n时间: %s\n\n%s",
+		levelLabel(level), title, accountID, time.Now().Format("2006-01-02 15:04:05"), body)
+	for _, ch := range channels {
+		if err := n.send(ch, full); err != nil {
+			n.logger.Error("发送告警通知失败", "channel", ch.Type, "err", err)
+		}
+	}
+}
+
+// SendToChannel 直接向指定渠道发送一条消息（用于前端“测试发送”）。
+func (n *Notifier) SendToChannel(channelID int64, body string) error {
+	if n.store == nil {
+		return fmt.Errorf("通知器未初始化")
+	}
+	ch, err := n.store.Notifications.GetChannel(context.Background(), channelID)
+	if err != nil {
+		return fmt.Errorf("查询渠道失败: %w", err)
+	}
+	if ch == nil {
+		return fmt.Errorf("渠道不存在")
+	}
+	return n.send(*ch, body)
+}
+
+func levelLabel(level string) string {
+	switch level {
+	case "critical":
+		return "严重"
+	case "warn":
+		return "警告"
+	case "info":
+		return "提示"
+	default:
+		return level
+	}
+}
+
 func (n *Notifier) send(ch db.NotificationChannel, message string) error {
 	cfg := parseConfig(ch.Config)
 	switch ch.Type {

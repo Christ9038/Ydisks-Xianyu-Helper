@@ -339,7 +339,7 @@ const OrderList: React.FC = () => {
         </div>
       </div>
 
-      <div className="ios-card rounded-[2rem] overflow-hidden shadow-lg border-0 bg-white">
+      <div className="ios-card rounded-xl overflow-hidden shadow-lg border-0 bg-white">
         {/* Toolbar */}
         <div className="p-4 border-b border-gray-50 flex flex-col md:flex-row gap-4 justify-between items-center bg-[#FAFAFA]">
           <div className="flex gap-1 p-1 bg-gray-200/50 rounded-xl overflow-x-auto max-w-full">
