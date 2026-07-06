@@ -1,6 +1,10 @@
 package db
 
-import "strings"
+import (
+	"context"
+	"database/sql"
+	"strings"
+)
 
 // DialectUpsert 生成 UPSERT 子句，处理三种数据库的语法差异。
 //
@@ -23,8 +27,10 @@ func DialectUpsert(d Dialect, conflictCols []string, updateAssignments map[strin
 	for _, col := range keys {
 		expr := updateAssignments[col]
 		if d == DialectMySQL {
-			if strings.HasPrefix(expr, "EXCLUDED.") {
-				field := strings.TrimPrefix(expr, "EXCLUDED.")
+			// EXCLUDED.col / excluded.col → VALUES(col)（大小写不敏感）
+			upper := strings.ToUpper(expr)
+			if strings.HasPrefix(upper, "EXCLUDED.") {
+				field := expr[len("EXCLUDED."):] // 保留原大小写
 				expr = "VALUES(" + field + ")"
 			}
 		}
@@ -89,4 +95,29 @@ func sortStrings(s []string) {
 			s[j-1], s[j] = s[j], s[j-1]
 		}
 	}
+}
+
+// DBTX 是 *sql.DB 与 *sql.Tx 共有的最小执行接口，供 insertReturningID 复用。
+type DBTX interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// insertReturningID 执行 INSERT 并返回自增主键 id。
+// Postgres 的 pgx driver 不支持 Result.LastInsertId（Postgres 无该概念），
+// 改用 `INSERT ... RETURNING id` + QueryRow.Scan；SQLite/MySQL 走 res.LastInsertId()。
+// query 必须是可安全追加 ` RETURNING id` 的单条 INSERT（无尾随分号/ON CONFLICT 亦可）。
+func insertReturningID(ctx context.Context, exec DBTX, dialect Dialect, query string, args ...any) (int64, error) {
+	if dialect == DialectPostgres {
+		var id int64
+		if err := exec.QueryRowContext(ctx, query+" RETURNING id", args...).Scan(&id); err != nil {
+			return 0, err
+		}
+		return id, nil
+	}
+	res, err := exec.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
 }

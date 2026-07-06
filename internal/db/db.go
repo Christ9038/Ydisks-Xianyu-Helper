@@ -42,7 +42,8 @@ type driverName string
 const (
 	driverSQLite   driverName = "sqlite"
 	driverMySQL    driverName = "mysql"
-	driverPgx      driverName = "pgx"
+	// driverPgx 走 pgx_compat driver（见 pgx_compat.go），把 ? 占位符重写成 $N。
+	driverPgx      driverName = pgxCompatDriverName
 )
 
 // Open 打开/创建数据库并执行迁移。dbURL 形如：
@@ -103,8 +104,16 @@ func parseDBURL(raw string) (driverName, Dialect, string, error) {
 	case "sqlite", "sqlite3":
 		return driverSQLite, DialectSQLite, sqliteDSN(rest), nil
 	case "mysql":
-		return driverMySQL, DialectMySQL, rest, nil
+		// MySQL DSN: user:pass@tcp(host:port)/db?params（无 scheme）
+		// goose 多语句迁移需要 multiStatements=true，缺失会静默只执行首条语句。
+		return driverMySQL, DialectMySQL, mysqlDSN(rest), nil
 	case "postgres", "postgresql", "pgx":
+		// pgx 接受完整 postgres:// URL；也接受 libpq key=value DSN。
+		// 若是 URL 形式（含 @），保留 scheme 还原完整 URL；
+		// 若是 key=value 形式（含 = 且不含 @），原样透传。
+		if strings.Contains(rest, "@") {
+			return driverPgx, DialectPostgres, scheme + "://" + rest, nil
+		}
 		return driverPgx, DialectPostgres, rest, nil
 	default:
 		return "", "", "", fmt.Errorf("不支持的数据库 scheme: %s（支持 sqlite/mysql/postgres）", scheme)
@@ -114,6 +123,19 @@ func parseDBURL(raw string) (driverName, Dialect, string, error) {
 // sqliteDSN 构造 SQLite DSN，开启 WAL/foreign_keys/busy_timeout/synchronous。
 func sqliteDSN(path string) string {
 	return fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)", path)
+}
+
+// mysqlDSN 确保 DSN 含 multiStatements=true（goose 多语句迁移需要，缺失会静默只执行首条语句）。
+// 已显式设置则不覆盖；其余参数原样保留。不强制 parseTime——本仓库时间列按 string/int64 扫描。
+func mysqlDSN(dsn string) string {
+	if strings.Contains(dsn, "multiStatements=") {
+		return dsn
+	}
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + "multiStatements=true"
 }
 
 // Migrate 执行嵌入式 goose 迁移，按方言选择子目录。

@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS ai_reply_settings (
     ai_enabled TINYINT(1) DEFAULT 0,
     model_name VARCHAR(255) DEFAULT 'qwen-plus',
     api_key TEXT,
-    base_url TEXT DEFAULT 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    base_url VARCHAR(512) DEFAULT 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     max_discount_percent INTEGER DEFAULT 10,
     max_discount_amount INTEGER DEFAULT 100,
     max_bargain_rounds INTEGER DEFAULT 3,

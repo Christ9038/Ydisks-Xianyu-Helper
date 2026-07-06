@@ -191,17 +191,13 @@ func (c *Cards) AllForUser(ctx context.Context, userID int64) ([]CardFull, error
 
 // Create 创建卡券，返回新 ID。
 func (c *Cards) Create(ctx context.Context, cf *CardFull) (int64, error) {
-	res, err := c.DB.ExecContext(ctx,
+	return insertReturningID(ctx, c.DB, c.Dialect,
 		`INSERT INTO cards (name, type, api_config, text_content, data_content, image_url, description,
 		    enabled, delay_seconds, is_multi_spec, spec_name, spec_value, user_id)
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		cf.Name, cf.Type, nullable(cf.APIConfig), nullable(cf.TextContent), nullable(cf.DataContent),
 		nullable(cf.ImageURL), nullable(cf.Description), boolToInt(cf.Enabled), cf.DelaySeconds,
 		boolToInt(cf.IsMultiSpec), nullable(cf.SpecName), nullable(cf.SpecValue), cf.UserID)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
 }
 
 // Update 更新卡券。

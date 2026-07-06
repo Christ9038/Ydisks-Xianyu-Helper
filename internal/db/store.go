@@ -35,7 +35,7 @@ func NewStore(db *sql.DB, dialect Dialect) *Store {
 		Cards:          &Cards{DB: db, Dialect: dialect},
 		Automation:     &AutomationRules{DB: db, Dialect: dialect},
 		Orders:         &Orders{DB: db, Dialect: dialect},
-		Keywords:       &Keywords{DB: db},
+		Keywords:       &Keywords{DB: db, Dialect: dialect},
 		DefaultReps:    &DefaultReplies{DB: db, Dialect: dialect},
 		ItemReps:       &ItemReplies{DB: db, Dialect: dialect},
 		AIReply:        &AIReply{DB: db},

@@ -31,7 +31,10 @@ type ItemReply struct {
 }
 
 // Keywords 关键字操作。
-type Keywords struct{ DB *sql.DB }
+type Keywords struct {
+	DB      *sql.DB
+	Dialect Dialect
+}
 
 // AllWithType 取某账号所有关键字（含类型/图片）。
 func (k *Keywords) AllWithType(ctx context.Context, cookieID string) ([]Keyword, error) {

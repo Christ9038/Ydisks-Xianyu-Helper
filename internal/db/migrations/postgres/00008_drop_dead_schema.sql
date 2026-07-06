@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS delivery_rules (
     keyword TEXT NOT NULL,
     card_id BIGINT NOT NULL,
     delivery_count INTEGER DEFAULT 1,
-    enabled BOOLEAN DEFAULT TRUE,
+    enabled INTEGER DEFAULT 1,
     description TEXT,
     delivery_times INTEGER DEFAULT 0,
     user_id BIGINT NOT NULL DEFAULT 1,
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS delivery_rule_variants (
     spec_value TEXT NOT NULL DEFAULT '',
     card_id BIGINT NOT NULL,
     delivery_count INTEGER NOT NULL DEFAULT 1,
-    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    enabled INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

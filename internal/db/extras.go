@@ -44,13 +44,9 @@ func (k *Keywords) Add(ctx context.Context, cookieID, keyword, reply, itemID, kw
 	if kwType == "" {
 		kwType = "text"
 	}
-	res, err := k.DB.ExecContext(ctx,
+	return insertReturningID(ctx, k.DB, k.Dialect,
 		`INSERT INTO keywords (cookie_id, keyword, reply, item_id, type, image_url) VALUES (?,?,?,?,?,?)`,
 		cookieID, keyword, reply, nullable(itemID), kwType, nullable(imageURL))
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
 }
 
 // DeleteByIndex 按索引（0-based，按 rowid 顺序）删除某账号的一个关键字。
@@ -161,13 +157,9 @@ func (n *Notifications) AllChannelsForUser(ctx context.Context, userID int64) ([
 
 // CreateChannel 创建通知渠道。
 func (n *Notifications) CreateChannel(ctx context.Context, c *NotificationChannelRow) (int64, error) {
-	res, err := n.DB.ExecContext(ctx,
+	return insertReturningID(ctx, n.DB, n.Dialect,
 		`INSERT INTO notification_channels (name, type, config, enabled, user_id) VALUES (?,?,?,?,?)`,
 		c.Name, c.Type, c.Config, boolToInt(c.Enabled), c.UserID)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
 }
 
 // UpdateChannel 更新通知渠道。
@@ -376,17 +368,31 @@ func (i *Items) Upsert(ctx context.Context, r *ItemInfoRow) error {
 
 // UpsertBasic 插入或补全商品基础信息，不覆盖已有的多规格/多数量发货设置。
 func (i *Items) UpsertBasic(ctx context.Context, r *ItemInfoRow) error {
+	// 三种数据库的条件 upsert：非空才覆盖，空值保留旧值。
+	// SQLite/Postgres 用 EXCLUDED.col 引用插入值；MySQL 用 VALUES(col)。
+	var conflictClause string
+	switch i.Dialect {
+	case DialectMySQL:
+		conflictClause = ` ON DUPLICATE KEY UPDATE
+		   item_title=CASE WHEN VALUES(item_title) IS NOT NULL AND VALUES(item_title) != '' THEN VALUES(item_title) ELSE item_info.item_title END,
+		   item_description=CASE WHEN VALUES(item_description) IS NOT NULL AND VALUES(item_description) != '' THEN VALUES(item_description) ELSE item_info.item_description END,
+		   item_category=CASE WHEN VALUES(item_category) IS NOT NULL AND VALUES(item_category) != '' THEN VALUES(item_category) ELSE item_info.item_category END,
+		   item_price=CASE WHEN VALUES(item_price) IS NOT NULL AND VALUES(item_price) != '' THEN VALUES(item_price) ELSE item_info.item_price END,
+		   item_detail=CASE WHEN VALUES(item_detail) IS NOT NULL AND VALUES(item_detail) != '' THEN VALUES(item_detail) ELSE item_info.item_detail END,
+		   updated_at=CURRENT_TIMESTAMP`
+	default:
+		conflictClause = ` ON CONFLICT(cookie_id, item_id) DO UPDATE SET
+		   item_title=CASE WHEN EXCLUDED.item_title IS NOT NULL AND EXCLUDED.item_title != '' THEN EXCLUDED.item_title ELSE item_info.item_title END,
+		   item_description=CASE WHEN EXCLUDED.item_description IS NOT NULL AND EXCLUDED.item_description != '' THEN EXCLUDED.item_description ELSE item_info.item_description END,
+		   item_category=CASE WHEN EXCLUDED.item_category IS NOT NULL AND EXCLUDED.item_category != '' THEN EXCLUDED.item_category ELSE item_info.item_category END,
+		   item_price=CASE WHEN EXCLUDED.item_price IS NOT NULL AND EXCLUDED.item_price != '' THEN EXCLUDED.item_price ELSE item_info.item_price END,
+		   item_detail=CASE WHEN EXCLUDED.item_detail IS NOT NULL AND EXCLUDED.item_detail != '' THEN EXCLUDED.item_detail ELSE item_info.item_detail END,
+		   updated_at=CURRENT_TIMESTAMP`
+	}
 	_, err := i.DB.ExecContext(ctx,
 		`INSERT INTO item_info (cookie_id, item_id, item_title, item_description,
 		    item_category, item_price, item_detail, updated_at)
-		 VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
-		 ON CONFLICT(cookie_id, item_id) DO UPDATE SET
-		   item_title=CASE WHEN excluded.item_title IS NOT NULL AND excluded.item_title != '' THEN excluded.item_title ELSE item_info.item_title END,
-		   item_description=CASE WHEN excluded.item_description IS NOT NULL AND excluded.item_description != '' THEN excluded.item_description ELSE item_info.item_description END,
-		   item_category=CASE WHEN excluded.item_category IS NOT NULL AND excluded.item_category != '' THEN excluded.item_category ELSE item_info.item_category END,
-		   item_price=CASE WHEN excluded.item_price IS NOT NULL AND excluded.item_price != '' THEN excluded.item_price ELSE item_info.item_price END,
-		   item_detail=CASE WHEN excluded.item_detail IS NOT NULL AND excluded.item_detail != '' THEN excluded.item_detail ELSE item_info.item_detail END,
-		   updated_at=CURRENT_TIMESTAMP`,
+		 VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`+conflictClause,
 		r.CookieID, r.ItemID, nullable(r.ItemTitle), nullable(r.ItemDescription),
 		nullable(r.ItemCategory), nullable(r.ItemPrice), nullable(r.ItemDetail))
 	return err

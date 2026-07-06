@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -168,7 +169,7 @@ func (a *AutomationRules) Create(ctx context.Context, in AutomationRuleInput) (i
 		return 0, err
 	}
 	defer tx.Rollback()
-	id, err := createAutomationRuleTx(ctx, tx, in)
+	id, err := createAutomationRuleTx(ctx, tx, a.Dialect, in)
 	if err != nil {
 		return 0, err
 	}
@@ -250,12 +251,26 @@ SELECT a.id,a.rule_id,a.action_type,COALESCE(a.card_id,0),COALESCE(c.name,''),a.
 // TryStartRun 以 UNIQUE(rule_id, trigger_key) 作为持久化防重。
 // 返回 started=false 表示该规则对该触发已执行或正在执行，调用方应直接跳过。
 func (a *AutomationRules) TryStartRun(ctx context.Context, run AutomationRun) (int64, bool, error) {
-	res, err := a.DB.ExecContext(ctx,
-		dialectInsertIgnorePrefix(a.Dialect)+` INTO automation_runs
+	query := dialectInsertIgnorePrefix(a.Dialect) + ` INTO automation_runs
     (rule_id,cookie_id,item_id,order_id,buyer_id,chat_id,trigger_type,trigger_key,status,raw_event_json)
-VALUES (?,?,?,?,?,?,?,?,?,?)`+dialectInsertIgnore(a.Dialect, []string{"rule_id", "trigger_key"}),
-		run.RuleID, run.CookieID, run.ItemID, run.OrderID, run.BuyerID, run.ChatID, run.TriggerType,
-		run.TriggerKey, "running", validJSON(run.RawEventJSON))
+VALUES (?,?,?,?,?,?,?,?,?,?)` + dialectInsertIgnore(a.Dialect, []string{"rule_id", "trigger_key"})
+	args := []any{run.RuleID, run.CookieID, run.ItemID, run.OrderID, run.BuyerID, run.ChatID,
+		run.TriggerType, run.TriggerKey, "running", validJSON(run.RawEventJSON)}
+
+	if a.Dialect == DialectPostgres {
+		// pgx 不支持 LastInsertId；用 RETURNING id。ON CONFLICT DO NOTHING 冲突时无行返回 → 未启动。
+		var id int64
+		err := a.DB.QueryRowContext(ctx, query+" RETURNING id", args...).Scan(&id)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return 0, false, nil
+			}
+			return 0, false, err
+		}
+		return id, true, nil
+	}
+
+	res, err := a.DB.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, false, err
 	}
@@ -354,18 +369,17 @@ SELECT order_id,item_id,buyer_id,spec_name,spec_value,quantity,amount,order_stat
 	return out, rows.Err()
 }
 
-func createAutomationRuleTx(ctx context.Context, tx *sql.Tx, in AutomationRuleInput) (int64, error) {
+func createAutomationRuleTx(ctx context.Context, tx *sql.Tx, dialect Dialect, in AutomationRuleInput) (int64, error) {
 	if in.Priority <= 0 {
 		in.Priority = 100
 	}
-	res, err := tx.ExecContext(ctx, `
+	id, err := insertReturningID(ctx, tx, dialect, `
 INSERT INTO automation_rules (user_id,cookie_id,item_id,name,trigger_type,enabled,priority,config_json)
 VALUES (?,?,?,?,?,?,?,?)`,
 		in.UserID, in.CookieID, in.ItemID, in.Name, in.TriggerType, boolToInt(in.Enabled), in.Priority, validJSON(in.ConfigJSON))
 	if err != nil {
 		return 0, err
 	}
-	id, _ := res.LastInsertId()
 	for _, act := range in.Actions {
 		if err := insertAutomationActionTx(ctx, tx, id, act); err != nil {
 			return 0, err

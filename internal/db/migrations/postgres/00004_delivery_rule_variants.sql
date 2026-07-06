@@ -10,7 +10,7 @@ CREATE TABLE delivery_rule_variants (
     spec_value TEXT NOT NULL DEFAULT '',
     card_id BIGINT NOT NULL REFERENCES cards(id) ON DELETE RESTRICT,
     delivery_count INTEGER NOT NULL DEFAULT 1,
-    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    enabled INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(rule_id, spec_name, spec_value)
@@ -24,8 +24,8 @@ CREATE INDEX IF NOT EXISTS idx_delivery_rule_variants_card ON delivery_rule_vari
 INSERT INTO delivery_rule_variants
     (rule_id, spec_name, spec_value, card_id, delivery_count, enabled)
 SELECT dr.id,
-       CASE WHEN COALESCE(c.is_multi_spec, FALSE) = TRUE THEN COALESCE(c.spec_name, '') ELSE '' END,
-       CASE WHEN COALESCE(c.is_multi_spec, FALSE) = TRUE THEN COALESCE(c.spec_value, '') ELSE '' END,
+       CASE WHEN COALESCE(c.is_multi_spec, 0) = 1 THEN COALESCE(c.spec_name, '') ELSE '' END,
+       CASE WHEN COALESCE(c.is_multi_spec, 0) = 1 THEN COALESCE(c.spec_value, '') ELSE '' END,
        dr.card_id,
        CASE WHEN dr.delivery_count > 0 THEN dr.delivery_count ELSE 1 END,
        dr.enabled

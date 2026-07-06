@@ -3,7 +3,9 @@
 -- 闲鱼管家初始 schema（PostgreSQL 版）。
 -- 与 SQLite 00001 对齐，差异：
 --   - INTEGER PRIMARY KEY AUTOINCREMENT → BIGSERIAL PRIMARY KEY
---   - BOOLEAN 原生支持（无需 boolToInt，但 Go 代码传 0/1 也兼容）
+--   - 布尔列用 INTEGER 0/1（与 SQLite/MySQL 一致，Go 代码用 boolToInt 写、int 读）
+--     不用原生 BOOLEAN：pgx 对 BOOLEAN 严格按 bool 类型读写，与全仓库 ? 占位符 +
+--     int 扫描的写法不兼容（见 internal/db/pgx_compat.go）。
 --   - INSERT OR IGNORE → ON CONFLICT DO NOTHING（业务代码用方言适配器）
 --   - CURRENT_TIMESTAMP 一致；updated_at 不设 ON UPDATE（业务代码手动 SET）
 
@@ -13,8 +15,8 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT UNIQUE NOT NULL,
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    is_admin BOOLEAN DEFAULT FALSE,
+    is_active INTEGER DEFAULT 1,
+    is_admin INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -23,7 +25,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     session_id TEXT PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     username TEXT NOT NULL,
-    is_admin BOOLEAN DEFAULT FALSE,
+    is_admin INTEGER DEFAULT 0,
     expires_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL
 );
@@ -42,19 +44,19 @@ CREATE TABLE IF NOT EXISTS cookies (
     id TEXT PRIMARY KEY,
     value TEXT NOT NULL,
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    auto_confirm BOOLEAN DEFAULT TRUE,
+    auto_confirm INTEGER DEFAULT 1,
     remark TEXT DEFAULT '',
     pause_duration INTEGER DEFAULT 10,
     username TEXT DEFAULT '',
     password TEXT DEFAULT '',
-    show_browser BOOLEAN DEFAULT FALSE,
+    show_browser INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_cookies_user_id ON cookies(user_id);
 
 CREATE TABLE IF NOT EXISTS cookie_status (
     cookie_id TEXT PRIMARY KEY REFERENCES cookies(id) ON DELETE CASCADE,
-    enabled BOOLEAN DEFAULT TRUE,
+    enabled INTEGER DEFAULT 1,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -72,7 +74,7 @@ CREATE INDEX IF NOT EXISTS idx_keywords_cookie_id ON keywords(cookie_id);
 -- AI 回复
 CREATE TABLE IF NOT EXISTS ai_reply_settings (
     cookie_id TEXT PRIMARY KEY REFERENCES cookies(id) ON DELETE CASCADE,
-    ai_enabled BOOLEAN DEFAULT FALSE,
+    ai_enabled INTEGER DEFAULT 0,
     model_name TEXT DEFAULT 'qwen-plus',
     api_key TEXT,
     base_url TEXT DEFAULT 'https://dashscope.aliyuncs.com/compatible-mode/v1',
@@ -107,9 +109,9 @@ CREATE TABLE IF NOT EXISTS cards (
     data_content TEXT,
     image_url TEXT,
     description TEXT,
-    enabled BOOLEAN DEFAULT TRUE,
+    enabled INTEGER DEFAULT 1,
     delay_seconds INTEGER DEFAULT 0,
-    is_multi_spec BOOLEAN DEFAULT FALSE,
+    is_multi_spec INTEGER DEFAULT 0,
     spec_name TEXT,
     spec_value TEXT,
     user_id BIGINT NOT NULL DEFAULT 1 REFERENCES users(id),
@@ -123,7 +125,7 @@ CREATE TABLE IF NOT EXISTS delivery_rules (
     keyword TEXT NOT NULL,
     card_id INTEGER NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
     delivery_count INTEGER DEFAULT 1,
-    enabled BOOLEAN DEFAULT TRUE,
+    enabled INTEGER DEFAULT 1,
     description TEXT,
     delivery_times INTEGER DEFAULT 0,
     user_id BIGINT NOT NULL DEFAULT 1 REFERENCES users(id),
@@ -167,8 +169,8 @@ CREATE TABLE IF NOT EXISTS item_info (
     item_category TEXT,
     item_price TEXT,
     item_detail TEXT,
-    is_multi_spec BOOLEAN DEFAULT FALSE,
-    multi_quantity_delivery BOOLEAN DEFAULT FALSE,
+    is_multi_spec INTEGER DEFAULT 0,
+    multi_quantity_delivery INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(cookie_id, item_id)
@@ -177,10 +179,10 @@ CREATE TABLE IF NOT EXISTS item_info (
 -- 默认回复
 CREATE TABLE IF NOT EXISTS default_replies (
     cookie_id TEXT PRIMARY KEY REFERENCES cookies(id) ON DELETE CASCADE,
-    enabled BOOLEAN DEFAULT FALSE,
+    enabled INTEGER DEFAULT 0,
     reply_content TEXT,
     reply_image_url TEXT,
-    reply_once BOOLEAN DEFAULT FALSE,
+    reply_once INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -225,7 +227,7 @@ CREATE TABLE IF NOT EXISTS notification_channels (
     name TEXT NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('qq','ding_talk','dingtalk','feishu','lark','bark','email','webhook','wechat','telegram')),
     config TEXT NOT NULL,
-    enabled BOOLEAN DEFAULT TRUE,
+    enabled INTEGER DEFAULT 1,
     user_id BIGINT NOT NULL DEFAULT 1 REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -235,7 +237,7 @@ CREATE TABLE IF NOT EXISTS message_notifications (
     id BIGSERIAL PRIMARY KEY,
     cookie_id TEXT NOT NULL REFERENCES cookies(id) ON DELETE CASCADE,
     channel_id BIGINT NOT NULL REFERENCES notification_channels(id) ON DELETE CASCADE,
-    enabled BOOLEAN DEFAULT TRUE,
+    enabled INTEGER DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(cookie_id, channel_id)
