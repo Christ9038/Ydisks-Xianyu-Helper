@@ -181,6 +181,16 @@ type cookieRenewer interface {
 	RenewAPIFirst(ctx context.Context, cookiesStr string) (*renew.Result, error)
 }
 
+type loginStatusChecker interface {
+	CheckLoginStatusContext(ctx context.Context, cookiesStr string) (*mtop.LoginStatusResult, error)
+}
+
+type loginStatusCheckResult struct {
+	recovered       bool
+	riskRequired    bool
+	verificationURL string
+}
+
 // Config 构造 Account 所需依赖。
 type Config struct {
 	CookieID  string
@@ -281,8 +291,28 @@ func (a *Account) Run(parent context.Context) error {
 				continue
 			}
 			if mtop.IsSessionExpiredErr(err) {
-				a.logger.Warn("session 已失效，先尝试接口续期", "err", err)
+				a.logger.Warn("session 已失效，先做轻量登录态检查与接口续期", "err", err)
 				a.clearTokenCache(ctx)
+				statusCheck := a.tryLoginStatusCheck(ctx)
+				if statusCheck.riskRequired {
+					body := "loginuser.get 返回风控验证要求，请在后台重新扫码或完成验证。"
+					if statusCheck.verificationURL != "" {
+						body += "验证地址：" + statusCheck.verificationURL
+					}
+					a.alert(ctx, AlertLevelWarn, "闲鱼要求安全验证",
+						body)
+					if sleepCtx(ctx, AuthExpiredRetryInterval) != nil {
+						return ctx.Err()
+					}
+					continue
+				}
+				if statusCheck.recovered {
+					a.resetFailures()
+					if sleepCtx(ctx, 2*time.Second) != nil {
+						return ctx.Err()
+					}
+					continue
+				}
 				if a.tryAPIRenew(ctx) {
 					a.resetFailures()
 					if sleepCtx(ctx, 2*time.Second) != nil {
@@ -511,6 +541,38 @@ func (a *Account) resetFailures() {
 	a.connFailures = 0
 }
 
+// tryLoginStatusCheck 调用 mtop.taobao.idlemessage.pc.loginuser.get 做轻量登录态确认。
+// 这个接口的成本低于完整 token 刷新和浏览器动作，且可能顺手下发新的签名 Cookie；
+// 因此在 session 失效后、接口续期前先跑一遍，避免已实现的登录态检查能力闲置。
+func (a *Account) tryLoginStatusCheck(ctx context.Context) loginStatusCheckResult {
+	checker, ok := a.mtop.(loginStatusChecker)
+	if !ok {
+		return loginStatusCheckResult{}
+	}
+	a.mu.Lock()
+	cookieStr := a.CookieStr
+	a.mu.Unlock()
+	res, err := checker.CheckLoginStatusContext(ctx, cookieStr)
+	if err != nil {
+		a.logger.Warn("登录态检查失败", "err", err)
+		return loginStatusCheckResult{}
+	}
+	if res == nil {
+		return loginStatusCheckResult{}
+	}
+	if res.Status == mtop.LoginStatusRiskRequired {
+		a.setRuntimeState(RuntimeVerificationRequired, "闲鱼要求安全验证")
+		a.logger.Warn("登录态检查命中风控验证", "ret", strings.Join(res.Ret, ","), "verification_url", res.VerificationURL)
+		return loginStatusCheckResult{riskRequired: true, verificationURL: res.VerificationURL}
+	}
+	if a.adoptRecoveredCookie(ctx, res.UpdatedCookies, "登录态检查") {
+		a.logger.Info("登录态检查刷新了 Cookie", "status", res.Status, "message", res.Message)
+		return loginStatusCheckResult{recovered: true}
+	}
+	a.logger.Info("登录态检查未产生可用 Cookie 更新", "status", res.Status, "message", res.Message)
+	return loginStatusCheckResult{}
+}
+
 // tryAPIRenew 是密码登录前的轻量恢复层。
 // 闲鱼很多“登录态滑向过期”的场景会先允许 hasLogin/silentHasLogin/
 // setLoginSettings 刷新一批 Cookie；直接上密码登录更重，也更容易触发风控。
@@ -534,15 +596,9 @@ func (a *Account) tryAPIRenew(ctx context.Context) bool {
 		}
 		return false
 	}
-	a.replaceCookieStr(res.NewCookies)
-	if a.store != nil && a.store.Cookies != nil {
-		if d, e := a.store.Cookies.GetDetails(ctx, a.CookieID); e == nil && d != nil {
-			if err := a.store.Cookies.Save(ctx, a.CookieID, res.NewCookies, d.UserID); err != nil {
-				a.logger.Error("接口续期后保存 cookie 失败", "cookie_id", a.CookieID, "err", err)
-			}
-		}
+	if !a.adoptRecoveredCookie(ctx, res.NewCookies, "接口续期") {
+		return false
 	}
-	a.clearTokenCache(ctx)
 	if res.Success {
 		a.setRuntimeState(RuntimeConnecting, "登录凭证已接口续期，正在重新连接")
 		a.logger.Info("接口续期成功", "method", res.RenewMethod, "updated", strings.Join(res.UpdatedCookieNames, ","))
@@ -550,6 +606,32 @@ func (a *Account) tryAPIRenew(ctx context.Context) bool {
 	}
 	a.setRuntimeState(RuntimeConnecting, "登录凭证已有新 Cookie，正在重新验证")
 	a.logger.Info("接口续期返回部分 Cookie 更新，下一轮重新验证", "updated", strings.Join(res.UpdatedCookieNames, ","))
+	return true
+}
+
+// adoptRecoveredCookie 统一接收“轻量检查/接口续期/浏览器恢复”拿到的新 Cookie。
+// Cookie 变更意味着旧 accessToken 与 session 绑定关系失效，必须清 token 缓存，
+// 让下一轮 acquireToken 使用新 Cookie 重新派生凭证。
+func (a *Account) adoptRecoveredCookie(ctx context.Context, newCookies, source string) bool {
+	if strings.TrimSpace(newCookies) == "" {
+		return false
+	}
+	a.mu.Lock()
+	oldCookies := a.CookieStr
+	a.mu.Unlock()
+	if newCookies == oldCookies {
+		return false
+	}
+	a.replaceCookieStr(newCookies)
+	if a.store != nil && a.store.Cookies != nil {
+		if d, e := a.store.Cookies.GetDetails(ctx, a.CookieID); e == nil && d != nil {
+			if err := a.store.Cookies.Save(ctx, a.CookieID, newCookies, d.UserID); err != nil {
+				a.logger.Error(source+"后保存 cookie 失败", "cookie_id", a.CookieID, "err", err)
+			}
+		}
+	}
+	a.clearTokenCache(ctx)
+	a.setRuntimeState(RuntimeConnecting, source+"已更新登录凭证，正在重新连接")
 	return true
 }
 

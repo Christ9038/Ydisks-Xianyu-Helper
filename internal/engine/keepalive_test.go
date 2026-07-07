@@ -20,6 +20,16 @@ func (c *countingMtop) RefreshTokenWithDeviceIDContext(_ context.Context, _ stri
 	return &mtop.RefreshResult{AccessToken: c.token}, nil
 }
 
+type statusMtop struct {
+	fakeRunMtop
+	result *mtop.LoginStatusResult
+	err    error
+}
+
+func (s *statusMtop) CheckLoginStatusContext(context.Context, string) (*mtop.LoginStatusResult, error) {
+	return s.result, s.err
+}
+
 // TestAcquireToken_CacheHitSkipsMtop 缓存命中且未过期时跳过 mtop 调用。
 func TestAcquireToken_CacheHitSkipsMtop(t *testing.T) {
 	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "tok-mtop"}}
@@ -67,6 +77,66 @@ func TestAcquireToken_CacheMissCallsMtopAndSavesCache(t *testing.T) {
 	}
 	if tk.ExpireAt <= time.Now().Unix() {
 		t.Fatalf("缓存 expire_at 应在未来，got %d", tk.ExpireAt)
+	}
+}
+
+// TestTryLoginStatusCheck_AdoptsUpdatedCookie loginuser.get 下发新 Cookie 时应采纳并清旧 token。
+func TestTryLoginStatusCheck_AdoptsUpdatedCookie(t *testing.T) {
+	newCookie := "unb=123; _m_h5_tk=loginuser_new; sgcookie=abc"
+	mtopClient := &statusMtop{
+		fakeRunMtop: fakeRunMtop{token: "tok-1"},
+		result: &mtop.LoginStatusResult{
+			Status:         mtop.LoginStatusTokenRefreshed,
+			UpdatedCookies: newCookie,
+			Message:        "令牌已刷新",
+		},
+	}
+	acc, _, store, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+
+	if err := store.Tokens.Save(context.Background(), "cid", acc.deviceID, "old-tok",
+		time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	res := acc.tryLoginStatusCheck(context.Background())
+	if !res.recovered || res.riskRequired {
+		t.Fatalf("登录态检查应恢复 Cookie，got %+v", res)
+	}
+	if got := acc.currentCookieStr(); got != newCookie {
+		t.Fatalf("内存 Cookie 未更新: got %q want %q", got, newCookie)
+	}
+	saved, err := store.Cookies.GetValue(context.Background(), "cid")
+	if err != nil || saved != newCookie {
+		t.Fatalf("DB Cookie 未更新: got %q err=%v", saved, err)
+	}
+	if _, err := store.Tokens.Get(context.Background(), "cid"); err == nil {
+		t.Fatal("Cookie 更新后应清除旧 token")
+	}
+}
+
+// TestTryLoginStatusCheck_RiskRequired loginuser.get 命中风控时应进入验证态，不继续普通续期。
+func TestTryLoginStatusCheck_RiskRequired(t *testing.T) {
+	mtopClient := &statusMtop{
+		fakeRunMtop: fakeRunMtop{token: "tok-1"},
+		result: &mtop.LoginStatusResult{
+			Status:          mtop.LoginStatusRiskRequired,
+			Ret:             []string{"FAIL_SYS_USER_VALIDATE::RGV587"},
+			VerificationURL: "https://passport.goofish.com/punish?x5secdata=1",
+			Message:         "闲鱼要求安全验证",
+		},
+	}
+	acc, _, _, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+
+	res := acc.tryLoginStatusCheck(context.Background())
+	if !res.riskRequired || res.recovered {
+		t.Fatalf("登录态检查应返回风控状态，got %+v", res)
+	}
+	if res.verificationURL == "" {
+		t.Fatal("应保留风控验证 URL")
+	}
+	if got := acc.RuntimeStatus().State; got != RuntimeVerificationRequired {
+		t.Fatalf("风控时状态应为 verification_required，got %q", got)
 	}
 }
 
