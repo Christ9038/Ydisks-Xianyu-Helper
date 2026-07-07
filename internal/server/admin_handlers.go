@@ -45,6 +45,10 @@ func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 			"created_at": createdAt, "cookie_count": cookieCount,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取用户数据失败")
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -60,8 +64,7 @@ func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "不能删除当前登录用户")
 		return
 	}
-	_, err = s.Store.DB.ExecContext(r.Context(), `DELETE FROM users WHERE id=?`, uid)
-	if err != nil {
+	if err := s.Store.Users.Delete(r.Context(), uid); err != nil {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
@@ -91,6 +94,10 @@ func (s *Server) adminListCookies(w http.ResponseWriter, r *http.Request) {
 			"created_at": createdAt, "owner": username,
 			"enabled": s.Store.Cookies.GetStatus(r.Context(), id),
 		})
+	}
+	if err := rows.Err(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取账号数据失败")
+		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }

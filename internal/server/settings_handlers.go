@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,16 +16,21 @@ import (
 	"xianyu-go/internal/db"
 )
 
+const maxOpenAIModelsResponseBytes = 4 << 20
+
 // authSess 从上下文取会话。
 func authSess(r *http.Request) *db.Session {
 	return auth.SessionFromContext(r.Context())
 }
 
-// mountSettingsReal 系统设置端点（已认证）。public 单独挂载在顶层。
+// mountSettingsReal 系统设置端点（管理员专用）。public 单独挂载在顶层。
 func (s *Server) mountSettingsReal(r chi.Router) {
-	r.Get("/system-settings", s.allSettings)
-	r.Put("/system-settings/{key}", s.setSetting)
-	r.Post("/ai-models", s.listAIModels)
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireAdmin)
+		r.Get("/system-settings", s.allSettings)
+		r.Put("/system-settings/{key}", s.setSetting)
+		r.Post("/ai-models", s.listAIModels)
+	})
 }
 
 func (s *Server) publicSettings(w http.ResponseWriter, r *http.Request) {
@@ -70,10 +76,13 @@ func (s *Server) mountAIReplyReal(r chi.Router) {
 }
 
 func (s *Server) listAIReply(w http.ResponseWriter, r *http.Request) {
+	sess := authSess(r)
 	rows, err := s.Store.DB.QueryContext(r.Context(),
-		`SELECT cookie_id, ai_enabled, max_discount_percent, max_discount_amount,
-		        max_bargain_rounds, COALESCE(custom_prompts, '')
-		   FROM ai_reply_settings`)
+		`SELECT a.cookie_id, a.ai_enabled, a.max_discount_percent, a.max_discount_amount,
+		        a.max_bargain_rounds, COALESCE(a.custom_prompts, '')
+		   FROM ai_reply_settings a
+		   JOIN cookies c ON c.id=a.cookie_id
+		  WHERE c.user_id=?`, sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
@@ -97,13 +106,35 @@ func (s *Server) listAIReply(w http.ResponseWriter, r *http.Request) {
 			"custom_prompts":       customPrompts,
 		}
 	}
+	if err := rows.Err(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询失败")
+		return
+	}
 	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) getAIReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
+	sess := auth.SessionFromContext(r.Context())
+	if sess == nil {
+		writeErr(w, http.StatusUnauthorized, "未授权访问")
+		return
+	}
+	if d, err := s.Store.Cookies.GetDetails(r.Context(), cid); err == nil {
+		if d.UserID != sess.UserID {
+			writeErr(w, http.StatusForbidden, "无权限操作该账号")
+			return
+		}
+	} else if !errors.Is(err, db.ErrNotFound) {
+		writeErr(w, http.StatusInternalServerError, "查询失败")
+		return
+	}
 	cfg, err := s.Store.AIReply.Get(r.Context(), cid)
 	if err != nil {
+		if !errors.Is(err, db.ErrNotFound) {
+			writeErr(w, http.StatusInternalServerError, "查询失败")
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ai_enabled":           false,
 			"max_discount_percent": 10,
@@ -136,17 +167,20 @@ func (s *Server) setAIReply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	_, err := s.Store.DB.ExecContext(r.Context(),
 		`INSERT INTO ai_reply_settings
 		 (cookie_id, ai_enabled, max_discount_percent, max_discount_amount,
 		  max_bargain_rounds, custom_prompts, updated_at)
 		 VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)`+db.DialectUpsert(s.Store.Dialect, []string{"cookie_id"}, map[string]string{
-			"ai_enabled":            "EXCLUDED.ai_enabled",
-			"max_discount_percent":  "EXCLUDED.max_discount_percent",
-			"max_discount_amount":   "EXCLUDED.max_discount_amount",
-			"max_bargain_rounds":    "EXCLUDED.max_bargain_rounds",
-			"custom_prompts":        "EXCLUDED.custom_prompts",
-			"updated_at":            "CURRENT_TIMESTAMP",
+			"ai_enabled":           "EXCLUDED.ai_enabled",
+			"max_discount_percent": "EXCLUDED.max_discount_percent",
+			"max_discount_amount":  "EXCLUDED.max_discount_amount",
+			"max_bargain_rounds":   "EXCLUDED.max_bargain_rounds",
+			"custom_prompts":       "EXCLUDED.custom_prompts",
+			"updated_at":           "CURRENT_TIMESTAMP",
 		}),
 		cid, btoi(req.AIEnabled), req.MaxDiscountPercent, req.MaxDiscountAmount,
 		req.MaxBargainRounds, nullIfEmpty(req.CustomPrompts))
@@ -215,7 +249,7 @@ func fetchOpenAIModels(ctx context.Context, baseURL, apiKey string) ([]string, e
 		return nil, fmt.Errorf("读取模型失败: %w", err)
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := readOpenAIModelsBody(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -230,6 +264,17 @@ func fetchOpenAIModels(ctx context.Context, baseURL, apiKey string) ([]string, e
 		return nil, fmt.Errorf("模型列表为空")
 	}
 	return models, nil
+}
+
+func readOpenAIModelsBody(r io.Reader) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(r, maxOpenAIModelsResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxOpenAIModelsResponseBytes {
+		return nil, fmt.Errorf("模型列表响应超过 %d MiB", maxOpenAIModelsResponseBytes>>20)
+	}
+	return raw, nil
 }
 
 func parseOpenAIModels(raw []byte) ([]string, error) {
@@ -299,6 +344,10 @@ func (s *Server) listUserSettings(w http.ResponseWriter, r *http.Request) {
 		if rows.Scan(&k, &v) == nil {
 			m[k] = v
 		}
+	}
+	if err := rows.Err(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询失败")
+		return
 	}
 	writeJSON(w, http.StatusOK, m)
 }

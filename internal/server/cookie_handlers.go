@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -170,6 +171,10 @@ func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := auth.SessionFromContext(r.Context())
 	if err := s.Store.Cookies.Save(r.Context(), req.ID, req.Value, sess.UserID); err != nil {
+		if errors.Is(err, db.ErrForbidden) {
+			writeErr(w, http.StatusForbidden, "该账号ID已存在且不属于当前用户")
+			return
+		}
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -177,7 +182,9 @@ func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
 		s.refreshAccountProfile(r.Context(), d)
 	}
 	if s.Manager != nil && s.Store.Cookies.GetStatus(r.Context(), req.ID) {
-		_ = s.Manager.Restart(r.Context(), req.ID)
+		if err := s.Manager.Restart(r.Context(), req.ID); err != nil {
+			s.Logger.Error("更新后重启账号失败", "cookie_id", req.ID, "err", err)
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "id": req.ID})
 }
@@ -185,6 +192,9 @@ func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
 // updateCookie 更新 cookie 值。
 func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	var req struct {
 		Value string `json:"value"`
 	}
@@ -194,6 +204,10 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := auth.SessionFromContext(r.Context())
 	if err := s.Store.Cookies.Save(r.Context(), cid, req.Value, sess.UserID); err != nil {
+		if errors.Is(err, db.ErrForbidden) {
+			writeErr(w, http.StatusForbidden, "无权限操作该账号")
+			return
+		}
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -201,7 +215,9 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 		s.refreshAccountProfile(r.Context(), d)
 	}
 	if s.Manager != nil && s.Store.Cookies.GetStatus(r.Context(), cid) {
-		_ = s.Manager.Restart(r.Context(), cid)
+		if err := s.Manager.Restart(r.Context(), cid); err != nil {
+			s.Logger.Error("更新后重启账号失败", "cookie_id", cid, "err", err)
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
@@ -209,6 +225,9 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 // updateCookieLoginInfo 更新账号登录信息（用户名/密码/显示浏览器）。
 func (s *Server) updateCookieLoginInfo(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	var req struct {
 		Username      string `json:"username"`
 		Password      string `json:"password"`
@@ -240,6 +259,9 @@ func (s *Server) updateCookieLoginInfo(w http.ResponseWriter, r *http.Request) {
 // setCookieStatus 启用/禁用账号。
 func (s *Server) setCookieStatus(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
@@ -252,14 +274,17 @@ func (s *Server) setCookieStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 启停引擎实例。
-	if req.Enabled {
-		// 重启拉取最新 cookie。
-		if d, e := s.Store.Cookies.GetDetails(r.Context(), cid); e == nil {
-			_ = s.Manager.Restart(r.Context(), cid)
-			_ = d
+	if s.Manager != nil {
+		if req.Enabled {
+			// 重启拉取最新 cookie。
+			if _, e := s.Store.Cookies.GetDetails(r.Context(), cid); e == nil {
+				if err := s.Manager.Restart(r.Context(), cid); err != nil {
+					s.Logger.Error("启用后重启账号失败", "cookie_id", cid, "err", err)
+				}
+			}
+		} else {
+			s.Manager.Stop(cid)
 		}
-	} else {
-		s.Manager.Stop(cid)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
@@ -267,7 +292,12 @@ func (s *Server) setCookieStatus(w http.ResponseWriter, r *http.Request) {
 // deleteCookie 删除账号。
 func (s *Server) deleteCookie(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	s.Manager.Stop(cid)
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
+	if s.Manager != nil {
+		s.Manager.Stop(cid)
+	}
 	if err := s.Store.Cookies.Delete(r.Context(), cid); err != nil {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
@@ -278,6 +308,9 @@ func (s *Server) deleteCookie(w http.ResponseWriter, r *http.Request) {
 // setCookieAutoConfirm 设置自动确认发货。
 func (s *Server) setCookieAutoConfirm(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	var req struct {
 		AutoConfirm bool `json:"auto_confirm"`
 	}
@@ -300,9 +333,8 @@ func (s *Server) setCookieAutoConfirm(w http.ResponseWriter, r *http.Request) {
 // getCookieAutoConfirm 获取自动确认发货设置。
 func (s *Server) getCookieAutoConfirm(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	d, err := s.Store.Cookies.GetDetails(r.Context(), cid)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "账号不存在")
+	d, ok := s.requireCookieOwner(w, r, cid)
+	if !ok {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"auto_confirm": d.AutoConfirm})
@@ -311,6 +343,9 @@ func (s *Server) getCookieAutoConfirm(w http.ResponseWriter, r *http.Request) {
 // setCookieRemark 设置备注。
 func (s *Server) setCookieRemark(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	var req struct {
 		Remark string `json:"remark"`
 	}
@@ -329,6 +364,9 @@ func (s *Server) setCookieRemark(w http.ResponseWriter, r *http.Request) {
 // setCookiePauseDuration 设置暂停时长。
 func (s *Server) setCookiePauseDuration(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	var req struct {
 		PauseDuration int `json:"pause_duration"`
 	}
@@ -351,6 +389,9 @@ func (s *Server) setCookiePauseDuration(w http.ResponseWriter, r *http.Request) 
 // getCookiePauseDuration 获取暂停时长。
 func (s *Server) getCookiePauseDuration(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"pause_duration": s.Store.Cookies.GetPauseDuration(r.Context(), cid)})
 }
 

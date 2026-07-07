@@ -2,7 +2,6 @@
 package qrlogin
 
 import (
-	"bytes"
 	"context"
 	"crypto/md5"
 	rand "crypto/rand"
@@ -25,6 +24,8 @@ import (
 	"xianyu-go/internal/logsafe"
 	"xianyu-go/internal/xianyu"
 )
+
+const maxQRResponseBytes = 2 << 20
 
 const (
 	host          = "https://passport.goofish.com"
@@ -139,7 +140,10 @@ func (m *Manager) GenerateQRCode(ctx context.Context) (sessionID string, qrCodeU
 		return "", "", fmt.Errorf("请求二维码接口失败: %w", err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readQRBody(resp.Body)
+	if err != nil {
+		return "", "", err
+	}
 
 	var result struct {
 		Content struct {
@@ -580,7 +584,10 @@ func (m *Manager) getLoginParams(ctx context.Context, sess *Session) (map[string
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, err := readQRBody(resp.Body)
+	if err != nil {
+		return nil, err
+	}
 
 	// 调试：打印响应状态和 body 前 200 字符
 
@@ -664,12 +671,20 @@ func randomUUID() (string, error) {
 var randReader io.Reader = rand.Reader
 var randFloat = func() float64 { return float64(time.Now().UnixNano()%1e9) / 1e9 }
 
+func readQRBody(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, maxQRResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxQRResponseBytes {
+		return nil, fmt.Errorf("扫码登录响应体超过 %d MiB", maxQRResponseBytes>>20)
+	}
+	return body, nil
+}
+
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
 	return s[:n] + "..."
 }
-
-// 包级别引用，避免 import 报错。
-var _ = bytes.NewReader

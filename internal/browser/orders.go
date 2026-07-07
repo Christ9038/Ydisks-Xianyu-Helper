@@ -39,7 +39,7 @@ var orderStatusMap = map[int]string{
 func (m *Manager) FetchOrderDetail(ctx context.Context, orderID, cookieID, cookieValue string, requireSpec ...bool) (*OrderDetail, error) {
 	needsSpec := len(requireSpec) > 0 && requireSpec[0]
 	// 优先调用稳定的 MTop 详情接口；页面自动化只作为规格字段的兼容兜底。
-	if direct, directErr := (&mtop.Client{}).FetchOrderDetail(ctx, cookieValue, orderID); directErr == nil && direct != nil && direct.Amount != "" &&
+	if direct, directErr := mtop.NewClient().FetchOrderDetail(ctx, cookieValue, orderID); directErr == nil && direct != nil && direct.Amount != "" &&
 		(!needsSpec || (direct.SpecName != "" && direct.SpecValue != "")) {
 		return &OrderDetail{
 			OrderID: orderID, Quantity: direct.Quantity, SpecName: direct.SpecName, SpecValue: direct.SpecValue,

@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"xianyu-go/internal/db"
@@ -40,16 +41,20 @@ func main() {
 
 	store := db.NewStore(database, dialect)
 
-	// 1) 创建用户
-	ok, err := store.Users.Create(ctx, "admin", "admin@test.local", "pw123456")
+	// 1) 创建用户（用唯一用户名，避免在已有数据的库上因 admin 重名而失败）。
+	username := fmt.Sprintf("verify_%d", time.Now().UnixNano())
+	ok, err := store.Users.Create(ctx, username, username+"@test.local", "pw123456")
 	if err != nil || !ok {
 		fmt.Printf("❌ 创建用户失败: err=%v ok=%v\n", err, ok)
 		os.Exit(1)
 	}
-	store.Users.SetAdmin(ctx, "admin")
-	adminUser, _ := store.Users.GetByUsername(ctx, "admin")
+	if err := store.Users.SetAdmin(ctx, username); err != nil {
+		fmt.Printf("❌ 设置管理员失败: %v\n", err)
+		os.Exit(1)
+	}
+	adminUser, _ := store.Users.GetByUsername(ctx, username)
 	userID := adminUser.ID
-	fmt.Printf("✅ 创建用户 admin (id=%d)\n", userID)
+	fmt.Printf("✅ 创建用户 %s (id=%d)\n", username, userID)
 
 	// 2) 保存 cookie（dialectUpsert: ON CONFLICT/ON DUPLICATE KEY）
 	if err := store.Cookies.Save(ctx, "acc1", "unb=123; _m_h5_tk=tk_1;", userID); err != nil {
@@ -158,6 +163,10 @@ func main() {
 	_, started2, err := store.Automation.TryStartRun(ctx, db.AutomationRun{
 		RuleID: ruleID, CookieID: "acc1", TriggerType: "order_paid", TriggerKey: "order-1", Status: "running",
 	})
+	if err != nil {
+		fmt.Printf("❌ TryStartRun 二次调用失败: %v\n", err)
+		os.Exit(1)
+	}
 	if started2 {
 		fmt.Printf("❌ TryStartRun 重复触发未防重\n")
 		os.Exit(1)
@@ -168,10 +177,14 @@ func main() {
 }
 
 func maskURL(url string) string {
-	// 只显示 scheme 和 host，隐藏密码
+	// 只显示 scheme 和 host，把 scheme 后到首个 '@' 之间的凭证替换为 ***。
 	for _, p := range []string{"mysql://", "postgres://", "postgresql://"} {
 		if len(url) > len(p) && url[:len(p)] == p {
-			return p + "***@" + url[len(p):]
+			rest := url[len(p):]
+			if at := strings.Index(rest, "@"); at >= 0 {
+				return p + "***@" + rest[at+1:]
+			}
+			return url
 		}
 	}
 	return url

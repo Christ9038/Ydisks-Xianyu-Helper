@@ -1,0 +1,47 @@
+# golangci-lint v2 配置。
+# 聚焦 bug-finder 类 linter 作为质量门禁；风格类（revive/gocritic）噪声大，暂不启用。
+# browser 包依赖 Chromium 且用 playwright 弃用 API（待迁移），单独排除。
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck        # 检查未处理的错误返回值
+    - govet           # go vet 综合检查
+    - ineffassign     # 检测无效赋值
+    - staticcheck     # 综合静态分析（含原 gosimple 检查）
+    - unused          # 检测未使用的代码
+    - misspell        # 拼写检查
+
+  settings:
+    errcheck:
+      # 清理路径上的 Close/Rollback，错误无可挽回，惯例忽略。
+      exclude-functions:
+        - (*os.File).Close
+        - (*os.Root).Close
+        - (io.Closer).Close
+        - (*database/sql.Rows).Close
+        - (*database/sql.DB).Close
+        - (*database/sql.Tx).Rollback
+        - (*bufio.Writer).Flush
+
+  exclusions:
+    presets:
+      - common-false-positives
+    rules:
+      # browser 包：playwright 弃用 API 待整体迁移到 locator，暂不 lint。
+      - path: internal/browser/
+        linters: [errcheck, staticcheck, govet]
+      # 测试代码允许在 setup 中忽略错误。
+      - path: _test\.go
+        linters: [errcheck]
+      # cmd/spike 是一次性诊断脚本，放宽要求。
+      - path: cmd/spike/
+        linters: [errcheck]
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

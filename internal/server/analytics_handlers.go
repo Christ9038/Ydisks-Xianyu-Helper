@@ -67,6 +67,11 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		writeErr(w, http.StatusInternalServerError, "查询每日统计失败")
+		return
+	}
 	_ = rows.Close()
 
 	// 3. 按状态统计。
@@ -88,6 +93,11 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 				"status": status, "count": count, "amount": round2(amount),
 			})
 		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		writeErr(w, http.StatusInternalServerError, "查询状态统计失败")
+		return
 	}
 	_ = rows.Close()
 
@@ -112,6 +122,11 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		writeErr(w, http.StatusInternalServerError, "查询城市统计失败")
+		return
+	}
 	_ = rows.Close()
 
 	// 5. 商品排行。
@@ -135,6 +150,11 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 				"total_amount": round2(total), "avg_amount": round2(avg),
 			})
 		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		writeErr(w, http.StatusInternalServerError, "查询商品统计失败")
+		return
 	}
 	_ = rows.Close()
 
@@ -182,6 +202,10 @@ func (s *Server) validOrders(w http.ResponseWriter, r *http.Request) {
 				"status": status, "cookie_id": cookieID, "created_at": createdAt,
 			})
 		}
+	}
+	if err := rows.Err(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询失败")
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"orders": out})
 }

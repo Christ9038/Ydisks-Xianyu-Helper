@@ -72,7 +72,7 @@ func main() {
 	defer cancel()
 
 	// 1) mtop token API → accessToken。
-	mc := &mtop.Client{}
+	mc := mtop.NewClient()
 	logger.Info("步骤 1/3：刷新 token")
 	res, err := mc.RefreshToken(cookieStr)
 	if err != nil {

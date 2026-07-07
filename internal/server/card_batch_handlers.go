@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -28,8 +27,8 @@ type cardBatchResultRow struct {
 func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	// 表格最大 5 MiB（卡密组定义都很小）。
-	r.Body = http.MaxBytesReader(w, r.Body, 6<<20)
-	if err := r.ParseMultipartForm(6 << 20); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxCardBatchUploadBytes)
+	if err := r.ParseMultipartForm(maxCardBatchUploadBytes); err != nil {
 		writeErr(w, http.StatusBadRequest, "解析上传文件失败")
 		return
 	}
@@ -39,16 +38,20 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer source.Close()
-	sourceBytes, err := io.ReadAll(io.LimitReader(source, 5<<20))
+	sourceBytes, tooLarge, err := readLimitedBytes(source, 5<<20)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "读取卡密表格失败")
+		return
+	}
+	if tooLarge {
+		writeErr(w, http.StatusBadRequest, "卡密表格不能超过 5 MiB")
 		return
 	}
 	sourceName := safeBaseName(sourceHeader.Filename)
 	if sourceName == "" {
 		sourceName = "cards.csv"
 	}
-	maps, err := parsePublishSheetBytes(sourceBytes, sourceName)
+	maps, err := parsePublishSheetBytesWithLimit(sourceBytes, sourceName, maxCardBatchRows)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

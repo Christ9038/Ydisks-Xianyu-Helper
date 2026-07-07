@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -41,9 +40,9 @@ func (s *Server) mountItemsReal(r chi.Router) {
 
 func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 	// 最多 9 张 10 MiB 图片，额外预留 multipart 元数据空间。
-	r.Body = http.MaxBytesReader(w, r.Body, 96<<20)
-	// #nosec G120 -- 请求体已由 MaxBytesReader 限制为 96 MiB。
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxItemPublishBytes)
+	// #nosec G120 -- 请求体已由 MaxBytesReader 限制。
+	if err := r.ParseMultipartForm(maxOrderImportBytes); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误，请使用 multipart/form-data")
 		return
 	}
@@ -81,10 +80,7 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	client := s.MTop
-	if client == nil {
-		client = &mtop.Client{}
-	}
+	client := s.mtopClient()
 	res, err := client.PublishItem(ctx, cookieValue, mtop.PublishItemRequest{
 		Title:              title,
 		Description:        description,
@@ -116,7 +112,9 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
-		_ = s.Store.Cookies.Save(r.Context(), cookieID, res.UpdatedCookies, userID)
+		if err := s.Store.Cookies.Save(r.Context(), cookieID, res.UpdatedCookies, userID); err != nil {
+			s.Logger.Error("保存刷新后的 cookie 失败", "cookie_id", cookieID, "err", err)
+		}
 	}
 	if res.ItemID != "" {
 		detail := map[string]any{
@@ -174,10 +172,13 @@ func readPublishImages(r *http.Request, maxImages int) ([]mtop.PublishImage, err
 		if err != nil {
 			return nil, fmt.Errorf("读取图片失败: %w", err)
 		}
-		data, err := io.ReadAll(io.LimitReader(f, 10<<20))
+		data, tooLarge, err := readLimitedBytes(f, 10<<20)
 		_ = f.Close()
 		if err != nil {
 			return nil, fmt.Errorf("读取图片失败: %w", err)
+		}
+		if tooLarge {
+			return nil, errors.New("单张图片不能超过 10 MiB")
 		}
 		if len(data) == 0 {
 			return nil, errors.New("图片文件为空")
@@ -262,14 +263,16 @@ func (s *Server) syncItemsFromAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	client := &mtop.Client{}
+	client := s.mtopClient()
 	res, err := client.FetchAllItems(ctx, cookieValue, req.PageSize, req.MaxPages)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	if res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
-		_ = s.Store.Cookies.Save(r.Context(), req.CookieID, res.UpdatedCookies, userID)
+		if err := s.Store.Cookies.Save(r.Context(), req.CookieID, res.UpdatedCookies, userID); err != nil {
+			s.Logger.Error("保存刷新后的 cookie 失败", "cookie_id", req.CookieID, "err", err)
+		}
 	}
 	saved := s.saveSyncedItems(r.Context(), req.CookieID, res.Items)
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -297,14 +300,16 @@ func (s *Server) syncItemsPageFromAccount(w http.ResponseWriter, r *http.Request
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
 	defer cancel()
-	client := &mtop.Client{}
+	client := s.mtopClient()
 	res, err := client.FetchItemsPage(ctx, cookieValue, req.PageNumber, req.PageSize)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	if res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
-		_ = s.Store.Cookies.Save(r.Context(), req.CookieID, res.UpdatedCookies, userID)
+		if err := s.Store.Cookies.Save(r.Context(), req.CookieID, res.UpdatedCookies, userID); err != nil {
+			s.Logger.Error("保存刷新后的 cookie 失败", "cookie_id", req.CookieID, "err", err)
+		}
 	}
 	saved := s.saveSyncedItems(r.Context(), req.CookieID, res.Items)
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -363,6 +368,9 @@ func (s *Server) saveSyncedItems(ctx context.Context, cookieID string, items []m
 
 func (s *Server) listItemsByCookie(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	items, err := s.Store.Items.AllForCookie(r.Context(), cid)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
@@ -377,6 +385,9 @@ func (s *Server) listItemsByCookie(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getItem(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	itemID := chi.URLParam(r, "item_id")
 	it, err := s.Store.Items.Get(r.Context(), cid, itemID)
 	if err != nil {
@@ -393,6 +404,9 @@ func (s *Server) getItem(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createItem(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	var req struct {
 		ItemID                string `json:"item_id"`
 		ItemTitle             string `json:"item_title"`
@@ -424,6 +438,9 @@ func (s *Server) createItem(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) updateItem(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	itemID := chi.URLParam(r, "item_id")
 	var req struct {
 		ItemTitle             string `json:"item_title"`
@@ -452,6 +469,9 @@ func (s *Server) updateItem(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteItem(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	itemID := chi.URLParam(r, "item_id")
 	if err := s.Store.Items.Delete(r.Context(), cid, itemID); err != nil {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
@@ -462,6 +482,9 @@ func (s *Server) deleteItem(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) setItemMultiSpec(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	itemID := chi.URLParam(r, "item_id")
 	var req struct {
 		IsMultiSpec bool `json:"is_multi_spec"`
@@ -479,6 +502,9 @@ func (s *Server) setItemMultiSpec(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) setItemMultiQuantity(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	itemID := chi.URLParam(r, "item_id")
 	var req struct {
 		MultiQuantityDelivery bool `json:"multi_quantity_delivery"`

@@ -20,6 +20,9 @@ func (s *Server) mountKeywordsReal(r chi.Router) {
 
 func (s *Server) listKeywords(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	rows, err := s.Store.Keywords.AllRows(r.Context(), cid)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
@@ -34,6 +37,9 @@ func (s *Server) listKeywords(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listKeywordsWithItemID(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	rows, err := s.Store.Keywords.AllRows(r.Context(), cid)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
@@ -48,6 +54,9 @@ func (s *Server) listKeywordsWithItemID(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) listKeywordsWithType(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	rows, err := s.Store.Keywords.AllRows(r.Context(), cid)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
@@ -65,6 +74,9 @@ func (s *Server) listKeywordsWithType(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) addKeyword(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	var req struct {
 		Keyword string `json:"keyword"`
 		Reply   string `json:"reply"`
@@ -82,6 +94,9 @@ func (s *Server) addKeyword(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) addKeywordWithItemID(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	var req struct {
 		Keyword string `json:"keyword"`
 		Reply   string `json:"reply"`
@@ -100,6 +115,9 @@ func (s *Server) addKeywordWithItemID(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteKeyword(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	index := atoiDefault(chi.URLParam(r, "index"), -1)
 	if err := s.Store.Keywords.DeleteByIndex(r.Context(), cid, index); err != nil {
 		writeErr(w, http.StatusNotFound, "关键字不存在")
@@ -133,6 +151,9 @@ func (s *Server) listItemReplies(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getItemReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	itemID := chi.URLParam(r, "item_id")
 	ir, err := s.Store.ItemReps.Get(r.Context(), cid, itemID)
 	if err != nil {
@@ -146,6 +167,9 @@ func (s *Server) getItemReply(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) setItemReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	itemID := chi.URLParam(r, "item_id")
 	var req struct {
 		ReplyContent string `json:"reply_content"`
@@ -163,6 +187,9 @@ func (s *Server) setItemReply(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteItemReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	itemID := chi.URLParam(r, "item_id")
 	if err := s.Store.ItemReps.Delete(r.Context(), cid, itemID); err != nil {
 		writeErr(w, http.StatusInternalServerError, "删除失败")

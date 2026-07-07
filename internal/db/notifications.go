@@ -25,7 +25,8 @@ func (n *Notifications) AccountChannels(ctx context.Context, cookieID string) ([
 	rows, err := n.DB.QueryContext(ctx,
 		`SELECT nc.id, nc.name, nc.type, nc.config
 		 FROM message_notifications mn
-		 JOIN notification_channels nc ON mn.channel_id = nc.id
+		 JOIN cookies c ON c.id=mn.cookie_id
+		 JOIN notification_channels nc ON mn.channel_id = nc.id AND nc.user_id=c.user_id
 		 WHERE mn.cookie_id=? AND mn.enabled=1 AND nc.enabled=1
 		 ORDER BY mn.id`, cookieID)
 	if err != nil {

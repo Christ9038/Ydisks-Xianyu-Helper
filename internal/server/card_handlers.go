@@ -38,9 +38,8 @@ func (s *Server) getCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "无效卡券ID")
 		return
 	}
-	cf, err := s.Store.Cards.Get(r.Context(), id)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "卡券不存在")
+	cf, ok := s.requireCardOwner(w, r, id)
+	if !ok {
 		return
 	}
 	writeJSON(w, http.StatusOK, cf)
@@ -73,7 +72,12 @@ func (s *Server) updateCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	existing, ok := s.requireCardOwner(w, r, id)
+	if !ok {
+		return
+	}
 	cf.ID = id
+	cf.UserID = existing.UserID
 	if err := s.Store.Cards.Update(r.Context(), cf); err != nil {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
@@ -85,6 +89,9 @@ func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "card_id"), 10, 64)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "无效卡券ID")
+		return
+	}
+	if _, ok := s.requireCardOwner(w, r, id); !ok {
 		return
 	}
 	if err := s.Store.Cards.Delete(r.Context(), id); err != nil {

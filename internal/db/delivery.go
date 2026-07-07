@@ -138,6 +138,49 @@ func (c *Cards) ConsumeBatchData(ctx context.Context, cardID int64) (string, err
 	return content, nil
 }
 
+// FirstBatchData 返回 data 类型卡券当前第一条有效内容和原始快照。
+// 调用方发送成功后应调用 CommitFirstBatchData 删除同一快照中的第一条，避免发送失败丢卡。
+func (c *Cards) FirstBatchData(ctx context.Context, cardID int64) (content, snapshot string, err error) {
+	var dataContent sql.NullString
+	err = c.DB.QueryRowContext(ctx, `SELECT data_content FROM cards WHERE id=?`, cardID).Scan(&dataContent)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", "", ErrNotFound
+		}
+		return "", "", err
+	}
+	if !dataContent.Valid || dataContent.String == "" {
+		return "", "", errors.New("卡券批量数据为空")
+	}
+	lines := splitLines(dataContent.String)
+	if len(lines) == 0 {
+		return "", "", errors.New("卡券批量数据无有效行")
+	}
+	return lines[0], dataContent.String, nil
+}
+
+// CommitFirstBatchData 在 data_content 仍等于 snapshot 时删除第一条有效内容。
+// 条件更新失败表示库存被并发修改，调用方应停止本次发货，避免错删卡密。
+func (c *Cards) CommitFirstBatchData(ctx context.Context, cardID int64, snapshot string) error {
+	lines := splitLines(snapshot)
+	if len(lines) == 0 {
+		return errors.New("卡券批量数据无有效行")
+	}
+	remaining := ""
+	if len(lines) > 1 {
+		remaining = joinLines(lines[1:])
+	}
+	res, err := c.DB.ExecContext(ctx, `UPDATE cards SET data_content=? WHERE id=? AND data_content=?`, remaining, cardID, snapshot)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err == nil && n == 0 {
+		return errors.New("卡券库存已被并发修改，请重试")
+	}
+	return nil
+}
+
 // AppendBatchData 往 data 类型卡密组追加卡密号（按行）。返回新增的有效（非空）行数。
 // 已有 data_content 非空时在末尾换行追加，否则直接写入。
 func (c *Cards) AppendBatchData(ctx context.Context, cardID int64, content string) (int, error) {

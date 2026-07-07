@@ -20,15 +20,14 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
-	"time"
 
 	"xianyu-go/internal/account"
+	"xianyu-go/internal/adapter"
+	"xianyu-go/internal/auth"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/browser"
 	"xianyu-go/internal/db"
-	"xianyu-go/internal/engine"
 	"xianyu-go/internal/notify"
 	"xianyu-go/internal/server"
 )
@@ -94,23 +93,21 @@ func main() {
 		bm = browser.NewManager(logger)
 	}
 	var mgr *account.Manager
-	adapter := &handlerAdapter{store: store, browser: bm, logger: logger}
-	mgr = account.NewManager(store, adapter, logger)
+	ap := adapter.New(store, bm, logger)
+	mgr = account.NewManager(store, ap, logger)
 	autoCenter := automation.New(store, mgr, logger)
-	autoCenter.SetOrderDetailFetcher(adapter)
+	autoCenter.SetOrderDetailFetcher(ap)
 	notifier := notify.New("", store, logger)
 	autoCenter.SetNotifier(notifier)
-	adapter.automation = autoCenter
-	adapter.notifier = notifier
+	ap.SetAutomation(autoCenter)
+	ap.SetNotifier(notifier)
 	if err := mgr.StartAll(ctx); err != nil {
 		logger.Error("启动账号引擎失败", "err", err)
 	}
 	go automation.NewScheduler(autoCenter).Run(ctx)
 
 	// 3) HTTP 服务。
-	srv := server.New(store, mgr, bm, *secure, *webDir, *addr, logger)
-	srv.Automation = autoCenter
-	srv.Notifier = notifier
+	srv := server.New(store, mgr, bm, *secure, *webDir, *addr, logger, autoCenter, notifier)
 	if err := srv.Run(ctx); err != nil {
 		logger.Error("HTTP 服务退出", "err", err)
 		// 即便出错也尝试清理已启动的账号与浏览器。
@@ -127,133 +124,9 @@ func main() {
 	}
 }
 
-// handlerAdapter 实现 engine.Handler，把系统消息、订单详情抓取和密码登录刷新接到浏览器。
-// 自动发货只走 automation.Center；用户聊天消息由 Account 内部 ReplyService 处理。
-type handlerAdapter struct {
-	store      *db.Store
-	browser    *browser.Manager
-	logger     *slog.Logger
-	automation *automation.Center
-	notifier   *notify.Notifier
+// handlerAdapter 已下沉到 internal/adapter 包；本文件只负责装配。
 
-	mu             sync.Mutex
-	lastLoginByCID map[string]time.Time
-	orderFetchMu   sync.Mutex
-	lastOrderFetch time.Time
-}
-
-func (h *handlerAdapter) HandleChatMessage(ctx context.Context, m engine.ChatMessage) error {
-	return nil
-}
-
-// OnAccountAlert 把账号告警（token 失效/自动恢复失败/风控验证等）转发给通知器，
-// 推送到该账号已绑定的通知渠道。
-func (h *handlerAdapter) OnAccountAlert(_ context.Context, cookieID, level, title, body string) {
-	if h.notifier == nil {
-		h.logger.Warn("告警通知未发送：通知器未注入", "account", cookieID, "level", level, "title", title)
-		return
-	}
-	h.notifier.NotifyAccountAlert(cookieID, level, title, body)
-}
-
-func (h *handlerAdapter) HandleSystemEvent(ctx context.Context, task automation.Task) error {
-	if h.automation == nil {
-		return nil
-	}
-	h.logger.Info("系统自动化事件", "account", task.AccountID, "trigger", task.TriggerType, "order_id", task.OrderID)
-	return h.automation.HandleTask(ctx, task)
-}
-
-// FetchOrderDetail 实现 automation.OrderDetailFetcher。只在本地订单缺少关键字段时启动浏览器，
-// 并将所有账号的详情请求串行化、至少间隔 3 秒，避免短时间高频访问闲鱼。
-func (h *handlerAdapter) FetchOrderDetail(ctx context.Context, cookieID, orderID, itemID, buyerID, cookieStr string) (*automation.OrderDetail, error) {
-	if order, err := h.store.Orders.Get(ctx, orderID); err == nil && order != nil && order.Amount != "" && order.Quantity != "" &&
-		order.SpecName != "" && order.SpecValue != "" {
-		return &automation.OrderDetail{Quantity: order.Quantity, SpecName: order.SpecName, SpecValue: order.SpecValue, Amount: order.Amount, OrderStatus: order.OrderStatus}, nil
-	}
-	if h.browser == nil {
-		return nil, fmt.Errorf("订单缺少规格/数量信息且浏览器自动化未启用")
-	}
-
-	h.orderFetchMu.Lock()
-	defer h.orderFetchMu.Unlock()
-	// 等锁期间其他流程可能已经补齐订单，再检查一次。
-	if order, err := h.store.Orders.Get(ctx, orderID); err == nil && order != nil && order.Amount != "" && order.Quantity != "" &&
-		order.SpecName != "" && order.SpecValue != "" {
-		return &automation.OrderDetail{Quantity: order.Quantity, SpecName: order.SpecName, SpecValue: order.SpecValue, Amount: order.Amount, OrderStatus: order.OrderStatus}, nil
-	}
-	if remain := 3*time.Second - time.Since(h.lastOrderFetch); !h.lastOrderFetch.IsZero() && remain > 0 {
-		timer := time.NewTimer(remain)
-		defer timer.Stop()
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-timer.C:
-		}
-	}
-	h.lastOrderFetch = time.Now()
-	detail, err := h.browser.FetchOrderDetail(ctx, orderID, cookieID, cookieStr, true)
-	if err != nil {
-		return nil, err
-	}
-	if detail.UpdatedCookies != "" && detail.UpdatedCookies != cookieStr {
-		_ = h.store.Cookies.Save(ctx, cookieID, detail.UpdatedCookies, 0)
-	}
-	return &automation.OrderDetail{
-		Quantity: detail.Quantity, SpecName: detail.SpecName, SpecValue: detail.SpecValue,
-		Amount: detail.Amount, OrderStatus: detail.OrderStatus,
-	}, nil
-}
-
-// OnPasswordLoginRefresh 连续失败时调用浏览器密码登录刷新 cookie。
-func (h *handlerAdapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) bool {
-	if h.browser == nil {
-		h.logger.Warn("密码登录刷新失败：浏览器自动化已禁用")
-		return false
-	}
-	h.mu.Lock()
-	if h.lastLoginByCID == nil {
-		h.lastLoginByCID = make(map[string]time.Time)
-	}
-	last := h.lastLoginByCID[cookieID]
-	if !last.IsZero() && time.Since(last) < engine.PasswordLoginMinGap {
-		remain := engine.PasswordLoginMinGap - time.Since(last)
-		h.mu.Unlock()
-		h.logger.Warn("密码登录刷新冷却中", "account", cookieID, "remain", remain.Round(time.Second))
-		return false
-	}
-	h.mu.Unlock()
-
-	d, err := h.store.Cookies.GetDetails(ctx, cookieID)
-	if err != nil {
-		h.logger.Warn("密码登录刷新失败：读取账号详情失败", "account", cookieID, "err", err)
-		return false
-	}
-	if strings.TrimSpace(d.Username) == "" || strings.TrimSpace(d.Password) == "" {
-		h.logger.Warn("密码登录刷新失败：账号未配置登录用户名或密码", "account", cookieID)
-		return false
-	}
-	h.mu.Lock()
-	h.lastLoginByCID[cookieID] = time.Now()
-	h.mu.Unlock()
-	cookies, err := h.browser.PasswordLogin(ctx, d.Username, d.Password, cookieID, "", !d.ShowBrowser)
-	if err != nil {
-		h.logger.Warn("密码登录刷新失败", "account", cookieID, "err", err)
-		return false
-	}
-	cookieStr := browser.MarshalCookies(cookies)
-	if strings.TrimSpace(cookieStr) == "" {
-		h.logger.Warn("密码登录刷新失败：浏览器未返回 cookie", "account", cookieID)
-		return false
-	}
-	if err := h.store.Cookies.Save(ctx, cookieID, cookieStr, d.UserID); err != nil {
-		h.logger.Warn("密码登录刷新失败：保存 cookie 失败", "account", cookieID, "err", err)
-		return false
-	}
-	h.logger.Info("密码登录刷新 cookie 成功", "account", cookieID)
-	return true
-}
-
+// ensureAdmin 解析密码后委托 auth.InitAdmin 完成创建或重置。
 func ensureAdmin(ctx context.Context, store *db.Store, email, password string) error {
 	if password == "" {
 		password = os.Getenv("XIANYU_ADMIN_PASSWORD")
@@ -261,26 +134,6 @@ func ensureAdmin(ctx context.Context, store *db.Store, email, password string) e
 	if password == "" {
 		return fmt.Errorf("admin 密码不能为空，请传 -admin-password 或设置 XIANYU_ADMIN_PASSWORD")
 	}
-	existing, err := store.Users.GetAdmin(ctx)
-	if err != nil && err != db.ErrNotFound {
-		return err
-	}
-	if existing != nil {
-		ok, err := store.Users.UpdatePassword(ctx, existing.Username, password)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return fmt.Errorf("admin 用户存在但密码未更新")
-		}
-		return store.Users.SetAdmin(ctx, existing.Username)
-	}
-	ok, err := store.Users.Create(ctx, "admin", email, password)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return fmt.Errorf("创建 admin 用户失败：用户名或邮箱可能已存在")
-	}
-	return store.Users.SetAdmin(ctx, "admin")
+	_, err := auth.InitAdmin(ctx, store, email, password)
+	return err
 }

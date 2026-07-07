@@ -8,31 +8,31 @@ import (
 
 // Order 对应 orders 表。
 type Order struct {
-	OrderID       string
-	ItemID        string
-	BuyerID       string
-	SpecName      string
-	SpecValue     string
-	Quantity      string
-	Amount        string
-	OrderStatus   string
-	CookieID      string
-	IsBargain     int
-	ReceiverName  string
-	ReceiverPhone string
-	ReceiverAddr  string
-	ReceiverCity  string
-	Version       int
-	ChatID        string
-	SystemShipped bool
-	PaidAt        string
-	ShippedAt     string
-	CompletedAt   string
-	BuyerReviewedAt string
+	OrderID             string
+	ItemID              string
+	BuyerID             string
+	SpecName            string
+	SpecValue           string
+	Quantity            string
+	Amount              string
+	OrderStatus         string
+	CookieID            string
+	IsBargain           int
+	ReceiverName        string
+	ReceiverPhone       string
+	ReceiverAddr        string
+	ReceiverCity        string
+	Version             int
+	ChatID              string
+	SystemShipped       bool
+	PaidAt              string
+	ShippedAt           string
+	CompletedAt         string
+	BuyerReviewedAt     string
 	LastReviewRequestAt string
-	ReviewRequestCount int
-	CreatedAt     string
-	UpdatedAt     string
+	ReviewRequestCount  int
+	CreatedAt           string
+	UpdatedAt           string
 }
 
 // Orders 订单操作。
@@ -55,6 +55,15 @@ func (o *Orders) Upsert(ctx context.Context, orderID string, opts OrderUpsertOpt
 		orderID, opts.ItemID, opts.BuyerID, opts.CookieID)
 	if err != nil {
 		return err
+	}
+	if opts.CookieID != "" {
+		var existing sql.NullString
+		if err := o.DB.QueryRowContext(ctx, `SELECT cookie_id FROM orders WHERE order_id=?`, orderID).Scan(&existing); err != nil {
+			return err
+		}
+		if existing.Valid && existing.String != "" && existing.String != opts.CookieID {
+			return ErrForbidden
+		}
 	}
 
 	// 动态构造 UPDATE。

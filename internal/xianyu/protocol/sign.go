@@ -40,12 +40,12 @@ const deviceIDChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstu
 func GenerateDeviceID(userID string) string {
 	result := make([]byte, 36)
 	for i := 0; i < 36; i++ {
-		switch {
-		case i == 8 || i == 13 || i == 18 || i == 23:
+		switch i {
+		case 8, 13, 18, 23:
 			result[i] = '-'
-		case i == 14:
+		case 14:
 			result[i] = '4'
-		case i == 19:
+		case 19:
 			result[i] = deviceIDChars[(randomInt(16)&0x3)|0x8]
 		default:
 			result[i] = deviceIDChars[randomInt(16)]

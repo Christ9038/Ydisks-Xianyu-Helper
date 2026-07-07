@@ -15,6 +15,12 @@ type failingReader struct{}
 
 func (failingReader) Read([]byte) (int, error) { return 0, errors.New("entropy unavailable") }
 
+func TestReadQRBodyRejectsOversizedResponse(t *testing.T) {
+	if _, err := readQRBody(strings.NewReader(strings.Repeat("x", maxQRResponseBytes+1))); err == nil {
+		t.Fatal("oversized QR response should fail")
+	}
+}
+
 func TestCompleteVerificationRequiresBrowserWhenHTTPMissingUNB(t *testing.T) {
 	m := NewManager(nil)
 	m.sessions["s1"] = testVerificationSession()

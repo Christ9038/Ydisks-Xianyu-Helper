@@ -3,7 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
-	"fmt"
+	"errors"
 	"strings"
 )
 
@@ -12,6 +12,7 @@ type OrderRow struct {
 	OrderID       string
 	ItemID        string
 	ItemTitle     string
+	ItemDetail    string
 	BuyerID       string
 	SpecName      string
 	SpecValue     string
@@ -27,6 +28,117 @@ type OrderRow struct {
 	ReceiverCity  string
 	CreatedAt     string
 	UpdatedAt     string
+}
+
+// OrderListFilter 是订单列表分页查询条件。
+type OrderListFilter struct {
+	UserID   int64
+	CookieID string
+	Status   string
+	Limit    int
+	Offset   int
+}
+
+// ListForUser 按用户隔离分页查询订单，并带出商品标题/详情。
+func (o *Orders) ListForUser(ctx context.Context, f OrderListFilter) ([]OrderRow, int, error) {
+	if f.Limit <= 0 {
+		f.Limit = 20
+	}
+	where := []string{"c.user_id=?"}
+	args := []any{f.UserID}
+	if f.CookieID != "" {
+		where = append(where, "o.cookie_id=?")
+		args = append(args, f.CookieID)
+	}
+	if statuses := normalizedStatusCandidates(f.Status); len(statuses) > 0 {
+		placeholders := make([]string, 0, len(statuses))
+		for _, st := range statuses {
+			placeholders = append(placeholders, "?")
+			args = append(args, st)
+		}
+		where = append(where, "o.order_status IN ("+strings.Join(placeholders, ",")+")")
+	}
+	whereSQL := strings.Join(where, " AND ")
+
+	var total int
+	if err := o.DB.QueryRowContext(ctx,
+		`SELECT COUNT(*)
+		   FROM orders o
+		   JOIN cookies c ON c.id=o.cookie_id
+		  WHERE `+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	queryArgs := append([]any{}, args...)
+	queryArgs = append(queryArgs, f.Limit, f.Offset)
+	rows, err := o.DB.QueryContext(ctx,
+		`SELECT o.order_id, o.item_id, COALESCE(i.item_title,''), COALESCE(i.item_detail,''),
+		        o.buyer_id, o.spec_name, o.spec_value, o.quantity, o.amount,
+		        o.order_status, o.cookie_id, o.is_bargain, o.system_shipped,
+		        o.receiver_name, o.receiver_phone, o.receiver_address, o.receiver_city,
+		        o.created_at, o.updated_at
+		   FROM orders o
+		   JOIN cookies c ON c.id=o.cookie_id
+		   LEFT JOIN item_info i ON i.cookie_id=o.cookie_id AND i.item_id=o.item_id
+		  WHERE `+whereSQL+`
+		  ORDER BY o.created_at DESC, o.order_id DESC
+		  LIMIT ? OFFSET ?`, queryArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []OrderRow{}
+	for rows.Next() {
+		var r OrderRow
+		var itemID, itemTitle, itemDetail, buyerID, specName, specValue, qty, amount, receiverName, receiverPhone, receiverAddr, receiverCity sql.NullString
+		var isBargain, sysShipped int
+		if err := rows.Scan(&r.OrderID, &itemID, &itemTitle, &itemDetail, &buyerID, &specName, &specValue, &qty, &amount,
+			&r.OrderStatus, &r.CookieID, &isBargain, &sysShipped, &receiverName, &receiverPhone, &receiverAddr,
+			&receiverCity, &r.CreatedAt, &r.UpdatedAt); err != nil {
+			return nil, 0, err
+		}
+		r.ItemID = itemID.String
+		r.ItemTitle = itemTitle.String
+		r.ItemDetail = itemDetail.String
+		r.BuyerID = buyerID.String
+		r.SpecName = specName.String
+		r.SpecValue = specValue.String
+		r.Quantity = qty.String
+		r.Amount = amount.String
+		r.IsBargain = isBargain
+		r.SystemShipped = sysShipped != 0
+		r.ReceiverName = receiverName.String
+		r.ReceiverPhone = receiverPhone.String
+		r.ReceiverAddr = receiverAddr.String
+		r.ReceiverCity = receiverCity.String
+		out = append(out, r)
+	}
+	return out, total, rows.Err()
+}
+
+func normalizedStatusCandidates(status string) []string {
+	status = strings.TrimSpace(status)
+	if status == "" || status == "all" {
+		return nil
+	}
+	switch NormalizeOrderStatus(status) {
+	case "processing":
+		return []string{"processing", "1"}
+	case "pending_ship":
+		return []string{"pending_ship", "2"}
+	case "shipped":
+		return []string{"shipped", "3"}
+	case "completed":
+		return []string{"completed", "4", "11"}
+	case "refunding":
+		return []string{"refunding", "5", "7", "9"}
+	case "cancelled":
+		return []string{"cancelled", "6", "8", "10", "12"}
+	case "unknown":
+		return []string{status}
+	default:
+		return []string{status}
+	}
 }
 
 // ByCookie 取某账号的订单（limit 上限）。
@@ -139,7 +251,7 @@ func (c *Cards) Get(ctx context.Context, cardID int64) (*CardFull, error) {
 		&cf.ID, &cf.Name, &cf.Type, &apiCfg, &textContent, &dataContent, &imageURL, &desc,
 		&enabled, &cf.DelaySeconds, &isMultiSpec, &specName, &specValue, &cf.UserID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
@@ -224,7 +336,3 @@ func nullable(s string) any {
 	}
 	return s
 }
-
-// 占位防未用 fmt（未来扩展）。
-var _ = fmt.Sprintf
-var _ = strings.TrimSpace

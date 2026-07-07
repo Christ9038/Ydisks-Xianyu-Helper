@@ -113,3 +113,60 @@ func TestSetAndClearCookie(t *testing.T) {
 		t.Fatalf("ClearSessionCookie 应 MaxAge=-1: %+v", cc)
 	}
 }
+
+// newEmptyStore 构造未初始化 admin 的测试 store，供 InitAdmin 测试。
+func newEmptyStore(t *testing.T) (*db.Store, func()) {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "init.db")
+	d, _, err := db.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	return db.NewStore(d, db.DialectSQLite), func() { d.Close() }
+}
+
+// TestInitAdmin_CreateThenReset 全新库创建 admin，二次调用走重置路径。
+func TestInitAdmin_CreateThenReset(t *testing.T) {
+	store, cleanup := newEmptyStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// 全新库 → 创建。
+	created, err := InitAdmin(ctx, store, "admin@example.com", "pw1")
+	if err != nil || !created {
+		t.Fatalf("首次 InitAdmin 应创建：created=%v err=%v", created, err)
+	}
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	if admin == nil || !admin.IsAdmin {
+		t.Fatalf("admin 未正确创建/标记: %+v", admin)
+	}
+	// 密码可用。
+	if _, ok, _ := store.Users.VerifyAndUpgrade(ctx, "admin", "pw1"); !ok {
+		t.Fatal("pw1 应可用")
+	}
+
+	// 二次调用 → 重置密码。
+	created2, err := InitAdmin(ctx, store, "ignored@e.com", "pw2")
+	if err != nil || created2 {
+		t.Fatalf("二次 InitAdmin 应重置：created=%v err=%v", created2, err)
+	}
+	if _, ok, _ := store.Users.VerifyAndUpgrade(ctx, "admin", "pw1"); ok {
+		t.Fatal("旧密码 pw1 应已失效")
+	}
+	if _, ok, _ := store.Users.VerifyAndUpgrade(ctx, "admin", "pw2"); !ok {
+		t.Fatal("新密码 pw2 应可用")
+	}
+}
+
+// TestInitAdmin_DoesNotValidatePassword 密码强度校验由调用方负责（ensureAdmin），
+// InitAdmin 本身不拒绝空密码，仅保证不 panic 且能完成创建。
+func TestInitAdmin_DoesNotValidatePassword(t *testing.T) {
+	store, cleanup := newEmptyStore(t)
+	defer cleanup()
+	if _, err := InitAdmin(context.Background(), store, "a@e.com", ""); err != nil {
+		t.Fatalf("InitAdmin 不应自行拒绝空密码: %v", err)
+	}
+	if admin, _ := store.Users.GetByUsername(context.Background(), "admin"); admin == nil {
+		t.Fatal("空密码也应创建 admin")
+	}
+}

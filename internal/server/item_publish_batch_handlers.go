@@ -1,19 +1,12 @@
 package server
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/rand"
 	"encoding/csv"
-	"encoding/hex"
 	"encoding/json"
-	"encoding/xml"
 	"errors"
 	"fmt"
-	"io"
-	"mime"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -88,9 +81,9 @@ type publishReviewRequestCfg struct {
 func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	// 表格最大 20 MiB，图片压缩包最大 200 MiB，额外预留 multipart 元数据空间。
-	r.Body = http.MaxBytesReader(w, r.Body, 224<<20)
-	// #nosec G120 -- 请求体已由 MaxBytesReader 限制为 224 MiB。
-	if err := r.ParseMultipartForm(256 << 20); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxItemPublishBatchBytes)
+	// #nosec G120 -- 请求体已由 MaxBytesReader 限制。
+	if err := r.ParseMultipartForm(maxItemPublishBatchParseBytes); err != nil {
 		writeErr(w, http.StatusBadRequest, "解析上传文件失败")
 		return
 	}
@@ -105,9 +98,13 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer source.Close()
-	sourceBytes, err := io.ReadAll(io.LimitReader(source, 20<<20))
+	sourceBytes, tooLarge, err := readLimitedBytes(source, 20<<20)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "读取商品表格失败")
+		return
+	}
+	if tooLarge {
+		writeErr(w, http.StatusBadRequest, "商品表格不能超过 20 MiB")
 		return
 	}
 	batchID := "batch_" + randomHex(12)
@@ -127,9 +124,13 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 
 	if zipFile, zipHeader, err := r.FormFile("images_zip"); err == nil {
 		defer zipFile.Close()
-		zipBytes, err := io.ReadAll(io.LimitReader(zipFile, 200<<20))
+		zipBytes, tooLarge, err := readLimitedBytes(zipFile, 200<<20)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "读取图片 zip 失败")
+			return
+		}
+		if tooLarge {
+			writeErr(w, http.StatusBadRequest, "图片 zip 不能超过 200 MiB")
 			return
 		}
 		zipName := safeBaseName(zipHeader.Filename)
@@ -146,7 +147,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	maps, err := parsePublishSheetBytes(sourceBytes, sourceName)
+	maps, err := parsePublishSheetBytesWithLimit(sourceBytes, sourceName, maxPublishBatchRows)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -371,10 +372,7 @@ func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID 
 		}
 		return
 	}
-	client := s.MTop
-	if client == nil {
-		client = &mtop.Client{}
-	}
+	client := s.mtopClient()
 	for idx, row := range rows {
 		status, err := s.Store.PublishBatches.BatchStatus(ctx, batchID)
 		if err != nil || status == "canceled" {
@@ -408,7 +406,7 @@ func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID 
 	}
 }
 
-func (s *Server) publishBatchRow(ctx context.Context, userID int64, client *mtop.Client, row db.ItemPublishBatchRow) error {
+func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.Client, row db.ItemPublishBatchRow) error {
 	batch, err := s.Store.PublishBatches.Get(ctx, userID, row.BatchID)
 	if err != nil {
 		return errors.New("批量任务不存在")
@@ -447,7 +445,9 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client *mtop
 		return err
 	}
 	if res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
-		_ = s.Store.Cookies.Save(ctx, row.CookieID, res.UpdatedCookies, userID)
+		if err := s.Store.Cookies.Save(ctx, row.CookieID, res.UpdatedCookies, userID); err != nil {
+			s.Logger.Error("发布商品后保存刷新 cookie 失败", "cookie_id", row.CookieID, "err", err)
+		}
 	}
 	if res.ItemID != "" {
 		detail := map[string]any{
@@ -458,7 +458,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client *mtop
 			"publish_raw":   res.RawData,
 		}
 		detailJSON, _ := json.Marshal(detail)
-		_ = s.Store.Items.Upsert(ctx, &db.ItemInfoRow{
+		if err := s.Store.Items.Upsert(ctx, &db.ItemInfoRow{
 			CookieID:              row.CookieID,
 			ItemID:                res.ItemID,
 			ItemTitle:             firstNonEmpty(res.Title, row.Title),
@@ -467,8 +467,12 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client *mtop
 			ItemPrice:             res.PriceText,
 			ItemDetail:            string(detailJSON),
 			MultiQuantityDelivery: row.Quantity > 1,
-		})
-		_ = s.createPublishAutomationRules(ctx, userID, row, res)
+		}); err != nil {
+			s.Logger.Error("发布商品后保存商品信息失败", "cookie_id", row.CookieID, "item_id", res.ItemID, "err", err)
+		}
+		if err := s.createPublishAutomationRules(ctx, userID, row, res); err != nil {
+			s.Logger.Error("发布商品后创建自动化规则失败", "cookie_id", row.CookieID, "item_id", res.ItemID, "err", err)
+		}
 	}
 	rawJSON, _ := json.Marshal(res.RawData)
 	return s.Store.PublishBatches.MarkRowSuccess(ctx, row.ID, res.ItemID, res.ItemURL, string(rawJSON))
@@ -705,372 +709,6 @@ func (s *Server) validatePublishAutomation(ctx context.Context, userID int64, cf
 	return errs
 }
 
-func parsePublishSheetBytes(raw []byte, filename string) ([]map[string]any, error) {
-	if len(bytes.TrimSpace(raw)) == 0 {
-		return nil, fmt.Errorf("导入内容为空")
-	}
-	switch strings.ToLower(filepath.Ext(filename)) {
-	case ".xlsx":
-		return parseXLSXPublishSheet(raw)
-	case ".csv":
-		return parseDelimitedPublishSheet(raw, ',')
-	case ".tsv":
-		return parseDelimitedPublishSheet(raw, '\t')
-	case ".xls":
-		return nil, fmt.Errorf("暂不支持旧版 .xls，请另存为 .xlsx 或 CSV 后导入")
-	default:
-		return parseDelimitedPublishSheet(raw, ',')
-	}
-}
-
-func parseDelimitedPublishSheet(raw []byte, comma rune) ([]map[string]any, error) {
-	reader := csv.NewReader(bytes.NewReader(raw))
-	reader.Comma = comma
-	reader.FieldsPerRecord = -1
-	reader.LazyQuotes = true
-	records, err := reader.ReadAll()
-	if err != nil {
-		return nil, fmt.Errorf("解析表格失败: %w", err)
-	}
-	if len(records) < 2 {
-		return nil, fmt.Errorf("表格至少需要表头和一行数据")
-	}
-	return rowsToPublishMaps(records[0], records[1:]), nil
-}
-
-func parseXLSXPublishSheet(raw []byte) ([]map[string]any, error) {
-	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
-	if err != nil {
-		return nil, fmt.Errorf("解析 xlsx 失败: %w", err)
-	}
-	shared := xlsxSharedStrings(zr)
-	var sheet *zip.File
-	for _, f := range zr.File {
-		if strings.HasPrefix(f.Name, "xl/worksheets/sheet") && strings.HasSuffix(f.Name, ".xml") {
-			sheet = f
-			break
-		}
-	}
-	if sheet == nil {
-		return nil, fmt.Errorf("xlsx 中未找到工作表")
-	}
-	rc, err := sheet.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer rc.Close()
-	var ws xlsxWorksheet
-	if err := xml.NewDecoder(rc).Decode(&ws); err != nil {
-		return nil, fmt.Errorf("解析工作表失败: %w", err)
-	}
-	rows := make([][]string, 0, len(ws.SheetData.Rows))
-	for _, row := range ws.SheetData.Rows {
-		values := []string{}
-		for _, cell := range row.Cells {
-			idx := xlsxCellIndex(cell.Ref)
-			for len(values) <= idx {
-				values = append(values, "")
-			}
-			values[idx] = xlsxCellValue(cell, shared)
-		}
-		rows = append(rows, values)
-	}
-	if len(rows) < 2 {
-		return nil, fmt.Errorf("xlsx 至少需要表头和一行数据")
-	}
-	return rowsToPublishMaps(rows[0], rows[1:]), nil
-}
-
-func rowsToPublishMaps(headers []string, rows [][]string) []map[string]any {
-	keys := make([]string, len(headers))
-	for i, h := range headers {
-		keys[i] = normalizePublishHeader(h)
-	}
-	out := make([]map[string]any, 0, len(rows))
-	for _, row := range rows {
-		m := map[string]any{}
-		nonEmpty := false
-		for i, key := range keys {
-			if key == "" || i >= len(row) {
-				continue
-			}
-			value := strings.TrimSpace(row[i])
-			if value != "" {
-				nonEmpty = true
-			}
-			m[key] = value
-		}
-		if nonEmpty {
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
-func normalizePublishHeader(header string) string {
-	h := strings.ToLower(strings.TrimSpace(header))
-	h = strings.NewReplacer(" ", "", "_", "", "-", "", "（", "(", "）", ")").Replace(h)
-	switch h {
-	case "cookieid", "账号id", "账号", "闲鱼账号":
-		return "cookie_id"
-	case "title", "itemtitle", "标题", "商品标题", "商品名称":
-		return "title"
-	case "description", "desc", "itemdescription", "描述", "商品描述", "商品详情":
-		return "description"
-	case "price", "itemprice", "价格", "商品价格":
-		return "price"
-	case "originalprice", "原价":
-		return "original_price"
-	case "quantity", "库存", "数量":
-		return "quantity"
-	case "postagemode", "邮费模式":
-		return "postage_mode"
-	case "postage", "邮费":
-		return "postage"
-	case "images", "image", "图片", "商品图片":
-		return "images"
-	case "paiddeliveryenabled", "付款发货启用", "付款后自动发货":
-		return "paid_delivery_enabled"
-	case "paiddeliverycontents", "付款发货内容", "付款后发送的卡密":
-		return "paid_delivery_contents"
-	case "reviewgiftenabled", "评价赠品启用", "评价后发送赠品":
-		return "review_gift_enabled"
-	case "reviewgiftcontents", "评价赠品内容", "评价后发送的卡密":
-		return "review_gift_contents"
-	case "reviewrequestenabled", "求评价启用", "超时未评价时提醒":
-		return "review_request_enabled"
-	case "reviewrequestafterhours", "求评价等待小时", "发货几小时后提醒":
-		return "review_request_after_hours"
-	case "reviewrequestmessage", "求评价文案", "提醒内容":
-		return "review_request_message"
-	case "reviewrequestmaxattempts", "求评价最多次数", "最多提醒几次":
-		return "review_request_max_attempts"
-	case "reviewrequestdelayseconds", "求评价延迟秒":
-		return "review_request_delay_seconds"
-	default:
-		return strings.TrimSpace(header)
-	}
-}
-
-func extractPublishImagesZip(raw []byte, dest string) error {
-	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
-	if err != nil {
-		return fmt.Errorf("解析图片 zip 失败: %w", err)
-	}
-	for _, f := range zr.File {
-		if f.FileInfo().IsDir() {
-			continue
-		}
-		rel, err := safeZipPath(f.Name)
-		if err != nil {
-			return err
-		}
-		root, err := os.OpenRoot(dest)
-		if err != nil {
-			return err
-		}
-		if err := root.MkdirAll(filepath.Dir(rel), 0o750); err != nil {
-			_ = root.Close()
-			return err
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return err
-		}
-		data, err := io.ReadAll(io.LimitReader(rc, 10<<20))
-		_ = rc.Close()
-		if err != nil {
-			return err
-		}
-		if len(data) == 0 {
-			continue
-		}
-		if !strings.HasPrefix(http.DetectContentType(data), "image/") {
-			continue
-		}
-		file, err := root.OpenFile(rel, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-		if err == nil {
-			_, err = file.Write(data)
-			closeErr := file.Close()
-			if err == nil {
-				err = closeErr
-			}
-		}
-		_ = root.Close()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func loadBatchPublishImages(ctx context.Context, uploadDir string, row db.ItemPublishBatchRow) ([]mtop.PublishImage, error) {
-	var refs []string
-	if err := json.Unmarshal([]byte(row.ImagesJSON), &refs); err != nil {
-		return nil, fmt.Errorf("图片字段格式错误")
-	}
-	if len(refs) == 0 {
-		return nil, errors.New("至少上传 1 张商品图片")
-	}
-	images := make([]mtop.PublishImage, 0, len(refs))
-	for _, ref := range refs {
-		var data []byte
-		var contentType string
-		var filename string
-		var err error
-		if isHTTPURL(ref) {
-			data, contentType, err = downloadImageURL(ctx, ref)
-			filename = pathBaseFromURL(ref)
-		} else {
-			data, contentType, filename, err = readBatchImageFile(uploadDir, ref)
-		}
-		if err != nil {
-			return nil, err
-		}
-		images = append(images, mtop.PublishImage{Filename: filename, ContentType: contentType, Data: data})
-	}
-	return images, nil
-}
-
-func readBatchImageFile(uploadDir, ref string) ([]byte, string, string, error) {
-	rel, err := safeZipPath(ref)
-	if err != nil {
-		return nil, "", "", err
-	}
-	root, err := os.OpenRoot(uploadDir)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("打开图片目录失败")
-	}
-	defer root.Close()
-	file, err := root.Open(rel)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("读取图片失败: %s", ref)
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, (10<<20)+1))
-	if err != nil || len(data) > 10<<20 {
-		return nil, "", "", fmt.Errorf("读取图片失败或文件过大: %s", ref)
-	}
-	if len(data) == 0 {
-		return nil, "", "", fmt.Errorf("图片文件为空: %s", ref)
-	}
-	contentType := http.DetectContentType(data)
-	if !strings.HasPrefix(contentType, "image/") {
-		return nil, "", "", fmt.Errorf("不是有效图片: %s", ref)
-	}
-	return data, contentType, filepath.Base(rel), nil
-}
-
-// writeFileWithinRoot 将上传文件限制在指定根目录内，拒绝符号链接和路径逃逸。
-func writeFileWithinRoot(rootDir, name string, data []byte) error {
-	root, err := os.OpenRoot(rootDir)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-	file, err := root.OpenFile(name, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		return err
-	}
-	return file.Close()
-}
-
-func downloadImageURL(ctx context.Context, rawURL string) ([]byte, string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil || (req.URL.Scheme != "http" && req.URL.Scheme != "https") || req.URL.Hostname() == "" {
-		return nil, "", fmt.Errorf("图片 URL 无效: %s", rawURL)
-	}
-	client := publicHTTPClient()
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, "", fmt.Errorf("下载图片失败: %s", rawURL)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, "", fmt.Errorf("下载图片失败: %s HTTP %d", rawURL, resp.StatusCode)
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, (10<<20)+1))
-	if err != nil {
-		return nil, "", fmt.Errorf("读取远程图片失败: %s", rawURL)
-	}
-	if len(data) > 10<<20 {
-		return nil, "", fmt.Errorf("远程图片不能超过 10 MiB: %s", rawURL)
-	}
-	contentType := resp.Header.Get("Content-Type")
-	if i := strings.Index(contentType, ";"); i >= 0 {
-		contentType = contentType[:i]
-	}
-	if contentType == "" || contentType == "application/octet-stream" {
-		contentType = http.DetectContentType(data)
-	}
-	if !strings.HasPrefix(contentType, "image/") {
-		return nil, "", fmt.Errorf("远程文件不是图片: %s", rawURL)
-	}
-	return data, contentType, nil
-}
-
-// publicHTTPClient 只允许连接公网地址，防止批量铺货图片 URL 访问本机或内网服务。
-func publicHTTPClient() *http.Client {
-	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(address)
-			if err != nil {
-				return nil, err
-			}
-			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-			if err != nil {
-				return nil, err
-			}
-			for _, resolved := range ips {
-				if isPublicIP(resolved.IP) {
-					return dialer.DialContext(ctx, network, net.JoinHostPort(resolved.IP.String(), port))
-				}
-			}
-			return nil, fmt.Errorf("拒绝访问非公网地址")
-		},
-		TLSHandshakeTimeout: 10 * time.Second,
-	}
-	return &http.Client{
-		Transport: transport,
-		Timeout:   30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
-				return fmt.Errorf("图片 URL 重定向次数过多")
-			}
-			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-				return fmt.Errorf("图片 URL 重定向协议不安全")
-			}
-			return nil
-		},
-	}
-}
-
-func isPublicIP(ip net.IP) bool {
-	return ip != nil && !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() &&
-		!ip.IsLinkLocalMulticast() && !ip.IsUnspecified() && !ip.IsMulticast()
-}
-
-func validateBatchImageRef(uploadDir, ref string) error {
-	if isHTTPURL(ref) {
-		return nil
-	}
-	rel, err := safeZipPath(ref)
-	if err != nil {
-		return err
-	}
-	path := filepath.Join(uploadDir, rel)
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() {
-		return fmt.Errorf("图片文件不存在: %s", ref)
-	}
-	return nil
-}
-
 func publishBatchToMap(batch *db.ItemPublishBatch, rows []db.ItemPublishBatchRow) map[string]any {
 	outRows := make([]map[string]any, 0, len(rows))
 	pending := 0
@@ -1123,7 +761,7 @@ func (s *Server) cookieValueForUser(ctx context.Context, userID int64, cookieID 
 	return value, nil
 }
 
-func (s *Server) cardOwnedByUser(ctx context.Context, userID, cardID int64) bool {
+func (s *Server) cardOwnedByUser(ctx context.Context, userID int64, cardID int64) bool {
 	var exists int
 	err := s.Store.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM cards WHERE id=? AND user_id=?)`, cardID, userID).Scan(&exists)
 	return err == nil && exists != 0
@@ -1138,49 +776,6 @@ func defaultPublishUploadRoot() string {
 		return v
 	}
 	return filepath.Join("data", "uploads")
-}
-
-func randomHex(n int) string {
-	buf := make([]byte, n)
-	if _, err := rand.Read(buf); err != nil {
-		return strconv.FormatInt(time.Now().UnixNano(), 36)
-	}
-	return hex.EncodeToString(buf)
-}
-
-func safeBaseName(name string) string {
-	name = strings.TrimSpace(filepath.Base(name))
-	name = strings.ReplaceAll(name, string(os.PathSeparator), "_")
-	if name == "." || name == "/" {
-		return ""
-	}
-	return name
-}
-
-func safeZipPath(raw string) (string, error) {
-	raw = strings.TrimSpace(strings.ReplaceAll(raw, "\\", "/"))
-	if raw == "" || strings.HasPrefix(raw, "/") {
-		return "", fmt.Errorf("图片路径不安全: %s", raw)
-	}
-	clean := filepath.Clean(raw)
-	if clean == "." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) || clean == ".." {
-		return "", fmt.Errorf("图片路径不安全: %s", raw)
-	}
-	return clean, nil
-}
-
-func splitImageRefs(raw string) []string {
-	raw = strings.ReplaceAll(raw, "\n", ";")
-	raw = strings.ReplaceAll(raw, "；", ";")
-	parts := strings.Split(raw, ";")
-	out := []string{}
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }
 
 func parseLooseBool(raw string) bool {
@@ -1202,23 +797,6 @@ func atoiPublishDefault(raw string, def int) int {
 		return int(f)
 	}
 	return def
-}
-
-func isHTTPURL(ref string) bool {
-	ref = strings.ToLower(strings.TrimSpace(ref))
-	return strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://")
-}
-
-func pathBaseFromURL(rawURL string) string {
-	base := filepath.Base(strings.Split(rawURL, "?")[0])
-	if base == "." || base == "/" || base == "" {
-		exts, _ := mime.ExtensionsByType(http.DetectContentType(nil))
-		if len(exts) > 0 {
-			return "image" + exts[0]
-		}
-		return "image.jpg"
-	}
-	return base
 }
 
 func firstNonEmpty(values ...string) string {

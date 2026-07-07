@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/playwright-community/playwright-go"
+	"golang.org/x/sync/singleflight"
 
 	"xianyu-go/internal/xianyu"
 )
@@ -64,6 +65,7 @@ type Manager struct {
 	pool    map[string]*poolEntry
 	maxSize int
 	idleTTL time.Duration
+	creates singleflight.Group
 
 	// 允许测试注入自定义 playwright / 安装函数。
 	installFn func() error
@@ -176,9 +178,26 @@ func (m *Manager) acquireEntry(cookieID, cookieStr string, headless bool) (*pool
 	}
 	m.mu.Unlock()
 
-	// 池满，淘汰最久未用。
-	m.evictIfNeeded()
-	return m.createEntry(cookieID, cookieStr, headless)
+	created, err, _ := m.creates.Do(cookieID, func() (any, error) {
+		m.mu.Lock()
+		if e, ok := m.pool[cookieID]; ok && e.browser != nil && e.browser.IsConnected() {
+			e.lastUsed = time.Now()
+			m.mu.Unlock()
+			return e, nil
+		}
+		m.mu.Unlock()
+		// 池满，淘汰最久未用。
+		m.evictIfNeeded()
+		return m.createEntry(cookieID, cookieStr, headless)
+	})
+	if err != nil {
+		return nil, err
+	}
+	entry, ok := created.(*poolEntry)
+	if !ok || entry == nil {
+		return nil, fmt.Errorf("浏览器池创建返回异常")
+	}
+	return entry, nil
 }
 
 func (m *Manager) createEntry(cookieID, cookieStr string, headless bool) (*poolEntry, error) {

@@ -10,7 +10,6 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
-	"io"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -90,7 +89,7 @@ type uploadedImage struct {
 	Height int
 }
 
-func (c *Client) PublishItem(ctx context.Context, cookiesStr string, req PublishItemRequest) (*PublishItemResult, error) {
+func (c *ClientImpl) PublishItem(ctx context.Context, cookiesStr string, req PublishItemRequest) (*PublishItemResult, error) {
 	if strings.TrimSpace(req.Title) == "" {
 		return nil, errors.New("商品标题不能为空")
 	}
@@ -138,7 +137,7 @@ func (c *Client) PublishItem(ctx context.Context, cookiesStr string, req Publish
 	return c.publishItemOnce(ctx, currentCookies, req, uploaded, category, location)
 }
 
-func (c *Client) uploadPublishImage(ctx context.Context, cookiesStr string, img PublishImage) (uploadedImage, string, error) {
+func (c *ClientImpl) uploadPublishImage(ctx context.Context, cookiesStr string, img PublishImage) (uploadedImage, string, error) {
 	hc := c.HTTPClient
 	if hc == nil {
 		hc = &http.Client{Timeout: 60 * time.Second}
@@ -182,7 +181,7 @@ func (c *Client) uploadPublishImage(ctx context.Context, cookiesStr string, img 
 		return uploadedImage{}, cookiesStr, fmt.Errorf("上传商品图片失败: %w", err)
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := readMTopBody(resp)
 	if err != nil {
 		return uploadedImage{}, cookiesStr, err
 	}
@@ -220,7 +219,7 @@ func (c *Client) uploadPublishImage(ctx context.Context, cookiesStr string, img 
 	return uploadedImage{URL: imageURL, Width: width, Height: height}, updated, nil
 }
 
-func (c *Client) recommendPublishCategory(ctx context.Context, cookiesStr, title, desc string, images []uploadedImage) (map[string]any, string, error) {
+func (c *ClientImpl) recommendPublishCategory(ctx context.Context, cookiesStr, title, desc string, images []uploadedImage) (map[string]any, string, error) {
 	imageInfos := make([]any, 0, len(images))
 	for i, img := range images {
 		imageInfos = append(imageInfos, publishImagePayload(img, i == 0))
@@ -253,7 +252,7 @@ func (c *Client) recommendPublishCategory(ctx context.Context, cookiesStr, title
 	return dataMap, updated, nil
 }
 
-func (c *Client) defaultPublishLocation(ctx context.Context, cookiesStr string) (map[string]any, string, error) {
+func (c *ClientImpl) defaultPublishLocation(ctx context.Context, cookiesStr string) (map[string]any, string, error) {
 	data := map[string]any{"longitude": 118.78248347393424, "latitude": 31.91629189813543}
 	decoded, updated, err := c.callMTop(ctx, cookiesStr, DefaultLocationAPI, "mtop.taobao.idle.local.poi.get", "1.0", "a21ybx.publish.0.0", "a21ybx.item.sidebar.1.38262218ame5nr", "38262218ame5nr", data)
 	if err != nil {
@@ -274,7 +273,7 @@ func (c *Client) defaultPublishLocation(ctx context.Context, cookiesStr string) 
 	return loc, updated, nil
 }
 
-func (c *Client) publishItemOnce(ctx context.Context, cookiesStr string, req PublishItemRequest, images []uploadedImage, category, location map[string]any) (*PublishItemResult, error) {
+func (c *ClientImpl) publishItemOnce(ctx context.Context, cookiesStr string, req PublishItemRequest, images []uploadedImage, category, location map[string]any) (*PublishItemResult, error) {
 	imagePayloads := make([]any, 0, len(images))
 	for i, img := range images {
 		imagePayloads = append(imagePayloads, publishImagePayload(img, i == 0))
@@ -344,7 +343,7 @@ func (c *Client) publishItemOnce(ctx context.Context, cookiesStr string, req Pub
 	return result, nil
 }
 
-func (c *Client) callMTop(ctx context.Context, cookiesStr, endpoint, api, version, spmCnt, spmPre, logID string, data any) (map[string]any, string, error) {
+func (c *ClientImpl) callMTop(ctx context.Context, cookiesStr, endpoint, api, version, spmCnt, spmPre, logID string, data any) (map[string]any, string, error) {
 	hc := c.HTTPClient
 	if hc == nil {
 		hc = &http.Client{Timeout: 30 * time.Second}
@@ -366,7 +365,7 @@ func (c *Client) callMTop(ctx context.Context, cookiesStr, endpoint, api, versio
 		return nil, cookiesStr, fmt.Errorf("%s 请求失败: %w", api, err)
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := readMTopBody(resp)
 	if err != nil {
 		return nil, cookiesStr, err
 	}

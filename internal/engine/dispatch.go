@@ -55,20 +55,6 @@ func (a *Account) handleMessage(decrypted map[string]any) {
 	}
 }
 
-func (a *Account) cancelDebouncedReply(chatID string) {
-	if chatID == "" {
-		return
-	}
-	a.debounceMu.Lock()
-	defer a.debounceMu.Unlock()
-	if old, ok := a.debounceTimers[chatID]; ok {
-		if old.timer != nil {
-			old.timer.Stop()
-		}
-		delete(a.debounceTimers, chatID)
-	}
-}
-
 // markAndCheckDedup 提取消息 ID，检查 1 小时内是否已处理；未处理则标记。
 // 返回 true 表示应继续处理。移植自 _schedule_debounced_reply 的去重段。
 func (a *Account) markAndCheckDedup(decrypted map[string]any, chat *ChatMessage) bool {
@@ -310,6 +296,8 @@ func contains(s, sub string) bool { return strings.Contains(strings.ToLower(s), 
 
 func toString(v any) string {
 	switch x := v.(type) {
+	case nil:
+		return ""
 	case string:
 		return x
 	case float64:

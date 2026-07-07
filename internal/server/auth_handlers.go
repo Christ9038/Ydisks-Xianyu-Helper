@@ -121,6 +121,10 @@ func (s *Server) changeAdminPassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
+	if utf8.RuneCountInString(req.NewPassword) < 8 {
+		writeErr(w, http.StatusBadRequest, "新密码至少需要 8 个字符")
+		return
+	}
 	ctx := r.Context()
 	sess := auth.SessionFromContext(ctx)
 	if sess == nil || !sess.IsAdmin {
@@ -137,7 +141,8 @@ func (s *Server) changeAdminPassword(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"success": false, "message": "更新失败"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "密码修改成功"})
+	s.Auth.ClearSessionCookie(w)
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "密码修改成功，请重新登录", "requires_relogin": true})
 }
 
 // changePassword 修改当前用户密码。
@@ -148,6 +153,10 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if utf8.RuneCountInString(req.NewPassword) < 8 {
+		writeErr(w, http.StatusBadRequest, "新密码至少需要 8 个字符")
 		return
 	}
 	ctx := r.Context()
@@ -165,7 +174,8 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"success": false, "message": "更新失败"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "密码修改成功"})
+	s.Auth.ClearSessionCookie(w)
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "密码修改成功，请重新登录", "requires_relogin": true})
 }
 
 // updateCredentials 修改当前登录用户的用户名和/或密码，并撤销全部旧会话。

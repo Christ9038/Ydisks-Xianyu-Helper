@@ -72,6 +72,9 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
+	if !s.requireChannelOwner(w, r, id) {
+		return
+	}
 	if err := s.Store.Notifications.UpdateChannel(r.Context(), &db.NotificationChannelRow{
 		ID: id, Name: req.Name, Type: req.Type, Config: req.Config, Enabled: req.Enabled,
 	}); err != nil {
@@ -85,6 +88,9 @@ func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "channel_id"), 10, 64)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "无效ID")
+		return
+	}
+	if !s.requireChannelOwner(w, r, id) {
 		return
 	}
 	if err := s.Store.Notifications.DeleteChannel(r.Context(), id); err != nil {
@@ -101,13 +107,16 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "无效ID")
 		return
 	}
-	if s.Notifier == nil {
+	if s.notifier == nil {
 		writeErr(w, http.StatusServiceUnavailable, "通知器未启用")
+		return
+	}
+	if !s.requireChannelOwner(w, r, id) {
 		return
 	}
 	body := "🧪 通知渠道测试\n\n这是一条来自闲鱼助手的测试通知，收到说明渠道配置正常。\n时间: " +
 		time.Now().Format("2006-01-02 15:04:05")
-	if err := s.Notifier.SendToChannel(id, body); err != nil {
+	if err := s.notifier.SendToChannel(id, body); err != nil {
 		writeErr(w, http.StatusInternalServerError, "发送失败: "+err.Error())
 		return
 	}
@@ -116,6 +125,9 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getAccountBindings(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	ids, err := s.Store.Notifications.AccountBindings(r.Context(), cid)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
@@ -130,7 +142,7 @@ func (s *Server) listMessageNotifications(w http.ResponseWriter, r *http.Request
 		`SELECT mn.id, mn.cookie_id, mn.channel_id, COALESCE(nc.name, ''), mn.enabled
 		   FROM message_notifications mn
 		   JOIN cookies c ON c.id=mn.cookie_id
-		   LEFT JOIN notification_channels nc ON nc.id=mn.channel_id
+		   JOIN notification_channels nc ON nc.id=mn.channel_id AND nc.user_id=c.user_id
 		  WHERE c.user_id=?
 		  ORDER BY mn.id DESC`, sess.UserID)
 	if err != nil {
@@ -154,11 +166,18 @@ func (s *Server) listMessageNotifications(w http.ResponseWriter, r *http.Request
 			"enabled":      enabled != 0,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询失败")
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) setAccountBindings(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	var req struct {
 		ChannelIDs []int64 `json:"channel_ids"`
 		ChannelID  int64   `json:"channel_id"`
@@ -169,6 +188,9 @@ func (s *Server) setAccountBindings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.ChannelID != 0 {
+		if !s.requireChannelOwner(w, r, req.ChannelID) {
+			return
+		}
 		enabled := true
 		if req.Enabled != nil {
 			enabled = *req.Enabled
@@ -176,7 +198,7 @@ func (s *Server) setAccountBindings(w http.ResponseWriter, r *http.Request) {
 		_, err := s.Store.DB.ExecContext(r.Context(),
 			`INSERT INTO message_notifications (cookie_id, channel_id, enabled)
 			 VALUES (?, ?, ?)`+db.DialectUpsert(s.Store.Dialect, []string{"cookie_id", "channel_id"}, map[string]string{
-				"enabled":     "EXCLUDED.enabled",
+				"enabled":    "EXCLUDED.enabled",
 				"updated_at": "CURRENT_TIMESTAMP",
 			}),
 			cid, req.ChannelID, btoi(enabled))
@@ -186,6 +208,11 @@ func (s *Server) setAccountBindings(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"success": true})
 		return
+	}
+	for _, channelID := range req.ChannelIDs {
+		if !s.requireChannelOwner(w, r, channelID) {
+			return
+		}
 	}
 	if err := s.Store.Notifications.SetBindings(r.Context(), cid, req.ChannelIDs); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")

@@ -13,6 +13,9 @@ var ErrNotFound = errors.New("记录不存在")
 // ErrUsernameTaken 表示目标用户名已被其他用户占用。
 var ErrUsernameTaken = errors.New("用户名已存在")
 
+// ErrForbidden 表示资源存在但不属于当前用户。
+var ErrForbidden = errors.New("无权限操作资源")
+
 // Users 用户相关查询。所有方法都直接接受 *sql.DB，由调用方控制事务边界。
 type Users struct {
 	DB *sql.DB
@@ -106,14 +109,30 @@ func (u *Users) UpdatePassword(ctx context.Context, username, plainPassword stri
 	if err != nil {
 		return false, fmt.Errorf("哈希密码: %w", err)
 	}
-	res, err := u.DB.ExecContext(ctx,
+	tx, err := u.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	var userID int64
+	res, err := tx.ExecContext(ctx,
 		`UPDATE users SET password_hash=?, updated_at=CURRENT_TIMESTAMP WHERE username=?`,
 		hash, username)
 	if err != nil {
 		return false, err
 	}
 	n, _ := res.RowsAffected()
-	return n > 0, nil
+	if n == 0 {
+		return false, nil
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM users WHERE username=?`, username).Scan(&userID); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=?`, userID); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
 }
 
 // UpdateCredentials 原子更新用户名及可选密码，并撤销该用户的全部登录会话。
@@ -154,6 +173,27 @@ func (u *Users) UpdateCredentials(ctx context.Context, userID int64, username, p
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=?`, userID); err != nil {
 		return err
+	}
+	return tx.Commit()
+}
+
+// Delete 删除用户，并撤销该用户的全部登录会话。
+func (u *Users) Delete(ctx context.Context, userID int64) error {
+	tx, err := u.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=?`, userID); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id=?`, userID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return ErrNotFound
 	}
 	return tx.Commit()
 }

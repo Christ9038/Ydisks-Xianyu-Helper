@@ -1,0 +1,105 @@
+package db
+
+import (
+	"strings"
+	"testing"
+)
+
+// --- db.go: parseDBURL / mysqlDSN ---
+
+// TestParseDBURL 覆盖各 scheme 与向后兼容路径。
+func TestParseDBURL(t *testing.T) {
+	cases := []struct {
+		name     string
+		url      string
+		driver   driverName
+		dialect  Dialect
+		dsnHas   string // dsn 应包含的子串
+		wantErr  bool
+		errMatch string
+	}{
+		{name: "sqlite path (no scheme)", url: "/tmp/x.db", driver: driverSQLite, dialect: DialectSQLite, dsnHas: "file:/tmp/x.db"},
+		{name: "sqlite scheme", url: "sqlite://rel/path.db", driver: driverSQLite, dialect: DialectSQLite, dsnHas: "file:rel/path.db"},
+		{name: "sqlite3 scheme", url: "sqlite3://x.db", driver: driverSQLite, dialect: DialectSQLite, dsnHas: "file:x.db"},
+		{name: "mysql scheme", url: "mysql://user:pass@tcp(h:3306)/db", driver: driverMySQL, dialect: DialectMySQL, dsnHas: "multiStatements=true"},
+		{name: "postgres url scheme", url: "postgres://u:p@h:5432/db", driver: driverPgx, dialect: DialectPostgres, dsnHas: "postgres://u:p@h:5432/db"},
+		{name: "pgx alias", url: "pgx://u:p@h:5432/db", driver: driverPgx, dialect: DialectPostgres, dsnHas: "pgx://u:p@h:5432/db"},
+		{name: "postgres kv dsn", url: "postgres://host=localhost port=5432", driver: driverPgx, dialect: DialectPostgres, dsnHas: "host=localhost"},
+		{name: "postgresql alias", url: "postgresql://u:p@h:5432/db", driver: driverPgx, dialect: DialectPostgres, dsnHas: "postgresql://u:p@h:5432/db"},
+		{name: "empty url", url: "", wantErr: true, errMatch: "为空"},
+		{name: "whitespace url", url: "   ", wantErr: true, errMatch: "为空"},
+		{name: "unknown scheme", url: "redis://h:6379", wantErr: true, errMatch: "不支持"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			driver, dialect, dsn, err := parseDBURL(c.url)
+			if c.wantErr {
+				if err == nil {
+					t.Fatalf("期望报错, got driver=%s dsn=%s", driver, dsn)
+				}
+				if c.errMatch != "" && !strings.Contains(err.Error(), c.errMatch) {
+					t.Fatalf("错误信息 %q 不含 %q", err.Error(), c.errMatch)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseDBURL(%q): %v", c.url, err)
+			}
+			if driver != c.driver {
+				t.Errorf("driver=%s want %s", driver, c.driver)
+			}
+			if dialect != c.dialect {
+				t.Errorf("dialect=%s want %s", dialect, c.dialect)
+			}
+			if c.dsnHas != "" && !strings.Contains(dsn, c.dsnHas) {
+				t.Errorf("dsn=%q 不含 %q", dsn, c.dsnHas)
+			}
+		})
+	}
+}
+
+// TestMysqlDSN mysqlDSN 缺省 multiStatements 已存在则不覆盖。
+func TestMysqlDSN(t *testing.T) {
+	// 无 query → 追加 ?multiStatements=true。
+	got := mysqlDSN("u:p@tcp(h:3306)/db")
+	if !strings.Contains(got, "multiStatements=true") || !strings.HasPrefix(got, "u:p@tcp(h:3306)/db?") {
+		t.Fatalf("无 query: %q", got)
+	}
+	// 已有 query → 用 & 拼接。
+	got = mysqlDSN("u:p@tcp(h:3306)/db?parseTime=true")
+	if !strings.Contains(got, "&multiStatements=true") {
+		t.Fatalf("已有 query: %q", got)
+	}
+	// 已显式含 multiStatements → 不重复追加。
+	got = mysqlDSN("u:p@tcp(h:3306)/db?multiStatements=true")
+	if strings.Count(got, "multiStatements=") != 1 {
+		t.Fatalf("重复追加: %q", got)
+	}
+}
+
+// --- pgx_compat.go: rewriteQuestionPlaceholders ---
+
+// TestRewriteQuestionPlaceholders ? → $N，跳过引号内字面量。
+func TestRewriteQuestionPlaceholders(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "no placeholder", in: "SELECT 1", want: "SELECT 1"},
+		{name: "single", in: "SELECT * FROM t WHERE id=?", want: "SELECT * FROM t WHERE id=$1"},
+		{name: "multi", in: "INSERT INTO t (a,b,c) VALUES (?,?,?)", want: "INSERT INTO t (a,b,c) VALUES ($1,$2,$3)"},
+		{name: "single-quoted string with ?", in: "SELECT '?' AS q WHERE id=?", want: "SELECT '?' AS q WHERE id=$1"},
+		{name: "escaped single quote", in: "SELECT 'it''s a ?' WHERE id=?", want: "SELECT 'it''s a ?' WHERE id=$1"},
+		{name: "double-quoted identifier with ?", in: `SELECT "col?" FROM t WHERE id=?`, want: `SELECT "col?" FROM t WHERE id=$1`},
+		{name: "empty", in: "", want: ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := rewriteQuestionPlaceholders(c.in)
+			if got != c.want {
+				t.Errorf("rewriteQuestionPlaceholders(%q)=%q want %q", c.in, got, c.want)
+			}
+		})
+	}
+}

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 )
 
 // ---- 关键字 CRUD ----
@@ -21,8 +22,8 @@ type KeywordRow struct {
 // AllRows 取某账号所有关键字（含 id）。
 func (k *Keywords) AllRows(ctx context.Context, cookieID string) ([]KeywordRow, error) {
 	rows, err := k.DB.QueryContext(ctx,
-		`SELECT rowid, keyword, reply, COALESCE(item_id,''), COALESCE(type,'text'), COALESCE(image_url,'')
-		 FROM keywords WHERE cookie_id=? ORDER BY rowid`, cookieID)
+		`SELECT id, keyword, reply, COALESCE(item_id,''), COALESCE(type,'text'), COALESCE(image_url,'')
+		 FROM keywords WHERE cookie_id=? ORDER BY id`, cookieID)
 	if err != nil {
 		return nil, err
 	}
@@ -49,10 +50,10 @@ func (k *Keywords) Add(ctx context.Context, cookieID, keyword, reply, itemID, kw
 		cookieID, keyword, reply, nullable(itemID), kwType, nullable(imageURL))
 }
 
-// DeleteByIndex 按索引（0-based，按 rowid 顺序）删除某账号的一个关键字。
+// DeleteByIndex 按索引（0-based，按 id 顺序）删除某账号的一个关键字。
 func (k *Keywords) DeleteByIndex(ctx context.Context, cookieID string, index int) error {
 	rows, err := k.DB.QueryContext(ctx,
-		`SELECT rowid FROM keywords WHERE cookie_id=? ORDER BY rowid`, cookieID)
+		`SELECT id FROM keywords WHERE cookie_id=? ORDER BY id`, cookieID)
 	if err != nil {
 		return err
 	}
@@ -68,7 +69,7 @@ func (k *Keywords) DeleteByIndex(ctx context.Context, cookieID string, index int
 	if index < 0 || index >= len(ids) {
 		return ErrNotFound
 	}
-	_, err = k.DB.ExecContext(ctx, `DELETE FROM keywords WHERE rowid=?`, ids[index])
+	_, err = k.DB.ExecContext(ctx, `DELETE FROM keywords WHERE id=? AND cookie_id=?`, ids[index], cookieID)
 	return err
 }
 
@@ -182,7 +183,7 @@ func (n *Notifications) GetChannel(ctx context.Context, id int64) (*Notification
 		`SELECT id, name, type, config FROM notification_channels WHERE id=?`, id)
 	var c NotificationChannel
 	if err := row.Scan(&c.ID, &c.Name, &c.Type, &c.Config); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -193,7 +194,11 @@ func (n *Notifications) GetChannel(ctx context.Context, id int64) (*Notification
 // AccountBindings 取某账号已绑定的通知渠道 ID 列表。
 func (n *Notifications) AccountBindings(ctx context.Context, cookieID string) ([]int64, error) {
 	rows, err := n.DB.QueryContext(ctx,
-		`SELECT channel_id FROM message_notifications WHERE cookie_id=? AND enabled=1`, cookieID)
+		`SELECT mn.channel_id
+		   FROM message_notifications mn
+		   JOIN cookies c ON c.id=mn.cookie_id
+		   JOIN notification_channels nc ON nc.id=mn.channel_id AND nc.user_id=c.user_id
+		  WHERE mn.cookie_id=? AND mn.enabled=1`, cookieID)
 	if err != nil {
 		return nil, err
 	}
@@ -216,6 +221,24 @@ func (n *Notifications) SetBindings(ctx context.Context, cookieID string, channe
 		return err
 	}
 	defer tx.Rollback()
+	var userID int64
+	if err := tx.QueryRowContext(ctx, `SELECT user_id FROM cookies WHERE id=?`, cookieID).Scan(&userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	for _, channelID := range channelIDs {
+		var exists int
+		if err := tx.QueryRowContext(ctx,
+			`SELECT EXISTS(SELECT 1 FROM notification_channels WHERE id=? AND user_id=?)`,
+			channelID, userID).Scan(&exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			return ErrForbidden
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM message_notifications WHERE cookie_id=?`, cookieID); err != nil {
 		return err
 	}
@@ -242,7 +265,7 @@ func (s *SystemSettings) Get(ctx context.Context, key string) (string, error) {
 	var v string
 	err := s.DB.QueryRowContext(ctx, `SELECT value FROM system_settings WHERE key=?`, key).Scan(&v)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return "", nil
 		}
 		return "", err

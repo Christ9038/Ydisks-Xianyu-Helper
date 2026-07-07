@@ -1,10 +1,12 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
+	"xianyu-go/internal/auth"
 	"xianyu-go/internal/db"
 )
 
@@ -39,6 +41,20 @@ func (s *Server) mountDefaultRepliesReal(r chi.Router) {
 
 func (s *Server) getDefaultReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	sess := auth.SessionFromContext(r.Context())
+	if sess == nil {
+		writeErr(w, http.StatusUnauthorized, "未授权访问")
+		return
+	}
+	if d, err := s.Store.Cookies.GetDetails(r.Context(), cid); err == nil {
+		if d.UserID != sess.UserID {
+			writeErr(w, http.StatusForbidden, "无权限操作该账号")
+			return
+		}
+	} else if !errors.Is(err, db.ErrNotFound) {
+		writeErr(w, http.StatusInternalServerError, "查询失败")
+		return
+	}
 	dr, err := s.Store.DefaultReps.Get(r.Context(), cid)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "reply_content": "", "reply_once": false})
@@ -52,6 +68,9 @@ func (s *Server) getDefaultReply(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) setDefaultReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	var req struct {
 		Enabled       bool   `json:"enabled"`
 		ReplyContent  string `json:"reply_content"`
@@ -80,8 +99,12 @@ func (s *Server) setDefaultReply(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listDefaultReplies(w http.ResponseWriter, r *http.Request) {
+	sess := auth.SessionFromContext(r.Context())
 	rows, err := s.Store.DB.QueryContext(r.Context(),
-		`SELECT cookie_id, enabled, reply_content, reply_once, reply_image_url FROM default_replies`)
+		`SELECT dr.cookie_id, dr.enabled, COALESCE(dr.reply_content,''), dr.reply_once, COALESCE(dr.reply_image_url,'')
+		   FROM default_replies dr
+		   JOIN cookies c ON c.id=dr.cookie_id
+		  WHERE c.user_id=?`, sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
@@ -99,12 +122,20 @@ func (s *Server) listDefaultReplies(w http.ResponseWriter, r *http.Request) {
 			"reply_once": replyOnce != 0, "reply_image_url": imageURL,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询失败")
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) listDefaultRepliesMap(w http.ResponseWriter, r *http.Request) {
+	sess := auth.SessionFromContext(r.Context())
 	rows, err := s.Store.DB.QueryContext(r.Context(),
-		`SELECT cookie_id, enabled, COALESCE(reply_content, ''), reply_once, COALESCE(reply_image_url, '') FROM default_replies`)
+		`SELECT dr.cookie_id, dr.enabled, COALESCE(dr.reply_content, ''), dr.reply_once, COALESCE(dr.reply_image_url, '')
+		   FROM default_replies dr
+		   JOIN cookies c ON c.id=dr.cookie_id
+		  WHERE c.user_id=?`, sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
@@ -125,11 +156,18 @@ func (s *Server) listDefaultRepliesMap(w http.ResponseWriter, r *http.Request) {
 			"reply_image_url": imageURL,
 		}
 	}
+	if err := rows.Err(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询失败")
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) deleteDefaultReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	_, err := s.Store.DB.ExecContext(r.Context(), `DELETE FROM default_replies WHERE cookie_id=?`, cid)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
@@ -140,6 +178,9 @@ func (s *Server) deleteDefaultReply(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) clearDefaultReplyRecords(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+		return
+	}
 	if _, err := s.Store.DB.ExecContext(r.Context(), `DELETE FROM default_reply_records WHERE cookie_id=?`, cid); err != nil {
 		writeErr(w, http.StatusInternalServerError, "清空失败")
 		return

@@ -1,6 +1,6 @@
 // Package account 实现多账号生命周期管理（supervisor）：
 // 从 DB 加载启用的闲鱼账号，为每个账号起一个 engine.Account goroutine，
-// 支持动态启停、状态查询、跨层 GetInstance（供 HTTP 手动发货等操作调用）。
+// 支持动态启停、状态查询、跨层 GetInstance（供 HTTP 手动发货等操作）。
 //
 // Manager 管理所有启用账号的运行实例。
 package account
@@ -72,21 +72,19 @@ func (m *Manager) StartAll(ctx context.Context) error {
 	return nil
 }
 
-// Start 启动单个账号（若已在运行则跳过）。
+// Start 启动单个账号（若已在运行则跳过；若上次实例已退出则清理后重启）。
 func (m *Manager) Start(ctx context.Context, cookieID, cookieValue string) error {
 	m.mu.Lock()
 	if m.runCtx != nil {
 		ctx = m.runCtx
 	}
 	if ma, ok := m.accounts[cookieID]; ok {
-		m.mu.Unlock()
-		// 已存在：如果已退出则清理后重启，否则跳过。
+		// 已存在：若已退出则清理后重启，否则跳过。select 非阻塞，持锁安全。
 		select {
 		case <-ma.done:
-			m.mu.Lock()
 			delete(m.accounts, cookieID)
-			m.mu.Unlock()
 		default:
+			m.mu.Unlock()
 			m.logger.Info("账号已在运行，跳过", "account", cookieID)
 			return nil
 		}
@@ -138,8 +136,10 @@ func (m *Manager) Stop(cookieID string) {
 	m.logger.Info("账号已停止", "account", cookieID)
 }
 
-// GetInstance 跨层获取账号运行时（供 HTTP 手动发货等操作）。
-func (m *Manager) GetInstance(cookieID string) (*engine.Account, bool) {
+// GetInstance 跨层获取账号运行时的消息发送句柄（供 HTTP 手动发货等操作）。
+// 返回 automation.MessageSender 接口而非具体 *engine.Account，避免上层
+// 直接依赖 engine 包内部类型；*engine.Account 实现该接口。
+func (m *Manager) GetInstance(cookieID string) (automation.MessageSender, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ma, ok := m.accounts[cookieID]

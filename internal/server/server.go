@@ -28,23 +28,25 @@ import (
 	"xianyu-go/internal/xianyu/qrlogin"
 )
 
-// Server 聚合 HTTP 服务依赖。
+// Server 聚合 HTTP 服务依赖。Automation 与 Notifier 由构造函数注入，
+// 不再允许外部直接改字段，避免运行时被替换成 nil。
 type Server struct {
 	Store      *db.Store
 	Auth       *auth.Service
 	Manager    *account.Manager
-	Automation *automation.Center
+	automation *automation.Center
 	Browser    *browser.Manager
-	Notifier   *notify.Notifier
-	MTop       *mtop.Client
+	notifier   *notify.Notifier
+	MTop       mtop.Client
 	QRLogin    *qrlogin.Manager
 	Logger     *slog.Logger
 	WebDir     string // 前端静态资源目录（含 index.html）
 	Addr       string
 }
 
-// New 构造。bm 为浏览器管理器（风控验证后用浏览器提取 cookie；为 nil 则禁用浏览器自动化）。
-func New(store *db.Store, manager *account.Manager, bm *browser.Manager, secure bool, webDir, addr string, logger *slog.Logger) *Server {
+// New 构造。autoCenter/notifier 由调用方完成创建后注入（创建顺序：
+// adapter → manager → automation → notifier → server）。
+func New(store *db.Store, manager *account.Manager, bm *browser.Manager, secure bool, webDir, addr string, logger *slog.Logger, autoCenter *automation.Center, notifier *notify.Notifier) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
@@ -55,16 +57,26 @@ func New(store *db.Store, manager *account.Manager, bm *browser.Manager, secure 
 		})
 	}
 	return &Server{
-		Store:   store,
-		Auth:    &auth.Service{Store: store, Logger: logger, Secure: secure},
-		Manager: manager,
-		Browser: bm,
-		MTop:    &mtop.Client{},
-		QRLogin: qrMgr,
-		Logger:  logger,
-		WebDir:  webDir,
-		Addr:    addr,
+		Store:      store,
+		Auth:       &auth.Service{Store: store, Logger: logger, Secure: secure},
+		Manager:    manager,
+		automation: autoCenter,
+		Browser:    bm,
+		notifier:   notifier,
+		MTop:       mtop.NewClient(),
+		QRLogin:    qrMgr,
+		Logger:     logger,
+		WebDir:     webDir,
+		Addr:       addr,
 	}
+}
+
+// mtopClient 返回注入的 mtop 客户端；未注入时退回默认 HTTP 实现（保证零值可用）。
+func (s *Server) mtopClient() mtop.Client {
+	if s.MTop != nil {
+		return s.MTop
+	}
+	return mtop.NewClient()
 }
 
 // Router 构建完整路由树。

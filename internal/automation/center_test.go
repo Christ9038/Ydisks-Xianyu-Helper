@@ -232,7 +232,7 @@ func TestCenterOrderPaidSendsCardBeforeConfirmShipment(t *testing.T) {
 
 	sender := &testSender{events: &events}
 	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.mtop = &mtop.Client{HTTPClient: server.Client(), ConsignURL: server.URL + "/"}
+	center.SetMTop(&mtop.ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/"})
 	center.SetOrderDetailFetcher(testFetcher{detail: &OrderDetail{Quantity: "1", Amount: "9.9"}})
 
 	if err := center.HandleTask(ctx, Task{

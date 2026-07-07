@@ -9,6 +9,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -152,4 +153,32 @@ func WithSession(ctx context.Context, sess *db.Session) context.Context {
 func SessionFromContext(ctx context.Context) *db.Session {
 	v, _ := ctx.Value(ctxKeyUser).(*db.Session)
 	return v
+}
+
+// InitAdmin 创建或重置 admin 管理员账号，是 cmd/server -init-admin 与
+// cmd/init-admin 共用的公共入口。返回 created=true 表示新建 admin，
+// false 表示重置已存在 admin 的密码。邮箱仅在新建时使用。
+func InitAdmin(ctx context.Context, store *db.Store, email, password string) (created bool, err error) {
+	existing, err := store.Users.GetAdmin(ctx)
+	if err != nil && !errors.Is(err, db.ErrNotFound) {
+		return false, fmt.Errorf("查询 admin 失败: %w", err)
+	}
+	if existing != nil {
+		ok, err := store.Users.UpdatePassword(ctx, existing.Username, password)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			return false, fmt.Errorf("admin 用户存在但密码未更新")
+		}
+		return false, store.Users.SetAdmin(ctx, existing.Username)
+	}
+	ok, err := store.Users.Create(ctx, "admin", email, password)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, fmt.Errorf("创建 admin 用户失败：用户名或邮箱可能已存在")
+	}
+	return true, store.Users.SetAdmin(ctx, "admin")
 }

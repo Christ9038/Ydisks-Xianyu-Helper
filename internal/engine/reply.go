@@ -8,7 +8,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"strings"
 
@@ -184,7 +183,9 @@ func (r *ReplyService) defaultReply(ctx context.Context, m ChatMessage) *ReplyRe
 	}
 	// 记录已回复。
 	if dr.ReplyOnce && m.ChatID != "" {
-		_ = r.store.DefaultReps.AddRecord(ctx, r.cookieID, m.ChatID)
+		if err := r.store.DefaultReps.AddRecord(ctx, r.cookieID, m.ChatID); err != nil {
+			r.logger.Error("记录默认回复失败", "cookie_id", r.cookieID, "chat_id", m.ChatID, "err", err)
+		}
 	}
 	res := &ReplyResult{Source: "默认"}
 	if strings.TrimSpace(dr.ReplyContent) != "" {
@@ -224,6 +225,3 @@ func safeFormat(template string, vars map[string]string) string {
 	}
 	return out
 }
-
-// 占位防未用 fmt（未来错误信息用）。
-var _ = fmt.Sprintf

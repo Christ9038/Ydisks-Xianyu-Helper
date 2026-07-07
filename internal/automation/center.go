@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"xianyu-go/internal/db"
@@ -45,9 +46,10 @@ type Center struct {
 	senders   SenderProvider
 	fetcher   OrderDetailFetcher
 	notifier  Notifier
-	mtop      *mtop.Client
+	mtop      mtop.Client
 	logger    *slog.Logger
 	cookieSrc func(context.Context, string) (string, error)
+	cardLocks sync.Map
 }
 
 // New 构造自动化中心。
@@ -55,8 +57,11 @@ func New(store *db.Store, senders SenderProvider, logger *slog.Logger) *Center {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Center{store: store, senders: senders, mtop: &mtop.Client{}, logger: logger.With("subsys", "automation")}
+	return &Center{store: store, senders: senders, mtop: mtop.NewClient(), logger: logger.With("subsys", "automation")}
 }
+
+// SetMTop 注入 mtop 客户端（确认发货用）。未注入时使用默认 HTTP 实现。
+func (c *Center) SetMTop(m mtop.Client) { c.mtop = m }
 
 // SetOrderDetailFetcher 注入订单详情查询能力。
 func (c *Center) SetOrderDetailFetcher(fetcher OrderDetailFetcher) {
@@ -469,6 +474,9 @@ func (c *Center) sendCard(ctx context.Context, task Task, action db.AutomationAc
 	if err != nil {
 		return 0, err
 	}
+	if card.Type == "data" {
+		return c.sendDataCard(ctx, task, card, count)
+	}
 	sent := 0
 	for i := 0; i < count; i++ {
 		content, imageURL, err := c.cardContent(ctx, card)
@@ -488,6 +496,35 @@ func (c *Center) sendCard(ctx context.Context, task Task, action db.AutomationAc
 		sent++
 	}
 	return sent, nil
+}
+
+func (c *Center) sendDataCard(ctx context.Context, task Task, card *db.CardFull, count int) (int, error) {
+	unlock := c.lockCard(card.ID)
+	defer unlock()
+	sent := 0
+	for i := 0; i < count; i++ {
+		content, snapshot, err := c.store.Cards.FirstBatchData(ctx, card.ID)
+		if err != nil {
+			return sent, err
+		}
+		if strings.TrimSpace(content) != "" {
+			if err := c.sendText(ctx, task, renderTemplate(content, task)); err != nil {
+				return sent, err
+			}
+		}
+		if err := c.store.Cards.CommitFirstBatchData(ctx, card.ID, snapshot); err != nil {
+			return sent, err
+		}
+		sent++
+	}
+	return sent, nil
+}
+
+func (c *Center) lockCard(cardID int64) func() {
+	raw, _ := c.cardLocks.LoadOrStore(cardID, &sync.Mutex{})
+	mu := raw.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 func actionMatchesOrderSpec(task Task, action db.AutomationAction) bool {
@@ -534,8 +571,7 @@ func (c *Center) cardContent(ctx context.Context, card *db.CardFull) (text, imag
 	case "text":
 		return card.TextContent, "", nil
 	case "data":
-		content, err := c.store.Cards.ConsumeBatchData(ctx, card.ID)
-		return content, "", err
+		return "", "", fmt.Errorf("data 卡密必须通过 sendDataCard 发送")
 	case "image":
 		if strings.TrimSpace(card.ImageURL) == "" {
 			return "", "", fmt.Errorf("图片卡密组缺少图片 URL")

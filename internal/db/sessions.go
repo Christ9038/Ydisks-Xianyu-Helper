@@ -49,7 +49,10 @@ func (s *Sessions) Get(ctx context.Context, sessionID string) (*Session, error) 
 	var sess Session
 	var isAdmin int
 	err := s.DB.QueryRowContext(ctx,
-		`SELECT session_id, user_id, username, is_admin, expires_at FROM sessions WHERE session_id=?`,
+		`SELECT s.session_id, s.user_id, u.username, u.is_admin, s.expires_at
+		   FROM sessions s
+		   JOIN users u ON u.id=s.user_id
+		  WHERE s.session_id=? AND u.is_active=1`,
 		sessionID).Scan(&sess.SessionID, &sess.UserID, &sess.Username, &isAdmin, &sess.ExpiresAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

@@ -16,6 +16,16 @@ type Cookies struct {
 // Save 保存/更新 cookie。user_id 为 0 时：复用现有记录的 user_id，若无则报错
 // 系统未初始化时不兜底到默认用户。
 func (c *Cookies) Save(ctx context.Context, cookieID, cookieValue string, userID int64) error {
+	if userID != 0 {
+		var existing int64
+		err := c.DB.QueryRowContext(ctx, `SELECT user_id FROM cookies WHERE id=?`, cookieID).Scan(&existing)
+		if err == nil && existing != userID {
+			return ErrForbidden
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("查询 cookie user_id: %w", err)
+		}
+	}
 	if userID == 0 {
 		var existing int64
 		err := c.DB.QueryRowContext(ctx, `SELECT user_id FROM cookies WHERE id=?`, cookieID).Scan(&existing)
@@ -159,7 +169,11 @@ func (c *Cookies) SetStatus(ctx context.Context, cookieID string, enabled bool) 
 		v = 1
 	}
 	_, err := c.DB.ExecContext(ctx,
-		`INSERT OR REPLACE INTO cookie_status (cookie_id, enabled, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
+		`INSERT INTO cookie_status (cookie_id, enabled, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`+
+			dialectUpsert(c.Dialect, []string{"cookie_id"}, map[string]string{
+				"enabled":    "EXCLUDED.enabled",
+				"updated_at": "CURRENT_TIMESTAMP",
+			}),
 		cookieID, v)
 	return err
 }

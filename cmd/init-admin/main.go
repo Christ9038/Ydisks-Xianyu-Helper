@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/term"
 
+	"xianyu-go/internal/auth"
 	"xianyu-go/internal/db"
 )
 
@@ -38,11 +39,10 @@ func main() {
 	}
 	defer database.Close()
 	store := db.NewStore(database, dialect)
-	users := store.Users
 
 	reader := bufio.NewReader(os.Stdin)
 
-	existing, err := users.GetAdmin(ctx)
+	existing, err := store.Users.GetAdmin(ctx)
 	if err != nil && !isNotFound(err) {
 		fatalf("查询 admin 失败: %v", err)
 	}
@@ -56,12 +56,8 @@ func main() {
 			return
 		}
 		pw := promptPasswordTwice(reader)
-		ok, err := users.UpdatePassword(ctx, existing.Username, pw)
-		if err != nil || !ok {
+		if _, err := auth.InitAdmin(ctx, store, "", pw); err != nil {
 			fatalf("重置 admin 密码失败: %v", err)
-		}
-		if err := users.SetAdmin(ctx, existing.Username); err != nil {
-			fatalf("设置管理员标记失败: %v", err)
 		}
 		fmt.Printf("重置完成：已更新 %s 的密码\n", existing.Username)
 		return
@@ -76,14 +72,13 @@ func main() {
 	}
 	pw := promptPasswordTwice(reader)
 
-	ok, err := users.Create(ctx, "admin", email, pw)
-	if err != nil || !ok {
-		fatalf("创建 admin 用户失败：用户名或邮箱可能已存在 (%v)", err)
+	created, err := auth.InitAdmin(ctx, store, email, pw)
+	if err != nil {
+		fatalf("创建 admin 用户失败：%v", err)
 	}
-	if err := users.SetAdmin(ctx, "admin"); err != nil {
-		fatalf("设置管理员标记失败: %v", err)
+	if created {
+		fmt.Println("初始化完成：已创建 admin 用户")
 	}
-	fmt.Println("初始化完成：已创建 admin 用户")
 }
 
 // promptPasswordTwice 两次输入密码（不回显）并校验一致性。

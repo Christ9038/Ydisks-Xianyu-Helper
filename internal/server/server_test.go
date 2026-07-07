@@ -14,6 +14,7 @@ import (
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
+	"xianyu-go/internal/xianyu/mtop"
 )
 
 func newTestServer(t *testing.T) (*Server, *db.Store, func()) {
@@ -31,8 +32,9 @@ func newTestServer(t *testing.T) (*Server, *db.Store, func()) {
 	store.Cookies.Save(context.Background(), "acc1", "unb=123; _m_h5_tk=tk1_1;", admin.ID)
 
 	mgr := account.NewManager(store, noopHandler{}, nil)
-	srv := New(store, mgr, nil, false, "", ":0", nil)
-	srv.MTop.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	srv := New(store, mgr, nil, false, "", ":0", nil, nil, nil)
+	mtopClient := mtop.NewClient()
+	mtopClient.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     make(http.Header),
@@ -42,6 +44,7 @@ func newTestServer(t *testing.T) (*Server, *db.Store, func()) {
 			Request: req,
 		}, nil
 	})}
+	srv.MTop = mtopClient
 	return srv, store, func() { d.Close() }
 }
 
