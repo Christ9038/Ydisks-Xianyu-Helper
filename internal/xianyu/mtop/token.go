@@ -32,12 +32,15 @@ func (c *ClientImpl) RefreshTokenContext(ctx context.Context, cookiesStr string)
 func (c *ClientImpl) RefreshTokenWithDeviceIDContext(ctx context.Context, cookiesStr, deviceID string) (*RefreshResult, error) {
 	currentCookies := cookiesStr
 	for attempt := 0; attempt < 2; attempt++ {
-		accessToken, ret, updatedCookies, status, err := c.refreshTokenOnce(ctx, currentCookies, deviceID)
+		accessToken, ret, updatedCookies, verificationURL, status, err := c.refreshTokenOnce(ctx, currentCookies, deviceID)
 		if err != nil {
 			return &RefreshResult{UpdatedCookies: currentCookies}, err
 		}
 		if accessToken != "" {
 			return &RefreshResult{AccessToken: accessToken, UpdatedCookies: updatedCookies}, nil
+		}
+		if isRiskVerificationRet(ret) {
+			return &RefreshResult{UpdatedCookies: updatedCookies}, &RiskVerificationError{Ret: ret, VerificationURL: verificationURL}
 		}
 		if !isTokenExpiredRet(ret) {
 			return &RefreshResult{UpdatedCookies: updatedCookies}, fmt.Errorf("token API 返回非成功: ret=%v (status=%d)", ret, status)
@@ -54,7 +57,7 @@ func (c *ClientImpl) RefreshTokenWithDeviceIDContext(ctx context.Context, cookie
 	return &RefreshResult{UpdatedCookies: currentCookies}, fmt.Errorf("token API 登录凭证已失效")
 }
 
-func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID string) (string, []string, string, int, error) {
+func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID string) (string, []string, string, string, int, error) {
 	hc := c.HTTPClient
 	if hc == nil {
 		hc = &http.Client{Timeout: 30 * time.Second}
@@ -63,7 +66,7 @@ func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID 
 	cookies := protocol.TransCookies(cookiesStr)
 	myid := cookies["unb"]
 	if myid == "" {
-		return "", nil, cookiesStr, 0, fmt.Errorf("cookie 缺少 unb 字段，无法生成 deviceId")
+		return "", nil, cookiesStr, "", 0, fmt.Errorf("cookie 缺少 unb 字段，无法生成 deviceId")
 	}
 	if strings.TrimSpace(deviceID) == "" {
 		deviceID = protocol.GenerateDeviceID(myid)
@@ -84,18 +87,18 @@ func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID 
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL+"?"+query, strings.NewReader(body))
 	if err != nil {
-		return "", nil, cookiesStr, 0, err
+		return "", nil, cookiesStr, "", 0, err
 	}
 	setCommonHeaders(req, cookiesStr)
 
 	resp, err := hc.Do(req)
 	if err != nil {
-		return "", nil, cookiesStr, 0, fmt.Errorf("token API 请求失败: %w", err)
+		return "", nil, cookiesStr, "", 0, fmt.Errorf("token API 请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 	raw, err := readMTopBody(resp)
 	if err != nil {
-		return "", nil, cookiesStr, resp.StatusCode, err
+		return "", nil, cookiesStr, "", resp.StatusCode, err
 	}
 	// 即使业务返回 token 过期，也要保留响应下发的新签名 Cookie。
 	updated := mergeSetCookie(cookiesStr, cookies, resp)
@@ -104,10 +107,11 @@ func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID 
 		Ret  []string `json:"ret"`
 		Data struct {
 			AccessToken string `json:"accessToken"`
+			URL         string `json:"url"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &res); err != nil {
-		return "", nil, updated, resp.StatusCode, fmt.Errorf("解析 token 响应失败: %w (body=%s)", err, truncate(string(raw), 300))
+		return "", nil, updated, "", resp.StatusCode, fmt.Errorf("解析 token 响应失败: %w (body=%s)", err, truncate(string(raw), 300))
 	}
 
 	ok := false
@@ -118,12 +122,12 @@ func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID 
 		}
 	}
 	if !ok {
-		return "", res.Ret, updated, resp.StatusCode, nil
+		return "", res.Ret, updated, res.Data.URL, resp.StatusCode, nil
 	}
 	if res.Data.AccessToken == "" {
-		return "", res.Ret, updated, resp.StatusCode, fmt.Errorf("token API 成功但 accessToken 为空 (body=%s)", truncate(string(raw), 300))
+		return "", res.Ret, updated, "", resp.StatusCode, fmt.Errorf("token API 成功但 accessToken 为空 (body=%s)", truncate(string(raw), 300))
 	}
-	return res.Data.AccessToken, res.Ret, updated, resp.StatusCode, nil
+	return res.Data.AccessToken, res.Ret, updated, "", resp.StatusCode, nil
 }
 
 // buildTokenQuery 构造 token API 的 query string。

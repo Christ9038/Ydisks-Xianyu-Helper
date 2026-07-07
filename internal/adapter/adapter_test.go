@@ -24,6 +24,9 @@ func (f *fakeNotifier) NotifyAccountAlert(cookieID, level, title, body string) {
 type fakeBrowser struct {
 	fetchErr     error
 	fetchDetail  *browser.OrderDetail
+	renewErr     error
+	renewCookies map[string]string
+	renewCalls   int
 	loginErr     error
 	loginCookies map[string]string
 	loginCalls   int
@@ -31,6 +34,10 @@ type fakeBrowser struct {
 
 func (f *fakeBrowser) FetchOrderDetail(_ context.Context, _, _, _ string, _ ...bool) (*browser.OrderDetail, error) {
 	return f.fetchDetail, f.fetchErr
+}
+func (f *fakeBrowser) CookieRenew(_ context.Context, _, _ string, _ bool) (map[string]string, error) {
+	f.renewCalls++
+	return f.renewCookies, f.renewErr
 }
 func (f *fakeBrowser) PasswordLogin(_ context.Context, _, _, _, _ string, _ bool) (map[string]string, error) {
 	f.loginCalls++
@@ -148,9 +155,39 @@ func TestOnPasswordLoginRefresh_NoCredentialsReturnsFalse(t *testing.T) {
 	store, cleanup := newAdapterTestStore(t)
 	defer cleanup()
 	a := New(store, nil, nil)
-	a.SetBrowser(&fakeBrowser{})
+	a.SetBrowser(&fakeBrowser{renewErr: errors.New("quick enter unavailable")})
 	if a.OnPasswordLoginRefresh(context.Background(), "cid") {
 		t.Fatal("账号未配用户名/密码应返回 false")
+	}
+}
+
+// TestOnPasswordLoginRefresh_BrowserRenewSuccess 无账密时旧 Cookie 仍可快速续期，应保存新 Cookie 并跳过密码登录。
+func TestOnPasswordLoginRefresh_BrowserRenewSuccess(t *testing.T) {
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := store.Tokens.Save(ctx, "cid", "did-old", "tok-old", 9999999999); err != nil {
+		t.Fatalf("保存旧 token: %v", err)
+	}
+
+	fb := &fakeBrowser{renewCookies: map[string]string{"unb": "1", "_m_h5_tk": "renewed"}}
+	a := New(store, nil, nil)
+	a.SetBrowser(fb)
+	if !a.OnPasswordLoginRefresh(ctx, "cid") {
+		t.Fatal("快速续期成功应返回 true")
+	}
+	if fb.renewCalls != 1 {
+		t.Fatalf("CookieRenew 应调用一次，got %d", fb.renewCalls)
+	}
+	if fb.loginCalls != 0 {
+		t.Fatalf("快速续期成功后不应密码登录，got %d", fb.loginCalls)
+	}
+	saved, _ := store.Cookies.GetValue(ctx, "cid")
+	if saved == "" || saved == "unb=1; _m_h5_tk=tk;" {
+		t.Fatalf("快速续期 cookie 未保存: %q", saved)
+	}
+	if _, err := store.Tokens.Get(ctx, "cid"); err != db.ErrNotFound {
+		t.Fatalf("Cookie 更新后应清除旧 token，got %v", err)
 	}
 }
 
@@ -162,7 +199,7 @@ func TestOnPasswordLoginRefresh_Success(t *testing.T) {
 	// 配置账号用户名/密码。
 	store.DB.ExecContext(ctx, `UPDATE cookies SET username='u', password='p' WHERE id='cid'`)
 
-	fb := &fakeBrowser{loginCookies: map[string]string{"unb": "1", "_m_h5_tk": "fresh"}}
+	fb := &fakeBrowser{renewErr: errors.New("quick enter unavailable"), loginCookies: map[string]string{"unb": "1", "_m_h5_tk": "fresh"}}
 	a := New(store, nil, nil)
 	a.SetBrowser(fb)
 	if !a.OnPasswordLoginRefresh(ctx, "cid") {
@@ -184,7 +221,7 @@ func TestOnPasswordLoginRefresh_LoginError(t *testing.T) {
 	ctx := context.Background()
 	store.DB.ExecContext(ctx, `UPDATE cookies SET username='u', password='p' WHERE id='cid'`)
 
-	fb := &fakeBrowser{loginErr: errors.New("captcha required")}
+	fb := &fakeBrowser{renewErr: errors.New("quick enter unavailable"), loginErr: errors.New("captcha required")}
 	a := New(store, nil, nil)
 	a.SetBrowser(fb)
 	if a.OnPasswordLoginRefresh(ctx, "cid") {
@@ -199,7 +236,7 @@ func TestOnPasswordLoginRefresh_Cooldown(t *testing.T) {
 	ctx := context.Background()
 	store.DB.ExecContext(ctx, `UPDATE cookies SET username='u', password='p' WHERE id='cid'`)
 
-	fb := &fakeBrowser{loginCookies: map[string]string{"unb": "1"}}
+	fb := &fakeBrowser{renewErr: errors.New("quick enter unavailable"), loginCookies: map[string]string{"unb": "1"}}
 	a := New(store, nil, nil)
 	a.SetBrowser(fb)
 	if !a.OnPasswordLoginRefresh(ctx, "cid") {

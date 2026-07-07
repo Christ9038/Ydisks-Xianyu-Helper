@@ -7,8 +7,10 @@ package engine
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +19,7 @@ import (
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
 	"xianyu-go/internal/xianyu/protocol"
+	"xianyu-go/internal/xianyu/renew"
 	"xianyu-go/internal/xianyu/ws"
 )
 
@@ -31,10 +34,10 @@ const (
 	// token 心跳间隔。主动刷新 token 让服务端持续续期 cookie（_m_h5_tk /
 	// sgcookie 等），避免 cookie 自然滑向过期。15 分钟一次，平衡保活与风控。
 	// 不宜过短，否则易触发阿里系滑块风控。
-	TokenRefreshInterval  = 15 * time.Minute
-	TokenRefreshMinGap    = time.Minute
-	MessageCooldown       = 5 * time.Minute // 收到消息后 5 分钟内不刷 cookie
-	PasswordLoginMinGap   = 30 * time.Minute
+	TokenRefreshInterval = 15 * time.Minute
+	TokenRefreshMinGap   = time.Minute
+	MessageCooldown      = 5 * time.Minute // 收到消息后 5 分钟内不刷 cookie
+	PasswordLoginMinGap  = 30 * time.Minute
 
 	// TokenCacheTTL 缓存的 accessToken 视为有效的时长。tokenRefreshLoop 每 15min
 	// 刷新一次会续期该缓存；短重启 / 瞬时 mtop 失败时回退到此缓存不掉线。
@@ -110,26 +113,27 @@ type Account struct {
 
 	store    *db.Store
 	mtop     mtop.Client
+	renewer  cookieRenewer
 	wsDialer wsDialer
 	handler  Handler
 	logger   *slog.Logger
 
 	// 运行时状态（受 mu 保护）
-	mu                sync.Mutex
-	currentToken      string
-	deviceID          string
-	connFailures      int
-	lastMsgReceived   time.Time
-	lastTokenRefresh  time.Time
-	lastPasswordLogin time.Time
-	runtimeState      string
-	runtimeMessage    string
-	runtimeUpdatedAt  time.Time
-	stopFn            context.CancelFunc
-	stopped           bool
-	conn              WSConn
-	connStartedAt     time.Time // 本次 WS 连接建立时间，用于短连接检测
-	authExpiredAlerted bool     // 已发过 auth_expired 告警，连接恢复后复位（避免刷屏）
+	mu                 sync.Mutex
+	currentToken       string
+	deviceID           string
+	connFailures       int
+	lastMsgReceived    time.Time
+	lastTokenRefresh   time.Time
+	lastPasswordLogin  time.Time
+	runtimeState       string
+	runtimeMessage     string
+	runtimeUpdatedAt   time.Time
+	stopFn             context.CancelFunc
+	stopped            bool
+	conn               WSConn
+	connStartedAt      time.Time // 本次 WS 连接建立时间，用于短连接检测
+	authExpiredAlerted bool      // 已发过 auth_expired 告警，连接恢复后复位（避免刷屏）
 
 	// 去重
 	dedupMu   sync.Mutex
@@ -173,6 +177,10 @@ func (defaultDialer) Dial(ctx context.Context, cfg ws.Config, logger *slog.Logge
 	return ws.Dial(ctx, cfg, logger)
 }
 
+type cookieRenewer interface {
+	RenewAPIFirst(ctx context.Context, cookiesStr string) (*renew.Result, error)
+}
+
 // Config 构造 Account 所需依赖。
 type Config struct {
 	CookieID  string
@@ -182,6 +190,8 @@ type Config struct {
 	Logger    *slog.Logger
 	// MTop 可选：注入 mtop 客户端以便测试 mock。 nil 时使用默认 HTTP 实现。
 	MTop mtop.Client
+	// Renewer 可选：注入 Cookie 接口续期服务以便测试 mock。nil 时使用默认实现。
+	Renewer cookieRenewer
 }
 
 // New 构造单账号运行时（未启动）。
@@ -190,9 +200,14 @@ func New(cfg Config) *Account {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	mtopWasNil := cfg.MTop == nil
 	mtopClient := cfg.MTop
 	if mtopClient == nil {
 		mtopClient = mtop.NewClient()
+	}
+	renewer := cfg.Renewer
+	if renewer == nil && mtopWasNil {
+		renewer = renew.Service{}
 	}
 	cookies := protocol.TransCookies(cfg.CookieStr)
 	myid := cookies["unb"]
@@ -202,6 +217,7 @@ func New(cfg Config) *Account {
 		UserID:           myid,
 		store:            cfg.Store,
 		mtop:             mtopClient,
+		renewer:          renewer,
 		wsDialer:         defaultDialer{},
 		handler:          cfg.Handler,
 		logger:           logger.With("account", cfg.CookieID),
@@ -254,11 +270,28 @@ func (a *Account) Run(parent context.Context) error {
 			failures := a.connFailures
 			a.mu.Unlock()
 			a.setRuntimeError(ctx, err)
-			if mtop.IsSessionExpiredErr(err) {
-				a.logger.Warn("session 已失效，清除 token 缓存并进入慢重试", "err", err)
+			if mtop.IsRiskVerificationErr(err) {
+				a.logger.Warn("闲鱼要求安全验证，停止快速重试", "err", err)
 				a.clearTokenCache(ctx)
+				a.alert(ctx, AlertLevelWarn, "闲鱼要求安全验证",
+					"账号触发闲鱼风控验证（滑块/人脸等）。系统已停止快速重试，请在后台重新扫码或完成验证。")
+				if sleepCtx(ctx, AuthExpiredRetryInterval) != nil {
+					return ctx.Err()
+				}
+				continue
+			}
+			if mtop.IsSessionExpiredErr(err) {
+				a.logger.Warn("session 已失效，先尝试接口续期", "err", err)
+				a.clearTokenCache(ctx)
+				if a.tryAPIRenew(ctx) {
+					a.resetFailures()
+					if sleepCtx(ctx, 2*time.Second) != nil {
+						return ctx.Err()
+					}
+					continue
+				}
 				a.alert(ctx, AlertLevelWarn, "账号 session 已失效",
-					"登录凭证已被闲鱼服务端判定为失效，系统正在尝试通过浏览器密码登录自动恢复。若长时间未恢复，请人工处理。")
+					"登录凭证已被闲鱼服务端判定为失效，接口续期未恢复，系统将继续尝试浏览器密码登录自动恢复。")
 				if err := a.handleMaxFailures(ctx); err != nil {
 					return err
 				}
@@ -478,7 +511,50 @@ func (a *Account) resetFailures() {
 	a.connFailures = 0
 }
 
-// retryDelay 移植自 _calculate_retry_delay。
+// tryAPIRenew 是密码登录前的轻量恢复层。
+// 闲鱼很多“登录态滑向过期”的场景会先允许 hasLogin/silentHasLogin/
+// setLoginSettings 刷新一批 Cookie；直接上密码登录更重，也更容易触发风控。
+// 因此这里先尝试接口续期：只要 Cookie 有变化就保存并清 token 缓存，让下一轮
+// acquireToken 用新 Cookie 重新派生 accessToken。
+func (a *Account) tryAPIRenew(ctx context.Context) bool {
+	if a.renewer == nil {
+		return false
+	}
+	a.mu.Lock()
+	cookieStr := a.CookieStr
+	a.mu.Unlock()
+	res, err := a.renewer.RenewAPIFirst(ctx, cookieStr)
+	if err != nil {
+		a.logger.Warn("接口续期失败", "err", err)
+		return false
+	}
+	if res == nil || res.NewCookies == "" || res.NewCookies == cookieStr {
+		if res != nil {
+			a.logger.Info("接口续期未产生 Cookie 更新", "success", res.Success, "message", res.Message)
+		}
+		return false
+	}
+	a.replaceCookieStr(res.NewCookies)
+	if a.store != nil && a.store.Cookies != nil {
+		if d, e := a.store.Cookies.GetDetails(ctx, a.CookieID); e == nil && d != nil {
+			if err := a.store.Cookies.Save(ctx, a.CookieID, res.NewCookies, d.UserID); err != nil {
+				a.logger.Error("接口续期后保存 cookie 失败", "cookie_id", a.CookieID, "err", err)
+			}
+		}
+	}
+	a.clearTokenCache(ctx)
+	if res.Success {
+		a.setRuntimeState(RuntimeConnecting, "登录凭证已接口续期，正在重新连接")
+		a.logger.Info("接口续期成功", "method", res.RenewMethod, "updated", strings.Join(res.UpdatedCookieNames, ","))
+		return true
+	}
+	a.setRuntimeState(RuntimeConnecting, "登录凭证已有新 Cookie，正在重新验证")
+	a.logger.Info("接口续期返回部分 Cookie 更新，下一轮重新验证", "updated", strings.Join(res.UpdatedCookieNames, ","))
+	return true
+}
+
+// retryDelay 按错误类型计算退避，并加入 0-30% 抖动。
+// 多账号同时断线时，纯固定退避会让所有账号在同一秒重连，容易形成重连风暴。
 func (a *Account) retryDelay(errMsg string) time.Duration {
 	a.mu.Lock()
 	f := a.connFailures
@@ -495,7 +571,23 @@ func (a *Account) retryDelay(errMsg string) time.Duration {
 	default:
 		secs = min(5*f, 30)
 	}
-	return time.Duration(secs) * time.Second
+	return withRetryJitter(time.Duration(secs) * time.Second)
+}
+
+func withRetryJitter(base time.Duration) time.Duration {
+	if base <= 0 {
+		return 0
+	}
+	maxJitter := base / 3
+	if maxJitter <= 0 {
+		return base
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(maxJitter)))
+	if err != nil {
+		// 熵源异常时使用时间纳秒兜底；这里只影响退避抖动，不用于安全令牌。
+		return base + time.Duration(time.Now().UnixNano()%int64(maxJitter))
+	}
+	return base + time.Duration(n.Int64())
 }
 
 // refreshToken 调 mtop token API，返回 (accessToken, 更新后的 cookie)。

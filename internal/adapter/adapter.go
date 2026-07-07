@@ -23,6 +23,7 @@ import (
 // 测试可注入桩实现，避免依赖 Chromium。
 type browserManager interface {
 	FetchOrderDetail(ctx context.Context, orderID, cookieID, cookieValue string, requireSpec ...bool) (*browser.OrderDetail, error)
+	CookieRenew(ctx context.Context, cookieID, cookieStr string, headless bool) (map[string]string, error)
 	PasswordLogin(ctx context.Context, account, password, cookieID, userDataDir string, headless bool) (map[string]string, error)
 }
 
@@ -154,8 +155,11 @@ func (a *Adapter) localOrderDetail(ctx context.Context, orderID string) (*automa
 	}, true
 }
 
-// OnPasswordLoginRefresh 连续失败时调用浏览器密码登录刷新 cookie。
-// 同一账号冷却 engine.PasswordLoginMinGap，避免短时间反复尝试。
+// OnPasswordLoginRefresh 连续失败时恢复 Cookie。
+//
+// 恢复顺序是“浏览器快速续期 -> 密码登录”。快速续期复用旧 Cookie 打开闲鱼，
+// 尝试点“快速进入”刷新浏览器登录态；这比账号密码登录更轻，风控压力也更小。
+// 同一账号冷却 engine.PasswordLoginMinGap，避免短时间反复触发浏览器恢复。
 func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) bool {
 	if a.browser == nil {
 		a.logger.Warn("密码登录刷新失败：浏览器自动化已禁用")
@@ -179,33 +183,56 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 		a.logger.Warn("密码登录刷新失败：读取账号详情失败", "account", cookieID, "err", err)
 		return false
 	}
+	a.mu.Lock()
+	a.lastLoginByCID[cookieID] = time.Now()
+	a.mu.Unlock()
+
+	// 先走 Cookie 快速续期。只要旧 Cookie 还能触发快速进入，就不暴露账号密码登录，
+	// 也减少滑块/人脸/设备校验等更重风控的概率。
+	if a.saveRecoveredBrowserCookies(ctx, cookieID, d.UserID, func() (map[string]string, error) {
+		return a.browser.CookieRenew(ctx, cookieID, d.Value, !d.ShowBrowser)
+	}, "浏览器快速续期") {
+		return true
+	}
+
 	if strings.TrimSpace(d.Username) == "" || strings.TrimSpace(d.Password) == "" {
 		a.logger.Warn("密码登录刷新失败：账号未配置登录用户名或密码", "account", cookieID)
 		return false
 	}
-	a.mu.Lock()
-	a.lastLoginByCID[cookieID] = time.Now()
-	a.mu.Unlock()
-	cookies, err := a.browser.PasswordLogin(ctx, d.Username, d.Password, cookieID, "", !d.ShowBrowser)
+	return a.saveRecoveredBrowserCookies(ctx, cookieID, d.UserID, func() (map[string]string, error) {
+		return a.browser.PasswordLogin(ctx, d.Username, d.Password, cookieID, "", !d.ShowBrowser)
+	}, "密码登录刷新")
+}
+
+// saveRecoveredBrowserCookies 执行浏览器恢复动作，统一校验、保存 Cookie 并清理 token 缓存。
+// Cookie 更新后，旧 accessToken 与旧 session 绑定，继续复用会造成“新 Cookie + 旧 token”
+// 的逻辑冲突，所以这里必须清除缓存，让 engine 下一轮重新派生 token。
+func (a *Adapter) saveRecoveredBrowserCookies(ctx context.Context, cookieID string, userID int64, recover func() (map[string]string, error), action string) bool {
+	cookies, err := recover()
 	if err != nil {
-		a.logger.Warn("密码登录刷新失败", "account", cookieID, "err", err)
+		a.logger.Warn(action+"失败", "account", cookieID, "err", err)
 		return false
 	}
 	cookieStr := browser.MarshalCookies(cookies)
 	if strings.TrimSpace(cookieStr) == "" {
-		a.logger.Warn("密码登录刷新失败：浏览器未返回 cookie", "account", cookieID)
+		a.logger.Warn(action+"失败：浏览器未返回 cookie", "account", cookieID)
 		return false
 	}
-	if err := a.store.Cookies.Save(ctx, cookieID, cookieStr, d.UserID); err != nil {
-		a.logger.Warn("密码登录刷新失败：保存 cookie 失败", "account", cookieID, "err", err)
+	if err := a.store.Cookies.Save(ctx, cookieID, cookieStr, userID); err != nil {
+		a.logger.Warn(action+"失败：保存 cookie 失败", "account", cookieID, "err", err)
 		return false
 	}
-	a.logger.Info("密码登录刷新 cookie 成功", "account", cookieID)
+	if a.store.Tokens != nil {
+		if err := a.store.Tokens.Clear(ctx, cookieID); err != nil {
+			a.logger.Warn(action+"后清除 token 缓存失败", "account", cookieID, "err", err)
+		}
+	}
+	a.logger.Info(action+" cookie 成功", "account", cookieID)
 	return true
 }
 
 // 编译期保证 *Adapter 同时实现 engine.Handler 与 automation.OrderDetailFetcher。
 var (
-	_ engine.Handler               = (*Adapter)(nil)
+	_ engine.Handler                = (*Adapter)(nil)
 	_ automation.OrderDetailFetcher = (*Adapter)(nil)
 )

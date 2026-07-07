@@ -165,7 +165,7 @@ func TestIsTokenExpiredRet(t *testing.T) {
 		{[]string{"FAIL_SYS_TOKEN_EXOIRED::令牌过期"}, true},
 		{[]string{"FAIL_SYS_TOKEN_EXPIRED::令牌过期"}, true},
 		{[]string{"FAIL_SYS_SESSION_EXPIRED::会话过期"}, true},
-		{[]string{"FAIL_SYS_USER_VALIDATE::非法请求TOKEN"}, true}, // lower contains "token"
+		{[]string{"FAIL_SYS_USER_VALIDATE::非法请求TOKEN"}, false},
 		{[]string{"SUCCESS::调用成功"}, false},
 		{[]string{"FAIL_BIZ_ORDER_STATUS_ERROR::订单状态错误"}, false},
 		{nil, false},

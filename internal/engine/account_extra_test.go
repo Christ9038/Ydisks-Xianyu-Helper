@@ -187,17 +187,11 @@ func TestRetryDelay_FailureClampsAtOne(t *testing.T) {
 	defer cleanup()
 	acc.connFailures = 0
 	// close-frame：min(3*1,15)=3s。
-	if d := acc.retryDelay("no close frame received or sent"); d != 3*time.Second {
-		t.Errorf("failures=0 clamp to 1: got %v want 3s", d)
-	}
+	expectDelayRange(t, acc.retryDelay("no close frame received or sent"), 3*time.Second)
 	// timeout：min(10*1,60)=10s。
-	if d := acc.retryDelay("timeout reading"); d != 10*time.Second {
-		t.Errorf("timeout failures=0: got %v want 10s", d)
-	}
+	expectDelayRange(t, acc.retryDelay("timeout reading"), 10*time.Second)
 	// default：min(5*1,30)=5s。
-	if d := acc.retryDelay("random error"); d != 5*time.Second {
-		t.Errorf("default failures=0: got %v want 5s", d)
-	}
+	expectDelayRange(t, acc.retryDelay("random error"), 5*time.Second)
 }
 
 // TestRetryDelay_TimeoutVariant "timeout" 关键词分支。
@@ -206,13 +200,9 @@ func TestRetryDelay_TimeoutVariant(t *testing.T) {
 	defer cleanup()
 	acc.connFailures = 3
 	// min(10*3,60)=30s。
-	if d := acc.retryDelay("dial timeout"); d != 30*time.Second {
-		t.Errorf("timeout failures=3: got %v want 30s", d)
-	}
+	expectDelayRange(t, acc.retryDelay("dial timeout"), 30*time.Second)
 	acc.connFailures = 10
-	if d := acc.retryDelay("timeout"); d != 60*time.Second {
-		t.Errorf("timeout failures=10 cap: got %v want 60s", d)
-	}
+	expectDelayRange(t, acc.retryDelay("timeout"), 60*time.Second)
 }
 
 // TestHandleMaxFailures_RecentMessageSkipPasswordLogin 最近仍收到消息时跳过密码登录刷新，

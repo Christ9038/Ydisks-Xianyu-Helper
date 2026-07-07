@@ -41,6 +41,7 @@ const AccountList: React.FC = () => {
   const [qrStatus, setQrStatus] = useState<string>('pending');
   const [verificationUrl, setVerificationUrl] = useState<string>('');
   const [verificationScreenshot, setVerificationScreenshot] = useState<string>('');
+  const [faceQrUrl, setFaceQrUrl] = useState<string>('');
   const [qrSessionId, setQrSessionId] = useState<string>('');
   const [qrReauthTarget, setQrReauthTarget] = useState<AccountDetail | null>(null);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
@@ -326,6 +327,7 @@ const AccountList: React.FC = () => {
     setQrSessionId('');
     setVerificationUrl('');
     setVerificationScreenshot('');
+    setFaceQrUrl('');
     try {
       const res = await generateQRLogin();
       if (res.success && res.qr_code_url && res.session_id) {
@@ -358,6 +360,9 @@ const AccountList: React.FC = () => {
           } else if (statusRes.status === 'verification_required') {
             setQrStatus('verification');
             setVerificationUrl(statusRes.verification_url || '');
+            if (statusRes.face_qr_url) {
+              setFaceQrUrl(statusRes.face_qr_url);
+            }
             if (statusRes.verification_screenshot) {
               setVerificationScreenshot(statusRes.verification_screenshot);
             }
@@ -610,16 +615,20 @@ const AccountList: React.FC = () => {
                                   <div className="flex flex-col items-center px-4">
                                       <span className="font-bold text-gray-900 mb-2">需要安全验证</span>
                                       <span className="text-xs text-gray-500 mb-3 text-center">
-                                          程序已在后台打开验证页面，请用手机完成验证，验证通过后将自动登录。
+                                          {faceQrUrl
+                                            ? '请用手机闲鱼扫描下方二维码完成人脸验证，验证通过后将自动登录。'
+                                            : '正在准备验证二维码，请保持页面打开。'}
                                       </span>
-                                      {verificationScreenshot ? (
+                                      {faceQrUrl ? (
+                                          <img src={faceQrUrl} alt="人脸验证二维码" className="w-full max-w-[210px] rounded-xl border bg-white p-2 mb-2" />
+                                      ) : verificationScreenshot ? (
                                           <img src={verificationScreenshot} alt="验证页面" className="w-full rounded-xl border mb-2" style={{maxHeight: 200, objectFit: 'contain'}} />
                                       ) : (
                                           <div className="w-full h-32 bg-gray-100 rounded-xl flex items-center justify-center mb-2">
                                               <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
                                           </div>
                                       )}
-                                      <span className="text-xs text-gray-400">等待手机验证完成，无需手动操作...</span>
+                                      <span className="text-xs text-gray-400">等待手机验证完成，无需点击确认。</span>
                                   </div>
                               )}
                           </div>

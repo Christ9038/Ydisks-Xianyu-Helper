@@ -281,24 +281,22 @@ func TestRetryDelay(t *testing.T) {
 	defer acc.Stop()
 
 	acc.connFailures = 1
-	if d := acc.retryDelay("no close frame received or sent"); d != 3*time.Second {
-		t.Errorf("close-frame failures=1: %v want 3s", d)
-	}
+	expectDelayRange(t, acc.retryDelay("no close frame received or sent"), 3*time.Second)
 	acc.connFailures = 10
-	if d := acc.retryDelay("no close frame received or sent"); d != 15*time.Second {
-		t.Errorf("close-frame failures=10: %v want 15s (capped)", d)
-	}
+	expectDelayRange(t, acc.retryDelay("no close frame received or sent"), 15*time.Second)
 	acc.connFailures = 2
-	if d := acc.retryDelay("connection refused"); d != 20*time.Second {
-		t.Errorf("refused failures=2: %v want 20s", d)
-	}
+	expectDelayRange(t, acc.retryDelay("connection refused"), 20*time.Second)
 	acc.connFailures = 10
-	if d := acc.retryDelay("connection refused"); d != 60*time.Second {
-		t.Errorf("refused failures=10: %v want 60s (capped)", d)
-	}
+	expectDelayRange(t, acc.retryDelay("connection refused"), 60*time.Second)
 	acc.connFailures = 1
-	if d := acc.retryDelay("some other error"); d != 5*time.Second {
-		t.Errorf("other failures=1: %v want 5s", d)
+	expectDelayRange(t, acc.retryDelay("some other error"), 5*time.Second)
+}
+
+func expectDelayRange(t *testing.T, got, base time.Duration) {
+	t.Helper()
+	max := base + base/3
+	if got < base || got > max {
+		t.Fatalf("retryDelay=%v want in [%v,%v]", got, base, max)
 	}
 }
 

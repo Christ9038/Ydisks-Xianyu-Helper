@@ -32,6 +32,7 @@ const (
 	apiMiniLogin  = host + "/mini_login.htm"
 	apiGenerateQR = host + "/newlogin/qrcode/generate.do"
 	apiScanStatus = host + "/newlogin/qrcode/query.do"
+	apiFaceCheck  = host + "/iv/photoVerify/check.do"
 	apiH5TK       = "https://h5api.m.goofish.com/h5/mtop.gaia.nodejs.gaia.idle.data.gw.v2.index.get/1.0/"
 	appKey        = "34839810"
 )
@@ -63,6 +64,8 @@ type Session struct {
 	params                 map[string]string
 	verificationURL        string
 	verificationScreenshot string // 最新截图 data URL，前端轮询时显示
+	faceQRURL              string // 人脸验证二维码 data URL，优先展示给前端
+	faceQRContent          string // 人脸验证二维码原始内容，便于排查协议变化
 }
 
 func (s *Session) isExpired() bool {
@@ -222,6 +225,10 @@ func (m *Manager) GetSessionStatus(sessionID string) map[string]any {
 	if sess.Status == "verification_required" && sess.verificationURL != "" {
 		result["verification_url"] = sess.verificationURL
 		result["message"] = "账号被风控，需要手机验证"
+		if sess.faceQRURL != "" {
+			result["face_qr_url"] = sess.faceQRURL
+			result["message"] = "需要人脸验证，请使用手机闲鱼扫描二维码"
+		}
 		if sess.verificationScreenshot != "" {
 			result["verification_screenshot"] = sess.verificationScreenshot
 		}
@@ -298,44 +305,22 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 					for _, c := range resp.Cookies() {
 						sess.cookies[c.Name] = c.Value
 					}
-					m.logger.Warn("扫码登录需要风控验证，立即启动浏览器等待验证", "session_id", sessionID, "verification_url", logsafe.URL(sess.verificationURL), "tmp_cookie_count", len(sess.cookies))
+					// 人脸验证会额外占用用户手机端操作时间。这里重置窗口，避免普通
+					// 扫码 5 分钟窗口在用户扫人脸二维码时把会话误标为 expired。
+					sess.createdTime = time.Now()
+					sess.expireTime = 5 * time.Minute
+					m.logger.Warn("扫码登录需要风控验证，启动 API 人脸验证链路", "session_id", sessionID, "verification_url", logsafe.URL(sess.verificationURL), "tmp_cookie_count", len(sess.cookies))
 
-					// 关键：必须在检测到风控时立即启动浏览器，带临时 cookie 打开验证页面。
-					// 用户在手机完成验证后，服务端回调打到这个 Chromium 页面（redirect 到 ivCheckLogin.htm），
-					// Chromium 才能拿到授权 session，再访问 /im 得到 unb。
-					// 不能等用户点按钮——那时验证已绑定到用户浏览器 session，与此 Chromium 无关。
-					if m.browser != nil {
-						browserFn := m.browser
-						cookieStr := cookieMarshal(sess.cookies)
-						verURL := sess.verificationURL
-						// #nosec G118 -- 浏览器验证必须跨越轮询请求，浏览器实现本身有超时限制。
-						go func() {
-							verifyCtx, cancel := context.WithTimeout(context.Background(), sess.expireTime)
-							defer cancel()
-							onScreenshot := func(dataURL string) {
-								m.mu.Lock()
-								if s, ok := m.sessions[sessionID]; ok {
-									s.verificationScreenshot = dataURL
-								}
-								m.mu.Unlock()
-							}
-							realCookies, unb, err := browserFn(verifyCtx, cookieStr, verURL, onScreenshot)
-							m.mu.Lock()
-							defer m.mu.Unlock()
-							s, ok := m.sessions[sessionID]
-							if !ok {
-								return
-							}
-							if err != nil {
-								m.logger.Error("浏览器等待验证失败", "err", err)
-								return
-							}
-							s.cookies = parseCookieStr(realCookies)
-							s.unb = unb
-							s.Status = "success"
-							m.logger.Info("浏览器验证成功，已自动完成登录", "session_id", sessionID, "account_hash", logsafe.ID(unb))
-						}()
-					}
+					verURL := sess.verificationURL
+					// #nosec G118 -- 风控验证必须跨越轮询请求，且由超时上下文保证退出。
+					go func() {
+						verifyCtx, cancel := context.WithTimeout(context.Background(), sess.expireTime)
+						defer cancel()
+						if err := m.runFaceVerification(verifyCtx, sessionID, verURL); err != nil {
+							m.logger.Error("API 人脸验证链路失败", "session_id", sessionID, "err", err)
+							m.fallbackBrowserVerification(verifyCtx, sessionID, verURL)
+						}
+					}()
 				}
 				time.Sleep(800 * time.Millisecond)
 				continue

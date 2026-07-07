@@ -5,6 +5,7 @@ package mtop
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -57,6 +58,7 @@ type ClientImpl struct {
 	TokenURL       string
 	ConsignURL     string
 	OrderDetailURL string
+	LoginUserURL   string
 }
 
 // NewClient 构造默认 HTTP 实现的非零 ClientImpl（调用方多为持有 Client 接口字段）。
@@ -117,11 +119,58 @@ func hasMTopSuccess(ret []string) bool {
 
 func isTokenExpiredRet(ret []string) bool {
 	for _, r := range ret {
-		lower := strings.ToLower(r)
-		if strings.Contains(lower, "token") ||
-			strings.Contains(r, "FAIL_SYS_TOKEN_EXOIRED") ||
+		if strings.Contains(r, "FAIL_SYS_TOKEN_EXOIRED") ||
 			strings.Contains(r, "FAIL_SYS_TOKEN_EXPIRED") ||
+			strings.Contains(r, "FAIL_SYS_TOKEN_EMPTY") ||
 			strings.Contains(r, "FAIL_SYS_SESSION_EXPIRED") {
+			return true
+		}
+	}
+	return false
+}
+
+// RiskVerificationError 表示闲鱼服务端要求用户验证（滑块/人脸/风控页）。
+// 这类错误不能按普通 token 过期快速重试，否则会持续打接口并放大风控。
+type RiskVerificationError struct {
+	Ret             []string
+	VerificationURL string
+}
+
+func (e *RiskVerificationError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.VerificationURL != "" {
+		return fmt.Sprintf("闲鱼要求安全验证: ret=%v url=%s", e.Ret, e.VerificationURL)
+	}
+	return fmt.Sprintf("闲鱼要求安全验证: ret=%v", e.Ret)
+}
+
+// IsRiskVerificationErr 判断错误是否是闲鱼风控验证要求。
+func IsRiskVerificationErr(err error) bool {
+	var riskErr *RiskVerificationError
+	if errors.As(err, &riskErr) {
+		return true
+	}
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "fail_sys_user_validate") ||
+		strings.Contains(msg, "rgv587") ||
+		strings.Contains(msg, "punish") ||
+		strings.Contains(msg, "captcha") ||
+		strings.Contains(msg, "x5secdata")
+}
+
+func isRiskVerificationRet(ret []string) bool {
+	for _, r := range ret {
+		lower := strings.ToLower(r)
+		if strings.Contains(lower, "fail_sys_user_validate") ||
+			strings.Contains(lower, "rgv587") ||
+			strings.Contains(lower, "punish") ||
+			strings.Contains(lower, "captcha") ||
+			strings.Contains(lower, "x5secdata") {
 			return true
 		}
 	}
