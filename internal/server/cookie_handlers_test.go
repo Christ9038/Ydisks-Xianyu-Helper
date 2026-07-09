@@ -93,6 +93,35 @@ func TestGetCookieDetails(t *testing.T) {
 	}
 }
 
+func TestListCookieDetailsIncludesShowBrowser(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := store.Cookies.UpdateLoginInfo(ctx, "acc1", "login-user", "secret", true); err != nil {
+		t.Fatalf("UpdateLoginInfo: %v", err)
+	}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/cookies/details", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var details []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &details); err != nil {
+		t.Fatalf("decode details: %v", err)
+	}
+	if len(details) != 1 || details[0]["show_browser"] != true {
+		t.Fatalf("账号列表应返回 show_browser=true: %+v", details)
+	}
+	if _, ok := details[0]["login_password"]; ok {
+		t.Fatalf("账号列表不应返回登录密码: %+v", details[0])
+	}
+}
+
 // TestGetCookieDetailsBadCookie 无权账号 403。
 func TestGetCookieDetailsBadCookie(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
@@ -111,8 +140,9 @@ func TestGetCookieDetailsBadCookie(t *testing.T) {
 
 // TestUpdateCookie 更新 cookie 值。
 func TestUpdateCookie(t *testing.T) {
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	ctx := context.Background()
 	h := srv.Router()
 	cookie := loginHelper(t, h)
 
@@ -123,6 +153,50 @@ func TestUpdateCookie(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("update status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	d, err := store.Cookies.GetDetails(ctx, "acc1")
+	if err != nil {
+		t.Fatalf("GetDetails: %v", err)
+	}
+	if d.LoginMethod != "" || d.LastLoginAt != 0 {
+		t.Fatalf("普通 Cookie 更新不应刷新登录审计字段: method=%q last=%d", d.LoginMethod, d.LastLoginAt)
+	}
+}
+
+func TestUpdateCookieQRLoginEnablesAccount(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := store.Cookies.SetStatusWithReason(ctx, "acc1", false, "token 失效"); err != nil {
+		t.Fatalf("SetStatusWithReason: %v", err)
+	}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	body := `{"value":"unb=123; _m_h5_tk=qr_2;","login_method":"qr_scan"}`
+	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1", strings.NewReader(body))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("update status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !store.Cookies.GetStatus(ctx, "acc1") {
+		t.Fatal("扫码登录成功后应重新启用账号")
+	}
+	var reason string
+	if err := store.DB.QueryRowContext(ctx, `SELECT disable_reason FROM cookie_status WHERE cookie_id='acc1'`).Scan(&reason); err != nil {
+		t.Fatalf("query disable_reason: %v", err)
+	}
+	if reason != "" {
+		t.Fatalf("扫码登录成功后应清空禁用原因，got %q", reason)
+	}
+	d, err := store.Cookies.GetDetails(ctx, "acc1")
+	if err != nil {
+		t.Fatalf("GetDetails: %v", err)
+	}
+	if d.LoginMethod != "qr_scan" || d.LastLoginAt == 0 {
+		t.Fatalf("扫码登录应刷新登录审计字段: %+v", d)
 	}
 }
 
@@ -144,8 +218,9 @@ func TestUpdateCookieBadJSON(t *testing.T) {
 
 // TestUpdateCookieLoginInfo 更新登录信息。
 func TestUpdateCookieLoginInfo(t *testing.T) {
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	ctx := context.Background()
 	h := srv.Router()
 	cookie := loginHelper(t, h)
 
@@ -156,6 +231,29 @@ func TestUpdateCookieLoginInfo(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	d, err := store.Cookies.GetDetails(ctx, "acc1")
+	if err != nil {
+		t.Fatalf("GetDetails: %v", err)
+	}
+	if d.Username != "u1" || d.Password != "p1" || !d.ShowBrowser {
+		t.Fatalf("登录信息未正确保存: %+v", d)
+	}
+
+	body = `{"username":"u2","login_password":"","show_browser":false}`
+	req = httptest.NewRequest(http.MethodPut, "/cookies/acc1/login-info", strings.NewReader(body))
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	d, err = store.Cookies.GetDetails(ctx, "acc1")
+	if err != nil {
+		t.Fatalf("GetDetails after empty password: %v", err)
+	}
+	if d.Username != "u2" || d.Password != "p1" || d.ShowBrowser {
+		t.Fatalf("空密码更新应保留原密码并更新其他字段: %+v", d)
 	}
 }
 
@@ -295,6 +393,35 @@ func TestAddCookieBad(t *testing.T) {
 	}
 }
 
+func TestAddCookieDefaultsManualLoginAudit(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.Manager = nil
+	ctx := context.Background()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	body := `{"id":"acc-manual","value":"unb=456; _m_h5_tk=manual_1;"}`
+	req := httptest.NewRequest(http.MethodPost, "/cookies", strings.NewReader(body))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("add status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	d, err := store.Cookies.GetDetails(ctx, "acc-manual")
+	if err != nil {
+		t.Fatalf("GetDetails: %v", err)
+	}
+	if d.LoginMethod != "manual" || d.LastLoginAt == 0 {
+		t.Fatalf("手动新增 Cookie 应记录 manual 登录审计字段: %+v", d)
+	}
+	logs, err := store.LoginLogs.ListByCookie(ctx, "acc-manual", 10)
+	if err != nil || len(logs) != 1 || logs[0].Method != "manual" || logs[0].TriggerReason != "手动Cookie录入" {
+		t.Fatalf("手动新增 Cookie 应记录登录日志: logs=%#v err=%v", logs, err)
+	}
+}
+
 // TestAddCookieBadJSON 非法 JSON 400。
 func TestAddCookieBadJSON(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
@@ -347,10 +474,10 @@ func TestCachedAccountNickname(t *testing.T) {
 // TestNormalizeProfileAvatarURL 头像 URL 归一。
 func TestNormalizeProfileAvatarURL(t *testing.T) {
 	cases := map[string]string{
-		"":               "",
-		"//img.alicdn.com/x.jpg": "https://img.alicdn.com/x.jpg",
-		"http://img.alicdn.com/x.jpg": "https://img.alicdn.com/x.jpg",
-		"https://img.alicdn.com/x.jpg": "https://img.alicdn.com/x.jpg",
+		"":                                 "",
+		"//img.alicdn.com/x.jpg":           "https://img.alicdn.com/x.jpg",
+		"http://img.alicdn.com/x.jpg":      "https://img.alicdn.com/x.jpg",
+		"https://img.alicdn.com/x.jpg":     "https://img.alicdn.com/x.jpg",
 		"  https://img.alicdn.com/x.jpg  ": "https://img.alicdn.com/x.jpg",
 	}
 	for in, want := range cases {

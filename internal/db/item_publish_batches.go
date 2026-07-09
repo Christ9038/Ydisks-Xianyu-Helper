@@ -107,7 +107,7 @@ func (b *ItemPublishBatches) Get(ctx context.Context, userID int64, id string) (
 	var out ItemPublishBatch
 	err := b.DB.QueryRowContext(ctx,
 		`SELECT id,user_id,default_cookie_id,filename,upload_dir,status,total_count,success_count,failed_count,
-		        COALESCE(created_at,''),COALESCE(updated_at,'')
+		        created_at,updated_at
 		   FROM item_publish_batches WHERE id=? AND user_id=?`, id, userID).Scan(
 		&out.ID, &out.UserID, &out.DefaultCookieID, &out.Filename, &out.UploadDir, &out.Status,
 		&out.TotalCount, &out.SuccessCount, &out.FailedCount, &out.CreatedAt, &out.UpdatedAt)
@@ -125,7 +125,7 @@ func (b *ItemPublishBatches) Rows(ctx context.Context, batchID string) ([]ItemPu
 	rows, err := b.DB.QueryContext(ctx,
 		`SELECT id,batch_id,row_no,cookie_id,title,description,price,original_price,quantity,postage_mode,postage,
 		        images_json,COALESCE(automation_json,'{}'),status,item_id,item_url,error_message,
-		        raw_json,COALESCE(created_at,''),COALESCE(updated_at,'')
+		        raw_json,created_at,updated_at
 		   FROM item_publish_batch_rows WHERE batch_id=? ORDER BY row_no`, batchID)
 	if err != nil {
 		return nil, err
@@ -154,7 +154,7 @@ func (b *ItemPublishBatches) PendingRows(ctx context.Context, batchID string, fa
 	rows, err := b.DB.QueryContext(ctx,
 		`SELECT id,batch_id,row_no,cookie_id,title,description,price,original_price,quantity,postage_mode,postage,
 		        images_json,COALESCE(automation_json,'{}'),status,item_id,item_url,error_message,
-		        raw_json,COALESCE(created_at,''),COALESCE(updated_at,'')
+		        raw_json,created_at,updated_at
 		   FROM item_publish_batch_rows WHERE batch_id=? AND status IN `+statuses+` ORDER BY row_no`, batchID)
 	if err != nil {
 		return nil, err
@@ -218,6 +218,26 @@ func (b *ItemPublishBatches) MarkRowFailed(ctx context.Context, rowID int64, mes
 	_, err := b.DB.ExecContext(ctx,
 		`UPDATE item_publish_batch_rows SET status='failed',error_message=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`,
 		message, rowID)
+	return err
+}
+
+// MarkRunningFailed 将批次内仍在 running 的行标为失败。
+func (b *ItemPublishBatches) MarkRunningFailed(ctx context.Context, batchID, message string) error {
+	_, err := b.DB.ExecContext(ctx,
+		`UPDATE item_publish_batch_rows
+		    SET status='failed',error_message=?,updated_at=CURRENT_TIMESTAMP
+		  WHERE batch_id=? AND status='running'`,
+		message, batchID)
+	return err
+}
+
+// MarkUnfinishedFailed 将批次内 pending/running 行标为失败。
+func (b *ItemPublishBatches) MarkUnfinishedFailed(ctx context.Context, batchID, message string) error {
+	_, err := b.DB.ExecContext(ctx,
+		`UPDATE item_publish_batch_rows
+		    SET status='failed',error_message=?,updated_at=CURRENT_TIMESTAMP
+		  WHERE batch_id=? AND status IN ('pending','running')`,
+		message, batchID)
 	return err
 }
 

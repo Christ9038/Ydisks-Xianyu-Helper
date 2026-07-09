@@ -7,9 +7,11 @@ package renew
 
 import (
 	"context"
+	cryptorand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"net/url"
 	"sort"
@@ -17,7 +19,6 @@ import (
 	"strings"
 	"time"
 
-	"xianyu-go/internal/xianyu"
 	"xianyu-go/internal/xianyu/protocol"
 )
 
@@ -27,6 +28,9 @@ const (
 	SetLoginSettingsURL  = "https://passport.goofish.com/ac/account/setLoginSettings.do"
 	defaultRequestTimout = 20 * time.Second
 	maxRenewBodyBytes    = 2 << 20
+	renewUA              = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+	hasLoginSecChUA      = `"Chromium";v="145", "Not:A-Brand";v="99"`
+	settingSecChUA       = `"Google Chrome";v="146", "Not=A?Brand";v="8"`
 )
 
 // Service 是 Cookie 接口续期服务。零值可用；测试可覆盖 URL 和 HTTPClient。
@@ -35,6 +39,7 @@ type Service struct {
 	HasLoginURL         string
 	SilentHasLoginURL   string
 	SetLoginSettingsURL string
+	RetryDelay          time.Duration
 }
 
 // Result 描述一次接口续期的完整结果。
@@ -45,6 +50,8 @@ type Result struct {
 	UpdatedCookieNames []string
 	StepDetails        []StepResult
 	Message            string
+	ResponseText       string
+	NeedPasswordLogin  bool
 }
 
 // StepResult 是单个续期接口的执行结果，便于上层记录日志和定位失败点。
@@ -62,9 +69,38 @@ type StepResult struct {
 func (s Service) RenewAPIFirst(ctx context.Context, cookiesStr string) (*Result, error) {
 	cookiesStr = strings.TrimSpace(cookiesStr)
 	if cookiesStr == "" {
-		return &Result{RenewMethod: "none", Message: "Cookie为空，无法续期"}, nil
+		return &Result{RenewMethod: "none", Message: "Cookie为空，无法续期", NeedPasswordLogin: true}, nil
 	}
-	return s.renewOnce(ctx, cookiesStr)
+	res, err := s.renewOnce(ctx, cookiesStr)
+	if err != nil || res == nil || res.Success {
+		return res, err
+	}
+	if s.RetryDelay < 0 {
+		return res, nil
+	}
+	delay := s.RetryDelay
+	if delay == 0 {
+		delay = 2 * time.Second
+	}
+	if delay > 0 {
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return res, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	retry, err := s.renewOnce(ctx, res.NewCookies)
+	if err != nil {
+		return res, err
+	}
+	if retry == nil {
+		return res, nil
+	}
+	retry.StepDetails = append(res.StepDetails, retry.StepDetails...)
+	retry.UpdatedCookieNames = ChangedCookieNames(cookiesStr, retry.NewCookies)
+	return retry, nil
 }
 
 func (s Service) renewOnce(ctx context.Context, original string) (*Result, error) {
@@ -101,7 +137,10 @@ func (s Service) renewOnce(ctx context.Context, original string) (*Result, error
 		allSetCookies = append(allSetCookies, settings.SetCookies...)
 	}
 
-	newCookies := MergeSetCookies(original, allSetCookies)
+	newCookies := original
+	if len(allSetCookies) > 0 {
+		newCookies = MergeSetCookies(original, allSetCookies)
+	}
 	updated := ChangedCookieNames(original, newCookies)
 	success := len(settings.SetCookies) > 0
 	method := "none"
@@ -117,6 +156,8 @@ func (s Service) renewOnce(ctx context.Context, original string) (*Result, error
 		UpdatedCookieNames: updated,
 		StepDetails:        steps,
 		Message:            msg,
+		ResponseText:       string(silent.Body),
+		NeedPasswordLogin:  !success,
 	}, nil
 }
 
@@ -149,14 +190,15 @@ func (s Service) callHasLogin(ctx context.Context, cookiesStr string) (callResul
 	form.Set("documentReferer", "https://www.goofish.com/")
 	form.Set("defaultView", "hasLogin")
 	form.Set("umidTag", "SERVER")
-	form.Set("pageTraceId", "21504"+strconv.FormatInt(time.Now().UnixMilli(), 10))
+	form.Set("returnUrl", "")
+	form.Set("deviceId", "")
+	form.Set("pageTraceId", "21504"+strconv.FormatInt(time.Now().UnixMilli(), 10)+randomDigits(6))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.urlOrDefault(s.HasLoginURL, HasLoginURL), strings.NewReader(form.Encode()))
 	if err != nil {
 		return callResult{}, err
 	}
-	setPassportHeaders(req, cookiesStr)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	setHasLoginHeaders(req, cookiesStr, miniLoginReferer())
 	if xsrf := cookies["XSRF-TOKEN"]; xsrf != "" {
 		req.Header.Set("x-xsrf-token", xsrf)
 	}
@@ -179,21 +221,21 @@ func (s Service) callSilentHasLogin(ctx context.Context, cookiesStr string) (cal
 	q.Set("fromSite", "0")
 	q.Set("ltl", "true")
 	req.URL.RawQuery = q.Encode()
-	setPassportHeaders(req, cookiesStr)
+	setSilentHasLoginHeaders(req, cookiesStr)
 	return s.doRenewRequest(req, "silentHasLogin")
 }
 
 func (s Service) callSetLoginSettings(ctx context.Context, cookiesStr string) (callResult, error) {
-	form := url.Values{}
-	form.Set("appName", "xianyu")
-	form.Set("fromSite", "77")
-	form.Set("keepLogin", "true")
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.urlOrDefault(s.SetLoginSettingsURL, SetLoginSettingsURL), strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.urlOrDefault(s.SetLoginSettingsURL, SetLoginSettingsURL), strings.NewReader("status=0"))
 	if err != nil {
 		return callResult{}, err
 	}
-	setPassportHeaders(req, cookiesStr)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	q := req.URL.Query()
+	q.Set("fromSite", "77")
+	q.Set("appName", "xianyu")
+	q.Set("bizEntrance", "web")
+	req.URL.RawQuery = q.Encode()
+	setLoginSettingsHeaders(req, cookiesStr)
 	return s.doRenewRequest(req, "setLoginSettings")
 }
 
@@ -202,7 +244,11 @@ func (s Service) doRenewRequest(req *http.Request, name string) (callResult, err
 	if hc == nil {
 		hc = &http.Client{Timeout: defaultRequestTimout}
 	}
-	resp, err := hc.Do(req)
+	client := *hc
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return callResult{}, fmt.Errorf("%s 请求失败: %w", name, err)
 	}
@@ -211,7 +257,7 @@ func (s Service) doRenewRequest(req *http.Request, name string) (callResult, err
 	if err != nil {
 		return callResult{}, fmt.Errorf("%s 响应读取失败: %w", name, err)
 	}
-	setCookies := resp.Header.Values("Set-Cookie")
+	setCookies := filterValidSetCookies(resp.Header.Values("Set-Cookie"))
 	step := StepResult{
 		Name:           name,
 		HTTPStatus:     resp.StatusCode,
@@ -246,17 +292,51 @@ func renewBusinessOK(body []byte) bool {
 	return ok
 }
 
-func setPassportHeaders(req *http.Request, cookiesStr string) {
+func setHasLoginHeaders(req *http.Request, cookiesStr, referer string) {
 	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("Origin", "https://passport.goofish.com")
-	req.Header.Set("Referer", "https://passport.goofish.com/")
-	req.Header.Set("User-Agent", xianyu.BrowserUA)
-	req.Header.Set("sec-ch-ua", xianyu.SecChUA)
+	req.Header.Set("Accept-Language", "zh-CN")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Referer", referer)
+	req.Header.Set("User-Agent", renewUA)
+	req.Header.Set("bx-v", "2.5.31")
+	req.Header.Set("sec-ch-ua", hasLoginSecChUA)
 	req.Header.Set("sec-ch-ua-mobile", "?0")
 	req.Header.Set("sec-ch-ua-platform", `"Windows"`)
+	req.Header.Set("Cookie", strings.ReplaceAll(strings.ReplaceAll(cookiesStr, "\n", ""), "\r", ""))
+}
+
+func setSilentHasLoginHeaders(req *http.Request, cookiesStr string) {
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "en,zh-CN;q=0.9,zh;q=0.8,ru;q=0.7")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
+	req.Header.Set("Priority", "u=1, i")
+	req.Header.Set("Referer", "https://www.goofish.com/")
+	req.Header.Set("User-Agent", renewUA)
+	req.Header.Set("sec-ch-ua", `"Google Chrome";v="146", "Not=A?Brand";v="8", "Not/A)Brand";v="146"`)
+	req.Header.Set("sec-ch-ua-arch", `"x86"`)
+	req.Header.Set("sec-ch-ua-bitness", `"64"`)
+	req.Header.Set("sec-ch-ua-mobile", "?0")
+	req.Header.Set("sec-ch-ua-platform", `"Win32"`)
+	req.Header.Set("sec-ch-ua-platform-version", `"10.0.0"`)
+	req.Header.Set("sec-fetch-dest", "empty")
+	req.Header.Set("sec-fetch-mode", "cors")
+	req.Header.Set("sec-fetch-site", "same-site")
+	req.Header.Set("Cookie", strings.ReplaceAll(strings.ReplaceAll(cookiesStr, "\n", ""), "\r", ""))
+}
+
+func setLoginSettingsHeaders(req *http.Request, cookiesStr string) {
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Referer", "https://www.goofish.com/")
+	req.Header.Set("User-Agent", renewUA)
+	req.Header.Set("sec-ch-ua", settingSecChUA)
+	req.Header.Set("sec-ch-ua-mobile", "?0")
+	req.Header.Set("sec-ch-ua-platform", `"Windows"`)
+	req.Header.Set("sec-fetch-dest", "empty")
+	req.Header.Set("sec-fetch-mode", "cors")
+	req.Header.Set("sec-fetch-site", "same-site")
 	req.Header.Set("Cookie", strings.ReplaceAll(strings.ReplaceAll(cookiesStr, "\n", ""), "\r", ""))
 }
 
@@ -285,6 +365,48 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func miniLoginReferer() string {
+	return "https://passport.goofish.com/mini_login.htm?lang=zh_cn&appName=xianyu&appEntrance=web&styleType=vertical&bizParams=&notLoadSsoView=false&notKeepLogin=false&isMobile=false&qrCodeFirst=false&stie=77&rnd=" + randomFraction()
+}
+
+func randomDigits(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	min := 1
+	for i := 1; i < n; i++ {
+		min *= 10
+	}
+	max := min * 9
+	v, err := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(max)))
+	if err != nil {
+		return strings.Repeat("0", n)
+	}
+	return strconv.Itoa(min + int(v.Int64()))
+}
+
+func randomFraction() string {
+	v, err := cryptorand.Int(cryptorand.Reader, big.NewInt(1_000_000_000))
+	if err != nil {
+		return "0.0"
+	}
+	return "0." + fmt.Sprintf("%09d", v.Int64())
+}
+
+func filterValidSetCookies(setCookies []string) []string {
+	if len(setCookies) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(setCookies))
+	for _, sc := range setCookies {
+		if strings.Contains(sc, "Max-Age=0") || strings.Contains(sc, "1970") {
+			continue
+		}
+		out = append(out, sc)
+	}
+	return out
 }
 
 // MergeSetCookies 将 Set-Cookie 头合并到 Cookie 头字符串。只保留 name=value，

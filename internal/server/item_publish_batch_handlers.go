@@ -273,7 +273,9 @@ func (s *Server) startItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 	// #nosec G118 -- 批处理必须在请求结束后继续，并由 30 分钟超时保证退出。
 	go func() {
 		jobCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		s.registerPublishBatchCancel(batch.ID, cancel)
 		defer cancel()
+		defer s.unregisterPublishBatchCancel(batch.ID)
 		s.runItemPublishBatch(jobCtx, sess.UserID, batch.ID, false)
 	}()
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "batch_id": batch.ID})
@@ -306,6 +308,9 @@ func (s *Server) cancelItemPublishBatch(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusInternalServerError, "取消任务失败")
 		return
 	}
+	s.cancelPublishBatch(batchID)
+	_ = s.Store.PublishBatches.MarkUnfinishedFailed(r.Context(), batchID, "任务已取消")
+	_ = s.Store.PublishBatches.Recount(r.Context(), batchID)
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
@@ -328,7 +333,9 @@ func (s *Server) retryFailedItemPublishBatch(w http.ResponseWriter, r *http.Requ
 	// #nosec G118 -- 批处理必须在请求结束后继续，并由 30 分钟超时保证退出。
 	go func() {
 		jobCtx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		s.registerPublishBatchCancel(batchID, cancel)
 		defer cancel()
+		defer s.unregisterPublishBatchCancel(batchID)
 		s.runItemPublishBatch(jobCtx, sess.UserID, batchID, false)
 	}()
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "batch_id": batchID})
@@ -374,36 +381,122 @@ func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID 
 	}
 	client := s.mtopClient()
 	for idx, row := range rows {
-		status, err := s.Store.PublishBatches.BatchStatus(ctx, batchID)
-		if err != nil || status == "canceled" {
-			_ = s.Store.PublishBatches.Recount(ctx, batchID)
+		if ctx.Err() != nil {
+			s.finishInterruptedPublishBatch(ctx, userID, batchID)
 			return
 		}
-		_ = s.Store.PublishBatches.MarkRowRunning(ctx, row.ID)
-		if err := s.publishBatchRow(ctx, userID, client, row); err != nil {
-			_ = s.Store.PublishBatches.MarkRowFailed(ctx, row.ID, err.Error())
+		wctx, cancel := publishStatusContext(ctx)
+		status, err := s.Store.PublishBatches.BatchStatus(wctx, batchID)
+		cancel()
+		if err != nil || status == "canceled" {
+			wctx, cancel := publishStatusContext(ctx)
+			if status == "canceled" {
+				_ = s.Store.PublishBatches.MarkUnfinishedFailed(wctx, batchID, "任务已取消")
+			}
+			_ = s.Store.PublishBatches.Recount(wctx, batchID)
+			cancel()
+			return
 		}
-		_ = s.Store.PublishBatches.Recount(ctx, batchID)
+		wctx, cancel = publishStatusContext(ctx)
+		_ = s.Store.PublishBatches.MarkRowRunning(wctx, row.ID)
+		cancel()
+		if err := s.publishBatchRow(ctx, userID, client, row); err != nil {
+			message := err.Error()
+			if status, _ := s.Store.PublishBatches.BatchStatus(context.Background(), batchID); status == "canceled" {
+				message = "任务已取消"
+			}
+			wctx, cancel := publishStatusContext(ctx)
+			_ = s.Store.PublishBatches.MarkRowFailed(wctx, row.ID, message)
+			cancel()
+		}
+		wctx, cancel = publishStatusContext(ctx)
+		_ = s.Store.PublishBatches.Recount(wctx, batchID)
+		cancel()
 		if idx < len(rows)-1 {
 			delay := time.Duration(10+idx%21) * time.Second
 			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
+				s.finishInterruptedPublishBatch(ctx, userID, batchID)
 				return
 			case <-timer.C:
 			}
 		}
 	}
-	_ = s.Store.PublishBatches.Recount(ctx, batchID)
-	batch, err := s.Store.PublishBatches.Get(ctx, userID, batchID)
-	if err == nil && batch.Status != "canceled" {
-		finalStatus := "completed"
-		if batch.SuccessCount == 0 && batch.FailedCount > 0 {
-			finalStatus = "failed"
-		}
-		_ = s.Store.PublishBatches.SetBatchStatus(ctx, batchID, finalStatus)
+	s.finishPublishBatch(ctx, userID, batchID)
+}
+
+func (s *Server) registerPublishBatchCancel(batchID string, cancel context.CancelFunc) {
+	s.publishMu.Lock()
+	defer s.publishMu.Unlock()
+	if s.publishCancels == nil {
+		s.publishCancels = make(map[string]context.CancelFunc)
 	}
+	if old := s.publishCancels[batchID]; old != nil {
+		old()
+	}
+	s.publishCancels[batchID] = cancel
+}
+
+func (s *Server) unregisterPublishBatchCancel(batchID string) {
+	s.publishMu.Lock()
+	defer s.publishMu.Unlock()
+	delete(s.publishCancels, batchID)
+}
+
+func (s *Server) cancelPublishBatch(batchID string) {
+	s.publishMu.Lock()
+	cancel := s.publishCancels[batchID]
+	s.publishMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func publishStatusContext(parent context.Context) (context.Context, context.CancelFunc) {
+	if parent != nil && parent.Err() == nil {
+		return context.WithTimeout(parent, 5*time.Second)
+	}
+	return context.WithTimeout(context.Background(), 5*time.Second)
+}
+
+func (s *Server) finishInterruptedPublishBatch(ctx context.Context, userID int64, batchID string) {
+	wctx, cancel := publishStatusContext(ctx)
+	defer cancel()
+	if status, _ := s.Store.PublishBatches.BatchStatus(wctx, batchID); status == "canceled" {
+		_ = s.Store.PublishBatches.MarkUnfinishedFailed(wctx, batchID, "任务已取消")
+		_ = s.Store.PublishBatches.Recount(wctx, batchID)
+		return
+	}
+	_ = s.Store.PublishBatches.MarkUnfinishedFailed(wctx, batchID, "任务超时或已中断")
+	_ = s.Store.PublishBatches.Recount(wctx, batchID)
+	s.finishPublishBatch(wctx, userID, batchID)
+}
+
+func (s *Server) finishPublishBatch(ctx context.Context, userID int64, batchID string) {
+	wctx, cancel := publishStatusContext(ctx)
+	defer cancel()
+	_ = s.Store.PublishBatches.Recount(wctx, batchID)
+	batch, err := s.Store.PublishBatches.Get(wctx, userID, batchID)
+	if err != nil || batch.Status == "canceled" {
+		return
+	}
+	finalStatus := finalPublishBatchStatus(batch)
+	_ = s.Store.PublishBatches.SetBatchStatus(wctx, batchID, finalStatus)
+}
+
+func finalPublishBatchStatus(batch *db.ItemPublishBatch) string {
+	if batch == nil {
+		return "failed"
+	}
+	if batch.FailedCount > 0 {
+		if batch.SuccessCount > 0 {
+			return "partially_failed"
+		}
+		return "failed"
+	}
+	return "completed"
 }
 
 func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.Client, row db.ItemPublishBatchRow) error {
@@ -443,6 +536,12 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 			return errors.New("该账号没有库存发布权限，无法按库存数量发布商品")
 		}
 		return err
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if status, _ := s.Store.PublishBatches.BatchStatus(ctx, row.BatchID); status == "canceled" {
+		return context.Canceled
 	}
 	if res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
 		if err := s.Store.Cookies.Save(ctx, row.CookieID, res.UpdatedCookies, userID); err != nil {
@@ -762,9 +861,9 @@ func (s *Server) cookieValueForUser(ctx context.Context, userID int64, cookieID 
 }
 
 func (s *Server) cardOwnedByUser(ctx context.Context, userID int64, cardID int64) bool {
-	var exists int
+	var exists bool
 	err := s.Store.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM cards WHERE id=? AND user_id=?)`, cardID, userID).Scan(&exists)
-	return err == nil && exists != 0
+	return err == nil && exists
 }
 
 func (s *Server) publishUploadRoot() string {

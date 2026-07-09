@@ -98,7 +98,7 @@ type AutomationActionInput struct {
 func (a *AutomationRules) ListForUser(ctx context.Context, userID int64) ([]AutomationRule, error) {
 	rows, err := a.DB.QueryContext(ctx, `
 SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.trigger_type,r.enabled,
-       r.priority,r.config_json,COALESCE(r.created_at,''),COALESCE(r.updated_at,'')
+       r.priority,r.config_json,r.created_at,r.updated_at
   FROM automation_rules r
   LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id
  WHERE r.user_id=?
@@ -130,7 +130,7 @@ SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.t
 func (a *AutomationRules) Match(ctx context.Context, cookieID, itemID, triggerType string) ([]AutomationRule, error) {
 	rows, err := a.DB.QueryContext(ctx, `
 SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.trigger_type,r.enabled,
-       r.priority,r.config_json,COALESCE(r.created_at,''),COALESCE(r.updated_at,'')
+       r.priority,r.config_json,r.created_at,r.updated_at
   FROM automation_rules r
   LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id
  WHERE r.enabled=1
@@ -322,7 +322,7 @@ SELECT order_id,item_id,buyer_id,spec_name,spec_value,quantity,amount,order_stat
        receiver_name,receiver_phone,receiver_address,receiver_city,version,chat_id,system_shipped,
        COALESCE(paid_at,''),COALESCE(shipped_at,''),COALESCE(completed_at,''),
        COALESCE(buyer_reviewed_at,''),COALESCE(last_review_request_at,''),review_request_count,
-       COALESCE(created_at,''),COALESCE(updated_at,'')
+       created_at,updated_at
   FROM orders
  WHERE system_shipped=1
    AND COALESCE(buyer_reviewed_at,'')=''

@@ -154,3 +154,47 @@ func TestCookieSaveRequiresInit(t *testing.T) {
 		t.Fatalf("GetAutoConfirm=%v want false, err=%v", enabled, err)
 	}
 }
+
+func TestCookieLoginAudit(t *testing.T) {
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	if _, err := s.Users.Create(ctx, "admin", "a@e.com", "pw"); err != nil {
+		t.Fatalf("Create user: %v", err)
+	}
+	admin, _ := s.Users.GetByUsername(ctx, "admin")
+	if err := s.Cookies.Save(ctx, "cid", "cookievalue", admin.ID); err != nil {
+		t.Fatalf("Save cookie: %v", err)
+	}
+	if err := s.Cookies.UpdateLoginInfo(ctx, "cid", "login-user", "secret", true); err != nil {
+		t.Fatalf("UpdateLoginInfo: %v", err)
+	}
+	if err := s.Cookies.MarkLogin(ctx, "cid", "password", 12345); err != nil {
+		t.Fatalf("MarkLogin: %v", err)
+	}
+	d, err := s.Cookies.GetDetails(ctx, "cid")
+	if err != nil {
+		t.Fatalf("GetDetails: %v", err)
+	}
+	if d.Username != "login-user" || d.Password != "secret" || !d.ShowBrowser {
+		t.Fatalf("登录资料未保存: %+v", d)
+	}
+	if d.LoginMethod != "password" || d.LastLoginAt != 12345 {
+		t.Fatalf("登录审计字段异常: method=%q at=%d", d.LoginMethod, d.LastLoginAt)
+	}
+
+	if err := s.LoginLogs.Add(ctx, AccountLoginLog{CookieID: "cid", UserID: admin.ID, Method: "password", Status: "failed", Message: "wrong", CreatedAt: 10}); err != nil {
+		t.Fatalf("Add log failed: %v", err)
+	}
+	if err := s.LoginLogs.Add(ctx, AccountLoginLog{CookieID: "cid", UserID: admin.ID, Method: "password", Status: "success", Message: "ok", CreatedAt: 20}); err != nil {
+		t.Fatalf("Add log success: %v", err)
+	}
+	logs, err := s.LoginLogs.ListByCookie(ctx, "cid", 10)
+	if err != nil {
+		t.Fatalf("ListByCookie: %v", err)
+	}
+	if len(logs) != 2 || logs[0].Status != "success" || logs[1].Status != "failed" {
+		t.Fatalf("登录日志排序/内容异常: %#v", logs)
+	}
+}

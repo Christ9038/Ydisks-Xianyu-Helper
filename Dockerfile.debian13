@@ -1,0 +1,49 @@
+# syntax=docker/dockerfile:1.7
+
+FROM node:22-trixie AS frontend
+WORKDIR /src/frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+FROM node:22-trixie AS playwright-driver
+RUN npm install -g playwright@1.57.0 \
+    && mkdir -p /ms-playwright-go/package \
+    && cp -a /usr/local/lib/node_modules/playwright/. /ms-playwright-go/package/ \
+    && if [ -d /usr/local/lib/node_modules/playwright-core ]; then \
+        mkdir -p /ms-playwright-go/package/node_modules \
+        && cp -a /usr/local/lib/node_modules/playwright-core /ms-playwright-go/package/node_modules/playwright-core; \
+    fi
+
+FROM golang:1.26-trixie AS backend
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+COPY --from=frontend /src/internal/webui/static ./internal/webui/static
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/xianyu-server ./cmd/server
+
+FROM debian:13-slim AS runtime
+ENV TZ=Asia/Shanghai
+ENV BROWSER_HEADLESS=true
+ENV PLAYWRIGHT_DRIVER_PATH=/ms-playwright-go
+ENV PLAYWRIGHT_NODEJS_PATH=/usr/bin/node
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        chromium \
+        curl \
+        fonts-liberation \
+        fonts-noto-cjk \
+        nodejs \
+        tzdata \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=backend /out/xianyu-server /app/xianyu-server
+COPY --from=playwright-driver /ms-playwright-go /ms-playwright-go
+RUN mkdir -p /app/data /app/browser_data
+EXPOSE 8080
+CMD ["/app/xianyu-server", "-addr", ":8080"]

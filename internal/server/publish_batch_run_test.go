@@ -20,6 +20,25 @@ import (
 // minimalPNG 是一张 1x1 PNG，供发布批次图片 zip 复用。
 var minimalPNG = []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82}
 
+func TestFinalPublishBatchStatus(t *testing.T) {
+	cases := []struct {
+		name string
+		in   db.ItemPublishBatch
+		want string
+	}{
+		{name: "completed", in: db.ItemPublishBatch{SuccessCount: 2}, want: "completed"},
+		{name: "failed", in: db.ItemPublishBatch{FailedCount: 2}, want: "failed"},
+		{name: "partially failed", in: db.ItemPublishBatch{SuccessCount: 1, FailedCount: 1}, want: "partially_failed"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := finalPublishBatchStatus(&tt.in); got != tt.want {
+				t.Fatalf("got %q want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // buildImageZip 构造含一张图片的 zip 字节流。
 func buildImageZip(t *testing.T) []byte {
 	t.Helper()
@@ -55,6 +74,33 @@ func previewPublishBatch(t *testing.T, h http.Handler, cookie *http.Cookie) stri
 	json.Unmarshal(rec.Body.Bytes(), &res)
 	if res["valid"].(float64) != 1 {
 		t.Fatalf("预检应 1 行有效，got %+v", res)
+	}
+	return res["preview_id"].(string)
+}
+
+func previewTwoRowPublishBatch(t *testing.T, h http.Handler, cookie *http.Cookie) string {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("default_cookie_id", "acc1")
+	csvField, _ := mw.CreateFormFile("file", "products.csv")
+	csvField.Write([]byte("账号ID,标题,价格,库存,图片\nacc1,商品A,12.50,5,img/a.png\nacc1,商品B,13.50,5,img/a.png\n"))
+	zipField, _ := mw.CreateFormFile("images_zip", "images.zip")
+	zipField.Write(buildImageZip(t))
+	_ = mw.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/items/publish-batches/preview", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var res map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &res)
+	if res["valid"].(float64) != 2 {
+		t.Fatalf("预检应 2 行有效，got %+v", res)
 	}
 	return res["preview_id"].(string)
 }
@@ -118,8 +164,83 @@ func TestRunItemPublishBatch_FailureMarksRowFailed(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	var got map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &got)
-	if got["status"] == nil {
-		t.Fatalf("批次详情异常: %+v", got)
+	if got["status"] != "failed" {
+		t.Fatalf("status=%v want failed body=%+v", got["status"], got)
+	}
+	if got["failed"] != float64(1) {
+		t.Fatalf("failed=%v want 1 body=%+v", got["failed"], got)
+	}
+	rows, _ := got["rows"].([]any)
+	if len(rows) != 1 {
+		t.Fatalf("rows=%+v want 1 row", got["rows"])
+	}
+	row, _ := rows[0].(map[string]any)
+	if row["status"] != "failed" || row["error_message"] == "" {
+		t.Fatalf("row should be failed with error message: %+v", row)
+	}
+}
+
+func TestCancelItemPublishBatchMarksUnfinishedRowsFailed(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		select {
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
+		case <-time.After(300 * time.Millisecond):
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"ret":["SUCCESS::调用成功"],"data":{"itemId":"late-item"}}`)),
+			Request:    req,
+		}, nil
+	}))
+
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	batchID := previewTwoRowPublishBatch(t, h, cookie)
+
+	startReq := httptest.NewRequest(http.MethodPost, "/items/publish-batches", strings.NewReader(`{"preview_id":"`+batchID+`"}`))
+	startReq.AddCookie(cookie)
+	startRec := httptest.NewRecorder()
+	h.ServeHTTP(startRec, startReq)
+	if startRec.Code != http.StatusOK {
+		t.Fatalf("start status=%d body=%s", startRec.Code, startRec.Body.String())
+	}
+
+	cancelReq := httptest.NewRequest(http.MethodPost, "/items/publish-batches/"+batchID+"/cancel", nil)
+	cancelReq.AddCookie(cookie)
+	cancelRec := httptest.NewRecorder()
+	h.ServeHTTP(cancelRec, cancelReq)
+	if cancelRec.Code != http.StatusOK {
+		t.Fatalf("cancel status=%d body=%s", cancelRec.Code, cancelRec.Body.String())
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	var got map[string]any
+	for time.Now().Before(deadline) {
+		req := httptest.NewRequest(http.MethodGet, "/items/publish-batches/"+batchID, nil)
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("detail status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		json.Unmarshal(rec.Body.Bytes(), &got)
+		if got["pending"] == float64(0) && got["running"] == float64(0) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got["status"] != "canceled" {
+		t.Fatalf("status=%v want canceled body=%+v", got["status"], got)
+	}
+	if got["pending"] != float64(0) || got["running"] != float64(0) {
+		t.Fatalf("取消后不应残留 pending/running: %+v", got)
+	}
+	if got["failed"] != got["total"] {
+		t.Fatalf("取消后未完成行应全部失败: total=%v failed=%v body=%+v", got["total"], got["failed"], got)
 	}
 }
 
@@ -129,10 +250,17 @@ func TestRunItemPublishBatch_Success(t *testing.T) {
 	defer cleanup()
 	// 所有 mtop 调用返回 SUCCESS；发布调用返回 itemId。
 	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		body := `{"ret":["SUCCESS::调用成功"],"data":{"itemId":"123456","itemUrl":"https://x/item/123456"}}`
-		// 类目推荐接口需要返回 catId 才能继续后续步骤。
-		if strings.Contains(req.URL.RawQuery, "recommend") || strings.Contains(req.URL.RawQuery, "category") {
-			body = `{"ret":["SUCCESS::调用成功"],"data":{"catId":"100","categoryId":"100"}}`
+		u := req.URL.String()
+		body := `{"ret":["SUCCESS::调用成功"],"data":{}}`
+		switch {
+		case strings.Contains(u, "stream-upload.goofish.com"):
+			body = `{"object":{"url":"https://img.alicdn.com/published.png","pix":"800_800"}}`
+		case strings.Contains(u, "mtop.taobao.idle.local.poi.get"):
+			body = `{"ret":["SUCCESS::调用成功"],"data":{"commonAddresses":[{"address":"北京"}]}}`
+		case strings.Contains(u, "mtop.taobao.idle.kgraph.property.recommend"):
+			body = `{"ret":["SUCCESS::调用成功"],"data":{"categoryPredictResult":{"catId":"100","catName":"数码"}}}`
+		case strings.Contains(u, "mtop.idle.pc.idleitem.publish"):
+			body = `{"ret":["SUCCESS::调用成功"],"data":{"itemId":"123456","url":"https://x/item/123456","picUrl":"https://img.alicdn.com/published.png","categoryId":"100","categoryName":"数码","title":"商品A","priceText":"12.50","quantity":"5"}}`
 		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -176,6 +304,29 @@ func TestRunItemPublishBatch_Success(t *testing.T) {
 	}
 	if status == "running" {
 		t.Fatal("批次应在 8s 内完成")
+	}
+	req := httptest.NewRequest(http.MethodGet, "/items/publish-batches/"+batchID, nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("detail status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var got map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &got)
+	if got["status"] != "completed" {
+		t.Fatalf("status=%v want completed body=%+v", got["status"], got)
+	}
+	if got["success"] != float64(1) {
+		t.Fatalf("success=%v want 1 body=%+v", got["success"], got)
+	}
+	rows, _ := got["rows"].([]any)
+	if len(rows) != 1 {
+		t.Fatalf("rows=%+v want 1 row", got["rows"])
+	}
+	row, _ := rows[0].(map[string]any)
+	if row["status"] != "success" || row["item_id"] == "" {
+		t.Fatalf("row should be success with item_id: %+v", row)
 	}
 }
 

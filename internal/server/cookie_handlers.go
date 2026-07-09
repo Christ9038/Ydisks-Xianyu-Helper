@@ -96,9 +96,12 @@ func (s *Server) listCookieDetails(w http.ResponseWriter, r *http.Request) {
 			"auto_confirm":   d.AutoConfirm,
 			"remark":         d.Remark,
 			"pause_duration": d.PauseDuration,
+			"show_browser":   d.ShowBrowser,
 			"username":       d.Username,
 			"nickname":       cachedAccountNickname(d),
 			"avatar_url":     d.AvatarURL,
+			"login_method":   d.LoginMethod,
+			"last_login_at":  d.LastLoginAt,
 			"profile_error":  "",
 			"ai_enabled":     false,
 		})
@@ -130,6 +133,8 @@ func (s *Server) getCookieDetails(w http.ResponseWriter, r *http.Request) {
 		"username":       d.Username,
 		"nickname":       cachedAccountNickname(d),
 		"avatar_url":     d.AvatarURL,
+		"login_method":   d.LoginMethod,
+		"last_login_at":  d.LastLoginAt,
 		"profile_error":  "",
 		"has_cookie":     true,
 	})
@@ -162,8 +167,9 @@ func (s *Server) refreshCookieProfile(w http.ResponseWriter, r *http.Request) {
 // addCookie 添加账号 cookie。
 func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID    string `json:"id"`
-		Value string `json:"value"`
+		ID          string `json:"id"`
+		Value       string `json:"value"`
+		LoginMethod string `json:"login_method"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.ID == "" || req.Value == "" {
 		writeErr(w, http.StatusBadRequest, "缺少 id 或 value")
@@ -181,6 +187,11 @@ func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
 	if d, err := s.Store.Cookies.GetDetails(r.Context(), req.ID); err == nil {
 		s.refreshAccountProfile(r.Context(), d)
 	}
+	loginMethod := normalizeLoginMethod(req.LoginMethod)
+	if loginMethod == "" {
+		loginMethod = loginMethodManual
+	}
+	s.markSuccessfulLogin(r.Context(), req.ID, sess.UserID, loginMethod, "账号登录成功")
 	if s.Manager != nil && s.Store.Cookies.GetStatus(r.Context(), req.ID) {
 		if err := s.Manager.Restart(r.Context(), req.ID); err != nil {
 			s.Logger.Error("更新后重启账号失败", "cookie_id", req.ID, "err", err)
@@ -196,7 +207,8 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Value string `json:"value"`
+		Value       string `json:"value"`
+		LoginMethod string `json:"login_method"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
@@ -214,6 +226,9 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 	if d, err := s.Store.Cookies.GetDetails(r.Context(), cid); err == nil {
 		s.refreshAccountProfile(r.Context(), d)
 	}
+	if loginMethod := normalizeLoginMethod(req.LoginMethod); loginMethod != "" {
+		s.markSuccessfulLogin(r.Context(), cid, sess.UserID, loginMethod, "账号登录成功")
+	}
 	if s.Manager != nil && s.Store.Cookies.GetStatus(r.Context(), cid) {
 		if err := s.Manager.Restart(r.Context(), cid); err != nil {
 			s.Logger.Error("更新后重启账号失败", "cookie_id", cid, "err", err)
@@ -225,7 +240,8 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 // updateCookieLoginInfo 更新账号登录信息（用户名/密码/显示浏览器）。
 func (s *Server) updateCookieLoginInfo(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	detail, ok := s.requireCookieOwner(w, r, cid)
+	if !ok {
 		return
 	}
 	var req struct {
@@ -242,14 +258,10 @@ func (s *Server) updateCookieLoginInfo(w http.ResponseWriter, r *http.Request) {
 	if password == "" {
 		password = req.LoginPassword
 	}
-	sb := 0
-	if req.ShowBrowser {
-		sb = 1
+	if password == "" && detail != nil {
+		password = detail.Password
 	}
-	_, err := s.Store.DB.ExecContext(r.Context(),
-		`UPDATE cookies SET username=?, password=?, show_browser=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-		req.Username, password, sb, cid)
-	if err != nil {
+	if err := s.Store.Cookies.UpdateLoginInfo(r.Context(), cid, req.Username, password, req.ShowBrowser); err != nil {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}

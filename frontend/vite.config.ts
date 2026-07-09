@@ -147,7 +147,30 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: undefined,
+        manualChunks(id) {
+          const modulePath = id.split(path.sep).join('/');
+          if (!modulePath.includes('/node_modules/')) {
+            return undefined;
+          }
+          if (
+            modulePath.includes('/react/') ||
+            modulePath.includes('/react-dom/') ||
+            modulePath.includes('/scheduler/')
+          ) {
+            return 'react-vendor';
+          }
+          if (
+            modulePath.includes('/recharts/') ||
+            modulePath.includes('/victory-vendor/') ||
+            modulePath.includes('/d3-')
+          ) {
+            return 'charts-vendor';
+          }
+          if (modulePath.includes('/lucide-react/')) {
+            return 'icons-vendor';
+          }
+          return 'vendor';
+        },
       },
     },
     emptyOutDir: true,

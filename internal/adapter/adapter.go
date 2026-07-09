@@ -17,6 +17,10 @@ import (
 	"xianyu-go/internal/browser"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
+	"xianyu-go/internal/renewal"
+	"xianyu-go/internal/xianyu/cookierefresh"
+	"xianyu-go/internal/xianyu/protocol"
+	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
 // browserManager 是 adapter 所需的浏览器能力最小契约。*browser.Manager 实现该接口；
@@ -25,6 +29,10 @@ type browserManager interface {
 	FetchOrderDetail(ctx context.Context, orderID, cookieID, cookieValue string, requireSpec ...bool) (*browser.OrderDetail, error)
 	CookieRenew(ctx context.Context, cookieID, cookieStr string, headless bool) (map[string]string, error)
 	PasswordLogin(ctx context.Context, account, password, cookieID, userDataDir string, headless bool) (map[string]string, error)
+}
+
+type browserQuickRenewer interface {
+	BrowserQuickRenew(ctx context.Context, cookieID, cookieStr string, headless bool) (string, error)
 }
 
 // Adapter 实现 engine.Handler 与 automation.OrderDetailFetcher，
@@ -38,11 +46,14 @@ type Adapter struct {
 	logger     *slog.Logger
 	automation *automation.Center
 	notifier   notifyNotifier
+	renewSvc   xrenew.Service
+	cooldown   *renewal.CooldownManager
 
-	mu             sync.Mutex
-	lastLoginByCID map[string]time.Time
 	orderFetchMu   sync.Mutex
 	lastOrderFetch time.Time
+
+	passwordMu         sync.Mutex
+	passwordProcessing map[string]struct{}
 }
 
 // notifyNotifier 是 *notify.Notifier 的最小接口，避免 adapter 直接依赖 notify 包
@@ -57,7 +68,13 @@ func New(store *db.Store, bm *browser.Manager, logger *slog.Logger) *Adapter {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Adapter{store: store, browser: browserManagerOrNil(bm), logger: logger}
+	return &Adapter{
+		store:              store,
+		browser:            browserManagerOrNil(bm),
+		logger:             logger,
+		cooldown:           renewal.GlobalCooldown,
+		passwordProcessing: make(map[string]struct{}),
+	}
 }
 
 // browserManagerOrNil 把 *browser.Manager 转为接口；nil 时返回 nil 接口。
@@ -76,6 +93,9 @@ func (a *Adapter) SetNotifier(n notifyNotifier) { a.notifier = n }
 
 // SetBrowser 覆盖浏览器实现，便于测试注入桩。
 func (a *Adapter) SetBrowser(b browserManager) { a.browser = b }
+
+// SetRenewService 覆盖轻量续期服务，便于测试注入本地 HTTP 服务。
+func (a *Adapter) SetRenewService(s xrenew.Service) { a.renewSvc = s }
 
 // HandleChatMessage 用户聊天消息由 Account 内部 ReplyService 处理，此处空实现满足接口。
 func (a *Adapter) HandleChatMessage(_ context.Context, _ engine.ChatMessage) error {
@@ -157,51 +177,292 @@ func (a *Adapter) localOrderDetail(ctx context.Context, orderID string) (*automa
 
 // OnPasswordLoginRefresh 连续失败时恢复 Cookie。
 //
-// 恢复顺序是“浏览器快速续期 -> 密码登录”。快速续期复用旧 Cookie 打开闲鱼，
-// 尝试点“快速进入”刷新浏览器登录态；这比账号密码登录更轻，风控压力也更小。
+// 恢复顺序是“轻量续期 -> 浏览器快速续期 -> 密码登录”。轻量续期/快速续期复用旧 Cookie
+// 刷新登录态；这比账号密码登录更轻，风控压力也更小。
 // 同一账号冷却 engine.PasswordLoginMinGap，避免短时间反复触发浏览器恢复。
 func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) bool {
-	if a.browser == nil {
-		a.logger.Warn("密码登录刷新失败：浏览器自动化已禁用")
-		return false
+	cooldown := a.cooldown
+	if cooldown == nil {
+		cooldown = renewal.GlobalCooldown
 	}
-	a.mu.Lock()
-	if a.lastLoginByCID == nil {
-		a.lastLoginByCID = make(map[string]time.Time)
-	}
-	last := a.lastLoginByCID[cookieID]
-	if !last.IsZero() && time.Since(last) < engine.PasswordLoginMinGap {
-		remain := engine.PasswordLoginMinGap - time.Since(last)
-		a.mu.Unlock()
+	if ok, remain := cooldown.TryPasswordLogin(cookieID); !ok {
 		a.logger.Warn("密码登录刷新冷却中", "account", cookieID, "remain", remain.Round(time.Second))
+		a.recordPasswordLogin(ctx, cookieID, 0, "skipped_cooldown", "login_cooldown", fmt.Sprintf("密码登录刷新冷却中，还需等待 %s", remain.Round(time.Second)))
 		return false
 	}
-	a.mu.Unlock()
+	if !a.beginPasswordLogin(cookieID) {
+		a.logger.Warn("密码登录刷新已在处理中", "account", cookieID)
+		return false
+	}
+	defer a.finishPasswordLogin(cookieID)
 
 	d, err := a.store.Cookies.GetDetails(ctx, cookieID)
 	if err != nil {
 		a.logger.Warn("密码登录刷新失败：读取账号详情失败", "account", cookieID, "err", err)
+		a.recordPasswordLogin(ctx, cookieID, 0, "failed", "account_lookup_failed", err.Error())
 		return false
 	}
-	a.mu.Lock()
-	a.lastLoginByCID[cookieID] = time.Now()
-	a.mu.Unlock()
 
-	// 先走 Cookie 快速续期。只要旧 Cookie 还能触发快速进入，就不暴露账号密码登录，
-	// 也减少滑块/人脸/设备校验等更重风控的概率。
-	if a.saveRecoveredBrowserCookies(ctx, cookieID, d.UserID, func() (map[string]string, error) {
-		return a.browser.CookieRenew(ctx, cookieID, d.Value, !d.ShowBrowser)
-	}, "浏览器快速续期") {
+	if a.tryLightRenewBeforePassword(ctx, d) {
+		a.recordPasswordLogin(ctx, cookieID, d.UserID, "success", "", "密码登录前轻量续期成功")
 		return true
 	}
 
-	if strings.TrimSpace(d.Username) == "" || strings.TrimSpace(d.Password) == "" {
-		a.logger.Warn("密码登录刷新失败：账号未配置登录用户名或密码", "account", cookieID)
+	if latest, err := a.store.Cookies.GetDetails(ctx, cookieID); err == nil && latest != nil && latest.Value != "" && latest.Value != d.Value {
+		a.logger.Info("密码登录前检测到 DB Cookie 已被外部更新，跳过密码登录", "account", cookieID)
+		if a.store.Tokens != nil {
+			_ = a.store.Tokens.Clear(ctx, cookieID)
+		}
+		a.recordPasswordLogin(ctx, cookieID, d.UserID, "success", "cookie_already_updated_externally", "数据库中的 Cookie 已被外部更新，跳过密码登录")
+		return true
+	}
+
+	if a.browser == nil {
+		a.logger.Warn("密码登录刷新失败：浏览器自动化已禁用，接口轻量续期也未恢复", "account", cookieID)
+		a.recordPasswordLogin(ctx, cookieID, d.UserID, "failed", "browser_disabled", "浏览器自动化已禁用，接口轻量续期未恢复")
 		return false
 	}
-	return a.saveRecoveredBrowserCookies(ctx, cookieID, d.UserID, func() (map[string]string, error) {
-		return a.browser.PasswordLogin(ctx, d.Username, d.Password, cookieID, "", !d.ShowBrowser)
-	}, "密码登录刷新")
+
+	if strings.TrimSpace(d.Username) == "" || strings.TrimSpace(d.Password) == "" {
+		msg := "账号已掉线且未配置账号密码"
+		a.logger.Warn("密码登录刷新失败：账号未配置登录用户名或密码", "account", cookieID)
+		if err := a.store.Cookies.SetStatusWithReason(ctx, cookieID, false, msg); err != nil {
+			a.logger.Warn("未配置账号密码时停用账号失败", "account", cookieID, "err", err)
+		}
+		a.recordPasswordLogin(ctx, cookieID, d.UserID, "no_credentials", "no_credentials", msg)
+		return false
+	}
+	cookies, err := a.browser.PasswordLogin(ctx, d.Username, d.Password, cookieID, "", !d.ShowBrowser)
+	if err != nil {
+		a.handlePasswordLoginError(ctx, cookieID, err)
+		a.recordPasswordLogin(ctx, cookieID, d.UserID, "failed", passwordLoginFailureReason(err), err.Error())
+		return false
+	}
+	cookieStr := browser.MarshalCookies(cookies)
+	if strings.TrimSpace(cookieStr) == "" {
+		a.logger.Warn("密码登录刷新失败：浏览器未返回 cookie", "account", cookieID)
+		a.recordPasswordLogin(ctx, cookieID, d.UserID, "failed", "empty_cookies", "浏览器未返回 cookie")
+		return false
+	}
+	if err := a.store.Cookies.Save(ctx, cookieID, cookieStr, d.UserID); err != nil {
+		a.logger.Warn("密码登录刷新失败：保存 cookie 失败", "account", cookieID, "err", err)
+		a.recordPasswordLogin(ctx, cookieID, d.UserID, "failed", "cookie_update_failed", err.Error())
+		return false
+	}
+	if a.store.Tokens != nil {
+		_ = a.store.Tokens.Clear(ctx, cookieID)
+	}
+	_ = a.store.Cookies.MarkLogin(ctx, cookieID, "password", time.Now().Unix())
+	a.recordPasswordLogin(ctx, cookieID, d.UserID, "success", "", "账号密码登录刷新成功")
+	a.logger.Info("密码登录刷新 cookie 成功", "account", cookieID)
+	return true
+}
+
+func (a *Adapter) beginPasswordLogin(cookieID string) bool {
+	a.passwordMu.Lock()
+	defer a.passwordMu.Unlock()
+	if a.passwordProcessing == nil {
+		a.passwordProcessing = make(map[string]struct{})
+	}
+	if _, ok := a.passwordProcessing[cookieID]; ok {
+		return false
+	}
+	a.passwordProcessing[cookieID] = struct{}{}
+	return true
+}
+
+func (a *Adapter) finishPasswordLogin(cookieID string) {
+	a.passwordMu.Lock()
+	defer a.passwordMu.Unlock()
+	delete(a.passwordProcessing, cookieID)
+}
+
+func (a *Adapter) recordPasswordLogin(ctx context.Context, cookieID string, userID int64, status, failureReason, message string) {
+	if a.store == nil || a.store.LoginLogs == nil {
+		return
+	}
+	if err := a.store.LoginLogs.Add(ctx, db.AccountLoginLog{
+		CookieID:          cookieID,
+		UserID:            userID,
+		Method:            "password",
+		Status:            status,
+		Message:           truncateMessage(message, 500),
+		TriggerReason:     "令牌/Session过期",
+		FailureReason:     failureReason,
+		ErrorMessage:      truncateMessage(message, 500),
+		AccountIdentifier: cookieID,
+		DurationMS:        0,
+		CreatedAt:         time.Now().Unix(),
+	}); err != nil {
+		a.logger.Warn("记录密码登录日志失败", "account", cookieID, "err", err)
+	}
+}
+
+func passwordLoginFailureReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	if isPasswordLoginBadCredentials(msg) {
+		return "bad_credentials"
+	}
+	event := browser.PasswordLoginEventFromError(err)
+	if event.Reason != "" {
+		return event.Reason
+	}
+	if event.Status == browser.PasswordLoginStatusVerificationRequired {
+		return "verification_required"
+	}
+	return "other"
+}
+
+func truncateMessage(s string, n int) string {
+	if n <= 0 || len(s) <= n {
+		return s
+	}
+	return s[:n]
+}
+
+func (a *Adapter) tryLightRenewBeforePassword(ctx context.Context, d *db.CookieDetail) bool {
+	if d == nil {
+		return false
+	}
+	current := d.Value
+	api := a.renewSvc
+	save := func(cookieStr string) {
+		if strings.TrimSpace(cookieStr) == "" || cookieStr == current {
+			return
+		}
+		if err := a.store.Cookies.UpdateRenewalCookie(ctx, d.ID, cookieStr, cookierefresh.MetadataWithoutSnapshot(d.MetadataJSON), time.Now().Unix()); err != nil {
+			a.logger.Warn("轻量续期保存 Cookie 失败", "account", d.ID, "err", err)
+			return
+		}
+		current = cookieStr
+		d.Value = cookieStr
+		if a.store.Tokens != nil {
+			_ = a.store.Tokens.Clear(ctx, d.ID)
+		}
+	}
+	apiRenew := func(cookieStr string) (*xrenew.Result, error) {
+		runCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		defer cancel()
+		return api.RenewAPIFirst(runCtx, cookieStr)
+	}
+	browserRenew := func(cookieStr string) (string, error) {
+		if a.browser == nil {
+			return "", fmt.Errorf("浏览器自动化未启用")
+		}
+		if br, ok := a.browser.(browserQuickRenewer); ok {
+			runCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+			defer cancel()
+			return br.BrowserQuickRenew(runCtx, d.ID, cookieStr, !d.ShowBrowser)
+		}
+		m, err := a.browser.CookieRenew(ctx, d.ID, cookieStr, !d.ShowBrowser)
+		if err != nil {
+			return "", err
+		}
+		return browser.MarshalCookies(m), nil
+	}
+
+	hasLongLogin := strings.TrimSpace(protocol.TransCookies(current)["havana_lgc2_77"]) != ""
+	if hasLongLogin {
+		browserCookies := current
+		if renewed, err := browserRenew(current); err == nil && renewed != "" {
+			browserCookies = renewed
+			save(browserCookies)
+		} else if err != nil {
+			a.logger.Warn("密码登录前浏览器续期失败，继续尝试接口续期", "account", d.ID, "err", err)
+		}
+		if res, err := apiRenew(browserCookies); err == nil && res != nil {
+			save(res.NewCookies)
+			if res.Success {
+				a.logger.Info("密码登录前浏览器+接口续期成功，跳过密码登录", "account", d.ID)
+				return true
+			}
+		}
+		return false
+	}
+
+	res, err := apiRenew(current)
+	if err == nil && res != nil {
+		save(res.NewCookies)
+		if res.Success {
+			a.logger.Info("密码登录前接口续期成功，跳过密码登录", "account", d.ID)
+			return true
+		}
+	}
+	browserInput := current
+	if res != nil && strings.TrimSpace(res.NewCookies) != "" {
+		browserInput = res.NewCookies
+	}
+	browserCookies, err := browserRenew(browserInput)
+	if err != nil || browserCookies == "" {
+		return false
+	}
+	save(browserCookies)
+	verify, err := apiRenew(browserCookies)
+	if err != nil || verify == nil {
+		return false
+	}
+	save(verify.NewCookies)
+	if verify.Success {
+		a.logger.Info("密码登录前浏览器续期并通过接口验证，跳过密码登录", "account", d.ID)
+		return true
+	}
+	return false
+}
+
+func (a *Adapter) handlePasswordLoginError(ctx context.Context, cookieID string, err error) {
+	msg := err.Error()
+	a.logger.Warn("密码登录刷新失败", "account", cookieID, "err", err)
+	if isPasswordLoginDisableError(msg) {
+		_ = a.store.Cookies.SetStatusWithReason(ctx, cookieID, false, msg)
+		if isPasswordLoginBadCredentials(msg) {
+			a.markPasswordError(cookieID)
+		}
+		return
+	}
+	if isPasswordLoginRetryableVerification(msg) {
+		a.markPasswordError(cookieID)
+	}
+}
+
+func isPasswordLoginBadCredentials(msg string) bool {
+	return strings.Contains(msg, "账密错误") ||
+		strings.Contains(msg, "账号密码错误") ||
+		strings.Contains(msg, "用户名或密码错误") ||
+		strings.Contains(msg, "账号或密码错误") ||
+		strings.Contains(msg, "密码错误")
+}
+
+func isPasswordLoginDisableError(msg string) bool {
+	return isPasswordLoginBadCredentials(msg) ||
+		strings.Contains(msg, "账号不存在") ||
+		strings.Contains(msg, "账号已被冻结") ||
+		strings.Contains(msg, "账号被冻结") ||
+		strings.Contains(msg, "账户被冻结") ||
+		strings.Contains(msg, "账号已锁定") ||
+		strings.Contains(msg, "账户已锁定") ||
+		strings.Contains(msg, "操作过于频繁") ||
+		strings.Contains(msg, "登录过于频繁") ||
+		strings.Contains(msg, "暂时无法登录")
+}
+
+func isPasswordLoginRetryableVerification(msg string) bool {
+	event := browser.PasswordLoginEventFromMessage(msg)
+	return event.Reason == "baxia_punish_captcha" ||
+		event.Status == browser.PasswordLoginStatusVerificationRequired ||
+		strings.Contains(msg, "人工验证") ||
+		strings.Contains(msg, "人脸验证") ||
+		strings.Contains(msg, "身份验证")
+}
+
+func (a *Adapter) markPasswordError(cookieID string) {
+	cooldown := a.cooldown
+	if cooldown == nil {
+		cooldown = renewal.GlobalCooldown
+	}
+	cooldown.MarkPasswordError(cookieID)
 }
 
 // saveRecoveredBrowserCookies 执行浏览器恢复动作，统一校验、保存 Cookie 并清理 token 缓存。

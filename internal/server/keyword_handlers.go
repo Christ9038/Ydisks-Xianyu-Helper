@@ -6,6 +6,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"xianyu-go/internal/auth"
+	"xianyu-go/internal/db"
 )
 
 // mountKeywordsReal 关键字端点。
@@ -98,11 +99,45 @@ func (s *Server) addKeywordWithItemID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Keyword string `json:"keyword"`
-		Reply   string `json:"reply"`
-		ItemID  string `json:"item_id"`
+		Keyword  string `json:"keyword"`
+		Reply    string `json:"reply"`
+		ItemID   string `json:"item_id"`
+		Keywords *[]struct {
+			Keyword  string `json:"keyword"`
+			Reply    string `json:"reply"`
+			ItemID   string `json:"item_id"`
+			Type     string `json:"type"`
+			ImageURL string `json:"image_url"`
+		} `json:"keywords"`
 	}
-	if err := decodeJSON(r, &req); err != nil || req.Keyword == "" {
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if req.Keywords != nil {
+		rows := make([]db.KeywordRow, 0, len(*req.Keywords))
+		for _, item := range *req.Keywords {
+			if item.Keyword == "" {
+				writeErr(w, http.StatusBadRequest, "keyword 必填")
+				return
+			}
+			rows = append(rows, db.KeywordRow{
+				CookieID: cid,
+				Keyword:  item.Keyword,
+				Reply:    item.Reply,
+				ItemID:   item.ItemID,
+				Type:     item.Type,
+				ImageURL: item.ImageURL,
+			})
+		}
+		if err := s.Store.Keywords.ReplaceForCookie(r.Context(), cid, rows); err != nil {
+			writeErr(w, http.StatusInternalServerError, "保存失败")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"success": true})
+		return
+	}
+	if req.Keyword == "" {
 		writeErr(w, http.StatusBadRequest, "keyword 必填")
 		return
 	}

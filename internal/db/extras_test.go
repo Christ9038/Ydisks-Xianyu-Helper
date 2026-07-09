@@ -272,9 +272,8 @@ func TestSettings_Public(t *testing.T) {
 	if _, ok := pub["qq_reply_secret_key"]; ok {
 		t.Fatal("qq_reply_secret_key 不应外露")
 	}
-	// 迁移默认就位的公开 key（login_captcha_enabled 等）应可见。
-	if pub["login_captcha_enabled"] != "true" {
-		t.Fatalf("login_captcha_enabled 应为 true, got %q", pub["login_captcha_enabled"])
+	if _, ok := pub["login_captcha_enabled"]; ok {
+		t.Fatal("未实现的登录验证码开关不应公开")
 	}
 	// 白名单内其它默认 key（show_default_login_info）也应可见。
 	if pub["show_default_login_info"] != "true" {
@@ -304,6 +303,16 @@ func TestCookies_DeleteAndStatuses(t *testing.T) {
 	// GetDetails 不存在。
 	if _, err := s.Cookies.GetDetails(ctx, "nope"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+	if _, err := s.DB.ExecContext(ctx, `UPDATE cookies SET remark=NULL, username=NULL, password=NULL WHERE id=?`, cid); err != nil {
+		t.Fatalf("set nullable text fields: %v", err)
+	}
+	details, err := s.Cookies.GetDetails(ctx, cid)
+	if err != nil {
+		t.Fatalf("GetDetails should tolerate NULL text fields: %v", err)
+	}
+	if details.Remark != "" || details.Username != "" || details.Password != "" {
+		t.Fatalf("NULL text fields should decode as empty strings: %+v", details)
 	}
 
 	// GetAutoConfirm 不存在 → ErrNotFound。

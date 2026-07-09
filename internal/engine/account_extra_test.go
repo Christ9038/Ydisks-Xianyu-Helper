@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"xianyu-go/internal/automation"
+	"xianyu-go/internal/db"
+	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
 // TestStop_IdempotentAndClearsTimers Stop 重复调用幂等；调用后防抖定时器被清空。
@@ -95,6 +97,83 @@ type alertCountingHandler struct {
 func (a *alertCountingHandler) OnAccountAlert(_ context.Context, _, level, _, _ string) {
 	if level == AlertLevelWarn {
 		atomic.AddInt32(&a.alerts, 1)
+	}
+}
+
+type stubCookieRenewer struct {
+	result *xrenew.Result
+	err    error
+	calls  int
+	got    string
+}
+
+func (s *stubCookieRenewer) RenewAPIFirst(_ context.Context, cookiesStr string) (*xrenew.Result, error) {
+	s.calls++
+	s.got = cookiesStr
+	return s.result, s.err
+}
+
+func TestTryAPIRenewSuccessShortCircuitsRecovery(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := store.Tokens.Save(ctx, "cid", "did-old", "tok-old", time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatalf("save token: %v", err)
+	}
+	renewer := &stubCookieRenewer{result: &xrenew.Result{
+		Success:            true,
+		RenewMethod:        "api",
+		NewCookies:         "unb=123; _m_h5_tk=tk_2;",
+		UpdatedCookieNames: []string{"_m_h5_tk"},
+	}}
+	acc.renewer = renewer
+
+	if !acc.tryAPIRenew(ctx) {
+		t.Fatal("接口续期成功应短路后续恢复")
+	}
+	if renewer.calls != 1 || renewer.got != "unb=123; _m_h5_tk=tk_1;" {
+		t.Fatalf("renewer 调用异常: calls=%d got=%q", renewer.calls, renewer.got)
+	}
+	if got := acc.currentCookieStr(); got != "unb=123; _m_h5_tk=tk_2;" {
+		t.Fatalf("内存 cookie 未更新: %q", got)
+	}
+	saved, _ := store.Cookies.GetValue(ctx, "cid")
+	if saved != "unb=123; _m_h5_tk=tk_2;" {
+		t.Fatalf("DB cookie 未更新: %q", saved)
+	}
+	if _, err := store.Tokens.Get(ctx, "cid"); err != db.ErrNotFound {
+		t.Fatalf("接口续期更新 cookie 后应清 token，got %v", err)
+	}
+}
+
+func TestTryAPIRenewPartialCookiesContinueRecovery(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := store.Tokens.Save(ctx, "cid", "did-old", "tok-old", time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatalf("save token: %v", err)
+	}
+	renewer := &stubCookieRenewer{result: &xrenew.Result{
+		Success:            false,
+		RenewMethod:        "none",
+		NewCookies:         "unb=123; _m_h5_tk=partial;",
+		UpdatedCookieNames: []string{"_m_h5_tk"},
+		Message:            "setLoginSettings 未返回 Set-Cookie",
+	}}
+	acc.renewer = renewer
+
+	if acc.tryAPIRenew(ctx) {
+		t.Fatal("仅有部分 Cookie 更新时不应短路后续浏览器/密码恢复")
+	}
+	if got := acc.currentCookieStr(); got != "unb=123; _m_h5_tk=partial;" {
+		t.Fatalf("部分 cookie 应先保存到内存: %q", got)
+	}
+	saved, _ := store.Cookies.GetValue(ctx, "cid")
+	if saved != "unb=123; _m_h5_tk=partial;" {
+		t.Fatalf("部分 cookie 应先保存到 DB: %q", saved)
+	}
+	if _, err := store.Tokens.Get(ctx, "cid"); err != db.ErrNotFound {
+		t.Fatalf("部分 cookie 更新后也应清 token，got %v", err)
 	}
 }
 

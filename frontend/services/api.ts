@@ -5,6 +5,22 @@ import {
   Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction
 } from '../types';
 
+const BOOLEAN_SETTING_KEYS = new Set([
+  'registration_enabled',
+  'show_default_login_info',
+  'item_sync_enabled',
+]);
+
+const normalizeSettings = (settings: Record<string, any>): SystemSettings => {
+  const out: Record<string, any> = { ...settings };
+  for (const key of BOOLEAN_SETTING_KEYS) {
+    if (key in out) {
+      out[key] = out[key] === true || out[key] === 'true' || out[key] === '1' || out[key] === 1;
+    }
+  }
+  return out as SystemSettings;
+};
+
 // Auth
 export const login = async (data: { username?: string; password?: string; email?: string; verification_code?: string }): Promise<LoginResponse> => {
   return post('/login', data);
@@ -31,8 +47,8 @@ export const updateLoginCredentials = async (data: {
 };
 
 // Accounts
-export const addAccount = async (id: string, value: string): Promise<ApiResponse> => {
-  return post('/cookies', { id, value });
+export const addAccount = async (id: string, value: string, loginMethod?: string): Promise<ApiResponse> => {
+  return post('/cookies', { id, value, login_method: loginMethod });
 };
 
 const accountAvatarURL = (item: any, version: string): string => {
@@ -64,7 +80,7 @@ export const getAccountDetails = async (): Promise<AccountDetail[]> => {
     pause_duration: item.pause_duration,
     username: item.username || '',
     login_password: '',
-    show_browser: item.show_browser,
+    show_browser: item.show_browser === true || item.show_browser === 1 || item.show_browser === '1' || item.show_browser === 'true',
     nickname: item.nickname || item.remark || `账号 ${item.id.substring(0,6)}`,
     avatar_url: accountAvatarURL(item, avatarVersion),
     profile_error: item.profile_error || '',
@@ -116,8 +132,45 @@ export const updateAccountPauseDuration = async (id: string, pauseDuration: numb
   return put(`/cookies/${id}/pause-duration`, { pause_duration: pauseDuration });
 };
 
-export const updateAccountCookie = async (id: string, value: string): Promise<any> => {
-  return put(`/cookies/${id}`, { id, value });
+export const updateAccountCookie = async (id: string, value: string, loginMethod?: string): Promise<any> => {
+  return put(`/cookies/${id}`, { id, value, login_method: loginMethod });
+};
+
+export interface PasswordLoginStartResponse {
+  success: boolean;
+  session_id?: string;
+  status?: 'processing' | 'failed';
+  message?: string;
+}
+
+export interface PasswordLoginStatusResponse {
+  status: 'processing' | 'success' | 'failed' | 'verification_required' | 'not_found' | 'error';
+  message?: string;
+  account_id?: string;
+  is_new_account?: boolean;
+  cookie_count?: number;
+  verification_url?: string;
+  screenshot_path?: string;
+  qr_code_url?: string;
+  error?: string;
+  reason?: string;
+}
+
+export const passwordLogin = async (data: {
+  account_id: string;
+  account: string;
+  password: string;
+  show_browser?: boolean;
+}): Promise<PasswordLoginStartResponse> => {
+  return post('/password-login', data);
+};
+
+export const checkPasswordLoginStatus = async (sessionId: string): Promise<PasswordLoginStatusResponse> => {
+  return get(`/password-login/check/${sessionId}`);
+};
+
+export const cancelPasswordLogin = async (sessionId: string): Promise<ApiResponse> => {
+  return del(`/password-login/cancel/${sessionId}`);
 };
 
 export const refreshAccountProfile = async (id: string): Promise<any> => {
@@ -580,7 +633,7 @@ export const deleteReplyRule = async (id: string, cookieId: string): Promise<any
 // Settings
 export const getSystemSettings = async (): Promise<SystemSettings> => {
     const res = await get<{data: SystemSettings}>('/system-settings');
-    return res.data || res; // handle {success:true, data: {...}} wrapper if exists
+    return normalizeSettings(res.data || res); // handle {success:true, data: {...}} wrapper if exists
 };
 
 export const updateSystemSettings = async (settings: Partial<SystemSettings>): Promise<ApiResponse> => {

@@ -50,6 +50,30 @@ func (k *Keywords) Add(ctx context.Context, cookieID, keyword, reply, itemID, kw
 		cookieID, keyword, reply, nullable(itemID), kwType, nullable(imageURL))
 }
 
+// ReplaceForCookie 覆盖某账号的全部关键词。
+func (k *Keywords) ReplaceForCookie(ctx context.Context, cookieID string, rows []KeywordRow) error {
+	tx, err := k.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM keywords WHERE cookie_id=?`, cookieID); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		kwType := row.Type
+		if kwType == "" {
+			kwType = "text"
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO keywords (cookie_id, keyword, reply, item_id, type, image_url) VALUES (?,?,?,?,?,?)`,
+			cookieID, row.Keyword, row.Reply, nullable(row.ItemID), kwType, nullable(row.ImageURL)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // DeleteByIndex 按索引（0-based，按 id 顺序）删除某账号的一个关键字。
 func (k *Keywords) DeleteByIndex(ctx context.Context, cookieID string, index int) error {
 	rows, err := k.DB.QueryContext(ctx,
@@ -229,13 +253,13 @@ func (n *Notifications) SetBindings(ctx context.Context, cookieID string, channe
 		return err
 	}
 	for _, channelID := range channelIDs {
-		var exists int
+		var exists bool
 		if err := tx.QueryRowContext(ctx,
 			`SELECT EXISTS(SELECT 1 FROM notification_channels WHERE id=? AND user_id=?)`,
 			channelID, userID).Scan(&exists); err != nil {
 			return err
 		}
-		if exists == 0 {
+		if !exists {
 			return ErrForbidden
 		}
 	}
@@ -263,7 +287,8 @@ type SystemSettings struct {
 // Get 取单项设置。
 func (s *SystemSettings) Get(ctx context.Context, key string) (string, error) {
 	var v string
-	err := s.DB.QueryRowContext(ctx, `SELECT value FROM system_settings WHERE key=?`, key).Scan(&v)
+	keyCol := dialectQuote(s.Dialect, "key")
+	err := s.DB.QueryRowContext(ctx, `SELECT value FROM system_settings WHERE `+keyCol+`=?`, key).Scan(&v)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", nil
@@ -275,7 +300,8 @@ func (s *SystemSettings) Get(ctx context.Context, key string) (string, error) {
 
 // All 取全部设置（key→value）。
 func (s *SystemSettings) All(ctx context.Context) (map[string]string, error) {
-	rows, err := s.DB.QueryContext(ctx, `SELECT key, value FROM system_settings`)
+	keyCol := dialectQuote(s.Dialect, "key")
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+keyCol+`, value FROM system_settings`)
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +333,7 @@ func (s *SystemSettings) Set(ctx context.Context, key, value string) error {
 // PublicSystemKeys 是公开设置键白名单（前端登录页等无需登录可读）。
 var PublicSystemKeys = map[string]bool{
 	"theme_color": true, "registration_enabled": true,
-	"show_default_login_info": true, "login_captcha_enabled": true,
+	"show_default_login_info": true,
 }
 
 // Public 取公开设置子集。

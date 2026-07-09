@@ -3,16 +3,56 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"xianyu-go/internal/db"
 )
+
+type fakeQRLoginService struct {
+	status          map[string]any
+	generateErr     error
+	completeCookies string
+	completeUNB     string
+	completeErr     error
+}
+
+func (f *fakeQRLoginService) GenerateQRCode(context.Context) (string, string, error) {
+	if f.generateErr != nil {
+		return "", "", f.generateErr
+	}
+	return "qr-session", "data:image/png;base64,abc", nil
+}
+
+func (f *fakeQRLoginService) GetSessionStatus(sessionID string) map[string]any {
+	if sessionID == "no-such-session" {
+		return map[string]any{"status": "not_found"}
+	}
+	out := make(map[string]any, len(f.status)+1)
+	for k, v := range f.status {
+		out[k] = v
+	}
+	if _, ok := out["session_id"]; !ok {
+		out["session_id"] = sessionID
+	}
+	return out
+}
+
+func (f *fakeQRLoginService) CompleteVerification(context.Context, string) (string, string, error) {
+	if f.completeErr != nil {
+		return "", "", f.completeErr
+	}
+	return f.completeCookies, f.completeUNB, nil
+}
 
 // TestGenerateQRLogin 生成扫码登录二维码。
 func TestGenerateQRLogin(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	srv.QRLogin = &fakeQRLoginService{}
 	h := srv.Router()
 	cookie := loginHelper(t, h)
 
@@ -34,6 +74,7 @@ func TestGenerateQRLogin(t *testing.T) {
 func TestCheckQRLoginStatusEmptySession(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	srv.QRLogin = &fakeQRLoginService{}
 	h := srv.Router()
 	cookie := loginHelper(t, h)
 
@@ -52,6 +93,7 @@ func TestCheckQRLoginStatusEmptySession(t *testing.T) {
 func TestCompleteQRVerificationBadSession(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	srv.QRLogin = &fakeQRLoginService{completeErr: errors.New("会话不存在")}
 	h := srv.Router()
 	cookie := loginHelper(t, h)
 
@@ -66,6 +108,88 @@ func TestCompleteQRVerificationBadSession(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &res)
 	if res["success"] != false {
 		t.Fatalf("不存在的 session 应 success=false: %+v", res)
+	}
+}
+
+func TestQRLoginStatusPersistsSuccessIdempotently(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.Manager = nil
+	srv.QRLogin = &fakeQRLoginService{status: map[string]any{
+		"status":  "success",
+		"cookies": "unb=qr-new; _m_h5_tk=qr-token;",
+		"unb":     "qr-new",
+	}}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/qr-login/status/s1", nil)
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		var res map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		if res["success"] != true || res["account_id"] != "qr-new" {
+			t.Fatalf("扫码状态保存响应异常: %+v", res)
+		}
+	}
+
+	d, err := store.Cookies.GetDetails(context.Background(), "qr-new")
+	if err != nil {
+		t.Fatalf("GetDetails qr-new: %v", err)
+	}
+	if d.LoginMethod != "qr_scan" || d.LastLoginAt == 0 {
+		t.Fatalf("扫码登录应标记登录审计字段: %+v", d)
+	}
+	logs, err := store.LoginLogs.ListByCookie(context.Background(), "qr-new", 10)
+	if err != nil || len(logs) != 1 || logs[0].Status != "success" || logs[0].Method != "qr_scan" {
+		t.Fatalf("重复轮询不应重复记录登录日志: logs=%#v err=%v", logs, err)
+	}
+}
+
+func TestCompleteQRVerificationPersistsAndReenablesAccount(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	srv.Manager = nil
+	srv.QRLogin = &fakeQRLoginService{
+		completeCookies: "unb=acc1; _m_h5_tk=qr-fresh;",
+		completeUNB:     "acc1",
+	}
+	if err := store.Cookies.SetStatusWithReason(ctx, "acc1", false, "token 失效"); err != nil {
+		t.Fatalf("SetStatusWithReason: %v", err)
+	}
+	if err := store.Tokens.Save(ctx, "acc1", "did", "token", 9999999999); err != nil {
+		t.Fatalf("Save token: %v", err)
+	}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/qr-login/complete-verification/s1", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var res map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if res["success"] != true || res["account_id"] != "acc1" {
+		t.Fatalf("完成验证响应异常: %+v", res)
+	}
+	if !store.Cookies.GetStatus(ctx, "acc1") {
+		t.Fatal("扫码验证成功后应重新启用账号")
+	}
+	if _, err := store.Tokens.Get(ctx, "acc1"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("扫码验证成功后应清 token，got %v", err)
 	}
 }
 
@@ -134,6 +258,51 @@ func TestAddKeywordBadJSON(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("非法 JSON 应 400，got %d", rec.Code)
+	}
+}
+
+func TestReplaceKeywordsWithItemID(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	postBatch := func(body string) []map[string]any {
+		req := httptest.NewRequest(http.MethodPost, "/keywords-with-item-id/acc1", strings.NewReader(body))
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("replace status=%d body=%s", rec.Code, rec.Body.String())
+		}
+
+		listReq := httptest.NewRequest(http.MethodGet, "/keywords-with-item-id/acc1", nil)
+		listReq.AddCookie(cookie)
+		listRec := httptest.NewRecorder()
+		h.ServeHTTP(listRec, listReq)
+		if listRec.Code != http.StatusOK {
+			t.Fatalf("list status=%d body=%s", listRec.Code, listRec.Body.String())
+		}
+		var rows []map[string]any
+		if err := json.Unmarshal(listRec.Body.Bytes(), &rows); err != nil {
+			t.Fatal(err)
+		}
+		return rows
+	}
+
+	rows := postBatch(`{"keywords":[{"keyword":"在吗","reply":"在的","item_id":""},{"keyword":"价格","reply":"50","item_id":"it1"}]}`)
+	if len(rows) != 2 || rows[1]["item_id"] != "it1" {
+		t.Fatalf("批量新增异常: %+v", rows)
+	}
+
+	rows = postBatch(`{"keywords":[{"keyword":"在吗","reply":"稍等","item_id":""}]}`)
+	if len(rows) != 1 || rows[0]["reply"] != "稍等" {
+		t.Fatalf("批量覆盖编辑异常: %+v", rows)
+	}
+
+	rows = postBatch(`{"keywords":[]}`)
+	if len(rows) != 0 {
+		t.Fatalf("空数组应清空关键词: %+v", rows)
 	}
 }
 

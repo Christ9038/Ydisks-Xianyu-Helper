@@ -1,15 +1,23 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
+
+	"xianyu-go/internal/auth"
+	"xianyu-go/internal/db"
+	"xianyu-go/internal/xianyu/protocol"
 )
 
 // mountQRLoginReal 扫码登录端点（纯 HTTP，不需要浏览器）。
 func (s *Server) mountQRLoginReal(r chi.Router) {
 	r.Post("/qr-login/generate", s.generateQRLogin)
 	r.Get("/qr-login/check/{session_id}", s.checkQRLoginStatus)
+	r.Get("/qr-login/status/{session_id}", s.checkQRLoginStatusAndPersist)
 	r.Post("/qr-login/complete-verification/{session_id}", s.completeQRVerification)
 }
 
@@ -42,6 +50,40 @@ func (s *Server) checkQRLoginStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// checkQRLoginStatusAndPersist 兼容上游 /status 语义：扫码成功后由后端幂等保存账号。
+func (s *Server) checkQRLoginStatusAndPersist(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "session_id")
+	if sessionID == "" {
+		writeErr(w, http.StatusBadRequest, "缺少 session_id")
+		return
+	}
+	result := cloneQRStatus(s.QRLogin.GetSessionStatus(sessionID))
+	if qrStatus(result) != "success" {
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+	sess := auth.SessionFromContext(r.Context())
+	if sess == nil {
+		writeErr(w, http.StatusUnauthorized, "未授权访问")
+		return
+	}
+	persisted, err := s.persistQRLoginSuccess(r.Context(), sess.UserID, sessionID, result)
+	if err != nil {
+		if s.Logger != nil {
+			s.Logger.Warn("保存扫码登录结果失败", "session_id", sessionID, "err", err)
+		}
+		result["success"] = false
+		result["status"] = "error"
+		result["message"] = "保存扫码登录结果失败: " + err.Error()
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+	result["success"] = true
+	result["account_id"] = persisted.AccountID
+	result["is_new_account"] = persisted.IsNew
+	writeJSON(w, http.StatusOK, result)
+}
+
 // completeQRVerification 用户完成风控验证后调用，提取真实 cookie 并入库。
 func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "session_id")
@@ -58,9 +100,90 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"success": true,
 		"cookies": cookies,
 		"unb":     unb,
-	})
+	}
+	sess := auth.SessionFromContext(r.Context())
+	if sess != nil {
+		persisted, persistErr := s.persistQRLoginSuccess(r.Context(), sess.UserID, sessionID, map[string]any{
+			"status":  "success",
+			"cookies": cookies,
+			"unb":     unb,
+		})
+		if persistErr != nil {
+			if s.Logger != nil {
+				s.Logger.Warn("保存扫码验证结果失败", "session_id", sessionID, "err", persistErr)
+			}
+			resp["success"] = false
+			resp["message"] = "保存扫码登录结果失败: " + persistErr.Error()
+			writeJSON(w, http.StatusOK, resp)
+			return
+		}
+		resp["account_id"] = persisted.AccountID
+		resp["is_new_account"] = persisted.IsNew
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) persistQRLoginSuccess(ctx context.Context, userID int64, sessionID string, result map[string]any) (qrLoginPersistence, error) {
+	s.qrMu.Lock()
+	defer s.qrMu.Unlock()
+	if s.qrPersisted == nil {
+		s.qrPersisted = make(map[string]qrLoginPersistence)
+	}
+	if persisted, ok := s.qrPersisted[sessionID]; ok {
+		return persisted, nil
+	}
+	cookies := qrString(result, "cookies")
+	accountID := strings.TrimSpace(firstNonEmpty(qrString(result, "unb"), protocol.TransCookies(cookies)["unb"]))
+	if cookies == "" || accountID == "" {
+		return qrLoginPersistence{}, errors.New("扫码结果缺少 cookies 或 unb")
+	}
+
+	_, err := s.Store.Cookies.GetDetails(ctx, accountID)
+	isNew := errors.Is(err, db.ErrNotFound)
+	if err != nil && !errors.Is(err, db.ErrNotFound) {
+		return qrLoginPersistence{}, err
+	}
+	if err := s.Store.Cookies.Save(ctx, accountID, cookies, userID); err != nil {
+		if errors.Is(err, db.ErrForbidden) {
+			return qrLoginPersistence{}, errors.New("该账号ID已存在且不属于当前用户")
+		}
+		return qrLoginPersistence{}, err
+	}
+	s.markSuccessfulLogin(ctx, accountID, userID, loginMethodQRScan, "扫码登录成功")
+	if s.Store.Tokens != nil {
+		_ = s.Store.Tokens.Clear(ctx, accountID)
+	}
+	if d, err := s.Store.Cookies.GetDetails(ctx, accountID); err == nil {
+		s.refreshAccountProfile(ctx, d)
+	}
+	if s.Manager != nil && s.Store.Cookies.GetStatus(ctx, accountID) {
+		if err := s.Manager.Restart(ctx, accountID); err != nil && s.Logger != nil {
+			s.Logger.Warn("扫码登录后重启账号失败", "cookie_id", accountID, "err", err)
+		}
+	}
+	persisted := qrLoginPersistence{AccountID: accountID, IsNew: isNew}
+	s.qrPersisted[sessionID] = persisted
+	return persisted, nil
+}
+
+func cloneQRStatus(src map[string]any) map[string]any {
+	dst := make(map[string]any, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func qrStatus(result map[string]any) string {
+	status, _ := result["status"].(string)
+	return status
+}
+
+func qrString(result map[string]any, key string) string {
+	value, _ := result[key].(string)
+	return strings.TrimSpace(value)
 }

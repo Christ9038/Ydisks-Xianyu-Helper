@@ -24,12 +24,12 @@ type Users struct {
 // IsSystemInitialized 系统是否已初始化（至少存在 admin 用户）。
 // IsSystemInitialized 判断系统是否已有管理员账号。
 func (u *Users) IsSystemInitialized(ctx context.Context) (bool, error) {
-	var exists int
+	var exists bool
 	err := u.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE is_admin=1)`).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("检查系统初始化: %w", err)
 	}
-	return exists == 1, nil
+	return exists, nil
 }
 
 // GetAdmin 返回首个管理员账号。
@@ -143,12 +143,12 @@ func (u *Users) UpdateCredentials(ctx context.Context, userID int64, username, p
 	}
 	defer tx.Rollback()
 
-	var exists int
+	var exists bool
 	if err := tx.QueryRowContext(ctx,
 		`SELECT EXISTS(SELECT 1 FROM users WHERE username=? AND id<>?)`, username, userID).Scan(&exists); err != nil {
 		return err
 	}
-	if exists != 0 {
+	if exists {
 		return ErrUsernameTaken
 	}
 

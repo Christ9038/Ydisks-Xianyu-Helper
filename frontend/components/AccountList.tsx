@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AccountDetail, AIReplySettings, NotificationChannel } from '../types';
 import {
@@ -28,6 +28,8 @@ import {
   RefreshCw, Save, User, Clock, MessageCircle,
   Upload, Key, Eye, EyeOff, Bot, Settings, AlertCircle, ExternalLink, Bell
 } from 'lucide-react';
+import { buildAccountLoginInfoUpdate } from './accountEdit';
+import { createQRLoginPoller } from './qrPolling';
 
 type ModalType = 'edit' | 'ai-settings' | null;
 
@@ -72,6 +74,37 @@ const AccountList: React.FC = () => {
     custom_prompts: '',
   });
   const [saving, setSaving] = useState(false);
+  const qrPollerRef = useRef<ReturnType<typeof createQRLoginPoller> | null>(null);
+  const qrCloseTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  if (qrPollerRef.current === null) {
+    qrPollerRef.current = createQRLoginPoller();
+  }
+
+  const clearQRCloseTimer = () => {
+    if (qrCloseTimerRef.current !== null) {
+      window.clearTimeout(qrCloseTimerRef.current);
+      qrCloseTimerRef.current = null;
+    }
+  };
+
+  const stopQRPolling = () => {
+    qrPollerRef.current?.stop();
+  };
+
+  const closeQRModal = () => {
+    stopQRPolling();
+    clearQRCloseTimer();
+    setShowQRModal(false);
+  };
+
+  const scheduleQRModalClose = () => {
+    clearQRCloseTimer();
+    qrCloseTimerRef.current = window.setTimeout(() => {
+      qrCloseTimerRef.current = null;
+      setShowQRModal(false);
+      loadAccounts();
+    }, 1000);
+  };
 
   const refreshRuntimeStatuses = async () => {
     try {
@@ -128,6 +161,13 @@ const AccountList: React.FC = () => {
     loadAccounts();
     const timer = window.setInterval(refreshRuntimeStatuses, 10_000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      stopQRPolling();
+      clearQRCloseTimer();
+    };
   }, []);
 
   const runtimePresentation = (account: AccountDetail) => {
@@ -258,16 +298,9 @@ const AccountList: React.FC = () => {
       }
 
       // 更新登录信息
-      if (
-        editForm.username !== (editingAccount.username || '') ||
-        editForm.login_password !== (editingAccount.login_password || '') ||
-        editForm.show_browser !== (editingAccount.show_browser || false)
-      ) {
-        promises.push(updateAccountLoginInfo(editingAccount.id, {
-          username: editForm.username,
-          login_password: editForm.login_password,
-          show_browser: editForm.show_browser,
-        }));
+      const loginInfo = buildAccountLoginInfoUpdate(editingAccount, editForm);
+      if (loginInfo) {
+        promises.push(updateAccountLoginInfo(editingAccount.id, loginInfo));
       }
 
       // 更新通知渠道绑定（覆盖式，总是提交以支持解绑）
@@ -308,17 +341,19 @@ const AccountList: React.FC = () => {
           throw new Error('已取消覆盖当前账号授权');
         }
       }
-      await updateAccountCookie(target.id, cookies);
+      await updateAccountCookie(target.id, cookies, 'qr_scan');
       return target.id;
     }
     if (!unb) {
       throw new Error('扫码结果缺少账号ID，无法添加账号');
     }
-    await addAccount(unb, cookies);
+    await addAccount(unb, cookies, 'qr_scan');
     return unb;
   };
 
   const startQRLogin = async (target?: AccountDetail) => {
+    stopQRPolling();
+    clearQRCloseTimer();
     const targetAccount = target || null;
     setQrReauthTarget(targetAccount);
     setShowQRModal(true);
@@ -335,10 +370,8 @@ const AccountList: React.FC = () => {
         setQrSessionId(res.session_id);
         setQrStatus('waiting');
 
-        const interval = setInterval(async () => {
-          const statusRes = await checkQRLoginStatus(res.session_id!);
-          if (statusRes.status === 'success') {
-            clearInterval(interval);
+        qrPollerRef.current?.start(res.session_id, checkQRLoginStatus, {
+          onSuccess: async (statusRes) => {
             setQrStatus('success');
             if (statusRes.cookies && statusRes.unb) {
               try {
@@ -346,18 +379,22 @@ const AccountList: React.FC = () => {
               } catch (e) {
                 console.error('保存扫码授权失败', e);
                 setQrStatus('error');
+                return;
               }
             }
-            setTimeout(() => {
-              setShowQRModal(false);
-              loadAccounts();
-            }, 1000);
-          } else if (statusRes.status === 'scanned') {
+            scheduleQRModalClose();
+          },
+          onScanned: () => {
             setQrStatus('waiting'); // 已扫描，继续等待确认
-          } else if (statusRes.status === 'expired' || statusRes.status === 'cancelled' || statusRes.status === 'error' || statusRes.status === 'not_found') {
-            clearInterval(interval);
+          },
+          onTerminalError: () => {
             setQrStatus('error');
-          } else if (statusRes.status === 'verification_required') {
+          },
+          onPollError: (error) => {
+            console.error('轮询扫码状态失败', error);
+            setQrStatus('error');
+          },
+          onVerificationRequired: (statusRes) => {
             setQrStatus('verification');
             setVerificationUrl(statusRes.verification_url || '');
             if (statusRes.face_qr_url) {
@@ -366,8 +403,8 @@ const AccountList: React.FC = () => {
             if (statusRes.verification_screenshot) {
               setVerificationScreenshot(statusRes.verification_screenshot);
             }
-          }
-        }, 2000);
+          },
+        });
       }
     } catch (e) {
       setQrStatus('error');
@@ -381,12 +418,10 @@ const AccountList: React.FC = () => {
     try {
       const res = await completeQRVerification(qrSessionId);
       if (res.success && res.cookies && res.unb) {
+        stopQRPolling();
         await persistQRLoginResult(res.cookies, res.unb, qrReauthTarget);
         setQrStatus('success');
-        setTimeout(() => {
-          setShowQRModal(false);
-          loadAccounts();
-        }, 1000);
+        scheduleQRModalClose();
       } else {
         setQrStatus('verification');
         alert('验证未完成：' + (res.message || '可能验证尚未通过，请先在验证页面完成验证'));
@@ -577,7 +612,7 @@ const AccountList: React.FC = () => {
           <div className="modal-overlay-centered">
               <div className="modal-container relative" style={{maxWidth: '24rem'}}>
                   <button
-                    onClick={() => setShowQRModal(false)}
+                    onClick={closeQRModal}
                     className="absolute top-4 right-4 z-10 w-9 h-9 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
                   >
                     <X className="w-5 h-5 text-gray-600" />

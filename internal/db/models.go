@@ -35,5 +35,29 @@ type CookieDetail struct {
 	ShowBrowser   bool
 	Nickname      string
 	AvatarURL     string
+	MetadataJSON  string
+	LastRefreshAt int64
+	LoginMethod   string
+	LastLoginAt   int64
 	CreatedAt     string
+}
+
+// AccountLoginLog 记录账号登录/续登尝试。
+type AccountLoginLog struct {
+	ID                 int64
+	CookieID           string
+	UserID             int64
+	OwnerID            int64
+	AccountPK          int64
+	AccountIdentifier  string
+	Username           string
+	Method             string
+	Status             string
+	Message            string
+	TriggerReason      string
+	FailureReason      string
+	ErrorMessage       string
+	UpdatedCookieNames string
+	DurationMS         int64
+	CreatedAt          int64
 }

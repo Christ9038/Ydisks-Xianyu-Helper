@@ -31,17 +31,19 @@ const (
 	MessageExpireTime     = time.Hour       // 去重有效期
 	ProcessedIDsMaxSize   = 10000           // 去重表上限，超限清理
 	HeartbeatInterval     = 15 * time.Second
-	// token 心跳间隔。主动刷新 token 让服务端持续续期 cookie（_m_h5_tk /
-	// sgcookie 等），避免 cookie 自然滑向过期。15 分钟一次，平衡保活与风控。
-	// 不宜过短，否则易触发阿里系滑块风控。
-	TokenRefreshInterval = 15 * time.Minute
-	TokenRefreshMinGap   = time.Minute
-	MessageCooldown      = 5 * time.Minute // 收到消息后 5 分钟内不刷 cookie
-	PasswordLoginMinGap  = 30 * time.Minute
+	// token_refresh_loop 与对方项目一致，默认 20 小时一次；在线保活主要由
+	// cookieRefreshLoop 负责，每 180 秒刷新一次 Cookie/token。
+	TokenRefreshInterval       = 20 * time.Hour
+	CookieRefreshInterval      = 180 * time.Second
+	CookieRefreshCheckInterval = 60 * time.Second
+	TokenRefreshMinGap         = time.Minute
+	MessageCooldown            = 5 * time.Minute // 收到消息后 5 分钟内不刷 cookie
+	PasswordLoginMinGap        = 5 * time.Minute
 
-	// TokenCacheTTL 缓存的 accessToken 视为有效的时长。tokenRefreshLoop 每 15min
-	// 刷新一次会续期该缓存；短重启 / 瞬时 mtop 失败时回退到此缓存不掉线。
-	TokenCacheTTL = 90 * time.Minute
+	// TokenCacheTTLMin/Max 控制缓存 accessToken 的随机有效期。短重启 / 瞬时
+	// mtop 失败时回退到此缓存不掉线；在线 Cookie 保活由 cookieRefreshLoop 续期。
+	TokenCacheTTLMin = 5 * time.Hour
+	TokenCacheTTLMax = 10 * time.Hour
 	// ShortConnectionThreshold 连接维持不足此时长视为短连接，疑似 token 失效，
 	// 清除 token 缓存下轮重新派生，避免反复用失效缓存 token。
 	ShortConnectionThreshold = 30 * time.Second
@@ -120,11 +122,13 @@ type Account struct {
 
 	// 运行时状态（受 mu 保护）
 	mu                 sync.Mutex
+	refreshMu          sync.Mutex
 	currentToken       string
 	deviceID           string
 	connFailures       int
 	lastMsgReceived    time.Time
 	lastTokenRefresh   time.Time
+	lastCookieRefresh  time.Time
 	lastPasswordLogin  time.Time
 	runtimeState       string
 	runtimeMessage     string
@@ -397,7 +401,7 @@ func (a *Account) Run(parent context.Context) error {
 		a.mu.Unlock()
 		a.setRuntimeState(RuntimeOnline, "消息服务连接正常")
 
-		// 3) 心跳 + 消息接收，并并行运行 token 定时刷新。
+		// 3) 心跳 + 消息接收，并并行运行 token/cookie 定时刷新。
 		hbCtx, hbCancel := context.WithCancel(ctx)
 		var hbErr error
 		hbDone := make(chan struct{})
@@ -413,8 +417,15 @@ func (a *Account) Run(parent context.Context) error {
 			close(refreshDone)
 		}()
 
+		cookieRefreshDone := make(chan struct{})
+		go func() {
+			a.cookieRefreshLoop(hbCtx, conn)
+			close(cookieRefreshDone)
+		}()
+
 		recvErr := conn.ReceiveLoop(ctx, a.dispatch)
 		hbCancel()
+		<-cookieRefreshDone
 		<-refreshDone
 		<-hbDone // 确保 hbErr 写入完成后再读取（消除数据竞争）。
 		_ = conn.Close()
@@ -576,8 +587,8 @@ func (a *Account) tryLoginStatusCheck(ctx context.Context) loginStatusCheckResul
 // tryAPIRenew 是密码登录前的轻量恢复层。
 // 闲鱼很多“登录态滑向过期”的场景会先允许 hasLogin/silentHasLogin/
 // setLoginSettings 刷新一批 Cookie；直接上密码登录更重，也更容易触发风控。
-// 因此这里先尝试接口续期：只要 Cookie 有变化就保存并清 token 缓存，让下一轮
-// acquireToken 用新 Cookie 重新派生 accessToken。
+// 因此这里先尝试接口续期：只有 setLoginSettings 确认成功才短路后续恢复；
+// 如果只拿到部分 Cookie，仍会保存并清 token，但继续降级到浏览器/密码登录。
 func (a *Account) tryAPIRenew(ctx context.Context) bool {
 	if a.renewer == nil {
 		return false
@@ -590,23 +601,26 @@ func (a *Account) tryAPIRenew(ctx context.Context) bool {
 		a.logger.Warn("接口续期失败", "err", err)
 		return false
 	}
-	if res == nil || res.NewCookies == "" || res.NewCookies == cookieStr {
-		if res != nil {
-			a.logger.Info("接口续期未产生 Cookie 更新", "success", res.Success, "message", res.Message)
-		}
+	if res == nil {
 		return false
 	}
-	if !a.adoptRecoveredCookie(ctx, res.NewCookies, "接口续期") {
-		return false
+	updated := false
+	if res.NewCookies != "" && res.NewCookies != cookieStr {
+		updated = a.adoptRecoveredCookie(ctx, res.NewCookies, "接口续期")
 	}
 	if res.Success {
-		a.setRuntimeState(RuntimeConnecting, "登录凭证已接口续期，正在重新连接")
+		if !updated {
+			a.setRuntimeState(RuntimeConnecting, "登录凭证已接口续期，正在重新连接")
+		}
 		a.logger.Info("接口续期成功", "method", res.RenewMethod, "updated", strings.Join(res.UpdatedCookieNames, ","))
 		return true
 	}
-	a.setRuntimeState(RuntimeConnecting, "登录凭证已有新 Cookie，正在重新验证")
-	a.logger.Info("接口续期返回部分 Cookie 更新，下一轮重新验证", "updated", strings.Join(res.UpdatedCookieNames, ","))
-	return true
+	if updated {
+		a.logger.Info("接口续期返回部分 Cookie 更新，继续降级恢复", "updated", strings.Join(res.UpdatedCookieNames, ","))
+		return false
+	}
+	a.logger.Info("接口续期未产生可用恢复", "success", res.Success, "message", res.Message)
+	return false
 }
 
 // adoptRecoveredCookie 统一接收“轻量检查/接口续期/浏览器恢复”拿到的新 Cookie。
@@ -676,8 +690,23 @@ func withRetryJitter(base time.Duration) time.Duration {
 // 成功时把 token + device_id 缓存到 DB（saveTokenCache），供进程重启复用与
 // 稳态重连时跳过 mtop（acquireToken 命中缓存即直接返回）。
 func (a *Account) refreshToken(ctx context.Context) (string, string, error) {
+	a.refreshMu.Lock()
+	defer a.refreshMu.Unlock()
+
+	a.reloadCookieFromDB(ctx)
+
 	a.mu.Lock()
 	cookieStr := a.CookieStr
+	currentToken := a.currentToken
+	lastMsg := a.lastMsgReceived
+	if !lastMsg.IsZero() && time.Since(lastMsg) < MessageCooldown {
+		a.mu.Unlock()
+		a.logger.Info("收到消息冷却中，跳过 token/cookie 刷新", "cooldown", MessageCooldown)
+		if currentToken != "" {
+			return currentToken, cookieStr, nil
+		}
+		return "", "", fmt.Errorf("收到消息冷却中，跳过 token/cookie 刷新")
+	}
 	last := a.lastTokenRefresh
 	if !last.IsZero() && time.Since(last) < TokenRefreshMinGap {
 		remain := TokenRefreshMinGap - time.Since(last)
@@ -719,6 +748,9 @@ func (a *Account) refreshToken(ctx context.Context) (string, string, error) {
 		return "", "", fmt.Errorf("token API 未返回结果")
 	}
 	a.saveTokenCache(ctx, deviceID, res.AccessToken)
+	a.mu.Lock()
+	a.lastMsgReceived = time.Time{}
+	a.mu.Unlock()
 	return res.AccessToken, cookieStr, nil
 }
 
@@ -783,12 +815,12 @@ func (a *Account) ensureDeviceIDCached(ctx context.Context) {
 	}
 }
 
-// saveTokenCache 把 accessToken + device_id 缓存到 DB（expire_at = now + TokenCacheTTL）。
+// saveTokenCache 把 accessToken + device_id 缓存到 DB（expire_at = now + tokenCacheTTL）。
 func (a *Account) saveTokenCache(ctx context.Context, deviceID, accessToken string) {
 	if a.store == nil || a.store.Tokens == nil || accessToken == "" {
 		return
 	}
-	if err := a.store.Tokens.Save(ctx, a.CookieID, deviceID, accessToken, time.Now().Add(TokenCacheTTL).Unix()); err != nil {
+	if err := a.store.Tokens.Save(ctx, a.CookieID, deviceID, accessToken, time.Now().Add(tokenCacheTTL()).Unix()); err != nil {
 		a.logger.Warn("缓存 accessToken 失败", "err", err)
 	}
 }
@@ -866,6 +898,66 @@ func (a *Account) tokenRefreshLoop(ctx context.Context, conn WSConn) {
 		conn.SetAccessToken(token)
 		a.logger.Info("定时刷新 token 成功")
 	}
+}
+
+// cookieRefreshLoop 复刻对方项目的在线 Cookie 刷新循环：
+// 每 60 秒检查一次，满 180 秒才刷新；收到消息后 5 分钟内跳过；
+// 单次失败 5 秒后重试一次，session 过期则主动关闭 WS 进入恢复链路。
+func (a *Account) cookieRefreshLoop(ctx context.Context, conn WSConn) {
+	ticker := time.NewTicker(CookieRefreshCheckInterval)
+	defer ticker.Stop()
+	a.mu.Lock()
+	if a.lastCookieRefresh.IsZero() {
+		a.lastCookieRefresh = time.Now()
+	}
+	a.mu.Unlock()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		a.mu.Lock()
+		lastRefresh := a.lastCookieRefresh
+		lastMsg := a.lastMsgReceived
+		a.mu.Unlock()
+		if time.Since(lastRefresh) < CookieRefreshInterval {
+			continue
+		}
+		if !lastMsg.IsZero() && time.Since(lastMsg) < MessageCooldown {
+			a.logger.Info("收到消息冷却中，跳过在线 cookie 刷新", "cooldown", MessageCooldown)
+			continue
+		}
+		if a.refreshOnlineCookie(ctx, conn) {
+			continue
+		}
+		if sleepCtx(ctx, 5*time.Second) != nil {
+			return
+		}
+		_ = a.refreshOnlineCookie(ctx, conn)
+	}
+}
+
+func (a *Account) refreshOnlineCookie(ctx context.Context, conn WSConn) bool {
+	token, _, err := a.refreshToken(ctx)
+	if err != nil {
+		a.logger.Warn("在线 cookie 刷新失败", "err", err)
+		if mtop.IsSessionExpiredErr(err) {
+			a.clearTokenCache(ctx)
+			_ = conn.Close()
+		}
+		return false
+	}
+	a.mu.Lock()
+	a.currentToken = token
+	a.lastCookieRefresh = time.Now()
+	a.mu.Unlock()
+	conn.SetAccessToken(token)
+	a.logger.Info("在线 cookie 刷新成功")
+	return true
 }
 
 // RuntimeStatus 返回账号当前连接状态的线程安全快照。

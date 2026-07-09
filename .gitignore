@@ -24,9 +24,15 @@
 /frontend/node_modules/
 /frontend/.env.local
 /frontend/.env.*.local
+/internal/server/data/
 
-# Frontend build artifacts (hash 化文件名，每次构建变化，不入库；index.html 与稳定 SVG 仍跟踪)
+# Embedded frontend build assets (index.html references hashed files, so JS/CSS must be tracked)
 /internal/webui/static/assets/
+!/internal/webui/static/assets/
+!/internal/webui/static/assets/*.css
+!/internal/webui/static/assets/*.js
+!/internal/webui/static/assets/*.svg
+/internal/webui/static/assets/*.map
 
 # OS / editor
 .DS_Store

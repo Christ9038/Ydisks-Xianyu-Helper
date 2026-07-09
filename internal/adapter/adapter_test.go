@@ -3,12 +3,17 @@ package adapter
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/browser"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/renewal"
+	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
 // fakeNotifier 记录告警调用，供 OnAccountAlert 断言。
@@ -54,8 +59,50 @@ func newAdapterTestStore(t *testing.T) (*db.Store, func()) {
 	ctx := context.Background()
 	s.Users.Create(ctx, "admin", "a@e.com", "pw")
 	admin, _ := s.Users.GetByUsername(ctx, "admin")
-	s.Cookies.Save(ctx, "cid", "unb=1; _m_h5_tk=tk;", admin.ID)
+	s.Cookies.Save(ctx, "cid", "unb=1; _m_h5_tk=tk; havana_lgc2_77=lgc;", admin.ID)
+	renewal.GlobalCooldown.Reset("cid")
 	return s, func() { d.Close() }
+}
+
+func verifiedRenewService(t *testing.T) (xrenew.Service, func()) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/hasLogin.do", "/silentHasLogin.do":
+			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
+		case "/setLoginSettings.do":
+			http.SetCookie(w, &http.Cookie{Name: "havana_lgc2_77", Value: "verified"})
+			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	return xrenew.Service{
+		HTTPClient:          srv.Client(),
+		HasLoginURL:         srv.URL + "/hasLogin.do",
+		SilentHasLoginURL:   srv.URL + "/silentHasLogin.do",
+		SetLoginSettingsURL: srv.URL + "/setLoginSettings.do",
+		RetryDelay:          -1,
+	}, srv.Close
+}
+
+func unverifiedRenewService(t *testing.T) (xrenew.Service, func()) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/hasLogin.do", "/silentHasLogin.do", "/setLoginSettings.do":
+			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	return xrenew.Service{
+		HTTPClient:          srv.Client(),
+		HasLoginURL:         srv.URL + "/hasLogin.do",
+		SilentHasLoginURL:   srv.URL + "/silentHasLogin.do",
+		SetLoginSettingsURL: srv.URL + "/setLoginSettings.do",
+		RetryDelay:          -1,
+	}, srv.Close
 }
 
 // TestOnAccountAlert_ForwardedToNotifier 注入 notifier 后告警被转发；未注入时不 panic。
@@ -140,24 +187,59 @@ func TestFetchOrderDetail_BrowserFallback(t *testing.T) {
 	}
 }
 
-// TestOnPasswordLoginRefresh_BrowserNilReturnsFalse 浏览器未启用时直接返回 false。
-func TestOnPasswordLoginRefresh_BrowserNilReturnsFalse(t *testing.T) {
+// TestOnPasswordLoginRefresh_BrowserNilStillUsesAPIRenew 浏览器未启用时仍先尝试接口轻量续期。
+func TestOnPasswordLoginRefresh_BrowserNilStillUsesAPIRenew(t *testing.T) {
 	store, cleanup := newAdapterTestStore(t)
 	defer cleanup()
 	a := New(store, nil, nil)
-	if a.OnPasswordLoginRefresh(context.Background(), "cid") {
-		t.Fatal("browser=nil 应返回 false")
+	renewSvc, closeRenew := verifiedRenewService(t)
+	defer closeRenew()
+	a.SetRenewService(renewSvc)
+	if !a.OnPasswordLoginRefresh(context.Background(), "cid") {
+		t.Fatal("browser=nil 但接口续期成功时应返回 true")
+	}
+	saved, _ := store.Cookies.GetValue(context.Background(), "cid")
+	if !strings.Contains(saved, "havana_lgc2_77=verified") {
+		t.Fatalf("接口续期 cookie 未保存: %q", saved)
 	}
 }
 
-// TestOnPasswordLoginRefresh_NoCredentialsReturnsFalse 有浏览器但账号未配密码时返回 false。
-func TestOnPasswordLoginRefresh_NoCredentialsReturnsFalse(t *testing.T) {
+// TestOnPasswordLoginRefresh_BrowserNilReturnsFalseAfterAPIFailure 接口轻量续期也失败后才因浏览器不可用失败。
+func TestOnPasswordLoginRefresh_BrowserNilReturnsFalseAfterAPIFailure(t *testing.T) {
 	store, cleanup := newAdapterTestStore(t)
 	defer cleanup()
 	a := New(store, nil, nil)
-	a.SetBrowser(&fakeBrowser{renewErr: errors.New("quick enter unavailable")})
+	renewSvc, closeRenew := unverifiedRenewService(t)
+	defer closeRenew()
+	a.SetRenewService(renewSvc)
 	if a.OnPasswordLoginRefresh(context.Background(), "cid") {
+		t.Fatal("browser=nil 且接口续期失败时应返回 false")
+	}
+	logs, err := store.LoginLogs.ListByCookie(context.Background(), "cid", 10)
+	if err != nil || len(logs) != 1 || logs[0].FailureReason != "browser_disabled" {
+		t.Fatalf("浏览器不可用应记录 browser_disabled: logs=%#v err=%v", logs, err)
+	}
+}
+
+// TestOnPasswordLoginRefresh_NoCredentialsReturnsFalse 有浏览器但账号未配密码时返回 false 并停用账号。
+func TestOnPasswordLoginRefresh_NoCredentialsReturnsFalse(t *testing.T) {
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	a := New(store, nil, nil)
+	renewSvc, closeRenew := unverifiedRenewService(t)
+	defer closeRenew()
+	a.SetRenewService(renewSvc)
+	a.SetBrowser(&fakeBrowser{renewErr: errors.New("quick enter unavailable")})
+	if a.OnPasswordLoginRefresh(ctx, "cid") {
 		t.Fatal("账号未配用户名/密码应返回 false")
+	}
+	if store.Cookies.GetStatus(ctx, "cid") {
+		t.Fatal("未配置账号密码应自动停用账号，避免持续重试")
+	}
+	logs, err := store.LoginLogs.ListByCookie(ctx, "cid", 10)
+	if err != nil || len(logs) != 1 || logs[0].Status != "no_credentials" || logs[0].FailureReason != "no_credentials" {
+		t.Fatalf("无凭据应记录 no_credentials 日志: logs=%#v err=%v", logs, err)
 	}
 }
 
@@ -172,6 +254,9 @@ func TestOnPasswordLoginRefresh_BrowserRenewSuccess(t *testing.T) {
 
 	fb := &fakeBrowser{renewCookies: map[string]string{"unb": "1", "_m_h5_tk": "renewed"}}
 	a := New(store, nil, nil)
+	renewSvc, closeRenew := verifiedRenewService(t)
+	defer closeRenew()
+	a.SetRenewService(renewSvc)
 	a.SetBrowser(fb)
 	if !a.OnPasswordLoginRefresh(ctx, "cid") {
 		t.Fatal("快速续期成功应返回 true")
@@ -183,11 +268,15 @@ func TestOnPasswordLoginRefresh_BrowserRenewSuccess(t *testing.T) {
 		t.Fatalf("快速续期成功后不应密码登录，got %d", fb.loginCalls)
 	}
 	saved, _ := store.Cookies.GetValue(ctx, "cid")
-	if saved == "" || saved == "unb=1; _m_h5_tk=tk;" {
+	if !strings.Contains(saved, "_m_h5_tk=renewed") || !strings.Contains(saved, "havana_lgc2_77=verified") {
 		t.Fatalf("快速续期 cookie 未保存: %q", saved)
 	}
 	if _, err := store.Tokens.Get(ctx, "cid"); err != db.ErrNotFound {
 		t.Fatalf("Cookie 更新后应清除旧 token，got %v", err)
+	}
+	logs, err := store.LoginLogs.ListByCookie(ctx, "cid", 10)
+	if err != nil || len(logs) != 1 || logs[0].Status != "success" {
+		t.Fatalf("快速续期应记录登录日志: logs=%#v err=%v", logs, err)
 	}
 }
 
@@ -201,6 +290,9 @@ func TestOnPasswordLoginRefresh_Success(t *testing.T) {
 
 	fb := &fakeBrowser{renewErr: errors.New("quick enter unavailable"), loginCookies: map[string]string{"unb": "1", "_m_h5_tk": "fresh"}}
 	a := New(store, nil, nil)
+	renewSvc, closeRenew := unverifiedRenewService(t)
+	defer closeRenew()
+	a.SetRenewService(renewSvc)
 	a.SetBrowser(fb)
 	if !a.OnPasswordLoginRefresh(ctx, "cid") {
 		t.Fatal("登录成功应返回 true")
@@ -211,6 +303,17 @@ func TestOnPasswordLoginRefresh_Success(t *testing.T) {
 	saved, _ := store.Cookies.GetValue(ctx, "cid")
 	if saved == "" {
 		t.Fatal("刷新的 cookie 应已保存")
+	}
+	d, err := store.Cookies.GetDetails(ctx, "cid")
+	if err != nil {
+		t.Fatalf("GetDetails: %v", err)
+	}
+	if d.LoginMethod != "password" || d.LastLoginAt == 0 {
+		t.Fatalf("密码登录成功后应标记登录审计字段: %+v", d)
+	}
+	logs, err := store.LoginLogs.ListByCookie(ctx, "cid", 10)
+	if err != nil || len(logs) != 1 || logs[0].Status != "success" {
+		t.Fatalf("密码登录成功应记录日志: logs=%#v err=%v", logs, err)
 	}
 }
 
@@ -223,9 +326,76 @@ func TestOnPasswordLoginRefresh_LoginError(t *testing.T) {
 
 	fb := &fakeBrowser{renewErr: errors.New("quick enter unavailable"), loginErr: errors.New("captcha required")}
 	a := New(store, nil, nil)
+	renewSvc, closeRenew := unverifiedRenewService(t)
+	defer closeRenew()
+	a.SetRenewService(renewSvc)
 	a.SetBrowser(fb)
 	if a.OnPasswordLoginRefresh(ctx, "cid") {
 		t.Fatal("登录失败应返回 false")
+	}
+	logs, err := store.LoginLogs.ListByCookie(ctx, "cid", 10)
+	if err != nil || len(logs) != 1 || logs[0].Status != "failed" || logs[0].FailureReason != "verification_required" {
+		t.Fatalf("密码登录失败应记录日志: logs=%#v err=%v", logs, err)
+	}
+}
+
+func TestOnPasswordLoginRefresh_BaxiaFailureReason(t *testing.T) {
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	store.DB.ExecContext(ctx, `UPDATE cookies SET username='u', password='p' WHERE id='cid'`)
+
+	fb := &fakeBrowser{renewErr: errors.New("quick enter unavailable"), loginErr: errors.New("baxia-punish 风控图形验证")}
+	a := New(store, nil, nil)
+	renewSvc, closeRenew := unverifiedRenewService(t)
+	defer closeRenew()
+	a.SetRenewService(renewSvc)
+	a.SetBrowser(fb)
+	if a.OnPasswordLoginRefresh(ctx, "cid") {
+		t.Fatal("风控失败应返回 false")
+	}
+	logs, err := store.LoginLogs.ListByCookie(ctx, "cid", 10)
+	if err != nil || len(logs) != 1 || logs[0].FailureReason != "baxia_punish_captcha" {
+		t.Fatalf("baxia 风控应记录专用 failure_reason: logs=%#v err=%v", logs, err)
+	}
+	if !store.Cookies.GetStatus(ctx, "cid") {
+		t.Fatal("baxia 风控只应冷却，不应停用账号")
+	}
+}
+
+func TestOnPasswordLoginRefresh_DisablesFrozenAccountError(t *testing.T) {
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	store.DB.ExecContext(ctx, `UPDATE cookies SET username='u', password='p' WHERE id='cid'`)
+
+	fb := &fakeBrowser{renewErr: errors.New("quick enter unavailable"), loginErr: errors.New("账号已被冻结")}
+	a := New(store, nil, nil)
+	renewSvc, closeRenew := unverifiedRenewService(t)
+	defer closeRenew()
+	a.SetRenewService(renewSvc)
+	a.SetBrowser(fb)
+	if a.OnPasswordLoginRefresh(ctx, "cid") {
+		t.Fatal("冻结账号登录失败应返回 false")
+	}
+	if store.Cookies.GetStatus(ctx, "cid") {
+		t.Fatal("冻结账号登录错误应停用账号")
+	}
+}
+
+func TestPasswordLoginProcessingLock(t *testing.T) {
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	a := New(store, nil, nil)
+	if !a.beginPasswordLogin("cid") {
+		t.Fatal("首次获取 processing 锁应成功")
+	}
+	if a.beginPasswordLogin("cid") {
+		t.Fatal("同账号重复获取 processing 锁应失败")
+	}
+	a.finishPasswordLogin("cid")
+	if !a.beginPasswordLogin("cid") {
+		t.Fatal("释放后应可再次获取 processing 锁")
 	}
 }
 
@@ -238,6 +408,9 @@ func TestOnPasswordLoginRefresh_Cooldown(t *testing.T) {
 
 	fb := &fakeBrowser{renewErr: errors.New("quick enter unavailable"), loginCookies: map[string]string{"unb": "1"}}
 	a := New(store, nil, nil)
+	renewSvc, closeRenew := unverifiedRenewService(t)
+	defer closeRenew()
+	a.SetRenewService(renewSvc)
 	a.SetBrowser(fb)
 	if !a.OnPasswordLoginRefresh(ctx, "cid") {
 		t.Fatal("首次应成功")
@@ -248,5 +421,9 @@ func TestOnPasswordLoginRefresh_Cooldown(t *testing.T) {
 	}
 	if fb.loginCalls != 1 {
 		t.Fatalf("冷却期内不应调用浏览器，got calls=%d", fb.loginCalls)
+	}
+	logs, err := store.LoginLogs.ListByCookie(ctx, "cid", 10)
+	if err != nil || len(logs) != 2 || logs[0].Status != "skipped_cooldown" || logs[0].FailureReason != "login_cooldown" {
+		t.Fatalf("冷却拒绝应记录 skipped_cooldown 日志: logs=%#v err=%v", logs, err)
 	}
 }

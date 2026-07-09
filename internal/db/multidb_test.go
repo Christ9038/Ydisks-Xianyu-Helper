@@ -180,6 +180,50 @@ func TestMultiDB_CookiesUpsertBool(t *testing.T) {
 	}
 }
 
+func TestMultiDB_SettingsQuoteKey(t *testing.T) {
+	for _, tg := range allTestTargets(t) {
+		t.Run(tg.name, func(t *testing.T) {
+			defer tg.cleanup()
+			ctx := context.Background()
+			s := tg.store
+
+			if err := s.Settings.Set(ctx, "theme_color", "green"); err != nil {
+				t.Fatalf("Settings.Set: %v", err)
+			}
+			got, err := s.Settings.Get(ctx, "theme_color")
+			if err != nil || got != "green" {
+				t.Fatalf("Settings.Get=%q err=%v want green", got, err)
+			}
+			all, err := s.Settings.All(ctx)
+			if err != nil || all["theme_color"] != "green" {
+				t.Fatalf("Settings.All=%v err=%v", all, err)
+			}
+
+			username := tg.name + "_settings_user_" + fmt.Sprintf("%d", atomic.AddUint64(&multidbCounter, 1))
+			if ok, err := s.Users.Create(ctx, username, username+"@e.com", "pw"); err != nil || !ok {
+				t.Fatalf("create user: ok=%v err=%v", ok, err)
+			}
+			user, _ := s.Users.GetByUsername(ctx, username)
+			keyCol := dialectQuote(tg.dialect, "key")
+			if _, err := s.DB.ExecContext(ctx,
+				`INSERT INTO user_settings (user_id, `+keyCol+`, value, updated_at) VALUES (?,?,?,CURRENT_TIMESTAMP)`+
+					dialectUpsert(tg.dialect, []string{"user_id", keyCol}, map[string]string{
+						"value":      "EXCLUDED.value",
+						"updated_at": "CURRENT_TIMESTAMP",
+					}),
+				user.ID, "dashboard_range", "30"); err != nil {
+				t.Fatalf("insert user_settings: %v", err)
+			}
+			var value string
+			if err := s.DB.QueryRowContext(ctx,
+				`SELECT value FROM user_settings WHERE user_id=? AND `+keyCol+`=?`,
+				user.ID, "dashboard_range").Scan(&value); err != nil || value != "30" {
+				t.Fatalf("select user_settings=%q err=%v want 30", value, err)
+			}
+		})
+	}
+}
+
 // TestMultiDB_OrdersUpsertNullScan 验证订单部分字段 Upsert 后 Get 能正确扫描 NULL 列。
 func TestMultiDB_OrdersUpsertNullScan(t *testing.T) {
 	for _, tg := range allTestTargets(t) {

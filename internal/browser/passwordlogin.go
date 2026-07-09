@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -26,10 +27,24 @@ var loginSuccessSelectors = []string{
 	".rc-virtual-list-holder-inner", // IM 页面侧边栏有子元素则已登录
 }
 
+const (
+	passwordVerificationWaitInterval = 10 * time.Second
+	passwordVerificationMaxWait      = 5 * time.Minute
+)
+
 // PasswordLogin 用账号密码通过浏览器登录闲鱼，返回完整 cookie map。
 // 移植自 xianyu_slider_stealth.login_with_password_playwright。
 // userDataDir：空字符串用临时目录，非空则持久化（跨次复用 session）。
 func (m *Manager) PasswordLogin(ctx context.Context, account, password, cookieID, userDataDir string, headless bool) (map[string]string, error) {
+	return m.passwordLogin(ctx, account, password, cookieID, userDataDir, headless, nil)
+}
+
+// PasswordLoginWithEvents 在密码登录过程中上报中间状态。
+func (m *Manager) PasswordLoginWithEvents(ctx context.Context, account, password, cookieID, userDataDir string, headless bool, onEvent PasswordLoginEventHandler) (map[string]string, error) {
+	return m.passwordLogin(ctx, account, password, cookieID, userDataDir, headless, onEvent)
+}
+
+func (m *Manager) passwordLogin(ctx context.Context, account, password, cookieID, userDataDir string, headless bool, onEvent PasswordLoginEventHandler) (map[string]string, error) {
 	if err := m.init(); err != nil {
 		return nil, err
 	}
@@ -37,14 +52,16 @@ func (m *Manager) PasswordLogin(ctx context.Context, account, password, cookieID
 	if userDataDir == "" {
 		userDataDir = filepath.Join("browser_data", "user_"+sanitize(cookieID))
 	}
+	headless = quickRenewHeadless(headless)
 
 	bctx, err := m.pw.Chromium.LaunchPersistentContext(userDataDir, playwright.BrowserTypeLaunchPersistentContextOptions{
-		Headless:   playwright.Bool(headless),
-		Args:       chromiumLaunchArgs(),
-		UserAgent:  playwright.String(defaultUA),
-		Viewport:   &playwright.Size{Width: 1980, Height: 1024},
-		Locale:     playwright.String(defaultLang),
-		TimezoneId: playwright.String(defaultTZ),
+		Headless:       playwright.Bool(headless),
+		Args:           chromiumLaunchArgs(),
+		ExecutablePath: chromiumExecutablePath(),
+		UserAgent:      playwright.String(defaultUA),
+		Viewport:       &playwright.Size{Width: 1980, Height: 1024},
+		Locale:         playwright.String(defaultLang),
+		TimezoneId:     playwright.String(defaultTZ),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("启动持久化浏览器失败: %w", err)
@@ -73,10 +90,31 @@ func (m *Manager) PasswordLogin(ctx context.Context, account, password, cookieID
 		return extractPageCookies(page)
 	}
 
+	if clickQuickEnter(page) {
+		m.logger.Info("密码登录：已点击[快速进入]，等待页面刷新", "cookieID", cookieID)
+		time.Sleep(quickRenewAfterClick)
+		cookies, err := extractPageCookies(page)
+		if err == nil && quickEnterCookiesUsable(cookies) {
+			m.logger.Info("密码登录：快速进入成功，跳过账号密码输入", "cookieID", cookieID)
+			return cookies, nil
+		}
+		m.logger.Info("密码登录：快速进入未获取到有效 Cookie，继续账号密码登录", "cookieID", cookieID)
+		if _, err := page.Goto(goofishIMURL, playwright.PageGotoOptions{
+			WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+			Timeout:   playwright.Float(30000),
+		}); err != nil {
+			m.logger.Warn("密码登录：快速进入失败后重新访问 IM 页面异常", "cookieID", cookieID, "err", err)
+		}
+		time.Sleep(2 * time.Second)
+	}
+
 	// 在主页和所有 iframe 中找登录表单。
 	idEl, pwdEl, submitEl := findLoginForm(page)
 	if idEl == nil {
 		return nil, fmt.Errorf("未找到登录表单，可能页面结构已变更")
+	}
+	if pwdEl == nil {
+		return nil, fmt.Errorf("未找到密码输入框，可能页面结构已变更")
 	}
 
 	if err := idEl.Click(); err == nil {
@@ -108,28 +146,168 @@ func (m *Manager) PasswordLogin(ctx context.Context, account, password, cookieID
 	}
 
 	if !checkLoginSuccess(page) {
-		// 采集错误信息。
-		errMsg := ""
-		if el, err := page.QuerySelector(".login-error-msg"); err == nil && el != nil {
-			errMsg, _ = el.TextContent()
-		}
-		if errMsg == "" {
-			c, _ := page.Content()
-			for _, kw := range []string{"账密错误", "账号密码错误", "用户名或密码错误", "密码错误"} {
-				if strings.Contains(c, kw) {
-					errMsg = kw
-					break
-				}
-			}
-		}
-		if errMsg == "" {
-			errMsg = "登录失败"
-		}
-		return nil, fmt.Errorf("密码登录失败: %s", errMsg)
+		return m.handlePasswordLoginPending(ctx, page, onEvent)
 	}
 
 	m.logger.Info("密码登录成功", "cookieID", cookieID)
 	return extractPageCookies(page)
+}
+
+func quickEnterCookiesUsable(cookies map[string]string) bool {
+	if len(cookies) == 0 {
+		return false
+	}
+	return strings.TrimSpace(cookies["unb"]) != ""
+}
+
+func (m *Manager) handlePasswordLoginPending(ctx context.Context, page playwright.Page, onEvent PasswordLoginEventHandler) (map[string]string, error) {
+	if msg := passwordLoginErrorFromPage(page); msg != "" {
+		if onEvent != nil {
+			onEvent(PasswordLoginEventFromMessage(msg))
+		}
+		return nil, fmt.Errorf("密码登录失败: %s", msg)
+	}
+	if event, ok := passwordBaxiaEventFromPage(page); ok {
+		if onEvent != nil {
+			onEvent(event)
+		}
+		return nil, fmt.Errorf("密码登录失败: %s", event.Message)
+	}
+	if event, ok := passwordVerificationEventFromPage(page); ok {
+		if onEvent != nil {
+			onEvent(event)
+		}
+		cookies, err := waitPasswordVerification(ctx, page, onEvent)
+		if err == nil {
+			m.logger.Info("密码登录人工验证完成")
+			return cookies, nil
+		}
+		return nil, err
+	}
+	errMsg := "登录失败"
+	if onEvent != nil {
+		onEvent(PasswordLoginEventFromMessage(errMsg))
+	}
+	return nil, fmt.Errorf("密码登录失败: %s", errMsg)
+}
+
+func waitPasswordVerification(ctx context.Context, page playwright.Page, onEvent PasswordLoginEventHandler) (map[string]string, error) {
+	ticker := time.NewTicker(passwordVerificationWaitInterval)
+	defer ticker.Stop()
+	timer := time.NewTimer(passwordVerificationMaxWait)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timer.C:
+			return nil, fmt.Errorf("密码登录失败: 人工验证超时")
+		case <-ticker.C:
+		}
+		if checkLoginSuccess(page) {
+			return extractPageCookies(page)
+		}
+		if msg := passwordLoginErrorFromPage(page); msg != "" {
+			return nil, fmt.Errorf("密码登录失败: %s", msg)
+		}
+		if event, ok := passwordBaxiaEventFromPage(page); ok {
+			return nil, fmt.Errorf("密码登录失败: %s", event.Message)
+		}
+		if event, ok := passwordVerificationEventFromPage(page); ok && onEvent != nil {
+			onEvent(event)
+		}
+	}
+}
+
+func passwordLoginErrorFromPage(page playwright.Page) string {
+	if el, err := page.QuerySelector(".login-error-msg"); err == nil && el != nil {
+		if msg, _ := el.TextContent(); strings.TrimSpace(msg) != "" {
+			return strings.TrimSpace(msg)
+		}
+	}
+	for _, htmlText := range passwordLoginHTMLs(page) {
+		if msg := detectPasswordLoginErrorHTML(htmlText); msg != "" {
+			return msg
+		}
+	}
+	return ""
+}
+
+func passwordBaxiaEventFromPage(page playwright.Page) (PasswordLoginEvent, bool) {
+	for _, htmlText := range passwordLoginHTMLs(page) {
+		if event, ok := detectPasswordBaxiaPunishHTML(htmlText); ok {
+			return event, true
+		}
+	}
+	return PasswordLoginEvent{}, false
+}
+
+func passwordVerificationEventFromPage(page playwright.Page) (PasswordLoginEvent, bool) {
+	if event, ok := passwordVerificationEventFromContent(pageContent(page), page.URL()); ok {
+		event.ScreenshotPath = firstNonEmptyString(event.ScreenshotPath, passwordVerificationScreenshot(page))
+		return event, true
+	}
+	for _, frame := range page.Frames() {
+		if event, ok := passwordVerificationEventFromContent(frameContent(frame), frame.URL()); ok {
+			event.ScreenshotPath = firstNonEmptyString(event.ScreenshotPath, passwordVerificationScreenshot(page))
+			return event, true
+		}
+	}
+	return PasswordLoginEvent{}, false
+}
+
+func passwordVerificationEventFromContent(htmlText, frameURL string) (PasswordLoginEvent, bool) {
+	event, ok := detectPasswordVerificationHTML(htmlText)
+	if !ok {
+		return PasswordLoginEvent{}, false
+	}
+	if event.VerificationURL == "" && looksLikeVerificationURL(frameURL) {
+		event.VerificationURL = frameURL
+	}
+	return event, true
+}
+
+func passwordLoginHTMLs(page playwright.Page) []string {
+	htmls := []string{pageContent(page)}
+	for _, frame := range page.Frames() {
+		htmls = append(htmls, frameContent(frame))
+	}
+	return htmls
+}
+
+func pageContent(page playwright.Page) string {
+	content, _ := page.Content()
+	return content
+}
+
+func frameContent(frame playwright.Frame) string {
+	content, _ := frame.Content()
+	return content
+}
+
+func passwordVerificationScreenshot(page playwright.Page) string {
+	raw, err := page.Screenshot(playwright.PageScreenshotOptions{
+		FullPage: playwright.Bool(true),
+		Timeout:  playwright.Float(5000),
+	})
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(raw)
+}
+
+func looksLikeVerificationURL(raw string) bool {
+	lower := strings.ToLower(raw)
+	return containsAny(lower, "passport", "verify", "photo", "iv/", "identity", "login", "qrcode")
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func checkLoginSuccess(page playwright.Page) bool {

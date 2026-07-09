@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,13 +20,14 @@ import (
 
 // 默认 UA、语言、时区与视口。
 const (
-	defaultUA    = xianyu.BrowserUA
-	defaultW     = 1920
-	defaultH     = 1080
-	defaultLang  = "zh-CN"
-	defaultTZ    = "Asia/Shanghai"
-	goofishDot   = ".goofish.com"
-	goofishIMURL = "https://www.goofish.com/im"
+	defaultUA      = xianyu.BrowserUA
+	defaultW       = 1920
+	defaultH       = 1080
+	defaultLang    = "zh-CN"
+	defaultTZ      = "Asia/Shanghai"
+	goofishDot     = ".goofish.com"
+	goofishHomeURL = "https://www.goofish.com/"
+	goofishIMURL   = "https://www.goofish.com/im"
 )
 
 // chromiumLaunchArgs 统一 Chromium 启动参数。
@@ -52,6 +55,22 @@ func chromiumLaunchArgs() []string {
 	}
 }
 
+func chromiumExecutablePath() *string {
+	if path := strings.TrimSpace(os.Getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")); path != "" {
+		return playwright.String(path)
+	}
+	return nil
+}
+
+func skipPlaywrightBrowserDownload() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 // Manager 管理浏览器生命周期与按账号复用的上下文池。
 type Manager struct {
 	pw     *playwright.Playwright
@@ -66,6 +85,10 @@ type Manager struct {
 	maxSize int
 	idleTTL time.Duration
 	creates singleflight.Group
+
+	renewMu    sync.Mutex
+	renewLocks map[string]*sync.Mutex
+	renewSlots chan struct{}
 
 	// 允许测试注入自定义 playwright / 安装函数。
 	installFn func() error
@@ -85,19 +108,51 @@ func NewManager(logger *slog.Logger) *Manager {
 		logger = slog.Default()
 	}
 	return &Manager{
-		logger:  logger,
-		pool:    make(map[string]*poolEntry),
-		maxSize: 3,
-		idleTTL: 5 * time.Minute,
+		logger:     logger,
+		pool:       make(map[string]*poolEntry),
+		maxSize:    3,
+		idleTTL:    5 * time.Minute,
+		renewLocks: make(map[string]*sync.Mutex),
+		renewSlots: make(chan struct{}, 3),
 		installFn: func() error {
-			return playwright.Install(&playwright.RunOptions{
+			opts := &playwright.RunOptions{
 				Browsers: []string{"chromium"},
 				Verbose:  false,
-			})
+			}
+			if skipPlaywrightBrowserDownload() {
+				opts.SkipInstallBrowsers = true
+			}
+			return playwright.Install(opts)
 		},
 		runFn: func() (*playwright.Playwright, error) {
 			return playwright.Run()
 		},
+	}
+}
+
+func (m *Manager) accountRenewLock(cookieID string) *sync.Mutex {
+	m.renewMu.Lock()
+	defer m.renewMu.Unlock()
+	if m.renewLocks == nil {
+		m.renewLocks = make(map[string]*sync.Mutex)
+	}
+	lock := m.renewLocks[cookieID]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		m.renewLocks[cookieID] = lock
+	}
+	return lock
+}
+
+func (m *Manager) acquireRenewSlot(ctx context.Context) (func(), error) {
+	if m.renewSlots == nil {
+		m.renewSlots = make(chan struct{}, 3)
+	}
+	select {
+	case m.renewSlots <- struct{}{}:
+		return func() { <-m.renewSlots }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }
 
@@ -202,8 +257,9 @@ func (m *Manager) acquireEntry(cookieID, cookieStr string, headless bool) (*pool
 
 func (m *Manager) createEntry(cookieID, cookieStr string, headless bool) (*poolEntry, error) {
 	browser, err := m.pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(headless),
-		Args:     chromiumLaunchArgs(),
+		Headless:       playwright.Bool(headless),
+		Args:           chromiumLaunchArgs(),
+		ExecutablePath: chromiumExecutablePath(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("启动 chromium 失败: %w", err)

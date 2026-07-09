@@ -71,11 +71,11 @@ func (s *Server) requireChannelOwner(w http.ResponseWriter, r *http.Request, cha
 		writeErr(w, http.StatusUnauthorized, "未授权访问")
 		return false
 	}
-	var exists int
+	var exists bool
 	err := s.Store.DB.QueryRowContext(r.Context(),
 		`SELECT EXISTS(SELECT 1 FROM notification_channels WHERE id=? AND user_id=?)`,
 		channelID, sess.UserID).Scan(&exists)
-	if err != nil || exists == 0 {
+	if err != nil || !exists {
 		writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
 		return false
 	}

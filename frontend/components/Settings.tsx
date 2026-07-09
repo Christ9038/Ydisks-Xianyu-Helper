@@ -223,25 +223,6 @@ const Settings: React.FC = () => {
 
               <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
                 <div>
-                  <div className="font-bold text-gray-900">登录滑动验证码</div>
-                  <div className="text-xs text-gray-500 mt-1">开启后账号密码登录需要完成滑动验证</div>
-                </div>
-                <button
-                  onClick={() => setSettings({...settings, login_captcha_enabled: !settings.login_captcha_enabled})}
-                  className={`w-14 h-8 rounded-full transition-all relative ${
-                    settings.login_captcha_enabled ? 'bg-[#0094f7]' : 'bg-gray-300'
-                  }`}
-                >
-                  <div
-                    className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-all shadow-md ${
-                      settings.login_captcha_enabled ? 'left-7' : 'left-1'
-                    }`}
-                  />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
-                <div>
                   <div className="font-bold text-gray-900">启用商品自动同步</div>
                   <div className="text-xs text-gray-500 mt-1">定时自动获取商品信息到本地数据库</div>
                 </div>

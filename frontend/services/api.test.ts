@@ -1,5 +1,19 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { getItems, getOrders, getShippingRules, getValidOrders, updateShippingRule } from './api';
+import {
+  addAccount,
+  cancelPasswordLogin,
+  checkPasswordLoginStatus,
+  getAccountDetails,
+  getItems,
+  getOrders,
+  getShippingRules,
+  getSystemSettings,
+  getValidOrders,
+  passwordLogin,
+  updateAccountCookie,
+  updateAccountLoginInfo,
+  updateShippingRule,
+} from './api';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -54,6 +68,110 @@ test('getItems normalizes multi-spec flags from backend values', async () => {
     is_multi_qty_ship: true,
     multi_quantity_delivery: true,
   });
+});
+
+test('getSystemSettings normalizes boolean strings', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+    registration_enabled: 'false',
+    show_default_login_info: 'true',
+    item_sync_enabled: '0',
+    ai_model: 'qwen-plus',
+  })));
+
+  const settings = await getSystemSettings();
+  expect(settings.registration_enabled).toBe(false);
+  expect(settings.show_default_login_info).toBe(true);
+  expect(settings.item_sync_enabled).toBe(false);
+  expect(settings.ai_model).toBe('qwen-plus');
+});
+
+test('account cookie APIs include login_method when provided', async () => {
+  const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ success: true })));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await addAccount('acc1', 'unb=acc1', 'qr_scan');
+  expect(fetchMock).toHaveBeenCalledWith('/cookies', expect.objectContaining({
+    method: 'POST',
+    credentials: 'include',
+  }));
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+    id: 'acc1',
+    value: 'unb=acc1',
+    login_method: 'qr_scan',
+  });
+
+  await updateAccountCookie('acc1', 'unb=acc1; x=1', 'qr_scan');
+  expect(fetchMock).toHaveBeenCalledWith('/cookies/acc1', expect.objectContaining({
+    method: 'PUT',
+    credentials: 'include',
+  }));
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+    id: 'acc1',
+    value: 'unb=acc1; x=1',
+    login_method: 'qr_scan',
+  });
+});
+
+test('getAccountDetails normalizes show_browser and never exposes password', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([{
+    id: 'acc1',
+    enabled: true,
+    auto_confirm: true,
+    remark: '主账号',
+    pause_duration: 0,
+    username: 'login-user',
+    show_browser: '1',
+    login_password: 'should-not-leak',
+  }])));
+
+  const accounts = await getAccountDetails();
+  expect(accounts[0]).toMatchObject({
+    id: 'acc1',
+    username: 'login-user',
+    show_browser: true,
+    login_password: '',
+  });
+});
+
+test('updateAccountLoginInfo sends exactly provided fields', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await updateAccountLoginInfo('acc1', { username: 'login-user', show_browser: false });
+  expect(fetchMock).toHaveBeenCalledWith('/cookies/acc1/login-info', expect.objectContaining({
+    method: 'PUT',
+    credentials: 'include',
+  }));
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+    username: 'login-user',
+    show_browser: false,
+  });
+});
+
+test('password login service uses upstream-compatible routes', async () => {
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ success: true, session_id: 'sid', status: 'processing' }))
+    .mockResolvedValueOnce(jsonResponse({ status: 'success', account_id: 'acc1', cookie_count: 2 }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await passwordLogin({ account_id: 'acc1', account: 'u', password: 'p' });
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/password-login', expect.objectContaining({
+    method: 'POST',
+    credentials: 'include',
+  }));
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+    account_id: 'acc1',
+    account: 'u',
+    password: 'p',
+  });
+
+  const status = await checkPasswordLoginStatus('sid');
+  expect(status.status).toBe('success');
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/password-login/check/sid', expect.objectContaining({ method: 'GET' }));
+
+  await cancelPasswordLogin('sid');
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/password-login/cancel/sid', expect.objectContaining({ method: 'DELETE' }));
 });
 
 test('getShippingRules exposes buyer reviewed gift rules as automation rules', async () => {

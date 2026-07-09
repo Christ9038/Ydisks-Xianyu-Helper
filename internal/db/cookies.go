@@ -108,11 +108,15 @@ func (c *Cookies) GetDetails(ctx context.Context, cookieID string) (*CookieDetai
 	var autoConfirm, showBrowser int
 	var pauseDuration sql.NullInt64
 	err := c.DB.QueryRowContext(ctx,
-		`SELECT id, value, user_id, auto_confirm, remark, pause_duration, username, password,
-		        show_browser, COALESCE(nickname,''), COALESCE(avatar_url,''), created_at
+		`SELECT id, value, user_id, auto_confirm, COALESCE(remark,''), pause_duration,
+		        COALESCE(username,''), COALESCE(password,''),
+		        show_browser, COALESCE(nickname,''), COALESCE(avatar_url,''),
+		        COALESCE(metadata_json,''), COALESCE(last_refresh_at,0),
+		        COALESCE(login_method,''), COALESCE(last_login_at,0), created_at
 		 FROM cookies WHERE id=?`, cookieID).Scan(
 		&d.ID, &d.Value, &d.UserID, &autoConfirm, &d.Remark, &pauseDuration,
-		&d.Username, &d.Password, &showBrowser, &d.Nickname, &d.AvatarURL, &d.CreatedAt)
+		&d.Username, &d.Password, &showBrowser, &d.Nickname, &d.AvatarURL,
+		&d.MetadataJSON, &d.LastRefreshAt, &d.LoginMethod, &d.LastLoginAt, &d.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
@@ -127,6 +131,30 @@ func (c *Cookies) GetDetails(ctx context.Context, cookieID string) (*CookieDetai
 		d.PauseDuration = int(pauseDuration.Int64)
 	}
 	return &d, nil
+}
+
+// UpdateLoginInfo 保存账号密码登录资料。
+func (c *Cookies) UpdateLoginInfo(ctx context.Context, cookieID, username, password string, showBrowser bool) error {
+	v := 0
+	if showBrowser {
+		v = 1
+	}
+	_, err := c.DB.ExecContext(ctx,
+		`UPDATE cookies
+		 SET username=?, password=?, show_browser=?, updated_at=CURRENT_TIMESTAMP
+		 WHERE id=?`,
+		username, password, v, cookieID)
+	return err
+}
+
+// MarkLogin 记录账号最近一次成功登录方式。
+func (c *Cookies) MarkLogin(ctx context.Context, cookieID, method string, loginAt int64) error {
+	_, err := c.DB.ExecContext(ctx,
+		`UPDATE cookies
+		 SET login_method=?, last_login_at=?, updated_at=CURRENT_TIMESTAMP
+		 WHERE id=?`,
+		method, loginAt, cookieID)
+	return err
 }
 
 // UpdateProfile 保存账号展示资料。
@@ -164,17 +192,23 @@ func (c *Cookies) GetAutoConfirm(ctx context.Context, cookieID string) (bool, er
 
 // SetStatus 启用/禁用账号（cookie_status 表）。
 func (c *Cookies) SetStatus(ctx context.Context, cookieID string, enabled bool) error {
+	return c.SetStatusWithReason(ctx, cookieID, enabled, "")
+}
+
+// SetStatusWithReason 启用/禁用账号并记录禁用原因。
+func (c *Cookies) SetStatusWithReason(ctx context.Context, cookieID string, enabled bool, reason string) error {
 	v := 0
 	if enabled {
 		v = 1
 	}
 	_, err := c.DB.ExecContext(ctx,
-		`INSERT INTO cookie_status (cookie_id, enabled, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`+
+		`INSERT INTO cookie_status (cookie_id, enabled, disable_reason, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`+
 			dialectUpsert(c.Dialect, []string{"cookie_id"}, map[string]string{
-				"enabled":    "EXCLUDED.enabled",
-				"updated_at": "CURRENT_TIMESTAMP",
+				"enabled":        "EXCLUDED.enabled",
+				"disable_reason": "EXCLUDED.disable_reason",
+				"updated_at":     "CURRENT_TIMESTAMP",
 			}),
-		cookieID, v)
+		cookieID, v, reason)
 	return err
 }
 

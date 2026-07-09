@@ -22,6 +22,8 @@ type Store struct {
 	WSMessages     *WSMessageStore
 	PublishBatches *ItemPublishBatches
 	Tokens         *AccountTokens
+	Renewal        *RenewalStore
+	LoginLogs      *AccountLoginLogs
 }
 
 // NewStore 基于 *sql.DB 构造聚合 store。dialect 用于业务 SQL 方言分支。
@@ -45,5 +47,7 @@ func NewStore(db *sql.DB, dialect Dialect) *Store {
 		WSMessages:     &WSMessageStore{DB: db},
 		PublishBatches: &ItemPublishBatches{DB: db},
 		Tokens:         &AccountTokens{DB: db, Dialect: dialect},
+		Renewal:        &RenewalStore{DB: db, Dialect: dialect},
+		LoginLogs:      &AccountLoginLogs{DB: db},
 	}
 }

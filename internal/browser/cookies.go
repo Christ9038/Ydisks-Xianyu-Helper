@@ -7,7 +7,11 @@ import (
 	"time"
 
 	"github.com/playwright-community/playwright-go"
+
+	"xianyu-go/internal/xianyu/cookierefresh"
 )
+
+var cookieDomains = []string{".goofish.com", ".taobao.com", ".alipay.com"}
 
 // parseCookieStr 把 "k=v; k2=v2" 解析为 map。
 func parseCookieStr(s string) map[string]string {
@@ -35,7 +39,7 @@ func MarshalCookies(m map[string]string) string {
 	return cookieMarshal(m)
 }
 
-// parseCookieStrToPlaywright 把 cookie 字符串转成 playwright OptionalCookie（domain .goofish.com）。
+// parseCookieStrToPlaywright 把 cookie 字符串转成 playwright OptionalCookie。
 func parseCookieStrToPlaywright(s string) []playwright.OptionalCookie {
 	var cookies []playwright.OptionalCookie
 	for _, part := range strings.Split(s, ";") {
@@ -46,15 +50,72 @@ func parseCookieStrToPlaywright(s string) []playwright.OptionalCookie {
 			if name == "" {
 				continue
 			}
-			cookies = append(cookies, playwright.OptionalCookie{
-				Name:   name,
-				Value:  value,
-				Domain: playwright.String(goofishDot),
-				Path:   playwright.String("/"),
-			})
+			for _, domain := range cookieDomains {
+				cookies = append(cookies, playwright.OptionalCookie{
+					Name:   name,
+					Value:  value,
+					Domain: playwright.String(domain),
+					Path:   playwright.String("/"),
+				})
+			}
 		}
 	}
 	return cookies
+}
+
+func snapshotToOptionalCookies(snapshot []cookierefresh.BrowserCookie) []playwright.OptionalCookie {
+	var out []playwright.OptionalCookie
+	for _, c := range cookierefresh.NormalizeSnapshot(snapshot) {
+		domain := c.Domain
+		if domain == "" {
+			domain = goofishDot
+		}
+		path := c.Path
+		if path == "" {
+			path = "/"
+		}
+		oc := playwright.OptionalCookie{
+			Name:     c.Name,
+			Value:    c.Value,
+			Domain:   playwright.String(domain),
+			Path:     playwright.String(path),
+			HttpOnly: playwright.Bool(c.HTTPOnly),
+			Secure:   playwright.Bool(c.Secure),
+		}
+		if c.Expires > 0 {
+			oc.Expires = playwright.Float(c.Expires)
+		}
+		switch c.SameSite {
+		case "Strict":
+			oc.SameSite = playwright.SameSiteAttributeStrict
+		case "Lax":
+			oc.SameSite = playwright.SameSiteAttributeLax
+		case "None":
+			oc.SameSite = playwright.SameSiteAttributeNone
+		}
+		out = append(out, oc)
+	}
+	return out
+}
+
+func cookieSnapshotFromPlaywright(cs []playwright.Cookie) []cookierefresh.BrowserCookie {
+	out := make([]cookierefresh.BrowserCookie, 0, len(cs))
+	for _, c := range cs {
+		bc := cookierefresh.BrowserCookie{
+			Name:     c.Name,
+			Value:    c.Value,
+			Domain:   c.Domain,
+			Path:     c.Path,
+			Expires:  c.Expires,
+			HTTPOnly: c.HttpOnly,
+			Secure:   c.Secure,
+		}
+		if c.SameSite != nil {
+			bc.SameSite = string(*c.SameSite)
+		}
+		out = append(out, bc)
+	}
+	return cookierefresh.NormalizeSnapshot(out)
 }
 
 // cookiesToMap 把 playwright Cookie 切片转成 map。

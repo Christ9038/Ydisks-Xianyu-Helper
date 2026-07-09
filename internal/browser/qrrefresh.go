@@ -26,8 +26,9 @@ func (m *Manager) QRCookieRefresh(ctx context.Context, tmpCookies, verificationU
 
 	// QR 刷新不复用账号池：一次性上下文，注入临时 cookie，访问后提取。
 	browser, err := m.pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(true),
-		Args:     chromiumLaunchArgs(),
+		Headless:       playwright.Bool(true),
+		Args:           chromiumLaunchArgs(),
+		ExecutablePath: chromiumExecutablePath(),
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("启动 chromium 失败: %w", err)

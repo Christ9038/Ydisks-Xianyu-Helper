@@ -22,15 +22,22 @@ func TestParseCookieStrRoundTrip(t *testing.T) {
 
 func TestParseCookieStrToPlaywright(t *testing.T) {
 	cookies := parseCookieStrToPlaywright("a=1; b=2")
-	if len(cookies) != 2 {
-		t.Fatalf("应解析 2 个 cookie，got %d", len(cookies))
+	if len(cookies) != 2*len(cookieDomains) {
+		t.Fatalf("应按多个域名注入 cookie，got %d", len(cookies))
 	}
+	domains := make(map[string]bool)
 	for _, c := range cookies {
-		if c.Domain == nil || *c.Domain != goofishDot {
-			t.Fatalf("domain 应为 %s: %+v", goofishDot, c.Domain)
+		if c.Domain == nil {
+			t.Fatalf("domain 不能为空: %+v", c.Domain)
 		}
+		domains[*c.Domain] = true
 		if c.Path == nil || *c.Path != "/" {
 			t.Fatalf("path 应为 /: %+v", c.Path)
+		}
+	}
+	for _, domain := range cookieDomains {
+		if !domains[domain] {
+			t.Fatalf("缺少 domain %s: %+v", domain, domains)
 		}
 	}
 }

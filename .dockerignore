@@ -1,0 +1,14 @@
+.git
+.gitignore
+data
+browser_data
+frontend/node_modules
+frontend/dist
+internal/webui/static
+server
+xianyu-server
+init-admin
+*.db
+*.sqlite
+*.sqlite3
+cover.out

@@ -331,8 +331,9 @@ func (s *Server) mountUserReal(r chi.Router) {
 
 func (s *Server) listUserSettings(w http.ResponseWriter, r *http.Request) {
 	sess := authSess(r)
+	keyCol := db.DialectQuote(s.Store.Dialect, "key")
 	rows, err := s.Store.DB.QueryContext(r.Context(),
-		`SELECT key, value FROM user_settings WHERE user_id=?`, sess.UserID)
+		`SELECT `+keyCol+`, value FROM user_settings WHERE user_id=?`, sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
@@ -356,8 +357,9 @@ func (s *Server) getUserSetting(w http.ResponseWriter, r *http.Request) {
 	sess := authSess(r)
 	key := chi.URLParam(r, "key")
 	var v string
+	keyCol := db.DialectQuote(s.Store.Dialect, "key")
 	err := s.Store.DB.QueryRowContext(r.Context(),
-		`SELECT value FROM user_settings WHERE user_id=? AND key=?`, sess.UserID, key).Scan(&v)
+		`SELECT value FROM user_settings WHERE user_id=? AND `+keyCol+`=?`, sess.UserID, key).Scan(&v)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"value": ""})
 		return

@@ -7,8 +7,8 @@
    mask 让容器背景色（蓝）也裁成超椭圆形状。
    shadow 改用 filter:drop-shadow，跟随 mask 后的实际形状（box-shadow 会被 mask 裁掉）。 */
 .squircle {
-  -webkit-mask-image: url(/static/squircle.svg);
-  mask-image: url(/static/squircle.svg);
+  -webkit-mask-image: url('./assets/squircle.svg');
+  mask-image: url('./assets/squircle.svg');
   -webkit-mask-size: contain;
   mask-size: contain;
   -webkit-mask-repeat: no-repeat;

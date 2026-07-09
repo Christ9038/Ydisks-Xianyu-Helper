@@ -14,6 +14,8 @@ import (
 	"xianyu-go/internal/xianyu/protocol"
 )
 
+const tokenRetryGap = 500 * time.Millisecond
+
 // RefreshToken 调用 mtop.taobao.idlemessage.pc.login.token 获取 accessToken。
 // 遇到 mtop 签名 token 过期时，仅在响应下发了新 Cookie 后低频重试一次。
 func (c *ClientImpl) RefreshToken(cookiesStr string) (*RefreshResult, error) {
@@ -50,7 +52,7 @@ func (c *ClientImpl) RefreshTokenWithDeviceIDContext(ctx context.Context, cookie
 			return &RefreshResult{UpdatedCookies: updatedCookies}, fmt.Errorf("token API 登录凭证已失效: ret=%v (status=%d)", ret, status)
 		}
 		currentCookies = updatedCookies
-		if err := sleepCtx(ctx, MTopRetryGap); err != nil {
+		if err := sleepCtx(ctx, tokenRetryGap); err != nil {
 			return &RefreshResult{UpdatedCookies: currentCookies}, err
 		}
 	}

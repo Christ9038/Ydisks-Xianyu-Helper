@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -28,20 +29,42 @@ import (
 	"xianyu-go/internal/xianyu/qrlogin"
 )
 
+type qrLoginService interface {
+	GenerateQRCode(ctx context.Context) (sessionID string, qrCodeURL string, err error)
+	GetSessionStatus(sessionID string) map[string]any
+	CompleteVerification(ctx context.Context, sessionID string) (cookies string, unb string, err error)
+}
+
+type qrLoginPersistence struct {
+	AccountID string
+	IsNew     bool
+}
+
 // Server 聚合 HTTP 服务依赖。Automation 与 Notifier 由构造函数注入，
 // 不再允许外部直接改字段，避免运行时被替换成 nil。
 type Server struct {
-	Store      *db.Store
-	Auth       *auth.Service
-	Manager    *account.Manager
-	automation *automation.Center
-	Browser    *browser.Manager
-	notifier   *notify.Notifier
-	MTop       mtop.Client
-	QRLogin    *qrlogin.Manager
-	Logger     *slog.Logger
-	WebDir     string // 前端静态资源目录（含 index.html）
-	Addr       string
+	Store         *db.Store
+	Auth          *auth.Service
+	Manager       *account.Manager
+	automation    *automation.Center
+	Browser       *browser.Manager
+	PasswordLogin passwordLoginRunner
+	notifier      *notify.Notifier
+	MTop          mtop.Client
+	QRLogin       qrLoginService
+	Logger        *slog.Logger
+	WebDir        string // 前端静态资源目录（含 index.html）
+	Addr          string
+
+	publishMu      sync.Mutex
+	publishCancels map[string]context.CancelFunc
+
+	passwordMu         sync.Mutex
+	passwordSessions   map[string]*passwordLoginSession
+	passwordProcessing map[string]string
+
+	qrMu        sync.Mutex
+	qrPersisted map[string]qrLoginPersistence
 }
 
 // New 构造。autoCenter/notifier 由调用方完成创建后注入（创建顺序：
@@ -57,18 +80,31 @@ func New(store *db.Store, manager *account.Manager, bm *browser.Manager, secure 
 		})
 	}
 	return &Server{
-		Store:      store,
-		Auth:       &auth.Service{Store: store, Logger: logger, Secure: secure},
-		Manager:    manager,
-		automation: autoCenter,
-		Browser:    bm,
-		notifier:   notifier,
-		MTop:       mtop.NewClient(),
-		QRLogin:    qrMgr,
-		Logger:     logger,
-		WebDir:     webDir,
-		Addr:       addr,
+		Store:         store,
+		Auth:          &auth.Service{Store: store, Logger: logger, Secure: secure},
+		Manager:       manager,
+		automation:    autoCenter,
+		Browser:       bm,
+		PasswordLogin: passwordLoginRunnerForBrowser(bm),
+		notifier:      notifier,
+		MTop:          mtop.NewClient(),
+		QRLogin:       qrMgr,
+		Logger:        logger,
+		WebDir:        webDir,
+		Addr:          addr,
+
+		publishCancels:     make(map[string]context.CancelFunc),
+		passwordSessions:   make(map[string]*passwordLoginSession),
+		passwordProcessing: make(map[string]string),
+		qrPersisted:        make(map[string]qrLoginPersistence),
 	}
+}
+
+func passwordLoginRunnerForBrowser(bm *browser.Manager) passwordLoginRunner {
+	if bm == nil {
+		return nil
+	}
+	return bm
 }
 
 // mtopClient 返回注入的 mtop 客户端；未注入时退回默认 HTTP 实现（保证零值可用）。
@@ -110,6 +146,8 @@ func (s *Server) Router() http.Handler {
 		s.mountCookies(r)
 		// 扫码登录
 		s.mountQRLoginReal(r)
+		// 密码登录
+		s.mountPasswordLogin(r)
 		// 订单
 		s.mountOrdersReal(r)
 		// 订单分析（仪表盘）
@@ -275,7 +313,7 @@ func isAPIPath(path string) bool {
 		"/system-settings", "/ai-reply", "/ai-models",
 		"/user-settings",
 		"/item-reply", "/itemReplays",
-		"/qr-login",
+		"/qr-login", "/password-login",
 		"/static/", // 静态资源（由 /static/* handler 处理，不进 catch-all）
 	}
 	for _, p := range apiPrefixes {

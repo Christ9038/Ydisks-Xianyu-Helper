@@ -401,6 +401,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
       case 'success': return '成功';
       case 'failed': return '失败';
       case 'completed': return '已完成';
+      case 'partially_failed': return '部分失败';
       case 'canceled': return '已取消';
       default: return status || '-';
     }
@@ -411,6 +412,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
       case 'success':
       case 'completed':
         return 'bg-emerald-50 text-emerald-700 border-emerald-100';
+      case 'partially_failed':
       case 'failed':
         return 'bg-red-50 text-red-700 border-red-100';
       case 'running':

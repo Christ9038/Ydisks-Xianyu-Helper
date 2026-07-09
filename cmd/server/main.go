@@ -29,6 +29,7 @@ import (
 	"xianyu-go/internal/browser"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/notify"
+	"xianyu-go/internal/renewal"
 	"xianyu-go/internal/server"
 )
 
@@ -105,6 +106,7 @@ func main() {
 		logger.Error("启动账号引擎失败", "err", err)
 	}
 	go automation.NewScheduler(autoCenter).Run(ctx)
+	go renewal.NewScheduler(store, mgr, bm, ap, logger).Run(ctx)
 
 	// 3) HTTP 服务。
 	srv := server.New(store, mgr, bm, *secure, *webDir, *addr, logger, autoCenter, notifier)
