@@ -59,6 +59,28 @@ func (c *ClientImpl) RefreshTokenWithDeviceIDContext(ctx context.Context, cookie
 	return &RefreshResult{UpdatedCookies: currentCookies}, fmt.Errorf("token API 登录凭证已失效")
 }
 
+// RequestFreshCaptchaURLContext 重新请求 token API，用于浏览器风控验证前获取新鲜验证链接。
+// 如果风控已解除并直接返回 accessToken，则 TokenOK=true。
+func (c *ClientImpl) RequestFreshCaptchaURLContext(ctx context.Context, cookiesStr, deviceID string) (*FreshCaptchaResult, error) {
+	accessToken, ret, updatedCookies, verificationURL, _, err := c.refreshTokenOnce(ctx, cookiesStr, deviceID)
+	if err != nil {
+		return &FreshCaptchaResult{UpdatedCookies: updatedCookies}, err
+	}
+	if accessToken != "" {
+		return &FreshCaptchaResult{
+			TokenOK:        true,
+			AccessToken:    accessToken,
+			UpdatedCookies: updatedCookies,
+			Ret:            ret,
+		}, nil
+	}
+	return &FreshCaptchaResult{
+		UpdatedCookies:  updatedCookies,
+		VerificationURL: verificationURL,
+		Ret:             ret,
+	}, nil
+}
+
 func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID string) (string, []string, string, string, int, error) {
 	hc := c.HTTPClient
 	if hc == nil {

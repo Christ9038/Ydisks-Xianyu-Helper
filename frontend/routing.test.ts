@@ -26,6 +26,76 @@ describe('frontend navigation routing', () => {
     expect([...sidebarIDs].sort()).toEqual([...appRouteIDs].sort());
   });
 
+  test('logout button invalidates the backend session before clearing UI state', () => {
+    const app = readFrontendFile('App.tsx');
+
+    expect(app).toContain('import { login, logout, verifySession }');
+    expect(app).toContain('await logout();');
+    expect(app).toContain('onLogout={handleLogout}');
+  });
+
+  test('settings page does not expose backend-inactive system controls', () => {
+    const settings = readFrontendFile('components/Settings.tsx');
+
+    expect(settings).not.toContain('允许用户注册');
+    expect(settings).not.toContain('显示默认登录信息');
+    expect(settings).not.toContain('启用商品自动同步');
+    expect(settings).not.toContain('商品同步间隔');
+    expect(settings).not.toContain('默认自动回复内容');
+    expect(settings).toContain('SETTINGS_SAVE_OMIT_KEYS');
+    expect(settings).toContain('保存后需重启服务生效');
+  });
+
+  test('admin-only settings navigation is gated by session role', () => {
+    const app = readFrontendFile('App.tsx');
+    const sidebar = readFrontendFile('components/Sidebar.tsx');
+    const settings = readFrontendFile('components/Settings.tsx');
+
+    expect(app).toContain('const [isAdmin, setIsAdmin] = useState(false)');
+    expect(app).toContain('setIsAdmin(res.is_admin === true)');
+    expect(app).toContain("activeTab === 'settings'");
+    expect(app).toContain('isAdmin ? <Settings /> : <Dashboard />');
+    expect(sidebar).toContain('isAdmin = false');
+    expect(sidebar).toContain("...(isAdmin ? [{ id: 'settings'");
+    expect(settings).toContain('setLoadError');
+  });
+
+  test('email notification config uses backend recipient field names', () => {
+    const notifications = readFrontendFile('components/Notifications.tsx');
+
+    expect(notifications).toContain('interface NotificationsProps');
+    expect(notifications).toContain('isAdmin && (');
+    expect(notifications).toContain("key: 'to_email'");
+    expect(notifications).toContain('留空时使用上方系统级 SMTP 配置');
+    expect(notifications).not.toContain("key: 'from'");
+    expect(notifications).not.toContain('注册验证码');
+  });
+
+  test('keyword reply UI matches contains-based backend behavior', () => {
+    const rules = readFrontendFile('components/Rules.tsx');
+
+    expect(rules).toContain('包含匹配');
+    expect(rules).not.toContain('精确匹配');
+    expect(rules).not.toContain('模糊包含');
+    expect(rules).not.toContain('匹配类型');
+  });
+
+  test('vite proxy does not advertise removed backend routes', () => {
+    const vite = readFrontendFile('vite.config.ts');
+
+    for (const staleRoute of [
+      '/backup',
+      '/logs',
+      '/register',
+      '/generate-captcha',
+      '/verify-captcha',
+      '/geetest',
+      '/send-verification-code',
+    ]) {
+      expect(vite).not.toContain(`'${staleRoute}'`);
+    }
+  });
+
   test('item delivery shortcut opens existing automation rule modal', () => {
     const rules = readFrontendFile('components/Rules.tsx');
     const existingRuleBranch = rules.match(/if \(rule\) \{([\s\S]*?)\} else \{/);
@@ -56,5 +126,14 @@ describe('frontend navigation routing', () => {
     expect(itemList).toContain('“付款后发送的卡密”怎么填');
     expect(itemList).toContain('101:1:0;102:2:3');
     expect(itemList).toContain('买家购买 3 件时会发送 6 份');
+  });
+
+  test('item publish image previews revoke object urls', () => {
+    const itemList = readFrontendFile('components/ItemList.tsx');
+
+    expect(itemList).toContain('setPublishImagePreviews');
+    expect(itemList).toContain('URL.createObjectURL(file)');
+    expect(itemList).toContain('URL.revokeObjectURL(preview.url)');
+    expect(itemList).not.toContain('src={URL.createObjectURL(file)}');
   });
 });

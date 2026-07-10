@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -37,17 +38,18 @@ func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 	sess := authSess(r)
 	var req struct {
-		Name    string `json:"name"`
-		Type    string `json:"type"`
-		Config  string `json:"config"`
-		Enabled bool   `json:"enabled"`
+		Name       string `json:"name"`
+		Type       string `json:"type"`
+		Config     string `json:"config"`
+		EventTypes string `json:"event_types"`
+		Enabled    bool   `json:"enabled"`
 	}
 	if err := decodeJSON(r, &req); err != nil || req.Name == "" || req.Type == "" {
 		writeErr(w, http.StatusBadRequest, "name 和 type 必填")
 		return
 	}
 	id, err := s.Store.Notifications.CreateChannel(r.Context(), &db.NotificationChannelRow{
-		Name: req.Name, Type: req.Type, Config: req.Config, Enabled: req.Enabled, UserID: sess.UserID,
+		Name: req.Name, Type: req.Type, Config: req.Config, EventTypes: req.EventTypes, Enabled: req.Enabled, UserID: sess.UserID,
 	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "创建失败")
@@ -63,21 +65,50 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Name    string `json:"name"`
-		Type    string `json:"type"`
-		Config  string `json:"config"`
-		Enabled bool   `json:"enabled"`
+		Name       *string `json:"name"`
+		Type       *string `json:"type"`
+		Config     *string `json:"config"`
+		EventTypes *string `json:"event_types"`
+		Enabled    *bool   `json:"enabled"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	if !s.requireChannelOwner(w, r, id) {
+	sess := authSess(r)
+	row, err := s.Store.Notifications.GetChannelRowForUser(r.Context(), id, sess.UserID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	if err := s.Store.Notifications.UpdateChannel(r.Context(), &db.NotificationChannelRow{
-		ID: id, Name: req.Name, Type: req.Type, Config: req.Config, Enabled: req.Enabled,
-	}); err != nil {
+	if row == nil {
+		writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
+		return
+	}
+	if req.Name != nil {
+		row.Name = *req.Name
+	}
+	if req.Type != nil {
+		row.Type = *req.Type
+	}
+	if req.Config != nil {
+		row.Config = *req.Config
+	}
+	if req.EventTypes != nil {
+		row.EventTypes = *req.EventTypes
+	}
+	if req.Enabled != nil {
+		row.Enabled = *req.Enabled
+	}
+	if row.Name == "" || row.Type == "" {
+		writeErr(w, http.StatusBadRequest, "name 和 type 必填")
+		return
+	}
+	if err := s.Store.Notifications.UpdateChannelForUser(r.Context(), row, sess.UserID); err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
@@ -90,10 +121,12 @@ func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "无效ID")
 		return
 	}
-	if !s.requireChannelOwner(w, r, id) {
-		return
-	}
-	if err := s.Store.Notifications.DeleteChannel(r.Context(), id); err != nil {
+	sess := authSess(r)
+	if err := s.Store.Notifications.DeleteChannelForUser(r.Context(), id, sess.UserID); err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}

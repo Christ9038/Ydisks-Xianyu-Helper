@@ -443,24 +443,64 @@ func (s *Server) updateItem(w http.ResponseWriter, r *http.Request) {
 	}
 	itemID := chi.URLParam(r, "item_id")
 	var req struct {
-		ItemTitle             string `json:"item_title"`
-		ItemDescription       string `json:"item_description"`
-		ItemCategory          string `json:"item_category"`
-		ItemPrice             string `json:"item_price"`
-		ItemDetail            string `json:"item_detail"`
-		IsMultiSpec           bool   `json:"is_multi_spec"`
-		MultiQuantityDelivery bool   `json:"multi_quantity_delivery"`
-		IsMultiQtyShip        bool   `json:"is_multi_qty_ship"`
+		ItemTitle             *string `json:"item_title"`
+		ItemDescription       *string `json:"item_description"`
+		ItemCategory          *string `json:"item_category"`
+		ItemPrice             *string `json:"item_price"`
+		ItemDetail            *string `json:"item_detail"`
+		IsMultiSpec           *bool   `json:"is_multi_spec"`
+		MultiQuantityDelivery *bool   `json:"multi_quantity_delivery"`
+		IsMultiQtyShip        *bool   `json:"is_multi_qty_ship"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	if err := s.Store.Items.Upsert(r.Context(), &db.ItemInfoRow{
-		CookieID: cid, ItemID: itemID, ItemTitle: req.ItemTitle, ItemDescription: req.ItemDescription,
-		ItemCategory: req.ItemCategory, ItemPrice: req.ItemPrice, ItemDetail: req.ItemDetail,
-		IsMultiSpec: req.IsMultiSpec, MultiQuantityDelivery: req.MultiQuantityDelivery || req.IsMultiQtyShip,
-	}); err != nil {
+	existing, err := s.Store.Items.Get(r.Context(), cid, itemID)
+	if errors.Is(err, db.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "商品不存在")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "更新失败")
+		return
+	}
+	row := &db.ItemInfoRow{
+		CookieID:              cid,
+		ItemID:                itemID,
+		ItemTitle:             existing.ItemTitle,
+		ItemDescription:       existing.ItemDescription,
+		ItemCategory:          existing.ItemCategory,
+		ItemPrice:             existing.ItemPrice,
+		ItemDetail:            existing.ItemDetail,
+		IsMultiSpec:           existing.IsMultiSpec,
+		MultiQuantityDelivery: existing.MultiQuantityDelivery,
+	}
+	if req.ItemTitle != nil {
+		row.ItemTitle = *req.ItemTitle
+	}
+	if req.ItemDescription != nil {
+		row.ItemDescription = *req.ItemDescription
+	}
+	if req.ItemCategory != nil {
+		row.ItemCategory = *req.ItemCategory
+	}
+	if req.ItemPrice != nil {
+		row.ItemPrice = *req.ItemPrice
+	}
+	if req.ItemDetail != nil {
+		row.ItemDetail = *req.ItemDetail
+	}
+	if req.IsMultiSpec != nil {
+		row.IsMultiSpec = *req.IsMultiSpec
+	}
+	if req.MultiQuantityDelivery != nil {
+		row.MultiQuantityDelivery = *req.MultiQuantityDelivery
+	}
+	if req.IsMultiQtyShip != nil {
+		row.MultiQuantityDelivery = *req.IsMultiQtyShip
+	}
+	if err := s.Store.Items.Upsert(r.Context(), row); err != nil {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}

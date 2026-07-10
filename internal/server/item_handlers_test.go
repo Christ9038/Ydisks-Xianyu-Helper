@@ -429,7 +429,11 @@ func TestItemCRUD(t *testing.T) {
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	ctx := context.Background()
-	store.DB.ExecContext(ctx, `INSERT INTO item_info (cookie_id, item_id, item_title) VALUES ('acc1','it-crud','商品C')`)
+	if _, err := store.DB.ExecContext(ctx, `INSERT INTO item_info
+		(cookie_id, item_id, item_title, item_description, item_category, item_price, item_detail, is_multi_spec, multi_quantity_delivery)
+		VALUES ('acc1','it-crud','商品C','原描述','原分类','12.00','原详情',1,1)`); err != nil {
+		t.Fatalf("seed item: %v", err)
+	}
 	h := srv.Router()
 	cookie := loginHelper(t, h)
 
@@ -464,6 +468,61 @@ func TestItemCRUD(t *testing.T) {
 	h.ServeHTTP(rec3, req3)
 	if rec3.Code != 200 {
 		t.Fatalf("update status=%d body=%s", rec3.Code, rec3.Body.String())
+	}
+	updated, err := store.Items.Get(ctx, "acc1", "it-crud")
+	if err != nil {
+		t.Fatalf("get updated item: %v", err)
+	}
+	if updated.ItemTitle != "改名商品" || updated.ItemPrice != "88.00" {
+		t.Fatalf("update text fields failed: %+v", updated)
+	}
+	if updated.ItemDescription != "原描述" || updated.ItemCategory != "原分类" || updated.ItemDetail != "原详情" {
+		t.Fatalf("omitted text fields should be preserved: %+v", updated)
+	}
+	if !updated.IsMultiSpec || !updated.MultiQuantityDelivery {
+		t.Fatalf("omitted multi flags should be preserved: %+v", updated)
+	}
+
+	// 显式传空字符串时允许清空文本字段。
+	clearBody := `{"item_description":""}`
+	reqClear := httptest.NewRequest(http.MethodPut, "/items/acc1/it-crud", strings.NewReader(clearBody))
+	reqClear.AddCookie(cookie)
+	recClear := httptest.NewRecorder()
+	h.ServeHTTP(recClear, reqClear)
+	if recClear.Code != 200 {
+		t.Fatalf("clear text status=%d body=%s", recClear.Code, recClear.Body.String())
+	}
+	updated, err = store.Items.Get(ctx, "acc1", "it-crud")
+	if err != nil {
+		t.Fatalf("get cleared item: %v", err)
+	}
+	if updated.ItemDescription != "" || updated.ItemCategory != "原分类" || updated.ItemDetail != "原详情" {
+		t.Fatalf("explicit empty text should clear only requested field: %+v", updated)
+	}
+
+	// 显式传 false 时仍允许清除布尔配置。
+	updFlagsBody := `{"item_title":"改名商品","item_price":"88.00","is_multi_spec":false,"is_multi_qty_ship":false}`
+	reqFlags := httptest.NewRequest(http.MethodPut, "/items/acc1/it-crud", strings.NewReader(updFlagsBody))
+	reqFlags.AddCookie(cookie)
+	recFlags := httptest.NewRecorder()
+	h.ServeHTTP(recFlags, reqFlags)
+	if recFlags.Code != 200 {
+		t.Fatalf("update flags status=%d body=%s", recFlags.Code, recFlags.Body.String())
+	}
+	updated, err = store.Items.Get(ctx, "acc1", "it-crud")
+	if err != nil {
+		t.Fatalf("get updated flags item: %v", err)
+	}
+	if updated.IsMultiSpec || updated.MultiQuantityDelivery {
+		t.Fatalf("explicit false flags should be persisted: %+v", updated)
+	}
+
+	reqMissing := httptest.NewRequest(http.MethodPut, "/items/acc1/missing-item", strings.NewReader(`{"item_title":"不会创建"}`))
+	reqMissing.AddCookie(cookie)
+	recMissing := httptest.NewRecorder()
+	h.ServeHTTP(recMissing, reqMissing)
+	if recMissing.Code != http.StatusNotFound {
+		t.Fatalf("missing item update should be 404, got %d body=%s", recMissing.Code, recMissing.Body.String())
 	}
 
 	// 多规格 + 多件发货。

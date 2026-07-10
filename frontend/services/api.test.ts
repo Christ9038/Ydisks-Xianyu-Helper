@@ -3,15 +3,21 @@ import {
   addAccount,
   cancelPasswordLogin,
   checkPasswordLoginStatus,
+  createNotificationChannel,
   getAccountDetails,
   getItems,
   getOrders,
+  getReplyRules,
   getShippingRules,
   getSystemSettings,
   getValidOrders,
+  logout,
   passwordLogin,
+  updateReplyRule,
   updateAccountCookie,
   updateAccountLoginInfo,
+  updateItem,
+  updateNotificationChannel,
   updateShippingRule,
 } from './api';
 
@@ -70,19 +76,27 @@ test('getItems normalizes multi-spec flags from backend values', async () => {
   });
 });
 
-test('getSystemSettings normalizes boolean strings', async () => {
+test('getSystemSettings normalizes numeric renewal retention', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
-    registration_enabled: 'false',
-    show_default_login_info: 'true',
-    item_sync_enabled: '0',
     ai_model: 'qwen-plus',
+    renewal_log_retention_days: 'invalid',
   })));
 
   const settings = await getSystemSettings();
-  expect(settings.registration_enabled).toBe(false);
-  expect(settings.show_default_login_info).toBe(true);
-  expect(settings.item_sync_enabled).toBe(false);
   expect(settings.ai_model).toBe('qwen-plus');
+  expect(settings.renewal_log_retention_days).toBe(10);
+});
+
+test('logout calls backend session invalidation route', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await logout();
+  expect(fetchMock).toHaveBeenCalledWith('/logout', expect.objectContaining({
+    method: 'POST',
+    credentials: 'include',
+  }));
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({});
 });
 
 test('account cookie APIs include login_method when provided', async () => {
@@ -148,6 +162,32 @@ test('updateAccountLoginInfo sends exactly provided fields', async () => {
   });
 });
 
+test('updateAccountLoginInfo can request explicit password clearing', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await updateAccountLoginInfo('acc1', { username: 'login-user', clear_password: true, show_browser: false });
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+    username: 'login-user',
+    clear_password: true,
+    show_browser: false,
+  });
+});
+
+test('updateItem sends only the fields selected by the editor', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await updateItem('acc1', 'item1', { item_title: '改名商品' });
+  expect(fetchMock).toHaveBeenCalledWith('/items/acc1/item1', expect.objectContaining({
+    method: 'PUT',
+    credentials: 'include',
+  }));
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+    item_title: '改名商品',
+  });
+});
+
 test('password login service uses upstream-compatible routes', async () => {
   const fetchMock = vi.fn()
     .mockResolvedValueOnce(jsonResponse({ success: true, session_id: 'sid', status: 'processing' }))
@@ -208,6 +248,108 @@ test('getShippingRules exposes buyer reviewed gift rules as automation rules', a
     spec_name: '套餐',
     spec_value: '赠品',
     card_id: 7,
+  });
+});
+
+test('getReplyRules labels keyword matching according to engine contains behavior', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse([{
+    keyword: '发货',
+    reply: '马上安排',
+    type: 'image',
+    image_url: 'https://img.example/reply.png',
+  }]));
+  vi.stubGlobal('fetch', fetchMock);
+
+  const rules = await getReplyRules('acc1');
+  expect(fetchMock).toHaveBeenCalledWith('/keywords-with-type/acc1', expect.objectContaining({ method: 'GET' }));
+  expect(rules[0]).toMatchObject({
+    keyword: '发货',
+    reply_content: '马上安排',
+    match_type: 'fuzzy',
+    type: 'image',
+    image_url: 'https://img.example/reply.png',
+  });
+});
+
+test('updateReplyRule preserves keyword image metadata when saving text edits', async () => {
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse([
+      { keyword: '图', reply: '', item_id: '', type: 'image', image_url: 'https://img.example/a.png' },
+      { keyword: '发货', reply: '马上安排', item_id: 'item-1', type: 'text', image_url: '' },
+    ]))
+    .mockResolvedValueOnce(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await updateReplyRule({ id: '1', keyword: '发货', reply_content: '稍后安排' }, 'acc1');
+
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/keywords-with-type/acc1', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/keywords-with-item-id/acc1', expect.objectContaining({
+    method: 'POST',
+    credentials: 'include',
+  }));
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
+    keywords: [
+      { keyword: '图', reply: '', item_id: '', type: 'image', image_url: 'https://img.example/a.png' },
+      { keyword: '发货', reply: '稍后安排', item_id: 'item-1', type: 'text', image_url: '' },
+    ],
+  });
+});
+
+test('createNotificationChannel persists email recipient as to_email config', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await createNotificationChannel({
+    name: '邮件通知',
+    type: 'email',
+    config: {
+      smtp_server: 'smtp.example.com',
+      smtp_port: 587,
+      smtp_user: 'from@example.com',
+      smtp_password: 'secret',
+      to_email: 'to@example.com',
+    },
+  });
+
+  const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+  expect(body.type).toBe('email');
+  expect(JSON.parse(body.config)).toMatchObject({
+    to_email: 'to@example.com',
+  });
+  expect(JSON.parse(body.config)).not.toHaveProperty('from');
+});
+
+test('createNotificationChannel allows email channel to rely on system SMTP settings', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await createNotificationChannel({
+    name: '邮件通知',
+    type: 'email',
+    config: {
+      to_email: 'to@example.com',
+    },
+  });
+
+  const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+  expect(body.type).toBe('email');
+  expect(JSON.parse(body.config)).toEqual({
+    to_email: 'to@example.com',
+  });
+});
+
+test('updateNotificationChannel supports partial enabled updates', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await updateNotificationChannel('7', { enabled: false });
+
+  expect(fetchMock).toHaveBeenCalledWith('/notification-channels/7', expect.objectContaining({
+    method: 'PUT',
+    credentials: 'include',
+  }));
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+    enabled: false,
   });
 });
 

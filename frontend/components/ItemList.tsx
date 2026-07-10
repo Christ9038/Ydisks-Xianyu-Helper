@@ -110,6 +110,22 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     postage: '',
     images: [] as File[]
   });
+  const [publishImagePreviews, setPublishImagePreviews] = useState<{ key: string; url: string }[]>([]);
+
+  useEffect(() => {
+    if (!showPublishModal || publishForm.images.length === 0) {
+      setPublishImagePreviews([]);
+      return;
+    }
+    const previews = publishForm.images.map((file, index) => ({
+      key: file.name + index,
+      url: URL.createObjectURL(file),
+    }));
+    setPublishImagePreviews(previews);
+    return () => {
+      previews.forEach(preview => URL.revokeObjectURL(preview.url));
+    };
+  }, [showPublishModal, publishForm.images]);
 
   const loadItems = async () => {
     const itemsList = await getItems();
@@ -689,11 +705,11 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                     onChange={e => setPublishForm({...publishForm, images: Array.from(e.target.files || []).slice(0, 9)})}
                   />
                 </label>
-                {publishForm.images.length > 0 && (
+                {publishImagePreviews.length > 0 && (
                   <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
-                    {publishForm.images.map((file, index) => (
-                      <div key={file.name + index} className="aspect-square rounded-xl bg-gray-100 overflow-hidden border border-gray-100">
-                        <img src={URL.createObjectURL(file)} alt="" className="w-full h-full object-cover" />
+                    {publishImagePreviews.map((preview) => (
+                      <div key={preview.key} className="aspect-square rounded-xl bg-gray-100 overflow-hidden border border-gray-100">
+                        <img src={preview.url} alt="" className="w-full h-full object-cover" />
                       </div>
                     ))}
                   </div>

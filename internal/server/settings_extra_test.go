@@ -3,10 +3,13 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"xianyu-go/internal/logging"
 )
 
 // TestListAIModels 通过 mock OpenAI 端点返回模型列表。
@@ -100,6 +103,38 @@ func TestSetSettingBadJSON(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("非法 JSON 应 400，got %d", rec.Code)
+	}
+}
+
+func TestSetLogLevelValidatesAndAppliesRuntimeLevel(t *testing.T) {
+	defer logging.Level.Set(slog.LevelInfo)
+
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	badReq := httptest.NewRequest(http.MethodPut, "/system-settings/log_level", strings.NewReader(`{"value":"verbose"}`))
+	badReq.AddCookie(cookie)
+	badRec := httptest.NewRecorder()
+	h.ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("invalid log level should be 400, got %d body=%s", badRec.Code, badRec.Body.String())
+	}
+
+	goodReq := httptest.NewRequest(http.MethodPut, "/system-settings/log_level", strings.NewReader(`{"value":"debug"}`))
+	goodReq.AddCookie(cookie)
+	goodRec := httptest.NewRecorder()
+	h.ServeHTTP(goodRec, goodReq)
+	if goodRec.Code != http.StatusOK {
+		t.Fatalf("valid log level should be 200, got %d body=%s", goodRec.Code, goodRec.Body.String())
+	}
+	if got := logging.Level.Level(); got != slog.LevelDebug {
+		t.Fatalf("runtime log level=%v want debug", got)
+	}
+	saved, err := srv.Store.Settings.Get(context.Background(), "log_level")
+	if err != nil || saved != "debug" {
+		t.Fatalf("saved log_level=%q err=%v", saved, err)
 	}
 }
 
@@ -225,8 +260,7 @@ func TestSetAIReplyBadJSON(t *testing.T) {
 	}
 }
 
-// TestGetAIReplyNotFound 不存在账号返回默认值。
-func TestGetAIReplyNotFound(t *testing.T) {
+func TestGetAIReplyMissingAccountIsNotFound(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	h := srv.Router()
@@ -236,8 +270,23 @@ func TestGetAIReplyNotFound(t *testing.T) {
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != 200 {
-		t.Fatalf("status=%d", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("不存在账号应 404，got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetAIReplyExistingAccountWithoutConfigReturnsDefault(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/ai-reply-settings/acc1", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var res map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &res)

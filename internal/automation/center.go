@@ -627,6 +627,20 @@ func (c *Center) markEventFacts(ctx context.Context, task Task) {
 	if task.OrderID == "" {
 		return
 	}
+	if err := c.store.Orders.Upsert(ctx, task.OrderID, db.OrderUpsertOpts{
+		CookieID:    task.AccountID,
+		ItemID:      task.ItemID,
+		BuyerID:     task.BuyerID,
+		ChatID:      task.ChatID,
+		OrderStatus: task.OrderStatus,
+		SpecName:    task.SpecName,
+		SpecValue:   task.SpecValue,
+		Quantity:    task.Quantity,
+		Amount:      task.Amount,
+	}); err != nil {
+		c.logger.Warn("记录自动化事件事实前创建订单失败", "order_id", task.OrderID, "trigger", task.TriggerType, "err", err)
+		return
+	}
 	switch task.TriggerType {
 	case TriggerOrderPaid:
 		_ = c.store.Automation.MarkOrderEventTime(ctx, task.OrderID, "paid_at")

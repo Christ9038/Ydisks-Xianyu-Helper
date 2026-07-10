@@ -8,7 +8,7 @@ import ItemList from './components/ItemList';
 import Settings from './components/Settings';
 import Rules from './components/Rules';
 import Notifications from './components/Notifications';
-import { login, verifySession } from './services/api';
+import { login, logout, verifySession } from './services/api';
 import { ShieldCheck, ArrowRight, Loader2, User, Lock } from 'lucide-react';
 
 interface DeliveryRuleTarget {
@@ -40,6 +40,7 @@ const isWindows = /Win/i.test(navigator.platform || navigator.userAgent);
 
 const App: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [activeTab, setActiveTab] = useState(tabFromPath);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [needsInit, setNeedsInit] = useState(false);
@@ -51,11 +52,12 @@ const App: React.FC = () => {
 
   // 切换 tab 并同步 URL。若 tab 没有对应 path（不应发生）则只切 tab。
   const navigate = (tab: string) => {
-    const path = TAB_TO_PATH[tab];
+    const nextTab = tab === 'settings' && !isAdmin ? 'dashboard' : tab;
+    const path = TAB_TO_PATH[nextTab];
     if (path && path !== window.location.pathname) {
       window.history.pushState({}, '', path);
     }
-    setActiveTab(tab);
+    setActiveTab(nextTab);
   };
 
   // 浏览器后退/前进同步 tab。
@@ -72,19 +74,38 @@ const App: React.FC = () => {
           if (res?.initialized === false) {
             setNeedsInit(true);
             setIsLoggedIn(false);
+            setIsAdmin(false);
             return;
           }
 
           setNeedsInit(false);
-          if (res?.authenticated) setIsLoggedIn(true);
+          if (res?.authenticated) {
+            setIsLoggedIn(true);
+            setIsAdmin(res.is_admin === true);
+          } else {
+            setIsAdmin(false);
+          }
         })
-        .catch(() => setIsLoggedIn(false))
+        .catch(() => {
+          setIsLoggedIn(false);
+          setIsAdmin(false);
+        })
         .finally(() => setCheckingAuth(false));
 
-      const handleLogout = () => setIsLoggedIn(false);
-      window.addEventListener('auth:logout', handleLogout);
-      return () => window.removeEventListener('auth:logout', handleLogout);
+      const handleAuthLogoutEvent = () => {
+        setIsLoggedIn(false);
+        setIsAdmin(false);
+      };
+      window.addEventListener('auth:logout', handleAuthLogoutEvent);
+      return () => window.removeEventListener('auth:logout', handleAuthLogoutEvent);
   }, []);
+
+  useEffect(() => {
+    if (!checkingAuth && isLoggedIn && !isAdmin && activeTab === 'settings') {
+      window.history.replaceState({}, '', TAB_TO_PATH.dashboard);
+      setActiveTab('dashboard');
+    }
+  }, [checkingAuth, isLoggedIn, isAdmin, activeTab]);
 
   const handleLogin = async (e: React.FormEvent) => {
       e.preventDefault();
@@ -95,6 +116,7 @@ const App: React.FC = () => {
           const res = await login({ username, password });
           if (res.success) {
               setIsLoggedIn(true);
+              setIsAdmin(res.is_admin === true);
           } else {
               setLoginError(res.message || '登录失败');
           }
@@ -103,6 +125,17 @@ const App: React.FC = () => {
           setLoginError(msg || '登录失败');
       } finally {
           setLoginLoading(false);
+      }
+  };
+
+  const handleLogout = async () => {
+      try {
+          await logout();
+      } catch (err) {
+          console.error('退出登录失败', err);
+      } finally {
+          setIsLoggedIn(false);
+          setIsAdmin(false);
       }
   };
 
@@ -242,8 +275,8 @@ const App: React.FC = () => {
         initialDeliveryTarget={deliveryRuleTarget}
         onDeliveryTargetHandled={() => setDeliveryRuleTarget(undefined)}
       />;
-      case 'notifications': return <Notifications />;
-      case 'settings': return <Settings />;
+      case 'notifications': return <Notifications isAdmin={isAdmin} />;
+      case 'settings': return isAdmin ? <Settings /> : <Dashboard />;
       default: return <Dashboard />;
     }
   };
@@ -252,10 +285,9 @@ const App: React.FC = () => {
     <div className="flex min-h-screen bg-[#F4F5F7] text-[#111]">
       <Sidebar
         activeTab={activeTab}
+        isAdmin={isAdmin}
         onNavigate={navigate}
-        onLogout={() => {
-            setIsLoggedIn(false);
-        }}
+        onLogout={handleLogout}
       />
       
       <main className="flex-1 ml-64 p-8 md:p-12 overflow-y-auto h-screen relative scroll-smooth">

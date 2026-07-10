@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+
+	"github.com/pressly/goose/v3"
 )
 
 // TestMigrate_AppliesCleanSchema 在临时库上跑迁移，验证全量 schema 干净落地、
@@ -35,6 +37,18 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 		{"users", "is_admin"},
 		{"sessions", "session_id"},
 		{"notification_channels", "user_id"},
+		{"notification_channels", "event_types"},
+		{"message_notifications", "event_types"},
+		{"scheduled_cookies_refresh_log", "step_details"},
+		{"scheduled_cookies_refresh_log", "renew_method"},
+		{"scheduled_cookies_refresh_log", "duration_ms"},
+		{"scheduled_cookies_refresh_log", "request_count"},
+		{"scheduled_login_renew_log", "step_details"},
+		{"scheduled_login_renew_log", "updated_cookie_count"},
+		{"scheduled_api_cookie_renew_log", "step_details"},
+		{"scheduled_api_cookie_renew_log", "request_count"},
+		{"risk_control_logs", "processing_status"},
+		{"risk_control_logs", "duration_ms"},
 	}
 	for _, c := range checks {
 		if !columnExists(t, db, c.table, c.col) {
@@ -51,6 +65,14 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 	err = db.QueryRow(`SELECT value FROM system_settings WHERE key='qq_reply_secret_key'`).Scan(&val)
 	if err != nil || val != "" {
 		t.Errorf("qq_reply_secret_key 应为空（无默认值安全基线）: val=%q err=%v", val, err)
+	}
+	err = db.QueryRow(`SELECT value FROM system_settings WHERE key='log_level'`).Scan(&val)
+	if err != nil || val != "info" {
+		t.Errorf("log_level 默认设置异常: val=%q err=%v", val, err)
+	}
+	err = db.QueryRow(`SELECT value FROM system_settings WHERE key='renewal_log_retention_days'`).Scan(&val)
+	if err != nil || val != "10" {
+		t.Errorf("renewal_log_retention_days 默认设置异常: val=%q err=%v", val, err)
 	}
 
 	// 二次 Open 应幂等（迁移不重复执行、不报错）。
@@ -81,4 +103,62 @@ func columnExists(t *testing.T, db *sql.DB, table, col string) bool {
 		}
 	}
 	return false
+}
+
+func TestMigration14DownUpSQLite(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "rollback.db")
+	ctx := context.Background()
+	d, _, err := Open(ctx, dbPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer d.Close()
+
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		t.Fatalf("goose dialect: %v", err)
+	}
+	goose.SetBaseFS(migrationsFS)
+	if err := goose.Down(d, "migrations/sqlite"); err != nil {
+		t.Fatalf("down latest migration: %v", err)
+	}
+	if columnExists(t, d, "notification_channels", "event_types") {
+		t.Fatal("event_types should be removed after migration 14 down")
+	}
+	if tableExists(t, d, "risk_control_logs") {
+		t.Fatal("risk_control_logs should be removed after migration 14 down")
+	}
+
+	if err := goose.Up(d, "migrations/sqlite"); err != nil {
+		t.Fatalf("up after down: %v", err)
+	}
+	for _, c := range []struct {
+		table string
+		col   string
+	}{
+		{"notification_channels", "event_types"},
+		{"message_notifications", "event_types"},
+		{"scheduled_cookies_refresh_log", "step_details"},
+		{"scheduled_login_renew_log", "updated_cookie_count"},
+		{"scheduled_api_cookie_renew_log", "request_count"},
+		{"risk_control_logs", "processing_status"},
+	} {
+		if !columnExists(t, d, c.table, c.col) {
+			t.Fatalf("column missing after re-up: %s.%s", c.table, c.col)
+		}
+	}
+	var val string
+	if err := d.QueryRow(`SELECT value FROM system_settings WHERE key='renewal_log_retention_days'`).Scan(&val); err != nil || val != "10" {
+		t.Fatalf("renewal_log_retention_days after re-up: val=%q err=%v", val, err)
+	}
+}
+
+func tableExists(t *testing.T, db *sql.DB, table string) bool {
+	t.Helper()
+	var name string
+	err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&name)
+	if err != nil {
+		return false
+	}
+	return name == table
 }

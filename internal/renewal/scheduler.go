@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"xianyu-go/internal/browser"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
@@ -126,6 +127,7 @@ func (s *Scheduler) runFixed(ctx context.Context, name, settingKey, intervalKey 
 }
 
 func (s *Scheduler) executeLoginRenew(ctx context.Context) {
+	s.cleanupExpiredLogs(ctx)
 	batchID := newBatchID()
 	accounts, err := s.store.Cookies.ActiveRenewalAccounts(ctx)
 	if err != nil {
@@ -145,28 +147,29 @@ func (s *Scheduler) executeLoginRenew(ctx context.Context) {
 }
 
 func (s *Scheduler) loginRenewOne(ctx context.Context, batchID string, account db.RenewalAccount) {
+	started := time.Now()
 	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	res, err := s.mtop.CheckLoginStatusContext(runCtx, account.Value)
 	if err != nil {
-		s.addLoginLog(ctx, batchID, account.ID, "failed", err.Error(), nil)
+		s.addLoginLog(ctx, batchID, account.ID, "failed", err.Error(), nil, time.Since(started))
 		s.logger.Warn("login_renew 失败", "account", account.ID, "err", err)
 		return
 	}
 	if res == nil {
-		s.addLoginLog(ctx, batchID, account.ID, "failed", "loginuser.get 未返回结果", nil)
+		s.addLoginLog(ctx, batchID, account.ID, "failed", "loginuser.get 未返回结果", nil, time.Since(started))
 		return
 	}
 	updated := cookierefresh.ChangedCookieNames(account.Value, res.UpdatedCookies)
 	if res.UpdatedCookies != "" && res.UpdatedCookies != account.Value {
 		metadata := cookierefresh.MetadataWithoutSnapshot(account.MetadataJSON)
 		if err := s.store.Cookies.UpdateRenewalCookie(ctx, account.ID, res.UpdatedCookies, metadata, time.Now().Unix()); err != nil {
-			s.addLoginLog(ctx, batchID, account.ID, "failed", "保存 Cookie 失败: "+err.Error(), updated)
+			s.addLoginLog(ctx, batchID, account.ID, "failed", "保存 Cookie 失败: "+err.Error(), updated, time.Since(started))
 			return
 		}
 		s.clearToken(ctx, account.ID)
 	}
-	s.addLoginLog(ctx, batchID, account.ID, res.Status, res.Message, updated)
+	s.addLoginLog(ctx, batchID, account.ID, res.Status, res.Message, updated, time.Since(started))
 	if res.Status == mtop.LoginStatusSessionExpired || res.Status == mtop.LoginStatusTokenEmpty {
 		s.markSessionExpired(account.ID)
 		s.triggerPasswordLoginAsync(account.ID)
@@ -174,6 +177,7 @@ func (s *Scheduler) loginRenewOne(ctx context.Context, batchID string, account d
 }
 
 func (s *Scheduler) executeAPICookieRenew(ctx context.Context) {
+	s.cleanupExpiredLogs(ctx)
 	batchID := newBatchID()
 	accounts, err := s.store.Cookies.ActiveRenewalAccounts(ctx)
 	if err != nil {
@@ -189,21 +193,24 @@ func (s *Scheduler) executeAPICookieRenew(ctx context.Context) {
 }
 
 func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, account db.RenewalAccount) {
+	started := time.Now()
+	stepDetails := []string{"api: hasLogin -> silentHasLogin -> setLoginSettings"}
 	res, err := s.renewAPI(ctx, account.Value)
 	if err != nil {
-		s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: err.Error()})
+		s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: err.Error(), StepDetails: strings.Join(stepDetails, " | "), RenewMethod: "api", DurationMS: time.Since(started).Milliseconds(), RequestCount: 3})
 		s.logger.Warn("api_cookie_renew 失败", "account", account.ID, "err", err)
 		return
 	}
 	if res == nil {
-		s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "接口续期未返回结果"})
+		s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "接口续期未返回结果", StepDetails: strings.Join(stepDetails, " | "), RenewMethod: "api", DurationMS: time.Since(started).Milliseconds(), RequestCount: 3})
 		return
 	}
+	stepDetails = append(stepDetails, fmt.Sprintf("api_result: success=%v method=%s message=%s", res.Success, res.RenewMethod, res.Message))
 	if res.Success {
 		updated := cookierefresh.ChangedCookieNames(account.Value, res.NewCookies)
 		if res.NewCookies != "" && res.NewCookies != account.Value {
 			if !s.saveRenewedCookies(ctx, account.ID, res.NewCookies, cookierefresh.MetadataWithoutSnapshot(account.MetadataJSON)) {
-				s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "保存 Cookie 失败", UpdatedCookieNames: updated})
+				s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "保存 Cookie 失败", UpdatedCookieNames: updated, StepDetails: strings.Join(stepDetails, " | "), RenewMethod: res.RenewMethod, DurationMS: time.Since(started).Milliseconds(), RequestCount: 3})
 				return
 			}
 		}
@@ -211,14 +218,14 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 		if len(updated) > 0 {
 			status = "cookie_updated"
 		}
-		s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: status, Message: res.Message, UpdatedCookieNames: updated, ResponseContent: res.ResponseText})
+		s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: status, Message: res.Message, UpdatedCookieNames: updated, ResponseContent: res.ResponseText, StepDetails: strings.Join(stepDetails, " | "), RenewMethod: res.RenewMethod, DurationMS: time.Since(started).Milliseconds(), RequestCount: 3})
 		return
 	}
 
 	if res.NewCookies != "" && res.NewCookies != account.Value {
 		updated := cookierefresh.ChangedCookieNames(account.Value, res.NewCookies)
 		if !s.saveRenewedCookies(ctx, account.ID, res.NewCookies, cookierefresh.MetadataWithoutSnapshot(account.MetadataJSON)) {
-			s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "保存部分 Cookie 失败", UpdatedCookieNames: updated})
+			s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "保存部分 Cookie 失败", UpdatedCookieNames: updated, StepDetails: strings.Join(stepDetails, " | "), RenewMethod: res.RenewMethod, DurationMS: time.Since(started).Milliseconds(), RequestCount: 3})
 			return
 		}
 		s.logger.Info("api_cookie_renew 保留接口返回的部分 Cookie 更新", "account", account.ID, "updated", strings.Join(updated, ","))
@@ -228,24 +235,26 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 	var browserCookies string
 	var browserErr error
 	if s.browser != nil {
+		stepDetails = append(stepDetails, "browser: quick_enter")
 		bctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-		browserCookies, browserErr = s.browser.BrowserQuickRenew(bctx, account.ID, browserInput, !account.ShowBrowser)
+		browserCookies, browserErr = s.browser.BrowserQuickRenew(bctx, account.ID, browserInput, browser.ResolveHeadless(account.ShowBrowser))
 		cancel()
 	} else {
 		browserErr = fmt.Errorf("浏览器自动化未启用")
 	}
 	if browserErr == nil && browserCookies != "" {
+		stepDetails = append(stepDetails, "api_verify: setLoginSettings after browser")
 		verify, verifyErr := s.renewAPI(ctx, browserCookies)
 		if verifyErr == nil && verify != nil && verify.Success {
 			finalCookies := firstNonEmpty(verify.NewCookies, browserCookies)
 			updated := cookierefresh.ChangedCookieNames(account.Value, finalCookies)
 			if finalCookies != account.Value {
 				if !s.saveRenewedCookies(ctx, account.ID, finalCookies, cookierefresh.MetadataWithoutSnapshot(account.MetadataJSON)) {
-					s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "保存 Cookie 失败", UpdatedCookieNames: updated})
+					s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "保存 Cookie 失败", UpdatedCookieNames: updated, StepDetails: strings.Join(stepDetails, " | "), RenewMethod: "browser+api", DurationMS: time.Since(started).Milliseconds(), RequestCount: 6})
 					return
 				}
 			}
-			s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "browser_renewed", Message: "接口续期失败，浏览器续期成功，setLoginSettings验证通过", UpdatedCookieNames: updated, ResponseContent: verify.ResponseText})
+			s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "browser_renewed", Message: "接口续期失败，浏览器续期成功，setLoginSettings验证通过", UpdatedCookieNames: updated, ResponseContent: verify.ResponseText, StepDetails: strings.Join(stepDetails, " | "), RenewMethod: "browser+api", DurationMS: time.Since(started).Milliseconds(), RequestCount: 6})
 			return
 		}
 		updated := cookierefresh.ChangedCookieNames(account.Value, browserCookies)
@@ -269,10 +278,15 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 		ErrorMessage:       msg,
 		UpdatedCookieNames: updated,
 		ResponseContent:    res.ResponseText,
+		StepDetails:        strings.Join(stepDetails, " | "),
+		RenewMethod:        "api+browser+password_required",
+		DurationMS:         time.Since(started).Milliseconds(),
+		RequestCount:       6,
 	})
 }
 
 func (s *Scheduler) executeBrowserCookieRefresh(ctx context.Context) {
+	s.cleanupExpiredLogs(ctx)
 	batchID := newBatchID()
 	accounts, err := s.store.Cookies.AllRenewalAccounts(ctx)
 	if err != nil {
@@ -313,31 +327,32 @@ func (s *Scheduler) executeBrowserCookieRefresh(ctx context.Context) {
 }
 
 func (s *Scheduler) browserCookieRefreshOne(ctx context.Context, batchID string, account db.RenewalAccount, schedule db.CookieRefreshSchedule) {
+	started := time.Now()
 	if s.browser == nil {
 		schedule.LastStatus = "failed"
 		schedule.LastErrorMessage = "浏览器自动化未启用"
 		_ = s.store.Renewal.UpsertCookieRefreshSchedule(ctx, schedule)
-		_ = s.store.Renewal.AddBrowserCookieRenewLog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: schedule.LastErrorMessage})
+		_ = s.store.Renewal.AddBrowserCookieRenewLog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: schedule.LastErrorMessage, RenewMethod: "browser", StepDetails: "browser disabled", DurationMS: time.Since(started).Milliseconds()})
 		return
 	}
 	runCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	oldSnapshot := cookierefresh.SnapshotFromMetadata(account.MetadataJSON)
-	newCookies, newSnapshot, err := s.browser.CookiesRefreshSnapshot(runCtx, account.ID, account.Value, oldSnapshot, !account.ShowBrowser)
+	newCookies, newSnapshot, err := s.browser.CookiesRefreshSnapshot(runCtx, account.ID, account.Value, oldSnapshot, browser.ResolveHeadless(account.ShowBrowser))
 	if err != nil {
 		schedule.ConsecutiveFailures++
 		schedule.LastStatus = "failed"
 		schedule.LastError = err.Error()
 		schedule.LastErrorMessage = err.Error()
 		_ = s.store.Renewal.UpsertCookieRefreshSchedule(ctx, schedule)
-		_ = s.store.Renewal.AddBrowserCookieRenewLog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: err.Error(), NextExpireAt: schedule.ExpireAt})
+		_ = s.store.Renewal.AddBrowserCookieRenewLog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: err.Error(), NextExpireAt: schedule.ExpireAt, RenewMethod: "browser", StepDetails: fmt.Sprintf("snapshot=%v reload=3", len(oldSnapshot) > 0), DurationMS: time.Since(started).Milliseconds(), RequestCount: 4})
 		s.logger.Warn("cookies_refresh 失败", "account", account.ID, "err", err)
 		return
 	}
 	metadata := cookierefresh.MetadataWithSnapshot(account.MetadataJSON, newSnapshot)
 	updated := cookierefresh.ChangedSnapshotLabels(oldSnapshot, newSnapshot)
 	if err := s.store.Cookies.UpdateRenewalCookie(ctx, account.ID, newCookies, metadata, time.Now().Unix()); err != nil {
-		_ = s.store.Renewal.AddBrowserCookieRenewLog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "保存 Cookie 失败: " + err.Error(), UpdatedCookieNames: updated})
+		_ = s.store.Renewal.AddBrowserCookieRenewLog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "保存 Cookie 失败: " + err.Error(), UpdatedCookieNames: updated, RenewMethod: "browser", StepDetails: fmt.Sprintf("snapshot=%v reload=3", len(oldSnapshot) > 0), DurationMS: time.Since(started).Milliseconds(), RequestCount: 4})
 		return
 	}
 	s.clearToken(ctx, account.ID)
@@ -366,6 +381,10 @@ func (s *Scheduler) browserCookieRefreshOne(ctx context.Context, batchID string,
 		Message:            fmt.Sprintf("页面校验通过，全量获取到 %d 个浏览器Cookie", len(newSnapshot)),
 		UpdatedCookieNames: updated,
 		NextExpireAt:       nextExpire,
+		RenewMethod:        "browser",
+		StepDetails:        fmt.Sprintf("snapshot=%v reload=3 modal_check=true", len(oldSnapshot) > 0),
+		DurationMS:         time.Since(started).Milliseconds(),
+		RequestCount:       4,
 	})
 }
 
@@ -384,12 +403,32 @@ func (s *Scheduler) saveRenewedCookies(ctx context.Context, cookieID, cookieStr,
 	return true
 }
 
-func (s *Scheduler) addLoginLog(ctx context.Context, batchID, cookieID, status, message string, updated []string) {
-	_ = s.store.Renewal.AddLoginRenewLog(ctx, db.RenewalLog{BatchID: batchID, CookieID: cookieID, Status: status, Message: message, UpdatedCookieNames: updated})
+func (s *Scheduler) addLoginLog(ctx context.Context, batchID, cookieID, status, message string, updated []string, duration time.Duration) {
+	_ = s.store.Renewal.AddLoginRenewLog(ctx, db.RenewalLog{
+		BatchID:            batchID,
+		CookieID:           cookieID,
+		Status:             status,
+		Message:            message,
+		UpdatedCookieNames: updated,
+		RenewMethod:        "loginuser.get",
+		StepDetails:        fmt.Sprintf("loginuser.get status=%s message=%s updated=%d", status, message, len(updated)),
+		DurationMS:         duration.Milliseconds(),
+		RequestCount:       1,
+	})
 }
 
 func (s *Scheduler) addAPILog(ctx context.Context, log db.RenewalLog) {
 	_ = s.store.Renewal.AddAPICookieRenewLog(ctx, log)
+}
+
+func (s *Scheduler) cleanupExpiredLogs(ctx context.Context) {
+	if s.store == nil || s.store.Renewal == nil {
+		return
+	}
+	days := s.settingInt(ctx, "renewal_log_retention_days", 10)
+	if err := s.store.Renewal.CleanupLogs(ctx, days); err != nil {
+		s.logger.Warn("清理续期日志失败", "err", err)
+	}
 }
 
 func (s *Scheduler) markSessionExpired(cookieID string) {
@@ -455,6 +494,21 @@ func (s *Scheduler) settingInterval(ctx context.Context, key string, defaultInte
 		return d
 	}
 	return defaultInterval
+}
+
+func (s *Scheduler) settingInt(ctx context.Context, key string, defaultValue int) int {
+	if s.store == nil || s.store.Settings == nil {
+		return defaultValue
+	}
+	value, err := s.store.Settings.Get(ctx, key)
+	if err != nil || strings.TrimSpace(value) == "" {
+		return defaultValue
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || n < 0 {
+		return defaultValue
+	}
+	return n
 }
 
 func (s *Scheduler) clearToken(ctx context.Context, cookieID string) {

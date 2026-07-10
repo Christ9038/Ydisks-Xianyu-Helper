@@ -331,6 +331,17 @@ func (m *Manager) newEphemeralRefreshContext(ctx context.Context, cookieID, cook
 }
 
 func quickRenewHeadless(headless bool) bool {
+	return resolveHeadlessRequest(headless)
+}
+
+// ResolveHeadless returns the browser headless mode from account ShowBrowser plus
+// the optional BROWSER_HEADLESS override. All browser-backed login/renewal flows
+// use this resolver so headed/headless only changes visibility, not behavior.
+func ResolveHeadless(showBrowser bool) bool {
+	return resolveHeadlessRequest(!showBrowser)
+}
+
+func resolveHeadlessRequest(headless bool) bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("BROWSER_HEADLESS"))) {
 	case "true", "1", "yes", "on":
 		return true

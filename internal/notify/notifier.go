@@ -22,6 +22,27 @@ import (
 	"xianyu-go/internal/db"
 )
 
+const (
+	EventAccountOffline       = "account_offline"
+	EventAccountRecovered     = "account_recovered"
+	EventAccountDisabled      = "account_disabled"
+	EventSecurityVerification = "security_verification"
+	EventTokenRenewal         = "token_renewal"
+	EventDeliveryResult       = "delivery_result"
+	EventSystemError          = "system_error"
+)
+
+// NotificationEvent 是一条可被渠道订阅过滤的通知事件。
+type NotificationEvent struct {
+	AccountID string
+	Type      string
+	Level     string
+	Title     string
+	Body      string
+	Fields    map[string]string
+	Time      time.Time
+}
+
 // Notifier 通知发送器。
 type Notifier struct {
 	cookieID string
@@ -46,35 +67,62 @@ func New(cookieID string, store *db.Store, logger *slog.Logger) *Notifier {
 // NotifyDelivery 发送发货结果通知。
 // accountID 为 cookie_id。向该账号所有已启用渠道发送发货通知。
 func (n *Notifier) NotifyDelivery(accountID, buyerName, buyerID, itemID, message, chatID string) {
-	channels, err := n.store.Notifications.AccountChannels(context.Background(), accountID)
-	if err != nil || len(channels) == 0 {
-		return
-	}
-	// 构造通知文案。
-	body := fmt.Sprintf("🚨 自动发货通知\n\n账号: %s\n买家: %s (ID: %s)\n商品ID: %s\n聊天ID: %s\n结果: %s\n时间: %s\n\n请及时处理！",
-		accountID, buyerName, buyerID, itemID, fallback(chatID, "未知"), message, time.Now().Format("2006-01-02 15:04:05"))
-	for _, ch := range channels {
-		if err := n.send(ch, body); err != nil {
-			n.logger.Error("发送通知失败", "channel", ch.Type, "err", err)
-		}
-	}
+	n.NotifyEvent(context.Background(), NotificationEvent{
+		AccountID: accountID,
+		Type:      EventDeliveryResult,
+		Level:     "info",
+		Title:     "自动发货通知",
+		Body:      message,
+		Fields: map[string]string{
+			"买家":   fmt.Sprintf("%s (ID: %s)", buyerName, buyerID),
+			"商品ID": itemID,
+			"聊天ID": fallback(chatID, "未知"),
+			"结果":   message,
+		},
+	})
 }
 
 // NotifyAccountAlert 发送账号告警通知（token 失效/自动恢复失败/风控验证等）。
 // level 取 AlertLevel* 常量。向该账号所有已启用渠道发送。
 func (n *Notifier) NotifyAccountAlert(accountID, level, title, body string) {
+	n.NotifyAccountEvent(accountID, classifyAccountAlertEvent(title, body), level, title, body)
+}
+
+// NotifyAccountEvent 发送指定类型的账号通知。
+func (n *Notifier) NotifyAccountEvent(accountID, eventType, level, title, body string) {
+	n.NotifyEvent(context.Background(), NotificationEvent{
+		AccountID: accountID,
+		Type:      eventType,
+		Level:     level,
+		Title:     title,
+		Body:      body,
+	})
+}
+
+// NotifyEvent 根据事件类型筛选渠道并发送通知。
+func (n *Notifier) NotifyEvent(ctx context.Context, ev NotificationEvent) {
 	if n.store == nil {
 		return
 	}
-	channels, err := n.store.Notifications.AccountChannels(context.Background(), accountID)
+	if ev.Time.IsZero() {
+		ev.Time = time.Now()
+	}
+	channels, err := n.store.Notifications.AccountChannels(ctx, ev.AccountID)
 	if err != nil || len(channels) == 0 {
 		return
 	}
-	full := fmt.Sprintf("🚨 [%s] %s\n\n账号: %s\n时间: %s\n\n%s",
-		levelLabel(level), title, accountID, time.Now().Format("2006-01-02 15:04:05"), body)
+	full := formatEvent(ev)
 	for _, ch := range channels {
+		allowed, err := eventAllowed(ch.EventTypes, ev.Type)
+		if err != nil {
+			n.logger.Warn("通知事件订阅配置无效，跳过渠道", "channel", ch.ID, "event_types", ch.EventTypes, "err", err)
+			continue
+		}
+		if !allowed {
+			continue
+		}
 		if err := n.send(ch, full); err != nil {
-			n.logger.Error("发送告警通知失败", "channel", ch.Type, "err", err)
+			n.logger.Error("发送通知失败", "channel", ch.Type, "event_type", ev.Type, "err", err)
 		}
 	}
 }
@@ -104,6 +152,149 @@ func levelLabel(level string) string {
 		return "提示"
 	default:
 		return level
+	}
+}
+
+func eventLabel(eventType string) string {
+	switch eventType {
+	case EventAccountOffline:
+		return "掉线通知"
+	case EventAccountRecovered:
+		return "恢复通知"
+	case EventAccountDisabled:
+		return "禁用通知"
+	case EventSecurityVerification:
+		return "风控验证"
+	case EventTokenRenewal:
+		return "续期通知"
+	case EventDeliveryResult:
+		return "交易通知"
+	case EventSystemError:
+		return "系统错误"
+	default:
+		if eventType == "" {
+			return "通知"
+		}
+		return eventType
+	}
+}
+
+func classifyAccountAlertEvent(title, body string) string {
+	msg := strings.ToLower(title + " " + body)
+	switch {
+	case strings.Contains(msg, "风控"), strings.Contains(msg, "验证"),
+		strings.Contains(msg, "滑块"), strings.Contains(msg, "captcha"),
+		strings.Contains(msg, "risk"), strings.Contains(msg, "x5sec"):
+		return EventSecurityVerification
+	case strings.Contains(msg, "禁用"), strings.Contains(msg, "disabled"):
+		return EventAccountDisabled
+	case strings.Contains(msg, "掉线"), strings.Contains(msg, "离线"),
+		strings.Contains(msg, "offline"), strings.Contains(msg, "session"),
+		strings.Contains(msg, "登录凭证已失效"):
+		return EventAccountOffline
+	case strings.Contains(msg, "token"), strings.Contains(msg, "续期"), strings.Contains(msg, "renew"):
+		return EventTokenRenewal
+	default:
+		return EventSystemError
+	}
+}
+
+func formatEvent(ev NotificationEvent) string {
+	var b strings.Builder
+	label := eventLabel(ev.Type)
+	level := levelLabel(ev.Level)
+	if level == "" {
+		level = "提示"
+	}
+	title := strings.TrimSpace(ev.Title)
+	if title == "" {
+		title = label
+	}
+	b.WriteString("[")
+	b.WriteString(level)
+	b.WriteString("] ")
+	b.WriteString(title)
+	b.WriteString("\n\n类型: ")
+	b.WriteString(label)
+	if ev.AccountID != "" {
+		b.WriteString("\n账号: ")
+		b.WriteString(ev.AccountID)
+	}
+	b.WriteString("\n时间: ")
+	b.WriteString(ev.Time.Format("2006-01-02 15:04:05"))
+	if len(ev.Fields) > 0 {
+		keys := make([]string, 0, len(ev.Fields))
+		for k := range ev.Fields {
+			keys = append(keys, k)
+		}
+		sortStrings(keys)
+		for _, k := range keys {
+			v := strings.TrimSpace(ev.Fields[k])
+			if v == "" {
+				continue
+			}
+			b.WriteByte('\n')
+			b.WriteString(k)
+			b.WriteString(": ")
+			b.WriteString(v)
+		}
+	}
+	body := strings.TrimSpace(ev.Body)
+	if body != "" {
+		b.WriteString("\n\n")
+		b.WriteString(body)
+	}
+	return b.String()
+}
+
+func eventAllowed(raw, eventType string) (bool, error) {
+	eventType = strings.TrimSpace(eventType)
+	if eventType == "" {
+		return true, nil
+	}
+	events, err := parseEventTypes(raw)
+	if err != nil {
+		return false, err
+	}
+	if len(events) == 0 {
+		return true, nil
+	}
+	return events[eventType], nil
+}
+
+func parseEventTypes(raw string) (map[string]bool, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	var arr []string
+	if strings.HasPrefix(raw, "[") {
+		if err := json.Unmarshal([]byte(raw), &arr); err != nil {
+			return nil, err
+		}
+	} else {
+		arr = strings.FieldsFunc(raw, func(r rune) bool {
+			return r == ',' || r == ';' || r == ' ' || r == '\n' || r == '\t'
+		})
+	}
+	if len(arr) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]bool, len(arr))
+	for _, v := range arr {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			out[v] = true
+		}
+	}
+	return out, nil
+}
+
+func sortStrings(values []string) {
+	for i := 1; i < len(values); i++ {
+		for j := i; j > 0 && values[j-1] > values[j]; j-- {
+			values[j-1], values[j] = values[j], values[j-1]
+		}
 	}
 }
 
@@ -282,14 +473,15 @@ func (n *Notifier) sendTelegram(cfg map[string]any, message string) error {
 
 // ---- 邮件 ----
 func (n *Notifier) sendEmail(cfg map[string]any, message string) error {
-	server := strOr(cfg, "smtp_server", "")
-	port := strOr(cfg, "smtp_port", "587")
-	user := strOr(cfg, "smtp_user", "")
-	pass := strOr(cfg, "smtp_password", "")
-	from := strOr(cfg, "smtp_from", "")
+	ctx := context.Background()
+	server := n.configOrSetting(ctx, cfg, "smtp_server", "")
+	port := n.configOrSetting(ctx, cfg, "smtp_port", "587")
+	user := n.configOrSetting(ctx, cfg, "smtp_user", "")
+	pass := n.configOrSetting(ctx, cfg, "smtp_password", "")
+	from := n.configOrSetting(ctx, cfg, "smtp_from", "")
 	to := strOr(cfg, "to_email", strOr(cfg, "email", ""))
 	if server == "" || user == "" || to == "" {
-		return fmt.Errorf("邮件配置不完整")
+		return fmt.Errorf("邮件配置不完整：请配置系统 SMTP 或在邮件渠道中覆盖 SMTP，并填写收件邮箱")
 	}
 	if from == "" {
 		from = user
@@ -306,6 +498,18 @@ func (n *Notifier) sendEmail(cfg map[string]any, message string) error {
 		message,
 	}, "\r\n")
 	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
+}
+
+func (n *Notifier) configOrSetting(ctx context.Context, cfg map[string]any, key, fallbackValue string) string {
+	if v := strings.TrimSpace(strOr(cfg, key, "")); v != "" {
+		return v
+	}
+	if n.store != nil && n.store.Settings != nil {
+		if v, err := n.store.Settings.Get(ctx, key); err == nil && strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return fallbackValue
 }
 
 // postJSON 通用 JSON POST。

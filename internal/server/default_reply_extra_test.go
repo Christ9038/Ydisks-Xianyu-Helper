@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -70,8 +71,7 @@ func TestSetDefaultReplyBadJSON(t *testing.T) {
 	}
 }
 
-// TestGetDefaultReplyNotFound 不存在返回默认。
-func TestGetDefaultReplyNotFound(t *testing.T) {
+func TestGetDefaultReplyMissingAccountIsNotFound(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	h := srv.Router()
@@ -81,13 +81,54 @@ func TestGetDefaultReplyNotFound(t *testing.T) {
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != 200 {
-		t.Fatalf("status=%d", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("不存在账号应 404，got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetDefaultReplyExistingAccountWithoutConfigReturnsDefault(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/default-replies/acc1", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var got map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &got)
 	if got["enabled"] != false || got["reply_content"] != "" {
 		t.Fatalf("默认值异常: %+v", got)
+	}
+}
+
+func TestGetDefaultReplyRejectsCrossUserAccount(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	if _, err := store.Users.Create(ctx, "default-other", "default-other@example.com", "pw"); err != nil {
+		t.Fatalf("create other user: %v", err)
+	}
+	other, err := store.Users.GetByUsername(ctx, "default-other")
+	if err != nil {
+		t.Fatalf("get other user: %v", err)
+	}
+	if err := store.Cookies.Save(ctx, "other-acc", "unb=456; _m_h5_tk=tk2_1;", other.ID); err != nil {
+		t.Fatalf("save other cookie: %v", err)
+	}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/default-replies/other-acc", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("跨用户账号应 403，got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

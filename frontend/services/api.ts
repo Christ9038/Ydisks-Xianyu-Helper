@@ -2,21 +2,15 @@ import { get, post, put, del, postForm } from '../request';
 import {
   LoginResponse, AccountDetail, Order, PaginatedResponse,
   AdminStats, Card, SystemSettings, ApiResponse, OrderAnalytics,
-  Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction
+  Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction,
+  NotificationChannel, NotificationEventType
 } from '../types';
-
-const BOOLEAN_SETTING_KEYS = new Set([
-  'registration_enabled',
-  'show_default_login_info',
-  'item_sync_enabled',
-]);
 
 const normalizeSettings = (settings: Record<string, any>): SystemSettings => {
   const out: Record<string, any> = { ...settings };
-  for (const key of BOOLEAN_SETTING_KEYS) {
-    if (key in out) {
-      out[key] = out[key] === true || out[key] === 'true' || out[key] === '1' || out[key] === 1;
-    }
+  if ('renewal_log_retention_days' in out) {
+    const parsed = Number(out.renewal_log_retention_days);
+    out.renewal_log_retention_days = Number.isFinite(parsed) ? parsed : 10;
   }
   return out as SystemSettings;
 };
@@ -180,6 +174,7 @@ export const refreshAccountProfile = async (id: string): Promise<any> => {
 export const updateAccountLoginInfo = async (id: string, data: {
   username?: string;
   login_password?: string;
+  clear_password?: boolean;
   show_browser?: boolean;
 }): Promise<any> => {
   return put(`/cookies/${id}/login-info`, data);
@@ -461,7 +456,7 @@ export const retryFailedItemPublishBatch = async (batchId: string): Promise<any>
     return post(`/items/publish-batches/${batchId}/retry-failed`, {});
 }
 
-export const updateItem = async (cookieId: string, itemId: string, data: any): Promise<any> => {
+export const updateItem = async (cookieId: string, itemId: string, data: Partial<Item>): Promise<any> => {
     return put(`/items/${cookieId}/${itemId}`, data);
 }
 
@@ -581,39 +576,65 @@ export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<a
 export const deleteShippingRule = async (id: string): Promise<any> => del(`/automation-rules/${id}`);
 
 // Rules - 关键词回复规则 (使用关键词API)
+type KeywordRowPayload = {
+    keyword: string;
+    reply: string;
+    item_id: string;
+    type: 'text' | 'image';
+    image_url: string;
+};
+
+const normalizeKeywordRow = (item: any): KeywordRowPayload => ({
+    keyword: item?.keyword || '',
+    reply: item?.reply || '',
+    item_id: item?.item_id || '',
+    type: item?.type === 'image' ? 'image' : 'text',
+    image_url: item?.image_url || '',
+});
+
+const getKeywordRowsWithType = async (cookieId: string): Promise<KeywordRowPayload[]> => {
+    const existing = await get<any>(`/keywords-with-type/${cookieId}`);
+    return Array.isArray(existing) ? existing.map(normalizeKeywordRow) : [];
+};
+
 export const getReplyRules = async (cookieId?: string): Promise<ReplyRule[]> => {
     if (!cookieId) return [];
-    const res = await get<any>(`/keywords-with-item-id/${cookieId}`);
-    const keywords = Array.isArray(res) ? res : [];
+    const keywords = await getKeywordRowsWithType(cookieId);
     return keywords.map((item: any, index: number) => ({
         id: String(index),
         keyword: item.keyword || '',
         reply_content: item.reply || '',
-        match_type: 'exact' as const,
-        enabled: true
+        match_type: 'fuzzy' as const,
+        enabled: true,
+        item_id: item.item_id || '',
+        type: item.type === 'image' ? 'image' : 'text',
+        image_url: item.image_url || ''
     }));
 }
 
 export const updateReplyRule = async (rule: Partial<ReplyRule>, cookieId: string): Promise<any> => {
-    // 获取现有关键词
-    const existing = await get<any>(`/keywords-with-item-id/${cookieId}`);
-    const keywords = Array.isArray(existing) ? existing : [];
+    const keywords = await getKeywordRowsWithType(cookieId);
 
-    // 更新或添加关键词
     if (rule.id) {
         const index = parseInt(rule.id);
         if (index >= 0 && index < keywords.length) {
+            const current = keywords[index];
             keywords[index] = {
-                keyword: rule.keyword,
-                reply: rule.reply_content,
-                item_id: ''
+                ...current,
+                keyword: rule.keyword ?? current.keyword,
+                reply: rule.reply_content ?? current.reply,
+                item_id: rule.item_id ?? current.item_id,
+                type: rule.type ?? current.type,
+                image_url: rule.image_url ?? current.image_url,
             };
         }
     } else {
         keywords.push({
-            keyword: rule.keyword,
-            reply: rule.reply_content,
-            item_id: ''
+            keyword: rule.keyword || '',
+            reply: rule.reply_content || '',
+            item_id: rule.item_id || '',
+            type: rule.type || 'text',
+            image_url: rule.image_url || '',
         });
     }
 
@@ -621,8 +642,7 @@ export const updateReplyRule = async (rule: Partial<ReplyRule>, cookieId: string
 }
 
 export const deleteReplyRule = async (id: string, cookieId: string): Promise<any> => {
-    const existing = await get<any>(`/keywords-with-item-id/${cookieId}`);
-    const keywords = Array.isArray(existing) ? existing : [];
+    const keywords = await getKeywordRowsWithType(cookieId);
     const index = parseInt(id);
     if (index >= 0 && index < keywords.length) {
         keywords.splice(index, 1);
@@ -639,7 +659,7 @@ export const getSystemSettings = async (): Promise<SystemSettings> => {
 export const updateSystemSettings = async (settings: Partial<SystemSettings>): Promise<ApiResponse> => {
     // API expects individual PUTs, but we'll loop in the service for convenience or assume bulk endpoint if updated
     // Based on docs 12.2, we iterate.
-    const promises = Object.entries(settings).map(([key, value]) => {
+    const promises = Object.entries(settings).filter(([, value]) => value !== undefined && value !== null).map(([key, value]) => {
          return put(`/system-settings/${key}`, { value: String(value) });
     });
     await Promise.all(promises);
@@ -669,31 +689,39 @@ export const fetchAIModels = async (baseUrl: string, apiKey: string = ''): Promi
   return result.models || [];
 };
 
-export const testAIConnection = async (cookieId: string): Promise<ApiResponse> => {
-  const result = await post<{ success?: boolean; message?: string; reply?: string }>(`/ai-reply-test/${cookieId}`, {
-    message: '你好，这是一条测试消息',
-  });
-  if (result.reply) {
-    return { success: true, message: `AI 回复: ${result.reply}` };
-  }
-  return { success: result.success ?? true, message: result.message || 'AI 连接测试成功' };
-}
-
 // Notification Channels
-export const getNotificationChannels = async (): Promise<{ success: boolean; data?: any[] }> => {
+const parseNotificationEventTypes = (raw: unknown): NotificationEventType[] => {
+  if (Array.isArray(raw)) return raw.filter(Boolean) as NotificationEventType[];
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.filter(Boolean) as NotificationEventType[];
+  } catch {
+    // fall back to legacy comma/semicolon separated values
+  }
+  return raw.split(/[,\s;]+/).map(v => v.trim()).filter(Boolean) as NotificationEventType[];
+};
+
+const stringifyNotificationEventTypes = (events?: NotificationEventType[]): string => {
+  const clean = Array.from(new Set((events || []).filter(Boolean)));
+  return clean.length > 0 ? JSON.stringify(clean) : '';
+};
+
+export const getNotificationChannels = async (): Promise<{ success: boolean; data?: NotificationChannel[] }> => {
   const result = await get<any[]>('/notification-channels');
   const channels = (result || []).map((item: any) => {
     let parsedConfig;
     try {
-      parsedConfig = JSON.parse(item.config);
+      parsedConfig = typeof item.config === 'string' ? JSON.parse(item.config) : item.config;
     } catch {
       parsedConfig = undefined;
     }
     return {
       id: String(item.id),
       name: item.name,
-      type: item.type,
+      type: item.type === 'ding_talk' ? 'dingtalk' : item.type,
       config: parsedConfig,
+      event_types: parseNotificationEventTypes(item.event_types),
       enabled: item.enabled,
       created_at: item.created_at,
       updated_at: item.updated_at,
@@ -702,17 +730,21 @@ export const getNotificationChannels = async (): Promise<{ success: boolean; dat
   return { success: true, data: channels };
 }
 
-export const createNotificationChannel = async (data: { name: string; type: string; config: Record<string, unknown> }): Promise<ApiResponse> => {
+export const createNotificationChannel = async (data: { name: string; type: string; config: Record<string, unknown>; event_types?: NotificationEventType[]; enabled?: boolean }): Promise<ApiResponse> => {
   return post('/notification-channels', {
     ...data,
-    config: JSON.stringify(data.config)
+    config: JSON.stringify(data.config),
+    event_types: stringifyNotificationEventTypes(data.event_types)
   });
 }
 
-export const updateNotificationChannel = async (channelId: string, data: { name?: string; type?: string; config?: Record<string, unknown>; enabled?: boolean }): Promise<ApiResponse> => {
+export const updateNotificationChannel = async (channelId: string, data: { name?: string; type?: string; config?: Record<string, unknown>; event_types?: NotificationEventType[]; enabled?: boolean }): Promise<ApiResponse> => {
   const payload: Record<string, unknown> = { ...data };
   if ('config' in data) {
     payload.config = JSON.stringify(data.config);
+  }
+  if ('event_types' in data) {
+    payload.event_types = stringifyNotificationEventTypes(data.event_types);
   }
   return put(`/notification-channels/${channelId}`, payload);
 }

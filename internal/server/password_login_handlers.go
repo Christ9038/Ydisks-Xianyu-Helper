@@ -177,7 +177,7 @@ func (s *Server) runPasswordLoginSession(ctx context.Context, session *passwordL
 		cookies map[string]string
 		err     error
 	)
-	headless := !session.ShowBrowser
+	headless := browser.ResolveHeadless(session.ShowBrowser)
 	if runner, ok := s.PasswordLogin.(passwordLoginEventRunner); ok {
 		cookies, err = runner.PasswordLoginWithEvents(ctx, session.Account, password, session.AccountID, "", headless, func(event browser.PasswordLoginEvent) {
 			s.applyPasswordLoginEvent(session, event)
@@ -403,10 +403,6 @@ func cookieAccountID(cookies map[string]string, fallback string) string {
 		}
 	}
 	return fallback
-}
-
-func loginStatusForPasswordError(err error) string {
-	return browser.PasswordLoginEventFromError(err).Status
 }
 
 func passwordLoginReason(err error) string {

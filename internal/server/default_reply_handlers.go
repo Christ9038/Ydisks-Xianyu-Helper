@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -41,18 +40,7 @@ func (s *Server) mountDefaultRepliesReal(r chi.Router) {
 
 func (s *Server) getDefaultReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	sess := auth.SessionFromContext(r.Context())
-	if sess == nil {
-		writeErr(w, http.StatusUnauthorized, "未授权访问")
-		return
-	}
-	if d, err := s.Store.Cookies.GetDetails(r.Context(), cid); err == nil {
-		if d.UserID != sess.UserID {
-			writeErr(w, http.StatusForbidden, "无权限操作该账号")
-			return
-		}
-	} else if !errors.Is(err, db.ErrNotFound) {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
 		return
 	}
 	dr, err := s.Store.DefaultReps.Get(r.Context(), cid)

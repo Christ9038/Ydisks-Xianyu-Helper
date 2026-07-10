@@ -249,6 +249,7 @@ func (s *Server) updateCookieLoginInfo(w http.ResponseWriter, r *http.Request) {
 		Password      string `json:"password"`
 		LoginPassword string `json:"login_password"`
 		ShowBrowser   bool   `json:"show_browser"`
+		ClearPassword bool   `json:"clear_password"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
@@ -258,7 +259,9 @@ func (s *Server) updateCookieLoginInfo(w http.ResponseWriter, r *http.Request) {
 	if password == "" {
 		password = req.LoginPassword
 	}
-	if password == "" && detail != nil {
+	if req.ClearPassword {
+		password = ""
+	} else if password == "" && detail != nil {
 		password = detail.Password
 	}
 	if err := s.Store.Cookies.UpdateLoginInfo(r.Context(), cid, req.Username, password, req.ShowBrowser); err != nil {

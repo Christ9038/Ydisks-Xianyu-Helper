@@ -63,6 +63,24 @@ func TestQuickRenewHeadlessUsesArgumentUnlessEnvOverrides(t *testing.T) {
 	}
 }
 
+func TestResolveHeadlessUsesShowBrowserConsistently(t *testing.T) {
+	t.Setenv("BROWSER_HEADLESS", "")
+	if !ResolveHeadless(false) {
+		t.Fatal("show_browser=false should run headless")
+	}
+	if ResolveHeadless(true) {
+		t.Fatal("show_browser=true should run headed")
+	}
+	t.Setenv("BROWSER_HEADLESS", "true")
+	if !ResolveHeadless(true) {
+		t.Fatal("env override should force headless")
+	}
+	t.Setenv("BROWSER_HEADLESS", "false")
+	if ResolveHeadless(false) {
+		t.Fatal("env override should force headed")
+	}
+}
+
 func TestCookiesRefreshHeadlessUsesAccountPreference(t *testing.T) {
 	t.Setenv("BROWSER_HEADLESS", "")
 	if !cookiesRefreshHeadless(true) {

@@ -12,17 +12,24 @@ import (
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/browser"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/engine"
 	"xianyu-go/internal/renewal"
+	"xianyu-go/internal/xianyu/mtop"
 	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
 // fakeNotifier 记录告警调用，供 OnAccountAlert 断言。
 type fakeNotifier struct {
 	alerts []struct{ cookieID, level, title, body string }
+	events []struct{ cookieID, eventType, level, title, body string }
 }
 
 func (f *fakeNotifier) NotifyAccountAlert(cookieID, level, title, body string) {
 	f.alerts = append(f.alerts, struct{ cookieID, level, title, body string }{cookieID, level, title, body})
+}
+
+func (f *fakeNotifier) NotifyAccountEvent(cookieID, eventType, level, title, body string) {
+	f.events = append(f.events, struct{ cookieID, eventType, level, title, body string }{cookieID, eventType, level, title, body})
 }
 
 // fakeBrowser 桩实现 browserManager 接口，记录调用并返回可控结果。
@@ -35,6 +42,15 @@ type fakeBrowser struct {
 	loginErr     error
 	loginCookies map[string]string
 	loginCalls   int
+
+	tokenCaptchaResult   string
+	tokenCaptchaErr      error
+	tokenCaptchaCalls    int
+	tokenCaptchaURL      string
+	tokenCaptchaHeadless bool
+	providerURL          string
+	providerTokenOK      bool
+	providerUpdated      string
 }
 
 func (f *fakeBrowser) FetchOrderDetail(_ context.Context, _, _, _ string, _ ...bool) (*browser.OrderDetail, error) {
@@ -47,6 +63,30 @@ func (f *fakeBrowser) CookieRenew(_ context.Context, _, _ string, _ bool) (map[s
 func (f *fakeBrowser) PasswordLogin(_ context.Context, _, _, _, _ string, _ bool) (map[string]string, error) {
 	f.loginCalls++
 	return f.loginCookies, f.loginErr
+}
+func (f *fakeBrowser) TokenCaptchaRecover(ctx context.Context, _ string, cookieStr, verificationURL string, headless bool, provider browser.TokenCaptchaURLProvider) (string, error) {
+	f.tokenCaptchaCalls++
+	f.tokenCaptchaURL = verificationURL
+	f.tokenCaptchaHeadless = headless
+	if provider != nil {
+		f.providerURL, f.providerTokenOK, f.providerUpdated, _ = provider(ctx, cookieStr)
+	}
+	return f.tokenCaptchaResult, f.tokenCaptchaErr
+}
+
+type fakeCaptchaRequester struct {
+	result      *mtop.FreshCaptchaResult
+	err         error
+	calls       int
+	gotCookies  string
+	gotDeviceID string
+}
+
+func (f *fakeCaptchaRequester) RequestFreshCaptchaURLContext(_ context.Context, cookiesStr, deviceID string) (*mtop.FreshCaptchaResult, error) {
+	f.calls++
+	f.gotCookies = cookiesStr
+	f.gotDeviceID = deviceID
+	return f.result, f.err
 }
 
 func newAdapterTestStore(t *testing.T) (*db.Store, func()) {
@@ -117,8 +157,65 @@ func TestOnAccountAlert_ForwardedToNotifier(t *testing.T) {
 	n := &fakeNotifier{}
 	a.SetNotifier(n)
 	a.OnAccountAlert(context.Background(), "cid", "warn", "token 失效", "请重新登录")
-	if len(n.alerts) != 1 || n.alerts[0].cookieID != "cid" || n.alerts[0].title != "token 失效" {
-		t.Fatalf("告警未转发: %+v", n.alerts)
+	if len(n.events) != 1 || n.events[0].cookieID != "cid" || n.events[0].title != "token 失效" || n.events[0].eventType != engine.EventTokenRenewal {
+		t.Fatalf("告警未转发为事件通知: events=%+v alerts=%+v", n.events, n.alerts)
+	}
+	a.OnAccountAlert(context.Background(), "cid", "warn", "闲鱼要求滑块验证", "请完成 captcha")
+	if len(n.events) != 2 || n.events[1].eventType != engine.EventSecurityVerification {
+		t.Fatalf("风控告警应分类为 security_verification: events=%+v alerts=%+v", n.events, n.alerts)
+	}
+}
+
+func TestOnTokenCaptchaVerification_SavesCookiesAndRiskLog(t *testing.T) {
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	fb := &fakeBrowser{tokenCaptchaResult: "unb=1; _m_h5_tk=fresh; x5sec=ok;"}
+	req := &fakeCaptchaRequester{result: &mtop.FreshCaptchaResult{
+		VerificationURL: "https://fresh.example/captcha",
+		UpdatedCookies:  "unb=1; _m_h5_tk=fresh;",
+	}}
+	notifier := &fakeNotifier{}
+	a := New(store, nil, nil)
+	a.SetBrowser(fb)
+	a.SetTokenCaptchaRequester(req)
+	a.SetNotifier(notifier)
+
+	newCookies, ok := a.OnTokenCaptchaVerification(ctx, "cid", "unb=1; _m_h5_tk=tk;", "https://old.example/captcha")
+	if !ok {
+		t.Fatal("token captcha recovery should succeed")
+	}
+	if !strings.Contains(newCookies, "x5sec=ok") {
+		t.Fatalf("returned cookies should contain x5sec: %q", newCookies)
+	}
+	if fb.tokenCaptchaCalls != 1 || fb.tokenCaptchaURL != "https://old.example/captcha" {
+		t.Fatalf("browser captcha call mismatch: calls=%d url=%q", fb.tokenCaptchaCalls, fb.tokenCaptchaURL)
+	}
+	if fb.providerURL != "https://fresh.example/captcha" || fb.providerUpdated == "" {
+		t.Fatalf("provider result not passed through: url=%q updated=%q", fb.providerURL, fb.providerUpdated)
+	}
+	if req.calls != 1 || req.gotDeviceID == "" {
+		t.Fatalf("fresh captcha requester not called correctly: calls=%d device=%q", req.calls, req.gotDeviceID)
+	}
+	saved, err := store.Cookies.GetValue(ctx, "cid")
+	if err != nil {
+		t.Fatalf("GetValue: %v", err)
+	}
+	if !strings.Contains(saved, "x5sec=ok") {
+		t.Fatalf("saved cookies should contain x5sec: %q", saved)
+	}
+	var status, engineName string
+	if err := store.DB.QueryRowContext(ctx,
+		`SELECT processing_status, captcha_engine FROM risk_control_logs WHERE cookie_id='cid' ORDER BY id DESC LIMIT 1`).
+		Scan(&status, &engineName); err != nil {
+		t.Fatalf("query risk log: %v", err)
+	}
+	if status != "success" || engineName != "playwright" {
+		t.Fatalf("risk log status=%q engine=%q", status, engineName)
+	}
+	if len(notifier.events) != 1 || notifier.events[0].eventType != engine.EventSecurityVerification || notifier.events[0].level != engine.AlertLevelInfo {
+		t.Fatalf("security recovery notification missing: %+v", notifier.events)
 	}
 }
 

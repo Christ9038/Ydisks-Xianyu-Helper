@@ -76,6 +76,10 @@ type apiRenewLogSnapshot struct {
 	errorMessage       string
 	updatedCookieNames string
 	responseContent    string
+	stepDetails        string
+	renewMethod        string
+	durationMS         int64
+	requestCount       int
 }
 
 func createSchedulerAccount(t *testing.T, store *db.Store, cookieID, cookieValue string) db.RenewalAccount {
@@ -99,11 +103,14 @@ func lastAPIRenewLog(t *testing.T, store *db.Store, cookieID string) apiRenewLog
 	t.Helper()
 	var log apiRenewLogSnapshot
 	err := store.DB.QueryRowContext(context.Background(),
-		`SELECT status, COALESCE(message,''), COALESCE(error_message,''), COALESCE(updated_cookie_names,''), COALESCE(response_content,'')
+		`SELECT status, COALESCE(message,''), COALESCE(error_message,''), COALESCE(updated_cookie_names,''),
+		        COALESCE(response_content,''), COALESCE(step_details,''), COALESCE(renew_method,''),
+		        COALESCE(duration_ms,0), COALESCE(request_count,0)
 		 FROM scheduled_api_cookie_renew_log
 		 WHERE cookie_id=?
 		 ORDER BY id DESC LIMIT 1`, cookieID).
-		Scan(&log.status, &log.message, &log.errorMessage, &log.updatedCookieNames, &log.responseContent)
+		Scan(&log.status, &log.message, &log.errorMessage, &log.updatedCookieNames, &log.responseContent,
+			&log.stepDetails, &log.renewMethod, &log.durationMS, &log.requestCount)
 	if err != nil {
 		t.Fatalf("query api renew log: %v", err)
 	}
@@ -227,6 +234,73 @@ func TestSchedulerSettingIntervalOverrides(t *testing.T) {
 	}
 	if got := s.settingInterval(ctx, loginRenewIntervalSetting, loginRenewInterval); got != loginRenewInterval {
 		t.Fatalf("非法间隔应回退默认值: %s", got)
+	}
+}
+
+func TestSchedulerSettingIntOverrides(t *testing.T) {
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	s := NewScheduler(store, nil, nil, nil, nil)
+
+	if got := s.settingInt(ctx, "missing_int", 10); got != 10 {
+		t.Fatalf("missing setting=%d want 10", got)
+	}
+	if err := store.Settings.Set(ctx, "renewal_log_retention_days", "20"); err != nil {
+		t.Fatalf("Set int: %v", err)
+	}
+	if got := s.settingInt(ctx, "renewal_log_retention_days", 10); got != 20 {
+		t.Fatalf("setting int=%d want 20", got)
+	}
+	if err := store.Settings.Set(ctx, "renewal_log_retention_days", "-1"); err != nil {
+		t.Fatalf("Set invalid: %v", err)
+	}
+	if got := s.settingInt(ctx, "renewal_log_retention_days", 10); got != 10 {
+		t.Fatalf("invalid setting int=%d want 10", got)
+	}
+}
+
+func TestRenewalCleanupLogsUsesRetentionDays(t *testing.T) {
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	cookie := createSchedulerAccount(t, store, "cid-cleanup", "unb=1")
+	_ = cookie
+
+	for _, table := range []string{
+		"scheduled_cookies_refresh_log",
+		"scheduled_login_renew_log",
+		"scheduled_api_cookie_renew_log",
+	} {
+		if _, err := store.DB.ExecContext(ctx,
+			`INSERT INTO `+table+` (batch_id, cookie_id, status, created_at) VALUES ('old', 'cid-cleanup', 'failed', datetime('now','-20 days'))`); err != nil {
+			t.Fatalf("insert old %s: %v", table, err)
+		}
+		if _, err := store.DB.ExecContext(ctx,
+			`INSERT INTO `+table+` (batch_id, cookie_id, status, created_at) VALUES ('new', 'cid-cleanup', 'success', CURRENT_TIMESTAMP)`); err != nil {
+			t.Fatalf("insert new %s: %v", table, err)
+		}
+	}
+	if err := store.Settings.Set(ctx, "renewal_log_retention_days", "10"); err != nil {
+		t.Fatalf("set retention: %v", err)
+	}
+	s := NewScheduler(store, nil, nil, nil, nil)
+	s.cleanupExpiredLogs(ctx)
+	for _, table := range []string{
+		"scheduled_cookies_refresh_log",
+		"scheduled_login_renew_log",
+		"scheduled_api_cookie_renew_log",
+	} {
+		var oldRows, newRows int
+		if err := store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE batch_id='old'`).Scan(&oldRows); err != nil {
+			t.Fatalf("count old %s: %v", table, err)
+		}
+		if err := store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE batch_id='new'`).Scan(&newRows); err != nil {
+			t.Fatalf("count new %s: %v", table, err)
+		}
+		if oldRows != 0 || newRows != 1 {
+			t.Fatalf("%s cleanup old=%d new=%d, want old=0 new=1", table, oldRows, newRows)
+		}
 	}
 }
 
@@ -379,5 +453,14 @@ func TestAPICookieRenewOneBrowserRenewedAfterVerifySuccess(t *testing.T) {
 	}
 	if !strings.Contains(log.responseContent, "silent-browser-ok") {
 		t.Fatalf("response_content 应记录验证阶段 silentHasLogin 响应: %+v", log)
+	}
+	if log.renewMethod != "browser+api" || log.requestCount != 6 {
+		t.Fatalf("浏览器兜底日志应记录方法和请求数: %+v", log)
+	}
+	if !strings.Contains(log.stepDetails, "browser: quick_enter") || !strings.Contains(log.stepDetails, "api_verify") {
+		t.Fatalf("step_details 未记录浏览器兜底步骤: %+v", log)
+	}
+	if log.durationMS < 0 {
+		t.Fatalf("duration_ms 不应为负数: %+v", log)
 	}
 }

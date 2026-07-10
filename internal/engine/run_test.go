@@ -35,6 +35,27 @@ func (f *fakeRunMtop) RefreshTokenWithDeviceIDContext(_ context.Context, _ strin
 	return &mtop.RefreshResult{AccessToken: f.token}, nil
 }
 
+type fakeFailTokenMtop struct{ err error }
+
+func (f *fakeFailTokenMtop) FetchUserProfile(context.Context, string) (*mtop.UserProfileResult, error) {
+	return nil, nil
+}
+func (f *fakeFailTokenMtop) ConsignContext(context.Context, string, string) (bool, []string, string, error) {
+	return true, nil, "", nil
+}
+func (f *fakeFailTokenMtop) FetchItemsPage(context.Context, string, int, int) (*mtop.ItemListResult, error) {
+	return nil, nil
+}
+func (f *fakeFailTokenMtop) FetchAllItems(context.Context, string, int, int) (*mtop.ItemListResult, error) {
+	return nil, nil
+}
+func (f *fakeFailTokenMtop) PublishItem(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
+	return nil, nil
+}
+func (f *fakeFailTokenMtop) RefreshTokenWithDeviceIDContext(context.Context, string, string) (*mtop.RefreshResult, error) {
+	return nil, f.err
+}
+
 // fakeWSConn 实现 WSConn，可控地投递消息并阻塞到 ctx 取消。
 type fakeWSConn struct {
 	mu            sync.Mutex
@@ -97,11 +118,11 @@ func (f *fakeWSConn) SendImage(_ context.Context, _, _, _, url string, _, _ int)
 
 // fakeDialer 按预设序列返回连接或错误，第 N 次（1-based）调用返回 dialResults[N-1]。
 type fakeDialer struct {
-	mu        sync.Mutex
-	results   []dialResult // 每次.Dial 的结果
-	calls     int
-	conns     []*fakeWSConn
-	lastCfg   ws.Config // 记录最后一次 Dial 的配置（含 AccessToken）
+	mu      sync.Mutex
+	results []dialResult // 每次.Dial 的结果
+	calls   int
+	conns   []*fakeWSConn
+	lastCfg ws.Config // 记录最后一次 Dial 的配置（含 AccessToken）
 }
 
 type dialResult struct {
@@ -327,6 +348,33 @@ func TestRun_DisabledAccountExits(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("禁用账号 Run 应立即退出")
+	}
+}
+
+func TestRun_TokenFetchThresholdDisablesAccount(t *testing.T) {
+	acc, _, store, cleanup := newRunAccount(t, &fakeFailTokenMtop{err: errFakeDial})
+	defer cleanup()
+	h := &failingRefreshHandler{}
+	acc.handler = h
+	acc.mu.Lock()
+	acc.tokenFetchFailures = TokenFetchDisableThreshold - 1
+	acc.mu.Unlock()
+
+	done := make(chan error, 1)
+	go func() { done <- acc.Run(context.Background()) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("threshold disable should exit nil, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("token failure threshold should disable without retry sleep")
+	}
+	if store.Cookies.GetStatus(context.Background(), "cid") {
+		t.Fatal("token failure threshold should disable account")
+	}
+	if len(h.events) == 0 || h.events[len(h.events)-1] != EventAccountDisabled {
+		t.Fatalf("disable event not emitted: events=%+v alerts=%+v", h.events, h.alerts)
 	}
 }
 

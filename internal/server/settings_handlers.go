@@ -14,6 +14,7 @@ import (
 
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/logging"
 )
 
 const maxOpenAIModelsResponseBytes = 4 << 20
@@ -59,6 +60,12 @@ func (s *Server) setSetting(w http.ResponseWriter, r *http.Request) {
 	if err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
+	}
+	if key == "log_level" {
+		if err := logging.SetLevel(req.Value); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	if err := s.Store.Settings.Set(r.Context(), key, req.Value); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
@@ -115,18 +122,7 @@ func (s *Server) listAIReply(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getAIReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
-	sess := auth.SessionFromContext(r.Context())
-	if sess == nil {
-		writeErr(w, http.StatusUnauthorized, "未授权访问")
-		return
-	}
-	if d, err := s.Store.Cookies.GetDetails(r.Context(), cid); err == nil {
-		if d.UserID != sess.UserID {
-			writeErr(w, http.StatusForbidden, "无权限操作该账号")
-			return
-		}
-	} else if !errors.Is(err, db.ErrNotFound) {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
 		return
 	}
 	cfg, err := s.Store.AIReply.Get(r.Context(), cid)

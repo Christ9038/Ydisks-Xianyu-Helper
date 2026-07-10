@@ -3,11 +3,12 @@ import { LayoutDashboard, Users, ShoppingBag, CreditCard, Settings, LogOut, Box,
 
 interface SidebarProps {
   activeTab: string;
+  isAdmin?: boolean;
   onNavigate: (tab: string) => void;
   onLogout: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ activeTab, onNavigate, onLogout }) => {
+const Sidebar: React.FC<SidebarProps> = ({ activeTab, isAdmin = false, onNavigate, onLogout }) => {
   const menuItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: '仪表盘' },
     { id: 'accounts', icon: Users, label: '账号管理' },
@@ -16,7 +17,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onNavigate, onLogout }) =>
     { id: 'items', icon: Box, label: '商品列表' },
     { id: 'rules', icon: Zap, label: '自动化规则' },
     { id: 'notifications', icon: Bell, label: '通知设置' },
-    { id: 'settings', icon: Settings, label: '系统与AI' },
+    ...(isAdmin ? [{ id: 'settings', icon: Settings, label: '系统与AI' }] : []),
   ];
 
   return (

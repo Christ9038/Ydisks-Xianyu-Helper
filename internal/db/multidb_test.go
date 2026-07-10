@@ -444,6 +444,47 @@ func TestMultiDB_Notifications(t *testing.T) {
 	}
 }
 
+func TestMultiDB_Migration14DownUp(t *testing.T) {
+	for _, tg := range allTestTargets(t) {
+		t.Run(tg.name, func(t *testing.T) {
+			defer tg.cleanup()
+			subdir, gooseDialect := migrationTestSubdir(t, tg.dialect)
+			if err := goose.SetDialect(gooseDialect); err != nil {
+				t.Fatalf("set goose dialect: %v", err)
+			}
+			goose.SetBaseFS(migrationsFS)
+			if err := goose.Down(tg.store.DB, "migrations/"+subdir); err != nil {
+				t.Fatalf("migration 14 down: %v", err)
+			}
+			if columnExistsForDialect(t, tg.store.DB, tg.dialect, "notification_channels", "event_types") {
+				t.Fatal("notification_channels.event_types should be removed after down")
+			}
+			if tableExistsForDialect(t, tg.store.DB, tg.dialect, "risk_control_logs") {
+				t.Fatal("risk_control_logs should be removed after down")
+			}
+
+			if err := goose.Up(tg.store.DB, "migrations/"+subdir); err != nil {
+				t.Fatalf("migration up after down: %v", err)
+			}
+			for _, c := range []struct {
+				table string
+				col   string
+			}{
+				{"notification_channels", "event_types"},
+				{"message_notifications", "event_types"},
+				{"scheduled_cookies_refresh_log", "step_details"},
+				{"scheduled_login_renew_log", "updated_cookie_count"},
+				{"scheduled_api_cookie_renew_log", "request_count"},
+				{"risk_control_logs", "processing_status"},
+			} {
+				if !columnExistsForDialect(t, tg.store.DB, tg.dialect, c.table, c.col) {
+					t.Fatalf("column missing after re-up: %s.%s", c.table, c.col)
+				}
+			}
+		})
+	}
+}
+
 // TestMultiDB_CardsCreateGet 验证 cards Create + Get 的 NULL 列扫描（含 nullable 字段）。
 func TestMultiDB_CardsCreateGet(t *testing.T) {
 	for _, tg := range allTestTargets(t) {
@@ -480,6 +521,85 @@ func TestMultiDB_CardsCreateGet(t *testing.T) {
 			}
 		})
 	}
+}
+
+func migrationTestSubdir(t *testing.T, dialect Dialect) (string, string) {
+	t.Helper()
+	switch dialect {
+	case DialectSQLite:
+		return "sqlite", "sqlite3"
+	case DialectMySQL:
+		return "mysql", "mysql"
+	case DialectPostgres:
+		return "postgres", "postgres"
+	default:
+		t.Fatalf("unknown dialect: %s", dialect)
+		return "", ""
+	}
+}
+
+func columnExistsForDialect(t *testing.T, db *sql.DB, dialect Dialect, table, col string) bool {
+	t.Helper()
+	var query string
+	var args []any
+	switch dialect {
+	case DialectSQLite:
+		rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+		if err != nil {
+			t.Fatalf("pragma_table_info(%s): %v", table, err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
+				t.Fatalf("scan column name: %v", err)
+			}
+			if name == col {
+				return true
+			}
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("column rows: %v", err)
+		}
+		return false
+	case DialectMySQL:
+		query = `SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?`
+		args = []any{table, col}
+	case DialectPostgres:
+		query = `SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name=? AND column_name=?`
+		args = []any{table, col}
+	default:
+		t.Fatalf("unknown dialect: %s", dialect)
+	}
+	var count int
+	if err := db.QueryRow(query, args...).Scan(&count); err != nil {
+		t.Fatalf("column exists query %s.%s: %v", table, col, err)
+	}
+	return count > 0
+}
+
+func tableExistsForDialect(t *testing.T, db *sql.DB, dialect Dialect, table string) bool {
+	t.Helper()
+	var query string
+	var args []any
+	switch dialect {
+	case DialectSQLite:
+		query = `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`
+		args = []any{table}
+	case DialectMySQL:
+		query = `SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?`
+		args = []any{table}
+	case DialectPostgres:
+		query = `SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name=?`
+		args = []any{table}
+	default:
+		t.Fatalf("unknown dialect: %s", dialect)
+	}
+	var count int
+	if err := db.QueryRow(query, args...).Scan(&count); err != nil {
+		t.Fatalf("table exists query %s: %v", table, err)
+	}
+	return count > 0
 }
 
 func boolPtr(b bool) *bool { return &b }

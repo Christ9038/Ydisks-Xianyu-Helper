@@ -15,9 +15,32 @@ import {
 
 const DEFAULT_AI_API_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
+const LOG_LEVELS = [
+  { value: 'debug', label: 'Debug' },
+  { value: 'info', label: 'Info' },
+  { value: 'warn', label: 'Warn' },
+  { value: 'error', label: 'Error' },
+];
+
+const SETTINGS_SAVE_OMIT_KEYS = new Set([
+  'smtp_server',
+  'smtp_port',
+  'smtp_user',
+  'smtp_password',
+  'smtp_from',
+  'registration_enabled',
+  'show_default_login_info',
+  'login_captcha_enabled',
+  'item_sync_enabled',
+  'item_sync_interval',
+  'item_sync_max_pages',
+  'default_reply',
+]);
+
 const Settings: React.FC = () => {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [aiModels, setAiModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -80,10 +103,15 @@ const Settings: React.FC = () => {
 
   const loadSettings = () => {
     setLoading(true);
+    setLoadError('');
     getSystemSettings()
       .then(data => {
         setSettings(data);
         loadAIModels(data);
+      })
+      .catch(error => {
+        setSettings(null);
+        setLoadError((error as Error).message || '加载配置失败');
       })
       .finally(() => setLoading(false));
   };
@@ -92,9 +120,12 @@ const Settings: React.FC = () => {
       if(!settings) return;
       setSaving(true);
       try {
-        // SMTP 字段已移至「通知设置」页面，这里不保存，避免覆盖那边已存的值。
-        const { smtp_server, smtp_port, smtp_user, smtp_password, smtp_from, ...rest } = settings;
-        await updateSystemSettings(rest);
+        const persistable = Object.fromEntries(
+          Object.entries(settings).filter(([key, value]) =>
+            !SETTINGS_SAVE_OMIT_KEYS.has(key) && value !== undefined && value !== null
+          )
+        ) as Partial<SystemSettings>;
+        await updateSystemSettings(persistable);
         alert('系统配置已保存');
       } catch (e) {
         alert('保存失败：' + (e as Error).message);
@@ -143,7 +174,13 @@ const Settings: React.FC = () => {
     }
   };
 
-  if (!settings) return <div className="p-8 text-center text-gray-400">加载配置中...</div>;
+  if (!settings) {
+    return (
+      <div className="p-8 text-center text-gray-400">
+        {loadError || (loading ? '加载配置中...' : '暂无配置')}
+      </div>
+    );
+  }
 
   const currentModel = settings.ai_model || '';
   const visibleAIModels = aiModels;
@@ -183,90 +220,45 @@ const Settings: React.FC = () => {
             </h3>
 
             <div className="ios-card rounded-xl p-6 bg-white space-y-4">
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
-                <div>
-                  <div className="font-bold text-gray-900">允许用户注册</div>
-                  <div className="text-xs text-gray-500 mt-1">开启后允许新用户注册账号</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <label className="block text-sm font-bold text-gray-800">日志输出等级</label>
+                  <select
+                    value={settings.log_level || 'info'}
+                    onChange={event => setSettings({ ...settings, log_level: event.target.value })}
+                    className="w-full ios-input px-4 py-3 rounded-xl"
+                  >
+                    {LOG_LEVELS.map(level => (
+                      <option key={level.value} value={level.value}>{level.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500">等级越低输出越详细，Debug 适合排查问题</p>
                 </div>
-                <button
-                  onClick={() => setSettings({...settings, registration_enabled: !settings.registration_enabled})}
-                  className={`w-14 h-8 rounded-full transition-all relative ${
-                    settings.registration_enabled ? 'bg-[#0094f7]' : 'bg-gray-300'
-                  }`}
-                >
-                  <div
-                    className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-all shadow-md ${
-                      settings.registration_enabled ? 'left-7' : 'left-1'
-                    }`}
-                  />
-                </button>
+                <div className="space-y-3">
+                  <label className="block text-sm font-bold text-gray-800">日志输出格式</label>
+                  <select
+                    value={settings.log_format || 'text'}
+                    onChange={event => setSettings({ ...settings, log_format: event.target.value })}
+                    className="w-full ios-input px-4 py-3 rounded-xl"
+                  >
+                    <option value="text">Text</option>
+                    <option value="json">JSON</option>
+                  </select>
+                  <p className="text-xs text-gray-500">JSON 适合接入集中式日志系统，保存后需重启服务生效</p>
+                </div>
               </div>
 
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
-                <div>
-                  <div className="font-bold text-gray-900">显示默认登录信息</div>
-                  <div className="text-xs text-gray-500 mt-1">登录页面显示默认账号密码提示</div>
-                </div>
-                <button
-                  onClick={() => setSettings({...settings, show_default_login_info: !settings.show_default_login_info})}
-                  className={`w-14 h-8 rounded-full transition-all relative ${
-                    settings.show_default_login_info ? 'bg-[#0094f7]' : 'bg-gray-300'
-                  }`}
-                >
-                  <div
-                    className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-all shadow-md ${
-                      settings.show_default_login_info ? 'left-7' : 'left-1'
-                    }`}
-                  />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
-                <div>
-                  <div className="font-bold text-gray-900">启用商品自动同步</div>
-                  <div className="text-xs text-gray-500 mt-1">定时自动获取商品信息到本地数据库</div>
-                </div>
-                <button
-                  onClick={() => setSettings({...settings, item_sync_enabled: !settings.item_sync_enabled})}
-                  className={`w-14 h-8 rounded-full transition-all relative ${
-                    settings.item_sync_enabled ? 'bg-[#0094f7]' : 'bg-gray-300'
-                  }`}
-                >
-                  <div
-                    className={`w-6 h-6 bg-white rounded-full absolute top-1 transition-all shadow-md ${
-                      settings.item_sync_enabled ? 'left-7' : 'left-1'
-                    }`}
-                  />
-                </button>
-              </div>
-
-              <div className="space-y-3 px-4">
-                <label className="block text-sm font-bold text-gray-800">商品同步间隔（分钟）</label>
+              <div className="space-y-3">
+                <label className="block text-sm font-bold text-gray-800">续期日志保留天数</label>
                 <input
                   type="number"
-                  value={Math.round((settings.item_sync_interval || 600) / 60)}
-                  onChange={(e) => {
-                    const minutes = parseInt(e.target.value) || 10;
-                    setSettings({...settings, item_sync_interval: minutes * 60});
-                  }}
+                  value={settings.renewal_log_retention_days ?? 10}
+                  onChange={(e) => setSettings({ ...settings, renewal_log_retention_days: parseInt(e.target.value) || 0 })}
                   className="w-full ios-input px-4 py-3 rounded-xl"
-                  min="1"
-                  max="1440"
+                  min="0"
+                  max="365"
                 />
-                <p className="text-xs text-gray-500">建议：10-60分钟</p>
-              </div>
-
-              <div className="space-y-3 px-4">
-                <label className="block text-sm font-bold text-gray-800">每次最多同步页数</label>
-                <input
-                  type="number"
-                  value={settings.item_sync_max_pages || 5}
-                  onChange={(e) => setSettings({...settings, item_sync_max_pages: parseInt(e.target.value) || 5})}
-                  className="w-full ios-input px-4 py-3 rounded-xl"
-                  min="1"
-                  max="50"
-                />
-                <p className="text-xs text-gray-500">每页20个商品</p>
+                <p className="text-xs text-gray-500">0 表示不自动清理续期日志</p>
               </div>
             </div>
           </section>
@@ -380,16 +372,6 @@ const Settings: React.FC = () => {
                     {aiModels.length > 0 ? `已从当前 API 地址读取到 ${aiModels.length} 个模型` : '模型列表从当前 API 地址读取，也可以手动输入模型名'}
                   </p>
                 )}
-              </div>
-
-              <div className="space-y-3">
-                <label className="block text-sm font-bold text-gray-800">默认自动回复内容</label>
-                <textarea
-                  className="w-full ios-input px-4 py-3 rounded-xl min-h-[100px] text-sm resize-none"
-                  value={settings.default_reply || ''}
-                  onChange={e => setSettings({...settings, default_reply: e.target.value})}
-                  placeholder="设置默认的自动回复内容..."
-                ></textarea>
               </div>
 
               <div className="p-3 bg-blue-50 rounded-xl text-xs text-blue-700">

@@ -63,6 +63,7 @@ const AccountList: React.FC = () => {
     login_password: '',
     show_browser: false,
     showLoginPassword: false,
+    clear_password: false,
   });
 
   // AI设置表单状态
@@ -233,6 +234,7 @@ const AccountList: React.FC = () => {
       login_password: account.login_password || '',
       show_browser: account.show_browser || false,
       showLoginPassword: false,
+      clear_password: false,
     });
     setActiveModal('edit');
     // 并行加载通知渠道列表 + 当前账号已绑定渠道
@@ -794,7 +796,7 @@ const AccountList: React.FC = () => {
                       <input
                         type={editForm.showLoginPassword ? 'text' : 'password'}
                         value={editForm.login_password}
-                        onChange={(e) => setEditForm({ ...editForm, login_password: e.target.value })}
+                        onChange={(e) => setEditForm({ ...editForm, login_password: e.target.value, clear_password: false })}
                         placeholder="用于自动登录"
                         className="w-full ios-input px-4 py-3 rounded-xl pr-12"
                       />
@@ -806,6 +808,15 @@ const AccountList: React.FC = () => {
                         {editForm.showLoginPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                       </button>
                     </div>
+                    <label className="mt-3 flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editForm.clear_password}
+                        onChange={(e) => setEditForm({ ...editForm, clear_password: e.target.checked, login_password: e.target.checked ? '' : editForm.login_password })}
+                        className="w-4 h-4 accent-[#0094f7]"
+                      />
+                      <span className="text-sm font-bold text-gray-700">清空已保存密码</span>
+                    </label>
                   </div>
                   <div className="flex items-center justify-between">
                     <div>

@@ -61,3 +61,16 @@ type AccountLoginLog struct {
 	DurationMS         int64
 	CreatedAt          int64
 }
+
+// RiskControlLog 记录滑块/人脸/风控恢复过程。
+type RiskControlLog struct {
+	ID               int64
+	CookieID         string
+	EventType        string
+	EventDescription string
+	ProcessingResult string
+	ProcessingStatus string
+	CaptchaEngine    string
+	ErrorMessage     string
+	DurationMS       int64
+}

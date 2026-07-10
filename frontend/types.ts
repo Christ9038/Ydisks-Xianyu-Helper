@@ -184,6 +184,9 @@ export interface ReplyRule {
   reply_content: string;
   match_type: 'exact' | 'fuzzy';
   enabled: boolean;
+  item_id?: string;
+  type?: 'text' | 'image';
+  image_url?: string;
 }
 
 // Stats
@@ -219,6 +222,9 @@ export interface SystemSettings {
   default_reply?: string;
   registration_enabled?: boolean;
   smtp_server?: string;
+  log_level?: 'debug' | 'info' | 'warn' | 'error' | string;
+  log_format?: 'text' | 'json' | string;
+  renewal_log_retention_days?: number;
   [key: string]: any;
 }
 
@@ -244,12 +250,21 @@ export interface DefaultReply {
 
 // 通知渠道
 export type NotificationChannelType = 'dingtalk' | 'feishu' | 'bark' | 'webhook' | 'wechat' | 'telegram' | 'email';
+export type NotificationEventType =
+  | 'account_offline'
+  | 'account_recovered'
+  | 'account_disabled'
+  | 'security_verification'
+  | 'token_renewal'
+  | 'delivery_result'
+  | 'system_error';
 
 export interface NotificationChannel {
   id: string;
   name: string;
   type: NotificationChannelType;
   config: Record<string, unknown>;
+  event_types?: NotificationEventType[];
   enabled: boolean;
   created_at?: string;
   updated_at?: string;

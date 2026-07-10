@@ -260,6 +260,24 @@ func TestResetFailures(t *testing.T) {
 	}
 }
 
+func TestRefreshTokenSuccessResetsTokenFetchFailures(t *testing.T) {
+	acc, _, _, cleanup := newAccountForTest(t)
+	defer cleanup()
+	acc.mtop = &fakeRunMtop{token: "tok-reset"}
+	acc.tokenFetchFailures = 19
+
+	token, _, err := acc.refreshToken(context.Background())
+	if err != nil {
+		t.Fatalf("refreshToken: %v", err)
+	}
+	if token != "tok-reset" {
+		t.Fatalf("token=%q want tok-reset", token)
+	}
+	if acc.tokenFetchFailures != 0 {
+		t.Fatalf("tokenFetchFailures=%d want 0", acc.tokenFetchFailures)
+	}
+}
+
 // TestRetryDelay_FailureClampsAtOne connFailures=0 时按 1 计算。
 func TestRetryDelay_FailureClampsAtOne(t *testing.T) {
 	acc, _, _, cleanup := newAccountForTest(t)
@@ -395,6 +413,7 @@ func TestHandleMaxFailures_PasswordLoginSuccess(t *testing.T) {
 // failingRefreshHandler OnPasswordLoginRefresh 返回 false 的 handler，记录告警。
 type failingRefreshHandler struct {
 	alerts []string
+	events []string
 }
 
 func (f *failingRefreshHandler) HandleChatMessage(context.Context, ChatMessage) error { return nil }
@@ -403,6 +422,10 @@ func (f *failingRefreshHandler) HandleSystemEvent(context.Context, automation.Ta
 }
 func (f *failingRefreshHandler) OnPasswordLoginRefresh(context.Context, string) bool { return false }
 func (f *failingRefreshHandler) OnAccountAlert(_ context.Context, _, level, _, _ string) {
+	f.alerts = append(f.alerts, level)
+}
+func (f *failingRefreshHandler) OnAccountEvent(_ context.Context, _, eventType, level, _, _ string) {
+	f.events = append(f.events, eventType)
 	f.alerts = append(f.alerts, level)
 }
 
@@ -433,8 +456,11 @@ func TestHandleMaxFailures_PasswordLoginFailure(t *testing.T) {
 	if s := acc.RuntimeStatus(); s.State != RuntimeAuthExpired {
 		t.Errorf("状态应为 auth_expired，got %q", s.State)
 	}
-	if len(h.alerts) != 1 || h.alerts[0] != AlertLevelCritical {
-		t.Errorf("应触发一次 critical 告警，got %+v", h.alerts)
+	if len(h.alerts) != 2 || h.alerts[0] != AlertLevelWarn || h.alerts[1] != AlertLevelCritical {
+		t.Errorf("应先触发掉线 warn，再触发恢复失败 critical，got %+v", h.alerts)
+	}
+	if len(h.events) != 2 || h.events[0] != EventAccountOffline || h.events[1] != EventAccountOffline {
+		t.Errorf("事件类型应为账号掉线通知，got %+v", h.events)
 	}
 }
 

@@ -78,13 +78,13 @@ func TestCreateChannelBadJSON(t *testing.T) {
 
 // TestUpdateChannel 更新渠道。
 func TestUpdateChannel(t *testing.T) {
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	h := srv.Router()
 	cookie := loginHelper(t, h)
 
 	// 创建。
-	body := `{"name":"钉钉","type":"dingtalk","config":"{}","enabled":true}`
+	body := `{"name":"钉钉","type":"dingtalk","config":"{\"webhook_url\":\"https://example.com\"}","event_types":"[\"account_offline\"]","enabled":true}`
 	req := httptest.NewRequest(http.MethodPost, "/notification-channels", strings.NewReader(body))
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
@@ -93,14 +93,41 @@ func TestUpdateChannel(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &cr)
 	id := int64(cr["id"].(float64))
 
-	// 更新。
-	upd := `{"name":"改名钉钉","type":"dingtalk","config":"{}","enabled":false}`
+	// 部分更新：只切换 enabled，不应清空 name/type/config/event_types。
+	upd := `{"enabled":false}`
 	req2 := httptest.NewRequest(http.MethodPut, "/notification-channels/"+itoa(id), strings.NewReader(upd))
 	req2.AddCookie(cookie)
 	rec2 := httptest.NewRecorder()
 	h.ServeHTTP(rec2, req2)
 	if rec2.Code != 200 {
 		t.Fatalf("update status=%d body=%s", rec2.Code, rec2.Body.String())
+	}
+	row, err := store.Notifications.GetChannelRowForUser(context.Background(), id, 1)
+	if err != nil {
+		t.Fatalf("get channel row: %v", err)
+	}
+	if row == nil {
+		t.Fatal("channel row missing")
+	}
+	if row.Name != "钉钉" || row.Type != "dingtalk" || row.Config != `{"webhook_url":"https://example.com"}` ||
+		row.EventTypes != `["account_offline"]` || row.Enabled {
+		t.Fatalf("partial update should preserve omitted fields and change enabled: %+v", row)
+	}
+
+	// 显式传空 event_types 表示恢复为接收全部事件，其它字段仍保留。
+	req3 := httptest.NewRequest(http.MethodPut, "/notification-channels/"+itoa(id), strings.NewReader(`{"event_types":""}`))
+	req3.AddCookie(cookie)
+	rec3 := httptest.NewRecorder()
+	h.ServeHTTP(rec3, req3)
+	if rec3.Code != 200 {
+		t.Fatalf("clear event_types status=%d body=%s", rec3.Code, rec3.Body.String())
+	}
+	row, err = store.Notifications.GetChannelRowForUser(context.Background(), id, 1)
+	if err != nil {
+		t.Fatalf("get channel row after clear: %v", err)
+	}
+	if row.EventTypes != "" || row.Name != "钉钉" || row.Config != `{"webhook_url":"https://example.com"}` {
+		t.Fatalf("event_types clear should not affect other fields: %+v", row)
 	}
 }
 
@@ -293,6 +320,29 @@ func TestMessageNotificationsFilterCrossUserChannels(t *testing.T) {
 	ids, _ := got["channel_ids"].([]any)
 	if len(ids) != 1 || int64(ids[0].(float64)) != ownID {
 		t.Fatalf("bindings should filter dirty binding: %+v", got)
+	}
+
+	updateOtherReq := httptest.NewRequest(http.MethodPut, "/notification-channels/"+itoa(otherID), strings.NewReader(`{"enabled":false}`))
+	updateOtherReq.AddCookie(cookie)
+	updateOtherRec := httptest.NewRecorder()
+	h.ServeHTTP(updateOtherRec, updateOtherReq)
+	if updateOtherRec.Code != http.StatusForbidden {
+		t.Fatalf("cross-user update should be 403, got %d body=%s", updateOtherRec.Code, updateOtherRec.Body.String())
+	}
+	otherRow, err := store.Notifications.GetChannelRowForUser(ctx, otherID, u2.ID)
+	if err != nil {
+		t.Fatalf("get other channel: %v", err)
+	}
+	if otherRow == nil || !otherRow.Enabled {
+		t.Fatalf("cross-user update should not mutate other channel: %+v", otherRow)
+	}
+
+	deleteOtherReq := httptest.NewRequest(http.MethodDelete, "/notification-channels/"+itoa(otherID), nil)
+	deleteOtherReq.AddCookie(cookie)
+	deleteOtherRec := httptest.NewRecorder()
+	h.ServeHTTP(deleteOtherRec, deleteOtherReq)
+	if deleteOtherRec.Code != http.StatusForbidden {
+		t.Fatalf("cross-user delete should be 403, got %d body=%s", deleteOtherRec.Code, deleteOtherRec.Body.String())
 	}
 }
 

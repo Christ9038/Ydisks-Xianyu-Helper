@@ -19,6 +19,7 @@ import (
 	"xianyu-go/internal/engine"
 	"xianyu-go/internal/renewal"
 	"xianyu-go/internal/xianyu/cookierefresh"
+	"xianyu-go/internal/xianyu/mtop"
 	"xianyu-go/internal/xianyu/protocol"
 	xrenew "xianyu-go/internal/xianyu/renew"
 )
@@ -35,6 +36,14 @@ type browserQuickRenewer interface {
 	BrowserQuickRenew(ctx context.Context, cookieID, cookieStr string, headless bool) (string, error)
 }
 
+type browserTokenCaptchaRecoverer interface {
+	TokenCaptchaRecover(ctx context.Context, cookieID, cookieStr, verificationURL string, headless bool, provider browser.TokenCaptchaURLProvider) (string, error)
+}
+
+type tokenCaptchaRequester interface {
+	RequestFreshCaptchaURLContext(ctx context.Context, cookiesStr, deviceID string) (*mtop.FreshCaptchaResult, error)
+}
+
 // Adapter 实现 engine.Handler 与 automation.OrderDetailFetcher，
 // 把系统消息、订单详情抓取和密码登录刷新接到浏览器与自动化中心。
 //
@@ -48,6 +57,7 @@ type Adapter struct {
 	notifier   notifyNotifier
 	renewSvc   xrenew.Service
 	cooldown   *renewal.CooldownManager
+	captchaReq tokenCaptchaRequester
 
 	orderFetchMu   sync.Mutex
 	lastOrderFetch time.Time
@@ -62,6 +72,10 @@ type notifyNotifier interface {
 	NotifyAccountAlert(cookieID, level, title, body string)
 }
 
+type notifyEventNotifier interface {
+	NotifyAccountEvent(cookieID, eventType, level, title, body string)
+}
+
 // New 构造 Adapter。automation 与 notifier 通过 Set* 后期注入（因创建顺序存在循环：
 // mgr 依赖 adapter，automation 依赖 mgr，adapter 又依赖 automation）。
 func New(store *db.Store, bm *browser.Manager, logger *slog.Logger) *Adapter {
@@ -73,6 +87,7 @@ func New(store *db.Store, bm *browser.Manager, logger *slog.Logger) *Adapter {
 		browser:            browserManagerOrNil(bm),
 		logger:             logger,
 		cooldown:           renewal.GlobalCooldown,
+		captchaReq:         mtop.NewClient(),
 		passwordProcessing: make(map[string]struct{}),
 	}
 }
@@ -97,6 +112,9 @@ func (a *Adapter) SetBrowser(b browserManager) { a.browser = b }
 // SetRenewService 覆盖轻量续期服务，便于测试注入本地 HTTP 服务。
 func (a *Adapter) SetRenewService(s xrenew.Service) { a.renewSvc = s }
 
+// SetTokenCaptchaRequester 覆盖 token 风控验证链接刷新器，便于测试隔离网络。
+func (a *Adapter) SetTokenCaptchaRequester(r tokenCaptchaRequester) { a.captchaReq = r }
+
 // HandleChatMessage 用户聊天消息由 Account 内部 ReplyService 处理，此处空实现满足接口。
 func (a *Adapter) HandleChatMessage(_ context.Context, _ engine.ChatMessage) error {
 	return nil
@@ -104,12 +122,141 @@ func (a *Adapter) HandleChatMessage(_ context.Context, _ engine.ChatMessage) err
 
 // OnAccountAlert 把账号告警（token 失效/自动恢复失败/风控验证等）转发给通知器，
 // 推送到该账号已绑定的通知渠道。
-func (a *Adapter) OnAccountAlert(_ context.Context, cookieID, level, title, body string) {
+func (a *Adapter) OnAccountAlert(ctx context.Context, cookieID, level, title, body string) {
+	a.OnAccountEvent(ctx, cookieID, classifyAccountAlertEvent(title, body), level, title, body)
+}
+
+// OnAccountEvent 把带类型的账号事件转发给通知器。
+func (a *Adapter) OnAccountEvent(_ context.Context, cookieID, eventType, level, title, body string) {
 	if a.notifier == nil {
-		a.logger.Warn("告警通知未发送：通知器未注入", "account", cookieID, "level", level, "title", title)
+		a.logger.Warn("账号事件通知未发送：通知器未注入", "account", cookieID, "event_type", eventType, "level", level, "title", title)
+		return
+	}
+	if n, ok := a.notifier.(notifyEventNotifier); ok {
+		n.NotifyAccountEvent(cookieID, eventType, level, title, body)
 		return
 	}
 	a.notifier.NotifyAccountAlert(cookieID, level, title, body)
+}
+
+func classifyAccountAlertEvent(title, body string) string {
+	msg := strings.ToLower(title + " " + body)
+	switch {
+	case strings.Contains(msg, "风控"), strings.Contains(msg, "验证"),
+		strings.Contains(msg, "滑块"), strings.Contains(msg, "captcha"),
+		strings.Contains(msg, "risk"), strings.Contains(msg, "x5sec"):
+		return engine.EventSecurityVerification
+	case strings.Contains(msg, "禁用"), strings.Contains(msg, "disabled"):
+		return engine.EventAccountDisabled
+	case strings.Contains(msg, "掉线"), strings.Contains(msg, "离线"),
+		strings.Contains(msg, "offline"), strings.Contains(msg, "session"),
+		strings.Contains(msg, "登录凭证已失效"):
+		return engine.EventAccountOffline
+	case strings.Contains(msg, "token"), strings.Contains(msg, "续期"), strings.Contains(msg, "renew"):
+		return engine.EventTokenRenewal
+	default:
+		return engine.EventSystemError
+	}
+}
+
+// OnTokenCaptchaVerification 处理 token 刷新触发的闲鱼滑块风控。
+func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cookieStr, verificationURL string) (string, bool) {
+	br, ok := a.browser.(browserTokenCaptchaRecoverer)
+	if a.browser == nil || !ok {
+		a.OnAccountEvent(ctx, cookieID, engine.EventSecurityVerification, engine.AlertLevelWarn,
+			"token 风控验证无法自动处理", "浏览器自动化未启用，无法自动完成 token 滑块验证。")
+		return "", false
+	}
+
+	start := time.Now()
+	var logID int64
+	if a.store != nil && a.store.RiskLogs != nil {
+		if id, err := a.store.RiskLogs.Add(ctx, db.RiskControlLog{
+			CookieID:         cookieID,
+			EventType:        "slider_captcha",
+			EventDescription: "触发场景: Token刷新, URL: " + verificationURL,
+			ProcessingStatus: "processing",
+		}); err == nil {
+			logID = id
+		} else {
+			a.logger.Warn("记录风控日志失败", "account", cookieID, "err", err)
+		}
+	}
+
+	showBrowser := false
+	metadataJSON := ""
+	if a.store == nil || a.store.Cookies == nil {
+		a.OnAccountEvent(ctx, cookieID, engine.EventSecurityVerification, engine.AlertLevelWarn,
+			"token 风控验证无法保存", "账号存储未初始化，无法保存验证后的 Cookie。")
+		return "", false
+	}
+
+	if d, err := a.store.Cookies.GetDetails(ctx, cookieID); err == nil && d != nil {
+		showBrowser = d.ShowBrowser
+		metadataJSON = d.MetadataJSON
+	}
+
+	provider := func(runCtx context.Context, currentCookies string) (string, bool, string, error) {
+		if a.captchaReq == nil {
+			return "", false, "", nil
+		}
+		deviceID := ""
+		if unb := protocol.TransCookies(currentCookies)["unb"]; unb != "" {
+			deviceID = protocol.GenerateDeviceID(unb)
+		}
+		res, err := a.captchaReq.RequestFreshCaptchaURLContext(runCtx, currentCookies, deviceID)
+		if err != nil || res == nil {
+			return "", false, "", err
+		}
+		return res.VerificationURL, res.TokenOK, res.UpdatedCookies, nil
+	}
+
+	newCookies, err := br.TokenCaptchaRecover(ctx, cookieID, cookieStr, verificationURL, browser.ResolveHeadless(showBrowser), provider)
+	if err != nil {
+		a.logger.Warn("token 风控滑块处理失败", "account", cookieID, "err", err)
+		if a.store != nil && a.store.RiskLogs != nil {
+			_ = a.store.RiskLogs.Update(ctx, logID, db.RiskControlLog{
+				ProcessingStatus: "failed",
+				ProcessingResult: fmt.Sprintf("token 风控滑块处理失败，耗时: %.2f秒", time.Since(start).Seconds()),
+				CaptchaEngine:    "playwright",
+				ErrorMessage:     err.Error(),
+				DurationMS:       time.Since(start).Milliseconds(),
+			})
+		}
+		a.OnAccountEvent(ctx, cookieID, engine.EventSecurityVerification, engine.AlertLevelWarn,
+			"token 风控验证失败", err.Error())
+		return "", false
+	}
+	if strings.TrimSpace(newCookies) == "" {
+		return "", false
+	}
+	if err := a.store.Cookies.UpdateRenewalCookie(ctx, cookieID, newCookies, cookierefresh.MetadataWithoutSnapshot(metadataJSON), time.Now().Unix()); err != nil {
+		a.logger.Warn("保存 token 风控恢复 Cookie 失败", "account", cookieID, "err", err)
+		if a.store != nil && a.store.RiskLogs != nil {
+			_ = a.store.RiskLogs.Update(ctx, logID, db.RiskControlLog{
+				ProcessingStatus: "error",
+				ProcessingResult: "滑块完成但保存 Cookie 失败",
+				CaptchaEngine:    "playwright",
+				ErrorMessage:     err.Error(),
+				DurationMS:       time.Since(start).Milliseconds(),
+			})
+		}
+		return "", false
+	}
+	if a.store.Tokens != nil {
+		_ = a.store.Tokens.Clear(ctx, cookieID)
+	}
+	if a.store != nil && a.store.RiskLogs != nil {
+		_ = a.store.RiskLogs.Update(ctx, logID, db.RiskControlLog{
+			ProcessingStatus: "success",
+			ProcessingResult: fmt.Sprintf("token 风控滑块验证成功，已合并 x5sec，耗时: %.2f秒", time.Since(start).Seconds()),
+			CaptchaEngine:    "playwright",
+			DurationMS:       time.Since(start).Milliseconds(),
+		})
+	}
+	a.OnAccountEvent(ctx, cookieID, engine.EventSecurityVerification, engine.AlertLevelInfo,
+		"token 风控验证已自动恢复", "系统已完成滑块验证并更新 x5sec，正在重新获取 token。")
+	return newCookies, true
 }
 
 // HandleSystemEvent 把系统卡片事件转发到自动化中心，由自动化规则决定是否执行。
@@ -229,10 +376,11 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 		if err := a.store.Cookies.SetStatusWithReason(ctx, cookieID, false, msg); err != nil {
 			a.logger.Warn("未配置账号密码时停用账号失败", "account", cookieID, "err", err)
 		}
+		a.OnAccountEvent(ctx, cookieID, engine.EventAccountDisabled, engine.AlertLevelCritical, "账号已自动禁用", msg)
 		a.recordPasswordLogin(ctx, cookieID, d.UserID, "no_credentials", "no_credentials", msg)
 		return false
 	}
-	cookies, err := a.browser.PasswordLogin(ctx, d.Username, d.Password, cookieID, "", !d.ShowBrowser)
+	cookies, err := a.browser.PasswordLogin(ctx, d.Username, d.Password, cookieID, "", browser.ResolveHeadless(d.ShowBrowser))
 	if err != nil {
 		a.handlePasswordLoginError(ctx, cookieID, err)
 		a.recordPasswordLogin(ctx, cookieID, d.UserID, "failed", passwordLoginFailureReason(err), err.Error())
@@ -355,9 +503,9 @@ func (a *Adapter) tryLightRenewBeforePassword(ctx context.Context, d *db.CookieD
 		if br, ok := a.browser.(browserQuickRenewer); ok {
 			runCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 			defer cancel()
-			return br.BrowserQuickRenew(runCtx, d.ID, cookieStr, !d.ShowBrowser)
+			return br.BrowserQuickRenew(runCtx, d.ID, cookieStr, browser.ResolveHeadless(d.ShowBrowser))
 		}
-		m, err := a.browser.CookieRenew(ctx, d.ID, cookieStr, !d.ShowBrowser)
+		m, err := a.browser.CookieRenew(ctx, d.ID, cookieStr, browser.ResolveHeadless(d.ShowBrowser))
 		if err != nil {
 			return "", err
 		}
@@ -417,6 +565,7 @@ func (a *Adapter) handlePasswordLoginError(ctx context.Context, cookieID string,
 	a.logger.Warn("密码登录刷新失败", "account", cookieID, "err", err)
 	if isPasswordLoginDisableError(msg) {
 		_ = a.store.Cookies.SetStatusWithReason(ctx, cookieID, false, msg)
+		a.OnAccountEvent(ctx, cookieID, engine.EventAccountDisabled, engine.AlertLevelCritical, "账号已自动禁用", msg)
 		if isPasswordLoginBadCredentials(msg) {
 			a.markPasswordError(cookieID)
 		}
@@ -463,33 +612,6 @@ func (a *Adapter) markPasswordError(cookieID string) {
 		cooldown = renewal.GlobalCooldown
 	}
 	cooldown.MarkPasswordError(cookieID)
-}
-
-// saveRecoveredBrowserCookies 执行浏览器恢复动作，统一校验、保存 Cookie 并清理 token 缓存。
-// Cookie 更新后，旧 accessToken 与旧 session 绑定，继续复用会造成“新 Cookie + 旧 token”
-// 的逻辑冲突，所以这里必须清除缓存，让 engine 下一轮重新派生 token。
-func (a *Adapter) saveRecoveredBrowserCookies(ctx context.Context, cookieID string, userID int64, recover func() (map[string]string, error), action string) bool {
-	cookies, err := recover()
-	if err != nil {
-		a.logger.Warn(action+"失败", "account", cookieID, "err", err)
-		return false
-	}
-	cookieStr := browser.MarshalCookies(cookies)
-	if strings.TrimSpace(cookieStr) == "" {
-		a.logger.Warn(action+"失败：浏览器未返回 cookie", "account", cookieID)
-		return false
-	}
-	if err := a.store.Cookies.Save(ctx, cookieID, cookieStr, userID); err != nil {
-		a.logger.Warn(action+"失败：保存 cookie 失败", "account", cookieID, "err", err)
-		return false
-	}
-	if a.store.Tokens != nil {
-		if err := a.store.Tokens.Clear(ctx, cookieID); err != nil {
-			a.logger.Warn(action+"后清除 token 缓存失败", "account", cookieID, "err", err)
-		}
-	}
-	a.logger.Info(action+" cookie 成功", "account", cookieID)
-	return true
 }
 
 // 编译期保证 *Adapter 同时实现 engine.Handler 与 automation.OrderDetailFetcher。

@@ -140,6 +140,123 @@ func TestNotifyDelivery_WithChannel(t *testing.T) {
 	}
 }
 
+func TestNotifyEvent_FiltersByChannelEventTypes(t *testing.T) {
+	s, cleanup := newNotifyStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	hits := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits[r.URL.Path]++
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	resOffline, err := s.DB.ExecContext(ctx,
+		`INSERT INTO notification_channels (name,type,config,event_types,enabled,user_id) VALUES ('掉线','webhook',?,?,1,1)`,
+		`{"webhook_url":"`+srv.URL+`/offline"}`, `["`+EventAccountOffline+`"]`)
+	if err != nil {
+		t.Fatalf("insert offline channel: %v", err)
+	}
+	offlineID, _ := resOffline.LastInsertId()
+	resDisabled, err := s.DB.ExecContext(ctx,
+		`INSERT INTO notification_channels (name,type,config,event_types,enabled,user_id) VALUES ('禁用','webhook',?,?,1,1)`,
+		`{"webhook_url":"`+srv.URL+`/disabled"}`, `["`+EventAccountDisabled+`"]`)
+	if err != nil {
+		t.Fatalf("insert disabled channel: %v", err)
+	}
+	disabledID, _ := resDisabled.LastInsertId()
+	for _, id := range []int64{offlineID, disabledID} {
+		if _, err := s.DB.ExecContext(ctx,
+			`INSERT INTO message_notifications (cookie_id,channel_id,enabled) VALUES ('cid',?,1)`, id); err != nil {
+			t.Fatalf("insert binding: %v", err)
+		}
+	}
+
+	n := New("cid", s, nil)
+	n.NotifyAccountEvent("cid", EventAccountOffline, "warn", "掉线", "正在恢复")
+	if hits["/offline"] != 1 {
+		t.Fatalf("offline channel hit=%d want 1", hits["/offline"])
+	}
+	if hits["/disabled"] != 0 {
+		t.Fatalf("disabled channel should be filtered, hit=%d", hits["/disabled"])
+	}
+}
+
+func TestNotifyAccountAlertClassifiesLegacyAlerts(t *testing.T) {
+	s, cleanup := newNotifyStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	hits := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits[r.URL.Path]++
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	resSecurity, err := s.DB.ExecContext(ctx,
+		`INSERT INTO notification_channels (name,type,config,event_types,enabled,user_id) VALUES ('风控','webhook',?,?,1,1)`,
+		`{"webhook_url":"`+srv.URL+`/security"}`, `["`+EventSecurityVerification+`"]`)
+	if err != nil {
+		t.Fatalf("insert security channel: %v", err)
+	}
+	securityID, _ := resSecurity.LastInsertId()
+	resToken, err := s.DB.ExecContext(ctx,
+		`INSERT INTO notification_channels (name,type,config,event_types,enabled,user_id) VALUES ('续期','webhook',?,?,1,1)`,
+		`{"webhook_url":"`+srv.URL+`/token"}`, `["`+EventTokenRenewal+`"]`)
+	if err != nil {
+		t.Fatalf("insert token channel: %v", err)
+	}
+	tokenID, _ := resToken.LastInsertId()
+	for _, id := range []int64{securityID, tokenID} {
+		if _, err := s.DB.ExecContext(ctx,
+			`INSERT INTO message_notifications (cookie_id,channel_id,enabled) VALUES ('cid',?,1)`, id); err != nil {
+			t.Fatalf("insert binding: %v", err)
+		}
+	}
+
+	n := New("cid", s, nil)
+	n.NotifyAccountAlert("cid", "warn", "闲鱼要求滑块验证", "请完成 captcha")
+	if hits["/security"] != 1 {
+		t.Fatalf("security channel hit=%d want 1", hits["/security"])
+	}
+	if hits["/token"] != 0 {
+		t.Fatalf("token channel should not receive security alert, hit=%d", hits["/token"])
+	}
+}
+
+func TestNotifyEventRejectsMalformedEventTypes(t *testing.T) {
+	s, cleanup := newNotifyStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	res, err := s.DB.ExecContext(ctx,
+		`INSERT INTO notification_channels (name,type,config,event_types,enabled,user_id) VALUES ('坏配置','webhook',?,?,1,1)`,
+		`{"webhook_url":"`+srv.URL+`"}`, `["`+EventAccountOffline+`"`)
+	if err != nil {
+		t.Fatalf("insert malformed channel: %v", err)
+	}
+	channelID, _ := res.LastInsertId()
+	if _, err := s.DB.ExecContext(ctx,
+		`INSERT INTO message_notifications (cookie_id,channel_id,enabled) VALUES ('cid',?,1)`, channelID); err != nil {
+		t.Fatalf("insert binding: %v", err)
+	}
+
+	n := New("cid", s, nil)
+	n.NotifyAccountEvent("cid", EventAccountOffline, "warn", "掉线", "正在恢复")
+	if hits != 0 {
+		t.Fatalf("malformed event_types should deny delivery, hits=%d", hits)
+	}
+}
+
 // TestParseConfig 旧格式兼容。
 func TestParseConfig(t *testing.T) {
 	// 标准 JSON。

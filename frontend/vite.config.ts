@@ -86,14 +86,6 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
-      '/backup': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/logs': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
       '/login': {
         target: 'http://localhost:8080',
         changeOrigin: true,
@@ -103,26 +95,6 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/logout': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/register': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/generate-captcha': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/verify-captcha': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/geetest': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/send-verification-code': {
         target: 'http://localhost:8080',
         changeOrigin: true,
       },

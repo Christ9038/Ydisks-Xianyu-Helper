@@ -571,7 +571,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     setEditingReplyRule({
       keyword: '',
       reply_content: '',
-      match_type: 'exact',
+      match_type: 'fuzzy',
       enabled: true,
     });
     setShowReplyModal(true);
@@ -579,12 +579,13 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 
   const handleSaveReplyRule = async () => {
     if (!editingReplyRule || !selectedAccountId) return;
-    if (!editingReplyRule.keyword?.trim() || !editingReplyRule.reply_content?.trim()) {
+    const hasReplyContent = Boolean(editingReplyRule.reply_content?.trim() || editingReplyRule.image_url?.trim());
+    if (!editingReplyRule.keyword?.trim() || !hasReplyContent) {
       alert('请填写关键词和回复内容');
       return;
     }
     try {
-      await updateReplyRule({ ...editingReplyRule, match_type: editingReplyRule.match_type || 'exact', enabled: true }, selectedAccountId);
+      await updateReplyRule({ ...editingReplyRule, match_type: 'fuzzy', enabled: true }, selectedAccountId);
       setShowReplyModal(false);
       await loadReplyRules();
       alert('保存成功');
@@ -868,11 +869,11 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
               <div key={rule.id} className="flex flex-col md:flex-row md:items-center justify-between p-5 rounded-2xl border border-gray-100 bg-[#F7F8FA] hover:bg-white hover:shadow-lg transition-all gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-2">
-                    <span className="px-3 py-1 bg-black text-white rounded-lg text-xs font-bold">{rule.match_type === 'exact' ? '精确匹配' : '模糊包含'}</span>
+                    <span className="px-3 py-1 bg-black text-white rounded-lg text-xs font-bold">包含匹配</span>
                     <h3 className="font-bold text-gray-900">“{rule.keyword}”</h3>
                   </div>
                   <div className="bg-white p-3 rounded-xl border border-gray-100 text-sm text-gray-600 leading-relaxed">
-                    {rule.reply_content}
+                    {rule.type === 'image' && rule.image_url ? rule.image_url : rule.reply_content}
                   </div>
                 </div>
                 <div className="flex items-center gap-3 border-t md:border-t-0 md:border-l border-gray-200 pt-4 md:pt-0 md:pl-6">
@@ -1309,26 +1310,6 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                   placeholder="自动回复的内容"
                   className="w-full ios-input px-4 py-3 rounded-xl h-32 resize-none"
                 />
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">匹配类型</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setEditingReplyRule({ ...editingReplyRule, match_type: 'exact' })}
-                    className={`p-3 rounded-xl font-bold transition-all ${editingReplyRule.match_type !== 'fuzzy' ? 'bg-[#0094f7] text-white' : 'bg-gray-100 text-gray-600'}`}
-                  >
-                    精确匹配
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditingReplyRule({ ...editingReplyRule, match_type: 'fuzzy' })}
-                    className={`p-3 rounded-xl font-bold transition-all ${editingReplyRule.match_type === 'fuzzy' ? 'bg-[#0094f7] text-white' : 'bg-gray-100 text-gray-600'}`}
-                  >
-                    模糊包含
-                  </button>
-                </div>
               </div>
 
               <div className="flex gap-3 pt-4">

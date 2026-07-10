@@ -111,6 +111,60 @@ func TestCenterOrderPaidFetchesOrderDetailMatchesSpecAndQuantity(t *testing.T) {
 	if order.SpecName != "套餐" || order.SpecValue != "90天" || order.Quantity != "2" {
 		t.Fatalf("订单详情未写入: %+v", order)
 	}
+	if order.PaidAt == "" {
+		t.Fatalf("首次付款事件创建订单时应记录 paid_at: %+v", order)
+	}
+}
+
+func TestCenterBuyerReviewedFirstEventRecordsReviewTime(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+
+	_, err := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", ItemID: "item-review", Name: "评价赠品", TriggerType: TriggerBuyerReviewed,
+		Enabled: true, Priority: 100,
+		Actions: []db.AutomationActionInput{
+			{ActionType: ActionSendText, MessageTemplate: "谢谢评价", Enabled: true, SortOrder: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create review rule: %v", err)
+	}
+
+	sender := &testSender{}
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	if err := center.HandleTask(ctx, Task{
+		Source: "ws", AccountID: "cid", TriggerType: TriggerBuyerReviewed,
+		ChatID: "chat-review", OrderID: "order-review", ItemID: "item-review", BuyerID: "buyer-review",
+		Raw: map[string]any{"message_id": "review-1"},
+	}); err != nil {
+		t.Fatalf("HandleTask: %v", err)
+	}
+	if len(sender.texts) != 1 || sender.texts[0] != "谢谢评价" {
+		t.Fatalf("评价赠品发送异常: %v", sender.texts)
+	}
+	order, err := store.Orders.Get(ctx, "order-review")
+	if err != nil {
+		t.Fatalf("Get order-review: %v", err)
+	}
+	if order.BuyerReviewedAt == "" {
+		t.Fatalf("首次评价事件创建订单时应记录 buyer_reviewed_at: %+v", order)
+	}
+	sysShipped := true
+	if err := store.Orders.Upsert(ctx, "order-review", db.OrderUpsertOpts{
+		CookieID: "cid", ItemID: "item-review", BuyerID: "buyer-review", ChatID: "chat-review", SystemShipped: &sysShipped,
+	}); err != nil {
+		t.Fatalf("mark shipped: %v", err)
+	}
+	due, err := store.Automation.DueReviewRequestOrders(ctx, 200)
+	if err != nil {
+		t.Fatalf("DueReviewRequestOrders: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("已评价订单不应进入求评价扫描: %+v", due)
+	}
 }
 
 func TestCenterOrderPaidSendsAllCardActionsForSameSpec(t *testing.T) {
@@ -255,7 +309,7 @@ func TestCenterOrderPaidSendsCardBeforeConfirmShipment(t *testing.T) {
 
 // recordingNotifier 记录所有 NotifyDelivery 调用，用于断言 automation.Center 接线。
 type recordingNotifier struct {
-	mu   sync.Mutex
+	mu    sync.Mutex
 	calls []struct {
 		accountID, buyerID, itemID, message, chatID string
 	}

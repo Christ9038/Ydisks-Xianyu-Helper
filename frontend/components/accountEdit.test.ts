@@ -34,3 +34,29 @@ test('buildAccountLoginInfoUpdate skips unchanged login info', () => {
 
   expect(payload).toBeNull();
 });
+
+test('buildAccountLoginInfoUpdate sends explicit clear password flag', () => {
+  const payload = buildAccountLoginInfoUpdate(
+    { id: 'acc1', enabled: true, auto_confirm: true, username: 'old-user', show_browser: false },
+    { username: 'old-user', login_password: '', show_browser: false, clear_password: true },
+  );
+
+  expect(payload).toEqual({
+    username: 'old-user',
+    show_browser: false,
+    clear_password: true,
+  });
+});
+
+test('buildAccountLoginInfoUpdate prefers clear password over typed password', () => {
+  const payload = buildAccountLoginInfoUpdate(
+    { id: 'acc1', enabled: true, auto_confirm: true, username: 'old-user', show_browser: false },
+    { username: 'old-user', login_password: 'new-secret', show_browser: false, clear_password: true },
+  );
+
+  expect(payload).toEqual({
+    username: 'old-user',
+    show_browser: false,
+    clear_password: true,
+  });
+});

@@ -252,9 +252,10 @@ func TestSettings_Public(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	// 写入一个公开 key + 一个私有 key。
+	// 写入一个公开 key + 几个遗留/私有 key。
 	s.Settings.Set(ctx, "theme_color", "blue")
 	s.Settings.Set(ctx, "registration_enabled", "true")
+	s.Settings.Set(ctx, "show_default_login_info", "true")
 	s.Settings.Set(ctx, "private_secret", "topsecret")
 	s.Settings.Set(ctx, "qq_reply_secret_key", "should-not-leak")
 
@@ -262,7 +263,7 @@ func TestSettings_Public(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Public: %v", err)
 	}
-	if pub["theme_color"] != "blue" || pub["registration_enabled"] != "true" {
+	if pub["theme_color"] != "blue" {
 		t.Fatalf("公开 key 缺失: %#v", pub)
 	}
 	// 私有 key 不应出现。
@@ -275,9 +276,11 @@ func TestSettings_Public(t *testing.T) {
 	if _, ok := pub["login_captcha_enabled"]; ok {
 		t.Fatal("未实现的登录验证码开关不应公开")
 	}
-	// 白名单内其它默认 key（show_default_login_info）也应可见。
-	if pub["show_default_login_info"] != "true" {
-		t.Fatalf("show_default_login_info 应为 true, got %q", pub["show_default_login_info"])
+	if _, ok := pub["registration_enabled"]; ok {
+		t.Fatal("未实现的注册开关不应公开")
+	}
+	if _, ok := pub["show_default_login_info"]; ok {
+		t.Fatal("未使用的默认登录提示开关不应公开")
 	}
 }
 

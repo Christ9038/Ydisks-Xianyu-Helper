@@ -73,6 +73,15 @@ type RefreshResult struct {
 	UpdatedCookies string // 合并 Set-Cookie 后的新 cookie 字符串（无变化则与入参相同）
 }
 
+// FreshCaptchaResult 是重取 token 风控验证链接的结果。
+type FreshCaptchaResult struct {
+	TokenOK         bool
+	AccessToken     string
+	UpdatedCookies  string
+	VerificationURL string
+	Ret             []string
+}
+
 // UserProfileResult 是 mtop.idle.web.user.page.nav 返回的当前账号资料。
 type UserProfileResult struct {
 	Nickname       string

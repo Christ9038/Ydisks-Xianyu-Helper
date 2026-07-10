@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { NotificationChannel, NotificationChannelType, SystemSettings } from '../types';
+import { NotificationChannel, NotificationChannelType, NotificationEventType, SystemSettings } from '../types';
 import {
   getNotificationChannels,
   createNotificationChannel,
@@ -137,25 +137,44 @@ const CHANNEL_TYPES: Record<NotificationChannelType, ChannelTypeMeta> = {
     label: '邮件',
     icon: Mail,
     fields: [
-      { key: 'smtp_server', label: 'SMTP 服务器', placeholder: 'smtp.qq.com', required: true },
-      { key: 'smtp_port', label: 'SMTP 端口', placeholder: '587', type: 'number', required: true },
-      { key: 'smtp_user', label: '发件邮箱', placeholder: 'you@qq.com', required: true },
-      { key: 'smtp_password', label: '密码 / 授权码', type: 'password', required: true },
-      { key: 'from', label: '收件邮箱（可选）', placeholder: '留空则发给自己' },
+      { key: 'to_email', label: '收件邮箱', placeholder: 'receiver@example.com', required: true },
+      { key: 'smtp_server', label: '覆盖 SMTP 服务器', placeholder: 'smtp.qq.com', help: '留空时使用上方系统级 SMTP 配置' },
+      { key: 'smtp_port', label: '覆盖 SMTP 端口', placeholder: '587', type: 'number', help: '留空时使用系统级 SMTP 端口' },
+      { key: 'smtp_user', label: '覆盖发件邮箱', placeholder: 'you@qq.com', help: '留空时使用系统级发件邮箱' },
+      { key: 'smtp_password', label: '覆盖密码 / 授权码', type: 'password', help: '留空时使用系统级授权码' },
     ],
     guide: {
       steps: [
-        'QQ 邮箱：服务器 smtp.qq.com，端口 587，发件邮箱填你的 QQ 邮箱',
-        'QQ 邮箱密码栏填「授权码」不是 QQ 密码：QQ 邮箱设置 → 账号 → 开启 SMTP → 生成授权码',
-        '163 邮箱：smtp.163.com:587，同样使用授权码',
-        'Gmail：smtp.gmail.com:587，密码用「应用专用密码」',
+        '先在页面上方保存系统级 SMTP 服务器、端口、发件邮箱和授权码',
+        '邮件渠道只需要填写收件邮箱',
+        '如果某个渠道要使用不同发件邮箱，再填写下面的覆盖 SMTP 字段',
       ],
-      note: '收件邮箱留空时，邮件会发到发件邮箱自己。',
+      note: '收件邮箱会写入 to_email；SMTP 字段留空时后端会复用系统级 SMTP 配置。',
     },
   },
 };
 
-const Notifications: React.FC = () => {
+const NOTIFICATION_EVENTS: { value: NotificationEventType; label: string; description: string }[] = [
+  { value: 'account_offline', label: '掉线通知', description: '账号过期、断线或登录态失效' },
+  { value: 'account_recovered', label: '恢复通知', description: '自动恢复成功并重新在线' },
+  { value: 'account_disabled', label: '禁用通知', description: '连续失败、账密错误等导致账号停用' },
+  { value: 'security_verification', label: '风控验证', description: '滑块、人脸、扫码验证等安全校验' },
+  { value: 'delivery_result', label: '交易通知', description: '订单发货、卡密发送等交易结果' },
+  { value: 'token_renewal', label: '续期通知', description: 'Cookie/token 续期和自动恢复过程' },
+  { value: 'system_error', label: '系统错误', description: '后台任务或系统级异常' },
+];
+
+const notificationEventSummary = (events?: NotificationEventType[]) => {
+  if (!events || events.length === 0) return '全部事件';
+  const labels = events.map(event => NOTIFICATION_EVENTS.find(item => item.value === event)?.label || event);
+  return labels.join('、');
+};
+
+interface NotificationsProps {
+  isAdmin?: boolean;
+}
+
+const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -174,6 +193,7 @@ const Notifications: React.FC = () => {
     type: 'bark' as NotificationChannelType,
     enabled: true,
     config: {} as Record<string, unknown>,
+    event_types: [] as NotificationEventType[],
   });
 
   const load = async () => {
@@ -215,7 +235,14 @@ const Notifications: React.FC = () => {
     }
   };
 
-  useEffect(() => { load(); loadSmtp(); }, []);
+  useEffect(() => {
+    load();
+    if (isAdmin) {
+      loadSmtp();
+    } else {
+      setSmtp({});
+    }
+  }, [isAdmin]);
 
   const showToast = (type: 'success' | 'error', text: string) => {
     setToast({ type, text });
@@ -224,7 +251,7 @@ const Notifications: React.FC = () => {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: '', type: 'bark', enabled: true, config: {} });
+    setForm({ name: '', type: 'bark', enabled: true, config: {}, event_types: [] });
     setShowModal(true);
   };
 
@@ -235,6 +262,7 @@ const Notifications: React.FC = () => {
       type: ch.type,
       enabled: ch.enabled,
       config: { ...(ch.config || {}) },
+      event_types: ch.event_types || [],
     });
     setShowModal(true);
   };
@@ -253,7 +281,7 @@ const Notifications: React.FC = () => {
     }
     setSaving(true);
     try {
-      const payload = { name: form.name.trim(), type: form.type, config: form.config, enabled: form.enabled };
+      const payload = { name: form.name.trim(), type: form.type, config: form.config, event_types: form.event_types, enabled: form.enabled };
       if (editing) {
         await updateNotificationChannel(editing.id, payload);
       } else {
@@ -283,12 +311,7 @@ const Notifications: React.FC = () => {
 
   const handleToggleEnabled = async (ch: NotificationChannel) => {
     try {
-      // 后端 updateChannel 是全量更新，必须把 name/type/config 一起发回去，
-      // 否则会被空串覆盖并触发 type 的 CHECK 约束报"更新失败"。
       await updateNotificationChannel(ch.id, {
-        name: ch.name,
-        type: ch.type,
-        config: ch.config || {},
         enabled: !ch.enabled,
       });
       setChannels(prev => prev.map(c => c.id === ch.id ? { ...c, enabled: !c.enabled } : c));
@@ -386,6 +409,9 @@ const Notifications: React.FC = () => {
                       <span key={i} className="mr-3">{String(v).length > 40 ? String(v).slice(0, 40) + '…' : String(v)}</span>
                     ))}
                   </div>
+                  <div className="text-xs text-gray-400 mt-1 truncate">
+                    订阅：{notificationEventSummary(ch.event_types)}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <button
@@ -423,12 +449,13 @@ const Notifications: React.FC = () => {
         </div>
       )}
 
-      {/* SMTP 邮件配置（系统级，用于注册验证码等邮件） */}
+      {/* SMTP 邮件配置（系统级，用于邮件通知渠道） */}
+      {isAdmin && (
       <section className="ios-card rounded-xl p-6 bg-white space-y-5">
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-lg font-extrabold text-gray-800">SMTP 邮件配置</h3>
-            <p className="text-sm text-gray-500 mt-1">系统级邮件发送服务，用于注册验证码等邮件通知</p>
+            <p className="text-sm text-gray-500 mt-1">系统级邮件发送服务，供邮件通知渠道复用</p>
           </div>
           <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
             <Mail className="w-5 h-5" />
@@ -510,6 +537,7 @@ const Notifications: React.FC = () => {
           {smtpSaving ? '保存中...' : '保存 SMTP 配置'}
         </button>
       </section>
+      )}
 
       {/* 新建/编辑弹窗 */}
       {showModal && createPortal(
@@ -598,6 +626,39 @@ const Notifications: React.FC = () => {
                     {f.help && <p className="text-xs text-gray-500">{f.help}</p>}
                   </div>
                 ))}
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-bold text-gray-800">通知内容</label>
+                  <p className="text-xs text-gray-500 mt-1">不选择表示接收全部通知；选择后仅接收勾选类型。</p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {NOTIFICATION_EVENTS.map(event => {
+                    const checked = form.event_types.includes(event.value);
+                    return (
+                      <button
+                        key={event.value}
+                        type="button"
+                        onClick={() => {
+                          const next = checked
+                            ? form.event_types.filter(item => item !== event.value)
+                            : [...form.event_types, event.value];
+                          setForm({ ...form, event_types: next });
+                        }}
+                        className={`text-left rounded-xl border px-3 py-2.5 transition-colors ${checked ? 'border-[#0094f7] bg-blue-50' : 'border-gray-100 hover:border-gray-300'}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className={`w-4 h-4 rounded border flex items-center justify-center ${checked ? 'bg-[#0094f7] border-[#0094f7]' : 'border-gray-300'}`}>
+                            {checked && <Check className="w-3 h-3 text-white" />}
+                          </span>
+                          <span className={`text-sm font-bold ${checked ? 'text-[#0094f7]' : 'text-gray-800'}`}>{event.label}</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1 pl-6 leading-5">{event.description}</p>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <label className="flex items-center gap-3 cursor-pointer">

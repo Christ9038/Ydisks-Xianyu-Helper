@@ -43,6 +43,10 @@ type RenewalLog struct {
 	UpdatedCookieNames []string
 	UpdatedCookieCount int
 	ResponseContent    string
+	StepDetails        string
+	RenewMethod        string
+	DurationMS         int64
+	RequestCount       int
 	NextExpireAt       int64
 }
 
@@ -170,21 +174,29 @@ func (r *RenewalStore) AddBrowserCookieRenewLog(ctx context.Context, log Renewal
 	_, err := r.DB.ExecContext(ctx,
 		`INSERT INTO scheduled_cookies_refresh_log
 		 (batch_id, cookie_id, status, message, error_message, updated_cookie_names,
-		  updated_cookie_count, next_expire_at, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+		  updated_cookie_count, next_expire_at, step_details, renew_method, duration_ms,
+		  request_count, response_content, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
 		log.BatchID, log.CookieID, log.Status, log.Message, firstNonEmpty(log.ErrorMessage, log.Message),
-		strings.Join(log.UpdatedCookieNames, ","), log.UpdatedCookieCount, log.NextExpireAt)
+		strings.Join(log.UpdatedCookieNames, ","), log.UpdatedCookieCount, log.NextExpireAt,
+		log.StepDetails, log.RenewMethod, log.DurationMS, log.RequestCount, log.ResponseContent)
 	return err
 }
 
 // AddLoginRenewLog 记录 login_renew 任务日志。
 func (r *RenewalStore) AddLoginRenewLog(ctx context.Context, log RenewalLog) error {
+	if log.UpdatedCookieCount == 0 {
+		log.UpdatedCookieCount = len(log.UpdatedCookieNames)
+	}
 	_, err := r.DB.ExecContext(ctx,
 		`INSERT INTO scheduled_login_renew_log
-		 (batch_id, cookie_id, status, message, error_message, updated_cookie_names, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+		 (batch_id, cookie_id, status, message, error_message, updated_cookie_names,
+		  updated_cookie_count, step_details, renew_method, duration_ms, request_count,
+		  response_content, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
 		log.BatchID, log.CookieID, log.Status, log.Message, firstNonEmpty(log.ErrorMessage, log.Message),
-		strings.Join(log.UpdatedCookieNames, ","))
+		strings.Join(log.UpdatedCookieNames, ","), log.UpdatedCookieCount, log.StepDetails,
+		log.RenewMethod, log.DurationMS, log.RequestCount, log.ResponseContent)
 	return err
 }
 
@@ -196,11 +208,31 @@ func (r *RenewalStore) AddAPICookieRenewLog(ctx context.Context, log RenewalLog)
 	_, err := r.DB.ExecContext(ctx,
 		`INSERT INTO scheduled_api_cookie_renew_log
 		 (batch_id, cookie_id, status, message, error_message, updated_cookie_names,
-		  updated_cookie_count, response_content, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+		  updated_cookie_count, response_content, step_details, renew_method, duration_ms,
+		  request_count, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
 		log.BatchID, log.CookieID, log.Status, log.Message, firstNonEmpty(log.ErrorMessage, log.Message),
-		strings.Join(log.UpdatedCookieNames, ","), log.UpdatedCookieCount, log.ResponseContent)
+		strings.Join(log.UpdatedCookieNames, ","), log.UpdatedCookieCount, log.ResponseContent,
+		log.StepDetails, log.RenewMethod, log.DurationMS, log.RequestCount)
 	return err
+}
+
+// CleanupLogs deletes renewal logs older than retentionDays. Non-positive values skip cleanup.
+func (r *RenewalStore) CleanupLogs(ctx context.Context, retentionDays int) error {
+	if retentionDays <= 0 {
+		return nil
+	}
+	cutoff := time.Now().AddDate(0, 0, -retentionDays)
+	for _, table := range []string{
+		"scheduled_cookies_refresh_log",
+		"scheduled_login_renew_log",
+		"scheduled_api_cookie_renew_log",
+	} {
+		if _, err := r.DB.ExecContext(ctx, `DELETE FROM `+table+` WHERE created_at < ?`, cutoff); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RecentBrowserCookieRenewStatuses 返回最近 limit 条浏览器续期日志状态。

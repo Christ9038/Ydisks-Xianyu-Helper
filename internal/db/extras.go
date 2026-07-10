@@ -150,18 +150,19 @@ func (i *ItemReplies) AllForUser(ctx context.Context, cookieID string) ([]ItemRe
 
 // NotificationChannelRow 通知渠道完整行（含 id）。
 type NotificationChannelRow struct {
-	ID      int64  `json:"id"`
-	Name    string `json:"name"`
-	Type    string `json:"type"`
-	Config  string `json:"config"`
-	Enabled bool   `json:"enabled"`
-	UserID  int64  `json:"user_id,omitempty"`
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Config     string `json:"config"`
+	EventTypes string `json:"event_types,omitempty"`
+	Enabled    bool   `json:"enabled"`
+	UserID     int64  `json:"user_id,omitempty"`
 }
 
 // AllChannelsForUser 取某用户全部通知渠道。
 func (n *Notifications) AllChannelsForUser(ctx context.Context, userID int64) ([]NotificationChannelRow, error) {
 	rows, err := n.DB.QueryContext(ctx,
-		`SELECT id, name, type, config, enabled, COALESCE(user_id,1) FROM notification_channels
+		`SELECT id, name, type, config, COALESCE(event_types,''), enabled, COALESCE(user_id,1) FROM notification_channels
 		 WHERE user_id=? ORDER BY id DESC`, userID)
 	if err != nil {
 		return nil, err
@@ -171,7 +172,7 @@ func (n *Notifications) AllChannelsForUser(ctx context.Context, userID int64) ([
 	for rows.Next() {
 		var c NotificationChannelRow
 		var enabled int
-		if err := rows.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &enabled, &c.UserID); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &c.EventTypes, &enabled, &c.UserID); err != nil {
 			return nil, err
 		}
 		c.Enabled = enabled != 0
@@ -183,16 +184,50 @@ func (n *Notifications) AllChannelsForUser(ctx context.Context, userID int64) ([
 // CreateChannel 创建通知渠道。
 func (n *Notifications) CreateChannel(ctx context.Context, c *NotificationChannelRow) (int64, error) {
 	return insertReturningID(ctx, n.DB, n.Dialect,
-		`INSERT INTO notification_channels (name, type, config, enabled, user_id) VALUES (?,?,?,?,?)`,
-		c.Name, c.Type, c.Config, boolToInt(c.Enabled), c.UserID)
+		`INSERT INTO notification_channels (name, type, config, event_types, enabled, user_id) VALUES (?,?,?,?,?,?)`,
+		c.Name, c.Type, c.Config, c.EventTypes, boolToInt(c.Enabled), c.UserID)
 }
 
 // UpdateChannel 更新通知渠道。
 func (n *Notifications) UpdateChannel(ctx context.Context, c *NotificationChannelRow) error {
 	_, err := n.DB.ExecContext(ctx,
-		`UPDATE notification_channels SET name=?, type=?, config=?, enabled=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-		c.Name, c.Type, c.Config, boolToInt(c.Enabled), c.ID)
+		`UPDATE notification_channels SET name=?, type=?, config=?, event_types=?, enabled=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
+		c.Name, c.Type, c.Config, c.EventTypes, boolToInt(c.Enabled), c.ID)
 	return err
+}
+
+// GetChannelRowForUser 按用户取单个通知渠道。未找到返回 nil。
+func (n *Notifications) GetChannelRowForUser(ctx context.Context, id, userID int64) (*NotificationChannelRow, error) {
+	row := n.DB.QueryRowContext(ctx,
+		`SELECT id, name, type, config, COALESCE(event_types,''), enabled, COALESCE(user_id,1)
+		   FROM notification_channels WHERE id=? AND user_id=?`, id, userID)
+	var c NotificationChannelRow
+	var enabled int
+	if err := row.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &c.EventTypes, &enabled, &c.UserID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	c.Enabled = enabled != 0
+	return &c, nil
+}
+
+// UpdateChannelForUser 更新指定用户拥有的通知渠道。
+func (n *Notifications) UpdateChannelForUser(ctx context.Context, c *NotificationChannelRow, userID int64) error {
+	res, err := n.DB.ExecContext(ctx,
+		`UPDATE notification_channels
+		    SET name=?, type=?, config=?, event_types=?, enabled=?, updated_at=CURRENT_TIMESTAMP
+		  WHERE id=? AND user_id=?`,
+		c.Name, c.Type, c.Config, c.EventTypes, boolToInt(c.Enabled), c.ID, userID)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err == nil && rows == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // DeleteChannel 删除通知渠道。
@@ -201,12 +236,25 @@ func (n *Notifications) DeleteChannel(ctx context.Context, id int64) error {
 	return err
 }
 
+// DeleteChannelForUser 删除指定用户拥有的通知渠道。
+func (n *Notifications) DeleteChannelForUser(ctx context.Context, id, userID int64) error {
+	res, err := n.DB.ExecContext(ctx, `DELETE FROM notification_channels WHERE id=? AND user_id=?`, id, userID)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err == nil && rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // GetChannel 按 ID 取单个通知渠道（含 config）。未找到返回 nil。
 func (n *Notifications) GetChannel(ctx context.Context, id int64) (*NotificationChannel, error) {
 	row := n.DB.QueryRowContext(ctx,
-		`SELECT id, name, type, config FROM notification_channels WHERE id=?`, id)
+		`SELECT id, name, type, config, COALESCE(event_types,'') FROM notification_channels WHERE id=?`, id)
 	var c NotificationChannel
-	if err := row.Scan(&c.ID, &c.Name, &c.Type, &c.Config); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &c.EventTypes); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
@@ -332,8 +380,7 @@ func (s *SystemSettings) Set(ctx context.Context, key, value string) error {
 
 // PublicSystemKeys 是公开设置键白名单（前端登录页等无需登录可读）。
 var PublicSystemKeys = map[string]bool{
-	"theme_color": true, "registration_enabled": true,
-	"show_default_login_info": true,
+	"theme_color": true,
 }
 
 // Public 取公开设置子集。

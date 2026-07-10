@@ -28,6 +28,7 @@ import (
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/browser"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/logging"
 	"xianyu-go/internal/notify"
 	"xianyu-go/internal/renewal"
 	"xianyu-go/internal/server"
@@ -41,6 +42,8 @@ func main() {
 	secure := flag.Bool("secure", false, "HTTPS 模式（Cookie 加 Secure）")
 	noBrowser := flag.Bool("no-browser", false, "禁用内置浏览器自动化（扫码风控验证/密码登录/订单抓取将不可用）")
 	verbose := flag.Bool("v", false, "调试日志")
+	logLevel := flag.String("log-level", "", "日志等级：debug/info/warn/error；默认读取 LOG_LEVEL 或系统设置")
+	logFormat := flag.String("log-format", "", "日志格式：text/json；默认读取 LOG_FORMAT")
 	initAdmin := flag.Bool("init-admin", false, "初始化或重置 admin 管理员后退出")
 	adminEmail := flag.String("admin-email", "admin@example.com", "初始化 admin 的邮箱")
 	adminPassword := flag.String("admin-password", "", "初始化/重置 admin 密码；也可用 XIANYU_ADMIN_PASSWORD 环境变量")
@@ -55,11 +58,28 @@ func main() {
 		resolvedDBURL = *dbPath
 	}
 
-	level := slog.LevelInfo
-	if *verbose {
-		level = slog.LevelDebug
+	resolvedLogLevel := strings.TrimSpace(os.Getenv("LOG_LEVEL"))
+	explicitLogLevel := resolvedLogLevel != ""
+	if strings.TrimSpace(*logLevel) != "" {
+		resolvedLogLevel = strings.TrimSpace(*logLevel)
+		explicitLogLevel = true
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+	if resolvedLogLevel == "" && *verbose {
+		resolvedLogLevel = "debug"
+		explicitLogLevel = true
+	}
+	if err := logging.SetLevel(resolvedLogLevel); err != nil {
+		fmt.Fprintf(os.Stderr, "日志等级无效: %v\n", err)
+		os.Exit(2)
+	}
+	resolvedLogFormat := strings.TrimSpace(os.Getenv("LOG_FORMAT"))
+	explicitLogFormat := resolvedLogFormat != ""
+	if strings.TrimSpace(*logFormat) != "" {
+		resolvedLogFormat = strings.TrimSpace(*logFormat)
+		explicitLogFormat = true
+	}
+	logger := logging.NewLogger(os.Stdout, resolvedLogFormat)
+	slog.SetDefault(logger)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -73,6 +93,19 @@ func main() {
 	logger.Info("数据库已就绪", "dialect", dialect)
 	store := db.NewStore(database, dialect)
 	defer database.Close()
+	if !explicitLogLevel {
+		if lv, err := store.Settings.Get(ctx, "log_level"); err == nil && strings.TrimSpace(lv) != "" {
+			if err := logging.SetLevel(lv); err != nil {
+				logger.Warn("忽略无效的系统日志等级设置", "value", lv, "err", err)
+			}
+		}
+	}
+	if !explicitLogFormat {
+		if format, err := store.Settings.Get(ctx, "log_format"); err == nil && strings.TrimSpace(format) != "" {
+			logger = logging.NewLogger(os.Stdout, format)
+			slog.SetDefault(logger)
+		}
+	}
 
 	if *initAdmin {
 		if err := ensureAdmin(ctx, store, *adminEmail, *adminPassword); err != nil {

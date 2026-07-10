@@ -2,6 +2,7 @@ package notify
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -346,9 +347,9 @@ func TestSendWebhook_CustomHeadersAndMethod(t *testing.T) {
 	defer srv.Close()
 	n := New("cid", nil, nil)
 	cfg := map[string]any{
-		"webhook_url":  srv.URL,
-		"http_method":  "get",
-		"headers":      `{"Authorization":"Bearer abc","X-Custom":"v"}`,
+		"webhook_url": srv.URL,
+		"http_method": "get",
+		"headers":     `{"Authorization":"Bearer abc","X-Custom":"v"}`,
 	}
 	if err := n.sendWebhook(cfg, "消息"); err != nil {
 		t.Fatalf("sendWebhook: %v", err)
@@ -504,13 +505,40 @@ func TestSendEmail_DefaultFrom(t *testing.T) {
 	}
 }
 
+func TestSendEmail_UsesSystemSMTPFallback(t *testing.T) {
+	addr, received := fakeSMTPServer(t)
+	host, port, _ := strings.Cut(addr, ":")
+	store, cleanup := newNotifyStoreBare(t)
+	defer cleanup()
+	ctx := context.Background()
+	for key, value := range map[string]string{
+		"smtp_server":   host,
+		"smtp_port":     port,
+		"smtp_user":     "system@e.com",
+		"smtp_password": "pw",
+	} {
+		if err := store.Settings.Set(ctx, key, value); err != nil {
+			t.Fatalf("set %s: %v", key, err)
+		}
+	}
+
+	n := New("cid", store, nil)
+	if err := n.sendEmail(map[string]any{"to_email": "to@e.com"}, "系统SMTP正文"); err != nil {
+		t.Fatalf("sendEmail with system fallback: %v", err)
+	}
+	body := received.String()
+	if !strings.Contains(body, "From: system@e.com") || !strings.Contains(body, "系统SMTP正文") {
+		t.Fatalf("system SMTP fallback body mismatch: %s", body)
+	}
+}
+
 // TestSendEmail_IncompleteConfig 配置不完整应报错。
 func TestSendEmail_IncompleteConfig(t *testing.T) {
 	n := New("cid", nil, nil)
 	cases := []map[string]any{
-		{"smtp_user": "u", "to_email": "t@e.com"},     // 缺 server
-		{"smtp_server": "s", "to_email": "t@e.com"},   // 缺 user
-		{"smtp_server": "s", "smtp_user": "u"},        // 缺 to
+		{"smtp_user": "u", "to_email": "t@e.com"},   // 缺 server
+		{"smtp_server": "s", "to_email": "t@e.com"}, // 缺 user
+		{"smtp_server": "s", "smtp_user": "u"},      // 缺 to
 	}
 	for _, cfg := range cases {
 		if err := n.sendEmail(cfg, "x"); err == nil {

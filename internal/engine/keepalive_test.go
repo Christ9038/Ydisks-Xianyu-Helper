@@ -212,7 +212,7 @@ func TestHandleMaxFailures_AlertOnce(t *testing.T) {
 	}
 	call()
 	call()
-	if len(h.alerts) != 1 || h.alerts[0] != AlertLevelCritical {
-		t.Fatalf("两次 handleMaxFailures 应只告警一次，got %+v", h.alerts)
+	if len(h.alerts) != 2 || h.alerts[0] != AlertLevelWarn || h.alerts[1] != AlertLevelCritical {
+		t.Fatalf("两次 handleMaxFailures 应只发一次掉线 warn 和一次恢复失败 critical，got %+v", h.alerts)
 	}
 }

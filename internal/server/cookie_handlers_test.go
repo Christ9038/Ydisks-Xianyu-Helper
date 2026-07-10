@@ -255,6 +255,22 @@ func TestUpdateCookieLoginInfo(t *testing.T) {
 	if d.Username != "u2" || d.Password != "p1" || d.ShowBrowser {
 		t.Fatalf("空密码更新应保留原密码并更新其他字段: %+v", d)
 	}
+
+	body = `{"username":"u2","clear_password":true,"show_browser":false}`
+	req = httptest.NewRequest(http.MethodPut, "/cookies/acc1/login-info", strings.NewReader(body))
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clear password status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	d, err = store.Cookies.GetDetails(ctx, "acc1")
+	if err != nil {
+		t.Fatalf("GetDetails after clear password: %v", err)
+	}
+	if d.Username != "u2" || d.Password != "" || d.ShowBrowser {
+		t.Fatalf("clear_password 应清空密码并保留其他更新: %+v", d)
+	}
 }
 
 // TestUpdateCookieLoginInfoBadJSON 非法 JSON 400。
