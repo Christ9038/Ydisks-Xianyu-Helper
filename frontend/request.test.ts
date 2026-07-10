@@ -41,6 +41,34 @@ describe('request helpers', () => {
     await expect(get('/bad')).rejects.toThrow('bad request');
   });
 
+  test('notifies the app when an authenticated request returns 401', async () => {
+    const events = new EventTarget();
+    const listener = vi.fn();
+    events.addEventListener('auth:logout', listener);
+    vi.stubGlobal('window', events);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', {
+      status: 401,
+      headers: { 'content-type': 'application/json' },
+    })));
+
+    await expect(get('/private')).rejects.toThrow();
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  test('does not notify logout for a failed login request', async () => {
+    const events = new EventTarget();
+    const listener = vi.fn();
+    events.addEventListener('auth:logout', listener);
+    vi.stubGlobal('window', events);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', {
+      status: 401,
+      headers: { 'content-type': 'application/json' },
+    })));
+
+    await expect(post('/login', {}, { skipAuthLogout: true })).rejects.toThrow();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
   test('posts FormData without forcing a content type', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);

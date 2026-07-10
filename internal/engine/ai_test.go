@@ -12,27 +12,44 @@ import (
 	"xianyu-go/internal/db"
 )
 
-// TestBuildSystemPrompt 自定义 prompt 替换 {item_title}；默认模板含商品信息与折扣上限。
+// TestBuildSystemPrompt 自定义 prompt 替换变量，且始终追加价格与轮次安全约束。
 func TestBuildSystemPrompt(t *testing.T) {
-	// 自定义 prompt 优先，仅替换 {item_title}。
-	got := buildSystemPrompt("你是卖{item_title}的客服", "iPhone", 0, "", 0, 0)
-	if got != "你是卖iPhone的客服" {
+	got := buildSystemPrompt("你是卖{item_title}的客服，价格{item_price}", "iPhone", 100, "手机", 0, 0, 3, 1)
+	if !strings.Contains(got, "你是卖iPhone的客服，价格100.00") {
 		t.Fatalf("自定义 prompt 替换: got %q", got)
 	}
+	if !strings.Contains(got, "任一优惠上限为 0 时不得降价") || !strings.Contains(got, "当前砍价轮次 1") {
+		t.Fatalf("自定义 prompt 缺少安全约束: %q", got)
+	}
 
-	// 默认模板：折扣上限 <=0 时兜底 10% / 100 元。
-	got = buildSystemPrompt("", "会员卡", 9.9, "月卡", 0, 0)
+	// 0 必须保留为不允许优惠，不能静默改成默认值。
+	got = buildSystemPrompt("", "会员卡", 9.9, "月卡", 0, 0, 3, 0)
 	if !strings.Contains(got, "标题：会员卡") || !strings.Contains(got, "价格：9.90 元") {
 		t.Fatalf("默认模板缺商品信息: %q", got)
 	}
-	if !strings.Contains(got, "最多优惠 10% 或 100 元") {
-		t.Fatalf("默认折扣上限未兜底: %q", got)
+	if !strings.Contains(got, "最多优惠 0%") || !strings.Contains(got, "最多优惠 0 元") {
+		t.Fatalf("零折扣配置被改写: %q", got)
 	}
 
 	// 显式折扣上限。
-	got = buildSystemPrompt("", "会员卡", 9.9, "月卡", 20, 50)
-	if !strings.Contains(got, "最多优惠 20% 或 50 元") {
+	got = buildSystemPrompt("", "会员卡", 9.9, "月卡", 20, 50, 4, 2)
+	if !strings.Contains(got, "最多优惠 20%") || !strings.Contains(got, "最多优惠 50 元") {
 		t.Fatalf("显式折扣上限: %q", got)
+	}
+}
+
+func TestMinimumAllowedPriceAndUnsafeOffer(t *testing.T) {
+	if got := minimumAllowedPrice(100, 10, 20, true); got != 90 {
+		t.Fatalf("minimum=%v want 90", got)
+	}
+	if got := minimumAllowedPrice(100, 0, 20, true); got != 100 {
+		t.Fatalf("zero percent minimum=%v want 100", got)
+	}
+	if _, unsafe := unsafeOfferedPrice("最低可以 89 元", 90); !unsafe {
+		t.Fatal("低于最低价的报价应被拦截")
+	}
+	if _, unsafe := unsafeOfferedPrice("最低可以 90 元", 90); unsafe {
+		t.Fatal("边界报价应允许")
 	}
 }
 
@@ -127,6 +144,10 @@ func TestAIReply_HTTPErrorDegrades(t *testing.T) {
 	if res != nil {
 		t.Fatalf("失败时不应返回结果: %+v", res)
 	}
+	history, historyErr := s.AIReply.ConversationHistory(ctx, "cid", "chat1", "item1", 10)
+	if historyErr != nil || len(history) != 0 {
+		t.Fatalf("上游失败不应写入半轮历史: history=%+v err=%v", history, historyErr)
+	}
 }
 
 // TestAIReply_EmptyChoicesReturnsNil 成功响应但无 choices → nil（不报错）。
@@ -210,9 +231,47 @@ func TestAIReplierItemInfo(t *testing.T) {
 	}
 
 	// 插入商品。
-	s.DB.ExecContext(ctx, `INSERT INTO item_info (cookie_id, item_id, item_title, item_price, item_detail) VALUES ('cid','item1','会员卡','9.90','月卡服务')`)
+	s.DB.ExecContext(ctx, `INSERT INTO item_info (cookie_id, item_id, item_title, item_price, item_description, item_detail) VALUES ('cid','item1','会员卡','9.90','用户编辑描述','原始详情')`)
 	title, price, desc = a.itemInfo(ctx, "item1")
-	if title != "会员卡" || price != 9.9 || desc != "月卡服务" {
+	if title != "会员卡" || price != 9.9 || desc != "用户编辑描述" {
 		t.Fatalf("真实商品: title=%q price=%v desc=%q", title, price, desc)
+	}
+}
+
+func TestAIReplyTracksBargainRoundsAndBlocksUnsafePrice(t *testing.T) {
+	s, cleanup := newAIStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	srv := mockOpenAIServer(t, 0, "可以，80 元成交")
+	s.DB.ExecContext(ctx, `INSERT INTO ai_reply_settings
+		(cookie_id,ai_enabled,max_discount_percent,max_discount_amount,max_bargain_rounds,custom_prompts)
+		VALUES ('cid',1,10,20,1,'')`)
+	s.DB.ExecContext(ctx, `INSERT INTO item_info
+		(cookie_id,item_id,item_title,item_price,item_description) VALUES ('cid','item1','商品','100','描述')`)
+	s.Settings.Set(ctx, "ai_api_key", "sk-test")
+	s.Settings.Set(ctx, "ai_api_url", srv.URL)
+
+	a := NewAIReplier("cid", s, nil)
+	first, err := a.Reply(ctx, chatMsg("能便宜点吗", "item1", "chat1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == nil || !strings.Contains(first.Text, "90.00 元") {
+		t.Fatalf("越界报价应替换成安全价格: %+v", first)
+	}
+	second, err := a.Reply(ctx, chatMsg("再便宜一点", "item1", "chat1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second == nil || !strings.Contains(second.Text, "已经是最低价") {
+		t.Fatalf("超过最大轮次应拒绝继续降价: %+v", second)
+	}
+	count, err := s.AIReply.CurrentBargainCount(ctx, "cid", "chat1", "item1")
+	if err != nil || count != 2 {
+		t.Fatalf("bargain count=%d err=%v want 2", count, err)
+	}
+	history, err := s.AIReply.ConversationHistory(ctx, "cid", "chat1", "item1", 10)
+	if err != nil || len(history) != 4 {
+		t.Fatalf("history len=%d err=%v", len(history), err)
 	}
 }

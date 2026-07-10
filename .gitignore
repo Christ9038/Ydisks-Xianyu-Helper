@@ -5,6 +5,7 @@
 /init-admin
 *.exe
 *.test
+!/Dockerfile.test
 *.out
 
 # Runtime data

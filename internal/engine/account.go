@@ -91,7 +91,7 @@ type accountEventHandler interface {
 }
 
 type tokenCaptchaHandler interface {
-	OnTokenCaptchaVerification(ctx context.Context, cookieID, cookieStr, verificationURL string) (newCookies string, ok bool)
+	OnTokenCaptchaVerification(ctx context.Context, cookieID, cookieStr, verificationURL string) (*mtop.RefreshResult, bool)
 }
 
 // ChatMessage 防抖后投递给业务层的一条聊天消息。
@@ -172,6 +172,13 @@ type Account struct {
 
 	// 消息处理信号量
 	sem chan struct{}
+
+	// 业务任务生命周期。Stop 先禁止新增任务并取消 runtimeCtx，再等待已进入
+	// 自动化/回复链的任务退出。
+	taskMu     sync.Mutex
+	taskWG     sync.WaitGroup
+	runtimeCtx context.Context
+	accepting  bool
 
 	reply *ReplyService
 }
@@ -262,6 +269,7 @@ func New(cfg Config) *Account {
 		processed:        make(map[string]time.Time),
 		debounceTimers:   make(map[string]*debounceEntry),
 		sem:              make(chan struct{}, MessageSemaphoreSize),
+		accepting:        true,
 		runtimeState:     RuntimeStarting,
 		runtimeMessage:   "正在启动账号服务",
 		runtimeUpdatedAt: time.Now(),
@@ -276,9 +284,14 @@ func New(cfg Config) *Account {
 // 调用方应在独立 goroutine 中运行；Stop 可优雅停止。
 func (a *Account) Run(parent context.Context) error {
 	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
 	a.mu.Lock()
 	a.stopFn = cancel
 	a.mu.Unlock()
+	a.taskMu.Lock()
+	a.runtimeCtx = ctx
+	a.accepting = true
+	a.taskMu.Unlock()
 
 	// 复用 DB 缓存的 device_id（跨进程重启稳定），避免每次重启换新设备 ID 触发风控。
 	a.ensureDeviceIDCached(ctx)
@@ -499,16 +512,22 @@ func (a *Account) Run(parent context.Context) error {
 // Stop 优雅停止。
 func (a *Account) Stop() {
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	if a.stopped {
+		a.mu.Unlock()
 		return
 	}
 	a.stopped = true
 	a.runtimeState = RuntimeStopped
 	a.runtimeMessage = "账号服务已停止"
 	a.runtimeUpdatedAt = time.Now()
-	if a.stopFn != nil {
-		a.stopFn()
+	cancel := a.stopFn
+	a.mu.Unlock()
+
+	a.taskMu.Lock()
+	a.accepting = false
+	a.taskMu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 	// 取消所有防抖定时器。
 	a.debounceMu.Lock()
@@ -519,6 +538,34 @@ func (a *Account) Stop() {
 	}
 	a.debounceTimers = make(map[string]*debounceEntry)
 	a.debounceMu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		a.taskWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		a.logger.Warn("等待账号业务任务退出超时")
+	}
+}
+
+func (a *Account) beginTask() (context.Context, bool) {
+	a.taskMu.Lock()
+	defer a.taskMu.Unlock()
+	if !a.accepting {
+		return nil, false
+	}
+	ctx := a.runtimeCtx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		return nil, false
+	}
+	a.taskWG.Add(1)
+	return ctx, true
 }
 
 // handleMaxFailures 连续失败达上限：尝试密码登录刷新；失败则返回 err 触发上层重启实例。
@@ -814,9 +861,13 @@ func (a *Account) refreshToken(ctx context.Context) (string, string, error) {
 	}
 	res, err := a.mtop.RefreshTokenWithDeviceIDContext(ctx, cookieStr, deviceID)
 	if err != nil && mtop.IsRiskVerificationErr(err) {
-		if recoveredCookies, ok := a.tryTokenCaptchaRecovery(ctx, cookieStr, err); ok {
-			cookieStr = recoveredCookies
-			res, err = a.mtop.RefreshTokenWithDeviceIDContext(ctx, cookieStr, deviceID)
+		if recovered, ok := a.tryTokenCaptchaRecovery(ctx, cookieStr, err); ok {
+			cookieStr = recovered.UpdatedCookies
+			if recovered.AccessToken != "" {
+				res, err = recovered, nil
+			} else {
+				res, err = a.mtop.RefreshTokenWithDeviceIDContext(ctx, cookieStr, deviceID)
+			}
 		}
 	}
 	if res != nil && res.UpdatedCookies != "" && res.UpdatedCookies != cookieStr {
@@ -844,25 +895,25 @@ func (a *Account) refreshToken(ctx context.Context) (string, string, error) {
 	return res.AccessToken, cookieStr, nil
 }
 
-func (a *Account) tryTokenCaptchaRecovery(ctx context.Context, cookieStr string, err error) (string, bool) {
+func (a *Account) tryTokenCaptchaRecovery(ctx context.Context, cookieStr string, err error) (*mtop.RefreshResult, bool) {
 	h, ok := a.handler.(tokenCaptchaHandler)
 	if !ok {
-		return "", false
+		return nil, false
 	}
 	var riskErr *mtop.RiskVerificationError
 	if !errors.As(err, &riskErr) || strings.TrimSpace(riskErr.VerificationURL) == "" {
-		return "", false
+		return nil, false
 	}
 	a.alertEvent(ctx, EventSecurityVerification, AlertLevelWarn, "闲鱼要求滑块验证",
 		"token 刷新触发闲鱼风控验证，系统将尝试自动完成滑块并合并 x5sec。")
-	newCookies, ok := h.OnTokenCaptchaVerification(ctx, a.CookieID, cookieStr, riskErr.VerificationURL)
-	if !ok || strings.TrimSpace(newCookies) == "" {
-		return "", false
+	result, ok := h.OnTokenCaptchaVerification(ctx, a.CookieID, cookieStr, riskErr.VerificationURL)
+	if !ok || result == nil || strings.TrimSpace(result.UpdatedCookies) == "" {
+		return nil, false
 	}
-	a.replaceCookieStr(newCookies)
+	a.replaceCookieStr(result.UpdatedCookies)
 	a.clearTokenCache(ctx)
 	a.setRuntimeState(RuntimeConnecting, "token 风控验证已处理，正在重新获取登录凭证")
-	return newCookies, true
+	return result, true
 }
 
 // acquireToken 取用于 WS /reg 的 accessToken：缓存命中且未过期则跳过 mtop（降低风控

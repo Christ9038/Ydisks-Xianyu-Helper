@@ -160,12 +160,12 @@ func classifyAccountAlertEvent(title, body string) string {
 }
 
 // OnTokenCaptchaVerification 处理 token 刷新触发的闲鱼滑块风控。
-func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cookieStr, verificationURL string) (string, bool) {
+func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cookieStr, verificationURL string) (*mtop.RefreshResult, bool) {
 	br, ok := a.browser.(browserTokenCaptchaRecoverer)
 	if a.browser == nil || !ok {
 		a.OnAccountEvent(ctx, cookieID, engine.EventSecurityVerification, engine.AlertLevelWarn,
 			"token 风控验证无法自动处理", "浏览器自动化未启用，无法自动完成 token 滑块验证。")
-		return "", false
+		return nil, false
 	}
 
 	start := time.Now()
@@ -188,7 +188,7 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 	if a.store == nil || a.store.Cookies == nil {
 		a.OnAccountEvent(ctx, cookieID, engine.EventSecurityVerification, engine.AlertLevelWarn,
 			"token 风控验证无法保存", "账号存储未初始化，无法保存验证后的 Cookie。")
-		return "", false
+		return nil, false
 	}
 
 	if d, err := a.store.Cookies.GetDetails(ctx, cookieID); err == nil && d != nil {
@@ -196,6 +196,7 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 		metadataJSON = d.MetadataJSON
 	}
 
+	freshAccessToken := ""
 	provider := func(runCtx context.Context, currentCookies string) (string, bool, string, error) {
 		if a.captchaReq == nil {
 			return "", false, "", nil
@@ -208,6 +209,7 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 		if err != nil || res == nil {
 			return "", false, "", err
 		}
+		freshAccessToken = res.AccessToken
 		return res.VerificationURL, res.TokenOK, res.UpdatedCookies, nil
 	}
 
@@ -225,10 +227,10 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 		}
 		a.OnAccountEvent(ctx, cookieID, engine.EventSecurityVerification, engine.AlertLevelWarn,
 			"token 风控验证失败", err.Error())
-		return "", false
+		return nil, false
 	}
 	if strings.TrimSpace(newCookies) == "" {
-		return "", false
+		return nil, false
 	}
 	if err := a.store.Cookies.UpdateRenewalCookie(ctx, cookieID, newCookies, cookierefresh.MetadataWithoutSnapshot(metadataJSON), time.Now().Unix()); err != nil {
 		a.logger.Warn("保存 token 风控恢复 Cookie 失败", "account", cookieID, "err", err)
@@ -241,7 +243,7 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 				DurationMS:       time.Since(start).Milliseconds(),
 			})
 		}
-		return "", false
+		return nil, false
 	}
 	if a.store.Tokens != nil {
 		_ = a.store.Tokens.Clear(ctx, cookieID)
@@ -255,8 +257,8 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 		})
 	}
 	a.OnAccountEvent(ctx, cookieID, engine.EventSecurityVerification, engine.AlertLevelInfo,
-		"token 风控验证已自动恢复", "系统已完成滑块验证并更新 x5sec，正在重新获取 token。")
-	return newCookies, true
+		"token 风控验证已自动恢复", "系统已完成验证并更新登录凭证。")
+	return &mtop.RefreshResult{AccessToken: freshAccessToken, UpdatedCookies: newCookies}, true
 }
 
 // HandleSystemEvent 把系统卡片事件转发到自动化中心，由自动化规则决定是否执行。

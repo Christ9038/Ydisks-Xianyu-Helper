@@ -3,19 +3,20 @@ package account
 import (
 	"context"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
-	"xianyu-go/internal/db"
 	"xianyu-go/internal/automation"
+	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
 )
 
 type noopHandler struct{}
 
-func (noopHandler) HandleChatMessage(context.Context, engine.ChatMessage) error     { return nil }
-func (noopHandler) HandleSystemEvent(context.Context, automation.Task) error        { return nil }
-func (noopHandler) OnPasswordLoginRefresh(context.Context, string) bool             { return false }
+func (noopHandler) HandleChatMessage(context.Context, engine.ChatMessage) error    { return nil }
+func (noopHandler) HandleSystemEvent(context.Context, automation.Task) error       { return nil }
+func (noopHandler) OnPasswordLoginRefresh(context.Context, string) bool            { return false }
 func (noopHandler) OnAccountAlert(context.Context, string, string, string, string) {}
 
 // TestManagerStartStop 验证从 DB 加载账号、启停和 GetInstance。
@@ -71,6 +72,41 @@ func TestManagerStartStop(t *testing.T) {
 	if _, ok := mgr.GetInstance("acc2"); ok {
 		t.Fatal("Stop 后 acc2 仍存在")
 	}
+}
+
+func TestManagerConcurrentStartCreatesSingleManagedInstance(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, _, err := db.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	store := db.NewStore(database, db.DialectSQLite)
+	store.Users.Create(context.Background(), "admin", "a@e.com", "pw")
+	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
+	store.Cookies.Save(context.Background(), "same", "unb=1; _m_h5_tk=t_1;", admin.ID)
+
+	mgr := NewManager(store, noopHandler{}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := mgr.Start(ctx, "same", "unb=1; _m_h5_tk=t_1;"); err != nil {
+				t.Errorf("Start: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	mgr.mu.Lock()
+	count := len(mgr.accounts)
+	mgr.mu.Unlock()
+	if count != 1 {
+		t.Fatalf("managed instances=%d want 1", count)
+	}
+	mgr.Stop("same")
 }
 
 // TestManagerStopAll 验证 StopAll 停止所有运行中的账号，用于进程优雅退出。

@@ -110,6 +110,8 @@ const emptyVariant = (): ShippingVariant => ({
   card_id: 0,
   delivery_count: 1,
   enabled: true,
+  delay_override: false,
+  delay_seconds: 0,
 });
 
 const parseJSONObject = (raw?: string): Record<string, any> => {
@@ -1146,7 +1148,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                 className="w-full ios-input px-3 py-2.5 rounded-lg"
                               >
                                 <option value="">请选择卡密库存</option>
-                                {cards.filter(card => card.enabled).map(card => (
+                                {cards.filter(card => card.enabled && card.type !== 'api').map(card => (
                                   <option key={card.id} value={card.id}>{card.name}</option>
                                 ))}
                               </select>
@@ -1161,6 +1163,29 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                 onChange={event => updateVariant(index, { delivery_count: Math.max(1, Number(event.target.value) || 1) })}
                                 className="w-full ios-input px-3 py-2.5 rounded-lg"
                               />
+                            </div>
+                            <div className="md:col-span-full flex flex-wrap items-center gap-3 rounded-xl bg-gray-50 px-3 py-2">
+                              <label className="flex items-center gap-2 text-xs font-bold text-gray-600 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={variant.delay_override === true}
+                                  onChange={event => updateVariant(index, { delay_override: event.target.checked })}
+                                  className="accent-[#0094f7]"
+                                />
+                                覆盖卡密默认延时
+                              </label>
+                              {variant.delay_override && (
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="86400"
+                                  value={variant.delay_seconds || 0}
+                                  onChange={event => updateVariant(index, { delay_seconds: Math.max(0, Number(event.target.value) || 0) })}
+                                  className="w-28 ios-input px-2 py-1.5 rounded-lg text-xs"
+                                  aria-label="动作延时秒数"
+                                />
+                              )}
+                              <span className="text-xs text-gray-500">{variant.delay_override ? `本动作延时 ${variant.delay_seconds || 0} 秒` : '使用卡密默认延时'}</span>
                             </div>
                             <button
                               type="button"

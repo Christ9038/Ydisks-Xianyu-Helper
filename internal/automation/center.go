@@ -297,12 +297,36 @@ func (c *Center) executeActionWithDelay(ctx context.Context, task Task, action d
 	if !action.Enabled {
 		return 0, nil
 	}
-	if action.DelaySeconds > 0 {
-		if err := sleepCtx(ctx, time.Duration(action.DelaySeconds)*time.Second); err != nil {
+	delaySeconds, err := c.actionDelaySeconds(ctx, action)
+	if err != nil {
+		return 0, err
+	}
+	if delaySeconds > 0 {
+		if err := sleepCtx(ctx, time.Duration(delaySeconds)*time.Second); err != nil {
 			return 0, err
 		}
 	}
 	return c.executeAction(ctx, task, action)
+}
+
+// actionDelaySeconds 统一卡密默认延时和动作覆盖语义。旧动作没有
+// delay_override 字段时自动使用卡密上的默认延时。
+func (c *Center) actionDelaySeconds(ctx context.Context, action db.AutomationAction) (int, error) {
+	if action.ActionType != ActionSendCard || action.CardID <= 0 {
+		return action.DelaySeconds, nil
+	}
+	var cfg struct {
+		DelayOverride bool `json:"delay_override"`
+	}
+	_ = json.Unmarshal([]byte(action.ConfigJSON), &cfg)
+	if cfg.DelayOverride {
+		return action.DelaySeconds, nil
+	}
+	card, err := c.store.Cards.Get(ctx, action.CardID)
+	if err != nil {
+		return 0, err
+	}
+	return card.DelaySeconds, nil
 }
 
 func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {

@@ -166,6 +166,18 @@ func (s *Server) setAIReply(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
 		return
 	}
+	if req.MaxDiscountPercent < 0 || req.MaxDiscountPercent > 100 {
+		writeErr(w, http.StatusBadRequest, "最大折扣比例必须在 0 到 100 之间")
+		return
+	}
+	if req.MaxDiscountAmount < 0 {
+		writeErr(w, http.StatusBadRequest, "最大折扣金额不能小于 0")
+		return
+	}
+	if req.MaxBargainRounds < 1 || req.MaxBargainRounds > 10 {
+		writeErr(w, http.StatusBadRequest, "最大砍价轮次必须在 1 到 10 之间")
+		return
+	}
 	_, err := s.Store.DB.ExecContext(r.Context(),
 		`INSERT INTO ai_reply_settings
 		 (cookie_id, ai_enabled, max_discount_percent, max_discount_amount,

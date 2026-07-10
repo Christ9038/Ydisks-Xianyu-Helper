@@ -192,3 +192,23 @@ TEST_MYSQL_URL="mysql://root:pass@tcp(host:3306)/db" \
 TEST_POSTGRES_URL="postgres://user:pass@host:5432/db" \
 go test ./internal/db -run TestMultiDB -v
 ```
+
+完整 Docker 功能回归（前端测试/构建、vet、lint、Go `-race`、三库迁移、
+MySQL 8.4 与 PostgreSQL 17 API 功能及重启持久化）：
+
+```bash
+./scripts/docker-full-test.sh
+```
+
+测试编排使用命名卷 `mysql8_data`、`postgres17_data` 和 `sqlite_seed`。
+本地 `data/xianyu_data.db` 只会抽取少量商品、订单和卡密元数据，写入外置库前会替换
+Cookie、买家 ID 和卡密内容。测试应用分别监听 `18081`（MySQL）与 `18082`
+（PostgreSQL），测试账号为 `docker_fixture / docker_fixture_password`。
+
+保留数据库并停止容器：
+
+```bash
+docker compose -f docker-compose.functional.yml down
+```
+
+只有明确需要清空测试数据时才追加 `-v` 删除命名卷。

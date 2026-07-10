@@ -236,6 +236,27 @@ func TestAIReplySettings(t *testing.T) {
 	}
 }
 
+func TestAIReplySettingsRejectInvalidBargainLimits(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	for _, body := range []string{
+		`{"ai_enabled":true,"max_discount_percent":101,"max_discount_amount":1,"max_bargain_rounds":1}`,
+		`{"ai_enabled":true,"max_discount_percent":1,"max_discount_amount":-1,"max_bargain_rounds":1}`,
+		`{"ai_enabled":true,"max_discount_percent":1,"max_discount_amount":1,"max_bargain_rounds":0}`,
+	} {
+		req := httptest.NewRequest(http.MethodPut, "/ai-reply-settings/acc1", strings.NewReader(body))
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("body=%s status=%d want 400", body, rec.Code)
+		}
+	}
+}
+
 func TestParseOpenAIModels(t *testing.T) {
 	models, err := parseOpenAIModels([]byte(`{"data":[{"id":"qwen-plus"},{"id":"qwen-max"},{"name":"fallback-name"}]}`))
 	if err != nil {

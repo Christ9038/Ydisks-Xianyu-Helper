@@ -181,8 +181,12 @@ func (s *Server) normalizeAutomationRuleRequest(r *http.Request, userID int64, r
 			if act.CardID <= 0 {
 				return db.AutomationRuleInput{}, errStr("发送卡密动作必须选择卡密组")
 			}
-			if !s.cardOwnedByUser(r.Context(), userID, act.CardID) {
+			card, cardErr := s.Store.Cards.Get(r.Context(), act.CardID)
+			if cardErr != nil || card.UserID != userID {
 				return db.AutomationRuleInput{}, errStr("卡密组不存在或不属于当前用户")
+			}
+			if card.Type == "api" {
+				return db.AutomationRuleInput{}, errStr("API 卡密暂不支持自动发货，请选择文本、批量数据或图片卡密")
 			}
 		case automation.ActionSendText:
 			if strings.TrimSpace(act.MessageTemplate) == "" {
@@ -193,6 +197,9 @@ func (s *Server) normalizeAutomationRuleRequest(r *http.Request, userID int64, r
 		}
 		if act.DeliveryCount <= 0 {
 			act.DeliveryCount = 1
+		}
+		if act.DelaySeconds < 0 || act.DelaySeconds > 86400 {
+			return db.AutomationRuleInput{}, errStr("动作延时必须在 0 到 86400 秒之间")
 		}
 		if act.ConfigJSON == "" {
 			act.ConfigJSON = "{}"

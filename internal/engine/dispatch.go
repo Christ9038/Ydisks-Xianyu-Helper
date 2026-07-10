@@ -13,6 +13,10 @@ import (
 // dispatch 是 ws.ReceiveLoop 的回调，对每条解密后的消息做：
 // 标记消息接收时间 → 提取消息 ID 去重 → 信号量限并发 → 分类（聊天/系统）→ 防抖投递。
 func (a *Account) dispatch(decrypted map[string]any) {
+	ctx, ok := a.beginTask()
+	if !ok {
+		return
+	}
 	a.mu.Lock()
 	a.lastMsgReceived = time.Now()
 	a.mu.Unlock()
@@ -21,22 +25,28 @@ func (a *Account) dispatch(decrypted map[string]any) {
 	select {
 	case a.sem <- struct{}{}:
 	default:
+		a.taskWG.Done()
 		a.logger.Warn("消息处理并发达上限，丢弃消息", "limit", MessageSemaphoreSize)
 		return
 	}
 	go func() {
+		defer a.taskWG.Done()
 		defer func() { <-a.sem }()
-		a.handleMessage(decrypted)
+		a.handleMessageContext(ctx, decrypted)
 	}()
 }
 
 // handleMessage 分类并投递消息。
 func (a *Account) handleMessage(decrypted map[string]any) {
+	a.handleMessageContext(context.Background(), decrypted)
+}
+
+func (a *Account) handleMessageContext(ctx context.Context, decrypted map[string]any) {
 	// 第一优先级：系统卡片和平台通知进入自动化中心。
 	// 这里不判断具体业务，只做“平台事件”事实解析；系统消息永远不进入 AI 回复范围。
 	if task := automation.ExtractTaskFromWS(a.CookieID, a.currentCookieStr(), decrypted); task != nil {
 		if a.handler != nil {
-			if err := a.handler.HandleSystemEvent(context.Background(), *task); err != nil {
+			if err := a.handler.HandleSystemEvent(ctx, *task); err != nil {
 				a.logger.Error("处理系统自动化事件失败", "err", err, "trigger", task.TriggerType)
 			}
 		}
@@ -137,14 +147,19 @@ func (a *Account) scheduleDebouncedReply(chat ChatMessage) {
 		delete(a.debounceTimers, chat.ChatID)
 		lastMsg := cur.lastMsg
 		a.debounceMu.Unlock()
+		ctx, ok := a.beginTask()
+		if !ok {
+			return
+		}
+		defer a.taskWG.Done()
 
 		if a.reply != nil {
-			if err := a.reply.Handle(context.Background(), lastMsg); err != nil {
+			if err := a.reply.Handle(ctx, lastMsg); err != nil {
 				a.logger.Error("处理自动回复失败", "err", err, "chat_id", chat.ChatID)
 			}
 		}
 		if a.handler != nil {
-			if err := a.handler.HandleChatMessage(context.Background(), lastMsg); err != nil {
+			if err := a.handler.HandleChatMessage(ctx, lastMsg); err != nil {
 				a.logger.Error("处理聊天消息失败", "err", err, "chat_id", chat.ChatID)
 			}
 		}

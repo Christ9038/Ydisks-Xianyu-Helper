@@ -76,15 +76,24 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		switch cardType {
-		case "text", "data", "image", "api":
+		case "text", "data", "image":
+		case "api":
+			results = append(results, cardBatchResultRow{RowNo: rowNo, Success: false, Name: name, Type: cardType, Error: "API 卡密暂不支持自动发货，不能新建"})
+			failed++
+			continue
 		default:
-			results = append(results, cardBatchResultRow{RowNo: rowNo, Success: false, Name: name, Type: cardType, Error: "类型必须为 text/data/image/api"})
+			results = append(results, cardBatchResultRow{RowNo: rowNo, Success: false, Name: name, Type: cardType, Error: "类型必须为 text/data/image"})
 			failed++
 			continue
 		}
-		// content 按类型映射；api 类型允许 content 为空（用 description 等另行说明时）
-		if cardType != "api" && strings.TrimSpace(content) == "" {
+		if strings.TrimSpace(content) == "" {
 			results = append(results, cardBatchResultRow{RowNo: rowNo, Success: false, Name: name, Type: cardType, Error: "缺少内容"})
+			failed++
+			continue
+		}
+		delaySeconds := atoiPublishDefault(firstImportString(m, "delay_seconds", "延迟秒"), 0)
+		if delaySeconds < 0 || delaySeconds > 86400 {
+			results = append(results, cardBatchResultRow{RowNo: rowNo, Success: false, Name: name, Type: cardType, Error: "延时发货必须在 0 到 86400 秒之间"})
 			failed++
 			continue
 		}
@@ -94,7 +103,7 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 			Type:         cardType,
 			Description:  firstImportString(m, "description", "描述"),
 			Enabled:      true,
-			DelaySeconds: atoiPublishDefault(firstImportString(m, "delay_seconds", "延迟秒"), 0),
+			DelaySeconds: delaySeconds,
 			IsMultiSpec:  parseLooseBool(firstImportString(m, "is_multi_spec", "多规格")),
 			SpecName:     firstImportString(m, "spec_name", "规格名"),
 			SpecValue:    firstImportString(m, "spec_value", "规格值"),
@@ -110,8 +119,6 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 			cf.DataContent = content
 		case "image":
 			cf.ImageURL = content
-		case "api":
-			cf.APIConfig = content
 		}
 
 		id, err := s.Store.Cards.Create(r.Context(), cf)

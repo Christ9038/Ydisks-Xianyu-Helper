@@ -175,6 +175,8 @@ export interface ShippingVariant {
   card_type?: Card['type'];
   delivery_count: number;
   enabled: boolean;
+  delay_override?: boolean;
+  delay_seconds?: number;
   config_json?: string;
 }
 
@@ -192,6 +194,14 @@ export interface ReplyRule {
 // Stats
 export interface AdminStats {
   total_users: number;
+  total_cookies: number;
+  active_cookies: number;
+  total_cards: number;
+  total_keywords: number;
+  total_orders: number;
+}
+
+export interface DashboardStats {
   total_cookies: number;
   active_cookies: number;
   total_cards: number;

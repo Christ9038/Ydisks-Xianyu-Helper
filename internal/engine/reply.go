@@ -8,6 +8,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 
@@ -16,10 +17,11 @@ import (
 
 // ReplyResult 回复结果。
 type ReplyResult struct {
-	Text     string // 文本回复（可空）
-	ImageURL string // 图片回复（可空）
-	Source   string // 回复来源：API/关键词/AI/默认
-	Skip     bool   // true 表示匹配到空回复，不发送任何内容
+	Text      string // 文本回复（可空）
+	ImageURL  string // 图片回复（可空）
+	Source    string // 回复来源：API/关键词/AI/默认
+	Skip      bool   // true 表示匹配到空回复，不发送任何内容
+	ReplyOnce bool   // 仅默认回复使用，发送状态由 Handle 持久化
 }
 
 // APIReplier 外部 API 回复（优先级1）。返回 nil 表示无回复。
@@ -71,21 +73,62 @@ func (r *ReplyService) Handle(ctx context.Context, m ChatMessage) error {
 	if res == nil || res.Skip {
 		return nil
 	}
-	// 发送：图片优先，文本随后。
+	// 发送：图片优先，文本随后。reply_once 使用持久化分段状态，失败时只重试
+	// 尚未成功的部分。
 	if r.sender == nil {
 		return nil
 	}
-	if res.ImageURL != "" {
-		if err := r.sender.SendImage(ctx, m.ChatID, m.SenderUserID, res.ImageURL, 0); err != nil {
-			r.logger.Error("发送回复图片失败", "err", err)
+	record := db.DefaultReplyRecord{}
+	if res.ReplyOnce && m.ChatID != "" {
+		var claimed bool
+		var err error
+		record, claimed, err = r.store.DefaultReps.ClaimRecord(ctx, r.cookieID, m.ChatID, res.Text != "", res.ImageURL != "")
+		if err != nil {
+			return fmt.Errorf("领取默认回复发送任务: %w", err)
+		}
+		if !claimed {
+			return nil
 		}
 	}
-	if res.Text != "" {
+	if res.ImageURL != "" && !record.ImageSent {
+		if err := r.sender.SendImage(ctx, m.ChatID, m.SenderUserID, res.ImageURL, 0); err != nil {
+			r.logger.Error("发送回复图片失败", "err", err)
+			r.markReplyFailure(ctx, res, m, err)
+			return err
+		}
+		if res.ReplyOnce && m.ChatID != "" {
+			if err := r.store.DefaultReps.MarkPartSent(ctx, r.cookieID, m.ChatID, "image"); err != nil {
+				r.markReplyFailure(ctx, res, m, err)
+				return err
+			}
+		}
+	}
+	if res.Text != "" && !record.TextSent {
 		if err := r.sender.SendText(ctx, m.ChatID, m.SenderUserID, res.Text); err != nil {
 			r.logger.Error("发送回复文本失败", "err", err)
+			r.markReplyFailure(ctx, res, m, err)
+			return err
+		}
+		if res.ReplyOnce && m.ChatID != "" {
+			if err := r.store.DefaultReps.MarkPartSent(ctx, r.cookieID, m.ChatID, "text"); err != nil {
+				r.markReplyFailure(ctx, res, m, err)
+				return err
+			}
+		}
+	}
+	if res.ReplyOnce && m.ChatID != "" {
+		if err := r.store.DefaultReps.MarkRecordSent(ctx, r.cookieID, m.ChatID); err != nil {
+			r.markReplyFailure(ctx, res, m, err)
+			return err
 		}
 	}
 	return nil
+}
+
+func (r *ReplyService) markReplyFailure(ctx context.Context, res *ReplyResult, m ChatMessage, sendErr error) {
+	if res.ReplyOnce && m.ChatID != "" {
+		_ = r.store.DefaultReps.MarkRecordFailed(ctx, r.cookieID, m.ChatID, sendErr.Error())
+	}
 }
 
 // resolve 按优先级确定回复内容（不发送）。
@@ -170,24 +213,11 @@ func (r *ReplyService) defaultReply(ctx context.Context, m ChatMessage) *ReplyRe
 	if err != nil || dr == nil || !dr.Enabled {
 		return nil
 	}
-	// reply_once：已回复过则跳过。
-	if dr.ReplyOnce && m.ChatID != "" {
-		if r.store.DefaultReps.HasRecord(ctx, r.cookieID, m.ChatID) {
-			r.logger.Info("chat_id 已用过默认回复，跳过（reply_once）", "chat_id", m.ChatID)
-			return nil
-		}
-	}
 	// 文字和图片都为空 → 空回复标记。
 	if strings.TrimSpace(dr.ReplyContent) == "" && strings.TrimSpace(dr.ReplyImageURL) == "" {
 		return &ReplyResult{Skip: true, Source: "默认"}
 	}
-	// 记录已回复。
-	if dr.ReplyOnce && m.ChatID != "" {
-		if err := r.store.DefaultReps.AddRecord(ctx, r.cookieID, m.ChatID); err != nil {
-			r.logger.Error("记录默认回复失败", "cookie_id", r.cookieID, "chat_id", m.ChatID, "err", err)
-		}
-	}
-	res := &ReplyResult{Source: "默认"}
+	res := &ReplyResult{Source: "默认", ReplyOnce: dr.ReplyOnce}
 	if strings.TrimSpace(dr.ReplyContent) != "" {
 		res.Text = formatReply(dr.ReplyContent, m)
 	}

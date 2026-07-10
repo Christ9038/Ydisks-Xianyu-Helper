@@ -103,21 +103,19 @@ func TestDefaultReply_ReplyOnce(t *testing.T) {
 	ctx := context.Background()
 	s.DB.ExecContext(ctx, `INSERT INTO default_replies (cookie_id,enabled,reply_content,reply_once) VALUES ('cid',1,'默认问候',1)`)
 
-	r := NewReplyService("cid", s, nil, nil, nil, nil)
-	// 首次：应回复。
-	res1 := r.resolve(ctx, chatMsg("在吗", "item1", "chatX"))
-	if res1 == nil || res1.Text != "默认问候" {
-		t.Fatalf("首次应回复，got %+v", res1)
+	sender := &recordingSender{}
+	r := NewReplyService("cid", s, sender, nil, nil, nil)
+	if err := r.Handle(ctx, chatMsg("在吗", "item1", "chatX")); err != nil {
+		t.Fatal(err)
 	}
-	// 第二次同 chat_id：reply_once 应跳过。
-	res2 := r.resolve(ctx, chatMsg("还在吗", "item1", "chatX"))
-	if res2 != nil {
-		t.Fatalf("reply_once 应跳过第二次，got %+v", res2)
+	if err := r.Handle(ctx, chatMsg("还在吗", "item1", "chatX")); err != nil {
+		t.Fatal(err)
 	}
-	// 不同 chat_id：应回复。
-	res3 := r.resolve(ctx, chatMsg("在吗", "item1", "chatY"))
-	if res3 == nil || res3.Text != "默认问候" {
-		t.Fatalf("不同 chat_id 应回复，got %+v", res3)
+	if err := r.Handle(ctx, chatMsg("在吗", "item1", "chatY")); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.texts) != 2 || sender.texts[0].text != "默认问候" || sender.texts[1].chatID != "chatY" {
+		t.Fatalf("reply_once 发送记录异常: %+v", sender.texts)
 	}
 }
 
@@ -155,11 +153,11 @@ func TestFormatReply(t *testing.T) {
 // TestParsePrice 价格解析。
 func TestParsePrice(t *testing.T) {
 	cases := map[string]float64{
-		"￥99.5":   99.5,
-		"100元":    100,
-		"":        0,
-		"abc":     0,
-		"12.34":   12.34,
+		"￥99.5": 99.5,
+		"100元":  100,
+		"":      0,
+		"abc":   0,
+		"12.34": 12.34,
 	}
 	for in, want := range cases {
 		if got := parsePrice(in); got != want {

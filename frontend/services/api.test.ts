@@ -3,6 +3,7 @@ import {
   addAccount,
   cancelPasswordLogin,
   checkPasswordLoginStatus,
+  completeQRVerification,
   createNotificationChannel,
   getAccountDetails,
   getItems,
@@ -44,6 +45,16 @@ test('getValidOrders accepts wrapped responses', async () => {
   })));
   const result = await getValidOrders({ start_date: '2026-01-01', end_date: '2026-01-02' });
   expect(result).toEqual([expect.objectContaining({ id: 'o2', status: 'completed', quantity: 3 })]);
+});
+
+test('completeQRVerification sends target account and mismatch confirmation', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, account_id: 'acc1' }));
+  vi.stubGlobal('fetch', fetchMock);
+  await completeQRVerification('session-1', 'acc1', true);
+  expect(fetchMock).toHaveBeenCalledWith('/qr-login/complete-verification/session-1', expect.objectContaining({
+    method: 'POST',
+    body: JSON.stringify({ target_account_id: 'acc1', confirm_mismatch: true }),
+  }));
 });
 
 test('getItems normalizes multi-spec flags from backend values', async () => {
@@ -414,6 +425,8 @@ test('updateShippingRule posts every matching card action before confirm shipmen
         card_id: 9,
         delivery_count: 2,
         enabled: true,
+        delay_override: true,
+        delay_seconds: 0,
       },
     ],
   });
@@ -437,8 +450,9 @@ test('updateShippingRule posts every matching card action before confirm shipmen
       sort_order: 3,
     }),
   ]);
-  expect(JSON.parse(body.actions[0].config_json)).toEqual({ spec_name: '套餐', spec_value: '30天' });
-  expect(JSON.parse(body.actions[1].config_json)).toEqual({ spec_name: '套餐', spec_value: '30天' });
+  expect(JSON.parse(body.actions[0].config_json)).toEqual({ spec_name: '套餐', spec_value: '30天', delay_override: false });
+  expect(JSON.parse(body.actions[1].config_json)).toEqual({ spec_name: '套餐', spec_value: '30天', delay_override: true });
+  expect(body.actions[1].delay_seconds).toBe(0);
 });
 
 test('updateShippingRule posts review request text action without card requirement', async () => {

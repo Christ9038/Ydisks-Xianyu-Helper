@@ -34,6 +34,9 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 		{"keywords", "item_id"},
 		{"item_info", "multi_quantity_delivery"},
 		{"default_replies", "reply_once"},
+		{"default_reply_records", "status"},
+		{"default_reply_records", "text_sent"},
+		{"default_reply_records", "image_sent"},
 		{"users", "is_admin"},
 		{"sessions", "session_id"},
 		{"notification_channels", "user_id"},
@@ -105,7 +108,7 @@ func columnExists(t *testing.T, db *sql.DB, table, col string) bool {
 	return false
 }
 
-func TestMigration14DownUpSQLite(t *testing.T) {
+func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "rollback.db")
 	ctx := context.Background()
@@ -119,14 +122,20 @@ func TestMigration14DownUpSQLite(t *testing.T) {
 		t.Fatalf("goose dialect: %v", err)
 	}
 	goose.SetBaseFS(migrationsFS)
-	if err := goose.Down(d, "migrations/sqlite"); err != nil {
-		t.Fatalf("down latest migration: %v", err)
+	// 依次回滚 16（回复投递状态）、15（AI 索引）、14（通知/日志），再整体升级。
+	for i := 0; i < 3; i++ {
+		if err := goose.Down(d, "migrations/sqlite"); err != nil {
+			t.Fatalf("down migration #%d: %v", i+1, err)
+		}
 	}
 	if columnExists(t, d, "notification_channels", "event_types") {
 		t.Fatal("event_types should be removed after migration 14 down")
 	}
 	if tableExists(t, d, "risk_control_logs") {
 		t.Fatal("risk_control_logs should be removed after migration 14 down")
+	}
+	if columnExists(t, d, "default_reply_records", "status") {
+		t.Fatal("default_reply_records.status should be removed after migration 16 down")
 	}
 
 	if err := goose.Up(d, "migrations/sqlite"); err != nil {
@@ -142,6 +151,8 @@ func TestMigration14DownUpSQLite(t *testing.T) {
 		{"scheduled_login_renew_log", "updated_cookie_count"},
 		{"scheduled_api_cookie_renew_log", "request_count"},
 		{"risk_control_logs", "processing_status"},
+		{"default_reply_records", "status"},
+		{"default_reply_records", "text_sent"},
 	} {
 		if !columnExists(t, d, c.table, c.col) {
 			t.Fatalf("column missing after re-up: %s.%s", c.table, c.col)

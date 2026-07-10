@@ -286,6 +286,57 @@ func TestScheduleDebouncedReply_StopClearsTimers(t *testing.T) {
 	}
 }
 
+type cancelAwareHandler struct {
+	started  chan struct{}
+	canceled chan struct{}
+}
+
+func (h *cancelAwareHandler) HandleChatMessage(ctx context.Context, _ ChatMessage) error {
+	close(h.started)
+	<-ctx.Done()
+	close(h.canceled)
+	return ctx.Err()
+}
+
+func (h *cancelAwareHandler) HandleSystemEvent(context.Context, automation.Task) error       { return nil }
+func (h *cancelAwareHandler) OnPasswordLoginRefresh(context.Context, string) bool            { return false }
+func (h *cancelAwareHandler) OnAccountAlert(context.Context, string, string, string, string) {}
+
+func TestStopCancelsInFlightReplyHandler(t *testing.T) {
+	handler := &cancelAwareHandler{started: make(chan struct{}), canceled: make(chan struct{})}
+	acc := New(Config{CookieID: "cid", CookieStr: "unb=1", Handler: handler})
+	acc.reply = nil
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	acc.mu.Lock()
+	acc.stopFn = cancel
+	acc.mu.Unlock()
+	acc.taskMu.Lock()
+	acc.runtimeCtx = ctx
+	acc.taskMu.Unlock()
+	acc.scheduleDebouncedReply(ChatMessage{ChatID: "cancel-chat", SenderUserID: "buyer", Text: "hi"})
+	select {
+	case <-handler.started:
+	case <-time.After(MessageDebounceDelay + time.Second):
+		t.Fatal("handler did not start")
+	}
+	done := make(chan struct{})
+	go func() {
+		acc.Stop()
+		close(done)
+	}()
+	select {
+	case <-handler.canceled:
+	case <-time.After(time.Second):
+		t.Fatal("in-flight handler context was not canceled")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not wait for handler exit")
+	}
+}
+
 // TestCleanupDedupLocked_ExpiredRemoved 过期消息 ID 被清理。
 func TestCleanupDedupLocked_ExpiredRemoved(t *testing.T) {
 	acc, _, _, cleanup := newAccountForTest(t)

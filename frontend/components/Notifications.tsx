@@ -14,6 +14,7 @@ import {
   Bell, Plus, Edit2, Trash2, X, Send, RefreshCw, Loader2,
   Check, MessageCircle, Mail, Webhook, Send as Telegram, Eye, EyeOff, Save,
 } from 'lucide-react';
+import { normalizeSMTPSettings } from '../smtpSettings';
 
 type ChannelTypeMeta = {
   label: string;
@@ -211,7 +212,7 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
   const loadSmtp = async () => {
     try {
       const s = await getSystemSettings();
-      setSmtp(s || {});
+      setSmtp(normalizeSMTPSettings(s || {}));
     } catch (e) {
       console.error('加载 SMTP 配置失败', e);
     }
@@ -225,7 +226,8 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
         smtp_port: smtp.smtp_port || 587,
         smtp_user: smtp.smtp_user || '',
         smtp_password: smtp.smtp_password || '',
-        smtp_from: smtp.smtp_from || '',
+        smtp_from_name: smtp.smtp_from_name || '',
+        smtp_from_address: smtp.smtp_from_address || smtp.smtp_user || '',
       });
       showToast('success', 'SMTP 配置已保存');
     } catch (e: any) {
@@ -517,15 +519,27 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
           <p className="text-xs text-gray-500">QQ 邮箱需使用授权码（QQ 邮箱设置 → 账号 → 开启 SMTP → 生成授权码）</p>
         </div>
 
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
           <label className="block text-sm font-bold text-gray-800">发件人显示名（可选）</label>
           <input
             type="text"
-            value={smtp.smtp_from || ''}
-            onChange={e => setSmtp({ ...smtp, smtp_from: e.target.value })}
+            value={smtp.smtp_from_name || ''}
+            onChange={e => setSmtp({ ...smtp, smtp_from_name: e.target.value })}
             placeholder="闲鱼自动回复系统"
             className="w-full ios-input px-4 py-3 rounded-xl text-sm"
           />
+          </div>
+          <div className="space-y-2">
+            <label className="block text-sm font-bold text-gray-800">发件邮箱地址</label>
+            <input
+              type="email"
+              value={smtp.smtp_from_address || smtp.smtp_user || ''}
+              onChange={e => setSmtp({ ...smtp, smtp_from_address: e.target.value })}
+              placeholder="your-email@qq.com"
+              className="w-full ios-input px-4 py-3 rounded-xl text-sm"
+            />
+          </div>
         </div>
 
         <button

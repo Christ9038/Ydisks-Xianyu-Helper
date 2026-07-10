@@ -34,8 +34,10 @@ func (f *fakeAIReplier) Reply(_ context.Context, _ ChatMessage) (*ReplyResult, e
 
 // recordingSender 记录发送的文本/图片，用于断言回复投递。
 type recordingSender struct {
-	texts  []textSent
-	images []imageSent
+	texts    []textSent
+	images   []imageSent
+	textErr  error
+	imageErr error
 }
 
 type textSent struct {
@@ -48,13 +50,55 @@ type imageSent struct {
 }
 
 func (r *recordingSender) SendText(_ context.Context, chatID, toUserID, text string) error {
+	if r.textErr != nil {
+		return r.textErr
+	}
 	r.texts = append(r.texts, textSent{chatID, toUserID, text})
 	return nil
 }
 
 func (r *recordingSender) SendImage(_ context.Context, chatID, toUserID, url string, cardID int64) error {
+	if r.imageErr != nil {
+		return r.imageErr
+	}
 	r.images = append(r.images, imageSent{chatID, toUserID, url, cardID})
 	return nil
+}
+
+func TestReplyOnceRetriesOnlyFailedParts(t *testing.T) {
+	s, cleanup := newReplyStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	s.DB.ExecContext(ctx, `INSERT INTO default_replies
+		(cookie_id,enabled,reply_content,reply_image_url,reply_once)
+		VALUES ('cid',1,'文字','http://img/retry.png',1)`)
+
+	textFailure := errors.New("text failed")
+	firstSender := &recordingSender{textErr: textFailure}
+	service := NewReplyService("cid", s, firstSender, nil, nil, nil)
+	if err := service.Handle(ctx, chatMsg("在吗", "", "chat-retry")); !errors.Is(err, textFailure) {
+		t.Fatalf("first error=%v want text failure", err)
+	}
+	if len(firstSender.images) != 1 || len(firstSender.texts) != 0 {
+		t.Fatalf("first delivery images=%+v texts=%+v", firstSender.images, firstSender.texts)
+	}
+	record, err := s.DefaultReps.Record(ctx, "cid", "chat-retry")
+	if err != nil || record.Status != "failed" || !record.ImageSent || record.TextSent {
+		t.Fatalf("failed record=%+v err=%v", record, err)
+	}
+
+	secondSender := &recordingSender{}
+	service = NewReplyService("cid", s, secondSender, nil, nil, nil)
+	if err := service.Handle(ctx, chatMsg("再问", "", "chat-retry")); err != nil {
+		t.Fatal(err)
+	}
+	if len(secondSender.images) != 0 || len(secondSender.texts) != 1 {
+		t.Fatalf("retry should send text only: images=%+v texts=%+v", secondSender.images, secondSender.texts)
+	}
+	record, err = s.DefaultReps.Record(ctx, "cid", "chat-retry")
+	if err != nil || record.Status != "sent" || !record.ImageSent || !record.TextSent {
+		t.Fatalf("sent record=%+v err=%v", record, err)
+	}
 }
 
 // TestReply_APIPriorityAndError API 回复命中时优先级最高；API 报错时降级到关键词。
@@ -160,10 +204,10 @@ func TestReply_HandleSendsImageThenText(t *testing.T) {
 // TestParseMessageIDFromJSON bizTag/extJson 中提取 messageId。
 func TestParseMessageIDFromJSON(t *testing.T) {
 	cases := map[string]string{
-		`{"messageId":"abc123"}`:    "abc123",
-		`{"sourceId":"x"}`:          "",
-		`not json`:                  "",
-		`{}`:                        "",
+		`{"messageId":"abc123"}`: "abc123",
+		`{"sourceId":"x"}`:       "",
+		`not json`:               "",
+		`{}`:                     "",
 	}
 	for in, want := range cases {
 		if got := parseMessageIDFromJSON(in); got != want {
@@ -177,7 +221,7 @@ func TestExtractMessageID(t *testing.T) {
 	if got := extractMessageID(map[string]any{
 		"1": map[string]any{
 			"10": map[string]any{
-				"bizTag": `{"messageId":"biz-id"}`,
+				"bizTag":  `{"messageId":"biz-id"}`,
 				"extJson": `{"messageId":"ext-id"}`,
 			},
 		},

@@ -1,0 +1,194 @@
+name: xianyu-functional
+
+x-mysql-url: &mysql-url mysql://root:xianyu_root_password@tcp(mysql:3306)/xianyu?parseTime=true&loc=Local
+x-postgres-url: &postgres-url postgres://xianyu:xianyu_postgres_password@postgres:5432/xianyu?sslmode=disable
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: xianyu_root_password
+      MYSQL_DATABASE: xianyu
+      MYSQL_USER: xianyu
+      MYSQL_PASSWORD: xianyu_mysql_password
+      TZ: Asia/Shanghai
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    ports:
+      - "13306:3306"
+    volumes:
+      - mysql8_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: xianyu
+      POSTGRES_USER: xianyu
+      POSTGRES_PASSWORD: xianyu_postgres_password
+      TZ: Asia/Shanghai
+    ports:
+      - "15432:5432"
+    volumes:
+      - postgres17_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  sqlite-seed-copy:
+    image: alpine:3.22
+    restart: "no"
+    volumes:
+      - ./data:/source:ro
+      - sqlite_seed:/seed
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        rm -f /seed/xianyu_data.db /seed/xianyu_data.db-wal /seed/xianyu_data.db-shm
+        cp /source/xianyu_data.db /seed/xianyu_data.db
+        test ! -f /source/xianyu_data.db-wal || cp /source/xianyu_data.db-wal /seed/xianyu_data.db-wal
+        test ! -f /source/xianyu_data.db-shm || cp /source/xianyu_data.db-shm /seed/xianyu_data.db-shm
+
+  seed-mysql:
+    image: xianyu-go:functional
+    build:
+      context: .
+      dockerfile: Dockerfile.debian13
+    restart: "no"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      sqlite-seed-copy:
+        condition: service_completed_successfully
+    volumes:
+      - sqlite_seed:/seed:ro
+    command: ["/app/xianyu-dbseed", "-source", "/seed/xianyu_data.db", "-target", *mysql-url, "-limit", "20"]
+
+  seed-postgres:
+    image: xianyu-go:functional
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      sqlite-seed-copy:
+        condition: service_completed_successfully
+    volumes:
+      - sqlite_seed:/seed:ro
+    command: ["/app/xianyu-dbseed", "-source", "/seed/xianyu_data.db", "-target", *postgres-url, "-limit", "20"]
+
+  app-mysql:
+    image: xianyu-go:functional
+    restart: unless-stopped
+    depends_on:
+      seed-mysql:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: *mysql-url
+      TZ: Asia/Shanghai
+    command: ["/app/xianyu-server", "-addr", ":8080", "-no-browser"]
+    ports:
+      - "18081:8080"
+    volumes:
+      - app_mysql_data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  app-postgres:
+    image: xianyu-go:functional
+    restart: unless-stopped
+    depends_on:
+      seed-postgres:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: *postgres-url
+      TZ: Asia/Shanghai
+    command: ["/app/xianyu-server", "-addr", ":8080", "-no-browser"]
+    ports:
+      - "18082:8080"
+    volumes:
+      - app_postgres_data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  go-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: go-test
+    depends_on:
+      mysql:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      TEST_MYSQL_URL: *mysql-url
+      TEST_POSTGRES_URL: *postgres-url
+    command: ["go", "test", "-race", "-timeout=20m", "./..."]
+
+  go-vet:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: go-test
+    command: ["go", "vet", "./..."]
+
+  go-lint:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: go-lint
+    command: ["golangci-lint", "run", "./..."]
+
+  frontend-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      target: frontend-test
+    command: ["sh", "-c", "npm test && npm run build"]
+
+  dbverify-mysql:
+    image: xianyu-go:functional
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command: ["/app/xianyu-dbverify", *mysql-url]
+
+  dbverify-postgres:
+    image: xianyu-go:functional
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["/app/xianyu-dbverify", *postgres-url]
+
+  functional-test:
+    image: curlimages/curl:8.16.0
+    restart: "no"
+    depends_on:
+      app-mysql:
+        condition: service_healthy
+      app-postgres:
+        condition: service_healthy
+    volumes:
+      - ./scripts/docker-functional-test.sh:/tests/docker-functional-test.sh:ro
+    entrypoint: ["/bin/sh", "/tests/docker-functional-test.sh"]
+
+volumes:
+  mysql8_data:
+  postgres17_data:
+  sqlite_seed:
+  app_mysql_data:
+  app_postgres_data:

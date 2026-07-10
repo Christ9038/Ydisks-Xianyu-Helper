@@ -31,8 +31,8 @@ func (m *Manager) runFaceVerification(ctx context.Context, sessionID, iframeURL 
 		m.mu.Unlock()
 		return fmt.Errorf("会话不存在")
 	}
-	initialCookies := cloneCookieMap(sess.cookies)
 	m.mu.Unlock()
+	initialCookies := sess.snapshot().cookies
 	if len(initialCookies) == 0 {
 		return fmt.Errorf("无扫码临时 cookie")
 	}
@@ -69,12 +69,15 @@ func (m *Manager) runFaceVerification(ctx context.Context, sessionID, iframeURL 
 	}
 
 	m.mu.Lock()
-	if s := m.sessions[sessionID]; s != nil {
+	s := m.sessions[sessionID]
+	m.mu.Unlock()
+	if s != nil {
+		s.mu.Lock()
 		s.faceQRContent = faceContent
 		s.faceQRURL = faceQRURL
 		s.Status = "verification_required"
+		s.mu.Unlock()
 	}
-	m.mu.Unlock()
 	m.logger.Info("人脸验证二维码已生成，等待用户手机扫码", "session_id", sessionID)
 
 	ivCheckURL, err := m.waitFaceVerification(ctx, client, sessionID, htoken)
@@ -96,12 +99,15 @@ func (m *Manager) runFaceVerification(ctx context.Context, sessionID, iframeURL 
 	}
 
 	m.mu.Lock()
-	if s := m.sessions[sessionID]; s != nil {
+	s = m.sessions[sessionID]
+	m.mu.Unlock()
+	if s != nil {
+		s.mu.Lock()
 		s.cookies = finalCookies
 		s.unb = finalCookies["unb"]
 		s.Status = "success"
+		s.mu.Unlock()
 	}
-	m.mu.Unlock()
 	m.logger.Info("人脸验证登录成功", "session_id", sessionID, "account_hash", logsafe.ID(finalCookies["unb"]))
 	return nil
 }
@@ -109,7 +115,8 @@ func (m *Manager) runFaceVerification(ctx context.Context, sessionID, iframeURL 
 // fallbackBrowserVerification 保留旧浏览器验证作为协议变化时的兜底。
 // 主路径不再截图展示，只有 API 链路失败且浏览器可用时才尝试。
 func (m *Manager) fallbackBrowserVerification(ctx context.Context, sessionID, verificationURL string) {
-	if m.browser == nil {
+	browser := m.browserRefresher()
+	if browser == nil {
 		return
 	}
 	m.mu.Lock()
@@ -118,20 +125,23 @@ func (m *Manager) fallbackBrowserVerification(ctx context.Context, sessionID, ve
 		m.mu.Unlock()
 		return
 	}
-	cookieStr := cookieMarshal(sess.cookies)
 	m.mu.Unlock()
+	cookieStr := cookieMarshal(sess.snapshot().cookies)
 
 	onScreenshot := func(dataURL string) {
 		m.mu.Lock()
-		if s, ok := m.sessions[sessionID]; ok {
-			s.verificationScreenshot = dataURL
-		}
+		s, ok := m.sessions[sessionID]
 		m.mu.Unlock()
+		if ok {
+			s.mu.Lock()
+			s.verificationScreenshot = dataURL
+			s.mu.Unlock()
+		}
 	}
-	realCookies, unb, err := m.browser(ctx, cookieStr, verificationURL, onScreenshot)
+	realCookies, unb, err := browser(ctx, cookieStr, verificationURL, onScreenshot)
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	s, ok := m.sessions[sessionID]
+	m.mu.Unlock()
 	if !ok {
 		return
 	}
@@ -139,6 +149,8 @@ func (m *Manager) fallbackBrowserVerification(ctx context.Context, sessionID, ve
 		m.logger.Error("浏览器验证兜底失败", "session_id", sessionID, "err", err)
 		return
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.cookies = parseCookieStr(realCookies)
 	s.unb = unb
 	if s.unb == "" {
@@ -191,8 +203,8 @@ func (m *Manager) waitFaceVerification(ctx context.Context, client *http.Client,
 	for {
 		m.mu.Lock()
 		sess := m.sessions[sessionID]
-		expired := sess == nil || sess.isExpired()
 		m.mu.Unlock()
+		expired := sess == nil || sess.isExpired()
 		if expired {
 			return "", fmt.Errorf("人脸验证超时或会话已过期")
 		}

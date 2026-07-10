@@ -1,7 +1,7 @@
 import { get, post, put, del, postForm } from '../request';
 import {
   LoginResponse, AccountDetail, Order, PaginatedResponse,
-  AdminStats, Card, SystemSettings, ApiResponse, OrderAnalytics,
+  AdminStats, DashboardStats, Card, SystemSettings, ApiResponse, OrderAnalytics,
   Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction,
   NotificationChannel, NotificationEventType
 } from '../types';
@@ -17,7 +17,7 @@ const normalizeSettings = (settings: Record<string, any>): SystemSettings => {
 
 // Auth
 export const login = async (data: { username?: string; password?: string; email?: string; verification_code?: string }): Promise<LoginResponse> => {
-  return post('/login', data);
+  return post('/login', data, { skipAuthLogout: true });
 };
 
 export const verifySession = async (): Promise<{ authenticated: boolean; initialized?: boolean; user_id?: number; username?: string; is_admin?: boolean }> => {
@@ -102,8 +102,21 @@ export const checkQRLoginStatus = async (sessionId: string): Promise<any> => {
   return get(`/qr-login/check/${sessionId}`);
 };
 
-export const completeQRVerification = async (sessionId: string): Promise<{ success: boolean; cookies?: string; unb?: string; message?: string }> => {
-  return post(`/qr-login/complete-verification/${sessionId}`, {});
+export const completeQRVerification = async (
+  sessionId: string,
+  targetAccountId?: string,
+  confirmMismatch = false,
+): Promise<{
+  success: boolean;
+  account_id?: string;
+  scanned_account_id?: string;
+  requires_confirmation?: boolean;
+  message?: string;
+}> => {
+  return post(`/qr-login/complete-verification/${sessionId}`, {
+    target_account_id: targetAccountId || '',
+    confirm_mismatch: confirmMismatch,
+  });
 };
 
 export const updateAccountStatus = async (id: string, enabled: boolean): Promise<any> => {
@@ -281,6 +294,10 @@ export const importOrders = async (data: Partial<Order>[] | FormData): Promise<a
 // Stats
 export const getAdminStats = async (): Promise<AdminStats> => {
   return get('/admin/stats');
+};
+
+export const getDashboardStats = async (): Promise<DashboardStats> => {
+  return get('/dashboard/stats');
 };
 
 export const getOrderAnalytics = async (daysOrParams: number | {start_date: string; end_date: string} = 7): Promise<OrderAnalytics> => {
@@ -502,6 +519,8 @@ export const getShippingRules = async (): Promise<ShippingRule[]> => {
               card_name: action.card_name || '',
               delivery_count: Number(action.delivery_count || 1),
               enabled: action.enabled !== false,
+              delay_override: cfg.delay_override === true,
+              delay_seconds: Number(action.delay_seconds || 0),
               config_json: action.config_json || '{}',
             };
           }),
@@ -541,7 +560,12 @@ export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<a
             delivery_count: variant.delivery_count || 1,
             enabled: variant.enabled !== false,
             sort_order: index + 1,
-            config_json: JSON.stringify({ spec_name: variant.spec_name || '', spec_value: variant.spec_value || '' }),
+            delay_seconds: variant.delay_seconds || 0,
+            config_json: JSON.stringify({
+              spec_name: variant.spec_name || '',
+              spec_value: variant.spec_value || '',
+              delay_override: variant.delay_override === true,
+            }),
           }))
       : (rule.actions && rule.actions.length > 0 ? rule.actions : [{
           action_type: 'send_card' as const,

@@ -453,7 +453,7 @@ const CardList: React.FC = () => {
                       <option value="">请选择类型</option>
                       <option value="text">固定文字</option>
                       <option value="data">批量数据</option>
-                      <option value="api">API接口</option>
+                      {selectedCard?.type === 'api' && <option value="api">API接口（仅保留现有配置）</option>}
                       <option value="image">图片</option>
                     </select>
                   </div>
@@ -687,7 +687,7 @@ const CardList: React.FC = () => {
 
                 <div className="space-y-2">
                   <label className="block text-sm font-bold text-gray-700 mb-2">类型</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     <button
                       type="button"
                       onClick={() => setAddForm({ ...addForm, type: 'data', content: '' })}
@@ -711,14 +711,6 @@ const CardList: React.FC = () => {
                     >
                       <ImageIcon className="w-5 h-5 mx-auto mb-1" />
                       图片
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAddForm({ ...addForm, type: 'api', content: '' })}
-                      className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'api' ? 'bg-[#0094f7] text-white' : 'bg-gray-100 text-gray-600'}`}
-                    >
-                      <Code className="w-5 h-5 mx-auto mb-1" />
-                      API
                     </button>
                   </div>
                 </div>

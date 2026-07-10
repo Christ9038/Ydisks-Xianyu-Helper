@@ -7,6 +7,18 @@ type JsonValue = unknown;
 type RequestOptions = {
   params?: QueryParams;
   body?: JsonValue;
+  skipAuthLogout?: boolean;
+};
+
+let authLogoutPending = false;
+
+const notifyAuthExpired = () => {
+  if (authLogoutPending || typeof window === 'undefined') return;
+  authLogoutPending = true;
+  window.dispatchEvent(new Event('auth:logout'));
+  queueMicrotask(() => {
+    authLogoutPending = false;
+  });
 };
 
 const buildQueryString = (params?: QueryParams): string => {
@@ -37,6 +49,7 @@ const request = async <T>(method: RequestMethod, url: string, options: RequestOp
   const isJson = contentType.includes('application/json');
 
   if (!res.ok) {
+    if (res.status === 401 && !options.skipAuthLogout) notifyAuthExpired();
     // 尽量返回后端的detail/message，避免吞错
     const payload = isJson ? await res.json().catch(() => undefined) : await res.text().catch(() => undefined);
     const detail = typeof payload === 'string' ? payload : (payload?.detail || payload?.message || payload?.msg);
@@ -52,7 +65,7 @@ const request = async <T>(method: RequestMethod, url: string, options: RequestOp
 };
 
 export const get = async <T>(url: string, params?: QueryParams): Promise<T> => request<T>('GET', url, { params });
-export const post = async <T>(url: string, body?: JsonValue): Promise<T> => request<T>('POST', url, { body });
+export const post = async <T>(url: string, body?: JsonValue, options?: { skipAuthLogout?: boolean }): Promise<T> => request<T>('POST', url, { body, ...options });
 export const put = async <T>(url: string, body?: JsonValue): Promise<T> => request<T>('PUT', url, { body });
 export const del = async <T>(url: string, params?: QueryParams): Promise<T> => request<T>('DELETE', url, { params });
 
@@ -68,6 +81,7 @@ export const postForm = async <T>(url: string, body: FormData): Promise<T> => {
   const payload = isJson ? await res.json().catch(() => undefined) : await res.text().catch(() => undefined);
 
   if (!res.ok) {
+    if (res.status === 401) notifyAuthExpired();
     const detail = typeof payload === 'string' ? payload : (payload?.detail || payload?.message || payload?.msg);
     const err = new Error(detail || ('请求失败: ' + res.status)) as Error & { payload?: unknown };
     err.payload = payload;

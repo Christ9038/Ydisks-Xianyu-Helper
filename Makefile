@@ -43,7 +43,7 @@ tidy:
 
 ## frontend: 安装依赖并构建前端到 internal/webui/static/
 frontend:
-	cd frontend && npm install && npm run build
+	cd frontend && npm ci && npm run build
 
 ## check: 本地提交前全套检查（fmt + vet + lint + test）
 check: fmt vet lint test

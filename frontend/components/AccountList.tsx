@@ -4,7 +4,6 @@ import { AccountDetail, AIReplySettings, NotificationChannel } from '../types';
 import {
   getAccountDetails,
   getAccountRuntimeStatuses,
-  addAccount,
   updateAccountStatus,
   deleteAccount,
   generateQRLogin,
@@ -29,6 +28,7 @@ import {
   Upload, Key, Eye, EyeOff, Bot, Settings, AlertCircle, ExternalLink, Bell
 } from 'lucide-react';
 import { buildAccountLoginInfoUpdate } from './accountEdit';
+import { shouldSaveNotificationBindings } from './accountBindings';
 import { createQRLoginPoller } from './qrPolling';
 
 type ModalType = 'edit' | 'ai-settings' | null;
@@ -52,6 +52,10 @@ const AccountList: React.FC = () => {
   // 通知渠道绑定（编辑弹窗用）
   const [notifChannels, setNotifChannels] = useState<NotificationChannel[]>([]);
   const [selectedChannelIds, setSelectedChannelIds] = useState<number[]>([]);
+  const [bindingsLoaded, setBindingsLoaded] = useState(false);
+  const [bindingsLoading, setBindingsLoading] = useState(false);
+  const [bindingsDirty, setBindingsDirty] = useState(false);
+  const [bindingsLoadError, setBindingsLoadError] = useState('');
 
   // 编辑表单状态
   const [editForm, setEditForm] = useState({
@@ -223,6 +227,31 @@ const AccountList: React.FC = () => {
     }
   };
 
+  const loadNotificationBindings = async (accountId: string) => {
+    setBindingsLoading(true);
+    setBindingsLoaded(false);
+    setBindingsDirty(false);
+    setBindingsLoadError('');
+    const [channelsResult, bindingsResult] = await Promise.allSettled([
+      getNotificationChannels(),
+      getAccountBindings(accountId),
+    ]);
+    if (channelsResult.status === 'fulfilled') {
+      setNotifChannels(channelsResult.value.data || []);
+    } else {
+      setNotifChannels([]);
+      setBindingsLoadError('通知渠道列表加载失败，请重试');
+    }
+    if (bindingsResult.status === 'fulfilled') {
+      setSelectedChannelIds(bindingsResult.value || []);
+      setBindingsLoaded(true);
+    } else {
+      setSelectedChannelIds([]);
+      setBindingsLoadError('通知绑定加载失败；本次保存不会修改现有绑定');
+    }
+    setBindingsLoading(false);
+  };
+
   const openEditModal = async (account: AccountDetail) => {
     setEditingAccount(account);
     setEditForm({
@@ -237,19 +266,7 @@ const AccountList: React.FC = () => {
       clear_password: false,
     });
     setActiveModal('edit');
-    // 并行加载通知渠道列表 + 当前账号已绑定渠道
-    try {
-      const [chRes, bindings] = await Promise.all([
-        getNotificationChannels(),
-        getAccountBindings(account.id).catch(() => [] as number[]),
-      ]);
-      setNotifChannels(chRes.data || []);
-      setSelectedChannelIds(bindings || []);
-    } catch (e) {
-      console.error('加载通知渠道绑定失败', e);
-      setNotifChannels([]);
-      setSelectedChannelIds([]);
-    }
+    await loadNotificationBindings(account.id);
   };
 
   const openAIModal = async (account: AccountDetail) => {
@@ -305,8 +322,10 @@ const AccountList: React.FC = () => {
         promises.push(updateAccountLoginInfo(editingAccount.id, loginInfo));
       }
 
-      // 更新通知渠道绑定（覆盖式，总是提交以支持解绑）
-      promises.push(setAccountBindings(editingAccount.id, selectedChannelIds));
+      // 只有成功加载且用户确实改动后才覆盖，避免加载失败被误解释成解绑全部。
+      if (shouldSaveNotificationBindings(bindingsLoaded, bindingsDirty)) {
+        promises.push(setAccountBindings(editingAccount.id, selectedChannelIds));
+      }
 
       await Promise.all(promises);
       setActiveModal(null);
@@ -335,22 +354,17 @@ const AccountList: React.FC = () => {
     }
   };
 
-  const persistQRLoginResult = async (cookies: string, unb?: string, target?: AccountDetail | null) => {
-    if (target) {
-      if (unb && unb !== target.id) {
-        const ok = confirm(`扫码返回的账号ID是 ${unb}，当前要重新授权的是 ${target.id}。确认用本次扫码结果覆盖当前账号授权吗？`);
-        if (!ok) {
-          throw new Error('已取消覆盖当前账号授权');
-        }
-      }
-      await updateAccountCookie(target.id, cookies, 'qr_scan');
-      return target.id;
+  const completeAndPersistQRSession = async (sessionId: string, target?: AccountDetail | null) => {
+    let res = await completeQRVerification(sessionId, target?.id);
+    if (res.requires_confirmation) {
+      const confirmed = confirm(`扫码返回的账号ID是 ${res.scanned_account_id || '未知'}，确认覆盖 ${target?.id || '当前账号'} 的授权吗？`);
+      if (!confirmed) return '';
+      res = await completeQRVerification(sessionId, target?.id, true);
     }
-    if (!unb) {
-      throw new Error('扫码结果缺少账号ID，无法添加账号');
+    if (!res.success || !res.account_id) {
+      throw new Error(res.message || '保存扫码授权失败');
     }
-    await addAccount(unb, cookies, 'qr_scan');
-    return unb;
+    return res.account_id;
   };
 
   const startQRLogin = async (target?: AccountDetail) => {
@@ -373,17 +387,19 @@ const AccountList: React.FC = () => {
         setQrStatus('waiting');
 
         qrPollerRef.current?.start(res.session_id, checkQRLoginStatus, {
-          onSuccess: async (statusRes) => {
-            setQrStatus('success');
-            if (statusRes.cookies && statusRes.unb) {
-              try {
-                await persistQRLoginResult(statusRes.cookies, statusRes.unb, targetAccount);
-              } catch (e) {
-                console.error('保存扫码授权失败', e);
+          onSuccess: async () => {
+            try {
+              const accountId = await completeAndPersistQRSession(res.session_id, targetAccount);
+              if (!accountId) {
                 setQrStatus('error');
                 return;
               }
+            } catch (e) {
+              console.error('保存扫码授权失败', e);
+              setQrStatus('error');
+              return;
             }
+            setQrStatus('success');
             scheduleQRModalClose();
           },
           onScanned: () => {
@@ -418,15 +434,13 @@ const AccountList: React.FC = () => {
     if (!qrSessionId) return;
     setQrStatus('loading');
     try {
-      const res = await completeQRVerification(qrSessionId);
-      if (res.success && res.cookies && res.unb) {
+      const accountId = await completeAndPersistQRSession(qrSessionId, qrReauthTarget);
+      if (accountId) {
         stopQRPolling();
-        await persistQRLoginResult(res.cookies, res.unb, qrReauthTarget);
         setQrStatus('success');
         scheduleQRModalClose();
       } else {
         setQrStatus('verification');
-        alert('验证未完成：' + (res.message || '可能验证尚未通过，请先在验证页面完成验证'));
       }
     } catch (e) {
       setQrStatus('verification');
@@ -665,7 +679,15 @@ const AccountList: React.FC = () => {
                                               <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
                                           </div>
                                       )}
-                                      <span className="text-xs text-gray-400">等待手机验证完成，无需点击确认。</span>
+                                      {verificationUrl && (
+                                        <a href={verificationUrl} target="_blank" rel="noopener noreferrer" className="mt-2 text-sm font-bold text-[#0094f7] flex items-center gap-1">
+                                          <ExternalLink className="w-4 h-4" />打开安全验证页面
+                                        </a>
+                                      )}
+                                      <button type="button" onClick={handleCompleteVerification} className="mt-3 ios-btn-primary px-4 py-2 rounded-xl text-sm font-bold">
+                                        我已完成验证
+                                      </button>
+                                      <span className="text-xs text-gray-400 mt-2">验证完成后点击确认，系统会提取并保存登录状态。</span>
                                   </div>
                               )}
                           </div>
@@ -841,13 +863,22 @@ const AccountList: React.FC = () => {
               </div>
 
               {/* 通知渠道绑定 */}
-              {notifChannels.length > 0 && (
+              {(notifChannels.length > 0 || bindingsLoading || bindingsLoadError) && (
                 <div className="border-t border-gray-200 pt-6">
                   <h3 className="text-lg font-bold text-gray-900 mb-1 flex items-center gap-2">
                     <Bell className="w-5 h-5 text-blue-500" />
                     通知渠道绑定
                   </h3>
                   <p className="text-xs text-gray-500 mb-4">勾选后，该账号的 token 失效、自动恢复失败、风控验证等事件会推送到这些渠道</p>
+                  {bindingsLoading && (
+                    <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="w-4 h-4 animate-spin" />正在加载通知绑定</div>
+                  )}
+                  {bindingsLoadError && !bindingsLoading && (
+                    <div className="mb-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-800 flex items-center justify-between gap-3">
+                      <span>{bindingsLoadError}</span>
+                      <button type="button" className="font-bold whitespace-nowrap" onClick={() => loadNotificationBindings(editingAccount.id)}>重试</button>
+                    </div>
+                  )}
                   <div className="space-y-2">
                     {notifChannels.map(ch => {
                       const checked = selectedChannelIds.includes(Number(ch.id));
@@ -859,10 +890,13 @@ const AccountList: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => {
+                              if (!bindingsLoaded) return;
                               setSelectedChannelIds(prev =>
                                 checked ? prev.filter(id => id !== Number(ch.id)) : [...prev, Number(ch.id)]
                               );
+                              setBindingsDirty(true);
                             }}
+                            disabled={!bindingsLoaded}
                             className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
                               checked ? 'bg-[#0094f7] border-[#0094f7]' : 'bg-white border-gray-300'
                             }`}
@@ -964,7 +998,7 @@ const AccountList: React.FC = () => {
                       min="0"
                       max="100"
                     />
-                    <p className="text-xs text-gray-500 mt-1">例如：10表示最多降价10%</p>
+                    <p className="text-xs text-gray-500 mt-1">例如：10 表示最多降价 10%；设为 0 表示不允许降价</p>
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">最大折扣金额 (元)</label>
@@ -975,7 +1009,7 @@ const AccountList: React.FC = () => {
                       className="w-full ios-input px-4 py-3 rounded-xl"
                       min="0"
                     />
-                    <p className="text-xs text-gray-500 mt-1">例如：100表示最多降价100元</p>
+                    <p className="text-xs text-gray-500 mt-1">例如：100 表示最多降价 100 元；设为 0 表示不允许降价</p>
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">最大砍价轮次</label>

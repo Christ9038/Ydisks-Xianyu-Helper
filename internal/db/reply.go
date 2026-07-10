@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 )
 
 // Keyword 对应 keywords 表。
@@ -21,6 +22,13 @@ type DefaultReply struct {
 	ReplyContent  string
 	ReplyImageURL string
 	ReplyOnce     bool
+}
+
+// DefaultReplyRecord 记录 reply_once 消息各部分的投递状态。
+type DefaultReplyRecord struct {
+	Status    string
+	TextSent  bool
+	ImageSent bool
 }
 
 // ItemReply 对应 item_replay 表（指定商品回复）。
@@ -87,9 +95,86 @@ func (d *DefaultReplies) Get(ctx context.Context, cookieID string) (*DefaultRepl
 func (d *DefaultReplies) HasRecord(ctx context.Context, cookieID, chatID string) bool {
 	var n int
 	err := d.DB.QueryRowContext(ctx,
-		`SELECT 1 FROM default_reply_records WHERE cookie_id=? AND chat_id=? LIMIT 1`,
+		`SELECT 1 FROM default_reply_records WHERE cookie_id=? AND chat_id=? AND status='sent' LIMIT 1`,
 		cookieID, chatID).Scan(&n)
 	return err == nil
+}
+
+// ClaimRecord 原子领取一次默认回复投递。新记录初始化为 pending；失败记录允许继续
+// 投递尚未成功的部分；pending/sent 记录会阻止并发重复发送。
+func (d *DefaultReplies) ClaimRecord(ctx context.Context, cookieID, chatID string, needsText, needsImage bool) (DefaultReplyRecord, bool, error) {
+	query := dialectInsertIgnorePrefix(d.Dialect) + ` INTO default_reply_records
+		(cookie_id,chat_id,status,text_sent,image_sent,last_error,updated_at)
+		VALUES (?,?, 'pending', ?, ?, '', CURRENT_TIMESTAMP)` + dialectInsertIgnore(d.Dialect, []string{"cookie_id", "chat_id"})
+	res, err := d.DB.ExecContext(ctx, query, cookieID, chatID, boolToInt(!needsText), boolToInt(!needsImage))
+	if err != nil {
+		return DefaultReplyRecord{}, false, err
+	}
+	if affected, _ := res.RowsAffected(); affected > 0 {
+		return DefaultReplyRecord{Status: "pending", TextSent: !needsText, ImageSent: !needsImage}, true, nil
+	}
+
+	record, err := d.Record(ctx, cookieID, chatID)
+	if err != nil {
+		return DefaultReplyRecord{}, false, err
+	}
+	if record.Status == "sent" {
+		return record, false, nil
+	}
+	// pending 是发送任务的短租约。进程崩溃或强制退出后，过期租约必须可被
+	// 新实例接管，否则该会话会永久失去默认回复。
+	leaseExpiredBefore := time.Now().Add(-5 * time.Minute)
+	res, err = d.DB.ExecContext(ctx, `UPDATE default_reply_records
+		SET status='pending',last_error='',updated_at=CURRENT_TIMESTAMP
+		WHERE cookie_id=? AND chat_id=?
+		  AND (status='failed' OR (status='pending' AND updated_at<?))`,
+		cookieID, chatID, leaseExpiredBefore)
+	if err != nil {
+		return DefaultReplyRecord{}, false, err
+	}
+	affected, _ := res.RowsAffected()
+	return record, affected > 0, nil
+}
+
+// Record 查询一次默认回复的投递状态。
+func (d *DefaultReplies) Record(ctx context.Context, cookieID, chatID string) (DefaultReplyRecord, error) {
+	var record DefaultReplyRecord
+	var textSent, imageSent int
+	err := d.DB.QueryRowContext(ctx, `SELECT status,text_sent,image_sent
+		FROM default_reply_records WHERE cookie_id=? AND chat_id=?`, cookieID, chatID).
+		Scan(&record.Status, &textSent, &imageSent)
+	record.TextSent = textSent != 0
+	record.ImageSent = imageSent != 0
+	return record, err
+}
+
+// MarkPartSent 标记图片或文字已经成功投递。
+func (d *DefaultReplies) MarkPartSent(ctx context.Context, cookieID, chatID, part string) error {
+	column := ""
+	switch part {
+	case "text":
+		column = "text_sent"
+	case "image":
+		column = "image_sent"
+	default:
+		return errors.New("未知默认回复部分")
+	}
+	_, err := d.DB.ExecContext(ctx, `UPDATE default_reply_records SET `+column+`=1,updated_at=CURRENT_TIMESTAMP
+		WHERE cookie_id=? AND chat_id=?`, cookieID, chatID)
+	return err
+}
+
+func (d *DefaultReplies) MarkRecordFailed(ctx context.Context, cookieID, chatID, message string) error {
+	_, err := d.DB.ExecContext(ctx, `UPDATE default_reply_records
+		SET status='failed',last_error=?,updated_at=CURRENT_TIMESTAMP WHERE cookie_id=? AND chat_id=?`, message, cookieID, chatID)
+	return err
+}
+
+func (d *DefaultReplies) MarkRecordSent(ctx context.Context, cookieID, chatID string) error {
+	_, err := d.DB.ExecContext(ctx, `UPDATE default_reply_records
+		SET status='sent',last_error='',replied_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+		WHERE cookie_id=? AND chat_id=?`, cookieID, chatID)
+	return err
 }
 
 // AddRecord 记录已回复（reply_once 防重复）。

@@ -69,6 +69,27 @@ func TestCardEndpointsErrorBranches(t *testing.T) {
 	}
 }
 
+func TestCreateCardRejectsUnsupportedAPITypeAndInvalidDelay(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	for _, body := range []string{
+		`{"name":"API 卡密","type":"api","enabled":true}`,
+		`{"name":"非法类型","type":"unknown","enabled":true}`,
+		`{"name":"延时错误","type":"text","text_content":"x","delay_seconds":86401,"enabled":true}`,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/cards", strings.NewReader(body))
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("body=%s status=%d want 400", body, rec.Code)
+		}
+	}
+}
+
 // TestProtectedEndpointsRequireAuth 受保护端点未登录应 401。
 func TestProtectedEndpointsRequireAuth(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)

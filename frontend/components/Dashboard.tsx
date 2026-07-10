@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { AdminStats, OrderAnalytics, Order, OrderStatus, Item } from '../types';
-import { getAdminStats, getOrderAnalytics, getValidOrders, getItems } from '../services/api';
+import { DashboardStats, OrderAnalytics, Order, OrderStatus, Item } from '../types';
+import { getDashboardStats, getOrderAnalytics, getValidOrders, getItems } from '../services/api';
+import { getDateRange, getPreviousDateRange, TimeRange } from '../dateRange';
 import { TrendingUp, Users, ShoppingCart, AlertCircle, DollarSign, Activity, Package, ArrowUpRight, Calendar, X, BarChart3, PackageCheck, ExternalLink, Eye, Edit } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
 
@@ -49,11 +50,10 @@ const StatCard: React.FC<{ title: string; value: string | number; icon: React.El
   </div>
 );
 
-type TimeRange = 'today' | 'yesterday' | '3days' | '7days' | '30days' | 'custom';
-
 const Dashboard: React.FC = () => {
-  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [analytics, setAnalytics] = useState<OrderAnalytics | null>(null);
+  const [loadError, setLoadError] = useState('');
   const [timeRange, setTimeRange] = useState<TimeRange>('7days');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
@@ -71,122 +71,28 @@ const Dashboard: React.FC = () => {
   // 颜色配置
   const COLORS = ['#0094f7', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6'];
   const formatCurrency = (value: number) => `¥${Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
-  const formatLocalDate = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const getDatesForRange = (range: TimeRange) => {
-    const now = new Date();
-    const endDate = formatLocalDate(now);
-    let startDate = endDate;
-
-    if (range === 'yesterday') {
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = formatLocalDate(yesterday);
-      return { startDate: yesterdayStr, endDate: yesterdayStr };
-    }
-    if (range === '3days') {
-      const threeDaysAgo = new Date(now);
-      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-      startDate = formatLocalDate(threeDaysAgo);
-    } else if (range === '7days') {
-      const sevenDaysAgo = new Date(now);
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      startDate = formatLocalDate(sevenDaysAgo);
-    } else if (range === '30days') {
-      const thirtyDaysAgo = new Date(now);
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      startDate = formatLocalDate(thirtyDaysAgo);
-    } else if (range === 'custom' && customStartDate && customEndDate) {
-      return { startDate: customStartDate, endDate: customEndDate };
-    } else if (range === 'custom') {
-      const sevenDaysAgo = new Date(now);
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      startDate = formatLocalDate(sevenDaysAgo);
-    }
-
-    return { startDate, endDate };
-  };
-
   const loadValidOrders = (range: TimeRange) => {
-    const { startDate, endDate } = getDatesForRange(range);
+    const { startDate, endDate } = getDateRange(range, new Date(), customStartDate, customEndDate);
     setOrdersLoading(true);
     getValidOrders({ start_date: startDate, end_date: endDate })
       .then(setValidOrders)
-      .catch(console.error)
+      .catch(error => setLoadError(error instanceof Error ? error.message : '订单加载失败'))
       .finally(() => setOrdersLoading(false));
   };
 
   const loadAnalytics = (range: TimeRange) => {
-    const now = new Date();
-    const { startDate, endDate } = getDatesForRange(range);
+    const currentRange = getDateRange(range, new Date(), customStartDate, customEndDate);
+    const { startDate, endDate } = currentRange;
     const params = { start_date: startDate, end_date: endDate };
 
-    // 同时获取上一个周期的数据用于趋势对比
-    const previousParams = getPreviousPeriodParams(range, now);
-    if (previousParams) {
-      getOrderAnalytics(previousParams).then(setPreviousAnalytics).catch(console.error);
-    }
+    const previous = getPreviousDateRange(currentRange);
+    getOrderAnalytics({ start_date: previous.startDate, end_date: previous.endDate })
+      .then(setPreviousAnalytics)
+      .catch(error => setLoadError(error instanceof Error ? error.message : '历史统计加载失败'));
 
-    getOrderAnalytics(params).then(setAnalytics).catch(console.error);
-  };
-
-  // 获取上一个时间段的参数
-  const getPreviousPeriodParams = (range: TimeRange, now: Date) => {
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-
-    switch (range) {
-      case 'today':
-        // 今天对比昨天
-        const yesterday = new Date(now);
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yYear = yesterday.getFullYear();
-        const yMonth = String(yesterday.getMonth() + 1).padStart(2, '0');
-        const yDay = String(yesterday.getDate()).padStart(2, '0');
-        return {
-          start_date: `${yYear}-${yMonth}-${yDay}`,
-          end_date: `${yYear}-${yMonth}-${yDay}`
-        };
-      case 'yesterday':
-        // 昨天对比前天
-        const dayBefore = new Date(now);
-        dayBefore.setDate(dayBefore.getDate() - 2);
-        const dbYear = dayBefore.getFullYear();
-        const dbMonth = String(dayBefore.getMonth() + 1).padStart(2, '0');
-        const dbDay = String(dayBefore.getDate()).padStart(2, '0');
-        return {
-          start_date: `${dbYear}-${dbMonth}-${dbDay}`,
-          end_date: `${dbYear}-${dbMonth}-${dbDay}`
-        };
-      case '7days':
-        // 7天对比上一个7天
-        const prev7DaysEnd = new Date(now);
-        prev7DaysEnd.setDate(prev7DaysEnd.getDate() - 7);
-        const prev7DaysStart = new Date(prev7DaysEnd);
-        prev7DaysStart.setDate(prev7DaysStart.getDate() - 7);
-        return {
-          start_date: `${prev7DaysStart.getFullYear()}-${String(prev7DaysStart.getMonth() + 1).padStart(2, '0')}-${String(prev7DaysStart.getDate()).padStart(2, '0')}`,
-          end_date: `${prev7DaysEnd.getFullYear()}-${String(prev7DaysEnd.getMonth() + 1).padStart(2, '0')}-${String(prev7DaysEnd.getDate()).padStart(2, '0')}`
-        };
-      case '30days':
-        // 30天对比上一个30天
-        const prev30DaysEnd = new Date(now);
-        prev30DaysEnd.setDate(prev30DaysEnd.getDate() - 30);
-        const prev30DaysStart = new Date(prev30DaysEnd);
-        prev30DaysStart.setDate(prev30DaysStart.getDate() - 30);
-        return {
-          start_date: `${prev30DaysStart.getFullYear()}-${String(prev30DaysStart.getMonth() + 1).padStart(2, '0')}-${String(prev30DaysStart.getDate()).padStart(2, '0')}`,
-          end_date: `${prev30DaysEnd.getFullYear()}-${String(prev30DaysEnd.getMonth() + 1).padStart(2, '0')}-${String(prev30DaysEnd.getDate()).padStart(2, '0')}`
-        };
-      default:
-        return null;
-    }
+    getOrderAnalytics(params)
+      .then(setAnalytics)
+      .catch(error => setLoadError(error instanceof Error ? error.message : '统计加载失败'));
   };
 
   // 计算趋势百分比
@@ -206,9 +112,7 @@ const Dashboard: React.FC = () => {
   };
 
   useEffect(() => {
-    getAdminStats().then(setStats).catch(console.error);
-    loadAnalytics(timeRange);
-    // 获取商品列表
+    getDashboardStats().then(setStats).catch(error => setLoadError(error instanceof Error ? error.message : '概览加载失败'));
     getItems().then(items => {
       setItems(items);
       // 建立 item_id 到 item_title 的映射
@@ -217,7 +121,12 @@ const Dashboard: React.FC = () => {
         nameMap[item.item_id] = item.item_title || item.item_id;
       });
       setItemNames(nameMap);
-    }).catch(console.error);
+    }).catch(error => setLoadError(error instanceof Error ? error.message : '商品加载失败'));
+  }, []);
+
+  useEffect(() => {
+    setLoadError('');
+    loadAnalytics(timeRange);
   }, [timeRange]);
 
   // 加载订单列表
@@ -225,6 +134,15 @@ const Dashboard: React.FC = () => {
     loadValidOrders(timeRange);
   }, [timeRange]);
 
+  if (loadError && (!stats || !analytics)) {
+    return (
+      <div className="p-8 flex flex-col items-center gap-3 text-red-600">
+        <AlertCircle className="w-8 h-8" />
+        <span>{loadError}</span>
+        <button type="button" className="ios-btn-primary px-4 py-2 rounded-xl" onClick={() => window.location.reload()}>重新加载</button>
+      </div>
+    );
+  }
   if (!stats || !analytics) return <div className="p-8 flex justify-center text-gray-400"><Activity className="w-8 h-8 animate-spin text-[#0094f7]" /></div>;
 
   const chartData = analytics.daily_stats?.map(d => ({
@@ -296,7 +214,12 @@ const Dashboard: React.FC = () => {
     { key: 'custom' as TimeRange, label: '自定义' },
   ];
   const selectedRangeLabel = timeRangeOptions.find(option => option.key === timeRange)?.label || '所选范围';
-  const currentRangeDates = getDatesForRange(timeRange);
+  let currentRangeDates;
+  try {
+    currentRangeDates = getDateRange(timeRange, new Date(), customStartDate, customEndDate);
+  } catch {
+    currentRangeDates = { startDate: customStartDate, endDate: customEndDate };
+  }
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
   const filteredValidOrders = validOrders.filter((order) =>
     order.order_id?.toLowerCase().includes(normalizedSearchTerm) ||
@@ -352,8 +275,13 @@ const Dashboard: React.FC = () => {
             />
             <button
               onClick={() => {
-                loadAnalytics('custom');
-                loadValidOrders('custom');
+                try {
+                  setLoadError('');
+                  loadAnalytics('custom');
+                  loadValidOrders('custom');
+                } catch (error) {
+                  setLoadError(error instanceof Error ? error.message : '日期范围无效');
+                }
               }}
               className="px-4 py-2 rounded-xl text-sm font-bold bg-black text-white hover:bg-gray-800 transition-colors"
             >

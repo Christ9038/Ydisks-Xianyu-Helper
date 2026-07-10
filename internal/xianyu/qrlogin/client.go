@@ -53,6 +53,7 @@ var qrHeaders = map[string]string{
 
 // Session 一个扫码登录会话。
 type Session struct {
+	mu                     sync.RWMutex
 	SessionID              string `json:"session_id"`
 	Status                 string `json:"status"` // waiting/scanned/success/expired/cancelled/verification_required
 	QRCodeURL              string `json:"qr_code_url"`
@@ -69,7 +70,32 @@ type Session struct {
 }
 
 func (s *Session) isExpired() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return time.Since(s.createdTime) > s.expireTime
+}
+
+type sessionSnapshot struct {
+	status                 string
+	cookies                map[string]string
+	unb                    string
+	params                 map[string]string
+	verificationURL        string
+	verificationScreenshot string
+	faceQRURL              string
+	expireTime             time.Duration
+	createdTime            time.Time
+}
+
+func (s *Session) snapshot() sessionSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return sessionSnapshot{
+		status: s.Status, cookies: cloneCookieMap(s.cookies), unb: s.unb,
+		params: cloneCookieMap(s.params), verificationURL: s.verificationURL,
+		verificationScreenshot: s.verificationScreenshot, faceQRURL: s.faceQRURL,
+		expireTime: s.expireTime, createdTime: s.createdTime,
+	}
 }
 
 // BrowserRefresher 由外部注入的浏览器刷新函数。
@@ -88,7 +114,15 @@ type Manager struct {
 
 // SetBrowserRefresher 注入浏览器刷新函数（风控验证场景必需）。
 func (m *Manager) SetBrowserRefresher(f BrowserRefresher) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.browser = f
+}
+
+func (m *Manager) browserRefresher() BrowserRefresher {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.browser
 }
 
 // NewManager 构造。
@@ -198,7 +232,7 @@ func (m *Manager) GenerateQRCode(ctx context.Context) (sessionID string, qrCodeU
 	// 5. 扫码会话独立于生成二维码的 HTTP 请求，但受会话有效期约束。
 	// #nosec G118 -- 后台任务必须跨越原请求，且由超时上下文保证退出。
 	go func() {
-		monitorCtx, cancel := context.WithTimeout(context.Background(), sess.expireTime)
+		monitorCtx, cancel := context.WithTimeout(context.Background(), sess.snapshot().expireTime)
 		defer cancel()
 		m.monitorQRStatus(monitorCtx, sessionID)
 	}()
@@ -215,27 +249,34 @@ func (m *Manager) GetSessionStatus(sessionID string) map[string]any {
 	if !ok {
 		return map[string]any{"status": "not_found"}
 	}
-	if sess.isExpired() && sess.Status != "success" {
+	sess.mu.Lock()
+	if time.Since(sess.createdTime) > sess.expireTime && sess.Status != "success" {
 		sess.Status = "expired"
 	}
+	snapshot := sessionSnapshot{
+		status: sess.Status, cookies: cloneCookieMap(sess.cookies), unb: sess.unb,
+		verificationURL: sess.verificationURL, verificationScreenshot: sess.verificationScreenshot,
+		faceQRURL: sess.faceQRURL,
+	}
+	sess.mu.Unlock()
 	result := map[string]any{
-		"status":     sess.Status,
+		"status":     snapshot.status,
 		"session_id": sessionID,
 	}
-	if sess.Status == "verification_required" && sess.verificationURL != "" {
-		result["verification_url"] = sess.verificationURL
+	if snapshot.status == "verification_required" && snapshot.verificationURL != "" {
+		result["verification_url"] = snapshot.verificationURL
 		result["message"] = "账号被风控，需要手机验证"
-		if sess.faceQRURL != "" {
-			result["face_qr_url"] = sess.faceQRURL
+		if snapshot.faceQRURL != "" {
+			result["face_qr_url"] = snapshot.faceQRURL
 			result["message"] = "需要人脸验证，请使用手机闲鱼扫描二维码"
 		}
-		if sess.verificationScreenshot != "" {
-			result["verification_screenshot"] = sess.verificationScreenshot
+		if snapshot.verificationScreenshot != "" {
+			result["verification_screenshot"] = snapshot.verificationScreenshot
 		}
 	}
-	if sess.Status == "success" && sess.cookies != nil && sess.unb != "" {
-		result["cookies"] = cookieMarshal(sess.cookies)
-		result["unb"] = sess.unb
+	if snapshot.status == "success" && snapshot.cookies != nil && snapshot.unb != "" {
+		result["cookies"] = cookieMarshal(snapshot.cookies)
+		result["unb"] = snapshot.unb
 	}
 	return result
 }
@@ -269,13 +310,18 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 		resp, err := m.pollQRCodeStatus(ctx, sess)
 		if err != nil {
 			m.logger.Error("轮询扫码状态异常", "err", err)
-			time.Sleep(2 * time.Second)
+			if !waitQRRetry(ctx, 2*time.Second) {
+				return
+			}
 			continue
 		}
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 		closeErr := resp.Body.Close()
 		if readErr != nil || closeErr != nil {
 			m.logger.Warn("读取扫码状态响应失败", "read_err", readErr, "close_err", closeErr)
+			if !waitQRRetry(ctx, 800*time.Millisecond) {
+				return
+			}
 			continue
 		}
 
@@ -290,6 +336,9 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 		}
 		if err := json.Unmarshal(body, &qrResult); err != nil {
 			m.logger.Warn("解析扫码状态响应失败", "err", err)
+			if !waitQRRetry(ctx, 800*time.Millisecond) {
+				return
+			}
 			continue
 		}
 
@@ -299,6 +348,11 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 			if qrResult.Content.Data.IframeRedirect {
 				// 风控验证：记录状态和 URL，提取响应 cookie（临时 cookie），
 				// 验证完成后用这些临时 cookie 访问 goofish.com/im 换真实 cookie。
+				sess.mu.Lock()
+				if sess.Status == "success" {
+					sess.mu.Unlock()
+					return
+				}
 				if sess.Status != "verification_required" {
 					sess.Status = "verification_required"
 					sess.verificationURL = qrResult.Content.Data.IframeRedirectURL
@@ -309,22 +363,29 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 					// 扫码 5 分钟窗口在用户扫人脸二维码时把会话误标为 expired。
 					sess.createdTime = time.Now()
 					sess.expireTime = 5 * time.Minute
-					m.logger.Warn("扫码登录需要风控验证，启动 API 人脸验证链路", "session_id", sessionID, "verification_url", logsafe.URL(sess.verificationURL), "tmp_cookie_count", len(sess.cookies))
-
 					verURL := sess.verificationURL
+					expireTime := sess.expireTime
+					cookieCount := len(sess.cookies)
+					sess.mu.Unlock()
+					m.logger.Warn("扫码登录需要风控验证，启动 API 人脸验证链路", "session_id", sessionID, "verification_url", logsafe.URL(verURL), "tmp_cookie_count", cookieCount)
 					// #nosec G118 -- 风控验证必须跨越轮询请求，且由超时上下文保证退出。
 					go func() {
-						verifyCtx, cancel := context.WithTimeout(context.Background(), sess.expireTime)
+						verifyCtx, cancel := context.WithTimeout(context.Background(), expireTime)
 						defer cancel()
 						if err := m.runFaceVerification(verifyCtx, sessionID, verURL); err != nil {
 							m.logger.Error("API 人脸验证链路失败", "session_id", sessionID, "err", err)
 							m.fallbackBrowserVerification(verifyCtx, sessionID, verURL)
 						}
 					}()
+				} else {
+					sess.mu.Unlock()
 				}
-				time.Sleep(800 * time.Millisecond)
+				if !waitQRRetry(ctx, 800*time.Millisecond) {
+					return
+				}
 				continue
 			}
+			sess.mu.Lock()
 			sess.Status = "success"
 			for _, c := range resp.Cookies() {
 				sess.cookies[c.Name] = c.Value
@@ -332,7 +393,9 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 					sess.unb = c.Value
 				}
 			}
-			m.logger.Info("扫码登录成功", "session_id", sessionID, "account_hash", logsafe.ID(sess.unb))
+			unb := sess.unb
+			sess.mu.Unlock()
+			m.logger.Info("扫码登录成功", "session_id", sessionID, "account_hash", logsafe.ID(unb))
 			return
 		case "NEW":
 			// 未扫码，继续
@@ -340,39 +403,60 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 			// 浏览器自动验证可能已把状态置为 success：二维码 session 结束是
 			// 验证通过后的正常现象，此时绝不能把 success 覆盖回 expired，
 			// 否则前端轮询会错过自动完成的登录、不存 cookie、不重启账号。
-			m.mu.Lock()
+			sess.mu.Lock()
 			curStatus := sess.Status
 			if curStatus == "success" {
-				m.mu.Unlock()
+				sess.mu.Unlock()
 				m.logger.Info("验证已自动完成，二维码 session 结束", "session_id", sessionID)
 				return
 			}
 			if curStatus != "verification_required" {
 				sess.Status = "expired"
-				m.mu.Unlock()
+				sess.mu.Unlock()
 				m.logger.Info("二维码已过期", "session_id", sessionID)
 				return
 			}
-			m.mu.Unlock()
+			sess.mu.Unlock()
 			m.logger.Info("验证中收到 EXPIRED，保持验证状态", "session_id", sessionID)
-			time.Sleep(2 * time.Second)
+			if !waitQRRetry(ctx, 2*time.Second) {
+				return
+			}
 			continue
 		case "SCANED":
+			sess.mu.Lock()
 			if sess.Status == "waiting" {
 				sess.Status = "scanned"
 				m.logger.Info("二维码已扫描，等待确认", "session_id", sessionID)
 			}
+			sess.mu.Unlock()
 		default:
+			sess.mu.Lock()
 			sess.Status = "cancelled"
+			sess.mu.Unlock()
 			m.logger.Info("用户取消登录", "session_id", sessionID)
 			return
 		}
-		time.Sleep(800 * time.Millisecond)
+		if !waitQRRetry(ctx, 800*time.Millisecond) {
+			return
+		}
 	}
 
 	// 超时
+	sess.mu.Lock()
 	if sess.Status != "success" && sess.Status != "expired" && sess.Status != "cancelled" {
 		sess.Status = "expired"
+	}
+	sess.mu.Unlock()
+}
+
+func waitQRRetry(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 
@@ -385,24 +469,29 @@ func (m *Manager) CompleteVerification(ctx context.Context, sessionID string) (c
 	if !ok {
 		return "", "", fmt.Errorf("会话不存在")
 	}
-	if len(sess.cookies) == 0 {
+	state := sess.snapshot()
+	if len(state.cookies) == 0 {
 		return "", "", fmt.Errorf("无扫码临时 cookie")
 	}
+	if state.status == "success" && state.unb != "" {
+		return cookieMarshal(state.cookies), state.unb, nil
+	}
+	browser := m.browserRefresher()
 
-	m.logger.Info("开始用临时 cookie 换取真实 cookie", "session_id", sessionID, "tmp_cookie_count", len(sess.cookies))
+	m.logger.Info("开始用临时 cookie 换取真实 cookie", "session_id", sessionID, "tmp_cookie_count", len(state.cookies))
 
 	// 用带 cookie jar 的 client，访问 goofish.com/im 触发真实 cookie 下发。
 	jarClient := &http.Client{Timeout: 30 * time.Second}
 	targetURL := qrVerifyTargetURL
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	m.setHeaders(req)
-	req.Header.Set("Cookie", cookieMarshal(sess.cookies))
+	req.Header.Set("Cookie", cookieMarshal(state.cookies))
 	// im 页面 referer
 	req.Header.Set("Referer", "https://www.goofish.com/")
 
 	resp, err := jarClient.Do(req)
 	if err != nil {
-		if m.browser == nil {
+		if browser == nil {
 			return "", "", fmt.Errorf("访问 goofish.com/im 失败: %w", err)
 		}
 		m.logger.Warn("纯 HTTP 访问 goofish.com/im 失败，改用浏览器提取", "session_id", sessionID, "err", err)
@@ -413,38 +502,44 @@ func (m *Manager) CompleteVerification(ctx context.Context, sessionID string) (c
 		}
 
 		// 收集 Set-Cookie。
+		sess.mu.Lock()
 		for _, c := range resp.Cookies() {
 			sess.cookies[c.Name] = c.Value
 			if c.Name == "unb" {
 				sess.unb = c.Value
 			}
 		}
+		sess.mu.Unlock()
 	}
 
 	// 如果还没 unb 且没有浏览器刷新器，再访问 mtop token API 触发（有时需要额外请求）。
 	// 有浏览器刷新器时直接走浏览器路径，避免在风控场景中重复纯 HTTP 请求。
-	if sess.unb == "" && m.browser == nil {
+	state = sess.snapshot()
+	if state.unb == "" && browser == nil {
 		m.logger.Info("首次访问未拿到 unb，尝试 mtop token API", "session_id", sessionID)
 		if err := m.getMH5TK(ctx, sess); err != nil {
 			m.logger.Warn("mtop token API 失败", "err", err)
 		}
 	}
 
-	m.logger.Info("验证完成，提取 cookie", "session_id", sessionID, "cookie_count", len(sess.cookies), "has_unb", sess.unb != "")
-	if sess.unb != "" {
+	state = sess.snapshot()
+	m.logger.Info("验证完成，提取 cookie", "session_id", sessionID, "cookie_count", len(state.cookies), "has_unb", state.unb != "")
+	if state.unb != "" {
+		sess.mu.Lock()
 		sess.Status = "success"
-		m.logger.Info("纯 HTTP 提取 cookie 成功", "session_id", sessionID, "account_hash", logsafe.ID(sess.unb))
-		return cookieMarshal(sess.cookies), sess.unb, nil
+		sess.mu.Unlock()
+		m.logger.Info("纯 HTTP 提取 cookie 成功", "session_id", sessionID, "account_hash", logsafe.ID(state.unb))
+		return cookieMarshal(state.cookies), state.unb, nil
 	}
 
 	// 纯 HTTP 拿不到 unb（闲鱼真实 cookie 由页面 JS 异步下发），
 	// 风控验证后的 cookie 提取必须依赖浏览器。
-	if m.browser == nil {
+	if browser == nil {
 		return "", "", fmt.Errorf("风控验证后的 cookie 提取需要浏览器支持（请勿使用 -no-browser 启动）")
 	}
 
 	m.logger.Info("纯 HTTP 未拿到 unb，调用浏览器提取", "session_id", sessionID)
-	realCookies, browserUNB, err := m.browser(ctx, cookieMarshal(sess.cookies), sess.verificationURL, nil)
+	realCookies, browserUNB, err := browser(ctx, cookieMarshal(state.cookies), state.verificationURL, nil)
 	if err != nil {
 		m.logger.Error("浏览器提取失败", "err", err)
 		return "", "", fmt.Errorf("浏览器提取 cookie 失败: %w", err)
@@ -453,18 +548,22 @@ func (m *Manager) CompleteVerification(ctx context.Context, sessionID string) (c
 	if len(parsedCookies) == 0 {
 		return "", "", fmt.Errorf("浏览器提取 cookie 失败: 未返回有效 cookie")
 	}
+	sess.mu.Lock()
 	sess.cookies = parsedCookies
 	sess.unb = browserUNB
 	if sess.unb == "" {
 		sess.unb = sess.cookies["unb"]
 	}
 	if sess.unb == "" {
+		sess.mu.Unlock()
 		return "", "", fmt.Errorf("验证后仍未获取到 unb，可能验证未完成或临时 cookie 已失效")
 	}
-	m.logger.Info("浏览器提取成功", "session_id", sessionID, "account_hash", logsafe.ID(sess.unb), "cookie_count", len(sess.cookies))
-
 	sess.Status = "success"
-	return cookieMarshal(sess.cookies), sess.unb, nil
+	finalCookies := cloneCookieMap(sess.cookies)
+	finalUNB := sess.unb
+	sess.mu.Unlock()
+	m.logger.Info("浏览器提取成功", "session_id", sessionID, "account_hash", logsafe.ID(finalUNB), "cookie_count", len(finalCookies))
+	return cookieMarshal(finalCookies), finalUNB, nil
 }
 
 // parseCookieStr 把 "k=v; k2=v2" 解析回 map。
@@ -493,11 +592,13 @@ func (m *Manager) getMH5TK(ctx context.Context, sess *Session) error {
 	}
 
 	// 合并 Set-Cookie。
+	sess.mu.Lock()
 	for _, c := range resp.Cookies() {
 		sess.cookies[c.Name] = c.Value
 	}
 
 	mH5TK := sess.cookies["_m_h5_tk"]
+	sess.mu.Unlock()
 	token := ""
 	if parts := strings.SplitN(mH5TK, "_", 2); len(parts) > 0 {
 		token = parts[0]
@@ -534,9 +635,11 @@ func (m *Manager) getMH5TK(ctx context.Context, sess *Session) error {
 	}
 
 	// 更新 cookie。
+	sess.mu.Lock()
 	for _, c := range resp2.Cookies() {
 		sess.cookies[c.Name] = c.Value
 	}
+	sess.mu.Unlock()
 	return nil
 }
 
@@ -559,7 +662,9 @@ func (m *Manager) getLoginParams(ctx context.Context, sess *Session) (map[string
 	m.setHeaders(req)
 
 	// 带上已有 cookie。
+	sess.mu.RLock()
 	cookieStr := cookieMarshal(sess.cookies)
+	sess.mu.RUnlock()
 	if cookieStr != "" {
 		req.Header.Set("Cookie", cookieStr)
 	}
@@ -598,21 +703,24 @@ func (m *Manager) getLoginParams(ctx context.Context, sess *Session) (map[string
 		strParams[k] = fmt.Sprintf("%v", v)
 	}
 	strParams["umidTag"] = "SERVER"
+	sess.mu.Lock()
 	sess.params = strParams
+	sess.mu.Unlock()
 	return strParams, nil
 }
 
 // pollQRCodeStatus 轮询二维码状态。
 func (m *Manager) pollQRCodeStatus(ctx context.Context, sess *Session) (*http.Response, error) {
 	form := url.Values{}
-	for k, v := range sess.params {
+	state := sess.snapshot()
+	for k, v := range state.params {
 		form.Set(k, v)
 	}
 
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, apiScanStatus, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	m.setHeaders(req)
-	cookieStr := cookieMarshal(sess.cookies)
+	cookieStr := cookieMarshal(state.cookies)
 	if cookieStr != "" {
 		req.Header.Set("Cookie", cookieStr)
 	}

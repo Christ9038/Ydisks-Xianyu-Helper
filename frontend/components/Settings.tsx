@@ -28,6 +28,8 @@ const SETTINGS_SAVE_OMIT_KEYS = new Set([
   'smtp_user',
   'smtp_password',
   'smtp_from',
+  'smtp_from_name',
+  'smtp_from_address',
   'registration_enabled',
   'show_default_login_info',
   'login_captcha_enabled',

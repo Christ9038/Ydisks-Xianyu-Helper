@@ -56,6 +56,33 @@ func newAutomationTestStore(t *testing.T) (*db.Store, func()) {
 	return store, func() { _ = database.Close() }
 }
 
+func TestActionDelayUsesCardDefaultUnlessOverridden(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	cardID, err := store.Cards.Create(ctx, &db.CardFull{
+		Name: "delayed", Type: "text", TextContent: "x", Enabled: true, DelaySeconds: 15, UserID: admin.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	center := New(store, nil, nil)
+
+	got, err := center.actionDelaySeconds(ctx, db.AutomationAction{
+		ActionType: ActionSendCard, CardID: cardID, DelaySeconds: 0, ConfigJSON: `{}`,
+	})
+	if err != nil || got != 15 {
+		t.Fatalf("default delay=%d err=%v want 15", got, err)
+	}
+	got, err = center.actionDelaySeconds(ctx, db.AutomationAction{
+		ActionType: ActionSendCard, CardID: cardID, DelaySeconds: 0, ConfigJSON: `{"delay_override":true}`,
+	})
+	if err != nil || got != 0 {
+		t.Fatalf("override delay=%d err=%v want 0", got, err)
+	}
+}
+
 func TestCenterOrderPaidFetchesOrderDetailMatchesSpecAndQuantity(t *testing.T) {
 	store, cleanup := newAutomationTestStore(t)
 	defer cleanup()

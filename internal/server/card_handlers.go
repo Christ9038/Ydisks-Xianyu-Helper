@@ -53,6 +53,10 @@ func (s *Server) createCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cf.UserID = sess.UserID
+	if cf.Type == "api" {
+		writeErr(w, http.StatusBadRequest, "API 卡密暂不支持自动发货，不能新建")
+		return
+	}
 	id, err := s.Store.Cards.Create(r.Context(), cf)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "创建失败")
@@ -74,6 +78,10 @@ func (s *Server) updateCard(w http.ResponseWriter, r *http.Request) {
 	}
 	existing, ok := s.requireCardOwner(w, r, id)
 	if !ok {
+		return
+	}
+	if cf.Type == "api" && existing.Type != "api" {
+		writeErr(w, http.StatusBadRequest, "API 卡密暂不支持自动发货，不能转换为该类型")
 		return
 	}
 	cf.ID = id
@@ -121,6 +129,14 @@ func decodeCard(r *http.Request) (*db.CardFull, error) {
 	}
 	if req.Name == "" || req.Type == "" {
 		return nil, errStr("名称和类型不能为空")
+	}
+	switch req.Type {
+	case "text", "data", "image", "api":
+	default:
+		return nil, errStr("类型必须为 text、data、image 或 api")
+	}
+	if req.DelaySeconds < 0 || req.DelaySeconds > 86400 {
+		return nil, errStr("延时发货必须在 0 到 86400 秒之间")
 	}
 	return &db.CardFull{
 		Name: req.Name, Type: req.Type, APIConfig: req.APIConfig, TextContent: req.TextContent,

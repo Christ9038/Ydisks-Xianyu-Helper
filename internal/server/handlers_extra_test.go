@@ -56,7 +56,7 @@ func TestBatchCreateCards(t *testing.T) {
 	h := srv.Router()
 	cookie := loginHelper(t, h)
 
-	csv := "name,type,content\n卡A,text,内容A\n卡B,text,内容B\n"
+	csv := "name,type,content,delay_seconds\n卡A,text,内容A,0\n卡B,text,内容B,5\nAPI卡,api,https://example.com,0\n延时异常,text,内容,-1\n"
 	body := &bytes.Buffer{}
 	mw := multipart.NewWriter(body)
 	fw, _ := mw.CreateFormFile("file", "cards.csv")
@@ -75,6 +75,9 @@ func TestBatchCreateCards(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &res)
 	if res["created"].(float64) != 2 {
 		t.Fatalf("应创建 2 个，got %+v", res)
+	}
+	if res["failed"].(float64) != 2 {
+		t.Fatalf("API 卡和非法延时应拒绝，got %+v", res)
 	}
 
 	// 缺文件 → 400。

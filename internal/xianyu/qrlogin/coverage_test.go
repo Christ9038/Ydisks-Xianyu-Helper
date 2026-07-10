@@ -248,9 +248,9 @@ func TestGenerateQRCodeSuccess(t *testing.T) {
 			"content": map[string]any{
 				"success": true,
 				"data": map[string]any{
-					"t":            1717000000000,
-					"ck":           "ck_value",
-					"codeContent":  "https://login/qr?token=xyz",
+					"t":           1717000000000,
+					"ck":          "ck_value",
+					"codeContent": "https://login/qr?token=xyz",
 				},
 			},
 		}
@@ -665,27 +665,24 @@ func TestMonitorQRStatusVerificationRequiredTriggersBrowser(t *testing.T) {
 	// 等待浏览器 goroutine 完成。
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		m.mu.Lock()
-		st := sess.Status
-		m.mu.Unlock()
+		st := sess.snapshot().status
 		if st == "success" {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if browserCalled.Load() == 0 {
-		t.Fatal("浏览器刷新器未被调用")
+	if browserCalled.Load() != 1 {
+		t.Fatalf("浏览器刷新器应只调用一次，got %d", browserCalled.Load())
 	}
-	if sess.Status != "success" {
-		t.Fatalf("状态异常: %s", sess.Status)
+	state := sess.snapshot()
+	if state.status != "success" {
+		t.Fatalf("状态异常: %s", state.status)
 	}
-	if sess.unb != "777" {
-		t.Fatalf("unb 异常: %q", sess.unb)
+	if state.unb != "777" {
+		t.Fatalf("unb 异常: %q", state.unb)
 	}
-	if sess.verificationScreenshot != "data:image/png;base64,shot" {
-		t.Fatalf("screenshot 未保存: %q", sess.verificationScreenshot)
+	if state.verificationScreenshot != "data:image/png;base64,shot" {
+		t.Fatalf("screenshot 未保存: %q", state.verificationScreenshot)
 	}
 }
 
@@ -704,7 +701,9 @@ func TestMonitorQRStatusMissingSession(t *testing.T) {
 
 func TestMonitorQRStatusInvalidJSONBody(t *testing.T) {
 	hc := &handlerChain{}
+	var requests atomic.Int64
 	hc.handle("/newlogin/qrcode/query.do", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
 		_, _ = w.Write([]byte(`not-json`))
 	}))
 	m, _, _ := newStubbedManager(t, hc)
@@ -719,6 +718,9 @@ func TestMonitorQRStatusInvalidJSONBody(t *testing.T) {
 	m.monitorQRStatus(ctx, "s")
 	if sess.Status != "waiting" {
 		t.Fatalf("解析失败期间不应改状态: %s", sess.Status)
+	}
+	if requests.Load() > 2 {
+		t.Fatalf("解析失败不应无间隔忙轮询，requests=%d", requests.Load())
 	}
 }
 

@@ -127,6 +127,27 @@ func TestAutomationRuleBadActionType(t *testing.T) {
 	}
 }
 
+func TestAutomationRuleRejectsAPICard(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	cardID, err := store.Cards.Create(context.Background(), &db.CardFull{
+		Name: "旧 API 卡密", Type: "api", APIConfig: `{"url":"https://example.com"}`, Enabled: true, UserID: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	body := `{"cookie_id":"acc1","trigger_type":"order_paid","actions":[{"action_type":"send_card","card_id":` + itoa(cardID) + `}]}`
+	req := httptest.NewRequest(http.MethodPost, "/automation-rules", strings.NewReader(body))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "API 卡密暂不支持") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestAutomationRuleSendCardMissingCardID send_card 缺 card_id 400。
 func TestAutomationRuleSendCardMissingCardID(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
@@ -249,7 +270,7 @@ func TestDefaultAutomationRuleName(t *testing.T) {
 		automation.TriggerOrderPaid:            "付款后自动发货",
 		automation.TriggerBuyerReviewed:        "评价后发送赠品",
 		automation.TriggerReviewMissingTimeout: "超时未评价求评价",
-		"bogus": "自动化规则",
+		"bogus":                                "自动化规则",
 	}
 	for trigger, want := range cases {
 		got := defaultAutomationRuleName(trigger, "")
@@ -265,13 +286,13 @@ func TestDefaultAutomationRuleName(t *testing.T) {
 // TestIsJSONObject isJSONObject 表驱动。
 func TestIsJSONObject(t *testing.T) {
 	cases := map[string]bool{
-		`{}`:        true,
-		`{"a":1}`:   true,
-		`null`:      true, // null 能 unmarshal 为 map（nil），函数判定为对象
-		`[]`:        false,
-		`"str"`:     false,
-		`invalid`:   false,
-		``:          false,
+		`{}`:      true,
+		`{"a":1}`: true,
+		`null`:    true, // null 能 unmarshal 为 map（nil），函数判定为对象
+		`[]`:      false,
+		`"str"`:   false,
+		`invalid`: false,
+		``:        false,
 	}
 	for in, want := range cases {
 		if got := isJSONObject(in); got != want {

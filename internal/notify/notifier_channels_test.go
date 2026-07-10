@@ -304,8 +304,23 @@ func TestSendTelegram_Success(t *testing.T) {
 	if gotPath != wantPath {
 		t.Errorf("path=%s want %s", gotPath, wantPath)
 	}
-	if got["chat_id"] != "123" || got["text"] != "TG消息" || got["parse_mode"] != "HTML" {
+	if got["chat_id"] != "123" || got["text"] != "TG消息" {
 		t.Errorf("telegram payload: %v", got)
+	}
+	if _, ok := got["parse_mode"]; ok {
+		t.Errorf("动态文本不应启用未转义的 HTML 模式: %v", got)
+	}
+}
+
+func TestPostJSONRejectsBusinessErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errcode":310000,"errmsg":"signature invalid"}`))
+	}))
+	defer srv.Close()
+	n := New("cid", nil, nil)
+	if err := n.sendDingTalk(map[string]any{"webhook_url": srv.URL}, "x"); err == nil || !strings.Contains(err.Error(), "signature invalid") {
+		t.Fatalf("business error=%v", err)
 	}
 }
 
@@ -502,6 +517,23 @@ func TestSendEmail_DefaultFrom(t *testing.T) {
 	}
 	if !strings.Contains(received.String(), "From: from@e.com") {
 		t.Errorf("缺省 from 应回退为 user: %s", received.String())
+	}
+}
+
+func TestSendEmail_SeparatesDisplayNameAndEnvelopeAddress(t *testing.T) {
+	addr, received := fakeSMTPServer(t)
+	host, port, _ := strings.Cut(addr, ":")
+	n := New("cid", nil, nil)
+	cfg := map[string]any{
+		"smtp_server": host, "smtp_port": port, "smtp_user": "login@e.com", "smtp_password": "pw",
+		"smtp_from_name": "闲鱼自动回复系统", "smtp_from_address": "sender@e.com", "to_email": "to@e.com",
+	}
+	if err := n.sendEmail(cfg, "x"); err != nil {
+		t.Fatal(err)
+	}
+	body := received.String()
+	if !strings.Contains(body, "sender@e.com") || !strings.Contains(body, "From: =?utf-8?") {
+		t.Fatalf("smtp envelope/header mismatch: %s", body)
 	}
 }
 

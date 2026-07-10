@@ -100,6 +100,25 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 		})
 		return
 	}
+	var req struct {
+		TargetAccountID string `json:"target_account_id"`
+		ConfirmMismatch bool   `json:"confirm_mismatch"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := decodeJSON(r, &req); err != nil {
+			writeErr(w, http.StatusBadRequest, "请求格式错误")
+			return
+		}
+	}
+	req.TargetAccountID = strings.TrimSpace(req.TargetAccountID)
+	if req.TargetAccountID != "" && req.TargetAccountID != unb && !req.ConfirmMismatch {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"success": false, "requires_confirmation": true,
+			"scanned_account_id": unb,
+			"message":            "扫码账号与待重新授权账号不一致，需要确认后才能覆盖",
+		})
+		return
+	}
 	resp := map[string]any{
 		"success": true,
 		"cookies": cookies,
@@ -107,11 +126,11 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 	}
 	sess := auth.SessionFromContext(r.Context())
 	if sess != nil {
-		persisted, persistErr := s.persistQRLoginSuccess(r.Context(), sess.UserID, sessionID, map[string]any{
+		persisted, persistErr := s.persistQRLoginSuccessFor(r.Context(), sess.UserID, sessionID, map[string]any{
 			"status":  "success",
 			"cookies": cookies,
 			"unb":     unb,
-		})
+		}, req.TargetAccountID)
 		if persistErr != nil {
 			if s.Logger != nil {
 				s.Logger.Warn("保存扫码验证结果失败", "session_id", sessionID, "err", persistErr)
@@ -128,6 +147,10 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) persistQRLoginSuccess(ctx context.Context, userID int64, sessionID string, result map[string]any) (qrLoginPersistence, error) {
+	return s.persistQRLoginSuccessFor(ctx, userID, sessionID, result, "")
+}
+
+func (s *Server) persistQRLoginSuccessFor(ctx context.Context, userID int64, sessionID string, result map[string]any, targetAccountID string) (qrLoginPersistence, error) {
 	s.qrMu.Lock()
 	defer s.qrMu.Unlock()
 	if s.qrPersisted == nil {
@@ -137,9 +160,21 @@ func (s *Server) persistQRLoginSuccess(ctx context.Context, userID int64, sessio
 		return persisted, nil
 	}
 	cookies := qrString(result, "cookies")
-	accountID := strings.TrimSpace(firstNonEmpty(qrString(result, "unb"), protocol.TransCookies(cookies)["unb"]))
-	if cookies == "" || accountID == "" {
+	scannedAccountID := strings.TrimSpace(firstNonEmpty(qrString(result, "unb"), protocol.TransCookies(cookies)["unb"]))
+	if cookies == "" || scannedAccountID == "" {
 		return qrLoginPersistence{}, errors.New("扫码结果缺少 cookies 或 unb")
+	}
+	accountID := strings.TrimSpace(targetAccountID)
+	if accountID == "" {
+		accountID = scannedAccountID
+	} else {
+		target, err := s.Store.Cookies.GetDetails(ctx, accountID)
+		if err != nil {
+			return qrLoginPersistence{}, errors.New("待重新授权账号不存在")
+		}
+		if target.UserID != userID {
+			return qrLoginPersistence{}, errors.New("待重新授权账号不属于当前用户")
+		}
 	}
 
 	_, err := s.Store.Cookies.GetDetails(ctx, accountID)

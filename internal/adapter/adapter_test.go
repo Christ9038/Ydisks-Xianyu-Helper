@@ -175,6 +175,8 @@ func TestOnTokenCaptchaVerification_SavesCookiesAndRiskLog(t *testing.T) {
 	req := &fakeCaptchaRequester{result: &mtop.FreshCaptchaResult{
 		VerificationURL: "https://fresh.example/captcha",
 		UpdatedCookies:  "unb=1; _m_h5_tk=fresh;",
+		AccessToken:     "fresh-access-token",
+		TokenOK:         true,
 	}}
 	notifier := &fakeNotifier{}
 	a := New(store, nil, nil)
@@ -182,12 +184,15 @@ func TestOnTokenCaptchaVerification_SavesCookiesAndRiskLog(t *testing.T) {
 	a.SetTokenCaptchaRequester(req)
 	a.SetNotifier(notifier)
 
-	newCookies, ok := a.OnTokenCaptchaVerification(ctx, "cid", "unb=1; _m_h5_tk=tk;", "https://old.example/captcha")
+	result, ok := a.OnTokenCaptchaVerification(ctx, "cid", "unb=1; _m_h5_tk=tk;", "https://old.example/captcha")
 	if !ok {
 		t.Fatal("token captcha recovery should succeed")
 	}
-	if !strings.Contains(newCookies, "x5sec=ok") {
-		t.Fatalf("returned cookies should contain x5sec: %q", newCookies)
+	if result == nil || !strings.Contains(result.UpdatedCookies, "x5sec=ok") {
+		t.Fatalf("returned cookies should contain x5sec: %+v", result)
+	}
+	if result.AccessToken != "fresh-access-token" {
+		t.Fatalf("fresh access token was dropped: %+v", result)
 	}
 	if fb.tokenCaptchaCalls != 1 || fb.tokenCaptchaURL != "https://old.example/captcha" {
 		t.Fatalf("browser captcha call mismatch: calls=%d url=%q", fb.tokenCaptchaCalls, fb.tokenCaptchaURL)

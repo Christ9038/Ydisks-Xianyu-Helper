@@ -14,7 +14,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/mail"
 	"net/smtp"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -348,7 +350,15 @@ func (n *Notifier) sendDingTalk(cfg map[string]any, message string) error {
 		h := hmac.New(sha256.New, []byte(secret))
 		h.Write([]byte(stringToSign))
 		sign := base64.StdEncoding.EncodeToString(h.Sum(nil))
-		webhook += "&timestamp=" + ts + "&sign=" + sign
+		parsed, err := url.Parse(webhook)
+		if err != nil {
+			return fmt.Errorf("钉钉 webhook 地址无效: %w", err)
+		}
+		query := parsed.Query()
+		query.Set("timestamp", ts)
+		query.Set("sign", sign)
+		parsed.RawQuery = query.Encode()
+		webhook = parsed.String()
 	}
 	payload := map[string]any{
 		"msgtype": "markdown",
@@ -463,11 +473,10 @@ func (n *Notifier) sendTelegram(cfg map[string]any, message string) error {
 	if botToken == "" || chatID == "" {
 		return fmt.Errorf("telegram bot_token/chat_id 不完整")
 	}
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
-	return n.postJSON(url, map[string]any{
-		"chat_id":    chatID,
-		"text":       message,
-		"parse_mode": "HTML",
+	endpoint := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+	return n.postJSON(endpoint, map[string]any{
+		"chat_id": chatID,
+		"text":    message,
 	})
 }
 
@@ -478,26 +487,57 @@ func (n *Notifier) sendEmail(cfg map[string]any, message string) error {
 	port := n.configOrSetting(ctx, cfg, "smtp_port", "587")
 	user := n.configOrSetting(ctx, cfg, "smtp_user", "")
 	pass := n.configOrSetting(ctx, cfg, "smtp_password", "")
-	from := n.configOrSetting(ctx, cfg, "smtp_from", "")
+	fromAddress := n.configOrSetting(ctx, cfg, "smtp_from_address", "")
+	fromName := n.configOrSetting(ctx, cfg, "smtp_from_name", "")
+	legacyFrom := n.configOrSetting(ctx, cfg, "smtp_from", "")
 	to := strOr(cfg, "to_email", strOr(cfg, "email", ""))
 	if server == "" || user == "" || to == "" {
 		return fmt.Errorf("邮件配置不完整：请配置系统 SMTP 或在邮件渠道中覆盖 SMTP，并填写收件邮箱")
 	}
-	if from == "" {
-		from = user
+	if legacyFrom != "" {
+		if parsed, err := mail.ParseAddress(legacyFrom); err == nil && strings.Contains(parsed.Address, "@") {
+			if fromAddress == "" {
+				fromAddress = parsed.Address
+			}
+			if fromName == "" {
+				fromName = parsed.Name
+			}
+		} else if fromName == "" {
+			fromName = legacyFrom
+		}
+	}
+	if fromAddress == "" {
+		fromAddress = user
+	}
+	from, err := mail.ParseAddress(fromAddress)
+	if err != nil || !strings.Contains(from.Address, "@") {
+		return fmt.Errorf("发件邮箱地址无效")
+	}
+	recipient, err := mail.ParseAddress(to)
+	if err != nil || !strings.Contains(recipient.Address, "@") {
+		return fmt.Errorf("收件邮箱地址无效")
+	}
+	from.Name = fromName
+	fromHeader := from.Address
+	if from.Name != "" {
+		fromHeader = from.String()
+	}
+	toHeader := recipient.Address
+	if recipient.Name != "" {
+		toHeader = recipient.String()
 	}
 	addr := server + ":" + port
 	auth := smtp.PlainAuth("", user, pass, server)
 	msg := strings.Join([]string{
-		"From: " + from,
-		"To: " + to,
+		"From: " + fromHeader,
+		"To: " + toHeader,
 		"Subject: =?UTF-8?B?" + base64.StdEncoding.EncodeToString([]byte("闲鱼自动发货通知")) + "?=",
 		"MIME-Version: 1.0",
 		"Content-Type: text/plain; charset=UTF-8",
 		"",
 		message,
 	}, "\r\n")
-	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
+	return smtp.SendMail(addr, auth, from.Address, []string{recipient.Address}, []byte(msg))
 }
 
 func (n *Notifier) configOrSetting(ctx context.Context, cfg map[string]any, key, fallbackValue string) string {
@@ -518,18 +558,76 @@ func (n *Notifier) postJSON(url string, payload any) error {
 	if err != nil {
 		return err
 	}
-	resp, err := n.httpc.Post(url, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := n.httpc.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
 		return err
 	}
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("状态码 %d", resp.StatusCode)
 	}
+	if err := notificationBusinessError(responseBody); err != nil {
+		return err
+	}
 	return nil
+}
+
+func notificationBusinessError(body []byte) error {
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil
+	}
+	var payload map[string]any
+	if json.Unmarshal(body, &payload) != nil {
+		return nil
+	}
+	message := strings.TrimSpace(firstMapString(payload, "errmsg", "msg", "message", "description"))
+	if code, ok := mapNumber(payload, "errcode"); ok && code != 0 {
+		return fmt.Errorf("通知渠道返回错误 %.0f: %s", code, message)
+	}
+	if code, ok := mapNumber(payload, "StatusCode"); ok && code != 0 {
+		return fmt.Errorf("通知渠道返回错误 %.0f: %s", code, message)
+	}
+	if code, ok := mapNumber(payload, "code"); ok && code != 0 && code != 200 {
+		return fmt.Errorf("通知渠道返回错误 %.0f: %s", code, message)
+	}
+	if okValue, exists := payload["ok"].(bool); exists && !okValue {
+		return fmt.Errorf("通知渠道返回失败: %s", message)
+	}
+	return nil
+}
+
+func mapNumber(payload map[string]any, key string) (float64, bool) {
+	value, ok := payload[key]
+	if !ok {
+		return 0, false
+	}
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case string:
+		number, err := strconv.ParseFloat(typed, 64)
+		return number, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func firstMapString(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := payload[key].(string); ok && value != "" {
+			return value
+		}
+	}
+	return "未知错误"
 }
 
 // strOr 从 map 取字符串，缺失返回 fallback。

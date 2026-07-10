@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -190,6 +191,51 @@ func TestCompleteQRVerificationPersistsAndReenablesAccount(t *testing.T) {
 	}
 	if _, err := store.Tokens.Get(ctx, "acc1"); !errors.Is(err, db.ErrNotFound) {
 		t.Fatalf("扫码验证成功后应清 token，got %v", err)
+	}
+}
+
+func TestCompleteQRVerificationRequiresConfirmationForDifferentTarget(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.Manager = nil
+	srv.QRLogin = &fakeQRLoginService{
+		completeCookies: "unb=scanned-other; _m_h5_tk=qr-fresh;",
+		completeUNB:     "scanned-other",
+	}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	request := func(confirm bool) map[string]any {
+		body := fmt.Sprintf(`{"target_account_id":"acc1","confirm_mismatch":%t}`, confirm)
+		req := httptest.NewRequest(http.MethodPost, "/qr-login/complete-verification/s-mismatch", strings.NewReader(body))
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		var result map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+
+	first := request(false)
+	if first["requires_confirmation"] != true || first["success"] != false {
+		t.Fatalf("first response=%+v", first)
+	}
+	original, _ := store.Cookies.GetValue(context.Background(), "acc1")
+	if strings.Contains(original, "qr-fresh") {
+		t.Fatal("mismatched account must not be overwritten before confirmation")
+	}
+	second := request(true)
+	if second["success"] != true || second["account_id"] != "acc1" {
+		t.Fatalf("confirmed response=%+v", second)
+	}
+	updated, _ := store.Cookies.GetValue(context.Background(), "acc1")
+	if !strings.Contains(updated, "qr-fresh") {
+		t.Fatalf("target account was not updated: %q", updated)
 	}
 }
 

@@ -4,14 +4,52 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/xianyu/mtop"
 	xrenew "xianyu-go/internal/xianyu/renew"
 )
+
+type riskCountingMTop struct {
+	fakeRunMtop
+	calls int
+}
+
+func (m *riskCountingMTop) RefreshTokenWithDeviceIDContext(context.Context, string, string) (*mtop.RefreshResult, error) {
+	m.calls++
+	return nil, &mtop.RiskVerificationError{Ret: []string{"FAIL_SYS_USER_VALIDATE"}, VerificationURL: "https://verify.example"}
+}
+
+type tokenRecoveredHandler struct{ recordingHandler }
+
+func (h *tokenRecoveredHandler) OnTokenCaptchaVerification(context.Context, string, string, string) (*mtop.RefreshResult, bool) {
+	return &mtop.RefreshResult{AccessToken: "recovered-token", UpdatedCookies: "unb=123; _m_h5_tk=recovered;"}, true
+}
+
+func TestRefreshTokenUsesRecoveredAccessTokenWithoutSecondRequest(t *testing.T) {
+	acc, _, _, cleanup := newAccountForTest(t)
+	defer cleanup()
+	defer acc.Stop()
+	client := &riskCountingMTop{}
+	acc.mtop = client
+	acc.handler = &tokenRecoveredHandler{}
+
+	token, cookies, err := acc.refreshToken(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "recovered-token" || !strings.Contains(cookies, "recovered") {
+		t.Fatalf("token=%q cookies=%q", token, cookies)
+	}
+	if client.calls != 1 {
+		t.Fatalf("refresh calls=%d want 1", client.calls)
+	}
+}
 
 // TestStop_IdempotentAndClearsTimers Stop 重复调用幂等；调用后防抖定时器被清空。
 func TestStop_IdempotentAndClearsTimers(t *testing.T) {

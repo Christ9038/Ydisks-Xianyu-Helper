@@ -89,8 +89,6 @@ func (m *Manager) Start(ctx context.Context, cookieID, cookieValue string) error
 			return nil
 		}
 	}
-	m.mu.Unlock()
-
 	acc := engine.New(engine.Config{
 		CookieID:  cookieID,
 		CookieStr: cookieValue,
@@ -105,16 +103,17 @@ func (m *Manager) Start(ctx context.Context, cookieID, cookieValue string) error
 		cancel:   cancel,
 		done:     make(chan struct{}),
 	}
-
-	m.mu.Lock()
 	m.accounts[cookieID] = ma
 	m.mu.Unlock()
 
 	m.logger.Info("启动账号", "account", cookieID)
 	go func() {
-		defer close(ma.done)
-		ma.err = acc.Run(accCtx)
-		m.logger.Info("账号运行结束", "account", cookieID, "err", ma.err)
+		err := acc.Run(accCtx)
+		m.mu.Lock()
+		ma.err = err
+		m.mu.Unlock()
+		close(ma.done)
+		m.logger.Info("账号运行结束", "account", cookieID, "err", err)
 	}()
 	return nil
 }
@@ -131,7 +130,9 @@ func (m *Manager) Stop(cookieID string) {
 	ma.cancel()
 	<-ma.done
 	m.mu.Lock()
-	delete(m.accounts, cookieID)
+	if current := m.accounts[cookieID]; current == ma {
+		delete(m.accounts, cookieID)
+	}
 	m.mu.Unlock()
 	m.logger.Info("账号已停止", "account", cookieID)
 }

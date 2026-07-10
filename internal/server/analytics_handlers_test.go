@@ -69,3 +69,60 @@ func TestValidOrdersMatchesAnalyticsScope(t *testing.T) {
 		t.Fatalf("状态字段异常: %+v", order)
 	}
 }
+
+func TestDashboardStatsAreAvailableAndScopedToCurrentUser(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	if ok, err := store.Users.Create(ctx, "member", "member@example.com", "pw"); err != nil || !ok {
+		t.Fatalf("create member: ok=%v err=%v", ok, err)
+	}
+	member, err := store.Users.GetByUsername(ctx, "member")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Cookies.Save(ctx, "member-acc", "unb=456", member.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO cards (name,type,user_id) VALUES ('member-card','text',?)`, member.ID)
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO keywords (cookie_id,keyword,reply) VALUES ('member-acc','hi','hello')`)
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,cookie_id,order_status) VALUES ('member-order','member-acc','completed')`)
+
+	// 管理员资源不能进入 member 的统计。
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO cards (name,type,user_id) VALUES ('admin-card','text',1)`)
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,cookie_id,order_status) VALUES ('admin-order','acc1','completed')`)
+
+	h := srv.Router()
+	loginReq := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"member","password":"pw"}`))
+	loginRec := httptest.NewRecorder()
+	h.ServeHTTP(loginRec, loginReq)
+	if loginRec.Code != http.StatusOK || len(loginRec.Result().Cookies()) == 0 {
+		t.Fatalf("login status=%d body=%s", loginRec.Code, loginRec.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/stats", nil)
+	req.AddCookie(loginRec.Result().Cookies()[0])
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var stats map[string]int64
+	if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"total_cookies", "active_cookies", "total_cards", "total_keywords", "total_orders"} {
+		if stats[key] != 1 {
+			t.Fatalf("%s=%d want 1; stats=%+v", key, stats[key], stats)
+		}
+	}
+
+	adminReq := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
+	adminReq.AddCookie(loginRec.Result().Cookies()[0])
+	adminRec := httptest.NewRecorder()
+	h.ServeHTTP(adminRec, adminReq)
+	if adminRec.Code != http.StatusForbidden {
+		t.Fatalf("member admin stats status=%d want 403", adminRec.Code)
+	}
+}

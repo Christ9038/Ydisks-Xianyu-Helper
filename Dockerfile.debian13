@@ -22,7 +22,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /src/internal/webui/static ./internal/webui/static
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/xianyu-server ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/xianyu-server ./cmd/server \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/xianyu-dbseed ./cmd/dbseed \
+    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/xianyu-dbverify ./cmd/dbverify
 
 FROM debian:13-slim AS runtime
 ENV TZ=Asia/Shanghai
@@ -43,6 +45,8 @@ RUN apt-get update \
         tzdata \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=backend /out/xianyu-server /app/xianyu-server
+COPY --from=backend /out/xianyu-dbseed /app/xianyu-dbseed
+COPY --from=backend /out/xianyu-dbverify /app/xianyu-dbverify
 COPY --from=playwright-driver /ms-playwright-go /ms-playwright-go
 RUN mkdir -p /app/data /app/browser_data
 EXPOSE 8080

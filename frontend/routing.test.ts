@@ -136,4 +136,12 @@ describe('frontend navigation routing', () => {
     expect(itemList).toContain('URL.revokeObjectURL(preview.url)');
     expect(itemList).not.toContain('src={URL.createObjectURL(file)}');
   });
+
+  test('QR verification exposes both the external verification link and completion action', () => {
+    const accounts = readFrontendFile('components/AccountList.tsx');
+    expect(accounts).toContain('href={verificationUrl}');
+    expect(accounts).toContain('rel="noopener noreferrer"');
+    expect(accounts).toContain('onClick={handleCompleteVerification}');
+    expect(accounts).toContain('我已完成验证');
+  });
 });

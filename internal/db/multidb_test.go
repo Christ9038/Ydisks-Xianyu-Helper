@@ -444,7 +444,7 @@ func TestMultiDB_Notifications(t *testing.T) {
 	}
 }
 
-func TestMultiDB_Migration14DownUp(t *testing.T) {
+func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 	for _, tg := range allTestTargets(t) {
 		t.Run(tg.name, func(t *testing.T) {
 			defer tg.cleanup()
@@ -453,14 +453,19 @@ func TestMultiDB_Migration14DownUp(t *testing.T) {
 				t.Fatalf("set goose dialect: %v", err)
 			}
 			goose.SetBaseFS(migrationsFS)
-			if err := goose.Down(tg.store.DB, "migrations/"+subdir); err != nil {
-				t.Fatalf("migration 14 down: %v", err)
+			for i := 0; i < 3; i++ {
+				if err := goose.Down(tg.store.DB, "migrations/"+subdir); err != nil {
+					t.Fatalf("migration down #%d: %v", i+1, err)
+				}
 			}
 			if columnExistsForDialect(t, tg.store.DB, tg.dialect, "notification_channels", "event_types") {
 				t.Fatal("notification_channels.event_types should be removed after down")
 			}
 			if tableExistsForDialect(t, tg.store.DB, tg.dialect, "risk_control_logs") {
 				t.Fatal("risk_control_logs should be removed after down")
+			}
+			if columnExistsForDialect(t, tg.store.DB, tg.dialect, "default_reply_records", "status") {
+				t.Fatal("default_reply_records.status should be removed after down")
 			}
 
 			if err := goose.Up(tg.store.DB, "migrations/"+subdir); err != nil {
@@ -476,6 +481,8 @@ func TestMultiDB_Migration14DownUp(t *testing.T) {
 				{"scheduled_login_renew_log", "updated_cookie_count"},
 				{"scheduled_api_cookie_renew_log", "request_count"},
 				{"risk_control_logs", "processing_status"},
+				{"default_reply_records", "status"},
+				{"default_reply_records", "text_sent"},
 			} {
 				if !columnExistsForDialect(t, tg.store.DB, tg.dialect, c.table, c.col) {
 					t.Fatalf("column missing after re-up: %s.%s", c.table, c.col)

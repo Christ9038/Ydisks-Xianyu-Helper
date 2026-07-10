@@ -11,8 +11,59 @@ import (
 
 // mountAnalyticsReal 订单分析端点（仪表盘 BI 报表用）。
 func (s *Server) mountAnalyticsReal(r chi.Router) {
+	r.Get("/dashboard/stats", s.dashboardStats)
 	r.Get("/analytics/orders", s.orderAnalytics)
 	r.Get("/analytics/orders/valid", s.validOrders)
+}
+
+// dashboardStats 返回当前登录用户的数据概览。管理员全局统计仍由 /admin/stats 提供，
+// 避免普通用户访问管理员接口，也避免把全局资源数和用户自己的订单收益混在一起。
+func (s *Server) dashboardStats(w http.ResponseWriter, r *http.Request) {
+	sess := auth.SessionFromContext(r.Context())
+	if sess == nil {
+		writeErr(w, http.StatusUnauthorized, "未登录")
+		return
+	}
+
+	counts := map[string]int64{
+		"total_cookies":  0,
+		"active_cookies": 0,
+		"total_cards":    0,
+		"total_keywords": 0,
+		"total_orders":   0,
+	}
+	queries := []struct {
+		key   string
+		query string
+	}{
+		{"total_cookies", `SELECT COUNT(*) FROM cookies WHERE user_id=?`},
+		{"total_cards", `SELECT COUNT(*) FROM cards WHERE user_id=?`},
+		{"total_keywords", `SELECT COUNT(*) FROM keywords k WHERE EXISTS (
+			SELECT 1 FROM cookies c WHERE c.id=k.cookie_id AND c.user_id=?)`},
+		{"total_orders", `SELECT COUNT(*) FROM orders o WHERE EXISTS (
+			SELECT 1 FROM cookies c WHERE c.id=o.cookie_id AND c.user_id=?)`},
+	}
+	for _, item := range queries {
+		var count int64
+		if err := s.Store.DB.QueryRowContext(r.Context(), item.query, sess.UserID).Scan(&count); err != nil {
+			writeErr(w, http.StatusInternalServerError, "统计数据失败")
+			return
+		}
+		counts[item.key] = count
+	}
+
+	var activeCookies int64
+	if err := s.Store.DB.QueryRowContext(r.Context(), `
+		SELECT COUNT(*) FROM cookies c
+		WHERE c.user_id=?
+		  AND NOT EXISTS (SELECT 1 FROM cookie_status cs WHERE cs.cookie_id=c.id AND cs.enabled=0)
+	`, sess.UserID).Scan(&activeCookies); err != nil {
+		writeErr(w, http.StatusInternalServerError, "统计活跃账号失败")
+		return
+	}
+	counts["active_cookies"] = activeCookies
+
+	writeJSON(w, http.StatusOK, counts)
 }
 
 // 有效订单状态只统计以下几种。

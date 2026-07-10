@@ -3,12 +3,14 @@ package qrlogin
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -23,6 +25,35 @@ func TestReadQRBodyRejectsOversizedResponse(t *testing.T) {
 	}
 }
 
+func TestSessionStatusConcurrentSnapshot(t *testing.T) {
+	m := NewManager(nil)
+	sess := testVerificationSession()
+	m.sessions["s1"] = sess
+	var wg sync.WaitGroup
+	for worker := 0; worker < 8; worker++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			for i := 0; i < 500; i++ {
+				if worker%2 == 0 {
+					sess.mu.Lock()
+					sess.verificationScreenshot = fmt.Sprintf("shot-%d-%d", worker, i)
+					sess.faceQRURL = fmt.Sprintf("qr-%d-%d", worker, i)
+					sess.Status = "verification_required"
+					sess.mu.Unlock()
+				} else {
+					status := m.GetSessionStatus("s1")
+					if status["status"] == "not_found" {
+						t.Error("existing session reported not_found")
+						return
+					}
+				}
+			}
+		}(worker)
+	}
+	wg.Wait()
+}
+
 func TestCompleteVerificationRequiresBrowserWhenHTTPMissingUNB(t *testing.T) {
 	m := NewManager(nil)
 	m.sessions["s1"] = testVerificationSession()
@@ -33,6 +64,20 @@ func TestCompleteVerificationRequiresBrowserWhenHTTPMissingUNB(t *testing.T) {
 	_, _, err := m.CompleteVerification(context.Background(), "s1")
 	if err == nil || !strings.Contains(err.Error(), "需要浏览器支持") {
 		t.Fatalf("错误异常: %v", err)
+	}
+}
+
+func TestCompleteVerificationReturnsCompletedSessionWithoutAnotherRequest(t *testing.T) {
+	m := NewManager(nil)
+	sess := testVerificationSession()
+	sess.Status = "success"
+	sess.unb = "completed-account"
+	sess.cookies["unb"] = sess.unb
+	m.sessions["s1"] = sess
+
+	cookies, unb, err := m.CompleteVerification(context.Background(), "s1")
+	if err != nil || unb != "completed-account" || !strings.Contains(cookies, "unb=completed-account") {
+		t.Fatalf("completed session: cookies=%q unb=%q err=%v", cookies, unb, err)
 	}
 }
 
