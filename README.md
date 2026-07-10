@@ -204,6 +204,7 @@ MySQL 8.4 与 PostgreSQL 17 API 功能及重启持久化）：
 本地 `data/xianyu_data.db` 只会抽取少量商品、订单和卡密元数据，写入外置库前会替换
 Cookie、买家 ID 和卡密内容。测试应用分别监听 `18081`（MySQL）与 `18082`
 （PostgreSQL），测试账号为 `docker_fixture / docker_fixture_password`。
+测试管理员为 `docker_admin / docker_admin_password`。
 
 保留数据库并停止容器：
 

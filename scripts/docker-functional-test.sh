@@ -7,6 +7,7 @@ test_instance() {
   cookie_file="/tmp/${name}.cookies"
 
   curl -fsS "${base_url}/health" | grep -q '"status":"ok"'
+  curl -fsS "${base_url}/verify" | grep -q '"initialized":true'
   curl -fsS -c "$cookie_file" -H 'Content-Type: application/json' \
     -d '{"username":"docker_fixture","password":"docker_fixture_password"}' \
     "${base_url}/login" | grep -q '"success":true'

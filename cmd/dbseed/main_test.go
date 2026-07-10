@@ -30,7 +30,8 @@ func TestSeedFromSQLiteCopiesMetadataAndSanitizesSecrets(t *testing.T) {
 	}
 	defer targetDB.Close()
 	target := db.NewStore(targetDB, targetDialect)
-	result, err := seedFromSQLite(ctx, sourceDB, target, seedOptions{Username: "fixture", Password: "fixture-password", Limit: 10})
+	options := seedOptions{Username: "fixture", Password: "fixture-password", AdminUsername: "fixture-admin", AdminPassword: "fixture-admin-password", Limit: 10}
+	result, err := seedFromSQLite(ctx, sourceDB, target, options)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,12 +43,16 @@ func TestSeedFromSQLiteCopiesMetadataAndSanitizesSecrets(t *testing.T) {
 		t.Fatalf("source cookie leaked: %q", cookie)
 	}
 	fixtureUser, _ := target.Users.GetByUsername(ctx, "fixture")
+	fixtureAdmin, adminErr := target.Users.GetByUsername(ctx, "fixture-admin")
+	if adminErr != nil || !fixtureAdmin.IsAdmin || !fixtureAdmin.IsActive {
+		t.Fatalf("fixture admin missing or inactive: user=%+v err=%v", fixtureAdmin, adminErr)
+	}
 	cards, _ := target.Cards.AllForUser(ctx, fixtureUser.ID)
 	if len(cards) != 1 || strings.Contains(cards[0].DataContent, "SECRET-CODE") {
 		t.Fatalf("source card secret leaked: %+v", cards)
 	}
 
-	second, err := seedFromSQLite(ctx, sourceDB, target, seedOptions{Username: "fixture", Password: "fixture-password", Limit: 10})
+	second, err := seedFromSQLite(ctx, sourceDB, target, options)
 	if err != nil {
 		t.Fatalf("second idempotent seed: %v", err)
 	}

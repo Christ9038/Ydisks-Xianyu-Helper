@@ -17,9 +17,11 @@ import (
 )
 
 type seedOptions struct {
-	Username string
-	Password string
-	Limit    int
+	Username      string
+	Password      string
+	AdminUsername string
+	AdminPassword string
+	Limit         int
 }
 
 type seedResult struct {
@@ -33,6 +35,8 @@ func main() {
 	targetURL := flag.String("target", "", "目标数据库 URL")
 	username := flag.String("username", "docker_fixture", "测试登录用户名")
 	password := flag.String("password", "docker_fixture_password", "测试登录密码")
+	adminUsername := flag.String("admin-username", "docker_admin", "测试管理员用户名")
+	adminPassword := flag.String("admin-password", "docker_admin_password", "测试管理员密码")
 	limit := flag.Int("limit", 20, "每类最多抽取条数")
 	flag.Parse()
 	if strings.TrimSpace(*targetURL) == "" {
@@ -57,9 +61,11 @@ func main() {
 	defer targetDB.Close()
 
 	result, err := seedFromSQLite(ctx, source, db.NewStore(targetDB, dialect), seedOptions{
-		Username: *username,
-		Password: *password,
-		Limit:    *limit,
+		Username:      *username,
+		Password:      *password,
+		AdminUsername: *adminUsername,
+		AdminPassword: *adminPassword,
+		Limit:         *limit,
 	})
 	if err != nil {
 		fatalf("导入测试数据: %v", err)
@@ -73,6 +79,15 @@ func seedFromSQLite(ctx context.Context, source *sql.DB, target *db.Store, optio
 	}
 	if options.Username == "" || options.Password == "" {
 		return seedResult{}, fmt.Errorf("测试用户名和密码不能为空")
+	}
+	if options.AdminUsername == "" {
+		options.AdminUsername = "docker_admin"
+	}
+	if options.AdminPassword == "" {
+		options.AdminPassword = "docker_admin_password"
+	}
+	if err := ensureFixtureAdmin(ctx, target, options.AdminUsername, options.AdminPassword); err != nil {
+		return seedResult{}, err
 	}
 	user, err := prepareFixtureUser(ctx, target, options)
 	if err != nil {
@@ -98,6 +113,38 @@ func seedFromSQLite(ctx context.Context, source *sql.DB, target *db.Store, optio
 	}
 	result.Cards, err = seedCards(ctx, source, target, user.ID, options.Limit)
 	return result, err
+}
+
+func ensureFixtureAdmin(ctx context.Context, target *db.Store, username, password string) error {
+	user, err := target.Users.GetByUsername(ctx, username)
+	if errors.Is(err, db.ErrNotFound) {
+		created, createErr := target.Users.Create(ctx, username, username+"@docker.test", password)
+		if createErr != nil {
+			return fmt.Errorf("创建测试管理员: %w", createErr)
+		}
+		if !created {
+			return fmt.Errorf("创建测试管理员失败：用户名或邮箱已存在")
+		}
+	} else if err != nil {
+		return fmt.Errorf("查询测试管理员: %w", err)
+	} else {
+		updated, updateErr := target.Users.UpdatePassword(ctx, username, password)
+		if updateErr != nil || !updated {
+			return fmt.Errorf("重置测试管理员密码: updated=%v err=%v", updated, updateErr)
+		}
+	}
+	if err := target.Users.SetAdmin(ctx, username); err != nil {
+		return fmt.Errorf("设置测试管理员: %w", err)
+	}
+	if user != nil {
+		_, err = target.DB.ExecContext(ctx, `UPDATE users SET is_active=1 WHERE id=?`, user.ID)
+	} else {
+		_, err = target.DB.ExecContext(ctx, `UPDATE users SET is_active=1 WHERE username=?`, username)
+	}
+	if err != nil {
+		return fmt.Errorf("启用测试管理员: %w", err)
+	}
+	return nil
 }
 
 func prepareFixtureUser(ctx context.Context, target *db.Store, options seedOptions) (*db.User, error) {
