@@ -4,13 +4,36 @@
 
 ```text
 xianyu-go/
-  cmd/server/              Go 服务入口（含 -init-admin 非交互初始化）
-  cmd/init-admin/          交互式初始化管理员 CLI
-  cmd/dbverify/            三库迁移 + 核心 CRUD 验证工具
-  internal/                Go 后端代码
-  frontend/                当前活跃 React 前端源码
-  internal/webui/static/   前端构建产物，Go 会内置并提供给浏览器
+  cmd/
+    server/                服务入口、依赖装配、管理员非交互初始化
+    init-admin/            交互式管理员初始化 CLI
+    dbverify/              SQLite/MySQL/Postgres 迁移与 CRUD 验证
+    dbseed/                Docker 功能测试所需的脱敏数据种子工具
+    spike/                 debug/tools 构建标签下的协议链路探针
+  internal/
+    account/               已启用账号监督与生命周期管理
+    adapter/               engine/automation 与浏览器、通知器的接线层
+    auth/                  管理端会话认证与安全 Cookie
+    automation/            发货、评价赠送、邀评自动化与调度器
+    browser/               Playwright/Chromium 登录、风控验证、订单抓取
+    db/                    三种数据库方言、模型、存储与嵌入式迁移
+    engine/                单账号运行时、消息处理、回复和发货行为
+    logging/               进程级结构化日志配置
+    logsafe/               敏感 ID 与 URL 的日志脱敏
+    netguard/              出站网络目标校验与 DNS rebinding 防护
+    notify/                账号告警和通知渠道
+    renewal/               登录态续期调度与冷却控制
+    server/                chi HTTP API、鉴权和 SPA 服务
+    webui/static/          前端构建产物，由 Go 二进制嵌入
+    xianyu/                MTOP、WebSocket、扫码登录和协议实现
+  frontend/                当前活跃 React/Vite 前端源码
+  docs/                    运行、功能与不可变行为规范
+  scripts/                 Docker、持久化和功能回归脚本
+  data/                    本地运行数据（不作为源码维护）
 ```
+
+目录职责以根目录 `AGENTS.md` 为准。滑块认证属于冻结逻辑，完整契约见
+[`docs/slider-captcha-frozen-spec.md`](docs/slider-captcha-frozen-spec.md)；没有用户在当前任务中的明确授权，不得修改其实现、测试或任何会间接改变其行为的调用链。
 
 ## 数据库支持
 
