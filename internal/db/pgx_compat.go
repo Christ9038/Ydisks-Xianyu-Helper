@@ -100,7 +100,7 @@ func (c *qConn) ResetSession(ctx context.Context) error {
 
 // rewriteQuestionPlaceholders 把 SQL 里的 ? 改写成 $1, $2, ...（Postgres 占位符）。
 // 跳过单引号字符串字面量（'...'）和双引号标识符（"..."）内的 ?；
-// '' 转义单引号也正确处理（相邻两个 ' 不改变字面量状态）。
+// ” 转义单引号也正确处理（相邻两个 ' 不改变字面量状态）。
 func rewriteQuestionPlaceholders(query string) string {
 	var b strings.Builder
 	b.Grow(len(query) + 16)

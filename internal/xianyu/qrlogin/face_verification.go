@@ -112,56 +112,6 @@ func (m *Manager) runFaceVerification(ctx context.Context, sessionID, iframeURL 
 	return nil
 }
 
-// fallbackBrowserVerification 保留旧浏览器验证作为协议变化时的兜底。
-// 主路径不再截图展示，只有 API 链路失败且浏览器可用时才尝试。
-func (m *Manager) fallbackBrowserVerification(ctx context.Context, sessionID, verificationURL string) {
-	browser := m.browserRefresher()
-	if browser == nil {
-		return
-	}
-	m.mu.Lock()
-	sess := m.sessions[sessionID]
-	if sess == nil {
-		m.mu.Unlock()
-		return
-	}
-	m.mu.Unlock()
-	cookieStr := cookieMarshal(sess.snapshot().cookies)
-
-	onScreenshot := func(dataURL string) {
-		m.mu.Lock()
-		s, ok := m.sessions[sessionID]
-		m.mu.Unlock()
-		if ok {
-			s.mu.Lock()
-			s.verificationScreenshot = dataURL
-			s.mu.Unlock()
-		}
-	}
-	realCookies, unb, err := browser(ctx, cookieStr, verificationURL, onScreenshot)
-	m.mu.Lock()
-	s, ok := m.sessions[sessionID]
-	m.mu.Unlock()
-	if !ok {
-		return
-	}
-	if err != nil {
-		m.logger.Error("浏览器验证兜底失败", "session_id", sessionID, "err", err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.cookies = parseCookieStr(realCookies)
-	s.unb = unb
-	if s.unb == "" {
-		s.unb = s.cookies["unb"]
-	}
-	if s.unb != "" {
-		s.Status = "success"
-		m.logger.Info("浏览器验证兜底成功", "session_id", sessionID, "account_hash", logsafe.ID(s.unb))
-	}
-}
-
 func (m *Manager) faceHTTPClient(cookies map[string]string, iframeURL string) (*http.Client, http.CookieJar, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -252,7 +202,7 @@ func (m *Manager) checkFaceVerification(ctx context.Context, client *http.Client
 	if err := json.Unmarshal(body, &result); err != nil {
 		return "", false, fmt.Errorf("解析人脸验证状态失败: %w", err)
 	}
-	if fmt.Sprint(result.Content.Code) == "3" && result.Content.URL != "" {
+	if fmt.Sprint(result.Content.Code) == "3" {
 		return result.Content.URL, true, nil
 	}
 	return "", false, nil

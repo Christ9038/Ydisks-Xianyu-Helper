@@ -3,10 +3,32 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestOrdersByCookiePageScansBeyondLegacyLimit(t *testing.T) {
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, cookieID := seedAccount(t, s)
+	for i := 0; i < 1001; i++ {
+		if _, err := s.DB.ExecContext(ctx, `INSERT INTO orders (order_id,cookie_id,order_status,created_at) VALUES (?,?,?,?)`,
+			fmt.Sprintf("page-order-%04d", i), cookieID, "2", fmt.Sprintf("2026-01-%02d 00:00:00", i%28+1)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := s.Orders.ByCookiePage(ctx, cookieID, 500, 0)
+	if err != nil || len(first) != 500 {
+		t.Fatalf("first len=%d err=%v", len(first), err)
+	}
+	third, err := s.Orders.ByCookiePage(ctx, cookieID, 500, 1000)
+	if err != nil || len(third) != 1 {
+		t.Fatalf("third len=%d err=%v", len(third), err)
+	}
+}
 
 // seedAccount 在临时库里建好 admin 用户 + 一个账号（cookie），返回 (userID, cookieID)。
 // 多数订单/自动化/卡券测试都需要这两层外键先就位。
@@ -55,6 +77,81 @@ func TestOrders_UpsertNoFields(t *testing.T) {
 	got, _ := s.Orders.Get(ctx, "o1")
 	if got.ItemID != "i1" || got.Amount != "9.9" {
 		t.Fatalf("字段被清空: %#v", got)
+	}
+}
+
+func TestOrdersUpsertNormalizesAndRejectsAmountsAtRepositoryBoundary(t *testing.T) {
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, cid := seedAccount(t, s)
+	if err := s.Orders.Upsert(ctx, "normalized-amount", OrderUpsertOpts{CookieID: cid, Amount: "¥1,200.50"}); err != nil {
+		t.Fatal(err)
+	}
+	order, _ := s.Orders.Get(ctx, "normalized-amount")
+	if order.Amount != "1200.50" {
+		t.Fatalf("amount=%q", order.Amount)
+	}
+	if err := s.Orders.Upsert(ctx, "full-width-yen", OrderUpsertOpts{CookieID: cid, Amount: "￥12.50"}); err != nil {
+		t.Fatal(err)
+	}
+	order, _ = s.Orders.Get(ctx, "full-width-yen")
+	if order.Amount != "12.50" {
+		t.Fatalf("full-width amount=%q", order.Amount)
+	}
+	if err := s.Orders.Upsert(ctx, "invalid-amount", OrderUpsertOpts{CookieID: cid, Amount: "1e3"}); err == nil {
+		t.Fatal("scientific notation must be rejected")
+	}
+	if _, err := s.Orders.Get(ctx, "invalid-amount"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("invalid amount left a partial order: %v", err)
+	}
+	for _, invalid := range []string{"1,2", "12,34", "1,,000", "¥¥1"} {
+		if _, ok := NormalizeOrderAmount(invalid); ok {
+			t.Fatalf("malformed grouped amount %q must be rejected", invalid)
+		}
+	}
+}
+
+func TestOrders_PatchCanExplicitlyClearFields(t *testing.T) {
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, cid := seedAccount(t, s)
+	if err := s.Orders.Upsert(ctx, "patch-order", OrderUpsertOpts{
+		CookieID: cid, ItemID: "item-1", BuyerID: "buyer-1", Amount: "19.9", ReceiverPhone: "13800000000",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	empty := ""
+	shipped := true
+	if err := s.Orders.Patch(ctx, "patch-order", OrderPatch{Amount: &empty, ReceiverPhone: &empty, SystemShipped: &shipped}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Orders.Get(ctx, "patch-order")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Amount != "" || got.ReceiverPhone != "" || !got.SystemShipped || got.ItemID != "item-1" {
+		t.Fatalf("explicit clear/unmodified fields mismatch: %+v", got)
+	}
+}
+
+func TestOrders_ListForUserSearchesAcrossJoinedFields(t *testing.T) {
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	uid, cid := seedAccount(t, s)
+	if err := s.Orders.Upsert(ctx, "search-order", OrderUpsertOpts{CookieID: cid, ItemID: "item-1", BuyerID: "Buyer-ABC", ReceiverName: "张三"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Items.Upsert(ctx, &ItemInfoRow{CookieID: cid, ItemID: "item-1", ItemTitle: "Special Product"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, search := range []string{"special", "buyer-abc", "张三", "search-order"} {
+		rows, total, err := s.Orders.ListForUser(ctx, OrderListFilter{UserID: uid, Search: search, Limit: 20})
+		if err != nil || total != 1 || len(rows) != 1 || rows[0].OrderID != "search-order" {
+			t.Fatalf("search %q: rows=%+v total=%d err=%v", search, rows, total, err)
+		}
 	}
 }
 
@@ -121,6 +218,29 @@ func TestOrders_UpsertAllFields(t *testing.T) {
 	got, _ = s.Orders.Get(ctx, "o1")
 	if got.SystemShipped {
 		t.Fatal("system_shipped 应为 false")
+	}
+}
+
+func TestOrdersUpsertDoesNotRegressAdvancedStatus(t *testing.T) {
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, cid := seedAccount(t, s)
+	if err := s.Orders.Upsert(ctx, "status-order", OrderUpsertOpts{CookieID: cid, OrderStatus: "completed"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Orders.Upsert(ctx, "status-order", OrderUpsertOpts{CookieID: cid, OrderStatus: "pending_ship", Amount: "10"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Orders.Get(ctx, "status-order")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.OrderStatus != "completed" || got.Amount != "10" {
+		t.Fatalf("stale event regressed status or lost other facts: %+v", got)
+	}
+	if !shouldUpdateOrderStatus("pending_ship", "shipped") || shouldUpdateOrderStatus("completed", "shipped") {
+		t.Fatal("status transition guard mismatch")
 	}
 }
 
@@ -198,8 +318,8 @@ func TestNormalizeOrderStatus(t *testing.T) {
 		"1":    "processing",
 		"4":    "completed",
 		"":     "unknown",
-		"99":   "99",   // 未知数字码原样返回
-		"paid": "paid", // 文本原样返回
+		"99":   "99", // 未知数字码原样返回
+		"paid": "pending_ship",
 	}
 	for in, want := range cases {
 		if got := NormalizeOrderStatus(in); got != want {
@@ -364,6 +484,30 @@ func TestCards_ConsumeBatchData(t *testing.T) {
 	// 全部消费完 → 报错“为空”。
 	if _, err := s.Cards.ConsumeBatchData(ctx, id); err == nil || !strings.Contains(err.Error(), "为空") {
 		t.Fatalf("消费完后应报错, got %v", err)
+	}
+}
+
+func TestCards_RestoreBatchDataReturnsReservedValueToFront(t *testing.T) {
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	uid, _ := seedAccount(t, s)
+	id, err := s.Cards.Create(ctx, &CardFull{
+		Name: "restore", Type: "data", DataContent: "first\nsecond", Enabled: true, UserID: uid,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reserved, err := s.Cards.ConsumeBatchData(ctx, id)
+	if err != nil || reserved != "first" {
+		t.Fatalf("reserve=%q err=%v", reserved, err)
+	}
+	if err := s.Cards.RestoreBatchData(ctx, id, reserved); err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.Cards.ConsumeBatchData(ctx, id)
+	if err != nil || again != "first" {
+		t.Fatalf("restored value must be consumed first: got=%q err=%v", again, err)
 	}
 }
 
@@ -587,6 +731,17 @@ func TestUsers_CreateDuplicateEmail(t *testing.T) {
 	// 同邮箱不同用户名。
 	if ok, err := s.Users.Create(ctx, "u2", "dup@e.com", "pw"); err != nil || ok {
 		t.Fatalf("重复邮箱应 ok=false, got ok=%v err=%v", ok, err)
+	}
+}
+
+func TestUsersCreatePropagatesDatabaseErrors(t *testing.T) {
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	if err := s.DB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.Users.Create(context.Background(), "db-error", "db-error@example.com", "pw"); err == nil || ok {
+		t.Fatalf("database error was hidden: ok=%v err=%v", ok, err)
 	}
 }
 

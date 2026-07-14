@@ -13,7 +13,7 @@ import (
 )
 
 func TestParseMoneyCents(t *testing.T) {
-	cases := map[string]int64{"1": 100, "1.2": 120, "¥12.34": 1234, "￥0.01": 1, "": 0}
+	cases := map[string]int64{"1": 100, "1.2": 120, "¥12.34": 1234, "￥0.01": 1, "-0.50": -50, "+2.05": 205, "": 0}
 	for raw, want := range cases {
 		got, err := parseMoneyCents(raw)
 		if err != nil || got != want {

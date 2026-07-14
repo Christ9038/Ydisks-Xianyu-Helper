@@ -111,6 +111,24 @@ func seedFromSQLite(ctx context.Context, source *sql.DB, target *db.Store, optio
 	if err != nil {
 		return result, err
 	}
+	// 保留一条历史脏金额，用于验证三种数据库下统计接口都能安全跳过而不是 500。
+	fixtureItemID := ""
+	for _, id := range itemMap {
+		fixtureItemID = id
+		break
+	}
+	if fixtureItemID != "" {
+		if err := target.Orders.Upsert(ctx, "docker-invalid-amount", db.OrderUpsertOpts{
+			CookieID: accountID, ItemID: fixtureItemID, BuyerID: "docker-buyer-invalid",
+			Quantity: "1", OrderStatus: "completed",
+		}); err != nil {
+			return result, err
+		}
+		// 直接写入一条模拟升级前遗留的脏数据；正常仓储写入口会拒绝该金额。
+		if _, err := target.DB.ExecContext(ctx, `UPDATE orders SET amount='not-a-number' WHERE order_id='docker-invalid-amount'`); err != nil {
+			return result, err
+		}
+	}
 	result.Cards, err = seedCards(ctx, source, target, user.ID, options.Limit)
 	return result, err
 }
@@ -228,6 +246,11 @@ func seedOrders(ctx context.Context, source *sql.DB, target *db.Store, accountID
 		itemID, ok := items[sourceItemID]
 		if !ok {
 			continue
+		}
+		if normalized, valid := db.NormalizeOrderAmount(amount); valid {
+			amount = normalized
+		} else {
+			amount = ""
 		}
 		if err := target.Orders.Upsert(ctx, "docker-order-"+shortHash(sourceOrderID), db.OrderUpsertOpts{
 			CookieID: accountID, ItemID: itemID, BuyerID: "docker-buyer", Quantity: quantity,

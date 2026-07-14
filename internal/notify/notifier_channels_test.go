@@ -489,6 +489,7 @@ func TestSendEmail_Success(t *testing.T) {
 		"smtp_port":     port,
 		"smtp_user":     "u@e.com",
 		"smtp_password": "pw",
+		"smtp_use_tls":  false,
 		"to_email":      "to@e.com",
 	}
 	if err := n.sendEmail(cfg, "邮件正文"); err != nil {
@@ -510,6 +511,7 @@ func TestSendEmail_DefaultFrom(t *testing.T) {
 		"smtp_port":     port,
 		"smtp_user":     "from@e.com",
 		"smtp_password": "pw",
+		"smtp_use_tls":  false,
 		"to_email":      "to@e.com",
 	}
 	if err := n.sendEmail(cfg, "x"); err != nil {
@@ -526,6 +528,7 @@ func TestSendEmail_SeparatesDisplayNameAndEnvelopeAddress(t *testing.T) {
 	n := New("cid", nil, nil)
 	cfg := map[string]any{
 		"smtp_server": host, "smtp_port": port, "smtp_user": "login@e.com", "smtp_password": "pw",
+		"smtp_use_tls":   false,
 		"smtp_from_name": "闲鱼自动回复系统", "smtp_from_address": "sender@e.com", "to_email": "to@e.com",
 	}
 	if err := n.sendEmail(cfg, "x"); err != nil {
@@ -548,6 +551,7 @@ func TestSendEmail_UsesSystemSMTPFallback(t *testing.T) {
 		"smtp_port":     port,
 		"smtp_user":     "system@e.com",
 		"smtp_password": "pw",
+		"smtp_use_tls":  "false",
 	} {
 		if err := store.Settings.Set(ctx, key, value); err != nil {
 			t.Fatalf("set %s: %v", key, err)
@@ -576,6 +580,15 @@ func TestSendEmail_IncompleteConfig(t *testing.T) {
 		if err := n.sendEmail(cfg, "x"); err == nil {
 			t.Fatalf("配置不完整应报错: %v", cfg)
 		}
+	}
+}
+
+func TestParseSMTPTransportFlags(t *testing.T) {
+	if !parseConfigBool("true", false) || !parseConfigBool("1", false) || parseConfigBool("off", true) {
+		t.Fatal("SMTP boolean settings were not parsed consistently")
+	}
+	if !parseConfigBool("invalid", true) || parseConfigBool("invalid", false) {
+		t.Fatal("SMTP boolean fallback was ignored")
 	}
 }
 

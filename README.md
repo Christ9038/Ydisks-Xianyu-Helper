@@ -178,6 +178,16 @@ XIANYU_UPLOAD_DIR=/app/data/uploads
 
 外置 MySQL/Postgres 时改用 `DATABASE_URL` 环境变量。
 
+生产环境建议同时设置稳定且仅由服务进程可读的 `XIANYU_DATA_KEY`。启用后，Cookie、
+账号登录密码、设备/访问令牌、AI/SMTP 密钥和通知渠道配置会使用 AES-256-GCM 加密
+后落库；首次启动会自动升级历史明文。该密钥必须随数据卷一同备份，丢失或更换后
+已有凭证无法解密。
+
+管理员配置的 OpenAI 兼容 AI Base URL 不限制目标网络，可使用 `0.0.0.0`、loopback、
+Docker 服务名、RFC1918 私网、Tailscale/CGNAT、IPv6 ULA 或公网地址，便于连接任意部署
+位置的 Ollama、vLLM、LocalAI 或兼容网关。通知 Webhook、远程图片等非管理员可信目标
+继续只允许公网地址。
+
 ## 常用参数
 
 | 参数 | 说明 |
@@ -185,6 +195,7 @@ XIANYU_UPLOAD_DIR=/app/data/uploads
 | `-db` | SQLite 数据库路径，默认 `data/xianyu_data.db`（向后兼容） |
 | `-db-url` | 数据库连接 URL（`sqlite://` / `mysql://` / `postgres://`），优先级高于 `-db` |
 | `DATABASE_URL` | 环境变量，优先级最高 |
+| `XIANYU_DATA_KEY` | 敏感字段加密主密钥；生产环境应固定配置并安全备份 |
 | `-addr` | HTTP 监听地址，默认 `:8080` |
 | `-web` | 外部前端静态资源目录；不传则用内置前端 |
 | `-init-admin` | 初始化或重置管理员后退出 |
@@ -225,7 +236,7 @@ MySQL 8.4 与 PostgreSQL 17 API 功能及重启持久化）：
 
 测试编排使用命名卷 `mysql8_data`、`postgres17_data` 和 `sqlite_seed`。
 本地 `data/xianyu_data.db` 只会抽取少量商品、订单和卡密元数据，写入外置库前会替换
-Cookie、买家 ID 和卡密内容。测试应用分别监听 `18081`（MySQL）与 `18082`
+Cookie、买家 ID 和卡密内容。测试应用分别监听 `28081`（MySQL）与 `28082`
 （PostgreSQL），测试账号为 `docker_fixture / docker_fixture_password`。
 测试管理员为 `docker_admin / docker_admin_password`。
 

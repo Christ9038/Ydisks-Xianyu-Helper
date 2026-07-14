@@ -2,27 +2,86 @@ import { afterEach, expect, test, vi } from 'vitest';
 import {
   addAccount,
   cancelPasswordLogin,
+  deleteItemPublishBatch,
   checkPasswordLoginStatus,
   completeQRVerification,
   createNotificationChannel,
   getAccountDetails,
+	getAutomationIssues,
   getItems,
+	getItemPublishBatches,
+	getNotificationChannels,
   getOrders,
+	getOrderAnalytics,
   getReplyRules,
   getShippingRules,
   getSystemSettings,
   getValidOrders,
   logout,
+	importOrders,
   passwordLogin,
+	resolveAutomationRun,
+	resolveDeferredAutomationTask,
+	syncOrders,
   updateReplyRule,
+  deleteReplyRule,
   updateAccountCookie,
   updateAccountLoginInfo,
+	updateAccountSettings,
   updateItem,
   updateNotificationChannel,
+  updateSystemSettings,
   updateShippingRule,
 } from './api';
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+	vi.unstubAllGlobals();
+	vi.restoreAllMocks();
+});
+
+test('updateSystemSettings uses one atomic bulk request', async () => {
+	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+	vi.stubGlobal('fetch', fetchMock);
+	await updateSystemSettings({ theme_color: 'blue', renewal_log_retention_days: 15 });
+	expect(fetchMock).toHaveBeenCalledTimes(1);
+	expect(fetchMock).toHaveBeenCalledWith('/system-settings', expect.objectContaining({ method: 'PUT', credentials: 'include' }));
+	expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ theme_color: 'blue', renewal_log_retention_days: 15 });
+});
+
+test('getItemPublishBatches unwraps persisted batch list', async () => {
+	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ batches: [{ id: 'batch-1', status: 'running' }] }));
+	vi.stubGlobal('fetch', fetchMock);
+	await expect(getItemPublishBatches(10)).resolves.toEqual([{ id: 'batch-1', status: 'running' }]);
+	expect(fetchMock).toHaveBeenCalledWith('/items/publish-batches?limit=10', expect.objectContaining({ credentials: 'include' }));
+});
+
+test('automation issue APIs expose and resolve quarantined work', async () => {
+	const fetchMock = vi.fn()
+		.mockResolvedValueOnce(jsonResponse({ runs: [{ id: 1 }], pending_tasks: [{ id: 2 }] }))
+		.mockImplementation(() => Promise.resolve(jsonResponse({ success: true })));
+	vi.stubGlobal('fetch', fetchMock);
+	await expect(getAutomationIssues()).resolves.toEqual({ runs: [{ id: 1 }], pending_tasks: [{ id: 2 }] });
+	await resolveAutomationRun(1, 'continue');
+	await resolveDeferredAutomationTask(2, 'retry');
+	expect(fetchMock.mock.calls[1][0]).toBe('/automation-runs/1/resolve');
+	expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ resolution: 'continue' });
+	expect(fetchMock.mock.calls[2][0]).toBe('/automation-pending-tasks/2/resolve');
+});
+
+test('order multipart requests use the shared authenticated form request path', async () => {
+	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+	vi.stubGlobal('fetch', fetchMock);
+	await syncOrders('acc1', 'pending_ship');
+	await importOrders(new FormData());
+	expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/orders/refresh', expect.objectContaining({ method: 'POST', credentials: 'include', body: expect.any(FormData) }));
+	expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/orders/import', expect.objectContaining({ method: 'POST', credentials: 'include', body: expect.any(FormData) }));
+});
+
+test('legacy notification channel aliases are normalized for the editor', async () => {
+	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([{ id: 1, name: '旧飞书', type: 'lark', config: 'not-json', enabled: true }])));
+	const result = await getNotificationChannels();
+	expect(result.data?.[0]).toMatchObject({ type: 'feishu', config: {} });
+});
 
 const jsonResponse = (body: unknown) => new Response(JSON.stringify(body), {
   status: 200,
@@ -30,30 +89,71 @@ const jsonResponse = (body: unknown) => new Response(JSON.stringify(body), {
 });
 
 test('getOrders normalizes backend order fields', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
     orders: [{ order_id: 'o1', order_status: 'shipped', quantity: '2' }],
     total: 1,
-  })));
-  const result = await getOrders(undefined, 'all', 1, 20);
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+  const result = await getOrders(undefined, 'all', 1, 20, ' buyer ');
   expect(result.data[0]).toMatchObject({ id: 'o1', status: 'shipped', quantity: 2 });
   expect(result.total).toBe(1);
+  expect(fetchMock).toHaveBeenCalledWith('/api/orders?page=1&page_size=20&search=buyer', expect.objectContaining({ method: 'GET' }));
+});
+
+test('getOrders maps unsupported backend statuses to unknown', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+    data: [{ order_id: 'o-unknown', order_status: 'legacy_status' }],
+  })));
+  const result = await getOrders();
+  expect(result.data[0].status).toBe('unknown');
 });
 
 test('getValidOrders accepts wrapped responses', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
     orders: [{ order_id: 'o2', order_status: 'completed', quantity: '3' }],
-  })));
+	}));
+	vi.stubGlobal('fetch', fetchMock);
+	vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(-480);
   const result = await getValidOrders({ start_date: '2026-01-01', end_date: '2026-01-02' });
-  expect(result).toEqual([expect.objectContaining({ id: 'o2', status: 'completed', quantity: 3 })]);
+  expect(result).toEqual({
+    orders: [expect.objectContaining({ id: 'o2', status: 'completed', quantity: 3 })],
+    total: 1,
+    truncated: false,
+  });
+	expect(fetchMock.mock.calls[0][0]).toContain('timezone_offset_minutes=480');
 });
 
-test('completeQRVerification sends target account and mismatch confirmation', async () => {
+test('getOrderAnalytics sends the browser timezone offset', async () => {
+	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ revenue_stats: {}, daily_stats: [], status_stats: [], city_stats: [] }));
+	vi.stubGlobal('fetch', fetchMock);
+	vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(-330);
+	await getOrderAnalytics({ start_date: '2026-01-01', end_date: '2026-01-02' });
+	expect(fetchMock.mock.calls[0][0]).toContain('timezone_offset_minutes=330');
+});
+
+test('paid orders are normalized to pending shipment', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ data: [{ order_id: 'o-paid', order_status: 'paid' }] })));
+  const result = await getOrders();
+  expect(result.data[0].status).toBe('pending_ship');
+});
+
+test('completeQRVerification sends only the immutable target account', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, account_id: 'acc1' }));
   vi.stubGlobal('fetch', fetchMock);
-  await completeQRVerification('session-1', 'acc1', true);
+  await completeQRVerification('session-1', 'acc1');
   expect(fetchMock).toHaveBeenCalledWith('/qr-login/complete-verification/session-1', expect.objectContaining({
     method: 'POST',
-    body: JSON.stringify({ target_account_id: 'acc1', confirm_mismatch: true }),
+    body: JSON.stringify({ target_account_id: 'acc1' }),
+  }));
+});
+
+test('deleteItemPublishBatch removes an abandoned preview', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+  await deleteItemPublishBatch('preview-1');
+  expect(fetchMock).toHaveBeenCalledWith('/items/publish-batches/preview-1', expect.objectContaining({
+    method: 'DELETE',
+    credentials: 'include',
   }));
 });
 
@@ -137,6 +237,21 @@ test('account cookie APIs include login_method when provided', async () => {
   });
 });
 
+test('account editor settings use one aggregate request', async () => {
+	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+	vi.stubGlobal('fetch', fetchMock);
+	await updateAccountSettings('acc1', {
+	  remark: 'main', auto_confirm: false, pause_duration: 5,
+	  username: 'user', show_browser: true, channel_ids: [1, 2],
+	});
+	expect(fetchMock).toHaveBeenCalledTimes(1);
+	expect(fetchMock).toHaveBeenCalledWith('/cookies/acc1/settings', expect.objectContaining({ method: 'PUT' }));
+	expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+	  remark: 'main', auto_confirm: false, pause_duration: 5,
+	  username: 'user', show_browser: true, channel_ids: [1, 2],
+	});
+});
+
 test('getAccountDetails normalizes show_browser and never exposes password', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([{
     id: 'acc1',
@@ -144,6 +259,8 @@ test('getAccountDetails normalizes show_browser and never exposes password', asy
     auto_confirm: true,
     remark: '主账号',
     pause_duration: 0,
+    paused_until: 1780000000,
+    paused: true,
     username: 'login-user',
     show_browser: '1',
     login_password: 'should-not-leak',
@@ -155,6 +272,8 @@ test('getAccountDetails normalizes show_browser and never exposes password', asy
     username: 'login-user',
     show_browser: true,
     login_password: '',
+    paused_until: 1780000000,
+    paused: true,
   });
 });
 
@@ -264,6 +383,7 @@ test('getShippingRules exposes buyer reviewed gift rules as automation rules', a
 
 test('getReplyRules labels keyword matching according to engine contains behavior', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse([{
+    id: 42,
     keyword: '发货',
     reply: '马上安排',
     type: 'image',
@@ -274,6 +394,7 @@ test('getReplyRules labels keyword matching according to engine contains behavio
   const rules = await getReplyRules('acc1');
   expect(fetchMock).toHaveBeenCalledWith('/keywords-with-type/acc1', expect.objectContaining({ method: 'GET' }));
   expect(rules[0]).toMatchObject({
+    id: '42',
     keyword: '发货',
     reply_content: '马上安排',
     match_type: 'fuzzy',
@@ -283,27 +404,41 @@ test('getReplyRules labels keyword matching according to engine contains behavio
 });
 
 test('updateReplyRule preserves keyword image metadata when saving text edits', async () => {
-  const fetchMock = vi.fn()
-    .mockResolvedValueOnce(jsonResponse([
-      { keyword: '图', reply: '', item_id: '', type: 'image', image_url: 'https://img.example/a.png' },
-      { keyword: '发货', reply: '马上安排', item_id: 'item-1', type: 'text', image_url: '' },
-    ]))
-    .mockResolvedValueOnce(jsonResponse({ success: true }));
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
   vi.stubGlobal('fetch', fetchMock);
 
-  await updateReplyRule({ id: '1', keyword: '发货', reply_content: '稍后安排' }, 'acc1');
+  await updateReplyRule({ id: '42', keyword: '发货', reply_content: '稍后安排', item_id: 'item-1' }, 'acc1');
 
-  expect(fetchMock).toHaveBeenNthCalledWith(1, '/keywords-with-type/acc1', expect.objectContaining({ method: 'GET' }));
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/keywords-with-item-id/acc1', expect.objectContaining({
-    method: 'POST',
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledWith('/keywords-with-type/acc1/42', expect.objectContaining({
+    method: 'PUT',
     credentials: 'include',
   }));
-  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({
-    keywords: [
-      { keyword: '图', reply: '', item_id: '', type: 'image', image_url: 'https://img.example/a.png' },
-      { keyword: '发货', reply: '稍后安排', item_id: 'item-1', type: 'text', image_url: '' },
-    ],
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+    keyword: '发货', reply: '稍后安排', item_id: 'item-1', type: 'text', image_url: '',
   });
+});
+
+test('updateReplyRule clears stale content when switching reply type', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await updateReplyRule({ id: '42', keyword: '发货', type: 'image', image_url: 'https://img.example/new.png' }, 'acc1');
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+    keyword: '发货', reply: '', item_id: '', type: 'image', image_url: 'https://img.example/new.png',
+  });
+});
+
+test('deleteReplyRule deletes one stable keyword row instead of replacing the list', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await deleteReplyRule('42', 'acc1');
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock).toHaveBeenCalledWith('/keywords-with-type/acc1/42', expect.objectContaining({
+    method: 'DELETE',
+    credentials: 'include',
+  }));
 });
 
 test('createNotificationChannel persists email recipient as to_email config', async () => {
@@ -453,6 +588,28 @@ test('updateShippingRule posts every matching card action before confirm shipmen
   expect(JSON.parse(body.actions[0].config_json)).toEqual({ spec_name: '套餐', spec_value: '30天', delay_override: false });
   expect(JSON.parse(body.actions[1].config_json)).toEqual({ spec_name: '套餐', spec_value: '30天', delay_override: true });
   expect(body.actions[1].delay_seconds).toBe(0);
+});
+
+test('updateShippingRule preserves text actions while editing card variants', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, id: 4 }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await updateShippingRule({
+    id: '4',
+    cookie_id: 'cookie-1',
+    item_id: 'item-1',
+    trigger_type: 'order_paid',
+    variants: [{ spec_name: '', spec_value: '', card_id: 8, delivery_count: 1, enabled: true }],
+    actions: [{ action_type: 'send_text', message_template: '发货提示', enabled: true, sort_order: 2 }],
+  });
+
+  const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+  expect(body.actions.map((action: { action_type: string }) => action.action_type)).toEqual([
+    'send_card',
+    'send_text',
+    'confirm_shipment',
+  ]);
+  expect(body.actions[1].message_template).toBe('发货提示');
 });
 
 test('updateShippingRule posts review request text action without card requirement', async () => {

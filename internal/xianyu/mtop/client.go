@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"xianyu-go/internal/xianyu"
@@ -59,10 +60,43 @@ type ClientImpl struct {
 	ConsignURL     string
 	OrderDetailURL string
 	LoginUserURL   string
+	TokenExecutor  TokenRequestExecutor
+}
+
+type TokenBrowserRequest struct {
+	URL     string
+	Body    string
+	Cookies string
+}
+
+type TokenBrowserResponse struct {
+	Status         int
+	Body           []byte
+	UpdatedCookies string
+}
+
+type TokenRequestExecutor interface {
+	ExecuteTokenRequest(context.Context, TokenBrowserRequest) (*TokenBrowserResponse, error)
+}
+
+var defaultTokenExecutor struct {
+	sync.RWMutex
+	value TokenRequestExecutor
+}
+
+func SetDefaultTokenRequestExecutor(executor TokenRequestExecutor) {
+	defaultTokenExecutor.Lock()
+	defaultTokenExecutor.value = executor
+	defaultTokenExecutor.Unlock()
 }
 
 // NewClient 构造默认 HTTP 实现的非零 ClientImpl（调用方多为持有 Client 接口字段）。
-func NewClient() *ClientImpl { return &ClientImpl{} }
+func NewClient() *ClientImpl {
+	defaultTokenExecutor.RLock()
+	executor := defaultTokenExecutor.value
+	defaultTokenExecutor.RUnlock()
+	return &ClientImpl{TokenExecutor: executor}
+}
 
 // 编译期保证 *ClientImpl 实现 Client 接口。
 var _ Client = (*ClientImpl)(nil)
@@ -237,13 +271,10 @@ func setCommonHeaders(req *http.Request, cookiesStr string) {
 	h.Set("content-type", "application/x-www-form-urlencoded")
 	h.Set("pragma", "no-cache")
 	h.Set("priority", "u=1, i")
-	h.Set("sec-ch-ua", xianyu.SecChUA)
-	h.Set("sec-ch-ua-mobile", "?0")
-	h.Set("sec-ch-ua-platform", `"Windows"`)
+	xianyu.ApplyBrowserFingerprint(h)
 	h.Set("sec-fetch-dest", "empty")
 	h.Set("sec-fetch-mode", "cors")
 	h.Set("sec-fetch-site", "same-site")
-	h.Set("user-agent", xianyu.BrowserUA)
 	h.Set("referer", "https://www.goofish.com/")
 	h.Set("origin", "https://www.goofish.com")
 	h.Set("cookie", cookiesStr)

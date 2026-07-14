@@ -7,6 +7,7 @@ package adapter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -38,6 +39,10 @@ type browserQuickRenewer interface {
 
 type browserTokenCaptchaRecoverer interface {
 	TokenCaptchaRecover(ctx context.Context, cookieID, cookieStr, verificationURL string, headless bool, provider browser.TokenCaptchaURLProvider) (string, error)
+}
+
+type browserTokenCaptchaEngineRecoverer interface {
+	TokenCaptchaRecoverWithEngine(ctx context.Context, cookieID, cookieStr, verificationURL string, headless bool, provider browser.TokenCaptchaURLProvider) (cookies, engine string, err error)
 }
 
 type tokenCaptchaRequester interface {
@@ -160,14 +165,7 @@ func classifyAccountAlertEvent(title, body string) string {
 }
 
 // OnTokenCaptchaVerification 处理 token 刷新触发的闲鱼滑块风控。
-func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cookieStr, verificationURL string) (*mtop.RefreshResult, bool) {
-	br, ok := a.browser.(browserTokenCaptchaRecoverer)
-	if a.browser == nil || !ok {
-		a.OnAccountEvent(ctx, cookieID, engine.EventSecurityVerification, engine.AlertLevelWarn,
-			"token 风控验证无法自动处理", "浏览器自动化未启用，无法自动完成 token 滑块验证。")
-		return nil, false
-	}
-
+func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cookieStr, verificationURL, deviceID string) (*mtop.RefreshResult, bool) {
 	start := time.Now()
 	var logID int64
 	if a.store != nil && a.store.RiskLogs != nil {
@@ -196,31 +194,57 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 		metadataJSON = d.MetadataJSON
 	}
 
-	freshAccessToken := ""
 	provider := func(runCtx context.Context, currentCookies string) (string, bool, string, error) {
 		if a.captchaReq == nil {
 			return "", false, "", nil
-		}
-		deviceID := ""
-		if unb := protocol.TransCookies(currentCookies)["unb"]; unb != "" {
-			deviceID = protocol.GenerateDeviceID(unb)
 		}
 		res, err := a.captchaReq.RequestFreshCaptchaURLContext(runCtx, currentCookies, deviceID)
 		if err != nil || res == nil {
 			return "", false, "", err
 		}
-		freshAccessToken = res.AccessToken
 		return res.VerificationURL, res.TokenOK, res.UpdatedCookies, nil
 	}
 
-	newCookies, err := br.TokenCaptchaRecover(ctx, cookieID, cookieStr, verificationURL, browser.ResolveHeadless(showBrowser), provider)
+	newCookies := ""
+	captchaEngine := "playwright"
+	remoteHandled := false
+	var err error
+	if remoteConfig := a.loadRemoteCaptchaConfig(ctx); remoteConfig != nil {
+		newCookies, remoteHandled, err = solveRemoteCaptcha(
+			ctx, newRemoteCaptchaHTTPClient(), *remoteConfig,
+			cookieID, verificationURL, cookieStr, deviceID, provider,
+		)
+		if remoteHandled {
+			captchaEngine = "remote"
+		} else if err != nil {
+			a.logger.Warn("远程过滑块不可用，回退本机逻辑", "account", cookieID, "err", err)
+			err = nil
+		}
+	}
+	if !remoteHandled {
+		br, ok := a.browser.(browserTokenCaptchaRecoverer)
+		if a.browser == nil || !ok {
+			a.OnAccountEvent(ctx, cookieID, engine.EventSecurityVerification, engine.AlertLevelWarn,
+				"token 风控验证无法自动处理", "远程服务不可用且浏览器自动化未启用，无法自动完成 token 滑块验证。")
+			return nil, false
+		}
+		if withEngine, ok := a.browser.(browserTokenCaptchaEngineRecoverer); ok {
+			newCookies, captchaEngine, err = withEngine.TokenCaptchaRecoverWithEngine(
+				ctx, cookieID, cookieStr, verificationURL, browser.ResolveHeadless(showBrowser), provider,
+			)
+		} else {
+			newCookies, err = br.TokenCaptchaRecover(
+				ctx, cookieID, cookieStr, verificationURL, browser.ResolveHeadless(showBrowser), provider,
+			)
+		}
+	}
 	if err != nil {
 		a.logger.Warn("token 风控滑块处理失败", "account", cookieID, "err", err)
 		if a.store != nil && a.store.RiskLogs != nil {
 			_ = a.store.RiskLogs.Update(ctx, logID, db.RiskControlLog{
 				ProcessingStatus: "failed",
 				ProcessingResult: fmt.Sprintf("token 风控滑块处理失败，耗时: %.2f秒", time.Since(start).Seconds()),
-				CaptchaEngine:    "playwright",
+				CaptchaEngine:    captchaEngine,
 				ErrorMessage:     err.Error(),
 				DurationMS:       time.Since(start).Milliseconds(),
 			})
@@ -238,7 +262,7 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 			_ = a.store.RiskLogs.Update(ctx, logID, db.RiskControlLog{
 				ProcessingStatus: "error",
 				ProcessingResult: "滑块完成但保存 Cookie 失败",
-				CaptchaEngine:    "playwright",
+				CaptchaEngine:    captchaEngine,
 				ErrorMessage:     err.Error(),
 				DurationMS:       time.Since(start).Milliseconds(),
 			})
@@ -251,14 +275,14 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 	if a.store != nil && a.store.RiskLogs != nil {
 		_ = a.store.RiskLogs.Update(ctx, logID, db.RiskControlLog{
 			ProcessingStatus: "success",
-			ProcessingResult: fmt.Sprintf("token 风控滑块验证成功，已合并 x5sec，耗时: %.2f秒", time.Since(start).Seconds()),
-			CaptchaEngine:    "playwright",
+			ProcessingResult: fmt.Sprintf("token 风控滑块验证成功（%s），已更新登录凭证，耗时: %.2f秒", captchaEngine, time.Since(start).Seconds()),
+			CaptchaEngine:    captchaEngine,
 			DurationMS:       time.Since(start).Milliseconds(),
 		})
 	}
 	a.OnAccountEvent(ctx, cookieID, engine.EventSecurityVerification, engine.AlertLevelInfo,
 		"token 风控验证已自动恢复", "系统已完成验证并更新登录凭证。")
-	return &mtop.RefreshResult{AccessToken: freshAccessToken, UpdatedCookies: newCookies}, true
+	return &mtop.RefreshResult{UpdatedCookies: newCookies}, true
 }
 
 // HandleSystemEvent 把系统卡片事件转发到自动化中心，由自动化规则决定是否执行。
@@ -301,7 +325,7 @@ func (a *Adapter) FetchOrderDetail(ctx context.Context, cookieID, orderID, itemI
 		return nil, err
 	}
 	if detail.UpdatedCookies != "" && detail.UpdatedCookies != cookieStr {
-		_ = a.store.Cookies.Save(ctx, cookieID, detail.UpdatedCookies, 0)
+		_ = a.store.Cookies.UpdateValueExisting(ctx, cookieID, detail.UpdatedCookies)
 	}
 	return &automation.OrderDetail{
 		Quantity: detail.Quantity, SpecName: detail.SpecName, SpecValue: detail.SpecValue,
@@ -334,9 +358,9 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 	if cooldown == nil {
 		cooldown = renewal.GlobalCooldown
 	}
-	if ok, remain := cooldown.TryPasswordLogin(cookieID); !ok {
+	if ok, remain, reason := cooldown.PasswordLoginAllowed(cookieID, engine.PasswordLoginMinGap); !ok {
 		a.logger.Warn("密码登录刷新冷却中", "account", cookieID, "remain", remain.Round(time.Second))
-		a.recordPasswordLogin(ctx, cookieID, 0, "skipped_cooldown", "login_cooldown", fmt.Sprintf("密码登录刷新冷却中，还需等待 %s", remain.Round(time.Second)))
+		a.recordPasswordLogin(ctx, cookieID, 0, "skipped_cooldown", reason, fmt.Sprintf("密码登录刷新冷却中，还需等待 %s", remain.Round(time.Second)))
 		return false
 	}
 	if !a.beginPasswordLogin(cookieID) {
@@ -352,9 +376,17 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 		return false
 	}
 
-	if a.tryLightRenewBeforePassword(ctx, d) {
+	lightRenewed, lightRenewErr := a.tryLightRenewBeforePassword(ctx, d)
+	if lightRenewed {
 		a.recordPasswordLogin(ctx, cookieID, d.UserID, "success", "", "密码登录前轻量续期成功")
 		return true
+	}
+	if errors.Is(lightRenewErr, browser.ErrSecurityVerification) {
+		cooldown.MarkPasswordError(cookieID)
+		message := "浏览器续期遇到闲鱼安全验证，已停止自动密码登录，请人工完成验证或重新扫码"
+		a.OnAccountEvent(ctx, cookieID, engine.EventSecurityVerification, engine.AlertLevelWarn, "闲鱼要求安全验证", message)
+		a.recordPasswordLogin(ctx, cookieID, d.UserID, "failed", "verification_required", message)
+		return false
 	}
 
 	if latest, err := a.store.Cookies.GetDetails(ctx, cookieID); err == nil && latest != nil && latest.Value != "" && latest.Value != d.Value {
@@ -394,7 +426,9 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 		a.recordPasswordLogin(ctx, cookieID, d.UserID, "failed", "empty_cookies", "浏览器未返回 cookie")
 		return false
 	}
-	if err := a.store.Cookies.Save(ctx, cookieID, cookieStr, d.UserID); err != nil {
+	// 参考实现只在真实密码登录拿到 Cookie 后启动 60 秒冷却。
+	cooldown.MarkPasswordLogin(cookieID)
+	if err := a.store.Cookies.UpdateValueExisting(ctx, cookieID, cookieStr); err != nil {
 		a.logger.Warn("密码登录刷新失败：保存 cookie 失败", "account", cookieID, "err", err)
 		a.recordPasswordLogin(ctx, cookieID, d.UserID, "failed", "cookie_update_failed", err.Error())
 		return false
@@ -473,9 +507,9 @@ func truncateMessage(s string, n int) string {
 	return s[:n]
 }
 
-func (a *Adapter) tryLightRenewBeforePassword(ctx context.Context, d *db.CookieDetail) bool {
+func (a *Adapter) tryLightRenewBeforePassword(ctx context.Context, d *db.CookieDetail) (bool, error) {
 	if d == nil {
-		return false
+		return false, nil
 	}
 	current := d.Value
 	api := a.renewSvc
@@ -516,21 +550,24 @@ func (a *Adapter) tryLightRenewBeforePassword(ctx context.Context, d *db.CookieD
 
 	hasLongLogin := strings.TrimSpace(protocol.TransCookies(current)["havana_lgc2_77"]) != ""
 	if hasLongLogin {
-		browserCookies := current
 		if renewed, err := browserRenew(current); err == nil && renewed != "" {
-			browserCookies = renewed
-			save(browserCookies)
+			save(renewed)
+			a.logger.Info("密码登录前浏览器续期成功，跳过密码登录", "account", d.ID)
+			return true, nil
 		} else if err != nil {
+			if errors.Is(err, browser.ErrSecurityVerification) {
+				return false, err
+			}
 			a.logger.Warn("密码登录前浏览器续期失败，继续尝试接口续期", "account", d.ID, "err", err)
 		}
-		if res, err := apiRenew(browserCookies); err == nil && res != nil {
+		if res, err := apiRenew(current); err == nil && res != nil {
 			save(res.NewCookies)
 			if res.Success {
-				a.logger.Info("密码登录前浏览器+接口续期成功，跳过密码登录", "account", d.ID)
-				return true
+				a.logger.Info("密码登录前静默续期成功，跳过密码登录", "account", d.ID)
+				return true, nil
 			}
 		}
-		return false
+		return false, nil
 	}
 
 	res, err := apiRenew(current)
@@ -538,7 +575,7 @@ func (a *Adapter) tryLightRenewBeforePassword(ctx context.Context, d *db.CookieD
 		save(res.NewCookies)
 		if res.Success {
 			a.logger.Info("密码登录前接口续期成功，跳过密码登录", "account", d.ID)
-			return true
+			return true, nil
 		}
 	}
 	browserInput := current
@@ -547,19 +584,14 @@ func (a *Adapter) tryLightRenewBeforePassword(ctx context.Context, d *db.CookieD
 	}
 	browserCookies, err := browserRenew(browserInput)
 	if err != nil || browserCookies == "" {
-		return false
+		if errors.Is(err, browser.ErrSecurityVerification) {
+			return false, err
+		}
+		return false, nil
 	}
 	save(browserCookies)
-	verify, err := apiRenew(browserCookies)
-	if err != nil || verify == nil {
-		return false
-	}
-	save(verify.NewCookies)
-	if verify.Success {
-		a.logger.Info("密码登录前浏览器续期并通过接口验证，跳过密码登录", "account", d.ID)
-		return true
-	}
-	return false
+	a.logger.Info("密码登录前浏览器续期成功，跳过密码登录", "account", d.ID)
+	return true, nil
 }
 
 func (a *Adapter) handlePasswordLoginError(ctx context.Context, cookieID string, err error) {

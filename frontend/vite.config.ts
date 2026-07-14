@@ -54,6 +54,18 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
+      '/automation-issues': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/automation-runs': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
+      '/automation-pending-tasks': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
       '/notification-channels': {
         target: 'http://localhost:8080',
         changeOrigin: true,

@@ -11,7 +11,18 @@ import (
 	"net/textproto"
 	"strings"
 	"testing"
+
+	"xianyu-go/internal/xianyu/mtop"
 )
+
+type stubPublishMTop struct {
+	mtop.Client
+	publish func(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error)
+}
+
+func (s *stubPublishMTop) PublishItem(ctx context.Context, cookies string, req mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
+	return s.publish(ctx, cookies, req)
+}
 
 // buildPublishMultipart 构造一个 multipart/form-data 请求体，包含一个 1x1 PNG 图片字段。
 func buildPublishMultipart(t *testing.T, fields map[string]string) (*bytes.Buffer, string) {
@@ -207,6 +218,45 @@ func TestPublishItemSuccess(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &res)
 	if res["success"] != true || res["item_id"] != "pub-item-1" {
 		t.Fatalf("发布成功响应异常: %+v", res)
+	}
+}
+
+func TestPublishItemRejectsMissingRemoteItemID(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.MTop = &stubPublishMTop{publish: func(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
+		return &mtop.PublishItemResult{Title: "测试商品"}, nil
+	}}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	body, ct := buildPublishMultipart(t, map[string]string{"cookie_id": "acc1", "title": "测试商品", "price": "12.50", "quantity": "1"})
+	req := httptest.NewRequest(http.MethodPost, "/items/publish", body)
+	req.Header.Set("Content-Type", ct)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), "publish_result_missing_item_id") {
+		t.Fatalf("missing item id status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPublishItemReportsRemoteSuccessLocalSaveFailure(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.MTop = &stubPublishMTop{publish: func(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
+		_, _ = store.DB.ExecContext(context.Background(), `DELETE FROM cookies WHERE id='acc1'`)
+		return &mtop.PublishItemResult{ItemID: "remote-only", ItemURL: "https://example/item/remote-only", Title: "测试商品"}, nil
+	}}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	body, ct := buildPublishMultipart(t, map[string]string{"cookie_id": "acc1", "title": "测试商品", "price": "12.50", "quantity": "1"})
+	req := httptest.NewRequest(http.MethodPost, "/items/publish", body)
+	req.Header.Set("Content-Type", ct)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "remote_published_local_save_failed") || !strings.Contains(rec.Body.String(), "remote-only") {
+		t.Fatalf("partial publish status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

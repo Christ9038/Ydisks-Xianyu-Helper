@@ -10,6 +10,7 @@
 
 # Runtime data
 /data/
+/browser_data/
 *.db
 *.db-shm
 *.db-wal

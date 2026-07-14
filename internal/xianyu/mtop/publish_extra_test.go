@@ -104,12 +104,12 @@ func TestPublishItemDescriptionDefaultsToTitle(t *testing.T) {
 	}}
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: dt}}
 	req := PublishItemRequest{
-		Title:      "测试商品",
-		PriceCents: 1000,
-		Quantity:   1,
-		PostageMode: "fixed",
+		Title:        "测试商品",
+		PriceCents:   1000,
+		Quantity:     1,
+		PostageMode:  "fixed",
 		PostageCents: 500,
-		Images:     []PublishImage{{Filename: "a.png", ContentType: "image/png", Data: png1}},
+		Images:       []PublishImage{{Filename: "a.png", ContentType: "image/png", Data: png1}},
 	}
 	res, err := client.PublishItem(context.Background(), consignCookies, req)
 	if err != nil {

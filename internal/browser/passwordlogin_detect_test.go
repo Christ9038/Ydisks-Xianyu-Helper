@@ -1,6 +1,11 @@
 package browser
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestDetectPasswordBaxiaPunishHTML(t *testing.T) {
 	html := `<div id="baxia-punish"><div class="captcha-question">请找两个松鼠</div></div>`
@@ -57,5 +62,63 @@ func TestQuickEnterCookiesUsableRequiresUNB(t *testing.T) {
 	}
 	if quickEnterCookiesUsable(nil) {
 		t.Fatal("空 Cookie 不应视为成功")
+	}
+}
+
+func TestPasswordLoginReferenceProfileAndTiming(t *testing.T) {
+	if passwordLoginPageLoadWait != 2*time.Second || passwordLoginTabWait != 1500*time.Millisecond ||
+		passwordLoginAfterSubmitWait != 3*time.Second || passwordLoginCompletionWait != 5*time.Second {
+		t.Fatalf("密码登录等待节奏未与参考实现一致: page=%s tab=%s submit=%s completion=%s",
+			passwordLoginPageLoadWait, passwordLoginTabWait, passwordLoginAfterSubmitWait, passwordLoginCompletionWait)
+	}
+	if passwordVerificationWaitInterval != 10*time.Second || passwordVerificationMaxWait != 5*time.Minute {
+		t.Fatalf("人工验证轮询节奏未与参考实现一致: interval=%s max=%s",
+			passwordVerificationWaitInterval, passwordVerificationMaxWait)
+	}
+}
+
+func TestPasswordPersistentContextOptionsMatchReference(t *testing.T) {
+	t.Setenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "/opt/chromium")
+	opts := passwordPersistentContextOptions(true)
+	if opts.Headless == nil || !*opts.Headless {
+		t.Fatal("密码登录应按调用参数使用无头模式")
+	}
+	if opts.UserAgent != nil {
+		t.Fatalf("密码登录不应覆盖 Playwright Chromium 原生 UA: %v", *opts.UserAgent)
+	}
+	if opts.Viewport == nil || opts.Viewport.Width != 1980 || opts.Viewport.Height != 1024 {
+		t.Fatalf("密码登录 viewport=%+v", opts.Viewport)
+	}
+	if opts.Locale == nil || *opts.Locale != "zh-CN" || opts.TimezoneId == nil || *opts.TimezoneId != "Asia/Shanghai" {
+		t.Fatalf("密码登录区域参数异常: locale=%v timezone=%v", opts.Locale, opts.TimezoneId)
+	}
+	if opts.AcceptDownloads == nil || !*opts.AcceptDownloads || opts.IgnoreHttpsErrors == nil || !*opts.IgnoreHttpsErrors {
+		t.Fatal("密码登录下载/HTTPS 参数未与参考实现一致")
+	}
+	if opts.ExtraHttpHeaders["Accept-Language"] != "zh-CN,zh;q=0.9,en;q=0.8" {
+		t.Fatalf("Accept-Language=%q", opts.ExtraHttpHeaders["Accept-Language"])
+	}
+	if opts.Timeout == nil || *opts.Timeout != 30000 {
+		t.Fatalf("密码登录启动超时=%v", opts.Timeout)
+	}
+	if opts.ExecutablePath == nil || *opts.ExecutablePath != "/opt/chromium" {
+		t.Fatalf("Chromium 路径=%v", opts.ExecutablePath)
+	}
+}
+
+func TestPasswordLoginRejectsBlankCredentialsBeforeBrowserInit(t *testing.T) {
+	m := &Manager{}
+	for _, tc := range []struct {
+		account  string
+		password string
+	}{
+		{account: "", password: "secret"},
+		{account: "account", password: ""},
+		{account: "  ", password: "secret"},
+	} {
+		_, err := m.PasswordLogin(context.Background(), tc.account, tc.password, "cookie-id", "", true)
+		if err == nil || !strings.Contains(err.Error(), "账号或密码不能为空") {
+			t.Fatalf("account=%q password=%q: err=%v", tc.account, tc.password, err)
+		}
 	}
 }

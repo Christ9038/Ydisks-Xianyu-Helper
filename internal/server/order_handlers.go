@@ -14,6 +14,13 @@ import (
 	"xianyu-go/internal/db"
 )
 
+const refreshOrderChunkSize = 100
+
+type refreshTarget struct {
+	OrderID       string
+	CurrentStatus string
+}
+
 // mountOrders 订单端点（真实实现）。
 func (s *Server) mountOrdersReal(r chi.Router) {
 	r.Get("/api/orders", s.listOrders)
@@ -33,6 +40,7 @@ func (s *Server) listOrders(w http.ResponseWriter, r *http.Request) {
 	pageSize := atoiDefault(r.URL.Query().Get("page_size"), 20)
 	cookieID := r.URL.Query().Get("cookie_id")
 	status := r.URL.Query().Get("status")
+	search := r.URL.Query().Get("search")
 	if page < 1 {
 		page = 1
 	}
@@ -50,7 +58,7 @@ func (s *Server) listOrders(w http.ResponseWriter, r *http.Request) {
 	}
 	offset := (page - 1) * pageSize
 	rows, total, err := s.Store.Orders.ListForUser(r.Context(), db.OrderListFilter{
-		UserID: sess.UserID, CookieID: cookieID, Status: status, Limit: pageSize, Offset: offset,
+		UserID: sess.UserID, CookieID: cookieID, Status: status, Search: search, Limit: pageSize, Offset: offset,
 	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
@@ -175,29 +183,27 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 		all = map[string]string{cookieID: value}
 	}
 
-	type refreshTarget struct {
-		OrderID       string
-		CurrentStatus string
-	}
 	ordersByCookie := map[string][]refreshTarget{}
 	for cid := range all {
-		rows, err := s.Store.Orders.ByCookie(r.Context(), cid, 1000)
-		if err != nil {
-			continue
-		}
-		for _, row := range rows {
-			currentStatus := db.NormalizeOrderStatus(row.OrderStatus)
-			if status != "" && status != "all" && currentStatus != status {
-				continue
+		for offset := 0; ; offset += 500 {
+			rows, err := s.Store.Orders.ByCookiePage(r.Context(), cid, 500, offset)
+			if err != nil {
+				break
 			}
-			// 稳定状态无需反复抓取；但历史订单若缺少实付金额，仍需补全详情。
-			if isStableOrderStatus(currentStatus) && strings.TrimSpace(row.Amount) != "" {
-				continue
+			for _, row := range rows {
+				currentStatus := db.NormalizeOrderStatus(row.OrderStatus)
+				if status != "" && status != "all" && currentStatus != status {
+					continue
+				}
+				// 稳定状态无需反复抓取；但历史订单若缺少实付金额，仍需补全详情。
+				if isStableOrderStatus(currentStatus) && strings.TrimSpace(row.Amount) != "" {
+					continue
+				}
+				ordersByCookie[cid] = append(ordersByCookie[cid], refreshTarget{OrderID: row.OrderID, CurrentStatus: currentStatus})
 			}
-			ordersByCookie[cid] = append(ordersByCookie[cid], refreshTarget{
-				OrderID:       row.OrderID,
-				CurrentStatus: currentStatus,
-			})
+			if len(rows) < 500 {
+				break
+			}
 		}
 	}
 
@@ -223,61 +229,72 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 			failed += len(targets)
 			continue
 		}
-		orderIDs := make([]string, 0, len(targets))
-		currentStatus := make(map[string]string, len(targets))
-		for _, target := range targets {
-			orderIDs = append(orderIDs, target.OrderID)
-			currentStatus[target.OrderID] = target.CurrentStatus
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
-		batch, err := s.Browser.BatchRefreshOrders(ctx, orderIDs, cid, cookieValue)
-		cancel()
-		if err != nil {
-			failed += len(targets)
-			results = append(results, map[string]any{"cookie_id": cid, "success": false, "error": err.Error()})
-			continue
-		}
-		rawOrders, _ := batch["orders"].([]map[string]any)
-		for _, raw := range rawOrders {
-			orderID := stringFromAny(raw["order_id"])
-			if raw["success"] == false {
-				failed++
-				results = append(results, map[string]any{
-					"order_id": orderID,
-					"success":  false,
-					"error":    stringFromAny(raw["error"]),
-				})
-				continue
+		for _, chunk := range chunkRefreshTargets(targets, refreshOrderChunkSize) {
+			orderIDs := make([]string, 0, len(chunk))
+			currentStatus := make(map[string]string, len(chunk))
+			for _, target := range chunk {
+				orderIDs = append(orderIDs, target.OrderID)
+				currentStatus[target.OrderID] = target.CurrentStatus
 			}
-			newStatus := db.NormalizeOrderStatus(stringFromAny(raw["order_status"]))
-			if newStatus == "unknown" {
-				newStatus = currentStatus[orderID]
-			}
-			err := s.Store.Orders.Upsert(r.Context(), orderID, db.OrderUpsertOpts{
-				CookieID:    cid,
-				OrderStatus: newStatus,
-				SpecName:    stringFromAny(raw["spec_name"]),
-				SpecValue:   stringFromAny(raw["spec_value"]),
-				Quantity:    stringFromAny(raw["quantity"]),
-				Amount:      stringFromAny(raw["amount"]),
-			})
+			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+			batch, err := s.Browser.BatchRefreshOrders(ctx, orderIDs, cid, cookieValue)
+			cancel()
 			if err != nil {
-				failed++
-				results = append(results, map[string]any{"order_id": orderID, "success": false, "error": "更新数据库失败"})
+				failed += len(chunk)
+				results = append(results, map[string]any{"cookie_id": cid, "success": false, "error": err.Error()})
 				continue
 			}
-			changed := newStatus != "" && newStatus != currentStatus[orderID]
-			if changed {
-				updated++
-			} else {
-				noChange++
+			rawOrders, _ := batch["orders"].([]map[string]any)
+			seen := make(map[string]struct{}, len(rawOrders))
+			for _, raw := range rawOrders {
+				orderID := stringFromAny(raw["order_id"])
+				if _, expected := currentStatus[orderID]; !expected {
+					continue
+				}
+				seen[orderID] = struct{}{}
+				if raw["success"] == false {
+					failed++
+					results = append(results, map[string]any{
+						"order_id": orderID,
+						"success":  false,
+						"error":    stringFromAny(raw["error"]),
+					})
+					continue
+				}
+				newStatus := db.NormalizeOrderStatus(stringFromAny(raw["order_status"]))
+				if !validEditableOrderStatus(newStatus) {
+					newStatus = currentStatus[orderID]
+				}
+				err := s.Store.Orders.Upsert(r.Context(), orderID, db.OrderUpsertOpts{
+					CookieID:    cid,
+					OrderStatus: newStatus,
+					SpecName:    stringFromAny(raw["spec_name"]),
+					SpecValue:   stringFromAny(raw["spec_value"]),
+					Quantity:    stringFromAny(raw["quantity"]),
+					Amount:      stringFromAny(raw["amount"]),
+				})
+				if err != nil {
+					failed++
+					results = append(results, map[string]any{"order_id": orderID, "success": false, "error": "更新数据库失败"})
+					continue
+				}
+				changed := newStatus != "" && newStatus != currentStatus[orderID]
+				if changed {
+					updated++
+				} else {
+					noChange++
+				}
+				results = append(results, map[string]any{
+					"order_id":   orderID,
+					"success":    true,
+					"old_status": currentStatus[orderID],
+					"new_status": newStatus,
+				})
 			}
-			results = append(results, map[string]any{
-				"order_id":   orderID,
-				"success":    true,
-				"old_status": currentStatus[orderID],
-				"new_status": newStatus,
-			})
+			for _, orderID := range missingRefreshTargetIDs(chunk, seen) {
+				failed++
+				results = append(results, map[string]any{"order_id": orderID, "success": false, "error": "浏览器未返回该订单的刷新结果"})
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -286,6 +303,31 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 		"summary": map[string]int{"total": total, "updated": updated, "no_change": noChange, "failed": failed},
 		"results": results,
 	})
+}
+
+func chunkRefreshTargets(targets []refreshTarget, size int) [][]refreshTarget {
+	if size <= 0 {
+		size = refreshOrderChunkSize
+	}
+	chunks := make([][]refreshTarget, 0, (len(targets)+size-1)/size)
+	for start := 0; start < len(targets); start += size {
+		end := start + size
+		if end > len(targets) {
+			end = len(targets)
+		}
+		chunks = append(chunks, targets[start:end])
+	}
+	return chunks
+}
+
+func missingRefreshTargetIDs(targets []refreshTarget, seen map[string]struct{}) []string {
+	missing := make([]string, 0)
+	for _, target := range targets {
+		if _, ok := seen[target.OrderID]; !ok {
+			missing = append(missing, target.OrderID)
+		}
+	}
+	return missing
 }
 
 func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) {
@@ -311,7 +353,7 @@ func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if detail.UpdatedCookies != "" && detail.UpdatedCookies != cookieValue {
-		if err := s.Store.Cookies.Save(r.Context(), cookieID, detail.UpdatedCookies, 0); err != nil {
+		if err := s.Store.Cookies.UpdateValueExisting(r.Context(), cookieID, detail.UpdatedCookies); err != nil {
 			s.Logger.Error("保存订单详情刷新后的 cookie 失败", "cookie_id", cookieID, "err", err)
 		}
 		if s.Manager != nil {
@@ -321,7 +363,7 @@ func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	status := db.NormalizeOrderStatus(detail.OrderStatus)
-	if status == "unknown" {
+	if !validEditableOrderStatus(status) {
 		status = db.NormalizeOrderStatus(order.OrderStatus)
 	}
 	if err := s.Store.Orders.Upsert(r.Context(), orderID, db.OrderUpsertOpts{
@@ -355,59 +397,125 @@ func (s *Server) deleteOrder(w http.ResponseWriter, r *http.Request) {
 // updateOrder 更新订单（手动发货等）。
 func (s *Server) updateOrder(w http.ResponseWriter, r *http.Request) {
 	orderID := chi.URLParam(r, "order_id")
-	if _, ok := s.requireOrderOwner(w, r, orderID); !ok {
+	order, ok := s.requireOrderOwner(w, r, orderID)
+	if !ok {
 		return
 	}
 	var req struct {
-		OrderStatus     string `json:"order_status"`
-		Status          string `json:"status"`
-		ItemID          string `json:"item_id"`
-		BuyerID         string `json:"buyer_id"`
-		SpecName        string `json:"spec_name"`
-		SpecValue       string `json:"spec_value"`
-		Quantity        any    `json:"quantity"`
-		Amount          any    `json:"amount"`
-		ReceiverName    string `json:"receiver_name"`
-		ReceiverPhone   string `json:"receiver_phone"`
-		ReceiverAddress string `json:"receiver_address"`
-		ReceiverCity    string `json:"receiver_city"`
-		ChatID          string `json:"chat_id"`
-		SystemShipped   *bool  `json:"system_shipped"`
+		OrderStatus     *string `json:"order_status"`
+		Status          *string `json:"status"`
+		ItemID          *string `json:"item_id"`
+		BuyerID         *string `json:"buyer_id"`
+		SpecName        *string `json:"spec_name"`
+		SpecValue       *string `json:"spec_value"`
+		Quantity        *any    `json:"quantity"`
+		Amount          *any    `json:"amount"`
+		ReceiverName    *string `json:"receiver_name"`
+		ReceiverPhone   *string `json:"receiver_phone"`
+		ReceiverAddress *string `json:"receiver_address"`
+		ReceiverCity    *string `json:"receiver_city"`
+		ChatID          *string `json:"chat_id"`
+		SystemShipped   *bool   `json:"system_shipped"`
+		ItemTitle       *string `json:"item_title"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
 	status := req.OrderStatus
-	if status == "" {
+	if status == nil {
 		status = req.Status
 	}
-	if err := s.Store.Orders.Upsert(r.Context(), orderID, db.OrderUpsertOpts{
-		OrderStatus:   status,
-		ItemID:        req.ItemID,
-		BuyerID:       req.BuyerID,
-		SpecName:      req.SpecName,
-		SpecValue:     req.SpecValue,
-		Quantity:      stringFromAny(req.Quantity),
-		Amount:        stringFromAny(req.Amount),
-		ReceiverName:  req.ReceiverName,
-		ReceiverPhone: req.ReceiverPhone,
-		ReceiverAddr:  req.ReceiverAddress,
-		ReceiverCity:  req.ReceiverCity,
-		ChatID:        req.ChatID,
-		SystemShipped: req.SystemShipped,
+	if status != nil {
+		normalized := db.NormalizeOrderStatus(strings.TrimSpace(*status))
+		if !validEditableOrderStatus(normalized) {
+			writeErr(w, http.StatusBadRequest, "不支持的订单状态")
+			return
+		}
+		status = &normalized
+	}
+	stringPtrFromAny := func(value *any) *string {
+		if value == nil {
+			return nil
+		}
+		v := stringFromAny(*value)
+		return &v
+	}
+	amount := stringPtrFromAny(req.Amount)
+	if amount != nil {
+		normalized, ok := normalizeOrderAmount(*amount)
+		if !ok {
+			writeErr(w, http.StatusBadRequest, "订单金额必须是普通格式的非负有限数字")
+			return
+		}
+		amount = &normalized
+	}
+	finalItemID := strings.TrimSpace(order.ItemID)
+	itemIDPatch := req.ItemID
+	if req.ItemID != nil {
+		finalItemID = strings.TrimSpace(*req.ItemID)
+		itemIDPatch = &finalItemID
+	}
+	itemTitle := ""
+	if req.ItemTitle != nil {
+		itemTitle = strings.TrimSpace(*req.ItemTitle)
+		if itemTitle == "" || finalItemID == "" {
+			writeErr(w, http.StatusBadRequest, "商品标题不能为空且订单必须关联商品")
+			return
+		}
+	}
+	tx, err := s.Store.DB.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "更新失败")
+		return
+	}
+	defer tx.Rollback()
+	if err := s.Store.Orders.PatchTx(r.Context(), tx, orderID, db.OrderPatch{
+		OrderStatus: status, ItemID: itemIDPatch, BuyerID: req.BuyerID,
+		SpecName: req.SpecName, SpecValue: req.SpecValue,
+		Quantity: stringPtrFromAny(req.Quantity), Amount: amount,
+		ReceiverName: req.ReceiverName, ReceiverPhone: req.ReceiverPhone,
+		ReceiverAddr: req.ReceiverAddress, ReceiverCity: req.ReceiverCity,
+		ChatID: req.ChatID, SystemShipped: req.SystemShipped,
 	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, "更新失败")
+		return
+	}
+	if req.ItemTitle != nil {
+		if err := s.Store.Items.UpsertBasicTx(r.Context(), tx, &db.ItemInfoRow{CookieID: order.CookieID, ItemID: finalItemID, ItemTitle: itemTitle}); err != nil {
+			writeErr(w, http.StatusInternalServerError, "更新商品标题失败")
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
+func validOrderAmount(raw string) bool {
+	_, ok := normalizeOrderAmount(raw)
+	return ok
+}
+
+func normalizeOrderAmount(raw string) (string, bool) {
+	return db.NormalizeOrderAmount(raw)
+}
+
+func validEditableOrderStatus(status string) bool {
+	switch status {
+	case "processing", "pending_ship", "shipped", "completed", "cancelled", "refunding":
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		OrderIDs      []string `json:"order_ids"`
-		ShipMode      string   `json:"ship_mode"`
-		CustomContent string   `json:"custom_content"`
+		OrderIDs []string `json:"order_ids"`
+		ShipMode string   `json:"ship_mode"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
@@ -451,6 +559,11 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "无权操作此订单"})
 			continue
 		}
+		if db.NormalizeOrderStatus(strings.TrimSpace(order.OrderStatus)) != "pending_ship" {
+			failedCount++
+			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "仅待发货订单可以执行手动发货"})
+			continue
+		}
 		if req.ShipMode == "full_delivery" {
 			if s.Manager == nil || s.automation == nil {
 				failedCount++
@@ -492,7 +605,7 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if updatedCookies != "" && updatedCookies != cookieValue {
-			if err := s.Store.Cookies.Save(r.Context(), order.CookieID, updatedCookies, sess.UserID); err != nil {
+			if err := s.Store.Cookies.UpdateValueOwned(r.Context(), order.CookieID, updatedCookies, sess.UserID); err != nil {
 				s.Logger.Error("保存发货刷新后的 cookie 失败", "cookie_id", order.CookieID, "err", err)
 			}
 			if s.Manager != nil {
@@ -589,9 +702,26 @@ func (s *Server) importOrders(w http.ResponseWriter, r *http.Request) {
 		status := firstImportString(raw, "order_status", "status", "status_text")
 		if status != "" {
 			status = db.NormalizeOrderStatus(status)
+			if !validEditableOrderStatus(status) {
+				failedCount++
+				results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "不支持的订单状态"})
+				continue
+			}
 		}
 		itemID := firstImportString(raw, "item_id")
-		if err := s.Store.Orders.Upsert(r.Context(), orderID, db.OrderUpsertOpts{
+		amount, amountOK := normalizeOrderAmount(firstImportString(raw, "amount"))
+		if !amountOK {
+			failedCount++
+			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "订单金额必须是普通格式的非负有限数字"})
+			continue
+		}
+		tx, err := s.Store.DB.BeginTx(r.Context(), nil)
+		if err != nil {
+			failedCount++
+			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "开始导入事务失败"})
+			continue
+		}
+		if err := s.Store.Orders.UpsertTx(r.Context(), tx, orderID, db.OrderUpsertOpts{
 			CookieID:      cookieID,
 			ItemID:        itemID,
 			BuyerID:       firstImportString(raw, "buyer_id"),
@@ -599,33 +729,42 @@ func (s *Server) importOrders(w http.ResponseWriter, r *http.Request) {
 			SpecName:      firstImportString(raw, "spec_name"),
 			SpecValue:     firstImportString(raw, "spec_value"),
 			Quantity:      firstImportString(raw, "quantity"),
-			Amount:        firstImportString(raw, "amount"),
+			Amount:        amount,
 			ReceiverName:  firstImportString(raw, "receiver_name"),
 			ReceiverPhone: firstImportString(raw, "receiver_phone"),
 			ReceiverAddr:  firstImportString(raw, "receiver_address"),
 			ReceiverCity:  firstImportString(raw, "receiver_city"),
 			ChatID:        firstImportString(raw, "chat_id"),
 		}); err != nil {
+			_ = tx.Rollback()
 			failedCount++
 			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": err.Error()})
 			continue
 		}
 		if itemID != "" {
-			if err := s.Store.Items.UpsertBasic(r.Context(), &db.ItemInfoRow{
+			if err := s.Store.Items.UpsertBasicTx(r.Context(), tx, &db.ItemInfoRow{
 				CookieID:   cookieID,
 				ItemID:     itemID,
 				ItemTitle:  firstImportString(raw, "item_title"),
 				ItemPrice:  firstImportString(raw, "item_price"),
 				ItemDetail: firstImportString(raw, "item_detail", "item_description"),
 			}); err != nil {
-				s.Logger.Error("导入订单时补全商品信息失败", "cookie_id", cookieID, "item_id", itemID, "err", err)
+				_ = tx.Rollback()
+				failedCount++
+				results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "补全商品信息失败: " + err.Error()})
+				continue
 			}
+		}
+		if err := tx.Commit(); err != nil {
+			failedCount++
+			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "提交导入事务失败"})
+			continue
 		}
 		successCount++
 		results = append(results, map[string]any{"order_id": orderID, "success": true, "message": "订单已导入"})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"success":       true,
+		"success":       failedCount == 0,
 		"message":       fmt.Sprintf("导入完成: 成功%d个, 失败%d个", successCount, failedCount),
 		"total":         len(orders),
 		"success_count": successCount,

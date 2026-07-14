@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { selectActivePublishBatch } from './itemPublishBatchState';
 import { Item, AccountDetail, ShippingRule } from '../types';
 import {
   getItems,
@@ -10,6 +11,8 @@ import {
   previewItemPublishBatch,
   startItemPublishBatch,
   getItemPublishBatch,
+  getItemPublishBatches,
+  deleteItemPublishBatch,
   cancelItemPublishBatch,
   retryFailedItemPublishBatch,
   updateItem,
@@ -46,6 +49,7 @@ interface PublishBatchDetailRow {
   item_id: string;
   item_url: string;
   error_message: string;
+  failure_kind: string;
   images?: string[];
 }
 
@@ -58,6 +62,7 @@ interface PublishBatchDetail {
   failed: number;
   pending: number;
   running: number;
+  retryable: number;
   rows: PublishBatchDetailRow[];
 }
 
@@ -90,6 +95,8 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     rows: PublishBatchPreviewRow[];
   } | null>(null);
   const [batchDetail, setBatchDetail] = useState<PublishBatchDetail | null>(null);
+  const [recentBatch, setRecentBatch] = useState<PublishBatchDetail | null>(null);
+  const batchPollInFlight = useRef(false);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [editForm, setEditForm] = useState<Partial<Item>>({});
   const [addForm, setAddForm] = useState({
@@ -137,31 +144,41 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   };
 
   useEffect(() => {
-    Promise.all([getAccountDetails(), getItems(), getShippingRules()])
-      .then(([accountList, itemList, ruleList]) => {
+    Promise.all([getAccountDetails(), getItems(), getShippingRules(), getItemPublishBatches(20)])
+      .then(([accountList, itemList, ruleList, batches]) => {
         setAccounts(accountList);
         setItems(itemList);
         setShippingRules(ruleList);
+        const recoverable = batches.find(batch => ['running', 'canceling'].includes(batch.status))
+          || batches.find(batch => batch.status !== 'preview');
+        setRecentBatch(recoverable || null);
       })
       .catch((e) => console.error('加载商品配置失败:', e));
   }, []);
 
   useEffect(() => {
-    if (!showBatchModal || !batchDetail?.id || batchDetail.status !== 'running') return;
+    if (!showBatchModal || !batchDetail?.id || !['running', 'canceling'].includes(batchDetail.status)) return;
     const timer = window.setInterval(async () => {
+      if (batchPollInFlight.current) return;
+      batchPollInFlight.current = true;
       try {
         const detail = await getItemPublishBatch(batchDetail.id);
         setBatchDetail(detail);
-        if (detail.status !== 'running') {
+        setRecentBatch(detail);
+        if (!['running', 'canceling'].includes(detail.status)) {
           setBatchPhase('done');
           await loadItems();
           await loadShippingRules();
         }
       } catch (error) {
         console.error('刷新批量铺货进度失败:', error);
+      } finally {
+        batchPollInFlight.current = false;
       }
     }, 3000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+    };
   }, [showBatchModal, batchDetail?.id, batchDetail?.status]);
 
   const handleSync = async () => {
@@ -295,13 +312,43 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     }
   };
 
-  const openBatchModal = () => {
+  const openBatchModal = async () => {
     setBatchPhase('upload');
     setBatchPreview(null);
     setBatchDetail(null);
     setBatchFile(null);
     setBatchImagesZip(null);
     setShowBatchModal(true);
+    setBatchLoading(true);
+    try {
+      const batches = await getItemPublishBatches(20);
+      const recoverable = selectActivePublishBatch(batches);
+      if (recoverable?.id) {
+        const detail = await getItemPublishBatch(recoverable.id);
+        setRecentBatch(detail);
+        setBatchDetail(detail);
+        setBatchPhase(['running', 'canceling'].includes(detail.status) ? 'running' : 'done');
+      }
+    } catch (error) {
+      console.error('恢复最近批量铺货任务失败:', error);
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  const openRecentBatchResult = async () => {
+    if (!recentBatch?.id) return;
+    setBatchLoading(true);
+    setShowBatchModal(true);
+    try {
+      const detail = await getItemPublishBatch(recentBatch.id);
+      setBatchDetail(detail);
+      setBatchPhase(['running', 'canceling'].includes(detail.status) ? 'running' : 'done');
+    } catch (error) {
+      console.error('加载最近批量铺货结果失败:', error);
+    } finally {
+      setBatchLoading(false);
+    }
   };
 
   const handlePreviewBatch = async () => {
@@ -333,6 +380,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
       const started = await startItemPublishBatch(batchPreview.preview_id);
       const detail = await getItemPublishBatch(started.batch_id || batchPreview.preview_id);
       setBatchDetail(detail);
+      setRecentBatch(detail);
       setBatchPhase(detail.status === 'running' ? 'running' : 'done');
     } catch (error: any) {
       console.error('启动批量铺货失败:', error);
@@ -347,14 +395,33 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     if (!confirm('确认取消当前批量铺货任务吗？正在发布的单个商品可能会继续完成。')) return;
     setBatchLoading(true);
     try {
-      await cancelItemPublishBatch(batchDetail.id);
-      setBatchDetail(await getItemPublishBatch(batchDetail.id));
-      setBatchPhase('done');
+      const result = await cancelItemPublishBatch(batchDetail.id);
+      const detail = await getItemPublishBatch(batchDetail.id);
+      setBatchDetail(detail);
+      setBatchPhase(result?.status === 'canceling' || detail.status === 'canceling' ? 'running' : 'done');
     } catch (error: any) {
       alert(error?.message || '取消失败');
     } finally {
       setBatchLoading(false);
     }
+  };
+
+  const abandonBatchPreview = async () => {
+    const previewId = batchPreview?.preview_id;
+    if (previewId && batchPhase === 'preview') {
+      try {
+        await deleteItemPublishBatch(previewId);
+      } catch (error) {
+        console.error('清理批量铺货预检失败:', error);
+      }
+    }
+    setBatchPreview(null);
+    setBatchPhase('upload');
+  };
+
+  const closeBatchModal = async () => {
+    await abandonBatchPreview();
+    setShowBatchModal(false);
   };
 
   const handleRetryBatchFailed = async () => {
@@ -407,13 +474,16 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
 
   const rulesForItem = (item: Item) => shippingRules.filter(rule =>
     rule.cookie_id === item.cookie_id && rule.item_id === item.item_id
-  );
+  ).length > 0
+    ? shippingRules.filter(rule => rule.cookie_id === item.cookie_id && rule.item_id === item.item_id)
+    : shippingRules.filter(rule => rule.cookie_id === item.cookie_id && !rule.item_id);
 
   const batchStatusText = (status?: string) => {
     switch (status) {
       case 'preview': return '待确认';
       case 'pending': return '等待中';
       case 'running': return '发布中';
+      case 'canceling': return '正在安全取消';
       case 'success': return '成功';
       case 'failed': return '失败';
       case 'completed': return '已完成';
@@ -481,12 +551,20 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
               发布商品
             </button>
             <button
-              onClick={openBatchModal}
+              onClick={() => void openBatchModal()}
               className="px-5 py-3 rounded-2xl font-bold bg-blue-600 text-white hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-lg shadow-blue-100"
             >
               <UploadCloud className="w-4 h-4" />
-              批量铺货
+              {recentBatch && ['running', 'canceling'].includes(recentBatch.status) ? '继续批量任务' : '批量铺货'}
             </button>
+            {recentBatch && !['running', 'canceling'].includes(recentBatch.status) && (
+              <button
+                onClick={() => void openRecentBatchResult()}
+                className="px-4 py-3 rounded-2xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+              >
+                最近批次结果
+              </button>
+            )}
         </div>
       </div>
 
@@ -734,7 +812,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                 <h3 className="text-xl font-extrabold text-gray-900">批量铺货</h3>
                 <p className="text-xs text-gray-500 mt-1">上传商品表格和图片 zip，先预检，再逐条发布到闲鱼。</p>
               </div>
-              <button onClick={() => setShowBatchModal(false)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="关闭">
+              <button onClick={() => void closeBatchModal()} className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="关闭">
                 <X className="w-5 h-5 text-gray-500" />
               </button>
             </div>
@@ -855,14 +933,14 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                             ['邮费模式', '可以留空', '留空表示包邮；包邮填 free，固定邮费填 fixed'],
                             ['邮费', '邮费模式填 fixed 时填写', '只填数字，例如 8.00'],
                             ['图片', '每个商品都要填', '填写 zip 内图片路径或图片网址；多张图片用英文分号隔开'],
-                            ['付款后自动发货', '需要付款后自动发货时填写', '填“是”表示开启；不需要时填“否”或留空'],
-                            ['付款后发送的卡密', '“付款后自动发货”填“是”时填写', '从“卡密库存”页面取得卡密组 ID，按上方示例填写'],
-                            ['评价后发送赠品', '需要评价赠品时填写', '填“是”表示开启；不需要时填“否”或留空'],
-                            ['评价后发送的卡密', '“评价后发送赠品”填“是”时填写', '格式和付款后发送的卡密相同，也可以同时发送多个卡密组'],
-                            ['超时未评价时提醒', '需要自动求评价时填写', '填“是”表示开启；不需要时填“否”或留空'],
-                            ['发货几小时后提醒', '“超时未评价时提醒”填“是”时填写', '填写等待小时数；留空按 72 小时处理'],
-                            ['提醒内容', '“超时未评价时提醒”填“是”时填写', '填写要发送给买家的求评价消息'],
-                            ['最多提醒几次', '可以留空', '留空只提醒 1 次'],
+                            ['付款发货启用', '需要付款后自动发货时填写', '填“是”表示开启；不需要时填“否”或留空'],
+                            ['付款发货内容', '“付款发货启用”填“是”时填写', '从“卡密库存”页面取得卡密组 ID，按上方示例填写'],
+                            ['评价赠品启用', '需要评价赠品时填写', '填“是”表示开启；不需要时填“否”或留空'],
+                            ['评价赠品内容', '“评价赠品启用”填“是”时填写', '格式和付款发货内容相同，也可以同时发送多个卡密组'],
+                            ['求评价启用', '需要自动求评价时填写', '填“是”表示开启；不需要时填“否”或留空'],
+                            ['求评价等待小时', '“求评价启用”填“是”时填写', '填写等待小时数；留空按 72 小时处理'],
+                            ['求评价文案', '“求评价启用”填“是”时填写', '填写要发送给买家的求评价消息'],
+                            ['求评价最多次数', '可以留空', '留空只提醒 1 次'],
                           ].map(([name, when, desc]) => (
                             <tr key={name}>
                               <td className="px-3 py-2 font-bold text-gray-900 whitespace-nowrap">{name}</td>
@@ -995,7 +1073,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
               )}
               {batchPhase === 'preview' && batchPreview && (
                 <div className="flex gap-3 w-full">
-                  <button disabled={batchLoading} onClick={() => setBatchPhase('upload')} className="flex-1 px-6 py-3.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold">
+                  <button disabled={batchLoading} onClick={() => void abandonBatchPreview()} className="flex-1 px-6 py-3.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold">
                     返回修改
                   </button>
                   <button disabled={batchLoading || batchPreview.valid <= 0} onClick={handleStartBatch} className="flex-1 ios-btn-primary px-6 py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50">
@@ -1010,18 +1088,22 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                     <button disabled={batchLoading} onClick={handleCancelBatch} className="flex-1 px-6 py-3.5 rounded-xl bg-gray-900 text-white hover:bg-black font-bold">
                       取消任务
                     </button>
+                  ) : batchDetail.status === 'canceling' ? (
+                    <button disabled className="flex-1 px-6 py-3.5 rounded-xl bg-amber-100 text-amber-800 font-bold">
+                      正在保存远端结果并安全取消…
+                    </button>
                   ) : (
                     <button onClick={() => window.open(`/items/publish-batches/${batchDetail.id}/result.csv`, '_blank')} className="flex-1 px-6 py-3.5 rounded-xl bg-gray-900 text-white hover:bg-black font-bold">
                       下载结果
                     </button>
                   )}
-                  {batchDetail.failed > 0 && batchDetail.status !== 'running' && (
+                  {batchDetail.retryable > 0 && !['running', 'canceling'].includes(batchDetail.status) && (
                     <button disabled={batchLoading} onClick={handleRetryBatchFailed} className="flex-1 ios-btn-primary px-6 py-3.5 rounded-xl font-bold flex items-center justify-center gap-2">
                       <RefreshCw className={`w-4 h-4 ${batchLoading ? 'animate-spin' : ''}`} />
                       重试失败项
                     </button>
                   )}
-                  {batchDetail.status !== 'running' && (
+                  {!['running', 'canceling'].includes(batchDetail.status) && (
                     <button onClick={() => { setShowBatchModal(false); loadItems(); loadShippingRules(); }} className="flex-1 px-6 py-3.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold">
                       完成
                     </button>

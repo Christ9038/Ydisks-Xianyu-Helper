@@ -36,7 +36,7 @@ func TestDefaultReplyClaimReclaimsExpiredPendingLease(t *testing.T) {
 		t.Fatalf("active pending lease must not be claimed: claimed=%v err=%v", claimed, err)
 	}
 
-	_, err = database.ExecContext(ctx, `UPDATE default_reply_records SET updated_at=? WHERE cookie_id=? AND chat_id=?`, time.Now().Add(-10*time.Minute), "cookie-1", "chat-1")
+	_, err = database.ExecContext(ctx, `UPDATE default_reply_records SET lease_expires_at=? WHERE cookie_id=? AND chat_id=?`, time.Now().Add(-10*time.Minute).Unix(), "cookie-1", "chat-1")
 	if err != nil {
 		t.Fatalf("expire lease: %v", err)
 	}

@@ -29,12 +29,13 @@ type Store struct {
 
 // NewStore 基于 *sql.DB 构造聚合 store。dialect 用于业务 SQL 方言分支。
 func NewStore(db *sql.DB, dialect Dialect) *Store {
+	codec := secretCodecFromEnvironment()
 	return &Store{
 		DB:             db,
 		Dialect:        dialect,
 		Users:          &Users{DB: db},
 		Sessions:       &Sessions{DB: db},
-		Cookies:        &Cookies{DB: db, Dialect: dialect},
+		Cookies:        &Cookies{DB: db, Dialect: dialect, codec: codec},
 		Items:          &Items{DB: db, Dialect: dialect},
 		Cards:          &Cards{DB: db, Dialect: dialect},
 		Automation:     &AutomationRules{DB: db, Dialect: dialect},
@@ -42,12 +43,12 @@ func NewStore(db *sql.DB, dialect Dialect) *Store {
 		Keywords:       &Keywords{DB: db, Dialect: dialect},
 		DefaultReps:    &DefaultReplies{DB: db, Dialect: dialect},
 		ItemReps:       &ItemReplies{DB: db, Dialect: dialect},
-		AIReply:        &AIReply{DB: db},
-		Notifications:  &Notifications{DB: db, Dialect: dialect},
-		Settings:       &SystemSettings{DB: db, Dialect: dialect},
+		AIReply:        &AIReply{DB: db, codec: codec},
+		Notifications:  &Notifications{DB: db, Dialect: dialect, codec: codec},
+		Settings:       &SystemSettings{DB: db, Dialect: dialect, codec: codec},
 		WSMessages:     &WSMessageStore{DB: db},
 		PublishBatches: &ItemPublishBatches{DB: db},
-		Tokens:         &AccountTokens{DB: db, Dialect: dialect},
+		Tokens:         &AccountTokens{DB: db, Dialect: dialect, codec: codec},
 		Renewal:        &RenewalStore{DB: db, Dialect: dialect},
 		LoginLogs:      &AccountLoginLogs{DB: db},
 		RiskLogs:       &RiskControlLogs{DB: db, Dialect: dialect},

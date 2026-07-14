@@ -93,6 +93,36 @@ func TestNotifyAccountAlert_WithChannel(t *testing.T) {
 	}
 }
 
+func TestNotifyEventUsesPersistentOutboxWhenStarted(t *testing.T) {
+	s, cleanup := newNotifyStoreBare(t)
+	defer cleanup()
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	addWebhookChannel(t, s, "cid", "outbox", srv.URL)
+	n := New("cid", s, nilLogger())
+	// 标记异步模式但不启动循环，精确验证调用返回时尚未发生外部网络请求。
+	n.started.Store(true)
+	n.NotifyAccountAlert("cid", "warn", "持久化通知", "正文")
+	if got := atomic.LoadInt32(&calls); got != 0 {
+		t.Fatalf("business call performed synchronous network I/O: %d", got)
+	}
+	var queued int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM notification_outbox WHERE status='pending'`).Scan(&queued); err != nil || queued != 1 {
+		t.Fatalf("queued=%d err=%v", queued, err)
+	}
+	n.drainOutbox(context.Background())
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("outbox delivery calls=%d", got)
+	}
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM notification_outbox`).Scan(&queued); err != nil || queued != 0 {
+		t.Fatalf("remaining=%d err=%v", queued, err)
+	}
+}
+
 // TestNotifyAccountAlert_LevelLabels 覆盖 levelLabel 各分支。
 func TestNotifyAccountAlert_LevelLabels(t *testing.T) {
 	cases := map[string]string{
@@ -234,9 +264,9 @@ func TestParseConfig_InvalidJSON(t *testing.T) {
 // TestStrOr 覆盖 string / 非 string / 缺失三个分支。
 func TestStrOr(t *testing.T) {
 	m := map[string]any{
-		"s":   "abc",
-		"n":   42,
-		"b":   true,
+		"s": "abc",
+		"n": 42,
+		"b": true,
 	}
 	if got := strOr(m, "s", "x"); got != "abc" {
 		t.Errorf("strOr(s)=%q", got)

@@ -12,13 +12,20 @@ import (
 
 // loginHelper 登录并返回会话 cookie。
 func loginHelper(t *testing.T, h http.Handler) *http.Cookie {
+	return loginAsHelper(t, h, "admin", "pw")
+}
+
+func loginAsHelper(t *testing.T, h http.Handler, username, password string) *http.Cookie {
 	t.Helper()
-	body := `{"username":"admin","password":"pw"}`
-	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
+	body, err := json.Marshal(map[string]string{"username": username, "password": password})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(string(body)))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != 200 {
-		t.Fatalf("login status=%d", rec.Code)
+	if rec.Code != http.StatusOK || len(rec.Result().Cookies()) == 0 {
+		t.Fatalf("login %q status=%d body=%s", username, rec.Code, rec.Body.String())
 	}
 	return rec.Result().Cookies()[0]
 }

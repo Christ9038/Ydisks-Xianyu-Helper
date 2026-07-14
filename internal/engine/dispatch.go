@@ -21,7 +21,24 @@ func (a *Account) dispatch(decrypted map[string]any) {
 	a.lastMsgReceived = time.Now()
 	a.mu.Unlock()
 
-	// 信号量限并发（非阻塞获取，超限则丢弃并告警——避免阻塞 WS 读取）。
+	// 系统业务事件不能丢弃：并发满时让 WS 读取产生背压，等待处理槽位。
+	// 普通聊天仍采用非阻塞限流，避免聊天洪峰拖垮连接。
+	isSystemEvent := automation.ExtractTaskFromWS(a.CookieID, a.currentCookieStr(), decrypted) != nil
+	if isSystemEvent {
+		select {
+		case a.sem <- struct{}{}:
+		case <-ctx.Done():
+			a.taskWG.Done()
+			return
+		}
+		go func() {
+			defer a.taskWG.Done()
+			defer func() { <-a.sem }()
+			a.handleMessageContext(ctx, decrypted)
+		}()
+		return
+	}
+
 	select {
 	case a.sem <- struct{}{}:
 	default:
@@ -303,6 +320,11 @@ func (a *Account) currentCookieStr() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.CookieStr
+}
+
+// CurrentCookieStr 线程安全地返回账号当前使用的 Cookie。
+func (a *Account) CurrentCookieStr() string {
+	return a.currentCookieStr()
 }
 
 // ---- 小工具 ----

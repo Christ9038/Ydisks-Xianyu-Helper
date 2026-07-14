@@ -228,6 +228,8 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
         smtp_password: smtp.smtp_password || '',
         smtp_from_name: smtp.smtp_from_name || '',
         smtp_from_address: smtp.smtp_from_address || smtp.smtp_user || '',
+		smtp_use_tls: smtp.smtp_use_tls !== false,
+		smtp_use_ssl: smtp.smtp_use_ssl === true,
       });
       showToast('success', 'SMTP 配置已保存');
     } catch (e: any) {
@@ -344,8 +346,9 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
           <h2 className="text-4xl font-extrabold text-gray-900 tracking-tight">通知设置</h2>
           <p className="text-gray-500 mt-2 font-medium">配置通知渠道，账号异常时主动推送告警</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button
+
+		<div className="flex items-center gap-3">
+		  <button
             onClick={load}
             className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-xl font-bold text-gray-700 flex items-center gap-2 transition-colors"
           >
@@ -540,9 +543,28 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
               className="w-full ios-input px-4 py-3 rounded-xl text-sm"
             />
           </div>
-        </div>
+		</div>
 
-        <button
+		<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+		  <label className="flex items-center gap-3 rounded-xl border border-gray-200 p-4 text-sm font-semibold text-gray-700">
+			<input
+			  type="checkbox"
+			  checked={smtp.smtp_use_tls !== false}
+			  onChange={e => setSmtp({ ...smtp, smtp_use_tls: e.target.checked, smtp_use_ssl: e.target.checked ? false : smtp.smtp_use_ssl })}
+			/>
+			STARTTLS（常用于 587 端口）
+		  </label>
+		  <label className="flex items-center gap-3 rounded-xl border border-gray-200 p-4 text-sm font-semibold text-gray-700">
+			<input
+			  type="checkbox"
+			  checked={smtp.smtp_use_ssl === true}
+			  onChange={e => setSmtp({ ...smtp, smtp_use_ssl: e.target.checked, smtp_use_tls: e.target.checked ? false : smtp.smtp_use_tls })}
+			/>
+			SSL/TLS 直连（常用于 465 端口）
+		  </label>
+		</div>
+
+		<button
           onClick={handleSaveSmtp}
           disabled={smtpSaving}
           className="ios-btn-primary px-6 py-3 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50"

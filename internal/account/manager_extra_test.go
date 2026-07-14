@@ -332,8 +332,8 @@ func TestRestart(t *testing.T) {
 		t.Fatal("Restart 后应是新实例，不是旧实例")
 	}
 	// 新实例的 CookieStr 应反映最新 DB 值。
-	if newMA.acc.CookieStr != "unb=1; _m_h5_tk=new-refreshed;" {
-		t.Fatalf("新实例 CookieStr=%q want new-refreshed", newMA.acc.CookieStr)
+	if got := newMA.acc.CurrentCookieStr(); got != "unb=1; _m_h5_tk=new-refreshed;" {
+		t.Fatalf("新实例 CookieStr=%q want new-refreshed", got)
 	}
 
 	// 旧实例的 done 应已关闭（被 Stop）。
@@ -386,8 +386,8 @@ func TestStart_SkipsRunning(t *testing.T) {
 	if after != original {
 		t.Fatal("Start 运行中账号不应替换实例")
 	}
-	if after.acc.CookieStr != "unb=1; _m_h5_tk=t;" {
-		t.Fatalf("实例 CookieStr 不应变，got %q", after.acc.CookieStr)
+	if got := after.acc.CurrentCookieStr(); got != "unb=1; _m_h5_tk=t;" {
+		t.Fatalf("实例 CookieStr 不应变，got %q", got)
 	}
 
 	mgr.Stop("running-acc")
@@ -416,6 +416,9 @@ func TestStart_RestartsExited(t *testing.T) {
 	mgr.mu.Lock()
 	mgr.runCtx = ctx
 	mgr.mu.Unlock()
+	if err := mgr.store.Cookies.Save(ctx, "exited-acc", "unb=1; _m_h5_tk=brand-new;", 0); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := mgr.Start(ctx, "exited-acc", "unb=1; _m_h5_tk=brand-new;"); err != nil {
 		t.Fatalf("Start 已退出账号应成功，got %v", err)
@@ -428,8 +431,8 @@ func TestStart_RestartsExited(t *testing.T) {
 	if newMA == exitedMA {
 		t.Fatal("应替换为全新实例")
 	}
-	if newMA.acc.CookieStr != "unb=1; _m_h5_tk=brand-new;" {
-		t.Fatalf("新实例 CookieStr=%q want brand-new", newMA.acc.CookieStr)
+	if got := newMA.acc.CurrentCookieStr(); got != "unb=1; _m_h5_tk=brand-new;" {
+		t.Fatalf("新实例 CookieStr=%q want brand-new", got)
 	}
 	// done 不应已关闭（新实例在运行）。
 	select {

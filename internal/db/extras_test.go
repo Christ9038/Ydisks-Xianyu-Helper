@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 // --- extras.go ---
@@ -24,12 +25,18 @@ func TestKeywords_AllWithType(t *testing.T) {
 	if _, err := s.Keywords.Add(ctx, cid, "图", "[img]", "item1", "image", "http://img"); err != nil {
 		t.Fatalf("Add image: %v", err)
 	}
+	if _, err := s.Keywords.Add(ctx, cid, "你好呀", "更精确", "", "text", ""); err != nil {
+		t.Fatal(err)
+	}
 	kws, err := s.Keywords.AllWithType(ctx, cid)
 	if err != nil {
 		t.Fatalf("AllWithType: %v", err)
 	}
-	if len(kws) != 2 {
-		t.Fatalf("len=%d want 2", len(kws))
+	if len(kws) != 3 {
+		t.Fatalf("len=%d want 3", len(kws))
+	}
+	if kws[0].Keyword != "你好呀" {
+		t.Fatalf("longest keyword must win deterministically: %#v", kws)
 	}
 	// 验证默认 type=text 兜底（第一条）。
 	var foundText, foundImage bool
@@ -339,9 +346,9 @@ func TestCookies_DeleteAndStatuses(t *testing.T) {
 	if !s.Cookies.GetStatus(ctx, cid) {
 		t.Fatal("GetStatus 应 true")
 	}
-	// GetStatus 不存在记录 → 默认 true。
-	if !s.Cookies.GetStatus(ctx, "no-such-cookie") {
-		t.Fatal("不存在记录 GetStatus 应默认 true")
+	// 不存在的账号和数据库错误都必须安全地按停用处理。
+	if s.Cookies.GetStatus(ctx, "no-such-cookie") {
+		t.Fatal("不存在账号 GetStatus 应返回 false")
 	}
 
 	// UpdateProfile。
@@ -359,12 +366,19 @@ func TestCookies_DeleteAndStatuses(t *testing.T) {
 		t.Fatalf("AllForUser(0): %#v err=%v", all, err)
 	}
 
-	// Delete cookie → 关联关键字也删（虽然这里没关键字，但走事务路径）。
+	if _, err := s.DB.ExecContext(ctx, `INSERT INTO item_replay (item_id,cookie_id,reply_content) VALUES ('item-stale',?,'不应残留')`, cid); err != nil {
+		t.Fatalf("seed item_replay: %v", err)
+	}
+	// Delete cookie → 无外键的 item_replay 也必须显式清理。
 	if err := s.Cookies.Delete(ctx, cid); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if _, err := s.Cookies.GetValue(ctx, cid); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Delete 后 GetValue 应 ErrNotFound, got %v", err)
+	}
+	var stale int
+	if err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM item_replay WHERE cookie_id=?`, cid).Scan(&stale); err != nil || stale != 0 {
+		t.Fatalf("Delete 后 item_replay count=%d err=%v", stale, err)
 	}
 }
 
@@ -409,5 +423,41 @@ func TestCookies_GetPauseDurationExplicit(t *testing.T) {
 	// 不存在的 cookie → 默认 10。
 	if pd := s.Cookies.GetPauseDuration(ctx, "nope"); pd != 10 {
 		t.Fatalf("GetPauseDuration 不存在=%d want 10", pd)
+	}
+}
+
+func TestCookies_SetPauseAndAutomaticExpiry(t *testing.T) {
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, cid := seedAccount(t, s)
+
+	pausedUntil, err := s.Cookies.SetPause(ctx, cid, 15)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused, storedUntil, err := s.Cookies.IsPaused(ctx, cid)
+	if err != nil || !paused || storedUntil != pausedUntil || pausedUntil <= time.Now().UTC().Unix() {
+		t.Fatalf("pause state: paused=%v until=%d stored=%d err=%v", paused, pausedUntil, storedUntil, err)
+	}
+	if _, err := s.DB.ExecContext(ctx, `UPDATE cookies SET paused_until=? WHERE id=?`, time.Now().UTC().Add(-time.Second).Unix(), cid); err != nil {
+		t.Fatal(err)
+	}
+	if paused, _, err = s.Cookies.IsPaused(ctx, cid); err != nil || paused {
+		t.Fatalf("expired pause must be inactive: paused=%v err=%v", paused, err)
+	}
+	if until, err := s.Cookies.SetPause(ctx, cid, 0); err != nil || until != 0 {
+		t.Fatalf("cancel pause: until=%d err=%v", until, err)
+	}
+}
+
+func TestCookiesGetStatusFailsClosedOnDatabaseError(t *testing.T) {
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	if err := s.DB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if s.Cookies.GetStatus(context.Background(), "cid") {
+		t.Fatal("database error must not silently enable an account")
 	}
 }

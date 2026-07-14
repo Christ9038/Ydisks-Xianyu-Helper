@@ -23,6 +23,7 @@ type AccountToken struct {
 type AccountTokens struct {
 	DB      *sql.DB
 	Dialect Dialect
+	codec   *secretCodec
 }
 
 // Get 取账号缓存的 device_id + accessToken。无记录返回 ErrNotFound。
@@ -38,12 +39,35 @@ func (t *AccountTokens) Get(ctx context.Context, cookieID string) (AccountToken,
 		}
 		return AccountToken{}, err
 	}
+	tk.DeviceID, err = t.codec.decrypt("device-id", cookieID, tk.DeviceID)
+	if err != nil {
+		return AccountToken{}, err
+	}
+	tk.AccessToken, err = t.codec.decrypt("access-token", cookieID, tk.AccessToken)
+	if err != nil {
+		return AccountToken{}, err
+	}
 	return tk, nil
 }
 
 // Save upsert 缓存的 device_id + accessToken + expire_at。
 func (t *AccountTokens) Save(ctx context.Context, cookieID, deviceID, accessToken string, expireAt int64) error {
-	_, err := t.DB.ExecContext(ctx,
+	// device_id is an account identity, not part of the expiring token cache.
+	// Once stored, token refreshes must never replace it.
+	if existing, err := t.Get(ctx, cookieID); err == nil && existing.DeviceID != "" {
+		deviceID = existing.DeviceID
+	} else if err != nil && !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	encryptedDeviceID, err := t.codec.encrypt("device-id", cookieID, deviceID)
+	if err != nil {
+		return err
+	}
+	encryptedToken, err := t.codec.encrypt("access-token", cookieID, accessToken)
+	if err != nil {
+		return err
+	}
+	_, err = t.DB.ExecContext(ctx,
 		`INSERT INTO account_tokens (cookie_id, device_id, access_token, expire_at, updated_at)
 		 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`+
 			dialectUpsert(t.Dialect, []string{"cookie_id"}, map[string]string{
@@ -52,15 +76,54 @@ func (t *AccountTokens) Save(ctx context.Context, cookieID, deviceID, accessToke
 				"expire_at":    "excluded.expire_at",
 				"updated_at":   "CURRENT_TIMESTAMP",
 			}),
-		cookieID, deviceID, accessToken, expireAt)
+		cookieID, encryptedDeviceID, encryptedToken, expireAt)
 	if err != nil {
 		return fmt.Errorf("保存 account_tokens: %w", err)
 	}
 	return nil
 }
 
-// Clear 删除账号的 token 缓存（session 失效 / 短连接可疑失效时调用）。
+// GetOrCreateDeviceID returns the permanent device ID for an account. The
+// candidate is persisted only when the account has no identity yet.
+func (t *AccountTokens) GetOrCreateDeviceID(ctx context.Context, cookieID, candidate string) (string, error) {
+	if candidate == "" {
+		return "", fmt.Errorf("device_id 不能为空")
+	}
+	encryptedCandidate, err := t.codec.encrypt("device-id", cookieID, candidate)
+	if err != nil {
+		return "", err
+	}
+	// Insert-once makes concurrent account starts converge on the same identity.
+	// A normal upsert can let two starters each observe a different winning ID.
+	if _, err := t.DB.ExecContext(ctx,
+		dialectInsertIgnorePrefix(t.Dialect)+` INTO account_tokens (cookie_id, device_id, access_token, expire_at, updated_at)
+		 VALUES (?, ?, '', 0, CURRENT_TIMESTAMP)`+dialectInsertIgnore(t.Dialect, []string{"cookie_id"}),
+		cookieID, encryptedCandidate); err != nil {
+		return "", fmt.Errorf("创建 account_tokens device_id: %w", err)
+	}
+	// Upgrade the only legacy state that had no identity. The conditional update
+	// is also first-writer-wins under concurrent starts.
+	if _, err := t.DB.ExecContext(ctx,
+		`UPDATE account_tokens SET device_id=?, updated_at=CURRENT_TIMESTAMP WHERE cookie_id=? AND device_id=''`,
+		encryptedCandidate, cookieID); err != nil {
+		return "", fmt.Errorf("补全 account_tokens device_id: %w", err)
+	}
+	tk, err := t.Get(ctx, cookieID)
+	if err != nil {
+		return "", err
+	}
+	return tk.DeviceID, nil
+}
+
+// Clear clears only the expiring access token. The permanent device_id row is
+// retained across session expiry, login refresh, risk recovery and restarts.
 func (t *AccountTokens) Clear(ctx context.Context, cookieID string) error {
-	_, err := t.DB.ExecContext(ctx, `DELETE FROM account_tokens WHERE cookie_id=?`, cookieID)
+	encryptedToken, err := t.codec.encrypt("access-token", cookieID, "")
+	if err != nil {
+		return err
+	}
+	_, err = t.DB.ExecContext(ctx,
+		`UPDATE account_tokens SET access_token=?, expire_at=0, updated_at=CURRENT_TIMESTAMP WHERE cookie_id=?`,
+		encryptedToken, cookieID)
 	return err
 }

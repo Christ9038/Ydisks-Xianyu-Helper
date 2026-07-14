@@ -45,7 +45,10 @@ func newTestServer(t *testing.T) (*Server, *db.Store, func()) {
 		}, nil
 	})}
 	srv.MTop = mtopClient
-	return srv, store, func() { d.Close() }
+	return srv, store, func() {
+		mgr.StopAll()
+		_ = d.Close()
+	}
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -56,9 +59,9 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 
 type noopHandler struct{}
 
-func (noopHandler) HandleChatMessage(context.Context, engine.ChatMessage) error     { return nil }
-func (noopHandler) HandleSystemEvent(context.Context, automation.Task) error        { return nil }
-func (noopHandler) OnPasswordLoginRefresh(context.Context, string) bool             { return false }
+func (noopHandler) HandleChatMessage(context.Context, engine.ChatMessage) error    { return nil }
+func (noopHandler) HandleSystemEvent(context.Context, automation.Task) error       { return nil }
+func (noopHandler) OnPasswordLoginRefresh(context.Context, string) bool            { return false }
 func (noopHandler) OnAccountAlert(context.Context, string, string, string, string) {}
 
 // TestLoginVerifyLogout 登录→verify→登出 全链路。
@@ -312,5 +315,27 @@ func TestHealth(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("health status=%d", rec.Code)
+	}
+}
+
+func TestHealthReportsUnavailableDatabase(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	if err := store.DB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Router()
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("health status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response["status"] != "degraded" || response["database"] != "unavailable" {
+		t.Fatalf("health response=%+v", response)
 	}
 }

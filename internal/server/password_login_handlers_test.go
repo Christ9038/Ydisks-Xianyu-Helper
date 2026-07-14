@@ -177,12 +177,49 @@ func TestPasswordLoginSessionSuccessSavesCookiesAndAudit(t *testing.T) {
 	if d.Username != "login-user" || d.Password != "secret" || d.ShowBrowser || d.LoginMethod != "password" || d.LastLoginAt == 0 {
 		t.Fatalf("登录信息/审计字段异常: %+v", d)
 	}
-	if _, err := store.Tokens.Get(context.Background(), "acc1"); !errors.Is(err, db.ErrNotFound) {
-		t.Fatalf("密码登录成功应清 token，got %v", err)
+	if tk, err := store.Tokens.Get(context.Background(), "acc1"); err != nil || tk.AccessToken != "" || tk.DeviceID != "did" {
+		t.Fatalf("密码登录成功应清 token 并保留 device ID: tk=%+v err=%v", tk, err)
 	}
 	logs, err := store.LoginLogs.ListByCookie(context.Background(), "acc1", 10)
 	if err != nil || len(logs) != 1 || logs[0].Status != "success" {
 		t.Fatalf("登录日志异常: logs=%#v err=%v", logs, err)
+	}
+}
+
+func TestPasswordLoginRejectsMismatchedReturnedAccount(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.Manager = nil
+	srv.PasswordLogin = &fakePasswordLoginRunner{cookies: map[string]string{"unb": "other-account", "_m_h5_tk": "wrong"}}
+	h := srv.Router()
+	cookie := loginForPasswordTest(t, h)
+
+	start := startPasswordLoginForTest(t, h, cookie, `{"account_id":"acc1","account":"login-user","password":"secret"}`)
+	done := waitPasswordLoginStatus(t, h, cookie, start["session_id"].(string), "failed")
+	if !strings.Contains(done["error"].(string), "不一致") {
+		t.Fatalf("mismatch error=%+v", done)
+	}
+	if saved, err := store.Cookies.GetValue(context.Background(), "acc1"); err != nil || strings.Contains(saved, "wrong") {
+		t.Fatalf("target cookie must remain unchanged: value=%q err=%v", saved, err)
+	}
+	if _, err := store.Cookies.GetValue(context.Background(), "other-account"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("mismatched account must not be created: %v", err)
+	}
+}
+
+func TestPasswordLoginTerminalResultCanBePolledAgain(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.Manager = nil
+	srv.PasswordLogin = &fakePasswordLoginRunner{cookies: map[string]string{"unb": "acc1", "_m_h5_tk": "fresh"}}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	start := startPasswordLoginForTest(t, h, cookie, `{"account_id":"acc1","account":"login-user","password":"secret"}`)
+	sessionID := start["session_id"].(string)
+	first := waitPasswordLoginStatus(t, h, cookie, sessionID, "success")
+	second := checkPasswordLoginForTest(t, h, cookie, sessionID)
+	if first["account_id"] != "acc1" || second["status"] != "success" || second["account_id"] != "acc1" {
+		t.Fatalf("terminal result must remain idempotently readable: first=%+v second=%+v", first, second)
 	}
 }
 
@@ -243,6 +280,47 @@ func TestPasswordLoginDuplicateStartReturnsProcessingSession(t *testing.T) {
 	}
 
 	cancelPasswordLoginForTest(t, h, cookie, first["session_id"].(string))
+	waitLoginLogCount(t, store, "acc1", 1)
+}
+
+func TestPasswordLoginSessionCannotBeCheckedOrCanceledByAnotherUser(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.Manager = nil
+	if ok, err := store.Users.Create(context.Background(), "member", "member@example.com", "memberpw"); err != nil || !ok {
+		t.Fatalf("create member: ok=%v err=%v", ok, err)
+	}
+	fake := &fakePasswordLoginRunner{block: make(chan struct{}), cookies: map[string]string{"unb": "acc1"}}
+	srv.PasswordLogin = fake
+	h := srv.Router()
+	adminCookie := loginForPasswordTest(t, h)
+	memberCookie := loginAsHelper(t, h, "member", "memberpw")
+
+	start := startPasswordLoginForTest(t, h, adminCookie, `{"account_id":"acc1","account":"u","password":"p"}`)
+	sessionID, _ := start["session_id"].(string)
+	if sessionID == "" {
+		t.Fatalf("missing session: %+v", start)
+	}
+	checked := checkPasswordLoginForTest(t, h, memberCookie, sessionID)
+	if checked["status"] != "not_found" {
+		t.Fatalf("cross-user check exposed session: %+v", checked)
+	}
+
+	cancelReq := httptest.NewRequest(http.MethodDelete, "/password-login/cancel/"+sessionID, nil)
+	cancelReq.AddCookie(memberCookie)
+	cancelRec := httptest.NewRecorder()
+	h.ServeHTTP(cancelRec, cancelReq)
+	var canceled map[string]any
+	if err := json.Unmarshal(cancelRec.Body.Bytes(), &canceled); err != nil {
+		t.Fatal(err)
+	}
+	if canceled["success"] != false {
+		t.Fatalf("cross-user cancel should be hidden: %+v", canceled)
+	}
+	if owner := checkPasswordLoginForTest(t, h, adminCookie, sessionID); owner["status"] != "processing" {
+		t.Fatalf("owner session was canceled by another user: %+v", owner)
+	}
+	cancelPasswordLoginForTest(t, h, adminCookie, sessionID)
 	waitLoginLogCount(t, store, "acc1", 1)
 }
 

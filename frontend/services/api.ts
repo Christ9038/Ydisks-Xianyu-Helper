@@ -1,10 +1,11 @@
-import { get, post, put, del, postForm } from '../request';
+import { get, post, put, del, postForm, type RequestControlOptions } from '../request';
 import {
   LoginResponse, AccountDetail, Order, PaginatedResponse,
   AdminStats, DashboardStats, Card, SystemSettings, ApiResponse, OrderAnalytics,
   Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction,
   NotificationChannel, NotificationEventType
 } from '../types';
+import { formatLocalDate } from '../dateRange';
 
 const normalizeSettings = (settings: Record<string, any>): SystemSettings => {
   const out: Record<string, any> = { ...settings };
@@ -60,8 +61,8 @@ const accountAvatarURL = (item: any, version: string): string => {
   }
 };
 
-export const getAccountDetails = async (): Promise<AccountDetail[]> => {
-  const data = await get<any[]>('/cookies/details');
+export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => {
+  const data = await get<any[]>('/cookies/details', undefined, options);
   const avatarVersion = Date.now().toString();
   return data.map(item => ({
     id: item.id,
@@ -72,6 +73,8 @@ export const getAccountDetails = async (): Promise<AccountDetail[]> => {
     remark: item.remark,
     note: item.remark,
     pause_duration: item.pause_duration,
+    paused_until: Number(item.paused_until || 0),
+    paused: item.paused === true,
     username: item.username || '',
     login_password: '',
     show_browser: item.show_browser === true || item.show_browser === 1 || item.show_browser === '1' || item.show_browser === 'true',
@@ -90,32 +93,29 @@ export interface AccountRuntimeStatus {
   updated_at: string;
 }
 
-export const getAccountRuntimeStatuses = async (): Promise<Record<string, AccountRuntimeStatus>> => {
-  return get('/cookies/runtime-status');
+export const getAccountRuntimeStatuses = async (options?: RequestControlOptions): Promise<Record<string, AccountRuntimeStatus>> => {
+  return get('/cookies/runtime-status', undefined, options);
 };
 
-export const generateQRLogin = async (): Promise<{ success: boolean; session_id?: string; qr_code_url?: string }> => {
-  return post('/qr-login/generate');
+export const generateQRLogin = async (options?: RequestControlOptions): Promise<{ success: boolean; session_id?: string; qr_code_url?: string }> => {
+  return post('/qr-login/generate', undefined, options);
 };
 
-export const checkQRLoginStatus = async (sessionId: string): Promise<any> => {
-  return get(`/qr-login/check/${sessionId}`);
+export const checkQRLoginStatus = async (sessionId: string, signal?: AbortSignal): Promise<any> => {
+  return get(`/qr-login/check/${sessionId}`, undefined, { signal, timeoutMs: 10_000 });
 };
 
 export const completeQRVerification = async (
   sessionId: string,
   targetAccountId?: string,
-  confirmMismatch = false,
 ): Promise<{
   success: boolean;
   account_id?: string;
   scanned_account_id?: string;
-  requires_confirmation?: boolean;
   message?: string;
 }> => {
   return post(`/qr-login/complete-verification/${sessionId}`, {
     target_account_id: targetAccountId || '',
-    confirm_mismatch: confirmMismatch,
   });
 };
 
@@ -141,6 +141,22 @@ export const updateAccountPauseDuration = async (id: string, pauseDuration: numb
 
 export const updateAccountCookie = async (id: string, value: string, loginMethod?: string): Promise<any> => {
   return put(`/cookies/${id}`, { id, value, login_method: loginMethod });
+};
+
+export interface AccountSettingsUpdate {
+  cookie?: string;
+  remark?: string;
+  auto_confirm?: boolean;
+  pause_duration?: number;
+  username?: string;
+  login_password?: string;
+  clear_password?: boolean;
+  show_browser?: boolean;
+  channel_ids?: number[];
+}
+
+export const updateAccountSettings = async (id: string, data: AccountSettingsUpdate): Promise<ApiResponse> => {
+  return put(`/cookies/${id}/settings`, data);
 };
 
 export interface PasswordLoginStartResponse {
@@ -172,8 +188,8 @@ export const passwordLogin = async (data: {
   return post('/password-login', data);
 };
 
-export const checkPasswordLoginStatus = async (sessionId: string): Promise<PasswordLoginStatusResponse> => {
-  return get(`/password-login/check/${sessionId}`);
+export const checkPasswordLoginStatus = async (sessionId: string, signal?: AbortSignal): Promise<PasswordLoginStatusResponse> => {
+  return get(`/password-login/check/${sessionId}`, undefined, { signal, timeoutMs: 10_000 });
 };
 
 export const cancelPasswordLogin = async (sessionId: string): Promise<ApiResponse> => {
@@ -193,20 +209,30 @@ export const updateAccountLoginInfo = async (id: string, data: {
   return put(`/cookies/${id}/login-info`, data);
 };
 
-export const getAllAISettings = async (): Promise<Record<string, AIReplySettings>> => {
-  return get('/ai-reply-settings');
+export const getAllAISettings = async (options?: RequestControlOptions): Promise<Record<string, AIReplySettings>> => {
+  return get('/ai-reply-settings', undefined, options);
 };
 
 // Orders
+const normalizeOrderStatus = (value: unknown): Order['status'] => {
+  const status = String(value || '');
+  if (status === 'paid') return 'pending_ship';
+  return ['processing', 'pending_ship', 'shipped', 'completed', 'cancelled', 'refunding'].includes(status)
+    ? status as Order['status']
+    : 'unknown';
+};
+
 export const getOrders = async (
   cookieId?: string,
   status?: string,
   page: number = 1,
-  pageSize: number = 20
+  pageSize: number = 20,
+  search?: string,
 ): Promise<PaginatedResponse<Order>> => {
   const params: any = { page, page_size: pageSize };
   if (cookieId) params.cookie_id = cookieId;
   if (status && status !== 'all') params.status = status;
+  if (search?.trim()) params.search = search.trim();
 
   const res = await get<any>('/api/orders', params);
 
@@ -215,7 +241,7 @@ export const getOrders = async (
   const orders = rawOrders.map((item: any) => ({
     ...item,
     id: item.id || item.order_id,
-    status: item.status || item.order_status || 'processing',
+    status: normalizeOrderStatus(item.status || item.order_status),
     quantity: Number(item.quantity || 1),
   }));
   return {
@@ -249,46 +275,23 @@ export const syncOrders = async (cookieId?: string, status?: string): Promise<an
   if (cookieId) formData.append('cookie_id', cookieId);
   if (status) formData.append('status', status);
 
-  // 使用 fetch 来发送 FormData（Cookie 会话，自动携带凭证）
-  const response = await fetch('/api/orders/refresh', {
-    method: 'POST',
-    credentials: 'include',
-    body: formData
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || result.success === false) {
-    throw new Error(result.detail || result.message || `订单同步失败: ${response.status}`);
-  }
-  return result;
+	return postForm('/api/orders/refresh', formData);
 };
 
 export const syncSingleOrder = async (orderId: string): Promise<any> => {
   return post(`/api/orders/${orderId}/refresh`);
 };
 
-export const manualShipOrder = async (orderIds: string[], shipMode: 'status_only' | 'full_delivery', content?: string): Promise<any> => {
+export const manualShipOrder = async (orderIds: string[], shipMode: 'status_only' | 'full_delivery'): Promise<any> => {
     return post('/api/orders/manual-ship', {
         order_ids: orderIds,
         ship_mode: shipMode,
-        custom_content: content
     });
 }
 
 export const importOrders = async (data: Partial<Order>[] | FormData): Promise<any> => {
-  const isFormData = data instanceof FormData;
-  const response = await fetch('/api/orders/import', {
-    method: 'POST',
-    credentials: 'include',
-    headers: {
-      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-    },
-    body: isFormData ? data : JSON.stringify(data)
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok || result.success === false) {
-    throw new Error(result.detail || result.message || `订单导入失败: ${response.status}`);
-  }
-  return result;
+	const isFormData = data instanceof FormData;
+	return isFormData ? postForm('/api/orders/import', data) : post('/api/orders/import', data);
 }
 
 // Stats
@@ -308,28 +311,43 @@ export const getOrderAnalytics = async (daysOrParams: number | {start_date: stri
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - daysOrParams);
         params = {
-            start_date: startDate.toISOString().split('T')[0],
-            end_date: endDate.toISOString().split('T')[0]
+            start_date: formatLocalDate(startDate),
+            end_date: formatLocalDate(endDate)
         };
     } else {
         params = daysOrParams;
     }
 
-    return get('/analytics/orders', params);
+    return get('/analytics/orders', {
+        ...params,
+        timezone_offset_minutes: -new Date().getTimezoneOffset(),
+    });
 }
 
-export const getValidOrders = async (dateRange: {start_date: string; end_date: string}): Promise<Order[]> => {
+export interface ValidOrdersResult {
+    orders: Order[];
+    total: number;
+    truncated: boolean;
+}
+
+export const getValidOrders = async (dateRange: {start_date: string; end_date: string}): Promise<ValidOrdersResult> => {
     const res = await get<any>('/analytics/orders/valid', {
         start_date: dateRange.start_date,
-        end_date: dateRange.end_date
+        end_date: dateRange.end_date,
+        timezone_offset_minutes: -new Date().getTimezoneOffset(),
     });
     const orders = Array.isArray(res) ? res : (res.orders || []);
-    return orders.map((order: any) => ({
+    const normalized = orders.map((order: any) => ({
         ...order,
         id: order.id || order.order_id,
-        status: order.status || order.order_status || 'processing',
+        status: normalizeOrderStatus(order.status || order.order_status),
         quantity: Number(order.quantity || 1),
     }));
+    return {
+        orders: normalized,
+        total: Array.isArray(res) ? normalized.length : Number(res.total ?? normalized.length),
+        truncated: Array.isArray(res) ? false : res.truncated === true,
+    };
 }
 
 // Cards
@@ -465,6 +483,15 @@ export const getItemPublishBatch = async (batchId: string): Promise<any> => {
     return get(`/items/publish-batches/${batchId}`);
 }
 
+export const getItemPublishBatches = async (limit = 20): Promise<any[]> => {
+    const res = await get<any>('/items/publish-batches', { limit });
+    return Array.isArray(res) ? res : (res.batches || []);
+}
+
+export const deleteItemPublishBatch = async (batchId: string): Promise<any> => {
+    return del(`/items/publish-batches/${batchId}`);
+}
+
 export const cancelItemPublishBatch = async (batchId: string): Promise<any> => {
     return post(`/items/publish-batches/${batchId}/cancel`, {});
 }
@@ -553,8 +580,9 @@ export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<a
       triggerName[triggerType] || '自动化规则',
       rule.item_title || rule.item_id || rule.cookie_id || '',
     ].filter(Boolean).join(' - ');
+    const preservedNonCardActions = (rule.actions || []).filter(action => action.action_type !== 'send_card' && action.action_type !== 'confirm_shipment');
     const baseActions: AutomationAction[] = rule.variants && rule.variants.length > 0
-      ? rule.variants.map((variant, index) => ({
+      ? [...rule.variants.map((variant, index) => ({
             action_type: 'send_card' as const,
             card_id: variant.card_id,
             delivery_count: variant.delivery_count || 1,
@@ -566,7 +594,7 @@ export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<a
               spec_value: variant.spec_value || '',
               delay_override: variant.delay_override === true,
             }),
-          }))
+		  })), ...preservedNonCardActions]
       : (rule.actions && rule.actions.length > 0 ? rule.actions : [{
           action_type: 'send_card' as const,
           card_id: rule.card_group_id || 0,
@@ -599,8 +627,45 @@ export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<a
 
 export const deleteShippingRule = async (id: string): Promise<any> => del(`/automation-rules/${id}`);
 
+export interface AutomationRunIssue {
+  id: number;
+  cookie_id: string;
+  order_id: string;
+  trigger_type: string;
+  error_message: string;
+  issue_kind: 'external_result_unknown' | 'invalid_snapshot' | 'rule_unavailable' | 'partial_failure' | 'execution_failed';
+  allowed_resolutions: Array<'continue' | 'retry' | 'cancel'>;
+  action_cursor: number;
+  sent_count: number;
+  updated_at: string;
+}
+
+export interface DeferredAutomationIssue {
+  id: number;
+  cookie_id: string;
+  trigger_type: string;
+  error_message: string;
+  attempt_count: number;
+  updated_at: string;
+}
+
+export const getAutomationIssues = async (): Promise<{ runs: AutomationRunIssue[]; pending_tasks: DeferredAutomationIssue[] }> => {
+  const result = await get<any>('/automation-issues');
+  return {
+    runs: Array.isArray(result?.runs) ? result.runs : [],
+    pending_tasks: Array.isArray(result?.pending_tasks) ? result.pending_tasks : [],
+  };
+};
+
+export const resolveAutomationRun = async (id: number, resolution: 'continue' | 'retry' | 'cancel'): Promise<any> =>
+  post(`/automation-runs/${id}/resolve`, { resolution });
+
+export const resolveDeferredAutomationTask = async (id: number, resolution: 'retry' | 'dismiss'): Promise<any> =>
+  post(`/automation-pending-tasks/${id}/resolve`, { resolution });
+
 // Rules - 关键词回复规则 (使用关键词API)
 type KeywordRowPayload = {
+    id: string;
     keyword: string;
     reply: string;
     item_id: string;
@@ -609,6 +674,7 @@ type KeywordRowPayload = {
 };
 
 const normalizeKeywordRow = (item: any): KeywordRowPayload => ({
+    id: String(item?.id || ''),
     keyword: item?.keyword || '',
     reply: item?.reply || '',
     item_id: item?.item_id || '',
@@ -624,8 +690,8 @@ const getKeywordRowsWithType = async (cookieId: string): Promise<KeywordRowPaylo
 export const getReplyRules = async (cookieId?: string): Promise<ReplyRule[]> => {
     if (!cookieId) return [];
     const keywords = await getKeywordRowsWithType(cookieId);
-    return keywords.map((item: any, index: number) => ({
-        id: String(index),
+	return keywords.map((item: any) => ({
+		id: item.id,
         keyword: item.keyword || '',
         reply_content: item.reply || '',
         match_type: 'fuzzy' as const,
@@ -637,41 +703,21 @@ export const getReplyRules = async (cookieId?: string): Promise<ReplyRule[]> => 
 }
 
 export const updateReplyRule = async (rule: Partial<ReplyRule>, cookieId: string): Promise<any> => {
-    const keywords = await getKeywordRowsWithType(cookieId);
-
-    if (rule.id) {
-        const index = parseInt(rule.id);
-        if (index >= 0 && index < keywords.length) {
-            const current = keywords[index];
-            keywords[index] = {
-                ...current,
-                keyword: rule.keyword ?? current.keyword,
-                reply: rule.reply_content ?? current.reply,
-                item_id: rule.item_id ?? current.item_id,
-                type: rule.type ?? current.type,
-                image_url: rule.image_url ?? current.image_url,
-            };
-        }
-    } else {
-        keywords.push({
-            keyword: rule.keyword || '',
-            reply: rule.reply_content || '',
-            item_id: rule.item_id || '',
-            type: rule.type || 'text',
-            image_url: rule.image_url || '',
-        });
-    }
-
-    return post(`/keywords-with-item-id/${cookieId}`, { keywords });
+	const type = rule.type || 'text';
+	const payload = {
+		keyword: rule.keyword || '',
+		reply: type === 'text' ? (rule.reply_content || '') : '',
+		item_id: rule.item_id || '',
+		type,
+		image_url: type === 'image' ? (rule.image_url || '') : '',
+	};
+	return rule.id
+		? put(`/keywords-with-type/${cookieId}/${rule.id}`, payload)
+		: post(`/keywords-with-item-id/${cookieId}`, payload);
 }
 
 export const deleteReplyRule = async (id: string, cookieId: string): Promise<any> => {
-    const keywords = await getKeywordRowsWithType(cookieId);
-    const index = parseInt(id);
-    if (index >= 0 && index < keywords.length) {
-        keywords.splice(index, 1);
-    }
-    return post(`/keywords-with-item-id/${cookieId}`, { keywords });
+	return del(`/keywords-with-type/${cookieId}/${id}`);
 }
 
 // Settings
@@ -681,17 +727,14 @@ export const getSystemSettings = async (): Promise<SystemSettings> => {
 };
 
 export const updateSystemSettings = async (settings: Partial<SystemSettings>): Promise<ApiResponse> => {
-    // API expects individual PUTs, but we'll loop in the service for convenience or assume bulk endpoint if updated
-    // Based on docs 12.2, we iterate.
-    const promises = Object.entries(settings).filter(([, value]) => value !== undefined && value !== null).map(([key, value]) => {
-         return put(`/system-settings/${key}`, { value: String(value) });
-    });
-    await Promise.all(promises);
-    return { success: true, message: 'Settings saved' };
+	const payload = Object.fromEntries(
+		Object.entries(settings).filter(([, value]) => value !== undefined && value !== null),
+	);
+	return put('/system-settings', payload);
 };
 
-export const getAccountAISettings = async (cookieId: string): Promise<AIReplySettings> => {
-    return get(`/ai-reply-settings/${cookieId}`);
+export const getAccountAISettings = async (cookieId: string, options?: RequestControlOptions): Promise<AIReplySettings> => {
+    return get(`/ai-reply-settings/${cookieId}`, undefined, options);
 }
 
 export const updateAccountAISettings = async (cookieId: string, settings: Partial<AIReplySettings>): Promise<ApiResponse> => {
@@ -731,19 +774,19 @@ const stringifyNotificationEventTypes = (events?: NotificationEventType[]): stri
   return clean.length > 0 ? JSON.stringify(clean) : '';
 };
 
-export const getNotificationChannels = async (): Promise<{ success: boolean; data?: NotificationChannel[] }> => {
-  const result = await get<any[]>('/notification-channels');
+export const getNotificationChannels = async (options?: RequestControlOptions): Promise<{ success: boolean; data?: NotificationChannel[] }> => {
+  const result = await get<any[]>('/notification-channels', undefined, options);
   const channels = (result || []).map((item: any) => {
     let parsedConfig;
     try {
       parsedConfig = typeof item.config === 'string' ? JSON.parse(item.config) : item.config;
     } catch {
-      parsedConfig = undefined;
+		parsedConfig = {};
     }
     return {
       id: String(item.id),
       name: item.name,
-      type: item.type === 'ding_talk' ? 'dingtalk' : item.type,
+		type: item.type === 'ding_talk' ? 'dingtalk' : (item.type === 'lark' ? 'feishu' : item.type),
       config: parsedConfig,
       event_types: parseNotificationEventTypes(item.event_types),
       enabled: item.enabled,
@@ -809,8 +852,8 @@ export const deleteAccountNotifications = async (cookieId: string): Promise<ApiR
 }
 
 // 账号 ↔ 渠道 绑定（覆盖式）
-export const getAccountBindings = async (cookieId: string): Promise<number[]> => {
-  const result = await get<{ cookie_id: string; channel_ids: number[] }>(`/message-notifications/${cookieId}`);
+export const getAccountBindings = async (cookieId: string, options?: RequestControlOptions): Promise<number[]> => {
+  const result = await get<{ cookie_id: string; channel_ids: number[] }>(`/message-notifications/${cookieId}`, undefined, options);
   return result?.channel_ids || [];
 }
 

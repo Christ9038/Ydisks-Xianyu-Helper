@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"xianyu-go/internal/xianyu"
 	"xianyu-go/internal/xianyu/protocol"
 )
 
@@ -28,9 +29,6 @@ const (
 	SetLoginSettingsURL  = "https://passport.goofish.com/ac/account/setLoginSettings.do"
 	defaultRequestTimout = 20 * time.Second
 	maxRenewBodyBytes    = 2 << 20
-	renewUA              = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
-	hasLoginSecChUA      = `"Chromium";v="145", "Not:A-Brand";v="99"`
-	settingSecChUA       = `"Google Chrome";v="146", "Not=A?Brand";v="8"`
 )
 
 // Service 是 Cookie 接口续期服务。零值可用；测试可覆盖 URL 和 HTTPClient。
@@ -45,6 +43,8 @@ type Service struct {
 // Result 描述一次接口续期的完整结果。
 type Result struct {
 	Success            bool
+	Skipped            bool
+	SkipReason         string
 	RenewMethod        string
 	NewCookies         string
 	UpdatedCookieNames []string
@@ -52,6 +52,7 @@ type Result struct {
 	Message            string
 	ResponseText       string
 	NeedPasswordLogin  bool
+	RequestCount       int
 }
 
 // StepResult 是单个续期接口的执行结果，便于上层记录日志和定位失败点。
@@ -63,44 +64,98 @@ type StepResult struct {
 	Message        string
 }
 
-// RenewAPIFirst 按对方项目的“接口续期优先”思路执行三段续期。
-// 只有 setLoginSettings.do 返回 Set-Cookie，才认为长登录续期真正成功；
-// 前两步下发的 Cookie 即使最终失败也会保留在 NewCookies 中，避免丢失服务端刷新字段。
+const (
+	autoLoginModeHavana  = "havana"
+	autoLoginModeCookie3 = "cookie3"
+)
+
+// RenewAPIFirst mirrors goofish-auto-login/plugin.js. The web client first
+// honors the sdkSilent fatigue cookie, chooses the still-valid long-login
+// branch, waits briefly, and sends exactly one silentHasLogin request.
+// It never chains hasLogin/setLoginSettings or escalates to an interactive
+// login from this proactive renewal path.
 func (s Service) RenewAPIFirst(ctx context.Context, cookiesStr string) (*Result, error) {
 	cookiesStr = strings.TrimSpace(cookiesStr)
 	if cookiesStr == "" {
 		return &Result{RenewMethod: "none", Message: "Cookie为空，无法续期", NeedPasswordLogin: true}, nil
 	}
-	res, err := s.renewOnce(ctx, cookiesStr)
-	if err != nil || res == nil || res.Success {
-		return res, err
+	mode, skipReason := autoLoginMode(protocol.TransCookies(cookiesStr), time.Now())
+	if skipReason != "" {
+		return &Result{
+			Skipped:     true,
+			SkipReason:  skipReason,
+			RenewMethod: "auto_login_plugin",
+			NewCookies:  cookiesStr,
+			Message:     autoLoginSkipMessage(skipReason),
+		}, nil
 	}
+	delay := 2 * time.Second
 	if s.RetryDelay < 0 {
-		return res, nil
-	}
-	delay := s.RetryDelay
-	if delay == 0 {
-		delay = 2 * time.Second
+		delay = 0
+	} else if s.RetryDelay > 0 {
+		delay = s.RetryDelay
 	}
 	if delay > 0 {
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return res, ctx.Err()
+			return nil, ctx.Err()
 		case <-timer.C:
 		}
 	}
-	retry, err := s.renewOnce(ctx, res.NewCookies)
+	call, err := s.callAutoLogin(ctx, cookiesStr, mode)
 	if err != nil {
-		return res, err
+		return nil, err
 	}
-	if retry == nil {
-		return res, nil
+	newCookies := cookiesStr
+	if len(call.SetCookies) > 0 {
+		newCookies = MergeSetCookies(cookiesStr, call.SetCookies)
 	}
-	retry.StepDetails = append(res.StepDetails, retry.StepDetails...)
-	retry.UpdatedCookieNames = ChangedCookieNames(cookiesStr, retry.NewCookies)
-	return retry, nil
+	message := "静默续期成功"
+	if !call.Step.BusinessOK {
+		message = firstNonEmpty(call.Step.Message, "静默续期未通过")
+	}
+	return &Result{
+		Success:            call.Step.BusinessOK,
+		RenewMethod:        "auto_login_plugin",
+		NewCookies:         newCookies,
+		UpdatedCookieNames: ChangedCookieNames(cookiesStr, newCookies),
+		StepDetails:        []StepResult{call.Step},
+		Message:            message,
+		ResponseText:       string(call.Body),
+		NeedPasswordLogin:  !call.Step.BusinessOK,
+		RequestCount:       1,
+	}, nil
+}
+
+func autoLoginMode(cookies map[string]string, now time.Time) (mode, skipReason string) {
+	if cookieTimeAfter(cookies["sdkSilent"], now) {
+		return "", "fatigue"
+	}
+	if cookieTimeAfter(cookies["havana_lgc_exp"], now) {
+		return autoLoginModeHavana, ""
+	}
+	if cookieTimeAfter(cookies["cookie3_bak_exp"], now) {
+		return autoLoginModeCookie3, ""
+	}
+	return "", "long_login_expired"
+}
+
+func cookieTimeAfter(raw string, now time.Time) bool {
+	millis, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	return err == nil && millis > now.UnixMilli()
+}
+
+func autoLoginSkipMessage(reason string) string {
+	switch reason {
+	case "fatigue":
+		return "sdkSilent 疲劳窗口内，跳过静默续期"
+	case "long_login_expired":
+		return "长登录凭证已过期，静默续期不应发起请求"
+	default:
+		return "无需静默续期"
+	}
 }
 
 func (s Service) renewOnce(ctx context.Context, original string) (*Result, error) {
@@ -225,6 +280,30 @@ func (s Service) callSilentHasLogin(ctx context.Context, cookiesStr string) (cal
 	return s.doRenewRequest(req, "silentHasLogin")
 }
 
+func (s Service) callAutoLogin(ctx context.Context, cookiesStr, mode string) (callResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.urlOrDefault(s.SilentHasLoginURL, SilentHasLoginURL), nil)
+	if err != nil {
+		return callResult{}, err
+	}
+	q := req.URL.Query()
+	q.Set("documentReferer", "https://www.goofish.com/")
+	q.Set("appName", "xianyu")
+	q.Set("appEntrance", "xianyu_sdkSilent")
+	q.Set("fromSite", "0")
+	switch mode {
+	case autoLoginModeHavana:
+		q.Set("ltl", "true")
+	case autoLoginModeCookie3:
+		q.Set("skipSessionFilter", "true")
+		q.Set("c2r", "true")
+	default:
+		return callResult{}, fmt.Errorf("未知静默续期模式: %s", mode)
+	}
+	req.URL.RawQuery = q.Encode()
+	setSilentHasLoginHeaders(req, cookiesStr)
+	return s.doRenewRequest(req, "silentHasLogin")
+}
+
 func (s Service) callSetLoginSettings(ctx context.Context, cookiesStr string) (callResult, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.urlOrDefault(s.SetLoginSettingsURL, SetLoginSettingsURL), strings.NewReader("status=0"))
 	if err != nil {
@@ -285,40 +364,58 @@ func renewBusinessOK(body []byte) bool {
 		return false
 	}
 	content, _ := payload["content"].(map[string]any)
+	if data, _ := payload["data"].(map[string]any); data != nil {
+		if nested, _ := data["content"].(map[string]any); nested != nil {
+			content = nested
+		}
+	}
 	if content == nil {
 		return false
+	}
+	data, _ := content["data"].(map[string]any)
+	if data != nil {
+		finished, _ := data["processFinished"].(bool)
+		if finished && mtopInt(data["resultCode"]) == 100 {
+			return true
+		}
 	}
 	ok, _ := content["success"].(bool)
 	return ok
 }
 
+func mtopInt(v any) int {
+	switch value := v.(type) {
+	case float64:
+		return int(value)
+	case json.Number:
+		n, _ := strconv.Atoi(value.String())
+		return n
+	case string:
+		n, _ := strconv.Atoi(value)
+		return n
+	default:
+		return 0
+	}
+}
+
 func setHasLoginHeaders(req *http.Request, cookiesStr, referer string) {
+	xianyu.ApplyBrowserFingerprint(req.Header)
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("Accept-Language", "zh-CN")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Referer", referer)
-	req.Header.Set("User-Agent", renewUA)
 	req.Header.Set("bx-v", "2.5.31")
-	req.Header.Set("sec-ch-ua", hasLoginSecChUA)
-	req.Header.Set("sec-ch-ua-mobile", "?0")
-	req.Header.Set("sec-ch-ua-platform", `"Windows"`)
 	req.Header.Set("Cookie", strings.ReplaceAll(strings.ReplaceAll(cookiesStr, "\n", ""), "\r", ""))
 }
 
 func setSilentHasLoginHeaders(req *http.Request, cookiesStr string) {
+	xianyu.ApplyBrowserFingerprint(req.Header)
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Accept-Language", "en,zh-CN;q=0.9,zh;q=0.8,ru;q=0.7")
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Priority", "u=1, i")
 	req.Header.Set("Referer", "https://www.goofish.com/")
-	req.Header.Set("User-Agent", renewUA)
-	req.Header.Set("sec-ch-ua", `"Google Chrome";v="146", "Not=A?Brand";v="8", "Not/A)Brand";v="146"`)
-	req.Header.Set("sec-ch-ua-arch", `"x86"`)
-	req.Header.Set("sec-ch-ua-bitness", `"64"`)
-	req.Header.Set("sec-ch-ua-mobile", "?0")
-	req.Header.Set("sec-ch-ua-platform", `"Win32"`)
-	req.Header.Set("sec-ch-ua-platform-version", `"10.0.0"`)
 	req.Header.Set("sec-fetch-dest", "empty")
 	req.Header.Set("sec-fetch-mode", "cors")
 	req.Header.Set("sec-fetch-site", "same-site")
@@ -326,14 +423,11 @@ func setSilentHasLoginHeaders(req *http.Request, cookiesStr string) {
 }
 
 func setLoginSettingsHeaders(req *http.Request, cookiesStr string) {
+	xianyu.ApplyBrowserFingerprint(req.Header)
 	req.Header.Set("Accept", "application/json, text/plain, */*")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Referer", "https://www.goofish.com/")
-	req.Header.Set("User-Agent", renewUA)
-	req.Header.Set("sec-ch-ua", settingSecChUA)
-	req.Header.Set("sec-ch-ua-mobile", "?0")
-	req.Header.Set("sec-ch-ua-platform", `"Windows"`)
 	req.Header.Set("sec-fetch-dest", "empty")
 	req.Header.Set("sec-fetch-mode", "cors")
 	req.Header.Set("sec-fetch-site", "same-site")

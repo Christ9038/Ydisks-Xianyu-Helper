@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"xianyu-go/internal/xianyu"
 	"xianyu-go/internal/xianyu/protocol"
 )
 
@@ -407,12 +408,12 @@ func buildMTopQuery(api, version, t, sign, spmCnt, spmPre, logID string) string 
 }
 
 func setBrowserHeaders(req *http.Request, cookiesStr string) {
+	xianyu.ApplyBrowserFingerprint(req.Header)
 	req.Header.Set("accept-language", "zh-CN,zh;q=0.9,en;q=0.8")
 	req.Header.Set("cache-control", "no-cache")
 	req.Header.Set("pragma", "no-cache")
 	req.Header.Set("origin", "https://www.goofish.com")
 	req.Header.Set("referer", "https://www.goofish.com/")
-	req.Header.Set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
 	req.Header.Set("cookie", cookiesStr)
 }
 

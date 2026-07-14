@@ -21,8 +21,9 @@ func TestParseDBURL(t *testing.T) {
 		{name: "sqlite path (no scheme)", url: "/tmp/x.db", driver: driverSQLite, dialect: DialectSQLite, dsnHas: "file:/tmp/x.db"},
 		{name: "sqlite scheme", url: "sqlite://rel/path.db", driver: driverSQLite, dialect: DialectSQLite, dsnHas: "file:rel/path.db"},
 		{name: "sqlite3 scheme", url: "sqlite3://x.db", driver: driverSQLite, dialect: DialectSQLite, dsnHas: "file:x.db"},
-		{name: "mysql scheme", url: "mysql://user:pass@tcp(h:3306)/db", driver: driverMySQL, dialect: DialectMySQL, dsnHas: "multiStatements=true"},
+		{name: "mysql scheme", url: "mysql://user:pass@tcp(h:3306)/db", driver: driverMySQL, dialect: DialectMySQL, dsnHas: "clientFoundRows=true"},
 		{name: "postgres url scheme", url: "postgres://u:p@h:5432/db", driver: driverPgx, dialect: DialectPostgres, dsnHas: "postgres://u:p@h:5432/db"},
+		{name: "postgres url without user", url: "postgres://localhost:5432/db?sslmode=disable", driver: driverPgx, dialect: DialectPostgres, dsnHas: "postgres://localhost:5432/db?sslmode=disable"},
 		{name: "pgx alias", url: "pgx://u:p@h:5432/db", driver: driverPgx, dialect: DialectPostgres, dsnHas: "pgx://u:p@h:5432/db"},
 		{name: "postgres kv dsn", url: "postgres://host=localhost port=5432", driver: driverPgx, dialect: DialectPostgres, dsnHas: "host=localhost"},
 		{name: "postgresql alias", url: "postgresql://u:p@h:5432/db", driver: driverPgx, dialect: DialectPostgres, dsnHas: "postgresql://u:p@h:5432/db"},
@@ -58,22 +59,23 @@ func TestParseDBURL(t *testing.T) {
 	}
 }
 
-// TestMysqlDSN mysqlDSN 缺省 multiStatements 已存在则不覆盖。
+// TestMysqlDSN mysqlDSN 强制启用迁移和匹配行计数所需参数。
 func TestMysqlDSN(t *testing.T) {
-	// 无 query → 追加 ?multiStatements=true。
+	// 无 query → 追加两个参数。
 	got := mysqlDSN("u:p@tcp(h:3306)/db")
-	if !strings.Contains(got, "multiStatements=true") || !strings.HasPrefix(got, "u:p@tcp(h:3306)/db?") {
+	if !strings.Contains(got, "multiStatements=true") || !strings.Contains(got, "clientFoundRows=true") || !strings.HasPrefix(got, "u:p@tcp(h:3306)/db?") {
 		t.Fatalf("无 query: %q", got)
 	}
-	// 已有 query → 用 & 拼接。
+	// 已有 query → 保留原参数。
 	got = mysqlDSN("u:p@tcp(h:3306)/db?parseTime=true")
-	if !strings.Contains(got, "&multiStatements=true") {
+	if !strings.Contains(got, "parseTime=true") || !strings.Contains(got, "multiStatements=true") || !strings.Contains(got, "clientFoundRows=true") {
 		t.Fatalf("已有 query: %q", got)
 	}
-	// 已显式含 multiStatements → 不重复追加。
-	got = mysqlDSN("u:p@tcp(h:3306)/db?multiStatements=true")
-	if strings.Count(got, "multiStatements=") != 1 {
-		t.Fatalf("重复追加: %q", got)
+	// 即使调用方显式关闭也要覆盖，否则 no-op UPDATE 会被误判为不存在。
+	got = mysqlDSN("u:p@tcp(h:3306)/db?multiStatements=false&clientFoundRows=false&loc=UTC")
+	if strings.Count(got, "multiStatements=") != 1 || strings.Count(got, "clientFoundRows=") != 1 ||
+		strings.Contains(got, "multiStatements=false") || strings.Contains(got, "clientFoundRows=false") || !strings.Contains(got, "loc=UTC") {
+		t.Fatalf("未正确强制参数: %q", got)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 
@@ -22,6 +23,7 @@ func (s *Server) mountCookies(r chi.Router) {
 	r.Post("/cookies", s.addCookie)
 	r.Put("/cookies/{cid}", s.updateCookie)
 	r.Put("/cookies/{cid}/login-info", s.updateCookieLoginInfo)
+	r.Put("/cookies/{cid}/settings", s.updateCookieSettings)
 	r.Post("/cookies/{cid}/refresh-profile", s.refreshCookieProfile)
 	r.Get("/cookie/{cid}/details", s.getCookieDetails)
 	r.Put("/cookies/{cid}/status", s.setCookieStatus)
@@ -31,6 +33,101 @@ func (s *Server) mountCookies(r chi.Router) {
 	r.Put("/cookies/{cid}/remark", s.setCookieRemark)
 	r.Put("/cookies/{cid}/pause-duration", s.setCookiePauseDuration)
 	r.Get("/cookies/{cid}/pause-duration", s.getCookiePauseDuration)
+}
+
+type updateCookieSettingsRequest struct {
+	Cookie        *string  `json:"cookie"`
+	Remark        *string  `json:"remark"`
+	AutoConfirm   *bool    `json:"auto_confirm"`
+	PauseDuration *int     `json:"pause_duration"`
+	Username      *string  `json:"username"`
+	LoginPassword *string  `json:"login_password"`
+	ClearPassword bool     `json:"clear_password"`
+	ShowBrowser   *bool    `json:"show_browser"`
+	ChannelIDs    *[]int64 `json:"channel_ids"`
+}
+
+// updateCookieSettings 原子保存编辑弹窗中的账号字段和通知绑定。
+func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
+	cid := chi.URLParam(r, "cid")
+	detail, ok := s.requireCookieOwner(w, r, cid)
+	if !ok {
+		return
+	}
+	var req updateCookieSettingsRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if req.Cookie != nil && strings.TrimSpace(*req.Cookie) == "" {
+		writeErr(w, http.StatusBadRequest, "Cookie 不能为空")
+		return
+	}
+	if req.Remark != nil && utf8.RuneCountInString(*req.Remark) > 500 {
+		writeErr(w, http.StatusBadRequest, "备注不能超过 500 个字符")
+		return
+	}
+	if req.Username != nil && utf8.RuneCountInString(*req.Username) > 256 {
+		writeErr(w, http.StatusBadRequest, "登录账号不能超过 256 个字符")
+		return
+	}
+	if req.LoginPassword != nil && len(*req.LoginPassword) > 1024 {
+		writeErr(w, http.StatusBadRequest, "登录密码长度超出限制")
+		return
+	}
+
+	input := db.AccountSettingsUpdate{
+		UserID:        detail.UserID,
+		Value:         req.Cookie,
+		Remark:        req.Remark,
+		AutoConfirm:   req.AutoConfirm,
+		PauseDuration: req.PauseDuration,
+		ChannelIDs:    req.ChannelIDs,
+	}
+	loginChanged := req.Username != nil || req.LoginPassword != nil || req.ShowBrowser != nil || req.ClearPassword
+	if loginChanged {
+		username := detail.Username
+		if req.Username != nil {
+			username = *req.Username
+		}
+		password := detail.Password
+		if req.LoginPassword != nil && *req.LoginPassword != "" {
+			password = *req.LoginPassword
+		}
+		if req.ClearPassword {
+			password = ""
+		}
+		showBrowser := detail.ShowBrowser
+		if req.ShowBrowser != nil {
+			showBrowser = *req.ShowBrowser
+		}
+		input.Username = &username
+		input.Password = &password
+		input.ShowBrowser = &showBrowser
+	}
+	pausedUntil, err := s.Store.Cookies.UpdateSettings(r.Context(), cid, input)
+	if err != nil {
+		switch {
+		case errors.Is(err, db.ErrForbidden):
+			writeErr(w, http.StatusForbidden, "账号设置包含无权限使用的资源")
+		case errors.Is(err, db.ErrNotFound):
+			writeErr(w, http.StatusNotFound, "账号不存在")
+		default:
+			writeErr(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+	if req.Cookie != nil && s.Store.Tokens != nil {
+		_ = s.Store.Tokens.Clear(r.Context(), cid)
+	}
+	if req.Cookie != nil && s.Manager != nil && s.Store.Cookies.GetStatus(r.Context(), cid) {
+		if err := s.Manager.Restart(r.Context(), cid); err != nil {
+			s.Logger.Error("账号设置保存后重启失败", "cookie_id", cid, "err", err)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true, "paused_until": pausedUntil, "paused": pausedUntil > time.Now().UTC().Unix(),
+	})
 }
 
 // listCookieRuntimeStatus 返回本地账号引擎状态，不请求闲鱼 API，可安全用于前端轮询。
@@ -96,6 +193,8 @@ func (s *Server) listCookieDetails(w http.ResponseWriter, r *http.Request) {
 			"auto_confirm":   d.AutoConfirm,
 			"remark":         d.Remark,
 			"pause_duration": d.PauseDuration,
+			"paused_until":   d.PausedUntil,
+			"paused":         d.PausedUntil > time.Now().UTC().Unix(),
 			"show_browser":   d.ShowBrowser,
 			"username":       d.Username,
 			"nickname":       cachedAccountNickname(d),
@@ -129,6 +228,8 @@ func (s *Server) getCookieDetails(w http.ResponseWriter, r *http.Request) {
 		"auto_confirm":   d.AutoConfirm,
 		"remark":         d.Remark,
 		"pause_duration": d.PauseDuration,
+		"paused_until":   d.PausedUntil,
+		"paused":         d.PausedUntil > time.Now().UTC().Unix(),
 		"show_browser":   d.ShowBrowser,
 		"username":       d.Username,
 		"nickname":       cachedAccountNickname(d),
@@ -176,13 +277,20 @@ func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := auth.SessionFromContext(r.Context())
-	if err := s.Store.Cookies.Save(r.Context(), req.ID, req.Value, sess.UserID); err != nil {
+	if err := s.Store.Cookies.CreateOwned(r.Context(), req.ID, req.Value, sess.UserID); err != nil {
 		if errors.Is(err, db.ErrForbidden) {
 			writeErr(w, http.StatusForbidden, "该账号ID已存在且不属于当前用户")
 			return
 		}
+		if errors.Is(err, db.ErrAlreadyExists) {
+			writeErr(w, http.StatusConflict, "该账号ID已存在，请使用更新账号功能")
+			return
+		}
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if s.Store.Tokens != nil {
+		_ = s.Store.Tokens.Clear(r.Context(), req.ID)
 	}
 	if d, err := s.Store.Cookies.GetDetails(r.Context(), req.ID); err == nil {
 		s.refreshAccountProfile(r.Context(), d)
@@ -215,13 +323,16 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := auth.SessionFromContext(r.Context())
-	if err := s.Store.Cookies.Save(r.Context(), cid, req.Value, sess.UserID); err != nil {
+	if err := s.Store.Cookies.UpdateValueOwned(r.Context(), cid, req.Value, sess.UserID); err != nil {
 		if errors.Is(err, db.ErrForbidden) {
 			writeErr(w, http.StatusForbidden, "无权限操作该账号")
 			return
 		}
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if s.Store.Tokens != nil {
+		_ = s.Store.Tokens.Clear(r.Context(), cid)
 	}
 	if d, err := s.Store.Cookies.GetDetails(r.Context(), cid); err == nil {
 		s.refreshAccountProfile(r.Context(), d)
@@ -284,7 +395,11 @@ func (s *Server) setCookieStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	if err := s.Store.Cookies.SetStatus(r.Context(), cid, req.Enabled); err != nil {
+	reason := ""
+	if !req.Enabled {
+		reason = db.DisableReasonManual
+	}
+	if err := s.Store.Cookies.SetStatusWithReason(r.Context(), cid, req.Enabled, reason); err != nil {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
@@ -389,16 +504,18 @@ func (s *Server) setCookiePauseDuration(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	if req.PauseDuration < 0 {
-		writeErr(w, http.StatusBadRequest, "暂停时长不能为负数")
+	if req.PauseDuration < 0 || req.PauseDuration > 1440 {
+		writeErr(w, http.StatusBadRequest, "暂停时长必须在 0 到 1440 分钟之间")
 		return
 	}
-	if _, err := s.Store.DB.ExecContext(r.Context(),
-		`UPDATE cookies SET pause_duration=? WHERE id=?`, req.PauseDuration, cid); err != nil {
+	pausedUntil, err := s.Store.Cookies.SetPause(r.Context(), cid, req.PauseDuration)
+	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存暂停时长失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true, "paused_until": pausedUntil, "paused": pausedUntil > time.Now().UTC().Unix(),
+	})
 }
 
 // getCookiePauseDuration 获取暂停时长。
@@ -407,7 +524,12 @@ func (s *Server) getCookiePauseDuration(w http.ResponseWriter, r *http.Request) 
 	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"pause_duration": s.Store.Cookies.GetPauseDuration(r.Context(), cid)})
+	paused, pausedUntil, _ := s.Store.Cookies.IsPaused(r.Context(), cid)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pause_duration": s.Store.Cookies.GetPauseDuration(r.Context(), cid),
+		"paused_until":   pausedUntil,
+		"paused":         paused,
+	})
 }
 
 func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) (string, string, string) {
@@ -427,7 +549,7 @@ func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) 
 	}
 
 	if profile.UpdatedCookies != "" && profile.UpdatedCookies != d.Value {
-		if err := s.Store.Cookies.Save(ctx, d.ID, profile.UpdatedCookies, d.UserID); err != nil && s.Logger != nil {
+		if err := s.Store.Cookies.UpdateValueOwned(ctx, d.ID, profile.UpdatedCookies, d.UserID); err != nil && s.Logger != nil {
 			s.Logger.Warn("保存账号刷新 cookie 失败", "account", d.ID, "err", err)
 		}
 		d.Value = profile.UpdatedCookies

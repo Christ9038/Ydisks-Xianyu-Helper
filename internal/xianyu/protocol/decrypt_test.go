@@ -424,11 +424,11 @@ func TestDecrypt_Errors(t *testing.T) {
 func TestNormalizeForJSON(t *testing.T) {
 	t.Run("map[any]any with mixed keys", func(t *testing.T) {
 		in := map[any]any{
-			"str":   "v",
-			int64(2): int64(3),
-			uint64(4): uint64(5),
-			true:    false,
-			nil:     "n",
+			"str":        "v",
+			int64(2):     int64(3),
+			uint64(4):    uint64(5),
+			true:         false,
+			nil:          "n",
 			float64(1.5): "f",
 		}
 		out := normalizeForJSON(in)

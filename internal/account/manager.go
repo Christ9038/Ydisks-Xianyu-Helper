@@ -61,7 +61,11 @@ func (m *Manager) StartAll(ctx context.Context) error {
 		return fmt.Errorf("加载账号失败: %w", err)
 	}
 	for cookieID, cookieValue := range all {
-		if !m.store.Cookies.GetStatus(ctx, cookieID) {
+		enabled, statusErr := m.store.Cookies.Status(ctx, cookieID)
+		if statusErr != nil {
+			return fmt.Errorf("读取账号 %s 启用状态: %w", cookieID, statusErr)
+		}
+		if !enabled {
 			m.logger.Info("账号已禁用，跳过启动", "account", cookieID)
 			continue
 		}

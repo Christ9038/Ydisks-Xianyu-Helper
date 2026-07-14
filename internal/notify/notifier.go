@@ -7,21 +7,28 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/mail"
 	"net/smtp"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/netguard"
 )
 
 const (
@@ -51,7 +58,12 @@ type Notifier struct {
 	store    *db.Store
 	logger   *slog.Logger
 	httpc    *http.Client
+	started  atomic.Bool
+	workers  sync.WaitGroup
 }
+
+var newOutboundHTTPClient = func() *http.Client { return netguard.PublicHTTPClient(10 * time.Second) }
+var dialPublicSMTP = netguard.DialPublicContext
 
 // New 构造。
 func New(cookieID string, store *db.Store, logger *slog.Logger) *Notifier {
@@ -62,9 +74,25 @@ func New(cookieID string, store *db.Store, logger *slog.Logger) *Notifier {
 		cookieID: cookieID,
 		store:    store,
 		logger:   logger.With("account", cookieID, "subsys", "notify"),
-		httpc:    &http.Client{Timeout: 10 * time.Second},
+		httpc:    newOutboundHTTPClient(),
 	}
 }
+
+// Start 启动持久化 outbox worker。调用返回前会先标记为异步模式，之后的业务
+// 通知只写数据库，不在订单/账号处理调用栈中等待外部网络。
+func (n *Notifier) Start(ctx context.Context) {
+	if n == nil || n.store == nil || !n.started.CompareAndSwap(false, true) {
+		return
+	}
+	n.workers.Add(1)
+	go func() {
+		defer n.workers.Done()
+		n.runOutbox(ctx)
+	}()
+}
+
+// Wait 等待 outbox worker 随生命周期 context 退出。
+func (n *Notifier) Wait() { n.workers.Wait() }
 
 // NotifyDelivery 发送发货结果通知。
 // accountID 为 cookie_id。向该账号所有已启用渠道发送发货通知。
@@ -114,6 +142,7 @@ func (n *Notifier) NotifyEvent(ctx context.Context, ev NotificationEvent) {
 		return
 	}
 	full := formatEvent(ev)
+	eligible := make([]db.NotificationChannel, 0, len(channels))
 	for _, ch := range channels {
 		allowed, err := eventAllowed(ch.EventTypes, ev.Type)
 		if err != nil {
@@ -123,10 +152,94 @@ func (n *Notifier) NotifyEvent(ctx context.Context, ev NotificationEvent) {
 		if !allowed {
 			continue
 		}
+		eligible = append(eligible, ch)
+	}
+	if n.started.Load() {
+		messages := make([]db.NotificationOutboxInput, 0, len(eligible))
+		for _, ch := range eligible {
+			messages = append(messages, db.NotificationOutboxInput{ChannelID: ch.ID, EventType: ev.Type, Body: full})
+		}
+		if err := n.store.Notifications.EnqueueOutbox(ctx, messages); err != nil {
+			n.logger.Error("持久化通知失败", "event_type", ev.Type, "err", err)
+		}
+		return
+	}
+	// 未启动 worker 的独立使用场景保持同步行为，便于 CLI 和单元测试显式使用。
+	for _, ch := range eligible {
 		if err := n.send(ch, full); err != nil {
 			n.logger.Error("发送通知失败", "channel", ch.Type, "event_type", ev.Type, "err", err)
 		}
 	}
+}
+
+func (n *Notifier) runOutbox(ctx context.Context) {
+	n.drainOutbox(ctx)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			n.drainOutbox(ctx)
+		}
+	}
+}
+
+func (n *Notifier) drainOutbox(ctx context.Context) {
+	workerToken, err := notificationWorkerToken()
+	if err != nil {
+		n.logger.Error("生成通知 worker token 失败", "err", err)
+		return
+	}
+	messages, err := n.store.Notifications.ClaimOutbox(ctx, workerToken, time.Now(), 20)
+	if err != nil {
+		if ctx.Err() == nil {
+			n.logger.Warn("领取通知 outbox 失败", "err", err)
+		}
+		return
+	}
+	for _, message := range messages {
+		channel, getErr := n.store.Notifications.GetChannel(ctx, message.ChannelID)
+		if getErr != nil {
+			n.retryOutbox(ctx, message, workerToken, getErr)
+			continue
+		}
+		if channel == nil {
+			_, _ = n.store.Notifications.CompleteOutbox(ctx, message.ID, workerToken)
+			continue
+		}
+		if sendErr := n.send(*channel, message.Body); sendErr != nil {
+			n.logger.Error("发送通知失败", "channel", channel.Type, "event_type", message.EventType, "attempt", message.AttemptCount, "err", sendErr)
+			n.retryOutbox(ctx, message, workerToken, sendErr)
+			continue
+		}
+		if completed, completeErr := n.store.Notifications.CompleteOutbox(ctx, message.ID, workerToken); completeErr != nil {
+			n.logger.Warn("确认通知投递完成失败", "outbox_id", message.ID, "err", completeErr)
+		} else if !completed {
+			n.logger.Warn("通知 outbox 租约已转移", "outbox_id", message.ID)
+		}
+	}
+}
+
+func (n *Notifier) retryOutbox(ctx context.Context, message db.NotificationOutboxMessage, workerToken string, cause error) {
+	permanent := message.AttemptCount >= 10
+	shift := min(max(message.AttemptCount-1, 0), 7)
+	delay := 5 * time.Second * time.Duration(1<<shift)
+	updated, err := n.store.Notifications.RetryOutbox(ctx, message.ID, workerToken, cause.Error(), time.Now().Add(delay).Unix(), permanent)
+	if err != nil {
+		n.logger.Warn("更新通知重试状态失败", "outbox_id", message.ID, "err", err)
+	} else if !updated {
+		n.logger.Warn("通知重试状态未更新，租约可能已转移", "outbox_id", message.ID)
+	}
+}
+
+func notificationWorkerToken() (string, error) {
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw), nil
 }
 
 // SendToChannel 直接向指定渠道发送一条消息（用于前端“测试发送”）。
@@ -482,11 +595,14 @@ func (n *Notifier) sendTelegram(cfg map[string]any, message string) error {
 
 // ---- 邮件 ----
 func (n *Notifier) sendEmail(cfg map[string]any, message string) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	server := n.configOrSetting(ctx, cfg, "smtp_server", "")
 	port := n.configOrSetting(ctx, cfg, "smtp_port", "587")
 	user := n.configOrSetting(ctx, cfg, "smtp_user", "")
 	pass := n.configOrSetting(ctx, cfg, "smtp_password", "")
+	useTLS := parseConfigBool(n.configOrSetting(ctx, cfg, "smtp_use_tls", "true"), true)
+	useSSL := parseConfigBool(n.configOrSetting(ctx, cfg, "smtp_use_ssl", "false"), false)
 	fromAddress := n.configOrSetting(ctx, cfg, "smtp_from_address", "")
 	fromName := n.configOrSetting(ctx, cfg, "smtp_from_name", "")
 	legacyFrom := n.configOrSetting(ctx, cfg, "smtp_from", "")
@@ -537,7 +653,90 @@ func (n *Notifier) sendEmail(cfg map[string]any, message string) error {
 		"",
 		message,
 	}, "\r\n")
-	return smtp.SendMail(addr, auth, from.Address, []string{recipient.Address}, []byte(msg))
+	return sendPublicSMTP(ctx, addr, server, auth, from.Address, recipient.Address, []byte(msg), smtpTransportOptions{
+		UseSTARTTLS:    useTLS && !useSSL,
+		UseImplicitTLS: useSSL,
+	})
+}
+
+type smtpTransportOptions struct {
+	UseSTARTTLS    bool
+	UseImplicitTLS bool
+}
+
+func sendPublicSMTP(ctx context.Context, addr, server string, auth smtp.Auth, from, to string, message []byte, options ...smtpTransportOptions) error {
+	_, rawPort, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("SMTP 地址无效")
+	}
+	port, err := strconv.Atoi(strings.TrimSpace(rawPort))
+	if err != nil || port < 1 || port > 65535 {
+		return fmt.Errorf("SMTP 端口无效")
+	}
+	conn, err := dialPublicSMTP(ctx, "tcp", addr, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("连接 SMTP 服务器失败: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(20 * time.Second))
+	transport := smtpTransportOptions{UseSTARTTLS: true}
+	if len(options) > 0 {
+		transport = options[0]
+	}
+	if transport.UseImplicitTLS {
+		tlsConn := tls.Client(conn, &tls.Config{MinVersion: tls.VersionTLS12, ServerName: server})
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			return fmt.Errorf("SMTP SSL 握手失败: %w", err)
+		}
+		conn = tlsConn
+	}
+	client, err := smtp.NewClient(conn, server)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = client.Close() }()
+	if transport.UseSTARTTLS {
+		if ok, _ := client.Extension("STARTTLS"); !ok {
+			return fmt.Errorf("SMTP 服务器不支持要求的 STARTTLS")
+		}
+		if err := client.StartTLS(&tls.Config{MinVersion: tls.VersionTLS12, ServerName: server}); err != nil {
+			return err
+		}
+	}
+	if auth != nil {
+		if err := client.Auth(auth); err != nil {
+			return err
+		}
+	}
+	if err := client.Mail(from); err != nil {
+		return err
+	}
+	if err := client.Rcpt(to); err != nil {
+		return err
+	}
+	w, err := client.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(message); err != nil {
+		_ = w.Close()
+		return err
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
+}
+
+func parseConfigBool(raw string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func (n *Notifier) configOrSetting(ctx context.Context, cfg map[string]any, key, fallbackValue string) string {

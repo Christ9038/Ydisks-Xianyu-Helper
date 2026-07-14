@@ -21,9 +21,14 @@ import (
 // WSURL 闲鱼 IM WebSocket 地址。
 const WSURL = "wss://wss-goofish.dingtalk.com/"
 
-// regUA WS /reg 注册消息用的 UA（含闲鱼网页客户端 DingTalk 标识）。
-// 引用 xianyu.RegUA 保证与 HTTP 请求的 Chrome 版本号一致。
-var regUA = xianyu.RegUA
+const (
+	wsOpenTimeout        = 30 * time.Second
+	protocolPingInterval = 20 * time.Second
+	protocolPingTimeout  = 15 * time.Second
+)
+
+// 变量仅用于让单元测试无需真实等待 10 秒；生产值严格对齐参考实现。
+var heartbeatRetryInterval = 5 * time.Second
 
 // RegAppKey WS /reg 用的 app-key。
 const RegAppKey = "444e9908a51d1cb236a27862abc769c9"
@@ -55,18 +60,14 @@ func Dial(ctx context.Context, cfg Config, logger *slog.Logger) (*Conn, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	// 握手头：Cookie + 浏览器指纹（Origin/Host 由 dialer 据 URL 自动设置，这里显式覆盖）。
-	hdr := http.Header{}
-	hdr.Set("Accept-Encoding", "gzip, deflate, br, zstd")
-	hdr.Set("Accept-Language", "zh-CN,zh;q=0.9")
-	hdr.Set("Cache-Control", "no-cache")
-	hdr.Set("Pragma", "no-cache")
-	hdr.Set("User-Agent", xianyu.BrowserUA)
-	hdr.Set("Origin", "https://www.goofish.com")
-	hdr.Set("Cookie", cfg.CookieStr)
+	// 参考实现的 WEBSOCKET_HEADERS 为空，只在拨号前加入 Cookie。额外伪造
+	// Origin/User-Agent 等头会改变服务端看到的连接指纹。
+	hdr := websocketHeaders(cfg.CookieStr)
 
 	logger.Info("正在连接闲鱼 WebSocket", "url", WSURL)
-	c, _, err := websocket.Dial(ctx, WSURL, &websocket.DialOptions{HTTPHeader: hdr})
+	dialCtx, cancel := context.WithTimeout(ctx, wsOpenTimeout)
+	defer cancel()
+	c, _, err := websocket.Dial(dialCtx, WSURL, &websocket.DialOptions{HTTPHeader: hdr})
 	if err != nil {
 		return nil, fmt.Errorf("WS dial: %w", err)
 	}
@@ -81,6 +82,12 @@ func Dial(ctx context.Context, cfg Config, logger *slog.Logger) (*Conn, error) {
 	return conn, nil
 }
 
+func websocketHeaders(cookieStr string) http.Header {
+	hdr := http.Header{}
+	hdr.Set("Cookie", strings.NewReplacer("\n", "", "\r", "").Replace(cookieStr))
+	return hdr
+}
+
 // register 发送 /reg 与 ackDiff。
 func (c *Conn) register(ctx context.Context) error {
 	reg := map[string]any{
@@ -89,7 +96,7 @@ func (c *Conn) register(ctx context.Context) error {
 			"cache-header": "app-key token ua wv",
 			"app-key":      RegAppKey,
 			"token":        c.cfg.AccessToken,
-			"ua":           regUA,
+			"ua":           xianyu.CurrentBrowserFingerprint().UserAgent,
 			"dt":           "j",
 			"wv":           "im:3,au:3,sy:6",
 			"sync":         "0,0;0;0;",
@@ -136,14 +143,13 @@ func (c *Conn) register(ctx context.Context) error {
 func (c *Conn) HeartbeatLoop(ctx context.Context, interval time.Duration) error {
 	const maxFailures = 3
 	consecutive := 0
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	pingCtx, cancelPing := context.WithCancel(ctx)
+	defer cancelPing()
+	pingErr := make(chan error, 1)
+	go func() { pingErr <- c.protocolPingLoop(pingCtx) }()
+
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
+		// 参考实现连接建立后立即发送应用层心跳，成功后才等待 15 秒。
 		hb := map[string]any{
 			"lwp":     "/!",
 			"headers": map[string]any{"mid": protocol.GenerateMid()},
@@ -158,9 +164,50 @@ func (c *Conn) HeartbeatLoop(ctx context.Context, interval time.Duration) error 
 			if consecutive >= maxFailures {
 				return fmt.Errorf("心跳连续失败 %d 次", maxFailures)
 			}
+			if err := waitHeartbeat(ctx, pingErr, heartbeatRetryInterval); err != nil {
+				return err
+			}
 			continue
 		}
 		consecutive = 0
+		if err := waitHeartbeat(ctx, pingErr, interval); err != nil {
+			return err
+		}
+	}
+}
+
+func waitHeartbeat(ctx context.Context, pingErr <-chan error, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-pingErr:
+		if err == nil {
+			return fmt.Errorf("WebSocket PING 循环意外退出")
+		}
+		return err
+	case <-timer.C:
+		return nil
+	}
+}
+
+// protocolPingLoop 对齐参考库的 ping_interval=20、ping_timeout=15。
+func (c *Conn) protocolPingLoop(ctx context.Context) error {
+	ticker := time.NewTicker(protocolPingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+		pingCtx, cancel := context.WithTimeout(ctx, protocolPingTimeout)
+		err := c.ws.Ping(pingCtx)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("WebSocket PING 失败: %w", err)
+		}
 	}
 }
 

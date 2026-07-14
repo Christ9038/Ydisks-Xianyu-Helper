@@ -17,18 +17,6 @@ func TestSanitize(t *testing.T) {
 	}
 }
 
-// TestGetCSSSelector 始终返回首选器（元素句柄仅占位，nil 与非 nil 同结果）。
-func TestGetCSSSelector(t *testing.T) {
-	selectors := []string{"#user", "input[name=user]"}
-	if got := getCSSSelector(nil, selectors); got != "#user" {
-		t.Errorf("应返回首选器，got %q", got)
-	}
-	// 单元素切片。
-	if got := getCSSSelector(nil, []string{"#pwd"}); got != "#pwd" {
-		t.Errorf("单元素应返回该项，got %q", got)
-	}
-}
-
 func TestPureUserIDMatchesReferenceRule(t *testing.T) {
 	cases := map[string]string{
 		"foo_1234567890":     "foo",

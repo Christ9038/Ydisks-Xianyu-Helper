@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -92,7 +94,7 @@ func (s *Server) startPasswordLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.cleanupExpiredPasswordLoginSessions()
-	if sid := s.currentPasswordLoginSession(accountID); sid != "" {
+	if sid := s.currentPasswordLoginSession(sess.UserID, accountID); sid != "" {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"success":    true,
 			"session_id": sid,
@@ -107,7 +109,7 @@ func (s *Server) startPasswordLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"success": false, "message": "创建登录会话失败"})
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(s.lifecycleContext(), passwordLoginProcessingTimeout)
 	loginSession := &passwordLoginSession{
 		ID:          sessionID,
 		AccountID:   accountID,
@@ -121,10 +123,14 @@ func (s *Server) startPasswordLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.passwordMu.Lock()
 	s.passwordSessions[sessionID] = loginSession
-	s.passwordProcessing[accountID] = sessionID
+	s.passwordProcessing[passwordProcessingKey(sess.UserID, accountID)] = sessionID
 	s.passwordMu.Unlock()
 
-	go s.runPasswordLoginSession(ctx, loginSession, req.Password)
+	workerDone := s.beginWorker()
+	go func() {
+		defer workerDone()
+		s.runPasswordLoginSession(ctx, loginSession, req.Password)
+	}()
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success":    true,
@@ -145,11 +151,13 @@ func (s *Server) checkPasswordLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "not_found", "message": "会话不存在或已过期"})
 		return
 	}
-	response := passwordSessionResponse(session)
-	if session.Status == "success" || session.Status == "failed" {
-		delete(s.passwordSessions, sessionID)
-		delete(s.passwordProcessing, session.AccountID)
+	requestSession := auth.SessionFromContext(r.Context())
+	if requestSession == nil || session.UserID != requestSession.UserID {
+		s.passwordMu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"status": "not_found", "message": "会话不存在或已过期"})
+		return
 	}
+	response := passwordSessionResponse(session)
 	s.passwordMu.Unlock()
 	writeJSON(w, http.StatusOK, response)
 }
@@ -163,11 +171,17 @@ func (s *Server) cancelPasswordLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"success": false, "code": 404, "message": "会话不存在", "data": nil})
 		return
 	}
+	requestSession := auth.SessionFromContext(r.Context())
+	if requestSession == nil || session.UserID != requestSession.UserID {
+		s.passwordMu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"success": false, "code": 404, "message": "会话不存在", "data": nil})
+		return
+	}
 	if session.cancel != nil {
 		session.cancel()
 	}
 	delete(s.passwordSessions, sessionID)
-	delete(s.passwordProcessing, session.AccountID)
+	delete(s.passwordProcessing, passwordProcessingKey(session.UserID, session.AccountID))
 	s.passwordMu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "code": 200, "message": "登录会话已取消", "data": nil})
 }
@@ -192,14 +206,14 @@ func (s *Server) runPasswordLoginSession(ctx context.Context, session *passwordL
 			status = "failed"
 		}
 		reason := passwordLoginReason(err)
-		s.failPasswordLoginSession(session, status, err.Error(), reason, event.CooldownHours)
 		s.addLoginLog(context.Background(), session.AccountID, session.UserID, loginMethodPassword, loginStatusFailed, reason, err.Error(), 0)
+		s.failPasswordLoginSession(session, status, err.Error(), reason, event.CooldownHours)
 		return
 	}
 	accountID, isNew, err := s.savePasswordLoginCookies(ctx, session, password, cookies)
 	if err != nil {
-		s.failPasswordLoginSession(session, "failed", "保存登录结果失败: "+err.Error(), "", 0)
 		s.addLoginLog(context.Background(), session.AccountID, session.UserID, loginMethodPassword, loginStatusFailed, "cookie_update_failed", err.Error(), 0)
+		s.failPasswordLoginSession(session, "failed", "保存登录结果失败: "+err.Error(), "", 0)
 		return
 	}
 	s.completePasswordLoginSession(session, func(current *passwordLoginSession) {
@@ -216,13 +230,16 @@ func (s *Server) savePasswordLoginCookies(ctx context.Context, session *password
 		return "", false, errors.New("浏览器未返回 cookie")
 	}
 	accountID := cookieAccountID(cookies, session.AccountID)
+	if accountID != session.AccountID {
+		return "", false, fmt.Errorf("登录结果账号 %s 与正在编辑的账号 %s 不一致，已拒绝覆盖", accountID, session.AccountID)
+	}
 	cookieValue := browser.MarshalCookies(cookies)
 	_, err := s.Store.Cookies.GetDetails(ctx, accountID)
 	isNew := errors.Is(err, db.ErrNotFound)
 	if err != nil && !errors.Is(err, db.ErrNotFound) {
 		return "", false, err
 	}
-	if err := s.Store.Cookies.Save(ctx, accountID, cookieValue, session.UserID); err != nil {
+	if err := s.Store.Cookies.UpdateValueOwned(ctx, accountID, cookieValue, session.UserID); err != nil {
 		return "", false, err
 	}
 	if err := s.Store.Cookies.UpdateLoginInfo(ctx, accountID, session.Account, password, session.ShowBrowser); err != nil {
@@ -260,10 +277,14 @@ func (s *Server) canStartPasswordLogin(ctx context.Context, userID int64, accoun
 	return false, "查询账号失败"
 }
 
-func (s *Server) currentPasswordLoginSession(accountID string) string {
+func passwordProcessingKey(userID int64, accountID string) string {
+	return strconv.FormatInt(userID, 10) + ":" + accountID
+}
+
+func (s *Server) currentPasswordLoginSession(userID int64, accountID string) string {
 	s.passwordMu.Lock()
 	defer s.passwordMu.Unlock()
-	return s.passwordProcessing[accountID]
+	return s.passwordProcessing[passwordProcessingKey(userID, accountID)]
 }
 
 func (s *Server) completePasswordLoginSession(session *passwordLoginSession, mutate func(*passwordLoginSession)) {
@@ -290,8 +311,8 @@ func (s *Server) finishPasswordLoginSession(session *passwordLoginSession, mutat
 	}
 	originalAccountID := current.AccountID
 	mutate(current)
-	delete(s.passwordProcessing, originalAccountID)
-	delete(s.passwordProcessing, current.AccountID)
+	delete(s.passwordProcessing, passwordProcessingKey(current.UserID, originalAccountID))
+	delete(s.passwordProcessing, passwordProcessingKey(current.UserID, current.AccountID))
 }
 
 func (s *Server) applyPasswordLoginEvent(session *passwordLoginSession, event browser.PasswordLoginEvent) {
@@ -344,7 +365,7 @@ func (s *Server) cleanupExpiredPasswordLoginSessions() {
 			session.Status = "failed"
 			session.Message = "登录处理超时，请稍后重试"
 			session.Error = session.Message
-			delete(s.passwordProcessing, session.AccountID)
+			delete(s.passwordProcessing, passwordProcessingKey(session.UserID, session.AccountID))
 		}
 		if age <= passwordLoginSessionMaxAge {
 			continue
@@ -353,7 +374,7 @@ func (s *Server) cleanupExpiredPasswordLoginSessions() {
 			session.cancel()
 		}
 		delete(s.passwordSessions, sessionID)
-		delete(s.passwordProcessing, session.AccountID)
+		delete(s.passwordProcessing, passwordProcessingKey(session.UserID, session.AccountID))
 	}
 }
 

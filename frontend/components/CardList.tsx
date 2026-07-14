@@ -17,6 +17,14 @@ type AddCardForm = {
   api_params: string;
 };
 
+type EditCardForm = Partial<Card> & {
+  api_url?: string;
+  api_method?: 'GET' | 'POST';
+  api_timeout?: number;
+  api_headers?: string;
+  api_params?: string;
+};
+
 const emptyAddForm = (): AddCardForm => ({
   name: '',
   type: 'data',
@@ -35,7 +43,7 @@ const CardList: React.FC = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
-  const [editForm, setEditForm] = useState<Partial<Card>>({});
+  const [editForm, setEditForm] = useState<EditCardForm>({});
   const [addForm, setAddForm] = useState<AddCardForm>(emptyAddForm);
 
   // 批量导入
@@ -112,7 +120,7 @@ const CardList: React.FC = () => {
       // 根据类型设置内容
       if (editForm.type === 'api') {
         updateData.api_config = {
-          url: editForm.api_url?.trim(),
+          url: editForm.api_url?.trim() || '',
           method: editForm.api_method as 'GET' | 'POST',
           timeout: editForm.api_timeout || 10,
           headers: editForm.api_headers?.trim() || undefined,
@@ -849,7 +857,7 @@ const CardList: React.FC = () => {
                 <div className="space-y-4">
                   <div className="rounded-xl bg-blue-50 border border-blue-100 p-4 text-xs text-blue-900 leading-5">
                     上传表格，每行一个卡密组。表头：<code className="bg-blue-100/70 px-1.5 py-0.5 rounded">名称,类型,内容,描述,启用,延迟秒,多规格,规格名,规格值</code>。
-                    类型填 text/data/image/api；data 类型的"内容"按行存卡密（CSV 单元格内换行需用引号包裹）。
+                    类型填 text/data/image；data 类型的"内容"按行存卡密（CSV 单元格内换行需用引号包裹）。
                   </div>
                   <div className="flex items-center gap-3">
                     <button

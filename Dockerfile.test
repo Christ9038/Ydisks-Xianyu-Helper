@@ -1,4 +1,5 @@
-# syntax=docker/dockerfile:1.7
+FROM alpine:3.22 AS sqlite-tools
+RUN apk add --no-cache sqlite
 
 FROM node:22-trixie AS frontend-assets
 WORKDIR /src/frontend
@@ -28,4 +29,4 @@ WORKDIR /src/frontend
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
-CMD ["sh", "-c", "npm test && npm run build"]
+CMD ["sh", "-c", "npm run typecheck && npm test && npm run build"]

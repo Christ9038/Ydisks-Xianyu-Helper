@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"xianyu-go/internal/db"
 )
 
 const (
@@ -40,7 +42,12 @@ type Task struct {
 	OrderStatus string
 	Text        string
 	UpdateKey   string
-	Raw         map[string]any
+	// ForceConfirmShipment 仅供明确的人工“完整发货”使用；自动事件仍遵循账号自动确认开关。
+	ForceConfirmShipment bool
+	// ActionPlan 是运行创建时冻结的动作计划。延迟恢复和失败重试必须使用该快照，
+	// 不能把数字游标应用到管理员后来修改过的规则上。
+	ActionPlan []db.AutomationAction
+	Raw        map[string]any
 }
 
 // OrderDetail 是自动化中心执行交易类任务前需要补齐的订单事实。

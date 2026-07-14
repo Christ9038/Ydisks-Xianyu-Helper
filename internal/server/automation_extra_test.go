@@ -182,6 +182,49 @@ func TestAutomationRuleSendTextMissingTemplate(t *testing.T) {
 	}
 }
 
+func TestAutomationIssueEndpointsAndActiveDeleteConflict(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	ruleID, err := store.Automation.Create(ctx, db.AutomationRuleInput{UserID: admin.ID, CookieID: "acc1", Name: "issue",
+		TriggerType: automation.TriggerBuyerReviewed, Enabled: true,
+		Actions: []db.AutomationActionInput{{ActionType: automation.ActionSendText, MessageTemplate: "x", Enabled: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, _, _ := store.Automation.TryStartRun(ctx, db.AutomationRun{RuleID: ruleID, CookieID: "acc1", OrderID: "o",
+		TriggerType: automation.TriggerBuyerReviewed, TriggerKey: "k", RawEventJSON: `{}`, LeaseExpiresAt: 1})
+	_, _ = store.Automation.StartRunAction(ctx, runID, 1, 0, 1)
+	_ = store.Automation.QuarantineRun(ctx, runID, 1, "unknown")
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	listReq := httptest.NewRequest(http.MethodGet, "/automation-issues", nil)
+	listReq.AddCookie(cookie)
+	listRec := httptest.NewRecorder()
+	h.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK || !strings.Contains(listRec.Body.String(), "unknown") {
+		t.Fatalf("list status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/automation-rules/"+itoa(ruleID), nil)
+	deleteReq.AddCookie(cookie)
+	deleteRec := httptest.NewRecorder()
+	h.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusConflict {
+		t.Fatalf("active delete status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+
+	resolveReq := httptest.NewRequest(http.MethodPost, "/automation-runs/"+itoa(runID)+"/resolve", strings.NewReader(`{"resolution":"cancel"}`))
+	resolveReq.AddCookie(cookie)
+	resolveRec := httptest.NewRecorder()
+	h.ServeHTTP(resolveRec, resolveReq)
+	if resolveRec.Code != http.StatusOK {
+		t.Fatalf("resolve status=%d body=%s", resolveRec.Code, resolveRec.Body.String())
+	}
+}
+
 // TestAutomationRuleNoActions 缺动作 400。
 func TestAutomationRuleNoActions(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
@@ -196,6 +239,31 @@ func TestAutomationRuleNoActions(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("缺动作应 400，got %d", rec.Code)
+	}
+}
+
+func TestAutomationRuleRejectsIncompatibleTriggerActions(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	cardID, err := store.Cards.Create(context.Background(), &db.CardFull{Name: "card", Type: "text", TextContent: "x", Enabled: true, UserID: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	tests := []string{
+		`{"cookie_id":"acc1","trigger_type":"order_paid","actions":[{"action_type":"send_text","message_template":"x"}]}`,
+		`{"cookie_id":"acc1","trigger_type":"buyer_reviewed","actions":[{"action_type":"confirm_shipment"}]}`,
+		`{"cookie_id":"acc1","trigger_type":"review_missing_timeout","actions":[{"action_type":"send_card","card_id":` + itoa(cardID) + `}]}`,
+	}
+	for _, body := range tests {
+		req := httptest.NewRequest(http.MethodPost, "/automation-rules", strings.NewReader(body))
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("body=%s status=%d response=%s", body, rec.Code, rec.Body.String())
+		}
 	}
 }
 

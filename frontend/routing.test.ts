@@ -60,6 +60,17 @@ describe('frontend navigation routing', () => {
     expect(settings).toContain('setLoadError');
   });
 
+  test('captcha remote settings expose the reference privacy and fallback semantics', () => {
+    const settings = readFrontendFile('components/Settings.tsx');
+
+    expect(settings).toContain('远程过滑块配置');
+    expect(settings).toContain("'captcha.remote_service_url'");
+    expect(settings).toContain("'captcha.remote_secret_key'");
+    expect(settings).toContain("'captcha.remote_pass_cookies'");
+    expect(settings).toContain('默认关闭');
+    expect(settings).toContain('只有网络不可用或超时才回退本机引擎');
+  });
+
   test('email notification config uses backend recipient field names', () => {
     const notifications = readFrontendFile('components/Notifications.tsx');
 
@@ -137,11 +148,26 @@ describe('frontend navigation routing', () => {
     expect(itemList).not.toContain('src={URL.createObjectURL(file)}');
   });
 
-  test('QR verification exposes both the external verification link and completion action', () => {
+  test('QR verification removes the external link and clearly requires in-app risk verification', () => {
     const accounts = readFrontendFile('components/AccountList.tsx');
-    expect(accounts).toContain('href={verificationUrl}');
-    expect(accounts).toContain('rel="noopener noreferrer"');
-    expect(accounts).toContain('onClick={handleCompleteVerification}');
-    expect(accounts).toContain('我已完成验证');
+	const riskPanel = readFrontendFile('components/RiskVerificationPanel.tsx');
+    expect(accounts).not.toContain('href={verificationUrl}');
+    expect(accounts).not.toContain('setVerificationUrl');
+	expect(accounts).toContain('RiskVerificationPanel');
+	expect(riskPanel).toContain('需要完成安全风控验证');
+	expect(riskPanel).toContain('请勿在浏览器中打开验证链接');
+		expect(riskPanel).toContain('系统会自动检测并刷新登录状态');
+		expect(riskPanel).not.toContain('我已在闲鱼 App 完成验证');
+		expect(riskPanel).not.toContain('<button');
+	expect(riskPanel).not.toContain('重试');
+  });
+
+  test('account editor exposes password-login refresh and never renders its verification URL', () => {
+    const accounts = readFrontendFile('components/AccountList.tsx');
+    expect(accounts).toContain('passwordLogin({');
+	expect(accounts).toContain('checkPasswordLoginStatus(sessionId, controller.signal)');
+    expect(accounts).toContain('密码登录刷新授权');
+    expect(accounts).toContain('账号已触发平台风控，需要完成人脸识别');
+    expect(accounts).not.toContain('result.verification_url');
   });
 });

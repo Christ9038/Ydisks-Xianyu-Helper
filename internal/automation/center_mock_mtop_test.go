@@ -3,6 +3,7 @@ package automation
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"xianyu-go/internal/db"
@@ -85,11 +86,11 @@ func TestCenterConfirmShipment_MockMTopConsigError(t *testing.T) {
 	if order.SystemShipped {
 		t.Fatal("consign 失败不应写 system_shipped=1")
 	}
-	// automation_runs 应记录失败状态 + 错误信息。
+	// 网络错误无法确认远端是否已经发货，必须进入人工核对而不是自动重试。
 	var runStatus, runErr string
 	store.DB.QueryRowContext(ctx, `SELECT status, error_message FROM automation_runs WHERE order_id='order-mock'`).Scan(&runStatus, &runErr)
-	if runStatus != "failed" {
-		t.Fatalf("run status=%q want failed", runStatus)
+	if runStatus != "needs_review" {
+		t.Fatalf("run status=%q want needs_review", runStatus)
 	}
 	if runErr == "" {
 		t.Fatal("失败 run 应记录错误信息")
@@ -107,5 +108,40 @@ func TestCenterConfirmShipment_MockMTopConsigError(t *testing.T) {
 	store.DB.QueryRowContext(ctx, `SELECT status FROM automation_runs WHERE order_id='order-mock2'`).Scan(&runStatus)
 	if runStatus != "failed" {
 		t.Fatalf("ok=false 应记 failed，got %q", runStatus)
+	}
+}
+
+func TestConfirmShipmentQuarantinesKnownRemoteSuccessWhenLocalPersistenceFails(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := store.Orders.Upsert(ctx, "persist-failure", db.OrderUpsertOpts{CookieID: "cid", ItemID: "item-1", BuyerID: "buyer"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB.ExecContext(ctx, `CREATE TRIGGER reject_shipped_state
+		BEFORE UPDATE OF system_shipped ON orders
+		WHEN NEW.system_shipped=1
+		BEGIN SELECT RAISE(FAIL, 'forced shipment persistence failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	mtopMock := &fakeMTop{consignOk: true, consignUpdated: "unb=123; _m_h5_tk=updated_1;"}
+	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
+	center.SetMTop(mtopMock)
+	err := center.confirmShipment(ctx, Task{
+		AccountID: "cid", OrderID: "persist-failure", ItemID: "item-1", BuyerID: "buyer", ChatID: "chat",
+	})
+	var uncertain *uncertainActionError
+	if !errors.As(err, &uncertain) {
+		t.Fatalf("known remote success with local failure must be quarantined, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "闲鱼已确认发货") || !strings.Contains(err.Error(), "本地状态保存失败") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	order, getErr := store.Orders.Get(ctx, "persist-failure")
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if order.SystemShipped {
+		t.Fatal("failed local write must not be reported as persisted")
 	}
 }

@@ -14,6 +14,7 @@ type RenewalAccount struct {
 	Value         string
 	UserID        int64
 	Enabled       bool
+	DisableReason string
 	Username      string
 	Password      string
 	ShowBrowser   bool
@@ -59,8 +60,8 @@ type RenewalStore struct {
 // AllRenewalAccounts 返回所有账号，包含启用状态；浏览器 cookie 续期会用到禁用账号。
 func (c *Cookies) AllRenewalAccounts(ctx context.Context) ([]RenewalAccount, error) {
 	rows, err := c.DB.QueryContext(ctx,
-		`SELECT c.id, c.value, c.user_id, COALESCE(cs.enabled, 1),
-		        COALESCE(c.username,''), COALESCE(c.password,''), COALESCE(c.show_browser,0),
+		`SELECT c.id, c.value, c.user_id, COALESCE(cs.enabled, 1), COALESCE(cs.disable_reason,''),
+			        COALESCE(c.username,''), COALESCE(c.password,''), COALESCE(c.show_browser,0),
 		        COALESCE(c.metadata_json,''), COALESCE(c.last_refresh_at,0)
 		 FROM cookies c
 		 LEFT JOIN cookie_status cs ON cs.cookie_id = c.id
@@ -75,8 +76,8 @@ func (c *Cookies) AllRenewalAccounts(ctx context.Context) ([]RenewalAccount, err
 // ActiveRenewalAccounts 返回启用账号，用于 WS/API 续期类任务。
 func (c *Cookies) ActiveRenewalAccounts(ctx context.Context) ([]RenewalAccount, error) {
 	rows, err := c.DB.QueryContext(ctx,
-		`SELECT c.id, c.value, c.user_id, COALESCE(cs.enabled, 1),
-		        COALESCE(c.username,''), COALESCE(c.password,''), COALESCE(c.show_browser,0),
+		`SELECT c.id, c.value, c.user_id, COALESCE(cs.enabled, 1), COALESCE(cs.disable_reason,''),
+			        COALESCE(c.username,''), COALESCE(c.password,''), COALESCE(c.show_browser,0),
 		        COALESCE(c.metadata_json,''), COALESCE(c.last_refresh_at,0)
 		 FROM cookies c
 		 LEFT JOIN cookie_status cs ON cs.cookie_id = c.id
@@ -94,7 +95,7 @@ func scanRenewalAccounts(rows *sql.Rows) ([]RenewalAccount, error) {
 	for rows.Next() {
 		var a RenewalAccount
 		var enabled, showBrowser int
-		if err := rows.Scan(&a.ID, &a.Value, &a.UserID, &enabled, &a.Username, &a.Password, &showBrowser, &a.MetadataJSON, &a.LastRefreshAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Value, &a.UserID, &enabled, &a.DisableReason, &a.Username, &a.Password, &showBrowser, &a.MetadataJSON, &a.LastRefreshAt); err != nil {
 			return nil, err
 		}
 		a.Enabled = enabled != 0

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,6 +23,14 @@ func TestRefreshOrdersNoBrowser(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("无浏览器应 503，got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMissingRefreshResultsAreCounted(t *testing.T) {
+	targets := []refreshTarget{{OrderID: "a"}, {OrderID: "b"}, {OrderID: "c"}}
+	missing := missingRefreshTargetIDs(targets, map[string]struct{}{"b": {}})
+	if len(missing) != 2 || missing[0] != "a" || missing[1] != "c" {
+		t.Fatalf("missing=%v", missing)
 	}
 }
 
@@ -67,10 +76,11 @@ func TestUpdateOrder(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 	store.DB.ExecContext(ctx, `INSERT INTO orders (order_id, item_id, buyer_id, order_status, cookie_id) VALUES ('ord-u','item1','b1','2','acc1')`)
+	store.DB.ExecContext(ctx, `INSERT INTO item_info (cookie_id,item_id,item_title) VALUES ('acc1','item1','旧标题')`)
 	h := srv.Router()
 	cookie := loginHelper(t, h)
 
-	body := `{"status":"shipped","receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"北京"}`
+	body := `{"status":"shipped","receiver_name":"张三","receiver_phone":"13800000000","receiver_address":"北京","item_title":"新标题"}`
 	req := httptest.NewRequest(http.MethodPut, "/api/orders/ord-u", strings.NewReader(body))
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
@@ -88,6 +98,244 @@ func TestUpdateOrder(t *testing.T) {
 	json.Unmarshal(rec2.Body.Bytes(), &got)
 	if got["order_status"] != "shipped" || got["receiver_name"] != "张三" {
 		t.Fatalf("更新未生效: %+v", got)
+	}
+	item, err := store.Items.Get(ctx, "acc1", "item1")
+	if err != nil || item.ItemTitle != "新标题" {
+		t.Fatalf("商品标题未保存: item=%+v err=%v", item, err)
+	}
+}
+
+func TestUpdateOrderUsesNewItemIDForTitle(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,item_id,order_status,cookie_id) VALUES ('ord-new-item','old-item','2','acc1')`)
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO item_info (cookie_id,item_id,item_title) VALUES ('acc1','old-item','旧商品')`)
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPut, "/api/orders/ord-new-item", strings.NewReader(`{"item_id":" new-item ","item_title":"新商品"}`))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	order, _ := store.Orders.Get(ctx, "ord-new-item")
+	if order.ItemID != "new-item" {
+		t.Fatalf("order item_id=%q", order.ItemID)
+	}
+	newItem, err := store.Items.Get(ctx, "acc1", "new-item")
+	if err != nil || newItem.ItemTitle != "新商品" {
+		t.Fatalf("new item=%+v err=%v", newItem, err)
+	}
+	oldItem, _ := store.Items.Get(ctx, "acc1", "old-item")
+	if oldItem.ItemTitle != "旧商品" {
+		t.Fatalf("old item title changed: %+v", oldItem)
+	}
+}
+
+func TestImportOrdersRejectsInvalidAmountWithoutWritingOrder(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/import", strings.NewReader(
+		`[{"order_id":"bad-import-amount","cookie_id":"acc1","amount":"1e3"}]`,
+	))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "普通格式") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := store.Orders.Get(context.Background(), "bad-import-amount"); err == nil {
+		t.Fatal("invalid imported amount must not create an order")
+	}
+}
+
+func TestImportOrdersRejectsUnknownStatusWithoutWritingOrder(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/import", strings.NewReader(
+		`[{"order_id":"bad-import-status","cookie_id":"acc1","status":"anything","amount":"10"}]`,
+	))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "不支持的订单状态") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := store.Orders.Get(context.Background(), "bad-import-status"); err == nil {
+		t.Fatal("unknown imported status must not create an order")
+	}
+}
+
+func TestImportOrdersRollsBackOrderWhenItemWriteFails(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, _ = store.DB.ExecContext(ctx, `CREATE TRIGGER reject_import_item BEFORE INSERT ON item_info
+		WHEN NEW.item_id='reject-import-item' BEGIN SELECT RAISE(ABORT,'forced item failure'); END`)
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/import", strings.NewReader(
+		`[{"order_id":"import-tx","cookie_id":"acc1","item_id":"reject-import-item","item_title":"商品","amount":"¥1,200.50"}]`,
+	))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "补全商品信息失败") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := store.Orders.Get(ctx, "import-tx"); err == nil {
+		t.Fatal("order must roll back when imported item write fails")
+	}
+}
+
+func TestUpdateOrderRejectsInvalidAmount(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,item_id,amount,order_status,cookie_id) VALUES ('ord-amount','item1','9.9','2','acc1')`)
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPut, "/api/orders/ord-amount", strings.NewReader(`{"amount":"abc"}`))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	order, _ := store.Orders.Get(ctx, "ord-amount")
+	if order.Amount != "9.9" {
+		t.Fatalf("invalid amount was stored: %q", order.Amount)
+	}
+}
+
+func TestValidOrderAmountMatchesAnalyticsDecimalFormat(t *testing.T) {
+	for _, invalid := range []string{"abc", "1e3", "+Inf", "NaN", "-1", "1.", "1,2", "12,34", "1,,000"} {
+		if validOrderAmount(invalid) {
+			t.Fatalf("%q must be rejected", invalid)
+		}
+	}
+	for input, want := range map[string]string{"": "", "0": "0", "12.50": "12.50", "¥1,200.50": "1200.50", "￥12.50": "12.50"} {
+		got, ok := normalizeOrderAmount(input)
+		if !ok || got != want {
+			t.Fatalf("normalize(%q)=%q,%v want %q,true", input, got, ok, want)
+		}
+	}
+}
+
+func TestChunkRefreshTargetsBoundsBrowserBatchSize(t *testing.T) {
+	targets := make([]refreshTarget, 205)
+	for i := range targets {
+		targets[i].OrderID = fmt.Sprintf("o-%d", i)
+	}
+	chunks := chunkRefreshTargets(targets, 100)
+	if len(chunks) != 3 || len(chunks[0]) != 100 || len(chunks[1]) != 100 || len(chunks[2]) != 5 {
+		t.Fatalf("unexpected chunk sizes: %d/%d/%d total=%d", len(chunks[0]), len(chunks[1]), len(chunks[2]), len(chunks))
+	}
+}
+
+func TestUpdateOrderAndItemTitleRollBackTogether(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,item_id,amount,order_status,cookie_id) VALUES ('ord-tx','old-item','9.9','2','acc1')`)
+	_, _ = store.DB.ExecContext(ctx, `CREATE TRIGGER reject_tx_item BEFORE INSERT ON item_info
+		WHEN NEW.item_id='tx-fail' BEGIN SELECT RAISE(ABORT,'forced item failure'); END`)
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPut, "/api/orders/ord-tx", strings.NewReader(`{"item_id":"tx-fail","item_title":"new","amount":"20"}`))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	order, _ := store.Orders.Get(ctx, "ord-tx")
+	if order.ItemID != "old-item" || order.Amount != "9.9" {
+		t.Fatalf("order must roll back with item failure: %+v", order)
+	}
+}
+
+func TestUpdateOrderRejectsUnknownStatus(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,item_id,order_status,cookie_id) VALUES ('ord-status','item1','2','acc1')`)
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPut, "/api/orders/ord-status", strings.NewReader(`{"status":"anything"}`))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	order, _ := store.Orders.Get(ctx, "ord-status")
+	if order.OrderStatus != "2" {
+		t.Fatalf("invalid status changed order: %+v", order)
+	}
+}
+
+func TestUpdateOrderCanExplicitlyClearFields(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders
+		(order_id,item_id,buyer_id,order_status,cookie_id,amount,receiver_phone)
+		VALUES ('ord-clear','item1','b1','2','acc1','99.9','13800000000')`)
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/orders/ord-clear", strings.NewReader(`{"amount":"","receiver_phone":""}`))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clear status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	order, err := store.Orders.Get(ctx, "ord-clear")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if order.Amount != "" || order.ReceiverPhone != "" || order.ItemID != "item1" {
+		t.Fatalf("explicit clear mismatch: %+v", order)
+	}
+}
+
+func TestListOrdersSearchUsesBackendPaginationScope(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,item_id,buyer_id,order_status,cookie_id) VALUES
+		('ord-search-1','item-search','buyer-a','2','acc1'),
+		('ord-search-2','item-other','buyer-b','2','acc1')`)
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO item_info (cookie_id,item_id,item_title) VALUES ('acc1','item-search','Unique Product Name')`)
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/api/orders?search=unique&page=1&page_size=1", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("search status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Total int              `json:"total"`
+		Data  []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Total != 1 || len(response.Data) != 1 || response.Data[0]["order_id"] != "ord-search-1" {
+		t.Fatalf("backend search response=%+v", response)
 	}
 }
 
@@ -144,6 +392,26 @@ func TestManualShipOrdersStatusOnlySuccess(t *testing.T) {
 	json.Unmarshal(rec2.Body.Bytes(), &ord)
 	if ord["order_status"] != "shipped" {
 		t.Errorf("订单状态应为 shipped，got %v", ord["order_status"])
+	}
+}
+
+func TestManualShipOrdersRejectsNonPendingStatus(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,item_id,buyer_id,order_status,cookie_id,chat_id) VALUES ('ord-cancelled','item1','b1','cancelled','acc1','chat1')`)
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/manual-ship", strings.NewReader(`{"order_ids":["ord-cancelled"],"ship_mode":"status_only"}`))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "仅待发货订单") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	order, _ := store.Orders.Get(ctx, "ord-cancelled")
+	if order.OrderStatus != "cancelled" {
+		t.Fatalf("status changed: %+v", order)
 	}
 }
 

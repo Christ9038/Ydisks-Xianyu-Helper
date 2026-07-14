@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
 )
@@ -36,6 +37,42 @@ func TestFinalPublishBatchStatus(t *testing.T) {
 				t.Fatalf("got %q want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPublishBatchFailurePreservesUncertainRemoteWarningWhenCanceled(t *testing.T) {
+	message, kind := publishBatchFailure(&uncertainRemotePublishError{err: context.Canceled}, "canceling")
+	if kind != "uncertain_remote" || !strings.Contains(message, "任务已取消") ||
+		!strings.Contains(message, "禁止自动重试") || !strings.Contains(message, "人工核对") {
+		t.Fatalf("message=%q kind=%q", message, kind)
+	}
+	message, kind = publishBatchFailure(context.Canceled, "canceling")
+	if kind != "publish" || message != "任务已取消" {
+		t.Fatalf("ordinary cancel message=%q kind=%q", message, kind)
+	}
+}
+
+func TestCancelPublishBatchRequiresMatchingWorkerToken(t *testing.T) {
+	srv := &Server{publishCancels: make(map[string]publishBatchWorker)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	srv.registerPublishBatchCancel("batch", "current", cancel)
+
+	if canceled := srv.cancelPublishBatch("batch", "stale"); canceled {
+		t.Fatal("stale worker token must not cancel current worker")
+	}
+	select {
+	case <-ctx.Done():
+		t.Fatal("current worker was canceled by stale token")
+	default:
+	}
+	if canceled := srv.cancelPublishBatch("batch", "current"); !canceled {
+		t.Fatal("matching token should cancel current worker")
+	}
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("matching token did not invoke cancel")
 	}
 }
 
@@ -330,6 +367,107 @@ func TestRunItemPublishBatch_Success(t *testing.T) {
 	}
 }
 
+func TestPublishBatchRetryResumesSavedRemoteResultWithoutPublishingAgain(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, err := store.Users.GetByUsername(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	batch := &db.ItemPublishBatch{
+		ID: "resume-remote", UserID: admin.ID, DefaultCookieID: "acc1", Filename: "resume.csv", Status: "pending",
+	}
+	if err := store.PublishBatches.Create(ctx, batch, []db.ItemPublishBatchRow{{
+		BatchID: batch.ID, RowNo: 1, CookieID: "acc1", Title: "已发布商品", Description: "详情",
+		Price: "12.50", Quantity: 1, PostageMode: "free", AutomationJSON: `{}`,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	lease := time.Now().UTC().Add(time.Minute).Unix()
+	if claimed, err := store.PublishBatches.ClaimBatch(ctx, batch.ID, "worker-1", lease); err != nil || !claimed {
+		t.Fatalf("claim first worker: claimed=%v err=%v", claimed, err)
+	}
+	rows, err := store.PublishBatches.Rows(ctx, batch.ID)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("rows=%+v err=%v", rows, err)
+	}
+	rowID := rows[0].ID
+	if claimed, err := store.PublishBatches.ClaimRow(ctx, rowID, "worker-1"); err != nil || !claimed {
+		t.Fatalf("claim row: claimed=%v err=%v", claimed, err)
+	}
+	if saved, err := store.PublishBatches.SaveClaimedRemoteResult(ctx, rowID, "worker-1", "remote-123", "https://x/item/remote-123", `{"remote":true}`); err != nil || !saved {
+		t.Fatalf("save remote result: saved=%v err=%v", saved, err)
+	}
+	if marked, err := store.PublishBatches.MarkClaimedRowFailed(ctx, rowID, "worker-1", "local database unavailable", "post_publish"); err != nil || !marked {
+		t.Fatalf("mark post publish failure: marked=%v err=%v", marked, err)
+	}
+	if finished, err := store.PublishBatches.FinishBatchStatus(ctx, batch.ID, "worker-1", "failed"); err != nil || !finished {
+		t.Fatalf("finish first batch: finished=%v err=%v", finished, err)
+	}
+	if err := store.PublishBatches.ResetFailed(ctx, batch.ID); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := store.PublishBatches.ClaimBatch(ctx, batch.ID, "worker-2", lease); err != nil || !claimed {
+		t.Fatalf("claim retry worker: claimed=%v err=%v", claimed, err)
+	}
+	rows, _ = store.PublishBatches.Rows(ctx, batch.ID)
+	if rows[0].ItemID != "remote-123" || rows[0].Status != "pending" {
+		t.Fatalf("retry checkpoint lost: %+v", rows[0])
+	}
+	if claimed, err := store.PublishBatches.ClaimRow(ctx, rowID, "worker-2"); err != nil || !claimed {
+		t.Fatalf("retry claim row: claimed=%v err=%v", claimed, err)
+	}
+	remoteCalls := 0
+	client := withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		remoteCalls++
+		return nil, context.Canceled
+	}))
+	if err := srv.publishBatchRow(ctx, admin.ID, client, rows[0], "worker-2"); err != nil {
+		t.Fatalf("resume local persistence: %v", err)
+	}
+	if remoteCalls != 0 {
+		t.Fatalf("saved remote result must skip PublishItem, remote calls=%d", remoteCalls)
+	}
+	rows, _ = store.PublishBatches.Rows(ctx, batch.ID)
+	if rows[0].Status != "success" || rows[0].ItemID != "remote-123" {
+		t.Fatalf("resumed row=%+v", rows[0])
+	}
+}
+
+func TestPublishBatchRecoveryAutomaticallyResumesInterruptedRow(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	batchID := "auto-recover-batch"
+	if err := store.PublishBatches.Create(ctx, &db.ItemPublishBatch{
+		ID: batchID, UserID: admin.ID, DefaultCookieID: "acc1", Filename: "recover.csv", Status: "failed",
+	}, []db.ItemPublishBatchRow{{
+		RowNo: 1, CookieID: "acc1", Title: "Recovered", Price: "9.90", Quantity: 1,
+		Status: "failed", FailureKind: "interrupted", ErrorMessage: "server stopped",
+		ItemID: "remote-recovered", ItemURL: "https://example.com/remote-recovered", RawJSON: `{"saved":true}`,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	srv.recoverPublishBatchesOnce(ctx)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		batch, err := store.PublishBatches.Get(ctx, admin.ID, batchID)
+		if err == nil && batch.Status == "completed" {
+			rows, _ := store.PublishBatches.Rows(ctx, batchID)
+			if len(rows) != 1 || rows[0].Status != "success" || rows[0].ItemID != "remote-recovered" {
+				t.Fatalf("rows=%+v", rows)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	batch, _ := store.PublishBatches.Get(ctx, admin.ID, batchID)
+	rows, _ := store.PublishBatches.Rows(ctx, batchID)
+	t.Fatalf("batch=%+v rows=%+v", batch, rows)
+}
+
 // TestCreatePublishAutomationRules 覆盖自动化规则创建（通过成功发布路径间接覆盖）。
 // 这里直接验证 runItemPublishBatch 在成功路径上调用了 createPublishAutomationRules。
 func TestCreatePublishAutomationRules(t *testing.T) {
@@ -341,39 +479,19 @@ func TestCreatePublishAutomationRules(t *testing.T) {
 	admin, _ := store.Users.GetByUsername(ctx, "admin")
 	cardID, _ := store.Cards.Create(ctx, &db.CardFull{Name: "卡", Type: "text", TextContent: "K", Enabled: true, UserID: admin.ID})
 
-	// 通过 preview 建批次，再读出 row。
-	h := srv.Router()
-	cookie := loginHelper(t, h)
-	batchID := previewPublishBatchWithAutomation(t, h, cookie, cardID)
-	_ = batchID
-}
-
-// previewPublishBatchWithAutomation 构造带自动化配置的预检批次。
-func previewPublishBatchWithAutomation(t *testing.T, h http.Handler, cookie *http.Cookie, cardID int64) string {
-	t.Helper()
-	var buf bytes.Buffer
-	mw := multipart.NewWriter(&buf)
-	_ = mw.WriteField("default_cookie_id", "acc1")
-	csvField, _ := mw.CreateFormFile("file", "products.csv")
-	csv := strings.Join([]string{
-		"账号ID,标题,价格,库存,付款后发送的卡密",
-		"acc1,商品A,12.50,5," + itoa(cardID) + ":1:0",
-		"",
-	}, "\n")
-	csvField.Write([]byte(csv))
-	_ = mw.Close()
-
-	req := httptest.NewRequest(http.MethodPost, "/items/publish-batches/preview", &buf)
-	req.Header.Set("Content-Type", mw.FormDataContentType())
-	req.AddCookie(cookie)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Code != 200 {
-		t.Fatalf("preview status=%d body=%s", rec.Code, rec.Body.String())
+	automationJSON := `{"paid_delivery":{"enabled":true,"actions":[{"card_id":` + itoa(cardID) + `,"delivery_count":1,"delay_seconds":23}]}}`
+	if err := srv.createPublishAutomationRules(ctx, admin.ID, db.ItemPublishBatchRow{
+		CookieID: "acc1", Title: "商品A", AutomationJSON: automationJSON,
+	}, &mtop.PublishItemResult{ItemID: "published-delay-item", Title: "商品A"}); err != nil {
+		t.Fatal(err)
 	}
-	var res map[string]any
-	json.Unmarshal(rec.Body.Bytes(), &res)
-	return res["preview_id"].(string)
+	rules, err := store.Automation.Match(ctx, "acc1", "published-delay-item", automation.TriggerOrderPaid)
+	if err != nil || len(rules) != 1 {
+		t.Fatalf("rules=%+v err=%v", rules, err)
+	}
+	if len(rules[0].Actions) < 1 || rules[0].Actions[0].DelaySeconds != 23 || !strings.Contains(rules[0].Actions[0].ConfigJSON, `"delay_override":true`) {
+		t.Fatalf("batch delay override lost: %+v", rules[0].Actions)
+	}
 }
 
 // 编译期保证 mtop 包引用。

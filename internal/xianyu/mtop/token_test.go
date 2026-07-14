@@ -9,9 +9,49 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"xianyu-go/internal/xianyu"
 )
 
 const testCookiesWithUnb = "unb=123; _m_h5_tk=oldtoken_1;"
+
+type recordingTokenExecutor struct {
+	requests  []TokenBrowserRequest
+	responses []*TokenBrowserResponse
+}
+
+func (e *recordingTokenExecutor) ExecuteTokenRequest(_ context.Context, req TokenBrowserRequest) (*TokenBrowserResponse, error) {
+	e.requests = append(e.requests, req)
+	if len(e.responses) == 0 {
+		return nil, fmt.Errorf("unexpected token request")
+	}
+	response := e.responses[0]
+	e.responses = e.responses[1:]
+	return response, nil
+}
+
+func TestRefreshTokenUsesBrowserExecutor(t *testing.T) {
+	executor := &recordingTokenExecutor{responses: []*TokenBrowserResponse{{
+		Status:         http.StatusOK,
+		Body:           []byte(`{"ret":["SUCCESS::调用成功"],"data":{"accessToken":"browser-token"}}`),
+		UpdatedCookies: testCookiesWithUnb + " x5sec=fresh;",
+	}}}
+	client := &ClientImpl{TokenExecutor: executor}
+	result, err := client.RefreshTokenWithDeviceIDContext(context.Background(), testCookiesWithUnb, "permanent-device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AccessToken != "browser-token" || !strings.Contains(result.UpdatedCookies, "x5sec=fresh") {
+		t.Fatalf("result=%+v", result)
+	}
+	if len(executor.requests) != 1 {
+		t.Fatalf("browser requests=%d", len(executor.requests))
+	}
+	req := executor.requests[0]
+	if !strings.HasPrefix(req.URL, TokenAPI+"?") || !strings.Contains(req.Body, "permanent-device") || req.Cookies != testCookiesWithUnb {
+		t.Fatalf("browser request=%+v", req)
+	}
+}
 
 // TestRefreshTokenWithDeviceIDSuccessOnRetry: 首次返回 token 过期 + Set-Cookie，二次成功。
 func TestRefreshTokenWithDeviceIDSuccessOnRetry(t *testing.T) {
@@ -137,9 +177,9 @@ func TestRefreshTokenRequestError(t *testing.T) {
 	}
 }
 
-// TestRefreshTokenExpiredRetNoCookieDoesNotRetry: token 过期但响应未下发新 Cookie，
-// 不重试直接报"登录凭证已失效"。
-func TestRefreshTokenExpiredRetNoCookieDoesNotRetry(t *testing.T) {
+// TestRefreshTokenExpiredRetNoCookieRetriesOnce: 参考实现即使响应未下发新 Cookie，
+// 也固定等待 0.5 秒重试一次。
+func TestRefreshTokenExpiredRetNoCookieRetriesOnce(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -153,8 +193,27 @@ func TestRefreshTokenExpiredRetNoCookieDoesNotRetry(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "登录凭证已失效") {
 		t.Fatalf("err=%v", err)
 	}
-	if requests.Load() != 1 {
-		t.Fatalf("requests=%d want 1（无新 Cookie 不应重试）", requests.Load())
+	if requests.Load() != 2 {
+		t.Fatalf("requests=%d want 2", requests.Load())
+	}
+}
+
+func TestRefreshTokenUsesReferenceFingerprint(t *testing.T) {
+	xianyu.SetBrowserFingerprint(xianyu.BrowserFingerprint{UserAgent: "playwright-native-ua", SecChUA: `"Chromium";v="999"`})
+	var gotUA, gotSecChUA string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		gotSecChUA = r.Header.Get("sec-ch-ua")
+		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"accessToken":"fingerprint"}}`)
+	}))
+	defer server.Close()
+
+	client := &ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}
+	if _, err := client.RefreshTokenWithDeviceIDContext(context.Background(), testCookiesWithUnb, "did"); err != nil {
+		t.Fatal(err)
+	}
+	if gotUA != "playwright-native-ua" || gotSecChUA != `"Chromium";v="999"` {
+		t.Fatalf("token fingerprint mismatch: ua=%q sec-ch-ua=%q", gotUA, gotSecChUA)
 	}
 }
 

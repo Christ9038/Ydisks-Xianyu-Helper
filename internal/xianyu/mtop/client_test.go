@@ -52,7 +52,7 @@ func TestReadMTopBodyRejectsOversizedResponse(t *testing.T) {
 	}
 }
 
-func TestRefreshTokenDoesNotRetryWithoutUpdatedCookie(t *testing.T) {
+func TestRefreshTokenRetriesOnceWithoutUpdatedCookie(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -65,8 +65,8 @@ func TestRefreshTokenDoesNotRetryWithoutUpdatedCookie(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "登录凭证已失效") {
 		t.Fatalf("err=%v", err)
 	}
-	if requests.Load() != 1 {
-		t.Fatalf("请求次数=%d want 1", requests.Load())
+	if requests.Load() != 2 {
+		t.Fatalf("请求次数=%d want 2", requests.Load())
 	}
 }
 

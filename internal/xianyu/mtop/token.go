@@ -47,11 +47,14 @@ func (c *ClientImpl) RefreshTokenWithDeviceIDContext(ctx context.Context, cookie
 		if !isTokenExpiredRet(ret) {
 			return &RefreshResult{UpdatedCookies: updatedCookies}, fmt.Errorf("token API 返回非成功: ret=%v (status=%d)", ret, status)
 		}
-		// 没有新 Cookie 时继续请求只会重复失败，也会增加风控风险。
-		if updatedCookies == "" || updatedCookies == currentCookies || attempt == 1 {
+		// 参考实现对 FAIL_SYS_TOKEN_EXOIRED/EXPIRED 固定等待 0.5 秒重试
+		// 一次；是否收到 Set-Cookie 不改变重试次数。
+		if attempt == 1 {
 			return &RefreshResult{UpdatedCookies: updatedCookies}, fmt.Errorf("token API 登录凭证已失效: ret=%v (status=%d)", ret, status)
 		}
-		currentCookies = updatedCookies
+		if updatedCookies != "" {
+			currentCookies = updatedCookies
+		}
 		if err := sleepCtx(ctx, tokenRetryGap); err != nil {
 			return &RefreshResult{UpdatedCookies: currentCookies}, err
 		}
@@ -109,23 +112,43 @@ func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID 
 	if tokenURL == "" {
 		tokenURL = TokenAPI
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL+"?"+query, strings.NewReader(body))
-	if err != nil {
-		return "", nil, cookiesStr, "", 0, err
+	requestURL := tokenURL + "?" + query
+	var raw []byte
+	var status int
+	updated := cookiesStr
+	if c.TokenExecutor != nil {
+		browserResp, execErr := c.TokenExecutor.ExecuteTokenRequest(ctx, TokenBrowserRequest{
+			URL: requestURL, Body: body, Cookies: cookiesStr,
+		})
+		if execErr != nil {
+			return "", nil, cookiesStr, "", 0, fmt.Errorf("浏览器 token API 请求失败: %w", execErr)
+		}
+		if browserResp == nil {
+			return "", nil, cookiesStr, "", 0, fmt.Errorf("浏览器 token API 返回空响应")
+		}
+		raw, status = browserResp.Body, browserResp.Status
+		if strings.TrimSpace(browserResp.UpdatedCookies) != "" {
+			updated = browserResp.UpdatedCookies
+		}
+	} else {
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, strings.NewReader(body))
+		if reqErr != nil {
+			return "", nil, cookiesStr, "", 0, reqErr
+		}
+		setCommonHeaders(req, cookiesStr)
+		resp, reqErr := hc.Do(req)
+		if reqErr != nil {
+			return "", nil, cookiesStr, "", 0, fmt.Errorf("token API 请求失败: %w", reqErr)
+		}
+		defer resp.Body.Close()
+		raw, reqErr = readMTopBody(resp)
+		if reqErr != nil {
+			return "", nil, cookiesStr, "", resp.StatusCode, reqErr
+		}
+		status = resp.StatusCode
+		// 即使业务返回 token 过期，也要保留响应下发的新签名 Cookie。
+		updated = mergeSetCookie(cookiesStr, cookies, resp)
 	}
-	setCommonHeaders(req, cookiesStr)
-
-	resp, err := hc.Do(req)
-	if err != nil {
-		return "", nil, cookiesStr, "", 0, fmt.Errorf("token API 请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-	raw, err := readMTopBody(resp)
-	if err != nil {
-		return "", nil, cookiesStr, "", resp.StatusCode, err
-	}
-	// 即使业务返回 token 过期，也要保留响应下发的新签名 Cookie。
-	updated := mergeSetCookie(cookiesStr, cookies, resp)
 
 	var res struct {
 		Ret  []string `json:"ret"`
@@ -135,7 +158,7 @@ func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID 
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &res); err != nil {
-		return "", nil, updated, "", resp.StatusCode, fmt.Errorf("解析 token 响应失败: %w (body=%s)", err, truncate(string(raw), 300))
+		return "", nil, updated, "", status, fmt.Errorf("解析 token 响应失败: %w (body=%s)", err, truncate(string(raw), 300))
 	}
 
 	ok := false
@@ -146,12 +169,12 @@ func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID 
 		}
 	}
 	if !ok {
-		return "", res.Ret, updated, res.Data.URL, resp.StatusCode, nil
+		return "", res.Ret, updated, res.Data.URL, status, nil
 	}
 	if res.Data.AccessToken == "" {
-		return "", res.Ret, updated, "", resp.StatusCode, fmt.Errorf("token API 成功但 accessToken 为空 (body=%s)", truncate(string(raw), 300))
+		return "", res.Ret, updated, "", status, fmt.Errorf("token API 成功但 accessToken 为空 (body=%s)", truncate(string(raw), 300))
 	}
-	return res.Data.AccessToken, res.Ret, updated, "", resp.StatusCode, nil
+	return res.Data.AccessToken, res.Ret, updated, "", status, nil
 }
 
 // buildTokenQuery 构造 token API 的 query string。

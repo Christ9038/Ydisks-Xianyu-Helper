@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"xianyu-go/internal/db"
 )
@@ -61,13 +61,95 @@ func TestGenerateQRLogin(t *testing.T) {
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != 200 {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var res map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &res)
 	if res["success"] != true || res["session_id"] == nil || res["session_id"] == "" {
 		t.Fatalf("生成二维码响应异常: %+v", res)
+	}
+}
+
+func TestQRLoginSessionCannotBeReadByAnotherUser(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	if ok, err := store.Users.Create(context.Background(), "member", "member@example.com", "memberpw"); err != nil || !ok {
+		t.Fatalf("create member: ok=%v err=%v", ok, err)
+	}
+	srv.QRLogin = &fakeQRLoginService{status: map[string]any{"status": "waiting"}}
+	h := srv.Router()
+	adminCookie := loginHelper(t, h)
+	memberCookie := loginAsHelper(t, h, "member", "memberpw")
+
+	generateReq := httptest.NewRequest(http.MethodPost, "/qr-login/generate", nil)
+	generateReq.AddCookie(adminCookie)
+	generateRec := httptest.NewRecorder()
+	h.ServeHTTP(generateRec, generateReq)
+	if generateRec.Code != http.StatusOK {
+		t.Fatalf("generate status=%d body=%s", generateRec.Code, generateRec.Body.String())
+	}
+
+	memberReq := httptest.NewRequest(http.MethodGet, "/qr-login/check/qr-session", nil)
+	memberReq.AddCookie(memberCookie)
+	memberRec := httptest.NewRecorder()
+	h.ServeHTTP(memberRec, memberReq)
+	if memberRec.Code != http.StatusNotFound {
+		t.Fatalf("cross-user QR session read status=%d body=%s", memberRec.Code, memberRec.Body.String())
+	}
+
+	adminReq := httptest.NewRequest(http.MethodGet, "/qr-login/check/qr-session", nil)
+	adminReq.AddCookie(adminCookie)
+	adminRec := httptest.NewRecorder()
+	h.ServeHTTP(adminRec, adminReq)
+	if adminRec.Code != http.StatusOK {
+		t.Fatalf("owner QR session read status=%d body=%s", adminRec.Code, adminRec.Body.String())
+	}
+}
+
+func TestQRLoginStatusNeverExposesCookies(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.Manager = nil
+	srv.QRLogin = &fakeQRLoginService{status: map[string]any{
+		"status": "success", "cookies": "unb=acc1; secret=value", "unb": "acc1",
+	}}
+	ownQRSession(t, srv, store, "redacted")
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	for _, path := range []string{"/qr-login/check/redacted", "/qr-login/status/redacted"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", path, rec.Code, rec.Body.String())
+		}
+		var res map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+			t.Fatalf("decode %s: %v", path, err)
+		}
+		if _, exists := res["cookies"]; exists {
+			t.Fatalf("%s must redact cookies: %+v", path, res)
+		}
+	}
+}
+
+func TestQRLoginSessionExpiresWithoutAnotherGenerateRequest(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.QRLogin = &fakeQRLoginService{status: map[string]any{"status": "waiting"}}
+	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
+	srv.qrOwners["expired-session"] = qrLoginOwner{UserID: admin.ID, CreatedAt: time.Now().UTC().Add(-31 * time.Minute)}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/qr-login/check/expired-session", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expired QR status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -85,7 +167,7 @@ func TestCheckQRLoginStatusEmptySession(t *testing.T) {
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != 200 {
+	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
@@ -102,14 +184,20 @@ func TestCompleteQRVerificationBadSession(t *testing.T) {
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != 200 {
+	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	var res map[string]any
-	json.Unmarshal(rec.Body.Bytes(), &res)
-	if res["success"] != false {
-		t.Fatalf("不存在的 session 应 success=false: %+v", res)
+}
+
+func ownQRSession(t *testing.T, srv *Server, store *db.Store, sessionID string) {
+	t.Helper()
+	admin, err := store.Users.GetByUsername(context.Background(), "admin")
+	if err != nil {
+		t.Fatalf("GetByUsername admin: %v", err)
 	}
+	srv.qrMu.Lock()
+	srv.qrOwners[sessionID] = qrLoginOwner{UserID: admin.ID, CreatedAt: time.Now().UTC()}
+	srv.qrMu.Unlock()
 }
 
 func TestQRLoginStatusPersistsSuccessIdempotently(t *testing.T) {
@@ -121,6 +209,7 @@ func TestQRLoginStatusPersistsSuccessIdempotently(t *testing.T) {
 		"cookies": "unb=qr-new; _m_h5_tk=qr-token;",
 		"unb":     "qr-new",
 	}}
+	ownQRSession(t, srv, store, "s1")
 	h := srv.Router()
 	cookie := loginHelper(t, h)
 
@@ -163,6 +252,7 @@ func TestCompleteQRVerificationPersistsAndReenablesAccount(t *testing.T) {
 		completeCookies: "unb=acc1; _m_h5_tk=qr-fresh;",
 		completeUNB:     "acc1",
 	}
+	ownQRSession(t, srv, store, "s1")
 	if err := store.Cookies.SetStatusWithReason(ctx, "acc1", false, "token 失效"); err != nil {
 		t.Fatalf("SetStatusWithReason: %v", err)
 	}
@@ -186,15 +276,18 @@ func TestCompleteQRVerificationPersistsAndReenablesAccount(t *testing.T) {
 	if res["success"] != true || res["account_id"] != "acc1" {
 		t.Fatalf("完成验证响应异常: %+v", res)
 	}
+	if _, exists := res["cookies"]; exists {
+		t.Fatalf("完成验证响应不得暴露 cookies: %+v", res)
+	}
 	if !store.Cookies.GetStatus(ctx, "acc1") {
 		t.Fatal("扫码验证成功后应重新启用账号")
 	}
-	if _, err := store.Tokens.Get(ctx, "acc1"); !errors.Is(err, db.ErrNotFound) {
-		t.Fatalf("扫码验证成功后应清 token，got %v", err)
+	if tk, err := store.Tokens.Get(ctx, "acc1"); err != nil || tk.AccessToken != "" || tk.DeviceID != "did" {
+		t.Fatalf("扫码验证成功后应清 token 并保留 device ID: tk=%+v err=%v", tk, err)
 	}
 }
 
-func TestCompleteQRVerificationRequiresConfirmationForDifferentTarget(t *testing.T) {
+func TestCompleteQRVerificationRejectsDifferentTarget(t *testing.T) {
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	srv.Manager = nil
@@ -202,11 +295,12 @@ func TestCompleteQRVerificationRequiresConfirmationForDifferentTarget(t *testing
 		completeCookies: "unb=scanned-other; _m_h5_tk=qr-fresh;",
 		completeUNB:     "scanned-other",
 	}
+	ownQRSession(t, srv, store, "s-mismatch")
 	h := srv.Router()
 	cookie := loginHelper(t, h)
 
-	request := func(confirm bool) map[string]any {
-		body := fmt.Sprintf(`{"target_account_id":"acc1","confirm_mismatch":%t}`, confirm)
+	request := func() map[string]any {
+		body := `{"target_account_id":"acc1"}`
 		req := httptest.NewRequest(http.MethodPost, "/qr-login/complete-verification/s-mismatch", strings.NewReader(body))
 		req.AddCookie(cookie)
 		rec := httptest.NewRecorder()
@@ -221,21 +315,13 @@ func TestCompleteQRVerificationRequiresConfirmationForDifferentTarget(t *testing
 		return result
 	}
 
-	first := request(false)
-	if first["requires_confirmation"] != true || first["success"] != false {
-		t.Fatalf("first response=%+v", first)
+	result := request()
+	if result["success"] != false || result["scanned_account_id"] != "scanned-other" {
+		t.Fatalf("response=%+v", result)
 	}
 	original, _ := store.Cookies.GetValue(context.Background(), "acc1")
 	if strings.Contains(original, "qr-fresh") {
-		t.Fatal("mismatched account must not be overwritten before confirmation")
-	}
-	second := request(true)
-	if second["success"] != true || second["account_id"] != "acc1" {
-		t.Fatalf("confirmed response=%+v", second)
-	}
-	updated, _ := store.Cookies.GetValue(context.Background(), "acc1")
-	if !strings.Contains(updated, "qr-fresh") {
-		t.Fatalf("target account was not updated: %q", updated)
+		t.Fatal("mismatched account must never overwrite the target account")
 	}
 }
 
@@ -349,6 +435,35 @@ func TestReplaceKeywordsWithItemID(t *testing.T) {
 	rows = postBatch(`{"keywords":[]}`)
 	if len(rows) != 0 {
 		t.Fatalf("空数组应清空关键词: %+v", rows)
+	}
+}
+
+func TestReplaceKeywordsValidatesReplyTypeContent(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	for _, body := range []string{
+		`{"keywords":[{"keyword":"文字","type":"text","reply":""}]}`,
+		`{"keywords":[{"keyword":"图片","type":"image","image_url":""}]}`,
+		`{"keywords":[{"keyword":"未知","type":"api","reply":"x"}]}`,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/keywords-with-item-id/acc1", strings.NewReader(body))
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("body=%s status=%d body=%s", body, rec.Code, rec.Body.String())
+		}
+	}
+
+	valid := `{"keywords":[{"keyword":"图片","type":"image","reply":"stale","image_url":"https://example.com/a.png"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/keywords-with-item-id/acc1", strings.NewReader(valid))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("valid image status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

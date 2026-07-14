@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"xianyu-go/internal/xianyu"
 )
 
 // startRegServer 启动一个本地 WS 服务，模拟 /reg 握手：读取客户端发来的 /reg 与
@@ -65,6 +67,7 @@ func dialLocal(t *testing.T, srv *httptest.Server, cfg Config) *Conn {
 // TestRegister_SendsRegAndAckDiff 直接调用 register 覆盖 /reg 握手 + ackDiff 两条消息。
 // 验证：1) /reg 消息含正确 lwp/app-key/token/ua/did；2) ackDiff 消息 lwp 正确且 body 非空。
 func TestRegister_SendsRegAndAckDiff(t *testing.T) {
+	xianyu.SetBrowserFingerprint(xianyu.BrowserFingerprint{UserAgent: "playwright-native-ua"})
 	srv, got := startRegServer(t)
 	conn := dialLocal(t, srv, Config{
 		CookieStr:   "cookie=1",
@@ -108,8 +111,8 @@ collect:
 	if headers["token"] != "token-abc" {
 		t.Errorf("/reg token = %v, 期望 token-abc", headers["token"])
 	}
-	if headers["ua"] != regUA {
-		t.Errorf("/reg ua = %v, 期望 %s", headers["ua"], regUA)
+	if headers["ua"] != "playwright-native-ua" {
+		t.Errorf("/reg ua = %v, 期望 Playwright 原生 UA", headers["ua"])
 	}
 	if headers["did"] != "device-xyz" {
 		t.Errorf("/reg did = %v, 期望 device-xyz", headers["did"])
@@ -346,6 +349,10 @@ func TestSendACK_NoHeaders(t *testing.T) {
 // TestHeartbeatLoop_SendFailure 服务端立刻关闭连接，HeartbeatLoop 的 sendJSON 应失败；
 // 连续失败达 maxFailures(3) 次后应返回错误。
 func TestHeartbeatLoop_SendFailure(t *testing.T) {
+	oldRetry := heartbeatRetryInterval
+	heartbeatRetryInterval = 20 * time.Millisecond
+	t.Cleanup(func() { heartbeatRetryInterval = oldRetry })
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, nil)
 		if err != nil {

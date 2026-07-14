@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -26,6 +28,258 @@ type statusMtop struct {
 	err    error
 }
 
+type failingCountingMtop struct {
+	fakeRunMtop
+	calls int32
+	err   error
+}
+
+func (c *failingCountingMtop) RefreshTokenWithDeviceIDContext(_ context.Context, _ string, _ string) (*mtop.RefreshResult, error) {
+	atomic.AddInt32(&c.calls, 1)
+	return nil, c.err
+}
+
+func TestRiskSensitiveRefreshIntervals(t *testing.T) {
+	if CookieRefreshInterval != 180*time.Second {
+		t.Fatalf("在线 Cookie 检查间隔应与参考实现保持 180 秒，got %s", CookieRefreshInterval)
+	}
+	if CookieRefreshCheckInterval != time.Minute {
+		t.Fatalf("在线 Cookie 循环检查频率应与参考实现保持 60 秒，got %s", CookieRefreshCheckInterval)
+	}
+	if PasswordLoginMinGap != 60*time.Second {
+		t.Fatalf("自动密码登录冷却应与参考运行时保持 60 秒，got %s", PasswordLoginMinGap)
+	}
+}
+
+func TestRefreshOnlineCookie_CacheHitSkipsMtop(t *testing.T) {
+	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "tok-mtop"}}
+	acc, _, store, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+
+	if err := store.Tokens.Save(context.Background(), "cid", acc.deviceID, "cached-tok",
+		time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	conn := &fakeWSConn{}
+	if !acc.refreshOnlineCookie(context.Background(), conn, true) {
+		t.Fatal("缓存命中时在线 Cookie 检查应成功")
+	}
+	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 0 {
+		t.Fatalf("180 秒检查命中缓存时不应请求 mtop，got %d", calls)
+	}
+	acc.mu.Lock()
+	currentToken := acc.currentToken
+	lastRefresh := acc.lastCookieRefresh
+	acc.mu.Unlock()
+	if currentToken != "cached-tok" || lastRefresh.IsZero() {
+		t.Fatalf("应采用缓存 token 并更新时间，token=%q last_refresh=%s", currentToken, lastRefresh)
+	}
+}
+
+func TestCookieRefreshLoopRunsInitialCacheCheckImmediately(t *testing.T) {
+	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "tok-mtop"}}
+	acc, _, store, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+	if err := store.Tokens.Save(context.Background(), "cid", acc.deviceID, "cached-tok",
+		time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	acc.mu.Lock()
+	acc.lastCookieRefresh = time.Time{}
+	acc.lastMsgReceived = time.Now().Add(-MessageCooldown - time.Second)
+	acc.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		acc.cookieRefreshLoop(ctx, nil)
+	}()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		acc.mu.Lock()
+		lastRefresh := acc.lastCookieRefresh
+		lastMessage := acc.lastMsgReceived
+		acc.mu.Unlock()
+		if !lastRefresh.IsZero() {
+			if !lastMessage.IsZero() {
+				t.Fatalf("刷新轮次结束后应清空消息冷却标识: %s", lastMessage)
+			}
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	acc.mu.Lock()
+	lastRefresh := acc.lastCookieRefresh
+	acc.mu.Unlock()
+	if lastRefresh.IsZero() {
+		t.Fatal("Cookie 刷新循环启动后应立即完成首次缓存检查")
+	}
+	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 0 {
+		t.Fatalf("首次检查命中缓存时不应请求 mtop, got %d", calls)
+	}
+}
+
+func TestRefreshOnlineCookie_RiskRecoveryRestoresOnlineRuntimeState(t *testing.T) {
+	mtopClient := &riskCountingMTop{}
+	acc, _, _, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+	acc.handler = &tokenRecoveredHandler{}
+	conn := &fakeWSConn{}
+	acc.mu.Lock()
+	acc.conn = conn
+	acc.runtimeState = RuntimeOnline
+	acc.runtimeMessage = "消息服务连接正常"
+	acc.runtimeUpdatedAt = time.Now()
+	acc.mu.Unlock()
+
+	if !acc.refreshOnlineCookie(context.Background(), conn, true) {
+		t.Fatal("风控自动恢复成功后在线 Cookie 刷新应成功")
+	}
+	status := acc.RuntimeStatus()
+	if status.State != RuntimeOnline || !status.Connected || status.Message != "消息服务连接正常" {
+		t.Fatalf("在线风控恢复后运行态未收敛: %+v", status)
+	}
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	if len(conn.tokens) != 1 || conn.tokens[0] != "standard-token" {
+		t.Fatalf("恢复 token 未更新到现有连接: %+v", conn.tokens)
+	}
+}
+
+func TestApplyOnlineToken_PeriodicRefreshRestoresRuntimeWithoutChangingCookieSchedule(t *testing.T) {
+	acc, _, _, cleanup := newRunAccount(t, &fakeRunMtop{token: "unused"})
+	defer cleanup()
+	conn := &fakeWSConn{}
+	acc.mu.Lock()
+	acc.conn = conn
+	acc.runtimeState = RuntimeConnecting
+	acc.runtimeMessage = tokenRiskRecoveryMessage
+	acc.lastCookieRefresh = time.Time{}
+	acc.mu.Unlock()
+
+	acc.applyOnlineToken(conn, "periodic-token", false)
+
+	status := acc.RuntimeStatus()
+	if status.State != RuntimeOnline || !status.Connected || status.Message != "消息服务连接正常" {
+		t.Fatalf("定时 token 风控恢复后运行态未收敛: %+v", status)
+	}
+	acc.mu.Lock()
+	lastCookieRefresh := acc.lastCookieRefresh
+	acc.mu.Unlock()
+	if !lastCookieRefresh.IsZero() {
+		t.Fatalf("定时 token 刷新不应改变 180 秒 Cookie 检查时间: %s", lastCookieRefresh)
+	}
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	if len(conn.tokens) != 1 || conn.tokens[0] != "periodic-token" {
+		t.Fatalf("定时刷新 token 未更新到现有连接: %+v", conn.tokens)
+	}
+}
+
+func TestRunOnlineCookieRefresh_RetriesOnceAndPacesFailure(t *testing.T) {
+	mtopClient := &failingCountingMtop{
+		fakeRunMtop: fakeRunMtop{token: "unused"},
+		err:         errors.New("temporary token failure"),
+	}
+	acc, _, _, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+
+	started := time.Now()
+	if !acc.runOnlineCookieRefresh(context.Background(), &fakeWSConn{}, 0) {
+		t.Fatal("未取消的刷新轮次不应要求退出")
+	}
+	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 2 {
+		t.Fatalf("失败后应且只应重试一次，got %d calls", calls)
+	}
+	if elapsed := time.Since(started); elapsed >= time.Second {
+		t.Fatalf("参考实现没有额外一分钟防抖，零延迟测试不应阻塞，elapsed=%s", elapsed)
+	}
+	acc.mu.Lock()
+	lastRefresh := acc.lastCookieRefresh
+	acc.mu.Unlock()
+	if lastRefresh.Before(started) {
+		t.Fatalf("第二次失败后必须重新开始 180 秒计时，last_refresh=%s started=%s", lastRefresh, started)
+	}
+}
+
+func TestRefreshTokenNetworkFailureClearsMemoryButPreservesFreshCache(t *testing.T) {
+	mtopClient := &failingCountingMtop{
+		fakeRunMtop: fakeRunMtop{token: "unused"},
+		err:         errors.New("network connection reset"),
+	}
+	acc, _, store, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+	if err := store.Tokens.Save(context.Background(), "cid", acc.deviceID, "cached-tok",
+		time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	acc.mu.Lock()
+	acc.currentToken = "old-memory-token"
+	acc.mu.Unlock()
+	if _, _, err := acc.refreshToken(context.Background()); err == nil {
+		t.Fatal("网络失败应返回错误")
+	}
+	acc.mu.Lock()
+	current := acc.currentToken
+	acc.mu.Unlock()
+	if current != "" {
+		t.Fatalf("刷新网络失败后应清空内存 token: %q", current)
+	}
+	if cached, err := store.Tokens.Get(context.Background(), "cid"); err != nil || cached.AccessToken != "cached-tok" {
+		t.Fatalf("网络失败应保留未过期数据库缓存: cached=%+v err=%v", cached, err)
+	}
+}
+
+func TestRefreshTokenBusinessFailureClearsMemoryAndCache(t *testing.T) {
+	mtopClient := &failingCountingMtop{
+		fakeRunMtop: fakeRunMtop{token: "unused"},
+		err:         errors.New("token API business rejected"),
+	}
+	acc, _, store, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+	if err := store.Tokens.Save(context.Background(), "cid", acc.deviceID, "cached-tok",
+		time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	acc.mu.Lock()
+	acc.currentToken = "old-memory-token"
+	acc.mu.Unlock()
+	if _, _, err := acc.refreshToken(context.Background()); err == nil {
+		t.Fatal("业务失败应返回错误")
+	}
+	acc.mu.Lock()
+	current := acc.currentToken
+	acc.mu.Unlock()
+	if current != "" {
+		t.Fatalf("业务失败后应清空内存 token: %q", current)
+	}
+	if tk, err := store.Tokens.Get(context.Background(), "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != acc.deviceID {
+		t.Fatalf("业务失败应清 token 并保留 device ID: tk=%+v err=%v", tk, err)
+	}
+}
+
+func TestAcquireTokenDeletesExpiredCacheBeforeNetworkAttempt(t *testing.T) {
+	mtopClient := &failingCountingMtop{
+		fakeRunMtop: fakeRunMtop{token: "unused"},
+		err:         errors.New("network connection reset"),
+	}
+	acc, _, store, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+	if err := store.Tokens.Save(context.Background(), "cid", acc.deviceID, "expired-tok",
+		time.Now().Add(-time.Minute).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := acc.acquireToken(context.Background()); err == nil {
+		t.Fatal("后续网络请求失败应返回错误")
+	}
+	if tk, err := store.Tokens.Get(context.Background(), "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != acc.deviceID {
+		t.Fatalf("过期 token 应清空且 device ID 保留: tk=%+v err=%v", tk, err)
+	}
+}
+
 func (s *statusMtop) CheckLoginStatusContext(context.Context, string) (*mtop.LoginStatusResult, error) {
 	return s.result, s.err
 }
@@ -40,7 +294,10 @@ func TestAcquireToken_CacheHitSkipsMtop(t *testing.T) {
 		time.Now().Add(time.Hour).Unix()); err != nil {
 		t.Fatal(err)
 	}
-	token, _, err := acc.acquireToken(context.Background())
+	if err := store.Cookies.UpdateValueExisting(context.Background(), "cid", "unb=123; _m_h5_tk=db-new;"); err != nil {
+		t.Fatal(err)
+	}
+	token, cookies, err := acc.acquireToken(context.Background())
 	if err != nil {
 		t.Fatalf("acquireToken: %v", err)
 	}
@@ -49,6 +306,25 @@ func TestAcquireToken_CacheHitSkipsMtop(t *testing.T) {
 	}
 	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 0 {
 		t.Fatalf("缓存命中不应调用 mtop，got %d", calls)
+	}
+	if strings.Contains(cookies, "db-new") {
+		t.Fatalf("缓存命中时不应提前重载 DB Cookie: %q", cookies)
+	}
+}
+
+func TestAcquireRuntimeTokenPreservesMemoryTokenWithoutDatabaseCache(t *testing.T) {
+	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "tok-mtop"}}
+	acc, _, store, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+	acc.currentToken = "runtime-token"
+	_ = store.Tokens.Clear(context.Background(), "cid")
+
+	token, _, err := acc.acquireRuntimeToken(context.Background())
+	if err != nil || token != "runtime-token" {
+		t.Fatalf("runtime token=%q err=%v", token, err)
+	}
+	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 0 {
+		t.Fatalf("网络重连复用内存 token 时不应调用 mtop，calls=%d", calls)
 	}
 }
 
@@ -109,8 +385,8 @@ func TestTryLoginStatusCheck_AdoptsUpdatedCookie(t *testing.T) {
 	if err != nil || saved != newCookie {
 		t.Fatalf("DB Cookie 未更新: got %q err=%v", saved, err)
 	}
-	if _, err := store.Tokens.Get(context.Background(), "cid"); err == nil {
-		t.Fatal("Cookie 更新后应清除旧 token")
+	if tk, err := store.Tokens.Get(context.Background(), "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != acc.deviceID {
+		t.Fatalf("Cookie 更新后应清 token 并保留 device ID: tk=%+v err=%v", tk, err)
 	}
 }
 
@@ -155,60 +431,28 @@ func TestReloadCookieFromDB_AdoptsNewCookieAndClearsCache(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 	acc.reloadCookieFromDB(context.Background())
-	if acc.CookieStr != newCookie {
-		t.Fatalf("应采纳 DB 新 cookie，got %s", acc.CookieStr)
+	if got := acc.CurrentCookieStr(); got != newCookie {
+		t.Fatalf("应采纳 DB 新 cookie，got %s", got)
 	}
-	// 新 cookie 对应新 session，旧 token 缓存应被清除。
-	if _, err := store.Tokens.Get(context.Background(), "cid"); err == nil {
-		t.Fatal("cookie 变更后应清除 token 缓存")
-	}
-}
-
-// TestClearCacheIfShortConnection 短连接清缓存、长连接与零值不清。
-func TestClearCacheIfShortConnection(t *testing.T) {
-	acc, _, store, cleanup := newRunAccount(t, &fakeRunMtop{token: "tok-1"})
-	defer cleanup()
-
-	// 短连接（1s 前 startedAt）→ 清缓存。
-	store.Tokens.Save(context.Background(), "cid", acc.deviceID, "cached",
-		time.Now().Add(time.Hour).Unix())
-	acc.clearCacheIfShortConnection(context.Background(), time.Now().Add(-1*time.Second))
-	if _, err := store.Tokens.Get(context.Background(), "cid"); err == nil {
-		t.Fatal("短连接应清除 token 缓存")
-	}
-
-	// 长连接（2min 前）→ 不清缓存。
-	store.Tokens.Save(context.Background(), "cid", acc.deviceID, "cached2",
-		time.Now().Add(time.Hour).Unix())
-	acc.clearCacheIfShortConnection(context.Background(), time.Now().Add(-2*time.Minute))
-	if tk, err := store.Tokens.Get(context.Background(), "cid"); err != nil || tk.AccessToken != "cached2" {
-		t.Fatalf("长连接不应清缓存，got tk=%+v err=%v", tk, err)
-	}
-
-	// 零值 startedAt → 不清缓存。
-	acc.clearCacheIfShortConnection(context.Background(), time.Time{})
-	if tk, err := store.Tokens.Get(context.Background(), "cid"); err != nil || tk.AccessToken != "cached2" {
-		t.Fatalf("零值 startedAt 不应清缓存，got tk=%+v err=%v", tk, err)
+	// 新 cookie 对应新 session，旧 token 应清除但 device ID 必须保留。
+	if tk, err := store.Tokens.Get(context.Background(), "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != acc.deviceID {
+		t.Fatalf("cookie 变更后应清 token 并保留 device ID: tk=%+v err=%v", tk, err)
 	}
 }
 
-// TestHandleMaxFailures_AlertOnce 连续两次进入 false 慢重试路径只告警一次。
+// TestHandleMaxFailures_AlertOnce 连续两次进入 false 终止路径只告警一次。
 func TestHandleMaxFailures_AlertOnce(t *testing.T) {
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	h := &failingRefreshHandler{}
 	acc.handler = h
 
-	// 两次都进入 false 路径：每次复位密码登录冷却，让第二次也走到 markAuthExpired。
 	call := func() {
 		acc.mu.Lock()
 		acc.lastMsgReceived = time.Time{}
-		acc.lastPasswordLogin = time.Time{}
 		acc.connFailures = MaxConnectionFailures
 		acc.mu.Unlock()
-		cctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
-		defer cancel()
-		_ = acc.handleMaxFailures(cctx)
+		_ = acc.handleMaxFailures(context.Background())
 	}
 	call()
 	call()

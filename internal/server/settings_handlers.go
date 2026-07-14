@@ -15,6 +15,7 @@ import (
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/logging"
+	"xianyu-go/internal/netguard"
 )
 
 const maxOpenAIModelsResponseBytes = 4 << 20
@@ -29,9 +30,41 @@ func (s *Server) mountSettingsReal(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(auth.RequireAdmin)
 		r.Get("/system-settings", s.allSettings)
+		r.Put("/system-settings", s.setSettings)
 		r.Put("/system-settings/{key}", s.setSetting)
 		r.Post("/ai-models", s.listAIModels)
 	})
+}
+
+func (s *Server) setSettings(w http.ResponseWriter, r *http.Request) {
+	var raw map[string]any
+	if err := decodeJSON(r, &raw); err != nil || len(raw) == 0 {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	values := make(map[string]string, len(raw))
+	for key, value := range raw {
+		key = strings.TrimSpace(key)
+		if key == "" || len(key) > 100 || value == nil {
+			writeErr(w, http.StatusBadRequest, "设置键或值无效")
+			return
+		}
+		values[key] = stringFromAny(value)
+	}
+	if level, ok := values["log_level"]; ok {
+		if _, err := logging.ParseLevel(level); err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if err := s.Store.Settings.SetMany(r.Context(), values); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存失败")
+		return
+	}
+	if level, ok := values["log_level"]; ok {
+		_ = logging.SetLevel(level)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
 func (s *Server) publicSettings(w http.ResponseWriter, r *http.Request) {
@@ -238,6 +271,10 @@ func (s *Server) listAIModels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"models": models})
 }
 
+var newSettingsOutboundHTTPClient = func(baseURL string) (*http.Client, error) {
+	return netguard.TrustedEndpointHTTPClient(baseURL, 20*time.Second)
+}
+
 func fetchOpenAIModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
@@ -251,7 +288,10 @@ func fetchOpenAIModels(ctx context.Context, baseURL, apiKey string) ([]string, e
 	if strings.TrimSpace(apiKey) != "" {
 		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
 	}
-	client := &http.Client{Timeout: 20 * time.Second}
+	client, err := newSettingsOutboundHTTPClient(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("AI API 地址无效: %w", err)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("读取模型失败: %w", err)

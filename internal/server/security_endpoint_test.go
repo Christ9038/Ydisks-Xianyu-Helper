@@ -1,10 +1,13 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestProtectedRouteGroupsRequireAuthentication(t *testing.T) {
@@ -41,7 +44,7 @@ func TestProtectedRouteGroupsRequireAuthentication(t *testing.T) {
 }
 
 func TestCookiePreferenceEndpoints(t *testing.T) {
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	h := srv.Router()
 	cookie := loginHelper(t, h)
@@ -74,6 +77,18 @@ func TestCookiePreferenceEndpoints(t *testing.T) {
 			t.Fatalf("GET %s status=%d body=%s", path, rec.Code, rec.Body.String())
 		}
 	}
+	paused, pausedUntil, err := store.Cookies.IsPaused(context.Background(), "acc1")
+	if err != nil || !paused || pausedUntil <= time.Now().UTC().Unix() {
+		t.Fatalf("pause deadline not persisted: paused=%v until=%d err=%v", paused, pausedUntil, err)
+	}
+	pauseReq := httptest.NewRequest(http.MethodGet, "/cookies/acc1/pause-duration", nil)
+	pauseReq.AddCookie(cookie)
+	pauseRec := httptest.NewRecorder()
+	h.ServeHTTP(pauseRec, pauseReq)
+	var pauseResponse map[string]any
+	if err := json.Unmarshal(pauseRec.Body.Bytes(), &pauseResponse); err != nil || pauseResponse["paused"] != true {
+		t.Fatalf("pause response=%+v err=%v", pauseResponse, err)
+	}
 
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/pause-duration", strings.NewReader(`{"pause_duration":-1}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -82,5 +97,12 @@ func TestCookiePreferenceEndpoints(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("negative pause status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	tooLongReq := httptest.NewRequest(http.MethodPut, "/cookies/acc1/pause-duration", strings.NewReader(`{"pause_duration":1441}`))
+	tooLongReq.AddCookie(cookie)
+	tooLongRec := httptest.NewRecorder()
+	h.ServeHTTP(tooLongRec, tooLongReq)
+	if tooLongRec.Code != http.StatusBadRequest {
+		t.Fatalf("too-long pause status=%d body=%s", tooLongRec.Code, tooLongRec.Body.String())
 	}
 }

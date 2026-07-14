@@ -184,15 +184,16 @@ func TestOnTokenCaptchaVerification_SavesCookiesAndRiskLog(t *testing.T) {
 	a.SetTokenCaptchaRequester(req)
 	a.SetNotifier(notifier)
 
-	result, ok := a.OnTokenCaptchaVerification(ctx, "cid", "unb=1; _m_h5_tk=tk;", "https://old.example/captcha")
+	const deviceID = "device-for-token-and-captcha"
+	result, ok := a.OnTokenCaptchaVerification(ctx, "cid", "unb=1; _m_h5_tk=tk;", "https://old.example/captcha", deviceID)
 	if !ok {
 		t.Fatal("token captcha recovery should succeed")
 	}
 	if result == nil || !strings.Contains(result.UpdatedCookies, "x5sec=ok") {
 		t.Fatalf("returned cookies should contain x5sec: %+v", result)
 	}
-	if result.AccessToken != "fresh-access-token" {
-		t.Fatalf("fresh access token was dropped: %+v", result)
+	if result.AccessToken != "" {
+		t.Fatalf("参考流程不得直接采用重取链接时返回的 token: %+v", result)
 	}
 	if fb.tokenCaptchaCalls != 1 || fb.tokenCaptchaURL != "https://old.example/captcha" {
 		t.Fatalf("browser captcha call mismatch: calls=%d url=%q", fb.tokenCaptchaCalls, fb.tokenCaptchaURL)
@@ -200,7 +201,7 @@ func TestOnTokenCaptchaVerification_SavesCookiesAndRiskLog(t *testing.T) {
 	if fb.providerURL != "https://fresh.example/captcha" || fb.providerUpdated == "" {
 		t.Fatalf("provider result not passed through: url=%q updated=%q", fb.providerURL, fb.providerUpdated)
 	}
-	if req.calls != 1 || req.gotDeviceID == "" {
+	if req.calls != 1 || req.gotDeviceID != deviceID {
 		t.Fatalf("fresh captcha requester not called correctly: calls=%d device=%q", req.calls, req.gotDeviceID)
 	}
 	saved, err := store.Cookies.GetValue(ctx, "cid")
@@ -300,6 +301,9 @@ func TestOnPasswordLoginRefresh_BrowserNilStillUsesAPIRenew(t *testing.T) {
 	if !a.OnPasswordLoginRefresh(context.Background(), "cid") {
 		t.Fatal("browser=nil 但接口续期成功时应返回 true")
 	}
+	if !a.OnPasswordLoginRefresh(context.Background(), "cid") {
+		t.Fatal("轻量续期成功不应启动密码登录冷却")
+	}
 	saved, _ := store.Cookies.GetValue(context.Background(), "cid")
 	if !strings.Contains(saved, "havana_lgc2_77=verified") {
 		t.Fatalf("接口续期 cookie 未保存: %q", saved)
@@ -373,8 +377,8 @@ func TestOnPasswordLoginRefresh_BrowserRenewSuccess(t *testing.T) {
 	if !strings.Contains(saved, "_m_h5_tk=renewed") || !strings.Contains(saved, "havana_lgc2_77=verified") {
 		t.Fatalf("快速续期 cookie 未保存: %q", saved)
 	}
-	if _, err := store.Tokens.Get(ctx, "cid"); err != db.ErrNotFound {
-		t.Fatalf("Cookie 更新后应清除旧 token，got %v", err)
+	if tk, err := store.Tokens.Get(ctx, "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != "did-old" {
+		t.Fatalf("Cookie 更新后应清 token 并保留 device ID: tk=%+v err=%v", tk, err)
 	}
 	logs, err := store.LoginLogs.ListByCookie(ctx, "cid", 10)
 	if err != nil || len(logs) != 1 || logs[0].Status != "success" {
@@ -435,8 +439,11 @@ func TestOnPasswordLoginRefresh_LoginError(t *testing.T) {
 	if a.OnPasswordLoginRefresh(ctx, "cid") {
 		t.Fatal("登录失败应返回 false")
 	}
+	if a.OnPasswordLoginRefresh(ctx, "cid") {
+		t.Fatal("验证失败后的账密错误冷却期应返回 false")
+	}
 	logs, err := store.LoginLogs.ListByCookie(ctx, "cid", 10)
-	if err != nil || len(logs) != 1 || logs[0].Status != "failed" || logs[0].FailureReason != "verification_required" {
+	if err != nil || len(logs) != 2 || logs[0].Status != "skipped_cooldown" || logs[0].FailureReason != "password_error_cooldown" || logs[1].FailureReason != "verification_required" {
 		t.Fatalf("密码登录失败应记录日志: logs=%#v err=%v", logs, err)
 	}
 }

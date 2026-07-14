@@ -2,8 +2,17 @@ package ws
 
 import (
 	"encoding/base64"
+	"reflect"
 	"testing"
 )
+
+func TestWebsocketHeadersOnlyContainSanitizedCookie(t *testing.T) {
+	got := websocketHeaders("a=1;\r\nb=2")
+	want := map[string][]string{"Cookie": {"a=1;b=2"}}
+	if !reflect.DeepEqual(map[string][]string(got), want) {
+		t.Fatalf("websocket headers = %#v, want %#v", got, want)
+	}
+}
 
 func TestExtractSyncPayload(t *testing.T) {
 	msg := map[string]any{"body": map[string]any{"syncPushPackage": map[string]any{

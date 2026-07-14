@@ -2,9 +2,11 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -68,6 +70,7 @@ type fakeWSConn struct {
 	onReceive func(onMessage func(map[string]any))
 	// recvBlock 控制 ReceiveLoop 是否阻塞到 ctx 取消（默认 true）。
 	recvBlock bool
+	recvErr   error
 }
 
 func (f *fakeWSConn) HeartbeatLoop(ctx context.Context, _ time.Duration) error {
@@ -86,7 +89,7 @@ func (f *fakeWSConn) ReceiveLoop(ctx context.Context, onMessage func(map[string]
 		<-ctx.Done()
 		return ctx.Err()
 	}
-	return nil
+	return f.recvErr
 }
 
 func (f *fakeWSConn) Close() error {
@@ -274,12 +277,11 @@ func TestRun_DialFailureIncrementsFailures(t *testing.T) {
 	}
 }
 
-// TestRun_ReceiveLoopEndsTriggersReconnect ReceiveLoop 返回后 Run 应重连（再次拨号成功）。
-// 断线后 retryDelay 默认 5s；token 冷却 1min 会阻塞第二次 refresh，测试期间后台重置冷却。
+// TestRun_ReceiveLoopEndsTriggersReconnect 正常结束后直接重连，并复用当前内存 token。
 func TestRun_ReceiveLoopEndsTriggersReconnect(t *testing.T) {
-	acc, _, _, cleanup := newRunAccount(t, &fakeRunMtop{token: "tok-1"})
+	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "tok-1"}}
+	acc, _, _, cleanup := newRunAccount(t, mtopClient)
 	defer cleanup()
-	acc.lastTokenRefresh = time.Time{}
 
 	conn1 := &fakeWSConn{recvBlock: false} // 立即返回，模拟断线
 	conn2 := &fakeWSConn{recvBlock: true}  // 第二次连上后阻塞
@@ -288,25 +290,11 @@ func TestRun_ReceiveLoopEndsTriggersReconnect(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	// 后台重置 token 冷却，避免第二次 refreshToken sleep 1 分钟（仅测试用）。
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(50 * time.Millisecond):
-				acc.mu.Lock()
-				acc.lastTokenRefresh = time.Time{}
-				acc.mu.Unlock()
-			}
-		}
-	}()
-
 	runDone := make(chan error, 1)
 	go func() { runDone <- acc.Run(ctx) }()
 
-	// 等待第二次拨号发生（首次断线后 retryDelay 5s + 重连）。
-	deadline := time.After(8 * time.Second)
+	// 正常 close 不计失败、也不退避。
+	deadline := time.After(2 * time.Second)
 	for {
 		d.mu.Lock()
 		calls := d.calls
@@ -316,7 +304,7 @@ func TestRun_ReceiveLoopEndsTriggersReconnect(t *testing.T) {
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("Run 未在 8s 内重连，calls=%d", calls)
+			t.Fatalf("Run 未在 2s 内重连，calls=%d", calls)
 		default:
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -327,6 +315,54 @@ func TestRun_ReceiveLoopEndsTriggersReconnect(t *testing.T) {
 	case <-runDone:
 	case <-time.After(3 * time.Second):
 		t.Fatal("重连后 ctx 取消 Run 未退出")
+	}
+	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 1 {
+		t.Fatalf("正常重连应复用内存 token，不应重复请求 mtop: calls=%d", calls)
+	}
+}
+
+func TestRun_EstablishedNetworkErrorPreservesTokenAndCache(t *testing.T) {
+	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "tok-1"}}
+	acc, _, store, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+	conn := &fakeWSConn{recvErr: errors.New("connection reset by peer")}
+	acc.wsDialer = &fakeDialer{results: []dialResult{{conn: conn}}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- acc.Run(ctx) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		acc.mu.Lock()
+		failures := acc.networkFailures
+		acc.mu.Unlock()
+		if failures == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	acc.mu.Lock()
+	currentToken := acc.currentToken
+	networkFailures := acc.networkFailures
+	acc.mu.Unlock()
+	if networkFailures != 1 || currentToken != "tok-1" {
+		cancel()
+		<-done
+		t.Fatalf("网络断线不应清空内存 token: failures=%d token=%q", networkFailures, currentToken)
+	}
+	if cached, err := store.Tokens.Get(context.Background(), "cid"); err != nil || cached.AccessToken != "tok-1" {
+		cancel()
+		<-done
+		t.Fatalf("网络断线不应删除 token 缓存: cached=%+v err=%v", cached, err)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("取消后 Run 未退出")
+	}
+	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 1 {
+		t.Fatalf("网络断线前只应获取一次 token: calls=%d", calls)
 	}
 }
 

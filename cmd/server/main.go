@@ -32,6 +32,7 @@ import (
 	"xianyu-go/internal/notify"
 	"xianyu-go/internal/renewal"
 	"xianyu-go/internal/server"
+	"xianyu-go/internal/xianyu/mtop"
 )
 
 func main() {
@@ -92,6 +93,10 @@ func main() {
 	}
 	logger.Info("数据库已就绪", "dialect", dialect)
 	store := db.NewStore(database, dialect)
+	if err := store.EncryptLegacySecrets(ctx); err != nil {
+		logger.Error("校验或升级数据库敏感字段失败", "err", err)
+		os.Exit(1)
+	}
 	defer database.Close()
 	if !explicitLogLevel {
 		if lv, err := store.Settings.Get(ctx, "log_level"); err == nil && strings.TrimSpace(lv) != "" {
@@ -125,6 +130,11 @@ func main() {
 	var bm *browser.Manager
 	if !*noBrowser {
 		bm = browser.NewManager(logger)
+		if err := bm.Initialize(); err != nil {
+			logger.Error("初始化 Playwright Chromium 指纹失败", "err", err)
+			os.Exit(1)
+		}
+		mtop.SetDefaultTokenRequestExecutor(bm)
 	}
 	var mgr *account.Manager
 	ap := adapter.New(store, bm, logger)
@@ -132,6 +142,7 @@ func main() {
 	autoCenter := automation.New(store, mgr, logger)
 	autoCenter.SetOrderDetailFetcher(ap)
 	notifier := notify.New("", store, logger)
+	notifier.Start(ctx)
 	autoCenter.SetNotifier(notifier)
 	ap.SetAutomation(autoCenter)
 	ap.SetNotifier(notifier)
@@ -143,6 +154,7 @@ func main() {
 
 	// 3) HTTP 服务。
 	srv := server.New(store, mgr, bm, *secure, *webDir, *addr, logger, autoCenter, notifier)
+	go srv.RunPublishBatchRecovery(ctx)
 	if err := srv.Run(ctx); err != nil {
 		logger.Error("HTTP 服务退出", "err", err)
 		// 即便出错也尝试清理已启动的账号与浏览器。
@@ -157,6 +169,7 @@ func main() {
 	if bm != nil {
 		_ = bm.Close()
 	}
+	notifier.Wait()
 }
 
 // handlerAdapter 已下沉到 internal/adapter 包；本文件只负责装配。

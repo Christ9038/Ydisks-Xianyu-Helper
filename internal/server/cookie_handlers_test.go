@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"xianyu-go/internal/db"
 )
@@ -122,6 +124,60 @@ func TestListCookieDetailsIncludesShowBrowser(t *testing.T) {
 	}
 }
 
+func TestUpdateCookieSettingsAtomically(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
+	channelID, err := store.Notifications.CreateChannel(context.Background(), &db.NotificationChannelRow{
+		Name: "owned", Type: "webhook", Config: `{}`, Enabled: true, UserID: admin.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"remark":"atomic","auto_confirm":false,"pause_duration":3,"username":"login-user","show_browser":true,"channel_ids":[` + jsonInt(channelID) + `]}`
+	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/settings", strings.NewReader(body))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	detail, _ := store.Cookies.GetDetails(context.Background(), "acc1")
+	bindings, _ := store.Notifications.AccountBindings(context.Background(), "acc1")
+	if detail.Remark != "atomic" || detail.AutoConfirm || detail.PauseDuration != 3 || detail.Username != "login-user" || !detail.ShowBrowser {
+		t.Fatalf("detail=%+v", detail)
+	}
+	if len(bindings) != 1 || bindings[0] != channelID {
+		t.Fatalf("bindings=%v", bindings)
+	}
+}
+
+func TestUpdateCookieSettingsClearsTokenButKeepsDeviceID(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := store.Tokens.Save(ctx, "acc1", "permanent-device", "old-token", time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/settings", strings.NewReader(`{"cookie":"unb=123; _m_h5_tk=new_1;"}`))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	token, err := store.Tokens.Get(ctx, "acc1")
+	if err != nil || token.DeviceID != "permanent-device" || token.AccessToken != "" || token.ExpireAt != 0 {
+		t.Fatalf("token=%+v err=%v", token, err)
+	}
+}
+
+func jsonInt(value int64) string { return strconv.FormatInt(value, 10) }
+
 // TestGetCookieDetailsBadCookie 无权账号 403。
 func TestGetCookieDetailsBadCookie(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
@@ -145,6 +201,9 @@ func TestUpdateCookie(t *testing.T) {
 	ctx := context.Background()
 	h := srv.Router()
 	cookie := loginHelper(t, h)
+	if err := store.Tokens.Save(ctx, "acc1", "permanent-device", "old-token", time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
 
 	body := `{"value":"unb=123; _m_h5_tk=newtoken_2;"}`
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1", strings.NewReader(body))
@@ -160,6 +219,10 @@ func TestUpdateCookie(t *testing.T) {
 	}
 	if d.LoginMethod != "" || d.LastLoginAt != 0 {
 		t.Fatalf("普通 Cookie 更新不应刷新登录审计字段: method=%q last=%d", d.LoginMethod, d.LastLoginAt)
+	}
+	token, err := store.Tokens.Get(ctx, "acc1")
+	if err != nil || token.DeviceID != "permanent-device" || token.AccessToken != "" || token.ExpireAt != 0 {
+		t.Fatalf("token=%+v err=%v", token, err)
 	}
 }
 
@@ -197,6 +260,28 @@ func TestUpdateCookieQRLoginEnablesAccount(t *testing.T) {
 	}
 	if d.LoginMethod != "qr_scan" || d.LastLoginAt == 0 {
 		t.Fatalf("扫码登录应刷新登录审计字段: %+v", d)
+	}
+}
+
+func TestSetCookieStatusRecordsManualDisableReason(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/status", strings.NewReader(`{"enabled":false}`))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var enabled int
+	var reason string
+	if err := store.DB.QueryRow(`SELECT enabled,disable_reason FROM cookie_status WHERE cookie_id='acc1'`).Scan(&enabled, &reason); err != nil {
+		t.Fatal(err)
+	}
+	if enabled != 0 || reason != db.DisableReasonManual {
+		t.Fatalf("enabled=%d reason=%q", enabled, reason)
 	}
 }
 

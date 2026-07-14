@@ -281,20 +281,20 @@ func TestRetryDelay(t *testing.T) {
 	defer acc.Stop()
 
 	acc.connFailures = 1
-	expectDelayRange(t, acc.retryDelay("no close frame received or sent"), 3*time.Second)
+	expectDelayRange(t, acc.retryDelay("no close frame received or sent"), 2*time.Second)
 	acc.connFailures = 10
-	expectDelayRange(t, acc.retryDelay("no close frame received or sent"), 15*time.Second)
+	expectDelayRange(t, acc.retryDelay("no close frame received or sent"), 30*time.Second)
 	acc.connFailures = 2
-	expectDelayRange(t, acc.retryDelay("connection refused"), 20*time.Second)
+	expectDelayRange(t, acc.retryDelay("connection refused"), 8*time.Second)
 	acc.connFailures = 10
-	expectDelayRange(t, acc.retryDelay("connection refused"), 60*time.Second)
+	expectDelayRange(t, acc.retryDelay("connection refused"), 90*time.Second)
 	acc.connFailures = 1
-	expectDelayRange(t, acc.retryDelay("some other error"), 5*time.Second)
+	expectDelayRange(t, acc.retryDelay("some other error"), 2*time.Second)
 }
 
 func expectDelayRange(t *testing.T, got, base time.Duration) {
 	t.Helper()
-	max := base + base/3
+	max := base + base*3/10
 	if got < base || got > max {
 		t.Fatalf("retryDelay=%v want in [%v,%v]", got, base, max)
 	}

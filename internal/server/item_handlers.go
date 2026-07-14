@@ -25,7 +25,9 @@ func (s *Server) mountItemsReal(r chi.Router) {
 	r.Post("/items/publish", s.publishItem)
 	r.Post("/items/publish-batches/preview", s.previewItemPublishBatch)
 	r.Post("/items/publish-batches", s.startItemPublishBatch)
+	r.Get("/items/publish-batches", s.listItemPublishBatches)
 	r.Get("/items/publish-batches/{batch_id}", s.getItemPublishBatch)
+	r.Delete("/items/publish-batches/{batch_id}", s.deleteItemPublishBatch)
 	r.Post("/items/publish-batches/{batch_id}/cancel", s.cancelItemPublishBatch)
 	r.Post("/items/publish-batches/{batch_id}/retry-failed", s.retryFailedItemPublishBatch)
 	r.Get("/items/publish-batches/{batch_id}/result.csv", s.downloadItemPublishBatchResult)
@@ -62,7 +64,11 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "商品价格必须大于 0")
 		return
 	}
-	origCents, _ := parseMoneyCents(r.FormValue("original_price"))
+	origCents, err := parseMoneyCents(r.FormValue("original_price"))
+	if err != nil || origCents < 0 {
+		writeErr(w, http.StatusBadRequest, "商品原价格式错误")
+		return
+	}
 	quantity, err := strconv.Atoi(strings.TrimSpace(r.FormValue("quantity")))
 	if err != nil || quantity <= 0 {
 		writeErr(w, http.StatusBadRequest, "库存数量必须大于 0")
@@ -72,7 +78,11 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 	if postageMode == "" {
 		postageMode = "free"
 	}
-	postageCents, _ := parseMoneyCents(r.FormValue("postage"))
+	postageCents, err := parseMoneyCents(r.FormValue("postage"))
+	if err != nil || postageCents < 0 || (postageMode == "fixed" && postageCents <= 0) {
+		writeErr(w, http.StatusBadRequest, "固定邮费必须大于 0")
+		return
+	}
 	images, err := readPublishImages(r, 9)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -111,32 +121,48 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	if res == nil || strings.TrimSpace(res.ItemID) == "" {
+		writeJSON(w, http.StatusBadGateway, map[string]any{
+			"success": false,
+			"code":    "publish_result_missing_item_id",
+			"message": "平台返回发布成功，但缺少商品 ID，无法确认发布结果",
+		})
+		return
+	}
 	if res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
-		if err := s.Store.Cookies.Save(r.Context(), cookieID, res.UpdatedCookies, userID); err != nil {
+		if err := s.Store.Cookies.UpdateValueOwned(r.Context(), cookieID, res.UpdatedCookies, userID); err != nil {
 			s.Logger.Error("保存刷新后的 cookie 失败", "cookie_id", cookieID, "err", err)
 		}
 	}
-	if res.ItemID != "" {
-		detail := map[string]any{
-			"item_image":    res.ImageURL,
-			"web_url":       res.ItemURL,
-			"category_name": res.CategoryName,
-			"quantity":      res.Quantity,
-			"publish_raw":   res.RawData,
+	detail := map[string]any{
+		"item_image":    res.ImageURL,
+		"web_url":       res.ItemURL,
+		"category_name": res.CategoryName,
+		"quantity":      res.Quantity,
+		"publish_raw":   res.RawData,
+	}
+	detailJSON, _ := json.Marshal(detail)
+	if err := s.Store.Items.Upsert(r.Context(), &db.ItemInfoRow{
+		CookieID:              cookieID,
+		ItemID:                res.ItemID,
+		ItemTitle:             res.Title,
+		ItemDescription:       description,
+		ItemCategory:          res.CategoryID,
+		ItemPrice:             res.PriceText,
+		ItemDetail:            string(detailJSON),
+		MultiQuantityDelivery: quantity > 1,
+	}); err != nil {
+		if s.Logger != nil {
+			s.Logger.Error("平台已发布但保存本地商品失败", "cookie_id", cookieID, "item_id", res.ItemID, "err", err)
 		}
-		detailJSON, _ := json.Marshal(detail)
-		if err := s.Store.Items.Upsert(r.Context(), &db.ItemInfoRow{
-			CookieID:              cookieID,
-			ItemID:                res.ItemID,
-			ItemTitle:             res.Title,
-			ItemDescription:       description,
-			ItemCategory:          res.CategoryID,
-			ItemPrice:             res.PriceText,
-			ItemDetail:            string(detailJSON),
-			MultiQuantityDelivery: quantity > 1,
-		}); err != nil && s.Logger != nil {
-			s.Logger.Warn("保存发布商品失败", "cookie_id", cookieID, "item_id", res.ItemID, "err", err)
-		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"success":  false,
+			"code":     "remote_published_local_save_failed",
+			"message":  "商品已在平台发布，但本地保存失败，请勿重复发布并根据商品 ID 人工核对",
+			"item_id":  res.ItemID,
+			"item_url": res.ItemURL,
+		})
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success":       true,
@@ -202,6 +228,13 @@ func parseMoneyCents(raw string) (int64, error) {
 	}
 	raw = strings.TrimPrefix(raw, "¥")
 	raw = strings.TrimPrefix(raw, "￥")
+	sign := int64(1)
+	if strings.HasPrefix(raw, "-") {
+		sign = -1
+		raw = strings.TrimPrefix(raw, "-")
+	} else {
+		raw = strings.TrimPrefix(raw, "+")
+	}
 	parts := strings.Split(raw, ".")
 	if len(parts) > 2 {
 		return 0, fmt.Errorf("金额格式错误")
@@ -214,7 +247,7 @@ func parseMoneyCents(raw string) (int64, error) {
 	if len(parts) == 2 {
 		frac := strings.TrimSpace(parts[1])
 		if len(frac) > 2 {
-			frac = frac[:2]
+			return 0, fmt.Errorf("金额最多支持两位小数")
 		}
 		for len(frac) < 2 {
 			frac += "0"
@@ -224,7 +257,7 @@ func parseMoneyCents(raw string) (int64, error) {
 			return 0, err
 		}
 	}
-	return yuan*100 + cents, nil
+	return sign * (yuan*100 + cents), nil
 }
 
 func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
@@ -270,7 +303,7 @@ func (s *Server) syncItemsFromAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
-		if err := s.Store.Cookies.Save(r.Context(), req.CookieID, res.UpdatedCookies, userID); err != nil {
+		if err := s.Store.Cookies.UpdateValueOwned(r.Context(), req.CookieID, res.UpdatedCookies, userID); err != nil {
 			s.Logger.Error("保存刷新后的 cookie 失败", "cookie_id", req.CookieID, "err", err)
 		}
 	}
@@ -307,7 +340,7 @@ func (s *Server) syncItemsPageFromAccount(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
-		if err := s.Store.Cookies.Save(r.Context(), req.CookieID, res.UpdatedCookies, userID); err != nil {
+		if err := s.Store.Cookies.UpdateValueOwned(r.Context(), req.CookieID, res.UpdatedCookies, userID); err != nil {
 			s.Logger.Error("保存刷新后的 cookie 失败", "cookie_id", req.CookieID, "err", err)
 		}
 	}

@@ -50,28 +50,49 @@ func (m *CooldownManager) IsSessionCooled(cookieID string) (bool, time.Duration)
 }
 
 func (m *CooldownManager) TryPasswordLogin(cookieID string) (bool, time.Duration) {
+	ok, remain, _ := m.PasswordLoginAllowed(cookieID, passwordLoginCooldown)
+	if !ok {
+		return false, remain
+	}
+	m.MarkPasswordLogin(cookieID)
+	return true, 0
+}
+
+// PasswordLoginAllowed 只检查冷却而不写入时间。参考运行时只在真实密码
+// 登录拿到 Cookie 后记录登录时间，接口/浏览器轻量续期和失败尝试都不能启动
+// 登录冷却。reason 为 login_cooldown 或 password_error_cooldown。
+func (m *CooldownManager) PasswordLoginAllowed(cookieID string, loginCooldown time.Duration) (bool, time.Duration, string) {
 	if m == nil {
-		return true, 0
+		return true, 0, ""
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := time.Now()
 	last := m.passwordLoginByCookie[cookieID]
 	if !last.IsZero() {
-		remain := passwordLoginCooldown - now.Sub(last)
+		remain := loginCooldown - now.Sub(last)
 		if remain > 0 {
-			return false, remain
+			return false, remain, "login_cooldown"
 		}
 	}
 	lastErr := m.passwordErrorByCookie[cookieID]
 	if !lastErr.IsZero() {
 		remain := passwordErrorCooldown - now.Sub(lastErr)
 		if remain > 0 {
-			return false, remain
+			return false, remain, "password_error_cooldown"
 		}
 	}
+	return true, 0, ""
+}
+
+func (m *CooldownManager) MarkPasswordLogin(cookieID string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
 	m.passwordLoginByCookie[cookieID] = now
-	return true, 0
 }
 
 func (m *CooldownManager) MarkPasswordError(cookieID string) {

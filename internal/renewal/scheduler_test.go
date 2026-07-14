@@ -13,6 +13,7 @@ import (
 
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/cookierefresh"
+	"xianyu-go/internal/xianyu/mtop"
 	apirenew "xianyu-go/internal/xianyu/renew"
 )
 
@@ -30,6 +31,19 @@ type schedulerFakeBrowser struct {
 	quickErr     error
 	quickCalls   int
 	quickInputs  []string
+}
+
+type schedulerRefreshBrowser struct {
+	refreshCalls int
+}
+
+func (f *schedulerRefreshBrowser) BrowserQuickRenew(context.Context, string, string, bool) (string, error) {
+	return "", errors.New("not implemented")
+}
+
+func (f *schedulerRefreshBrowser) CookiesRefreshSnapshot(_ context.Context, _ string, cookieStr string, snapshot []cookierefresh.BrowserCookie, _ bool) (string, []cookierefresh.BrowserCookie, error) {
+	f.refreshCalls++
+	return cookieStr, snapshot, nil
 }
 
 func (f *schedulerFakeBrowser) BrowserQuickRenew(_ context.Context, _ string, cookieStr string, _ bool) (string, error) {
@@ -153,6 +167,60 @@ func TestSchedulerDefaultsMatchUpstreamConfig(t *testing.T) {
 	}
 	if !s.settingEnabled(ctx, apiCookieRenewEnabledSetting, true) {
 		t.Fatal("api_cookie_renew 未配置时应默认开启")
+	}
+}
+
+func TestLoginRenewPreservesValidTokenCache(t *testing.T) {
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	account := createSchedulerAccount(t, store, "cid-login-renew", "unb=1; _m_h5_tk=old_1")
+	if err := store.Tokens.Save(ctx, account.ID, "did-stable", "cached-token", time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "new_1"})
+		_, _ = w.Write([]byte(`{"ret":["FAIL_SYS_TOKEN_EXOIRED::令牌过期"],"data":{}}`))
+	}))
+	defer srv.Close()
+
+	s := NewScheduler(store, nil, nil, nil, nil)
+	s.mtop = &mtop.ClientImpl{HTTPClient: srv.Client(), LoginUserURL: srv.URL}
+	s.loginRenewOne(ctx, "batch-login-renew", account)
+
+	token, err := store.Tokens.Get(ctx, account.ID)
+	if err != nil || token.AccessToken != "cached-token" {
+		t.Fatalf("login_renew 不得删除有效 token 缓存: token=%+v err=%v", token, err)
+	}
+	updated, err := store.Cookies.GetValue(ctx, account.ID)
+	if err != nil || !strings.Contains(updated, "_m_h5_tk=new_1") {
+		t.Fatalf("login_renew Cookie 未保存: %q err=%v", updated, err)
+	}
+}
+
+func TestBrowserCookieRefreshSkipsManuallyDisabledAccount(t *testing.T) {
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	account := createSchedulerAccount(t, store, "cid-manual-disabled", "unb=1; cookie2=c2")
+	if err := store.Cookies.SetStatusWithReason(ctx, account.ID, false, db.DisableReasonManual); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := store.Cookies.AllRenewalAccounts(ctx)
+	if err != nil || len(accounts) != 1 {
+		t.Fatalf("accounts=%+v err=%v", accounts, err)
+	}
+	if accounts[0].DisableReason != db.DisableReasonManual {
+		t.Fatalf("disable reason=%q", accounts[0].DisableReason)
+	}
+	browser := &schedulerRefreshBrowser{}
+	s := NewScheduler(store, nil, browser, nil, nil)
+	s.executeBrowserCookieRefresh(ctx)
+	if browser.refreshCalls != 0 {
+		t.Fatalf("manual disabled account refreshed %d times", browser.refreshCalls)
+	}
+	if store.Cookies.GetStatus(ctx, account.ID) {
+		t.Fatal("manual disabled account must remain disabled")
 	}
 }
 
@@ -411,6 +479,9 @@ func TestAPICookieRenewOneBrowserRenewedAfterVerifySuccess(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 	account := createSchedulerAccount(t, store, "cid-browser-ok", "unb=1; cookie2=c2")
+	if err := store.Tokens.Save(ctx, account.ID, "did-stable", "cached-token", time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatalf("Save token: %v", err)
+	}
 	browser := &schedulerFakeBrowser{quickCookies: "unb=1; cookie2=c2; browser=b1"}
 	var setLoginCalls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -434,6 +505,9 @@ func TestAPICookieRenewOneBrowserRenewedAfterVerifySuccess(t *testing.T) {
 	s.api = schedulerRenewServiceFromServer(srv)
 	s.cooldown = NewCooldownManager()
 	s.apiCookieRenewOne(ctx, "batch-browser-ok", account)
+	if token, err := store.Tokens.Get(ctx, account.ID); err != nil || token.AccessToken != "cached-token" {
+		t.Fatalf("定时续期不得删除有效 token 缓存: token=%+v err=%v", token, err)
+	}
 
 	if browser.quickCalls != 1 || setLoginCalls.Load() != 2 {
 		t.Fatalf("browser calls=%d setLoginCalls=%d", browser.quickCalls, setLoginCalls.Load())

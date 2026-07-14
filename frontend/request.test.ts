@@ -75,10 +75,23 @@ describe('request helpers', () => {
     const form = new FormData();
     form.set('name', 'value');
     await expect(postForm('/upload', form)).resolves.toBe('ok');
-    expect(fetchMock).toHaveBeenCalledWith('/upload', {
-      method: 'POST',
-      credentials: 'include',
-      body: form,
-    });
+	expect(fetchMock).toHaveBeenCalledWith('/upload', expect.objectContaining({
+	  method: 'POST',
+	  credentials: 'include',
+	  body: form,
+	}));
+  });
+
+  test('aborts requests at the configured timeout', async () => {
+	vi.useFakeTimers();
+	const fetchMock = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+	  init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+	}));
+	vi.stubGlobal('fetch', fetchMock);
+	const pending = get('/slow', undefined, { timeoutMs: 50 });
+	const rejection = expect(pending).rejects.toThrow('请求超时');
+	await vi.advanceTimersByTimeAsync(50);
+	await rejection;
+	vi.useRealTimers();
   });
 });

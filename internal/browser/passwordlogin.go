@@ -30,11 +30,15 @@ var loginSuccessSelectors = []string{
 const (
 	passwordVerificationWaitInterval = 10 * time.Second
 	passwordVerificationMaxWait      = 5 * time.Minute
+	passwordLoginPageLoadWait        = 2 * time.Second
+	passwordLoginTabWait             = 1500 * time.Millisecond
+	passwordLoginAfterSubmitWait     = 3 * time.Second
+	passwordLoginCompletionWait      = 5 * time.Second
 )
 
 // PasswordLogin 用账号密码通过浏览器登录闲鱼，返回完整 cookie map。
 // 移植自 xianyu_slider_stealth.login_with_password_playwright。
-// userDataDir：空字符串用临时目录，非空则持久化（跨次复用 session）。
+// userDataDir：空字符串使用按账号划分的默认持久化目录。
 func (m *Manager) PasswordLogin(ctx context.Context, account, password, cookieID, userDataDir string, headless bool) (map[string]string, error) {
 	return m.passwordLogin(ctx, account, password, cookieID, userDataDir, headless, nil)
 }
@@ -45,32 +49,20 @@ func (m *Manager) PasswordLoginWithEvents(ctx context.Context, account, password
 }
 
 func (m *Manager) passwordLogin(ctx context.Context, account, password, cookieID, userDataDir string, headless bool, onEvent PasswordLoginEventHandler) (map[string]string, error) {
-	if err := m.init(); err != nil {
-		return nil, err
+	if strings.TrimSpace(account) == "" || strings.TrimSpace(password) == "" {
+		return nil, fmt.Errorf("账号或密码不能为空")
 	}
 
-	if userDataDir == "" {
-		userDataDir = filepath.Join("browser_data", "user_"+sanitize(cookieID))
+	if strings.TrimSpace(userDataDir) == "" {
+		userDataDir = filepath.Join("browser_data", "user_"+pureUserID(cookieID))
 	}
 	headless = quickRenewHeadless(headless)
 
-	bctx, err := m.pw.Chromium.LaunchPersistentContext(userDataDir, playwright.BrowserTypeLaunchPersistentContextOptions{
-		Headless:       playwright.Bool(headless),
-		Args:           chromiumLaunchArgs(),
-		ExecutablePath: chromiumExecutablePath(),
-		UserAgent:      playwright.String(defaultUA),
-		Viewport:       &playwright.Size{Width: 1980, Height: 1024},
-		Locale:         playwright.String(defaultLang),
-		TimezoneId:     playwright.String(defaultTZ),
-	})
+	bctx, release, err := m.newPersistentPasswordContext(ctx, cookieID, userDataDir, headless)
 	if err != nil {
-		return nil, fmt.Errorf("启动持久化浏览器失败: %w", err)
+		return nil, err
 	}
-	defer func() { _ = bctx.Close() }()
-
-	if err := bctx.AddInitScript(playwright.Script{Content: playwright.String(stealthScript())}); err != nil {
-		m.logger.Warn("注入 stealth 脚本失败", "err", err)
-	}
+	defer release()
 
 	page, err := bctx.NewPage()
 	if err != nil {
@@ -78,17 +70,12 @@ func (m *Manager) passwordLogin(ctx context.Context, account, password, cookieID
 	}
 
 	if _, err := page.Goto(goofishIMURL, playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateNetworkidle,
-		Timeout:   playwright.Float(60000),
+		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+		Timeout:   playwright.Float(30000),
 	}); err != nil {
 		m.logger.Warn("访问 goofish.com/im 超时", "err", err)
 	}
-
-	// 检查是否已经登录。
-	if checkLoginSuccess(page) {
-		m.logger.Info("密码登录：已有有效 session，无需重新登录", "cookieID", cookieID)
-		return extractPageCookies(page)
-	}
+	time.Sleep(passwordLoginPageLoadWait)
 
 	if clickQuickEnter(page) {
 		m.logger.Info("密码登录：已点击[快速进入]，等待页面刷新", "cookieID", cookieID)
@@ -108,42 +95,56 @@ func (m *Manager) passwordLogin(ctx context.Context, account, password, cookieID
 		time.Sleep(2 * time.Second)
 	}
 
+	if clickPasswordLoginTab(page) {
+		time.Sleep(passwordLoginTabWait)
+	}
+
 	// 在主页和所有 iframe 中找登录表单。
 	idEl, pwdEl, submitEl := findLoginForm(page)
 	if idEl == nil {
-		return nil, fmt.Errorf("未找到登录表单，可能页面结构已变更")
+		time.Sleep(2 * time.Second)
+		if handled := detectAndHandlePasswordSlider(page, m.logger); handled {
+			m.logger.Info("密码登录：未找到表单时已处理滑块", "cookieID", cookieID)
+		}
+		time.Sleep(3 * time.Second)
+		if checkLoginSuccess(page) {
+			return extractPageCookies(page)
+		}
+		return nil, fmt.Errorf("未找到登录表单且未检测到登录状态")
 	}
 	if pwdEl == nil {
 		return nil, fmt.Errorf("未找到密码输入框，可能页面结构已变更")
 	}
 
-	if err := idEl.Click(); err == nil {
-		_ = page.Fill(getCSSSelector(idEl, loginIDSelectors), account)
-	}
-	if err := pwdEl.Click(); err == nil {
-		_ = page.Fill(getCSSSelector(pwdEl, loginPwdSelectors), password)
-	}
+	time.Sleep(time.Second)
+	_ = idEl.Fill(account)
+	time.Sleep(secondsDuration(randomFloat(0.5, 1.0)))
+	_ = pwdEl.Fill(password)
+	time.Sleep(secondsDuration(randomFloat(0.5, 1.0)))
 	// 同意协议复选框（若存在）。
-	if cb, err := page.QuerySelector("#fm-agreement-checkbox"); err == nil && cb != nil {
-		if checked, _ := cb.GetAttribute("checked"); checked == "" {
+	if cb := findPasswordElement(page, []string{"#fm-agreement-checkbox"}); cb != nil {
+		checked, _ := cb.Evaluate(`el => Boolean(el.checked)`)
+		if isChecked, _ := checked.(bool); !isChecked {
 			_ = cb.Click()
+			time.Sleep(300 * time.Millisecond)
 		}
 	}
+	time.Sleep(time.Second)
 	if submitEl != nil {
 		_ = submitEl.Click()
 	}
-	time.Sleep(3 * time.Second)
+	time.Sleep(passwordLoginAfterSubmitWait)
 
 	// 登录后可能出现滑块。
-	content, _ := page.Content()
-	if strings.Contains(content, "nc-container") || strings.Contains(content, "scratch-captcha") {
-		scratch := isScratchCaptcha(content)
-		m.logger.Info("密码登录后出现滑块，自动处理")
-		if err := solveSlider(page, scratch, m.logger); err != nil {
-			m.logger.Warn("密码登录滑块处理失败", "err", err)
-		}
-		time.Sleep(2 * time.Second)
+	if detectAndHandlePasswordSlider(page, m.logger) {
+		m.logger.Info("密码登录后滑块处理完成")
 	}
+	time.Sleep(passwordLoginCompletionWait)
+	time.Sleep(time.Second)
+	if detectAndHandlePasswordSlider(page, m.logger) {
+		time.Sleep(3 * time.Second)
+	}
+	time.Sleep(time.Second)
 
 	if !checkLoginSuccess(page) {
 		return m.handlePasswordLoginPending(ctx, page, onEvent)
@@ -151,6 +152,34 @@ func (m *Manager) passwordLogin(ctx context.Context, account, password, cookieID
 
 	m.logger.Info("密码登录成功", "cookieID", cookieID)
 	return extractPageCookies(page)
+}
+
+func findPasswordElement(page playwright.Page, selectors []string) playwright.ElementHandle {
+	frames := append([]playwright.Frame{page.MainFrame()}, page.Frames()...)
+	for _, frame := range frames {
+		if el := queryFirst(frame, selectors); el != nil {
+			return el
+		}
+	}
+	return nil
+}
+
+func clickPasswordLoginTab(page playwright.Page) bool {
+	el := findPasswordElement(page, []string{"a.password-login-tab-item"})
+	return el != nil && el.Click() == nil
+}
+
+func detectAndHandlePasswordSlider(page playwright.Page, logger sliderLogger) bool {
+	content, _ := page.Content()
+	if !strings.Contains(content, "nc-container") && !strings.Contains(content, "scratch-captcha") {
+		// 参考实现把“未发现滑块”也视为检测流程成功；调用方据此保持相同的等待节奏。
+		return true
+	}
+	if err := solveSlider(page, isScratchCaptcha(content), logger); err != nil {
+		logger.Warn("密码登录滑块处理失败", "err", err)
+		return false
+	}
+	return true
 }
 
 func quickEnterCookiesUsable(cookies map[string]string) bool {
@@ -342,14 +371,6 @@ func findLoginForm(page playwright.Page) (idEl, pwdEl, submitEl playwright.Eleme
 		return id, pwd, submit
 	}
 	return nil, nil, nil
-}
-
-// getCSSSelector 返回元素对应的第一个匹配选择器（用于 page.Fill）。
-func getCSSSelector(el playwright.ElementHandle, selectors []string) string {
-	if el == nil {
-		return selectors[0]
-	}
-	return selectors[0] // page.Fill 用首选器即可，元素已 Click
 }
 
 func sanitize(s string) string {

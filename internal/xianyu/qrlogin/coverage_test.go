@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"xianyu-go/internal/xianyu"
 )
 
 // stubTransport 把所有请求转发到 httptest.Server，保留路径与查询，
@@ -97,12 +99,17 @@ func (h *handlerChain) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // ---- getMH5TK ----
 
-func TestGetMH5TKMergesCookiesAndSucceeds(t *testing.T) {
+func TestGetMH5TKCarriesInitialCookiesIntoSignedPost(t *testing.T) {
 	hc := &handlerChain{}
+	var postCookie string
 	hc.handle("/h5/mtop.gaia.nodejs.gaia.idle.data.gw.v2.index.get/1.0/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// 第一次 GET 下发 _m_h5_tk，第二次 POST 更新 cookie。
-		http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "abc_token_1717000000000"})
-		http.SetCookie(w, &http.Cookie{Name: "other", Value: "v1"})
+		if r.Method == http.MethodGet {
+			http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "abc_token_1717000000000"})
+			http.SetCookie(w, &http.Cookie{Name: "other", Value: "v1"})
+		} else {
+			postCookie = r.Header.Get("Cookie")
+			http.SetCookie(w, &http.Cookie{Name: "post_only", Value: "must-persist"})
+		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	m, _, _ := newStubbedManager(t, hc)
@@ -116,6 +123,12 @@ func TestGetMH5TKMergesCookiesAndSucceeds(t *testing.T) {
 	}
 	if sess.cookies["other"] != "v1" {
 		t.Fatalf("other cookie 未合并: %v", sess.cookies)
+	}
+	if !strings.Contains(postCookie, "_m_h5_tk=abc_token_1717000000000") || !strings.Contains(postCookie, "other=v1") {
+		t.Fatalf("签名 POST 未携带首次请求 Cookie: %q", postCookie)
+	}
+	if sess.cookies["post_only"] != "must-persist" {
+		t.Fatalf("签名 POST 响应 Cookie 必须写回扫码会话: %v", sess.cookies)
 	}
 }
 
@@ -159,10 +172,15 @@ const viewDataHTML = `<html><script>window.viewData = {"loginFormData":{"appName
 
 func TestGetLoginParamsParsesViewData(t *testing.T) {
 	hc := &handlerChain{}
+	var gotRnd string
 	hc.handle("/mini_login.htm", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRnd = r.URL.Query().Get("rnd")
 		_, _ = w.Write([]byte(viewDataHTML))
 	}))
 	m, _, _ := newStubbedManager(t, hc)
+	originalRandFloat := randFloat
+	randFloat = func() float64 { return 0.1234567890123456 }
+	t.Cleanup(func() { randFloat = originalRandFloat })
 
 	sess := &Session{cookies: map[string]string{"_m_h5_tk": "tk_123"}, params: map[string]string{}}
 	params, err := m.getLoginParams(context.Background(), sess)
@@ -184,6 +202,9 @@ func TestGetLoginParamsParsesViewData(t *testing.T) {
 	}
 	if sess.params["appName"] != "xianyu" {
 		t.Fatalf("sess.params 未更新: %v", sess.params)
+	}
+	if gotRnd != "0.1234567890123456" {
+		t.Fatalf("rnd 应保留参考实现的完整随机精度: %q", gotRnd)
 	}
 }
 
@@ -559,11 +580,11 @@ func TestMonitorQRStatusExpired(t *testing.T) {
 	}
 }
 
-func TestMonitorQRStatusExpiredAfterVerificationStaysSuccess(t *testing.T) {
+func TestMonitorQRStatusExpiredIsTerminal(t *testing.T) {
 	hc := &handlerChain{}
 	hc.handle("/newlogin/qrcode/query.do", statusHandler("EXPIRED"))
 	m, _, _ := newStubbedManager(t, hc)
-	// 模拟浏览器验证已把状态置为 success。
+	// 参考状态机收到 EXPIRED 后无条件进入终态；真实人脸验证分支已停止本轮询。
 	sess := newMonitorSession("success")
 	m.sessions["s"] = sess
 
@@ -571,23 +592,20 @@ func TestMonitorQRStatusExpiredAfterVerificationStaysSuccess(t *testing.T) {
 	defer cancel()
 	m.monitorQRStatus(ctx, "s")
 
-	if sess.Status != "success" {
-		t.Fatalf("不应把 success 覆盖回 expired: %s", sess.Status)
+	if sess.Status != "expired" {
+		t.Fatalf("EXPIRED 应进入过期终态: %s", sess.Status)
 	}
 }
 
-func TestMonitorQRStatusExpiredDuringVerificationContinues(t *testing.T) {
+func TestMonitorQRStatusExpiredDoesNotKeepPolling(t *testing.T) {
 	hc := &handlerChain{}
 	var n atomic.Int64
 	hc.handle("/newlogin/qrcode/query.do", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		s := "EXPIRED"
-		if n.Add(1) >= 3 {
-			s = "CONFIRMED"
-		}
+		n.Add(1)
 		resp := map[string]any{
 			"content": map[string]any{
 				"data": map[string]any{
-					"qrCodeStatus": s,
+					"qrCodeStatus": "EXPIRED",
 				},
 			},
 		}
@@ -602,8 +620,8 @@ func TestMonitorQRStatusExpiredDuringVerificationContinues(t *testing.T) {
 	defer cancel()
 	m.monitorQRStatus(ctx, "s")
 
-	if sess.Status != "success" {
-		t.Fatalf("验证中收到 EXPIRED 应继续，最终 success: %s", sess.Status)
+	if sess.Status != "expired" || n.Load() != 1 {
+		t.Fatalf("EXPIRED 应立即停止轮询: status=%s calls=%d", sess.Status, n.Load())
 	}
 }
 
@@ -623,15 +641,17 @@ func TestMonitorQRStatusCancelled(t *testing.T) {
 	}
 }
 
-func TestMonitorQRStatusVerificationRequiredTriggersBrowser(t *testing.T) {
+func TestMonitorQRStatusVerificationRequiredStopsPollingAndRunsFaceFlow(t *testing.T) {
 	hc := &handlerChain{}
+	var queryCalls atomic.Int64
 	hc.handle("/newlogin/qrcode/query.do", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queryCalls.Add(1)
 		resp := map[string]any{
 			"content": map[string]any{
 				"data": map[string]any{
 					"qrCodeStatus":      "CONFIRMED",
 					"iframeRedirect":    true,
-					"iframeRedirectUrl": "https://verify.example.com",
+					"iframeRedirectUrl": "https://passport.goofish.com/iv/mini/normal_validate.htm?htoken=face-token",
 				},
 			},
 		}
@@ -639,30 +659,30 @@ func TestMonitorQRStatusVerificationRequiredTriggersBrowser(t *testing.T) {
 		http.SetCookie(w, &http.Cookie{Name: "tmp", Value: "1"})
 		_ = json.NewEncoder(w).Encode(resp)
 	}))
+	hc.handle("/iv/mini/normal_validate.htm", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<script>window.location.href = "https://passport.goofish.com/iv/mini/verify_modes.htm?htoken=face-token&_umidfg=";</script>`))
+	}))
+	hc.handle("/iv/mini/verify_modes.htm", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<script>new Qrcode({ text: "https:\/\/passport.goofish.com\/face?token=1" });</script>`))
+	}))
+	hc.handle("/iv/photoVerify/check.do", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"content":{"code":3,"url":"https://passport.goofish.com/ivCheckLogin.htm?ok=1"}}`))
+	}))
+	hc.handle("/ivCheckLogin.htm", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "unb", Value: "777", Path: "/"})
+		http.SetCookie(w, &http.Cookie{Name: "cookie2", Value: "z", Path: "/"})
+		_, _ = w.Write([]byte(`ok`))
+	}))
 	m, _, _ := newStubbedManager(t, hc)
 
 	sess := newMonitorSession("waiting")
 	m.sessions["s"] = sess
 
-	var browserCalled atomic.Int64
-	m.SetBrowserRefresher(func(ctx context.Context, tmpCookies, verificationURL string, onScreenshot func(string)) (string, string, error) {
-		browserCalled.Add(1)
-		if !strings.Contains(tmpCookies, "tmp=1") {
-			t.Errorf("浏览器刷新器应收到临时 cookie: %q", tmpCookies)
-		}
-		if verificationURL != "https://verify.example.com" {
-			t.Errorf("verificationURL 异常: %q", verificationURL)
-		}
-		// 触发截图回调。
-		onScreenshot("data:image/png;base64,shot")
-		return "unb=777; cookie2=z", "777", nil
-	})
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	m.monitorQRStatus(ctx, "s")
 
-	// 等待浏览器 goroutine 完成。
+	// 二维码轮询应立即退出，独立人脸验证任务继续完成登录。
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		st := sess.snapshot().status
@@ -671,8 +691,8 @@ func TestMonitorQRStatusVerificationRequiredTriggersBrowser(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if browserCalled.Load() != 1 {
-		t.Fatalf("浏览器刷新器应只调用一次，got %d", browserCalled.Load())
+	if queryCalls.Load() != 1 {
+		t.Fatalf("进入人脸验证后不应继续 query.do 轮询, got %d", queryCalls.Load())
 	}
 	state := sess.snapshot()
 	if state.status != "success" {
@@ -681,8 +701,8 @@ func TestMonitorQRStatusVerificationRequiredTriggersBrowser(t *testing.T) {
 	if state.unb != "777" {
 		t.Fatalf("unb 异常: %q", state.unb)
 	}
-	if state.verificationScreenshot != "data:image/png;base64,shot" {
-		t.Fatalf("screenshot 未保存: %q", state.verificationScreenshot)
+	if state.faceQRURL == "" {
+		t.Fatal("人脸验证二维码未生成")
 	}
 }
 
@@ -764,6 +784,7 @@ func TestMonitorQRStatusSessionDeletedMidLoop(t *testing.T) {
 // ---- pollQRCodeStatus ----
 
 func TestPollQRCodeStatusSetsHeadersAndCookie(t *testing.T) {
+	xianyu.SetBrowserFingerprint(xianyu.BrowserFingerprint{UserAgent: "playwright-native-ua"})
 	hc := &handlerChain{}
 	var gotUA, gotCookie, gotCT string
 	hc.handle("/newlogin/qrcode/query.do", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -781,8 +802,8 @@ func TestPollQRCodeStatusSetsHeadersAndCookie(t *testing.T) {
 		t.Fatalf("pollQRCodeStatus: %v", err)
 	}
 	defer resp.Body.Close()
-	if gotUA == "" {
-		t.Fatal("UA 未设置")
+	if gotUA != "playwright-native-ua" {
+		t.Fatalf("扫码请求 UA 未与参考实现一致: %q", gotUA)
 	}
 	if !strings.Contains(gotCookie, "k=v") {
 		t.Fatalf("Cookie 未携带: %q", gotCookie)
