@@ -22,9 +22,10 @@ func TestTransCookies_Table(t *testing.T) {
 		{"empty value", "k=", map[string]string{"k": ""}},
 		{"value with equals sign", "k=a=b=c", map[string]string{"k": "a=b=c"}},
 		{"url encoded value", "k=" + url.QueryEscape("a b&c=d"), map[string]string{"k": "a+b%26c%3Dd"}},
-		{"leading/trailing spaces in value", "k= v ", map[string]string{"k": " v "}},
-		{"only separator", "=", map[string]string{"": ""}},
-		{"single fragment no space separator", "a=1;b=2", map[string]string{"a": "1;b=2"}},
+		{"leading/trailing spaces in value", "k= v ", map[string]string{"k": "v"}},
+		{"only separator", "=", map[string]string{}},
+		{"single fragment no space separator", "a=1;b=2", map[string]string{"a": "1", "b": "2"}},
+		{"trailing separator", "a=1; b=2;", map[string]string{"a": "1", "b": "2"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

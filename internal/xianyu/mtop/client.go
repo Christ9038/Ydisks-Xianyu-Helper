@@ -103,17 +103,19 @@ var _ Client = (*ClientImpl)(nil)
 
 // RefreshResult 是刷新 token 的结果。
 type RefreshResult struct {
-	AccessToken    string // 用于 WS /reg 注册
-	UpdatedCookies string // 合并 Set-Cookie 后的新 cookie 字符串（无变化则与入参相同）
+	AccessToken         string // 用于 WS /reg 注册
+	AccessTokenExpireAt int64  // 服务端 accessTokenExpiredTime 归一化后的 Unix 秒
+	UpdatedCookies      string // 合并 Set-Cookie 后的新 cookie 字符串（无变化则与入参相同）
 }
 
 // FreshCaptchaResult 是重取 token 风控验证链接的结果。
 type FreshCaptchaResult struct {
-	TokenOK         bool
-	AccessToken     string
-	UpdatedCookies  string
-	VerificationURL string
-	Ret             []string
+	TokenOK             bool
+	AccessToken         string
+	AccessTokenExpireAt int64
+	UpdatedCookies      string
+	VerificationURL     string
+	Ret                 []string
 }
 
 // UserProfileResult 是 mtop.idle.web.user.page.nav 返回的当前账号资料。

@@ -108,7 +108,10 @@ func verifiedRenewService(t *testing.T) (xrenew.Service, func()) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/hasLogin.do", "/silentHasLogin.do":
+		case "/hasLogin.do":
+			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
+		case "/silentHasLogin.do":
+			http.SetCookie(w, &http.Cookie{Name: "havana_lgc2_77", Value: "verified"})
 			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
 		case "/setLoginSettings.do":
 			http.SetCookie(w, &http.Cookie{Name: "havana_lgc2_77", Value: "verified"})
@@ -295,6 +298,9 @@ func TestOnPasswordLoginRefresh_BrowserNilStillUsesAPIRenew(t *testing.T) {
 	store, cleanup := newAdapterTestStore(t)
 	defer cleanup()
 	a := New(store, nil, nil)
+	if err := store.Cookies.UpdateValueExisting(context.Background(), "cid", "unb=1; _m_h5_tk=tk; havana_lgc2_77=lgc; havana_lgc_exp=9999999999999"); err != nil {
+		t.Fatal(err)
+	}
 	renewSvc, closeRenew := verifiedRenewService(t)
 	defer closeRenew()
 	a.SetRenewService(renewSvc)
@@ -374,7 +380,7 @@ func TestOnPasswordLoginRefresh_BrowserRenewSuccess(t *testing.T) {
 		t.Fatalf("快速续期成功后不应密码登录，got %d", fb.loginCalls)
 	}
 	saved, _ := store.Cookies.GetValue(ctx, "cid")
-	if !strings.Contains(saved, "_m_h5_tk=renewed") || !strings.Contains(saved, "havana_lgc2_77=verified") {
+	if !strings.Contains(saved, "_m_h5_tk=renewed") {
 		t.Fatalf("快速续期 cookie 未保存: %q", saved)
 	}
 	if tk, err := store.Tokens.Get(ctx, "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != "did-old" {

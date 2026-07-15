@@ -22,7 +22,7 @@ type riskCountingMTop struct {
 func (m *riskCountingMTop) RefreshTokenWithDeviceIDContext(context.Context, string, string) (*mtop.RefreshResult, error) {
 	m.calls++
 	if m.calls > 1 {
-		return &mtop.RefreshResult{AccessToken: "standard-token", UpdatedCookies: "unb=123; _m_h5_tk=recovered;"}, nil
+		return &mtop.RefreshResult{AccessToken: "standard-token", AccessTokenExpireAt: time.Now().Add(time.Hour).Unix(), UpdatedCookies: "unb=123; _m_h5_tk=recovered;"}, nil
 	}
 	return nil, &mtop.RiskVerificationError{Ret: []string{"FAIL_SYS_USER_VALIDATE"}, VerificationURL: "https://verify.example"}
 }
@@ -31,6 +31,16 @@ type tokenRecoveredHandler struct{ recordingHandler }
 
 func (h *tokenRecoveredHandler) OnTokenCaptchaVerification(context.Context, string, string, string, string) (*mtop.RefreshResult, bool) {
 	return &mtop.RefreshResult{AccessToken: "recovered-token", UpdatedCookies: "unb=123; _m_h5_tk=recovered;"}, true
+}
+
+type rejectingTokenCaptchaHandler struct {
+	recordingHandler
+	calls int
+}
+
+func (h *rejectingTokenCaptchaHandler) OnTokenCaptchaVerification(context.Context, string, string, string, string) (*mtop.RefreshResult, bool) {
+	h.calls++
+	return nil, false
 }
 
 type capturingCaptchaHandler struct {
@@ -70,7 +80,7 @@ func (m *responseCookieRiskMTop) RefreshTokenWithDeviceIDContext(_ context.Conte
 			Ret: []string{"FAIL_SYS_USER_VALIDATE"}, VerificationURL: "https://verify.example/punish",
 		}
 	}
-	return &mtop.RefreshResult{AccessToken: "standard-after-captcha", UpdatedCookies: cookieStr}, nil
+	return &mtop.RefreshResult{AccessToken: "standard-after-captcha", AccessTokenExpireAt: time.Now().Add(time.Hour).Unix(), UpdatedCookies: cookieStr}, nil
 }
 
 func TestRefreshTokenRetriesStandardRequestAfterCaptchaRecovery(t *testing.T) {
@@ -90,6 +100,25 @@ func TestRefreshTokenRetriesStandardRequestAfterCaptchaRecovery(t *testing.T) {
 	}
 	if client.calls != 2 {
 		t.Fatalf("refresh calls=%d want 2", client.calls)
+	}
+}
+
+func TestRefreshTokenCaptchaFailureEntersCallerCooldown(t *testing.T) {
+	acc, _, _, cleanup := newAccountForTest(t)
+	defer cleanup()
+	client := &riskCountingMTop{}
+	handler := &rejectingTokenCaptchaHandler{}
+	acc.mtop = client
+	acc.handler = handler
+
+	if _, _, err := acc.refreshToken(context.Background()); !mtop.IsRiskVerificationErr(err) {
+		t.Fatalf("first refresh error=%v want risk verification", err)
+	}
+	if _, _, err := acc.refreshToken(context.Background()); !errors.Is(err, errTokenCaptchaCooldown) {
+		t.Fatalf("second refresh error=%v want cooldown", err)
+	}
+	if client.calls != 1 || handler.calls != 1 {
+		t.Fatalf("cooldown must suppress repeated API/solver calls: api=%d solver=%d", client.calls, handler.calls)
 	}
 }
 

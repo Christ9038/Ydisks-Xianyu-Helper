@@ -34,7 +34,7 @@ func (f *fakeRunMtop) PublishItem(context.Context, string, mtop.PublishItemReque
 	return nil, nil
 }
 func (f *fakeRunMtop) RefreshTokenWithDeviceIDContext(_ context.Context, _ string, _ string) (*mtop.RefreshResult, error) {
-	return &mtop.RefreshResult{AccessToken: f.token}, nil
+	return &mtop.RefreshResult{AccessToken: f.token, AccessTokenExpireAt: time.Now().Add(time.Hour).Unix()}, nil
 }
 
 type fakeFailTokenMtop struct{ err error }
@@ -62,7 +62,6 @@ func (f *fakeFailTokenMtop) RefreshTokenWithDeviceIDContext(context.Context, str
 type fakeWSConn struct {
 	mu            sync.Mutex
 	closed        bool
-	tokens        []string
 	sentTexts     []string
 	sentImages    []string
 	heartbeatDone chan struct{}
@@ -99,12 +98,6 @@ func (f *fakeWSConn) Close() error {
 	return nil
 }
 
-func (f *fakeWSConn) SetAccessToken(token string) {
-	f.mu.Lock()
-	f.tokens = append(f.tokens, token)
-	f.mu.Unlock()
-}
-
 func (f *fakeWSConn) SendText(_ context.Context, _, _, _, text string) error {
 	f.mu.Lock()
 	f.sentTexts = append(f.sentTexts, text)
@@ -125,6 +118,7 @@ type fakeDialer struct {
 	results []dialResult // 每次.Dial 的结果
 	calls   int
 	conns   []*fakeWSConn
+	configs []ws.Config
 	lastCfg ws.Config // 记录最后一次 Dial 的配置（含 AccessToken）
 }
 
@@ -137,6 +131,7 @@ func (d *fakeDialer) Dial(_ context.Context, cfg ws.Config, _ *slog.Logger) (WSC
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.lastCfg = cfg
+	d.configs = append(d.configs, cfg)
 	idx := d.calls
 	d.calls++
 	if idx >= len(d.results) {
@@ -364,6 +359,83 @@ func TestRun_EstablishedNetworkErrorPreservesTokenAndCache(t *testing.T) {
 	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 1 {
 		t.Fatalf("网络断线前只应获取一次 token: calls=%d", calls)
 	}
+}
+
+func TestRun_InvalidRegTokenFetchesOneFreshTokenImmediately(t *testing.T) {
+	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "fresh-token"}}
+	acc, _, _, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+	dialer := &fakeDialer{results: []dialResult{
+		{err: &ws.RegError{Kind: ws.RegErrorInvalidToken, Code: 401, Reason: "invalid token"}},
+		{conn: &fakeWSConn{recvBlock: true}},
+	}}
+	acc.wsDialer = dialer
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- acc.Run(ctx) }()
+	waitForDialCalls(t, dialer, 2)
+	cancel()
+	<-done
+
+	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 2 {
+		t.Fatalf("invalid /reg should fetch exactly one fresh token immediately, calls=%d", calls)
+	}
+}
+
+func TestRun_ReloadsDatabaseCookieBeforeNaturalReconnect(t *testing.T) {
+	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "token"}}
+	acc, _, store, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+	newCookie := "unb=123; _m_h5_tk=db-renewed_2; cookie2=new"
+	first := &fakeWSConn{recvBlock: false, onReceive: func(func(map[string]any)) {
+		if err := store.Cookies.UpdateValueExisting(context.Background(), "cid", newCookie); err != nil {
+			t.Errorf("update Cookie: %v", err)
+		}
+	}}
+	dialer := &fakeDialer{results: []dialResult{
+		{conn: first},
+		{conn: &fakeWSConn{recvBlock: true}},
+	}}
+	acc.wsDialer = dialer
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- acc.Run(ctx) }()
+	waitForDialCalls(t, dialer, 2)
+	cancel()
+	<-done
+
+	dialer.mu.Lock()
+	configs := append([]ws.Config(nil), dialer.configs...)
+	dialer.mu.Unlock()
+	if len(configs) < 2 {
+		t.Fatalf("dial configs=%d want>=2", len(configs))
+	}
+	if configs[1].CookieStr != newCookie {
+		t.Fatalf("second dial Cookie=%q want=%q", configs[1].CookieStr, newCookie)
+	}
+	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 2 {
+		t.Fatalf("Cookie change should invalidate token for reconnect, calls=%d", calls)
+	}
+}
+
+func waitForDialCalls(t *testing.T, dialer *fakeDialer, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		dialer.mu.Lock()
+		calls := dialer.calls
+		dialer.mu.Unlock()
+		if calls >= want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	dialer.mu.Lock()
+	calls := dialer.calls
+	dialer.mu.Unlock()
+	t.Fatalf("dial calls=%d want>=%d", calls, want)
 }
 
 // TestRun_DisabledAccountExits 账号被禁用时 Run 立即退出。

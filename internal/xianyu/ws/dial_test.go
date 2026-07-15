@@ -42,6 +42,20 @@ func startRegServer(t *testing.T) (*httptest.Server, chan map[string]any) {
 				case got <- m:
 				default:
 				}
+				if m["lwp"] == "/reg" {
+					headers, _ := m["headers"].(map[string]any)
+					response := map[string]any{
+						"code": 200,
+						"headers": map[string]any{
+							"mid":     headers["mid"],
+							"reg-uid": "123@goofish",
+						},
+					}
+					raw, _ := json.Marshal(response)
+					if err := c.Write(ctx, websocket.MessageText, raw); err != nil {
+						return
+					}
+				}
 			}
 		}
 	}))
@@ -149,6 +163,80 @@ func TestRegister_ContextCancelledDuringWait(t *testing.T) {
 	err := conn.register(ctx)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("期望 context.Canceled, 实际 %v", err)
+	}
+}
+
+func TestRegisterRejectsInvalidToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		_, data, err := c.Read(r.Context())
+		if err != nil {
+			return
+		}
+		var reg map[string]any
+		_ = json.Unmarshal(data, &reg)
+		headers, _ := reg["headers"].(map[string]any)
+		response, _ := json.Marshal(map[string]any{
+			"code":    401,
+			"headers": map[string]any{"mid": headers["mid"]},
+			"body":    map[string]any{"reason": "invalid token"},
+		})
+		_ = c.Write(r.Context(), websocket.MessageText, response)
+	}))
+	t.Cleanup(srv.Close)
+
+	conn := dialLocal(t, srv, Config{AccessToken: "rejected"})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err := conn.register(ctx)
+	if !IsInvalidTokenError(err) {
+		t.Fatalf("register error=%v, want invalid token", err)
+	}
+}
+
+func TestRegisterBuffersFrameBeforeResponse(t *testing.T) {
+	push := map[string]any{"lwp": "/push/test", "headers": map[string]any{"mid": "push-1"}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		_, data, err := c.Read(ctx)
+		if err != nil {
+			return
+		}
+		var reg map[string]any
+		_ = json.Unmarshal(data, &reg)
+		headers, _ := reg["headers"].(map[string]any)
+		pushRaw, _ := json.Marshal(push)
+		_ = c.Write(ctx, websocket.MessageText, pushRaw)
+		response, _ := json.Marshal(map[string]any{"code": 200, "headers": map[string]any{"mid": headers["mid"]}})
+		_ = c.Write(ctx, websocket.MessageText, response)
+		_, _, _ = c.Read(ctx) // ackDiff
+	}))
+	t.Cleanup(srv.Close)
+
+	conn := dialLocal(t, srv, Config{})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := conn.register(ctx); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	_, data, err := conn.readNext(ctx)
+	if err != nil {
+		t.Fatalf("read buffered frame: %v", err)
+	}
+	var got map[string]any
+	_ = json.Unmarshal(data, &got)
+	if got["lwp"] != push["lwp"] {
+		t.Fatalf("buffered frame=%v want=%v", got, push)
 	}
 }
 
@@ -643,35 +731,6 @@ func TestSendChatContent_MissingParams(t *testing.T) {
 	case <-got:
 		t.Fatal("参数缺失时不应发送任何消息")
 	case <-time.After(200 * time.Millisecond):
-	}
-}
-
-// TestSetAccessToken_AppliedToSubsequentSend SetAccessToken 后 register/SendText 发送的消息
-// 应携带新 token（通过 register 验证，因为 SendText 不直接带 token；这里用 register 覆盖）。
-func TestSetAccessToken_AppliedToSubsequentSend(t *testing.T) {
-	srv, got := startRegServer(t)
-	conn := dialLocal(t, srv, Config{AccessToken: "old-token"})
-
-	// 在线更新 token。
-	conn.SetAccessToken("new-token-999")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-	defer cancel()
-	if err := conn.register(ctx); err != nil {
-		t.Fatalf("register: %v", err)
-	}
-
-	select {
-	case m := <-got:
-		if m["lwp"] != "/reg" {
-			t.Fatalf("期望首条为 /reg, 实际 %v", m["lwp"])
-		}
-		headers, _ := m["headers"].(map[string]any)
-		if headers["token"] != "new-token-999" {
-			t.Errorf("/reg token = %v, 期望 new-token-999 (在线更新后)", headers["token"])
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("服务端未收到 /reg")
 	}
 }
 

@@ -1,45 +1,43 @@
 package engine
 
 import (
-	"crypto/rand"
-	"math/big"
-	"os"
-	"strconv"
+	"crypto/sha256"
+	"encoding/hex"
+	"sort"
 	"strings"
 	"time"
+
+	"xianyu-go/internal/xianyu/protocol"
 )
 
-const tokenCacheTTLGranularity = time.Second
+const tokenExpirySafetyMargin = time.Minute
 
-func tokenCacheTTL() time.Duration {
-	minTTL, minOK := tokenCacheTTLEnv("TOKEN_CACHE_TTL_MIN_HOURS", TokenCacheTTLMin)
-	maxTTL, maxOK := tokenCacheTTLEnv("TOKEN_CACHE_TTL_MAX_HOURS", TokenCacheTTLMax)
-	if !minOK || !maxOK || minTTL > maxTTL {
-		minTTL = TokenCacheTTLMin
-		maxTTL = TokenCacheTTLMax
+func effectiveTokenExpireAt(serverExpireAt int64, now time.Time) int64 {
+	ttl := time.Unix(serverExpireAt, 0).Sub(now)
+	if ttl <= 0 {
+		return 0
 	}
-	if maxTTL == minTTL {
-		return minTTL
+	margin := tokenExpirySafetyMargin
+	if ttl <= 2*margin {
+		margin = ttl / 10
 	}
-	steps := int64((maxTTL - minTTL) / tokenCacheTTLGranularity)
-	if steps <= 0 {
-		return minTTL
-	}
-	n, err := rand.Int(rand.Reader, big.NewInt(steps+1))
-	if err != nil {
-		return minTTL
-	}
-	return minTTL + time.Duration(n.Int64())*tokenCacheTTLGranularity
+	return now.Add(ttl - margin).Unix()
 }
 
-func tokenCacheTTLEnv(key string, fallback time.Duration) (time.Duration, bool) {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return fallback, true
+func credentialCookieFingerprint(cookieStr string) string {
+	cookies := protocol.TransCookies(cookieStr)
+	keys := make([]string, 0, len(cookies))
+	for key := range cookies {
+		keys = append(keys, key)
 	}
-	hours, err := strconv.ParseFloat(raw, 64)
-	if err != nil || hours <= 0 {
-		return fallback, false
+	sort.Strings(keys)
+	var canonical strings.Builder
+	for _, key := range keys {
+		canonical.WriteString(key)
+		canonical.WriteByte(0)
+		canonical.WriteString(cookies[key])
+		canonical.WriteByte(0)
 	}
-	return time.Duration(hours * float64(time.Hour)), true
+	sum := sha256.Sum256([]byte(canonical.String()))
+	return hex.EncodeToString(sum[:])
 }

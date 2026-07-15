@@ -237,10 +237,6 @@ var quickEnterSelectors = []string{
 	`.fn-button:has-text("快速进入")`,
 }
 
-func checkAlreadyLoggedIn(page playwright.Page) bool {
-	return verifyHomeLoginState(page) == nil
-}
-
 func verifyHomeLoginState(page playwright.Page) error {
 	if pageHasSecurityVerification(page) {
 		return ErrSecurityVerification

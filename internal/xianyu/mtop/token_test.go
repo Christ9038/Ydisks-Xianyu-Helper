@@ -2,6 +2,7 @@ package mtop
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -265,5 +266,32 @@ func TestRefreshTokenRefreshWrapper(t *testing.T) {
 	}
 	if result.AccessToken != "wrapped" {
 		t.Fatalf("AccessToken=%q", result.AccessToken)
+	}
+}
+
+func TestParseAccessTokenExpireAtSupportsOfficialTimestampForms(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	tests := []struct {
+		name string
+		raw  string
+		want int64
+	}{
+		{name: "unix milliseconds", raw: `1700007200000`, want: now.Add(2 * time.Hour).Unix()},
+		{name: "unix seconds string", raw: `"1700007200"`, want: now.Add(2 * time.Hour).Unix()},
+		{name: "relative seconds", raw: `7200`, want: now.Add(2 * time.Hour).Unix()},
+		{name: "relative milliseconds", raw: `7200000`, want: now.Add(2 * time.Hour).Unix()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parseAccessTokenExpireAt(json.RawMessage(tt.raw), now); got != tt.want {
+				t.Fatalf("expireAt=%d want=%d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseAccessTokenExpireAtRejectsMissingValue(t *testing.T) {
+	if got := parseAccessTokenExpireAt(nil, time.Now()); got != 0 {
+		t.Fatalf("expireAt=%d want=0", got)
 	}
 }

@@ -7,13 +7,10 @@ package renew
 
 import (
 	"context"
-	cryptorand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -158,126 +155,10 @@ func autoLoginSkipMessage(reason string) string {
 	}
 }
 
-func (s Service) renewOnce(ctx context.Context, original string) (*Result, error) {
-	current := original
-	steps := make([]StepResult, 0, 3)
-	allSetCookies := make([]string, 0, 8)
-
-	hasLogin, err := s.callHasLogin(ctx, current)
-	if err != nil {
-		return nil, err
-	}
-	steps = append(steps, hasLogin.Step)
-	if len(hasLogin.SetCookies) > 0 {
-		allSetCookies = append(allSetCookies, hasLogin.SetCookies...)
-		current = MergeSetCookies(current, hasLogin.SetCookies)
-	}
-
-	silent, err := s.callSilentHasLogin(ctx, current)
-	if err != nil {
-		return nil, err
-	}
-	steps = append(steps, silent.Step)
-	if len(silent.SetCookies) > 0 {
-		allSetCookies = append(allSetCookies, silent.SetCookies...)
-		current = MergeSetCookies(current, silent.SetCookies)
-	}
-
-	settings, err := s.callSetLoginSettings(ctx, current)
-	if err != nil {
-		return nil, err
-	}
-	steps = append(steps, settings.Step)
-	if len(settings.SetCookies) > 0 {
-		allSetCookies = append(allSetCookies, settings.SetCookies...)
-	}
-
-	newCookies := original
-	if len(allSetCookies) > 0 {
-		newCookies = MergeSetCookies(original, allSetCookies)
-	}
-	updated := ChangedCookieNames(original, newCookies)
-	success := len(settings.SetCookies) > 0
-	method := "none"
-	msg := "setLoginSettings 未返回 Set-Cookie，需要浏览器续期或密码登录"
-	if success {
-		method = "api"
-		msg = "接口续期成功"
-	}
-	return &Result{
-		Success:            success,
-		RenewMethod:        method,
-		NewCookies:         newCookies,
-		UpdatedCookieNames: updated,
-		StepDetails:        steps,
-		Message:            msg,
-		ResponseText:       string(silent.Body),
-		NeedPasswordLogin:  !success,
-	}, nil
-}
-
 type callResult struct {
 	Step       StepResult
 	SetCookies []string
 	Body       []byte
-}
-
-func (s Service) callHasLogin(ctx context.Context, cookiesStr string) (callResult, error) {
-	cookies := protocol.TransCookies(cookiesStr)
-	unb := cookies["unb"]
-	if unb == "" {
-		return callResult{Step: StepResult{Name: "hasLogin", Message: "Cookie缺少unb，跳过"}}, nil
-	}
-	form := url.Values{}
-	form.Set("hid", unb)
-	form.Set("ltl", "true")
-	form.Set("appName", "xianyu")
-	form.Set("appEntrance", "web")
-	form.Set("_csrf_token", cookies["_tb_token_"])
-	form.Set("umidToken", firstNonEmpty(cookies["_uab_collina"], cookies["cna"]))
-	form.Set("hsiz", cookies["cookie2"])
-	form.Set("bizParams", "taobaoBizLoginFrom=web&renderRefer=https%3A%2F%2Fwww.goofish.com%2F")
-	form.Set("mainPage", "false")
-	form.Set("isMobile", "false")
-	form.Set("lang", "zh_CN")
-	form.Set("fromSite", "77")
-	form.Set("isIframe", "true")
-	form.Set("documentReferer", "https://www.goofish.com/")
-	form.Set("defaultView", "hasLogin")
-	form.Set("umidTag", "SERVER")
-	form.Set("returnUrl", "")
-	form.Set("deviceId", "")
-	form.Set("pageTraceId", "21504"+strconv.FormatInt(time.Now().UnixMilli(), 10)+randomDigits(6))
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.urlOrDefault(s.HasLoginURL, HasLoginURL), strings.NewReader(form.Encode()))
-	if err != nil {
-		return callResult{}, err
-	}
-	setHasLoginHeaders(req, cookiesStr, miniLoginReferer())
-	if xsrf := cookies["XSRF-TOKEN"]; xsrf != "" {
-		req.Header.Set("x-xsrf-token", xsrf)
-	}
-	q := req.URL.Query()
-	q.Set("appName", "xianyu")
-	q.Set("fromSite", "77")
-	req.URL.RawQuery = q.Encode()
-	return s.doRenewRequest(req, "hasLogin")
-}
-
-func (s Service) callSilentHasLogin(ctx context.Context, cookiesStr string) (callResult, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.urlOrDefault(s.SilentHasLoginURL, SilentHasLoginURL), nil)
-	if err != nil {
-		return callResult{}, err
-	}
-	q := req.URL.Query()
-	q.Set("documentReferer", "https://www.goofish.com/")
-	q.Set("appName", "xianyu")
-	q.Set("appEntrance", "xianyu_sdkSilent")
-	q.Set("fromSite", "0")
-	q.Set("ltl", "true")
-	req.URL.RawQuery = q.Encode()
-	setSilentHasLoginHeaders(req, cookiesStr)
-	return s.doRenewRequest(req, "silentHasLogin")
 }
 
 func (s Service) callAutoLogin(ctx context.Context, cookiesStr, mode string) (callResult, error) {
@@ -302,20 +183,6 @@ func (s Service) callAutoLogin(ctx context.Context, cookiesStr, mode string) (ca
 	req.URL.RawQuery = q.Encode()
 	setSilentHasLoginHeaders(req, cookiesStr)
 	return s.doRenewRequest(req, "silentHasLogin")
-}
-
-func (s Service) callSetLoginSettings(ctx context.Context, cookiesStr string) (callResult, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.urlOrDefault(s.SetLoginSettingsURL, SetLoginSettingsURL), strings.NewReader("status=0"))
-	if err != nil {
-		return callResult{}, err
-	}
-	q := req.URL.Query()
-	q.Set("fromSite", "77")
-	q.Set("appName", "xianyu")
-	q.Set("bizEntrance", "web")
-	req.URL.RawQuery = q.Encode()
-	setLoginSettingsHeaders(req, cookiesStr)
-	return s.doRenewRequest(req, "setLoginSettings")
 }
 
 func (s Service) doRenewRequest(req *http.Request, name string) (callResult, error) {
@@ -398,16 +265,6 @@ func mtopInt(v any) int {
 	}
 }
 
-func setHasLoginHeaders(req *http.Request, cookiesStr, referer string) {
-	xianyu.ApplyBrowserFingerprint(req.Header)
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Accept-Language", "zh-CN")
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Referer", referer)
-	req.Header.Set("bx-v", "2.5.31")
-	req.Header.Set("Cookie", strings.ReplaceAll(strings.ReplaceAll(cookiesStr, "\n", ""), "\r", ""))
-}
-
 func setSilentHasLoginHeaders(req *http.Request, cookiesStr string) {
 	xianyu.ApplyBrowserFingerprint(req.Header)
 	req.Header.Set("Accept", "*/*")
@@ -415,18 +272,6 @@ func setSilentHasLoginHeaders(req *http.Request, cookiesStr string) {
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Priority", "u=1, i")
-	req.Header.Set("Referer", "https://www.goofish.com/")
-	req.Header.Set("sec-fetch-dest", "empty")
-	req.Header.Set("sec-fetch-mode", "cors")
-	req.Header.Set("sec-fetch-site", "same-site")
-	req.Header.Set("Cookie", strings.ReplaceAll(strings.ReplaceAll(cookiesStr, "\n", ""), "\r", ""))
-}
-
-func setLoginSettingsHeaders(req *http.Request, cookiesStr string) {
-	xianyu.ApplyBrowserFingerprint(req.Header)
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Referer", "https://www.goofish.com/")
 	req.Header.Set("sec-fetch-dest", "empty")
 	req.Header.Set("sec-fetch-mode", "cors")
@@ -459,34 +304,6 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func miniLoginReferer() string {
-	return "https://passport.goofish.com/mini_login.htm?lang=zh_cn&appName=xianyu&appEntrance=web&styleType=vertical&bizParams=&notLoadSsoView=false&notKeepLogin=false&isMobile=false&qrCodeFirst=false&stie=77&rnd=" + randomFraction()
-}
-
-func randomDigits(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	min := 1
-	for i := 1; i < n; i++ {
-		min *= 10
-	}
-	max := min * 9
-	v, err := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(max)))
-	if err != nil {
-		return strings.Repeat("0", n)
-	}
-	return strconv.Itoa(min + int(v.Int64()))
-}
-
-func randomFraction() string {
-	v, err := cryptorand.Int(cryptorand.Reader, big.NewInt(1_000_000_000))
-	if err != nil {
-		return "0.0"
-	}
-	return "0." + fmt.Sprintf("%09d", v.Int64())
 }
 
 func filterValidSetCookies(setCookies []string) []string {

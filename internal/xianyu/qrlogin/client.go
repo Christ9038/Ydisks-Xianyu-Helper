@@ -434,18 +434,6 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 	sess.mu.Unlock()
 }
 
-func (m *Manager) markSessionExpired(sessionID string) {
-	m.mu.Lock()
-	sess := m.sessions[sessionID]
-	m.mu.Unlock()
-	if sess == nil {
-		return
-	}
-	sess.mu.Lock()
-	sess.Status = "expired"
-	sess.mu.Unlock()
-}
-
 func (m *Manager) runBrowserVerification(ctx context.Context, sessionID, verificationURL string) {
 	if strings.Contains(verificationURL, "/iv/") || strings.Contains(verificationURL, "identity_verify") {
 		if err := m.runFaceVerification(ctx, sessionID, verificationURL); err == nil {

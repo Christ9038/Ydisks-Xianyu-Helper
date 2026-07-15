@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -58,30 +59,11 @@ func (f *schedulerFakeBrowser) CookiesRefreshSnapshot(_ context.Context, _, _ st
 
 type schedulerFakePasswordRefresher struct {
 	calls atomic.Int32
-	ch    chan string
 }
 
-func (f *schedulerFakePasswordRefresher) OnPasswordLoginRefresh(_ context.Context, cookieID string) bool {
+func (f *schedulerFakePasswordRefresher) OnPasswordLoginRefresh(_ context.Context, _ string) bool {
 	f.calls.Add(1)
-	if f.ch != nil {
-		select {
-		case f.ch <- cookieID:
-		default:
-		}
-	}
 	return true
-}
-
-func (f *schedulerFakePasswordRefresher) waitCookie(t *testing.T, want string) {
-	t.Helper()
-	select {
-	case got := <-f.ch:
-		if got != want {
-			t.Fatalf("password refresher cookieID=%q want %q", got, want)
-		}
-	case <-time.After(time.Second):
-		t.Fatalf("password refresher 未触发")
-	}
 }
 
 type apiRenewLogSnapshot struct {
@@ -225,34 +207,9 @@ func TestBrowserCookieRefreshSkipsManuallyDisabledAccount(t *testing.T) {
 }
 
 func TestNewSchedulerTreatsTypedNilBrowserAsDisabled(t *testing.T) {
-	store, cleanup := newSchedulerTestStore(t)
-	defer cleanup()
-	ctx := context.Background()
-	account := createSchedulerAccount(t, store, "cid-typed-nil-browser", "unb=1; cookie2=c2")
-	refresher := &schedulerFakePasswordRefresher{ch: make(chan string, 1)}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/hasLogin.do", "/silentHasLogin.do", "/setLoginSettings.do":
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-
 	var typedNilBrowser *schedulerFakeBrowser
-	s := NewScheduler(store, nil, typedNilBrowser, refresher, nil)
-	if s.browser != nil {
+	if got := browserRenewerOrNil(typedNilBrowser); got != nil {
 		t.Fatal("typed nil BrowserRenewer 应被规范化为 nil")
-	}
-	s.api = schedulerRenewServiceFromServer(srv)
-	s.cooldown = NewCooldownManager()
-
-	s.apiCookieRenewOne(ctx, "batch-typed-nil-browser", account)
-	refresher.waitCookie(t, "cid-typed-nil-browser")
-	log := lastAPIRenewLog(t, store, "cid-typed-nil-browser")
-	if log.status != "need_password_login" || !strings.Contains(log.errorMessage, "浏览器自动化未启用") {
-		t.Fatalf("typed nil browser 应按浏览器禁用处理: %+v", log)
 	}
 }
 
@@ -372,169 +329,54 @@ func TestRenewalCleanupLogsUsesRetentionDays(t *testing.T) {
 	}
 }
 
-func TestAPICookieRenewOneSavesPartialCookiesBeforePasswordLogin(t *testing.T) {
+func TestAPICookieRenewOneSkipsExpiredLongLoginWithoutEscalation(t *testing.T) {
 	store, cleanup := newSchedulerTestStore(t)
 	defer cleanup()
 	ctx := context.Background()
-	account := createSchedulerAccount(t, store, "cid-partial", "unb=1; cookie2=c2")
-	refresher := &schedulerFakePasswordRefresher{ch: make(chan string, 1)}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/hasLogin.do":
-			http.SetCookie(w, &http.Cookie{Name: "sgcookie", Value: "s1"})
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		case "/silentHasLogin.do":
-			http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "tk_1"})
-			_, _ = w.Write([]byte(`{"content":{"success":true},"marker":"silent-partial"}`))
-		case "/setLoginSettings.do":
-			_, _ = w.Write([]byte(`{"content":{"success":false}}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
+	account := createSchedulerAccount(t, store, "cid-expired", "unb=1; cookie2=c2")
+	browser := &schedulerFakeBrowser{}
+	refresher := &schedulerFakePasswordRefresher{}
+	s := NewScheduler(store, nil, browser, refresher, nil)
+	s.apiCookieRenewOne(ctx, "batch-expired", account)
 
-	s := NewScheduler(store, nil, nil, refresher, nil)
-	s.api = schedulerRenewServiceFromServer(srv)
-	s.cooldown = NewCooldownManager()
-	s.apiCookieRenewOne(ctx, "batch-partial", account)
-	refresher.waitCookie(t, "cid-partial")
-
-	got, err := store.Cookies.GetValue(ctx, "cid-partial")
-	if err != nil {
-		t.Fatalf("GetValue: %v", err)
+	if browser.quickCalls != 0 || refresher.calls.Load() != 0 {
+		t.Fatalf("proactive renewal escalated: browser=%d password=%d", browser.quickCalls, refresher.calls.Load())
 	}
-	for _, want := range []string{"sgcookie=s1", "_m_h5_tk=tk_1"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("部分 Cookie 未保存，缺少 %s: %q", want, got)
-		}
-	}
-	log := lastAPIRenewLog(t, store, "cid-partial")
-	if log.status != "need_password_login" {
-		t.Fatalf("status=%q want need_password_login, log=%+v", log.status, log)
-	}
-	if !strings.Contains(log.updatedCookieNames, "sgcookie") || !strings.Contains(log.updatedCookieNames, "_m_h5_tk") {
-		t.Fatalf("updated_cookie_names 未记录部分更新: %+v", log)
-	}
-	if !strings.Contains(log.responseContent, "silent-partial") {
-		t.Fatalf("response_content 应记录 silentHasLogin 响应: %+v", log)
+	log := lastAPIRenewLog(t, store, account.ID)
+	if log.status != "skipped" || !strings.Contains(log.stepDetails, "long_login_expired") {
+		t.Fatalf("expired long login log=%+v", log)
 	}
 }
 
-func TestAPICookieRenewOneSavesBrowserCookiesWhenVerifyFails(t *testing.T) {
+func TestAPICookieRenewOneUsesSingleSilentRequestAndSavesCookies(t *testing.T) {
 	store, cleanup := newSchedulerTestStore(t)
 	defer cleanup()
 	ctx := context.Background()
-	account := createSchedulerAccount(t, store, "cid-browser-fail", "unb=1; cookie2=c2")
-	browser := &schedulerFakeBrowser{quickCookies: "unb=1; cookie2=c2; sgcookie=s1; _m_h5_tk=tk_1; browser=b1"}
-	refresher := &schedulerFakePasswordRefresher{ch: make(chan string, 1)}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/hasLogin.do":
-			http.SetCookie(w, &http.Cookie{Name: "sgcookie", Value: "s1"})
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		case "/silentHasLogin.do":
-			http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "tk_1"})
-			_, _ = w.Write([]byte(`{"content":{"success":true},"marker":"silent-browser-fail"}`))
-		case "/setLoginSettings.do":
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		default:
-			http.NotFound(w, r)
-		}
+	expire := strconv.FormatInt(time.Now().Add(time.Hour).UnixMilli(), 10)
+	account := createSchedulerAccount(t, store, "cid-silent", "unb=1; cookie2=c2; havana_lgc_exp="+expire)
+	browser := &schedulerFakeBrowser{}
+	refresher := &schedulerFakePasswordRefresher{}
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: strconv.FormatInt(time.Now().Add(time.Hour).UnixMilli(), 10)})
+		_, _ = w.Write([]byte(`{"content":{"success":true},"marker":"single-silent"}`))
 	}))
 	defer srv.Close()
 
 	s := NewScheduler(store, nil, browser, refresher, nil)
 	s.api = schedulerRenewServiceFromServer(srv)
-	s.cooldown = NewCooldownManager()
-	s.apiCookieRenewOne(ctx, "batch-browser-fail", account)
-	refresher.waitCookie(t, "cid-browser-fail")
+	s.apiCookieRenewOne(ctx, "batch-silent", account)
 
-	if browser.quickCalls != 1 {
-		t.Fatalf("BrowserQuickRenew calls=%d want 1", browser.quickCalls)
+	if requests.Load() != 1 || browser.quickCalls != 0 || refresher.calls.Load() != 0 {
+		t.Fatalf("requests=%d browser=%d password=%d", requests.Load(), browser.quickCalls, refresher.calls.Load())
 	}
-	if len(browser.quickInputs) != 1 || !strings.Contains(browser.quickInputs[0], "sgcookie=s1") || !strings.Contains(browser.quickInputs[0], "_m_h5_tk=tk_1") {
-		t.Fatalf("浏览器续期输入未使用接口部分更新: %#v", browser.quickInputs)
+	got, err := store.Cookies.GetValue(ctx, account.ID)
+	if err != nil || !strings.Contains(got, "sdkSilent=") {
+		t.Fatalf("silent Cookie not saved: value=%q err=%v", got, err)
 	}
-	got, err := store.Cookies.GetValue(ctx, "cid-browser-fail")
-	if err != nil {
-		t.Fatalf("GetValue: %v", err)
-	}
-	for _, want := range []string{"sgcookie=s1", "_m_h5_tk=tk_1", "browser=b1"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("浏览器 Cookie 未保存，缺少 %s: %q", want, got)
-		}
-	}
-	log := lastAPIRenewLog(t, store, "cid-browser-fail")
-	if log.status != "need_password_login" {
-		t.Fatalf("status=%q want need_password_login, log=%+v", log.status, log)
-	}
-	if !strings.Contains(log.updatedCookieNames, "browser") {
-		t.Fatalf("updated_cookie_names 未记录浏览器更新: %+v", log)
-	}
-}
-
-func TestAPICookieRenewOneBrowserRenewedAfterVerifySuccess(t *testing.T) {
-	store, cleanup := newSchedulerTestStore(t)
-	defer cleanup()
-	ctx := context.Background()
-	account := createSchedulerAccount(t, store, "cid-browser-ok", "unb=1; cookie2=c2")
-	if err := store.Tokens.Save(ctx, account.ID, "did-stable", "cached-token", time.Now().Add(time.Hour).Unix()); err != nil {
-		t.Fatalf("Save token: %v", err)
-	}
-	browser := &schedulerFakeBrowser{quickCookies: "unb=1; cookie2=c2; browser=b1"}
-	var setLoginCalls atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/hasLogin.do":
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		case "/silentHasLogin.do":
-			_, _ = w.Write([]byte(`{"content":{"success":true},"marker":"silent-browser-ok"}`))
-		case "/setLoginSettings.do":
-			if setLoginCalls.Add(1) == 2 {
-				http.SetCookie(w, &http.Cookie{Name: "havana_lgc2_77", Value: "lgc"})
-			}
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-
-	s := NewScheduler(store, nil, browser, nil, nil)
-	s.api = schedulerRenewServiceFromServer(srv)
-	s.cooldown = NewCooldownManager()
-	s.apiCookieRenewOne(ctx, "batch-browser-ok", account)
-	if token, err := store.Tokens.Get(ctx, account.ID); err != nil || token.AccessToken != "cached-token" {
-		t.Fatalf("定时续期不得删除有效 token 缓存: token=%+v err=%v", token, err)
-	}
-
-	if browser.quickCalls != 1 || setLoginCalls.Load() != 2 {
-		t.Fatalf("browser calls=%d setLoginCalls=%d", browser.quickCalls, setLoginCalls.Load())
-	}
-	got, err := store.Cookies.GetValue(ctx, "cid-browser-ok")
-	if err != nil {
-		t.Fatalf("GetValue: %v", err)
-	}
-	for _, want := range []string{"browser=b1", "havana_lgc2_77=lgc"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("最终 Cookie 缺少 %s: %q", want, got)
-		}
-	}
-	log := lastAPIRenewLog(t, store, "cid-browser-ok")
-	if log.status != "browser_renewed" {
-		t.Fatalf("status=%q want browser_renewed, log=%+v", log.status, log)
-	}
-	if !strings.Contains(log.responseContent, "silent-browser-ok") {
-		t.Fatalf("response_content 应记录验证阶段 silentHasLogin 响应: %+v", log)
-	}
-	if log.renewMethod != "browser+api" || log.requestCount != 6 {
-		t.Fatalf("浏览器兜底日志应记录方法和请求数: %+v", log)
-	}
-	if !strings.Contains(log.stepDetails, "browser: quick_enter") || !strings.Contains(log.stepDetails, "api_verify") {
-		t.Fatalf("step_details 未记录浏览器兜底步骤: %+v", log)
-	}
-	if log.durationMS < 0 {
-		t.Fatalf("duration_ms 不应为负数: %+v", log)
+	log := lastAPIRenewLog(t, store, account.ID)
+	if log.status != "cookie_updated" || log.requestCount != 1 || !strings.Contains(log.responseContent, "single-silent") {
+		t.Fatalf("silent renewal log=%+v", log)
 	}
 }

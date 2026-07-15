@@ -23,16 +23,21 @@ func (m *Manager) ExecuteTokenRequest(ctx context.Context, req mtop.TokenBrowser
 	if unb == "" {
 		return nil, fmt.Errorf("浏览器 token 请求缺少 unb")
 	}
-	bctx, release, err := m.newPersistentRenewContext(ctx, unb, req.Cookies, nil, true, true)
+	credentialID := "token_credential_" + unb
+	lock := m.accountRenewLock(credentialID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	page, release, err := m.newPage(ctx, credentialID, req.Cookies, true)
 	if err != nil {
 		return nil, err
 	}
 	defer release()
-	page, err := bctx.NewPage()
-	if err != nil {
-		return nil, fmt.Errorf("浏览器 token 请求新建页面: %w", err)
+	bctx := page.Context()
+	if err := syncCredentialCookies(bctx, req.Cookies); err != nil {
+		m.evict(credentialID)
+		return nil, fmt.Errorf("浏览器 token 请求同步 Cookie: %w", err)
 	}
-	defer func() { _ = page.Close() }()
 	if _, err := page.Goto(goofishHomeURL, playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
 		Timeout:   playwright.Float(15000),
@@ -75,4 +80,47 @@ func (m *Manager) ExecuteTokenRequest(ctx context.Context, req mtop.TokenBrowser
 		Body:           []byte(result.Body),
 		UpdatedCookies: cookierefresh.MergeOriginalFields(req.Cookies, browserCookies),
 	}, nil
+}
+
+// syncCredentialCookies updates a reused credential context without flattening
+// attributes already observed from Chromium. Unknown cookies use the narrow
+// goofish default only on their first import; later server updates retain their
+// real domain, path, expiry, SameSite, Secure and HttpOnly fields.
+func syncCredentialCookies(bctx playwright.BrowserContext, cookieStr string) error {
+	incoming := parseCookieStr(cookieStr)
+	if len(incoming) == 0 {
+		return fmt.Errorf("Cookie为空或格式错误")
+	}
+	existing, err := bctx.Cookies()
+	if err != nil {
+		return err
+	}
+	preserved := credentialCookieSnapshot(cookieSnapshotFromPlaywright(existing), incoming)
+	if err := bctx.ClearCookies(); err != nil {
+		return err
+	}
+	return bctx.AddCookies(snapshotToOptionalCookies(preserved))
+}
+
+func credentialCookieSnapshot(existing []cookierefresh.BrowserCookie, incoming map[string]string) []cookierefresh.BrowserCookie {
+	preserved := make([]cookierefresh.BrowserCookie, 0, len(incoming))
+	matched := make(map[string]bool, len(incoming))
+	for _, cookie := range existing {
+		value, ok := incoming[cookie.Name]
+		if !ok {
+			continue
+		}
+		cookie.Value = value
+		preserved = append(preserved, cookie)
+		matched[cookie.Name] = true
+	}
+	for name, value := range incoming {
+		if matched[name] {
+			continue
+		}
+		preserved = append(preserved, cookierefresh.BrowserCookie{
+			Name: name, Value: value, Domain: goofishDot, Path: "/",
+		})
+	}
+	return cookierefresh.NormalizeSnapshot(preserved)
 }

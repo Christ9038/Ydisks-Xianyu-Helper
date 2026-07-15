@@ -13,10 +13,11 @@ import (
 //   - device_id 跨进程重启复用，避免每次重启换新设备 ID 触发阿里端设备绑定/风控；
 //   - accessToken 缓存后，短重启可复用、瞬时 mtop 失败可回退到上次有效 token，不掉线。
 type AccountToken struct {
-	CookieID    string
-	DeviceID    string
-	AccessToken string
-	ExpireAt    int64 // unix 秒，0 表示无有效 token
+	CookieID          string
+	DeviceID          string
+	AccessToken       string
+	ExpireAt          int64 // unix 秒，0 表示无有效 token
+	CookieFingerprint string
 }
 
 // AccountTokens 读写 account_tokens 表。
@@ -31,8 +32,8 @@ func (t *AccountTokens) Get(ctx context.Context, cookieID string) (AccountToken,
 	var tk AccountToken
 	tk.CookieID = cookieID
 	err := t.DB.QueryRowContext(ctx,
-		`SELECT device_id, access_token, expire_at FROM account_tokens WHERE cookie_id=?`,
-		cookieID).Scan(&tk.DeviceID, &tk.AccessToken, &tk.ExpireAt)
+		`SELECT device_id, access_token, expire_at, cookie_fingerprint FROM account_tokens WHERE cookie_id=?`,
+		cookieID).Scan(&tk.DeviceID, &tk.AccessToken, &tk.ExpireAt, &tk.CookieFingerprint)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return AccountToken{}, ErrNotFound
@@ -52,6 +53,13 @@ func (t *AccountTokens) Get(ctx context.Context, cookieID string) (AccountToken,
 
 // Save upsert 缓存的 device_id + accessToken + expire_at。
 func (t *AccountTokens) Save(ctx context.Context, cookieID, deviceID, accessToken string, expireAt int64) error {
+	return t.SaveBound(ctx, cookieID, deviceID, accessToken, expireAt, "")
+}
+
+// SaveBound persists an access token together with the canonical Cookie state
+// from which it was issued. The binding lets a later reconnect reject a stale
+// token after an independent Cookie renewal without rotating device_id.
+func (t *AccountTokens) SaveBound(ctx context.Context, cookieID, deviceID, accessToken string, expireAt int64, cookieFingerprint string) error {
 	// device_id is an account identity, not part of the expiring token cache.
 	// Once stored, token refreshes must never replace it.
 	if existing, err := t.Get(ctx, cookieID); err == nil && existing.DeviceID != "" {
@@ -68,15 +76,16 @@ func (t *AccountTokens) Save(ctx context.Context, cookieID, deviceID, accessToke
 		return err
 	}
 	_, err = t.DB.ExecContext(ctx,
-		`INSERT INTO account_tokens (cookie_id, device_id, access_token, expire_at, updated_at)
-		 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`+
+		`INSERT INTO account_tokens (cookie_id, device_id, access_token, expire_at, cookie_fingerprint, updated_at)
+		 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`+
 			dialectUpsert(t.Dialect, []string{"cookie_id"}, map[string]string{
-				"device_id":    "excluded.device_id",
-				"access_token": "excluded.access_token",
-				"expire_at":    "excluded.expire_at",
-				"updated_at":   "CURRENT_TIMESTAMP",
+				"device_id":          "excluded.device_id",
+				"access_token":       "excluded.access_token",
+				"expire_at":          "excluded.expire_at",
+				"cookie_fingerprint": "excluded.cookie_fingerprint",
+				"updated_at":         "CURRENT_TIMESTAMP",
 			}),
-		cookieID, encryptedDeviceID, encryptedToken, expireAt)
+		cookieID, encryptedDeviceID, encryptedToken, expireAt, cookieFingerprint)
 	if err != nil {
 		return fmt.Errorf("保存 account_tokens: %w", err)
 	}
@@ -123,7 +132,7 @@ func (t *AccountTokens) Clear(ctx context.Context, cookieID string) error {
 		return err
 	}
 	_, err = t.DB.ExecContext(ctx,
-		`UPDATE account_tokens SET access_token=?, expire_at=0, updated_at=CURRENT_TIMESTAMP WHERE cookie_id=?`,
+		`UPDATE account_tokens SET access_token=?, expire_at=0, cookie_fingerprint='', updated_at=CURRENT_TIMESTAMP WHERE cookie_id=?`,
 		encryptedToken, cookieID)
 	return err
 }

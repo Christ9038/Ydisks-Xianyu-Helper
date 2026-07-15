@@ -147,6 +147,9 @@ func (s *Scheduler) executeLoginRenew(ctx context.Context) {
 }
 
 func (s *Scheduler) loginRenewOne(ctx context.Context, batchID string, account db.RenewalAccount) {
+	credentialUnlock := s.store.LockAccountCredentials(account.ID)
+	defer credentialUnlock()
+	account = s.reloadRenewalAccount(ctx, account)
 	started := time.Now()
 	runCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -191,6 +194,9 @@ func (s *Scheduler) executeAPICookieRenew(ctx context.Context) {
 }
 
 func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, account db.RenewalAccount) {
+	credentialUnlock := s.store.LockAccountCredentials(account.ID)
+	defer credentialUnlock()
+	account = s.reloadRenewalAccount(ctx, account)
 	started := time.Now()
 	res, err := s.renewAPI(ctx, account.Value)
 	if err != nil {
@@ -281,6 +287,9 @@ func (s *Scheduler) executeBrowserCookieRefresh(ctx context.Context) {
 }
 
 func (s *Scheduler) browserCookieRefreshOne(ctx context.Context, batchID string, account db.RenewalAccount, schedule db.CookieRefreshSchedule) {
+	credentialUnlock := s.store.LockAccountCredentials(account.ID)
+	defer credentialUnlock()
+	account = s.reloadRenewalAccount(ctx, account)
 	started := time.Now()
 	if s.browser == nil {
 		schedule.LastStatus = "failed"
@@ -347,6 +356,20 @@ func (s *Scheduler) renewAPI(ctx context.Context, cookieStr string) (*apirenew.R
 	return s.api.RenewAPIFirst(runCtx, cookieStr)
 }
 
+func (s *Scheduler) reloadRenewalAccount(ctx context.Context, account db.RenewalAccount) db.RenewalAccount {
+	detail, err := s.store.Cookies.GetDetails(ctx, account.ID)
+	if err != nil || detail == nil {
+		return account
+	}
+	account.Value = detail.Value
+	account.Username = detail.Username
+	account.Password = detail.Password
+	account.ShowBrowser = detail.ShowBrowser
+	account.MetadataJSON = detail.MetadataJSON
+	account.LastRefreshAt = detail.LastRefreshAt
+	return account
+}
+
 func (s *Scheduler) saveRenewedCookies(ctx context.Context, cookieID, cookieStr, metadata string) bool {
 	if err := s.store.Cookies.UpdateRenewalCookie(ctx, cookieID, cookieStr, metadata, time.Now().Unix()); err != nil {
 		s.logger.Warn("保存续期 Cookie 失败", "account", cookieID, "err", err)
@@ -390,13 +413,6 @@ func (s *Scheduler) markSessionExpired(cookieID string) {
 func (s *Scheduler) isSessionCooled(cookieID string) bool {
 	ok, _ := s.cooldown.IsSessionCooled(cookieID)
 	return ok
-}
-
-func (s *Scheduler) triggerPasswordLoginAsync(cookieID string) {
-	if s.refresher == nil {
-		return
-	}
-	go s.refresher.OnPasswordLoginRefresh(context.Background(), cookieID)
 }
 
 func (s *Scheduler) disabledAccountShouldSkip(ctx context.Context, cookieID string) bool {
@@ -484,15 +500,6 @@ func newBatchID() string {
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(b[:])
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

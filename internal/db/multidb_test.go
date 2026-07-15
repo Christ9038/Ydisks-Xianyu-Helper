@@ -641,7 +641,7 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				t.Fatalf("set goose dialect: %v", err)
 			}
 			goose.SetBaseFS(migrationsFS)
-			for i := 0; i < 8; i++ {
+			for i := 0; i < 9; i++ {
 				if err := goose.Down(tg.store.DB, "migrations/"+subdir); err != nil {
 					t.Fatalf("migration down #%d: %v", i+1, err)
 				}
@@ -654,6 +654,9 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 			}
 			if columnExistsForDialect(t, tg.store.DB, tg.dialect, "default_reply_records", "status") {
 				t.Fatal("default_reply_records.status should be removed after down")
+			}
+			if columnExistsForDialect(t, tg.store.DB, tg.dialect, "account_tokens", "cookie_fingerprint") {
+				t.Fatal("account_tokens.cookie_fingerprint should be removed after down")
 			}
 
 			if err := goose.Up(tg.store.DB, "migrations/"+subdir); err != nil {
@@ -673,6 +676,7 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				{"default_reply_records", "text_sent"},
 				{"automation_runs", "action_cursor"},
 				{"automation_runs", "action_started"},
+				{"account_tokens", "cookie_fingerprint"},
 			} {
 				if !columnExistsForDialect(t, tg.store.DB, tg.dialect, c.table, c.col) {
 					t.Fatalf("column missing after re-up: %s.%s", c.table, c.col)

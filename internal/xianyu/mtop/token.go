@@ -34,12 +34,12 @@ func (c *ClientImpl) RefreshTokenContext(ctx context.Context, cookiesStr string)
 func (c *ClientImpl) RefreshTokenWithDeviceIDContext(ctx context.Context, cookiesStr, deviceID string) (*RefreshResult, error) {
 	currentCookies := cookiesStr
 	for attempt := 0; attempt < 2; attempt++ {
-		accessToken, ret, updatedCookies, verificationURL, status, err := c.refreshTokenOnce(ctx, currentCookies, deviceID)
+		accessToken, expireAt, ret, updatedCookies, verificationURL, status, err := c.refreshTokenOnce(ctx, currentCookies, deviceID)
 		if err != nil {
 			return &RefreshResult{UpdatedCookies: currentCookies}, err
 		}
 		if accessToken != "" {
-			return &RefreshResult{AccessToken: accessToken, UpdatedCookies: updatedCookies}, nil
+			return &RefreshResult{AccessToken: accessToken, AccessTokenExpireAt: expireAt, UpdatedCookies: updatedCookies}, nil
 		}
 		if isRiskVerificationRet(ret) {
 			return &RefreshResult{UpdatedCookies: updatedCookies}, &RiskVerificationError{Ret: ret, VerificationURL: verificationURL}
@@ -65,16 +65,17 @@ func (c *ClientImpl) RefreshTokenWithDeviceIDContext(ctx context.Context, cookie
 // RequestFreshCaptchaURLContext 重新请求 token API，用于浏览器风控验证前获取新鲜验证链接。
 // 如果风控已解除并直接返回 accessToken，则 TokenOK=true。
 func (c *ClientImpl) RequestFreshCaptchaURLContext(ctx context.Context, cookiesStr, deviceID string) (*FreshCaptchaResult, error) {
-	accessToken, ret, updatedCookies, verificationURL, _, err := c.refreshTokenOnce(ctx, cookiesStr, deviceID)
+	accessToken, expireAt, ret, updatedCookies, verificationURL, _, err := c.refreshTokenOnce(ctx, cookiesStr, deviceID)
 	if err != nil {
 		return &FreshCaptchaResult{UpdatedCookies: updatedCookies}, err
 	}
 	if accessToken != "" {
 		return &FreshCaptchaResult{
-			TokenOK:        true,
-			AccessToken:    accessToken,
-			UpdatedCookies: updatedCookies,
-			Ret:            ret,
+			TokenOK:             true,
+			AccessToken:         accessToken,
+			AccessTokenExpireAt: expireAt,
+			UpdatedCookies:      updatedCookies,
+			Ret:                 ret,
 		}, nil
 	}
 	return &FreshCaptchaResult{
@@ -84,7 +85,7 @@ func (c *ClientImpl) RequestFreshCaptchaURLContext(ctx context.Context, cookiesS
 	}, nil
 }
 
-func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID string) (string, []string, string, string, int, error) {
+func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID string) (string, int64, []string, string, string, int, error) {
 	hc := c.HTTPClient
 	if hc == nil {
 		hc = &http.Client{Timeout: 30 * time.Second}
@@ -93,7 +94,7 @@ func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID 
 	cookies := protocol.TransCookies(cookiesStr)
 	myid := cookies["unb"]
 	if myid == "" {
-		return "", nil, cookiesStr, "", 0, fmt.Errorf("cookie 缺少 unb 字段，无法生成 deviceId")
+		return "", 0, nil, cookiesStr, "", 0, fmt.Errorf("cookie 缺少 unb 字段，无法生成 deviceId")
 	}
 	if strings.TrimSpace(deviceID) == "" {
 		deviceID = protocol.GenerateDeviceID(myid)
@@ -121,10 +122,10 @@ func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID 
 			URL: requestURL, Body: body, Cookies: cookiesStr,
 		})
 		if execErr != nil {
-			return "", nil, cookiesStr, "", 0, fmt.Errorf("浏览器 token API 请求失败: %w", execErr)
+			return "", 0, nil, cookiesStr, "", 0, fmt.Errorf("浏览器 token API 请求失败: %w", execErr)
 		}
 		if browserResp == nil {
-			return "", nil, cookiesStr, "", 0, fmt.Errorf("浏览器 token API 返回空响应")
+			return "", 0, nil, cookiesStr, "", 0, fmt.Errorf("浏览器 token API 返回空响应")
 		}
 		raw, status = browserResp.Body, browserResp.Status
 		if strings.TrimSpace(browserResp.UpdatedCookies) != "" {
@@ -133,17 +134,17 @@ func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID 
 	} else {
 		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, strings.NewReader(body))
 		if reqErr != nil {
-			return "", nil, cookiesStr, "", 0, reqErr
+			return "", 0, nil, cookiesStr, "", 0, reqErr
 		}
 		setCommonHeaders(req, cookiesStr)
 		resp, reqErr := hc.Do(req)
 		if reqErr != nil {
-			return "", nil, cookiesStr, "", 0, fmt.Errorf("token API 请求失败: %w", reqErr)
+			return "", 0, nil, cookiesStr, "", 0, fmt.Errorf("token API 请求失败: %w", reqErr)
 		}
 		defer resp.Body.Close()
 		raw, reqErr = readMTopBody(resp)
 		if reqErr != nil {
-			return "", nil, cookiesStr, "", resp.StatusCode, reqErr
+			return "", 0, nil, cookiesStr, "", resp.StatusCode, reqErr
 		}
 		status = resp.StatusCode
 		// 即使业务返回 token 过期，也要保留响应下发的新签名 Cookie。
@@ -153,12 +154,13 @@ func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID 
 	var res struct {
 		Ret  []string `json:"ret"`
 		Data struct {
-			AccessToken string `json:"accessToken"`
-			URL         string `json:"url"`
+			AccessToken            string          `json:"accessToken"`
+			AccessTokenExpiredTime json.RawMessage `json:"accessTokenExpiredTime"`
+			URL                    string          `json:"url"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &res); err != nil {
-		return "", nil, updated, "", status, fmt.Errorf("解析 token 响应失败: %w (body=%s)", err, truncate(string(raw), 300))
+		return "", 0, nil, updated, "", status, fmt.Errorf("解析 token 响应失败: %w (body=%s)", err, truncate(string(raw), 300))
 	}
 
 	ok := false
@@ -169,12 +171,36 @@ func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID 
 		}
 	}
 	if !ok {
-		return "", res.Ret, updated, res.Data.URL, status, nil
+		return "", 0, res.Ret, updated, res.Data.URL, status, nil
 	}
 	if res.Data.AccessToken == "" {
-		return "", res.Ret, updated, "", status, fmt.Errorf("token API 成功但 accessToken 为空 (body=%s)", truncate(string(raw), 300))
+		return "", 0, res.Ret, updated, "", status, fmt.Errorf("token API 成功但 accessToken 为空 (body=%s)", truncate(string(raw), 300))
 	}
-	return res.Data.AccessToken, res.Ret, updated, "", status, nil
+	return res.Data.AccessToken, parseAccessTokenExpireAt(res.Data.AccessTokenExpiredTime, time.Now()), res.Ret, updated, "", status, nil
+}
+
+func parseAccessTokenExpireAt(raw json.RawMessage, now time.Time) int64 {
+	value := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+	if value == "" || value == "null" {
+		return 0
+	}
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed.Unix()
+	}
+	n, err := strconv.ParseFloat(value, 64)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	switch {
+	case n >= float64(now.UnixMilli()/2):
+		return int64(n / 1000)
+	case n >= float64(now.Unix()/2):
+		return int64(n)
+	case n >= 1_000_000:
+		return now.Add(time.Duration(n) * time.Millisecond).Unix()
+	default:
+		return now.Add(time.Duration(n) * time.Second).Unix()
+	}
 }
 
 // buildTokenQuery 构造 token API 的 query string。

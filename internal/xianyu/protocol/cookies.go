@@ -9,12 +9,14 @@ func TransCookies(cookiesStr string) map[string]string {
 	if cookiesStr == "" {
 		return cookies
 	}
-	for _, part := range strings.Split(cookiesStr, "; ") {
-		if eq := strings.Index(part, "="); eq >= 0 {
-			k := part[:eq]
-			v := part[eq+1:]
-			cookies[k] = v
+	for _, part := range strings.Split(cookiesStr, ";") {
+		part = strings.TrimSpace(part)
+		key, value, ok := strings.Cut(part, "=")
+		key = strings.TrimSpace(key)
+		if !ok || key == "" {
+			continue
 		}
+		cookies[key] = strings.TrimSpace(value)
 	}
 	return cookies
 }
