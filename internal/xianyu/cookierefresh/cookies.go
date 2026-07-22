@@ -2,8 +2,12 @@ package cookierefresh
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/url"
+	"path"
 	"sort"
 	"strings"
+	"time"
 )
 
 const (
@@ -75,6 +79,185 @@ func MergeSetCookies(original string, setCookies []string) string {
 		m[name] = strings.TrimSpace(first[eq+1:])
 	}
 	return MarshalCookieString(m)
+}
+
+// SnapshotFromCookieString 为只有扁平 Cookie 的历史账号建立兼容快照。浏览器刷新后
+// 应使用真实快照覆盖它，避免长期依赖推断出的 Domain/Path。
+func SnapshotFromCookieString(cookieString, domain string) []BrowserCookie {
+	domain = strings.TrimSpace(domain)
+	if domain == "" {
+		domain = ".goofish.com"
+	}
+	out := make([]BrowserCookie, 0)
+	for name, value := range ParseCookieString(cookieString) {
+		out = append(out, BrowserCookie{Name: name, Value: value, Domain: domain, Path: "/", Secure: true})
+	}
+	return NormalizeSnapshot(out)
+}
+
+// ReconcileSnapshotWithCookieString 在调用方暂时只能获得扁平 Cookie 结果时保留
+// 已知属性，并同步值与删除项。新增字段使用 .goofish.com 根路径作为兼容作用域。
+func ReconcileSnapshotWithCookieString(snapshot []BrowserCookie, cookieString string) []BrowserCookie {
+	values := ParseCookieString(cookieString)
+	seen := make(map[string]struct{})
+	out := make([]BrowserCookie, 0, len(snapshot)+len(values))
+	for _, cookie := range NormalizeSnapshot(snapshot) {
+		value, exists := values[cookie.Name]
+		if !exists {
+			continue
+		}
+		cookie.Value = value
+		out = append(out, cookie)
+		seen[cookie.Name] = struct{}{}
+	}
+	for name, value := range values {
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		out = append(out, BrowserCookie{Name: name, Value: value, Domain: ".goofish.com", Path: "/", Secure: true})
+	}
+	return NormalizeSnapshot(out)
+}
+
+// CookieHeaderForURL 按浏览器 Domain/Path/Secure/Expires 规则生成指定 URL 的
+// Cookie header，并保留不同路径下的同名 Cookie。
+func CookieHeaderForURL(snapshot []BrowserCookie, rawURL string, now time.Time) string {
+	target, err := url.Parse(rawURL)
+	if err != nil || target.Hostname() == "" {
+		return ""
+	}
+	type matchedCookie struct {
+		cookie BrowserCookie
+		index  int
+	}
+	matched := make([]matchedCookie, 0, len(snapshot))
+	for index, cookie := range NormalizeSnapshot(snapshot) {
+		if cookie.Expires > 0 && cookie.Expires <= float64(now.Unix()) {
+			continue
+		}
+		if cookie.Secure && target.Scheme != "https" && target.Scheme != "wss" {
+			continue
+		}
+		if !cookieDomainMatches(target.Hostname(), cookie.Domain) || !cookiePathMatches(target.EscapedPath(), cookie.Path) {
+			continue
+		}
+		matched = append(matched, matchedCookie{cookie: cookie, index: index})
+	}
+	sort.SliceStable(matched, func(i, j int) bool {
+		if len(matched[i].cookie.Path) != len(matched[j].cookie.Path) {
+			return len(matched[i].cookie.Path) > len(matched[j].cookie.Path)
+		}
+		return matched[i].index < matched[j].index
+	})
+	parts := make([]string, 0, len(matched))
+	for _, item := range matched {
+		parts = append(parts, item.cookie.Name+"="+item.cookie.Value)
+	}
+	return strings.Join(parts, "; ")
+}
+
+// ApplySetCookies 把某次请求响应的 Set-Cookie 应用到完整快照。删除操作只删除
+// 相同 name/domain/path 的 Cookie，不会误删其他作用域下的同名项。
+func ApplySetCookies(snapshot []BrowserCookie, requestURL string, setCookies []string, now time.Time) []BrowserCookie {
+	target, err := url.Parse(requestURL)
+	if err != nil || target.Hostname() == "" {
+		return NormalizeSnapshot(snapshot)
+	}
+	state := make(map[string]BrowserCookie)
+	for _, cookie := range NormalizeSnapshot(snapshot) {
+		state[snapshotKey(cookie)] = cookie
+	}
+	for _, raw := range setCookies {
+		parsed, err := http.ParseSetCookie(raw)
+		if err != nil || strings.TrimSpace(parsed.Name) == "" {
+			continue
+		}
+		domain := strings.ToLower(strings.TrimSpace(parsed.Domain))
+		if domain == "" {
+			domain = strings.ToLower(target.Hostname())
+		} else if !strings.HasPrefix(domain, ".") {
+			domain = "." + domain
+		}
+		cookiePath := parsed.Path
+		if cookiePath == "" {
+			cookiePath = defaultCookiePath(target.Path)
+		}
+		cookie := BrowserCookie{
+			Name: parsed.Name, Value: parsed.Value, Domain: domain, Path: cookiePath,
+			HTTPOnly: parsed.HttpOnly, Secure: parsed.Secure, SameSite: sameSiteLabel(parsed.SameSite),
+		}
+		if !parsed.Expires.IsZero() {
+			cookie.Expires = float64(parsed.Expires.Unix())
+		}
+		key := snapshotKey(cookie)
+		if parsed.MaxAge < 0 || (!parsed.Expires.IsZero() && !parsed.Expires.After(now)) {
+			delete(state, key)
+			continue
+		}
+		state[key] = cookie
+	}
+	out := make([]BrowserCookie, 0, len(state))
+	for _, cookie := range state {
+		out = append(out, cookie)
+	}
+	return NormalizeSnapshot(out)
+}
+
+func snapshotKey(cookie BrowserCookie) string {
+	return cookie.Name + "\x00" + strings.ToLower(cookie.Domain) + "\x00" + cookie.Path
+}
+
+func cookieDomainMatches(host, domain string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if domain == "" {
+		return false
+	}
+	if strings.HasPrefix(domain, ".") {
+		base := strings.TrimPrefix(domain, ".")
+		return host == base || strings.HasSuffix(host, "."+base)
+	}
+	return host == domain
+}
+
+func cookiePathMatches(requestPath, cookiePath string) bool {
+	if requestPath == "" {
+		requestPath = "/"
+	}
+	if cookiePath == "" {
+		cookiePath = "/"
+	}
+	if requestPath == cookiePath {
+		return true
+	}
+	if !strings.HasPrefix(requestPath, cookiePath) {
+		return false
+	}
+	return strings.HasSuffix(cookiePath, "/") || (len(requestPath) > len(cookiePath) && requestPath[len(cookiePath)] == '/')
+}
+
+func defaultCookiePath(requestPath string) string {
+	if requestPath == "" || requestPath[0] != '/' || requestPath == "/" {
+		return "/"
+	}
+	dir := path.Dir(requestPath)
+	if dir == "." || dir == "/" {
+		return "/"
+	}
+	return dir
+}
+
+func sameSiteLabel(value http.SameSite) string {
+	switch value {
+	case http.SameSiteStrictMode:
+		return "Strict"
+	case http.SameSiteLaxMode:
+		return "Lax"
+	case http.SameSiteNoneMode:
+		return "None"
+	default:
+		return ""
+	}
 }
 
 // ChangedCookieNames 返回两个 Cookie 字符串之间发生变化的字段名。

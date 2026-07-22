@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,9 +13,11 @@ import (
 
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/xianyu/mtop"
 )
 
 const refreshOrderChunkSize = 100
+const maxSoldOrderPages = 100
 
 type refreshTarget struct {
 	OrderID       string
@@ -162,10 +165,6 @@ func (s *Server) getOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
-	if s.Browser == nil {
-		writeErr(w, http.StatusServiceUnavailable, "浏览器自动化未启用，无法刷新订单")
-		return
-	}
 	sess := auth.SessionFromContext(r.Context())
 	all, err := s.Store.Cookies.AllForUser(r.Context(), sess.UserID)
 	if err != nil {
@@ -183,6 +182,32 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 		all = map[string]string{cookieID: value}
 	}
 
+	discovered, listUpdated, failed := 0, 0, 0
+	results := []map[string]any{}
+	newOrderIDs := make(map[string]struct{})
+	if fetcher, ok := s.mtopClient().(mtop.SoldOrderFetcher); ok {
+		for cid, cookieValue := range all {
+			accountDiscovered, accountUpdated, accountNewIDs, discoveryErr := s.discoverSoldOrders(r.Context(), fetcher, cid, cookieValue)
+			discovered += accountDiscovered
+			listUpdated += accountUpdated
+			for orderID := range accountNewIDs {
+				newOrderIDs[orderID] = struct{}{}
+			}
+			result := map[string]any{
+				"cookie_id": cid, "stage": "discover", "success": discoveryErr == nil,
+				"discovered": accountDiscovered, "updated": accountUpdated,
+			}
+			if discoveryErr != nil {
+				failed++
+				result["error"] = discoveryErr.Error()
+			}
+			results = append(results, result)
+		}
+	} else {
+		failed++
+		results = append(results, map[string]any{"stage": "discover", "success": false, "error": "当前 MTop 客户端不支持订单列表发现"})
+	}
+
 	ordersByCookie := map[string][]refreshTarget{}
 	for cid := range all {
 		for offset := 0; ; offset += 500 {
@@ -196,7 +221,8 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				// 稳定状态无需反复抓取；但历史订单若缺少实付金额，仍需补全详情。
-				if isStableOrderStatus(currentStatus) && strings.TrimSpace(row.Amount) != "" {
+				_, isNewOrder := newOrderIDs[row.OrderID]
+				if !isNewOrder && isStableOrderStatus(currentStatus) && strings.TrimSpace(row.Amount) != "" {
 					continue
 				}
 				ordersByCookie[cid] = append(ordersByCookie[cid], refreshTarget{OrderID: row.OrderID, CurrentStatus: currentStatus})
@@ -211,18 +237,39 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 	for _, targets := range ordersByCookie {
 		total += len(targets)
 	}
+	if s.Browser == nil {
+		message := "订单列表同步完成"
+		if discovered > 0 {
+			message = fmt.Sprintf("订单列表同步完成，发现并导入 %d 个新订单", discovered)
+		}
+		if total > 0 {
+			message += fmt.Sprintf("；浏览器自动化未启用，已跳过 %d 个订单的详情补全", total)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"success": failed == 0,
+			"message": message,
+			"summary": map[string]int{
+				"discovered": discovered, "list_updated": listUpdated, "detail_total": total,
+				"total": total, "updated": 0, "no_change": 0, "failed": failed,
+			},
+			"results": results,
+		})
+		return
+	}
 	if total == 0 {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"success": true,
-			"message": "没有需要刷新的订单",
-			"summary": map[string]int{"total": 0, "updated": 0, "no_change": 0, "failed": 0},
-			"results": []any{},
+			"success": failed == 0,
+			"message": fmt.Sprintf("订单列表同步完成，发现 %d 个新订单；没有需要补全详情的订单", discovered),
+			"summary": map[string]int{
+				"discovered": discovered, "list_updated": listUpdated, "detail_total": 0,
+				"total": 0, "updated": 0, "no_change": 0, "failed": failed,
+			},
+			"results": results,
 		})
 		return
 	}
 
-	updated, noChange, failed := 0, 0, 0
-	results := []map[string]any{}
+	updated, noChange := 0, 0
 	for cid, targets := range ordersByCookie {
 		cookieValue := all[cid]
 		if cookieValue == "" {
@@ -298,11 +345,88 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"success": true,
-		"message": "订单刷新完成",
-		"summary": map[string]int{"total": total, "updated": updated, "no_change": noChange, "failed": failed},
+		"success": failed == 0,
+		"message": fmt.Sprintf("订单同步完成，发现 %d 个新订单", discovered),
+		"summary": map[string]int{
+			"discovered": discovered, "list_updated": listUpdated, "detail_total": total,
+			"total": total, "updated": updated, "no_change": noChange, "failed": failed,
+		},
 		"results": results,
 	})
+}
+
+func (s *Server) discoverSoldOrders(ctx context.Context, fetcher mtop.SoldOrderFetcher, cookieID, cookies string) (int, int, map[string]struct{}, error) {
+	discovered, updated := 0, 0
+	newOrderIDs := make(map[string]struct{})
+	for pageNumber := 1; pageNumber <= maxSoldOrderPages; pageNumber++ {
+		page, err := fetcher.FetchSoldOrdersPage(ctx, cookies, pageNumber, 30)
+		if err != nil {
+			return discovered, updated, newOrderIDs, err
+		}
+		pageChanged := false
+		for _, remote := range page.Items {
+			if normalizedAmount, ok := db.NormalizeOrderAmount(remote.Amount); ok {
+				remote.Amount = normalizedAmount
+			}
+			existing, getErr := s.Store.Orders.Get(ctx, remote.OrderID)
+			isNew := errors.Is(getErr, db.ErrNotFound)
+			if getErr != nil && !isNew {
+				return discovered, updated, newOrderIDs, fmt.Errorf("读取订单 %s 失败: %w", remote.OrderID, getErr)
+			}
+			changed := isNew || soldOrderChanged(existing, remote)
+			status := remote.OrderStatus
+			if !isNew && status == "unknown" {
+				status = ""
+			}
+			var isBargain *bool
+			if remote.IsBargain {
+				value := true
+				isBargain = &value
+			}
+			if err := s.Store.Orders.Upsert(ctx, remote.OrderID, db.OrderUpsertOpts{
+				ItemID: remote.ItemID, BuyerID: remote.BuyerID, CookieID: cookieID,
+				OrderStatus: status, Quantity: remote.Quantity, Amount: remote.Amount,
+				ReceiverName: remote.ReceiverName, ReceiverPhone: remote.ReceiverPhone,
+				ReceiverAddr: remote.ReceiverAddr, ReceiverCity: remote.ReceiverCity,
+				IsBargain: isBargain,
+			}); err != nil {
+				return discovered, updated, newOrderIDs, fmt.Errorf("保存订单 %s 失败: %w", remote.OrderID, err)
+			}
+			if isNew {
+				discovered++
+				newOrderIDs[remote.OrderID] = struct{}{}
+			} else if changed {
+				updated++
+			}
+			pageChanged = pageChanged || changed
+		}
+		if !page.NextPage || len(page.Items) == 0 {
+			return discovered, updated, newOrderIDs, nil
+		}
+		// 卖家列表按新到旧排列。一整页都已存在且字段未变化时，更早页也无需重复扫描。
+		if !pageChanged {
+			return discovered, updated, newOrderIDs, nil
+		}
+	}
+	return discovered, updated, newOrderIDs, fmt.Errorf("订单列表超过 %d 页，已停止继续同步", maxSoldOrderPages)
+}
+
+func soldOrderChanged(existing *db.Order, remote mtop.SoldOrder) bool {
+	if existing == nil {
+		return true
+	}
+	statusChanged := remote.OrderStatus != "" && remote.OrderStatus != "unknown" &&
+		db.NormalizeOrderStatus(existing.OrderStatus) != remote.OrderStatus
+	return statusChanged ||
+		(remote.ItemID != "" && existing.ItemID != remote.ItemID) ||
+		(remote.BuyerID != "" && existing.BuyerID != remote.BuyerID) ||
+		(remote.Quantity != "" && existing.Quantity != remote.Quantity) ||
+		(remote.Amount != "" && existing.Amount != remote.Amount) ||
+		(remote.ReceiverName != "" && existing.ReceiverName != remote.ReceiverName) ||
+		(remote.ReceiverPhone != "" && existing.ReceiverPhone != remote.ReceiverPhone) ||
+		(remote.ReceiverAddr != "" && existing.ReceiverAddr != remote.ReceiverAddr) ||
+		(remote.ReceiverCity != "" && existing.ReceiverCity != remote.ReceiverCity) ||
+		(remote.IsBargain && existing.IsBargain == 0)
 }
 
 func chunkRefreshTargets(targets []refreshTarget, size int) [][]refreshTarget {

@@ -103,7 +103,11 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defaultCookieID := strings.TrimSpace(r.FormValue("default_cookie_id"))
-	if defaultCookieID != "" && !s.cookieOwnedByUser(r.Context(), sess.UserID, defaultCookieID) {
+	if defaultCookieID == "" {
+		writeErr(w, http.StatusBadRequest, "请选择默认发布账号")
+		return
+	}
+	if !s.cookieOwnedByUser(r.Context(), sess.UserID, defaultCookieID) {
 		writeErr(w, http.StatusForbidden, "默认账号不属于当前用户")
 		return
 	}
@@ -1111,8 +1115,8 @@ func (s *Server) validatePublishAutomation(ctx context.Context, userID int64, cf
 			if action.DeliveryCount <= 0 {
 				errs = append(errs, prefix+"每件份数必须大于0")
 			}
-			if action.DelaySeconds < 0 || action.DelaySeconds > 86400 {
-				errs = append(errs, prefix+"延迟秒必须在 0 到 86400 之间")
+			if action.DelaySeconds < 0 || action.DelaySeconds > 3600 {
+				errs = append(errs, prefix+"延迟秒必须在 0 到 3600 之间")
 			}
 		}
 	}

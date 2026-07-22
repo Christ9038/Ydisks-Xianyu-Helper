@@ -112,7 +112,7 @@ func verifiedRenewService(t *testing.T) (xrenew.Service, func()) {
 			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
 		case "/silentHasLogin.do":
 			http.SetCookie(w, &http.Cookie{Name: "havana_lgc2_77", Value: "verified"})
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
+			_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
 		case "/setLoginSettings.do":
 			http.SetCookie(w, &http.Cookie{Name: "havana_lgc2_77", Value: "verified"})
 			_, _ = w.Write([]byte(`{"content":{"success":true}}`))

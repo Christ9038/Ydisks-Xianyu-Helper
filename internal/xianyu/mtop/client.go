@@ -35,6 +35,12 @@ const UserPageNavAPI = "https://h5api.m.goofish.com/h5/mtop.idle.web.user.page.n
 // ItemListAPI 是卖家商品列表端点。
 const ItemListAPI = "https://h5api.m.goofish.com/h5/mtop.idle.web.xyh.item.list/1.0/"
 
+// SoldOrdersAPI 是闲鱼卖家工作台的已售订单列表端点。
+const SoldOrdersAPI = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.trade.merchant.sold.get/1.0/"
+
+// ItemDetailAPI 是闲鱼 PC 商品详情端点。
+const ItemDetailAPI = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.pc.detail/1.0/"
+
 const (
 	MTopRetryGap         = time.Second
 	ItemPageGap          = time.Second
@@ -59,6 +65,8 @@ type ClientImpl struct {
 	TokenURL       string
 	ConsignURL     string
 	OrderDetailURL string
+	SoldOrdersURL  string
+	ItemDetailURL  string
 	LoginUserURL   string
 	TokenExecutor  TokenRequestExecutor
 }
@@ -151,6 +159,7 @@ type ItemListItem struct {
 	ItemDetail  string
 	AuctionType string
 	ItemStatus  int
+	IsMultiSpec bool
 }
 
 func hasMTopSuccess(ret []string) bool {
@@ -301,19 +310,16 @@ func mergeSetCookie(orig string, current map[string]string, resp *http.Response)
 	}
 	changed := false
 	for _, sc := range setCookies {
-		// Set-Cookie: name=value; Path=/; ...
-		pair := sc
-		if i := strings.Index(pair, ";"); i >= 0 {
-			pair = pair[:i]
+		parsed, err := http.ParseSetCookie(sc)
+		if err != nil || strings.TrimSpace(parsed.Name) == "" {
+			continue
 		}
-		if eq := strings.Index(pair, "="); eq >= 0 {
-			name := strings.TrimSpace(pair[:eq])
-			val := strings.TrimSpace(pair[eq+1:])
-			if name != "" {
-				current[name] = val
-				changed = true
-			}
+		if parsed.MaxAge < 0 || (!parsed.Expires.IsZero() && !parsed.Expires.After(time.Now())) {
+			delete(current, parsed.Name)
+		} else {
+			current[parsed.Name] = parsed.Value
 		}
+		changed = true
 	}
 	if !changed {
 		return orig

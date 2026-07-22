@@ -7,11 +7,9 @@ import (
 	"fmt"
 )
 
-// AccountToken 持久化的账号登录凭证缓存（device_id + accessToken）。
-//
-// 设计动机（参考 xianyu-auto-reply 的 xy_token_cache）：
-//   - device_id 跨进程重启复用，避免每次重启换新设备 ID 触发阿里端设备绑定/风控；
-//   - accessToken 缓存后，短重启可复用、瞬时 mtop 失败可回退到上次有效 token，不掉线。
+// AccountToken 持久化最近一次页面运行实例的 device_id 和 token 请求元数据。
+// accessToken 不用于后续 WebSocket 注册；官方消息页在每次 loginV2/reConnect
+// 前都会重新获取 token，页面重载后也会生成新的 device_id。
 type AccountToken struct {
 	CookieID          string
 	DeviceID          string
@@ -56,17 +54,9 @@ func (t *AccountTokens) Save(ctx context.Context, cookieID, deviceID, accessToke
 	return t.SaveBound(ctx, cookieID, deviceID, accessToken, expireAt, "")
 }
 
-// SaveBound persists an access token together with the canonical Cookie state
-// from which it was issued. The binding lets a later reconnect reject a stale
-// token after an independent Cookie renewal without rotating device_id.
+// SaveBound persists an access token together with the page-runtime device ID
+// and canonical Cookie state from which it was issued.
 func (t *AccountTokens) SaveBound(ctx context.Context, cookieID, deviceID, accessToken string, expireAt int64, cookieFingerprint string) error {
-	// device_id is an account identity, not part of the expiring token cache.
-	// Once stored, token refreshes must never replace it.
-	if existing, err := t.Get(ctx, cookieID); err == nil && existing.DeviceID != "" {
-		deviceID = existing.DeviceID
-	} else if err != nil && !errors.Is(err, ErrNotFound) {
-		return err
-	}
 	encryptedDeviceID, err := t.codec.encrypt("device-id", cookieID, deviceID)
 	if err != nil {
 		return err

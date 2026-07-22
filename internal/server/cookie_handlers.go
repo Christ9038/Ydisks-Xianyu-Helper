@@ -13,6 +13,8 @@ import (
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
+	"xianyu-go/internal/xianyu/cookierefresh"
+	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
 // mountCookies 账号 cookie 管理端点。
@@ -24,6 +26,8 @@ func (s *Server) mountCookies(r chi.Router) {
 	r.Put("/cookies/{cid}", s.updateCookie)
 	r.Put("/cookies/{cid}/login-info", s.updateCookieLoginInfo)
 	r.Put("/cookies/{cid}/settings", s.updateCookieSettings)
+	r.Get("/cookies/{cid}/long-login", s.getLongLoginSettings)
+	r.Put("/cookies/{cid}/long-login", s.setLongLoginSettings)
 	r.Post("/cookies/{cid}/refresh-profile", s.refreshCookieProfile)
 	r.Get("/cookie/{cid}/details", s.getCookieDetails)
 	r.Put("/cookies/{cid}/status", s.setCookieStatus)
@@ -33,6 +37,74 @@ func (s *Server) mountCookies(r chi.Router) {
 	r.Put("/cookies/{cid}/remark", s.setCookieRemark)
 	r.Put("/cookies/{cid}/pause-duration", s.setCookiePauseDuration)
 	r.Get("/cookies/{cid}/pause-duration", s.getCookiePauseDuration)
+}
+
+func (s *Server) getLongLoginSettings(w http.ResponseWriter, r *http.Request) {
+	cid := chi.URLParam(r, "cid")
+	detail, ok := s.requireCookieOwner(w, r, cid)
+	if !ok {
+		return
+	}
+	result, err := s.CookieRenew.QueryLongLoginSettings(r.Context(), detail.Value)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if err := s.persistLongLoginCookies(r.Context(), detail, result, xrenew.QueryLoginSettingsURL); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存续期 Cookie 失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) setLongLoginSettings(w http.ResponseWriter, r *http.Request) {
+	cid := chi.URLParam(r, "cid")
+	detail, ok := s.requireCookieOwner(w, r, cid)
+	if !ok {
+		return
+	}
+	var req struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := decodeJSON(r, &req); err != nil || req.Enabled == nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	result, err := s.CookieRenew.SetLongLoginSettings(r.Context(), detail.Value, *req.Enabled)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if err := s.persistLongLoginCookies(r.Context(), detail, result, xrenew.SetLoginSettingsURL); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存续期 Cookie 失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) persistLongLoginCookies(ctx context.Context, detail *db.CookieDetail, result *xrenew.LongLoginSettings, requestURL string) error {
+	if result == nil || result.NewCookies == "" || result.NewCookies == detail.Value {
+		return nil
+	}
+	snapshot := cookierefresh.SnapshotFromMetadata(detail.MetadataJSON)
+	if len(snapshot) == 0 {
+		snapshot = cookierefresh.SnapshotFromCookieString(detail.Value, ".goofish.com")
+	}
+	snapshot = cookierefresh.ApplySetCookies(snapshot, requestURL, result.SetCookies, time.Now())
+	metadata := cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, snapshot)
+	if err := s.Store.Cookies.UpdateRenewalCookie(ctx, detail.ID, result.NewCookies, metadata, time.Now().Unix()); err != nil {
+		s.Logger.Warn("保存长登录 Cookie 失败", "cookie_id", detail.ID, "err", err)
+		return err
+	}
+	if s.Store.Tokens != nil {
+		_ = s.Store.Tokens.Clear(ctx, detail.ID)
+	}
+	if s.Manager != nil && s.Store.Cookies.GetStatus(ctx, detail.ID) {
+		if err := s.Manager.Restart(ctx, detail.ID); err != nil {
+			s.Logger.Warn("保存登录信息更新后重启账号失败", "cookie_id", detail.ID, "err", err)
+		}
+	}
+	return nil
 }
 
 type updateCookieSettingsRequest struct {

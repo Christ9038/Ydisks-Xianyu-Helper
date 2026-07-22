@@ -54,6 +54,11 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 	if err != nil || cfg == nil || !cfg.AIEnabled {
 		return nil, nil // 未启用 AI
 	}
+	// AI 设置面向砍价场景。普通未命中消息继续交给默认回复，避免 AI
+	// 抢答问候、售后等与砍价无关的消息。
+	if !bargainMessageRe.MatchString(strings.ToLower(m.Text)) {
+		return nil, nil
+	}
 	aiCfg, err := a.globalAIConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("读取全局 AI 配置失败: %w", err)

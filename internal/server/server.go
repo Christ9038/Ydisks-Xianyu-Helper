@@ -27,6 +27,7 @@ import (
 	"xianyu-go/internal/webui"
 	"xianyu-go/internal/xianyu/mtop"
 	"xianyu-go/internal/xianyu/qrlogin"
+	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
 type qrLoginService interface {
@@ -63,6 +64,7 @@ type Server struct {
 	PasswordLogin passwordLoginRunner
 	notifier      *notify.Notifier
 	MTop          mtop.Client
+	CookieRenew   xrenew.Service
 	QRLogin       qrLoginService
 	Logger        *slog.Logger
 	WebDir        string // 前端静态资源目录（含 index.html）
@@ -110,6 +112,7 @@ func New(store *db.Store, manager *account.Manager, bm *browser.Manager, secure 
 		PasswordLogin: passwordLoginRunnerForBrowser(bm),
 		notifier:      notifier,
 		MTop:          mtop.NewClient(),
+		CookieRenew:   xrenew.Service{},
 		QRLogin:       qrMgr,
 		Logger:        logger,
 		WebDir:        webDir,

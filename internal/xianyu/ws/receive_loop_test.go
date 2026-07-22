@@ -66,7 +66,7 @@ func TestReceiveLoop_DecodesSyncPayload(t *testing.T) {
 	defer dialed.CloseNow()
 	dialed.SetReadLimit(8 << 20)
 
-	conn := &Conn{ws: dialed, logger: nilLogger()}
+	conn := newConn(dialed, Config{}, nilLogger())
 
 	var got map[string]any
 	loopDone := make(chan error, 1)
@@ -120,7 +120,7 @@ func TestReceiveLoop_NonJSONSkipped(t *testing.T) {
 	defer dialed.CloseNow()
 	dialed.SetReadLimit(8 << 20)
 
-	conn := &Conn{ws: dialed, logger: nilLogger()}
+	conn := newConn(dialed, Config{}, nilLogger())
 	var got map[string]any
 	loopDone := make(chan error, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -162,7 +162,7 @@ func TestHeartbeatLoop_ContextCancel(t *testing.T) {
 	defer dialed.CloseNow()
 	dialed.SetReadLimit(8 << 20)
 
-	conn := &Conn{ws: dialed, logger: nilLogger()}
+	conn := newConn(dialed, Config{}, nilLogger())
 	ctx, cancel := context.WithCancel(context.Background())
 	loopDone := make(chan error, 1)
 	go func() {

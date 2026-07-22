@@ -8,6 +8,7 @@ import ItemList from './components/ItemList';
 import Settings from './components/Settings';
 import Rules from './components/Rules';
 import Notifications from './components/Notifications';
+import { YdisksBrandIcon } from './components/YdisksLogo';
 import { login, logout, verifySession } from './services/api';
 import { ShieldCheck, ArrowRight, Loader2, User, Lock } from 'lucide-react';
 
@@ -157,8 +158,8 @@ const App: React.FC = () => {
 
         <div className="bg-white/80 backdrop-blur-3xl p-8 md:p-12 rounded-xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] w-full max-w-xl border border-white relative z-10 animate-fade-in">
           <div className="text-center mb-8">
-            <div className="w-24 h-24 bg-[#0094f7] squircle flex items-center justify-center mx-auto mb-6 transition-all duration-500 p-4" style={{ filter: 'drop-shadow(0 8px 20px rgba(0,148,247,0.3))' }}>
-              <img src="/static/ydisks-logo.svg" alt="Ydisks" className="w-full h-full" />
+            <div className="mx-auto mb-6 flex justify-center">
+              <YdisksBrandIcon sizeClass="w-24 h-24" />
             </div>
             <h2 className="text-3xl font-extrabold text-gray-900 mb-2 tracking-tight">系统尚未初始化</h2>
             <p className="text-gray-600 font-medium">为避免默认口令风险，管理员必须通过服务器本机 CLI 初始化。</p>
@@ -202,8 +203,8 @@ const App: React.FC = () => {
           
           {/* Header with Logo */}
           <div className="text-center mb-10">
-             <div className="w-24 h-24 bg-[#0094f7] squircle flex items-center justify-center mx-auto mb-6 transition-all duration-500 cursor-pointer group p-4" style={{ filter: 'drop-shadow(0 8px 20px rgba(0,148,247,0.3))' }}>
-                <img src="/static/ydisks-logo.svg" alt="Ydisks" className="w-full h-full group-hover:scale-110 transition-transform" />
+             <div className="group mx-auto mb-6 flex cursor-pointer justify-center">
+                <YdisksBrandIcon sizeClass="w-24 h-24" logoClassName="w-full h-full text-white group-hover:scale-110 transition-transform" />
              </div>
              <h2 className="text-3xl font-extrabold text-gray-900 mb-2 tracking-tight">欢迎回来</h2>
              <p className="text-gray-500 font-medium">Ydisks闲鱼助手 · 自动发货与管家系统</p>

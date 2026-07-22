@@ -71,13 +71,14 @@ describe('frontend navigation routing', () => {
     expect(settings).toContain('只有网络不可用或超时才回退本机引擎');
   });
 
-  test('email notification config uses backend recipient field names', () => {
+  test('email notification config separates system and custom SMTP modes', () => {
     const notifications = readFrontendFile('components/Notifications.tsx');
 
     expect(notifications).toContain('interface NotificationsProps');
     expect(notifications).toContain('isAdmin && (');
     expect(notifications).toContain("key: 'to_email'");
-    expect(notifications).toContain('留空时使用上方系统级 SMTP 配置');
+    expect(notifications).toContain('完整继承系统 SMTP');
+    expect(notifications).toContain('use_custom_smtp');
     expect(notifications).not.toContain("key: 'from'");
     expect(notifications).not.toContain('注册验证码');
   });

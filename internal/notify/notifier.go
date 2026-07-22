@@ -597,15 +597,15 @@ func (n *Notifier) sendTelegram(cfg map[string]any, message string) error {
 func (n *Notifier) sendEmail(cfg map[string]any, message string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	server := n.configOrSetting(ctx, cfg, "smtp_server", "")
-	port := n.configOrSetting(ctx, cfg, "smtp_port", "587")
-	user := n.configOrSetting(ctx, cfg, "smtp_user", "")
-	pass := n.configOrSetting(ctx, cfg, "smtp_password", "")
-	useTLS := parseConfigBool(n.configOrSetting(ctx, cfg, "smtp_use_tls", "true"), true)
-	useSSL := parseConfigBool(n.configOrSetting(ctx, cfg, "smtp_use_ssl", "false"), false)
-	fromAddress := n.configOrSetting(ctx, cfg, "smtp_from_address", "")
-	fromName := n.configOrSetting(ctx, cfg, "smtp_from_name", "")
-	legacyFrom := n.configOrSetting(ctx, cfg, "smtp_from", "")
+	server := n.smtpConfigValue(ctx, cfg, "smtp_server", "")
+	port := n.smtpConfigValue(ctx, cfg, "smtp_port", "587")
+	user := n.smtpConfigValue(ctx, cfg, "smtp_user", "")
+	pass := n.smtpConfigValue(ctx, cfg, "smtp_password", "")
+	useTLS := parseConfigBool(n.smtpConfigValue(ctx, cfg, "smtp_use_tls", "true"), true)
+	useSSL := parseConfigBool(n.smtpConfigValue(ctx, cfg, "smtp_use_ssl", "false"), false)
+	fromAddress := n.smtpConfigValue(ctx, cfg, "smtp_from_address", "")
+	fromName := n.smtpConfigValue(ctx, cfg, "smtp_from_name", "")
+	legacyFrom := n.smtpConfigValue(ctx, cfg, "smtp_from", "")
 	to := strOr(cfg, "to_email", strOr(cfg, "email", ""))
 	if server == "" || user == "" || to == "" {
 		return fmt.Errorf("邮件配置不完整：请配置系统 SMTP 或在邮件渠道中覆盖 SMTP，并填写收件邮箱")
@@ -746,6 +746,27 @@ func (n *Notifier) configOrSetting(ctx context.Context, cfg map[string]any, key,
 	if n.store != nil && n.store.Settings != nil {
 		if v, err := n.store.Settings.Get(ctx, key); err == nil && strings.TrimSpace(v) != "" {
 			return strings.TrimSpace(v)
+		}
+	}
+	return fallbackValue
+}
+
+// smtpConfigValue keeps legacy per-field fallback behavior for existing rows,
+// while new rows use an explicit all-system or all-channel SMTP mode.
+func (n *Notifier) smtpConfigValue(ctx context.Context, cfg map[string]any, key, fallbackValue string) string {
+	modeValue, hasExplicitMode := cfg["use_custom_smtp"]
+	if !hasExplicitMode {
+		return n.configOrSetting(ctx, cfg, key, fallbackValue)
+	}
+	if parseConfigBool(fmt.Sprintf("%v", modeValue), false) {
+		if value := strings.TrimSpace(strOr(cfg, key, "")); value != "" {
+			return value
+		}
+		return fallbackValue
+	}
+	if n.store != nil && n.store.Settings != nil {
+		if value, err := n.store.Settings.Get(ctx, key); err == nil && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
 		}
 	}
 	return fallbackValue

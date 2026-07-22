@@ -11,7 +11,67 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/xianyu/cookierefresh"
+	xrenew "xianyu-go/internal/xianyu/renew"
 )
+
+func TestLongLoginSettingsProxyAndPersistCookieSnapshot(t *testing.T) {
+	passport := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("fromSite") != "77" || r.URL.Query().Get("appName") != "xianyu" || r.URL.Query().Get("bizEntrance") != "web" {
+			t.Fatalf("query=%s", r.URL.RawQuery)
+		}
+		if strings.Contains(r.URL.Path, "set") {
+			if err := r.ParseForm(); err != nil || r.Form.Get("status") != "0" {
+				t.Fatalf("form=%v err=%v", r.Form, err)
+			}
+		}
+		w.Header().Add("Set-Cookie", "havana_lgc_exp=4102444800000; Domain=.goofish.com; Path=/; Secure; HttpOnly; SameSite=None")
+		_, _ = w.Write([]byte(`{"content":{"data":{"returnValue":{"canOpenLongLogin":true,"hasLongTokenLogin":true}}}}`))
+	}))
+	defer passport.Close()
+
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.CookieRenew = xrenew.Service{
+		HTTPClient:            passport.Client(),
+		QueryLoginSettingsURL: passport.URL + "/queryLoginSettings.do",
+		SetLoginSettingsURL:   passport.URL + "/setLoginSettings.do",
+	}
+	h := srv.Router()
+	session := loginHelper(t, h)
+
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodGet, "/cookies/acc1/long-login", nil),
+		httptest.NewRequest(http.MethodPut, "/cookies/acc1/long-login", strings.NewReader(`{"enabled":true}`)),
+	} {
+		request.AddCookie(session)
+		recorder := httptest.NewRecorder()
+		h.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", request.Method, recorder.Code, recorder.Body.String())
+		}
+		var result xrenew.LongLoginSettings
+		if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil || !result.CanOpenLongLogin || !result.Enabled {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+	}
+
+	detail, err := store.Cookies.GetDetails(context.Background(), "acc1")
+	if err != nil || !strings.Contains(detail.Value, "havana_lgc_exp=4102444800000") {
+		t.Fatalf("cookie detail=%+v err=%v", detail, err)
+	}
+	snapshot := cookierefresh.SnapshotFromMetadata(detail.MetadataJSON)
+	var longLoginCookie *cookierefresh.BrowserCookie
+	for i := range snapshot {
+		if snapshot[i].Name == "havana_lgc_exp" {
+			longLoginCookie = &snapshot[i]
+			break
+		}
+	}
+	if longLoginCookie == nil || longLoginCookie.Domain != ".goofish.com" || !longLoginCookie.Secure || !longLoginCookie.HTTPOnly {
+		t.Fatalf("未保留 Set-Cookie 属性: %+v", snapshot)
+	}
+}
 
 // TestListCookies 列表 cookie_id。
 func TestListCookies(t *testing.T) {

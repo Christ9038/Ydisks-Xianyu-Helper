@@ -136,8 +136,8 @@ func decodeCard(r *http.Request) (*db.CardFull, error) {
 	default:
 		return nil, errStr("类型必须为 text、data、image 或 api")
 	}
-	if req.DelaySeconds < 0 || req.DelaySeconds > 86400 {
-		return nil, errStr("延时发货必须在 0 到 86400 秒之间")
+	if req.DelaySeconds < 0 || req.DelaySeconds > 3600 {
+		return nil, errStr("延时发货必须在 0 到 3600 秒之间")
 	}
 	switch req.Type {
 	case "text":

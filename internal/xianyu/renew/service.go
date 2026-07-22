@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,20 +22,125 @@ import (
 )
 
 const (
-	HasLoginURL          = "https://passport.goofish.com/newlogin/hasLogin.do"
-	SilentHasLoginURL    = "https://passport.goofish.com/newlogin/silentHasLogin.do"
-	SetLoginSettingsURL  = "https://passport.goofish.com/ac/account/setLoginSettings.do"
-	defaultRequestTimout = 20 * time.Second
-	maxRenewBodyBytes    = 2 << 20
+	HasLoginURL           = "https://passport.goofish.com/newlogin/hasLogin.do"
+	SilentHasLoginURL     = "https://passport.goofish.com/newlogin/silentHasLogin.do"
+	SetLoginSettingsURL   = "https://passport.goofish.com/ac/account/setLoginSettings.do"
+	QueryLoginSettingsURL = "https://passport.goofish.com/ac/account/queryLoginSettings.do"
+	defaultRequestTimout  = 2 * time.Second
+	maxRenewBodyBytes     = 2 << 20
 )
 
 // Service 是 Cookie 接口续期服务。零值可用；测试可覆盖 URL 和 HTTPClient。
 type Service struct {
-	HTTPClient          *http.Client
-	HasLoginURL         string
-	SilentHasLoginURL   string
-	SetLoginSettingsURL string
-	RetryDelay          time.Duration
+	HTTPClient            *http.Client
+	HasLoginURL           string
+	SilentHasLoginURL     string
+	QueryLoginSettingsURL string
+	SetLoginSettingsURL   string
+	DocumentReferer       string
+	RetryDelay            time.Duration
+}
+
+type LongLoginSettings struct {
+	CanOpenLongLogin bool     `json:"can_open_long_login"`
+	Enabled          bool     `json:"enabled"`
+	NewCookies       string   `json:"-"`
+	SetCookies       []string `json:"-"`
+}
+
+// QueryLongLoginSettings 对齐官网个人信息弹窗的“保存登录信息”查询。
+func (s Service) QueryLongLoginSettings(ctx context.Context, cookiesStr string) (*LongLoginSettings, error) {
+	return s.longLoginRequest(ctx, cookiesStr, nil)
+}
+
+// SetLongLoginSettings 中 status=0 表示开启，status=1 表示关闭。
+func (s Service) SetLongLoginSettings(ctx context.Context, cookiesStr string, enabled bool) (*LongLoginSettings, error) {
+	status := "1"
+	if enabled {
+		status = "0"
+	}
+	return s.longLoginRequest(ctx, cookiesStr, &status)
+}
+
+func (s Service) longLoginRequest(ctx context.Context, cookiesStr string, status *string) (*LongLoginSettings, error) {
+	target := s.urlOrDefault(s.QueryLoginSettingsURL, QueryLoginSettingsURL)
+	var body io.Reader
+	if status != nil {
+		target = s.urlOrDefault(s.SetLoginSettingsURL, SetLoginSettingsURL)
+		body = strings.NewReader("status=" + url.QueryEscape(*status))
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, body)
+	if err != nil {
+		return nil, err
+	}
+	q := req.URL.Query()
+	q.Set("fromSite", "77")
+	q.Set("appName", "xianyu")
+	q.Set("bizEntrance", "web")
+	req.URL.RawQuery = q.Encode()
+	setSilentHasLoginHeaders(req, cookiesStr, s.documentReferer())
+	if status != nil {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	hc := s.HTTPClient
+	if hc == nil {
+		hc = &http.Client{Timeout: defaultRequestTimout}
+	}
+	requestCtx, cancel := context.WithTimeout(req.Context(), defaultRequestTimout)
+	defer cancel()
+	resp, err := hc.Do(req.Clone(requestCtx))
+	if err != nil {
+		return nil, fmt.Errorf("保存登录信息请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, err := readRenewBody(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("保存登录信息 HTTP 状态异常: %d", resp.StatusCode)
+	}
+	value, ok := findReturnValue(raw)
+	if !ok {
+		return nil, fmt.Errorf("保存登录信息响应缺少 returnValue")
+	}
+	canOpen, _ := value["canOpenLongLogin"].(bool)
+	enabledValue, hasEnabled := value["hasLongTokenLogin"].(bool)
+	if status != nil && !hasEnabled {
+		enabledValue = *status == "0"
+	}
+	setCookies := filterValidSetCookies(resp.Header.Values("Set-Cookie"))
+	return &LongLoginSettings{
+		CanOpenLongLogin: canOpen,
+		Enabled:          enabledValue,
+		NewCookies:       MergeSetCookies(cookiesStr, setCookies),
+		SetCookies:       setCookies,
+	}, nil
+}
+
+func findReturnValue(raw []byte) (map[string]any, bool) {
+	var payload map[string]any
+	if json.Unmarshal(raw, &payload) != nil {
+		return nil, false
+	}
+	return findMapChild(payload, "returnValue", 0)
+}
+
+func findMapChild(parent map[string]any, key string, depth int) (map[string]any, bool) {
+	if parent == nil || depth > 6 {
+		return nil, false
+	}
+	if value, ok := parent[key].(map[string]any); ok {
+		return value, true
+	}
+	for _, child := range parent {
+		if nested, ok := child.(map[string]any); ok {
+			if value, found := findMapChild(nested, key, depth+1); found {
+				return value, true
+			}
+		}
+	}
+	return nil, false
 }
 
 // Result 描述一次接口续期的完整结果。
@@ -45,6 +151,7 @@ type Result struct {
 	RenewMethod        string
 	NewCookies         string
 	UpdatedCookieNames []string
+	SetCookies         []string
 	StepDetails        []StepResult
 	Message            string
 	ResponseText       string
@@ -118,6 +225,7 @@ func (s Service) RenewAPIFirst(ctx context.Context, cookiesStr string) (*Result,
 		RenewMethod:        "auto_login_plugin",
 		NewCookies:         newCookies,
 		UpdatedCookieNames: ChangedCookieNames(cookiesStr, newCookies),
+		SetCookies:         append([]string(nil), call.SetCookies...),
 		StepDetails:        []StepResult{call.Step},
 		Message:            message,
 		ResponseText:       string(call.Body),
@@ -140,8 +248,17 @@ func autoLoginMode(cookies map[string]string, now time.Time) (mode, skipReason s
 }
 
 func cookieTimeAfter(raw string, now time.Time) bool {
-	millis, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
-	return err == nil && millis > now.UnixMilli()
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	millis, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		// plugin.js 使用 Invalid Date <= now；结果为 false，因此非空异常值
+		// 会继续进入对应续期分支。
+		return true
+	}
+	return millis > now.UnixMilli()
 }
 
 func autoLoginSkipMessage(reason string) string {
@@ -167,7 +284,7 @@ func (s Service) callAutoLogin(ctx context.Context, cookiesStr, mode string) (ca
 		return callResult{}, err
 	}
 	q := req.URL.Query()
-	q.Set("documentReferer", "https://www.goofish.com/")
+	q.Set("documentReferer", s.documentReferer())
 	q.Set("appName", "xianyu")
 	q.Set("appEntrance", "xianyu_sdkSilent")
 	q.Set("fromSite", "0")
@@ -181,7 +298,7 @@ func (s Service) callAutoLogin(ctx context.Context, cookiesStr, mode string) (ca
 		return callResult{}, fmt.Errorf("未知静默续期模式: %s", mode)
 	}
 	req.URL.RawQuery = q.Encode()
-	setSilentHasLoginHeaders(req, cookiesStr)
+	setSilentHasLoginHeaders(req, cookiesStr, s.documentReferer())
 	return s.doRenewRequest(req, "silentHasLogin")
 }
 
@@ -190,11 +307,10 @@ func (s Service) doRenewRequest(req *http.Request, name string) (callResult, err
 	if hc == nil {
 		hc = &http.Client{Timeout: defaultRequestTimout}
 	}
-	client := *hc
-	client.CheckRedirect = func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-	resp, err := client.Do(req)
+	requestCtx, cancel := context.WithTimeout(req.Context(), defaultRequestTimout)
+	defer cancel()
+	req = req.Clone(requestCtx)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return callResult{}, fmt.Errorf("%s 请求失败: %w", name, err)
 	}
@@ -209,7 +325,7 @@ func (s Service) doRenewRequest(req *http.Request, name string) (callResult, err
 		HTTPStatus:     resp.StatusCode,
 		SetCookieCount: len(setCookies),
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		step.Message = fmt.Sprintf("HTTP状态异常: %d", resp.StatusCode)
 		return callResult{Step: step, SetCookies: setCookies, Body: body}, nil
 	}
@@ -246,8 +362,7 @@ func renewBusinessOK(body []byte) bool {
 			return true
 		}
 	}
-	ok, _ := content["success"].(bool)
-	return ok
+	return false
 }
 
 func mtopInt(v any) int {
@@ -265,14 +380,15 @@ func mtopInt(v any) int {
 	}
 }
 
-func setSilentHasLoginHeaders(req *http.Request, cookiesStr string) {
+func setSilentHasLoginHeaders(req *http.Request, cookiesStr, documentReferer string) {
 	xianyu.ApplyBrowserFingerprint(req.Header)
 	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Accept-Language", "en,zh-CN;q=0.9,zh;q=0.8,ru;q=0.7")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Priority", "u=1, i")
-	req.Header.Set("Referer", "https://www.goofish.com/")
+	req.Header.Set("Origin", "https://www.goofish.com")
+	req.Header.Set("Referer", documentReferer)
 	req.Header.Set("sec-fetch-dest", "empty")
 	req.Header.Set("sec-fetch-mode", "cors")
 	req.Header.Set("sec-fetch-site", "same-site")
@@ -284,6 +400,13 @@ func (s Service) urlOrDefault(v, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func (s Service) documentReferer() string {
+	if strings.TrimSpace(s.DocumentReferer) != "" {
+		return strings.TrimSpace(s.DocumentReferer)
+	}
+	return "https://www.goofish.com/im"
 }
 
 func readRenewBody(r io.Reader) ([]byte, error) {
@@ -312,7 +435,7 @@ func filterValidSetCookies(setCookies []string) []string {
 	}
 	out := make([]string, 0, len(setCookies))
 	for _, sc := range setCookies {
-		if strings.Contains(sc, "Max-Age=0") || strings.Contains(sc, "1970") {
+		if strings.TrimSpace(sc) == "" {
 			continue
 		}
 		out = append(out, sc)
@@ -325,19 +448,15 @@ func filterValidSetCookies(setCookies []string) []string {
 func MergeSetCookies(original string, setCookies []string) string {
 	cookies := protocol.TransCookies(original)
 	for _, sc := range setCookies {
-		pair := sc
-		if i := strings.Index(pair, ";"); i >= 0 {
-			pair = pair[:i]
-		}
-		name, val, ok := strings.Cut(pair, "=")
-		if !ok {
+		parsed, err := http.ParseSetCookie(sc)
+		if err != nil || strings.TrimSpace(parsed.Name) == "" {
 			continue
 		}
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
+		if parsed.MaxAge < 0 || (!parsed.Expires.IsZero() && !parsed.Expires.After(time.Now())) {
+			delete(cookies, parsed.Name)
+		} else {
+			cookies[parsed.Name] = parsed.Value
 		}
-		cookies[name] = strings.TrimSpace(val)
 	}
 	return marshalCookies(cookies)
 }
@@ -347,8 +466,15 @@ func ChangedCookieNames(original, newCookies string) []string {
 	oldMap := protocol.TransCookies(original)
 	newMap := protocol.TransCookies(newCookies)
 	changed := make([]string, 0)
-	for k, v := range newMap {
-		if oldMap[k] != v {
+	seen := make(map[string]struct{}, len(oldMap)+len(newMap))
+	for k := range oldMap {
+		seen[k] = struct{}{}
+	}
+	for k := range newMap {
+		seen[k] = struct{}{}
+	}
+	for k := range seen {
+		if oldMap[k] != newMap[k] {
 			changed = append(changed, k)
 		}
 	}

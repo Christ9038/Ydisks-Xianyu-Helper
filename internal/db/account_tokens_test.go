@@ -39,21 +39,21 @@ func TestAccountTokens_CRUD(t *testing.T) {
 		t.Fatalf("Get 返回不匹配: %+v", tk)
 	}
 
-	// 再次 Save 更新 token，但永久 device ID 不允许覆盖。
+	// 页面运行实例变化后，再次 Save 同步更新 device ID 和 token。
 	if err := store.Tokens.SaveBound(ctx, "cid", "dev-2", "tok-2", expire+1, "cookie-hash-2"); err != nil {
 		t.Fatalf("Save upsert: %v", err)
 	}
 	tk, _ = store.Tokens.Get(ctx, "cid")
-	if tk.DeviceID != "dev-1" || tk.AccessToken != "tok-2" || tk.ExpireAt != expire+1 || tk.CookieFingerprint != "cookie-hash-2" {
+	if tk.DeviceID != "dev-2" || tk.AccessToken != "tok-2" || tk.ExpireAt != expire+1 || tk.CookieFingerprint != "cookie-hash-2" {
 		t.Fatalf("upsert 后字段应更新: %+v", tk)
 	}
 
-	// Clear 只清 token，永久 device ID 必须保留。
+	// Clear 只清 token，保留最近一次页面运行实例的 device ID。
 	if err := store.Tokens.Clear(ctx, "cid"); err != nil {
 		t.Fatalf("Clear: %v", err)
 	}
 	tk, err = store.Tokens.Get(ctx, "cid")
-	if err != nil || tk.DeviceID != "dev-1" || tk.AccessToken != "" || tk.ExpireAt != 0 || tk.CookieFingerprint != "" {
+	if err != nil || tk.DeviceID != "dev-2" || tk.AccessToken != "" || tk.ExpireAt != 0 || tk.CookieFingerprint != "" {
 		t.Fatalf("Clear 后 device ID 应保留且 token 清空: tk=%+v err=%v", tk, err)
 	}
 
@@ -63,7 +63,7 @@ func TestAccountTokens_CRUD(t *testing.T) {
 	}
 }
 
-func TestAccountTokens_DeviceIDSurvivesTokenLifecycle(t *testing.T) {
+func TestAccountTokens_SaveTracksLatestRuntimeDeviceID(t *testing.T) {
 	store, cleanup := newTestDB(t)
 	defer cleanup()
 	ctx := context.Background()
@@ -83,8 +83,8 @@ func TestAccountTokens_DeviceIDSurvivesTokenLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	afterRestart, err := store.Tokens.GetOrCreateDeviceID(ctx, "cid", "device-after-restart")
-	if err != nil || first != "device-first" || afterRestart != first {
-		t.Fatalf("device ID changed across token lifecycle: first=%q after=%q err=%v", first, afterRestart, err)
+	if err != nil || first != "device-first" || afterRestart != "device-replacement" {
+		t.Fatalf("未保留最近一次运行时 device ID: first=%q after=%q err=%v", first, afterRestart, err)
 	}
 }
 

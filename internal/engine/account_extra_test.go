@@ -275,8 +275,8 @@ func TestTryAPIRenewSuccessShortCircuitsRecovery(t *testing.T) {
 	if saved != "unb=123; _m_h5_tk=tk_2;" {
 		t.Fatalf("DB cookie 未更新: %q", saved)
 	}
-	if tk, err := store.Tokens.Get(ctx, "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != acc.deviceID {
-		t.Fatalf("接口续期后应清 token 并保留 device ID: tk=%+v err=%v", tk, err)
+	if tk, err := store.Tokens.Get(ctx, "cid"); err != nil || tk.AccessToken != "" {
+		t.Fatalf("接口续期后应清 token；数据库中的旧 device ID 不再参与运行时身份: tk=%+v err=%v", tk, err)
 	}
 }
 
@@ -306,8 +306,8 @@ func TestTryAPIRenewPartialCookiesContinueRecovery(t *testing.T) {
 	if saved != "unb=123; _m_h5_tk=partial;" {
 		t.Fatalf("部分 cookie 应先保存到 DB: %q", saved)
 	}
-	if tk, err := store.Tokens.Get(ctx, "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != acc.deviceID {
-		t.Fatalf("部分 cookie 更新后应清 token 并保留 device ID: tk=%+v err=%v", tk, err)
+	if tk, err := store.Tokens.Get(ctx, "cid"); err != nil || tk.AccessToken != "" {
+		t.Fatalf("部分 cookie 更新后应清 token: tk=%+v err=%v", tk, err)
 	}
 }
 

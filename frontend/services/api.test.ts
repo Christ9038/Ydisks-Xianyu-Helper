@@ -187,6 +187,18 @@ test('getItems normalizes multi-spec flags from backend values', async () => {
   });
 });
 
+test('getItems forwards the selected account filter', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse([]));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await getItems('account-2');
+
+  expect(fetchMock).toHaveBeenCalledWith('/items?cookie_id=account-2', expect.objectContaining({
+    method: 'GET',
+    credentials: 'include',
+  }));
+});
+
 test('getSystemSettings normalizes numeric renewal retention', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
     ai_model: 'qwen-plus',

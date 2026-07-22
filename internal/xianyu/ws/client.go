@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -19,17 +20,17 @@ import (
 )
 
 // WSURL 闲鱼 IM WebSocket 地址。
-const WSURL = "wss://wss-goofish.dingtalk.com/"
+const WSURL = "wss://wss-goofish.dingtalk.com:443"
 
 const (
-	wsOpenTimeout        = 30 * time.Second
-	regResponseTimeout   = 30 * time.Second
-	protocolPingInterval = 20 * time.Second
-	protocolPingTimeout  = 15 * time.Second
+	wsOpenTimeout      = 30 * time.Second
+	regResponseTimeout = 30 * time.Second
 )
 
-// 变量仅用于让单元测试无需真实等待 10 秒；生产值严格对齐参考实现。
-var heartbeatRetryInterval = 5 * time.Second
+var (
+	heartbeatResponseTimeout = 30 * time.Second
+	batchConnectDelays       = []time.Duration{0, 200 * time.Millisecond, 900 * time.Millisecond, 1500 * time.Millisecond, 4 * time.Second}
+)
 
 // RegAppKey WS /reg 用的 app-key。
 const RegAppKey = "444e9908a51d1cb236a27862abc769c9"
@@ -44,18 +45,28 @@ type Config struct {
 
 // Conn 包装一条已注册的 WebSocket 连接。
 type Conn struct {
-	ws        *websocket.Conn
-	cfg       Config
-	logger    *slog.Logger
-	sendMu    sync.Mutex
-	preReadMu sync.Mutex
-	preRead   []bufferedFrame
-	recorder  func(direction, rawText, parsedJSON, parseStatus, errMsg string)
+	ws       *websocket.Conn
+	cfg      Config
+	logger   *slog.Logger
+	sendMu   sync.Mutex
+	recorder func(direction, rawText, parsedJSON, parseStatus, errMsg string)
+
+	readCtx    context.Context
+	readCancel context.CancelFunc
+	readDone   chan struct{}
+	initOnce   sync.Once
+	readErrMu  sync.Mutex
+	readErr    error
+
+	pendingMu sync.Mutex
+	pending   map[string]chan map[string]any
+	pushes    chan incomingFrame
 }
 
-type bufferedFrame struct {
+type incomingFrame struct {
 	messageType websocket.MessageType
 	data        []byte
+	parsed      map[string]any
 }
 
 // SetRecorder 设置帧记录器。
@@ -63,135 +74,208 @@ func (c *Conn) SetRecorder(rec func(direction, rawText, parsedJSON, parseStatus,
 	c.recorder = rec
 }
 
-// Dial 建立并注册 WS 连接：握手 → /reg → /r/SyncStatus/ackDiff。
+// Dial 保留旧的一步式入口；新账号主循环使用 Open → 获取 token → Register，
+// 从而与官网 authConnect 的顺序一致。
 func Dial(ctx context.Context, cfg Config, logger *slog.Logger) (*Conn, error) {
-	if logger == nil {
-		logger = slog.Default()
-	}
-	// 参考实现的 WEBSOCKET_HEADERS 为空，只在拨号前加入 Cookie。额外伪造
-	// Origin/User-Agent 等头会改变服务端看到的连接指纹。
-	hdr := websocketHeaders(cfg.CookieStr)
-
-	logger.Info("正在连接闲鱼 WebSocket", "url", WSURL)
-	dialCtx, cancel := context.WithTimeout(ctx, wsOpenTimeout)
-	defer cancel()
-	c, _, err := websocket.Dial(dialCtx, WSURL, &websocket.DialOptions{HTTPHeader: hdr})
+	conn, err := Open(ctx, cfg, logger)
 	if err != nil {
-		return nil, fmt.Errorf("WS dial: %w", err)
+		return nil, err
 	}
-	// 闲鱼消息多为文本 JSON。
-	c.SetReadLimit(8 << 20) // 8 MiB，宽松上限
-
-	conn := &Conn{ws: c, cfg: cfg, logger: logger, recorder: cfg.Recorder}
-	if err := conn.register(ctx); err != nil {
-		_ = c.CloseNow()
+	if err := conn.Register(ctx, cfg.DeviceID, cfg.AccessToken); err != nil {
+		_ = conn.Close()
 		return nil, err
 	}
 	return conn, nil
 }
 
-func websocketHeaders(cookieStr string) http.Header {
+// Open 按官网 batchConnectWs 策略并行打开最多五条原生 WebSocket，采用最先
+// 成功的连接并关闭冗余连接。此阶段不请求 token，也不发送 /reg。
+func Open(ctx context.Context, cfg Config, logger *slog.Logger) (*Conn, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	logger.Info("正在连接闲鱼 WebSocket", "url", WSURL)
+	return openBatch(ctx, WSURL, cfg, logger)
+}
+
+func websocketHeaders() http.Header {
 	hdr := http.Header{}
-	hdr.Set("Cookie", strings.NewReplacer("\n", "", "\r", "").Replace(cookieStr))
+	hdr.Set("Origin", "https://www.goofish.com")
+	if ua := xianyu.CurrentBrowserFingerprint().UserAgent; ua != "" {
+		hdr.Set("User-Agent", ua)
+	}
 	return hdr
 }
 
-// register 发送 /reg 与 ackDiff。
+var (
+	chromeVersionPattern  = regexp.MustCompile(`(?:Chrome|CriOS)/([\d.]+)`)
+	edgeVersionPattern    = regexp.MustCompile(`Edg(?:e|A|iOS)?/([\d.]+)`)
+	firefoxVersionPattern = regexp.MustCompile(`Firefox/([\d.]+)`)
+	safariVersionPattern  = regexp.MustCompile(`Version/([\d.]+).*Safari`)
+	macVersionPattern     = regexp.MustCompile(`Mac OS X[ /]([\d_\.]+)`)
+	windowsVersionPattern = regexp.MustCompile(`Windows NT ([\d.]+)`)
+	androidVersionPattern = regexp.MustCompile(`Android[ /]([\d.]+)`)
+)
+
+// OfficialRegistrationUA mirrors IMPaaS 2.2.0's ua-parser-js composition.
+// The raw UA (and therefore its browser version) comes from local Chromium;
+// all wrapper fields and ordering are fixed to the official web implementation.
+func OfficialRegistrationUA(rawUA string) string {
+	rawUA = strings.TrimSpace(rawUA)
+	if rawUA == "" {
+		return ""
+	}
+	osName, osVersion := parseOfficialOS(rawUA)
+	browserName, browserVersion := parseOfficialBrowser(rawUA)
+	return strings.Join([]string{
+		rawUA,
+		"DingTalk(2.2.0)",
+		fmt.Sprintf("OS(%s/%s)", osName, osVersion),
+		fmt.Sprintf("Browser(%s/%s)", browserName, browserVersion),
+		"DingWeb/2.2.0",
+		"DingWeb/2.2.0",
+	}, " ")
+}
+
+func parseOfficialOS(ua string) (string, string) {
+	if match := macVersionPattern.FindStringSubmatch(ua); len(match) == 2 {
+		return "Mac OS", strings.ReplaceAll(match[1], "_", ".")
+	}
+	if match := windowsVersionPattern.FindStringSubmatch(ua); len(match) == 2 {
+		versions := map[string]string{"10.0": "10", "6.3": "8.1", "6.2": "8", "6.1": "7", "6.0": "Vista", "5.1": "XP"}
+		if version := versions[match[1]]; version != "" {
+			return "Windows", version
+		}
+		return "Windows", match[1]
+	}
+	if match := androidVersionPattern.FindStringSubmatch(ua); len(match) == 2 {
+		return "Android", match[1]
+	}
+	if strings.Contains(ua, "Linux") {
+		return "Linux", "other"
+	}
+	return "other", "other"
+}
+
+func parseOfficialBrowser(ua string) (string, string) {
+	for _, candidate := range []struct {
+		name    string
+		pattern *regexp.Regexp
+	}{{"Edge", edgeVersionPattern}, {"Chrome", chromeVersionPattern}, {"Firefox", firefoxVersionPattern}, {"Safari", safariVersionPattern}} {
+		if match := candidate.pattern.FindStringSubmatch(ua); len(match) == 2 {
+			return candidate.name, match[1]
+		}
+	}
+	return "other", "other"
+}
+
+type dialResult struct {
+	conn *websocket.Conn
+	err  error
+}
+
+func openBatch(ctx context.Context, target string, cfg Config, logger *slog.Logger) (*Conn, error) {
+	batchCtx, cancel := context.WithCancel(ctx)
+	results := make(chan dialResult, len(batchConnectDelays))
+	for _, delay := range batchConnectDelays {
+		delay := delay
+		go func() {
+			if delay > 0 {
+				timer := time.NewTimer(delay)
+				defer timer.Stop()
+				select {
+				case <-batchCtx.Done():
+					results <- dialResult{err: batchCtx.Err()}
+					return
+				case <-timer.C:
+				}
+			}
+			dialCtx, dialCancel := context.WithTimeout(batchCtx, wsOpenTimeout)
+			defer dialCancel()
+			conn, _, err := websocket.Dial(dialCtx, target, &websocket.DialOptions{HTTPHeader: websocketHeaders()})
+			results <- dialResult{conn: conn, err: err}
+		}()
+	}
+
+	var lastErr error
+	for processed := 1; processed <= len(batchConnectDelays); processed++ {
+		result := <-results
+		if result.err != nil {
+			lastErr = result.err
+			continue
+		}
+		cancel()
+		// 继续排空结果并关闭稍后成功的冗余连接。
+		remaining := len(batchConnectDelays) - processed
+		go func() {
+			for i := 0; i < remaining; i++ {
+				result := <-results
+				if result.conn != nil {
+					_ = result.conn.CloseNow()
+				}
+			}
+		}()
+		result.conn.SetReadLimit(8 << 20)
+		return newConn(result.conn, cfg, logger), nil
+	}
+	cancel()
+	if lastErr == nil {
+		lastErr = context.Canceled
+	}
+	return nil, fmt.Errorf("WS dial: %w", lastErr)
+}
+
+func newConn(raw *websocket.Conn, cfg Config, logger *slog.Logger) *Conn {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	c := &Conn{ws: raw, cfg: cfg, logger: logger, recorder: cfg.Recorder}
+	c.ensureReadPump()
+	return c
+}
+
+func (c *Conn) ensureReadPump() {
+	c.initOnce.Do(func() {
+		if c.logger == nil {
+			c.logger = slog.Default()
+		}
+		c.readCtx, c.readCancel = context.WithCancel(context.Background())
+		c.readDone = make(chan struct{})
+		c.pending = make(map[string]chan map[string]any)
+		c.pushes = make(chan incomingFrame, 128)
+		go c.readPump()
+	})
+}
+
+// Register 发送官网最终态 /reg headers。注册后不主动构造 ackDiff。
+func (c *Conn) Register(ctx context.Context, deviceID, accessToken string) error {
+	c.ensureReadPump()
+	c.cfg.DeviceID = deviceID
+	c.cfg.AccessToken = accessToken
+	response, err := c.request(ctx, "/reg", map[string]any{
+		"cache-header": "app-key token ua wv",
+		"app-key":      RegAppKey,
+		"token":        accessToken,
+		"ua":           OfficialRegistrationUA(xianyu.CurrentBrowserFingerprint().UserAgent),
+		"dt":           "j",
+		"wv":           "im:3,au:3,sy:6",
+		"sync":         "0,0;0;0;",
+		"did":          deviceID,
+	}, nil, regResponseTimeout)
+	if err != nil {
+		return fmt.Errorf("等待 /reg 响应失败: %w", err)
+	}
+	code, ok := responseCode(response["code"])
+	if ok && code == 200 {
+		c.logger.Info("WS 注册完成")
+		return nil
+	}
+	return newRegError(code, response)
+}
+
+// register 兼容包内旧测试。
 func (c *Conn) register(ctx context.Context) error {
-	regMID := protocol.GenerateMid()
-	reg := map[string]any{
-		"lwp": "/reg",
-		"headers": map[string]any{
-			"cache-header": "app-key token ua wv",
-			"app-key":      RegAppKey,
-			"token":        c.cfg.AccessToken,
-			"ua":           xianyu.CurrentBrowserFingerprint().UserAgent,
-			"dt":           "j",
-			"wv":           "im:3,au:3,sy:6",
-			"sync":         "0,0;0;0;",
-			"did":          c.cfg.DeviceID,
-			"mid":          regMID,
-		},
-	}
-	if err := c.sendJSON(ctx, reg); err != nil {
-		return fmt.Errorf("发送 /reg 失败: %w", err)
-	}
-	if err := c.waitForRegResponse(ctx, regMID); err != nil {
-		return err
-	}
-
-	// 官方只在 /reg 认证成功后启动后续同步。保留原有短等待，避免紧贴注册
-	// 响应发送同步请求。
-	select {
-	case <-time.After(time.Second):
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	now := time.Now().UnixMilli()
-	ackDiff := map[string]any{
-		"lwp":     "/r/SyncStatus/ackDiff",
-		"headers": map[string]any{"mid": protocol.GenerateMid()},
-		"body": []any{
-			map[string]any{
-				"pipeline":    "sync",
-				"tooLong2Tag": "PNM,1",
-				"channel":     "sync",
-				"topic":       "sync",
-				"highPts":     0,
-				"pts":         now * 1000,
-				"seq":         0,
-				"timestamp":   now,
-			},
-		},
-	}
-	if err := c.sendJSON(ctx, ackDiff); err != nil {
-		return fmt.Errorf("发送 ackDiff 失败: %w", err)
-	}
-	c.logger.Info("WS 注册完成")
-	return nil
-}
-
-func (c *Conn) waitForRegResponse(ctx context.Context, requestMID string) error {
-	regCtx, cancel := context.WithTimeout(ctx, regResponseTimeout)
-	defer cancel()
-
-	for {
-		messageType, data, err := c.ws.Read(regCtx)
-		if err != nil {
-			return fmt.Errorf("等待 /reg 响应失败: %w", err)
-		}
-		var frame map[string]any
-		if err := json.Unmarshal(data, &frame); err != nil {
-			c.bufferFrame(messageType, data)
-			continue
-		}
-		if !isRegResponse(frame, requestMID) {
-			c.bufferFrame(messageType, data)
-			continue
-		}
-		c.recordParsedIncoming(data, frame)
-		code, ok := responseCode(frame["code"])
-		if ok && code == 200 {
-			return nil
-		}
-		return newRegError(code, frame)
-	}
-}
-
-func isRegResponse(frame map[string]any, requestMID string) bool {
-	if _, ok := frame["code"]; !ok {
-		return false
-	}
-	headers, _ := frame["headers"].(map[string]any)
-	responseMIDValue, hasMID := headers["mid"]
-	responseMID := strings.TrimSpace(fmt.Sprint(responseMIDValue))
-	if !hasMID || responseMID == "" || responseMID == "<nil>" {
-		// /reg is the only outstanding request during registration. Some gateway
-		// versions omit mid on an immediate authentication failure.
-		return true
-	}
-	return midKey(responseMID) == midKey(requestMID)
+	return c.Register(ctx, c.cfg.DeviceID, c.cfg.AccessToken)
 }
 
 func midKey(mid string) string {
@@ -220,23 +304,111 @@ func responseCode(value any) (int, bool) {
 	return 0, false
 }
 
-func (c *Conn) bufferFrame(messageType websocket.MessageType, data []byte) {
-	copyOfData := append([]byte(nil), data...)
-	c.preReadMu.Lock()
-	c.preRead = append(c.preRead, bufferedFrame{messageType: messageType, data: copyOfData})
-	c.preReadMu.Unlock()
+func (c *Conn) request(ctx context.Context, path string, headers map[string]any, body any, timeout time.Duration) (map[string]any, error) {
+	c.ensureReadPump()
+	if headers == nil {
+		headers = make(map[string]any)
+	}
+	mid := strings.TrimSpace(fmt.Sprint(headers["mid"]))
+	if mid == "" || mid == "<nil>" {
+		mid = protocol.GenerateMid()
+		headers["mid"] = mid
+	}
+	key := midKey(mid)
+	responseCh := make(chan map[string]any, 1)
+	c.pendingMu.Lock()
+	c.pending[key] = responseCh
+	c.pendingMu.Unlock()
+	defer func() {
+		c.pendingMu.Lock()
+		delete(c.pending, key)
+		c.pendingMu.Unlock()
+	}()
+
+	frame := map[string]any{"lwp": path, "headers": headers}
+	if body != nil {
+		frame["body"] = body
+	}
+	if err := c.sendJSON(ctx, frame); err != nil {
+		return nil, err
+	}
+	waitCtx := ctx
+	cancel := func() {}
+	if timeout > 0 {
+		waitCtx, cancel = context.WithTimeout(ctx, timeout)
+	}
+	defer cancel()
+	select {
+	case response := <-responseCh:
+		return response, nil
+	case <-c.readDone:
+		return nil, c.connectionReadError()
+	case <-waitCtx.Done():
+		return nil, waitCtx.Err()
+	}
 }
 
-func (c *Conn) readNext(ctx context.Context) (websocket.MessageType, []byte, error) {
-	c.preReadMu.Lock()
-	if len(c.preRead) > 0 {
-		frame := c.preRead[0]
-		c.preRead = c.preRead[1:]
-		c.preReadMu.Unlock()
-		return frame.messageType, frame.data, nil
+func (c *Conn) readPump() {
+	defer close(c.readDone)
+	for {
+		messageType, data, err := c.ws.Read(c.readCtx)
+		if err != nil {
+			c.readErrMu.Lock()
+			c.readErr = err
+			c.readErrMu.Unlock()
+			return
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			if c.recorder != nil {
+				c.recorder("in", string(data), "", "non_json", err.Error())
+			}
+			continue
+		}
+		c.recordParsedIncoming(data, parsed)
+		if _, hasCode := parsed["code"]; hasCode {
+			if _, hasHeaders := parsed["headers"].(map[string]any); hasHeaders {
+				c.dispatchResponse(parsed)
+				continue
+			}
+		}
+		incoming := incomingFrame{messageType: messageType, data: append([]byte(nil), data...), parsed: parsed}
+		select {
+		case c.pushes <- incoming:
+		case <-c.readCtx.Done():
+			return
+		}
 	}
-	c.preReadMu.Unlock()
-	return c.ws.Read(ctx)
+}
+
+func (c *Conn) dispatchResponse(frame map[string]any) bool {
+	headers, _ := frame["headers"].(map[string]any)
+	key := midKey(strings.TrimSpace(fmt.Sprint(headers["mid"])))
+	c.pendingMu.Lock()
+	ch := c.pending[key]
+	if ch == nil && key == "" && len(c.pending) == 1 {
+		for _, only := range c.pending {
+			ch = only
+		}
+	}
+	c.pendingMu.Unlock()
+	if ch == nil {
+		return false
+	}
+	select {
+	case ch <- frame:
+	default:
+	}
+	return true
+}
+
+func (c *Conn) connectionReadError() error {
+	c.readErrMu.Lock()
+	defer c.readErrMu.Unlock()
+	if c.readErr != nil {
+		return c.readErr
+	}
+	return fmt.Errorf("WebSocket 读取循环已结束")
 }
 
 func (c *Conn) recordParsedIncoming(data []byte, parsed map[string]any) {
@@ -250,111 +422,52 @@ func (c *Conn) recordParsedIncoming(data []byte, parsed map[string]any) {
 	c.recorder("in", string(data), parsedJSON, "json", "")
 }
 
-// HeartbeatLoop 周期性发送应用层心跳 {"lwp":"/!"}，直到 ctx 取消或连续失败 maxFailures 次。
+// HeartbeatLoop 对齐官网：注册后先等待一个间隔，再发送 /! 并等待同 mid 响应；
+// 任一请求失败或 30 秒无响应即结束连接。
 func (c *Conn) HeartbeatLoop(ctx context.Context, interval time.Duration) error {
-	const maxFailures = 3
-	consecutive := 0
-	pingCtx, cancelPing := context.WithCancel(ctx)
-	defer cancelPing()
-	pingErr := make(chan error, 1)
-	go func() { pingErr <- c.protocolPingLoop(pingCtx) }()
-
-	for {
-		// 参考实现连接建立后立即发送应用层心跳，成功后才等待 15 秒。
-		hb := map[string]any{
-			"lwp":     "/!",
-			"headers": map[string]any{"mid": protocol.GenerateMid()},
-		}
-		// 2s 超时保护。
-		sendCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		err := c.sendJSON(sendCtx, hb)
-		cancel()
-		if err != nil {
-			consecutive++
-			c.logger.Error("心跳发送失败", "err", err, "consecutive", consecutive)
-			if consecutive >= maxFailures {
-				return fmt.Errorf("心跳连续失败 %d 次", maxFailures)
-			}
-			if err := waitHeartbeat(ctx, pingErr, heartbeatRetryInterval); err != nil {
-				return err
-			}
-			continue
-		}
-		consecutive = 0
-		if err := waitHeartbeat(ctx, pingErr, interval); err != nil {
-			return err
-		}
-	}
-}
-
-func waitHeartbeat(ctx context.Context, pingErr <-chan error, delay time.Duration) error {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case err := <-pingErr:
-		if err == nil {
-			return fmt.Errorf("WebSocket PING 循环意外退出")
-		}
-		return err
-	case <-timer.C:
-		return nil
-	}
-}
-
-// protocolPingLoop 对齐参考库的 ping_interval=20、ping_timeout=15。
-func (c *Conn) protocolPingLoop(ctx context.Context) error {
-	ticker := time.NewTicker(protocolPingInterval)
+	c.ensureReadPump()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-c.readDone:
+			return c.connectionReadError()
 		case <-ticker.C:
 		}
-		pingCtx, cancel := context.WithTimeout(ctx, protocolPingTimeout)
-		err := c.ws.Ping(pingCtx)
-		cancel()
+		response, err := c.request(ctx, "/!", map[string]any{}, nil, heartbeatResponseTimeout)
 		if err != nil {
-			return fmt.Errorf("WebSocket PING 失败: %w", err)
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return fmt.Errorf("心跳响应失败: %w", err)
+		}
+		if code, ok := responseCode(response["code"]); ok && code != http.StatusOK {
+			return fmt.Errorf("心跳响应状态异常: %d", code)
 		}
 	}
 }
 
-// ReceiveLoop 阻塞读取消息：回 ACK，对同步包解密并回调 handler。
-// 非 JSON / 非同步包消息仅记录后跳过。返回 ctx 错误或致命读取错误。
+// ReceiveLoop 消费 readPump 分发的 Push。响应帧永远不会进入这里，因此不会被
+// 错误 ACK；Push ACK 原样复用服务端完整 headers。
 func (c *Conn) ReceiveLoop(ctx context.Context, onMessage func(decrypted map[string]any)) error {
+	c.ensureReadPump()
 	for {
-		msgType, data, err := c.readNext(ctx)
-		if err != nil {
-			return fmt.Errorf("WS read: %w", err)
+		var frame incomingFrame
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.readDone:
+			return fmt.Errorf("WS read: %w", c.connectionReadError())
+		case frame = <-c.pushes:
 		}
-		_ = msgType
-		rawText := string(data)
-		var raw map[string]any
-		if err := json.Unmarshal(data, &raw); err != nil {
-			if c.recorder != nil {
-				c.recorder("in", rawText, "", "non_json", err.Error())
-			}
-			c.logger.Debug("非 JSON 消息，跳过", "err", err)
-			continue
-		}
-		if c.recorder != nil {
-			if b, e := json.Marshal(raw); e == nil {
-				c.recorder("in", rawText, string(b), "json", "")
-			} else {
-				c.recorder("in", rawText, "", "json", e.Error())
-			}
-		}
-
-		// 心跳响应等直接跳过。
-		if code, ok := raw["code"]; ok && code != nil {
-			c.logger.Debug("收到响应", "code", code)
-		}
-
-		// 收到消息后先回复 ACK。
+		raw := frame.parsed
+		rawText := string(frame.data)
 		c.sendACK(ctx, raw)
+		if err := c.handleSyncExtra(ctx, raw); err != nil {
+			c.logger.Error("同步状态恢复失败", "err", err)
+		}
 
 		// 仅处理同步包：body.syncPushPackage.data[0].data
 		syncData, ok := extractSyncPayload(raw)
@@ -383,34 +496,45 @@ func (c *Conn) ReceiveLoop(ctx context.Context, onMessage func(decrypted map[str
 	}
 }
 
-// sendACK 回复 {"code":200, headers:{mid,sid,...}}，失败时仅记录日志。
+func (c *Conn) handleSyncExtra(ctx context.Context, msg map[string]any) error {
+	body, _ := msg["body"].(map[string]any)
+	extra, _ := body["syncExtraType"].(map[string]any)
+	typeCode, ok := responseCode(extra["type"])
+	if !ok || (typeCode != 1 && typeCode != 2) {
+		return nil
+	}
+	state, err := c.request(ctx, "/r/SyncStatus/getState", map[string]any{}, []any{map[string]any{"topic": "sync"}}, regResponseTimeout)
+	if err != nil {
+		return fmt.Errorf("getState: %w", err)
+	}
+	if code, ok := responseCode(state["code"]); !ok || code != http.StatusOK || state["body"] == nil {
+		return fmt.Errorf("getState 返回异常: code=%v", state["code"])
+	}
+	response, err := c.request(ctx, "/r/SyncStatus/ackDiff", map[string]any{}, []any{state["body"]}, regResponseTimeout)
+	if err != nil {
+		return fmt.Errorf("ackDiff: %w", err)
+	}
+	if code, ok := responseCode(response["code"]); ok && code != http.StatusOK {
+		return fmt.Errorf("ackDiff 返回异常: code=%d", code)
+	}
+	return nil
+}
+
+// sendACK 回复 {"code":200, headers:<服务端完整 headers>}。
 func (c *Conn) sendACK(ctx context.Context, msg map[string]any) {
 	headers, _ := msg["headers"].(map[string]any)
-	ack := map[string]any{
-		"code": 200,
-		"headers": map[string]any{
-			"mid": ackVal(headers, "mid", protocol.GenerateMid()),
-			"sid": ackVal(headers, "sid", ""),
-		},
+	ackHeaders := make(map[string]any, len(headers))
+	for key, value := range headers {
+		ackHeaders[key] = value
 	}
-	ackHeaders := ack["headers"].(map[string]any)
-	for _, k := range []string{"app-key", "ua", "dt"} {
-		if v, ok := headers[k]; ok && v != nil {
-			ackHeaders[k] = v
-		}
+	ack := map[string]any{
+		"code":    200,
+		"headers": ackHeaders,
 	}
 	// ACK 失败不阻塞主循环。
 	ackCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	_ = c.sendJSON(ackCtx, ack)
 	cancel()
-}
-
-// ackVal 取 header 中的 key，缺失或为 nil 时返回 fallback。
-func ackVal(headers map[string]any, key string, fallback any) any {
-	if v, ok := headers[key]; ok && v != nil {
-		return v
-	}
-	return fallback
 }
 
 // extractSyncPayload 取出 body.syncPushPackage.data[0].data（字符串）。
@@ -561,5 +685,7 @@ func stripGoofish(s string) string {
 
 // Close 关闭连接。
 func (c *Conn) Close() error {
+	c.ensureReadPump()
+	c.readCancel()
 	return c.ws.Close(websocket.StatusNormalClosure, "bye")
 }

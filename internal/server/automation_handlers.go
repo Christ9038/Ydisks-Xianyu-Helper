@@ -266,8 +266,8 @@ func (s *Server) normalizeAutomationRuleRequest(r *http.Request, userID int64, r
 		if act.DeliveryCount <= 0 {
 			act.DeliveryCount = 1
 		}
-		if act.DelaySeconds < 0 || act.DelaySeconds > 86400 {
-			return db.AutomationRuleInput{}, errStr("动作延时必须在 0 到 86400 秒之间")
+		if act.DelaySeconds < 0 || act.DelaySeconds > 3600 {
+			return db.AutomationRuleInput{}, errStr("动作延时必须在 0 到 3600 秒之间")
 		}
 		if act.ConfigJSON == "" {
 			act.ConfigJSON = "{}"

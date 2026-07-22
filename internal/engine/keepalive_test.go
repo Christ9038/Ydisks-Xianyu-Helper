@@ -118,8 +118,10 @@ func (s *statusMtop) CheckLoginStatusContext(context.Context, string) (*mtop.Log
 	return s.result, s.err
 }
 
-// TestAcquireToken_CacheHitSkipsMtop 缓存命中且未过期时跳过 mtop 调用。
-func TestAcquireToken_CacheHitSkipsMtop(t *testing.T) {
+// TestAcquireToken_CacheHitStillFetchesFreshToken matches the official web
+// client: every connection attempt calls login.token even when a persisted
+// token has not reached its advertised expiry.
+func TestAcquireToken_CacheHitStillFetchesFreshToken(t *testing.T) {
 	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "tok-mtop"}}
 	acc, _, store, cleanup := newRunAccount(t, mtopClient)
 	defer cleanup()
@@ -129,11 +131,11 @@ func TestAcquireToken_CacheHitSkipsMtop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("acquireToken: %v", err)
 	}
-	if token != "cached-tok" {
-		t.Fatalf("应使用缓存 token，got %s", token)
+	if token != "tok-mtop" {
+		t.Fatalf("应使用新获取 token，got %s", token)
 	}
-	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 0 {
-		t.Fatalf("缓存命中不应调用 mtop，got %d", calls)
+	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 1 {
+		t.Fatalf("每次连接都应调用 mtop，got %d", calls)
 	}
 	if !strings.Contains(cookies, "_m_h5_tk=tk_1") {
 		t.Fatalf("缓存命中应返回其绑定的 Cookie: %q", cookies)
@@ -160,7 +162,7 @@ func TestAcquireToken_RejectsCacheBoundToDifferentCookie(t *testing.T) {
 	}
 }
 
-func TestAcquireRuntimeTokenPreservesMemoryTokenWithoutDatabaseCache(t *testing.T) {
+func TestAcquireRuntimeTokenReplacesMemoryToken(t *testing.T) {
 	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "tok-mtop"}}
 	acc, _, store, cleanup := newRunAccount(t, mtopClient)
 	defer cleanup()
@@ -168,11 +170,11 @@ func TestAcquireRuntimeTokenPreservesMemoryTokenWithoutDatabaseCache(t *testing.
 	_ = store.Tokens.Clear(context.Background(), "cid")
 
 	token, _, err := acc.acquireRuntimeToken(context.Background())
-	if err != nil || token != "runtime-token" {
+	if err != nil || token != "tok-mtop" {
 		t.Fatalf("runtime token=%q err=%v", token, err)
 	}
-	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 0 {
-		t.Fatalf("网络重连复用内存 token 时不应调用 mtop，calls=%d", calls)
+	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 1 {
+		t.Fatalf("网络重连应获取新 token，calls=%d", calls)
 	}
 }
 
@@ -218,6 +220,7 @@ func TestTryLoginStatusCheck_AdoptsUpdatedCookie(t *testing.T) {
 	acc, _, store, cleanup := newRunAccount(t, mtopClient)
 	defer cleanup()
 
+	oldDeviceID := acc.deviceID
 	saveBoundToken(t, store, acc, "old-tok", time.Now().Add(time.Hour).Unix())
 	res := acc.tryLoginStatusCheck(context.Background())
 	if !res.recovered || res.riskRequired {
@@ -230,8 +233,8 @@ func TestTryLoginStatusCheck_AdoptsUpdatedCookie(t *testing.T) {
 	if err != nil || saved != newCookie {
 		t.Fatalf("DB Cookie 未更新: got %q err=%v", saved, err)
 	}
-	if tk, err := store.Tokens.Get(context.Background(), "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != acc.deviceID {
-		t.Fatalf("Cookie 更新后应清 token 并保留 device ID: tk=%+v err=%v", tk, err)
+	if tk, err := store.Tokens.Get(context.Background(), "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != oldDeviceID || acc.deviceID == oldDeviceID {
+		t.Fatalf("Cookie 更新后应清 token 并为页面重载轮换 device ID: runtime=%q tk=%+v err=%v", acc.deviceID, tk, err)
 	}
 }
 
@@ -266,6 +269,7 @@ func TestReloadCookieFromDB_AdoptsNewCookieAndClearsCache(t *testing.T) {
 	acc, _, store, cleanup := newRunAccount(t, &fakeRunMtop{token: "tok-1"})
 	defer cleanup()
 	// 预置旧 session 的 token 缓存。
+	oldDeviceID := acc.deviceID
 	saveBoundToken(t, store, acc, "old-tok", time.Now().Add(time.Hour).Unix())
 	// 外部更新 DB cookie（模拟重新扫码），userID=0 复用现有 user_id。
 	newCookie := "unb=123; _m_h5_tk=newtk_2; sgcookie=abc"
@@ -276,9 +280,9 @@ func TestReloadCookieFromDB_AdoptsNewCookieAndClearsCache(t *testing.T) {
 	if got := acc.CurrentCookieStr(); got != newCookie {
 		t.Fatalf("应采纳 DB 新 cookie，got %s", got)
 	}
-	// 新 cookie 对应新 session，旧 token 应清除但 device ID 必须保留。
-	if tk, err := store.Tokens.Get(context.Background(), "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != acc.deviceID {
-		t.Fatalf("cookie 变更后应清 token 并保留 device ID: tk=%+v err=%v", tk, err)
+	// 新 cookie 对应官网页面重载：旧 token 清除，运行时 device ID 轮换。
+	if tk, err := store.Tokens.Get(context.Background(), "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != oldDeviceID || acc.deviceID == oldDeviceID {
+		t.Fatalf("cookie 变更后应清 token 并轮换运行时 device ID: runtime=%q tk=%+v err=%v", acc.deviceID, tk, err)
 	}
 }
 

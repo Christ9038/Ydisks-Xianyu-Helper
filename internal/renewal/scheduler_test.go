@@ -360,7 +360,7 @@ func TestAPICookieRenewOneUsesSingleSilentRequestAndSavesCookies(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
 		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: strconv.FormatInt(time.Now().Add(time.Hour).UnixMilli(), 10)})
-		_, _ = w.Write([]byte(`{"content":{"success":true},"marker":"single-silent"}`))
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}},"marker":"single-silent"}`))
 	}))
 	defer srv.Close()
 

@@ -267,6 +267,14 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
+	cookieID := strings.TrimSpace(r.URL.Query().Get("cookie_id"))
+	if cookieID != "" {
+		if _, ok := all[cookieID]; !ok {
+			writeErr(w, http.StatusForbidden, "无权限操作该账号")
+			return
+		}
+		all = map[string]string{cookieID: all[cookieID]}
+	}
 	result := []map[string]any{}
 	for cid := range all {
 		items, _ := s.Store.Items.AllForCookie(r.Context(), cid)
@@ -307,6 +315,11 @@ func (s *Server) syncItemsFromAccount(w http.ResponseWriter, r *http.Request) {
 			s.Logger.Error("保存刷新后的 cookie 失败", "cookie_id", req.CookieID, "err", err)
 		}
 	}
+	detailCookies := cookieValue
+	if res.UpdatedCookies != "" {
+		detailCookies = res.UpdatedCookies
+	}
+	s.enrichSyncedItemMultiSpec(ctx, client, detailCookies, req.CookieID, res.Items)
 	saved := s.saveSyncedItems(r.Context(), req.CookieID, res.Items)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success":     true,
@@ -344,6 +357,11 @@ func (s *Server) syncItemsPageFromAccount(w http.ResponseWriter, r *http.Request
 			s.Logger.Error("保存刷新后的 cookie 失败", "cookie_id", req.CookieID, "err", err)
 		}
 	}
+	detailCookies := cookieValue
+	if res.UpdatedCookies != "" {
+		detailCookies = res.UpdatedCookies
+	}
+	s.enrichSyncedItemMultiSpec(ctx, client, detailCookies, req.CookieID, res.Items)
 	saved := s.saveSyncedItems(r.Context(), req.CookieID, res.Items)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success":       true,
@@ -391,12 +409,38 @@ func (s *Server) saveSyncedItems(ctx context.Context, cookieID string, items []m
 			ItemDetail:      item.ItemDetail,
 		})
 		if err == nil {
+			if item.IsMultiSpec {
+				if multiErr := s.Store.Items.SetMultiSpec(ctx, cookieID, item.ID, true); multiErr != nil && s.Logger != nil {
+					s.Logger.Warn("保存商品多规格状态失败", "cookie_id", cookieID, "item_id", item.ID, "err", multiErr)
+				}
+			}
 			saved++
 		} else if s.Logger != nil {
 			s.Logger.Warn("保存商品失败", "cookie_id", cookieID, "item_id", item.ID, "err", err)
 		}
 	}
 	return saved
+}
+
+func (s *Server) enrichSyncedItemMultiSpec(ctx context.Context, client mtop.Client, cookies, cookieID string, items []mtop.ItemListItem) {
+	fetcher, ok := client.(mtop.ItemDetailFetcher)
+	if !ok {
+		return
+	}
+	for index := range items {
+		if items[index].IsMultiSpec || s.Store.Items.IsMultiSpec(ctx, cookieID, items[index].ID) {
+			items[index].IsMultiSpec = true
+			continue
+		}
+		isMultiSpec, err := fetcher.DetectItemMultiSpec(ctx, cookies, items[index].ID)
+		if err != nil {
+			if s.Logger != nil {
+				s.Logger.Warn("识别商品多规格状态失败", "cookie_id", cookieID, "item_id", items[index].ID, "err", err)
+			}
+			continue
+		}
+		items[index].IsMultiSpec = isMultiSpec
+	}
 }
 
 func (s *Server) listItemsByCookie(w http.ResponseWriter, r *http.Request) {

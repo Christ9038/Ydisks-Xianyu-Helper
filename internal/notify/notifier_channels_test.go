@@ -568,6 +568,33 @@ func TestSendEmail_UsesSystemSMTPFallback(t *testing.T) {
 	}
 }
 
+func TestSMTPConfigValueUsesExclusiveExplicitModes(t *testing.T) {
+	store, cleanup := newNotifyStoreBare(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := store.Settings.Set(ctx, "smtp_server", "system.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	n := New("cid", store, nil)
+
+	if got := n.smtpConfigValue(ctx, map[string]any{
+		"use_custom_smtp": false,
+		"smtp_server":     "stale-channel.example.com",
+	}, "smtp_server", ""); got != "system.example.com" {
+		t.Fatalf("system mode mixed in channel override: %q", got)
+	}
+	if got := n.smtpConfigValue(ctx, map[string]any{
+		"use_custom_smtp": true,
+	}, "smtp_server", ""); got != "" {
+		t.Fatalf("custom mode inherited system value: %q", got)
+	}
+	if got := n.smtpConfigValue(ctx, map[string]any{
+		"smtp_server": "legacy-channel.example.com",
+	}, "smtp_server", ""); got != "legacy-channel.example.com" {
+		t.Fatalf("legacy channel override compatibility lost: %q", got)
+	}
+}
+
 // TestSendEmail_IncompleteConfig 配置不完整应报错。
 func TestSendEmail_IncompleteConfig(t *testing.T) {
 	n := New("cid", nil, nil)

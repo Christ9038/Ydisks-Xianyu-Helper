@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -175,13 +176,31 @@ func (m *Manager) CookiesRefreshSnapshot(ctx context.Context, cookieID, cookieSt
 	}
 	defer func() { _ = page.Close() }()
 
-	if _, err := page.Goto(goofishHomeURL, playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(60000),
-	}); err != nil {
-		m.logger.Warn("COOKIES续期访问首页异常", "cookieID", cookieID, "err", err)
+	navigate := func() error {
+		_, err := page.Goto(goofishIMURL, playwright.PageGotoOptions{
+			WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+			Timeout:   playwright.Float(60000),
+		})
+		return err
 	}
-	time.Sleep(quickRenewPageLoadWait)
+	if expectsOfficialSilentLogin(cookieStr) {
+		response, err := page.ExpectResponse("**/newlogin/silentHasLogin.do**", navigate, playwright.PageExpectResponseOptions{Timeout: playwright.Float(7000)})
+		if err != nil {
+			return "", nil, fmt.Errorf("等待官网静默续期请求完成: %w", err)
+		}
+		if response == nil || response.Status() < 200 || response.Status() >= 300 {
+			return "", nil, fmt.Errorf("官网静默续期 HTTP 状态异常")
+		}
+		// 插件在业务成功后立即 location.reload；等待短暂调度窗口，再等待
+		// 新文档进入 DOMContentLoaded，避免提取续期前 Cookie。
+		page.WaitForTimeout(500)
+		_ = page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+			State:   playwright.LoadStateDomcontentloaded,
+			Timeout: playwright.Float(5000),
+		})
+	} else if err := navigate(); err != nil {
+		m.logger.Warn("COOKIES续期访问消息页异常", "cookieID", cookieID, "err", err)
+	}
 	if err := verifyHomeLoginState(page); err != nil {
 		return "", nil, err
 	}
@@ -197,6 +216,27 @@ func (m *Manager) CookiesRefreshSnapshot(ctx context.Context, cookieID, cookieSt
 	newCookies := cookierefresh.CookieStringFromSnapshot(newSnapshot)
 	m.logger.Info("COOKIES续期成功", "cookieID", cookieID, "cookie_count", len(newSnapshot))
 	return newCookies, newSnapshot, nil
+}
+
+func expectsOfficialSilentLogin(cookieStr string) bool {
+	cookies := cookierefresh.ParseCookieString(cookieStr)
+	now := time.Now().UnixMilli()
+	if futureCookieMillis(cookies["sdkSilent"], now) {
+		return false
+	}
+	return futureCookieMillis(cookies["havana_lgc_exp"], now) || futureCookieMillis(cookies["cookie3_bak_exp"], now)
+}
+
+func futureCookieMillis(raw string, now int64) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return true
+	}
+	return value > now
 }
 
 // CookieRenewSnapshot 兼容旧调用，等价于定时 COOKIES 快照续期。

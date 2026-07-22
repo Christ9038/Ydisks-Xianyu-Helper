@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"sync"
@@ -58,10 +59,33 @@ func (f *fakeFailTokenMtop) RefreshTokenWithDeviceIDContext(context.Context, str
 	return nil, f.err
 }
 
+type sequencedTokenMtop struct {
+	fakeRunMtop
+	mu      sync.Mutex
+	devices []string
+	cookies []string
+	calls   int
+}
+
+func (s *sequencedTokenMtop) RefreshTokenWithDeviceIDContext(_ context.Context, cookieStr, deviceID string) (*mtop.RefreshResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls++
+	s.devices = append(s.devices, deviceID)
+	s.cookies = append(s.cookies, cookieStr)
+	return &mtop.RefreshResult{
+		AccessToken:         fmt.Sprintf("fresh-%d", s.calls),
+		AccessTokenExpireAt: time.Now().Add(time.Hour).Unix(),
+	}, nil
+}
+
 // fakeWSConn 实现 WSConn，可控地投递消息并阻塞到 ctx 取消。
 type fakeWSConn struct {
 	mu            sync.Mutex
 	closed        bool
+	registerErr   error
+	registeredDID string
+	registeredTok string
 	sentTexts     []string
 	sentImages    []string
 	heartbeatDone chan struct{}
@@ -70,6 +94,15 @@ type fakeWSConn struct {
 	// recvBlock 控制 ReceiveLoop 是否阻塞到 ctx 取消（默认 true）。
 	recvBlock bool
 	recvErr   error
+}
+
+func (f *fakeWSConn) Register(_ context.Context, deviceID, accessToken string) error {
+	f.mu.Lock()
+	f.registeredDID = deviceID
+	f.registeredTok = accessToken
+	err := f.registerErr
+	f.mu.Unlock()
+	return err
 }
 
 func (f *fakeWSConn) HeartbeatLoop(ctx context.Context, _ time.Duration) error {
@@ -221,13 +254,12 @@ func TestRun_ConnectsAndDispatchesMessage(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// 初始 token 应通过 ws.Config.AccessToken 传给 Dial（非 SetAccessToken）。
-	d := acc.wsDialer.(*fakeDialer)
-	d.mu.Lock()
-	gotToken := d.lastCfg.AccessToken == "tok-1"
-	d.mu.Unlock()
+	// token 必须在握手成功后通过 Register 发送，而不是在 Dial 前获得。
+	conn.mu.Lock()
+	gotToken := conn.registeredTok == "tok-1"
+	conn.mu.Unlock()
 	if !gotToken {
-		t.Fatal("Dial 未收到 ws.Config.AccessToken=tok-1")
+		t.Fatal("Register 未收到 token=tok-1")
 	}
 
 	// 取消 ctx → Run 应退出。
@@ -272,7 +304,7 @@ func TestRun_DialFailureIncrementsFailures(t *testing.T) {
 	}
 }
 
-// TestRun_ReceiveLoopEndsTriggersReconnect 正常结束后直接重连，并复用当前内存 token。
+// TestRun_ReceiveLoopEndsTriggersReconnect 正常结束后直接重连，并重新获取 token。
 func TestRun_ReceiveLoopEndsTriggersReconnect(t *testing.T) {
 	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "tok-1"}}
 	acc, _, _, cleanup := newRunAccount(t, mtopClient)
@@ -311,12 +343,52 @@ func TestRun_ReceiveLoopEndsTriggersReconnect(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("重连后 ctx 取消 Run 未退出")
 	}
-	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 1 {
-		t.Fatalf("正常重连应复用内存 token，不应重复请求 mtop: calls=%d", calls)
+	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 2 {
+		t.Fatalf("正常重连应重新请求 mtop: calls=%d", calls)
 	}
 }
 
-func TestRun_EstablishedNetworkErrorPreservesTokenAndCache(t *testing.T) {
+func TestRun_ReconnectUsesFreshTokenAndStableDeviceID(t *testing.T) {
+	mtopClient := &sequencedTokenMtop{fakeRunMtop: fakeRunMtop{token: "unused"}}
+	acc, _, _, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+	dialer := &fakeDialer{results: []dialResult{
+		{conn: &fakeWSConn{recvBlock: false}},
+		{conn: &fakeWSConn{recvBlock: true}},
+	}}
+	acc.wsDialer = dialer
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- acc.Run(ctx) }()
+	waitForDialCalls(t, dialer, 2)
+	cancel()
+	<-done
+
+	dialer.mu.Lock()
+	conns := append([]*fakeWSConn(nil), dialer.conns...)
+	dialer.mu.Unlock()
+	if len(conns) < 2 {
+		t.Fatalf("dial conns=%d want>=2", len(conns))
+	}
+	conns[0].mu.Lock()
+	firstToken := conns[0].registeredTok
+	conns[0].mu.Unlock()
+	conns[1].mu.Lock()
+	secondToken := conns[1].registeredTok
+	conns[1].mu.Unlock()
+	if firstToken != "fresh-1" || secondToken != "fresh-2" {
+		t.Fatalf("reconnect tokens=%v", []string{firstToken, secondToken})
+	}
+	mtopClient.mu.Lock()
+	devices := append([]string(nil), mtopClient.devices...)
+	mtopClient.mu.Unlock()
+	if len(devices) != 2 || devices[0] == "" || devices[0] != devices[1] {
+		t.Fatalf("device IDs must remain stable: %v", devices)
+	}
+}
+
+func TestRun_EstablishedNetworkErrorClearsConnectionToken(t *testing.T) {
 	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "tok-1"}}
 	acc, _, store, cleanup := newRunAccount(t, mtopClient)
 	defer cleanup()
@@ -340,15 +412,15 @@ func TestRun_EstablishedNetworkErrorPreservesTokenAndCache(t *testing.T) {
 	currentToken := acc.currentToken
 	networkFailures := acc.networkFailures
 	acc.mu.Unlock()
-	if networkFailures != 1 || currentToken != "tok-1" {
+	if networkFailures != 1 || currentToken != "" {
 		cancel()
 		<-done
-		t.Fatalf("网络断线不应清空内存 token: failures=%d token=%q", networkFailures, currentToken)
+		t.Fatalf("网络断线应结束当前 token 生命周期: failures=%d token=%q", networkFailures, currentToken)
 	}
-	if cached, err := store.Tokens.Get(context.Background(), "cid"); err != nil || cached.AccessToken != "tok-1" {
+	if cached, err := store.Tokens.Get(context.Background(), "cid"); err != nil || cached.AccessToken != "" {
 		cancel()
 		<-done
-		t.Fatalf("网络断线不应删除 token 缓存: cached=%+v err=%v", cached, err)
+		t.Fatalf("网络断线应清除 token 缓存: cached=%+v err=%v", cached, err)
 	}
 	cancel()
 	select {
@@ -366,7 +438,7 @@ func TestRun_InvalidRegTokenFetchesOneFreshTokenImmediately(t *testing.T) {
 	acc, _, _, cleanup := newRunAccount(t, mtopClient)
 	defer cleanup()
 	dialer := &fakeDialer{results: []dialResult{
-		{err: &ws.RegError{Kind: ws.RegErrorInvalidToken, Code: 401, Reason: "invalid token"}},
+		{conn: &fakeWSConn{registerErr: &ws.RegError{Kind: ws.RegErrorInvalidToken, Code: 401, Reason: "invalid token"}}},
 		{conn: &fakeWSConn{recvBlock: true}},
 	}}
 	acc.wsDialer = dialer
@@ -384,7 +456,7 @@ func TestRun_InvalidRegTokenFetchesOneFreshTokenImmediately(t *testing.T) {
 }
 
 func TestRun_ReloadsDatabaseCookieBeforeNaturalReconnect(t *testing.T) {
-	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "token"}}
+	mtopClient := &sequencedTokenMtop{fakeRunMtop: fakeRunMtop{token: "token"}}
 	acc, _, store, cleanup := newRunAccount(t, mtopClient)
 	defer cleanup()
 	newCookie := "unb=123; _m_h5_tk=db-renewed_2; cookie2=new"
@@ -406,16 +478,13 @@ func TestRun_ReloadsDatabaseCookieBeforeNaturalReconnect(t *testing.T) {
 	cancel()
 	<-done
 
-	dialer.mu.Lock()
-	configs := append([]ws.Config(nil), dialer.configs...)
-	dialer.mu.Unlock()
-	if len(configs) < 2 {
-		t.Fatalf("dial configs=%d want>=2", len(configs))
+	mtopClient.mu.Lock()
+	cookies := append([]string(nil), mtopClient.cookies...)
+	mtopClient.mu.Unlock()
+	if len(cookies) < 2 || cookies[1] != newCookie {
+		t.Fatalf("second token Cookie=%v want=%q", cookies, newCookie)
 	}
-	if configs[1].CookieStr != newCookie {
-		t.Fatalf("second dial Cookie=%q want=%q", configs[1].CookieStr, newCookie)
-	}
-	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 2 {
+	if calls := mtopClient.calls; calls != 2 {
 		t.Fatalf("Cookie change should invalidate token for reconnect, calls=%d", calls)
 	}
 }
@@ -462,6 +531,7 @@ func TestRun_DisabledAccountExits(t *testing.T) {
 func TestRun_TokenFetchThresholdDisablesAccount(t *testing.T) {
 	acc, _, store, cleanup := newRunAccount(t, &fakeFailTokenMtop{err: errFakeDial})
 	defer cleanup()
+	acc.wsDialer = &fakeDialer{results: []dialResult{{conn: &fakeWSConn{recvBlock: true}}}}
 	h := &failingRefreshHandler{}
 	acc.handler = h
 	acc.mu.Lock()

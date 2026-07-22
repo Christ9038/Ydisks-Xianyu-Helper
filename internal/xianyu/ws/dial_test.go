@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -17,8 +16,7 @@ import (
 	"xianyu-go/internal/xianyu"
 )
 
-// startRegServer 启动一个本地 WS 服务，模拟 /reg 握手：读取客户端发来的 /reg 与
-// ackDiff 两条消息，验证它们的结构，然后保持连接打开（由调用方决定何时关闭）。
+// startRegServer 启动一个本地 WS 服务，模拟 /reg 握手并保持连接打开。
 // 返回服务实例与一个收集到所有客户端消息的 channel。
 func startRegServer(t *testing.T) (*httptest.Server, chan map[string]any) {
 	t.Helper()
@@ -75,13 +73,13 @@ func dialLocal(t *testing.T, srv *httptest.Server, cfg Config) *Conn {
 	}
 	dialed.SetReadLimit(8 << 20)
 	t.Cleanup(func() { _ = dialed.CloseNow() })
-	return &Conn{ws: dialed, cfg: cfg, logger: nilLogger(), recorder: cfg.Recorder}
+	return newConn(dialed, cfg, nilLogger())
 }
 
-// TestRegister_SendsRegAndAckDiff 直接调用 register 覆盖 /reg 握手 + ackDiff 两条消息。
-// 验证：1) /reg 消息含正确 lwp/app-key/token/ua/did；2) ackDiff 消息 lwp 正确且 body 非空。
-func TestRegister_SendsRegAndAckDiff(t *testing.T) {
-	xianyu.SetBrowserFingerprint(xianyu.BrowserFingerprint{UserAgent: "playwright-native-ua"})
+// TestRegisterSendsOnlyOfficialReg 验证注册只发送 /reg，不再伪造 ackDiff。
+func TestRegisterSendsOnlyOfficialReg(t *testing.T) {
+	rawUA := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/138.0.7204.92 Safari/537.36"
+	xianyu.SetBrowserFingerprint(xianyu.BrowserFingerprint{UserAgent: rawUA})
 	srv, got := startRegServer(t)
 	conn := dialLocal(t, srv, Config{
 		CookieStr:   "cookie=1",
@@ -103,15 +101,15 @@ collect:
 		select {
 		case m := <-got:
 			msgs = append(msgs, m)
-			if len(msgs) >= 2 {
+			if len(msgs) >= 1 {
 				break collect
 			}
 		case <-timer.C:
 			break collect
 		}
 	}
-	if len(msgs) < 2 {
-		t.Fatalf("期望收到 2 条消息，实际 %d: %#v", len(msgs), msgs)
+	if len(msgs) != 1 {
+		t.Fatalf("期望只收到 /reg，实际 %d: %#v", len(msgs), msgs)
 	}
 
 	reg := msgs[0]
@@ -125,8 +123,8 @@ collect:
 	if headers["token"] != "token-abc" {
 		t.Errorf("/reg token = %v, 期望 token-abc", headers["token"])
 	}
-	if headers["ua"] != "playwright-native-ua" {
-		t.Errorf("/reg ua = %v, 期望 Playwright 原生 UA", headers["ua"])
+	if headers["ua"] != OfficialRegistrationUA(rawUA) {
+		t.Errorf("/reg ua = %v, 期望官方复合 UA", headers["ua"])
 	}
 	if headers["did"] != "device-xyz" {
 		t.Errorf("/reg did = %v, 期望 device-xyz", headers["did"])
@@ -135,27 +133,23 @@ collect:
 		t.Errorf("/reg mid 应为非空字符串, 实际 %v", headers["mid"])
 	}
 
-	ackDiff := msgs[1]
-	if ackDiff["lwp"] != "/r/SyncStatus/ackDiff" {
-		t.Fatalf("第二条消息 lwp 应为 ackDiff, 实际 %v", ackDiff["lwp"])
-	}
-	body, _ := ackDiff["body"].([]any)
-	if len(body) == 0 {
-		t.Fatalf("ackDiff body 为空")
-	}
-	first, _ := body[0].(map[string]any)
-	if first["pipeline"] != "sync" || first["channel"] != "sync" {
-		t.Errorf("ackDiff body[0] 结构异常: %#v", first)
-	}
 }
 
-// TestRegister_ContextCancelledDuringWait register 在 1 秒等待期间 ctx 取消应返回 ctx.Err。
+// TestRegister_ContextCancelledDuringWait register 等不到响应时应服从 ctx 取消。
 func TestRegister_ContextCancelledDuringWait(t *testing.T) {
-	srv, _ := startRegServer(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		_, _, _ = c.Read(r.Context())
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
 	conn := dialLocal(t, srv, Config{})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	// 等到 /reg 发出、进入 1 秒等待后再取消。
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		cancel()
@@ -219,7 +213,6 @@ func TestRegisterBuffersFrameBeforeResponse(t *testing.T) {
 		_ = c.Write(ctx, websocket.MessageText, pushRaw)
 		response, _ := json.Marshal(map[string]any{"code": 200, "headers": map[string]any{"mid": headers["mid"]}})
 		_ = c.Write(ctx, websocket.MessageText, response)
-		_, _, _ = c.Read(ctx) // ackDiff
 	}))
 	t.Cleanup(srv.Close)
 
@@ -229,12 +222,13 @@ func TestRegisterBuffersFrameBeforeResponse(t *testing.T) {
 	if err := conn.register(ctx); err != nil {
 		t.Fatalf("register: %v", err)
 	}
-	_, data, err := conn.readNext(ctx)
-	if err != nil {
-		t.Fatalf("read buffered frame: %v", err)
-	}
 	var got map[string]any
-	_ = json.Unmarshal(data, &got)
+	select {
+	case frame := <-conn.pushes:
+		got = frame.parsed
+	case <-ctx.Done():
+		t.Fatalf("read buffered frame: %v", ctx.Err())
+	}
 	if got["lwp"] != push["lwp"] {
 		t.Fatalf("buffered frame=%v want=%v", got, push)
 	}
@@ -266,7 +260,7 @@ func TestDial_RegisterFailure(t *testing.T) {
 	}
 	defer dialed.CloseNow()
 	dialed.SetReadLimit(8 << 20)
-	conn := &Conn{ws: dialed, cfg: Config{}, logger: nilLogger()}
+	conn := newConn(dialed, Config{}, nilLogger())
 	err = conn.register(dialCtx)
 	if err == nil {
 		t.Fatal("register 应在连接关闭时返回错误")
@@ -328,7 +322,7 @@ func TestSendACK_RepliesWithMidSid(t *testing.T) {
 	defer dialed.CloseNow()
 	dialed.SetReadLimit(8 << 20)
 
-	conn := &Conn{ws: dialed, logger: nilLogger()}
+	conn := newConn(dialed, Config{}, nilLogger())
 	var ackSeen map[string]any
 	var onMessageCount int
 	loopDone := make(chan error, 1)
@@ -366,7 +360,7 @@ func TestSendACK_RepliesWithMidSid(t *testing.T) {
 	}
 }
 
-// TestSendACK_NoHeaders 消息无 headers 时 ACK 用 fallback mid（GenerateMid 非空）且 sid 为空。
+// TestSendACK_NoHeaders 消息无 headers 时 ACK 原样返回空 headers。
 func TestSendACK_NoHeaders(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, nil)
@@ -408,7 +402,7 @@ func TestSendACK_NoHeaders(t *testing.T) {
 	defer dialed.CloseNow()
 	dialed.SetReadLimit(8 << 20)
 
-	conn := &Conn{ws: dialed, logger: nilLogger()}
+	conn := newConn(dialed, Config{}, nilLogger())
 	var ackSeen map[string]any
 	loopDone := make(chan error, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -425,22 +419,13 @@ func TestSendACK_NoHeaders(t *testing.T) {
 		t.Fatal("未收到 ack")
 	}
 	ackHeaders, _ := ackSeen["headers"].(map[string]any)
-	mid, _ := ackHeaders["mid"].(string)
-	if mid == "" {
-		t.Errorf("无 headers 时 ACK mid 应用 fallback (GenerateMid), 实际空")
-	}
-	if ackHeaders["sid"] != "" {
-		t.Errorf("无 headers 时 ACK sid 应为空, 实际 %v", ackHeaders["sid"])
+	if len(ackHeaders) != 0 {
+		t.Errorf("无 headers 时 ACK 应保持空 headers, 实际 %v", ackHeaders)
 	}
 }
 
-// TestHeartbeatLoop_SendFailure 服务端立刻关闭连接，HeartbeatLoop 的 sendJSON 应失败；
-// 连续失败达 maxFailures(3) 次后应返回错误。
+// TestHeartbeatLoop_SendFailure 服务端关闭后心跳立即结束，不做三次写失败重试。
 func TestHeartbeatLoop_SendFailure(t *testing.T) {
-	oldRetry := heartbeatRetryInterval
-	heartbeatRetryInterval = 20 * time.Millisecond
-	t.Cleanup(func() { heartbeatRetryInterval = oldRetry })
-
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, nil)
 		if err != nil {
@@ -460,7 +445,7 @@ func TestHeartbeatLoop_SendFailure(t *testing.T) {
 	defer dialed.CloseNow()
 	dialed.SetReadLimit(8 << 20)
 
-	conn := &Conn{ws: dialed, logger: nilLogger()}
+	conn := newConn(dialed, Config{}, nilLogger())
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	loopDone := make(chan error, 1)
@@ -471,9 +456,6 @@ func TestHeartbeatLoop_SendFailure(t *testing.T) {
 	case err := <-loopDone:
 		if err == nil {
 			t.Fatal("HeartbeatLoop 应在连续失败后返回错误")
-		}
-		if !strings.Contains(err.Error(), "心跳连续失败") {
-			t.Fatalf("期望心跳连续失败错误, 实际 %v", err)
 		}
 	case <-time.After(8 * time.Second):
 		t.Fatal("HeartbeatLoop 未在超时内退出")
@@ -759,7 +741,7 @@ func TestSetRecorder_RecordsOutgoingAndIncoming(t *testing.T) {
 			dir, parsed, status string
 		}{direction, parsedJSON, parseStatus})
 	}
-	conn := &Conn{ws: dialed, logger: nilLogger()}
+	conn := newConn(dialed, Config{}, nilLogger())
 	// 通过 SetRecorder 方法设置（覆盖该方法），而非直接赋值字段。
 	conn.SetRecorder(rec)
 	if conn.recorder == nil {
@@ -825,7 +807,7 @@ func TestClose_TerminatesConnection(t *testing.T) {
 		t.Fatalf("dial: %v", err)
 	}
 	dialed.SetReadLimit(8 << 20)
-	conn := &Conn{ws: dialed, logger: nilLogger()}
+	conn := newConn(dialed, Config{}, nilLogger())
 
 	if err := conn.Close(); err != nil {
 		t.Fatalf("Close: %v", err)

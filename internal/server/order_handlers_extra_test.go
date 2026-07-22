@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
-// TestRefreshOrdersNoBrowser 浏览器未启用时应 503。
+// TestRefreshOrdersNoBrowser 浏览器未启用时仍应完成订单列表发现。
 func TestRefreshOrdersNoBrowser(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
@@ -21,8 +22,38 @@ func TestRefreshOrdersNoBrowser(t *testing.T) {
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("无浏览器应 503，got %d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "订单列表同步完成") {
+		t.Fatalf("无浏览器仍应同步列表，got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRefreshOrdersDiscoversNewOrdersWithoutBrowser(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := `{"ret":["SUCCESS::调用成功"],"data":{"module":{"nextPage":"false","totalCount":"1","items":[{` +
+			`"commonData":{"orderId":"sold-new-1","itemId":"item-new","orderStatus":"待发货","inRefund":"false"},` +
+			`"buyerInfoVO":{"buyerId":"buyer-1","name":"张三","phone":"13800000000","address":"上海市"},` +
+			`"priceVO":{"totalPrice":"19.90","buyNum":"2"},` +
+			`"rightVO":{"btnList":[{"tradeAction":"SKIP_PIN"}]}}]}}}`
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	}))
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/refresh", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"discovered":1`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	order, err := store.Orders.Get(context.Background(), "sold-new-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if order.CookieID != "acc1" || order.ItemID != "item-new" || order.OrderStatus != "pending_ship" ||
+		order.Amount != "19.90" || order.Quantity != "2" || order.IsBargain != 1 || order.ReceiverName != "张三" {
+		t.Fatalf("discovered order=%+v", order)
 	}
 }
 

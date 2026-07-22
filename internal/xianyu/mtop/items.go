@@ -237,6 +237,7 @@ func parseItemList(data map[string]any) []ItemListItem {
 			ItemDetail:  string(detailJSON),
 			AuctionType: mtopString(cardData["auctionType"]),
 			ItemStatus:  mtopInt(cardData["itemStatus"]),
+			IsMultiSpec: detectItemMultiSpec(cardData),
 		})
 	}
 	return items

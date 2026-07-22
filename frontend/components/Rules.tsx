@@ -1280,7 +1280,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                 <input
                                   type="number"
                                   min="0"
-                                  max="86400"
+                                  max="3600"
                                   value={variant.delay_seconds || 0}
                                   onChange={event => updateVariant(index, { delay_seconds: Math.max(0, Number(event.target.value) || 0) })}
                                   className="w-28 ios-input px-2 py-1.5 rounded-lg text-xs"
