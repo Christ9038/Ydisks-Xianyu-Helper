@@ -274,33 +274,27 @@ func TestRun_ConnectsAndDispatchesMessage(t *testing.T) {
 	}
 }
 
-// TestRun_DialFailureIncrementsFailures 拨号失败时 connFailures 递增，
-// ctx 在重试 sleep 期间取消 → Run 返回 ctx.Err。
-func TestRun_DialFailureIncrementsFailures(t *testing.T) {
+// TestRun_DialFailureRequiresRelogin mirrors the web page: native
+// CONNECT_FAILED enters CONN_ERROR and does not auto-reconnect.
+func TestRun_DialFailureRequiresRelogin(t *testing.T) {
 	acc, _, _, cleanup := newRunAccount(t, &fakeRunMtop{token: "tok-1"})
 	defer cleanup()
 
 	// 拨号始终失败。
 	acc.wsDialer = &fakeDialer{results: []dialResult{{err: errFakeDial}}}
 
-	ctx, cancel := context.WithCancel(context.Background())
 	runDone := make(chan error, 1)
-	go func() { runDone <- acc.Run(ctx) }()
-
-	// 等待首次拨号失败 + 进入重试 sleep。
-	time.Sleep(300 * time.Millisecond)
-	cancel()
+	go func() { runDone <- acc.Run(context.Background()) }()
 	select {
-	case <-runDone:
-		// Run 应已退出。
-	case <-time.After(3 * time.Second):
-		t.Fatal("拨号失败 + ctx 取消后 Run 未退出")
+	case err := <-runDone:
+		if !errors.Is(err, errFakeDial) {
+			t.Fatalf("Run error=%v，期望拨号错误", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("拨号失败后 Run 未退出")
 	}
-	acc.mu.Lock()
-	failures := acc.connFailures
-	acc.mu.Unlock()
-	if failures < 1 {
-		t.Fatalf("拨号失败应使 connFailures>=1，got %d", failures)
+	if status := acc.RuntimeStatus(); status.State != RuntimeAuthExpired {
+		t.Fatalf("runtime state=%q，期望 %q", status.State, RuntimeAuthExpired)
 	}
 }
 
@@ -352,9 +346,11 @@ func TestRun_ReconnectUsesFreshTokenAndStableDeviceID(t *testing.T) {
 	mtopClient := &sequencedTokenMtop{fakeRunMtop: fakeRunMtop{token: "unused"}}
 	acc, _, _, cleanup := newRunAccount(t, mtopClient)
 	defer cleanup()
+	first := &fakeWSConn{recvBlock: false}
+	second := &fakeWSConn{recvBlock: true}
 	dialer := &fakeDialer{results: []dialResult{
-		{conn: &fakeWSConn{recvBlock: false}},
-		{conn: &fakeWSConn{recvBlock: true}},
+		{conn: first},
+		{conn: second},
 	}}
 	acc.wsDialer = dialer
 
@@ -362,6 +358,7 @@ func TestRun_ReconnectUsesFreshTokenAndStableDeviceID(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- acc.Run(ctx) }()
 	waitForDialCalls(t, dialer, 2)
+	waitForRegisteredToken(t, second, "fresh-2")
 	cancel()
 	<-done
 
@@ -388,39 +385,33 @@ func TestRun_ReconnectUsesFreshTokenAndStableDeviceID(t *testing.T) {
 	}
 }
 
-func TestRun_EstablishedNetworkErrorClearsConnectionToken(t *testing.T) {
+func TestRun_EstablishedNetworkErrorReconnectsWithFreshToken(t *testing.T) {
 	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "tok-1"}}
 	acc, _, store, cleanup := newRunAccount(t, mtopClient)
 	defer cleanup()
-	conn := &fakeWSConn{recvErr: errors.New("connection reset by peer")}
-	acc.wsDialer = &fakeDialer{results: []dialResult{{conn: conn}}}
+	first := &fakeWSConn{recvErr: errors.New("connection reset by peer")}
+	second := &fakeWSConn{recvBlock: true}
+	dialer := &fakeDialer{results: []dialResult{{conn: first}, {conn: second}}}
+	acc.wsDialer = dialer
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- acc.Run(ctx) }()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		acc.mu.Lock()
-		failures := acc.networkFailures
-		acc.mu.Unlock()
-		if failures == 1 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForDialCalls(t, dialer, 2)
+	waitForRegisteredToken(t, second, "tok-1")
 	acc.mu.Lock()
 	currentToken := acc.currentToken
 	networkFailures := acc.networkFailures
 	acc.mu.Unlock()
-	if networkFailures != 1 || currentToken != "" {
+	if networkFailures != 0 || currentToken != "tok-1" {
 		cancel()
 		<-done
-		t.Fatalf("网络断线应结束当前 token 生命周期: failures=%d token=%q", networkFailures, currentToken)
+		t.Fatalf("网络断线后应立即用新凭证恢复连接: failures=%d token=%q", networkFailures, currentToken)
 	}
-	if cached, err := store.Tokens.Get(context.Background(), "cid"); err != nil || cached.AccessToken != "" {
+	if cached, err := store.Tokens.Get(context.Background(), "cid"); err != nil || cached.AccessToken != "tok-1" {
 		cancel()
 		<-done
-		t.Fatalf("网络断线应清除 token 缓存: cached=%+v err=%v", cached, err)
+		t.Fatalf("重连成功后应缓存新连接凭证: cached=%+v err=%v", cached, err)
 	}
 	cancel()
 	select {
@@ -428,30 +419,39 @@ func TestRun_EstablishedNetworkErrorClearsConnectionToken(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("取消后 Run 未退出")
 	}
-	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 1 {
-		t.Fatalf("网络断线前只应获取一次 token: calls=%d", calls)
+	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 2 {
+		t.Fatalf("官网重连会重新获取连接凭证: calls=%d", calls)
 	}
 }
 
-func TestRun_InvalidRegTokenFetchesOneFreshTokenImmediately(t *testing.T) {
+func TestRun_InvalidRegTokenRequiresRelogin(t *testing.T) {
 	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "fresh-token"}}
 	acc, _, _, cleanup := newRunAccount(t, mtopClient)
 	defer cleanup()
 	dialer := &fakeDialer{results: []dialResult{
 		{conn: &fakeWSConn{registerErr: &ws.RegError{Kind: ws.RegErrorInvalidToken, Code: 401, Reason: "invalid token"}}},
-		{conn: &fakeWSConn{recvBlock: true}},
 	}}
 	acc.wsDialer = dialer
 
-	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- acc.Run(ctx) }()
-	waitForDialCalls(t, dialer, 2)
-	cancel()
-	<-done
+	go func() { done <- acc.Run(context.Background()) }()
+	select {
+	case err := <-done:
+		if !ws.IsInvalidTokenError(err) {
+			t.Fatalf("Run error=%v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("invalid /reg 后 Run 未退出")
+	}
 
-	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 2 {
-		t.Fatalf("invalid /reg should fetch exactly one fresh token immediately, calls=%d", calls)
+	if calls := atomic.LoadInt32(&mtopClient.calls); calls != 1 {
+		t.Fatalf("invalid /reg 不应在页面要求重新登录时静默重试: calls=%d", calls)
+	}
+	if dialer.calls != 1 {
+		t.Fatalf("invalid /reg dial calls=%d want 1", dialer.calls)
+	}
+	if status := acc.RuntimeStatus(); status.State != RuntimeAuthExpired {
+		t.Fatalf("runtime state=%q want %q", status.State, RuntimeAuthExpired)
 	}
 }
 
@@ -507,6 +507,24 @@ func waitForDialCalls(t *testing.T, dialer *fakeDialer, want int) {
 	t.Fatalf("dial calls=%d want>=%d", calls, want)
 }
 
+func waitForRegisteredToken(t *testing.T, conn *fakeWSConn, want string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		conn.mu.Lock()
+		token := conn.registeredTok
+		conn.mu.Unlock()
+		if token == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	conn.mu.Lock()
+	token := conn.registeredTok
+	conn.mu.Unlock()
+	t.Fatalf("registered token=%q want=%q", token, want)
+}
+
 // TestRun_DisabledAccountExits 账号被禁用时 Run 立即退出。
 func TestRun_DisabledAccountExits(t *testing.T) {
 	acc, _, store, cleanup := newRunAccount(t, &fakeRunMtop{token: "tok-1"})
@@ -528,7 +546,7 @@ func TestRun_DisabledAccountExits(t *testing.T) {
 	}
 }
 
-func TestRun_TokenFetchThresholdDisablesAccount(t *testing.T) {
+func TestRun_TokenFetchThresholdDoesNotDisableAccount(t *testing.T) {
 	acc, _, store, cleanup := newRunAccount(t, &fakeFailTokenMtop{err: errFakeDial})
 	defer cleanup()
 	acc.wsDialer = &fakeDialer{results: []dialResult{{conn: &fakeWSConn{recvBlock: true}}}}
@@ -542,17 +560,22 @@ func TestRun_TokenFetchThresholdDisablesAccount(t *testing.T) {
 	go func() { done <- acc.Run(context.Background()) }()
 	select {
 	case err := <-done:
-		if err != nil {
-			t.Fatalf("threshold disable should exit nil, got %v", err)
+		if !errors.Is(err, errFakeDial) {
+			t.Fatalf("token callback reject should enter CONN_ERROR, got %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("token failure threshold should disable without retry sleep")
+		t.Fatal("Run did not stop after token callback reject")
 	}
-	if store.Cookies.GetStatus(context.Background(), "cid") {
-		t.Fatal("token failure threshold should disable account")
+	if !store.Cookies.GetStatus(context.Background(), "cid") {
+		t.Fatal("token failure threshold must not disable account")
 	}
-	if len(h.events) == 0 || h.events[len(h.events)-1] != EventAccountDisabled {
-		t.Fatalf("disable event not emitted: events=%+v alerts=%+v", h.events, h.alerts)
+	for _, event := range h.events {
+		if event == EventAccountDisabled {
+			t.Fatalf("unexpected disable event: events=%+v alerts=%+v", h.events, h.alerts)
+		}
+	}
+	if status := acc.RuntimeStatus(); status.State != RuntimeAuthExpired {
+		t.Fatalf("runtime state=%q want %q", status.State, RuntimeAuthExpired)
 	}
 }
 

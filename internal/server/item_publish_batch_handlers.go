@@ -775,6 +775,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 	origCents, _ := parseMoneyCents(row.OriginalPrice)
 	postageCents, _ := parseMoneyCents(row.Postage)
 	res := &mtop.PublishItemResult{ItemID: row.ItemID, ItemURL: row.ItemURL, Title: row.Title, PriceText: row.Price, Quantity: row.Quantity}
+	var responseCookieErr error
 	if row.ItemID == "" {
 		images, err := loadBatchPublishImages(ctx, batch.UploadDir, row)
 		if err != nil {
@@ -786,18 +787,68 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 		if markErr != nil || !remoteStarted {
 			return fmt.Errorf("保存远端发布前检查点失败: %w", firstError(markErr, errors.New("批次租约已失效")))
 		}
-		pctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		res, err = client.PublishItem(pctx, cookieValue, mtop.PublishItemRequest{
-			Title:              row.Title,
-			Description:        firstNonEmpty(row.Description, row.Title),
-			PriceCents:         priceCents,
-			OriginalPriceCents: origCents,
-			Quantity:           row.Quantity,
-			PostageMode:        row.PostageMode,
-			PostageCents:       postageCents,
-			Images:             images,
-		})
-		cancel()
+		runtimeCookie := ""
+		runtimeCookieChanged := false
+		res, err = func() (*mtop.PublishItemResult, error) {
+			credentialUnlock := s.Store.LockAccountCredentials(row.CookieID)
+			defer credentialUnlock()
+			latest, latestErr := s.Store.Cookies.GetDetails(ctx, row.CookieID)
+			if latestErr != nil {
+				return nil, latestErr
+			}
+			if latest == nil || latest.UserID != userID {
+				return nil, db.ErrForbidden
+			}
+			if !hasStoredCookieCredential(latest) {
+				return nil, errors.New("账号 Cookie 为空")
+			}
+			cookieValue = latest.Value
+			pctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+			defer cancel()
+			mtopCtx, cookieSession := withMTopCookieSnapshot(pctx, latest)
+			published, publishErr := client.PublishItem(mtopCtx, cookieValue, mtop.PublishItemRequest{
+				Title:              row.Title,
+				Description:        firstNonEmpty(row.Description, row.Title),
+				PriceCents:         priceCents,
+				OriginalPriceCents: origCents,
+				Quantity:           row.Quantity,
+				PostageMode:        row.PostageMode,
+				PostageCents:       postageCents,
+				Images:             images,
+			})
+			value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(ctx, latest, cookieSession)
+			if persistErr != nil {
+				cookieErr := fmt.Errorf("发布商品后保存响应 Cookie Jar: %w", persistErr)
+				if publishErr != nil {
+					return published, errors.Join(publishErr, cookieErr)
+				}
+				responseCookieErr = cookieErr
+			} else if handled {
+				if valueChanged {
+					runtimeCookie = value
+					runtimeCookieChanged = true
+				}
+			} else if publishErr == nil && published != nil && published.UpdatedCookies != "" && published.UpdatedCookies != cookieValue {
+				if saveErr := s.Store.Cookies.UpdateValueOwned(ctx, row.CookieID, published.UpdatedCookies, userID); saveErr != nil {
+					responseCookieErr = fmt.Errorf("发布商品后保存响应 Cookie: %w", saveErr)
+				} else {
+					runtimeCookie = published.UpdatedCookies
+					runtimeCookieChanged = true
+				}
+			}
+			if publishErr != nil {
+				return published, publishErr
+			}
+			if published == nil {
+				return nil, errors.New("发布商品接口未返回结果")
+			}
+			return published, nil
+		}()
+		if runtimeCookieChanged && s.Manager != nil {
+			if account, running := s.Manager.GetInstance(row.CookieID); running {
+				account.UpdateCookie(runtimeCookie)
+			}
+		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return &uncertainRemotePublishError{err: fmt.Errorf("取消时远端发布结果未知: %w", err)}
@@ -818,6 +869,9 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 		if saveErr != nil || !saved {
 			return &uncertainRemotePublishError{err: fmt.Errorf("保存远端发布结果失败: %w", firstError(saveErr, errors.New("批次租约已失效")))}
 		}
+		if responseCookieErr != nil {
+			return &postPublishError{err: responseCookieErr}
+		}
 	} else if strings.TrimSpace(row.RawJSON) != "" {
 		_ = json.Unmarshal([]byte(row.RawJSON), &res.RawData)
 	}
@@ -827,11 +881,6 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 	currentBatch, err := s.Store.PublishBatches.Get(ctx, userID, row.BatchID)
 	if err != nil || currentBatch.Status == "canceled" || currentBatch.WorkerToken != workerToken {
 		return &postPublishError{err: context.Canceled}
-	}
-	if res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
-		if err := s.Store.Cookies.UpdateValueOwned(ctx, row.CookieID, res.UpdatedCookies, userID); err != nil {
-			s.Logger.Error("发布商品后保存刷新 cookie 失败", "cookie_id", row.CookieID, "err", err)
-		}
 	}
 	if res.ItemID != "" {
 		detail := map[string]any{

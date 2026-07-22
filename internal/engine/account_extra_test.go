@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"xianyu-go/internal/automation"
+	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
 	xrenew "xianyu-go/internal/xianyu/renew"
 )
@@ -241,7 +242,7 @@ type stubCookieRenewer struct {
 	got    string
 }
 
-func (s *stubCookieRenewer) RenewAPIFirst(_ context.Context, cookiesStr string) (*xrenew.Result, error) {
+func (s *stubCookieRenewer) RenewAPIFirst(_ context.Context, cookiesStr string, _ ...[]cookierefresh.BrowserCookie) (*xrenew.Result, error) {
 	s.calls++
 	s.got = cookiesStr
 	return s.result, s.err
@@ -292,6 +293,7 @@ func TestTryAPIRenewPartialCookiesContinueRecovery(t *testing.T) {
 		RenewMethod:        "none",
 		NewCookies:         "unb=123; _m_h5_tk=partial;",
 		UpdatedCookieNames: []string{"_m_h5_tk"},
+		SetCookies:         []string{"_m_h5_tk=partial; Domain=.goofish.com; Path=/; Secure; HttpOnly"},
 		Message:            "setLoginSettings 未返回 Set-Cookie",
 	}}
 	acc.renewer = renewer
@@ -308,6 +310,52 @@ func TestTryAPIRenewPartialCookiesContinueRecovery(t *testing.T) {
 	}
 	if tk, err := store.Tokens.Get(ctx, "cid"); err != nil || tk.AccessToken != "" {
 		t.Fatalf("部分 cookie 更新后应清 token: tk=%+v err=%v", tk, err)
+	}
+	detail, err := store.Cookies.GetDetails(ctx, "cid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
+		t.Fatal("接口扁平 Cookie 更新不得伪造成完整浏览器 Jar")
+	}
+}
+
+func TestTryAPIRenewPersistsExplicitFlatCookieDeletionOnError(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := store.Tokens.Save(ctx, "cid", "did-old", "tok-old", time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatalf("save token: %v", err)
+	}
+	acc.renewer = &stubCookieRenewer{
+		result: &xrenew.Result{
+			NewCookies: "",
+			SetCookies: []string{
+				"unb=; Domain=.goofish.com; Path=/; Max-Age=0",
+				"_m_h5_tk=; Domain=.goofish.com; Path=/; Max-Age=0",
+			},
+		},
+		err: errors.New("续期响应正文损坏"),
+	}
+
+	if acc.tryAPIRenew(ctx) {
+		t.Fatal("失败响应即使带 Cookie 删除也不应视为续期成功")
+	}
+	if got := acc.currentCookieStr(); got != "" {
+		t.Fatalf("运行时应采用服务端明确删除后的空 Cookie，got %q", got)
+	}
+	detail, err := store.Cookies.GetDetails(ctx, "cid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Value != "" {
+		t.Fatalf("数据库应保存明确删除后的空 Cookie，got %q", detail.Value)
+	}
+	if _, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
+		t.Fatal("扁平删除结果不得伪造成完整浏览器 Jar")
+	}
+	if token, err := store.Tokens.Get(ctx, "cid"); err != nil || token.AccessToken != "" {
+		t.Fatalf("Cookie 删除后应清理旧 token: token=%+v err=%v", token, err)
 	}
 }
 
@@ -694,7 +742,7 @@ func TestReplaceCookieStr_NoUnbNoChange(t *testing.T) {
 
 // TestUpdateCookie_IgnoresEmpty 纯空白/空字符串被忽略，不覆盖现有 cookie。
 func TestUpdateCookie_IgnoresEmpty(t *testing.T) {
-	acc, _, _, cleanup := newAccountForTest(t)
+	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
 	orig := acc.currentCookieStr()
 
@@ -706,22 +754,187 @@ func TestUpdateCookie_IgnoresEmpty(t *testing.T) {
 		t.Errorf("空白 cookie 不应更新: got %q want %q", got, orig)
 	}
 
-	// 非空（即使含首尾空白）应原样存储——UpdateCookie 只做空值检查，不做 trim。
-	acc.UpdateCookie("unb=123; _m_h5_tk=tk_new;")
-	if got := acc.currentCookieStr(); got != "unb=123; _m_h5_tk=tk_new;" {
+	acc.mu.Lock()
+	originalDevice := acc.deviceID
+	healthyConn := &fakeWSConn{}
+	acc.conn = healthyConn
+	acc.mu.Unlock()
+
+	// 非空（即使含首尾空白）应原样存储，但不能模拟页面 reload 去打断健康 WS。
+	updated := "unb=123; _m_h5_tk=tk_new;"
+	if err := store.Cookies.UpdateValueExisting(context.Background(), acc.CookieID, updated); err != nil {
+		t.Fatal(err)
+	}
+	acc.UpdateCookie(updated)
+	if got := acc.currentCookieStr(); got != updated {
 		t.Errorf("非空 cookie 应更新: got %q", got)
+	}
+	acc.mu.Lock()
+	currentDevice := acc.deviceID
+	acc.mu.Unlock()
+	healthyConn.mu.Lock()
+	closed := healthyConn.closed
+	healthyConn.mu.Unlock()
+	if currentDevice != originalDevice || closed {
+		t.Fatalf("普通 Cookie 更新不应轮换 device ID 或关闭健康连接: device=%q/%q closed=%v", currentDevice, originalDevice, closed)
+	}
+}
+
+func TestUpdateCookie_AcceptsAuthoritativeEmptySnapshot(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	metadata := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{})
+	if err := store.Cookies.UpdateRenewalCookie(context.Background(), acc.CookieID, "", metadata, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	acc.UpdateCookie("")
+	if got := acc.currentCookieStr(); got != "" {
+		t.Fatalf("权威空 Jar 应清空运行时 Cookie，got %q", got)
+	}
+}
+
+func TestReloadCookieFromDBDetectsMetadataOnlyCredentialRotation(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	flat := acc.currentCookieStr()
+	metadataA := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{
+		{Name: "_m_h5_tk", Value: "path-a", Domain: ".goofish.com", Path: "/im"},
+	})
+	if err := store.Cookies.UpdateRenewalCookie(ctx, acc.CookieID, flat, metadataA, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if !acc.reloadCookieFromDB(ctx) {
+		t.Fatal("首次权威 Jar 应同步到运行时")
+	}
+	acc.mu.Lock()
+	boundFP := acc.credentialFP
+	acc.currentToken = "old-token"
+	acc.tokenCredentialFP = boundFP
+	acc.mu.Unlock()
+	if err := store.Tokens.SaveBound(ctx, acc.CookieID, acc.deviceID, "old-token", time.Now().Add(time.Hour).Unix(), boundFP); err != nil {
+		t.Fatal(err)
+	}
+
+	metadataB := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{
+		{Name: "_m_h5_tk", Value: "path-b", Domain: ".goofish.com", Path: "/im"},
+	})
+	if err := store.Cookies.UpdateRenewalCookie(ctx, acc.CookieID, flat, metadataB, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if !acc.reloadCookieFromDB(ctx) {
+		t.Fatal("扁平 Cookie 未变但权威 Jar 已变化时必须重新加载")
+	}
+	acc.mu.Lock()
+	currentToken := acc.currentToken
+	currentFP := acc.credentialFP
+	acc.mu.Unlock()
+	if currentToken != "" {
+		t.Fatalf("Jar 变化后应清内存 token，got %q", currentToken)
+	}
+	if currentFP != credentialStateFingerprint(flat, metadataB) {
+		t.Fatal("运行时未绑定到最新完整凭证状态")
+	}
+	if cached, err := store.Tokens.Get(ctx, acc.CookieID); err != nil || cached.AccessToken != "" {
+		t.Fatalf("Jar 变化后应清数据库 token: cached=%+v err=%v", cached, err)
+	}
+}
+
+func TestCookieSnapshotMatchesDBUsesCompleteCredentialState(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	flat := acc.currentCookieStr()
+	metadataA := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{
+		{Name: "sgcookie", Value: "a", Domain: ".goofish.com", Path: "/"},
+	})
+	if err := store.Cookies.UpdateRenewalCookie(ctx, acc.CookieID, flat, metadataA, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	expected := credentialStateFingerprint(flat, metadataA)
+	if !acc.cookieSnapshotMatchesDB(ctx, expected) {
+		t.Fatal("相同扁平 Cookie 与权威 Jar 应允许 /reg")
+	}
+	metadataB := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{
+		{Name: "sgcookie", Value: "b", Domain: ".goofish.com", Path: "/"},
+	})
+	if err := store.Cookies.UpdateRenewalCookie(ctx, acc.CookieID, flat, metadataB, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if acc.cookieSnapshotMatchesDB(ctx, expected) {
+		t.Fatal("token 获取后 Jar 变化时必须拒绝 /reg")
+	}
+	emptyMetadata := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{})
+	if err := store.Cookies.UpdateRenewalCookie(ctx, acc.CookieID, "", emptyMetadata, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if !acc.cookieSnapshotMatchesDB(ctx, credentialStateFingerprint("", emptyMetadata)) {
+		t.Fatal("完整空 Jar 是权威状态，不应因扁平值为空而被拒绝")
+	}
+}
+
+func TestAdoptIncompleteTokenCookiesDoesNotInventCompleteSnapshot(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	updated := "unb=123; _m_h5_tk=flat-only; cookie2=next"
+	got, err := acc.adoptTokenResponseCookies(ctx, acc.currentCookieStr(), &mtop.RefreshResult{
+		UpdatedCookies: updated,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != updated {
+		t.Fatalf("adopted Cookie=%q want %q", got, updated)
+	}
+	detail, err := store.Cookies.GetDetails(ctx, acc.CookieID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
+		t.Fatal("仅有扁平 token 响应时不得伪造成完整浏览器 Jar")
+	}
+}
+
+func TestAdoptTokenResponseCookiesPersistsExplicitDeletionToEmpty(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	got, err := acc.adoptTokenResponseCookies(ctx, acc.currentCookieStr(), &mtop.RefreshResult{
+		UpdatedCookies:     "",
+		CookieStateChanged: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" || acc.currentCookieStr() != "" {
+		t.Fatalf("明确删除后的 Cookie 未同步: got=%q runtime=%q", got, acc.currentCookieStr())
+	}
+	detail, err := store.Cookies.GetDetails(ctx, acc.CookieID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Value != "" {
+		t.Fatalf("数据库 Cookie=%q want empty", detail.Value)
+	}
+	if _, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
+		t.Fatal("扁平 token 删除不得伪造成完整浏览器 Jar")
 	}
 }
 
 // TestCurrentCookieStr 线程安全返回当前 CookieStr。
 func TestCurrentCookieStr(t *testing.T) {
-	acc, _, _, cleanup := newAccountForTest(t)
+	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
 	if got := acc.currentCookieStr(); got != "unb=123; _m_h5_tk=tk_1;" {
 		t.Errorf("currentCookieStr=%q", got)
 	}
-	acc.UpdateCookie("unb=1; x=2;")
-	if got := acc.currentCookieStr(); got != "unb=1; x=2;" {
+	updated := "unb=1; x=2;"
+	if err := store.Cookies.UpdateValueExisting(context.Background(), acc.CookieID, updated); err != nil {
+		t.Fatal(err)
+	}
+	acc.UpdateCookie(updated)
+	if got := acc.currentCookieStr(); got != updated {
 		t.Errorf("更新后 currentCookieStr=%q", got)
 	}
 }

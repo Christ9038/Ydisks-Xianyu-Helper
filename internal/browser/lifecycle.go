@@ -87,10 +87,12 @@ type Manager struct {
 }
 
 type poolEntry struct {
-	cookieID string
-	browser  playwright.Browser
-	context  playwright.BrowserContext
-	lastUsed time.Time
+	cookieID              string
+	browser               playwright.Browser
+	context               playwright.BrowserContext
+	lastUsed              time.Time
+	active                int
+	initialLeaseAvailable bool
 }
 
 // NewManager 构造。logger 为 nil 用默认。
@@ -257,6 +259,7 @@ func (m *Manager) newPage(ctx context.Context, cookieID, cookieStr string, headl
 	page, err := entry.context.NewPage()
 	if err != nil {
 		// context 损坏，丢弃重建一次。
+		m.releaseEntry(cookieID, entry)
 		m.evict(cookieID)
 		entry, err = m.acquireEntry(cookieID, cookieStr, headless)
 		if err != nil {
@@ -264,12 +267,14 @@ func (m *Manager) newPage(ctx context.Context, cookieID, cookieStr string, headl
 		}
 		page, err = entry.context.NewPage()
 		if err != nil {
+			m.releaseEntry(cookieID, entry)
+			m.evict(cookieID)
 			return nil, nil, fmt.Errorf("新建 page 失败: %w", err)
 		}
 	}
 	release := func() {
 		_ = page.Close()
-		m.touch(cookieID)
+		m.releaseEntry(cookieID, entry)
 	}
 	return page, release, nil
 }
@@ -277,7 +282,7 @@ func (m *Manager) newPage(ctx context.Context, cookieID, cookieStr string, headl
 func (m *Manager) acquireEntry(cookieID, cookieStr string, headless bool) (*poolEntry, error) {
 	m.mu.Lock()
 	if e, ok := m.pool[cookieID]; ok && e.browser != nil && e.browser.IsConnected() {
-		e.lastUsed = time.Now()
+		m.claimEntryLocked(e)
 		m.mu.Unlock()
 		return e, nil
 	}
@@ -286,7 +291,6 @@ func (m *Manager) acquireEntry(cookieID, cookieStr string, headless bool) (*pool
 	created, err, _ := m.creates.Do(cookieID, func() (any, error) {
 		m.mu.Lock()
 		if e, ok := m.pool[cookieID]; ok && e.browser != nil && e.browser.IsConnected() {
-			e.lastUsed = time.Now()
 			m.mu.Unlock()
 			return e, nil
 		}
@@ -302,7 +306,36 @@ func (m *Manager) acquireEntry(cookieID, cookieStr string, headless bool) (*pool
 	if !ok || entry == nil {
 		return nil, fmt.Errorf("浏览器池创建返回异常")
 	}
+	m.mu.Lock()
+	if current := m.pool[cookieID]; current == entry {
+		m.claimEntryLocked(entry)
+		m.mu.Unlock()
+	} else {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("浏览器池条目在获取期间已失效")
+	}
 	return entry, nil
+}
+
+func (m *Manager) claimEntryLocked(entry *poolEntry) {
+	entry.lastUsed = time.Now()
+	if entry.initialLeaseAvailable {
+		entry.initialLeaseAvailable = false
+		return
+	}
+	entry.active++
+}
+
+func (m *Manager) releaseEntry(cookieID string, entry *poolEntry) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if current := m.pool[cookieID]; current != entry {
+		return
+	}
+	if entry.active > 0 {
+		entry.active--
+	}
+	entry.lastUsed = time.Now()
 }
 
 func (m *Manager) createEntry(cookieID, cookieStr string, headless bool) (*poolEntry, error) {
@@ -334,10 +367,12 @@ func (m *Manager) createEntry(cookieID, cookieStr string, headless bool) (*poolE
 		}
 	}
 	entry := &poolEntry{
-		cookieID: cookieID,
-		browser:  browser,
-		context:  context,
-		lastUsed: time.Now(),
+		cookieID:              cookieID,
+		browser:               browser,
+		context:               context,
+		lastUsed:              time.Now(),
+		active:                1,
+		initialLeaseAvailable: true,
 	}
 	m.mu.Lock()
 	m.pool[cookieID] = entry
@@ -356,6 +391,10 @@ func (m *Manager) touch(cookieID string) {
 func (m *Manager) evict(cookieID string) {
 	m.mu.Lock()
 	e, ok := m.pool[cookieID]
+	if ok && e.active > 0 {
+		m.mu.Unlock()
+		return
+	}
 	delete(m.pool, cookieID)
 	m.mu.Unlock()
 	if ok {
@@ -372,12 +411,17 @@ func (m *Manager) evictIfNeeded() {
 	var oldest *poolEntry
 	var oldestID string
 	for id, e := range m.pool {
+		if e.active > 0 {
+			continue
+		}
 		if oldest == nil || e.lastUsed.Before(oldest.lastUsed) {
 			oldest = e
 			oldestID = id
 		}
 	}
-	delete(m.pool, oldestID)
+	if oldest != nil {
+		delete(m.pool, oldestID)
+	}
 	m.mu.Unlock()
 	if oldest != nil {
 		closeEntry(oldest, m.logger)
@@ -390,7 +434,7 @@ func (m *Manager) CleanupIdle() {
 	m.mu.Lock()
 	var toClose []*poolEntry
 	for id, e := range m.pool {
-		if now.Sub(e.lastUsed) > m.idleTTL {
+		if e.active == 0 && now.Sub(e.lastUsed) > m.idleTTL {
 			toClose = append(toClose, e)
 			delete(m.pool, id)
 		}

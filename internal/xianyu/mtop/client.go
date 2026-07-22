@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"xianyu-go/internal/xianyu"
+	"xianyu-go/internal/xianyu/cookierefresh"
 )
 
 // RegAppKey 是 WS 注册用的 appKey（与签名用的 protocol.SignAppKey 不同）。
@@ -72,15 +73,19 @@ type ClientImpl struct {
 }
 
 type TokenBrowserRequest struct {
-	URL     string
-	Body    string
-	Cookies string
+	URL            string
+	Body           string
+	Cookies        string
+	CookieSnapshot []cookierefresh.BrowserCookie
 }
 
 type TokenBrowserResponse struct {
-	Status         int
-	Body           []byte
-	UpdatedCookies string
+	Status                 int
+	Body                   []byte
+	UpdatedCookies         string
+	CookieSnapshot         []cookierefresh.BrowserCookie
+	CookieSnapshotComplete bool // true 表示 CookieSnapshot 是响应后的权威完整 Jar，空切片也代表全部删除
+	CookieStateChanged     bool // true 表示响应明确把不完整扁平 Cookie 更新或删除到了空值
 }
 
 type TokenRequestExecutor interface {
@@ -111,9 +116,12 @@ var _ Client = (*ClientImpl)(nil)
 
 // RefreshResult 是刷新 token 的结果。
 type RefreshResult struct {
-	AccessToken         string // 用于 WS /reg 注册
-	AccessTokenExpireAt int64  // 服务端 accessTokenExpiredTime 归一化后的 Unix 秒
-	UpdatedCookies      string // 合并 Set-Cookie 后的新 cookie 字符串（无变化则与入参相同）
+	AccessToken            string                        // 用于 WS /reg 注册
+	AccessTokenExpireAt    int64                         // 服务端 accessTokenExpiredTime 归一化后的 Unix 秒
+	UpdatedCookies         string                        // 合并 Set-Cookie 后的新 cookie 字符串（无变化则与入参相同）
+	CookieSnapshot         []cookierefresh.BrowserCookie // 浏览器执行 token 请求后得到的完整 Cookie Jar
+	CookieSnapshotComplete bool                          // true 表示快照权威完整；空切片代表 Cookie Jar 已被清空
+	CookieStateChanged     bool                          // true 表示本次响应明确更新或删除了 Cookie（包括更新后为空）
 }
 
 // FreshCaptchaResult 是重取 token 风控验证链接的结果。
@@ -314,7 +322,7 @@ func mergeSetCookie(orig string, current map[string]string, resp *http.Response)
 		if err != nil || strings.TrimSpace(parsed.Name) == "" {
 			continue
 		}
-		if parsed.MaxAge < 0 || (!parsed.Expires.IsZero() && !parsed.Expires.After(time.Now())) {
+		if parsed.MaxAge < 0 || (parsed.MaxAge == 0 && !parsed.Expires.IsZero() && !parsed.Expires.After(time.Now())) {
 			delete(current, parsed.Name)
 		} else {
 			current[parsed.Name] = parsed.Value

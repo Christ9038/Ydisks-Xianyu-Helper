@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -43,7 +44,8 @@ func (c *Cookies) UpdateSettings(ctx context.Context, cookieID string, input Acc
 	}
 	defer tx.Rollback()
 	var ownerID int64
-	if err := tx.QueryRowContext(ctx, `SELECT user_id FROM cookies WHERE id=?`, cookieID).Scan(&ownerID); err != nil {
+	var metadataJSON string
+	if err := tx.QueryRowContext(ctx, c.cookieSelectForUpdate(`user_id,COALESCE(metadata_json,'')`), cookieID).Scan(&ownerID, &metadataJSON); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, ErrNotFound
 		}
@@ -62,6 +64,16 @@ func (c *Cookies) UpdateSettings(ctx context.Context, cookieID string, input Acc
 		}
 		assignments = append(assignments, "value=?")
 		args = append(args, encrypted)
+		plainMetadata, err := c.codec.decrypt(cookieMetadataScope, cookieID, metadataJSON)
+		if err != nil {
+			return 0, err
+		}
+		cleanMetadata, err := c.codec.encrypt(cookieMetadataScope, cookieID, stripCookieSnapshotMetadata(plainMetadata))
+		if err != nil {
+			return 0, err
+		}
+		assignments = append(assignments, "metadata_json=?")
+		args = append(args, cleanMetadata)
 	}
 	if input.Remark != nil {
 		assignments = append(assignments, "remark=?")
@@ -186,20 +198,14 @@ func (c *Cookies) UpdateValueOwned(ctx context.Context, cookieID, cookieValue st
 	if err != nil {
 		return err
 	}
-	res, err := c.DB.ExecContext(ctx,
-		`UPDATE cookies SET value=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?`,
-		encrypted, cookieID, userID)
+	tx, err := c.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if n, rowsErr := res.RowsAffected(); rowsErr != nil {
-		return rowsErr
-	} else if n == 1 {
-		return nil
-	}
-
+	defer tx.Rollback()
 	var existingOwner int64
-	if err := c.DB.QueryRowContext(ctx, `SELECT user_id FROM cookies WHERE id=?`, cookieID).Scan(&existingOwner); err != nil {
+	var rawMetadata string
+	if err := tx.QueryRowContext(ctx, c.cookieSelectForUpdate(`user_id,COALESCE(metadata_json,'')`), cookieID).Scan(&existingOwner, &rawMetadata); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -208,7 +214,22 @@ func (c *Cookies) UpdateValueOwned(ctx context.Context, cookieID, cookieValue st
 	if existingOwner != userID {
 		return ErrForbidden
 	}
-	return ErrNotFound
+	metadata, err := c.metadataWithoutCookieSnapshotValue(cookieID, rawMetadata)
+	if err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx,
+		`UPDATE cookies SET value=?,metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND user_id=?`,
+		encrypted, metadata, cookieID, userID)
+	if err != nil {
+		return err
+	}
+	if n, rowsErr := res.RowsAffected(); rowsErr != nil {
+		return rowsErr
+	} else if n > 1 {
+		return fmt.Errorf("更新 cookie 影响了 %d 行", n)
+	}
+	return tx.Commit()
 }
 
 // UpdateValueExisting 供续期和运行时写回使用，只能更新现存账号。
@@ -221,8 +242,24 @@ func (c *Cookies) UpdateValueExisting(ctx context.Context, cookieID, cookieValue
 	if err != nil {
 		return err
 	}
-	res, err := c.DB.ExecContext(ctx,
-		`UPDATE cookies SET value=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, encrypted, cookieID)
+	tx, err := c.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var rawMetadata string
+	if err := tx.QueryRowContext(ctx, c.cookieSelectForUpdate(`COALESCE(metadata_json,'')`), cookieID).Scan(&rawMetadata); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	metadata, err := c.metadataWithoutCookieSnapshotValue(cookieID, rawMetadata)
+	if err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx,
+		`UPDATE cookies SET value=?,metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`, encrypted, metadata, cookieID)
 	if err != nil {
 		return err
 	}
@@ -230,10 +267,44 @@ func (c *Cookies) UpdateValueExisting(ctx context.Context, cookieID, cookieValue
 	if err != nil {
 		return err
 	}
-	if n != 1 {
-		return ErrNotFound
+	if n > 1 {
+		return fmt.Errorf("更新 cookie 影响了 %d 行", n)
 	}
-	return nil
+	return tx.Commit()
+}
+
+func (c *Cookies) cookieSelectForUpdate(columns string) string {
+	query := `SELECT ` + columns + ` FROM cookies WHERE id=?`
+	if c.Dialect == DialectMySQL || c.Dialect == DialectPostgres {
+		query += ` FOR UPDATE`
+	}
+	return query
+}
+
+func (c *Cookies) metadataWithoutCookieSnapshotValue(cookieID, raw string) (string, error) {
+	plain, err := c.codec.decrypt(cookieMetadataScope, cookieID, raw)
+	if err != nil {
+		return "", err
+	}
+	return c.codec.encrypt(cookieMetadataScope, cookieID, stripCookieSnapshotMetadata(plain))
+}
+
+func stripCookieSnapshotMetadata(metadata string) string {
+	if strings.TrimSpace(metadata) == "" {
+		return ""
+	}
+	var values map[string]any
+	if err := json.Unmarshal([]byte(metadata), &values); err != nil {
+		// 无法解析的历史 metadata 本来也不能被当作快照使用，原样保留。
+		return metadata
+	}
+	delete(values, "cookies_refresh_snapshot")
+	delete(values, "cookie_refresh_snapshot")
+	raw, err := json.Marshal(values)
+	if err != nil {
+		return metadata
+	}
+	return string(raw)
 }
 
 // Save 保留给历史调用和测试夹具使用。新业务代码应选择 CreateOwned、
@@ -361,6 +432,10 @@ func (c *Cookies) GetDetails(ctx context.Context, cookieID string) (*CookieDetai
 		d.PauseDuration = int(pauseDuration.Int64)
 	}
 	d.Value, err = c.codec.decrypt("cookie", d.ID, d.Value)
+	if err != nil {
+		return nil, err
+	}
+	d.MetadataJSON, err = c.codec.decrypt(cookieMetadataScope, d.ID, d.MetadataJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -497,20 +572,28 @@ func (c *Cookies) GetStatus(ctx context.Context, cookieID string) bool {
 
 // Status 返回账号启用状态；没有 cookie_status 记录时按启用处理，数据库错误不再静默放行。
 func (c *Cookies) Status(ctx context.Context, cookieID string) (bool, error) {
+	enabled, _, err := c.StatusWithReason(ctx, cookieID)
+	return enabled, err
+}
+
+// StatusWithReason 原子语义地读取账号当前启用状态和禁用原因；调用方应在
+// Store.LockAccountCredentials 保护下使用，以复核列表查询后的最新状态。
+func (c *Cookies) StatusWithReason(ctx context.Context, cookieID string) (bool, string, error) {
 	var exists bool
 	if err := c.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM cookies WHERE id=?)`, cookieID).Scan(&exists); err != nil {
-		return false, err
+		return false, "", err
 	}
 	if !exists {
-		return false, ErrNotFound
+		return false, "", ErrNotFound
 	}
 	var enabled int
-	err := c.DB.QueryRowContext(ctx, `SELECT enabled FROM cookie_status WHERE cookie_id=?`, cookieID).Scan(&enabled)
+	var reason string
+	err := c.DB.QueryRowContext(ctx, `SELECT enabled,COALESCE(disable_reason,'') FROM cookie_status WHERE cookie_id=?`, cookieID).Scan(&enabled, &reason)
 	if errors.Is(err, sql.ErrNoRows) {
-		return true, nil
+		return true, "", nil
 	}
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
-	return enabled != 0, nil
+	return enabled != 0, reason, nil
 }

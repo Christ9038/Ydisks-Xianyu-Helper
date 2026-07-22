@@ -28,6 +28,7 @@ func startWSEchoServer(t *testing.T, payload string) *httptest.Server {
 		// 构造同步推送帧：body.syncPushPackage.data[0].data = base64(payload)。
 		b64 := base64.StdEncoding.EncodeToString([]byte(payload))
 		frame := map[string]any{
+			"lwp":     "/s/sync",
 			"headers": map[string]any{"mid": "m1", "sid": "s1"},
 			"body": map[string]any{"syncPushPackage": map[string]any{
 				"data": []any{map[string]any{"data": b64}},
@@ -100,6 +101,7 @@ func TestReceiveLoop_NonJSONSkipped(t *testing.T) {
 		c.Write(r.Context(), websocket.MessageText, []byte("not-json"))
 		b64 := base64.StdEncoding.EncodeToString([]byte(`{"ok":true}`))
 		frame := map[string]any{
+			"lwp":     "/s/sync",
 			"headers": map[string]any{"mid": "m2"},
 			"body":    map[string]any{"syncPushPackage": map[string]any{"data": []any{map[string]any{"data": b64}}}},
 		}

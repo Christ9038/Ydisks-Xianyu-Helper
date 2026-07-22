@@ -110,6 +110,9 @@ func (c *ClientImpl) PublishItem(ctx context.Context, cookiesStr string, req Pub
 		return nil, errors.New("商品图片最多 9 张")
 	}
 	currentCookies := cookiesStr
+	if session := cookieSessionFromContext(ctx); session != nil {
+		currentCookies, _, _ = session.State()
+	}
 	uploaded := make([]uploadedImage, 0, len(req.Images))
 	for _, img := range req.Images {
 		res, updated, err := c.uploadPublishImage(ctx, currentCookies, img)
@@ -174,19 +177,20 @@ func (c *ClientImpl) uploadPublishImage(ctx context.Context, cookiesStr string, 
 	if err != nil {
 		return uploadedImage{}, cookiesStr, err
 	}
+	_, requestCookies := mtopRequestCookies(ctx, cookiesStr, "https://www.goofish.com/", u.String())
 	req.Header.Set("content-type", mw.FormDataContentType())
-	setBrowserHeaders(req, cookiesStr)
+	setBrowserHeaders(req, requestCookies)
 	req.Header.Set("accept", "*/*")
 	resp, err := hc.Do(req)
 	if err != nil {
 		return uploadedImage{}, cookiesStr, fmt.Errorf("上传商品图片失败: %w", err)
 	}
 	defer resp.Body.Close()
+	updated := absorbMTopResponseCookies(ctx, cookiesStr, resp)
 	raw, err := readMTopBody(resp)
 	if err != nil {
-		return uploadedImage{}, cookiesStr, err
+		return uploadedImage{}, updated, err
 	}
-	updated := mergeSetCookie(cookiesStr, protocol.TransCookies(cookiesStr), resp)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return uploadedImage{}, updated, fmt.Errorf("上传商品图片失败: http=%d body=%s", resp.StatusCode, truncate(string(raw), 240))
 	}
@@ -349,28 +353,28 @@ func (c *ClientImpl) callMTop(ctx context.Context, cookiesStr, endpoint, api, ve
 	if hc == nil {
 		hc = &http.Client{Timeout: 30 * time.Second}
 	}
-	cookies := protocol.TransCookies(cookiesStr)
 	rawData, _ := json.Marshal(data)
 	dataVal := string(rawData)
+	signingCookies, requestCookies := mtopRequestCookies(ctx, cookiesStr, "https://www.goofish.com/", endpoint)
 	t := strconv.FormatInt(time.Now().UnixMilli(), 10)
-	sign := protocol.GenerateSign(t, protocol.SignToken(cookiesStr), dataVal)
+	sign := protocol.GenerateSign(t, protocol.SignToken(signingCookies), dataVal)
 	query := buildMTopQuery(api, version, t, sign, spmCnt, spmPre, logID)
 	body := "data=" + url.QueryEscape(dataVal)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"?"+query, strings.NewReader(body))
 	if err != nil {
 		return nil, cookiesStr, err
 	}
-	setCommonHeaders(req, cookiesStr)
+	setCommonHeaders(req, requestCookies)
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, cookiesStr, fmt.Errorf("%s 请求失败: %w", api, err)
 	}
 	defer resp.Body.Close()
+	updated := absorbMTopResponseCookies(ctx, cookiesStr, resp)
 	raw, err := readMTopBody(resp)
 	if err != nil {
-		return nil, cookiesStr, err
+		return nil, updated, err
 	}
-	updated := mergeSetCookie(cookiesStr, cookies, resp)
 	var decoded map[string]any
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, updated, fmt.Errorf("解析 %s 响应失败: %w (body=%s)", api, err, truncate(string(raw), 300))

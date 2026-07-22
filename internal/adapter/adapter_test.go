@@ -14,6 +14,7 @@ import (
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
 	"xianyu-go/internal/renewal"
+	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
 	xrenew "xianyu-go/internal/xianyu/renew"
 )
@@ -290,6 +291,32 @@ func TestFetchOrderDetail_BrowserFallback(t *testing.T) {
 	saved, _ := store.Cookies.GetValue(ctx, "cid")
 	if saved != "unb=1; _m_h5_tk=newtoken;" {
 		t.Fatalf("刷新的 cookie 未保存: %q", saved)
+	}
+}
+
+func TestFetchOrderDetail_PersistsAuthoritativeBrowserJar(t *testing.T) {
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	snapshot := []cookierefresh.BrowserCookie{
+		{Name: "unb", Value: "1", Domain: ".goofish.com", Path: "/"},
+		{Name: "api_only", Value: "scoped", Domain: "h5api.m.goofish.com", Path: "/h5", HTTPOnly: true, Secure: true},
+	}
+	a := New(store, nil, nil)
+	a.SetBrowser(&fakeBrowser{fetchDetail: &browser.OrderDetail{
+		Quantity: "1", Amount: "9.9", UpdatedCookies: "unb=1",
+		CookieSnapshot: snapshot, CookieSnapshotComplete: true,
+	}})
+	if _, err := a.FetchOrderDetail(ctx, "cid", "o-jar", "item-1", "buyer-1", "old-cookie"); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := store.Cookies.GetDetails(ctx, "cid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON)
+	if !complete || len(got) != 2 || detail.Value != "unb=1" {
+		t.Fatalf("authoritative jar not persisted: value=%q complete=%v snapshot=%+v", detail.Value, complete, got)
 	}
 }
 

@@ -46,8 +46,8 @@ type SoldOrder struct {
 
 var _ SoldOrderFetcher = (*ClientImpl)(nil)
 
-// FetchSoldOrdersPage 获取卖家已售订单。该能力只使用调用方传入的 Cookie 签名，
-// 不刷新 token、不合并 Set-Cookie，也不持久化 Cookie。
+// FetchSoldOrdersPage 获取卖家已售订单。该调用不主动刷新 token；当 ctx
+// 携带 CookieSession 时会像浏览器一样吸收响应 Cookie。
 func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pageNumber, pageSize int) (*SoldOrdersPage, error) {
 	if pageNumber < 1 {
 		pageNumber = 1
@@ -55,7 +55,12 @@ func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pa
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 30
 	}
-	token := protocol.SignToken(cookies)
+	endpoint := c.SoldOrdersURL
+	if endpoint == "" {
+		endpoint = SoldOrdersAPI
+	}
+	signingCookies, requestCookies := mtopRequestCookies(ctx, cookies, soldOrdersReferer, endpoint)
+	token := protocol.SignToken(signingCookies)
 	if token == "" {
 		return nil, fmt.Errorf("cookie 缺少 _m_h5_tk，无法获取订单列表")
 	}
@@ -73,15 +78,11 @@ func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pa
 	dataVal := string(rawPayload)
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	sign := protocol.GenerateSign(timestamp, token, dataVal)
-	endpoint := c.SoldOrdersURL
-	if endpoint == "" {
-		endpoint = SoldOrdersAPI
-	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"?"+buildSoldOrdersQuery(timestamp, sign), strings.NewReader("data="+url.QueryEscape(dataVal)))
 	if err != nil {
 		return nil, err
 	}
-	setCommonHeaders(req, cookies)
+	setCommonHeaders(req, requestCookies)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Origin", "https://seller.goofish.com")
 	req.Header.Set("Referer", soldOrdersReferer)
@@ -96,6 +97,7 @@ func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pa
 		return nil, fmt.Errorf("订单列表请求失败: %w", err)
 	}
 	defer resp.Body.Close()
+	absorbMTopResponseCookies(ctx, cookies, resp)
 	raw, err := readMTopBody(resp)
 	if err != nil {
 		return nil, err

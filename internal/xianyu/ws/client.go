@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/coder/websocket"
 
@@ -45,11 +47,12 @@ type Config struct {
 
 // Conn 包装一条已注册的 WebSocket 连接。
 type Conn struct {
-	ws       *websocket.Conn
-	cfg      Config
-	logger   *slog.Logger
-	sendMu   sync.Mutex
-	recorder func(direction, rawText, parsedJSON, parseStatus, errMsg string)
+	ws         *websocket.Conn
+	cfg        Config
+	logger     *slog.Logger
+	sendGate   chan struct{}
+	recorderMu sync.RWMutex
+	recorder   func(direction, rawText, parsedJSON, parseStatus, errMsg string)
 
 	readCtx    context.Context
 	readCancel context.CancelFunc
@@ -71,7 +74,16 @@ type incomingFrame struct {
 
 // SetRecorder 设置帧记录器。
 func (c *Conn) SetRecorder(rec func(direction, rawText, parsedJSON, parseStatus, errMsg string)) {
+	c.recorderMu.Lock()
 	c.recorder = rec
+	c.recorderMu.Unlock()
+}
+
+func (c *Conn) recorderSnapshot() func(direction, rawText, parsedJSON, parseStatus, errMsg string) {
+	c.recorderMu.RLock()
+	recorder := c.recorder
+	c.recorderMu.RUnlock()
+	return recorder
 }
 
 // Dial 保留旧的一步式入口；新账号主循环使用 Open → 获取 token → Register，
@@ -88,8 +100,9 @@ func Dial(ctx context.Context, cfg Config, logger *slog.Logger) (*Conn, error) {
 	return conn, nil
 }
 
-// Open 按官网 batchConnectWs 策略并行打开最多五条原生 WebSocket，采用最先
-// 成功的连接并关闭冗余连接。此阶段不请求 token，也不发送 /reg。
+// Open 按官网 batchConnectWs 策略并行打开最多五条原生 WebSocket，由最先
+// settle 的成功或失败决定本轮结果，并关闭迟到连接。此阶段不请求 token，
+// 也不发送 /reg。
 func Open(ctx context.Context, cfg Config, logger *slog.Logger) (*Conn, error) {
 	if logger == nil {
 		logger = slog.Default()
@@ -109,6 +122,7 @@ func websocketHeaders() http.Header {
 
 var (
 	chromeVersionPattern  = regexp.MustCompile(`(?:Chrome|CriOS)/([\d.]+)`)
+	headlessChromePattern = regexp.MustCompile(`HeadlessChrome/([\d.]+)`)
 	edgeVersionPattern    = regexp.MustCompile(`Edg(?:e|A|iOS)?/([\d.]+)`)
 	firefoxVersionPattern = regexp.MustCompile(`Firefox/([\d.]+)`)
 	safariVersionPattern  = regexp.MustCompile(`Version/([\d.]+).*Safari`)
@@ -133,6 +147,7 @@ func OfficialRegistrationUA(rawUA string) string {
 		fmt.Sprintf("OS(%s/%s)", osName, osVersion),
 		fmt.Sprintf("Browser(%s/%s)", browserName, browserVersion),
 		"DingWeb/2.2.0",
+		"IMPaaS",
 		"DingWeb/2.2.0",
 	}, " ")
 }
@@ -161,7 +176,7 @@ func parseOfficialBrowser(ua string) (string, string) {
 	for _, candidate := range []struct {
 		name    string
 		pattern *regexp.Regexp
-	}{{"Edge", edgeVersionPattern}, {"Chrome", chromeVersionPattern}, {"Firefox", firefoxVersionPattern}, {"Safari", safariVersionPattern}} {
+	}{{"Edge", edgeVersionPattern}, {"Chrome Headless", headlessChromePattern}, {"Chrome", chromeVersionPattern}, {"Firefox", firefoxVersionPattern}, {"Safari", safariVersionPattern}} {
 		if match := candidate.pattern.FindStringSubmatch(ua); len(match) == 2 {
 			return candidate.name, match[1]
 		}
@@ -175,9 +190,13 @@ type dialResult struct {
 }
 
 func openBatch(ctx context.Context, target string, cfg Config, logger *slog.Logger) (*Conn, error) {
+	delays := append([]time.Duration(nil), batchConnectDelays...)
+	if len(delays) == 0 {
+		return nil, fmt.Errorf("WS dial: batchConnect 未配置竞速连接")
+	}
 	batchCtx, cancel := context.WithCancel(ctx)
-	results := make(chan dialResult, len(batchConnectDelays))
-	for _, delay := range batchConnectDelays {
+	results := make(chan dialResult, len(delays))
+	for _, delay := range delays {
 		delay := delay
 		go func() {
 			if delay > 0 {
@@ -197,39 +216,39 @@ func openBatch(ctx context.Context, target string, cfg Config, logger *slog.Logg
 		}()
 	}
 
-	var lastErr error
-	for processed := 1; processed <= len(batchConnectDelays); processed++ {
-		result := <-results
-		if result.err != nil {
-			lastErr = result.err
-			continue
-		}
-		cancel()
-		// 继续排空结果并关闭稍后成功的冗余连接。
-		remaining := len(batchConnectDelays) - processed
-		go func() {
-			for i := 0; i < remaining; i++ {
-				result := <-results
-				if result.conn != nil {
-					_ = result.conn.CloseNow()
-				}
+	// 官网使用 Promise.race：第一条完成的连接无论成功或失败都会决定本轮
+	// batchConnect 的结果；不会在先收到失败后继续等待其他竞速连接。
+	result := <-results
+	go func() {
+		defer cancel()
+		for i := 1; i < len(delays); i++ {
+			late := <-results
+			if late.conn != nil {
+				_ = late.conn.CloseNow()
 			}
-		}()
-		result.conn.SetReadLimit(8 << 20)
-		return newConn(result.conn, cfg, logger), nil
+		}
+	}()
+	if result.err != nil {
+		if result.conn != nil {
+			_ = result.conn.CloseNow()
+		}
+		return nil, fmt.Errorf("WS dial: %w", result.err)
 	}
-	cancel()
-	if lastErr == nil {
-		lastErr = context.Canceled
-	}
-	return nil, fmt.Errorf("WS dial: %w", lastErr)
+	result.conn.SetReadLimit(8 << 20)
+	return newConn(result.conn, cfg, logger), nil
 }
 
 func newConn(raw *websocket.Conn, cfg Config, logger *slog.Logger) *Conn {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	c := &Conn{ws: raw, cfg: cfg, logger: logger, recorder: cfg.Recorder}
+	c := &Conn{
+		ws:       raw,
+		cfg:      cfg,
+		logger:   logger,
+		sendGate: make(chan struct{}, 1),
+		recorder: cfg.Recorder,
+	}
 	c.ensureReadPump()
 	return c
 }
@@ -251,11 +270,20 @@ func (c *Conn) ensureReadPump() {
 func (c *Conn) Register(ctx context.Context, deviceID, accessToken string) error {
 	c.ensureReadPump()
 	c.cfg.DeviceID = deviceID
+	// 官网 authConnect 在 _auth 前对 MTOP accessToken 执行
+	// decodeURIComponent。保留原始值供重试，再把解码值写入 /reg。
 	c.cfg.AccessToken = accessToken
+	decodedAccessToken, err := url.PathUnescape(accessToken)
+	if err != nil {
+		return fmt.Errorf("解码 WebSocket accessToken 失败: %w", err)
+	}
+	if !utf8.ValidString(decodedAccessToken) {
+		return fmt.Errorf("解码 WebSocket accessToken 失败: 非法 UTF-8")
+	}
 	response, err := c.request(ctx, "/reg", map[string]any{
 		"cache-header": "app-key token ua wv",
 		"app-key":      RegAppKey,
-		"token":        accessToken,
+		"token":        decodedAccessToken,
 		"ua":           OfficialRegistrationUA(xianyu.CurrentBrowserFingerprint().UserAgent),
 		"dt":           "j",
 		"wv":           "im:3,au:3,sy:6",
@@ -306,6 +334,13 @@ func responseCode(value any) (int, bool) {
 
 func (c *Conn) request(ctx context.Context, path string, headers map[string]any, body any, timeout time.Duration) (map[string]any, error) {
 	c.ensureReadPump()
+	requestCtx := ctx
+	cancel := func() {}
+	if timeout > 0 {
+		requestCtx, cancel = context.WithTimeout(ctx, timeout)
+	}
+	defer cancel()
+
 	if headers == nil {
 		headers = make(map[string]any)
 	}
@@ -329,22 +364,24 @@ func (c *Conn) request(ctx context.Context, path string, headers map[string]any,
 	if body != nil {
 		frame["body"] = body
 	}
-	if err := c.sendJSON(ctx, frame); err != nil {
+	if err := c.sendJSON(requestCtx, frame); err != nil {
 		return nil, err
 	}
-	waitCtx := ctx
-	cancel := func() {}
-	if timeout > 0 {
-		waitCtx, cancel = context.WithTimeout(ctx, timeout)
-	}
-	defer cancel()
 	select {
 	case response := <-responseCh:
 		return response, nil
 	case <-c.readDone:
+		// readPump always dispatches a decoded response before it can observe the
+		// following close. Prefer that already-resolved response over readDone,
+		// matching browser event ordering (message before close).
+		select {
+		case response := <-responseCh:
+			return response, nil
+		default:
+		}
 		return nil, c.connectionReadError()
-	case <-waitCtx.Done():
-		return nil, waitCtx.Err()
+	case <-requestCtx.Done():
+		return nil, requestCtx.Err()
 	}
 }
 
@@ -360,8 +397,8 @@ func (c *Conn) readPump() {
 		}
 		var parsed map[string]any
 		if err := json.Unmarshal(data, &parsed); err != nil {
-			if c.recorder != nil {
-				c.recorder("in", string(data), "", "non_json", err.Error())
+			if recorder := c.recorderSnapshot(); recorder != nil {
+				recorder("in", string(data), "", "non_json", err.Error())
 			}
 			continue
 		}
@@ -371,6 +408,14 @@ func (c *Conn) readPump() {
 				c.dispatchResponse(parsed)
 				continue
 			}
+		}
+		lwp, hasLWP := parsed["lwp"].(string)
+		_, hasHeaders := parsed["headers"].(map[string]any)
+		if !hasLWP || strings.TrimSpace(lwp) == "" || !hasHeaders {
+			if recorder := c.recorderSnapshot(); recorder != nil {
+				recorder("in", string(data), string(data), "skip_invalid_lwp", "")
+			}
+			continue
 		}
 		incoming := incomingFrame{messageType: messageType, data: append([]byte(nil), data...), parsed: parsed}
 		select {
@@ -386,11 +431,6 @@ func (c *Conn) dispatchResponse(frame map[string]any) bool {
 	key := midKey(strings.TrimSpace(fmt.Sprint(headers["mid"])))
 	c.pendingMu.Lock()
 	ch := c.pending[key]
-	if ch == nil && key == "" && len(c.pending) == 1 {
-		for _, only := range c.pending {
-			ch = only
-		}
-	}
 	c.pendingMu.Unlock()
 	if ch == nil {
 		return false
@@ -412,39 +452,47 @@ func (c *Conn) connectionReadError() error {
 }
 
 func (c *Conn) recordParsedIncoming(data []byte, parsed map[string]any) {
-	if c.recorder == nil {
+	recorder := c.recorderSnapshot()
+	if recorder == nil {
 		return
 	}
 	parsedJSON := string(data)
 	if normalized, err := json.Marshal(parsed); err == nil {
 		parsedJSON = string(normalized)
 	}
-	c.recorder("in", string(data), parsedJSON, "json", "")
+	recorder("in", string(data), parsedJSON, "json", "")
 }
 
-// HeartbeatLoop 对齐官网：注册后先等待一个间隔，再发送 /! 并等待同 mid 响应；
-// 任一请求失败或 30 秒无响应即结束连接。
+// HeartbeatLoop 对齐官网：注册后以固定 15 秒节拍发送 /!，即使上一请求仍在
+// 等待也不推迟下一次；任一请求失败或 30 秒无响应即结束连接。官网只以
+// Promise 是否 reject 判断心跳，不因已收到的非 200 响应主动断线。
 func (c *Conn) HeartbeatLoop(ctx context.Context, interval time.Duration) error {
 	c.ensureReadPump()
+	heartbeatCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	heartbeatErr := make(chan error, 1)
 	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-heartbeatCtx.Done():
+			return heartbeatCtx.Err()
 		case <-c.readDone:
 			return c.connectionReadError()
-		case <-ticker.C:
-		}
-		response, err := c.request(ctx, "/!", map[string]any{}, nil, heartbeatResponseTimeout)
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
+		case err := <-heartbeatErr:
+			_ = c.Close()
 			return fmt.Errorf("心跳响应失败: %w", err)
-		}
-		if code, ok := responseCode(response["code"]); ok && code != http.StatusOK {
-			return fmt.Errorf("心跳响应状态异常: %d", code)
+		case <-ticker.C:
+			go func() {
+				_, err := c.request(heartbeatCtx, "/!", map[string]any{}, nil, heartbeatResponseTimeout)
+				if err == nil || heartbeatCtx.Err() != nil {
+					return
+				}
+				select {
+				case heartbeatErr <- err:
+				default:
+				}
+			}()
 		}
 	}
 }
@@ -459,37 +507,60 @@ func (c *Conn) ReceiveLoop(ctx context.Context, onMessage func(decrypted map[str
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-c.readDone:
-			return fmt.Errorf("WS read: %w", c.connectionReadError())
+			// onmessage is delivered before the subsequent onclose in browsers.
+			// If readPump already queued a final push/control frame, consume it
+			// before surfacing the close.
+			select {
+			case frame = <-c.pushes:
+			default:
+				return fmt.Errorf("WS read: %w", c.connectionReadError())
+			}
 		case frame = <-c.pushes:
 		}
 		raw := frame.parsed
 		rawText := string(frame.data)
-		c.sendACK(ctx, raw)
-		if err := c.handleSyncExtra(ctx, raw); err != nil {
-			c.logger.Error("同步状态恢复失败", "err", err)
+		switch strings.TrimSpace(fmt.Sprint(raw["lwp"])) {
+		case "/push/kickout":
+			c.readCancel()
+			_ = c.ws.CloseNow()
+			return &RegError{Kind: RegErrorAuthentication, Code: http.StatusUnauthorized, Reason: "server kickout"}
+		case "/s/session/remove":
+			c.readCancel()
+			_ = c.ws.CloseNow()
+			return &RegError{Kind: RegErrorConnectLimit, Code: http.StatusOK, Reason: "session remove"}
 		}
+		// 官网异步启动 sync state 恢复，并立即完成当前 Push handler；不能
+		// 为 getState/ackDiff 最多阻塞 Push ACK 60 秒。
+		go func(message map[string]any) {
+			if err := c.handleSyncExtra(c.readCtx, message); err != nil && c.readCtx.Err() == nil {
+				c.logger.Error("同步状态恢复失败", "err", err)
+			}
+		}(raw)
 
 		// 仅处理同步包：body.syncPushPackage.data[0].data
 		syncData, ok := extractSyncPayload(raw)
 		if !ok {
-			if c.recorder != nil {
-				c.recorder("in", rawText, "", "skip_non_sync", "")
+			c.sendACK(ctx, raw)
+			if recorder := c.recorderSnapshot(); recorder != nil {
+				recorder("in", rawText, "", "skip_non_sync", "")
 			}
 			continue
 		}
 		decoded, err := decodeSyncData(syncData)
 		if err != nil {
-			if c.recorder != nil {
-				c.recorder("in", rawText, "", "decrypt_failed", err.Error())
+			c.sendACK(ctx, raw)
+			if recorder := c.recorderSnapshot(); recorder != nil {
+				recorder("in", rawText, "", "decrypt_failed", err.Error())
 			}
 			c.logger.Error("消息解密失败", "err", err)
 			continue
 		}
-		if c.recorder != nil {
+		if recorder := c.recorderSnapshot(); recorder != nil {
 			if b, e := json.Marshal(decoded); e == nil {
-				c.recorder("in", rawText, string(b), "decrypted", "")
+				recorder("in", rawText, string(b), "decrypted", "")
 			}
 		}
+		c.sendACK(ctx, raw)
 		if onMessage != nil {
 			onMessage(decoded)
 		}
@@ -586,11 +657,15 @@ func (c *Conn) sendJSON(ctx context.Context, v any) error {
 	if err != nil {
 		return err
 	}
-	if c.recorder != nil {
-		c.recorder("out", string(b), string(b), "json", "")
+	if recorder := c.recorderSnapshot(); recorder != nil {
+		recorder("out", string(b), string(b), "json", "")
 	}
-	c.sendMu.Lock()
-	defer c.sendMu.Unlock()
+	select {
+	case c.sendGate <- struct{}{}:
+		defer func() { <-c.sendGate }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	return c.ws.Write(ctx, websocket.MessageText, b)
 }
 

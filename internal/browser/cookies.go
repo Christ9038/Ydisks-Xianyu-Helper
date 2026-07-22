@@ -81,6 +81,9 @@ func snapshotToOptionalCookies(snapshot []cookierefresh.BrowserCookie) []playwri
 		if c.Expires > 0 {
 			oc.Expires = playwright.Float(c.Expires)
 		}
+		if c.PartitionKey != "" {
+			oc.PartitionKey = playwright.String(c.PartitionKey)
+		}
 		switch c.SameSite {
 		case "Strict":
 			oc.SameSite = playwright.SameSiteAttributeStrict
@@ -108,6 +111,9 @@ func cookieSnapshotFromPlaywright(cs []playwright.Cookie) []cookierefresh.Browse
 		}
 		if c.SameSite != nil {
 			bc.SameSite = string(*c.SameSite)
+		}
+		if c.PartitionKey != nil {
+			bc.PartitionKey = *c.PartitionKey
 		}
 		out = append(out, bc)
 	}

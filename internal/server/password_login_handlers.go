@@ -47,6 +47,7 @@ type passwordLoginSession struct {
 	QRCodeURL       string
 	CooldownHours   int
 	IsNewAccount    bool
+	AccountExisted  bool
 	CookieCount     int
 	ShowBrowser     bool
 	CreatedAt       time.Time
@@ -89,7 +90,8 @@ func (s *Server) startPasswordLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "未授权访问")
 		return
 	}
-	if ok, message := s.canStartPasswordLogin(r.Context(), sess.UserID, accountID); !ok {
+	allowed, accountExisted, message := s.canStartPasswordLogin(r.Context(), sess.UserID, accountID)
+	if !allowed {
 		writeJSON(w, http.StatusOK, map[string]any{"success": false, "message": message})
 		return
 	}
@@ -111,15 +113,16 @@ func (s *Server) startPasswordLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(s.lifecycleContext(), passwordLoginProcessingTimeout)
 	loginSession := &passwordLoginSession{
-		ID:          sessionID,
-		AccountID:   accountID,
-		Account:     account,
-		UserID:      sess.UserID,
-		Status:      "processing",
-		Message:     "登录处理中，请稍候...",
-		ShowBrowser: req.ShowBrowser,
-		CreatedAt:   time.Now(),
-		cancel:      cancel,
+		ID:             sessionID,
+		AccountID:      accountID,
+		Account:        account,
+		UserID:         sess.UserID,
+		Status:         "processing",
+		Message:        "登录处理中，请稍候...",
+		ShowBrowser:    req.ShowBrowser,
+		AccountExisted: accountExisted,
+		CreatedAt:      time.Now(),
+		cancel:         cancel,
 	}
 	s.passwordMu.Lock()
 	s.passwordSessions[sessionID] = loginSession
@@ -234,20 +237,44 @@ func (s *Server) savePasswordLoginCookies(ctx context.Context, session *password
 		return "", false, fmt.Errorf("登录结果账号 %s 与正在编辑的账号 %s 不一致，已拒绝覆盖", accountID, session.AccountID)
 	}
 	cookieValue := browser.MarshalCookies(cookies)
-	_, err := s.Store.Cookies.GetDetails(ctx, accountID)
-	isNew := errors.Is(err, db.ErrNotFound)
-	if err != nil && !errors.Is(err, db.ErrNotFound) {
-		return "", false, err
-	}
-	if err := s.Store.Cookies.UpdateValueOwned(ctx, accountID, cookieValue, session.UserID); err != nil {
-		return "", false, err
-	}
-	if err := s.Store.Cookies.UpdateLoginInfo(ctx, accountID, session.Account, password, session.ShowBrowser); err != nil {
-		return "", false, err
-	}
-	s.markSuccessfulLogin(ctx, accountID, session.UserID, loginMethodPassword, "账号密码登录成功")
-	if s.Store.Tokens != nil {
-		_ = s.Store.Tokens.Clear(ctx, accountID)
+	isNew := false
+	credentialUnlock := s.Store.LockAccountCredentials(accountID)
+	saveErr := func() error {
+		defer credentialUnlock()
+		detail, err := s.Store.Cookies.GetDetails(ctx, accountID)
+		switch {
+		case errors.Is(err, db.ErrNotFound):
+			if session.AccountExisted {
+				return errors.New("账号已在登录期间删除，拒绝重新创建")
+			}
+			isNew = true
+			if err := s.Store.Cookies.CreateOwned(ctx, accountID, cookieValue, session.UserID); err != nil {
+				return err
+			}
+		case err != nil:
+			return err
+		case detail == nil:
+			return db.ErrNotFound
+		case detail.UserID != session.UserID:
+			return db.ErrForbidden
+		default:
+			if err := s.updateFlatCookieOwnedLocked(ctx, detail, cookieValue); err != nil {
+				return err
+			}
+		}
+		if err := s.Store.Cookies.UpdateLoginInfo(ctx, accountID, session.Account, password, session.ShowBrowser); err != nil {
+			return err
+		}
+		s.markSuccessfulLogin(ctx, accountID, session.UserID, loginMethodPassword, "账号密码登录成功")
+		if s.Store.Tokens != nil {
+			if err := s.Store.Tokens.Clear(ctx, accountID); err != nil {
+				s.Logger.Warn("密码登录保存后清理旧连接凭证失败", "cookie_id", accountID, "err", err)
+			}
+		}
+		return nil
+	}()
+	if saveErr != nil {
+		return "", false, saveErr
 	}
 	if d, err := s.Store.Cookies.GetDetails(ctx, accountID); err == nil {
 		s.refreshAccountProfile(ctx, d)
@@ -260,21 +287,21 @@ func (s *Server) savePasswordLoginCookies(ctx context.Context, session *password
 	return accountID, isNew, nil
 }
 
-func (s *Server) canStartPasswordLogin(ctx context.Context, userID int64, accountID string) (bool, string) {
+func (s *Server) canStartPasswordLogin(ctx context.Context, userID int64, accountID string) (bool, bool, string) {
 	d, err := s.Store.Cookies.GetDetails(ctx, accountID)
 	if err == nil {
 		if d.UserID != userID {
-			return false, "无权限操作该账号"
+			return false, true, "无权限操作该账号"
 		}
 		if !s.Store.Cookies.GetStatus(ctx, accountID) {
-			return false, "账号已禁用，请先在账号管理中启用"
+			return false, true, "账号已禁用，请先在账号管理中启用"
 		}
-		return true, ""
+		return true, true, ""
 	}
 	if errors.Is(err, db.ErrNotFound) {
-		return true, ""
+		return true, false, ""
 	}
-	return false, "查询账号失败"
+	return false, false, "查询账号失败"
 }
 
 func passwordProcessingKey(userID int64, accountID string) string {

@@ -20,7 +20,15 @@ func TestWebsocketHeadersMatchBrowserHandshake(t *testing.T) {
 
 func TestOfficialRegistrationUAUsesRuntimeBrowserVersion(t *testing.T) {
 	raw := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/138.0.7204.92 Safari/537.36"
-	want := raw + " DingTalk(2.2.0) OS(Mac OS/10.15.7) Browser(Chrome/138.0.7204.92) DingWeb/2.2.0 DingWeb/2.2.0"
+	want := raw + " DingTalk(2.2.0) OS(Mac OS/10.15.7) Browser(Chrome/138.0.7204.92) DingWeb/2.2.0 IMPaaS DingWeb/2.2.0"
+	if got := OfficialRegistrationUA(raw); got != want {
+		t.Fatalf("OfficialRegistrationUA() = %q, want %q", got, want)
+	}
+}
+
+func TestOfficialRegistrationUARecognizesHeadlessChrome(t *testing.T) {
+	raw := "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 HeadlessChrome/138.0.7204.92 Safari/537.36"
+	want := raw + " DingTalk(2.2.0) OS(Linux/other) Browser(Chrome Headless/138.0.7204.92) DingWeb/2.2.0 IMPaaS DingWeb/2.2.0"
 	if got := OfficialRegistrationUA(raw); got != want {
 		t.Fatalf("OfficialRegistrationUA() = %q, want %q", got, want)
 	}

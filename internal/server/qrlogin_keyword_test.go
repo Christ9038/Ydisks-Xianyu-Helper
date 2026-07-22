@@ -259,6 +259,7 @@ func TestCompleteQRVerificationPersistsAndReenablesAccount(t *testing.T) {
 	if err := store.Tokens.Save(ctx, "acc1", "did", "token", 9999999999); err != nil {
 		t.Fatalf("Save token: %v", err)
 	}
+	seedStaleCookieSnapshot(t, store, "acc1")
 	h := srv.Router()
 	cookie := loginHelper(t, h)
 
@@ -282,6 +283,7 @@ func TestCompleteQRVerificationPersistsAndReenablesAccount(t *testing.T) {
 	if !store.Cookies.GetStatus(ctx, "acc1") {
 		t.Fatal("扫码验证成功后应重新启用账号")
 	}
+	requireCookieSnapshotCleared(t, store, "acc1")
 	if tk, err := store.Tokens.Get(ctx, "acc1"); err != nil || tk.AccessToken != "" || tk.DeviceID != "did" {
 		t.Fatalf("扫码验证成功后应清 token 并保留 device ID: tk=%+v err=%v", tk, err)
 	}

@@ -21,7 +21,6 @@ import (
 	"xianyu-go/internal/renewal"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
-	"xianyu-go/internal/xianyu/protocol"
 	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
@@ -35,6 +34,14 @@ type browserManager interface {
 
 type browserQuickRenewer interface {
 	BrowserQuickRenew(ctx context.Context, cookieID, cookieStr string, headless bool) (string, error)
+}
+
+type browserQuickSnapshotRenewer interface {
+	BrowserQuickRenewSnapshot(ctx context.Context, cookieID, cookieStr string, snapshot []cookierefresh.BrowserCookie, headless bool) (string, []cookierefresh.BrowserCookie, error)
+}
+
+type browserCookieSnapshotRenewer interface {
+	CookiesRefreshSnapshot(ctx context.Context, cookieID, cookieStr string, snapshot []cookierefresh.BrowserCookie, headless bool) (string, []cookierefresh.BrowserCookie, bool, error)
 }
 
 type browserTokenCaptchaRecoverer interface {
@@ -119,6 +126,51 @@ func (a *Adapter) SetRenewService(s xrenew.Service) { a.renewSvc = s }
 
 // SetTokenCaptchaRequester 覆盖 token 风控验证链接刷新器，便于测试隔离网络。
 func (a *Adapter) SetTokenCaptchaRequester(r tokenCaptchaRequester) { a.captchaReq = r }
+
+// RenewAccountStartup 复用真实 Chromium /im 页面执行官网 auto-login plugin。
+// engine 在账号首条 WebSocket 建立前调用一次；普通 reconnect 不会重复导航页面。
+func (a *Adapter) RenewAccountStartup(ctx context.Context, cookieID, cookieStr string, snapshots ...[]cookierefresh.BrowserCookie) (*xrenew.Result, error) {
+	var snapshot []cookierefresh.BrowserCookie
+	if len(snapshots) > 0 {
+		snapshot = snapshots[0]
+	}
+	if br, ok := a.browser.(browserCookieSnapshotRenewer); ok {
+		showBrowser := false
+		if a.store != nil && a.store.Cookies != nil {
+			if detail, err := a.store.Cookies.GetDetails(ctx, cookieID); err == nil && detail != nil {
+				showBrowser = detail.ShowBrowser
+			}
+		}
+		newCookies, newSnapshot, reloaded, err := br.CookiesRefreshSnapshot(
+			ctx, cookieID, cookieStr, snapshot, browser.ResolveHeadless(showBrowser),
+		)
+		message := "官网消息页未触发静默续期 reload"
+		skipReason := "official_no_reload"
+		if reloaded {
+			message = "官网消息页静默续期成功并完成 reload"
+			skipReason = ""
+		}
+		if err != nil {
+			message = "官网消息页续期执行失败: " + err.Error()
+			skipReason = ""
+		}
+		result := &xrenew.Result{
+			Success:                err == nil && reloaded,
+			Skipped:                err == nil && !reloaded,
+			SkipReason:             skipReason,
+			RenewMethod:            "browser_auto_login_plugin",
+			NewCookies:             newCookies,
+			UpdatedCookieNames:     cookierefresh.ChangedSnapshotLabels(snapshot, newSnapshot),
+			CookieSnapshot:         newSnapshot,
+			CookieSnapshotComplete: newSnapshot != nil,
+			Message:                message,
+			RequestCount:           1,
+		}
+		return result, err
+	}
+	// -no-browser 模式只能使用 HTTP 兼容实现；UA 仍由本地指纹统一生成。
+	return a.renewSvc.RenewAPIFirst(ctx, cookieStr, snapshot)
+}
 
 // HandleChatMessage 用户聊天消息由 Account 内部 ReplyService 处理，此处空实现满足接口。
 func (a *Adapter) HandleChatMessage(_ context.Context, _ engine.ChatMessage) error {
@@ -296,7 +348,7 @@ func (a *Adapter) HandleSystemEvent(ctx context.Context, task automation.Task) e
 
 // FetchOrderDetail 实现 automation.OrderDetailFetcher。只在本地订单缺少关键字段时启动浏览器，
 // 并将所有账号的详情请求串行化、至少间隔 3 秒，避免短时间高频访问闲鱼。
-func (a *Adapter) FetchOrderDetail(ctx context.Context, cookieID, orderID, itemID, buyerID, cookieStr string) (*automation.OrderDetail, error) {
+func (a *Adapter) FetchOrderDetail(ctx context.Context, cookieID, orderID, itemID, buyerID, _ string) (*automation.OrderDetail, error) {
 	if detail, ok := a.localOrderDetail(ctx, orderID); ok {
 		return detail, nil
 	}
@@ -320,17 +372,65 @@ func (a *Adapter) FetchOrderDetail(ctx context.Context, cookieID, orderID, itemI
 		}
 	}
 	a.lastOrderFetch = time.Now()
-	detail, err := a.browser.FetchOrderDetail(ctx, orderID, cookieID, cookieStr, true)
+	credentialUnlock := a.store.LockAccountCredentials(cookieID)
+	defer credentialUnlock()
+	account, err := a.store.Cookies.GetDetails(ctx, cookieID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("读取订单账号最新 Cookie: %w", err)
 	}
-	if detail.UpdatedCookies != "" && detail.UpdatedCookies != cookieStr {
-		_ = a.store.Cookies.UpdateValueExisting(ctx, cookieID, detail.UpdatedCookies)
+	if account == nil || (strings.TrimSpace(account.Value) == "" && !hasCompleteCookieSnapshot(account.MetadataJSON)) {
+		return nil, fmt.Errorf("订单账号 %s Cookie 为空", cookieID)
+	}
+	cookieStr := account.Value
+	var requestCtx context.Context
+	var cookieSession *mtop.CookieSession
+	if snapshot, complete := cookierefresh.SnapshotFromMetadataOK(account.MetadataJSON); complete {
+		requestCtx, cookieSession = mtop.WithCookieSnapshot(ctx, snapshot)
+	} else {
+		requestCtx, cookieSession = mtop.WithFlatCookieSession(ctx, cookieStr)
+	}
+	detail, fetchErr := a.browser.FetchOrderDetail(requestCtx, orderID, cookieID, cookieStr, true)
+	authoritativeCookies, authoritativeSnapshot, sessionChanged := cookieSession.State()
+	authoritativeHandled := sessionChanged
+	if detail != nil && detail.CookieSnapshotComplete {
+		authoritativeCookies = detail.UpdatedCookies
+		authoritativeSnapshot = detail.CookieSnapshot
+		if authoritativeSnapshot == nil {
+			authoritativeSnapshot = []cookierefresh.BrowserCookie{}
+		}
+		authoritativeHandled = true
+	}
+	if authoritativeHandled {
+		metadata := cookierefresh.MetadataWithoutSnapshot(account.MetadataJSON)
+		if authoritativeSnapshot != nil {
+			metadata = cookierefresh.MetadataWithSnapshot(account.MetadataJSON, authoritativeSnapshot)
+		}
+		if persistErr := a.store.Cookies.UpdateRenewalCookie(ctx, cookieID, authoritativeCookies, metadata, time.Now().Unix()); persistErr != nil {
+			fetchErr = errors.Join(fetchErr, fmt.Errorf("保存订单详情响应 Cookie: %w", persistErr))
+		} else {
+			cookieStr = authoritativeCookies
+		}
+	}
+	if fetchErr != nil {
+		return nil, fetchErr
+	}
+	if detail == nil {
+		return nil, errors.New("订单详情浏览器返回空结果")
+	}
+	if !authoritativeHandled && detail.UpdatedCookies != "" && detail.UpdatedCookies != cookieStr {
+		if err := a.store.Cookies.UpdateValueExisting(ctx, cookieID, detail.UpdatedCookies); err != nil {
+			return nil, fmt.Errorf("保存订单详情响应 Cookie: %w", err)
+		}
 	}
 	return &automation.OrderDetail{
 		Quantity: detail.Quantity, SpecName: detail.SpecName, SpecValue: detail.SpecValue,
 		Amount: detail.Amount, OrderStatus: detail.OrderStatus,
 	}, nil
+}
+
+func hasCompleteCookieSnapshot(metadata string) bool {
+	_, ok := cookierefresh.SnapshotFromMetadataOK(metadata)
+	return ok
 }
 
 // localOrderDetail 命中本地完整订单时直接返回，避免不必要的浏览器抓取。
@@ -513,67 +613,76 @@ func (a *Adapter) tryLightRenewBeforePassword(ctx context.Context, d *db.CookieD
 	}
 	current := d.Value
 	api := a.renewSvc
-	save := func(cookieStr string) {
-		if strings.TrimSpace(cookieStr) == "" || cookieStr == current {
-			return
+	save := func(cookieStr string, setCookies []string, completeSnapshot []cookierefresh.BrowserCookie) error {
+		if cookieStr == current && len(setCookies) == 0 && completeSnapshot == nil {
+			return nil
 		}
-		if err := a.store.Cookies.UpdateRenewalCookie(ctx, d.ID, cookieStr, cookierefresh.MetadataWithoutSnapshot(d.MetadataJSON), time.Now().Unix()); err != nil {
+		metadata := cookierefresh.MetadataWithoutSnapshot(d.MetadataJSON)
+		if completeSnapshot != nil {
+			// Chromium/API 在完整 Jar 基础上得到的快照是权威结果，包含
+			// 服务端删除和新的 Domain/Path/expiry 属性。
+			metadata = cookierefresh.MetadataWithSnapshot(d.MetadataJSON, completeSnapshot)
+		}
+		if err := a.store.Cookies.UpdateRenewalCookie(ctx, d.ID, cookieStr, metadata, time.Now().Unix()); err != nil {
 			a.logger.Warn("轻量续期保存 Cookie 失败", "account", d.ID, "err", err)
-			return
+			return err
 		}
+		valueChanged := cookieStr != current
 		current = cookieStr
 		d.Value = cookieStr
-		if a.store.Tokens != nil {
-			_ = a.store.Tokens.Clear(ctx, d.ID)
+		d.MetadataJSON = metadata
+		if valueChanged && a.store.Tokens != nil {
+			if err := a.store.Tokens.Clear(ctx, d.ID); err != nil {
+				// Token 仅是运行期缓存；Cookie 已原子提交后不能再把整次
+				// 续期报告成失败，否则调用方可能用旧凭证重试并覆盖新 Jar。
+				a.logger.Warn("轻量续期清理旧 Token 缓存失败", "account", d.ID, "err", err)
+			}
 		}
+		return nil
 	}
 	apiRenew := func(cookieStr string) (*xrenew.Result, error) {
 		runCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 		defer cancel()
-		return api.RenewAPIFirst(runCtx, cookieStr)
+		return api.RenewAPIFirst(runCtx, cookieStr, cookierefresh.SnapshotFromMetadata(d.MetadataJSON))
 	}
-	browserRenew := func(cookieStr string) (string, error) {
+	browserRenew := func(cookieStr string) (string, []cookierefresh.BrowserCookie, error) {
 		if a.browser == nil {
-			return "", fmt.Errorf("浏览器自动化未启用")
+			return "", nil, fmt.Errorf("浏览器自动化未启用")
+		}
+		if br, ok := a.browser.(browserQuickSnapshotRenewer); ok {
+			runCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+			defer cancel()
+			snapshot := cookierefresh.SnapshotFromMetadata(d.MetadataJSON)
+			return br.BrowserQuickRenewSnapshot(runCtx, d.ID, cookieStr, snapshot, browser.ResolveHeadless(d.ShowBrowser))
 		}
 		if br, ok := a.browser.(browserQuickRenewer); ok {
 			runCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 			defer cancel()
-			return br.BrowserQuickRenew(runCtx, d.ID, cookieStr, browser.ResolveHeadless(d.ShowBrowser))
+			renewed, err := br.BrowserQuickRenew(runCtx, d.ID, cookieStr, browser.ResolveHeadless(d.ShowBrowser))
+			return renewed, nil, err
 		}
 		m, err := a.browser.CookieRenew(ctx, d.ID, cookieStr, browser.ResolveHeadless(d.ShowBrowser))
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
-		return browser.MarshalCookies(m), nil
+		return browser.MarshalCookies(m), nil, nil
 	}
 
-	hasLongLogin := strings.TrimSpace(protocol.TransCookies(current)["havana_lgc2_77"]) != ""
-	if hasLongLogin {
-		if renewed, err := browserRenew(current); err == nil && renewed != "" {
-			save(renewed)
-			a.logger.Info("密码登录前浏览器续期成功，跳过密码登录", "account", d.ID)
-			return true, nil
-		} else if err != nil {
-			if errors.Is(err, browser.ErrSecurityVerification) {
-				return false, err
-			}
-			a.logger.Warn("密码登录前浏览器续期失败，继续尝试接口续期", "account", d.ID, "err", err)
-		}
-		if res, err := apiRenew(current); err == nil && res != nil {
-			save(res.NewCookies)
-			if res.Success {
-				a.logger.Info("密码登录前静默续期成功，跳过密码登录", "account", d.ID)
-				return true, nil
-			}
-		}
-		return false, nil
-	}
-
+	// 官网始终先由 auto-login plugin 按 havana_lgc_exp/cookie3_bak_exp
+	// 决定是否调用 silentHasLogin；不存在 havana_lgc2_77 浏览器优先分支。
 	res, err := apiRenew(current)
-	if err == nil && res != nil {
-		save(res.NewCookies)
-		if res.Success {
+	if res != nil {
+		var completeSnapshot []cookierefresh.BrowserCookie
+		if res.CookieSnapshotComplete {
+			completeSnapshot = res.CookieSnapshot
+			if completeSnapshot == nil {
+				completeSnapshot = []cookierefresh.BrowserCookie{}
+			}
+		}
+		if saveErr := save(res.NewCookies, res.SetCookies, completeSnapshot); saveErr != nil {
+			return false, saveErr
+		}
+		if err == nil && res.Success {
 			a.logger.Info("密码登录前接口续期成功，跳过密码登录", "account", d.ID)
 			return true, nil
 		}
@@ -582,14 +691,25 @@ func (a *Adapter) tryLightRenewBeforePassword(ctx context.Context, d *db.CookieD
 	if res != nil && strings.TrimSpace(res.NewCookies) != "" {
 		browserInput = res.NewCookies
 	}
-	browserCookies, err := browserRenew(browserInput)
-	if err != nil || browserCookies == "" {
+	browserCookies, browserSnapshot, err := browserRenew(browserInput)
+	browserSaved := false
+	if browserSnapshot != nil {
+		if saveErr := save(browserCookies, nil, browserSnapshot); saveErr != nil {
+			return false, saveErr
+		}
+		browserSaved = true
+	}
+	if err != nil || (browserCookies == "" && browserSnapshot == nil) {
 		if errors.Is(err, browser.ErrSecurityVerification) {
 			return false, err
 		}
 		return false, nil
 	}
-	save(browserCookies)
+	if !browserSaved {
+		if err := save(browserCookies, nil, browserSnapshot); err != nil {
+			return false, err
+		}
+	}
 	a.logger.Info("密码登录前浏览器续期成功，跳过密码登录", "account", d.ID)
 	return true, nil
 }

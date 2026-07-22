@@ -24,7 +24,17 @@ func TransCookies(cookiesStr string) map[string]string {
 // SignToken 从 cookie 字符串中提取 _m_h5_tk 的前半段，作为 mtop API 签名用的 token。
 // _m_h5_tk 形如 "<token>_<timestamp>"，取 "_" 前的部分。
 func SignToken(cookiesStr string) string {
-	v := TransCookies(cookiesStr)["_m_h5_tk"]
+	// 浏览器 Cookie header / document.cookie 会把更长 Path 的同名 Cookie
+	// 排在前面，官网 cookie getter 读取首个匹配项。不能先压成 map 再取值，
+	// 否则同名 token 会被最后一个（通常是更宽作用域）错误覆盖。
+	v := ""
+	for _, part := range strings.Split(cookiesStr, ";") {
+		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if ok && strings.TrimSpace(key) == "_m_h5_tk" {
+			v = strings.TrimSpace(value)
+			break
+		}
+	}
 	if v == "" {
 		return ""
 	}

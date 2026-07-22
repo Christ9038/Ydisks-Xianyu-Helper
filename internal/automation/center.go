@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
 )
 
@@ -732,27 +733,75 @@ func (c *Center) confirmShipment(ctx context.Context, task Task) error {
 	if !enabled && !task.ForceConfirmShipment {
 		return nil
 	}
-	cookieStr := task.CookieStr
-	if strings.TrimSpace(cookieStr) == "" {
-		cookieStr, err = c.cookieValue(ctx, task.AccountID)
-		if err != nil {
-			return err
+	credentialUnlock := c.store.LockAccountCredentials(task.AccountID)
+	credentialLocked := true
+	defer func() {
+		if credentialLocked {
+			credentialUnlock()
 		}
-	}
-	ok, ret, updated, err := c.mtop.ConsignContext(ctx, cookieStr, task.OrderID)
+	}()
+	detail, err := c.store.Cookies.GetDetails(ctx, task.AccountID)
 	if err != nil {
-		return uncertainAction(err)
+		return err
 	}
+	if detail == nil {
+		return db.ErrNotFound
+	}
+	_, completeSnapshot := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON)
+	if strings.TrimSpace(detail.Value) == "" && !completeSnapshot {
+		return fmt.Errorf("账号 %s Cookie 为空", task.AccountID)
+	}
+	cookieStr := detail.Value
+	var mtopCtx context.Context
+	var cookieSession *mtop.CookieSession
+	if snapshot, ok := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); ok {
+		mtopCtx, cookieSession = mtop.WithCookieSnapshot(ctx, snapshot)
+	} else {
+		mtopCtx, cookieSession = mtop.WithFlatCookieSession(ctx, cookieStr)
+	}
+	ok, ret, updated, callErr := c.mtop.ConsignContext(mtopCtx, cookieStr, task.OrderID)
 	var persistenceErrs []error
-	if updated != "" && updated != cookieStr {
-		if saveErr := c.store.Cookies.UpdateValueExisting(ctx, task.AccountID, updated); saveErr != nil {
+	runtimeCookie := ""
+	runtimeCookieChanged := false
+	sessionHandled := false
+	value, snapshot, changed := cookieSession.State()
+	if changed {
+		sessionHandled = true
+		metadata := cookierefresh.MetadataWithoutSnapshot(detail.MetadataJSON)
+		if snapshot != nil {
+			metadata = cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, snapshot)
+		}
+		if saveErr := c.store.Cookies.UpdateRenewalCookie(ctx, task.AccountID, value, metadata, time.Now().Unix()); saveErr != nil {
+			persistenceErrs = append(persistenceErrs, fmt.Errorf("保存确认发货响应 Cookie Jar: %w", saveErr))
+		} else if value != cookieStr {
+			runtimeCookie = value
+			runtimeCookieChanged = true
+		}
+	}
+	if !sessionHandled && callErr == nil && updated != "" && updated != cookieStr {
+		// 注入 mock 或没有权威快照的历史账号保留扁平
+		// Cookie 兼容路径；扁平结果无法维护旧 Jar 的作用域，
+		// 因此不得继续保留可能已过期的 snapshot。
+		metadata := cookierefresh.MetadataWithoutSnapshot(detail.MetadataJSON)
+		if saveErr := c.store.Cookies.UpdateRenewalCookie(ctx, task.AccountID, updated, metadata, time.Now().Unix()); saveErr != nil {
 			persistenceErrs = append(persistenceErrs, fmt.Errorf("保存刷新后的 Cookie: %w", saveErr))
+		} else {
+			runtimeCookie = updated
+			runtimeCookieChanged = true
 		}
-		if c.senders != nil {
-			if sender, running := c.senders.Sender(task.AccountID); running {
-				sender.UpdateCookie(updated)
-			}
+	}
+	credentialUnlock()
+	credentialLocked = false
+	if runtimeCookieChanged && c.senders != nil {
+		if sender, running := c.senders.Sender(task.AccountID); running {
+			sender.UpdateCookie(runtimeCookie)
 		}
+	}
+	if callErr != nil {
+		if len(persistenceErrs) > 0 {
+			callErr = errors.Join(callErr, errors.Join(persistenceErrs...))
+		}
+		return uncertainAction(callErr)
 	}
 	if !ok {
 		failure := fmt.Errorf("确认发货失败: %s", strings.Join(ret, "; "))

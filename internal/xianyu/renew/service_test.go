@@ -2,7 +2,9 @@ package renew
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -12,10 +14,38 @@ import (
 	"time"
 
 	"xianyu-go/internal/xianyu"
+	"xianyu-go/internal/xianyu/cookierefresh"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+type failingReadCloser struct {
+	err error
+}
+
+func (r failingReadCloser) Read([]byte) (int, error) { return 0, r.err }
+func (failingReadCloser) Close() error               { return nil }
 
 func futureMillis(d time.Duration) string {
 	return strconv.FormatInt(time.Now().Add(d).UnixMilli(), 10)
+}
+
+func useTestDesktopFingerprint(t *testing.T) xianyu.BrowserFingerprint {
+	t.Helper()
+	old := xianyu.CurrentBrowserFingerprint()
+	fingerprint := xianyu.BrowserFingerprint{
+		UserAgent: `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/999.0.0.0 Safari/537.36`,
+		SecChUA:   `"Chromium";v="999", "Google Chrome";v="999", "Not_A Brand";v="24"`,
+		Platform:  "macOS",
+		Mobile:    "?0",
+	}
+	xianyu.SetBrowserFingerprint(fingerprint)
+	t.Cleanup(func() { xianyu.SetBrowserFingerprint(old) })
+	return fingerprint
 }
 
 func TestAutoLoginModeMatchesBrowserPlugin(t *testing.T) {
@@ -27,6 +57,7 @@ func TestAutoLoginModeMatchesBrowserPlugin(t *testing.T) {
 		wantReason string
 	}{
 		{name: "fatigue", cookies: map[string]string{"sdkSilent": strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10), "havana_lgc_exp": strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10)}, wantReason: "fatigue"},
+		{name: "malformed sdkSilent does not cause fatigue", cookies: map[string]string{"sdkSilent": "invalid", "havana_lgc_exp": strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10)}, wantMode: autoLoginModeHavana},
 		{name: "havana", cookies: map[string]string{"havana_lgc_exp": strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10)}, wantMode: autoLoginModeHavana},
 		{name: "cookie3 backup", cookies: map[string]string{"havana_lgc_exp": strconv.FormatInt(now.Add(-time.Hour).UnixMilli(), 10), "cookie3_bak_exp": strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10)}, wantMode: autoLoginModeCookie3},
 		{name: "malformed long-login expiry follows browser Invalid Date branch", cookies: map[string]string{"havana_lgc_exp": "bad", "cookie3_bak_exp": strconv.FormatInt(now.Add(-time.Hour).UnixMilli(), 10)}, wantMode: autoLoginModeHavana},
@@ -38,6 +69,20 @@ func TestAutoLoginModeMatchesBrowserPlugin(t *testing.T) {
 				t.Fatalf("mode=%q reason=%q, want mode=%q reason=%q", mode, reason, tt.wantMode, tt.wantReason)
 			}
 		})
+	}
+}
+
+func TestAutoLoginDecisionUsesFirstCookieForDuplicatePaths(t *testing.T) {
+	now := time.Now()
+	cookies := strings.Join([]string{
+		"sdkSilent=" + strconv.FormatInt(now.Add(-time.Hour).UnixMilli(), 10),
+		"sdkSilent=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10),
+		"havana_lgc_exp=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10),
+		"havana_lgc_exp=" + strconv.FormatInt(now.Add(-time.Hour).UnixMilli(), 10),
+	}, "; ")
+	mode, reason := autoLoginMode(firstCookieValues(cookies), now)
+	if mode != autoLoginModeHavana || reason != "" {
+		t.Fatalf("mode=%q reason=%q；应采用浏览器排序后的首个同名 Cookie", mode, reason)
 	}
 }
 
@@ -63,6 +108,10 @@ func TestLongLoginSettingsMatchOfficialRequest(t *testing.T) {
 			}
 		}
 		http.SetCookie(w, &http.Cookie{Name: "havana_lgc_exp", Value: futureMillis(24 * time.Hour), Path: "/", HttpOnly: true})
+		if strings.Contains(r.URL.Path, "set") {
+			_, _ = w.Write([]byte(`{"data":{"success":true}}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"content":{"data":{"returnValue":{"canOpenLongLogin":true,"hasLongTokenLogin":true}}}}`))
 	}))
 	defer srv.Close()
@@ -78,16 +127,132 @@ func TestLongLoginSettingsMatchOfficialRequest(t *testing.T) {
 		t.Fatalf("query result=%+v err=%v", queried, err)
 	}
 	set, err := service.SetLongLoginSettings(context.Background(), queried.NewCookies, true)
-	if err != nil || !set.Enabled || len(set.SetCookies) != 1 || !strings.Contains(set.NewCookies, "havana_lgc_exp=") {
+	if err != nil || !set.Enabled || len(set.SetCookies) != 2 || !strings.Contains(set.NewCookies, "havana_lgc_exp=") {
 		t.Fatalf("set result=%+v err=%v", set, err)
 	}
-	if calls.Load() != 2 {
+	if calls.Load() != 3 {
 		t.Fatalf("calls=%d", calls.Load())
 	}
 }
 
+func TestLongLoginRequestKeepsResponseCookiesOnFailures(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       io.ReadCloser
+	}{
+		{
+			name:       "body read",
+			statusCode: http.StatusOK,
+			body:       failingReadCloser{err: errors.New("broken body")},
+		},
+		{
+			name:       "business parse",
+			statusCode: http.StatusOK,
+			body:       io.NopCloser(strings.NewReader(`not-json`)),
+		},
+		{
+			name:       "http status",
+			statusCode: http.StatusServiceUnavailable,
+			body:       io.NopCloser(strings.NewReader(`{"error":"busy"}`)),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: tt.statusCode,
+					Header: http.Header{
+						"Set-Cookie": {"rotated=fresh; Domain=.goofish.com; Path=/; Secure; HttpOnly"},
+					},
+					Body: tt.body,
+				}, nil
+			})}
+			settings, err := (Service{HTTPClient: client}).QueryLongLoginSettings(context.Background(), "unb=1")
+			if err == nil || settings == nil {
+				t.Fatalf("settings=%+v err=%v", settings, err)
+			}
+			if len(settings.SetCookies) != 1 || !strings.Contains(settings.NewCookies, "rotated=fresh") {
+				t.Fatalf("response Cookie was lost: %+v", settings)
+			}
+		})
+	}
+}
+
+func TestSetLongLoginSettingsMergesSetAndFailedQueryCookies(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if strings.Contains(r.URL.Path, "set") {
+			http.SetCookie(w, &http.Cookie{Name: "set_cookie", Value: "one", Path: "/"})
+			_, _ = w.Write([]byte(`{"data":{"success":true}}`))
+			return
+		}
+		if !strings.Contains(r.Header.Get("Cookie"), "set_cookie=one") {
+			t.Fatalf("QUERY did not receive SET Cookie: %q", r.Header.Get("Cookie"))
+		}
+		http.SetCookie(w, &http.Cookie{Name: "query_cookie", Value: "two", Path: "/"})
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":"upstream"}`))
+	}))
+	defer srv.Close()
+
+	svc := Service{
+		HTTPClient:            srv.Client(),
+		SetLoginSettingsURL:   srv.URL + "/setLoginSettings.do",
+		QueryLoginSettingsURL: srv.URL + "/queryLoginSettings.do",
+	}
+	settings, err := svc.SetLongLoginSettings(context.Background(), "unb=1", true)
+	if err == nil || settings == nil {
+		t.Fatalf("settings=%+v err=%v", settings, err)
+	}
+	if calls.Load() != 2 || len(settings.SetCookies) != 2 || !settings.Enabled {
+		t.Fatalf("settings=%+v calls=%d", settings, calls.Load())
+	}
+	if !strings.Contains(settings.NewCookies, "set_cookie=one") || !strings.Contains(settings.NewCookies, "query_cookie=two") {
+		t.Fatalf("SET/QUERY Cookie was lost: %q", settings.NewCookies)
+	}
+}
+
+func TestSetLongLoginSettingsScopesCompleteJarBetweenSetAndQuery(t *testing.T) {
+	var queryCookie string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "set") {
+			w.Header().Add("Set-Cookie", "set_only=hidden; Path=/ac/account/setLoginSettings.do; Secure")
+			w.Header().Add("Set-Cookie", "shared=next; Path=/ac/account; Secure")
+			_, _ = w.Write([]byte(`{"data":{"success":true}}`))
+			return
+		}
+		queryCookie = r.Header.Get("Cookie")
+		_, _ = w.Write([]byte(`{"content":{"data":{"returnValue":{"canOpenLongLogin":true,"hasLongTokenLogin":true}}}}`))
+	}))
+	defer srv.Close()
+	snapshot := []cookierefresh.BrowserCookie{
+		{Name: "shared", Value: "old", Domain: "passport.goofish.com", Path: "/ac/account", Secure: true},
+		{Name: "im_only", Value: "visible", Domain: "www.goofish.com", Path: "/im", Secure: true},
+	}
+	svc := Service{
+		HTTPClient:            srv.Client(),
+		SetLoginSettingsURL:   srv.URL + "/setLoginSettings.do",
+		QueryLoginSettingsURL: srv.URL + "/queryLoginSettings.do",
+	}
+	settings, err := svc.SetLongLoginSettings(context.Background(), "fallback=must-not-leak", true, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(queryCookie, "set_only=hidden") || !strings.Contains(queryCookie, "shared=next") {
+		t.Fatalf("QUERY Cookie 未按更新后 Jar 重新做 Path scope: %q", queryCookie)
+	}
+	if !settings.CookieSnapshotComplete || len(settings.CookieSnapshot) != 3 {
+		t.Fatalf("最终完整 Jar 未返回: %+v", settings)
+	}
+	if settings.NewCookies != "im_only=visible" {
+		t.Fatalf("/im canonical Cookie=%q", settings.NewCookies)
+	}
+}
+
 func TestRenewAPIFirstHavanaSendsOneSilentRequest(t *testing.T) {
-	xianyu.SetBrowserFingerprint(xianyu.BrowserFingerprint{UserAgent: "native-browser-ua", SecChUA: `"Chromium";v="999"`, Platform: "macOS", Mobile: "?0"})
+	fingerprint := useTestDesktopFingerprint(t)
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -100,7 +265,7 @@ func TestRenewAPIFirstHavanaSendsOneSilentRequest(t *testing.T) {
 		if got := r.URL.Query().Get("documentReferer"); got != "https://www.goofish.com/im" {
 			t.Fatalf("documentReferer=%q", got)
 		}
-		if got := r.Header.Get("User-Agent"); got != "native-browser-ua" {
+		if got := r.Header.Get("User-Agent"); got != fingerprint.UserAgent {
 			t.Fatalf("User-Agent=%q", got)
 		}
 		if got := r.Header.Get("Cookie"); !strings.Contains(got, "unb=1") {
@@ -125,12 +290,117 @@ func TestRenewAPIFirstHavanaSendsOneSilentRequest(t *testing.T) {
 	}
 }
 
+func TestRenewAPIFirstUsesBrowserCookieScopes(t *testing.T) {
+	useTestDesktopFingerprint(t)
+	var receivedCookie string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedCookie = r.Header.Get("Cookie")
+		_, _ = w.Write([]byte(`{"data":{"content":{"data":{"processFinished":true,"resultCode":100}}}}`))
+	}))
+	defer srv.Close()
+	host := strings.TrimPrefix(srv.URL, "http://")
+	host = strings.Split(host, ":")[0]
+	snapshot := []cookierefresh.BrowserCookie{
+		{Name: "havana_lgc_exp", Value: futureMillis(time.Hour), Domain: ".goofish.com", Path: "/"},
+		{Name: "request_only", Value: "passport", Domain: host, Path: "/"},
+		{Name: "www_only", Value: "private", Domain: "www.goofish.com", Path: "/im"},
+		{Name: "http_only_document", Value: "hidden", Domain: ".goofish.com", Path: "/", HTTPOnly: true},
+	}
+	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, DocumentReferer: "https://www.goofish.com/im", RetryDelay: -1}
+	res, err := svc.RenewAPIFirst(context.Background(), "havana_lgc_exp="+futureMillis(time.Hour)+"; request_only=passport; www_only=private", snapshot)
+	if err != nil || !res.Success {
+		t.Fatalf("result=%+v err=%v", res, err)
+	}
+	if !strings.Contains(receivedCookie, "request_only=passport") || strings.Contains(receivedCookie, "www_only=private") {
+		t.Fatalf("passport 请求未遵守 Cookie Domain/Path: %q", receivedCookie)
+	}
+	if !res.CookieSnapshotComplete || res.CookieSnapshot == nil {
+		t.Fatalf("authoritative snapshot was not returned: %+v", res)
+	}
+}
+
+func TestRenewAPIFirstUsesTopSiteAndAppliesPartitionedSetCookie(t *testing.T) {
+	useTestDesktopFingerprint(t)
+	snapshot := []cookierefresh.BrowserCookie{
+		{Name: "havana_lgc_exp", Value: futureMillis(time.Hour), Domain: ".goofish.com", Path: "/", Secure: true, PartitionKey: goofishTopSite},
+		{Name: "passport_partitioned", Value: "right", Domain: "passport.goofish.com", Path: "/", Secure: true, PartitionKey: goofishTopSite},
+		{Name: "wrong_partition", Value: "hidden", Domain: "passport.goofish.com", Path: "/", Secure: true, PartitionKey: "https://example.com"},
+	}
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cookies := req.Header.Get("Cookie")
+		if !strings.Contains(cookies, "passport_partitioned=right") || strings.Contains(cookies, "wrong_partition=hidden") {
+			t.Fatalf("partitioned request Cookie=%q", cookies)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Set-Cookie": {"rotated=fresh; Domain=.goofish.com; Path=/; Secure; Partitioned"},
+			},
+			Body: io.NopCloser(strings.NewReader(`{"data":{"content":{"data":{"processFinished":true,"resultCode":100}}}}`)),
+		}, nil
+	})}
+	svc := Service{HTTPClient: client, RetryDelay: -1}
+	res, err := svc.RenewAPIFirst(context.Background(), "", snapshot)
+	if err != nil || !res.Success {
+		t.Fatalf("result=%+v err=%v", res, err)
+	}
+	if !res.CookieSnapshotComplete || !strings.Contains(res.NewCookies, "rotated=fresh") {
+		t.Fatalf("authoritative renewal result=%+v", res)
+	}
+	found := false
+	for _, cookie := range res.CookieSnapshot {
+		if cookie.Name == "rotated" && cookie.Value == "fresh" && cookie.PartitionKey == goofishTopSite {
+			found = true
+		}
+	}
+	if !found || len(res.UpdatedCookieNames) == 0 {
+		t.Fatalf("partitioned Set-Cookie was not applied exactly: %+v", res)
+	}
+}
+
+func TestRenewAPIFirstKeepsSetCookieWhenBodyReadFails(t *testing.T) {
+	useTestDesktopFingerprint(t)
+	snapshot := []cookierefresh.BrowserCookie{
+		{Name: "havana_lgc_exp", Value: futureMillis(time.Hour), Domain: ".goofish.com", Path: "/", Secure: true},
+	}
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Set-Cookie": {"rotated=fresh; Domain=.goofish.com; Path=/; Secure; HttpOnly"},
+			},
+			Body: failingReadCloser{err: errors.New("broken response body")},
+		}, nil
+	})}
+	svc := Service{HTTPClient: client, RetryDelay: -1}
+	res, err := svc.RenewAPIFirst(context.Background(), "", snapshot)
+	if err == nil || res == nil {
+		t.Fatalf("result=%+v err=%v", res, err)
+	}
+	if !res.CookieSnapshotComplete || res.RequestCount != 1 || len(res.SetCookies) != 1 || !strings.Contains(res.NewCookies, "rotated=fresh") {
+		t.Fatalf("response Cookie was lost after body error: %+v", res)
+	}
+}
+
+func TestRenewAPIFirstTreatsNonNilEmptySnapshotAsAuthoritative(t *testing.T) {
+	useTestDesktopFingerprint(t)
+	emptySnapshot := make([]cookierefresh.BrowserCookie, 0)
+	res, err := (Service{RetryDelay: -1}).RenewAPIFirst(context.Background(), "", emptySnapshot)
+	if err != nil || !res.Skipped || res.SkipReason != "long_login_expired" {
+		t.Fatalf("result=%+v err=%v", res, err)
+	}
+	if !res.CookieSnapshotComplete || res.CookieSnapshot == nil || len(res.CookieSnapshot) != 0 || res.RenewMethod != "auto_login_plugin" {
+		t.Fatalf("empty authoritative snapshot was downgraded: %+v", res)
+	}
+}
+
 func TestRenewAPIFirstCookie3UsesBackupFlags(t *testing.T) {
+	useTestDesktopFingerprint(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("skipSessionFilter") != "true" || r.URL.Query().Get("c2r") != "true" || r.URL.Query().Get("ltl") != "" {
 			t.Fatalf("cookie3 query=%s", r.URL.RawQuery)
 		}
-		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":"100"}}}`))
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
 	}))
 	defer srv.Close()
 	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1}
@@ -161,6 +431,7 @@ func TestRenewAPIFirstSkipsFatigueAndExpiredCookies(t *testing.T) {
 }
 
 func TestRenewAPIFirstDoesNotRetryOrEscalateFailure(t *testing.T) {
+	useTestDesktopFingerprint(t)
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
@@ -198,6 +469,15 @@ func TestMergeSetCookiesAppliesServerDeletion(t *testing.T) {
 	}
 	if changed := strings.Join(ChangedCookieNames("unb=1; stale=a; expired=b", got), ","); changed != "expired,stale" {
 		t.Fatalf("ChangedCookieNames=%s", changed)
+	}
+}
+
+func TestMergeSetCookiesMaxAgeOverridesPastExpires(t *testing.T) {
+	got := MergeSetCookies("session=old", []string{
+		"session=fresh; Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/",
+	})
+	if !strings.Contains(got, "session=fresh") {
+		t.Fatalf("positive Max-Age must override past Expires: %q", got)
 	}
 }
 

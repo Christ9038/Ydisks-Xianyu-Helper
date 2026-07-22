@@ -233,8 +233,8 @@ func TestTryLoginStatusCheck_AdoptsUpdatedCookie(t *testing.T) {
 	if err != nil || saved != newCookie {
 		t.Fatalf("DB Cookie 未更新: got %q err=%v", saved, err)
 	}
-	if tk, err := store.Tokens.Get(context.Background(), "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != oldDeviceID || acc.deviceID == oldDeviceID {
-		t.Fatalf("Cookie 更新后应清 token 并为页面重载轮换 device ID: runtime=%q tk=%+v err=%v", acc.deviceID, tk, err)
+	if tk, err := store.Tokens.Get(context.Background(), "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != oldDeviceID || acc.deviceID != oldDeviceID {
+		t.Fatalf("Cookie 更新后应清 token 并保持页面 device ID: runtime=%q tk=%+v err=%v", acc.deviceID, tk, err)
 	}
 }
 
@@ -280,9 +280,9 @@ func TestReloadCookieFromDB_AdoptsNewCookieAndClearsCache(t *testing.T) {
 	if got := acc.CurrentCookieStr(); got != newCookie {
 		t.Fatalf("应采纳 DB 新 cookie，got %s", got)
 	}
-	// 新 cookie 对应官网页面重载：旧 token 清除，运行时 device ID 轮换。
-	if tk, err := store.Tokens.Get(context.Background(), "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != oldDeviceID || acc.deviceID == oldDeviceID {
-		t.Fatalf("cookie 变更后应清 token 并轮换运行时 device ID: runtime=%q tk=%+v err=%v", acc.deviceID, tk, err)
+	// 普通 Cookie Jar 更新不等于页面 reload：旧 token 清除，device ID 保持。
+	if tk, err := store.Tokens.Get(context.Background(), "cid"); err != nil || tk.AccessToken != "" || tk.DeviceID != oldDeviceID || acc.deviceID != oldDeviceID {
+		t.Fatalf("cookie 变更后应清 token 并保持运行时 device ID: runtime=%q tk=%+v err=%v", acc.deviceID, tk, err)
 	}
 }
 

@@ -69,6 +69,13 @@ func TestSignToken(t *testing.T) {
 	}
 }
 
+func TestSignTokenUsesFirstScopedDuplicate(t *testing.T) {
+	got := SignToken("_m_h5_tk=narrow_1; other=x; _m_h5_tk=wide_2")
+	if got != "narrow" {
+		t.Fatalf("SignToken duplicate=%q want narrow", got)
+	}
+}
+
 // TestSignToken_ConsistentWithTransCookies SignToken 必须基于 TransCookies 的解析结果。
 func TestSignToken_ConsistentWithTransCookies(t *testing.T) {
 	cookies := "x=1; _m_h5_tk=mytoken_999; y=2"

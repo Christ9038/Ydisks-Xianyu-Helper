@@ -25,6 +25,9 @@ func (c *ClientImpl) Consign(cookiesStr, orderID string) (ok bool, ret []string,
 // ConsignContext 确认发货；签名 token 过期时使用响应下发的新 Cookie 重签并重试。
 func (c *ClientImpl) ConsignContext(ctx context.Context, cookiesStr, orderID string) (ok bool, ret []string, updatedCookies string, err error) {
 	currentCookies := cookiesStr
+	if session := cookieSessionFromContext(ctx); session != nil {
+		currentCookies, _, _ = session.State()
+	}
 	var lastRet []string
 	for attempt := 0; attempt < 4; attempt++ {
 		previousCookies := currentCookies
@@ -69,35 +72,35 @@ func (c *ClientImpl) consignOnce(ctx context.Context, cookiesStr, orderID string
 	if hc == nil {
 		hc = &http.Client{Timeout: 30 * time.Second}
 	}
-	cookies := protocol.TransCookies(cookiesStr)
-	token := protocol.SignToken(cookiesStr)
+	consignURL := c.ConsignURL
+	if consignURL == "" {
+		consignURL = ConsignAPI
+	}
+	signingCookies, requestCookies := mtopRequestCookies(ctx, cookiesStr, "https://www.goofish.com/", consignURL)
+	token := protocol.SignToken(signingCookies)
 	t := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	dataVal := `{"orderId":"` + orderID + `", "tradeText":"","picList":[],"newUnconsign":true}`
 	sign := protocol.GenerateSign(t, token, dataVal)
 
 	query := buildConsignQuery(t, sign)
 	body := "data=" + url.QueryEscape(dataVal)
-	consignURL := c.ConsignURL
-	if consignURL == "" {
-		consignURL = ConsignAPI
-	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		consignURL+"?"+query,
 		strings.NewReader(body))
 	if err != nil {
 		return false, nil, cookiesStr, err
 	}
-	setCommonHeaders(req, cookiesStr)
+	setCommonHeaders(req, requestCookies)
 	resp, err := hc.Do(req)
 	if err != nil {
 		return false, nil, cookiesStr, fmt.Errorf("consign 请求失败: %w", err)
 	}
 	defer resp.Body.Close()
+	updated := absorbMTopResponseCookies(ctx, cookiesStr, resp)
 	raw, err := readMTopBody(resp)
 	if err != nil {
-		return false, nil, cookiesStr, err
+		return false, nil, updated, err
 	}
-	updated := mergeSetCookie(cookiesStr, cookies, resp)
 	var res struct {
 		Ret []string `json:"ret"`
 	}

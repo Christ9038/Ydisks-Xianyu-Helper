@@ -149,6 +149,7 @@ func TestPasswordLoginSessionSuccessSavesCookiesAndAudit(t *testing.T) {
 	if err := store.Tokens.Save(context.Background(), "acc1", "did", "token", time.Now().Add(time.Hour).Unix()); err != nil {
 		t.Fatalf("save token: %v", err)
 	}
+	seedStaleCookieSnapshot(t, store, "acc1")
 
 	start := startPasswordLoginForTest(t, h, cookie, `{"account_id":"acc1","account":"login-user","password":"secret","show_browser":false}`)
 	if start["success"] != true || start["status"] != "processing" {
@@ -180,9 +181,50 @@ func TestPasswordLoginSessionSuccessSavesCookiesAndAudit(t *testing.T) {
 	if tk, err := store.Tokens.Get(context.Background(), "acc1"); err != nil || tk.AccessToken != "" || tk.DeviceID != "did" {
 		t.Fatalf("密码登录成功应清 token 并保留 device ID: tk=%+v err=%v", tk, err)
 	}
+	requireCookieSnapshotCleared(t, store, "acc1")
 	logs, err := store.LoginLogs.ListByCookie(context.Background(), "acc1", 10)
 	if err != nil || len(logs) != 1 || logs[0].Status != "success" {
 		t.Fatalf("登录日志异常: logs=%#v err=%v", logs, err)
+	}
+}
+
+func TestPasswordLoginDoesNotRecreateAccountDeletedWhileBrowserRuns(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.Manager = nil
+	fake := &fakePasswordLoginRunner{
+		block:   make(chan struct{}),
+		cookies: map[string]string{"unb": "acc1", "_m_h5_tk": "fresh"},
+	}
+	srv.PasswordLogin = fake
+	h := srv.Router()
+	cookie := loginForPasswordTest(t, h)
+	start := startPasswordLoginForTest(t, h, cookie, `{"account_id":"acc1","account":"login-user","password":"secret"}`)
+	sessionID := start["session_id"].(string)
+	for i := 0; i < 100; i++ {
+		if calls, _, _ := fake.snapshot(); calls == 1 {
+			break
+		}
+		if i == 99 {
+			t.Fatal("浏览器登录任务未启动")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/cookies/acc1", nil)
+	deleteReq.AddCookie(cookie)
+	deleteRec := httptest.NewRecorder()
+	h.ServeHTTP(deleteRec, deleteReq)
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("delete status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
+	}
+	close(fake.block)
+	done := waitPasswordLoginStatus(t, h, cookie, sessionID, "failed")
+	if !strings.Contains(done["error"].(string), "登录期间删除") {
+		t.Fatalf("删除中的账号应明确拒绝复活: %+v", done)
+	}
+	if _, err := store.Cookies.GetDetails(context.Background(), "acc1"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("异步登录不得重建已删除账号: %v", err)
 	}
 }
 

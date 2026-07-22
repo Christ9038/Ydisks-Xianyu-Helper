@@ -21,31 +21,33 @@ type ItemDetailFetcher interface {
 
 var _ ItemDetailFetcher = (*ClientImpl)(nil)
 
-// DetectItemMultiSpec 查询商品详情并识别多规格结构。该调用不刷新 token，
-// 也不合并或持久化响应 Cookie。
+// DetectItemMultiSpec 查询商品详情并识别多规格结构。该调用不主动刷新 token；
+// 当 ctx 携带 CookieSession 时会像浏览器一样吸收响应 Cookie。
 func (c *ClientImpl) DetectItemMultiSpec(ctx context.Context, cookies, itemID string) (bool, error) {
 	itemID = strings.TrimSpace(itemID)
 	if itemID == "" {
 		return false, fmt.Errorf("item_id 不能为空")
 	}
-	token := protocol.SignToken(cookies)
+	endpoint := c.ItemDetailURL
+	if endpoint == "" {
+		endpoint = ItemDetailAPI
+	}
+	documentURL := "https://www.goofish.com/item?id=" + url.QueryEscape(itemID)
+	signingCookies, requestCookies := mtopRequestCookies(ctx, cookies, documentURL, endpoint)
+	token := protocol.SignToken(signingCookies)
 	if token == "" {
 		return false, fmt.Errorf("cookie 缺少 _m_h5_tk，无法获取商品详情")
 	}
 	dataVal := `{"itemId":` + strconv.Quote(itemID) + `}`
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	sign := protocol.GenerateSign(timestamp, token, dataVal)
-	endpoint := c.ItemDetailURL
-	if endpoint == "" {
-		endpoint = ItemDetailAPI
-	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"?"+buildItemDetailQuery(timestamp, sign), strings.NewReader("data="+url.QueryEscape(dataVal)))
 	if err != nil {
 		return false, err
 	}
-	setCommonHeaders(req, cookies)
+	setCommonHeaders(req, requestCookies)
 	req.Header.Set("Origin", "https://www.goofish.com")
-	req.Header.Set("Referer", "https://www.goofish.com/item?id="+url.QueryEscape(itemID))
+	req.Header.Set("Referer", documentURL)
 
 	hc := c.HTTPClient
 	if hc == nil {
@@ -56,6 +58,7 @@ func (c *ClientImpl) DetectItemMultiSpec(ctx context.Context, cookies, itemID st
 		return false, fmt.Errorf("商品详情请求失败: %w", err)
 	}
 	defer resp.Body.Close()
+	absorbMTopResponseCookies(ctx, cookies, resp)
 	raw, err := readMTopBody(resp)
 	if err != nil {
 		return false, err

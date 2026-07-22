@@ -3,6 +3,7 @@ package renewal
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -17,6 +18,12 @@ import (
 	"xianyu-go/internal/xianyu/mtop"
 	apirenew "xianyu-go/internal/xianyu/renew"
 )
+
+type schedulerRoundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f schedulerRoundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func newSchedulerTestStore(t *testing.T) (*db.Store, func()) {
 	t.Helper()
@@ -35,16 +42,35 @@ type schedulerFakeBrowser struct {
 }
 
 type schedulerRefreshBrowser struct {
-	refreshCalls int
+	refreshCalls   int
+	officialReload bool
 }
 
 func (f *schedulerRefreshBrowser) BrowserQuickRenew(context.Context, string, string, bool) (string, error) {
 	return "", errors.New("not implemented")
 }
 
-func (f *schedulerRefreshBrowser) CookiesRefreshSnapshot(_ context.Context, _ string, cookieStr string, snapshot []cookierefresh.BrowserCookie, _ bool) (string, []cookierefresh.BrowserCookie, error) {
+func (f *schedulerRefreshBrowser) CookiesRefreshSnapshot(_ context.Context, _ string, cookieStr string, snapshot []cookierefresh.BrowserCookie, _ bool) (string, []cookierefresh.BrowserCookie, bool, error) {
 	f.refreshCalls++
-	return cookieStr, snapshot, nil
+	if snapshot == nil {
+		snapshot = cookierefresh.SnapshotFromCookieString(cookieStr, ".goofish.com")
+	}
+	return cookieStr, snapshot, f.officialReload, nil
+}
+
+type schedulerFakeStarter struct {
+	starts   atomic.Int32
+	restarts atomic.Int32
+}
+
+func (f *schedulerFakeStarter) Start(context.Context, string, string) error {
+	f.starts.Add(1)
+	return nil
+}
+
+func (f *schedulerFakeStarter) Restart(context.Context, string) error {
+	f.restarts.Add(1)
+	return nil
 }
 
 func (f *schedulerFakeBrowser) BrowserQuickRenew(_ context.Context, _ string, cookieStr string, _ bool) (string, error) {
@@ -53,8 +79,8 @@ func (f *schedulerFakeBrowser) BrowserQuickRenew(_ context.Context, _ string, co
 	return f.quickCookies, f.quickErr
 }
 
-func (f *schedulerFakeBrowser) CookiesRefreshSnapshot(_ context.Context, _, _ string, _ []cookierefresh.BrowserCookie, _ bool) (string, []cookierefresh.BrowserCookie, error) {
-	return "", nil, errors.New("not implemented")
+func (f *schedulerFakeBrowser) CookiesRefreshSnapshot(_ context.Context, _, _ string, _ []cookierefresh.BrowserCookie, _ bool) (string, []cookierefresh.BrowserCookie, bool, error) {
+	return "", nil, false, errors.New("not implemented")
 }
 
 type schedulerFakePasswordRefresher struct {
@@ -177,6 +203,76 @@ func TestLoginRenewPreservesValidTokenCache(t *testing.T) {
 	updated, err := store.Cookies.GetValue(ctx, account.ID)
 	if err != nil || !strings.Contains(updated, "_m_h5_tk=new_1") {
 		t.Fatalf("login_renew Cookie 未保存: %q err=%v", updated, err)
+	}
+}
+
+func TestLoginRenewPersistsAuthoritativeSessionBeforeParseError(t *testing.T) {
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	account := createSchedulerAccount(t, store, "cid-login-session-error",
+		"flat_leak=must-not-send; unb=1; _m_h5_tk=flat_old_1")
+	snapshot := []cookierefresh.BrowserCookie{
+		{Name: "unb", Value: "1", Domain: ".goofish.com", Path: "/", Secure: true},
+		{Name: "_m_h5_tk", Value: "snapshot_old_1", Domain: ".goofish.com", Path: "/", Secure: true},
+		{Name: "document_only", Value: "doc", Domain: "www.goofish.com", Path: "/im", Secure: true},
+		{Name: "api_only", Value: "api", Domain: "h5api.m.goofish.com", Path: "/h5", Secure: true, HTTPOnly: true},
+	}
+	metadata := cookierefresh.MetadataWithSnapshot(`{"preserved":"yes"}`, snapshot)
+	if err := store.Cookies.UpdateRenewalCookie(ctx, account.ID, account.Value, metadata, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	var requestCookie string
+	client := &http.Client{Transport: schedulerRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		requestCookie = req.Header.Get("Cookie")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{"Set-Cookie": []string{
+				"_m_h5_tk=snapshot_new_2; Domain=.goofish.com; Path=/; Secure",
+				"api_rotated=new; Path=/h5; Secure; HttpOnly",
+			}},
+			Body:    io.NopCloser(strings.NewReader(`{"ret":`)),
+			Request: req,
+		}, nil
+	})}
+	s := NewScheduler(store, nil, nil, nil, nil)
+	s.mtop = &mtop.ClientImpl{HTTPClient: client, LoginUserURL: mtop.LoginUserAPI}
+	s.loginRenewOne(ctx, "batch-login-session-error", account)
+
+	for _, want := range []string{"unb=1", "_m_h5_tk=snapshot_old_1", "api_only=api"} {
+		if !strings.Contains(requestCookie, want) {
+			t.Fatalf("请求 Cookie %q 未使用加锁后重读的权威 Jar，缺少 %q", requestCookie, want)
+		}
+	}
+	for _, unwanted := range []string{"flat_leak=", "document_only="} {
+		if strings.Contains(requestCookie, unwanted) {
+			t.Fatalf("请求 Cookie %q 泄漏了错误作用域 %q", requestCookie, unwanted)
+		}
+	}
+
+	detail, err := store.Cookies.GetDetails(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(detail.Value, "_m_h5_tk=snapshot_new_2") || strings.Contains(detail.Value, "flat_leak=") {
+		t.Fatalf("正文解析失败后未优先持久化响应 Cookie Jar: %q", detail.Value)
+	}
+	if !strings.Contains(detail.MetadataJSON, `"preserved":"yes"`) {
+		t.Fatalf("持久化 Jar 时丢失原 metadata: %s", detail.MetadataJSON)
+	}
+	gotSnapshot, ok := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON)
+	if !ok {
+		t.Fatalf("响应后权威 snapshot 丢失: %s", detail.MetadataJSON)
+	}
+	values := make(map[string]string, len(gotSnapshot))
+	for _, cookie := range gotSnapshot {
+		values[cookie.Name+"|"+cookie.Domain+"|"+cookie.Path] = cookie.Value
+	}
+	if values["_m_h5_tk|.goofish.com|/"] != "snapshot_new_2" ||
+		values["api_rotated|h5api.m.goofish.com|/h5"] != "new" ||
+		values["document_only|www.goofish.com|/im"] != "doc" {
+		t.Fatalf("响应后 snapshot 作用域不完整: %+v", gotSnapshot)
 	}
 }
 
@@ -356,6 +452,7 @@ func TestAPICookieRenewOneUsesSingleSilentRequestAndSavesCookies(t *testing.T) {
 	account := createSchedulerAccount(t, store, "cid-silent", "unb=1; cookie2=c2; havana_lgc_exp="+expire)
 	browser := &schedulerFakeBrowser{}
 	refresher := &schedulerFakePasswordRefresher{}
+	starter := &schedulerFakeStarter{}
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
@@ -364,12 +461,15 @@ func TestAPICookieRenewOneUsesSingleSilentRequestAndSavesCookies(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := NewScheduler(store, nil, browser, refresher, nil)
+	s := NewScheduler(store, starter, browser, refresher, nil)
 	s.api = schedulerRenewServiceFromServer(srv)
 	s.apiCookieRenewOne(ctx, "batch-silent", account)
 
 	if requests.Load() != 1 || browser.quickCalls != 0 || refresher.calls.Load() != 0 {
 		t.Fatalf("requests=%d browser=%d password=%d", requests.Load(), browser.quickCalls, refresher.calls.Load())
+	}
+	if starter.restarts.Load() != 1 || starter.starts.Load() != 0 {
+		t.Fatalf("官网静默续期成功应模拟 reload 重建运行时: starts=%d restarts=%d", starter.starts.Load(), starter.restarts.Load())
 	}
 	got, err := store.Cookies.GetValue(ctx, account.ID)
 	if err != nil || !strings.Contains(got, "sdkSilent=") {
@@ -378,5 +478,20 @@ func TestAPICookieRenewOneUsesSingleSilentRequestAndSavesCookies(t *testing.T) {
 	log := lastAPIRenewLog(t, store, account.ID)
 	if log.status != "cookie_updated" || log.requestCount != 1 || !strings.Contains(log.responseContent, "single-silent") {
 		t.Fatalf("silent renewal log=%+v", log)
+	}
+}
+
+func TestBrowserCookieRefreshRestartsOnlyAfterOfficialReload(t *testing.T) {
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	account := createSchedulerAccount(t, store, "cid-browser-reload", "unb=1; havana_lgc_exp=1")
+	starter := &schedulerFakeStarter{}
+	browser := &schedulerRefreshBrowser{officialReload: true}
+	s := NewScheduler(store, starter, browser, nil, nil)
+	s.browserCookieRefreshOne(ctx, "batch-browser-reload", account, db.CookieRefreshSchedule{CookieID: account.ID})
+
+	if browser.refreshCalls != 1 || starter.restarts.Load() != 1 || starter.starts.Load() != 0 {
+		t.Fatalf("refresh=%d starts=%d restarts=%d", browser.refreshCalls, starter.starts.Load(), starter.restarts.Load())
 	}
 }

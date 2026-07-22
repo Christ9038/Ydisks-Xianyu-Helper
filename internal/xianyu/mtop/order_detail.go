@@ -27,6 +27,9 @@ type OrderDetailResult struct {
 // FetchOrderDetail 获取订单真实成交价、数量、状态和规格；token 过期时自动重签重试。
 func (c *ClientImpl) FetchOrderDetail(ctx context.Context, cookiesStr, orderID string) (*OrderDetailResult, error) {
 	currentCookies := cookiesStr
+	if session := cookieSessionFromContext(ctx); session != nil {
+		currentCookies, _, _ = session.State()
+	}
 	var lastRet []string
 	for attempt := 0; attempt < 4; attempt++ {
 		previousCookies := currentCookies
@@ -67,29 +70,31 @@ func (c *ClientImpl) fetchOrderDetailOnce(ctx context.Context, cookiesStr, order
 	if hc == nil {
 		hc = &http.Client{Timeout: 30 * time.Second}
 	}
-	cookies := protocol.TransCookies(cookiesStr)
-	t := strconv.FormatInt(time.Now().UnixMilli(), 10)
-	dataVal := `{"tid":"` + orderID + `"}`
-	sign := protocol.GenerateSign(t, protocol.SignToken(cookiesStr), dataVal)
 	endpoint := c.OrderDetailURL
 	if endpoint == "" {
 		endpoint = OrderDetailAPI
 	}
+	documentURL := "https://www.goofish.com/order-detail?orderId=" + url.QueryEscape(orderID) + "&role=seller"
+	signingCookies, requestCookies := mtopRequestCookies(ctx, cookiesStr, documentURL, endpoint)
+	t := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	dataVal := `{"tid":"` + orderID + `"}`
+	sign := protocol.GenerateSign(t, protocol.SignToken(signingCookies), dataVal)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"?"+buildOrderDetailQuery(t, sign), strings.NewReader("data="+url.QueryEscape(dataVal)))
 	if err != nil {
 		return nil, nil, cookiesStr, err
 	}
-	setCommonHeaders(req, cookiesStr)
+	setCommonHeaders(req, requestCookies)
+	req.Header.Set("Referer", documentURL)
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, nil, cookiesStr, fmt.Errorf("订单详情请求失败: %w", err)
 	}
 	defer resp.Body.Close()
+	updated := absorbMTopResponseCookies(ctx, cookiesStr, resp)
 	raw, err := readMTopBody(resp)
 	if err != nil {
-		return nil, nil, cookiesStr, err
+		return nil, nil, updated, err
 	}
-	updated := mergeSetCookie(cookiesStr, cookies, resp)
 	var decoded struct {
 		Ret  []string       `json:"ret"`
 		Data map[string]any `json:"data"`

@@ -7,7 +7,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -76,6 +78,88 @@ func dialLocal(t *testing.T, srv *httptest.Server, cfg Config) *Conn {
 	return newConn(dialed, cfg, nilLogger())
 }
 
+// TestOpenBatchRacesDelayedConnections 验证官网 batchConnectWs 会在首条握手
+// 迟滞时启动后续连接，并采用最先成功者。
+func TestOpenBatchRacesDelayedConnections(t *testing.T) {
+	originalDelays := batchConnectDelays
+	batchConnectDelays = []time.Duration{0, 20 * time.Millisecond, 60 * time.Millisecond}
+	t.Cleanup(func() { batchConnectDelays = originalDelays })
+
+	var attempts atomic.Int32
+	firstAttempt := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt := attempts.Add(1)
+		if attempt == 1 {
+			close(firstAttempt)
+			<-r.Context().Done()
+			return
+		}
+		c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+
+	type openResult struct {
+		conn *Conn
+		err  error
+	}
+	resultCh := make(chan openResult, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	go func() {
+		conn, err := openBatch(ctx, wsURL(srv), Config{}, nilLogger())
+		resultCh <- openResult{conn: conn, err: err}
+	}()
+
+	select {
+	case <-firstAttempt:
+	case <-time.After(time.Second):
+		t.Fatal("WebSocket 首次握手未开始")
+	}
+	select {
+	case result := <-resultCh:
+		if result.err != nil {
+			t.Fatalf("openBatch: %v", result.err)
+		}
+		t.Cleanup(func() { _ = result.conn.ws.CloseNow() })
+	case <-time.After(time.Second):
+		t.Fatal("后续竞速连接未在首条握手阻塞时成功")
+	}
+	if got := attempts.Load(); got < 2 {
+		t.Fatalf("WebSocket 握手次数=%d，期望至少启动 2 条竞速连接", got)
+	}
+}
+
+// TestOpenBatchFirstFailureWins mirrors Promise.race: a fast failed handshake
+// rejects the whole batch even when a later candidate could have connected.
+func TestOpenBatchFirstFailureWins(t *testing.T) {
+	originalDelays := batchConnectDelays
+	batchConnectDelays = []time.Duration{0, 100 * time.Millisecond}
+	t.Cleanup(func() { batchConnectDelays = originalDelays })
+
+	var attempts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		http.Error(w, "handshake rejected", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	conn, err := openBatch(ctx, wsURL(srv), Config{}, nilLogger())
+	if err == nil || conn != nil {
+		t.Fatalf("openBatch conn=%v err=%v，期望首个握手失败直接结束", conn, err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	if got := attempts.Load(); got != 2 {
+		t.Fatalf("官网延迟任务应继续启动，实际握手 %d 次，期望 2", got)
+	}
+}
+
 // TestRegisterSendsOnlyOfficialReg 验证注册只发送 /reg，不再伪造 ackDiff。
 func TestRegisterSendsOnlyOfficialReg(t *testing.T) {
 	rawUA := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/138.0.7204.92 Safari/537.36"
@@ -84,7 +168,7 @@ func TestRegisterSendsOnlyOfficialReg(t *testing.T) {
 	conn := dialLocal(t, srv, Config{
 		CookieStr:   "cookie=1",
 		DeviceID:    "device-xyz",
-		AccessToken: "token-abc",
+		AccessToken: "token%2Fabc%2Braw",
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
@@ -120,8 +204,8 @@ collect:
 	if headers["app-key"] != RegAppKey {
 		t.Errorf("/reg app-key = %v, 期望 %s", headers["app-key"], RegAppKey)
 	}
-	if headers["token"] != "token-abc" {
-		t.Errorf("/reg token = %v, 期望 token-abc", headers["token"])
+	if headers["token"] != "token/abc+raw" {
+		t.Errorf("/reg token = %v, 期望 decodeURIComponent 后的 token/abc+raw", headers["token"])
 	}
 	if headers["ua"] != OfficialRegistrationUA(rawUA) {
 		t.Errorf("/reg ua = %v, 期望官方复合 UA", headers["ua"])
@@ -133,6 +217,15 @@ collect:
 		t.Errorf("/reg mid 应为非空字符串, 实际 %v", headers["mid"])
 	}
 
+}
+
+func TestRegisterRejectsDecodeURIComponentInvalidUTF8(t *testing.T) {
+	srv, _ := startRegServer(t)
+	conn := dialLocal(t, srv, Config{DeviceID: "did", AccessToken: "%FF"})
+	err := conn.register(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "非法 UTF-8") {
+		t.Fatalf("register error=%v", err)
+	}
 }
 
 // TestRegister_ContextCancelledDuringWait register 等不到响应时应服从 ctx 取消。
@@ -157,6 +250,69 @@ func TestRegister_ContextCancelledDuringWait(t *testing.T) {
 	err := conn.register(ctx)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("期望 context.Canceled, 实际 %v", err)
+	}
+}
+
+func TestRegisterResponseWinsImmediateClose(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		_, raw, err := c.Read(r.Context())
+		if err != nil {
+			return
+		}
+		var request map[string]any
+		if json.Unmarshal(raw, &request) != nil {
+			return
+		}
+		headers, _ := request["headers"].(map[string]any)
+		response, _ := json.Marshal(map[string]any{
+			"code": 200, "headers": map[string]any{"mid": headers["mid"], "reg-uid": "123@goofish"},
+		})
+		_ = c.Write(r.Context(), websocket.MessageText, response)
+	}))
+	t.Cleanup(srv.Close)
+	conn := dialLocal(t, srv, Config{DeviceID: "did", AccessToken: "token"})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := conn.register(ctx); err != nil {
+		t.Fatalf("服务端响应后立即断链不应覆盖成功响应: %v", err)
+	}
+}
+
+// TestRequestTimeoutIncludesSendPhase 验证请求超时从等待发送权开始计算，
+// 不会因另一条半开连接写入占用发送权而永久阻塞。
+func TestRequestTimeoutIncludesSendPhase(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.CloseNow()
+		<-r.Context().Done()
+	}))
+	t.Cleanup(srv.Close)
+	conn := dialLocal(t, srv, Config{})
+
+	conn.sendGate <- struct{}{}
+	started := time.Now()
+	_, err := conn.request(context.Background(), "/!", map[string]any{}, nil, 60*time.Millisecond)
+	elapsed := time.Since(started)
+	<-conn.sendGate
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("request error=%v，期望 context.DeadlineExceeded", err)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("发送阶段未及时超时，耗时 %v", elapsed)
+	}
+	conn.pendingMu.Lock()
+	pending := len(conn.pending)
+	conn.pendingMu.Unlock()
+	if pending != 0 {
+		t.Fatalf("请求超时后仍残留 %d 个 pending", pending)
 	}
 }
 
@@ -278,6 +434,7 @@ func TestSendACK_RepliesWithMidSid(t *testing.T) {
 		defer c.Close(websocket.StatusNormalClosure, "")
 		// 发一条带 mid/sid 的非同步消息（无 syncPushPackage），客户端应回 ACK 但不调 onMessage。
 		frame := map[string]any{
+			"lwp": "/push/test",
 			"headers": map[string]any{
 				"mid":     "server-mid-1",
 				"sid":     "server-sid-1",
@@ -305,6 +462,7 @@ func TestSendACK_RepliesWithMidSid(t *testing.T) {
 		ackBytes, _ := json.Marshal(map[string]any{"ack": ack})
 		b64 := base64.StdEncoding.EncodeToString(ackBytes)
 		echo, _ := json.Marshal(map[string]any{
+			"lwp":     "/s/sync",
 			"headers": map[string]any{"mid": "echo"},
 			"body":    map[string]any{"syncPushPackage": map[string]any{"data": []any{map[string]any{"data": b64}}}},
 		})
@@ -360,8 +518,8 @@ func TestSendACK_RepliesWithMidSid(t *testing.T) {
 	}
 }
 
-// TestSendACK_NoHeaders 消息无 headers 时 ACK 原样返回空 headers。
-func TestSendACK_NoHeaders(t *testing.T) {
+// TestReceiveLoop_NoHeadersIsIgnored 官网只把同时包含 lwp/headers 的帧当 Push。
+func TestReceiveLoop_NoHeadersIsIgnored(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, nil)
 		if err != nil {
@@ -373,22 +531,6 @@ func TestSendACK_NoHeaders(t *testing.T) {
 		_ = c.Write(r.Context(), websocket.MessageText, raw)
 		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
 		defer cancel()
-		_, data, err := c.Read(ctx)
-		if err != nil {
-			return
-		}
-		var ack map[string]any
-		if json.Unmarshal(data, &ack) != nil {
-			return
-		}
-		// 回写 echo 带 ack（包成同步推送帧）。
-		ackBytes, _ := json.Marshal(map[string]any{"ack": ack})
-		b64 := base64.StdEncoding.EncodeToString(ackBytes)
-		echo, _ := json.Marshal(map[string]any{
-			"headers": map[string]any{"mid": "echo"},
-			"body":    map[string]any{"syncPushPackage": map[string]any{"data": []any{map[string]any{"data": b64}}}},
-		})
-		_ = c.Write(r.Context(), websocket.MessageText, echo)
 		_, _, _ = c.Read(ctx)
 	}))
 	t.Cleanup(srv.Close)
@@ -403,24 +545,58 @@ func TestSendACK_NoHeaders(t *testing.T) {
 	dialed.SetReadLimit(8 << 20)
 
 	conn := newConn(dialed, Config{}, nilLogger())
-	var ackSeen map[string]any
+	var called bool
 	loopDone := make(chan error, 1)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	go func() {
-		loopDone <- conn.ReceiveLoop(ctx, func(d map[string]any) {
-			if ack, ok := d["ack"].(map[string]any); ok {
-				ackSeen = ack
-			}
-		})
+		loopDone <- conn.ReceiveLoop(ctx, func(map[string]any) { called = true })
 	}()
 	<-loopDone
-	if ackSeen == nil {
-		t.Fatal("未收到 ack")
+	if called {
+		t.Fatal("无 headers 的帧不应进入 Push 回调")
 	}
-	ackHeaders, _ := ackSeen["headers"].(map[string]any)
-	if len(ackHeaders) != 0 {
-		t.Errorf("无 headers 时 ACK 应保持空 headers, 实际 %v", ackHeaders)
+}
+
+func TestReceiveLoop_OfficialControlPushesCloseSession(t *testing.T) {
+	tests := []struct {
+		name       string
+		lwp        string
+		matchesErr func(error) bool
+	}{
+		{name: "kickout", lwp: "/push/kickout", matchesErr: IsAuthenticationError},
+		{name: "session remove", lwp: "/s/session/remove", matchesErr: IsConnectLimitError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				c, err := websocket.Accept(w, r, nil)
+				if err != nil {
+					return
+				}
+				defer c.CloseNow()
+				frame, _ := json.Marshal(map[string]any{
+					"lwp": tt.lwp, "headers": map[string]any{"mid": "control-1", "sid": "s1"},
+				})
+				_ = c.Write(r.Context(), websocket.MessageText, frame)
+				// 官网控制 handler 先发起 close，随后 LWP 的 ACK 尝试通常因
+				// readyState=CLOSING 失败；紧接着断链也不能吞掉控制事件。
+			}))
+			defer srv.Close()
+
+			dialCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			dialed, _, err := websocket.Dial(dialCtx, wsURL(srv), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer dialed.CloseNow()
+			conn := newConn(dialed, Config{}, nilLogger())
+			err = conn.ReceiveLoop(dialCtx, nil)
+			if !tt.matchesErr(err) {
+				t.Fatalf("ReceiveLoop err=%v", err)
+			}
+		})
 	}
 }
 
