@@ -8,6 +8,11 @@
 !/Dockerfile.test
 *.out
 
+# Local deployment environment (keep secrets out of Git)
+/.env
+/.env.*
+!/.env.example
+
 # Runtime data
 /data/
 /browser_data/
