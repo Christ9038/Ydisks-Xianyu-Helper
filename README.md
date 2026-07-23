@@ -165,9 +165,16 @@ Debian 13 应用镜像和 PostgreSQL 17。Compose 明确锁定 `linux/amd64`，�
 ```bash
 cp .env.example .env
 # 编辑 .env，至少替换 PostgreSQL 密码、DATABASE_URL 和 XIANYU_DATA_KEY
-docker compose -f docker-compose.debian13-postgres17.yml build app
-docker compose -f docker-compose.debian13-postgres17.yml up -d postgres app
+docker login ghcr.io -u Christ9038
+docker compose -f docker-compose.debian13-postgres17.yml pull app postgres
+docker compose -f docker-compose.debian13-postgres17.yml up -d --no-build postgres app
 ```
+
+`dev` 分支会由 GitHub Actions 自动发布
+`ghcr.io/christ9038/xinayu-go:dev`；`main` 分支同时发布 `main` 和 `latest` 标签，
+版本标签（例如 `v1.2.3`）会发布对应语义化版本标签。仓库和镜像为私有时，服务器
+登录 GHCR 所用的 Personal Access Token 需要 `read:packages` 权限。本地修改镜像后
+也可以运行 `docker compose -f docker-compose.debian13-postgres17.yml build app` 自行构建。
 
 数据库只在 Compose 内部网络开放，不映射宿主机端口；应用端口由
 `XIANYU_BIND_ADDRESS` 和 `XIANYU_HTTP_PORT` 控制。PostgreSQL 数据、应用数据和
