@@ -17,7 +17,6 @@ x-app-volumes: &app-volumes
 
 services:
   postgres:
-    platform: linux/amd64
     image: ${POSTGRES_IMAGE:-postgres:17-trixie}
     restart: unless-stopped
     environment:
@@ -37,8 +36,7 @@ services:
       start_period: 10s
 
   app:
-    platform: linux/amd64
-    image: ${XIANYU_IMAGE:-xianyu-go:debian13-amd64}
+    image: ${XIANYU_IMAGE:-xianyu-go:debian13}
     build:
       context: .
       dockerfile: Dockerfile.debian13
@@ -59,8 +57,7 @@ services:
       start_period: 30s
 
   init-admin:
-    platform: linux/amd64
-    image: ${XIANYU_IMAGE:-xianyu-go:debian13-amd64}
+    image: ${XIANYU_IMAGE:-xianyu-go:debian13}
     build:
       context: .
       dockerfile: Dockerfile.debian13

@@ -158,9 +158,10 @@ go run ./cmd/dbverify "postgres://user:pass@host:5432/db"
 
 ## Docker 部署注意
 
-仓库提供 `docker-compose.debian13-postgres17.yml`，用于在 x86_64 Linux 上运行
-Debian 13 应用镜像和 PostgreSQL 17。Compose 明确锁定 `linux/amd64`，即使在 ARM
-开发机上也会构建并验证 x86_64 镜像。
+仓库提供 `docker-compose.debian13-postgres17.yml`，用于运行 Debian 13 应用镜像和
+PostgreSQL 17。GHCR 中的同一镜像标签同时包含 `linux/amd64` 和 `linux/arm64`，
+Docker 会根据宿主机 CPU 自动选择：x86_64 Linux 拉取 amd64，Apple Silicon 拉取
+arm64，无需手工设置 `platform`。
 
 ```bash
 cp .env.example .env
@@ -170,7 +171,7 @@ docker compose -f docker-compose.debian13-postgres17.yml pull app postgres
 docker compose -f docker-compose.debian13-postgres17.yml up -d --no-build postgres app
 ```
 
-`dev` 分支会由 GitHub Actions 自动发布
+`dev` 分支会由 GitHub Actions 自动发布多架构的
 `ghcr.io/christ9038/xinayu-go:dev`；`main` 分支同时发布 `main` 和 `latest` 标签，
 版本标签（例如 `v1.2.3`）会发布对应语义化版本标签。仓库和镜像为私有时，服务器
 登录 GHCR 所用的 Personal Access Token 需要 `read:packages` 权限。本地修改镜像后
