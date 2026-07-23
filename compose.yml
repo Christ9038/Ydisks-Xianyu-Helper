@@ -1,0 +1,62 @@
+# 默认生产部署：仅拉取 GHCR 多架构镜像，不在服务器上构建源码。
+x-app-env: &app-env
+  DATABASE_URL: ${DATABASE_URL:?请在 .env 中配置 DATABASE_URL}
+  XIANYU_DATA_KEY: ${XIANYU_DATA_KEY:?请在 .env 中配置 XIANYU_DATA_KEY}
+  XIANYU_ADMIN_PASSWORD: ${XIANYU_ADMIN_PASSWORD:?请在 .env 中配置 XIANYU_ADMIN_PASSWORD}
+  XIANYU_UPLOAD_DIR: ${XIANYU_UPLOAD_DIR:-/app/data/uploads}
+  TZ: ${TZ:-Asia/Shanghai}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  LOG_FORMAT: ${LOG_FORMAT:-json}
+  BROWSER_HEADLESS: ${BROWSER_HEADLESS:-true}
+  PLAYWRIGHT_DRIVER_PATH: ${PLAYWRIGHT_DRIVER_PATH:-/ms-playwright-go}
+  PLAYWRIGHT_NODEJS_PATH: ${PLAYWRIGHT_NODEJS_PATH:-/usr/bin/node}
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: ${PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:-1}
+  PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-/usr/bin/chromium}
+
+x-app-volumes: &app-volumes
+  - app_data:/app/data
+  - browser_data:/app/browser_data
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17-trixie}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?请在 .env 中配置 POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?请在 .env 中配置 POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中配置 POSTGRES_PASSWORD}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  app:
+    image: ${XIANYU_IMAGE:-ghcr.io/christ9038/xinayu-go:latest}
+    pull_policy: always
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *app-env
+    command: ["/app/xianyu-server", "-addr", ":8080", "-ensure-admin"]
+    ports:
+      - "${XIANYU_BIND_ADDRESS:-0.0.0.0}:${XIANYU_HTTP_PORT:-8080}:8080"
+    volumes: *app-volumes
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:
+  app_data:
+  browser_data:

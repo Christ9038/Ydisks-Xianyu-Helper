@@ -14,6 +14,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -45,6 +46,7 @@ func main() {
 	logLevel := flag.String("log-level", "", "日志等级：debug/info/warn/error；默认读取 LOG_LEVEL 或系统设置")
 	logFormat := flag.String("log-format", "", "日志格式：text/json；默认读取 LOG_FORMAT")
 	initAdmin := flag.Bool("init-admin", false, "初始化或重置 admin 管理员后退出")
+	ensureAdminOnStart := flag.Bool("ensure-admin", false, "仅在 admin 管理员不存在时初始化；已存在时不修改密码")
 	adminEmail := flag.String("admin-email", "admin@example.com", "初始化 admin 的邮箱")
 	adminPassword := flag.String("admin-password", "", "初始化/重置 admin 密码；也可用 XIANYU_ADMIN_PASSWORD 环境变量")
 	flag.Parse()
@@ -119,6 +121,16 @@ func main() {
 		logger.Info("管理员初始化完成", "username", "admin")
 		return
 	}
+	if *ensureAdminOnStart {
+		created, err := ensureAdminIfMissing(ctx, store, *adminEmail, *adminPassword)
+		if err != nil {
+			logger.Error("检查或初始化管理员失败", "err", err)
+			os.Exit(1)
+		}
+		if created {
+			logger.Info("管理员初始化完成", "username", "admin")
+		}
+	}
 
 	// 检查系统是否已初始化。
 	if init, _ := store.Users.IsSystemInitialized(ctx); !init {
@@ -183,4 +195,19 @@ func ensureAdmin(ctx context.Context, store *db.Store, email, password string) e
 	}
 	_, err := auth.InitAdmin(ctx, store, email, password)
 	return err
+}
+
+// ensureAdminIfMissing 只为首次部署创建管理员，避免容器重启重置既有管理员密码。
+func ensureAdminIfMissing(ctx context.Context, store *db.Store, email, password string) (bool, error) {
+	admin, err := store.Users.GetAdmin(ctx)
+	if err != nil && !errors.Is(err, db.ErrNotFound) {
+		return false, fmt.Errorf("查询 admin 失败: %w", err)
+	}
+	if admin != nil {
+		return false, nil
+	}
+	if err := ensureAdmin(ctx, store, email, password); err != nil {
+		return false, err
+	}
+	return true, nil
 }

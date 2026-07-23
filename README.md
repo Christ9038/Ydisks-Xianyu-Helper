@@ -4,7 +4,7 @@
 
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](frontend/package.json)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)](docker-compose.debian13-postgres17.yml)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)](compose.yml)
 [![Docker Image](https://github.com/Christ9038/xinayu-go/actions/workflows/docker-publish.yml/badge.svg?branch=dev)](https://github.com/Christ9038/xinayu-go/actions/workflows/docker-publish.yml)
 
 [功能特性](#功能特性) · [快速开始](#快速开始) · [配置说明](#配置说明) ·
@@ -107,15 +107,11 @@ openssl rand -hex 24       # 适合作为 POSTGRES_PASSWORD，连接串无需额
 openssl rand -base64 48    # 适合作为 XIANYU_DATA_KEY
 ```
 
-启动 PostgreSQL、初始化管理员并启动应用：
+配置完成后，只需一条命令即可拉取 GHCR 镜像、启动 PostgreSQL，并在首次部署时自动创建
+管理员：
 
 ```bash
-COMPOSE_FILE=docker-compose.debian13-postgres17.yml
-
-docker compose -f "$COMPOSE_FILE" pull app postgres
-docker compose -f "$COMPOSE_FILE" up -d postgres
-docker compose -f "$COMPOSE_FILE" --profile init run --rm init-admin
-docker compose -f "$COMPOSE_FILE" up -d --no-build app
+docker compose up -d
 ```
 
 浏览器访问 `http://localhost:8080`，使用用户名 `admin` 和 `.env` 中的
@@ -216,12 +212,12 @@ Docker Compose 还支持：
 | `POSTGRES_DB` | 必填 | 数据库名 |
 | `POSTGRES_USER` | 必填 | 数据库用户 |
 | `POSTGRES_PASSWORD` | 必填 | 数据库密码 |
-| `XIANYU_IMAGE` | `xianyu-go:debian13` | 应用镜像与标签 |
+| `XIANYU_IMAGE` | `ghcr.io/christ9038/xinayu-go:latest` | 应用镜像与标签 |
 | `XIANYU_BIND_ADDRESS` | `0.0.0.0` | 应用在宿主机上的绑定地址 |
 | `XIANYU_HTTP_PORT` | `8080` | 应用在宿主机上的端口 |
 
-Compose 文件回退到本地镜像 `xianyu-go:debian13`；随仓库提供的 `.env.example` 已将
-`XIANYU_IMAGE` 设置为 GHCR 的 `:dev` 多架构镜像。
+默认 `compose.yml` 直接拉取 GHCR 的 `:latest` 多架构镜像；如需固定版本，请将
+`XIANYU_IMAGE` 改为 `:main`、版本号或 `:sha-<提交号>` 标签。
 
 `XIANYU_DATA_KEY` 用于加密 Cookie、账号密码、设备令牌、访问令牌、AI/SMTP 密钥和
 通知凭证。启用后，服务会自动升级历史明文数据。密钥丢失或更换后，已有加密数据将
@@ -241,6 +237,7 @@ Compose 文件回退到本地镜像 `xianyu-go:debian13`；随仓库提供的 `.
 | `-log-format` | 环境变量或系统设置 | 覆盖日志格式 |
 | `-v` | `false` | 启用调试日志，等价于未显式配置时使用 debug |
 | `-init-admin` | `false` | 初始化或重置 `admin` 后退出 |
+| `-ensure-admin` | `false` | 仅在 `admin` 不存在时初始化；已存在时不重置密码 |
 | `-admin-email` | `admin@example.com` | 初始化管理员邮箱 |
 | `-admin-password` | 空 | 初始化管理员密码 |
 
@@ -305,13 +302,26 @@ ARM64 Linux 拉取 arm64，不需要手动设置 `platform`。
 
 ### Compose 服务
 
-`docker-compose.debian13-postgres17.yml` 包含三个服务：
+根目录的 [`compose.yml`](compose.yml) 是默认生产部署文件：它只拉取 GHCR 镜像，完全不
+包含 `build` 配置，因此服务器不需要安装 Go、Node.js 或项目源码构建依赖。完成一次
+`.env` 配置后，始终使用：
+
+```bash
+docker compose up -d
+```
+
+它包含两个服务：
 
 | 服务 | 用途 |
 | --- | --- |
 | `postgres` | PostgreSQL 17 数据库，仅在 Compose 内部网络开放 5432 |
 | `app` | Xianyu Go 主服务、前端和 Chromium |
-| `init-admin` | 一次性管理员初始化任务，通过 `init` profile 启用 |
+
+`app` 会在首次启动时自动创建 `admin`；如果管理员已存在，后续 `up`、重启或升级均不会
+修改其密码。
+
+`docker-compose.debian13-postgres17.yml` 保留为**源码构建版**，用于本地修改 Dockerfile
+或需要构建本地镜像的场景；生产服务器无需使用该文件。
 
 持久化卷：
 
@@ -332,27 +342,15 @@ cp .env.example .env
 完成 `.env` 配置后执行：
 
 ```bash
-COMPOSE_FILE=docker-compose.debian13-postgres17.yml
-
-# 拉取应用和 PostgreSQL 镜像
-docker compose -f "$COMPOSE_FILE" pull app postgres
-
-# 启动数据库并等待健康检查
-docker compose -f "$COMPOSE_FILE" up -d postgres
-
-# 创建或重置管理员
-docker compose -f "$COMPOSE_FILE" --profile init run --rm init-admin
-
-# 启动应用
-docker compose -f "$COMPOSE_FILE" up -d --no-build app
+docker compose up -d
 ```
 
 检查运行状态：
 
 ```bash
-docker compose -f "$COMPOSE_FILE" ps
+docker compose ps
 curl -fsS http://127.0.0.1:8080/health
-docker compose -f "$COMPOSE_FILE" logs --tail=200 app
+docker compose logs --tail=200 app
 ```
 
 健康接口正常时返回：
@@ -364,10 +362,9 @@ docker compose -f "$COMPOSE_FILE" logs --tail=200 app
 ### 更新镜像
 
 ```bash
-COMPOSE_FILE=docker-compose.debian13-postgres17.yml
-docker compose -f "$COMPOSE_FILE" pull app
-docker compose -f "$COMPOSE_FILE" up -d --no-build app
-docker compose -f "$COMPOSE_FILE" logs --tail=100 app
+docker compose pull app
+docker compose up -d
+docker compose logs --tail=100 app
 ```
 
 更新前请先备份数据库，并确认 `.env` 中的 `XIANYU_DATA_KEY` 未发生变化。
@@ -379,7 +376,7 @@ set -a
 . ./.env
 set +a
 
-docker compose -f docker-compose.debian13-postgres17.yml exec -T postgres \
+docker compose exec -T postgres \
   pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
   > "xianyu-$(date +%Y%m%d-%H%M%S).sql"
 ```
@@ -387,8 +384,8 @@ docker compose -f docker-compose.debian13-postgres17.yml exec -T postgres \
 恢复前请先停止应用，并在独立环境验证备份文件：
 
 ```bash
-docker compose -f docker-compose.debian13-postgres17.yml stop app
-docker compose -f docker-compose.debian13-postgres17.yml exec -T postgres \
+docker compose stop app
+docker compose exec -T postgres \
   psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" < xianyu-backup.sql
 ```
 
@@ -399,7 +396,7 @@ Git；项目已默认忽略该文件。
 
 ```bash
 # 停止并保留数据卷
-docker compose -f docker-compose.debian13-postgres17.yml down
+docker compose down
 
 # 查看数据卷
 docker volume ls --filter name=xianyu
@@ -503,13 +500,12 @@ go run ./cmd/dbverify "postgres://user:pass@127.0.0.1:5432/xianyu"
 
 ## 常见问题
 
-### 服务启动后提示尚未初始化
+### 首次部署无法完成管理员初始化
 
-先执行管理员初始化：
+确认 `.env` 已设置非空的 `XIANYU_ADMIN_PASSWORD`，然后执行：
 
 ```bash
-docker compose -f docker-compose.debian13-postgres17.yml \
-  --profile init run --rm init-admin
+docker compose up -d
 ```
 
 源码运行时可执行：
