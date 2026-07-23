@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -14,18 +15,27 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
 )
+
+type automationRoundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f automationRoundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 type testSenderProvider struct{ sender *testSender }
 
 func (p testSenderProvider) Sender(string) (MessageSender, bool) { return p.sender, true }
 
 type testSender struct {
-	texts     []string
-	events    *[]string
-	err       error
-	failAfter int
+	texts          []string
+	cookieUpdates  []string
+	onCookieUpdate func(string)
+	events         *[]string
+	err            error
+	failAfter      int
 }
 
 func (s *testSender) SendText(_ context.Context, _, _, text string) error {
@@ -68,7 +78,12 @@ func TestPartialAutomationRunIsQuarantined(t *testing.T) {
 	}
 }
 func (s *testSender) SendImage(context.Context, string, string, string, int64) error { return nil }
-func (s *testSender) UpdateCookie(string)                                            {}
+func (s *testSender) UpdateCookie(cookieStr string) {
+	s.cookieUpdates = append(s.cookieUpdates, cookieStr)
+	if s.onCookieUpdate != nil {
+		s.onCookieUpdate(cookieStr)
+	}
+}
 
 type testFetcher struct{ detail *OrderDetail }
 
@@ -651,6 +666,149 @@ func TestCenterOrderPaidSendsCardBeforeConfirmShipment(t *testing.T) {
 		if events[i] != want[i] {
 			t.Fatalf("events=%v want %v", events, want)
 		}
+	}
+}
+
+func TestConfirmShipmentPersistsAuthoritativeSessionBeforeParseError(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	initialValue := "flat_leak=must-not-send; unb=123; _m_h5_tk=flat_old_1"
+	snapshot := []cookierefresh.BrowserCookie{
+		{Name: "unb", Value: "123", Domain: ".goofish.com", Path: "/", Secure: true},
+		{Name: "_m_h5_tk", Value: "snapshot_old_1", Domain: ".goofish.com", Path: "/", Secure: true},
+		{Name: "document_only", Value: "doc", Domain: "www.goofish.com", Path: "/im", Secure: true},
+		{Name: "api_only", Value: "api", Domain: "h5api.m.goofish.com", Path: "/h5", Secure: true, HTTPOnly: true},
+	}
+	metadata := cookierefresh.MetadataWithSnapshot(`{"preserved":"yes"}`, snapshot)
+	if err := store.Cookies.UpdateRenewalCookie(ctx, "cid", initialValue, metadata, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	var requestCookie string
+	client := &http.Client{Transport: automationRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		requestCookie = req.Header.Get("Cookie")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{"Set-Cookie": []string{
+				"_m_h5_tk=snapshot_new_2; Domain=.goofish.com; Path=/; Secure",
+				"consign_scope=new; Path=/h5; Secure; HttpOnly",
+			}},
+			Body:    io.NopCloser(strings.NewReader(`{"ret":`)),
+			Request: req,
+		}, nil
+	})}
+	lockReleasedBeforeRuntimeUpdate := false
+	sender := &testSender{onCookieUpdate: func(string) {
+		acquired := make(chan struct{})
+		go func() {
+			unlock := store.LockAccountCredentials("cid")
+			unlock()
+			close(acquired)
+		}()
+		select {
+		case <-acquired:
+			lockReleasedBeforeRuntimeUpdate = true
+		case <-time.After(500 * time.Millisecond):
+		}
+	}}
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	center.SetMTop(&mtop.ClientImpl{HTTPClient: client, ConsignURL: mtop.ConsignAPI})
+	err := center.confirmShipment(ctx, Task{
+		AccountID: "cid", OrderID: "session-parse-error", ForceConfirmShipment: true,
+	})
+	var uncertain *uncertainActionError
+	if !errors.As(err, &uncertain) {
+		t.Fatalf("远程响应解析失败应进入人工核对: %v", err)
+	}
+	for _, want := range []string{"unb=123", "_m_h5_tk=snapshot_old_1", "api_only=api"} {
+		if !strings.Contains(requestCookie, want) {
+			t.Fatalf("发货请求 Cookie %q 未使用加锁后重读的权威 Jar，缺少 %q", requestCookie, want)
+		}
+	}
+	for _, unwanted := range []string{"flat_leak=", "document_only="} {
+		if strings.Contains(requestCookie, unwanted) {
+			t.Fatalf("发货请求 Cookie %q 泄漏了错误作用域 %q", requestCookie, unwanted)
+		}
+	}
+
+	detail, getErr := store.Cookies.GetDetails(ctx, "cid")
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if !strings.Contains(detail.Value, "_m_h5_tk=snapshot_new_2") || strings.Contains(detail.Value, "flat_leak=") {
+		t.Fatalf("正文解析失败后未优先持久化响应 Cookie Jar: %q", detail.Value)
+	}
+	if !strings.Contains(detail.MetadataJSON, `"preserved":"yes"`) {
+		t.Fatalf("持久化 Jar 时丢失原 metadata: %s", detail.MetadataJSON)
+	}
+	gotSnapshot, ok := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON)
+	if !ok {
+		t.Fatalf("响应后权威 snapshot 丢失: %s", detail.MetadataJSON)
+	}
+	values := make(map[string]string, len(gotSnapshot))
+	for _, cookie := range gotSnapshot {
+		values[cookie.Name+"|"+cookie.Domain+"|"+cookie.Path] = cookie.Value
+	}
+	if values["_m_h5_tk|.goofish.com|/"] != "snapshot_new_2" ||
+		values["consign_scope|h5api.m.goofish.com|/h5"] != "new" ||
+		values["document_only|www.goofish.com|/im"] != "doc" {
+		t.Fatalf("响应后 snapshot 作用域不完整: %+v", gotSnapshot)
+	}
+	if len(sender.cookieUpdates) != 1 || !strings.Contains(sender.cookieUpdates[0], "_m_h5_tk=snapshot_new_2") {
+		t.Fatalf("运行实例未同步已持久化的 Cookie: %+v", sender.cookieUpdates)
+	}
+	if !lockReleasedBeforeRuntimeUpdate {
+		t.Fatal("运行实例 Cookie 必须在账号凭证锁外更新")
+	}
+}
+
+func TestConfirmShipmentPropagatesAuthoritativeEmptySession(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	initialValue := "unb=123; _m_h5_tk=old_1"
+	metadata := cookierefresh.MetadataWithSnapshot(`{"preserved":true}`, []cookierefresh.BrowserCookie{
+		{Name: "unb", Value: "123", Domain: ".goofish.com", Path: "/", Secure: true},
+		{Name: "_m_h5_tk", Value: "old_1", Domain: ".goofish.com", Path: "/", Secure: true},
+	})
+	if err := store.Cookies.UpdateRenewalCookie(ctx, "cid", initialValue, metadata, 1); err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Transport: automationRoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{"Set-Cookie": []string{
+				"unb=; Max-Age=-1; Domain=.goofish.com; Path=/; Secure",
+				"_m_h5_tk=; Max-Age=-1; Domain=.goofish.com; Path=/; Secure",
+			}},
+			Body:    io.NopCloser(strings.NewReader(`{"ret":`)),
+			Request: req,
+		}, nil
+	})}
+	sender := &testSender{}
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	center.SetMTop(&mtop.ClientImpl{HTTPClient: client, ConsignURL: mtop.ConsignAPI})
+	err := center.confirmShipment(ctx, Task{
+		AccountID: "cid", OrderID: "authoritative-empty-session", ForceConfirmShipment: true,
+	})
+	var uncertain *uncertainActionError
+	if !errors.As(err, &uncertain) {
+		t.Fatalf("删除凭证后的解析失败应进入人工核对: %v", err)
+	}
+	detail, getErr := store.Cookies.GetDetails(ctx, "cid")
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if detail.Value != "" {
+		t.Fatalf("权威空 Jar 未持久化: %q", detail.Value)
+	}
+	snapshot, ok := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON)
+	if !ok || snapshot == nil || len(snapshot) != 0 {
+		t.Fatalf("权威空 snapshot 语义丢失: ok=%v snapshot=%#v metadata=%s", ok, snapshot, detail.MetadataJSON)
+	}
+	if len(sender.cookieUpdates) != 1 || sender.cookieUpdates[0] != "" {
+		t.Fatalf("权威空 Jar 未在锁外通知运行实例: %#v", sender.cookieUpdates)
 	}
 }
 

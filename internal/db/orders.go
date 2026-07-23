@@ -201,6 +201,9 @@ func orderUpsertAssignments(opts OrderUpsertOpts) ([]string, []any) {
 	if opts.SystemShipped != nil {
 		add("system_shipped", boolToInt(*opts.SystemShipped), true)
 	}
+	if opts.IsBargain != nil {
+		add("is_bargain", boolToInt(*opts.IsBargain), true)
+	}
 	add("chat_id", opts.ChatID, opts.ChatID != "")
 	add("item_id", opts.ItemID, opts.ItemID != "")
 	add("buyer_id", opts.BuyerID, opts.BuyerID != "")
@@ -277,6 +280,7 @@ type OrderUpsertOpts struct {
 	ReceiverAddr  string
 	ReceiverCity  string
 	ChatID        string
+	IsBargain     *bool
 	SystemShipped *bool
 }
 

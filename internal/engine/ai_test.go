@@ -76,7 +76,7 @@ func TestAIReply_DisabledReturnsNil(t *testing.T) {
 	a := NewAIReplier("cid", s, nil)
 
 	// 无配置记录 → 未启用 → nil。
-	res, err := a.Reply(ctx, chatMsg("在吗", "item1", "chat1"))
+	res, err := a.Reply(ctx, chatMsg("能便宜点吗", "item1", "chat1"))
 	if err != nil || res != nil {
 		t.Fatalf("未配置应返回 nil,nil: res=%+v err=%v", res, err)
 	}
@@ -97,7 +97,7 @@ func TestAIReply_NoAPIKeyReturnsNil(t *testing.T) {
 	s.DB.ExecContext(ctx, `INSERT INTO ai_reply_settings (cookie_id, ai_enabled, custom_prompts) VALUES ('cid', 1, '')`)
 	a := NewAIReplier("cid", s, nil)
 
-	res, err := a.Reply(ctx, chatMsg("在吗", "item1", "chat1"))
+	res, err := a.Reply(ctx, chatMsg("能便宜点吗", "item1", "chat1"))
 	if err != nil || res != nil {
 		t.Fatalf("无 APIKey 应返回 nil,nil: res=%+v err=%v", res, err)
 	}
@@ -137,7 +137,7 @@ func TestAIReply_HTTPErrorDegrades(t *testing.T) {
 	s.Settings.Set(ctx, "ai_api_url", srv.URL)
 
 	a := NewAIReplier("cid", s, nil)
-	res, err := a.Reply(ctx, chatMsg("在吗", "item1", "chat1"))
+	res, err := a.Reply(ctx, chatMsg("还能优惠吗", "item1", "chat1"))
 	if err == nil {
 		t.Fatalf("HTTP 500 应返回错误，got res=%+v", res)
 	}
@@ -165,7 +165,7 @@ func TestAIReply_EmptyChoicesReturnsNil(t *testing.T) {
 	s.Settings.Set(ctx, "ai_api_url", srv.URL)
 
 	a := NewAIReplier("cid", s, nil)
-	res, err := a.Reply(ctx, chatMsg("在吗", "item1", "chat1"))
+	res, err := a.Reply(ctx, chatMsg("可以便宜一点吗", "item1", "chat1"))
 	if err != nil || res != nil {
 		t.Fatalf("空 choices 应返回 nil,nil: res=%+v err=%v", res, err)
 	}
@@ -182,12 +182,26 @@ func TestAIReply_SuccessReturnsContent(t *testing.T) {
 	s.Settings.Set(ctx, "ai_api_url", srv.URL)
 
 	a := NewAIReplier("cid", s, nil)
-	res, err := a.Reply(ctx, chatMsg("在吗", "item1", "chat1"))
+	res, err := a.Reply(ctx, chatMsg("最低多少钱", "item1", "chat1"))
 	if err != nil {
 		t.Fatalf("成功调用不应报错: %v", err)
 	}
 	if res == nil || res.Text != "你好，在的哦" {
 		t.Fatalf("应返回 AI 文本: %+v", res)
+	}
+}
+
+func TestAIReply_NonBargainMessageFallsThrough(t *testing.T) {
+	s, cleanup := newAIStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	s.DB.ExecContext(ctx, `INSERT INTO ai_reply_settings (cookie_id, ai_enabled, custom_prompts) VALUES ('cid', 1, '')`)
+	s.Settings.Set(ctx, "ai_api_key", "sk-test")
+	s.Settings.Set(ctx, "ai_api_url", "http://127.0.0.1:1")
+
+	res, err := NewAIReplier("cid", s, nil).Reply(ctx, chatMsg("在吗，什么时候发货", "item1", "chat1"))
+	if err != nil || res != nil {
+		t.Fatalf("非砍价消息应交给默认回复: res=%+v err=%v", res, err)
 	}
 }
 

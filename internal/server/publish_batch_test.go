@@ -122,6 +122,27 @@ func TestPreviewItemPublishBatchNoFile(t *testing.T) {
 	}
 }
 
+func TestPreviewItemPublishBatchRequiresDefaultAccount(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	file, _ := mw.CreateFormFile("file", "products.csv")
+	file.Write([]byte("标题,价格,图片\n商品A,12.50,https://example.com/a.png\n"))
+	_ = mw.Close()
+	req := httptest.NewRequest(http.MethodPost, "/items/publish-batches/preview", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "请选择默认发布账号") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestPreviewItemPublishBatchBadDefaultCookie 默认账号不属于当前用户 403。
 func TestPreviewItemPublishBatchBadDefaultCookie(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)

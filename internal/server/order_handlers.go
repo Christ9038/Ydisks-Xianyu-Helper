@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,13 +13,20 @@ import (
 
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/xianyu/cookierefresh"
+	"xianyu-go/internal/xianyu/mtop"
 )
 
 const refreshOrderChunkSize = 100
+const maxSoldOrderPages = 100
 
 type refreshTarget struct {
 	OrderID       string
 	CurrentStatus string
+}
+
+type orderDetailMTop interface {
+	FetchOrderDetail(ctx context.Context, cookiesStr, orderID string) (*mtop.OrderDetailResult, error)
 }
 
 // mountOrders 订单端点（真实实现）。
@@ -162,10 +170,6 @@ func (s *Server) getOrder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
-	if s.Browser == nil {
-		writeErr(w, http.StatusServiceUnavailable, "浏览器自动化未启用，无法刷新订单")
-		return
-	}
 	sess := auth.SessionFromContext(r.Context())
 	all, err := s.Store.Cookies.AllForUser(r.Context(), sess.UserID)
 	if err != nil {
@@ -183,6 +187,57 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 		all = map[string]string{cookieID: value}
 	}
 
+	discovered, listUpdated, failed := 0, 0, 0
+	results := []map[string]any{}
+	newOrderIDs := make(map[string]struct{})
+	if fetcher, ok := s.mtopClient().(mtop.SoldOrderFetcher); ok {
+		for cid := range all {
+			credentialUnlock := s.Store.LockAccountCredentials(cid)
+			latest, latestErr := s.Store.Cookies.GetDetails(r.Context(), cid)
+			if latestErr != nil || latest == nil || latest.UserID != sess.UserID || !hasStoredCookieCredential(latest) {
+				credentialUnlock()
+				if latestErr == nil {
+					latestErr = errors.New("账号凭证已变化")
+				}
+				failed++
+				results = append(results, map[string]any{
+					"cookie_id": cid, "stage": "discover", "success": false, "error": latestErr.Error(),
+				})
+				continue
+			}
+			all[cid] = latest.Value
+			mtopCtx, cookieSession := withMTopCookieSnapshot(r.Context(), latest)
+			accountDiscovered, accountUpdated, accountNewIDs, discoveryErr := s.discoverSoldOrders(mtopCtx, fetcher, cid, latest.Value)
+			value, valueChanged, _, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
+			if persistErr != nil {
+				discoveryErr = errors.Join(discoveryErr, fmt.Errorf("保存订单列表响应 Cookie Jar: %w", persistErr))
+			} else if valueChanged {
+				all[cid] = value
+			}
+			credentialUnlock()
+			if persistErr == nil && valueChanged {
+				s.updateRunningCookie(r.Context(), cid, value)
+			}
+			discovered += accountDiscovered
+			listUpdated += accountUpdated
+			for orderID := range accountNewIDs {
+				newOrderIDs[orderID] = struct{}{}
+			}
+			result := map[string]any{
+				"cookie_id": cid, "stage": "discover", "success": discoveryErr == nil,
+				"discovered": accountDiscovered, "updated": accountUpdated,
+			}
+			if discoveryErr != nil {
+				failed++
+				result["error"] = discoveryErr.Error()
+			}
+			results = append(results, result)
+		}
+	} else {
+		failed++
+		results = append(results, map[string]any{"stage": "discover", "success": false, "error": "当前 MTop 客户端不支持订单列表发现"})
+	}
+
 	ordersByCookie := map[string][]refreshTarget{}
 	for cid := range all {
 		for offset := 0; ; offset += 500 {
@@ -196,7 +251,8 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				// 稳定状态无需反复抓取；但历史订单若缺少实付金额，仍需补全详情。
-				if isStableOrderStatus(currentStatus) && strings.TrimSpace(row.Amount) != "" {
+				_, isNewOrder := newOrderIDs[row.OrderID]
+				if !isNewOrder && isStableOrderStatus(currentStatus) && strings.TrimSpace(row.Amount) != "" {
 					continue
 				}
 				ordersByCookie[cid] = append(ordersByCookie[cid], refreshTarget{OrderID: row.OrderID, CurrentStatus: currentStatus})
@@ -211,98 +267,191 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 	for _, targets := range ordersByCookie {
 		total += len(targets)
 	}
+	detailFetcher, detailSupported := s.mtopClient().(orderDetailMTop)
+	if !detailSupported {
+		message := "订单列表同步完成"
+		if discovered > 0 {
+			message = fmt.Sprintf("订单列表同步完成，发现并导入 %d 个新订单", discovered)
+		}
+		if total > 0 {
+			message += fmt.Sprintf("；当前 Go MTOP 客户端不支持详情接口，已跳过 %d 个订单", total)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"success": failed == 0,
+			"message": message,
+			"summary": map[string]int{
+				"discovered": discovered, "list_updated": listUpdated, "detail_total": total,
+				"total": total, "updated": 0, "no_change": 0, "failed": failed,
+			},
+			"results": results,
+		})
+		return
+	}
 	if total == 0 {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"success": true,
-			"message": "没有需要刷新的订单",
-			"summary": map[string]int{"total": 0, "updated": 0, "no_change": 0, "failed": 0},
-			"results": []any{},
+			"success": failed == 0,
+			"message": fmt.Sprintf("订单列表同步完成，发现 %d 个新订单；没有需要补全详情的订单", discovered),
+			"summary": map[string]int{
+				"discovered": discovered, "list_updated": listUpdated, "detail_total": 0,
+				"total": 0, "updated": 0, "no_change": 0, "failed": failed,
+			},
+			"results": results,
 		})
 		return
 	}
 
-	updated, noChange, failed := 0, 0, 0
-	results := []map[string]any{}
+	updated, noChange := 0, 0
 	for cid, targets := range ordersByCookie {
-		cookieValue := all[cid]
-		if cookieValue == "" {
-			failed += len(targets)
-			continue
-		}
 		for _, chunk := range chunkRefreshTargets(targets, refreshOrderChunkSize) {
-			orderIDs := make([]string, 0, len(chunk))
-			currentStatus := make(map[string]string, len(chunk))
-			for _, target := range chunk {
-				orderIDs = append(orderIDs, target.OrderID)
-				currentStatus[target.OrderID] = target.CurrentStatus
-			}
-			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
-			batch, err := s.Browser.BatchRefreshOrders(ctx, orderIDs, cid, cookieValue)
-			cancel()
-			if err != nil {
+			credentialUnlock := s.Store.LockAccountCredentials(cid)
+			latest, latestErr := s.Store.Cookies.GetDetails(r.Context(), cid)
+			if latestErr != nil || latest == nil || latest.UserID != sess.UserID || !hasStoredCookieCredential(latest) {
+				credentialUnlock()
 				failed += len(chunk)
-				results = append(results, map[string]any{"cookie_id": cid, "success": false, "error": err.Error()})
+				results = append(results, map[string]any{"cookie_id": cid, "success": false, "error": "账号凭证已变化"})
 				continue
 			}
-			rawOrders, _ := batch["orders"].([]map[string]any)
-			seen := make(map[string]struct{}, len(rawOrders))
-			for _, raw := range rawOrders {
-				orderID := stringFromAny(raw["order_id"])
-				if _, expected := currentStatus[orderID]; !expected {
-					continue
-				}
-				seen[orderID] = struct{}{}
-				if raw["success"] == false {
+			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+			mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
+			for _, target := range chunk {
+				detail, fetchErr := detailFetcher.FetchOrderDetail(mtopCtx, latest.Value, target.OrderID)
+				if fetchErr != nil || detail == nil {
 					failed++
+					message := "订单详情接口未返回结果"
+					if fetchErr != nil {
+						message = fetchErr.Error()
+					}
 					results = append(results, map[string]any{
-						"order_id": orderID,
+						"order_id": target.OrderID,
 						"success":  false,
-						"error":    stringFromAny(raw["error"]),
+						"error":    message,
 					})
 					continue
 				}
-				newStatus := db.NormalizeOrderStatus(stringFromAny(raw["order_status"]))
+				newStatus := db.NormalizeOrderStatus(detail.OrderStatus)
 				if !validEditableOrderStatus(newStatus) {
-					newStatus = currentStatus[orderID]
+					newStatus = target.CurrentStatus
 				}
-				err := s.Store.Orders.Upsert(r.Context(), orderID, db.OrderUpsertOpts{
+				err := s.Store.Orders.Upsert(r.Context(), target.OrderID, db.OrderUpsertOpts{
 					CookieID:    cid,
 					OrderStatus: newStatus,
-					SpecName:    stringFromAny(raw["spec_name"]),
-					SpecValue:   stringFromAny(raw["spec_value"]),
-					Quantity:    stringFromAny(raw["quantity"]),
-					Amount:      stringFromAny(raw["amount"]),
+					SpecName:    detail.SpecName,
+					SpecValue:   detail.SpecValue,
+					Quantity:    detail.Quantity,
+					Amount:      detail.Amount,
 				})
 				if err != nil {
 					failed++
-					results = append(results, map[string]any{"order_id": orderID, "success": false, "error": "更新数据库失败"})
+					results = append(results, map[string]any{"order_id": target.OrderID, "success": false, "error": "更新数据库失败"})
 					continue
 				}
-				changed := newStatus != "" && newStatus != currentStatus[orderID]
+				changed := newStatus != "" && newStatus != target.CurrentStatus
 				if changed {
 					updated++
 				} else {
 					noChange++
 				}
 				results = append(results, map[string]any{
-					"order_id":   orderID,
+					"order_id":   target.OrderID,
 					"success":    true,
-					"old_status": currentStatus[orderID],
+					"old_status": target.CurrentStatus,
 					"new_status": newStatus,
 				})
 			}
-			for _, orderID := range missingRefreshTargetIDs(chunk, seen) {
+			cancel()
+			value, valueChanged, _, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
+			credentialUnlock()
+			if persistErr != nil {
 				failed++
-				results = append(results, map[string]any{"order_id": orderID, "success": false, "error": "浏览器未返回该订单的刷新结果"})
+				results = append(results, map[string]any{"cookie_id": cid, "stage": "persist_cookie", "success": false, "error": persistErr.Error()})
+			} else if valueChanged {
+				s.updateRunningCookie(r.Context(), cid, value)
 			}
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"success": true,
-		"message": "订单刷新完成",
-		"summary": map[string]int{"total": total, "updated": updated, "no_change": noChange, "failed": failed},
+		"success": failed == 0,
+		"message": fmt.Sprintf("订单同步完成，发现 %d 个新订单", discovered),
+		"summary": map[string]int{
+			"discovered": discovered, "list_updated": listUpdated, "detail_total": total,
+			"total": total, "updated": updated, "no_change": noChange, "failed": failed,
+		},
 		"results": results,
 	})
+}
+
+func (s *Server) discoverSoldOrders(ctx context.Context, fetcher mtop.SoldOrderFetcher, cookieID, cookies string) (int, int, map[string]struct{}, error) {
+	discovered, updated := 0, 0
+	newOrderIDs := make(map[string]struct{})
+	for pageNumber := 1; pageNumber <= maxSoldOrderPages; pageNumber++ {
+		page, err := fetcher.FetchSoldOrdersPage(ctx, cookies, pageNumber, 30)
+		if err != nil {
+			return discovered, updated, newOrderIDs, err
+		}
+		pageChanged := false
+		for _, remote := range page.Items {
+			if normalizedAmount, ok := db.NormalizeOrderAmount(remote.Amount); ok {
+				remote.Amount = normalizedAmount
+			}
+			existing, getErr := s.Store.Orders.Get(ctx, remote.OrderID)
+			isNew := errors.Is(getErr, db.ErrNotFound)
+			if getErr != nil && !isNew {
+				return discovered, updated, newOrderIDs, fmt.Errorf("读取订单 %s 失败: %w", remote.OrderID, getErr)
+			}
+			changed := isNew || soldOrderChanged(existing, remote)
+			status := remote.OrderStatus
+			if !isNew && status == "unknown" {
+				status = ""
+			}
+			var isBargain *bool
+			if remote.IsBargain {
+				value := true
+				isBargain = &value
+			}
+			if err := s.Store.Orders.Upsert(ctx, remote.OrderID, db.OrderUpsertOpts{
+				ItemID: remote.ItemID, BuyerID: remote.BuyerID, CookieID: cookieID,
+				OrderStatus: status, Quantity: remote.Quantity, Amount: remote.Amount,
+				ReceiverName: remote.ReceiverName, ReceiverPhone: remote.ReceiverPhone,
+				ReceiverAddr: remote.ReceiverAddr, ReceiverCity: remote.ReceiverCity,
+				IsBargain: isBargain,
+			}); err != nil {
+				return discovered, updated, newOrderIDs, fmt.Errorf("保存订单 %s 失败: %w", remote.OrderID, err)
+			}
+			if isNew {
+				discovered++
+				newOrderIDs[remote.OrderID] = struct{}{}
+			} else if changed {
+				updated++
+			}
+			pageChanged = pageChanged || changed
+		}
+		if !page.NextPage || len(page.Items) == 0 {
+			return discovered, updated, newOrderIDs, nil
+		}
+		// 卖家列表按新到旧排列。一整页都已存在且字段未变化时，更早页也无需重复扫描。
+		if !pageChanged {
+			return discovered, updated, newOrderIDs, nil
+		}
+	}
+	return discovered, updated, newOrderIDs, fmt.Errorf("订单列表超过 %d 页，已停止继续同步", maxSoldOrderPages)
+}
+
+func soldOrderChanged(existing *db.Order, remote mtop.SoldOrder) bool {
+	if existing == nil {
+		return true
+	}
+	statusChanged := remote.OrderStatus != "" && remote.OrderStatus != "unknown" &&
+		db.NormalizeOrderStatus(existing.OrderStatus) != remote.OrderStatus
+	return statusChanged ||
+		(remote.ItemID != "" && existing.ItemID != remote.ItemID) ||
+		(remote.BuyerID != "" && existing.BuyerID != remote.BuyerID) ||
+		(remote.Quantity != "" && existing.Quantity != remote.Quantity) ||
+		(remote.Amount != "" && existing.Amount != remote.Amount) ||
+		(remote.ReceiverName != "" && existing.ReceiverName != remote.ReceiverName) ||
+		(remote.ReceiverPhone != "" && existing.ReceiverPhone != remote.ReceiverPhone) ||
+		(remote.ReceiverAddr != "" && existing.ReceiverAddr != remote.ReceiverAddr) ||
+		(remote.ReceiverCity != "" && existing.ReceiverCity != remote.ReceiverCity) ||
+		(remote.IsBargain && existing.IsBargain == 0)
 }
 
 func chunkRefreshTargets(targets []refreshTarget, size int) [][]refreshTarget {
@@ -331,36 +480,68 @@ func missingRefreshTargetIDs(targets []refreshTarget, seen map[string]struct{}) 
 }
 
 func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) {
-	if s.Browser == nil {
-		writeErr(w, http.StatusServiceUnavailable, "浏览器自动化未启用，无法刷新订单")
-		return
-	}
 	orderID := chi.URLParam(r, "order_id")
 	order, ok := s.requireOrderOwner(w, r, orderID)
 	if !ok {
 		return
 	}
-	cookieID := order.CookieID
-	cookieValue, _, ok := s.cookieForCurrentUser(w, r, cookieID)
+	detailFetcher, ok := s.mtopClient().(orderDetailMTop)
 	if !ok {
+		writeErr(w, http.StatusServiceUnavailable, "当前 Go MTOP 客户端不支持订单详情接口")
 		return
 	}
+	cookieID := order.CookieID
+	credentialUnlock := s.Store.LockAccountCredentials(cookieID)
+	credentialLocked := true
+	defer func() {
+		if credentialLocked {
+			credentialUnlock()
+		}
+	}()
+	sess := auth.SessionFromContext(r.Context())
+	latest, err := s.Store.Cookies.GetDetails(r.Context(), cookieID)
+	if err != nil || latest == nil || latest.UserID != sess.UserID || !hasStoredCookieCredential(latest) {
+		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
+		return
+	}
+	cookieValue := latest.Value
 	ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
 	defer cancel()
-	detail, err := s.Browser.FetchOrderDetail(ctx, orderID, cookieID, cookieValue, s.Store.Items.IsMultiSpec(ctx, cookieID, order.ItemID))
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
-		return
+	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
+	detail, callErr := detailFetcher.FetchOrderDetail(mtopCtx, cookieValue, orderID)
+	if callErr == nil && detail == nil {
+		callErr = errors.New("订单详情接口未返回结果")
 	}
-	if detail.UpdatedCookies != "" && detail.UpdatedCookies != cookieValue {
-		if err := s.Store.Cookies.UpdateValueExisting(r.Context(), cookieID, detail.UpdatedCookies); err != nil {
-			s.Logger.Error("保存订单详情刷新后的 cookie 失败", "cookie_id", cookieID, "err", err)
+	runtimeCookie := ""
+	runtimeCookieChanged := false
+	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
+	if persistErr != nil {
+		s.Logger.Error("保存订单详情响应 Cookie Jar 失败", "cookie_id", cookieID, "err", persistErr)
+		callErr = errors.Join(callErr, fmt.Errorf("保存订单详情响应 Cookie Jar: %w", persistErr))
+	} else if handled {
+		if valueChanged {
+			runtimeCookie = value
+			runtimeCookieChanged = true
 		}
-		if s.Manager != nil {
-			if account, running := s.Manager.GetInstance(cookieID); running {
-				account.UpdateCookie(detail.UpdatedCookies)
-			}
+	} else if callErr == nil && detail.UpdatedCookies != "" && detail.UpdatedCookies != cookieValue {
+		metadata := cookierefresh.MetadataWithoutSnapshot(latest.MetadataJSON)
+		if saveErr := s.Store.Cookies.UpdateRenewalCookie(r.Context(), cookieID, detail.UpdatedCookies, metadata, time.Now().Unix()); saveErr != nil {
+			s.Logger.Error("保存订单详情刷新后的 cookie 失败", "cookie_id", cookieID, "err", saveErr)
+		} else {
+			runtimeCookie = detail.UpdatedCookies
+			runtimeCookieChanged = true
 		}
+	}
+	credentialUnlock()
+	credentialLocked = false
+	if runtimeCookieChanged && s.Manager != nil {
+		if account, running := s.Manager.GetInstance(cookieID); running {
+			account.UpdateCookie(runtimeCookie)
+		}
+	}
+	if callErr != nil {
+		writeErr(w, http.StatusBadGateway, callErr.Error())
+		return
 	}
 	status := db.NormalizeOrderStatus(detail.OrderStatus)
 	if !validEditableOrderStatus(status) {
@@ -553,7 +734,7 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "订单不存在"})
 			continue
 		}
-		cookieValue, ok := userCookies[order.CookieID]
+		_, ok := userCookies[order.CookieID]
 		if !ok {
 			failedCount++
 			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "无权操作此订单"})
@@ -597,22 +778,17 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "mtop 客户端未初始化"})
 			continue
 		}
-		ok, ret, updatedCookies, err := s.MTop.ConsignContext(r.Context(), cookieValue, orderID)
-		if err != nil {
+		ok, ret, runtimeCookie, runtimeCookieChanged, err := s.consignWithCurrentCookie(r.Context(), order.CookieID, orderID, sess.UserID)
+		if runtimeCookieChanged && s.Manager != nil {
+			if acc, running := s.Manager.GetInstance(order.CookieID); running {
+				acc.UpdateCookie(runtimeCookie)
+			}
+		}
+		if err != nil && !ok {
 			failedCount++
 			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "确认发货异常: " + err.Error()})
 			s.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID, "手动确认发货异常: "+err.Error())
 			continue
-		}
-		if updatedCookies != "" && updatedCookies != cookieValue {
-			if err := s.Store.Cookies.UpdateValueOwned(r.Context(), order.CookieID, updatedCookies, sess.UserID); err != nil {
-				s.Logger.Error("保存发货刷新后的 cookie 失败", "cookie_id", order.CookieID, "err", err)
-			}
-			if s.Manager != nil {
-				if acc, running := s.Manager.GetInstance(order.CookieID); running {
-					acc.UpdateCookie(updatedCookies)
-				}
-			}
 		}
 		if !ok {
 			failedCount++
@@ -644,7 +820,13 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 			s.Logger.Error("更新订单为系统已发货失败", "order_id", orderID, "err", err)
 		}
 		successCount++
-		results = append(results, map[string]any{"order_id": orderID, "success": true, "message": "已成功修改闲鱼发货状态"})
+		message := "已成功修改闲鱼发货状态"
+		credentialWarning := ""
+		if err != nil {
+			message += "；但登录凭证更新保存失败，请尽快重新登录（请勿重复确认发货）"
+			credentialWarning = err.Error()
+		}
+		results = append(results, map[string]any{"order_id": orderID, "success": true, "message": message, "credential_warning": credentialWarning})
 		s.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID,
 			fmt.Sprintf("手动确认发货成功（订单 %s）", orderID))
 	}
@@ -655,6 +837,48 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 		"failed_count":  failedCount,
 		"results":       results,
 	})
+}
+
+func (s *Server) consignWithCurrentCookie(ctx context.Context, cookieID, orderID string, userID int64) (bool, []string, string, bool, error) {
+	credentialUnlock := s.Store.LockAccountCredentials(cookieID)
+	defer credentialUnlock()
+	detail, err := s.Store.Cookies.GetDetails(ctx, cookieID)
+	if err != nil {
+		return false, nil, "", false, err
+	}
+	if detail == nil || detail.UserID != userID {
+		return false, nil, "", false, db.ErrForbidden
+	}
+	if !hasStoredCookieCredential(detail) {
+		return false, nil, "", false, errors.New("账号 Cookie 为空")
+	}
+	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, detail)
+	ok, ret, updatedCookies, callErr := s.MTop.ConsignContext(mtopCtx, detail.Value, orderID)
+	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(ctx, detail, cookieSession)
+	if persistErr != nil {
+		persistErr = fmt.Errorf("保存发货响应 Cookie Jar: %w", persistErr)
+		if callErr != nil {
+			return ok, ret, "", false, errors.Join(callErr, persistErr)
+		}
+		return ok, ret, "", false, persistErr
+	}
+	if handled {
+		runtimeCookie := ""
+		if valueChanged {
+			runtimeCookie = value
+		}
+		return ok, ret, runtimeCookie, valueChanged, callErr
+	}
+	if callErr != nil {
+		return false, ret, "", false, callErr
+	}
+	if updatedCookies == "" || updatedCookies == detail.Value {
+		return ok, ret, "", false, nil
+	}
+	if err := s.Store.Cookies.UpdateValueOwned(ctx, cookieID, updatedCookies, userID); err != nil {
+		return ok, ret, "", false, fmt.Errorf("保存发货响应 Cookie: %w", err)
+	}
+	return ok, ret, updatedCookies, true, nil
 }
 
 func (s *Server) importOrders(w http.ResponseWriter, r *http.Request) {

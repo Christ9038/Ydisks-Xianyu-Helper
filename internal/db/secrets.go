@@ -14,7 +14,10 @@ import (
 	"strings"
 )
 
-const encryptedValuePrefix = "enc:v1:"
+const (
+	encryptedValuePrefix = "enc:v1:"
+	cookieMetadataScope  = "cookie-metadata"
+)
 
 // secretCodec 对数据库敏感字段做 AES-256-GCM 信封加密。未配置密钥时保持
 // 明文兼容；已加密数据若缺少/使用错误密钥会明确报错，绝不把密文当凭证使用。
@@ -77,15 +80,15 @@ func (s *Store) EncryptLegacySecrets(ctx context.Context) error {
 	}
 	defer tx.Rollback()
 
-	type cookieSecret struct{ id, value, password string }
-	rows, err := tx.QueryContext(ctx, `SELECT id,value,COALESCE(password,'') FROM cookies`)
+	type cookieSecret struct{ id, value, password, metadata string }
+	rows, err := tx.QueryContext(ctx, `SELECT id,value,COALESCE(password,''),COALESCE(metadata_json,'') FROM cookies`)
 	if err != nil {
 		return err
 	}
 	var cookies []cookieSecret
 	for rows.Next() {
 		var row cookieSecret
-		if err := rows.Scan(&row.id, &row.value, &row.password); err != nil {
+		if err := rows.Scan(&row.id, &row.value, &row.password, &row.metadata); err != nil {
 			rows.Close()
 			return err
 		}
@@ -103,8 +106,12 @@ func (s *Store) EncryptLegacySecrets(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("校验账号 %s 登录密码: %w", row.id, err)
 		}
-		if value != row.value || password != row.password {
-			if _, err := tx.ExecContext(ctx, `UPDATE cookies SET value=?,password=? WHERE id=?`, value, password, row.id); err != nil {
+		metadata, err := codec.encrypt(cookieMetadataScope, row.id, row.metadata)
+		if err != nil {
+			return fmt.Errorf("校验账号 %s Cookie metadata: %w", row.id, err)
+		}
+		if value != row.value || password != row.password || metadata != row.metadata {
+			if _, err := tx.ExecContext(ctx, `UPDATE cookies SET value=?,password=?,metadata_json=? WHERE id=?`, value, password, metadata, row.id); err != nil {
 				return err
 			}
 		}

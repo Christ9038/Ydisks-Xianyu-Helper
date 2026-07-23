@@ -8,8 +8,8 @@
 //
 // 首次使用可直接用本二进制初始化管理员，不再需要单独 init-admin。
 //
-// 浏览器自动化（扫码风控验证、密码登录、订单抓取）内置 playwright-go，
-// 首次使用时自动下载 Chromium。加 -no-browser 可禁用。
+// Chromium 仅用于读取本机浏览器指纹和处理 token 滑块，首次使用时由
+// playwright-go 准备运行环境。加 -no-browser 可禁用这两项能力。
 package main
 
 import (
@@ -32,7 +32,6 @@ import (
 	"xianyu-go/internal/notify"
 	"xianyu-go/internal/renewal"
 	"xianyu-go/internal/server"
-	"xianyu-go/internal/xianyu/mtop"
 )
 
 func main() {
@@ -41,7 +40,7 @@ func main() {
 	addr := flag.String("addr", ":8080", "HTTP 监听地址")
 	webDir := flag.String("web", "", "前端静态资源目录（含 index.html）")
 	secure := flag.Bool("secure", false, "HTTPS 模式（Cookie 加 Secure）")
-	noBrowser := flag.Bool("no-browser", false, "禁用内置浏览器自动化（扫码风控验证/密码登录/订单抓取将不可用）")
+	noBrowser := flag.Bool("no-browser", false, "禁用 Chromium（本机浏览器指纹读取和 token 滑块自动处理将不可用）")
 	verbose := flag.Bool("v", false, "调试日志")
 	logLevel := flag.String("log-level", "", "日志等级：debug/info/warn/error；默认读取 LOG_LEVEL 或系统设置")
 	logFormat := flag.String("log-format", "", "日志格式：text/json；默认读取 LOG_FORMAT")
@@ -126,7 +125,8 @@ func main() {
 		logger.Warn("系统尚未初始化，请先运行本二进制的 -init-admin 初始化管理员")
 	}
 
-	// 2) 内置浏览器管理器（playwright-go，首运行自动下载 Chromium）。
+	// 2) Chromium 只负责读取本机浏览器指纹和处理 token 滑块。
+	// 扫码、人脸、续期、MTOP、Cookie 与 WebSocket 全部走 Go 协议实现。
 	var bm *browser.Manager
 	if !*noBrowser {
 		bm = browser.NewManager(logger)
@@ -134,7 +134,6 @@ func main() {
 			logger.Error("初始化 Playwright Chromium 指纹失败", "err", err)
 			os.Exit(1)
 		}
-		mtop.SetDefaultTokenRequestExecutor(bm)
 	}
 	var mgr *account.Manager
 	ap := adapter.New(store, bm, logger)
@@ -150,10 +149,10 @@ func main() {
 		logger.Error("启动账号引擎失败", "err", err)
 	}
 	go automation.NewScheduler(autoCenter).Run(ctx)
-	go renewal.NewScheduler(store, mgr, bm, ap, logger).Run(ctx)
+	go renewal.NewScheduler(store, mgr, ap, logger).Run(ctx)
 
 	// 3) HTTP 服务。
-	srv := server.New(store, mgr, bm, *secure, *webDir, *addr, logger, autoCenter, notifier)
+	srv := server.New(store, mgr, *secure, *webDir, *addr, logger, autoCenter, notifier)
 	go srv.RunPublishBatchRecovery(ctx)
 	if err := srv.Run(ctx); err != nil {
 		logger.Error("HTTP 服务退出", "err", err)

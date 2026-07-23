@@ -158,25 +158,40 @@ go run ./cmd/dbverify "postgres://user:pass@host:5432/db"
 
 ## Docker 部署注意
 
-批量铺货会用到上传目录。容器部署时建议挂载持久化数据：
+仓库提供 `docker-compose.debian13-postgres17.yml`，用于在 x86_64 Linux 上运行
+Debian 13 应用镜像和 PostgreSQL 17。Compose 明确锁定 `linux/amd64`，即使在 ARM
+开发机上也会构建并验证 x86_64 镜像。
 
 ```bash
--v ./data:/app/data
+cp .env.example .env
+# 编辑 .env，至少替换 PostgreSQL 密码、DATABASE_URL 和 XIANYU_DATA_KEY
+docker compose -f docker-compose.debian13-postgres17.yml build app
+docker compose -f docker-compose.debian13-postgres17.yml up -d postgres app
 ```
 
-并设置：
+数据库只在 Compose 内部网络开放，不映射宿主机端口；应用端口由
+`XIANYU_BIND_ADDRESS` 和 `XIANYU_HTTP_PORT` 控制。PostgreSQL 数据、应用数据和
+Chromium 持久化配置分别保存在命名卷 `postgres_data`、`app_data` 和
+`browser_data` 中。
+
+首次部署后初始化管理员：
 
 ```bash
-XIANYU_UPLOAD_DIR=/app/data/uploads
+docker compose -f docker-compose.debian13-postgres17.yml --profile init run --rm init-admin
 ```
 
-数据库建议放在：
+检查服务和日志：
 
-```text
-/app/data/xianyu_data.db
+```bash
+docker compose -f docker-compose.debian13-postgres17.yml ps
+curl -fsS http://127.0.0.1:8080/health
+docker compose -f docker-compose.debian13-postgres17.yml logs -f app
 ```
 
-外置 MySQL/Postgres 时改用 `DATABASE_URL` 环境变量。
+`.env` 已被 Git 和 Docker 构建上下文忽略。`DATABASE_URL` 必须使用 Compose 服务名
+`postgres` 作为主机；如果密码包含 `@`、`:`、`/` 等字符，需要在连接串中进行 URL
+编码。部署到服务器前可用 `openssl rand -base64 48` 生成稳定的
+`XIANYU_DATA_KEY`，并与数据库卷一同安全备份。
 
 生产环境建议同时设置稳定且仅由服务进程可读的 `XIANYU_DATA_KEY`。启用后，Cookie、
 账号登录密码、设备/访问令牌、AI/SMTP 密钥和通知渠道配置会使用 AES-256-GCM 加密

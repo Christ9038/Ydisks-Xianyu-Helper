@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Card } from '../types';
 import { getCards, createCard, updateCard, deleteCard, batchCreateCards, appendCardData } from '../services/api';
-import { Plus, CreditCard, Clock, FileText, Image as ImageIcon, Code, Edit, Trash2, Save, X, Eye, EyeOff, Package, Copy, Upload, Loader2, FileDown, ListPlus } from 'lucide-react';
+import { Plus, CreditCard, Clock, FileText, Image as ImageIcon, Code, Edit, Trash2, Save, X, Eye, EyeOff, Package, Copy, Upload, Loader2, FileDown, ListPlus, Search, SlidersHorizontal } from 'lucide-react';
+import { filterCards } from './cardListState';
 
 type AddCardForm = {
   name: string;
@@ -55,6 +56,8 @@ const CardList: React.FC = () => {
   const [appendTargetId, setAppendTargetId] = useState<string>('');
   const [appendContent, setAppendContent] = useState('');
   const [appendResult, setAppendResult] = useState<{ added: number } | null>(null);
+  const [typeFilter, setTypeFilter] = useState<Card['type'] | ''>('');
+  const [nameSearch, setNameSearch] = useState('');
 
   useEffect(() => {
     getCards().then(setCards);
@@ -213,6 +216,10 @@ const CardList: React.FC = () => {
   };
 
   const dataCards = cards.filter(c => c.type === 'data');
+  const filteredCards = useMemo(
+    () => filterCards(cards, typeFilter, nameSearch),
+    [cards, nameSearch, typeFilter],
+  );
 
   const downloadCardTemplate = () => {
     const headers = ['名称', '类型', '内容', '描述', '启用', '延迟秒', '多规格', '规格名', '规格值'];
@@ -306,28 +313,61 @@ const CardList: React.FC = () => {
       </div>
 
       <div className="ios-card rounded-xl overflow-hidden shadow-lg border-0 bg-white">
+        <div className="flex flex-col gap-3 border-b border-gray-50 bg-[#FAFAFA] p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-1 flex-col gap-3 sm:flex-row">
+            <div className="relative sm:w-48">
+              <SlidersHorizontal className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <select
+                aria-label="按卡密类型筛选"
+                value={typeFilter}
+                onChange={event => setTypeFilter(event.target.value as Card['type'] | '')}
+                className="ios-input w-full rounded-xl border-none bg-white py-2.5 pl-10 pr-9 text-sm shadow-sm"
+              >
+                <option value="">全部类型</option>
+                <option value="data">批量卡密</option>
+                <option value="text">文本</option>
+                <option value="api">API</option>
+                <option value="image">图片</option>
+              </select>
+            </div>
+            <div className="relative w-full sm:max-w-sm">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                type="search"
+                aria-label="按卡密名称搜索"
+                placeholder="搜索卡密名称..."
+                value={nameSearch}
+                onChange={event => setNameSearch(event.target.value)}
+                className="ios-input w-full rounded-xl border-none bg-white py-2.5 pl-10 pr-4 text-sm shadow-sm"
+              />
+            </div>
+          </div>
+          <div className="whitespace-nowrap px-1 text-xs font-bold text-gray-400">
+            显示 {filteredCards.length} / {cards.length} 组
+          </div>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full table-fixed text-left border-collapse">
             <thead>
               <tr className="bg-white text-gray-400 text-xs font-bold uppercase tracking-wider border-b border-gray-50">
-                <th className="px-8 py-5 w-[18%]">卡密名称</th>
-                <th className="px-6 py-5 w-[12%]">卡密组ID</th>
-                <th className="px-6 py-5 w-[10%]">类型</th>
-                <th className="px-6 py-5 w-[22%]">内容/库存</th>
-                <th className="px-6 py-5 w-[18%]">描述</th>
-                <th className="px-6 py-5 w-[10%]">状态</th>
-                <th className="px-6 py-5 w-[10%] text-right">操作</th>
+                <th className="w-[23%] px-5 py-5">卡密名称</th>
+                <th className="w-[8%] px-3 py-5">卡密组ID</th>
+                <th className="w-[7%] px-2 py-5">类型</th>
+                <th className="w-[27%] px-5 py-5">内容/库存</th>
+                <th className="w-[19%] px-5 py-5">描述</th>
+                <th className="w-[7%] px-2 py-5">状态</th>
+                <th className="w-[9%] px-3 py-5 text-right">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {cards.map((card) => {
+              {filteredCards.map((card) => {
                 // 计算库存或内容预览
                 let stockInfo = '';
                 if (card.type === 'data' && card.data_content) {
                   const lines = card.data_content.split('\n').filter(line => line.trim());
                   stockInfo = `库存: ${lines.length} 条`;
                 } else if (card.type === 'text' && card.text_content) {
-                  stockInfo = card.text_content.substring(0, 20) + (card.text_content.length > 20 ? '...' : '');
+                  stockInfo = card.text_content;
                 } else if (card.type === 'api' && card.api_config) {
                   stockInfo = card.api_config.url;
                 } else if (card.type === 'image' && card.image_url) {
@@ -336,26 +376,26 @@ const CardList: React.FC = () => {
 
                 return (
                   <tr key={card.id} className="hover:bg-[#FFFDE7]/50 transition-colors group">
-                    <td className="px-8 py-5">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-gray-50 rounded-xl group-hover:bg-white transition-colors">
+                    <td className="px-5 py-5 align-middle">
+                      <div className="flex items-center gap-2.5">
+                        <div className="shrink-0 rounded-xl bg-gray-50 p-2 transition-colors group-hover:bg-white">
                           <CardIcon type={card.type} />
                         </div>
-                        <span className="font-bold text-gray-900">{card.name}</span>
+                        <span className="line-clamp-3 min-w-0 text-[13px] font-bold leading-5 text-gray-900" title={card.name}>{card.name}</span>
                       </div>
                     </td>
-                    <td className="px-6 py-5">
+                    <td className="px-3 py-5">
                       <button
                         onClick={() => copyCardID(card.id)}
-                        className="inline-flex items-center gap-2 rounded-xl bg-gray-100 px-3 py-2 font-mono text-xs font-extrabold text-gray-700 hover:bg-gray-200 transition-colors"
+                        className="inline-flex max-w-full items-center gap-1 rounded-lg bg-gray-100 px-2 py-1.5 font-mono text-[11px] font-extrabold text-gray-700 transition-colors hover:bg-gray-200"
                         title="复制卡密组ID，用于批量铺货表格"
                       >
-                        {card.id}
-                        <Copy className="w-3.5 h-3.5" />
+                        <span className="truncate">{card.id}</span>
+                        <Copy className="h-3 w-3 shrink-0" />
                       </button>
                     </td>
-                    <td className="px-6 py-5">
-                      <span className={`px-3 py-1.5 rounded-lg text-xs font-bold ${
+                    <td className="px-2 py-5">
+                      <span className={`inline-flex rounded-md px-2 py-1 text-[11px] font-bold ${
                         card.type === 'text' ? 'bg-blue-50 text-blue-600' :
                         card.type === 'data' ? 'bg-purple-50 text-purple-600' :
                         card.type === 'api' ? 'bg-blue-50 text-blue-600' :
@@ -366,20 +406,20 @@ const CardList: React.FC = () => {
                          card.type === 'api' ? 'API' : '图片'}
                       </span>
                     </td>
-                    <td className="px-6 py-5">
-                      <span className="text-sm text-gray-600 font-mono block truncate" title={stockInfo}>
+                    <td className="px-5 py-5">
+                      <span className="line-clamp-3 break-all font-mono text-sm leading-5 text-gray-600" title={stockInfo}>
                         {stockInfo}
                       </span>
                     </td>
-                    <td className="px-6 py-5">
+                    <td className="px-5 py-5">
                       <span
-                        className="text-sm text-gray-500 block max-w-[200px] truncate"
+                        className="block truncate text-sm text-gray-500"
                         title={card.description || '-'}
                       >
                         {card.description || '-'}
                       </span>
                     </td>
-                    <td className="px-6 py-5">
+                    <td className="px-2 py-5">
                       <button
                         onClick={() => toggleCardStatus(card)}
                         className={`w-12 h-8 rounded-full relative transition-colors ${
@@ -391,20 +431,20 @@ const CardList: React.FC = () => {
                         }`}></div>
                       </button>
                     </td>
-                    <td className="px-6 py-5">
-                      <div className="flex items-center justify-end gap-2">
+                    <td className="px-3 py-5">
+                      <div className="flex items-center justify-end gap-0.5">
                         <button
                           onClick={() => handleEdit(card)}
-                          className="p-2 text-gray-400 hover:text-black hover:bg-gray-100 rounded-xl transition-colors"
+                          className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-black"
                           title="编辑"
                         >
                           <Edit className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDelete(card.id)}
-                          className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                          className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500"
                         >
-                          <Trash2 className="w-5 h-5" />
+                          <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
                     </td>
@@ -415,10 +455,10 @@ const CardList: React.FC = () => {
           </table>
         </div>
 
-        {cards.length === 0 && (
+        {filteredCards.length === 0 && (
           <div className="py-20 text-center text-gray-400">
             <Package className="w-12 h-12 mx-auto mb-4 opacity-30" />
-            <p>暂无卡密配置，请点击右上角添加。</p>
+            <p>{cards.length === 0 ? '暂无卡密配置，请点击右上角添加。' : '没有符合当前筛选条件的卡密组。'}</p>
           </div>
         )}
       </div>

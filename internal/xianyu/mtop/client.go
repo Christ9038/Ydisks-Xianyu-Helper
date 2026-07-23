@@ -11,10 +11,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"xianyu-go/internal/xianyu"
+	"xianyu-go/internal/xianyu/cookierefresh"
 )
 
 // RegAppKey 是 WS 注册用的 appKey（与签名用的 protocol.SignAppKey 不同）。
@@ -34,6 +34,12 @@ const UserPageNavAPI = "https://h5api.m.goofish.com/h5/mtop.idle.web.user.page.n
 
 // ItemListAPI 是卖家商品列表端点。
 const ItemListAPI = "https://h5api.m.goofish.com/h5/mtop.idle.web.xyh.item.list/1.0/"
+
+// SoldOrdersAPI 是闲鱼卖家工作台的已售订单列表端点。
+const SoldOrdersAPI = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.trade.merchant.sold.get/1.0/"
+
+// ItemDetailAPI 是闲鱼 PC 商品详情端点。
+const ItemDetailAPI = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.pc.detail/1.0/"
 
 const (
 	MTopRetryGap         = time.Second
@@ -59,43 +65,15 @@ type ClientImpl struct {
 	TokenURL       string
 	ConsignURL     string
 	OrderDetailURL string
+	SoldOrdersURL  string
+	ItemDetailURL  string
 	LoginUserURL   string
-	TokenExecutor  TokenRequestExecutor
 }
 
-type TokenBrowserRequest struct {
-	URL     string
-	Body    string
-	Cookies string
-}
-
-type TokenBrowserResponse struct {
-	Status         int
-	Body           []byte
-	UpdatedCookies string
-}
-
-type TokenRequestExecutor interface {
-	ExecuteTokenRequest(context.Context, TokenBrowserRequest) (*TokenBrowserResponse, error)
-}
-
-var defaultTokenExecutor struct {
-	sync.RWMutex
-	value TokenRequestExecutor
-}
-
-func SetDefaultTokenRequestExecutor(executor TokenRequestExecutor) {
-	defaultTokenExecutor.Lock()
-	defaultTokenExecutor.value = executor
-	defaultTokenExecutor.Unlock()
-}
-
-// NewClient 构造默认 HTTP 实现的非零 ClientImpl（调用方多为持有 Client 接口字段）。
+// NewClient 构造纯 Go HTTP 的 MTOP 客户端。Chromium 只用于读取本机指纹
+// 和处理滑块，不能成为登录、续期、token 或 WebSocket 的传输层。
 func NewClient() *ClientImpl {
-	defaultTokenExecutor.RLock()
-	executor := defaultTokenExecutor.value
-	defaultTokenExecutor.RUnlock()
-	return &ClientImpl{TokenExecutor: executor}
+	return &ClientImpl{}
 }
 
 // 编译期保证 *ClientImpl 实现 Client 接口。
@@ -103,17 +81,22 @@ var _ Client = (*ClientImpl)(nil)
 
 // RefreshResult 是刷新 token 的结果。
 type RefreshResult struct {
-	AccessToken    string // 用于 WS /reg 注册
-	UpdatedCookies string // 合并 Set-Cookie 后的新 cookie 字符串（无变化则与入参相同）
+	AccessToken            string                        // 用于 WS /reg 注册
+	AccessTokenExpireAt    int64                         // 服务端 accessTokenExpiredTime 归一化后的 Unix 秒
+	UpdatedCookies         string                        // 合并 Set-Cookie 后的新 cookie 字符串（无变化则与入参相同）
+	CookieSnapshot         []cookierefresh.BrowserCookie // token 请求后的完整 Cookie Jar
+	CookieSnapshotComplete bool                          // true 表示快照权威完整；空切片代表 Cookie Jar 已被清空
+	CookieStateChanged     bool                          // true 表示本次响应明确更新或删除了 Cookie（包括更新后为空）
 }
 
 // FreshCaptchaResult 是重取 token 风控验证链接的结果。
 type FreshCaptchaResult struct {
-	TokenOK         bool
-	AccessToken     string
-	UpdatedCookies  string
-	VerificationURL string
-	Ret             []string
+	TokenOK             bool
+	AccessToken         string
+	AccessTokenExpireAt int64
+	UpdatedCookies      string
+	VerificationURL     string
+	Ret                 []string
 }
 
 // UserProfileResult 是 mtop.idle.web.user.page.nav 返回的当前账号资料。
@@ -149,6 +132,7 @@ type ItemListItem struct {
 	ItemDetail  string
 	AuctionType string
 	ItemStatus  int
+	IsMultiSpec bool
 }
 
 func hasMTopSuccess(ret []string) bool {
@@ -299,19 +283,16 @@ func mergeSetCookie(orig string, current map[string]string, resp *http.Response)
 	}
 	changed := false
 	for _, sc := range setCookies {
-		// Set-Cookie: name=value; Path=/; ...
-		pair := sc
-		if i := strings.Index(pair, ";"); i >= 0 {
-			pair = pair[:i]
+		parsed, err := http.ParseSetCookie(sc)
+		if err != nil || strings.TrimSpace(parsed.Name) == "" {
+			continue
 		}
-		if eq := strings.Index(pair, "="); eq >= 0 {
-			name := strings.TrimSpace(pair[:eq])
-			val := strings.TrimSpace(pair[eq+1:])
-			if name != "" {
-				current[name] = val
-				changed = true
-			}
+		if parsed.MaxAge < 0 || (parsed.MaxAge == 0 && !parsed.Expires.IsZero() && !parsed.Expires.After(time.Now())) {
+			delete(current, parsed.Name)
+		} else {
+			current[parsed.Name] = parsed.Value
 		}
+		changed = true
 	}
 	if !changed {
 		return orig

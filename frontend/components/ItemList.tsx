@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { selectActivePublishBatch } from './itemPublishBatchState';
 import { Item, AccountDetail, ShippingRule } from '../types';
@@ -19,7 +19,7 @@ import {
   deleteItem,
   getShippingRules
 } from '../services/api';
-import { ArrowRight, Box, CheckCircle2, CircleDashed, Edit, Link2, PackagePlus, Plus, RefreshCw, Save, ShoppingBag, Trash2, UploadCloud, X } from 'lucide-react';
+import { ArrowRight, Box, CheckCircle2, CircleDashed, Edit, Filter, Link2, PackagePlus, Plus, RefreshCw, Save, ShoppingBag, Trash2, UploadCloud, User, X } from 'lucide-react';
 
 interface ItemListProps {
   onConfigureDelivery: (item: Item) => void;
@@ -77,6 +77,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   const [shippingRules, setShippingRules] = useState<ShippingRule[]>([]);
   const [accounts, setAccounts] = useState<AccountDetail[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<string>('');
+  const [accountFilter, setAccountFilter] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [batchLoading, setBatchLoading] = useState(false);
@@ -510,24 +511,72 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     }
   };
 
+  const accountMap = useMemo(
+    () => new Map(accounts.map(account => [account.id, account])),
+    [accounts],
+  );
+  const visibleItems = useMemo(
+    () => accountFilter ? items.filter(item => item.cookie_id === accountFilter) : items,
+    [accountFilter, items],
+  );
+  const accountName = (cookieId: string) => {
+    const account = accountMap.get(cookieId);
+    const name = account?.remark || account?.nickname;
+    return name ? `${name} · ${cookieId.slice(0, 6)}` : `账号 ${cookieId.slice(0, 8)}`;
+  };
+  const accountNickname = (cookieId: string) => {
+    const account = accountMap.get(cookieId);
+    return account?.remark || account?.nickname || '未命名账号';
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col xl:flex-row xl:justify-between xl:items-center gap-4">
         <div>
           <h2 className="text-3xl font-bold text-gray-900">商品管理</h2>
           <p className="text-gray-500 mt-2 text-sm">监控并管理所有账号下的闲鱼商品。</p>
         </div>
-        <div className="flex gap-3">
-            <select
-                className="ios-input px-4 py-3 rounded-xl text-sm"
-                value={selectedAccount}
-                onChange={e => setSelectedAccount(e.target.value)}
-            >
-                <option value="">选择账号以同步</option>
-                {accounts.map(acc => (
-                    <option key={acc.id} value={acc.id}>{acc.nickname}</option>
-                ))}
-            </select>
+        <div className="flex flex-wrap items-end gap-3">
+            <div className="flex min-w-[200px] flex-col gap-1.5">
+              <label htmlFor="item-account-filter" className="px-1 text-[11px] font-extrabold tracking-wide text-gray-500">
+                商品列表筛选
+              </label>
+              <div className="relative">
+                <Filter className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <select
+                  id="item-account-filter"
+                  aria-label="按账号筛选商品列表"
+                  className="ios-input w-full pl-10 pr-9 py-3 rounded-xl text-sm"
+                  value={accountFilter}
+                  onChange={event => setAccountFilter(event.target.value)}
+                >
+                  <option value="">全部账号</option>
+                  {accounts.map(account => (
+                    <option key={account.id} value={account.id}>{accountName(account.id)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex min-w-[200px] flex-col gap-1.5">
+              <label htmlFor="item-sync-account" className="px-1 text-[11px] font-extrabold tracking-wide text-gray-500">
+                同步商品账号
+              </label>
+              <div className="relative">
+                <User className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <select
+                  id="item-sync-account"
+                  aria-label="选择要同步商品的账号"
+                  className="ios-input w-full pl-10 pr-9 py-3 rounded-xl text-sm"
+                  value={selectedAccount}
+                  onChange={e => setSelectedAccount(e.target.value)}
+                >
+                  <option value="">请选择账号</option>
+                  {accounts.map(acc => (
+                      <option key={acc.id} value={acc.id}>{accountName(acc.id)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
             <button
                 onClick={handleSync}
                 disabled={loading || !selectedAccount}
@@ -569,7 +618,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-          {items.map(item => {
+          {visibleItems.map(item => {
             const linkedRules = rulesForItem(item);
             const hasRule = linkedRules.length > 0;
             return (
@@ -603,6 +652,10 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                       </div>
                   </div>
                   <h3 className="font-bold text-gray-900 line-clamp-2 text-xs mb-1.5 h-8 leading-4">{item.item_title}</h3>
+                  <div className="mb-2 inline-flex min-w-0 max-w-full items-center gap-1 self-start rounded-md bg-blue-50 px-2 py-1 text-[10px] font-extrabold text-blue-700" title={accountNickname(item.cookie_id)}>
+                    <User className="h-3 w-3 shrink-0" />
+                    <span className="min-w-0 truncate whitespace-nowrap">{accountNickname(item.cookie_id)}</span>
+                  </div>
                   <div className="flex justify-between items-center text-[10px] text-gray-500 mb-2">
                       <span className="bg-gray-100 px-1.5 py-0.5 rounded truncate max-w-[80px]">ID: {item.item_id}</span>
                       <span className={`inline-flex items-center gap-1 font-bold ${hasRule ? 'text-emerald-600' : 'text-amber-600'}`}>
@@ -622,10 +675,10 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
               </div>
             );
           })}
-          {items.length === 0 && (
+          {visibleItems.length === 0 && (
              <div className="col-span-full py-20 text-center text-gray-400">
                  <ShoppingBag className="w-12 h-12 mx-auto mb-4 opacity-30" />
-                 暂无商品数据，请选择账号进行同步
+                 {accountFilter ? '该账号暂无商品数据' : '暂无商品数据，请选择账号进行同步'}
              </div>
           )}
       </div>
@@ -675,7 +728,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                 <label className="block text-sm font-bold text-gray-700">所属账号</label>
                 <select className="w-full ios-input px-4 py-3 rounded-xl" value={addForm.cookie_id} onChange={e => setAddForm({...addForm, cookie_id: e.target.value})}>
                   <option value="">选择账号</option>
-                  {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.nickname || acc.remark || acc.id}</option>)}
+                  {accounts.map(acc => <option key={acc.id} value={acc.id}>{accountName(acc.id)}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -727,7 +780,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                 <label className="block text-sm font-bold text-gray-700">发布账号</label>
                 <select className="w-full ios-input px-4 py-3 rounded-xl" value={publishForm.cookie_id} onChange={e => setPublishForm({...publishForm, cookie_id: e.target.value})}>
                   <option value="">选择账号</option>
-                  {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.nickname || acc.remark || acc.id}</option>)}
+                  {accounts.map(acc => <option key={acc.id} value={acc.id}>{accountName(acc.id)}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -857,7 +910,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                       onChange={e => setSelectedAccount(e.target.value)}
                     >
                       <option value="">选择账号</option>
-                      {accounts.map(acc => <option key={acc.id} value={acc.id}>{acc.nickname || acc.remark || acc.id}</option>)}
+                      {accounts.map(acc => <option key={acc.id} value={acc.id}>{accountName(acc.id)}</option>)}
                     </select>
                     <p className="text-xs text-gray-500">表格中“账号ID”为空时，会使用这里选择的账号。</p>
                   </div>
@@ -924,7 +977,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                         </thead>
                         <tbody className="divide-y divide-gray-50 text-gray-700">
                           {[
-                            ['账号ID', '没有在上方选择默认账号时填写', '填写账号 ID；已经选择默认账号时可以留空'],
+                            ['账号ID', '需要覆盖默认账号时填写', '上方默认发布账号为必选；本列留空时使用默认账号，填写后仅覆盖当前行'],
                             ['标题', '每个商品都要填', '填写买家能看到的商品标题'],
                             ['描述', '可以留空', '留空时会使用商品标题作为描述'],
                             ['价格', '每个商品都要填', '只填数字，例如 19.90'],

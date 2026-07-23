@@ -159,6 +159,19 @@ export const updateAccountSettings = async (id: string, data: AccountSettingsUpd
   return put(`/cookies/${id}/settings`, data);
 };
 
+export interface LongLoginSettings {
+  can_open_long_login: boolean;
+  enabled: boolean;
+}
+
+export const getLongLoginSettings = async (id: string): Promise<LongLoginSettings> => {
+  return get(`/cookies/${id}/long-login`);
+};
+
+export const setLongLoginSettings = async (id: string, enabled: boolean): Promise<LongLoginSettings> => {
+  return put(`/cookies/${id}/long-login`, { enabled });
+};
+
 export interface PasswordLoginStartResponse {
   success: boolean;
   session_id?: string;
@@ -413,8 +426,8 @@ export const appendCardData = async (cardId: string | number, content: string): 
 const normalizeBooleanFlag = (value: unknown): boolean =>
     value === true || value === 1 || value === '1';
 
-export const getItems = async (): Promise<Item[]> => {
-    const res = await get<any>('/items');
+export const getItems = async (cookieId?: string): Promise<Item[]> => {
+    const res = await get<any>('/items', cookieId ? { cookie_id: cookieId } : undefined);
     const items = Array.isArray(res) ? res : (res.items || []);
     return items.map((item: any) => ({
       ...item,

@@ -3,6 +3,7 @@ package account
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,7 +13,33 @@ import (
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
 	"xianyu-go/internal/xianyu/mtop"
+	"xianyu-go/internal/xianyu/ws"
 )
+
+type fakeWSDialer struct{}
+
+func (fakeWSDialer) Dial(context.Context, ws.Config, *slog.Logger) (engine.WSConn, error) {
+	return fakeWSConn{}, nil
+}
+
+type fakeWSConn struct{}
+
+func (fakeWSConn) Register(context.Context, string, string) error { return nil }
+func (fakeWSConn) HeartbeatLoop(ctx context.Context, _ time.Duration) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (fakeWSConn) ReceiveLoop(ctx context.Context, _ func(map[string]any)) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (fakeWSConn) Close() error { return nil }
+func (fakeWSConn) SendText(context.Context, string, string, string, string) error {
+	return nil
+}
+func (fakeWSConn) SendImage(context.Context, string, string, string, string, int, int) error {
+	return nil
+}
 
 // fakeMtop 是注入 engine.Account 的可控 mtop 客户端，避免真实网络。
 // refreshErr 非空时 RefreshToken 返回该错误；block 非空时阻塞到该 chan
@@ -98,6 +125,7 @@ func startAccountWithMtop(t *testing.T, mgr *Manager, cookieID, cookieValue stri
 		Handler:   mgr.handler,
 		Logger:    mgr.logger,
 		MTop:      mtopClient,
+		WSDialer:  fakeWSDialer{},
 	})
 	accCtx, accCancel := context.WithCancel(runCtx)
 	ma := &managedAccount{

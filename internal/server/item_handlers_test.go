@@ -357,6 +357,33 @@ func TestSyncItemsFromAccountSuccess(t *testing.T) {
 	}
 }
 
+func TestSyncItemsFromAccountDetectsMultiSpecFromDetail(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := `{"ret":["SUCCESS::调用成功"],"data":{}}`
+		if strings.Contains(req.URL.String(), "mtop.idle.web.xyh.item.list") {
+			body = `{"ret":["SUCCESS::调用成功"],"data":{"cardList":[{"cardData":{"id":"multi-item","title":"多规格商品","detailParams":{"itemId":"multi-item"}}}]}}`
+		} else if strings.Contains(req.URL.String(), "mtop.taobao.idle.pc.detail") {
+			body = `{"ret":["SUCCESS::调用成功"],"data":{"multiSKU":true,"skuDO":{"skuList":[{"id":"a"},{"id":"b"}]}}}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	}))
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/items/get-all-from-account", strings.NewReader(`{"cookie_id":"acc1","page_size":10}`))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	item, err := store.Items.Get(context.Background(), "acc1", "multi-item")
+	if err != nil || !item.IsMultiSpec {
+		t.Fatalf("item=%+v err=%v", item, err)
+	}
+}
+
 // TestSyncItemsFromAccountFail mtop 返回非成功 → 502。
 func TestSyncItemsFromAccountFail(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
@@ -592,6 +619,39 @@ func TestItemCRUD(t *testing.T) {
 	h.ServeHTTP(rec5, req5)
 	if rec5.Code != 200 {
 		t.Fatalf("delete status=%d", rec5.Code)
+	}
+}
+
+func TestListItemsFiltersByOwnedAccount(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	if err := store.Cookies.Save(ctx, "acc2", "unb=456; _m_h5_tk=tk2_1;", admin.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO item_info (cookie_id,item_id,item_title) VALUES ('acc1','item-a','商品A'),('acc2','item-b','商品B')`)
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/items?cookie_id=acc2", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var rows []map[string]any
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &rows) != nil {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(rows) != 1 || rows[0]["cookie_id"] != "acc2" || rows[0]["item_id"] != "item-b" {
+		t.Fatalf("rows=%+v", rows)
+	}
+
+	forbidden := httptest.NewRequest(http.MethodGet, "/items?cookie_id=not-owned", nil)
+	forbidden.AddCookie(cookie)
+	forbiddenRec := httptest.NewRecorder()
+	h.ServeHTTP(forbiddenRec, forbidden)
+	if forbiddenRec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", forbiddenRec.Code, forbiddenRec.Body.String())
 	}
 }
 

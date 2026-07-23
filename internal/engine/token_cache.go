@@ -1,45 +1,63 @@
 package engine
 
 import (
-	"crypto/rand"
-	"math/big"
-	"os"
-	"strconv"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"strings"
 	"time"
+
+	"xianyu-go/internal/xianyu/cookierefresh"
 )
 
-const tokenCacheTTLGranularity = time.Second
+const tokenExpirySafetyMargin = time.Minute
 
-func tokenCacheTTL() time.Duration {
-	minTTL, minOK := tokenCacheTTLEnv("TOKEN_CACHE_TTL_MIN_HOURS", TokenCacheTTLMin)
-	maxTTL, maxOK := tokenCacheTTLEnv("TOKEN_CACHE_TTL_MAX_HOURS", TokenCacheTTLMax)
-	if !minOK || !maxOK || minTTL > maxTTL {
-		minTTL = TokenCacheTTLMin
-		maxTTL = TokenCacheTTLMax
+func effectiveTokenExpireAt(serverExpireAt int64, now time.Time) int64 {
+	ttl := time.Unix(serverExpireAt, 0).Sub(now)
+	if ttl <= 0 {
+		return 0
 	}
-	if maxTTL == minTTL {
-		return minTTL
+	margin := tokenExpirySafetyMargin
+	if ttl <= 2*margin {
+		margin = ttl / 10
 	}
-	steps := int64((maxTTL - minTTL) / tokenCacheTTLGranularity)
-	if steps <= 0 {
-		return minTTL
-	}
-	n, err := rand.Int(rand.Reader, big.NewInt(steps+1))
-	if err != nil {
-		return minTTL
-	}
-	return minTTL + time.Duration(n.Int64())*tokenCacheTTLGranularity
+	return now.Add(ttl - margin).Unix()
 }
 
-func tokenCacheTTLEnv(key string, fallback time.Duration) (time.Duration, bool) {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return fallback, true
+func credentialCookieFingerprint(cookieStr string) string {
+	var canonical strings.Builder
+	for _, part := range strings.Split(cookieStr, ";") {
+		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		key = strings.TrimSpace(key)
+		if !ok || key == "" {
+			continue
+		}
+		canonical.WriteString(key)
+		canonical.WriteByte(0)
+		canonical.WriteString(strings.TrimSpace(value))
+		canonical.WriteByte(0)
 	}
-	hours, err := strconv.ParseFloat(raw, 64)
-	if err != nil || hours <= 0 {
-		return fallback, false
+	sum := sha256.Sum256([]byte(canonical.String()))
+	return hex.EncodeToString(sum[:])
+}
+
+// credentialStateFingerprint binds a connection token to both the exact flat
+// Cookie header and the authoritative browser Jar that produced it. The flat
+// fingerprint deliberately retains duplicate names and their order because
+// lib-mtop reads the first path-ordered _m_h5_tk entry. A present empty Jar is
+// distinct from legacy metadata that has no complete snapshot.
+func credentialStateFingerprint(cookieStr, metadataJSON string) string {
+	var canonical strings.Builder
+	canonical.WriteString("flat\x00")
+	canonical.WriteString(credentialCookieFingerprint(cookieStr))
+	canonical.WriteString("\x00snapshot\x00")
+	if snapshot, complete := cookierefresh.SnapshotFromMetadataOK(metadataJSON); complete {
+		canonical.WriteByte('1')
+		raw, _ := json.Marshal(cookierefresh.NormalizeSnapshot(snapshot))
+		canonical.Write(raw)
+	} else {
+		canonical.WriteByte('0')
 	}
-	return time.Duration(hours * float64(time.Hour)), true
+	sum := sha256.Sum256([]byte(canonical.String()))
+	return hex.EncodeToString(sum[:])
 }

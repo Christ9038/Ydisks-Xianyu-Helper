@@ -11,6 +11,7 @@ import (
 
 	"github.com/playwright-community/playwright-go"
 
+	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
 )
 
@@ -18,13 +19,15 @@ const mtopOrderDetailURL = "mtop.idle.web.trade.order.detail"
 
 // OrderDetail 订单详情（对齐 engine.OrderDetail）。
 type OrderDetail struct {
-	OrderID        string `json:"order_id"`
-	Quantity       string `json:"quantity"`
-	SpecName       string `json:"spec_name"`
-	SpecValue      string `json:"spec_value"`
-	OrderStatus    string `json:"order_status"`
-	Amount         string `json:"amount"`
-	UpdatedCookies string `json:"-"`
+	OrderID                string                        `json:"order_id"`
+	Quantity               string                        `json:"quantity"`
+	SpecName               string                        `json:"spec_name"`
+	SpecValue              string                        `json:"spec_value"`
+	OrderStatus            string                        `json:"order_status"`
+	Amount                 string                        `json:"amount"`
+	UpdatedCookies         string                        `json:"-"`
+	CookieSnapshot         []cookierefresh.BrowserCookie `json:"-"`
+	CookieSnapshotComplete bool                          `json:"-"`
 }
 
 // orderStatusMap 移植自 order_fetcher_optimized._parse_api_response。纯映射，可单测。
@@ -48,6 +51,12 @@ func (m *Manager) FetchOrderDetail(ctx context.Context, orderID, cookieID, cooki
 	} else if directErr != nil {
 		m.logger.Warn("MTop 订单详情获取失败，回退浏览器", "order_id", orderID, "err", directErr)
 	}
+	// A shared Chromium context owns one mutable Cookie Jar. Serialize browser
+	// fallback refreshes for the account so concurrent batch rows cannot clear
+	// and re-inject different snapshots underneath each other.
+	browserCredentialLock := m.accountRenewLock("order_credential_" + cookieID)
+	browserCredentialLock.Lock()
+	defer browserCredentialLock.Unlock()
 	if err := m.init(); err != nil {
 		return nil, err
 	}
@@ -56,6 +65,11 @@ func (m *Manager) FetchOrderDetail(ctx context.Context, orderID, cookieID, cooki
 		return nil, err
 	}
 	defer release()
+	if session := mtop.CookieSessionFromContext(ctx); session != nil {
+		if err := syncCredentialCookies(page.Context(), cookieValue, session.Snapshot()); err != nil {
+			return nil, fmt.Errorf("订单详情同步完整 Cookie Jar: %w", err)
+		}
+	}
 
 	var mu sync.Mutex
 	var apiBody map[string]any
@@ -121,6 +135,19 @@ func (m *Manager) FetchOrderDetail(ctx context.Context, orderID, cookieID, cooki
 
 	// DOM 补充（金额 / SKU）。
 	parseDOMContent(page, od)
+	allCookies, cookieErr := page.Context().Cookies()
+	if cookieErr != nil {
+		return nil, fmt.Errorf("读取订单详情浏览器 Cookie Jar: %w", cookieErr)
+	}
+	od.CookieSnapshot = cookieSnapshotFromPlaywright(allCookies)
+	if od.CookieSnapshot == nil {
+		od.CookieSnapshot = []cookierefresh.BrowserCookie{}
+	}
+	od.CookieSnapshotComplete = true
+	od.UpdatedCookies = currentCookieHeader(od.CookieSnapshot, goofishIMURL)
+	if session := mtop.CookieSessionFromContext(ctx); session != nil {
+		session.ReplaceSnapshot(od.CookieSnapshot)
+	}
 	if od.Amount == "" {
 		title, _ := page.Title()
 		m.logger.Warn("订单详情未解析到实付金额", "order_id", orderID, "page_title", title, "page_url", page.URL(), "api_captured", body != nil, "observed_apis", observedAPIs)

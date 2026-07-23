@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { DashboardStats, OrderAnalytics, Order, OrderStatus, Item } from '../types';
 import { getDashboardStats, getOrderAnalytics, getValidOrders, getItems } from '../services/api';
 import { getDateRange, getPreviousDateRange, TimeRange } from '../dateRange';
+import { formatLocalDateTime } from '../dateTime';
 import { TrendingUp, Users, ShoppingCart, AlertCircle, DollarSign, Activity, Package, ArrowUpRight, Calendar, X, BarChart3, PackageCheck, ExternalLink, Eye, Edit } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
 
@@ -588,7 +589,7 @@ const Dashboard: React.FC = () => {
                         <td className="px-6 py-4">
                           <div className="text-sm font-bold text-gray-800">{order.buyer_id}</div>
                           {order.created_at && (
-                            <div className="text-xs text-gray-400 mt-1">{order.created_at}</div>
+                            <div className="text-xs text-gray-400 mt-1">{formatLocalDateTime(order.created_at)}</div>
                           )}
                         </td>
                         <td className="px-6 py-4 text-base font-extrabold text-gray-900 font-feature-settings-tnum">

@@ -3,39 +3,60 @@ package engine
 import (
 	"testing"
 	"time"
+
+	"xianyu-go/internal/xianyu/cookierefresh"
 )
 
-func TestTokenCacheTTLFixedEnv(t *testing.T) {
-	t.Setenv("TOKEN_CACHE_TTL_MIN_HOURS", "2")
-	t.Setenv("TOKEN_CACHE_TTL_MAX_HOURS", "2")
-	if got := tokenCacheTTL(); got != 2*time.Hour {
-		t.Fatalf("tokenCacheTTL=%s want 2h", got)
+func TestEffectiveTokenExpireAtUsesServerDeadlineWithSafetyMargin(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	got := effectiveTokenExpireAt(now.Add(2*time.Hour).Unix(), now)
+	want := now.Add(2*time.Hour - tokenExpirySafetyMargin).Unix()
+	if got != want {
+		t.Fatalf("effective expiry=%d want=%d", got, want)
 	}
 }
 
-func TestTokenCacheTTLMaxBelowMinFallsBackToDefaultRange(t *testing.T) {
-	t.Setenv("TOKEN_CACHE_TTL_MIN_HOURS", "4")
-	t.Setenv("TOKEN_CACHE_TTL_MAX_HOURS", "2")
-	got := tokenCacheTTL()
-	if got < TokenCacheTTLMin || got > TokenCacheTTLMax {
-		t.Fatalf("tokenCacheTTL=%s want within [%s,%s]", got, TokenCacheTTLMin, TokenCacheTTLMax)
+func TestEffectiveTokenExpireAtRejectsMissingOrExpiredDeadline(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	for _, expireAt := range []int64{0, now.Add(-time.Second).Unix()} {
+		if got := effectiveTokenExpireAt(expireAt, now); got != 0 {
+			t.Fatalf("effective expiry=%d want=0 for server expiry %d", got, expireAt)
+		}
 	}
 }
 
-func TestTokenCacheTTLInvalidEnvFallsBackToDefaultRange(t *testing.T) {
-	t.Setenv("TOKEN_CACHE_TTL_MIN_HOURS", "bad")
-	t.Setenv("TOKEN_CACHE_TTL_MAX_HOURS", "also-bad")
-	got := tokenCacheTTL()
-	if got < TokenCacheTTLMin || got > TokenCacheTTLMax {
-		t.Fatalf("tokenCacheTTL=%s want within [%s,%s]", got, TokenCacheTTLMin, TokenCacheTTLMax)
+func TestCredentialCookieFingerprintPreservesHeaderOrderAndDuplicates(t *testing.T) {
+	left := credentialCookieFingerprint("unb=1; cookie2=abc; _m_h5_tk=tk_1")
+	right := credentialCookieFingerprint("_m_h5_tk=tk_1; unb=1; cookie2=abc")
+	if left == "" || left == right {
+		t.Fatalf("Cookie Header 顺序变化必须改变指纹: %q == %q", left, right)
+	}
+	if left == credentialCookieFingerprint("unb=1; cookie2=changed; _m_h5_tk=tk_1") {
+		t.Fatal("credential change must alter fingerprint")
+	}
+	if left != credentialCookieFingerprint(" unb = 1 ; cookie2=abc;_m_h5_tk = tk_1 ;") {
+		t.Fatal("无语义空白不应改变指纹")
+	}
+	firstPathToken := credentialCookieFingerprint("_m_h5_tk=first; _m_h5_tk=second; unb=1")
+	secondPathToken := credentialCookieFingerprint("_m_h5_tk=second; _m_h5_tk=first; unb=1")
+	if firstPathToken == secondPathToken {
+		t.Fatal("同名 Cookie 的路径顺序会影响首值签名，不能折叠")
 	}
 }
 
-func TestTokenCacheTTLPartiallyInvalidEnvFallsBackToDefaultRange(t *testing.T) {
-	t.Setenv("TOKEN_CACHE_TTL_MIN_HOURS", "2")
-	t.Setenv("TOKEN_CACHE_TTL_MAX_HOURS", "bad")
-	got := tokenCacheTTL()
-	if got < TokenCacheTTLMin || got > TokenCacheTTLMax {
-		t.Fatalf("tokenCacheTTL=%s want within [%s,%s]", got, TokenCacheTTLMin, TokenCacheTTLMax)
+func TestCredentialStateFingerprintIncludesAuthoritativeSnapshot(t *testing.T) {
+	flat := "unb=1; _m_h5_tk=tk_1"
+	metadataA := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{
+		{Name: "_m_h5_tk", Value: "path-a", Domain: ".goofish.com", Path: "/"},
+	})
+	metadataB := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{
+		{Name: "_m_h5_tk", Value: "path-b", Domain: ".goofish.com", Path: "/"},
+	})
+	if credentialStateFingerprint(flat, metadataA) == credentialStateFingerprint(flat, metadataB) {
+		t.Fatal("权威 Jar 变化必须改变完整凭证指纹")
+	}
+	emptyJar := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{})
+	if credentialStateFingerprint("", emptyJar) == credentialStateFingerprint("", "") {
+		t.Fatal("权威空 Jar 必须与没有快照的历史状态区分")
 	}
 }

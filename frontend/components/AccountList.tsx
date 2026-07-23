@@ -20,6 +20,8 @@ import {
   getAccountAISettings,
   getNotificationChannels,
   getAccountBindings,
+  getLongLoginSettings,
+  setLongLoginSettings,
 } from '../services/api';
 import { shouldUpdateAccountPause } from './accountPause';
 import {
@@ -49,6 +51,7 @@ const AccountList: React.FC = () => {
   const [qrReauthTarget, setQrReauthTarget] = useState<AccountDetail | null>(null);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [editingAccount, setEditingAccount] = useState<AccountDetail | null>(null);
+  const [longLogin, setLongLogin] = useState({ loading: false, saving: false, canOpen: false, enabled: false, error: '' });
 
   // 通知渠道绑定（编辑弹窗用）
   const [notifChannels, setNotifChannels] = useState<NotificationChannel[]>([]);
@@ -328,7 +331,28 @@ const AccountList: React.FC = () => {
       clear_password: false,
     });
     setActiveModal('edit');
-    await loadNotificationBindings(account.id);
+    setLongLogin({ loading: true, saving: false, canOpen: false, enabled: false, error: '' });
+    const [, longLoginResult] = await Promise.allSettled([
+      loadNotificationBindings(account.id),
+      getLongLoginSettings(account.id),
+    ]);
+    if (longLoginResult.status === 'fulfilled') {
+      setLongLogin({ loading: false, saving: false, canOpen: longLoginResult.value.can_open_long_login, enabled: longLoginResult.value.enabled, error: '' });
+    } else {
+      setLongLogin({ loading: false, saving: false, canOpen: false, enabled: false, error: '无法读取闲鱼保存登录信息状态' });
+    }
+  };
+
+  const handleLongLoginToggle = async () => {
+    if (!editingAccount || longLogin.loading || longLogin.saving || !longLogin.canOpen) return;
+    const enabled = !longLogin.enabled;
+    setLongLogin(current => ({ ...current, saving: true, error: '' }));
+    try {
+      const result = await setLongLoginSettings(editingAccount.id, enabled);
+      setLongLogin({ loading: false, saving: false, canOpen: result.can_open_long_login, enabled: result.enabled, error: '' });
+    } catch (error) {
+      setLongLogin(current => ({ ...current, saving: false, error: error instanceof Error ? error.message : '保存登录信息设置失败' }));
+    }
   };
 
   const openAIModal = async (account: AccountDetail) => {
@@ -966,6 +990,22 @@ const AccountList: React.FC = () => {
                   登录信息
                 </h3>
                 <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-4 rounded-xl bg-blue-50 p-4">
+                    <div>
+                      <div className="font-bold text-gray-900">保存登录信息</div>
+                      <div className="mt-1 text-xs text-gray-500">状态直接读取并修改闲鱼官方长登录设置</div>
+                      {longLogin.error && <div className="mt-1 text-xs text-red-600">{longLogin.error}</div>}
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="保存登录信息"
+                      disabled={longLogin.loading || longLogin.saving || !longLogin.canOpen}
+                      onClick={() => void handleLongLoginToggle()}
+                      className={`relative h-8 w-14 flex-shrink-0 rounded-full transition-colors ${longLogin.enabled ? 'bg-[#0094f7]' : 'bg-gray-300'} disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      <span className={`absolute left-1 top-1 h-6 w-6 rounded-full bg-white shadow-md transition-transform ${longLogin.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">用户名</label>
                     <input

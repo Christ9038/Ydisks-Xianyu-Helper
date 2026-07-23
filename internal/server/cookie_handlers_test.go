@@ -11,7 +11,194 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/xianyu/cookierefresh"
+	xrenew "xianyu-go/internal/xianyu/renew"
 )
+
+func seedStaleCookieSnapshot(t *testing.T, store *db.Store, cookieID string) {
+	t.Helper()
+	ctx := context.Background()
+	detail, err := store.Cookies.GetDetails(ctx, cookieID)
+	if err != nil {
+		t.Fatalf("GetDetails before seeding snapshot: %v", err)
+	}
+	metadata := cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, []cookierefresh.BrowserCookie{{
+		Name: "stale_snapshot", Value: "old", Domain: ".goofish.com", Path: "/",
+	}})
+	if err := store.Cookies.UpdateRenewalCookie(ctx, cookieID, detail.Value, metadata, time.Now().Unix()); err != nil {
+		t.Fatalf("seed stale snapshot: %v", err)
+	}
+}
+
+func requireCookieSnapshotCleared(t *testing.T, store *db.Store, cookieID string) {
+	t.Helper()
+	detail, err := store.Cookies.GetDetails(context.Background(), cookieID)
+	if err != nil {
+		t.Fatalf("GetDetails after cookie overwrite: %v", err)
+	}
+	if snapshot, ok := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); ok {
+		t.Fatalf("扁平 Cookie 覆盖后必须清除旧快照: %+v", snapshot)
+	}
+}
+
+func TestLongLoginSettingsProxyAndPersistCookieSnapshot(t *testing.T) {
+	passport := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("fromSite") != "77" || r.URL.Query().Get("appName") != "xianyu" || r.URL.Query().Get("bizEntrance") != "web" {
+			t.Fatalf("query=%s", r.URL.RawQuery)
+		}
+		requestCookies := r.Header.Get("Cookie")
+		if !strings.Contains(requestCookies, "passport_only=allowed") || strings.Contains(requestCookies, "www_only=blocked") {
+			http.Error(w, "Cookie 未按 passport 域作用域发送: "+requestCookies, http.StatusBadRequest)
+			return
+		}
+		if strings.Contains(r.URL.Path, "set") {
+			if err := r.ParseForm(); err != nil || r.Form.Get("status") != "0" {
+				t.Fatalf("form=%v err=%v", r.Form, err)
+			}
+		}
+		w.Header().Add("Set-Cookie", "havana_lgc_exp=4102444800000; Domain=.goofish.com; Path=/; Secure; HttpOnly; SameSite=None")
+		if strings.Contains(r.URL.Path, "set") {
+			_, _ = w.Write([]byte(`{"data":{"success":true}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"content":{"data":{"returnValue":{"canOpenLongLogin":true,"hasLongTokenLogin":true}}}}`))
+	}))
+	defer passport.Close()
+
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.CookieRenew = xrenew.Service{
+		HTTPClient:            passport.Client(),
+		QueryLoginSettingsURL: passport.URL + "/queryLoginSettings.do",
+		SetLoginSettingsURL:   passport.URL + "/setLoginSettings.do",
+	}
+	detail, err := store.Cookies.GetDetails(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := cookierefresh.SnapshotFromCookieString(detail.Value, ".goofish.com")
+	snapshot = append(snapshot,
+		cookierefresh.BrowserCookie{Name: "passport_only", Value: "allowed", Domain: ".goofish.com", Path: "/", Secure: true},
+		cookierefresh.BrowserCookie{Name: "www_only", Value: "blocked", Domain: "www.goofish.com", Path: "/", Secure: true},
+	)
+	metadata := cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, snapshot)
+	if err := store.Cookies.UpdateRenewalCookie(context.Background(), "acc1", detail.Value, metadata, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Router()
+	session := loginHelper(t, h)
+
+	for _, request := range []*http.Request{
+		httptest.NewRequest(http.MethodGet, "/cookies/acc1/long-login", nil),
+		httptest.NewRequest(http.MethodPut, "/cookies/acc1/long-login", strings.NewReader(`{"enabled":true}`)),
+	} {
+		request.AddCookie(session)
+		recorder := httptest.NewRecorder()
+		h.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s status=%d body=%s", request.Method, recorder.Code, recorder.Body.String())
+		}
+		var result xrenew.LongLoginSettings
+		if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil || !result.CanOpenLongLogin || !result.Enabled {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+	}
+
+	detail, err = store.Cookies.GetDetails(context.Background(), "acc1")
+	if err != nil || !strings.Contains(detail.Value, "havana_lgc_exp=4102444800000") {
+		t.Fatalf("cookie detail=%+v err=%v", detail, err)
+	}
+	snapshot = cookierefresh.SnapshotFromMetadata(detail.MetadataJSON)
+	var longLoginCookie *cookierefresh.BrowserCookie
+	for i := range snapshot {
+		if snapshot[i].Name == "havana_lgc_exp" {
+			longLoginCookie = &snapshot[i]
+			break
+		}
+	}
+	if longLoginCookie == nil || longLoginCookie.Domain != ".goofish.com" || !longLoginCookie.Secure || !longLoginCookie.HTTPOnly {
+		t.Fatalf("未保留 Set-Cookie 属性: %+v", snapshot)
+	}
+}
+
+func TestLongLoginFailureStillPersistsResponseCookiesWithoutInventingSnapshot(t *testing.T) {
+	passport := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Add("Set-Cookie", "rotated=fresh; Domain=.goofish.com; Path=/; Secure; HttpOnly")
+		_, _ = w.Write([]byte(`not-json`))
+	}))
+	defer passport.Close()
+
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.CookieRenew = xrenew.Service{
+		HTTPClient:            passport.Client(),
+		QueryLoginSettingsURL: passport.URL + "/queryLoginSettings.do",
+	}
+	h := srv.Router()
+	session := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/cookies/acc1/long-login", nil)
+	req.AddCookie(session)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	detail, err := store.Cookies.GetDetails(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(detail.Value, "rotated=fresh") {
+		t.Fatalf("失败响应头的 Cookie 未持久化: %q", detail.Value)
+	}
+	if _, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
+		t.Fatal("历史扁平 Cookie 不得因长登录响应伪造成完整浏览器 Jar")
+	}
+}
+
+func TestLongLoginAuthoritativeSnapshotCanBeDeletedToEmpty(t *testing.T) {
+	passport := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Add("Set-Cookie", "only_cookie=; Domain=.goofish.com; Path=/; Max-Age=0; Secure")
+		_, _ = w.Write([]byte(`{"content":{"data":{"returnValue":{"canOpenLongLogin":true,"hasLongTokenLogin":true}}}}`))
+	}))
+	defer passport.Close()
+
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	detail, err := store.Cookies.GetDetails(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, []cookierefresh.BrowserCookie{{
+		Name: "only_cookie", Value: "old", Domain: ".goofish.com", Path: "/", Secure: true,
+	}})
+	if err := store.Cookies.UpdateRenewalCookie(context.Background(), "acc1", "only_cookie=old", metadata, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	srv.CookieRenew = xrenew.Service{
+		HTTPClient:            passport.Client(),
+		QueryLoginSettingsURL: passport.URL + "/queryLoginSettings.do",
+	}
+	h := srv.Router()
+	session := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/cookies/acc1/long-login", nil)
+	req.AddCookie(session)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	detail, err = store.Cookies.GetDetails(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Value != "" {
+		t.Fatalf("权威 Jar 删除后扁平值=%q want empty", detail.Value)
+	}
+	snapshot, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON)
+	if !complete || len(snapshot) != 0 {
+		t.Fatalf("应保留权威空 Jar，complete=%v snapshot=%+v", complete, snapshot)
+	}
+}
 
 // TestListCookies 列表 cookie_id。
 func TestListCookies(t *testing.T) {
@@ -161,6 +348,7 @@ func TestUpdateCookieSettingsClearsTokenButKeepsDeviceID(t *testing.T) {
 	if err := store.Tokens.Save(ctx, "acc1", "permanent-device", "old-token", time.Now().Add(time.Hour).Unix()); err != nil {
 		t.Fatal(err)
 	}
+	seedStaleCookieSnapshot(t, store, "acc1")
 	h := srv.Router()
 	cookie := loginHelper(t, h)
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/settings", strings.NewReader(`{"cookie":"unb=123; _m_h5_tk=new_1;"}`))
@@ -174,6 +362,7 @@ func TestUpdateCookieSettingsClearsTokenButKeepsDeviceID(t *testing.T) {
 	if err != nil || token.DeviceID != "permanent-device" || token.AccessToken != "" || token.ExpireAt != 0 {
 		t.Fatalf("token=%+v err=%v", token, err)
 	}
+	requireCookieSnapshotCleared(t, store, "acc1")
 }
 
 func jsonInt(value int64) string { return strconv.FormatInt(value, 10) }
@@ -204,6 +393,7 @@ func TestUpdateCookie(t *testing.T) {
 	if err := store.Tokens.Save(ctx, "acc1", "permanent-device", "old-token", time.Now().Add(time.Hour).Unix()); err != nil {
 		t.Fatal(err)
 	}
+	seedStaleCookieSnapshot(t, store, "acc1")
 
 	body := `{"value":"unb=123; _m_h5_tk=newtoken_2;"}`
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1", strings.NewReader(body))
@@ -224,6 +414,7 @@ func TestUpdateCookie(t *testing.T) {
 	if err != nil || token.DeviceID != "permanent-device" || token.AccessToken != "" || token.ExpireAt != 0 {
 		t.Fatalf("token=%+v err=%v", token, err)
 	}
+	requireCookieSnapshotCleared(t, store, "acc1")
 }
 
 func TestUpdateCookieQRLoginEnablesAccount(t *testing.T) {
@@ -282,6 +473,88 @@ func TestSetCookieStatusRecordsManualDisableReason(t *testing.T) {
 	}
 	if enabled != 0 || reason != db.DisableReasonManual {
 		t.Fatalf("enabled=%d reason=%q", enabled, reason)
+	}
+}
+
+func TestSetCookieStatusWaitsForCredentialTransition(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.Manager = nil
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	credentialUnlock := store.LockAccountCredentials("acc1")
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/status", strings.NewReader(`{"enabled":false}`))
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		done <- rec
+	}()
+	select {
+	case rec := <-done:
+		credentialUnlock()
+		t.Fatalf("状态更新绕过了账号凭证锁: status=%d body=%s", rec.Code, rec.Body.String())
+	case <-time.After(50 * time.Millisecond):
+	}
+	credentialUnlock()
+	select {
+	case rec := <-done:
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("释放凭证锁后状态更新未完成")
+	}
+}
+
+func TestDeleteCookieRechecksOwnershipInsideCredentialLock(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.Manager = nil
+	ctx := context.Background()
+	if ok, err := store.Users.Create(ctx, "member-delete", "member-delete@example.com", "pw"); err != nil || !ok {
+		t.Fatalf("create replacement owner: ok=%v err=%v", ok, err)
+	}
+	replacementOwner, err := store.Users.GetByUsername(ctx, "member-delete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	credentialUnlock := store.LockAccountCredentials("acc1")
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		req := httptest.NewRequest(http.MethodDelete, "/cookies/acc1", nil)
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		done <- rec
+	}()
+	select {
+	case rec := <-done:
+		credentialUnlock()
+		t.Fatalf("删除绕过了账号凭证锁: status=%d body=%s", rec.Code, rec.Body.String())
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := store.Cookies.Delete(ctx, "acc1"); err != nil {
+		credentialUnlock()
+		t.Fatal(err)
+	}
+	if err := store.Cookies.CreateOwned(ctx, "acc1", "unb=replacement; _m_h5_tk=fresh", replacementOwner.ID); err != nil {
+		credentialUnlock()
+		t.Fatal(err)
+	}
+	credentialUnlock()
+	rec := <-done
+	if rec.Code == http.StatusOK {
+		t.Fatalf("旧 owner 的并发请求不得删除新 owner 账号: body=%s", rec.Body.String())
+	}
+	detail, err := store.Cookies.GetDetails(ctx, "acc1")
+	if err != nil || detail.UserID != replacementOwner.ID {
+		t.Fatalf("替换后的账号被误删: detail=%+v err=%v", detail, err)
 	}
 }
 

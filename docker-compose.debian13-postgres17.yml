@@ -1,12 +1,15 @@
 x-app-env: &app-env
-  DATABASE_URL: postgres://${POSTGRES_USER:-xianyu}:${POSTGRES_PASSWORD:-xianyu_password}@postgres:5432/${POSTGRES_DB:-xianyu}?sslmode=disable
+  DATABASE_URL: ${DATABASE_URL:?请在 .env 中配置 DATABASE_URL}
+  XIANYU_DATA_KEY: ${XIANYU_DATA_KEY:?请在 .env 中配置 XIANYU_DATA_KEY}
+  XIANYU_UPLOAD_DIR: ${XIANYU_UPLOAD_DIR:-/app/data/uploads}
   TZ: ${TZ:-Asia/Shanghai}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  LOG_FORMAT: ${LOG_FORMAT:-json}
   BROWSER_HEADLESS: ${BROWSER_HEADLESS:-true}
   PLAYWRIGHT_DRIVER_PATH: ${PLAYWRIGHT_DRIVER_PATH:-/ms-playwright-go}
   PLAYWRIGHT_NODEJS_PATH: ${PLAYWRIGHT_NODEJS_PATH:-/usr/bin/node}
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: ${PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:-1}
   PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-/usr/bin/chromium}
-  XIANYU_ADMIN_PASSWORD: ${XIANYU_ADMIN_PASSWORD:-}
 
 x-app-volumes: &app-volumes
   - app_data:/app/data
@@ -14,25 +17,28 @@ x-app-volumes: &app-volumes
 
 services:
   postgres:
-    image: postgres:17-trixie
+    platform: linux/amd64
+    image: ${POSTGRES_IMAGE:-postgres:17-trixie}
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-xianyu}
-      POSTGRES_USER: ${POSTGRES_USER:-xianyu}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-xianyu_password}
+      POSTGRES_DB: ${POSTGRES_DB:?请在 .env 中配置 POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?请在 .env 中配置 POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中配置 POSTGRES_PASSWORD}
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+    expose:
+      - "5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 10s
 
   app:
-    image: ${XIANYU_IMAGE:-xianyu-go:debian13}
+    platform: linux/amd64
+    image: ${XIANYU_IMAGE:-xianyu-go:debian13-amd64}
     build:
       context: .
       dockerfile: Dockerfile.debian13
@@ -43,7 +49,7 @@ services:
     environment: *app-env
     command: ["/app/xianyu-server", "-addr", ":8080"]
     ports:
-      - "${XIANYU_HTTP_PORT:-8080}:8080"
+      - "${XIANYU_BIND_ADDRESS:-0.0.0.0}:${XIANYU_HTTP_PORT:-8080}:8080"
     volumes: *app-volumes
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1"]
@@ -53,7 +59,8 @@ services:
       start_period: 30s
 
   init-admin:
-    image: ${XIANYU_IMAGE:-xianyu-go:debian13}
+    platform: linux/amd64
+    image: ${XIANYU_IMAGE:-xianyu-go:debian13-amd64}
     build:
       context: .
       dockerfile: Dockerfile.debian13
@@ -62,7 +69,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    environment: *app-env
+    environment:
+      <<: *app-env
+      XIANYU_ADMIN_PASSWORD: ${XIANYU_ADMIN_PASSWORD:-}
     command:
       - /bin/sh
       - -c

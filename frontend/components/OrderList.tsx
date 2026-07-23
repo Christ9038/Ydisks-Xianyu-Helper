@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Order, OrderStatus, Item } from '../types';
-import { getOrders, syncOrders, syncSingleOrder, manualShipOrder, updateOrder, deleteOrder, importOrders, getItems } from '../services/api';
+import { AccountDetail, Order, OrderStatus, Item } from '../types';
+import { getOrders, syncOrders, syncSingleOrder, manualShipOrder, updateOrder, deleteOrder, importOrders, getItems, getAccountDetails } from '../services/api';
 import { Search, MoreHorizontal, Truck, RefreshCw, Copy, ChevronLeft, ChevronRight, PackageCheck, Edit, Eye, Plus, Save, X, User as UserIcon, Phone, MapPin, Upload, ExternalLink, Trash2 } from 'lucide-react';
 import { failedOrderImportRows, normalizeOrderImportResult, OrderImportResult } from './orderImportState';
+import { formatLocalDateTime } from '../dateTime';
 
 const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
   const styles = {
@@ -36,8 +37,10 @@ const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
 const OrderList: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [items, setItems] = useState<Item[]>([]);
+  const [accounts, setAccounts] = useState<AccountDetail[]>([]);
   const [itemNames, setItemNames] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState('all');
+  const [accountFilter, setAccountFilter] = useState('');
   const [searchText, setSearchText] = useState(''); // 搜索文本
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const requestSequence = useRef(0);
@@ -65,7 +68,7 @@ const OrderList: React.FC = () => {
       setLoading(true);
 
       try {
-          const res = await getOrders(undefined, filter, page, 20, debouncedSearch);
+          const res = await getOrders(accountFilter || undefined, filter, page, 20, debouncedSearch);
           if (sequence !== requestSequence.current) return;
           setOrders(res.data);
           setTotalPages(res.total_pages);
@@ -77,15 +80,15 @@ const OrderList: React.FC = () => {
   };
 
   // 从订单的 item_id 查找对应的商品名称（通过标题匹配）
-  const getItemNameById = (orderId: string, orderItemTitle?: string): string => {
+  const getItemNameById = (cookieId: string, orderId: string, orderItemTitle?: string): string => {
       // 如果订单有 item_title，优先使用
       if (orderItemTitle && orderItemTitle.trim()) {
           return orderItemTitle;
       }
 
       // 尝试通过 item_id 直接匹配
-      if (itemNames[orderId]) {
-          return itemNames[orderId];
+      if (itemNames[`${cookieId}:${orderId}`]) {
+          return itemNames[`${cookieId}:${orderId}`];
       }
 
       // 尝试在商品列表中查找相似标题的商品
@@ -113,7 +116,7 @@ const OrderList: React.FC = () => {
       items.forEach(item => {
           // 使用 item_id 作为键，商品标题作为值
           if (item.item_id) {
-              namesMap[item.item_id] = item.item_title || item.item_id;
+              namesMap[`${item.cookie_id}:${item.item_id}`] = item.item_title || item.item_id;
           }
       });
       setItemNames(namesMap);
@@ -123,7 +126,7 @@ const OrderList: React.FC = () => {
       const namesMap: Record<string, string> = {};
       itemsList.forEach(item => {
           if (item.item_id) {
-              namesMap[item.item_id] = item.item_title || item.item_id;
+              namesMap[`${item.cookie_id}:${item.item_id}`] = item.item_title || item.item_id;
           }
       });
       setItemNames(namesMap);
@@ -139,10 +142,11 @@ const OrderList: React.FC = () => {
 
   useEffect(() => {
     loadOrders();
-  }, [filter, page, debouncedSearch]);
+  }, [accountFilter, filter, page, debouncedSearch]);
 
   useEffect(() => {
-    getItems().then((itemsList) => {
+    Promise.all([getAccountDetails(), getItems()]).then(([accountList, itemsList]) => {
+      setAccounts(accountList);
       setItems(itemsList);
       buildItemNamesMapFrom(itemsList);
     }).catch((e) => {
@@ -150,10 +154,25 @@ const OrderList: React.FC = () => {
     });
   }, []);
 
+  const accountMap = useMemo(
+    () => new Map(accounts.map(account => [account.id, account])),
+    [accounts],
+  );
+
+  const accountName = (cookieId: string) => {
+    const account = accountMap.get(cookieId);
+    const name = account?.remark || account?.nickname;
+    return name ? `${name} · ${cookieId.slice(0, 6)}` : `账号 ${cookieId.slice(0, 8)}`;
+  };
+  const accountNickname = (cookieId: string) => {
+    const account = accountMap.get(cookieId);
+    return account?.remark || account?.nickname || '未命名账号';
+  };
+
   const handleSync = async () => {
       setLoading(true);
       try {
-          const result = await syncOrders();
+          const result = await syncOrders(accountFilter || undefined, filter);
           await loadOrders();
           if (result?.message) {
               alert(result.message);
@@ -357,7 +376,22 @@ const OrderList: React.FC = () => {
                  </button>
              ))}
           </div>
-          <div className="relative w-full md:w-auto group">
+          <div className="flex w-full md:w-auto flex-col sm:flex-row gap-3">
+            <div className="relative">
+              <UserIcon className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <select
+                aria-label="按账号筛选订单"
+                value={accountFilter}
+                onChange={(event) => { setAccountFilter(event.target.value); setPage(1); }}
+                className="ios-input pl-10 pr-9 py-2.5 rounded-xl w-full sm:w-56 bg-white border-none shadow-sm"
+              >
+                <option value="">全部账号</option>
+                {accounts.map(account => (
+                  <option key={account.id} value={account.id}>{accountName(account.id)}</option>
+                ))}
+              </select>
+            </div>
+            <div className="relative group">
              <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#0094f7] transition-colors" />
              <input
                  type="text"
@@ -366,6 +400,7 @@ const OrderList: React.FC = () => {
                  onChange={(e) => { setSearchText(e.target.value); setPage(1); }}
                  className="ios-input pl-10 pr-4 py-2.5 rounded-xl w-64 bg-white border-none shadow-sm focus:ring-0"
              />
+            </div>
           </div>
         </div>
 
@@ -395,10 +430,14 @@ const OrderList: React.FC = () => {
                       </div>
                       <div className="min-w-0">
                         <div className="font-bold text-gray-900 line-clamp-1 text-sm">
-                          {getItemNameById(order.item_id, order.item_title)}
+                          {getItemNameById(order.cookie_id, order.item_id, order.item_title)}
+                        </div>
+                        <div className="mt-1 flex w-fit min-w-0 max-w-full items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-[10px] font-extrabold text-blue-700" title={accountNickname(order.cookie_id)}>
+                          <UserIcon className="h-3 w-3 shrink-0" />
+                          <span className="min-w-0 truncate whitespace-nowrap">{accountNickname(order.cookie_id)}</span>
                         </div>
                         <div className="text-xs text-gray-500 mt-1 font-medium">订单ID: {order.order_id}</div>
-                        <div className="text-xs text-gray-400 mt-0.5">数量: {order.quantity} • {order.created_at}</div>
+                        <div className="text-xs text-gray-400 mt-0.5">数量: {order.quantity} • {formatLocalDateTime(order.created_at)}</div>
                       </div>
                     </div>
                   </td>
@@ -537,6 +576,10 @@ const OrderList: React.FC = () => {
                     <div className="font-mono text-sm font-bold text-gray-900">{selectedOrder.order_id}</div>
                   </div>
                   <div>
+                    <div className="text-xs text-gray-500 mb-1">所属账号</div>
+                    <div className="truncate whitespace-nowrap text-sm font-bold text-blue-700" title={accountNickname(selectedOrder.cookie_id)}>{accountNickname(selectedOrder.cookie_id)}</div>
+                  </div>
+                  <div>
                     <div className="text-xs text-gray-500 mb-1">状态</div>
                     <StatusBadge status={selectedOrder.status} />
                   </div>
@@ -550,7 +593,7 @@ const OrderList: React.FC = () => {
                   </div>
                   <div className="col-span-2">
                     <div className="text-xs text-gray-500 mb-1">创建时间</div>
-                    <div className="text-sm font-medium text-gray-700">{selectedOrder.created_at}</div>
+                    <div className="text-sm font-medium text-gray-700">{formatLocalDateTime(selectedOrder.created_at)}</div>
                   </div>
                 </div>
               </div>
@@ -564,7 +607,7 @@ const OrderList: React.FC = () => {
                   )}
                   <div className="flex-1">
                     <div className="font-bold text-gray-900 mb-1">
-                      {getItemNameById(selectedOrder.item_id, selectedOrder.item_title)}
+                      {getItemNameById(selectedOrder.cookie_id, selectedOrder.item_id, selectedOrder.item_title)}
                     </div>
                     <div className="text-sm text-gray-500">商品ID: {selectedOrder.item_id}</div>
                     {selectedOrder.item_price && (

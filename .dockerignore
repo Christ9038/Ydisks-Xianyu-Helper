@@ -1,5 +1,7 @@
 .git
 .gitignore
+.env
+.env.*
 data
 browser_data
 frontend/node_modules

@@ -13,6 +13,12 @@ import (
 	"time"
 )
 
+func TestNewClientUsesGoHTTPByDefault(t *testing.T) {
+	if client := NewClient(); client == nil {
+		t.Fatal("默认 MTOP 客户端为空")
+	}
+}
+
 func TestRefreshTokenRetriesOnceWithUpdatedCookie(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +58,7 @@ func TestReadMTopBodyRejectsOversizedResponse(t *testing.T) {
 	}
 }
 
-func TestRefreshTokenRetriesOnceWithoutUpdatedCookie(t *testing.T) {
+func TestRefreshTokenUsesOfficialAttemptLimitWithoutUpdatedCookie(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -65,8 +71,8 @@ func TestRefreshTokenRetriesOnceWithoutUpdatedCookie(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "登录凭证已失效") {
 		t.Fatalf("err=%v", err)
 	}
-	if requests.Load() != 2 {
-		t.Fatalf("请求次数=%d want 2", requests.Load())
+	if requests.Load() != officialMTopMaxAttempts {
+		t.Fatalf("请求次数=%d want %d", requests.Load(), officialMTopMaxAttempts)
 	}
 }
 
@@ -307,6 +313,17 @@ func TestMergeSetCookieMalformedIgnored(t *testing.T) {
 	// 仅有无效 Set-Cookie，应视为未变化返回 orig
 	if got := mergeSetCookie(orig, current, resp); got != orig {
 		t.Errorf("malformed only should return orig, got %q", got)
+	}
+}
+
+func TestMergeSetCookieMaxAgeOverridesPastExpires(t *testing.T) {
+	orig := "session=old"
+	current := map[string]string{"session": "old"}
+	resp := &http.Response{Header: http.Header{
+		"Set-Cookie": {"session=fresh; Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/"},
+	}}
+	if got := mergeSetCookie(orig, current, resp); !strings.Contains(got, "session=fresh") {
+		t.Fatalf("positive Max-Age must override past Expires: %q", got)
 	}
 }
 

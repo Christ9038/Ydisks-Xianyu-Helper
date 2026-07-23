@@ -35,34 +35,39 @@ type LoginStatusResult struct {
 // CheckLoginStatusContext 调用 loginuser.get 做低成本登录态检查。
 // 它不会做浏览器动作；只负责分类响应和合并 Set-Cookie。
 func (c *ClientImpl) CheckLoginStatusContext(ctx context.Context, cookiesStr string) (*LoginStatusResult, error) {
+	if session := cookieSessionFromContext(ctx); session != nil {
+		cookiesStr, _, _ = session.State()
+	}
 	hc := c.HTTPClient
 	if hc == nil {
 		hc = &http.Client{Timeout: 20 * time.Second}
 	}
-	t := strconv.FormatInt(time.Now().UnixMilli(), 10)
-	dataVal := `{}`
-	query := buildLoginStatusQuery(t, protocol.GenerateSign(t, protocol.SignToken(cookiesStr), dataVal))
-
 	loginURL := c.LoginUserURL
 	if loginURL == "" {
 		loginURL = LoginUserAPI
 	}
+	signingCookies, requestCookies := mtopRequestCookies(ctx, cookiesStr, mtopDocumentURL, loginURL)
+	t := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	dataVal := `{}`
+	query := buildLoginStatusQuery(t, protocol.GenerateSign(t, protocol.SignToken(signingCookies), dataVal))
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, loginURL+"?"+query, strings.NewReader("data=%7B%7D"))
 	if err != nil {
 		return nil, err
 	}
-	setCommonHeaders(req, cookiesStr)
+	setCommonHeaders(req, requestCookies)
+	req.Header.Set("Referer", mtopDocumentURL)
 
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("loginuser.get 请求失败: %w", err)
 	}
 	defer resp.Body.Close()
+	updated := absorbMTopResponseCookies(ctx, cookiesStr, resp)
 	raw, err := readMTopBody(resp)
 	if err != nil {
 		return nil, err
 	}
-	updated := mergeSetCookie(cookiesStr, protocol.TransCookies(cookiesStr), resp)
 
 	var payload struct {
 		Ret  []string `json:"ret"`
