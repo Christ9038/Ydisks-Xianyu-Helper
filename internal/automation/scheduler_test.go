@@ -2,6 +2,7 @@ package automation
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -78,7 +79,7 @@ func TestReviewRequestRuleDue(t *testing.T) {
 	order := db.Order{
 		OrderID:            "o1",
 		SystemShipped:      true,
-		ShippedAt:          time.Now().Add(-2 * time.Hour).Format("2006-01-02 15:04:05"),
+		ShippedAt:          time.Now().UTC().Add(-2 * time.Hour).Format("2006-01-02 15:04:05"),
 		ReviewRequestCount: 0,
 	}
 	if !reviewRequestRuleDue(order, rule) {
@@ -86,13 +87,13 @@ func TestReviewRequestRuleDue(t *testing.T) {
 	}
 
 	// 发货不到 1 小时 → 不 due。
-	order.ShippedAt = time.Now().Add(-30 * time.Minute).Format("2006-01-02 15:04:05")
+	order.ShippedAt = time.Now().UTC().Add(-30 * time.Minute).Format("2006-01-02 15:04:05")
 	if reviewRequestRuleDue(order, rule) {
 		t.Error("发货仅 30min 不应 due")
 	}
 
 	// 已达最大次数 → 不 due。
-	order.ShippedAt = time.Now().Add(-2 * time.Hour).Format("2006-01-02 15:04:05")
+	order.ShippedAt = time.Now().UTC().Add(-2 * time.Hour).Format("2006-01-02 15:04:05")
 	order.ReviewRequestCount = 2
 	if reviewRequestRuleDue(order, rule) {
 		t.Error("达到 max_attempts 不应 due")
@@ -107,10 +108,28 @@ func TestReviewRequestRuleDue(t *testing.T) {
 	// 缺 shipped_at 时回退到 updated_at。
 	order3 := db.Order{
 		OrderID:   "o3",
-		UpdatedAt: time.Now().Add(-3 * time.Hour).Format("2006-01-02 15:04:05"),
+		UpdatedAt: time.Now().UTC().Add(-3 * time.Hour).Format("2006-01-02 15:04:05"),
 	}
 	if !reviewRequestRuleDue(order3, rule) {
 		t.Error("缺 shipped_at 应回退 updated_at 判定 due")
+	}
+}
+
+func TestReviewRequestRuleDueUsesRepeatIntervalAfterFirstAttempt(t *testing.T) {
+	rule := db.AutomationRule{ConfigJSON: `{"first_delay_hours":1,"repeat_interval_hours":24,"max_attempts":3}`}
+	order := db.Order{
+		OrderID:             "repeat-review",
+		SystemShipped:       true,
+		ShippedAt:           time.Now().UTC().Add(-72 * time.Hour).Format("2006-01-02 15:04:05"),
+		ReviewRequestCount:  1,
+		LastReviewRequestAt: time.Now().UTC().Add(-23 * time.Hour).Format("2006-01-02 15:04:05"),
+	}
+	if reviewRequestRuleDue(order, rule) {
+		t.Fatal("repeat request must wait from last_review_request_at, not shipped_at")
+	}
+	order.LastReviewRequestAt = time.Now().UTC().Add(-25 * time.Hour).Format("2006-01-02 15:04:05")
+	if !reviewRequestRuleDue(order, rule) {
+		t.Fatal("repeat request should be due after repeat_interval_hours")
 	}
 }
 
@@ -163,7 +182,7 @@ func TestSchedulerScanExecutesDueThenSkipsOnMaxAttempts(t *testing.T) {
 	}
 
 	// 已发货、未评价、有 chat_id 的订单。
-	shipped := time.Now().Add(-2 * time.Hour).Format("2006-01-02 15:04:05")
+	shipped := time.Now().UTC().Add(-2 * time.Hour).Format("2006-01-02 15:04:05")
 	if _, err := store.DB.ExecContext(ctx, `INSERT INTO orders
 		(order_id, cookie_id, item_id, buyer_id, chat_id, system_shipped, shipped_at, review_request_count)
 		VALUES ('o-sched', 'cid', 'item-1', 'buyer-1', 'chat-1', 1, ?, 0)`, shipped); err != nil {
@@ -192,5 +211,32 @@ func TestSchedulerScanExecutesDueThenSkipsOnMaxAttempts(t *testing.T) {
 	sched.scan(ctx)
 	if len(sender.texts) != 0 {
 		t.Fatalf("达到 max_attempts 不应再发送，got %v", sender.texts)
+	}
+}
+
+func TestSchedulerScansMoreThanOneReviewPage(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	if _, err := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", Name: "review-all", TriggerType: TriggerReviewMissingTimeout, Enabled: true,
+		ConfigJSON: `{"after_shipped_hours":1,"max_attempts":1}`,
+		Actions:    []db.AutomationActionInput{{ActionType: ActionSendText, MessageTemplate: "review", Enabled: true}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	shipped := time.Now().UTC().Add(-2 * time.Hour).Format("2006-01-02 15:04:05")
+	for i := 0; i < 205; i++ {
+		if _, err := store.DB.ExecContext(ctx, `INSERT INTO orders
+			(order_id,cookie_id,buyer_id,chat_id,system_shipped,shipped_at,review_request_count,updated_at)
+			VALUES (?,?,?,?,1,?,0,?)`, fmt.Sprintf("review-%03d", i), "cid", "buyer", fmt.Sprintf("chat-%03d", i), shipped, shipped); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sender := &testSender{}
+	NewScheduler(New(store, testSenderProvider{sender: sender}, nil)).scan(ctx)
+	if len(sender.texts) != 205 {
+		t.Fatalf("sent=%d want 205", len(sender.texts))
 	}
 }

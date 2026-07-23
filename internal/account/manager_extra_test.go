@@ -3,6 +3,7 @@ package account
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,7 +13,33 @@ import (
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
 	"xianyu-go/internal/xianyu/mtop"
+	"xianyu-go/internal/xianyu/ws"
 )
+
+type fakeWSDialer struct{}
+
+func (fakeWSDialer) Dial(context.Context, ws.Config, *slog.Logger) (engine.WSConn, error) {
+	return fakeWSConn{}, nil
+}
+
+type fakeWSConn struct{}
+
+func (fakeWSConn) Register(context.Context, string, string) error { return nil }
+func (fakeWSConn) HeartbeatLoop(ctx context.Context, _ time.Duration) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (fakeWSConn) ReceiveLoop(ctx context.Context, _ func(map[string]any)) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (fakeWSConn) Close() error { return nil }
+func (fakeWSConn) SendText(context.Context, string, string, string, string) error {
+	return nil
+}
+func (fakeWSConn) SendImage(context.Context, string, string, string, string, int, int) error {
+	return nil
+}
 
 // fakeMtop 是注入 engine.Account 的可控 mtop 客户端，避免真实网络。
 // refreshErr 非空时 RefreshToken 返回该错误；block 非空时阻塞到该 chan
@@ -98,6 +125,7 @@ func startAccountWithMtop(t *testing.T, mgr *Manager, cookieID, cookieValue stri
 		Handler:   mgr.handler,
 		Logger:    mgr.logger,
 		MTop:      mtopClient,
+		WSDialer:  fakeWSDialer{},
 	})
 	accCtx, accCancel := context.WithCancel(runCtx)
 	ma := &managedAccount{
@@ -332,8 +360,8 @@ func TestRestart(t *testing.T) {
 		t.Fatal("Restart 后应是新实例，不是旧实例")
 	}
 	// 新实例的 CookieStr 应反映最新 DB 值。
-	if newMA.acc.CookieStr != "unb=1; _m_h5_tk=new-refreshed;" {
-		t.Fatalf("新实例 CookieStr=%q want new-refreshed", newMA.acc.CookieStr)
+	if got := newMA.acc.CurrentCookieStr(); got != "unb=1; _m_h5_tk=new-refreshed;" {
+		t.Fatalf("新实例 CookieStr=%q want new-refreshed", got)
 	}
 
 	// 旧实例的 done 应已关闭（被 Stop）。
@@ -386,8 +414,8 @@ func TestStart_SkipsRunning(t *testing.T) {
 	if after != original {
 		t.Fatal("Start 运行中账号不应替换实例")
 	}
-	if after.acc.CookieStr != "unb=1; _m_h5_tk=t;" {
-		t.Fatalf("实例 CookieStr 不应变，got %q", after.acc.CookieStr)
+	if got := after.acc.CurrentCookieStr(); got != "unb=1; _m_h5_tk=t;" {
+		t.Fatalf("实例 CookieStr 不应变，got %q", got)
 	}
 
 	mgr.Stop("running-acc")
@@ -416,6 +444,9 @@ func TestStart_RestartsExited(t *testing.T) {
 	mgr.mu.Lock()
 	mgr.runCtx = ctx
 	mgr.mu.Unlock()
+	if err := mgr.store.Cookies.Save(ctx, "exited-acc", "unb=1; _m_h5_tk=brand-new;", 0); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := mgr.Start(ctx, "exited-acc", "unb=1; _m_h5_tk=brand-new;"); err != nil {
 		t.Fatalf("Start 已退出账号应成功，got %v", err)
@@ -428,8 +459,8 @@ func TestStart_RestartsExited(t *testing.T) {
 	if newMA == exitedMA {
 		t.Fatal("应替换为全新实例")
 	}
-	if newMA.acc.CookieStr != "unb=1; _m_h5_tk=brand-new;" {
-		t.Fatalf("新实例 CookieStr=%q want brand-new", newMA.acc.CookieStr)
+	if got := newMA.acc.CurrentCookieStr(); got != "unb=1; _m_h5_tk=brand-new;" {
+		t.Fatalf("新实例 CookieStr=%q want brand-new", got)
 	}
 	// done 不应已关闭（新实例在运行）。
 	select {

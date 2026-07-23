@@ -52,6 +52,7 @@ const Settings: React.FC = () => {
 
   // Password visibility states
   const [showApiKey, setShowApiKey] = useState(false);
+  const [showCaptchaSecret, setShowCaptchaSecret] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [credentialsSaving, setCredentialsSaving] = useState(false);
@@ -389,6 +390,66 @@ const Settings: React.FC = () => {
 
         {/* Right Column */}
         <div className="space-y-8">
+          <section className="space-y-4">
+            <h3 className="text-lg font-extrabold text-gray-800 flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-amber-500 text-white">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
+              远程过滑块配置
+            </h3>
+
+            <div className="ios-card rounded-xl p-6 bg-white space-y-5">
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-gray-800">服务地址</label>
+                <input
+                  type="url"
+                  value={settings['captcha.remote_service_url'] || ''}
+                  onChange={event => setSettings({...settings, 'captcha.remote_service_url': event.target.value})}
+                  className="w-full ios-input px-4 py-3 rounded-xl text-sm"
+                  placeholder="https://example.com/internal/captcha/solve"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-gray-800">服务秘钥</label>
+                <div className="relative">
+                  <input
+                    type={showCaptchaSecret ? 'text' : 'password'}
+                    value={settings['captcha.remote_secret_key'] || ''}
+                    onChange={event => setSettings({...settings, 'captcha.remote_secret_key': event.target.value})}
+                    className="w-full ios-input px-4 py-3 pr-12 rounded-xl font-mono text-sm"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCaptchaSecret(!showCaptchaSecret)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-gray-600"
+                    title={showCaptchaSecret ? '隐藏秘钥' : '显示秘钥'}
+                  >
+                    {showCaptchaSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <label className="flex items-start gap-3 rounded-xl bg-amber-50 p-4 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={String(settings['captcha.remote_pass_cookies'] || '').toLowerCase() === 'true'}
+                  onChange={event => setSettings({...settings, 'captcha.remote_pass_cookies': event.target.checked})}
+                  className="mt-0.5 w-4 h-4 rounded border-gray-300"
+                />
+                <span>
+                  <span className="block text-sm font-bold text-amber-900">允许向远程服务传递账号 Cookie</span>
+                  <span className="block mt-1 text-xs text-amber-700">默认关闭。仅在信任远程服务且需要由其自动重取过期验证链接时开启。</span>
+                </span>
+              </label>
+
+              <p className="text-xs text-gray-500">
+                配置地址和秘钥后优先调用远程服务；只有网络不可用或超时才回退本机引擎，远程明确返回失败时不会重复触发本机验证。
+              </p>
+            </div>
+          </section>
+
           <section className="space-y-4">
             <h3 className="text-lg font-extrabold text-gray-800 flex items-center gap-2">
               <div className="p-1.5 rounded-lg bg-gray-900 text-white">

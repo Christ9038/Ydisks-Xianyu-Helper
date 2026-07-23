@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pressly/goose/v3"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 )
 
@@ -40,10 +40,10 @@ const (
 type driverName string
 
 const (
-	driverSQLite   driverName = "sqlite"
-	driverMySQL    driverName = "mysql"
+	driverSQLite driverName = "sqlite"
+	driverMySQL  driverName = "mysql"
 	// driverPgx 走 pgx_compat driver（见 pgx_compat.go），把 ? 占位符重写成 $N。
-	driverPgx      driverName = pgxCompatDriverName
+	driverPgx driverName = pgxCompatDriverName
 )
 
 // Open 打开/创建数据库并执行迁移。dbURL 形如：
@@ -109,12 +109,11 @@ func parseDBURL(raw string) (driverName, Dialect, string, error) {
 		return driverMySQL, DialectMySQL, mysqlDSN(rest), nil
 	case "postgres", "postgresql", "pgx":
 		// pgx 接受完整 postgres:// URL；也接受 libpq key=value DSN。
-		// 若是 URL 形式（含 @），保留 scheme 还原完整 URL；
-		// 若是 key=value 形式（含 = 且不含 @），原样透传。
-		if strings.Contains(rest, "@") {
-			return driverPgx, DialectPostgres, scheme + "://" + rest, nil
+		// 只有明确的 key=value 形式才去掉伪 scheme；URL 即便省略用户名也必须保留 scheme。
+		if strings.Contains(rest, "=") && !strings.Contains(rest, "/") {
+			return driverPgx, DialectPostgres, rest, nil
 		}
-		return driverPgx, DialectPostgres, rest, nil
+		return driverPgx, DialectPostgres, scheme + "://" + rest, nil
 	default:
 		return "", "", "", fmt.Errorf("不支持的数据库 scheme: %s（支持 sqlite/mysql/postgres）", scheme)
 	}
@@ -125,17 +124,40 @@ func sqliteDSN(path string) string {
 	return fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)", path)
 }
 
-// mysqlDSN 确保 DSN 含 multiStatements=true（goose 多语句迁移需要，缺失会静默只执行首条语句）。
-// 已显式设置则不覆盖；其余参数原样保留。不强制 parseTime——本仓库时间列按 string/int64 扫描。
+// mysqlDSN 强制启用应用依赖的两个连接选项：
+//   - multiStatements：goose 多语句迁移需要，缺失会静默只执行首条语句；
+//   - clientFoundRows：RowsAffected 返回匹配行数，使“保存未变化内容”的语义与 SQLite/Postgres 一致。
+//
+// 其余参数原样保留。不强制 parseTime——本仓库时间列按 string/int64 扫描。
 func mysqlDSN(dsn string) string {
-	if strings.Contains(dsn, "multiStatements=") {
-		return dsn
+	dsn = forceMySQLBoolParam(dsn, "multiStatements")
+	return forceMySQLBoolParam(dsn, "clientFoundRows")
+}
+
+func forceMySQLBoolParam(dsn, key string) string {
+	base, rawQuery, hasQuery := strings.Cut(dsn, "?")
+	parts := make([]string, 0, 4)
+	found := false
+	if hasQuery {
+		for _, part := range strings.Split(rawQuery, "&") {
+			if part == "" {
+				continue
+			}
+			name, _, _ := strings.Cut(part, "=")
+			if name == key {
+				if !found {
+					parts = append(parts, key+"=true")
+					found = true
+				}
+				continue
+			}
+			parts = append(parts, part)
+		}
 	}
-	sep := "?"
-	if strings.Contains(dsn, "?") {
-		sep = "&"
+	if !found {
+		parts = append(parts, key+"=true")
 	}
-	return dsn + sep + "multiStatements=true"
+	return base + "?" + strings.Join(parts, "&")
 }
 
 // Migrate 执行嵌入式 goose 迁移，按方言选择子目录。

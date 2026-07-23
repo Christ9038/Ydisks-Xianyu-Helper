@@ -9,6 +9,7 @@ import (
 // DialectUpsert 生成 UPSERT 子句，处理三种数据库的语法差异。
 //
 // SQLite/Postgres: ON CONFLICT (conflictCols) DO UPDATE SET col=expr, ...
+//
 //	MySQL:           ON DUPLICATE KEY UPDATE col=expr, ...
 //
 // updateAssignments 是 列名 -> SQL表达式 的映射。表达式里用 "EXCLUDED.col"

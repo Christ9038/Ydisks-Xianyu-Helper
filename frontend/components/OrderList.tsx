@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Order, OrderStatus, Item } from '../types';
-import { getOrders, syncOrders, syncSingleOrder, manualShipOrder, updateOrder, deleteOrder, importOrders, getItems } from '../services/api';
+import { AccountDetail, Order, OrderStatus, Item } from '../types';
+import { getOrders, syncOrders, syncSingleOrder, manualShipOrder, updateOrder, deleteOrder, importOrders, getItems, getAccountDetails } from '../services/api';
 import { Search, MoreHorizontal, Truck, RefreshCw, Copy, ChevronLeft, ChevronRight, PackageCheck, Edit, Eye, Plus, Save, X, User as UserIcon, Phone, MapPin, Upload, ExternalLink, Trash2 } from 'lucide-react';
+import { failedOrderImportRows, normalizeOrderImportResult, OrderImportResult } from './orderImportState';
+import { formatLocalDateTime } from '../dateTime';
 
 const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
   const styles = {
@@ -12,6 +14,7 @@ const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
     completed: 'bg-green-100 text-green-700',
     cancelled: 'bg-gray-100 text-gray-500',
     refunding: 'bg-red-100 text-red-600',
+    unknown: 'bg-gray-100 text-gray-500',
   };
 
   const labels = {
@@ -21,6 +24,7 @@ const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
     completed: '已完成',
     cancelled: '已取消',
     refunding: '退款中',
+    unknown: '未知',
   };
 
   return (
@@ -32,11 +36,14 @@ const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
 
 const OrderList: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
-  const [allOrders, setAllOrders] = useState<Order[]>([]); // 保存所有订单用于搜索
   const [items, setItems] = useState<Item[]>([]);
+  const [accounts, setAccounts] = useState<AccountDetail[]>([]);
   const [itemNames, setItemNames] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState('all');
+  const [accountFilter, setAccountFilter] = useState('');
   const [searchText, setSearchText] = useState(''); // 搜索文本
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const requestSequence = useRef(0);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -51,76 +58,37 @@ const OrderList: React.FC = () => {
   const [shipLoading, setShipLoading] = useState(false);
   const [shipResult, setShipResult] = useState<{success: boolean; message: string} | null>(null);
   const [importFile, setImportFile] = useState<File | null>(null);
+  const [importResult, setImportResult] = useState<OrderImportResult | null>(null);
+  const [importing, setImporting] = useState(false);
   const [syncingOrderId, setSyncingOrderId] = useState<string | null>(null);
   const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
 
-  // 搜索过滤订单
-  const filterOrders = (ordersToFilter: Order[]): Order[] => {
-    if (!searchText.trim()) {
-      return ordersToFilter;
-    }
-
-    const searchLower = searchText.toLowerCase().trim();
-    return ordersToFilter.filter(order =>
-      order.order_id?.toLowerCase().includes(searchLower) ||
-      order.item_id?.toLowerCase().includes(searchLower) ||
-      order.buyer_id?.toLowerCase().includes(searchLower) ||
-      order.item_title?.toLowerCase().includes(searchLower) ||
-      order.receiver_name?.toLowerCase().includes(searchLower) ||
-      order.receiver_phone?.toLowerCase().includes(searchLower)
-    );
-  };
-
   const loadOrders = async () => {
+      const sequence = ++requestSequence.current;
       setLoading(true);
 
       try {
-          // 如果有搜索文本，加载所有页的数据；否则只加载当前页
-          if (searchText.trim()) {
-              // 搜索模式：循环加载所有页
-              let allOrdersData: Order[] = [];
-              let currentPage = 1;
-              let hasMore = true;
-
-              while (hasMore) {
-                  const res = await getOrders(undefined, filter, currentPage, 100);
-                  allOrdersData = [...allOrdersData, ...res.data];
-                  hasMore = currentPage < res.total_pages;
-                  currentPage++;
-              }
-
-              setAllOrders(allOrdersData);
-              setOrders(filterOrders(allOrdersData));
-              setTotalPages(1); // 搜索时不分页
-          } else {
-              // 普通模式：只加载当前页
-              const res = await getOrders(undefined, filter, page, 20);
-              setAllOrders(res.data);
-              setOrders(filterOrders(res.data));
-              setTotalPages(res.total_pages);
-          }
+          const res = await getOrders(accountFilter || undefined, filter, page, 20, debouncedSearch);
+          if (sequence !== requestSequence.current) return;
+          setOrders(res.data);
+          setTotalPages(res.total_pages);
       } catch (e) {
           console.error('加载订单失败:', e);
       } finally {
-          setLoading(false);
+          if (sequence === requestSequence.current) setLoading(false);
       }
   };
 
-  // 当订单数据改变时，重新过滤订单
-  useEffect(() => {
-    setOrders(filterOrders(allOrders));
-  }, [allOrders, searchText]);
-
   // 从订单的 item_id 查找对应的商品名称（通过标题匹配）
-  const getItemNameById = (orderId: string, orderItemTitle?: string): string => {
+  const getItemNameById = (cookieId: string, orderId: string, orderItemTitle?: string): string => {
       // 如果订单有 item_title，优先使用
       if (orderItemTitle && orderItemTitle.trim()) {
           return orderItemTitle;
       }
 
       // 尝试通过 item_id 直接匹配
-      if (itemNames[orderId]) {
-          return itemNames[orderId];
+      if (itemNames[`${cookieId}:${orderId}`]) {
+          return itemNames[`${cookieId}:${orderId}`];
       }
 
       // 尝试在商品列表中查找相似标题的商品
@@ -148,7 +116,7 @@ const OrderList: React.FC = () => {
       items.forEach(item => {
           // 使用 item_id 作为键，商品标题作为值
           if (item.item_id) {
-              namesMap[item.item_id] = item.item_title || item.item_id;
+              namesMap[`${item.cookie_id}:${item.item_id}`] = item.item_title || item.item_id;
           }
       });
       setItemNames(namesMap);
@@ -158,27 +126,53 @@ const OrderList: React.FC = () => {
       const namesMap: Record<string, string> = {};
       itemsList.forEach(item => {
           if (item.item_id) {
-              namesMap[item.item_id] = item.item_title || item.item_id;
+              namesMap[`${item.cookie_id}:${item.item_id}`] = item.item_title || item.item_id;
           }
       });
       setItemNames(namesMap);
   };
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setPage(1);
+      setDebouncedSearch(searchText.trim());
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [searchText]);
+
+  useEffect(() => {
     loadOrders();
-    // 加载商品列表
-    getItems().then((itemsList) => {
+  }, [accountFilter, filter, page, debouncedSearch]);
+
+  useEffect(() => {
+    Promise.all([getAccountDetails(), getItems()]).then(([accountList, itemsList]) => {
+      setAccounts(accountList);
       setItems(itemsList);
       buildItemNamesMapFrom(itemsList);
     }).catch((e) => {
       console.error('加载商品列表失败:', e);
     });
-  }, [filter, page, searchText]);
+  }, []);
+
+  const accountMap = useMemo(
+    () => new Map(accounts.map(account => [account.id, account])),
+    [accounts],
+  );
+
+  const accountName = (cookieId: string) => {
+    const account = accountMap.get(cookieId);
+    const name = account?.remark || account?.nickname;
+    return name ? `${name} · ${cookieId.slice(0, 6)}` : `账号 ${cookieId.slice(0, 8)}`;
+  };
+  const accountNickname = (cookieId: string) => {
+    const account = accountMap.get(cookieId);
+    return account?.remark || account?.nickname || '未命名账号';
+  };
 
   const handleSync = async () => {
       setLoading(true);
       try {
-          const result = await syncOrders();
+          const result = await syncOrders(accountFilter || undefined, filter);
           await loadOrders();
           if (result?.message) {
               alert(result.message);
@@ -256,6 +250,9 @@ const OrderList: React.FC = () => {
       if (editingOrder.quantity !== undefined) {
         updateData.quantity = editingOrder.quantity;
       }
+	  if (editingOrder.item_title !== undefined) {
+		updateData.item_title = editingOrder.item_title;
+	  }
 
       await updateOrder(editingOrder.order_id, updateData);
       setShowEditModal(false);
@@ -268,18 +265,32 @@ const OrderList: React.FC = () => {
   };
 
   const handleImportOrders = async () => {
-    if (!importFile) return;
-    try {
+	if (!importFile) return;
+	setImporting(true);
+	try {
       const formData = new FormData();
       formData.append('file', importFile);
-      await importOrders(formData);
-      setShowImportModal(false);
-      setImportFile(null);
-      loadOrders();
-      alert('订单导入成功');
-    } catch (error: any) {
-      alert(error?.message || '导入失败，请检查文件格式');
-    }
+	  const result = normalizeOrderImportResult(await importOrders(formData));
+	  setImportResult(result);
+	  setImportFile(null);
+	  await loadOrders();
+	  if (result.failed_count === 0) {
+		setShowImportModal(false);
+		setImportResult(null);
+		alert(`订单导入成功，共 ${result.success_count} 条`);
+	  }
+	} catch (error: any) {
+	  alert(error?.message || '导入失败，请检查文件格式');
+	} finally {
+	  setImporting(false);
+	}
+  };
+
+  const closeImportModal = () => {
+	if (importing) return;
+	setShowImportModal(false);
+	setImportFile(null);
+	setImportResult(null);
   };
 
   const handleSyncSingle = async (orderId: string) => {
@@ -304,7 +315,11 @@ const OrderList: React.FC = () => {
     setDeletingOrderId(orderId);
     try {
       await deleteOrder(orderId);
-      setAllOrders(prev => prev.filter(o => o.order_id !== orderId));
+      if (orders.length === 1 && page > 1) {
+        setPage(current => current - 1);
+      } else {
+        await loadOrders();
+      }
     } catch (error: any) {
       console.error('删除订单失败:', error);
       alert(error?.message || '删除失败，请重试');
@@ -326,7 +341,7 @@ const OrderList: React.FC = () => {
                 <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button
-              onClick={() => setShowImportModal(true)}
+			  onClick={() => { setImportResult(null); setShowImportModal(true); }}
               className="px-5 py-3 rounded-2xl font-bold bg-gray-900 text-white hover:bg-gray-800 transition-colors text-sm flex items-center gap-2 shadow-lg"
             >
               <Plus className="w-4 h-4" />
@@ -345,10 +360,12 @@ const OrderList: React.FC = () => {
           <div className="flex gap-1 p-1 bg-gray-200/50 rounded-xl overflow-x-auto max-w-full">
              {[
                  {k:'all', v:'全部'},
+                 {k:'processing', v:'处理中'},
                  {k:'shipped', v:'已发货'},
                  {k:'pending_ship', v:'待发货'},
+                 {k:'completed', v:'已完成'},
                  {k:'cancelled', v:'已取消'},
-                 {k:'refunding', v:'其他'}
+                 {k:'refunding', v:'退款中'}
              ].map(opt => (
                  <button
                     key={opt.k}
@@ -359,7 +376,22 @@ const OrderList: React.FC = () => {
                  </button>
              ))}
           </div>
-          <div className="relative w-full md:w-auto group">
+          <div className="flex w-full md:w-auto flex-col sm:flex-row gap-3">
+            <div className="relative">
+              <UserIcon className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <select
+                aria-label="按账号筛选订单"
+                value={accountFilter}
+                onChange={(event) => { setAccountFilter(event.target.value); setPage(1); }}
+                className="ios-input pl-10 pr-9 py-2.5 rounded-xl w-full sm:w-56 bg-white border-none shadow-sm"
+              >
+                <option value="">全部账号</option>
+                {accounts.map(account => (
+                  <option key={account.id} value={account.id}>{accountName(account.id)}</option>
+                ))}
+              </select>
+            </div>
+            <div className="relative group">
              <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#0094f7] transition-colors" />
              <input
                  type="text"
@@ -368,6 +400,7 @@ const OrderList: React.FC = () => {
                  onChange={(e) => { setSearchText(e.target.value); setPage(1); }}
                  className="ios-input pl-10 pr-4 py-2.5 rounded-xl w-64 bg-white border-none shadow-sm focus:ring-0"
              />
+            </div>
           </div>
         </div>
 
@@ -397,10 +430,14 @@ const OrderList: React.FC = () => {
                       </div>
                       <div className="min-w-0">
                         <div className="font-bold text-gray-900 line-clamp-1 text-sm">
-                          {getItemNameById(order.item_id, order.item_title)}
+                          {getItemNameById(order.cookie_id, order.item_id, order.item_title)}
+                        </div>
+                        <div className="mt-1 flex w-fit min-w-0 max-w-full items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-[10px] font-extrabold text-blue-700" title={accountNickname(order.cookie_id)}>
+                          <UserIcon className="h-3 w-3 shrink-0" />
+                          <span className="min-w-0 truncate whitespace-nowrap">{accountNickname(order.cookie_id)}</span>
                         </div>
                         <div className="text-xs text-gray-500 mt-1 font-medium">订单ID: {order.order_id}</div>
-                        <div className="text-xs text-gray-400 mt-0.5">数量: {order.quantity} • {order.created_at}</div>
+                        <div className="text-xs text-gray-400 mt-0.5">数量: {order.quantity} • {formatLocalDateTime(order.created_at)}</div>
                       </div>
                     </div>
                   </td>
@@ -539,6 +576,10 @@ const OrderList: React.FC = () => {
                     <div className="font-mono text-sm font-bold text-gray-900">{selectedOrder.order_id}</div>
                   </div>
                   <div>
+                    <div className="text-xs text-gray-500 mb-1">所属账号</div>
+                    <div className="truncate whitespace-nowrap text-sm font-bold text-blue-700" title={accountNickname(selectedOrder.cookie_id)}>{accountNickname(selectedOrder.cookie_id)}</div>
+                  </div>
+                  <div>
                     <div className="text-xs text-gray-500 mb-1">状态</div>
                     <StatusBadge status={selectedOrder.status} />
                   </div>
@@ -552,7 +593,7 @@ const OrderList: React.FC = () => {
                   </div>
                   <div className="col-span-2">
                     <div className="text-xs text-gray-500 mb-1">创建时间</div>
-                    <div className="text-sm font-medium text-gray-700">{selectedOrder.created_at}</div>
+                    <div className="text-sm font-medium text-gray-700">{formatLocalDateTime(selectedOrder.created_at)}</div>
                   </div>
                 </div>
               </div>
@@ -566,7 +607,7 @@ const OrderList: React.FC = () => {
                   )}
                   <div className="flex-1">
                     <div className="font-bold text-gray-900 mb-1">
-                      {getItemNameById(selectedOrder.item_id, selectedOrder.item_title)}
+                      {getItemNameById(selectedOrder.cookie_id, selectedOrder.item_id, selectedOrder.item_title)}
                     </div>
                     <div className="text-sm text-gray-500">商品ID: {selectedOrder.item_id}</div>
                     {selectedOrder.item_price && (
@@ -640,7 +681,7 @@ const OrderList: React.FC = () => {
               <div className="flex items-center justify-between w-full">
                 <h3 className="text-2xl font-extrabold text-gray-900">插入订单</h3>
                 <button
-                  onClick={() => setShowImportModal(false)}
+				  onClick={closeImportModal}
                   className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
                 >
                   <X className="w-5 h-5 text-gray-600" />
@@ -660,30 +701,54 @@ const OrderList: React.FC = () => {
                 <p className="text-xs text-gray-500 mt-2">支持 .xlsx、.csv、.tsv、.json 格式</p>
               </div>
 
-              {importFile && (
+			  {importFile && (
                 <div className="p-3 bg-blue-50 rounded-xl">
                   <div className="flex items-center gap-2">
                     <Upload className="w-4 h-4 text-blue-600" />
                     <span className="text-sm font-medium text-blue-900">{importFile.name}</span>
                   </div>
                 </div>
-              )}
+			  )}
+
+			  {importResult && importResult.failed_count > 0 && (
+				<div className="space-y-3">
+				  <div className="rounded-xl bg-amber-50 border border-amber-100 p-3 text-sm font-bold text-amber-800">
+					导入完成：成功 {importResult.success_count} 条，失败 {importResult.failed_count} 条
+				  </div>
+				  <div className="max-h-64 overflow-y-auto rounded-xl border border-gray-100">
+					<table className="w-full text-left text-xs">
+					  <thead className="sticky top-0 bg-gray-50 text-gray-500">
+						<tr><th className="px-3 py-2">订单ID</th><th className="px-3 py-2">失败原因</th></tr>
+					  </thead>
+					  <tbody className="divide-y divide-gray-100">
+						{failedOrderImportRows(importResult).map((row, index) => (
+						  <tr key={`${row.order_id}-${index}`}>
+							<td className="px-3 py-2 font-mono">{row.order_id}</td>
+							<td className="px-3 py-2 text-red-600">{row.message || '导入失败'}</td>
+						  </tr>
+						))}
+					  </tbody>
+					</table>
+				  </div>
+				</div>
+			  )}
             </div>
 
             <div className="modal-footer">
               <div className="flex gap-3 w-full">
                 <button
-                  onClick={() => setShowImportModal(false)}
+				  onClick={closeImportModal}
+				  disabled={importing}
                   className="flex-1 px-6 py-3 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold transition-colors"
                 >
                   取消
                 </button>
                 <button
                   onClick={handleImportOrders}
-                  disabled={!importFile}
+				  disabled={!importFile || importing}
                   className="flex-1 px-6 py-3 rounded-xl ios-btn-primary font-bold shadow-lg shadow-blue-200 disabled:opacity-50"
                 >
-                  导入订单
+				  {importing ? '正在导入…' : '导入订单'}
                 </button>
               </div>
             </div>
@@ -839,7 +904,7 @@ const OrderList: React.FC = () => {
                   <input
                     type="number"
                     value={editingOrder.amount}
-                    onChange={(e) => setEditingOrder({ ...editingOrder, amount: parseFloat(e.target.value) })}
+                    onChange={(e) => setEditingOrder({ ...editingOrder, amount: e.target.value })}
                     className="w-full ios-input px-4 py-3 rounded-xl"
                   />
                 </div>

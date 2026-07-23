@@ -35,6 +35,8 @@ export interface AccountDetail {
   remark?: string;
   note?: string; // alias for remark
   pause_duration?: number;
+  paused_until?: number;
+  paused?: boolean;
   // 登录信息
   username?: string;
   login_password?: string;
@@ -62,7 +64,8 @@ export type OrderStatus =
   | 'shipped'         
   | 'completed'       
   | 'cancelled'       
-  | 'refunding';
+  | 'refunding'
+  | 'unknown';
 
 export interface Order {
   id: string;
@@ -207,6 +210,7 @@ export interface DashboardStats {
   total_cards: number;
   total_keywords: number;
   total_orders: number;
+  available_card_stock: number;
 }
 
 export interface OrderAnalytics {
@@ -214,7 +218,7 @@ export interface OrderAnalytics {
     total_amount: number;
     total_orders: number;
   };
-  daily_stats: Array<{ date: string; amount: number }>;
+  daily_stats: Array<{ date: string; amount: number; order_count: number }>;
   item_stats?: Array<{
     item_id: string;
     order_count: number;
@@ -235,6 +239,9 @@ export interface SystemSettings {
   log_level?: 'debug' | 'info' | 'warn' | 'error' | string;
   log_format?: 'text' | 'json' | string;
   renewal_log_retention_days?: number;
+  'captcha.remote_service_url'?: string;
+  'captcha.remote_secret_key'?: string;
+  'captcha.remote_pass_cookies'?: boolean | string;
   [key: string]: any;
 }
 

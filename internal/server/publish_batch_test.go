@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"xianyu-go/internal/db"
 )
@@ -121,6 +122,27 @@ func TestPreviewItemPublishBatchNoFile(t *testing.T) {
 	}
 }
 
+func TestPreviewItemPublishBatchRequiresDefaultAccount(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	file, _ := mw.CreateFormFile("file", "products.csv")
+	file.Write([]byte("标题,价格,图片\n商品A,12.50,https://example.com/a.png\n"))
+	_ = mw.Close()
+	req := httptest.NewRequest(http.MethodPost, "/items/publish-batches/preview", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "请选择默认发布账号") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestPreviewItemPublishBatchBadDefaultCookie 默认账号不属于当前用户 403。
 func TestPreviewItemPublishBatchBadDefaultCookie(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
@@ -221,6 +243,27 @@ func TestGetItemPublishBatchNotFound(t *testing.T) {
 	}
 }
 
+func TestListItemPublishBatchesRestoresRecentTask(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	if err := store.PublishBatches.Create(ctx, &db.ItemPublishBatch{
+		ID: "listed-batch", UserID: admin.ID, DefaultCookieID: "acc1", Filename: "x.csv", Status: "failed",
+	}, []db.ItemPublishBatchRow{{RowNo: 1, CookieID: "acc1", Title: "A", Price: "1", Status: "failed", FailureKind: "publish"}}); err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/items/publish-batches?limit=10", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"id":"listed-batch"`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestCancelItemPublishBatchNotFound 不存在批次 404。
 func TestCancelItemPublishBatchNotFound(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
@@ -234,6 +277,31 @@ func TestCancelItemPublishBatchNotFound(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("不存在批次应 404，got %d", rec.Code)
+	}
+}
+
+func TestDeletePreviewBatchRemovesUploadDirectory(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	batchID := previewPublishBatch(t, h, cookie)
+	batch, err := store.PublishBatches.Get(context.Background(), 1, batchID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(batch.UploadDir); err != nil {
+		t.Fatalf("upload dir missing before delete: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodDelete, "/items/publish-batches/"+batchID, nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(batch.UploadDir); !os.IsNotExist(err) {
+		t.Fatalf("upload dir still exists: %v", err)
 	}
 }
 
@@ -253,6 +321,60 @@ func TestRetryFailedItemPublishBatchNotFound(t *testing.T) {
 	}
 }
 
+func TestRetryFailedItemPublishBatchRejectsActiveWorker(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, err := store.Users.GetByUsername(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PublishBatches.Create(ctx, &db.ItemPublishBatch{
+		ID: "running-batch", UserID: admin.ID, DefaultCookieID: "acc1", Filename: "x.csv", Status: "running",
+	}, []db.ItemPublishBatchRow{{RowNo: 1, CookieID: "acc1", Title: "A", Price: "1", Status: "failed", FailureKind: "publish"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB.ExecContext(ctx, `UPDATE item_publish_batches SET worker_token='active',lease_expires_at=? WHERE id='running-batch'`, time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/items/publish-batches/running-batch/retry-failed", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("running retry status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rows, err := store.PublishBatches.Rows(ctx, "running-batch")
+	if err != nil || len(rows) != 1 || rows[0].Status != "failed" {
+		t.Fatalf("active retry must not reset rows: rows=%+v err=%v", rows, err)
+	}
+}
+
+func TestStartItemPublishBatchReclaimsExpiredWorker(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	if err := store.PublishBatches.Create(ctx, &db.ItemPublishBatch{
+		ID: "expired-batch", UserID: admin.ID, DefaultCookieID: "acc1", Filename: "x.csv", Status: "running",
+	}, []db.ItemPublishBatchRow{{RowNo: 1, CookieID: "acc1", Title: "A", Price: "1", Status: "running"}}); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = store.DB.ExecContext(ctx, `UPDATE item_publish_batches SET worker_token='dead',lease_expires_at=? WHERE id='expired-batch'`, time.Now().Add(-time.Minute).Unix())
+	_, _ = store.DB.ExecContext(ctx, `UPDATE item_publish_batch_rows SET worker_token='dead' WHERE batch_id='expired-batch'`)
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/items/publish-batches", strings.NewReader(`{"batch_id":"expired-batch"}`))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expired batch should be reclaimed: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestDownloadItemPublishBatchResultNotFound 不存在批次 404。
 func TestDownloadItemPublishBatchResultNotFound(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
@@ -266,6 +388,19 @@ func TestDownloadItemPublishBatchResultNotFound(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("不存在批次应 404，got %d", rec.Code)
+	}
+}
+
+func TestSafeCSVCellPreventsSpreadsheetFormulaExecution(t *testing.T) {
+	for _, input := range []string{"=cmd()", "+SUM(1,2)", " -1+2", "@evil"} {
+		if got := safeCSVCell(input); !strings.HasPrefix(got, "'") {
+			t.Fatalf("dangerous cell %q was not escaped: %q", input, got)
+		}
+	}
+	for _, input := range []string{"normal", "https://example.com", "123"} {
+		if got := safeCSVCell(input); got != input {
+			t.Fatalf("safe cell %q unexpectedly changed to %q", input, got)
+		}
 	}
 }
 

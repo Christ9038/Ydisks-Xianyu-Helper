@@ -11,7 +11,18 @@ import (
 	"net/textproto"
 	"strings"
 	"testing"
+
+	"xianyu-go/internal/xianyu/mtop"
 )
+
+type stubPublishMTop struct {
+	mtop.Client
+	publish func(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error)
+}
+
+func (s *stubPublishMTop) PublishItem(ctx context.Context, cookies string, req mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
+	return s.publish(ctx, cookies, req)
+}
 
 // buildPublishMultipart 构造一个 multipart/form-data 请求体，包含一个 1x1 PNG 图片字段。
 func buildPublishMultipart(t *testing.T, fields map[string]string) (*bytes.Buffer, string) {
@@ -210,6 +221,45 @@ func TestPublishItemSuccess(t *testing.T) {
 	}
 }
 
+func TestPublishItemRejectsMissingRemoteItemID(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.MTop = &stubPublishMTop{publish: func(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
+		return &mtop.PublishItemResult{Title: "测试商品"}, nil
+	}}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	body, ct := buildPublishMultipart(t, map[string]string{"cookie_id": "acc1", "title": "测试商品", "price": "12.50", "quantity": "1"})
+	req := httptest.NewRequest(http.MethodPost, "/items/publish", body)
+	req.Header.Set("Content-Type", ct)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), "publish_result_missing_item_id") {
+		t.Fatalf("missing item id status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPublishItemReportsRemoteSuccessLocalSaveFailure(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.MTop = &stubPublishMTop{publish: func(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
+		_, _ = store.DB.ExecContext(context.Background(), `DELETE FROM cookies WHERE id='acc1'`)
+		return &mtop.PublishItemResult{ItemID: "remote-only", ItemURL: "https://example/item/remote-only", Title: "测试商品"}, nil
+	}}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	body, ct := buildPublishMultipart(t, map[string]string{"cookie_id": "acc1", "title": "测试商品", "price": "12.50", "quantity": "1"})
+	req := httptest.NewRequest(http.MethodPost, "/items/publish", body)
+	req.Header.Set("Content-Type", ct)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "remote_published_local_save_failed") || !strings.Contains(rec.Body.String(), "remote-only") {
+		t.Fatalf("partial publish status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestPublishItemStockPermissionMissing 库存权限缺失应 403。
 func TestPublishItemStockPermissionMissing(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
@@ -304,6 +354,33 @@ func TestSyncItemsFromAccountSuccess(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("商品未保存: %+v", items)
+	}
+}
+
+func TestSyncItemsFromAccountDetectsMultiSpecFromDetail(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := `{"ret":["SUCCESS::调用成功"],"data":{}}`
+		if strings.Contains(req.URL.String(), "mtop.idle.web.xyh.item.list") {
+			body = `{"ret":["SUCCESS::调用成功"],"data":{"cardList":[{"cardData":{"id":"multi-item","title":"多规格商品","detailParams":{"itemId":"multi-item"}}}]}}`
+		} else if strings.Contains(req.URL.String(), "mtop.taobao.idle.pc.detail") {
+			body = `{"ret":["SUCCESS::调用成功"],"data":{"multiSKU":true,"skuDO":{"skuList":[{"id":"a"},{"id":"b"}]}}}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	}))
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/items/get-all-from-account", strings.NewReader(`{"cookie_id":"acc1","page_size":10}`))
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	item, err := store.Items.Get(context.Background(), "acc1", "multi-item")
+	if err != nil || !item.IsMultiSpec {
+		t.Fatalf("item=%+v err=%v", item, err)
 	}
 }
 
@@ -542,6 +619,39 @@ func TestItemCRUD(t *testing.T) {
 	h.ServeHTTP(rec5, req5)
 	if rec5.Code != 200 {
 		t.Fatalf("delete status=%d", rec5.Code)
+	}
+}
+
+func TestListItemsFiltersByOwnedAccount(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	if err := store.Cookies.Save(ctx, "acc2", "unb=456; _m_h5_tk=tk2_1;", admin.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO item_info (cookie_id,item_id,item_title) VALUES ('acc1','item-a','商品A'),('acc2','item-b','商品B')`)
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	req := httptest.NewRequest(http.MethodGet, "/items?cookie_id=acc2", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var rows []map[string]any
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &rows) != nil {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(rows) != 1 || rows[0]["cookie_id"] != "acc2" || rows[0]["item_id"] != "item-b" {
+		t.Fatalf("rows=%+v", rows)
+	}
+
+	forbidden := httptest.NewRequest(http.MethodGet, "/items?cookie_id=not-owned", nil)
+	forbidden.AddCookie(cookie)
+	forbiddenRec := httptest.NewRecorder()
+	h.ServeHTTP(forbiddenRec, forbidden)
+	if forbiddenRec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", forbiddenRec.Code, forbiddenRec.Body.String())
 	}
 }
 

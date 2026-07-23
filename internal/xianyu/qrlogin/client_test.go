@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"xianyu-go/internal/xianyu/cookierefresh"
 )
 
 type failingReader struct{}
@@ -54,7 +56,7 @@ func TestSessionStatusConcurrentSnapshot(t *testing.T) {
 	wg.Wait()
 }
 
-func TestCompleteVerificationRequiresBrowserWhenHTTPMissingUNB(t *testing.T) {
+func TestCompleteVerificationRequiresPureGoCredentialResult(t *testing.T) {
 	m := NewManager(nil)
 	m.sessions["s1"] = testVerificationSession()
 	oldTarget := qrVerifyTargetURL
@@ -62,7 +64,7 @@ func TestCompleteVerificationRequiresBrowserWhenHTTPMissingUNB(t *testing.T) {
 	defer func() { qrVerifyTargetURL = oldTarget }()
 
 	_, _, err := m.CompleteVerification(context.Background(), "s1")
-	if err == nil || !strings.Contains(err.Error(), "需要浏览器支持") {
+	if err == nil || !strings.Contains(err.Error(), "纯 Go 登录凭证换取未获取到 unb") {
 		t.Fatalf("错误异常: %v", err)
 	}
 }
@@ -78,50 +80,6 @@ func TestCompleteVerificationReturnsCompletedSessionWithoutAnotherRequest(t *tes
 	cookies, unb, err := m.CompleteVerification(context.Background(), "s1")
 	if err != nil || unb != "completed-account" || !strings.Contains(cookies, "unb=completed-account") {
 		t.Fatalf("completed session: cookies=%q unb=%q err=%v", cookies, unb, err)
-	}
-}
-
-func TestCompleteVerificationBrowserSuccess(t *testing.T) {
-	m := NewManager(nil)
-	m.sessions["s1"] = testVerificationSession()
-	m.SetBrowserRefresher(func(ctx context.Context, tmpCookies, verificationURL string, onScreenshot func(string)) (string, string, error) {
-		if !strings.Contains(tmpCookies, "tmp=1") {
-			t.Fatalf("浏览器刷新器收到临时 cookie 异常: %q", tmpCookies)
-		}
-		return "unb=999; cookie2=abc", "999", nil
-	})
-	oldTarget := qrVerifyTargetURL
-	qrVerifyTargetURL = newEmptyCookieServer(t)
-	defer func() { qrVerifyTargetURL = oldTarget }()
-
-	cookies, unb, err := m.CompleteVerification(context.Background(), "s1")
-	if err != nil {
-		t.Fatalf("CompleteVerification: %v", err)
-	}
-	if unb != "999" || !strings.Contains(cookies, "unb=999") {
-		t.Fatalf("返回异常: cookies=%q unb=%q", cookies, unb)
-	}
-	if m.sessions["s1"].Status != "success" {
-		t.Fatalf("状态异常: %s", m.sessions["s1"].Status)
-	}
-}
-
-func TestCompleteVerificationBrowserUNBFromCookieMap(t *testing.T) {
-	m := NewManager(nil)
-	m.sessions["s1"] = testVerificationSession()
-	m.SetBrowserRefresher(func(ctx context.Context, tmpCookies, verificationURL string, onScreenshot func(string)) (string, string, error) {
-		return "unb=888; cookie2=abc", "", nil
-	})
-	oldTarget := qrVerifyTargetURL
-	qrVerifyTargetURL = newEmptyCookieServer(t)
-	defer func() { qrVerifyTargetURL = oldTarget }()
-
-	_, unb, err := m.CompleteVerification(context.Background(), "s1")
-	if err != nil {
-		t.Fatalf("CompleteVerification: %v", err)
-	}
-	if unb != "888" {
-		t.Fatalf("应从 cookie map 提取 unb，got %q", unb)
 	}
 }
 
@@ -200,6 +158,25 @@ func TestCollectJarCookies(t *testing.T) {
 	got := collectJarCookies(jar, u)
 	if got["unb"] != "123" || got["cookie2"] != "abc" {
 		t.Fatalf("collectJarCookies=%v", got)
+	}
+}
+
+func TestFaceCookieJarExportsCrossDomainAttributes(t *testing.T) {
+	jar := newFaceCookieJar(map[string]string{"tmp": "1"}, []cookierefresh.BrowserCookie{})
+	passport, _ := url.Parse("https://passport.goofish.com/ivCheckLogin.htm")
+	input := &http.Cookie{
+		Name: "unb", Value: "777", Domain: ".goofish.com", Path: "/", Secure: true, HttpOnly: true,
+	}
+	jar.SetCookies(passport, []*http.Cookie{input})
+	www, _ := url.Parse("https://www.goofish.com/im")
+	got := collectJarCookies(jar, www)
+	if got["unb"] != "777" {
+		snapshot, _ := jar.Snapshot()
+		t.Fatalf("跨域 Cookie 未进入 /im: cookies=%v snapshot=%+v raw=%q", got, snapshot, input.String())
+	}
+	snapshot, complete := jar.Snapshot()
+	if !complete || len(snapshot) != 1 || snapshot[0].Domain != ".goofish.com" || !snapshot[0].HTTPOnly || !snapshot[0].Secure {
+		t.Fatalf("完整 Cookie 属性未保留: complete=%v snapshot=%+v", complete, snapshot)
 	}
 }
 

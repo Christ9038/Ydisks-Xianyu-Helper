@@ -21,12 +21,12 @@ import (
 	"xianyu-go/internal/account"
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/automation"
-	"xianyu-go/internal/browser"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/notify"
 	"xianyu-go/internal/webui"
 	"xianyu-go/internal/xianyu/mtop"
 	"xianyu-go/internal/xianyu/qrlogin"
+	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
 type qrLoginService interface {
@@ -38,73 +38,79 @@ type qrLoginService interface {
 type qrLoginPersistence struct {
 	AccountID string
 	IsNew     bool
+	UserID    int64
+	CreatedAt time.Time
+}
+
+type qrLoginOwner struct {
+	UserID    int64
+	CreatedAt time.Time
+}
+
+type publishBatchWorker struct {
+	token  string
+	cancel context.CancelFunc
 }
 
 // Server 聚合 HTTP 服务依赖。Automation 与 Notifier 由构造函数注入，
 // 不再允许外部直接改字段，避免运行时被替换成 nil。
 type Server struct {
-	Store         *db.Store
-	Auth          *auth.Service
-	Manager       *account.Manager
-	automation    *automation.Center
-	Browser       *browser.Manager
-	PasswordLogin passwordLoginRunner
-	notifier      *notify.Notifier
-	MTop          mtop.Client
-	QRLogin       qrLoginService
-	Logger        *slog.Logger
-	WebDir        string // 前端静态资源目录（含 index.html）
-	Addr          string
+	Store       *db.Store
+	Auth        *auth.Service
+	Manager     *account.Manager
+	automation  *automation.Center
+	notifier    *notify.Notifier
+	MTop        mtop.Client
+	CookieRenew xrenew.Service
+	QRLogin     qrLoginService
+	Logger      *slog.Logger
+	WebDir      string // 前端静态资源目录（含 index.html）
+	Addr        string
 
 	publishMu      sync.Mutex
-	publishCancels map[string]context.CancelFunc
-
-	passwordMu         sync.Mutex
-	passwordSessions   map[string]*passwordLoginSession
-	passwordProcessing map[string]string
+	publishCancels map[string]publishBatchWorker
+	workerMu       sync.Mutex
+	workerCount    int
+	workersDone    chan struct{}
+	lifecycleMu    sync.RWMutex
+	lifecycleCtx   context.Context
 
 	qrMu        sync.Mutex
 	qrPersisted map[string]qrLoginPersistence
+	qrOwners    map[string]qrLoginOwner
+	// qrPersistLocks 按扫码会话串行化持久化，避免持有全局 qrMu 执行数据库、
+	// 资料刷新和账号重启等慢操作。
+	qrPersistLocks sync.Map
+	loginLimiter   *loginFailureLimiter
 }
 
 // New 构造。autoCenter/notifier 由调用方完成创建后注入（创建顺序：
 // adapter → manager → automation → notifier → server）。
-func New(store *db.Store, manager *account.Manager, bm *browser.Manager, secure bool, webDir, addr string, logger *slog.Logger, autoCenter *automation.Center, notifier *notify.Notifier) *Server {
+func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr string, logger *slog.Logger, autoCenter *automation.Center, notifier *notify.Notifier) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
 	qrMgr := qrlogin.NewManager(logger)
-	if bm != nil {
-		qrMgr.SetBrowserRefresher(func(ctx context.Context, tmpCookies, verificationURL string, onScreenshot func(string)) (string, string, error) {
-			return bm.QRCookieRefresh(ctx, tmpCookies, verificationURL, onScreenshot)
-		})
-	}
 	return &Server{
-		Store:         store,
-		Auth:          &auth.Service{Store: store, Logger: logger, Secure: secure},
-		Manager:       manager,
-		automation:    autoCenter,
-		Browser:       bm,
-		PasswordLogin: passwordLoginRunnerForBrowser(bm),
-		notifier:      notifier,
-		MTop:          mtop.NewClient(),
-		QRLogin:       qrMgr,
-		Logger:        logger,
-		WebDir:        webDir,
-		Addr:          addr,
+		Store:       store,
+		Auth:        &auth.Service{Store: store, Logger: logger, Secure: secure},
+		Manager:     manager,
+		automation:  autoCenter,
+		notifier:    notifier,
+		MTop:        mtop.NewClient(),
+		CookieRenew: xrenew.Service{},
+		QRLogin:     qrMgr,
+		Logger:      logger,
+		WebDir:      webDir,
+		Addr:        addr,
 
-		publishCancels:     make(map[string]context.CancelFunc),
-		passwordSessions:   make(map[string]*passwordLoginSession),
-		passwordProcessing: make(map[string]string),
-		qrPersisted:        make(map[string]qrLoginPersistence),
+		publishCancels: make(map[string]publishBatchWorker),
+		workersDone:    closedSignal(),
+		lifecycleCtx:   context.Background(),
+		qrPersisted:    make(map[string]qrLoginPersistence),
+		qrOwners:       make(map[string]qrLoginOwner),
+		loginLimiter:   newLoginFailureLimiter(),
 	}
-}
-
-func passwordLoginRunnerForBrowser(bm *browser.Manager) passwordLoginRunner {
-	if bm == nil {
-		return nil
-	}
-	return bm
 }
 
 // mtopClient 返回注入的 mtop 客户端；未注入时退回默认 HTTP 实现（保证零值可用）。
@@ -326,20 +332,30 @@ func isAPIPath(path string) bool {
 
 // health 健康检查。
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if s.Store == nil || s.Store.DB == nil || s.Store.DB.PingContext(ctx) != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "degraded", "database": "unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "database": "ok"})
 }
 
 // 各分组 mount*Real 方法在 handlers 文件中实现；为避免单文件过大，按业务域分文件。
 
 // Run 启动 HTTP 服务（阻塞）。
 func (s *Server) Run(ctx context.Context) error {
+	s.lifecycleMu.Lock()
+	s.lifecycleCtx = ctx
+	s.lifecycleMu.Unlock()
 	srv := &http.Server{
 		Addr:              s.Addr,
 		Handler:           s.Router(),
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      2 * time.Minute,
-		IdleTimeout:       2 * time.Minute,
+		// 批量发布允许上传约 200 MiB；请求头仍由 10 秒限制防慢连接，正文给足上传时间。
+		ReadTimeout:  10 * time.Minute,
+		WriteTimeout: 2 * time.Minute,
+		IdleTimeout:  2 * time.Minute,
 	}
 	// #nosec G118 -- 关闭协程由传入的服务生命周期上下文控制。
 	go func() {
@@ -354,5 +370,48 @@ func (s *Server) Run(ctx context.Context) error {
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
+	s.waitForWorkers(10 * time.Second)
 	return nil
+}
+
+func closedSignal() chan struct{} {
+	done := make(chan struct{})
+	close(done)
+	return done
+}
+
+func (s *Server) lifecycleContext() context.Context {
+	s.lifecycleMu.RLock()
+	defer s.lifecycleMu.RUnlock()
+	return s.lifecycleCtx
+}
+
+func (s *Server) beginWorker() func() {
+	s.workerMu.Lock()
+	if s.workerCount == 0 {
+		s.workersDone = make(chan struct{})
+	}
+	s.workerCount++
+	s.workerMu.Unlock()
+	return func() {
+		s.workerMu.Lock()
+		s.workerCount--
+		if s.workerCount == 0 {
+			close(s.workersDone)
+		}
+		s.workerMu.Unlock()
+	}
+}
+
+func (s *Server) waitForWorkers(timeout time.Duration) {
+	s.workerMu.Lock()
+	done := s.workersDone
+	s.workerMu.Unlock()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		s.Logger.Warn("等待后台 worker 退出超时")
+	}
 }

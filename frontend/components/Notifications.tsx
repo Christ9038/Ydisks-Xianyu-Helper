@@ -15,6 +15,7 @@ import {
   Check, MessageCircle, Mail, Webhook, Send as Telegram, Eye, EyeOff, Save,
 } from 'lucide-react';
 import { normalizeSMTPSettings } from '../smtpSettings';
+import { buildEmailChannelConfig, enableCustomSMTP, normalizeEmailChannelConfig } from '../notificationEmailConfig';
 
 type ChannelTypeMeta = {
   label: string;
@@ -139,18 +140,14 @@ const CHANNEL_TYPES: Record<NotificationChannelType, ChannelTypeMeta> = {
     icon: Mail,
     fields: [
       { key: 'to_email', label: '收件邮箱', placeholder: 'receiver@example.com', required: true },
-      { key: 'smtp_server', label: '覆盖 SMTP 服务器', placeholder: 'smtp.qq.com', help: '留空时使用上方系统级 SMTP 配置' },
-      { key: 'smtp_port', label: '覆盖 SMTP 端口', placeholder: '587', type: 'number', help: '留空时使用系统级 SMTP 端口' },
-      { key: 'smtp_user', label: '覆盖发件邮箱', placeholder: 'you@qq.com', help: '留空时使用系统级发件邮箱' },
-      { key: 'smtp_password', label: '覆盖密码 / 授权码', type: 'password', help: '留空时使用系统级授权码' },
     ],
     guide: {
       steps: [
-        '先在页面上方保存系统级 SMTP 服务器、端口、发件邮箱和授权码',
-        '邮件渠道只需要填写收件邮箱',
-        '如果某个渠道要使用不同发件邮箱，再填写下面的覆盖 SMTP 字段',
+        '通常先保存页面中的系统 SMTP 配置',
+        '邮件渠道只需填写收件邮箱，即可完整继承系统 SMTP',
+        '只有确实需要另一套发件服务时，才开启“使用独立 SMTP”并填写整套配置',
       ],
-      note: '收件邮箱会写入 to_email；SMTP 字段留空时后端会复用系统级 SMTP 配置。',
+      note: '继承和独立 SMTP 是互斥模式，不会再混用两套配置中的部分字段。',
     },
   },
 };
@@ -188,6 +185,7 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
   const [smtp, setSmtp] = useState<SystemSettings>({});
   const [smtpSaving, setSmtpSaving] = useState(false);
   const [showSmtpPassword, setShowSmtpPassword] = useState(false);
+  const [showChannelSmtpPassword, setShowChannelSmtpPassword] = useState(false);
 
   const [form, setForm] = useState({
     name: '',
@@ -228,6 +226,8 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
         smtp_password: smtp.smtp_password || '',
         smtp_from_name: smtp.smtp_from_name || '',
         smtp_from_address: smtp.smtp_from_address || smtp.smtp_user || '',
+		smtp_use_tls: smtp.smtp_use_tls !== false,
+		smtp_use_ssl: smtp.smtp_use_ssl === true,
       });
       showToast('success', 'SMTP 配置已保存');
     } catch (e: any) {
@@ -254,18 +254,28 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
   const openCreate = () => {
     setEditing(null);
     setForm({ name: '', type: 'bark', enabled: true, config: {}, event_types: [] });
+    setShowChannelSmtpPassword(false);
     setShowModal(true);
   };
 
   const openEdit = (ch: NotificationChannel) => {
     setEditing(ch);
+    const normalizedEmailConfig = ch.type === 'email'
+      ? normalizeEmailChannelConfig({ ...(ch.config || {}) })
+      : null;
+    const config = normalizedEmailConfig
+      ? (normalizedEmailConfig.use_custom_smtp === true
+        ? enableCustomSMTP(normalizedEmailConfig, smtp)
+        : normalizedEmailConfig)
+      : { ...(ch.config || {}) };
     setForm({
       name: ch.name,
       type: ch.type,
       enabled: ch.enabled,
-      config: { ...(ch.config || {}) },
+      config,
       event_types: ch.event_types || [],
     });
+    setShowChannelSmtpPassword(false);
     setShowModal(true);
   };
 
@@ -281,9 +291,27 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
       showToast('error', '请填写渠道名称');
       return;
     }
+    let config = form.config;
+    if (form.type === 'email') {
+      config = buildEmailChannelConfig(form.config);
+      if (config.use_custom_smtp) {
+        const required = [
+          ['smtp_server', '独立 SMTP 服务器'],
+          ['smtp_port', '独立 SMTP 端口'],
+          ['smtp_user', '独立 SMTP 登录邮箱'],
+          ['smtp_password', '独立 SMTP 密码 / 授权码'],
+          ['smtp_from_address', '独立 SMTP 发件地址'],
+        ] as const;
+        const missing = required.find(([key]) => !String(config[key] || '').trim());
+        if (missing) {
+          showToast('error', `请填写 ${missing[1]}`);
+          return;
+        }
+      }
+    }
     setSaving(true);
     try {
-      const payload = { name: form.name.trim(), type: form.type, config: form.config, event_types: form.event_types, enabled: form.enabled };
+      const payload = { name: form.name.trim(), type: form.type, config, event_types: form.event_types, enabled: form.enabled };
       if (editing) {
         await updateNotificationChannel(editing.id, payload);
       } else {
@@ -344,8 +372,9 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
           <h2 className="text-4xl font-extrabold text-gray-900 tracking-tight">通知设置</h2>
           <p className="text-gray-500 mt-2 font-medium">配置通知渠道，账号异常时主动推送告警</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button
+
+		<div className="flex items-center gap-3">
+		  <button
             onClick={load}
             className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-xl font-bold text-gray-700 flex items-center gap-2 transition-colors"
           >
@@ -540,9 +569,28 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
               className="w-full ios-input px-4 py-3 rounded-xl text-sm"
             />
           </div>
-        </div>
+		</div>
 
-        <button
+		<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+		  <label className="flex items-center gap-3 rounded-xl border border-gray-200 p-4 text-sm font-semibold text-gray-700">
+			<input
+			  type="checkbox"
+			  checked={smtp.smtp_use_tls !== false}
+			  onChange={e => setSmtp({ ...smtp, smtp_use_tls: e.target.checked, smtp_use_ssl: e.target.checked ? false : smtp.smtp_use_ssl })}
+			/>
+			STARTTLS（常用于 587 端口）
+		  </label>
+		  <label className="flex items-center gap-3 rounded-xl border border-gray-200 p-4 text-sm font-semibold text-gray-700">
+			<input
+			  type="checkbox"
+			  checked={smtp.smtp_use_ssl === true}
+			  onChange={e => setSmtp({ ...smtp, smtp_use_ssl: e.target.checked, smtp_use_tls: e.target.checked ? false : smtp.smtp_use_tls })}
+			/>
+			SSL/TLS 直连（常用于 465 端口）
+		  </label>
+		</div>
+
+		<button
           onClick={handleSaveSmtp}
           disabled={smtpSaving}
           className="ios-btn-primary px-6 py-3 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50"
@@ -641,6 +689,137 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
                   </div>
                 ))}
               </div>
+
+              {form.type === 'email' && (
+                <div className="overflow-hidden rounded-2xl border border-blue-100 bg-blue-50/40">
+                  <div className="flex items-center justify-between gap-4 p-4">
+                    <div>
+                      <div className="text-sm font-extrabold text-gray-900">SMTP 来源</div>
+                      <p className="mt-1 text-xs leading-5 text-gray-500">
+                        {form.config.use_custom_smtp === true
+                          ? '当前渠道使用一套完整、独立的发件配置。'
+                          : '当前渠道完整继承系统 SMTP，只单独设置收件邮箱。'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const useCustom = form.config.use_custom_smtp === true;
+                        setForm({
+                          ...form,
+                          config: useCustom
+                            ? { ...form.config, use_custom_smtp: false }
+                            : enableCustomSMTP(form.config, smtp),
+                        });
+                      }}
+                      className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${form.config.use_custom_smtp === true ? 'bg-[#0094f7]' : 'bg-gray-300'}`}
+                      aria-label="使用独立 SMTP"
+                    >
+                      <span className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${form.config.use_custom_smtp === true ? 'translate-x-5' : ''}`} />
+                    </button>
+                  </div>
+
+                  {form.config.use_custom_smtp === true && (
+                    <div className="space-y-4 border-t border-blue-100 bg-white/80 p-4">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <label className="block text-sm font-bold text-gray-800">SMTP 服务器 <span className="text-red-500">*</span></label>
+                          <input
+                            type="text"
+                            value={String(form.config.smtp_server || '')}
+                            onChange={e => setForm({ ...form, config: { ...form.config, smtp_server: e.target.value } })}
+                            placeholder="smtp.qq.com"
+                            className="w-full ios-input px-4 py-3 rounded-xl text-sm"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="block text-sm font-bold text-gray-800">SMTP 端口 <span className="text-red-500">*</span></label>
+                          <input
+                            type="number"
+                            value={String(form.config.smtp_port || 587)}
+                            onChange={e => setForm({ ...form, config: { ...form.config, smtp_port: e.target.value } })}
+                            placeholder="587"
+                            className="w-full ios-input px-4 py-3 rounded-xl text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="block text-sm font-bold text-gray-800">登录邮箱 <span className="text-red-500">*</span></label>
+                        <input
+                          type="email"
+                          value={String(form.config.smtp_user || '')}
+                          onChange={e => setForm({ ...form, config: { ...form.config, smtp_user: e.target.value } })}
+                          placeholder="your-email@qq.com"
+                          className="w-full ios-input px-4 py-3 rounded-xl text-sm"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="block text-sm font-bold text-gray-800">密码 / 授权码 <span className="text-red-500">*</span></label>
+                        <div className="relative">
+                          <input
+                            type={showChannelSmtpPassword ? 'text' : 'password'}
+                            value={String(form.config.smtp_password || '')}
+                            onChange={e => setForm({ ...form, config: { ...form.config, smtp_password: e.target.value } })}
+                            placeholder="输入密码或授权码"
+                            className="w-full ios-input px-4 py-3 pr-12 rounded-xl text-sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowChannelSmtpPassword(value => !value)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-gray-600"
+                          >
+                            {showChannelSmtpPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <label className="block text-sm font-bold text-gray-800">发件人显示名（可选）</label>
+                          <input
+                            type="text"
+                            value={String(form.config.smtp_from_name || '')}
+                            onChange={e => setForm({ ...form, config: { ...form.config, smtp_from_name: e.target.value } })}
+                            placeholder="闲鱼自动回复系统"
+                            className="w-full ios-input px-4 py-3 rounded-xl text-sm"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="block text-sm font-bold text-gray-800">发件邮箱地址 <span className="text-red-500">*</span></label>
+                          <input
+                            type="email"
+                            value={String(form.config.smtp_from_address || '')}
+                            onChange={e => setForm({ ...form, config: { ...form.config, smtp_from_address: e.target.value } })}
+                            placeholder="your-email@qq.com"
+                            className="w-full ios-input px-4 py-3 rounded-xl text-sm"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <label className="flex items-center gap-3 rounded-xl border border-gray-200 p-3 text-xs font-bold text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={form.config.smtp_use_tls !== false}
+                            onChange={e => setForm({ ...form, config: { ...form.config, smtp_use_tls: e.target.checked, smtp_use_ssl: e.target.checked ? false : form.config.smtp_use_ssl } })}
+                          />
+                          STARTTLS（常用于 587）
+                        </label>
+                        <label className="flex items-center gap-3 rounded-xl border border-gray-200 p-3 text-xs font-bold text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={form.config.smtp_use_ssl === true}
+                            onChange={e => setForm({ ...form, config: { ...form.config, smtp_use_ssl: e.target.checked, smtp_use_tls: e.target.checked ? false : form.config.smtp_use_tls } })}
+                          />
+                          SSL/TLS 直连（常用于 465）
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="space-y-3">
                 <div>

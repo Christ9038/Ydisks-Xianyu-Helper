@@ -30,6 +30,7 @@ type CookieDetail struct {
 	AutoConfirm   bool
 	Remark        string
 	PauseDuration int
+	PausedUntil   int64
 	Username      string
 	Password      string
 	ShowBrowser   bool

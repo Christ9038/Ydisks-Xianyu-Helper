@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { createQRLoginPoller } from './qrPolling';
+import { createLatestRequestGate, createQRLoginPoller } from './qrPolling';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -25,7 +25,7 @@ test('QR poller clears the previous interval before starting another session', (
   vi.advanceTimersByTime(2000);
 
   expect(checkStatus).toHaveBeenCalledTimes(1);
-  expect(checkStatus).toHaveBeenCalledWith('sid-2');
+	expect(checkStatus).toHaveBeenCalledWith('sid-2', expect.any(AbortSignal));
 });
 
 test('QR poller stops on success and terminal errors', async () => {
@@ -95,4 +95,58 @@ test('QR poller keeps polling during verification and stops on thrown errors', a
 
   expect(onPollError).toHaveBeenCalledWith(expect.any(Error));
   expect(poller.isActive()).toBe(false);
+});
+
+test('QR poller never overlaps slow status requests', async () => {
+  vi.useFakeTimers();
+  let resolveStatus: ((value: { status: string }) => void) | undefined;
+  const checkStatus = vi.fn(() => new Promise<{ status: string }>(resolve => {
+    resolveStatus = resolve;
+  }));
+  const poller = createQRLoginPoller();
+  poller.start('slow-session', checkStatus, {
+    onSuccess: vi.fn(),
+    onTerminalError: vi.fn(),
+    onPollError: vi.fn(),
+  });
+
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(checkStatus).toHaveBeenCalledTimes(1);
+
+  resolveStatus?.({ status: 'waiting' });
+  await flushMicrotasks();
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(checkStatus).toHaveBeenCalledTimes(2);
+  poller.stop();
+});
+
+test('latest request gate rejects stale generation after switch or cancel', () => {
+  const gate = createLatestRequestGate();
+  const first = gate.next();
+  const second = gate.next();
+
+  expect(gate.isCurrent(first)).toBe(false);
+  expect(gate.isCurrent(second)).toBe(true);
+
+  gate.cancel();
+  expect(gate.isCurrent(second)).toBe(false);
+});
+
+test('stopping QR polling aborts the in-flight status request without reporting an error', async () => {
+	vi.useFakeTimers();
+	const onPollError = vi.fn();
+	let observedSignal: AbortSignal | undefined;
+	const checkStatus = vi.fn((_sessionId: string, signal?: AbortSignal) => {
+	  observedSignal = signal;
+	  return new Promise<{ status: string }>((_resolve, reject) => {
+		signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+	  });
+	});
+	const poller = createQRLoginPoller();
+	poller.start('sid', checkStatus, { onSuccess: vi.fn(), onTerminalError: vi.fn(), onPollError });
+	await vi.advanceTimersByTimeAsync(2000);
+	poller.stop();
+	await flushMicrotasks();
+	expect(observedSignal?.aborted).toBe(true);
+	expect(onPollError).not.toHaveBeenCalled();
 });

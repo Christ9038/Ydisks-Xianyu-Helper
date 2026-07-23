@@ -489,6 +489,7 @@ func TestSendEmail_Success(t *testing.T) {
 		"smtp_port":     port,
 		"smtp_user":     "u@e.com",
 		"smtp_password": "pw",
+		"smtp_use_tls":  false,
 		"to_email":      "to@e.com",
 	}
 	if err := n.sendEmail(cfg, "邮件正文"); err != nil {
@@ -510,6 +511,7 @@ func TestSendEmail_DefaultFrom(t *testing.T) {
 		"smtp_port":     port,
 		"smtp_user":     "from@e.com",
 		"smtp_password": "pw",
+		"smtp_use_tls":  false,
 		"to_email":      "to@e.com",
 	}
 	if err := n.sendEmail(cfg, "x"); err != nil {
@@ -526,6 +528,7 @@ func TestSendEmail_SeparatesDisplayNameAndEnvelopeAddress(t *testing.T) {
 	n := New("cid", nil, nil)
 	cfg := map[string]any{
 		"smtp_server": host, "smtp_port": port, "smtp_user": "login@e.com", "smtp_password": "pw",
+		"smtp_use_tls":   false,
 		"smtp_from_name": "闲鱼自动回复系统", "smtp_from_address": "sender@e.com", "to_email": "to@e.com",
 	}
 	if err := n.sendEmail(cfg, "x"); err != nil {
@@ -548,6 +551,7 @@ func TestSendEmail_UsesSystemSMTPFallback(t *testing.T) {
 		"smtp_port":     port,
 		"smtp_user":     "system@e.com",
 		"smtp_password": "pw",
+		"smtp_use_tls":  "false",
 	} {
 		if err := store.Settings.Set(ctx, key, value); err != nil {
 			t.Fatalf("set %s: %v", key, err)
@@ -564,6 +568,33 @@ func TestSendEmail_UsesSystemSMTPFallback(t *testing.T) {
 	}
 }
 
+func TestSMTPConfigValueUsesExclusiveExplicitModes(t *testing.T) {
+	store, cleanup := newNotifyStoreBare(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := store.Settings.Set(ctx, "smtp_server", "system.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	n := New("cid", store, nil)
+
+	if got := n.smtpConfigValue(ctx, map[string]any{
+		"use_custom_smtp": false,
+		"smtp_server":     "stale-channel.example.com",
+	}, "smtp_server", ""); got != "system.example.com" {
+		t.Fatalf("system mode mixed in channel override: %q", got)
+	}
+	if got := n.smtpConfigValue(ctx, map[string]any{
+		"use_custom_smtp": true,
+	}, "smtp_server", ""); got != "" {
+		t.Fatalf("custom mode inherited system value: %q", got)
+	}
+	if got := n.smtpConfigValue(ctx, map[string]any{
+		"smtp_server": "legacy-channel.example.com",
+	}, "smtp_server", ""); got != "legacy-channel.example.com" {
+		t.Fatalf("legacy channel override compatibility lost: %q", got)
+	}
+}
+
 // TestSendEmail_IncompleteConfig 配置不完整应报错。
 func TestSendEmail_IncompleteConfig(t *testing.T) {
 	n := New("cid", nil, nil)
@@ -576,6 +607,15 @@ func TestSendEmail_IncompleteConfig(t *testing.T) {
 		if err := n.sendEmail(cfg, "x"); err == nil {
 			t.Fatalf("配置不完整应报错: %v", cfg)
 		}
+	}
+}
+
+func TestParseSMTPTransportFlags(t *testing.T) {
+	if !parseConfigBool("true", false) || !parseConfigBool("1", false) || parseConfigBool("off", true) {
+		t.Fatal("SMTP boolean settings were not parsed consistently")
+	}
+	if !parseConfigBool("invalid", true) || parseConfigBool("invalid", false) {
+		t.Fatal("SMTP boolean fallback was ignored")
 	}
 }
 

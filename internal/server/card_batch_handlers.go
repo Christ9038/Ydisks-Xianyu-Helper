@@ -92,8 +92,8 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		delaySeconds := atoiPublishDefault(firstImportString(m, "delay_seconds", "延迟秒"), 0)
-		if delaySeconds < 0 || delaySeconds > 86400 {
-			results = append(results, cardBatchResultRow{RowNo: rowNo, Success: false, Name: name, Type: cardType, Error: "延时发货必须在 0 到 86400 秒之间"})
+		if delaySeconds < 0 || delaySeconds > 3600 {
+			results = append(results, cardBatchResultRow{RowNo: rowNo, Success: false, Name: name, Type: cardType, Error: "延时发货必须在 0 到 3600 秒之间"})
 			failed++
 			continue
 		}

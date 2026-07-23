@@ -210,6 +210,53 @@ func TestDispatch_SemaphoreOverflowDrops(t *testing.T) {
 	}
 }
 
+func TestDispatch_SystemEventWaitsForCapacityInsteadOfDropping(t *testing.T) {
+	acc, _, _, cleanup := newAccountForTest(t)
+	defer cleanup()
+	defer acc.Stop()
+	h := &systemCapturingHandler{}
+	acc.handler = h
+	for i := 0; i < MessageSemaphoreSize; i++ {
+		acc.sem <- struct{}{}
+	}
+	event := mustPaidDeliveryCard(t)
+	done := make(chan struct{})
+	go func() {
+		acc.dispatch(event)
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("system event was dropped while semaphore was full")
+	case <-time.After(100 * time.Millisecond):
+	}
+	<-acc.sem
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("system event did not continue after capacity became available")
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		h.mu.Lock()
+		count := len(h.tasks)
+		h.mu.Unlock()
+		if count == 1 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	h.mu.Lock()
+	count := len(h.tasks)
+	h.mu.Unlock()
+	if count != 1 {
+		t.Fatalf("system event count=%d want 1", count)
+	}
+	for len(acc.sem) > 0 {
+		<-acc.sem
+	}
+}
+
 // TestScheduleDebouncedReply_DifferentChatIDsNotCoalesced 不同 chat_id 的消息各自独立防抖，不合并。
 func TestScheduleDebouncedReply_DifferentChatIDsNotCoalesced(t *testing.T) {
 	acc, h, _, cleanup := newAccountForTest(t)

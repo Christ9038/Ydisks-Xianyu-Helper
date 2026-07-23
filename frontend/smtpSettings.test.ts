@@ -26,4 +26,11 @@ describe('normalizeSMTPSettings', () => {
       smtp_from_address: 'new@example.com',
     });
   });
+
+	test('normalizes persisted SMTP transport strings', () => {
+		expect(normalizeSMTPSettings({ smtp_use_tls: 'false', smtp_use_ssl: 'true' })).toMatchObject({
+			smtp_use_tls: false,
+			smtp_use_ssl: true,
+		});
+	});
 });

@@ -3,9 +3,11 @@ package automation
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
 )
 
@@ -85,11 +87,11 @@ func TestCenterConfirmShipment_MockMTopConsigError(t *testing.T) {
 	if order.SystemShipped {
 		t.Fatal("consign 失败不应写 system_shipped=1")
 	}
-	// automation_runs 应记录失败状态 + 错误信息。
+	// 网络错误无法确认远端是否已经发货，必须进入人工核对而不是自动重试。
 	var runStatus, runErr string
 	store.DB.QueryRowContext(ctx, `SELECT status, error_message FROM automation_runs WHERE order_id='order-mock'`).Scan(&runStatus, &runErr)
-	if runStatus != "failed" {
-		t.Fatalf("run status=%q want failed", runStatus)
+	if runStatus != "needs_review" {
+		t.Fatalf("run status=%q want needs_review", runStatus)
 	}
 	if runErr == "" {
 		t.Fatal("失败 run 应记录错误信息")
@@ -107,5 +109,116 @@ func TestCenterConfirmShipment_MockMTopConsigError(t *testing.T) {
 	store.DB.QueryRowContext(ctx, `SELECT status FROM automation_runs WHERE order_id='order-mock2'`).Scan(&runStatus)
 	if runStatus != "failed" {
 		t.Fatalf("ok=false 应记 failed，got %q", runStatus)
+	}
+}
+
+func TestConfirmShipmentQuarantinesKnownRemoteSuccessWhenLocalPersistenceFails(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := store.Orders.Upsert(ctx, "persist-failure", db.OrderUpsertOpts{CookieID: "cid", ItemID: "item-1", BuyerID: "buyer"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB.ExecContext(ctx, `CREATE TRIGGER reject_shipped_state
+		BEFORE UPDATE OF system_shipped ON orders
+		WHEN NEW.system_shipped=1
+		BEGIN SELECT RAISE(FAIL, 'forced shipment persistence failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	mtopMock := &fakeMTop{consignOk: true, consignUpdated: "unb=123; _m_h5_tk=updated_1;"}
+	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
+	center.SetMTop(mtopMock)
+	err := center.confirmShipment(ctx, Task{
+		AccountID: "cid", OrderID: "persist-failure", ItemID: "item-1", BuyerID: "buyer", ChatID: "chat",
+	})
+	var uncertain *uncertainActionError
+	if !errors.As(err, &uncertain) {
+		t.Fatalf("known remote success with local failure must be quarantined, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "闲鱼已确认发货") || !strings.Contains(err.Error(), "本地状态保存失败") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	order, getErr := store.Orders.Get(ctx, "persist-failure")
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if order.SystemShipped {
+		t.Fatal("failed local write must not be reported as persisted")
+	}
+}
+
+func TestConfirmShipmentKeepsAuthoritativeSnapshotWhenSessionUnchanged(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	initial := "unb=123; _m_h5_tk=old_1;"
+	metadata := cookierefresh.MetadataWithSnapshot(`{"preserved":true}`, []cookierefresh.BrowserCookie{
+		{Name: "unb", Value: "123", Domain: ".goofish.com", Path: "/", Secure: true},
+		{Name: "_m_h5_tk", Value: "old_1", Domain: ".goofish.com", Path: "/", Secure: true},
+	})
+	if err := store.Cookies.UpdateRenewalCookie(ctx, "cid", initial, metadata, 1); err != nil {
+		t.Fatal(err)
+	}
+	updated := "unb=123; _m_h5_tk=mock_new_2;"
+	sender := &testSender{}
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	center.SetMTop(&fakeMTop{consignOk: false, consignRet: []string{"FAIL_SHIP"}, consignUpdated: updated})
+	err := center.confirmShipment(ctx, Task{
+		AccountID: "cid", OrderID: "flat-mock-fallback", ForceConfirmShipment: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "FAIL_SHIP") {
+		t.Fatalf("mock 业务失败应保留原返回语义: %v", err)
+	}
+	detail, getErr := store.Cookies.GetDetails(ctx, "cid")
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if detail.Value != initial {
+		t.Fatalf("完整 Jar 未变化时不得被扁平/mock 返回覆盖: %q", detail.Value)
+	}
+	if snapshot, ok := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); !ok || len(snapshot) != 2 {
+		t.Fatalf("完整 Jar 未变化时必须继续保留: ok=%v snapshot=%+v metadata=%s", ok, snapshot, detail.MetadataJSON)
+	}
+	if !strings.Contains(detail.MetadataJSON, `"preserved":true`) {
+		t.Fatalf("保留 snapshot 时丢失其他 metadata: %s", detail.MetadataJSON)
+	}
+	if len(sender.cookieUpdates) != 0 {
+		t.Fatalf("被忽略的扁平/mock 返回不得同步运行实例: %+v", sender.cookieUpdates)
+	}
+}
+
+func TestConfirmShipmentKeepsFlatMockFallbackWithoutSnapshot(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	initial := "unb=123; _m_h5_tk=old_1;"
+	if err := store.Cookies.UpdateRenewalCookie(ctx, "cid", initial, `{"preserved":true}`, 1); err != nil {
+		t.Fatal(err)
+	}
+	updated := "unb=123; _m_h5_tk=mock_new_2;"
+	sender := &testSender{}
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	center.SetMTop(&fakeMTop{consignOk: false, consignRet: []string{"FAIL_SHIP"}, consignUpdated: updated})
+	err := center.confirmShipment(ctx, Task{
+		AccountID: "cid", OrderID: "flat-mock-fallback", ForceConfirmShipment: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "FAIL_SHIP") {
+		t.Fatalf("mock 业务失败应保留原返回语义: %v", err)
+	}
+	detail, getErr := store.Cookies.GetDetails(ctx, "cid")
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if detail.Value != updated {
+		t.Fatalf("无完整 Jar 时未保留扁平/mock 写回路径: %q", detail.Value)
+	}
+	if _, ok := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); ok {
+		t.Fatalf("扁平 mock 结果不得伪装成权威 Jar: %s", detail.MetadataJSON)
+	}
+	if !strings.Contains(detail.MetadataJSON, `"preserved":true`) {
+		t.Fatalf("扁平写回时丢失其他 metadata: %s", detail.MetadataJSON)
+	}
+	if len(sender.cookieUpdates) != 1 || sender.cookieUpdates[0] != updated {
+		t.Fatalf("扁平/mock 更新未同步运行实例: %+v", sender.cookieUpdates)
 	}
 }

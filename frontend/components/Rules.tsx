@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AccountDetail,
@@ -21,11 +21,16 @@ import {
   getDefaultReplies,
   getDefaultReply,
   getItems,
+  getAutomationIssues,
   getReplyRules,
   getShippingRules,
   updateDefaultReply,
   updateReplyRule,
   updateShippingRule,
+  resolveAutomationRun,
+  resolveDeferredAutomationTask,
+  AutomationRunIssue,
+  DeferredAutomationIssue,
 } from '../services/api';
 import {
   AlertCircle,
@@ -45,6 +50,13 @@ import {
   X,
   Zap,
 } from 'lucide-react';
+import {
+  automationIssueKindLabel,
+  canResolveAutomationIssue,
+  filterAutomationIssues,
+  loadAutomationPageData,
+} from './automationIssueState';
+import { commitIfLatest } from './latestRequest';
 
 type RulesTab = 'automation' | 'reply' | 'default';
 
@@ -128,6 +140,7 @@ const buildReviewConfig = (raw?: string, patch: Record<string, number> = {}) => 
   const current = parseJSONObject(raw);
   return JSON.stringify({
     after_shipped_hours: Number(current.after_shipped_hours || 72),
+    repeat_interval_hours: Number(current.repeat_interval_hours || 24),
     max_attempts: Number(current.max_attempts || 1),
     ...patch,
   });
@@ -199,6 +212,7 @@ const boolFlag = (value: unknown): boolean => value === true || value === 1 || v
 const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHandled }) => {
   const [activeTab, setActiveTab] = useState<RulesTab>('automation');
   const [automationRules, setAutomationRules] = useState<ShippingRule[]>([]);
+  const [automationIssues, setAutomationIssues] = useState<{ runs: AutomationRunIssue[]; pending_tasks: DeferredAutomationIssue[] }>({ runs: [], pending_tasks: [] });
   const [replyRules, setReplyRules] = useState<ReplyRule[]>([]);
   const [defaultReplies, setDefaultReplies] = useState<Record<string, DefaultReply>>({});
   const [accounts, setAccounts] = useState<AccountDetail[]>([]);
@@ -206,6 +220,9 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState('');
+  const replyRulesRequest = useRef(0);
+  const selectedAccountRef = useRef('');
+  selectedAccountRef.current = selectedAccountId;
 
   const [showAutomationModal, setShowAutomationModal] = useState(false);
   const [showReplyModal, setShowReplyModal] = useState(false);
@@ -236,15 +253,25 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
   }, []);
 
   const loadAutomationRules = useCallback(async () => {
-    setAutomationRules(await getShippingRules());
+	await loadAutomationPageData({
+	  loadRules: getShippingRules,
+	  loadIssues: getAutomationIssues,
+	  onRules: setAutomationRules,
+	  onIssues: setAutomationIssues,
+	  onIssuesError: error => console.warn('加载自动化异常列表失败，不阻断规则展示', error),
+	});
   }, []);
 
   const loadReplyRules = useCallback(async () => {
-    if (!selectedAccountId) {
-      setReplyRules([]);
-      return;
-    }
-    setReplyRules(await getReplyRules(selectedAccountId));
+	const cookieID = selectedAccountId;
+	if (cookieID !== selectedAccountRef.current) return;
+	const requestID = ++replyRulesRequest.current;
+	setReplyRules([]);
+	if (!cookieID) {
+	  return;
+	}
+	const rules = await getReplyRules(cookieID);
+	commitIfLatest(requestID, replyRulesRequest.current, cookieID, selectedAccountRef.current, rules, setReplyRules);
   }, [selectedAccountId]);
 
   const loadDefaultReplies = useCallback(async () => {
@@ -267,16 +294,21 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
   }, [activeTab, loadAutomationRules, loadDefaultReplies, loadReplyRules]);
 
   useEffect(() => {
-    void loadReferenceData();
+	void loadReferenceData().catch(error => console.error('加载规则参考数据失败', error));
   }, [loadReferenceData]);
 
   useEffect(() => {
-    void refresh();
+	void refresh().catch(error => console.error('刷新规则页面失败', error));
   }, [refresh]);
 
   const visibleAutomationRules = useMemo(
     () => automationRules.filter(rule => !selectedAccountId || rule.cookie_id === selectedAccountId),
     [automationRules, selectedAccountId],
+  );
+
+  const visibleAutomationIssues = useMemo(
+	() => filterAutomationIssues(automationIssues, selectedAccountId),
+	[automationIssues, selectedAccountId],
   );
 
   const visibleDefaultAccounts = useMemo(
@@ -565,6 +597,31 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     }
   };
 
+  const handleResolveRunIssue = async (id: number, resolution: 'continue' | 'retry' | 'cancel') => {
+    const prompt = resolution === 'continue'
+      ? '确认外部动作已经执行成功，并跳到下一步吗？'
+      : resolution === 'retry'
+        ? '确认外部动作没有执行，可以安全重试吗？错误判断可能造成重复发送。'
+        : '确认终止该自动化运行吗？';
+    if (!confirm(prompt)) return;
+    try {
+      await resolveAutomationRun(id, resolution);
+      await loadAutomationRules();
+    } catch (error) {
+      alert('处理失败：' + (error as Error).message);
+    }
+  };
+
+  const handleResolveDeferredIssue = async (id: number, resolution: 'retry' | 'dismiss') => {
+    if (!confirm(resolution === 'retry' ? '确认重新执行该任务吗？' : '确认忽略并删除该异常任务吗？')) return;
+    try {
+      await resolveDeferredAutomationTask(id, resolution);
+      await loadAutomationRules();
+    } catch (error) {
+      alert('处理失败：' + (error as Error).message);
+    }
+  };
+
   const handleAddReplyRule = () => {
     if (!selectedAccountId) {
       alert('请先选择账号');
@@ -573,6 +630,9 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     setEditingReplyRule({
       keyword: '',
       reply_content: '',
+      image_url: '',
+      item_id: '',
+      type: 'text',
       match_type: 'fuzzy',
       enabled: true,
     });
@@ -581,7 +641,9 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 
   const handleSaveReplyRule = async () => {
     if (!editingReplyRule || !selectedAccountId) return;
-    const hasReplyContent = Boolean(editingReplyRule.reply_content?.trim() || editingReplyRule.image_url?.trim());
+    const hasReplyContent = editingReplyRule.type === 'image'
+      ? Boolean(editingReplyRule.image_url?.trim())
+      : Boolean(editingReplyRule.reply_content?.trim());
     if (!editingReplyRule.keyword?.trim() || !hasReplyContent) {
       alert('请填写关键词和回复内容');
       return;
@@ -743,6 +805,46 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
           );
         })}
       </div>
+
+	  {activeTab === 'automation' && (visibleAutomationIssues.runs.length > 0 || visibleAutomationIssues.pending_tasks.length > 0) && (
+        <section className="rounded-2xl border border-red-200 bg-red-50 p-5 space-y-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
+            <div>
+              <h3 className="font-black text-red-900">需要人工处理的自动化任务</h3>
+              <p className="text-sm text-red-700 mt-1">请先在闲鱼聊天、订单或商品列表中核对真实结果，再选择继续或重试。</p>
+            </div>
+          </div>
+          <div className="space-y-3">
+			{visibleAutomationIssues.runs.map(issue => (
+              <div key={`run-${issue.id}`} className="rounded-xl border border-red-100 bg-white p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-bold text-gray-900">账号 {issue.cookie_id} · 订单 {issue.order_id || '-'} · 已记录发送 {issue.sent_count} 条</div>
+				  <div className="text-xs font-bold text-red-800 mt-1">{automationIssueKindLabel(issue.issue_kind)}</div>
+				  <div className="text-xs text-red-700 mt-1 break-words">{issue.error_message}</div>
+                </div>
+                <div className="flex flex-wrap gap-2 shrink-0">
+				  {canResolveAutomationIssue(issue, 'continue') && <button onClick={() => void handleResolveRunIssue(issue.id, 'continue')} className="px-3 py-2 rounded-lg bg-emerald-100 text-emerald-800 text-xs font-bold">已执行，继续下一步</button>}
+				  {canResolveAutomationIssue(issue, 'retry') && <button onClick={() => void handleResolveRunIssue(issue.id, 'retry')} className="px-3 py-2 rounded-lg bg-amber-100 text-amber-800 text-xs font-bold">未执行，安全重试</button>}
+				  {canResolveAutomationIssue(issue, 'cancel') && <button onClick={() => void handleResolveRunIssue(issue.id, 'cancel')} className="px-3 py-2 rounded-lg bg-gray-100 text-gray-700 text-xs font-bold">终止</button>}
+                </div>
+              </div>
+            ))}
+			{visibleAutomationIssues.pending_tasks.map(issue => (
+              <div key={`task-${issue.id}`} className="rounded-xl border border-red-100 bg-white p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="font-bold text-gray-900">账号 {issue.cookie_id} · 延迟任务重试已达 {issue.attempt_count} 次</div>
+                  <div className="text-xs text-red-700 mt-1 break-words">{issue.error_message}</div>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button onClick={() => void handleResolveDeferredIssue(issue.id, 'retry')} className="px-3 py-2 rounded-lg bg-amber-100 text-amber-800 text-xs font-bold">重新入队</button>
+                  <button onClick={() => void handleResolveDeferredIssue(issue.id, 'dismiss')} className="px-3 py-2 rounded-lg bg-gray-100 text-gray-700 text-xs font-bold">忽略</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {activeTab === 'automation' && (
         <div className="grid grid-cols-1 2xl:grid-cols-[360px_1fr] gap-6">
@@ -1178,7 +1280,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                 <input
                                   type="number"
                                   min="0"
-                                  max="86400"
+                                  max="3600"
                                   value={variant.delay_seconds || 0}
                                   onChange={event => updateVariant(index, { delay_seconds: Math.max(0, Number(event.target.value) || 0) })}
                                   className="w-28 ios-input px-2 py-1.5 rounded-lg text-xs"
@@ -1209,7 +1311,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                         <Clock3 className="w-5 h-5 text-amber-600" />
                         <h4 className="font-black text-gray-900">求评价计划</h4>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
                           <label className="block text-sm font-bold text-gray-700 mb-2">发货后等待小时</label>
                           <input
@@ -1220,6 +1322,21 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                               ...editingAutomationRule,
                               config_json: buildReviewConfig(editingAutomationRule.config_json, {
                                 after_shipped_hours: Math.max(1, Number(event.target.value) || 72),
+                              }),
+                            })}
+                            className="w-full ios-input px-4 py-3 rounded-xl"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-2">再次求评间隔小时</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={Number(reviewConfig.repeat_interval_hours || 24)}
+                            onChange={event => setEditingAutomationRule({
+                              ...editingAutomationRule,
+                              config_json: buildReviewConfig(editingAutomationRule.config_json, {
+                                repeat_interval_hours: Math.max(1, Number(event.target.value) || 24),
                               }),
                             })}
                             className="w-full ios-input px-4 py-3 rounded-xl"
@@ -1240,7 +1357,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                             className="w-full ios-input px-4 py-3 rounded-xl"
                           />
                         </div>
-                        <div className="md:col-span-2">
+                        <div className="md:col-span-3">
                           <label className="block text-sm font-bold text-gray-700 mb-2">求评价文案</label>
                           <textarea
                             value={editingAutomationRule.actions?.find(action => action.action_type === 'send_text')?.message_template || ''}
@@ -1260,7 +1377,8 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                   <section className="bg-white rounded-3xl border border-gray-100 p-5">
                     <div className="grid grid-cols-1 md:grid-cols-[180px_1fr] gap-4 items-end">
                       <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-2">优先级</label>
+						<label className="block text-sm font-bold text-gray-700 mb-2">优先级</label>
+						<p className="text-xs text-gray-500 mb-2">数字越小优先级越高；同一账号、商品和触发条件只执行优先级最高的一条规则。</p>
                         <input
                           type="number"
                           value={editingAutomationRule.priority || 100}
@@ -1316,6 +1434,40 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
             </div>
 
             <div className="modal-body space-y-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">关联商品</label>
+                  <select
+                    value={editingReplyRule.item_id || ''}
+                    onChange={event => setEditingReplyRule({ ...editingReplyRule, item_id: event.target.value })}
+                    className="w-full ios-input px-4 py-3 rounded-xl"
+                  >
+                    <option value="">账号级回复</option>
+                    {items.filter(item => !selectedAccountId || item.cookie_id === selectedAccountId).map(item => (
+                      <option key={`${item.cookie_id}-${item.item_id}`} value={item.item_id}>{item.item_title || item.item_id}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">回复类型</label>
+                  <select
+                    value={editingReplyRule.type || 'text'}
+                    onChange={event => {
+                      const type = event.target.value as 'text' | 'image';
+                      setEditingReplyRule({
+                        ...editingReplyRule,
+                        type,
+                        reply_content: type === 'text' ? editingReplyRule.reply_content : '',
+                        image_url: type === 'image' ? editingReplyRule.image_url : '',
+                      });
+                    }}
+                    className="w-full ios-input px-4 py-3 rounded-xl"
+                  >
+                    <option value="text">文字</option>
+                    <option value="image">图片</option>
+                  </select>
+                </div>
+              </div>
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">关键词</label>
                 <input
@@ -1327,15 +1479,27 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">回复内容</label>
-                <textarea
-                  value={editingReplyRule.reply_content || ''}
-                  onChange={event => setEditingReplyRule({ ...editingReplyRule, reply_content: event.target.value })}
-                  placeholder="自动回复的内容"
-                  className="w-full ios-input px-4 py-3 rounded-xl h-32 resize-none"
-                />
-              </div>
+              {editingReplyRule.type === 'image' ? (
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">图片 URL</label>
+                  <input
+                    value={editingReplyRule.image_url || ''}
+                    onChange={event => setEditingReplyRule({ ...editingReplyRule, image_url: event.target.value })}
+                    placeholder="https://..."
+                    className="w-full ios-input px-4 py-3 rounded-xl"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-2">回复内容</label>
+                  <textarea
+                    value={editingReplyRule.reply_content || ''}
+                    onChange={event => setEditingReplyRule({ ...editingReplyRule, reply_content: event.target.value })}
+                    placeholder="自动回复的内容"
+                    className="w-full ios-input px-4 py-3 rounded-xl h-32 resize-none"
+                  />
+                </div>
+              )}
 
               <div className="flex gap-3 pt-4">
                 <button

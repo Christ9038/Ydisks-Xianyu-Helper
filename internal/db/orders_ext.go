@@ -35,6 +35,7 @@ type OrderListFilter struct {
 	UserID   int64
 	CookieID string
 	Status   string
+	Search   string
 	Limit    int
 	Offset   int
 }
@@ -58,6 +59,15 @@ func (o *Orders) ListForUser(ctx context.Context, f OrderListFilter) ([]OrderRow
 		}
 		where = append(where, "o.order_status IN ("+strings.Join(placeholders, ",")+")")
 	}
+	if search := strings.ToLower(strings.TrimSpace(f.Search)); search != "" {
+		pattern := "%" + search + "%"
+		where = append(where, `(LOWER(o.order_id) LIKE ? OR LOWER(COALESCE(o.item_id,'')) LIKE ?
+			OR LOWER(COALESCE(o.buyer_id,'')) LIKE ? OR LOWER(COALESCE(i.item_title,'')) LIKE ?
+			OR LOWER(COALESCE(o.receiver_name,'')) LIKE ? OR LOWER(COALESCE(o.receiver_phone,'')) LIKE ?)`)
+		for i := 0; i < 6; i++ {
+			args = append(args, pattern)
+		}
+	}
 	whereSQL := strings.Join(where, " AND ")
 
 	var total int
@@ -65,6 +75,7 @@ func (o *Orders) ListForUser(ctx context.Context, f OrderListFilter) ([]OrderRow
 		`SELECT COUNT(*)
 		   FROM orders o
 		   JOIN cookies c ON c.id=o.cookie_id
+		   LEFT JOIN item_info i ON i.cookie_id=o.cookie_id AND i.item_id=o.item_id
 		  WHERE `+whereSQL, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
@@ -125,7 +136,7 @@ func normalizedStatusCandidates(status string) []string {
 	case "processing":
 		return []string{"processing", "1"}
 	case "pending_ship":
-		return []string{"pending_ship", "2"}
+		return []string{"pending_ship", "paid", "2"}
 	case "shipped":
 		return []string{"shipped", "3"}
 	case "completed":
@@ -146,11 +157,22 @@ func (o *Orders) ByCookie(ctx context.Context, cookieID string, limit int) ([]Or
 	if limit <= 0 {
 		limit = 1000
 	}
+	return o.ByCookiePage(ctx, cookieID, limit, 0)
+}
+
+// ByCookiePage 分页读取账号订单，供需要完整扫描的后台任务使用。
+func (o *Orders) ByCookiePage(ctx context.Context, cookieID string, limit, offset int) ([]OrderRow, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
 	rows, err := o.DB.QueryContext(ctx,
 		`SELECT order_id, item_id, buyer_id, spec_name, spec_value, quantity, amount,
 		        order_status, is_bargain, system_shipped, receiver_name, receiver_phone,
 		        receiver_address, receiver_city, created_at, updated_at
-		 FROM orders WHERE cookie_id=? ORDER BY created_at DESC LIMIT ?`, cookieID, limit)
+		 FROM orders WHERE cookie_id=? ORDER BY created_at DESC,order_id DESC LIMIT ? OFFSET ?`, cookieID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +207,8 @@ func (o *Orders) ByCookie(ctx context.Context, cookieID string, limit int) ([]Or
 
 // OrderStatusMap 将数字状态码转换为文本状态。
 var OrderStatusMap = map[string]string{
-	"1": "processing", "2": "pending_ship", "3": "shipped", "4": "completed",
+	"paid": "pending_ship",
+	"1":    "processing", "2": "pending_ship", "3": "shipped", "4": "completed",
 	"5": "refunding", "6": "cancelled", "7": "refunding", "8": "cancelled",
 	"9": "refunding", "10": "cancelled", "11": "completed", "12": "cancelled",
 }

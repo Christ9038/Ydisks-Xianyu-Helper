@@ -3,15 +3,19 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
+	"xianyu-go/internal/xianyu/cookierefresh"
+	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
 // mountCookies 账号 cookie 管理端点。
@@ -22,6 +26,9 @@ func (s *Server) mountCookies(r chi.Router) {
 	r.Post("/cookies", s.addCookie)
 	r.Put("/cookies/{cid}", s.updateCookie)
 	r.Put("/cookies/{cid}/login-info", s.updateCookieLoginInfo)
+	r.Put("/cookies/{cid}/settings", s.updateCookieSettings)
+	r.Get("/cookies/{cid}/long-login", s.getLongLoginSettings)
+	r.Put("/cookies/{cid}/long-login", s.setLongLoginSettings)
 	r.Post("/cookies/{cid}/refresh-profile", s.refreshCookieProfile)
 	r.Get("/cookie/{cid}/details", s.getCookieDetails)
 	r.Put("/cookies/{cid}/status", s.setCookieStatus)
@@ -31,6 +38,281 @@ func (s *Server) mountCookies(r chi.Router) {
 	r.Put("/cookies/{cid}/remark", s.setCookieRemark)
 	r.Put("/cookies/{cid}/pause-duration", s.setCookiePauseDuration)
 	r.Get("/cookies/{cid}/pause-duration", s.getCookiePauseDuration)
+}
+
+func (s *Server) getLongLoginSettings(w http.ResponseWriter, r *http.Request) {
+	cid := chi.URLParam(r, "cid")
+	ownedDetail, ok := s.requireCookieOwner(w, r, cid)
+	if !ok {
+		return
+	}
+	credentialUnlock := s.Store.LockAccountCredentials(cid)
+	detail, err := s.Store.Cookies.GetDetails(r.Context(), cid)
+	if err != nil || detail == nil || detail.UserID != ownedDetail.UserID {
+		credentialUnlock()
+		writeErr(w, http.StatusNotFound, "账号不存在")
+		return
+	}
+	requestCookies := scopedCookieHeader(detail, xrenew.QueryLoginSettingsURL)
+	var result *xrenew.LongLoginSettings
+	var requestErr error
+	if snapshot, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
+		result, requestErr = s.CookieRenew.QueryLongLoginSettings(r.Context(), requestCookies, snapshot)
+	} else {
+		result, requestErr = s.CookieRenew.QueryLongLoginSettings(r.Context(), requestCookies)
+	}
+	credentialChanged, persistErr := s.persistLongLoginCookies(r.Context(), detail, result, xrenew.QueryLoginSettingsURL)
+	credentialUnlock()
+	if persistErr != nil {
+		writeErr(w, http.StatusInternalServerError, "保存续期 Cookie 失败")
+		return
+	}
+	if credentialChanged {
+		s.updateRunningCookie(r.Context(), cid, result.NewCookies)
+	}
+	if requestErr != nil {
+		writeErr(w, http.StatusBadGateway, requestErr.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) setLongLoginSettings(w http.ResponseWriter, r *http.Request) {
+	cid := chi.URLParam(r, "cid")
+	ownedDetail, ok := s.requireCookieOwner(w, r, cid)
+	if !ok {
+		return
+	}
+	var req struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := decodeJSON(r, &req); err != nil || req.Enabled == nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	credentialUnlock := s.Store.LockAccountCredentials(cid)
+	detail, err := s.Store.Cookies.GetDetails(r.Context(), cid)
+	if err != nil || detail == nil || detail.UserID != ownedDetail.UserID {
+		credentialUnlock()
+		writeErr(w, http.StatusNotFound, "账号不存在")
+		return
+	}
+	requestCookies := scopedCookieHeader(detail, xrenew.SetLoginSettingsURL)
+	var result *xrenew.LongLoginSettings
+	var requestErr error
+	if snapshot, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
+		result, requestErr = s.CookieRenew.SetLongLoginSettings(r.Context(), requestCookies, *req.Enabled, snapshot)
+	} else {
+		result, requestErr = s.CookieRenew.SetLongLoginSettings(r.Context(), requestCookies, *req.Enabled)
+	}
+	credentialChanged, persistErr := s.persistLongLoginCookies(r.Context(), detail, result, xrenew.SetLoginSettingsURL)
+	credentialUnlock()
+	if persistErr != nil {
+		writeErr(w, http.StatusInternalServerError, "保存续期 Cookie 失败")
+		return
+	}
+	if credentialChanged {
+		s.updateRunningCookie(r.Context(), cid, result.NewCookies)
+	}
+	if requestErr != nil {
+		writeErr(w, http.StatusBadGateway, requestErr.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// persistLongLoginCookies 必须在账号凭证锁内调用。它只更新持久化状态；
+// 运行中实例的 Cookie 更新必须等调用方释放凭证锁后再执行。
+func (s *Server) persistLongLoginCookies(ctx context.Context, detail *db.CookieDetail, result *xrenew.LongLoginSettings, requestURL string) (bool, error) {
+	if result == nil || detail == nil {
+		return false, nil
+	}
+	metadata := detail.MetadataJSON
+	snapshot, hasSnapshot := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON)
+	if result.CookieSnapshotComplete {
+		snapshot = cookierefresh.NormalizeSnapshot(result.CookieSnapshot)
+		if snapshot == nil {
+			snapshot = []cookierefresh.BrowserCookie{}
+		}
+		result.NewCookies, _ = cookierefresh.ScopedCookieHeaderForRequest(
+			snapshot, "https://www.goofish.com/im", "https://goofish.com", time.Now(),
+		)
+		metadata = cookierefresh.MetadataWithSnapshot(metadata, snapshot)
+	} else if hasSnapshot {
+		// 兼容非标准 Service 实现：只有未返回最终 Jar 时才按当前请求 URL
+		// 应用响应头；官方 Service 会在 SET→QUERY 间逐请求维护完整 Jar。
+		snapshot = cookierefresh.ApplySetCookies(snapshot, requestURL, result.SetCookies, time.Now(), "https://goofish.com")
+		if snapshot == nil {
+			snapshot = []cookierefresh.BrowserCookie{}
+		}
+		result.NewCookies, _ = cookierefresh.ScopedCookieHeaderForRequest(
+			snapshot, "https://www.goofish.com/im", "https://goofish.com", time.Now(),
+		)
+		metadata = cookierefresh.MetadataWithSnapshot(metadata, snapshot)
+	} else {
+		// 历史账号只有扁平 Cookie 时只能合并兼容值，不能凭空推断完整
+		// Domain/Path/HttpOnly/PartitionKey 属性。
+		result.NewCookies = xrenew.MergeSetCookies(detail.Value, result.SetCookies)
+		metadata = cookierefresh.MetadataWithoutSnapshot(metadata)
+	}
+	credentialChanged := result.NewCookies != detail.Value || metadata != detail.MetadataJSON
+	if !credentialChanged && len(result.SetCookies) == 0 {
+		return false, nil
+	}
+	if err := s.Store.Cookies.UpdateRenewalCookie(ctx, detail.ID, result.NewCookies, metadata, time.Now().Unix()); err != nil {
+		s.Logger.Warn("保存长登录 Cookie 失败", "cookie_id", detail.ID, "err", err)
+		return false, err
+	}
+	if credentialChanged && s.Store.Tokens != nil {
+		if err := s.Store.Tokens.Clear(ctx, detail.ID); err != nil {
+			s.Logger.Warn("长登录 Cookie 保存后清理旧连接凭证失败", "cookie_id", detail.ID, "err", err)
+		}
+	}
+	return credentialChanged, nil
+}
+
+// updateFlatCookieOwnedLocked 用新的扁平 Cookie 覆盖账号时同步移除旧浏览器
+// 快照，避免下一次浏览器取 token 又把旧 Cookie 注入回来。调用方必须持有
+// 对应账号的凭证锁，并已验证 detail 的归属。
+func (s *Server) updateFlatCookieOwnedLocked(ctx context.Context, detail *db.CookieDetail, value string) error {
+	if detail == nil {
+		return db.ErrNotFound
+	}
+	metadata := cookierefresh.MetadataWithoutSnapshot(detail.MetadataJSON)
+	return s.Store.Cookies.UpdateRenewalCookie(ctx, detail.ID, value, metadata, time.Now().Unix())
+}
+
+func (s *Server) updateRunningCookie(ctx context.Context, cookieID, value string) {
+	if s.Manager == nil || !s.Store.Cookies.GetStatus(ctx, cookieID) {
+		return
+	}
+	if sender, ok := s.Manager.GetInstance(cookieID); ok {
+		sender.UpdateCookie(value)
+	}
+}
+
+func scopedCookieHeader(detail *db.CookieDetail, requestURL string) string {
+	if detail == nil {
+		return ""
+	}
+	if snapshot, ok := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); ok {
+		if header, authoritative := cookierefresh.ScopedCookieHeaderForRequest(snapshot, requestURL, "https://goofish.com", time.Now()); authoritative {
+			return header
+		}
+	}
+	return detail.Value
+}
+
+type updateCookieSettingsRequest struct {
+	Cookie        *string  `json:"cookie"`
+	Remark        *string  `json:"remark"`
+	AutoConfirm   *bool    `json:"auto_confirm"`
+	PauseDuration *int     `json:"pause_duration"`
+	Username      *string  `json:"username"`
+	LoginPassword *string  `json:"login_password"`
+	ClearPassword bool     `json:"clear_password"`
+	ShowBrowser   *bool    `json:"show_browser"`
+	ChannelIDs    *[]int64 `json:"channel_ids"`
+}
+
+// updateCookieSettings 原子保存编辑弹窗中的账号字段和通知绑定。
+func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
+	cid := chi.URLParam(r, "cid")
+	detail, ok := s.requireCookieOwner(w, r, cid)
+	if !ok {
+		return
+	}
+	var req updateCookieSettingsRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if req.Cookie != nil && strings.TrimSpace(*req.Cookie) == "" {
+		writeErr(w, http.StatusBadRequest, "Cookie 不能为空")
+		return
+	}
+	if req.Remark != nil && utf8.RuneCountInString(*req.Remark) > 500 {
+		writeErr(w, http.StatusBadRequest, "备注不能超过 500 个字符")
+		return
+	}
+	if req.Username != nil && utf8.RuneCountInString(*req.Username) > 256 {
+		writeErr(w, http.StatusBadRequest, "登录账号不能超过 256 个字符")
+		return
+	}
+	if req.LoginPassword != nil && len(*req.LoginPassword) > 1024 {
+		writeErr(w, http.StatusBadRequest, "登录密码长度超出限制")
+		return
+	}
+
+	credentialUnlock := s.Store.LockAccountCredentials(cid)
+	latestDetail, err := s.Store.Cookies.GetDetails(r.Context(), cid)
+	if err != nil || latestDetail == nil || latestDetail.UserID != detail.UserID {
+		credentialUnlock()
+		writeErr(w, http.StatusNotFound, "账号不存在")
+		return
+	}
+	detail = latestDetail
+
+	input := db.AccountSettingsUpdate{
+		UserID:        detail.UserID,
+		Value:         req.Cookie,
+		Remark:        req.Remark,
+		AutoConfirm:   req.AutoConfirm,
+		PauseDuration: req.PauseDuration,
+		ChannelIDs:    req.ChannelIDs,
+	}
+	loginChanged := req.Username != nil || req.LoginPassword != nil || req.ShowBrowser != nil || req.ClearPassword
+	if loginChanged {
+		username := detail.Username
+		if req.Username != nil {
+			username = *req.Username
+		}
+		password := detail.Password
+		if req.LoginPassword != nil && *req.LoginPassword != "" {
+			password = *req.LoginPassword
+		}
+		if req.ClearPassword {
+			password = ""
+		}
+		showBrowser := detail.ShowBrowser
+		if req.ShowBrowser != nil {
+			showBrowser = *req.ShowBrowser
+		}
+		input.Username = &username
+		input.Password = &password
+		input.ShowBrowser = &showBrowser
+	}
+	pausedUntil, err := s.Store.Cookies.UpdateSettings(r.Context(), cid, input)
+	if err != nil {
+		credentialUnlock()
+		switch {
+		case errors.Is(err, db.ErrForbidden):
+			writeErr(w, http.StatusForbidden, "账号设置包含无权限使用的资源")
+		case errors.Is(err, db.ErrNotFound):
+			writeErr(w, http.StatusNotFound, "账号不存在")
+		default:
+			writeErr(w, http.StatusBadRequest, err.Error())
+		}
+		return
+	}
+	if req.Cookie != nil {
+		// UpdateSettings 已在同一事务中写入 Cookie 并清除旧快照，不能再做
+		// 第二次非原子覆盖。
+		if s.Store.Tokens != nil {
+			if err := s.Store.Tokens.Clear(r.Context(), cid); err != nil {
+				s.Logger.Warn("账号设置保存后清理旧连接凭证失败", "cookie_id", cid, "err", err)
+			}
+		}
+	}
+	credentialUnlock()
+	if req.Cookie != nil && s.Manager != nil && s.Store.Cookies.GetStatus(r.Context(), cid) {
+		if err := s.Manager.Restart(r.Context(), cid); err != nil {
+			s.Logger.Error("账号设置保存后重启失败", "cookie_id", cid, "err", err)
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true, "paused_until": pausedUntil, "paused": pausedUntil > time.Now().UTC().Unix(),
+	})
 }
 
 // listCookieRuntimeStatus 返回本地账号引擎状态，不请求闲鱼 API，可安全用于前端轮询。
@@ -96,6 +378,8 @@ func (s *Server) listCookieDetails(w http.ResponseWriter, r *http.Request) {
 			"auto_confirm":   d.AutoConfirm,
 			"remark":         d.Remark,
 			"pause_duration": d.PauseDuration,
+			"paused_until":   d.PausedUntil,
+			"paused":         d.PausedUntil > time.Now().UTC().Unix(),
 			"show_browser":   d.ShowBrowser,
 			"username":       d.Username,
 			"nickname":       cachedAccountNickname(d),
@@ -129,6 +413,8 @@ func (s *Server) getCookieDetails(w http.ResponseWriter, r *http.Request) {
 		"auto_confirm":   d.AutoConfirm,
 		"remark":         d.Remark,
 		"pause_duration": d.PauseDuration,
+		"paused_until":   d.PausedUntil,
+		"paused":         d.PausedUntil > time.Now().UTC().Unix(),
 		"show_browser":   d.ShowBrowser,
 		"username":       d.Username,
 		"nickname":       cachedAccountNickname(d),
@@ -176,22 +462,34 @@ func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := auth.SessionFromContext(r.Context())
-	if err := s.Store.Cookies.Save(r.Context(), req.ID, req.Value, sess.UserID); err != nil {
+	credentialUnlock := s.Store.LockAccountCredentials(req.ID)
+	if err := s.Store.Cookies.CreateOwned(r.Context(), req.ID, req.Value, sess.UserID); err != nil {
+		credentialUnlock()
 		if errors.Is(err, db.ErrForbidden) {
 			writeErr(w, http.StatusForbidden, "该账号ID已存在且不属于当前用户")
+			return
+		}
+		if errors.Is(err, db.ErrAlreadyExists) {
+			writeErr(w, http.StatusConflict, "该账号ID已存在，请使用更新账号功能")
 			return
 		}
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if d, err := s.Store.Cookies.GetDetails(r.Context(), req.ID); err == nil {
-		s.refreshAccountProfile(r.Context(), d)
+	if s.Store.Tokens != nil {
+		if err := s.Store.Tokens.Clear(r.Context(), req.ID); err != nil {
+			s.Logger.Warn("新增账号后清理旧连接凭证失败", "cookie_id", req.ID, "err", err)
+		}
 	}
 	loginMethod := normalizeLoginMethod(req.LoginMethod)
 	if loginMethod == "" {
 		loginMethod = loginMethodManual
 	}
 	s.markSuccessfulLogin(r.Context(), req.ID, sess.UserID, loginMethod, "账号登录成功")
+	credentialUnlock()
+	if d, err := s.Store.Cookies.GetDetails(r.Context(), req.ID); err == nil {
+		s.refreshAccountProfile(r.Context(), d)
+	}
 	if s.Manager != nil && s.Store.Cookies.GetStatus(r.Context(), req.ID) {
 		if err := s.Manager.Restart(r.Context(), req.ID); err != nil {
 			s.Logger.Error("更新后重启账号失败", "cookie_id", req.ID, "err", err)
@@ -203,7 +501,8 @@ func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
 // updateCookie 更新 cookie 值。
 func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	ownedDetail, ok := s.requireCookieOwner(w, r, cid)
+	if !ok {
 		return
 	}
 	var req struct {
@@ -215,7 +514,15 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := auth.SessionFromContext(r.Context())
-	if err := s.Store.Cookies.Save(r.Context(), cid, req.Value, sess.UserID); err != nil {
+	credentialUnlock := s.Store.LockAccountCredentials(cid)
+	detail, err := s.Store.Cookies.GetDetails(r.Context(), cid)
+	if err != nil || detail == nil || detail.UserID != ownedDetail.UserID || detail.UserID != sess.UserID {
+		credentialUnlock()
+		writeErr(w, http.StatusNotFound, "账号不存在")
+		return
+	}
+	if err := s.updateFlatCookieOwnedLocked(r.Context(), detail, req.Value); err != nil {
+		credentialUnlock()
 		if errors.Is(err, db.ErrForbidden) {
 			writeErr(w, http.StatusForbidden, "无权限操作该账号")
 			return
@@ -223,11 +530,17 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if d, err := s.Store.Cookies.GetDetails(r.Context(), cid); err == nil {
-		s.refreshAccountProfile(r.Context(), d)
+	if s.Store.Tokens != nil {
+		if err := s.Store.Tokens.Clear(r.Context(), cid); err != nil {
+			s.Logger.Warn("更新账号后清理旧连接凭证失败", "cookie_id", cid, "err", err)
+		}
 	}
 	if loginMethod := normalizeLoginMethod(req.LoginMethod); loginMethod != "" {
 		s.markSuccessfulLogin(r.Context(), cid, sess.UserID, loginMethod, "账号登录成功")
+	}
+	credentialUnlock()
+	if d, err := s.Store.Cookies.GetDetails(r.Context(), cid); err == nil {
+		s.refreshAccountProfile(r.Context(), d)
 	}
 	if s.Manager != nil && s.Store.Cookies.GetStatus(r.Context(), cid) {
 		if err := s.Manager.Restart(r.Context(), cid); err != nil {
@@ -274,7 +587,8 @@ func (s *Server) updateCookieLoginInfo(w http.ResponseWriter, r *http.Request) {
 // setCookieStatus 启用/禁用账号。
 func (s *Server) setCookieStatus(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	ownedDetail, ok := s.requireCookieOwner(w, r, cid)
+	if !ok {
 		return
 	}
 	var req struct {
@@ -284,10 +598,23 @@ func (s *Server) setCookieStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	if err := s.Store.Cookies.SetStatus(r.Context(), cid, req.Enabled); err != nil {
+	reason := ""
+	if !req.Enabled {
+		reason = db.DisableReasonManual
+	}
+	credentialUnlock := s.Store.LockAccountCredentials(cid)
+	latest, err := s.Store.Cookies.GetDetails(r.Context(), cid)
+	if err != nil || latest == nil || latest.UserID != ownedDetail.UserID {
+		credentialUnlock()
+		writeErr(w, http.StatusNotFound, "账号不存在")
+		return
+	}
+	if err := s.Store.Cookies.SetStatusWithReason(r.Context(), cid, req.Enabled, reason); err != nil {
+		credentialUnlock()
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
+	credentialUnlock()
 	// 启停引擎实例。
 	if s.Manager != nil {
 		if req.Enabled {
@@ -307,15 +634,27 @@ func (s *Server) setCookieStatus(w http.ResponseWriter, r *http.Request) {
 // deleteCookie 删除账号。
 func (s *Server) deleteCookie(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	ownedDetail, ok := s.requireCookieOwner(w, r, cid)
+	if !ok {
 		return
 	}
-	if s.Manager != nil {
-		s.Manager.Stop(cid)
+	credentialUnlock := s.Store.LockAccountCredentials(cid)
+	latest, err := s.Store.Cookies.GetDetails(r.Context(), cid)
+	if err != nil || latest == nil || latest.UserID != ownedDetail.UserID {
+		credentialUnlock()
+		writeErr(w, http.StatusNotFound, "账号不存在")
+		return
 	}
 	if err := s.Store.Cookies.Delete(r.Context(), cid); err != nil {
+		credentialUnlock()
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
+	}
+	credentialUnlock()
+	// Stop 会等待 Account.Run 退出，而 Run 可能正在等待同一凭证锁，因此必须
+	// 在删除事务完成并释放锁后调用。
+	if s.Manager != nil {
+		s.Manager.Stop(cid)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
@@ -389,16 +728,18 @@ func (s *Server) setCookiePauseDuration(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	if req.PauseDuration < 0 {
-		writeErr(w, http.StatusBadRequest, "暂停时长不能为负数")
+	if req.PauseDuration < 0 || req.PauseDuration > 1440 {
+		writeErr(w, http.StatusBadRequest, "暂停时长必须在 0 到 1440 分钟之间")
 		return
 	}
-	if _, err := s.Store.DB.ExecContext(r.Context(),
-		`UPDATE cookies SET pause_duration=? WHERE id=?`, req.PauseDuration, cid); err != nil {
+	pausedUntil, err := s.Store.Cookies.SetPause(r.Context(), cid, req.PauseDuration)
+	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存暂停时长失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true, "paused_until": pausedUntil, "paused": pausedUntil > time.Now().UTC().Unix(),
+	})
 }
 
 // getCookiePauseDuration 获取暂停时长。
@@ -407,7 +748,12 @@ func (s *Server) getCookiePauseDuration(w http.ResponseWriter, r *http.Request) 
 	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"pause_duration": s.Store.Cookies.GetPauseDuration(r.Context(), cid)})
+	paused, pausedUntil, _ := s.Store.Cookies.IsPaused(r.Context(), cid)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"pause_duration": s.Store.Cookies.GetPauseDuration(r.Context(), cid),
+		"paused_until":   pausedUntil,
+		"paused":         paused,
+	})
 }
 
 func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) (string, string, string) {
@@ -418,19 +764,57 @@ func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) 
 		return cachedAccountNickname(d), d.AvatarURL, "账号资料客户端未初始化"
 	}
 
-	profile, err := s.MTop.FetchUserProfile(ctx, d.Value)
-	if err != nil {
-		if s.Logger != nil {
-			s.Logger.Warn("刷新账号资料失败", "account", d.ID, "err", err)
+	credentialUnlock := s.Store.LockAccountCredentials(d.ID)
+	latest, latestErr := s.Store.Cookies.GetDetails(ctx, d.ID)
+	if latestErr != nil || latest == nil || latest.UserID != d.UserID {
+		credentialUnlock()
+		if latestErr == nil {
+			latestErr = db.ErrNotFound
 		}
-		return cachedAccountNickname(d), d.AvatarURL, truncate(err.Error(), 180)
+		return cachedAccountNickname(d), d.AvatarURL, truncate(latestErr.Error(), 180)
 	}
-
-	if profile.UpdatedCookies != "" && profile.UpdatedCookies != d.Value {
-		if err := s.Store.Cookies.Save(ctx, d.ID, profile.UpdatedCookies, d.UserID); err != nil && s.Logger != nil {
-			s.Logger.Warn("保存账号刷新 cookie 失败", "account", d.ID, "err", err)
+	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
+	profile, callErr := s.MTop.FetchUserProfile(mtopCtx, latest.Value)
+	runtimeCookie := ""
+	runtimeCookieChanged := false
+	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(ctx, latest, cookieSession)
+	if persistErr != nil {
+		if s.Logger != nil {
+			s.Logger.Warn("保存账号资料响应 Cookie Jar 失败", "account", d.ID, "err", persistErr)
 		}
-		d.Value = profile.UpdatedCookies
+		callErr = errors.Join(callErr, fmt.Errorf("保存账号资料响应凭证: %w", persistErr))
+	} else if handled {
+		if valueChanged {
+			runtimeCookie = value
+			runtimeCookieChanged = true
+		}
+		d.Value = value
+	} else if callErr == nil && profile != nil && profile.UpdatedCookies != "" && profile.UpdatedCookies != latest.Value {
+		// 注入 mock 或没有权威快照的历史账号继续沿用扁平 Cookie 路径；
+		// 该路径必须清除旧 snapshot，不能伪造完整 Jar。
+		if err := s.updateFlatCookieOwnedLocked(ctx, latest, profile.UpdatedCookies); err != nil {
+			if s.Logger != nil {
+				s.Logger.Warn("保存账号刷新 cookie 失败", "account", d.ID, "err", err)
+			}
+			callErr = errors.Join(callErr, fmt.Errorf("保存账号资料响应凭证: %w", err))
+		} else {
+			runtimeCookie = profile.UpdatedCookies
+			runtimeCookieChanged = true
+			d.Value = profile.UpdatedCookies
+		}
+	}
+	credentialUnlock()
+	if runtimeCookieChanged {
+		s.updateRunningCookie(ctx, d.ID, runtimeCookie)
+	}
+	if callErr != nil {
+		if s.Logger != nil {
+			s.Logger.Warn("刷新账号资料失败", "account", d.ID, "err", callErr)
+		}
+		return cachedAccountNickname(d), d.AvatarURL, truncate(callErr.Error(), 180)
+	}
+	if profile == nil {
+		return cachedAccountNickname(d), d.AvatarURL, "账号资料接口未返回结果"
 	}
 
 	apiNickname := strings.TrimSpace(profile.Nickname)

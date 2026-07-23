@@ -28,7 +28,10 @@ type AIReplySettings struct {
 }
 
 // AIReply 操作。
-type AIReply struct{ DB *sql.DB }
+type AIReply struct {
+	DB    *sql.DB
+	codec *secretCodec
+}
 
 // Get 取某账号 AI 回复配置。
 func (a *AIReply) Get(ctx context.Context, cookieID string) (*AIReplySettings, error) {
@@ -48,7 +51,10 @@ func (a *AIReply) Get(ctx context.Context, cookieID string) (*AIReplySettings, e
 		return nil, err
 	}
 	s.AIEnabled = enabled != 0
-	s.APIKey = apiKey.String
+	s.APIKey, err = a.codec.decrypt("ai-api-key", cookieID, apiKey.String)
+	if err != nil {
+		return nil, err
+	}
 	s.CustomPrompts = customPrompts.String
 	if s.ModelName == "" {
 		s.ModelName = "qwen-plus"

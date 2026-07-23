@@ -7,16 +7,17 @@ import (
 	"fmt"
 	"html"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	qrcode "github.com/skip2/go-qrcode"
 
 	"xianyu-go/internal/logsafe"
+	"xianyu-go/internal/xianyu/cookierefresh"
 )
 
 // runFaceVerification 参照闲鱼浏览器端风控跳转链，纯 HTTP 复现人脸验证流程。
@@ -32,12 +33,13 @@ func (m *Manager) runFaceVerification(ctx context.Context, sessionID, iframeURL 
 		return fmt.Errorf("会话不存在")
 	}
 	m.mu.Unlock()
-	initialCookies := sess.snapshot().cookies
+	state := sess.snapshot()
+	initialCookies := state.cookies
 	if len(initialCookies) == 0 {
 		return fmt.Errorf("无扫码临时 cookie")
 	}
 
-	client, jar, err := m.faceHTTPClient(initialCookies, iframeURL)
+	client, jar, err := m.faceHTTPClient(initialCookies, state.cookieSnapshot, iframeURL)
 	if err != nil {
 		return err
 	}
@@ -88,15 +90,11 @@ func (m *Manager) runFaceVerification(ctx context.Context, sessionID, iframeURL 
 		return fmt.Errorf("请求 ivCheckLogin: %w", err)
 	}
 
-	finalCookies := collectJarCookies(jar,
-		mustParseURL(host),
-		mustParseURL("https://www.goofish.com/"),
-		mustParseURL(iframeURL),
-		mustParseURL(ivCheckURL),
-	)
+	finalCookies := collectJarCookies(jar, mustParseURL(qrVerifyTargetURL))
 	if finalCookies["unb"] == "" {
 		return fmt.Errorf("人脸验证完成但未获取到 unb")
 	}
+	finalSnapshot, snapshotComplete := jar.Snapshot()
 
 	m.mu.Lock()
 	s = m.sessions[sessionID]
@@ -104,6 +102,11 @@ func (m *Manager) runFaceVerification(ctx context.Context, sessionID, iframeURL 
 	if s != nil {
 		s.mu.Lock()
 		s.cookies = finalCookies
+		if snapshotComplete {
+			s.cookieSnapshot = finalSnapshot
+		} else {
+			s.cookieSnapshot = nil
+		}
 		s.unb = finalCookies["unb"]
 		s.Status = "success"
 		s.mu.Unlock()
@@ -112,68 +115,110 @@ func (m *Manager) runFaceVerification(ctx context.Context, sessionID, iframeURL 
 	return nil
 }
 
-// fallbackBrowserVerification 保留旧浏览器验证作为协议变化时的兜底。
-// 主路径不再截图展示，只有 API 链路失败且浏览器可用时才尝试。
-func (m *Manager) fallbackBrowserVerification(ctx context.Context, sessionID, verificationURL string) {
-	browser := m.browserRefresher()
-	if browser == nil {
-		return
-	}
-	m.mu.Lock()
-	sess := m.sessions[sessionID]
-	if sess == nil {
-		m.mu.Unlock()
-		return
-	}
-	m.mu.Unlock()
-	cookieStr := cookieMarshal(sess.snapshot().cookies)
-
-	onScreenshot := func(dataURL string) {
-		m.mu.Lock()
-		s, ok := m.sessions[sessionID]
-		m.mu.Unlock()
-		if ok {
-			s.mu.Lock()
-			s.verificationScreenshot = dataURL
-			s.mu.Unlock()
+func (m *Manager) faceHTTPClient(cookies map[string]string, snapshot []cookierefresh.BrowserCookie, seedURLs ...string) (*http.Client, *faceCookieJar, error) {
+	jar := newFaceCookieJar(cookies, snapshot)
+	if snapshot == nil {
+		setJarCookies(jar, mustParseURL(host), cookies)
+		for _, rawURL := range seedURLs {
+			if u, err := url.Parse(rawURL); err == nil {
+				setJarCookies(jar, u, cookies)
+			}
 		}
-	}
-	realCookies, unb, err := browser(ctx, cookieStr, verificationURL, onScreenshot)
-	m.mu.Lock()
-	s, ok := m.sessions[sessionID]
-	m.mu.Unlock()
-	if !ok {
-		return
-	}
-	if err != nil {
-		m.logger.Error("浏览器验证兜底失败", "session_id", sessionID, "err", err)
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.cookies = parseCookieStr(realCookies)
-	s.unb = unb
-	if s.unb == "" {
-		s.unb = s.cookies["unb"]
-	}
-	if s.unb != "" {
-		s.Status = "success"
-		m.logger.Info("浏览器验证兜底成功", "session_id", sessionID, "account_hash", logsafe.ID(s.unb))
-	}
-}
-
-func (m *Manager) faceHTTPClient(cookies map[string]string, iframeURL string) (*http.Client, http.CookieJar, error) {
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	setJarCookies(jar, mustParseURL(host), cookies)
-	if u, err := url.Parse(iframeURL); err == nil {
-		setJarCookies(jar, u, cookies)
 	}
 	hc := *m.httpc
 	hc.Jar = jar
 	return &hc, jar, nil
+}
+
+// faceCookieJar 是人脸验证与登录凭证换取专用的 Go Cookie Jar。标准库
+// cookiejar 能正确发送 Cookie，但没有导出完整 Jar 的接口；这个实现直接以
+// BrowserCookie 为权威状态，使自动重定向中的每个 Set-Cookie 都能原样进入
+// 最终持久化快照。
+type faceCookieJar struct {
+	mu            sync.Mutex
+	snapshot      []cookierefresh.BrowserCookie
+	authoritative bool
+}
+
+func newFaceCookieJar(cookies map[string]string, snapshot []cookierefresh.BrowserCookie) *faceCookieJar {
+	jar := &faceCookieJar{authoritative: snapshot != nil}
+	if snapshot != nil {
+		jar.snapshot = cookierefresh.NormalizeSnapshot(snapshot)
+		if jar.snapshot == nil {
+			jar.snapshot = []cookierefresh.BrowserCookie{}
+		}
+		return jar
+	}
+	// 只有历史/异常会话才会走这里。推断快照仅用于维持 HTTP 会话，
+	// authoritative=false 保证调用方不会把推断属性持久化成完整 Jar。
+	jar.snapshot = cookierefresh.SnapshotFromCookieString(cookieMarshal(cookies), ".goofish.com")
+	return jar
+}
+
+func (j *faceCookieJar) Cookies(u *url.URL) []*http.Cookie {
+	if j == nil || u == nil {
+		return nil
+	}
+	j.mu.Lock()
+	header, _ := cookierefresh.ScopedCookieHeaderForRequest(j.snapshot, u.String(), qrTopSite, time.Now())
+	j.mu.Unlock()
+	if header == "" {
+		return nil
+	}
+	parts := strings.Split(header, ";")
+	out := make([]*http.Cookie, 0, len(parts))
+	for _, part := range parts {
+		name, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if !ok || name == "" {
+			continue
+		}
+		out = append(out, &http.Cookie{Name: name, Value: value})
+	}
+	return out
+}
+
+func (j *faceCookieJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
+	if j == nil || u == nil || len(cookies) == 0 {
+		return
+	}
+	raw := make([]string, 0, len(cookies))
+	for _, cookie := range cookies {
+		if cookie == nil || strings.TrimSpace(cookie.Name) == "" {
+			continue
+		}
+		line := strings.TrimSpace(cookie.Raw)
+		if line == "" {
+			line = cookie.String()
+		}
+		if line != "" {
+			raw = append(raw, line)
+		}
+	}
+	if len(raw) == 0 {
+		return
+	}
+	j.mu.Lock()
+	j.snapshot = cookierefresh.ApplySetCookies(j.snapshot, u.String(), raw, time.Now(), qrTopSite)
+	if j.snapshot == nil {
+		j.snapshot = []cookierefresh.BrowserCookie{}
+	}
+	j.mu.Unlock()
+}
+
+func (j *faceCookieJar) Snapshot() ([]cookierefresh.BrowserCookie, bool) {
+	if j == nil {
+		return nil, false
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if !j.authoritative {
+		return nil, false
+	}
+	out := cookierefresh.NormalizeSnapshot(j.snapshot)
+	if out == nil {
+		out = []cookierefresh.BrowserCookie{}
+	}
+	return out, true
 }
 
 func (m *Manager) faceGetHTML(ctx context.Context, client *http.Client, targetURL, referer string) (string, error) {
@@ -252,7 +297,7 @@ func (m *Manager) checkFaceVerification(ctx context.Context, client *http.Client
 	if err := json.Unmarshal(body, &result); err != nil {
 		return "", false, fmt.Errorf("解析人脸验证状态失败: %w", err)
 	}
-	if fmt.Sprint(result.Content.Code) == "3" && result.Content.URL != "" {
+	if fmt.Sprint(result.Content.Code) == "3" {
 		return result.Content.URL, true, nil
 	}
 	return "", false, nil

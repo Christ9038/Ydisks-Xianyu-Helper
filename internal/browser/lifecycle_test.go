@@ -91,6 +91,44 @@ func TestEvictIfNeededNoopWhenUnderLimit(t *testing.T) {
 	}
 }
 
+func TestEvictIfNeededSkipsActiveEntries(t *testing.T) {
+	m := newTestManager(2)
+	m.pool["active-old"] = &poolEntry{cookieID: "active-old", lastUsed: time.Now().Add(-2 * time.Hour), active: 1}
+	m.pool["idle-new"] = &poolEntry{cookieID: "idle-new", lastUsed: time.Now()}
+	m.evictIfNeeded()
+	if _, ok := m.pool["active-old"]; !ok {
+		t.Fatal("正在执行 token 请求的条目不得被淘汰")
+	}
+	if _, ok := m.pool["idle-new"]; ok {
+		t.Fatal("池满时应优先淘汰空闲条目")
+	}
+}
+
+func TestEvictIfNeededAllowsTemporaryOverflowWhenAllActive(t *testing.T) {
+	m := newTestManager(2)
+	m.pool["active-1"] = &poolEntry{cookieID: "active-1", lastUsed: time.Now().Add(-2 * time.Hour), active: 1}
+	m.pool["active-2"] = &poolEntry{cookieID: "active-2", lastUsed: time.Now().Add(-time.Hour), active: 1}
+	m.evictIfNeeded()
+	if len(m.pool) != 2 {
+		t.Fatalf("所有条目活跃时不得强制淘汰，pool=%d", len(m.pool))
+	}
+}
+
+func TestCleanupIdleSkipsActiveEntries(t *testing.T) {
+	m := newTestManager(3)
+	m.idleTTL = time.Minute
+	old := time.Now().Add(-time.Hour)
+	m.pool["active"] = &poolEntry{cookieID: "active", lastUsed: old, active: 1}
+	m.pool["idle"] = &poolEntry{cookieID: "idle", lastUsed: old}
+	m.CleanupIdle()
+	if _, ok := m.pool["active"]; !ok {
+		t.Fatal("CleanupIdle 不得关闭仍有租约的条目")
+	}
+	if _, ok := m.pool["idle"]; ok {
+		t.Fatal("CleanupIdle 应清理过期空闲条目")
+	}
+}
+
 // TestMarshalCookies 导出包装器等价 cookieMarshal。
 func TestMarshalCookies(t *testing.T) {
 	got := MarshalCookies(map[string]string{"unb": "1", "cna": "xx"})

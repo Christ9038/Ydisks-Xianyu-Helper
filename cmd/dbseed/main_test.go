@@ -51,6 +51,10 @@ func TestSeedFromSQLiteCopiesMetadataAndSanitizesSecrets(t *testing.T) {
 	if len(cards) != 1 || strings.Contains(cards[0].DataContent, "SECRET-CODE") {
 		t.Fatalf("source card secret leaked: %+v", cards)
 	}
+	invalidOrder, err := target.Orders.Get(ctx, "docker-invalid-amount")
+	if err != nil || invalidOrder.Amount != "not-a-number" {
+		t.Fatalf("invalid amount fixture missing: order=%+v err=%v", invalidOrder, err)
+	}
 
 	second, err := seedFromSQLite(ctx, sourceDB, target, options)
 	if err != nil {

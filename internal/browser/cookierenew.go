@@ -2,10 +2,12 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/playwright-community/playwright-go"
@@ -17,7 +19,14 @@ const (
 	quickRenewPageLoadWait = 3 * time.Second
 	quickRenewAfterClick   = 5 * time.Second
 	quickRenewTimeoutMS    = 30000
-	quickRenewUA           = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+	officialAutoLoginWait  = 10 * time.Second
+	officialFetchDrainWait = 30 * time.Second
+	officialReloadWait     = 5 * time.Second
+)
+
+var (
+	ErrInteractiveLoginRequired = errors.New("浏览器会话已退出登录，需要交互式登录")
+	ErrSecurityVerification     = errors.New("闲鱼要求安全验证，需要人工处理")
 )
 
 // CookieRenew 用现有 Cookie 打开闲鱼页面，尝试通过“快速进入”刷新浏览器登录态。
@@ -32,59 +41,87 @@ func (m *Manager) CookieRenew(ctx context.Context, cookieID, cookieStr string, h
 	return cookierefresh.ParseCookieString(newCookies), nil
 }
 
-// BrowserQuickRenew 使用持久化浏览器上下文执行“快速进入”Cookie 续期。
-func (m *Manager) BrowserQuickRenew(ctx context.Context, cookieID, cookieStr string, headless bool) (string, error) {
-	if cookieStr == "" {
-		return "", fmt.Errorf("Cookie为空，无法浏览器续期")
-	}
+func (m *Manager) newPersistentPasswordContext(ctx context.Context, cookieID, userDataDir string, headless bool) (playwright.BrowserContext, func(), error) {
+	lock := m.accountRenewLock(cookieID)
+	lock.Lock()
+	unlock := func() { lock.Unlock() }
 
-	bctx, release, err := m.newPersistentRenewContext(ctx, cookieID, cookieStr, nil, quickRenewHeadless(headless))
+	releaseSlot, err := m.acquireRenewSlot(ctx)
 	if err != nil {
-		return "", err
+		unlock()
+		return nil, nil, err
 	}
-	defer release()
-
-	page, err := bctx.NewPage()
+	if err := m.init(); err != nil {
+		releaseSlot()
+		unlock()
+		return nil, nil, err
+	}
+	userDataDir, err = resolvePersistentUserDataDir(userDataDir)
 	if err != nil {
-		return "", fmt.Errorf("新建 page 失败: %w", err)
+		releaseSlot()
+		unlock()
+		return nil, nil, err
 	}
-	defer func() { _ = page.Close() }()
-
-	if _, err := page.Goto(goofishHomeURL, playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-		Timeout:   playwright.Float(quickRenewTimeoutMS),
-	}); err != nil {
-		m.logger.Warn("浏览器续期访问首页异常", "cookieID", cookieID, "err", err)
+	cleanSingletonFiles(userDataDir)
+	var bctx playwright.BrowserContext
+	var lastErr error
+	for attempt := 1; attempt <= 2; attempt++ {
+		bctx, err = m.pw.Chromium.LaunchPersistentContext(userDataDir, passwordPersistentContextOptions(headless))
+		if err == nil {
+			break
+		}
+		lastErr = err
+		cleanSingletonFiles(userDataDir)
+		time.Sleep(time.Second)
 	}
-	time.Sleep(quickRenewPageLoadWait)
-
-	hasQuickEnter := clickQuickEnter(page)
-	if hasQuickEnter {
-		time.Sleep(quickRenewAfterClick)
-	} else if !checkAlreadyLoggedIn(page) {
-		return "", fmt.Errorf("未找到[快速进入]按钮且未检测到登录状态，需要账号密码登录")
+	if bctx == nil {
+		releaseSlot()
+		unlock()
+		return nil, nil, fmt.Errorf("启动持久化浏览器失败: %w", lastErr)
 	}
-
-	all, err := bctx.Cookies()
-	if err != nil {
-		return "", fmt.Errorf("提取 cookie 失败: %w", err)
+	release := func() {
+		_ = bctx.Close()
+		releaseSlot()
+		unlock()
 	}
-	newSnapshot := cookieSnapshotFromPlaywright(all)
-	if len(newSnapshot) == 0 {
-		return "", fmt.Errorf("点击[快速进入]后未获取到浏览器Cookie")
-	}
-	cookieFromBrowser := cookierefresh.CookieStringFromSnapshot(newSnapshot)
-	merged := cookierefresh.MergeOriginalFields(cookieStr, cookieFromBrowser)
-	m.logger.Info("浏览器续期成功", "cookieID", cookieID, "has_quick_enter", hasQuickEnter, "cookie_count", len(newSnapshot))
-	return merged, nil
+	return bctx, release, nil
 }
 
-// CookiesRefreshSnapshot 执行定时 COOKIES 续期：打开首页、刷新页面并返回完整 Cookie 快照。
-func (m *Manager) CookiesRefreshSnapshot(ctx context.Context, cookieID, cookieStr string, snapshot []cookierefresh.BrowserCookie, headless bool) (string, []cookierefresh.BrowserCookie, error) {
-	if cookieStr == "" && len(snapshot) == 0 {
-		return "", nil, fmt.Errorf("Cookie为空，且无完整Cookie快照，无法执行续期")
+func passwordPersistentContextOptions(headless bool) playwright.BrowserTypeLaunchPersistentContextOptions {
+	return playwright.BrowserTypeLaunchPersistentContextOptions{
+		Headless:          playwright.Bool(headless),
+		Args:              chromiumLaunchArgs(),
+		ExecutablePath:    chromiumExecutablePath(),
+		Viewport:          &playwright.Size{Width: 1980, Height: 1024},
+		Locale:            playwright.String(defaultLang),
+		TimezoneId:        playwright.String(defaultTZ),
+		AcceptDownloads:   playwright.Bool(true),
+		IgnoreHttpsErrors: playwright.Bool(true),
+		ExtraHttpHeaders: map[string]string{
+			"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+		},
+		Timeout: playwright.Float(quickRenewTimeoutMS),
 	}
-	bctx, release, err := m.newEphemeralRefreshContext(ctx, cookieID, cookieStr, snapshot, cookiesRefreshHeadless(headless))
+}
+
+// BrowserQuickRenew 使用持久化浏览器上下文执行“快速进入”Cookie 续期。
+func (m *Manager) BrowserQuickRenew(ctx context.Context, cookieID, cookieStr string, headless bool) (string, error) {
+	newCookies, _, err := m.BrowserQuickRenewSnapshot(ctx, cookieID, cookieStr, nil, headless)
+	return newCookies, err
+}
+
+// BrowserQuickRenewSnapshot is the full-fidelity variant of BrowserQuickRenew.
+// Callers that persist cookie metadata should use it directly: Chromium's final
+// jar is authoritative for both deletions and attributes such as expiry/path.
+func (m *Manager) BrowserQuickRenewSnapshot(ctx context.Context, cookieID, cookieStr string, snapshot []cookierefresh.BrowserCookie, headless bool) (string, []cookierefresh.BrowserCookie, error) {
+	if cookieStr == "" && snapshot == nil {
+		return "", nil, fmt.Errorf("Cookie为空，且无完整Cookie快照，无法浏览器续期")
+	}
+	// 持久化的扁平值始终以消息页为 canonical scope；这里也必须按 /im
+	// 解释，避免漏掉或错误映射 Path=/im 的连接凭证。
+	effectiveSnapshot := reconcileSnapshotWithCurrentCookie(snapshot, cookieStr, goofishIMURL)
+
+	bctx, release, err := m.newPersistentRenewContext(ctx, cookieID, cookieStr, effectiveSnapshot, quickRenewHeadless(headless))
 	if err != nil {
 		return "", nil, err
 	}
@@ -98,49 +135,212 @@ func (m *Manager) CookiesRefreshSnapshot(ctx context.Context, cookieID, cookieSt
 
 	if _, err := page.Goto(goofishHomeURL, playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
+		Timeout:   playwright.Float(quickRenewTimeoutMS),
+	}); err != nil {
+		m.logger.Warn("浏览器续期访问首页异常", "cookieID", cookieID, "err", err)
+	}
+	time.Sleep(quickRenewPageLoadWait)
+
+	hasQuickEnter := false
+	var renewErr error
+	if err := verifyHomeLoginState(page); err != nil {
+		if errors.Is(err, ErrSecurityVerification) {
+			renewErr = err
+		} else {
+			hasQuickEnter = clickQuickEnter(page)
+			if !hasQuickEnter {
+				renewErr = err
+			} else {
+				time.Sleep(quickRenewAfterClick)
+				renewErr = verifyHomeLoginState(page)
+			}
+		}
+	}
+
+	newCookies, newSnapshot, err := readAuthoritativeCookieJar(bctx, goofishIMURL)
+	if err != nil {
+		return "", nil, errors.Join(renewErr, err)
+	}
+	if len(newSnapshot) == 0 {
+		renewErr = errors.Join(renewErr, fmt.Errorf("点击[快速进入]后浏览器 Cookie Jar 为空"))
+	}
+	if renewErr != nil {
+		return newCookies, newSnapshot, renewErr
+	}
+	m.logger.Info("浏览器续期成功", "cookieID", cookieID, "has_quick_enter", hasQuickEnter, "cookie_count", len(newSnapshot))
+	return newCookies, newSnapshot, nil
+}
+
+// CookiesRefreshSnapshot executes the optional browser-backed renewal in the
+// account's persistent profile. One ordinary page load is enough to run the
+// site's own auto-login plugin; repeated reloads create an avoidable risk
+// signal and are deliberately not used.
+func (m *Manager) CookiesRefreshSnapshot(ctx context.Context, cookieID, cookieStr string, snapshot []cookierefresh.BrowserCookie, headless bool) (string, []cookierefresh.BrowserCookie, bool, error) {
+	if cookieStr == "" && snapshot == nil {
+		return "", nil, false, fmt.Errorf("Cookie为空，且无完整Cookie快照，无法执行续期")
+	}
+	effectiveSnapshot := reconcileSnapshotWithCurrentCookie(snapshot, cookieStr, goofishIMURL)
+	bctx, release, err := m.newPersistentRenewContext(ctx, cookieID, cookieStr, effectiveSnapshot, cookiesRefreshHeadless(headless))
+	if err != nil {
+		return "", nil, false, err
+	}
+	defer release()
+
+	page, err := bctx.NewPage()
+	if err != nil {
+		return "", nil, false, fmt.Errorf("新建 page 失败: %w", err)
+	}
+	defer func() { _ = page.Close() }()
+
+	reloaded, renewErr := navigateOfficialRenewPage(ctx, page)
+	if renewErr == nil {
+		renewErr = verifyHomeLoginState(page)
+	}
+
+	newCookies, newSnapshot, err := readAuthoritativeCookieJar(bctx, goofishIMURL)
+	if err != nil {
+		return "", nil, reloaded, errors.Join(renewErr, err)
+	}
+	if len(newSnapshot) == 0 {
+		renewErr = errors.Join(renewErr, fmt.Errorf("消息页执行后浏览器 Cookie Jar 为空"))
+	}
+	if renewErr != nil {
+		return newCookies, newSnapshot, reloaded, renewErr
+	}
+	m.logger.Info("COOKIES续期成功", "cookieID", cookieID, "cookie_count", len(newSnapshot), "official_reload", reloaded)
+	return newCookies, newSnapshot, reloaded, nil
+}
+
+func navigateOfficialRenewPage(ctx context.Context, page playwright.Page) (bool, error) {
+	silentStarted := make(chan struct{}, 1)
+	silentSettled := make(chan bool, 1)
+	reloadCommitted := make(chan struct{}, 1)
+	var navigationArmed atomic.Bool
+	page.OnRequest(func(request playwright.Request) {
+		if isSilentHasLoginURL(request.URL()) {
+			select {
+			case silentStarted <- struct{}{}:
+			default:
+			}
+		}
+	})
+	page.OnFrameNavigated(func(frame playwright.Frame) {
+		if navigationArmed.Load() && frame.ParentFrame() == nil && strings.HasPrefix(frame.URL(), goofishIMURL) {
+			select {
+			case reloadCommitted <- struct{}{}:
+			default:
+			}
+		}
+	})
+	page.OnRequestFinished(func(request playwright.Request) {
+		if isSilentHasLoginURL(request.URL()) {
+			select {
+			case silentSettled <- true:
+			default:
+			}
+		}
+	})
+	page.OnRequestFailed(func(request playwright.Request) {
+		if isSilentHasLoginURL(request.URL()) {
+			select {
+			case silentSettled <- false:
+			default:
+			}
+		}
+	})
+
+	if _, err := page.Goto(goofishIMURL, playwright.PageGotoOptions{
+		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
 		Timeout:   playwright.Float(60000),
 	}); err != nil {
-		m.logger.Warn("COOKIES续期访问首页异常", "cookieID", cookieID, "err", err)
+		return false, fmt.Errorf("COOKIES续期访问消息页: %w", err)
 	}
-	time.Sleep(2 * time.Second)
-
-	for i := 0; i < 3; i++ {
-		if _, err := page.Reload(playwright.PageReloadOptions{
-			WaitUntil: playwright.WaitUntilStateDomcontentloaded,
-			Timeout:   playwright.Float(60000),
-		}); err != nil {
-			m.logger.Warn("COOKIES续期 reload 异常", "cookieID", cookieID, "attempt", i+1, "err", err)
-		}
-		time.Sleep(2 * time.Second)
+	navigationArmed.Store(true)
+	// The plugin starts after the SPA hydrates, then waits 2s before issuing
+	// silentHasLogin. Observe the actual request instead of assuming hydration
+	// completed at DOMContentLoaded; navigation Set-Cookie may also change the
+	// sdkSilent/long-login branch.
+	observeTimer := time.NewTimer(officialAutoLoginWait)
+	requestStarted := false
+	select {
+	case <-ctx.Done():
+		observeTimer.Stop()
+		return false, ctx.Err()
+	case <-silentStarted:
+		requestStarted = true
+		observeTimer.Stop()
+	case <-observeTimer.C:
 	}
-
-	if modal, err := page.QuerySelector(".ant-modal-body"); err == nil && modal != nil {
-		text, _ := modal.TextContent()
-		if len(text) > 120 {
-			text = text[:120]
+	if requestStarted {
+		// The plugin's 2s Promise timeout does not abort fetch. Keep the page
+		// alive until Chromium finishes the response body (and applies Set-Cookie), while
+		// leaving reload/no-reload entirely to the official JavaScript.
+		drainTimer := time.NewTimer(officialFetchDrainWait)
+		requestFinished := false
+		select {
+		case requestFinished = <-silentSettled:
+			drainTimer.Stop()
+		case <-ctx.Done():
+			drainTimer.Stop()
+			return false, ctx.Err()
+		case <-drainTimer.C:
 		}
-		if text != "" {
-			return "", nil, fmt.Errorf("页面存在 ant-modal-body，判定续期失败: %s", text)
+		if requestFinished {
+			reloadTimer := time.NewTimer(officialReloadWait)
+			select {
+			case <-reloadCommitted:
+				reloadTimer.Stop()
+				if err := page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
+					State: playwright.LoadStateDomcontentloaded, Timeout: playwright.Float(10000),
+				}); err != nil {
+					return true, fmt.Errorf("等待官网续期 reload 完成: %w", err)
+				}
+				return true, nil
+			case <-ctx.Done():
+				reloadTimer.Stop()
+				return false, ctx.Err()
+			case <-reloadTimer.C:
+			}
 		}
-		return "", nil, fmt.Errorf("页面存在 ant-modal-body，判定续期失败")
 	}
+	// Absence of a reload is the official outcome for fatigue, timeout or a
+	// non-100 business result.
+	return false, nil
+}
 
+func readAuthoritativeCookieJar(bctx playwright.BrowserContext, rawURL string) (string, []cookierefresh.BrowserCookie, error) {
 	all, err := bctx.Cookies()
 	if err != nil {
-		return "", nil, fmt.Errorf("提取 cookie 失败: %w", err)
+		return "", nil, fmt.Errorf("提取浏览器 Cookie Jar: %w", err)
 	}
-	newSnapshot := cookieSnapshotFromPlaywright(all)
-	if len(newSnapshot) == 0 {
-		return "", nil, fmt.Errorf("页面刷新完成，但未获取到浏览器Cookie")
+	snapshot := cookieSnapshotFromPlaywright(all)
+	if snapshot == nil {
+		snapshot = []cookierefresh.BrowserCookie{}
 	}
-	newCookies := cookierefresh.CookieStringFromSnapshot(newSnapshot)
-	m.logger.Info("COOKIES续期成功", "cookieID", cookieID, "cookie_count", len(newSnapshot))
-	return newCookies, newSnapshot, nil
+	return currentCookieHeader(snapshot, rawURL), snapshot, nil
+}
+
+func isSilentHasLoginURL(rawURL string) bool {
+	return strings.Contains(rawURL, "/newlogin/silentHasLogin.do")
+}
+
+func reconcileSnapshotWithCurrentCookie(snapshot []cookierefresh.BrowserCookie, cookieStr, rawURL string) []cookierefresh.BrowserCookie {
+	if snapshot == nil {
+		return nil
+	}
+	if len(snapshot) == 0 {
+		return []cookierefresh.BrowserCookie{}
+	}
+	if strings.TrimSpace(cookieStr) == "" {
+		return cookierefresh.NormalizeSnapshot(snapshot)
+	}
+	return credentialCookieSnapshotForURL(snapshot, parseCookieStr(cookieStr), rawURL)
 }
 
 // CookieRenewSnapshot 兼容旧调用，等价于定时 COOKIES 快照续期。
 func (m *Manager) CookieRenewSnapshot(ctx context.Context, cookieID, cookieStr string, snapshot []cookierefresh.BrowserCookie, headless bool) (string, []cookierefresh.BrowserCookie, error) {
-	return m.CookiesRefreshSnapshot(ctx, cookieID, cookieStr, snapshot, headless)
+	cookies, refreshed, _, err := m.CookiesRefreshSnapshot(ctx, cookieID, cookieStr, snapshot, headless)
+	return cookies, refreshed, err
 }
 
 func clickQuickEnter(page playwright.Page) bool {
@@ -176,30 +376,62 @@ var quickEnterSelectors = []string{
 	`.fn-button:has-text("快速进入")`,
 }
 
-var loggedInSelectors = []string{
-	"div.nick",
-	".header-right .nick",
-	".rc-virtual-list-holder-inner",
-	`img[src*="img.alicdn.com"][class*="avatar"]`,
-	`img[src*="img.alicdn.com"][style*="border-radius"]`,
-	`.header-container img[src*="img.alicdn.com"]`,
-	"#nc_1_n1z",
-	".nc-container",
-	".nc_scale",
-	`div:has-text("请拖动下方滑块完成验证")`,
-	`div:has-text("请按住滑块")`,
+func verifyHomeLoginState(page playwright.Page) error {
+	if pageHasSecurityVerification(page) {
+		return ErrSecurityVerification
+	}
+	result, err := page.Evaluate(`() => {
+		const visible = (el) => {
+			const rect = el.getBoundingClientRect();
+			const style = getComputedStyle(el);
+			return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+		};
+		const links = Array.from(document.querySelectorAll('a'));
+		const personal = links.some((el) => {
+			if (!visible(el)) return false;
+			try { return new URL(el.href, location.href).pathname === '/personal'; } catch (_) { return false; }
+		});
+		const login = Array.from(document.querySelectorAll('a,button,[role="button"]')).some((el) => {
+			if (!visible(el) || (el.textContent || '').trim() !== '登录') return false;
+			return el.getBoundingClientRect().top < 120;
+		});
+		return { personal, login };
+	}`)
+	if err != nil {
+		return fmt.Errorf("读取浏览器登录状态失败: %w", err)
+	}
+	signals, ok := result.(map[string]any)
+	if !ok {
+		return fmt.Errorf("浏览器登录状态返回格式异常")
+	}
+	personal, _ := signals["personal"].(bool)
+	login, _ := signals["login"].(bool)
+	if personal && !login {
+		return nil
+	}
+	if login {
+		return ErrInteractiveLoginRequired
+	}
+	return fmt.Errorf("%w: 页面未出现个人主页入口", ErrInteractiveLoginRequired)
 }
 
-func checkAlreadyLoggedIn(page playwright.Page) bool {
-	for _, sel := range loggedInSelectors {
-		el, err := page.QuerySelector(sel)
-		if err == nil && el != nil && elementVisible(el) {
-			return true
+func pageHasSecurityVerification(page playwright.Page) bool {
+	for _, frame := range page.Frames() {
+		lowerURL := strings.ToLower(frame.URL())
+		for _, marker := range []string{"photoverify", "normal_validate", "identity_verify", "baxia-punish", "/punish"} {
+			if strings.Contains(lowerURL, marker) {
+				return true
+			}
 		}
-	}
-	bodyText, err := page.TextContent("body")
-	if err == nil && strings.Contains(bodyText, "消息") && (strings.Contains(bodyText, "订单") || strings.Contains(bodyText, "发闲置")) {
-		return true
+		content, err := frame.Content()
+		if err != nil {
+			continue
+		}
+		for _, marker := range []string{"拍摄脸部", "请拖动下方滑块完成验证", "请按住滑块", "安全验证未通过"} {
+			if strings.Contains(content, marker) {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -215,7 +447,7 @@ func cleanSingletonFiles(userDataDir string) {
 	}
 }
 
-func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cookieStr string, snapshot []cookierefresh.BrowserCookie, headless bool) (playwright.BrowserContext, func(), error) {
+func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cookieStr string, snapshot []cookierefresh.BrowserCookie, headless bool, captchaProfile ...bool) (playwright.BrowserContext, func(), error) {
 	lock := m.accountRenewLock(cookieID)
 	lock.Lock()
 	unlock := func() { lock.Unlock() }
@@ -232,8 +464,17 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 		return nil, nil, err
 	}
 
-	userDataDir := filepath.Join("browser_data", "user_"+pureUserID(cookieID))
+	userDataDir, err := resolvePersistentUserDataDir(filepath.Join("browser_data", "user_"+pureUserID(cookieID)))
+	if err != nil {
+		releaseSlot()
+		unlock()
+		return nil, nil, err
+	}
 	cleanSingletonFiles(userDataDir)
+	viewport := &playwright.Size{Width: 1280, Height: 720}
+	if len(captchaProfile) > 0 && captchaProfile[0] {
+		viewport = &playwright.Size{Width: 1980, Height: 1024}
+	}
 	var bctx playwright.BrowserContext
 	var lastErr error
 	for attempt := 1; attempt <= 2; attempt++ {
@@ -241,8 +482,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 			Headless:       playwright.Bool(headless),
 			Args:           chromiumLaunchArgs(),
 			ExecutablePath: chromiumExecutablePath(),
-			UserAgent:      playwright.String(quickRenewUA),
-			Viewport:       &playwright.Size{Width: 1280, Height: 720},
+			Viewport:       viewport,
 			Locale:         playwright.String(defaultLang),
 			TimezoneId:     playwright.String(defaultTZ),
 			Timeout:        playwright.Float(quickRenewTimeoutMS),
@@ -263,13 +503,25 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 	if err := bctx.AddInitScript(playwright.Script{Content: playwright.String(stealthScript())}); err != nil {
 		m.logger.Warn("注入 stealth 脚本失败", "err", err)
 	}
-	if len(snapshot) > 0 {
+	if snapshot != nil {
+		if err := bctx.ClearCookies(); err != nil {
+			_ = bctx.Close()
+			releaseSlot()
+			unlock()
+			return nil, nil, fmt.Errorf("浏览器续期清理旧 Cookie 失败: %w", err)
+		}
 		if err := bctx.AddCookies(snapshotToOptionalCookies(snapshot)); err != nil {
-			m.logger.Warn("浏览器续期注入 Cookie 快照失败", "cookieID", cookieID, "err", err)
+			_ = bctx.Close()
+			releaseSlot()
+			unlock()
+			return nil, nil, fmt.Errorf("浏览器续期注入 Cookie 快照失败: %w", err)
 		}
 	} else if cookieStr != "" {
 		if err := addCookieStr(bctx, cookieStr); err != nil {
-			m.logger.Warn("浏览器续期注入 Cookie 字符串失败", "cookieID", cookieID, "err", err)
+			_ = bctx.Close()
+			releaseSlot()
+			unlock()
+			return nil, nil, fmt.Errorf("浏览器续期注入 Cookie 字符串失败: %w", err)
 		}
 	}
 
@@ -277,55 +529,6 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 		_ = bctx.Close()
 		releaseSlot()
 		unlock()
-	}
-	return bctx, release, nil
-}
-
-func (m *Manager) newEphemeralRefreshContext(ctx context.Context, cookieID, cookieStr string, snapshot []cookierefresh.BrowserCookie, headless bool) (playwright.BrowserContext, func(), error) {
-	releaseSlot, err := m.acquireRenewSlot(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := m.init(); err != nil {
-		releaseSlot()
-		return nil, nil, err
-	}
-	browser, err := m.pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless:       playwright.Bool(headless),
-		Args:           chromiumLaunchArgs(),
-		ExecutablePath: chromiumExecutablePath(),
-	})
-	if err != nil {
-		releaseSlot()
-		return nil, nil, fmt.Errorf("启动 chromium 失败: %w", err)
-	}
-	bctx, err := browser.NewContext(playwright.BrowserNewContextOptions{
-		UserAgent:  playwright.String("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
-		Viewport:   &playwright.Size{Width: 1280, Height: 720},
-		Locale:     playwright.String(defaultLang),
-		TimezoneId: playwright.String(defaultTZ),
-	})
-	if err != nil {
-		_ = browser.Close()
-		releaseSlot()
-		return nil, nil, fmt.Errorf("创建 context 失败: %w", err)
-	}
-	if err := bctx.AddInitScript(playwright.Script{Content: playwright.String(`Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en'] }); window.chrome = { runtime: {} };`)}); err != nil {
-		m.logger.Warn("注入 COOKIES 续期 stealth 脚本失败", "cookieID", cookieID, "err", err)
-	}
-	if len(snapshot) > 0 {
-		if err := bctx.AddCookies(snapshotToOptionalCookies(snapshot)); err != nil {
-			m.logger.Warn("COOKIES续期注入 Cookie 快照失败", "cookieID", cookieID, "err", err)
-		}
-	} else if cookieStr != "" {
-		if err := addCookieStr(bctx, cookieStr); err != nil {
-			m.logger.Warn("COOKIES续期注入 Cookie 字符串失败", "cookieID", cookieID, "err", err)
-		}
-	}
-	release := func() {
-		_ = bctx.Close()
-		_ = browser.Close()
-		releaseSlot()
 	}
 	return bctx, release, nil
 }

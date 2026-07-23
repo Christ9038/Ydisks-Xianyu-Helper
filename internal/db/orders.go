@@ -4,7 +4,18 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"math"
+	"regexp"
+	"strconv"
+	"strings"
 )
+
+var orderAmountPattern = regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)?$`)
+var groupedOrderAmountPattern = regexp.MustCompile(`^[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?$`)
+
+var ErrOrderConflict = errors.New("订单被并发更新，请重试")
+
+const maxOrderUpsertRetries = 5
 
 // Order 对应 orders 表。
 type Order struct {
@@ -41,98 +52,217 @@ type Orders struct {
 	Dialect Dialect
 }
 
+// OrderPatch 区分“字段未提供”(nil)与“显式清空”(指向空字符串)。
+type OrderPatch struct {
+	OrderStatus, ItemID, BuyerID, SpecName, SpecValue *string
+	Quantity, Amount, ReceiverName, ReceiverPhone     *string
+	ReceiverAddr, ReceiverCity, ChatID                *string
+	SystemShipped                                     *bool
+}
+
+type sqlExecer interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+type sqlQueryExecer interface {
+	sqlExecer
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+// Patch 按请求中实际出现的字段更新订单，允许显式清空字符串字段。
+func (o *Orders) Patch(ctx context.Context, orderID string, patch OrderPatch) error {
+	return patchOrder(ctx, o.DB, orderID, patch)
+}
+
+func (o *Orders) PatchTx(ctx context.Context, tx *sql.Tx, orderID string, patch OrderPatch) error {
+	return patchOrder(ctx, tx, orderID, patch)
+}
+
+func patchOrder(ctx context.Context, execer sqlExecer, orderID string, patch OrderPatch) error {
+	if patch.Amount != nil {
+		normalized, ok := NormalizeOrderAmount(*patch.Amount)
+		if !ok {
+			return errors.New("订单金额必须是普通格式的非负有限数字")
+		}
+		patch.Amount = &normalized
+	}
+	set := []string{}
+	args := []any{}
+	addString := func(column string, value *string) {
+		if value != nil {
+			set = append(set, column+"=?")
+			args = append(args, *value)
+		}
+	}
+	addString("order_status", patch.OrderStatus)
+	addString("item_id", patch.ItemID)
+	addString("buyer_id", patch.BuyerID)
+	addString("spec_name", patch.SpecName)
+	addString("spec_value", patch.SpecValue)
+	addString("quantity", patch.Quantity)
+	addString("amount", patch.Amount)
+	addString("receiver_name", patch.ReceiverName)
+	addString("receiver_phone", patch.ReceiverPhone)
+	addString("receiver_address", patch.ReceiverAddr)
+	addString("receiver_city", patch.ReceiverCity)
+	addString("chat_id", patch.ChatID)
+	if patch.SystemShipped != nil {
+		set = append(set, "system_shipped=?")
+		args = append(args, boolToInt(*patch.SystemShipped))
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	set = append(set, "updated_at=CURRENT_TIMESTAMP")
+	args = append(args, orderID)
+	_, err := execer.ExecContext(ctx, `UPDATE orders SET `+joinSet(set)+` WHERE order_id=?`, args...)
+	return err
+}
+
 // Upsert 插入或更新订单。仅更新提供的非零字段（INSERT OR IGNORE 占位 + 动态 UPDATE）。
-// 注：orders.version 列当前仅作占位读取，不参与并发控制——SQLite 单写者序列化写入，
-// 且本场景无多进程/多协程并发更新同一订单的需求，故未实现乐观锁以避免引入失败重试复杂度。
+// version 参与乐观锁，保证 WebSocket、浏览器同步和 HTTP 并发更新不会绕过状态防倒退规则。
 func (o *Orders) Upsert(ctx context.Context, orderID string, opts OrderUpsertOpts) error {
+	return upsertOrder(ctx, o.DB, o.Dialect, orderID, opts)
+}
+
+// UpsertTx 在调用方事务内插入或更新订单。
+func (o *Orders) UpsertTx(ctx context.Context, tx *sql.Tx, orderID string, opts OrderUpsertOpts) error {
+	return upsertOrder(ctx, tx, o.Dialect, orderID, opts)
+}
+
+func upsertOrder(ctx context.Context, execer sqlQueryExecer, dialect Dialect, orderID string, opts OrderUpsertOpts) error {
 	if orderID == "" {
 		return errors.New("order_id 不能为空")
 	}
+	opts.ItemID = strings.TrimSpace(opts.ItemID)
+	if opts.Amount != "" {
+		normalized, ok := NormalizeOrderAmount(opts.Amount)
+		if !ok {
+			return errors.New("订单金额必须是普通格式的非负有限数字")
+		}
+		opts.Amount = normalized
+	}
 	// 先尝试插入占位（冲突忽略）。order_id 是主键。
-	_, err := o.DB.ExecContext(ctx,
-		dialectInsertIgnorePrefix(o.Dialect)+` INTO orders (order_id, item_id, buyer_id, cookie_id, order_status, version)
-		 VALUES (?, ?, ?, ?, 'unknown', 1)`+dialectInsertIgnore(o.Dialect, []string{"order_id"}),
+	_, err := execer.ExecContext(ctx,
+		dialectInsertIgnorePrefix(dialect)+` INTO orders (order_id, item_id, buyer_id, cookie_id, order_status, version)
+		 VALUES (?, ?, ?, ?, 'unknown', 1)`+dialectInsertIgnore(dialect, []string{"order_id"}),
 		orderID, opts.ItemID, opts.BuyerID, opts.CookieID)
 	if err != nil {
 		return err
 	}
-	if opts.CookieID != "" {
-		var existing sql.NullString
-		if err := o.DB.QueryRowContext(ctx, `SELECT cookie_id FROM orders WHERE order_id=?`, orderID).Scan(&existing); err != nil {
+
+	for attempt := 0; attempt < maxOrderUpsertRetries; attempt++ {
+		var existingCookie, existingStatus sql.NullString
+		var version int
+		if err := execer.QueryRowContext(ctx,
+			`SELECT cookie_id,order_status,version FROM orders WHERE order_id=?`, orderID).
+			Scan(&existingCookie, &existingStatus, &version); err != nil {
 			return err
 		}
-		if existing.Valid && existing.String != "" && existing.String != opts.CookieID {
+		if opts.CookieID != "" && existingCookie.Valid && existingCookie.String != "" && existingCookie.String != opts.CookieID {
 			return ErrForbidden
 		}
-	}
 
-	// 动态构造 UPDATE。
+		current := opts
+		if current.OrderStatus != "" && !shouldUpdateOrderStatus(existingStatus.String, current.OrderStatus) {
+			current.OrderStatus = ""
+		}
+		set, args := orderUpsertAssignments(current)
+		if len(set) == 0 {
+			return nil
+		}
+		set = append(set, "version=version+1", "updated_at=CURRENT_TIMESTAMP")
+		args = append(args, orderID, version)
+		res, err := execer.ExecContext(ctx,
+			`UPDATE orders SET `+joinSet(set)+` WHERE order_id=? AND version=?`, args...)
+		if err != nil {
+			return err
+		}
+		n, rowsErr := res.RowsAffected()
+		if rowsErr != nil {
+			return rowsErr
+		}
+		if n == 1 {
+			return nil
+		}
+	}
+	return ErrOrderConflict
+}
+
+func orderUpsertAssignments(opts OrderUpsertOpts) ([]string, []any) {
 	set := []string{}
 	args := []any{}
+	add := func(column string, value any, present bool) {
+		if present {
+			set = append(set, column+"=?")
+			args = append(args, value)
+		}
+	}
 	if opts.SystemShipped != nil {
-		set = append(set, "system_shipped=?")
-		args = append(args, boolToInt(*opts.SystemShipped))
+		add("system_shipped", boolToInt(*opts.SystemShipped), true)
 	}
-	if opts.ChatID != "" {
-		set = append(set, "chat_id=?")
-		args = append(args, opts.ChatID)
+	if opts.IsBargain != nil {
+		add("is_bargain", boolToInt(*opts.IsBargain), true)
 	}
-	if opts.ItemID != "" {
-		set = append(set, "item_id=?")
-		args = append(args, opts.ItemID)
+	add("chat_id", opts.ChatID, opts.ChatID != "")
+	add("item_id", opts.ItemID, opts.ItemID != "")
+	add("buyer_id", opts.BuyerID, opts.BuyerID != "")
+	add("cookie_id", opts.CookieID, opts.CookieID != "")
+	add("order_status", opts.OrderStatus, opts.OrderStatus != "")
+	add("spec_name", opts.SpecName, opts.SpecName != "")
+	add("spec_value", opts.SpecValue, opts.SpecValue != "")
+	add("quantity", opts.Quantity, opts.Quantity != "")
+	add("amount", opts.Amount, opts.Amount != "")
+	add("receiver_name", opts.ReceiverName, opts.ReceiverName != "")
+	add("receiver_phone", opts.ReceiverPhone, opts.ReceiverPhone != "")
+	add("receiver_address", opts.ReceiverAddr, opts.ReceiverAddr != "")
+	add("receiver_city", opts.ReceiverCity, opts.ReceiverCity != "")
+	return set, args
+}
+
+// NormalizeOrderAmount 把货币符号和千位分隔符规范为数据库及统计接口共同使用的十进制格式。
+func NormalizeOrderAmount(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(raw, "¥") {
+		raw = strings.TrimSpace(strings.TrimPrefix(raw, "¥"))
+	} else if strings.HasPrefix(raw, "￥") {
+		raw = strings.TrimSpace(strings.TrimPrefix(raw, "￥"))
 	}
-	if opts.BuyerID != "" {
-		set = append(set, "buyer_id=?")
-		args = append(args, opts.BuyerID)
+	if raw == "" {
+		return "", true
 	}
-	if opts.CookieID != "" {
-		set = append(set, "cookie_id=?")
-		args = append(args, opts.CookieID)
+	if strings.Contains(raw, ",") {
+		if !groupedOrderAmountPattern.MatchString(raw) {
+			return "", false
+		}
+		raw = strings.ReplaceAll(raw, ",", "")
+	} else if !orderAmountPattern.MatchString(raw) {
+		return "", false
 	}
-	if opts.OrderStatus != "" {
-		set = append(set, "order_status=?")
-		args = append(args, opts.OrderStatus)
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsInf(value, 0) || math.IsNaN(value) {
+		return "", false
 	}
-	if opts.SpecName != "" {
-		set = append(set, "spec_name=?")
-		args = append(args, opts.SpecName)
+	return raw, true
+}
+
+// shouldUpdateOrderStatus 防止延迟或重复的“已付款”事件把已发货/已完成订单回退。
+// 退款、取消等分支并非线性流程，因此这里只拦截明确的历史阶段倒退。
+func shouldUpdateOrderStatus(current, incoming string) bool {
+	current = NormalizeOrderStatus(current)
+	incoming = NormalizeOrderStatus(incoming)
+	if current == incoming || current == "unknown" {
+		return true
 	}
-	if opts.SpecValue != "" {
-		set = append(set, "spec_value=?")
-		args = append(args, opts.SpecValue)
+	early := incoming == "processing" || incoming == "paid" || incoming == "pending_ship"
+	advanced := current == "shipped" || current == "completed" || current == "refunding" || current == "cancelled"
+	if early && advanced {
+		return false
 	}
-	if opts.Quantity != "" {
-		set = append(set, "quantity=?")
-		args = append(args, opts.Quantity)
+	if incoming == "shipped" && (current == "completed" || current == "cancelled") {
+		return false
 	}
-	if opts.Amount != "" {
-		set = append(set, "amount=?")
-		args = append(args, opts.Amount)
-	}
-	if opts.ReceiverName != "" {
-		set = append(set, "receiver_name=?")
-		args = append(args, opts.ReceiverName)
-	}
-	if opts.ReceiverPhone != "" {
-		set = append(set, "receiver_phone=?")
-		args = append(args, opts.ReceiverPhone)
-	}
-	if opts.ReceiverAddr != "" {
-		set = append(set, "receiver_address=?")
-		args = append(args, opts.ReceiverAddr)
-	}
-	if opts.ReceiverCity != "" {
-		set = append(set, "receiver_city=?")
-		args = append(args, opts.ReceiverCity)
-	}
-	if len(set) == 0 {
-		return nil // 无字段可更新
-	}
-	set = append(set, "updated_at=CURRENT_TIMESTAMP")
-	args = append(args, orderID)
-	q := `UPDATE orders SET ` + joinSet(set) + ` WHERE order_id=?`
-	_, err = o.DB.ExecContext(ctx, q, args...)
-	return err
+	return true
 }
 
 // OrderUpsertOpts Upsert 的可选字段。
@@ -150,6 +280,7 @@ type OrderUpsertOpts struct {
 	ReceiverAddr  string
 	ReceiverCity  string
 	ChatID        string
+	IsBargain     *bool
 	SystemShipped *bool
 }
 

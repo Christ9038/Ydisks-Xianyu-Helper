@@ -3,7 +3,9 @@ package server
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"xianyu-go/internal/auth"
@@ -35,6 +37,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
+	clientIP := loginClientIP(r)
+	principal := loginPrincipal(req.Username, req.Email)
+	if allowed, retry := s.loginLimiter.allow(clientIP, principal, time.Now()); !allowed {
+		w.Header().Set("Retry-After", strconv.Itoa(max(1, int(retry.Round(time.Second)/time.Second))))
+		writeErr(w, http.StatusTooManyRequests, "登录尝试过于频繁，请稍后再试")
+		return
+	}
 
 	var resp loginResponse
 
@@ -42,6 +51,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	case req.Username != "" && req.Password != "":
 		sid, user, err := s.Auth.Login(r.Context(), req.Username, req.Password)
 		if err != nil || user == nil || sid == "" {
+			s.loginLimiter.failure(clientIP, principal, time.Now())
 			resp = loginResponse{Success: false, Message: "用户名或密码错误"}
 			writeJSON(w, http.StatusOK, resp)
 			return
@@ -52,17 +62,20 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			IsAdmin: user.IsAdmin,
 		}
 		s.Auth.SetSessionCookie(w, sid)
+		s.loginLimiter.success(clientIP, principal)
 		writeJSON(w, http.StatusOK, resp)
 		return
 	case req.Email != "" && req.Password != "":
 		user, err := s.Store.Users.GetByEmail(r.Context(), req.Email)
 		if err != nil || user == nil {
+			s.loginLimiter.failure(clientIP, principal, time.Now())
 			resp = loginResponse{Success: false, Message: "邮箱或密码错误"}
 			writeJSON(w, http.StatusOK, resp)
 			return
 		}
 		sid, loginUser, lerr := s.Auth.Login(r.Context(), user.Username, req.Password)
 		if lerr != nil || loginUser == nil || sid == "" {
+			s.loginLimiter.failure(clientIP, principal, time.Now())
 			resp = loginResponse{Success: false, Message: "邮箱或密码错误"}
 			writeJSON(w, http.StatusOK, resp)
 			return
@@ -73,6 +86,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			IsAdmin: loginUser.IsAdmin,
 		}
 		s.Auth.SetSessionCookie(w, sid)
+		s.loginLimiter.success(clientIP, principal)
 		writeJSON(w, http.StatusOK, resp)
 		return
 	default:

@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,6 +19,65 @@ func (s *Server) mountAutomation(r chi.Router) {
 	r.Post("/automation-rules", s.createAutomationRule)
 	r.Put("/automation-rules/{rule_id}", s.updateAutomationRule)
 	r.Delete("/automation-rules/{rule_id}", s.deleteAutomationRule)
+	r.Get("/automation-issues", s.listAutomationIssues)
+	r.Post("/automation-runs/{run_id}/resolve", s.resolveAutomationRun)
+	r.Post("/automation-pending-tasks/{task_id}/resolve", s.resolveDeferredAutomationTask)
+}
+
+func (s *Server) listAutomationIssues(w http.ResponseWriter, r *http.Request) {
+	sess := auth.SessionFromContext(r.Context())
+	runs, tasks, err := s.Store.Automation.ListIssues(r.Context(), sess.UserID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询自动化异常任务失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"runs": runs, "pending_tasks": tasks})
+}
+
+func (s *Server) resolveAutomationRun(w http.ResponseWriter, r *http.Request) {
+	runID, err := strconv.ParseInt(chi.URLParam(r, "run_id"), 10, 64)
+	if err != nil || runID <= 0 {
+		writeErr(w, http.StatusBadRequest, "无效运行ID")
+		return
+	}
+	var req struct {
+		Resolution string `json:"resolution"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	sess := auth.SessionFromContext(r.Context())
+	if err := s.Store.Automation.ResolveRunIssue(r.Context(), sess.UserID, runID, strings.TrimSpace(req.Resolution)); err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeErr(w, http.StatusNotFound, "异常运行不存在或已处理")
+			return
+		}
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+func (s *Server) resolveDeferredAutomationTask(w http.ResponseWriter, r *http.Request) {
+	taskID, err := strconv.ParseInt(chi.URLParam(r, "task_id"), 10, 64)
+	if err != nil || taskID <= 0 {
+		writeErr(w, http.StatusBadRequest, "无效任务ID")
+		return
+	}
+	var req struct {
+		Resolution string `json:"resolution"`
+	}
+	if err := decodeJSON(r, &req); err != nil || (req.Resolution != "retry" && req.Resolution != "dismiss") {
+		writeErr(w, http.StatusBadRequest, "处理方式必须是 retry 或 dismiss")
+		return
+	}
+	sess := auth.SessionFromContext(r.Context())
+	if err := s.Store.Automation.ResolveDeferredIssue(r.Context(), sess.UserID, taskID, req.Resolution == "retry"); err != nil {
+		writeErr(w, http.StatusNotFound, "异常任务不存在或已处理")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
 type automationActionRequest struct {
@@ -130,6 +190,10 @@ func (s *Server) deleteAutomationRule(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "自动化规则不存在")
 			return
 		}
+		if errors.Is(err, db.ErrAutomationRunActive) {
+			writeErr(w, http.StatusConflict, "规则仍有运行中或待人工处理的任务，处理完成后才能删除")
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, "删除自动化规则失败")
 		return
 	}
@@ -169,6 +233,7 @@ func (s *Server) normalizeAutomationRuleRequest(r *http.Request, userID int64, r
 		req.Name = defaultAutomationRuleName(req.TriggerType, req.ItemID)
 	}
 	actions := make([]db.AutomationActionInput, 0, len(req.Actions))
+	hasSendCard, hasSendText, hasConfirmShipment := false, false, false
 	for i, act := range req.Actions {
 		enabled := true
 		if act.Enabled != nil {
@@ -177,6 +242,7 @@ func (s *Server) normalizeAutomationRuleRequest(r *http.Request, userID int64, r
 		act.ActionType = strings.TrimSpace(act.ActionType)
 		switch act.ActionType {
 		case automation.ActionConfirmShipment:
+			hasConfirmShipment = hasConfirmShipment || enabled
 		case automation.ActionSendCard:
 			if act.CardID <= 0 {
 				return db.AutomationRuleInput{}, errStr("发送卡密动作必须选择卡密组")
@@ -188,18 +254,20 @@ func (s *Server) normalizeAutomationRuleRequest(r *http.Request, userID int64, r
 			if card.Type == "api" {
 				return db.AutomationRuleInput{}, errStr("API 卡密暂不支持自动发货，请选择文本、批量数据或图片卡密")
 			}
+			hasSendCard = hasSendCard || enabled
 		case automation.ActionSendText:
 			if strings.TrimSpace(act.MessageTemplate) == "" {
 				return db.AutomationRuleInput{}, errStr("发送文本动作必须填写文案")
 			}
+			hasSendText = hasSendText || enabled
 		default:
 			return db.AutomationRuleInput{}, errStr("不支持的动作类型")
 		}
 		if act.DeliveryCount <= 0 {
 			act.DeliveryCount = 1
 		}
-		if act.DelaySeconds < 0 || act.DelaySeconds > 86400 {
-			return db.AutomationRuleInput{}, errStr("动作延时必须在 0 到 86400 秒之间")
+		if act.DelaySeconds < 0 || act.DelaySeconds > 3600 {
+			return db.AutomationRuleInput{}, errStr("动作延时必须在 0 到 3600 秒之间")
 		}
 		if act.ConfigJSON == "" {
 			act.ConfigJSON = "{}"
@@ -212,6 +280,26 @@ func (s *Server) normalizeAutomationRuleRequest(r *http.Request, userID int64, r
 			MessageTemplate: act.MessageTemplate, DelaySeconds: act.DelaySeconds, ConfigJSON: act.ConfigJSON,
 			Enabled: enabled, SortOrder: firstNonZero(act.SortOrder, i+1),
 		})
+	}
+	switch req.TriggerType {
+	case automation.TriggerOrderPaid:
+		if !hasSendCard {
+			return db.AutomationRuleInput{}, errStr("付款后自动发货至少需要一个已启用的发送卡密动作")
+		}
+	case automation.TriggerBuyerReviewed:
+		if hasConfirmShipment {
+			return db.AutomationRuleInput{}, errStr("评价后规则不能包含确认发货动作")
+		}
+		if !hasSendCard && !hasSendText {
+			return db.AutomationRuleInput{}, errStr("评价后规则至少需要一个已启用的发送动作")
+		}
+	case automation.TriggerReviewMissingTimeout:
+		if hasConfirmShipment || hasSendCard {
+			return db.AutomationRuleInput{}, errStr("求评价规则只能发送文本")
+		}
+		if !hasSendText {
+			return db.AutomationRuleInput{}, errStr("求评价规则至少需要一个已启用的文本动作")
+		}
 	}
 	return db.AutomationRuleInput{
 		UserID: userID, CookieID: req.CookieID, ItemID: req.ItemID, Name: req.Name,

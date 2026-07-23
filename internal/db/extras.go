@@ -4,19 +4,49 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 )
 
 // ---- 关键字 CRUD ----
 
 // KeywordRow keywords 表完整行（含自增 id，用于按索引删除）。
 type KeywordRow struct {
-	ID       int64
+	ID       int64 `json:"id"`
 	CookieID string
 	Keyword  string
 	Reply    string
 	ItemID   string
 	Type     string
 	ImageURL string
+}
+
+func (k *Keywords) UpdateByID(ctx context.Context, row KeywordRow) error {
+	kwType := row.Type
+	if kwType == "" {
+		kwType = "text"
+	}
+	res, err := k.DB.ExecContext(ctx, `UPDATE keywords
+		SET keyword=?,reply=?,item_id=?,type=?,image_url=?
+		WHERE id=? AND cookie_id=?`,
+		row.Keyword, row.Reply, nullable(row.ItemID), kwType, nullable(row.ImageURL), row.ID, row.CookieID)
+	if err != nil {
+		return err
+	}
+	if affected, err := res.RowsAffected(); err == nil && affected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (k *Keywords) DeleteByID(ctx context.Context, cookieID string, id int64) error {
+	res, err := k.DB.ExecContext(ctx, `DELETE FROM keywords WHERE id=? AND cookie_id=?`, id, cookieID)
+	if err != nil {
+		return err
+	}
+	if affected, err := res.RowsAffected(); err == nil && affected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // AllRows 取某账号所有关键字（含 id）。
@@ -175,6 +205,10 @@ func (n *Notifications) AllChannelsForUser(ctx context.Context, userID int64) ([
 		if err := rows.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &c.EventTypes, &enabled, &c.UserID); err != nil {
 			return nil, err
 		}
+		c.Config, err = n.codec.decrypt("notification-config", strconv.FormatInt(c.UserID, 10), c.Config)
+		if err != nil {
+			return nil, err
+		}
 		c.Enabled = enabled != 0
 		out = append(out, c)
 	}
@@ -183,16 +217,29 @@ func (n *Notifications) AllChannelsForUser(ctx context.Context, userID int64) ([
 
 // CreateChannel 创建通知渠道。
 func (n *Notifications) CreateChannel(ctx context.Context, c *NotificationChannelRow) (int64, error) {
+	config, err := n.codec.encrypt("notification-config", strconv.FormatInt(c.UserID, 10), c.Config)
+	if err != nil {
+		return 0, err
+	}
 	return insertReturningID(ctx, n.DB, n.Dialect,
 		`INSERT INTO notification_channels (name, type, config, event_types, enabled, user_id) VALUES (?,?,?,?,?,?)`,
-		c.Name, c.Type, c.Config, c.EventTypes, boolToInt(c.Enabled), c.UserID)
+		c.Name, c.Type, config, c.EventTypes, boolToInt(c.Enabled), c.UserID)
 }
 
 // UpdateChannel 更新通知渠道。
 func (n *Notifications) UpdateChannel(ctx context.Context, c *NotificationChannelRow) error {
-	_, err := n.DB.ExecContext(ctx,
+	if c.UserID == 0 {
+		if err := n.DB.QueryRowContext(ctx, `SELECT COALESCE(user_id,1) FROM notification_channels WHERE id=?`, c.ID).Scan(&c.UserID); err != nil {
+			return err
+		}
+	}
+	config, err := n.codec.encrypt("notification-config", strconv.FormatInt(c.UserID, 10), c.Config)
+	if err != nil {
+		return err
+	}
+	_, err = n.DB.ExecContext(ctx,
 		`UPDATE notification_channels SET name=?, type=?, config=?, event_types=?, enabled=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,
-		c.Name, c.Type, c.Config, c.EventTypes, boolToInt(c.Enabled), c.ID)
+		c.Name, c.Type, config, c.EventTypes, boolToInt(c.Enabled), c.ID)
 	return err
 }
 
@@ -210,16 +257,25 @@ func (n *Notifications) GetChannelRowForUser(ctx context.Context, id, userID int
 		return nil, err
 	}
 	c.Enabled = enabled != 0
+	config, err := n.codec.decrypt("notification-config", strconv.FormatInt(c.UserID, 10), c.Config)
+	if err != nil {
+		return nil, err
+	}
+	c.Config = config
 	return &c, nil
 }
 
 // UpdateChannelForUser 更新指定用户拥有的通知渠道。
 func (n *Notifications) UpdateChannelForUser(ctx context.Context, c *NotificationChannelRow, userID int64) error {
+	config, err := n.codec.encrypt("notification-config", strconv.FormatInt(userID, 10), c.Config)
+	if err != nil {
+		return err
+	}
 	res, err := n.DB.ExecContext(ctx,
 		`UPDATE notification_channels
 		    SET name=?, type=?, config=?, event_types=?, enabled=?, updated_at=CURRENT_TIMESTAMP
 		  WHERE id=? AND user_id=?`,
-		c.Name, c.Type, c.Config, c.EventTypes, boolToInt(c.Enabled), c.ID, userID)
+		c.Name, c.Type, config, c.EventTypes, boolToInt(c.Enabled), c.ID, userID)
 	if err != nil {
 		return err
 	}
@@ -252,14 +308,20 @@ func (n *Notifications) DeleteChannelForUser(ctx context.Context, id, userID int
 // GetChannel 按 ID 取单个通知渠道（含 config）。未找到返回 nil。
 func (n *Notifications) GetChannel(ctx context.Context, id int64) (*NotificationChannel, error) {
 	row := n.DB.QueryRowContext(ctx,
-		`SELECT id, name, type, config, COALESCE(event_types,'') FROM notification_channels WHERE id=?`, id)
+		`SELECT id, name, type, config, COALESCE(event_types,''), COALESCE(user_id,1) FROM notification_channels WHERE id=?`, id)
 	var c NotificationChannel
-	if err := row.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &c.EventTypes); err != nil {
+	var userID int64
+	if err := row.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &c.EventTypes, &userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
+	config, err := n.codec.decrypt("notification-config", strconv.FormatInt(userID, 10), c.Config)
+	if err != nil {
+		return nil, err
+	}
+	c.Config = config
 	return &c, nil
 }
 
@@ -330,6 +392,7 @@ func (n *Notifications) SetBindings(ctx context.Context, cookieID string, channe
 type SystemSettings struct {
 	DB      *sql.DB
 	Dialect Dialect
+	codec   *secretCodec
 }
 
 // Get 取单项设置。
@@ -342,6 +405,9 @@ func (s *SystemSettings) Get(ctx context.Context, key string) (string, error) {
 			return "", nil
 		}
 		return "", err
+	}
+	if isSensitiveSettingKey(key) {
+		return s.codec.decrypt("system-setting", key, v)
 	}
 	return v, nil
 }
@@ -360,6 +426,12 @@ func (s *SystemSettings) All(ctx context.Context) (map[string]string, error) {
 		if err := rows.Scan(&k, &v); err != nil {
 			return nil, err
 		}
+		if isSensitiveSettingKey(k) {
+			v, err = s.codec.decrypt("system-setting", k, v)
+			if err != nil {
+				return nil, err
+			}
+		}
 		m[k] = v
 	}
 	return m, rows.Err()
@@ -367,6 +439,13 @@ func (s *SystemSettings) All(ctx context.Context) (map[string]string, error) {
 
 // Set 设置单项。
 func (s *SystemSettings) Set(ctx context.Context, key, value string) error {
+	if isSensitiveSettingKey(key) {
+		encrypted, err := s.codec.encrypt("system-setting", key, value)
+		if err != nil {
+			return err
+		}
+		value = encrypted
+	}
 	keyCol := dialectQuote(s.Dialect, "key")
 	_, err := s.DB.ExecContext(ctx,
 		`INSERT INTO system_settings (`+keyCol+`, value, updated_at) VALUES (?,?,CURRENT_TIMESTAMP)`+
@@ -376,6 +455,33 @@ func (s *SystemSettings) Set(ctx context.Context, key, value string) error {
 			}),
 		key, value)
 	return err
+}
+
+// SetMany 在单个事务中原子保存多项设置。
+func (s *SystemSettings) SetMany(ctx context.Context, values map[string]string) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	keyCol := dialectQuote(s.Dialect, "key")
+	query := `INSERT INTO system_settings (` + keyCol + `, value, updated_at) VALUES (?,?,CURRENT_TIMESTAMP)` +
+		dialectUpsert(s.Dialect, []string{keyCol}, map[string]string{
+			"value": "EXCLUDED.value", "updated_at": "CURRENT_TIMESTAMP",
+		})
+	for key, value := range values {
+		if isSensitiveSettingKey(key) {
+			encrypted, err := s.codec.encrypt("system-setting", key, value)
+			if err != nil {
+				return err
+			}
+			value = encrypted
+		}
+		if _, err := tx.ExecContext(ctx, query, key, value); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // PublicSystemKeys 是公开设置键白名单（前端登录页等无需登录可读）。
@@ -464,6 +570,14 @@ func (i *Items) Upsert(ctx context.Context, r *ItemInfoRow) error {
 
 // UpsertBasic 插入或补全商品基础信息，不覆盖已有的多规格/多数量发货设置。
 func (i *Items) UpsertBasic(ctx context.Context, r *ItemInfoRow) error {
+	return i.upsertBasic(ctx, i.DB, r)
+}
+
+func (i *Items) UpsertBasicTx(ctx context.Context, tx *sql.Tx, r *ItemInfoRow) error {
+	return i.upsertBasic(ctx, tx, r)
+}
+
+func (i *Items) upsertBasic(ctx context.Context, execer sqlExecer, r *ItemInfoRow) error {
 	// 三种数据库的条件 upsert：非空才覆盖，空值保留旧值。
 	// SQLite/Postgres 用 EXCLUDED.col 引用插入值；MySQL 用 VALUES(col)。
 	var conflictClause string
@@ -485,7 +599,7 @@ func (i *Items) UpsertBasic(ctx context.Context, r *ItemInfoRow) error {
 		   item_detail=CASE WHEN EXCLUDED.item_detail IS NOT NULL AND EXCLUDED.item_detail != '' THEN EXCLUDED.item_detail ELSE item_info.item_detail END,
 		   updated_at=CURRENT_TIMESTAMP`
 	}
-	_, err := i.DB.ExecContext(ctx,
+	_, err := execer.ExecContext(ctx,
 		`INSERT INTO item_info (cookie_id, item_id, item_title, item_description,
 		    item_category, item_price, item_detail, updated_at)
 		 VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)`+conflictClause,

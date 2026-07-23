@@ -1,9 +1,15 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 )
+
+const maxJSONRequestBytes = 1 << 20
 
 // writeJSON 写 JSON 响应。
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -24,6 +30,23 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 
 // decodeJSON 解析请求体 JSON。
 func decodeJSON(r *http.Request, v any) error {
-	dec := json.NewDecoder(r.Body)
-	return dec.Decode(v)
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONRequestBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(body) > maxJSONRequestBytes {
+		return fmt.Errorf("JSON 请求体超过 %d 字节", maxJSONRequestBytes)
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("JSON 请求体只能包含一个值")
+		}
+		return err
+	}
+	return nil
 }

@@ -9,27 +9,32 @@ import {
   generateQRLogin,
   checkQRLoginStatus,
   completeQRVerification,
-  updateAccountRemark,
-  updateAccountAutoConfirm,
   updateAccountPauseDuration,
-  updateAccountCookie,
   refreshAccountProfile,
-  updateAccountLoginInfo,
+  updateAccountSettings,
+  passwordLogin,
+  checkPasswordLoginStatus,
+  cancelPasswordLogin,
   updateAccountAISettings,
   getAllAISettings,
   getAccountAISettings,
   getNotificationChannels,
   getAccountBindings,
-  setAccountBindings,
+  getLongLoginSettings,
+  setLongLoginSettings,
 } from '../services/api';
+import { shouldUpdateAccountPause } from './accountPause';
 import {
   Plus, Power, Edit2, Trash2, QrCode, X, Check, Loader2,
   RefreshCw, Save, User, Clock, MessageCircle,
-  Upload, Key, Eye, EyeOff, Bot, Settings, AlertCircle, ExternalLink, Bell
+  Upload, Key, Eye, EyeOff, Bot, Settings, AlertCircle, Bell
 } from 'lucide-react';
 import { buildAccountLoginInfoUpdate } from './accountEdit';
 import { shouldSaveNotificationBindings } from './accountBindings';
-import { createQRLoginPoller } from './qrPolling';
+import { mergeAccountRuntimeStatuses } from './accountRuntimeState';
+import { createLatestRequestGate, createQRLoginPoller } from './qrPolling';
+import { RiskVerificationPanel } from './RiskVerificationPanel';
+import { SquareQRCode } from './SquareQRCode';
 
 type ModalType = 'edit' | 'ai-settings' | null;
 
@@ -41,13 +46,12 @@ const AccountList: React.FC = () => {
   const [showQRModal, setShowQRModal] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   const [qrStatus, setQrStatus] = useState<string>('pending');
-  const [verificationUrl, setVerificationUrl] = useState<string>('');
   const [verificationScreenshot, setVerificationScreenshot] = useState<string>('');
   const [faceQrUrl, setFaceQrUrl] = useState<string>('');
-  const [qrSessionId, setQrSessionId] = useState<string>('');
   const [qrReauthTarget, setQrReauthTarget] = useState<AccountDetail | null>(null);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [editingAccount, setEditingAccount] = useState<AccountDetail | null>(null);
+  const [longLogin, setLongLogin] = useState({ loading: false, saving: false, canOpen: false, enabled: false, error: '' });
 
   // 通知渠道绑定（编辑弹窗用）
   const [notifChannels, setNotifChannels] = useState<NotificationChannel[]>([]);
@@ -79,11 +83,34 @@ const AccountList: React.FC = () => {
     custom_prompts: '',
   });
   const [saving, setSaving] = useState(false);
+  const [passwordLoginView, setPasswordLoginView] = useState<{
+    sessionId: string;
+    status: 'idle' | 'processing' | 'verification_required' | 'success' | 'failed';
+    message: string;
+    qrCodeUrl: string;
+  }>({ sessionId: '', status: 'idle', message: '', qrCodeUrl: '' });
   const qrPollerRef = useRef<ReturnType<typeof createQRLoginPoller> | null>(null);
-  const qrCloseTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const qrRequestGateRef = useRef<ReturnType<typeof createLatestRequestGate> | null>(null);
+  const accountLoadGateRef = useRef<ReturnType<typeof createLatestRequestGate> | null>(null);
+  const bindingsLoadGateRef = useRef<ReturnType<typeof createLatestRequestGate> | null>(null);
+  const aiLoadGateRef = useRef<ReturnType<typeof createLatestRequestGate> | null>(null);
+  const accountLoadAbortRef = useRef<AbortController | null>(null);
+  const bindingsLoadAbortRef = useRef<AbortController | null>(null);
+  const aiLoadAbortRef = useRef<AbortController | null>(null);
+  const qrGenerateAbortRef = useRef<AbortController | null>(null);
+  const passwordPollAbortRef = useRef<AbortController | null>(null);
+  const qrCloseTimerRef = useRef<number | null>(null);
+  const passwordPollTimerRef = useRef<number | null>(null);
+  const passwordPollGenerationRef = useRef(0);
   if (qrPollerRef.current === null) {
     qrPollerRef.current = createQRLoginPoller();
   }
+  if (qrRequestGateRef.current === null) {
+    qrRequestGateRef.current = createLatestRequestGate();
+  }
+  if (accountLoadGateRef.current === null) accountLoadGateRef.current = createLatestRequestGate();
+  if (bindingsLoadGateRef.current === null) bindingsLoadGateRef.current = createLatestRequestGate();
+  if (aiLoadGateRef.current === null) aiLoadGateRef.current = createLatestRequestGate();
 
   const clearQRCloseTimer = () => {
     if (qrCloseTimerRef.current !== null) {
@@ -92,11 +119,20 @@ const AccountList: React.FC = () => {
     }
   };
 
+  const clearPasswordPollTimer = () => {
+    if (passwordPollTimerRef.current !== null) {
+      window.clearTimeout(passwordPollTimerRef.current);
+      passwordPollTimerRef.current = null;
+    }
+  };
+
   const stopQRPolling = () => {
     qrPollerRef.current?.stop();
   };
 
   const closeQRModal = () => {
+	qrGenerateAbortRef.current?.abort();
+    qrRequestGateRef.current?.cancel();
     stopQRPolling();
     clearQRCloseTimer();
     setShowQRModal(false);
@@ -111,37 +147,20 @@ const AccountList: React.FC = () => {
     }, 1000);
   };
 
-  const refreshRuntimeStatuses = async () => {
-    try {
-      const statuses = await getAccountRuntimeStatuses();
-      setAccounts(current => current.map(account => {
-        const status = statuses[account.id];
-        if (!status) return account;
-        return {
-          ...account,
-          runtime_state: status.state,
-          runtime_message: status.message || '',
-          runtime_connected: status.connected,
-          runtime_updated_at: status.updated_at,
-        };
-      }));
-    } catch (error) {
-      console.error('Failed to load account runtime statuses:', error);
-    }
-  };
-
   const loadAccounts = async () => {
+	const generation = accountLoadGateRef.current!.next();
+	accountLoadAbortRef.current?.abort();
+	const controller = new AbortController();
+	accountLoadAbortRef.current = controller;
     setLoading(true);
     try {
-      const data = await getAccountDetails();
-
-      // 获取所有账号的AI设置
-      let allAISettings: Record<string, AIReplySettings> = {};
-      try {
-        allAISettings = await getAllAISettings();
-      } catch (e) {
-        console.error('Failed to load AI settings:', e);
-      }
+	  const options = { signal: controller.signal };
+	  const [detailsResult, aiResult] = await Promise.allSettled([getAccountDetails(options), getAllAISettings(options)]);
+	  if (!accountLoadGateRef.current?.isCurrent(generation)) return;
+	  if (detailsResult.status === 'rejected') throw detailsResult.reason;
+	  const data = detailsResult.value;
+	  const allAISettings = aiResult.status === 'fulfilled' ? aiResult.value : {};
+	  if (aiResult.status === 'rejected') console.error('Failed to load AI settings:', aiResult.reason);
 
       // 合并AI设置到账号数据
       const accountsWithAI = data.map(account => ({
@@ -153,25 +172,62 @@ const AccountList: React.FC = () => {
         custom_prompts: allAISettings[account.id]?.custom_prompts ?? '',
       }));
 
-      setAccounts(accountsWithAI);
-      window.setTimeout(refreshRuntimeStatuses, 0);
+	  if (accountLoadGateRef.current?.isCurrent(generation)) setAccounts(accountsWithAI);
     } catch (error) {
-      console.error('Failed to load accounts:', error);
+	  if (accountLoadGateRef.current?.isCurrent(generation) && !controller.signal.aborted) {
+		console.error('Failed to load accounts:', error);
+	  }
     } finally {
-      setLoading(false);
+	  if (accountLoadGateRef.current?.isCurrent(generation)) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadAccounts();
-    const timer = window.setInterval(refreshRuntimeStatuses, 10_000);
-    return () => window.clearInterval(timer);
+    let cancelled = false;
+    let timer: number | null = null;
+	const runtimeController = new AbortController();
+
+    const pollRuntimeStatuses = async () => {
+      try {
+		const statuses = await getAccountRuntimeStatuses({ signal: runtimeController.signal, timeoutMs: 10_000 });
+        if (!cancelled) {
+          setAccounts(current => mergeAccountRuntimeStatuses(current, statuses));
+        }
+      } catch (error) {
+        if (!cancelled) console.error('Failed to load account runtime statuses:', error);
+      } finally {
+        if (!cancelled) {
+          // 运行时状态只读取本地内存；短轮询让风控恢复提示在约 2 秒内收敛。
+          timer = window.setTimeout(() => void pollRuntimeStatuses(), 2_000);
+        }
+      }
+    };
+
+    void loadAccounts().finally(() => {
+      if (!cancelled) void pollRuntimeStatuses();
+    });
+    return () => {
+      cancelled = true;
+	  runtimeController.abort();
+      if (timer !== null) window.clearTimeout(timer);
+    };
   }, []);
 
   useEffect(() => {
     return () => {
       stopQRPolling();
+      qrRequestGateRef.current?.cancel();
+	  accountLoadGateRef.current?.cancel();
+	  bindingsLoadGateRef.current?.cancel();
+	  aiLoadGateRef.current?.cancel();
+	  accountLoadAbortRef.current?.abort();
+	  bindingsLoadAbortRef.current?.abort();
+	  aiLoadAbortRef.current?.abort();
+	  qrGenerateAbortRef.current?.abort();
+	  passwordPollAbortRef.current?.abort();
       clearQRCloseTimer();
+      passwordPollGenerationRef.current += 1;
+      clearPasswordPollTimer();
     };
   }, []);
 
@@ -228,14 +284,19 @@ const AccountList: React.FC = () => {
   };
 
   const loadNotificationBindings = async (accountId: string) => {
+	const generation = bindingsLoadGateRef.current!.next();
+	bindingsLoadAbortRef.current?.abort();
+	const controller = new AbortController();
+	bindingsLoadAbortRef.current = controller;
     setBindingsLoading(true);
     setBindingsLoaded(false);
     setBindingsDirty(false);
     setBindingsLoadError('');
     const [channelsResult, bindingsResult] = await Promise.allSettled([
-      getNotificationChannels(),
-      getAccountBindings(accountId),
+	  getNotificationChannels({ signal: controller.signal }),
+	  getAccountBindings(accountId, { signal: controller.signal }),
     ]);
+	if (!bindingsLoadGateRef.current?.isCurrent(generation)) return;
     if (channelsResult.status === 'fulfilled') {
       setNotifChannels(channelsResult.value.data || []);
     } else {
@@ -253,6 +314,10 @@ const AccountList: React.FC = () => {
   };
 
   const openEditModal = async (account: AccountDetail) => {
+    passwordPollGenerationRef.current += 1;
+	passwordPollAbortRef.current?.abort();
+    clearPasswordPollTimer();
+    setPasswordLoginView({ sessionId: '', status: 'idle', message: '', qrCodeUrl: '' });
     setEditingAccount(account);
     setEditForm({
       remark: account.remark || account.note || '',
@@ -266,14 +331,41 @@ const AccountList: React.FC = () => {
       clear_password: false,
     });
     setActiveModal('edit');
-    await loadNotificationBindings(account.id);
+    setLongLogin({ loading: true, saving: false, canOpen: false, enabled: false, error: '' });
+    const [, longLoginResult] = await Promise.allSettled([
+      loadNotificationBindings(account.id),
+      getLongLoginSettings(account.id),
+    ]);
+    if (longLoginResult.status === 'fulfilled') {
+      setLongLogin({ loading: false, saving: false, canOpen: longLoginResult.value.can_open_long_login, enabled: longLoginResult.value.enabled, error: '' });
+    } else {
+      setLongLogin({ loading: false, saving: false, canOpen: false, enabled: false, error: '无法读取闲鱼保存登录信息状态' });
+    }
+  };
+
+  const handleLongLoginToggle = async () => {
+    if (!editingAccount || longLogin.loading || longLogin.saving || !longLogin.canOpen) return;
+    const enabled = !longLogin.enabled;
+    setLongLogin(current => ({ ...current, saving: true, error: '' }));
+    try {
+      const result = await setLongLoginSettings(editingAccount.id, enabled);
+      setLongLogin({ loading: false, saving: false, canOpen: result.can_open_long_login, enabled: result.enabled, error: '' });
+    } catch (error) {
+      setLongLogin(current => ({ ...current, saving: false, error: error instanceof Error ? error.message : '保存登录信息设置失败' }));
+    }
   };
 
   const openAIModal = async (account: AccountDetail) => {
+	const generation = aiLoadGateRef.current!.next();
+	aiLoadAbortRef.current?.abort();
+	const controller = new AbortController();
+	aiLoadAbortRef.current = controller;
     setEditingAccount(account);
+	setActiveModal('ai-settings');
     setSaving(true);
     try {
-      const settings = await getAccountAISettings(account.id);
+	  const settings = await getAccountAISettings(account.id, { signal: controller.signal });
+	  if (!aiLoadGateRef.current?.isCurrent(generation)) return;
       setAiSettings({
         ai_enabled: settings.ai_enabled ?? false,
         max_discount_percent: settings.max_discount_percent ?? 10,
@@ -282,11 +374,10 @@ const AccountList: React.FC = () => {
         custom_prompts: settings.custom_prompts ?? '',
       });
     } catch (e) {
-      console.error('Failed to load AI settings:', e);
+	  if (aiLoadGateRef.current?.isCurrent(generation)) console.error('Failed to load AI settings:', e);
     } finally {
-      setSaving(false);
+	  if (aiLoadGateRef.current?.isCurrent(generation)) setSaving(false);
     }
-    setActiveModal('ai-settings');
   };
 
   const handleSaveEdit = async () => {
@@ -294,45 +385,64 @@ const AccountList: React.FC = () => {
     setSaving(true);
 
     try {
-      const promises: Promise<any>[] = [];
+	  const payload: Parameters<typeof updateAccountSettings>[1] = {};
 
       // 更新备注
       if (editForm.remark !== (editingAccount.remark || editingAccount.note || '')) {
-        promises.push(updateAccountRemark(editingAccount.id, editForm.remark));
+		payload.remark = editForm.remark;
       }
 
       // 更新Cookie
       if (editForm.cookie && editForm.cookie !== (editingAccount.cookie || editingAccount.value || '')) {
-        promises.push(updateAccountCookie(editingAccount.id, editForm.cookie));
+		payload.cookie = editForm.cookie;
       }
 
       // 更新自动确认
       if (editForm.auto_confirm !== editingAccount.auto_confirm) {
-        promises.push(updateAccountAutoConfirm(editingAccount.id, editForm.auto_confirm));
+		payload.auto_confirm = editForm.auto_confirm;
       }
 
       // 更新暂停时长
-      if (editForm.pause_duration !== (editingAccount.pause_duration || 0)) {
-        promises.push(updateAccountPauseDuration(editingAccount.id, editForm.pause_duration));
-      }
+	  if (shouldUpdateAccountPause(editForm.pause_duration, editingAccount)) {
+		payload.pause_duration = editForm.pause_duration;
+	  }
 
       // 更新登录信息
       const loginInfo = buildAccountLoginInfoUpdate(editingAccount, editForm);
       if (loginInfo) {
-        promises.push(updateAccountLoginInfo(editingAccount.id, loginInfo));
+		Object.assign(payload, loginInfo);
       }
 
       // 只有成功加载且用户确实改动后才覆盖，避免加载失败被误解释成解绑全部。
       if (shouldSaveNotificationBindings(bindingsLoaded, bindingsDirty)) {
-        promises.push(setAccountBindings(editingAccount.id, selectedChannelIds));
+		payload.channel_ids = selectedChannelIds;
       }
 
-      await Promise.all(promises);
+	  if (Object.keys(payload).length > 0) await updateAccountSettings(editingAccount.id, payload);
       setActiveModal(null);
       loadAccounts();
     } catch (error) {
       console.error('更新账号失败:', error);
       alert('更新失败，请重试');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRestartPause = async () => {
+    if (!editingAccount || editForm.pause_duration <= 0) return;
+    setSaving(true);
+    try {
+      const result = await updateAccountPauseDuration(editingAccount.id, editForm.pause_duration);
+      setEditingAccount({
+        ...editingAccount,
+        pause_duration: editForm.pause_duration,
+        paused: result?.paused === true,
+        paused_until: Number(result?.paused_until || 0),
+      });
+      await loadAccounts();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '重新暂停失败');
     } finally {
       setSaving(false);
     }
@@ -354,13 +464,122 @@ const AccountList: React.FC = () => {
     }
   };
 
-  const completeAndPersistQRSession = async (sessionId: string, target?: AccountDetail | null) => {
-    let res = await completeQRVerification(sessionId, target?.id);
-    if (res.requires_confirmation) {
-      const confirmed = confirm(`扫码返回的账号ID是 ${res.scanned_account_id || '未知'}，确认覆盖 ${target?.id || '当前账号'} 的授权吗？`);
-      if (!confirmed) return '';
-      res = await completeQRVerification(sessionId, target?.id, true);
+  const pollPasswordLogin = async (sessionId: string, generation: number) => {
+	passwordPollAbortRef.current?.abort();
+	const controller = new AbortController();
+	passwordPollAbortRef.current = controller;
+    try {
+	  const result = await checkPasswordLoginStatus(sessionId, controller.signal);
+      if (generation !== passwordPollGenerationRef.current) return;
+      if (result.status === 'success') {
+        clearPasswordPollTimer();
+        setPasswordLoginView({
+          sessionId,
+          status: 'success',
+          message: result.message || '账号密码登录成功，授权信息已更新',
+          qrCodeUrl: '',
+        });
+        setEditForm(current => ({ ...current, login_password: '', showLoginPassword: false }));
+        await loadAccounts();
+        return;
+      }
+      if (result.status === 'processing' || result.status === 'verification_required') {
+        setPasswordLoginView({
+          sessionId,
+          status: result.status,
+          message: result.message || (result.status === 'verification_required' ? '账号触发风控，需要完成人脸识别' : '登录处理中'),
+          qrCodeUrl: result.qr_code_url || '',
+        });
+        clearPasswordPollTimer();
+        passwordPollTimerRef.current = window.setTimeout(() => void pollPasswordLogin(sessionId, generation), 1500);
+        return;
+      }
+      clearPasswordPollTimer();
+      setPasswordLoginView({
+        sessionId,
+        status: 'failed',
+        message: result.error || result.message || '密码登录失败，请检查账号信息后重试',
+        qrCodeUrl: '',
+      });
+    } catch (error) {
+      if (generation !== passwordPollGenerationRef.current) return;
+      clearPasswordPollTimer();
+      setPasswordLoginView({
+        sessionId,
+        status: 'failed',
+        message: error instanceof Error ? error.message : '查询密码登录状态失败',
+        qrCodeUrl: '',
+      });
     }
+  };
+
+  const handlePasswordLogin = async () => {
+    if (!editingAccount) return;
+    const account = editForm.username.trim();
+    if (!account || !editForm.login_password) {
+      alert('请先填写登录账号和本次登录密码');
+      return;
+    }
+    clearPasswordPollTimer();
+	passwordPollAbortRef.current?.abort();
+    const generation = ++passwordPollGenerationRef.current;
+    setPasswordLoginView({ sessionId: '', status: 'processing', message: '正在启动密码登录…', qrCodeUrl: '' });
+    try {
+      const result = await passwordLogin({
+        account_id: editingAccount.id,
+        account,
+        password: editForm.login_password,
+        show_browser: editForm.show_browser,
+      });
+      if (generation !== passwordPollGenerationRef.current) return;
+      if (!result.success || !result.session_id) {
+        throw new Error(result.message || '无法启动密码登录');
+      }
+      setPasswordLoginView({ sessionId: result.session_id, status: 'processing', message: result.message || '登录处理中', qrCodeUrl: '' });
+      await pollPasswordLogin(result.session_id, generation);
+    } catch (error) {
+      if (generation !== passwordPollGenerationRef.current) return;
+      setPasswordLoginView({
+        sessionId: '',
+        status: 'failed',
+        message: error instanceof Error ? error.message : '启动密码登录失败',
+        qrCodeUrl: '',
+      });
+    }
+  };
+
+  const handleCancelPasswordLogin = async () => {
+    const sessionId = passwordLoginView.sessionId;
+	passwordPollGenerationRef.current += 1;
+	passwordPollAbortRef.current?.abort();
+    clearPasswordPollTimer();
+    if (sessionId) {
+      try {
+        await cancelPasswordLogin(sessionId);
+      } catch (error) {
+        console.error('取消密码登录失败', error);
+      }
+    }
+    setPasswordLoginView({ sessionId: '', status: 'idle', message: '', qrCodeUrl: '' });
+  };
+
+  const closeEditModal = async () => {
+	bindingsLoadGateRef.current?.cancel();
+	bindingsLoadAbortRef.current?.abort();
+    if (passwordLoginView.status === 'processing' || passwordLoginView.status === 'verification_required') {
+      await handleCancelPasswordLogin();
+    }
+    setActiveModal(null);
+  };
+
+  const closeAIModal = () => {
+	aiLoadGateRef.current?.cancel();
+	aiLoadAbortRef.current?.abort();
+	setActiveModal(null);
+  };
+
+  const completeAndPersistQRSession = async (sessionId: string, target?: AccountDetail | null) => {
+    const res = await completeQRVerification(sessionId, target?.id);
     if (!res.success || !res.account_id) {
       throw new Error(res.message || '保存扫码授权失败');
     }
@@ -369,27 +588,30 @@ const AccountList: React.FC = () => {
 
   const startQRLogin = async (target?: AccountDetail) => {
     stopQRPolling();
+	qrGenerateAbortRef.current?.abort();
+	const controller = new AbortController();
+	qrGenerateAbortRef.current = controller;
+    const requestGeneration = qrRequestGateRef.current!.next();
     clearQRCloseTimer();
     const targetAccount = target || null;
     setQrReauthTarget(targetAccount);
     setShowQRModal(true);
     setQrStatus('loading');
     setQrCodeUrl('');
-    setQrSessionId('');
-    setVerificationUrl('');
     setVerificationScreenshot('');
     setFaceQrUrl('');
     try {
-      const res = await generateQRLogin();
+	  const res = await generateQRLogin({ signal: controller.signal });
+      if (!qrRequestGateRef.current?.isCurrent(requestGeneration)) return;
       if (res.success && res.qr_code_url && res.session_id) {
+        const generatedSessionID = res.session_id;
         setQrCodeUrl(res.qr_code_url);
-        setQrSessionId(res.session_id);
         setQrStatus('waiting');
 
-        qrPollerRef.current?.start(res.session_id, checkQRLoginStatus, {
+        qrPollerRef.current?.start(generatedSessionID, checkQRLoginStatus, {
           onSuccess: async () => {
             try {
-              const accountId = await completeAndPersistQRSession(res.session_id, targetAccount);
+              const accountId = await completeAndPersistQRSession(generatedSessionID, targetAccount);
               if (!accountId) {
                 setQrStatus('error');
                 return;
@@ -414,7 +636,6 @@ const AccountList: React.FC = () => {
           },
           onVerificationRequired: (statusRes) => {
             setQrStatus('verification');
-            setVerificationUrl(statusRes.verification_url || '');
             if (statusRes.face_qr_url) {
               setFaceQrUrl(statusRes.face_qr_url);
             }
@@ -425,26 +646,8 @@ const AccountList: React.FC = () => {
         });
       }
     } catch (e) {
+      if (!qrRequestGateRef.current?.isCurrent(requestGeneration)) return;
       setQrStatus('error');
-    }
-  };
-
-  // 用户完成风控验证后，点"我已完成验证"调用后端提取真实 cookie。
-  const handleCompleteVerification = async () => {
-    if (!qrSessionId) return;
-    setQrStatus('loading');
-    try {
-      const accountId = await completeAndPersistQRSession(qrSessionId, qrReauthTarget);
-      if (accountId) {
-        stopQRPolling();
-        setQrStatus('success');
-        scheduleQRModalClose();
-      } else {
-        setQrStatus('verification');
-      }
-    } catch (e) {
-      setQrStatus('verification');
-      alert('处理失败：' + (e instanceof Error ? e.message : String(e)));
     }
   };
 
@@ -555,7 +758,7 @@ const AccountList: React.FC = () => {
                 )}
                 <div className="flex gap-2">
                    {account.auto_confirm && <span className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5"><Check className="w-3 h-3"/> 自动确认发货</span>}
-                   {account.pause_duration > 0 && <span className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5"><Clock className="w-3 h-3"/> 暂停{account.pause_duration}分钟</span>}
+                   {account.paused && <span className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5"><Clock className="w-3 h-3"/> 暂停处理中</span>}
                 </div>
               </div>
             </div>
@@ -626,7 +829,7 @@ const AccountList: React.FC = () => {
       {/* QR Code Modal */}
       {showQRModal && createPortal(
           <div className="modal-overlay-centered">
-              <div className="modal-container relative" style={{maxWidth: '24rem'}}>
+			  <div className="modal-container relative" style={{maxWidth: '26rem'}}>
                   <button
                     onClick={closeQRModal}
                     className="absolute top-4 right-4 z-10 w-9 h-9 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
@@ -645,9 +848,9 @@ const AccountList: React.FC = () => {
                               : '请打开闲鱼APP扫描下方二维码'}
                           </p>
 
-                          <div className="w-64 h-64 bg-[#F7F8FA] rounded-xl mx-auto flex items-center justify-center overflow-hidden border-4 border-white shadow-inner mb-8 relative">
+						  <div className={`w-full bg-[#F7F8FA] rounded-xl mx-auto flex items-center justify-center overflow-hidden border-4 border-white shadow-inner mb-6 relative ${qrStatus === 'verification' ? 'max-w-72 min-h-64 h-auto p-2' : 'max-w-64 aspect-square'}`}>
                               {qrStatus === 'loading' && <Loader2 className="w-10 h-10 text-[#0094f7] animate-spin" />}
-                              {qrStatus === 'waiting' && <img src={qrCodeUrl} alt="QR Code" className="w-full h-full p-2" />}
+                              {qrStatus === 'waiting' && <SquareQRCode src={qrCodeUrl} alt="闲鱼登录二维码" className="p-2" />}
                               {qrStatus === 'success' && (
                                   <div className="absolute inset-0 bg-white/95 flex flex-col items-center justify-center text-green-600 animate-fade-in">
                                       <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
@@ -656,43 +859,18 @@ const AccountList: React.FC = () => {
                                       <span className="font-bold text-lg">登录成功</span>
                                   </div>
                               )}
-                              {qrStatus === 'error' && (
-                                  <div className="flex flex-col items-center">
-                                      <span className="text-red-500 font-bold mb-2">获取失败</span>
-                                      <button onClick={() => startQRLogin(qrReauthTarget || undefined)} className="text-xs bg-gray-200 px-3 py-1 rounded-full flex items-center gap-1 hover:bg-gray-300"><RefreshCw className="w-3 h-3"/> 重试</button>
-                                  </div>
-                              )}
-                              {qrStatus === 'verification' && (
-                                  <div className="flex flex-col items-center px-4">
-                                      <span className="font-bold text-gray-900 mb-2">需要安全验证</span>
-                                      <span className="text-xs text-gray-500 mb-3 text-center">
-                                          {faceQrUrl
-                                            ? '请用手机闲鱼扫描下方二维码完成人脸验证，验证通过后将自动登录。'
-                                            : '正在准备验证二维码，请保持页面打开。'}
-                                      </span>
-                                      {faceQrUrl ? (
-                                          <img src={faceQrUrl} alt="人脸验证二维码" className="w-full max-w-[210px] rounded-xl border bg-white p-2 mb-2" />
-                                      ) : verificationScreenshot ? (
-                                          <img src={verificationScreenshot} alt="验证页面" className="w-full rounded-xl border mb-2" style={{maxHeight: 200, objectFit: 'contain'}} />
-                                      ) : (
-                                          <div className="w-full h-32 bg-gray-100 rounded-xl flex items-center justify-center mb-2">
-                                              <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-                                          </div>
-                                      )}
-                                      {verificationUrl && (
-                                        <a href={verificationUrl} target="_blank" rel="noopener noreferrer" className="mt-2 text-sm font-bold text-[#0094f7] flex items-center gap-1">
-                                          <ExternalLink className="w-4 h-4" />打开安全验证页面
-                                        </a>
-                                      )}
-                                      <button type="button" onClick={handleCompleteVerification} className="mt-3 ios-btn-primary px-4 py-2 rounded-xl text-sm font-bold">
-                                        我已完成验证
-                                      </button>
-                                      <span className="text-xs text-gray-400 mt-2">验证完成后点击确认，系统会提取并保存登录状态。</span>
-                                  </div>
-                              )}
+							  {qrStatus === 'error' && (
+								  <div className="px-5 text-center">
+									  <span className="block text-red-600 font-bold">二维码获取失败</span>
+									  <span className="mt-2 block text-xs leading-5 text-gray-500">请关闭窗口后重新发起扫码登录。</span>
+								  </div>
+							  )}
+							  {qrStatus === 'verification' && (
+									  <RiskVerificationPanel faceQrUrl={faceQrUrl} verificationScreenshot={verificationScreenshot} />
+							  )}
                           </div>
 
-                          <p className="text-xs text-gray-400 font-medium bg-gray-50 py-2 rounded-xl">二维码有效期为5分钟，请尽快扫码。</p>
+					  {qrStatus !== 'verification' && <p className="text-xs text-gray-400 font-medium bg-gray-50 py-2 rounded-xl">二维码有效期为5分钟，请尽快扫码。</p>}
                       </div>
                   </div>
               </div>
@@ -710,7 +888,7 @@ const AccountList: React.FC = () => {
                 <p className="text-sm text-gray-500 mt-1">{editingAccount.nickname || editingAccount.remark || editingAccount.id}</p>
               </div>
               <button
-                onClick={() => setActiveModal(null)}
+				onClick={() => void closeEditModal()}
                 className="p-2 rounded-xl hover:bg-gray-100 transition-colors flex-shrink-0"
               >
                 <X className="w-5 h-5 text-gray-500" />
@@ -793,6 +971,16 @@ const AccountList: React.FC = () => {
                   className="w-full ios-input px-4 py-3 rounded-xl"
                 />
                 <p className="text-xs text-gray-500 mt-1">设置后会暂停处理该账号的订单，到时间后自动恢复</p>
+                {editForm.pause_duration > 0 && !editingAccount.paused && editForm.pause_duration === (editingAccount.pause_duration || 0) && (
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void handleRestartPause()}
+                    className="mt-3 px-4 py-2 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-100 text-sm font-bold disabled:opacity-50"
+                  >
+                    立即按当前时长重新暂停
+                  </button>
+                )}
               </div>
 
               {/* 登录信息 */}
@@ -802,6 +990,22 @@ const AccountList: React.FC = () => {
                   登录信息
                 </h3>
                 <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-4 rounded-xl bg-blue-50 p-4">
+                    <div>
+                      <div className="font-bold text-gray-900">保存登录信息</div>
+                      <div className="mt-1 text-xs text-gray-500">状态直接读取并修改闲鱼官方长登录设置</div>
+                      {longLogin.error && <div className="mt-1 text-xs text-red-600">{longLogin.error}</div>}
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="保存登录信息"
+                      disabled={longLogin.loading || longLogin.saving || !longLogin.canOpen}
+                      onClick={() => void handleLongLoginToggle()}
+                      className={`relative h-8 w-14 flex-shrink-0 rounded-full transition-colors ${longLogin.enabled ? 'bg-[#0094f7]' : 'bg-gray-300'} disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      <span className={`absolute left-1 top-1 h-6 w-6 rounded-full bg-white shadow-md transition-transform ${longLogin.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-2">用户名</label>
                     <input
@@ -858,6 +1062,39 @@ const AccountList: React.FC = () => {
                         }`}
                       />
                     </button>
+                  </div>
+                  <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div>
+                        <div className="font-bold text-blue-950">立即执行账号密码登录</div>
+                        <div className="text-xs text-blue-700 mt-1">需要在上方重新输入本次登录密码；成功后后端会更新 Cookie 和保存的登录信息。</div>
+                      </div>
+                      {(passwordLoginView.status === 'processing' || passwordLoginView.status === 'verification_required') ? (
+                        <button type="button" onClick={handleCancelPasswordLogin} className="px-4 py-2 rounded-xl bg-white text-red-600 font-bold text-sm border border-red-100">
+                          取消登录
+                        </button>
+                      ) : (
+                        <button type="button" onClick={handlePasswordLogin} className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-sm whitespace-nowrap">
+                          密码登录刷新授权
+                        </button>
+                      )}
+                    </div>
+                    {passwordLoginView.message && (
+                      <div className={`text-sm font-medium ${passwordLoginView.status === 'failed' ? 'text-red-700' : passwordLoginView.status === 'success' ? 'text-green-700' : 'text-blue-800'}`}>
+                        {passwordLoginView.message}
+                      </div>
+                    )}
+                    {passwordLoginView.status === 'verification_required' && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                        <div className="font-extrabold">账号已触发平台风控，需要完成人脸识别</div>
+                        <div className="text-xs mt-1 leading-5">请在闲鱼 App 或已打开的登录浏览器中按提示完成验证。本页面不会提供可直接打开的风控链接。</div>
+                        {passwordLoginView.qrCodeUrl && (
+                          <div className="mt-3 aspect-square w-48 overflow-hidden rounded-xl border bg-white">
+                            <SquareQRCode src={passwordLoginView.qrCodeUrl} alt="密码登录风控二维码" className="p-2" />
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -918,7 +1155,7 @@ const AccountList: React.FC = () => {
             <div className="modal-footer">
               <div className="flex gap-3 w-full">
                 <button
-                  onClick={() => setActiveModal(null)}
+				  onClick={() => void closeEditModal()}
                   className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
                   disabled={saving}
                 >
@@ -952,7 +1189,7 @@ const AccountList: React.FC = () => {
                 <p className="text-sm text-gray-500 mt-1">{editingAccount.nickname || editingAccount.remark || editingAccount.id}</p>
               </div>
               <button
-                onClick={() => setActiveModal(null)}
+				onClick={closeAIModal}
                 className="p-2 rounded-xl hover:bg-gray-100 transition-colors flex-shrink-0"
               >
                 <X className="w-5 h-5 text-gray-500" />
@@ -1055,7 +1292,7 @@ const AccountList: React.FC = () => {
             <div className="modal-footer">
               <div className="flex gap-3 w-full">
                 <button
-                  onClick={() => setActiveModal(null)}
+				  onClick={closeAIModal}
                   className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
                   disabled={saving}
                 >

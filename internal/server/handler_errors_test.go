@@ -78,7 +78,10 @@ func TestCreateCardRejectsUnsupportedAPITypeAndInvalidDelay(t *testing.T) {
 	for _, body := range []string{
 		`{"name":"API 卡密","type":"api","enabled":true}`,
 		`{"name":"非法类型","type":"unknown","enabled":true}`,
-		`{"name":"延时错误","type":"text","text_content":"x","delay_seconds":86401,"enabled":true}`,
+		`{"name":"延时错误","type":"text","text_content":"x","delay_seconds":3601,"enabled":true}`,
+		`{"name":"空文本","type":"text","text_content":"  ","enabled":true}`,
+		`{"name":"空库存","type":"data","data_content":"\n","enabled":true}`,
+		`{"name":"空图片","type":"image","image_url":"","enabled":true}`,
 	} {
 		req := httptest.NewRequest(http.MethodPost, "/cards", strings.NewReader(body))
 		req.AddCookie(cookie)

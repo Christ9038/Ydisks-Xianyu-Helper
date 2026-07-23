@@ -64,6 +64,13 @@ func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "不能删除当前登录用户")
 		return
 	}
+	if s.Manager != nil {
+		if accounts, listErr := s.Store.Cookies.AllForUser(r.Context(), uid); listErr == nil {
+			for cookieID := range accounts {
+				s.Manager.Stop(cookieID)
+			}
+		}
+	}
 	if err := s.Store.Users.Delete(r.Context(), uid); err != nil {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return

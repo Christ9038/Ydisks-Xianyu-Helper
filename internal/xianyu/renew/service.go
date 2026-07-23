@@ -1,17 +1,13 @@
-// Package renew 实现闲鱼登录 Cookie 续期链路。
-//
-// 这层只负责低成本 HTTP 续期：hasLogin.do -> silentHasLogin.do ->
-// setLoginSettings.do。浏览器续期和密码登录属于更重的恢复手段，应该由上层在
-// 本包返回失败后再决定是否执行。
+// Package renew 实现闲鱼登录 Cookie 续期与“保存登录信息”接口。
+// 主动续期严格复用 auto-login plugin 的单次 silentHasLogin 流程；长登录开关
+// 独立执行 setLoginSettings -> queryLoginSettings，不混入主动续期链。
 package renew
 
 import (
 	"context"
-	cryptorand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
 	"net/url"
 	"sort"
@@ -19,39 +15,312 @@ import (
 	"strings"
 	"time"
 
+	"xianyu-go/internal/xianyu"
+	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/protocol"
 )
 
 const (
-	HasLoginURL          = "https://passport.goofish.com/newlogin/hasLogin.do"
-	SilentHasLoginURL    = "https://passport.goofish.com/newlogin/silentHasLogin.do"
-	SetLoginSettingsURL  = "https://passport.goofish.com/ac/account/setLoginSettings.do"
-	defaultRequestTimout = 20 * time.Second
-	maxRenewBodyBytes    = 2 << 20
-	renewUA              = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
-	hasLoginSecChUA      = `"Chromium";v="145", "Not:A-Brand";v="99"`
-	settingSecChUA       = `"Google Chrome";v="146", "Not=A?Brand";v="8"`
+	HasLoginURL            = "https://passport.goofish.com/newlogin/hasLogin.do"
+	SilentHasLoginURL      = "https://passport.goofish.com/newlogin/silentHasLogin.do"
+	SetLoginSettingsURL    = "https://passport.goofish.com/ac/account/setLoginSettings.do"
+	QueryLoginSettingsURL  = "https://passport.goofish.com/ac/account/queryLoginSettings.do"
+	defaultRequestTimout   = 2 * time.Second
+	backgroundFetchTimeout = 30 * time.Second
+	longLoginRequestTimout = 30 * time.Second
+	maxRenewBodyBytes      = 2 << 20
+	goofishTopSite         = "https://goofish.com"
+	goofishIMDocumentURL   = "https://www.goofish.com/im"
 )
 
 // Service 是 Cookie 接口续期服务。零值可用；测试可覆盖 URL 和 HTTPClient。
 type Service struct {
-	HTTPClient          *http.Client
-	HasLoginURL         string
-	SilentHasLoginURL   string
-	SetLoginSettingsURL string
-	RetryDelay          time.Duration
+	HTTPClient            *http.Client
+	HasLoginURL           string
+	SilentHasLoginURL     string
+	QueryLoginSettingsURL string
+	SetLoginSettingsURL   string
+	DocumentReferer       string
+	RetryDelay            time.Duration
+	// PromiseTimeout 仅供测试缩短官网固定的 2 秒 Promise.race 窗口；
+	// 生产零值始终使用 defaultRequestTimout。
+	PromiseTimeout time.Duration
+}
+
+type LongLoginSettings struct {
+	CanOpenLongLogin       bool                          `json:"can_open_long_login"`
+	Enabled                bool                          `json:"enabled"`
+	NewCookies             string                        `json:"-"`
+	SetCookies             []string                      `json:"-"`
+	CookieSnapshot         []cookierefresh.BrowserCookie `json:"-"`
+	CookieSnapshotComplete bool                          `json:"-"`
+}
+
+type longLoginCookieState struct {
+	flat          string
+	snapshot      []cookierefresh.BrowserCookie
+	authoritative bool
+}
+
+func newLongLoginCookieState(cookiesStr string, snapshots [][]cookierefresh.BrowserCookie) *longLoginCookieState {
+	state := &longLoginCookieState{flat: cookiesStr, authoritative: len(snapshots) > 0}
+	if state.authoritative {
+		state.snapshot = cookierefresh.NormalizeSnapshot(snapshots[0])
+		if state.snapshot == nil {
+			state.snapshot = []cookierefresh.BrowserCookie{}
+		}
+		state.refreshCanonical()
+	}
+	return state
+}
+
+func (state *longLoginCookieState) requestCookies(requestURL string) string {
+	if state == nil || !state.authoritative {
+		if state == nil {
+			return ""
+		}
+		return state.flat
+	}
+	value, _ := cookierefresh.ScopedCookieHeaderForRequest(state.snapshot, requestURL, goofishTopSite, time.Now())
+	return value
+}
+
+func (state *longLoginCookieState) apply(requestURL string, setCookies []string) {
+	if state == nil {
+		return
+	}
+	if state.authoritative {
+		state.snapshot = cookierefresh.ApplySetCookies(state.snapshot, requestURL, setCookies, time.Now(), goofishTopSite)
+		if state.snapshot == nil {
+			state.snapshot = []cookierefresh.BrowserCookie{}
+		}
+		state.refreshCanonical()
+		return
+	}
+	state.flat = MergeSetCookies(state.flat, setCookies)
+}
+
+func (state *longLoginCookieState) refreshCanonical() {
+	state.flat, _ = cookierefresh.ScopedCookieHeaderForRequest(state.snapshot, goofishIMDocumentURL, goofishTopSite, time.Now())
+}
+
+func (state *longLoginCookieState) populate(result *LongLoginSettings) {
+	if state == nil || result == nil {
+		return
+	}
+	result.NewCookies = state.flat
+	result.CookieSnapshotComplete = state.authoritative
+	if state.authoritative {
+		result.CookieSnapshot = cookierefresh.NormalizeSnapshot(state.snapshot)
+		if result.CookieSnapshot == nil {
+			result.CookieSnapshot = []cookierefresh.BrowserCookie{}
+		}
+	}
+}
+
+// QueryLongLoginSettings 对齐官网个人信息弹窗的“保存登录信息”查询。
+func (s Service) QueryLongLoginSettings(ctx context.Context, cookiesStr string, snapshots ...[]cookierefresh.BrowserCookie) (*LongLoginSettings, error) {
+	return s.longLoginRequest(ctx, newLongLoginCookieState(cookiesStr, snapshots), nil)
+}
+
+// SetLongLoginSettings 中 status=0 表示开启，status=1 表示关闭。
+func (s Service) SetLongLoginSettings(ctx context.Context, cookiesStr string, enabled bool, snapshots ...[]cookierefresh.BrowserCookie) (*LongLoginSettings, error) {
+	status := "1"
+	if enabled {
+		status = "0"
+	}
+	state := newLongLoginCookieState(cookiesStr, snapshots)
+	setResult, err := s.longLoginRequest(ctx, state, &status)
+	if err != nil {
+		return setResult, err
+	}
+	// 官网 SET 成功后触发 LONG_LOGIN_SWITCH，再通过 QUERY 获取最终状态；SET
+	// 本身只要求 data.success，不要求携带 returnValue。
+	queried, err := s.longLoginRequest(ctx, state, nil)
+	if queried == nil {
+		queried = &LongLoginSettings{
+			Enabled: enabled,
+		}
+		state.populate(queried)
+	}
+	queried.SetCookies = append(append([]string(nil), setResult.SetCookies...), queried.SetCookies...)
+	if err != nil {
+		// QUERY 失败时仍返回 SET 请求及 QUERY 响应头已经刷新的 Cookie；最终
+		// 开关状态尚未确认，只能保留调用方本次请求的目标值。
+		queried.Enabled = enabled
+		return queried, err
+	}
+	return queried, nil
+}
+
+func (s Service) longLoginRequest(ctx context.Context, cookieState *longLoginCookieState, status *string) (*LongLoginSettings, error) {
+	partial := &LongLoginSettings{}
+	cookieState.populate(partial)
+	if status != nil {
+		partial.Enabled = *status == "0"
+	}
+	cookieURL := QueryLoginSettingsURL
+	target := s.urlOrDefault(s.QueryLoginSettingsURL, QueryLoginSettingsURL)
+	var body io.Reader
+	if status != nil {
+		cookieURL = SetLoginSettingsURL
+		target = s.urlOrDefault(s.SetLoginSettingsURL, SetLoginSettingsURL)
+		body = strings.NewReader("status=" + url.QueryEscape(*status))
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, body)
+	if err != nil {
+		return partial, err
+	}
+	appendOrderedQuery(req.URL, [][2]string{{"fromSite", "77"}, {"appName", "xianyu"}, {"bizEntrance", "web"}})
+	setSilentHasLoginHeaders(req, cookieState.requestCookies(cookieURL), s.documentReferer())
+	if status != nil {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	hc := s.HTTPClient
+	if hc == nil {
+		hc = &http.Client{Timeout: longLoginRequestTimout}
+	}
+	requestCtx, cancel := context.WithTimeout(req.Context(), longLoginRequestTimout)
+	defer cancel()
+	resp, err := hc.Do(req.Clone(requestCtx))
+	if err != nil {
+		return partial, fmt.Errorf("保存登录信息请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+	// 浏览器在响应头到达时就会更新 Cookie Jar；因此必须先捕获 Set-Cookie，
+	// 即使随后读取响应体、校验 HTTP 状态或解析业务 JSON 失败也要返回给调用方。
+	partial.SetCookies = filterValidSetCookies(resp.Header.Values("Set-Cookie"))
+	cookieState.apply(cookieURL, partial.SetCookies)
+	cookieState.populate(partial)
+	raw, err := readRenewBody(resp.Body)
+	if err != nil {
+		return partial, fmt.Errorf("保存登录信息响应读取失败: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return partial, fmt.Errorf("保存登录信息 HTTP 状态异常: %d", resp.StatusCode)
+	}
+	if status != nil {
+		if !longLoginSetBusinessOK(raw) {
+			return partial, fmt.Errorf("保存登录信息业务结果未确认成功")
+		}
+		return partial, nil
+	}
+	value, ok := findReturnValue(raw)
+	if !ok {
+		return partial, fmt.Errorf("保存登录信息响应缺少 returnValue")
+	}
+	partial.CanOpenLongLogin, _ = value["canOpenLongLogin"].(bool)
+	partial.Enabled, _ = value["hasLongTokenLogin"].(bool)
+	return partial, nil
+}
+
+func longLoginSetBusinessOK(raw []byte) bool {
+	var payload map[string]any
+	if json.Unmarshal(raw, &payload) != nil {
+		return false
+	}
+	if success, _ := payload["success"].(bool); success {
+		return true
+	}
+	if data, _ := payload["data"].(map[string]any); data != nil {
+		success, _ := data["success"].(bool)
+		return success
+	}
+	return false
+}
+
+func findReturnValue(raw []byte) (map[string]any, bool) {
+	var payload map[string]any
+	if json.Unmarshal(raw, &payload) != nil {
+		return nil, false
+	}
+	return findMapChild(payload, "returnValue", 0)
+}
+
+func findMapChild(parent map[string]any, key string, depth int) (map[string]any, bool) {
+	if parent == nil || depth > 6 {
+		return nil, false
+	}
+	if value, ok := parent[key].(map[string]any); ok {
+		return value, true
+	}
+	for _, child := range parent {
+		if nested, ok := child.(map[string]any); ok {
+			if value, found := findMapChild(nested, key, depth+1); found {
+				return value, true
+			}
+		}
+	}
+	return nil, false
 }
 
 // Result 描述一次接口续期的完整结果。
 type Result struct {
-	Success            bool
-	RenewMethod        string
-	NewCookies         string
-	UpdatedCookieNames []string
-	StepDetails        []StepResult
-	Message            string
-	ResponseText       string
-	NeedPasswordLogin  bool
+	Success                bool
+	Skipped                bool
+	SkipReason             string
+	RenewMethod            string
+	NewCookies             string
+	UpdatedCookieNames     []string
+	SetCookies             []string
+	CookieSnapshot         []cookierefresh.BrowserCookie
+	CookieSnapshotComplete bool
+	StepDetails            []StepResult
+	Message                string
+	ResponseText           string
+	NeedPasswordLogin      bool
+	RequestCount           int
+	pending                <-chan pendingRenewResult
+	responseCookieURL      string
+}
+
+type pendingRenewResult struct {
+	result *Result
+	err    error
+}
+
+// HasPending 表示官网 2 秒 Promise 已结束，但底层 fetch 仍在接收响应。
+func (r *Result) HasPending() bool { return r != nil && r.pending != nil }
+
+// AwaitPending 等待底层 fetch 的最终响应。只能由一个持久化调用方消费一次。
+func (r *Result) AwaitPending(ctx context.Context) (*Result, error) {
+	if r == nil || r.pending == nil {
+		return nil, nil
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case outcome, ok := <-r.pending:
+		if !ok {
+			return nil, nil
+		}
+		return outcome.result, outcome.err
+	}
+}
+
+// RebaseResponseCookies 把续期响应的 Set-Cookie 应用到“当前最新”凭证状态。
+// 后台 fetch 可能晚于其他 MTOP 请求返回，必须重放响应头而不是覆盖成请求发起
+// 时计算出的旧快照。
+func RebaseResponseCookies(currentCookies, currentMetadata string, result *Result) (string, string, bool) {
+	if result == nil || len(result.SetCookies) == 0 {
+		return currentCookies, currentMetadata, false
+	}
+	requestURL := strings.TrimSpace(result.responseCookieURL)
+	if requestURL == "" {
+		requestURL = SilentHasLoginURL
+	}
+	if snapshot, complete := cookierefresh.SnapshotFromMetadataOK(currentMetadata); complete {
+		updated := cookierefresh.ApplySetCookies(snapshot, requestURL, result.SetCookies, time.Now(), goofishTopSite)
+		if updated == nil {
+			updated = []cookierefresh.BrowserCookie{}
+		}
+		value, _ := cookierefresh.ScopedCookieHeaderForRequest(updated, goofishIMDocumentURL, goofishTopSite, time.Now())
+		metadata := cookierefresh.MetadataWithSnapshot(currentMetadata, updated)
+		return value, metadata, value != currentCookies || metadata != currentMetadata
+	}
+	value := MergeSetCookies(currentCookies, result.SetCookies)
+	metadata := cookierefresh.MetadataWithoutSnapshot(currentMetadata)
+	return value, metadata, value != currentCookies || metadata != currentMetadata
 }
 
 // StepResult 是单个续期接口的执行结果，便于上层记录日志和定位失败点。
@@ -63,217 +332,338 @@ type StepResult struct {
 	Message        string
 }
 
-// RenewAPIFirst 按对方项目的“接口续期优先”思路执行三段续期。
-// 只有 setLoginSettings.do 返回 Set-Cookie，才认为长登录续期真正成功；
-// 前两步下发的 Cookie 即使最终失败也会保留在 NewCookies 中，避免丢失服务端刷新字段。
-func (s Service) RenewAPIFirst(ctx context.Context, cookiesStr string) (*Result, error) {
+const (
+	autoLoginModeHavana  = "havana"
+	autoLoginModeCookie3 = "cookie3"
+)
+
+// RenewAPIFirst mirrors goofish-auto-login/plugin.js. The web client first
+// honors the sdkSilent fatigue cookie, chooses the still-valid long-login
+// branch, waits briefly, and sends exactly one silentHasLogin request.
+// It never chains hasLogin/setLoginSettings or escalates to an interactive
+// login from this proactive renewal path.
+func (s Service) RenewAPIFirst(ctx context.Context, cookiesStr string, snapshots ...[]cookierefresh.BrowserCookie) (*Result, error) {
 	cookiesStr = strings.TrimSpace(cookiesStr)
-	if cookiesStr == "" {
-		return &Result{RenewMethod: "none", Message: "Cookie为空，无法续期", NeedPasswordLogin: true}, nil
+	authoritativeSnapshot := len(snapshots) > 0 && snapshots[0] != nil
+	documentURL := s.documentReferer()
+	requestURL := s.urlOrDefault(s.SilentHasLoginURL, SilentHasLoginURL)
+	now := time.Now()
+	decisionCookies := cookiesStr
+	requestCookies := cookiesStr
+	newCookies := cookiesStr
+	var snapshot []cookierefresh.BrowserCookie
+	if authoritativeSnapshot {
+		snapshot = cookierefresh.NormalizeSnapshot(snapshots[0])
+		documentCookies := make([]cookierefresh.BrowserCookie, 0, len(snapshot))
+		for _, cookie := range snapshot {
+			if !cookie.HTTPOnly {
+				documentCookies = append(documentCookies, cookie)
+			}
+		}
+		if scoped, authoritative := cookierefresh.ScopedCookieHeaderForRequest(documentCookies, documentURL, goofishTopSite, now); authoritative {
+			decisionCookies = scoped
+		}
+		if scoped, authoritative := cookierefresh.ScopedCookieHeaderForRequest(snapshot, requestURL, goofishTopSite, now); authoritative {
+			requestCookies = scoped
+		}
+		if scoped, authoritative := cookierefresh.ScopedCookieHeaderForRequest(snapshot, goofishIMDocumentURL, goofishTopSite, now); authoritative {
+			newCookies = scoped
+		}
 	}
-	res, err := s.renewOnce(ctx, cookiesStr)
-	if err != nil || res == nil || res.Success {
-		return res, err
+	result := &Result{
+		RenewMethod:       "auto_login_plugin",
+		NewCookies:        newCookies,
+		responseCookieURL: requestURL,
 	}
+	if authoritativeSnapshot {
+		result.CookieSnapshot = make([]cookierefresh.BrowserCookie, len(snapshot))
+		copy(result.CookieSnapshot, snapshot)
+		result.CookieSnapshotComplete = true
+	}
+	if cookiesStr == "" && !authoritativeSnapshot {
+		result.RenewMethod = "none"
+		result.Message = "Cookie为空，无法续期"
+		result.NeedPasswordLogin = true
+		return result, nil
+	}
+	if ua := strings.ToLower(xianyu.CurrentBrowserFingerprint().UserAgent); ua != "" &&
+		!strings.Contains(ua, "windows") && !strings.Contains(ua, "macintosh") {
+		result.Skipped = true
+		result.SkipReason = "unsupported_desktop_ua"
+		result.Message = autoLoginSkipMessage(result.SkipReason)
+		return result, nil
+	}
+	mode, skipReason := autoLoginMode(firstCookieValues(decisionCookies), now)
+	if skipReason != "" {
+		result.Skipped = true
+		result.SkipReason = skipReason
+		result.Message = autoLoginSkipMessage(skipReason)
+		return result, nil
+	}
+	delay := 2 * time.Second
 	if s.RetryDelay < 0 {
-		return res, nil
-	}
-	delay := s.RetryDelay
-	if delay == 0 {
-		delay = 2 * time.Second
+		delay = 0
+	} else if s.RetryDelay > 0 {
+		delay = s.RetryDelay
 	}
 	if delay > 0 {
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return res, ctx.Err()
+			result.Message = ctx.Err().Error()
+			result.NeedPasswordLogin = true
+			return result, ctx.Err()
 		case <-timer.C:
 		}
 	}
-	retry, err := s.renewOnce(ctx, res.NewCookies)
-	if err != nil {
-		return res, err
+	call, err := s.callAutoLogin(ctx, requestCookies, mode)
+	populate := func(target *Result, finished callResult, callErr error, promiseTimedOut bool) (*Result, error) {
+		target.RequestCount = 1
+		target.SetCookies = append([]string(nil), finished.SetCookies...)
+		target.ResponseText = string(finished.Body)
+		if strings.TrimSpace(finished.Step.Name) != "" {
+			target.StepDetails = []StepResult{finished.Step}
+		}
+		if authoritativeSnapshot {
+			updatedSnapshot := cookierefresh.ApplySetCookies(snapshot, requestURL, finished.SetCookies, time.Now(), goofishTopSite)
+			target.CookieSnapshot = updatedSnapshot
+			target.CookieSnapshotComplete = true
+			if scoped, authoritative := cookierefresh.ScopedCookieHeaderForRequest(updatedSnapshot, goofishIMDocumentURL, goofishTopSite, time.Now()); authoritative {
+				target.NewCookies = scoped
+			}
+			target.UpdatedCookieNames = cookierefresh.ChangedSnapshotLabels(snapshot, updatedSnapshot)
+		} else {
+			target.NewCookies = MergeSetCookies(cookiesStr, finished.SetCookies)
+			target.UpdatedCookieNames = ChangedCookieNames(cookiesStr, target.NewCookies)
+		}
+		if promiseTimedOut {
+			target.Success = false
+			target.NeedPasswordLogin = false
+			target.Message = "官网静默续期 Promise 已超时"
+			if len(finished.SetCookies) > 0 {
+				target.Message += "；底层响应 Cookie 已接收"
+			}
+			return target, callErr
+		}
+		if callErr != nil {
+			target.Message = callErr.Error()
+			target.NeedPasswordLogin = true
+			return target, callErr
+		}
+		message := "静默续期成功"
+		if !finished.Step.BusinessOK {
+			message = firstNonEmpty(finished.Step.Message, "静默续期未通过")
+		}
+		target.Success = finished.Step.BusinessOK
+		target.Message = message
+		target.NeedPasswordLogin = !finished.Step.BusinessOK
+		return target, nil
 	}
-	if retry == nil {
-		return res, nil
+	if call.pending != nil {
+		result.RequestCount = 1
+		result.StepDetails = []StepResult{call.Step}
+		result.Message = call.Step.Message
+		result.NeedPasswordLogin = false
+		pending := make(chan pendingRenewResult, 1)
+		result.pending = pending
+		go func() {
+			outcome, ok := <-call.pending
+			if !ok {
+				close(pending)
+				return
+			}
+			late := &Result{
+				RenewMethod:       "auto_login_plugin",
+				NewCookies:        newCookies,
+				responseCookieURL: requestURL,
+			}
+			if authoritativeSnapshot {
+				late.CookieSnapshot = append([]cookierefresh.BrowserCookie(nil), snapshot...)
+				late.CookieSnapshotComplete = true
+			}
+			late, lateErr := populate(late, outcome.call, outcome.err, true)
+			pending <- pendingRenewResult{result: late, err: lateErr}
+			close(pending)
+		}()
+		return result, nil
 	}
-	retry.StepDetails = append(res.StepDetails, retry.StepDetails...)
-	retry.UpdatedCookieNames = ChangedCookieNames(cookiesStr, retry.NewCookies)
-	return retry, nil
+	return populate(result, call, err, false)
 }
 
-func (s Service) renewOnce(ctx context.Context, original string) (*Result, error) {
-	current := original
-	steps := make([]StepResult, 0, 3)
-	allSetCookies := make([]string, 0, 8)
+func autoLoginMode(cookies map[string]string, now time.Time) (mode, skipReason string) {
+	if strictCookieTimeAfter(cookies["sdkSilent"], now) {
+		return "", "fatigue"
+	}
+	if cookieTimeAfter(cookies["havana_lgc_exp"], now) {
+		return autoLoginModeHavana, ""
+	}
+	if cookieTimeAfter(cookies["cookie3_bak_exp"], now) {
+		return autoLoginModeCookie3, ""
+	}
+	return "", "long_login_expired"
+}
 
-	hasLogin, err := s.callHasLogin(ctx, current)
+// firstCookieValues 对齐浏览器 document.cookie getter：同名 Cookie 按浏览器
+// header 顺序读取首个值。ScopedCookieHeaderForRequest 已把更长 Path 排在前面。
+func firstCookieValues(cookieHeader string) map[string]string {
+	values := make(map[string]string)
+	for _, part := range strings.Split(cookieHeader, ";") {
+		name, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		name = strings.TrimSpace(name)
+		if !ok || name == "" {
+			continue
+		}
+		if _, exists := values[name]; exists {
+			continue
+		}
+		values[name] = strings.TrimSpace(value)
+	}
+	return values
+}
+
+func strictCookieTimeAfter(raw string, now time.Time) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	millis, err := strconv.ParseInt(raw, 10, 64)
+	return err == nil && millis > now.UnixMilli()
+}
+
+func cookieTimeAfter(raw string, now time.Time) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	millis, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
-		return nil, err
+		// plugin.js 使用 Invalid Date <= now；结果为 false，因此非空异常值
+		// 会继续进入对应续期分支。
+		return true
 	}
-	steps = append(steps, hasLogin.Step)
-	if len(hasLogin.SetCookies) > 0 {
-		allSetCookies = append(allSetCookies, hasLogin.SetCookies...)
-		current = MergeSetCookies(current, hasLogin.SetCookies)
-	}
+	return millis > now.UnixMilli()
+}
 
-	silent, err := s.callSilentHasLogin(ctx, current)
-	if err != nil {
-		return nil, err
+func autoLoginSkipMessage(reason string) string {
+	switch reason {
+	case "fatigue":
+		return "sdkSilent 疲劳窗口内，跳过静默续期"
+	case "long_login_expired":
+		return "长登录凭证已过期，静默续期不应发起请求"
+	case "unsupported_desktop_ua":
+		return "官网静默续期仅支持 Windows 或 macOS 桌面浏览器"
+	default:
+		return "无需静默续期"
 	}
-	steps = append(steps, silent.Step)
-	if len(silent.SetCookies) > 0 {
-		allSetCookies = append(allSetCookies, silent.SetCookies...)
-		current = MergeSetCookies(current, silent.SetCookies)
-	}
-
-	settings, err := s.callSetLoginSettings(ctx, current)
-	if err != nil {
-		return nil, err
-	}
-	steps = append(steps, settings.Step)
-	if len(settings.SetCookies) > 0 {
-		allSetCookies = append(allSetCookies, settings.SetCookies...)
-	}
-
-	newCookies := original
-	if len(allSetCookies) > 0 {
-		newCookies = MergeSetCookies(original, allSetCookies)
-	}
-	updated := ChangedCookieNames(original, newCookies)
-	success := len(settings.SetCookies) > 0
-	method := "none"
-	msg := "setLoginSettings 未返回 Set-Cookie，需要浏览器续期或密码登录"
-	if success {
-		method = "api"
-		msg = "接口续期成功"
-	}
-	return &Result{
-		Success:            success,
-		RenewMethod:        method,
-		NewCookies:         newCookies,
-		UpdatedCookieNames: updated,
-		StepDetails:        steps,
-		Message:            msg,
-		ResponseText:       string(silent.Body),
-		NeedPasswordLogin:  !success,
-	}, nil
 }
 
 type callResult struct {
 	Step       StepResult
 	SetCookies []string
 	Body       []byte
+	pending    <-chan callOutcome
 }
 
-func (s Service) callHasLogin(ctx context.Context, cookiesStr string) (callResult, error) {
-	cookies := protocol.TransCookies(cookiesStr)
-	unb := cookies["unb"]
-	if unb == "" {
-		return callResult{Step: StepResult{Name: "hasLogin", Message: "Cookie缺少unb，跳过"}}, nil
-	}
-	form := url.Values{}
-	form.Set("hid", unb)
-	form.Set("ltl", "true")
-	form.Set("appName", "xianyu")
-	form.Set("appEntrance", "web")
-	form.Set("_csrf_token", cookies["_tb_token_"])
-	form.Set("umidToken", firstNonEmpty(cookies["_uab_collina"], cookies["cna"]))
-	form.Set("hsiz", cookies["cookie2"])
-	form.Set("bizParams", "taobaoBizLoginFrom=web&renderRefer=https%3A%2F%2Fwww.goofish.com%2F")
-	form.Set("mainPage", "false")
-	form.Set("isMobile", "false")
-	form.Set("lang", "zh_CN")
-	form.Set("fromSite", "77")
-	form.Set("isIframe", "true")
-	form.Set("documentReferer", "https://www.goofish.com/")
-	form.Set("defaultView", "hasLogin")
-	form.Set("umidTag", "SERVER")
-	form.Set("returnUrl", "")
-	form.Set("deviceId", "")
-	form.Set("pageTraceId", "21504"+strconv.FormatInt(time.Now().UnixMilli(), 10)+randomDigits(6))
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.urlOrDefault(s.HasLoginURL, HasLoginURL), strings.NewReader(form.Encode()))
-	if err != nil {
-		return callResult{}, err
-	}
-	setHasLoginHeaders(req, cookiesStr, miniLoginReferer())
-	if xsrf := cookies["XSRF-TOKEN"]; xsrf != "" {
-		req.Header.Set("x-xsrf-token", xsrf)
-	}
-	q := req.URL.Query()
-	q.Set("appName", "xianyu")
-	q.Set("fromSite", "77")
-	req.URL.RawQuery = q.Encode()
-	return s.doRenewRequest(req, "hasLogin")
+type callOutcome struct {
+	call callResult
+	err  error
 }
 
-func (s Service) callSilentHasLogin(ctx context.Context, cookiesStr string) (callResult, error) {
+func (s Service) callAutoLogin(ctx context.Context, cookiesStr, mode string) (callResult, error) {
+	partial := callResult{Step: StepResult{Name: "silentHasLogin"}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.urlOrDefault(s.SilentHasLoginURL, SilentHasLoginURL), nil)
 	if err != nil {
-		return callResult{}, err
+		return partial, err
 	}
-	q := req.URL.Query()
-	q.Set("documentReferer", "https://www.goofish.com/")
-	q.Set("appName", "xianyu")
-	q.Set("appEntrance", "xianyu_sdkSilent")
-	q.Set("fromSite", "0")
-	q.Set("ltl", "true")
-	req.URL.RawQuery = q.Encode()
-	setSilentHasLoginHeaders(req, cookiesStr)
+	query := [][2]string{
+		{"documentReferer", s.documentReferer()},
+		{"appName", "xianyu"},
+		{"appEntrance", "xianyu_sdkSilent"},
+		{"fromSite", "0"},
+	}
+	switch mode {
+	case autoLoginModeHavana:
+		query = append(query, [2]string{"ltl", "true"})
+	case autoLoginModeCookie3:
+		query = append(query, [2]string{"skipSessionFilter", "true"}, [2]string{"c2r", "true"})
+	default:
+		return partial, fmt.Errorf("未知静默续期模式: %s", mode)
+	}
+	appendOrderedQuery(req.URL, query)
+	setSilentHasLoginHeaders(req, cookiesStr, s.documentReferer())
 	return s.doRenewRequest(req, "silentHasLogin")
-}
-
-func (s Service) callSetLoginSettings(ctx context.Context, cookiesStr string) (callResult, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.urlOrDefault(s.SetLoginSettingsURL, SetLoginSettingsURL), strings.NewReader("status=0"))
-	if err != nil {
-		return callResult{}, err
-	}
-	q := req.URL.Query()
-	q.Set("fromSite", "77")
-	q.Set("appName", "xianyu")
-	q.Set("bizEntrance", "web")
-	req.URL.RawQuery = q.Encode()
-	setLoginSettingsHeaders(req, cookiesStr)
-	return s.doRenewRequest(req, "setLoginSettings")
 }
 
 func (s Service) doRenewRequest(req *http.Request, name string) (callResult, error) {
 	hc := s.HTTPClient
 	if hc == nil {
-		hc = &http.Client{Timeout: defaultRequestTimout}
+		hc = &http.Client{Timeout: backgroundFetchTimeout}
 	}
-	client := *hc
-	client.CheckRedirect = func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
+	// Promise.race 的计时器不能取消底层 fetch。使用 WithoutCancel 让 2 秒
+	// 窗口结束后请求继续，但仍以 30 秒硬上限防止后台泄漏。
+	requestCtx, cancel := context.WithTimeout(context.WithoutCancel(req.Context()), backgroundFetchTimeout)
+	backgroundReq := req.Clone(requestCtx)
+	done := make(chan callOutcome, 1)
+	go func() {
+		defer cancel()
+		call, err := executeRenewRequest(hc, backgroundReq, name)
+		done <- callOutcome{call: call, err: err}
+	}()
+	timer := time.NewTimer(s.promiseTimeout())
+	defer timer.Stop()
+	select {
+	case <-req.Context().Done():
+		cancel()
+		result := callResult{Step: StepResult{Name: name, Message: req.Context().Err().Error()}}
+		return result, req.Context().Err()
+	case outcome := <-done:
+		return outcome.call, outcome.err
+	case <-timer.C:
+		return callResult{
+			Step:    StepResult{Name: name, Message: "官网静默续期 Promise 已超时；底层 fetch 继续接收 Cookie"},
+			pending: done,
+		}, nil
 	}
-	resp, err := client.Do(req)
+}
+
+func (s Service) promiseTimeout() time.Duration {
+	if s.PromiseTimeout > 0 {
+		return s.PromiseTimeout
+	}
+	return defaultRequestTimout
+}
+
+func executeRenewRequest(hc *http.Client, req *http.Request, name string) (callResult, error) {
+	result := callResult{Step: StepResult{Name: name}}
+	resp, err := hc.Do(req)
 	if err != nil {
-		return callResult{}, fmt.Errorf("%s 请求失败: %w", name, err)
+		result.Step.Message = fmt.Sprintf("请求失败: %v", err)
+		return result, fmt.Errorf("%s 请求失败: %w", name, err)
 	}
 	defer resp.Body.Close()
+	// 与浏览器 Cookie Jar 一样，在响应头到达后立即接收 Set-Cookie。后续响应体
+	// 读取失败也不能丢弃服务端已经完成的凭证轮换。
+	result.SetCookies = filterValidSetCookies(resp.Header.Values("Set-Cookie"))
+	result.Step.HTTPStatus = resp.StatusCode
+	result.Step.SetCookieCount = len(result.SetCookies)
 	body, err := readRenewBody(resp.Body)
 	if err != nil {
-		return callResult{}, fmt.Errorf("%s 响应读取失败: %w", name, err)
+		result.Step.Message = fmt.Sprintf("响应读取失败: %v", err)
+		return result, fmt.Errorf("%s 响应读取失败: %w", name, err)
 	}
-	setCookies := filterValidSetCookies(resp.Header.Values("Set-Cookie"))
-	step := StepResult{
-		Name:           name,
-		HTTPStatus:     resp.StatusCode,
-		SetCookieCount: len(setCookies),
+	result.Body = body
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		result.Step.Message = fmt.Sprintf("HTTP状态异常: %d", resp.StatusCode)
+		return result, nil
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		step.Message = fmt.Sprintf("HTTP状态异常: %d", resp.StatusCode)
-		return callResult{Step: step, SetCookies: setCookies, Body: body}, nil
-	}
-	step.BusinessOK = renewBusinessOK(body)
-	if step.BusinessOK {
-		step.Message = "业务成功"
+	result.Step.BusinessOK = renewBusinessOK(body)
+	if result.Step.BusinessOK {
+		result.Step.Message = "业务成功"
 	} else {
-		step.Message = "业务结果未确认成功"
+		result.Step.Message = "业务结果未确认成功"
 	}
-	return callResult{Step: step, SetCookies: setCookies, Body: body}, nil
+	return result, nil
 }
 
 func renewBusinessOK(body []byte) bool {
@@ -285,59 +675,59 @@ func renewBusinessOK(body []byte) bool {
 		return false
 	}
 	content, _ := payload["content"].(map[string]any)
+	if data, _ := payload["data"].(map[string]any); data != nil {
+		if nested, _ := data["content"].(map[string]any); nested != nil {
+			content = nested
+		}
+	}
 	if content == nil {
 		return false
 	}
-	ok, _ := content["success"].(bool)
-	return ok
+	data, _ := content["data"].(map[string]any)
+	if data != nil {
+		finished, _ := data["processFinished"].(bool)
+		if finished && numericResultCode(data["resultCode"]) == 100 {
+			return true
+		}
+	}
+	return false
 }
 
-func setHasLoginHeaders(req *http.Request, cookiesStr, referer string) {
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Accept-Language", "zh-CN")
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Referer", referer)
-	req.Header.Set("User-Agent", renewUA)
-	req.Header.Set("bx-v", "2.5.31")
-	req.Header.Set("sec-ch-ua", hasLoginSecChUA)
-	req.Header.Set("sec-ch-ua-mobile", "?0")
-	req.Header.Set("sec-ch-ua-platform", `"Windows"`)
-	req.Header.Set("Cookie", strings.ReplaceAll(strings.ReplaceAll(cookiesStr, "\n", ""), "\r", ""))
+func numericResultCode(v any) int {
+	switch value := v.(type) {
+	case float64:
+		return int(value)
+	case json.Number:
+		n, _ := strconv.Atoi(value.String())
+		return n
+	case int:
+		return value
+	default:
+		return 0
+	}
 }
 
-func setSilentHasLoginHeaders(req *http.Request, cookiesStr string) {
+func setSilentHasLoginHeaders(req *http.Request, cookiesStr, documentReferer string) {
+	xianyu.ApplyBrowserFingerprint(req.Header)
 	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Accept-Language", "en,zh-CN;q=0.9,zh;q=0.8,ru;q=0.7")
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Pragma", "no-cache")
-	req.Header.Set("Priority", "u=1, i")
-	req.Header.Set("Referer", "https://www.goofish.com/")
-	req.Header.Set("User-Agent", renewUA)
-	req.Header.Set("sec-ch-ua", `"Google Chrome";v="146", "Not=A?Brand";v="8", "Not/A)Brand";v="146"`)
-	req.Header.Set("sec-ch-ua-arch", `"x86"`)
-	req.Header.Set("sec-ch-ua-bitness", `"64"`)
-	req.Header.Set("sec-ch-ua-mobile", "?0")
-	req.Header.Set("sec-ch-ua-platform", `"Win32"`)
-	req.Header.Set("sec-ch-ua-platform-version", `"10.0.0"`)
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+	req.Header.Set("Origin", "https://www.goofish.com")
+	req.Header.Set("Referer", documentReferer)
 	req.Header.Set("sec-fetch-dest", "empty")
 	req.Header.Set("sec-fetch-mode", "cors")
 	req.Header.Set("sec-fetch-site", "same-site")
 	req.Header.Set("Cookie", strings.ReplaceAll(strings.ReplaceAll(cookiesStr, "\n", ""), "\r", ""))
 }
 
-func setLoginSettingsHeaders(req *http.Request, cookiesStr string) {
-	req.Header.Set("Accept", "application/json, text/plain, */*")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Referer", "https://www.goofish.com/")
-	req.Header.Set("User-Agent", renewUA)
-	req.Header.Set("sec-ch-ua", settingSecChUA)
-	req.Header.Set("sec-ch-ua-mobile", "?0")
-	req.Header.Set("sec-ch-ua-platform", `"Windows"`)
-	req.Header.Set("sec-fetch-dest", "empty")
-	req.Header.Set("sec-fetch-mode", "cors")
-	req.Header.Set("sec-fetch-site", "same-site")
-	req.Header.Set("Cookie", strings.ReplaceAll(strings.ReplaceAll(cookiesStr, "\n", ""), "\r", ""))
+func appendOrderedQuery(target *url.URL, values [][2]string) {
+	parts := make([]string, 0, len(values)+1)
+	if strings.TrimSpace(target.RawQuery) != "" {
+		parts = append(parts, target.RawQuery)
+	}
+	for _, item := range values {
+		parts = append(parts, url.QueryEscape(item[0])+"="+url.QueryEscape(item[1]))
+	}
+	target.RawQuery = strings.Join(parts, "&")
 }
 
 func (s Service) urlOrDefault(v, fallback string) string {
@@ -345,6 +735,13 @@ func (s Service) urlOrDefault(v, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func (s Service) documentReferer() string {
+	if strings.TrimSpace(s.DocumentReferer) != "" {
+		return strings.TrimSpace(s.DocumentReferer)
+	}
+	return "https://www.goofish.com/im"
 }
 
 func readRenewBody(r io.Reader) ([]byte, error) {
@@ -367,41 +764,13 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func miniLoginReferer() string {
-	return "https://passport.goofish.com/mini_login.htm?lang=zh_cn&appName=xianyu&appEntrance=web&styleType=vertical&bizParams=&notLoadSsoView=false&notKeepLogin=false&isMobile=false&qrCodeFirst=false&stie=77&rnd=" + randomFraction()
-}
-
-func randomDigits(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	min := 1
-	for i := 1; i < n; i++ {
-		min *= 10
-	}
-	max := min * 9
-	v, err := cryptorand.Int(cryptorand.Reader, big.NewInt(int64(max)))
-	if err != nil {
-		return strings.Repeat("0", n)
-	}
-	return strconv.Itoa(min + int(v.Int64()))
-}
-
-func randomFraction() string {
-	v, err := cryptorand.Int(cryptorand.Reader, big.NewInt(1_000_000_000))
-	if err != nil {
-		return "0.0"
-	}
-	return "0." + fmt.Sprintf("%09d", v.Int64())
-}
-
 func filterValidSetCookies(setCookies []string) []string {
 	if len(setCookies) == 0 {
 		return nil
 	}
 	out := make([]string, 0, len(setCookies))
 	for _, sc := range setCookies {
-		if strings.Contains(sc, "Max-Age=0") || strings.Contains(sc, "1970") {
+		if strings.TrimSpace(sc) == "" {
 			continue
 		}
 		out = append(out, sc)
@@ -414,19 +783,15 @@ func filterValidSetCookies(setCookies []string) []string {
 func MergeSetCookies(original string, setCookies []string) string {
 	cookies := protocol.TransCookies(original)
 	for _, sc := range setCookies {
-		pair := sc
-		if i := strings.Index(pair, ";"); i >= 0 {
-			pair = pair[:i]
-		}
-		name, val, ok := strings.Cut(pair, "=")
-		if !ok {
+		parsed, err := http.ParseSetCookie(sc)
+		if err != nil || strings.TrimSpace(parsed.Name) == "" {
 			continue
 		}
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
+		if parsed.MaxAge < 0 || (parsed.MaxAge == 0 && !parsed.Expires.IsZero() && !parsed.Expires.After(time.Now())) {
+			delete(cookies, parsed.Name)
+		} else {
+			cookies[parsed.Name] = parsed.Value
 		}
-		cookies[name] = strings.TrimSpace(val)
 	}
 	return marshalCookies(cookies)
 }
@@ -436,8 +801,15 @@ func ChangedCookieNames(original, newCookies string) []string {
 	oldMap := protocol.TransCookies(original)
 	newMap := protocol.TransCookies(newCookies)
 	changed := make([]string, 0)
-	for k, v := range newMap {
-		if oldMap[k] != v {
+	seen := make(map[string]struct{}, len(oldMap)+len(newMap))
+	for k := range oldMap {
+		seen[k] = struct{}{}
+	}
+	for k := range newMap {
+		seen[k] = struct{}{}
+	}
+	for k := range seen {
+		if oldMap[k] != newMap[k] {
 			changed = append(changed, k)
 		}
 	}

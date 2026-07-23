@@ -61,3 +61,25 @@ func TestRun_ServesHealthAndShutdowns(t *testing.T) {
 		t.Fatal("Run 未在 ctx 取消后 5s 内退出")
 	}
 }
+
+func TestPublishWorkerTrackingWaitsForCompletion(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	doneWorker := srv.beginWorker()
+	waited := make(chan struct{})
+	go func() {
+		srv.waitForWorkers(time.Second)
+		close(waited)
+	}()
+	select {
+	case <-waited:
+		t.Fatal("wait returned while worker was still active")
+	case <-time.After(20 * time.Millisecond):
+	}
+	doneWorker()
+	select {
+	case <-waited:
+	case <-time.After(time.Second):
+		t.Fatal("wait did not return after worker completed")
+	}
+}

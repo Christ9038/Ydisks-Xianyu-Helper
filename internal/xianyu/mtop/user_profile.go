@@ -17,6 +17,9 @@ import (
 // FetchUserProfile 获取当前 cookie 对应账号的实时昵称和头像。
 func (c *ClientImpl) FetchUserProfile(ctx context.Context, cookiesStr string) (*UserProfileResult, error) {
 	currentCookies := cookiesStr
+	if session := cookieSessionFromContext(ctx); session != nil {
+		currentCookies, _, _ = session.State()
+	}
 	var lastRet []string
 	for attempt := 0; attempt < 4; attempt++ {
 		res, ret, updatedCookies, err := c.fetchUserProfileOnce(ctx, currentCookies)
@@ -40,7 +43,7 @@ func (c *ClientImpl) FetchUserProfile(ctx context.Context, cookiesStr string) (*
 		if err := sleepCtx(ctx, MTopRetryGap); err != nil {
 			return nil, err
 		}
-		refreshed, err := c.RefreshToken(currentCookies)
+		refreshed, err := c.RefreshTokenContext(ctx, currentCookies)
 		if err != nil {
 			return nil, fmt.Errorf("刷新 mtop token 失败: %w", err)
 		}
@@ -55,10 +58,10 @@ func (c *ClientImpl) fetchUserProfileOnce(ctx context.Context, cookiesStr string
 		hc = &http.Client{Timeout: 30 * time.Second}
 	}
 
-	cookies := protocol.TransCookies(cookiesStr)
 	dataVal := "{}"
+	signingCookies, requestCookies := mtopRequestCookies(ctx, cookiesStr, "https://www.goofish.com/", UserPageNavAPI)
 	t := strconv.FormatInt(time.Now().UnixMilli(), 10)
-	sign := protocol.GenerateSign(t, protocol.SignToken(cookiesStr), dataVal)
+	sign := protocol.GenerateSign(t, protocol.SignToken(signingCookies), dataVal)
 	query := buildUserPageNavQuery(t, sign)
 	body := "data=" + url.QueryEscape(dataVal)
 
@@ -66,18 +69,18 @@ func (c *ClientImpl) fetchUserProfileOnce(ctx context.Context, cookiesStr string
 	if err != nil {
 		return nil, nil, cookiesStr, err
 	}
-	setCommonHeaders(req, cookiesStr)
+	setCommonHeaders(req, requestCookies)
 
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, nil, cookiesStr, fmt.Errorf("账号资料请求失败: %w", err)
 	}
 	defer resp.Body.Close()
+	updated := absorbMTopResponseCookies(ctx, cookiesStr, resp)
 	raw, err := readMTopBody(resp)
 	if err != nil {
-		return nil, nil, cookiesStr, err
+		return nil, nil, updated, err
 	}
-	updated := mergeSetCookie(cookiesStr, cookies, resp)
 
 	var decoded struct {
 		Ret  []string       `json:"ret"`

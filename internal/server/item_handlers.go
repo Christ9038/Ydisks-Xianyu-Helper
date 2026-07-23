@@ -25,7 +25,9 @@ func (s *Server) mountItemsReal(r chi.Router) {
 	r.Post("/items/publish", s.publishItem)
 	r.Post("/items/publish-batches/preview", s.previewItemPublishBatch)
 	r.Post("/items/publish-batches", s.startItemPublishBatch)
+	r.Get("/items/publish-batches", s.listItemPublishBatches)
 	r.Get("/items/publish-batches/{batch_id}", s.getItemPublishBatch)
+	r.Delete("/items/publish-batches/{batch_id}", s.deleteItemPublishBatch)
 	r.Post("/items/publish-batches/{batch_id}/cancel", s.cancelItemPublishBatch)
 	r.Post("/items/publish-batches/{batch_id}/retry-failed", s.retryFailedItemPublishBatch)
 	r.Get("/items/publish-batches/{batch_id}/result.csv", s.downloadItemPublishBatchResult)
@@ -51,7 +53,7 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请选择发布账号")
 		return
 	}
-	cookieValue, userID, ok := s.cookieForCurrentUser(w, r, cookieID)
+	_, userID, ok := s.cookieForCurrentUser(w, r, cookieID)
 	if !ok {
 		return
 	}
@@ -62,7 +64,11 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "商品价格必须大于 0")
 		return
 	}
-	origCents, _ := parseMoneyCents(r.FormValue("original_price"))
+	origCents, err := parseMoneyCents(r.FormValue("original_price"))
+	if err != nil || origCents < 0 {
+		writeErr(w, http.StatusBadRequest, "商品原价格式错误")
+		return
+	}
 	quantity, err := strconv.Atoi(strings.TrimSpace(r.FormValue("quantity")))
 	if err != nil || quantity <= 0 {
 		writeErr(w, http.StatusBadRequest, "库存数量必须大于 0")
@@ -72,16 +78,29 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 	if postageMode == "" {
 		postageMode = "free"
 	}
-	postageCents, _ := parseMoneyCents(r.FormValue("postage"))
+	postageCents, err := parseMoneyCents(r.FormValue("postage"))
+	if err != nil || postageCents < 0 || (postageMode == "fixed" && postageCents <= 0) {
+		writeErr(w, http.StatusBadRequest, "固定邮费必须大于 0")
+		return
+	}
 	images, err := readPublishImages(r, 9)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	credentialUnlock := s.Store.LockAccountCredentials(cookieID)
+	latest, err := s.Store.Cookies.GetDetails(r.Context(), cookieID)
+	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
+		credentialUnlock()
+		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
+		return
+	}
+	cookieValue := latest.Value
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	client := s.mtopClient()
-	res, err := client.PublishItem(ctx, cookieValue, mtop.PublishItemRequest{
+	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
+	res, callErr := client.PublishItem(mtopCtx, cookieValue, mtop.PublishItemRequest{
 		Title:              title,
 		Description:        description,
 		PriceCents:         priceCents,
@@ -91,9 +110,37 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		PostageCents:       postageCents,
 		Images:             images,
 	})
-	if err != nil {
+	runtimeCookie := ""
+	runtimeCookieChanged := false
+	var responseCookieErr error
+	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
+	if persistErr != nil {
+		s.Logger.Error("保存发布响应 Cookie Jar 失败", "cookie_id", cookieID, "err", persistErr)
+		responseCookieErr = persistErr
+	} else if handled {
+		if valueChanged {
+			runtimeCookie = value
+			runtimeCookieChanged = true
+		}
+	} else if callErr == nil && res != nil && res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
+		if saveErr := s.Store.Cookies.UpdateValueOwned(r.Context(), cookieID, res.UpdatedCookies, userID); saveErr != nil {
+			s.Logger.Error("保存刷新后的 cookie 失败", "cookie_id", cookieID, "err", saveErr)
+			responseCookieErr = saveErr
+		} else {
+			runtimeCookie = res.UpdatedCookies
+			runtimeCookieChanged = true
+		}
+	}
+	credentialUnlock()
+	if runtimeCookieChanged {
+		s.updateRunningCookie(r.Context(), cookieID, runtimeCookie)
+	}
+	if callErr != nil {
+		if responseCookieErr != nil {
+			callErr = errors.Join(callErr, fmt.Errorf("保存发布响应 Cookie: %w", responseCookieErr))
+		}
 		var perr *mtop.PublishError
-		if errors.As(err, &perr) {
+		if errors.As(callErr, &perr) {
 			status := http.StatusBadGateway
 			msg := perr.Error()
 			if perr.Code == mtop.PublishErrorStockPermissionMissing {
@@ -108,35 +155,56 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		writeErr(w, http.StatusBadGateway, err.Error())
+		writeErr(w, http.StatusBadGateway, callErr.Error())
 		return
 	}
-	if res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
-		if err := s.Store.Cookies.Save(r.Context(), cookieID, res.UpdatedCookies, userID); err != nil {
-			s.Logger.Error("保存刷新后的 cookie 失败", "cookie_id", cookieID, "err", err)
-		}
+	if res == nil || strings.TrimSpace(res.ItemID) == "" {
+		writeJSON(w, http.StatusBadGateway, map[string]any{
+			"success": false,
+			"code":    "publish_result_missing_item_id",
+			"message": "平台返回发布成功，但缺少商品 ID，无法确认发布结果",
+		})
+		return
 	}
-	if res.ItemID != "" {
-		detail := map[string]any{
-			"item_image":    res.ImageURL,
-			"web_url":       res.ItemURL,
-			"category_name": res.CategoryName,
-			"quantity":      res.Quantity,
-			"publish_raw":   res.RawData,
+	detail := map[string]any{
+		"item_image":    res.ImageURL,
+		"web_url":       res.ItemURL,
+		"category_name": res.CategoryName,
+		"quantity":      res.Quantity,
+		"publish_raw":   res.RawData,
+	}
+	detailJSON, _ := json.Marshal(detail)
+	if err := s.Store.Items.Upsert(r.Context(), &db.ItemInfoRow{
+		CookieID:              cookieID,
+		ItemID:                res.ItemID,
+		ItemTitle:             res.Title,
+		ItemDescription:       description,
+		ItemCategory:          res.CategoryID,
+		ItemPrice:             res.PriceText,
+		ItemDetail:            string(detailJSON),
+		MultiQuantityDelivery: quantity > 1,
+	}); err != nil {
+		if s.Logger != nil {
+			s.Logger.Error("平台已发布但保存本地商品失败", "cookie_id", cookieID, "item_id", res.ItemID, "err", err)
 		}
-		detailJSON, _ := json.Marshal(detail)
-		if err := s.Store.Items.Upsert(r.Context(), &db.ItemInfoRow{
-			CookieID:              cookieID,
-			ItemID:                res.ItemID,
-			ItemTitle:             res.Title,
-			ItemDescription:       description,
-			ItemCategory:          res.CategoryID,
-			ItemPrice:             res.PriceText,
-			ItemDetail:            string(detailJSON),
-			MultiQuantityDelivery: quantity > 1,
-		}); err != nil && s.Logger != nil {
-			s.Logger.Warn("保存发布商品失败", "cookie_id", cookieID, "item_id", res.ItemID, "err", err)
-		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"success":  false,
+			"code":     "remote_published_local_save_failed",
+			"message":  "商品已在平台发布，但本地保存失败，请勿重复发布并根据商品 ID 人工核对",
+			"item_id":  res.ItemID,
+			"item_url": res.ItemURL,
+		})
+		return
+	}
+	if responseCookieErr != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"success":  false,
+			"code":     "remote_published_cookie_save_failed",
+			"message":  "商品已在平台发布并保存到本地，但登录凭证更新保存失败，请勿重复发布并尽快重新登录",
+			"item_id":  res.ItemID,
+			"item_url": res.ItemURL,
+		})
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success":       true,
@@ -202,6 +270,13 @@ func parseMoneyCents(raw string) (int64, error) {
 	}
 	raw = strings.TrimPrefix(raw, "¥")
 	raw = strings.TrimPrefix(raw, "￥")
+	sign := int64(1)
+	if strings.HasPrefix(raw, "-") {
+		sign = -1
+		raw = strings.TrimPrefix(raw, "-")
+	} else {
+		raw = strings.TrimPrefix(raw, "+")
+	}
 	parts := strings.Split(raw, ".")
 	if len(parts) > 2 {
 		return 0, fmt.Errorf("金额格式错误")
@@ -214,7 +289,7 @@ func parseMoneyCents(raw string) (int64, error) {
 	if len(parts) == 2 {
 		frac := strings.TrimSpace(parts[1])
 		if len(frac) > 2 {
-			frac = frac[:2]
+			return 0, fmt.Errorf("金额最多支持两位小数")
 		}
 		for len(frac) < 2 {
 			frac += "0"
@@ -224,7 +299,7 @@ func parseMoneyCents(raw string) (int64, error) {
 			return 0, err
 		}
 	}
-	return yuan*100 + cents, nil
+	return sign * (yuan*100 + cents), nil
 }
 
 func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
@@ -233,6 +308,14 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
+	}
+	cookieID := strings.TrimSpace(r.URL.Query().Get("cookie_id"))
+	if cookieID != "" {
+		if _, ok := all[cookieID]; !ok {
+			writeErr(w, http.StatusForbidden, "无权限操作该账号")
+			return
+		}
+		all = map[string]string{cookieID: all[cookieID]}
 	}
 	result := []map[string]any{}
 	for cid := range all {
@@ -254,25 +337,74 @@ func (s *Server) syncItemsFromAccount(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "缺少 cookie_id 参数")
 		return
 	}
-	cookieValue, userID, ok := s.cookieForCurrentUser(w, r, req.CookieID)
+	_, userID, ok := s.cookieForCurrentUser(w, r, req.CookieID)
 	if !ok {
 		return
 	}
+	credentialUnlock := s.Store.LockAccountCredentials(req.CookieID)
+	latest, err := s.Store.Cookies.GetDetails(r.Context(), req.CookieID)
+	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
+		credentialUnlock()
+		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
+		return
+	}
+	cookieValue := latest.Value
 	if req.PageSize <= 0 {
 		req.PageSize = 20
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	client := s.mtopClient()
-	res, err := client.FetchAllItems(ctx, cookieValue, req.PageSize, req.MaxPages)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
+	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
+	res, callErr := client.FetchAllItems(mtopCtx, cookieValue, req.PageSize, req.MaxPages)
+	if callErr == nil && res == nil {
+		callErr = errors.New("商品列表接口未返回结果")
+	}
+	if callErr != nil {
+		value, valueChanged, _, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
+		credentialUnlock()
+		if persistErr != nil {
+			s.Logger.Error("保存商品同步响应 Cookie Jar 失败", "cookie_id", req.CookieID, "err", persistErr)
+			writeErr(w, http.StatusInternalServerError, "商品同步响应凭证保存失败")
+			return
+		} else if valueChanged {
+			s.updateRunningCookie(r.Context(), req.CookieID, value)
+		}
+		writeErr(w, http.StatusBadGateway, callErr.Error())
 		return
 	}
-	if res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
-		if err := s.Store.Cookies.Save(r.Context(), req.CookieID, res.UpdatedCookies, userID); err != nil {
-			s.Logger.Error("保存刷新后的 cookie 失败", "cookie_id", req.CookieID, "err", err)
+	detailCookies := cookieValue
+	if res.UpdatedCookies != "" {
+		detailCookies = res.UpdatedCookies
+	}
+	s.enrichSyncedItemMultiSpec(mtopCtx, client, detailCookies, req.CookieID, res.Items)
+	runtimeCookie := ""
+	runtimeCookieChanged := false
+	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
+	if persistErr != nil {
+		s.Logger.Error("保存商品同步响应 Cookie Jar 失败", "cookie_id", req.CookieID, "err", persistErr)
+		credentialUnlock()
+		writeErr(w, http.StatusInternalServerError, "商品同步响应凭证保存失败")
+		return
+	} else if handled {
+		if valueChanged {
+			runtimeCookie = value
+			runtimeCookieChanged = true
 		}
+	} else if res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
+		if saveErr := s.Store.Cookies.UpdateValueOwned(r.Context(), req.CookieID, res.UpdatedCookies, userID); saveErr != nil {
+			s.Logger.Error("保存刷新后的 cookie 失败", "cookie_id", req.CookieID, "err", saveErr)
+			credentialUnlock()
+			writeErr(w, http.StatusInternalServerError, "商品同步响应凭证保存失败")
+			return
+		} else {
+			runtimeCookie = res.UpdatedCookies
+			runtimeCookieChanged = true
+		}
+	}
+	credentialUnlock()
+	if runtimeCookieChanged {
+		s.updateRunningCookie(r.Context(), req.CookieID, runtimeCookie)
 	}
 	saved := s.saveSyncedItems(r.Context(), req.CookieID, res.Items)
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -294,22 +426,71 @@ func (s *Server) syncItemsPageFromAccount(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusBadRequest, "缺少 cookie_id 参数")
 		return
 	}
-	cookieValue, userID, ok := s.cookieForCurrentUser(w, r, req.CookieID)
+	_, userID, ok := s.cookieForCurrentUser(w, r, req.CookieID)
 	if !ok {
 		return
 	}
+	credentialUnlock := s.Store.LockAccountCredentials(req.CookieID)
+	latest, err := s.Store.Cookies.GetDetails(r.Context(), req.CookieID)
+	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
+		credentialUnlock()
+		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
+		return
+	}
+	cookieValue := latest.Value
 	ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
 	defer cancel()
 	client := s.mtopClient()
-	res, err := client.FetchItemsPage(ctx, cookieValue, req.PageNumber, req.PageSize)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
+	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
+	res, callErr := client.FetchItemsPage(mtopCtx, cookieValue, req.PageNumber, req.PageSize)
+	if callErr == nil && res == nil {
+		callErr = errors.New("商品列表接口未返回结果")
+	}
+	if callErr != nil {
+		value, valueChanged, _, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
+		credentialUnlock()
+		if persistErr != nil {
+			s.Logger.Error("保存商品分页响应 Cookie Jar 失败", "cookie_id", req.CookieID, "err", persistErr)
+			writeErr(w, http.StatusInternalServerError, "商品分页响应凭证保存失败")
+			return
+		} else if valueChanged {
+			s.updateRunningCookie(r.Context(), req.CookieID, value)
+		}
+		writeErr(w, http.StatusBadGateway, callErr.Error())
 		return
 	}
-	if res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
-		if err := s.Store.Cookies.Save(r.Context(), req.CookieID, res.UpdatedCookies, userID); err != nil {
-			s.Logger.Error("保存刷新后的 cookie 失败", "cookie_id", req.CookieID, "err", err)
+	detailCookies := cookieValue
+	if res.UpdatedCookies != "" {
+		detailCookies = res.UpdatedCookies
+	}
+	s.enrichSyncedItemMultiSpec(mtopCtx, client, detailCookies, req.CookieID, res.Items)
+	runtimeCookie := ""
+	runtimeCookieChanged := false
+	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
+	if persistErr != nil {
+		s.Logger.Error("保存商品分页响应 Cookie Jar 失败", "cookie_id", req.CookieID, "err", persistErr)
+		credentialUnlock()
+		writeErr(w, http.StatusInternalServerError, "商品分页响应凭证保存失败")
+		return
+	} else if handled {
+		if valueChanged {
+			runtimeCookie = value
+			runtimeCookieChanged = true
 		}
+	} else if res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
+		if saveErr := s.Store.Cookies.UpdateValueOwned(r.Context(), req.CookieID, res.UpdatedCookies, userID); saveErr != nil {
+			s.Logger.Error("保存刷新后的 cookie 失败", "cookie_id", req.CookieID, "err", saveErr)
+			credentialUnlock()
+			writeErr(w, http.StatusInternalServerError, "商品分页响应凭证保存失败")
+			return
+		} else {
+			runtimeCookie = res.UpdatedCookies
+			runtimeCookieChanged = true
+		}
+	}
+	credentialUnlock()
+	if runtimeCookieChanged {
+		s.updateRunningCookie(r.Context(), req.CookieID, runtimeCookie)
 	}
 	saved := s.saveSyncedItems(r.Context(), req.CookieID, res.Items)
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -358,12 +539,38 @@ func (s *Server) saveSyncedItems(ctx context.Context, cookieID string, items []m
 			ItemDetail:      item.ItemDetail,
 		})
 		if err == nil {
+			if item.IsMultiSpec {
+				if multiErr := s.Store.Items.SetMultiSpec(ctx, cookieID, item.ID, true); multiErr != nil && s.Logger != nil {
+					s.Logger.Warn("保存商品多规格状态失败", "cookie_id", cookieID, "item_id", item.ID, "err", multiErr)
+				}
+			}
 			saved++
 		} else if s.Logger != nil {
 			s.Logger.Warn("保存商品失败", "cookie_id", cookieID, "item_id", item.ID, "err", err)
 		}
 	}
 	return saved
+}
+
+func (s *Server) enrichSyncedItemMultiSpec(ctx context.Context, client mtop.Client, cookies, cookieID string, items []mtop.ItemListItem) {
+	fetcher, ok := client.(mtop.ItemDetailFetcher)
+	if !ok {
+		return
+	}
+	for index := range items {
+		if items[index].IsMultiSpec || s.Store.Items.IsMultiSpec(ctx, cookieID, items[index].ID) {
+			items[index].IsMultiSpec = true
+			continue
+		}
+		isMultiSpec, err := fetcher.DetectItemMultiSpec(ctx, cookies, items[index].ID)
+		if err != nil {
+			if s.Logger != nil {
+				s.Logger.Warn("识别商品多规格状态失败", "cookie_id", cookieID, "item_id", items[index].ID, "err", err)
+			}
+			continue
+		}
+		items[index].IsMultiSpec = isMultiSpec
+	}
 }
 
 func (s *Server) listItemsByCookie(w http.ResponseWriter, r *http.Request) {

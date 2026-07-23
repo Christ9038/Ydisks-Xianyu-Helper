@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"xianyu-go/internal/automation"
-	"xianyu-go/internal/db"
+	"xianyu-go/internal/xianyu"
+	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
 	xrenew "xianyu-go/internal/xianyu/renew"
 )
@@ -22,16 +25,69 @@ type riskCountingMTop struct {
 
 func (m *riskCountingMTop) RefreshTokenWithDeviceIDContext(context.Context, string, string) (*mtop.RefreshResult, error) {
 	m.calls++
+	if m.calls > 1 {
+		return &mtop.RefreshResult{AccessToken: "standard-token", AccessTokenExpireAt: time.Now().Add(time.Hour).Unix(), UpdatedCookies: "unb=123; _m_h5_tk=recovered;"}, nil
+	}
 	return nil, &mtop.RiskVerificationError{Ret: []string{"FAIL_SYS_USER_VALIDATE"}, VerificationURL: "https://verify.example"}
 }
 
 type tokenRecoveredHandler struct{ recordingHandler }
 
-func (h *tokenRecoveredHandler) OnTokenCaptchaVerification(context.Context, string, string, string) (*mtop.RefreshResult, bool) {
+func (h *tokenRecoveredHandler) OnTokenCaptchaVerification(context.Context, string, string, string, string) (*mtop.RefreshResult, bool) {
 	return &mtop.RefreshResult{AccessToken: "recovered-token", UpdatedCookies: "unb=123; _m_h5_tk=recovered;"}, true
 }
 
-func TestRefreshTokenUsesRecoveredAccessTokenWithoutSecondRequest(t *testing.T) {
+type rejectingTokenCaptchaHandler struct {
+	recordingHandler
+	calls int
+}
+
+func (h *rejectingTokenCaptchaHandler) OnTokenCaptchaVerification(context.Context, string, string, string, string) (*mtop.RefreshResult, bool) {
+	h.calls++
+	return nil, false
+}
+
+type capturingCaptchaHandler struct {
+	recordingHandler
+	cookieStr string
+	deviceID  string
+}
+
+func (h *capturingCaptchaHandler) OnTokenCaptchaVerification(_ context.Context, _, cookieStr, _, deviceID string) (*mtop.RefreshResult, bool) {
+	h.cookieStr = cookieStr
+	h.deviceID = deviceID
+	return &mtop.RefreshResult{UpdatedCookies: cookieStr + "; x5sec=fresh"}, true
+}
+
+type responseCookieRiskMTop struct{ calls int }
+
+func (m *responseCookieRiskMTop) FetchUserProfile(context.Context, string) (*mtop.UserProfileResult, error) {
+	return nil, nil
+}
+func (m *responseCookieRiskMTop) ConsignContext(context.Context, string, string) (bool, []string, string, error) {
+	return true, nil, "", nil
+}
+func (m *responseCookieRiskMTop) FetchItemsPage(context.Context, string, int, int) (*mtop.ItemListResult, error) {
+	return nil, nil
+}
+func (m *responseCookieRiskMTop) FetchAllItems(context.Context, string, int, int) (*mtop.ItemListResult, error) {
+	return nil, nil
+}
+func (m *responseCookieRiskMTop) PublishItem(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
+	return nil, nil
+}
+func (m *responseCookieRiskMTop) RefreshTokenWithDeviceIDContext(_ context.Context, cookieStr, _ string) (*mtop.RefreshResult, error) {
+	m.calls++
+	if m.calls == 1 {
+		updated := strings.Replace(cookieStr, "_m_h5_tk=tk_1", "_m_h5_tk=server_1", 1)
+		return &mtop.RefreshResult{UpdatedCookies: updated}, &mtop.RiskVerificationError{
+			Ret: []string{"FAIL_SYS_USER_VALIDATE"}, VerificationURL: "https://verify.example/punish",
+		}
+	}
+	return &mtop.RefreshResult{AccessToken: "standard-after-captcha", AccessTokenExpireAt: time.Now().Add(time.Hour).Unix(), UpdatedCookies: cookieStr}, nil
+}
+
+func TestRefreshTokenRetriesStandardRequestAfterCaptchaRecovery(t *testing.T) {
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	defer acc.Stop()
@@ -43,11 +99,55 @@ func TestRefreshTokenUsesRecoveredAccessTokenWithoutSecondRequest(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if token != "recovered-token" || !strings.Contains(cookies, "recovered") {
+	if token != "standard-token" || !strings.Contains(cookies, "recovered") {
 		t.Fatalf("token=%q cookies=%q", token, cookies)
 	}
-	if client.calls != 1 {
-		t.Fatalf("refresh calls=%d want 1", client.calls)
+	if client.calls != 2 {
+		t.Fatalf("refresh calls=%d want 2", client.calls)
+	}
+}
+
+func TestRefreshTokenCaptchaFailureEntersCallerCooldown(t *testing.T) {
+	acc, _, _, cleanup := newAccountForTest(t)
+	defer cleanup()
+	client := &riskCountingMTop{}
+	handler := &rejectingTokenCaptchaHandler{}
+	acc.mtop = client
+	acc.handler = handler
+
+	if _, _, err := acc.refreshToken(context.Background()); !mtop.IsRiskVerificationErr(err) {
+		t.Fatalf("first refresh error=%v want risk verification", err)
+	}
+	if _, _, err := acc.refreshToken(context.Background()); !errors.Is(err, errTokenCaptchaCooldown) {
+		t.Fatalf("second refresh error=%v want cooldown", err)
+	}
+	if client.calls != 1 || handler.calls != 1 {
+		t.Fatalf("cooldown must suppress repeated API/solver calls: api=%d solver=%d", client.calls, handler.calls)
+	}
+}
+
+func TestRefreshTokenPersistsResponseCookiesBeforeCaptchaRecovery(t *testing.T) {
+	acc, _, store, cleanup := newRunAccount(t, &responseCookieRiskMTop{})
+	defer cleanup()
+	handler := &capturingCaptchaHandler{}
+	acc.handler = handler
+
+	token, _, err := acc.refreshToken(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "standard-after-captcha" {
+		t.Fatalf("token=%q", token)
+	}
+	if !strings.Contains(handler.cookieStr, "_m_h5_tk=server_1") {
+		t.Fatalf("captcha handler 未收到响应先下发的 Cookie: %q", handler.cookieStr)
+	}
+	if handler.deviceID != acc.deviceID {
+		t.Fatalf("captcha deviceID=%q want %q", handler.deviceID, acc.deviceID)
+	}
+	saved, err := store.Cookies.GetValue(context.Background(), "cid")
+	if err != nil || !strings.Contains(saved, "_m_h5_tk=server_1") || !strings.Contains(saved, "x5sec=fresh") {
+		t.Fatalf("响应/验证 Cookie 未完整持久化: saved=%q err=%v", saved, err)
 	}
 }
 
@@ -145,7 +245,7 @@ type stubCookieRenewer struct {
 	got    string
 }
 
-func (s *stubCookieRenewer) RenewAPIFirst(_ context.Context, cookiesStr string) (*xrenew.Result, error) {
+func (s *stubCookieRenewer) RenewAPIFirst(_ context.Context, cookiesStr string, _ ...[]cookierefresh.BrowserCookie) (*xrenew.Result, error) {
 	s.calls++
 	s.got = cookiesStr
 	return s.result, s.err
@@ -179,8 +279,8 @@ func TestTryAPIRenewSuccessShortCircuitsRecovery(t *testing.T) {
 	if saved != "unb=123; _m_h5_tk=tk_2;" {
 		t.Fatalf("DB cookie 未更新: %q", saved)
 	}
-	if _, err := store.Tokens.Get(ctx, "cid"); err != db.ErrNotFound {
-		t.Fatalf("接口续期更新 cookie 后应清 token，got %v", err)
+	if tk, err := store.Tokens.Get(ctx, "cid"); err != nil || tk.AccessToken != "" {
+		t.Fatalf("接口续期后应清 token；数据库中的旧 device ID 不再参与运行时身份: tk=%+v err=%v", tk, err)
 	}
 }
 
@@ -196,6 +296,7 @@ func TestTryAPIRenewPartialCookiesContinueRecovery(t *testing.T) {
 		RenewMethod:        "none",
 		NewCookies:         "unb=123; _m_h5_tk=partial;",
 		UpdatedCookieNames: []string{"_m_h5_tk"},
+		SetCookies:         []string{"_m_h5_tk=partial; Domain=.goofish.com; Path=/; Secure; HttpOnly"},
 		Message:            "setLoginSettings 未返回 Set-Cookie",
 	}}
 	acc.renewer = renewer
@@ -210,9 +311,94 @@ func TestTryAPIRenewPartialCookiesContinueRecovery(t *testing.T) {
 	if saved != "unb=123; _m_h5_tk=partial;" {
 		t.Fatalf("部分 cookie 应先保存到 DB: %q", saved)
 	}
-	if _, err := store.Tokens.Get(ctx, "cid"); err != db.ErrNotFound {
-		t.Fatalf("部分 cookie 更新后也应清 token，got %v", err)
+	if tk, err := store.Tokens.Get(ctx, "cid"); err != nil || tk.AccessToken != "" {
+		t.Fatalf("部分 cookie 更新后应清 token: tk=%+v err=%v", tk, err)
 	}
+	detail, err := store.Cookies.GetDetails(ctx, "cid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
+		t.Fatal("接口扁平 Cookie 更新不得伪造成完整浏览器 Jar")
+	}
+}
+
+func TestTryAPIRenewPersistsExplicitFlatCookieDeletionOnError(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := store.Tokens.Save(ctx, "cid", "did-old", "tok-old", time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatalf("save token: %v", err)
+	}
+	acc.renewer = &stubCookieRenewer{
+		result: &xrenew.Result{
+			NewCookies: "",
+			SetCookies: []string{
+				"unb=; Domain=.goofish.com; Path=/; Max-Age=0",
+				"_m_h5_tk=; Domain=.goofish.com; Path=/; Max-Age=0",
+			},
+		},
+		err: errors.New("续期响应正文损坏"),
+	}
+
+	if acc.tryAPIRenew(ctx) {
+		t.Fatal("失败响应即使带 Cookie 删除也不应视为续期成功")
+	}
+	if got := acc.currentCookieStr(); got != "" {
+		t.Fatalf("运行时应采用服务端明确删除后的空 Cookie，got %q", got)
+	}
+	detail, err := store.Cookies.GetDetails(ctx, "cid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Value != "" {
+		t.Fatalf("数据库应保存明确删除后的空 Cookie，got %q", detail.Value)
+	}
+	if _, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
+		t.Fatal("扁平删除结果不得伪造成完整浏览器 Jar")
+	}
+	if token, err := store.Tokens.Get(ctx, "cid"); err != nil || token.AccessToken != "" {
+		t.Fatalf("Cookie 删除后应清理旧 token: token=%+v err=%v", token, err)
+	}
+}
+
+func TestTryAPIRenewPersistsLatePromiseCookieWithoutRestart(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	oldFingerprint := xianyu.CurrentBrowserFingerprint()
+	xianyu.SetBrowserFingerprint(xianyu.BrowserFingerprint{UserAgent: "Mozilla/5.0 (Macintosh) Chrome/999.0.0.0 Safari/537.36"})
+	t.Cleanup(func() { xianyu.SetBrowserFingerprint(oldFingerprint) })
+	initial := "unb=123; havana_lgc_exp=" + fmt.Sprint(time.Now().Add(time.Hour).UnixMilli())
+	if err := store.Cookies.UpdateValueExisting(ctx, "cid", initial); err != nil {
+		t.Fatal(err)
+	}
+	acc.replaceCookieStr(initial)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(60 * time.Millisecond)
+		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: fmt.Sprint(time.Now().Add(time.Hour).UnixMilli()), Path: "/"})
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+	}))
+	defer srv.Close()
+	acc.renewer = xrenew.Service{
+		HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1,
+		PromiseTimeout: 10 * time.Millisecond,
+	}
+	if acc.tryAPIRenew(ctx) {
+		t.Fatal("Promise 超时不得伪装成同步续期成功")
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		detail, err := store.Cookies.GetDetails(ctx, "cid")
+		if err == nil && detail != nil && strings.Contains(detail.Value, "sdkSilent=") {
+			if !strings.Contains(acc.currentCookieStr(), "sdkSilent=") {
+				t.Fatalf("迟到 Cookie 已入库但未更新运行时: %q", acc.currentCookieStr())
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("迟到的 silentHasLogin Set-Cookie 未写回账号")
 }
 
 // TestSetRuntimeError_AllBranches 覆盖验证/captcha、token 失效、默认重连三分支
@@ -321,12 +507,12 @@ func TestRetryDelay_FailureClampsAtOne(t *testing.T) {
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	acc.connFailures = 0
-	// close-frame：min(3*1,15)=3s。
-	expectDelayRange(t, acc.retryDelay("no close frame received or sent"), 3*time.Second)
-	// timeout：min(10*1,60)=10s。
-	expectDelayRange(t, acc.retryDelay("timeout reading"), 10*time.Second)
-	// default：min(5*1,30)=5s。
-	expectDelayRange(t, acc.retryDelay("random error"), 5*time.Second)
+	// close-frame：min(2^1,30)=2s。
+	expectDelayRange(t, acc.retryDelay("no close frame received or sent"), 2*time.Second)
+	// timeout：min(2*2^1,90)=4s。
+	expectDelayRange(t, acc.retryDelay("timeout reading"), 4*time.Second)
+	// default：min(2^1,45)=2s。
+	expectDelayRange(t, acc.retryDelay("random error"), 2*time.Second)
 }
 
 // TestRetryDelay_TimeoutVariant "timeout" 关键词分支。
@@ -334,15 +520,57 @@ func TestRetryDelay_TimeoutVariant(t *testing.T) {
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	acc.connFailures = 3
-	// min(10*3,60)=30s。
-	expectDelayRange(t, acc.retryDelay("dial timeout"), 30*time.Second)
+	// min(2*2^3,90)=16s。
+	expectDelayRange(t, acc.retryDelay("dial timeout"), 16*time.Second)
 	acc.connFailures = 10
-	expectDelayRange(t, acc.retryDelay("timeout"), 60*time.Second)
+	expectDelayRange(t, acc.retryDelay("timeout"), 90*time.Second)
 }
 
-// TestHandleMaxFailures_RecentMessageSkipPasswordLogin 最近仍收到消息时跳过密码登录刷新，
-// 重置失败计数并返回 nil（睡眠时间可被 ctx 取消）。
-func TestHandleMaxFailures_RecentMessageSkipPasswordLogin(t *testing.T) {
+func TestNetworkRetryDelayMatchesReferenceBackoff(t *testing.T) {
+	acc, _, _, cleanup := newAccountForTest(t)
+	defer cleanup()
+	acc.networkFailures = 1
+	expectDelayRange(t, acc.networkRetryDelay(), 4*time.Second)
+	acc.networkFailures = 10
+	expectDelayRange(t, acc.networkRetryDelay(), 60*time.Second)
+}
+
+func TestEstablishedNetworkErrorClassification(t *testing.T) {
+	for _, err := range []error{
+		errors.New("ConnectionClosedError"), errors.New("no close frame received or sent"),
+		errors.New("WS read: connection reset by peer"), errors.New("received close frame"),
+	} {
+		if !isEstablishedNetworkError(err) {
+			t.Fatalf("应识别为已建立连接后的网络错误: %v", err)
+		}
+	}
+	if isEstablishedNetworkError(errors.New("device id or appkey is not equal")) {
+		t.Fatal("注册认证错误不应归类为纯网络断线")
+	}
+}
+
+func TestRecordShortDisconnectDisablesAtFiveWithinWindow(t *testing.T) {
+	acc, _, _, cleanup := newAccountForTest(t)
+	defer cleanup()
+	for i := 1; i < FrequentDisconnectLimit; i++ {
+		if acc.recordShortDisconnect(time.Second) {
+			t.Fatalf("第 %d 次短连接不应达到阈值", i)
+		}
+	}
+	if !acc.recordShortDisconnect(time.Second) {
+		t.Fatal("5 分钟内第 5 次短连接应达到禁用阈值")
+	}
+	if acc.recordShortDisconnect(ShortConnectionThreshold) {
+		t.Fatal("长连接应清空短连接记录")
+	}
+	if len(acc.shortDisconnects) != 0 {
+		t.Fatalf("长连接后短连接记录未清空: %d", len(acc.shortDisconnects))
+	}
+}
+
+// TestHandleMaxFailures_RecentMessageStillRunsRecovery 消息冷却只约束 Token/Cookie
+// 刷新，不约束达到认证失败阈值后的恢复链。
+func TestHandleMaxFailures_RecentMessageStillRunsRecovery(t *testing.T) {
 	acc, h, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	ctx := context.Background()
@@ -353,43 +581,14 @@ func TestHandleMaxFailures_RecentMessageSkipPasswordLogin(t *testing.T) {
 	acc.connFailures = MaxConnectionFailures
 	acc.mu.Unlock()
 
-	// 最近消息路径会 resetFailures 后进入 sleepCtx 等待 retryDelay。
-	// 用一个短超时 ctx 让 sleepCtx 提前返回 ctx.Err()，证明走了 sleep 分支（而非密码刷新）。
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
 	defer cancel()
 	err := acc.handleMaxFailures(cctx)
 	if err != cctx.Err() {
-		t.Fatalf("最近收到消息应走 sleep 分支返回 ctx.Err()，got %v want %v", err, cctx.Err())
+		t.Fatalf("成功恢复后的等待应响应 ctx 取消，got %v want %v", err, cctx.Err())
 	}
-	if h.refresh != 0 {
-		t.Errorf("不应触发密码登录刷新，got %d", h.refresh)
-	}
-	if acc.connFailures != 0 {
-		t.Errorf("应重置失败计数，got %d", acc.connFailures)
-	}
-}
-
-// TestHandleMaxFailures_PasswordLoginCooldown 密码登录刷新冷却中跳过本次刷新。
-func TestHandleMaxFailures_PasswordLoginCooldown(t *testing.T) {
-	acc, h, _, cleanup := newAccountForTest(t)
-	defer cleanup()
-	ctx := context.Background()
-
-	// 无最近消息，但最近做过密码登录（在 PasswordLoginMinGap 内）。
-	acc.mu.Lock()
-	acc.lastMsgReceived = time.Time{} // 零值，绕过 message cooldown
-	acc.lastPasswordLogin = time.Now()
-	acc.connFailures = MaxConnectionFailures
-	acc.mu.Unlock()
-
-	cctx, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
-	defer cancel()
-	err := acc.handleMaxFailures(cctx)
-	if err != cctx.Err() {
-		t.Fatalf("冷却中应走 sleep 分支返回 ctx.Err()，got %v want %v", err, cctx.Err())
-	}
-	if h.refresh != 0 {
-		t.Errorf("冷却中不应调用 OnPasswordLoginRefresh，got %d", h.refresh)
+	if h.refresh != 1 {
+		t.Errorf("应触发一次恢复链，got %d", h.refresh)
 	}
 	if acc.connFailures != 0 {
 		t.Errorf("应重置失败计数，got %d", acc.connFailures)
@@ -405,7 +604,6 @@ func TestHandleMaxFailures_PasswordLoginSuccess(t *testing.T) {
 	// 无最近消息、未在密码登录冷却中。
 	acc.mu.Lock()
 	acc.lastMsgReceived = time.Time{}
-	acc.lastPasswordLogin = time.Time{}
 	acc.connFailures = MaxConnectionFailures
 	acc.mu.Unlock()
 
@@ -467,15 +665,13 @@ func (f *failingRefreshHandler) OnAccountEvent(_ context.Context, _, eventType, 
 	f.alerts = append(f.alerts, level)
 }
 
-// TestHandleMaxFailures_PasswordLoginFailure 密码登录刷新失败：不再硬退出，进入慢重试，
-// 状态 AuthExpired，触发一次 critical 告警。
+// TestHandleMaxFailures_PasswordLoginFailure 密码登录刷新失败后终止账号主循环。
 func TestHandleMaxFailures_PasswordLoginFailure(t *testing.T) {
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 
 	acc.mu.Lock()
 	acc.lastMsgReceived = time.Time{}
-	acc.lastPasswordLogin = time.Time{}
 	acc.connFailures = MaxConnectionFailures
 	acc.mu.Unlock()
 
@@ -483,13 +679,9 @@ func TestHandleMaxFailures_PasswordLoginFailure(t *testing.T) {
 	h := &failingRefreshHandler{}
 	acc.handler = h
 
-	// 新行为：不再 return fatal error，而是 sleepCtx(AuthExpiredRetryInterval) 慢重试。
-	// 用短超时 ctx 让 sleepCtx 提前返回 ctx.Err()，证明走了慢重试分支而非硬退出。
-	cctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
-	defer cancel()
-	err := acc.handleMaxFailures(cctx)
-	if err != cctx.Err() {
-		t.Fatalf("刷新失败应走慢重试 sleep 分支返回 ctx.Err()，got %v want %v", err, cctx.Err())
+	err := acc.handleMaxFailures(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "自动恢复失败") {
+		t.Fatalf("刷新失败应返回终止主循环的错误，got %v", err)
 	}
 	if s := acc.RuntimeStatus(); s.State != RuntimeAuthExpired {
 		t.Errorf("状态应为 auth_expired，got %q", s.State)
@@ -502,7 +694,7 @@ func TestHandleMaxFailures_PasswordLoginFailure(t *testing.T) {
 	}
 }
 
-// TestReplaceCookieStr_UpdateUserIDAndDeviceID 更新 cookie 后 unb 变化时重置 deviceID。
+// TestReplaceCookieStr_UpdateUserIDAndDeviceID 更新 cookie 不得改变永久 deviceID。
 func TestReplaceCookieStr_UpdateUserIDAndDeviceID(t *testing.T) {
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
@@ -532,17 +724,17 @@ func TestReplaceCookieStr_UpdateUserIDAndDeviceID(t *testing.T) {
 	if newDevice == "" {
 		t.Error("deviceID 不应为空")
 	}
-	// 不同 unb 应重新生成 deviceID（基于 unb 的哈希）。
-	if newDevice == oldDevice {
-		t.Error("unb 变化后 deviceID 应重新生成")
+	if newDevice != oldDevice {
+		t.Error("unb 变化后 deviceID 仍应保持不变")
 	}
 	if newCookie != "unb=456; _m_h5_tk=tk2;" {
 		t.Errorf("CookieStr 未更新: got %q", newCookie)
 	}
 }
 
-// TestReplaceCookieStr_EmptyDeviceIDFallback deviceID 为空且 cookie 含 unb 时兜底生成。
-func TestReplaceCookieStr_EmptyDeviceIDFallback(t *testing.T) {
+// TestReplaceCookieStrDoesNotGenerateDeviceID ensures cookie mutation cannot
+// silently replace the identity established during account construction.
+func TestReplaceCookieStrDoesNotGenerateDeviceID(t *testing.T) {
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	// 清空 deviceID 与 UserID，模拟异常状态。
@@ -559,8 +751,8 @@ func TestReplaceCookieStr_EmptyDeviceIDFallback(t *testing.T) {
 	if u != "789" {
 		t.Errorf("UserID=%q want 789", u)
 	}
-	if d == "" {
-		t.Error("deviceID 应兜底生成")
+	if d != "" {
+		t.Error("Cookie 更新不应隐式生成 deviceID")
 	}
 }
 
@@ -592,7 +784,7 @@ func TestReplaceCookieStr_NoUnbNoChange(t *testing.T) {
 
 // TestUpdateCookie_IgnoresEmpty 纯空白/空字符串被忽略，不覆盖现有 cookie。
 func TestUpdateCookie_IgnoresEmpty(t *testing.T) {
-	acc, _, _, cleanup := newAccountForTest(t)
+	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
 	orig := acc.currentCookieStr()
 
@@ -604,40 +796,188 @@ func TestUpdateCookie_IgnoresEmpty(t *testing.T) {
 		t.Errorf("空白 cookie 不应更新: got %q want %q", got, orig)
 	}
 
-	// 非空（即使含首尾空白）应原样存储——UpdateCookie 只做空值检查，不做 trim。
-	acc.UpdateCookie("unb=123; _m_h5_tk=tk_new;")
-	if got := acc.currentCookieStr(); got != "unb=123; _m_h5_tk=tk_new;" {
+	acc.mu.Lock()
+	originalDevice := acc.deviceID
+	healthyConn := &fakeWSConn{}
+	acc.conn = healthyConn
+	acc.mu.Unlock()
+
+	// 非空（即使含首尾空白）应原样存储，但不能模拟页面 reload 去打断健康 WS。
+	updated := "unb=123; _m_h5_tk=tk_new;"
+	if err := store.Cookies.UpdateValueExisting(context.Background(), acc.CookieID, updated); err != nil {
+		t.Fatal(err)
+	}
+	acc.UpdateCookie(updated)
+	if got := acc.currentCookieStr(); got != updated {
 		t.Errorf("非空 cookie 应更新: got %q", got)
+	}
+	acc.mu.Lock()
+	currentDevice := acc.deviceID
+	acc.mu.Unlock()
+	healthyConn.mu.Lock()
+	closed := healthyConn.closed
+	healthyConn.mu.Unlock()
+	if currentDevice != originalDevice || closed {
+		t.Fatalf("普通 Cookie 更新不应轮换 device ID 或关闭健康连接: device=%q/%q closed=%v", currentDevice, originalDevice, closed)
+	}
+}
+
+func TestUpdateCookie_AcceptsAuthoritativeEmptySnapshot(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	metadata := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{})
+	if err := store.Cookies.UpdateRenewalCookie(context.Background(), acc.CookieID, "", metadata, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	acc.UpdateCookie("")
+	if got := acc.currentCookieStr(); got != "" {
+		t.Fatalf("权威空 Jar 应清空运行时 Cookie，got %q", got)
+	}
+}
+
+func TestReloadCookieFromDBDetectsMetadataOnlyCredentialRotation(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	flat := acc.currentCookieStr()
+	metadataA := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{
+		{Name: "_m_h5_tk", Value: "path-a", Domain: ".goofish.com", Path: "/im"},
+	})
+	if err := store.Cookies.UpdateRenewalCookie(ctx, acc.CookieID, flat, metadataA, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if !acc.reloadCookieFromDB(ctx) {
+		t.Fatal("首次权威 Jar 应同步到运行时")
+	}
+	acc.mu.Lock()
+	boundFP := acc.credentialFP
+	acc.currentToken = "old-token"
+	acc.tokenCredentialFP = boundFP
+	acc.mu.Unlock()
+	if err := store.Tokens.SaveBound(ctx, acc.CookieID, acc.deviceID, "old-token", time.Now().Add(time.Hour).Unix(), boundFP); err != nil {
+		t.Fatal(err)
+	}
+
+	metadataB := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{
+		{Name: "_m_h5_tk", Value: "path-b", Domain: ".goofish.com", Path: "/im"},
+	})
+	if err := store.Cookies.UpdateRenewalCookie(ctx, acc.CookieID, flat, metadataB, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if !acc.reloadCookieFromDB(ctx) {
+		t.Fatal("扁平 Cookie 未变但权威 Jar 已变化时必须重新加载")
+	}
+	acc.mu.Lock()
+	currentToken := acc.currentToken
+	currentFP := acc.credentialFP
+	acc.mu.Unlock()
+	if currentToken != "" {
+		t.Fatalf("Jar 变化后应清内存 token，got %q", currentToken)
+	}
+	if currentFP != credentialStateFingerprint(flat, metadataB) {
+		t.Fatal("运行时未绑定到最新完整凭证状态")
+	}
+	if cached, err := store.Tokens.Get(ctx, acc.CookieID); err != nil || cached.AccessToken != "" {
+		t.Fatalf("Jar 变化后应清数据库 token: cached=%+v err=%v", cached, err)
+	}
+}
+
+func TestCookieSnapshotMatchesDBUsesCompleteCredentialState(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	flat := acc.currentCookieStr()
+	metadataA := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{
+		{Name: "sgcookie", Value: "a", Domain: ".goofish.com", Path: "/"},
+	})
+	if err := store.Cookies.UpdateRenewalCookie(ctx, acc.CookieID, flat, metadataA, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	expected := credentialStateFingerprint(flat, metadataA)
+	if !acc.cookieSnapshotMatchesDB(ctx, expected) {
+		t.Fatal("相同扁平 Cookie 与权威 Jar 应允许 /reg")
+	}
+	metadataB := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{
+		{Name: "sgcookie", Value: "b", Domain: ".goofish.com", Path: "/"},
+	})
+	if err := store.Cookies.UpdateRenewalCookie(ctx, acc.CookieID, flat, metadataB, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if acc.cookieSnapshotMatchesDB(ctx, expected) {
+		t.Fatal("token 获取后 Jar 变化时必须拒绝 /reg")
+	}
+	emptyMetadata := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{})
+	if err := store.Cookies.UpdateRenewalCookie(ctx, acc.CookieID, "", emptyMetadata, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if !acc.cookieSnapshotMatchesDB(ctx, credentialStateFingerprint("", emptyMetadata)) {
+		t.Fatal("完整空 Jar 是权威状态，不应因扁平值为空而被拒绝")
+	}
+}
+
+func TestAdoptIncompleteTokenCookiesDoesNotInventCompleteSnapshot(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	updated := "unb=123; _m_h5_tk=flat-only; cookie2=next"
+	got, err := acc.adoptTokenResponseCookies(ctx, acc.currentCookieStr(), &mtop.RefreshResult{
+		UpdatedCookies: updated,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != updated {
+		t.Fatalf("adopted Cookie=%q want %q", got, updated)
+	}
+	detail, err := store.Cookies.GetDetails(ctx, acc.CookieID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
+		t.Fatal("仅有扁平 token 响应时不得伪造成完整浏览器 Jar")
+	}
+}
+
+func TestAdoptTokenResponseCookiesPersistsExplicitDeletionToEmpty(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	got, err := acc.adoptTokenResponseCookies(ctx, acc.currentCookieStr(), &mtop.RefreshResult{
+		UpdatedCookies:     "",
+		CookieStateChanged: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" || acc.currentCookieStr() != "" {
+		t.Fatalf("明确删除后的 Cookie 未同步: got=%q runtime=%q", got, acc.currentCookieStr())
+	}
+	detail, err := store.Cookies.GetDetails(ctx, acc.CookieID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Value != "" {
+		t.Fatalf("数据库 Cookie=%q want empty", detail.Value)
+	}
+	if _, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
+		t.Fatal("扁平 token 删除不得伪造成完整浏览器 Jar")
 	}
 }
 
 // TestCurrentCookieStr 线程安全返回当前 CookieStr。
 func TestCurrentCookieStr(t *testing.T) {
-	acc, _, _, cleanup := newAccountForTest(t)
+	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
 	if got := acc.currentCookieStr(); got != "unb=123; _m_h5_tk=tk_1;" {
 		t.Errorf("currentCookieStr=%q", got)
 	}
-	acc.UpdateCookie("unb=1; x=2;")
-	if got := acc.currentCookieStr(); got != "unb=1; x=2;" {
+	updated := "unb=1; x=2;"
+	if err := store.Cookies.UpdateValueExisting(context.Background(), acc.CookieID, updated); err != nil {
+		t.Fatal(err)
+	}
+	acc.UpdateCookie(updated)
+	if got := acc.currentCookieStr(); got != updated {
 		t.Errorf("更新后 currentCookieStr=%q", got)
-	}
-}
-
-// TestMinDuration 取较小值。
-func TestMinDuration(t *testing.T) {
-	cases := []struct {
-		a, b, want time.Duration
-	}{
-		{1 * time.Second, 2 * time.Second, 1 * time.Second},
-		{2 * time.Second, 1 * time.Second, 1 * time.Second},
-		{5 * time.Second, 5 * time.Second, 5 * time.Second},
-		{0, 3 * time.Second, 0},
-	}
-	for _, c := range cases {
-		if got := minDuration(c.a, c.b); got != c.want {
-			t.Errorf("minDuration(%v,%v)=%v want %v", c.a, c.b, got, c.want)
-		}
 	}
 }
 

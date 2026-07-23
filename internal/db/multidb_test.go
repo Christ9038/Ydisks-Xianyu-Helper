@@ -3,12 +3,14 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/pressly/goose/v3"
 )
@@ -180,6 +182,176 @@ func TestMultiDB_CookiesUpsertBool(t *testing.T) {
 	}
 }
 
+func TestMultiDB_ReliabilityStateAndSearch(t *testing.T) {
+	for _, tg := range allTestTargets(t) {
+		t.Run(tg.name, func(t *testing.T) {
+			defer tg.cleanup()
+			ctx := context.Background()
+			s := tg.store
+			suffix := fmt.Sprintf("%d", atomic.AddUint64(&multidbCounter, 1))
+			username := tg.name + "_reliability_" + suffix
+			if ok, err := s.Users.Create(ctx, username, username+"@e.com", "pw"); err != nil || !ok {
+				t.Fatalf("create user: ok=%v err=%v", ok, err)
+			}
+			user, _ := s.Users.GetByUsername(ctx, username)
+			cookieID := tg.name + "_reliability_cookie_" + suffix
+			if err := s.Cookies.Save(ctx, cookieID, "unb=test", user.ID); err != nil {
+				t.Fatal(err)
+			}
+			keywordID, err := s.Keywords.Add(ctx, cookieID, "same", "same reply", "", "text", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			unchangedKeyword := KeywordRow{ID: keywordID, CookieID: cookieID, Keyword: "same", Reply: "same reply", Type: "text"}
+			if err := s.Keywords.UpdateByID(ctx, unchangedKeyword); err != nil {
+				t.Fatalf("no-op keyword update must succeed on %s: %v", tg.name, err)
+			}
+			if _, err := s.Cookies.SetPause(ctx, cookieID, 1); err != nil {
+				t.Fatal(err)
+			}
+			if paused, _, err := s.Cookies.IsPaused(ctx, cookieID); err != nil || !paused {
+				t.Fatalf("pause state: paused=%v err=%v", paused, err)
+			}
+
+			batchID := tg.name + "_batch_" + suffix
+			if err := s.PublishBatches.Create(ctx, &ItemPublishBatch{
+				ID: batchID, UserID: user.ID, DefaultCookieID: cookieID, Filename: "test.csv", Status: "pending",
+			}, []ItemPublishBatchRow{{RowNo: 1, CookieID: cookieID, Title: "item", Price: "1"}}); err != nil {
+				t.Fatal(err)
+			}
+			if claimed, err := s.PublishBatches.ClaimBatch(ctx, batchID, "worker", time.Now().UTC().Add(time.Minute).Unix()); err != nil || !claimed {
+				t.Fatalf("claim batch: claimed=%v err=%v", claimed, err)
+			}
+			batchRows, _ := s.PublishBatches.Rows(ctx, batchID)
+			if claimed, err := s.PublishBatches.ClaimRow(ctx, batchRows[0].ID, "worker"); err != nil || !claimed {
+				t.Fatalf("claim row: claimed=%v err=%v", claimed, err)
+			}
+			if marked, err := s.PublishBatches.MarkClaimedRowSuccess(ctx, batchRows[0].ID, "worker", "published", "", "{}"); err != nil || !marked {
+				t.Fatalf("mark row: marked=%v err=%v", marked, err)
+			}
+			if finished, err := s.PublishBatches.FinishBatchStatus(ctx, batchID, "worker", "completed"); err != nil || !finished {
+				t.Fatalf("finish batch: finished=%v err=%v", finished, err)
+			}
+			cancelBatchID := tg.name + "_cancel_batch_" + suffix
+			if err := s.PublishBatches.Create(ctx, &ItemPublishBatch{
+				ID: cancelBatchID, UserID: user.ID, DefaultCookieID: cookieID, Filename: "test.csv", Status: "pending",
+			}, []ItemPublishBatchRow{{RowNo: 1, CookieID: cookieID, Title: "cancel", Price: "1"}}); err != nil {
+				t.Fatal(err)
+			}
+			if claimed, err := s.PublishBatches.ClaimBatch(ctx, cancelBatchID, "cancel-worker", time.Now().Add(time.Minute).Unix()); err != nil || !claimed {
+				t.Fatalf("claim cancel batch=%v err=%v", claimed, err)
+			}
+			if token, running, err := s.PublishBatches.RequestCancel(ctx, cancelBatchID); err != nil || !running || token != "cancel-worker" {
+				t.Fatalf("request cancel token=%q running=%v err=%v", token, running, err)
+			}
+			if finalized, err := s.PublishBatches.FinalizeCanceled(ctx, cancelBatchID, "cancel-worker"); err != nil || !finalized {
+				t.Fatalf("finalize cancel=%v err=%v", finalized, err)
+			}
+
+			uncertainBatchID := tg.name + "_uncertain_batch_" + suffix
+			if err := s.PublishBatches.Create(ctx, &ItemPublishBatch{
+				ID: uncertainBatchID, UserID: user.ID, DefaultCookieID: cookieID, Filename: "test.csv", Status: "pending",
+			}, []ItemPublishBatchRow{{RowNo: 1, CookieID: cookieID, Title: "item", Price: "1"}}); err != nil {
+				t.Fatal(err)
+			}
+			if claimed, err := s.PublishBatches.ClaimBatch(ctx, uncertainBatchID, "old", 1); err != nil || !claimed {
+				t.Fatalf("claim uncertain batch=%v err=%v", claimed, err)
+			}
+			uncertainRows, _ := s.PublishBatches.Rows(ctx, uncertainBatchID)
+			if claimed, err := s.PublishBatches.ClaimRow(ctx, uncertainRows[0].ID, "old"); err != nil || !claimed {
+				t.Fatalf("claim uncertain row=%v err=%v", claimed, err)
+			}
+			if marked, err := s.PublishBatches.MarkClaimedRemoteStarted(ctx, uncertainRows[0].ID, "old"); err != nil || !marked {
+				t.Fatalf("mark remote started=%v err=%v", marked, err)
+			}
+			if claimed, err := s.PublishBatches.ClaimBatch(ctx, uncertainBatchID, "new", time.Now().Add(time.Minute).Unix()); err != nil || !claimed {
+				t.Fatalf("take over uncertain batch=%v err=%v", claimed, err)
+			}
+			uncertainRows, _ = s.PublishBatches.Rows(ctx, uncertainBatchID)
+			if uncertainRows[0].Status != "failed" || uncertainRows[0].FailureKind != "uncertain_remote" {
+				t.Fatalf("uncertain row=%+v", uncertainRows[0])
+			}
+
+			ruleID, err := s.Automation.Create(ctx, AutomationRuleInput{UserID: user.ID, CookieID: cookieID, Name: "issue",
+				TriggerType: "buyer_reviewed", Enabled: true,
+				Actions: []AutomationActionInput{{ActionType: "send_text", MessageTemplate: "x", Enabled: true}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			runID, started, err := s.Automation.TryStartRun(ctx, AutomationRun{RuleID: ruleID, CookieID: cookieID,
+				TriggerType: "buyer_reviewed", TriggerKey: "issue-" + suffix, RawEventJSON: `{}`, LeaseExpiresAt: 1})
+			if err != nil || !started {
+				t.Fatalf("start issue run=%v err=%v", started, err)
+			}
+			if ok, err := s.Automation.StartRunAction(ctx, runID, 1, 0, 1); err != nil || !ok {
+				t.Fatalf("start issue action=%v err=%v", ok, err)
+			}
+			if err := s.Automation.QuarantineRunResult(ctx, runID, 1, 1, "unknown"); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Automation.Delete(ctx, user.ID, ruleID); err != ErrAutomationRunActive {
+				t.Fatalf("active rule delete err=%v", err)
+			}
+			runIssues, _, err := s.Automation.ListIssues(ctx, user.ID)
+			if err != nil || len(runIssues) != 1 {
+				t.Fatalf("issues=%+v err=%v", runIssues, err)
+			}
+			if err := s.Automation.ResolveRunIssue(ctx, user.ID, runID, "cancel"); err != nil {
+				t.Fatal(err)
+			}
+			fencedRunID, started, err := s.Automation.TryStartRun(ctx, AutomationRun{RuleID: ruleID, CookieID: cookieID,
+				TriggerType: "buyer_reviewed", TriggerKey: "fenced-" + suffix, RawEventJSON: `{}`})
+			if err != nil || !started {
+				t.Fatalf("start fenced run=%v err=%v", started, err)
+			}
+			if _, err := s.DB.ExecContext(ctx, `UPDATE automation_runs SET lease_expires_at=0 WHERE id=?`, fencedRunID); err != nil {
+				t.Fatal(err)
+			}
+			if claimed, err := s.Automation.ClaimRecoveryRun(ctx, fencedRunID, time.Now().Add(time.Minute).Unix()); err != nil || !claimed {
+				t.Fatalf("claim fenced run=%v err=%v", claimed, err)
+			}
+			fencedRun, err := s.Automation.GetRun(ctx, fencedRunID)
+			if err != nil || fencedRun.AttemptCount != 2 {
+				t.Fatalf("fenced run=%+v err=%v", fencedRun, err)
+			}
+			if err := s.Automation.FinishRun(ctx, fencedRunID, 1, "failed", 0, "stale"); !errors.Is(err, ErrAutomationRunLeaseLost) {
+				t.Fatalf("stale finish err=%v", err)
+			}
+			if err := s.Automation.FinishRun(ctx, fencedRunID, fencedRun.AttemptCount, "success", 0, ""); err != nil {
+				t.Fatal(err)
+			}
+			deferred := DeferredAutomationTask{TaskKey: "dead-" + suffix, CookieID: cookieID, TriggerType: "buyer_reviewed", TaskJSON: `{}`, DueAt: 0}
+			if err := s.Automation.DeferTask(ctx, deferred); err != nil {
+				t.Fatal(err)
+			}
+			_, _ = s.DB.ExecContext(ctx, `UPDATE automation_pending_tasks SET status='dead_letter',attempt_count=5 WHERE task_key=?`, deferred.TaskKey)
+			if err := s.Automation.DeferTask(ctx, deferred); err != nil {
+				t.Fatal(err)
+			}
+			if claimed, err := s.Automation.ClaimDueDeferredTasks(ctx, 10); err != nil || len(claimed) != 1 {
+				t.Fatalf("revived deferred=%+v err=%v", claimed, err)
+			}
+
+			itemID := "search-item-" + suffix
+			orderID := "search-order-" + suffix
+			if err := s.Items.Upsert(ctx, &ItemInfoRow{CookieID: cookieID, ItemID: itemID, ItemTitle: "Cross Database Search"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Orders.Upsert(ctx, orderID, OrderUpsertOpts{CookieID: cookieID, ItemID: itemID, Amount: "9.9"}); err != nil {
+				t.Fatal(err)
+			}
+			empty := ""
+			if err := s.Orders.Patch(ctx, orderID, OrderPatch{Amount: &empty}); err != nil {
+				t.Fatal(err)
+			}
+			orders, total, err := s.Orders.ListForUser(ctx, OrderListFilter{UserID: user.ID, Search: "cross database", Limit: 10})
+			if err != nil || total != 1 || len(orders) != 1 || orders[0].Amount != "" {
+				t.Fatalf("search/patch orders=%+v total=%d err=%v", orders, total, err)
+			}
+		})
+	}
+}
+
 func TestMultiDB_SettingsQuoteKey(t *testing.T) {
 	for _, tg := range allTestTargets(t) {
 		t.Run(tg.name, func(t *testing.T) {
@@ -190,12 +362,18 @@ func TestMultiDB_SettingsQuoteKey(t *testing.T) {
 			if err := s.Settings.Set(ctx, "theme_color", "green"); err != nil {
 				t.Fatalf("Settings.Set: %v", err)
 			}
+			if err := s.Settings.SetMany(ctx, map[string]string{"theme_color": "blue", "bulk_key": "bulk_value"}); err != nil {
+				t.Fatalf("Settings.SetMany: %v", err)
+			}
+			if got, _ := s.Settings.Get(ctx, "theme_color"); got != "blue" {
+				t.Fatalf("SetMany theme_color=%q", got)
+			}
 			got, err := s.Settings.Get(ctx, "theme_color")
-			if err != nil || got != "green" {
-				t.Fatalf("Settings.Get=%q err=%v want green", got, err)
+			if err != nil || got != "blue" {
+				t.Fatalf("Settings.Get=%q err=%v want blue", got, err)
 			}
 			all, err := s.Settings.All(ctx)
-			if err != nil || all["theme_color"] != "green" {
+			if err != nil || all["theme_color"] != "blue" || all["bulk_key"] != "bulk_value" {
 				t.Fatalf("Settings.All=%v err=%v", all, err)
 			}
 
@@ -392,7 +570,7 @@ func TestMultiDB_AutomationTryStartRunDedup(t *testing.T) {
 			}
 
 			// FinishRun 标记完成。
-			if err := s.Automation.FinishRun(ctx, id1, "done", 1, ""); err != nil {
+			if err := s.Automation.FinishRun(ctx, id1, 1, "done", 1, ""); err != nil {
 				t.Fatalf("FinishRun: %v", err)
 			}
 		})
@@ -440,6 +618,16 @@ func TestMultiDB_Notifications(t *testing.T) {
 			if len(bindings) != 0 {
 				t.Fatalf("清空后 bindings = %#v", bindings)
 			}
+			if err := s.Notifications.EnqueueOutbox(ctx, []NotificationOutboxInput{{ChannelID: chID, EventType: "test", Body: "body"}}); err != nil {
+				t.Fatalf("EnqueueOutbox: %v", err)
+			}
+			messages, err := s.Notifications.ClaimOutbox(ctx, "worker", time.Now(), 10)
+			if err != nil || len(messages) != 1 {
+				t.Fatalf("ClaimOutbox: messages=%+v err=%v", messages, err)
+			}
+			if completed, err := s.Notifications.CompleteOutbox(ctx, messages[0].ID, "worker"); err != nil || !completed {
+				t.Fatalf("CompleteOutbox: completed=%v err=%v", completed, err)
+			}
 		})
 	}
 }
@@ -453,7 +641,7 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				t.Fatalf("set goose dialect: %v", err)
 			}
 			goose.SetBaseFS(migrationsFS)
-			for i := 0; i < 3; i++ {
+			for i := 0; i < 9; i++ {
 				if err := goose.Down(tg.store.DB, "migrations/"+subdir); err != nil {
 					t.Fatalf("migration down #%d: %v", i+1, err)
 				}
@@ -466,6 +654,9 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 			}
 			if columnExistsForDialect(t, tg.store.DB, tg.dialect, "default_reply_records", "status") {
 				t.Fatal("default_reply_records.status should be removed after down")
+			}
+			if columnExistsForDialect(t, tg.store.DB, tg.dialect, "account_tokens", "cookie_fingerprint") {
+				t.Fatal("account_tokens.cookie_fingerprint should be removed after down")
 			}
 
 			if err := goose.Up(tg.store.DB, "migrations/"+subdir); err != nil {
@@ -483,6 +674,9 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				{"risk_control_logs", "processing_status"},
 				{"default_reply_records", "status"},
 				{"default_reply_records", "text_sent"},
+				{"automation_runs", "action_cursor"},
+				{"automation_runs", "action_started"},
+				{"account_tokens", "cookie_fingerprint"},
 			} {
 				if !columnExistsForDialect(t, tg.store.DB, tg.dialect, c.table, c.col) {
 					t.Fatalf("column missing after re-up: %s.%s", c.table, c.col)

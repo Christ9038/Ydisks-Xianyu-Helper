@@ -2,16 +2,14 @@ package browser
 
 import (
 	"math/rand"
-	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/playwright-community/playwright-go"
 
 	"xianyu-go/internal/xianyu/cookierefresh"
 )
-
-var cookieDomains = []string{".goofish.com", ".taobao.com", ".alipay.com"}
 
 // parseCookieStr 把 "k=v; k2=v2" 解析为 map。
 func parseCookieStr(s string) map[string]string {
@@ -50,14 +48,12 @@ func parseCookieStrToPlaywright(s string) []playwright.OptionalCookie {
 			if name == "" {
 				continue
 			}
-			for _, domain := range cookieDomains {
-				cookies = append(cookies, playwright.OptionalCookie{
-					Name:   name,
-					Value:  value,
-					Domain: playwright.String(domain),
-					Path:   playwright.String("/"),
-				})
-			}
+			cookies = append(cookies, playwright.OptionalCookie{
+				Name:   name,
+				Value:  value,
+				Domain: playwright.String(goofishDot),
+				Path:   playwright.String("/"),
+			})
 		}
 	}
 	return cookies
@@ -84,6 +80,9 @@ func snapshotToOptionalCookies(snapshot []cookierefresh.BrowserCookie) []playwri
 		}
 		if c.Expires > 0 {
 			oc.Expires = playwright.Float(c.Expires)
+		}
+		if c.PartitionKey != "" {
+			oc.PartitionKey = playwright.String(c.PartitionKey)
 		}
 		switch c.SameSite {
 		case "Strict":
@@ -113,6 +112,9 @@ func cookieSnapshotFromPlaywright(cs []playwright.Cookie) []cookierefresh.Browse
 		if c.SameSite != nil {
 			bc.SameSite = string(*c.SameSite)
 		}
+		if c.PartitionKey != nil {
+			bc.PartitionKey = *c.PartitionKey
+		}
 		out = append(out, bc)
 	}
 	return cookierefresh.NormalizeSnapshot(out)
@@ -127,38 +129,31 @@ func cookiesToMap(cs []playwright.Cookie) map[string]string {
 	return m
 }
 
-// rng 只用于模拟浏览器轨迹和指纹扰动，不用于凭证或安全令牌。
-// #nosec G404 -- 此处需要可重复的非密码学伪随机序列。
-var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+// rng is used only for human-like pointer timing in interactive captcha
+// handling. It must not be used to alter the browser/device fingerprint.
+// #nosec G404 -- non-cryptographic interaction jitter only.
+var rng = &lockedRand{value: rand.New(rand.NewSource(time.Now().UnixNano()))}
 
-// stealthScript 生成隐身 JS（移植自 xianyu_slider_stealth._get_stealth_script）。
-// 使用占位符并在 Go 运行时替换随机值。
+type lockedRand struct {
+	mu    sync.Mutex
+	value *rand.Rand
+}
+
+func (r *lockedRand) Intn(n int) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.value.Intn(n)
+}
+
+func (r *lockedRand) Float64() float64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.value.Float64()
+}
+
+// stealthScript is intentionally stable. Randomly overriding canvas, WebGL,
+// hardware, platform, or timing APIs makes one account present a different
+// device fingerprint on every renewal and is itself a strong risk signal.
 func stealthScript() string {
-	pluginCount := rng.Intn(6) + 3 // 3-8
-	hwCores := []int{2, 4, 6, 8}[rng.Intn(4)]
-	mem := []int{4, 8, 16}[rng.Intn(3)]
-	effType := []string{"3g", "4g", "5g"}[rng.Intn(3)]
-	rtt := rng.Intn(81) + 20                       // 20-100
-	downlink := float64(rng.Intn(901)+100) / 100.0 // 1.00-10.00
-	maxTouch := []int{0, 1, 5, 10}[rng.Intn(4)]
-	battCharging := []string{"true", "false"}[rng.Intn(2)]
-	battLevel := float64(rng.Intn(66)+30) / 100.0 // 0.30-0.95
-
-	repl := strings.NewReplacer(
-		"{{PLUGIN_COUNT}}", strconv.Itoa(pluginCount),
-		"{{LOCALE}}", defaultLang,
-		"{{VW}}", strconv.Itoa(defaultW),
-		"{{VH}}", strconv.Itoa(defaultH),
-		"{{HW_CORES}}", strconv.Itoa(hwCores),
-		"{{MEM}}", strconv.Itoa(mem),
-		"{{TZ}}", defaultTZ,
-		"{{EFF_TYPE}}", effType,
-		"{{RTT}}", strconv.Itoa(rtt),
-		"{{DOWNLINK}}", strconv.FormatFloat(downlink, 'f', 2, 64),
-		"{{MAX_TOUCH}}", strconv.Itoa(maxTouch),
-		"{{BATT_CHARGE}}", battCharging,
-		"{{BATT_LEVEL}}", strconv.FormatFloat(battLevel, 'f', 2, 64),
-		"{{UA}}", defaultUA,
-	)
-	return repl.Replace(stealthTemplate)
+	return stealthTemplate
 }

@@ -3,10 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidOrdersMatchesAnalyticsScope(t *testing.T) {
@@ -70,6 +72,35 @@ func TestValidOrdersMatchesAnalyticsScope(t *testing.T) {
 	}
 }
 
+func TestValidOrdersIncludesPaidAndReportsPagination(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,amount,order_status,cookie_id,created_at) VALUES
+		('paid-1','10','paid','acc1','2026-06-28 10:00:00'),
+		('paid-2','20','pending_ship','acc1','2026-06-28 11:00:00')`)
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/analytics/orders/valid?start_date=2026-06-28&end_date=2026-06-28&page_size=1", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var result struct {
+		Orders    []map[string]any `json:"orders"`
+		Total     int              `json:"total"`
+		Truncated bool             `json:"truncated"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Orders) != 1 || result.Total != 2 || !result.Truncated {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
 func TestDashboardStatsAreAvailableAndScopedToCurrentUser(t *testing.T) {
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
@@ -85,7 +116,7 @@ func TestDashboardStatsAreAvailableAndScopedToCurrentUser(t *testing.T) {
 	if err := store.Cookies.Save(ctx, "member-acc", "unb=456", member.ID); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = store.DB.ExecContext(ctx, `INSERT INTO cards (name,type,user_id) VALUES ('member-card','text',?)`, member.ID)
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO cards (name,type,data_content,enabled,user_id) VALUES ('member-card','data',?,1,?)`, "CARD-1\n\nCARD-2\n", member.ID)
 	_, _ = store.DB.ExecContext(ctx, `INSERT INTO keywords (cookie_id,keyword,reply) VALUES ('member-acc','hi','hello')`)
 	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,cookie_id,order_status) VALUES ('member-order','member-acc','completed')`)
 
@@ -117,6 +148,9 @@ func TestDashboardStatsAreAvailableAndScopedToCurrentUser(t *testing.T) {
 			t.Fatalf("%s=%d want 1; stats=%+v", key, stats[key], stats)
 		}
 	}
+	if stats["available_card_stock"] != 2 {
+		t.Fatalf("available_card_stock=%d want 2; stats=%+v", stats["available_card_stock"], stats)
+	}
 
 	adminReq := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
 	adminReq.AddCookie(loginRec.Result().Cookies()[0])
@@ -124,5 +158,105 @@ func TestDashboardStatsAreAvailableAndScopedToCurrentUser(t *testing.T) {
 	h.ServeHTTP(adminRec, adminReq)
 	if adminRec.Code != http.StatusForbidden {
 		t.Fatalf("member admin stats status=%d want 403", adminRec.Code)
+	}
+}
+
+func TestAnalyticsIncludesLegacyNumericValidStatuses(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,amount,order_status,cookie_id,created_at)
+		VALUES ('legacy-shipped','8.50','3','acc1','2026-06-28 12:00:00')`)
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/analytics/orders?start_date=2026-06-28&end_date=2026-06-28", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		RevenueStats struct {
+			TotalOrders int `json:"total_orders"`
+		} `json:"revenue_stats"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.RevenueStats.TotalOrders != 1 {
+		t.Fatalf("legacy numeric valid status was excluded: %+v", response)
+	}
+	validReq := httptest.NewRequest(http.MethodGet, "/analytics/orders/valid?start_date=2026-06-28&end_date=2026-06-28", nil)
+	validReq.AddCookie(cookie)
+	validRec := httptest.NewRecorder()
+	h.ServeHTTP(validRec, validReq)
+	if !strings.Contains(validRec.Body.String(), `"order_status":"shipped"`) {
+		t.Fatalf("legacy detail status was not normalized: %s", validRec.Body.String())
+	}
+}
+
+func TestAnalyticsCustomRangeDoesNotSilentlyDropDays(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	for day := 1; day <= 31; day++ {
+		date := time.Date(2026, 1, day, 12, 0, 0, 0, time.UTC).Format("2006-01-02 15:04:05")
+		_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,amount,order_status,cookie_id,created_at) VALUES (?,?,?,?,?)`, fmt.Sprintf("day-%02d", day), "1", "completed", "acc1", date)
+	}
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/analytics/orders?start_date=2026-01-01&end_date=2026-01-31", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var response struct {
+		Daily []map[string]any `json:"daily_stats"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil || len(response.Daily) != 31 {
+		t.Fatalf("daily range len=%d err=%v body=%s", len(response.Daily), err, rec.Body.String())
+	}
+}
+
+func TestAnalyticsDateBoundaryConvertsLocalDayToUTC(t *testing.T) {
+	previous := time.Local
+	time.Local = time.FixedZone("UTC+8", 8*60*60)
+	defer func() { time.Local = previous }()
+	if got := analyticsDateBoundary("2026-06-28", false, time.Local); got != "2026-06-27 16:00:00" {
+		t.Fatalf("start boundary=%q", got)
+	}
+	if got := analyticsDateBoundary("2026-06-28", true, time.Local); got != "2026-06-28 16:00:00" {
+		t.Fatalf("end boundary=%q", got)
+	}
+}
+
+func TestAnalyticsUsesBrowserTimezoneAndSkipsInvalidAmounts(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,amount,order_status,cookie_id,created_at) VALUES
+		('tz-valid','10.50','completed','acc1','2026-06-27 16:30:00'),
+		('tz-invalid','abc','completed','acc1','2026-06-27 17:00:00')`)
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodGet, "/analytics/orders?start_date=2026-06-28&end_date=2026-06-28&timezone_offset_minutes=480", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Revenue struct {
+			TotalOrders int     `json:"total_orders"`
+			TotalAmount float64 `json:"total_amount"`
+		} `json:"revenue_stats"`
+		Daily []map[string]any `json:"daily_stats"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Revenue.TotalOrders != 1 || response.Revenue.TotalAmount != 10.5 || len(response.Daily) != 1 || response.Daily[0]["date"] != "2026-06-28" {
+		t.Fatalf("response=%+v body=%s", response, rec.Body.String())
 	}
 }

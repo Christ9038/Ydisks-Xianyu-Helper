@@ -23,6 +23,9 @@ func (c *ClientImpl) FetchItemsPage(ctx context.Context, cookiesStr string, page
 		pageSize = 20
 	}
 	currentCookies := cookiesStr
+	if session := cookieSessionFromContext(ctx); session != nil {
+		currentCookies, _, _ = session.State()
+	}
 	var lastRet []string
 	for attempt := 0; attempt < 4; attempt++ {
 		res, ret, updatedCookies, err := c.fetchItemsPageOnce(ctx, currentCookies, pageNumber, pageSize)
@@ -46,7 +49,7 @@ func (c *ClientImpl) FetchItemsPage(ctx context.Context, cookiesStr string, page
 		if err := sleepCtx(ctx, MTopRetryGap); err != nil {
 			return nil, err
 		}
-		refreshed, err := c.RefreshToken(currentCookies)
+		refreshed, err := c.RefreshTokenContext(ctx, currentCookies)
 		if err != nil {
 			return nil, fmt.Errorf("刷新 mtop token 失败: %w", err)
 		}
@@ -60,7 +63,8 @@ func (c *ClientImpl) fetchItemsPageOnce(ctx context.Context, cookiesStr string, 
 	if hc == nil {
 		hc = &http.Client{Timeout: 30 * time.Second}
 	}
-	cookies := protocol.TransCookies(cookiesStr)
+	signingCookies, requestCookies := mtopRequestCookies(ctx, cookiesStr, "https://www.goofish.com/", ItemListAPI)
+	cookies := protocol.TransCookies(signingCookies)
 	userID := cookies["unb"]
 	if userID == "" {
 		return nil, nil, cookiesStr, fmt.Errorf("cookie 缺少 unb 字段，无法获取商品列表")
@@ -78,7 +82,7 @@ func (c *ClientImpl) fetchItemsPageOnce(ctx context.Context, cookiesStr string, 
 	rawData, _ := json.Marshal(data)
 	dataVal := string(rawData)
 	t := strconv.FormatInt(time.Now().UnixMilli(), 10)
-	sign := protocol.GenerateSign(t, protocol.SignToken(cookiesStr), dataVal)
+	sign := protocol.GenerateSign(t, protocol.SignToken(signingCookies), dataVal)
 	query := buildItemListQuery(t, sign)
 	body := "data=" + url.QueryEscape(dataVal)
 
@@ -86,17 +90,17 @@ func (c *ClientImpl) fetchItemsPageOnce(ctx context.Context, cookiesStr string, 
 	if err != nil {
 		return nil, nil, cookiesStr, err
 	}
-	setCommonHeaders(req, cookiesStr)
+	setCommonHeaders(req, requestCookies)
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, nil, cookiesStr, fmt.Errorf("商品列表请求失败: %w", err)
 	}
 	defer resp.Body.Close()
+	updated := absorbMTopResponseCookies(ctx, cookiesStr, resp)
 	raw, err := readMTopBody(resp)
 	if err != nil {
-		return nil, nil, cookiesStr, err
+		return nil, nil, updated, err
 	}
-	updated := mergeSetCookie(cookiesStr, cookies, resp)
 
 	var decoded struct {
 		Ret  []string       `json:"ret"`
@@ -126,6 +130,9 @@ func (c *ClientImpl) FetchAllItems(ctx context.Context, cookiesStr string, pageS
 		pageSize = 20
 	}
 	currentCookies := cookiesStr
+	if session := cookieSessionFromContext(ctx); session != nil {
+		currentCookies, _, _ = session.State()
+	}
 	page := 1
 	var all []ItemListItem
 	for maxPages <= 0 || page <= maxPages {
@@ -237,6 +244,7 @@ func parseItemList(data map[string]any) []ItemListItem {
 			ItemDetail:  string(detailJSON),
 			AuctionType: mtopString(cardData["auctionType"]),
 			ItemStatus:  mtopInt(cardData["itemStatus"]),
+			IsMultiSpec: detectItemMultiSpec(cardData),
 		})
 	}
 	return items

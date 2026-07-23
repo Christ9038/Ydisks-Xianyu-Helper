@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { DashboardStats, OrderAnalytics, Order, OrderStatus, Item } from '../types';
 import { getDashboardStats, getOrderAnalytics, getValidOrders, getItems } from '../services/api';
 import { getDateRange, getPreviousDateRange, TimeRange } from '../dateRange';
+import { formatLocalDateTime } from '../dateTime';
 import { TrendingUp, Users, ShoppingCart, AlertCircle, DollarSign, Activity, Package, ArrowUpRight, Calendar, X, BarChart3, PackageCheck, ExternalLink, Eye, Edit } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
 
@@ -14,6 +15,7 @@ const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
     completed: 'bg-green-100 text-green-700',
     cancelled: 'bg-gray-100 text-gray-500',
     refunding: 'bg-red-100 text-red-600',
+    unknown: 'bg-gray-100 text-gray-500',
   };
 
   const labels = {
@@ -23,6 +25,7 @@ const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
     completed: '已完成',
     cancelled: '已取消',
     refunding: '退款中',
+    unknown: '未知',
   };
 
   return (
@@ -63,36 +66,50 @@ const Dashboard: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   // 参与统计的订单列表
   const [validOrders, setValidOrders] = useState<Order[]>([]);
+	const [validOrdersTotal, setValidOrdersTotal] = useState(0);
+	const [validOrdersTruncated, setValidOrdersTruncated] = useState(false);
   const [ordersLoading, setOrdersLoading] = useState(false);
   // 商品列表
   const [items, setItems] = useState<Item[]>([]);
   const [itemNames, setItemNames] = useState<Record<string, string>>({});
+  const rangeRequestSequence = useRef(0);
 
   // 颜色配置
   const COLORS = ['#0094f7', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6'];
   const formatCurrency = (value: number) => `¥${Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
-  const loadValidOrders = (range: TimeRange) => {
-    const { startDate, endDate } = getDateRange(range, new Date(), customStartDate, customEndDate);
-    setOrdersLoading(true);
-    getValidOrders({ start_date: startDate, end_date: endDate })
-      .then(setValidOrders)
-      .catch(error => setLoadError(error instanceof Error ? error.message : '订单加载失败'))
-      .finally(() => setOrdersLoading(false));
-  };
-
-  const loadAnalytics = (range: TimeRange) => {
-    const currentRange = getDateRange(range, new Date(), customStartDate, customEndDate);
+  const loadRange = async (range: TimeRange) => {
+    let currentRange;
+    try {
+      currentRange = getDateRange(range, new Date(), customStartDate, customEndDate);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : '日期范围无效');
+      return;
+    }
     const { startDate, endDate } = currentRange;
     const params = { start_date: startDate, end_date: endDate };
-
     const previous = getPreviousDateRange(currentRange);
-    getOrderAnalytics({ start_date: previous.startDate, end_date: previous.endDate })
-      .then(setPreviousAnalytics)
-      .catch(error => setLoadError(error instanceof Error ? error.message : '历史统计加载失败'));
-
-    getOrderAnalytics(params)
-      .then(setAnalytics)
-      .catch(error => setLoadError(error instanceof Error ? error.message : '统计加载失败'));
+    const sequence = ++rangeRequestSequence.current;
+    setOrdersLoading(true);
+    setLoadError('');
+    try {
+      const [currentAnalytics, previousResult, orders] = await Promise.all([
+        getOrderAnalytics(params),
+        getOrderAnalytics({ start_date: previous.startDate, end_date: previous.endDate }),
+        getValidOrders(params),
+      ]);
+      if (sequence !== rangeRequestSequence.current) return;
+      setAnalytics(currentAnalytics);
+      setPreviousAnalytics(previousResult);
+		setValidOrders(orders.orders);
+		setValidOrdersTotal(orders.total);
+		setValidOrdersTruncated(orders.truncated);
+    } catch (error) {
+      if (sequence === rangeRequestSequence.current) {
+        setLoadError(error instanceof Error ? error.message : '经营数据加载失败');
+      }
+    } finally {
+      if (sequence === rangeRequestSequence.current) setOrdersLoading(false);
+    }
   };
 
   // 计算趋势百分比
@@ -112,26 +129,25 @@ const Dashboard: React.FC = () => {
   };
 
   useEffect(() => {
-    getDashboardStats().then(setStats).catch(error => setLoadError(error instanceof Error ? error.message : '概览加载失败'));
-    getItems().then(items => {
-      setItems(items);
+    let cancelled = false;
+    Promise.all([getDashboardStats(), getItems()]).then(([dashboardStats, itemList]) => {
+      if (cancelled) return;
+      setStats(dashboardStats);
+      setItems(itemList);
       // 建立 item_id 到 item_title 的映射
       const nameMap: Record<string, string> = {};
-      items.forEach(item => {
+      itemList.forEach(item => {
         nameMap[item.item_id] = item.item_title || item.item_id;
       });
       setItemNames(nameMap);
-    }).catch(error => setLoadError(error instanceof Error ? error.message : '商品加载失败'));
+    }).catch(error => {
+      if (!cancelled) setLoadError(error instanceof Error ? error.message : '概览加载失败');
+    });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
-    setLoadError('');
-    loadAnalytics(timeRange);
-  }, [timeRange]);
-
-  // 加载订单列表
-  useEffect(() => {
-    loadValidOrders(timeRange);
+    if (timeRange !== 'custom') void loadRange(timeRange);
   }, [timeRange]);
 
   if (loadError && (!stats || !analytics)) {
@@ -277,8 +293,7 @@ const Dashboard: React.FC = () => {
               onClick={() => {
                 try {
                   setLoadError('');
-                  loadAnalytics('custom');
-                  loadValidOrders('custom');
+                  void loadRange('custom');
                 } catch (error) {
                   setLoadError(error instanceof Error ? error.message : '日期范围无效');
                 }
@@ -314,7 +329,7 @@ const Dashboard: React.FC = () => {
         />
         <StatCard
           title="库存卡密余量"
-          value={stats.total_cards}
+          value={stats.available_card_stock}
           icon={Package}
           colorClass="bg-purple-500"
         />
@@ -498,7 +513,12 @@ const Dashboard: React.FC = () => {
         {/* 参与统计的订单列表 */}
         <div className="lg:col-span-2 ios-card p-0 rounded-xl border-0 bg-white overflow-hidden flex flex-col">
           <div className="p-6 border-b border-gray-50 flex justify-between items-center bg-[#FAFAFA]">
-            <h3 className="font-bold text-lg text-gray-900">参与统计的订单</h3>
+			<div>
+			  <h3 className="font-bold text-lg text-gray-900">参与统计的订单</h3>
+			  {validOrdersTruncated && (
+				<p className="text-xs text-amber-700 mt-1">当前显示最近 {validOrders.length} / {validOrdersTotal} 条，搜索仅覆盖已加载明细。</p>
+			  )}
+			</div>
             <div className="relative">
               <input
                 placeholder="搜索订单号/商品/买家..."
@@ -569,7 +589,7 @@ const Dashboard: React.FC = () => {
                         <td className="px-6 py-4">
                           <div className="text-sm font-bold text-gray-800">{order.buyer_id}</div>
                           {order.created_at && (
-                            <div className="text-xs text-gray-400 mt-1">{order.created_at}</div>
+                            <div className="text-xs text-gray-400 mt-1">{formatLocalDateTime(order.created_at)}</div>
                           )}
                         </td>
                         <td className="px-6 py-4 text-base font-extrabold text-gray-900 font-feature-settings-tnum">
@@ -628,7 +648,7 @@ const Dashboard: React.FC = () => {
                         borderRadius: '6px',
                         boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
                       }}
-                      formatter={(value: number) => `¥${value.toLocaleString()}`}
+                      formatter={(value) => `¥${Number(value || 0).toLocaleString()}`}
                     />
                   </PieChart>
                 </ResponsiveContainer>

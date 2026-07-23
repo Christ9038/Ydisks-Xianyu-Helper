@@ -2,360 +2,562 @@ package renew
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"regexp"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"xianyu-go/internal/xianyu"
+	"xianyu-go/internal/xianyu/cookierefresh"
 )
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+type failingReadCloser struct {
+	err error
+}
+
+func (r failingReadCloser) Read([]byte) (int, error) { return 0, r.err }
+func (failingReadCloser) Close() error               { return nil }
+
+func futureMillis(d time.Duration) string {
+	return strconv.FormatInt(time.Now().Add(d).UnixMilli(), 10)
+}
+
+func useTestDesktopFingerprint(t *testing.T) xianyu.BrowserFingerprint {
+	t.Helper()
+	old := xianyu.CurrentBrowserFingerprint()
+	fingerprint := xianyu.BrowserFingerprint{
+		UserAgent: `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/999.0.0.0 Safari/537.36`,
+		SecChUA:   `"Chromium";v="999", "Google Chrome";v="999", "Not_A Brand";v="24"`,
+		Platform:  "macOS",
+		Mobile:    "?0",
+	}
+	xianyu.SetBrowserFingerprint(fingerprint)
+	t.Cleanup(func() { xianyu.SetBrowserFingerprint(old) })
+	return fingerprint
+}
+
+func TestAutoLoginModeMatchesBrowserPlugin(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name       string
+		cookies    map[string]string
+		wantMode   string
+		wantReason string
+	}{
+		{name: "fatigue", cookies: map[string]string{"sdkSilent": strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10), "havana_lgc_exp": strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10)}, wantReason: "fatigue"},
+		{name: "malformed sdkSilent does not cause fatigue", cookies: map[string]string{"sdkSilent": "invalid", "havana_lgc_exp": strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10)}, wantMode: autoLoginModeHavana},
+		{name: "havana", cookies: map[string]string{"havana_lgc_exp": strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10)}, wantMode: autoLoginModeHavana},
+		{name: "cookie3 backup", cookies: map[string]string{"havana_lgc_exp": strconv.FormatInt(now.Add(-time.Hour).UnixMilli(), 10), "cookie3_bak_exp": strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10)}, wantMode: autoLoginModeCookie3},
+		{name: "malformed long-login expiry follows browser Invalid Date branch", cookies: map[string]string{"havana_lgc_exp": "bad", "cookie3_bak_exp": strconv.FormatInt(now.Add(-time.Hour).UnixMilli(), 10)}, wantMode: autoLoginModeHavana},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mode, reason := autoLoginMode(tt.cookies, now)
+			if mode != tt.wantMode || reason != tt.wantReason {
+				t.Fatalf("mode=%q reason=%q, want mode=%q reason=%q", mode, reason, tt.wantMode, tt.wantReason)
+			}
+		})
+	}
+}
+
+func TestAutoLoginDecisionUsesFirstCookieForDuplicatePaths(t *testing.T) {
+	now := time.Now()
+	cookies := strings.Join([]string{
+		"sdkSilent=" + strconv.FormatInt(now.Add(-time.Hour).UnixMilli(), 10),
+		"sdkSilent=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10),
+		"havana_lgc_exp=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10),
+		"havana_lgc_exp=" + strconv.FormatInt(now.Add(-time.Hour).UnixMilli(), 10),
+	}, "; ")
+	mode, reason := autoLoginMode(firstCookieValues(cookies), now)
+	if mode != autoLoginModeHavana || reason != "" {
+		t.Fatalf("mode=%q reason=%q；应采用浏览器排序后的首个同名 Cookie", mode, reason)
+	}
+}
+
+func TestLongLoginSettingsMatchOfficialRequest(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.Method != http.MethodPost {
+			t.Fatalf("method=%s", r.Method)
+		}
+		if r.URL.Query().Get("fromSite") != "77" || r.URL.Query().Get("appName") != "xianyu" || r.URL.Query().Get("bizEntrance") != "web" {
+			t.Fatalf("query=%s", r.URL.RawQuery)
+		}
+		if r.Header.Get("Origin") != "https://www.goofish.com" || r.Header.Get("Referer") != "https://www.goofish.com/im" {
+			t.Fatalf("origin/referer=%q/%q", r.Header.Get("Origin"), r.Header.Get("Referer"))
+		}
+		if !strings.Contains(r.Header.Get("Cookie"), "unb=1") {
+			t.Fatalf("Cookie=%q", r.Header.Get("Cookie"))
+		}
+		if strings.Contains(r.URL.Path, "set") {
+			if err := r.ParseForm(); err != nil || r.Form.Get("status") != "0" {
+				t.Fatalf("set form=%v err=%v", r.Form, err)
+			}
+		}
+		http.SetCookie(w, &http.Cookie{Name: "havana_lgc_exp", Value: futureMillis(24 * time.Hour), Path: "/", HttpOnly: true})
+		if strings.Contains(r.URL.Path, "set") {
+			_, _ = w.Write([]byte(`{"data":{"success":true}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"content":{"data":{"returnValue":{"canOpenLongLogin":true,"hasLongTokenLogin":true}}}}`))
+	}))
+	defer srv.Close()
+
+	service := Service{
+		HTTPClient:            srv.Client(),
+		QueryLoginSettingsURL: srv.URL + "/queryLoginSettings.do",
+		SetLoginSettingsURL:   srv.URL + "/setLoginSettings.do",
+		DocumentReferer:       "https://www.goofish.com/im",
+	}
+	queried, err := service.QueryLongLoginSettings(context.Background(), "unb=1")
+	if err != nil || !queried.CanOpenLongLogin || !queried.Enabled {
+		t.Fatalf("query result=%+v err=%v", queried, err)
+	}
+	set, err := service.SetLongLoginSettings(context.Background(), queried.NewCookies, true)
+	if err != nil || !set.Enabled || len(set.SetCookies) != 2 || !strings.Contains(set.NewCookies, "havana_lgc_exp=") {
+		t.Fatalf("set result=%+v err=%v", set, err)
+	}
+	if calls.Load() != 3 {
+		t.Fatalf("calls=%d", calls.Load())
+	}
+}
+
+func TestLongLoginRequestKeepsResponseCookiesOnFailures(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       io.ReadCloser
+	}{
+		{
+			name:       "body read",
+			statusCode: http.StatusOK,
+			body:       failingReadCloser{err: errors.New("broken body")},
+		},
+		{
+			name:       "business parse",
+			statusCode: http.StatusOK,
+			body:       io.NopCloser(strings.NewReader(`not-json`)),
+		},
+		{
+			name:       "http status",
+			statusCode: http.StatusServiceUnavailable,
+			body:       io.NopCloser(strings.NewReader(`{"error":"busy"}`)),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: tt.statusCode,
+					Header: http.Header{
+						"Set-Cookie": {"rotated=fresh; Domain=.goofish.com; Path=/; Secure; HttpOnly"},
+					},
+					Body: tt.body,
+				}, nil
+			})}
+			settings, err := (Service{HTTPClient: client}).QueryLongLoginSettings(context.Background(), "unb=1")
+			if err == nil || settings == nil {
+				t.Fatalf("settings=%+v err=%v", settings, err)
+			}
+			if len(settings.SetCookies) != 1 || !strings.Contains(settings.NewCookies, "rotated=fresh") {
+				t.Fatalf("response Cookie was lost: %+v", settings)
+			}
+		})
+	}
+}
+
+func TestSetLongLoginSettingsMergesSetAndFailedQueryCookies(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if strings.Contains(r.URL.Path, "set") {
+			http.SetCookie(w, &http.Cookie{Name: "set_cookie", Value: "one", Path: "/"})
+			_, _ = w.Write([]byte(`{"data":{"success":true}}`))
+			return
+		}
+		if !strings.Contains(r.Header.Get("Cookie"), "set_cookie=one") {
+			t.Fatalf("QUERY did not receive SET Cookie: %q", r.Header.Get("Cookie"))
+		}
+		http.SetCookie(w, &http.Cookie{Name: "query_cookie", Value: "two", Path: "/"})
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":"upstream"}`))
+	}))
+	defer srv.Close()
+
+	svc := Service{
+		HTTPClient:            srv.Client(),
+		SetLoginSettingsURL:   srv.URL + "/setLoginSettings.do",
+		QueryLoginSettingsURL: srv.URL + "/queryLoginSettings.do",
+	}
+	settings, err := svc.SetLongLoginSettings(context.Background(), "unb=1", true)
+	if err == nil || settings == nil {
+		t.Fatalf("settings=%+v err=%v", settings, err)
+	}
+	if calls.Load() != 2 || len(settings.SetCookies) != 2 || !settings.Enabled {
+		t.Fatalf("settings=%+v calls=%d", settings, calls.Load())
+	}
+	if !strings.Contains(settings.NewCookies, "set_cookie=one") || !strings.Contains(settings.NewCookies, "query_cookie=two") {
+		t.Fatalf("SET/QUERY Cookie was lost: %q", settings.NewCookies)
+	}
+}
+
+func TestSetLongLoginSettingsScopesCompleteJarBetweenSetAndQuery(t *testing.T) {
+	var queryCookie string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "set") {
+			w.Header().Add("Set-Cookie", "set_only=hidden; Path=/ac/account/setLoginSettings.do; Secure")
+			w.Header().Add("Set-Cookie", "shared=next; Path=/ac/account; Secure")
+			_, _ = w.Write([]byte(`{"data":{"success":true}}`))
+			return
+		}
+		queryCookie = r.Header.Get("Cookie")
+		_, _ = w.Write([]byte(`{"content":{"data":{"returnValue":{"canOpenLongLogin":true,"hasLongTokenLogin":true}}}}`))
+	}))
+	defer srv.Close()
+	snapshot := []cookierefresh.BrowserCookie{
+		{Name: "shared", Value: "old", Domain: "passport.goofish.com", Path: "/ac/account", Secure: true},
+		{Name: "im_only", Value: "visible", Domain: "www.goofish.com", Path: "/im", Secure: true},
+	}
+	svc := Service{
+		HTTPClient:            srv.Client(),
+		SetLoginSettingsURL:   srv.URL + "/setLoginSettings.do",
+		QueryLoginSettingsURL: srv.URL + "/queryLoginSettings.do",
+	}
+	settings, err := svc.SetLongLoginSettings(context.Background(), "fallback=must-not-leak", true, snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(queryCookie, "set_only=hidden") || !strings.Contains(queryCookie, "shared=next") {
+		t.Fatalf("QUERY Cookie 未按更新后 Jar 重新做 Path scope: %q", queryCookie)
+	}
+	if !settings.CookieSnapshotComplete || len(settings.CookieSnapshot) != 3 {
+		t.Fatalf("最终完整 Jar 未返回: %+v", settings)
+	}
+	if settings.NewCookies != "im_only=visible" {
+		t.Fatalf("/im canonical Cookie=%q", settings.NewCookies)
+	}
+}
+
+func TestRenewAPIFirstHavanaSendsOneSilentRequest(t *testing.T) {
+	fingerprint := useTestDesktopFingerprint(t)
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.Method != http.MethodPost || r.URL.Query().Get("appEntrance") != "xianyu_sdkSilent" || r.URL.Query().Get("ltl") != "true" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+		if r.URL.Query().Get("skipSessionFilter") != "" || r.URL.Query().Get("c2r") != "" {
+			t.Fatalf("havana mode included cookie3 flags: %s", r.URL.RawQuery)
+		}
+		if got := r.URL.Query().Get("documentReferer"); got != "https://www.goofish.com/im" {
+			t.Fatalf("documentReferer=%q", got)
+		}
+		if got := r.Header.Get("User-Agent"); got != fingerprint.UserAgent {
+			t.Fatalf("User-Agent=%q", got)
+		}
+		if got := r.Header.Get("Cookie"); !strings.Contains(got, "unb=1") {
+			t.Fatalf("Cookie=%q", got)
+		}
+		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: futureMillis(time.Hour)})
+		_, _ = w.Write([]byte(`{"data":{"content":{"data":{"processFinished":true,"resultCode":100}}}}`))
+	}))
+	defer srv.Close()
+
+	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, DocumentReferer: "https://www.goofish.com/im", RetryDelay: -1}
+	input := "unb=1; havana_lgc_exp=" + futureMillis(time.Hour)
+	res, err := svc.RenewAPIFirst(context.Background(), input)
+	if err != nil {
+		t.Fatalf("RenewAPIFirst: %v", err)
+	}
+	if !res.Success || res.Skipped || res.RequestCount != 1 || calls.Load() != 1 {
+		t.Fatalf("result=%#v calls=%d", res, calls.Load())
+	}
+	if !strings.Contains(res.NewCookies, "sdkSilent=") || res.RenewMethod != "auto_login_plugin" {
+		t.Fatalf("result=%#v", res)
+	}
+}
+
+func TestRenewAPIFirstUsesBrowserCookieScopes(t *testing.T) {
+	useTestDesktopFingerprint(t)
+	var receivedCookie string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedCookie = r.Header.Get("Cookie")
+		_, _ = w.Write([]byte(`{"data":{"content":{"data":{"processFinished":true,"resultCode":100}}}}`))
+	}))
+	defer srv.Close()
+	host := strings.TrimPrefix(srv.URL, "http://")
+	host = strings.Split(host, ":")[0]
+	snapshot := []cookierefresh.BrowserCookie{
+		{Name: "havana_lgc_exp", Value: futureMillis(time.Hour), Domain: ".goofish.com", Path: "/"},
+		{Name: "request_only", Value: "passport", Domain: host, Path: "/"},
+		{Name: "www_only", Value: "private", Domain: "www.goofish.com", Path: "/im"},
+		{Name: "http_only_document", Value: "hidden", Domain: ".goofish.com", Path: "/", HTTPOnly: true},
+	}
+	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, DocumentReferer: "https://www.goofish.com/im", RetryDelay: -1}
+	res, err := svc.RenewAPIFirst(context.Background(), "havana_lgc_exp="+futureMillis(time.Hour)+"; request_only=passport; www_only=private", snapshot)
+	if err != nil || !res.Success {
+		t.Fatalf("result=%+v err=%v", res, err)
+	}
+	if !strings.Contains(receivedCookie, "request_only=passport") || strings.Contains(receivedCookie, "www_only=private") {
+		t.Fatalf("passport 请求未遵守 Cookie Domain/Path: %q", receivedCookie)
+	}
+	if !res.CookieSnapshotComplete || res.CookieSnapshot == nil {
+		t.Fatalf("authoritative snapshot was not returned: %+v", res)
+	}
+}
+
+func TestRenewAPIFirstUsesTopSiteAndAppliesPartitionedSetCookie(t *testing.T) {
+	useTestDesktopFingerprint(t)
+	snapshot := []cookierefresh.BrowserCookie{
+		{Name: "havana_lgc_exp", Value: futureMillis(time.Hour), Domain: ".goofish.com", Path: "/", Secure: true, PartitionKey: goofishTopSite},
+		{Name: "passport_partitioned", Value: "right", Domain: "passport.goofish.com", Path: "/", Secure: true, PartitionKey: goofishTopSite},
+		{Name: "wrong_partition", Value: "hidden", Domain: "passport.goofish.com", Path: "/", Secure: true, PartitionKey: "https://example.com"},
+	}
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		cookies := req.Header.Get("Cookie")
+		if !strings.Contains(cookies, "passport_partitioned=right") || strings.Contains(cookies, "wrong_partition=hidden") {
+			t.Fatalf("partitioned request Cookie=%q", cookies)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Set-Cookie": {"rotated=fresh; Domain=.goofish.com; Path=/; Secure; Partitioned"},
+			},
+			Body: io.NopCloser(strings.NewReader(`{"data":{"content":{"data":{"processFinished":true,"resultCode":100}}}}`)),
+		}, nil
+	})}
+	svc := Service{HTTPClient: client, RetryDelay: -1}
+	res, err := svc.RenewAPIFirst(context.Background(), "", snapshot)
+	if err != nil || !res.Success {
+		t.Fatalf("result=%+v err=%v", res, err)
+	}
+	if !res.CookieSnapshotComplete || !strings.Contains(res.NewCookies, "rotated=fresh") {
+		t.Fatalf("authoritative renewal result=%+v", res)
+	}
+	found := false
+	for _, cookie := range res.CookieSnapshot {
+		if cookie.Name == "rotated" && cookie.Value == "fresh" && cookie.PartitionKey == goofishTopSite {
+			found = true
+		}
+	}
+	if !found || len(res.UpdatedCookieNames) == 0 {
+		t.Fatalf("partitioned Set-Cookie was not applied exactly: %+v", res)
+	}
+}
+
+func TestRenewAPIFirstKeepsSetCookieWhenBodyReadFails(t *testing.T) {
+	useTestDesktopFingerprint(t)
+	snapshot := []cookierefresh.BrowserCookie{
+		{Name: "havana_lgc_exp", Value: futureMillis(time.Hour), Domain: ".goofish.com", Path: "/", Secure: true},
+	}
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Set-Cookie": {"rotated=fresh; Domain=.goofish.com; Path=/; Secure; HttpOnly"},
+			},
+			Body: failingReadCloser{err: errors.New("broken response body")},
+		}, nil
+	})}
+	svc := Service{HTTPClient: client, RetryDelay: -1}
+	res, err := svc.RenewAPIFirst(context.Background(), "", snapshot)
+	if err == nil || res == nil {
+		t.Fatalf("result=%+v err=%v", res, err)
+	}
+	if !res.CookieSnapshotComplete || res.RequestCount != 1 || len(res.SetCookies) != 1 || !strings.Contains(res.NewCookies, "rotated=fresh") {
+		t.Fatalf("response Cookie was lost after body error: %+v", res)
+	}
+}
+
+func TestRenewAPIFirstTreatsNonNilEmptySnapshotAsAuthoritative(t *testing.T) {
+	useTestDesktopFingerprint(t)
+	emptySnapshot := make([]cookierefresh.BrowserCookie, 0)
+	res, err := (Service{RetryDelay: -1}).RenewAPIFirst(context.Background(), "", emptySnapshot)
+	if err != nil || !res.Skipped || res.SkipReason != "long_login_expired" {
+		t.Fatalf("result=%+v err=%v", res, err)
+	}
+	if !res.CookieSnapshotComplete || res.CookieSnapshot == nil || len(res.CookieSnapshot) != 0 || res.RenewMethod != "auto_login_plugin" {
+		t.Fatalf("empty authoritative snapshot was downgraded: %+v", res)
+	}
+}
+
+func TestRenewAPIFirstCookie3UsesBackupFlags(t *testing.T) {
+	useTestDesktopFingerprint(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("skipSessionFilter") != "true" || r.URL.Query().Get("c2r") != "true" || r.URL.Query().Get("ltl") != "" {
+			t.Fatalf("cookie3 query=%s", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+	}))
+	defer srv.Close()
+	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1}
+	res, err := svc.RenewAPIFirst(context.Background(), "cookie3_bak_exp="+futureMillis(time.Hour))
+	if err != nil || !res.Success || res.RequestCount != 1 {
+		t.Fatalf("result=%#v err=%v", res, err)
+	}
+}
+
+func TestRenewAPIFirstSkipsFatigueAndExpiredCookies(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
+	defer srv.Close()
+	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1}
+
+	for _, input := range []string{
+		"sdkSilent=" + futureMillis(time.Hour) + "; havana_lgc_exp=" + futureMillis(2*time.Hour),
+		"havana_lgc_exp=1; cookie3_bak_exp=1",
+	} {
+		res, err := svc.RenewAPIFirst(context.Background(), input)
+		if err != nil || !res.Skipped || res.Success || res.RequestCount != 0 {
+			t.Fatalf("input=%q result=%#v err=%v", input, res, err)
+		}
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("skipped renewal made %d requests", calls.Load())
+	}
+}
+
+func TestRenewAPIFirstDoesNotRetryOrEscalateFailure(t *testing.T) {
+	useTestDesktopFingerprint(t)
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"content":{"success":false}}`))
+	}))
+	defer srv.Close()
+	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1}
+	res, err := svc.RenewAPIFirst(context.Background(), "havana_lgc_exp="+futureMillis(time.Hour))
+	if err != nil {
+		t.Fatalf("RenewAPIFirst: %v", err)
+	}
+	if res.Success || res.Skipped || res.RequestCount != 1 || calls.Load() != 1 {
+		t.Fatalf("result=%#v calls=%d", res, calls.Load())
+	}
+}
+
 func TestMergeSetCookies(t *testing.T) {
-	got := MergeSetCookies("unb=1; old=a", []string{
-		"old=b; Path=/; HttpOnly",
-		"new=c; Domain=.goofish.com; Path=/",
-		"bad-cookie",
-	})
+	got := MergeSetCookies("unb=1; old=a", []string{"old=b; Path=/; HttpOnly", "new=c; Domain=.goofish.com; Path=/", "bad-cookie"})
 	if !strings.Contains(got, "old=b") || !strings.Contains(got, "new=c") || !strings.Contains(got, "unb=1") {
 		t.Fatalf("MergeSetCookies=%q", got)
 	}
-	changed := ChangedCookieNames("unb=1; old=a", got)
-	if strings.Join(changed, ",") != "new,old" {
-		t.Fatalf("ChangedCookieNames=%v", changed)
+	if changed := strings.Join(ChangedCookieNames("unb=1; old=a", got), ","); changed != "new,old" {
+		t.Fatalf("ChangedCookieNames=%s", changed)
 	}
 }
 
-func TestRenewAPIFirstSuccess(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/hasLogin.do":
-			http.SetCookie(w, &http.Cookie{Name: "sgcookie", Value: "s1"})
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		case "/silentHasLogin.do":
-			http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "tk_1"})
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		case "/setLoginSettings.do":
-			// 只有这个接口返回 Set-Cookie 才代表长登录续期真正成功。
-			body, _ := io.ReadAll(r.Body)
-			if string(body) != "status=0" {
-				t.Fatalf("setLoginSettings body=%q, want status=0", string(body))
-			}
-			if r.URL.Query().Get("bizEntrance") != "web" {
-				t.Fatalf("setLoginSettings query=%s", r.URL.RawQuery)
-			}
-			http.SetCookie(w, &http.Cookie{Name: "havana_lgc2_77", Value: "lgc"})
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		default:
-			t.Fatalf("unexpected path %s", r.URL.Path)
-		}
+func TestMergeSetCookiesAppliesServerDeletion(t *testing.T) {
+	got := MergeSetCookies("unb=1; stale=a; expired=b", []string{
+		"stale=; Max-Age=0; Path=/",
+		"expired=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/",
+	})
+	if strings.Contains(got, "stale=") || strings.Contains(got, "expired=") {
+		t.Fatalf("deleted cookies survived: %q", got)
+	}
+	if changed := strings.Join(ChangedCookieNames("unb=1; stale=a; expired=b", got), ","); changed != "expired,stale" {
+		t.Fatalf("ChangedCookieNames=%s", changed)
+	}
+}
+
+func TestMergeSetCookiesMaxAgeOverridesPastExpires(t *testing.T) {
+	got := MergeSetCookies("session=old", []string{
+		"session=fresh; Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/",
+	})
+	if !strings.Contains(got, "session=fresh") {
+		t.Fatalf("positive Max-Age must override past Expires: %q", got)
+	}
+}
+
+func TestRenewBusinessOKMatchesOfficialPlugin(t *testing.T) {
+	if renewBusinessOK([]byte(`{"content":{"success":true}}`)) {
+		t.Fatal("official plugin requires processFinished=true and resultCode=100")
+	}
+	if !renewBusinessOK([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`)) {
+		t.Fatal("official success payload was rejected")
+	}
+}
+
+func TestRenewAPIFirstReturnsAtPromiseTimeoutAndKeepsLateCookies(t *testing.T) {
+	useTestDesktopFingerprint(t)
+	var completed atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(80 * time.Millisecond)
+		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: futureMillis(time.Hour), Path: "/"})
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+		completed.Store(true)
 	}))
 	defer srv.Close()
-
 	svc := Service{
-		HTTPClient:          srv.Client(),
-		HasLoginURL:         srv.URL + "/hasLogin.do",
-		SilentHasLoginURL:   srv.URL + "/silentHasLogin.do",
-		SetLoginSettingsURL: srv.URL + "/setLoginSettings.do",
-		RetryDelay:          -1,
+		HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1,
+		PromiseTimeout: 20 * time.Millisecond,
 	}
-	res, err := svc.RenewAPIFirst(context.Background(), "unb=1; cookie2=c2; _tb_token_=csrf")
-	if err != nil {
-		t.Fatalf("RenewAPIFirst: %v", err)
+	started := time.Now()
+	res, err := svc.RenewAPIFirst(context.Background(), "havana_lgc_exp="+futureMillis(time.Hour))
+	if err != nil || res == nil || !res.HasPending() {
+		t.Fatalf("result=%+v err=%v", res, err)
 	}
-	if !res.Success || res.RenewMethod != "api" {
-		t.Fatalf("success/method 异常: %#v", res)
+	if elapsed := time.Since(started); elapsed >= 70*time.Millisecond {
+		t.Fatalf("外层 Promise 没有按时返回: %s", elapsed)
 	}
-	for _, want := range []string{"sgcookie=s1", "_m_h5_tk=tk_1", "havana_lgc2_77=lgc"} {
-		if !strings.Contains(res.NewCookies, want) {
-			t.Fatalf("NewCookies 缺少 %s: %q", want, res.NewCookies)
-		}
+	if completed.Load() || len(res.SetCookies) != 0 || res.Success || res.NeedPasswordLogin {
+		t.Fatalf("超时瞬间不应伪造底层结果或要求重新登录: %+v completed=%v", res, completed.Load())
+	}
+	waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	late, lateErr := res.AwaitPending(waitCtx)
+	if lateErr != nil || late == nil || len(late.SetCookies) != 1 || !strings.Contains(late.NewCookies, "sdkSilent=") {
+		t.Fatalf("迟到响应 Cookie 丢失: result=%+v err=%v", late, lateErr)
+	}
+	if !completed.Load() || late.Success || late.NeedPasswordLogin {
+		t.Fatalf("底层请求应完成，但不得在 Promise 超时后触发成功 reload/重新登录: %+v completed=%v", late, completed.Load())
 	}
 }
 
-func TestRenewAPIFirstMatchesReferenceRequestShape(t *testing.T) {
-	var hasLoginBody string
-	var hasLoginReferer string
-	var hasLoginBXV string
-	var hasLoginHeaders http.Header
-	var silentHeaders http.Header
-	var silentQuery url.Values
-	var settingBody string
-	var settingHeaders http.Header
-	var settingQuery url.Values
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/hasLogin.do":
-			body, _ := io.ReadAll(r.Body)
-			hasLoginBody = string(body)
-			hasLoginReferer = r.Header.Get("Referer")
-			hasLoginBXV = r.Header.Get("bx-v")
-			hasLoginHeaders = r.Header.Clone()
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		case "/silentHasLogin.do":
-			silentHeaders = r.Header.Clone()
-			silentQuery = r.URL.Query()
-			_, _ = w.Write([]byte(`{"content":{"success":true},"marker":"silent"}`))
-		case "/setLoginSettings.do":
-			body, _ := io.ReadAll(r.Body)
-			settingBody = string(body)
-			settingHeaders = r.Header.Clone()
-			settingQuery = r.URL.Query()
-			http.SetCookie(w, &http.Cookie{Name: "havana_lgc2_77", Value: "lgc"})
-			_, _ = w.Write([]byte(`{"content":{"success":true},"marker":"settings"}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-
-	svc := Service{
-		HTTPClient:          srv.Client(),
-		HasLoginURL:         srv.URL + "/hasLogin.do",
-		SilentHasLoginURL:   srv.URL + "/silentHasLogin.do",
-		SetLoginSettingsURL: srv.URL + "/setLoginSettings.do",
-		RetryDelay:          -1,
+func TestRebaseResponseCookiesUsesLatestAuthoritativeJar(t *testing.T) {
+	current := []cookierefresh.BrowserCookie{
+		{Name: "unb", Value: "1", Domain: ".goofish.com", Path: "/", Secure: true},
+		{Name: "concurrent", Value: "kept", Domain: ".goofish.com", Path: "/", Secure: true},
 	}
-	res, err := svc.RenewAPIFirst(context.Background(), "unb=1; cookie2=c2; _tb_token_=csrf; _uab_collina=umid; XSRF-TOKEN=xsrf")
-	if err != nil {
-		t.Fatalf("RenewAPIFirst: %v", err)
+	metadata := cookierefresh.MetadataWithSnapshot(`{"note":"keep"}`, current)
+	late := &Result{
+		SetCookies:        []string{"sdkSilent=9999999999999; Domain=goofish.com; Path=/; Secure; HttpOnly"},
+		responseCookieURL: SilentHasLoginURL,
 	}
-	if !strings.Contains(res.ResponseText, `"marker":"silent"`) || strings.Contains(res.ResponseText, `"marker":"settings"`) {
-		t.Fatalf("ResponseText 应来自 silentHasLogin 响应，got %q", res.ResponseText)
+	value, updatedMetadata, changed := RebaseResponseCookies("unb=1; concurrent=kept", metadata, late)
+	if !changed || !strings.Contains(value, "concurrent=kept") || !strings.Contains(value, "sdkSilent=9999999999999") {
+		t.Fatalf("迟到响应覆盖了并发 Cookie: value=%q changed=%v", value, changed)
 	}
-	values, err := url.ParseQuery(hasLoginBody)
-	if err != nil {
-		t.Fatalf("hasLogin body parse: %v", err)
+	snapshot, complete := cookierefresh.SnapshotFromMetadataOK(updatedMetadata)
+	if !complete {
+		t.Fatalf("权威快照被降级: %s", updatedMetadata)
 	}
-	for _, key := range []string{"hid", "ltl", "appName", "appEntrance", "_csrf_token", "umidToken", "hsiz", "bizParams", "mainPage", "isMobile", "lang", "returnUrl", "fromSite", "isIframe", "documentReferer", "defaultView", "umidTag", "deviceId", "pageTraceId"} {
-		if _, ok := values[key]; !ok {
-			t.Fatalf("hasLogin body missing %s: %s", key, hasLoginBody)
+	var found bool
+	for _, cookie := range snapshot {
+		if cookie.Name == "sdkSilent" && cookie.HTTPOnly && cookie.Domain == ".goofish.com" {
+			found = true
 		}
 	}
-	if !regexp.MustCompile(`^21504\d{19}$`).MatchString(values.Get("pageTraceId")) {
-		t.Fatalf("pageTraceId=%q", values.Get("pageTraceId"))
-	}
-	if !strings.Contains(hasLoginReferer, "mini_login.htm") || !strings.Contains(hasLoginReferer, "rnd=") {
-		t.Fatalf("hasLogin Referer=%q", hasLoginReferer)
-	}
-	if hasLoginBXV != "2.5.31" {
-		t.Fatalf("hasLogin bx-v=%q", hasLoginBXV)
-	}
-	if got := hasLoginHeaders.Get("Accept-Language"); got != "zh-CN" {
-		t.Fatalf("hasLogin Accept-Language=%q", got)
-	}
-	if got := hasLoginHeaders.Get("sec-ch-ua"); got != hasLoginSecChUA {
-		t.Fatalf("hasLogin sec-ch-ua=%q", got)
-	}
-	if got := hasLoginHeaders.Get("x-xsrf-token"); got != "xsrf" {
-		t.Fatalf("hasLogin x-xsrf-token=%q", got)
-	}
-	if silentQuery.Get("documentReferer") != "https://www.goofish.com/" ||
-		silentQuery.Get("appEntrance") != "xianyu_sdkSilent" ||
-		silentQuery.Get("fromSite") != "0" {
-		t.Fatalf("silentHasLogin query=%s", silentQuery.Encode())
-	}
-	if got := silentHeaders.Get("Accept"); got != "*/*" {
-		t.Fatalf("silentHasLogin Accept=%q", got)
-	}
-	if got := silentHeaders.Get("sec-ch-ua-platform"); got != `"Win32"` {
-		t.Fatalf("silentHasLogin sec-ch-ua-platform=%q", got)
-	}
-	if got := silentHeaders.Get("sec-fetch-site"); got != "same-site" {
-		t.Fatalf("silentHasLogin sec-fetch-site=%q", got)
-	}
-	if settingBody != "status=0" {
-		t.Fatalf("setLoginSettings body=%q", settingBody)
-	}
-	if settingQuery.Get("fromSite") != "77" || settingQuery.Get("appName") != "xianyu" || settingQuery.Get("bizEntrance") != "web" {
-		t.Fatalf("setLoginSettings query=%s", settingQuery.Encode())
-	}
-	if got := settingHeaders.Get("Content-Type"); got != "application/x-www-form-urlencoded" {
-		t.Fatalf("setLoginSettings Content-Type=%q", got)
-	}
-	if got := settingHeaders.Get("sec-ch-ua"); got != settingSecChUA {
-		t.Fatalf("setLoginSettings sec-ch-ua=%q", got)
-	}
-	for name, headers := range map[string]http.Header{
-		"hasLogin":         hasLoginHeaders,
-		"silentHasLogin":   silentHeaders,
-		"setLoginSettings": settingHeaders,
-	} {
-		if got := headers.Get("Origin"); got != "" {
-			t.Fatalf("%s Origin should be empty, got %q", name, got)
-		}
-		if got := headers.Get("Cookie"); strings.ContainsAny(got, "\r\n") {
-			t.Fatalf("%s Cookie 未清理换行: %q", name, got)
-		}
+	if !found || !strings.Contains(updatedMetadata, `"note":"keep"`) {
+		t.Fatalf("迟到 Cookie 属性或其他 metadata 丢失: %+v metadata=%s", snapshot, updatedMetadata)
 	}
 }
 
-func TestRenewAPIFirstDoesNotFollowRedirects(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/hasLogin.do":
-			w.Header().Set("Location", "/unexpected")
-			w.WriteHeader(http.StatusFound)
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		case "/silentHasLogin.do":
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		case "/setLoginSettings.do":
-			http.SetCookie(w, &http.Cookie{Name: "havana_lgc2_77", Value: "lgc"})
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		default:
-			t.Fatalf("request followed redirect to %s", r.URL.Path)
-		}
-	}))
-	defer srv.Close()
-
-	svc := Service{
-		HTTPClient:          srv.Client(),
-		HasLoginURL:         srv.URL + "/hasLogin.do",
-		SilentHasLoginURL:   srv.URL + "/silentHasLogin.do",
-		SetLoginSettingsURL: srv.URL + "/setLoginSettings.do",
-		RetryDelay:          -1,
-	}
-	res, err := svc.RenewAPIFirst(context.Background(), "unb=1; cookie2=c2")
-	if err != nil {
-		t.Fatalf("RenewAPIFirst: %v", err)
-	}
-	if !res.Success {
-		t.Fatalf("RenewAPIFirst should continue after 302 without redirect: %#v", res)
-	}
-}
-
-func TestMergeSetCookiesIgnoresDeletionCookies(t *testing.T) {
-	got := MergeSetCookies("old=a", filterValidSetCookies([]string{
-		"old=; Max-Age=0; Path=/",
-		"gone=x; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
-		"new=b; Path=/",
-	}))
-	if strings.Contains(got, "gone=") || strings.Contains(got, "old=") && !strings.Contains(got, "old=a") {
-		t.Fatalf("deletion cookies should be ignored: %q", got)
-	}
-	if !strings.Contains(got, "old=a") || !strings.Contains(got, "new=b") {
-		t.Fatalf("valid cookies missing: %q", got)
-	}
-}
-
-func TestRenewAPIFirstKeepsPartialCookiesWhenLongLoginFails(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/hasLogin.do":
-			http.SetCookie(w, &http.Cookie{Name: "sgcookie", Value: "s1"})
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		case "/silentHasLogin.do":
-			http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "tk_1"})
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		case "/setLoginSettings.do":
-			_, _ = w.Write([]byte(`{"content":{"success":false}}`))
-		default:
-			http.Error(w, fmt.Sprintf("unexpected path %s", r.URL.Path), http.StatusNotFound)
-		}
-	}))
-	defer srv.Close()
-
-	svc := Service{
-		HTTPClient:          srv.Client(),
-		HasLoginURL:         srv.URL + "/hasLogin.do",
-		SilentHasLoginURL:   srv.URL + "/silentHasLogin.do",
-		SetLoginSettingsURL: srv.URL + "/setLoginSettings.do",
-		RetryDelay:          -1,
-	}
-	res, err := svc.RenewAPIFirst(context.Background(), "unb=1; cookie2=c2")
-	if err != nil {
-		t.Fatalf("RenewAPIFirst: %v", err)
-	}
-	if res.Success {
-		t.Fatalf("setLoginSettings 无 Set-Cookie 不应成功: %#v", res)
-	}
-	if !strings.Contains(res.NewCookies, "sgcookie=s1") || !strings.Contains(res.NewCookies, "_m_h5_tk=tk_1") {
-		t.Fatalf("部分 Cookie 更新未保留: %q", res.NewCookies)
-	}
-}
-
-func TestRenewAPIFirstKeepsOriginalStringWhenNoSetCookies(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-	}))
-	defer srv.Close()
-
-	svc := Service{
-		HTTPClient:          srv.Client(),
-		HasLoginURL:         srv.URL + "/hasLogin.do",
-		SilentHasLoginURL:   srv.URL + "/silentHasLogin.do",
-		SetLoginSettingsURL: srv.URL + "/setLoginSettings.do",
-		RetryDelay:          -1,
-	}
-	original := "unb=1; cookie2=c2"
-	res, err := svc.RenewAPIFirst(context.Background(), original)
-	if err != nil {
-		t.Fatalf("RenewAPIFirst: %v", err)
-	}
-	if res.Success {
-		t.Fatalf("setLoginSettings 无 Set-Cookie 不应成功: %#v", res)
-	}
-	if res.NewCookies != original || len(res.UpdatedCookieNames) != 0 {
-		t.Fatalf("无 Set-Cookie 时不应重排/标记更新: %#v", res)
-	}
-}
-
-func TestRenewAPIFirstSkipsHasLoginWithoutUNB(t *testing.T) {
-	calls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-	}))
-	defer srv.Close()
-
-	svc := Service{
-		HTTPClient:          srv.Client(),
-		HasLoginURL:         srv.URL + "/hasLogin.do",
-		SilentHasLoginURL:   srv.URL + "/silentHasLogin.do",
-		SetLoginSettingsURL: srv.URL + "/setLoginSettings.do",
-		RetryDelay:          -1,
-	}
-	_, err := svc.RenewAPIFirst(context.Background(), "cookie2=c2")
-	if err != nil {
-		t.Fatalf("RenewAPIFirst: %v", err)
-	}
-	if calls != 2 {
-		t.Fatalf("缺少 unb 时 hasLogin 应跳过，只调用后两步，calls=%d", calls)
-	}
-}
-
-func TestRenewAPIFirstRetriesLongLoginOnce(t *testing.T) {
-	setCalls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/hasLogin.do", "/silentHasLogin.do":
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		case "/setLoginSettings.do":
-			setCalls++
-			if setCalls == 2 {
-				http.SetCookie(w, &http.Cookie{Name: "havana_lgc2_77", Value: "lgc"})
-			}
-			_, _ = w.Write([]byte(`{"content":{"success":true}}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-
-	svc := Service{
-		HTTPClient:          srv.Client(),
-		HasLoginURL:         srv.URL + "/hasLogin.do",
-		SilentHasLoginURL:   srv.URL + "/silentHasLogin.do",
-		SetLoginSettingsURL: srv.URL + "/setLoginSettings.do",
-		RetryDelay:          time.Nanosecond,
-	}
-	res, err := svc.RenewAPIFirst(context.Background(), "unb=1; cookie2=c2")
-	if err != nil {
-		t.Fatalf("RenewAPIFirst: %v", err)
-	}
-	if !res.Success || setCalls != 2 || !strings.Contains(res.NewCookies, "havana_lgc2_77=lgc") {
-		t.Fatalf("retry result=%#v setCalls=%d", res, setCalls)
+func TestRenewBodyLimit(t *testing.T) {
+	_, err := readRenewBody(strings.NewReader(strings.Repeat("x", maxRenewBodyBytes+1)))
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprint(maxRenewBodyBytes>>20)) {
+		t.Fatalf("err=%v", err)
 	}
 }

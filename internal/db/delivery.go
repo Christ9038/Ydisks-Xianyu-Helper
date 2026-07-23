@@ -98,44 +98,72 @@ type Cards struct {
 	Dialect Dialect
 }
 
-// ConsumeBatchData 消费一条批量数据卡券（data 类型），返回内容。
-// ConsumeBatchData 取 data_content 第一行，删除已消费行，发完置空。
+// ConsumeBatchData 原子预留一条批量数据卡券（data 类型），返回内容。
+// 通过快照条件更新处理并发追加/消费；调用方发送失败时应调用 RestoreBatchData。
 func (c *Cards) ConsumeBatchData(ctx context.Context, cardID int64) (string, error) {
-	tx, err := c.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return "", err
-	}
-	defer tx.Rollback()
-
-	var dataContent sql.NullString
-	err = tx.QueryRowContext(ctx, `SELECT data_content FROM cards WHERE id=?`, cardID).Scan(&dataContent)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", ErrNotFound
+	for attempts := 0; attempts < 20; attempts++ {
+		var dataContent sql.NullString
+		err := c.DB.QueryRowContext(ctx, `SELECT data_content FROM cards WHERE id=?`, cardID).Scan(&dataContent)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return "", ErrNotFound
+			}
+			return "", err
 		}
-		return "", err
+		if !dataContent.Valid || dataContent.String == "" {
+			return "", errors.New("卡券批量数据为空")
+		}
+		lines := splitLines(dataContent.String)
+		if len(lines) == 0 {
+			return "", errors.New("卡券批量数据无有效行")
+		}
+		remaining := ""
+		if len(lines) > 1 {
+			remaining = joinLines(lines[1:])
+		}
+		res, err := c.DB.ExecContext(ctx,
+			`UPDATE cards SET data_content=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND data_content=?`,
+			remaining, cardID, dataContent.String)
+		if err != nil {
+			return "", err
+		}
+		if affected, err := res.RowsAffected(); err == nil && affected == 1 {
+			return lines[0], nil
+		}
 	}
-	if !dataContent.Valid || dataContent.String == "" {
-		return "", errors.New("卡券批量数据为空")
-	}
+	return "", errors.New("卡券库存并发修改过于频繁，请稍后重试")
+}
 
-	// 按行分割，取第一行非空作为发货内容，其余回写。
-	lines := splitLines(dataContent.String)
-	if len(lines) == 0 {
-		return "", errors.New("卡券批量数据无有效行")
+// RestoreBatchData 把发送失败的预留卡密放回库存头部。恢复失败时宁可进入人工处理，
+// 也不能把一个已成功发送但响应不确定的卡密自动重复发给下一位买家。
+func (c *Cards) RestoreBatchData(ctx context.Context, cardID int64, content string) error {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return errors.New("恢复卡密内容为空")
 	}
-	content := lines[0]
-	remaining := ""
-	if len(lines) > 1 {
-		remaining = joinLines(lines[1:])
+	for attempts := 0; attempts < 20; attempts++ {
+		var current sql.NullString
+		if err := c.DB.QueryRowContext(ctx, `SELECT data_content FROM cards WHERE id=?`, cardID).Scan(&current); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		merged := content
+		if current.Valid && strings.TrimSpace(current.String) != "" {
+			merged += "\n" + current.String
+		}
+		res, err := c.DB.ExecContext(ctx,
+			`UPDATE cards SET data_content=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND COALESCE(data_content,'')=?`,
+			merged, cardID, current.String)
+		if err != nil {
+			return err
+		}
+		if affected, err := res.RowsAffected(); err == nil && affected == 1 {
+			return nil
+		}
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE cards SET data_content=? WHERE id=?`, remaining, cardID); err != nil {
-		return "", err
-	}
-	if err := tx.Commit(); err != nil {
-		return "", err
-	}
-	return content, nil
+	return errors.New("恢复卡密时库存并发修改过于频繁")
 }
 
 // FirstBatchData 返回 data 类型卡券当前第一条有效内容和原始快照。
@@ -194,23 +222,30 @@ func (c *Cards) AppendBatchData(ctx context.Context, cardID int64, content strin
 	if valid == 0 {
 		return 0, errors.New("无有效卡密行")
 	}
-	var existing sql.NullString
-	err := c.DB.QueryRowContext(ctx, `SELECT data_content FROM cards WHERE id=?`, cardID).Scan(&existing)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, ErrNotFound
+	for attempts := 0; attempts < 20; attempts++ {
+		var existing sql.NullString
+		err := c.DB.QueryRowContext(ctx, `SELECT data_content FROM cards WHERE id=?`, cardID).Scan(&existing)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return 0, ErrNotFound
+			}
+			return 0, err
 		}
-		return 0, err
+		merged := content
+		if existing.Valid && existing.String != "" {
+			merged = existing.String + "\n" + content
+		}
+		res, err := c.DB.ExecContext(ctx,
+			`UPDATE cards SET data_content=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND COALESCE(data_content,'')=?`,
+			merged, cardID, existing.String)
+		if err != nil {
+			return 0, err
+		}
+		if affected, err := res.RowsAffected(); err == nil && affected == 1 {
+			return valid, nil
+		}
 	}
-	merged := content
-	if existing.Valid && existing.String != "" {
-		merged = existing.String + "\n" + content
-	}
-	if _, err := c.DB.ExecContext(ctx,
-		`UPDATE cards SET data_content=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`, merged, cardID); err != nil {
-		return 0, err
-	}
-	return valid, nil
+	return 0, errors.New("追加卡密时库存并发修改过于频繁")
 }
 
 // splitLines / joinLines 统一处理多行库存内容。
@@ -236,7 +271,7 @@ func splitLines(s string) []string {
 	// 过滤空行。
 	res := out[:0]
 	for _, l := range out {
-		if l != "" {
+		if strings.TrimSpace(l) != "" {
 			res = append(res, l)
 		}
 	}

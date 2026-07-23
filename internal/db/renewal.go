@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -14,6 +15,7 @@ type RenewalAccount struct {
 	Value         string
 	UserID        int64
 	Enabled       bool
+	DisableReason string
 	Username      string
 	Password      string
 	ShowBrowser   bool
@@ -59,8 +61,8 @@ type RenewalStore struct {
 // AllRenewalAccounts 返回所有账号，包含启用状态；浏览器 cookie 续期会用到禁用账号。
 func (c *Cookies) AllRenewalAccounts(ctx context.Context) ([]RenewalAccount, error) {
 	rows, err := c.DB.QueryContext(ctx,
-		`SELECT c.id, c.value, c.user_id, COALESCE(cs.enabled, 1),
-		        COALESCE(c.username,''), COALESCE(c.password,''), COALESCE(c.show_browser,0),
+		`SELECT c.id, c.value, c.user_id, COALESCE(cs.enabled, 1), COALESCE(cs.disable_reason,''),
+			        COALESCE(c.username,''), COALESCE(c.password,''), COALESCE(c.show_browser,0),
 		        COALESCE(c.metadata_json,''), COALESCE(c.last_refresh_at,0)
 		 FROM cookies c
 		 LEFT JOIN cookie_status cs ON cs.cookie_id = c.id
@@ -69,14 +71,14 @@ func (c *Cookies) AllRenewalAccounts(ctx context.Context) ([]RenewalAccount, err
 		return nil, err
 	}
 	defer rows.Close()
-	return scanRenewalAccounts(rows)
+	return c.scanRenewalAccounts(rows)
 }
 
 // ActiveRenewalAccounts 返回启用账号，用于 WS/API 续期类任务。
 func (c *Cookies) ActiveRenewalAccounts(ctx context.Context) ([]RenewalAccount, error) {
 	rows, err := c.DB.QueryContext(ctx,
-		`SELECT c.id, c.value, c.user_id, COALESCE(cs.enabled, 1),
-		        COALESCE(c.username,''), COALESCE(c.password,''), COALESCE(c.show_browser,0),
+		`SELECT c.id, c.value, c.user_id, COALESCE(cs.enabled, 1), COALESCE(cs.disable_reason,''),
+			        COALESCE(c.username,''), COALESCE(c.password,''), COALESCE(c.show_browser,0),
 		        COALESCE(c.metadata_json,''), COALESCE(c.last_refresh_at,0)
 		 FROM cookies c
 		 LEFT JOIN cookie_status cs ON cs.cookie_id = c.id
@@ -86,19 +88,32 @@ func (c *Cookies) ActiveRenewalAccounts(ctx context.Context) ([]RenewalAccount, 
 		return nil, err
 	}
 	defer rows.Close()
-	return scanRenewalAccounts(rows)
+	return c.scanRenewalAccounts(rows)
 }
 
-func scanRenewalAccounts(rows *sql.Rows) ([]RenewalAccount, error) {
+func (c *Cookies) scanRenewalAccounts(rows *sql.Rows) ([]RenewalAccount, error) {
 	var out []RenewalAccount
 	for rows.Next() {
 		var a RenewalAccount
 		var enabled, showBrowser int
-		if err := rows.Scan(&a.ID, &a.Value, &a.UserID, &enabled, &a.Username, &a.Password, &showBrowser, &a.MetadataJSON, &a.LastRefreshAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.Value, &a.UserID, &enabled, &a.DisableReason, &a.Username, &a.Password, &showBrowser, &a.MetadataJSON, &a.LastRefreshAt); err != nil {
 			return nil, err
 		}
 		a.Enabled = enabled != 0
 		a.ShowBrowser = showBrowser != 0
+		var err error
+		a.Value, err = c.codec.decrypt("cookie", a.ID, a.Value)
+		if err != nil {
+			return nil, fmt.Errorf("解密账号 %s Cookie: %w", a.ID, err)
+		}
+		a.Password, err = c.codec.decrypt("login-password", a.ID, a.Password)
+		if err != nil {
+			return nil, fmt.Errorf("解密账号 %s 登录密码: %w", a.ID, err)
+		}
+		a.MetadataJSON, err = c.codec.decrypt(cookieMetadataScope, a.ID, a.MetadataJSON)
+		if err != nil {
+			return nil, fmt.Errorf("解密账号 %s Cookie metadata: %w", a.ID, err)
+		}
 		out = append(out, a)
 	}
 	return out, rows.Err()
@@ -106,16 +121,45 @@ func scanRenewalAccounts(rows *sql.Rows) ([]RenewalAccount, error) {
 
 // UpdateRenewalCookie 保存续期后的 Cookie，同时写入浏览器快照和最后续期时间。
 func (c *Cookies) UpdateRenewalCookie(ctx context.Context, cookieID, cookieValue, metadataJSON string, lastRefreshAt int64) error {
+	if strings.TrimSpace(cookieID) == "" {
+		return errors.New("账号 ID 不能为空")
+	}
 	if lastRefreshAt <= 0 {
 		lastRefreshAt = time.Now().Unix()
 	}
-	_, err := c.DB.ExecContext(ctx,
+	encryptedCookie, err := c.codec.encrypt("cookie", cookieID, cookieValue)
+	if err != nil {
+		return fmt.Errorf("加密 Cookie: %w", err)
+	}
+	encryptedMetadata, err := c.codec.encrypt(cookieMetadataScope, cookieID, metadataJSON)
+	if err != nil {
+		return fmt.Errorf("加密 Cookie metadata: %w", err)
+	}
+	res, err := c.DB.ExecContext(ctx,
 		`UPDATE cookies
 		 SET value=?, metadata_json=?, last_refresh_at=?, updated_at=CURRENT_TIMESTAMP
 		 WHERE id=?`,
-		cookieValue, metadataJSON, lastRefreshAt, cookieID)
+		encryptedCookie, encryptedMetadata, lastRefreshAt, cookieID)
 	if err != nil {
 		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows > 1 {
+		return fmt.Errorf("更新续期 Cookie 影响了 %d 行", rows)
+	}
+	if rows == 0 {
+		// MySQL 默认报告“实际变更行数”，同值且同秒更新可能返回 0；
+		// 只有记录确实不存在时才应映射为 ErrNotFound。
+		var exists bool
+		if err := c.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM cookies WHERE id=?)`, cookieID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return ErrNotFound
+		}
 	}
 	return nil
 }

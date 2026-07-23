@@ -36,8 +36,7 @@ func (m *Manager) QRCookieRefresh(ctx context.Context, tmpCookies, verificationU
 	defer func() { _ = browser.Close() }()
 
 	bctx, err := browser.NewContext(playwright.BrowserNewContextOptions{
-		UserAgent:  playwright.String(defaultUA),
-		Viewport:   &playwright.Size{Width: 400, Height: 400},
+		Viewport:   &playwright.Size{Width: 1100, Height: 760},
 		Locale:     playwright.String(defaultLang),
 		TimezoneId: playwright.String(defaultTZ),
 	})
@@ -94,23 +93,17 @@ func (m *Manager) QRCookieRefresh(ctx context.Context, tmpCookies, verificationU
 		sleep(2 * time.Second)
 	}
 
-	// 访问 /im 触发 unb 写入。
-	if _, err := page.Goto(goofishIMURL, playwright.PageGotoOptions{
-		WaitUntil: playwright.WaitUntilStateNetworkidle,
+	// A single normal home-page load runs goofish-auto-login and loginuser.get.
+	// Do not reload repeatedly: the browser client does not do that and the
+	// duplicate burst is an avoidable risk signal.
+	if _, err := page.Goto(goofishHomeURL, playwright.PageGotoOptions{
+		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
 		Timeout:   playwright.Float(20000),
 	}); err != nil {
-		m.logger.Warn("访问 goofish.com/im 异常", "err", err)
+		m.logger.Warn("访问 goofish.com 首页异常", "err", err)
 	}
-	m.logger.Info("goto /im 完成", "current_url", logsafe.URL(page.URL()))
-
-	// reload 后再等网络空闲，确保 unb 写入。
-	if _, err := page.Reload(playwright.PageReloadOptions{
-		WaitUntil: playwright.WaitUntilStateNetworkidle,
-		Timeout:   playwright.Float(15000),
-	}); err != nil {
-		m.logger.Warn("reload 异常", "err", err)
-	}
-	m.logger.Info("reload 完成", "current_url", logsafe.URL(page.URL()))
+	m.logger.Info("首页加载完成", "current_url", logsafe.URL(page.URL()))
+	sleep(quickRenewPageLoadWait)
 
 	// 轮询直到 unb 出现或超时（最长15秒）。
 	var all []playwright.Cookie

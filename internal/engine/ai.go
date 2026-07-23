@@ -8,19 +8,26 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sashabaranov/go-openai"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/netguard"
 )
 
 const (
 	defaultAIBaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 	defaultAIModel   = "qwen-plus"
 )
+
+var newAIHTTPClient = func(baseURL string) (*http.Client, error) {
+	return netguard.TrustedEndpointHTTPClient(baseURL, 30*time.Second)
+}
 
 // AIReplierImpl AI 回复实现。
 type AIReplierImpl struct {
@@ -46,6 +53,11 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 	cfg, err := a.store.AIReply.Get(ctx, a.cookieID)
 	if err != nil || cfg == nil || !cfg.AIEnabled {
 		return nil, nil // 未启用 AI
+	}
+	// AI 设置面向砍价场景。普通未命中消息继续交给默认回复，避免 AI
+	// 抢答问候、售后等与砍价无关的消息。
+	if !bargainMessageRe.MatchString(strings.ToLower(m.Text)) {
+		return nil, nil
 	}
 	aiCfg, err := a.globalAIConfig(ctx)
 	if err != nil {
@@ -79,6 +91,10 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 	if aiCfg.BaseURL != "" {
 		clientCfg.BaseURL = aiCfg.BaseURL
 	}
+	clientCfg.HTTPClient, err = newAIHTTPClient(clientCfg.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("AI API 地址无效: %w", err)
+	}
 	client := openai.NewClientWithConfig(clientCfg)
 
 	messages := []openai.ChatCompletionMessage{{Role: openai.ChatMessageRoleSystem, Content: systemPrompt}}
@@ -91,7 +107,9 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 	}
 	messages = append(messages, openai.ChatCompletionMessage{Role: openai.ChatMessageRoleUser, Content: m.Text})
 
-	resp, err := client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
+	aiCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	resp, err := client.CreateChatCompletion(aiCtx, openai.ChatCompletionRequest{
 		Model:       aiCfg.Model,
 		Messages:    messages,
 		Temperature: 0.7,

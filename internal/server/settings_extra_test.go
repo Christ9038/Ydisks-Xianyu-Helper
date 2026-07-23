@@ -174,6 +174,38 @@ func TestSystemSettingsRequireAdmin(t *testing.T) {
 	}
 }
 
+func TestBulkSystemSettingsAreAtomic(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	badReq := httptest.NewRequest(http.MethodPut, "/system-settings", strings.NewReader(`{"theme_color":"red","log_level":"verbose"}`))
+	badReq.AddCookie(cookie)
+	badRec := httptest.NewRecorder()
+	h.ServeHTTP(badRec, badReq)
+	if badRec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", badRec.Code, badRec.Body.String())
+	}
+	if value, _ := srv.Store.Settings.Get(context.Background(), "theme_color"); value == "red" {
+		t.Fatal("invalid bulk request partially saved theme_color")
+	}
+
+	goodReq := httptest.NewRequest(http.MethodPut, "/system-settings", strings.NewReader(`{"theme_color":"blue","renewal_log_retention_days":15}`))
+	goodReq.AddCookie(cookie)
+	goodRec := httptest.NewRecorder()
+	h.ServeHTTP(goodRec, goodReq)
+	if goodRec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", goodRec.Code, goodRec.Body.String())
+	}
+	if value, _ := srv.Store.Settings.Get(context.Background(), "theme_color"); value != "blue" {
+		t.Fatalf("theme_color=%q", value)
+	}
+	if value, _ := srv.Store.Settings.Get(context.Background(), "renewal_log_retention_days"); value != "15" {
+		t.Fatalf("retention=%q", value)
+	}
+}
+
 // TestListUserSettings 用户设置增删查。
 func TestListUserSettings(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)

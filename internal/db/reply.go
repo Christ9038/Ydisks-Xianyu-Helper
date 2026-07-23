@@ -48,7 +48,7 @@ type Keywords struct {
 func (k *Keywords) AllWithType(ctx context.Context, cookieID string) ([]Keyword, error) {
 	rows, err := k.DB.QueryContext(ctx,
 		`SELECT keyword, reply, COALESCE(item_id,''), COALESCE(type,'text'), COALESCE(image_url,'')
-		 FROM keywords WHERE cookie_id=?`, cookieID)
+			 FROM keywords WHERE cookie_id=? ORDER BY LENGTH(keyword) DESC,id ASC`, cookieID)
 	if err != nil {
 		return nil, err
 	}
@@ -103,10 +103,12 @@ func (d *DefaultReplies) HasRecord(ctx context.Context, cookieID, chatID string)
 // ClaimRecord 原子领取一次默认回复投递。新记录初始化为 pending；失败记录允许继续
 // 投递尚未成功的部分；pending/sent 记录会阻止并发重复发送。
 func (d *DefaultReplies) ClaimRecord(ctx context.Context, cookieID, chatID string, needsText, needsImage bool) (DefaultReplyRecord, bool, error) {
+	now := time.Now().UTC().Unix()
+	leaseExpiresAt := now + int64((5*time.Minute)/time.Second)
 	query := dialectInsertIgnorePrefix(d.Dialect) + ` INTO default_reply_records
-		(cookie_id,chat_id,status,text_sent,image_sent,last_error,updated_at)
-		VALUES (?,?, 'pending', ?, ?, '', CURRENT_TIMESTAMP)` + dialectInsertIgnore(d.Dialect, []string{"cookie_id", "chat_id"})
-	res, err := d.DB.ExecContext(ctx, query, cookieID, chatID, boolToInt(!needsText), boolToInt(!needsImage))
+		(cookie_id,chat_id,status,text_sent,image_sent,last_error,lease_expires_at,updated_at)
+		VALUES (?,?, 'pending', ?, ?, '', ?, CURRENT_TIMESTAMP)` + dialectInsertIgnore(d.Dialect, []string{"cookie_id", "chat_id"})
+	res, err := d.DB.ExecContext(ctx, query, cookieID, chatID, boolToInt(!needsText), boolToInt(!needsImage), leaseExpiresAt)
 	if err != nil {
 		return DefaultReplyRecord{}, false, err
 	}
@@ -123,12 +125,11 @@ func (d *DefaultReplies) ClaimRecord(ctx context.Context, cookieID, chatID strin
 	}
 	// pending 是发送任务的短租约。进程崩溃或强制退出后，过期租约必须可被
 	// 新实例接管，否则该会话会永久失去默认回复。
-	leaseExpiredBefore := time.Now().Add(-5 * time.Minute)
 	res, err = d.DB.ExecContext(ctx, `UPDATE default_reply_records
-		SET status='pending',last_error='',updated_at=CURRENT_TIMESTAMP
+		SET status='pending',last_error='',lease_expires_at=?,updated_at=CURRENT_TIMESTAMP
 		WHERE cookie_id=? AND chat_id=?
-		  AND (status='failed' OR (status='pending' AND updated_at<?))`,
-		cookieID, chatID, leaseExpiredBefore)
+		  AND (status='failed' OR (status='pending' AND lease_expires_at<?))`,
+		leaseExpiresAt, cookieID, chatID, now)
 	if err != nil {
 		return DefaultReplyRecord{}, false, err
 	}
@@ -166,13 +167,13 @@ func (d *DefaultReplies) MarkPartSent(ctx context.Context, cookieID, chatID, par
 
 func (d *DefaultReplies) MarkRecordFailed(ctx context.Context, cookieID, chatID, message string) error {
 	_, err := d.DB.ExecContext(ctx, `UPDATE default_reply_records
-		SET status='failed',last_error=?,updated_at=CURRENT_TIMESTAMP WHERE cookie_id=? AND chat_id=?`, message, cookieID, chatID)
+		SET status='failed',last_error=?,lease_expires_at=0,updated_at=CURRENT_TIMESTAMP WHERE cookie_id=? AND chat_id=?`, message, cookieID, chatID)
 	return err
 }
 
 func (d *DefaultReplies) MarkRecordSent(ctx context.Context, cookieID, chatID string) error {
 	_, err := d.DB.ExecContext(ctx, `UPDATE default_reply_records
-		SET status='sent',last_error='',replied_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+		SET status='sent',last_error='',lease_expires_at=0,replied_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
 		WHERE cookie_id=? AND chat_id=?`, cookieID, chatID)
 	return err
 }

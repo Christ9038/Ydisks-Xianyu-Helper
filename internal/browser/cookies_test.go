@@ -22,8 +22,8 @@ func TestParseCookieStrRoundTrip(t *testing.T) {
 
 func TestParseCookieStrToPlaywright(t *testing.T) {
 	cookies := parseCookieStrToPlaywright("a=1; b=2")
-	if len(cookies) != 2*len(cookieDomains) {
-		t.Fatalf("应按多个域名注入 cookie，got %d", len(cookies))
+	if len(cookies) != 2 {
+		t.Fatalf("每个 Cookie 只应注入一次，got %d", len(cookies))
 	}
 	domains := make(map[string]bool)
 	for _, c := range cookies {
@@ -35,10 +35,8 @@ func TestParseCookieStrToPlaywright(t *testing.T) {
 			t.Fatalf("path 应为 /: %+v", c.Path)
 		}
 	}
-	for _, domain := range cookieDomains {
-		if !domains[domain] {
-			t.Fatalf("缺少 domain %s: %+v", domain, domains)
-		}
+	if len(domains) != 1 || !domains[goofishDot] {
+		t.Fatalf("Cookie 只能注入 %s: %+v", goofishDot, domains)
 	}
 }
 
@@ -61,29 +59,23 @@ func TestCookiesToMapAndStr(t *testing.T) {
 	}
 }
 
-func TestStealthScriptReplaced(t *testing.T) {
+func TestStealthScriptKeepsNativeFingerprint(t *testing.T) {
 	s := stealthScript()
 	if strings.Contains(s, "{{") {
 		t.Fatalf("stealth 脚本仍有未替换占位符: %q", s[:min(200, len(s))])
 	}
-	for _, key := range []string{"webdriver", "chrome", "RTCPeerConnection", "toDataURL"} {
-		if !strings.Contains(s, key) {
-			t.Fatalf("stealth 脚本缺少关键段 %q", key)
+	if !strings.Contains(s, "webdriver") {
+		t.Fatal("stealth 脚本应只规范化 webdriver")
+	}
+	for _, forbidden := range []string{"toDataURL", "WebGL", "hardwareConcurrency", "deviceMemory", "RTCPeerConnection", "Math.random", "navigator.platform"} {
+		if strings.Contains(s, forbidden) {
+			t.Fatalf("stealth 脚本不应伪造 %q", forbidden)
 		}
 	}
 }
 
-func TestStealthScriptUnique(t *testing.T) {
-	// 多次生成应有时不同（随机参数）。
-	a := stealthScript()
-	differ := false
-	for i := 0; i < 10; i++ {
-		if stealthScript() != a {
-			differ = true
-			break
-		}
-	}
-	if !differ {
-		t.Fatal("stealth 脚本多次生成应出现随机差异")
+func TestStealthScriptStable(t *testing.T) {
+	if stealthScript() != stealthScript() {
+		t.Fatal("同一浏览器配置不应产生漂移的指纹脚本")
 	}
 }

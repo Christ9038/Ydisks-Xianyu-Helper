@@ -1,5 +1,6 @@
 import React from 'react';
 import { LayoutDashboard, Users, ShoppingBag, CreditCard, Settings, LogOut, Box, Sparkles, Zap, Bell } from 'lucide-react';
+import { YdisksBrandIcon } from './YdisksLogo';
 
 interface SidebarProps {
   activeTab: string;
@@ -24,8 +25,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, isAdmin = false, onNavigat
     <div className="w-64 h-screen fixed left-0 top-0 bg-white border-r border-gray-100 flex flex-col justify-between z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)]">
       <div className="p-6">
         <div className="flex items-center gap-3 mb-12 px-2">
-          <div className="w-10 h-10 bg-[#0094f7] squircle flex items-center justify-center shrink-0 p-1.5" style={{ filter: 'drop-shadow(0 4px 12px rgba(0,148,247,0.25))' }}>
-            <img src="/static/ydisks-logo.svg" alt="Ydisks" className="w-full h-full" />
+          <div className="shrink-0">
+            <YdisksBrandIcon sizeClass="w-10 h-10" />
           </div>
           <h1 className="text-xl font-extrabold tracking-tight text-gray-900">Ydisks闲鱼助手 <span className="text-xs bg-[#0094f7] text-white px-1.5 py-0.5 rounded ml-1">PRO</span></h1>
         </div>

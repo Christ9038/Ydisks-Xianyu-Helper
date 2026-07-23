@@ -22,8 +22,12 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/netguard"
 	"xianyu-go/internal/xianyu/mtop"
 )
+
+// isPublicIP 保留给同包校验调用；实际策略统一由 netguard 维护。
+func isPublicIP(ip net.IP) bool { return netguard.IsPublicIP(ip) }
 
 func extractPublishImagesZip(raw []byte, dest string) error {
 	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
@@ -207,44 +211,7 @@ func downloadImageURL(ctx context.Context, rawURL string) ([]byte, string, error
 
 // publicHTTPClient 只允许连接公网地址，防止批量铺货图片 URL 访问本机或内网服务。
 func publicHTTPClient() *http.Client {
-	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(address)
-			if err != nil {
-				return nil, err
-			}
-			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-			if err != nil {
-				return nil, err
-			}
-			for _, resolved := range ips {
-				if isPublicIP(resolved.IP) {
-					return dialer.DialContext(ctx, network, net.JoinHostPort(resolved.IP.String(), port))
-				}
-			}
-			return nil, fmt.Errorf("拒绝访问非公网地址")
-		},
-		TLSHandshakeTimeout: 10 * time.Second,
-	}
-	return &http.Client{
-		Transport: transport,
-		Timeout:   30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
-				return fmt.Errorf("图片 URL 重定向次数过多")
-			}
-			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-				return fmt.Errorf("图片 URL 重定向协议不安全")
-			}
-			return nil
-		},
-	}
-}
-
-func isPublicIP(ip net.IP) bool {
-	return ip != nil && !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() &&
-		!ip.IsLinkLocalMulticast() && !ip.IsUnspecified() && !ip.IsMulticast()
+	return netguard.PublicHTTPClient(30 * time.Second)
 }
 
 func validateBatchImageRef(uploadDir, ref string) error {

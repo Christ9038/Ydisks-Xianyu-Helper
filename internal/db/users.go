@@ -5,6 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // ErrNotFound 未找到记录。
@@ -49,11 +53,26 @@ func (u *Users) Create(ctx context.Context, username, email, plainPassword strin
 		`INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)`,
 		username, email, hash)
 	if err != nil {
-		// UNIQUE 冲突 → 用户名/邮箱已存在。
-		return false, nil
+		if isUniqueViolation(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("创建用户: %w", err)
 	}
 	n, _ := res.RowsAffected()
 	return n > 0, nil
+}
+
+func isUniqueViolation(err error) bool {
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number == 1062
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505"
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "unique constraint") || strings.Contains(message, "constraint failed")
 }
 
 // GetByUsername 按用户名查询。
@@ -187,6 +206,37 @@ func (u *Users) Delete(ctx context.Context, userID int64) error {
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE user_id=?`, userID); err != nil {
 		return err
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM cookies WHERE user_id=? ORDER BY id`, userID)
+	if err != nil {
+		return err
+	}
+	var cookieIDs []string
+	for rows.Next() {
+		var cookieID string
+		if err := rows.Scan(&cookieID); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		cookieIDs = append(cookieIDs, cookieID)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	// 旧 schema 中这些外键没有 ON DELETE CASCADE，必须显式清理。
+	for _, query := range []string{
+		`DELETE FROM automation_rules WHERE user_id=?`,
+		`DELETE FROM cards WHERE user_id=?`,
+		`DELETE FROM notification_channels WHERE user_id=?`,
+	} {
+		if _, err := tx.ExecContext(ctx, query, userID); err != nil {
+			return err
+		}
+	}
+	for _, cookieID := range cookieIDs {
+		if err := deleteCookieTx(ctx, tx, cookieID); err != nil {
+			return err
+		}
 	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id=?`, userID)
 	if err != nil {

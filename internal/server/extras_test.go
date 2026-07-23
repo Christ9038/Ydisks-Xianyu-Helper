@@ -348,6 +348,33 @@ func TestOrderImportCompat(t *testing.T) {
 	}
 }
 
+func TestOrderImportReportsPartialFailure(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	body := `[{"order_id":"order-ok","status":"pending_ship"},{"item_id":"missing-order-id"}]`
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/import", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var result struct {
+		Success      bool `json:"success"`
+		SuccessCount int  `json:"success_count"`
+		FailedCount  int  `json:"failed_count"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Success || result.SuccessCount != 1 || result.FailedCount != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
 // TestAdminEndpoints 管理员统计 + 用户列表 + 非 admin 被拒。
 func TestAdminEndpoints(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)

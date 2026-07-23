@@ -36,6 +36,8 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 		{"default_replies", "reply_once"},
 		{"default_reply_records", "status"},
 		{"default_reply_records", "text_sent"},
+		{"automation_runs", "action_cursor"},
+		{"automation_runs", "action_started"},
 		{"default_reply_records", "image_sent"},
 		{"users", "is_admin"},
 		{"sessions", "session_id"},
@@ -52,6 +54,7 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 		{"scheduled_api_cookie_renew_log", "request_count"},
 		{"risk_control_logs", "processing_status"},
 		{"risk_control_logs", "duration_ms"},
+		{"notification_outbox", "worker_token"},
 	}
 	for _, c := range checks {
 		if !columnExists(t, db, c.table, c.col) {
@@ -122,8 +125,8 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 		t.Fatalf("goose dialect: %v", err)
 	}
 	goose.SetBaseFS(migrationsFS)
-	// 依次回滚 16（回复投递状态）、15（AI 索引）、14（通知/日志），再整体升级。
-	for i := 0; i < 3; i++ {
+	// 依次回滚 22 到 14，再整体升级。
+	for i := 0; i < 9; i++ {
 		if err := goose.Down(d, "migrations/sqlite"); err != nil {
 			t.Fatalf("down migration #%d: %v", i+1, err)
 		}
@@ -136,6 +139,9 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 	}
 	if columnExists(t, d, "default_reply_records", "status") {
 		t.Fatal("default_reply_records.status should be removed after migration 16 down")
+	}
+	if columnExists(t, d, "account_tokens", "cookie_fingerprint") {
+		t.Fatal("account_tokens.cookie_fingerprint should be removed after migration 22 down")
 	}
 
 	if err := goose.Up(d, "migrations/sqlite"); err != nil {
@@ -153,6 +159,7 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 		{"risk_control_logs", "processing_status"},
 		{"default_reply_records", "status"},
 		{"default_reply_records", "text_sent"},
+		{"account_tokens", "cookie_fingerprint"},
 	} {
 		if !columnExists(t, d, c.table, c.col) {
 			t.Fatalf("column missing after re-up: %s.%s", c.table, c.col)
