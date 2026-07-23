@@ -1,272 +1,583 @@
-# 闲鱼管家
+# Xianyu Go
 
-这是当前活跃版本：Go 后端 + React 前端。后续功能迭代均在此目录进行：
+基于 Go 与 React 构建的闲鱼多账号管理、消息回复与自动发货系统
 
-```text
-xianyu-go/
-  cmd/
-    server/                服务入口、依赖装配、管理员非交互初始化
-    init-admin/            交互式管理员初始化 CLI
-    dbverify/              SQLite/MySQL/Postgres 迁移与 CRUD 验证
-    dbseed/                Docker 功能测试所需的脱敏数据种子工具
-    spike/                 debug/tools 构建标签下的协议链路探针
-  internal/
-    account/               已启用账号监督与生命周期管理
-    adapter/               engine/automation 与浏览器、通知器的接线层
-    auth/                  管理端会话认证与安全 Cookie
-    automation/            发货、评价赠送、邀评自动化与调度器
-    browser/               Playwright/Chromium 登录、风控验证、订单抓取
-    db/                    三种数据库方言、模型、存储与嵌入式迁移
-    engine/                单账号运行时、消息处理、回复和发货行为
-    logging/               进程级结构化日志配置
-    logsafe/               敏感 ID 与 URL 的日志脱敏
-    netguard/              出站网络目标校验与 DNS rebinding 防护
-    notify/                账号告警和通知渠道
-    renewal/               登录态续期调度与冷却控制
-    server/                chi HTTP API、鉴权和 SPA 服务
-    webui/static/          前端构建产物，由 Go 二进制嵌入
-    xianyu/                MTOP、WebSocket、扫码登录和协议实现
-  frontend/                当前活跃 React/Vite 前端源码
-  docs/                    运行、功能与不可变行为规范
-  scripts/                 Docker、持久化和功能回归脚本
-  data/                    本地运行数据（不作为源码维护）
-```
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](frontend/package.json)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)](docker-compose.debian13-postgres17.yml)
+[![Docker Image](https://github.com/Christ9038/xinayu-go/actions/workflows/docker-publish.yml/badge.svg?branch=dev)](https://github.com/Christ9038/xinayu-go/actions/workflows/docker-publish.yml)
 
-目录职责以根目录 `AGENTS.md` 为准。滑块认证属于冻结逻辑，完整契约见
-[`docs/slider-captcha-frozen-spec.md`](docs/slider-captcha-frozen-spec.md)；没有用户在当前任务中的明确授权，不得修改其实现、测试或任何会间接改变其行为的调用链。
+[功能特性](#功能特性) · [快速开始](#快速开始) · [配置说明](#配置说明) ·
+[Docker 部署](#docker-部署) · [开发指南](#开发指南)
 
-## 数据库支持
+> [!IMPORTANT]
+> 本项目是社区维护的非官方工具，与闲鱼、阿里巴巴集团及其关联公司无隶属、合作或
+> 授权关系。请仅在遵守当地法律法规、闲鱼平台规则及账号授权范围的前提下使用。
+> 使用自动化能力可能触发平台风控，请自行评估风险并妥善保护账号凭证。
 
-支持三种数据库，由连接 URL 的 scheme 决定：
+## 项目简介
 
-| scheme | 说明 |
+Xianyu Go 是一个面向闲鱼卖家的自托管管理系统。它将账号运行、即时消息、订单、
+商品、卡密库存、自动化规则、AI 回复和异常通知整合到同一个 Web 管理后台，适合需要
+同时维护多个闲鱼账号或交付数字商品的个人与小型团队。
+
+项目采用 Go 实现闲鱼登录、Cookie 续期、MTOP 请求和 WebSocket 消息链路。Chromium
+不是业务请求代理，仅用于读取真实浏览器指纹以及处理必须依赖浏览器环境的滑块风控。
+扫码登录、人脸验证流程、消息连接、凭证更新和绝大部分业务逻辑均由 Go 客户端完成。
+
+### 适用场景
+
+- 多个闲鱼账号的统一在线状态与消息管理
+- 数字商品、兑换码、链接或图片内容的自动交付
+- 付款后发货、评价赠品、超时求评价等自动化流程
+- 商品与订单同步、单商品发布及表格批量铺货
+- 接入 OpenAI 兼容接口实现可控的 AI 客服回复
+- 账号掉线、风控、续期和发货结果的多渠道通知
+
+## 功能特性
+
+| 模块 | 能力 |
 | --- | --- |
-| `sqlite://<path>` 或纯路径 | 纯 Go modernc.org/sqlite，WAL + foreign_keys（默认，本地开发） |
-| `mysql://<dsn>` | go-sql-driver/mysql（生产 / Docker 外置库） |
-| `postgres://<dsn>` | jackc/pgx（生产 / Docker 外置库） |
+| 账号管理 | 多账号启停、扫码登录、密码登录、资料刷新、在线状态、登录审计与备注管理 |
+| 凭证续期 | Cookie/token 定时续期、WebSocket 凭证更新、失效恢复、冷却与失败停用 |
+| 即时消息 | 闲鱼 WebSocket 长连接、消息收发、关键词回复、默认回复及仅回复一次 |
+| 自动化中心 | 付款后自动发货、评价后赠品、超时未评价提醒、失败任务恢复与幂等检查点 |
+| 卡密库存 | 文本、批量卡密和图片三种交付类型，库存追加、批量导入、规格与延迟发送 |
+| 商品管理 | 商品同步、手工关联、单商品发布、CSV + ZIP 批量铺货、任务恢复与结果导出 |
+| 订单管理 | 订单同步、插入、编辑、平台发货、补发卡密、仅确认发货及异常状态处理 |
+| AI 回复 | OpenAI 兼容 API、模型发现、自定义提示词、议价轮次和让价范围控制 |
+| 数据看板 | 活跃账号、订单、营收、库存、商品销量与金额统计 |
+| 通知告警 | Bark、钉钉、飞书、企业微信、Telegram、邮件和自定义 Webhook |
+| 数据存储 | SQLite、MySQL、PostgreSQL，内置按方言执行的 Goose 数据库迁移 |
+| 安全能力 | 管理端会话、敏感字段 AES-256-GCM 加密、日志脱敏和出站地址校验 |
+| 容器部署 | PostgreSQL 17、健康检查、持久化卷、GHCR amd64/arm64 多架构镜像 |
 
-迁移用 goose 嵌入式执行，按方言分目录 `internal/db/migrations/{sqlite,mysql,postgres}`。
+## 系统架构
 
-## 首次运行
-
-### 1. 安装前端依赖并构建
-
-```bash
-cd /Users/christ/Workspace/git/xianyu/xianyu-go/frontend
-npm install
-npm run build
+```mermaid
+flowchart LR
+    UI["React 管理后台"] --> API["Go / chi HTTP API"]
+    API --> Store["SQLite / MySQL / PostgreSQL"]
+    API --> Manager["账号管理器"]
+    Manager --> Engine["单账号运行时"]
+    Engine --> WS["闲鱼 WebSocket"]
+    Engine --> MTOP["闲鱼 MTOP"]
+    Engine --> Automation["自动化中心"]
+    Automation --> Notify["通知渠道"]
+    Engine -. "仅指纹与滑块风控" .-> Chromium["Playwright / Chromium"]
 ```
 
-构建产物会写入：
+核心职责划分：
 
-```text
-xianyu-go/internal/webui/static/
-```
+- `internal/xianyu`：登录协议、Cookie、MTOP、WebSocket 和消息协议
+- `internal/engine`：单账号生命周期、消息处理、回复与交付行为
+- `internal/automation`：发货、评价赠品、求评价和任务调度
+- `internal/browser`：Chromium 指纹读取与滑块验证
+- `internal/db`：多数据库访问、敏感字段加密和嵌入式迁移
+- `internal/server`：HTTP API、管理端鉴权和前端静态资源
 
-### 2. 初始化管理员
+## 快速开始
+
+### 方式一：Docker Compose（推荐）
+
+适用于 Linux x86_64、Linux ARM64 和 Apple Silicon。需要 Docker Engine 或
+Docker Desktop，并使用 Docker Compose v2。
 
 ```bash
-cd /Users/christ/Workspace/git/xianyu/xianyu-go
-go run ./cmd/init-admin -db data/xianyu_data.db
+git clone https://github.com/Christ9038/xinayu-go.git
+cd xinayu-go
+cp .env.example .env
 ```
 
-也可以通过服务入口非交互初始化（适合脚本/Docker）：
+编辑 `.env`，至少修改以下配置：
+
+```dotenv
+POSTGRES_DB=xianyu
+POSTGRES_USER=xianyu
+POSTGRES_PASSWORD=替换为高强度密码
+DATABASE_URL=postgres://xianyu:替换为URL编码后的数据库密码@postgres:5432/xianyu?sslmode=disable
+XIANYU_DATA_KEY=替换为长期固定的随机密钥
+XIANYU_ADMIN_PASSWORD=替换为管理员密码
+```
+
+推荐使用以下命令生成随机值：
 
 ```bash
+openssl rand -hex 24       # 适合作为 POSTGRES_PASSWORD，连接串无需额外 URL 编码
+openssl rand -base64 48    # 适合作为 XIANYU_DATA_KEY
+```
+
+启动 PostgreSQL、初始化管理员并启动应用：
+
+```bash
+COMPOSE_FILE=docker-compose.debian13-postgres17.yml
+
+docker compose -f "$COMPOSE_FILE" pull app postgres
+docker compose -f "$COMPOSE_FILE" up -d postgres
+docker compose -f "$COMPOSE_FILE" --profile init run --rm init-admin
+docker compose -f "$COMPOSE_FILE" up -d --no-build app
+```
+
+浏览器访问 `http://localhost:8080`，使用用户名 `admin` 和 `.env` 中的
+`XIANYU_ADMIN_PASSWORD` 登录。
+
+> GHCR 镜像公开时可以匿名拉取。若镜像仍为私有，请先执行
+> `docker login ghcr.io -u Christ9038`，并使用具有 `read:packages` 权限的
+> Personal Access Token 登录。
+
+### 方式二：从源码运行
+
+环境要求：
+
+- Go 1.26.4 或兼容版本
+- Node.js 22 与 npm
+- Chromium 运行所需的系统依赖
+- 默认可直接使用 SQLite，无需额外数据库服务
+
+构建前端：
+
+```bash
+git clone https://github.com/Christ9038/xinayu-go.git
+cd xinayu-go
+npm --prefix frontend ci
+npm --prefix frontend run build
+```
+
+初始化管理员：
+
+```bash
+mkdir -p data
 go run ./cmd/server \
   -init-admin \
   -db data/xianyu_data.db \
-  -admin-password '你的密码'
+  -admin-password '请替换为管理员密码'
 ```
 
-`-admin-password` 也可用环境变量 `XIANYU_ADMIN_PASSWORD` 传入。
-
-### 3. 启动服务
+启动服务：
 
 ```bash
-cd /Users/christ/Workspace/git/xianyu/xianyu-go
 go run ./cmd/server -db data/xianyu_data.db -addr :8080
 ```
 
-使用 MySQL / Postgres 时改用 `-db-url` 或 `DATABASE_URL`：
+首次启动会准备 Playwright 运行环境和 Chromium；下载速度取决于当前网络。启动完成后
+访问 `http://localhost:8080`。
+
+如当前环境无法安装 Chromium，可以使用 `-no-browser` 启动：
 
 ```bash
-# MySQL（DSN 需含 multiStatements=true，工具会自动补齐）
-go run ./cmd/server -db-url "mysql://user:pass@tcp(host:3306)/dbname" -addr :8080
-
-# Postgres
-DATABASE_URL="postgres://user:pass@host:5432/dbname?sslmode=disable" go run ./cmd/server -addr :8080
+go run ./cmd/server -db data/xianyu_data.db -addr :8080 -no-browser
 ```
 
-浏览器访问：
+此模式仍可运行管理后台，但浏览器指纹读取和滑块风控处理不可用，不建议用于需要登录
+和长期运行账号的生产环境。
+
+## 初次使用
+
+1. 使用管理员账号登录管理后台。
+2. 进入“账号管理”，通过闲鱼 App 扫描二维码完成账号授权。
+3. 如平台触发风控，根据页面提示在手机端完成人脸或安全验证。
+4. 等待账号状态变为在线，再同步商品和订单。
+5. 在“卡密库存”创建交付内容。
+6. 在“自动化规则”将闲鱼商品与卡密、规格和触发条件关联。
+7. 按需配置关键词回复、默认回复、AI 回复和通知渠道。
+
+扫码登录是推荐方式。密码登录适合已有明确需求的环境，但更容易触发平台安全校验。
+无论使用哪种方式，都不要把 Cookie、密码、二维码或人脸验证地址分享给不可信第三方。
+
+## 配置说明
+
+配置分为三层：进程环境变量、命令行参数和管理后台设置。数据库连接优先级为：
 
 ```text
-http://localhost:8080
+DATABASE_URL > -db-url > -db
 ```
 
-不传 `-web` 时，Go 会使用 `internal/webui/static` 中的内置前端资源。
+### 环境变量
 
-## 开发模式
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `DATABASE_URL` | 空 | 数据库连接 URL；生产环境推荐 PostgreSQL |
+| `XIANYU_DATA_KEY` | 空 | 敏感字段加密主密钥；生产环境必须固定并备份 |
+| `XIANYU_ADMIN_PASSWORD` | 空 | 非交互初始化或重置管理员时使用 |
+| `XIANYU_UPLOAD_DIR` | `data/uploads` | 批量铺货上传文件与临时资源目录 |
+| `LOG_LEVEL` | 系统设置或 `info` | `debug`、`info`、`warn`、`error` |
+| `LOG_FORMAT` | 系统设置或 `text` | `text` 或 `json` |
+| `BROWSER_HEADLESS` | 按账号设置；Docker 为 `true` | 强制启用或关闭无头 Chromium |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` | 自动发现 | 指定系统 Chromium 可执行文件 |
+| `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` | 源码 `false` / Docker `true` | 跳过下载 |
+| `TZ` | 系统时区；Docker 为 `Asia/Shanghai` | 容器和日志时区 |
 
-后端：
+Docker Compose 还支持：
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `COMPOSE_PROJECT_NAME` | `xianyu` | Compose 项目名及命名卷前缀 |
+| `POSTGRES_IMAGE` | `postgres:17-trixie` | PostgreSQL 镜像 |
+| `POSTGRES_DB` | 必填 | 数据库名 |
+| `POSTGRES_USER` | 必填 | 数据库用户 |
+| `POSTGRES_PASSWORD` | 必填 | 数据库密码 |
+| `XIANYU_IMAGE` | `xianyu-go:debian13` | 应用镜像与标签 |
+| `XIANYU_BIND_ADDRESS` | `0.0.0.0` | 应用在宿主机上的绑定地址 |
+| `XIANYU_HTTP_PORT` | `8080` | 应用在宿主机上的端口 |
+
+Compose 文件回退到本地镜像 `xianyu-go:debian13`；随仓库提供的 `.env.example` 已将
+`XIANYU_IMAGE` 设置为 GHCR 的 `:dev` 多架构镜像。
+
+`XIANYU_DATA_KEY` 用于加密 Cookie、账号密码、设备令牌、访问令牌、AI/SMTP 密钥和
+通知凭证。启用后，服务会自动升级历史明文数据。密钥丢失或更换后，已有加密数据将
+无法解密，因此必须与数据库备份一起保存。
+
+### 命令行参数
+
+| 参数 | 默认值 | 说明 |
+| --- | --- | --- |
+| `-db` | `data/xianyu_data.db` | SQLite 数据库路径 |
+| `-db-url` | 空 | `sqlite://`、`mysql://` 或 `postgres://` 连接 URL |
+| `-addr` | `:8080` | HTTP 监听地址 |
+| `-web` | 内嵌前端 | 外部前端静态资源目录，目录内需包含 `index.html` |
+| `-secure` | `false` | 为管理端 Cookie 添加 `Secure` 属性，HTTPS 部署应启用 |
+| `-no-browser` | `false` | 禁用 Chromium 指纹读取和滑块处理 |
+| `-log-level` | 环境变量或系统设置 | 覆盖日志等级 |
+| `-log-format` | 环境变量或系统设置 | 覆盖日志格式 |
+| `-v` | `false` | 启用调试日志，等价于未显式配置时使用 debug |
+| `-init-admin` | `false` | 初始化或重置 `admin` 后退出 |
+| `-admin-email` | `admin@example.com` | 初始化管理员邮箱 |
+| `-admin-password` | 空 | 初始化管理员密码 |
+
+### 数据库连接示例
 
 ```bash
-cd /Users/christ/Workspace/git/xianyu/xianyu-go
-go run ./cmd/server -db data/xianyu_data.db -addr :8080
+# SQLite
+DATABASE_URL="sqlite://data/xianyu_data.db" ./xianyu-server
+
+# MySQL；应用会强制补齐 multiStatements=true 和 clientFoundRows=true
+DATABASE_URL="mysql://user:pass@tcp(127.0.0.1:3306)/xianyu" ./xianyu-server
+
+# PostgreSQL
+DATABASE_URL="postgres://user:pass@127.0.0.1:5432/xianyu?sslmode=disable" ./xianyu-server
 ```
 
-前端开发服务器：
+每次启动都会自动执行对应数据库方言的嵌入式 Goose 迁移。生产数据库升级前仍建议
+先完成备份。
 
-```bash
-cd /Users/christ/Workspace/git/xianyu/xianyu-go/frontend
-npm run dev
-```
+### 管理后台配置
 
-访问：
+以下配置通过 Web 管理后台维护并保存在数据库中：
+
+- **账号设置**：启停状态、备注、通知渠道绑定和单账号 AI 回复策略
+- **自动化规则**：触发条件、商品、规格、卡密组、发送数量、延迟和后续动作
+- **回复规则**：关键词、文本或图片回复、默认回复及回复次数限制
+- **AI 设置**：OpenAI 兼容 API 地址、API Key、模型和全局提示词
+- **议价策略**：最大折扣比例、最大折扣金额和最多议价轮次
+- **通知设置**：Bark、钉钉、飞书、企业微信、Telegram、邮件和 Webhook
+- **日志设置**：日志等级、输出格式和续期日志保留天数
+- **远程滑块服务**：服务地址、密钥及是否允许传递 Cookie；默认不传递 Cookie
+- **管理凭据**：管理员用户名、密码和邮箱
+
+AI Base URL 支持 OpenAI 兼容接口，可连接 OpenAI、通义千问、Ollama、vLLM、
+LocalAI 或兼容网关。只有在明确了解数据流向时才应向外部 AI 或远程验证服务传递
+消息内容与账号数据。
+
+## Docker 部署
+
+### 镜像与架构
+
+GitHub Actions 会将同一标签发布为多架构镜像：
 
 ```text
-http://localhost:3000
+ghcr.io/christ9038/xinayu-go:dev
+├── linux/amd64
+└── linux/arm64
 ```
 
-Vite 会把 API 请求代理到 `http://localhost:8080`。
+Docker 会根据宿主机 CPU 自动选择镜像。x86_64 Linux 拉取 amd64，Apple M 系列和
+ARM64 Linux 拉取 arm64，不需要手动设置 `platform`。
 
-## 编译运行
+标签规则：
 
-```bash
-cd /Users/christ/Workspace/git/xianyu/xianyu-go
-go build -o xianyu-server ./cmd/server
-./xianyu-server -db data/xianyu_data.db -addr :8080
-```
-
-如果要使用外部前端目录，也可以传：
-
-```bash
-./xianyu-server -db data/xianyu_data.db -addr :8080 -web /path/to/static
-```
-
-## 验证数据库（三库冒烟）
-
-`cmd/dbverify` 在目标库上跑迁移 + 核心 CRUD，确认方言适配正常：
-
-```bash
-go run ./cmd/dbverify "sqlite:///tmp/verify.db"
-go run ./cmd/dbverify "mysql://root:pass@tcp(host:3306)/db?multiStatements=true"
-go run ./cmd/dbverify "postgres://user:pass@host:5432/db"
-```
-
-全部 9 步通过即说明 upsert / 布尔读写 / 自增主键 / NULL 扫描跨三库一致。
-
-## Docker 部署注意
-
-仓库提供 `docker-compose.debian13-postgres17.yml`，用于运行 Debian 13 应用镜像和
-PostgreSQL 17。GHCR 中的同一镜像标签同时包含 `linux/amd64` 和 `linux/arm64`，
-Docker 会根据宿主机 CPU 自动选择：x86_64 Linux 拉取 amd64，Apple Silicon 拉取
-arm64，无需手工设置 `platform`。
-
-```bash
-cp .env.example .env
-# 编辑 .env，至少替换 PostgreSQL 密码、DATABASE_URL 和 XIANYU_DATA_KEY
-docker login ghcr.io -u Christ9038
-docker compose -f docker-compose.debian13-postgres17.yml pull app postgres
-docker compose -f docker-compose.debian13-postgres17.yml up -d --no-build postgres app
-```
-
-`dev` 分支会由 GitHub Actions 自动发布多架构的
-`ghcr.io/christ9038/xinayu-go:dev`；`main` 分支同时发布 `main` 和 `latest` 标签，
-版本标签（例如 `v1.2.3`）会发布对应语义化版本标签。仓库和镜像为私有时，服务器
-登录 GHCR 所用的 Personal Access Token 需要 `read:packages` 权限。本地修改镜像后
-也可以运行 `docker compose -f docker-compose.debian13-postgres17.yml build app` 自行构建。
-
-数据库只在 Compose 内部网络开放，不映射宿主机端口；应用端口由
-`XIANYU_BIND_ADDRESS` 和 `XIANYU_HTTP_PORT` 控制。PostgreSQL 数据、应用数据和
-Chromium 持久化配置分别保存在命名卷 `postgres_data`、`app_data` 和
-`browser_data` 中。
-
-首次部署后初始化管理员：
-
-```bash
-docker compose -f docker-compose.debian13-postgres17.yml --profile init run --rm init-admin
-```
-
-检查服务和日志：
-
-```bash
-docker compose -f docker-compose.debian13-postgres17.yml ps
-curl -fsS http://127.0.0.1:8080/health
-docker compose -f docker-compose.debian13-postgres17.yml logs -f app
-```
-
-`.env` 已被 Git 和 Docker 构建上下文忽略。`DATABASE_URL` 必须使用 Compose 服务名
-`postgres` 作为主机；如果密码包含 `@`、`:`、`/` 等字符，需要在连接串中进行 URL
-编码。部署到服务器前可用 `openssl rand -base64 48` 生成稳定的
-`XIANYU_DATA_KEY`，并与数据库卷一同安全备份。
-
-生产环境建议同时设置稳定且仅由服务进程可读的 `XIANYU_DATA_KEY`。启用后，Cookie、
-账号登录密码、设备/访问令牌、AI/SMTP 密钥和通知渠道配置会使用 AES-256-GCM 加密
-后落库；首次启动会自动升级历史明文。该密钥必须随数据卷一同备份，丢失或更换后
-已有凭证无法解密。
-
-管理员配置的 OpenAI 兼容 AI Base URL 不限制目标网络，可使用 `0.0.0.0`、loopback、
-Docker 服务名、RFC1918 私网、Tailscale/CGNAT、IPv6 ULA 或公网地址，便于连接任意部署
-位置的 Ollama、vLLM、LocalAI 或兼容网关。通知 Webhook、远程图片等非管理员可信目标
-继续只允许公网地址。
-
-## 常用参数
-
-| 参数 | 说明 |
+| Git 引用 | 镜像标签 |
 | --- | --- |
-| `-db` | SQLite 数据库路径，默认 `data/xianyu_data.db`（向后兼容） |
-| `-db-url` | 数据库连接 URL（`sqlite://` / `mysql://` / `postgres://`），优先级高于 `-db` |
-| `DATABASE_URL` | 环境变量，优先级最高 |
-| `XIANYU_DATA_KEY` | 敏感字段加密主密钥；生产环境应固定配置并安全备份 |
-| `-addr` | HTTP 监听地址，默认 `:8080` |
-| `-web` | 外部前端静态资源目录；不传则用内置前端 |
-| `-init-admin` | 初始化或重置管理员后退出 |
-| `-admin-email` | 初始化管理员邮箱 |
-| `-admin-password` | 初始化管理员密码（也可用 `XIANYU_ADMIN_PASSWORD` 环境变量） |
-| `-no-browser` | 禁用内置浏览器自动化（扫码风控/密码登录/订单抓取将不可用） |
-| `-secure` | HTTPS 模式，Cookie 加 Secure |
-| `-v` | 调试日志 |
+| `dev` 分支 | `dev`、`sha-<完整提交号>` |
+| `main` 分支 | `main`、`latest`、`sha-<完整提交号>` |
+| `v1.2.3` 标签 | `1.2.3`、`1.2`、`sha-<完整提交号>` |
 
-## 质量门禁与测试
+生产环境建议使用明确的版本标签或 SHA 标签，避免上游更新导致未经验证的自动升级。
 
-项目内置 Makefile 与 golangci-lint 配置：
+### Compose 服务
 
-```bash
-cd /Users/christ/Workspace/git/xianyu/xianyu-go
-make vet        # go vet
-make test       # 全部单元测试
-make lint       # golangci-lint（0 issues 基线）
-make cover      # 覆盖率报告
-make check      # vet + lint + test 一键全检
-make frontend   # 构建前端
-```
+`docker-compose.debian13-postgres17.yml` 包含三个服务：
 
-跨三库回归（需 Docker 容器或外置库）：
+| 服务 | 用途 |
+| --- | --- |
+| `postgres` | PostgreSQL 17 数据库，仅在 Compose 内部网络开放 5432 |
+| `app` | Xianyu Go 主服务、前端和 Chromium |
+| `init-admin` | 一次性管理员初始化任务，通过 `init` profile 启用 |
+
+持久化卷：
+
+| 卷 | 内容 |
+| --- | --- |
+| `postgres_data` | PostgreSQL 数据文件 |
+| `app_data` | 上传文件、批量铺货资源和应用数据 |
+| `browser_data` | Chromium 持久化配置和验证上下文 |
+
+### 完整部署步骤
 
 ```bash
-TEST_MYSQL_URL="mysql://root:pass@tcp(host:3306)/db" \
-TEST_POSTGRES_URL="postgres://user:pass@host:5432/db" \
-go test ./internal/db -run TestMultiDB -v
+git clone https://github.com/Christ9038/xinayu-go.git
+cd xinayu-go
+cp .env.example .env
 ```
 
-完整 Docker 功能回归（前端测试/构建、vet、lint、Go `-race`、三库迁移、
-MySQL 8.4 与 PostgreSQL 17 API 功能及重启持久化）：
+完成 `.env` 配置后执行：
+
+```bash
+COMPOSE_FILE=docker-compose.debian13-postgres17.yml
+
+# 拉取应用和 PostgreSQL 镜像
+docker compose -f "$COMPOSE_FILE" pull app postgres
+
+# 启动数据库并等待健康检查
+docker compose -f "$COMPOSE_FILE" up -d postgres
+
+# 创建或重置管理员
+docker compose -f "$COMPOSE_FILE" --profile init run --rm init-admin
+
+# 启动应用
+docker compose -f "$COMPOSE_FILE" up -d --no-build app
+```
+
+检查运行状态：
+
+```bash
+docker compose -f "$COMPOSE_FILE" ps
+curl -fsS http://127.0.0.1:8080/health
+docker compose -f "$COMPOSE_FILE" logs --tail=200 app
+```
+
+健康接口正常时返回：
+
+```json
+{"database":"ok","status":"ok"}
+```
+
+### 更新镜像
+
+```bash
+COMPOSE_FILE=docker-compose.debian13-postgres17.yml
+docker compose -f "$COMPOSE_FILE" pull app
+docker compose -f "$COMPOSE_FILE" up -d --no-build app
+docker compose -f "$COMPOSE_FILE" logs --tail=100 app
+```
+
+更新前请先备份数据库，并确认 `.env` 中的 `XIANYU_DATA_KEY` 未发生变化。
+
+### 备份 PostgreSQL
+
+```bash
+set -a
+. ./.env
+set +a
+
+docker compose -f docker-compose.debian13-postgres17.yml exec -T postgres \
+  pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  > "xianyu-$(date +%Y%m%d-%H%M%S).sql"
+```
+
+恢复前请先停止应用，并在独立环境验证备份文件：
+
+```bash
+docker compose -f docker-compose.debian13-postgres17.yml stop app
+docker compose -f docker-compose.debian13-postgres17.yml exec -T postgres \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" < xianyu-backup.sql
+```
+
+同时备份 `.env` 中的 `XIANYU_DATA_KEY`。不要把包含真实密码和密钥的 `.env` 提交到
+Git；项目已默认忽略该文件。
+
+### 停止服务
+
+```bash
+# 停止并保留数据卷
+docker compose -f docker-compose.debian13-postgres17.yml down
+
+# 查看数据卷
+docker volume ls --filter name=xianyu
+```
+
+不要在生产环境随意执行 `down -v`，该参数会删除 Compose 管理的数据库和应用数据卷。
+
+### HTTPS 与反向代理
+
+生产环境建议使用 Caddy、Nginx、Traefik 或云负载均衡器终止 TLS，并避免直接向公网
+暴露管理端口。启用 HTTPS 后，应为应用命令增加 `-secure`，确保管理端会话 Cookie
+仅通过 HTTPS 发送。例如可创建一个 Compose override：
+
+```yaml
+services:
+  app:
+    command: ["/app/xianyu-server", "-addr", ":8080", "-secure"]
+```
+
+## 开发指南
+
+### 项目结构
+
+```text
+.
+├── cmd/
+│   ├── server/           # 主服务与管理员初始化入口
+│   ├── init-admin/       # 交互式管理员初始化工具
+│   ├── dbverify/         # 多数据库迁移和 CRUD 验证
+│   └── dbseed/           # Docker 功能测试数据种子
+├── internal/
+│   ├── account/          # 多账号监督与生命周期
+│   ├── adapter/          # 业务模块接线层
+│   ├── automation/       # 自动化中心与调度器
+│   ├── browser/          # Chromium 指纹和滑块验证
+│   ├── db/               # 数据访问、加密与迁移
+│   ├── engine/           # 单账号消息和交付运行时
+│   ├── notify/           # 通知渠道
+│   ├── renewal/          # 登录态续期调度
+│   ├── server/           # HTTP API 与 SPA 服务
+│   └── xianyu/           # MTOP、WebSocket、登录和协议实现
+├── frontend/             # React、TypeScript、Vite 前端
+├── docs/                 # 专题文档和行为规范
+├── scripts/              # Docker 与回归测试脚本
+└── Dockerfile.debian13   # 多阶段生产镜像
+```
+
+### 本地开发
+
+启动后端：
+
+```bash
+go run ./cmd/server -db data/xianyu_data.db -addr :8080
+```
+
+启动前端开发服务器：
+
+```bash
+npm --prefix frontend ci
+npm --prefix frontend run dev
+```
+
+访问 `http://localhost:3000`。Vite 会将 API 请求代理到 `http://localhost:8080`。
+
+构建嵌入式前端和 Go 二进制：
+
+```bash
+make frontend
+make build
+```
+
+### 质量检查
+
+```bash
+make fmt       # 格式化 Go 代码
+make vet       # go vet
+make lint      # golangci-lint
+make test      # 全部 Go 单元测试
+make cover     # 覆盖率报告
+make check     # fmt + vet + lint + test
+
+npm --prefix frontend run typecheck
+npm --prefix frontend test
+npm --prefix frontend run build
+```
+
+完整 Docker 功能回归会检查前端、Go `-race`、SQLite、MySQL 8.4、PostgreSQL 17、
+API 功能和容器重启持久化：
 
 ```bash
 ./scripts/docker-full-test.sh
 ```
 
-测试编排使用命名卷 `mysql8_data`、`postgres17_data` 和 `sqlite_seed`。
-本地 `data/xianyu_data.db` 只会抽取少量商品、订单和卡密元数据，写入外置库前会替换
-Cookie、买家 ID 和卡密内容。测试应用分别监听 `28081`（MySQL）与 `28082`
-（PostgreSQL），测试账号为 `docker_fixture / docker_fixture_password`。
-测试管理员为 `docker_admin / docker_admin_password`。
-
-保留数据库并停止容器：
+验证指定数据库的迁移与核心 CRUD：
 
 ```bash
-docker compose -f docker-compose.functional.yml down
+go run ./cmd/dbverify "sqlite:///tmp/xianyu-verify.db"
+go run ./cmd/dbverify "mysql://root:pass@tcp(127.0.0.1:3306)/xianyu"
+go run ./cmd/dbverify "postgres://user:pass@127.0.0.1:5432/xianyu"
 ```
 
-只有明确需要清空测试数据时才追加 `-v` 删除命名卷。
+## 常见问题
+
+### 服务启动后提示尚未初始化
+
+先执行管理员初始化：
+
+```bash
+docker compose -f docker-compose.debian13-postgres17.yml \
+  --profile init run --rm init-admin
+```
+
+源码运行时可执行：
+
+```bash
+go run ./cmd/server -init-admin -db data/xianyu_data.db -admin-password '新密码'
+```
+
+### PostgreSQL 连接失败
+
+- 确认 `.env` 中 `POSTGRES_DB`、`POSTGRES_USER`、`POSTGRES_PASSWORD` 与
+  `DATABASE_URL` 完全一致。
+- Compose 内部的数据库主机名必须写 `postgres`，不能写 `localhost`。
+- 密码包含 `@`、`:`、`/`、`#` 等字符时，需要在 `DATABASE_URL` 中进行 URL 编码。
+- 使用 `docker compose ... ps` 确认 PostgreSQL 健康检查已通过。
+
+### Chromium 或 Playwright 初始化失败
+
+- Docker 部署优先使用项目提供的镜像，镜像已包含 Chromium 和运行依赖。
+- 源码运行时确认系统允许下载 Playwright 驱动和 Chromium。
+- 自带 Chromium 时设置 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`，并按需设置
+  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`。
+- 容器内需要足够的共享内存与可写的 `browser_data` 卷。
+
+### 账号掉线或需要安全验证
+
+- 查看“账号管理”中的状态和续期日志。
+- 根据页面二维码在闲鱼 App 完成人脸或安全验证。
+- 检查服务器时间、时区和外网连接是否正常。
+- 不要同时在多个实例中运行同一个闲鱼账号，避免凭证相互覆盖。
+
+### 修改 `XIANYU_DATA_KEY` 后无法读取凭证
+
+这是预期的安全行为。请恢复写入这些数据时使用的原密钥。无法恢复原密钥时，只能重新
+登录账号并重新录入受保护的密钥；不要通过清空或绕过解密检查继续运行生产数据库。
+
+## 安全建议
+
+- 仅通过 HTTPS 暴露管理后台，并限制可信来源访问。
+- 为管理员、数据库和 GHCR 分别使用不同的高强度密码。
+- 固定并离线备份 `XIANYU_DATA_KEY`，不要在多套环境之间随意复用。
+- 不要提交 `.env`、数据库文件、Cookie、二维码、日志或浏览器数据目录。
+- 定期备份 PostgreSQL，并实际验证恢复流程。
+- 使用版本或 SHA 镜像标签部署生产环境。
+- 仅向可信的 AI、SMTP、Webhook 和远程滑块服务发送数据。
+- 发现账号异常时先停用账号，再检查登录审计和续期日志。
+
+## 贡献
+
+欢迎通过 Issue 报告可复现的问题，或通过 Pull Request 提交改进。提交前请：
+
+1. 将不同主题拆分为独立提交。
+2. 为协议、数据库和关键业务行为补充测试。
+3. 运行 `make check` 和前端测试。
+4. 不要提交真实账号、Cookie、订单、卡密、密钥或其他敏感数据。
+5. 不要在未说明原因和验证证据的情况下修改风控与滑块行为。
+
+提交安全问题时，请避免在公开 Issue 中附带真实凭证或用户数据。
+
+## 许可证
+
+当前仓库尚未包含 `LICENSE` 文件。公开仓库不等同于授予开源许可；在项目维护者补充
+明确许可证之前，源码的复制、修改和分发仍受著作权限制。若计划接受社区贡献或允许
+再分发，建议在公开发布前选择并添加合适的开源许可证。
+
+## 免责声明
+
+本项目仅提供技术研究和自托管管理能力，不保证对闲鱼接口变化、账号风控策略、业务
+连续性或数据完整性的长期兼容。因使用本项目造成的账号限制、交易纠纷、数据损失或
+其他直接与间接损失，应由使用者自行承担。请勿将本项目用于垃圾消息、欺诈、未授权
+访问、规避平台限制或任何违法违规活动。
