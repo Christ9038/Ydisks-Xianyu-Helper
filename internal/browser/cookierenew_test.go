@@ -87,16 +87,3 @@ func TestSilentHasLoginURLMatcher(t *testing.T) {
 		t.Fatal("ordinary hasLogin request must not be treated as silentHasLogin")
 	}
 }
-
-func TestTokenPageURLPatternIsLimitedToIMDocument(t *testing.T) {
-	for _, rawURL := range []string{goofishIMURL, goofishIMURL + "?spm=test", goofishIMURL + "#messages"} {
-		if !tokenPageURLPattern.MatchString(rawURL) {
-			t.Fatalf("expected token page URL match: %s", rawURL)
-		}
-	}
-	for _, rawURL := range []string{goofishHomeURL, goofishIMURL + "/other", "https://h5api.m.goofish.com/im"} {
-		if tokenPageURLPattern.MatchString(rawURL) {
-			t.Fatalf("unexpected token page URL match: %s", rawURL)
-		}
-	}
-}

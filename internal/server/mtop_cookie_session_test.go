@@ -82,7 +82,7 @@ func TestRefreshAccountProfilePersistsCookieSessionOnResponseError(t *testing.T)
 	}
 }
 
-func TestRefreshAccountProfileKeepsFlatMockFallback(t *testing.T) {
+func TestRefreshAccountProfileKeepsAuthoritativeSnapshotWithFlatMock(t *testing.T) {
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	seedStaleCookieSnapshot(t, store, "acc1")
@@ -99,12 +99,39 @@ func TestRefreshAccountProfileKeepsFlatMockFallback(t *testing.T) {
 	}
 	srv.refreshAccountProfile(context.Background(), detail)
 
-	requireCookieSnapshotCleared(t, store, "acc1")
+	updated, err := store.Cookies.GetDetails(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(updated.Value, "_m_h5_tk=mockfresh_2") {
+		t.Fatalf("完整 Jar 不得被 mock 扁平 Cookie 覆盖: %q", updated.Value)
+	}
+	if _, complete := cookierefresh.SnapshotFromMetadataOK(updated.MetadataJSON); !complete {
+		t.Fatalf("完整 Jar 未发生变化时不得清除: %s", updated.MetadataJSON)
+	}
+}
+
+func TestRefreshAccountProfileKeepsFlatMockFallbackWithoutSnapshot(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+
+	srv.MTop = &stubProfileMTop{profile: func(context.Context, string) (*mtop.UserProfileResult, error) {
+		return &mtop.UserProfileResult{
+			Nickname:       "mock-profile",
+			UpdatedCookies: "unb=123; _m_h5_tk=mockfresh_2",
+		}, nil
+	}}
+	detail, err := store.Cookies.GetDetails(context.Background(), "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.refreshAccountProfile(context.Background(), detail)
+
 	updated, err := store.Cookies.GetDetails(context.Background(), "acc1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(updated.Value, "_m_h5_tk=mockfresh_2") {
-		t.Fatalf("mock 扁平 Cookie 未沿用兼容写回: %q", updated.Value)
+		t.Fatalf("无完整 Jar 时 mock 扁平 Cookie 未沿用兼容写回: %q", updated.Value)
 	}
 }

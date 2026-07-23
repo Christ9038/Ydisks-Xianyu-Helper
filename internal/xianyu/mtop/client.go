@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"xianyu-go/internal/xianyu"
@@ -69,46 +68,12 @@ type ClientImpl struct {
 	SoldOrdersURL  string
 	ItemDetailURL  string
 	LoginUserURL   string
-	TokenExecutor  TokenRequestExecutor
 }
 
-type TokenBrowserRequest struct {
-	URL            string
-	Body           string
-	Cookies        string
-	CookieSnapshot []cookierefresh.BrowserCookie
-}
-
-type TokenBrowserResponse struct {
-	Status                 int
-	Body                   []byte
-	UpdatedCookies         string
-	CookieSnapshot         []cookierefresh.BrowserCookie
-	CookieSnapshotComplete bool // true 表示 CookieSnapshot 是响应后的权威完整 Jar，空切片也代表全部删除
-	CookieStateChanged     bool // true 表示响应明确把不完整扁平 Cookie 更新或删除到了空值
-}
-
-type TokenRequestExecutor interface {
-	ExecuteTokenRequest(context.Context, TokenBrowserRequest) (*TokenBrowserResponse, error)
-}
-
-var defaultTokenExecutor struct {
-	sync.RWMutex
-	value TokenRequestExecutor
-}
-
-func SetDefaultTokenRequestExecutor(executor TokenRequestExecutor) {
-	defaultTokenExecutor.Lock()
-	defaultTokenExecutor.value = executor
-	defaultTokenExecutor.Unlock()
-}
-
-// NewClient 构造默认 HTTP 实现的非零 ClientImpl（调用方多为持有 Client 接口字段）。
+// NewClient 构造纯 Go HTTP 的 MTOP 客户端。Chromium 只用于读取本机指纹
+// 和处理滑块，不能成为登录、续期、token 或 WebSocket 的传输层。
 func NewClient() *ClientImpl {
-	defaultTokenExecutor.RLock()
-	executor := defaultTokenExecutor.value
-	defaultTokenExecutor.RUnlock()
-	return &ClientImpl{TokenExecutor: executor}
+	return &ClientImpl{}
 }
 
 // 编译期保证 *ClientImpl 实现 Client 接口。
@@ -119,7 +84,7 @@ type RefreshResult struct {
 	AccessToken            string                        // 用于 WS /reg 注册
 	AccessTokenExpireAt    int64                         // 服务端 accessTokenExpiredTime 归一化后的 Unix 秒
 	UpdatedCookies         string                        // 合并 Set-Cookie 后的新 cookie 字符串（无变化则与入参相同）
-	CookieSnapshot         []cookierefresh.BrowserCookie // 浏览器执行 token 请求后得到的完整 Cookie Jar
+	CookieSnapshot         []cookierefresh.BrowserCookie // token 请求后的完整 Cookie Jar
 	CookieSnapshotComplete bool                          // true 表示快照权威完整；空切片代表 Cookie Jar 已被清空
 	CookieStateChanged     bool                          // true 表示本次响应明确更新或删除了 Cookie（包括更新后为空）
 }

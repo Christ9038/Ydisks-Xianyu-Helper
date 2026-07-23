@@ -147,7 +147,7 @@ func TestConfirmShipmentQuarantinesKnownRemoteSuccessWhenLocalPersistenceFails(t
 	}
 }
 
-func TestConfirmShipmentKeepsFlatMockFallbackWhenSessionUnchanged(t *testing.T) {
+func TestConfirmShipmentKeepsAuthoritativeSnapshotWhenSessionUnchanged(t *testing.T) {
 	store, cleanup := newAutomationTestStore(t)
 	defer cleanup()
 	ctx := context.Background()
@@ -173,14 +173,50 @@ func TestConfirmShipmentKeepsFlatMockFallbackWhenSessionUnchanged(t *testing.T) 
 	if getErr != nil {
 		t.Fatal(getErr)
 	}
+	if detail.Value != initial {
+		t.Fatalf("完整 Jar 未变化时不得被扁平/mock 返回覆盖: %q", detail.Value)
+	}
+	if snapshot, ok := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); !ok || len(snapshot) != 2 {
+		t.Fatalf("完整 Jar 未变化时必须继续保留: ok=%v snapshot=%+v metadata=%s", ok, snapshot, detail.MetadataJSON)
+	}
+	if !strings.Contains(detail.MetadataJSON, `"preserved":true`) {
+		t.Fatalf("保留 snapshot 时丢失其他 metadata: %s", detail.MetadataJSON)
+	}
+	if len(sender.cookieUpdates) != 0 {
+		t.Fatalf("被忽略的扁平/mock 返回不得同步运行实例: %+v", sender.cookieUpdates)
+	}
+}
+
+func TestConfirmShipmentKeepsFlatMockFallbackWithoutSnapshot(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	initial := "unb=123; _m_h5_tk=old_1;"
+	if err := store.Cookies.UpdateRenewalCookie(ctx, "cid", initial, `{"preserved":true}`, 1); err != nil {
+		t.Fatal(err)
+	}
+	updated := "unb=123; _m_h5_tk=mock_new_2;"
+	sender := &testSender{}
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	center.SetMTop(&fakeMTop{consignOk: false, consignRet: []string{"FAIL_SHIP"}, consignUpdated: updated})
+	err := center.confirmShipment(ctx, Task{
+		AccountID: "cid", OrderID: "flat-mock-fallback", ForceConfirmShipment: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "FAIL_SHIP") {
+		t.Fatalf("mock 业务失败应保留原返回语义: %v", err)
+	}
+	detail, getErr := store.Cookies.GetDetails(ctx, "cid")
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
 	if detail.Value != updated {
-		t.Fatalf("session 未 changed 时未保留扁平/mock 写回路径: %q", detail.Value)
+		t.Fatalf("无完整 Jar 时未保留扁平/mock 写回路径: %q", detail.Value)
 	}
 	if _, ok := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); ok {
 		t.Fatalf("扁平 mock 结果不得伪装成权威 Jar: %s", detail.MetadataJSON)
 	}
 	if !strings.Contains(detail.MetadataJSON, `"preserved":true`) {
-		t.Fatalf("清理旧 snapshot 时丢失其他 metadata: %s", detail.MetadataJSON)
+		t.Fatalf("扁平写回时丢失其他 metadata: %s", detail.MetadataJSON)
 	}
 	if len(sender.cookieUpdates) != 1 || sender.cookieUpdates[0] != updated {
 		t.Fatalf("扁平/mock 更新未同步运行实例: %+v", sender.cookieUpdates)

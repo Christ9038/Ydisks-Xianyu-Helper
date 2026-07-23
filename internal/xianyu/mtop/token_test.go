@@ -20,111 +20,6 @@ import (
 
 const testCookiesWithUnb = "unb=123; _m_h5_tk=oldtoken_1;"
 
-type recordingTokenExecutor struct {
-	requests  []TokenBrowserRequest
-	responses []*TokenBrowserResponse
-}
-
-func (e *recordingTokenExecutor) ExecuteTokenRequest(_ context.Context, req TokenBrowserRequest) (*TokenBrowserResponse, error) {
-	e.requests = append(e.requests, req)
-	if len(e.responses) == 0 {
-		return nil, fmt.Errorf("unexpected token request")
-	}
-	response := e.responses[0]
-	e.responses = e.responses[1:]
-	return response, nil
-}
-
-func TestRefreshTokenUsesBrowserExecutor(t *testing.T) {
-	snapshot := []cookierefresh.BrowserCookie{{Name: "unb", Value: "123", Domain: ".goofish.com", Path: "/", Secure: true}}
-	executor := &recordingTokenExecutor{responses: []*TokenBrowserResponse{{
-		Status:         http.StatusOK,
-		Body:           []byte(`{"ret":["SUCCESS::调用成功"],"data":{"accessToken":"browser-token"}}`),
-		UpdatedCookies: testCookiesWithUnb + " x5sec=fresh;",
-		CookieSnapshot: snapshot,
-	}}}
-	client := &ClientImpl{TokenExecutor: executor}
-	result, err := client.RefreshTokenWithDeviceIDContext(context.Background(), testCookiesWithUnb, "permanent-device")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.AccessToken != "browser-token" || !strings.Contains(result.UpdatedCookies, "x5sec=fresh") {
-		t.Fatalf("result=%+v", result)
-	}
-	if result.CookieSnapshotComplete || result.CookieSnapshot != nil {
-		t.Fatalf("未声明完整的浏览器快照不得冒充权威 Jar: %+v", result)
-	}
-	if len(executor.requests) != 1 {
-		t.Fatalf("browser requests=%d", len(executor.requests))
-	}
-	req := executor.requests[0]
-	if !strings.HasPrefix(req.URL, TokenAPI+"?") || !strings.Contains(req.Body, "permanent-device") || req.Cookies != testCookiesWithUnb {
-		t.Fatalf("browser request=%+v", req)
-	}
-}
-
-func TestRefreshTokenWithCredentialPassesBrowserSnapshot(t *testing.T) {
-	snapshot := []cookierefresh.BrowserCookie{
-		{Name: "unb", Value: "123", Domain: ".goofish.com", Path: "/", Secure: true},
-		{Name: "sid", Value: "scoped", Domain: "h5api.m.goofish.com", Path: "/h5", HTTPOnly: true, Secure: true},
-	}
-	executor := &recordingTokenExecutor{responses: []*TokenBrowserResponse{{
-		Status:         http.StatusOK,
-		Body:           []byte(`{"ret":["SUCCESS::调用成功"],"data":{"accessToken":"scoped-token"}}`),
-		UpdatedCookies: "unb=123; sid=scoped",
-		CookieSnapshot: snapshot,
-	}}}
-	client := &ClientImpl{TokenExecutor: executor}
-	result, err := client.RefreshTokenWithCredentialContext(context.Background(), testCookiesWithUnb, "device", snapshot)
-	if err != nil || result.AccessToken != "scoped-token" {
-		t.Fatalf("result=%+v err=%v", result, err)
-	}
-	if len(executor.requests) != 1 || len(executor.requests[0].CookieSnapshot) != 2 {
-		t.Fatalf("完整 Cookie 快照未传给浏览器执行器: %+v", executor.requests)
-	}
-}
-
-func TestRefreshTokenContextInheritsAndWritesCookieSession(t *testing.T) {
-	initial := []cookierefresh.BrowserCookie{
-		{Name: "unb", Value: "123", Domain: ".goofish.com", Path: "/", Secure: true},
-		{Name: "_m_h5_tk", Value: "session-old_1", Domain: ".goofish.com", Path: "/", Secure: true},
-		{Name: "api_only", Value: "secret", Domain: "h5api.m.goofish.com", Path: "/h5", Secure: true, HTTPOnly: true},
-	}
-	refreshed := []cookierefresh.BrowserCookie{
-		{Name: "unb", Value: "123", Domain: ".goofish.com", Path: "/", Secure: true},
-		{Name: "_m_h5_tk", Value: "session-new_9", Domain: ".goofish.com", Path: "/", Secure: true},
-		{Name: "api_only", Value: "rotated", Domain: "h5api.m.goofish.com", Path: "/h5", Secure: true, HTTPOnly: true},
-	}
-	executor := &recordingTokenExecutor{responses: []*TokenBrowserResponse{{
-		Status:                 http.StatusOK,
-		Body:                   []byte(`{"ret":["SUCCESS::调用成功"],"data":{"accessToken":"context-token"}}`),
-		UpdatedCookies:         "must-not-replace-authoritative-session=1",
-		CookieSnapshot:         refreshed,
-		CookieSnapshotComplete: true,
-	}}}
-	ctx, session := WithCookieSnapshot(context.Background(), initial)
-	explicitWrong := []cookierefresh.BrowserCookie{{Name: "unb", Value: "999", Domain: ".goofish.com", Path: "/", Secure: true}}
-	result, err := (&ClientImpl{TokenExecutor: executor}).RefreshTokenWithCredentialContext(
-		ctx, "unb=fallback; _m_h5_tk=fallback_1", "device", explicitWrong,
-	)
-	if err != nil || result.AccessToken != "context-token" {
-		t.Fatalf("result=%+v err=%v", result, err)
-	}
-	if len(executor.requests) != 1 || len(executor.requests[0].CookieSnapshot) != len(initial) {
-		t.Fatalf("executor did not inherit context snapshot: %+v", executor.requests)
-	}
-	if got := protocol.TransCookies(executor.requests[0].Cookies)["_m_h5_tk"]; got != "session-old_1" {
-		t.Fatalf("executor flat cookies did not inherit context: %q", executor.requests[0].Cookies)
-	}
-	canonical, gotSnapshot, changed := session.State()
-	if !changed || !strings.Contains(canonical, "_m_h5_tk=session-new_9") || len(gotSnapshot) != len(refreshed) {
-		t.Fatalf("session was not written back: canonical=%q snapshot=%+v changed=%v", canonical, gotSnapshot, changed)
-	}
-	if !result.CookieSnapshotComplete || !strings.Contains(result.UpdatedCookies, "_m_h5_tk=session-new_9") {
-		t.Fatalf("result did not reflect authoritative context session: %+v", result)
-	}
-}
-
 func TestRefreshTokenHTTPUsesCookieSessionScopes(t *testing.T) {
 	initial := []cookierefresh.BrowserCookie{
 		{Name: "unb", Value: "123", Domain: ".goofish.com", Path: "/", Secure: true},
@@ -167,29 +62,6 @@ func TestRefreshTokenHTTPUsesCookieSessionScopes(t *testing.T) {
 	canonical, _, changed := session.State()
 	if !changed || !strings.Contains(canonical, "_m_h5_tk=document-new_9") || !strings.Contains(result.UpdatedCookies, "_m_h5_tk=document-new_9") {
 		t.Fatalf("canonical=%q result=%+v changed=%v", canonical, result, changed)
-	}
-}
-
-func TestRefreshTokenAllowsSnapshotOnlyCredential(t *testing.T) {
-	snapshot := []cookierefresh.BrowserCookie{
-		{Name: "unb", Value: "123", Domain: ".goofish.com", Path: "/", Secure: true},
-		{Name: "_m_h5_tk", Value: "snapshot-token_1", Domain: ".goofish.com", Path: "/", Secure: true},
-	}
-	executor := &recordingTokenExecutor{responses: []*TokenBrowserResponse{{
-		Status:                 http.StatusOK,
-		Body:                   []byte(`{"ret":["SUCCESS::调用成功"],"data":{"accessToken":"snapshot-only"}}`),
-		UpdatedCookies:         "unb=123; _m_h5_tk=snapshot-token_1",
-		CookieSnapshot:         snapshot,
-		CookieSnapshotComplete: true,
-	}}}
-	result, err := (&ClientImpl{TokenExecutor: executor}).RefreshTokenWithCredentialContext(
-		context.Background(), "", "device", snapshot,
-	)
-	if err != nil || result.AccessToken != "snapshot-only" {
-		t.Fatalf("result=%+v err=%v", result, err)
-	}
-	if len(executor.requests) != 1 || executor.requests[0].Cookies != "" {
-		t.Fatalf("snapshot-only request=%+v", executor.requests)
 	}
 }
 
@@ -347,25 +219,21 @@ func TestRefreshTokenExhaustionClearsOfficialMTopCookies(t *testing.T) {
 		{Name: "_m_h5_tk_enc", Value: "enc", Domain: ".m.goofish.com", Path: "/"},
 		{Name: "_m_h5_tk", Value: "scoped", Domain: ".goofish.com", Path: "/im"},
 	}
-	responses := make([]*TokenBrowserResponse, officialMTopMaxAttempts)
-	for i := range responses {
-		responses[i] = &TokenBrowserResponse{
-			Status:                 http.StatusOK,
-			Body:                   []byte(`{"ret":["FAIL_SYS_TOKEN_EXOIRED::令牌过期"]}`),
-			UpdatedCookies:         "unb=123; _m_h5_c=c; _m_h5_tk=tk; _m_h5_tk_enc=enc; keep=yes",
-			CookieSnapshot:         snapshot,
-			CookieSnapshotComplete: true,
-		}
-	}
-	executor := &recordingTokenExecutor{responses: responses}
-	result, err := (&ClientImpl{TokenExecutor: executor}).RefreshTokenWithCredentialContext(
-		context.Background(), testCookiesWithUnb, "did", snapshot,
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		fmt.Fprint(w, `{"ret":["FAIL_SYS_TOKEN_EXOIRED::令牌过期"]}`)
+	}))
+	defer server.Close()
+	ctx, _ := WithCookieSnapshot(context.Background(), snapshot)
+	result, err := (&ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}).RefreshTokenWithCredentialContext(
+		ctx, testCookiesWithUnb, "did", snapshot,
 	)
 	if err == nil || !strings.Contains(err.Error(), "登录凭证已失效") {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	if len(executor.requests) != officialMTopMaxAttempts {
-		t.Fatalf("requests=%d want %d", len(executor.requests), officialMTopMaxAttempts)
+	if requests.Load() != officialMTopMaxAttempts {
+		t.Fatalf("requests=%d want %d", requests.Load(), officialMTopMaxAttempts)
 	}
 	for _, name := range []string{"_m_h5_c=", "_m_h5_tk_enc="} {
 		if strings.Contains(result.UpdatedCookies, name) {
@@ -471,13 +339,15 @@ func TestRefreshTokenPreservesExplicitFlatDeletionOnParseError(t *testing.T) {
 }
 
 func TestRefreshTokenSessionExpiredDoesNotUseTokenRetry(t *testing.T) {
-	executor := &recordingTokenExecutor{responses: []*TokenBrowserResponse{{
-		Status: http.StatusOK,
-		Body:   []byte(`{"ret":["FAIL_SYS_SESSION_EXPIRED::会话过期"]}`),
-	}}}
-	_, err := (&ClientImpl{TokenExecutor: executor}).RefreshTokenContext(context.Background(), testCookiesWithUnb)
-	if err == nil || len(executor.requests) != 1 {
-		t.Fatalf("err=%v requests=%d want 1", err, len(executor.requests))
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		fmt.Fprint(w, `{"ret":["FAIL_SYS_SESSION_EXPIRED::会话过期"]}`)
+	}))
+	defer server.Close()
+	_, err := (&ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}).RefreshTokenContext(context.Background(), testCookiesWithUnb)
+	if err == nil || requests.Load() != 1 {
+		t.Fatalf("err=%v requests=%d want 1", err, requests.Load())
 	}
 }
 

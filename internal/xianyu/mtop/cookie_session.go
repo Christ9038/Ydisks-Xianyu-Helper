@@ -19,8 +19,8 @@ const (
 
 type cookieSessionContextKey struct{}
 
-// CookieSession carries an authoritative browser Cookie Jar through one MTOP
-// workflow. It lets direct Go HTTP calls reproduce the browser split between
+// CookieSession carries an authoritative Cookie Jar through one MTOP workflow.
+// It lets direct Go HTTP calls reproduce the browser split between
 // document cookies used for signing and cookies scoped to the request URL.
 // The same session absorbs every Set-Cookie before response-body processing,
 // so callers can persist rotations and deletions even when parsing later fails.
@@ -45,9 +45,9 @@ func WithCookieSnapshot(ctx context.Context, snapshot []cookierefresh.BrowserCoo
 }
 
 // WithFlatCookieSession carries a legacy flat Cookie header without claiming
-// that it is a complete browser Jar. Response Set-Cookie values are still
+// that it is a complete Cookie Jar. Response Set-Cookie values are still
 // observable and persistable, but callers must keep metadata snapshot-free
-// until Chromium supplies an authoritative Jar.
+// until a protocol flow supplies an authoritative Jar.
 func WithFlatCookieSession(ctx context.Context, cookies string) (context.Context, *CookieSession) {
 	session := &CookieSession{flat: cookies}
 	return context.WithValue(ctx, cookieSessionContextKey{}, session), session
@@ -77,8 +77,8 @@ func cookieSessionFromContext(ctx context.Context) *CookieSession {
 	return session
 }
 
-// CookieSessionFromContext exposes the operation-scoped session to browser
-// fallbacks that can replace it with Chromium's final authoritative Jar.
+// CookieSessionFromContext exposes the operation-scoped session to legacy
+// helpers that may replace it with a final authoritative Jar.
 func CookieSessionFromContext(ctx context.Context) *CookieSession {
 	return cookieSessionFromContext(ctx)
 }
@@ -92,8 +92,7 @@ func (s *CookieSession) Snapshot() []cookierefresh.BrowserCookie {
 	return snapshot
 }
 
-// ReplaceSnapshot records Chromium's final complete Jar, including an
-// explicitly empty one.
+// ReplaceSnapshot records a final complete Jar, including an explicitly empty one.
 func (s *CookieSession) ReplaceSnapshot(snapshot []cookierefresh.BrowserCookie) {
 	if snapshot == nil {
 		snapshot = []cookierefresh.BrowserCookie{}

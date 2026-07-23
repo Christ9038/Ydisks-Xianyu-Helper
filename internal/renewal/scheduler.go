@@ -7,13 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/big"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
-	"xianyu-go/internal/browser"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
@@ -21,17 +18,13 @@ import (
 )
 
 const (
-	loginRenewInterval       = 600 * time.Second
-	cookiesRefreshInterval   = 600 * time.Second
-	apiCookieRenewInterval   = 3600 * time.Second
-	accountRequestInterval   = time.Second
-	browserInitialDelayMax   = 30 * time.Minute
-	browserSuccessDelayMin   = 18 * time.Hour
-	browserSuccessDelayRange = 6 * time.Hour
-	disabledFailureLimit     = 10
-	sessionExpiredCooldown   = 300 * time.Second
-	passwordLoginCooldown    = 300 * time.Second
-	passwordErrorCooldown    = 5 * time.Hour
+	loginRenewInterval     = 600 * time.Second
+	cookiesRefreshInterval = 600 * time.Second
+	apiCookieRenewInterval = 3600 * time.Second
+	accountRequestInterval = time.Second
+	sessionExpiredCooldown = 300 * time.Second
+	passwordLoginCooldown  = 300 * time.Second
+	passwordErrorCooldown  = 5 * time.Hour
 )
 
 const (
@@ -51,11 +44,6 @@ type accountRestarter interface {
 	Restart(ctx context.Context, cookieID string) error
 }
 
-type BrowserRenewer interface {
-	BrowserQuickRenew(ctx context.Context, cookieID, cookieStr string, headless bool) (string, error)
-	CookiesRefreshSnapshot(ctx context.Context, cookieID, cookieStr string, snapshot []cookierefresh.BrowserCookie, headless bool) (string, []cookierefresh.BrowserCookie, bool, error)
-}
-
 type PasswordRefresher interface {
 	OnPasswordLoginRefresh(ctx context.Context, cookieID string) bool
 }
@@ -63,7 +51,6 @@ type PasswordRefresher interface {
 type Scheduler struct {
 	store     *db.Store
 	starter   AccountStarter
-	browser   BrowserRenewer
 	refresher PasswordRefresher
 	logger    *slog.Logger
 	mtop      *mtop.ClientImpl
@@ -71,34 +58,19 @@ type Scheduler struct {
 	cooldown  *CooldownManager
 }
 
-func NewScheduler(store *db.Store, starter AccountStarter, browser BrowserRenewer, refresher PasswordRefresher, logger *slog.Logger) *Scheduler {
+func NewScheduler(store *db.Store, starter AccountStarter, refresher PasswordRefresher, logger *slog.Logger) *Scheduler {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Scheduler{
 		store:     store,
 		starter:   starter,
-		browser:   browserRenewerOrNil(browser),
 		refresher: refresher,
 		logger:    logger,
 		mtop:      mtop.NewClient(),
 		api:       apirenew.Service{},
 		cooldown:  GlobalCooldown,
 	}
-}
-
-func browserRenewerOrNil(browser BrowserRenewer) BrowserRenewer {
-	if browser == nil {
-		return nil
-	}
-	v := reflect.ValueOf(browser)
-	switch v.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		if v.IsNil() {
-			return nil
-		}
-	}
-	return browser
 }
 
 func (s *Scheduler) Run(ctx context.Context) {
@@ -109,7 +81,9 @@ func (s *Scheduler) Run(ctx context.Context) {
 	// 官网静默插件只在页面/账号运行时启动时执行，不做每小时轮询。保留
 	// 调度器入口供显式兼容配置使用，但默认关闭。
 	go s.runFixed(ctx, "api_cookie_renew", apiCookieRenewEnabledSetting, apiCookieRenewIntervalSetting, false, apiCookieRenewInterval, s.executeAPICookieRenew)
-	go s.runFixed(ctx, "cookies_refresh", cookiesRefreshEnabledSetting, cookiesRefreshIntervalSetting, false, cookiesRefreshInterval, s.executeBrowserCookieRefresh)
+	// 兼容原 cookies_refresh 配置名，但执行同一套 Go HTTP auto-login
+	// 协议；Chromium 不参与普通 Cookie 续期。
+	go s.runFixed(ctx, "cookies_refresh", cookiesRefreshEnabledSetting, cookiesRefreshIntervalSetting, false, cookiesRefreshInterval, s.executeAPICookieRenew)
 }
 
 func (s *Scheduler) runFixed(ctx context.Context, name, settingKey, intervalKey string, defaultEnabled bool, defaultInterval time.Duration, fn func(context.Context)) {
@@ -177,14 +151,15 @@ func (s *Scheduler) loginRenewOne(ctx context.Context, batchID string, account d
 	}
 	res, callErr := s.mtop.CheckLoginStatusContext(mtopCtx, account.Value)
 
-	// Chromium 在收到响应头时就会应用 Set-Cookie。权威 session
+	// 对齐浏览器在响应头到达时立即应用 Set-Cookie 的时序。权威 session
 	// 因此必须在处理请求或解析错误之前持久化，否则下次请求会
 	// 从数据库回滚到旧 Jar。
 	updated := []string(nil)
-	sessionHandled := false
 	value, snapshot, changed := cookieSession.State()
+	// 完整 Jar 即使本轮没有变化也已经权威接管请求；不能因扁平 Cookie
+	// 的顺序或尾分号不同回退写入并清掉快照。
+	sessionHandled := snapshot != nil
 	if changed {
-		sessionHandled = true
 		updated = cookierefresh.ChangedCookieNames(account.Value, value)
 		metadata := cookierefresh.MetadataWithoutSnapshot(account.MetadataJSON)
 		if snapshot != nil {
@@ -270,6 +245,9 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 		s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: message, RenewMethod: "auto_login_plugin", DurationMS: time.Since(started).Milliseconds()})
 		return
 	}
+	if res.HasPending() {
+		s.watchPendingAPIRenew(account.ID, res)
+	}
 	stepDetails := make([]string, 0, len(res.StepDetails)+1)
 	for _, step := range res.StepDetails {
 		stepDetails = append(stepDetails, fmt.Sprintf("%s: http=%d business_ok=%v set_cookie=%d", step.Name, step.HTTPStatus, step.BusinessOK, step.SetCookieCount))
@@ -327,153 +305,51 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 	})
 }
 
-func (s *Scheduler) executeBrowserCookieRefresh(ctx context.Context) {
-	s.cleanupExpiredLogs(ctx)
-	batchID := newBatchID()
-	accounts, err := s.store.Cookies.AllRenewalAccounts(ctx)
-	if err != nil {
-		s.logger.Warn("cookies_refresh 加载账号失败", "err", err)
-		return
-	}
-	now := time.Now().Unix()
-	for _, account := range accounts {
-		if !account.Enabled && account.DisableReason == db.DisableReasonManual {
-			continue
-		}
-		if !account.Enabled && s.disabledAccountShouldSkip(ctx, account.ID) {
-			continue
-		}
-		schedule, err := s.store.Renewal.GetCookieRefreshSchedule(ctx, account.ID)
-		if err != nil {
-			expireAt := now + int64(randomDuration(browserInitialDelayMax).Seconds())
-			schedule = &db.CookieRefreshSchedule{CookieID: account.ID, ExpireAt: expireAt, LastStatus: "initialized"}
-			_ = s.store.Renewal.UpsertCookieRefreshSchedule(ctx, *schedule)
-			_ = s.store.Renewal.AddBrowserCookieRenewLog(ctx, db.RenewalLog{
-				BatchID:      batchID,
-				CookieID:     account.ID,
-				Status:       "initialized",
-				Message:      "首次初始化续期时间",
-				NextExpireAt: expireAt,
-			})
-			continue
-		}
-		if schedule.Disabled || schedule.ExpireAt > now {
-			_ = s.store.Renewal.AddBrowserCookieRenewLog(ctx, db.RenewalLog{
-				BatchID:      batchID,
-				CookieID:     account.ID,
-				Status:       "success",
-				Message:      fmt.Sprintf("未到期，跳过，剩余 %d 秒", schedule.ExpireAt-now),
-				NextExpireAt: schedule.ExpireAt,
-			})
-			continue
-		}
-		s.browserCookieRefreshOne(ctx, batchID, account, *schedule)
-	}
-}
-
-func (s *Scheduler) browserCookieRefreshOne(ctx context.Context, batchID string, account db.RenewalAccount, schedule db.CookieRefreshSchedule) {
-	credentialUnlock := s.store.LockAccountCredentials(account.ID)
-	credentialLocked := true
-	defer func() {
-		if credentialLocked {
-			credentialUnlock()
-		}
-	}()
-	started := time.Now()
-	latest, err := s.reloadRenewalAccount(ctx, account)
-	if err != nil {
-		s.logger.Warn("cookies_refresh 重读账号凭证失败", "account", account.ID, "err", err)
-		return
-	}
-	account = latest
-	if !account.Enabled && account.DisableReason == db.DisableReasonManual {
-		return
-	}
-	if s.browser == nil {
-		schedule.LastStatus = "failed"
-		schedule.LastErrorMessage = "浏览器自动化未启用"
-		_ = s.store.Renewal.UpsertCookieRefreshSchedule(ctx, schedule)
-		_ = s.store.Renewal.AddBrowserCookieRenewLog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: schedule.LastErrorMessage, RenewMethod: "browser", StepDetails: "browser disabled", DurationMS: time.Since(started).Milliseconds()})
-		return
-	}
-	runCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	oldSnapshot := cookierefresh.SnapshotFromMetadata(account.MetadataJSON)
-	newCookies, newSnapshot, officialReload, err := s.browser.CookiesRefreshSnapshot(runCtx, account.ID, account.Value, oldSnapshot, browser.ResolveHeadless(account.ShowBrowser))
-	if newSnapshot == nil && err == nil {
-		err = errors.New("浏览器未返回权威 Cookie Jar")
-	}
-	if newSnapshot != nil {
-		metadata := cookierefresh.MetadataWithSnapshot(account.MetadataJSON, newSnapshot)
-		if saveErr := s.store.Cookies.UpdateRenewalCookie(ctx, account.ID, newCookies, metadata, time.Now().Unix()); saveErr != nil {
-			if err == nil {
-				err = fmt.Errorf("保存浏览器最终 Cookie Jar: %w", saveErr)
-			} else {
-				err = errors.Join(err, fmt.Errorf("保存浏览器最终 Cookie Jar: %w", saveErr))
-			}
-		}
-	}
-	if err != nil {
-		schedule.ConsecutiveFailures++
-		schedule.LastStatus = "failed"
-		schedule.LastError = err.Error()
-		schedule.LastErrorMessage = err.Error()
-		_ = s.store.Renewal.UpsertCookieRefreshSchedule(ctx, schedule)
-		_ = s.store.Renewal.AddBrowserCookieRenewLog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: err.Error(), NextExpireAt: schedule.ExpireAt, RenewMethod: "browser", StepDetails: fmt.Sprintf("snapshot=%v page_load=1 plugin_call=true", len(oldSnapshot) > 0), DurationMS: time.Since(started).Milliseconds(), RequestCount: 1})
-		s.logger.Warn("cookies_refresh 失败", "account", account.ID, "err", err)
-		return
-	}
-	updated := cookierefresh.ChangedSnapshotLabels(oldSnapshot, newSnapshot)
-	if !account.Enabled {
-		if err := s.store.Cookies.SetStatusWithReason(ctx, account.ID, true, ""); err != nil {
-			s.logger.Warn("cookies_refresh 自动启用账号失败", "account", account.ID, "err", err)
-		} else {
-			credentialUnlock()
-			credentialLocked = false
-			if s.starter != nil {
-				if err := s.starter.Start(ctx, account.ID, newCookies); err != nil {
-					s.logger.Warn("cookies_refresh 启动账号失败", "account", account.ID, "err", err)
-				}
-			}
-		}
-	} else if officialReload {
-		credentialUnlock()
-		credentialLocked = false
-		if restarter, ok := s.starter.(accountRestarter); ok {
-			if err := restarter.Restart(ctx, account.ID); err != nil {
-				s.logger.Warn("cookies_refresh 重建消息连接失败", "account", account.ID, "err", err)
-				_ = s.store.Renewal.AddBrowserCookieRenewLog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "重建消息连接失败: " + err.Error(), UpdatedCookieNames: updated, RenewMethod: "browser", DurationMS: time.Since(started).Milliseconds(), RequestCount: 1})
-				return
-			}
-		}
-	}
-	nextExpire := time.Now().Add(browserSuccessDelay()).Unix()
-	schedule.Disabled = false
-	schedule.ConsecutiveFailures = 0
-	schedule.LastError = ""
-	schedule.LastStatus = "success"
-	schedule.LastErrorMessage = ""
-	schedule.LastRefreshAt = time.Now().Unix()
-	schedule.ExpireAt = nextExpire
-	_ = s.store.Renewal.UpsertCookieRefreshSchedule(ctx, schedule)
-	_ = s.store.Renewal.AddBrowserCookieRenewLog(ctx, db.RenewalLog{
-		BatchID:            batchID,
-		CookieID:           account.ID,
-		Status:             "success",
-		Message:            fmt.Sprintf("页面校验通过，全量获取到 %d 个浏览器Cookie", len(newSnapshot)),
-		UpdatedCookieNames: updated,
-		NextExpireAt:       nextExpire,
-		RenewMethod:        "browser",
-		StepDetails:        fmt.Sprintf("snapshot=%v page_load=1 plugin_call=true", len(oldSnapshot) > 0),
-		DurationMS:         time.Since(started).Milliseconds(),
-		RequestCount:       1,
-	})
-}
-
 func (s *Scheduler) renewAPI(ctx context.Context, cookieStr string, snapshot []cookierefresh.BrowserCookie) (*apirenew.Result, error) {
 	runCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	return s.api.RenewAPIFirst(runCtx, cookieStr, snapshot)
+}
+
+func (s *Scheduler) watchPendingAPIRenew(cookieID string, result *apirenew.Result) {
+	if result == nil || !result.HasPending() || s.store == nil || s.store.Cookies == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+		defer cancel()
+		late, waitErr := result.AwaitPending(ctx)
+		if late == nil {
+			if waitErr != nil {
+				s.logger.Warn("等待定时静默续期底层响应失败", "account", cookieID, "err", waitErr)
+			}
+			return
+		}
+		unlock := s.store.LockAccountCredentials(cookieID)
+		defer unlock()
+		detail, getErr := s.store.Cookies.GetDetails(ctx, cookieID)
+		if getErr != nil || detail == nil {
+			if getErr == nil {
+				getErr = db.ErrNotFound
+			}
+			s.logger.Warn("保存定时静默续期迟到 Cookie 前读取账号失败", "account", cookieID, "err", getErr)
+			return
+		}
+		newCookies, metadata, changed := apirenew.RebaseResponseCookies(detail.Value, detail.MetadataJSON, late)
+		if changed {
+			if saveErr := s.store.Cookies.UpdateRenewalCookie(ctx, cookieID, newCookies, metadata, time.Now().Unix()); saveErr != nil {
+				s.logger.Warn("保存定时静默续期迟到 Cookie 失败", "account", cookieID, "err", saveErr)
+				return
+			}
+			if s.store.Tokens != nil {
+				_ = s.store.Tokens.Clear(ctx, cookieID)
+			}
+			s.logger.Info("已异步接收定时静默续期迟到 Cookie", "account", cookieID)
+		}
+		if waitErr != nil {
+			s.logger.Warn("定时静默续期底层响应失败，已保存响应 Cookie", "account", cookieID, "err", waitErr)
+		}
+	}()
 }
 
 func (s *Scheduler) reloadRenewalAccount(ctx context.Context, account db.RenewalAccount) (db.RenewalAccount, error) {
@@ -545,19 +421,6 @@ func (s *Scheduler) isSessionCooled(cookieID string) bool {
 	return ok
 }
 
-func (s *Scheduler) disabledAccountShouldSkip(ctx context.Context, cookieID string) bool {
-	statuses, err := s.store.Renewal.RecentBrowserCookieRenewStatuses(ctx, cookieID, disabledFailureLimit)
-	if err != nil || len(statuses) < disabledFailureLimit {
-		return false
-	}
-	for _, status := range statuses {
-		if status != "failed" {
-			return false
-		}
-	}
-	return true
-}
-
 func (s *Scheduler) settingEnabled(ctx context.Context, key string, defaultEnabled bool) bool {
 	if s.store == nil || s.store.Settings == nil {
 		return defaultEnabled
@@ -607,21 +470,6 @@ func (s *Scheduler) settingInt(ctx context.Context, key string, defaultValue int
 		return defaultValue
 	}
 	return n
-}
-
-func browserSuccessDelay() time.Duration {
-	return browserSuccessDelayMin + randomDuration(browserSuccessDelayRange)
-}
-
-func randomDuration(max time.Duration) time.Duration {
-	if max <= 0 {
-		return 0
-	}
-	n, err := crand.Int(crand.Reader, big.NewInt(int64(max)))
-	if err != nil {
-		return 0
-	}
-	return time.Duration(n.Int64())
 }
 
 func newBatchID() string {

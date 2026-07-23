@@ -763,10 +763,11 @@ func (c *Center) confirmShipment(ctx context.Context, task Task) error {
 	var persistenceErrs []error
 	runtimeCookie := ""
 	runtimeCookieChanged := false
-	sessionHandled := false
 	value, snapshot, changed := cookieSession.State()
+	// 完整 Jar 已接管时，即使响应没有 Cookie 变化，也不能因扁平字符串
+	// 格式差异回退覆盖并清除 Jar。
+	sessionHandled := snapshot != nil
 	if changed {
-		sessionHandled = true
 		metadata := cookierefresh.MetadataWithoutSnapshot(detail.MetadataJSON)
 		if snapshot != nil {
 			metadata = cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, snapshot)

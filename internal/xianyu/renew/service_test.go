@@ -490,6 +490,71 @@ func TestRenewBusinessOKMatchesOfficialPlugin(t *testing.T) {
 	}
 }
 
+func TestRenewAPIFirstReturnsAtPromiseTimeoutAndKeepsLateCookies(t *testing.T) {
+	useTestDesktopFingerprint(t)
+	var completed atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(80 * time.Millisecond)
+		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: futureMillis(time.Hour), Path: "/"})
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+		completed.Store(true)
+	}))
+	defer srv.Close()
+	svc := Service{
+		HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1,
+		PromiseTimeout: 20 * time.Millisecond,
+	}
+	started := time.Now()
+	res, err := svc.RenewAPIFirst(context.Background(), "havana_lgc_exp="+futureMillis(time.Hour))
+	if err != nil || res == nil || !res.HasPending() {
+		t.Fatalf("result=%+v err=%v", res, err)
+	}
+	if elapsed := time.Since(started); elapsed >= 70*time.Millisecond {
+		t.Fatalf("外层 Promise 没有按时返回: %s", elapsed)
+	}
+	if completed.Load() || len(res.SetCookies) != 0 || res.Success || res.NeedPasswordLogin {
+		t.Fatalf("超时瞬间不应伪造底层结果或要求重新登录: %+v completed=%v", res, completed.Load())
+	}
+	waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	late, lateErr := res.AwaitPending(waitCtx)
+	if lateErr != nil || late == nil || len(late.SetCookies) != 1 || !strings.Contains(late.NewCookies, "sdkSilent=") {
+		t.Fatalf("迟到响应 Cookie 丢失: result=%+v err=%v", late, lateErr)
+	}
+	if !completed.Load() || late.Success || late.NeedPasswordLogin {
+		t.Fatalf("底层请求应完成，但不得在 Promise 超时后触发成功 reload/重新登录: %+v completed=%v", late, completed.Load())
+	}
+}
+
+func TestRebaseResponseCookiesUsesLatestAuthoritativeJar(t *testing.T) {
+	current := []cookierefresh.BrowserCookie{
+		{Name: "unb", Value: "1", Domain: ".goofish.com", Path: "/", Secure: true},
+		{Name: "concurrent", Value: "kept", Domain: ".goofish.com", Path: "/", Secure: true},
+	}
+	metadata := cookierefresh.MetadataWithSnapshot(`{"note":"keep"}`, current)
+	late := &Result{
+		SetCookies:        []string{"sdkSilent=9999999999999; Domain=goofish.com; Path=/; Secure; HttpOnly"},
+		responseCookieURL: SilentHasLoginURL,
+	}
+	value, updatedMetadata, changed := RebaseResponseCookies("unb=1; concurrent=kept", metadata, late)
+	if !changed || !strings.Contains(value, "concurrent=kept") || !strings.Contains(value, "sdkSilent=9999999999999") {
+		t.Fatalf("迟到响应覆盖了并发 Cookie: value=%q changed=%v", value, changed)
+	}
+	snapshot, complete := cookierefresh.SnapshotFromMetadataOK(updatedMetadata)
+	if !complete {
+		t.Fatalf("权威快照被降级: %s", updatedMetadata)
+	}
+	var found bool
+	for _, cookie := range snapshot {
+		if cookie.Name == "sdkSilent" && cookie.HTTPOnly && cookie.Domain == ".goofish.com" {
+			found = true
+		}
+	}
+	if !found || !strings.Contains(updatedMetadata, `"note":"keep"`) {
+		t.Fatalf("迟到 Cookie 属性或其他 metadata 丢失: %+v metadata=%s", snapshot, updatedMetadata)
+	}
+}
+
 func TestRenewBodyLimit(t *testing.T) {
 	_, err := readRenewBody(strings.NewReader(strings.Repeat("x", maxRenewBodyBytes+1)))
 	if err == nil || !strings.Contains(err.Error(), fmt.Sprint(maxRenewBodyBytes>>20)) {

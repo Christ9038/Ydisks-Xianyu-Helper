@@ -235,7 +235,10 @@ func ApplySetCookies(snapshot []BrowserCookie, requestURL string, setCookies []s
 		if domain == "" {
 			domain = strings.ToLower(target.Hostname())
 		} else {
-			if !cookieDomainMatches(strings.ToLower(target.Hostname()), domain) {
+			// Domain 属性无论是否带前导点都表示域 Cookie；前导点按
+			// RFC 6265 应被忽略。不能复用已存 Cookie 的 host-only
+			// 匹配规则，否则 Domain=goofish.com 会被错误拒绝。
+			if !cookieDomainAttributeMatches(strings.ToLower(target.Hostname()), domain) {
 				// Chromium rejects a Domain attribute unrelated to the response host.
 				continue
 			}
@@ -300,6 +303,12 @@ func ApplySetCookies(snapshot []BrowserCookie, requestURL string, setCookies []s
 
 func snapshotKey(cookie BrowserCookie) string {
 	return cookie.Name + "\x00" + strings.ToLower(cookie.Domain) + "\x00" + cookie.Path + "\x00" + cookie.PartitionKey
+}
+
+func cookieDomainAttributeMatches(host, domain string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	base := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(domain)), ".")
+	return base != "" && (host == base || strings.HasSuffix(host, "."+base))
 }
 
 func cookieDomainMatches(host, domain string) bool {

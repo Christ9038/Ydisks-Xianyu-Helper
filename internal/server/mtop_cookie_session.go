@@ -36,8 +36,9 @@ func hasStoredCookieCredential(detail *db.CookieDetail) bool {
 
 // persistMTopCookieSessionLocked 原子保存业务 MTOP 响应后的完整 Cookie Jar。
 // 调用方必须持有账号凭证锁，并且 detail 必须是加锁后重读的最新记录。
-// handled 表示 session 已产生权威更新；此时即使保存失败，也不得再退回扁平
-// UpdatedCookies 写回，否则会清除或覆盖完整 Jar。
+// handled 表示本次请求由完整 Cookie Jar 接管，或 session 已产生可持久化更新；
+// 此时即使 Jar 未变化，也不得因扁平 Cookie 的顺序/尾分号差异退回
+// UpdatedCookies 写回，否则会把刚保存的完整 Jar 清掉。
 func (s *Server) persistMTopCookieSessionLocked(
 	ctx context.Context,
 	detail *db.CookieDetail,
@@ -48,6 +49,9 @@ func (s *Server) persistMTopCookieSessionLocked(
 	}
 	value, snapshot, changed := session.State()
 	if !changed {
+		if snapshot != nil {
+			return detail.Value, false, true, nil
+		}
 		return "", false, false, nil
 	}
 	metadata := cookierefresh.MetadataWithoutSnapshot(detail.MetadataJSON)

@@ -31,6 +31,10 @@ func TestRefreshOrdersDiscoversNewOrdersWithoutBrowser(t *testing.T) {
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if strings.Contains(req.URL.Query().Get("api"), "order.detail") {
+			body := `{"ret":["SUCCESS::调用成功"],"data":{"utArgs":{"orderStatus":"待发货"},"components":[{"render":"orderInfoVO","data":{"itemInfo":{"buyAmount":"2"},"priceInfo":{"amount":{"value":"19.90"}}}}]}}`
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+		}
 		body := `{"ret":["SUCCESS::调用成功"],"data":{"module":{"nextPage":"false","totalCount":"1","items":[{` +
 			`"commonData":{"orderId":"sold-new-1","itemId":"item-new","orderStatus":"待发货","inRefund":"false"},` +
 			`"buyerInfoVO":{"buyerId":"buyer-1","name":"张三","phone":"13800000000","address":"上海市"},` +
@@ -65,10 +69,14 @@ func TestMissingRefreshResultsAreCounted(t *testing.T) {
 	}
 }
 
-// TestRefreshSingleOrderNoBrowser 单订单刷新无浏览器时 503。
-func TestRefreshSingleOrderNoBrowser(t *testing.T) {
+// TestRefreshSingleOrderUsesGoMTop 单订单刷新不依赖浏览器。
+func TestRefreshSingleOrderUsesGoMTop(t *testing.T) {
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := `{"ret":["SUCCESS::调用成功"],"data":{"utArgs":{"orderStatus":"待发货"},"components":[{"render":"orderInfoVO","data":{"itemInfo":{"buyAmount":"2","specName":"套餐","specValue":"30天"},"priceInfo":{"amount":{"value":"19.90"}}}}]}}`
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	}))
 	ctx := context.Background()
 	store.DB.ExecContext(ctx, `INSERT INTO orders (order_id, item_id, cookie_id, order_status) VALUES ('ord-x','item1','acc1','2')`)
 	h := srv.Router()
@@ -78,8 +86,8 @@ func TestRefreshSingleOrderNoBrowser(t *testing.T) {
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("无浏览器应 503，got %d", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Go MTOP 刷新应成功，got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

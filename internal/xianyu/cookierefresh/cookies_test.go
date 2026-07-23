@@ -102,6 +102,18 @@ func TestApplySetCookiesPreservesAttributesAndDeletesExactScope(t *testing.T) {
 	}
 }
 
+func TestApplySetCookiesAcceptsDomainAttributeWithoutLeadingDot(t *testing.T) {
+	updated := ApplySetCookies(nil, "https://passport.goofish.com/ivCheckLogin.htm", []string{
+		"unb=777; Domain=goofish.com; Path=/; Secure; HttpOnly",
+	}, time.Now(), "https://goofish.com")
+	if len(updated) != 1 || updated[0].Domain != ".goofish.com" || !updated[0].Secure || !updated[0].HTTPOnly {
+		t.Fatalf("Domain 属性未按域 Cookie 处理: %+v", updated)
+	}
+	if got := CookieHeaderForURL(updated, "https://www.goofish.com/im", time.Now()); got != "unb=777" {
+		t.Fatalf("跨子域 Cookie header=%q", got)
+	}
+}
+
 func TestApplySetCookiesMaxAgeOverridesExpires(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	updated := ApplySetCookies(nil, "https://www.goofish.com/im", []string{

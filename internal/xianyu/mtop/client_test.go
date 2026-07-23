@@ -13,6 +13,12 @@ import (
 	"time"
 )
 
+func TestNewClientUsesGoHTTPByDefault(t *testing.T) {
+	if client := NewClient(); client == nil {
+		t.Fatal("默认 MTOP 客户端为空")
+	}
+}
+
 func TestRefreshTokenRetriesOnceWithUpdatedCookie(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

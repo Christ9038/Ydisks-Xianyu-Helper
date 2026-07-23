@@ -21,7 +21,7 @@ const officialMTopMaxAttempts = 5
 
 // RefreshToken 调用 mtop.taobao.idlemessage.pc.login.token 获取 accessToken。
 // 遇到 mtop 签名 token 过期时，按官网 lib-mtop 2.7.3 的 H5 流程最多执行
-// 5 次请求（含首次），每次先吸收浏览器 Cookie Jar 再重新签名。
+// 5 次请求（含首次），每次先吸收 Go Cookie Jar 再重新签名。
 func (c *ClientImpl) RefreshToken(cookiesStr string) (*RefreshResult, error) {
 	return c.RefreshTokenContext(context.Background(), cookiesStr)
 }
@@ -39,8 +39,8 @@ func (c *ClientImpl) RefreshTokenWithDeviceIDContext(ctx context.Context, cookie
 	return c.RefreshTokenWithCredentialContext(ctx, cookiesStr, deviceID, nil)
 }
 
-// RefreshTokenWithCredentialContext 在浏览器执行器可用时同时传入完整 Cookie
-// 快照，避免把不同 Domain/Path 的同名 Cookie 压成一个值后再注入 Chromium。
+// RefreshTokenWithCredentialContext 使用完整 Cookie 快照执行纯 Go HTTP 请求，
+// 避免把不同 Domain/Path 的同名 Cookie 压成一个值。
 func (c *ClientImpl) RefreshTokenWithCredentialContext(ctx context.Context, cookiesStr, deviceID string, cookieSnapshot []cookierefresh.BrowserCookie) (*RefreshResult, error) {
 	currentCookies := cookiesStr
 	currentSnapshot := cookierefresh.NormalizeSnapshot(cookieSnapshot)
@@ -60,7 +60,7 @@ func (c *ClientImpl) RefreshTokenWithCredentialContext(ctx context.Context, cook
 			currentSnapshotComplete = true
 		} else if attemptChanged {
 			// 只有扁平更新时无法把变化安全映射回既有 Domain/Path Jar；
-			// 必须降级为非权威状态，等待 Chromium 下次提供完整快照。
+			// 必须降级为非权威状态。
 			currentSnapshot = nil
 			currentSnapshotComplete = false
 		}
@@ -187,79 +187,43 @@ func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID 
 	requestURL := tokenURL + "?" + query
 	var raw []byte
 	var status int
-	updated := cookiesStr
+	var updated string
 	var snapshot []cookierefresh.BrowserCookie
 	snapshotComplete := false
 	stateChanged := false
-	if c.TokenExecutor != nil {
-		browserResp, execErr := c.TokenExecutor.ExecuteTokenRequest(ctx, TokenBrowserRequest{
-			URL: requestURL, Body: body, Cookies: cookiesStr, CookieSnapshot: cookieSnapshot,
-		})
-		if browserResp != nil {
-			raw, status = browserResp.Body, browserResp.Status
-			stateChanged = browserResp.CookieStateChanged
-			if browserResp.CookieStateChanged || browserResp.CookieSnapshotComplete || strings.TrimSpace(browserResp.UpdatedCookies) != "" {
-				updated = browserResp.UpdatedCookies
-			}
-			if browserResp.CookieSnapshotComplete {
-				snapshot = cookierefresh.NormalizeSnapshot(browserResp.CookieSnapshot)
-				if snapshot == nil {
-					snapshot = []cookierefresh.BrowserCookie{}
-				}
-				snapshotComplete = true
-				updated, _ = cookierefresh.ScopedCookieHeaderForRequest(snapshot, mtopDocumentURL, goofishTopSite, time.Now())
-			}
-			stateChanged = stateChanged || updated != cookiesStr || (snapshot != nil && !slices.Equal(snapshot, cookierefresh.NormalizeSnapshot(cookieSnapshot)))
-		}
-		if session := cookieSessionFromContext(ctx); session != nil && snapshot != nil {
-			session.replace(snapshot)
-			var sessionChanged bool
-			updated, snapshot, sessionChanged = session.State()
-			stateChanged = stateChanged || sessionChanged
-			snapshotComplete = true
-		}
-		if execErr != nil {
-			return "", 0, nil, updated, snapshot, "", status, snapshotComplete, stateChanged, fmt.Errorf("浏览器 token API 请求失败: %w", execErr)
-		}
-		if browserResp == nil {
-			return "", 0, nil, cookiesStr, nil, "", 0, false, false, fmt.Errorf("浏览器 token API 返回空响应")
-		}
-	} else {
-		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, strings.NewReader(body))
-		if reqErr != nil {
-			return "", 0, nil, cookiesStr, nil, "", 0, false, false, reqErr
-		}
-		setCommonHeaders(req, requestCookies)
-		req.Header.Set("Referer", "https://www.goofish.com/im")
-		resp, reqErr := hc.Do(req)
-		if reqErr != nil {
-			return "", 0, nil, cookiesStr, nil, "", 0, false, false, fmt.Errorf("token API 请求失败: %w", reqErr)
-		}
-		defer resp.Body.Close()
-		// Chromium applies Set-Cookie as soon as response headers arrive. Mirror
-		// that ordering so a body read/parse failure cannot discard credential
-		// rotation or deletion already issued by the server.
-		if session := cookieSessionFromContext(ctx); session != nil {
-			updated = absorbMTopResponseCookies(ctx, cookiesStr, resp)
-			var sessionChanged bool
-			_, snapshot, sessionChanged = session.State()
-			stateChanged = sessionChanged
-			snapshotComplete = snapshot != nil
-		} else if cookieSnapshot != nil {
-			snapshot = cookierefresh.ApplySetCookies(cookieSnapshot, requestURL, resp.Header.Values("Set-Cookie"), time.Now(), goofishTopSite)
-			updated, _ = cookierefresh.ScopedCookieHeaderForRequest(snapshot, mtopDocumentURL, goofishTopSite, time.Now())
-			stateChanged = !slices.Equal(snapshot, cookierefresh.NormalizeSnapshot(cookieSnapshot))
-			snapshotComplete = true
-		} else {
-			updated = absorbMTopResponseCookies(ctx, cookiesStr, resp)
-			stateChanged = updated != cookiesStr
-		}
-		raw, reqErr = readMTopBody(resp)
-		if reqErr != nil {
-			return "", 0, nil, updated, snapshot, "", resp.StatusCode, snapshotComplete, stateChanged, reqErr
-		}
-		status = resp.StatusCode
+	req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, strings.NewReader(body))
+	if reqErr != nil {
+		return "", 0, nil, cookiesStr, nil, "", 0, false, false, reqErr
 	}
+	setCommonHeaders(req, requestCookies)
+	req.Header.Set("Referer", "https://www.goofish.com/im")
+	resp, reqErr := hc.Do(req)
+	if reqErr != nil {
+		return "", 0, nil, cookiesStr, nil, "", 0, false, false, fmt.Errorf("token API 请求失败: %w", reqErr)
+	}
+	defer resp.Body.Close()
+	// Go CookieSession 在读取响应体前应用 Set-Cookie，避免解析失败时丢掉
+	// 服务端已经下发的凭证轮换或删除。
+	if session := cookieSessionFromContext(ctx); session != nil {
+		updated = absorbMTopResponseCookies(ctx, cookiesStr, resp)
+		var sessionChanged bool
+		_, snapshot, sessionChanged = session.State()
+		stateChanged = sessionChanged
+		snapshotComplete = snapshot != nil
+	} else if cookieSnapshot != nil {
+		snapshot = cookierefresh.ApplySetCookies(cookieSnapshot, requestURL, resp.Header.Values("Set-Cookie"), time.Now(), goofishTopSite)
+		updated, _ = cookierefresh.ScopedCookieHeaderForRequest(snapshot, mtopDocumentURL, goofishTopSite, time.Now())
+		stateChanged = !slices.Equal(snapshot, cookierefresh.NormalizeSnapshot(cookieSnapshot))
+		snapshotComplete = true
+	} else {
+		updated = absorbMTopResponseCookies(ctx, cookiesStr, resp)
+		stateChanged = updated != cookiesStr
+	}
+	raw, reqErr = readMTopBody(resp)
+	if reqErr != nil {
+		return "", 0, nil, updated, snapshot, "", resp.StatusCode, snapshotComplete, stateChanged, reqErr
+	}
+	status = resp.StatusCode
 
 	var res struct {
 		Ret  []string `json:"ret"`

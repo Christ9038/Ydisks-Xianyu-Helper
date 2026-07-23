@@ -2,7 +2,6 @@ package renewal
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -34,30 +33,6 @@ func newSchedulerTestStore(t *testing.T) (*db.Store, func()) {
 	return db.NewStore(d, db.DialectSQLite), func() { d.Close() }
 }
 
-type schedulerFakeBrowser struct {
-	quickCookies string
-	quickErr     error
-	quickCalls   int
-	quickInputs  []string
-}
-
-type schedulerRefreshBrowser struct {
-	refreshCalls   int
-	officialReload bool
-}
-
-func (f *schedulerRefreshBrowser) BrowserQuickRenew(context.Context, string, string, bool) (string, error) {
-	return "", errors.New("not implemented")
-}
-
-func (f *schedulerRefreshBrowser) CookiesRefreshSnapshot(_ context.Context, _ string, cookieStr string, snapshot []cookierefresh.BrowserCookie, _ bool) (string, []cookierefresh.BrowserCookie, bool, error) {
-	f.refreshCalls++
-	if snapshot == nil {
-		snapshot = cookierefresh.SnapshotFromCookieString(cookieStr, ".goofish.com")
-	}
-	return cookieStr, snapshot, f.officialReload, nil
-}
-
 type schedulerFakeStarter struct {
 	starts   atomic.Int32
 	restarts atomic.Int32
@@ -71,16 +46,6 @@ func (f *schedulerFakeStarter) Start(context.Context, string, string) error {
 func (f *schedulerFakeStarter) Restart(context.Context, string) error {
 	f.restarts.Add(1)
 	return nil
-}
-
-func (f *schedulerFakeBrowser) BrowserQuickRenew(_ context.Context, _ string, cookieStr string, _ bool) (string, error) {
-	f.quickCalls++
-	f.quickInputs = append(f.quickInputs, cookieStr)
-	return f.quickCookies, f.quickErr
-}
-
-func (f *schedulerFakeBrowser) CookiesRefreshSnapshot(_ context.Context, _, _ string, _ []cookierefresh.BrowserCookie, _ bool) (string, []cookierefresh.BrowserCookie, bool, error) {
-	return "", nil, false, errors.New("not implemented")
 }
 
 type schedulerFakePasswordRefresher struct {
@@ -165,7 +130,7 @@ func TestSchedulerDefaultsMatchUpstreamConfig(t *testing.T) {
 	store, cleanup := newSchedulerTestStore(t)
 	defer cleanup()
 	ctx := context.Background()
-	s := NewScheduler(store, nil, nil, nil, nil)
+	s := NewScheduler(store, nil, nil, nil)
 
 	if s.settingEnabled(ctx, loginRenewEnabledSetting, false) {
 		t.Fatal("login_renew 未配置时应默认关闭")
@@ -192,7 +157,7 @@ func TestLoginRenewPreservesValidTokenCache(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := NewScheduler(store, nil, nil, nil, nil)
+	s := NewScheduler(store, nil, nil, nil)
 	s.mtop = &mtop.ClientImpl{HTTPClient: srv.Client(), LoginUserURL: srv.URL}
 	s.loginRenewOne(ctx, "batch-login-renew", account)
 
@@ -236,7 +201,7 @@ func TestLoginRenewPersistsAuthoritativeSessionBeforeParseError(t *testing.T) {
 			Request: req,
 		}, nil
 	})}
-	s := NewScheduler(store, nil, nil, nil, nil)
+	s := NewScheduler(store, nil, nil, nil)
 	s.mtop = &mtop.ClientImpl{HTTPClient: client, LoginUserURL: mtop.LoginUserAPI}
 	s.loginRenewOne(ctx, "batch-login-session-error", account)
 
@@ -276,44 +241,11 @@ func TestLoginRenewPersistsAuthoritativeSessionBeforeParseError(t *testing.T) {
 	}
 }
 
-func TestBrowserCookieRefreshSkipsManuallyDisabledAccount(t *testing.T) {
-	store, cleanup := newSchedulerTestStore(t)
-	defer cleanup()
-	ctx := context.Background()
-	account := createSchedulerAccount(t, store, "cid-manual-disabled", "unb=1; cookie2=c2")
-	if err := store.Cookies.SetStatusWithReason(ctx, account.ID, false, db.DisableReasonManual); err != nil {
-		t.Fatal(err)
-	}
-	accounts, err := store.Cookies.AllRenewalAccounts(ctx)
-	if err != nil || len(accounts) != 1 {
-		t.Fatalf("accounts=%+v err=%v", accounts, err)
-	}
-	if accounts[0].DisableReason != db.DisableReasonManual {
-		t.Fatalf("disable reason=%q", accounts[0].DisableReason)
-	}
-	browser := &schedulerRefreshBrowser{}
-	s := NewScheduler(store, nil, browser, nil, nil)
-	s.executeBrowserCookieRefresh(ctx)
-	if browser.refreshCalls != 0 {
-		t.Fatalf("manual disabled account refreshed %d times", browser.refreshCalls)
-	}
-	if store.Cookies.GetStatus(ctx, account.ID) {
-		t.Fatal("manual disabled account must remain disabled")
-	}
-}
-
-func TestNewSchedulerTreatsTypedNilBrowserAsDisabled(t *testing.T) {
-	var typedNilBrowser *schedulerFakeBrowser
-	if got := browserRenewerOrNil(typedNilBrowser); got != nil {
-		t.Fatal("typed nil BrowserRenewer 应被规范化为 nil")
-	}
-}
-
 func TestSchedulerSettingEnabledOverrides(t *testing.T) {
 	store, cleanup := newSchedulerTestStore(t)
 	defer cleanup()
 	ctx := context.Background()
-	s := NewScheduler(store, nil, nil, nil, nil)
+	s := NewScheduler(store, nil, nil, nil)
 
 	if err := store.Settings.Set(ctx, loginRenewEnabledSetting, "enabled"); err != nil {
 		t.Fatalf("Set enabled: %v", err)
@@ -333,7 +265,7 @@ func TestSchedulerSettingIntervalOverrides(t *testing.T) {
 	store, cleanup := newSchedulerTestStore(t)
 	defer cleanup()
 	ctx := context.Background()
-	s := NewScheduler(store, nil, nil, nil, nil)
+	s := NewScheduler(store, nil, nil, nil)
 
 	if got := s.settingInterval(ctx, loginRenewIntervalSetting, loginRenewInterval); got != loginRenewInterval {
 		t.Fatalf("未配置间隔应返回默认值: %s", got)
@@ -362,7 +294,7 @@ func TestSchedulerSettingIntOverrides(t *testing.T) {
 	store, cleanup := newSchedulerTestStore(t)
 	defer cleanup()
 	ctx := context.Background()
-	s := NewScheduler(store, nil, nil, nil, nil)
+	s := NewScheduler(store, nil, nil, nil)
 
 	if got := s.settingInt(ctx, "missing_int", 10); got != 10 {
 		t.Fatalf("missing setting=%d want 10", got)
@@ -405,7 +337,7 @@ func TestRenewalCleanupLogsUsesRetentionDays(t *testing.T) {
 	if err := store.Settings.Set(ctx, "renewal_log_retention_days", "10"); err != nil {
 		t.Fatalf("set retention: %v", err)
 	}
-	s := NewScheduler(store, nil, nil, nil, nil)
+	s := NewScheduler(store, nil, nil, nil)
 	s.cleanupExpiredLogs(ctx)
 	for _, table := range []string{
 		"scheduled_cookies_refresh_log",
@@ -430,13 +362,12 @@ func TestAPICookieRenewOneSkipsExpiredLongLoginWithoutEscalation(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 	account := createSchedulerAccount(t, store, "cid-expired", "unb=1; cookie2=c2")
-	browser := &schedulerFakeBrowser{}
 	refresher := &schedulerFakePasswordRefresher{}
-	s := NewScheduler(store, nil, browser, refresher, nil)
+	s := NewScheduler(store, nil, refresher, nil)
 	s.apiCookieRenewOne(ctx, "batch-expired", account)
 
-	if browser.quickCalls != 0 || refresher.calls.Load() != 0 {
-		t.Fatalf("proactive renewal escalated: browser=%d password=%d", browser.quickCalls, refresher.calls.Load())
+	if refresher.calls.Load() != 0 {
+		t.Fatalf("proactive renewal escalated to account recovery: %d", refresher.calls.Load())
 	}
 	log := lastAPIRenewLog(t, store, account.ID)
 	if log.status != "skipped" || !strings.Contains(log.stepDetails, "long_login_expired") {
@@ -450,7 +381,6 @@ func TestAPICookieRenewOneUsesSingleSilentRequestAndSavesCookies(t *testing.T) {
 	ctx := context.Background()
 	expire := strconv.FormatInt(time.Now().Add(time.Hour).UnixMilli(), 10)
 	account := createSchedulerAccount(t, store, "cid-silent", "unb=1; cookie2=c2; havana_lgc_exp="+expire)
-	browser := &schedulerFakeBrowser{}
 	refresher := &schedulerFakePasswordRefresher{}
 	starter := &schedulerFakeStarter{}
 	var requests atomic.Int32
@@ -461,12 +391,12 @@ func TestAPICookieRenewOneUsesSingleSilentRequestAndSavesCookies(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	s := NewScheduler(store, starter, browser, refresher, nil)
+	s := NewScheduler(store, starter, refresher, nil)
 	s.api = schedulerRenewServiceFromServer(srv)
 	s.apiCookieRenewOne(ctx, "batch-silent", account)
 
-	if requests.Load() != 1 || browser.quickCalls != 0 || refresher.calls.Load() != 0 {
-		t.Fatalf("requests=%d browser=%d password=%d", requests.Load(), browser.quickCalls, refresher.calls.Load())
+	if requests.Load() != 1 || refresher.calls.Load() != 0 {
+		t.Fatalf("requests=%d recovery=%d", requests.Load(), refresher.calls.Load())
 	}
 	if starter.restarts.Load() != 1 || starter.starts.Load() != 0 {
 		t.Fatalf("官网静默续期成功应模拟 reload 重建运行时: starts=%d restarts=%d", starter.starts.Load(), starter.restarts.Load())
@@ -478,20 +408,5 @@ func TestAPICookieRenewOneUsesSingleSilentRequestAndSavesCookies(t *testing.T) {
 	log := lastAPIRenewLog(t, store, account.ID)
 	if log.status != "cookie_updated" || log.requestCount != 1 || !strings.Contains(log.responseContent, "single-silent") {
 		t.Fatalf("silent renewal log=%+v", log)
-	}
-}
-
-func TestBrowserCookieRefreshRestartsOnlyAfterOfficialReload(t *testing.T) {
-	store, cleanup := newSchedulerTestStore(t)
-	defer cleanup()
-	ctx := context.Background()
-	account := createSchedulerAccount(t, store, "cid-browser-reload", "unb=1; havana_lgc_exp=1")
-	starter := &schedulerFakeStarter{}
-	browser := &schedulerRefreshBrowser{officialReload: true}
-	s := NewScheduler(store, starter, browser, nil, nil)
-	s.browserCookieRefreshOne(ctx, "batch-browser-reload", account, db.CookieRefreshSchedule{CookieID: account.ID})
-
-	if browser.refreshCalls != 1 || starter.restarts.Load() != 1 || starter.starts.Load() != 0 {
-		t.Fatalf("refresh=%d starts=%d restarts=%d", browser.refreshCalls, starter.starts.Load(), starter.restarts.Load())
 	}
 }

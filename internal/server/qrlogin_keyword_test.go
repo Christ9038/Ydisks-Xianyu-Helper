@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/xianyu/cookierefresh"
 )
 
 type fakeQRLoginService struct {
@@ -113,6 +114,7 @@ func TestQRLoginStatusNeverExposesCookies(t *testing.T) {
 	srv.Manager = nil
 	srv.QRLogin = &fakeQRLoginService{status: map[string]any{
 		"status": "success", "cookies": "unb=acc1; secret=value", "unb": "acc1",
+		"cookie_snapshot": []cookierefresh.BrowserCookie{{Name: "secret", Value: "value", Domain: ".goofish.com", Path: "/"}},
 	}}
 	ownQRSession(t, srv, store, "redacted")
 	h := srv.Router()
@@ -132,6 +134,9 @@ func TestQRLoginStatusNeverExposesCookies(t *testing.T) {
 		}
 		if _, exists := res["cookies"]; exists {
 			t.Fatalf("%s must redact cookies: %+v", path, res)
+		}
+		if _, exists := res["cookie_snapshot"]; exists {
+			t.Fatalf("%s must redact cookie snapshot: %+v", path, res)
 		}
 	}
 }
@@ -208,7 +213,14 @@ func TestQRLoginStatusPersistsSuccessIdempotently(t *testing.T) {
 		"status":  "success",
 		"cookies": "unb=qr-new; _m_h5_tk=qr-token;",
 		"unb":     "qr-new",
+		"cookie_snapshot": []cookierefresh.BrowserCookie{
+			{Name: "unb", Value: "qr-new", Domain: ".goofish.com", Path: "/", Secure: true},
+			{Name: "_m_h5_tk", Value: "qr-token", Domain: ".goofish.com", Path: "/", Secure: true, HTTPOnly: true},
+		},
 	}}
+	if snapshot, ok := qrCookieSnapshot(srv.QRLogin.GetSessionStatus("s1")); !ok || len(snapshot) != 2 {
+		t.Fatalf("测试扫码 Cookie 快照异常: ok=%v snapshot=%+v", ok, snapshot)
+	}
 	ownQRSession(t, srv, store, "s1")
 	h := srv.Router()
 	cookie := loginHelper(t, h)
@@ -236,6 +248,9 @@ func TestQRLoginStatusPersistsSuccessIdempotently(t *testing.T) {
 	}
 	if d.LoginMethod != "qr_scan" || d.LastLoginAt == 0 {
 		t.Fatalf("扫码登录应标记登录审计字段: %+v", d)
+	}
+	if snapshot, ok := cookierefresh.SnapshotFromMetadataOK(d.MetadataJSON); !ok || len(snapshot) != 2 {
+		t.Fatalf("纯 Go 扫码完整 Cookie Jar 未持久化: ok=%v snapshot=%+v metadata=%s", ok, snapshot, d.MetadataJSON)
 	}
 	logs, err := store.LoginLogs.ListByCookie(context.Background(), "qr-new", 10)
 	if err != nil || len(logs) != 1 || logs[0].Status != "success" || logs[0].Method != "qr_scan" {

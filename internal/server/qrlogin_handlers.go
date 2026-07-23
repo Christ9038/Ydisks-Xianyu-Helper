@@ -12,6 +12,7 @@ import (
 
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/protocol"
 )
 
@@ -144,11 +145,17 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 	}
 	sess := auth.SessionFromContext(r.Context())
 	if sess != nil {
-		persisted, persistErr := s.persistQRLoginSuccessFor(r.Context(), sess.UserID, sessionID, map[string]any{
+		result := map[string]any{
 			"status":  "success",
 			"cookies": cookies,
 			"unb":     unb,
-		}, req.TargetAccountID)
+		}
+		if current := s.QRLogin.GetSessionStatus(sessionID); current != nil {
+			if snapshot, ok := current["cookie_snapshot"]; ok {
+				result["cookie_snapshot"] = snapshot
+			}
+		}
+		persisted, persistErr := s.persistQRLoginSuccessFor(r.Context(), sess.UserID, sessionID, result, req.TargetAccountID)
 		if persistErr != nil {
 			if s.Logger != nil {
 				s.Logger.Warn("保存扫码验证结果失败", "session_id", sessionID, "err", persistErr)
@@ -187,6 +194,7 @@ func (s *Server) persistQRLoginSuccessFor(ctx context.Context, userID int64, ses
 	}
 	s.qrMu.Unlock()
 	cookies := qrString(result, "cookies")
+	cookieSnapshot, snapshotComplete := qrCookieSnapshot(result)
 	scannedAccountID := strings.TrimSpace(firstNonEmpty(qrString(result, "unb"), protocol.TransCookies(cookies)["unb"]))
 	if cookies == "" || scannedAccountID == "" {
 		return qrLoginPersistence{}, errors.New("扫码结果缺少 cookies 或 unb")
@@ -212,6 +220,12 @@ func (s *Server) persistQRLoginSuccessFor(ctx context.Context, userID int64, ses
 			if err := s.Store.Cookies.CreateOwned(ctx, accountID, cookies, userID); err != nil {
 				return err
 			}
+			if snapshotComplete {
+				metadata := cookierefresh.MetadataWithSnapshot("", cookieSnapshot)
+				if err := s.Store.Cookies.UpdateRenewalCookie(ctx, accountID, cookies, metadata, time.Now().Unix()); err != nil {
+					return err
+				}
+			}
 		case err != nil:
 			return err
 		case detail == nil:
@@ -222,7 +236,12 @@ func (s *Server) persistQRLoginSuccessFor(ctx context.Context, userID int64, ses
 			}
 			return db.ErrForbidden
 		default:
-			if err := s.updateFlatCookieOwnedLocked(ctx, detail, cookies); err != nil {
+			if snapshotComplete {
+				metadata := cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, cookieSnapshot)
+				if err := s.Store.Cookies.UpdateRenewalCookie(ctx, detail.ID, cookies, metadata, time.Now().Unix()); err != nil {
+					return err
+				}
+			} else if err := s.updateFlatCookieOwnedLocked(ctx, detail, cookies); err != nil {
 				return err
 			}
 		}
@@ -319,6 +338,7 @@ func cloneQRStatus(src map[string]any) map[string]any {
 func publicQRStatus(src map[string]any) map[string]any {
 	dst := cloneQRStatus(src)
 	delete(dst, "cookies")
+	delete(dst, "cookie_snapshot")
 	return dst
 }
 
@@ -330,4 +350,20 @@ func qrStatus(result map[string]any) string {
 func qrString(result map[string]any, key string) string {
 	value, _ := result[key].(string)
 	return strings.TrimSpace(value)
+}
+
+func qrCookieSnapshot(result map[string]any) ([]cookierefresh.BrowserCookie, bool) {
+	raw, ok := result["cookie_snapshot"]
+	if !ok {
+		return nil, false
+	}
+	snapshot, ok := raw.([]cookierefresh.BrowserCookie)
+	if !ok || snapshot == nil {
+		return nil, false
+	}
+	normalized := cookierefresh.NormalizeSnapshot(snapshot)
+	if normalized == nil {
+		normalized = []cookierefresh.BrowserCookie{}
+	}
+	return normalized, true
 }

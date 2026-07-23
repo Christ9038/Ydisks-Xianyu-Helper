@@ -21,7 +21,6 @@ import (
 	"xianyu-go/internal/account"
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/automation"
-	"xianyu-go/internal/browser"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/notify"
 	"xianyu-go/internal/webui"
@@ -56,19 +55,17 @@ type publishBatchWorker struct {
 // Server 聚合 HTTP 服务依赖。Automation 与 Notifier 由构造函数注入，
 // 不再允许外部直接改字段，避免运行时被替换成 nil。
 type Server struct {
-	Store         *db.Store
-	Auth          *auth.Service
-	Manager       *account.Manager
-	automation    *automation.Center
-	Browser       *browser.Manager
-	PasswordLogin passwordLoginRunner
-	notifier      *notify.Notifier
-	MTop          mtop.Client
-	CookieRenew   xrenew.Service
-	QRLogin       qrLoginService
-	Logger        *slog.Logger
-	WebDir        string // 前端静态资源目录（含 index.html）
-	Addr          string
+	Store       *db.Store
+	Auth        *auth.Service
+	Manager     *account.Manager
+	automation  *automation.Center
+	notifier    *notify.Notifier
+	MTop        mtop.Client
+	CookieRenew xrenew.Service
+	QRLogin     qrLoginService
+	Logger      *slog.Logger
+	WebDir      string // 前端静态资源目录（含 index.html）
+	Addr        string
 
 	publishMu      sync.Mutex
 	publishCancels map[string]publishBatchWorker
@@ -77,10 +74,6 @@ type Server struct {
 	workersDone    chan struct{}
 	lifecycleMu    sync.RWMutex
 	lifecycleCtx   context.Context
-
-	passwordMu         sync.Mutex
-	passwordSessions   map[string]*passwordLoginSession
-	passwordProcessing map[string]string
 
 	qrMu        sync.Mutex
 	qrPersisted map[string]qrLoginPersistence
@@ -93,47 +86,31 @@ type Server struct {
 
 // New 构造。autoCenter/notifier 由调用方完成创建后注入（创建顺序：
 // adapter → manager → automation → notifier → server）。
-func New(store *db.Store, manager *account.Manager, bm *browser.Manager, secure bool, webDir, addr string, logger *slog.Logger, autoCenter *automation.Center, notifier *notify.Notifier) *Server {
+func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr string, logger *slog.Logger, autoCenter *automation.Center, notifier *notify.Notifier) *Server {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
 	qrMgr := qrlogin.NewManager(logger)
-	if bm != nil {
-		qrMgr.SetBrowserRefresher(func(ctx context.Context, tmpCookies, verificationURL string, onScreenshot func(string)) (string, string, error) {
-			return bm.QRCookieRefresh(ctx, tmpCookies, verificationURL, onScreenshot)
-		})
-	}
 	return &Server{
-		Store:         store,
-		Auth:          &auth.Service{Store: store, Logger: logger, Secure: secure},
-		Manager:       manager,
-		automation:    autoCenter,
-		Browser:       bm,
-		PasswordLogin: passwordLoginRunnerForBrowser(bm),
-		notifier:      notifier,
-		MTop:          mtop.NewClient(),
-		CookieRenew:   xrenew.Service{},
-		QRLogin:       qrMgr,
-		Logger:        logger,
-		WebDir:        webDir,
-		Addr:          addr,
+		Store:       store,
+		Auth:        &auth.Service{Store: store, Logger: logger, Secure: secure},
+		Manager:     manager,
+		automation:  autoCenter,
+		notifier:    notifier,
+		MTop:        mtop.NewClient(),
+		CookieRenew: xrenew.Service{},
+		QRLogin:     qrMgr,
+		Logger:      logger,
+		WebDir:      webDir,
+		Addr:        addr,
 
-		publishCancels:     make(map[string]publishBatchWorker),
-		workersDone:        closedSignal(),
-		lifecycleCtx:       context.Background(),
-		passwordSessions:   make(map[string]*passwordLoginSession),
-		passwordProcessing: make(map[string]string),
-		qrPersisted:        make(map[string]qrLoginPersistence),
-		qrOwners:           make(map[string]qrLoginOwner),
-		loginLimiter:       newLoginFailureLimiter(),
+		publishCancels: make(map[string]publishBatchWorker),
+		workersDone:    closedSignal(),
+		lifecycleCtx:   context.Background(),
+		qrPersisted:    make(map[string]qrLoginPersistence),
+		qrOwners:       make(map[string]qrLoginOwner),
+		loginLimiter:   newLoginFailureLimiter(),
 	}
-}
-
-func passwordLoginRunnerForBrowser(bm *browser.Manager) passwordLoginRunner {
-	if bm == nil {
-		return nil
-	}
-	return bm
 }
 
 // mtopClient 返回注入的 mtop 客户端；未注入时退回默认 HTTP 实现（保证零值可用）。

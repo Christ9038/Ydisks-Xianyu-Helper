@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"xianyu-go/internal/automation"
+	"xianyu-go/internal/xianyu"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
 	xrenew "xianyu-go/internal/xianyu/renew"
@@ -357,6 +360,45 @@ func TestTryAPIRenewPersistsExplicitFlatCookieDeletionOnError(t *testing.T) {
 	if token, err := store.Tokens.Get(ctx, "cid"); err != nil || token.AccessToken != "" {
 		t.Fatalf("Cookie 删除后应清理旧 token: token=%+v err=%v", token, err)
 	}
+}
+
+func TestTryAPIRenewPersistsLatePromiseCookieWithoutRestart(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	ctx := context.Background()
+	oldFingerprint := xianyu.CurrentBrowserFingerprint()
+	xianyu.SetBrowserFingerprint(xianyu.BrowserFingerprint{UserAgent: "Mozilla/5.0 (Macintosh) Chrome/999.0.0.0 Safari/537.36"})
+	t.Cleanup(func() { xianyu.SetBrowserFingerprint(oldFingerprint) })
+	initial := "unb=123; havana_lgc_exp=" + fmt.Sprint(time.Now().Add(time.Hour).UnixMilli())
+	if err := store.Cookies.UpdateValueExisting(ctx, "cid", initial); err != nil {
+		t.Fatal(err)
+	}
+	acc.replaceCookieStr(initial)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(60 * time.Millisecond)
+		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: fmt.Sprint(time.Now().Add(time.Hour).UnixMilli()), Path: "/"})
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+	}))
+	defer srv.Close()
+	acc.renewer = xrenew.Service{
+		HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1,
+		PromiseTimeout: 10 * time.Millisecond,
+	}
+	if acc.tryAPIRenew(ctx) {
+		t.Fatal("Promise 超时不得伪装成同步续期成功")
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		detail, err := store.Cookies.GetDetails(ctx, "cid")
+		if err == nil && detail != nil && strings.Contains(detail.Value, "sdkSilent=") {
+			if !strings.Contains(acc.currentCookieStr(), "sdkSilent=") {
+				t.Fatalf("迟到 Cookie 已入库但未更新运行时: %q", acc.currentCookieStr())
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("迟到的 silentHasLogin Set-Cookie 未写回账号")
 }
 
 // TestSetRuntimeError_AllBranches 覆盖验证/captcha、token 失效、默认重连三分支

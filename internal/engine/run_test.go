@@ -13,6 +13,7 @@ import (
 
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
+	xrenew "xianyu-go/internal/xianyu/renew"
 	"xianyu-go/internal/xianyu/ws"
 )
 
@@ -543,6 +544,78 @@ func TestRun_DisabledAccountExits(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("禁用账号 Run 应立即退出")
+	}
+}
+
+func TestRun_APIRenewFailureDoesNotBlockTokenAndWebSocket(t *testing.T) {
+	acc, _, _, cleanup := newRunAccount(t, &fakeRunMtop{token: "tok-after-renew-error"})
+	defer cleanup()
+
+	renewer := &stubCookieRenewer{err: errors.New("startup API renewal failed")}
+	acc.renewer = renewer
+	conn := &fakeWSConn{recvBlock: true}
+	acc.wsDialer = &fakeDialer{results: []dialResult{{conn: conn}}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- acc.Run(ctx) }()
+
+	waitForRegisteredToken(t, conn, "tok-after-renew-error")
+	if renewer.calls != 1 {
+		t.Fatalf("启动时协议续期调用次数=%d want=1", renewer.calls)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run error=%v want context canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not stop after cancellation")
+	}
+}
+
+func TestRun_APIRenewSuccessRebuildsOfficialPageDeviceID(t *testing.T) {
+	tokenClient := &sequencedTokenMtop{}
+	acc, _, _, cleanup := newRunAccount(t, tokenClient)
+	defer cleanup()
+
+	acc.mu.Lock()
+	initialDeviceID := acc.deviceID
+	acc.mu.Unlock()
+	acc.renewer = &stubCookieRenewer{result: &xrenew.Result{
+		Success:     true,
+		RenewMethod: "auto_login_plugin",
+		NewCookies:  "unb=123; _m_h5_tk=tk_1;",
+	}}
+	conn := &fakeWSConn{recvBlock: true}
+	acc.wsDialer = &fakeDialer{results: []dialResult{{conn: conn}}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- acc.Run(ctx) }()
+
+	waitForRegisteredToken(t, conn, "fresh-1")
+	conn.mu.Lock()
+	registeredDeviceID := conn.registeredDID
+	conn.mu.Unlock()
+	if registeredDeviceID == initialDeviceID {
+		t.Fatal("官网 auto-login 成功后的逻辑 reload 必须重建页面级 device ID")
+	}
+	tokenClient.mu.Lock()
+	if len(tokenClient.devices) != 1 || tokenClient.devices[0] != registeredDeviceID {
+		t.Fatalf("token 与 /reg 必须绑定同一新 device ID: token=%v reg=%q", tokenClient.devices, registeredDeviceID)
+	}
+	tokenClient.mu.Unlock()
+
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run error=%v want context canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not stop after cancellation")
 	}
 }
 

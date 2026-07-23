@@ -42,6 +42,9 @@ type Service struct {
 	SetLoginSettingsURL   string
 	DocumentReferer       string
 	RetryDelay            time.Duration
+	// PromiseTimeout 仅供测试缩短官网固定的 2 秒 Promise.race 窗口；
+	// 生产零值始终使用 defaultRequestTimout。
+	PromiseTimeout time.Duration
 }
 
 type LongLoginSettings struct {
@@ -267,6 +270,57 @@ type Result struct {
 	ResponseText           string
 	NeedPasswordLogin      bool
 	RequestCount           int
+	pending                <-chan pendingRenewResult
+	responseCookieURL      string
+}
+
+type pendingRenewResult struct {
+	result *Result
+	err    error
+}
+
+// HasPending 表示官网 2 秒 Promise 已结束，但底层 fetch 仍在接收响应。
+func (r *Result) HasPending() bool { return r != nil && r.pending != nil }
+
+// AwaitPending 等待底层 fetch 的最终响应。只能由一个持久化调用方消费一次。
+func (r *Result) AwaitPending(ctx context.Context) (*Result, error) {
+	if r == nil || r.pending == nil {
+		return nil, nil
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case outcome, ok := <-r.pending:
+		if !ok {
+			return nil, nil
+		}
+		return outcome.result, outcome.err
+	}
+}
+
+// RebaseResponseCookies 把续期响应的 Set-Cookie 应用到“当前最新”凭证状态。
+// 后台 fetch 可能晚于其他 MTOP 请求返回，必须重放响应头而不是覆盖成请求发起
+// 时计算出的旧快照。
+func RebaseResponseCookies(currentCookies, currentMetadata string, result *Result) (string, string, bool) {
+	if result == nil || len(result.SetCookies) == 0 {
+		return currentCookies, currentMetadata, false
+	}
+	requestURL := strings.TrimSpace(result.responseCookieURL)
+	if requestURL == "" {
+		requestURL = SilentHasLoginURL
+	}
+	if snapshot, complete := cookierefresh.SnapshotFromMetadataOK(currentMetadata); complete {
+		updated := cookierefresh.ApplySetCookies(snapshot, requestURL, result.SetCookies, time.Now(), goofishTopSite)
+		if updated == nil {
+			updated = []cookierefresh.BrowserCookie{}
+		}
+		value, _ := cookierefresh.ScopedCookieHeaderForRequest(updated, goofishIMDocumentURL, goofishTopSite, time.Now())
+		metadata := cookierefresh.MetadataWithSnapshot(currentMetadata, updated)
+		return value, metadata, value != currentCookies || metadata != currentMetadata
+	}
+	value := MergeSetCookies(currentCookies, result.SetCookies)
+	metadata := cookierefresh.MetadataWithoutSnapshot(currentMetadata)
+	return value, metadata, value != currentCookies || metadata != currentMetadata
 }
 
 // StepResult 是单个续期接口的执行结果，便于上层记录日志和定位失败点。
@@ -317,8 +371,9 @@ func (s Service) RenewAPIFirst(ctx context.Context, cookiesStr string, snapshots
 		}
 	}
 	result := &Result{
-		RenewMethod: "auto_login_plugin",
-		NewCookies:  newCookies,
+		RenewMethod:       "auto_login_plugin",
+		NewCookies:        newCookies,
+		responseCookieURL: requestURL,
 	}
 	if authoritativeSnapshot {
 		result.CookieSnapshot = make([]cookierefresh.BrowserCookie, len(snapshot))
@@ -363,37 +418,77 @@ func (s Service) RenewAPIFirst(ctx context.Context, cookiesStr string, snapshots
 		}
 	}
 	call, err := s.callAutoLogin(ctx, requestCookies, mode)
-	result.RequestCount = 1
-	result.SetCookies = append([]string(nil), call.SetCookies...)
-	result.ResponseText = string(call.Body)
-	if strings.TrimSpace(call.Step.Name) != "" {
-		result.StepDetails = []StepResult{call.Step}
-	}
-	if authoritativeSnapshot {
-		updatedSnapshot := cookierefresh.ApplySetCookies(snapshot, requestURL, call.SetCookies, time.Now(), goofishTopSite)
-		result.CookieSnapshot = updatedSnapshot
-		result.CookieSnapshotComplete = true
-		if scoped, authoritative := cookierefresh.ScopedCookieHeaderForRequest(updatedSnapshot, goofishIMDocumentURL, goofishTopSite, time.Now()); authoritative {
-			result.NewCookies = scoped
+	populate := func(target *Result, finished callResult, callErr error, promiseTimedOut bool) (*Result, error) {
+		target.RequestCount = 1
+		target.SetCookies = append([]string(nil), finished.SetCookies...)
+		target.ResponseText = string(finished.Body)
+		if strings.TrimSpace(finished.Step.Name) != "" {
+			target.StepDetails = []StepResult{finished.Step}
 		}
-		result.UpdatedCookieNames = cookierefresh.ChangedSnapshotLabels(snapshot, updatedSnapshot)
-	} else {
-		result.NewCookies = MergeSetCookies(cookiesStr, call.SetCookies)
-		result.UpdatedCookieNames = ChangedCookieNames(cookiesStr, result.NewCookies)
+		if authoritativeSnapshot {
+			updatedSnapshot := cookierefresh.ApplySetCookies(snapshot, requestURL, finished.SetCookies, time.Now(), goofishTopSite)
+			target.CookieSnapshot = updatedSnapshot
+			target.CookieSnapshotComplete = true
+			if scoped, authoritative := cookierefresh.ScopedCookieHeaderForRequest(updatedSnapshot, goofishIMDocumentURL, goofishTopSite, time.Now()); authoritative {
+				target.NewCookies = scoped
+			}
+			target.UpdatedCookieNames = cookierefresh.ChangedSnapshotLabels(snapshot, updatedSnapshot)
+		} else {
+			target.NewCookies = MergeSetCookies(cookiesStr, finished.SetCookies)
+			target.UpdatedCookieNames = ChangedCookieNames(cookiesStr, target.NewCookies)
+		}
+		if promiseTimedOut {
+			target.Success = false
+			target.NeedPasswordLogin = false
+			target.Message = "官网静默续期 Promise 已超时"
+			if len(finished.SetCookies) > 0 {
+				target.Message += "；底层响应 Cookie 已接收"
+			}
+			return target, callErr
+		}
+		if callErr != nil {
+			target.Message = callErr.Error()
+			target.NeedPasswordLogin = true
+			return target, callErr
+		}
+		message := "静默续期成功"
+		if !finished.Step.BusinessOK {
+			message = firstNonEmpty(finished.Step.Message, "静默续期未通过")
+		}
+		target.Success = finished.Step.BusinessOK
+		target.Message = message
+		target.NeedPasswordLogin = !finished.Step.BusinessOK
+		return target, nil
 	}
-	if err != nil {
-		result.Message = err.Error()
-		result.NeedPasswordLogin = true
-		return result, err
+	if call.pending != nil {
+		result.RequestCount = 1
+		result.StepDetails = []StepResult{call.Step}
+		result.Message = call.Step.Message
+		result.NeedPasswordLogin = false
+		pending := make(chan pendingRenewResult, 1)
+		result.pending = pending
+		go func() {
+			outcome, ok := <-call.pending
+			if !ok {
+				close(pending)
+				return
+			}
+			late := &Result{
+				RenewMethod:       "auto_login_plugin",
+				NewCookies:        newCookies,
+				responseCookieURL: requestURL,
+			}
+			if authoritativeSnapshot {
+				late.CookieSnapshot = append([]cookierefresh.BrowserCookie(nil), snapshot...)
+				late.CookieSnapshotComplete = true
+			}
+			late, lateErr := populate(late, outcome.call, outcome.err, true)
+			pending <- pendingRenewResult{result: late, err: lateErr}
+			close(pending)
+		}()
+		return result, nil
 	}
-	message := "静默续期成功"
-	if !call.Step.BusinessOK {
-		message = firstNonEmpty(call.Step.Message, "静默续期未通过")
-	}
-	result.Success = call.Step.BusinessOK
-	result.Message = message
-	result.NeedPasswordLogin = !call.Step.BusinessOK
-	return result, nil
+	return populate(result, call, err, false)
 }
 
 func autoLoginMode(cookies map[string]string, now time.Time) (mode, skipReason string) {
@@ -467,6 +562,12 @@ type callResult struct {
 	Step       StepResult
 	SetCookies []string
 	Body       []byte
+	pending    <-chan callOutcome
+}
+
+type callOutcome struct {
+	call callResult
+	err  error
 }
 
 func (s Service) callAutoLogin(ctx context.Context, cookiesStr, mode string) (callResult, error) {
@@ -495,18 +596,46 @@ func (s Service) callAutoLogin(ctx context.Context, cookiesStr, mode string) (ca
 }
 
 func (s Service) doRenewRequest(req *http.Request, name string) (callResult, error) {
-	result := callResult{Step: StepResult{Name: name}}
 	hc := s.HTTPClient
 	if hc == nil {
 		hc = &http.Client{Timeout: backgroundFetchTimeout}
 	}
-	// 官网 2 秒超时只 reject 外层 Promise，不会 AbortController 取消 fetch。
-	// 这里继续等待底层响应以吸收可能迟到的 Set-Cookie，但超过 2 秒后不再把
-	// 业务成功解释成 location.reload。
-	requestCtx, cancel := context.WithTimeout(req.Context(), backgroundFetchTimeout)
-	defer cancel()
-	req = req.Clone(requestCtx)
-	startedAt := time.Now()
+	// Promise.race 的计时器不能取消底层 fetch。使用 WithoutCancel 让 2 秒
+	// 窗口结束后请求继续，但仍以 30 秒硬上限防止后台泄漏。
+	requestCtx, cancel := context.WithTimeout(context.WithoutCancel(req.Context()), backgroundFetchTimeout)
+	backgroundReq := req.Clone(requestCtx)
+	done := make(chan callOutcome, 1)
+	go func() {
+		defer cancel()
+		call, err := executeRenewRequest(hc, backgroundReq, name)
+		done <- callOutcome{call: call, err: err}
+	}()
+	timer := time.NewTimer(s.promiseTimeout())
+	defer timer.Stop()
+	select {
+	case <-req.Context().Done():
+		cancel()
+		result := callResult{Step: StepResult{Name: name, Message: req.Context().Err().Error()}}
+		return result, req.Context().Err()
+	case outcome := <-done:
+		return outcome.call, outcome.err
+	case <-timer.C:
+		return callResult{
+			Step:    StepResult{Name: name, Message: "官网静默续期 Promise 已超时；底层 fetch 继续接收 Cookie"},
+			pending: done,
+		}, nil
+	}
+}
+
+func (s Service) promiseTimeout() time.Duration {
+	if s.PromiseTimeout > 0 {
+		return s.PromiseTimeout
+	}
+	return defaultRequestTimout
+}
+
+func executeRenewRequest(hc *http.Client, req *http.Request, name string) (callResult, error) {
+	result := callResult{Step: StepResult{Name: name}}
 	resp, err := hc.Do(req)
 	if err != nil {
 		result.Step.Message = fmt.Sprintf("请求失败: %v", err)
@@ -528,11 +657,9 @@ func (s Service) doRenewRequest(req *http.Request, name string) (callResult, err
 		result.Step.Message = fmt.Sprintf("HTTP状态异常: %d", resp.StatusCode)
 		return result, nil
 	}
-	result.Step.BusinessOK = time.Since(startedAt) <= defaultRequestTimout && renewBusinessOK(body)
+	result.Step.BusinessOK = renewBusinessOK(body)
 	if result.Step.BusinessOK {
 		result.Step.Message = "业务成功"
-	} else if time.Since(startedAt) > defaultRequestTimout {
-		result.Step.Message = "官网静默续期 Promise 已超时；已保留底层响应 Cookie"
 	} else {
 		result.Step.Message = "业务结果未确认成功"
 	}
