@@ -31,7 +31,7 @@ const CHANNEL_TYPES: Record<NotificationChannelType, ChannelTypeMeta> = {
     fields: [
       { key: 'server_url', label: 'Bark 服务器', placeholder: 'https://api.day.app', required: true },
       { key: 'device_key', label: 'Device Key', placeholder: '你的 Bark 设备 Key', required: true },
-      { key: 'title', label: '标题（可选）', placeholder: '闲鱼助手' },
+      { key: 'title', label: '标题（可选）', placeholder: 'Ydisks闲鱼助手' },
       { key: 'sound', label: '铃声（可选）', placeholder: 'default' },
       { key: 'group', label: '分组（可选）', placeholder: 'xianyu' },
     ],

@@ -147,7 +147,7 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 	if !s.requireChannelOwner(w, r, id) {
 		return
 	}
-	body := "🧪 通知渠道测试\n\n这是一条来自闲鱼助手的测试通知，收到说明渠道配置正常。\n时间: " +
+	body := "🧪 通知渠道测试\n\n这是一条来自Ydisks闲鱼助手的测试通知，收到说明渠道配置正常。\n时间: " +
 		time.Now().Format("2006-01-02 15:04:05")
 	if err := s.notifier.SendToChannel(id, body); err != nil {
 		writeErr(w, http.StatusInternalServerError, "发送失败: "+err.Error())

@@ -1,4 +1,4 @@
-name: xianyu-functional
+name: ydisks-xianyu-helper-functional
 
 x-mysql-url: &mysql-url mysql://root:xianyu_root_password@tcp(mysql:3306)/xianyu?parseTime=true&loc=UTC
 x-postgres-url: &postgres-url postgres://xianyu:xianyu_postgres_password@postgres:5432/xianyu?sslmode=disable&timezone=UTC
@@ -65,7 +65,7 @@ services:
         sqlite3 /seed/xianyu_data.db "PRAGMA quick_check" | grep -qx ok
 
   seed-mysql:
-    image: xianyu-go:functional
+    image: ydisks-xianyu-helper:functional
     build:
       context: .
       dockerfile: Dockerfile.debian13
@@ -82,7 +82,7 @@ services:
     command: ["/app/xianyu-dbseed", "-source", "/seed/xianyu_data.db", "-target", *mysql-url, "-limit", "20"]
 
   seed-sqlite:
-    image: xianyu-go:functional
+    image: ydisks-xianyu-helper:functional
     build:
       context: .
       dockerfile: Dockerfile.debian13
@@ -98,7 +98,7 @@ services:
     command: ["/app/xianyu-dbseed", "-source", "/seed/xianyu_data.db", "-target", "/app/data/xianyu-functional.db", "-limit", "20"]
 
   seed-postgres:
-    image: xianyu-go:functional
+    image: ydisks-xianyu-helper:functional
     restart: "no"
     depends_on:
       postgres:
@@ -112,7 +112,7 @@ services:
     command: ["/app/xianyu-dbseed", "-source", "/seed/xianyu_data.db", "-target", *postgres-url, "-limit", "20"]
 
   app-mysql:
-    image: xianyu-go:functional
+    image: ydisks-xianyu-helper:functional
     restart: unless-stopped
     depends_on:
       seed-mysql:
@@ -134,7 +134,7 @@ services:
       retries: 30
 
   app-sqlite:
-    image: xianyu-go:functional
+    image: ydisks-xianyu-helper:functional
     restart: unless-stopped
     depends_on:
       seed-sqlite:
@@ -156,7 +156,7 @@ services:
       retries: 30
 
   app-postgres:
-    image: xianyu-go:functional
+    image: ydisks-xianyu-helper:functional
     restart: unless-stopped
     depends_on:
       seed-postgres:
@@ -223,7 +223,7 @@ services:
     command: ["sh", "-c", "npm run typecheck && npm test && npm run build"]
 
   dbverify-mysql:
-    image: xianyu-go:functional
+    image: ydisks-xianyu-helper:functional
     depends_on:
       mysql:
         condition: service_healthy
@@ -232,7 +232,7 @@ services:
     command: ["/app/xianyu-dbverify", *mysql-url]
 
   dbverify-sqlite:
-    image: xianyu-go:functional
+    image: ydisks-xianyu-helper:functional
     environment:
       XIANYU_DATA_KEY: *data-key
     volumes:
@@ -240,7 +240,7 @@ services:
     command: ["/app/xianyu-dbverify", "/app/data/verify.db"]
 
   dbverify-postgres:
-    image: xianyu-go:functional
+    image: ydisks-xianyu-helper:functional
     depends_on:
       postgres:
         condition: service_healthy
@@ -249,7 +249,7 @@ services:
     command: ["/app/xianyu-dbverify", *postgres-url]
 
   functional-test:
-    image: xianyu-go:functional
+    image: ydisks-xianyu-helper:functional
     restart: "no"
     depends_on:
       app-sqlite:

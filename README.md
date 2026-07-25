@@ -1,14 +1,17 @@
-# Xianyu Go
+# Ydisks闲鱼助手
 
 基于 Go 与 React 构建的闲鱼多账号管理、消息回复与自动发货系统
 
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](frontend/package.json)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)](compose.yml)
-[![Docker Image](https://github.com/Christ9038/xinayu-go/actions/workflows/docker-publish.yml/badge.svg?branch=dev)](https://github.com/Christ9038/xinayu-go/actions/workflows/docker-publish.yml)
+[![Docker Image](https://github.com/Christ9038/Ydisks-Xianyu-Helper/actions/workflows/docker-publish.yml/badge.svg?branch=dev)](https://github.com/Christ9038/Ydisks-Xianyu-Helper/actions/workflows/docker-publish.yml)
 
 [功能特性](#功能特性) · [快速开始](#快速开始) · [配置说明](#配置说明) ·
-[Docker 部署](#docker-部署) · [开发指南](#开发指南)
+[Docker 部署](#docker-部署) · [开发指南](#开发指南) · [开源协议](#开源协议)
+
+操作手册见仓库内的 [GitHub Wiki 文档](docs/wiki/Home.md)：包含数据库选择、账号接入、
+批量铺货、自动化发货、AI、通知和运维流程。
 
 > [!IMPORTANT]
 > 本项目是社区维护的非官方工具，与闲鱼、阿里巴巴集团及其关联公司无隶属、合作或
@@ -17,13 +20,21 @@
 
 ## 项目简介
 
-Xianyu Go 是一个面向闲鱼卖家的自托管管理系统。它将账号运行、即时消息、订单、
+Ydisks闲鱼助手（英文项目名：Ydisks-Xianyu-Helper）是一个面向闲鱼卖家的自托管管理系统。它将账号运行、即时消息、订单、
 商品、卡密库存、自动化规则、AI 回复和异常通知整合到同一个 Web 管理后台，适合需要
 同时维护多个闲鱼账号或交付数字商品的个人与小型团队。
 
 项目采用 Go 实现闲鱼登录、Cookie 续期、MTOP 请求和 WebSocket 消息链路。Chromium
 不是业务请求代理，仅用于读取真实浏览器指纹以及处理必须依赖浏览器环境的滑块风控。
 扫码登录、人脸验证流程、消息连接、凭证更新和绝大部分业务逻辑均由 Go 客户端完成。
+
+## 开源协议
+
+本项目采用 [Apache License 2.0](LICENSE) 开源，版权所有 © 2026 Christ9038。
+
+你可以使用、复制、修改和分发本项目代码；分发原始或衍生代码时，必须附带许可证文本，
+保留 [NOTICE](NOTICE) 中 Ydisks闲鱼助手（Ydisks-Xianyu-Helper）的版权与署名声明，并在
+修改过的文件中明确标注已修改。
 
 ### 适用场景
 
@@ -84,8 +95,8 @@ flowchart LR
 Docker Desktop，并使用 Docker Compose v2。
 
 ```bash
-git clone https://github.com/Christ9038/xinayu-go.git
-cd xinayu-go
+git clone https://github.com/Christ9038/Ydisks-Xianyu-Helper.git
+cd Ydisks-Xianyu-Helper
 cp .env.example .env
 ```
 
@@ -133,8 +144,8 @@ docker compose up -d
 构建前端：
 
 ```bash
-git clone https://github.com/Christ9038/xinayu-go.git
-cd xinayu-go
+git clone https://github.com/Christ9038/Ydisks-Xianyu-Helper.git
+cd Ydisks-Xianyu-Helper
 npm --prefix frontend ci
 npm --prefix frontend run build
 ```
@@ -207,12 +218,12 @@ Docker Compose 还支持：
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `COMPOSE_PROJECT_NAME` | `xianyu` | Compose 项目名及命名卷前缀 |
+| `COMPOSE_PROJECT_NAME` | `ydisks-xianyu-helper` | Compose 项目名及命名卷前缀 |
 | `POSTGRES_IMAGE` | `postgres:17-trixie` | PostgreSQL 镜像 |
 | `POSTGRES_DB` | 必填 | 数据库名 |
 | `POSTGRES_USER` | 必填 | 数据库用户 |
 | `POSTGRES_PASSWORD` | 必填 | 数据库密码 |
-| `XIANYU_IMAGE` | `ghcr.io/christ9038/xinayu-go:latest` | 应用镜像与标签 |
+| `XIANYU_IMAGE` | `ghcr.io/christ9038/ydisks-xianyu-helper:latest` | 应用镜像与标签 |
 | `XIANYU_BIND_ADDRESS` | `0.0.0.0` | 应用在宿主机上的绑定地址 |
 | `XIANYU_HTTP_PORT` | `8080` | 应用在宿主机上的端口 |
 
@@ -282,7 +293,7 @@ LocalAI 或兼容网关。只有在明确了解数据流向时才应向外部 AI
 GitHub Actions 会将同一标签发布为多架构镜像：
 
 ```text
-ghcr.io/christ9038/xinayu-go:dev
+ghcr.io/christ9038/ydisks-xianyu-helper:dev
 ├── linux/amd64
 └── linux/arm64
 ```
@@ -315,7 +326,7 @@ docker compose up -d
 | 服务 | 用途 |
 | --- | --- |
 | `postgres` | PostgreSQL 17 数据库，仅在 Compose 内部网络开放 5432 |
-| `app` | Xianyu Go 主服务、前端和 Chromium |
+| `app` | Ydisks闲鱼助手主服务、前端和 Chromium |
 
 `app` 会在首次启动时自动创建 `admin`；如果管理员已存在，后续 `up`、重启或升级均不会
 修改其密码。
@@ -334,8 +345,8 @@ docker compose up -d
 ### 完整部署步骤
 
 ```bash
-git clone https://github.com/Christ9038/xinayu-go.git
-cd xinayu-go
+git clone https://github.com/Christ9038/Ydisks-Xianyu-Helper.git
+cd Ydisks-Xianyu-Helper
 cp .env.example .env
 ```
 

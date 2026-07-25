@@ -2,7 +2,7 @@ FROM golang:1.26-trixie AS go-toolchain
 
 # 复用生产运行镜像中已经安装并验证过的 Chromium、Node 和 Playwright driver，
 # 只补 Go 工具链来执行真实浏览器集成测试。
-FROM xianyu-go:functional
+FROM ydisks-xianyu-helper:functional
 ENV PATH=/usr/local/go/bin:${PATH}
 ENV CGO_ENABLED=0
 WORKDIR /src

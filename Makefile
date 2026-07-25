@@ -1,4 +1,4 @@
-# xianyu-go 常用命令入口。详见各 target 注释。
+# Ydisks-Xianyu-Helper 常用命令入口。详见各 target 注释。
 
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint

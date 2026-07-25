@@ -36,7 +36,7 @@ services:
       start_period: 10s
 
   app:
-    image: ${XIANYU_IMAGE:-xianyu-go:debian13}
+    image: ${XIANYU_IMAGE:-ydisks-xianyu-helper:debian13}
     build:
       context: .
       dockerfile: Dockerfile.debian13
@@ -57,7 +57,7 @@ services:
       start_period: 30s
 
   init-admin:
-    image: ${XIANYU_IMAGE:-xianyu-go:debian13}
+    image: ${XIANYU_IMAGE:-ydisks-xianyu-helper:debian13}
     build:
       context: .
       dockerfile: Dockerfile.debian13
