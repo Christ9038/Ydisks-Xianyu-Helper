@@ -108,7 +108,7 @@ cd frontend && npm test -- --run && npm run build
 ## 实施记录
 
 - 已完成扫码人脸验证 API 链路：后端提取 `htoken`、`verify_modes`、人脸二维码内容并轮询 `photoVerify/check.do`，前端优先展示 `face_qr_url`；截图只保留为兜底。
-- 已完成 Cookie 接口续期服务：`hasLogin.do -> silentHasLogin.do -> setLoginSettings.do` 串行合并 `Set-Cookie`，所有响应读取有大小上限。
+- 已完成 Cookie 接口续期服务：主动续期使用 `silentHasLogin.do`，长登录设置使用 `setLoginSettings.do`；两者均合并 `Set-Cookie`，所有响应读取有大小上限。续期请求使用运行时 Chromium 原生指纹，Linux Docker 与桌面部署均会实际发起续期请求。
 - 已完成 MTOP 风控分类：token 过期、session 失效、`FAIL_SYS_USER_VALIDATE`、`RGV587`、`punish/captcha/x5secdata` 等状态被结构化识别。
 - 已完成运行时恢复顺序：`RefreshToken -> API Renew -> Browser Renew -> PasswordLogin -> 慢重试/人工验证`，Cookie 更新后会清理旧 token 缓存。
 - 已完成多账号保护：重连退避加入 0-30% 抖动，降低多账号同时重连造成的风控压力。

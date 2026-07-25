@@ -48,6 +48,20 @@ func useTestDesktopFingerprint(t *testing.T) xianyu.BrowserFingerprint {
 	return fingerprint
 }
 
+func useTestLinuxFingerprint(t *testing.T) xianyu.BrowserFingerprint {
+	t.Helper()
+	old := xianyu.CurrentBrowserFingerprint()
+	fingerprint := xianyu.BrowserFingerprint{
+		UserAgent: `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36`,
+		SecChUA:   `"Chromium";v="138", "Not_A Brand";v="24"`,
+		Platform:  "Linux",
+		Mobile:    "?0",
+	}
+	xianyu.SetBrowserFingerprint(fingerprint)
+	t.Cleanup(func() { xianyu.SetBrowserFingerprint(old) })
+	return fingerprint
+}
+
 func TestAutoLoginModeMatchesBrowserPlugin(t *testing.T) {
 	now := time.Now()
 	tests := []struct {
@@ -316,6 +330,27 @@ func TestRenewAPIFirstUsesBrowserCookieScopes(t *testing.T) {
 	}
 	if !res.CookieSnapshotComplete || res.CookieSnapshot == nil {
 		t.Fatalf("authoritative snapshot was not returned: %+v", res)
+	}
+}
+
+func TestRenewAPIFirstRunsWithLinuxChromiumFingerprint(t *testing.T) {
+	fingerprint := useTestLinuxFingerprint(t)
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if got := r.Header.Get("User-Agent"); got != fingerprint.UserAgent {
+			t.Fatalf("User-Agent=%q", got)
+		}
+		if got := r.Header.Get("sec-ch-ua-platform"); got != `"Linux"` {
+			t.Fatalf("sec-ch-ua-platform=%q", got)
+		}
+		_, _ = w.Write([]byte(`{"data":{"content":{"data":{"processFinished":true,"resultCode":100}}}}`))
+	}))
+	defer srv.Close()
+	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1}
+	res, err := svc.RenewAPIFirst(context.Background(), "havana_lgc_exp="+futureMillis(time.Hour))
+	if err != nil || res == nil || !res.Success || res.Skipped || res.RequestCount != 1 || calls.Load() != 1 {
+		t.Fatalf("result=%+v calls=%d err=%v", res, calls.Load(), err)
 	}
 }
 

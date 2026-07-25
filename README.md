@@ -106,6 +106,8 @@ flowchart LR
 适用于 Linux x86_64、Linux ARM64 和 Apple Silicon。需要 Docker Engine 或
 Docker Desktop，并使用 Docker Compose v2。
 
+Docker 部署会使用容器内 Chromium 的原生 Linux 指纹执行官网静默续期；续期是否成功由闲鱼响应决定，不会因宿主系统是 Linux 而跳过。
+
 ```bash
 git clone https://github.com/Christ9038/Ydisks-Xianyu-Helper.git
 cd Ydisks-Xianyu-Helper

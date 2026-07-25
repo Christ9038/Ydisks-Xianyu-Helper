@@ -386,13 +386,6 @@ func (s Service) RenewAPIFirst(ctx context.Context, cookiesStr string, snapshots
 		result.NeedPasswordLogin = true
 		return result, nil
 	}
-	if ua := strings.ToLower(xianyu.CurrentBrowserFingerprint().UserAgent); ua != "" &&
-		!strings.Contains(ua, "windows") && !strings.Contains(ua, "macintosh") {
-		result.Skipped = true
-		result.SkipReason = "unsupported_desktop_ua"
-		result.Message = autoLoginSkipMessage(result.SkipReason)
-		return result, nil
-	}
 	mode, skipReason := autoLoginMode(firstCookieValues(decisionCookies), now)
 	if skipReason != "" {
 		result.Skipped = true
@@ -551,8 +544,6 @@ func autoLoginSkipMessage(reason string) string {
 		return "sdkSilent 疲劳窗口内，跳过静默续期"
 	case "long_login_expired":
 		return "长登录凭证已过期，静默续期不应发起请求"
-	case "unsupported_desktop_ua":
-		return "官网静默续期仅支持 Windows 或 macOS 桌面浏览器"
 	default:
 		return "无需静默续期"
 	}
