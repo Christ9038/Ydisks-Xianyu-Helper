@@ -128,6 +128,17 @@ type AutomationRuleInput struct {
 	Actions     []AutomationActionInput
 }
 
+// AutomationRuleListFilter 是自动化规则列表的筛选和分页条件。
+type AutomationRuleListFilter struct {
+	UserID      int64
+	CookieID    string
+	TriggerType string
+	Enabled     *bool
+	Search      string
+	Limit       int
+	Offset      int
+}
+
 // AutomationActionInput 是创建动作的输入。
 type AutomationActionInput struct {
 	ActionType      string
@@ -142,15 +153,59 @@ type AutomationActionInput struct {
 
 // ListForUser 返回用户下全部自动化规则和动作。
 func (a *AutomationRules) ListForUser(ctx context.Context, userID int64) ([]AutomationRule, error) {
+	rules, _, err := a.ListPageForUser(ctx, AutomationRuleListFilter{UserID: userID})
+	return rules, err
+}
+
+// ListPageForUser 按用户隔离筛选并分页查询自动化规则和动作。
+func (a *AutomationRules) ListPageForUser(ctx context.Context, f AutomationRuleListFilter) ([]AutomationRule, int, error) {
+	where := []string{"r.user_id=?"}
+	args := []any{f.UserID}
+	if f.CookieID != "" {
+		where = append(where, "r.cookie_id=?")
+		args = append(args, f.CookieID)
+	}
+	if f.TriggerType != "" {
+		where = append(where, "r.trigger_type=?")
+		args = append(args, f.TriggerType)
+	}
+	if f.Enabled != nil {
+		where = append(where, "r.enabled=?")
+		args = append(args, boolToInt(*f.Enabled))
+	}
+	if search := strings.ToLower(strings.TrimSpace(f.Search)); search != "" {
+		pattern := "%" + search + "%"
+		where = append(where, `(LOWER(COALESCE(r.name,'')) LIKE ?
+			OR LOWER(COALESCE(r.item_id,'')) LIKE ?
+			OR LOWER(COALESCE(i.item_title,'')) LIKE ?)`)
+		args = append(args, pattern, pattern, pattern)
+	}
+	whereSQL := strings.Join(where, " AND ")
+
+	var total int
+	if err := a.DB.QueryRowContext(ctx, `
+SELECT COUNT(*)
+  FROM automation_rules r
+  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id
+ WHERE `+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	queryArgs := append([]any{}, args...)
+	limitSQL := ""
+	if f.Limit > 0 {
+		limitSQL = " LIMIT ? OFFSET ?"
+		queryArgs = append(queryArgs, f.Limit, f.Offset)
+	}
 	rows, err := a.DB.QueryContext(ctx, `
 SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.trigger_type,r.enabled,
        r.priority,r.config_json,r.created_at,r.updated_at
   FROM automation_rules r
   LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id
- WHERE r.user_id=?
- ORDER BY r.created_at DESC,r.id DESC`, userID)
+	WHERE `+whereSQL+`
+	ORDER BY r.created_at DESC,r.id DESC`+limitSQL, queryArgs...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	out := []AutomationRule{}
@@ -159,17 +214,17 @@ SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.t
 		var enabled int
 		if err := rows.Scan(&r.ID, &r.UserID, &r.CookieID, &r.ItemID, &r.ItemTitle, &r.Name, &r.TriggerType,
 			&enabled, &r.Priority, &r.ConfigJSON, &r.CreatedAt, &r.UpdatedAt); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		r.Enabled = enabled != 0
 		acts, err := a.Actions(ctx, r.ID)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		r.Actions = acts
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 // Match 查询某事件可触发的规则。商品级规则存在时只返回商品级规则；
@@ -808,7 +863,11 @@ func (a *AutomationRules) MarkOrderEventTime(ctx context.Context, orderID, field
 	default:
 		return fmt.Errorf("不允许更新的订单时间字段: %s", field)
 	}
-	_, err := a.DB.ExecContext(ctx, "UPDATE orders SET "+field+"=CASE WHEN COALESCE("+field+",'')='' THEN CURRENT_TIMESTAMP ELSE "+field+" END, updated_at=CURRENT_TIMESTAMP WHERE order_id=?", orderID)
+	// 只在字段为空时写入当前时间，已有值则保留（幂等）。用 WHERE 过滤替代
+	// CASE WHEN ... THEN CURRENT_TIMESTAMP ELSE field END：后者在 Postgres 上会
+	// 因 THEN(timestamptz) 与 ELSE(text) 分支类型不可匹配而报 SQLSTATE 42804。
+	// CURRENT_TIMESTAMP 直接赋值给 TEXT 列在三方言下均成立（见 IncrementReviewRequest）。
+	_, err := a.DB.ExecContext(ctx, "UPDATE orders SET "+field+"=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE order_id=? AND COALESCE("+field+",'')=''", orderID)
 	return err
 }
 

@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -94,6 +95,8 @@ func previewPublishBatch(t *testing.T, h http.Handler, cookie *http.Cookie) stri
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	_ = mw.WriteField("default_cookie_id", "acc1")
+	_ = mw.WriteField("fallback_category_id", "5001")
+	_ = mw.WriteField("fallback_category_name", "虚拟商品")
 	csvField, _ := mw.CreateFormFile("file", "products.csv")
 	csvField.Write([]byte("账号ID,标题,价格,库存,图片\nacc1,商品A,12.50,5,img/a.png\n"))
 	zipField, _ := mw.CreateFormFile("images_zip", "images.zip")
@@ -121,6 +124,8 @@ func previewTwoRowPublishBatch(t *testing.T, h http.Handler, cookie *http.Cookie
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	_ = mw.WriteField("default_cookie_id", "acc1")
+	_ = mw.WriteField("fallback_category_id", "5001")
+	_ = mw.WriteField("fallback_category_name", "虚拟商品")
 	csvField, _ := mw.CreateFormFile("file", "products.csv")
 	csvField.Write([]byte("账号ID,标题,价格,库存,图片\nacc1,商品A,12.50,5,img/a.png\nacc1,商品B,13.50,5,img/a.png\n"))
 	zipField, _ := mw.CreateFormFile("images_zip", "images.zip")
@@ -296,6 +301,7 @@ func TestCancelItemPublishBatchMarksUnfinishedRowsFailed(t *testing.T) {
 func TestRunItemPublishBatch_Success(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	var publishedCategory map[string]any
 	// 所有 mtop 调用返回 SUCCESS；发布调用返回 itemId。
 	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		u := req.URL.String()
@@ -306,9 +312,14 @@ func TestRunItemPublishBatch_Success(t *testing.T) {
 		case strings.Contains(u, "mtop.taobao.idle.local.poi.get"):
 			body = `{"ret":["SUCCESS::调用成功"],"data":{"commonAddresses":[{"address":"北京"}]}}`
 		case strings.Contains(u, "mtop.taobao.idle.kgraph.property.recommend"):
-			body = `{"ret":["SUCCESS::调用成功"],"data":{"categoryPredictResult":{"catId":"100","catName":"数码"}}}`
+			body = `{"ret":["SUCCESS::调用成功"],"data":{}}`
 		case strings.Contains(u, "mtop.idle.pc.idleitem.publish"):
-			body = `{"ret":["SUCCESS::调用成功"],"data":{"itemId":"123456","url":"https://x/item/123456","picUrl":"https://img.alicdn.com/published.png","categoryId":"100","categoryName":"数码","title":"商品A","priceText":"12.50","quantity":"5"}}`
+			rawBody, _ := io.ReadAll(req.Body)
+			form, _ := url.ParseQuery(string(rawBody))
+			var publishData map[string]any
+			_ = json.Unmarshal([]byte(form.Get("data")), &publishData)
+			publishedCategory, _ = publishData["itemCatDTO"].(map[string]any)
+			body = `{"ret":["SUCCESS::调用成功"],"data":{"itemId":"123456","url":"https://x/item/123456","picUrl":"https://img.alicdn.com/published.png","categoryId":"5001","categoryName":"虚拟商品","title":"商品A","priceText":"12.50","quantity":"5"}}`
 		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -375,6 +386,9 @@ func TestRunItemPublishBatch_Success(t *testing.T) {
 	row, _ := rows[0].(map[string]any)
 	if row["status"] != "success" || row["item_id"] == "" {
 		t.Fatalf("row should be success with item_id: %+v", row)
+	}
+	if publishedCategory["catId"] != "5001" || publishedCategory["catName"] != "虚拟商品" {
+		t.Fatalf("batch did not apply fallback category: %+v", publishedCategory)
 	}
 }
 

@@ -2,7 +2,7 @@ import { get, post, put, del, postForm, type RequestControlOptions } from '../re
 import {
   LoginResponse, AccountDetail, Order, PaginatedResponse,
   AdminStats, DashboardStats, Card, SystemSettings, ApiResponse, OrderAnalytics,
-  Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction,
+  Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
   NotificationChannel, NotificationEventType
 } from '../types';
 import { formatLocalDate } from '../dateRange';
@@ -480,11 +480,21 @@ export const previewItemPublishBatch = async (form: {
     file: File;
     imagesZip?: File | null;
     defaultCookieId?: string;
+    fallbackCategory: {
+      catId: string;
+      catName: string;
+      channelCatId?: string;
+      tbCatId?: string;
+    };
 }): Promise<any> => {
     const body = new FormData();
     body.set('file', form.file);
     if (form.imagesZip) body.set('images_zip', form.imagesZip);
     if (form.defaultCookieId) body.set('default_cookie_id', form.defaultCookieId);
+    body.set('fallback_category_id', form.fallbackCategory.catId);
+    body.set('fallback_category_name', form.fallbackCategory.catName);
+    body.set('fallback_channel_category_id', form.fallbackCategory.channelCatId || '');
+    body.set('fallback_tb_category_id', form.fallbackCategory.tbCatId || '');
     return postForm('/items/publish-batches/preview', body);
 }
 
@@ -518,10 +528,7 @@ export const updateItem = async (cookieId: string, itemId: string, data: Partial
 }
 
 // Rules - 自动化规则
-export const getShippingRules = async (): Promise<ShippingRule[]> => {
-    const res = await get<any>('/automation-rules');
-    const rules = Array.isArray(res) ? res : (res.data || res.rules || []);
-    return rules.map((item: any) => ({
+const normalizeShippingRules = (rules: any[]): ShippingRule[] => rules.map((item: any) => ({
         id: String(item.id),
         name: item.name || '',
         trigger_type: item.trigger_type || 'order_paid',
@@ -565,6 +572,47 @@ export const getShippingRules = async (): Promise<ShippingRule[]> => {
             };
           }),
     }));
+
+export const getShippingRules = async (): Promise<ShippingRule[]> => {
+    const res = await get<any>('/automation-rules');
+    const rules = Array.isArray(res) ? res : (res.data || res.rules || []);
+    return normalizeShippingRules(rules);
+}
+
+export interface ShippingRuleListParams {
+  cookieId?: string;
+  triggerType?: AutomationTriggerType | '';
+  enabled?: boolean;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export const getShippingRulesPage = async ({
+  cookieId,
+  triggerType,
+  enabled,
+  search,
+  page = 1,
+  pageSize = 10,
+}: ShippingRuleListParams = {}): Promise<PaginatedResponse<ShippingRule>> => {
+  const res = await get<any>('/automation-rules', {
+    page,
+    page_size: pageSize,
+    cookie_id: cookieId || undefined,
+    trigger_type: triggerType || undefined,
+    enabled,
+    search: search?.trim() || undefined,
+  });
+  const rules = normalizeShippingRules(Array.isArray(res) ? res : (res.data || res.rules || []));
+  return {
+    success: true,
+    data: rules,
+    total: Number(res.total ?? rules.length),
+    page: Number(res.page ?? page),
+    page_size: Number(res.page_size ?? pageSize),
+    total_pages: Number(res.total_pages ?? (rules.length ? 1 : 0)),
+  };
 }
 
 const orderAutomationActions = (triggerType: string, actions: AutomationAction[]) => {

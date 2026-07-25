@@ -49,6 +49,7 @@ type ItemPublishBatchRow struct {
 	PostageMode    string // 邮费模式：free/buyer/seller
 	Postage        string
 	ImagesJSON     string // 图片引用 JSON 数组（相对 UploadDir 的路径）
+	CategoryJSON   string // 自动识别失败时使用的指定类目 JSON
 	AutomationJSON string // 发布后自动创建的自动化规则配置 JSON
 	Status         string // pending/running/success/failed
 	ItemID         string // 发布成功后回填的闲鱼商品 ID
@@ -94,16 +95,19 @@ func (b *ItemPublishBatches) Create(ctx context.Context, batch *ItemPublishBatch
 		if row.RawJSON == "" {
 			row.RawJSON = "{}"
 		}
+		if row.CategoryJSON == "" {
+			row.CategoryJSON = "{}"
+		}
 		if row.AutomationJSON == "" {
 			row.AutomationJSON = "{}"
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO item_publish_batch_rows
 			 (batch_id,row_no,cookie_id,title,description,price,original_price,quantity,postage_mode,postage,
-			  images_json,automation_json,status,item_id,item_url,error_message,failure_kind,raw_json)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			  images_json,category_json,automation_json,status,item_id,item_url,error_message,failure_kind,raw_json)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			batch.ID, row.RowNo, row.CookieID, row.Title, row.Description, row.Price, row.OriginalPrice,
-			row.Quantity, row.PostageMode, row.Postage, row.ImagesJSON, row.AutomationJSON,
+			row.Quantity, row.PostageMode, row.Postage, row.ImagesJSON, row.CategoryJSON, row.AutomationJSON,
 			row.Status, row.ItemID, row.ItemURL, row.ErrorMessage, row.FailureKind, row.RawJSON); err != nil {
 			return err
 		}
@@ -189,7 +193,7 @@ func (b *ItemPublishBatches) Recoverable(ctx context.Context, now int64, limit i
 func (b *ItemPublishBatches) Rows(ctx context.Context, batchID string) ([]ItemPublishBatchRow, error) {
 	rows, err := b.DB.QueryContext(ctx,
 		`SELECT id,batch_id,row_no,cookie_id,title,description,price,original_price,quantity,postage_mode,postage,
-		        images_json,COALESCE(automation_json,'{}'),status,item_id,item_url,error_message,
+		        images_json,COALESCE(category_json,'{}'),COALESCE(automation_json,'{}'),status,item_id,item_url,error_message,
 		        COALESCE(failure_kind,''),COALESCE(worker_token,''),
 		        raw_json,created_at,updated_at
 		   FROM item_publish_batch_rows WHERE batch_id=? ORDER BY row_no`, batchID)
@@ -201,7 +205,7 @@ func (b *ItemPublishBatches) Rows(ctx context.Context, batchID string) ([]ItemPu
 	for rows.Next() {
 		var r ItemPublishBatchRow
 		if err := rows.Scan(&r.ID, &r.BatchID, &r.RowNo, &r.CookieID, &r.Title, &r.Description, &r.Price,
-			&r.OriginalPrice, &r.Quantity, &r.PostageMode, &r.Postage, &r.ImagesJSON, &r.AutomationJSON,
+			&r.OriginalPrice, &r.Quantity, &r.PostageMode, &r.Postage, &r.ImagesJSON, &r.CategoryJSON, &r.AutomationJSON,
 			&r.Status, &r.ItemID, &r.ItemURL, &r.ErrorMessage, &r.FailureKind, &r.WorkerToken,
 			&r.RawJSON, &r.CreatedAt,
 			&r.UpdatedAt); err != nil {
@@ -220,7 +224,7 @@ func (b *ItemPublishBatches) PendingRows(ctx context.Context, batchID string, fa
 	}
 	rows, err := b.DB.QueryContext(ctx,
 		`SELECT id,batch_id,row_no,cookie_id,title,description,price,original_price,quantity,postage_mode,postage,
-		        images_json,COALESCE(automation_json,'{}'),status,item_id,item_url,error_message,
+		        images_json,COALESCE(category_json,'{}'),COALESCE(automation_json,'{}'),status,item_id,item_url,error_message,
 		        COALESCE(failure_kind,''),COALESCE(worker_token,''),
 		        raw_json,created_at,updated_at
 		   FROM item_publish_batch_rows WHERE batch_id=? AND status IN `+statuses+` ORDER BY row_no`, batchID)
@@ -232,7 +236,7 @@ func (b *ItemPublishBatches) PendingRows(ctx context.Context, batchID string, fa
 	for rows.Next() {
 		var r ItemPublishBatchRow
 		if err := rows.Scan(&r.ID, &r.BatchID, &r.RowNo, &r.CookieID, &r.Title, &r.Description, &r.Price,
-			&r.OriginalPrice, &r.Quantity, &r.PostageMode, &r.Postage, &r.ImagesJSON, &r.AutomationJSON,
+			&r.OriginalPrice, &r.Quantity, &r.PostageMode, &r.Postage, &r.ImagesJSON, &r.CategoryJSON, &r.AutomationJSON,
 			&r.Status, &r.ItemID, &r.ItemURL, &r.ErrorMessage, &r.FailureKind, &r.WorkerToken,
 			&r.RawJSON, &r.CreatedAt,
 			&r.UpdatedAt); err != nil {

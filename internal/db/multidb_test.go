@@ -641,7 +641,7 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				t.Fatalf("set goose dialect: %v", err)
 			}
 			goose.SetBaseFS(migrationsFS)
-			for i := 0; i < 9; i++ {
+			for i := 0; i < 10; i++ {
 				if err := goose.Down(tg.store.DB, "migrations/"+subdir); err != nil {
 					t.Fatalf("migration down #%d: %v", i+1, err)
 				}
@@ -657,6 +657,9 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 			}
 			if columnExistsForDialect(t, tg.store.DB, tg.dialect, "account_tokens", "cookie_fingerprint") {
 				t.Fatal("account_tokens.cookie_fingerprint should be removed after down")
+			}
+			if columnExistsForDialect(t, tg.store.DB, tg.dialect, "item_publish_batch_rows", "category_json") {
+				t.Fatal("item_publish_batch_rows.category_json should be removed after down")
 			}
 
 			if err := goose.Up(tg.store.DB, "migrations/"+subdir); err != nil {
@@ -677,6 +680,7 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				{"automation_runs", "action_cursor"},
 				{"automation_runs", "action_started"},
 				{"account_tokens", "cookie_fingerprint"},
+				{"item_publish_batch_rows", "category_json"},
 			} {
 				if !columnExistsForDialect(t, tg.store.DB, tg.dialect, c.table, c.col) {
 					t.Fatalf("column missing after re-up: %s.%s", c.table, c.col)
@@ -719,6 +723,67 @@ func TestMultiDB_CardsCreateGet(t *testing.T) {
 			// 未设置的可空列应安全扫描为空串。
 			if got.ImageURL != "" || got.SpecName != "" || got.APIConfig != "" {
 				t.Fatalf("NULL 列扫描异常: image=%q spec=%q api=%q", got.ImageURL, got.SpecName, got.APIConfig)
+			}
+		})
+	}
+}
+
+// TestMultiDB_MarkOrderEventTime 验证订单事件时间标记跨三库一致。重点覆盖
+// Postgres 回归：CASE WHEN ... THEN CURRENT_TIMESTAMP ELSE field END 会因
+// THEN(timestamptz) 与 ELSE(text) 分支类型不可匹配而报 SQLSTATE 42804。
+// 语义：字段为空时写入当前时间，已有值时不得覆盖（幂等）。
+func TestMultiDB_MarkOrderEventTime(t *testing.T) {
+	for _, tg := range allTestTargets(t) {
+		t.Run(tg.name, func(t *testing.T) {
+			defer tg.cleanup()
+			ctx := context.Background()
+			s := tg.store
+
+			uid := tg.name + "_evt_user_" + fmt.Sprintf("%d", atomic.AddUint64(&multidbCounter, 1))
+			s.Users.Create(ctx, uid, uid+"@e.com", "pw")
+			user, _ := s.Users.GetByUsername(ctx, uid)
+			cid := tg.name + "_evt_cookie_" + fmt.Sprintf("%d", atomic.AddUint64(&multidbCounter, 1))
+			if err := s.Cookies.Save(ctx, cid, "cv", user.ID); err != nil {
+				t.Fatalf("Save cookie: %v", err)
+			}
+			oid := tg.name + "_evt_order_" + fmt.Sprintf("%d", atomic.AddUint64(&multidbCounter, 1))
+			if err := s.Orders.Upsert(ctx, oid, OrderUpsertOpts{ItemID: "i1", BuyerID: "b1", CookieID: cid}); err != nil {
+				t.Fatalf("Upsert: %v", err)
+			}
+
+			// 白名单字段为空时全部写入当前时间。
+			for _, f := range []string{"paid_at", "shipped_at", "completed_at", "buyer_reviewed_at", "last_review_request_at"} {
+				if err := s.Automation.MarkOrderEventTime(ctx, oid, f); err != nil {
+					t.Fatalf("MarkOrderEventTime(%s) on %s: %v", f, tg.name, err)
+				}
+			}
+			got, err := s.Orders.Get(ctx, oid)
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			if got.PaidAt == "" || got.ShippedAt == "" || got.CompletedAt == "" || got.BuyerReviewedAt == "" || got.LastReviewRequestAt == "" {
+				t.Fatalf("event timestamps not set on %s: %#v", tg.name, got)
+			}
+
+			// 已有值时不得覆盖。
+			const original = "2020-01-02 03:04:05"
+			if _, err := s.DB.ExecContext(ctx, `UPDATE orders SET shipped_at=? WHERE order_id=?`, original, oid); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Automation.MarkOrderEventTime(ctx, oid, "shipped_at"); err != nil {
+				t.Fatalf("MarkOrderEventTime(shipped_at) overwrite on %s: %v", tg.name, err)
+			}
+			var shippedAt string
+			if err := s.DB.QueryRowContext(ctx, `SELECT shipped_at FROM orders WHERE order_id=?`, oid).Scan(&shippedAt); err != nil {
+				t.Fatal(err)
+			}
+			if shippedAt != original {
+				t.Fatalf("event timestamp overwritten on %s: %q want %q", tg.name, shippedAt, original)
+			}
+
+			// 非法字段拒绝。
+			if err := s.Automation.MarkOrderEventTime(ctx, oid, "order_status"); err == nil || !strings.Contains(err.Error(), "不允许") {
+				t.Fatalf("非法字段应拒绝 on %s, got %v", tg.name, err)
 			}
 		})
 	}

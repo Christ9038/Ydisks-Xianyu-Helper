@@ -279,6 +279,21 @@ func TestParsePublishCardActions(t *testing.T) {
 	}
 }
 
+func TestNormalizePublishHeaderCategoryFallbackLabels(t *testing.T) {
+	cases := map[string]string{
+		"类目ID":        "category_id",
+		"类目名称":        "category_name",
+		"频道类目ID":      "channel_category_id",
+		"淘宝类目ID":      "tb_category_id",
+		"category_id": "category_id",
+	}
+	for input, want := range cases {
+		if got := normalizePublishHeader(input); got != want {
+			t.Fatalf("normalizePublishHeader(%q)=%q want %q", input, got, want)
+		}
+	}
+}
+
 func TestParsePublishAutomationSupportsMultipleCards(t *testing.T) {
 	cfg := parsePublishAutomation(map[string]any{
 		"paid_delivery_enabled":  "是",

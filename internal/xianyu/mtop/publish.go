@@ -30,6 +30,10 @@ const (
 	DefaultLocationAPI = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.local.poi.get/1.0/"
 )
 
+// ErrPublishCategoryUnrecognized 表示闲鱼类目推荐接口调用成功，但没有给出可发布类目。
+// 这是发生在最终发布接口之前的确定性结果，调用方可以安全地改用人工指定类目。
+var ErrPublishCategoryUnrecognized = errors.New("未能自动识别商品类目，请调整标题或图片后重试")
+
 type PublishErrorCode string
 
 const (
@@ -60,6 +64,15 @@ type PublishImage struct {
 	Data        []byte
 }
 
+// PublishCategory 是发布商品时可使用的人工兜底类目。
+// CatID 和 CatName 必填；频道类目、淘宝类目 ID 没有时可以留空。
+type PublishCategory struct {
+	CatID        string `json:"cat_id"`
+	CatName      string `json:"cat_name"`
+	ChannelCatID string `json:"channel_cat_id,omitempty"`
+	TBCatID      string `json:"tb_cat_id,omitempty"`
+}
+
 type PublishItemRequest struct {
 	Title              string
 	Description        string
@@ -69,8 +82,9 @@ type PublishItemRequest struct {
 	PostageMode        string
 	PostageCents       int64
 	// Virtual 表示商品只通过系统的虚拟发货流程交付，不需要实物发货地址。
-	Virtual bool
-	Images  []PublishImage
+	Virtual          bool
+	FallbackCategory *PublishCategory
+	Images           []PublishImage
 }
 
 type PublishItemResult struct {
@@ -111,6 +125,9 @@ func (c *ClientImpl) PublishItem(ctx context.Context, cookiesStr string, req Pub
 	if len(req.Images) > 9 {
 		return nil, errors.New("商品图片最多 9 张")
 	}
+	if req.FallbackCategory != nil && !validPublishCategory(*req.FallbackCategory) {
+		return nil, errors.New("兜底类目必须同时填写类目 ID 和类目名称")
+	}
 	currentCookies := cookiesStr
 	if session := cookieSessionFromContext(ctx); session != nil {
 		currentCookies, _, _ = session.State()
@@ -127,11 +144,15 @@ func (c *ClientImpl) PublishItem(ctx context.Context, cookiesStr string, req Pub
 		uploaded = append(uploaded, res)
 	}
 	category, updated, err := c.recommendPublishCategory(ctx, currentCookies, req.Title, req.Description, uploaded)
-	if err != nil {
-		return nil, err
-	}
 	if updated != "" {
 		currentCookies = updated
+	}
+	if err != nil {
+		if errors.Is(err, ErrPublishCategoryUnrecognized) && req.FallbackCategory != nil {
+			category = fallbackPublishCategory(*req.FallbackCategory)
+		} else {
+			return nil, err
+		}
 	}
 	var location map[string]any
 	if !req.Virtual {
@@ -253,13 +274,28 @@ func (c *ClientImpl) recommendPublishCategory(ctx context.Context, cookiesStr, t
 	}
 	dataMap := mapFromAny(decoded["data"])
 	if dataMap == nil {
-		return nil, updated, fmt.Errorf("类目推荐响应缺少 data")
+		return nil, updated, fmt.Errorf("%w: 类目推荐响应缺少 data", ErrPublishCategoryUnrecognized)
 	}
 	cat := mapFromAny(dataMap["categoryPredictResult"])
 	if cat == nil || mtopString(cat["catId"]) == "" {
-		return nil, updated, fmt.Errorf("未能自动识别商品类目，请调整标题或图片后重试")
+		return nil, updated, ErrPublishCategoryUnrecognized
 	}
 	return dataMap, updated, nil
+}
+
+func validPublishCategory(category PublishCategory) bool {
+	return strings.TrimSpace(category.CatID) != "" && strings.TrimSpace(category.CatName) != ""
+}
+
+func fallbackPublishCategory(category PublishCategory) map[string]any {
+	return map[string]any{
+		"categoryPredictResult": map[string]any{
+			"catId":        strings.TrimSpace(category.CatID),
+			"catName":      strings.TrimSpace(category.CatName),
+			"channelCatId": strings.TrimSpace(category.ChannelCatID),
+			"tbCatId":      strings.TrimSpace(category.TBCatID),
+		},
+	}
 }
 
 func (c *ClientImpl) defaultPublishLocation(ctx context.Context, cookiesStr string) (map[string]any, string, error) {

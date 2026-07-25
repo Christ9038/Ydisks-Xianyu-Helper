@@ -104,11 +104,82 @@ type automationRuleRequest struct {
 
 func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
-	rules, err := s.Store.Automation.ListForUser(r.Context(), sess.UserID)
+	query := r.URL.Query()
+	_, paginated := query["page"]
+	if !paginated {
+		rules, err := s.Store.Automation.ListForUser(r.Context(), sess.UserID)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "查询自动化规则失败")
+			return
+		}
+		writeJSON(w, http.StatusOK, automationRulesJSON(rules))
+		return
+	}
+
+	page := atoiDefault(query.Get("page"), 1)
+	pageSize := atoiDefault(query.Get("page_size"), 10)
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 10
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	cookieID := strings.TrimSpace(query.Get("cookie_id"))
+	if cookieID != "" {
+		if _, ok := s.cookieForUser(r, sess.UserID, cookieID); !ok {
+			writeErr(w, http.StatusForbidden, "无权限操作该账号")
+			return
+		}
+	}
+	triggerType := strings.TrimSpace(query.Get("trigger_type"))
+	if triggerType != "" {
+		switch triggerType {
+		case automation.TriggerOrderPaid, automation.TriggerBuyerReviewed, automation.TriggerReviewMissingTimeout:
+		default:
+			writeErr(w, http.StatusBadRequest, "不支持的触发类型")
+			return
+		}
+	}
+	var enabled *bool
+	if rawEnabled := strings.TrimSpace(query.Get("enabled")); rawEnabled != "" {
+		value, parseErr := strconv.ParseBool(rawEnabled)
+		if parseErr != nil {
+			writeErr(w, http.StatusBadRequest, "启用状态必须是 true 或 false")
+			return
+		}
+		enabled = &value
+	}
+
+	rules, total, err := s.Store.Automation.ListPageForUser(r.Context(), db.AutomationRuleListFilter{
+		UserID: sess.UserID, CookieID: cookieID, TriggerType: triggerType, Enabled: enabled,
+		Search: query.Get("search"), Limit: pageSize, Offset: (page - 1) * pageSize,
+	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询自动化规则失败")
 		return
 	}
+	totalPages := (total + pageSize - 1) / pageSize
+	if totalPages > 0 && page > totalPages {
+		page = totalPages
+		rules, _, err = s.Store.Automation.ListPageForUser(r.Context(), db.AutomationRuleListFilter{
+			UserID: sess.UserID, CookieID: cookieID, TriggerType: triggerType, Enabled: enabled,
+			Search: query.Get("search"), Limit: pageSize, Offset: (page - 1) * pageSize,
+		})
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "查询自动化规则失败")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true, "data": automationRulesJSON(rules), "total": total,
+		"page": page, "page_size": pageSize, "total_pages": totalPages,
+	})
+}
+
+func automationRulesJSON(rules []db.AutomationRule) []map[string]any {
 	out := make([]map[string]any, 0, len(rules))
 	for _, rule := range rules {
 		actions := make([]map[string]any, 0, len(rule.Actions))
@@ -127,7 +198,7 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 			"created_at": rule.CreatedAt, "updated_at": rule.UpdatedAt,
 		})
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out
 }
 
 func (s *Server) createAutomationRule(w http.ResponseWriter, r *http.Request) {

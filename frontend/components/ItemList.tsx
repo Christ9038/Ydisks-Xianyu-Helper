@@ -27,6 +27,13 @@ interface ItemListProps {
 
 type BatchPhase = 'upload' | 'preview' | 'running' | 'done';
 
+interface PublishCategory {
+  cat_id: string;
+  cat_name: string;
+  channel_cat_id?: string;
+  tb_cat_id?: string;
+}
+
 interface PublishBatchPreviewRow {
   row_no: number;
   valid: boolean;
@@ -36,6 +43,7 @@ interface PublishBatchPreviewRow {
   price: string;
   quantity: number;
   images: string[];
+  category: PublishCategory;
 }
 
 interface PublishBatchDetailRow {
@@ -51,6 +59,7 @@ interface PublishBatchDetailRow {
   error_message: string;
   failure_kind: string;
   images?: string[];
+  category: PublishCategory;
 }
 
 interface PublishBatchDetail {
@@ -88,6 +97,12 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   const [batchPhase, setBatchPhase] = useState<BatchPhase>('upload');
   const [batchFile, setBatchFile] = useState<File | null>(null);
   const [batchImagesZip, setBatchImagesZip] = useState<File | null>(null);
+  const [batchFallbackCategory, setBatchFallbackCategory] = useState({
+    catId: '',
+    catName: '',
+    channelCatId: '',
+    tbCatId: '',
+  });
   const [batchPreview, setBatchPreview] = useState<{
     preview_id: string;
     total: number;
@@ -119,6 +134,23 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     images: [] as File[]
   });
   const [publishImagePreviews, setPublishImagePreviews] = useState<{ key: string; url: string }[]>([]);
+
+  const knownCategories = useMemo(() => {
+    const unique = new Map<string, string>();
+    items.forEach(item => {
+      const catId = String(item.item_category || '').trim();
+      if (!catId) return;
+      let catName = '';
+      try {
+        const detail = JSON.parse(item.item_detail || '{}') as { category_name?: string };
+        catName = String(detail.category_name || '').trim();
+      } catch {
+        // 历史商品详情可能不是 JSON，仍保留可复用的类目 ID。
+      }
+      if (!unique.has(catId) || catName) unique.set(catId, catName);
+    });
+    return Array.from(unique, ([catId, catName]) => ({ catId, catName }));
+  }, [items]);
 
   useEffect(() => {
     if (!showPublishModal || publishForm.images.length === 0) {
@@ -319,6 +351,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     setBatchDetail(null);
     setBatchFile(null);
     setBatchImagesZip(null);
+    setBatchFallbackCategory({ catId: '', catName: '', channelCatId: '', tbCatId: '' });
     setShowBatchModal(true);
     setBatchLoading(true);
     try {
@@ -355,12 +388,16 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   const handlePreviewBatch = async () => {
     if (!batchFile) return alert('请先上传商品表格');
     if (!selectedAccount) return alert('请先选择默认发布账号');
+    if (!batchFallbackCategory.catId.trim() || !batchFallbackCategory.catName.trim()) {
+      return alert('请同时填写批次兜底类目 ID 和类目名称');
+    }
     setBatchLoading(true);
     try {
       const result = await previewItemPublishBatch({
         file: batchFile,
         imagesZip: batchImagesZip,
         defaultCookieId: selectedAccount,
+        fallbackCategory: batchFallbackCategory,
       });
       setBatchPreview(result);
       setBatchDetail(null);
@@ -442,12 +479,13 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   const downloadPublishTemplate = () => {
     const headers = [
       '账号ID', '标题', '描述', '价格', '原价', '库存', '邮费模式', '邮费', '图片',
+      '类目ID', '类目名称', '频道类目ID', '淘宝类目ID',
       '付款发货启用', '付款发货内容', '评价赠品启用', '评价赠品内容',
       '求评价启用', '求评价等待小时', '求评价文案', '求评价最多次数',
     ];
     const rows = [
-      ['', '会员组合包自动发货', '下单后发送主卡和附赠卡。', '19.90', '29.90', '10', 'free', '', 'images/bundle-1.jpg;images/bundle-2.jpg', '是', '101:1;102:1', '是', '201:1;202:2', '是', '72', '亲，满意的话麻烦给个评价，谢谢～', '1'],
-      ['', '普通商品', '仅发布商品，不创建自动化规则。', '49.90', '', '10', 'fixed', '8.00', 'https://example.com/product.jpg', '否', '', '否', '', '否', '', '', ''],
+      ['', '会员组合包自动发货', '下单后发送主卡和附赠卡。', '19.90', '29.90', '10', 'free', '', 'images/bundle-1.jpg;images/bundle-2.jpg', '', '', '', '', '是', '101:1;102:1', '是', '201:1;202:2', '是', '72', '亲，满意的话麻烦给个评价，谢谢～', '1'],
+      ['', '普通商品', '仅发布商品，不创建自动化规则。', '49.90', '', '10', 'fixed', '8.00', 'https://example.com/product.jpg', '', '', '', '', '否', '', '否', '', '否', '', '', ''],
     ];
     const csv = [headers, ...rows]
       .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
@@ -915,6 +953,60 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                     <p className="text-xs text-gray-500">表格中“账号ID”为空时，会使用这里选择的账号。</p>
                   </div>
 
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 space-y-3">
+                    <div>
+                      <div className="text-sm font-extrabold text-gray-900">批次兜底类目 <span className="text-red-600">*</span></div>
+                      <p className="mt-1 text-xs leading-5 text-amber-800">闲鱼仍会先自动识别；只有明确识别不出类目时才使用这里的配置。表格中的“类目ID + 类目名称”可覆盖当前行。</p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <label className="space-y-1.5">
+                        <span className="text-xs font-bold text-gray-700">类目 ID</span>
+                        <input
+                          className="w-full ios-input px-3 py-2.5 rounded-xl bg-white"
+                          list="known-publish-categories"
+                          placeholder="例如 50023717"
+                          value={batchFallbackCategory.catId}
+                          onChange={e => {
+                            const catId = e.target.value;
+                            const matched = knownCategories.find(category => category.catId === catId.trim());
+                            setBatchFallbackCategory(prev => ({
+                              ...prev,
+                              catId,
+                              catName: matched?.catName || (catId ? prev.catName : ''),
+                            }));
+                          }}
+                        />
+                        <datalist id="known-publish-categories">
+                          {knownCategories.map(category => (
+                            <option key={category.catId} value={category.catId}>{category.catName || '历史商品类目'}</option>
+                          ))}
+                        </datalist>
+                      </label>
+                      <label className="space-y-1.5">
+                        <span className="text-xs font-bold text-gray-700">类目名称</span>
+                        <input
+                          className="w-full ios-input px-3 py-2.5 rounded-xl bg-white"
+                          placeholder="例如 其他虚拟商品"
+                          value={batchFallbackCategory.catName}
+                          onChange={e => setBatchFallbackCategory(prev => ({ ...prev, catName: e.target.value }))}
+                        />
+                      </label>
+                    </div>
+                    <details className="group text-xs text-gray-600">
+                      <summary className="cursor-pointer select-none font-bold text-amber-900">高级类目字段（通常留空）</summary>
+                      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <label className="space-y-1.5">
+                          <span className="font-bold text-gray-700">频道类目 ID</span>
+                          <input className="w-full ios-input px-3 py-2.5 rounded-xl bg-white" value={batchFallbackCategory.channelCatId} onChange={e => setBatchFallbackCategory(prev => ({ ...prev, channelCatId: e.target.value }))} />
+                        </label>
+                        <label className="space-y-1.5">
+                          <span className="font-bold text-gray-700">淘宝类目 ID</span>
+                          <input className="w-full ios-input px-3 py-2.5 rounded-xl bg-white" value={batchFallbackCategory.tbCatId} onChange={e => setBatchFallbackCategory(prev => ({ ...prev, tbCatId: e.target.value }))} />
+                        </label>
+                      </div>
+                    </details>
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <label className="flex min-h-[150px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center hover:border-blue-300 hover:bg-blue-50 transition-colors">
                       <UploadCloud className="w-9 h-9 text-blue-600 mb-3" />
@@ -986,6 +1078,10 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                             ['邮费模式', '可以留空', '留空表示包邮；包邮填 free，固定邮费填 fixed'],
                             ['邮费', '邮费模式填 fixed 时填写', '只填数字，例如 8.00'],
                             ['图片', '每个商品都要填', '填写 zip 内图片路径或图片网址；多张图片用英文分号隔开'],
+                            ['类目ID', '需要覆盖批次兜底类目时填写', '必须和“类目名称”同时填写；只覆盖当前商品行'],
+                            ['类目名称', '填写了“类目ID”时必填', '填写该 ID 对应的准确类目名称'],
+                            ['频道类目ID', '通常留空', '仅在已明确取得闲鱼频道类目 ID 时填写'],
+                            ['淘宝类目ID', '通常留空', '仅在已明确取得淘宝类目 ID 时填写'],
                             ['付款发货启用', '需要付款后自动发货时填写', '填“是”表示开启；不需要时填“否”或留空'],
                             ['付款发货内容', '“付款发货启用”填“是”时填写', '从“卡密库存”页面取得卡密组 ID，按上方示例填写'],
                             ['评价赠品启用', '需要评价赠品时填写', '填“是”表示开启；不需要时填“否”或留空'],
@@ -1033,6 +1129,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                           <th className="px-4 py-3">状态</th>
                           <th className="px-4 py-3">标题</th>
                           <th className="px-4 py-3">价格/库存</th>
+                          <th className="px-4 py-3">兜底类目</th>
                           <th className="px-4 py-3">图片</th>
                           <th className="px-4 py-3">问题</th>
                         </tr>
@@ -1048,6 +1145,10 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                             </td>
                             <td className="px-4 py-3 font-bold text-gray-900 max-w-[240px] truncate">{row.title || '-'}</td>
                             <td className="px-4 py-3 text-gray-600">¥{row.price || '-'} / {row.quantity || 1}</td>
+                            <td className="px-4 py-3 text-xs text-gray-600 min-w-[150px]">
+                              <div className="font-bold text-gray-800">{row.category?.cat_name || '-'}</div>
+                              <div className="font-mono text-gray-400">{row.category?.cat_id || '-'}</div>
+                            </td>
                             <td className="px-4 py-3 text-gray-600">{row.images?.length || 0} 张</td>
                             <td className="px-4 py-3 text-red-600 text-xs max-w-[280px]">{row.errors?.join('；') || '-'}</td>
                           </tr>
@@ -1090,6 +1191,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                           <th className="px-4 py-3">行号</th>
                           <th className="px-4 py-3">状态</th>
                           <th className="px-4 py-3">标题</th>
+                          <th className="px-4 py-3">兜底类目</th>
                           <th className="px-4 py-3">商品ID</th>
                           <th className="px-4 py-3">错误原因</th>
                         </tr>
@@ -1104,6 +1206,10 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                               </span>
                             </td>
                             <td className="px-4 py-3 font-bold text-gray-900 max-w-[260px] truncate">{row.title}</td>
+                            <td className="px-4 py-3 text-xs text-gray-600 min-w-[150px]">
+                              <div className="font-bold text-gray-800">{row.category?.cat_name || '-'}</div>
+                              <div className="font-mono text-gray-400">{row.category?.cat_id || '-'}</div>
+                            </td>
                             <td className="px-4 py-3 text-xs font-mono">
                               {row.item_url ? <a href={row.item_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{row.item_id}</a> : (row.item_id || '-')}
                             </td>
@@ -1119,7 +1225,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
 
             <div className="modal-footer">
               {batchPhase === 'upload' && (
-                <button disabled={batchLoading || !batchFile || !selectedAccount} onClick={handlePreviewBatch} className="w-full ios-btn-primary px-6 py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50">
+                <button disabled={batchLoading || !batchFile || !selectedAccount || !batchFallbackCategory.catId.trim() || !batchFallbackCategory.catName.trim()} onClick={handlePreviewBatch} className="w-full ios-btn-primary px-6 py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50">
                   <RefreshCw className={`w-4 h-4 ${batchLoading ? 'animate-spin' : ''}`} />
                   {batchLoading ? '正在预检...' : '开始预检'}
                 </button>

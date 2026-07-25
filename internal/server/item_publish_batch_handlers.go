@@ -47,6 +47,7 @@ type publishBatchPreviewRow struct {
 	Price      string                  `json:"price"`
 	Quantity   int                     `json:"quantity"`
 	Images     []string                `json:"images"`
+	Category   mtop.PublishCategory    `json:"category"`
 	Automation publishAutomationConfig `json:"automation"`
 }
 
@@ -61,6 +62,7 @@ type publishBatchParsedRow struct {
 	PostageMode   string
 	Postage       string
 	Images        []string
+	Category      mtop.PublishCategory
 	Automation    publishAutomationConfig
 	Errors        []string
 	Raw           map[string]any
@@ -109,6 +111,16 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 	}
 	if !s.cookieOwnedByUser(r.Context(), sess.UserID, defaultCookieID) {
 		writeErr(w, http.StatusForbidden, "默认账号不属于当前用户")
+		return
+	}
+	fallbackCategory := mtop.PublishCategory{
+		CatID:        strings.TrimSpace(r.FormValue("fallback_category_id")),
+		CatName:      strings.TrimSpace(r.FormValue("fallback_category_name")),
+		ChannelCatID: strings.TrimSpace(r.FormValue("fallback_channel_category_id")),
+		TBCatID:      strings.TrimSpace(r.FormValue("fallback_tb_category_id")),
+	}
+	if fallbackCategory.CatID == "" || fallbackCategory.CatName == "" {
+		writeErr(w, http.StatusBadRequest, "请同时填写批次兜底类目 ID 和类目名称")
 		return
 	}
 	source, sourceHeader, err := r.FormFile("file")
@@ -181,7 +193,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusBadRequest, fmt.Sprintf("单个批次最多支持 %d 条商品", maxPublishBatchRows))
 		return
 	}
-	parsed := s.parsePublishRows(r.Context(), sess.UserID, defaultCookieID, uploadDir, maps)
+	parsed := s.parsePublishRows(r.Context(), sess.UserID, defaultCookieID, uploadDir, fallbackCategory, maps)
 	rows := make([]db.ItemPublishBatchRow, 0, len(parsed))
 	previewRows := make([]publishBatchPreviewRow, 0, len(parsed))
 	valid, invalid := 0, 0
@@ -193,6 +205,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 			invalid++
 		}
 		imagesJSON, _ := json.Marshal(p.Images)
+		categoryJSON, _ := json.Marshal(p.Category)
 		automationJSON, _ := json.Marshal(p.Automation)
 		rawJSON, _ := json.Marshal(p.Raw)
 		status := "pending"
@@ -212,6 +225,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 			PostageMode:    p.PostageMode,
 			Postage:        p.Postage,
 			ImagesJSON:     string(imagesJSON),
+			CategoryJSON:   string(categoryJSON),
 			AutomationJSON: string(automationJSON),
 			Status:         status,
 			ErrorMessage:   errMsg,
@@ -227,6 +241,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 			Price:      p.Price,
 			Quantity:   p.Quantity,
 			Images:     p.Images,
+			Category:   p.Category,
 			Automation: p.Automation,
 		})
 	}
@@ -469,10 +484,7 @@ func (s *Server) recoverPublishBatchesOnce(ctx context.Context) {
 	}
 	for _, batch := range batches {
 		if batch.Status == "canceling" {
-			finalized, finalizeErr := s.Store.PublishBatches.FinalizeExpiredCancellation(ctx, batch.ID, time.Now().UTC().Unix())
-			if finalizeErr != nil || !finalized {
-				continue
-			}
+			_, _ = s.Store.PublishBatches.FinalizeExpiredCancellation(ctx, batch.ID, time.Now().UTC().Unix())
 			continue
 		}
 		workerToken := randomHex(16)
@@ -524,11 +536,14 @@ func (s *Server) downloadItemPublishBatchResult(w http.ResponseWriter, r *http.R
 	var buf bytes.Buffer
 	buf.WriteString("\xEF\xBB\xBF")
 	cw := csv.NewWriter(&buf)
-	_ = cw.Write([]string{"行号", "状态", "账号ID", "标题", "价格", "库存", "商品ID", "商品URL", "错误原因"})
+	_ = cw.Write([]string{"行号", "状态", "账号ID", "标题", "价格", "库存", "兜底类目ID", "兜底类目名称", "商品ID", "商品URL", "错误原因"})
 	for _, row := range rows {
+		var category mtop.PublishCategory
+		_ = json.Unmarshal([]byte(row.CategoryJSON), &category)
 		_ = cw.Write([]string{
 			strconv.Itoa(row.RowNo), safeCSVCell(row.Status), safeCSVCell(row.CookieID), safeCSVCell(row.Title), safeCSVCell(row.Price),
-			strconv.Itoa(row.Quantity), safeCSVCell(row.ItemID), safeCSVCell(row.ItemURL), safeCSVCell(row.ErrorMessage),
+			strconv.Itoa(row.Quantity), safeCSVCell(category.CatID), safeCSVCell(category.CatName),
+			safeCSVCell(row.ItemID), safeCSVCell(row.ItemURL), safeCSVCell(row.ErrorMessage),
 		})
 	}
 	cw.Flush()
@@ -700,10 +715,7 @@ func (s *Server) finishInterruptedPublishBatch(ctx context.Context, userID int64
 			if batch.WorkerToken != workerToken {
 				return
 			}
-			finalized, finalizeErr := s.Store.PublishBatches.FinalizeCanceled(wctx, batchID, workerToken)
-			if finalizeErr != nil || !finalized {
-				return
-			}
+			_, _ = s.Store.PublishBatches.FinalizeCanceled(wctx, batchID, workerToken)
 		}
 		// 取消产生的 interrupted 失败行允许用户稍后重试，图片由统一的过期清理保留 7 天。
 		return
@@ -722,10 +734,7 @@ func (s *Server) finishPublishBatch(ctx context.Context, userID int64, batchID, 
 		return
 	}
 	if batch.Status == "canceling" {
-		finalized, finalizeErr := s.Store.PublishBatches.FinalizeCanceled(wctx, batchID, workerToken)
-		if finalizeErr != nil || !finalized {
-			return
-		}
+		_, _ = s.Store.PublishBatches.FinalizeCanceled(wctx, batchID, workerToken)
 		// 取消任务仍可“重试失败项”，不能在此删除重试所需的本地图片。
 		return
 	}
@@ -772,6 +781,17 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 	res := &mtop.PublishItemResult{ItemID: row.ItemID, ItemURL: row.ItemURL, Title: row.Title, PriceText: row.Price, Quantity: row.Quantity}
 	var responseCookieErr error
 	if row.ItemID == "" {
+		rawCategory := strings.TrimSpace(row.CategoryJSON)
+		if rawCategory == "" || rawCategory == "{}" {
+			return errors.New("批量任务缺少兜底类目，请重新上传并创建任务")
+		}
+		var fallbackCategory mtop.PublishCategory
+		if err := json.Unmarshal([]byte(rawCategory), &fallbackCategory); err != nil {
+			return errors.New("兜底类目配置损坏，请重新创建批量任务")
+		}
+		if strings.TrimSpace(fallbackCategory.CatID) == "" || strings.TrimSpace(fallbackCategory.CatName) == "" {
+			return errors.New("兜底类目缺少类目 ID 或类目名称，请重新创建批量任务")
+		}
 		images, err := loadBatchPublishImages(ctx, batch.UploadDir, row)
 		if err != nil {
 			return err
@@ -810,6 +830,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 				PostageMode:        row.PostageMode,
 				PostageCents:       postageCents,
 				Virtual:            true,
+				FallbackCategory:   &fallbackCategory,
 				Images:             images,
 			})
 			value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(ctx, latest, cookieSession)
@@ -854,6 +875,9 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 				if perr.Code == mtop.PublishErrorStockPermissionMissing {
 					return errors.New("该账号没有库存发布权限，无法按库存数量发布商品")
 				}
+				return err
+			}
+			if errors.Is(err, mtop.ErrPublishCategoryUnrecognized) {
 				return err
 			}
 			return &uncertainRemotePublishError{err: fmt.Errorf("远端发布调用失败且结果未知: %w", err)}
@@ -1000,7 +1024,7 @@ func (s *Server) ensurePublishAutomationRule(ctx context.Context, input db.Autom
 	return err
 }
 
-func (s *Server) parsePublishRows(ctx context.Context, userID int64, defaultCookieID, uploadDir string, input []map[string]any) []publishBatchParsedRow {
+func (s *Server) parsePublishRows(ctx context.Context, userID int64, defaultCookieID, uploadDir string, fallbackCategory mtop.PublishCategory, input []map[string]any) []publishBatchParsedRow {
 	out := make([]publishBatchParsedRow, 0, len(input))
 	for i, m := range input {
 		row := publishBatchParsedRow{
@@ -1031,6 +1055,21 @@ func (s *Server) parsePublishRows(ctx context.Context, userID int64, defaultCook
 			row.PostageMode = "fixed"
 		}
 		row.Quantity = atoiPublishDefault(firstImportString(m, "quantity", "库存", "数量"), 1)
+		rowCategory := mtop.PublishCategory{
+			CatID:        firstImportString(m, "category_id", "类目ID", "商品类目ID"),
+			CatName:      firstImportString(m, "category_name", "类目名称", "商品类目名称", "类目"),
+			ChannelCatID: firstImportString(m, "channel_category_id", "频道类目ID"),
+			TBCatID:      firstImportString(m, "tb_category_id", "淘宝类目ID"),
+		}
+		hasRowCategory := rowCategory.CatID != "" || rowCategory.CatName != "" || rowCategory.ChannelCatID != "" || rowCategory.TBCatID != ""
+		if hasRowCategory {
+			row.Category = rowCategory
+			if rowCategory.CatID == "" || rowCategory.CatName == "" {
+				row.Errors = append(row.Errors, "指定行类目时必须同时填写类目ID和类目名称")
+			}
+		} else {
+			row.Category = fallbackCategory
+		}
 		row.Automation = parsePublishAutomation(m)
 		row.Images = splitImageRefs(firstImportString(m, "images", "image", "图片", "商品图片"))
 		if row.CookieID == "" {
@@ -1194,11 +1233,14 @@ func publishBatchToMap(batch *db.ItemPublishBatch, rows []db.ItemPublishBatchRow
 		}
 		var refs []string
 		_ = json.Unmarshal([]byte(row.ImagesJSON), &refs)
+		var category mtop.PublishCategory
+		_ = json.Unmarshal([]byte(row.CategoryJSON), &category)
 		var automationCfg publishAutomationConfig
 		_ = json.Unmarshal([]byte(row.AutomationJSON), &automationCfg)
 		outRows = append(outRows, map[string]any{
 			"id": row.ID, "row_no": row.RowNo, "cookie_id": row.CookieID, "title": row.Title,
 			"price": row.Price, "quantity": row.Quantity, "images": refs,
+			"category":   category,
 			"automation": automationCfg,
 			"status":     row.Status, "item_id": row.ItemID, "item_url": row.ItemURL,
 			"error_message": row.ErrorMessage, "failure_kind": row.FailureKind,

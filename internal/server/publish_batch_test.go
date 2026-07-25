@@ -79,6 +79,8 @@ func TestPreviewItemPublishBatchCSV(t *testing.T) {
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	_ = mw.WriteField("default_cookie_id", "acc1")
+	_ = mw.WriteField("fallback_category_id", "5001")
+	_ = mw.WriteField("fallback_category_name", "虚拟商品")
 	csvField, _ := mw.CreateFormFile("file", "products.csv")
 	csvField.Write([]byte("账号ID,标题,价格,库存,图片\nacc1,商品A,12.50,5,img/a.png\n"))
 	zipField, _ := mw.CreateFormFile("images_zip", "images.zip")
@@ -98,6 +100,64 @@ func TestPreviewItemPublishBatchCSV(t *testing.T) {
 	if res["success"] != true || res["valid"] != float64(1) {
 		t.Fatalf("预检异常: %+v", res)
 	}
+	previewRow := res["rows"].([]any)[0].(map[string]any)
+	category := previewRow["category"].(map[string]any)
+	if category["cat_id"] != "5001" || category["cat_name"] != "虚拟商品" {
+		t.Fatalf("预检未保存兜底类目: %+v", category)
+	}
+}
+
+func TestPreviewItemPublishBatchRequiresFallbackCategory(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("default_cookie_id", "acc1")
+	file, _ := mw.CreateFormFile("file", "products.csv")
+	file.Write([]byte("标题,价格,图片\n商品A,12.50,https://example.com/a.png\n"))
+	_ = mw.Close()
+	req := httptest.NewRequest(http.MethodPost, "/items/publish-batches/preview", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "兜底类目") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestPreviewItemPublishBatchRowCategoryOverridesFallback(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("default_cookie_id", "acc1")
+	_ = mw.WriteField("fallback_category_id", "5001")
+	_ = mw.WriteField("fallback_category_name", "批次类目")
+	file, _ := mw.CreateFormFile("file", "products.csv")
+	file.Write([]byte("标题,价格,图片,类目ID,类目名称\n商品A,12.50,https://example.com/a.png,7001,行指定类目\n"))
+	_ = mw.Close()
+	req := httptest.NewRequest(http.MethodPost, "/items/publish-batches/preview", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var res map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &res)
+	row := res["rows"].([]any)[0].(map[string]any)
+	category := row["category"].(map[string]any)
+	if category["cat_id"] != "7001" || category["cat_name"] != "行指定类目" {
+		t.Fatalf("row category=%+v", category)
+	}
 }
 
 // TestPreviewItemPublishBatchNoFile 缺表格文件 400。
@@ -110,6 +170,8 @@ func TestPreviewItemPublishBatchNoFile(t *testing.T) {
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	_ = mw.WriteField("default_cookie_id", "acc1")
+	_ = mw.WriteField("fallback_category_id", "5001")
+	_ = mw.WriteField("fallback_category_name", "虚拟商品")
 	_ = mw.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/items/publish-batches/preview", &buf)
@@ -181,6 +243,9 @@ func TestPreviewItemPublishBatchTooManyRows(t *testing.T) {
 
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("default_cookie_id", "acc1")
+	_ = mw.WriteField("fallback_category_id", "5001")
+	_ = mw.WriteField("fallback_category_name", "虚拟商品")
 	csvField, _ := mw.CreateFormFile("file", "products.csv")
 	csvField.Write(csvBuf.Bytes())
 	_ = mw.Close()
@@ -211,6 +276,8 @@ func TestPreviewItemPublishBatchZipTraversal(t *testing.T) {
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	_ = mw.WriteField("default_cookie_id", "acc1")
+	_ = mw.WriteField("fallback_category_id", "5001")
+	_ = mw.WriteField("fallback_category_name", "虚拟商品")
 	csvField, _ := mw.CreateFormFile("file", "products.csv")
 	csvField.Write([]byte("账号ID,标题,价格,库存,图片\nacc1,商品A,12.50,5,../escape.png\n"))
 	zipField, _ := mw.CreateFormFile("images_zip", "images.zip")

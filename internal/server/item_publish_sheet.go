@@ -181,6 +181,14 @@ func normalizePublishHeader(header string) string {
 		return "postage"
 	case "images", "image", "图片", "商品图片":
 		return "images"
+	case "categoryid", "catid", "类目id", "商品类目id":
+		return "category_id"
+	case "categoryname", "catname", "类目名称", "商品类目名称", "类目":
+		return "category_name"
+	case "channelcategoryid", "channelcatid", "频道类目id":
+		return "channel_category_id"
+	case "tbcategoryid", "tbcatid", "淘宝类目id":
+		return "tb_category_id"
 	case "paiddeliveryenabled", "付款发货启用", "付款后自动发货":
 		return "paid_delivery_enabled"
 	case "paiddeliverycontents", "付款发货内容", "付款后发送的卡密":

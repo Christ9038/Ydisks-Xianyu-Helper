@@ -15,6 +15,7 @@ import {
 	getOrderAnalytics,
   getReplyRules,
   getShippingRules,
+  getShippingRulesPage,
   getSystemSettings,
   getValidOrders,
   logout,
@@ -106,6 +107,33 @@ test('getOrders maps unsupported backend statuses to unknown', async () => {
   })));
   const result = await getOrders();
   expect(result.data[0].status).toBe('unknown');
+});
+
+test('getShippingRulesPage sends filters and preserves pagination metadata', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+    data: [{ id: 7, name: '付款规则', trigger_type: 'order_paid', enabled: false, actions: [] }],
+    total: 21,
+    page: 2,
+    page_size: 20,
+    total_pages: 2,
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  const result = await getShippingRulesPage({
+    cookieId: 'acc1',
+    triggerType: 'order_paid',
+    enabled: false,
+    search: '  商品 ',
+    page: 2,
+    pageSize: 20,
+  });
+
+  expect(result).toMatchObject({ total: 21, page: 2, page_size: 20, total_pages: 2 });
+  expect(result.data[0]).toMatchObject({ id: '7', name: '付款规则', enabled: false });
+  expect(fetchMock).toHaveBeenCalledWith(
+    '/automation-rules?page=2&page_size=20&cookie_id=acc1&trigger_type=order_paid&enabled=false&search=%E5%95%86%E5%93%81',
+    expect.objectContaining({ method: 'GET', credentials: 'include' }),
+  );
 });
 
 test('getValidOrders accepts wrapped responses', async () => {

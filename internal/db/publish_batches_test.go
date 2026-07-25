@@ -52,7 +52,7 @@ func TestPublishBatches_CreateGetRows(t *testing.T) {
 		t.Fatalf("Get 不存在应 ErrNotFound, got %v", err)
 	}
 
-	// Rows 验证缺省值（quantity=1, postage_mode=free, status=pending, images_json=[], automation_json={}）。
+	// Rows 验证缺省值（quantity=1, postage_mode=free, status=pending, JSON 字段均已补齐）。
 	gotRows, err := s.PublishBatches.Rows(ctx, "b1")
 	if err != nil {
 		t.Fatalf("Rows: %v", err)
@@ -62,7 +62,7 @@ func TestPublishBatches_CreateGetRows(t *testing.T) {
 	}
 	r0 := gotRows[0]
 	if r0.Quantity != 1 || r0.PostageMode != "free" || r0.Status != "pending" ||
-		r0.ImagesJSON != "[]" || r0.AutomationJSON != "{}" || r0.RawJSON != "{}" {
+		r0.ImagesJSON != "[]" || r0.CategoryJSON != "{}" || r0.AutomationJSON != "{}" || r0.RawJSON != "{}" {
 		t.Fatalf("缺省值: %#v", r0)
 	}
 	if gotRows[1].Quantity != 5 || gotRows[1].PostageMode != "buyer" {

@@ -24,6 +24,7 @@ import {
   getAutomationIssues,
   getReplyRules,
   getShippingRules,
+  getShippingRulesPage,
   updateDefaultReply,
   updateReplyRule,
   updateShippingRule,
@@ -36,6 +37,8 @@ import {
   AlertCircle,
   Bot,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Edit,
   Gift,
@@ -45,7 +48,9 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Search,
   Send,
+  SlidersHorizontal,
   Trash2,
   X,
   Zap,
@@ -54,7 +59,6 @@ import {
   automationIssueKindLabel,
   canResolveAutomationIssue,
   filterAutomationIssues,
-  loadAutomationPageData,
 } from './automationIssueState';
 import { commitIfLatest } from './latestRequest';
 
@@ -220,6 +224,15 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [automationSearch, setAutomationSearch] = useState('');
+  const [debouncedAutomationSearch, setDebouncedAutomationSearch] = useState('');
+  const [automationTriggerFilter, setAutomationTriggerFilter] = useState<AutomationTriggerType | ''>('');
+  const [automationStatusFilter, setAutomationStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
+  const [automationPage, setAutomationPage] = useState(1);
+  const [automationPageSize, setAutomationPageSize] = useState(10);
+  const [automationTotal, setAutomationTotal] = useState(0);
+  const [automationTotalPages, setAutomationTotalPages] = useState(0);
+  const automationRulesRequest = useRef(0);
   const replyRulesRequest = useRef(0);
   const selectedAccountRef = useRef('');
   selectedAccountRef.current = selectedAccountId;
@@ -253,14 +266,28 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
   }, []);
 
   const loadAutomationRules = useCallback(async () => {
-	await loadAutomationPageData({
-	  loadRules: getShippingRules,
-	  loadIssues: getAutomationIssues,
-	  onRules: setAutomationRules,
-	  onIssues: setAutomationIssues,
-	  onIssuesError: error => console.warn('加载自动化异常列表失败，不阻断规则展示', error),
+	const requestID = ++automationRulesRequest.current;
+	const issuesPromise = getAutomationIssues().catch(error => {
+	  console.warn('加载自动化异常列表失败，不阻断规则展示', error);
+	  return null;
 	});
-  }, []);
+	const result = await getShippingRulesPage({
+	  cookieId: selectedAccountId || undefined,
+	  triggerType: automationTriggerFilter,
+	  enabled: automationStatusFilter === 'all' ? undefined : automationStatusFilter === 'enabled',
+	  search: debouncedAutomationSearch,
+	  page: automationPage,
+	  pageSize: automationPageSize,
+	});
+	if (requestID !== automationRulesRequest.current) return;
+	setAutomationRules(result.data);
+	setAutomationTotal(result.total);
+	setAutomationTotalPages(result.total_pages);
+	if (result.page !== automationPage) setAutomationPage(result.page);
+	const issues = await issuesPromise;
+	if (requestID !== automationRulesRequest.current) return;
+	if (issues) setAutomationIssues(issues);
+  }, [automationPage, automationPageSize, automationStatusFilter, automationTriggerFilter, debouncedAutomationSearch, selectedAccountId]);
 
   const loadReplyRules = useCallback(async () => {
 	const cookieID = selectedAccountId;
@@ -292,6 +319,14 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       setLoading(false);
     }
   }, [activeTab, loadAutomationRules, loadDefaultReplies, loadReplyRules]);
+
+  useEffect(() => {
+	const timer = window.setTimeout(() => {
+	  setAutomationPage(1);
+	  setDebouncedAutomationSearch(automationSearch.trim());
+	}, 300);
+	return () => window.clearTimeout(timer);
+  }, [automationSearch]);
 
   useEffect(() => {
 	void loadReferenceData().catch(error => console.error('加载规则参考数据失败', error));
@@ -327,6 +362,25 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     }
     return grouped;
   }, [visibleAutomationRules]);
+
+  const automationPageNumbers = useMemo(() => {
+	if (automationTotalPages <= 1) return [];
+	const first = Math.max(1, Math.min(automationPage - 2, automationTotalPages - 4));
+	const last = Math.min(automationTotalPages, first + 4);
+	return Array.from({ length: last - first + 1 }, (_, index) => first + index);
+  }, [automationPage, automationTotalPages]);
+
+  const hasAutomationListFilters = Boolean(
+	automationSearch.trim() || automationTriggerFilter || automationStatusFilter !== 'all',
+  );
+
+  const clearAutomationListFilters = () => {
+	setAutomationSearch('');
+	setDebouncedAutomationSearch('');
+	setAutomationTriggerFilter('');
+	setAutomationStatusFilter('all');
+	setAutomationPage(1);
+  };
 
   const modalAccountItems = useMemo(() => {
     const cookieID = editingAutomationRule?.cookie_id || selectedAccountId;
@@ -748,15 +802,18 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 
   return (
     <div className="space-y-8 animate-fade-in">
-      <div className="flex flex-col md:flex-row justify-between md:items-end gap-4">
+      <div className="flex flex-col xl:flex-row justify-between xl:items-end gap-4">
         <div>
           <h2 className="text-4xl font-extrabold text-gray-900 tracking-tight">自动化规则</h2>
           <p className="text-gray-500 mt-2 font-medium">系统通知卡片只进入自动化判断；买家消息进入关键词、默认或 AI 回复。</p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3">
           <select
             value={selectedAccountId}
-            onChange={event => setSelectedAccountId(event.target.value)}
+            onChange={event => {
+			  setSelectedAccountId(event.target.value);
+			  setAutomationPage(1);
+			}}
             className="ios-input px-4 py-3 rounded-2xl text-sm min-w-64"
           >
             <option value="">全部账号</option>
@@ -766,7 +823,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
           </select>
           <button
             onClick={refresh}
-            className="px-4 py-3 rounded-2xl font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center gap-2 transition-colors"
+            className="px-4 py-3 rounded-2xl font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             刷新
@@ -774,7 +831,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
           <button
             onClick={activeTab === 'automation' ? () => openNewAutomationRule('order_paid') : activeTab === 'reply' ? handleAddReplyRule : () => void openDefaultReplyModal()}
             disabled={!selectedAccountId}
-            className="ios-btn-primary px-5 py-3 rounded-2xl text-sm font-extrabold flex items-center justify-center gap-2 disabled:opacity-50"
+            className="ios-btn-primary px-5 py-3 rounded-2xl text-sm font-extrabold flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50"
           >
             <Plus className="w-4 h-4" />
             {primaryActionLabel}
@@ -879,7 +936,10 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
             </div>
 
             <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
-              <h3 className="font-black text-gray-900 mb-4">规则概览</h3>
+              <div className="mb-4 flex items-center justify-between gap-3">
+				<h3 className="font-black text-gray-900">本页规则构成</h3>
+				<span className="text-xs font-bold text-gray-400">共 {automationTotal} 条</span>
+			  </div>
               <div className="space-y-3">
                 {triggerOrder.map(trigger => {
                   const meta = triggerMeta[trigger];
@@ -898,15 +958,82 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
             </div>
           </aside>
 
-          <section className="space-y-4">
-            {visibleAutomationRules.length === 0 ? (
-              <div className="bg-white rounded-xl border border-dashed border-gray-200 p-16 text-center">
-                <Zap className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-xl font-black text-gray-900">还没有自动化规则</h3>
-                <p className="text-gray-500 mt-2">从左侧选择一个模板开始配置。</p>
-              </div>
-            ) : (
-              visibleAutomationRules.map(rule => {
+		  <section className="space-y-4">
+			<div className="rounded-xl border border-gray-100 bg-[#FAFAFA] p-4 shadow-sm">
+			  <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+				<div className="relative min-w-0 flex-1">
+				  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+				  <input
+					type="search"
+					aria-label="搜索自动化规则"
+					placeholder="搜索规则名、商品名或商品 ID..."
+					value={automationSearch}
+					onChange={event => {
+					  setAutomationSearch(event.target.value);
+					  setAutomationPage(1);
+					}}
+					className="ios-input w-full rounded-xl border-none bg-white py-2.5 pl-10 pr-4 text-sm shadow-sm"
+				  />
+				</div>
+				<div className="relative xl:w-52">
+				  <SlidersHorizontal className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+				  <select
+					aria-label="按自动化类型筛选"
+					value={automationTriggerFilter}
+					onChange={event => {
+					  setAutomationTriggerFilter(event.target.value as AutomationTriggerType | '');
+					  setAutomationPage(1);
+					}}
+					className="ios-input w-full rounded-xl border-none bg-white py-2.5 pl-10 pr-9 text-sm shadow-sm"
+				  >
+					<option value="">全部自动化类型</option>
+					{triggerOrder.map(trigger => <option key={trigger} value={trigger}>{triggerMeta[trigger].shortLabel}</option>)}
+				  </select>
+				</div>
+				<select
+				  aria-label="按启用状态筛选"
+				  value={automationStatusFilter}
+				  onChange={event => {
+					setAutomationStatusFilter(event.target.value as 'all' | 'enabled' | 'disabled');
+					setAutomationPage(1);
+				  }}
+				  className="ios-input rounded-xl border-none bg-white px-4 py-2.5 text-sm shadow-sm xl:w-36"
+				>
+				  <option value="all">全部状态</option>
+				  <option value="enabled">已启用</option>
+				  <option value="disabled">已禁用</option>
+				</select>
+				{hasAutomationListFilters && (
+				  <button
+					type="button"
+					onClick={clearAutomationListFilters}
+					className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-gray-500 shadow-sm transition-colors hover:bg-gray-100 hover:text-gray-900"
+					title="清除筛选"
+					aria-label="清除筛选"
+				  >
+					<X className="h-4 w-4" />
+				  </button>
+				)}
+			  </div>
+			  <div className="mt-3 flex items-center justify-between text-xs font-bold text-gray-400">
+				<span>找到 {automationTotal} 条规则</span>
+				{loading && <span className="inline-flex items-center gap-1.5"><RefreshCw className="h-3.5 w-3.5 animate-spin" />正在更新</span>}
+			  </div>
+			</div>
+
+			{loading && visibleAutomationRules.length === 0 ? (
+			  <div className="flex min-h-56 items-center justify-center rounded-xl border border-gray-100 bg-white text-sm font-bold text-gray-400">
+				<RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+				正在加载规则
+			  </div>
+			) : visibleAutomationRules.length === 0 ? (
+			  <div className="bg-white rounded-xl border border-dashed border-gray-200 p-16 text-center">
+				<Zap className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+				<h3 className="text-xl font-black text-gray-900">{hasAutomationListFilters ? '没有匹配的自动化规则' : '还没有自动化规则'}</h3>
+				<p className="text-gray-500 mt-2">{hasAutomationListFilters ? '调整或清除筛选条件后再试。' : '从左侧选择一个模板开始配置。'}</p>
+			  </div>
+			) : (
+			  visibleAutomationRules.map(rule => {
                 const meta = triggerMeta[rule.trigger_type];
                 const Icon = meta.icon;
                 return (
@@ -957,8 +1084,65 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                   </article>
                 );
               })
-            )}
-          </section>
+			)}
+
+			{automationTotal > 0 && (
+			  <div className="flex flex-col gap-3 rounded-xl border border-gray-100 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+				<div className="flex items-center gap-3 text-sm font-medium text-gray-500">
+				  <span>第 {automationPage} / {Math.max(automationTotalPages, 1)} 页</span>
+				  <span className="h-4 w-px bg-gray-200" />
+				  <label className="flex items-center gap-2">
+					<span className="sr-only">每页显示数量</span>
+					<select
+					  value={automationPageSize}
+					  onChange={event => {
+						setAutomationPageSize(Number(event.target.value));
+						setAutomationPage(1);
+					  }}
+					  className="ios-input rounded-lg border-none bg-gray-50 px-2.5 py-2 text-sm"
+					>
+					  {[10, 20, 50].map(size => <option key={size} value={size}>{size} 条/页</option>)}
+					</select>
+				  </label>
+				</div>
+				<div className="flex items-center gap-1.5">
+				  <button
+					type="button"
+					disabled={automationPage <= 1 || loading}
+					onClick={() => setAutomationPage(page => Math.max(1, page - 1))}
+					className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-50 text-gray-600 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
+					aria-label="上一页"
+					title="上一页"
+				  >
+					<ChevronLeft className="h-4 w-4" />
+				  </button>
+				  {automationPageNumbers.map(pageNumber => (
+					<button
+					  key={pageNumber}
+					  type="button"
+					  disabled={loading}
+					  onClick={() => setAutomationPage(pageNumber)}
+					  className={`h-9 min-w-9 rounded-lg px-2 text-sm font-bold transition-colors ${pageNumber === automationPage ? 'bg-[#0094f7] text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'} disabled:cursor-not-allowed disabled:opacity-60`}
+					  aria-label={`第 ${pageNumber} 页`}
+					  aria-current={pageNumber === automationPage ? 'page' : undefined}
+					>
+					  {pageNumber}
+					</button>
+				  ))}
+				  <button
+					type="button"
+					disabled={automationPage >= automationTotalPages || loading}
+					onClick={() => setAutomationPage(page => Math.min(automationTotalPages, page + 1))}
+					className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-50 text-gray-600 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
+					aria-label="下一页"
+					title="下一页"
+				  >
+					<ChevronRight className="h-4 w-4" />
+				  </button>
+				</div>
+			  </div>
+			)}
+		  </section>
         </div>
       )}
 

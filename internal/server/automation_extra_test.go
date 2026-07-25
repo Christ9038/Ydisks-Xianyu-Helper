@@ -76,6 +76,61 @@ func TestAutomationRulesCRUD(t *testing.T) {
 	}
 }
 
+func TestAutomationRulesListFiltersAndPagination(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	store.DB.ExecContext(ctx, `INSERT INTO item_info (cookie_id, item_id, item_title) VALUES ('acc1','item-blue','蓝色会员')`)
+	for _, input := range []db.AutomationRuleInput{
+		{UserID: 1, CookieID: "acc1", ItemID: "item-blue", Name: "付款规则", TriggerType: automation.TriggerOrderPaid, Enabled: true, Priority: 100, Actions: []db.AutomationActionInput{{ActionType: automation.ActionConfirmShipment, Enabled: true}}},
+		{UserID: 1, CookieID: "acc1", Name: "评价赠品", TriggerType: automation.TriggerBuyerReviewed, Enabled: false, Priority: 100, Actions: []db.AutomationActionInput{{ActionType: automation.ActionSendText, MessageTemplate: "gift", Enabled: true}}},
+		{UserID: 1, CookieID: "acc1", Name: "求评价", TriggerType: automation.TriggerReviewMissingTimeout, Enabled: true, Priority: 100, Actions: []db.AutomationActionInput{{ActionType: automation.ActionSendText, MessageTemplate: "review", Enabled: true}}},
+	} {
+		if _, err := store.Automation.Create(ctx, input); err != nil {
+			t.Fatalf("create rule: %v", err)
+		}
+	}
+
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	request := func(path string) (int, map[string]any) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		var body map[string]any
+		if rec.Code == http.StatusOK {
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+		}
+		return rec.Code, body
+	}
+
+	status, filtered := request("/automation-rules?page=1&page_size=10&cookie_id=acc1&trigger_type=order_paid&enabled=true&search=%E8%93%9D%E8%89%B2")
+	if status != http.StatusOK || filtered["total"] != float64(1) || filtered["total_pages"] != float64(1) {
+		t.Fatalf("filtered status=%d body=%+v", status, filtered)
+	}
+	data, ok := filtered["data"].([]any)
+	if !ok || len(data) != 1 || data[0].(map[string]any)["name"] != "付款规则" {
+		t.Fatalf("filtered data=%+v", filtered["data"])
+	}
+
+	status, lastPage := request("/automation-rules?page=99&page_size=1")
+	if status != http.StatusOK || lastPage["total"] != float64(3) || lastPage["page"] != float64(3) {
+		t.Fatalf("last page status=%d body=%+v", status, lastPage)
+	}
+	if data, ok := lastPage["data"].([]any); !ok || len(data) != 1 {
+		t.Fatalf("last page data=%+v", lastPage["data"])
+	}
+
+	status, _ = request("/automation-rules?page=1&enabled=maybe")
+	if status != http.StatusBadRequest {
+		t.Fatalf("invalid enabled status=%d", status)
+	}
+}
+
 // TestAutomationRuleBadTriggerType 不支持的触发类型 400。
 func TestAutomationRuleBadTriggerType(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)

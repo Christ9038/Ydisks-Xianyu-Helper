@@ -61,6 +61,7 @@ func TestPublishItemValidationFailures(t *testing.T) {
 		{"zero quantity", PublishItemRequest{Title: "T", PriceCents: 100, Quantity: 0, Images: []PublishImage{{}}}, "库存数量必须大于 0"},
 		{"no images", PublishItemRequest{Title: "T", PriceCents: 100, Quantity: 1}, "至少上传 1 张商品图片"},
 		{"too many images", PublishItemRequest{Title: "T", PriceCents: 100, Quantity: 1, Images: make([]PublishImage, 10)}, "商品图片最多 9 张"},
+		{"incomplete fallback category", PublishItemRequest{Title: "T", PriceCents: 100, Quantity: 1, FallbackCategory: &PublishCategory{CatID: "5001"}, Images: []PublishImage{{}}}, "兜底类目必须同时填写"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -139,10 +140,11 @@ func TestPublishItemUploadImageFailure(t *testing.T) {
 	}}
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: dt}}
 	req := PublishItemRequest{
-		Title:      "T",
-		PriceCents: 1000,
-		Quantity:   1,
-		Images:     []PublishImage{{Filename: "a.png", ContentType: "image/png", Data: png1}},
+		Title:            "T",
+		PriceCents:       1000,
+		Quantity:         1,
+		FallbackCategory: &PublishCategory{CatID: "5001", CatName: "虚拟商品"},
+		Images:           []PublishImage{{Filename: "a.png", ContentType: "image/png", Data: png1}},
 	}
 	_, err := client.PublishItem(context.Background(), consignCookies, req)
 	if err == nil || !strings.Contains(err.Error(), "图片上传响应缺少 url") {
@@ -163,10 +165,11 @@ func TestPublishItemRecommendCategoryFailure(t *testing.T) {
 	}}
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: dt}}
 	req := PublishItemRequest{
-		Title:      "T",
-		PriceCents: 1000,
-		Quantity:   1,
-		Images:     []PublishImage{{Filename: "a.png", ContentType: "image/png", Data: png1}},
+		Title:            "T",
+		PriceCents:       1000,
+		Quantity:         1,
+		FallbackCategory: &PublishCategory{CatID: "5001", CatName: "虚拟商品"},
+		Images:           []PublishImage{{Filename: "a.png", ContentType: "image/png", Data: png1}},
 	}
 	_, err := client.PublishItem(context.Background(), consignCookies, req)
 	if err == nil {
@@ -199,6 +202,9 @@ func TestPublishItemRecommendCategoryMissingData(t *testing.T) {
 	_, err := client.PublishItem(context.Background(), consignCookies, req)
 	if err == nil || !strings.Contains(err.Error(), "未能自动识别商品类目") {
 		t.Fatalf("err=%v", err)
+	}
+	if !errors.Is(err, ErrPublishCategoryUnrecognized) {
+		t.Fatalf("err=%v want ErrPublishCategoryUnrecognized", err)
 	}
 }
 
@@ -261,6 +267,45 @@ func TestPublishVirtualItemSkipsLocation(t *testing.T) {
 	}
 	if publishedData == nil {
 		t.Fatal("未解析到发布请求 data")
+	}
+	if _, exists := publishedData["itemAddrDTO"]; exists {
+		t.Fatalf("虚拟商品不应发送 itemAddrDTO: %+v", publishedData["itemAddrDTO"])
+	}
+}
+
+func TestPublishVirtualItemUsesFallbackCategoryWhenRecommendationIsEmpty(t *testing.T) {
+	png1 := tinyPNG(t)
+	var publishedData map[string]any
+	dt := &dispatchTransport{handlers: map[string]http.HandlerFunc{
+		"_upload": func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, `{"object":{"url":"https://cdn/a.jpg","pix":"800x600"}}`)
+		},
+		"mtop.taobao.idle.kgraph.property.recommend": func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{}}`)
+		},
+		"mtop.idle.pc.idleitem.publish": func(w http.ResponseWriter, r *http.Request) {
+			publishedData, _ = parseDataURL(readBody(r))
+			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"itemId":"fallback-item-1"}}`)
+		},
+	}}
+	client := &ClientImpl{HTTPClient: &http.Client{Transport: dt}}
+	res, err := client.PublishItem(context.Background(), consignCookies, PublishItemRequest{
+		Title:            "虚拟商品",
+		PriceCents:       1000,
+		Quantity:         1,
+		Virtual:          true,
+		FallbackCategory: &PublishCategory{CatID: "5001", CatName: "虚拟服务", ChannelCatID: "6001", TBCatID: "7001"},
+		Images:           []PublishImage{{Filename: "a.png", ContentType: "image/png", Data: png1}},
+	})
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if res.CategoryID != "5001" || res.CategoryName != "虚拟服务" {
+		t.Fatalf("category result=%+v", res)
+	}
+	category, _ := publishedData["itemCatDTO"].(map[string]any)
+	if category["catId"] != "5001" || category["catName"] != "虚拟服务" || category["channelCatId"] != "6001" || category["tbCatId"] != "7001" {
+		t.Fatalf("published category=%+v", category)
 	}
 	if _, exists := publishedData["itemAddrDTO"]; exists {
 		t.Fatalf("虚拟商品不应发送 itemAddrDTO: %+v", publishedData["itemAddrDTO"])
