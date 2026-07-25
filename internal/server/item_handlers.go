@@ -108,6 +108,7 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		Quantity:           quantity,
 		PostageMode:        postageMode,
 		PostageCents:       postageCents,
+		Virtual:            true,
 		Images:             images,
 	})
 	runtimeCookie := ""

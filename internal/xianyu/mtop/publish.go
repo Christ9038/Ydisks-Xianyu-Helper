@@ -68,7 +68,9 @@ type PublishItemRequest struct {
 	Quantity           int
 	PostageMode        string
 	PostageCents       int64
-	Images             []PublishImage
+	// Virtual 表示商品只通过系统的虚拟发货流程交付，不需要实物发货地址。
+	Virtual bool
+	Images  []PublishImage
 }
 
 type PublishItemResult struct {
@@ -131,12 +133,15 @@ func (c *ClientImpl) PublishItem(ctx context.Context, cookiesStr string, req Pub
 	if updated != "" {
 		currentCookies = updated
 	}
-	location, updated, err := c.defaultPublishLocation(ctx, currentCookies)
-	if err != nil {
-		return nil, err
-	}
-	if updated != "" {
-		currentCookies = updated
+	var location map[string]any
+	if !req.Virtual {
+		location, updated, err = c.defaultPublishLocation(ctx, currentCookies)
+		if err != nil {
+			return nil, err
+		}
+		if updated != "" {
+			currentCookies = updated
+		}
 	}
 	return c.publishItemOnce(ctx, currentCookies, req, uploaded, category, location)
 }
@@ -297,16 +302,7 @@ func (c *ClientImpl) publishItemOnce(ctx context.Context, cookiesStr string, req
 			"enable": false, "serviceCode": "SKILL_PLAY_NO_MIND",
 		}},
 		"itemPostFeeDTO": postageDTO(req),
-		"itemAddrDTO": map[string]any{
-			"area":       location["area"],
-			"city":       location["city"],
-			"divisionId": location["divisionId"],
-			"gps":        fmt.Sprintf("%s,%s", mtopString(location["longitude"]), mtopString(location["latitude"])),
-			"poiId":      location["poiId"],
-			"poiName":    location["poi"],
-			"prov":       location["prov"],
-		},
-		"defaultPrice": false,
+		"defaultPrice":   false,
 		"itemCatDTO": map[string]any{
 			"catId":        mtopString(cat["catId"]),
 			"catName":      mtopString(cat["catName"]),
@@ -317,6 +313,17 @@ func (c *ClientImpl) publishItemOnce(ctx context.Context, cookiesStr string, req
 		"sourceId":     "pcMainPublish",
 		"bizcode":      "pcMainPublish",
 		"publishScene": "pcMainPublish",
+	}
+	if !req.Virtual {
+		data["itemAddrDTO"] = map[string]any{
+			"area":       location["area"],
+			"city":       location["city"],
+			"divisionId": location["divisionId"],
+			"gps":        fmt.Sprintf("%s,%s", mtopString(location["longitude"]), mtopString(location["latitude"])),
+			"poiId":      location["poiId"],
+			"poiName":    location["poi"],
+			"prov":       location["prov"],
+		}
 	}
 	decoded, updated, err := c.callMTop(ctx, cookiesStr, PublishItemAPI, "mtop.idle.pc.idleitem.publish", "1.0", "a21ybx.publish.0.0", "a21ybx.home.sidebar.1.46413da6EPl7v5", "46413da6EPl7v5", data)
 	if err != nil {

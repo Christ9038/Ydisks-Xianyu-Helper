@@ -651,10 +651,15 @@ func (s *Server) deleteCookie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	credentialUnlock()
-	// Stop 会等待 Account.Run 退出，而 Run 可能正在等待同一凭证锁，因此必须
-	// 在删除事务完成并释放锁后调用。
+	s.Logger.Info("账号已删除",
+		"cookie_id", cid,
+		"nickname", cachedAccountNickname(latest),
+		"user_id", latest.UserID,
+	)
+	// Stop 可能需要等待运行中任务收尾，不应阻塞删除 HTTP 请求。
+	// 数据库事务已完成，先向前端确认删除，再在后台精确停止该 cid 的实例。
 	if s.Manager != nil {
-		s.Manager.Stop(cid)
+		go s.Manager.Stop(cid)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }

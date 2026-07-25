@@ -280,6 +280,33 @@ func TestCancelItemPublishBatchNotFound(t *testing.T) {
 	}
 }
 
+func TestCancelPreviewBatchRetainsUploadDirectoryForRetry(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	batchID := previewPublishBatch(t, h, cookie)
+	batch, err := store.PublishBatches.Get(context.Background(), 1, batchID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/items/publish-batches/"+batchID+"/cancel", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cancel status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(batch.UploadDir); err != nil {
+		t.Fatalf("取消后应保留上传目录供重试: %v", err)
+	}
+	retained, err := store.PublishBatches.Get(context.Background(), 1, batchID)
+	if err != nil || retained.UploadDir != batch.UploadDir {
+		t.Fatalf("取消后应保留 upload_dir: batch=%+v err=%v", retained, err)
+	}
+}
+
 func TestDeletePreviewBatchRemovesUploadDirectory(t *testing.T) {
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()

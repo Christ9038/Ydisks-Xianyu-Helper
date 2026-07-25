@@ -364,10 +364,6 @@ func (s *Server) cancelItemPublishBatch(w http.ResponseWriter, r *http.Request) 
 	}
 	if running {
 		s.cancelPublishBatch(batchID, workerToken)
-	} else {
-		if batch, getErr := s.Store.PublishBatches.Get(r.Context(), sess.UserID, batchID); getErr == nil {
-			s.removePublishUploadDir(r.Context(), batch)
-		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "status": map[bool]string{true: "canceling", false: "canceled"}[running]})
 }
@@ -477,7 +473,6 @@ func (s *Server) recoverPublishBatchesOnce(ctx context.Context) {
 			if finalizeErr != nil || !finalized {
 				continue
 			}
-			s.removePublishUploadDir(ctx, &batch)
 			continue
 		}
 		workerToken := randomHex(16)
@@ -710,7 +705,7 @@ func (s *Server) finishInterruptedPublishBatch(ctx context.Context, userID int64
 				return
 			}
 		}
-		s.removePublishUploadDir(wctx, batch)
+		// 取消产生的 interrupted 失败行允许用户稍后重试，图片由统一的过期清理保留 7 天。
 		return
 	}
 	_, _, finalizeErr := s.Store.PublishBatches.FinalizeInterrupted(wctx, batchID, workerToken, "任务超时或已中断")
@@ -731,7 +726,7 @@ func (s *Server) finishPublishBatch(ctx context.Context, userID int64, batchID, 
 		if finalizeErr != nil || !finalized {
 			return
 		}
-		s.removePublishUploadDir(wctx, batch)
+		// 取消任务仍可“重试失败项”，不能在此删除重试所需的本地图片。
 		return
 	}
 	finalStatus, finished, finishErr := s.Store.PublishBatches.FinalizeBatch(wctx, batchID, workerToken)
@@ -814,6 +809,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 				Quantity:           row.Quantity,
 				PostageMode:        row.PostageMode,
 				PostageCents:       postageCents,
+				Virtual:            true,
 				Images:             images,
 			})
 			value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(ctx, latest, cookieSession)

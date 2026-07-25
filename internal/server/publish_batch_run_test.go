@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -218,7 +219,7 @@ func TestRunItemPublishBatch_FailureMarksRowFailed(t *testing.T) {
 }
 
 func TestCancelItemPublishBatchMarksUnfinishedRowsFailed(t *testing.T) {
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		select {
@@ -278,6 +279,16 @@ func TestCancelItemPublishBatchMarksUnfinishedRowsFailed(t *testing.T) {
 	}
 	if got["failed"] != got["total"] {
 		t.Fatalf("取消后未完成行应全部失败: total=%v failed=%v body=%+v", got["total"], got["failed"], got)
+	}
+	batch, err := store.PublishBatches.Get(context.Background(), 1, batchID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(batch.UploadDir) == "" {
+		t.Fatal("取消运行中的任务后应保留 upload_dir 供失败项重试")
+	}
+	if _, err := os.Stat(batch.UploadDir); err != nil {
+		t.Fatalf("取消运行中的任务后应保留图片目录: %v", err)
 	}
 }
 

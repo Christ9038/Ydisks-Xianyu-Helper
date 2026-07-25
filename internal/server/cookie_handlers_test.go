@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -738,6 +739,7 @@ func TestDeleteCookie(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 	store.Cookies.Save(ctx, "acc-del", "unb=1; _m_h5_tk=t_1;", 1)
+	store.Cookies.Save(ctx, "acc-keep", "unb=2; _m_h5_tk=t_2;", 1)
 	h := srv.Router()
 	cookie := loginHelper(t, h)
 
@@ -747,6 +749,12 @@ func TestDeleteCookie(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("delete status=%d", rec.Code)
+	}
+	if _, err := store.Cookies.GetDetails(ctx, "acc-del"); !errors.Is(err, db.ErrNotFound) {
+		t.Fatalf("目标账号应被删除，err=%v", err)
+	}
+	if kept, err := store.Cookies.GetDetails(ctx, "acc-keep"); err != nil || kept.ID != "acc-keep" {
+		t.Fatalf("非目标账号不应被删除，kept=%+v err=%v", kept, err)
 	}
 }
 

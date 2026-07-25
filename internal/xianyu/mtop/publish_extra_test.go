@@ -229,6 +229,44 @@ func TestPublishItemLocationFailure(t *testing.T) {
 	}
 }
 
+// TestPublishVirtualItemSkipsLocation 虚拟商品不查询默认地址，也不发送实物地址字段。
+func TestPublishVirtualItemSkipsLocation(t *testing.T) {
+	png1 := tinyPNG(t)
+	var publishedData map[string]any
+	dt := &dispatchTransport{handlers: map[string]http.HandlerFunc{
+		"_upload": func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, `{"object":{"url":"https://cdn/a.jpg","pix":"800x600"}}`)
+		},
+		"mtop.taobao.idle.kgraph.property.recommend": func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"categoryPredictResult":{"catId":"c1","catName":"类目"}}}`)
+		},
+		"mtop.idle.pc.idleitem.publish": func(w http.ResponseWriter, r *http.Request) {
+			publishedData, _ = parseDataURL(readBody(r))
+			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"itemId":"virtual-item-1"}}`)
+		},
+	}}
+	client := &ClientImpl{HTTPClient: &http.Client{Transport: dt}}
+	res, err := client.PublishItem(context.Background(), consignCookies, PublishItemRequest{
+		Title:      "虚拟商品",
+		PriceCents: 1000,
+		Quantity:   1,
+		Virtual:    true,
+		Images:     []PublishImage{{Filename: "a.png", ContentType: "image/png", Data: png1}},
+	})
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if res.ItemID != "virtual-item-1" {
+		t.Fatalf("ItemID=%q", res.ItemID)
+	}
+	if publishedData == nil {
+		t.Fatal("未解析到发布请求 data")
+	}
+	if _, exists := publishedData["itemAddrDTO"]; exists {
+		t.Fatalf("虚拟商品不应发送 itemAddrDTO: %+v", publishedData["itemAddrDTO"])
+	}
+}
+
 // TestPublishItemFinalPublishFailure: 发布接口返回 token 过期错误。
 func TestPublishItemFinalPublishFailure(t *testing.T) {
 	png1 := tinyPNG(t)
