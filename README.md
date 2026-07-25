@@ -1,6 +1,6 @@
 # Ydisks闲鱼助手
 
-![Ydisks闲鱼助手Slogan](https://raw.githubusercontent.com/Christ9038/Ydisks-Xianyu-Helper/refs/heads/main/docs/img/slogan.png)
+![Ydisks闲鱼助手Slogan](https://raw.githubusercontent.com/Christ9038/Ydisks-Xianyu-Helper/main/docs/img/slogan.png)
 
 基于 Go 与 React 构建的闲鱼多账号管理、消息回复与自动发货系统
 
@@ -95,7 +95,7 @@ flowchart LR
 
 ## 页面预览
 
-![Ydisks闲鱼助手预览](https://raw.githubusercontent.com/Christ9038/Ydisks-Xianyu-Helper/refs/heads/main/docs/img/preview.png)
+![Ydisks闲鱼助手预览](https://raw.githubusercontent.com/Christ9038/Ydisks-Xianyu-Helper/main/docs/img/preview.png)
 
 ## 快速开始
 
