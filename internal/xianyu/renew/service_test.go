@@ -315,7 +315,7 @@ func TestRenewAPIFirstUsesBrowserCookieScopes(t *testing.T) {
 	host := strings.TrimPrefix(srv.URL, "http://")
 	host = strings.Split(host, ":")[0]
 	snapshot := []cookierefresh.BrowserCookie{
-		{Name: "havana_lgc_exp", Value: futureMillis(time.Hour), Domain: ".goofish.com", Path: "/"},
+		{Name: "havana_lgc_exp", Value: futureMillis(time.Hour), Domain: ".goofish.com", Path: "/", HTTPOnly: true},
 		{Name: "request_only", Value: "passport", Domain: host, Path: "/"},
 		{Name: "www_only", Value: "private", Domain: "www.goofish.com", Path: "/im"},
 		{Name: "http_only_document", Value: "hidden", Domain: ".goofish.com", Path: "/", HTTPOnly: true},
@@ -330,6 +330,24 @@ func TestRenewAPIFirstUsesBrowserCookieScopes(t *testing.T) {
 	}
 	if !res.CookieSnapshotComplete || res.CookieSnapshot == nil {
 		t.Fatalf("authoritative snapshot was not returned: %+v", res)
+	}
+}
+
+func TestRenewAPIFirstUsesHTTPOnlyLongLoginCookieForDecision(t *testing.T) {
+	useTestDesktopFingerprint(t)
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"data":{"content":{"data":{"processFinished":true,"resultCode":100}}}}`))
+	}))
+	defer srv.Close()
+	snapshot := []cookierefresh.BrowserCookie{{
+		Name: "havana_lgc_exp", Value: futureMillis(time.Hour), Domain: ".goofish.com", Path: "/", HTTPOnly: true,
+	}}
+	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1}
+	res, err := svc.RenewAPIFirst(context.Background(), "", snapshot)
+	if err != nil || res == nil || !res.Success || res.Skipped || res.RequestCount != 1 || calls.Load() != 1 {
+		t.Fatalf("result=%+v calls=%d err=%v", res, calls.Load(), err)
 	}
 }
 

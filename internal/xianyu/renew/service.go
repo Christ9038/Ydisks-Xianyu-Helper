@@ -354,13 +354,10 @@ func (s Service) RenewAPIFirst(ctx context.Context, cookiesStr string, snapshots
 	var snapshot []cookierefresh.BrowserCookie
 	if authoritativeSnapshot {
 		snapshot = cookierefresh.NormalizeSnapshot(snapshots[0])
-		documentCookies := make([]cookierefresh.BrowserCookie, 0, len(snapshot))
-		for _, cookie := range snapshot {
-			if !cookie.HTTPOnly {
-				documentCookies = append(documentCookies, cookie)
-			}
-		}
-		if scoped, authoritative := cookierefresh.ScopedCookieHeaderForRequest(documentCookies, documentURL, goofishTopSite, now); authoritative {
+		// havana_lgc_exp 由官网以 HttpOnly Cookie 下发。续期服务保存的是
+		// 浏览器完整 Cookie Jar，不能按 document.cookie 过滤，否则刚登录的
+		// 有效长登录凭证会被误判为不存在。
+		if scoped, authoritative := cookierefresh.ScopedCookieHeaderForRequest(snapshot, documentURL, goofishTopSite, now); authoritative {
 			decisionCookies = scoped
 		}
 		if scoped, authoritative := cookierefresh.ScopedCookieHeaderForRequest(snapshot, requestURL, goofishTopSite, now); authoritative {
