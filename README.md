@@ -1,5 +1,7 @@
 # Ydisks闲鱼助手
 
+![Ydisks闲鱼助手Slogan](https://raw.githubusercontent.com/Christ9038/Ydisks-Xianyu-Helper/refs/heads/main/docs/img/slogan.png)
+
 基于 Go 与 React 构建的闲鱼多账号管理、消息回复与自动发货系统
 
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
@@ -20,21 +22,25 @@
 
 ## 项目简介
 
-Ydisks闲鱼助手（英文项目名：Ydisks-Xianyu-Helper）是一个面向闲鱼卖家的自托管管理系统。它将账号运行、即时消息、订单、
+Ydisks闲鱼助手是一个面向闲鱼卖家的自托管管理系统。它将账号运行、即时消息、订单、
 商品、卡密库存、自动化规则、AI 回复和异常通知整合到同一个 Web 管理后台，适合需要
-同时维护多个闲鱼账号或交付数字商品的个人与小型团队。
+同时维护多个闲鱼账号或交付虚拟商品的个人与小型团队。
 
-项目采用 Go 实现闲鱼登录、Cookie 续期、MTOP 请求和 WebSocket 消息链路。Chromium
-不是业务请求代理，仅用于读取真实浏览器指纹以及处理必须依赖浏览器环境的滑块风控。
+项目采用 Go 语言实现闲鱼登录、Cookie 续期、MTOP 请求和 WebSocket 消息链路。
 扫码登录、人脸验证流程、消息连接、凭证更新和绝大部分业务逻辑均由 Go 客户端完成。
+使用 Chromium 处理必须依赖浏览器环境的滑块风控。
 
-## 开源协议
+### 与 Ydisks 网盘拉新助手协同使用
 
-本项目采用 [Apache License 2.0](LICENSE) 开源，版权所有 © 2026 Christ9038。
+如果你通过网盘资料、教程包或数字资源做闲鱼推广，推荐搭配
+[Ydisks 网盘拉新助手](https://www.ydisks.com) 使用：先为不同商品、渠道或推广账号
+创建独立短链，再在 Ydisks 控制台查看短链与目标页面的 PV、UV、趋势、排行及渠道/账号报表。
+这样，Ydisks 负责识别“链接从哪里带来访问与转化线索”，Ydisks闲鱼助手负责承接账号消息、
+订单和自动发货，帮助你把投放复盘与日常交付放进一套更清晰的运营流程。
 
-你可以使用、复制、修改和分发本项目代码；分发原始或衍生代码时，必须附带许可证文本，
-保留 [NOTICE](NOTICE) 中 Ydisks闲鱼助手（Ydisks-Xianyu-Helper）的版权与署名声明，并在
-修改过的文件中明确标注已修改。
+Ydisks 支持管理渠道、推广账号、原始链接、推广短链与域名，适用于网盘拉新和推广投放场景；
+可从 [Ydisks 网盘拉新助手使用文档](https://docs.ydisks.com/guide/quick-start) 开始创建推广链接并查看数据。
+
 
 ### 适用场景
 
@@ -86,6 +92,10 @@ flowchart LR
 - `internal/browser`：Chromium 指纹读取与滑块验证
 - `internal/db`：多数据库访问、敏感字段加密和嵌入式迁移
 - `internal/server`：HTTP API、管理端鉴权和前端静态资源
+
+## 页面预览
+
+![Ydisks闲鱼助手预览](https://raw.githubusercontent.com/Christ9038/Ydisks-Xianyu-Helper/refs/heads/main/docs/img/preview.png)
 
 ## 快速开始
 
@@ -576,9 +586,11 @@ go run ./cmd/server -init-admin -db data/xianyu_data.db -admin-password '新密�
 
 提交安全问题时，请避免在公开 Issue 中附带真实凭证或用户数据。
 
-## 许可证
+## 开源协议
 
-本项目以 [Apache License 2.0](LICENSE) 发布。完整许可条款见 [LICENSE](LICENSE)，
+本项目采用 [Apache License 2.0](LICENSE) 开源，版权所有 © 2026 Christ9038。
+
+完整许可条款见 [LICENSE](LICENSE)，
 原项目名称、版权与署名声明见 [NOTICE](NOTICE)。分发原始或衍生作品时，请保留这两个
 文件中的适用声明，并在修改过的文件中显著标注修改。
 
