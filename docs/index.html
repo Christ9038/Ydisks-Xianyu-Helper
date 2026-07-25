@@ -1,0 +1,1318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ydisks闲鱼助手 - 基于 Go 与 React 构建的闲鱼多账号管理与自动发货系统</title>
+  <meta name="description" content="Ydisks闲鱼助手是一个面向闲鱼卖家的自托管管理系统。整合多账号登录、WebSocket即时消息、卡密库存交付、AI智能客服、自动化规则与多渠道告警。">
+  <meta name="keywords" content="闲鱼助手, 闲鱼自动发货, 闲鱼多账号管理, 闲鱼自动回复, 闲鱼AI客服, 闲鱼卡密发货, Go, React, Ydisks">
+  
+  <!-- Open Graph -->
+  <meta property="og:title" content="Ydisks闲鱼助手 - 闲鱼多账号管理与自动发货系统">
+  <meta property="og:description" content="基于 Go 1.26 + React 19 构建的闲鱼自托管管理后台。自动化发货、AI回复、即时消息与风控续期。">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="img/slogan.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --brand-primary: #0094f7;
+      --brand-dark: #0071e3;
+      --brand-light: #287efe;
+      --brand-glow: rgba(0, 148, 247, 0.25);
+      --bg-canvas: #fbfbfd;
+      --bg-surface: #ffffff;
+      --bg-subtle: #f5f5f7;
+      --bg-dark-card: #161922;
+      --text-ink: #1d1d1f;
+      --text-muted: #6e6e73;
+      --text-subtle: #86868b;
+      --border-line: rgba(210, 210, 215, 0.6);
+      --border-focus: rgba(0, 148, 247, 0.4);
+      --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+      --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.06);
+      --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.08);
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      font-size: 16px;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--bg-canvas);
+      color: var(--text-ink);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    ::selection {
+      background: var(--brand-primary);
+      color: #fff;
+    }
+
+    a {
+      color: var(--brand-primary);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+
+    a:hover {
+      color: var(--brand-dark);
+    }
+
+    /* Container */
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+
+    /* Header Navigation */
+    .site-header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      background: rgba(251, 251, 253, 0.82);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border-line);
+      transition: all 0.3s ease;
+    }
+
+    .nav-wrapper {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 4.25rem;
+    }
+
+    .brand-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-weight: 700;
+      font-size: 1.2rem;
+      color: var(--text-ink);
+    }
+
+    .logo-icon {
+      width: 2.25rem;
+      height: 2.25rem;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px var(--brand-glow);
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 2rem;
+      list-style: none;
+    }
+
+    .nav-link {
+      font-weight: 500;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      transition: color 0.2s ease;
+    }
+
+    .nav-link:hover {
+      color: var(--brand-primary);
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.65rem 1.35rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .btn-primary {
+      background: var(--brand-primary);
+      color: #ffffff !important;
+      box-shadow: 0 4px 14px var(--brand-glow);
+    }
+
+    .btn-primary:hover {
+      background: var(--brand-dark);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 22px rgba(0, 148, 247, 0.4);
+    }
+
+    .btn-secondary {
+      background: var(--bg-surface);
+      color: var(--text-ink) !important;
+      border: 1px solid var(--border-line);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-subtle);
+      border-color: #c7c7cc;
+      transform: translateY(-2px);
+    }
+
+    .btn-sm {
+      padding: 0.45rem 0.9rem;
+      font-size: 0.875rem;
+    }
+
+    .btn-lg {
+      padding: 0.85rem 1.85rem;
+      font-size: 1.05rem;
+      border-radius: 10px;
+    }
+
+    /* Badges */
+    .badge-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+      margin-bottom: 2rem;
+    }
+
+    .badge-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.35rem 0.8rem;
+      background: #ffffff;
+      border: 1px solid var(--border-line);
+      border-radius: 999px;
+      font-size: 0.825rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+    }
+
+    .badge-item img {
+      height: 1.1rem;
+    }
+
+    /* Hero Section */
+    .hero-section {
+      padding-top: 8.5rem;
+      padding-bottom: 5rem;
+      text-align: center;
+      position: relative;
+    }
+
+    .hero-bg-glow {
+      position: absolute;
+      top: 5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 700px;
+      height: 350px;
+      background: radial-gradient(circle, rgba(0, 148, 247, 0.15) 0%, rgba(251, 251, 253, 0) 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .hero-content {
+      position: relative;
+      z-index: 1;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .hero-title {
+      font-size: 3.2rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      color: var(--text-ink);
+      margin-bottom: 1.25rem;
+    }
+
+    .hero-title span {
+      background: linear-gradient(135deg, var(--brand-primary) 0%, #0056b3 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-subtitle {
+      font-size: 1.25rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+      max-width: 780px;
+      margin: 0 auto 2.5rem;
+      font-weight: 400;
+    }
+
+    .hero-buttons {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1.25rem;
+      margin-bottom: 3.5rem;
+    }
+
+    /* Preview Showcase Mockup */
+    .preview-showcase {
+      position: relative;
+      margin-top: 1rem;
+      border-radius: 14px;
+      background: #1e1e24;
+      padding: 10px;
+      box-shadow: 0 30px 90px rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(0, 0, 0, 0.08);
+      overflow: hidden;
+    }
+
+    .window-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 12px 12px 12px;
+    }
+
+    .window-dots {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    .dot-red { background-color: #ff5f56; }
+    .dot-yellow { background-color: #ffbd2e; }
+    .dot-green { background-color: #27c93f; }
+
+    .window-title {
+      font-size: 0.8rem;
+      color: #a0a0b0;
+      font-family: monospace;
+    }
+
+    .preview-img-container {
+      width: 100%;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #000;
+    }
+
+    .preview-img-container img {
+      width: 100%;
+      height: auto;
+      display: block;
+      transition: transform 0.4s ease;
+    }
+
+    /* Ydisks Synergy Banner */
+    .synergy-section {
+      padding: 4rem 0;
+    }
+
+    .synergy-card {
+      background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+      border-radius: 16px;
+      padding: 3rem;
+      color: #ffffff;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
+      position: relative;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .synergy-card::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      right: -20%;
+      width: 450px;
+      height: 450px;
+      background: radial-gradient(circle, rgba(0, 148, 247, 0.25) 0%, rgba(0, 0, 0, 0) 70%);
+      pointer-events: none;
+    }
+
+    .synergy-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .synergy-tag {
+      background: rgba(0, 148, 247, 0.2);
+      color: var(--brand-primary);
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      border: 1px solid rgba(0, 148, 247, 0.4);
+    }
+
+    .synergy-title {
+      font-size: 1.85rem;
+      font-weight: 700;
+      color: #ffffff;
+    }
+
+    .synergy-desc {
+      color: #9ab0c7;
+      font-size: 1.05rem;
+      max-width: 820px;
+      line-height: 1.7;
+      margin-bottom: 2rem;
+    }
+
+    .synergy-steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .synergy-step-item {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+    }
+
+    .step-num {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--brand-primary);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+
+    .step-title {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #ffffff;
+      margin-bottom: 0.4rem;
+    }
+
+    .step-desc {
+      font-size: 0.9rem;
+      color: #8b949e;
+      line-height: 1.5;
+    }
+
+    /* Section Titles */
+    .section-title-wrapper {
+      text-align: center;
+      max-width: 700px;
+      margin: 0 auto 3.5rem;
+    }
+
+    .section-subtitle {
+      color: var(--brand-primary);
+      font-size: 0.9rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.5rem;
+    }
+
+    .section-title {
+      font-size: 2.25rem;
+      font-weight: 800;
+      color: var(--text-ink);
+      letter-spacing: -0.02em;
+    }
+
+    /* Features Grid */
+    .features-section {
+      padding: 5rem 0;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+      gap: 1.75rem;
+    }
+
+    .feature-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-line);
+      border-radius: 12px;
+      padding: 2rem;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .feature-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-md);
+      border-color: var(--border-focus);
+    }
+
+    .feature-icon-box {
+      width: 3.25rem;
+      height: 3.25rem;
+      border-radius: 10px;
+      background: rgba(0, 148, 247, 0.08);
+      color: var(--brand-primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .feature-card-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-ink);
+      margin-bottom: 0.6rem;
+    }
+
+    .feature-card-desc {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    /* Architecture Section */
+    .arch-section {
+      padding: 5rem 0;
+      background: #ffffff;
+      border-top: 1px solid var(--border-line);
+      border-bottom: 1px solid var(--border-line);
+    }
+
+    .arch-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3rem;
+      align-items: center;
+    }
+
+    .arch-info h3 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+    }
+
+    .arch-info p {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+      line-height: 1.7;
+      margin-bottom: 1.5rem;
+    }
+
+    .arch-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.8rem;
+    }
+
+    .arch-list-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      font-size: 0.95rem;
+      color: var(--text-ink);
+    }
+
+    .arch-list-item svg {
+      width: 1.25rem;
+      height: 1.25rem;
+      color: var(--brand-primary);
+      flex-shrink: 0;
+      margin-top: 0.15rem;
+    }
+
+    .arch-diagram-box {
+      background: #0d1117;
+      border-radius: 14px;
+      padding: 2rem;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12);
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+    }
+
+    .diagram-node {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: monospace;
+      font-size: 0.9rem;
+    }
+
+    .diagram-node-tag {
+      background: rgba(0, 148, 247, 0.2);
+      color: #58a6ff;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+    }
+
+    /* Quick Start Section */
+    .quickstart-section {
+      padding: 5rem 0;
+    }
+
+    .code-tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--border-line);
+      padding-bottom: 0.5rem;
+    }
+
+    .code-tab-btn {
+      padding: 0.6rem 1.2rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .code-tab-btn.active {
+      background: var(--brand-primary);
+      color: #ffffff;
+    }
+
+    .code-box-wrapper {
+      position: relative;
+      background: #0d1117;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: var(--shadow-lg);
+      border: 1px solid #30363d;
+    }
+
+    .code-box-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1.25rem;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+    }
+
+    .code-box-title {
+      font-family: monospace;
+      font-size: 0.85rem;
+      color: #8b949e;
+    }
+
+    .copy-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #c9d1d9;
+      padding: 0.3rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .copy-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+    }
+
+    pre code {
+      display: block;
+      padding: 1.5rem;
+      color: #e6edf3;
+      font-family: SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 0.925rem;
+      line-height: 1.6;
+      overflow-x: auto;
+    }
+
+    .comment { color: #8b949e; }
+    .keyword { color: #ff7b72; }
+    .string { color: #a5d6ff; }
+    .command { color: #79c0ff; }
+
+    /* FAQ Section */
+    .faq-section {
+      padding: 5rem 0;
+      background: #ffffff;
+      border-top: 1px solid var(--border-line);
+    }
+
+    .faq-list {
+      max-width: 860px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .faq-item {
+      border: 1px solid var(--border-line);
+      border-radius: 10px;
+      background: var(--bg-surface);
+      overflow: hidden;
+      transition: all 0.2s ease;
+    }
+
+    .faq-question {
+      padding: 1.25rem 1.5rem;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text-ink);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      user-select: none;
+    }
+
+    .faq-question svg {
+      width: 1.25rem;
+      height: 1.25rem;
+      transition: transform 0.3s ease;
+      color: var(--text-subtle);
+    }
+
+    .faq-item.open .faq-question svg {
+      transform: rotate(180deg);
+      color: var(--brand-primary);
+    }
+
+    .faq-answer {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      padding: 0 1.5rem;
+      color: var(--text-muted);
+      font-size: 0.975rem;
+      line-height: 1.6;
+    }
+
+    .faq-item.open .faq-answer {
+      padding: 0 1.5rem 1.5rem 1.5rem;
+      max-height: 500px;
+    }
+
+    /* Footer */
+    .site-footer {
+      background: #0d1117;
+      color: #8b949e;
+      padding: 4rem 0 2rem;
+      border-top: 1px solid #30363d;
+      font-size: 0.9rem;
+    }
+
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 3rem;
+      margin-bottom: 3rem;
+    }
+
+    .footer-brand h4 {
+      color: #ffffff;
+      font-size: 1.2rem;
+      margin-bottom: 0.8rem;
+    }
+
+    .footer-brand p {
+      max-width: 340px;
+      line-height: 1.6;
+    }
+
+    .footer-col h5 {
+      color: #ffffff;
+      font-size: 0.95rem;
+      margin-bottom: 1rem;
+      font-weight: 600;
+    }
+
+    .footer-links {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .footer-links a {
+      color: #8b949e;
+    }
+
+    .footer-links a:hover {
+      color: #ffffff;
+    }
+
+    .footer-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: 2rem;
+      border-top: 1px solid #21262d;
+      font-size: 0.85rem;
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      background: #1f2937;
+      color: #ffffff;
+      padding: 0.75rem 1.25rem;
+      border-radius: 8px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      font-size: 0.9rem;
+      font-weight: 500;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.3s ease;
+      pointer-events: none;
+      z-index: 2000;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 992px) {
+      .hero-title { font-size: 2.5rem; }
+      .arch-container { grid-template-columns: 1fr; }
+      .footer-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 768px) {
+      .nav-links { display: none; }
+      .hero-title { font-size: 2rem; }
+      .hero-buttons { flex-direction: column; }
+      .features-grid { grid-template-columns: 1fr; }
+      .footer-grid { grid-template-columns: 1fr; }
+      .footer-bottom { flex-direction: column; gap: 1rem; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast">命令已复制到剪贴板</div>
+
+  <!-- Header Navigation -->
+  <header class="site-header">
+    <div class="container">
+      <nav class="nav-wrapper">
+        <a href="#" class="brand-logo">
+          <img src="assets/favicon.svg" alt="Ydisks Logo" class="logo-icon">
+          <span>Ydisks 闲鱼助手</span>
+        </a>
+        <ul class="nav-links">
+          <li><a href="#features" class="nav-link">功能特性</a></li>
+          <li><a href="#synergy" class="nav-link">网盘拉新协同</a></li>
+          <li><a href="#architecture" class="nav-link">系统架构</a></li>
+          <li><a href="#quickstart" class="nav-link">快速开始</a></li>
+          <li><a href="#faq" class="nav-link">常见问题</a></li>
+        </ul>
+        <div class="nav-actions">
+          <a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            GitHub Star
+          </a>
+          <a href="#quickstart" class="btn btn-primary btn-sm">立即部署</a>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero-section">
+    <div class="hero-bg-glow"></div>
+    <div class="container">
+      <div class="hero-content">
+
+        <div class="badge-bar">
+          <div class="badge-item">
+            <span style="color:#00ADD8">●</span> Go 1.26
+          </div>
+          <div class="badge-item">
+            <span style="color:#61DAFB">●</span> React 19
+          </div>
+          <div class="badge-item">
+            <span style="color:#4169E1">●</span> PostgreSQL / SQLite
+          </div>
+          <div class="badge-item">
+            <span style="color:#2496ED">●</span> Docker Compose
+          </div>
+        </div>
+
+        <h1 class="hero-title">
+          面向闲鱼卖家的<br><span>自托管多账号与自动发货系统</span>
+        </h1>
+        <p class="hero-subtitle">
+          整合闲鱼账号生命周期、即时消息长连接、卡密/图片/文本库存交付、自动化触发规则、可控 AI 客服回复与多渠道告警，全面接管你的闲鱼私域运营。
+        </p>
+        
+        <div class="hero-buttons">
+          <a href="#quickstart" class="btn btn-primary btn-lg">
+            ⚡ 快速开始部署
+          </a>
+          <a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/blob/main/docs/wiki/Home.md" target="_blank" rel="noopener" class="btn btn-secondary btn-lg">
+            📖 查阅 Wiki 使用文档
+          </a>
+        </div>
+
+        <!-- App UI Showcase Mockup -->
+        <div class="preview-showcase">
+          <div class="window-header">
+            <div class="window-dots">
+              <div class="dot dot-red"></div>
+              <div class="dot dot-yellow"></div>
+              <div class="dot dot-green"></div>
+            </div>
+            <div class="window-title">Ydisks 闲鱼助手 Web Dashboard - Admin Portal</div>
+            <div style="width: 50px;"></div>
+          </div>
+          <div class="preview-img-container">
+            <img src="img/preview.png" alt="Ydisks 闲鱼助手 Dashboard Preview" loading="lazy">
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Ydisks Synergy Banner -->
+  <section id="synergy" class="synergy-section">
+    <div class="container">
+      <div class="synergy-card">
+        <div class="synergy-header">
+          <span class="synergy-tag">生态联动</span>
+          <h2 class="synergy-title">协同 Ydisks 网盘拉新助手打造完整闭环</h2>
+        </div>
+        <p class="synergy-desc">
+          如果你通过网盘资料、教程包或数字资源做闲鱼推广，推荐搭配 <strong><a href="https://www.ydisks.com" target="_blank" style="color: #60a5fa; text-decoration: underline;">Ydisks 网盘拉新助手</a></strong> 使用：先为不同商品、渠道或推广账号创建独立短链，再查看 PV/UV 趋势与报表，实现投放转化复盘与自动交付一体化。
+        </p>
+
+        <div class="synergy-steps">
+          <div class="synergy-step-item">
+            <div class="step-num">Step 01</div>
+            <div class="step-title">创建专属推广短链</div>
+            <div class="step-desc">在 Ydisks 平台为闲鱼商品与渠道生成独立短链，精确区分访问来源。</div>
+          </div>
+          <div class="synergy-step-item">
+            <div class="step-num">Step 02</div>
+            <div class="step-title">闲鱼自动化接单发货</div>
+            <div class="step-desc">卖家下单后，闲鱼助手触发规则自动交付短链、卡密或资源。</div>
+          </div>
+          <div class="synergy-step-item">
+            <div class="step-num">Step 03</div>
+            <div class="step-title">全链路数据看板</div>
+            <div class="step-desc">Ydisks 后台汇总分析各闲鱼账号的点击量、转化率与推广收益。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Section -->
+  <section id="features" class="features-section">
+    <div class="container">
+      <div class="section-title-wrapper">
+        <div class="section-subtitle">Core Capabilities</div>
+        <h2 class="section-title">强大、全能、安全的自动化能力</h2>
+      </div>
+
+      <div class="features-grid">
+        
+        <!-- Card 1 -->
+        <div class="feature-card">
+          <div class="feature-icon-box">🔐</div>
+          <h3 class="feature-card-title">多账号启停与凭证续期</h3>
+          <p class="feature-card-desc">支持闲鱼 App 二维码扫码登录与密码登录，自动识别 Cookie/Token 时效，后台定时平滑续期与失效停用保护。</p>
+        </div>
+
+        <!-- Card 2 -->
+        <div class="feature-card">
+          <div class="feature-icon-box">💬</div>
+          <h3 class="feature-card-title">WebSocket 即时消息处理</h3>
+          <p class="feature-card-desc">内置 Go 原生闲鱼 WebSocket 长连接通道，实时接收与推送聊天消息，支持关键词回复、默认回复及单次回复控制。</p>
+        </div>
+
+        <!-- Card 3 -->
+        <div class="feature-card">
+          <div class="feature-icon-box">⚡</div>
+          <h3 class="feature-card-title">全能自动化发货中心</h3>
+          <p class="feature-card-desc">自动关联买家付款事件，支持付款即发货、评价后赠品发放、超时提醒评价，内置幂等检查点防止重复发送。</p>
+        </div>
+
+        <!-- Card 4 -->
+        <div class="feature-card">
+          <div class="feature-icon-box">📦</div>
+          <h3 class="feature-card-title">三合一卡密库存交付</h3>
+          <p class="feature-card-desc">支持固定文本、批量导入卡密库与图片交付三种类型。灵活配置规格、延迟发送、库存追加与预警提醒。</p>
+        </div>
+
+        <!-- Card 5 -->
+        <div class="feature-card">
+          <div class="feature-icon-box">🤖</div>
+          <h3 class="feature-card-title">OpenAI 兼容 AI 智能客服</h3>
+          <p class="feature-card-desc">无缝对接 OpenAI、通义千问、Ollama 等兼容接口。支持自定义提示词、控制议价轮次、折扣上限与自动拟人化沟通。</p>
+        </div>
+
+        <!-- Card 6 -->
+        <div class="feature-card">
+          <div class="feature-icon-box">📊</div>
+          <h3 class="feature-card-title">批量铺货与商品管理</h3>
+          <p class="feature-card-desc">轻松同步闲鱼在售商品，支持 CSV + ZIP 素材包批量生成发布，单商品手动挂载及关联自动化发货规则。</p>
+        </div>
+
+        <!-- Card 7 -->
+        <div class="feature-card">
+          <div class="feature-icon-box">🔔</div>
+          <h3 class="feature-card-title">多渠道实时告警通知</h3>
+          <p class="feature-card-desc">集成 Bark、钉钉机器人、飞书、企业微信、Telegram、SMTP 邮件及 Webhook，账号掉线或异常发货秒级推送。</p>
+        </div>
+
+        <!-- Card 8 -->
+        <div class="feature-card">
+          <div class="feature-icon-box">🛡️</div>
+          <h3 class="feature-card-title">Chromium 滑块与风控引擎</h3>
+          <p class="feature-card-desc">整合 Playwright-Go / Chromium 智能解决闲鱼滑块 CAPTCHA 与指纹校验，保障长时间稳定在线运行。</p>
+        </div>
+
+        <!-- Card 9 -->
+        <div class="feature-card">
+          <div class="feature-icon-box">🗄️</div>
+          <h3 class="feature-card-title">多数据库与 AES-256 加密</h3>
+          <p class="feature-card-desc">原生支持 SQLite、MySQL 与 PostgreSQL，嵌入 Goose 自动迁移机制。敏感 Cookie 与 Token 采用 AES-256-GCM 高强度加密。</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture Section -->
+  <section id="architecture" class="arch-section">
+    <div class="container">
+      <div class="arch-container">
+        
+        <div class="arch-info">
+          <div class="section-subtitle">System Architecture</div>
+          <h3>模块解耦，高并发 Go 运行时</h3>
+          <p>Ydisks闲鱼助手使用 Go 语言实现核心通讯协议与账号状态机，绝大部分业务逻辑均在轻量级 Go 协程中执行；仅在涉及指纹与滑块风控时调度 Chromium。
+          </p>
+
+          <ul class="arch-list">
+            <li class="arch-list-item">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              <span><strong>internal/xianyu</strong>: 底层扫码/密码登录、MTOP 签名请求与 WebSocket 长连接</span>
+            </li>
+            <li class="arch-list-item">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              <span><strong>internal/engine</strong>: 单账号生命周期隔离、消息流水线与自动回复引擎</span>
+            </li>
+            <li class="arch-list-item">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              <span><strong>internal/automation</strong>: 发货、评价礼包、求评价调度与恢复机制</span>
+            </li>
+            <li class="arch-list-item">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              <span><strong>internal/browser</strong>: Playwright 浏览器自动化与冻结级滑块处理引擎</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="arch-diagram-box">
+          <div style="font-family: monospace; font-size: 0.8rem; color: #8b949e; margin-bottom: 1rem; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem;">
+            ARCHITECTURE FLOWCHART
+          </div>
+
+          <div class="diagram-node">
+            <span>React SPA Frontend (Vite)</span>
+            <span class="diagram-node-tag">HTTP / WebUI</span>
+          </div>
+          <div style="text-align: center; color: #58a6ff; margin: -0.3rem 0 0.4rem;">↓</div>
+
+          <div class="diagram-node">
+            <span>Go Server (chi HTTP API)</span>
+            <span class="diagram-node-tag">Gin/chi Router</span>
+          </div>
+          <div style="text-align: center; color: #58a6ff; margin: -0.3rem 0 0.4rem;">↓</div>
+
+          <div class="diagram-node">
+            <span>Account Supervisor & Account Engine</span>
+            <span class="diagram-node-tag">Go Goroutines</span>
+          </div>
+          <div style="text-align: center; color: #58a6ff; margin: -0.3rem 0 0.4rem;">↙ ⬇ ↘</div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; text-align: center; font-size: 0.8rem; font-family: monospace;">
+            <div style="background:#161b22; padding:0.6rem; border-radius:6px; border:1px solid #30363d;">
+              闲鱼 WebSocket
+            </div>
+            <div style="background:#161b22; padding:0.6rem; border-radius:6px; border:1px solid #30363d;">
+              自动化中心
+            </div>
+            <div style="background:#161b22; padding:0.6rem; border-radius:6px; border:1px solid #30363d;">
+              Chromium 滑块
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Start Section -->
+  <section id="quickstart" class="quickstart-section">
+    <div class="container">
+      <div class="section-title-wrapper">
+        <div class="section-subtitle">Deployment</div>
+        <h2 class="section-title">几分钟内开箱即用</h2>
+      </div>
+
+      <div class="code-tabs">
+        <button class="code-tab-btn active" onclick="switchTab('docker')">🐳 Docker Compose (推荐)</button>
+        <button class="code-tab-btn" onclick="switchTab('source')">🛠️ 源码构建运行</button>
+      </div>
+
+      <!-- Tab Content 1: Docker -->
+      <div id="tab-docker" class="code-box-wrapper">
+        <div class="code-box-header">
+          <span class="code-box-title">Terminal / Bash (Docker Compose One-Liner)</span>
+          <button class="copy-btn" onclick="copyCode('code-docker')">📋 复制命令</button>
+        </div>
+        <pre><code id="code-docker"><span class="comment"># 1. 克隆仓库并复制环境变量模版</span>
+<span class="command">git clone</span> https://github.com/Christ9038/Ydisks-Xianyu-Helper.git
+<span class="command">cd</span> Ydisks-Xianyu-Helper
+<span class="command">cp</span> .env.example .env
+
+<span class="comment"># 2. 修改 .env 填入自己的强密码与主密钥</span>
+<span class="comment"># POSTGRES_PASSWORD=...</span>
+<span class="comment"># XIANYU_DATA_KEY=...</span>
+
+<span class="comment"># 3. 启动应用 (会自动拉取 GHCR 镜像并初始化 PostgreSQL 17)</span>
+<span class="command">docker compose up</span> -d
+
+<span class="comment"># 4. 浏览器访问 http://localhost:8080，使用 admin 账号登录</span></code></pre>
+      </div>
+
+      <!-- Tab Content 2: Source -->
+      <div id="tab-source" class="code-box-wrapper" style="display: none;">
+        <div class="code-box-header">
+          <span class="code-box-title">Terminal / Bash (Build from Source)</span>
+          <button class="copy-btn" onclick="copyCode('code-source')">📋 复制命令</button>
+        </div>
+        <pre><code id="code-source"><span class="comment"># 1. 构建 React 前端静态资源</span>
+<span class="command">npm</span> --prefix frontend ci
+<span class="command">npm</span> --prefix frontend run build
+
+<span class="comment"># 2. 初始化管理员账号 (使用默认 SQLite)</span>
+<span class="command">mkdir</span> -p data
+<span class="command">go run</span> ./cmd/server \
+  -init-admin \
+  -db data/xianyu_data.db \
+  -admin-password <span class="string">'设置管理员密码'</span>
+
+<span class="comment"># 3. 启动服务端 (默认监听 :8080)</span>
+<span class="command">go run</span> ./cmd/server -db data/xianyu_data.db -addr :8080</code></pre>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- FAQ Section -->
+  <section id="faq" class="faq-section">
+    <div class="container">
+      <div class="section-title-wrapper">
+        <div class="section-subtitle">FAQ</div>
+        <h2 class="section-title">常见问题答疑</h2>
+      </div>
+
+      <div class="faq-list">
+        
+        <div class="faq-item open">
+          <div class="faq-question" onclick="toggleFaq(this)">
+            <span>首次部署如何登录管理后台？</span>
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+          <div class="faq-answer">
+            使用 Docker Compose 部署时，服务在启动时会自动读取 <code>.env</code> 文件中的 <code>XIANYU_ADMIN_PASSWORD</code> 创建管理员，默认用户名统一为 <code>admin</code>。使用源码构建时，可运行 <code>go run ./cmd/server -init-admin -db ... -admin-password '你的密码'</code> 初始化。
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">
+            <span>XIANYU_DATA_KEY 加密密钥的作用是什么？</span>
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+          <div class="faq-answer">
+            <code>XIANYU_DATA_KEY</code> 用于对保存到数据库中的敏感 Cookie、闲鱼账号密码、设备 Token、AI API Key 及通知秘钥进行 AES-256-GCM 强加密。在生产环境部署前必须固定并妥善离线备份。密钥更换会导致原数据库中已加密的数据无法解密。
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">
+            <span>扫码登录后掉线或提示风控如何处理？</span>
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+          <div class="faq-answer">
+            项目内置自动续期调度器。如果闲鱼平台触发安全校验或人脸识别，请在管理后台“账号管理”中查看提示，并使用手机闲鱼 App 扫描二维码或完成安全验证。同时请确保服务器时间与 NTP 保持同步。
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">
+            <span>无 Chromium 环境（如极轻量 VPS）能否运行？</span>
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+          <div class="faq-answer">
+            可以使用 <code>-no-browser</code> 启动参数运行纯 Go 后端与管理后台。但在没有 Chromium 的情况下，遇风控滑块自动通过能力将不可用。推荐直接使用官方 Docker 镜像（已预置 Chromium 与完整运行环境）。
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        
+        <div class="footer-brand">
+          <h4>Ydisks 闲鱼助手</h4>
+          <p>基于 Go 与 React 构建的自托管闲鱼多账号管理、消息回复与自动化发货系统。高效、稳定、全能。</p>
+        </div>
+
+        <div class="footer-col">
+          <h5>文档指南</h5>
+          <ul class="footer-links">
+            <li><a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/blob/main/docs/wiki/Home.md" target="_blank" rel="noopener">Wiki 操作手册</a></li>
+            <li><a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/blob/main/docs/%E6%89%B9%E9%87%8F%E9%93%BA%E8%B4%A7%E4%BD%BF%E7%94%A8%E6%96%87%E6%A1%A3.md" target="_blank" rel="noopener">批量铺货文档</a></li>
+            <li><a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/blob/main/docs/slider-captcha-frozen-spec.md" target="_blank" rel="noopener">滑块风控规范</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h5>生态项目</h5>
+          <ul class="footer-links">
+            <li><a href="https://www.ydisks.com" target="_blank" rel="noopener">Ydisks 网盘拉新助手</a></li>
+            <li><a href="https://docs.ydisks.com/guide/quick-start" target="_blank" rel="noopener">Ydisks 推广使用指南</a></li>
+          </ul>
+        </div>
+
+        <div class="footer-col">
+          <h5>开源社区</h5>
+          <ul class="footer-links">
+            <li><a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper" target="_blank" rel="noopener">GitHub 仓库</a></li>
+            <li><a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/issues" target="_blank" rel="noopener">反馈 Issue</a></li>
+            <li><a href="https://github.com/Christ9038/Ydisks-Xianyu-Helper/blob/main/LICENSE" target="_blank" rel="noopener">Apache-2.0 License</a></li>
+          </ul>
+        </div>
+
+      </div>
+
+      <div class="footer-bottom">
+        <div>
+          © 2026 Christ9038. Released under the Apache-2.0 License.
+        </div>
+        <div>
+          本项目为非官方社区工具，与闲鱼及阿里巴巴集团无隶属关系。
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scripts -->
+  <script>
+    // Tab switching
+    function switchTab(tabName) {
+      const dockerTab = document.getElementById('tab-docker');
+      const sourceTab = document.getElementById('tab-source');
+      const buttons = document.querySelectorAll('.code-tab-btn');
+
+      buttons.forEach(btn => btn.classList.remove('active'));
+
+      if (tabName === 'docker') {
+        dockerTab.style.display = 'block';
+        sourceTab.style.display = 'none';
+        buttons[0].classList.add('active');
+      } else {
+        dockerTab.style.display = 'none';
+        sourceTab.style.display = 'block';
+        buttons[1].classList.add('active');
+      }
+    }
+
+    // Toggle FAQ
+    function toggleFaq(element) {
+      const item = element.parentElement;
+      item.classList.toggle('open');
+    }
+
+    // Copy Code snippet
+    function copyCode(elementId) {
+      const codeElement = document.getElementById(elementId);
+      const textToCopy = codeElement.innerText;
+
+      navigator.clipboard.writeText(textToCopy).then(() => {
+        showToast('命令已成功复制到剪贴板！');
+      }).catch(err => {
+        showToast('复制失败，请手动选择复制。');
+      });
+    }
+
+    // Toast Notification
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      toast.innerText = message;
+      toast.classList.add('show');
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 3000);
+    }
+  </script>
+
+</body>
+</html>
