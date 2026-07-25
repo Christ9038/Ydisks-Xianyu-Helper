@@ -606,11 +606,23 @@ func TestMonitorQRStatusConfirmedCollectsCookiesFromFinalIMNavigation(t *testing
 		if !strings.Contains(r.Header.Get("Cookie"), "unb=u123") {
 			t.Fatalf("最终登录跳转未携带扫码 Cookie: %q", r.Header.Get("Cookie"))
 		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	hc.handle("/ac/account/setLoginSettings.do", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil || r.Form.Get("status") != "0" {
+			t.Fatalf("保持登录参数异常: form=%v err=%v", r.Form, err)
+		}
 		http.SetCookie(w, &http.Cookie{
 			Name: "havana_lgc_exp", Value: strconv.FormatInt(time.Now().Add(24*time.Hour).UnixMilli(), 10),
 			Domain: ".goofish.com", Path: "/", Secure: true, HttpOnly: true,
 		})
-		_, _ = w.Write([]byte("ok"))
+		_, _ = w.Write([]byte(`{"data":{"success":true}}`))
+	}))
+	hc.handle("/ac/account/queryLoginSettings.do", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Cookie"), "havana_lgc_exp=") {
+			t.Fatalf("查询保持登录状态未携带新凭证: %q", r.Header.Get("Cookie"))
+		}
+		_, _ = w.Write([]byte(`{"content":{"data":{"returnValue":{"canOpenLongLogin":true,"hasLongTokenLogin":true}}}}`))
 	}))
 	m, _, _ := newStubbedManager(t, hc)
 	sess := newMonitorSession("waiting")

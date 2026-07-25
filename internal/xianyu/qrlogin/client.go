@@ -25,6 +25,7 @@ import (
 	"xianyu-go/internal/logsafe"
 	"xianyu-go/internal/xianyu"
 	"xianyu-go/internal/xianyu/cookierefresh"
+	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
 const (
@@ -409,6 +410,9 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 			if err := m.completeConfirmedLogin(ctx, sess); err != nil {
 				m.logger.Warn("扫码确认后的官网登录跳转未完成，保留当前登录凭证", "session_id", sessionID, "err", err)
 			}
+			if err := m.enableConfirmedLongLogin(ctx, sess); err != nil {
+				m.logger.Warn("扫码登录已成功，但官网保持登录开启失败", "session_id", sessionID, "err", err)
+			}
 			sess.mu.Lock()
 			sess.Status = "success"
 			finalizeSessionCredentialsLocked(sess)
@@ -509,6 +513,46 @@ func (m *Manager) completeConfirmedLogin(ctx context.Context, sess *Session) err
 	}
 	sess.unb = finalCookies["unb"]
 	sess.mu.Unlock()
+	return nil
+}
+
+// enableConfirmedLongLogin 对齐官网账号安全页的“保持登录”开关：先提交
+// status=0，再查询 hasLongTokenLogin，并保存两次响应更新后的完整 Cookie Jar。
+func (m *Manager) enableConfirmedLongLogin(ctx context.Context, sess *Session) error {
+	if sess == nil {
+		return errors.New("扫码会话为空")
+	}
+	state := sess.snapshot()
+	service := xrenew.Service{HTTPClient: m.httpc, DocumentReferer: qrVerifyTargetURL}
+	var settings *xrenew.LongLoginSettings
+	var err error
+	if state.cookieSnapshot != nil {
+		settings, err = service.SetLongLoginSettings(ctx, cookieMarshal(state.cookies), true, state.cookieSnapshot)
+	} else {
+		settings, err = service.SetLongLoginSettings(ctx, cookieMarshal(state.cookies), true)
+	}
+	if settings != nil {
+		sess.mu.Lock()
+		if settings.CookieSnapshotComplete {
+			sess.cookieSnapshot = cookierefresh.NormalizeSnapshot(settings.CookieSnapshot)
+			if sess.cookieSnapshot == nil {
+				sess.cookieSnapshot = []cookierefresh.BrowserCookie{}
+			}
+			finalizeSessionCredentialsLocked(sess)
+		} else if strings.TrimSpace(settings.NewCookies) != "" {
+			sess.cookies = parseCookieStr(settings.NewCookies)
+			if unb := sess.cookies["unb"]; unb != "" {
+				sess.unb = unb
+			}
+		}
+		sess.mu.Unlock()
+	}
+	if err != nil {
+		return err
+	}
+	if settings == nil || !settings.CanOpenLongLogin || !settings.Enabled {
+		return errors.New("官网未确认当前会话已开启保持登录")
+	}
 	return nil
 }
 
