@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -592,6 +593,47 @@ func TestMonitorQRStatusConfirmed(t *testing.T) {
 	}
 	if sess.cookies["cookie2"] != "v2" {
 		t.Fatalf("cookie 未合并: %v", sess.cookies)
+	}
+}
+
+func TestMonitorQRStatusConfirmedCollectsCookiesFromFinalIMNavigation(t *testing.T) {
+	hc := &handlerChain{}
+	hc.handle("/newlogin/qrcode/query.do", statusHandler("CONFIRMED",
+		&http.Cookie{Name: "unb", Value: "u123", Domain: ".goofish.com", Path: "/", Secure: true},
+		&http.Cookie{Name: "cookie2", Value: "v2", Domain: ".goofish.com", Path: "/", Secure: true},
+	))
+	hc.handle("/im", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Cookie"), "unb=u123") {
+			t.Fatalf("最终登录跳转未携带扫码 Cookie: %q", r.Header.Get("Cookie"))
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name: "havana_lgc_exp", Value: strconv.FormatInt(time.Now().Add(24*time.Hour).UnixMilli(), 10),
+			Domain: ".goofish.com", Path: "/", Secure: true, HttpOnly: true,
+		})
+		_, _ = w.Write([]byte("ok"))
+	}))
+	m, _, _ := newStubbedManager(t, hc)
+	sess := newMonitorSession("waiting")
+	sess.cookieSnapshot = []cookierefresh.BrowserCookie{}
+	m.sessions["s"] = sess
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	m.monitorQRStatus(ctx, "s")
+
+	state := sess.snapshot()
+	if state.status != "success" || state.cookies["havana_lgc_exp"] == "" {
+		t.Fatalf("最终登录跳转 Cookie 未保存: status=%s cookies=%v", state.status, state.cookies)
+	}
+	var longLogin *cookierefresh.BrowserCookie
+	for i := range state.cookieSnapshot {
+		if state.cookieSnapshot[i].Name == "havana_lgc_exp" {
+			longLogin = &state.cookieSnapshot[i]
+			break
+		}
+	}
+	if longLogin == nil || !longLogin.HTTPOnly || longLogin.Domain != ".goofish.com" {
+		t.Fatalf("长登录 Cookie 属性未完整保留: %+v", longLogin)
 	}
 }
 

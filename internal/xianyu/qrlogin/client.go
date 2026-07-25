@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -402,12 +403,24 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 				}
 				return
 			}
+			// 二维码组件确认成功后，真实网页还会进入 /im 并跟随登录
+			// 重定向。部分账号的长登录 Cookie 只在这一步下发，不能只
+			// 保存 query.do 的响应头。
+			if err := m.completeConfirmedLogin(ctx, sess); err != nil {
+				m.logger.Warn("扫码确认后的官网登录跳转未完成，保留当前登录凭证", "session_id", sessionID, "err", err)
+			}
 			sess.mu.Lock()
 			sess.Status = "success"
 			finalizeSessionCredentialsLocked(sess)
 			unb := sess.unb
+			cookieCount := len(sess.cookies)
+			hasHavanaLongLogin := sess.cookies["havana_lgc_exp"] != ""
+			hasCookie3Backup := sess.cookies["cookie3_bak_exp"] != ""
+			snapshotComplete := sess.cookieSnapshot != nil
 			sess.mu.Unlock()
-			m.logger.Info("扫码登录成功", "session_id", sessionID, "account_hash", logsafe.ID(unb))
+			m.logger.Info("扫码登录成功", "session_id", sessionID, "account_hash", logsafe.ID(unb),
+				"cookie_count", cookieCount, "cookie_snapshot_complete", snapshotComplete,
+				"has_havana_lgc_exp", hasHavanaLongLogin, "has_cookie3_bak_exp", hasCookie3Backup)
 			return
 		case "NEW":
 			// 未扫码，继续
@@ -451,6 +464,52 @@ func (m *Manager) monitorQRStatus(ctx context.Context, sessionID string) {
 		sess.Status = "expired"
 	}
 	sess.mu.Unlock()
+}
+
+// completeConfirmedLogin 对齐二维码组件确认后的顶层页面跳转。专用 Cookie
+// Jar 会捕获自动重定向链上的全部 Set-Cookie，并保留 Domain/Path/HttpOnly。
+func (m *Manager) completeConfirmedLogin(ctx context.Context, sess *Session) error {
+	if sess == nil {
+		return errors.New("扫码会话为空")
+	}
+	state := sess.snapshot()
+	client, jar, err := m.faceHTTPClient(state.cookies, state.cookieSnapshot, apiScanStatus, qrVerifyTargetURL)
+	if err != nil {
+		return fmt.Errorf("创建扫码完成 Cookie Jar: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, qrVerifyTargetURL, nil)
+	if err != nil {
+		return fmt.Errorf("创建扫码完成请求: %w", err)
+	}
+	m.setDocumentHeaders(req)
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("访问闲鱼消息页完成登录: %w", err)
+	}
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, io.LimitReader(resp.Body, 2<<20)); err != nil {
+		return fmt.Errorf("读取扫码完成响应: %w", err)
+	}
+
+	urls := []*url.URL{mustParseURL(qrVerifyTargetURL)}
+	if resp.Request != nil && resp.Request.URL != nil {
+		urls = append(urls, resp.Request.URL)
+	}
+	finalCookies := collectJarCookies(jar, urls...)
+	if finalCookies["unb"] == "" {
+		return errors.New("扫码完成跳转未保留账号标识")
+	}
+	finalSnapshot, snapshotComplete := jar.Snapshot()
+	sess.mu.Lock()
+	sess.cookies = finalCookies
+	if snapshotComplete {
+		sess.cookieSnapshot = finalSnapshot
+	} else {
+		sess.cookieSnapshot = nil
+	}
+	sess.unb = finalCookies["unb"]
+	sess.mu.Unlock()
+	return nil
 }
 
 func (m *Manager) runGoVerification(ctx context.Context, sessionID, verificationURL string) {
