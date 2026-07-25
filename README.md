@@ -578,9 +578,9 @@ go run ./cmd/server -init-admin -db data/xianyu_data.db -admin-password '新密�
 
 ## 许可证
 
-当前仓库尚未包含 `LICENSE` 文件。公开仓库不等同于授予开源许可；在项目维护者补充
-明确许可证之前，源码的复制、修改和分发仍受著作权限制。若计划接受社区贡献或允许
-再分发，建议在公开发布前选择并添加合适的开源许可证。
+本项目以 [Apache License 2.0](LICENSE) 发布。完整许可条款见 [LICENSE](LICENSE)，
+原项目名称、版权与署名声明见 [NOTICE](NOTICE)。分发原始或衍生作品时，请保留这两个
+文件中的适用声明，并在修改过的文件中显著标注修改。
 
 ## 免责声明
 
