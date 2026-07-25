@@ -3,10 +3,7 @@ name: 构建并发布 Docker 镜像
 on:
   push:
     branches:
-      - dev
       - main
-    tags:
-      - "v*"
   workflow_dispatch:
 
 permissions:
