@@ -23,6 +23,7 @@ func (s *Server) mountItemsReal(r chi.Router) {
 	r.Post("/items/get-all-from-account", s.syncItemsFromAccount)
 	r.Post("/items/get-by-page", s.syncItemsPageFromAccount)
 	r.Post("/items/publish", s.publishItem)
+	r.Post("/items/publish-categories/recommend", s.recommendItemPublishCategory)
 	r.Post("/items/publish-batches/preview", s.previewItemPublishBatch)
 	r.Post("/items/publish-batches", s.startItemPublishBatch)
 	r.Get("/items/publish-batches", s.listItemPublishBatches)

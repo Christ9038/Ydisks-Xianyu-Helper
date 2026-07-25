@@ -20,6 +20,45 @@ type stubPublishMTop struct {
 	publish func(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error)
 }
 
+func TestRecommendItemPublishCategory(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	client := mtop.NewClient()
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Query().Get("api") != "mtop.taobao.idle.kgraph.property.recommend" {
+			t.Fatalf("api=%q", req.URL.Query().Get("api"))
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body: io.NopCloser(strings.NewReader(
+				`{"ret":["SUCCESS::调用成功"],"data":{"cardList":[{"cardData":{"propertyId":"-10000","propertyName":"分类","valuesList":[{"catId":"50023914","catName":"电子资料","channelCatId":"202036301","isClicked":"1"}]}}]}}`,
+			)),
+			Request: req,
+		}, nil
+	})}
+	srv.MTop = client
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/items/publish-categories/recommend", strings.NewReader(`{"cookie_id":"acc1","keyword":"课程资料"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Category mtop.PublishCategory `json:"category"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if response.Category.CatID != "50023914" || response.Category.CatName != "电子资料" || response.Category.ChannelCatID != "202036301" {
+		t.Fatalf("category=%+v", response.Category)
+	}
+}
+
 func (s *stubPublishMTop) PublishItem(ctx context.Context, cookies string, req mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
 	return s.publish(ctx, cookies, req)
 }

@@ -8,6 +8,7 @@ import {
   syncItemsFromAccount,
   createItem,
   publishItem,
+  recommendPublishCategory,
   previewItemPublishBatch,
   startItemPublishBatch,
   getItemPublishBatch,
@@ -19,7 +20,7 @@ import {
   deleteItem,
   getShippingRules
 } from '../services/api';
-import { ArrowRight, Box, CheckCircle2, CircleDashed, Edit, Filter, Link2, PackagePlus, Plus, RefreshCw, Save, ShoppingBag, Trash2, UploadCloud, User, X } from 'lucide-react';
+import { ArrowRight, Box, CheckCircle2, CircleDashed, Edit, Filter, Link2, PackagePlus, Plus, RefreshCw, Save, Search, ShoppingBag, Trash2, UploadCloud, User, X } from 'lucide-react';
 
 interface ItemListProps {
   onConfigureDelivery: (item: Item) => void;
@@ -97,6 +98,8 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   const [batchPhase, setBatchPhase] = useState<BatchPhase>('upload');
   const [batchFile, setBatchFile] = useState<File | null>(null);
   const [batchImagesZip, setBatchImagesZip] = useState<File | null>(null);
+  const [batchCategoryKeyword, setBatchCategoryKeyword] = useState('');
+  const [batchCategoryLoading, setBatchCategoryLoading] = useState(false);
   const [batchFallbackCategory, setBatchFallbackCategory] = useState({
     catId: '',
     catName: '',
@@ -134,23 +137,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     images: [] as File[]
   });
   const [publishImagePreviews, setPublishImagePreviews] = useState<{ key: string; url: string }[]>([]);
-
-  const knownCategories = useMemo(() => {
-    const unique = new Map<string, string>();
-    items.forEach(item => {
-      const catId = String(item.item_category || '').trim();
-      if (!catId) return;
-      let catName = '';
-      try {
-        const detail = JSON.parse(item.item_detail || '{}') as { category_name?: string };
-        catName = String(detail.category_name || '').trim();
-      } catch {
-        // 历史商品详情可能不是 JSON，仍保留可复用的类目 ID。
-      }
-      if (!unique.has(catId) || catName) unique.set(catId, catName);
-    });
-    return Array.from(unique, ([catId, catName]) => ({ catId, catName }));
-  }, [items]);
 
   useEffect(() => {
     if (!showPublishModal || publishForm.images.length === 0) {
@@ -351,6 +337,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     setBatchDetail(null);
     setBatchFile(null);
     setBatchImagesZip(null);
+    setBatchCategoryKeyword('');
     setBatchFallbackCategory({ catId: '', catName: '', channelCatId: '', tbCatId: '' });
     setShowBatchModal(true);
     setBatchLoading(true);
@@ -367,6 +354,28 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
       console.error('恢复最近批量铺货任务失败:', error);
     } finally {
       setBatchLoading(false);
+    }
+  };
+
+  const handleRecommendBatchCategory = async () => {
+    const keyword = batchCategoryKeyword.trim();
+    if (!selectedAccount) return alert('请先选择默认发布账号');
+    if (!keyword) return alert('请输入类目关键词');
+    setBatchCategoryLoading(true);
+    try {
+      const result = await recommendPublishCategory(selectedAccount, keyword);
+      const category = result.category;
+      setBatchFallbackCategory({
+        catId: category.cat_id,
+        catName: category.cat_name,
+        channelCatId: category.channel_cat_id,
+        tbCatId: category.tb_cat_id || '',
+      });
+    } catch (error: any) {
+      console.error('获取推荐类目失败:', error);
+      alert(error?.message || '没有匹配到类目，请换一个更具体的关键词');
+    } finally {
+      setBatchCategoryLoading(false);
     }
   };
 
@@ -388,9 +397,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   const handlePreviewBatch = async () => {
     if (!batchFile) return alert('请先上传商品表格');
     if (!selectedAccount) return alert('请先选择默认发布账号');
-    if (!batchFallbackCategory.catId.trim() || !batchFallbackCategory.catName.trim()) {
-      return alert('请同时填写批次兜底类目 ID 和类目名称');
-    }
     setBatchLoading(true);
     try {
       const result = await previewItemPublishBatch({
@@ -953,58 +959,57 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                     <p className="text-xs text-gray-500">表格中“账号ID”为空时，会使用这里选择的账号。</p>
                   </div>
 
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 space-y-3">
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 space-y-3">
                     <div>
-                      <div className="text-sm font-extrabold text-gray-900">批次兜底类目 <span className="text-red-600">*</span></div>
-                      <p className="mt-1 text-xs leading-5 text-amber-800">闲鱼仍会先自动识别；只有明确识别不出类目时才使用这里的配置。表格中的“类目ID + 类目名称”可覆盖当前行。</p>
+                      <div className="text-sm font-extrabold text-gray-900">默认类目 <span className="font-medium text-gray-500">（可为空）</span></div>
+                      <p className="mt-1 text-xs leading-5 text-amber-800">填写后优先使用该类目；留空时由闲鱼根据每件商品自动识别。仍无法识别时，系统最终使用“电子资料”兜底。</p>
                     </div>
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <label className="space-y-1.5">
-                        <span className="text-xs font-bold text-gray-700">类目 ID</span>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <label className="relative flex-1">
+                        <span className="sr-only">类目关键词</span>
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                         <input
-                          className="w-full ios-input px-3 py-2.5 rounded-xl bg-white"
-                          list="known-publish-categories"
-                          placeholder="例如 50023717"
-                          value={batchFallbackCategory.catId}
-                          onChange={e => {
-                            const catId = e.target.value;
-                            const matched = knownCategories.find(category => category.catId === catId.trim());
-                            setBatchFallbackCategory(prev => ({
-                              ...prev,
-                              catId,
-                              catName: matched?.catName || (catId ? prev.catName : ''),
-                            }));
+                          className="w-full ios-input rounded-xl bg-white py-2.5 pl-10 pr-3"
+                          placeholder="输入关键词，例如：课程资料、设计素材"
+                          value={batchCategoryKeyword}
+                          onChange={e => setBatchCategoryKeyword(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              void handleRecommendBatchCategory();
+                            }
                           }}
                         />
-                        <datalist id="known-publish-categories">
-                          {knownCategories.map(category => (
-                            <option key={category.catId} value={category.catId}>{category.catName || '历史商品类目'}</option>
-                          ))}
-                        </datalist>
                       </label>
-                      <label className="space-y-1.5">
-                        <span className="text-xs font-bold text-gray-700">类目名称</span>
-                        <input
-                          className="w-full ios-input px-3 py-2.5 rounded-xl bg-white"
-                          placeholder="例如 其他虚拟商品"
-                          value={batchFallbackCategory.catName}
-                          onChange={e => setBatchFallbackCategory(prev => ({ ...prev, catName: e.target.value }))}
-                        />
-                      </label>
+                      <button
+                        type="button"
+                        disabled={!selectedAccount || !batchCategoryKeyword.trim() || batchCategoryLoading}
+                        onClick={() => void handleRecommendBatchCategory()}
+                        className="ios-btn-primary flex min-h-[42px] items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold disabled:opacity-50"
+                      >
+                        <Search className="h-4 w-4" />
+                        {batchCategoryLoading ? '匹配中...' : '获取类目'}
+                      </button>
                     </div>
-                    <details className="group text-xs text-gray-600">
-                      <summary className="cursor-pointer select-none font-bold text-amber-900">高级类目字段（通常留空）</summary>
-                      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                        <label className="space-y-1.5">
-                          <span className="font-bold text-gray-700">频道类目 ID</span>
-                          <input className="w-full ios-input px-3 py-2.5 rounded-xl bg-white" value={batchFallbackCategory.channelCatId} onChange={e => setBatchFallbackCategory(prev => ({ ...prev, channelCatId: e.target.value }))} />
-                        </label>
-                        <label className="space-y-1.5">
-                          <span className="font-bold text-gray-700">淘宝类目 ID</span>
-                          <input className="w-full ios-input px-3 py-2.5 rounded-xl bg-white" value={batchFallbackCategory.tbCatId} onChange={e => setBatchFallbackCategory(prev => ({ ...prev, tbCatId: e.target.value }))} />
-                        </label>
+                    {batchFallbackCategory.catId ? (
+                      <div className="flex min-h-[46px] items-center justify-between gap-3 border-t border-amber-200 pt-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
+                            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                            <span className="truncate">{batchFallbackCategory.catName}</span>
+                          </div>
+                          <div className="mt-1 font-mono text-xs text-gray-500">类目 {batchFallbackCategory.catId} · 频道 {batchFallbackCategory.channelCatId}</div>
+                        </div>
+                        <button
+                          type="button"
+                          title="清除默认类目"
+                          onClick={() => setBatchFallbackCategory({ catId: '', catName: '', channelCatId: '', tbCatId: '' })}
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-white hover:text-gray-900"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
                       </div>
-                    </details>
+                    ) : null}
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1078,10 +1083,10 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                             ['邮费模式', '可以留空', '留空表示包邮；包邮填 free，固定邮费填 fixed'],
                             ['邮费', '邮费模式填 fixed 时填写', '只填数字，例如 8.00'],
                             ['图片', '每个商品都要填', '填写 zip 内图片路径或图片网址；多张图片用英文分号隔开'],
-                            ['类目ID', '需要覆盖批次兜底类目时填写', '必须和“类目名称”同时填写；只覆盖当前商品行'],
+                            ['类目ID', '需要指定当前行默认类目时填写', '必须和“类目名称、频道类目ID”同时填写；优先于自动识别'],
                             ['类目名称', '填写了“类目ID”时必填', '填写该 ID 对应的准确类目名称'],
-                            ['频道类目ID', '通常留空', '仅在已明确取得闲鱼频道类目 ID 时填写'],
-                            ['淘宝类目ID', '通常留空', '仅在已明确取得淘宝类目 ID 时填写'],
+                            ['频道类目ID', '覆盖类目时必填', '必须填写闲鱼返回的准确频道类目 ID'],
+                            ['淘宝类目ID', '按闲鱼返回填写', '“电子资料”无淘宝类目 ID，保持为空'],
                             ['付款发货启用', '需要付款后自动发货时填写', '填“是”表示开启；不需要时填“否”或留空'],
                             ['付款发货内容', '“付款发货启用”填“是”时填写', '从“卡密库存”页面取得卡密组 ID，按上方示例填写'],
                             ['评价赠品启用', '需要评价赠品时填写', '填“是”表示开启；不需要时填“否”或留空'],
@@ -1129,7 +1134,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                           <th className="px-4 py-3">状态</th>
                           <th className="px-4 py-3">标题</th>
                           <th className="px-4 py-3">价格/库存</th>
-                          <th className="px-4 py-3">兜底类目</th>
+                          <th className="px-4 py-3">类目策略</th>
                           <th className="px-4 py-3">图片</th>
                           <th className="px-4 py-3">问题</th>
                         </tr>
@@ -1146,8 +1151,8 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                             <td className="px-4 py-3 font-bold text-gray-900 max-w-[240px] truncate">{row.title || '-'}</td>
                             <td className="px-4 py-3 text-gray-600">¥{row.price || '-'} / {row.quantity || 1}</td>
                             <td className="px-4 py-3 text-xs text-gray-600 min-w-[150px]">
-                              <div className="font-bold text-gray-800">{row.category?.cat_name || '-'}</div>
-                              <div className="font-mono text-gray-400">{row.category?.cat_id || '-'}</div>
+                              <div className="font-bold text-gray-800">{row.category?.cat_name || '自动识别'}</div>
+                              <div className="font-mono text-gray-400">{row.category?.cat_id || '失败后使用电子资料'}</div>
                             </td>
                             <td className="px-4 py-3 text-gray-600">{row.images?.length || 0} 张</td>
                             <td className="px-4 py-3 text-red-600 text-xs max-w-[280px]">{row.errors?.join('；') || '-'}</td>
@@ -1191,7 +1196,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                           <th className="px-4 py-3">行号</th>
                           <th className="px-4 py-3">状态</th>
                           <th className="px-4 py-3">标题</th>
-                          <th className="px-4 py-3">兜底类目</th>
+                          <th className="px-4 py-3">类目策略</th>
                           <th className="px-4 py-3">商品ID</th>
                           <th className="px-4 py-3">错误原因</th>
                         </tr>
@@ -1207,8 +1212,8 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                             </td>
                             <td className="px-4 py-3 font-bold text-gray-900 max-w-[260px] truncate">{row.title}</td>
                             <td className="px-4 py-3 text-xs text-gray-600 min-w-[150px]">
-                              <div className="font-bold text-gray-800">{row.category?.cat_name || '-'}</div>
-                              <div className="font-mono text-gray-400">{row.category?.cat_id || '-'}</div>
+                              <div className="font-bold text-gray-800">{row.category?.cat_name || '自动识别'}</div>
+                              <div className="font-mono text-gray-400">{row.category?.cat_id || '失败后使用电子资料'}</div>
                             </td>
                             <td className="px-4 py-3 text-xs font-mono">
                               {row.item_url ? <a href={row.item_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{row.item_id}</a> : (row.item_id || '-')}
@@ -1225,7 +1230,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
 
             <div className="modal-footer">
               {batchPhase === 'upload' && (
-                <button disabled={batchLoading || !batchFile || !selectedAccount || !batchFallbackCategory.catId.trim() || !batchFallbackCategory.catName.trim()} onClick={handlePreviewBatch} className="w-full ios-btn-primary px-6 py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50">
+                <button disabled={batchLoading || !batchFile || !selectedAccount} onClick={handlePreviewBatch} className="w-full ios-btn-primary px-6 py-3.5 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50">
                   <RefreshCw className={`w-4 h-4 ${batchLoading ? 'animate-spin' : ''}`} />
                   {batchLoading ? '正在预检...' : '开始预检'}
                 </button>

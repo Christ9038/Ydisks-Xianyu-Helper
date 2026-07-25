@@ -94,6 +94,72 @@ type publishReviewRequestCfg struct {
 	DelaySeconds      int    `json:"delay_seconds"`
 }
 
+type publishCategoryRecommender interface {
+	RecommendPublishCategory(ctx context.Context, cookiesStr, keyword string) (mtop.PublishCategory, string, error)
+}
+
+func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		CookieID string `json:"cookie_id"`
+		Keyword  string `json:"keyword"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	req.CookieID = strings.TrimSpace(req.CookieID)
+	req.Keyword = strings.TrimSpace(req.Keyword)
+	if req.CookieID == "" {
+		writeErr(w, http.StatusBadRequest, "请先选择发布账号")
+		return
+	}
+	if req.Keyword == "" {
+		writeErr(w, http.StatusBadRequest, "请输入类目关键词")
+		return
+	}
+	_, userID, ok := s.cookieForCurrentUser(w, r, req.CookieID)
+	if !ok {
+		return
+	}
+	recommender, ok := s.mtopClient().(publishCategoryRecommender)
+	if !ok {
+		writeErr(w, http.StatusNotImplemented, "当前 MTOP 客户端不支持类目推荐")
+		return
+	}
+
+	credentialUnlock := s.Store.LockAccountCredentials(req.CookieID)
+	defer credentialUnlock()
+	latest, err := s.Store.Cookies.GetDetails(r.Context(), req.CookieID)
+	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
+		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
+	category, updatedCookies, callErr := recommender.RecommendPublishCategory(mtopCtx, latest.Value, req.Keyword)
+	_, _, handled, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
+	if persistErr != nil {
+		writeErr(w, http.StatusInternalServerError, "保存账号登录状态失败")
+		return
+	}
+	if !handled && updatedCookies != "" && updatedCookies != latest.Value {
+		if err := s.Store.Cookies.UpdateValueOwned(r.Context(), req.CookieID, updatedCookies, userID); err != nil {
+			writeErr(w, http.StatusInternalServerError, "保存账号登录状态失败")
+			return
+		}
+	}
+	if callErr != nil {
+		if errors.Is(callErr, mtop.ErrPublishCategoryUnrecognized) {
+			writeErr(w, http.StatusNotFound, "没有匹配到可发布类目，请换一个关键词")
+			return
+		}
+		writeErr(w, http.StatusBadGateway, callErr.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "category": category})
+}
+
 func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	s.cleanupExpiredPublishUploads(r.Context())
@@ -119,8 +185,9 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 		ChannelCatID: strings.TrimSpace(r.FormValue("fallback_channel_category_id")),
 		TBCatID:      strings.TrimSpace(r.FormValue("fallback_tb_category_id")),
 	}
-	if fallbackCategory.CatID == "" || fallbackCategory.CatName == "" {
-		writeErr(w, http.StatusBadRequest, "请同时填写批次兜底类目 ID 和类目名称")
+	hasDefaultCategory := fallbackCategory.CatID != "" || fallbackCategory.CatName != "" || fallbackCategory.ChannelCatID != "" || fallbackCategory.TBCatID != ""
+	if hasDefaultCategory && (fallbackCategory.CatID == "" || fallbackCategory.CatName == "" || fallbackCategory.ChannelCatID == "") {
+		writeErr(w, http.StatusBadRequest, "默认类目信息不完整，请重新通过关键词获取")
 		return
 	}
 	source, sourceHeader, err := r.FormFile("file")
@@ -536,7 +603,7 @@ func (s *Server) downloadItemPublishBatchResult(w http.ResponseWriter, r *http.R
 	var buf bytes.Buffer
 	buf.WriteString("\xEF\xBB\xBF")
 	cw := csv.NewWriter(&buf)
-	_ = cw.Write([]string{"行号", "状态", "账号ID", "标题", "价格", "库存", "兜底类目ID", "兜底类目名称", "商品ID", "商品URL", "错误原因"})
+	_ = cw.Write([]string{"行号", "状态", "账号ID", "标题", "价格", "库存", "默认类目ID", "默认类目名称", "商品ID", "商品URL", "错误原因"})
 	for _, row := range rows {
 		var category mtop.PublishCategory
 		_ = json.Unmarshal([]byte(row.CategoryJSON), &category)
@@ -781,16 +848,19 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 	res := &mtop.PublishItemResult{ItemID: row.ItemID, ItemURL: row.ItemURL, Title: row.Title, PriceText: row.Price, Quantity: row.Quantity}
 	var responseCookieErr error
 	if row.ItemID == "" {
+		var preferredCategory *mtop.PublishCategory
 		rawCategory := strings.TrimSpace(row.CategoryJSON)
-		if rawCategory == "" || rawCategory == "{}" {
-			return errors.New("批量任务缺少兜底类目，请重新上传并创建任务")
-		}
-		var fallbackCategory mtop.PublishCategory
-		if err := json.Unmarshal([]byte(rawCategory), &fallbackCategory); err != nil {
-			return errors.New("兜底类目配置损坏，请重新创建批量任务")
-		}
-		if strings.TrimSpace(fallbackCategory.CatID) == "" || strings.TrimSpace(fallbackCategory.CatName) == "" {
-			return errors.New("兜底类目缺少类目 ID 或类目名称，请重新创建批量任务")
+		if rawCategory != "" && rawCategory != "{}" {
+			var configured mtop.PublishCategory
+			if err := json.Unmarshal([]byte(rawCategory), &configured); err != nil {
+				return errors.New("默认类目配置损坏，请重新创建批量任务")
+			}
+			if strings.TrimSpace(configured.CatID) != "" || strings.TrimSpace(configured.CatName) != "" || strings.TrimSpace(configured.ChannelCatID) != "" || strings.TrimSpace(configured.TBCatID) != "" {
+				if strings.TrimSpace(configured.CatID) == "" || strings.TrimSpace(configured.CatName) == "" || strings.TrimSpace(configured.ChannelCatID) == "" {
+					return errors.New("默认类目信息不完整，请重新创建批量任务")
+				}
+				preferredCategory = &configured
+			}
 		}
 		images, err := loadBatchPublishImages(ctx, batch.UploadDir, row)
 		if err != nil {
@@ -830,7 +900,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 				PostageMode:        row.PostageMode,
 				PostageCents:       postageCents,
 				Virtual:            true,
-				FallbackCategory:   &fallbackCategory,
+				PreferredCategory:  preferredCategory,
 				Images:             images,
 			})
 			value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(ctx, latest, cookieSession)
@@ -1064,8 +1134,8 @@ func (s *Server) parsePublishRows(ctx context.Context, userID int64, defaultCook
 		hasRowCategory := rowCategory.CatID != "" || rowCategory.CatName != "" || rowCategory.ChannelCatID != "" || rowCategory.TBCatID != ""
 		if hasRowCategory {
 			row.Category = rowCategory
-			if rowCategory.CatID == "" || rowCategory.CatName == "" {
-				row.Errors = append(row.Errors, "指定行类目时必须同时填写类目ID和类目名称")
+			if rowCategory.CatID == "" || rowCategory.CatName == "" || rowCategory.ChannelCatID == "" {
+				row.Errors = append(row.Errors, "指定行类目时必须同时填写类目ID、类目名称和频道类目ID")
 			}
 		} else {
 			row.Category = fallbackCategory

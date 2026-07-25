@@ -476,6 +476,18 @@ export const publishItem = async (form: {
     return postForm('/items/publish', body);
 }
 
+export const recommendPublishCategory = async (cookieId: string, keyword: string): Promise<{
+    success: boolean;
+    category: {
+      cat_id: string;
+      cat_name: string;
+      channel_cat_id: string;
+      tb_cat_id?: string;
+    };
+}> => {
+    return post('/items/publish-categories/recommend', { cookie_id: cookieId, keyword });
+};
+
 export const previewItemPublishBatch = async (form: {
     file: File;
     imagesZip?: File | null;

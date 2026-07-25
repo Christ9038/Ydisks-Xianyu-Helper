@@ -81,6 +81,7 @@ func TestPreviewItemPublishBatchCSV(t *testing.T) {
 	_ = mw.WriteField("default_cookie_id", "acc1")
 	_ = mw.WriteField("fallback_category_id", "5001")
 	_ = mw.WriteField("fallback_category_name", "虚拟商品")
+	_ = mw.WriteField("fallback_channel_category_id", "6001")
 	csvField, _ := mw.CreateFormFile("file", "products.csv")
 	csvField.Write([]byte("账号ID,标题,价格,库存,图片\nacc1,商品A,12.50,5,img/a.png\n"))
 	zipField, _ := mw.CreateFormFile("images_zip", "images.zip")
@@ -107,7 +108,7 @@ func TestPreviewItemPublishBatchCSV(t *testing.T) {
 	}
 }
 
-func TestPreviewItemPublishBatchRequiresFallbackCategory(t *testing.T) {
+func TestPreviewItemPublishBatchAllowsEmptyDefaultCategory(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	h := srv.Router()
@@ -124,8 +125,15 @@ func TestPreviewItemPublishBatchRequiresFallbackCategory(t *testing.T) {
 	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "兜底类目") {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var res map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &res)
+	row := res["rows"].([]any)[0].(map[string]any)
+	category := row["category"].(map[string]any)
+	if category["cat_id"] != "" || category["cat_name"] != "" {
+		t.Fatalf("category should be empty: %+v", category)
 	}
 }
 
@@ -140,8 +148,9 @@ func TestPreviewItemPublishBatchRowCategoryOverridesFallback(t *testing.T) {
 	_ = mw.WriteField("default_cookie_id", "acc1")
 	_ = mw.WriteField("fallback_category_id", "5001")
 	_ = mw.WriteField("fallback_category_name", "批次类目")
+	_ = mw.WriteField("fallback_channel_category_id", "6001")
 	file, _ := mw.CreateFormFile("file", "products.csv")
-	file.Write([]byte("标题,价格,图片,类目ID,类目名称\n商品A,12.50,https://example.com/a.png,7001,行指定类目\n"))
+	file.Write([]byte("标题,价格,图片,类目ID,类目名称,频道类目ID\n商品A,12.50,https://example.com/a.png,7001,行指定类目,8001\n"))
 	_ = mw.Close()
 	req := httptest.NewRequest(http.MethodPost, "/items/publish-batches/preview", &buf)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
@@ -172,6 +181,7 @@ func TestPreviewItemPublishBatchNoFile(t *testing.T) {
 	_ = mw.WriteField("default_cookie_id", "acc1")
 	_ = mw.WriteField("fallback_category_id", "5001")
 	_ = mw.WriteField("fallback_category_name", "虚拟商品")
+	_ = mw.WriteField("fallback_channel_category_id", "6001")
 	_ = mw.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/items/publish-batches/preview", &buf)
@@ -246,6 +256,7 @@ func TestPreviewItemPublishBatchTooManyRows(t *testing.T) {
 	_ = mw.WriteField("default_cookie_id", "acc1")
 	_ = mw.WriteField("fallback_category_id", "5001")
 	_ = mw.WriteField("fallback_category_name", "虚拟商品")
+	_ = mw.WriteField("fallback_channel_category_id", "6001")
 	csvField, _ := mw.CreateFormFile("file", "products.csv")
 	csvField.Write(csvBuf.Bytes())
 	_ = mw.Close()
@@ -278,6 +289,7 @@ func TestPreviewItemPublishBatchZipTraversal(t *testing.T) {
 	_ = mw.WriteField("default_cookie_id", "acc1")
 	_ = mw.WriteField("fallback_category_id", "5001")
 	_ = mw.WriteField("fallback_category_name", "虚拟商品")
+	_ = mw.WriteField("fallback_channel_category_id", "6001")
 	csvField, _ := mw.CreateFormFile("file", "products.csv")
 	csvField.Write([]byte("账号ID,标题,价格,库存,图片\nacc1,商品A,12.50,5,../escape.png\n"))
 	zipField, _ := mw.CreateFormFile("images_zip", "images.zip")

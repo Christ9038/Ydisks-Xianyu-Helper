@@ -49,7 +49,7 @@ type ItemPublishBatchRow struct {
 	PostageMode    string // 邮费模式：free/buyer/seller
 	Postage        string
 	ImagesJSON     string // 图片引用 JSON 数组（相对 UploadDir 的路径）
-	CategoryJSON   string // 自动识别失败时使用的指定类目 JSON
+	CategoryJSON   string // 用户指定的优先类目 JSON；为空时自动识别
 	AutomationJSON string // 发布后自动创建的自动化规则配置 JSON
 	Status         string // pending/running/success/failed
 	ItemID         string // 发布成功后回填的闲鱼商品 ID

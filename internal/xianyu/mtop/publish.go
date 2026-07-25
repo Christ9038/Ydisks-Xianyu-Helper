@@ -65,12 +65,22 @@ type PublishImage struct {
 }
 
 // PublishCategory 是发布商品时可使用的人工兜底类目。
-// CatID 和 CatName 必填；频道类目、淘宝类目 ID 没有时可以留空。
+// CatID、CatName 和 ChannelCatID 必填；部分闲鱼类目没有 TBCatID。
 type PublishCategory struct {
 	CatID        string `json:"cat_id"`
 	CatName      string `json:"cat_name"`
 	ChannelCatID string `json:"channel_cat_id,omitempty"`
 	TBCatID      string `json:"tb_cat_id,omitempty"`
+}
+
+// DefaultVirtualPublishCategory 是从闲鱼类目推荐响应中核实的“电子资料”类目。
+// 该类目没有 tbCatId，发布时必须保留为空而不是伪造淘宝类目 ID。
+func DefaultVirtualPublishCategory() PublishCategory {
+	return PublishCategory{
+		CatID:        "50023914",
+		CatName:      "电子资料",
+		ChannelCatID: "202036301",
+	}
 }
 
 type PublishItemRequest struct {
@@ -82,9 +92,9 @@ type PublishItemRequest struct {
 	PostageMode        string
 	PostageCents       int64
 	// Virtual 表示商品只通过系统的虚拟发货流程交付，不需要实物发货地址。
-	Virtual          bool
-	FallbackCategory *PublishCategory
-	Images           []PublishImage
+	Virtual           bool
+	PreferredCategory *PublishCategory
+	Images            []PublishImage
 }
 
 type PublishItemResult struct {
@@ -125,8 +135,8 @@ func (c *ClientImpl) PublishItem(ctx context.Context, cookiesStr string, req Pub
 	if len(req.Images) > 9 {
 		return nil, errors.New("商品图片最多 9 张")
 	}
-	if req.FallbackCategory != nil && !validPublishCategory(*req.FallbackCategory) {
-		return nil, errors.New("兜底类目必须同时填写类目 ID 和类目名称")
+	if req.PreferredCategory != nil && !validPublishCategory(*req.PreferredCategory) {
+		return nil, errors.New("默认类目必须同时包含类目 ID、类目名称和频道类目 ID")
 	}
 	currentCookies := cookiesStr
 	if session := cookieSessionFromContext(ctx); session != nil {
@@ -143,15 +153,22 @@ func (c *ClientImpl) PublishItem(ctx context.Context, cookiesStr string, req Pub
 		}
 		uploaded = append(uploaded, res)
 	}
-	category, updated, err := c.recommendPublishCategory(ctx, currentCookies, req.Title, req.Description, uploaded)
-	if updated != "" {
-		currentCookies = updated
-	}
-	if err != nil {
-		if errors.Is(err, ErrPublishCategoryUnrecognized) && req.FallbackCategory != nil {
-			category = fallbackPublishCategory(*req.FallbackCategory)
-		} else {
-			return nil, err
+	var category map[string]any
+	var updated string
+	var err error
+	if req.PreferredCategory != nil {
+		category = fallbackPublishCategory(*req.PreferredCategory)
+	} else {
+		category, updated, err = c.recommendPublishCategory(ctx, currentCookies, req.Title, req.Description, uploaded)
+		if updated != "" {
+			currentCookies = updated
+		}
+		if err != nil {
+			if errors.Is(err, ErrPublishCategoryUnrecognized) {
+				category = fallbackPublishCategory(DefaultVirtualPublishCategory())
+			} else {
+				return nil, err
+			}
 		}
 	}
 	var location map[string]any
@@ -165,6 +182,29 @@ func (c *ClientImpl) PublishItem(ctx context.Context, cookiesStr string, req Pub
 		}
 	}
 	return c.publishItemOnce(ctx, currentCookies, req, uploaded, category, location)
+}
+
+// RecommendPublishCategory 根据关键词调用闲鱼推荐接口，返回可直接用于发布的完整类目。
+func (c *ClientImpl) RecommendPublishCategory(ctx context.Context, cookiesStr, keyword string) (PublishCategory, string, error) {
+	keyword = strings.TrimSpace(keyword)
+	if keyword == "" {
+		return PublishCategory{}, cookiesStr, errors.New("类目关键词不能为空")
+	}
+	data, updated, err := c.recommendPublishCategory(ctx, cookiesStr, keyword, keyword, nil)
+	if err != nil {
+		return PublishCategory{}, updated, err
+	}
+	cat := mapFromAny(data["categoryPredictResult"])
+	category := PublishCategory{
+		CatID:        strings.TrimSpace(mtopString(cat["catId"])),
+		CatName:      strings.TrimSpace(mtopString(cat["catName"])),
+		ChannelCatID: strings.TrimSpace(mtopString(cat["channelCatId"])),
+		TBCatID:      strings.TrimSpace(mtopString(cat["tbCatId"])),
+	}
+	if !validPublishCategory(category) {
+		return PublishCategory{}, updated, fmt.Errorf("%w: 推荐结果缺少完整类目路径", ErrPublishCategoryUnrecognized)
+	}
+	return category, updated, nil
 }
 
 func (c *ClientImpl) uploadPublishImage(ctx context.Context, cookiesStr string, img PublishImage) (uploadedImage, string, error) {
@@ -262,8 +302,10 @@ func (c *ClientImpl) recommendPublishCategory(ctx context.Context, cookiesStr, t
 		"publishScene": "mainPublish",
 		"scene":        "newPublishChoice",
 		"description":  desc,
-		"imageInfos":   imageInfos,
 		"uniqueCode":   strconv.FormatInt(time.Now().UnixMicro(), 10),
+	}
+	if len(imageInfos) > 0 {
+		data["imageInfos"] = imageInfos
 	}
 	decoded, updated, err := c.callMTop(ctx, cookiesStr, RecommendItemAPI, "mtop.taobao.idle.kgraph.property.recommend", "2.0", "a21ybx.publish.0.0", "a21ybx.item.sidebar.1.67321598K9Vgx8", "67321598K9Vgx8", data)
 	if err != nil {
@@ -277,24 +319,85 @@ func (c *ClientImpl) recommendPublishCategory(ctx context.Context, cookiesStr, t
 		return nil, updated, fmt.Errorf("%w: 类目推荐响应缺少 data", ErrPublishCategoryUnrecognized)
 	}
 	cat := mapFromAny(dataMap["categoryPredictResult"])
-	if cat == nil || mtopString(cat["catId"]) == "" {
+	if !validPublishCategoryMap(cat) {
+		// 部分账号/场景仅在 cardList 的“分类”卡片返回已选中的类目，
+		// 不返回 categoryPredictResult。将其转换为统一的发布类目结构。
+		if selected := selectedCategoryFromCards(dataMap); selected != nil {
+			cat = selected
+			dataMap["categoryPredictResult"] = selected
+		}
+	}
+	if !validPublishCategoryMap(cat) {
 		return nil, updated, ErrPublishCategoryUnrecognized
 	}
 	return dataMap, updated, nil
 }
 
+func validPublishCategoryMap(category map[string]any) bool {
+	return category != nil &&
+		strings.TrimSpace(mtopString(category["catId"])) != "" &&
+		strings.TrimSpace(mtopString(category["catName"])) != "" &&
+		strings.TrimSpace(mtopString(category["channelCatId"])) != ""
+}
+
+func selectedCategoryFromCards(data map[string]any) map[string]any {
+	cards, _ := data["cardList"].([]any)
+	for _, rawCard := range cards {
+		cardData := mapFromAny(mapFromAny(rawCard)["cardData"])
+		if cardData == nil || mtopString(cardData["propertyId"]) != "-10000" {
+			continue
+		}
+		values, _ := cardData["valuesList"].([]any)
+		for _, rawValue := range values {
+			value := mapFromAny(rawValue)
+			if value == nil || !publishLabelSelected(value["isClicked"]) || mtopString(value["catId"]) == "" {
+				continue
+			}
+			return map[string]any{
+				"catId":        mtopString(value["catId"]),
+				"catName":      mtopString(value["catName"]),
+				"channelCatId": mtopString(value["channelCatId"]),
+				"tbCatId":      mtopString(value["tbCatId"]),
+			}
+		}
+	}
+	return nil
+}
+
 func validPublishCategory(category PublishCategory) bool {
-	return strings.TrimSpace(category.CatID) != "" && strings.TrimSpace(category.CatName) != ""
+	return strings.TrimSpace(category.CatID) != "" &&
+		strings.TrimSpace(category.CatName) != "" &&
+		strings.TrimSpace(category.ChannelCatID) != ""
 }
 
 func fallbackPublishCategory(category PublishCategory) map[string]any {
+	category = PublishCategory{
+		CatID:        strings.TrimSpace(category.CatID),
+		CatName:      strings.TrimSpace(category.CatName),
+		ChannelCatID: strings.TrimSpace(category.ChannelCatID),
+		TBCatID:      strings.TrimSpace(category.TBCatID),
+	}
 	return map[string]any{
 		"categoryPredictResult": map[string]any{
-			"catId":        strings.TrimSpace(category.CatID),
-			"catName":      strings.TrimSpace(category.CatName),
-			"channelCatId": strings.TrimSpace(category.ChannelCatID),
-			"tbCatId":      strings.TrimSpace(category.TBCatID),
+			"catId":        category.CatID,
+			"catName":      category.CatName,
+			"channelCatId": category.ChannelCatID,
+			"tbCatId":      category.TBCatID,
 		},
+		// 闲鱼将分类作为已选择的标签一并提交；仅传 itemCatDTO 会导致
+		// 部分频道类目无法还原完整路径。
+		"cardList": []any{map[string]any{
+			"cardData": map[string]any{
+				"propertyId":   "-10000",
+				"propertyName": "分类",
+				"valuesList": []any{map[string]any{
+					"catName":      category.CatName,
+					"channelCatId": category.ChannelCatID,
+					"tbCatId":      category.TBCatID,
+					"isClicked":    true,
+				}},
+			},
+		}},
 	}
 }
 
@@ -519,8 +622,7 @@ func publishLabels(category map[string]any) []any {
 		values, _ := cardData["valuesList"].([]any)
 		for _, rawValue := range values {
 			value := mapFromAny(rawValue)
-			clicked, _ := value["isClicked"].(bool)
-			if !clicked {
+			if !publishLabelSelected(value["isClicked"]) {
 				continue
 			}
 			propertyID := mtopString(cardData["propertyId"])
@@ -550,6 +652,18 @@ func publishLabels(category map[string]any) []any {
 		}
 	}
 	return out
+}
+
+func publishLabelSelected(value any) bool {
+	if selected, ok := value.(bool); ok {
+		return selected
+	}
+	switch strings.ToLower(strings.TrimSpace(mtopString(value))) {
+	case "1", "true":
+		return true
+	default:
+		return false
+	}
 }
 
 func classifyPublishError(ret []string, decoded map[string]any) error {
