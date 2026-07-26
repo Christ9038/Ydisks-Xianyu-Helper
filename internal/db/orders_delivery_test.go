@@ -920,3 +920,39 @@ func TestWSMessages_Add(t *testing.T) {
 		t.Fatalf("ws_messages 行数=%d want 2", n)
 	}
 }
+
+func TestWSMessages_AddBatchAndDeleteBefore(t *testing.T) {
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, cid := seedAccount(t, s)
+
+	if err := s.WSMessages.AddBatch(ctx, []WSMessage{
+		{CookieID: cid, RawText: "first"},
+		{CookieID: cid, Direction: "out", ParseStatus: "parsed", RawText: "second"},
+	}); err != nil {
+		t.Fatalf("AddBatch: %v", err)
+	}
+	if _, err := s.DB.ExecContext(ctx,
+		`UPDATE ws_messages SET created_at=? WHERE cookie_id=? AND raw_text=?`,
+		time.Now().Add(-8*24*time.Hour), cid, "first"); err != nil {
+		t.Fatalf("设置历史时间: %v", err)
+	}
+
+	deleted, err := s.WSMessages.DeleteBefore(ctx, cid, time.Now().Add(-7*24*time.Hour))
+	if err != nil {
+		t.Fatalf("DeleteBefore: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("删除行数=%d want 1", deleted)
+	}
+	var rawText, direction, parseStatus string
+	if err := s.DB.QueryRowContext(ctx,
+		`SELECT raw_text, direction, parse_status FROM ws_messages WHERE cookie_id=?`, cid,
+	).Scan(&rawText, &direction, &parseStatus); err != nil {
+		t.Fatalf("查询保留记录: %v", err)
+	}
+	if rawText != "second" || direction != "out" || parseStatus != "parsed" {
+		t.Fatalf("保留记录=%q/%q/%q", rawText, direction, parseStatus)
+	}
+}

@@ -39,6 +39,10 @@ const (
 	FrequentDisconnectLimit     = 5
 	FrequentDisconnectWindow    = 5 * time.Minute
 	TokenCaptchaFailureCooldown = 5 * time.Minute
+	WSRecordBatchSize           = 32
+	WSRecordFlushInterval       = 250 * time.Millisecond
+	WSRecordWriteTimeout        = 5 * time.Second
+	WSRecordRetention           = 7 * 24 * time.Hour
 
 	// ShortConnectionThreshold 仅用于统计频繁短连接；已经建立后的网络断线
 	// 不会清 Token 缓存。
@@ -559,17 +563,41 @@ func (a *Account) startWSRecorder(ctx context.Context) {
 	}
 	a.wsRecordOnce.Do(func() {
 		go func() {
+			cleanupCtx, cleanupCancel := context.WithTimeout(ctx, WSRecordWriteTimeout)
+			deleted, cleanupErr := a.store.WSMessages.DeleteBefore(cleanupCtx, a.CookieID, time.Now().Add(-WSRecordRetention))
+			cleanupCancel()
+			if cleanupErr != nil && ctx.Err() == nil {
+				a.logger.Warn("清理过期 WS 报文失败", "cookie_id", a.CookieID, "err", cleanupErr)
+			} else if deleted > 0 {
+				a.logger.Info("已清理过期 WS 报文", "cookie_id", a.CookieID, "deleted", deleted)
+			}
+
+			ticker := time.NewTicker(WSRecordFlushInterval)
+			defer ticker.Stop()
+			batch := make([]db.WSMessage, 0, WSRecordBatchSize)
+			flush := func() {
+				if len(batch) == 0 {
+					return
+				}
+				writeCtx, cancel := context.WithTimeout(ctx, WSRecordWriteTimeout)
+				err := a.store.WSMessages.AddBatch(writeCtx, batch)
+				cancel()
+				if err != nil && ctx.Err() == nil {
+					a.logger.Warn("记录 WS 报文失败", "cookie_id", a.CookieID, "count", len(batch), "err", err)
+				}
+				batch = batch[:0]
+			}
 			for {
 				select {
 				case <-ctx.Done():
 					return
 				case message := <-a.wsRecordQueue:
-					writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-					err := a.store.WSMessages.Add(writeCtx, message)
-					cancel()
-					if err != nil && ctx.Err() == nil {
-						a.logger.Warn("记录 WS 报文失败", "cookie_id", a.CookieID, "err", err)
+					batch = append(batch, message)
+					if len(batch) >= WSRecordBatchSize {
+						flush()
 					}
+				case <-ticker.C:
+					flush()
 				}
 			}
 		}()
