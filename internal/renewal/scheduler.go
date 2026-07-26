@@ -20,8 +20,8 @@ import (
 const (
 	loginRenewInterval     = 600 * time.Second
 	cookiesRefreshInterval = 600 * time.Second
-	apiCookieRenewInterval = 3600 * time.Second
-	accountRequestInterval = time.Second
+	apiCookieRenewInterval = 4 * time.Hour
+	accountRequestInterval = time.Minute
 	sessionExpiredCooldown = 300 * time.Second
 	passwordLoginCooldown  = 300 * time.Second
 	passwordErrorCooldown  = 5 * time.Hour
@@ -56,11 +56,21 @@ type Scheduler struct {
 	mtop      *mtop.ClientImpl
 	api       apirenew.Service
 	cooldown  *CooldownManager
+	notifier  RenewalNotifier
 }
 
-func NewScheduler(store *db.Store, starter AccountStarter, refresher PasswordRefresher, logger *slog.Logger) *Scheduler {
+type RenewalNotifier interface {
+	NotifyAccountEvent(cookieID, eventType, level, title, body string)
+}
+
+// NewScheduler 的最后一个参数可选，用于发送连续续期失败告警，保持旧调用方兼容。
+func NewScheduler(store *db.Store, starter AccountStarter, refresher PasswordRefresher, logger *slog.Logger, notifiers ...RenewalNotifier) *Scheduler {
 	if logger == nil {
 		logger = slog.Default()
+	}
+	var notifier RenewalNotifier
+	if len(notifiers) > 0 {
+		notifier = notifiers[0]
 	}
 	return &Scheduler{
 		store:     store,
@@ -70,6 +80,7 @@ func NewScheduler(store *db.Store, starter AccountStarter, refresher PasswordRef
 		mtop:      mtop.NewClient(),
 		api:       apirenew.Service{},
 		cooldown:  GlobalCooldown,
+		notifier:  notifier,
 	}
 }
 
@@ -78,9 +89,9 @@ func (s *Scheduler) Run(ctx context.Context) {
 		return
 	}
 	go s.runFixed(ctx, "login_renew", loginRenewEnabledSetting, loginRenewIntervalSetting, false, loginRenewInterval, s.executeLoginRenew)
-	// 官网静默插件只在页面/账号运行时启动时执行，不做每小时轮询。保留
-	// 调度器入口供显式兼容配置使用，但默认关闭。
-	go s.runFixed(ctx, "api_cookie_renew", apiCookieRenewEnabledSetting, apiCookieRenewIntervalSetting, false, apiCookieRenewInterval, s.executeAPICookieRenew)
+	// 官网静默插件在账号启动时执行，并由此任务按保守频率持续检查；闲鱼
+	// 下发的 sdkSilent 疲劳窗口仍会在请求前阻止重复续期。
+	go s.runFixed(ctx, "api_cookie_renew", apiCookieRenewEnabledSetting, apiCookieRenewIntervalSetting, true, apiCookieRenewInterval, s.executeAPICookieRenew)
 	// 兼容原 cookies_refresh 配置名，但执行同一套 Go HTTP auto-login
 	// 协议；Chromium 不参与普通 Cookie 续期。
 	go s.runFixed(ctx, "cookies_refresh", cookiesRefreshEnabledSetting, cookiesRefreshIntervalSetting, false, cookiesRefreshInterval, s.executeAPICookieRenew)
@@ -399,7 +410,28 @@ func (s *Scheduler) addLoginLog(ctx context.Context, batchID, cookieID, status, 
 }
 
 func (s *Scheduler) addAPILog(ctx context.Context, log db.RenewalLog) {
-	_ = s.store.Renewal.AddAPICookieRenewLog(ctx, log)
+	if err := s.store.Renewal.AddAPICookieRenewLog(ctx, log); err != nil {
+		s.logger.Warn("记录 API Cookie 续期日志失败", "account", log.CookieID, "status", log.Status, "err", err)
+		return
+	}
+	if s.notifier == nil || log.Status != "failed" || s.store == nil || s.store.Renewal == nil {
+		return
+	}
+	statuses, err := s.store.Renewal.RecentAPICookieRenewStatuses(ctx, log.CookieID, 4)
+	if err != nil || len(statuses) < 3 || statuses[0] != "failed" || statuses[1] != "failed" || statuses[2] != "failed" {
+		return
+	}
+	if len(statuses) >= 4 && statuses[3] == "failed" {
+		return
+	}
+	reason := strings.TrimSpace(log.ErrorMessage)
+	if reason == "" {
+		reason = strings.TrimSpace(log.Message)
+	}
+	if reason == "" {
+		reason = "未知错误"
+	}
+	s.notifier.NotifyAccountEvent(log.CookieID, "token_renewal", "warn", "闲鱼 Cookie 自动续期连续失败", fmt.Sprintf("账号 %s 的 API 自动续期已连续失败 3 次，最近错误：%s", log.CookieID, reason))
 }
 
 func (s *Scheduler) cleanupExpiredLogs(ctx context.Context) {

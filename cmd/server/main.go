@@ -161,7 +161,7 @@ func main() {
 		logger.Error("启动账号引擎失败", "err", err)
 	}
 	go automation.NewScheduler(autoCenter).Run(ctx)
-	go renewal.NewScheduler(store, mgr, ap, logger).Run(ctx)
+	go renewal.NewScheduler(store, mgr, ap, logger, notifier).Run(ctx)
 
 	// 3) HTTP 服务。
 	srv := server.New(store, mgr, *secure, *webDir, *addr, logger, autoCenter, notifier)

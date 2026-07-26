@@ -261,6 +261,29 @@ func (r *RenewalStore) AddAPICookieRenewLog(ctx context.Context, log RenewalLog)
 	return err
 }
 
+// RecentAPICookieRenewStatuses 返回账号最近的 API Cookie 续期状态，最新记录在前。
+func (r *RenewalStore) RecentAPICookieRenewStatuses(ctx context.Context, cookieID string, limit int) ([]string, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := r.DB.QueryContext(ctx,
+		`SELECT status FROM scheduled_api_cookie_renew_log
+		 WHERE cookie_id=? ORDER BY id DESC LIMIT ?`, cookieID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	statuses := make([]string, 0, limit)
+	for rows.Next() {
+		var status string
+		if err := rows.Scan(&status); err != nil {
+			return nil, err
+		}
+		statuses = append(statuses, status)
+	}
+	return statuses, rows.Err()
+}
+
 // CleanupLogs deletes renewal logs older than retentionDays. Non-positive values skip cleanup.
 func (r *RenewalStore) CleanupLogs(ctx context.Context, retentionDays int) error {
 	if retentionDays <= 0 {

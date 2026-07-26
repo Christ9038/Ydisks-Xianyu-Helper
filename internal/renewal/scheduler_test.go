@@ -52,6 +52,18 @@ type schedulerFakePasswordRefresher struct {
 	calls atomic.Int32
 }
 
+type schedulerFakeNotifier struct {
+	calls   atomic.Int32
+	title   string
+	message string
+}
+
+func (f *schedulerFakeNotifier) NotifyAccountEvent(_ string, _ string, _ string, title, body string) {
+	f.calls.Add(1)
+	f.title = title
+	f.message = body
+}
+
 func (f *schedulerFakePasswordRefresher) OnPasswordLoginRefresh(_ context.Context, _ string) bool {
 	f.calls.Add(1)
 	return true
@@ -121,8 +133,8 @@ func TestSchedulerIntervalsAligned(t *testing.T) {
 	if cookiesRefreshInterval != 10*time.Minute {
 		t.Fatalf("cookiesRefreshInterval=%s want 10m", cookiesRefreshInterval)
 	}
-	if apiCookieRenewInterval != time.Hour {
-		t.Fatalf("apiCookieRenewInterval=%s want 1h", apiCookieRenewInterval)
+	if apiCookieRenewInterval != 4*time.Hour {
+		t.Fatalf("apiCookieRenewInterval=%s want 4h", apiCookieRenewInterval)
 	}
 }
 
@@ -140,6 +152,27 @@ func TestSchedulerDefaultsMatchUpstreamConfig(t *testing.T) {
 	}
 	if !s.settingEnabled(ctx, apiCookieRenewEnabledSetting, true) {
 		t.Fatal("api_cookie_renew 未配置时应默认开启")
+	}
+}
+
+func TestAPICookieRenewFailureNotifiesOnlyAtThirdConsecutiveFailure(t *testing.T) {
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	notifier := &schedulerFakeNotifier{}
+	s := NewScheduler(store, nil, nil, nil, notifier)
+	ctx := context.Background()
+	for i := 0; i < 3; i++ {
+		s.addAPILog(ctx, db.RenewalLog{BatchID: "batch", CookieID: "cid-failure", Status: "failed", ErrorMessage: "接口超时"})
+	}
+	if notifier.calls.Load() != 1 {
+		t.Fatalf("连续三次失败应通知 1 次，实际 %d", notifier.calls.Load())
+	}
+	if notifier.title == "" || !strings.Contains(notifier.message, "连续失败 3 次") {
+		t.Fatalf("通知内容异常: title=%q body=%q", notifier.title, notifier.message)
+	}
+	s.addAPILog(ctx, db.RenewalLog{BatchID: "batch", CookieID: "cid-failure", Status: "failed", ErrorMessage: "接口超时"})
+	if notifier.calls.Load() != 1 {
+		t.Fatalf("连续第四次失败不应重复通知，实际 %d", notifier.calls.Load())
 	}
 }
 
