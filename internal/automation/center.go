@@ -19,6 +19,10 @@ import (
 var (
 	errAutomationDeferred    = errors.New("自动化动作已持久化等待执行")
 	errAutomationNeedsReview = errors.New("自动化动作结果需要人工核对")
+	// ErrMessageNotSent 表示错误发生在调用 WebSocket 发送之前，可以安全重试。
+	// engine 通过 errors.Is 标记“连接尚未就绪”等运行时状态，避免被误判为
+	// 远端可能已经收到消息。
+	ErrMessageNotSent = errors.New("自动化消息确定未发送")
 )
 
 type uncertainActionError struct{ err error }
@@ -48,6 +52,12 @@ type MessageSender interface {
 	SendText(ctx context.Context, chatID, toUserID, text string) error
 	SendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64) error
 	UpdateCookie(cookieStr string)
+}
+
+// automationReadySender 由能够报告实时连接状态的发送器选择性实现。
+// 未实现的测试或外部发送器保持向后兼容，视为已经就绪。
+type automationReadySender interface {
+	AutomationReady() bool
 }
 
 // OrderDetailFetcher 查询闲鱼订单详情。自动发货必须先拿到订单规格和购买数量，
@@ -114,7 +124,9 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 	if task.TriggerType == "" || task.AccountID == "" {
 		return false, nil
 	}
-	c.markEventFacts(ctx, task)
+	if err := c.markEventFacts(ctx, task); err != nil {
+		return false, err
+	}
 	paused, until, err := c.store.Cookies.IsPaused(ctx, task.AccountID)
 	if err != nil {
 		return false, err
@@ -714,6 +726,9 @@ func (c *Center) executeAction(ctx context.Context, task Task, action db.Automat
 			return 0, nil
 		}
 		if err := c.sendText(ctx, task, text); err != nil {
+			if errors.Is(err, ErrMessageNotSent) {
+				return 0, err
+			}
 			return 0, uncertainAction(err)
 		}
 		return 1, nil
@@ -906,6 +921,20 @@ func (c *Center) accountAutomationAllowed(ctx context.Context, accountID string)
 	return !paused && enabled, nil
 }
 
+func (c *Center) accountSenderReady(accountID string) bool {
+	if c == nil || c.senders == nil {
+		return false
+	}
+	sender, ok := c.senders.Sender(accountID)
+	if !ok {
+		return false
+	}
+	if ready, ok := sender.(automationReadySender); ok {
+		return ready.AutomationReady()
+	}
+	return true
+}
+
 func (c *Center) lockCard(cardID int64) func() {
 	raw, _ := c.cardLocks.LoadOrStore(cardID, &sync.Mutex{})
 	mu := raw.(*sync.Mutex)
@@ -975,14 +1004,14 @@ func (c *Center) cardContent(ctx context.Context, card *db.CardFull) (text, imag
 
 func (c *Center) sendText(ctx context.Context, task Task, text string) error {
 	if task.ChatID == "" || task.BuyerID == "" {
-		return fmt.Errorf("发送消息缺少 chat_id 或 buyer_id")
+		return fmt.Errorf("%w: 发送消息缺少 chat_id 或 buyer_id", ErrMessageNotSent)
 	}
 	if c.senders == nil {
-		return fmt.Errorf("账号发送器未初始化")
+		return fmt.Errorf("%w: 账号发送器未初始化", ErrMessageNotSent)
 	}
 	sender, ok := c.senders.Sender(task.AccountID)
 	if !ok {
-		return fmt.Errorf("账号未在线，无法发送自动化消息")
+		return fmt.Errorf("%w: 账号未在线，无法发送自动化消息", ErrMessageNotSent)
 	}
 	return sender.SendText(ctx, task.ChatID, task.BuyerID, text)
 }
@@ -1012,9 +1041,9 @@ func (c *Center) cookieValue(ctx context.Context, cookieID string) (string, erro
 	return d.Value, nil
 }
 
-func (c *Center) markEventFacts(ctx context.Context, task Task) {
+func (c *Center) markEventFacts(ctx context.Context, task Task) error {
 	if task.OrderID == "" {
-		return
+		return nil
 	}
 	if err := c.store.Orders.Upsert(ctx, task.OrderID, db.OrderUpsertOpts{
 		CookieID:    task.AccountID,
@@ -1027,15 +1056,19 @@ func (c *Center) markEventFacts(ctx context.Context, task Task) {
 		Quantity:    task.Quantity,
 		Amount:      task.Amount,
 	}); err != nil {
-		c.logger.Warn("记录自动化事件事实前创建订单失败", "order_id", task.OrderID, "trigger", task.TriggerType, "err", err)
-		return
+		return fmt.Errorf("记录自动化事件订单事实: %w", err)
 	}
 	switch task.TriggerType {
 	case TriggerOrderPaid:
-		_ = c.store.Automation.MarkOrderEventTime(ctx, task.OrderID, "paid_at")
+		if err := c.store.Automation.MarkOrderEventTime(ctx, task.OrderID, "paid_at"); err != nil {
+			return fmt.Errorf("记录订单付款时间: %w", err)
+		}
 	case TriggerBuyerReviewed:
-		_ = c.store.Automation.MarkOrderEventTime(ctx, task.OrderID, "buyer_reviewed_at")
+		if err := c.store.Automation.MarkOrderEventTime(ctx, task.OrderID, "buyer_reviewed_at"); err != nil {
+			return fmt.Errorf("记录买家评价时间: %w", err)
+		}
 	}
+	return nil
 }
 
 func buildTriggerKey(task Task) string {

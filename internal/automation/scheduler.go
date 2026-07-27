@@ -11,7 +11,7 @@ import (
 	"xianyu-go/internal/db"
 )
 
-const defaultReviewRequestScanInterval = 10 * time.Minute
+const defaultReviewRequestScanInterval = time.Minute
 
 // Scheduler 执行计划任务类自动化。
 // 计划任务只负责“发现应该触发的任务”，具体动作仍交给 Center，避免形成第二套执行链。
@@ -45,9 +45,15 @@ func (s *Scheduler) Run(ctx context.Context) {
 
 func (s *Scheduler) scan(ctx context.Context) {
 	s.runDeferredTasks(ctx)
+	if recovered, err := s.center.store.Automation.RecoverDefinitelyUnsentReviewRuns(ctx); err != nil {
+		s.center.logger.Warn("恢复历史求评价未发送任务失败", "err", err)
+	} else if recovered > 0 {
+		s.center.logger.Info("已恢复历史求评价未发送任务，等待安全重试", "count", recovered)
+	}
 	s.runRecoveryTasks(ctx)
 	// 逐页执行，避免把所有到期订单一次性装入内存。稳定 ID 游标确保本轮有界。
 	afterOrderID := ""
+	waitingForWS := map[string]int{}
 	for {
 		orders, err := s.center.store.Automation.DueReviewRequestOrdersAfter(ctx, afterOrderID, 200)
 		if err != nil {
@@ -63,8 +69,16 @@ func (s *Scheduler) scan(ctx context.Context) {
 			if !allowed {
 				continue
 			}
+			if !s.center.accountSenderReady(order.CookieID) {
+				waitingForWS[order.CookieID]++
+				continue
+			}
 			rules, err := s.center.store.Automation.Match(ctx, order.CookieID, order.ItemID, TriggerReviewMissingTimeout)
-			if err != nil || len(rules) == 0 {
+			if err != nil {
+				s.center.logger.Warn("查询求评价自动化规则失败", "account", order.CookieID, "order_id", order.OrderID, "item_id", order.ItemID, "err", err)
+				continue
+			}
+			if len(rules) == 0 {
 				continue
 			}
 			for _, rule := range rules {
@@ -84,6 +98,9 @@ func (s *Scheduler) scan(ctx context.Context) {
 			break
 		}
 		afterOrderID = orders[len(orders)-1].OrderID
+	}
+	for accountID, count := range waitingForWS {
+		s.center.logger.Info("账号 WebSocket 尚未就绪，求评价任务等待下次扫描", "account", accountID, "orders", count)
 	}
 }
 
@@ -110,6 +127,10 @@ func (s *Scheduler) runRecoveryTasks(ctx context.Context) {
 		allowed, err := s.center.accountAutomationAllowed(ctx, task.AccountID)
 		if err != nil || !allowed {
 			_ = s.center.store.Automation.PostponeRecoveryRun(ctx, run.ID, time.Now().UTC().Add(10*time.Minute).Unix())
+			continue
+		}
+		if !s.center.accountSenderReady(task.AccountID) {
+			_ = s.center.store.Automation.PostponeRecoveryRun(ctx, run.ID, time.Now().UTC().Add(defaultReviewRequestScanInterval).Unix())
 			continue
 		}
 		rule, err := s.center.store.Automation.Get(ctx, run.RuleID)

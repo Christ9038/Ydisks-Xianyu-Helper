@@ -1580,16 +1580,23 @@ func (a *Account) currentSenderState() (WSConn, string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.conn == nil {
-		return nil, "", fmt.Errorf("账号 %s 当前没有可用 WebSocket 连接", a.CookieID)
+		return nil, "", fmt.Errorf("%w: 账号 %s 当前没有可用 WebSocket 连接", automation.ErrMessageNotSent, a.CookieID)
 	}
 	myID := strings.TrimSpace(a.UserID)
 	if myID == "" {
 		myID = protocol.TransCookies(a.CookieStr)["unb"]
 	}
 	if myID == "" {
-		return nil, "", fmt.Errorf("账号 %s 缺少 unb，无法发送消息", a.CookieID)
+		return nil, "", fmt.Errorf("%w: 账号 %s 缺少 unb，无法发送消息", automation.ErrMessageNotSent, a.CookieID)
 	}
 	return a.conn, myID, nil
+}
+
+// AutomationReady 报告自动化消息是否可以立即使用当前 WS 连接发送。
+func (a *Account) AutomationReady() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.conn != nil && a.runtimeState == RuntimeOnline
 }
 
 func (a *Account) replaceCookieStr(cookieStr string) {

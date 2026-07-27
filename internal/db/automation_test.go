@@ -359,6 +359,44 @@ func TestAutomation_TryStartRunAndFinishRun(t *testing.T) {
 	}
 }
 
+func TestAutomationRecoverDefinitelyUnsentReviewRun(t *testing.T) {
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	userID, cookieID := seedAccount(t, s)
+	ruleID, err := s.Automation.Create(ctx, AutomationRuleInput{
+		UserID: userID, CookieID: cookieID, Name: "review", TriggerType: "review_missing_timeout", Enabled: true,
+		Actions: []AutomationActionInput{{ActionType: "send_text", MessageTemplate: "review", Enabled: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID, started, err := s.Automation.TryStartRun(ctx, AutomationRun{
+		RuleID: ruleID, CookieID: cookieID, OrderID: "legacy-ws", TriggerType: "review_missing_timeout",
+		TriggerKey: "review_missing_timeout:legacy-ws:1", RawEventJSON: `{}`,
+	})
+	if err != nil || !started {
+		t.Fatalf("TryStartRun: started=%v err=%v", started, err)
+	}
+	if _, err := s.DB.ExecContext(ctx, `UPDATE automation_runs
+		SET status='needs_review',sent_count=0,action_started=1,
+		    error_message='自动化动作结果需要人工核对: 账号当前没有可用 WebSocket 连接'
+		WHERE id=?`, runID); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := s.Automation.RecoverDefinitelyUnsentReviewRuns(ctx)
+	if err != nil || recovered != 1 {
+		t.Fatalf("RecoverDefinitelyUnsentReviewRuns=%d err=%v", recovered, err)
+	}
+	run, err := s.Automation.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != "failed" || run.ActionStarted || run.NextRetryAt != 0 {
+		t.Fatalf("恢复结果异常: %+v", run)
+	}
+}
+
 func TestAutomation_TryStartRunRecoversStaleAndUnsentFailedRuns(t *testing.T) {
 	s, cleanup := newTestDB(t)
 	defer cleanup()

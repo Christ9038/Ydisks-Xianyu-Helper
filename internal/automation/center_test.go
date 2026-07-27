@@ -77,6 +77,47 @@ func TestPartialAutomationRunIsQuarantined(t *testing.T) {
 		t.Fatalf("status=%s sent=%d texts=%v", status, sent, sender.texts)
 	}
 }
+
+func TestMessageDefinitelyNotSentIsRetried(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	if _, err := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", Name: "retry-before-send", TriggerType: TriggerBuyerReviewed, Enabled: true,
+		Actions: []db.AutomationActionInput{{ActionType: ActionSendText, MessageTemplate: "gift", Enabled: true}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sender := &testSender{err: fmt.Errorf("%w: websocket reconnecting", ErrMessageNotSent)}
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	task := Task{AccountID: "cid", TriggerType: TriggerBuyerReviewed, OrderID: "retry-order", ChatID: "chat", BuyerID: "buyer"}
+	if err := center.HandleTask(ctx, task); err == nil {
+		t.Fatal("首次发送应返回连接未就绪错误")
+	}
+	var status string
+	if err := store.DB.QueryRowContext(ctx, `SELECT status FROM automation_runs WHERE order_id=?`, task.OrderID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" {
+		t.Fatalf("确定未发送应进入可重试 failed，got %q", status)
+	}
+	sender.err = nil
+	if _, err := store.DB.ExecContext(ctx, `UPDATE automation_runs SET next_retry_at=0 WHERE order_id=?`, task.OrderID); err != nil {
+		t.Fatal(err)
+	}
+	NewScheduler(center).runRecoveryTasks(ctx)
+	if len(sender.texts) != 1 || sender.texts[0] != "gift" {
+		t.Fatalf("连接恢复后应安全重试，got %v", sender.texts)
+	}
+	if err := store.DB.QueryRowContext(ctx, `SELECT status FROM automation_runs WHERE order_id=?`, task.OrderID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "success" {
+		t.Fatalf("重试后 status=%q want success", status)
+	}
+}
+
 func (s *testSender) SendImage(context.Context, string, string, string, int64) error { return nil }
 func (s *testSender) UpdateCookie(cookieStr string) {
 	s.cookieUpdates = append(s.cookieUpdates, cookieStr)

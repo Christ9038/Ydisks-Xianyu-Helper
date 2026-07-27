@@ -10,6 +10,17 @@ import (
 	"xianyu-go/internal/db"
 )
 
+type readinessTestSender struct {
+	*testSender
+	ready bool
+}
+
+func (s *readinessTestSender) AutomationReady() bool { return s.ready }
+
+type readinessTestProvider struct{ sender MessageSender }
+
+func (p readinessTestProvider) Sender(string) (MessageSender, bool) { return p.sender, true }
+
 // TestParseReviewRuleConfig 默认值 + JSON 覆盖 + 非法输入兜底。
 func TestParseReviewRuleConfig(t *testing.T) {
 	// 空配置 → 默认 72h / 1 次。
@@ -222,6 +233,43 @@ func TestSchedulerScanExecutesDueThenSkipsOnMaxAttempts(t *testing.T) {
 	sched.scan(ctx)
 	if len(sender.texts) != 0 {
 		t.Fatalf("达到 max_attempts 不应再发送，got %v", sender.texts)
+	}
+}
+
+func TestSchedulerWaitsForWebSocketBeforeCreatingRun(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	ruleID, err := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", ItemID: "item-ready", Name: "wait-ws",
+		TriggerType: TriggerReviewMissingTimeout, Enabled: true,
+		ConfigJSON: `{"after_shipped_hours":1,"max_attempts":1}`,
+		Actions:    []db.AutomationActionInput{{ActionType: ActionSendText, MessageTemplate: "review", Enabled: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shipped := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339Nano)
+	if _, err := store.DB.ExecContext(ctx, `INSERT INTO orders
+		(order_id,cookie_id,item_id,buyer_id,chat_id,system_shipped,shipped_at)
+		VALUES ('wait-ws-order','cid','item-ready','buyer','chat',1,?)`, shipped); err != nil {
+		t.Fatal(err)
+	}
+	sender := &readinessTestSender{testSender: &testSender{}, ready: false}
+	scheduler := NewScheduler(New(store, readinessTestProvider{sender: sender}, nil))
+	scheduler.scan(ctx)
+	var count int
+	if err := store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM automation_runs WHERE rule_id=?`, ruleID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("WS 未就绪时不应创建运行记录，got %d", count)
+	}
+	sender.ready = true
+	scheduler.scan(ctx)
+	if len(sender.texts) != 1 || sender.texts[0] != "review" {
+		t.Fatalf("WS 就绪后应发送，got %v", sender.texts)
 	}
 }
 

@@ -617,6 +617,24 @@ SELECT id,rule_id,cookie_id,item_id,order_id,buyer_id,chat_id,trigger_type,trigg
 	return out, rows.Err()
 }
 
+// RecoverDefinitelyUnsentReviewRuns 恢复旧版本把“发送前没有 WS 连接”误判成
+// 结果不确定的求评价运行。这些记录 sent_count=0，且错误明确发生在调用发送
+// 接口之前，可以安全清除 action_started 并进入现有失败重试流程。
+func (a *AutomationRules) RecoverDefinitelyUnsentReviewRuns(ctx context.Context) (int64, error) {
+	res, err := a.DB.ExecContext(ctx, `UPDATE automation_runs
+	   SET status='failed',action_started=0,lease_expires_at=0,next_retry_at=0,
+	       error_message='历史版本在 WebSocket 就绪前执行，已恢复等待安全重试',
+	       updated_at=CURRENT_TIMESTAMP
+	 WHERE trigger_type='review_missing_timeout' AND status='needs_review' AND sent_count=0
+	   AND (error_message LIKE '%当前没有可用 WebSocket 连接%'
+	        OR error_message LIKE '%账号未在线，无法发送自动化消息%'
+	        OR error_message LIKE '%账号发送器未初始化%')`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func (a *AutomationRules) DeferTask(ctx context.Context, task DeferredAutomationTask) error {
 	_, err := a.DB.ExecContext(ctx, `INSERT INTO automation_pending_tasks
     (task_key,cookie_id,trigger_type,task_json,due_at,status,attempt_count,lease_expires_at,error_message)

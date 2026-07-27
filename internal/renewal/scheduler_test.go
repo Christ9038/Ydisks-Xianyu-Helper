@@ -138,6 +138,41 @@ func TestSchedulerIntervalsAligned(t *testing.T) {
 	}
 }
 
+func TestPendingAPIRenewLogsPendingAndRestartsAfterLateCookie(t *testing.T) {
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	account := createSchedulerAccount(t, store, "cid-pending", "unb=1; havana_lgc_exp="+strconv.FormatInt(time.Now().Add(time.Hour).UnixMilli(), 10))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(60 * time.Millisecond)
+		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: strconv.FormatInt(time.Now().Add(time.Hour).UnixMilli(), 10), Path: "/"})
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+	}))
+	defer srv.Close()
+	starter := &schedulerFakeStarter{}
+	s := NewScheduler(store, starter, nil, nil)
+	s.api = apirenew.Service{
+		HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1, PromiseTimeout: 10 * time.Millisecond,
+	}
+	s.apiCookieRenewOne(context.Background(), "batch-pending", account)
+	if got := lastAPIRenewLog(t, store, account.ID).status; got != "pending" {
+		t.Fatalf("Promise 未完成时 status=%q want pending", got)
+	}
+	deadline := time.Now().Add(time.Second)
+	for starter.restarts.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := starter.restarts.Load(); got != 1 {
+		t.Fatalf("迟到 Cookie 保存后 restarts=%d want 1", got)
+	}
+	detail, err := store.Cookies.GetDetails(context.Background(), account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(detail.Value, "sdkSilent=") {
+		t.Fatalf("迟到 Cookie 未保存: %q", detail.Value)
+	}
+}
+
 func TestSchedulerDefaultsMatchUpstreamConfig(t *testing.T) {
 	store, cleanup := newSchedulerTestStore(t)
 	defer cleanup()
