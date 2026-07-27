@@ -75,7 +75,9 @@ func (s *Scheduler) scan(ctx context.Context) {
 					ChatID: order.ChatID, OrderID: order.OrderID, ItemID: order.ItemID, BuyerID: order.BuyerID,
 					Text: "发货后一段时间未评价", Raw: map[string]any{"source": "scheduler", "rule_id": rule.ID,
 						"order_id": order.OrderID, "attempt": order.ReviewRequestCount + 1}}
-				_ = s.center.executeRule(ctx, task, rule)
+				if err := s.center.executeRule(ctx, task, rule); err != nil {
+					s.center.logger.Warn("求评价计划任务执行失败", "account", order.CookieID, "order_id", order.OrderID, "rule_id", rule.ID, "err", err)
+				}
 			}
 		}
 		if len(orders) < 200 {
@@ -225,7 +227,14 @@ func intFromAny(v any) int {
 }
 
 func parseDBTime(s string) time.Time {
-	for _, layout := range []string{"2006-01-02 15:04:05", time.RFC3339, "2006-01-02T15:04:05Z07:00"} {
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999Z07:00", // Postgres TEXT(CURRENT_TIMESTAMP)
+		"2006-01-02 15:04:05.999999999Z07",
+		"2006-01-02 15:04:05Z07:00",
+		"2006-01-02 15:04:05Z07",
+		"2006-01-02 15:04:05", // SQLite/MySQL 历史值；按既有 UTC 约定解释
+	} {
 		if t, err := time.ParseInLocation(layout, strings.TrimSpace(s), time.UTC); err == nil {
 			return t
 		}

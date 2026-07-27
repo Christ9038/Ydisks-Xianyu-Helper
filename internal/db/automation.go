@@ -863,22 +863,23 @@ func (a *AutomationRules) MarkOrderEventTime(ctx context.Context, orderID, field
 	default:
 		return fmt.Errorf("不允许更新的订单时间字段: %s", field)
 	}
-	// 只在字段为空时写入当前时间，已有值则保留（幂等）。用 WHERE 过滤替代
-	// CASE WHEN ... THEN CURRENT_TIMESTAMP ELSE field END：后者在 Postgres 上会
-	// 因 THEN(timestamptz) 与 ELSE(text) 分支类型不可匹配而报 SQLSTATE 42804。
-	// CURRENT_TIMESTAMP 直接赋值给 TEXT 列在三方言下均成立（见 IncrementReviewRequest）。
-	_, err := a.DB.ExecContext(ctx, "UPDATE orders SET "+field+"=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE order_id=? AND COALESCE("+field+",'')=''", orderID)
+	// 事件时间列是跨方言 TEXT。不能直接写 CURRENT_TIMESTAMP：Postgres 会产生
+	// "2006-01-02 15:04:05.999999+00"，而 MySQL 的无时区文本又取决于会话时区，
+	// 调度器无法可靠解释。统一由应用写 RFC3339 UTC，已有值仍保留（幂等）。
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := a.DB.ExecContext(ctx, "UPDATE orders SET "+field+"=?, updated_at=CURRENT_TIMESTAMP WHERE order_id=? AND COALESCE("+field+",'')=''", now, orderID)
 	return err
 }
 
 // IncrementReviewRequest 记录一次求评价请求。
 func (a *AutomationRules) IncrementReviewRequest(ctx context.Context, orderID string) error {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err := a.DB.ExecContext(ctx, `
 UPDATE orders
    SET review_request_count=review_request_count+1,
-       last_review_request_at=CURRENT_TIMESTAMP,
+       last_review_request_at=?,
        updated_at=CURRENT_TIMESTAMP
- WHERE order_id=?`, orderID)
+ WHERE order_id=?`, now, orderID)
 	return err
 }
 

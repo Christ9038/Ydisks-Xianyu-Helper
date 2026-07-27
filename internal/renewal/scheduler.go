@@ -241,6 +241,7 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 	latest, err := s.reloadRenewalAccount(ctx, account)
 	if err != nil {
 		s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "重读账号凭证失败: " + err.Error(), RenewMethod: "auto_login_plugin"})
+		s.logger.Warn("接口续期任务失败", "account", account.ID, "err", "重读账号凭证失败: "+err.Error())
 		return
 	}
 	account = latest
@@ -254,6 +255,7 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 			message = callErr.Error()
 		}
 		s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: message, RenewMethod: "auto_login_plugin", DurationMS: time.Since(started).Milliseconds()})
+		s.logger.Warn("接口续期任务失败", "account", account.ID, "err", message)
 		return
 	}
 	if res.HasPending() {
@@ -272,6 +274,7 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 		}
 		if !s.saveRenewedCookies(ctx, account.ID, res.NewCookies, metadata) {
 			s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "保存 Cookie 失败", UpdatedCookieNames: updated, StepDetails: strings.Join(stepDetails, " | "), RenewMethod: res.RenewMethod, DurationMS: time.Since(started).Milliseconds(), RequestCount: res.RequestCount})
+			s.logger.Warn("接口续期任务失败", "account", account.ID, "method", res.RenewMethod, "err", "保存 Cookie 失败")
 			return
 		}
 	}
@@ -281,17 +284,21 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 			UpdatedCookieNames: updated, StepDetails: strings.Join(stepDetails, " | "), RenewMethod: res.RenewMethod,
 			DurationMS: time.Since(started).Milliseconds(), RequestCount: res.RequestCount,
 		})
-		s.logger.Warn("api_cookie_renew 失败，已保存响应头 Cookie", "account", account.ID, "err", callErr)
+		s.logger.Warn("接口续期任务失败，已保存响应头 Cookie", "account", account.ID, "method", res.RenewMethod, "updated", strings.Join(updated, ","), "err", callErr)
 		return
 	}
 	if res.Success && account.Enabled {
+		s.logger.Info("接口续期任务成功", "account", account.ID, "method", res.RenewMethod, "updated", strings.Join(updated, ","), "message", res.Message)
 		credentialUnlock()
 		credentialLocked = false
 		if restarter, ok := s.starter.(accountRestarter); ok {
+			s.logger.Info("接口续期成功，正在重启账号以应用最新登录凭证", "account", account.ID)
 			if err := restarter.Restart(ctx, account.ID); err != nil {
 				s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "重建消息连接失败: " + err.Error(), UpdatedCookieNames: updated, StepDetails: strings.Join(stepDetails, " | "), RenewMethod: res.RenewMethod, DurationMS: time.Since(started).Milliseconds(), RequestCount: res.RequestCount})
+				s.logger.Warn("接口续期成功，但重启账号失败", "account", account.ID, "err", err)
 				return
 			}
+			s.logger.Info("接口续期后的账号重启已完成", "account", account.ID)
 		}
 	}
 	status := "failed"
@@ -314,6 +321,11 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 		DurationMS:         time.Since(started).Milliseconds(),
 		RequestCount:       res.RequestCount,
 	})
+	if res.Skipped {
+		s.logger.Info("接口续期任务已跳过", "account", account.ID, "reason", res.SkipReason, "message", res.Message)
+	} else if !res.Success {
+		s.logger.Warn("接口续期任务未成功", "account", account.ID, "method", res.RenewMethod, "message", res.Message)
+	}
 }
 
 func (s *Scheduler) renewAPI(ctx context.Context, cookieStr string, snapshot []cookierefresh.BrowserCookie) (*apirenew.Result, error) {

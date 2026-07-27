@@ -133,6 +133,17 @@ func TestReviewRequestRuleDueUsesRepeatIntervalAfterFirstAttempt(t *testing.T) {
 	}
 }
 
+func TestParseDBTimeAcceptsPostgresTimestampText(t *testing.T) {
+	got := parseDBTime("2026-07-27 03:36:29.123456+00")
+	if got.IsZero() {
+		t.Fatal("Postgres CURRENT_TIMESTAMP 文本不应解析为零值")
+	}
+	want := time.Date(2026, 7, 27, 3, 36, 29, 123456000, time.UTC)
+	if !got.Equal(want) {
+		t.Fatalf("parseDBTime=%s want %s", got, want)
+	}
+}
+
 // TestFirstNonEmpty 返回首个非空串。
 func TestFirstNonEmpty(t *testing.T) {
 	if got := firstNonEmpty("", "", "x", "y"); got != "x" {
