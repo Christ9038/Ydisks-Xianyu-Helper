@@ -7,7 +7,7 @@
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](go.mod)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](frontend/package.json)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)](compose.yml)
-[![Docker Image](https://github.com/Christ9038/Ydisks-Xianyu-Helper/actions/workflows/docker-publish.yml/badge.svg?branch=dev)](https://github.com/Christ9038/Ydisks-Xianyu-Helper/actions/workflows/docker-publish.yml)
+[![Docker Image](https://github.com/Christ9038/Ydisks-Xianyu-Helper/actions/workflows/docker-publish.yml/badge.svg?branch=main)](https://github.com/Christ9038/Ydisks-Xianyu-Helper/actions/workflows/docker-publish.yml)
 
 [功能特性](#功能特性) · [快速开始](#快速开始) · [配置说明](#配置说明) ·
 [Docker 部署](#docker-部署) · [开发指南](#开发指南) · [开源协议](#开源协议)
