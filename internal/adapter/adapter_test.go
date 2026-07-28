@@ -403,6 +403,45 @@ func TestOnPasswordLoginRefresh_BrowserNilStillUsesAPIRenew(t *testing.T) {
 	}
 }
 
+func TestOnPasswordLoginRefreshWaitsForPendingFinalResult(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		body       string
+		want       bool
+		wantCookie bool
+	}{
+		{name: "late success", body: `{"content":{"data":{"processFinished":true,"resultCode":100}}}`, want: true, wantCookie: true},
+		{name: "late business failure", body: `{"content":{"data":{"processFinished":true,"resultCode":500}}}`, want: false, wantCookie: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store, cleanup := newAdapterTestStore(t)
+			defer cleanup()
+			renewal.GlobalCooldown.Reset("cid")
+			if err := store.Cookies.UpdateValueExisting(context.Background(), "cid", "unb=1; havana_lgc_exp=9999999999999"); err != nil {
+				t.Fatal(err)
+			}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				time.Sleep(40 * time.Millisecond)
+				http.SetCookie(w, &http.Cookie{Name: "late_cookie", Value: "saved", Path: "/"})
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+			a := New(store, nil, nil)
+			a.SetRenewService(xrenew.Service{
+				HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL,
+				RetryDelay: -1, PromiseTimeout: 5 * time.Millisecond,
+			})
+			if got := a.OnPasswordLoginRefresh(context.Background(), "cid"); got != tt.want {
+				t.Fatalf("pending 最终恢复结果=%v want %v", got, tt.want)
+			}
+			saved, err := store.Cookies.GetValue(context.Background(), "cid")
+			if err != nil || strings.Contains(saved, "late_cookie=saved") != tt.wantCookie {
+				t.Fatalf("迟到 Cookie 保存异常: value=%q err=%v", saved, err)
+			}
+		})
+	}
+}
+
 // TestOnPasswordLoginRefresh_BrowserNilReturnsFalseAfterAPIFailure 接口轻量续期也失败后才因浏览器不可用失败。
 func TestOnPasswordLoginRefresh_BrowserNilReturnsFalseAfterAPIFailure(t *testing.T) {
 	store, cleanup := newAdapterTestStore(t)

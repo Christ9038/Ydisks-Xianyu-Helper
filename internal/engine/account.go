@@ -695,6 +695,18 @@ func (a *Account) beginTask() (context.Context, bool) {
 
 // handleMaxFailures 是历史兼容恢复入口；只尝试 Go 协议续期，不执行密码登录。
 func (a *Account) handleMaxFailures(ctx context.Context) error {
+	// 先执行低成本登录态检查。它可能仅凭 loginuser.get 响应头恢复签名
+	// Cookie，也能在进入静默续期前准确识别风控状态。
+	loginStatus := a.tryLoginStatusCheck(ctx)
+	if loginStatus.riskRequired {
+		return fmt.Errorf("账号 %s 需要完成安全验证", a.CookieID)
+	}
+	if loginStatus.recovered {
+		a.logger.Info("登录态检查已恢复 Cookie，重置失败计数")
+		a.setRuntimeState(RuntimeConnecting, "登录凭证已刷新，正在重新连接")
+		a.resetFailures()
+		return sleepCtx(ctx, 2*time.Second)
+	}
 	credentialUnlock := func() {}
 	if a.store != nil {
 		credentialUnlock = a.store.LockAccountCredentials(a.CookieID)
@@ -800,10 +812,54 @@ func (a *Account) tryLoginStatusCheck(ctx context.Context) loginStatusCheckResul
 	if !ok {
 		return loginStatusCheckResult{}
 	}
+	credentialUnlock := func() {}
+	if a.store != nil {
+		credentialUnlock = a.store.LockAccountCredentials(a.CookieID)
+	}
+	defer credentialUnlock()
 	a.mu.Lock()
 	cookieStr := a.CookieStr
 	a.mu.Unlock()
-	res, err := checker.CheckLoginStatusContext(ctx, cookieStr)
+	requestCtx := ctx
+	var cookieSession *mtop.CookieSession
+	metadataJSON := ""
+	if a.store != nil && a.store.Cookies != nil {
+		detail, detailErr := a.store.Cookies.GetDetails(ctx, a.CookieID)
+		if detailErr != nil || detail == nil {
+			if detailErr == nil {
+				detailErr = db.ErrNotFound
+			}
+			a.logger.Warn("登录态检查前读取最新 Cookie 失败", "err", detailErr)
+			return loginStatusCheckResult{}
+		}
+		cookieStr = detail.Value
+		metadataJSON = detail.MetadataJSON
+		if snapshot, complete := cookierefresh.SnapshotFromMetadataOK(metadataJSON); complete {
+			requestCtx, cookieSession = mtop.WithCookieSnapshot(ctx, snapshot)
+		} else {
+			requestCtx, cookieSession = mtop.WithFlatCookieSession(ctx, cookieStr)
+		}
+	}
+	res, err := checker.CheckLoginStatusContext(requestCtx, cookieStr)
+	if cookieSession != nil {
+		value, snapshot, changed := cookieSession.State()
+		if changed {
+			metadata := cookierefresh.MetadataWithoutSnapshot(metadataJSON)
+			if snapshot != nil {
+				metadata = cookierefresh.MetadataWithSnapshot(metadataJSON, snapshot)
+			}
+			if persistErr := a.store.Cookies.UpdateRenewalCookie(ctx, a.CookieID, value, metadata, time.Now().Unix()); persistErr != nil {
+				a.logger.Warn("登录态检查保存响应 Cookie Jar 失败", "err", persistErr)
+				return loginStatusCheckResult{}
+			}
+			a.replaceCredentialState(value, credentialStateFingerprint(value, metadata))
+			a.clearTokenCache(ctx)
+			if err != nil {
+				a.logger.Warn("登录态检查失败，已保存响应 Cookie", "err", err)
+			}
+			return loginStatusCheckResult{recovered: res != nil && res.Status == mtop.LoginStatusTokenRefreshed}
+		}
+	}
 	if err != nil {
 		a.logger.Warn("登录态检查失败", "err", err)
 		return loginStatusCheckResult{}
@@ -816,7 +872,7 @@ func (a *Account) tryLoginStatusCheck(ctx context.Context) loginStatusCheckResul
 		a.logger.Warn("登录态检查命中风控验证", "ret", strings.Join(res.Ret, ","), "verification_url", res.VerificationURL)
 		return loginStatusCheckResult{riskRequired: true, verificationURL: res.VerificationURL}
 	}
-	if a.adoptRecoveredCookie(ctx, res.UpdatedCookies, "登录态检查") {
+	if res.Status == mtop.LoginStatusTokenRefreshed && len(cookierefresh.ChangedCookieNames(cookieStr, res.UpdatedCookies)) > 0 && a.adoptRecoveredCookie(ctx, res.UpdatedCookies, "登录态检查") {
 		a.logger.Info("登录态检查刷新了 Cookie", "status", res.Status, "message", res.Message)
 		return loginStatusCheckResult{recovered: true}
 	}

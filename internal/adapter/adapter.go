@@ -564,9 +564,40 @@ func (a *Adapter) tryProtocolCredentialRenew(ctx context.Context, d *db.CookieDe
 			return false, saveErr
 		}
 		if res.HasPending() {
-			a.watchPendingProtocolRenew(d.ID, res)
-			// 官网 Promise 超时只记录错误，不把当前登录态判定为失效。
-			return true, nil
+			// 恢复路径不能把“底层请求仍在进行”提前记为成功，否则上层会
+			// 重置失败计数并继续使用未确认的旧凭证。这里等待最终响应；定时
+			// 调度仍使用异步 watcher，不阻塞健康账号。
+			waitCtx, waitCancel := context.WithTimeout(ctx, 35*time.Second)
+			late, waitErr := res.AwaitPending(waitCtx)
+			waitCancel()
+			if late == nil {
+				if waitErr != nil {
+					return false, waitErr
+				}
+				return false, errors.New("协议续期底层响应未返回结果")
+			}
+			var lateSnapshot []cookierefresh.BrowserCookie
+			if late.CookieSnapshotComplete {
+				lateSnapshot = late.CookieSnapshot
+				if lateSnapshot == nil {
+					lateSnapshot = []cookierefresh.BrowserCookie{}
+				}
+			}
+			if saveErr := save(late.NewCookies, late.SetCookies, lateSnapshot); saveErr != nil {
+				return false, saveErr
+			}
+			if waitErr != nil {
+				return false, waitErr
+			}
+			if late.Success {
+				a.logger.Info("Go 协议续期迟到响应成功", "account", d.ID)
+				return true, nil
+			}
+			message := strings.TrimSpace(late.Message)
+			if message == "" {
+				message = "协议续期未通过"
+			}
+			return false, errors.New(message)
 		}
 		if err == nil && res.Success {
 			a.logger.Info("Go 协议续期成功", "account", d.ID)
@@ -574,47 +605,6 @@ func (a *Adapter) tryProtocolCredentialRenew(ctx context.Context, d *db.CookieDe
 		}
 	}
 	return false, err
-}
-
-func (a *Adapter) watchPendingProtocolRenew(cookieID string, result *xrenew.Result) {
-	if result == nil || !result.HasPending() || a.store == nil || a.store.Cookies == nil {
-		return
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
-		defer cancel()
-		late, waitErr := result.AwaitPending(ctx)
-		if late == nil {
-			if waitErr != nil {
-				a.logger.Warn("等待协议续期底层响应失败", "account", cookieID, "err", waitErr)
-			}
-			return
-		}
-		unlock := a.store.LockAccountCredentials(cookieID)
-		defer unlock()
-		detail, getErr := a.store.Cookies.GetDetails(ctx, cookieID)
-		if getErr != nil || detail == nil {
-			if getErr == nil {
-				getErr = db.ErrNotFound
-			}
-			a.logger.Warn("保存协议续期迟到 Cookie 前读取账号失败", "account", cookieID, "err", getErr)
-			return
-		}
-		newCookies, metadata, changed := xrenew.RebaseResponseCookies(detail.Value, detail.MetadataJSON, late)
-		if changed {
-			if saveErr := a.store.Cookies.UpdateRenewalCookie(ctx, cookieID, newCookies, metadata, time.Now().Unix()); saveErr != nil {
-				a.logger.Warn("保存协议续期迟到 Cookie 失败", "account", cookieID, "err", saveErr)
-				return
-			}
-			if a.store.Tokens != nil {
-				_ = a.store.Tokens.Clear(ctx, cookieID)
-			}
-			a.logger.Info("已异步接收协议续期迟到 Cookie", "account", cookieID)
-		}
-		if waitErr != nil {
-			a.logger.Warn("协议续期底层响应失败，已保存响应 Cookie", "account", cookieID, "err", waitErr)
-		}
-	}()
 }
 
 // 编译期保证 *Adapter 同时实现 engine.Handler 与 automation.OrderDetailFetcher。

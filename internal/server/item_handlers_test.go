@@ -11,6 +11,7 @@ import (
 	"net/textproto"
 	"strings"
 	"testing"
+	"time"
 
 	"xianyu-go/internal/xianyu/mtop"
 )
@@ -21,8 +22,16 @@ type stubPublishMTop struct {
 }
 
 func TestRecommendItemPublishCategory(t *testing.T) {
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := srv.Manager.Start(ctx, "acc1", "unb=123; _m_h5_tk=tk1_1;"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Tokens.Save(context.Background(), "acc1", "device", "stale-token", time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
 	client := mtop.NewClient()
 	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if req.URL.Query().Get("api") != "mtop.taobao.idle.kgraph.property.recommend" {
@@ -30,7 +39,9 @@ func TestRecommendItemPublishCategory(t *testing.T) {
 		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
-			Header:     make(http.Header),
+			Header: http.Header{"Set-Cookie": []string{
+				"_m_h5_tk=recommended_2; Domain=.goofish.com; Path=/; Secure",
+			}},
 			Body: io.NopCloser(strings.NewReader(
 				`{"ret":["SUCCESS::调用成功"],"data":{"cardList":[{"cardData":{"propertyId":"-10000","propertyName":"分类","valuesList":[{"catId":"50023914","catName":"电子资料","channelCatId":"202036301","isClicked":"1"}]}}]}}`,
 			)),
@@ -56,6 +67,14 @@ func TestRecommendItemPublishCategory(t *testing.T) {
 	}
 	if response.Category.CatID != "50023914" || response.Category.CatName != "电子资料" || response.Category.ChannelCatID != "202036301" {
 		t.Fatalf("category=%+v", response.Category)
+	}
+	saved, err := store.Cookies.GetValue(context.Background(), "acc1")
+	if err != nil || !strings.Contains(saved, "_m_h5_tk=recommended_2") {
+		t.Fatalf("类目推荐响应 Cookie 未保存: value=%q err=%v", saved, err)
+	}
+	token, err := store.Tokens.Get(context.Background(), "acc1")
+	if err != nil || token.AccessToken != "" {
+		t.Fatalf("类目推荐 Cookie 更新后未同步运行时并清理旧 token: token=%+v err=%v", token, err)
 	}
 }
 

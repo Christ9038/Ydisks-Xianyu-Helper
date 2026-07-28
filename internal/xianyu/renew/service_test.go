@@ -574,8 +574,8 @@ func TestRenewAPIFirstReturnsAtPromiseTimeoutAndKeepsLateCookies(t *testing.T) {
 	if lateErr != nil || late == nil || len(late.SetCookies) != 1 || !strings.Contains(late.NewCookies, "sdkSilent=") {
 		t.Fatalf("迟到响应 Cookie 丢失: result=%+v err=%v", late, lateErr)
 	}
-	if !completed.Load() || late.Success || late.NeedPasswordLogin {
-		t.Fatalf("底层请求应完成，但不得在 Promise 超时后触发成功 reload/重新登录: %+v completed=%v", late, completed.Load())
+	if !completed.Load() || !late.Success || late.NeedPasswordLogin {
+		t.Fatalf("底层请求完成后应返回真实业务终态: %+v completed=%v", late, completed.Load())
 	}
 }
 

@@ -264,6 +264,37 @@ func TestTryLoginStatusCheck_RiskRequired(t *testing.T) {
 	}
 }
 
+func TestHandleMaxFailuresRunsLoginStatusCheckBeforeProtocolRenew(t *testing.T) {
+	newCookie := "unb=123; _m_h5_tk=loginuser_recovered; sgcookie=abc"
+	mtopClient := &statusMtop{
+		fakeRunMtop: fakeRunMtop{token: "tok-1"},
+		result: &mtop.LoginStatusResult{
+			Status:         mtop.LoginStatusTokenRefreshed,
+			UpdatedCookies: newCookie,
+			Message:        "令牌已刷新",
+		},
+	}
+	acc, handler, _, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+	acc.mu.Lock()
+	acc.connFailures = MaxConnectionFailures
+	acc.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if err := acc.handleMaxFailures(ctx); err != ctx.Err() {
+		t.Fatalf("登录态恢复后的等待应响应上下文取消: %v", err)
+	}
+	if handler.refresh != 0 {
+		t.Fatalf("loginuser.get 已恢复时不应继续协议续期，calls=%d", handler.refresh)
+	}
+	if got := acc.currentCookieStr(); got != newCookie {
+		t.Fatalf("登录态检查恢复 Cookie=%q want %q", got, newCookie)
+	}
+	if acc.connFailures != 0 {
+		t.Fatalf("登录态恢复后失败计数=%d want 0", acc.connFailures)
+	}
+}
+
 // TestReloadCookieFromDB_AdoptsNewCookieAndClearsCache DB cookie 变更时采纳新 cookie 并清旧 token 缓存。
 func TestReloadCookieFromDB_AdoptsNewCookieAndClearsCache(t *testing.T) {
 	acc, _, store, cleanup := newRunAccount(t, &fakeRunMtop{token: "tok-1"})

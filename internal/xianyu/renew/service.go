@@ -472,7 +472,9 @@ func (s Service) RenewAPIFirst(ctx context.Context, cookiesStr string, snapshots
 				late.CookieSnapshot = append([]cookierefresh.BrowserCookie(nil), snapshot...)
 				late.CookieSnapshotComplete = true
 			}
-			late, lateErr := populate(late, outcome.call, outcome.err, true)
+			// Promise 超时只描述前端等待窗口；底层响应到达后必须按真实
+			// HTTP/业务结果生成终态，不能永久标记为失败。
+			late, lateErr := populate(late, outcome.call, outcome.err, false)
 			pending <- pendingRenewResult{result: late, err: lateErr}
 			close(pending)
 		}()

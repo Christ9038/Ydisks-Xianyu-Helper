@@ -128,7 +128,13 @@ func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Req
 	}
 
 	credentialUnlock := s.Store.LockAccountCredentials(req.CookieID)
-	defer credentialUnlock()
+	runtimeCookie := ""
+	defer func() {
+		credentialUnlock()
+		if runtimeCookie != "" {
+			s.updateRunningCookie(context.Background(), req.CookieID, runtimeCookie)
+		}
+	}()
 	latest, err := s.Store.Cookies.GetDetails(r.Context(), req.CookieID)
 	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
 		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
@@ -138,7 +144,7 @@ func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Req
 	defer cancel()
 	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
 	category, updatedCookies, callErr := recommender.RecommendPublishCategory(mtopCtx, latest.Value, req.Keyword)
-	_, _, handled, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
+	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
 	if persistErr != nil {
 		writeErr(w, http.StatusInternalServerError, "保存账号登录状态失败")
 		return
@@ -148,6 +154,9 @@ func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Req
 			writeErr(w, http.StatusInternalServerError, "保存账号登录状态失败")
 			return
 		}
+		runtimeCookie = updatedCookies
+	} else if handled && valueChanged {
+		runtimeCookie = value
 	}
 	if callErr != nil {
 		if errors.Is(callErr, mtop.ErrPublishCategoryUnrecognized) {
