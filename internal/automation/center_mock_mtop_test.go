@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/cookierefresh"
@@ -20,6 +21,15 @@ type fakeMTop struct {
 	consignCalls    int
 	consignCookieIn string
 	consignOrderIn  string
+	consignCookies  []string
+	consignResults  []fakeConsignResult
+}
+
+type fakeConsignResult struct {
+	ok      bool
+	ret     []string
+	updated string
+	err     error
 }
 
 func (f *fakeMTop) FetchUserProfile(context.Context, string) (*mtop.UserProfileResult, error) {
@@ -29,6 +39,12 @@ func (f *fakeMTop) ConsignContext(_ context.Context, cookiesStr, orderID string)
 	f.consignCalls++
 	f.consignCookieIn = cookiesStr
 	f.consignOrderIn = orderID
+	f.consignCookies = append(f.consignCookies, cookiesStr)
+	if len(f.consignResults) > 0 {
+		result := f.consignResults[0]
+		f.consignResults = f.consignResults[1:]
+		return result.ok, result.ret, result.updated, result.err
+	}
 	return f.consignOk, f.consignRet, f.consignUpdated, f.consignErr
 }
 func (f *fakeMTop) FetchItemsPage(context.Context, string, int, int) (*mtop.ItemListResult, error) {
@@ -42,6 +58,111 @@ func (f *fakeMTop) PublishItem(context.Context, string, mtop.PublishItemRequest)
 }
 func (f *fakeMTop) RefreshTokenWithDeviceIDContext(context.Context, string, string) (*mtop.RefreshResult, error) {
 	return nil, nil
+}
+
+type fakeCredentialRecoverer struct {
+	store *db.Store
+	calls int
+	fail  bool
+}
+
+func (f *fakeCredentialRecoverer) FetchOrderDetail(context.Context, string, string, string, string, string) (*OrderDetail, error) {
+	return &OrderDetail{Quantity: "1", Amount: "9.9"}, nil
+}
+
+func (f *fakeCredentialRecoverer) RecoverExpiredCredential(ctx context.Context, cookieID string) bool {
+	f.calls++
+	if f.fail {
+		return false
+	}
+	detail, err := f.store.Cookies.GetDetails(ctx, cookieID)
+	if err != nil {
+		return false
+	}
+	return f.store.Cookies.UpdateRenewalCookie(ctx, cookieID, "unb=123; _m_h5_tk=fresh_1;", detail.MetadataJSON, time.Now().Unix()) == nil
+}
+
+func TestConfirmShipmentRetriesFromCheckpointWithoutResendingCard(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	res, err := store.DB.ExecContext(ctx, `INSERT INTO cards (name,type,text_content,enabled,user_id) VALUES ('gift','text','ONLY-ONCE',1,?)`, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cardID, _ := res.LastInsertId()
+	if _, err := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", ItemID: "checkpoint-item", Name: "checkpoint",
+		TriggerType: TriggerOrderPaid, Enabled: true,
+		Actions: []db.AutomationActionInput{
+			{ActionType: ActionSendCard, CardID: cardID, DeliveryCount: 1, Enabled: true, SortOrder: 1},
+			{ActionType: ActionConfirmShipment, Enabled: true, SortOrder: 2},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mtopMock := &fakeMTop{consignResults: []fakeConsignResult{
+		{ret: []string{"FAIL_SYS_SESSION_EXPIRED::Session过期"}},
+		{ok: true, ret: []string{"SUCCESS::调用成功"}},
+	}}
+	recoverer := &fakeCredentialRecoverer{store: store, fail: true}
+	sender := &testSender{}
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	center.SetMTop(mtopMock)
+	center.SetOrderDetailFetcher(recoverer)
+	task := Task{AccountID: "cid", TriggerType: TriggerOrderPaid, OrderID: "checkpoint-order",
+		ItemID: "checkpoint-item", BuyerID: "buyer", ChatID: "chat", Quantity: "1", Amount: "9.9"}
+	if err := center.HandleTask(ctx, task); err == nil {
+		t.Fatal("首次确认发货应因 Session 恢复失败而返回错误")
+	}
+	var status, errMsg string
+	var sent, cursor int
+	if err := store.DB.QueryRowContext(ctx, `SELECT status,error_message,sent_count,action_cursor FROM automation_runs WHERE order_id=?`, task.OrderID).
+		Scan(&status, &errMsg, &sent, &cursor); err != nil {
+		t.Fatal(err)
+	}
+	if status != "failed" || !strings.HasPrefix(errMsg, db.SafeRetryErrorPrefix) || sent != 1 || cursor != 1 {
+		t.Fatalf("status=%q err=%q sent=%d cursor=%d", status, errMsg, sent, cursor)
+	}
+	recoverer.fail = false
+	if _, err := store.DB.ExecContext(ctx, `UPDATE automation_runs SET next_retry_at=0 WHERE order_id=?`, task.OrderID); err != nil {
+		t.Fatal(err)
+	}
+	NewScheduler(center).runRecoveryTasks(ctx)
+	if len(sender.texts) != 1 || sender.texts[0] != "ONLY-ONCE" {
+		t.Fatalf("恢复确认发货不得重复发送卡密: %v", sender.texts)
+	}
+	if mtopMock.consignCalls != 2 {
+		t.Fatalf("consign calls=%d want 2", mtopMock.consignCalls)
+	}
+}
+
+func TestConfirmShipmentRecoversExpiredSessionAndRetriesOnlyConsign(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	mtopMock := &fakeMTop{consignResults: []fakeConsignResult{
+		{ret: []string{"FAIL_SYS_SESSION_EXPIRED::Session过期"}},
+		{ok: true, ret: []string{"SUCCESS::调用成功"}},
+	}}
+	recoverer := &fakeCredentialRecoverer{store: store}
+	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
+	center.SetMTop(mtopMock)
+	center.SetOrderDetailFetcher(recoverer)
+	if err := center.confirmShipment(ctx, Task{AccountID: "cid", OrderID: "session-order", ItemID: "item", BuyerID: "buyer", ChatID: "chat"}); err != nil {
+		t.Fatal(err)
+	}
+	if recoverer.calls != 1 || mtopMock.consignCalls != 2 {
+		t.Fatalf("recover calls=%d consign calls=%d want 1/2", recoverer.calls, mtopMock.consignCalls)
+	}
+	if len(mtopMock.consignCookies) != 2 || !strings.Contains(mtopMock.consignCookies[1], "fresh_1") {
+		t.Fatalf("确认发货重试未使用续期 Cookie: %v", mtopMock.consignCookies)
+	}
+	order, err := store.Orders.Get(ctx, "session-order")
+	if err != nil || !order.SystemShipped {
+		t.Fatalf("恢复后应记录系统发货: order=%+v err=%v", order, err)
+	}
 }
 
 // TestCenterConfirmShipment_MockMTopConsigError 用 mock mtop 验证：

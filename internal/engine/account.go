@@ -86,6 +86,14 @@ type accountEventHandler interface {
 	OnAccountEvent(ctx context.Context, cookieID, eventType, level, title, body string)
 }
 
+type credentialUpdateHandler interface {
+	OnCredentialUpdated(ctx context.Context, cookieID string)
+}
+
+type transportReadyHandler interface {
+	OnTransportReady(ctx context.Context, cookieID string)
+}
+
 type tokenCaptchaHandler interface {
 	OnTokenCaptchaVerification(ctx context.Context, cookieID, cookieStr, verificationURL, deviceID string) (*mtop.RefreshResult, bool)
 }
@@ -118,11 +126,16 @@ type ChatMessage struct {
 
 // RuntimeStatus 是账号引擎的实时连接状态，不写入数据库。
 type RuntimeStatus struct {
-	State     string    `json:"state"`
-	Message   string    `json:"message,omitempty"`
-	Connected bool      `json:"connected"`
-	Failures  int       `json:"failures"`
-	UpdatedAt time.Time `json:"updated_at"`
+	State                 string    `json:"state"`
+	Message               string    `json:"message,omitempty"`
+	Connected             bool      `json:"connected"`
+	Failures              int       `json:"failures"`
+	UpdatedAt             time.Time `json:"updated_at"`
+	TokenAcquiredAt       time.Time `json:"token_acquired_at,omitempty"`
+	TokenExpiresAt        time.Time `json:"token_expires_at,omitempty"`
+	TokenRefreshAt        time.Time `json:"token_refresh_at,omitempty"`
+	TokenRemainingSeconds int64     `json:"token_remaining_seconds,omitempty"`
+	TokenRefreshStatus    string    `json:"token_refresh_status,omitempty"`
 }
 
 const (
@@ -176,6 +189,9 @@ type Account struct {
 	tokenFetchFailures int
 	credentialFP       string // 当前内存扁平 Cookie + 权威 Jar 的完整状态指纹
 	tokenCredentialFP  string // currentToken 获取完成时绑定的完整凭证状态
+	tokenAcquiredAt    time.Time
+	tokenExpiresAt     time.Time
+	tokenRefreshAt     time.Time
 
 	// 去重
 	dedupMu   sync.Mutex
@@ -197,8 +213,10 @@ type Account struct {
 
 	reply *ReplyService
 
-	wsRecordOnce  sync.Once
-	wsRecordQueue chan db.WSMessage
+	wsRecordOnce   sync.Once
+	wsRecordWG     sync.WaitGroup
+	wsRecordQueue  chan db.WSMessage
+	pendingRenewWG sync.WaitGroup
 }
 
 type debounceEntry struct {
@@ -316,7 +334,11 @@ func New(cfg Config) *Account {
 // 调用方应在独立 goroutine 中运行；Stop 可优雅停止。
 func (a *Account) Run(parent context.Context) error {
 	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
+	defer func() {
+		cancel()
+		a.wsRecordWG.Wait()
+		a.pendingRenewWG.Wait()
+	}()
 	a.mu.Lock()
 	a.stopFn = cancel
 	a.mu.Unlock()
@@ -403,12 +425,14 @@ func (a *Account) Run(parent context.Context) error {
 				a.notifyOffline(ctx, reason+"："+errString(err))
 				return err
 			}
-			// authTokenCallback 的任意 reject 都被官方 loginV2 映射为
-			// CONN_ERROR=5，页面不会自动 reConnect。
-			reason := "获取消息凭证失败，请重新登录"
-			a.setRuntimeState(RuntimeAuthExpired, reason)
-			a.notifyOffline(ctx, reason+"："+errString(err))
-			return err
+			// 网络或服务端瞬时错误不能让账号运行时永久退出。只要登录 Session
+			// 没有明确失效，就持续重试获取连接级 Token。
+			a.setRuntimeState(RuntimeReconnecting, "获取消息凭证失败，正在重试")
+			a.notifyOffline(ctx, "获取消息凭证失败，正在自动重试："+errString(err))
+			if sleepErr := sleepCtx(ctx, a.tokenRetryDelay()); sleepErr != nil {
+				return sleepErr
+			}
+			continue
 		}
 		a.mu.Lock()
 		a.currentToken = token
@@ -459,12 +483,14 @@ func (a *Account) Run(parent context.Context) error {
 		a.lastOfflineReason = ""
 		a.mu.Unlock()
 		a.setRuntimeState(RuntimeOnline, "消息服务连接正常")
+		a.notifyTransportReady(ctx)
 		if shouldRecovered {
 			a.alertEvent(ctx, EventAccountRecovered, AlertLevelInfo, "账号已恢复在线",
 				fmt.Sprintf("账号 %s 已重新连接闲鱼消息服务。掉线开始时间：%s。", a.CookieID, formatTimeOrUnknown(offlineSince)))
 		}
 
-		// 3) 健康连接只维持心跳和收包；token 只在下一次注册前更新。
+		// 3) 健康连接维持心跳和收包，并在服务端 Token 过期前主动关闭，
+		// 进入下一轮连接以重新调用 Token API 和 /reg。
 		hbCtx, hbCancel := context.WithCancel(ctx)
 		var hbErr error
 		hbDone := make(chan struct{})
@@ -474,9 +500,38 @@ func (a *Account) Run(parent context.Context) error {
 			hbCancel()
 			close(hbDone)
 		}()
+		rotateCh := make(chan struct{}, 1)
+		a.mu.Lock()
+		refreshAt := a.tokenRefreshAt
+		expiresAt := a.tokenExpiresAt
+		a.mu.Unlock()
+		if refreshAt.IsZero() || !refreshAt.After(time.Now()) {
+			refreshAt = time.Now()
+		}
+		rotateTimer := time.NewTimer(time.Until(refreshAt))
+		rotateDone := make(chan struct{})
+		go func() {
+			defer close(rotateDone)
+			select {
+			case <-hbCtx.Done():
+			case <-rotateTimer.C:
+				select {
+				case rotateCh <- struct{}{}:
+				default:
+				}
+				_ = conn.Close()
+			}
+		}()
 
 		recvErr := conn.ReceiveLoop(ctx, a.dispatch)
+		if !rotateTimer.Stop() {
+			select {
+			case <-rotateTimer.C:
+			default:
+			}
+		}
 		hbCancel()
+		<-rotateDone
 		<-hbDone // 确保 hbErr 写入完成后再读取（消除数据竞争）。
 		_ = conn.Close()
 		if ctx.Err() != nil {
@@ -490,6 +545,14 @@ func (a *Account) Run(parent context.Context) error {
 		a.conn = nil
 		a.mu.Unlock()
 		connectedDuration := time.Since(startedAt)
+		select {
+		case <-rotateCh:
+			a.logger.Info("WS Token 到达提前轮换时间，正在重新获取 Token", "expires_at", expiresAt, "remaining", time.Until(expiresAt).Round(time.Second))
+			a.clearConnectionToken(ctx)
+			a.setRuntimeState(RuntimeReconnecting, "WS Token 即将到期，正在主动轮换")
+			continue
+		default:
+		}
 		if ws.IsConnectLimitError(recvErr) {
 			a.clearConnectionToken(ctx)
 			reason := "消息会话已被服务端移除"
@@ -562,7 +625,9 @@ func (a *Account) startWSRecorder(ctx context.Context) {
 		return
 	}
 	a.wsRecordOnce.Do(func() {
+		a.wsRecordWG.Add(1)
 		go func() {
+			defer a.wsRecordWG.Done()
 			cleanupCtx, cleanupCancel := context.WithTimeout(ctx, WSRecordWriteTimeout)
 			deleted, cleanupErr := a.store.WSMessages.DeleteBefore(cleanupCtx, a.CookieID, time.Now().Add(-WSRecordRetention))
 			cleanupCancel()
@@ -854,6 +919,7 @@ func (a *Account) tryLoginStatusCheck(ctx context.Context) loginStatusCheckResul
 			}
 			a.replaceCredentialState(value, credentialStateFingerprint(value, metadata))
 			a.clearTokenCache(ctx)
+			a.notifyCredentialUpdated(ctx)
 			if err != nil {
 				a.logger.Warn("登录态检查失败，已保存响应 Cookie", "err", err)
 			}
@@ -933,7 +999,7 @@ func (a *Account) tryAPIRenewUsing(ctx context.Context, call func(context.Contex
 		return false, err
 	}
 	if res.HasPending() {
-		a.watchPendingAPIRenew(res)
+		a.watchPendingAPIRenew(ctx, res)
 	}
 	updated := false
 	persisted := false
@@ -969,6 +1035,9 @@ func (a *Account) tryAPIRenewUsing(ctx context.Context, call func(context.Contex
 			updated = true
 		} else {
 			updated = a.adoptRecoveredCookie(ctx, res.NewCookies, "接口续期")
+		}
+		if updated && persisted {
+			a.notifyCredentialUpdated(ctx)
 		}
 	}
 	if err != nil {
@@ -1007,12 +1076,14 @@ func (a *Account) persistRenewFlatCookie(ctx context.Context, newCookies string)
 	return a.store.Cookies.UpdateRenewalCookie(ctx, a.CookieID, newCookies, metadata, time.Now().Unix())
 }
 
-func (a *Account) watchPendingAPIRenew(result *renew.Result) {
+func (a *Account) watchPendingAPIRenew(parent context.Context, result *renew.Result) {
 	if result == nil || !result.HasPending() {
 		return
 	}
+	a.pendingRenewWG.Add(1)
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+		defer a.pendingRenewWG.Done()
+		ctx, cancel := context.WithTimeout(parent, 35*time.Second)
 		defer cancel()
 		late, waitErr := result.AwaitPending(ctx)
 		if late == nil {
@@ -1055,6 +1126,7 @@ func (a *Account) persistPendingRenewCookies(ctx context.Context, result *renew.
 	}
 	a.replaceCredentialState(newCookies, credentialStateFingerprint(newCookies, metadata))
 	a.clearTokenCache(ctx)
+	a.notifyCredentialUpdated(ctx)
 	a.logger.Info("已异步接收官网静默续期迟到 Cookie", "updated", strings.Join(result.UpdatedCookieNames, ","))
 	return nil
 }
@@ -1082,7 +1154,14 @@ func (a *Account) adoptRecoveredCookie(ctx context.Context, newCookies, source s
 	a.clearCurrentToken()
 	a.clearTokenCache(ctx)
 	a.setRuntimeState(RuntimeConnecting, source+"已更新登录凭证，正在重新连接")
+	a.notifyCredentialUpdated(ctx)
 	return true
+}
+
+func (a *Account) notifyCredentialUpdated(ctx context.Context) {
+	if handler, ok := a.handler.(credentialUpdateHandler); ok {
+		handler.OnCredentialUpdated(ctx, a.CookieID)
+	}
 }
 
 // retryDelay 按错误类型计算退避，并加入 0-30% 抖动。
@@ -1343,6 +1422,7 @@ func (a *Account) adoptTokenResponseCookies(ctx context.Context, cookieStr strin
 			return cookieStr, err
 		}
 		a.replaceCredentialState(res.UpdatedCookies, credentialStateFingerprint(res.UpdatedCookies, metadata))
+		a.notifyCredentialUpdated(ctx)
 		return res.UpdatedCookies, nil
 	}
 	if res.UpdatedCookies != cookieStr {
@@ -1454,12 +1534,25 @@ func tokenFailureIsNonCounted(status string) bool {
 // It is diagnostic state only: acquireToken never reads the accessToken back
 // for a later WebSocket registration.
 func (a *Account) saveTokenCache(ctx context.Context, deviceID, accessToken string, serverExpireAt int64, credentialFP string) {
-	if a.store == nil || a.store.Tokens == nil || accessToken == "" {
+	if accessToken == "" {
 		return
 	}
-	expireAt := effectiveTokenExpireAt(serverExpireAt, time.Now())
+	now := time.Now()
+	expiresAt, refreshAt := tokenRotationSchedule(serverExpireAt, now)
+	a.mu.Lock()
+	a.tokenAcquiredAt = now
+	a.tokenExpiresAt = expiresAt
+	a.tokenRefreshAt = refreshAt
+	a.mu.Unlock()
+	a.logger.Info("WS Token 获取成功", "expires_at", expiresAt, "refresh_at", refreshAt, "ttl", time.Until(expiresAt).Round(time.Second))
+	if a.store == nil || a.store.Tokens == nil {
+		return
+	}
+	expireAt := effectiveTokenExpireAt(serverExpireAt, now)
 	if expireAt == 0 {
-		a.logger.Warn("token API 未返回可用过期时间，本次 token 不持久化")
+		// 服务端未给有效期时仍使用保守运行时轮换时间，但不把推测期限
+		// 伪装成服务端缓存期限。
+		a.logger.Warn("token API 未返回可用过期时间，使用保守轮换时间", "refresh_at", refreshAt)
 		a.clearTokenCache(ctx)
 		return
 	}
@@ -1562,12 +1655,45 @@ func (a *Account) cookieSnapshotMatchesDB(ctx context.Context, expectedFP string
 func (a *Account) RuntimeStatus() RuntimeStatus {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	remaining := int64(0)
+	if !a.tokenExpiresAt.IsZero() {
+		remaining = int64(time.Until(a.tokenExpiresAt).Seconds())
+		if remaining < 0 {
+			remaining = 0
+		}
+	}
 	return RuntimeStatus{
-		State:     a.runtimeState,
-		Message:   a.runtimeMessage,
-		Connected: a.conn != nil && a.runtimeState == RuntimeOnline,
-		Failures:  a.connFailures,
-		UpdatedAt: a.runtimeUpdatedAt,
+		State:                 a.runtimeState,
+		Message:               a.runtimeMessage,
+		Connected:             a.conn != nil && a.runtimeState == RuntimeOnline,
+		Failures:              a.connFailures,
+		UpdatedAt:             a.runtimeUpdatedAt,
+		TokenAcquiredAt:       a.tokenAcquiredAt,
+		TokenExpiresAt:        a.tokenExpiresAt,
+		TokenRefreshAt:        a.tokenRefreshAt,
+		TokenRemainingSeconds: remaining,
+		TokenRefreshStatus:    a.lastTokenStatus,
+	}
+}
+
+func (a *Account) tokenRetryDelay() time.Duration {
+	a.mu.Lock()
+	expiresAt := a.tokenExpiresAt
+	failures := a.tokenFetchFailures
+	a.mu.Unlock()
+	delay := time.Minute
+	if failures > 1 {
+		delay = 2 * time.Minute
+	}
+	if !expiresAt.IsZero() && time.Until(expiresAt) <= 2*time.Minute {
+		delay = 30 * time.Second
+	}
+	return delay
+}
+
+func (a *Account) notifyTransportReady(ctx context.Context) {
+	if handler, ok := a.handler.(transportReadyHandler); ok {
+		handler.OnTransportReady(ctx, a.CookieID)
 	}
 }
 

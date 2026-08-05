@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	xrenew "xianyu-go/internal/xianyu/renew"
@@ -416,6 +417,28 @@ func TestUpdateCookie(t *testing.T) {
 		t.Fatalf("token=%+v err=%v", token, err)
 	}
 	requireCookieSnapshotCleared(t, store, "acc1")
+}
+
+func TestUpdateRunningCookieWakesCredentialBlockedAutomationWithoutManager(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	dueAt := time.Now().UTC().Add(time.Hour).Unix()
+	if err := store.Automation.DeferTask(ctx, db.DeferredAutomationTask{
+		TaskKey: "acc1:credential", CookieID: "acc1", TriggerType: automation.TriggerOrderPaid,
+		TaskJSON: `{}`, DueAt: dueAt, ErrorMessage: "FAIL_SYS_SESSION_EXPIRED",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srv.Manager = nil
+	srv.updateRunningCookie(ctx, "acc1", "unb=123; _m_h5_tk=fresh_1;")
+	var got int64
+	if err := store.DB.QueryRowContext(ctx, `SELECT due_at FROM automation_pending_tasks WHERE task_key=?`, "acc1:credential").Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != 0 {
+		t.Fatalf("Cookie 更新后凭证失败任务 due_at=%d want 0", got)
+	}
 }
 
 func TestUpdateCookieQRLoginEnablesAccount(t *testing.T) {

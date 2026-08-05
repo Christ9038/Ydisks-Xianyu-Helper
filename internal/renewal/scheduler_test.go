@@ -239,6 +239,35 @@ func TestPendingAPIRenewUsesFreshContextForRestart(t *testing.T) {
 	}
 }
 
+func TestPendingAPIRenewStopsWithSchedulerContext(t *testing.T) {
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	account := createSchedulerAccount(t, store, "cid-canceled-pending", "unb=1; havana_lgc_exp="+futureSchedulerMillis())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(80 * time.Millisecond)
+		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: futureSchedulerMillis(), Path: "/"})
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+	}))
+	defer srv.Close()
+	starter := &schedulerFakeStarter{}
+	s := NewScheduler(store, starter, nil, nil)
+	s.api = apirenew.Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1, PromiseTimeout: 5 * time.Millisecond}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.apiCookieRenewOne(ctx, "batch-canceled-pending", account)
+	cancel()
+	s.watchers.Wait()
+	if got := starter.restarts.Load(); got != 0 {
+		t.Fatalf("调度器关闭后迟到响应不得重启账号，restarts=%d", got)
+	}
+	detail, err := store.Cookies.GetDetails(context.Background(), account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(detail.Value, "sdkSilent=") {
+		t.Fatalf("调度器关闭后不应再写入迟到 Cookie: %q", detail.Value)
+	}
+}
+
 func TestPendingAPIRenewRestartFailureIsFinalFailure(t *testing.T) {
 	store, cleanup := newSchedulerTestStore(t)
 	defer cleanup()

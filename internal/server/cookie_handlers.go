@@ -183,11 +183,21 @@ func (s *Server) updateFlatCookieOwnedLocked(ctx context.Context, detail *db.Coo
 }
 
 func (s *Server) updateRunningCookie(ctx context.Context, cookieID, value string) {
+	s.wakeCredentialBlockedAutomation(ctx, cookieID)
 	if s.Manager == nil || !s.Store.Cookies.GetStatus(ctx, cookieID) {
 		return
 	}
 	if sender, ok := s.Manager.GetInstance(cookieID); ok {
 		sender.UpdateCookie(value)
+	}
+}
+
+func (s *Server) wakeCredentialBlockedAutomation(ctx context.Context, cookieID string) {
+	if s == nil || s.Store == nil || s.Store.Automation == nil {
+		return
+	}
+	if err := s.Store.Automation.WakeCredentialBlocked(ctx, cookieID); err != nil && s.Logger != nil {
+		s.Logger.Warn("Cookie 更新后唤醒自动化任务失败", "account", cookieID, "err", err)
 	}
 }
 

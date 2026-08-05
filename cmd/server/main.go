@@ -160,15 +160,21 @@ func main() {
 	if err := mgr.StartAll(ctx); err != nil {
 		logger.Error("启动账号引擎失败", "err", err)
 	}
-	go automation.NewScheduler(autoCenter).Run(ctx)
-	go renewal.NewScheduler(store, mgr, ap, logger, notifier).Run(ctx)
+	automationScheduler := automation.NewScheduler(autoCenter)
+	go automationScheduler.Run(ctx)
+	renewalScheduler := renewal.NewScheduler(store, mgr, ap, logger, notifier)
+	go renewalScheduler.Run(ctx)
 
 	// 3) HTTP 服务。
 	srv := server.New(store, mgr, *secure, *webDir, *addr, logger, autoCenter, notifier)
-	go srv.RunPublishBatchRecovery(ctx)
+	srv.StartPublishBatchRecovery(ctx)
 	if err := srv.Run(ctx); err != nil {
 		logger.Error("HTTP 服务退出", "err", err)
 		// 即便出错也尝试清理已启动的账号与浏览器。
+		cancel()
+		srv.WaitForBackground()
+		automationScheduler.Wait()
+		renewalScheduler.Wait()
 		mgr.StopAll()
 		if bm != nil {
 			_ = bm.Close()
@@ -176,6 +182,9 @@ func main() {
 		os.Exit(1)
 	}
 	// HTTP 服务正常退出（ctx 取消触发 Shutdown）：停账号引擎、关浏览器。
+	srv.WaitForBackground()
+	automationScheduler.Wait()
+	renewalScheduler.Wait()
 	mgr.StopAll()
 	if bm != nil {
 		_ = bm.Close()
