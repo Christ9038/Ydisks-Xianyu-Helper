@@ -89,6 +89,7 @@ type DeferredAutomationTask struct {
 	TaskJSON     string
 	DueAt        int64
 	ClaimVersion int
+	ErrorMessage string
 }
 
 var ErrDeferredTaskLeaseLost = errors.New("延迟自动化任务租约已失效")
@@ -638,7 +639,7 @@ func (a *AutomationRules) RecoverDefinitelyUnsentReviewRuns(ctx context.Context)
 func (a *AutomationRules) DeferTask(ctx context.Context, task DeferredAutomationTask) error {
 	_, err := a.DB.ExecContext(ctx, `INSERT INTO automation_pending_tasks
     (task_key,cookie_id,trigger_type,task_json,due_at,status,attempt_count,lease_expires_at,error_message)
-VALUES (?,?,?,?,?,'pending',0,0,'')`+dialectUpsert(a.Dialect, []string{"task_key"}, map[string]string{
+VALUES (?,?,?,?,?,'pending',0,0,?)`+dialectUpsert(a.Dialect, []string{"task_key"}, map[string]string{
 		"cookie_id":        "excluded.cookie_id",
 		"trigger_type":     "excluded.trigger_type",
 		"task_json":        "excluded.task_json",
@@ -646,8 +647,8 @@ VALUES (?,?,?,?,?,'pending',0,0,'')`+dialectUpsert(a.Dialect, []string{"task_key
 		"status":           "'pending'",
 		"attempt_count":    "0",
 		"lease_expires_at": "0",
-		"error_message":    "''",
-	}), task.TaskKey, task.CookieID, task.TriggerType, validJSON(task.TaskJSON), task.DueAt)
+		"error_message":    "excluded.error_message",
+	}), task.TaskKey, task.CookieID, task.TriggerType, validJSON(task.TaskJSON), task.DueAt, task.ErrorMessage)
 	return err
 }
 
@@ -846,11 +847,43 @@ func (a *AutomationRules) FinishDeferredTask(ctx context.Context, id int64, clai
 			WHERE id=? AND status='running' AND attempt_count=?`, id, claimVersion)
 		return requireDeferredTaskOwner(res, err)
 	}
+	retryDelay := deferredRetryDelay(claimVersion)
 	res, err := a.DB.ExecContext(ctx, `UPDATE automation_pending_tasks
 	   SET status=CASE WHEN attempt_count>=5 THEN 'dead_letter' ELSE 'pending' END,
 	       due_at=?,lease_expires_at=0,error_message=?,updated_at=CURRENT_TIMESTAMP
-	 WHERE id=? AND status='running' AND attempt_count=?`, time.Now().UTC().Add(time.Minute).Unix(), errMsg, id, claimVersion)
+	 WHERE id=? AND status='running' AND attempt_count=?`, time.Now().UTC().Add(retryDelay).Unix(), errMsg, id, claimVersion)
 	return requireDeferredTaskOwner(res, err)
+}
+
+func deferredRetryDelay(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	delay := 5 * time.Minute * time.Duration(1<<(attempt-1))
+	if delay > time.Hour {
+		return time.Hour
+	}
+	return delay
+}
+
+// WakeCredentialBlocked 让 Cookie 恢复后的账号尽快重新领取明确尚未发送的任务。
+func (a *AutomationRules) WakeCredentialBlocked(ctx context.Context, cookieID string) error {
+	if strings.TrimSpace(cookieID) == "" {
+		return nil
+	}
+	if _, err := a.DB.ExecContext(ctx, `UPDATE automation_pending_tasks
+		SET due_at=0,updated_at=CURRENT_TIMESTAMP
+		WHERE cookie_id=? AND status='pending'
+		  AND (LOWER(error_message) LIKE '%session%' OR error_message LIKE '%登录凭证%'
+		       OR error_message LIKE '%Cookie%' OR error_message LIKE '%cookie%')`, cookieID); err != nil {
+		return err
+	}
+	_, err := a.DB.ExecContext(ctx, `UPDATE automation_runs
+		SET next_retry_at=0,updated_at=CURRENT_TIMESTAMP
+		WHERE cookie_id=? AND status='failed' AND sent_count=0 AND action_started=0
+		  AND (LOWER(error_message) LIKE '%session%' OR error_message LIKE '%登录凭证%'
+		       OR error_message LIKE '%Cookie%' OR error_message LIKE '%cookie%')`, cookieID)
+	return err
 }
 
 func (a *AutomationRules) RenewDeferredTaskLease(ctx context.Context, id int64, claimVersion int, leaseExpiresAt int64) error {

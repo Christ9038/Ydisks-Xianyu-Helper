@@ -149,6 +149,35 @@ func TestLongLoginSettingsMatchOfficialRequest(t *testing.T) {
 	}
 }
 
+func TestRenewAfterSessionExpiredBypassesOnlyFatigue(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		http.SetCookie(w, &http.Cookie{Name: "havana_lgc2_77", Value: "recovered"})
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+	}))
+	defer srv.Close()
+	now := time.Now()
+	cookies := "unb=1; sdkSilent=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10) +
+		"; havana_lgc_exp=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10)
+	service := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1}
+	proactive, err := service.RenewAPIFirst(context.Background(), cookies)
+	if err != nil || !proactive.Skipped || proactive.SkipReason != "fatigue" || calls.Load() != 0 {
+		t.Fatalf("proactive=%+v calls=%d err=%v", proactive, calls.Load(), err)
+	}
+	recovered, err := service.RenewAfterSessionExpired(context.Background(), cookies)
+	if err != nil || !recovered.Success || calls.Load() != 1 || !strings.Contains(recovered.NewCookies, "havana_lgc2_77=recovered") {
+		t.Fatalf("recovered=%+v calls=%d err=%v", recovered, calls.Load(), err)
+	}
+
+	expiredLongLogin := "unb=1; sdkSilent=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10) +
+		"; havana_lgc_exp=" + strconv.FormatInt(now.Add(-time.Hour).UnixMilli(), 10)
+	blocked, err := service.RenewAfterSessionExpired(context.Background(), expiredLongLogin)
+	if err != nil || !blocked.Skipped || blocked.SkipReason != "long_login_expired" || calls.Load() != 1 {
+		t.Fatalf("blocked=%+v calls=%d err=%v", blocked, calls.Load(), err)
+	}
+}
+
 func TestLongLoginRequestKeepsResponseCookiesOnFailures(t *testing.T) {
 	tests := []struct {
 		name       string

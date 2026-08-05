@@ -655,6 +655,46 @@ func TestDeferTaskRevivesDeadLetterWithFreshAttemptBudget(t *testing.T) {
 	}
 }
 
+func TestDeferredRetryBackoffAndCredentialWake(t *testing.T) {
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, cid := seedAccount(t, s)
+	if err := s.Automation.DeferTask(ctx, DeferredAutomationTask{TaskKey: "wake-task", CookieID: cid, TriggerType: "order_paid", TaskJSON: `{}`, DueAt: 0, ErrorMessage: "FAIL_SYS_SESSION_EXPIRED"}); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := s.Automation.ClaimDueDeferredTasks(ctx, 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim=%v err=%v", claimed, err)
+	}
+	before := time.Now().UTC().Unix()
+	if err := s.Automation.FinishDeferredTask(ctx, claimed[0].ID, claimed[0].ClaimVersion, false, "session expired"); err != nil {
+		t.Fatal(err)
+	}
+	var dueAt int64
+	if err := s.DB.QueryRowContext(ctx, `SELECT due_at FROM automation_pending_tasks WHERE id=?`, claimed[0].ID).Scan(&dueAt); err != nil {
+		t.Fatal(err)
+	}
+	if dueAt < before+int64((5*time.Minute)/time.Second)-1 {
+		t.Fatalf("first retry due_at=%d before=%d", dueAt, before)
+	}
+	if err := s.Automation.WakeCredentialBlocked(ctx, cid); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.QueryRowContext(ctx, `SELECT due_at FROM automation_pending_tasks WHERE id=?`, claimed[0].ID).Scan(&dueAt); err != nil || dueAt != 0 {
+		t.Fatalf("wake due_at=%d err=%v", dueAt, err)
+	}
+	if err := s.Automation.DeferTask(ctx, DeferredAutomationTask{TaskKey: "intentional-delay", CookieID: cid, TriggerType: "buyer_reviewed", TaskJSON: `{}`, DueAt: before + 3600}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Automation.WakeCredentialBlocked(ctx, cid); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.QueryRowContext(ctx, `SELECT due_at FROM automation_pending_tasks WHERE task_key='intentional-delay'`).Scan(&dueAt); err != nil || dueAt != before+3600 {
+		t.Fatalf("intentional delay must not be woken: due_at=%d err=%v", dueAt, err)
+	}
+}
+
 func TestDeferredTaskFencingRejectsStaleWorker(t *testing.T) {
 	s, cleanup := newTestDB(t)
 	defer cleanup()

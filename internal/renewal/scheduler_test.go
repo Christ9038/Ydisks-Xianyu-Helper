@@ -37,7 +37,6 @@ func newSchedulerTestStore(t *testing.T) (*db.Store, func()) {
 type schedulerFakeStarter struct {
 	starts   atomic.Int32
 	restarts atomic.Int32
-	ctxAlive atomic.Bool
 }
 
 func (f *schedulerFakeStarter) Start(context.Context, string, string) error {

@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -101,6 +103,27 @@ type fakeOrderDetailClient struct {
 	detail *mtop.OrderDetailResult
 	err    error
 	calls  int
+}
+
+type scriptedOrderDetailClient struct {
+	mu      sync.Mutex
+	results []struct {
+		detail  *mtop.OrderDetailResult
+		err     error
+		cookies string
+	}
+}
+
+func (f *scriptedOrderDetailClient) FetchOrderDetail(_ context.Context, cookies, _ string) (*mtop.OrderDetailResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.results) == 0 {
+		return nil, errors.New("unexpected order detail call")
+	}
+	next := f.results[0]
+	f.results = f.results[1:]
+	next.cookies = cookies
+	return next.detail, next.err
 }
 
 func (f *fakeOrderDetailClient) FetchOrderDetail(_ context.Context, _, _ string) (*mtop.OrderDetailResult, error) {
@@ -377,6 +400,46 @@ func TestFetchOrderDetail_PersistsFlatGoMTopCookie(t *testing.T) {
 	_, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON)
 	if complete || detail.Value != "unb=1; api_only=scoped" {
 		t.Fatalf("Go MTOP flat cookie not persisted: value=%q complete=%v", detail.Value, complete)
+	}
+}
+
+func TestFetchOrderDetailSessionExpiredRenewsAndRetries(t *testing.T) {
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	now := time.Now()
+	oldCookie := "unb=1; sdkSilent=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10) +
+		"; havana_lgc_exp=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10) + "; havana_lgc2_77=old"
+	if err := store.Cookies.UpdateRenewalCookie(ctx, "cid", oldCookie, `{}`, now.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Automation.DeferTask(ctx, db.DeferredAutomationTask{TaskKey: "blocked", CookieID: "cid", TriggerType: automation.TriggerOrderPaid, TaskJSON: `{}`, DueAt: now.Add(time.Hour).Unix(), ErrorMessage: "Session过期"}); err != nil {
+		t.Fatal(err)
+	}
+	client := &scriptedOrderDetailClient{results: []struct {
+		detail  *mtop.OrderDetailResult
+		err     error
+		cookies string
+	}{
+		{err: errors.New("token API 返回非成功: FAIL_SYS_SESSION_EXPIRED::Session过期")},
+		{detail: &mtop.OrderDetailResult{Quantity: "1", SpecName: "套餐", SpecValue: "续期版", Amount: "9.9"}},
+	}}
+	renewSvc, closeRenew := verifiedRenewService(t)
+	defer closeRenew()
+	a := New(store, nil, nil)
+	a.SetRenewService(renewSvc)
+	a.SetOrderDetailClient(client)
+	detail, err := a.FetchOrderDetail(ctx, "cid", "expired-order", "item", "buyer", "")
+	if err != nil || detail == nil || detail.SpecValue != "续期版" {
+		t.Fatalf("detail=%+v err=%v", detail, err)
+	}
+	saved, _ := store.Cookies.GetValue(ctx, "cid")
+	if !strings.Contains(saved, "havana_lgc2_77=verified") {
+		t.Fatalf("renewed cookie not saved: %q", saved)
+	}
+	var dueAt int64
+	if err := store.DB.QueryRowContext(ctx, `SELECT due_at FROM automation_pending_tasks WHERE task_key='blocked'`).Scan(&dueAt); err != nil || dueAt != 0 {
+		t.Fatalf("credential-blocked task not woken: due_at=%d err=%v", dueAt, err)
 	}
 }
 

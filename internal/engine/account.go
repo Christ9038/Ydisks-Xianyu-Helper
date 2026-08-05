@@ -324,11 +324,11 @@ func (a *Account) Run(parent context.Context) error {
 	a.runtimeCtx = ctx
 	a.accepting = true
 	a.taskMu.Unlock()
-	a.startWSRecorder(ctx)
 	if a.store != nil && a.store.Cookies != nil && !a.store.Cookies.GetStatus(ctx, a.CookieID) {
 		a.logger.Info("账号在启动续期前已禁用")
 		return nil
 	}
+	a.startWSRecorder(ctx)
 	// 官网 /im 启动时执行 auto-login plugin；成功后 location.reload() 会重建
 	// FishEngine 和页面级 device ID。Go 客户端用 HTTP 复刻续期，并在成功时
 	// 只重建这一本地运行时身份。续期失败不能用网页 DOM 阻断 token + WS；

@@ -29,6 +29,21 @@ func TestExtractTaskFromWS_BuyerReviewed(t *testing.T) {
 	}
 }
 
+func TestExtractTaskFromWS_BuyerReviewedUsesBusinessKeyAcrossCopyVariants(t *testing.T) {
+	raw := mustMap(t, `{
+	  "1":{"2":"62904549781@goofish","10":{
+	    "reminderContent":"感谢您的再次购买，评价已经完成",
+	    "senderUserId":"buyer-2",
+	    "reminderUrl":"fleamarket://message_chat?itemId=item-2&peerUserId=buyer-2&sid=62904549781",
+	    "extJson":"{\"updateKey\":\"62904549781:order-second:10:buyer_rate_seller:26\",\"contentType\":\"26\"}"
+	  }}
+	}`)
+	task := ExtractTaskFromWS("acc1", "cookie", raw)
+	if task == nil || task.TriggerType != TriggerBuyerReviewed || task.OrderID != "order-second" {
+		t.Fatalf("second-purchase review task=%+v", task)
+	}
+}
+
 func TestExtractTaskFromWS_ServiceReviewInvitationIgnored(t *testing.T) {
 	raw := mustMap(t, `{
 	  "1": {

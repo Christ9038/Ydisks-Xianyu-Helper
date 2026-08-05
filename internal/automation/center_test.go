@@ -126,10 +126,85 @@ func (s *testSender) UpdateCookie(cookieStr string) {
 	}
 }
 
-type testFetcher struct{ detail *OrderDetail }
+type testFetcher struct {
+	detail *OrderDetail
+	err    error
+	calls  *int
+}
 
 func (f testFetcher) FetchOrderDetail(context.Context, string, string, string, string, string) (*OrderDetail, error) {
-	return f.detail, nil
+	if f.calls != nil {
+		*f.calls++
+	}
+	return f.detail, f.err
+}
+
+func TestReviewAutomationsDoNotRequireOrderDetail(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	for _, trigger := range []string{TriggerBuyerReviewed, TriggerReviewMissingTimeout} {
+		if _, err := store.Automation.Create(ctx, db.AutomationRuleInput{
+			UserID: admin.ID, CookieID: "cid", Name: trigger, TriggerType: trigger, Enabled: true,
+			Actions: []db.AutomationActionInput{{ActionType: ActionSendText, MessageTemplate: trigger, Enabled: true}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls := 0
+	sender := &testSender{}
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	center.SetOrderDetailFetcher(testFetcher{err: errors.New("must not fetch"), calls: &calls})
+	for i, trigger := range []string{TriggerBuyerReviewed, TriggerReviewMissingTimeout} {
+		task := Task{Source: "ws", AccountID: "cid", TriggerType: trigger, OrderID: fmt.Sprintf("review-no-detail-%d", i), ChatID: "chat", BuyerID: "buyer", Raw: map[string]any{"attempt": 1}}
+		if err := center.HandleTask(ctx, task); err != nil {
+			t.Fatalf("%s should not fetch order detail: %v", trigger, err)
+		}
+	}
+	if calls != 0 || len(sender.texts) != 2 {
+		t.Fatalf("order detail calls=%d texts=%v", calls, sender.texts)
+	}
+}
+
+func TestOrderPaidPreparationFailureIsPersistedAndRecovered(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO item_info (cookie_id,item_id,item_title,is_multi_spec) VALUES ('cid','pending-item','商品',1)`)
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO cards (id,name,type,text_content,enabled,user_id) VALUES (91,'库存','text','RECOVERED-CARD',1,?)`, admin.ID)
+	if _, err := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", ItemID: "pending-item", Name: "付款恢复", TriggerType: TriggerOrderPaid, Enabled: true,
+		Actions: []db.AutomationActionInput{{ActionType: ActionSendCard, CardID: 91, DeliveryCount: 1, ConfigJSON: `{"spec_name":"套餐","spec_value":"恢复版"}`, Enabled: true}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sender := &testSender{}
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	center.SetOrderDetailFetcher(testFetcher{err: errors.New("temporary order API failure")})
+	task := Task{Source: "ws", AccountID: "cid", TriggerType: TriggerOrderPaid, OrderID: "pending-order", ItemID: "pending-item", ChatID: "chat", BuyerID: "buyer", Raw: map[string]any{"message_id": "paid-1"}}
+	if err := center.HandleTask(ctx, task); err != nil {
+		t.Fatalf("preparation failure should be durably deferred: %v", err)
+	}
+	var pending, runs int
+	_ = store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM automation_pending_tasks WHERE cookie_id='cid' AND trigger_type='order_paid'`).Scan(&pending)
+	_ = store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM automation_runs WHERE order_id='pending-order'`).Scan(&runs)
+	if pending != 1 || runs != 0 {
+		t.Fatalf("pending=%d runs=%d", pending, runs)
+	}
+	center.SetOrderDetailFetcher(testFetcher{detail: &OrderDetail{SpecName: "套餐", SpecValue: "恢复版", Quantity: "1", Amount: "9.9"}})
+	_, _ = store.DB.ExecContext(ctx, `UPDATE automation_pending_tasks SET due_at=0`)
+	NewScheduler(center).runDeferredTasks(ctx)
+	if len(sender.texts) != 1 || sender.texts[0] != "RECOVERED-CARD" {
+		t.Fatalf("recovered sends=%v", sender.texts)
+	}
+	_ = store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM automation_pending_tasks WHERE cookie_id='cid'`).Scan(&pending)
+	var status string
+	_ = store.DB.QueryRowContext(ctx, `SELECT status FROM automation_runs WHERE order_id='pending-order'`).Scan(&status)
+	if pending != 0 || status != "success" {
+		t.Fatalf("pending=%d status=%q", pending, status)
+	}
 }
 
 func newAutomationTestStore(t *testing.T) (*db.Store, func()) {

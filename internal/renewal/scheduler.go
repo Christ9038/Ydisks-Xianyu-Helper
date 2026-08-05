@@ -323,6 +323,7 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 			}
 			s.logger.Info("接口续期后的账号重启已完成", "account", account.ID)
 		}
+		s.wakeCredentialBlockedAutomation(ctx, account.ID)
 	}
 	status := "failed"
 	if res.HasPending() {
@@ -424,6 +425,7 @@ func (s *Scheduler) watchPendingAPIRenew(batchID, cookieID string, result *apire
 					}
 				}
 			}
+			s.wakeCredentialBlockedAutomation(opCtx, cookieID)
 		}
 		if waitErr != nil {
 			s.logger.Warn("定时静默续期底层响应失败，已保存响应 Cookie", "account", cookieID, "err", waitErr)
@@ -449,6 +451,17 @@ func (s *Scheduler) watchPendingAPIRenew(batchID, cookieID string, result *apire
 			RequestCount: late.RequestCount,
 		})
 	}()
+}
+
+func (s *Scheduler) wakeCredentialBlockedAutomation(ctx context.Context, cookieID string) {
+	if s == nil || s.store == nil || s.store.Automation == nil {
+		return
+	}
+	if err := s.store.Automation.WakeCredentialBlocked(ctx, cookieID); err != nil {
+		s.logger.Warn("Cookie 更新后唤醒自动化任务失败", "account", cookieID, "err", err)
+		return
+	}
+	s.logger.Info("Cookie 更新后已唤醒待恢复自动化任务", "account", cookieID)
 }
 
 func (s *Scheduler) apiRenewEnabled(ctx context.Context) bool {

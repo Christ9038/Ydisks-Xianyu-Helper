@@ -25,6 +25,11 @@ var (
 	ErrMessageNotSent = errors.New("自动化消息确定未发送")
 )
 
+type preparationError struct{ err error }
+
+func (e *preparationError) Error() string { return e.err.Error() }
+func (e *preparationError) Unwrap() error { return e.err }
+
 type uncertainActionError struct{ err error }
 
 func (e *uncertainActionError) Error() string { return e.err.Error() }
@@ -173,6 +178,16 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 	var firstErr error
 	for _, rule := range rules {
 		if err := c.executeRule(ctx, task, rule); err != nil {
+			var prepErr *preparationError
+			if errors.As(err, &prepErr) && !isDeferredReplay(task) {
+				dueAt := time.Now().UTC().Add(time.Minute).Unix()
+				if deferErr := c.deferTaskWithError(ctx, task, dueAt, prepErr.Error()); deferErr != nil {
+					return false, errors.Join(err, fmt.Errorf("持久化前置失败任务: %w", deferErr))
+				}
+				c.logger.Warn("自动化前置处理失败，任务已持久化等待恢复", "account", task.AccountID,
+					"order_id", task.OrderID, "trigger", task.TriggerType, "retry_at", dueAt, "err", err)
+				return true, nil
+			}
 			if errors.Is(err, errAutomationDeferred) {
 				return true, nil
 			}
@@ -206,7 +221,15 @@ func taskDelayCursor(task Task) int {
 	return cursor
 }
 
+func isDeferredReplay(task Task) bool {
+	return task.Raw != nil && task.Raw["automation_deferred_replay"] == true
+}
+
 func (c *Center) deferTask(ctx context.Context, task Task, dueAt int64) error {
+	return c.deferTaskWithError(ctx, task, dueAt, "")
+}
+
+func (c *Center) deferTaskWithError(ctx context.Context, task Task, dueAt int64, errMsg string) error {
 	key := buildTriggerKey(task)
 	if key == "" {
 		return fmt.Errorf("暂停期间的自动化事件缺少可持久化防重键")
@@ -218,7 +241,7 @@ func (c *Center) deferTask(ctx context.Context, task Task, dueAt int64) error {
 	}
 	return c.store.Automation.DeferTask(ctx, db.DeferredAutomationTask{
 		TaskKey: task.AccountID + ":" + key, CookieID: task.AccountID,
-		TriggerType: task.TriggerType, TaskJSON: string(raw), DueAt: dueAt,
+		TriggerType: task.TriggerType, TaskJSON: string(raw), DueAt: dueAt, ErrorMessage: errMsg,
 	})
 }
 
@@ -362,9 +385,12 @@ func immediateManualActions(actions []db.AutomationAction) []db.AutomationAction
 
 func (c *Center) executeRule(ctx context.Context, task Task, rule db.AutomationRule) error {
 	var err error
+	if len(task.ActionPlan) == 0 && task.TriggerType != TriggerOrderPaid {
+		task.ActionPlan = runnableActions(task, rule.Actions)
+	}
 	task, err = c.prepareTask(ctx, task)
 	if err != nil {
-		return err
+		return &preparationError{err: err}
 	}
 	triggerKey := buildTriggerKey(task)
 	if triggerKey == "" {
@@ -627,15 +653,15 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 		BuyerID:  task.BuyerID,
 		ChatID:   task.ChatID,
 	})
-	needsDetail := task.TriggerType == TriggerOrderPaid || task.TriggerType == TriggerBuyerReviewed
+	needsDetail := task.TriggerType == TriggerOrderPaid
 	if existing, err := c.store.Orders.Get(ctx, task.OrderID); err == nil && existing != nil {
 		task = mergeOrderIntoTask(task, existing)
-		if existing.Quantity == "" || existing.Amount == "" {
+		if needsDetail && (existing.Quantity == "" || existing.Amount == "") {
 			needsDetail = true
 		}
 		// 规则是否多规格由 action.config_json 决定；这里无法提前知道命中的 action，
 		// 因此交易类事件统一补齐规格，确保后续规格映射有事实依据。
-		if existing.SpecName == "" || existing.SpecValue == "" {
+		if needsDetail && (existing.SpecName == "" || existing.SpecValue == "") {
 			needsDetail = true
 		}
 	}

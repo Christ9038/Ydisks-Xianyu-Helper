@@ -192,9 +192,9 @@ func isBuyerReviewedEvent(f rawFields) bool {
 	//   reminderContent=[我完成了评价]
 	//   updateKey=chat_id:order_id:10:BUYER_RATE_SELLER:26
 	// 仅“服务评价邀请”不含 BUYER_RATE_SELLER，不能误触发赠品。
-	return strings.Contains(f.redReminder, "有新交易评价") &&
-		strings.Contains(f.text, "我完成了评价") &&
-		strings.Contains(f.updateKey, "BUYER_RATE_SELLER")
+	// BUYER_RATE_SELLER 是交易评价的稳定业务标识。展示文案会因客户端版本、
+	// 同一买家重复购买等场景变化，不能再把两段中文文案同时存在作为必要条件。
+	return strings.Contains(strings.ToUpper(f.updateKey), "BUYER_RATE_SELLER")
 }
 
 func extFields(ext string) (updateKey, contentType string) {

@@ -577,6 +577,68 @@ func TestMultiDB_AutomationTryStartRunDedup(t *testing.T) {
 	}
 }
 
+// TestMultiDB_DeferredAutomationCredentialWake 验证延迟任务的失败退避和凭证恢复唤醒
+// 在各数据库方言下行为一致，同时确保正常的业务延迟不会被提前唤醒。
+func TestMultiDB_DeferredAutomationCredentialWake(t *testing.T) {
+	for _, tg := range allTestTargets(t) {
+		t.Run(tg.name, func(t *testing.T) {
+			defer tg.cleanup()
+			ctx := context.Background()
+			s := tg.store
+			suffix := fmt.Sprintf("%d", atomic.AddUint64(&multidbCounter, 1))
+			username := tg.name + "_deferred_user_" + suffix
+			if ok, err := s.Users.Create(ctx, username, username+"@e.com", "pw"); err != nil || !ok {
+				t.Fatalf("create user: ok=%v err=%v", ok, err)
+			}
+			user, _ := s.Users.GetByUsername(ctx, username)
+			cookieID := tg.name + "_deferred_cookie_" + suffix
+			if err := s.Cookies.Save(ctx, cookieID, "cv", user.ID); err != nil {
+				t.Fatalf("save cookie: %v", err)
+			}
+
+			if err := s.Automation.DeferTask(ctx, DeferredAutomationTask{
+				TaskKey: "credential-" + suffix, CookieID: cookieID, TriggerType: "order_paid",
+				TaskJSON: `{}`, DueAt: 0, ErrorMessage: "FAIL_SYS_SESSION_EXPIRED",
+			}); err != nil {
+				t.Fatalf("defer credential task: %v", err)
+			}
+			claimed, err := s.Automation.ClaimDueDeferredTasks(ctx, 1)
+			if err != nil || len(claimed) != 1 {
+				t.Fatalf("claim credential task: tasks=%+v err=%v", claimed, err)
+			}
+			before := time.Now().UTC().Unix()
+			if err := s.Automation.FinishDeferredTask(ctx, claimed[0].ID, claimed[0].ClaimVersion, false, "session expired"); err != nil {
+				t.Fatalf("finish failed task: %v", err)
+			}
+
+			intentionalDue := before + 3600
+			if err := s.Automation.DeferTask(ctx, DeferredAutomationTask{
+				TaskKey: "intentional-" + suffix, CookieID: cookieID, TriggerType: "buyer_reviewed",
+				TaskJSON: `{}`, DueAt: intentionalDue,
+			}); err != nil {
+				t.Fatalf("defer intentional task: %v", err)
+			}
+			if err := s.Automation.WakeCredentialBlocked(ctx, cookieID); err != nil {
+				t.Fatalf("wake credential tasks: %v", err)
+			}
+
+			var credentialDue, normalDue int64
+			if err := s.DB.QueryRowContext(ctx, `SELECT due_at FROM automation_pending_tasks WHERE task_key=?`, "credential-"+suffix).Scan(&credentialDue); err != nil {
+				t.Fatalf("read credential due_at: %v", err)
+			}
+			if err := s.DB.QueryRowContext(ctx, `SELECT due_at FROM automation_pending_tasks WHERE task_key=?`, "intentional-"+suffix).Scan(&normalDue); err != nil {
+				t.Fatalf("read intentional due_at: %v", err)
+			}
+			if credentialDue != 0 {
+				t.Fatalf("credential task due_at=%d want 0", credentialDue)
+			}
+			if normalDue != intentionalDue {
+				t.Fatalf("intentional task due_at=%d want %d", normalDue, intentionalDue)
+			}
+		})
+	}
+}
+
 // TestMultiDB_Notifications 验证通知渠道创建 + 账号绑定读写。
 func TestMultiDB_Notifications(t *testing.T) {
 	for _, tg := range allTestTargets(t) {

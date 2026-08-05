@@ -167,6 +167,10 @@ func (s *Scheduler) runDeferredTasks(ctx context.Context) {
 			_ = s.center.store.Automation.FinishDeferredTask(ctx, pending.ID, pending.ClaimVersion, false, "解析任务失败: "+err.Error())
 			continue
 		}
+		if task.Raw == nil {
+			task.Raw = map[string]any{}
+		}
+		task.Raw["automation_deferred_replay"] = true
 		deferredAgain, runErr := s.center.handleTask(ctx, task)
 		if deferredAgain {
 			// handleTask 已按新的 paused_until 重置同一任务；当前 claim 不再删除。

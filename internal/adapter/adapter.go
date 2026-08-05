@@ -342,6 +342,20 @@ func (a *Adapter) FetchOrderDetail(ctx context.Context, cookieID, orderID, itemI
 	if a.orderMTop == nil {
 		return nil, fmt.Errorf("订单详情 MTOP 客户端未配置")
 	}
+	detail, err := a.fetchOrderDetailAttempt(ctx, cookieID, orderID)
+	if err == nil || !mtop.IsSessionExpiredErr(err) {
+		return detail, err
+	}
+	a.logger.Warn("订单详情检测到 Session 过期，开始即时续期", "account", cookieID, "order_id", orderID)
+	if !a.OnPasswordLoginRefresh(ctx, cookieID) {
+		return nil, fmt.Errorf("订单详情 Session 过期且即时续期失败: %w", err)
+	}
+	a.wakeCredentialBlockedAutomation(ctx, cookieID)
+	a.logger.Info("Cookie 即时续期成功，重新请求订单详情", "account", cookieID, "order_id", orderID)
+	return a.fetchOrderDetailAttempt(ctx, cookieID, orderID)
+}
+
+func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID string) (*automation.OrderDetail, error) {
 
 	a.orderFetchMu.Lock()
 	defer a.orderFetchMu.Unlock()
@@ -405,6 +419,15 @@ func (a *Adapter) FetchOrderDetail(ctx context.Context, cookieID, orderID, itemI
 		Quantity: detail.Quantity, SpecName: detail.SpecName, SpecValue: detail.SpecValue,
 		Amount: detail.Amount, OrderStatus: detail.OrderStatus,
 	}, nil
+}
+
+func (a *Adapter) wakeCredentialBlockedAutomation(ctx context.Context, cookieID string) {
+	if a.store == nil || a.store.Automation == nil {
+		return
+	}
+	if err := a.store.Automation.WakeCredentialBlocked(ctx, cookieID); err != nil {
+		a.logger.Warn("Cookie 更新后唤醒自动化任务失败", "account", cookieID, "err", err)
+	}
 }
 
 func hasCompleteCookieSnapshot(metadata string) bool {
@@ -551,7 +574,7 @@ func (a *Adapter) tryProtocolCredentialRenew(ctx context.Context, d *db.CookieDe
 	// 决定是否调用 silentHasLogin。Go 客户端复刻该 HTTP 协议，不加载页面。
 	runCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	res, err := api.RenewAPIFirst(runCtx, current, cookierefresh.SnapshotFromMetadata(d.MetadataJSON))
+	res, err := api.RenewAfterSessionExpired(runCtx, current, cookierefresh.SnapshotFromMetadata(d.MetadataJSON))
 	if res != nil {
 		var completeSnapshot []cookierefresh.BrowserCookie
 		if res.CookieSnapshotComplete {
