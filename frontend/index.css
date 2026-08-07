@@ -53,6 +53,29 @@ body {
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.06);
 }
 
+/* 仪表盘饼图是展示型图表，避免 Recharts 的 SVG 焦点框和扇区焦点框形成无意义长条。 */
+.dashboard-pie-chart .recharts-surface:focus,
+.dashboard-pie-chart .recharts-pie:focus,
+.dashboard-pie-chart .recharts-pie-sector:focus,
+.dashboard-pie-chart .recharts-sector:focus {
+  outline: none;
+}
+
+/* 营收柱形/折线图的数据图形点击后不显示浏览器默认的粗蓝色 SVG 焦点框。 */
+.dashboard-revenue-chart .recharts-surface:focus,
+.dashboard-revenue-chart .recharts-bar-rectangle:focus,
+.dashboard-revenue-chart .recharts-rectangle:focus,
+.dashboard-revenue-chart .recharts-curve:focus,
+.dashboard-revenue-chart .recharts-dot:focus,
+.dashboard-revenue-chart [class*="recharts-zIndex-layer_"]:focus {
+  outline: none !important;
+}
+
+.dashboard-revenue-chart .recharts-bar-rectangle,
+.dashboard-revenue-chart .recharts-rectangle {
+  stroke: none !important;
+}
+
 /* 闲鱼风格输入框 */
 .ios-input {
   background: #F7F8FA;

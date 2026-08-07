@@ -7,7 +7,7 @@ import { TrendingUp, Users, ShoppingCart, AlertCircle, DollarSign, Activity, Pac
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
 
 // 状态徽章组件
-const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
+export const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
   const styles = {
     processing: 'bg-blue-100 text-blue-800',
     pending_ship: 'bg-[#0094f7] text-white',
@@ -29,7 +29,7 @@ const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
   };
 
   return (
-    <span className={`px-3 py-1.5 rounded-lg text-xs font-bold ${styles[status] || styles.cancelled}`}>
+    <span className={`inline-flex items-center justify-center whitespace-nowrap px-3 py-1.5 rounded-lg text-xs leading-none font-bold ${styles[status] || styles.cancelled}`}>
       {labels[status] || status}
     </span>
   );
@@ -341,7 +341,7 @@ const Dashboard: React.FC = () => {
           <h3 className="text-xl font-bold text-gray-900">营收趋势分析</h3>
           <p className="text-sm text-gray-400 mt-1">{selectedRangeLabel}的销售额走势</p>
         </div>
-        <div className="h-[350px] w-full">
+        <div className="dashboard-revenue-chart h-[350px] w-full">
           {chartData.length === 0 || analytics.revenue_stats.total_amount === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-gray-400">
               <ShoppingCart className="w-16 h-16 mb-4 opacity-20" />
@@ -386,11 +386,17 @@ const Dashboard: React.FC = () => {
                   fill="#0094f7"
                   maxBarSize={72}
                   radius={[12, 12, 0, 0]}
-                  stroke="#000000"
+                  activeBar={false}
+                  stroke="none"
                   strokeWidth={0}
                 >
-                  {chartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={['#0094f7', '#FCD34D', '#0071e3'][index % 3]} />
+                  {chartData.map((_, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill="#0094f7"
+                      stroke="none"
+                      strokeWidth={0}
+                    />
                   ))}
                 </Bar>
               </BarChart>
@@ -474,35 +480,61 @@ const Dashboard: React.FC = () => {
         {/* 商品下单占比 */}
         <div className="ios-card p-6 rounded-xl">
           <h3 className="font-bold text-lg text-gray-900 mb-6">商品下单占比</h3>
-          <div className="h-[280px]">
+          <div
+            className="dashboard-pie-chart h-[280px] relative"
+            role="img"
+            aria-label={`商品下单占比，共 ${totalOrders} 单`}
+          >
             {sourceDataData.length === 0 ? (
               <div className="flex items-center justify-center h-full text-gray-400">暂无数据</div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={sourceDataData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={90}
-                    paddingAngle={2}
-                    dataKey="value"
-                    label={({ name, payload }) => `${name} ${Number(payload?.percent || 0).toFixed(1)}%`}
-                    labelLine={false}
-                  >
-                    {sourceDataData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Legend
-                    verticalAlign="bottom"
-                    height={36}
-                    iconType="circle"
-                    formatter={(value) => <span style={{ color: '#6B7280', fontWeight: 500 }}>{value}</span>}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
+              <>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart accessibilityLayer={false}>
+                    <Pie
+                      data={sourceDataData}
+                      cx="50%"
+                      cy="45%"
+                      innerRadius={60}
+                      outerRadius={90}
+                      paddingAngle={2}
+                      dataKey="value"
+                      activeShape={{
+                        outerRadius: 96,
+                        stroke: 'none',
+                        strokeWidth: 0,
+                      }}
+                      rootTabIndex={-1}
+                      label={false}
+                      labelLine={false}
+                    >
+                      {sourceDataData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(value) => `${Number(value || 0)} 单`}
+                      wrapperStyle={{ zIndex: 30, outline: 'none' }}
+                      contentStyle={{
+                        backgroundColor: '#fff',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '10px',
+                        boxShadow: '0 8px 20px rgba(15, 23, 42, 0.08)'
+                      }}
+                    />
+                    <Legend
+                      verticalAlign="bottom"
+                      height={36}
+                      iconType="circle"
+                      formatter={(value) => <span style={{ color: '#6B7280', fontWeight: 500 }}>{value}</span>}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center pb-9">
+                  <span className="text-2xl font-extrabold text-gray-900 tabular-nums">{totalOrders}</span>
+                  <span className="text-xs font-medium text-gray-400 mt-0.5">总订单</span>
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -559,13 +591,13 @@ const Dashboard: React.FC = () => {
                 )}
               </div>
             ) : (
-              <table className="w-full text-left border-collapse">
+              <table className="w-full min-w-[760px] text-left border-collapse">
                 <thead>
                   <tr className="bg-white text-gray-400 text-xs font-bold uppercase tracking-wider border-b border-gray-50">
                     <th className="px-6 py-4">订单信息</th>
                     <th className="px-6 py-4">买家信息</th>
                     <th className="px-6 py-4">金额</th>
-                    <th className="px-6 py-4">状态</th>
+                    <th className="px-6 py-4 whitespace-nowrap">状态</th>
                     <th className="px-6 py-4 text-right">操作</th>
                   </tr>
                 </thead>
@@ -595,7 +627,7 @@ const Dashboard: React.FC = () => {
                         <td className="px-6 py-4 text-base font-extrabold text-gray-900 font-feature-settings-tnum">
                           ¥{order.amount || '0.00'}
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-6 py-4 whitespace-nowrap">
                           <StatusBadge status={order.status || order.order_status || 'unknown'} />
                         </td>
                         <td className="px-6 py-4 text-right">
@@ -624,24 +656,36 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center justify-center h-[300px] text-gray-400">暂无数据</div>
           ) : (
             <>
-              <div className="h-[300px] relative">
+              <div
+                className="dashboard-pie-chart h-[280px] relative"
+                role="img"
+                aria-label={`商品金额分析，总金额 ${formatCurrency(totalAmount)}`}
+              >
                 <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
+                  <PieChart accessibilityLayer={false}>
                     <Pie
                       data={categoryDataData}
                       cx="50%"
                       cy="50%"
                       innerRadius={60}
-                      outerRadius={100}
+                      outerRadius={92}
                       paddingAngle={2}
                       dataKey="value"
-                      label={({ name, payload }) => `${name} ${payload?.percentage || '0.0'}%`}
+                      activeShape={{
+                        outerRadius: 98,
+                        stroke: 'none',
+                        strokeWidth: 0,
+                      }}
+                      rootTabIndex={-1}
+                      label={false}
+                      labelLine={false}
                     >
                       {categoryDataData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.color || COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
                     <Tooltip
+                      wrapperStyle={{ zIndex: 30, outline: 'none' }}
                       contentStyle={{
                         backgroundColor: '#fff',
                         border: '1px solid #e5e7eb',
@@ -652,18 +696,22 @@ const Dashboard: React.FC = () => {
                     />
                   </PieChart>
                 </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center">
+                  <span className="text-lg font-extrabold text-gray-900 tabular-nums">{formatCurrency(totalAmount)}</span>
+                  <span className="text-xs font-medium text-gray-400 mt-0.5">总金额</span>
+                </div>
               </div>
               <div className="space-y-3 mt-4">
                 {categoryDataData.map((cat) => (
-                  <div key={cat.name} className="flex justify-between items-center text-sm">
-                    <div className="flex items-center gap-2">
+                  <div key={cat.name} className="flex justify-between items-center gap-3 text-sm">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                       <div
-                        className="w-3 h-3 rounded-full"
+                        className="w-3 h-3 rounded-full shrink-0"
                         style={{ backgroundColor: cat.color || COLORS[categoryDataData.indexOf(cat) % COLORS.length] }}
                       ></div>
-                      <span className="text-gray-600 font-medium">{cat.name}</span>
+                      <span className="text-gray-600 font-medium truncate" title={cat.name}>{cat.name}</span>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 shrink-0 whitespace-nowrap">
                       <span className="font-bold text-gray-900">¥{cat.value.toLocaleString()}</span>
                       <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">{cat.percentage}%</span>
                     </div>
