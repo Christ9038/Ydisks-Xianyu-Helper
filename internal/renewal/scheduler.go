@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"xianyu-go/internal/db"
@@ -57,6 +58,10 @@ type Scheduler struct {
 	api       apirenew.Service
 	cooldown  *CooldownManager
 	notifier  RenewalNotifier
+	runOnce   sync.Once
+	done      chan struct{}
+	workers   sync.WaitGroup
+	watchers  sync.WaitGroup
 }
 
 type RenewalNotifier interface {
@@ -81,6 +86,7 @@ func NewScheduler(store *db.Store, starter AccountStarter, refresher PasswordRef
 		api:       apirenew.Service{},
 		cooldown:  GlobalCooldown,
 		notifier:  notifier,
+		done:      make(chan struct{}),
 	}
 }
 
@@ -88,12 +94,34 @@ func (s *Scheduler) Run(ctx context.Context) {
 	if s == nil || s.store == nil {
 		return
 	}
-	go s.runFixed(ctx, "login_renew", loginRenewEnabledSetting, loginRenewIntervalSetting, false, loginRenewInterval, s.executeLoginRenew)
-	// 官网静默插件在账号启动时执行，并由此任务按保守频率持续检查；闲鱼
-	// 下发的 sdkSilent 疲劳窗口仍会在请求前阻止重复续期。
-	// cookies_refresh 仅作为旧配置名的兼容别名。两套配置必须汇聚到同一个
-	// goroutine，否则同时开启时会重复续期并连续重启同一账号。
-	go s.runAPICookieRenewFixed(ctx)
+	s.runOnce.Do(func() {
+		go func() {
+			defer close(s.done)
+			s.workers.Add(2)
+			go func() {
+				defer s.workers.Done()
+				s.runFixed(ctx, "login_renew", loginRenewEnabledSetting, loginRenewIntervalSetting, false, loginRenewInterval, s.executeLoginRenew)
+			}()
+			// 官网静默插件在账号启动时执行，并由此任务按保守频率持续检查；闲鱼
+			// 下发的 sdkSilent 疲劳窗口仍会在请求前阻止重复续期。
+			// cookies_refresh 仅作为旧配置名的兼容别名。两套配置必须汇聚到同一个
+			// goroutine，否则同时开启时会重复续期并连续重启同一账号。
+			go func() {
+				defer s.workers.Done()
+				s.runAPICookieRenewFixed(ctx)
+			}()
+			s.workers.Wait()
+			s.watchers.Wait()
+		}()
+	})
+}
+
+// Wait 等待定时循环和迟到响应 watcher 完成。
+func (s *Scheduler) Wait() {
+	if s == nil || s.done == nil {
+		return
+	}
+	<-s.done
 }
 
 func (s *Scheduler) runAPICookieRenewFixed(ctx context.Context) {
@@ -159,7 +187,14 @@ func (s *Scheduler) executeLoginRenew(ctx context.Context) {
 
 func (s *Scheduler) loginRenewOne(ctx context.Context, batchID string, account db.RenewalAccount) {
 	credentialUnlock := s.store.LockAccountCredentials(account.ID)
-	defer credentialUnlock()
+	credentialUpdated := false
+	defer func() {
+		credentialUnlock()
+		if credentialUpdated {
+			s.wakeCredentialBlockedAutomation(ctx, account.ID)
+			s.restartAfterCredentialUpdate(ctx, account.ID, account.Enabled, "登录态续期")
+		}
+	}()
 	started := time.Now()
 	latest, err := s.reloadRenewalAccount(ctx, account)
 	if err != nil {
@@ -203,6 +238,7 @@ func (s *Scheduler) loginRenewOne(ctx context.Context, batchID string, account d
 			s.logger.Warn("login_renew 保存响应 Cookie Jar 失败", "account", account.ID, "err", persistErr)
 			return
 		}
+		credentialUpdated = true
 	}
 	if callErr != nil {
 		s.addLoginLog(ctx, batchID, account.ID, "failed", callErr.Error(), updated, time.Since(started))
@@ -224,6 +260,7 @@ func (s *Scheduler) loginRenewOne(ctx context.Context, batchID string, account d
 				s.addLoginLog(ctx, batchID, account.ID, "failed", "保存 Cookie 失败: "+err.Error(), updated, time.Since(started))
 				return
 			}
+			credentialUpdated = true
 		}
 	}
 	s.addLoginLog(ctx, batchID, account.ID, res.Status, res.Message, updated, time.Since(started))
@@ -251,9 +288,18 @@ func (s *Scheduler) executeAPICookieRenew(ctx context.Context) {
 func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, account db.RenewalAccount) {
 	credentialUnlock := s.store.LockAccountCredentials(account.ID)
 	credentialLocked := true
+	credentialChanged := false
+	credentialPersisted := false
+	restartHandled := false
 	defer func() {
 		if credentialLocked {
 			credentialUnlock()
+		}
+		if credentialPersisted {
+			s.wakeCredentialBlockedAutomation(ctx, account.ID)
+			if !restartHandled {
+				s.restartAfterCredentialUpdate(ctx, account.ID, account.Enabled, "接口续期响应 Cookie")
+			}
 		}
 	}()
 	started := time.Now()
@@ -278,7 +324,7 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 		return
 	}
 	if res.HasPending() {
-		s.watchPendingAPIRenew(batchID, account.ID, res)
+		s.watchPendingAPIRenew(ctx, batchID, account.ID, res)
 	}
 	stepDetails := make([]string, 0, len(res.StepDetails)+1)
 	for _, step := range res.StepDetails {
@@ -286,7 +332,6 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 	}
 	stepDetails = append(stepDetails, fmt.Sprintf("result: success=%v skipped=%v reason=%s", res.Success, res.Skipped, res.SkipReason))
 	updated := cookierefresh.ChangedCookieNames(account.Value, res.NewCookies)
-	credentialChanged := false
 	if res.CookieSnapshotComplete || len(res.SetCookies) > 0 || res.NewCookies != account.Value {
 		metadata := cookierefresh.MetadataWithoutSnapshot(account.MetadataJSON)
 		if res.CookieSnapshotComplete {
@@ -300,6 +345,7 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 			s.logger.Warn("接口续期任务失败", "account", account.ID, "method", res.RenewMethod, "err", "保存 Cookie 失败")
 			return
 		}
+		credentialPersisted = credentialChanged
 	}
 	if callErr != nil {
 		s.addAPILog(ctx, db.RenewalLog{
@@ -315,6 +361,7 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 		credentialUnlock()
 		credentialLocked = false
 		if restarter, ok := s.starter.(accountRestarter); ok {
+			restartHandled = true
 			s.logger.Info("接口续期成功，正在重启账号以应用最新登录凭证", "account", account.ID)
 			if err := restarter.Restart(ctx, account.ID); err != nil {
 				s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "重建消息连接失败: " + err.Error(), UpdatedCookieNames: updated, StepDetails: strings.Join(stepDetails, " | "), RenewMethod: res.RenewMethod, DurationMS: time.Since(started).Milliseconds(), RequestCount: res.RequestCount})
@@ -323,7 +370,6 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 			}
 			s.logger.Info("接口续期后的账号重启已完成", "account", account.ID)
 		}
-		s.wakeCredentialBlockedAutomation(ctx, account.ID)
 	}
 	status := "failed"
 	if res.HasPending() {
@@ -356,28 +402,44 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 	}
 }
 
+func (s *Scheduler) restartAfterCredentialUpdate(ctx context.Context, accountID string, enabled bool, source string) {
+	if !enabled || ctx.Err() != nil {
+		return
+	}
+	restarter, ok := s.starter.(accountRestarter)
+	if !ok {
+		return
+	}
+	s.logger.Info("认证 Cookie 已更新，正在重启账号以刷新 WS Token", "account", accountID, "source", source)
+	if err := restarter.Restart(ctx, accountID); err != nil {
+		s.logger.Warn("认证 Cookie 已更新，但重启账号刷新 WS Token 失败", "account", accountID, "source", source, "err", err)
+	}
+}
+
 func (s *Scheduler) renewAPI(ctx context.Context, cookieStr string, snapshot []cookierefresh.BrowserCookie) (*apirenew.Result, error) {
 	runCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	return s.api.RenewAPIFirst(runCtx, cookieStr, snapshot)
 }
 
-func (s *Scheduler) watchPendingAPIRenew(batchID, cookieID string, result *apirenew.Result) {
+func (s *Scheduler) watchPendingAPIRenew(ctx context.Context, batchID, cookieID string, result *apirenew.Result) {
 	if result == nil || !result.HasPending() || s.store == nil || s.store.Cookies == nil {
 		return
 	}
+	s.watchers.Add(1)
 	go func() {
-		waitCtx, waitCancel := context.WithTimeout(context.Background(), 35*time.Second)
+		defer s.watchers.Done()
+		waitCtx, waitCancel := context.WithTimeout(ctx, 35*time.Second)
 		late, waitErr := result.AwaitPending(waitCtx)
 		waitCancel()
 		if late == nil {
 			if waitErr != nil {
 				s.logger.Warn("等待定时静默续期底层响应失败", "account", cookieID, "err", waitErr)
-				s.addAPILog(context.Background(), db.RenewalLog{BatchID: batchID, CookieID: cookieID, Status: "failed", ErrorMessage: waitErr.Error(), RenewMethod: "auto_login_plugin"})
+				s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: cookieID, Status: "failed", ErrorMessage: waitErr.Error(), RenewMethod: "auto_login_plugin"})
 			}
 			return
 		}
-		opCtx, opCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		opCtx, opCancel := context.WithTimeout(ctx, 30*time.Second)
 		defer opCancel()
 		var finalErr error
 		changed := func() bool {

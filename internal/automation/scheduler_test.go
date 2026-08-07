@@ -299,3 +299,36 @@ func TestSchedulerScansMoreThanOneReviewPage(t *testing.T) {
 		t.Fatalf("sent=%d want 205", len(sender.texts))
 	}
 }
+
+func TestRecoveryNeedsSenderUsesNextActionType(t *testing.T) {
+	rule := db.AutomationRule{Actions: []db.AutomationAction{
+		{ActionType: ActionConfirmShipment, Enabled: true},
+		{ActionType: ActionSendText, Enabled: true},
+	}}
+	task := Task{TriggerType: TriggerBuyerReviewed}
+	if recoveryNeedsSender(task, rule, 0) {
+		t.Fatal("确认发货动作不应等待 WebSocket")
+	}
+	if !recoveryNeedsSender(task, rule, 1) {
+		t.Fatal("发送文本动作必须等待 WebSocket")
+	}
+}
+
+func TestAutomationSchedulerWaitsForShutdown(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	scheduler := NewScheduler(New(store, testSenderProvider{sender: &testSender{}}, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		scheduler.Run(ctx)
+		close(done)
+	}()
+	cancel()
+	scheduler.Wait()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("自动化调度器关闭后没有退出")
+	}
+}

@@ -12,6 +12,9 @@ import (
 
 var ErrAutomationRunActive = errors.New("规则仍有待处理的自动化运行")
 
+// SafeRetryErrorPrefix 标记当前动作明确没有产生外部副作用，可以从动作游标安全恢复。
+const SafeRetryErrorPrefix = "[safe_retry]"
+
 // AutomationRules 管理自动化规则、动作和执行记录。
 //
 // 自动化中心不区分触发来源：WS 系统事件、计划任务、后台手动触发都通过
@@ -442,7 +445,8 @@ func (a *AutomationRules) reclaimRun(ctx context.Context, ruleID int64, triggerK
 	       attempt_count=attempt_count+1,updated_at=CURRENT_TIMESTAMP
 	 WHERE rule_id=? AND trigger_key=?
 	   AND ((status='running' AND action_started=0 AND (lease_expires_at=0 OR lease_expires_at<?))
-	        OR (status='failed' AND sent_count=0 AND attempt_count<3 AND next_retry_at<=?))`,
+	        OR (status='failed' AND action_started=0 AND attempt_count<3 AND next_retry_at<=?
+	            AND (sent_count=0 OR error_message LIKE '[safe_retry]%')))`,
 		leaseExpiresAt, ruleID, triggerKey, now, now)
 	if err != nil {
 		return 0, false, err
@@ -536,20 +540,25 @@ func (a *AutomationRules) QuarantineRunResult(ctx context.Context, runID int64, 
 }
 
 // PostponeRecoveryRun 把暂时不能执行的账号移到恢复队列尾部，避免固定的前 100 条饿死后续任务。
-func (a *AutomationRules) PostponeRecoveryRun(ctx context.Context, runID, retryAt int64) error {
-	_, err := a.DB.ExecContext(ctx, `UPDATE automation_runs
+func (a *AutomationRules) PostponeRecoveryRun(ctx context.Context, runID int64, attempt int, retryAt int64) error {
+	res, err := a.DB.ExecContext(ctx, `UPDATE automation_runs
 		SET lease_expires_at=CASE WHEN status='running' THEN ? ELSE lease_expires_at END,
 		    next_retry_at=CASE WHEN status='failed' THEN ? ELSE next_retry_at END,
-		    updated_at=CURRENT_TIMESTAMP WHERE id=? AND status IN ('running','failed')`, retryAt, retryAt, runID)
-	return err
+		    updated_at=CURRENT_TIMESTAMP
+		WHERE id=? AND attempt_count=? AND action_started=0 AND status IN ('running','failed')`, retryAt, retryAt, runID, attempt)
+	if err != nil {
+		return err
+	}
+	return requireAutomationRunOwner(res)
 }
 
 func (a *AutomationRules) ClaimRecoveryRun(ctx context.Context, runID, leaseExpiresAt int64) (bool, error) {
 	now := time.Now().UTC().Unix()
 	res, err := a.DB.ExecContext(ctx, `UPDATE automation_runs
 		SET status='running',error_message='',lease_expires_at=?,next_retry_at=0,attempt_count=attempt_count+1,updated_at=CURRENT_TIMESTAMP
-		WHERE id=? AND action_started=0 AND ((status='running' AND (lease_expires_at=0 OR lease_expires_at<?))
-		 OR (status='failed' AND sent_count=0 AND attempt_count<3 AND next_retry_at<=?))`, leaseExpiresAt, runID, now, now)
+		 WHERE id=? AND action_started=0 AND ((status='running' AND (lease_expires_at=0 OR lease_expires_at<?))
+		 OR (status='failed' AND attempt_count<3 AND next_retry_at<=?
+		     AND (sent_count=0 OR error_message LIKE '[safe_retry]%')))`, leaseExpiresAt, runID, now, now)
 	if err != nil {
 		return false, err
 	}
@@ -560,7 +569,7 @@ func (a *AutomationRules) ClaimRecoveryRun(ctx context.Context, runID, leaseExpi
 // FinishRun 标记执行完成或失败。
 func (a *AutomationRules) FinishRun(ctx context.Context, id int64, attempt int, status string, sentCount int, errMsg string) error {
 	nextRetryAt := int64(0)
-	if status == "failed" && sentCount == 0 {
+	if status == "failed" && (sentCount == 0 || strings.HasPrefix(errMsg, SafeRetryErrorPrefix)) {
 		nextRetryAt = time.Now().UTC().Add(time.Minute).Unix()
 	}
 	res, err := a.DB.ExecContext(ctx, `
@@ -596,7 +605,8 @@ SELECT id,rule_id,cookie_id,item_id,order_id,buyer_id,chat_id,trigger_type,trigg
 	       status,sent_count,error_message,raw_event_json,lease_expires_at,attempt_count,next_retry_at,action_cursor,action_started
   FROM automation_runs
  WHERE (status='running' AND (lease_expires_at=0 OR lease_expires_at<?))
-    OR (status='failed' AND sent_count=0 AND attempt_count<3 AND next_retry_at<=?)
+	    OR (status='failed' AND action_started=0 AND attempt_count<3 AND next_retry_at<=?
+	        AND (sent_count=0 OR error_message LIKE '[safe_retry]%'))
  ORDER BY updated_at,id LIMIT ?`, now, now, limit)
 	if err != nil {
 		return nil, err
@@ -875,14 +885,19 @@ func (a *AutomationRules) WakeCredentialBlocked(ctx context.Context, cookieID st
 		SET due_at=0,updated_at=CURRENT_TIMESTAMP
 		WHERE cookie_id=? AND status='pending'
 		  AND (LOWER(error_message) LIKE '%session%' OR error_message LIKE '%登录凭证%'
-		       OR error_message LIKE '%Cookie%' OR error_message LIKE '%cookie%')`, cookieID); err != nil {
+		       OR error_message LIKE '%Cookie%' OR error_message LIKE '%cookie%'
+		       OR LOWER(error_message) LIKE '%websocket%' OR LOWER(error_message) LIKE '%token%'
+		       OR error_message LIKE '%消息连接%' OR error_message LIKE '%账号未在线%')`, cookieID); err != nil {
 		return err
 	}
 	_, err := a.DB.ExecContext(ctx, `UPDATE automation_runs
 		SET next_retry_at=0,updated_at=CURRENT_TIMESTAMP
-		WHERE cookie_id=? AND status='failed' AND sent_count=0 AND action_started=0
+		WHERE cookie_id=? AND status='failed' AND action_started=0
+		  AND (sent_count=0 OR error_message LIKE '[safe_retry]%')
 		  AND (LOWER(error_message) LIKE '%session%' OR error_message LIKE '%登录凭证%'
-		       OR error_message LIKE '%Cookie%' OR error_message LIKE '%cookie%')`, cookieID)
+		       OR error_message LIKE '%Cookie%' OR error_message LIKE '%cookie%'
+		       OR LOWER(error_message) LIKE '%websocket%' OR LOWER(error_message) LIKE '%token%'
+		       OR error_message LIKE '%消息连接%' OR error_message LIKE '%账号未在线%')`, cookieID)
 	return err
 }
 

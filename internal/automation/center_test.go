@@ -118,6 +118,136 @@ func TestMessageDefinitelyNotSentIsRetried(t *testing.T) {
 	}
 }
 
+func TestAbortRunActionFailureQuarantinesRun(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	if _, err := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", Name: "abort-failure", TriggerType: TriggerBuyerReviewed, Enabled: true,
+		Actions: []db.AutomationActionInput{{ActionType: ActionSendText, MessageTemplate: "gift", Enabled: true}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB.ExecContext(ctx, `CREATE TRIGGER fail_abort_run_action
+		BEFORE UPDATE OF action_started ON automation_runs
+		WHEN OLD.action_started = 1 AND NEW.action_started = 0
+		BEGIN SELECT RAISE(ABORT, 'forced abort failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	center := New(store, testSenderProvider{sender: &testSender{err: fmt.Errorf("%w: websocket unavailable", ErrMessageNotSent)}}, nil)
+	task := Task{AccountID: "cid", TriggerType: TriggerBuyerReviewed, OrderID: "abort-failure-order", ChatID: "chat", BuyerID: "buyer"}
+	if err := center.HandleTask(ctx, task); err == nil || !errors.Is(err, errAutomationNeedsReview) {
+		t.Fatalf("回滚检查点失败后应要求人工核对，err=%v", err)
+	}
+	var status string
+	var actionStarted int
+	if err := store.DB.QueryRowContext(ctx, `SELECT status,action_started FROM automation_runs WHERE order_id=?`, task.OrderID).Scan(&status, &actionStarted); err != nil {
+		t.Fatal(err)
+	}
+	if status != "needs_review" || actionStarted != 1 {
+		t.Fatalf("status=%q action_started=%d want needs_review/1", status, actionStarted)
+	}
+}
+
+func TestCardDefinitelyNotSentIsRetriedAndDataInventoryRestored(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		cardType   string
+		cardColumn string
+	}{
+		{name: "text", cardType: "text", cardColumn: "text_content"},
+		{name: "data", cardType: "data", cardColumn: "data_content"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, cleanup := newAutomationTestStore(t)
+			defer cleanup()
+			ctx := context.Background()
+			admin, _ := store.Users.GetByUsername(ctx, "admin")
+			query := fmt.Sprintf(`INSERT INTO cards (name,type,%s,enabled,user_id) VALUES (?,?,?,?,?)`, tc.cardColumn)
+			res, err := store.DB.ExecContext(ctx, query, "gift", tc.cardType, "GIFT-CODE", 1, admin.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cardID, _ := res.LastInsertId()
+			if _, err := store.Automation.Create(ctx, db.AutomationRuleInput{
+				UserID: admin.ID, CookieID: "cid", ItemID: "item-card", Name: "card-retry-" + tc.name,
+				TriggerType: TriggerBuyerReviewed, Enabled: true,
+				Actions: []db.AutomationActionInput{{ActionType: ActionSendCard, CardID: cardID, DeliveryCount: 1, Enabled: true}},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			sender := &testSender{err: fmt.Errorf("%w: websocket reconnecting", ErrMessageNotSent)}
+			center := New(store, testSenderProvider{sender: sender}, nil)
+			task := Task{AccountID: "cid", TriggerType: TriggerBuyerReviewed, OrderID: "card-order-" + tc.name,
+				ItemID: "item-card", ChatID: "chat", BuyerID: "buyer"}
+			if err := center.HandleTask(ctx, task); err == nil {
+				t.Fatal("首次卡密发送应返回连接未就绪错误")
+			}
+			var status string
+			if err := store.DB.QueryRowContext(ctx, `SELECT status FROM automation_runs WHERE order_id=?`, task.OrderID).Scan(&status); err != nil {
+				t.Fatal(err)
+			}
+			if status != "failed" {
+				t.Fatalf("确定未发送的卡密应进入可重试 failed，got %q", status)
+			}
+			if tc.cardType == "data" {
+				var inventory string
+				if err := store.DB.QueryRowContext(ctx, `SELECT data_content FROM cards WHERE id=?`, cardID).Scan(&inventory); err != nil || inventory != "GIFT-CODE" {
+					t.Fatalf("未发送 Data 卡密必须恢复库存: inventory=%q err=%v", inventory, err)
+				}
+			}
+			sender.err = nil
+			if _, err := store.DB.ExecContext(ctx, `UPDATE automation_runs SET next_retry_at=0 WHERE order_id=?`, task.OrderID); err != nil {
+				t.Fatal(err)
+			}
+			NewScheduler(center).runRecoveryTasks(ctx)
+			if len(sender.texts) != 1 || sender.texts[0] != "GIFT-CODE" {
+				t.Fatalf("连接恢复后应发送一次卡密，got %v", sender.texts)
+			}
+		})
+	}
+}
+
+func TestRuleMatchingUsesStoredOrderItemWhenEventOmitsItemID(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	if err := store.Orders.Upsert(ctx, "known-order", db.OrderUpsertOpts{
+		CookieID: "cid", ItemID: "known-item", BuyerID: "buyer", ChatID: "chat",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", ItemID: "known-item", Name: "item-specific-review",
+		TriggerType: TriggerBuyerReviewed, Enabled: true,
+		Actions: []db.AutomationActionInput{{ActionType: ActionSendText, MessageTemplate: "review-gift", Enabled: true}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sender := &testSender{}
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	if err := center.HandleTask(ctx, Task{
+		AccountID: "cid", TriggerType: TriggerBuyerReviewed, OrderID: "known-order",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.texts) != 1 || sender.texts[0] != "review-gift" {
+		t.Fatalf("应使用本地订单 item_id 匹配商品规则，got %v", sender.texts)
+	}
+}
+
+func TestImageCardMissingSenderIsDefinitelyNotSent(t *testing.T) {
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	center := New(store, nil, nil)
+	err := center.sendImage(context.Background(), Task{AccountID: "cid", ChatID: "chat", BuyerID: "buyer"}, "https://example.com/gift.png", 1)
+	if !errors.Is(err, ErrMessageNotSent) {
+		t.Fatalf("图片发送器缺失应标记为明确未发送，got %v", err)
+	}
+}
+
 func (s *testSender) SendImage(context.Context, string, string, string, int64) error { return nil }
 func (s *testSender) UpdateCookie(cookieStr string) {
 	s.cookieUpdates = append(s.cookieUpdates, cookieStr)

@@ -552,6 +552,16 @@ func (s *Server) RunPublishBatchRecovery(ctx context.Context) {
 	}
 }
 
+// StartPublishBatchRecovery 先登记生命周期，再启动恢复循环，避免关闭流程在
+// goroutine 尚未调度时误判扫描器已经退出。
+func (s *Server) StartPublishBatchRecovery(ctx context.Context) {
+	s.recoveryWG.Add(1)
+	go func() {
+		defer s.recoveryWG.Done()
+		s.RunPublishBatchRecovery(ctx)
+	}()
+}
+
 func (s *Server) recoverPublishBatchesOnce(ctx context.Context) {
 	batches, err := s.Store.PublishBatches.Recoverable(ctx, time.Now().UTC().Unix(), 20)
 	if err != nil {
@@ -940,10 +950,8 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 			}
 			return published, nil
 		}()
-		if runtimeCookieChanged && s.Manager != nil {
-			if account, running := s.Manager.GetInstance(row.CookieID); running {
-				account.UpdateCookie(runtimeCookie)
-			}
+		if runtimeCookieChanged {
+			s.updateRunningCookie(ctx, row.CookieID, runtimeCookie)
 		}
 		if err != nil {
 			if ctx.Err() != nil {

@@ -504,6 +504,37 @@ func TestAutomationRunAttemptFencesStaleWorker(t *testing.T) {
 	}
 }
 
+func TestPostponeRecoveryRunCannotOverwriteNewOwnerLease(t *testing.T) {
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	uid, cid := seedAccount(t, s)
+	ruleID, _ := s.Automation.Create(ctx, makeAutomationRule(cid, uid, "item", "paid", true, 0))
+	runID, started, err := s.Automation.TryStartRun(ctx, AutomationRun{RuleID: ruleID, CookieID: cid, TriggerType: "paid", TriggerKey: "postpone-fence"})
+	if err != nil || !started {
+		t.Fatalf("start run: id=%d started=%v err=%v", runID, started, err)
+	}
+	stale, err := s.Automation.GetRun(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB.ExecContext(ctx, `UPDATE automation_runs SET lease_expires_at=0 WHERE id=?`, runID); err != nil {
+		t.Fatal(err)
+	}
+	newLease := time.Now().UTC().Add(5 * time.Minute).Unix()
+	claimed, err := s.Automation.ClaimRecoveryRun(ctx, runID, newLease)
+	if err != nil || !claimed {
+		t.Fatalf("claim=%v err=%v", claimed, err)
+	}
+	if err := s.Automation.PostponeRecoveryRun(ctx, runID, stale.AttemptCount, time.Now().UTC().Add(time.Minute).Unix()); !errors.Is(err, ErrAutomationRunLeaseLost) {
+		t.Fatalf("stale postpone err=%v want lease lost", err)
+	}
+	current, err := s.Automation.GetRun(ctx, runID)
+	if err != nil || current.LeaseExpiresAt != newLease {
+		t.Fatalf("new owner lease was overwritten: run=%+v err=%v", current, err)
+	}
+}
+
 // TestValidJSON validJSON 的非法 JSON 兜底为 {}。
 func TestValidJSON(t *testing.T) {
 	if got := validJSON(""); got != "{}" {
@@ -562,7 +593,7 @@ func TestAutomationIssuesCanBeListedAndResolved(t *testing.T) {
 	if run.Status != "running" || run.ActionStarted || run.ActionCursor != 1 {
 		t.Fatalf("resolved run=%+v", run)
 	}
-	if err := s.Automation.PostponeRecoveryRun(ctx, runID, 4102444800); err != nil {
+	if err := s.Automation.PostponeRecoveryRun(ctx, runID, run.AttemptCount, 4102444800); err != nil {
 		t.Fatal(err)
 	}
 	due, err := s.Automation.DueRecoveryRuns(ctx, 10)
@@ -680,6 +711,15 @@ func TestDeferredRetryBackoffAndCredentialWake(t *testing.T) {
 	}
 	if err := s.Automation.WakeCredentialBlocked(ctx, cid); err != nil {
 		t.Fatal(err)
+	}
+	if err := s.Automation.DeferTask(ctx, DeferredAutomationTask{TaskKey: "ws-wake", CookieID: cid, TriggerType: "buyer_reviewed", TaskJSON: `{}`, DueAt: before + 3600, ErrorMessage: "当前没有可用 WebSocket 连接"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Automation.WakeCredentialBlocked(ctx, cid); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DB.QueryRowContext(ctx, `SELECT due_at FROM automation_pending_tasks WHERE task_key='ws-wake'`).Scan(&dueAt); err != nil || dueAt != 0 {
+		t.Fatalf("WS 恢复必须立即唤醒任务: due_at=%d err=%v", dueAt, err)
 	}
 	if err := s.DB.QueryRowContext(ctx, `SELECT due_at FROM automation_pending_tasks WHERE id=?`, claimed[0].ID).Scan(&dueAt); err != nil || dueAt != 0 {
 		t.Fatalf("wake due_at=%d err=%v", dueAt, err)

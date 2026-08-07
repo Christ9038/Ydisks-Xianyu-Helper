@@ -72,6 +72,7 @@ type Server struct {
 	workerMu       sync.Mutex
 	workerCount    int
 	workersDone    chan struct{}
+	recoveryWG     sync.WaitGroup
 	lifecycleMu    sync.RWMutex
 	lifecycleCtx   context.Context
 
@@ -370,8 +371,16 @@ func (s *Server) Run(ctx context.Context) error {
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
-	s.waitForWorkers(10 * time.Second)
 	return nil
+}
+
+// WaitForBackground 等待恢复扫描器先退出，再等待其已经登记的批量 worker。
+func (s *Server) WaitForBackground() {
+	if s == nil {
+		return
+	}
+	s.recoveryWG.Wait()
+	s.waitForWorkers(10 * time.Second)
 }
 
 func closedSignal() chan struct{} {

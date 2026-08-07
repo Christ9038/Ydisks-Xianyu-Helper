@@ -83,3 +83,21 @@ func TestPublishWorkerTrackingWaitsForCompletion(t *testing.T) {
 		t.Fatal("wait did not return after worker completed")
 	}
 }
+
+func TestPublishRecoveryLifecycleStopsBeforeWorkerWait(t *testing.T) {
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx, cancel := context.WithCancel(context.Background())
+	srv.StartPublishBatchRecovery(ctx)
+	cancel()
+	done := make(chan struct{})
+	go func() {
+		srv.WaitForBackground()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("批量发布恢复扫描器关闭后没有退出")
+	}
+}

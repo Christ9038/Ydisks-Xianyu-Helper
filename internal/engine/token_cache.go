@@ -12,6 +12,11 @@ import (
 
 const tokenExpirySafetyMargin = time.Minute
 
+const (
+	tokenFallbackLifetime = 30 * time.Minute
+	tokenRefreshLeadTime  = 10 * time.Minute
+)
+
 func effectiveTokenExpireAt(serverExpireAt int64, now time.Time) int64 {
 	ttl := time.Unix(serverExpireAt, 0).Sub(now)
 	if ttl <= 0 {
@@ -22,6 +27,23 @@ func effectiveTokenExpireAt(serverExpireAt int64, now time.Time) int64 {
 		margin = ttl / 10
 	}
 	return now.Add(ttl - margin).Unix()
+}
+
+func tokenRotationSchedule(serverExpireAt int64, now time.Time) (expiresAt, refreshAt time.Time) {
+	expiresAt = time.Unix(serverExpireAt, 0)
+	if serverExpireAt <= now.Unix() {
+		expiresAt = now.Add(tokenFallbackLifetime)
+	}
+	ttl := expiresAt.Sub(now)
+	lead := ttl / 10
+	if lead < tokenRefreshLeadTime {
+		lead = tokenRefreshLeadTime
+	}
+	if lead >= ttl {
+		lead = ttl / 2
+	}
+	refreshAt = expiresAt.Add(-lead)
+	return expiresAt, refreshAt
 }
 
 func credentialCookieFingerprint(cookieStr string) string {

@@ -350,7 +350,6 @@ func (a *Adapter) FetchOrderDetail(ctx context.Context, cookieID, orderID, itemI
 	if !a.OnPasswordLoginRefresh(ctx, cookieID) {
 		return nil, fmt.Errorf("订单详情 Session 过期且即时续期失败: %w", err)
 	}
-	a.wakeCredentialBlockedAutomation(ctx, cookieID)
 	a.logger.Info("Cookie 即时续期成功，重新请求订单详情", "account", cookieID, "order_id", orderID)
 	return a.fetchOrderDetailAttempt(ctx, cookieID, orderID)
 }
@@ -401,6 +400,7 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 			fetchErr = errors.Join(fetchErr, fmt.Errorf("保存订单详情响应 Cookie: %w", persistErr))
 		} else {
 			cookieStr = authoritativeCookies
+			a.wakeCredentialBlockedAutomation(ctx, cookieID)
 		}
 	}
 	if fetchErr != nil {
@@ -414,6 +414,7 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 		if err := a.store.Cookies.UpdateRenewalCookie(ctx, cookieID, detail.UpdatedCookies, metadata, time.Now().Unix()); err != nil {
 			return nil, fmt.Errorf("保存订单详情响应 Cookie: %w", err)
 		}
+		a.wakeCredentialBlockedAutomation(ctx, cookieID)
 	}
 	return &automation.OrderDetail{
 		Quantity: detail.Quantity, SpecName: detail.SpecName, SpecValue: detail.SpecValue,
@@ -477,6 +478,7 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 
 	renewed, renewErr := a.tryProtocolCredentialRenew(ctx, d)
 	if renewed {
+		a.wakeCredentialBlockedAutomation(ctx, cookieID)
 		a.recordPasswordLogin(ctx, cookieID, d.UserID, "success", "", "Go 协议续期成功")
 		return true
 	}
@@ -488,6 +490,21 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 	a.OnAccountEvent(ctx, cookieID, engine.EventAccountOffline, engine.AlertLevelWarn, "账号需要重新扫码", message)
 	a.recordPasswordLogin(ctx, cookieID, d.UserID, "failed", "qr_login_required", message)
 	return false
+}
+
+// RecoverExpiredCredential 供自动化外部动作在平台明确拒绝旧 Session 后恢复凭证。
+func (a *Adapter) RecoverExpiredCredential(ctx context.Context, cookieID string) bool {
+	return a.OnPasswordLoginRefresh(ctx, cookieID)
+}
+
+// OnCredentialUpdated 接收账号运行时保存的新凭证并唤醒失败任务。
+func (a *Adapter) OnCredentialUpdated(ctx context.Context, cookieID string) {
+	a.wakeCredentialBlockedAutomation(ctx, cookieID)
+}
+
+// OnTransportReady 在 WS 注册完成后立即唤醒发送前明确未执行的任务。
+func (a *Adapter) OnTransportReady(ctx context.Context, cookieID string) {
+	a.wakeCredentialBlockedAutomation(ctx, cookieID)
 }
 
 func (a *Adapter) beginPasswordLogin(cookieID string) bool {
