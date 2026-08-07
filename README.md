@@ -164,6 +164,9 @@ npm --prefix frontend ci
 npm --prefix frontend run build
 ```
 
+前端资源会在构建时通过 Go 的 `//go:embed` 嵌入服务；如果服务已经在运行，构建完成后
+需要重启 Go 服务，浏览器硬刷新本身不会替换运行中进程已加载的前端资源。
+
 初始化管理员：
 
 ```bash
