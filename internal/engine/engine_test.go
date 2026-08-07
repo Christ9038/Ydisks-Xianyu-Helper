@@ -60,6 +60,9 @@ func newAccountForTest(t *testing.T) (*Account, *recordingHandler, *db.Store, fu
 		Store:     store,
 		Handler:   h,
 	})
+	// 通用账号测试默认不启用 loginuser.get；需要验证登录态恢复的用例会
+	// 显式注入 statusMtop，避免单元测试访问真实网络。
+	acc.mtop = &fakeRunMtop{token: "test-token"}
 	return acc, h, store, func() { d.Close() }
 }
 

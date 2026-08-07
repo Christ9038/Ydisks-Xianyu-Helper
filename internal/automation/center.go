@@ -19,11 +19,18 @@ import (
 var (
 	errAutomationDeferred    = errors.New("自动化动作已持久化等待执行")
 	errAutomationNeedsReview = errors.New("自动化动作结果需要人工核对")
+	errAutomationQuarantine  = errors.New("自动化人工核对状态保存失败")
+	errActionNotPerformed    = errors.New("自动化外部动作明确未执行")
 	// ErrMessageNotSent 表示错误发生在调用 WebSocket 发送之前，可以安全重试。
 	// engine 通过 errors.Is 标记“连接尚未就绪”等运行时状态，避免被误判为
 	// 远端可能已经收到消息。
 	ErrMessageNotSent = errors.New("自动化消息确定未发送")
 )
+
+type preparationError struct{ err error }
+
+func (e *preparationError) Error() string { return e.err.Error() }
+func (e *preparationError) Unwrap() error { return e.err }
 
 type uncertainActionError struct{ err error }
 
@@ -66,6 +73,11 @@ type OrderDetailFetcher interface {
 	FetchOrderDetail(ctx context.Context, cookieID, orderID, itemID, buyerID, cookieStr string) (*OrderDetail, error)
 }
 
+// CredentialRecoverer 在平台明确返回 Session 失效时执行一次凭证恢复。
+type CredentialRecoverer interface {
+	RecoverExpiredCredential(ctx context.Context, cookieID string) bool
+}
+
 // Notifier 发货结果通知器（多渠道）。可选依赖，未注入时跳过通知。
 type Notifier interface {
 	NotifyDelivery(accountID, buyerName, buyerID, itemID, message, chatID string)
@@ -77,6 +89,7 @@ type Center struct {
 	store     *db.Store
 	senders   SenderProvider
 	fetcher   OrderDetailFetcher
+	recoverer CredentialRecoverer
 	notifier  Notifier
 	mtop      mtop.Client
 	logger    *slog.Logger
@@ -98,6 +111,9 @@ func (c *Center) SetMTop(m mtop.Client) { c.mtop = m }
 // SetOrderDetailFetcher 注入订单详情查询能力。
 func (c *Center) SetOrderDetailFetcher(fetcher OrderDetailFetcher) {
 	c.fetcher = fetcher
+	if recoverer, ok := fetcher.(CredentialRecoverer); ok {
+		c.recoverer = recoverer
+	}
 }
 
 // SetNotifier 注入发货结果通知器。
@@ -126,6 +142,13 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 	}
 	if err := c.markEventFacts(ctx, task); err != nil {
 		return false, err
+	}
+	if task.OrderID != "" {
+		if order, orderErr := c.store.Orders.Get(ctx, task.OrderID); orderErr == nil && order != nil {
+			task = mergeOrderIntoTask(task, order)
+		} else if orderErr != nil && !errors.Is(orderErr, db.ErrNotFound) {
+			return false, fmt.Errorf("读取自动化事件订单事实: %w", orderErr)
+		}
 	}
 	paused, until, err := c.store.Cookies.IsPaused(ctx, task.AccountID)
 	if err != nil {
@@ -173,6 +196,16 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 	var firstErr error
 	for _, rule := range rules {
 		if err := c.executeRule(ctx, task, rule); err != nil {
+			var prepErr *preparationError
+			if errors.As(err, &prepErr) && !isDeferredReplay(task) {
+				dueAt := time.Now().UTC().Add(time.Minute).Unix()
+				if deferErr := c.deferTaskWithError(ctx, task, dueAt, prepErr.Error()); deferErr != nil {
+					return false, errors.Join(err, fmt.Errorf("持久化前置失败任务: %w", deferErr))
+				}
+				c.logger.Warn("自动化前置处理失败，任务已持久化等待恢复", "account", task.AccountID,
+					"order_id", task.OrderID, "trigger", task.TriggerType, "retry_at", dueAt, "err", err)
+				return true, nil
+			}
 			if errors.Is(err, errAutomationDeferred) {
 				return true, nil
 			}
@@ -206,7 +239,15 @@ func taskDelayCursor(task Task) int {
 	return cursor
 }
 
+func isDeferredReplay(task Task) bool {
+	return task.Raw != nil && task.Raw["automation_deferred_replay"] == true
+}
+
 func (c *Center) deferTask(ctx context.Context, task Task, dueAt int64) error {
+	return c.deferTaskWithError(ctx, task, dueAt, "")
+}
+
+func (c *Center) deferTaskWithError(ctx context.Context, task Task, dueAt int64, errMsg string) error {
 	key := buildTriggerKey(task)
 	if key == "" {
 		return fmt.Errorf("暂停期间的自动化事件缺少可持久化防重键")
@@ -218,7 +259,7 @@ func (c *Center) deferTask(ctx context.Context, task Task, dueAt int64) error {
 	}
 	return c.store.Automation.DeferTask(ctx, db.DeferredAutomationTask{
 		TaskKey: task.AccountID + ":" + key, CookieID: task.AccountID,
-		TriggerType: task.TriggerType, TaskJSON: string(raw), DueAt: dueAt,
+		TriggerType: task.TriggerType, TaskJSON: string(raw), DueAt: dueAt, ErrorMessage: errMsg,
 	})
 }
 
@@ -362,9 +403,12 @@ func immediateManualActions(actions []db.AutomationAction) []db.AutomationAction
 
 func (c *Center) executeRule(ctx context.Context, task Task, rule db.AutomationRule) error {
 	var err error
+	if len(task.ActionPlan) == 0 && task.TriggerType != TriggerOrderPaid {
+		task.ActionPlan = runnableActions(task, rule.Actions)
+	}
 	task, err = c.prepareTask(ctx, task)
 	if err != nil {
-		return err
+		return &preparationError{err: err}
 	}
 	triggerKey := buildTriggerKey(task)
 	if triggerKey == "" {
@@ -432,15 +476,19 @@ func (c *Center) executeRule(ctx context.Context, task Task, rule db.AutomationR
 	}
 	if errors.Is(err, errAutomationNeedsReview) {
 		finish = false
-		if c.notifier != nil {
+		if c.notifier != nil && !errors.Is(err, errAutomationQuarantine) {
 			c.notifyResult(task, "needs_review", sent, err.Error())
 		}
 		return err
 	}
 	if err != nil {
-		if sent > 0 {
+		if sent > 0 && !errors.Is(err, ErrMessageNotSent) && !errors.Is(err, errActionNotPerformed) {
 			reason := "运行已完成部分动作，后续动作失败，已禁止从头自动重放: " + err.Error()
-			_ = c.store.Automation.QuarantineRunResult(ctx, run.ID, run.AttemptCount, sent, reason)
+			if quarantineErr := c.store.Automation.QuarantineRunResult(ctx, run.ID, run.AttemptCount, sent, reason); quarantineErr != nil {
+				finish = false
+				c.logger.Error("保存自动化人工核对状态失败", "run_id", run.ID, "err", quarantineErr)
+				return errors.Join(errAutomationNeedsReview, errAutomationQuarantine, err, quarantineErr)
+			}
 			finish = false
 			if c.notifier != nil {
 				c.notifyResult(task, "needs_review", sent, reason)
@@ -448,12 +496,19 @@ func (c *Center) executeRule(ctx context.Context, task Task, rule db.AutomationR
 			return fmt.Errorf("%w: %v", errAutomationNeedsReview, err)
 		}
 		status, errMsg = "failed", err.Error()
+		if errors.Is(err, ErrMessageNotSent) || errors.Is(err, errActionNotPerformed) {
+			errMsg = db.SafeRetryErrorPrefix + errMsg
+		}
 		return err
 	}
 	if task.TriggerType == TriggerReviewMissingTimeout && task.OrderID != "" {
 		if incrementErr := c.store.Automation.IncrementReviewRequest(ctx, task.OrderID); incrementErr != nil {
 			reason := "求评价消息已发送，但保存提醒次数失败，已停止自动重放: " + incrementErr.Error()
-			_ = c.store.Automation.QuarantineRunResult(ctx, run.ID, run.AttemptCount, sent, reason)
+			if quarantineErr := c.store.Automation.QuarantineRunResult(ctx, run.ID, run.AttemptCount, sent, reason); quarantineErr != nil {
+				finish = false
+				c.logger.Error("保存求评价人工核对状态失败", "run_id", run.ID, "err", quarantineErr)
+				return errors.Join(errAutomationNeedsReview, errAutomationQuarantine, incrementErr, quarantineErr)
+			}
 			finish = false
 			if c.notifier != nil {
 				c.notifyResult(task, "needs_review", sent, reason)
@@ -525,14 +580,26 @@ func (c *Center) executeRunActions(ctx context.Context, task Task, ruleID int64,
 			var uncertain *uncertainActionError
 			if n > 0 || errors.As(actionErr, &uncertain) {
 				reason := "外部动作可能已部分或全部执行，已禁止自动重放，请人工核对: " + actionErr.Error()
-				_ = c.store.Automation.QuarantineRunResult(ctx, run.ID, run.AttemptCount, sent+n, reason)
+				if quarantineErr := c.store.Automation.QuarantineRunResult(ctx, run.ID, run.AttemptCount, sent+n, reason); quarantineErr != nil {
+					c.logger.Error("保存不确定动作人工核对状态失败", "run_id", run.ID, "err", quarantineErr)
+					return sent + n, false, errors.Join(errAutomationNeedsReview, errAutomationQuarantine, actionErr, quarantineErr)
+				}
 				return sent + n, false, fmt.Errorf("%w: %v", errAutomationNeedsReview, actionErr)
 			}
-			_ = c.store.Automation.AbortRunAction(ctx, run.ID, run.AttemptCount, cursor)
+			if abortErr := c.store.Automation.AbortRunAction(ctx, run.ID, run.AttemptCount, cursor); abortErr != nil {
+				reason := "外部动作明确未执行，但清除动作占用状态失败，已停止自动重放: " + abortErr.Error()
+				if quarantineErr := c.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, reason); quarantineErr != nil {
+					c.logger.Error("隔离动作状态异常的自动化运行失败", "run_id", run.ID, "err", quarantineErr)
+				}
+				return sent, false, fmt.Errorf("%w: %s", errAutomationNeedsReview, reason)
+			}
 			return sent, false, actionErr
 		}
 		if err := c.store.Automation.AdvanceRunAction(ctx, run.ID, run.AttemptCount, cursor, n); err != nil {
-			_ = c.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, "动作已执行但检查点保存失败，请人工核对，禁止自动重放: "+err.Error())
+			if quarantineErr := c.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, "动作已执行但检查点保存失败，请人工核对，禁止自动重放: "+err.Error()); quarantineErr != nil {
+				c.logger.Error("保存检查点异常的人工核对状态失败", "run_id", run.ID, "err", quarantineErr)
+				return sent + n, false, errors.Join(errAutomationNeedsReview, errAutomationQuarantine, err, quarantineErr)
+			}
 			return sent + n, false, fmt.Errorf("%w: %v", errAutomationNeedsReview, err)
 		}
 		sent += n
@@ -627,15 +694,15 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 		BuyerID:  task.BuyerID,
 		ChatID:   task.ChatID,
 	})
-	needsDetail := task.TriggerType == TriggerOrderPaid || task.TriggerType == TriggerBuyerReviewed
+	needsDetail := task.TriggerType == TriggerOrderPaid
 	if existing, err := c.store.Orders.Get(ctx, task.OrderID); err == nil && existing != nil {
 		task = mergeOrderIntoTask(task, existing)
-		if existing.Quantity == "" || existing.Amount == "" {
+		if needsDetail && (existing.Quantity == "" || existing.Amount == "") {
 			needsDetail = true
 		}
 		// 规则是否多规格由 action.config_json 决定；这里无法提前知道命中的 action，
 		// 因此交易类事件统一补齐规格，确保后续规格映射有事实依据。
-		if existing.SpecName == "" || existing.SpecValue == "" {
+		if needsDetail && (existing.SpecName == "" || existing.SpecValue == "") {
 			needsDetail = true
 		}
 	}
@@ -748,6 +815,10 @@ func (c *Center) confirmShipment(ctx context.Context, task Task) error {
 	if !enabled && !task.ForceConfirmShipment {
 		return nil
 	}
+	return c.confirmShipmentAttempt(ctx, task, true)
+}
+
+func (c *Center) confirmShipmentAttempt(ctx context.Context, task Task, allowCredentialRecovery bool) error {
 	credentialUnlock := c.store.LockAccountCredentials(task.AccountID)
 	credentialLocked := true
 	defer func() {
@@ -813,6 +884,26 @@ func (c *Center) confirmShipment(ctx context.Context, task Task) error {
 			sender.UpdateCookie(runtimeCookie)
 		}
 	}
+	if runtimeCookieChanged {
+		c.wakeCredentialBlockedAutomation(ctx, task.AccountID)
+	}
+	sessionErr := callErr
+	if sessionErr == nil && !ok {
+		sessionErr = errors.New(strings.Join(ret, "; "))
+	}
+	if mtop.IsSessionExpiredErr(sessionErr) {
+		if len(persistenceErrs) > 0 {
+			return errors.Join(fmt.Errorf("确认发货 Session 已失效: %w", sessionErr), errors.Join(persistenceErrs...))
+		}
+		if allowCredentialRecovery && c.recoverer != nil && c.recoverer.RecoverExpiredCredential(ctx, task.AccountID) {
+			c.logger.Info("确认发货凭证恢复成功，重新执行确认发货", "account", task.AccountID, "order_id", task.OrderID)
+			return c.confirmShipmentAttempt(ctx, task, false)
+		}
+		if !allowCredentialRecovery {
+			return fmt.Errorf("%w: 确认发货在凭证恢复后仍返回 Session 失效: %v", errActionNotPerformed, sessionErr)
+		}
+		return fmt.Errorf("%w: 确认发货 Session 已失效且凭证恢复失败: %v", errActionNotPerformed, sessionErr)
+	}
 	if callErr != nil {
 		if len(persistenceErrs) > 0 {
 			callErr = errors.Join(callErr, errors.Join(persistenceErrs...))
@@ -846,6 +937,15 @@ func (c *Center) confirmShipment(ctx context.Context, task Task) error {
 	return nil
 }
 
+func (c *Center) wakeCredentialBlockedAutomation(ctx context.Context, accountID string) {
+	if c == nil || c.store == nil || c.store.Automation == nil {
+		return
+	}
+	if err := c.store.Automation.WakeCredentialBlocked(ctx, accountID); err != nil {
+		c.logger.Warn("Cookie 更新后唤醒自动化任务失败", "account", accountID, "err", err)
+	}
+}
+
 func (c *Center) sendCard(ctx context.Context, task Task, action db.AutomationAction) (int, error) {
 	if !actionMatchesOrderSpec(task, action) {
 		return 0, nil
@@ -872,12 +972,12 @@ func (c *Center) sendCard(ctx context.Context, task Task, action db.AutomationAc
 		}
 		if imageURL != "" {
 			if err := c.sendImage(ctx, task, imageURL, card.ID); err != nil {
-				return sent, uncertainAction(err)
+				return sent, classifyMessageSendError(err)
 			}
 		}
 		if strings.TrimSpace(content) != "" {
 			if err := c.sendText(ctx, task, renderTemplate(content, task)); err != nil {
-				return sent, uncertainAction(err)
+				return sent, classifyMessageSendError(err)
 			}
 		}
 		if strings.TrimSpace(content) == "" && strings.TrimSpace(imageURL) == "" {
@@ -899,14 +999,26 @@ func (c *Center) sendDataCard(ctx context.Context, task Task, card *db.CardFull,
 		}
 		if strings.TrimSpace(content) != "" {
 			if err := c.sendText(ctx, task, renderTemplate(content, task)); err != nil {
-				// 发送接口报错时无法判断远端是否已经收到。恢复库存会让同一卡密
-				// 再次被消费，因此保守地保留已消费状态并交给人工核对。
+				if errors.Is(err, ErrMessageNotSent) {
+					if restoreErr := c.store.Cards.RestoreBatchData(ctx, card.ID, content); restoreErr != nil {
+						return sent, uncertainAction(errors.Join(err, fmt.Errorf("恢复未发送卡密库存: %w", restoreErr)))
+					}
+					return sent, err
+				}
+				// 请求已经交给传输层后无法判断远端是否收到，保留消费状态并人工核对。
 				return sent, uncertainAction(err)
 			}
 		}
 		sent++
 	}
 	return sent, nil
+}
+
+func classifyMessageSendError(err error) error {
+	if err == nil || errors.Is(err, ErrMessageNotSent) {
+		return err
+	}
+	return uncertainAction(err)
 }
 
 func (c *Center) accountAutomationAllowed(ctx context.Context, accountID string) (bool, error) {
@@ -1018,14 +1130,14 @@ func (c *Center) sendText(ctx context.Context, task Task, text string) error {
 
 func (c *Center) sendImage(ctx context.Context, task Task, imageURL string, cardID int64) error {
 	if task.ChatID == "" || task.BuyerID == "" {
-		return fmt.Errorf("发送图片缺少 chat_id 或 buyer_id")
+		return fmt.Errorf("%w: 发送图片缺少 chat_id 或 buyer_id", ErrMessageNotSent)
 	}
 	if c.senders == nil {
-		return fmt.Errorf("账号发送器未初始化")
+		return fmt.Errorf("%w: 账号发送器未初始化", ErrMessageNotSent)
 	}
 	sender, ok := c.senders.Sender(task.AccountID)
 	if !ok {
-		return fmt.Errorf("账号未在线，无法发送自动化图片")
+		return fmt.Errorf("%w: 账号未在线，无法发送自动化图片", ErrMessageNotSent)
 	}
 	return sender.SendImage(ctx, task.ChatID, task.BuyerID, imageURL, cardID)
 }

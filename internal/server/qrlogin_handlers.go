@@ -265,6 +265,7 @@ func (s *Server) persistQRLoginSuccessFor(ctx context.Context, userID int64, ses
 	if d, err := s.Store.Cookies.GetDetails(ctx, accountID); err == nil {
 		s.refreshAccountProfile(ctx, d)
 	}
+	s.wakeCredentialBlockedAutomation(ctx, accountID)
 	if s.Manager != nil && s.Store.Cookies.GetStatus(ctx, accountID) {
 		if err := s.Manager.Restart(ctx, accountID); err != nil && s.Logger != nil {
 			s.Logger.Warn("扫码登录后重启账号失败", "cookie_id", accountID, "err", err)

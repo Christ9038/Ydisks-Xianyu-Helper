@@ -2,6 +2,7 @@ package renewal
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -46,6 +47,23 @@ func (f *schedulerFakeStarter) Start(context.Context, string, string) error {
 func (f *schedulerFakeStarter) Restart(context.Context, string) error {
 	f.restarts.Add(1)
 	return nil
+}
+
+type schedulerContextStarter struct {
+	restarts atomic.Int32
+	ctxAlive atomic.Bool
+	err      error
+}
+
+func (f *schedulerContextStarter) Start(context.Context, string, string) error { return nil }
+
+func (f *schedulerContextStarter) Restart(ctx context.Context, _ string) error {
+	f.restarts.Add(1)
+	f.ctxAlive.Store(ctx.Err() == nil)
+	if f.err != nil {
+		return f.err
+	}
+	return ctx.Err()
 }
 
 type schedulerFakePasswordRefresher struct {
@@ -170,6 +188,149 @@ func TestPendingAPIRenewLogsPendingAndRestartsAfterLateCookie(t *testing.T) {
 	}
 	if !strings.Contains(detail.Value, "sdkSilent=") {
 		t.Fatalf("迟到 Cookie 未保存: %q", detail.Value)
+	}
+	if got := lastAPIRenewLog(t, store, account.ID).status; got != "cookie_updated" {
+		t.Fatalf("迟到响应最终状态=%q want cookie_updated", got)
+	}
+}
+
+func TestAPICookieRenewSuccessWithoutCredentialChangeDoesNotRestart(t *testing.T) {
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	expire := strconv.FormatInt(time.Now().Add(time.Hour).UnixMilli(), 10)
+	account := createSchedulerAccount(t, store, "cid-no-change", "unb=1; havana_lgc_exp="+expire)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+	}))
+	defer srv.Close()
+	starter := &schedulerFakeStarter{}
+	s := NewScheduler(store, starter, nil, nil)
+	s.api = apirenew.Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1}
+	s.apiCookieRenewOne(context.Background(), "batch-no-change", account)
+	if got := starter.restarts.Load(); got != 0 {
+		t.Fatalf("Cookie 未变化时不应重启账号，restarts=%d", got)
+	}
+	if got := lastAPIRenewLog(t, store, account.ID).status; got != "success" {
+		t.Fatalf("无变化成功状态=%q want success", got)
+	}
+}
+
+func TestPendingAPIRenewUsesFreshContextForRestart(t *testing.T) {
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	expire := strconv.FormatInt(time.Now().Add(time.Hour).UnixMilli(), 10)
+	account := createSchedulerAccount(t, store, "cid-fresh-context", "unb=1; havana_lgc_exp="+expire)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(40 * time.Millisecond)
+		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: futureSchedulerMillis(), Path: "/"})
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+	}))
+	defer srv.Close()
+	starter := &schedulerContextStarter{}
+	s := NewScheduler(store, starter, nil, nil)
+	s.api = apirenew.Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1, PromiseTimeout: 5 * time.Millisecond}
+	s.apiCookieRenewOne(context.Background(), "batch-context", account)
+	deadline := time.Now().Add(time.Second)
+	for starter.restarts.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if starter.restarts.Load() != 1 || !starter.ctxAlive.Load() {
+		t.Fatalf("迟到响应重启必须使用独立有效上下文: restarts=%d alive=%v", starter.restarts.Load(), starter.ctxAlive.Load())
+	}
+}
+
+func TestPendingAPIRenewStopsWithSchedulerContext(t *testing.T) {
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	account := createSchedulerAccount(t, store, "cid-canceled-pending", "unb=1; havana_lgc_exp="+futureSchedulerMillis())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(80 * time.Millisecond)
+		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: futureSchedulerMillis(), Path: "/"})
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+	}))
+	defer srv.Close()
+	starter := &schedulerFakeStarter{}
+	s := NewScheduler(store, starter, nil, nil)
+	s.api = apirenew.Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1, PromiseTimeout: 5 * time.Millisecond}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.apiCookieRenewOne(ctx, "batch-canceled-pending", account)
+	cancel()
+	s.watchers.Wait()
+	if got := starter.restarts.Load(); got != 0 {
+		t.Fatalf("调度器关闭后迟到响应不得重启账号，restarts=%d", got)
+	}
+	detail, err := store.Cookies.GetDetails(context.Background(), account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(detail.Value, "sdkSilent=") {
+		t.Fatalf("调度器关闭后不应再写入迟到 Cookie: %q", detail.Value)
+	}
+}
+
+func TestPendingAPIRenewRestartFailureIsFinalFailure(t *testing.T) {
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	account := createSchedulerAccount(t, store, "cid-restart-failure", "unb=1; havana_lgc_exp="+futureSchedulerMillis())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(30 * time.Millisecond)
+		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: futureSchedulerMillis(), Path: "/"})
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+	}))
+	defer srv.Close()
+	starter := &schedulerContextStarter{err: errors.New("restart failed")}
+	s := NewScheduler(store, starter, nil, nil)
+	s.api = apirenew.Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1, PromiseTimeout: 5 * time.Millisecond}
+	s.apiCookieRenewOne(context.Background(), "batch-restart-failure", account)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		log := lastAPIRenewLog(t, store, account.ID)
+		if log.status != "pending" {
+			if log.status != "failed" || !strings.Contains(log.errorMessage, "restart failed") {
+				t.Fatalf("重启失败终态异常: %+v", log)
+			}
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("迟到续期没有写入重启失败终态")
+}
+
+func futureSchedulerMillis() string {
+	return strconv.FormatInt(time.Now().Add(time.Hour).UnixMilli(), 10)
+}
+
+func TestAPIRenewCompatibilitySettingsUseSingleRunner(t *testing.T) {
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	expire := futureSchedulerMillis()
+	createSchedulerAccount(t, store, "cid-single-runner", "unb=1; havana_lgc_exp="+expire)
+	for _, key := range []string{apiCookieRenewEnabledSetting, cookiesRefreshEnabledSetting} {
+		if err := store.Settings.Set(ctx, key, "true"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.Settings.Set(ctx, apiCookieRenewIntervalSetting, "10s"); err != nil {
+		t.Fatal(err)
+	}
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+	}))
+	defer srv.Close()
+	s := NewScheduler(store, nil, nil, nil)
+	s.api = apirenew.Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1}
+	s.Run(ctx)
+	deadline := time.Now().Add(time.Second)
+	for requests.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(30 * time.Millisecond)
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("新旧配置同时开启只能启动一个续期任务，请求数=%d", got)
 	}
 }
 

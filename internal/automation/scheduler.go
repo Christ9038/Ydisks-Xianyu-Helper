@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"xianyu-go/internal/db"
@@ -18,11 +19,13 @@ const defaultReviewRequestScanInterval = time.Minute
 type Scheduler struct {
 	center   *Center
 	interval time.Duration
+	runOnce  sync.Once
+	done     chan struct{}
 }
 
 // NewScheduler 构造计划任务调度器。
 func NewScheduler(center *Center) *Scheduler {
-	return &Scheduler{center: center, interval: defaultReviewRequestScanInterval}
+	return &Scheduler{center: center, interval: defaultReviewRequestScanInterval, done: make(chan struct{})}
 }
 
 // Run 周期扫描计划任务。调用方应在 goroutine 中启动，并用 ctx 控制生命周期。
@@ -30,16 +33,28 @@ func (s *Scheduler) Run(ctx context.Context) {
 	if s == nil || s.center == nil || s.center.store == nil {
 		return
 	}
-	ticker := time.NewTicker(s.interval)
-	defer ticker.Stop()
-	s.scan(ctx)
-	for {
-		select {
-		case <-ctx.Done():
+	s.runOnce.Do(func() {
+		defer close(s.done)
+		if ctx.Err() != nil {
 			return
-		case <-ticker.C:
-			s.scan(ctx)
 		}
+		ticker := time.NewTicker(s.interval)
+		defer ticker.Stop()
+		s.scan(ctx)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.scan(ctx)
+			}
+		}
+	})
+}
+
+func (s *Scheduler) Wait() {
+	if s != nil && s.done != nil {
+		<-s.done
 	}
 }
 
@@ -126,18 +141,29 @@ func (s *Scheduler) runRecoveryTasks(ctx context.Context) {
 		}
 		allowed, err := s.center.accountAutomationAllowed(ctx, task.AccountID)
 		if err != nil || !allowed {
-			_ = s.center.store.Automation.PostponeRecoveryRun(ctx, run.ID, time.Now().UTC().Add(10*time.Minute).Unix())
-			continue
-		}
-		if !s.center.accountSenderReady(task.AccountID) {
-			_ = s.center.store.Automation.PostponeRecoveryRun(ctx, run.ID, time.Now().UTC().Add(defaultReviewRequestScanInterval).Unix())
+			if postponeErr := s.center.store.Automation.PostponeRecoveryRun(ctx, run.ID, run.AttemptCount, time.Now().UTC().Add(10*time.Minute).Unix()); postponeErr != nil {
+				s.center.logger.Warn("延期自动化恢复任务失败", "run_id", run.ID, "err", postponeErr)
+			}
 			continue
 		}
 		rule, err := s.center.store.Automation.Get(ctx, run.RuleID)
-		if err != nil || !rule.Enabled {
+		if err != nil && !errors.Is(err, db.ErrNotFound) {
+			if ctx.Err() != nil {
+				return
+			}
+			s.center.logger.Warn("读取自动化恢复规则失败，保留任务等待重试", "run_id", run.ID, "rule_id", run.RuleID, "err", err)
+			continue
+		}
+		if errors.Is(err, db.ErrNotFound) || rule == nil || !rule.Enabled {
 			reason := "自动化规则不存在或已停用，无法恢复"
 			_ = s.center.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, reason)
 			s.center.notifyRunNeedsReview(run, reason)
+			continue
+		}
+		if recoveryNeedsSender(task, *rule, run.ActionCursor) && !s.center.accountSenderReady(task.AccountID) {
+			if postponeErr := s.center.store.Automation.PostponeRecoveryRun(ctx, run.ID, run.AttemptCount, time.Now().UTC().Add(defaultReviewRequestScanInterval).Unix()); postponeErr != nil {
+				s.center.logger.Warn("等待 WebSocket 时延期自动化任务失败", "run_id", run.ID, "err", postponeErr)
+			}
 			continue
 		}
 		claimed, claimErr := s.center.store.Automation.ClaimRecoveryRun(ctx, run.ID, time.Now().UTC().Add(5*time.Minute).Unix())
@@ -155,6 +181,22 @@ func (s *Scheduler) runRecoveryTasks(ctx context.Context) {
 	}
 }
 
+func recoveryNeedsSender(task Task, rule db.AutomationRule, cursor int) bool {
+	actions := task.ActionPlan
+	if len(actions) == 0 {
+		actions = runnableActions(task, rule.Actions)
+	}
+	if cursor < 0 || cursor >= len(actions) {
+		return false
+	}
+	switch actions[cursor].ActionType {
+	case ActionSendText, ActionSendCard:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Scheduler) runDeferredTasks(ctx context.Context) {
 	tasks, err := s.center.store.Automation.ClaimDueDeferredTasks(ctx, 100)
 	if err != nil {
@@ -167,6 +209,10 @@ func (s *Scheduler) runDeferredTasks(ctx context.Context) {
 			_ = s.center.store.Automation.FinishDeferredTask(ctx, pending.ID, pending.ClaimVersion, false, "解析任务失败: "+err.Error())
 			continue
 		}
+		if task.Raw == nil {
+			task.Raw = map[string]any{}
+		}
+		task.Raw["automation_deferred_replay"] = true
 		deferredAgain, runErr := s.center.handleTask(ctx, task)
 		if deferredAgain {
 			// handleTask 已按新的 paused_until 重置同一任务；当前 claim 不再删除。

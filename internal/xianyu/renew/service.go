@@ -343,6 +343,17 @@ const (
 // It never chains hasLogin/setLoginSettings or escalates to an interactive
 // login from this proactive renewal path.
 func (s Service) RenewAPIFirst(ctx context.Context, cookiesStr string, snapshots ...[]cookierefresh.BrowserCookie) (*Result, error) {
+	return s.renewAPIFirst(ctx, false, cookiesStr, snapshots...)
+}
+
+// RenewAfterSessionExpired 用于服务端已经明确返回 SESSION_EXPIRED 的恢复路径。
+// sdkSilent 只用于限制健康账号的主动静默续期；它不能阻止一次已经被业务接口
+// 证实为失效的凭证恢复。长登录凭证本身过期时仍拒绝请求并要求重新扫码。
+func (s Service) RenewAfterSessionExpired(ctx context.Context, cookiesStr string, snapshots ...[]cookierefresh.BrowserCookie) (*Result, error) {
+	return s.renewAPIFirst(ctx, true, cookiesStr, snapshots...)
+}
+
+func (s Service) renewAPIFirst(ctx context.Context, sessionExpired bool, cookiesStr string, snapshots ...[]cookierefresh.BrowserCookie) (*Result, error) {
 	cookiesStr = strings.TrimSpace(cookiesStr)
 	authoritativeSnapshot := len(snapshots) > 0 && snapshots[0] != nil
 	documentURL := s.documentReferer()
@@ -384,6 +395,11 @@ func (s Service) RenewAPIFirst(ctx context.Context, cookiesStr string, snapshots
 		return result, nil
 	}
 	mode, skipReason := autoLoginMode(firstCookieValues(decisionCookies), now)
+	if sessionExpired && skipReason == "fatigue" {
+		// 业务接口已明确证明 Session 失效，忽略主动续期疲劳标记，但仍只调用
+		// 一次 silentHasLogin，且继续要求长登录凭证有效。
+		mode, skipReason = autoLoginModeWithoutFatigue(firstCookieValues(decisionCookies), now)
+	}
 	if skipReason != "" {
 		result.Skipped = true
 		result.SkipReason = skipReason
@@ -472,13 +488,25 @@ func (s Service) RenewAPIFirst(ctx context.Context, cookiesStr string, snapshots
 				late.CookieSnapshot = append([]cookierefresh.BrowserCookie(nil), snapshot...)
 				late.CookieSnapshotComplete = true
 			}
-			late, lateErr := populate(late, outcome.call, outcome.err, true)
+			// Promise 超时只描述前端等待窗口；底层响应到达后必须按真实
+			// HTTP/业务结果生成终态，不能永久标记为失败。
+			late, lateErr := populate(late, outcome.call, outcome.err, false)
 			pending <- pendingRenewResult{result: late, err: lateErr}
 			close(pending)
 		}()
 		return result, nil
 	}
 	return populate(result, call, err, false)
+}
+
+func autoLoginModeWithoutFatigue(cookies map[string]string, now time.Time) (mode, skipReason string) {
+	if cookieTimeAfter(cookies["havana_lgc_exp"], now) {
+		return autoLoginModeHavana, ""
+	}
+	if cookieTimeAfter(cookies["cookie3_bak_exp"], now) {
+		return autoLoginModeCookie3, ""
+	}
+	return "", "long_login_expired"
 }
 
 func autoLoginMode(cookies map[string]string, now time.Time) (mode, skipReason string) {

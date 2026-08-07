@@ -128,7 +128,13 @@ func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Req
 	}
 
 	credentialUnlock := s.Store.LockAccountCredentials(req.CookieID)
-	defer credentialUnlock()
+	runtimeCookie := ""
+	defer func() {
+		credentialUnlock()
+		if runtimeCookie != "" {
+			s.updateRunningCookie(context.Background(), req.CookieID, runtimeCookie)
+		}
+	}()
 	latest, err := s.Store.Cookies.GetDetails(r.Context(), req.CookieID)
 	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
 		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
@@ -138,7 +144,7 @@ func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Req
 	defer cancel()
 	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
 	category, updatedCookies, callErr := recommender.RecommendPublishCategory(mtopCtx, latest.Value, req.Keyword)
-	_, _, handled, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
+	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
 	if persistErr != nil {
 		writeErr(w, http.StatusInternalServerError, "保存账号登录状态失败")
 		return
@@ -148,6 +154,9 @@ func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Req
 			writeErr(w, http.StatusInternalServerError, "保存账号登录状态失败")
 			return
 		}
+		runtimeCookie = updatedCookies
+	} else if handled && valueChanged {
+		runtimeCookie = value
 	}
 	if callErr != nil {
 		if errors.Is(callErr, mtop.ErrPublishCategoryUnrecognized) {
@@ -543,6 +552,16 @@ func (s *Server) RunPublishBatchRecovery(ctx context.Context) {
 	}
 }
 
+// StartPublishBatchRecovery 先登记生命周期，再启动恢复循环，避免关闭流程在
+// goroutine 尚未调度时误判扫描器已经退出。
+func (s *Server) StartPublishBatchRecovery(ctx context.Context) {
+	s.recoveryWG.Add(1)
+	go func() {
+		defer s.recoveryWG.Done()
+		s.RunPublishBatchRecovery(ctx)
+	}()
+}
+
 func (s *Server) recoverPublishBatchesOnce(ctx context.Context) {
 	batches, err := s.Store.PublishBatches.Recoverable(ctx, time.Now().UTC().Unix(), 20)
 	if err != nil {
@@ -931,10 +950,8 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 			}
 			return published, nil
 		}()
-		if runtimeCookieChanged && s.Manager != nil {
-			if account, running := s.Manager.GetInstance(row.CookieID); running {
-				account.UpdateCookie(runtimeCookie)
-			}
+		if runtimeCookieChanged {
+			s.updateRunningCookie(ctx, row.CookieID, runtimeCookie)
 		}
 		if err != nil {
 			if ctx.Err() != nil {

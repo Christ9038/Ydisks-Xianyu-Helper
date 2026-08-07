@@ -25,6 +25,22 @@ func TestEffectiveTokenExpireAtRejectsMissingOrExpiredDeadline(t *testing.T) {
 	}
 }
 
+func TestTokenRotationScheduleStartsBeforeServerExpiry(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	expiresAt, refreshAt := tokenRotationSchedule(now.Add(time.Hour).Unix(), now)
+	if !refreshAt.Before(expiresAt) || refreshAt != expiresAt.Add(-tokenRefreshLeadTime) {
+		t.Fatalf("refresh_at=%s expires_at=%s", refreshAt, expiresAt)
+	}
+}
+
+func TestTokenRotationScheduleUsesFallbackWhenExpiryMissing(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	expiresAt, refreshAt := tokenRotationSchedule(0, now)
+	if expiresAt != now.Add(tokenFallbackLifetime) || !refreshAt.Before(expiresAt) || !refreshAt.After(now) {
+		t.Fatalf("fallback refresh_at=%s expires_at=%s", refreshAt, expiresAt)
+	}
+}
+
 func TestCredentialCookieFingerprintPreservesHeaderOrderAndDuplicates(t *testing.T) {
 	left := credentialCookieFingerprint("unb=1; cookie2=abc; _m_h5_tk=tk_1")
 	right := credentialCookieFingerprint("_m_h5_tk=tk_1; unb=1; cookie2=abc")

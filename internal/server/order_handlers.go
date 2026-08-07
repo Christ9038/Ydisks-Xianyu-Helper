@@ -534,10 +534,8 @@ func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	credentialUnlock()
 	credentialLocked = false
-	if runtimeCookieChanged && s.Manager != nil {
-		if account, running := s.Manager.GetInstance(cookieID); running {
-			account.UpdateCookie(runtimeCookie)
-		}
+	if runtimeCookieChanged {
+		s.updateRunningCookie(r.Context(), cookieID, runtimeCookie)
 	}
 	if callErr != nil {
 		writeErr(w, http.StatusBadGateway, callErr.Error())
@@ -779,10 +777,8 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		ok, ret, runtimeCookie, runtimeCookieChanged, err := s.consignWithCurrentCookie(r.Context(), order.CookieID, orderID, sess.UserID)
-		if runtimeCookieChanged && s.Manager != nil {
-			if acc, running := s.Manager.GetInstance(order.CookieID); running {
-				acc.UpdateCookie(runtimeCookie)
-			}
+		if runtimeCookieChanged {
+			s.updateRunningCookie(r.Context(), order.CookieID, runtimeCookie)
 		}
 		if err != nil && !ok {
 			failedCount++

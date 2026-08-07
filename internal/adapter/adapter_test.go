@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -101,6 +103,27 @@ type fakeOrderDetailClient struct {
 	detail *mtop.OrderDetailResult
 	err    error
 	calls  int
+}
+
+type scriptedOrderDetailClient struct {
+	mu      sync.Mutex
+	results []struct {
+		detail  *mtop.OrderDetailResult
+		err     error
+		cookies string
+	}
+}
+
+func (f *scriptedOrderDetailClient) FetchOrderDetail(_ context.Context, cookies, _ string) (*mtop.OrderDetailResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.results) == 0 {
+		return nil, errors.New("unexpected order detail call")
+	}
+	next := f.results[0]
+	f.results = f.results[1:]
+	next.cookies = cookies
+	return next.detail, next.err
 }
 
 func (f *fakeOrderDetailClient) FetchOrderDetail(_ context.Context, _, _ string) (*mtop.OrderDetailResult, error) {
@@ -380,6 +403,46 @@ func TestFetchOrderDetail_PersistsFlatGoMTopCookie(t *testing.T) {
 	}
 }
 
+func TestFetchOrderDetailSessionExpiredRenewsAndRetries(t *testing.T) {
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	now := time.Now()
+	oldCookie := "unb=1; sdkSilent=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10) +
+		"; havana_lgc_exp=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10) + "; havana_lgc2_77=old"
+	if err := store.Cookies.UpdateRenewalCookie(ctx, "cid", oldCookie, `{}`, now.Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Automation.DeferTask(ctx, db.DeferredAutomationTask{TaskKey: "blocked", CookieID: "cid", TriggerType: automation.TriggerOrderPaid, TaskJSON: `{}`, DueAt: now.Add(time.Hour).Unix(), ErrorMessage: "Session过期"}); err != nil {
+		t.Fatal(err)
+	}
+	client := &scriptedOrderDetailClient{results: []struct {
+		detail  *mtop.OrderDetailResult
+		err     error
+		cookies string
+	}{
+		{err: errors.New("token API 返回非成功: FAIL_SYS_SESSION_EXPIRED::Session过期")},
+		{detail: &mtop.OrderDetailResult{Quantity: "1", SpecName: "套餐", SpecValue: "续期版", Amount: "9.9"}},
+	}}
+	renewSvc, closeRenew := verifiedRenewService(t)
+	defer closeRenew()
+	a := New(store, nil, nil)
+	a.SetRenewService(renewSvc)
+	a.SetOrderDetailClient(client)
+	detail, err := a.FetchOrderDetail(ctx, "cid", "expired-order", "item", "buyer", "")
+	if err != nil || detail == nil || detail.SpecValue != "续期版" {
+		t.Fatalf("detail=%+v err=%v", detail, err)
+	}
+	saved, _ := store.Cookies.GetValue(ctx, "cid")
+	if !strings.Contains(saved, "havana_lgc2_77=verified") {
+		t.Fatalf("renewed cookie not saved: %q", saved)
+	}
+	var dueAt int64
+	if err := store.DB.QueryRowContext(ctx, `SELECT due_at FROM automation_pending_tasks WHERE task_key='blocked'`).Scan(&dueAt); err != nil || dueAt != 0 {
+		t.Fatalf("credential-blocked task not woken: due_at=%d err=%v", dueAt, err)
+	}
+}
+
 // TestOnPasswordLoginRefresh_BrowserNilStillUsesAPIRenew 浏览器未启用时仍先尝试接口轻量续期。
 func TestOnPasswordLoginRefresh_BrowserNilStillUsesAPIRenew(t *testing.T) {
 	store, cleanup := newAdapterTestStore(t)
@@ -400,6 +463,45 @@ func TestOnPasswordLoginRefresh_BrowserNilStillUsesAPIRenew(t *testing.T) {
 	saved, _ := store.Cookies.GetValue(context.Background(), "cid")
 	if !strings.Contains(saved, "havana_lgc2_77=verified") {
 		t.Fatalf("接口续期 cookie 未保存: %q", saved)
+	}
+}
+
+func TestOnPasswordLoginRefreshWaitsForPendingFinalResult(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		body       string
+		want       bool
+		wantCookie bool
+	}{
+		{name: "late success", body: `{"content":{"data":{"processFinished":true,"resultCode":100}}}`, want: true, wantCookie: true},
+		{name: "late business failure", body: `{"content":{"data":{"processFinished":true,"resultCode":500}}}`, want: false, wantCookie: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store, cleanup := newAdapterTestStore(t)
+			defer cleanup()
+			renewal.GlobalCooldown.Reset("cid")
+			if err := store.Cookies.UpdateValueExisting(context.Background(), "cid", "unb=1; havana_lgc_exp=9999999999999"); err != nil {
+				t.Fatal(err)
+			}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				time.Sleep(40 * time.Millisecond)
+				http.SetCookie(w, &http.Cookie{Name: "late_cookie", Value: "saved", Path: "/"})
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+			a := New(store, nil, nil)
+			a.SetRenewService(xrenew.Service{
+				HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL,
+				RetryDelay: -1, PromiseTimeout: 5 * time.Millisecond,
+			})
+			if got := a.OnPasswordLoginRefresh(context.Background(), "cid"); got != tt.want {
+				t.Fatalf("pending 最终恢复结果=%v want %v", got, tt.want)
+			}
+			saved, err := store.Cookies.GetValue(context.Background(), "cid")
+			if err != nil || strings.Contains(saved, "late_cookie=saved") != tt.wantCookie {
+				t.Fatalf("迟到 Cookie 保存异常: value=%q err=%v", saved, err)
+			}
+		})
 	}
 }
 

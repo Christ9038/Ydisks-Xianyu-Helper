@@ -401,6 +401,36 @@ func TestTryAPIRenewPersistsLatePromiseCookieWithoutRestart(t *testing.T) {
 	t.Fatal("迟到的 silentHasLogin Set-Cookie 未写回账号")
 }
 
+func TestTryAPIRenewPendingWatcherStopsWithAccountContext(t *testing.T) {
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	initial := "unb=123; havana_lgc_exp=" + fmt.Sprint(time.Now().Add(time.Hour).UnixMilli())
+	if err := store.Cookies.UpdateValueExisting(context.Background(), "cid", initial); err != nil {
+		t.Fatal(err)
+	}
+	acc.replaceCookieStr(initial)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(80 * time.Millisecond)
+		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: fmt.Sprint(time.Now().Add(time.Hour).UnixMilli()), Path: "/"})
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+	}))
+	defer srv.Close()
+	acc.renewer = xrenew.Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1, PromiseTimeout: 5 * time.Millisecond}
+	ctx, cancel := context.WithCancel(context.Background())
+	if acc.tryAPIRenew(ctx) {
+		t.Fatal("Promise 超时不得伪装成同步续期成功")
+	}
+	cancel()
+	acc.pendingRenewWG.Wait()
+	detail, err := store.Cookies.GetDetails(context.Background(), "cid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(detail.Value, "sdkSilent=") || strings.Contains(acc.currentCookieStr(), "sdkSilent=") {
+		t.Fatalf("账号关闭后不应接纳迟到 Cookie: db=%q runtime=%q", detail.Value, acc.currentCookieStr())
+	}
+}
+
 // TestSetRuntimeError_AllBranches 覆盖验证/captcha、token 失效、默认重连三分支
 // 及告警去重逻辑（仅从非验证态进入验证态时告警一次）。
 func TestSetRuntimeError_AllBranches(t *testing.T) {

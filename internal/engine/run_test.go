@@ -23,6 +23,16 @@ type fakeRunMtop struct{ token string }
 func (f *fakeRunMtop) FetchUserProfile(context.Context, string) (*mtop.UserProfileResult, error) {
 	return nil, nil
 }
+
+type shortTokenMtop struct {
+	fakeRunMtop
+	calls atomic.Int32
+}
+
+func (s *shortTokenMtop) RefreshTokenWithDeviceIDContext(context.Context, string, string) (*mtop.RefreshResult, error) {
+	call := s.calls.Add(1)
+	return &mtop.RefreshResult{AccessToken: fmt.Sprintf("short-%d", call), AccessTokenExpireAt: time.Now().Add(2 * time.Second).Unix()}, nil
+}
 func (f *fakeRunMtop) ConsignContext(context.Context, string, string) (bool, []string, string, error) {
 	return true, nil, "", nil
 }
@@ -90,6 +100,8 @@ type fakeWSConn struct {
 	sentTexts     []string
 	sentImages    []string
 	heartbeatDone chan struct{}
+	closeCh       chan struct{}
+	closeOnce     sync.Once
 	// onReceive 在 ReceiveLoop 启动时被调用，参数是 onMessage 回调，便于测试投递消息。
 	onReceive func(onMessage func(map[string]any))
 	// recvBlock 控制 ReceiveLoop 是否阻塞到 ctx 取消（默认 true）。
@@ -119,6 +131,14 @@ func (f *fakeWSConn) ReceiveLoop(ctx context.Context, onMessage func(map[string]
 		f.onReceive(onMessage)
 	}
 	if f.recvBlock {
+		if f.closeCh != nil {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-f.closeCh:
+				return nil
+			}
+		}
 		<-ctx.Done()
 		return ctx.Err()
 	}
@@ -129,7 +149,40 @@ func (f *fakeWSConn) Close() error {
 	f.mu.Lock()
 	f.closed = true
 	f.mu.Unlock()
+	if f.closeCh != nil {
+		f.closeOnce.Do(func() { close(f.closeCh) })
+	}
 	return nil
+}
+
+func TestRunRotatesTokenBeforeExpiry(t *testing.T) {
+	tokenClient := &shortTokenMtop{}
+	acc, _, _, cleanup := newRunAccount(t, tokenClient)
+	defer cleanup()
+	first := &fakeWSConn{recvBlock: true, closeCh: make(chan struct{})}
+	second := &fakeWSConn{recvBlock: true, closeCh: make(chan struct{})}
+	acc.wsDialer = &fakeDialer{results: []dialResult{{conn: first}, {conn: second}}}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- acc.Run(ctx) }()
+	deadline := time.Now().Add(4 * time.Second)
+	for tokenClient.calls.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if got := tokenClient.calls.Load(); got < 2 {
+		cancel()
+		t.Fatalf("Token 到期前未主动轮换，calls=%d status=%+v", got, acc.RuntimeStatus())
+	}
+	status := acc.RuntimeStatus()
+	if status.TokenExpiresAt.IsZero() || status.TokenRefreshAt.IsZero() || !status.TokenRefreshAt.Before(status.TokenExpiresAt) {
+		t.Fatalf("Token 有效期状态异常: %+v", status)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("账号在 Token 轮换测试后未退出")
+	}
 }
 
 func (f *fakeWSConn) SendText(_ context.Context, _, _, _, text string) error {
@@ -619,7 +672,7 @@ func TestRun_APIRenewSuccessRebuildsOfficialPageDeviceID(t *testing.T) {
 	}
 }
 
-func TestRun_TokenFetchThresholdDoesNotDisableAccount(t *testing.T) {
+func TestRun_TokenFetchFailureRetriesWithoutDisablingAccount(t *testing.T) {
 	acc, _, store, cleanup := newRunAccount(t, &fakeFailTokenMtop{err: errFakeDial})
 	defer cleanup()
 	acc.wsDialer = &fakeDialer{results: []dialResult{{conn: &fakeWSConn{recvBlock: true}}}}
@@ -629,15 +682,15 @@ func TestRun_TokenFetchThresholdDoesNotDisableAccount(t *testing.T) {
 	acc.tokenFetchFailures = TokenFetchDisableThreshold - 1
 	acc.mu.Unlock()
 
+	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- acc.Run(context.Background()) }()
-	select {
-	case err := <-done:
-		if !errors.Is(err, errFakeDial) {
-			t.Fatalf("token callback reject should enter CONN_ERROR, got %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("Run did not stop after token callback reject")
+	go func() { done <- acc.Run(ctx) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for acc.RuntimeStatus().State != RuntimeReconnecting && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if status := acc.RuntimeStatus(); status.State != RuntimeReconnecting {
+		t.Fatalf("runtime state=%q want %q", status.State, RuntimeReconnecting)
 	}
 	if !store.Cookies.GetStatus(context.Background(), "cid") {
 		t.Fatal("token failure threshold must not disable account")
@@ -647,8 +700,14 @@ func TestRun_TokenFetchThresholdDoesNotDisableAccount(t *testing.T) {
 			t.Fatalf("unexpected disable event: events=%+v alerts=%+v", h.events, h.alerts)
 		}
 	}
-	if status := acc.RuntimeStatus(); status.State != RuntimeAuthExpired {
-		t.Fatalf("runtime state=%q want %q", status.State, RuntimeAuthExpired)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run error=%v want context canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not stop after cancellation")
 	}
 }
 
