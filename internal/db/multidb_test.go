@@ -771,7 +771,7 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				t.Fatalf("set goose dialect: %v", err)
 			}
 			goose.SetBaseFS(migrationsFS)
-			for i := 0; i < 10; i++ {
+			for i := 0; i < 12; i++ {
 				if err := goose.Down(tg.store.DB, "migrations/"+subdir); err != nil {
 					t.Fatalf("migration down #%d: %v", i+1, err)
 				}
@@ -790,6 +790,11 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 			}
 			if columnExistsForDialect(t, tg.store.DB, tg.dialect, "item_publish_batch_rows", "category_json") {
 				t.Fatal("item_publish_batch_rows.category_json should be removed after down")
+			}
+			for _, table := range []string{"account_task_settings", "account_task_runs", "chat_sessions", "chat_messages"} {
+				if tableExistsForDialect(t, tg.store.DB, tg.dialect, table) {
+					t.Fatalf("table should be removed after migration 24 down: %s", table)
+				}
 			}
 
 			if err := goose.Up(tg.store.DB, "migrations/"+subdir); err != nil {
@@ -811,10 +816,105 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				{"automation_runs", "action_started"},
 				{"account_tokens", "cookie_fingerprint"},
 				{"item_publish_batch_rows", "category_json"},
+				{"account_task_settings", "auto_rate_enabled"},
+				{"account_task_runs", "run_key"},
+				{"chat_sessions", "unread_count"},
+				{"chat_messages", "message_key"},
 			} {
 				if !columnExistsForDialect(t, tg.store.DB, tg.dialect, c.table, c.col) {
 					t.Fatalf("column missing after re-up: %s.%s", c.table, c.col)
 				}
+			}
+		})
+	}
+}
+
+func TestMultiDB_ChatAndAccountTasks(t *testing.T) {
+	for _, tg := range allTestTargets(t) {
+		t.Run(tg.name, func(t *testing.T) {
+			defer tg.cleanup()
+			ctx := context.Background()
+			s := tg.store
+			suffix := fmt.Sprintf("%d", atomic.AddUint64(&multidbCounter, 1))
+			username := tg.name + "_chat_" + suffix
+			if ok, err := s.Users.Create(ctx, username, username+"@e.com", "pw"); err != nil || !ok {
+				t.Fatalf("create user: ok=%v err=%v", ok, err)
+			}
+			user, _ := s.Users.GetByUsername(ctx, username)
+			cookieID := tg.name + "_chat_cookie_" + suffix
+			if err := s.Cookies.Save(ctx, cookieID, "unb=1; _m_h5_tk=token_1", user.ID); err != nil {
+				t.Fatal(err)
+			}
+
+			settings, err := s.AccountTasks.Get(ctx, cookieID)
+			if err != nil || settings.RateContent == "" || settings.PolishTime != "03:00" {
+				t.Fatalf("default settings=%+v err=%v", settings, err)
+			}
+			settings.AutoRateEnabled = true
+			settings.AutoPolishEnabled = true
+			settings.RateContent = "交易愉快"
+			settings.PolishTime = "04:30"
+			if err := s.AccountTasks.Upsert(ctx, settings); err != nil {
+				t.Fatalf("upsert settings: %v", err)
+			}
+			stored, err := s.AccountTasks.Get(ctx, cookieID)
+			if err != nil || !stored.AutoRateEnabled || !stored.AutoPolishEnabled || stored.RateContent != "交易愉快" || stored.PolishTime != "04:30" {
+				t.Fatalf("stored settings=%+v err=%v", stored, err)
+			}
+			enabled, err := s.AccountTasks.Enabled(ctx)
+			if err != nil || len(enabled) != 1 {
+				t.Fatalf("enabled=%+v err=%v", enabled, err)
+			}
+
+			run := AccountTaskRun{RunKey: "rate:" + cookieID + ":order-1", CookieID: cookieID, TaskType: "auto_rate", TargetID: "order-1"}
+			if claimed, err := s.AccountTasks.ClaimRun(ctx, run, 100); err != nil || !claimed {
+				t.Fatalf("first claim=%v err=%v", claimed, err)
+			}
+			if claimed, err := s.AccountTasks.ClaimRun(ctx, run, 100); err != nil || claimed {
+				t.Fatalf("duplicate claim=%v err=%v", claimed, err)
+			}
+			if err := s.AccountTasks.FinishRun(ctx, run.RunKey, "failed", 0, 1, "retry", 200); err != nil {
+				t.Fatal(err)
+			}
+			if claimed, err := s.AccountTasks.ClaimRun(ctx, run, 199); err != nil || claimed {
+				t.Fatalf("early retry claim=%v err=%v", claimed, err)
+			}
+			if claimed, err := s.AccountTasks.ClaimRunImmediately(ctx, run, 199); err != nil || !claimed {
+				t.Fatalf("manual retry claim=%v err=%v", claimed, err)
+			}
+			if err := s.AccountTasks.FinishRun(ctx, run.RunKey, "failed", 0, 1, "retry", 200); err != nil {
+				t.Fatal(err)
+			}
+			if claimed, err := s.AccountTasks.ClaimRun(ctx, run, 200); err != nil || !claimed {
+				t.Fatalf("due retry claim=%v err=%v", claimed, err)
+			}
+
+			session := ChatSession{CookieID: cookieID, ChatID: "chat-1", BuyerID: "buyer-1", BuyerName: "买家甲", ItemID: "item-1"}
+			incoming := ChatMessage{MessageKey: "platform-1", Direction: "incoming", SenderID: "buyer-1", SenderName: "买家甲", MessageType: "text", Content: "你好", Status: "received", SentAt: 1000}
+			if _, inserted, err := s.Chats.SaveMessage(ctx, session, incoming, true); err != nil || !inserted {
+				t.Fatalf("save incoming inserted=%v err=%v", inserted, err)
+			}
+			if _, inserted, err := s.Chats.SaveMessage(ctx, session, incoming, true); err != nil || inserted {
+				t.Fatalf("duplicate incoming inserted=%v err=%v", inserted, err)
+			}
+			outgoing := ChatMessage{MessageKey: "local-1", Direction: "outgoing", SenderID: cookieID, SenderName: "我", MessageType: "text", Content: "您好", Status: "sent", SentAt: 2000}
+			if _, inserted, err := s.Chats.SaveMessage(ctx, session, outgoing, false); err != nil || !inserted {
+				t.Fatalf("save outgoing inserted=%v err=%v", inserted, err)
+			}
+			sessions, err := s.Chats.ListSessions(ctx, user.ID, cookieID, 20)
+			if err != nil || len(sessions) != 1 || sessions[0].UnreadCount != 1 || sessions[0].LastMessage != "您好" {
+				t.Fatalf("sessions=%+v err=%v", sessions, err)
+			}
+			messages, err := s.Chats.ListMessages(ctx, user.ID, cookieID, "chat-1", 0, 20)
+			if err != nil || len(messages) != 2 || messages[0].Content != "你好" || messages[1].Content != "您好" {
+				t.Fatalf("messages=%+v err=%v", messages, err)
+			}
+			if err := s.Chats.MarkRead(ctx, user.ID, cookieID, "chat-1"); err != nil {
+				t.Fatal(err)
+			}
+			sessions, _ = s.Chats.ListSessions(ctx, user.ID, cookieID, 20)
+			if sessions[0].UnreadCount != 0 {
+				t.Fatalf("unread after mark=%d", sessions[0].UnreadCount)
 			}
 		})
 	}

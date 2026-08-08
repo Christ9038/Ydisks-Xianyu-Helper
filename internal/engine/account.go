@@ -125,6 +125,29 @@ type ChatMessage struct {
 	Raw          map[string]any // 解密后的完整消息
 }
 
+// OutgoingChatMessage is emitted after the existing account WebSocket has
+// accepted a text message. It is an observation hook only; persistence errors
+// never change the delivery result.
+type OutgoingChatMessage struct {
+	AccountID  string
+	ChatID     string
+	BuyerID    string
+	Text       string
+	MessageKey string
+}
+
+type outgoingChatHandler interface {
+	HandleOutgoingChatMessage(ctx context.Context, message OutgoingChatMessage) error
+}
+
+type outgoingMessageKeyContextKey struct{}
+
+// WithOutgoingMessageKey correlates a UI-created pending message with the
+// post-send observer so the same text is not inserted twice.
+func WithOutgoingMessageKey(ctx context.Context, key string) context.Context {
+	return context.WithValue(ctx, outgoingMessageKeyContextKey{}, strings.TrimSpace(key))
+}
+
 // RuntimeStatus 是账号引擎的实时连接状态，不写入数据库。
 type RuntimeStatus struct {
 	State                 string    `json:"state"`
@@ -1752,7 +1775,18 @@ func (a *Account) SendText(ctx context.Context, chatID, toUserID, text string) e
 	}
 	sendCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	return conn.SendText(sendCtx, myID, chatID, toUserID, text)
+	if err := conn.SendText(sendCtx, myID, chatID, toUserID, text); err != nil {
+		return err
+	}
+	if observer, ok := a.handler.(outgoingChatHandler); ok {
+		key, _ := ctx.Value(outgoingMessageKeyContextKey{}).(string)
+		if err := observer.HandleOutgoingChatMessage(ctx, OutgoingChatMessage{
+			AccountID: a.CookieID, ChatID: chatID, BuyerID: toUserID, Text: text, MessageKey: key,
+		}); err != nil {
+			a.logger.Warn("保存出站聊天旁路失败", "account", a.CookieID, "chat_id", chatID, "err", err)
+		}
+	}
+	return nil
 }
 
 // SendImage 通过当前 WebSocket 给买家发送图片消息。当前仅支持可直接访问的 CDN/公网 URL。
@@ -1787,6 +1821,39 @@ func (a *Account) currentSenderState() (WSConn, string, error) {
 		return nil, "", fmt.Errorf("%w: 账号 %s 缺少 unb，无法发送消息", automation.ErrMessageNotSent, a.CookieID)
 	}
 	return a.conn, myID, nil
+}
+
+// FetchChatHistory reuses the account's registered IM connection. Keeping this
+// optional capability outside WSConn avoids forcing non-chat test transports to
+// implement history retrieval.
+func (a *Account) FetchChatHistory(ctx context.Context, chatID string, cursor int64, limit int) (map[string]any, string, error) {
+	conn, myID, err := a.currentSenderState()
+	if err != nil {
+		return nil, "", err
+	}
+	history, ok := conn.(interface {
+		ListUserMessages(context.Context, string, int64, int) (map[string]any, error)
+	})
+	if !ok {
+		return nil, "", errors.New("当前 WebSocket 连接不支持聊天历史")
+	}
+	body, err := history.ListUserMessages(ctx, chatID, cursor, limit)
+	return body, myID, err
+}
+
+func (a *Account) FetchChatConversations(ctx context.Context, cursor int64, limit int) (map[string]any, string, error) {
+	conn, myID, err := a.currentSenderState()
+	if err != nil {
+		return nil, "", err
+	}
+	fetcher, ok := conn.(interface {
+		ListConversations(context.Context, int64, int) (map[string]any, error)
+	})
+	if !ok {
+		return nil, "", errors.New("当前 WebSocket 连接不支持历史会话")
+	}
+	body, err := fetcher.ListConversations(ctx, cursor, limit)
+	return body, myID, err
 }
 
 // AutomationReady 报告自动化消息是否可以立即使用当前 WS 连接发送。

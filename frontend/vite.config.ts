@@ -12,6 +12,7 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
+		ws: true,
       },
       // 代理其他后端请求
       '/cookies': {

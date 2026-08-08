@@ -403,6 +403,65 @@ func (c *Conn) request(ctx context.Context, path string, headers map[string]any,
 	}
 }
 
+// ListUserMessages retrieves one page of official IM history for a conversation.
+// The cursor is opaque to callers; zero selects the newest page.
+func (c *Conn) ListUserMessages(ctx context.Context, cid string, cursor int64, limit int) (map[string]any, error) {
+	cid = strings.TrimSpace(cid)
+	if cid == "" {
+		return nil, errors.New("聊天历史缺少会话 ID")
+	}
+	if !strings.Contains(cid, "@") {
+		cid += "@goofish"
+	}
+	if cursor <= 0 {
+		cursor = 9007199254740991
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	response, err := c.request(ctx, "/r/MessageManager/listUserMessages", nil,
+		[]any{cid, false, cursor, limit, false}, regResponseTimeout)
+	if err != nil {
+		return nil, err
+	}
+	if code, ok := responseCode(response["code"]); ok && code != http.StatusOK {
+		return nil, fmt.Errorf("聊天历史接口返回状态 %d", code)
+	}
+	body, ok := response["body"].(map[string]any)
+	if !ok {
+		return nil, errors.New("聊天历史接口响应缺少 body")
+	}
+	if reason := strings.TrimSpace(fmt.Sprint(body["reason"])); reason != "" && reason != "<nil>" {
+		return nil, fmt.Errorf("聊天历史接口失败: %s", reason)
+	}
+	return body, nil
+}
+
+// ListConversations retrieves one page of the account's official IM contacts.
+func (c *Conn) ListConversations(ctx context.Context, cursor int64, limit int) (map[string]any, error) {
+	if cursor <= 0 {
+		cursor = 9007199254740991
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 100
+	}
+	response, err := c.request(ctx, "/r/Conversation/listNewestPagination", nil, []any{cursor, limit}, regResponseTimeout)
+	if err != nil {
+		return nil, err
+	}
+	if code, ok := responseCode(response["code"]); ok && code != http.StatusOK {
+		return nil, fmt.Errorf("会话列表接口返回状态 %d", code)
+	}
+	body, ok := response["body"].(map[string]any)
+	if !ok {
+		return nil, errors.New("会话列表接口响应缺少 body")
+	}
+	if reason := strings.TrimSpace(fmt.Sprint(body["reason"])); reason != "" && reason != "<nil>" {
+		return nil, fmt.Errorf("会话列表接口失败: %s", reason)
+	}
+	return body, nil
+}
+
 func (c *Conn) logResponse(path, mid string, code int, duration time.Duration) {
 	attrs := []any{"path", path, "mid", mid, "code", code, "duration", duration.Round(time.Millisecond)}
 	if code >= 400 {

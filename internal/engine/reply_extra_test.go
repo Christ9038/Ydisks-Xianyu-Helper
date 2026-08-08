@@ -282,6 +282,9 @@ func TestIsNonUserChatNotice(t *testing.T) {
 	if isNonUserChatNotice(map[string]any{}, map[string]any{}, "[买家说你好]") {
 		t.Error("普通消息不应判为系统提示")
 	}
+	if !isNonUserChatNotice(map[string]any{}, map[string]any{"sessionType": "24"}, "售后问卷") {
+		t.Error("非真人会话不应进入买家聊天列表")
+	}
 }
 
 // TestToStringAndTrimFloatInt 数字/字符串安全转换。

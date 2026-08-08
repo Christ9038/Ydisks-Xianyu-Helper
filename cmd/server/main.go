@@ -28,6 +28,7 @@ import (
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/browser"
+	"xianyu-go/internal/chat"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/logging"
 	"xianyu-go/internal/notify"
@@ -149,6 +150,8 @@ func main() {
 	}
 	var mgr *account.Manager
 	ap := adapter.New(store, bm, logger)
+	chatService := chat.New(store)
+	ap.SetChatService(chatService)
 	mgr = account.NewManager(store, ap, logger)
 	autoCenter := automation.New(store, mgr, logger)
 	autoCenter.SetOrderDetailFetcher(ap)
@@ -167,6 +170,7 @@ func main() {
 
 	// 3) HTTP 服务。
 	srv := server.New(store, mgr, *secure, *webDir, *addr, logger, autoCenter, notifier)
+	srv.SetChatService(chatService)
 	srv.StartPublishBatchRecovery(ctx)
 	if err := srv.Run(ctx); err != nil {
 		logger.Error("HTTP 服务退出", "err", err)
