@@ -65,13 +65,18 @@ type ClientImpl struct {
 	HTTPClient *http.Client
 	// Logger 记录 MTOP 请求的安全摘要（不会输出 Cookie、签名或响应正文）。
 	// 未设置时使用 slog.Default，测试可传入丢弃日志的 logger。
-	Logger         *slog.Logger
-	TokenURL       string
-	ConsignURL     string
-	OrderDetailURL string
-	SoldOrdersURL  string
-	ItemDetailURL  string
-	LoginUserURL   string
+	Logger              *slog.Logger
+	TokenURL            string
+	ConsignURL          string
+	OrderDetailURL      string
+	SoldOrdersURL       string
+	ItemDetailURL       string
+	LoginUserURL        string
+	RateCreateURL       string
+	RateListURL         string
+	PolishItemURL       string
+	PolishItemBackupURL string
+	ChatUserQueryURL    string
 }
 
 // httpClient 返回带统一请求/响应日志的 HTTP 客户端副本。统一放在传输层，

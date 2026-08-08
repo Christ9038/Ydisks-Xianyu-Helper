@@ -60,6 +60,7 @@ func (s *Scheduler) Wait() {
 
 func (s *Scheduler) scan(ctx context.Context) {
 	s.runDeferredTasks(ctx)
+	s.center.scanAccountTasks(ctx)
 	if recovered, err := s.center.store.Automation.RecoverDefinitelyUnsentReviewRuns(ctx); err != nil {
 		s.center.logger.Warn("恢复历史求评价未发送任务失败", "err", err)
 	} else if recovered > 0 {

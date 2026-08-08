@@ -55,6 +55,61 @@ export interface AccountDetail {
   max_discount_amount?: number;
   max_bargain_rounds?: number;
   custom_prompts?: string;
+	// 账号级计划任务
+	auto_rate_enabled?: boolean;
+	rate_content?: string;
+	auto_polish_enabled?: boolean;
+	polish_time?: string;
+	last_rate_scan_at?: number;
+	last_polish_date?: string;
+	last_polish_at?: number;
+}
+
+export interface AccountTaskSettings {
+	account_id: string;
+	auto_rate_enabled: boolean;
+	rate_content: string;
+	auto_polish_enabled: boolean;
+	polish_time: string;
+	last_rate_scan_at?: number;
+	last_polish_date?: string;
+	last_polish_at?: number;
+}
+
+export interface AccountTaskSummary {
+	task_type: 'auto_rate' | 'auto_polish';
+	found: number;
+	success: number;
+	failed: number;
+	skipped: number;
+	message?: string;
+}
+
+export interface ChatSession {
+	account_id: string;
+	chat_id: string;
+	buyer_id: string;
+	buyer_name: string;
+	buyer_avatar_url?: string;
+	item_id?: string;
+	item_title?: string;
+	last_message: string;
+	last_message_at: number;
+	unread_count: number;
+}
+
+export interface ChatMessage {
+	id: number;
+	account_id: string;
+	chat_id: string;
+	message_key: string;
+	direction: 'incoming' | 'outgoing';
+	sender_id: string;
+	sender_name: string;
+	message_type: 'text' | 'image' | 'video';
+	content: string;
+	status: 'received' | 'sending' | 'sent' | 'failed';
+	sent_at: number;
 }
 
 // Orders

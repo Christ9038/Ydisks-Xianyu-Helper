@@ -33,6 +33,12 @@ import {
   updateNotificationChannel,
   updateSystemSettings,
   updateShippingRule,
+	getChatSessions,
+	getChatMessages,
+	sendChatMessage,
+	markChatRead,
+	updateAccountTaskSettings,
+	runAccountTask,
 } from './api';
 
 afterEach(() => {
@@ -47,6 +53,36 @@ test('updateSystemSettings uses one atomic bulk request', async () => {
 	expect(fetchMock).toHaveBeenCalledTimes(1);
 	expect(fetchMock).toHaveBeenCalledWith('/system-settings', expect.objectContaining({ method: 'PUT', credentials: 'include' }));
 	expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ theme_color: 'blue', renewal_log_retention_days: 15 });
+});
+
+test('chat APIs preserve account and conversation scope', async () => {
+	const fetchMock = vi.fn()
+		.mockResolvedValueOnce(jsonResponse({ sessions: [{ account_id: 'a1', chat_id: 'c1' }] }))
+		.mockResolvedValueOnce(jsonResponse({ messages: [{ account_id: 'a1', chat_id: 'c1', id: 1 }] }))
+		.mockImplementation(() => Promise.resolve(jsonResponse({ success: true, message: { id: 2 } })));
+	vi.stubGlobal('fetch', fetchMock);
+	await getChatSessions('a1');
+	await getChatMessages('a1', 'c1', 9);
+	await sendChatMessage({ account_id: 'a1', chat_id: 'c1', buyer_id: 'b1', text: 'hi' });
+	await markChatRead('a1', 'c1');
+	expect(fetchMock.mock.calls[0][0]).toBe('/api/chat/sessions?account_id=a1');
+	expect(fetchMock.mock.calls[1][0]).toBe('/api/chat/messages?account_id=a1&chat_id=c1&before_id=9');
+	expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toMatchObject({ account_id: 'a1', chat_id: 'c1', buyer_id: 'b1' });
+	expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({ account_id: 'a1', chat_id: 'c1' });
+});
+
+test('account task APIs keep rating and polish account-scoped', async () => {
+	const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ success: true, summary: { task_type: 'auto_rate' } })));
+	vi.stubGlobal('fetch', fetchMock);
+	await updateAccountTaskSettings('a1', {
+		account_id: 'a1', auto_rate_enabled: true, rate_content: '交易愉快',
+		auto_polish_enabled: true, polish_time: '03:00',
+	});
+	await runAccountTask('a1', 'auto_rate');
+	expect(fetchMock.mock.calls[0][0]).toBe('/api/account-tasks/a1');
+	expect(fetchMock.mock.calls[0][1].method).toBe('PUT');
+	expect(fetchMock.mock.calls[1][0]).toBe('/api/account-tasks/a1/run');
+	expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ task_type: 'auto_rate' });
 });
 
 test('getItemPublishBatches unwraps persisted batch list', async () => {
