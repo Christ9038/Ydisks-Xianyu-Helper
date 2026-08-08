@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -61,13 +62,67 @@ type Client interface {
 // ClientImpl 是 Client 接口的 HTTP 实现。零值可用；HTTP 超时默认 30s。
 // 仍导出 HTTPClient/TokenURL 等字段以便调用方覆盖（如测试注入 RoundTripper）。
 type ClientImpl struct {
-	HTTPClient     *http.Client
+	HTTPClient *http.Client
+	// Logger 记录 MTOP 请求的安全摘要（不会输出 Cookie、签名或响应正文）。
+	// 未设置时使用 slog.Default，测试可传入丢弃日志的 logger。
+	Logger         *slog.Logger
 	TokenURL       string
 	ConsignURL     string
 	OrderDetailURL string
 	SoldOrdersURL  string
 	ItemDetailURL  string
 	LoginUserURL   string
+}
+
+// httpClient 返回带统一请求/响应日志的 HTTP 客户端副本。统一放在传输层，
+// 确保 token、续期、订单、商品和发布等所有 MTOP 调用都具备一致的可观测性。
+func (c *ClientImpl) httpClient() *http.Client {
+	return c.httpClientWithTimeout(30 * time.Second)
+}
+
+func (c *ClientImpl) httpClientWithTimeout(defaultTimeout time.Duration) *http.Client {
+	hc := c.HTTPClient
+	if hc == nil {
+		hc = &http.Client{Timeout: defaultTimeout}
+	}
+	clone := *hc
+	transport := hc.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	clone.Transport = loggingTransport{base: transport, logger: c.Logger}
+	return &clone
+}
+
+type loggingTransport struct {
+	base   http.RoundTripper
+	logger *slog.Logger
+}
+
+func (t loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	logger := t.logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	started := time.Now()
+	logger.Debug("MTOP 请求开始", "method", req.Method, "path", req.URL.Path)
+	resp, err := t.base.RoundTrip(req)
+	attrs := []any{"method", req.Method, "path", req.URL.Path, "duration", time.Since(started).Round(time.Millisecond)}
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			logger.Debug("MTOP 请求取消", append(attrs, "err", err)...)
+		} else {
+			logger.Warn("MTOP 请求失败", append(attrs, "err", err)...)
+		}
+		return nil, err
+	}
+	responseAttrs := append(attrs, "status", resp.StatusCode, "content_length", resp.ContentLength)
+	if resp.StatusCode >= http.StatusBadRequest {
+		logger.Warn("MTOP HTTP 响应异常", responseAttrs...)
+	} else {
+		logger.Debug("MTOP 响应收到", responseAttrs...)
+	}
+	return resp, nil
 }
 
 // NewClient 构造纯 Go HTTP 的 MTOP 客户端。Chromium 只用于读取本机指纹

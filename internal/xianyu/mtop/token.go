@@ -154,10 +154,7 @@ func (c *ClientImpl) RequestFreshCaptchaURLContext(ctx context.Context, cookiesS
 }
 
 func (c *ClientImpl) refreshTokenOnce(ctx context.Context, cookiesStr, deviceID string, cookieSnapshot []cookierefresh.BrowserCookie) (string, int64, []string, string, []cookierefresh.BrowserCookie, string, int, bool, bool, error) {
-	hc := c.HTTPClient
-	if hc == nil {
-		hc = &http.Client{Timeout: 20 * time.Second}
-	}
+	hc := c.httpClientWithTimeout(20 * time.Second)
 
 	tokenURL := c.TokenURL
 	if tokenURL == "" {

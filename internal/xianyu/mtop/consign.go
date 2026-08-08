@@ -68,10 +68,7 @@ func (c *ClientImpl) ConsignContext(ctx context.Context, cookiesStr, orderID str
 }
 
 func (c *ClientImpl) consignOnce(ctx context.Context, cookiesStr, orderID string) (ok bool, ret []string, updatedCookies string, err error) {
-	hc := c.HTTPClient
-	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
-	}
+	hc := c.httpClient()
 	consignURL := c.ConsignURL
 	if consignURL == "" {
 		consignURL = ConsignAPI

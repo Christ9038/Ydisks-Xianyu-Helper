@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -232,9 +233,11 @@ func openBatch(ctx context.Context, target string, cfg Config, logger *slog.Logg
 		if result.conn != nil {
 			_ = result.conn.CloseNow()
 		}
+		logger.Warn("闲鱼 WebSocket 握手失败", "url", target, "err", result.err)
 		return nil, fmt.Errorf("WS dial: %w", result.err)
 	}
 	result.conn.SetReadLimit(8 << 20)
+	logger.Info("闲鱼 WebSocket 握手成功", "url", target)
 	return newConn(result.conn, cfg, logger), nil
 }
 
@@ -350,6 +353,8 @@ func (c *Conn) request(ctx context.Context, path string, headers map[string]any,
 		headers["mid"] = mid
 	}
 	key := midKey(mid)
+	started := time.Now()
+	c.logger.Debug("WS 请求发送", "path", path, "mid", key)
 	responseCh := make(chan map[string]any, 1)
 	c.pendingMu.Lock()
 	c.pending[key] = responseCh
@@ -365,10 +370,13 @@ func (c *Conn) request(ctx context.Context, path string, headers map[string]any,
 		frame["body"] = body
 	}
 	if err := c.sendJSON(requestCtx, frame); err != nil {
+		c.logger.Warn("WS 请求发送失败", "path", path, "mid", key, "duration", time.Since(started).Round(time.Millisecond), "err", err)
 		return nil, err
 	}
 	select {
 	case response := <-responseCh:
+		code, _ := responseCode(response["code"])
+		c.logResponse(path, key, code, time.Since(started))
 		return response, nil
 	case <-c.readDone:
 		// readPump always dispatches a decoded response before it can observe the
@@ -376,13 +384,32 @@ func (c *Conn) request(ctx context.Context, path string, headers map[string]any,
 		// matching browser event ordering (message before close).
 		select {
 		case response := <-responseCh:
+			code, _ := responseCode(response["code"])
+			c.logResponse(path, key, code, time.Since(started))
 			return response, nil
 		default:
 		}
-		return nil, c.connectionReadError()
+		err := c.connectionReadError()
+		c.logger.Warn("WS 请求因连接结束失败", "path", path, "mid", key, "duration", time.Since(started).Round(time.Millisecond), "err", err)
+		return nil, err
 	case <-requestCtx.Done():
-		return nil, requestCtx.Err()
+		err := requestCtx.Err()
+		if errors.Is(err, context.Canceled) {
+			c.logger.Debug("WS 请求取消", "path", path, "mid", key, "duration", time.Since(started).Round(time.Millisecond), "err", err)
+		} else {
+			c.logger.Warn("WS 请求超时", "path", path, "mid", key, "duration", time.Since(started).Round(time.Millisecond), "err", err)
+		}
+		return nil, err
 	}
+}
+
+func (c *Conn) logResponse(path, mid string, code int, duration time.Duration) {
+	attrs := []any{"path", path, "mid", mid, "code", code, "duration", duration.Round(time.Millisecond)}
+	if code >= 400 {
+		c.logger.Warn("WS 业务响应异常", attrs...)
+		return
+	}
+	c.logger.Debug("WS 响应收到", attrs...)
 }
 
 func (c *Conn) readPump() {

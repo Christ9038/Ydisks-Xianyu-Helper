@@ -8,6 +8,7 @@ package engine
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -192,6 +193,7 @@ type Account struct {
 	tokenAcquiredAt    time.Time
 	tokenExpiresAt     time.Time
 	tokenRefreshAt     time.Time
+	tokenFingerprint   string // 仅用于诊断，不保存原始 Token
 
 	// 去重
 	dedupMu   sync.Mutex
@@ -1539,12 +1541,15 @@ func (a *Account) saveTokenCache(ctx context.Context, deviceID, accessToken stri
 	}
 	now := time.Now()
 	expiresAt, refreshAt := tokenRotationSchedule(serverExpireAt, now)
+	tokenFP := tokenFingerprint(accessToken)
 	a.mu.Lock()
+	previousTokenFP := a.tokenFingerprint
+	a.tokenFingerprint = tokenFP
 	a.tokenAcquiredAt = now
 	a.tokenExpiresAt = expiresAt
 	a.tokenRefreshAt = refreshAt
 	a.mu.Unlock()
-	a.logger.Info("WS Token 获取成功", "expires_at", expiresAt, "refresh_at", refreshAt, "ttl", time.Until(expiresAt).Round(time.Second))
+	a.logger.Info("WS Token 获取成功", "expires_at", expiresAt, "refresh_at", refreshAt, "ttl", time.Until(expiresAt).Round(time.Second), "token_fp", tokenFP, "previous_token_fp", previousTokenFP, "token_changed", previousTokenFP == "" || previousTokenFP != tokenFP)
 	if a.store == nil || a.store.Tokens == nil {
 		return
 	}
@@ -1561,8 +1566,18 @@ func (a *Account) saveTokenCache(ctx context.Context, deviceID, accessToken stri
 	}
 }
 
+// tokenFingerprint 用不可逆摘要标识 Token，便于判断服务端是否轮换了 Token，
+// 同时避免日志泄露可用于 WS 注册的凭证原文。
+func tokenFingerprint(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return fmt.Sprintf("%x", sum[:6])
+}
+
 // clearTokenCache 清除账号 token 缓存（session 失效 / 短连接可疑 / cookie 被外部更新时调用）。
 func (a *Account) clearTokenCache(ctx context.Context) {
+	a.mu.Lock()
+	a.tokenFingerprint = ""
+	a.mu.Unlock()
 	if a.store == nil || a.store.Tokens == nil {
 		return
 	}

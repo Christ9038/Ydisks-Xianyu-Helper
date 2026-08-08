@@ -38,10 +38,7 @@ func (c *ClientImpl) CheckLoginStatusContext(ctx context.Context, cookiesStr str
 	if session := cookieSessionFromContext(ctx); session != nil {
 		cookiesStr, _, _ = session.State()
 	}
-	hc := c.HTTPClient
-	if hc == nil {
-		hc = &http.Client{Timeout: 20 * time.Second}
-	}
+	hc := c.httpClientWithTimeout(20 * time.Second)
 	loginURL := c.LoginUserURL
 	if loginURL == "" {
 		loginURL = LoginUserAPI

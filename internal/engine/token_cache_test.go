@@ -76,3 +76,19 @@ func TestCredentialStateFingerprintIncludesAuthoritativeSnapshot(t *testing.T) {
 		t.Fatal("权威空 Jar 必须与没有快照的历史状态区分")
 	}
 }
+
+func TestTokenFingerprintIsStableNonReversibleDiagnosticID(t *testing.T) {
+	first := tokenFingerprint("access-token-a")
+	if first == "" || len(first) != 12 {
+		t.Fatalf("token fingerprint=%q, want 12 hex chars", first)
+	}
+	if first != tokenFingerprint("access-token-a") {
+		t.Fatal("same token must produce stable fingerprint")
+	}
+	if first == tokenFingerprint("access-token-b") {
+		t.Fatal("different tokens must produce different fingerprints")
+	}
+	if first == "access-token-a" {
+		t.Fatal("fingerprint must not expose the token")
+	}
+}
