@@ -152,6 +152,7 @@ test('getShippingRulesPage sends filters and preserves pagination metadata', asy
     page: 2,
     page_size: 20,
     total_pages: 2,
+    trigger_counts: { order_paid: 8, buyer_reviewed: 7, review_missing_timeout: 6 },
   }));
   vi.stubGlobal('fetch', fetchMock);
 
@@ -164,7 +165,13 @@ test('getShippingRulesPage sends filters and preserves pagination metadata', asy
     pageSize: 20,
   });
 
-  expect(result).toMatchObject({ total: 21, page: 2, page_size: 20, total_pages: 2 });
+  expect(result).toMatchObject({
+    total: 21,
+    page: 2,
+    page_size: 20,
+    total_pages: 2,
+    trigger_counts: { order_paid: 8, buyer_reviewed: 7, review_missing_timeout: 6 },
+  });
   expect(result.data[0]).toMatchObject({ id: '7', name: '付款规则', enabled: false });
   expect(fetchMock).toHaveBeenCalledWith(
     '/automation-rules?page=2&page_size=20&cookie_id=acc1&trigger_type=order_paid&enabled=false&search=%E5%95%86%E5%93%81',

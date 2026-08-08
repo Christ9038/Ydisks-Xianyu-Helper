@@ -112,6 +112,10 @@ func TestAutomationRulesListFiltersAndPagination(t *testing.T) {
 	if status != http.StatusOK || filtered["total"] != float64(1) || filtered["total_pages"] != float64(1) {
 		t.Fatalf("filtered status=%d body=%+v", status, filtered)
 	}
+	filteredCounts, ok := filtered["trigger_counts"].(map[string]any)
+	if !ok || filteredCounts[automation.TriggerOrderPaid] != float64(1) || len(filteredCounts) != 1 {
+		t.Fatalf("filtered trigger counts=%+v", filtered["trigger_counts"])
+	}
 	data, ok := filtered["data"].([]any)
 	if !ok || len(data) != 1 || data[0].(map[string]any)["name"] != "付款规则" {
 		t.Fatalf("filtered data=%+v", filtered["data"])
@@ -123,6 +127,12 @@ func TestAutomationRulesListFiltersAndPagination(t *testing.T) {
 	}
 	if data, ok := lastPage["data"].([]any); !ok || len(data) != 1 {
 		t.Fatalf("last page data=%+v", lastPage["data"])
+	}
+	lastPageCounts, ok := lastPage["trigger_counts"].(map[string]any)
+	if !ok || lastPageCounts[automation.TriggerOrderPaid] != float64(1) ||
+		lastPageCounts[automation.TriggerBuyerReviewed] != float64(1) ||
+		lastPageCounts[automation.TriggerReviewMissingTimeout] != float64(1) {
+		t.Fatalf("last page trigger counts=%+v", lastPage["trigger_counts"])
 	}
 
 	status, _ = request("/automation-rules?page=1&enabled=maybe")

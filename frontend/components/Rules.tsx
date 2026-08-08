@@ -232,6 +232,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
   const [automationPageSize, setAutomationPageSize] = useState(10);
   const [automationTotal, setAutomationTotal] = useState(0);
   const [automationTotalPages, setAutomationTotalPages] = useState(0);
+  const [automationTriggerCounts, setAutomationTriggerCounts] = useState<Record<string, number>>({});
   const automationRulesRequest = useRef(0);
   const replyRulesRequest = useRef(0);
   const selectedAccountRef = useRef('');
@@ -283,6 +284,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 	setAutomationRules(result.data);
 	setAutomationTotal(result.total);
 	setAutomationTotalPages(result.total_pages);
+	setAutomationTriggerCounts(result.trigger_counts || {});
 	if (result.page !== automationPage) setAutomationPage(result.page);
 	const issues = await issuesPromise;
 	if (requestID !== automationRulesRequest.current) return;
@@ -350,18 +352,6 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     () => accounts.filter(account => !selectedAccountId || account.id === selectedAccountId),
     [accounts, selectedAccountId],
   );
-
-  const rulesByTrigger = useMemo(() => {
-    const grouped: Record<AutomationTriggerType, ShippingRule[]> = {
-      order_paid: [],
-      buyer_reviewed: [],
-      review_missing_timeout: [],
-    };
-    for (const rule of visibleAutomationRules) {
-      grouped[rule.trigger_type]?.push(rule);
-    }
-    return grouped;
-  }, [visibleAutomationRules]);
 
   const automationPageNumbers = useMemo(() => {
 	if (automationTotalPages <= 1) return [];
@@ -937,7 +927,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 
             <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
               <div className="mb-4 flex items-center justify-between gap-3">
-				<h3 className="font-black text-gray-900">本页规则构成</h3>
+				<h3 className="font-black text-gray-900">筛选结果构成</h3>
 				<span className="text-xs font-bold text-gray-400">共 {automationTotal} 条</span>
 			  </div>
               <div className="space-y-3">
@@ -950,7 +940,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                         <Icon className="w-4 h-4 text-gray-500" />
                         <span className="text-sm font-bold text-gray-700">{meta.shortLabel}</span>
                       </div>
-                      <span className="text-sm font-black text-gray-900">{rulesByTrigger[trigger].length}</span>
+                      <span className="text-sm font-black text-gray-900">{automationTriggerCounts[trigger] || 0}</span>
                     </div>
                   );
                 })}

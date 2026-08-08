@@ -143,26 +143,7 @@ type AutomationRuleListFilter struct {
 	Offset      int
 }
 
-// AutomationActionInput 是创建动作的输入。
-type AutomationActionInput struct {
-	ActionType      string
-	CardID          int64
-	DeliveryCount   int
-	MessageTemplate string
-	DelaySeconds    int
-	ConfigJSON      string
-	Enabled         bool
-	SortOrder       int
-}
-
-// ListForUser 返回用户下全部自动化规则和动作。
-func (a *AutomationRules) ListForUser(ctx context.Context, userID int64) ([]AutomationRule, error) {
-	rules, _, err := a.ListPageForUser(ctx, AutomationRuleListFilter{UserID: userID})
-	return rules, err
-}
-
-// ListPageForUser 按用户隔离筛选并分页查询自动化规则和动作。
-func (a *AutomationRules) ListPageForUser(ctx context.Context, f AutomationRuleListFilter) ([]AutomationRule, int, error) {
+func automationRuleWhere(f AutomationRuleListFilter) (string, []any) {
 	where := []string{"r.user_id=?"}
 	args := []any{f.UserID}
 	if f.CookieID != "" {
@@ -184,7 +165,30 @@ func (a *AutomationRules) ListPageForUser(ctx context.Context, f AutomationRuleL
 			OR LOWER(COALESCE(i.item_title,'')) LIKE ?)`)
 		args = append(args, pattern, pattern, pattern)
 	}
-	whereSQL := strings.Join(where, " AND ")
+	return strings.Join(where, " AND "), args
+}
+
+// AutomationActionInput 是创建动作的输入。
+type AutomationActionInput struct {
+	ActionType      string
+	CardID          int64
+	DeliveryCount   int
+	MessageTemplate string
+	DelaySeconds    int
+	ConfigJSON      string
+	Enabled         bool
+	SortOrder       int
+}
+
+// ListForUser 返回用户下全部自动化规则和动作。
+func (a *AutomationRules) ListForUser(ctx context.Context, userID int64) ([]AutomationRule, error) {
+	rules, _, err := a.ListPageForUser(ctx, AutomationRuleListFilter{UserID: userID})
+	return rules, err
+}
+
+// ListPageForUser 按用户隔离筛选并分页查询自动化规则和动作。
+func (a *AutomationRules) ListPageForUser(ctx context.Context, f AutomationRuleListFilter) ([]AutomationRule, int, error) {
+	whereSQL, args := automationRuleWhere(f)
 
 	var total int
 	if err := a.DB.QueryRowContext(ctx, `
@@ -229,6 +233,32 @@ SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.t
 		out = append(out, r)
 	}
 	return out, total, rows.Err()
+}
+
+// CountByTriggerForUser 返回同一筛选条件下各触发类型的规则数量。
+// 该统计不受分页影响，确保页面汇总与 total 使用同一数据集。
+func (a *AutomationRules) CountByTriggerForUser(ctx context.Context, f AutomationRuleListFilter) (map[string]int, error) {
+	whereSQL, args := automationRuleWhere(f)
+	rows, err := a.DB.QueryContext(ctx, `
+SELECT r.trigger_type, COUNT(*)
+  FROM automation_rules r
+  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id
+ WHERE `+whereSQL+`
+ GROUP BY r.trigger_type`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var triggerType string
+		var count int
+		if err := rows.Scan(&triggerType, &count); err != nil {
+			return nil, err
+		}
+		counts[triggerType] = count
+	}
+	return counts, rows.Err()
 }
 
 // Match 查询某事件可触发的规则。商品级规则存在时只返回商品级规则；

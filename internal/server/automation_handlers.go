@@ -161,6 +161,15 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询自动化规则失败")
 		return
 	}
+	filter := db.AutomationRuleListFilter{
+		UserID: sess.UserID, CookieID: cookieID, TriggerType: triggerType, Enabled: enabled,
+		Search: query.Get("search"),
+	}
+	triggerCounts, err := s.Store.Automation.CountByTriggerForUser(r.Context(), filter)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "统计自动化规则失败")
+		return
+	}
 	totalPages := (total + pageSize - 1) / pageSize
 	if totalPages > 0 && page > totalPages {
 		page = totalPages
@@ -175,7 +184,7 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true, "data": automationRulesJSON(rules), "total": total,
-		"page": page, "page_size": pageSize, "total_pages": totalPages,
+		"page": page, "page_size": pageSize, "total_pages": totalPages, "trigger_counts": triggerCounts,
 	})
 }
 

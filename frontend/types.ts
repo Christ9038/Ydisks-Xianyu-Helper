@@ -13,6 +13,7 @@ export interface PaginatedResponse<T> {
   page: number;
   page_size: number;
   total_pages: number;
+  trigger_counts?: Record<string, number>;
 }
 
 // Auth

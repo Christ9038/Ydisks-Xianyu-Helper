@@ -14,3 +14,15 @@ describe('responsive rules layout', () => {
     expect(rules).not.toContain('2xl:grid-cols-[360px_1fr]');
   });
 });
+
+describe('rules summary counts', () => {
+  test('uses server-side aggregate counts instead of the current page length', () => {
+    const rules = source('components/Rules.tsx');
+    const api = source('services/api.ts');
+    expect(rules).toContain('automationTriggerCounts');
+    expect(rules).toContain('{automationTriggerCounts[trigger] || 0}');
+    expect(rules).toContain('筛选结果构成');
+    expect(rules).not.toContain('rulesByTrigger[trigger].length');
+    expect(api).toContain('trigger_counts');
+  });
+});

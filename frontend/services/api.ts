@@ -686,6 +686,9 @@ export const getShippingRulesPage = async ({
     page: Number(res.page ?? page),
     page_size: Number(res.page_size ?? pageSize),
     total_pages: Number(res.total_pages ?? (rules.length ? 1 : 0)),
+    trigger_counts: Object.fromEntries(
+      Object.entries(res.trigger_counts || {}).map(([key, value]) => [key, Number(value)]),
+    ),
   };
 }
 
