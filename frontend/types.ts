@@ -106,7 +106,8 @@ export interface ChatMessage {
 	direction: 'incoming' | 'outgoing';
 	sender_id: string;
 	sender_name: string;
-	message_type: 'text' | 'image' | 'video';
+	/** text/image/video are peer messages; system is an official platform notice or trade card. */
+	message_type: 'text' | 'image' | 'video' | 'system';
 	content: string;
 	status: 'received' | 'sending' | 'sent' | 'failed';
 	sent_at: number;

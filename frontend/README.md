@@ -45,7 +45,9 @@ Dashboard 的营收趋势柱状图使用统一的品牌蓝 `#0094f7` 表示同�
 
 ## 路由
 
-应用使用 `window.history.pushState` 做 tab 导航，路径形如 `/app/dashboard`、`/app/rules`、`/app/settings`。
+应用使用 `window.history.pushState` 做 tab 导航，路径包括 `/app/dashboard`、`/app/accounts`、
+`/app/chat`、`/app/cards`、`/app/items`、`/app/orders`、`/app/rules`、
+`/app/notifications` 和管理员可见的 `/app/settings`。
 未登录时显示登录表单（客户端状态，非独立路由）。后端 SPA catch-all 对非 API 的 GET 请求返回 `index.html`，支持深链刷新。
 
 ## 测试

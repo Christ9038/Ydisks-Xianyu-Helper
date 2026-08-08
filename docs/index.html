@@ -4,12 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ydisks闲鱼助手 - 基于 Go 与 React 构建的闲鱼多账号管理与自动发货系统</title>
-  <meta name="description" content="Ydisks闲鱼助手是一个面向闲鱼卖家的自托管管理系统。整合多账号登录、WebSocket即时消息、卡密库存交付、AI智能客服、自动化规则与多渠道告警。">
+  <meta name="description" content="Ydisks闲鱼助手是一个面向闲鱼卖家的自托管管理系统。整合多账号登录、按账号隔离的在线聊天、账号自动评价与每日擦亮、卡密库存交付、AI智能客服、自动化规则与多渠道告警。">
   <meta name="keywords" content="闲鱼助手, 闲鱼自动发货, 闲鱼多账号管理, 闲鱼自动回复, 闲鱼AI客服, 闲鱼卡密发货, Go, React, Ydisks">
   
   <!-- Open Graph -->
   <meta property="og:title" content="Ydisks闲鱼助手 - 闲鱼多账号管理与自动发货系统">
-  <meta property="og:description" content="基于 Go 1.26 + React 19 构建的闲鱼自托管管理后台。自动化发货、AI回复、即时消息与风控续期。">
+  <meta property="og:description" content="基于 Go 1.26 + React 19 构建的闲鱼自托管管理后台。在线聊天、账号自动评价与每日擦亮、自动化发货、AI回复与风控续期。">
   <meta property="og:type" content="website">
   <meta property="og:image" content="img/slogan.png">
 
@@ -976,7 +976,7 @@
         <div class="feature-card">
           <div class="feature-icon-box">💬</div>
           <h3 class="feature-card-title">WebSocket 即时消息处理</h3>
-          <p class="feature-card-desc">内置 Go 原生闲鱼 WebSocket 长连接通道，实时接收与推送聊天消息，支持关键词回复、默认回复及单次回复控制。</p>
+          <p class="feature-card-desc">按账号隔离在线聊天、历史消息和实时同步，支持闲鱼表情、文本/图片收发，并识别交易卡片与闲小蜜系统消息；普通消息继续支持关键词、默认回复及单次回复控制。</p>
         </div>
 
         <!-- Card 3 -->
@@ -984,6 +984,12 @@
           <div class="feature-icon-box">⚡</div>
           <h3 class="feature-card-title">全能自动化发货中心</h3>
           <p class="feature-card-desc">自动关联买家付款事件，支持付款即发货、评价后赠品发放、超时提醒评价，内置幂等检查点防止重复发送。</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon-box">✨</div>
+          <h3 class="feature-card-title">账号自动评价与每日擦亮</h3>
+          <p class="feature-card-desc">按账号持续扫描待评价订单并使用统一文案评价；每日擦亮按北京时间执行，每个账号每天最多一次，并支持手动执行与结果记录。</p>
         </div>
 
         <!-- Card 4 -->

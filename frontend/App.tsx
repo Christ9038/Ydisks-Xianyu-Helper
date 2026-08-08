@@ -302,7 +302,7 @@ const App: React.FC = () => {
         onLogout={handleLogout}
       />
       
-      <main className={`h-screen flex-1 overflow-y-auto scroll-smooth transition-[margin] duration-300 ${sidebarCollapsed ? 'ml-16' : 'ml-64'} ${activeTab === 'chat' ? 'p-4 md:p-6' : 'p-8 md:p-12'}`}>
+      <main className={`h-screen min-w-0 flex-1 overflow-x-hidden overflow-y-auto scroll-smooth transition-[margin] duration-300 ${sidebarCollapsed ? 'ml-16' : 'ml-64'} ${activeTab === 'chat' ? 'p-4 md:p-6' : 'p-8 md:p-12'}`}>
         {/* Subtle background decoration */}
         <div className="fixed top-0 right-0 w-[800px] h-[800px] bg-gradient-to-bl from-blue-50 to-transparent rounded-full blur-[120px] pointer-events-none -z-10 opacity-60"></div>
         

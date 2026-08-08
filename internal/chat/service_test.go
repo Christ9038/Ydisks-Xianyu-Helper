@@ -58,6 +58,54 @@ func TestRecordHistoryPageParsesDirectionMediaAndDeduplicates(t *testing.T) {
 	}
 }
 
+func TestRecordHistoryPageClassifiesOfficialCardsAsSystem(t *testing.T) {
+	store, cleanup := chatTestStore(t)
+	defer cleanup()
+	service := New(store)
+	encoded := base64.StdEncoding.EncodeToString([]byte(`{"contentType":26,"dxCard":{"item":{"main":{"exContent":{"title":"我已拍下，待付款"}}}}}`))
+	body := map[string]any{"userMessageModels": []any{
+		map[string]any{"message": map[string]any{
+			"messageId": "official-card", "createAt": float64(3000),
+			"extension": map[string]any{"senderUserId": "peer@goofish", "reminderTitle": "买家已拍下，待付款"},
+			"content":   map[string]any{"custom": map[string]any{"data": encoded, "summary": "[我已拍下，待付款]"}},
+		}},
+	}}
+	session := db.ChatSession{CookieID: "account-1", ChatID: "official", BuyerID: "peer", BuyerName: "真实昵称"}
+	if _, _, err := store.Chats.SaveMessage(context.Background(), session, db.ChatMessage{
+		MessageKey: "official-card", Direction: "incoming", SenderID: "peer", SenderName: "真实昵称",
+		MessageType: "text", Content: "[我已拍下，待付款]", Status: "received", SentAt: 3000,
+	}, false); err != nil {
+		t.Fatal(err)
+	}
+	page, err := service.RecordHistoryPage(context.Background(), "account-1", "official", "self", session, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Messages) != 1 || page.Messages[0].MessageType != "system" || page.Messages[0].Direction != "incoming" {
+		t.Fatalf("official card was not classified as system: %+v", page.Messages)
+	}
+	if page.Messages[0].SenderName != "真实昵称" {
+		t.Fatalf("history sender metadata unexpectedly changed: %+v", page.Messages[0])
+	}
+}
+
+func TestRecordIncomingClassifiesXianxiaomiAndPlaceholder(t *testing.T) {
+	store, cleanup := chatTestStore(t)
+	defer cleanup()
+	service := New(store)
+	message, inserted, err := service.RecordIncoming(context.Background(), Incoming{
+		AccountID: "account-1", ChatID: "xiaomi", BuyerID: "1400@goofish",
+		BuyerName: "闲小蜜发来一条新消息", Text: "邀您填写售后问卷",
+		Raw: map[string]any{"messageId": "xiaomi-1"},
+	})
+	if err != nil || !inserted {
+		t.Fatalf("record xianxiaomi message: message=%+v inserted=%v err=%v", message, inserted, err)
+	}
+	if message.MessageType != "system" || message.SenderName != "闲小蜜" {
+		t.Fatalf("xianxiaomi message was not classified: %+v", message)
+	}
+}
+
 func TestRecordConversationPageImportsHistoricalContacts(t *testing.T) {
 	store, cleanup := chatTestStore(t)
 	defer cleanup()
@@ -121,6 +169,34 @@ func TestRecordConversationPageHandlesXianxiaomiAndRemovesInvisibleSessions(t *t
 	}
 	if len(rows) != 1 || rows[0].BuyerID != "1400" || rows[0].BuyerName != "闲小蜜" || rows[0].BuyerAvatar != xianxiaomiAvatar {
 		t.Fatalf("unexpected sessions: %+v", rows)
+	}
+}
+
+func TestRecordConversationPageSkipsEmptyConversationShells(t *testing.T) {
+	store, cleanup := chatTestStore(t)
+	defer cleanup()
+	service := New(store)
+	body := map[string]any{"userConvs": []any{
+		map[string]any{"singleChatUserConversation": map[string]any{
+			"singleChatConversation": map[string]any{"cid": "empty@goofish", "pairFirst": "self@goofish", "pairSecond": "69@goofish"},
+		}},
+		map[string]any{"singleChatUserConversation": map[string]any{
+			"singleChatConversation": map[string]any{"cid": "system@goofish", "pairFirst": "self@goofish", "pairSecond": "1400@goofish"},
+			"lastMessage": map[string]any{"message": map[string]any{
+				"createAt": float64(100), "reminderContent": "邀您填写售后问卷",
+			}},
+		}},
+	}}
+	if _, err := service.RecordConversationPage(context.Background(), "account-1", "self", body); err != nil {
+		t.Fatal(err)
+	}
+	owner, _ := store.Users.GetByUsername(context.Background(), "owner")
+	rows, err := store.Chats.ListSessions(context.Background(), owner.ID, "account-1", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ChatID != "system" {
+		t.Fatalf("empty conversation shell was imported: %+v", rows)
 	}
 }
 

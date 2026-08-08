@@ -65,6 +65,12 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 		}
 		lastWrap, _ := conv["lastMessage"].(map[string]any)
 		last, _ := lastWrap["message"].(map[string]any)
+		// The conversation endpoint can return empty shells for notification
+		// recipients. The official web client does not render these as contacts;
+		// importing them creates fake users such as numeric IDs with “暂无消息”.
+		if len(last) == 0 {
+			continue
+		}
 		// reminderTitle belongs to the message presentation layer. Depending on
 		// the message type it may contain a nickname, an order-state prompt, or
 		// another card title. The official web client resolves conversation
@@ -72,10 +78,17 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 		// as the session nickname.
 		peerName := ""
 		custom := map[string]any{}
+		extension := mapValue(last["extension"])
 		if content, ok := last["content"].(map[string]any); ok {
 			custom, _ = content["custom"].(map[string]any)
 		}
 		summary := cleanNilString(custom["summary"])
+		if summary == "" {
+			summary = cleanNilString(extension["reminderContent"])
+		}
+		if summary == "" {
+			summary = cleanNilString(extension["detailNotice"])
+		}
 		if summary == "" {
 			if encoded := cleanNilString(custom["data"]); encoded != "" {
 				var decoded map[string]any
@@ -240,6 +253,14 @@ func (s *Service) RecordIncoming(ctx context.Context, in Incoming) (*db.ChatMess
 		BuyerName: in.BuyerName, BuyerAvatar: extractString(in.Raw, "avatar", "avatarUrl", "senderAvatar"),
 		ItemID: in.ItemID, ItemTitle: extractString(in.Raw, "itemTitle", "title")}
 	messageType, content := extractMessageContent(in.Raw, in.Text)
+	if isOfficialSystemMessage(in.Raw, in.BuyerID, in.Text) {
+		messageType = "system"
+		if strings.TrimSuffix(strings.TrimSpace(in.BuyerID), "@goofish") == "1400" {
+			in.BuyerName = "闲小蜜"
+			session.BuyerName = "闲小蜜"
+			session.BuyerAvatar = xianxiaomiAvatar
+		}
+	}
 	message := db.ChatMessage{MessageKey: key, Direction: "incoming", SenderID: in.BuyerID,
 		SenderName: in.BuyerName, MessageType: messageType, Content: content, Status: "received", SentAt: sentAt}
 	stored, inserted, err := s.store.Chats.SaveMessage(ctx, session, message, true)
@@ -260,7 +281,7 @@ func (s *Service) RecordHistoryPage(ctx context.Context, accountID, chatID, myID
 			continue
 		}
 		session.CookieID, session.ChatID = accountID, chatID
-		if message.Direction == "incoming" {
+		if message.Direction == "incoming" && message.MessageType != "system" {
 			if session.BuyerID == "" {
 				session.BuyerID = message.SenderID
 			}
@@ -268,6 +289,12 @@ func (s *Service) RecordHistoryPage(ctx context.Context, accountID, chatID, myID
 		stored, _, err := s.store.Chats.SaveMessage(ctx, session, message, false)
 		if err != nil {
 			return page, err
+		}
+		if message.MessageType == "system" {
+			if err := s.store.Chats.UpdateMessageType(ctx, accountID, message.MessageKey, "system"); err != nil {
+				return page, err
+			}
+			stored.MessageType = "system"
 		}
 		page.Messages = append(page.Messages, *stored)
 	}
@@ -307,6 +334,12 @@ func parseHistoryMessage(accountID, chatID, myID string, model map[string]any) (
 		}
 	}
 	messageType, content := extractMessageContent(rawContent, fallback)
+	if isOfficialSystemMessage(rawContent, senderID, fallback) {
+		messageType = "system"
+		if senderID == "1400" {
+			senderName = "闲小蜜"
+		}
+	}
 	if content == "" {
 		content = "[系统消息]"
 	}
@@ -404,6 +437,54 @@ func extractMessageContent(raw map[string]any, fallback string) (string, string)
 		return kind, mediaURL
 	}
 	return "text", strings.TrimSpace(fallback)
+}
+
+// isOfficialSystemMessage recognizes platform-generated IM content using the
+// protocol metadata, rather than matching a growing list of Chinese prompts.
+// contentType=14 is a platform notice and contentType=26 is an official trade
+// card.  User 1400 is 闲小蜜, whose messages are also not peer chat.
+func isOfficialSystemMessage(raw map[string]any, senderID, fallback string) bool {
+	if strings.TrimSuffix(strings.TrimSpace(senderID), "@goofish") == "1400" {
+		return true
+	}
+	if contentType := findOfficialContentType(raw); contentType == "14" || contentType == "26" {
+		return true
+	}
+	return strings.TrimSpace(fallback) == "发来一条新消息"
+}
+
+// findOfficialContentType walks decoded history content as well as live WS
+// envelopes. History stores the inner content JSON under custom.data, while
+// live messages expose it under 1.6.3 or 1.10.extJson.
+func findOfficialContentType(value any) string {
+	var found string
+	var walk func(any)
+	walk = func(current any) {
+		if found != "" {
+			return
+		}
+		switch typed := current.(type) {
+		case string:
+			var nested any
+			if json.Unmarshal([]byte(typed), &nested) == nil {
+				walk(nested)
+			}
+		case map[string]any:
+			if candidate := strings.TrimSpace(fmt.Sprint(typed["contentType"])); candidate == "14" || candidate == "26" {
+				found = candidate
+				return
+			}
+			for _, child := range typed {
+				walk(child)
+			}
+		case []any:
+			for _, child := range typed {
+				walk(child)
+			}
+		}
+	}
+	walk(value)
+	return found
 }
 
 func (s *Service) CreateOutgoing(ctx context.Context, session db.ChatSession, text string) (*db.ChatMessage, error) {

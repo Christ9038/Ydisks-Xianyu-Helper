@@ -287,6 +287,15 @@ func TestIsNonUserChatNotice(t *testing.T) {
 	}
 }
 
+func TestIsNonUserChatNoticeFiltersOfficialSenderAndPlaceholder(t *testing.T) {
+	if !isNonUserChatNotice(map[string]any{}, map[string]any{"senderUserId": "1400", "reminderContent": "邀您填写售后问卷"}, "邀您填写售后问卷") {
+		t.Error("闲小蜜消息应判为官方系统消息")
+	}
+	if !isNonUserChatNotice(map[string]any{}, map[string]any{"senderUserId": "peer-1"}, "发来一条新消息") {
+		t.Error("官方通知占位文本不应进入聊天回复")
+	}
+}
+
 // TestToStringAndTrimFloatInt 数字/字符串安全转换。
 func TestToStringAndTrimFloatInt(t *testing.T) {
 	if got := toString(float64(26)); got != "26" {

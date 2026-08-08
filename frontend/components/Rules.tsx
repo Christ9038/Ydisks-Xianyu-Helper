@@ -801,7 +801,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       : '编辑默认回复';
 
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div className="min-w-0 space-y-8 animate-fade-in">
       <div className="flex flex-col xl:flex-row justify-between xl:items-end gap-4">
         <div>
           <h2 className="text-4xl font-extrabold text-gray-900 tracking-tight">自动化规则</h2>
@@ -814,7 +814,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 			  setSelectedAccountId(event.target.value);
 			  setAutomationPage(1);
 			}}
-            className="ios-input px-4 py-3 rounded-2xl text-sm min-w-64"
+            className="ios-input w-full px-4 py-3 rounded-2xl text-sm sm:w-64"
           >
             <option value="">全部账号</option>
             {accounts.map(account => (
@@ -904,8 +904,8 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       )}
 
       {activeTab === 'automation' && (
-        <div className="grid grid-cols-1 2xl:grid-cols-[360px_1fr] gap-6">
-          <aside className="space-y-4">
+        <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(270px,0.72fr)_minmax(0,1.28fr)]">
+          <aside className="min-w-0 space-y-4">
             <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
               <h3 className="font-black text-gray-900 mb-1">新建规则</h3>
               <p className="text-sm text-gray-500 mb-4">先选自动化类型，再配置对应动作。</p>
@@ -958,7 +958,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
             </div>
           </aside>
 
-		  <section className="space-y-4">
+		  <section className="min-w-0 space-y-4">
 			<div className="rounded-xl border border-gray-100 bg-[#FAFAFA] p-4 shadow-sm">
 			  <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
 				<div className="relative min-w-0 flex-1">

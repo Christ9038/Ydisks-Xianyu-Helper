@@ -37,6 +37,12 @@ describe('online chat UI contract', () => {
 		expect(chat).toContain('sendChatImage');
 	});
 
+	test('renders official notices as neutral system messages', () => {
+		const chat = source('components/Chat.tsx');
+		expect(chat).toContain("message.message_type === 'system'");
+		expect(chat).toContain('justify-center py-1');
+	});
+
 	test('sidebar exposes collapse control and chat primary navigation', () => {
 		const sidebar = source('components/Sidebar.tsx');
 		expect(sidebar).toContain("id: 'chat'");

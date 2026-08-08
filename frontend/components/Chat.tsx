@@ -449,6 +449,17 @@ const Chat: React.FC = () => {
                     </div>}
                     {messages.map(message => {
                     const outgoing = message.direction === 'outgoing';
+                    const system = message.message_type === 'system';
+                    if (system) {
+                      return (
+                        <div key={message.message_key} className="flex justify-center py-1">
+                          <div className="max-w-[82%] rounded-xl border border-slate-200 bg-slate-100 px-4 py-2 text-center text-xs leading-5 text-slate-500">
+                            {renderXianyuText(message.content)}
+                            <div className="mt-1 text-[10px] text-slate-400">{messageTime(message.sent_at)}</div>
+                          </div>
+                        </div>
+                      );
+                    }
                     return (
                       <div key={message.message_key} className={`flex items-end gap-2.5 ${outgoing ? 'justify-end' : 'justify-start'}`}>
                         {!outgoing && <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-slate-200 ring-2 ring-white">

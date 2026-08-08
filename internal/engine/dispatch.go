@@ -266,6 +266,12 @@ func extractChatMessage(decrypted map[string]any, accountID, cookieStr string) *
 // - contentType=26：交易卡片，如“我已拍下，待付款”“我发起了退款申请”
 // 付款待发货卡片已经在 handleMessage 前半段进入 automation.Center，这里不能再进入聊天回复链。
 func isNonUserChatNotice(m1, m10 map[string]any, reminder string) bool {
+	if strings.TrimSuffix(strings.TrimSpace(toString(m10["senderUserId"])), "@goofish") == "1400" {
+		return true
+	}
+	if strings.TrimSpace(reminder) == "发来一条新消息" {
+		return true
+	}
 	if sessionType := strings.TrimSpace(toString(m10["sessionType"])); sessionType != "" && sessionType != "1" {
 		return true
 	}

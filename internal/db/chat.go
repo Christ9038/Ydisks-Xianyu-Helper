@@ -110,6 +110,7 @@ func (s *ChatStore) LatestUnmaskedPeerName(ctx context.Context, cookieID, chatID
 	var name string
 	err := s.DB.QueryRowContext(ctx, `SELECT sender_name FROM chat_messages
 		WHERE cookie_id=? AND chat_id=? AND direction='incoming' AND sender_name<>'' AND sender_name NOT LIKE '%***%'
+			AND message_type<>'system'
 			AND sender_name<>content AND sender_name NOT IN ('交易消息','系统消息','卡片消息','我完成了评价','对方完成了评价',
 			'快给ta一个评价吧～','卖家已发货','买家已付款','买家已确认收货','等待您发货','超时未付款，系统关闭了订单','邀您填写售后问卷')
 		ORDER BY sent_at DESC,id DESC LIMIT 1`, cookieID, chatID).Scan(&name)
@@ -195,6 +196,14 @@ func (s *ChatStore) GetMessageByKey(ctx context.Context, cookieID, key string) (
 		return nil, ErrNotFound
 	}
 	return &m, err
+}
+
+// UpdateMessageType refreshes the classification of an already persisted
+// message when a later history response exposes richer protocol metadata.
+func (s *ChatStore) UpdateMessageType(ctx context.Context, cookieID, key, messageType string) error {
+	_, err := s.DB.ExecContext(ctx, `UPDATE chat_messages SET message_type=?
+		WHERE cookie_id=? AND message_key=?`, messageType, cookieID, key)
+	return err
 }
 
 func (s *ChatStore) ListSessions(ctx context.Context, userID int64, cookieID string, limit int) ([]ChatSession, error) {
