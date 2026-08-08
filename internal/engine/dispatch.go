@@ -243,6 +243,9 @@ func extractChatMessage(decrypted map[string]any, accountID, cookieStr string) *
 	}
 	senderUserID, _ := m10["senderUserId"].(string)
 	senderName, _ := m10["senderNick"].(string)
+	if strings.TrimSpace(senderName) == "" {
+		senderName, _ = m10["reminderTitle"].(string)
+	}
 	reminderURL, _ := m10["reminderUrl"].(string)
 	itemID := extractItemID(reminderURL)
 	return &ChatMessage{
@@ -263,6 +266,9 @@ func extractChatMessage(decrypted map[string]any, accountID, cookieStr string) *
 // - contentType=26：交易卡片，如“我已拍下，待付款”“我发起了退款申请”
 // 付款待发货卡片已经在 handleMessage 前半段进入 automation.Center，这里不能再进入聊天回复链。
 func isNonUserChatNotice(m1, m10 map[string]any, reminder string) bool {
+	if sessionType := strings.TrimSpace(toString(m10["sessionType"])); sessionType != "" && sessionType != "1" {
+		return true
+	}
 	contentType := messageContentType(m1, m10)
 	switch contentType {
 	case "14":

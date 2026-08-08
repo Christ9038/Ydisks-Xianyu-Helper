@@ -310,7 +310,7 @@ LocalAI 或兼容网关。只有在明确了解数据流向时才应向外部 AI
 GitHub Actions 会将同一标签发布为多架构镜像：
 
 ```text
-ghcr.io/christ9038/ydisks-xianyu-helper:dev
+ghcr.io/christ9038/ydisks-xianyu-helper:latest
 ├── linux/amd64
 └── linux/arm64
 ```
@@ -322,9 +322,12 @@ ARM64 Linux 拉取 arm64，不需要手动设置 `platform`。
 
 | Git 引用 | 镜像标签 |
 | --- | --- |
-| `dev` 分支 | `dev`、`sha-<完整提交号>` |
 | `main` 分支 | `main`、`latest`、`sha-<完整提交号>` |
 | `v1.2.3` 标签 | `1.2.3`、`1.2`、`sha-<完整提交号>` |
+
+当前 Docker 发布工作流只在 `main` 分支推送和发布镜像；`dev` 分支不会自动生成
+GHCR 标签。开发分支如需验证镜像，请在本地使用源码构建 Compose 文件，或手动运行
+对应的构建流程。
 
 生产环境建议使用明确的版本标签或 SHA 标签，避免上游更新导致未经验证的自动升级。
 

@@ -49,10 +49,7 @@ func (c *ClientImpl) DetectItemMultiSpec(ctx context.Context, cookies, itemID st
 	req.Header.Set("Origin", "https://www.goofish.com")
 	req.Header.Set("Referer", documentURL)
 
-	hc := c.HTTPClient
-	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
-	}
+	hc := c.httpClient()
 	resp, err := hc.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("商品详情请求失败: %w", err)

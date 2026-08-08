@@ -208,10 +208,7 @@ func (c *ClientImpl) RecommendPublishCategory(ctx context.Context, cookiesStr, k
 }
 
 func (c *ClientImpl) uploadPublishImage(ctx context.Context, cookiesStr string, img PublishImage) (uploadedImage, string, error) {
-	hc := c.HTTPClient
-	if hc == nil {
-		hc = &http.Client{Timeout: 60 * time.Second}
-	}
+	hc := c.httpClientWithTimeout(60 * time.Second)
 	if img.ContentType == "" {
 		img.ContentType = "application/octet-stream"
 	}
@@ -495,10 +492,7 @@ func (c *ClientImpl) publishItemOnce(ctx context.Context, cookiesStr string, req
 }
 
 func (c *ClientImpl) callMTop(ctx context.Context, cookiesStr, endpoint, api, version, spmCnt, spmPre, logID string, data any) (map[string]any, string, error) {
-	hc := c.HTTPClient
-	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
-	}
+	hc := c.httpClient()
 	rawData, _ := json.Marshal(data)
 	dataVal := string(rawData)
 	signingCookies, requestCookies := mtopRequestCookies(ctx, cookiesStr, "https://www.goofish.com/", endpoint)

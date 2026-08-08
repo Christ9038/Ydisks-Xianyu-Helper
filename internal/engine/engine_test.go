@@ -91,6 +91,17 @@ func TestExtractChatMessage_FiltersContentType14Notice(t *testing.T) {
 	}
 }
 
+func TestExtractChatMessageUsesReminderTitleAsNickname(t *testing.T) {
+	decrypted := map[string]any{"1": map[string]any{
+		"2":  "chat-1@goofish",
+		"10": map[string]any{"reminderContent": "你好", "reminderTitle": "真实昵称", "senderUserId": "buyer-1", "sessionType": "1"},
+	}}
+	chat := extractChatMessage(decrypted, "account-1", "cookie")
+	if chat == nil || chat.SenderName != "真实昵称" {
+		t.Fatalf("chat=%+v", chat)
+	}
+}
+
 func TestExtractChatMessage_FiltersRefundTradeCard(t *testing.T) {
 	decrypted := mustRefundTradeCard(t)
 	if chat := extractChatMessage(decrypted, "cid", "cookie"); chat != nil {

@@ -8,6 +8,8 @@ import ItemList from './components/ItemList';
 import Settings from './components/Settings';
 import Rules from './components/Rules';
 import Notifications from './components/Notifications';
+import Chat from './components/Chat';
+import { readSidebarCollapsed, writeSidebarCollapsed } from './components/sidebarState';
 import { YdisksBrandIcon } from './components/YdisksLogo';
 import { login, logout, verifySession } from './services/api';
 import { ShieldCheck, ArrowRight, Loader2, User, Lock } from 'lucide-react';
@@ -24,6 +26,7 @@ interface DeliveryRuleTarget {
 const ROUTES: Record<string, string> = {
   '/app/dashboard': 'dashboard',
   '/app/accounts': 'accounts',
+	'/app/chat': 'chat',
   '/app/orders': 'orders',
   '/app/cards': 'cards',
   '/app/items': 'items',
@@ -50,6 +53,7 @@ const App: React.FC = () => {
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [deliveryRuleTarget, setDeliveryRuleTarget] = useState<DeliveryRuleTarget | undefined>();
+	const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
 
   // 切换 tab 并同步 URL。若 tab 没有对应 path（不应发生）则只切 tab。
   const navigate = (tab: string) => {
@@ -266,6 +270,7 @@ const App: React.FC = () => {
     switch (activeTab) {
       case 'dashboard': return <Dashboard />;
       case 'accounts': return <AccountList />;
+	  case 'chat': return <Chat />;
       case 'orders': return <OrderList />;
       case 'cards': return <CardList />;
       case 'items': return <ItemList onConfigureDelivery={(item) => {
@@ -287,15 +292,21 @@ const App: React.FC = () => {
       <Sidebar
         activeTab={activeTab}
         isAdmin={isAdmin}
+		collapsed={sidebarCollapsed}
+		onToggleCollapsed={() => setSidebarCollapsed(current => {
+		  const next = !current;
+		  writeSidebarCollapsed(next);
+		  return next;
+		})}
         onNavigate={navigate}
         onLogout={handleLogout}
       />
       
-      <main className="flex-1 ml-64 p-8 md:p-12 overflow-y-auto h-screen relative scroll-smooth">
+      <main className={`h-screen flex-1 overflow-y-auto scroll-smooth transition-[margin] duration-300 ${sidebarCollapsed ? 'ml-16' : 'ml-64'} ${activeTab === 'chat' ? 'p-4 md:p-6' : 'p-8 md:p-12'}`}>
         {/* Subtle background decoration */}
         <div className="fixed top-0 right-0 w-[800px] h-[800px] bg-gradient-to-bl from-blue-50 to-transparent rounded-full blur-[120px] pointer-events-none -z-10 opacity-60"></div>
         
-        <div className="max-w-[1400px] mx-auto pb-10">
+		<div className={`${activeTab === 'chat' ? 'mx-auto max-w-[1680px]' : 'mx-auto max-w-[1400px] pb-10'}`}>
             {renderContent()}
         </div>
       </main>

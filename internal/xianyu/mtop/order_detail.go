@@ -66,10 +66,7 @@ func (c *ClientImpl) FetchOrderDetail(ctx context.Context, cookiesStr, orderID s
 }
 
 func (c *ClientImpl) fetchOrderDetailOnce(ctx context.Context, cookiesStr, orderID string) (*OrderDetailResult, []string, string, error) {
-	hc := c.HTTPClient
-	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
-	}
+	hc := c.httpClient()
 	endpoint := c.OrderDetailURL
 	if endpoint == "" {
 		endpoint = OrderDetailAPI

@@ -27,7 +27,7 @@ import { shouldUpdateAccountPause } from './accountPause';
 import {
   Plus, Power, Edit2, Trash2, QrCode, X, Check, Loader2,
   RefreshCw, Save, User, Clock, MessageCircle,
-  Upload, Key, Eye, EyeOff, Bot, Settings, AlertCircle, Bell
+  Upload, Key, Eye, EyeOff, Bot, Settings, AlertCircle, Bell, CalendarClock, Sparkles
 } from 'lucide-react';
 import { buildAccountLoginInfoUpdate } from './accountEdit';
 import { shouldSaveNotificationBindings } from './accountBindings';
@@ -35,6 +35,7 @@ import { mergeAccountRuntimeStatuses } from './accountRuntimeState';
 import { createLatestRequestGate, createQRLoginPoller } from './qrPolling';
 import { RiskVerificationPanel } from './RiskVerificationPanel';
 import { SquareQRCode } from './SquareQRCode';
+import AccountAutomationModal from './AccountAutomationModal';
 
 type ModalType = 'edit' | 'ai-settings' | null;
 
@@ -54,6 +55,7 @@ const AccountList: React.FC = () => {
   const [qrReauthTarget, setQrReauthTarget] = useState<AccountDetail | null>(null);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [editingAccount, setEditingAccount] = useState<AccountDetail | null>(null);
+  const [taskAccount, setTaskAccount] = useState<AccountDetail | null>(null);
   const [longLogin, setLongLogin] = useState({ loading: false, saving: false, canOpen: false, enabled: false, error: '' });
 
   // 通知渠道绑定（编辑弹窗用）
@@ -726,8 +728,8 @@ const AccountList: React.FC = () => {
           const runtime = runtimePresentation(account);
           const requiresLogin = account.runtime_state === 'auth_expired' || account.runtime_state === 'verification_required';
           return (
-          <div key={account.id} className="ios-card p-6 rounded-xl flex flex-col lg:flex-row lg:items-center justify-between gap-5 group hover:border-[#0094f7] transition-all duration-300">
-            <div className="flex items-center gap-5 sm:gap-8 min-w-0">
+          <div key={account.id} className="ios-card rounded-xl p-6 group transition-all duration-300 hover:border-[#0094f7]">
+            <div className="flex min-w-0 items-start gap-5 sm:gap-8">
               <div className="relative">
                 {account.avatar_url ? (
                   <img
@@ -744,8 +746,8 @@ const AccountList: React.FC = () => {
                     {account.runtime_state === 'online' && <Check className="w-3 h-3 text-white" />}
                 </div>
               </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-3 mb-1">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2.5 mb-1">
                     <h3 className="text-xl font-extrabold text-gray-900 break-words">{account.nickname || account.remark || `账号 ${account.id.substring(0,6)}...`}</h3>
                     <span className={`px-2.5 py-0.5 rounded-lg text-xs font-bold ${runtime.badge}`}>{runtime.label}</span>
                     {account.ai_enabled && (
@@ -753,6 +755,17 @@ const AccountList: React.FC = () => {
                           <Bot className="w-3 h-3" /> AI
                         </span>
                     )}
+                    {account.auto_rate_enabled && (
+                      <span className="flex items-center gap-1 rounded-lg bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-700">
+                        <MessageCircle className="h-3 w-3" /> 自动评价
+                      </span>
+                    )}
+                    {account.auto_polish_enabled && (
+                      <span className="flex items-center gap-1 rounded-lg bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-700">
+                        <Sparkles className="h-3 w-3" /> 每日擦亮
+                      </span>
+                    )}
+                    {account.auto_confirm && <span className="flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-0.5 text-xs font-bold text-blue-700"><Check className="h-3 w-3" /> 自动确认发货</span>}
                     {account.profile_error && (
                         <span
                           className="px-2.5 py-0.5 rounded-lg bg-amber-100 text-amber-700 text-xs font-bold flex items-center gap-1"
@@ -762,10 +775,11 @@ const AccountList: React.FC = () => {
                         </span>
                     )}
                 </div>
-                <div className="text-sm text-gray-500 font-medium mb-3 space-y-1">
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
+                  <div className="text-sm font-medium text-gray-500">
                   <p>{account.remark || account.note || '暂无备注'}</p>
                   <p className="font-mono text-xs text-gray-400">ID: {account.id}</p>
-                </div>
+                  </div>
                 {account.runtime_message && account.runtime_state !== 'online' && account.runtime_state !== 'disabled' && (
                   <div className={`mb-3 flex flex-wrap items-center gap-2 text-sm font-medium ${requiresLogin ? 'text-red-700' : 'text-amber-700'}`}>
                     <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -781,13 +795,8 @@ const AccountList: React.FC = () => {
                     )}
                   </div>
                 )}
-                <div className="flex gap-2">
-                   {account.auto_confirm && <span className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5"><Check className="w-3 h-3"/> 自动确认发货</span>}
-                   {account.paused && <span className="text-xs bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5"><Clock className="w-3 h-3"/> 暂停处理中</span>}
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 self-end lg:self-auto flex-shrink-0">
+                  {account.paused && <span className="flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700"><Clock className="h-3 w-3" /> 暂停处理中</span>}
+                <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
                 <button
                     onClick={() => handleRefreshProfile(account)}
                     disabled={refreshingProfileId === account.id}
@@ -818,6 +827,13 @@ const AccountList: React.FC = () => {
                     <Bot className="w-5 h-5" />
                 </button>
                 <button
+                    onClick={() => setTaskAccount(account)}
+                    className="p-3 rounded-xl hover:bg-amber-100 transition-colors text-amber-600"
+                    title="自动评价与每日擦亮"
+                >
+                    <CalendarClock className="w-5 h-5" />
+                </button>
+                <button
                     onClick={() => handleToggle(account.id, account.enabled)}
                   className={`p-3 rounded-xl transition-colors ${account.enabled ? 'text-green-600 hover:bg-green-50' : 'text-gray-400 hover:bg-gray-100'}`}
                   title={account.enabled ? '停用账号' : '启用账号'}
@@ -834,7 +850,10 @@ const AccountList: React.FC = () => {
                       ? <Loader2 className="w-5 h-5 animate-spin" />
                       : <Trash2 className="w-5 h-5" />}
                 </button>
+                </div>
+              </div>
             </div>
+          </div>
           </div>
         )})}
 
@@ -854,6 +873,26 @@ const AccountList: React.FC = () => {
             </div>
         )}
       </div>
+
+      {taskAccount && createPortal(
+        <AccountAutomationModal
+          account={taskAccount}
+          onClose={() => setTaskAccount(null)}
+          onSaved={settings => {
+            setAccounts(current => current.map(account => account.id === taskAccount.id ? {
+              ...account,
+              auto_rate_enabled: settings.auto_rate_enabled,
+              rate_content: settings.rate_content,
+              auto_polish_enabled: settings.auto_polish_enabled,
+              polish_time: settings.polish_time,
+              last_rate_scan_at: settings.last_rate_scan_at,
+              last_polish_date: settings.last_polish_date,
+              last_polish_at: settings.last_polish_at,
+            } : account));
+          }}
+        />,
+        document.body
+      )}
 
       {/* 删除账号确认弹窗 */}
       {deleteDialogAccount && createPortal(

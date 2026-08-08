@@ -16,6 +16,7 @@ import (
 
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/browser"
+	"xianyu-go/internal/chat"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
 	"xianyu-go/internal/renewal"
@@ -65,6 +66,7 @@ type Adapter struct {
 	cooldown   *renewal.CooldownManager
 	captchaReq tokenCaptchaRequester
 	orderMTop  orderDetailClient
+	chat       *chat.Service
 
 	orderFetchMu   sync.Mutex
 	lastOrderFetch time.Time
@@ -126,9 +128,37 @@ func (a *Adapter) SetTokenCaptchaRequester(r tokenCaptchaRequester) { a.captchaR
 // SetOrderDetailClient 覆盖纯 Go 订单详情客户端，便于测试隔离网络。
 func (a *Adapter) SetOrderDetailClient(c orderDetailClient) { a.orderMTop = c }
 
+// SetChatService installs the user-facing chat side channel. It persists and
+// broadcasts messages without changing the automatic reply path.
+func (a *Adapter) SetChatService(service *chat.Service) { a.chat = service }
+
 // HandleChatMessage 用户聊天消息由 Account 内部 ReplyService 处理，此处空实现满足接口。
-func (a *Adapter) HandleChatMessage(_ context.Context, _ engine.ChatMessage) error {
-	return nil
+func (a *Adapter) HandleChatMessage(ctx context.Context, message engine.ChatMessage) error {
+	if a.chat == nil {
+		return nil
+	}
+	// Xianyu echoes messages sent by this account back over the same WS. Those
+	// sends are already captured by HandleOutgoingChatMessage; recording the
+	// echo as incoming would put our own bubble on the buyer side and duplicate it.
+	if strings.TrimSuffix(message.SenderUserID, "@goofish") == strings.TrimSuffix(message.AccountID, "@goofish") {
+		return nil
+	}
+	_, _, err := a.chat.RecordIncoming(ctx, chat.Incoming{
+		AccountID: message.AccountID, ChatID: message.ChatID, BuyerID: message.SenderUserID,
+		BuyerName: message.SenderName, Text: message.Text, ItemID: message.ItemID, Raw: message.Raw,
+	})
+	return err
+}
+
+// HandleOutgoingChatMessage records successful manual/automatic text sends as
+// a side channel; it never participates in platform delivery.
+func (a *Adapter) HandleOutgoingChatMessage(ctx context.Context, message engine.OutgoingChatMessage) error {
+	if a.chat == nil {
+		return nil
+	}
+	_, err := a.chat.RecordOutgoingSent(ctx, db.ChatSession{CookieID: message.AccountID, ChatID: message.ChatID,
+		BuyerID: message.BuyerID}, message.MessageKey, message.Text)
+	return err
 }
 
 // OnAccountAlert 把账号告警（token 失效/自动恢复失败/风控验证等）转发给通知器，

@@ -59,10 +59,7 @@ func (c *ClientImpl) FetchItemsPage(ctx context.Context, cookiesStr string, page
 }
 
 func (c *ClientImpl) fetchItemsPageOnce(ctx context.Context, cookiesStr string, pageNumber, pageSize int) (*ItemListResult, []string, string, error) {
-	hc := c.HTTPClient
-	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
-	}
+	hc := c.httpClient()
 	signingCookies, requestCookies := mtopRequestCookies(ctx, cookiesStr, "https://www.goofish.com/", ItemListAPI)
 	cookies := protocol.TransCookies(signingCookies)
 	userID := cookies["unb"]

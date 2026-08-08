@@ -86,15 +86,16 @@ type Notifier interface {
 // Center 是统一自动化处理中心。
 // 它只接收已经分类好的系统事件或计划任务，不处理用户消息；用户消息由 engine 的回复链处理。
 type Center struct {
-	store     *db.Store
-	senders   SenderProvider
-	fetcher   OrderDetailFetcher
-	recoverer CredentialRecoverer
-	notifier  Notifier
-	mtop      mtop.Client
-	logger    *slog.Logger
-	cookieSrc func(context.Context, string) (string, error)
-	cardLocks sync.Map
+	store        *db.Store
+	senders      SenderProvider
+	fetcher      OrderDetailFetcher
+	recoverer    CredentialRecoverer
+	notifier     Notifier
+	mtop         mtop.Client
+	accountTasks AccountTaskClient
+	logger       *slog.Logger
+	cookieSrc    func(context.Context, string) (string, error)
+	cardLocks    sync.Map
 }
 
 // New 构造自动化中心。
@@ -102,11 +103,15 @@ func New(store *db.Store, senders SenderProvider, logger *slog.Logger) *Center {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Center{store: store, senders: senders, mtop: mtop.NewClient(), logger: logger.With("subsys", "automation")}
+	client := mtop.NewClient()
+	return &Center{store: store, senders: senders, mtop: client, accountTasks: client, logger: logger.With("subsys", "automation")}
 }
 
 // SetMTop 注入 mtop 客户端（确认发货用）。未注入时使用默认 HTTP 实现。
 func (c *Center) SetMTop(m mtop.Client) { c.mtop = m }
+
+// SetAccountTaskClient overrides automatic rating/polish transport for tests.
+func (c *Center) SetAccountTaskClient(client AccountTaskClient) { c.accountTasks = client }
 
 // SetOrderDetailFetcher 注入订单详情查询能力。
 func (c *Center) SetOrderDetailFetcher(fetcher OrderDetailFetcher) {

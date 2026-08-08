@@ -53,10 +53,7 @@ func (c *ClientImpl) FetchUserProfile(ctx context.Context, cookiesStr string) (*
 }
 
 func (c *ClientImpl) fetchUserProfileOnce(ctx context.Context, cookiesStr string) (*UserProfileResult, []string, string, error) {
-	hc := c.HTTPClient
-	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
-	}
+	hc := c.httpClient()
 
 	dataVal := "{}"
 	signingCookies, requestCookies := mtopRequestCookies(ctx, cookiesStr, "https://www.goofish.com/", UserPageNavAPI)

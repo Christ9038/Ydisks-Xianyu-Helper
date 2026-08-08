@@ -125,8 +125,8 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 		t.Fatalf("goose dialect: %v", err)
 	}
 	goose.SetBaseFS(migrationsFS)
-	// 依次回滚 23 到 14，再整体升级。
-	for i := 0; i < 10; i++ {
+	// 依次回滚最新版本到 14，再整体升级。
+	for i := 0; i < 12; i++ {
 		if err := goose.Down(d, "migrations/sqlite"); err != nil {
 			t.Fatalf("down migration #%d: %v", i+1, err)
 		}
@@ -146,6 +146,11 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 	if columnExists(t, d, "item_publish_batch_rows", "category_json") {
 		t.Fatal("item_publish_batch_rows.category_json should be removed after migration 23 down")
 	}
+	for _, table := range []string{"account_task_settings", "account_task_runs", "chat_sessions", "chat_messages"} {
+		if tableExists(t, d, table) {
+			t.Fatalf("table should be removed after migration 24 down: %s", table)
+		}
+	}
 
 	if err := goose.Up(d, "migrations/sqlite"); err != nil {
 		t.Fatalf("up after down: %v", err)
@@ -164,6 +169,10 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 		{"default_reply_records", "text_sent"},
 		{"account_tokens", "cookie_fingerprint"},
 		{"item_publish_batch_rows", "category_json"},
+		{"account_task_settings", "auto_rate_enabled"},
+		{"account_task_runs", "run_key"},
+		{"chat_sessions", "unread_count"},
+		{"chat_messages", "message_key"},
 	} {
 		if !columnExists(t, d, c.table, c.col) {
 			t.Fatalf("column missing after re-up: %s.%s", c.table, c.col)

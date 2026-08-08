@@ -88,10 +88,7 @@ func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pa
 	req.Header.Set("Referer", soldOrdersReferer)
 	req.Header.Set("idle_site_biz_code", "COMMONPRO")
 
-	hc := c.HTTPClient
-	if hc == nil {
-		hc = &http.Client{Timeout: 30 * time.Second}
-	}
+	hc := c.httpClient()
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("订单列表请求失败: %w", err)

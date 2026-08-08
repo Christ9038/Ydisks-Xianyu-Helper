@@ -7,8 +7,10 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -32,66 +34,72 @@ func main() {
 		resolved = *dbPath
 	}
 
-	ctx := context.Background()
+	if err := run(context.Background(), resolved, bufio.NewReader(os.Stdin), os.Stdout); err != nil {
+		fatalf("初始化管理员失败: %v", err)
+	}
+}
+
+// run 执行一次初始化流程。把数据库、输入和输出显式注入后，CLI 的核心行为
+// 可以在临时数据库中回归测试，而不会调用 os.Exit 或污染用户数据。
+func run(ctx context.Context, resolved string, reader *bufio.Reader, out io.Writer) error {
 	database, dialect, err := db.Open(ctx, resolved)
 	if err != nil {
-		fatalf("打开数据库失败: %v", err)
+		return fmt.Errorf("打开数据库失败: %w", err)
 	}
 	defer database.Close()
 	store := db.NewStore(database, dialect)
 
-	reader := bufio.NewReader(os.Stdin)
-
 	existing, err := store.Users.GetAdmin(ctx)
 	if err != nil && !isNotFound(err) {
-		fatalf("查询 admin 失败: %v", err)
+		return fmt.Errorf("查询 admin 失败: %w", err)
 	}
 
 	if existing != nil {
-		fmt.Printf("管理员用户 %s 已存在\n", existing.Username)
-		fmt.Print("是否重置管理员密码？(y/N): ")
+		fmt.Fprintf(out, "管理员用户 %s 已存在\n", existing.Username)
+		fmt.Fprint(out, "是否重置管理员密码？(y/N): ")
 		ans, _ := reader.ReadString('\n')
 		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(ans)), "y") {
-			fmt.Println("跳过初始化")
-			return
+			fmt.Fprintln(out, "跳过初始化")
+			return nil
 		}
-		pw := promptPasswordTwice(reader)
+		pw := promptPasswordTwice(reader, out)
 		if _, err := auth.InitAdmin(ctx, store, "", pw); err != nil {
-			fatalf("重置 admin 密码失败: %v", err)
+			return fmt.Errorf("重置 admin 密码失败: %w", err)
 		}
-		fmt.Printf("重置完成：已更新 %s 的密码\n", existing.Username)
-		return
+		fmt.Fprintf(out, "重置完成：已更新 %s 的密码\n", existing.Username)
+		return nil
 	}
 
-	fmt.Println("=== 初始化管理员账号（CLI）===")
-	fmt.Print("请输入管理员邮箱: ")
+	fmt.Fprintln(out, "=== 初始化管理员账号（CLI）===")
+	fmt.Fprint(out, "请输入管理员邮箱: ")
 	email, _ := reader.ReadString('\n')
 	email = strings.TrimSpace(email)
 	if email == "" {
-		fatalf("邮箱不能为空")
+		return errors.New("邮箱不能为空")
 	}
-	pw := promptPasswordTwice(reader)
+	pw := promptPasswordTwice(reader, out)
 
 	created, err := auth.InitAdmin(ctx, store, email, pw)
 	if err != nil {
-		fatalf("创建 admin 用户失败：%v", err)
+		return fmt.Errorf("创建 admin 用户失败：%w", err)
 	}
 	if created {
-		fmt.Println("初始化完成：已创建 admin 用户")
+		fmt.Fprintln(out, "初始化完成：已创建 admin 用户")
 	}
+	return nil
 }
 
 // promptPasswordTwice 两次输入密码（不回显）并校验一致性。
-func promptPasswordTwice(reader *bufio.Reader) string {
+func promptPasswordTwice(reader *bufio.Reader, out io.Writer) string {
 	for {
-		p1 := readPasswordNoEcho(reader, "请输入管理员密码（不回显）: ")
+		p1 := readPasswordNoEcho(reader, "请输入管理员密码（不回显）: ", out)
 		if p1 == "" {
-			fmt.Println("密码不能为空")
+			fmt.Fprintln(out, "密码不能为空")
 			continue
 		}
-		p2 := readPasswordNoEcho(reader, "请再次输入管理员密码（不回显）: ")
+		p2 := readPasswordNoEcho(reader, "请再次输入管理员密码（不回显）: ", out)
 		if p1 != p2 {
-			fmt.Println("两次输入不一致，请重试")
+			fmt.Fprintln(out, "两次输入不一致，请重试")
 			continue
 		}
 		return p1
@@ -100,11 +108,11 @@ func promptPasswordTwice(reader *bufio.Reader) string {
 
 // readPasswordNoEcho 不回显读取密码。非 TTY 时回退到普通读取（如管道），
 // 共用同一 bufio.Reader 避免缓冲吞掉后续输入。
-func readPasswordNoEcho(reader *bufio.Reader, prompt string) string {
-	fmt.Print(prompt)
+func readPasswordNoEcho(reader *bufio.Reader, prompt string, out io.Writer) string {
+	fmt.Fprint(out, prompt)
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		b, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Println()
+		fmt.Fprintln(out)
 		if err != nil {
 			fatalf("读取密码失败: %v", err)
 		}
@@ -116,7 +124,7 @@ func readPasswordNoEcho(reader *bufio.Reader, prompt string) string {
 	return strings.TrimSpace(s)
 }
 
-func isNotFound(err error) bool { return err == db.ErrNotFound }
+func isNotFound(err error) bool { return errors.Is(err, db.ErrNotFound) }
 
 func fatalf(format string, a ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", a...)

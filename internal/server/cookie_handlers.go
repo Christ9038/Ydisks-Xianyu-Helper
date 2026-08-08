@@ -381,23 +381,31 @@ func (s *Server) listCookieDetails(w http.ResponseWriter, r *http.Request) {
 		if err != nil || d == nil {
 			continue
 		}
+		tasks, _ := s.Store.AccountTasks.Get(r.Context(), cid)
 		result = append(result, map[string]any{
-			"id":             d.ID,
-			"has_cookie":     true,
-			"enabled":        s.Store.Cookies.GetStatus(r.Context(), cid),
-			"auto_confirm":   d.AutoConfirm,
-			"remark":         d.Remark,
-			"pause_duration": d.PauseDuration,
-			"paused_until":   d.PausedUntil,
-			"paused":         d.PausedUntil > time.Now().UTC().Unix(),
-			"show_browser":   d.ShowBrowser,
-			"username":       d.Username,
-			"nickname":       cachedAccountNickname(d),
-			"avatar_url":     d.AvatarURL,
-			"login_method":   d.LoginMethod,
-			"last_login_at":  d.LastLoginAt,
-			"profile_error":  "",
-			"ai_enabled":     false,
+			"id":                  d.ID,
+			"has_cookie":          true,
+			"enabled":             s.Store.Cookies.GetStatus(r.Context(), cid),
+			"auto_confirm":        d.AutoConfirm,
+			"remark":              d.Remark,
+			"pause_duration":      d.PauseDuration,
+			"paused_until":        d.PausedUntil,
+			"paused":              d.PausedUntil > time.Now().UTC().Unix(),
+			"show_browser":        d.ShowBrowser,
+			"username":            d.Username,
+			"nickname":            cachedAccountNickname(d),
+			"avatar_url":          d.AvatarURL,
+			"login_method":        d.LoginMethod,
+			"last_login_at":       d.LastLoginAt,
+			"profile_error":       "",
+			"ai_enabled":          false,
+			"auto_rate_enabled":   tasks.AutoRateEnabled,
+			"rate_content":        tasks.RateContent,
+			"auto_polish_enabled": tasks.AutoPolishEnabled,
+			"polish_time":         tasks.PolishTime,
+			"last_rate_scan_at":   tasks.LastRateScanAt,
+			"last_polish_date":    tasks.LastPolishDate,
+			"last_polish_at":      tasks.LastPolishAt,
 		})
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -417,22 +425,30 @@ func (s *Server) getCookieDetails(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "账号不存在")
 		return
 	}
+	tasks, _ := s.Store.AccountTasks.Get(r.Context(), cid)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":             d.ID,
-		"enabled":        s.Store.Cookies.GetStatus(r.Context(), cid),
-		"auto_confirm":   d.AutoConfirm,
-		"remark":         d.Remark,
-		"pause_duration": d.PauseDuration,
-		"paused_until":   d.PausedUntil,
-		"paused":         d.PausedUntil > time.Now().UTC().Unix(),
-		"show_browser":   d.ShowBrowser,
-		"username":       d.Username,
-		"nickname":       cachedAccountNickname(d),
-		"avatar_url":     d.AvatarURL,
-		"login_method":   d.LoginMethod,
-		"last_login_at":  d.LastLoginAt,
-		"profile_error":  "",
-		"has_cookie":     true,
+		"id":                  d.ID,
+		"enabled":             s.Store.Cookies.GetStatus(r.Context(), cid),
+		"auto_confirm":        d.AutoConfirm,
+		"remark":              d.Remark,
+		"pause_duration":      d.PauseDuration,
+		"paused_until":        d.PausedUntil,
+		"paused":              d.PausedUntil > time.Now().UTC().Unix(),
+		"show_browser":        d.ShowBrowser,
+		"username":            d.Username,
+		"nickname":            cachedAccountNickname(d),
+		"avatar_url":          d.AvatarURL,
+		"login_method":        d.LoginMethod,
+		"last_login_at":       d.LastLoginAt,
+		"profile_error":       "",
+		"has_cookie":          true,
+		"auto_rate_enabled":   tasks.AutoRateEnabled,
+		"rate_content":        tasks.RateContent,
+		"auto_polish_enabled": tasks.AutoPolishEnabled,
+		"polish_time":         tasks.PolishTime,
+		"last_rate_scan_at":   tasks.LastRateScanAt,
+		"last_polish_date":    tasks.LastPolishDate,
+		"last_polish_at":      tasks.LastPolishAt,
 	})
 }
 

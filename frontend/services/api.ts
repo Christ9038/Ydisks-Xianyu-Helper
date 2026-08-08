@@ -4,6 +4,7 @@ import {
   AdminStats, DashboardStats, Card, SystemSettings, ApiResponse, OrderAnalytics,
   Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
   NotificationChannel, NotificationEventType
+	, AccountTaskSettings, AccountTaskSummary, ChatSession, ChatMessage
 } from '../types';
 import { formatLocalDate } from '../dateRange';
 
@@ -82,8 +83,69 @@ export const getAccountDetails = async (options?: RequestControlOptions): Promis
     avatar_url: accountAvatarURL(item, avatarVersion),
     profile_error: item.profile_error || '',
     ai_enabled: false,
+		auto_rate_enabled: item.auto_rate_enabled === true || item.auto_rate_enabled === 1,
+		rate_content: item.rate_content || '不错的买家，交易愉快',
+		auto_polish_enabled: item.auto_polish_enabled === true || item.auto_polish_enabled === 1,
+		polish_time: item.polish_time || '03:00',
+		last_rate_scan_at: Number(item.last_rate_scan_at || 0),
+		last_polish_date: item.last_polish_date || '',
+		last_polish_at: Number(item.last_polish_at || 0),
   }));
 };
+
+export const getAccountTaskSettings = async (id: string): Promise<AccountTaskSettings> =>
+	get(`/api/account-tasks/${id}`);
+
+export const updateAccountTaskSettings = async (id: string, settings: AccountTaskSettings): Promise<AccountTaskSettings> =>
+	put(`/api/account-tasks/${id}`, settings);
+
+export const runAccountTask = async (id: string, taskType: 'auto_rate' | 'auto_polish'): Promise<{success: boolean; summary: AccountTaskSummary}> =>
+	post(`/api/account-tasks/${id}/run`, { task_type: taskType }, { timeoutMs: 120_000 });
+
+export interface ChatSessionPage { sessions: ChatSession[]; has_more: boolean; next_cursor?: number }
+
+export const getChatSessionPage = async (accountId: string, cursor?: number, options?: RequestControlOptions, refresh = false): Promise<ChatSessionPage> => {
+	const result = await get<ChatSessionPage>('/api/chat/sessions', { account_id: accountId, cursor, refresh: refresh ? 1 : undefined },
+		refresh ? { timeoutMs: 60_000, ...options } : options);
+	return { sessions: result.sessions || [], has_more: result.has_more === true, next_cursor: result.next_cursor };
+};
+
+export const getChatSessions = async (accountId: string, options?: RequestControlOptions): Promise<ChatSession[]> =>
+	(await getChatSessionPage(accountId, undefined, options)).sessions;
+
+export interface ChatMessagePage {
+	messages: ChatMessage[];
+	has_more: boolean;
+	next_cursor?: number;
+	session?: ChatSession;
+}
+
+export const getChatMessagePage = async (accountId: string, chatId: string, cursor?: number, beforeId?: number, options?: RequestControlOptions): Promise<ChatMessagePage> => {
+	const result = await get<ChatMessagePage>('/api/chat/messages', {
+		account_id: accountId, chat_id: chatId, cursor, before_id: beforeId,
+	}, options);
+	return { messages: result.messages || [], has_more: result.has_more === true, next_cursor: result.next_cursor, session: result.session };
+};
+
+export const getChatMessages = async (accountId: string, chatId: string, beforeId?: number, options?: RequestControlOptions): Promise<ChatMessage[]> =>
+	(await getChatMessagePage(accountId, chatId, undefined, beforeId, options)).messages;
+
+export const sendChatMessage = async (input: {
+	account_id: string; chat_id: string; buyer_id: string; buyer_name?: string;
+	item_id?: string; item_title?: string; text: string;
+}): Promise<{message: ChatMessage}> => post('/api/chat/messages', input);
+
+export const sendChatImage = async (input: {
+	account_id: string; chat_id: string; buyer_id: string; buyer_name?: string;
+	buyer_avatar_url?: string; item_id?: string; item_title?: string; image: File;
+}): Promise<{message: ChatMessage}> => {
+	const form = new FormData();
+	Object.entries(input).forEach(([key, value]) => form.append(key, value));
+	return postForm('/api/chat/images', form, { timeoutMs: 120_000 });
+};
+
+export const markChatRead = async (accountId: string, chatId: string): Promise<ApiResponse> =>
+	post('/api/chat/read', { account_id: accountId, chat_id: chatId });
 
 export interface AccountRuntimeStatus {
   state: NonNullable<AccountDetail['runtime_state']>;

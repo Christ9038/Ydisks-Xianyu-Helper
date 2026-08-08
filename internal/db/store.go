@@ -28,6 +28,8 @@ type Store struct {
 	Renewal        *RenewalStore
 	LoginLogs      *AccountLoginLogs
 	RiskLogs       *RiskControlLogs
+	Chats          *ChatStore
+	AccountTasks   *AccountTaskStore
 
 	credentialMu    sync.Mutex
 	credentialLocks map[string]*sync.Mutex
@@ -58,6 +60,8 @@ func NewStore(db *sql.DB, dialect Dialect) *Store {
 		Renewal:         &RenewalStore{DB: db, Dialect: dialect},
 		LoginLogs:       &AccountLoginLogs{DB: db},
 		RiskLogs:        &RiskControlLogs{DB: db, Dialect: dialect},
+		Chats:           &ChatStore{DB: db, Dialect: dialect},
+		AccountTasks:    &AccountTaskStore{DB: db, Dialect: dialect},
 		credentialLocks: make(map[string]*sync.Mutex),
 	}
 }

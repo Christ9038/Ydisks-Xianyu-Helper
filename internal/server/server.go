@@ -21,6 +21,7 @@ import (
 	"xianyu-go/internal/account"
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/automation"
+	"xianyu-go/internal/chat"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/notify"
 	"xianyu-go/internal/webui"
@@ -60,6 +61,7 @@ type Server struct {
 	Manager     *account.Manager
 	automation  *automation.Center
 	notifier    *notify.Notifier
+	chat        *chat.Service
 	MTop        mtop.Client
 	CookieRenew xrenew.Service
 	QRLogin     qrLoginService
@@ -84,6 +86,9 @@ type Server struct {
 	qrPersistLocks sync.Map
 	loginLimiter   *loginFailureLimiter
 }
+
+// SetChatService installs the shared chat persistence and live event hub.
+func (s *Server) SetChatService(service *chat.Service) { s.chat = service }
 
 // New 构造。autoCenter/notifier 由调用方完成创建后注入（创建顺序：
 // adapter → manager → automation → notifier → server）。
@@ -151,6 +156,9 @@ func (s *Server) Router() http.Handler {
 
 		// 账号 cookie
 		s.mountCookies(r)
+		s.mountAccountTasks(r)
+		// 在线聊天（历史 REST + 应用层 WebSocket）
+		s.mountChat(r)
 		// 扫码登录
 		s.mountQRLoginReal(r)
 		// 密码登录
