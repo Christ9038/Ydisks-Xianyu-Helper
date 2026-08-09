@@ -104,3 +104,65 @@ func TestExtraRepositoriesCRUD(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestItemsSyncFromRemoteReconcilesAndPreservesLocalSettings(t *testing.T) {
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	ok, err := store.Users.Create(ctx, "sync-user", "sync@example.com", "password")
+	if err != nil || !ok {
+		t.Fatalf("create test user: ok=%v err=%v", ok, err)
+	}
+	user, err := store.Users.GetByUsername(ctx, "sync-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Cookies.Save(ctx, "acc1", "unb=1", user.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.Items.Upsert(ctx, &ItemInfoRow{
+		CookieID: "acc1", ItemID: "existing", ItemTitle: "旧标题", ItemDescription: "本地描述", ItemPrice: "¥9.90",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Items.SetMultiSpec(ctx, "acc1", "existing", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Items.SetMultiQuantity(ctx, "acc1", "existing", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Items.Upsert(ctx, &ItemInfoRow{CookieID: "acc1", ItemID: "deleted"}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := store.Items.SyncFromRemote(ctx, "acc1", []ItemInfoRow{
+		{CookieID: "wrong-cookie", ItemID: "existing", ItemTitle: "新标题", ItemPrice: "¥19.90", IsMultiSpec: true},
+		{ItemID: "new", ItemTitle: "新商品", ItemPrice: "¥3.00"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Saved != 2 || result.Deleted != 1 {
+		t.Fatalf("sync result=%+v, want saved=2 deleted=1", result)
+	}
+
+	items, err := store.Items.AllForCookie(ctx, "acc1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("items=%+v, want 2 rows", items)
+	}
+	item, err := store.Items.Get(ctx, "acc1", "existing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.ItemTitle != "新标题" || item.ItemPrice != "¥19.90" || item.ItemDescription != "本地描述" ||
+		!item.IsMultiSpec || !item.MultiQuantityDelivery {
+		t.Fatalf("existing item was not updated/preserved: %+v", item)
+	}
+	if _, err := store.Items.Get(ctx, "acc1", "deleted"); err != ErrNotFound {
+		t.Fatalf("deleted item still exists: err=%v", err)
+	}
+}

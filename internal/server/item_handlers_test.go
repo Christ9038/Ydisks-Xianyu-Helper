@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
 )
 
@@ -373,6 +374,21 @@ func TestPublishItemStockPermissionMissing(t *testing.T) {
 func TestSyncItemsFromAccountSuccess(t *testing.T) {
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	ctx := context.Background()
+	if err := store.Items.Upsert(ctx, &db.ItemInfoRow{
+		CookieID: "acc1", ItemID: "it-sync-1", ItemTitle: "旧标题", ItemDescription: "本地描述", ItemPrice: "¥9.90",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Items.SetMultiSpec(ctx, "acc1", "it-sync-1", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Items.SetMultiQuantity(ctx, "acc1", "it-sync-1", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Items.Upsert(ctx, &db.ItemInfoRow{CookieID: "acc1", ItemID: "it-removed", ItemTitle: "已删除商品"}); err != nil {
+		t.Fatal(err)
+	}
 	prev := srv.MTop
 	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		body := `{"ret":["SUCCESS::调用成功"],"data":{"cardList":[` +
@@ -402,16 +418,18 @@ func TestSyncItemsFromAccountSuccess(t *testing.T) {
 	if res["saved_count"] != float64(1) {
 		t.Fatalf("应保存1件商品: %+v", res)
 	}
-	// 验证 DB 已写入。
-	items, _ := store.Items.AllForCookie(context.Background(), "acc1")
-	found := false
-	for _, it := range items {
-		if it.ItemID == "it-sync-1" && it.ItemTitle == "同步商品A" {
-			found = true
-		}
+	if res["deleted_count"] != float64(1) {
+		t.Fatalf("应删除1件已下架商品: %+v", res)
 	}
-	if !found {
-		t.Fatalf("商品未保存: %+v", items)
+	// 验证 DB 已写入。
+	items, _ := store.Items.AllForCookie(ctx, "acc1")
+	if len(items) != 1 {
+		t.Fatalf("同步后本地应只保留1件商品: %+v", items)
+	}
+	item := items[0]
+	if item.ItemID != "it-sync-1" || item.ItemTitle != "同步商品A" || item.ItemPrice != "¥12.50" || item.ItemDescription != "本地描述" ||
+		!item.IsMultiSpec || !item.MultiQuantityDelivery {
+		t.Fatalf("线上商品更新或本地配置保留异常: %+v", item)
 	}
 }
 
