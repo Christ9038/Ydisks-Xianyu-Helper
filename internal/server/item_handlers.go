@@ -408,13 +408,21 @@ func (s *Server) syncItemsFromAccount(w http.ResponseWriter, r *http.Request) {
 	if runtimeCookieChanged {
 		s.updateRunningCookie(r.Context(), req.CookieID, runtimeCookie)
 	}
-	saved := s.saveSyncedItems(r.Context(), req.CookieID, res.Items)
+	syncResult, syncErr := s.syncSyncedItems(r.Context(), req.CookieID, res.Items)
+	if syncErr != nil {
+		if s.Logger != nil {
+			s.Logger.Error("同步商品到本地失败", "cookie_id", req.CookieID, "err", syncErr)
+		}
+		writeErr(w, http.StatusInternalServerError, "保存商品同步结果失败")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"success":     true,
-		"message":     "成功获取商品，共 " + strconv.Itoa(len(res.Items)) + " 件，保存 " + strconv.Itoa(saved) + " 件",
-		"total_count": len(res.Items),
-		"total_pages": res.TotalPages,
-		"saved_count": saved,
+		"success":       true,
+		"message":       "成功获取商品，共 " + strconv.Itoa(len(res.Items)) + " 件，保存 " + strconv.Itoa(syncResult.Saved) + " 件，删除 " + strconv.Itoa(syncResult.Deleted) + " 件",
+		"total_count":   len(res.Items),
+		"total_pages":   res.TotalPages,
+		"saved_count":   syncResult.Saved,
+		"deleted_count": syncResult.Deleted,
 	})
 }
 
@@ -552,6 +560,26 @@ func (s *Server) saveSyncedItems(ctx context.Context, cookieID string, items []m
 		}
 	}
 	return saved
+}
+
+func (s *Server) syncSyncedItems(ctx context.Context, cookieID string, items []mtop.ItemListItem) (db.ItemSyncResult, error) {
+	rows := make([]db.ItemInfoRow, 0, len(items))
+	for _, item := range items {
+		priceText := item.PriceText
+		if priceText == "" {
+			priceText = item.Price
+		}
+		rows = append(rows, db.ItemInfoRow{
+			CookieID:     cookieID,
+			ItemID:       item.ID,
+			ItemTitle:    item.Title,
+			ItemCategory: item.CategoryID,
+			ItemPrice:    priceText,
+			ItemDetail:   item.ItemDetail,
+			IsMultiSpec:  item.IsMultiSpec,
+		})
+	}
+	return s.Store.Items.SyncFromRemote(ctx, cookieID, rows)
 }
 
 func (s *Server) enrichSyncedItemMultiSpec(ctx context.Context, client mtop.Client, cookies, cookieID string, items []mtop.ItemListItem) {

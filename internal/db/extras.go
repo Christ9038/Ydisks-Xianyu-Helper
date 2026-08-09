@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strconv"
+	"strings"
 )
 
 // ---- 关键字 CRUD ----
@@ -520,6 +521,12 @@ type ItemInfoRow struct {
 	MultiQuantityDelivery bool
 }
 
+// ItemSyncResult 是一次远端商品全集同步的结果。
+type ItemSyncResult struct {
+	Saved   int
+	Deleted int
+}
+
 // AllForCookie 取某账号全部商品。
 func (i *Items) AllForCookie(ctx context.Context, cookieID string) ([]ItemInfoRow, error) {
 	rows, err := i.DB.QueryContext(ctx,
@@ -575,6 +582,78 @@ func (i *Items) UpsertBasic(ctx context.Context, r *ItemInfoRow) error {
 
 func (i *Items) UpsertBasicTx(ctx context.Context, tx *sql.Tx, r *ItemInfoRow) error {
 	return i.upsertBasic(ctx, tx, r)
+}
+
+// SyncFromRemote 将远端商品全集同步到本地。
+//
+// 远端列表只提供商品基础信息，因此保留本地的描述和发货配置；基础字段
+// （标题、分类、价格、详情）由远端非空值覆盖。整个 reconcile 在一个事务内
+// 完成，只有在全部远端商品写入成功后，才会删除本次全集中不存在的本地商品。
+func (i *Items) SyncFromRemote(ctx context.Context, cookieID string, rows []ItemInfoRow) (ItemSyncResult, error) {
+	cookieID = strings.TrimSpace(cookieID)
+	if cookieID == "" {
+		return ItemSyncResult{}, errors.New("cookie_id 不能为空")
+	}
+
+	remoteIDs := make(map[string]struct{}, len(rows))
+	validRows := make([]ItemInfoRow, 0, len(rows))
+	for _, row := range rows {
+		row.CookieID = cookieID
+		row.ItemID = strings.TrimSpace(row.ItemID)
+		if row.ItemID == "" {
+			continue
+		}
+		if _, exists := remoteIDs[row.ItemID]; exists {
+			continue
+		}
+		remoteIDs[row.ItemID] = struct{}{}
+		validRows = append(validRows, row)
+	}
+
+	tx, err := i.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return ItemSyncResult{}, err
+	}
+	rollback := func(err error) (ItemSyncResult, error) {
+		_ = tx.Rollback()
+		return ItemSyncResult{}, err
+	}
+	for index := range validRows {
+		if err := i.UpsertBasicTx(ctx, tx, &validRows[index]); err != nil {
+			return rollback(err)
+		}
+		if validRows[index].IsMultiSpec {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE item_info SET is_multi_spec=? WHERE cookie_id=? AND item_id=?`,
+				boolToInt(true), cookieID, validRows[index].ItemID); err != nil {
+				return rollback(err)
+			}
+		}
+	}
+
+	args := make([]any, 0, len(remoteIDs)+1)
+	args = append(args, cookieID)
+	deleteQuery := `DELETE FROM item_info WHERE cookie_id=?`
+	if len(remoteIDs) > 0 {
+		placeholders := make([]string, 0, len(remoteIDs))
+		for itemID := range remoteIDs {
+			placeholders = append(placeholders, "?")
+			args = append(args, itemID)
+		}
+		deleteQuery += ` AND item_id NOT IN (` + strings.Join(placeholders, ",") + ")"
+	}
+	deletedResult, err := tx.ExecContext(ctx, deleteQuery, args...)
+	if err != nil {
+		return rollback(err)
+	}
+	deleted, err := deletedResult.RowsAffected()
+	if err != nil {
+		return rollback(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return ItemSyncResult{}, err
+	}
+	return ItemSyncResult{Saved: len(validRows), Deleted: int(deleted)}, nil
 }
 
 func (i *Items) upsertBasic(ctx context.Context, execer sqlExecer, r *ItemInfoRow) error {
