@@ -313,7 +313,7 @@ const CardList: React.FC = () => {
       </div>
 
       <div className="ios-card rounded-xl overflow-hidden shadow-lg border-0 bg-white">
-        <div className="flex flex-col gap-3 border-b border-gray-50 bg-[#FAFAFA] p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-b border-gray-50 bg-surface-muted p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-1 flex-col gap-3 sm:flex-row">
             <div className="relative sm:w-48">
               <SlidersHorizontal className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -375,7 +375,7 @@ const CardList: React.FC = () => {
                 }
 
                 return (
-                  <tr key={card.id} className="hover:bg-[#FFFDE7]/50 transition-colors group">
+                  <tr key={card.id} className="hover:bg-warning-50/50 transition-colors group">
                     <td className="px-5 py-5 align-middle">
                       <div className="flex items-center gap-2.5">
                         <div className="shrink-0 rounded-xl bg-gray-50 p-2 transition-colors group-hover:bg-white">
@@ -667,7 +667,7 @@ const CardList: React.FC = () => {
                     type="button"
                     onClick={() => setEditForm({ ...editForm, enabled: !editForm.enabled })}
                     className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${
-                      editForm.enabled ? 'bg-[#0094f7]' : 'bg-gray-300'
+                      editForm.enabled ? 'bg-brand' : 'bg-gray-300'
                     }`}
                   >
                     <span
@@ -739,7 +739,7 @@ const CardList: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setAddForm({ ...addForm, type: 'data', content: '' })}
-                      className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'data' ? 'bg-[#0094f7] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                      className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'data' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                     >
                       <CreditCard className="w-5 h-5 mx-auto mb-1" />
                       批量库存
@@ -747,7 +747,7 @@ const CardList: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setAddForm({ ...addForm, type: 'text', content: '' })}
-                      className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'text' ? 'bg-[#0094f7] text-white' : 'bg-gray-100 text-gray-600'}`}
+                      className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'text' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600'}`}
                     >
                       <FileText className="w-5 h-5 mx-auto mb-1" />
                       文本
@@ -755,7 +755,7 @@ const CardList: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setAddForm({ ...addForm, type: 'image', content: '' })}
-                      className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'image' ? 'bg-[#0094f7] text-white' : 'bg-gray-100 text-gray-600'}`}
+                      className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'image' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600'}`}
                     >
                       <ImageIcon className="w-5 h-5 mx-auto mb-1" />
                       图片
@@ -792,7 +792,7 @@ const CardList: React.FC = () => {
                     />
                   )}
                   {addForm.type === 'data' && (
-                    <p className="text-xs text-gray-500">当前库存：<span className="font-bold text-[#0094f7]">{addForm.content.split('\n').filter(line => line.trim()).length}</span> 条</p>
+                    <p className="text-xs text-gray-500">当前库存：<span className="font-bold text-brand">{addForm.content.split('\n').filter(line => line.trim()).length}</span> 条</p>
                   )}
                 </div>
 
@@ -879,14 +879,14 @@ const CardList: React.FC = () => {
               <div className="flex flex-wrap gap-2 p-2 bg-gray-100/50 rounded-2xl">
                 <button
                   onClick={() => setBatchTab('create')}
-                  className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${batchTab === 'create' ? 'bg-[#0094f7] text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                  className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${batchTab === 'create' ? 'bg-brand text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
                 >
                   <ListPlus className="w-4 h-4" />
                   批量创建卡密组
                 </button>
                 <button
                   onClick={() => setBatchTab('append')}
-                  className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${batchTab === 'append' ? 'bg-[#0094f7] text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                  className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${batchTab === 'append' ? 'bg-brand text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
                 >
                   <Upload className="w-4 h-4" />
                   往单个组充卡密

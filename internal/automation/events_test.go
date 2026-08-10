@@ -80,6 +80,37 @@ func TestExtractTaskFromWS_OrderPaid(t *testing.T) {
 	}
 }
 
+func TestExtractTaskFromWS_BuyerOrderPaidIgnored(t *testing.T) {
+	raw := mustMap(t, `{
+	  "1": {
+	    "2": "63107041124@goofish",
+	    "10": {
+	      "redReminder": "等待卖家发货",
+	      "reminderContent": "[我已付款，等待你发货]",
+	      "senderUserId": "2222315258815",
+	      "reminderUrl": "fleamarket://message_chat?itemId=1063177864132&peerUserId=2222315258815&sid=63107041124"
+	    },
+	    "6": {"3": {"5": "{\"dxCard\":{\"item\":{\"main\":{\"targetUrl\":\"fleamarket://order_detail?id=3310145690545023994&role=buyer\"}}}}"}}
+	  }
+	}`)
+	if task := ExtractTaskFromWS("acc1", "cookie", raw); task != nil {
+		t.Fatalf("买家订单不应进入卖家自动化和订单管理: %+v", task)
+	}
+}
+
+func TestExtractTaskFromWS_BuyerOrderPaidTaskNameIgnored(t *testing.T) {
+	raw := mustMap(t, `{
+	  "1": {"2": "63107041124@goofish", "10": {
+	    "bizTag": "{\"taskName\":\"付款完成待发货_买家\"}",
+	    "redReminder": "等待卖家发货",
+	    "reminderContent": "[我已付款，等待你发货]"
+	  }}
+	}`)
+	if task := ExtractTaskFromWS("acc1", "cookie", raw); task != nil {
+		t.Fatalf("买家侧 taskName 不应进入卖家自动化和订单管理: %+v", task)
+	}
+}
+
 func mustMap(t *testing.T, s string) map[string]any {
 	t.Helper()
 	var m map[string]any

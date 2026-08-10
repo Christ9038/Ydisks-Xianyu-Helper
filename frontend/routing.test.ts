@@ -26,6 +26,13 @@ describe('frontend navigation routing', () => {
     expect([...sidebarIDs].sort()).toEqual([...appRouteIDs].sort());
   });
 
+  test('active navigation uses the primary action blue', () => {
+    const sidebar = readFrontendFile('components/Sidebar.tsx');
+
+    expect(sidebar).toContain("'bg-brand text-white shadow-brand-active'");
+    expect(sidebar).not.toContain("'bg-sky-500 text-white'");
+  });
+
   test('logout button invalidates the backend session before clearing UI state', () => {
     const app = readFrontendFile('App.tsx');
 

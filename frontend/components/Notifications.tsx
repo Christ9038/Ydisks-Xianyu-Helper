@@ -394,7 +394,7 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
       {/* 说明 */}
       <div className="ios-card rounded-xl p-5 bg-blue-50/50 border border-blue-100">
         <div className="flex items-start gap-3">
-          <Bell className="w-5 h-5 text-[#0094f7] mt-0.5 flex-shrink-0" />
+          <Bell className="w-5 h-5 text-brand mt-0.5 flex-shrink-0" />
           <div className="text-sm text-gray-700 leading-6">
             配置通知渠道并在「账号管理 → 编辑」里绑定后，以下事件会主动推送到该账号绑定的渠道：
             <ul className="mt-2 space-y-1 text-gray-600">
@@ -409,7 +409,7 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
       {/* 渠道列表 */}
       {loading ? (
         <div className="flex justify-center py-20">
-          <Loader2 className="w-8 h-8 text-[#0094f7] animate-spin" />
+          <Loader2 className="w-8 h-8 text-brand animate-spin" />
         </div>
       ) : channels.length === 0 ? (
         <div className="ios-card rounded-xl p-12 bg-white text-center">
@@ -454,7 +454,7 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
                   <button
                     onClick={() => handleTest(ch)}
                     disabled={testingId === ch.id}
-                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-50 text-[#0094f7] hover:bg-blue-100 transition-colors flex items-center gap-1 disabled:opacity-50"
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-50 text-brand hover:bg-blue-100 transition-colors flex items-center gap-1 disabled:opacity-50"
                   >
                     {testingId === ch.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
                     测试
@@ -639,10 +639,10 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
                         key={t}
                         type="button"
                         onClick={() => setForm({ ...form, type: t, config: {} })}
-                        className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1.5 transition-all ${selected ? 'border-[#0094f7] bg-blue-50' : 'border-gray-100 hover:border-gray-300'}`}
+                        className={`p-3 rounded-xl border-2 flex flex-col items-center gap-1.5 transition-all ${selected ? 'border-brand bg-blue-50' : 'border-gray-100 hover:border-gray-300'}`}
                       >
-                        <TIcon className={`w-5 h-5 ${selected ? 'text-[#0094f7]' : 'text-gray-500'}`} />
-                        <span className={`text-xs font-bold ${selected ? 'text-[#0094f7]' : 'text-gray-600'}`}>{m.label}</span>
+                        <TIcon className={`w-5 h-5 ${selected ? 'text-brand' : 'text-gray-500'}`} />
+                        <span className={`text-xs font-bold ${selected ? 'text-brand' : 'text-gray-600'}`}>{m.label}</span>
                       </button>
                     );
                   })}
@@ -712,7 +712,7 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
                             : enableCustomSMTP(form.config, smtp),
                         });
                       }}
-                      className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${form.config.use_custom_smtp === true ? 'bg-[#0094f7]' : 'bg-gray-300'}`}
+                      className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${form.config.use_custom_smtp === true ? 'bg-brand' : 'bg-gray-300'}`}
                       aria-label="使用独立 SMTP"
                     >
                       <span className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${form.config.use_custom_smtp === true ? 'translate-x-5' : ''}`} />
@@ -839,13 +839,13 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
                             : [...form.event_types, event.value];
                           setForm({ ...form, event_types: next });
                         }}
-                        className={`text-left rounded-xl border px-3 py-2.5 transition-colors ${checked ? 'border-[#0094f7] bg-blue-50' : 'border-gray-100 hover:border-gray-300'}`}
+                        className={`text-left rounded-xl border px-3 py-2.5 transition-colors ${checked ? 'border-brand bg-blue-50' : 'border-gray-100 hover:border-gray-300'}`}
                       >
                         <div className="flex items-center gap-2">
-                          <span className={`w-4 h-4 rounded border flex items-center justify-center ${checked ? 'bg-[#0094f7] border-[#0094f7]' : 'border-gray-300'}`}>
+                          <span className={`w-4 h-4 rounded border flex items-center justify-center ${checked ? 'bg-brand border-brand' : 'border-gray-300'}`}>
                             {checked && <Check className="w-3 h-3 text-white" />}
                           </span>
-                          <span className={`text-sm font-bold ${checked ? 'text-[#0094f7]' : 'text-gray-800'}`}>{event.label}</span>
+                          <span className={`text-sm font-bold ${checked ? 'text-brand' : 'text-gray-800'}`}>{event.label}</span>
                         </div>
                         <p className="text-xs text-gray-500 mt-1 pl-6 leading-5">{event.description}</p>
                       </button>
@@ -858,7 +858,7 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
                 <button
                   type="button"
                   onClick={() => setForm({ ...form, enabled: !form.enabled })}
-                  className={`relative w-11 h-6 rounded-full transition-colors ${form.enabled ? 'bg-[#0094f7]' : 'bg-gray-300'}`}
+                  className={`relative w-11 h-6 rounded-full transition-colors ${form.enabled ? 'bg-brand' : 'bg-gray-300'}`}
                 >
                   <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${form.enabled ? 'translate-x-5' : ''}`} />
                 </button>
@@ -889,8 +889,7 @@ const Notifications: React.FC<NotificationsProps> = ({ isAdmin = false }) => {
 
       {/* Toast */}
       {toast && (
-        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[10000] px-5 py-3 rounded-xl shadow-lg font-bold text-sm flex items-center gap-2 animate-fade-in"
-          style={{ background: toast.type === 'success' ? '#10b981' : '#ef4444', color: 'white' }}>
+        <div className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[10000] px-5 py-3 rounded-xl shadow-lg font-bold text-sm flex items-center gap-2 animate-fade-in text-white ${toast.type === 'success' ? 'bg-success-500' : 'bg-danger-500'}`}>
           {toast.type === 'success' ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
           {toast.text}
         </div>

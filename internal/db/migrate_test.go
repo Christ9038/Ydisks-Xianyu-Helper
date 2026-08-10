@@ -29,6 +29,7 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 		{"orders", "system_shipped"},
 		{"orders", "receiver_city"},
 		{"orders", "version"},
+		{"orders", "deleted_at"},
 		{"cards", "image_url"},
 		{"cards", "delay_seconds"},
 		{"keywords", "item_id"},
@@ -128,7 +129,7 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 	}
 	goose.SetBaseFS(migrationsFS)
 	// 依次回滚最新版本到 13，再整体升级。
-	for i := 0; i < 13; i++ {
+	for i := 0; i < 14; i++ {
 		if err := goose.Down(d, "migrations/sqlite"); err != nil {
 			t.Fatalf("down migration #%d: %v", i+1, err)
 		}
@@ -150,6 +151,9 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 	}
 	if columnExists(t, d, "item_info", "deleted_at") || columnExists(t, d, "automation_rules", "deleted_at") {
 		t.Fatal("soft-delete columns should be removed after migration 26 down")
+	}
+	if columnExists(t, d, "orders", "deleted_at") {
+		t.Fatal("orders.deleted_at should be removed after migration 27 down")
 	}
 	for _, table := range []string{"account_task_settings", "account_task_runs", "chat_sessions", "chat_messages"} {
 		if tableExists(t, d, table) {

@@ -61,6 +61,39 @@ func TestRefreshOrdersDiscoversNewOrdersWithoutBrowser(t *testing.T) {
 	}
 }
 
+func TestRefreshOrdersSoftDeletesOrdersMissingFromSellerList(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,item_id,buyer_id,cookie_id,order_status) VALUES ('buyer-order','buy-item','seller-account','acc1','pending_ship')`)
+	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if strings.Contains(req.URL.Query().Get("api"), "order.detail") {
+			body := `{"ret":["SUCCESS::调用成功"],"data":{"utArgs":{"orderStatus":"待发货"},"components":[{"render":"orderInfoVO","data":{"itemInfo":{"buyAmount":"1"},"priceInfo":{"amount":{"value":"10.00"}}}}]}}`
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+		}
+		body := `{"ret":["SUCCESS::调用成功"],"data":{"module":{"nextPage":"false","totalCount":"1","items":[{` +
+			`"commonData":{"orderId":"seller-order","itemId":"seller-item","orderStatus":"待发货"},` +
+			`"buyerInfoVO":{"buyerId":"buyer-1"},"priceVO":{"totalPrice":"10.00","buyNum":"1"}}]}}}`
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	}))
+	h := srv.Router()
+	cookie := loginHelper(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/refresh", nil)
+	req.AddCookie(cookie)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"soft_deleted":1`) {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var deletedAt string
+	if err := store.DB.QueryRowContext(ctx, `SELECT COALESCE(deleted_at,'') FROM orders WHERE order_id=?`, "buyer-order").Scan(&deletedAt); err != nil || deletedAt == "" {
+		t.Fatalf("缺失订单应逻辑删除，deleted_at=%q err=%v", deletedAt, err)
+	}
+	if _, err := store.Orders.Get(ctx, "buyer-order"); err == nil {
+		t.Fatal("逻辑删除的购买订单不应再出现在活动订单查询中")
+	}
+}
+
 func TestMissingRefreshResultsAreCounted(t *testing.T) {
 	targets := []refreshTarget{{OrderID: "a"}, {OrderID: "b"}, {OrderID: "c"}}
 	missing := missingRefreshTargetIDs(targets, map[string]struct{}{"b": {}})

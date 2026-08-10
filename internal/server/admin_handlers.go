@@ -120,7 +120,7 @@ func (s *Server) adminStats(w http.ResponseWriter, r *http.Request) {
 		{`SELECT COUNT(*) FROM users`, &totalUsers},
 		{`SELECT COUNT(*) FROM cookies`, &totalCookies},
 		{`SELECT COUNT(*) FROM cards`, &totalCards},
-		{`SELECT COUNT(*) FROM orders`, &totalOrders},
+		{`SELECT COUNT(*) FROM orders WHERE deleted_at IS NULL`, &totalOrders},
 		{`SELECT COUNT(*) FROM keywords`, &totalKeywords},
 	}
 	for _, count := range counts {

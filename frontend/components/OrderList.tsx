@@ -9,7 +9,7 @@ import { formatLocalDateTime } from '../dateTime';
 const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
   const styles = {
     processing: 'bg-blue-100 text-blue-800',
-    pending_ship: 'bg-[#0094f7] text-white',
+    pending_ship: 'bg-brand text-white',
     shipped: 'bg-blue-100 text-blue-700',
     completed: 'bg-green-100 text-green-700',
     cancelled: 'bg-gray-100 text-gray-500',
@@ -356,7 +356,7 @@ const OrderList: React.FC = () => {
 
       <div className="ios-card rounded-xl overflow-hidden shadow-lg border-0 bg-white">
         {/* Toolbar */}
-        <div className="p-4 border-b border-gray-50 flex flex-col md:flex-row gap-4 justify-between items-center bg-[#FAFAFA]">
+        <div className="p-4 border-b border-gray-50 flex flex-col md:flex-row gap-4 justify-between items-center bg-surface-muted">
           <div className="flex gap-1 p-1 bg-gray-200/50 rounded-xl overflow-x-auto max-w-full">
              {[
                  {k:'all', v:'全部'},
@@ -392,7 +392,7 @@ const OrderList: React.FC = () => {
               </select>
             </div>
             <div className="relative group">
-             <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-[#0094f7] transition-colors" />
+             <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-brand transition-colors" />
              <input
                  type="text"
                  placeholder="搜索订单号/商品/买家..."
@@ -418,7 +418,7 @@ const OrderList: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-gray-50">
               {orders.map((order) => (
-                <tr key={order.id} className="hover:bg-[#FFFDE7]/50 transition-colors group">
+                <tr key={order.id} className="hover:bg-warning-50/50 transition-colors group">
                   <td className="px-6 py-5">
                     <div className="flex items-center gap-5">
                       <div className="w-14 h-14 rounded-xl bg-gray-100 overflow-hidden shadow-sm border border-gray-100 flex-shrink-0">
@@ -800,7 +800,7 @@ const OrderList: React.FC = () => {
               <button
                 onClick={() => executeShip('full_delivery')}
                 disabled={shipLoading}
-                className="w-full text-left p-4 rounded-xl border-2 border-gray-200 hover:border-[#0094f7] hover:bg-blue-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full text-left p-4 rounded-xl border-2 border-gray-200 hover:border-brand hover:bg-blue-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0 mt-0.5">

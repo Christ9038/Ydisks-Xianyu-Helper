@@ -45,7 +45,7 @@ func (s *Server) dashboardStats(w http.ResponseWriter, r *http.Request) {
 		{"total_cards", `SELECT COUNT(*) FROM cards WHERE user_id=?`},
 		{"total_keywords", `SELECT COUNT(*) FROM keywords k WHERE EXISTS (
 			SELECT 1 FROM cookies c WHERE c.id=k.cookie_id AND c.user_id=?)`},
-		{"total_orders", `SELECT COUNT(*) FROM orders o WHERE EXISTS (
+		{"total_orders", `SELECT COUNT(*) FROM orders o WHERE o.deleted_at IS NULL AND EXISTS (
 			SELECT 1 FROM cookies c WHERE c.id=o.cookie_id AND c.user_id=?)`},
 	}
 	for _, item := range queries {
@@ -342,7 +342,7 @@ func (s *Server) validOrders(w http.ResponseWriter, r *http.Request) {
 // buildAnalyticsWhere 构建 WHERE 子句（user_id 经 cookies 关联过滤 + 日期 + 状态）。
 // 返回 (whereClause, params)，whereClause 已含 WHERE 前缀。
 func buildAnalyticsWhere(startDate, endDate string, userID int64, statuses []string, location *time.Location) (string, []any) {
-	conds := []string{}
+	conds := []string{"orders.deleted_at IS NULL"}
 	params := []any{}
 	if startDate != "" {
 		conds = append(conds, "orders.created_at >= ?")

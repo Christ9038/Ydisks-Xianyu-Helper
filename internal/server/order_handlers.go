@@ -187,7 +187,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 		all = map[string]string{cookieID: value}
 	}
 
-	discovered, listUpdated, failed := 0, 0, 0
+	discovered, listUpdated, softDeleted, failed := 0, 0, 0, 0
 	results := []map[string]any{}
 	newOrderIDs := make(map[string]struct{})
 	if fetcher, ok := s.mtopClient().(mtop.SoldOrderFetcher); ok {
@@ -207,7 +207,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 			}
 			all[cid] = latest.Value
 			mtopCtx, cookieSession := withMTopCookieSnapshot(r.Context(), latest)
-			accountDiscovered, accountUpdated, accountNewIDs, discoveryErr := s.discoverSoldOrders(mtopCtx, fetcher, cid, latest.Value)
+			accountDiscovered, accountUpdated, accountNewIDs, accountRemoteIDs, discoveryErr := s.discoverSoldOrders(mtopCtx, fetcher, cid, latest.Value)
 			value, valueChanged, _, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
 			if persistErr != nil {
 				discoveryErr = errors.Join(discoveryErr, fmt.Errorf("保存订单列表响应 Cookie Jar: %w", persistErr))
@@ -226,6 +226,16 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 			result := map[string]any{
 				"cookie_id": cid, "stage": "discover", "success": discoveryErr == nil,
 				"discovered": accountDiscovered, "updated": accountUpdated,
+			}
+			if discoveryErr == nil {
+				deleted, deleteErr := s.Store.Orders.SoftDeleteMissingForCookie(r.Context(), cid, accountRemoteIDs)
+				if deleteErr != nil {
+					discoveryErr = fmt.Errorf("标记缺失订单失败: %w", deleteErr)
+					result["success"] = false
+				} else {
+					softDeleted += deleted
+					result["soft_deleted"] = deleted
+				}
 			}
 			if discoveryErr != nil {
 				failed++
@@ -280,7 +290,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 			"success": failed == 0,
 			"message": message,
 			"summary": map[string]int{
-				"discovered": discovered, "list_updated": listUpdated, "detail_total": total,
+				"discovered": discovered, "list_updated": listUpdated, "soft_deleted": softDeleted, "detail_total": total,
 				"total": total, "updated": 0, "no_change": 0, "failed": failed,
 			},
 			"results": results,
@@ -292,7 +302,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 			"success": failed == 0,
 			"message": fmt.Sprintf("订单列表同步完成，发现 %d 个新订单；没有需要补全详情的订单", discovered),
 			"summary": map[string]int{
-				"discovered": discovered, "list_updated": listUpdated, "detail_total": 0,
+				"discovered": discovered, "list_updated": listUpdated, "soft_deleted": softDeleted, "detail_total": 0,
 				"total": 0, "updated": 0, "no_change": 0, "failed": failed,
 			},
 			"results": results,
@@ -373,30 +383,31 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 		"success": failed == 0,
 		"message": fmt.Sprintf("订单同步完成，发现 %d 个新订单", discovered),
 		"summary": map[string]int{
-			"discovered": discovered, "list_updated": listUpdated, "detail_total": total,
+			"discovered": discovered, "list_updated": listUpdated, "soft_deleted": softDeleted, "detail_total": total,
 			"total": total, "updated": updated, "no_change": noChange, "failed": failed,
 		},
 		"results": results,
 	})
 }
 
-func (s *Server) discoverSoldOrders(ctx context.Context, fetcher mtop.SoldOrderFetcher, cookieID, cookies string) (int, int, map[string]struct{}, error) {
+func (s *Server) discoverSoldOrders(ctx context.Context, fetcher mtop.SoldOrderFetcher, cookieID, cookies string) (int, int, map[string]struct{}, map[string]struct{}, error) {
 	discovered, updated := 0, 0
 	newOrderIDs := make(map[string]struct{})
+	remoteOrderIDs := make(map[string]struct{})
 	for pageNumber := 1; pageNumber <= maxSoldOrderPages; pageNumber++ {
 		page, err := fetcher.FetchSoldOrdersPage(ctx, cookies, pageNumber, 30)
 		if err != nil {
-			return discovered, updated, newOrderIDs, err
+			return discovered, updated, newOrderIDs, remoteOrderIDs, err
 		}
-		pageChanged := false
 		for _, remote := range page.Items {
+			remoteOrderIDs[remote.OrderID] = struct{}{}
 			if normalizedAmount, ok := db.NormalizeOrderAmount(remote.Amount); ok {
 				remote.Amount = normalizedAmount
 			}
 			existing, getErr := s.Store.Orders.Get(ctx, remote.OrderID)
 			isNew := errors.Is(getErr, db.ErrNotFound)
 			if getErr != nil && !isNew {
-				return discovered, updated, newOrderIDs, fmt.Errorf("读取订单 %s 失败: %w", remote.OrderID, getErr)
+				return discovered, updated, newOrderIDs, remoteOrderIDs, fmt.Errorf("读取订单 %s 失败: %w", remote.OrderID, getErr)
 			}
 			changed := isNew || soldOrderChanged(existing, remote)
 			status := remote.OrderStatus
@@ -415,7 +426,7 @@ func (s *Server) discoverSoldOrders(ctx context.Context, fetcher mtop.SoldOrderF
 				ReceiverAddr: remote.ReceiverAddr, ReceiverCity: remote.ReceiverCity,
 				IsBargain: isBargain,
 			}); err != nil {
-				return discovered, updated, newOrderIDs, fmt.Errorf("保存订单 %s 失败: %w", remote.OrderID, err)
+				return discovered, updated, newOrderIDs, remoteOrderIDs, fmt.Errorf("保存订单 %s 失败: %w", remote.OrderID, err)
 			}
 			if isNew {
 				discovered++
@@ -423,17 +434,12 @@ func (s *Server) discoverSoldOrders(ctx context.Context, fetcher mtop.SoldOrderF
 			} else if changed {
 				updated++
 			}
-			pageChanged = pageChanged || changed
 		}
 		if !page.NextPage || len(page.Items) == 0 {
-			return discovered, updated, newOrderIDs, nil
-		}
-		// 卖家列表按新到旧排列。一整页都已存在且字段未变化时，更早页也无需重复扫描。
-		if !pageChanged {
-			return discovered, updated, newOrderIDs, nil
+			return discovered, updated, newOrderIDs, remoteOrderIDs, nil
 		}
 	}
-	return discovered, updated, newOrderIDs, fmt.Errorf("订单列表超过 %d 页，已停止继续同步", maxSoldOrderPages)
+	return discovered, updated, newOrderIDs, remoteOrderIDs, fmt.Errorf("订单列表超过 %d 页，已停止继续同步", maxSoldOrderPages)
 }
 
 func soldOrderChanged(existing *db.Order, remote mtop.SoldOrder) bool {
@@ -559,13 +565,13 @@ func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "订单刷新完成", "order": detail})
 }
 
-// deleteOrder 删除订单。
+// deleteOrder 逻辑删除订单，保留订单历史，避免破坏自动化审计数据。
 func (s *Server) deleteOrder(w http.ResponseWriter, r *http.Request) {
 	orderID := chi.URLParam(r, "order_id")
 	if _, ok := s.requireOrderOwner(w, r, orderID); !ok {
 		return
 	}
-	_, err := s.Store.DB.ExecContext(r.Context(), `DELETE FROM orders WHERE order_id=?`, orderID)
+	_, err := s.Store.Orders.SoftDelete(r.Context(), orderID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return

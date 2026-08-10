@@ -3,6 +3,157 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * 全局颜色令牌：页面组件不得直接写颜色值。
+ * 颜色使用 RGB 通道存储，Tailwind 和 CSS 可以安全地复用透明度。
+ */
+:root {
+  --color-transparent: transparent;
+  --color-black: 0 0 0;
+  --color-white: 255 255 255;
+
+  --color-brand: 0 148 247;
+  --color-brand-highlight: 0 113 227;
+  --color-brand-light: 40 126 254;
+
+  --color-ink: 29 29 31;
+  --color-muted: 134 134 139;
+  --color-line: 210 210 215;
+  --color-canvas: 244 245 247;
+  --color-surface: 255 255 255;
+  --color-surface-subtle: 247 248 250;
+  --color-surface-muted: 250 250 250;
+
+  --color-neutral-50: 249 250 251;
+  --color-neutral-100: 243 244 246;
+  --color-neutral-200: 229 231 235;
+  --color-neutral-300: 209 213 219;
+  --color-neutral-400: 156 163 175;
+  --color-neutral-500: 107 114 128;
+  --color-neutral-600: 75 85 99;
+  --color-neutral-700: 55 65 81;
+  --color-neutral-800: 31 41 55;
+  --color-neutral-900: 17 24 39;
+  --color-neutral-950: 3 7 18;
+
+  --color-slate-50: 248 250 252;
+  --color-slate-100: 241 245 249;
+  --color-slate-200: 226 232 240;
+  --color-slate-300: 203 213 225;
+  --color-slate-400: 148 163 184;
+  --color-slate-500: 100 116 139;
+  --color-slate-600: 71 85 105;
+  --color-slate-700: 51 65 85;
+  --color-slate-800: 30 41 59;
+  --color-slate-900: 15 23 42;
+  --color-slate-950: 2 6 23;
+
+  /* 主色阶：蓝色只从品牌色体系中取值，避免 blue/sky 各自漂移。 */
+  --color-brand-50: 239 248 255;
+  --color-brand-100: 223 241 255;
+  --color-brand-200: 191 229 255;
+  --color-brand-300: 143 210 255;
+  --color-brand-400: 83 184 251;
+  --color-brand-500: 0 148 247;
+  --color-brand-600: 0 148 247;
+  --color-brand-700: 0 113 227;
+  --color-brand-800: 0 91 181;
+  --color-brand-900: 0 75 147;
+  --color-brand-950: 0 53 107;
+
+  --color-success-50: 236 253 245;
+  --color-success-100: 209 250 229;
+  --color-success-200: 167 243 208;
+  --color-success-300: 110 231 183;
+  --color-success-400: 52 211 153;
+  --color-success-500: 16 185 129;
+  --color-success-600: 5 150 105;
+  --color-success-700: 4 120 87;
+  --color-success-800: 6 95 70;
+  --color-success-900: 6 78 59;
+  --color-success-950: 2 44 34;
+
+  --color-warning-50: 255 251 235;
+  --color-warning-100: 254 243 199;
+  --color-warning-200: 253 230 138;
+  --color-warning-300: 252 211 77;
+  --color-warning-400: 251 191 36;
+  --color-warning-500: 245 158 11;
+  --color-warning-600: 217 119 6;
+  --color-warning-700: 180 83 9;
+  --color-warning-800: 146 64 14;
+  --color-warning-900: 120 53 15;
+  --color-warning-950: 69 26 3;
+
+  --color-danger-50: 254 242 242;
+  --color-danger-100: 254 226 226;
+  --color-danger-200: 254 202 202;
+  --color-danger-300: 252 165 165;
+  --color-danger-400: 248 113 113;
+  --color-danger-500: 239 68 68;
+  --color-danger-600: 220 38 38;
+  --color-danger-700: 185 28 28;
+  --color-danger-800: 153 27 27;
+  --color-danger-900: 127 29 29;
+  --color-danger-950: 69 10 10;
+
+  --color-info-50: 239 246 255;
+  --color-info-100: 219 234 254;
+  --color-info-200: 191 219 254;
+  --color-info-300: 147 197 253;
+  --color-info-400: 96 165 250;
+  --color-info-500: 59 130 246;
+  --color-info-600: 37 99 235;
+  --color-info-700: 29 78 216;
+  --color-info-800: 30 64 175;
+  --color-info-900: 30 58 138;
+  --color-info-950: 23 37 84;
+
+  /* 非状态性的辅助色只保留一个紫色阶，避免页面出现过多彩色分支。 */
+  --color-accent-50: 250 245 255;
+  --color-accent-100: 243 232 255;
+  --color-accent-200: 233 213 255;
+  --color-accent-300: 216 180 254;
+  --color-accent-400: 192 132 252;
+  --color-accent-500: 168 85 247;
+  --color-accent-600: 147 51 234;
+  --color-accent-700: 126 34 206;
+  --color-accent-800: 107 33 168;
+  --color-accent-900: 88 28 135;
+  --color-accent-950: 59 7 100;
+
+  --shadow-none: 0 0 0 var(--color-transparent);
+  --shadow-default: 0 1px 3px 0 rgb(var(--color-black) / 0.1), 0 1px 2px -1px rgb(var(--color-black) / 0.1);
+  --shadow-sm: 0 1px 2px 0 rgb(var(--color-black) / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(var(--color-black) / 0.1), 0 2px 4px -2px rgb(var(--color-black) / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(var(--color-black) / 0.1), 0 4px 6px -4px rgb(var(--color-black) / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(var(--color-black) / 0.1), 0 8px 10px -6px rgb(var(--color-black) / 0.1);
+  --shadow-2xl: 0 25px 50px -12px rgb(var(--color-black) / 0.25);
+  --shadow-inner: inset 0 2px 4px 0 rgb(var(--color-black) / 0.05);
+  --shadow-card: 0 8px 24px rgb(var(--color-black) / 0.04);
+  --shadow-panel: 0 20px 60px -15px rgb(var(--color-black) / 0.05);
+  --shadow-modal: 0 25px 50px -12px rgb(var(--color-black) / 0.25);
+  --shadow-sidebar: 4px 0 24px rgb(var(--color-slate-900) / 0.035);
+  --shadow-chat: 0 16px 45px rgb(var(--color-slate-900) / 0.06);
+  --shadow-chat-input: 0 -8px 24px rgb(var(--color-slate-900) / 0.04);
+  --shadow-chat-active: inset 3px 0 0 rgb(var(--color-brand));
+  --shadow-brand-soft: 0 2px 8px rgb(var(--color-brand) / 0.2);
+  --shadow-brand-active: 0 8px 18px rgb(var(--color-brand) / 0.2);
+  --shadow-brand-strong: 0 8px 20px rgb(var(--color-brand) / 0.3);
+}
+
+/* 覆盖 Tailwind 默认的蓝色焦点环和黑色占位阴影，避免预设色偷偷进入页面。 */
+*,
+::before,
+::after {
+  --tw-ring-offset-color: rgb(var(--color-white));
+  --tw-ring-color: rgb(var(--color-brand-400) / 0.5);
+  --tw-ring-offset-shadow: 0 0 0 var(--color-transparent);
+  --tw-ring-shadow: 0 0 0 var(--color-transparent);
+  --tw-shadow: 0 0 0 var(--color-transparent);
+  --tw-shadow-colored: 0 0 0 var(--color-transparent);
+}
+
 /* Ydisks 超椭圆 logo 容器：用 squircle mask 实现真超椭圆（比圆角矩形更鼓）。
    mask 让容器背景色（蓝）也裁成超椭圆形状。
    shadow 改用 filter:drop-shadow，跟随 mask 后的实际形状（box-shadow 会被 mask 裁掉）。 */
@@ -34,23 +185,23 @@ html, body, #root {
 body {
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
     "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  background-color: #F4F5F7;
-  color: #ffffff;
+  background-color: rgb(var(--color-canvas));
+  color: rgb(var(--color-ink));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 /* 闲鱼风格卡片 */
 .ios-card {
-  background: #FFFFFF;
+  background: rgb(var(--color-surface));
   border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.02);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.04);
+  border: 1px solid rgb(var(--color-black) / 0.02);
+  box-shadow: var(--shadow-card);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .ios-card:hover {
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 12px 32px rgb(var(--color-black) / 0.06);
 }
 
 /* 仪表盘饼图是展示型图表，避免 Recharts 的 SVG 焦点框和扇区焦点框形成无意义长条。 */
@@ -78,29 +229,29 @@ body {
 
 /* 闲鱼风格输入框 */
 .ios-input {
-  background: #F7F8FA;
-  border: 1px solid transparent;
+  background: rgb(var(--color-surface-subtle));
+  border: 1px solid var(--color-transparent);
   transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-  color: #111;
+  color: rgb(var(--color-ink));
   font-weight: 500;
 }
 
 .ios-input:focus {
-  background: #FFFFFF;
-  border-color: #0094f7;
-  box-shadow: 0 0 0 4px rgba(0, 148, 247, 0.3);
+  background: rgb(var(--color-surface));
+  border-color: rgb(var(--color-brand));
+  box-shadow: 0 0 0 4px rgb(var(--color-brand) / 0.3);
   outline: none;
 }
 
 .ios-input::placeholder {
-  color: #9CA3AF;
+  color: rgb(var(--color-neutral-400));
   font-weight: 400;
 }
 
 /* 主按钮 */
 .ios-btn-primary {
-  background: #0094f7;
-  color: #ffffff;
+  background: rgb(var(--color-brand));
+  color: rgb(var(--color-white));
   font-weight: 700;
   border: none;
   transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
@@ -108,19 +259,19 @@ body {
 }
 
 .ios-btn-primary:hover:not(:disabled) {
-  background: #0071e3;
+  background: rgb(var(--color-brand-highlight));
   transform: translateY(-1px);
-  box-shadow: 0 8px 20px rgba(0, 148, 247, 0.3);
+  box-shadow: var(--shadow-brand-strong);
 }
 
 .ios-btn-primary:active:not(:disabled) {
   transform: translateY(1px);
-  box-shadow: 0 2px 8px rgba(0, 148, 247, 0.2);
+  box-shadow: var(--shadow-brand-soft);
 }
 
 .ios-btn-primary:disabled {
-  background: #F0F0F0;
-  color: #AAAAAA;
+  background: rgb(var(--color-neutral-100));
+  color: rgb(var(--color-neutral-400));
   box-shadow: none;
   transform: none;
   cursor: not-allowed;
@@ -128,32 +279,32 @@ body {
 
 /* 次要按钮 */
 .ios-btn-secondary {
-  background: #F7F8FA;
-  color: #ffffff;
+  background: rgb(var(--color-surface-subtle));
+  color: rgb(var(--color-ink));
   font-weight: 600;
-  border: 1px solid transparent;
+  border: 1px solid var(--color-transparent);
   transition: all 0.2s ease;
   cursor: pointer;
 }
 
 .ios-btn-secondary:hover {
-  background: #E5E7EB;
-  border-color: #D1D5DB;
+  background: rgb(var(--color-neutral-200));
+  border-color: rgb(var(--color-neutral-300));
 }
 
 /* 危险按钮 */
 .ios-btn-danger {
-  background: #FEE2E2;
-  color: #DC2626;
+  background: rgb(var(--color-danger-100));
+  color: rgb(var(--color-danger-600));
   font-weight: 600;
-  border: 1px solid transparent;
+  border: 1px solid var(--color-transparent);
   transition: all 0.2s ease;
   cursor: pointer;
 }
 
 .ios-btn-danger:hover {
-  background: #FECACA;
-  border-color: #FCA5A5;
+  background: rgb(var(--color-danger-200));
+  border-color: rgb(var(--color-danger-300));
 }
 
 /* 自定义滚动条 */
@@ -163,16 +314,16 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--color-transparent);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
+  background: rgb(var(--color-black) / 0.1);
   border-radius: 10px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.2);
+  background: rgb(var(--color-black) / 0.2);
 }
 
 /* 动画 */
@@ -234,21 +385,21 @@ body {
 
 /* 文本选择 */
 ::selection {
-  background: #0094f7;
-  color: #fff;
+  background: rgb(var(--color-brand));
+  color: rgb(var(--color-white));
 }
 
 /* 工具类 */
 .text-brand {
-  color: #0094f7;
+  color: rgb(var(--color-brand));
 }
 
 .bg-brand {
-  background-color: #0094f7;
+  background-color: rgb(var(--color-brand));
 }
 
 .border-brand {
-  border-color: #0094f7;
+  border-color: rgb(var(--color-brand));
 }
 
 /* 状态徽章 */
@@ -262,31 +413,31 @@ body {
 }
 
 .status-badge-success {
-  background-color: #D1FAE5;
-  color: #065F46;
+  background-color: rgb(var(--color-success-100));
+  color: rgb(var(--color-success-800));
 }
 
 .status-badge-warning {
-  background-color: #FEF3C7;
-  color: #92400E;
+  background-color: rgb(var(--color-warning-100));
+  color: rgb(var(--color-warning-800));
 }
 
 .status-badge-error {
-  background-color: #FEE2E2;
-  color: #991B1B;
+  background-color: rgb(var(--color-danger-100));
+  color: rgb(var(--color-danger-800));
 }
 
 .status-badge-info {
-  background-color: #DBEAFE;
-  color: #1E40AF;
+  background-color: rgb(var(--color-info-100));
+  color: rgb(var(--color-info-800));
 }
 
 /* 加载状态 */
 .loading-skeleton {
   background: linear-gradient(90deg,
-    #F3F4F6 0%,
-    #E5E7EB 50%,
-    #F3F4F6 100%);
+    rgb(var(--color-neutral-100)) 0%,
+    rgb(var(--color-neutral-200)) 50%,
+    rgb(var(--color-neutral-100)) 100%);
   background-size: 200% 100%;
   animation: loading 1.5s ease-in-out infinite;
 }
@@ -308,7 +459,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: rgba(0, 0, 0, 0.4);
+  background-color: rgb(var(--color-black) / 0.4);
   backdrop-filter: blur(8px);
   padding: 1rem;
   overflow-y: auto;
@@ -322,17 +473,17 @@ body {
   margin: auto;
   display: flex;
   flex-direction: column;
-  background-color: white;
+  background-color: rgb(var(--color-white));
   border-radius: 10px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-modal);
   overflow: hidden;
 }
 
 .modal-header {
   flex-shrink: 0;
   padding: 2rem 2rem 1.5rem;
-  border-bottom: 1px solid #F3F4F6;
-  background-color: white;
+  border-bottom: 1px solid rgb(var(--color-neutral-100));
+  background-color: rgb(var(--color-white));
   z-index: 10;
 }
 
@@ -346,8 +497,8 @@ body {
 .modal-footer {
   flex-shrink: 0;
   padding: 1.5rem 2rem 2rem;
-  border-top: 1px solid #F3F4F6;
-  background-color: white;
+  border-top: 1px solid rgb(var(--color-neutral-100));
+  background-color: rgb(var(--color-white));
   z-index: 10;
 }
 
@@ -363,7 +514,7 @@ body {
   z-index: 9999;
   display: flex;
   justify-content: center;
-  background-color: rgba(0, 0, 0, 0.4);
+  background-color: rgb(var(--color-black) / 0.4);
   backdrop-filter: blur(8px);
   padding: 1rem;
   overflow-y: auto;
@@ -377,9 +528,9 @@ body {
   margin: auto 0;
   display: flex;
   flex-direction: column;
-  background-color: white;
+  background-color: rgb(var(--color-white));
   border-radius: 10px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-modal);
   overflow: hidden;
 }
 

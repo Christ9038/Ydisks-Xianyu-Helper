@@ -33,9 +33,8 @@ describe('Dashboard presentation safeguards', () => {
     expect(globalStyles).toContain('.dashboard-pie-chart .recharts-sector:focus');
     expect(dashboardSource).toContain('dashboard-revenue-chart h-[350px] w-full');
     expect(dashboardSource).toContain('activeBar={false}');
-    expect(dashboardSource).not.toContain('stroke="#000000"');
-    expect(dashboardSource).not.toContain("['#0094f7', '#FCD34D', '#0071e3']");
-    expect(dashboardSource).toContain('fill="#0094f7"');
+    expect(dashboardSource).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
+    expect(dashboardSource).toContain("fill={cssColor('brand')}");
     expect(globalStyles).toContain('.dashboard-revenue-chart .recharts-rectangle:focus');
     expect(globalStyles).toContain('.dashboard-revenue-chart .recharts-curve:focus');
     expect(globalStyles).toContain('.dashboard-revenue-chart [class*="recharts-zIndex-layer_"]:focus');

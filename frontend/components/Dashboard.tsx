@@ -6,11 +6,17 @@ import { formatLocalDateTime } from '../dateTime';
 import { TrendingUp, Users, ShoppingCart, AlertCircle, DollarSign, Activity, Package, ArrowUpRight, Calendar, X, BarChart3, PackageCheck, ExternalLink, Eye, Edit } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
 
+const cssColor = (token: string, alpha?: number) => (
+  alpha === undefined
+    ? `rgb(var(--color-${token}))`
+    : `rgb(var(--color-${token}) / ${alpha})`
+);
+
 // 状态徽章组件
 export const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
   const styles = {
     processing: 'bg-blue-100 text-blue-800',
-    pending_ship: 'bg-[#0094f7] text-white',
+    pending_ship: 'bg-brand text-white',
     shipped: 'bg-blue-100 text-blue-700',
     completed: 'bg-green-100 text-green-700',
     cancelled: 'bg-gray-100 text-gray-500',
@@ -42,7 +48,7 @@ const StatCard: React.FC<{ title: string; value: string | number; icon: React.El
       <div className={`p-4 rounded-2xl ${colorClass} bg-opacity-10 backdrop-blur-sm`}>
         <Icon className={`w-6 h-6 ${colorClass.replace('bg-', 'text-')}`} />
       </div>
-      {trend && <span className="text-xs font-bold text-white bg-[#0094f7] px-3 py-1.5 rounded-full flex items-center gap-1 shadow-sm">
+      {trend && <span className="text-xs font-bold text-white bg-brand px-3 py-1.5 rounded-full flex items-center gap-1 shadow-sm">
         <TrendingUp className="w-3 h-3" /> {trend}
       </span>}
     </div>
@@ -75,7 +81,13 @@ const Dashboard: React.FC = () => {
   const rangeRequestSequence = useRef(0);
 
   // 颜色配置
-  const COLORS = ['#0094f7', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6'];
+  const COLORS = [
+    cssColor('brand'),
+    cssColor('brand-highlight'),
+    cssColor('success-500'),
+    cssColor('warning-500'),
+    cssColor('accent-500'),
+  ];
   const formatCurrency = (value: number) => `¥${Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
   const loadRange = async (range: TimeRange) => {
     let currentRange;
@@ -159,7 +171,7 @@ const Dashboard: React.FC = () => {
       </div>
     );
   }
-  if (!stats || !analytics) return <div className="p-8 flex justify-center text-gray-400"><Activity className="w-8 h-8 animate-spin text-[#0094f7]" /></div>;
+  if (!stats || !analytics) return <div className="p-8 flex justify-center text-gray-400"><Activity className="w-8 h-8 animate-spin text-brand" /></div>;
 
   const chartData = analytics.daily_stats?.map(d => ({
       name: d.date.slice(5), // MM-DD
@@ -267,7 +279,7 @@ const Dashboard: React.FC = () => {
             onClick={() => setTimeRange(option.key)}
             className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
               timeRange === option.key
-                ? 'bg-[#0094f7] text-white shadow-md'
+                ? 'bg-brand text-white shadow-md'
                 : 'bg-white text-gray-600 hover:text-black hover:bg-gray-50'
             }`}
           >
@@ -280,14 +292,14 @@ const Dashboard: React.FC = () => {
               type="date"
               value={customStartDate}
               onChange={(e) => setCustomStartDate(e.target.value)}
-              className="px-3 py-2 rounded-xl text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#0094f7]"
+              className="px-3 py-2 rounded-xl text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand"
             />
             <span className="self-center text-gray-400">-</span>
             <input
               type="date"
               value={customEndDate}
               onChange={(e) => setCustomEndDate(e.target.value)}
-              className="px-3 py-2 rounded-xl text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#0094f7]"
+              className="px-3 py-2 rounded-xl text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand"
             />
             <button
               onClick={() => {
@@ -356,26 +368,26 @@ const Dashboard: React.FC = () => {
                   dataKey="name"
                   axisLine={false}
                   tickLine={false}
-                  tick={{fill: '#374151', fontSize: 14, fontWeight: 600}}
+                  tick={{fill: cssColor('neutral-700'), fontSize: 14, fontWeight: 600}}
                   dy={10}
                 />
                 <YAxis
                   axisLine={false}
                   tickLine={false}
-                  tick={{fill: '#9CA3AF', fontSize: 13, fontWeight: 500}}
+                  tick={{fill: cssColor('neutral-400'), fontSize: 13, fontWeight: 500}}
                   tickFormatter={(value) => `¥${value}`}
                 />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: '#fff',
+                    backgroundColor: cssColor('white'),
                     borderRadius: '8px',
-                    border: '1px solid #e5e7eb',
-                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
+                    border: `1px solid ${cssColor('neutral-200')}`,
+                    boxShadow: 'var(--shadow-xl)',
                     padding: '12px 16px'
                   }}
-                  labelStyle={{ color: '#6b7280', fontWeight: 500 }}
-                  itemStyle={{ color: '#0094f7', fontWeight: 600 }}
-                  cursor={{ fill: 'rgba(0, 148, 247, 0.08)' }}
+                  labelStyle={{ color: cssColor('neutral-500'), fontWeight: 500 }}
+                  itemStyle={{ color: cssColor('brand'), fontWeight: 600 }}
+                  cursor={{ fill: cssColor('brand', 0.08) }}
                   formatter={(value) => {
                     const num = Number(value);
                     return [`¥${num.toFixed(2)}`, '营收'];
@@ -383,7 +395,7 @@ const Dashboard: React.FC = () => {
                 />
                 <Bar
                   dataKey="amount"
-                  fill="#0094f7"
+                  fill={cssColor('brand')}
                   maxBarSize={72}
                   radius={[12, 12, 0, 0]}
                   activeBar={false}
@@ -393,7 +405,7 @@ const Dashboard: React.FC = () => {
                   {chartData.map((_, index) => (
                     <Cell
                       key={`cell-${index}`}
-                      fill="#0094f7"
+                      fill={cssColor('brand')}
                       stroke="none"
                       strokeWidth={0}
                     />
@@ -407,36 +419,36 @@ const Dashboard: React.FC = () => {
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0094f7" stopOpacity={0.5}/>
-                    <stop offset="95%" stopColor="#0094f7" stopOpacity={0}/>
+                    <stop offset="5%" stopColor={cssColor('brand')} stopOpacity={0.5}/>
+                    <stop offset="95%" stopColor={cssColor('brand')} stopOpacity={0}/>
                   </linearGradient>
                 </defs>
                 <XAxis
                   dataKey="name"
                   axisLine={false}
                   tickLine={false}
-                  tick={{fill: '#9CA3AF', fontSize: 13, fontWeight: 500}}
+                  tick={{fill: cssColor('neutral-400'), fontSize: 13, fontWeight: 500}}
                   dy={15}
                 />
                 <YAxis
                   axisLine={false}
                   tickLine={false}
-                  tick={{fill: '#9CA3AF', fontSize: 13, fontWeight: 500}}
+                  tick={{fill: cssColor('neutral-400'), fontSize: 13, fontWeight: 500}}
                 />
-                <CartesianGrid vertical={false} stroke="#F3F4F6" strokeDasharray="3 3" />
+                <CartesianGrid vertical={false} stroke={cssColor('neutral-100')} strokeDasharray="3 3" />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: '#fff',
+                    backgroundColor: cssColor('white'),
                     borderRadius: '8px',
-                    border: '1px solid #e5e7eb',
-                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
+                    border: `1px solid ${cssColor('neutral-200')}`,
+                    boxShadow: 'var(--shadow-xl)',
                     padding: '12px 16px'
                   }}
-                  labelStyle={{ color: '#6b7280', fontWeight: 500 }}
-                  itemStyle={{ color: '#0094f7', fontWeight: 600 }}
-                  cursor={{ stroke: '#0094f7', strokeWidth: 2, strokeDasharray: '4 4' }}
+                  labelStyle={{ color: cssColor('neutral-500'), fontWeight: 500 }}
+                  itemStyle={{ color: cssColor('brand'), fontWeight: 600 }}
+                  cursor={{ stroke: cssColor('brand'), strokeWidth: 2, strokeDasharray: '4 4' }}
                 />
-                <Area type="monotone" dataKey="amount" stroke="#0094f7" strokeWidth={4} fillOpacity={1} fill="url(#colorAmount)" activeDot={{ r: 8, fill: '#fff', stroke: "#0094f7", strokeWidth: 2 }} />
+                <Area type="monotone" dataKey="amount" stroke={cssColor('brand')} strokeWidth={4} fillOpacity={1} fill="url(#colorAmount)" activeDot={{ r: 8, fill: cssColor('white'), stroke: cssColor('brand'), strokeWidth: 2 }} />
               </AreaChart>
             </ResponsiveContainer>
           )}
@@ -466,7 +478,7 @@ const Dashboard: React.FC = () => {
                     </div>
                     <div className="h-3 rounded-full bg-gray-100 overflow-hidden">
                       <div
-                        className="h-full rounded-full bg-[#0094f7]"
+                        className="h-full rounded-full bg-brand"
                         style={{ width: `${Math.max(8, (item.sales / maxProductSales) * 100)}%` }}
                       />
                     </div>
@@ -516,17 +528,17 @@ const Dashboard: React.FC = () => {
                       formatter={(value) => `${Number(value || 0)} 单`}
                       wrapperStyle={{ zIndex: 30, outline: 'none' }}
                       contentStyle={{
-                        backgroundColor: '#fff',
-                        border: '1px solid #e5e7eb',
+                        backgroundColor: cssColor('white'),
+                        border: `1px solid ${cssColor('neutral-200')}`,
                         borderRadius: '10px',
-                        boxShadow: '0 8px 20px rgba(15, 23, 42, 0.08)'
+                        boxShadow: 'var(--shadow-md)'
                       }}
                     />
                     <Legend
                       verticalAlign="bottom"
                       height={36}
                       iconType="circle"
-                      formatter={(value) => <span style={{ color: '#6B7280', fontWeight: 500 }}>{value}</span>}
+                      formatter={(value) => <span style={{ color: cssColor('neutral-500'), fontWeight: 500 }}>{value}</span>}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -544,7 +556,7 @@ const Dashboard: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* 参与统计的订单列表 */}
         <div className="lg:col-span-2 ios-card p-0 rounded-xl border-0 bg-white overflow-hidden flex flex-col">
-          <div className="p-6 border-b border-gray-50 flex justify-between items-center bg-[#FAFAFA]">
+          <div className="p-6 border-b border-gray-50 flex justify-between items-center bg-surface-muted">
 			<div>
 			  <h3 className="font-bold text-lg text-gray-900">参与统计的订单</h3>
 			  {validOrdersTruncated && (
@@ -603,7 +615,7 @@ const Dashboard: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {filteredValidOrders.map((order) => (
-                      <tr key={order.order_id} className="hover:bg-[#FFFDE7]/50 transition-colors group">
+                      <tr key={order.order_id} className="hover:bg-warning-50/50 transition-colors group">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
                             <div className="w-12 h-12 rounded-xl bg-gray-100 overflow-hidden shadow-sm border border-gray-100 flex-shrink-0">
@@ -687,10 +699,10 @@ const Dashboard: React.FC = () => {
                     <Tooltip
                       wrapperStyle={{ zIndex: 30, outline: 'none' }}
                       contentStyle={{
-                        backgroundColor: '#fff',
-                        border: '1px solid #e5e7eb',
+                        backgroundColor: cssColor('white'),
+                        border: `1px solid ${cssColor('neutral-200')}`,
                         borderRadius: '6px',
-                        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                        boxShadow: 'var(--shadow-md)'
                       }}
                       formatter={(value) => `¥${Number(value || 0).toLocaleString()}`}
                     />

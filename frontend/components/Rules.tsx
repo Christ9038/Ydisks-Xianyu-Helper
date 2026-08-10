@@ -842,7 +842,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
               onClick={() => setActiveTab(tab.id)}
               className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
                 activeTab === tab.id
-                  ? 'bg-[#0094f7] text-white shadow-md'
+                  ? 'bg-brand text-white shadow-md'
                   : 'bg-white text-gray-600 hover:text-black hover:bg-gray-50'
               }`}
             >
@@ -949,7 +949,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
           </aside>
 
 		  <section className="min-w-0 space-y-4">
-			<div className="rounded-xl border border-gray-100 bg-[#FAFAFA] p-4 shadow-sm">
+			<div className="rounded-xl border border-gray-100 bg-surface-muted p-4 shadow-sm">
 			  <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
 				<div className="relative min-w-0 flex-1">
 				  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -1112,7 +1112,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 					  type="button"
 					  disabled={loading}
 					  onClick={() => setAutomationPage(pageNumber)}
-					  className={`h-9 min-w-9 rounded-lg px-2 text-sm font-bold transition-colors ${pageNumber === automationPage ? 'bg-[#0094f7] text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'} disabled:cursor-not-allowed disabled:opacity-60`}
+					  className={`h-9 min-w-9 rounded-lg px-2 text-sm font-bold transition-colors ${pageNumber === automationPage ? 'bg-brand text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'} disabled:cursor-not-allowed disabled:opacity-60`}
 					  aria-label={`第 ${pageNumber} 页`}
 					  aria-current={pageNumber === automationPage ? 'page' : undefined}
 					>
@@ -1144,7 +1144,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
           </div>
           <div className="space-y-3">
             {replyRules.map(rule => (
-              <div key={rule.id} className="flex flex-col md:flex-row md:items-center justify-between p-5 rounded-2xl border border-gray-100 bg-[#F7F8FA] hover:bg-white hover:shadow-lg transition-all gap-4">
+              <div key={rule.id} className="flex flex-col md:flex-row md:items-center justify-between p-5 rounded-2xl border border-gray-100 bg-surface-subtle hover:bg-white hover:shadow-lg transition-all gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-2">
                     <span className="px-3 py-1 bg-black text-white rounded-lg text-xs font-bold">包含匹配</span>
@@ -1187,7 +1187,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
               const defaultReply = defaultReplies[account.id];
               const enabled = Boolean(defaultReply?.enabled);
               return (
-                <div key={account.id} className={`flex flex-col md:flex-row md:items-center justify-between p-5 rounded-2xl border transition-all gap-4 ${enabled ? 'border-purple-100 bg-purple-50/50 hover:bg-white hover:shadow-lg' : 'border-gray-100 bg-[#F7F8FA] hover:bg-white hover:shadow-lg'}`}>
+                <div key={account.id} className={`flex flex-col md:flex-row md:items-center justify-between p-5 rounded-2xl border transition-all gap-4 ${enabled ? 'border-purple-100 bg-purple-50/50 hover:bg-white hover:shadow-lg' : 'border-gray-100 bg-surface-subtle hover:bg-white hover:shadow-lg'}`}>
                   <div className="flex items-center gap-4 min-w-0">
                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${enabled ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-400'}`}>
                       <Bot className="w-5 h-5" />
@@ -1272,7 +1272,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                         }`}
                       >
                         <div className="flex items-start gap-3">
-                          <Icon className={`w-5 h-5 mt-0.5 ${selected ? 'text-[#0094f7]' : 'text-white'}`} />
+                          <Icon className={`w-5 h-5 mt-0.5 ${selected ? 'text-brand' : 'text-white'}`} />
                           <div>
                             <div className="font-black">{meta.label}</div>
                             <div className={`text-xs mt-1 leading-5 ${selected ? 'text-gray-500' : 'text-gray-400'}`}>{meta.description}</div>
@@ -1296,11 +1296,11 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                 </div>
               </aside>
 
-              <div className="p-6 overflow-y-auto bg-[#F7F8FA]">
+              <div className="p-6 overflow-y-auto bg-surface-subtle">
                 <div className="space-y-5">
                   <section className="bg-white rounded-3xl border border-gray-100 p-5">
                     <div className="flex items-center gap-2 mb-4">
-                      <CheckCircle2 className="w-5 h-5 text-[#0094f7]" />
+                      <CheckCircle2 className="w-5 h-5 text-brand" />
                       <h4 className="font-black text-gray-900">生效范围</h4>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1369,7 +1369,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                       <div className="flex items-start justify-between gap-4 mb-4">
                         <div>
                           <div className="flex items-center gap-2">
-                            <Layers3 className="w-5 h-5 text-[#0094f7]" />
+                            <Layers3 className="w-5 h-5 text-brand" />
                             <h4 className="font-black text-gray-900">{currentTrigger === 'buyer_reviewed' ? '赠品库存' : '发货库存'}</h4>
                           </div>
                           <p className="text-sm text-gray-500 mt-1">
@@ -1446,7 +1446,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                   type="checkbox"
                                   checked={variant.delay_override === true}
                                   onChange={event => updateVariant(index, { delay_override: event.target.checked })}
-                                  className="accent-[#0094f7]"
+                                  className="accent-brand"
                                 />
                                 覆盖卡密默认延时
                               </label>
@@ -1738,7 +1738,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                 <button
                   type="button"
                   onClick={() => setDefaultForm({ ...defaultForm, enabled: !defaultForm.enabled })}
-                  className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${defaultForm.enabled ? 'bg-[#0094f7]' : 'bg-gray-300'}`}
+                  className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${defaultForm.enabled ? 'bg-brand' : 'bg-gray-300'}`}
                 >
                   <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 block ${defaultForm.enabled ? 'translate-x-7' : 'translate-x-1'}`} />
                 </button>

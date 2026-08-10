@@ -678,7 +678,7 @@ const AccountList: React.FC = () => {
     }
   };
 
-  if (loading) return <div className="p-20 flex justify-center"><Loader2 className="w-8 h-8 text-[#0094f7] animate-spin"/></div>;
+  if (loading) return <div className="p-20 flex justify-center"><Loader2 className="w-8 h-8 text-brand animate-spin"/></div>;
 
   const filteredAccounts = accounts.filter(account => {
     const keyword = accountSearch.trim().toLowerCase();
@@ -728,7 +728,7 @@ const AccountList: React.FC = () => {
           const runtime = runtimePresentation(account);
           const requiresLogin = account.runtime_state === 'auth_expired' || account.runtime_state === 'verification_required';
           return (
-          <div key={account.id} className="ios-card rounded-xl p-6 group transition-all duration-300 hover:border-[#0094f7]">
+          <div key={account.id} className="ios-card rounded-xl p-6 group transition-all duration-300 hover:border-brand">
             <div className="flex min-w-0 items-start gap-5 sm:gap-8">
               <div className="relative">
                 {account.avatar_url ? (
@@ -898,7 +898,7 @@ const AccountList: React.FC = () => {
       {deleteDialogAccount && createPortal(
         <div className="modal-overlay-centered" role="presentation">
           <div
-            className="h-fit w-full max-w-[400px] self-center overflow-hidden rounded-2xl border border-white/80 bg-white shadow-[0_24px_64px_rgba(15,23,42,0.22)]"
+            className="h-fit w-full max-w-[400px] self-center overflow-hidden rounded-2xl border border-white/80 bg-white shadow-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="delete-account-title"
@@ -947,7 +947,7 @@ const AccountList: React.FC = () => {
                   role="progressbar"
                   aria-label="正在删除账号"
                 >
-                  <Loader2 className="h-5 w-5 flex-shrink-0 animate-spin text-[#0094f7]" />
+                  <Loader2 className="h-5 w-5 flex-shrink-0 animate-spin text-brand" />
                   <div>
                     <div className="text-sm font-extrabold text-blue-950">正在删除账号</div>
                     <div className="mt-0.5 text-xs text-blue-700">正在清理关联数据，请保持页面打开…</div>
@@ -1015,8 +1015,8 @@ const AccountList: React.FC = () => {
                               : '请打开闲鱼APP扫描下方二维码'}
                           </p>
 
-						  <div className={`w-full bg-[#F7F8FA] rounded-xl mx-auto flex items-center justify-center overflow-hidden border-4 border-white shadow-inner mb-6 relative ${qrStatus === 'verification' ? 'max-w-72 min-h-64 h-auto p-2' : 'max-w-64 aspect-square'}`}>
-                              {qrStatus === 'loading' && <Loader2 className="w-10 h-10 text-[#0094f7] animate-spin" />}
+						  <div className={`w-full bg-surface-subtle rounded-xl mx-auto flex items-center justify-center overflow-hidden border-4 border-white shadow-inner mb-6 relative ${qrStatus === 'verification' ? 'max-w-72 min-h-64 h-auto p-2' : 'max-w-64 aspect-square'}`}>
+                              {qrStatus === 'loading' && <Loader2 className="w-10 h-10 text-brand animate-spin" />}
                               {qrStatus === 'waiting' && <SquareQRCode src={qrCodeUrl} alt="闲鱼登录二维码" className="p-2" />}
                               {qrStatus === 'success' && (
                                   <div className="absolute inset-0 bg-white/95 flex flex-col items-center justify-center text-green-600 animate-fade-in">
@@ -1111,7 +1111,7 @@ const AccountList: React.FC = () => {
                   type="button"
                   onClick={() => setEditForm({ ...editForm, auto_confirm: !editForm.auto_confirm })}
                   className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${
-                    editForm.auto_confirm ? 'bg-[#0094f7]' : 'bg-gray-300'
+                    editForm.auto_confirm ? 'bg-brand' : 'bg-gray-300'
                   }`}
                 >
                   <span
@@ -1168,7 +1168,7 @@ const AccountList: React.FC = () => {
                       aria-label="保存登录信息"
                       disabled={longLogin.loading || longLogin.saving || !longLogin.canOpen}
                       onClick={() => void handleLongLoginToggle()}
-                      className={`relative h-8 w-14 flex-shrink-0 rounded-full transition-colors ${longLogin.enabled ? 'bg-[#0094f7]' : 'bg-gray-300'} disabled:cursor-not-allowed disabled:opacity-50`}
+                      className={`relative h-8 w-14 flex-shrink-0 rounded-full transition-colors ${longLogin.enabled ? 'bg-brand' : 'bg-gray-300'} disabled:cursor-not-allowed disabled:opacity-50`}
                     >
                       <span className={`absolute left-1 top-1 h-6 w-6 rounded-full bg-white shadow-md transition-transform ${longLogin.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
                     </button>
@@ -1206,7 +1206,7 @@ const AccountList: React.FC = () => {
                         type="checkbox"
                         checked={editForm.clear_password}
                         onChange={(e) => setEditForm({ ...editForm, clear_password: e.target.checked, login_password: e.target.checked ? '' : editForm.login_password })}
-                        className="w-4 h-4 accent-[#0094f7]"
+                        className="w-4 h-4 accent-brand"
                       />
                       <span className="text-sm font-bold text-gray-700">清空已保存密码</span>
                     </label>
@@ -1220,7 +1220,7 @@ const AccountList: React.FC = () => {
                       type="button"
                       onClick={() => setEditForm({ ...editForm, show_browser: !editForm.show_browser })}
                       className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${
-                        editForm.show_browser ? 'bg-[#0094f7]' : 'bg-gray-300'
+                        editForm.show_browser ? 'bg-brand' : 'bg-gray-300'
                       }`}
                     >
                       <span
@@ -1302,7 +1302,7 @@ const AccountList: React.FC = () => {
                             }}
                             disabled={!bindingsLoaded}
                             className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
-                              checked ? 'bg-[#0094f7] border-[#0094f7]' : 'bg-white border-gray-300'
+                              checked ? 'bg-brand border-brand' : 'bg-white border-gray-300'
                             }`}
                           >
                             {checked && <Check className="w-3.5 h-3.5 text-white" />}
@@ -1377,7 +1377,7 @@ const AccountList: React.FC = () => {
                   type="button"
                   onClick={() => setAiSettings({ ...aiSettings, ai_enabled: !aiSettings.ai_enabled })}
                   className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${
-                    aiSettings.ai_enabled ? 'bg-[#0094f7]' : 'bg-gray-300'
+                    aiSettings.ai_enabled ? 'bg-brand' : 'bg-gray-300'
                   }`}
                 >
                   <span

@@ -1006,7 +1006,8 @@ SELECT order_id,item_id,buyer_id,spec_name,spec_value,quantity,amount,order_stat
        COALESCE(buyer_reviewed_at,''),COALESCE(last_review_request_at,''),review_request_count,
        created_at,updated_at
   FROM orders o
- WHERE o.system_shipped=1
+WHERE o.system_shipped=1
+   AND o.deleted_at IS NULL
    AND COALESCE(o.buyer_reviewed_at,'')=''
    AND COALESCE(o.chat_id,'')<>''
    AND EXISTS (SELECT 1 FROM automation_rules r
