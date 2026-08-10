@@ -1099,7 +1099,7 @@ func (s *Server) ensurePublishAutomationRule(ctx context.Context, input db.Autom
 	var exists bool
 	err := s.Store.DB.QueryRowContext(ctx, `SELECT EXISTS(
 		SELECT 1 FROM automation_rules
-		 WHERE user_id=? AND cookie_id=? AND item_id=? AND trigger_type=? AND name=?
+		 WHERE user_id=? AND cookie_id=? AND item_id=? AND trigger_type=? AND name=? AND deleted_at IS NULL
 	)`, input.UserID, input.CookieID, input.ItemID, input.TriggerType, input.Name).Scan(&exists)
 	if err != nil {
 		return err

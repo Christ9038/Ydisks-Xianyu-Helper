@@ -111,11 +111,14 @@ func (c *ClientImpl) fetchItemsPageOnce(ctx context.Context, cookiesStr string, 
 	}
 
 	items := parseItemList(decoded.Data)
+	totalCount, totalPages := itemListPagination(decoded.Data, pageNumber, pageSize)
 	return &ItemListResult{
 		Items:          items,
 		PageNumber:     pageNumber,
 		PageSize:       pageSize,
 		CurrentCount:   len(items),
+		TotalCount:     totalCount,
+		TotalPages:     totalPages,
 		SavedCountHint: len(items),
 		UpdatedCookies: updated,
 	}, decoded.Ret, updated, nil
@@ -131,6 +134,7 @@ func (c *ClientImpl) FetchAllItems(ctx context.Context, cookiesStr string, pageS
 		currentCookies, _, _ = session.State()
 	}
 	page := 1
+	fetchedPages := 0
 	var all []ItemListItem
 	for maxPages <= 0 || page <= maxPages {
 		res, err := c.FetchItemsPage(ctx, currentCookies, page, pageSize)
@@ -139,7 +143,11 @@ func (c *ClientImpl) FetchAllItems(ctx context.Context, cookiesStr string, pageS
 		}
 		currentCookies = res.UpdatedCookies
 		all = append(all, res.Items...)
-		if len(res.Items) < pageSize {
+		fetchedPages = page
+		if res.TotalPages > 0 && page >= res.TotalPages {
+			break
+		}
+		if res.TotalPages <= 0 && len(res.Items) < pageSize {
 			break
 		}
 		page++
@@ -153,10 +161,35 @@ func (c *ClientImpl) FetchAllItems(ctx context.Context, cookiesStr string, pageS
 		PageSize:       pageSize,
 		CurrentCount:   len(all),
 		TotalCount:     len(all),
-		TotalPages:     page,
+		TotalPages:     fetchedPages,
 		SavedCountHint: len(all),
 		UpdatedCookies: currentCookies,
 	}, nil
+}
+
+func itemListPagination(data map[string]any, pageNumber, pageSize int) (totalCount, totalPages int) {
+	for _, key := range []string{"totalCount", "total_count", "total"} {
+		if value := mtopInt(data[key]); value > 0 {
+			totalCount = value
+			break
+		}
+	}
+	for _, key := range []string{"pageCount", "page_count", "totalPages", "total_pages"} {
+		if value := mtopInt(data[key]); value > 0 {
+			totalPages = value
+			break
+		}
+	}
+	if totalPages == 0 && totalCount > 0 && pageSize > 0 {
+		totalPages = (totalCount + pageSize - 1) / pageSize
+	}
+	if totalCount == 0 && totalPages > 0 && pageSize > 0 {
+		totalCount = totalPages * pageSize
+	}
+	if totalPages > 0 && pageNumber > totalPages {
+		totalPages = pageNumber
+	}
+	return totalCount, totalPages
 }
 
 func buildItemListQuery(t, sign string) string {

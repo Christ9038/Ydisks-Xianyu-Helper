@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 )
 
@@ -135,6 +136,14 @@ func TestItemsSyncFromRemoteReconcilesAndPreservesLocalSettings(t *testing.T) {
 	if err := store.Items.Upsert(ctx, &ItemInfoRow{CookieID: "acc1", ItemID: "deleted"}); err != nil {
 		t.Fatal(err)
 	}
+	ruleID, err := store.Automation.Create(ctx, AutomationRuleInput{
+		UserID: user.ID, CookieID: "acc1", ItemID: "deleted", Name: "删除商品规则",
+		TriggerType: "paid", Enabled: true, Priority: 100,
+		Actions: []AutomationActionInput{{ActionType: "send_msg", MessageTemplate: "hello", Enabled: true, SortOrder: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := store.Items.SyncFromRemote(ctx, "acc1", []ItemInfoRow{
 		{CookieID: "wrong-cookie", ItemID: "existing", ItemTitle: "新标题", ItemPrice: "¥19.90", IsMultiSpec: true},
@@ -163,6 +172,93 @@ func TestItemsSyncFromRemoteReconcilesAndPreservesLocalSettings(t *testing.T) {
 		t.Fatalf("existing item was not updated/preserved: %+v", item)
 	}
 	if _, err := store.Items.Get(ctx, "acc1", "deleted"); err != ErrNotFound {
-		t.Fatalf("deleted item still exists: err=%v", err)
+		t.Fatalf("deleted item should be hidden from active lookup: err=%v", err)
+	}
+	var itemDeletedAt sql.NullString
+	if err := store.DB.QueryRowContext(ctx,
+		`SELECT deleted_at FROM item_info WHERE cookie_id=? AND item_id=?`, "acc1", "deleted").Scan(&itemDeletedAt); err != nil {
+		t.Fatalf("商品逻辑删除后原始行不存在: %v", err)
+	}
+	if !itemDeletedAt.Valid || itemDeletedAt.String == "" {
+		t.Fatalf("商品 deleted_at 未写入: %#v", itemDeletedAt)
+	}
+	var ruleDeletedAt sql.NullString
+	var ruleEnabled int
+	if err := store.DB.QueryRowContext(ctx,
+		`SELECT deleted_at, enabled FROM automation_rules WHERE id=?`, ruleID).Scan(&ruleDeletedAt, &ruleEnabled); err != nil {
+		t.Fatalf("关联规则逻辑删除后原始行不存在: %v", err)
+	}
+	if !ruleDeletedAt.Valid || ruleDeletedAt.String == "" || ruleEnabled != 0 {
+		t.Fatalf("关联规则未逻辑删除并禁用: deleted_at=%#v enabled=%d", ruleDeletedAt, ruleEnabled)
+	}
+	rules, err := store.Automation.ListForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 0 {
+		t.Fatalf("已删除商品的规则不应出现在管理列表: %#v", rules)
+	}
+	matched, err := store.Automation.Match(ctx, "acc1", "deleted", "paid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matched) != 0 {
+		t.Fatalf("已删除商品的规则不应再匹配: %#v", matched)
+	}
+
+	// 商品再次出现在远端时只恢复商品，不自动恢复已删除规则，避免旧规则误复活。
+	if _, err := store.Items.SyncFromRemote(ctx, "acc1", []ItemInfoRow{{ItemID: "existing"}, {ItemID: "deleted"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Items.Get(ctx, "acc1", "deleted"); err != nil {
+		t.Fatalf("商品重新同步后应恢复商品记录: %v", err)
+	}
+	rules, err = store.Automation.ListForUser(ctx, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 0 {
+		t.Fatalf("商品恢复后不应自动恢复旧规则: %#v", rules)
+	}
+}
+
+func TestItemsDeleteSoftDeletesRelatedAutomationRule(t *testing.T) {
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	if ok, err := store.Users.Create(ctx, "item-delete-user", "item-delete@example.com", "password"); err != nil || !ok {
+		t.Fatalf("create test user: ok=%v err=%v", ok, err)
+	}
+	user, err := store.Users.GetByUsername(ctx, "item-delete-user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Cookies.Save(ctx, "item-delete-cookie", "unb=1", user.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Items.Upsert(ctx, &ItemInfoRow{CookieID: "item-delete-cookie", ItemID: "item-1", ItemTitle: "待删除商品"}); err != nil {
+		t.Fatal(err)
+	}
+	ruleID, err := store.Automation.Create(ctx, AutomationRuleInput{
+		UserID: user.ID, CookieID: "item-delete-cookie", ItemID: "item-1", Name: "商品规则",
+		TriggerType: "paid", Enabled: true, Priority: 100,
+		Actions: []AutomationActionInput{{ActionType: "send_msg", MessageTemplate: "hello", Enabled: true, SortOrder: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Items.Delete(ctx, "item-delete-cookie", "item-1"); err != nil {
+		t.Fatal(err)
+	}
+	var itemDeletedAt, ruleDeletedAt string
+	var ruleEnabled int
+	if err := store.DB.QueryRowContext(ctx, `SELECT deleted_at FROM item_info WHERE cookie_id=? AND item_id=?`, "item-delete-cookie", "item-1").Scan(&itemDeletedAt); err != nil {
+		t.Fatalf("商品行未保留: %v", err)
+	}
+	if err := store.DB.QueryRowContext(ctx, `SELECT deleted_at, enabled FROM automation_rules WHERE id=?`, ruleID).Scan(&ruleDeletedAt, &ruleEnabled); err != nil {
+		t.Fatalf("规则行未保留: %v", err)
+	}
+	if itemDeletedAt == "" || ruleDeletedAt == "" || ruleEnabled != 0 {
+		t.Fatalf("商品和规则未完成逻辑删除: item_deleted_at=%q rule_deleted_at=%q enabled=%d", itemDeletedAt, ruleDeletedAt, ruleEnabled)
 	}
 }

@@ -771,7 +771,7 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				t.Fatalf("set goose dialect: %v", err)
 			}
 			goose.SetBaseFS(migrationsFS)
-			for i := 0; i < 12; i++ {
+			for i := 0; i < 13; i++ {
 				if err := goose.Down(tg.store.DB, "migrations/"+subdir); err != nil {
 					t.Fatalf("migration down #%d: %v", i+1, err)
 				}
@@ -816,6 +816,8 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				{"automation_runs", "action_started"},
 				{"account_tokens", "cookie_fingerprint"},
 				{"item_publish_batch_rows", "category_json"},
+				{"item_info", "deleted_at"},
+				{"automation_rules", "deleted_at"},
 				{"account_task_settings", "auto_rate_enabled"},
 				{"account_task_runs", "run_key"},
 				{"chat_sessions", "unread_count"},
