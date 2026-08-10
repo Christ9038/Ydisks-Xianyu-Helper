@@ -43,6 +43,15 @@ describe('online chat UI contract', () => {
 		expect(chat).toContain('justify-center py-1');
 	});
 
+	test('keeps the active chat at the bottom when new messages arrive', () => {
+		const chat = source('components/Chat.tsx');
+		expect(chat).toContain('shouldScrollToBottomRef');
+		expect(chat).toContain('skipNextMessageScrollRef');
+		expect(chat).toContain('onScroll={handleMessageScroll}');
+		expect(chat).toContain('container.scrollHeight - container.scrollTop - container.clientHeight');
+		expect(chat).toContain('[activeAccountID, activeChatID, messages, messagesLoading]');
+	});
+
 	test('sidebar exposes collapse control and chat primary navigation', () => {
 		const sidebar = source('components/Sidebar.tsx');
 		expect(sidebar).toContain("id: 'chat'");

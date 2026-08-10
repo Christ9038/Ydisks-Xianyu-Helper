@@ -638,14 +638,14 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
             </button>
             <button
               onClick={openPublishModal}
-              className="px-5 py-3 rounded-2xl font-bold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex items-center gap-2 shadow-lg shadow-emerald-100"
+              className="px-5 py-3 rounded-2xl font-bold bg-emerald-500 text-white hover:bg-emerald-600 transition-colors flex items-center gap-2 shadow-lg shadow-emerald-100"
             >
               <PackagePlus className="w-4 h-4" />
               发布商品
             </button>
             <button
               onClick={() => void openBatchModal()}
-              className="px-5 py-3 rounded-2xl font-bold bg-blue-600 text-white hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-lg shadow-blue-100"
+              className="px-5 py-3 rounded-2xl font-bold bg-brand text-white hover:bg-brand-highlight transition-colors flex items-center gap-2 shadow-lg shadow-blue-100"
             >
               <UploadCloud className="w-4 h-4" />
               {recentBatch && ['running', 'canceling'].includes(recentBatch.status) ? '继续批量任务' : '批量铺货'}
@@ -670,7 +670,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                   <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                       <button
                         onClick={() => handleEdit(item)}
-                        className="p-1.5 bg-white/90 backdrop-blur rounded-lg shadow-md text-gray-600 hover:bg-[#0094f7] hover:text-white transition-colors"
+                        className="p-1.5 bg-white/90 backdrop-blur rounded-lg shadow-md text-gray-600 hover:bg-brand hover:text-white transition-colors"
                         title="编辑"
                       >
                         <Edit className="w-3.5 h-3.5" />
@@ -710,7 +710,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                   <div className="space-y-2 mt-auto">
                       <button
                         onClick={() => onConfigureDelivery(item)}
-                        className={`w-full flex items-center justify-between gap-1 px-2.5 py-2 rounded-lg text-[11px] font-extrabold transition-all ${hasRule ? 'bg-gray-900 text-white hover:bg-black' : 'bg-[#0094f7] text-white hover:bg-[#0071e3] shadow-md shadow-blue-100'}`}
+                        className={`w-full flex items-center justify-between gap-1 px-2.5 py-2 rounded-lg text-[11px] font-extrabold transition-all ${hasRule ? 'bg-gray-900 text-white hover:bg-black' : 'bg-brand text-white hover:bg-brand-highlight shadow-md shadow-blue-100'}`}
                       >
                         <span className="flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5" />{hasRule ? '查看发货规则' : '关联发货规则'}</span>
                         <ArrowRight className="w-3.5 h-3.5" />
@@ -892,7 +892,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
               </div>
             </div>
             <div className="modal-footer">
-              <button disabled={publishing} onClick={handlePublishItem} className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-6 py-3.5 rounded-xl font-bold flex items-center justify-center gap-2">
+              <button disabled={publishing} onClick={handlePublishItem} className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white px-6 py-3.5 rounded-xl font-bold flex items-center justify-center gap-2">
                 <PackagePlus className="w-4 h-4" />
                 {publishing ? '正在发布...' : '发布到闲鱼'}
               </button>

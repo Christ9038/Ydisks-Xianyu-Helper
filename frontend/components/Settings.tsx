@@ -269,7 +269,7 @@ const Settings: React.FC = () => {
           {/* AI Configuration */}
           <section className="space-y-4">
             <h3 className="text-lg font-extrabold text-gray-800 flex items-center gap-2">
-                <div className="p-1.5 rounded-lg bg-[#0094f7] text-white">
+                <div className="p-1.5 rounded-lg bg-brand text-white">
                     <Sparkles className="w-4 h-4" />
                 </div>
                 AI 智能回复配置
@@ -346,10 +346,10 @@ const Settings: React.FC = () => {
                                 setSettings({...settings, ai_model: model});
                                 setModelDropdownOpen(false);
                               }}
-                              className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-blue-50 hover:text-[#0094f7] flex items-center justify-between gap-3"
+                              className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-blue-50 hover:text-brand flex items-center justify-between gap-3"
                             >
                               <span className="truncate">{model}</span>
-                              {model === currentModel && <Check className="w-4 h-4 shrink-0 text-[#0094f7]" />}
+                              {model === currentModel && <Check className="w-4 h-4 shrink-0 text-brand" />}
                             </button>
                           ))
                         ) : (

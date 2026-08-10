@@ -27,8 +27,8 @@ export const YdisksBrandIcon: React.FC<YdisksBrandIconProps> = ({
       <svg className="absolute inset-0 w-full h-full" viewBox="0 0 120 120" aria-hidden="true">
         <defs>
           <linearGradient id="login-squircle-gradient" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#0094f7" />
-            <stop offset="100%" stopColor="#287efe" />
+            <stop offset="0%" stopColor="rgb(var(--color-brand))" />
+            <stop offset="100%" stopColor="rgb(var(--color-brand-light))" />
           </linearGradient>
         </defs>
         <path d="M 114.00 60.00 L 113.83 71.48 L 113.31 78.16 L 112.44 83.67 L 111.22 88.46 L 109.66 92.71 L 107.75 96.49 L 105.48 99.87 L 102.86 102.86 L 99.87 105.48 L 96.49 107.75 L 92.71 109.66 L 88.46 111.22 L 83.67 112.44 L 78.16 113.31 L 71.48 113.83 L 60.00 114.00 L 48.52 113.83 L 41.84 113.31 L 36.33 112.44 L 31.54 111.22 L 27.29 109.66 L 23.51 107.75 L 20.13 105.48 L 17.14 102.86 L 14.52 99.87 L 12.25 96.49 L 10.34 92.71 L 8.78 88.46 L 7.56 83.67 L 6.69 78.16 L 6.17 71.48 L 6.00 60.00 L 6.17 48.52 L 6.69 41.84 L 7.56 36.33 L 8.78 31.54 L 10.34 27.29 L 12.25 23.51 L 14.52 20.13 L 17.14 17.14 L 20.13 14.52 L 23.51 12.25 L 27.29 10.34 L 31.54 8.78 L 36.33 7.56 L 41.84 6.69 L 48.52 6.17 L 60.00 6.00 L 71.48 6.17 L 78.16 6.69 L 83.67 7.56 L 88.46 8.78 L 92.71 10.34 L 96.49 12.25 L 99.87 14.52 L 102.86 17.14 L 105.48 20.13 L 107.75 23.51 L 109.66 27.29 L 111.22 31.54 L 112.44 36.33 L 113.31 41.84 L 113.83 48.52 Z" fill="url(#login-squircle-gradient)" />

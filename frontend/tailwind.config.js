@@ -1,3 +1,10 @@
+const color = (token) => `rgb(var(--color-${token}) / <alpha-value>)`;
+
+const palette = (name) => Object.fromEntries(
+  [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]
+    .map((shade) => [shade, color(`${name}-${shade}`)]),
+);
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -8,18 +15,40 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Ydisks 官网配色：Apple 风格蓝色系 + 浅灰背景 + 深色文字。
+        // 具体色值统一维护在 index.css 的 --color-* 令牌中，组件只使用语义化 Tailwind 类名。
+        transparent: 'var(--color-transparent)',
+        current: 'currentColor',
+        black: color('black'),
+        white: color('white'),
         brand: {
-          DEFAULT: '#0094f7', // 主品牌蓝（Ydisks logo/按钮色）
-          dark: '#0071e3',    // 深蓝（hover/强调）
-          light: '#287efe',   // 亮蓝（辅助）
+          DEFAULT: color('brand'),
+          highlight: color('brand-highlight'),
+          light: color('brand-light'),
         },
-        // Ydisks 中性色
-        ink: '#1d1d1f',       // 主文字
-        muted: '#86868b',     // 次要文字
-        line: '#d2d2d7',      // 边框/分隔
-        canvas: '#fbfbfd',    // 页面背景
-        surface: '#f5f5f7',   // 卡片背景/区块
+        ink: color('ink'),
+        muted: color('muted'),
+        line: color('line'),
+        canvas: color('canvas'),
+        surface: color('surface'),
+        'surface-subtle': color('surface-subtle'),
+        'surface-muted': color('surface-muted'),
+        success: palette('success'),
+        warning: palette('warning'),
+        danger: palette('danger'),
+        info: palette('info'),
+        // 保留现有 Tailwind 语义类，但统一指向同一套设计令牌。
+        gray: palette('neutral'),
+        slate: palette('slate'),
+        blue: palette('brand'),
+        sky: palette('brand'),
+        emerald: palette('success'),
+        green: palette('success'),
+        amber: palette('warning'),
+        orange: palette('warning'),
+        red: palette('danger'),
+        yellow: palette('warning'),
+        purple: palette('accent'),
+        pink: palette('accent'),
       },
       // 圆角统一收紧到 5–10px 区间，UI 更紧凑、信息密度更高。
       borderRadius: {
@@ -44,6 +73,29 @@ export default {
           'Arial',
           'sans-serif',
         ],
+      },
+      accentColor: {
+        brand: color('brand'),
+      },
+      boxShadow: {
+        none: 'var(--shadow-none)',
+        sm: 'var(--shadow-sm)',
+        DEFAULT: 'var(--shadow-default)',
+        md: 'var(--shadow-md)',
+        lg: 'var(--shadow-lg)',
+        xl: 'var(--shadow-xl)',
+        '2xl': 'var(--shadow-2xl)',
+        inner: 'var(--shadow-inner)',
+        card: 'var(--shadow-card)',
+        panel: 'var(--shadow-panel)',
+        modal: 'var(--shadow-modal)',
+        sidebar: 'var(--shadow-sidebar)',
+        chat: 'var(--shadow-chat)',
+        'chat-input': 'var(--shadow-chat-input)',
+        'chat-active': 'var(--shadow-chat-active)',
+        'brand-soft': 'var(--shadow-brand-soft)',
+        'brand-active': 'var(--shadow-brand-active)',
+        'brand-strong': 'var(--shadow-brand-strong)',
       },
     },
   },

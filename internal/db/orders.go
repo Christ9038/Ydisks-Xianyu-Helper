@@ -130,6 +130,18 @@ func (o *Orders) UpsertTx(ctx context.Context, tx *sql.Tx, orderID string, opts 
 	return upsertOrder(ctx, tx, o.Dialect, orderID, opts)
 }
 
+// SoftDelete 将订单标记为逻辑删除，保留历史数据供审计和后续恢复。
+func (o *Orders) SoftDelete(ctx context.Context, orderID string) (bool, error) {
+	result, err := o.DB.ExecContext(ctx,
+		`UPDATE orders SET deleted_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+		  WHERE order_id=? AND deleted_at IS NULL`, orderID)
+	if err != nil {
+		return false, err
+	}
+	changed, err := result.RowsAffected()
+	return changed > 0, err
+}
+
 func upsertOrder(ctx context.Context, execer sqlQueryExecer, dialect Dialect, orderID string, opts OrderUpsertOpts) error {
 	if orderID == "" {
 		return errors.New("order_id 不能为空")
@@ -152,11 +164,11 @@ func upsertOrder(ctx context.Context, execer sqlQueryExecer, dialect Dialect, or
 	}
 
 	for attempt := 0; attempt < maxOrderUpsertRetries; attempt++ {
-		var existingCookie, existingStatus sql.NullString
+		var existingCookie, existingStatus, deletedAt sql.NullString
 		var version int
 		if err := execer.QueryRowContext(ctx,
-			`SELECT cookie_id,order_status,version FROM orders WHERE order_id=?`, orderID).
-			Scan(&existingCookie, &existingStatus, &version); err != nil {
+			`SELECT cookie_id,order_status,version,deleted_at FROM orders WHERE order_id=?`, orderID).
+			Scan(&existingCookie, &existingStatus, &version, &deletedAt); err != nil {
 			return err
 		}
 		if opts.CookieID != "" && existingCookie.Valid && existingCookie.String != "" && existingCookie.String != opts.CookieID {
@@ -168,6 +180,9 @@ func upsertOrder(ctx context.Context, execer sqlQueryExecer, dialect Dialect, or
 			current.OrderStatus = ""
 		}
 		set, args := orderUpsertAssignments(current)
+		if deletedAt.Valid && deletedAt.String != "" {
+			set = append(set, "deleted_at=NULL")
+		}
 		if len(set) == 0 {
 			return nil
 		}
@@ -296,7 +311,7 @@ func (o *Orders) Get(ctx context.Context, orderID string) (*Order, error) {
 		        COALESCE(paid_at,''),COALESCE(shipped_at,''),COALESCE(completed_at,''),
 		        COALESCE(buyer_reviewed_at,''),COALESCE(last_review_request_at,''),review_request_count,
 		        created_at, updated_at
-		 FROM orders WHERE order_id=?`, orderID).Scan(
+		 FROM orders WHERE order_id=? AND deleted_at IS NULL`, orderID).Scan(
 		&ord.OrderID, &itemID, &buyerID, &specName, &specValue, &qty, &amount,
 		&status, &cookieID, &isBargain, &receiverName, &receiverPhone, &receiverAddr,
 		&receiverCity, &version, &chatID, &sysShipped, &paidAt, &shippedAt, &completedAt,

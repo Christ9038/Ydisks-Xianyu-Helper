@@ -147,8 +147,8 @@ const App: React.FC = () => {
 
   if (checkingAuth) {
       return (
-          <div className="min-h-screen flex items-center justify-center bg-[#f5f5f7]">
-              <Loader2 className="w-8 h-8 text-[#0094f7] animate-spin" />
+          <div className="min-h-screen flex items-center justify-center bg-surface">
+              <Loader2 className="w-8 h-8 text-brand animate-spin" />
           </div>
       );
   }
@@ -156,11 +156,11 @@ const App: React.FC = () => {
   // Init Screen (system not initialized)
   if (needsInit) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F4F5F7] p-4 relative overflow-hidden font-sans">
+      <div className="min-h-screen flex items-center justify-center bg-canvas p-4 relative overflow-hidden font-sans">
         <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-blue-200/40 rounded-full blur-[120px] animate-pulse"></div>
         <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-blue-200/30 rounded-full blur-[120px] animate-pulse" style={{animationDelay: '2s'}}></div>
 
-        <div className="bg-white/80 backdrop-blur-3xl p-8 md:p-12 rounded-xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] w-full max-w-xl border border-white relative z-10 animate-fade-in">
+        <div className="bg-white/80 backdrop-blur-3xl p-8 md:p-12 rounded-xl shadow-panel w-full max-w-xl border border-white relative z-10 animate-fade-in">
           <div className="text-center mb-8">
             <div className="mx-auto mb-6 flex justify-center">
               <YdisksBrandIcon sizeClass="w-24 h-24" />
@@ -198,12 +198,12 @@ const App: React.FC = () => {
   // Login Screen Component
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F4F5F7] p-4 relative overflow-hidden font-sans">
+      <div className="min-h-screen flex items-center justify-center bg-canvas p-4 relative overflow-hidden font-sans">
         {/* Animated Background Blobs */}
         <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-blue-200/40 rounded-full blur-[120px] animate-pulse"></div>
         <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-blue-200/30 rounded-full blur-[120px] animate-pulse" style={{animationDelay: '2s'}}></div>
 
-        <div className="bg-white/80 backdrop-blur-3xl p-8 md:p-12 rounded-xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.05)] w-full max-w-lg border border-white relative z-10 animate-fade-in">
+        <div className="bg-white/80 backdrop-blur-3xl p-8 md:p-12 rounded-xl shadow-panel w-full max-w-lg border border-white relative z-10 animate-fade-in">
           
           {/* Header with Logo */}
           <div className="text-center mb-10">
@@ -288,7 +288,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen bg-[#F4F5F7] text-[#111]">
+    <div className="flex min-h-screen bg-canvas text-ink">
       <Sidebar
         activeTab={activeTab}
         isAdmin={isAdmin}

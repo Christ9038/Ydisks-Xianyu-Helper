@@ -45,7 +45,7 @@ func (o *Orders) ListForUser(ctx context.Context, f OrderListFilter) ([]OrderRow
 	if f.Limit <= 0 {
 		f.Limit = 20
 	}
-	where := []string{"c.user_id=?"}
+	where := []string{"c.user_id=?", "o.deleted_at IS NULL"}
 	args := []any{f.UserID}
 	if f.CookieID != "" {
 		where = append(where, "o.cookie_id=?")
@@ -172,7 +172,7 @@ func (o *Orders) ByCookiePage(ctx context.Context, cookieID string, limit, offse
 		`SELECT order_id, item_id, buyer_id, spec_name, spec_value, quantity, amount,
 		        order_status, is_bargain, system_shipped, receiver_name, receiver_phone,
 		        receiver_address, receiver_city, created_at, updated_at
-		 FROM orders WHERE cookie_id=? ORDER BY created_at DESC,order_id DESC LIMIT ? OFFSET ?`, cookieID, limit, offset)
+		 FROM orders WHERE cookie_id=? AND deleted_at IS NULL ORDER BY created_at DESC,order_id DESC LIMIT ? OFFSET ?`, cookieID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -203,6 +203,54 @@ func (o *Orders) ByCookiePage(ctx context.Context, cookieID string, limit, offse
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// SoftDeleteMissingForCookie 将本次完整卖家订单同步中未出现的本地订单逻辑删除。
+// activeIDs 为空表示线上已确认没有任何卖家订单；调用方必须确保同步完整成功后再调用。
+func (o *Orders) SoftDeleteMissingForCookie(ctx context.Context, cookieID string, activeIDs map[string]struct{}) (int, error) {
+	if strings.TrimSpace(cookieID) == "" {
+		return 0, errors.New("cookie_id 不能为空")
+	}
+	rows, err := o.DB.QueryContext(ctx,
+		`SELECT order_id FROM orders WHERE cookie_id=? AND deleted_at IS NULL`, cookieID)
+	if err != nil {
+		return 0, err
+	}
+	orderIDs := make([]string, 0)
+	for rows.Next() {
+		var orderID string
+		if err := rows.Scan(&orderID); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		orderIDs = append(orderIDs, orderID)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+
+	deleted := 0
+	for _, orderID := range orderIDs {
+		if _, ok := activeIDs[orderID]; ok {
+			continue
+		}
+		result, err := o.DB.ExecContext(ctx, `UPDATE orders
+			SET deleted_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+			WHERE cookie_id=? AND order_id=? AND deleted_at IS NULL`, cookieID, orderID)
+		if err != nil {
+			return deleted, err
+		}
+		changed, err := result.RowsAffected()
+		if err != nil {
+			return deleted, err
+		}
+		deleted += int(changed)
+	}
+	return deleted, nil
 }
 
 // OrderStatusMap 将数字状态码转换为文本状态。

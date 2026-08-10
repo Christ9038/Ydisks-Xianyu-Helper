@@ -30,6 +30,31 @@ func TestOrdersByCookiePageScansBeyondLegacyLimit(t *testing.T) {
 	}
 }
 
+func TestOrdersSoftDeleteMissingForCookie(t *testing.T) {
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	ctx := context.Background()
+	_, cid := seedAccount(t, s)
+	for _, orderID := range []string{"seller-order", "buyer-order"} {
+		if err := s.Orders.Upsert(ctx, orderID, OrderUpsertOpts{CookieID: cid, OrderStatus: "pending_ship"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deleted, err := s.Orders.SoftDeleteMissingForCookie(ctx, cid, map[string]struct{}{"seller-order": {}})
+	if err != nil || deleted != 1 {
+		t.Fatalf("deleted=%d err=%v", deleted, err)
+	}
+	if _, err := s.Orders.Get(ctx, "buyer-order"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing order should be hidden, err=%v", err)
+	}
+	if err := s.Orders.Upsert(ctx, "buyer-order", OrderUpsertOpts{CookieID: cid, OrderStatus: "pending_ship"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Orders.Get(ctx, "buyer-order"); err != nil {
+		t.Fatalf("reappeared order should be restored, err=%v", err)
+	}
+}
+
 // seedAccount 在临时库里建好 admin 用户 + 一个账号（cookie），返回 (userID, cookieID)。
 // 多数订单/自动化/卡券测试都需要这两层外键先就位。
 func seedAccount(t *testing.T, s *Store) (int64, string) {

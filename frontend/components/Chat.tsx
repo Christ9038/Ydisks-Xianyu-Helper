@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle, Check, CheckCheck, ImagePlus, Loader2, MessageCircleMore, RefreshCw,
   Search, Send, Smile, UserRound, Wifi, WifiOff,
@@ -53,6 +53,9 @@ const Chat: React.FC = () => {
   const activeAccountRef = useRef('');
   const activeChatRef = useRef('');
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollContextRef = useRef({ accountID: '', chatID: '' });
+  const shouldScrollToBottomRef = useRef(true);
+  const skipNextMessageScrollRef = useRef(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const refreshedAccountsRef = useRef(new Set<string>());
 
@@ -177,6 +180,7 @@ const Chat: React.FC = () => {
     if (!activeAccountID || !activeChatID || olderLoading || !hasOlder) return;
     const container = scrollRef.current;
     const previousHeight = container?.scrollHeight || 0;
+    skipNextMessageScrollRef.current = true;
     setOlderLoading(true);
     setError('');
     try {
@@ -192,6 +196,7 @@ const Chat: React.FC = () => {
         if (container) container.scrollTop += container.scrollHeight - previousHeight;
       });
     } catch (loadError) {
+      skipNextMessageScrollRef.current = false;
       setError(loadError instanceof Error ? loadError.message : '加载历史消息失败');
     } finally {
       setOlderLoading(false);
@@ -261,10 +266,28 @@ const Chat: React.FC = () => {
     };
   }, []);
 
-  useEffect(() => {
+  const handleMessageScroll = () => {
     const container = scrollRef.current;
-    if (container) container.scrollTop = container.scrollHeight;
-  }, [activeAccountID, activeChatID, messagesLoading]);
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    shouldScrollToBottomRef.current = distanceFromBottom <= 48;
+  };
+
+  useLayoutEffect(() => {
+    const contextChanged = scrollContextRef.current.accountID !== activeAccountID
+      || scrollContextRef.current.chatID !== activeChatID;
+    scrollContextRef.current = { accountID: activeAccountID, chatID: activeChatID };
+    if (contextChanged) shouldScrollToBottomRef.current = true;
+
+    const container = scrollRef.current;
+    if (!container) return;
+
+    if (skipNextMessageScrollRef.current) {
+      skipNextMessageScrollRef.current = false;
+      return;
+    }
+    if (messagesLoading || shouldScrollToBottomRef.current) container.scrollTop = container.scrollHeight;
+  }, [activeAccountID, activeChatID, messages, messagesLoading]);
 
   const activeAccount = accounts.find(account => account.id === activeAccountID);
   const activeSessions = sessionsByAccount[activeAccountID] || [];
@@ -343,7 +366,7 @@ const Chat: React.FC = () => {
   if (loading) return <div className="flex h-[calc(100vh-4rem)] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-sky-500" /></div>;
 
   return (
-    <section className="flex h-[calc(100vh-4rem)] min-h-[560px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_45px_rgba(15,23,42,0.06)]">
+    <section className="flex h-[calc(100vh-4rem)] min-h-[560px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-chat">
       <header className="border-b border-slate-200 bg-slate-50/70 px-5 pt-4">
         <div className="mb-3 flex items-center justify-between gap-4">
           <div>
@@ -400,7 +423,7 @@ const Chat: React.FC = () => {
             <div className="min-h-0 flex-1 overflow-y-auto">
               {filteredSessions.map(session => (
                 <button key={session.chat_id} type="button" onClick={() => setActiveChatID(session.chat_id)}
-                  className={`flex w-full gap-3 border-b border-slate-100 p-4 text-left transition-colors ${session.chat_id === activeChatID ? 'bg-white shadow-[inset_3px_0_0_#0ea5e9]' : 'hover:bg-white/80'}`}>
+                  className={`flex w-full gap-3 border-b border-slate-100 p-4 text-left transition-colors ${session.chat_id === activeChatID ? 'bg-white shadow-chat-active' : 'hover:bg-white/80'}`}>
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-slate-500">
                     {session.buyer_avatar_url ? <img src={session.buyer_avatar_url} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-5 w-5" />}
                   </div>
@@ -427,7 +450,7 @@ const Chat: React.FC = () => {
             </div>
           </aside>
 
-          <main className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f8fa]">
+          <main className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface-subtle">
             {selectedSession ? (
               <>
                 <div className="flex h-16 shrink-0 items-center border-b border-slate-200 bg-white px-5">
@@ -439,7 +462,7 @@ const Chat: React.FC = () => {
                     {activeAccount?.runtime_state === 'online' ? '账号在线' : '账号离线'}
                   </span>
                 </div>
-                <div ref={scrollRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
+                <div ref={scrollRef} onScroll={handleMessageScroll} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
                   {messagesLoading ? <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-sky-500" /></div> : <>
                     {hasOlder && <div className="flex justify-center pb-1">
                       <button type="button" onClick={() => void loadOlderMessages()} disabled={olderLoading}
@@ -490,7 +513,7 @@ const Chat: React.FC = () => {
                   </>}
                 </div>
                 {error && <div className="border-t border-red-100 bg-red-50 px-5 py-2 text-xs font-medium text-red-700">{error}</div>}
-                <div className="relative z-10 shrink-0 border-t border-slate-200 bg-white p-4 shadow-[0_-8px_24px_rgba(15,23,42,0.04)]">
+                <div className="relative z-10 shrink-0 border-t border-slate-200 bg-white p-4 shadow-chat-input">
                   <div className="mb-2 flex items-center gap-1">
                     <div className="relative">
                       <button type="button" onClick={() => setEmojiOpen(value => !value)} disabled={sending || activeAccount?.runtime_state !== 'online'} className="rounded-lg p-2 text-slate-500 hover:bg-sky-50 hover:text-sky-600 disabled:opacity-40" title="闲鱼表情"><Smile className="h-5 w-5" /></button>

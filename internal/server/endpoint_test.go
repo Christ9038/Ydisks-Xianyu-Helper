@@ -94,6 +94,13 @@ func TestOrderListAndDetail(t *testing.T) {
 	if rec3.Code != 200 {
 		t.Fatalf("delete status=%d", rec3.Code)
 	}
+	var deletedAt string
+	if err := store.DB.QueryRowContext(ctx, `SELECT COALESCE(deleted_at,'') FROM orders WHERE order_id=?`, "ord1").Scan(&deletedAt); err != nil || deletedAt == "" {
+		t.Fatalf("订单删除应为逻辑删除，deleted_at=%q err=%v", deletedAt, err)
+	}
+	if _, err := store.Orders.Get(ctx, "ord1"); err == nil {
+		t.Fatal("逻辑删除订单不应再出现在活动订单查询中")
+	}
 }
 
 // TestCardCRUD 卡券增删改查。

@@ -30,7 +30,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className={`fixed inset-y-0 left-0 z-20 flex flex-col border-r border-slate-200/80 bg-white/95 shadow-[4px_0_24px_rgba(15,23,42,0.035)] backdrop-blur-xl transition-[width] duration-300 ${collapsed ? 'w-16' : 'w-64'}`}>
+    <aside className={`fixed inset-y-0 left-0 z-20 flex flex-col border-r border-slate-200/80 bg-white/95 shadow-sidebar backdrop-blur-xl transition-[width] duration-300 ${collapsed ? 'w-16' : 'w-64'}`}>
       <div className={`flex h-20 items-center border-b border-slate-100 ${collapsed ? 'justify-center px-2' : 'gap-3 px-5'}`}>
         <YdisksBrandIcon sizeClass="h-10 w-10" />
         {!collapsed && (
@@ -55,7 +55,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               onClick={() => onNavigate(item.id)}
               className={`group relative flex h-11 w-full items-center rounded-xl transition-colors ${collapsed ? 'justify-center' : 'gap-3 px-3.5'} ${
                 active
-                  ? 'bg-sky-500 text-white shadow-[0_8px_18px_rgba(14,165,233,0.2)]'
+                  ? 'bg-brand text-white shadow-brand-active'
                   : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
               }`}
             >

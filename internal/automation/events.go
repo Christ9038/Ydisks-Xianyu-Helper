@@ -98,6 +98,7 @@ type rawFields struct {
 	redReminder string
 	title       string
 	detail      string
+	orderRole   string
 	updateKey   string
 	contentType string
 	chatID      string
@@ -121,8 +122,12 @@ func fieldsFromRaw(raw map[string]any) rawFields {
 			f.reminderURL = strAny(m10["reminderUrl"])
 			f.buyerID = strAny(m10["senderUserId"])
 			f.updateKey, f.contentType = extFields(strAny(m10["extJson"]))
+			f.orderRole = orderRoleFromTaskName(bizTaskName(strAny(m10["bizTag"])))
 		}
 		if contentJSON := nestedString(raw, "1", "6", "3", "5"); contentJSON != "" {
+			if role := extractOrderRoleFromContent(contentJSON); role != "" {
+				f.orderRole = role
+			}
 			if id := extractOrderIDFromContent(contentJSON); id != "" {
 				f.orderID = id
 			}
@@ -180,6 +185,9 @@ func fieldsFromRaw(raw map[string]any) rawFields {
 }
 
 func isOrderPaidEvent(f rawFields) bool {
+	if f.orderRole == "buyer" {
+		return false
+	}
 	return strings.Contains(f.text, "我已付款，等待你发货") ||
 		strings.Contains(f.text, "已付款，待发货") ||
 		strings.Contains(f.text, "记得及时发货") ||
@@ -277,6 +285,61 @@ var orderIDPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`order_detail\?id=(\d{10,})`),
 	regexp.MustCompile(`bizOrderId[=:](\d{10,})`),
 	regexp.MustCompile(`id=(\d{10,})`),
+}
+
+func extractOrderRoleFromContent(contentJSON string) string {
+	var c map[string]any
+	if json.Unmarshal([]byte(contentJSON), &c) != nil {
+		return ""
+	}
+	for _, path := range [][]string{
+		{"dxCard", "item", "main", "exContent", "button", "targetUrl"},
+		{"dxCard", "item", "main", "targetUrl"},
+		{"dynamicOperation", "changeContent", "dxCard", "item", "main", "exContent", "button", "targetUrl"},
+	} {
+		if role := orderRoleFromURL(nestedString(c, path...)); role != "" {
+			return role
+		}
+	}
+	return ""
+}
+
+func orderRoleFromURL(rawURL string) string {
+	if strings.TrimSpace(rawURL) == "" {
+		return ""
+	}
+	if strings.HasPrefix(rawURL, "fleamarket://") {
+		rawURL = "https://local.invalid/" + strings.TrimPrefix(rawURL, "fleamarket://")
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(u.Query().Get("role"))) {
+	case "seller", "buyer":
+		return strings.ToLower(strings.TrimSpace(u.Query().Get("role")))
+	default:
+		return ""
+	}
+}
+
+func bizTaskName(raw string) string {
+	var tag map[string]any
+	if json.Unmarshal([]byte(raw), &tag) != nil {
+		return ""
+	}
+	return strAny(tag["taskName"])
+}
+
+func orderRoleFromTaskName(taskName string) string {
+	switch {
+	case strings.Contains(taskName, "买家"):
+		return "buyer"
+	case strings.Contains(taskName, "卖家"):
+		return "seller"
+	default:
+		return ""
+	}
 }
 
 func matchOrderID(s string) string {
