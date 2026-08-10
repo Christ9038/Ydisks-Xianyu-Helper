@@ -53,7 +53,7 @@ func (i *Items) Get(ctx context.Context, cookieID, itemID string) (*ItemInfo, er
 	err := i.DB.QueryRowContext(ctx,
 		`SELECT id, cookie_id, item_id, item_title, item_description, item_category, item_price, item_detail,
 		        is_multi_spec, multi_quantity_delivery
-		 FROM item_info WHERE cookie_id=? AND item_id=?`, cookieID, itemID).Scan(
+		 FROM item_info WHERE cookie_id=? AND item_id=? AND deleted_at IS NULL`, cookieID, itemID).Scan(
 		&it.ID, &it.CookieID, &it.ItemID, &title, &desc, &cat,
 		&price, &detail, &isMulti, &multiQty)
 	if err != nil {
@@ -75,7 +75,7 @@ func (i *Items) Get(ctx context.Context, cookieID, itemID string) (*ItemInfo, er
 // IsMultiSpec 是否多规格商品。
 func (i *Items) IsMultiSpec(ctx context.Context, cookieID, itemID string) bool {
 	var v int
-	err := i.DB.QueryRowContext(ctx, `SELECT is_multi_spec FROM item_info WHERE cookie_id=? AND item_id=?`, cookieID, itemID).Scan(&v)
+	err := i.DB.QueryRowContext(ctx, `SELECT is_multi_spec FROM item_info WHERE cookie_id=? AND item_id=? AND deleted_at IS NULL`, cookieID, itemID).Scan(&v)
 	if err != nil {
 		return false
 	}
@@ -85,7 +85,7 @@ func (i *Items) IsMultiSpec(ctx context.Context, cookieID, itemID string) bool {
 // MultiQuantityDelivery 是否开启多数量发货。
 func (i *Items) MultiQuantityDelivery(ctx context.Context, cookieID, itemID string) bool {
 	var v int
-	err := i.DB.QueryRowContext(ctx, `SELECT multi_quantity_delivery FROM item_info WHERE cookie_id=? AND item_id=?`, cookieID, itemID).Scan(&v)
+	err := i.DB.QueryRowContext(ctx, `SELECT multi_quantity_delivery FROM item_info WHERE cookie_id=? AND item_id=? AND deleted_at IS NULL`, cookieID, itemID).Scan(&v)
 	if err != nil {
 		return false
 	}

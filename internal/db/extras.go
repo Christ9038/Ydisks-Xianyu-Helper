@@ -533,7 +533,7 @@ func (i *Items) AllForCookie(ctx context.Context, cookieID string) ([]ItemInfoRo
 		`SELECT id, cookie_id, item_id, COALESCE(item_title,''), COALESCE(item_description,''),
 		        COALESCE(item_category,''), COALESCE(item_price,''), COALESCE(item_detail,''),
 		        is_multi_spec, COALESCE(multi_quantity_delivery,0)
-		 FROM item_info WHERE cookie_id=? ORDER BY id DESC`, cookieID)
+		 FROM item_info WHERE cookie_id=? AND deleted_at IS NULL ORDER BY id DESC`, cookieID)
 	if err != nil {
 		return nil, err
 	}
@@ -567,6 +567,7 @@ func (i *Items) Upsert(ctx context.Context, r *ItemInfoRow) error {
 				"item_detail":             "EXCLUDED.item_detail",
 				"is_multi_spec":           "EXCLUDED.is_multi_spec",
 				"multi_quantity_delivery": "EXCLUDED.multi_quantity_delivery",
+				"deleted_at":              "NULL",
 				"updated_at":              "CURRENT_TIMESTAMP",
 			}),
 		r.CookieID, r.ItemID, nullable(r.ItemTitle), nullable(r.ItemDescription),
@@ -588,7 +589,7 @@ func (i *Items) UpsertBasicTx(ctx context.Context, tx *sql.Tx, r *ItemInfoRow) e
 //
 // 远端列表只提供商品基础信息，因此保留本地的描述和发货配置；基础字段
 // （标题、分类、价格、详情）由远端非空值覆盖。整个 reconcile 在一个事务内
-// 完成，只有在全部远端商品写入成功后，才会删除本次全集中不存在的本地商品。
+// 完成，只有在全部远端商品写入成功后，才会逻辑删除本次全集中不存在的本地商品及其商品级自动化规则。
 func (i *Items) SyncFromRemote(ctx context.Context, cookieID string, rows []ItemInfoRow) (ItemSyncResult, error) {
 	cookieID = strings.TrimSpace(cookieID)
 	if cookieID == "" {
@@ -633,7 +634,7 @@ func (i *Items) SyncFromRemote(ctx context.Context, cookieID string, rows []Item
 
 	args := make([]any, 0, len(remoteIDs)+1)
 	args = append(args, cookieID)
-	deleteQuery := `DELETE FROM item_info WHERE cookie_id=?`
+	deleteQuery := `UPDATE item_info SET deleted_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE cookie_id=? AND deleted_at IS NULL`
 	if len(remoteIDs) > 0 {
 		placeholders := make([]string, 0, len(remoteIDs))
 		for itemID := range remoteIDs {
@@ -648,6 +649,23 @@ func (i *Items) SyncFromRemote(ctx context.Context, cookieID string, rows []Item
 	}
 	deleted, err := deletedResult.RowsAffected()
 	if err != nil {
+		return rollback(err)
+	}
+
+	ruleArgs := make([]any, 0, len(remoteIDs)+1)
+	ruleArgs = append(ruleArgs, cookieID)
+	ruleQuery := `UPDATE automation_rules
+		SET deleted_at=CURRENT_TIMESTAMP, enabled=0, updated_at=CURRENT_TIMESTAMP
+		WHERE cookie_id=? AND item_id<>'' AND deleted_at IS NULL`
+	if len(remoteIDs) > 0 {
+		placeholders := make([]string, 0, len(remoteIDs))
+		for itemID := range remoteIDs {
+			placeholders = append(placeholders, "?")
+			ruleArgs = append(ruleArgs, itemID)
+		}
+		ruleQuery += ` AND item_id NOT IN (` + strings.Join(placeholders, ",") + ")"
+	}
+	if _, err := tx.ExecContext(ctx, ruleQuery, ruleArgs...); err != nil {
 		return rollback(err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -668,6 +686,7 @@ func (i *Items) upsertBasic(ctx context.Context, execer sqlExecer, r *ItemInfoRo
 		   item_category=CASE WHEN VALUES(item_category) IS NOT NULL AND VALUES(item_category) != '' THEN VALUES(item_category) ELSE item_info.item_category END,
 		   item_price=CASE WHEN VALUES(item_price) IS NOT NULL AND VALUES(item_price) != '' THEN VALUES(item_price) ELSE item_info.item_price END,
 		   item_detail=CASE WHEN VALUES(item_detail) IS NOT NULL AND VALUES(item_detail) != '' THEN VALUES(item_detail) ELSE item_info.item_detail END,
+		   deleted_at=NULL,
 		   updated_at=CURRENT_TIMESTAMP`
 	default:
 		conflictClause = ` ON CONFLICT(cookie_id, item_id) DO UPDATE SET
@@ -676,6 +695,7 @@ func (i *Items) upsertBasic(ctx context.Context, execer sqlExecer, r *ItemInfoRo
 		   item_category=CASE WHEN EXCLUDED.item_category IS NOT NULL AND EXCLUDED.item_category != '' THEN EXCLUDED.item_category ELSE item_info.item_category END,
 		   item_price=CASE WHEN EXCLUDED.item_price IS NOT NULL AND EXCLUDED.item_price != '' THEN EXCLUDED.item_price ELSE item_info.item_price END,
 		   item_detail=CASE WHEN EXCLUDED.item_detail IS NOT NULL AND EXCLUDED.item_detail != '' THEN EXCLUDED.item_detail ELSE item_info.item_detail END,
+		   deleted_at=NULL,
 		   updated_at=CURRENT_TIMESTAMP`
 	}
 	_, err := execer.ExecContext(ctx,
@@ -687,16 +707,30 @@ func (i *Items) upsertBasic(ctx context.Context, execer sqlExecer, r *ItemInfoRo
 	return err
 }
 
-// Delete 删除商品。
+// Delete 逻辑删除商品及其商品级自动化规则，保留历史数据以便审计和恢复。
 func (i *Items) Delete(ctx context.Context, cookieID, itemID string) error {
-	_, err := i.DB.ExecContext(ctx, `DELETE FROM item_info WHERE cookie_id=? AND item_id=?`, cookieID, itemID)
-	return err
+	tx, err := i.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE item_info
+		SET deleted_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+		WHERE cookie_id=? AND item_id=? AND deleted_at IS NULL`, cookieID, itemID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE automation_rules
+		SET deleted_at=CURRENT_TIMESTAMP, enabled=0, updated_at=CURRENT_TIMESTAMP
+		WHERE cookie_id=? AND item_id=? AND deleted_at IS NULL`, cookieID, itemID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // SetMultiSpec 设置多规格开关。
 func (i *Items) SetMultiSpec(ctx context.Context, cookieID, itemID string, on bool) error {
 	_, err := i.DB.ExecContext(ctx,
-		`UPDATE item_info SET is_multi_spec=?, updated_at=CURRENT_TIMESTAMP WHERE cookie_id=? AND item_id=?`,
+		`UPDATE item_info SET is_multi_spec=?, updated_at=CURRENT_TIMESTAMP WHERE cookie_id=? AND item_id=? AND deleted_at IS NULL`,
 		boolToInt(on), cookieID, itemID)
 	return err
 }
@@ -704,7 +738,7 @@ func (i *Items) SetMultiSpec(ctx context.Context, cookieID, itemID string, on bo
 // SetMultiQuantity 设置多数量发货开关。
 func (i *Items) SetMultiQuantity(ctx context.Context, cookieID, itemID string, on bool) error {
 	_, err := i.DB.ExecContext(ctx,
-		`UPDATE item_info SET multi_quantity_delivery=?, updated_at=CURRENT_TIMESTAMP WHERE cookie_id=? AND item_id=?`,
+		`UPDATE item_info SET multi_quantity_delivery=?, updated_at=CURRENT_TIMESTAMP WHERE cookie_id=? AND item_id=? AND deleted_at IS NULL`,
 		boolToInt(on), cookieID, itemID)
 	return err
 }

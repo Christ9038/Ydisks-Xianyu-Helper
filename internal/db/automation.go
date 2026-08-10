@@ -144,7 +144,7 @@ type AutomationRuleListFilter struct {
 }
 
 func automationRuleWhere(f AutomationRuleListFilter) (string, []any) {
-	where := []string{"r.user_id=?"}
+	where := []string{"r.user_id=?", "r.deleted_at IS NULL"}
 	args := []any{f.UserID}
 	if f.CookieID != "" {
 		where = append(where, "r.cookie_id=?")
@@ -194,7 +194,7 @@ func (a *AutomationRules) ListPageForUser(ctx context.Context, f AutomationRuleL
 	if err := a.DB.QueryRowContext(ctx, `
 SELECT COUNT(*)
   FROM automation_rules r
-  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id
+	  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id AND i.deleted_at IS NULL
  WHERE `+whereSQL, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
@@ -209,7 +209,7 @@ SELECT COUNT(*)
 SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.trigger_type,r.enabled,
        r.priority,r.config_json,r.created_at,r.updated_at
   FROM automation_rules r
-  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id
+	  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id AND i.deleted_at IS NULL
 	WHERE `+whereSQL+`
 	ORDER BY r.created_at DESC,r.id DESC`+limitSQL, queryArgs...)
 	if err != nil {
@@ -242,7 +242,7 @@ func (a *AutomationRules) CountByTriggerForUser(ctx context.Context, f Automatio
 	rows, err := a.DB.QueryContext(ctx, `
 SELECT r.trigger_type, COUNT(*)
   FROM automation_rules r
-  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id
+  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id AND i.deleted_at IS NULL
  WHERE `+whereSQL+`
  GROUP BY r.trigger_type`, args...)
 	if err != nil {
@@ -287,8 +287,8 @@ func (a *AutomationRules) Get(ctx context.Context, ruleID int64) (*AutomationRul
 SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.trigger_type,r.enabled,
        r.priority,r.config_json,r.created_at,r.updated_at
   FROM automation_rules r
-  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id
- WHERE r.id=?`, ruleID).Scan(&rule.ID, &rule.UserID, &rule.CookieID, &rule.ItemID, &rule.ItemTitle,
+	  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id AND i.deleted_at IS NULL
+	 WHERE r.id=? AND r.deleted_at IS NULL`, ruleID).Scan(&rule.ID, &rule.UserID, &rule.CookieID, &rule.ItemID, &rule.ItemTitle,
 		&rule.Name, &rule.TriggerType, &enabled, &rule.Priority, &rule.ConfigJSON, &rule.CreatedAt, &rule.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -306,12 +306,13 @@ func (a *AutomationRules) matchScope(ctx context.Context, cookieID, itemID, trig
 SELECT r.id,r.user_id,r.cookie_id,r.item_id,COALESCE(i.item_title,''),r.name,r.trigger_type,r.enabled,
        r.priority,r.config_json,r.created_at,r.updated_at
   FROM automation_rules r
-  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id
- WHERE r.enabled=1
-   AND r.cookie_id=?
-   AND r.trigger_type=?
+  LEFT JOIN item_info i ON i.cookie_id=r.cookie_id AND i.item_id=r.item_id AND i.deleted_at IS NULL
+ WHERE r.deleted_at IS NULL
+   AND r.enabled=1
+	AND r.cookie_id=?
+	AND r.trigger_type=?
 	AND r.item_id=?
- ORDER BY r.priority ASC, r.id ASC`, cookieID, triggerType, itemID)
+	ORDER BY r.priority ASC, r.id ASC`, cookieID, triggerType, itemID)
 	if err != nil {
 		return nil, err
 	}
@@ -362,7 +363,7 @@ func (a *AutomationRules) Update(ctx context.Context, userID, ruleID int64, in A
 	res, err := tx.ExecContext(ctx, `
 UPDATE automation_rules
    SET cookie_id=?,item_id=?,name=?,trigger_type=?,enabled=?,priority=?,config_json=?,updated_at=CURRENT_TIMESTAMP
- WHERE id=? AND user_id=?`,
+	 WHERE id=? AND user_id=? AND deleted_at IS NULL`,
 		in.CookieID, in.ItemID, in.Name, in.TriggerType, boolToInt(in.Enabled), in.Priority, validJSON(in.ConfigJSON), ruleID, userID)
 	if err != nil {
 		return err
@@ -381,10 +382,11 @@ UPDATE automation_rules
 	return tx.Commit()
 }
 
-// Delete 删除规则。
+// Delete 逻辑删除规则，保留动作和执行记录以便审计；逻辑删除后不再出现在规则列表和匹配结果中。
 func (a *AutomationRules) Delete(ctx context.Context, userID, ruleID int64) error {
-	res, err := a.DB.ExecContext(ctx, `DELETE FROM automation_rules
-		WHERE id=? AND user_id=? AND NOT EXISTS (
+	res, err := a.DB.ExecContext(ctx, `UPDATE automation_rules
+		SET deleted_at=CURRENT_TIMESTAMP, enabled=0, updated_at=CURRENT_TIMESTAMP
+		WHERE id=? AND user_id=? AND deleted_at IS NULL AND NOT EXISTS (
 			SELECT 1 FROM automation_runs ar WHERE ar.rule_id=automation_rules.id
 			  AND (ar.status IN ('running','needs_review') OR (ar.status='failed' AND ar.sent_count=0 AND ar.attempt_count<3)))`, ruleID, userID)
 	if err != nil {
@@ -392,7 +394,7 @@ func (a *AutomationRules) Delete(ctx context.Context, userID, ruleID int64) erro
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		var exists int
-		if err := a.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM automation_rules WHERE id=? AND user_id=?`, ruleID, userID).Scan(&exists); err != nil {
+		if err := a.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM automation_rules WHERE id=? AND user_id=? AND deleted_at IS NULL`, ruleID, userID).Scan(&exists); err != nil {
 			return err
 		}
 		if exists > 0 {
@@ -697,7 +699,7 @@ func (a *AutomationRules) ListIssues(ctx context.Context, userID int64) ([]Autom
 		ar.action_cursor,ar.sent_count,ar.updated_at,ar.raw_event_json,ar.action_started,COALESCE(r.enabled,0)
 		FROM automation_runs ar JOIN cookies c ON c.id=ar.cookie_id
 		LEFT JOIN automation_rules r ON r.id=ar.rule_id
-		WHERE c.user_id=? AND ar.status='needs_review' ORDER BY ar.updated_at DESC,ar.id DESC`, userID)
+		WHERE c.user_id=? AND ar.status='needs_review' AND r.deleted_at IS NULL ORDER BY ar.updated_at DESC,ar.id DESC`, userID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -745,7 +747,7 @@ func (a *AutomationRules) ResolveRunIssue(ctx context.Context, userID, runID int
 	err := a.DB.QueryRowContext(ctx, `SELECT ar.raw_event_json,ar.action_started,COALESCE(r.enabled,0),ar.sent_count,ar.error_message
 		FROM automation_runs ar JOIN cookies c ON c.id=ar.cookie_id
 		LEFT JOIN automation_rules r ON r.id=ar.rule_id
-		WHERE ar.id=? AND ar.status='needs_review' AND c.user_id=?`, runID, userID).
+		WHERE ar.id=? AND ar.status='needs_review' AND c.user_id=? AND r.deleted_at IS NULL`, runID, userID).
 		Scan(&rawEventJSON, &actionStarted, &ruleEnabled, &sentCount, &errorMessage)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
@@ -1009,7 +1011,8 @@ SELECT order_id,item_id,buyer_id,spec_name,spec_value,quantity,amount,order_stat
    AND COALESCE(o.chat_id,'')<>''
    AND EXISTS (SELECT 1 FROM automation_rules r
                 WHERE r.cookie_id=o.cookie_id AND r.trigger_type='review_missing_timeout'
-                  AND r.enabled=1 AND (r.item_id=o.item_id OR r.item_id=''))`+cursorSQL+`
+                  AND r.deleted_at IS NULL AND r.enabled=1
+                  AND (r.item_id=o.item_id OR r.item_id=''))`+cursorSQL+`
  ORDER BY o.order_id ASC
 	 LIMIT ?`, args...)
 	if err != nil {

@@ -204,6 +204,14 @@ func TestAutomation_UpdateDelete(t *testing.T) {
 	if len(rules) != 0 {
 		t.Fatalf("Delete 后 len=%d want 0", len(rules))
 	}
+	var deletedAt string
+	var enabled int
+	if err := s.DB.QueryRowContext(ctx, `SELECT deleted_at, enabled FROM automation_rules WHERE id=?`, ruleID).Scan(&deletedAt, &enabled); err != nil {
+		t.Fatalf("逻辑删除后规则原始行不存在: %v", err)
+	}
+	if deletedAt == "" || enabled != 0 {
+		t.Fatalf("规则未逻辑删除并禁用: deleted_at=%q enabled=%d", deletedAt, enabled)
+	}
 	// 重复 Delete → ErrNotFound。
 	if err := s.Automation.Delete(ctx, uid, ruleID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("重复 Delete 应 ErrNotFound, got %v", err)

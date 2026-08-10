@@ -227,6 +227,33 @@ func TestFetchAllItemsMultiPage(t *testing.T) {
 	}
 }
 
+func TestFetchAllItemsUsesRemotePageCountWhenPageIsShort(t *testing.T) {
+	var pageReqs atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page := pageReqs.Add(1)
+		if page == 1 {
+			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"pageCount":2,"cardList":[
+			  {"cardData":{"title":"A","detailParams":{"itemId":"i1"}}}
+			]}}`)
+			return
+		}
+		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"pageCount":2,"cardList":[
+		  {"cardData":{"title":"B","detailParams":{"itemId":"i2"}}}
+		]}}`)
+	}))
+	defer server.Close()
+
+	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	res, err := client.FetchAllItems(context.Background(), consignCookies, 20, 10)
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if len(res.Items) != 2 || pageReqs.Load() != 2 {
+		t.Fatalf("items=%d pageReqs=%d want 2/2", len(res.Items), pageReqs.Load())
+	}
+}
+
 // TestFetchAllItemsMaxPagesCap: maxPages 限制最大页数。
 func TestFetchAllItemsMaxPagesCap(t *testing.T) {
 	var pageReqs atomic.Int32
