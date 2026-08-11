@@ -26,16 +26,16 @@ jobs:
         arch: [amd64, arm64]
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 配置 Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
 
       - name: 配置 Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -59,7 +59,7 @@ jobs:
           tar -C dist -czf "dist/ydisks-xianyu-helper-linux-${GOARCH}-${APP_VERSION}.tar.gz" "$(basename "$package_dir")"
 
       - name: 上传 Linux 安装包
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ydisks-xianyu-helper-linux-${{ matrix.arch }}-${{ env.APP_VERSION }}
           path: dist/ydisks-xianyu-helper-linux-${{ matrix.arch }}-${{ env.APP_VERSION }}.tar.gz
@@ -71,16 +71,16 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 配置 Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
 
       - name: 配置 Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -115,7 +115,7 @@ jobs:
           Compress-Archive -Path dist/windows/xianyu-server.exe,dist/windows/browser-install.exe,dist/windows/xianyu-tray.exe -DestinationPath "dist/windows/Ydisks-Xianyu-Helper-${env:APP_VERSION}-binaries.zip"
 
       - name: 上传 Windows 安装包
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ydisks-xianyu-helper-windows-${{ env.APP_VERSION }}
           path: |
@@ -129,16 +129,16 @@ jobs:
     runs-on: macos-14
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 配置 Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
 
       - name: 配置 Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -165,7 +165,7 @@ jobs:
           packaging/macos/build-pkg.sh "$APP_VERSION" "$PWD/dist/macos"
 
       - name: 上传 macOS 安装包
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ydisks-xianyu-helper-macos-${{ env.APP_VERSION }}
           path: dist/macos/Ydisks-Xianyu-Helper-${{ env.APP_VERSION }}.pkg
