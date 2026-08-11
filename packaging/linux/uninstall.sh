@@ -13,4 +13,5 @@ systemctl disable --now "$SERVICE_NAME" >/dev/null 2>&1 || true
 rm -f "/etc/systemd/system/$SERVICE_NAME"
 systemctl daemon-reload
 rm -rf "/opt/$APP_NAME"
+rm -f "/usr/share/icons/hicolor/512x512/apps/$APP_NAME.png"
 echo "程序和服务已移除；数据仍保留在 /var/lib/$APP_NAME。"

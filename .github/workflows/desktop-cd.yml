@@ -54,6 +54,7 @@ jobs:
           mkdir -p "$package_dir"
           go build -trimpath -ldflags='-s -w' -o "$package_dir/xianyu-server" ./cmd/server
           go build -trimpath -ldflags='-s -w' -o "$package_dir/browser-install" ./cmd/browser-install
+          cp icon/linux/icon.png "$package_dir/icon.png"
           cp packaging/linux/install.sh packaging/linux/uninstall.sh packaging/linux/ydisks-xianyu-helper.service "$package_dir/"
           chmod +x "$package_dir/install.sh" "$package_dir/uninstall.sh"
           tar -C dist -czf "dist/ydisks-xianyu-helper-linux-${GOARCH}-${APP_VERSION}.tar.gz" "$(basename "$package_dir")"

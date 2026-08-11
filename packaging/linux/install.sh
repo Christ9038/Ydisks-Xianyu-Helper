@@ -20,12 +20,17 @@ fi
 
 SERVER_SOURCE="${XIANYU_SERVER_SOURCE:-$SCRIPT_DIR/xianyu-server}"
 BROWSER_SOURCE="${XIANYU_BROWSER_INSTALL_SOURCE:-$SCRIPT_DIR/browser-install}"
+ICON_SOURCE="${XIANYU_ICON_SOURCE:-$SCRIPT_DIR/icon.png}"
 if [[ ! -x "$SERVER_SOURCE" ]]; then
   echo "找不到 xianyu-server：$SERVER_SOURCE" >&2
   exit 1
 fi
 if [[ ! -x "$BROWSER_SOURCE" ]]; then
   echo "找不到 browser-install：$BROWSER_SOURCE" >&2
+  exit 1
+fi
+if [[ ! -f "$ICON_SOURCE" ]]; then
+  echo "找不到应用图标：$ICON_SOURCE" >&2
   exit 1
 fi
 
@@ -43,6 +48,7 @@ install -d -o "$APP_NAME" -g "$APP_NAME" -m 0750 "$DATA_DIR/playwright-driver" "
 install -d -m 0750 "$CONFIG_DIR"
 install -m 0755 "$SERVER_SOURCE" "$INSTALL_DIR/xianyu-server"
 install -m 0755 "$BROWSER_SOURCE" "$INSTALL_DIR/browser-install"
+install -D -m 0644 "$ICON_SOURCE" "/usr/share/icons/hicolor/512x512/apps/$APP_NAME.png"
 install -m 0644 "$SCRIPT_DIR/ydisks-xianyu-helper.service" "/etc/systemd/system/$SERVICE_NAME"
 
 if [[ ! -f "$CONFIG_DIR/config.env" ]]; then

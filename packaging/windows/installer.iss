@@ -15,7 +15,8 @@ OutputBaseFilename=Ydisks-Xianyu-Helper-Setup
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
-UninstallDisplayIcon={app}\{#AppExeName}
+UninstallDisplayIcon={app}\icon.ico
+SetupIconFile=..\..\icon\windows\icon.ico
 Compression=lzma2
 SolidCompression=yes
 
@@ -23,6 +24,7 @@ SolidCompression=yes
 Source: "..\..\dist\windows\xianyu-server.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\dist\windows\browser-install.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\dist\windows\xianyu-tray.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\icon\windows\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
 Name: "{#AppDataDir}\data"
