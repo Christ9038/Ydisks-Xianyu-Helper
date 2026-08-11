@@ -2,4 +2,8 @@
 
 package main
 
-func serviceAction(_ string) error { return nil }
+import "fmt"
+
+func serviceAction(action string) error {
+	return fmt.Errorf("当前平台不支持托盘服务操作: %s", action)
+}

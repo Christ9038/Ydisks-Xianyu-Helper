@@ -6,20 +6,53 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 )
 
 func serviceAction(action string) error {
-	label := envOr("XIANYU_SERVICE_NAME", "com.christ.ydisks-xianyu-helper")
+	label := envOr("XIANYU_SERVICE_NAME", "com.christ.ydisks-xianyu-helper.server")
 	uid := fmt.Sprint(os.Getuid())
-	target := "gui/" + uid + "/" + label
+	domain := "gui/" + uid
+	target := domain + "/" + label
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("获取用户目录失败: %w", err)
+	}
+	plistPath := filepath.Join(home, "Library", "LaunchAgents", label+".plist")
 	switch action {
 	case "start":
-		return exec.Command("launchctl", "kickstart", target).Run()
+		if err := launchctl("print", target); err != nil {
+			if err := launchctl("bootstrap", domain, plistPath); err != nil {
+				return err
+			}
+		}
+		return launchctl("kickstart", target)
 	case "stop":
-		return exec.Command("launchctl", "kill", "SIGTERM", target).Run()
+		if err := launchctl("print", target); err != nil {
+			return nil
+		}
+		return launchctl("bootout", target)
 	case "restart":
-		return exec.Command("launchctl", "kickstart", "-k", target).Run()
+		_ = launchctl("bootout", target)
+		if err := launchctl("bootstrap", domain, plistPath); err != nil {
+			return err
+		}
+		return launchctl("kickstart", target)
 	default:
-		return nil
+		return fmt.Errorf("未知服务操作: %s", action)
 	}
+}
+
+func launchctl(args ...string) error {
+	cmd := exec.Command("launchctl", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			return fmt.Errorf("launchctl %s 失败: %w", strings.Join(args, " "), err)
+		}
+		return fmt.Errorf("launchctl %s 失败: %s", strings.Join(args, " "), message)
+	}
+	return nil
 }

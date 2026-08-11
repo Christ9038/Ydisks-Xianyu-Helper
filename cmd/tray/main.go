@@ -49,17 +49,17 @@ func onReady() {
 	}()
 	go func() {
 		for range startItem.ClickedCh {
-			_ = serviceAction("start")
+			runServiceAction(statusItem, "启动服务", "start")
 		}
 	}()
 	go func() {
 		for range stopItem.ClickedCh {
-			_ = serviceAction("stop")
+			runServiceAction(statusItem, "停止服务", "stop")
 		}
 	}()
 	go func() {
 		for range restartItem.ClickedCh {
-			_ = serviceAction("restart")
+			runServiceAction(statusItem, "重启服务", "restart")
 		}
 	}()
 	go func() {
@@ -94,19 +94,34 @@ func installBrowser() error {
 func refreshStatus(item *systray.MenuItem) {
 	client := &http.Client{Timeout: 2 * time.Second}
 	for {
-		status, err := readHealth(client)
-		if err != nil {
-			item.SetTitle("服务状态：未运行")
-			systray.SetTooltip("闲鱼管家：后台服务未运行")
-		} else if status.Status == "ok" && status.Database == "ok" {
-			item.SetTitle("服务状态：运行正常")
-			systray.SetTooltip("闲鱼管家：运行正常")
-		} else {
-			item.SetTitle("服务状态：异常")
-			systray.SetTooltip("闲鱼管家：数据库或服务异常")
-		}
+		refreshStatusOnce(item, client)
 		time.Sleep(5 * time.Second)
 	}
+}
+
+func refreshStatusOnce(item *systray.MenuItem, client *http.Client) {
+	status, err := readHealth(client)
+	if err != nil {
+		item.SetTitle("服务状态：未运行")
+		systray.SetTooltip("闲鱼管家：后台服务未运行")
+	} else if status.Status == "ok" && status.Database == "ok" {
+		item.SetTitle("服务状态：运行正常")
+		systray.SetTooltip("闲鱼管家：运行正常")
+	} else {
+		item.SetTitle("服务状态：异常")
+		systray.SetTooltip("闲鱼管家：数据库或服务异常")
+	}
+}
+
+func runServiceAction(statusItem *systray.MenuItem, actionName, action string) {
+	statusItem.SetTitle("服务状态：" + actionName + "中")
+	if err := serviceAction(action); err != nil {
+		statusItem.SetTitle("服务状态：操作失败")
+		systray.SetTooltip(fmt.Sprintf("闲鱼管家：%s失败：%v", actionName, err))
+		return
+	}
+
+	statusItem.SetTitle("服务状态：检查中")
 }
 
 func readHealth(client *http.Client) (healthResponse, error) {
