@@ -9,7 +9,6 @@ printf '\n[%s] preinstall start; uid=%s; user=%s; args=%s\n' \
   "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$(id -u)" "$(id -un)" "$*"
 set -x
 
-APP="/Applications/Ydisks Xianyu Helper.app"
 EXPECTED_BUNDLE_ID="com.ydisks.xianyu-helper"
 CONSOLE_USER="$(stat -f '%Su' /dev/console)"
 
@@ -25,11 +24,18 @@ if [ "$CONSOLE_USER" != "root" ] && [ -n "$CONSOLE_USER" ]; then
   done
 fi
 
-if [ -d "$APP" ]; then
-  existing_bundle_id="$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - \
-    "$APP/Contents/Info.plist" 2>/dev/null || true)"
-  if [ "$existing_bundle_id" != "$EXPECTED_BUNDLE_ID" ]; then
-    echo "清理旧 Bundle ID 的应用：${existing_bundle_id:-未知}"
-    rm -rf "$APP"
+for app_path in \
+  "/Applications/Ydisks Xianyu Helper.app" \
+  "/Applications/Ydisks Xianyu Helper.localized/Ydisks Xianyu Helper.app"
+do
+  if [ ! -d "$app_path" ]; then
+    continue
   fi
-fi
+
+  existing_bundle_id="$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - \
+    "$app_path/Contents/Info.plist" 2>/dev/null || true)"
+  if [ "$existing_bundle_id" != "$EXPECTED_BUNDLE_ID" ]; then
+    echo "清理旧 Bundle ID 的应用：${existing_bundle_id:-未知}（$app_path）"
+    rm -rf "$app_path"
+  fi
+done
