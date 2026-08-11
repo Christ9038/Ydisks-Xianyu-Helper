@@ -294,9 +294,16 @@ jobs:
             packaging/macos/build-pkg.sh "$APP_VERSION" "$PWD/dist/macos" "$arch"
           done
 
-      - name: 上传 macOS 安装包
+      - name: 上传 macOS arm64 安装包
         uses: actions/upload-artifact@v7
         with:
-          name: ydisks-xianyu-helper-macos-${{ env.APP_VERSION }}
-          path: dist/macos/Ydisks-Xianyu-Helper-${{ env.APP_VERSION }}-*.pkg
+          name: ydisks-xianyu-helper-macos-arm64-${{ env.APP_VERSION }}
+          path: dist/macos/Ydisks-Xianyu-Helper-${{ env.APP_VERSION }}-arm64.pkg
+          if-no-files-found: error
+
+      - name: 上传 macOS amd64 安装包
+        uses: actions/upload-artifact@v7
+        with:
+          name: ydisks-xianyu-helper-macos-amd64-${{ env.APP_VERSION }}
+          path: dist/macos/Ydisks-Xianyu-Helper-${{ env.APP_VERSION }}-amd64.pkg
           if-no-files-found: error

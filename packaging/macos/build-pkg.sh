@@ -42,6 +42,18 @@ cp "$PROJECT_ROOT/icon/macos/icon.icns" "$APP/Contents/Resources/icon.icns"
 sed "s/__VERSION__/$VERSION/g" "$SCRIPT_DIR/Info.plist" > "$APP/Contents/Info.plist"
 chmod 0755 "$APP/Contents/MacOS/Ydisks闲鱼助手" "$APP/Contents/Helpers/xianyu-server" "$APP_DIR/卸载 Ydisks闲鱼助手.command"
 
+# pkgbuild 会保留 runtime 文件的原始权限；Playwright 下载的 Node 和
+# Chromium Mach-O 可能只有所有者可执行。安装包由 root 安装后，普通用户
+# 启动 LaunchAgent 时会因 permission denied 无法执行，因此统一授予执行权限。
+runtime_files="$(mktemp)"
+trap 'rm -f "$runtime_files"' EXIT
+find "$APP/Contents/Resources/playwright-runtime" -type f -print > "$runtime_files"
+while IFS= read -r runtime_file; do
+  if file "$runtime_file" | grep -q 'Mach-O'; then
+    chmod 0755 "$runtime_file"
+  fi
+done < "$runtime_files"
+
 if [ -n "${MACOS_SIGNING_IDENTITY:-}" ]; then
   sign_code() {
     target="$1"
@@ -69,8 +81,7 @@ if [ -n "${MACOS_SIGNING_IDENTITY:-}" ]; then
   # Playwright runtime 中包含独立 Node 和 Chromium.app。bundle 主程序不能
   # 提前作为单个 Mach-O 签名，否则 codesign 会先校验尚未签名的内层 Framework。
   # 因此这里只签 bundle 外的独立 Mach-O，再按目录深度递归签名所有 bundle。
-  signing_list="$(mktemp)"
-  trap 'rm -f "$signing_list"' EXIT
+  signing_list="$runtime_files"
 
   find "$APP/Contents/Resources/playwright-runtime" -type f -print > "$signing_list"
   while IFS= read -r executable; do
