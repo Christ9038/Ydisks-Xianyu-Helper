@@ -1,6 +1,14 @@
 #!/bin/sh
 set -eu
 
+INSTALL_LOG="/var/log/ydisks-xianyu-helper-install.log"
+exec >>"$INSTALL_LOG" 2>&1
+trap 'exit_code=$?; printf "[%s] postinstall exit code: %s\\n" "$(date -u "+%Y-%m-%dT%H:%M:%SZ")" "$exit_code"' EXIT
+
+printf '\n[%s] postinstall start; uid=%s; user=%s; args=%s\n' \
+  "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$(id -u)" "$(id -un)" "$*"
+set -x
+
 APP="/Applications/Ydisks Xianyu Helper.app"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 SERVER="$APP/Contents/Helpers/xianyu-server"
@@ -63,8 +71,8 @@ launchctl bootout "gui/$UID_VALUE/$LEGACY_TRAY_LABEL" >/dev/null 2>&1 || true
 rm -f "$AGENT_DIR/$LEGACY_SERVER_LABEL.plist" "$AGENT_DIR/$LEGACY_TRAY_LABEL.plist"
 
 launchctl asuser "$UID_VALUE" env HOME="$HOME_DIR" "$BROWSER_INSTALL" \
-  -driver-dir "$DRIVER_DIR" -browser-dir "$BROWSER_DIR" >/tmp/ydisks-xianyu-helper-browser-install.log 2>&1 || {
-    echo "Chromium 自动安装失败，详见 /tmp/ydisks-xianyu-helper-browser-install.log"
+  -driver-dir "$DRIVER_DIR" -browser-dir "$BROWSER_DIR" >>"$INSTALL_LOG" 2>&1 || {
+    echo "Chromium 自动安装失败，详情已写入 $INSTALL_LOG"
   }
 
 launchctl bootstrap "gui/$UID_VALUE" "$server_plist"
