@@ -222,9 +222,10 @@ jobs:
           security import "$installer_p12_path" -k "$keychain_path" -P "$MACOS_SIGNING_P12_PASSWORD" -A
           security find-certificate -c "$MACOS_SIGNING_IDENTITY" -p "$keychain_path" > "$app_cert_path"
           security find-certificate -c "$MACOS_INSTALLER_SIGNING_IDENTITY" -p "$keychain_path" > "$installer_cert_path"
-          # GitHub macOS hosted runner 提供免密码 sudo；用 admin Trust Settings 避免弹认证对话框。
-          sudo -n security add-trusted-cert -d -r trustRoot -p codeSign -k "$keychain_path" "$app_cert_path"
-          sudo -n security add-trusted-cert -d -r trustRoot -p pkgSign -k "$keychain_path" "$installer_cert_path"
+          # GitHub macOS hosted runner 提供免密码 sudo；只修改 admin Trust Settings，避免弹认证对话框。
+          # 不传 -k，避免 sudo 以 root 身份把同一张证书重复写入临时钥匙串，破坏私钥匹配。
+          sudo -n security add-trusted-cert -d -r trustRoot -p codeSign "$app_cert_path"
+          sudo -n security add-trusted-cert -d -r trustRoot -p basic "$installer_cert_path"
           security list-keychains -d user -s "$keychain_path"
           security unlock-keychain -p "$keychain_password" "$keychain_path"
           echo "MACOS_SIGNING_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
