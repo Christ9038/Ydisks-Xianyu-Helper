@@ -215,14 +215,16 @@ jobs:
           printf '%s' "$MACOS_SIGNING_P12_BASE64" | base64 --decode > "$app_p12_path"
           printf '%s' "$MACOS_INSTALLER_SIGNING_P12_BASE64" | base64 --decode > "$installer_p12_path"
           security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
           security unlock-keychain -p "$keychain_password" "$keychain_path"
-          security import "$app_p12_path" -k "$keychain_path" -P "$MACOS_SIGNING_P12_PASSWORD" -T /usr/bin/codesign
-          security import "$installer_p12_path" -k "$keychain_path" -P "$MACOS_SIGNING_P12_PASSWORD" -T /usr/bin/productsign
+          # 临时 CI 钥匙串使用 -A 授权签名工具，避免 set-key-partition-list 触发交互确认。
+          security import "$app_p12_path" -k "$keychain_path" -P "$MACOS_SIGNING_P12_PASSWORD" -A
+          security import "$installer_p12_path" -k "$keychain_path" -P "$MACOS_SIGNING_P12_PASSWORD" -A
           security find-certificate -c "$MACOS_SIGNING_IDENTITY" -p "$keychain_path" > "$app_cert_path"
           security find-certificate -c "$MACOS_INSTALLER_SIGNING_IDENTITY" -p "$keychain_path" > "$installer_cert_path"
-          security add-trusted-cert -d -r trustRoot -p codeSign -k "$keychain_path" "$app_cert_path"
-          security add-trusted-cert -d -r trustRoot -p basic -k "$keychain_path" "$installer_cert_path"
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
+          # GitHub macOS hosted runner 提供免密码 sudo；用 admin Trust Settings 避免弹认证对话框。
+          sudo -n security add-trusted-cert -d -r trustRoot -p codeSign -k "$keychain_path" "$app_cert_path"
+          sudo -n security add-trusted-cert -d -r trustRoot -p pkgSign -k "$keychain_path" "$installer_cert_path"
           security list-keychains -d user -s "$keychain_path"
           security unlock-keychain -p "$keychain_password" "$keychain_path"
           echo "MACOS_SIGNING_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
