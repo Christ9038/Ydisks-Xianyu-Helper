@@ -1,5 +1,5 @@
 // Package browser 用 playwright-go 在进程内驱动 Chromium。
-// 首次使用时自动下载 Chromium（playwright.Install），无需手动启动外部服务。
+// 安装包提供预置 runtime；开发环境没有预置 runtime 时才自动下载。
 package browser
 
 import (
@@ -10,11 +10,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 	"golang.org/x/sync/singleflight"
 
 	"xianyu-go/internal/xianyu"
@@ -56,6 +58,42 @@ func skipPlaywrightBrowserDownload() bool {
 	default:
 		return false
 	}
+}
+
+func packagedPlaywrightRuntimeReady() bool {
+	driverDir := strings.TrimSpace(os.Getenv("PLAYWRIGHT_DRIVER_PATH"))
+	if driverDir == "" {
+		return false
+	}
+	nodeName := "node"
+	if runtime.GOOS == "windows" {
+		nodeName = "node.exe"
+	}
+	for _, path := range []string{
+		filepath.Join(driverDir, nodeName),
+		filepath.Join(driverDir, "package", "cli.js"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			return false
+		}
+	}
+	if strings.TrimSpace(os.Getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")) != "" {
+		return true
+	}
+	browserDir := strings.TrimSpace(os.Getenv("PLAYWRIGHT_BROWSERS_PATH"))
+	if browserDir == "" {
+		return false
+	}
+	matches, err := filepath.Glob(filepath.Join(browserDir, "chromium-*"))
+	if err != nil {
+		return false
+	}
+	for _, match := range matches {
+		if info, statErr := os.Stat(match); statErr == nil && info.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 // Manager 管理浏览器生命周期与按账号复用的上下文池。
@@ -108,6 +146,9 @@ func NewManager(logger *slog.Logger) *Manager {
 		renewLocks: make(map[string]*sync.Mutex),
 		renewSlots: make(chan struct{}, 3),
 		installFn: func() error {
+			if packagedPlaywrightRuntimeReady() {
+				return nil
+			}
 			opts := &playwright.RunOptions{
 				Browsers: []string{"chromium"},
 				Verbose:  false,

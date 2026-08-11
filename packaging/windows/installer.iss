@@ -22,21 +22,18 @@ SolidCompression=yes
 
 [Files]
 Source: "..\..\dist\windows\xianyu-server.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\dist\windows\browser-install.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\dist\windows\xianyu-tray.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\icon\windows\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\windows\playwright-runtime\*"; DestDir: "{app}\playwright-runtime"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Dirs]
 Name: "{#AppDataDir}\data"
-Name: "{#AppDataDir}\playwright-driver"
-Name: "{#AppDataDir}\playwright-browsers"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "YdisksXianyuHelperTray"; ValueData: "{app}\xianyu-tray.exe"; Flags: uninsdeletevalue
 
 [Run]
-Filename: "{sys}\sc.exe"; Parameters: "create YdisksXianyuHelper binPath= ""{app}\xianyu-server.exe -service -workdir {#AppDataDir} -data-key-file {#AppDataDir}\data-key -addr 127.0.0.1:8080 -playwright-driver-dir {#AppDataDir}\playwright-driver -playwright-browser-dir {#AppDataDir}\playwright-browsers"" start= delayed-auto"; Flags: runhidden waituntilterminated
-Filename: "{app}\browser-install.exe"; Parameters: "-driver-dir ""{#AppDataDir}\playwright-driver"" -browser-dir ""{#AppDataDir}\playwright-browsers"""; Flags: waituntilterminated
+Filename: "{sys}\sc.exe"; Parameters: "create YdisksXianyuHelper binPath= ""{app}\xianyu-server.exe -service -workdir {#AppDataDir} -data-key-file {#AppDataDir}\data-key -addr 127.0.0.1:8080 -playwright-runtime-root ""{app}\playwright-runtime""" start= delayed-auto"; Flags: runhidden waituntilterminated
 Filename: "{sys}\sc.exe"; Parameters: "start YdisksXianyuHelper"; Flags: runhidden waituntilterminated
 Filename: "{app}\xianyu-tray.exe"; Description: "启动菜单栏控制器"; Flags: nowait postinstall skipifsilent
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"xianyu-go/internal/db"
@@ -89,5 +90,17 @@ func TestResolveDBPathPreservesCustomPath(t *testing.T) {
 	custom := filepath.Join(t.TempDir(), "custom.db")
 	if got := resolveDBPath(dataDir, custom); got != custom {
 		t.Fatalf("custom database path changed: got %q want %q", got, custom)
+	}
+}
+
+func TestPlaywrightRuntimeRootUsesProcessArchitecture(t *testing.T) {
+	opts := serverOptions{playwrightRuntimeRoot: filepath.Join(t.TempDir(), "playwright-runtime")}
+	applyPlaywrightRuntimeRoot(&opts)
+	wantRoot := filepath.Join(opts.playwrightRuntimeRoot, runtime.GOARCH)
+	if opts.playwrightDriverDir != filepath.Join(wantRoot, "playwright-driver") {
+		t.Fatalf("driver 目录=%q", opts.playwrightDriverDir)
+	}
+	if opts.playwrightBrowserDir != filepath.Join(wantRoot, "playwright-browsers") {
+		t.Fatalf("browser 目录=%q", opts.playwrightBrowserDir)
 	}
 }

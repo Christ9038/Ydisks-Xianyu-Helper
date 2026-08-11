@@ -7,6 +7,7 @@
 	<array>
 		<string>__SERVER__</string>
 		<string>-addr</string><string>127.0.0.1:8080</string>
+		<string>-playwright-runtime-root</string><string>__RUNTIME_ROOT__</string>
 	</array>
 	<key>WorkingDirectory</key><string>__DATA_DIR__</string>
 	<key>RunAtLoad</key><true/>

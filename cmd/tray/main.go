@@ -37,7 +37,6 @@ func onReady() {
 	startItem := systray.AddMenuItem("启动服务", "启动后台服务")
 	stopItem := systray.AddMenuItem("停止服务", "停止后台服务")
 	restartItem := systray.AddMenuItem("重启服务", "重启后台服务")
-	browserItem := systray.AddMenuItem("安装/修复 Chromium", "准备 Playwright Chromium")
 	systray.AddSeparator()
 	quitItem := systray.AddMenuItem("退出托盘", "只退出菜单栏控制器")
 
@@ -63,11 +62,6 @@ func onReady() {
 		}
 	}()
 	go func() {
-		for range browserItem.ClickedCh {
-			_ = installBrowser()
-		}
-	}()
-	go func() {
 		for range quitItem.ClickedCh {
 			if err := quitTray(); err != nil {
 				statusItem.SetTitle("托盘状态：退出失败")
@@ -77,23 +71,6 @@ func onReady() {
 			systray.Quit()
 		}
 	}()
-}
-
-func installBrowser() error {
-	path := strings.TrimSpace(os.Getenv("XIANYU_BROWSER_INSTALL"))
-	if path == "" {
-		executable, err := os.Executable()
-		if err != nil {
-			return err
-		}
-		path = executable
-		if runtime.GOOS == "darwin" {
-			path = strings.Replace(path, "/Contents/MacOS/Ydisks闲鱼助手", "/Contents/Helpers/browser-install", 1)
-		} else {
-			path = strings.Replace(path, "xianyu-tray.exe", "browser-install.exe", 1)
-		}
-	}
-	return exec.Command(path).Run()
 }
 
 func refreshStatus(item *systray.MenuItem) {

@@ -99,6 +99,16 @@ jobs:
           go build -trimpath -ldflags "-s -w" -o dist/windows/browser-install.exe ./cmd/browser-install
           go build -trimpath -ldflags "-s -w -H=windowsgui" -o dist/windows/xianyu-tray.exe ./cmd/tray
 
+      - name: 预下载 Windows Chromium runtime
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/windows/playwright-runtime/amd64/playwright-driver | Out-Null
+          New-Item -ItemType Directory -Force -Path dist/windows/playwright-runtime/amd64/playwright-browsers | Out-Null
+          & dist/windows/browser-install.exe `
+            -driver-dir "$PWD/dist/windows/playwright-runtime/amd64/playwright-driver" `
+            -browser-dir "$PWD/dist/windows/playwright-runtime/amd64/playwright-browsers"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows Playwright runtime 下载失败' }
+
       - name: 导入 Windows 签名证书
         shell: pwsh
         env:
@@ -119,7 +129,7 @@ jobs:
         run: |
           & packaging/windows/sign.ps1 `
             -PfxPath $env:WINDOWS_SIGNING_PFX_PATH `
-            -Files 'dist/windows/xianyu-server.exe','dist/windows/browser-install.exe','dist/windows/xianyu-tray.exe'
+            -Files 'dist/windows/xianyu-server.exe','dist/windows/xianyu-tray.exe'
 
       - name: 安装 Inno Setup
         shell: pwsh
@@ -151,7 +161,7 @@ jobs:
         env:
           APP_VERSION: ${{ env.APP_VERSION }}
         run: |
-          Compress-Archive -Path dist/windows/xianyu-server.exe,dist/windows/browser-install.exe,dist/windows/xianyu-tray.exe -DestinationPath "dist/windows/Ydisks-Xianyu-Helper-${env:APP_VERSION}-binaries.zip"
+          Compress-Archive -Path dist/windows/xianyu-server.exe,dist/windows/xianyu-tray.exe -DestinationPath "dist/windows/Ydisks-Xianyu-Helper-${env:APP_VERSION}-binaries.zip"
 
       - name: 上传 Windows 安装包
         uses: actions/upload-artifact@v7
@@ -194,9 +204,22 @@ jobs:
             GOOS=darwin GOARCH="$arch" CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o "dist/macos/$arch/browser-install" ./cmd/browser-install
             GOOS=darwin GOARCH="$arch" CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o "dist/macos/$arch/xianyu-tray" ./cmd/tray
           done
-          lipo -create dist/macos/arm64/xianyu-server dist/macos/amd64/xianyu-server -output dist/macos/xianyu-server
-          lipo -create dist/macos/arm64/browser-install dist/macos/amd64/browser-install -output dist/macos/browser-install
-          lipo -create dist/macos/arm64/xianyu-tray dist/macos/amd64/xianyu-tray -output dist/macos/xianyu-tray
+
+      - name: 预下载 macOS Chromium runtime
+        run: |
+          set -Eeuo pipefail
+          mkdir -p dist/macos/playwright-runtime/arm64/playwright-driver
+          mkdir -p dist/macos/playwright-runtime/arm64/playwright-browsers
+          mkdir -p dist/macos/playwright-runtime/amd64/playwright-driver
+          mkdir -p dist/macos/playwright-runtime/amd64/playwright-browsers
+          PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=mac14-arm64 \
+            dist/macos/arm64/browser-install \
+            -driver-dir "$PWD/dist/macos/playwright-runtime/arm64/playwright-driver" \
+            -browser-dir "$PWD/dist/macos/playwright-runtime/arm64/playwright-browsers"
+          PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=mac14 \
+            arch -x86_64 dist/macos/amd64/browser-install \
+            -driver-dir "$PWD/dist/macos/playwright-runtime/amd64/playwright-driver" \
+            -browser-dir "$PWD/dist/macos/playwright-runtime/amd64/playwright-browsers"
 
       - name: 导入 macOS 签名证书
         env:
@@ -231,17 +254,20 @@ jobs:
           security unlock-keychain -p "$keychain_password" "$keychain_path"
           echo "MACOS_SIGNING_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
 
-      - name: 构建 macOS pkg
+      - name: 构建 macOS arm64 与 amd64 安装包
         env:
           MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
           MACOS_INSTALLER_SIGNING_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGNING_IDENTITY }}
         run: |
+          set -Eeuo pipefail
           chmod +x packaging/macos/build-pkg.sh
-          packaging/macos/build-pkg.sh "$APP_VERSION" "$PWD/dist/macos"
+          for arch in arm64 amd64; do
+            packaging/macos/build-pkg.sh "$APP_VERSION" "$PWD/dist/macos" "$arch"
+          done
 
       - name: 上传 macOS 安装包
         uses: actions/upload-artifact@v7
         with:
           name: ydisks-xianyu-helper-macos-${{ env.APP_VERSION }}
-          path: dist/macos/Ydisks-Xianyu-Helper-${{ env.APP_VERSION }}.pkg
+          path: dist/macos/Ydisks-Xianyu-Helper-${{ env.APP_VERSION }}-*.pkg
           if-no-files-found: error

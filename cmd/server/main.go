@@ -31,24 +31,25 @@ import (
 )
 
 type serverOptions struct {
-	dbPath               string
-	dbURL                string
-	addr                 string
-	webDir               string
-	workDir              string
-	playwrightDriverDir  string
-	playwrightBrowserDir string
-	dataKeyFile          string
-	secure               bool
-	noBrowser            bool
-	verbose              bool
-	logLevel             string
-	logFormat            string
-	initAdmin            bool
-	ensureAdmin          bool
-	adminEmail           string
-	adminPassword        string
-	service              bool
+	dbPath                string
+	dbURL                 string
+	addr                  string
+	webDir                string
+	workDir               string
+	playwrightRuntimeRoot string
+	playwrightDriverDir   string
+	playwrightBrowserDir  string
+	dataKeyFile           string
+	secure                bool
+	noBrowser             bool
+	verbose               bool
+	logLevel              string
+	logFormat             string
+	initAdmin             bool
+	ensureAdmin           bool
+	adminEmail            string
+	adminPassword         string
+	service               bool
 }
 
 const (
@@ -90,6 +91,7 @@ func parseOptions() serverOptions {
 	flag.StringVar(&opts.addr, "addr", ":8080", "HTTP 监听地址")
 	flag.StringVar(&opts.webDir, "web", "", "前端静态资源目录（含 index.html）")
 	flag.StringVar(&opts.workDir, "workdir", "", "服务工作目录；用于桌面服务固定数据和浏览器目录")
+	flag.StringVar(&opts.playwrightRuntimeRoot, "playwright-runtime-root", "", "随安装包分发的 Playwright runtime 根目录")
 	flag.StringVar(&opts.playwrightDriverDir, "playwright-driver-dir", "", "Playwright driver 目录")
 	flag.StringVar(&opts.playwrightBrowserDir, "playwright-browser-dir", "", "Playwright 浏览器缓存目录")
 	flag.StringVar(&opts.dataKeyFile, "data-key-file", "", "XIANYU_DATA_KEY 持久化文件；不存在时自动生成")
@@ -115,6 +117,7 @@ func runServer(parent context.Context, opts serverOptions) error {
 	if err != nil {
 		return err
 	}
+	applyPlaywrightRuntimeRoot(&opts)
 	if dataDir != "" {
 		if err := os.MkdirAll(dataDir, 0o700); err != nil {
 			return fmt.Errorf("创建应用数据目录失败: %w", err)
@@ -274,6 +277,23 @@ func runServer(parent context.Context, opts serverOptions) error {
 	}
 	notifier.Wait()
 	return runErr
+}
+
+func applyPlaywrightRuntimeRoot(opts *serverOptions) {
+	if opts == nil {
+		return
+	}
+	root := strings.TrimSpace(opts.playwrightRuntimeRoot)
+	if root == "" {
+		return
+	}
+	archRoot := filepath.Join(root, runtime.GOARCH)
+	if opts.playwrightDriverDir == "" {
+		opts.playwrightDriverDir = filepath.Join(archRoot, "playwright-driver")
+	}
+	if opts.playwrightBrowserDir == "" {
+		opts.playwrightBrowserDir = filepath.Join(archRoot, "playwright-browsers")
+	}
 }
 
 // resolveDataDir 返回桌面端的标准用户数据目录。

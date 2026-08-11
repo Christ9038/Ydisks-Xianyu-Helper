@@ -28,23 +28,34 @@ fi
 
 SERVER="$APP/Contents/Helpers/xianyu-server"
 TRAY="$APP/Contents/MacOS/Ydisks闲鱼助手"
-BROWSER_INSTALL="$APP/Contents/Helpers/browser-install"
+RUNTIME_ROOT="$APP/Contents/Resources/playwright-runtime"
 CONSOLE_USER="$(stat -f '%Su' /dev/console)"
 
 if [ "$CONSOLE_USER" = "root" ] || [ -z "$CONSOLE_USER" ]; then
-  echo "没有登录用户，跳过 LaunchAgent 和 Chromium 初始化；登录后请重新打开应用。"
+  echo "没有登录用户，跳过 LaunchAgent；登录后请重新打开应用。"
   exit 0
 fi
 
 UID_VALUE="$(id -u "$CONSOLE_USER")"
 HOME_DIR="$(dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory | awk '{print $2}')"
 DATA_DIR="$HOME_DIR/Library/Application Support/YdisksXianyuHelper"
-DRIVER_DIR="$DATA_DIR/playwright-driver"
-BROWSER_DIR="$DATA_DIR/playwright-browsers"
 LOG_DIR="$HOME_DIR/Library/Logs/YdisksXianyuHelper"
 AGENT_DIR="$HOME_DIR/Library/LaunchAgents"
 
-mkdir -p "$DATA_DIR" "$DRIVER_DIR" "$BROWSER_DIR" "$LOG_DIR" "$AGENT_DIR"
+RUNTIME_ARCH=""
+for candidate_arch in arm64 amd64; do
+  if [ -d "$RUNTIME_ROOT/$candidate_arch/playwright-driver" ] && [ -d "$RUNTIME_ROOT/$candidate_arch/playwright-browsers" ]; then
+    RUNTIME_ARCH="$candidate_arch"
+    break
+  fi
+done
+if [ -z "$RUNTIME_ARCH" ]; then
+  echo "安装包缺少完整的 Playwright runtime：$RUNTIME_ROOT"
+  exit 1
+fi
+echo "使用 $RUNTIME_ARCH 架构的 Playwright runtime。"
+
+mkdir -p "$DATA_DIR" "$LOG_DIR" "$AGENT_DIR"
 chown -R "$CONSOLE_USER" "$DATA_DIR" "$LOG_DIR" "$AGENT_DIR"
 
 escape_sed() {
@@ -55,6 +66,7 @@ SERVER_ESCAPED="$(escape_sed "$SERVER")"
 TRAY_ESCAPED="$(escape_sed "$TRAY")"
 DATA_ESCAPED="$(escape_sed "$DATA_DIR")"
 LOG_ESCAPED="$(escape_sed "$LOG_DIR")"
+RUNTIME_ROOT_ESCAPED="$(escape_sed "$RUNTIME_ROOT")"
 
 SERVER_LABEL="com.ydisks.xianyu-helper.server"
 TRAY_LABEL="com.ydisks.xianyu-helper.tray"
@@ -63,6 +75,7 @@ tray_plist="$AGENT_DIR/$TRAY_LABEL.plist"
 sed -e "s|__SERVER__|$SERVER_ESCAPED|g" \
     -e "s|__DATA_DIR__|$DATA_ESCAPED|g" \
     -e "s|__LOG_DIR__|$LOG_ESCAPED|g" \
+    -e "s|__RUNTIME_ROOT__|$RUNTIME_ROOT_ESCAPED|g" \
     "$APP/Contents/Resources/com.ydisks.xianyu-helper.server.plist.template" > "$server_plist"
 sed -e "s|__TRAY__|$TRAY_ESCAPED|g" \
     "$APP/Contents/Resources/com.ydisks.xianyu-helper.tray.plist.template" > "$tray_plist"
@@ -78,11 +91,6 @@ LEGACY_TRAY_LABEL="com.christ.ydisks-xianyu-helper.tray"
 launchctl bootout "gui/$UID_VALUE/$LEGACY_SERVER_LABEL" >/dev/null 2>&1 || true
 launchctl bootout "gui/$UID_VALUE/$LEGACY_TRAY_LABEL" >/dev/null 2>&1 || true
 rm -f "$AGENT_DIR/$LEGACY_SERVER_LABEL.plist" "$AGENT_DIR/$LEGACY_TRAY_LABEL.plist"
-
-launchctl asuser "$UID_VALUE" env HOME="$HOME_DIR" "$BROWSER_INSTALL" \
-  -driver-dir "$DRIVER_DIR" -browser-dir "$BROWSER_DIR" >>"$INSTALL_LOG" 2>&1 || {
-    echo "Chromium 自动安装失败，详情已写入 $INSTALL_LOG"
-  }
 
 launchctl bootstrap "gui/$UID_VALUE" "$server_plist"
 launchctl bootstrap "gui/$UID_VALUE" "$tray_plist"
