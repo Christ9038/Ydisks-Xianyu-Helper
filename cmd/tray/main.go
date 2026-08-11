@@ -69,6 +69,11 @@ func onReady() {
 	}()
 	go func() {
 		for range quitItem.ClickedCh {
+			if err := quitTray(); err != nil {
+				statusItem.SetTitle("托盘状态：退出失败")
+				systray.SetTooltip(fmt.Sprintf("闲鱼管家：托盘退出失败：%v", err))
+				continue
+			}
 			systray.Quit()
 		}
 	}()

@@ -44,6 +44,15 @@ func serviceAction(action string) error {
 	}
 }
 
+func quitTray() error {
+	label := envOr("XIANYU_TRAY_SERVICE_NAME", "com.ydisks.xianyu-helper.tray")
+	target := "gui/" + fmt.Sprint(os.Getuid()) + "/" + label
+	if err := launchctl("print", target); err != nil {
+		return nil
+	}
+	return launchctl("bootout", target)
+}
+
 func launchctl(args ...string) error {
 	cmd := exec.Command("launchctl", args...)
 	output, err := cmd.CombinedOutput()

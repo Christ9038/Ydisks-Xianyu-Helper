@@ -5,6 +5,7 @@
 	<key>Label</key><string>com.ydisks.xianyu-helper.tray</string>
 	<key>ProgramArguments</key><array><string>__TRAY__</string></array>
 	<key>RunAtLoad</key><true/>
-	<key>KeepAlive</key><true/>
+	<!-- 托盘允许用户退出；服务端 LaunchAgent 单独负责 KeepAlive。 -->
+	<key>KeepAlive</key><false/>
 </dict>
 </plist>

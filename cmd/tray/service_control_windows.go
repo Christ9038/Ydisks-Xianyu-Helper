@@ -44,3 +44,5 @@ exit $exitCode`, quotedName, action)
 	}
 	return nil
 }
+
+func quitTray() error { return nil }
