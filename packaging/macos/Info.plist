@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.christ.ydisks-xianyu-helper</string>
+	<key>CFBundleName</key>
+	<string>Ydisks Xianyu Helper</string>
+	<key>CFBundleDisplayName</key>
+	<string>闲鱼管家</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleVersion</key>
+	<string>__VERSION__</string>
+	<key>CFBundleShortVersionString</key>
+	<string>__VERSION__</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>CFBundleExecutable</key>
+	<string>xianyu-tray</string>
+</dict>
+</plist>

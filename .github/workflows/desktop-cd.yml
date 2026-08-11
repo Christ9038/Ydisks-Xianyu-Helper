@@ -1,0 +1,172 @@
+name: 构建桌面端安装包
+
+on:
+  push:
+    branches:
+      - codex/desktop-packaging
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_VERSION: 0.0.0-${{ github.run_number }}
+
+jobs:
+  linux:
+    name: Linux 安装包
+    if: github.ref == 'refs/heads/codex/desktop-packaging'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 构建嵌入式前端
+        run: npm ci --prefix frontend && npm run build --prefix frontend
+
+      - name: 编译 Linux 二进制并组装安装目录
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          package_dir="dist/ydisks-xianyu-helper-linux-${GOARCH}"
+          mkdir -p "$package_dir"
+          go build -trimpath -ldflags='-s -w' -o "$package_dir/xianyu-server" ./cmd/server
+          go build -trimpath -ldflags='-s -w' -o "$package_dir/browser-install" ./cmd/browser-install
+          cp packaging/linux/install.sh packaging/linux/uninstall.sh packaging/linux/ydisks-xianyu-helper.service "$package_dir/"
+          chmod +x "$package_dir/install.sh" "$package_dir/uninstall.sh"
+          tar -C dist -czf "dist/ydisks-xianyu-helper-linux-${GOARCH}-${APP_VERSION}.tar.gz" "$(basename "$package_dir")"
+
+      - name: 上传 Linux 安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: ydisks-xianyu-helper-linux-${{ matrix.arch }}-${{ env.APP_VERSION }}
+          path: dist/ydisks-xianyu-helper-linux-${{ matrix.arch }}-${{ env.APP_VERSION }}.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Windows 安装包
+    if: github.ref == 'refs/heads/codex/desktop-packaging'
+    runs-on: windows-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 构建嵌入式前端
+        shell: pwsh
+        run: npm ci --prefix frontend; npm run build --prefix frontend
+
+      - name: 编译 Windows 桌面程序
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/windows | Out-Null
+          go build -trimpath -ldflags "-s -w" -o dist/windows/xianyu-server.exe ./cmd/server
+          go build -trimpath -ldflags "-s -w" -o dist/windows/browser-install.exe ./cmd/browser-install
+          go build -trimpath -ldflags "-s -w -H=windowsgui" -o dist/windows/xianyu-tray.exe ./cmd/tray
+
+      - name: 安装 Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress --yes
+
+      - name: 构建 Windows 安装器
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ env.APP_VERSION }}
+        run: |
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' /Qp /O"dist\windows" packaging\windows\installer.iss
+          $installer = Get-ChildItem -Path dist/windows -Filter 'Ydisks-Xianyu-Helper-Setup.exe' -Recurse | Select-Object -First 1
+          if ($null -eq $installer) { throw 'Inno Setup 未生成安装器' }
+          $target = Join-Path (Resolve-Path dist/windows) 'Ydisks-Xianyu-Helper-Setup.exe'
+          if ($installer.FullName -ne $target) { Copy-Item $installer.FullName $target -Force }
+          Compress-Archive -Path dist/windows/xianyu-server.exe,dist/windows/browser-install.exe,dist/windows/xianyu-tray.exe -DestinationPath "dist/windows/Ydisks-Xianyu-Helper-${env:APP_VERSION}-binaries.zip"
+
+      - name: 上传 Windows 安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: ydisks-xianyu-helper-windows-${{ env.APP_VERSION }}
+          path: |
+            dist/windows/Ydisks-Xianyu-Helper-Setup.exe
+            dist/windows/Ydisks-Xianyu-Helper-${{ env.APP_VERSION }}-binaries.zip
+          if-no-files-found: error
+
+  macos:
+    name: macOS 安装包
+    if: github.ref == 'refs/heads/codex/desktop-packaging'
+    runs-on: macos-14
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 构建嵌入式前端
+        run: npm ci --prefix frontend && npm run build --prefix frontend
+
+      - name: 编译 macOS 桌面程序
+        run: |
+          mkdir -p dist/macos/arm64 dist/macos/amd64
+          for arch in arm64 amd64; do
+            GOOS=darwin GOARCH="$arch" CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o "dist/macos/$arch/xianyu-server" ./cmd/server
+            GOOS=darwin GOARCH="$arch" CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o "dist/macos/$arch/browser-install" ./cmd/browser-install
+            GOOS=darwin GOARCH="$arch" CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o "dist/macos/$arch/xianyu-tray" ./cmd/tray
+          done
+          lipo -create dist/macos/arm64/xianyu-server dist/macos/amd64/xianyu-server -output dist/macos/xianyu-server
+          lipo -create dist/macos/arm64/browser-install dist/macos/amd64/browser-install -output dist/macos/browser-install
+          lipo -create dist/macos/arm64/xianyu-tray dist/macos/amd64/xianyu-tray -output dist/macos/xianyu-tray
+
+      - name: 构建 macOS pkg
+        run: |
+          chmod +x packaging/macos/build-pkg.sh
+          packaging/macos/build-pkg.sh "$APP_VERSION" "$PWD/dist/macos"
+
+      - name: 上传 macOS 安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: ydisks-xianyu-helper-macos-${{ env.APP_VERSION }}
+          path: dist/macos/Ydisks-Xianyu-Helper-${{ env.APP_VERSION }}.pkg
+          if-no-files-found: error

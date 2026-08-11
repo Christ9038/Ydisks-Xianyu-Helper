@@ -1,0 +1,64 @@
+#!/bin/sh
+set -eu
+
+APP="/Applications/Ydisks Xianyu Helper.app"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SERVER="$APP/Contents/Helpers/xianyu-server"
+TRAY="$APP/Contents/MacOS/xianyu-tray"
+BROWSER_INSTALL="$APP/Contents/Helpers/browser-install"
+CONSOLE_USER="$(stat -f '%Su' /dev/console)"
+
+if [ "$CONSOLE_USER" = "root" ] || [ -z "$CONSOLE_USER" ]; then
+  echo "没有登录用户，跳过 LaunchAgent 和 Chromium 初始化；登录后请重新打开应用。"
+  exit 0
+fi
+
+UID_VALUE="$(id -u "$CONSOLE_USER")"
+HOME_DIR="$(dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory | awk '{print $2}')"
+DATA_DIR="$HOME_DIR/Library/Application Support/YdisksXianyuHelper"
+DRIVER_DIR="$DATA_DIR/playwright-driver"
+BROWSER_DIR="$DATA_DIR/playwright-browsers"
+LOG_DIR="$HOME_DIR/Library/Logs/YdisksXianyuHelper"
+AGENT_DIR="$HOME_DIR/Library/LaunchAgents"
+
+mkdir -p "$DATA_DIR" "$DRIVER_DIR" "$BROWSER_DIR" "$LOG_DIR" "$AGENT_DIR"
+chown -R "$CONSOLE_USER" "$DATA_DIR" "$LOG_DIR" "$AGENT_DIR"
+
+escape_sed() {
+  printf '%s' "$1" | sed 's/[&|]/\\&/g'
+}
+
+SERVER_ESCAPED="$(escape_sed "$SERVER")"
+TRAY_ESCAPED="$(escape_sed "$TRAY")"
+DATA_ESCAPED="$(escape_sed "$DATA_DIR")"
+DRIVER_ESCAPED="$(escape_sed "$DRIVER_DIR")"
+BROWSER_ESCAPED="$(escape_sed "$BROWSER_DIR")"
+LOG_ESCAPED="$(escape_sed "$LOG_DIR")"
+DATA_KEY_ESCAPED="$(escape_sed "$DATA_DIR/data-key")"
+
+server_plist="$AGENT_DIR/com.christ.ydisks-xianyu-helper.server.plist"
+tray_plist="$AGENT_DIR/com.christ.ydisks-xianyu-helper.tray.plist"
+sed -e "s|__SERVER__|$SERVER_ESCAPED|g" \
+    -e "s|__DATA_DIR__|$DATA_ESCAPED|g" \
+    -e "s|__DATA_KEY__|$DATA_KEY_ESCAPED|g" \
+    -e "s|__DRIVER_DIR__|$DRIVER_ESCAPED|g" \
+    -e "s|__BROWSER_DIR__|$BROWSER_ESCAPED|g" \
+    -e "s|__LOG_DIR__|$LOG_ESCAPED|g" \
+    "$APP/Contents/Resources/com.christ.ydisks-xianyu-helper.server.plist.template" > "$server_plist"
+sed -e "s|__TRAY__|$TRAY_ESCAPED|g" \
+    "$APP/Contents/Resources/com.christ.ydisks-xianyu-helper.tray.plist.template" > "$tray_plist"
+chown "$CONSOLE_USER" "$server_plist" "$tray_plist"
+chmod 0644 "$server_plist" "$tray_plist"
+
+launchctl bootout "gui/$UID_VALUE/com.christ.ydisks-xianyu-helper.server" >/dev/null 2>&1 || true
+launchctl bootout "gui/$UID_VALUE/com.christ.ydisks-xianyu-helper.tray" >/dev/null 2>&1 || true
+
+launchctl asuser "$UID_VALUE" env HOME="$HOME_DIR" "$BROWSER_INSTALL" \
+  -driver-dir "$DRIVER_DIR" -browser-dir "$BROWSER_DIR" >/tmp/ydisks-xianyu-helper-browser-install.log 2>&1 || {
+    echo "Chromium 自动安装失败，详见 /tmp/ydisks-xianyu-helper-browser-install.log"
+  }
+
+launchctl bootstrap "gui/$UID_VALUE" "$server_plist"
+launchctl bootstrap "gui/$UID_VALUE" "$tray_plist"
+launchctl kickstart -k "gui/$UID_VALUE/com.christ.ydisks-xianyu-helper.server"
+launchctl kickstart -k "gui/$UID_VALUE/com.christ.ydisks-xianyu-helper.tray"

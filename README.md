@@ -174,6 +174,22 @@ npm --prefix frontend run build
 前端资源会在构建时通过 Go 的 `//go:embed` 嵌入服务；如果服务已经在运行，构建完成后
 需要重启 Go 服务，浏览器硬刷新本身不会替换运行中进程已加载的前端资源。
 
+### 方式三：桌面端安装包
+
+桌面端由两个进程组成：后台 `xianyu-server` 负责 HTTP API、账号运行时和 Chromium；
+`xianyu-tray` 只负责 Windows 托盘或 macOS 菜单栏状态、打开管理页面和服务控制。
+Chromium 不打进 Go 二进制，首次安装时由随包的 `browser-install` 自动下载到用户数据目录。
+
+- Windows：安装器注册 `YdisksXianyuHelper` Windows Service，并将托盘控制器加入当前用户登录启动项。
+- macOS：安装器注册当前登录用户的两个 LaunchAgent，分别运行后台服务和菜单栏控制器。
+- Linux：下载对应架构的 tar 包后，以 root 执行 `./install.sh`；脚本创建专用系统用户、安装
+  systemd unit，并执行 Playwright Chromium 及系统依赖安装。卸载时执行 `./uninstall.sh`，
+  默认保留 `/var/lib/ydisks-xianyu-helper` 数据。
+
+桌面端安装包由 GitHub Actions 的 `codex/desktop-packaging` 分支专用工作流构建。当前工作流
+上传未签名的 Windows `.exe` 安装器和 macOS `.pkg` 作为 Actions artifact；正式对外分发前，
+还应配置 Windows 代码签名证书、Apple Developer ID 和公证流程。
+
 初始化管理员：
 
 ```bash
@@ -465,6 +481,8 @@ services:
 .
 ├── cmd/
 │   ├── server/           # 主服务与管理员初始化入口
+│   ├── browser-install/   # Playwright Chromium 安装辅助程序
+│   ├── tray/              # Windows 托盘/macOS 菜单栏控制器
 │   ├── init-admin/       # 交互式管理员初始化工具
 │   ├── dbverify/         # 多数据库迁移和 CRUD 验证
 │   └── dbseed/           # Docker 功能测试数据种子
@@ -481,6 +499,7 @@ services:
 │   └── xianyu/           # MTOP、WebSocket、登录和协议实现
 ├── frontend/             # React、TypeScript、Vite 前端
 ├── docs/                 # 专题文档和行为规范
+├── packaging/             # Linux systemd、Windows Inno Setup、macOS pkg
 ├── scripts/              # Docker 与回归测试脚本
 └── Dockerfile.debian13   # 多阶段生产镜像
 ```

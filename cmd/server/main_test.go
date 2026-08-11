@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -30,5 +31,26 @@ func TestEnsureAdminIfMissingCreatesOnlyOnce(t *testing.T) {
 	}
 	if _, ok, err := store.Users.VerifyAndUpgrade(ctx, "admin", "second-password"); err == nil || ok {
 		t.Fatalf("later password must not reset admin: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestLoadOrCreateDataKeyPersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "data-key")
+	first, err := loadOrCreateDataKey(path)
+	if err != nil {
+		t.Fatalf("create data key: %v", err)
+	}
+	if first == "" {
+		t.Fatal("created data key is empty")
+	}
+	second, err := loadOrCreateDataKey(path)
+	if err != nil {
+		t.Fatalf("load data key: %v", err)
+	}
+	if first != second {
+		t.Fatalf("data key changed between loads")
+	}
+	if raw, err := os.ReadFile(path); err != nil || string(raw) == "" {
+		t.Fatalf("data key file was not written: err=%v", err)
 	}
 }

@@ -1,0 +1,86 @@
+name: 桌面端 CI
+
+on:
+  push:
+    branches:
+      - codex/desktop-packaging
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Go 与前端检查
+    if: github.ref == 'refs/heads/codex/desktop-packaging'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 构建嵌入式前端
+        run: npm ci --prefix frontend && npm run build --prefix frontend
+
+      - name: 运行 Go 测试
+        run: go test ./...
+
+      - name: 运行 go vet
+        run: go vet ./...
+
+  cross-build:
+    name: 核心二进制 ${{ matrix.goos }}/${{ matrix.goarch }}
+    if: github.ref == 'refs/heads/codex/desktop-packaging'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+          - goos: windows
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 编译 server 与浏览器安装器
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags='-s -w' -o "dist/xianyu-server-${GOOS}-${GOARCH}" ./cmd/server
+          go build -trimpath -ldflags='-s -w' -o "dist/browser-install-${GOOS}-${GOARCH}" ./cmd/browser-install
