@@ -66,20 +66,20 @@ if [ -n "${MACOS_SIGNING_IDENTITY:-}" ]; then
     fi
   }
 
-  # Playwright runtime 中包含 Node 和 Chromium.app，必须在 App 签名之前完成签名。
-  # 先签每个 Mach-O 文件，再按目录深度从内到外签 bundle。Chromium 的
-  # .app 内还嵌套了 .framework/.xpc 和其他 helper .app；必须先签 Mach-O，
-  # 再按目录深度对每个 bundle 递归签名，最后才签外层应用。
+  # Playwright runtime 中包含独立 Node 和 Chromium.app。bundle 主程序不能
+  # 提前作为单个 Mach-O 签名，否则 codesign 会先校验尚未签名的内层 Framework。
+  # 因此这里只签 bundle 外的独立 Mach-O，再按目录深度递归签名所有 bundle。
   signing_list="$(mktemp)"
   trap 'rm -f "$signing_list"' EXIT
 
   find "$APP/Contents/Resources/playwright-runtime" -type f -print > "$signing_list"
   while IFS= read -r executable; do
+    case "$executable" in
+      *.app/*|*.framework/*|*.xpc/*) continue ;;
+    esac
     if file "$executable" | grep -q 'Mach-O'; then
       sign_code "$executable"
     fi
-    # `set -e` is not reliable for a while loop in a pipeline on macOS /bin/sh.
-    # Exit explicitly so a failed child signature reaches the parent script.
   done < "$signing_list"
 
   find "$APP/Contents/Resources/playwright-runtime" -depth -type d \
