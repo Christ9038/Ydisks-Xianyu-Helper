@@ -10,6 +10,11 @@ printf '\n[%s] preinstall start; uid=%s; user=%s; args=%s\n' \
 set -x
 
 EXPECTED_BUNDLE_ID="com.ydisks.xianyu-helper"
+CANONICAL_APP_DIR="/Applications/Ydisks闲鱼助手"
+CANONICAL_APP_PATH="$CANONICAL_APP_DIR/Ydisks闲鱼助手.app"
+LEGACY_APP_PATH="/Applications/Ydisks Xianyu Helper.app"
+LEGACY_LOCALIZED_APP_DIR="/Applications/Ydisks Xianyu Helper.localized"
+LEGACY_LOCALIZED_APP_PATH="$LEGACY_LOCALIZED_APP_DIR/Ydisks Xianyu Helper.app"
 CONSOLE_USER="$(stat -f '%Su' /dev/console)"
 
 if [ "$CONSOLE_USER" != "root" ] && [ -n "$CONSOLE_USER" ]; then
@@ -25,8 +30,9 @@ if [ "$CONSOLE_USER" != "root" ] && [ -n "$CONSOLE_USER" ]; then
 fi
 
 for app_path in \
-  "/Applications/Ydisks Xianyu Helper.app" \
-  "/Applications/Ydisks Xianyu Helper.localized/Ydisks Xianyu Helper.app"
+  "$CANONICAL_APP_PATH" \
+  "$LEGACY_APP_PATH" \
+  "$LEGACY_LOCALIZED_APP_PATH"
 do
   if [ ! -d "$app_path" ]; then
     continue
@@ -34,8 +40,12 @@ do
 
   existing_bundle_id="$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - \
     "$app_path/Contents/Info.plist" 2>/dev/null || true)"
-  if [ "$existing_bundle_id" != "$EXPECTED_BUNDLE_ID" ]; then
+  if [ "$app_path" != "$CANONICAL_APP_PATH" ] || [ "$existing_bundle_id" != "$EXPECTED_BUNDLE_ID" ]; then
     echo "清理旧 Bundle ID 的应用：${existing_bundle_id:-未知}（$app_path）"
     rm -rf "$app_path"
   fi
 done
+
+# 只删除空的旧目录，不影响用户可能放在 Applications 中的其他内容。
+rmdir "$LEGACY_LOCALIZED_APP_DIR/.localized" >/dev/null 2>&1 || true
+rmdir "$LEGACY_LOCALIZED_APP_DIR" >/dev/null 2>&1 || true

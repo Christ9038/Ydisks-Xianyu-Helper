@@ -5,9 +5,9 @@
 	<key>CFBundleIdentifier</key>
 	<string>com.ydisks.xianyu-helper</string>
 	<key>CFBundleName</key>
-	<string>Ydisks Xianyu Helper</string>
+	<string>Ydisks闲鱼助手</string>
 	<key>CFBundleDisplayName</key>
-	<string>闲鱼管家</string>
+	<string>Ydisks闲鱼助手</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleVersion</key>
@@ -17,7 +17,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>CFBundleExecutable</key>
-	<string>xianyu-tray</string>
+	<string>Ydisks闲鱼助手</string>
 	<key>CFBundleIconName</key>
 	<string>AppIcon</string>
 	<key>CFBundleIconFile</key>

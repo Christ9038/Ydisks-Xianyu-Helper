@@ -27,9 +27,9 @@ func main() {
 }
 
 func onReady() {
-	systray.SetTitle("闲鱼管家")
-	systray.SetIcon(trayIconBytes())
-	systray.SetTooltip("闲鱼管家服务")
+	systray.SetTitle("")
+	systray.SetIcon(trayIconBytes(false))
+	systray.SetTooltip("Ydisks闲鱼助手服务")
 
 	statusItem := systray.AddMenuItem("服务状态：检查中", "读取后台服务状态")
 	openItem := systray.AddMenuItem("打开管理页面", "在默认浏览器打开管理页面")
@@ -71,7 +71,7 @@ func onReady() {
 		for range quitItem.ClickedCh {
 			if err := quitTray(); err != nil {
 				statusItem.SetTitle("托盘状态：退出失败")
-				systray.SetTooltip(fmt.Sprintf("闲鱼管家：托盘退出失败：%v", err))
+				systray.SetTooltip(fmt.Sprintf("Ydisks闲鱼助手：托盘退出失败：%v", err))
 				continue
 			}
 			systray.Quit()
@@ -88,7 +88,7 @@ func installBrowser() error {
 		}
 		path = executable
 		if runtime.GOOS == "darwin" {
-			path = strings.Replace(path, "/Contents/MacOS/xianyu-tray", "/Contents/Helpers/browser-install", 1)
+			path = strings.Replace(path, "/Contents/MacOS/Ydisks闲鱼助手", "/Contents/Helpers/browser-install", 1)
 		} else {
 			path = strings.Replace(path, "xianyu-tray.exe", "browser-install.exe", 1)
 		}
@@ -107,22 +107,26 @@ func refreshStatus(item *systray.MenuItem) {
 func refreshStatusOnce(item *systray.MenuItem, client *http.Client) {
 	status, err := readHealth(client)
 	if err != nil {
+		systray.SetIcon(trayIconBytes(false))
 		item.SetTitle("服务状态：未运行")
-		systray.SetTooltip("闲鱼管家：后台服务未运行")
+		systray.SetTooltip("Ydisks闲鱼助手：后台服务未运行")
 	} else if status.Status == "ok" && status.Database == "ok" {
+		systray.SetIcon(trayIconBytes(true))
 		item.SetTitle("服务状态：运行正常")
-		systray.SetTooltip("闲鱼管家：运行正常")
+		systray.SetTooltip("Ydisks闲鱼助手：运行正常")
 	} else {
+		systray.SetIcon(trayIconBytes(false))
 		item.SetTitle("服务状态：异常")
-		systray.SetTooltip("闲鱼管家：数据库或服务异常")
+		systray.SetTooltip("Ydisks闲鱼助手：数据库或服务异常")
 	}
 }
 
 func runServiceAction(statusItem *systray.MenuItem, actionName, action string) {
+	systray.SetIcon(trayIconBytes(false))
 	statusItem.SetTitle("服务状态：" + actionName + "中")
 	if err := serviceAction(action); err != nil {
 		statusItem.SetTitle("服务状态：操作失败")
-		systray.SetTooltip(fmt.Sprintf("闲鱼管家：%s失败：%v", actionName, err))
+		systray.SetTooltip(fmt.Sprintf("Ydisks闲鱼助手：%s失败：%v", actionName, err))
 		return
 	}
 

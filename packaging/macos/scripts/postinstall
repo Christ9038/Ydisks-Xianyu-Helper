@@ -12,6 +12,7 @@ set -x
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 APP=""
 for app_path in \
+  "/Applications/Ydisks闲鱼助手/Ydisks闲鱼助手.app" \
   "/Applications/Ydisks Xianyu Helper.app" \
   "/Applications/Ydisks Xianyu Helper.localized/Ydisks Xianyu Helper.app"
 do
@@ -21,12 +22,12 @@ do
   fi
 done
 if [ -z "$APP" ]; then
-  echo "找不到已安装的 Ydisks Xianyu Helper.app，无法继续注册服务。"
+	echo "找不到已安装的 Ydisks闲鱼助手.app，无法继续注册服务。"
   exit 1
 fi
 
 SERVER="$APP/Contents/Helpers/xianyu-server"
-TRAY="$APP/Contents/MacOS/xianyu-tray"
+TRAY="$APP/Contents/MacOS/Ydisks闲鱼助手"
 BROWSER_INSTALL="$APP/Contents/Helpers/browser-install"
 CONSOLE_USER="$(stat -f '%Su' /dev/console)"
 

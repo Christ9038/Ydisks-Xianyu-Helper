@@ -6,18 +6,25 @@ import (
 	"runtime"
 )
 
-// icon.png 是从根目录 icon/windows/icon.png 同步的产品图标，并直接嵌入托盘二进制。
+// icon.png 是从根目录 icon/windows/icon.png 同步的彩色产品图标，并直接嵌入托盘二进制。
 //
 //go:embed icon.png
 var productIconPNG []byte
 
-// trayIconBytes 返回嵌入的产品图标，避免运行时依赖外部图标文件。
+//go:embed icon-gray.png
+var productIconGrayPNG []byte
+
+// trayIconBytes 返回当前服务状态对应的图标，避免运行时依赖外部图标文件。
 // Windows 的 Shell_NotifyIcon 需要 ICO；macOS/Linux 可以直接使用 PNG。
-func trayIconBytes() []byte {
-	if runtime.GOOS != "windows" {
-		return productIconPNG
+func trayIconBytes(running bool) []byte {
+	data := productIconGrayPNG
+	if running {
+		data = productIconPNG
 	}
-	return pngToICO(productIconPNG, 256)
+	if runtime.GOOS != "windows" {
+		return data
+	}
+	return pngToICO(data, 256)
 }
 
 func pngToICO(data []byte, size int) []byte {
