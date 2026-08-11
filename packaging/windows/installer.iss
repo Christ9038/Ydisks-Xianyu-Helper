@@ -20,9 +20,9 @@ Compression=lzma2
 SolidCompression=yes
 
 [Files]
-Source: "dist\windows\xianyu-server.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "dist\windows\browser-install.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "dist\windows\xianyu-tray.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\windows\xianyu-server.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\windows\browser-install.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\dist\windows\xianyu-tray.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
 Name: "{#AppDataDir}\data"
