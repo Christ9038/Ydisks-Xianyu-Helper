@@ -18,6 +18,8 @@
 	<true/>
 	<key>CFBundleExecutable</key>
 	<string>xianyu-tray</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>CFBundleIconFile</key>
 	<string>icon.icns</string>
 </dict>
