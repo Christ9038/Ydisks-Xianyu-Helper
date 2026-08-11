@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>com.christ.ydisks-xianyu-helper</string>
+	<string>com.ydisks.xianyu-helper</string>
 	<key>CFBundleName</key>
 	<string>Ydisks Xianyu Helper</string>
 	<key>CFBundleDisplayName</key>

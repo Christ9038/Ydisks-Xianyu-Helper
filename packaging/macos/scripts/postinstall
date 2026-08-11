@@ -36,22 +36,31 @@ BROWSER_ESCAPED="$(escape_sed "$BROWSER_DIR")"
 LOG_ESCAPED="$(escape_sed "$LOG_DIR")"
 DATA_KEY_ESCAPED="$(escape_sed "$DATA_DIR/data-key")"
 
-server_plist="$AGENT_DIR/com.christ.ydisks-xianyu-helper.server.plist"
-tray_plist="$AGENT_DIR/com.christ.ydisks-xianyu-helper.tray.plist"
+SERVER_LABEL="com.ydisks.xianyu-helper.server"
+TRAY_LABEL="com.ydisks.xianyu-helper.tray"
+server_plist="$AGENT_DIR/$SERVER_LABEL.plist"
+tray_plist="$AGENT_DIR/$TRAY_LABEL.plist"
 sed -e "s|__SERVER__|$SERVER_ESCAPED|g" \
     -e "s|__DATA_DIR__|$DATA_ESCAPED|g" \
     -e "s|__DATA_KEY__|$DATA_KEY_ESCAPED|g" \
     -e "s|__DRIVER_DIR__|$DRIVER_ESCAPED|g" \
     -e "s|__BROWSER_DIR__|$BROWSER_ESCAPED|g" \
     -e "s|__LOG_DIR__|$LOG_ESCAPED|g" \
-    "$APP/Contents/Resources/com.christ.ydisks-xianyu-helper.server.plist.template" > "$server_plist"
+    "$APP/Contents/Resources/com.ydisks.xianyu-helper.server.plist.template" > "$server_plist"
 sed -e "s|__TRAY__|$TRAY_ESCAPED|g" \
-    "$APP/Contents/Resources/com.christ.ydisks-xianyu-helper.tray.plist.template" > "$tray_plist"
+    "$APP/Contents/Resources/com.ydisks.xianyu-helper.tray.plist.template" > "$tray_plist"
 chown "$CONSOLE_USER" "$server_plist" "$tray_plist"
 chmod 0644 "$server_plist" "$tray_plist"
 
-launchctl bootout "gui/$UID_VALUE/com.christ.ydisks-xianyu-helper.server" >/dev/null 2>&1 || true
-launchctl bootout "gui/$UID_VALUE/com.christ.ydisks-xianyu-helper.tray" >/dev/null 2>&1 || true
+launchctl bootout "gui/$UID_VALUE/$SERVER_LABEL" >/dev/null 2>&1 || true
+launchctl bootout "gui/$UID_VALUE/$TRAY_LABEL" >/dev/null 2>&1 || true
+
+# 清理早期版本使用的个人域名标识，避免升级后新旧 LaunchAgent 同时运行。
+LEGACY_SERVER_LABEL="com.christ.ydisks-xianyu-helper.server"
+LEGACY_TRAY_LABEL="com.christ.ydisks-xianyu-helper.tray"
+launchctl bootout "gui/$UID_VALUE/$LEGACY_SERVER_LABEL" >/dev/null 2>&1 || true
+launchctl bootout "gui/$UID_VALUE/$LEGACY_TRAY_LABEL" >/dev/null 2>&1 || true
+rm -f "$AGENT_DIR/$LEGACY_SERVER_LABEL.plist" "$AGENT_DIR/$LEGACY_TRAY_LABEL.plist"
 
 launchctl asuser "$UID_VALUE" env HOME="$HOME_DIR" "$BROWSER_INSTALL" \
   -driver-dir "$DRIVER_DIR" -browser-dir "$BROWSER_DIR" >/tmp/ydisks-xianyu-helper-browser-install.log 2>&1 || {
@@ -60,5 +69,5 @@ launchctl asuser "$UID_VALUE" env HOME="$HOME_DIR" "$BROWSER_INSTALL" \
 
 launchctl bootstrap "gui/$UID_VALUE" "$server_plist"
 launchctl bootstrap "gui/$UID_VALUE" "$tray_plist"
-launchctl kickstart -k "gui/$UID_VALUE/com.christ.ydisks-xianyu-helper.server"
-launchctl kickstart -k "gui/$UID_VALUE/com.christ.ydisks-xianyu-helper.tray"
+launchctl kickstart -k "gui/$UID_VALUE/$SERVER_LABEL"
+launchctl kickstart -k "gui/$UID_VALUE/$TRAY_LABEL"

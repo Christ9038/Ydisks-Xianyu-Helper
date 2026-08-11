@@ -11,7 +11,7 @@ import (
 )
 
 func serviceAction(action string) error {
-	label := envOr("XIANYU_SERVICE_NAME", "com.christ.ydisks-xianyu-helper.server")
+	label := envOr("XIANYU_SERVICE_NAME", "com.ydisks.xianyu-helper.server")
 	uid := fmt.Sprint(os.Getuid())
 	domain := "gui/" + uid
 	target := domain + "/" + label
