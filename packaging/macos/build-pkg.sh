@@ -54,21 +54,28 @@ if [ -n "${MACOS_SIGNING_IDENTITY:-}" ]; then
     fi
   }
 
+  sign_nested_bundle() {
+    nested_bundle="$1"
+    echo "Signing nested bundle: $nested_bundle"
+    sign_code "$nested_bundle"
+  }
+
   # Playwright runtime 中包含 Node 和 Chromium.app，必须在 App 签名之前完成签名。
+  # 先签每个 Mach-O 文件，再按目录深度从内到外签 bundle。Chromium 的
+  # .app 内还嵌套了 .framework/.xpc 和其他 helper .app；依赖 codesign --deep
+  # 自动推断顺序会在 amd64 runner 上留下未签名的 framework 主程序。
   find "$APP/Contents/Resources/playwright-runtime" -type f -print | while IFS= read -r executable; do
     if file "$executable" | grep -q 'Mach-O'; then
-      sign_code "$executable"
+      sign_code "$executable" || exit 1
     fi
-  done
-  find "$APP/Contents/Resources/playwright-runtime" -type d -name '*.app' -print | while IFS= read -r nested_app; do
-    if [ -n "${MACOS_SIGNING_KEYCHAIN:-}" ]; then
-      codesign --force --deep --sign "$MACOS_SIGNING_IDENTITY" \
-        --keychain "$MACOS_SIGNING_KEYCHAIN" --timestamp=none "$nested_app"
-    else
-      codesign --force --deep --sign "$MACOS_SIGNING_IDENTITY" \
-        --timestamp=none "$nested_app"
-    fi
-  done
+    # `set -e` is not reliable for a while loop in a pipeline on macOS /bin/sh.
+    # Exit explicitly so a failed child signature reaches the parent script.
+  done || exit 1
+  find "$APP/Contents/Resources/playwright-runtime" -depth -type d \
+    \( -name '*.framework' -o -name '*.xpc' -o -name '*.app' \) -print |
+    while IFS= read -r nested_bundle; do
+      sign_nested_bundle "$nested_bundle" || exit 1
+    done || exit 1
 
   # macOS 代码签名必须从内部组件开始，最后再签名 App 包本身。
   sign_code "$APP/Contents/Helpers/xianyu-server"

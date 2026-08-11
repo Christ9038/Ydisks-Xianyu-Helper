@@ -33,7 +33,7 @@ Name: "{#AppDataDir}\data"
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "YdisksXianyuHelperTray"; ValueData: "{app}\xianyu-tray.exe"; Flags: uninsdeletevalue
 
 [Run]
-Filename: "{sys}\sc.exe"; Parameters: "create YdisksXianyuHelper binPath= ""{app}\xianyu-server.exe -service -workdir {#AppDataDir} -data-key-file {#AppDataDir}\data-key -addr 127.0.0.1:8080 -playwright-runtime-root ""{app}\playwright-runtime""" start= delayed-auto"; Flags: runhidden waituntilterminated
+Filename: "{sys}\sc.exe"; Parameters: "create YdisksXianyuHelper binPath= ""{app}\xianyu-server.exe"" -service -workdir {#AppDataDir} -data-key-file {#AppDataDir}\data-key -addr 127.0.0.1:8080 -playwright-runtime-root ""{app}\playwright-runtime"" start= delayed-auto"; Flags: runhidden waituntilterminated
 Filename: "{sys}\sc.exe"; Parameters: "start YdisksXianyuHelper"; Flags: runhidden waituntilterminated
 Filename: "{app}\xianyu-tray.exe"; Description: "启动菜单栏控制器"; Flags: nowait postinstall skipifsilent
 
