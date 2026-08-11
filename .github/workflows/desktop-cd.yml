@@ -200,20 +200,28 @@ jobs:
       - name: 导入 macOS 签名证书
         env:
           MACOS_SIGNING_P12_BASE64: ${{ secrets.MACOS_SIGNING_P12_BASE64 }}
+          MACOS_INSTALLER_SIGNING_P12_BASE64: ${{ secrets.MACOS_INSTALLER_SIGNING_P12_BASE64 }}
           MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
           MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          MACOS_INSTALLER_SIGNING_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGNING_IDENTITY }}
         run: |
           set -Eeuo pipefail
           keychain_path="$RUNNER_TEMP/ydisks-signing.keychain-db"
           keychain_password="$(uuidgen)"
-          p12_path="$RUNNER_TEMP/ydisks-signing.p12"
-          cert_path="$RUNNER_TEMP/ydisks-signing.pem"
-          printf '%s' "$MACOS_SIGNING_P12_BASE64" | base64 --decode > "$p12_path"
+          app_p12_path="$RUNNER_TEMP/ydisks-signing-app.p12"
+          app_cert_path="$RUNNER_TEMP/ydisks-signing-app.pem"
+          installer_p12_path="$RUNNER_TEMP/ydisks-signing-installer.p12"
+          installer_cert_path="$RUNNER_TEMP/ydisks-signing-installer.pem"
+          printf '%s' "$MACOS_SIGNING_P12_BASE64" | base64 --decode > "$app_p12_path"
+          printf '%s' "$MACOS_INSTALLER_SIGNING_P12_BASE64" | base64 --decode > "$installer_p12_path"
           security create-keychain -p "$keychain_password" "$keychain_path"
           security unlock-keychain -p "$keychain_password" "$keychain_path"
-          security import "$p12_path" -k "$keychain_path" -P "$MACOS_SIGNING_P12_PASSWORD" -T /usr/bin/codesign
-          security find-certificate -c "$MACOS_SIGNING_IDENTITY" -p "$keychain_path" > "$cert_path"
-          security add-trusted-cert -d -r trustRoot -p codeSign -k "$keychain_path" "$cert_path"
+          security import "$app_p12_path" -k "$keychain_path" -P "$MACOS_SIGNING_P12_PASSWORD" -T /usr/bin/codesign
+          security import "$installer_p12_path" -k "$keychain_path" -P "$MACOS_SIGNING_P12_PASSWORD" -T /usr/bin/productsign
+          security find-certificate -c "$MACOS_SIGNING_IDENTITY" -p "$keychain_path" > "$app_cert_path"
+          security find-certificate -c "$MACOS_INSTALLER_SIGNING_IDENTITY" -p "$keychain_path" > "$installer_cert_path"
+          security add-trusted-cert -d -r trustRoot -p codeSign -k "$keychain_path" "$app_cert_path"
+          security add-trusted-cert -d -r trustRoot -p basic -k "$keychain_path" "$installer_cert_path"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
           security list-keychains -d user -s "$keychain_path"
           security unlock-keychain -p "$keychain_password" "$keychain_path"
@@ -222,6 +230,7 @@ jobs:
       - name: 构建 macOS pkg
         env:
           MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          MACOS_INSTALLER_SIGNING_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGNING_IDENTITY }}
         run: |
           chmod +x packaging/macos/build-pkg.sh
           packaging/macos/build-pkg.sh "$APP_VERSION" "$PWD/dist/macos"

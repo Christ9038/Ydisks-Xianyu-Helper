@@ -5,6 +5,8 @@ VERSION="${1:?version is required}"
 DIST_DIR="${2:?dist directory is required}"
 ROOT_DIR="$DIST_DIR/pkgroot"
 APP="$ROOT_DIR/Applications/Ydisks Xianyu Helper.app"
+PACKAGE_PATH="$DIST_DIR/Ydisks-Xianyu-Helper-$VERSION.pkg"
+UNSIGNED_PACKAGE_PATH="$DIST_DIR/.Ydisks-Xianyu-Helper-$VERSION.unsigned.pkg"
 
 rm -rf "$ROOT_DIR"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
@@ -36,10 +38,32 @@ if [ -n "${MACOS_SIGNING_IDENTITY:-}" ]; then
   codesign --verify --deep --strict --verbose=2 "$APP"
 fi
 
+if [ -n "${MACOS_SIGNING_IDENTITY:-}" ] && [ -z "${MACOS_INSTALLER_SIGNING_IDENTITY:-}" ]; then
+  echo 'MACOS_INSTALLER_SIGNING_IDENTITY 未设置，不能生成已签名 macOS 安装包' >&2
+  exit 1
+fi
+
+rm -f "$PACKAGE_PATH" "$UNSIGNED_PACKAGE_PATH"
+
 pkgbuild \
   --root "$ROOT_DIR" \
   --scripts "$(dirname "$0")/scripts" \
   --identifier com.christ.ydisks-xianyu-helper \
   --version "$VERSION" \
   --install-location / \
-  "$DIST_DIR/Ydisks-Xianyu-Helper-$VERSION.pkg"
+  "$UNSIGNED_PACKAGE_PATH"
+
+if [ -n "${MACOS_INSTALLER_SIGNING_IDENTITY:-}" ]; then
+  if [ -n "${MACOS_SIGNING_KEYCHAIN:-}" ]; then
+    productsign --sign "$MACOS_INSTALLER_SIGNING_IDENTITY" \
+      --keychain "$MACOS_SIGNING_KEYCHAIN" \
+      "$UNSIGNED_PACKAGE_PATH" "$PACKAGE_PATH"
+  else
+    productsign --sign "$MACOS_INSTALLER_SIGNING_IDENTITY" \
+      "$UNSIGNED_PACKAGE_PATH" "$PACKAGE_PATH"
+  fi
+  pkgutil --check-signature "$PACKAGE_PATH"
+  rm -f "$UNSIGNED_PACKAGE_PATH"
+else
+  mv "$UNSIGNED_PACKAGE_PATH" "$PACKAGE_PATH"
+fi
