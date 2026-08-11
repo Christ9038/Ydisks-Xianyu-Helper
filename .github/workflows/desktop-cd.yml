@@ -98,6 +98,28 @@ jobs:
           go build -trimpath -ldflags "-s -w" -o dist/windows/browser-install.exe ./cmd/browser-install
           go build -trimpath -ldflags "-s -w -H=windowsgui" -o dist/windows/xianyu-tray.exe ./cmd/tray
 
+      - name: 导入 Windows 签名证书
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+          WINDOWS_SIGNING_IDENTITY: ${{ secrets.WINDOWS_SIGNING_IDENTITY }}
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'ydisks-windows-signing.pfx'
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_SIGNING_PFX_BASE64))
+          if (-not (Test-Path -LiteralPath $pfxPath -PathType Leaf)) { throw 'Windows PFX 文件写入失败' }
+          "WINDOWS_SIGNING_PFX_PATH=$pfxPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: 签名 Windows 桌面程序
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+          WINDOWS_SIGNING_IDENTITY: ${{ secrets.WINDOWS_SIGNING_IDENTITY }}
+        run: |
+          & packaging/windows/sign.ps1 `
+            -PfxPath $env:WINDOWS_SIGNING_PFX_PATH `
+            -Files 'dist/windows/xianyu-server.exe','dist/windows/browser-install.exe','dist/windows/xianyu-tray.exe'
+
       - name: 安装 Inno Setup
         shell: pwsh
         run: choco install innosetup --no-progress --yes
@@ -112,6 +134,22 @@ jobs:
           if ($null -eq $installer) { throw 'Inno Setup 未生成安装器' }
           $target = Join-Path (Resolve-Path dist/windows) 'Ydisks-Xianyu-Helper-Setup.exe'
           if ($installer.FullName -ne $target) { Copy-Item $installer.FullName $target -Force }
+
+      - name: 签名 Windows 安装器
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+          WINDOWS_SIGNING_IDENTITY: ${{ secrets.WINDOWS_SIGNING_IDENTITY }}
+        run: |
+          & packaging/windows/sign.ps1 `
+            -PfxPath $env:WINDOWS_SIGNING_PFX_PATH `
+            -Files 'dist/windows/Ydisks-Xianyu-Helper-Setup.exe'
+
+      - name: 打包 Windows 二进制归档
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ env.APP_VERSION }}
+        run: |
           Compress-Archive -Path dist/windows/xianyu-server.exe,dist/windows/browser-install.exe,dist/windows/xianyu-tray.exe -DestinationPath "dist/windows/Ydisks-Xianyu-Helper-${env:APP_VERSION}-binaries.zip"
 
       - name: 上传 Windows 安装包
@@ -159,7 +197,31 @@ jobs:
           lipo -create dist/macos/arm64/browser-install dist/macos/amd64/browser-install -output dist/macos/browser-install
           lipo -create dist/macos/arm64/xianyu-tray dist/macos/amd64/xianyu-tray -output dist/macos/xianyu-tray
 
+      - name: 导入 macOS 签名证书
+        env:
+          MACOS_SIGNING_P12_BASE64: ${{ secrets.MACOS_SIGNING_P12_BASE64 }}
+          MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          set -Eeuo pipefail
+          keychain_path="$RUNNER_TEMP/ydisks-signing.keychain-db"
+          keychain_password="$(uuidgen)"
+          p12_path="$RUNNER_TEMP/ydisks-signing.p12"
+          cert_path="$RUNNER_TEMP/ydisks-signing.pem"
+          printf '%s' "$MACOS_SIGNING_P12_BASE64" | base64 --decode > "$p12_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$p12_path" -k "$keychain_path" -P "$MACOS_SIGNING_P12_PASSWORD" -T /usr/bin/codesign
+          security find-certificate -c "$MACOS_SIGNING_IDENTITY" -p "$keychain_path" > "$cert_path"
+          security add-trusted-cert -d -r trustRoot -p codeSign -k "$keychain_path" "$cert_path"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          echo "MACOS_SIGNING_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
+
       - name: 构建 macOS pkg
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
         run: |
           chmod +x packaging/macos/build-pkg.sh
           packaging/macos/build-pkg.sh "$APP_VERSION" "$PWD/dist/macos"
