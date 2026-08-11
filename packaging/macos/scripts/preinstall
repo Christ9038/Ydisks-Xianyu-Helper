@@ -1,0 +1,35 @@
+#!/bin/sh
+set -eu
+
+INSTALL_LOG="/var/log/ydisks-xianyu-helper-install.log"
+exec >>"$INSTALL_LOG" 2>&1
+trap 'exit_code=$?; printf "[%s] preinstall exit code: %s\\n" "$(date -u "+%Y-%m-%dT%H:%M:%SZ")" "$exit_code"' EXIT
+
+printf '\n[%s] preinstall start; uid=%s; user=%s; args=%s\n' \
+  "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$(id -u)" "$(id -un)" "$*"
+set -x
+
+APP="/Applications/Ydisks Xianyu Helper.app"
+EXPECTED_BUNDLE_ID="com.ydisks.xianyu-helper"
+CONSOLE_USER="$(stat -f '%Su' /dev/console)"
+
+if [ "$CONSOLE_USER" != "root" ] && [ -n "$CONSOLE_USER" ]; then
+  UID_VALUE="$(id -u "$CONSOLE_USER")"
+  for label in \
+    "com.ydisks.xianyu-helper.server" \
+    "com.ydisks.xianyu-helper.tray" \
+    "com.christ.ydisks-xianyu-helper.server" \
+    "com.christ.ydisks-xianyu-helper.tray"
+  do
+    launchctl bootout "gui/$UID_VALUE/$label" >/dev/null 2>&1 || true
+  done
+fi
+
+if [ -d "$APP" ]; then
+  existing_bundle_id="$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - \
+    "$APP/Contents/Info.plist" 2>/dev/null || true)"
+  if [ "$existing_bundle_id" != "$EXPECTED_BUNDLE_ID" ]; then
+    echo "清理旧 Bundle ID 的应用：${existing_bundle_id:-未知}"
+    rm -rf "$APP"
+  fi
+fi
