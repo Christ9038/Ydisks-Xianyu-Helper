@@ -51,6 +51,22 @@ func newTestServer(t *testing.T) (*Server, *db.Store, func()) {
 	}
 }
 
+func newUninitializedTestServer(t *testing.T) (*Server, *db.Store, func()) {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	d, _, err := db.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	store := db.NewStore(d, db.DialectSQLite)
+	mgr := account.NewManager(store, noopHandler{}, nil)
+	srv := New(store, mgr, false, "", ":0", nil, nil, nil)
+	return srv, store, func() {
+		mgr.StopAll()
+		_ = d.Close()
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -140,6 +156,64 @@ func TestLoginWrongPassword(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &lr)
 	if lr.Success {
 		t.Fatal("错误密码不应成功")
+	}
+}
+
+func TestInitializeFromWebUI(t *testing.T) {
+	srv, store, cleanup := newUninitializedTestServer(t)
+	defer cleanup()
+	h := srv.Router()
+
+	shortReq := httptest.NewRequest(http.MethodPost, "/initialize", strings.NewReader(`{"password":"short"}`))
+	shortRec := httptest.NewRecorder()
+	h.ServeHTTP(shortRec, shortReq)
+	if shortRec.Code != http.StatusBadRequest {
+		t.Fatalf("短密码应返回 400，got %d body=%s", shortRec.Code, shortRec.Body.String())
+	}
+
+	initReq := httptest.NewRequest(http.MethodPost, "/initialize", strings.NewReader(`{"password":"newpassword"}`))
+	initRec := httptest.NewRecorder()
+	h.ServeHTTP(initRec, initReq)
+	if initRec.Code != http.StatusOK {
+		t.Fatalf("初始化 status=%d body=%s", initRec.Code, initRec.Body.String())
+	}
+	var initResult loginResponse
+	if err := json.Unmarshal(initRec.Body.Bytes(), &initResult); err != nil {
+		t.Fatalf("解析初始化响应: %v", err)
+	}
+	if !initResult.Success || !initResult.IsAdmin || initResult.Username != "admin" {
+		t.Fatalf("初始化响应异常: %+v", initResult)
+	}
+
+	admin, err := store.Users.GetAdmin(context.Background())
+	if err != nil || admin == nil {
+		t.Fatalf("初始化后 admin 不存在: admin=%+v err=%v", admin, err)
+	}
+	if _, ok, err := store.Users.VerifyAndUpgrade(context.Background(), "admin", "newpassword"); err != nil || !ok {
+		t.Fatalf("初始化密码不可用: ok=%v err=%v", ok, err)
+	}
+
+	cookies := initRec.Result().Cookies()
+	if len(cookies) == 0 || cookies[0].Name != "session" || cookies[0].Value == "" {
+		t.Fatalf("初始化后应自动建立会话: %+v", cookies)
+	}
+	verifyReq := httptest.NewRequest(http.MethodGet, "/verify", nil)
+	verifyReq.AddCookie(cookies[0])
+	verifyRec := httptest.NewRecorder()
+	h.ServeHTTP(verifyRec, verifyReq)
+	var verifyResult map[string]any
+	if err := json.Unmarshal(verifyRec.Body.Bytes(), &verifyResult); err != nil {
+		t.Fatalf("解析 verify 响应: %v", err)
+	}
+	if verifyResult["authenticated"] != true || verifyResult["initialized"] != true {
+		t.Fatalf("初始化后 verify 异常: %+v", verifyResult)
+	}
+
+	secondReq := httptest.NewRequest(http.MethodPost, "/initialize", strings.NewReader(`{"password":"anotherpw"}`))
+	secondRec := httptest.NewRecorder()
+	h.ServeHTTP(secondRec, secondReq)
+	if secondRec.Code != http.StatusConflict {
+		t.Fatalf("重复初始化应返回 409，got %d body=%s", secondRec.Code, secondRec.Body.String())
 	}
 }
 

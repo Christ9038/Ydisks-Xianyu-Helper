@@ -178,19 +178,37 @@ npm --prefix frontend run build
 
 桌面端由两个进程组成：后台 `xianyu-server` 负责 HTTP API、账号运行时和 Chromium；
 `xianyu-tray` 只负责 Windows 托盘或 macOS 菜单栏状态、打开管理页面和服务控制。
-Chromium 不打进 Go 二进制，首次安装时由随包的 `browser-install` 自动下载到用户数据目录。
+Chromium 不打进 Go 二进制，但 Windows 和 macOS 安装包会内置对应架构的 Playwright
+driver 与 Chromium runtime，安装后无需用户再下载浏览器。
 
 - Windows：安装器注册 `YdisksXianyuHelper` Windows Service，并将托盘控制器加入当前用户登录启动项。
 - macOS：安装器注册当前登录用户的两个 LaunchAgent，分别运行后台服务和菜单栏控制器。
 - Linux：下载对应架构的 tar 包后，以 root 执行 `./install.sh`；脚本创建专用系统用户、安装
-  systemd unit，并执行 Playwright Chromium 及系统依赖安装。卸载时执行 `./uninstall.sh`，
+  systemd unit，并执行 Playwright Chromium 及系统依赖安装。安装完成后打开管理页面，首次
+  设置管理员密码。卸载时执行 `./uninstall.sh`，
   默认保留 `/var/lib/ydisks-xianyu-helper` 数据。
 
-桌面端安装包由 GitHub Actions 的 `codex/desktop-packaging` 分支专用工作流构建。当前工作流
-上传未签名的 Windows `.exe` 安装器和 macOS `.pkg` 作为 Actions artifact；正式对外分发前，
-还应配置 Windows 代码签名证书、Apple Developer ID 和公证流程。
+桌面端安装包由 GitHub Actions 的 `codex/desktop-packaging` 分支专用工作流构建：Linux 上传
+amd64/arm64 tar 包，Windows 上传安装器，macOS 分别上传 arm64 和 amd64 安装包。Windows
+和 macOS 安装包使用工作流中配置的固定签名证书签名；未配置对应 GitHub Secrets 时，签名
+步骤会失败，不会生成可分发的安装包。
 
-初始化管理员：
+桌面端首次启动：
+
+1. 安装对应平台的安装包。macOS 请选择 arm64（Apple Silicon）或 amd64（Intel）版本。
+2. 启动后台服务和托盘/菜单栏控制器。
+3. 打开托盘菜单中的管理页面，或访问 `http://127.0.0.1:8080`。
+4. 如果数据库尚未初始化，页面会要求设置并确认管理员密码；完成后会自动登录，管理员用户名为 `admin`。
+
+Linux 需要先安装并启动 systemd 服务：
+
+```bash
+sudo ./install.sh
+```
+
+然后访问 `http://127.0.0.1:8080` 完成首次初始化。
+
+对于无浏览器环境、自动化部署或需要重置管理员密码的运维场景，仍可使用 CLI 初始化：
 
 ```bash
 mkdir -p data
@@ -206,8 +224,8 @@ go run ./cmd/server \
 go run ./cmd/server -db data/xianyu_data.db -addr :8080
 ```
 
-首次启动会准备 Playwright 运行环境和 Chromium；下载速度取决于当前网络。启动完成后
-访问 `http://localhost:8080`。
+启动完成后访问 `http://localhost:8080`。如果数据库尚未初始化，直接在页面填写并确认
+管理员密码即可，不需要知道数据库文件路径，也不需要先执行 CLI 命令。
 
 如当前环境无法安装 Chromium，可以使用 `-no-browser` 启动：
 
@@ -247,7 +265,7 @@ DATABASE_URL > -db-url > -db
 | --- | --- | --- |
 | `DATABASE_URL` | 空 | 数据库连接 URL；生产环境推荐 PostgreSQL |
 | `XIANYU_DATA_KEY` | 空 | 敏感字段加密主密钥；生产环境必须固定并备份 |
-| `XIANYU_ADMIN_PASSWORD` | 空 | 非交互初始化或重置管理员时使用 |
+| `XIANYU_ADMIN_PASSWORD` | 空 | Docker Compose 非交互初始化或重置管理员时使用；源码和桌面端可通过首次打开页面设置密码 |
 | `XIANYU_UPLOAD_DIR` | `data/uploads` | 批量铺货上传文件与临时资源目录 |
 | `LOG_LEVEL` | 系统设置或 `info` | `debug`、`info`、`warn`、`error` |
 | `LOG_FORMAT` | 系统设置或 `text` | `text` 或 `json` |
@@ -560,15 +578,20 @@ go run ./cmd/dbverify "postgres://user:pass@127.0.0.1:5432/xianyu"
 
 ## 常见问题
 
-### 首次部署无法完成管理员初始化
+### 首次打开页面如何初始化管理员
 
-确认 `.env` 已设置非空的 `XIANYU_ADMIN_PASSWORD`，然后执行：
+启动服务后访问管理页面。如果数据库中还没有管理员，页面会显示“首次设置管理员密码”，
+填写两次不少于 8 个字符的密码并提交即可。初始化成功后会自动登录，默认管理员用户名为
+`admin`。
+
+Docker Compose 使用非交互初始化，因此必须在 `.env` 中设置非空的
+`XIANYU_ADMIN_PASSWORD`，然后执行：
 
 ```bash
 docker compose up -d
 ```
 
-源码运行时可执行：
+无浏览器、自动化部署或需要重置管理员密码时可执行：
 
 ```bash
 go run ./cmd/server -init-admin -db data/xianyu_data.db -admin-password '新密码'

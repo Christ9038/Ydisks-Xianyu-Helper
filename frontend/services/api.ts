@@ -22,6 +22,10 @@ export const login = async (data: { username?: string; password?: string; email?
   return post('/login', data, { skipAuthLogout: true });
 };
 
+export const initializeAdmin = async (password: string): Promise<LoginResponse> => {
+  return post('/initialize', { password }, { skipAuthLogout: true });
+};
+
 export const verifySession = async (): Promise<{ authenticated: boolean; initialized?: boolean; user_id?: number; username?: string; is_admin?: boolean }> => {
   return get('/verify');
 };

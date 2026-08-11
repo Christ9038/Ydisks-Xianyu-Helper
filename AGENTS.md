@@ -4,7 +4,7 @@
 
 The active application contains:
 
-- `cmd/server/` — server entrypoint, administrator bootstrap (`-init-admin`), and HTTP server.
+- `cmd/server/` — server entrypoint, administrator bootstrap (`/initialize` and `-init-admin`), and HTTP server.
 - `cmd/init-admin/` — interactive administrator initialization CLI.
 - `cmd/dbverify/` — migration + core CRUD verification tool across SQLite/MySQL/Postgres.
 - `internal/server/` — chi HTTP API and SPA serving.
@@ -37,6 +37,10 @@ Run the server (SQLite by default; MySQL/Postgres via `-db-url` or `DATABASE_URL
 go run ./cmd/server -db data/xianyu_data.db -addr :8080
 DATABASE_URL="mysql://user:pass@tcp(host:3306)/db" go run ./cmd/server -addr :8080
 ```
+
+On a new database, open the management page after starting the server. The first-run page accepts
+and confirms an administrator password, creates the `admin` user, and signs the user in automatically.
+The CLI bootstrap remains available for headless or operational environments.
 
 Disable browser automation when Chromium is unavailable:
 

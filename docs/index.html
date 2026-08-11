@@ -1133,9 +1133,10 @@
 <span class="command">cd</span> Ydisks-Xianyu-Helper
 <span class="command">cp</span> .env.example .env
 
-<span class="comment"># 2. 修改 .env 填入自己的强密码与主密钥</span>
+<span class="comment"># 2. 修改 .env 填入数据库密码、管理员密码与主密钥</span>
 <span class="comment"># POSTGRES_PASSWORD=...</span>
 <span class="comment"># XIANYU_DATA_KEY=...</span>
+<span class="comment"># XIANYU_ADMIN_PASSWORD=...</span>
 
 <span class="comment"># 3. 启动应用 (会自动拉取 GHCR 镜像并初始化 PostgreSQL 17)</span>
 <span class="command">docker compose up</span> -d
@@ -1153,15 +1154,13 @@
 <span class="command">npm</span> --prefix frontend ci
 <span class="command">npm</span> --prefix frontend run build
 
-<span class="comment"># 2. 初始化管理员账号 (使用默认 SQLite)</span>
+<span class="comment"># 2. 启动服务端 (默认监听 :8080)</span>
 <span class="command">mkdir</span> -p data
 <span class="command">go run</span> ./cmd/server \
-  -init-admin \
   -db data/xianyu_data.db \
-  -admin-password <span class="string">'设置管理员密码'</span>
+  -addr :8080
 
-<span class="comment"># 3. 启动服务端 (默认监听 :8080)</span>
-<span class="command">go run</span> ./cmd/server -db data/xianyu_data.db -addr :8080</code></pre>
+<span class="comment"># 3. 浏览器访问 http://localhost:8080，在首次初始化页面设置管理员密码</span></code></pre>
       </div>
 
     </div>
@@ -1183,7 +1182,7 @@
             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
           </div>
           <div class="faq-answer">
-            使用 Docker Compose 部署时，服务在启动时会自动读取 <code>.env</code> 文件中的 <code>XIANYU_ADMIN_PASSWORD</code> 创建管理员，默认用户名统一为 <code>admin</code>。使用源码构建时，可运行 <code>go run ./cmd/server -init-admin -db ... -admin-password '你的密码'</code> 初始化。
+            使用 Docker Compose 部署时，服务会读取 <code>.env</code> 文件中的 <code>XIANYU_ADMIN_PASSWORD</code>，在首次启动时自动创建管理员，默认用户名为 <code>admin</code>。源码运行或桌面端安装后，首次访问管理页面会显示密码设置表单，填写并确认密码即可完成初始化并自动登录。无浏览器或自动化部署场景仍可使用 <code>-init-admin</code> CLI。
           </div>
         </div>
 

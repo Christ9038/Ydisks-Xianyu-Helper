@@ -30,6 +30,53 @@ type loginResponse struct {
 	IsAdmin  bool    `json:"is_admin"`
 }
 
+// initialize 首次启动时通过 Web UI 创建管理员账号。
+// 该接口只允许在系统尚未存在管理员时调用，避免把初始化能力变成重置密码入口。
+func (s *Server) initialize(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if utf8.RuneCountInString(req.Password) < 8 {
+		writeErr(w, http.StatusBadRequest, "密码至少需要 8 个字符")
+		return
+	}
+
+	// 同一进程内串行化初始化，避免两个首次打开的页面同时重置管理员密码。
+	s.initializationMu.Lock()
+	defer s.initializationMu.Unlock()
+
+	initialized, err := s.Store.Users.IsSystemInitialized(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "检查系统初始化状态失败")
+		return
+	}
+	if initialized {
+		writeErr(w, http.StatusConflict, "系统已经初始化，请直接登录")
+		return
+	}
+
+	if _, err := auth.InitAdmin(r.Context(), s.Store, "admin@example.com", req.Password); err != nil {
+		writeErr(w, http.StatusInternalServerError, "初始化管理员失败")
+		return
+	}
+
+	// 初始化完成后立即建立会话，用户无需再手动输入一次 admin 账号和密码。
+	sid, user, err := s.Auth.Login(r.Context(), "admin", req.Password)
+	if err != nil || user == nil || sid == "" {
+		writeErr(w, http.StatusInternalServerError, "初始化完成，但自动登录失败，请使用 admin 账号登录")
+		return
+	}
+	s.Auth.SetSessionCookie(w, sid)
+	writeJSON(w, http.StatusOK, loginResponse{
+		Success: true, Message: "初始化成功", UserID: user.ID,
+		Username: user.Username, IsAdmin: user.IsAdmin,
+	})
+}
+
 // login 用户名密码登录（邮箱登录同走此接口，按字段判断）。
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
