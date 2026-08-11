@@ -99,7 +99,15 @@ jobs:
           go build -trimpath -ldflags "-s -w" -o dist/windows/browser-install.exe ./cmd/browser-install
           go build -trimpath -ldflags "-s -w -H=windowsgui" -o dist/windows/xianyu-tray.exe ./cmd/tray
 
+      - name: 缓存 Windows Chromium runtime
+        id: cache-windows-playwright
+        uses: actions/cache@v6
+        with:
+          path: dist/windows/playwright-runtime/amd64
+          key: ydisks-playwright-runtime-v1-windows-amd64-${{ hashFiles('go.mod') }}
+
       - name: 预下载 Windows Chromium runtime
+        if: steps.cache-windows-playwright.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist/windows/playwright-runtime/amd64/playwright-driver | Out-Null
@@ -205,7 +213,17 @@ jobs:
             GOOS=darwin GOARCH="$arch" CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o "dist/macos/$arch/xianyu-tray" ./cmd/tray
           done
 
+      - name: 缓存 macOS Chromium runtime
+        id: cache-macos-playwright
+        uses: actions/cache@v6
+        with:
+          path: |
+            dist/macos/playwright-runtime/arm64
+            dist/macos/playwright-runtime/amd64
+          key: ydisks-playwright-runtime-v1-macos-universal-${{ hashFiles('go.mod') }}
+
       - name: 预下载 macOS Chromium runtime
+        if: steps.cache-macos-playwright.outputs.cache-hit != 'true'
         run: |
           set -Eeuo pipefail
           mkdir -p dist/macos/playwright-runtime/arm64/playwright-driver
