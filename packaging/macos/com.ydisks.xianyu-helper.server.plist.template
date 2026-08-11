@@ -7,10 +7,6 @@
 	<array>
 		<string>__SERVER__</string>
 		<string>-addr</string><string>127.0.0.1:8080</string>
-		<string>-workdir</string><string>__DATA_DIR__</string>
-		<string>-data-key-file</string><string>__DATA_KEY__</string>
-		<string>-playwright-driver-dir</string><string>__DRIVER_DIR__</string>
-		<string>-playwright-browser-dir</string><string>__BROWSER_DIR__</string>
 	</array>
 	<key>WorkingDirectory</key><string>__DATA_DIR__</string>
 	<key>RunAtLoad</key><true/>

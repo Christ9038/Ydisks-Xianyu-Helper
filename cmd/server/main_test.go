@@ -54,3 +54,40 @@ func TestLoadOrCreateDataKeyPersists(t *testing.T) {
 		t.Fatalf("data key file was not written: err=%v", err)
 	}
 }
+
+func TestResolveDataDirKeepsExplicitDirectory(t *testing.T) {
+	explicit := filepath.Join(t.TempDir(), "ydisks-data")
+	got, err := resolveDataDir(explicit)
+	if err != nil {
+		t.Fatalf("resolve explicit data directory: %v", err)
+	}
+	if got != explicit {
+		t.Fatalf("explicit data directory changed: got %q want %q", got, explicit)
+	}
+}
+
+func TestUserDataDirName(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "Application Support")
+	got := filepath.Join(base, userDataDirName)
+	want := filepath.Join(base, "YdisksXianyuHelper")
+	if got != want {
+		t.Fatalf("unexpected user data directory: got %q want %q", got, want)
+	}
+}
+
+func TestResolveDBPathUsesDataDirectoryForDefault(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "YdisksXianyuHelper")
+	got := resolveDBPath(dataDir, defaultDBPath)
+	want := filepath.Join(dataDir, "data", "xianyu_data.db")
+	if got != want {
+		t.Fatalf("unexpected default database path: got %q want %q", got, want)
+	}
+}
+
+func TestResolveDBPathPreservesCustomPath(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "YdisksXianyuHelper")
+	custom := filepath.Join(t.TempDir(), "custom.db")
+	if got := resolveDBPath(dataDir, custom); got != custom {
+		t.Fatalf("custom database path changed: got %q want %q", got, custom)
+	}
+}

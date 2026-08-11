@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -50,6 +51,12 @@ type serverOptions struct {
 	service              bool
 }
 
+const (
+	defaultDBPath      = "data/xianyu_data.db"
+	userDataDirName    = "YdisksXianyuHelper"
+	defaultDataKeyName = "data-key"
+)
+
 func main() {
 	opts := parseOptions()
 	if opts.workDir != "" {
@@ -78,7 +85,7 @@ func main() {
 
 func parseOptions() serverOptions {
 	var opts serverOptions
-	flag.StringVar(&opts.dbPath, "db", "data/xianyu_data.db", "SQLite 数据库路径（兼容旧用法）")
+	flag.StringVar(&opts.dbPath, "db", defaultDBPath, "SQLite 数据库路径（兼容旧用法）")
 	flag.StringVar(&opts.dbURL, "db-url", "", "数据库连接 URL（sqlite:// mysql:// postgres://），优先级高于 -db；也可用 DATABASE_URL 环境变量")
 	flag.StringVar(&opts.addr, "addr", ":8080", "HTTP 监听地址")
 	flag.StringVar(&opts.webDir, "web", "", "前端静态资源目录（含 index.html）")
@@ -103,6 +110,25 @@ func parseOptions() serverOptions {
 func runServer(parent context.Context, opts serverOptions) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+
+	dataDir, err := resolveDataDir(opts.workDir)
+	if err != nil {
+		return err
+	}
+	if dataDir != "" {
+		if err := os.MkdirAll(dataDir, 0o700); err != nil {
+			return fmt.Errorf("创建应用数据目录失败: %w", err)
+		}
+		if opts.dataKeyFile == "" {
+			opts.dataKeyFile = filepath.Join(dataDir, defaultDataKeyName)
+		}
+		if opts.playwrightDriverDir == "" {
+			opts.playwrightDriverDir = filepath.Join(dataDir, "playwright-driver")
+		}
+		if opts.playwrightBrowserDir == "" {
+			opts.playwrightBrowserDir = filepath.Join(dataDir, "playwright-browsers")
+		}
+	}
 
 	if opts.playwrightDriverDir != "" {
 		if err := os.Setenv("PLAYWRIGHT_DRIVER_PATH", opts.playwrightDriverDir); err != nil {
@@ -129,7 +155,12 @@ func runServer(parent context.Context, opts serverOptions) error {
 		resolvedDBURL = strings.TrimSpace(opts.dbURL)
 	}
 	if resolvedDBURL == "" {
-		resolvedDBURL = opts.dbPath
+		resolvedDBURL = resolveDBPath(dataDir, opts.dbPath)
+	}
+	if dataDir != "" && resolvedDBURL == resolveDBPath(dataDir, defaultDBPath) {
+		if err := os.MkdirAll(filepath.Dir(resolvedDBURL), 0o700); err != nil {
+			return fmt.Errorf("创建数据库目录失败: %w", err)
+		}
 	}
 
 	resolvedLogLevel := strings.TrimSpace(os.Getenv("LOG_LEVEL"))
@@ -243,6 +274,30 @@ func runServer(parent context.Context, opts serverOptions) error {
 	}
 	notifier.Wait()
 	return runErr
+}
+
+// resolveDataDir 返回桌面端的标准用户数据目录。
+// Linux/Docker 保留原有相对路径行为；macOS 和 Windows 在没有显式 -workdir
+// 时使用当前用户的系统配置目录，避免把具体用户路径写进安装包或代码。
+func resolveDataDir(workDir string) (string, error) {
+	if strings.TrimSpace(workDir) != "" {
+		return filepath.Clean(workDir), nil
+	}
+	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+		return "", nil
+	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("读取用户配置目录失败: %w", err)
+	}
+	return filepath.Join(configDir, userDataDirName), nil
+}
+
+func resolveDBPath(dataDir, configuredPath string) string {
+	if dataDir != "" && configuredPath == defaultDBPath {
+		return filepath.Join(dataDir, "data", "xianyu_data.db")
+	}
+	return configuredPath
 }
 
 func loadOrCreateDataKey(path string) (string, error) {
