@@ -178,14 +178,15 @@ npm --prefix frontend run build
 
 桌面端由两个进程组成：后台 `xianyu-server` 负责 HTTP API、账号运行时和 Chromium；
 `xianyu-tray` 只负责 Windows 托盘或 macOS 菜单栏状态、打开管理页面和服务控制。
-Chromium 不打进 Go 二进制，但 Windows 和 macOS 安装包会内置对应架构的 Playwright
-driver 与 Chromium runtime，安装后无需用户再下载浏览器。
+Chromium 不打进 Go 二进制，但 Linux、Windows 和 macOS 独立安装包会内置对应架构的
+Playwright driver 与 Chromium runtime，安装后无需用户再下载浏览器。
 
 - Windows：安装器注册 `YdisksXianyuHelper` Windows Service，并将托盘控制器加入当前用户登录启动项。
 - macOS：安装器注册当前登录用户的两个 LaunchAgent，分别运行后台服务和菜单栏控制器。
-- Linux：下载对应架构的 tar 包后，以 root 执行 `./install.sh`；脚本创建专用系统用户、安装
-  systemd unit，并执行 Playwright Chromium 及系统依赖安装。安装完成后打开管理页面，首次
-  设置管理员密码。卸载时执行 `./uninstall.sh`，
+- Linux：下载对应架构的 tar 包后，以 root 执行 `./install.sh`；安装包已经包含对应架构的
+  Playwright driver 与 Chromium，脚本只通过 Playwright 安装系统依赖，不会再下载浏览器。
+  脚本创建专用系统用户并安装 systemd unit。安装完成后打开管理页面，首次设置管理员密码。
+  卸载时执行 `./uninstall.sh`，
   默认保留 `/var/lib/ydisks-xianyu-helper` 数据。
 
 桌面端安装包由 GitHub Actions 的 `codex/desktop-packaging` 分支专用工作流构建：Linux 上传
@@ -270,7 +271,8 @@ DATABASE_URL > -db-url > -db
 | `LOG_LEVEL` | 系统设置或 `info` | `debug`、`info`、`warn`、`error` |
 | `LOG_FORMAT` | 系统设置或 `text` | `text` 或 `json` |
 | `BROWSER_HEADLESS` | 按账号设置；Docker 为 `true` | 强制启用或关闭无头 Chromium |
-| `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` | 自动发现 | 指定系统 Chromium 可执行文件 |
+| `PLAYWRIGHT_BROWSERS_PATH` | 自动发现；Docker 为 `/ms-playwright` | Playwright Chromium runtime 目录 |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` | 自动发现 | 仅在需要强制使用外部 Chromium 时指定 |
 | `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` | 源码 `false` / Docker `true` | 跳过下载 |
 | `TZ` | 系统时区；Docker 为 `Asia/Shanghai` | 容器和日志时区 |
 
@@ -367,11 +369,12 @@ ARM64 Linux 拉取 arm64，不需要手动设置 `platform`。
 | Git 引用 | 镜像标签 |
 | --- | --- |
 | `main` 分支 | `main`、`latest`、`sha-<完整提交号>` |
+| `codex/desktop-packaging` 分支 | `alpha`、`desktop-packaging`、`sha-<完整提交号>` |
 | `v1.2.3` 标签 | `1.2.3`、`1.2`、`sha-<完整提交号>` |
 
-当前 Docker 发布工作流只在 `main` 分支推送和发布镜像；`dev` 分支不会自动生成
-GHCR 标签。开发分支如需验证镜像，请在本地使用源码构建 Compose 文件，或手动运行
-对应的构建流程。
+当前 Docker 发布工作流会在 `main` 分支发布正式镜像，并在
+`codex/desktop-packaging` 分支发布 `alpha` 标签用于验收；其他开发分支不会自动生成
+GHCR 标签。
 
 生产环境建议使用明确的版本标签或 SHA 标签，避免上游更新导致未经验证的自动升级。
 
@@ -607,7 +610,10 @@ go run ./cmd/server -init-admin -db data/xianyu_data.db -admin-password '新密�
 
 ### Chromium 或 Playwright 初始化失败
 
-- Docker 部署优先使用项目提供的镜像，镜像已包含 Chromium 和运行依赖。
+- Docker 部署优先使用项目提供的镜像，镜像在构建阶段已下载 Chromium，并包含运行依赖；
+  不依赖 Debian 仓库中的 `chromium` 包。
+- 独立安装包在 CI 构建阶段下载对应架构的 Playwright driver 和 Chromium；Linux 安装时只
+  安装系统库，不需要再次下载浏览器。
 - 源码运行时确认系统允许下载 Playwright 驱动和 Chromium。
 - 自带 Chromium 时设置 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`，并按需设置
   `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`。

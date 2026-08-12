@@ -61,6 +61,32 @@ func TestPackagedPlaywrightRuntimeReady(t *testing.T) {
 	}
 }
 
+func TestPackagedPlaywrightRuntimeReadyWithExternalNode(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	driverDir := filepath.Join(runtimeRoot, "driver")
+	browserDir := filepath.Join(runtimeRoot, "browsers")
+	if err := os.MkdirAll(filepath.Join(driverDir, "package"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(browserDir, "chromium-1228"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(driverDir, "package", "cli.js"), []byte("runtime"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nodePath := filepath.Join(runtimeRoot, "node")
+	if err := os.WriteFile(nodePath, []byte("runtime"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PLAYWRIGHT_DRIVER_PATH", driverDir)
+	t.Setenv("PLAYWRIGHT_NODEJS_PATH", nodePath)
+	t.Setenv("PLAYWRIGHT_BROWSERS_PATH", browserDir)
+	t.Setenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "")
+	if !packagedPlaywrightRuntimeReady() {
+		t.Fatal("配置外部 Node.js 的预置 Playwright runtime 应被识别")
+	}
+}
+
 // newTestManager 构造一个不触网的 Manager（pool 空，maxSize 小便于测试驱逐）。
 func newTestManager(maxSize int) *Manager {
 	return &Manager{

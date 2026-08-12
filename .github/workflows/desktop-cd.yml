@@ -41,10 +41,13 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: 配置 QEMU
+        uses: docker/setup-qemu-action@v4
+
       - name: 构建嵌入式前端
         run: npm ci --prefix frontend && npm run build --prefix frontend
 
-      - name: 编译 Linux 二进制并组装安装目录
+      - name: 编译 Linux 二进制
         env:
           GOOS: linux
           GOARCH: ${{ matrix.arch }}
@@ -54,10 +57,48 @@ jobs:
           mkdir -p "$package_dir"
           go build -trimpath -ldflags='-s -w' -o "$package_dir/xianyu-server" ./cmd/server
           go build -trimpath -ldflags='-s -w' -o "$package_dir/browser-install" ./cmd/browser-install
+
+      - name: 缓存 Linux Chromium runtime
+        id: cache-linux-playwright
+        uses: actions/cache/restore@v5
+        with:
+          path: dist/ydisks-xianyu-helper-linux-${{ matrix.arch }}/playwright-runtime
+          key: ydisks-playwright-runtime-v2-linux-${{ matrix.arch }}-${{ hashFiles('go.mod', 'go.sum', 'cmd/browser-install/main.go') }}
+
+      - name: 预下载 Linux Chromium runtime
+        if: steps.cache-linux-playwright.outputs.cache-hit != 'true'
+        env:
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          set -Eeuo pipefail
+          package_dir="dist/ydisks-xianyu-helper-linux-${GOARCH}"
+          runtime_dir="$package_dir/playwright-runtime/$GOARCH"
+          case "$GOARCH" in
+            amd64) playwright_platform="ubuntu20.04-x64" ;;
+            arm64) playwright_platform="ubuntu20.04-arm64" ;;
+            *) echo "不支持的 Linux 架构：$GOARCH" >&2; exit 1 ;;
+          esac
+          mkdir -p "$runtime_dir/playwright-driver" "$runtime_dir/playwright-browsers"
+          PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="$playwright_platform" \
+            "$package_dir/browser-install" \
+            -driver-dir "$runtime_dir/playwright-driver" \
+            -browser-dir "$runtime_dir/playwright-browsers"
+
+      - name: 保存 Linux Chromium runtime 缓存
+        if: steps.cache-linux-playwright.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: dist/ydisks-xianyu-helper-linux-${{ matrix.arch }}/playwright-runtime
+          key: ${{ steps.cache-linux-playwright.outputs.cache-primary-key }}
+
+      - name: 组装 Linux 安装目录
+        run: |
+          set -Eeuo pipefail
+          package_dir="dist/ydisks-xianyu-helper-linux-${{ matrix.arch }}"
           cp icon/linux/icon.png "$package_dir/icon.png"
           cp packaging/linux/install.sh packaging/linux/uninstall.sh packaging/linux/ydisks-xianyu-helper.service "$package_dir/"
           chmod +x "$package_dir/install.sh" "$package_dir/uninstall.sh"
-          tar -C dist -czf "dist/ydisks-xianyu-helper-linux-${GOARCH}-${APP_VERSION}.tar.gz" "$(basename "$package_dir")"
+          tar -C dist -czf "dist/ydisks-xianyu-helper-linux-${{ matrix.arch }}-${APP_VERSION}.tar.gz" "$(basename "$package_dir")"
 
       - name: 上传 Linux 安装包
         uses: actions/upload-artifact@v7
@@ -101,10 +142,10 @@ jobs:
 
       - name: 缓存 Windows Chromium runtime
         id: cache-windows-playwright
-        uses: actions/cache@v6
+        uses: actions/cache@v5
         with:
           path: dist/windows/playwright-runtime/amd64
-          key: ydisks-playwright-runtime-v1-windows-amd64-${{ hashFiles('go.mod') }}
+          key: ydisks-playwright-runtime-v2-windows-amd64-${{ hashFiles('go.mod', 'go.sum', 'cmd/browser-install/main.go') }}
 
       - name: 预下载 Windows Chromium runtime
         if: steps.cache-windows-playwright.outputs.cache-hit != 'true'
@@ -169,7 +210,7 @@ jobs:
         env:
           APP_VERSION: ${{ env.APP_VERSION }}
         run: |
-          Compress-Archive -Path dist/windows/xianyu-server.exe,dist/windows/xianyu-tray.exe -DestinationPath "dist/windows/Ydisks-Xianyu-Helper-${env:APP_VERSION}-binaries.zip"
+          Compress-Archive -Path dist/windows/xianyu-server.exe,dist/windows/xianyu-tray.exe,dist/windows/playwright-runtime -DestinationPath "dist/windows/Ydisks-Xianyu-Helper-${env:APP_VERSION}-binaries.zip"
 
       - name: 上传 Windows 安装包
         uses: actions/upload-artifact@v7
@@ -215,14 +256,12 @@ jobs:
 
       - name: 缓存 macOS Chromium runtime
         id: cache-macos-playwright
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@v5
         with:
           path: |
             dist/macos/playwright-runtime/arm64
             dist/macos/playwright-runtime/amd64
-          key: ydisks-playwright-runtime-v1-macos-universal-${{ hashFiles('go.mod') }}
-          restore-keys: |
-            ydisks-playwright-runtime-v1-macos-universal-
+          key: ydisks-playwright-runtime-v2-macos-universal-${{ hashFiles('go.mod', 'go.sum', 'cmd/browser-install/main.go') }}
 
       - name: 预下载 macOS Chromium runtime
         if: steps.cache-macos-playwright.outputs.cache-hit != 'true'
@@ -243,7 +282,7 @@ jobs:
 
       - name: 保存 macOS Chromium runtime 缓存
         if: steps.cache-macos-playwright.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@v5
         with:
           path: |
             dist/macos/playwright-runtime/arm64

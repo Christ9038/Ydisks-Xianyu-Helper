@@ -20,6 +20,7 @@ fi
 
 SERVER_SOURCE="${XIANYU_SERVER_SOURCE:-$SCRIPT_DIR/xianyu-server}"
 BROWSER_SOURCE="${XIANYU_BROWSER_INSTALL_SOURCE:-$SCRIPT_DIR/browser-install}"
+RUNTIME_SOURCE="${XIANYU_PLAYWRIGHT_RUNTIME_SOURCE:-$SCRIPT_DIR/playwright-runtime}"
 ICON_SOURCE="${XIANYU_ICON_SOURCE:-$SCRIPT_DIR/icon.png}"
 if [[ ! -x "$SERVER_SOURCE" ]]; then
   echo "找不到 xianyu-server：$SERVER_SOURCE" >&2
@@ -27,6 +28,16 @@ if [[ ! -x "$SERVER_SOURCE" ]]; then
 fi
 if [[ ! -x "$BROWSER_SOURCE" ]]; then
   echo "找不到 browser-install：$BROWSER_SOURCE" >&2
+  exit 1
+fi
+case "$(uname -m)" in
+  x86_64|amd64) RUNTIME_ARCH="amd64" ;;
+  aarch64|arm64) RUNTIME_ARCH="arm64" ;;
+  *) echo "不支持的 Linux 架构：$(uname -m)" >&2; exit 1 ;;
+esac
+if [[ ! -d "$RUNTIME_SOURCE/$RUNTIME_ARCH/playwright-driver" ]] || \
+   [[ ! -d "$RUNTIME_SOURCE/$RUNTIME_ARCH/playwright-browsers" ]]; then
+  echo "找不到 $RUNTIME_ARCH 架构的 Playwright runtime：$RUNTIME_SOURCE/$RUNTIME_ARCH" >&2
   exit 1
 fi
 if [[ ! -f "$ICON_SOURCE" ]]; then
@@ -44,7 +55,10 @@ fi
 systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || true
 install -d -m 0755 "$INSTALL_DIR"
 install -d -o "$APP_NAME" -g "$APP_NAME" -m 0750 "$DATA_DIR"
-install -d -o "$APP_NAME" -g "$APP_NAME" -m 0750 "$DATA_DIR/playwright-driver" "$DATA_DIR/playwright-browsers"
+rm -rf "$INSTALL_DIR/playwright-runtime"
+install -d -m 0755 "$INSTALL_DIR/playwright-runtime"
+cp -R "$RUNTIME_SOURCE/." "$INSTALL_DIR/playwright-runtime/"
+chmod -R a+rX "$INSTALL_DIR/playwright-runtime"
 install -d -m 0750 "$CONFIG_DIR"
 install -m 0755 "$SERVER_SOURCE" "$INSTALL_DIR/xianyu-server"
 install -m 0755 "$BROWSER_SOURCE" "$INSTALL_DIR/browser-install"
@@ -67,12 +81,10 @@ fi
 chown -R "$APP_NAME:$APP_NAME" "$DATA_DIR"
 chmod 0600 "$CONFIG_DIR/config.env"
 
-if [[ "${XIANYU_SKIP_BROWSER_INSTALL:-0}" != "1" ]]; then
+if [[ "${XIANYU_SKIP_BROWSER_DEPS:-0}" != "1" ]]; then
   "$INSTALL_DIR/browser-install" \
-    -driver-dir "$DATA_DIR/playwright-driver" \
-    -browser-dir "$DATA_DIR/playwright-browsers" \
-    --with-deps
-  chown -R "$APP_NAME:$APP_NAME" "$DATA_DIR/playwright-driver" "$DATA_DIR/playwright-browsers"
+    -driver-dir "$INSTALL_DIR/playwright-runtime/$RUNTIME_ARCH/playwright-driver" \
+    -deps-only
 fi
 
 systemctl daemon-reload

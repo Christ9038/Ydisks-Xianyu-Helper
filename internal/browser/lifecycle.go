@@ -65,17 +65,23 @@ func packagedPlaywrightRuntimeReady() bool {
 	if driverDir == "" {
 		return false
 	}
-	nodeName := "node"
-	if runtime.GOOS == "windows" {
-		nodeName = "node.exe"
-	}
-	for _, path := range []string{
-		filepath.Join(driverDir, nodeName),
-		filepath.Join(driverDir, "package", "cli.js"),
-	} {
-		if _, err := os.Stat(path); err != nil {
-			return false
+	nodeReady := false
+	if nodePath := strings.TrimSpace(os.Getenv("PLAYWRIGHT_NODEJS_PATH")); nodePath != "" {
+		_, err := os.Stat(nodePath)
+		nodeReady = err == nil
+	} else {
+		nodeName := "node"
+		if runtime.GOOS == "windows" {
+			nodeName = "node.exe"
 		}
+		_, err := os.Stat(filepath.Join(driverDir, nodeName))
+		nodeReady = err == nil
+	}
+	if !nodeReady {
+		return false
+	}
+	if _, err := os.Stat(filepath.Join(driverDir, "package", "cli.js")); err != nil {
+		return false
 	}
 	if strings.TrimSpace(os.Getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")) != "" {
 		return true

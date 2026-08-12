@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - codex/desktop-packaging
   workflow_dispatch:
 
 permissions:
@@ -51,6 +52,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=long
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=alpha,enable=${{ github.ref == 'refs/heads/codex/desktop-packaging' }}
 
       - name: 构建并推送镜像
         uses: docker/build-push-action@v7
@@ -61,7 +63,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Dockerfile 中的 Chromium 下载层也由 GitHub Actions 主机缓存。
+          cache-from: type=gha,scope=ydisks-docker
+          cache-to: type=gha,mode=max,scope=ydisks-docker
           provenance: mode=max
           sbom: true

@@ -14,7 +14,11 @@ func main() {
 	driverDir := flag.String("driver-dir", "", "Playwright driver directory")
 	browserDir := flag.String("browser-dir", "", "Playwright browser cache directory")
 	withDeps := flag.Bool("with-deps", false, "also install Linux system dependencies")
+	depsOnly := flag.Bool("deps-only", false, "only install Linux system dependencies; do not download Chromium")
 	flag.Parse()
+	if *depsOnly && !*withDeps {
+		*withDeps = true
+	}
 
 	if *driverDir != "" {
 		if err := os.Setenv("PLAYWRIGHT_DRIVER_PATH", *driverDir); err != nil {
@@ -43,10 +47,14 @@ func main() {
 	}
 
 	args := []string{"install"}
-	if *withDeps {
+	if *depsOnly {
+		args = []string{"install-deps", "chromium"}
+	} else if *withDeps {
 		args = append(args, "--with-deps")
+		args = append(args, "chromium")
+	} else {
+		args = append(args, "chromium")
 	}
-	args = append(args, "chromium")
 	cmd := driver.Command(args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

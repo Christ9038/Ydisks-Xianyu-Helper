@@ -7,14 +7,12 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM --platform=$BUILDPLATFORM node:22-trixie AS playwright-driver
-RUN npm install -g playwright@1.57.0 \
-    && mkdir -p /ms-playwright-go/package \
-    && cp -a /usr/local/lib/node_modules/playwright/. /ms-playwright-go/package/ \
-    && if [ -d /usr/local/lib/node_modules/playwright-core ]; then \
-        mkdir -p /ms-playwright-go/package/node_modules \
-        && cp -a /usr/local/lib/node_modules/playwright-core /ms-playwright-go/package/node_modules/playwright-core; \
-    fi
+FROM --platform=$BUILDPLATFORM golang:1.26-trixie AS browser-install-builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/browser-install ./cmd/browser-install
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/browser-install-host ./cmd/browser-install
 
 FROM --platform=$BUILDPLATFORM golang:1.26-trixie AS backend
 ARG TARGETOS
@@ -28,18 +26,36 @@ RUN CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldfl
     && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w" -o /out/xianyu-dbseed ./cmd/dbseed \
     && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w" -o /out/xianyu-dbverify ./cmd/dbverify
 
+# 使用与独立安装包相同的 browser-install 下载 driver 和 Chromium。
+# 该阶段运行在构建机架构上，但通过 PLAYWRIGHT_HOST_PLATFORM_OVERRIDE 下载目标架构的
+# Debian 13 Chromium；PLAYWRIGHT_NODEJS_PATH 让构建机 Node 执行 CLI。
+FROM --platform=$BUILDPLATFORM node:22-trixie AS playwright-runtime
+ARG TARGETARCH
+ENV PLAYWRIGHT_DRIVER_PATH=/ms-playwright-go
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PLAYWRIGHT_NODEJS_PATH=/usr/local/bin/node
+COPY --from=browser-install-builder /out/browser-install-host /usr/local/bin/browser-install
+RUN mkdir -p /ms-playwright-go /ms-playwright \
+    && case "$TARGETARCH" in \
+         amd64) playwright_platform=debian13-x64 ;; \
+         arm64) playwright_platform=debian13-arm64 ;; \
+         *) echo "不支持的 Docker 架构：$TARGETARCH" >&2; exit 1 ;; \
+       esac \
+    && PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="$playwright_platform" /usr/local/bin/browser-install \
+        -driver-dir /ms-playwright-go \
+        -browser-dir /ms-playwright
+
 FROM debian:13-slim AS runtime
 ENV TZ=Asia/Shanghai
 ENV BROWSER_HEADLESS=true
 ENV PLAYWRIGHT_DRIVER_PATH=/ms-playwright-go
 ENV PLAYWRIGHT_NODEJS_PATH=/usr/bin/node
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
-        chromium \
         curl \
         fonts-liberation \
         fonts-noto-cjk \
@@ -49,7 +65,12 @@ RUN apt-get update \
 COPY --from=backend /out/xianyu-server /app/xianyu-server
 COPY --from=backend /out/xianyu-dbseed /app/xianyu-dbseed
 COPY --from=backend /out/xianyu-dbverify /app/xianyu-dbverify
-COPY --from=playwright-driver /ms-playwright-go /ms-playwright-go
+COPY --from=playwright-runtime /ms-playwright-go /ms-playwright-go
+COPY --from=playwright-runtime /ms-playwright /ms-playwright
+# 只安装 Chromium 的系统库，不安装 Debian 的 chromium 包。Chromium 本体已经在上一个
+# 阶段从 Playwright 官方浏览器源下载并复制进镜像。
+RUN node /ms-playwright-go/package/cli.js install-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /app/data /app/browser_data
 EXPOSE 8080
 CMD ["/app/xianyu-server", "-addr", ":8080"]
