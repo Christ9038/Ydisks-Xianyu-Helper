@@ -106,10 +106,12 @@ packages explicitly bind the server to `127.0.0.1:59188` and keep the server and
   architecture, installs `ydisks-xianyu-helper.service`, and keeps data in `/var/lib/ydisks-xianyu-helper`.
 
 All desktop packages contain the matching Playwright driver, Chromium and headless shell. Do not add a
-Debian Chromium package or download a second browser during installation. The desktop CI workflow runs
-only on `codex/desktop-packaging`; Linux amd64 and arm64 jobs use native GitHub-hosted runners and must
-not use QEMU or cross-architecture emulation. Docker publishing also builds each architecture on its native
-runner and publishes `latest` only from `main`, `alpha` only from `codex/desktop-packaging`.
+Debian Chromium package or download a second browser during installation. The Docker final image uses
+`node:latest`, copies the cached runtime prepared by CI, and does not run `apt-get update`. The desktop CI workflow
+runs on `main` and `codex/desktop-packaging`; Linux amd64 and arm64 jobs use native GitHub-hosted runners and
+must not use QEMU or cross-architecture emulation. Docker publishing also builds each architecture on its native
+runner and publishes `main` and `latest` from `main`, `desktop-packaging` and `alpha` from
+`codex/desktop-packaging`.
 
 The tray state machine is shared by Windows and macOS: it serializes actions, shows transition states,
 waits for a healthy `/health` response after start/restart, waits for the endpoint to become unreachable

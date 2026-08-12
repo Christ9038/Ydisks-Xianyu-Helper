@@ -26,9 +26,11 @@ jobs:
           - arch: amd64
             runner: ubuntu-24.04
             platform: linux/amd64
+            playwright_platform: debian13-x64
           - arch: arm64
             runner: ubuntu-24.04-arm
             platform: linux/arm64
+            playwright_platform: debian13-arm64
     steps:
       - name: 检出代码
         uses: actions/checkout@v6
@@ -48,6 +50,52 @@ jobs:
             echo "runner 架构 $actual_arch 与目标架构 $EXPECTED_ARCH 不一致，拒绝使用模拟器构建。" >&2
             exit 1
           fi
+
+      - name: 配置 Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 缓存 Docker Chromium runtime
+        id: cache-docker-playwright
+        uses: actions/cache@v5
+        with:
+          path: .docker/playwright-runtime/${{ matrix.arch }}
+          key: ydisks-playwright-runtime-v6-docker-${{ matrix.arch }}-${{ hashFiles('go.mod', 'go.sum') }}
+
+      - name: 准备 Docker Chromium runtime
+        if: steps.cache-docker-playwright.outputs.cache-hit != 'true'
+        shell: bash
+        env:
+          GOARCH: ${{ matrix.arch }}
+          PLAYWRIGHT_HOST_PLATFORM_OVERRIDE: ${{ matrix.playwright_platform }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p ".docker/playwright-runtime/$GOARCH/playwright-driver" ".docker/playwright-runtime/$GOARCH/playwright-browsers"
+          GOOS=linux GOARCH="$GOARCH" CGO_ENABLED=0 go build \
+            -trimpath -ldflags='-s -w' \
+            -o "$RUNNER_TEMP/browser-install" ./cmd/browser-install
+          "$RUNNER_TEMP/browser-install" \
+            -driver-dir "$PWD/.docker/playwright-runtime/$GOARCH/playwright-driver" \
+            -browser-dir "$PWD/.docker/playwright-runtime/$GOARCH/playwright-browsers"
+
+      - name: 校验 Docker Chromium runtime
+        shell: bash
+        env:
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          set -Eeuo pipefail
+          runtime_dir=".docker/playwright-runtime/$GOARCH"
+          test -x "$runtime_dir/playwright-driver/node"
+          test -f "$runtime_dir/playwright-driver/package/cli.js"
+          chromium_path="$(find "$runtime_dir/playwright-browsers" -type f \
+            \( -name chrome -o -name headless_shell -o -name chrome-headless-shell \) -perm -111 -print -quit)"
+          test -n "$chromium_path"
+          chromium_revision="$(RUNTIME_SPEC="$runtime_dir/playwright-driver/package/browsers.json" node -e 'const b=require(process.env.RUNTIME_SPEC).browsers; console.log(b.find(x=>x.name==="chromium").revision)')"
+          headless_revision="$(RUNTIME_SPEC="$runtime_dir/playwright-driver/package/browsers.json" node -e 'const b=require(process.env.RUNTIME_SPEC).browsers; console.log(b.find(x=>x.name==="chromium-headless-shell").revision)')"
+          test -d "$runtime_dir/playwright-browsers/chromium-$chromium_revision"
+          test -d "$runtime_dir/playwright-browsers/chromium_headless_shell-$headless_revision"
 
       - name: 配置 Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -127,11 +175,12 @@ jobs:
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
-            type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=long
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=desktop-packaging,enable=${{ github.ref == 'refs/heads/codex/desktop-packaging' }}
             type=raw,value=alpha,enable=${{ github.ref == 'refs/heads/codex/desktop-packaging' }}
 
       - name: 创建并推送多架构 manifest

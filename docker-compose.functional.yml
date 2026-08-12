@@ -128,7 +128,7 @@ services:
       - app_mysql_data:/app/data
       - app_mysql_browser_data:/app/browser_data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:59188/health >/dev/null"]
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:59188/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -150,7 +150,7 @@ services:
       - app_sqlite_data:/app/data
       - app_sqlite_browser_data:/app/browser_data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:59188/health >/dev/null"]
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:59188/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -172,7 +172,7 @@ services:
       - app_postgres_data:/app/data
       - app_postgres_browser_data:/app/browser_data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:59188/health >/dev/null"]
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:59188/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 5s
       timeout: 5s
       retries: 30

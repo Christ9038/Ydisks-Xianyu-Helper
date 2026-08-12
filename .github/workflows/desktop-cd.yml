@@ -3,6 +3,7 @@ name: 构建桌面端安装包
 on:
   push:
     branches:
+      - main
       - codex/desktop-packaging
   workflow_dispatch:
 
@@ -19,7 +20,7 @@ env:
 jobs:
   linux:
     name: Linux 安装包 (${{ matrix.arch }})
-    if: github.ref == 'refs/heads/codex/desktop-packaging'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/codex/desktop-packaging'
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -64,10 +65,10 @@ jobs:
 
       - name: 缓存 Linux Chromium runtime
         id: cache-linux-playwright
-        uses: actions/cache/restore@v5
+        uses: actions/cache@v5
         with:
           path: dist/ydisks-xianyu-helper-linux-${{ matrix.arch }}/playwright-runtime
-          key: ydisks-playwright-runtime-v4-linux-${{ matrix.arch }}-${{ hashFiles('go.mod', 'go.sum', 'cmd/browser-install/main.go') }}
+          key: ydisks-playwright-runtime-v6-linux-${{ matrix.arch }}-${{ hashFiles('go.mod', 'go.sum') }}
 
       - name: 在原生架构 runner 预下载 Linux Chromium runtime
         if: steps.cache-linux-playwright.outputs.cache-hit != 'true'
@@ -92,13 +93,6 @@ jobs:
             -driver-dir "$PWD/$runtime_dir/playwright-driver" \
             -browser-dir "$PWD/$runtime_dir/playwright-browsers"
 
-      - name: 保存 Linux Chromium runtime 缓存
-        if: steps.cache-linux-playwright.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        with:
-          path: dist/ydisks-xianyu-helper-linux-${{ matrix.arch }}/playwright-runtime
-          key: ydisks-playwright-runtime-v4-linux-${{ matrix.arch }}-${{ hashFiles('go.mod', 'go.sum', 'cmd/browser-install/main.go') }}
-
       - name: 校验 Linux Chromium runtime 架构
         env:
           GOARCH: ${{ matrix.arch }}
@@ -115,8 +109,12 @@ jobs:
             *) echo "Playwright driver 架构错误：$node_type" >&2; exit 1 ;;
           esac
           chromium_path="$(find "$runtime_dir/playwright-browsers" -type f \
-            \( -name chrome -o -name headless_shell \) -perm -111 -print -quit)"
+            \( -name chrome -o -name headless_shell -o -name chrome-headless-shell \) -perm -111 -print -quit)"
           test -n "$chromium_path"
+          chromium_revision="$(RUNTIME_SPEC="$runtime_dir/playwright-driver/package/browsers.json" node -e 'const b=require(process.env.RUNTIME_SPEC).browsers; console.log(b.find(x=>x.name==="chromium").revision)')"
+          headless_revision="$(RUNTIME_SPEC="$runtime_dir/playwright-driver/package/browsers.json" node -e 'const b=require(process.env.RUNTIME_SPEC).browsers; console.log(b.find(x=>x.name==="chromium-headless-shell").revision)')"
+          test -d "$runtime_dir/playwright-browsers/chromium-$chromium_revision"
+          test -d "$runtime_dir/playwright-browsers/chromium_headless_shell-$headless_revision"
           chromium_type="$(file -b "$chromium_path")"
           case "$GOARCH:$chromium_type" in
             amd64:*x86-64*) ;;
@@ -142,7 +140,7 @@ jobs:
 
   windows:
     name: Windows 安装包
-    if: github.ref == 'refs/heads/codex/desktop-packaging'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/codex/desktop-packaging'
     runs-on: windows-latest
     steps:
       - name: 检出代码
@@ -194,7 +192,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: dist/windows/playwright-runtime/amd64
-          key: ydisks-playwright-runtime-v2-windows-amd64-${{ hashFiles('go.mod', 'go.sum', 'cmd/browser-install/main.go') }}
+          key: ydisks-playwright-runtime-v6-windows-amd64-${{ hashFiles('go.mod', 'go.sum') }}
 
       - name: 预下载 Windows Chromium runtime
         if: steps.cache-windows-playwright.outputs.cache-hit != 'true'
@@ -206,6 +204,24 @@ jobs:
             -driver-dir "$PWD/dist/windows/playwright-runtime/amd64/playwright-driver" `
             -browser-dir "$PWD/dist/windows/playwright-runtime/amd64/playwright-browsers"
           if ($LASTEXITCODE -ne 0) { throw 'Windows Playwright runtime 下载失败' }
+
+      - name: 校验 Windows Chromium runtime
+        shell: pwsh
+        run: |
+          $runtimeRoot = Resolve-Path 'dist/windows/playwright-runtime/amd64'
+          $driverNode = Join-Path $runtimeRoot 'playwright-driver/node.exe'
+          $driverCli = Join-Path $runtimeRoot 'playwright-driver/package/cli.js'
+          if (-not (Test-Path -LiteralPath $driverNode -PathType Leaf)) { throw 'Windows Playwright driver 缺少 node.exe' }
+          if (-not (Test-Path -LiteralPath $driverCli -PathType Leaf)) { throw 'Windows Playwright driver 缺少 package/cli.js' }
+          $browserSpec = Get-Content -Raw -LiteralPath (Join-Path $runtimeRoot 'playwright-driver/package/browsers.json') | ConvertFrom-Json
+          $chromiumRevision = ($browserSpec.browsers | Where-Object name -eq 'chromium').revision
+          $headlessRevision = ($browserSpec.browsers | Where-Object name -eq 'chromium-headless-shell').revision
+          if (-not (Test-Path -LiteralPath (Join-Path $runtimeRoot "playwright-browsers/chromium-$chromiumRevision") -PathType Container)) { throw 'Windows Chromium revision 与 driver 不匹配' }
+          if (-not (Test-Path -LiteralPath (Join-Path $runtimeRoot "playwright-browsers/chromium_headless_shell-$headlessRevision") -PathType Container)) { throw 'Windows headless shell revision 与 driver 不匹配' }
+          $chromium = Get-ChildItem -LiteralPath (Join-Path $runtimeRoot 'playwright-browsers') -Recurse -File |
+            Where-Object { $_.Name -in @('chrome.exe', 'headless_shell.exe', 'chrome-headless-shell.exe') } |
+            Select-Object -First 1
+          if ($null -eq $chromium) { throw 'Windows Chromium runtime 缺少 Chromium 可执行文件' }
 
       - name: 导入 Windows 签名证书
         shell: pwsh
@@ -272,7 +288,7 @@ jobs:
 
   macos:
     name: macOS 安装包
-    if: github.ref == 'refs/heads/codex/desktop-packaging'
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/codex/desktop-packaging'
     runs-on: macos-14
     steps:
       - name: 检出代码
@@ -313,7 +329,7 @@ jobs:
           path: |
             dist/macos/playwright-runtime/arm64
             dist/macos/playwright-runtime/amd64
-          key: ydisks-playwright-runtime-v2-macos-universal-${{ hashFiles('go.mod', 'go.sum', 'cmd/browser-install/main.go') }}
+          key: ydisks-playwright-runtime-v6-macos-universal-${{ hashFiles('go.mod', 'go.sum') }}
 
       - name: 预下载 macOS Chromium runtime
         if: steps.cache-macos-playwright.outputs.cache-hit != 'true'
