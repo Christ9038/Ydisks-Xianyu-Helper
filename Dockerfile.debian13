@@ -72,5 +72,5 @@ COPY --from=playwright-runtime /ms-playwright /ms-playwright
 RUN node /ms-playwright-go/package/cli.js install-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /app/data /app/browser_data
-EXPOSE 8080
-CMD ["/app/xianyu-server", "-addr", ":8080"]
+EXPOSE 59188
+CMD ["/app/xianyu-server", "-addr", ":59188"]

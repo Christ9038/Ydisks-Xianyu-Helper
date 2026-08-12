@@ -45,12 +45,12 @@ services:
       postgres:
         condition: service_healthy
     environment: *app-env
-    command: ["/app/xianyu-server", "-addr", ":8080", "-ensure-admin"]
+    command: ["/app/xianyu-server", "-addr", ":59188", "-ensure-admin"]
     ports:
-      - "${XIANYU_BIND_ADDRESS:-0.0.0.0}:${XIANYU_HTTP_PORT:-8080}:8080"
+      - "${XIANYU_BIND_ADDRESS:-0.0.0.0}:${XIANYU_HTTP_PORT:-59188}:59188"
     volumes: *app-volumes
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:59188/health >/dev/null || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5

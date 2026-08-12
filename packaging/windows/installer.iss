@@ -25,18 +25,39 @@ Source: "..\..\dist\windows\xianyu-server.exe"; DestDir: "{app}"; Flags: ignorev
 Source: "..\..\dist\windows\xianyu-tray.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\icon\windows\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\dist\windows\playwright-runtime\*"; DestDir: "{app}\playwright-runtime"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "service-control.ps1"; Flags: dontcopy
+Source: "service-control.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
+Name: "{#AppDataDir}"
 Name: "{#AppDataDir}\data"
+Name: "{#AppDataDir}\logs"; Permissions: users-modify
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "YdisksXianyuHelperTray"; ValueData: "{app}\xianyu-tray.exe"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "YdisksXianyuHelperTray"; ValueData: """{app}\xianyu-tray.exe"""; Flags: uninsdeletevalue
 
 [Run]
-Filename: "{sys}\sc.exe"; Parameters: "create YdisksXianyuHelper binPath= ""{app}\xianyu-server.exe"" -service -workdir {#AppDataDir} -data-key-file {#AppDataDir}\data-key -addr 127.0.0.1:8080 -playwright-runtime-root ""{app}\playwright-runtime"" start= delayed-auto"; Flags: runhidden waituntilterminated
-Filename: "{sys}\sc.exe"; Parameters: "start YdisksXianyuHelper"; Flags: runhidden waituntilterminated
-Filename: "{app}\xianyu-tray.exe"; Description: "启动菜单栏控制器"; Flags: nowait postinstall skipifsilent
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\service-control.ps1"" -Mode install -ExePath ""{app}\xianyu-server.exe"" -TrayPath ""{app}\xianyu-tray.exe"" -WorkDir ""{#AppDataDir}"" -RuntimeRoot ""{app}\playwright-runtime"""; Flags: runhidden waituntilterminated
+Filename: "{app}\xianyu-tray.exe"; Description: "启动菜单栏控制器"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [UninstallRun]
-Filename: "{sys}\sc.exe"; Parameters: "stop YdisksXianyuHelper"; Flags: runhidden waituntilterminated
-Filename: "{sys}\sc.exe"; Parameters: "delete YdisksXianyuHelper"; Flags: runhidden waituntilterminated
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\service-control.ps1"" -Mode uninstall -TrayPath ""{app}\xianyu-tray.exe"""; Flags: runhidden waituntilterminated
+
+[Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Result := '';
+  ExtractTemporaryFile('service-control.ps1');
+  if not Exec(
+    ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+      ExpandConstant('{tmp}\service-control.ps1') + '" -Mode stop -TrayPath "' +
+      ExpandConstant('{app}\xianyu-tray.exe') + '"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
+  then
+    Result := '无法执行旧服务停止脚本。'
+  else if ResultCode <> 0 then
+    Result := '旧版后台服务停止失败，错误码：' + IntToStr(ResultCode) + '。';
+end;

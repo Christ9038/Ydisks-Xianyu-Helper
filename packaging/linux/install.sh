@@ -5,6 +5,7 @@ APP_NAME="ydisks-xianyu-helper"
 INSTALL_DIR="/opt/$APP_NAME"
 DATA_DIR="/var/lib/$APP_NAME"
 CONFIG_DIR="/etc/$APP_NAME"
+LOG_DIR="/var/log/$APP_NAME"
 SERVICE_NAME="$APP_NAME.service"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
@@ -55,6 +56,7 @@ fi
 systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || true
 install -d -m 0755 "$INSTALL_DIR"
 install -d -o "$APP_NAME" -g "$APP_NAME" -m 0750 "$DATA_DIR"
+install -d -o "$APP_NAME" -g "$APP_NAME" -m 0750 "$LOG_DIR"
 rm -rf "$INSTALL_DIR/playwright-runtime"
 install -d -m 0755 "$INSTALL_DIR/playwright-runtime"
 cp -R "$RUNTIME_SOURCE/." "$INSTALL_DIR/playwright-runtime/"

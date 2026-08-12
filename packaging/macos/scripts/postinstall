@@ -56,7 +56,8 @@ fi
 echo "使用 $RUNTIME_ARCH 架构的 Playwright runtime。"
 
 mkdir -p "$DATA_DIR" "$LOG_DIR" "$AGENT_DIR"
-chown -R "$CONSOLE_USER" "$DATA_DIR" "$LOG_DIR" "$AGENT_DIR"
+chown -R "$CONSOLE_USER" "$DATA_DIR" "$LOG_DIR"
+chown "$CONSOLE_USER" "$AGENT_DIR"
 
 escape_sed() {
   printf '%s' "$1" | sed 's/[&|]/\\&/g'
@@ -78,12 +79,31 @@ sed -e "s|__SERVER__|$SERVER_ESCAPED|g" \
     -e "s|__RUNTIME_ROOT__|$RUNTIME_ROOT_ESCAPED|g" \
     "$APP/Contents/Resources/com.ydisks.xianyu-helper.server.plist.template" > "$server_plist"
 sed -e "s|__TRAY__|$TRAY_ESCAPED|g" \
+	-e "s|__LOG_DIR__|$LOG_ESCAPED|g" \
     "$APP/Contents/Resources/com.ydisks.xianyu-helper.tray.plist.template" > "$tray_plist"
 chown "$CONSOLE_USER" "$server_plist" "$tray_plist"
 chmod 0644 "$server_plist" "$tray_plist"
 
 launchctl bootout "gui/$UID_VALUE/$SERVER_LABEL" >/dev/null 2>&1 || true
 launchctl bootout "gui/$UID_VALUE/$TRAY_LABEL" >/dev/null 2>&1 || true
+
+# 旧版本的托盘曾经可能在 bootout 后脱离 launchd 继续存活。它仍然占用
+# 菜单栏并使用旧的控制逻辑，会让升级后的第二次启动看起来像启动失败。
+# 这里只按当前应用的绝对路径清理旧托盘，不影响其它程序。
+STALE_TRAY_PIDS="$(ps -axo pid=,command= | awk -v target="$TRAY" '$2 == target {print $1}')"
+for stale_pid in $STALE_TRAY_PIDS; do
+  if [ "$stale_pid" != "$$" ] && [ -n "$stale_pid" ]; then
+    kill -TERM "$stale_pid" >/dev/null 2>&1 || true
+  fi
+done
+if [ -n "$STALE_TRAY_PIDS" ]; then
+  sleep 1
+  for stale_pid in $STALE_TRAY_PIDS; do
+    if [ "$stale_pid" != "$$" ] && kill -0 "$stale_pid" >/dev/null 2>&1; then
+      kill -KILL "$stale_pid" >/dev/null 2>&1 || true
+    fi
+  done
+fi
 
 # 清理早期版本使用的个人域名标识，避免升级后新旧 LaunchAgent 同时运行。
 LEGACY_SERVER_LABEL="com.christ.ydisks-xianyu-helper.server"
@@ -94,5 +114,6 @@ rm -f "$AGENT_DIR/$LEGACY_SERVER_LABEL.plist" "$AGENT_DIR/$LEGACY_TRAY_LABEL.pli
 
 launchctl bootstrap "gui/$UID_VALUE" "$server_plist"
 launchctl bootstrap "gui/$UID_VALUE" "$tray_plist"
-launchctl kickstart -k "gui/$UID_VALUE/$SERVER_LABEL"
-launchctl kickstart -k "gui/$UID_VALUE/$TRAY_LABEL"
+# bootstrap 会根据 RunAtLoad 自动启动两个 LaunchAgent。这里不能再调用
+# kickstart -k：它会给刚由 bootstrap 启动的托盘发送 SIGTERM，托盘会按
+# 正常退出流程停止服务，导致安装完成后第一次启动就被自己关掉。

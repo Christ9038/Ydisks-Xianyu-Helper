@@ -22,9 +22,30 @@ if [ ! -x "$BIN_DIR/xianyu-server" ] || [ ! -x "$BIN_DIR/xianyu-tray" ]; then
   echo "缺少 $ARCH 架构的桌面二进制：$BIN_DIR" >&2
   exit 1
 fi
-if [ ! -d "$DIST_DIR/playwright-runtime/$ARCH/playwright-driver" ] || \
-   [ ! -d "$DIST_DIR/playwright-runtime/$ARCH/playwright-browsers" ]; then
-  echo "缺少 $ARCH 架构的 Playwright runtime：$DIST_DIR/playwright-runtime/$ARCH" >&2
+case "$ARCH" in
+  arm64) PLATFORM_ARCH="arm64" ;;
+  amd64) PLATFORM_ARCH="x64" ;;
+esac
+runtime_dir="$DIST_DIR/playwright-runtime/$ARCH"
+runtime_has_chromium() {
+  find "$runtime_dir/playwright-browsers" -type f \
+    -path "*/chrome-mac-$PLATFORM_ARCH/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing" \
+    -print -quit 2>/dev/null | grep -q .
+}
+runtime_has_headless_shell() {
+  find "$runtime_dir/playwright-browsers" -type f \
+    -path "*/chrome-headless-shell-mac-$PLATFORM_ARCH/chrome-headless-shell" \
+    -print -quit 2>/dev/null | grep -q .
+}
+if [ ! -d "$runtime_dir/playwright-driver" ] || \
+   [ ! -d "$runtime_dir/playwright-browsers" ] || \
+   ! runtime_has_chromium || ! runtime_has_headless_shell; then
+  echo "未找到完整的 $ARCH Playwright runtime，尝试从本机缓存准备。" >&2
+  "$SCRIPT_DIR/prepare-runtime.sh" "$ARCH" "$runtime_dir"
+fi
+
+if ! runtime_has_chromium || ! runtime_has_headless_shell; then
+  echo "Playwright runtime 缺少 $ARCH 架构的 Chromium 或 headless shell。" >&2
   exit 1
 fi
 

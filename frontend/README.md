@@ -13,7 +13,7 @@ frontend/
   services/             后端 API 封装（fetch 调用）
   request.ts            统一请求工具（带 session cookie、错误处理）
   types.ts              共享类型定义
-  vite.config.ts        Vite 配置（base=/static/，代理 /api 到 :8080）
+  vite.config.ts        Vite 配置（base=/static/，代理 /api 到 :59188）
 ```
 
 ## 开发
@@ -21,10 +21,12 @@ frontend/
 ```bash
 cd /Users/christ/Workspace/git/xianyu/Ydisks-Xianyu-Helper/frontend
 npm install
-npm run dev      # http://localhost:3000，API 代理到 localhost:8080
+npm run dev      # http://localhost:3000，API 代理到 localhost:59188
 ```
 
-开发时先启动后端（`go run ./cmd/server -addr :8080`），再启动前端 dev server。
+开发时先启动后端（默认端口为 `59188`；桌面安装包绑定 `127.0.0.1`，源码运行可按需指定监听地址），
+例如 `go run ./cmd/server -addr :59188`，再启动前端 dev server。
+这里的 `localhost:3000` 仅是 Vite 开发服务器地址，不是应用服务端口。
 
 ## 构建产物
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -53,6 +54,28 @@ func TestLoadOrCreateDataKeyPersists(t *testing.T) {
 	}
 	if raw, err := os.ReadFile(path); err != nil || string(raw) == "" {
 		t.Fatalf("data key file was not written: err=%v", err)
+	}
+}
+
+func TestOpenServerLogWriterUsesConfiguredDirectory(t *testing.T) {
+	logDir := t.TempDir()
+	t.Setenv("XIANYU_LOG_DIR", logDir)
+
+	writer, closeLog, err := openServerLogWriter("")
+	if err != nil {
+		t.Fatalf("open log writer: %v", err)
+	}
+	if _, err := io.WriteString(writer, "test log\n"); err != nil {
+		t.Fatalf("write log: %v", err)
+	}
+	closeLog()
+
+	content, err := os.ReadFile(filepath.Join(logDir, "server.log"))
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+	if string(content) != "test log\n" {
+		t.Fatalf("unexpected log content: %q", content)
 	}
 }
 

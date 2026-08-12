@@ -18,12 +18,19 @@ env:
 
 jobs:
   linux:
-    name: Linux 安装包
+    name: Linux 安装包 (${{ matrix.arch }})
     if: github.ref == 'refs/heads/codex/desktop-packaging'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            playwright_platform: ubuntu24.04-x64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            playwright_platform: ubuntu24.04-arm64
     steps:
       - name: 检出代码
         uses: actions/checkout@v6
@@ -40,9 +47,6 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-
-      - name: 配置 QEMU
-        uses: docker/setup-qemu-action@v4
 
       - name: 构建嵌入式前端
         run: npm ci --prefix frontend && npm run build --prefix frontend
@@ -63,33 +67,62 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: dist/ydisks-xianyu-helper-linux-${{ matrix.arch }}/playwright-runtime
-          key: ydisks-playwright-runtime-v2-linux-${{ matrix.arch }}-${{ hashFiles('go.mod', 'go.sum', 'cmd/browser-install/main.go') }}
+          key: ydisks-playwright-runtime-v4-linux-${{ matrix.arch }}-${{ hashFiles('go.mod', 'go.sum', 'cmd/browser-install/main.go') }}
 
-      - name: 预下载 Linux Chromium runtime
+      - name: 在原生架构 runner 预下载 Linux Chromium runtime
         if: steps.cache-linux-playwright.outputs.cache-hit != 'true'
         env:
           GOARCH: ${{ matrix.arch }}
+          PLAYWRIGHT_HOST_PLATFORM_OVERRIDE: ${{ matrix.playwright_platform }}
         run: |
           set -Eeuo pipefail
+          case "$(uname -m)" in
+            x86_64) runner_arch=amd64 ;;
+            aarch64|arm64) runner_arch=arm64 ;;
+            *) echo "不支持的 runner 架构：$(uname -m)" >&2; exit 1 ;;
+          esac
+          if [ "$runner_arch" != "$GOARCH" ]; then
+            echo "runner 架构 $runner_arch 与目标架构 $GOARCH 不一致，拒绝使用模拟器构建。" >&2
+            exit 1
+          fi
           package_dir="dist/ydisks-xianyu-helper-linux-${GOARCH}"
           runtime_dir="$package_dir/playwright-runtime/$GOARCH"
-          case "$GOARCH" in
-            amd64) playwright_platform="ubuntu20.04-x64" ;;
-            arm64) playwright_platform="ubuntu20.04-arm64" ;;
-            *) echo "不支持的 Linux 架构：$GOARCH" >&2; exit 1 ;;
-          esac
           mkdir -p "$runtime_dir/playwright-driver" "$runtime_dir/playwright-browsers"
-          PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="$playwright_platform" \
-            "$package_dir/browser-install" \
-            -driver-dir "$runtime_dir/playwright-driver" \
-            -browser-dir "$runtime_dir/playwright-browsers"
+          "$package_dir/browser-install" \
+            -driver-dir "$PWD/$runtime_dir/playwright-driver" \
+            -browser-dir "$PWD/$runtime_dir/playwright-browsers"
 
       - name: 保存 Linux Chromium runtime 缓存
         if: steps.cache-linux-playwright.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
           path: dist/ydisks-xianyu-helper-linux-${{ matrix.arch }}/playwright-runtime
-          key: ${{ steps.cache-linux-playwright.outputs.cache-primary-key }}
+          key: ydisks-playwright-runtime-v4-linux-${{ matrix.arch }}-${{ hashFiles('go.mod', 'go.sum', 'cmd/browser-install/main.go') }}
+
+      - name: 校验 Linux Chromium runtime 架构
+        env:
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          set -Eeuo pipefail
+          runtime_dir="dist/ydisks-xianyu-helper-linux-${GOARCH}/playwright-runtime/${GOARCH}"
+          node_path="$runtime_dir/playwright-driver/node"
+          test -x "$node_path"
+          "$node_path" --version
+          node_type="$(file -b "$node_path")"
+          case "$GOARCH:$node_type" in
+            amd64:*x86-64*) ;;
+            arm64:*aarch64*|arm64:*ARM64*) ;;
+            *) echo "Playwright driver 架构错误：$node_type" >&2; exit 1 ;;
+          esac
+          chromium_path="$(find "$runtime_dir/playwright-browsers" -type f \
+            \( -name chrome -o -name headless_shell \) -perm -111 -print -quit)"
+          test -n "$chromium_path"
+          chromium_type="$(file -b "$chromium_path")"
+          case "$GOARCH:$chromium_type" in
+            amd64:*x86-64*) ;;
+            arm64:*aarch64*|arm64:*ARM64*) ;;
+            *) echo "Chromium 架构错误：$chromium_type" >&2; exit 1 ;;
+          esac
 
       - name: 组装 Linux 安装目录
         run: |
@@ -131,6 +164,22 @@ jobs:
       - name: 构建嵌入式前端
         shell: pwsh
         run: npm ci --prefix frontend; npm run build --prefix frontend
+
+      - name: 验证 Windows 托盘逻辑与安装脚本
+        shell: pwsh
+        run: |
+          go test ./cmd/tray
+          $tokens = $null
+          $parseErrors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'packaging/windows/service-control.ps1'),
+            [ref]$tokens,
+            [ref]$parseErrors
+          )
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.Message }
+            throw 'Windows 服务安装脚本语法检查失败'
+          }
 
       - name: 编译 Windows 桌面程序
         shell: pwsh
@@ -244,6 +293,9 @@ jobs:
 
       - name: 构建嵌入式前端
         run: npm ci --prefix frontend && npm run build --prefix frontend
+
+      - name: 验证 macOS 托盘逻辑
+        run: go test ./cmd/tray
 
       - name: 编译 macOS 桌面程序
         run: |

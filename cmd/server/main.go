@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -88,7 +89,7 @@ func parseOptions() serverOptions {
 	var opts serverOptions
 	flag.StringVar(&opts.dbPath, "db", defaultDBPath, "SQLite 数据库路径（兼容旧用法）")
 	flag.StringVar(&opts.dbURL, "db-url", "", "数据库连接 URL（sqlite:// mysql:// postgres://），优先级高于 -db；也可用 DATABASE_URL 环境变量")
-	flag.StringVar(&opts.addr, "addr", ":8080", "HTTP 监听地址")
+	flag.StringVar(&opts.addr, "addr", ":59188", "HTTP 监听地址")
 	flag.StringVar(&opts.webDir, "web", "", "前端静态资源目录（含 index.html）")
 	flag.StringVar(&opts.workDir, "workdir", "", "服务工作目录；用于桌面服务固定数据和浏览器目录")
 	flag.StringVar(&opts.playwrightRuntimeRoot, "playwright-runtime-root", "", "随安装包分发的 Playwright runtime 根目录")
@@ -185,7 +186,12 @@ func runServer(parent context.Context, opts serverOptions) error {
 		resolvedLogFormat = strings.TrimSpace(opts.logFormat)
 		explicitLogFormat = true
 	}
-	logger := logging.NewLogger(os.Stdout, resolvedLogFormat)
+	logWriter, closeLog, err := openServerLogWriter(dataDir)
+	if err != nil {
+		return err
+	}
+	defer closeLog()
+	logger := logging.NewLogger(logWriter, resolvedLogFormat)
 	slog.SetDefault(logger)
 
 	database, dialect, err := db.Open(ctx, resolvedDBURL)
@@ -207,7 +213,7 @@ func runServer(parent context.Context, opts serverOptions) error {
 	}
 	if !explicitLogFormat {
 		if format, err := store.Settings.Get(ctx, "log_format"); err == nil && strings.TrimSpace(format) != "" {
-			logger = logging.NewLogger(os.Stdout, format)
+			logger = logging.NewLogger(logWriter, format)
 			slog.SetDefault(logger)
 		}
 	}
@@ -277,6 +283,29 @@ func runServer(parent context.Context, opts serverOptions) error {
 	}
 	notifier.Wait()
 	return runErr
+}
+
+// openServerLogWriter keeps container and interactive runs on stdout while
+// desktop/system-service installations persist logs in their platform log
+// directory. Windows services do not have a useful console, so they get a
+// default log file beside the service data directory.
+func openServerLogWriter(dataDir string) (io.Writer, func(), error) {
+	logDir := strings.TrimSpace(os.Getenv("XIANYU_LOG_DIR"))
+	if logDir == "" && runtime.GOOS == "windows" && dataDir != "" {
+		logDir = filepath.Join(dataDir, "logs")
+	}
+	if logDir == "" {
+		return os.Stdout, func() {}, nil
+	}
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		return nil, nil, fmt.Errorf("创建日志目录失败: %w", err)
+	}
+	logPath := filepath.Join(logDir, "server.log")
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, nil, fmt.Errorf("打开日志文件失败: %w", err)
+	}
+	return file, func() { _ = file.Close() }, nil
 }
 
 func applyPlaywrightRuntimeRoot(opts *serverOptions) {

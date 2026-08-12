@@ -10,113 +10,113 @@ export default defineConfig({
     proxy: {
       // 代理API请求到后端
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
 		ws: true,
       },
       // 代理其他后端请求
       '/cookies': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/account': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/qr-login': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/password-login': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/keywords': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/keywords-with-item-id': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/default-reply': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/items': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/cards': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/automation-rules': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/automation-issues': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/automation-runs': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/automation-pending-tasks': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/notification-channels': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/message-notifications': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/ai-reply-settings': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/ai-models': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/system-settings': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/user-settings': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/admin': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/analytics': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/login': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/verify': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/logout': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/change-password': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:59188',
         changeOrigin: true,
       },
     },

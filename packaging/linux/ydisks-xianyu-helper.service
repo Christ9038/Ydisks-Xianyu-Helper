@@ -9,7 +9,8 @@ User=ydisks-xianyu
 Group=ydisks-xianyu
 WorkingDirectory=/var/lib/ydisks-xianyu-helper
 EnvironmentFile=-/etc/ydisks-xianyu-helper/config.env
-ExecStart=/opt/ydisks-xianyu-helper/xianyu-server -addr 127.0.0.1:8080 -workdir /var/lib/ydisks-xianyu-helper -data-key-file /var/lib/ydisks-xianyu-helper/data-key -playwright-runtime-root /opt/ydisks-xianyu-helper/playwright-runtime
+Environment=XIANYU_LOG_DIR=/var/log/ydisks-xianyu-helper
+ExecStart=/opt/ydisks-xianyu-helper/xianyu-server -addr 127.0.0.1:59188 -workdir /var/lib/ydisks-xianyu-helper -data-key-file /var/lib/ydisks-xianyu-helper/data-key -playwright-runtime-root /opt/ydisks-xianyu-helper/playwright-runtime
 Restart=on-failure
 RestartSec=5s
 KillSignal=SIGTERM
