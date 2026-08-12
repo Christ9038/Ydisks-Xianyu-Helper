@@ -158,7 +158,7 @@ docker compose up -d
 环境要求：
 
 - Go 1.26.4 或兼容版本
-- Node.js 22 与 npm
+- Node.js 24 与 npm
 - Chromium 运行所需的系统依赖
 - 默认可直接使用 SQLite，无需额外数据库服务
 
@@ -208,8 +208,10 @@ Windows 和 macOS 托盘启动时会自动启动后台服务，并显示检查�
 `/var/log/ydisks-xianyu-helper/server.log`，也可以使用
 `journalctl -u ydisks-xianyu-helper.service` 查看。
 
-桌面端安装包由 GitHub Actions 工作流在 `main` 和 `codex/desktop-packaging` 分支构建：Linux 上传
-amd64/arm64 tar 包，Windows 上传安装器，macOS 分别上传 arm64 和 amd64 安装包。Windows
+桌面端安装包由 GitHub Actions 工作流在 `main`、`codex/desktop-packaging` 分支以及 `v1.2.3`
+格式的版本标签上构建：Linux 上传 amd64/arm64 tar 包，Windows 上传安装器，macOS 分别上传
+arm64 和 amd64 安装包。版本标签构建全部成功后，会自动创建 GitHub Release，上传各平台安装包
+及 `SHA256SUMS`。Windows
 和 macOS 安装包使用工作流中配置的固定签名证书签名；未配置对应 GitHub Secrets 时，签名
 步骤会失败，不会生成可分发的安装包。
 
@@ -409,11 +411,13 @@ ARM64 Linux 拉取 arm64，不需要手动设置 `platform`。
 | --- | --- |
 | `main` 分支 | `main`、`latest`、`sha-<完整提交号>` |
 | `codex/desktop-packaging` 分支 | `alpha`、`desktop-packaging`、`sha-<完整提交号>` |
-| `v1.2.3` 标签 | `1.2.3`、`1.2`、`sha-<完整提交号>` |
+| `v1.2.3` 标签 | `v1.2.3`、`1.2.3`、`1.2`、`sha-<完整提交号>` |
 
 当前 Docker 发布工作流会在 `main` 分支发布 `main` 和 `latest` 正式镜像，并在
 `codex/desktop-packaging` 分支发布 `desktop-packaging` 和 `alpha` 标签用于验收；其他开发分支
-不会自动生成 GHCR 标签。
+不会自动生成 GHCR 标签。推送 `v1.2.3` 格式的 Git 标签会同时触发版本 Docker 镜像和 GitHub
+Release。所有 Docker 发布都必须先通过 Go/前端测试，再对每个原生架构镜像实际启动 Chromium
+和服务并通过 `/health` 检查，之后才会生成 `latest`、分支或版本 manifest。
 
 生产环境建议使用明确的版本标签或 SHA 标签，避免上游更新导致未经验证的自动升级。
 
@@ -650,8 +654,9 @@ go run ./cmd/server -init-admin -db data/xianyu_data.db -admin-password '新密�
 ### Chromium 或 Playwright 初始化失败
 
 - Docker 部署优先使用项目提供的镜像，镜像在构建阶段已下载并校验匹配架构的 Chromium runtime；
-  Docker CI 优先复用 GitHub Actions 缓存，不依赖 Debian 仓库中的 `chromium` 包，也不会在最终镜像
-  构建阶段执行 `apt-get update`。
+  Docker CI 优先复用 GitHub Actions 缓存，不依赖 Debian 仓库中的 `chromium` 包。最终镜像基于
+  固定的 Node.js 24 slim 镜像，只通过 Playwright 安装 Chromium 所需动态库，并在同一镜像层清理
+  apt 索引和临时缓存；发布前会实际启动 Chromium 和服务进行门禁验证。
 - 独立安装包在 CI 构建阶段下载对应架构的 Playwright driver 和 Chromium；Linux 安装时只
   安装系统库，不需要再次下载浏览器。
 - 源码运行时确认系统允许下载 Playwright 驱动和 Chromium。

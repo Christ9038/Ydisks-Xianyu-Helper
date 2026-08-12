@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM --platform=$BUILDPLATFORM node:latest AS frontend
+FROM --platform=$BUILDPLATFORM node:24-trixie-slim AS frontend
 WORKDIR /src/frontend
 COPY frontend/package*.json ./
 RUN npm ci
@@ -30,7 +30,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/browser-install-ho
 
 # Docker CI 会把与独立安装包相同的目标架构 runtime 放到
 # .docker/playwright-runtime，构建时直接复制，不在 Dockerfile 内重复下载浏览器。
-FROM --platform=$BUILDPLATFORM node:latest AS playwright-runtime
+FROM --platform=$BUILDPLATFORM node:24-trixie-slim AS playwright-runtime
 ARG TARGETARCH
 ENV PLAYWRIGHT_DRIVER_PATH=/ms-playwright-go
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
@@ -63,7 +63,7 @@ RUN set -eux; \
     test -d "/ms-playwright/chromium_headless_shell-$headless_revision"; \
     find /ms-playwright -type f -perm -111 \( -name chrome -o -name chrome-headless-shell -o -name headless_shell \) -print -quit | grep -q .
 
-FROM node:latest AS runtime
+FROM node:24-trixie-slim AS runtime
 ENV TZ=Asia/Shanghai
 ENV BROWSER_HEADLESS=true
 ENV PLAYWRIGHT_DRIVER_PATH=/ms-playwright-go
@@ -76,6 +76,12 @@ COPY --from=backend /out/xianyu-dbseed /app/xianyu-dbseed
 COPY --from=backend /out/xianyu-dbverify /app/xianyu-dbverify
 COPY --from=playwright-runtime /ms-playwright-go /ms-playwright-go
 COPY --from=playwright-runtime /ms-playwright /ms-playwright
-RUN mkdir -p /app/data /app/browser_data
+# 浏览器文件本身不包含 Linux 动态链接库。使用与 runtime 同捆的 Playwright
+# driver 只安装 Chromium 所需系统依赖，并在同一镜像层清理 apt/npm/临时缓存。
+RUN set -eux; \
+    node /ms-playwright-go/package/cli.js install-deps chromium; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/* /root/.cache /tmp/* /var/tmp/*; \
+    mkdir -p /app/data /app/browser_data
 EXPOSE 59188
 CMD ["/app/xianyu-server", "-addr", ":59188"]

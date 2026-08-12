@@ -36,7 +36,7 @@ describe('frontend navigation routing', () => {
   test('logout button invalidates the backend session before clearing UI state', () => {
     const app = readFrontendFile('App.tsx');
 
-    expect(app).toContain('import { login, logout, verifySession }');
+    expect(app).toContain('import { initializeAdmin, login, logout, verifySession }');
     expect(app).toContain('await logout();');
     expect(app).toContain('onLogout={handleLogout}');
   });

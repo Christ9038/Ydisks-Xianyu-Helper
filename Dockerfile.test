@@ -1,7 +1,7 @@
 FROM alpine:3.22 AS sqlite-tools
 RUN apk add --no-cache sqlite
 
-FROM node:latest AS frontend-assets
+FROM node:24-trixie-slim AS frontend-assets
 WORKDIR /src/frontend
 COPY frontend/package*.json ./
 RUN npm ci
@@ -24,7 +24,7 @@ COPY . .
 COPY --from=frontend-assets /src/internal/webui/static ./internal/webui/static
 CMD ["golangci-lint", "run", "./..."]
 
-FROM node:latest AS frontend-test
+FROM node:24-trixie-slim AS frontend-test
 WORKDIR /src/frontend
 COPY frontend/package*.json ./
 RUN npm ci
