@@ -1,10 +1,13 @@
 package browser
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
-	playwright "github.com/playwright-community/playwright-go"
+	playwright "github.com/mxschmitt/playwright-go"
 )
 
 // TestChromiumLaunchArgs 验证启动参数含关键安全/反检测项。
@@ -25,6 +28,62 @@ func TestChromiumLaunchArgs(t *testing.T) {
 		if !found {
 			t.Errorf("缺少关键参数 %s", w)
 		}
+	}
+}
+
+func TestPackagedPlaywrightRuntimeReady(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	driverDir := filepath.Join(runtimeRoot, "driver")
+	browserDir := filepath.Join(runtimeRoot, "browsers")
+	if err := os.MkdirAll(filepath.Join(driverDir, "package"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(browserDir, "chromium-1228"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	nodeName := "node"
+	if runtime.GOOS == "windows" {
+		nodeName = "node.exe"
+	}
+	for _, path := range []string{
+		filepath.Join(driverDir, nodeName),
+		filepath.Join(driverDir, "package", "cli.js"),
+	} {
+		if err := os.WriteFile(path, []byte("runtime"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PLAYWRIGHT_DRIVER_PATH", driverDir)
+	t.Setenv("PLAYWRIGHT_BROWSERS_PATH", browserDir)
+	t.Setenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "")
+	if !packagedPlaywrightRuntimeReady() {
+		t.Fatal("预置 Playwright runtime 应被识别")
+	}
+}
+
+func TestPackagedPlaywrightRuntimeReadyWithExternalNode(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	driverDir := filepath.Join(runtimeRoot, "driver")
+	browserDir := filepath.Join(runtimeRoot, "browsers")
+	if err := os.MkdirAll(filepath.Join(driverDir, "package"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(browserDir, "chromium-1228"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(driverDir, "package", "cli.js"), []byte("runtime"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nodePath := filepath.Join(runtimeRoot, "node")
+	if err := os.WriteFile(nodePath, []byte("runtime"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PLAYWRIGHT_DRIVER_PATH", driverDir)
+	t.Setenv("PLAYWRIGHT_NODEJS_PATH", nodePath)
+	t.Setenv("PLAYWRIGHT_BROWSERS_PATH", browserDir)
+	t.Setenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "")
+	if !packagedPlaywrightRuntimeReady() {
+		t.Fatal("配置外部 Node.js 的预置 Playwright runtime 应被识别")
 	}
 }
 

@@ -9,9 +9,9 @@ x-app-env: &app-env
   LOG_FORMAT: ${LOG_FORMAT:-json}
   BROWSER_HEADLESS: ${BROWSER_HEADLESS:-true}
   PLAYWRIGHT_DRIVER_PATH: ${PLAYWRIGHT_DRIVER_PATH:-/ms-playwright-go}
-  PLAYWRIGHT_NODEJS_PATH: ${PLAYWRIGHT_NODEJS_PATH:-/usr/bin/node}
+  PLAYWRIGHT_NODEJS_PATH: ${PLAYWRIGHT_NODEJS_PATH:-/usr/local/bin/node}
+  PLAYWRIGHT_BROWSERS_PATH: ${PLAYWRIGHT_BROWSERS_PATH:-/ms-playwright}
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: ${PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:-1}
-  PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH:-/usr/bin/chromium}
 
 x-app-volumes: &app-volumes
   - app_data:/app/data
@@ -45,12 +45,12 @@ services:
       postgres:
         condition: service_healthy
     environment: *app-env
-    command: ["/app/xianyu-server", "-addr", ":8080", "-ensure-admin"]
+    command: ["/app/xianyu-server", "-addr", ":59188", "-ensure-admin"]
     ports:
-      - "${XIANYU_BIND_ADDRESS:-0.0.0.0}:${XIANYU_HTTP_PORT:-8080}:8080"
+      - "${XIANYU_BIND_ADDRESS:-0.0.0.0}:${XIANYU_HTTP_PORT:-59188}:59188"
     volumes: *app-volumes
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null || exit 1"]
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:59188/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 5

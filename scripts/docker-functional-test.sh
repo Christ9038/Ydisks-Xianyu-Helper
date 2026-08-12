@@ -61,6 +61,6 @@ test_instance() {
   printf '%s functional test passed\n' "$name"
 }
 
-test_instance sqlite http://app-sqlite:8080
-test_instance mysql http://app-mysql:8080
-test_instance postgres http://app-postgres:8080
+test_instance sqlite http://app-sqlite:59188
+test_instance mysql http://app-mysql:59188
+test_instance postgres http://app-postgres:59188

@@ -1,0 +1,159 @@
+#!/bin/sh
+set -eu
+
+VERSION="${1:?version is required}"
+DIST_DIR="${2:?dist directory is required}"
+ARCH="${3:?architecture is required (arm64 or amd64)}"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+PROJECT_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/../.." && pwd)"
+BIN_DIR="$DIST_DIR/$ARCH"
+ROOT_DIR="$DIST_DIR/pkgroot-$ARCH"
+APP_DIR="$ROOT_DIR/Applications/Ydisks闲鱼助手"
+APP="$APP_DIR/Ydisks闲鱼助手.app"
+PACKAGE_PATH="$DIST_DIR/Ydisks-Xianyu-Helper-$VERSION-$ARCH.pkg"
+UNSIGNED_PACKAGE_PATH="$DIST_DIR/.Ydisks-Xianyu-Helper-$VERSION-$ARCH.unsigned.pkg"
+
+case "$ARCH" in
+  arm64|amd64) ;;
+  *) echo "不支持的 macOS 架构：$ARCH" >&2; exit 1 ;;
+esac
+
+if [ ! -x "$BIN_DIR/xianyu-server" ] || [ ! -x "$BIN_DIR/xianyu-tray" ]; then
+  echo "缺少 $ARCH 架构的桌面二进制：$BIN_DIR" >&2
+  exit 1
+fi
+case "$ARCH" in
+  arm64) PLATFORM_ARCH="arm64" ;;
+  amd64) PLATFORM_ARCH="x64" ;;
+esac
+runtime_dir="$DIST_DIR/playwright-runtime/$ARCH"
+runtime_has_chromium() {
+  find "$runtime_dir/playwright-browsers" -type f \
+    -path "*/chrome-mac-$PLATFORM_ARCH/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing" \
+    -print -quit 2>/dev/null | grep -q .
+}
+runtime_has_headless_shell() {
+  find "$runtime_dir/playwright-browsers" -type f \
+    -path "*/chrome-headless-shell-mac-$PLATFORM_ARCH/chrome-headless-shell" \
+    -print -quit 2>/dev/null | grep -q .
+}
+if [ ! -d "$runtime_dir/playwright-driver" ] || \
+   [ ! -d "$runtime_dir/playwright-browsers" ] || \
+   ! runtime_has_chromium || ! runtime_has_headless_shell; then
+  echo "未找到完整的 $ARCH Playwright runtime，尝试从本机缓存准备。" >&2
+  "$SCRIPT_DIR/prepare-runtime.sh" "$ARCH" "$runtime_dir"
+fi
+
+if ! runtime_has_chromium || ! runtime_has_headless_shell; then
+  echo "Playwright runtime 缺少 $ARCH 架构的 Chromium 或 headless shell。" >&2
+  exit 1
+fi
+
+rm -rf "$ROOT_DIR"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
+cp "$BIN_DIR/xianyu-server" "$APP/Contents/Helpers/xianyu-server"
+cp "$BIN_DIR/xianyu-tray" "$APP/Contents/MacOS/Ydisks闲鱼助手"
+cp "$SCRIPT_DIR/uninstall.command" "$APP_DIR/卸载 Ydisks闲鱼助手.command"
+cp "$SCRIPT_DIR/com.ydisks.xianyu-helper.server.plist.template" "$APP/Contents/Resources/"
+cp "$SCRIPT_DIR/com.ydisks.xianyu-helper.tray.plist.template" "$APP/Contents/Resources/"
+mkdir -p "$APP/Contents/Resources/playwright-runtime/$ARCH"
+cp -R "$DIST_DIR/playwright-runtime/$ARCH/." "$APP/Contents/Resources/playwright-runtime/$ARCH/"
+cp "$PROJECT_ROOT/icon/macos/Assets.car" "$APP/Contents/Resources/Assets.car"
+cp "$PROJECT_ROOT/icon/macos/icon.icns" "$APP/Contents/Resources/icon.icns"
+sed "s/__VERSION__/$VERSION/g" "$SCRIPT_DIR/Info.plist" > "$APP/Contents/Info.plist"
+chmod 0755 "$APP/Contents/MacOS/Ydisks闲鱼助手" "$APP/Contents/Helpers/xianyu-server" "$APP_DIR/卸载 Ydisks闲鱼助手.command"
+
+# pkgbuild 会保留 runtime 文件的原始权限；Playwright 下载的 Node 和
+# Chromium Mach-O 可能只有所有者可执行。安装包由 root 安装后，普通用户
+# 启动 LaunchAgent 时会因 permission denied 无法执行，因此统一授予执行权限。
+runtime_files="$(mktemp)"
+trap 'rm -f "$runtime_files"' EXIT
+find "$APP/Contents/Resources/playwright-runtime" -type f -print > "$runtime_files"
+while IFS= read -r runtime_file; do
+  if file "$runtime_file" | grep -q 'Mach-O'; then
+    chmod 0755 "$runtime_file"
+  fi
+done < "$runtime_files"
+
+if [ -n "${MACOS_SIGNING_IDENTITY:-}" ]; then
+  sign_code() {
+    target="$1"
+    if [ -n "${MACOS_SIGNING_KEYCHAIN:-}" ]; then
+      codesign --force --sign "$MACOS_SIGNING_IDENTITY" \
+        --keychain "$MACOS_SIGNING_KEYCHAIN" --timestamp=none "$target"
+    else
+      codesign --force --sign "$MACOS_SIGNING_IDENTITY" \
+        --timestamp=none "$target"
+    fi
+  }
+
+  sign_nested_bundle() {
+    nested_bundle="$1"
+    echo "Signing nested bundle: $nested_bundle"
+    if [ -n "${MACOS_SIGNING_KEYCHAIN:-}" ]; then
+      codesign --force --deep --sign "$MACOS_SIGNING_IDENTITY" \
+        --keychain "$MACOS_SIGNING_KEYCHAIN" --timestamp=none "$nested_bundle"
+    else
+      codesign --force --deep --sign "$MACOS_SIGNING_IDENTITY" \
+        --timestamp=none "$nested_bundle"
+    fi
+  }
+
+  # Playwright runtime 中包含独立 Node 和 Chromium.app。bundle 主程序不能
+  # 提前作为单个 Mach-O 签名，否则 codesign 会先校验尚未签名的内层 Framework。
+  # 因此这里只签 bundle 外的独立 Mach-O，再按目录深度递归签名所有 bundle。
+  signing_list="$runtime_files"
+
+  find "$APP/Contents/Resources/playwright-runtime" -type f -print > "$signing_list"
+  while IFS= read -r executable; do
+    case "$executable" in
+      *.app/*|*.framework/*|*.xpc/*) continue ;;
+    esac
+    if file "$executable" | grep -q 'Mach-O'; then
+      sign_code "$executable"
+    fi
+  done < "$signing_list"
+
+  find "$APP/Contents/Resources/playwright-runtime" -depth -type d \
+    \( -name '*.framework' -o -name '*.xpc' -o -name '*.app' \) -print > "$signing_list"
+  while IFS= read -r nested_bundle; do
+    sign_nested_bundle "$nested_bundle"
+  done < "$signing_list"
+
+  # macOS 代码签名必须从内部组件开始，最后再签名 App 包本身。
+  sign_code "$APP/Contents/Helpers/xianyu-server"
+  sign_code "$APP/Contents/MacOS/Ydisks闲鱼助手"
+  sign_code "$APP"
+  codesign --verify --deep --strict --verbose=2 "$APP"
+fi
+
+if [ -n "${MACOS_SIGNING_IDENTITY:-}" ] && [ -z "${MACOS_INSTALLER_SIGNING_IDENTITY:-}" ]; then
+  echo 'MACOS_INSTALLER_SIGNING_IDENTITY 未设置，不能生成已签名 macOS 安装包' >&2
+  exit 1
+fi
+
+rm -f "$PACKAGE_PATH" "$UNSIGNED_PACKAGE_PATH"
+
+pkgbuild \
+  --root "$ROOT_DIR" \
+  --component-plist "$SCRIPT_DIR/component.plist" \
+  --scripts "$SCRIPT_DIR/scripts" \
+  --identifier com.ydisks.xianyu-helper \
+  --version "$VERSION" \
+  --install-location / \
+  "$UNSIGNED_PACKAGE_PATH"
+
+if [ -n "${MACOS_INSTALLER_SIGNING_IDENTITY:-}" ]; then
+  if [ -n "${MACOS_SIGNING_KEYCHAIN:-}" ]; then
+    productsign --sign "$MACOS_INSTALLER_SIGNING_IDENTITY" \
+      --keychain "$MACOS_SIGNING_KEYCHAIN" \
+      "$UNSIGNED_PACKAGE_PATH" "$PACKAGE_PATH"
+  else
+    productsign --sign "$MACOS_INSTALLER_SIGNING_IDENTITY" \
+      "$UNSIGNED_PACKAGE_PATH" "$PACKAGE_PATH"
+  fi
+  pkgutil --check-signature "$PACKAGE_PATH"
+  rm -f "$UNSIGNED_PACKAGE_PATH"
+else
+  mv "$UNSIGNED_PACKAGE_PATH" "$PACKAGE_PATH"
+fi

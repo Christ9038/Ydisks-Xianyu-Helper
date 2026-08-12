@@ -3,11 +3,19 @@
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
 
-.PHONY: build build-int test test-int vet lint cover tidy frontend fmt check
+.PHONY: build build-int build-browser-install build-tray test test-int vet lint cover tidy frontend fmt check
 
 ## build: 编译 server（默认，跳过 integration build tag）
 build:
 	$(GO) build ./cmd/server
+
+## build-browser-install: 编译独立的 Chromium 安装辅助程序
+build-browser-install:
+	$(GO) build ./cmd/browser-install
+
+## build-tray: 编译 Windows/macOS 菜单栏控制器（需在目标桌面系统上编译）
+build-tray:
+	$(GO) build ./cmd/tray
 
 ## build-int: 带 integration tag 编译（含 browser 包，需要 Chromium 环境）
 build-int:

@@ -1,20 +1,11 @@
 # syntax=docker/dockerfile:1.7
 
-FROM --platform=$BUILDPLATFORM node:22-trixie AS frontend
+FROM --platform=$BUILDPLATFORM node:latest AS frontend
 WORKDIR /src/frontend
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
 RUN npm run build
-
-FROM --platform=$BUILDPLATFORM node:22-trixie AS playwright-driver
-RUN npm install -g playwright@1.57.0 \
-    && mkdir -p /ms-playwright-go/package \
-    && cp -a /usr/local/lib/node_modules/playwright/. /ms-playwright-go/package/ \
-    && if [ -d /usr/local/lib/node_modules/playwright-core ]; then \
-        mkdir -p /ms-playwright-go/package/node_modules \
-        && cp -a /usr/local/lib/node_modules/playwright-core /ms-playwright-go/package/node_modules/playwright-core; \
-    fi
 
 FROM --platform=$BUILDPLATFORM golang:1.26-trixie AS backend
 ARG TARGETOS
@@ -28,28 +19,63 @@ RUN CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldfl
     && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w" -o /out/xianyu-dbseed ./cmd/dbseed \
     && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w" -o /out/xianyu-dbverify ./cmd/dbverify
 
-FROM debian:13-slim AS runtime
+# 本地 Docker 构建没有主机 runtime 缓存时使用此工具下载一次；CI 会优先复制缓存，
+# 不会走这个兜底路径。
+FROM --platform=$BUILDPLATFORM golang:1.26-trixie AS browser-install-builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/browser-install ./cmd/browser-install
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/browser-install-host ./cmd/browser-install
+
+# Docker CI 会把与独立安装包相同的目标架构 runtime 放到
+# .docker/playwright-runtime，构建时直接复制，不在 Dockerfile 内重复下载浏览器。
+FROM --platform=$BUILDPLATFORM node:latest AS playwright-runtime
+ARG TARGETARCH
+ENV PLAYWRIGHT_DRIVER_PATH=/ms-playwright-go
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PLAYWRIGHT_NODEJS_PATH=/usr/local/bin/node
+COPY --from=browser-install-builder /out/browser-install-host /usr/local/bin/browser-install
+COPY .docker/playwright-runtime /prebuilt-playwright-runtime
+RUN set -eux; \
+    mkdir -p /ms-playwright-go /ms-playwright; \
+    case "$TARGETARCH" in \
+      amd64) runtime_arch=amd64 ;; \
+      arm64) runtime_arch=arm64 ;; \
+      *) echo "不支持的 Docker 架构：$TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    if [ -f "/prebuilt-playwright-runtime/$runtime_arch/playwright-driver/package/cli.js" ]; then \
+      cp -R "/prebuilt-playwright-runtime/$runtime_arch/playwright-driver/." /ms-playwright-go/; \
+      cp -R "/prebuilt-playwright-runtime/$runtime_arch/playwright-browsers/." /ms-playwright/; \
+    else \
+      case "$TARGETARCH" in \
+        amd64) playwright_platform=debian13-x64 ;; \
+        arm64) playwright_platform=debian13-arm64 ;; \
+      esac; \
+      PLAYWRIGHT_HOST_PLATFORM_OVERRIDE="$playwright_platform" /usr/local/bin/browser-install \
+        -driver-dir /ms-playwright-go \
+        -browser-dir /ms-playwright; \
+    fi; \
+    test -f /ms-playwright-go/package/cli.js; \
+    chromium_revision="$(node -e 'const b=require("/ms-playwright-go/package/browsers.json").browsers; process.stdout.write(b.find(x=>x.name==="chromium").revision)')"; \
+    headless_revision="$(node -e 'const b=require("/ms-playwright-go/package/browsers.json").browsers; process.stdout.write(b.find(x=>x.name==="chromium-headless-shell").revision)')"; \
+    test -d "/ms-playwright/chromium-$chromium_revision"; \
+    test -d "/ms-playwright/chromium_headless_shell-$headless_revision"; \
+    find /ms-playwright -type f -perm -111 \( -name chrome -o -name chrome-headless-shell -o -name headless_shell \) -print -quit | grep -q .
+
+FROM node:latest AS runtime
 ENV TZ=Asia/Shanghai
 ENV BROWSER_HEADLESS=true
 ENV PLAYWRIGHT_DRIVER_PATH=/ms-playwright-go
-ENV PLAYWRIGHT_NODEJS_PATH=/usr/bin/node
+ENV PLAYWRIGHT_NODEJS_PATH=/usr/local/bin/node
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 WORKDIR /app
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        chromium \
-        curl \
-        fonts-liberation \
-        fonts-noto-cjk \
-        nodejs \
-        tzdata \
-    && rm -rf /var/lib/apt/lists/*
 COPY --from=backend /out/xianyu-server /app/xianyu-server
 COPY --from=backend /out/xianyu-dbseed /app/xianyu-dbseed
 COPY --from=backend /out/xianyu-dbverify /app/xianyu-dbverify
-COPY --from=playwright-driver /ms-playwright-go /ms-playwright-go
+COPY --from=playwright-runtime /ms-playwright-go /ms-playwright-go
+COPY --from=playwright-runtime /ms-playwright /ms-playwright
 RUN mkdir -p /app/data /app/browser_data
-EXPOSE 8080
-CMD ["/app/xianyu-server", "-addr", ":8080"]
+EXPOSE 59188
+CMD ["/app/xianyu-server", "-addr", ":59188"]

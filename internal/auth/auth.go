@@ -1,5 +1,5 @@
 // Package auth 实现 HttpOnly Cookie 会话认证，沿用 Fork 版安全基线：
-//   - 无默认口令（管理员必须经 init-admin CLI 初始化）
+//   - 无默认口令（管理员可经首次启动 Web UI 或 init-admin CLI 初始化）
 //   - 会话存 DB（sessions 表），HttpOnly + SameSite=Lax Cookie 传递
 //   - bcrypt 哈希，兼容老库无盐 SHA-26（首次登录静默升级）
 //

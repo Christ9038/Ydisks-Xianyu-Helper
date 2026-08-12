@@ -121,14 +121,14 @@ services:
       DATABASE_URL: *mysql-url
       XIANYU_DATA_KEY: *data-key
       TZ: Asia/Shanghai
-    command: ["/app/xianyu-server", "-addr", ":8080", "-no-browser"]
+    command: ["/app/xianyu-server", "-addr", ":59188", "-no-browser"]
     ports:
-      - "28081:8080"
+      - "28081:59188"
     volumes:
       - app_mysql_data:/app/data
       - app_mysql_browser_data:/app/browser_data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null"]
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:59188/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -143,14 +143,14 @@ services:
       DATABASE_URL: sqlite:///app/data/xianyu-functional.db
       XIANYU_DATA_KEY: *data-key
       TZ: Asia/Shanghai
-    command: ["/app/xianyu-server", "-addr", ":8080", "-no-browser"]
+    command: ["/app/xianyu-server", "-addr", ":59188", "-no-browser"]
     ports:
-      - "28080:8080"
+      - "28080:59188"
     volumes:
       - app_sqlite_data:/app/data
       - app_sqlite_browser_data:/app/browser_data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null"]
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:59188/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -165,14 +165,14 @@ services:
       DATABASE_URL: *postgres-url
       XIANYU_DATA_KEY: *data-key
       TZ: Asia/Shanghai
-    command: ["/app/xianyu-server", "-addr", ":8080", "-no-browser"]
+    command: ["/app/xianyu-server", "-addr", ":59188", "-no-browser"]
     ports:
-      - "28082:8080"
+      - "28082:59188"
     volumes:
       - app_postgres_data:/app/data
       - app_postgres_browser_data:/app/browser_data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health >/dev/null"]
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:59188/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 5s
       timeout: 5s
       retries: 30

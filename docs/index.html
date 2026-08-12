@@ -1120,6 +1120,7 @@
       <div class="code-tabs">
         <button class="code-tab-btn active" onclick="switchTab('docker')">🐳 Docker Compose (推荐)</button>
         <button class="code-tab-btn" onclick="switchTab('source')">🛠️ 源码构建运行</button>
+        <button class="code-tab-btn" onclick="switchTab('desktop')">🖥️ 独立安装包</button>
       </div>
 
       <!-- Tab Content 1: Docker -->
@@ -1133,14 +1134,15 @@
 <span class="command">cd</span> Ydisks-Xianyu-Helper
 <span class="command">cp</span> .env.example .env
 
-<span class="comment"># 2. 修改 .env 填入自己的强密码与主密钥</span>
+<span class="comment"># 2. 修改 .env 填入数据库密码、管理员密码与主密钥</span>
 <span class="comment"># POSTGRES_PASSWORD=...</span>
 <span class="comment"># XIANYU_DATA_KEY=...</span>
+<span class="comment"># XIANYU_ADMIN_PASSWORD=...</span>
 
 <span class="comment"># 3. 启动应用 (会自动拉取 GHCR 镜像并初始化 PostgreSQL 17)</span>
 <span class="command">docker compose up</span> -d
 
-<span class="comment"># 4. 浏览器访问 http://localhost:8080，使用 admin 账号登录</span></code></pre>
+<span class="comment"># 4. 浏览器访问 http://localhost:59188，使用 admin 账号登录</span></code></pre>
       </div>
 
       <!-- Tab Content 2: Source -->
@@ -1153,15 +1155,38 @@
 <span class="command">npm</span> --prefix frontend ci
 <span class="command">npm</span> --prefix frontend run build
 
-<span class="comment"># 2. 初始化管理员账号 (使用默认 SQLite)</span>
+<span class="comment"># 2. 启动服务端 (默认监听 :59188)</span>
 <span class="command">mkdir</span> -p data
 <span class="command">go run</span> ./cmd/server \
-  -init-admin \
   -db data/xianyu_data.db \
-  -admin-password <span class="string">'设置管理员密码'</span>
+  -addr :59188
 
-<span class="comment"># 3. 启动服务端 (默认监听 :8080)</span>
-<span class="command">go run</span> ./cmd/server -db data/xianyu_data.db -addr :8080</code></pre>
+<span class="comment"># 3. 浏览器访问 http://localhost:59188，在首次初始化页面设置管理员密码</span></code></pre>
+      </div>
+
+      <!-- Tab Content 3: Desktop packages -->
+      <div id="tab-desktop" class="code-box-wrapper" style="display: none;">
+        <div class="code-box-header">
+          <span class="code-box-title">Windows / macOS / Linux</span>
+        </div>
+        <pre><code id="code-desktop"><span class="comment"># Windows</span>
+下载安装器并运行；安装器会注册 YdisksXianyuHelper 服务，并在当前用户登录时启动托盘程序。
+
+<span class="comment"># macOS</span>
+根据 CPU 选择 arm64（Apple Silicon）或 amd64（Intel）安装包并运行。
+安装器会注册后台服务和菜单栏控制器。
+
+<span class="comment"># Linux</span>
+下载与主机架构匹配的 amd64 或 arm64 压缩包后执行：
+<span class="command">sudo</span> ./install.sh
+
+<span class="comment"># 三个平台首次启动</span>
+浏览器访问 http://127.0.0.1:59188，在首次初始化页面填写并确认管理员密码。
+安装包已经包含匹配架构的 Playwright driver、Chromium 和 headless shell，安装时只补齐系统依赖。</code></pre>
+        <p style="color: var(--text-muted); margin-top: 1rem;">
+          Windows 和 macOS 托盘可以启动、停止、重启服务，显示过渡状态，打开日志目录，并在退出前等待服务停止。
+          Linux 使用 systemd 管理 <code>ydisks-xianyu-helper.service</code>，没有桌面托盘。
+        </p>
       </div>
 
     </div>
@@ -1183,7 +1208,7 @@
             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
           </div>
           <div class="faq-answer">
-            使用 Docker Compose 部署时，服务在启动时会自动读取 <code>.env</code> 文件中的 <code>XIANYU_ADMIN_PASSWORD</code> 创建管理员，默认用户名统一为 <code>admin</code>。使用源码构建时，可运行 <code>go run ./cmd/server -init-admin -db ... -admin-password '你的密码'</code> 初始化。
+            使用 Docker Compose 部署时，服务会读取 <code>.env</code> 文件中的 <code>XIANYU_ADMIN_PASSWORD</code>，在首次启动时自动创建管理员，默认用户名为 <code>admin</code>。源码运行或桌面端安装后，首次访问管理页面会显示密码设置表单，填写并确认密码即可完成初始化并自动登录。无浏览器或自动化部署场景仍可使用 <code>-init-admin</code> CLI。
           </div>
         </div>
 
@@ -1213,7 +1238,27 @@
             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
           </div>
           <div class="faq-answer">
-            可以使用 <code>-no-browser</code> 启动参数运行纯 Go 后端与管理后台。但在没有 Chromium 的情况下，遇风控滑块自动通过能力将不可用。推荐直接使用官方 Docker 镜像（已预置 Chromium 与完整运行环境）。
+            可以使用 <code>-no-browser</code> 启动参数运行纯 Go 后端与管理后台，但在没有 Chromium 的情况下，遇风控滑块自动通过能力将不可用。Docker 镜像和 Windows、macOS、Linux 独立安装包都在构建阶段准备了匹配架构的 Chromium 与 Playwright runtime；Linux 安装时只补齐系统依赖，不会从 Debian 仓库重新下载浏览器。
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">
+            <span>Windows、macOS 和 Linux 安装包有什么区别？</span>
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+          <div class="faq-answer">
+            Windows 安装器注册 <code>YdisksXianyuHelper</code> Windows Service，并在当前用户登录时启动托盘；macOS 需要按 CPU 选择 arm64 或 amd64 安装包，并注册后台服务和菜单栏控制器；Linux 需要下载匹配架构的压缩包，以 root 执行 <code>./install.sh</code> 注册 <code>ydisks-xianyu-helper.service</code>。Windows 和 macOS 托盘支持服务控制、过渡状态和打开日志目录，Linux 使用 systemd 管理，没有桌面托盘。
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question" onclick="toggleFaq(this)">
+            <span>桌面端首次启动和退出如何处理？</span>
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          </div>
+          <div class="faq-answer">
+            桌面端服务默认使用 <code>http://127.0.0.1:59188</code>。首次打开管理页面时直接填写并确认管理员密码即可，不需要查找数据库路径或执行 CLI 初始化命令。托盘显示检查中、启动中、运行正常和正在停止等状态；选择退出托盘后，它会先等待后台服务确认停止，再退出自身。日志可从托盘菜单中的“打开日志目录”查看。
           </div>
         </div>
 
@@ -1274,21 +1319,17 @@
   <script>
     // Tab switching
     function switchTab(tabName) {
-      const dockerTab = document.getElementById('tab-docker');
-      const sourceTab = document.getElementById('tab-source');
+      const tabs = {
+        docker: document.getElementById('tab-docker'),
+        source: document.getElementById('tab-source'),
+        desktop: document.getElementById('tab-desktop')
+      };
       const buttons = document.querySelectorAll('.code-tab-btn');
 
       buttons.forEach(btn => btn.classList.remove('active'));
-
-      if (tabName === 'docker') {
-        dockerTab.style.display = 'block';
-        sourceTab.style.display = 'none';
-        buttons[0].classList.add('active');
-      } else {
-        dockerTab.style.display = 'none';
-        sourceTab.style.display = 'block';
-        buttons[1].classList.add('active');
-      }
+      Object.values(tabs).forEach(tab => { tab.style.display = 'none'; });
+      tabs[tabName].style.display = 'block';
+      [...buttons].find(button => button.getAttribute('onclick') === `switchTab('${tabName}')`).classList.add('active');
     }
 
     // Toggle FAQ

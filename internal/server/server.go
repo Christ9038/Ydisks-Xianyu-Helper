@@ -83,8 +83,9 @@ type Server struct {
 	qrOwners    map[string]qrLoginOwner
 	// qrPersistLocks 按扫码会话串行化持久化，避免持有全局 qrMu 执行数据库、
 	// 资料刷新和账号重启等慢操作。
-	qrPersistLocks sync.Map
-	loginLimiter   *loginFailureLimiter
+	qrPersistLocks   sync.Map
+	loginLimiter     *loginFailureLimiter
+	initializationMu sync.Mutex
 }
 
 // SetChatService installs the shared chat persistence and live event hub.
@@ -142,6 +143,7 @@ func (s *Server) Router() http.Handler {
 	r.Group(func(r chi.Router) {
 		r.Use(s.Auth.Middleware) // 解析 session，不强制登录
 		r.Post("/login", s.login)
+		r.Post("/initialize", s.initialize)
 		r.Get("/verify", s.verify)
 		r.Post("/logout", s.logout)
 	})
@@ -320,7 +322,7 @@ func setNoStore(w http.ResponseWriter) {
 // 仅保留实际挂载的路由前缀，与 Router() 中的 mount* 一一对应。
 func isAPIPath(path string) bool {
 	apiPrefixes := []string{
-		"/api/", "/admin/", "/health", "/login", "/logout", "/verify",
+		"/api/", "/admin/", "/health", "/login", "/initialize", "/logout", "/verify",
 		"/change-password", "/change-admin-password", "/account/",
 		"/cookies", "/cookie/", "/orders", "/analytics",
 		"/cards", "/automation-rules", "/items", "/keywords", "/default-replies", "/default-reply",

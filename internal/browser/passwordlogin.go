@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 )
 
 // loginFormSelectors 登录表单选择器，主页面和 iframe 中都要找。

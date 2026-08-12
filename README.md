@@ -146,7 +146,7 @@ openssl rand -base64 48    # 适合作为 XIANYU_DATA_KEY
 docker compose up -d
 ```
 
-浏览器访问 `http://localhost:8080`，使用用户名 `admin` 和 `.env` 中的
+浏览器访问 `http://localhost:59188`，使用用户名 `admin` 和 `.env` 中的
 `XIANYU_ADMIN_PASSWORD` 登录。
 
 > GHCR 镜像公开时可以匿名拉取。若镜像仍为私有，请先执行
@@ -174,7 +174,81 @@ npm --prefix frontend run build
 前端资源会在构建时通过 Go 的 `//go:embed` 嵌入服务；如果服务已经在运行，构建完成后
 需要重启 Go 服务，浏览器硬刷新本身不会替换运行中进程已加载的前端资源。
 
-初始化管理员：
+### 方式三：桌面端安装包
+
+桌面端由两个进程组成：后台 `xianyu-server` 负责 HTTP API、账号运行时和 Chromium；
+`xianyu-tray` 只负责 Windows 托盘或 macOS 菜单栏状态、打开管理页面、打开日志目录和服务控制。
+Chromium 不打进 Go 二进制，但 Linux、Windows 和 macOS 独立安装包会内置对应架构的
+Playwright driver 与 Chromium runtime，安装后无需用户再下载浏览器。
+
+- Windows：安装器注册 `YdisksXianyuHelper` Windows Service，并将托盘控制器加入当前用户登录启动项。安装阶段会为交互式登录用户授予该服务的状态查询、启动和停止权限；安装完成后从托盘启动、停止、重启或退出服务不再触发 UAC，也不会获得修改或删除服务的权限。
+- macOS：安装器注册当前登录用户的两个 LaunchAgent，分别运行后台服务和菜单栏控制器。
+- Linux：下载对应架构的 tar 包后，以 root 执行 `./install.sh`；安装包已经包含对应架构的
+  Playwright driver 与 Chromium，脚本只通过 Playwright 安装系统依赖，不会再下载浏览器。
+  脚本创建专用系统用户并安装 systemd unit。安装完成后打开管理页面，首次设置管理员密码。
+  卸载时执行 `./uninstall.sh`，
+  默认保留 `/var/lib/ydisks-xianyu-helper` 数据。
+
+桌面端安装后的固定位置和服务标识如下：
+
+| 平台 | 后台服务 | 托盘/菜单栏程序 | 数据与日志 |
+| --- | --- | --- | --- |
+| Windows | `YdisksXianyuHelper` Windows Service | 当前用户登录启动的 `xianyu-tray.exe` | `C:\ProgramData\YdisksXianyuHelper\data`、`C:\ProgramData\YdisksXianyuHelper\logs` |
+| macOS | `com.ydisks.xianyu-helper.server` LaunchAgent | `Ydisks闲鱼助手.app` 内的菜单栏程序 | `~/Library/Application Support/YdisksXianyuHelper`、`~/Library/Logs/YdisksXianyuHelper` |
+| Linux | `ydisks-xianyu-helper.service` systemd unit | 无桌面托盘 | `/var/lib/ydisks-xianyu-helper`、`/var/log/ydisks-xianyu-helper` |
+
+Windows 和 macOS 托盘启动时会自动启动后台服务，并显示检查中、启动中、运行正常、正在停止
+等状态。选择“退出托盘”时，只有确认后台服务已经停止后托盘才会退出；“打开日志目录”可直接
+打开日志位置。Windows 安装阶段会为交互式登录用户授予当前服务的查询、启动和停止权限，
+安装完成后托盘控制服务不需要重复确认 UAC；修改服务配置或删除服务仍需管理员权限。
+
+托盘菜单中的“退出托盘”会先停止后台服务，再退出托盘程序；“打开日志目录”可直接打开当前平台的日志目录：Windows
+为 `C:\ProgramData\YdisksXianyuHelper\logs`，macOS 为
+`~/Library/Logs/YdisksXianyuHelper`。Linux 服务日志同时写入
+`/var/log/ydisks-xianyu-helper/server.log`，也可以使用
+`journalctl -u ydisks-xianyu-helper.service` 查看。
+
+桌面端安装包由 GitHub Actions 工作流在 `main` 和 `codex/desktop-packaging` 分支构建：Linux 上传
+amd64/arm64 tar 包，Windows 上传安装器，macOS 分别上传 arm64 和 amd64 安装包。Windows
+和 macOS 安装包使用工作流中配置的固定签名证书签名；未配置对应 GitHub Secrets 时，签名
+步骤会失败，不会生成可分发的安装包。
+
+Linux 安装包的 `install.sh` 必须在与安装包相同架构的 Linux 主机上以 root 执行。安装包已经
+包含对应架构的 Playwright driver、Chromium 和 headless shell；安装时只安装 Chromium 所需
+系统库，不会从 Debian 仓库重新安装 Chromium。
+
+本地 macOS 打包可直接执行：
+
+```bash
+./packaging/macos/prepare-runtime.sh arm64 ./dist/macos/playwright-runtime/arm64
+./packaging/macos/build-pkg.sh 0.0.0-local ./dist/macos arm64
+```
+
+`build-pkg.sh` 会自动复用 `~/Library/Caches/ms-playwright-go` 和
+`~/Library/Caches/ms-playwright` 中与当前 Playwright driver 匹配的 Chromium；缓存不完整时会明确报错，
+不会生成安装后无法启动服务的残缺安装包。Intel macOS 使用 `amd64` 参数，并需要本机已有对应 x64 runtime。
+
+桌面端首次启动：
+
+1. 安装对应平台的安装包。macOS 请选择 arm64（Apple Silicon）或 amd64（Intel）版本。
+2. 启动后台服务和托盘/菜单栏控制器。
+3. 打开托盘菜单中的管理页面，或访问 `http://127.0.0.1:59188`。
+4. 如果数据库尚未初始化，页面会要求设置并确认管理员密码；完成后会自动登录，管理员用户名为 `admin`。
+
+Linux 需要先安装并启动 systemd 服务：
+
+```bash
+sudo ./install.sh
+```
+
+然后访问 `http://127.0.0.1:59188` 完成首次初始化。
+
+Linux、Windows、macOS 和源码运行默认都使用网页初始化：启动服务后打开
+`http://127.0.0.1:59188`，在“首次设置管理员密码”页面输入并确认不少于 8 个字符的密码，
+系统会创建 `admin` 并自动登录。只有 Docker Compose 使用 `.env` 中的
+`XIANYU_ADMIN_PASSWORD` 做非交互初始化；CLI 方式仅用于无浏览器、自动化部署或重置密码。
+
+对于无浏览器环境、自动化部署或需要重置管理员密码的运维场景，仍可使用 CLI 初始化：
 
 ```bash
 mkdir -p data
@@ -187,16 +261,16 @@ go run ./cmd/server \
 启动服务：
 
 ```bash
-go run ./cmd/server -db data/xianyu_data.db -addr :8080
+go run ./cmd/server -db data/xianyu_data.db -addr :59188
 ```
 
-首次启动会准备 Playwright 运行环境和 Chromium；下载速度取决于当前网络。启动完成后
-访问 `http://localhost:8080`。
+启动完成后访问 `http://localhost:59188`。如果数据库尚未初始化，直接在页面填写并确认
+管理员密码即可，不需要知道数据库文件路径，也不需要先执行 CLI 命令。
 
 如当前环境无法安装 Chromium，可以使用 `-no-browser` 启动：
 
 ```bash
-go run ./cmd/server -db data/xianyu_data.db -addr :8080 -no-browser
+go run ./cmd/server -db data/xianyu_data.db -addr :59188 -no-browser
 ```
 
 此模式仍可运行管理后台，但浏览器指纹读取和滑块风控处理不可用，不建议用于需要登录
@@ -231,12 +305,13 @@ DATABASE_URL > -db-url > -db
 | --- | --- | --- |
 | `DATABASE_URL` | 空 | 数据库连接 URL；生产环境推荐 PostgreSQL |
 | `XIANYU_DATA_KEY` | 空 | 敏感字段加密主密钥；生产环境必须固定并备份 |
-| `XIANYU_ADMIN_PASSWORD` | 空 | 非交互初始化或重置管理员时使用 |
+| `XIANYU_ADMIN_PASSWORD` | 空 | Docker Compose 非交互初始化或重置管理员时使用；源码和桌面端可通过首次打开页面设置密码 |
 | `XIANYU_UPLOAD_DIR` | `data/uploads` | 批量铺货上传文件与临时资源目录 |
 | `LOG_LEVEL` | 系统设置或 `info` | `debug`、`info`、`warn`、`error` |
 | `LOG_FORMAT` | 系统设置或 `text` | `text` 或 `json` |
 | `BROWSER_HEADLESS` | 按账号设置；Docker 为 `true` | 强制启用或关闭无头 Chromium |
-| `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` | 自动发现 | 指定系统 Chromium 可执行文件 |
+| `PLAYWRIGHT_BROWSERS_PATH` | 自动发现；Docker 为 `/ms-playwright` | Playwright Chromium runtime 目录 |
+| `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` | 自动发现 | 仅在需要强制使用外部 Chromium 时指定 |
 | `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` | 源码 `false` / Docker `true` | 跳过下载 |
 | `TZ` | 系统时区；Docker 为 `Asia/Shanghai` | 容器和日志时区 |
 
@@ -251,7 +326,7 @@ Docker Compose 还支持：
 | `POSTGRES_PASSWORD` | 必填 | 数据库密码 |
 | `XIANYU_IMAGE` | `ghcr.io/christ9038/ydisks-xianyu-helper:latest` | 应用镜像与标签 |
 | `XIANYU_BIND_ADDRESS` | `0.0.0.0` | 应用在宿主机上的绑定地址 |
-| `XIANYU_HTTP_PORT` | `8080` | 应用在宿主机上的端口 |
+| `XIANYU_HTTP_PORT` | `59188` | 应用在宿主机上的端口 |
 
 默认 `compose.yml` 直接拉取 GHCR 的 `:latest` 多架构镜像；如需固定版本，请将
 `XIANYU_IMAGE` 改为 `:main`、版本号或 `:sha-<提交号>` 标签。
@@ -266,7 +341,7 @@ Docker Compose 还支持：
 | --- | --- | --- |
 | `-db` | `data/xianyu_data.db` | SQLite 数据库路径 |
 | `-db-url` | 空 | `sqlite://`、`mysql://` 或 `postgres://` 连接 URL |
-| `-addr` | `:8080` | HTTP 监听地址 |
+| `-addr` | `:59188` | HTTP 监听地址 |
 | `-web` | 内嵌前端 | 外部前端静态资源目录，目录内需包含 `index.html` |
 | `-secure` | `false` | 为管理端 Cookie 添加 `Secure` 属性，HTTPS 部署应启用 |
 | `-no-browser` | `false` | 禁用 Chromium 指纹读取和滑块处理 |
@@ -333,11 +408,12 @@ ARM64 Linux 拉取 arm64，不需要手动设置 `platform`。
 | Git 引用 | 镜像标签 |
 | --- | --- |
 | `main` 分支 | `main`、`latest`、`sha-<完整提交号>` |
+| `codex/desktop-packaging` 分支 | `alpha`、`desktop-packaging`、`sha-<完整提交号>` |
 | `v1.2.3` 标签 | `1.2.3`、`1.2`、`sha-<完整提交号>` |
 
-当前 Docker 发布工作流只在 `main` 分支推送和发布镜像；`dev` 分支不会自动生成
-GHCR 标签。开发分支如需验证镜像，请在本地使用源码构建 Compose 文件，或手动运行
-对应的构建流程。
+当前 Docker 发布工作流会在 `main` 分支发布 `main` 和 `latest` 正式镜像，并在
+`codex/desktop-packaging` 分支发布 `desktop-packaging` 和 `alpha` 标签用于验收；其他开发分支
+不会自动生成 GHCR 标签。
 
 生产环境建议使用明确的版本标签或 SHA 标签，避免上游更新导致未经验证的自动升级。
 
@@ -390,7 +466,7 @@ docker compose up -d
 
 ```bash
 docker compose ps
-curl -fsS http://127.0.0.1:8080/health
+curl -fsS http://127.0.0.1:59188/health
 docker compose logs --tail=200 app
 ```
 
@@ -454,7 +530,7 @@ docker volume ls --filter name=xianyu
 ```yaml
 services:
   app:
-    command: ["/app/xianyu-server", "-addr", ":8080", "-secure"]
+    command: ["/app/xianyu-server", "-addr", ":59188", "-secure"]
 ```
 
 ## 开发指南
@@ -465,6 +541,8 @@ services:
 .
 ├── cmd/
 │   ├── server/           # 主服务与管理员初始化入口
+│   ├── browser-install/   # Playwright Chromium 安装辅助程序
+│   ├── tray/              # Windows 托盘/macOS 菜单栏控制器
 │   ├── init-admin/       # 交互式管理员初始化工具
 │   ├── dbverify/         # 多数据库迁移和 CRUD 验证
 │   └── dbseed/           # Docker 功能测试数据种子
@@ -481,6 +559,7 @@ services:
 │   └── xianyu/           # MTOP、WebSocket、登录和协议实现
 ├── frontend/             # React、TypeScript、Vite 前端
 ├── docs/                 # 专题文档和行为规范
+├── packaging/             # Linux systemd、Windows Inno Setup、macOS pkg
 ├── scripts/              # Docker 与回归测试脚本
 └── Dockerfile.debian13   # 多阶段生产镜像
 ```
@@ -490,7 +569,7 @@ services:
 启动后端：
 
 ```bash
-go run ./cmd/server -db data/xianyu_data.db -addr :8080
+go run ./cmd/server -db data/xianyu_data.db -addr :59188
 ```
 
 启动前端开发服务器：
@@ -500,7 +579,7 @@ npm --prefix frontend ci
 npm --prefix frontend run dev
 ```
 
-访问 `http://localhost:3000`。Vite 会将 API 请求代理到 `http://localhost:8080`。
+访问 `http://localhost:3000`。Vite 会将 API 请求代理到 `http://localhost:59188`。
 
 构建嵌入式前端和 Go 二进制：
 
@@ -541,15 +620,20 @@ go run ./cmd/dbverify "postgres://user:pass@127.0.0.1:5432/xianyu"
 
 ## 常见问题
 
-### 首次部署无法完成管理员初始化
+### 首次打开页面如何初始化管理员
 
-确认 `.env` 已设置非空的 `XIANYU_ADMIN_PASSWORD`，然后执行：
+启动服务后访问管理页面。如果数据库中还没有管理员，页面会显示“首次设置管理员密码”，
+填写两次不少于 8 个字符的密码并提交即可。初始化成功后会自动登录，默认管理员用户名为
+`admin`。
+
+Docker Compose 使用非交互初始化，因此必须在 `.env` 中设置非空的
+`XIANYU_ADMIN_PASSWORD`，然后执行：
 
 ```bash
 docker compose up -d
 ```
 
-源码运行时可执行：
+无浏览器、自动化部署或需要重置管理员密码时可执行：
 
 ```bash
 go run ./cmd/server -init-admin -db data/xianyu_data.db -admin-password '新密码'
@@ -565,7 +649,11 @@ go run ./cmd/server -init-admin -db data/xianyu_data.db -admin-password '新密�
 
 ### Chromium 或 Playwright 初始化失败
 
-- Docker 部署优先使用项目提供的镜像，镜像已包含 Chromium 和运行依赖。
+- Docker 部署优先使用项目提供的镜像，镜像在构建阶段已下载并校验匹配架构的 Chromium runtime；
+  Docker CI 优先复用 GitHub Actions 缓存，不依赖 Debian 仓库中的 `chromium` 包，也不会在最终镜像
+  构建阶段执行 `apt-get update`。
+- 独立安装包在 CI 构建阶段下载对应架构的 Playwright driver 和 Chromium；Linux 安装时只
+  安装系统库，不需要再次下载浏览器。
 - 源码运行时确认系统允许下载 Playwright 驱动和 Chromium。
 - 自带 Chromium 时设置 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`，并按需设置
   `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`。

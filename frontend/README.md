@@ -8,12 +8,12 @@ React + Vite + TypeScript 单页应用，作为 Ydisks闲鱼助手 Go 后端的�
 frontend/
   index.html           入口 HTML
   index.tsx            应用入口（挂载 React、登录态判断、tab 路由）
-  App.tsx              主壳：侧边栏 + 内容区 + 登录/初始化
+  App.tsx              主壳：侧边栏 + 内容区 + 登录/首次初始化
   components/           业务组件（Dashboard / OrderList / CardList / Rules / Settings ...）
   services/             后端 API 封装（fetch 调用）
   request.ts            统一请求工具（带 session cookie、错误处理）
   types.ts              共享类型定义
-  vite.config.ts        Vite 配置（base=/static/，代理 /api 到 :8080）
+  vite.config.ts        Vite 配置（base=/static/，代理 /api 到 :59188）
 ```
 
 ## 开发
@@ -21,10 +21,12 @@ frontend/
 ```bash
 cd /Users/christ/Workspace/git/xianyu/Ydisks-Xianyu-Helper/frontend
 npm install
-npm run dev      # http://localhost:3000，API 代理到 localhost:8080
+npm run dev      # http://localhost:3000，API 代理到 localhost:59188
 ```
 
-开发时先启动后端（`go run ./cmd/server -addr :8080`），再启动前端 dev server。
+开发时先启动后端（默认端口为 `59188`；桌面安装包绑定 `127.0.0.1`，源码运行可按需指定监听地址），
+例如 `go run ./cmd/server -addr :59188`，再启动前端 dev server。
+这里的 `localhost:3000` 仅是 Vite 开发服务器地址，不是应用服务端口。
 
 ## 构建产物
 
@@ -48,7 +50,10 @@ Dashboard 的营收趋势柱状图使用统一的品牌蓝 `#0094f7` 表示同�
 应用使用 `window.history.pushState` 做 tab 导航，路径包括 `/app/dashboard`、`/app/accounts`、
 `/app/chat`、`/app/cards`、`/app/items`、`/app/orders`、`/app/rules`、
 `/app/notifications` 和管理员可见的 `/app/settings`。
-未登录时显示登录表单（客户端状态，非独立路由）。后端 SPA catch-all 对非 API 的 GET 请求返回 `index.html`，支持深链刷新。
+未登录时显示登录表单（客户端状态，非独立路由）。当后端 `/verify` 返回
+`initialized: false` 时，显示首次初始化表单；用户确认不少于 8 个字符的管理员密码后，
+前端调用 `/initialize` 创建 `admin` 并使用返回的会话自动进入系统。后端 SPA catch-all
+对非 API 的 GET 请求返回 `index.html`，支持深链刷新。
 
 ## 测试
 

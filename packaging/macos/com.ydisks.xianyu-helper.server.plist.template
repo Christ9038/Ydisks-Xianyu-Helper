@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key><string>com.ydisks.xianyu-helper.server</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>__SERVER__</string>
+		<string>-addr</string><string>127.0.0.1:59188</string>
+		<string>-playwright-runtime-root</string><string>__RUNTIME_ROOT__</string>
+	</array>
+	<key>WorkingDirectory</key><string>__DATA_DIR__</string>
+	<key>RunAtLoad</key><true/>
+	<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+	<key>StandardOutPath</key><string>__LOG_DIR__/server.log</string>
+	<key>StandardErrorPath</key><string>__LOG_DIR__/server.log</string>
+</dict>
+</plist>

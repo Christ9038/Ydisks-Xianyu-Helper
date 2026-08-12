@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - codex/desktop-packaging
   workflow_dispatch:
 
 permissions:
@@ -15,21 +16,149 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  publish:
-    name: 发布多架构镜像
-    runs-on: ubuntu-latest
+  build:
+    name: 构建镜像 (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            platform: linux/amd64
+            playwright_platform: debian13-x64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            playwright_platform: debian13-arm64
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
-      - name: 配置 QEMU
-        uses: docker/setup-qemu-action@v3
+      - name: 校验 runner 原生架构
+        shell: bash
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          set -Eeuo pipefail
+          case "$(uname -m)" in
+            x86_64) actual_arch=amd64 ;;
+            aarch64|arm64) actual_arch=arm64 ;;
+            *) echo "不支持的 runner 架构：$(uname -m)" >&2; exit 1 ;;
+          esac
+          if [ "$actual_arch" != "$EXPECTED_ARCH" ]; then
+            echo "runner 架构 $actual_arch 与目标架构 $EXPECTED_ARCH 不一致，拒绝使用模拟器构建。" >&2
+            exit 1
+          fi
+
+      - name: 配置 Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 缓存 Docker Chromium runtime
+        id: cache-docker-playwright
+        uses: actions/cache@v5
+        with:
+          path: .docker/playwright-runtime/${{ matrix.arch }}
+          key: ydisks-playwright-runtime-v6-docker-${{ matrix.arch }}-${{ hashFiles('go.mod', 'go.sum') }}
+
+      - name: 准备 Docker Chromium runtime
+        if: steps.cache-docker-playwright.outputs.cache-hit != 'true'
+        shell: bash
+        env:
+          GOARCH: ${{ matrix.arch }}
+          PLAYWRIGHT_HOST_PLATFORM_OVERRIDE: ${{ matrix.playwright_platform }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p ".docker/playwright-runtime/$GOARCH/playwright-driver" ".docker/playwright-runtime/$GOARCH/playwright-browsers"
+          GOOS=linux GOARCH="$GOARCH" CGO_ENABLED=0 go build \
+            -trimpath -ldflags='-s -w' \
+            -o "$RUNNER_TEMP/browser-install" ./cmd/browser-install
+          "$RUNNER_TEMP/browser-install" \
+            -driver-dir "$PWD/.docker/playwright-runtime/$GOARCH/playwright-driver" \
+            -browser-dir "$PWD/.docker/playwright-runtime/$GOARCH/playwright-browsers"
+
+      - name: 校验 Docker Chromium runtime
+        shell: bash
+        env:
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          set -Eeuo pipefail
+          runtime_dir=".docker/playwright-runtime/$GOARCH"
+          test -x "$runtime_dir/playwright-driver/node"
+          test -f "$runtime_dir/playwright-driver/package/cli.js"
+          chromium_path="$(find "$runtime_dir/playwright-browsers" -type f \
+            \( -name chrome -o -name headless_shell -o -name chrome-headless-shell \) -perm -111 -print -quit)"
+          test -n "$chromium_path"
+          chromium_revision="$(RUNTIME_SPEC="$runtime_dir/playwright-driver/package/browsers.json" node -e 'const b=require(process.env.RUNTIME_SPEC).browsers; console.log(b.find(x=>x.name==="chromium").revision)')"
+          headless_revision="$(RUNTIME_SPEC="$runtime_dir/playwright-driver/package/browsers.json" node -e 'const b=require(process.env.RUNTIME_SPEC).browsers; console.log(b.find(x=>x.name==="chromium-headless-shell").revision)')"
+          test -d "$runtime_dir/playwright-browsers/chromium-$chromium_revision"
+          test -d "$runtime_dir/playwright-browsers/chromium_headless_shell-$headless_revision"
 
       - name: 配置 Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: 登录 GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 生成小写镜像名称
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: 构建并推送原生架构摘要
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.debian13
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=ydisks-docker-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=ydisks-docker-${{ matrix.arch }}
+          provenance: mode=max
+          sbom: true
+
+      - name: 保存镜像摘要
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p dist/digests
+          touch "dist/digests/${IMAGE_DIGEST#sha256:}"
+
+      - name: 上传镜像摘要
+        uses: actions/upload-artifact@v7
+        with:
+          name: ydisks-docker-digest-${{ matrix.arch }}
+          path: dist/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: 合并多架构镜像
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 配置 Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: 下载镜像摘要
+        uses: actions/download-artifact@v8
+        with:
+          pattern: ydisks-docker-digest-*
+          path: dist/digests
+          merge-multiple: true
+
+      - name: 登录 GitHub Container Registry
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -42,26 +171,46 @@ jobs:
 
       - name: 生成镜像标签
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
-            type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,format=long
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=desktop-packaging,enable=${{ github.ref == 'refs/heads/codex/desktop-packaging' }}
+            type=raw,value=alpha,enable=${{ github.ref == 'refs/heads/codex/desktop-packaging' }}
 
-      - name: 构建并推送镜像
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.debian13
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: mode=max
-          sbom: true
+      - name: 创建并推送多架构 manifest
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -Eeuo pipefail
+          mapfile -t digest_files < <(find dist/digests -maxdepth 1 -type f -print | sort)
+          if [ "${#digest_files[@]}" -ne 2 ]; then
+            echo "预期 2 个镜像摘要，实际 ${#digest_files[@]} 个。" >&2
+            exit 1
+          fi
+          digest_args=()
+          for digest_file in "${digest_files[@]}"; do
+            digest_args+=("$IMAGE_NAME@sha256:$(basename "$digest_file")")
+          done
+          tag_args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && tag_args+=(--tag "$tag")
+          done <<< "$IMAGE_TAGS"
+          docker buildx imagetools create "${tag_args[@]}" "${digest_args[@]}"
+
+      - name: 检查多架构 manifest
+        shell: bash
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -Eeuo pipefail
+          first_tag="$(printf '%s\n' "$IMAGE_TAGS" | sed -n '/./{p;q;}')"
+          test -n "$first_tag"
+          docker buildx imagetools inspect "$first_tag"

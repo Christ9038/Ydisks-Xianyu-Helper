@@ -11,7 +11,7 @@ import Notifications from './components/Notifications';
 import Chat from './components/Chat';
 import { readSidebarCollapsed, writeSidebarCollapsed } from './components/sidebarState';
 import { YdisksBrandIcon } from './components/YdisksLogo';
-import { login, logout, verifySession } from './services/api';
+import { initializeAdmin, login, logout, verifySession } from './services/api';
 import { ShieldCheck, ArrowRight, Loader2, User, Lock } from 'lucide-react';
 
 interface DeliveryRuleTarget {
@@ -39,9 +39,6 @@ const TAB_TO_PATH: Record<string, string> = Object.fromEntries(
 );
 const tabFromPath = (): string => ROUTES[window.location.pathname] || 'dashboard';
 
-// 检测 Windows 以显示对应的 CLI 命令（路径分隔符、引号、.exe 后缀）。
-const isWindows = /Win/i.test(navigator.platform || navigator.userAgent);
-
 const App: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -52,6 +49,10 @@ const App: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState('');
+  const [initialPassword, setInitialPassword] = useState('');
+  const [initialPasswordConfirm, setInitialPasswordConfirm] = useState('');
+  const [initializing, setInitializing] = useState(false);
+  const [initializationError, setInitializationError] = useState('');
   const [deliveryRuleTarget, setDeliveryRuleTarget] = useState<DeliveryRuleTarget | undefined>();
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
 
@@ -133,6 +134,38 @@ const App: React.FC = () => {
       }
   };
 
+  const handleInitialize = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setInitializationError('');
+    if (initialPassword.length < 8) {
+      setInitializationError('密码至少需要 8 个字符');
+      return;
+    }
+    if (initialPassword !== initialPasswordConfirm) {
+      setInitializationError('两次输入的密码不一致');
+      return;
+    }
+
+    setInitializing(true);
+    try {
+      const res = await initializeAdmin(initialPassword);
+      if (!res.success) {
+        setInitializationError(res.message || '初始化失败，请重试');
+        return;
+      }
+      setNeedsInit(false);
+      setIsLoggedIn(true);
+      setIsAdmin(res.is_admin === true);
+      setInitialPassword('');
+      setInitialPasswordConfirm('');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setInitializationError(msg || '初始化失败，请重试');
+    } finally {
+      setInitializing(false);
+    }
+  };
+
   const handleLogout = async () => {
       try {
           await logout();
@@ -165,27 +198,49 @@ const App: React.FC = () => {
             <div className="mx-auto mb-6 flex justify-center">
               <YdisksBrandIcon sizeClass="w-24 h-24" />
             </div>
-            <h2 className="text-3xl font-extrabold text-gray-900 mb-2 tracking-tight">系统尚未初始化</h2>
-            <p className="text-gray-600 font-medium">为避免默认口令风险，管理员必须通过服务器本机 CLI 初始化。</p>
+            <h2 className="text-3xl font-extrabold text-gray-900 mb-2 tracking-tight">首次设置管理员密码</h2>
+            <p className="text-gray-600 font-medium">设置完成后会自动进入系统，管理员账号为 admin。</p>
           </div>
 
-          <div className="space-y-4">
-            <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100">
-              <div className="text-sm font-bold text-gray-900 mb-2">请在服务器上执行：</div>
-              <pre className="text-xs bg-black text-white p-4 rounded-2xl overflow-x-auto">{isWindows
-                ? '.\\xianyu-server.exe -init-admin -db data\\xianyu_data.db -admin-password "请设置密码"'
-                : './xianyu-server -init-admin -db data/xianyu_data.db -admin-password \'请设置密码\''}</pre>
-              <div className="text-xs text-gray-500 mt-2">完成后刷新页面即可进入登录。</div>
+          <form onSubmit={handleInitialize} className="space-y-5">
+            <div className="space-y-4">
+              <div className="relative group">
+                <Lock className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-black transition-colors" />
+                <input
+                  type="password"
+                  placeholder="设置管理员密码（至少 8 个字符）"
+                  value={initialPassword}
+                  onChange={e => setInitialPassword(e.target.value)}
+                  autoFocus
+                  className="w-full ios-input pl-14 pr-6 py-4.5 rounded-2xl text-base h-14"
+                />
+              </div>
+              <div className="relative group">
+                <ShieldCheck className="absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-black transition-colors" />
+                <input
+                  type="password"
+                  placeholder="再次输入密码"
+                  value={initialPasswordConfirm}
+                  onChange={e => setInitialPasswordConfirm(e.target.value)}
+                  className="w-full ios-input pl-14 pr-6 py-4.5 rounded-2xl text-base h-14"
+                />
+              </div>
             </div>
 
+            {initializationError && (
+              <div className="p-3 rounded-xl bg-red-50 text-red-500 text-sm text-center font-bold flex items-center justify-center gap-2">
+                <ShieldCheck className="w-4 h-4" /> {initializationError}
+              </div>
+            )}
+
             <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="w-full ios-btn-primary h-14 rounded-2xl text-lg shadow-xl shadow-blue-200 mt-2 flex items-center justify-center gap-2 group"
+              type="submit"
+              disabled={initializing}
+              className="w-full ios-btn-primary h-14 rounded-2xl text-lg shadow-xl shadow-blue-200 mt-2 flex items-center justify-center gap-2 group disabled:opacity-70"
             >
-              我已初始化，刷新 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              {initializing ? <Loader2 className="w-5 h-5 animate-spin" /> : <>设置密码并进入系统 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" /></>}
             </button>
-          </div>
+          </form>
 
           <div className="mt-8 pt-6 border-t border-gray-100 text-center">
             <span className="text-xs text-gray-400 font-medium tracking-widest uppercase">Secure Bootstrap</span>

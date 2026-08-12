@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/playwright-community/playwright-go"
+	"github.com/mxschmitt/playwright-go"
 )
 
 // sliderSelectors 按优先级排列的滑块相关选择器（移植自 xianyu_slider_stealth.py）。

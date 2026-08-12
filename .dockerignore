@@ -14,3 +14,6 @@ init-admin
 *.sqlite
 *.sqlite3
 cover.out
+!/.docker/
+!/.docker/playwright-runtime/
+!/.docker/playwright-runtime/**
