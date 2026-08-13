@@ -387,7 +387,29 @@ jobs:
         env:
           APP_VERSION: ${{ env.APP_VERSION }}
         run: |
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' /Qp /O"dist\windows" packaging\windows\installer.iss
+          $requiredSources = @(
+            'dist/windows/xianyu-server.exe',
+            'dist/windows/xianyu-tray.exe',
+            'dist/windows/playwright-runtime/amd64',
+            'icon/windows/icon.ico',
+            'packaging/windows/service-control.ps1'
+          )
+          foreach ($source in $requiredSources) {
+            if (-not (Test-Path -LiteralPath $source)) {
+              throw "Windows 安装器源文件或目录不存在: $source"
+            }
+          }
+          if ($null -eq (Get-ChildItem -LiteralPath 'dist/windows/playwright-runtime/amd64' -Recurse -File | Select-Object -First 1)) {
+            throw 'Windows 安装器 Playwright runtime 为空'
+          }
+
+          $compiler = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          $scriptPath = (Resolve-Path 'packaging/windows/installer.iss').Path
+          $outputDir = (Resolve-Path 'dist/windows').Path
+          & $compiler /Qp "/O$outputDir" $scriptPath
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup 编译失败，错误码: $LASTEXITCODE"
+          }
           $installer = Get-ChildItem -Path dist/windows -Filter 'Ydisks-Xianyu-Helper-Setup.exe' -Recurse | Select-Object -First 1
           if ($null -eq $installer) { throw 'Inno Setup 未生成安装器' }
           $target = Join-Path (Resolve-Path dist/windows) 'Ydisks-Xianyu-Helper-Setup.exe'
@@ -431,9 +453,18 @@ jobs:
             $expectedServer = Join-Path $installDir 'xianyu-server.exe'
             $expectedRuntime = Join-Path $installDir 'playwright-runtime'
             $serviceConfig = Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" -ErrorAction Stop
-            if ($null -eq $serviceConfig -or
-                -not $serviceConfig.PathName.Contains(('"{0}"' -f $expectedServer)) -or
-                -not $serviceConfig.PathName.Contains(('-playwright-runtime-root "{0}"' -f $expectedRuntime))) {
+            $actualServiceCommand = if ($null -eq $serviceConfig) { '' } else { $serviceConfig.PathName.Replace('"', '') }
+            $requiredServiceArguments = @(
+              $expectedServer,
+              '-service',
+              "-playwright-runtime-root $expectedRuntime"
+            )
+            $invalidServiceArgument = $requiredServiceArguments |
+              Where-Object {
+                $actualServiceCommand.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -lt 0
+              } |
+              Select-Object -First 1
+            if ($null -ne $invalidServiceArgument) {
               throw "安装器注册的服务命令行不正确: $($serviceConfig.PathName)"
             }
 

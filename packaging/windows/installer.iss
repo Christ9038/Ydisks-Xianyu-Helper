@@ -3,6 +3,10 @@
 #define AppPublisher "Christ9038"
 #define AppExeName "xianyu-server.exe"
 #define AppDataDir "{commonappdata}\YdisksXianyuHelper"
+#define RepoRoot AddBackslash(SourcePath) + "..\.."
+#define WindowsDistDir AddBackslash(RepoRoot) + "dist\windows"
+#define WindowsRuntimeDir AddBackslash(WindowsDistDir) + "playwright-runtime\amd64"
+#define WindowsIconDir AddBackslash(RepoRoot) + "icon\windows"
 
 [Setup]
 AppId={{A6E8B04B-3C8A-4E20-AE62-6B1C3F6B31AE}
@@ -16,15 +20,15 @@ PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\icon.ico
-SetupIconFile=..\..\icon\windows\icon.ico
+SetupIconFile={#WindowsIconDir}\icon.ico
 Compression=lzma2
 SolidCompression=yes
 
 [Files]
-Source: "..\..\dist\windows\xianyu-server.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\dist\windows\xianyu-tray.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\icon\windows\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\..\dist\windows\playwright-runtime\*"; DestDir: "{app}\playwright-runtime"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "{#WindowsDistDir}\xianyu-server.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#WindowsDistDir}\xianyu-tray.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#WindowsIconDir}\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#WindowsRuntimeDir}\*"; DestDir: "{app}\playwright-runtime"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "service-control.ps1"; Flags: dontcopy
 Source: "service-control.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
