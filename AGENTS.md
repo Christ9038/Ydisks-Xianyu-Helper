@@ -109,13 +109,14 @@ All desktop packages contain the matching Playwright driver, Chromium and headle
 Debian Chromium package or download a second browser during installation. The Docker final image uses
 `node:24-trixie-slim`, copies the cached runtime prepared by CI, installs only the Chromium system libraries
 through the bundled Playwright driver, and clears apt indexes and temporary caches in the same image layer.
-The desktop CI workflow runs on `main`, `codex/desktop-packaging`, and `v*.*.*` version tags; Linux amd64 and
-arm64 jobs use native GitHub-hosted runners and
+The desktop CI workflow runs on `main` and `dev`; formal desktop builds are invoked by the unified
+`release.yml` workflow for `v*.*.*` version tags. Linux amd64 and arm64 jobs use native GitHub-hosted runners and
 must not use QEMU or cross-architecture emulation. Docker publishing also builds each architecture on its native
-runner and publishes `main` and `latest` from `main`, `desktop-packaging` and `alpha` from
-`codex/desktop-packaging`, and semantic version tags from `v*.*.*`. Version tags also create a GitHub Release
-containing all platform packages and SHA-256 checksums. Never publish a Docker manifest until Go/frontend tests,
-an actual Chromium launch, and the packaged server health check have passed for every architecture.
+runner: branch builds publish `main` or `dev` plus a full-commit `sha-*` tag, while formal builds publish semantic
+version tags, `latest`, and the full-commit `sha-*` tag only after the `production-release` Environment approval.
+Version tags create a GitHub Release containing all platform packages and SHA-256 checksums. Never publish a Docker
+manifest until Go/frontend tests, an actual Chromium launch, and the packaged server health check have passed for
+every architecture.
 
 The tray state machine is shared by Windows and macOS: it serializes actions, shows transition states,
 waits for a healthy `/health` response after start/restart, waits for the endpoint to become unreachable

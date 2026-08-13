@@ -208,13 +208,15 @@ Windows 和 macOS 托盘启动时会自动启动后台服务，并显示检查�
 `/var/log/ydisks-xianyu-helper/server.log`，也可以使用
 `journalctl -u ydisks-xianyu-helper.service` 查看。
 
-桌面端安装包由 GitHub Actions 工作流在 `dev`、`main` 分支以及 `v1.2.3` 格式的版本标签上构建：
+桌面端安装包由 `.github/workflows/desktop-cd.yml` 在 `dev`、`main` 分支上持续构建；正式版本由统一的
+`.github/workflows/release.yml` 在 `v1.2.3` 格式的版本标签上协调构建：
 Linux 上传 amd64/arm64 tar 包，Windows 上传安装器，macOS 分别上传 arm64 和 amd64 安装包。
 分支构建只保留非正式 Actions artifacts；版本标签必须指向 `main` 中的提交，全部桌面端和 Docker
 构建验证成功后等待 `production-release` Environment 人工审批，审批通过才创建 GitHub Release、
 上传各平台安装包及 `SHA256SUMS`，并发布正式 Docker 标签。Windows
 和 macOS 安装包使用工作流中配置的固定签名证书签名；未配置对应 GitHub Secrets 时，签名
-步骤会失败，不会生成可分发的安装包。
+步骤会失败，不会生成可分发的安装包。当前仓库未配置正式签名证书时，Windows/macOS 正式发布
+会停在签名步骤；Linux 安装包不依赖桌面端签名证书。
 
 Linux 安装包的 `install.sh` 必须在与安装包相同架构的 Linux 主机上以 root 执行。安装包已经
 包含对应架构的 Playwright driver、Chromium 和 headless shell；安装时只安装 Chromium 所需
@@ -333,8 +335,11 @@ Docker Compose 还支持：
 | `XIANYU_BIND_ADDRESS` | `0.0.0.0` | 应用在宿主机上的绑定地址 |
 | `XIANYU_HTTP_PORT` | `59188` | 应用在宿主机上的端口 |
 
-默认 `compose.yml` 直接拉取 GHCR 的 `:latest` 多架构镜像；如需固定版本，请将
-`XIANYU_IMAGE` 改为 `:main`、版本号或 `:sha-<提交号>` 标签。
+默认 `compose.yml` 直接拉取 GHCR 的 `:latest` 多架构镜像；如需固定版本，请把
+`XIANYU_IMAGE` 设置为完整镜像地址，例如
+`ghcr.io/christ9038/ydisks-xianyu-helper:v1.2.3`、
+`ghcr.io/christ9038/ydisks-xianyu-helper:main` 或
+`ghcr.io/christ9038/ydisks-xianyu-helper:sha-<完整提交号>`。
 
 `XIANYU_DATA_KEY` 用于加密 Cookie、账号密码、设备令牌、访问令牌、AI/SMTP 密钥和
 通知凭证。启用后，服务会自动升级历史明文数据。密钥丢失或更换后，已有加密数据将
@@ -476,11 +481,14 @@ curl -fsS http://127.0.0.1:59188/health
 docker compose logs --tail=200 app
 ```
 
-健康接口正常时返回：
+健康接口正常时返回（构建信息会随运行方式变化）：
 
 ```json
-{"database":"ok","status":"ok"}
+{"status":"ok","database":"ok","version":"dev","commit":"unknown","build_time":"unknown"}
 ```
+
+正式安装包和 Docker 镜像会注入对应版本、提交号和构建时间；源码运行默认显示
+`dev`/`unknown`。管理后台侧边栏底部也会显示当前运行版本和短提交号。
 
 ### 更新镜像
 

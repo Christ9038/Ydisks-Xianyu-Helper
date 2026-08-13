@@ -22,6 +22,9 @@
 控制器以及匹配架构的 Playwright driver、Chromium；Linux 安装包自带相同的浏览器 runtime，
 安装脚本只补齐系统依赖。桌面托盘退出前会先停止后台服务。
 
+管理后台侧边栏底部会显示当前运行版本和短提交号。源码运行默认显示 `dev`/`unknown`；正式安装包和
+Docker 镜像会显示构建时注入的正式版本与提交信息。
+
 Windows 安装包注册 `YdisksXianyuHelper` 服务；macOS 安装包分别提供 Apple Silicon（arm64）和
 Intel（amd64）版本，并注册 `com.ydisks.xianyu-helper.server` 与
 `com.ydisks.xianyu-helper.tray` 两个 LaunchAgent。Linux 安装包按 amd64/arm64 分发，执行
@@ -46,4 +49,10 @@ Intel（amd64）版本，并注册 `com.ydisks.xianyu-helper.server` 与
 
 ## GitHub Wiki 同步
 
-这些 Markdown 文件位于仓库 `docs/wiki/`，可直接复制到 GitHub Wiki 对应页面；文件名即页面名。`_Sidebar.md` 是 Wiki 导航。仓库内保留副本便于在 Pull Request 中审阅和版本化维护。
+这些 Markdown 文件位于仓库 `docs/wiki/`，是 Wiki 的唯一维护来源；文件名即页面名，`_Sidebar.md` 是
+Wiki 导航。`main` 分支发生变更后，`.github/workflows/sync-wiki.yml` 会自动把这些文件镜像到 GitHub
+Wiki；也可以通过 GitHub Actions 手动运行该工作流。仓库内保留副本，便于在 Pull Request 中审阅和版本化维护，
+不建议直接在 GitHub Wiki 仓库中维护内容。
+
+项目 Pages 站点使用 `main` 分支的 `/docs` 目录发布，域名由 `docs/CNAME` 中的配置决定；修改首页或图片资源
+后，合并到 `main` 即可由 GitHub Pages 发布。Pages 发布与 GitHub Wiki 同步是两个独立流程。
