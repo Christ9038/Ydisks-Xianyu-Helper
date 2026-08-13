@@ -96,6 +96,9 @@ type Center struct {
 	logger       *slog.Logger
 	cookieSrc    func(context.Context, string) (string, error)
 	cardLocks    sync.Map
+	// sessionExpired 保存检测到 Session 失效时的凭证指纹。在凭证续期或
+	// 重新登录真正改变之前，账号任务不得再次调用任何 MTOP 业务接口。
+	sessionExpired sync.Map
 }
 
 // New 构造自动化中心。

@@ -108,6 +108,9 @@ func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pa
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, fmt.Errorf("解析订单列表响应失败: %w (body=%s)", err, truncate(string(raw), 300))
 	}
+	if isSessionExpiredRet(decoded.Ret) {
+		return nil, sessionExpiredError("订单列表接口", decoded.Ret)
+	}
 	if !hasMTopSuccess(decoded.Ret) {
 		return nil, fmt.Errorf("订单列表接口返回非成功: ret=%v", decoded.Ret)
 	}

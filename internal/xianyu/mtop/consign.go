@@ -42,6 +42,9 @@ func (c *ClientImpl) ConsignContext(ctx context.Context, cookiesStr, orderID str
 		if ok {
 			return true, ret, currentCookies, nil
 		}
+		if isSessionExpiredRet(ret) {
+			return false, ret, currentCookies, sessionExpiredError("确认发货接口", ret)
+		}
 		if !isTokenExpiredRet(ret) {
 			return false, ret, currentCookies, nil
 		}

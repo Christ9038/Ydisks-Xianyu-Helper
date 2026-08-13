@@ -208,10 +208,11 @@ Windows 和 macOS 托盘启动时会自动启动后台服务，并显示检查�
 `/var/log/ydisks-xianyu-helper/server.log`，也可以使用
 `journalctl -u ydisks-xianyu-helper.service` 查看。
 
-桌面端安装包由 GitHub Actions 工作流在 `main`、`codex/desktop-packaging` 分支以及 `v1.2.3`
-格式的版本标签上构建：Linux 上传 amd64/arm64 tar 包，Windows 上传安装器，macOS 分别上传
-arm64 和 amd64 安装包。版本标签构建全部成功后，会自动创建 GitHub Release，上传各平台安装包
-及 `SHA256SUMS`。Windows
+桌面端安装包由 GitHub Actions 工作流在 `dev`、`main` 分支以及 `v1.2.3` 格式的版本标签上构建：
+Linux 上传 amd64/arm64 tar 包，Windows 上传安装器，macOS 分别上传 arm64 和 amd64 安装包。
+分支构建只保留非正式 Actions artifacts；版本标签必须指向 `main` 中的提交，全部桌面端和 Docker
+构建验证成功后等待 `production-release` Environment 人工审批，审批通过才创建 GitHub Release、
+上传各平台安装包及 `SHA256SUMS`，并发布正式 Docker 标签。Windows
 和 macOS 安装包使用工作流中配置的固定签名证书签名；未配置对应 GitHub Secrets 时，签名
 步骤会失败，不会生成可分发的安装包。
 
@@ -411,15 +412,14 @@ ARM64 Linux 拉取 arm64，不需要手动设置 `platform`。
 
 | Git 引用 | 镜像标签 |
 | --- | --- |
-| `main` 分支 | `main`、`latest`、`sha-<完整提交号>` |
-| `codex/desktop-packaging` 分支 | `alpha`、`desktop-packaging`、`sha-<完整提交号>` |
-| `v1.2.3` 标签 | `v1.2.3`、`1.2.3`、`1.2`、`sha-<完整提交号>` |
+| `dev` 分支 | `dev`、`sha-<完整提交号>` |
+| `main` 分支 | `main`、`sha-<完整提交号>` |
+| `v1.2.3` 标签 | `v1.2.3`、`1.2.3`、`1.2`、`latest`、`sha-<完整提交号>` |
 
-当前 Docker 发布工作流会在 `main` 分支发布 `main` 和 `latest` 正式镜像，并在
-`codex/desktop-packaging` 分支发布 `desktop-packaging` 和 `alpha` 标签用于验收；其他开发分支
-不会自动生成 GHCR 标签。推送 `v1.2.3` 格式的 Git 标签会同时触发版本 Docker 镜像和 GitHub
-Release。所有 Docker 发布都必须先通过 Go/前端测试，再对每个原生架构镜像实际启动 Chromium
-和服务并通过 `/health` 检查，之后才会生成 `latest`、分支或版本 manifest。
+`dev` 是日常调试通道，`main` 是稳定候选通道，两者都不会更新 `latest` 或创建 Release。推送
+`v1.2.3` 格式的 Git 标签会触发统一正式发布流程。所有 Docker 发布都必须先通过 Go/前端测试，
+再对每个原生架构镜像实际启动 Chromium 和服务并通过 `/health` 检查；正式版还必须等全部桌面
+安装包构建成功并通过人工审批，之后才生成版本 manifest、更新 `latest` 并创建 GitHub Release。
 
 生产环境建议使用明确的版本标签或 SHA 标签，避免上游更新导致未经验证的自动升级。
 

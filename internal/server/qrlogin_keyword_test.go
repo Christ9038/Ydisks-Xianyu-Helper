@@ -15,14 +15,16 @@ import (
 )
 
 type fakeQRLoginService struct {
-	status          map[string]any
-	generateErr     error
-	completeCookies string
-	completeUNB     string
-	completeErr     error
+	status           map[string]any
+	generateErr      error
+	generateDeadline time.Time
+	completeCookies  string
+	completeUNB      string
+	completeErr      error
 }
 
-func (f *fakeQRLoginService) GenerateQRCode(context.Context) (string, string, error) {
+func (f *fakeQRLoginService) GenerateQRCode(ctx context.Context) (string, string, error) {
+	f.generateDeadline, _ = ctx.Deadline()
 	if f.generateErr != nil {
 		return "", "", f.generateErr
 	}
@@ -54,7 +56,8 @@ func (f *fakeQRLoginService) CompleteVerification(context.Context, string) (stri
 func TestGenerateQRLogin(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.QRLogin = &fakeQRLoginService{}
+	qr := &fakeQRLoginService{}
+	srv.QRLogin = qr
 	h := srv.Router()
 	cookie := loginHelper(t, h)
 
@@ -69,6 +72,10 @@ func TestGenerateQRLogin(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &res)
 	if res["success"] != true || res["session_id"] == nil || res["session_id"] == "" {
 		t.Fatalf("生成二维码响应异常: %+v", res)
+	}
+	remaining := time.Until(qr.generateDeadline)
+	if remaining < qrLoginGenerateTimeout-time.Second || remaining > qrLoginGenerateTimeout {
+		t.Fatalf("二维码生成超时窗口=%v want≈%v", remaining, qrLoginGenerateTimeout)
 	}
 }
 

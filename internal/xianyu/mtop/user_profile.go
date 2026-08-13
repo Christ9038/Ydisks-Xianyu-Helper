@@ -30,6 +30,9 @@ func (c *ClientImpl) FetchUserProfile(ctx context.Context, cookiesStr string) (*
 		if res != nil {
 			return res, nil
 		}
+		if isSessionExpiredRet(ret) {
+			return nil, sessionExpiredError("账号资料接口", ret)
+		}
 		if !isTokenExpiredRet(ret) {
 			return nil, fmt.Errorf("账号资料接口返回非成功: ret=%v", ret)
 		}

@@ -29,6 +29,7 @@ import (
 	"xianyu-go/internal/notify"
 	"xianyu-go/internal/renewal"
 	"xianyu-go/internal/server"
+	appversion "xianyu-go/internal/version"
 )
 
 type serverOptions struct {
@@ -51,6 +52,7 @@ type serverOptions struct {
 	adminEmail            string
 	adminPassword         string
 	service               bool
+	showVersion           bool
 }
 
 const (
@@ -61,6 +63,10 @@ const (
 
 func main() {
 	opts := parseOptions()
+	if opts.showVersion {
+		fmt.Printf("Ydisks Xianyu Helper %s (commit %s, built %s)\n", appversion.Version, appversion.ShortCommit(), appversion.BuildTime)
+		return
+	}
 	if opts.workDir != "" {
 		if err := os.Chdir(opts.workDir); err != nil {
 			fmt.Fprintf(os.Stderr, "切换工作目录失败: %v\n", err)
@@ -106,6 +112,7 @@ func parseOptions() serverOptions {
 	flag.StringVar(&opts.adminEmail, "admin-email", "admin@example.com", "初始化 admin 的邮箱")
 	flag.StringVar(&opts.adminPassword, "admin-password", "", "初始化/重置 admin 密码；也可用 XIANYU_ADMIN_PASSWORD 环境变量")
 	flag.BoolVar(&opts.service, "service", false, "以 Windows Service 模式运行")
+	flag.BoolVar(&opts.showVersion, "version", false, "显示版本和构建信息后退出")
 	flag.Parse()
 	return opts
 }
@@ -118,6 +125,7 @@ func runServer(parent context.Context, opts serverOptions) error {
 	if err != nil {
 		return err
 	}
+	packagedPlaywrightRuntime := strings.TrimSpace(opts.playwrightRuntimeRoot) != ""
 	applyPlaywrightRuntimeRoot(&opts)
 	if dataDir != "" {
 		if err := os.MkdirAll(dataDir, 0o700); err != nil {
@@ -126,10 +134,14 @@ func runServer(parent context.Context, opts serverOptions) error {
 		if opts.dataKeyFile == "" {
 			opts.dataKeyFile = filepath.Join(dataDir, defaultDataKeyName)
 		}
-		if opts.playwrightDriverDir == "" {
+		// 只有安装包显式提供 runtime root 时，才把 Playwright runtime
+		// 放进应用数据目录。普通本地开发应沿用 Playwright 的用户缓存；
+		// 空的应用目录会让 playwright-go 误以为 driver 已配置，随后尝试
+		// 执行不存在的 <dataDir>/playwright-driver/node。
+		if packagedPlaywrightRuntime && opts.playwrightDriverDir == "" {
 			opts.playwrightDriverDir = filepath.Join(dataDir, "playwright-driver")
 		}
-		if opts.playwrightBrowserDir == "" {
+		if packagedPlaywrightRuntime && opts.playwrightBrowserDir == "" {
 			opts.playwrightBrowserDir = filepath.Join(dataDir, "playwright-browsers")
 		}
 	}

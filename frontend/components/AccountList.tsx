@@ -50,6 +50,7 @@ const AccountList: React.FC = () => {
   const [showQRModal, setShowQRModal] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   const [qrStatus, setQrStatus] = useState<string>('pending');
+  const [qrErrorMessage, setQrErrorMessage] = useState<string>('');
   const [verificationScreenshot, setVerificationScreenshot] = useState<string>('');
   const [faceQrUrl, setFaceQrUrl] = useState<string>('');
   const [qrReauthTarget, setQrReauthTarget] = useState<AccountDetail | null>(null);
@@ -624,12 +625,16 @@ const AccountList: React.FC = () => {
     setQrReauthTarget(targetAccount);
     setShowQRModal(true);
     setQrStatus('loading');
+    setQrErrorMessage('');
     setQrCodeUrl('');
     setVerificationScreenshot('');
     setFaceQrUrl('');
     try {
 	  const res = await generateQRLogin({ signal: controller.signal });
       if (!qrRequestGateRef.current?.isCurrent(requestGeneration)) return;
+      if (!res.success || !res.qr_code_url || !res.session_id) {
+        throw new Error(res.message || '闲鱼未返回可用的登录二维码');
+      }
       if (res.success && res.qr_code_url && res.session_id) {
         const generatedSessionID = res.session_id;
         setQrCodeUrl(res.qr_code_url);
@@ -674,7 +679,10 @@ const AccountList: React.FC = () => {
       }
     } catch (e) {
       if (!qrRequestGateRef.current?.isCurrent(requestGeneration)) return;
+      setQrErrorMessage(e instanceof Error ? e.message : '二维码获取失败，请稍后重试');
       setQrStatus('error');
+    } finally {
+      if (qrGenerateAbortRef.current === controller) qrGenerateAbortRef.current = null;
     }
   };
 
@@ -1029,7 +1037,7 @@ const AccountList: React.FC = () => {
 							  {qrStatus === 'error' && (
 								  <div className="px-5 text-center">
 									  <span className="block text-red-600 font-bold">二维码获取失败</span>
-									  <span className="mt-2 block text-xs leading-5 text-gray-500">请关闭窗口后重新发起扫码登录。</span>
+									  <span className="mt-2 block text-xs leading-5 text-gray-500">{qrErrorMessage || '请关闭窗口后重新发起扫码登录。'}</span>
 								  </div>
 							  )}
 							  {qrStatus === 'verification' && (

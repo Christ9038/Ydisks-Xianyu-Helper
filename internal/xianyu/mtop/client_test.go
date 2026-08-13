@@ -170,7 +170,7 @@ func TestIsTokenExpiredRet(t *testing.T) {
 	}{
 		{[]string{"FAIL_SYS_TOKEN_EXOIRED::令牌过期"}, true},
 		{[]string{"FAIL_SYS_TOKEN_EXPIRED::令牌过期"}, true},
-		{[]string{"FAIL_SYS_SESSION_EXPIRED::会话过期"}, true},
+		{[]string{"FAIL_SYS_SESSION_EXPIRED::会话过期"}, false},
 		{[]string{"FAIL_SYS_USER_VALIDATE::非法请求TOKEN"}, false},
 		{[]string{"SUCCESS::调用成功"}, false},
 		{[]string{"FAIL_BIZ_ORDER_STATUS_ERROR::订单状态错误"}, false},
@@ -181,6 +181,20 @@ func TestIsTokenExpiredRet(t *testing.T) {
 		if got := isTokenExpiredRet(c.ret); got != c.want {
 			t.Errorf("case %d: got %v want %v (ret=%v)", i, got, c.want, c.ret)
 		}
+	}
+}
+
+func TestSessionExpiredRetIsSeparateFromTokenExpiry(t *testing.T) {
+	ret := []string{"FAIL_SYS_SESSION_EXPIRED::会话过期"}
+	if !isSessionExpiredRet(ret) {
+		t.Fatal("session expiry must be recognized")
+	}
+	if isTokenExpiredRet(ret) {
+		t.Fatal("session expiry must not enter token retry path")
+	}
+	err := sessionExpiredError("test API", ret)
+	if !IsSessionExpiredErr(fmt.Errorf("wrapped: %w", err)) {
+		t.Fatalf("typed wrapped error not recognized: %v", err)
 	}
 }
 

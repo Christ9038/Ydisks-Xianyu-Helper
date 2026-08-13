@@ -58,6 +58,8 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 					hasMore, nextCursor = page.HasMore, page.NextCursor
+				} else {
+					s.recoverExpiredMTOPSession(r.Context(), accountID, fetchErr)
 				}
 			}
 		}
@@ -80,6 +82,8 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request) {
 			defer resolveCancel()
 			jobs := make(chan int)
 			var workers sync.WaitGroup
+			var sessionOnce sync.Once
+			var sessionErr error
 			for worker := 0; worker < 8; worker++ {
 				workers.Add(1)
 				go func() {
@@ -88,6 +92,13 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request) {
 						infoCtx, cancel := context.WithTimeout(resolveCtx, 3*time.Second)
 						info, infoErr := client.FetchChatUserInfo(infoCtx, cookieValue, rows[index].ChatID)
 						cancel()
+						if mtop.IsSessionExpiredErr(infoErr) {
+							sessionOnce.Do(func() {
+								sessionErr = infoErr
+								resolveCancel()
+							})
+							continue
+						}
 						if infoErr != nil || info == nil {
 							continue
 						}
@@ -115,6 +126,9 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request) {
 			}
 			close(jobs)
 			workers.Wait()
+			if sessionErr != nil {
+				s.recoverExpiredMTOPSession(r.Context(), accountID, sessionErr)
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": rows, "has_more": hasMore, "next_cursor": nextCursor})
@@ -283,6 +297,8 @@ func (s *Server) resolveSelectedChatIdentity(ctx context.Context, accountID stri
 				if info.AvatarURL != "" {
 					session.BuyerAvatar = info.AvatarURL
 				}
+			} else if err != nil {
+				s.recoverExpiredMTOPSession(ctx, accountID, err)
 			}
 		}
 	}

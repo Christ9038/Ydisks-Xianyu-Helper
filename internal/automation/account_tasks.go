@@ -2,6 +2,7 @@ package automation
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"strings"
 	"time"
@@ -45,14 +46,32 @@ func (c *Center) RunAccountTask(ctx context.Context, accountID, taskType string)
 	if err != nil {
 		return AccountTaskSummary{TaskType: taskType}, err
 	}
+	return c.runConfiguredAccountTask(ctx, settings, taskType)
+}
+
+func (c *Center) runConfiguredAccountTask(ctx context.Context, settings db.AccountTaskSettings, taskType string) (AccountTaskSummary, error) {
+	if blocked, err := c.accountTaskSessionBlocked(ctx, settings.CookieID); err != nil {
+		return AccountTaskSummary{TaskType: taskType}, err
+	} else if blocked {
+		return AccountTaskSummary{TaskType: taskType, Skipped: 1, Message: "Session 已失效，等待续期或重新登录"},
+			fmt.Errorf("账号 Session 已失效，已停止自动化 API 请求，等待续期或重新登录")
+	}
+	var (
+		summary AccountTaskSummary
+		err     error
+	)
 	switch taskType {
 	case TaskAutoRate:
-		return c.runAutoRate(ctx, settings)
+		summary, err = c.runAutoRate(ctx, settings)
 	case TaskAutoPolish:
-		return c.runAutoPolish(ctx, settings, beijingNow(), true)
+		summary, err = c.runAutoPolish(ctx, settings, beijingNow(), true)
 	default:
 		return AccountTaskSummary{TaskType: taskType}, fmt.Errorf("不支持的账号任务: %s", taskType)
 	}
+	if err != nil && mtop.IsSessionExpiredErr(err) {
+		err = c.recoverAccountTaskSession(ctx, settings.CookieID, err)
+	}
+	return summary, err
 }
 
 func (c *Center) scanAccountTasks(ctx context.Context) {
@@ -70,17 +89,68 @@ func (c *Center) scanAccountTasks(ctx context.Context) {
 		if err != nil || !allowed {
 			continue
 		}
+		if blocked, blockErr := c.accountTaskSessionBlocked(ctx, setting.CookieID); blockErr != nil || blocked {
+			continue
+		}
 		if setting.AutoRateEnabled {
-			if _, err := c.runAutoRate(ctx, setting); err != nil {
+			if _, err := c.runConfiguredAccountTask(ctx, setting, TaskAutoRate); err != nil {
 				c.logger.Warn("自动评价扫描失败", "account", setting.CookieID, "err", err)
 			}
 		}
 		if setting.AutoPolishEnabled && polishDue(setting, now) {
-			if _, err := c.runAutoPolish(ctx, setting, now, false); err != nil {
-				c.logger.Warn("每日擦亮失败", "account", setting.CookieID, "err", err)
+			if blocked, _ := c.accountTaskSessionBlocked(ctx, setting.CookieID); blocked {
+				continue
+			}
+			_, taskErr := c.runAutoPolish(ctx, setting, now, false)
+			if taskErr != nil && mtop.IsSessionExpiredErr(taskErr) {
+				taskErr = c.recoverAccountTaskSession(ctx, setting.CookieID, taskErr)
+			}
+			if taskErr != nil {
+				c.logger.Warn("每日擦亮失败", "account", setting.CookieID, "err", taskErr)
 			}
 		}
 	}
+}
+
+func (c *Center) recoverAccountTaskSession(ctx context.Context, accountID string, sessionErr error) error {
+	fingerprint, fingerprintErr := c.accountCredentialFingerprint(ctx, accountID)
+	if fingerprintErr == nil {
+		c.sessionExpired.Store(accountID, fingerprint)
+	}
+	c.logger.Warn("自动化 API 检测到 Session 过期，停止后续请求并开始即时续期", "account", accountID, "err", sessionErr)
+	if c.recoverer != nil && c.recoverer.RecoverExpiredCredential(ctx, accountID) {
+		c.sessionExpired.Delete(accountID)
+		return fmt.Errorf("%w；Session 续期成功，本次自动化已停止，下一轮将使用新凭证", sessionErr)
+	}
+	return fmt.Errorf("%w；已停止该账号自动化 API 请求，等待续期或重新登录", sessionErr)
+}
+
+func (c *Center) accountTaskSessionBlocked(ctx context.Context, accountID string) (bool, error) {
+	blockedFingerprint, ok := c.sessionExpired.Load(accountID)
+	if !ok {
+		return false, nil
+	}
+	current, err := c.accountCredentialFingerprint(ctx, accountID)
+	if err != nil {
+		return true, err
+	}
+	if current != blockedFingerprint.(string) {
+		c.sessionExpired.Delete(accountID)
+		return false, nil
+	}
+	return true, nil
+}
+
+func (c *Center) accountCredentialFingerprint(ctx context.Context, accountID string) (string, error) {
+	detail, err := c.store.Cookies.GetDetails(ctx, accountID)
+	if err != nil {
+		return "", err
+	}
+	if detail == nil {
+		return "", db.ErrNotFound
+	}
+	sum := sha256.Sum256([]byte(detail.Value + "\x00" + detail.MetadataJSON))
+	return fmt.Sprintf("%x", sum[:]), nil
 }
 
 func (c *Center) runAutoRate(ctx context.Context, settings db.AccountTaskSettings) (AccountTaskSummary, error) {
@@ -125,6 +195,9 @@ func (c *Center) runAutoRate(ctx context.Context, settings db.AccountTaskSetting
 			}
 			_ = c.store.AccountTasks.FinishRun(ctx, runKey, "failed", 0, 1, message, time.Now().UTC().Add(10*time.Minute).Unix())
 			summary.Failed++
+			if mtop.IsSessionExpiredErr(rateErr) {
+				return summary, rateErr
+			}
 			continue
 		}
 		current = c.persistTaskCookies(ctx, settings.CookieID, current, result.UpdatedCookies)
@@ -177,6 +250,10 @@ func (c *Center) runAutoPolish(ctx context.Context, settings db.AccountTaskSetti
 			lastError = errorString(polishErr)
 			if result != nil && result.Message != "" {
 				lastError = result.Message
+			}
+			if mtop.IsSessionExpiredErr(polishErr) {
+				_ = c.store.AccountTasks.FinishRun(ctx, runKey, "failed", summary.Success, summary.Failed, lastError, 0)
+				return summary, polishErr
 			}
 			continue
 		}

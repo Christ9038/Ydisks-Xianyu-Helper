@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -74,6 +75,49 @@ func TestTokenCaptchaExpiredURLSkipsFallback(t *testing.T) {
 	_, engine, err := m.TokenCaptchaRecoverWithEngine(context.Background(), "cid", "unb=1", "https://expired", true, nil)
 	if !errors.Is(err, errTokenCaptchaURLExpired) || engine != "" || fallbackCalls != 0 {
 		t.Fatalf("engine=%q fallback=%d err=%v", engine, fallbackCalls, err)
+	}
+}
+
+func TestTokenCaptchaDirectErrorPageSkipsFallbackAndKeepsManualURL(t *testing.T) {
+	fallbackCalls := 0
+	verificationURL := "https://h5api.m.goofish.com/punish?x5secdata=full-sensitive-value&action=captcha"
+	m := &Manager{
+		logger: slog.Default(),
+		tokenCaptchaPrimaryFn: func(context.Context, string, string, string, bool, TokenCaptchaURLProvider) (string, error) {
+			return "", fmt.Errorf("%w: Oops... something's wrong", errTokenCaptchaDirectPageError)
+		},
+		tokenCaptchaFallbackFn: func(context.Context, string, string, string, bool, TokenCaptchaURLProvider) (string, error) {
+			fallbackCalls++
+			return "", errors.New("must not run")
+		},
+	}
+	_, engine, err := m.TokenCaptchaRecoverWithEngine(context.Background(), "cid", "unb=1", verificationURL, true, nil)
+	if !errors.Is(err, errTokenCaptchaDirectPageError) || engine != "" || fallbackCalls != 0 {
+		t.Fatalf("engine=%q fallback=%d err=%v", engine, fallbackCalls, err)
+	}
+	if got := TokenCaptchaManualVerificationURL(err); got != verificationURL || !strings.Contains(err.Error(), verificationURL) {
+		t.Fatalf("manual URL=%q err=%v", got, err)
+	}
+}
+
+func TestTokenCaptchaSliderFailureReportsLatestFallbackURL(t *testing.T) {
+	t.Setenv("CAPTCHA_DRISSIONPAGE_FALLBACK_ENABLED", "true")
+	freshURL := "https://h5api.m.goofish.com/punish?x5secdata=latest-full-value&action=captcha"
+	m := &Manager{
+		logger: slog.Default(),
+		tokenCaptchaPrimaryFn: func(context.Context, string, string, string, bool, TokenCaptchaURLProvider) (string, error) {
+			return "", errors.New("slider failed three times")
+		},
+		tokenCaptchaFallbackFn: func(context.Context, string, string, string, bool, TokenCaptchaURLProvider) (string, error) {
+			return "", errors.New("fallback slider failed three times")
+		},
+	}
+	provider := func(context.Context, string) (string, bool, string, error) {
+		return freshURL, false, "unb=1; _m_h5_tk=fresh", nil
+	}
+	_, _, err := m.TokenCaptchaRecoverWithEngine(context.Background(), "cid", "unb=1", "https://old.example/punish", true, provider)
+	if err == nil || TokenCaptchaManualVerificationURL(err) != freshURL || !strings.Contains(err.Error(), freshURL) {
+		t.Fatalf("err=%v manual=%q", err, TokenCaptchaManualVerificationURL(err))
 	}
 }
 

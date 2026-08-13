@@ -190,6 +190,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 	discovered, listUpdated, softDeleted, failed := 0, 0, 0, 0
 	results := []map[string]any{}
 	newOrderIDs := make(map[string]struct{})
+	sessionExpiredAccounts := make(map[string]struct{})
 	if fetcher, ok := s.mtopClient().(mtop.SoldOrderFetcher); ok {
 		for cid := range all {
 			credentialUnlock := s.Store.LockAccountCredentials(cid)
@@ -217,6 +218,10 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 			credentialUnlock()
 			if persistErr == nil && valueChanged {
 				s.updateRunningCookie(r.Context(), cid, value)
+			}
+			if mtop.IsSessionExpiredErr(discoveryErr) {
+				sessionExpiredAccounts[cid] = struct{}{}
+				s.recoverExpiredMTOPSession(r.Context(), cid, discoveryErr)
 			}
 			discovered += accountDiscovered
 			listUpdated += accountUpdated
@@ -250,6 +255,9 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 
 	ordersByCookie := map[string][]refreshTarget{}
 	for cid := range all {
+		if _, blocked := sessionExpiredAccounts[cid]; blocked {
+			continue
+		}
 		for offset := 0; ; offset += 500 {
 			rows, err := s.Store.Orders.ByCookiePage(r.Context(), cid, 500, offset)
 			if err != nil {
@@ -312,6 +320,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 
 	updated, noChange := 0, 0
 	for cid, targets := range ordersByCookie {
+		accountSessionExpired := false
 		for _, chunk := range chunkRefreshTargets(targets, refreshOrderChunkSize) {
 			credentialUnlock := s.Store.LockAccountCredentials(cid)
 			latest, latestErr := s.Store.Cookies.GetDetails(r.Context(), cid)
@@ -323,6 +332,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 			mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
+			var sessionErr error
 			for _, target := range chunk {
 				detail, fetchErr := detailFetcher.FetchOrderDetail(mtopCtx, latest.Value, target.OrderID)
 				if fetchErr != nil || detail == nil {
@@ -336,6 +346,10 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 						"success":  false,
 						"error":    message,
 					})
+					if mtop.IsSessionExpiredErr(fetchErr) {
+						sessionErr = fetchErr
+						break
+					}
 					continue
 				}
 				newStatus := db.NormalizeOrderStatus(detail.OrderStatus)
@@ -377,6 +391,14 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 			} else if valueChanged {
 				s.updateRunningCookie(r.Context(), cid, value)
 			}
+			if sessionErr != nil {
+				s.recoverExpiredMTOPSession(r.Context(), cid, sessionErr)
+				accountSessionExpired = true
+				break
+			}
+		}
+		if accountSessionExpired {
+			continue
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -544,6 +566,7 @@ func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) {
 		s.updateRunningCookie(r.Context(), cookieID, runtimeCookie)
 	}
 	if callErr != nil {
+		s.recoverExpiredMTOPSession(r.Context(), cookieID, callErr)
 		writeErr(w, http.StatusBadGateway, callErr.Error())
 		return
 	}

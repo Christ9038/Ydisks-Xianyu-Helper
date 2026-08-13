@@ -112,6 +112,10 @@ func (m *Manager) tokenCaptchaCDPFallback(ctx context.Context, cookieID, cookieS
 	if err := sleepUntil(ctx, deadline, secondsDuration(randomFloat(1, 3))); err != nil {
 		return "", err
 	}
+	if pageErr := tokenCaptchaDirectPageError(page); pageErr != nil {
+		m.logger.Warn("备用滑块引擎页面没有可验证滑块，停止自动验证", "cookieID", cookieID, "err", pageErr)
+		return "", pageErr
+	}
 
 	for attempt := 0; attempt < 3; attempt++ {
 		if err := contextDeadlineError(ctx, deadline); err != nil {

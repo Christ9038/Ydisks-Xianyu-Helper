@@ -10,12 +10,17 @@ RUN npm run build
 FROM --platform=$BUILDPLATFORM golang:1.26-trixie AS backend
 ARG TARGETOS
 ARG TARGETARCH
+ARG APP_VERSION=dev
+ARG VCS_REF=unknown
+ARG BUILD_TIME=unknown
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /src/internal/webui/static ./internal/webui/static
-RUN CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w" -o /out/xianyu-server ./cmd/server \
+RUN CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath \
+      -ldflags="-s -w -X xianyu-go/internal/version.Version=$APP_VERSION -X xianyu-go/internal/version.Commit=$VCS_REF -X xianyu-go/internal/version.BuildTime=$BUILD_TIME" \
+      -o /out/xianyu-server ./cmd/server \
     && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w" -o /out/xianyu-dbseed ./cmd/dbseed \
     && CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath -ldflags="-s -w" -o /out/xianyu-dbverify ./cmd/dbverify
 

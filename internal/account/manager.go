@@ -159,6 +159,15 @@ func (m *Manager) Sender(cookieID string) (automation.MessageSender, bool) {
 	return m.GetInstance(cookieID)
 }
 
+// RecoverExpiredCredential 把任意上层 MTOP API 检测到的 Session 失效统一
+// 转交给账号 Handler 的协议续期流程。调用方必须先释放账号凭证锁。
+func (m *Manager) RecoverExpiredCredential(ctx context.Context, cookieID string) bool {
+	if m == nil || m.handler == nil {
+		return false
+	}
+	return m.handler.OnPasswordLoginRefresh(ctx, cookieID)
+}
+
 // RuntimeStatuses 返回所有已启动账号的实时状态快照。
 func (m *Manager) RuntimeStatuses() map[string]engine.RuntimeStatus {
 	m.mu.Lock()

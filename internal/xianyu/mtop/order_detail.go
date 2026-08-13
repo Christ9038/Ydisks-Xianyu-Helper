@@ -45,6 +45,9 @@ func (c *ClientImpl) FetchOrderDetail(ctx context.Context, cookiesStr, orderID s
 			result.UpdatedCookies = currentCookies
 			return result, nil
 		}
+		if isSessionExpiredRet(ret) {
+			return nil, sessionExpiredError("订单详情接口", ret)
+		}
 		if !isTokenExpiredRet(ret) {
 			return nil, fmt.Errorf("订单详情接口返回非成功: ret=%v", ret)
 		}

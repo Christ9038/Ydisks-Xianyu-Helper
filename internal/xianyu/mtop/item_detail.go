@@ -67,6 +67,9 @@ func (c *ClientImpl) DetectItemMultiSpec(ctx context.Context, cookies, itemID st
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return false, fmt.Errorf("解析商品详情响应失败: %w (body=%s)", err, truncate(string(raw), 300))
 	}
+	if isSessionExpiredRet(decoded.Ret) {
+		return false, sessionExpiredError("商品详情接口", decoded.Ret)
+	}
 	if !hasMTopSuccess(decoded.Ret) {
 		return false, fmt.Errorf("商品详情接口返回非成功: ret=%v", decoded.Ret)
 	}

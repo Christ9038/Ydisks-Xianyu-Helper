@@ -390,6 +390,9 @@ func TestHealth(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("health status=%d", rec.Code)
 	}
+	if !strings.Contains(rec.Body.String(), `"version":"dev"`) {
+		t.Fatalf("health response missing build version: %s", rec.Body.String())
+	}
 }
 
 func TestHealthReportsUnavailableDatabase(t *testing.T) {

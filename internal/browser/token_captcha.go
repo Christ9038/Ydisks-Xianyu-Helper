@@ -30,6 +30,53 @@ type TokenCaptchaURLProvider func(ctx context.Context, currentCookies string) (u
 type tokenCaptchaEngineFunc func(ctx context.Context, cookieID, cookieStr, verificationURL string, headless bool, provider TokenCaptchaURLProvider) (string, error)
 
 var errTokenCaptchaURLExpired = errors.New("token 风控验证链接已过期")
+var errTokenCaptchaDirectPageError = errors.New("token 风控页面直接显示错误且没有可验证滑块")
+
+// TokenCaptchaFailureError 保留自动验证失败时最后实际使用的完整验证地址，
+// 便于用户复制到本机浏览器中手动完成验证。
+type TokenCaptchaFailureError struct {
+	VerificationURL string
+	Cause           error
+}
+
+func (e *TokenCaptchaFailureError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Cause == nil {
+		if strings.TrimSpace(e.VerificationURL) == "" {
+			return "token 风控自动验证失败"
+		}
+		return fmt.Sprintf("token 风控自动验证失败；手动验证地址: %s", e.VerificationURL)
+	}
+	if strings.TrimSpace(e.VerificationURL) == "" {
+		return e.Cause.Error()
+	}
+	return fmt.Sprintf("%v；手动验证地址: %s", e.Cause, e.VerificationURL)
+}
+
+func (e *TokenCaptchaFailureError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+// TokenCaptchaManualVerificationURL 从自动验证失败中提取可供用户手动打开的完整地址。
+func TokenCaptchaManualVerificationURL(err error) string {
+	var failure *TokenCaptchaFailureError
+	if errors.As(err, &failure) {
+		return failure.VerificationURL
+	}
+	return ""
+}
+
+func tokenCaptchaFailure(err error, verificationURL string) error {
+	if err == nil {
+		return nil
+	}
+	return &TokenCaptchaFailureError{VerificationURL: strings.TrimSpace(verificationURL), Cause: err}
+}
 
 // TokenCaptchaRecover solves a token-refresh captcha and returns cookies with x5sec merged in.
 func (m *Manager) TokenCaptchaRecover(ctx context.Context, cookieID, cookieStr, verificationURL string, headless bool, provider TokenCaptchaURLProvider) (string, error) {
@@ -77,8 +124,8 @@ func (m *Manager) TokenCaptchaRecoverWithEngine(ctx context.Context, cookieID, c
 		primaryURL = freshURL
 	}
 	// An expired URL cannot be repaired by replaying it through the fallback.
-	if errors.Is(primaryErr, errTokenCaptchaURLExpired) {
-		return "", "", primaryErr
+	if errors.Is(primaryErr, errTokenCaptchaURLExpired) || errors.Is(primaryErr, errTokenCaptchaDirectPageError) {
+		return "", "", tokenCaptchaFailure(primaryErr, primaryURL)
 	}
 
 	if realMouseRequested() {
@@ -87,7 +134,7 @@ func (m *Manager) TokenCaptchaRecoverWithEngine(ctx context.Context, cookieID, c
 		m.logger.Error("CAPTCHA_REAL_MOUSE 已开启但物理鼠标引擎不可用，回退备用滑块逻辑", "goos", runtime.GOOS)
 	}
 	if !drissionFallbackEnabled() {
-		return "", "playwright", primaryErr
+		return "", "playwright", tokenCaptchaFailure(primaryErr, primaryURL)
 	}
 
 	fallbackURL := verificationURL
@@ -121,7 +168,10 @@ func (m *Manager) TokenCaptchaRecoverWithEngine(ctx context.Context, cookieID, c
 	if fallbackErr == nil {
 		fallbackErr = fmt.Errorf("备用滑块引擎未获取到新的 x5sec Cookie")
 	}
-	return "", "", fmt.Errorf("Playwright 主引擎失败: %v；备用滑块引擎失败: %w", primaryErr, fallbackErr)
+	return "", "", tokenCaptchaFailure(
+		fmt.Errorf("Playwright 主引擎失败: %v；备用滑块引擎失败: %w", primaryErr, fallbackErr),
+		fallbackURL,
+	)
 }
 
 func (m *Manager) tokenCaptchaPlaywrightRecover(ctx context.Context, cookieID, cookieStr, verificationURL string, headless bool, _ TokenCaptchaURLProvider) (string, error) {
@@ -175,6 +225,10 @@ func (m *Manager) tokenCaptchaPlaywrightRecover(ctx context.Context, cookieID, c
 	}
 	if strings.Contains(content, "STATUS_BREAKPOINT") || strings.Contains(content, "崩溃") {
 		return "", fmt.Errorf("token 风控验证页面崩溃")
+	}
+	if pageErr := tokenCaptchaDirectPageError(page); pageErr != nil {
+		m.logger.Warn("token 风控页面没有可验证滑块，停止自动验证", "cookieID", cookieID, "err", pageErr)
+		return "", pageErr
 	}
 
 	scratch := isScratchCaptcha(content)
@@ -253,6 +307,47 @@ func hasFreshX5InCookieString(before, after string) bool {
 
 func captchaURLExpired(content string) bool {
 	return strings.Contains(content, "抱歉，页面访问出现了问题")
+}
+
+func tokenCaptchaDirectPageError(page playwright.Page) error {
+	if page == nil {
+		return nil
+	}
+	if _, _, _, err := findSliderElements(page); err == nil {
+		return nil
+	}
+	frames := append([]playwright.Frame{page.MainFrame()}, page.Frames()...)
+	for _, frame := range frames {
+		body, err := frame.QuerySelector("body")
+		if err != nil || body == nil {
+			continue
+		}
+		text, err := body.InnerText()
+		if err != nil {
+			continue
+		}
+		if tokenCaptchaDirectErrorText(text) {
+			return fmt.Errorf("%w: %s", errTokenCaptchaDirectPageError, truncateSliderText(text))
+		}
+	}
+	return nil
+}
+
+func tokenCaptchaDirectErrorText(text string) bool {
+	normalized := strings.ToLower(strings.Join(strings.Fields(text), " "))
+	if normalized == "" {
+		return false
+	}
+	for _, marker := range []string{
+		"验证失败", "安全验证未通过", "请求失败", "加载失败", "系统繁忙", "服务异常", "网络异常",
+		"页面异常", "页面出错", "发生错误", "请稍后重试", "something's wrong", "something went wrong",
+		"please refresh and try again", "try again later",
+	} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func waitForFreshX5SecCookie(ctx context.Context, reader browserCookieReader, previousValues map[string]struct{}, timeout, pollInterval time.Duration) (map[string]string, error) {

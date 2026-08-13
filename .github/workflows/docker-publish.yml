@@ -4,10 +4,14 @@ on:
   push:
     branches:
       - main
-      - codex/desktop-packaging
-    tags:
-      - 'v*.*.*'
+      - dev
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      app_version:
+        description: 正式发布版本号（不含 v）
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -21,17 +25,26 @@ jobs:
   verify:
     name: Docker 发布测试门禁
     runs-on: ubuntu-24.04
+    outputs:
+      app_version: ${{ steps.version.outputs.app_version }}
+      build_time: ${{ steps.version.outputs.build_time }}
     steps:
-      - name: 校验版本标签
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: 准备构建版本
+        id: version
         shell: bash
         run: |
           set -Eeuo pipefail
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "版本标签必须符合 v1.2.3 格式：$GITHUB_REF_NAME" >&2
+          if [ -n "${{ inputs.app_version }}" ]; then
+            app_version="${{ inputs.app_version }}"
+          else
+            app_version="${GITHUB_REF_NAME}-${GITHUB_SHA::12}"
+          fi
+          if [ -n "${{ inputs.app_version }}" ] && [[ ! "$app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "正式版本必须符合 1.2.3 格式：$app_version" >&2
             exit 1
           fi
-
+          echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
       - name: 检出代码
         uses: actions/checkout@v6
 
@@ -178,6 +191,10 @@ jobs:
           context: .
           file: Dockerfile.debian13
           platforms: ${{ matrix.platform }}
+          build-args: |
+            APP_VERSION=${{ needs.verify.outputs.app_version }}
+            VCS_REF=${{ github.sha }}
+            BUILD_TIME=${{ needs.verify.outputs.build_time }}
           outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=ydisks-docker-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=ydisks-docker-${{ matrix.arch }}
@@ -241,10 +258,11 @@ jobs:
           name: ydisks-docker-digest-${{ matrix.arch }}
           path: dist/digests/*
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 30
 
   publish:
     name: 合并多架构镜像
+    if: inputs.app_version == ''
     needs: build
     runs-on: ubuntu-24.04
     steps:
@@ -276,14 +294,9 @@ jobs:
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
-            type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=sha,format=long
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=desktop-packaging,enable=${{ github.ref == 'refs/heads/codex/desktop-packaging' }}
-            type=raw,value=alpha,enable=${{ github.ref == 'refs/heads/codex/desktop-packaging' }}
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
 
       - name: 创建并推送多架构 manifest
         shell: bash

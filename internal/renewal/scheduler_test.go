@@ -400,6 +400,26 @@ func TestLoginRenewPreservesValidTokenCache(t *testing.T) {
 	}
 }
 
+func TestLoginRenewSessionExpiredStartsImmediateRecovery(t *testing.T) {
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	account := createSchedulerAccount(t, store, "cid-login-session-expired", "unb=1; _m_h5_tk=old_1")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"ret":["FAIL_SYS_SESSION_EXPIRED::Session过期"],"data":{}}`))
+	}))
+	defer srv.Close()
+	refresher := &schedulerFakePasswordRefresher{}
+	s := NewScheduler(store, nil, refresher, nil)
+	s.mtop = &mtop.ClientImpl{HTTPClient: srv.Client(), LoginUserURL: srv.URL}
+
+	s.loginRenewOne(ctx, "batch-login-session-expired", account)
+
+	if got := refresher.calls.Load(); got != 1 {
+		t.Fatalf("session 过期应在登录态检查返回后立即触发一次续期，calls=%d", got)
+	}
+}
+
 func TestLoginRenewPersistsAuthoritativeSessionBeforeParseError(t *testing.T) {
 	store, cleanup := newSchedulerTestStore(t)
 	defer cleanup()

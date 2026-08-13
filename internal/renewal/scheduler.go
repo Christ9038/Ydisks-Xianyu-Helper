@@ -188,8 +188,17 @@ func (s *Scheduler) executeLoginRenew(ctx context.Context) {
 func (s *Scheduler) loginRenewOne(ctx context.Context, batchID string, account db.RenewalAccount) {
 	credentialUnlock := s.store.LockAccountCredentials(account.ID)
 	credentialUpdated := false
+	sessionExpired := false
 	defer func() {
 		credentialUnlock()
+		if sessionExpired {
+			s.logger.Warn("loginuser.get 检测到 Session 过期，开始即时续期", "account", account.ID)
+			if s.refresher != nil && s.refresher.OnPasswordLoginRefresh(ctx, account.ID) {
+				s.wakeCredentialBlockedAutomation(ctx, account.ID)
+				s.restartAfterCredentialUpdate(ctx, account.ID, account.Enabled, "Session 即时续期")
+			}
+			return
+		}
 		if credentialUpdated {
 			s.wakeCredentialBlockedAutomation(ctx, account.ID)
 			s.restartAfterCredentialUpdate(ctx, account.ID, account.Enabled, "登录态续期")
@@ -266,6 +275,9 @@ func (s *Scheduler) loginRenewOne(ctx context.Context, batchID string, account d
 	s.addLoginLog(ctx, batchID, account.ID, res.Status, res.Message, updated, time.Since(started))
 	if res.Status == mtop.LoginStatusSessionExpired || res.Status == mtop.LoginStatusTokenEmpty {
 		s.markSessionExpired(account.ID)
+	}
+	if res.Status == mtop.LoginStatusSessionExpired {
+		sessionExpired = true
 	}
 }
 

@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -166,6 +167,43 @@ document.addEventListener('click', event => {
 	values, ok := state.(map[string]any)
 	if !ok || fmt.Sprint(values["dragAttempts"]) != "2" || fmt.Sprint(values["retryClicks"]) != "1" {
 		t.Fatalf("unexpected retry state: %#v", state)
+	}
+}
+
+func TestTokenCaptchaDirectErrorPageBrowserIntegration(t *testing.T) {
+	if os.Getenv("RUN_BROWSER_INTEGRATION") != "1" {
+		t.Skip("set RUN_BROWSER_INTEGRATION=1 to exercise direct-error page classification")
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, `<!doctype html><html><head><title>验证码拦截</title></head><body>
+<div class="errloading">Oops... something's wrong. Please refresh and try again.(error:6T0DWd)</div>
+</body></html>`)
+	}))
+	defer server.Close()
+
+	m := NewManager(nil)
+	defer m.Close()
+	if err := m.init(); err != nil {
+		t.Fatal(err)
+	}
+	browser, err := m.pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
+		Headless: playwright.Bool(true),
+		Args:     chromiumLaunchArgs(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = browser.Close() }()
+	page, err := browser.NewPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := page.Goto(server.URL+"/punish", playwright.PageGotoOptions{WaitUntil: playwright.WaitUntilStateDomcontentloaded}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tokenCaptchaDirectPageError(page); !errors.Is(err, errTokenCaptchaDirectPageError) {
+		t.Fatalf("无滑块错误页应停止自动验证: %v", err)
 	}
 }
 

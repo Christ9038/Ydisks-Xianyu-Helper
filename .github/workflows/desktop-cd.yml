@@ -5,10 +5,13 @@ on:
     branches:
       - main
       - dev
-      - codex/desktop-packaging
-    tags:
-      - 'v*.*.*'
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      app_version:
+        description: 正式发布版本号（不含 v）
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -23,22 +26,28 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       app_version: ${{ steps.version.outputs.app_version }}
+      build_version: ${{ steps.version.outputs.build_version }}
+      build_time: ${{ steps.version.outputs.build_time }}
     steps:
       - name: 解析并校验版本号
         id: version
         shell: bash
         run: |
           set -Eeuo pipefail
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            if [[ ! "$GITHUB_REF_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-              echo "版本标签必须符合 v1.2.3 格式：$GITHUB_REF_NAME" >&2
-              exit 1
-            fi
-            app_version="${GITHUB_REF_NAME#v}"
+          if [ -n "${{ inputs.app_version }}" ]; then
+            app_version="${{ inputs.app_version }}"
+            build_version="$app_version"
           else
-            app_version="0.0.0-${GITHUB_RUN_NUMBER}"
+            app_version="0.0.${GITHUB_RUN_NUMBER}"
+            build_version="${GITHUB_REF_NAME}-${GITHUB_SHA::12}"
+          fi
+          if [[ ! "$app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "安装包版本必须符合 1.2.3 格式：$app_version" >&2
+            exit 1
           fi
           echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
+          echo "build_version=$build_version" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
   linux:
     name: Linux 安装包 (${{ matrix.arch }})
@@ -46,6 +55,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     env:
       APP_VERSION: ${{ needs.prepare.outputs.app_version }}
+      BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
+      BUILD_TIME: ${{ needs.prepare.outputs.build_time }}
     strategy:
       fail-fast: false
       matrix:
@@ -84,7 +95,8 @@ jobs:
         run: |
           package_dir="dist/ydisks-xianyu-helper-linux-${GOARCH}"
           mkdir -p "$package_dir"
-          go build -trimpath -ldflags='-s -w' -o "$package_dir/xianyu-server" ./cmd/server
+          version_ldflags="-s -w -X xianyu-go/internal/version.Version=$BUILD_VERSION -X xianyu-go/internal/version.Commit=$GITHUB_SHA -X xianyu-go/internal/version.BuildTime=$BUILD_TIME"
+          go build -trimpath -ldflags="$version_ldflags" -o "$package_dir/xianyu-server" ./cmd/server
           go build -trimpath -ldflags='-s -w' -o "$package_dir/browser-install" ./cmd/browser-install
 
       - name: 恢复 Linux Chromium runtime 缓存
@@ -175,6 +187,8 @@ jobs:
     runs-on: windows-latest
     env:
       APP_VERSION: ${{ needs.prepare.outputs.app_version }}
+      BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
+      BUILD_TIME: ${{ needs.prepare.outputs.build_time }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v6
@@ -225,7 +239,8 @@ jobs:
         run: |
           & packaging/windows/build-resources.ps1
           New-Item -ItemType Directory -Force -Path dist/windows | Out-Null
-          go build -trimpath -ldflags "-s -w" -o dist/windows/xianyu-server.exe ./cmd/server
+          $versionLdflags = "-s -w -X xianyu-go/internal/version.Version=$env:BUILD_VERSION -X xianyu-go/internal/version.Commit=$env:GITHUB_SHA -X xianyu-go/internal/version.BuildTime=$env:BUILD_TIME"
+          go build -trimpath -ldflags $versionLdflags -o dist/windows/xianyu-server.exe ./cmd/server
           go build -trimpath -ldflags "-s -w" -o dist/windows/browser-install.exe ./cmd/browser-install
           go build -trimpath -ldflags "-s -w -H=windowsgui" -o dist/windows/xianyu-tray.exe ./cmd/tray
 
@@ -584,6 +599,8 @@ jobs:
     runs-on: macos-14
     env:
       APP_VERSION: ${{ needs.prepare.outputs.app_version }}
+      BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
+      BUILD_TIME: ${{ needs.prepare.outputs.build_time }}
     steps:
       - name: 检出代码
         uses: actions/checkout@v6
@@ -610,8 +627,9 @@ jobs:
       - name: 编译 macOS 桌面程序
         run: |
           mkdir -p dist/macos/arm64 dist/macos/amd64
+          version_ldflags="-s -w -X xianyu-go/internal/version.Version=$BUILD_VERSION -X xianyu-go/internal/version.Commit=$GITHUB_SHA -X xianyu-go/internal/version.BuildTime=$BUILD_TIME"
           for arch in arm64 amd64; do
-            GOOS=darwin GOARCH="$arch" CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o "dist/macos/$arch/xianyu-server" ./cmd/server
+            GOOS=darwin GOARCH="$arch" CGO_ENABLED=1 go build -trimpath -ldflags="$version_ldflags" -o "dist/macos/$arch/xianyu-server" ./cmd/server
             GOOS=darwin GOARCH="$arch" CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o "dist/macos/$arch/browser-install" ./cmd/browser-install
             GOOS=darwin GOARCH="$arch" CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o "dist/macos/$arch/xianyu-tray" ./cmd/tray
           done
@@ -736,62 +754,3 @@ jobs:
           name: ydisks-xianyu-helper-macos-amd64-${{ env.APP_VERSION }}
           path: dist/macos/Ydisks-Xianyu-Helper-${{ env.APP_VERSION }}-amd64.pkg
           if-no-files-found: error
-
-  release:
-    name: 发布 GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs:
-      - prepare
-      - linux
-      - windows
-      - macos
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - name: 下载全部平台安装包
-        uses: actions/download-artifact@v8
-        with:
-          pattern: ydisks-xianyu-helper-*
-          path: dist/release
-          merge-multiple: true
-
-      - name: 校验 Release 文件
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          test -f "dist/release/ydisks-xianyu-helper-linux-amd64-${{ needs.prepare.outputs.app_version }}.tar.gz"
-          test -f "dist/release/ydisks-xianyu-helper-linux-arm64-${{ needs.prepare.outputs.app_version }}.tar.gz"
-          test -f "dist/release/Ydisks-Xianyu-Helper-Setup.exe"
-          test -f "dist/release/Ydisks-Xianyu-Helper-${{ needs.prepare.outputs.app_version }}-arm64.pkg"
-          test -f "dist/release/Ydisks-Xianyu-Helper-${{ needs.prepare.outputs.app_version }}-amd64.pkg"
-          test "$(find dist/release -maxdepth 1 -type f | wc -l)" -eq 5
-          test -z "$(find dist/release -maxdepth 1 -type f -name '*.zip' -print -quit)"
-          (
-            cd dist/release
-            sha256sum * > SHA256SUMS
-          )
-
-      - name: 创建或更新 GitHub Release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ needs.prepare.outputs.app_version }}
-        run: |
-          set -Eeuo pipefail
-          mapfile -t release_files < <(find dist/release -maxdepth 1 -type f -print | sort)
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            while IFS= read -r asset_name; do
-              case "$asset_name" in
-                Ydisks-Xianyu-Helper-*-binaries.zip)
-                  gh release delete-asset "$GITHUB_REF_NAME" "$asset_name" --yes
-                  ;;
-              esac
-            done < <(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')
-            gh release upload "$GITHUB_REF_NAME" "${release_files[@]}" --clobber
-          else
-            gh release create "$GITHUB_REF_NAME" "${release_files[@]}" \
-              --verify-tag \
-              --generate-notes \
-              --title "Ydisks 闲鱼助手 $RELEASE_VERSION"
-          fi

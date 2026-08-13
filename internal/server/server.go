@@ -24,6 +24,7 @@ import (
 	"xianyu-go/internal/chat"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/notify"
+	appversion "xianyu-go/internal/version"
 	"xianyu-go/internal/webui"
 	"xianyu-go/internal/xianyu/mtop"
 	"xianyu-go/internal/xianyu/qrlogin"
@@ -126,6 +127,21 @@ func (s *Server) mtopClient() mtop.Client {
 		return s.MTop
 	}
 	return mtop.NewClient()
+}
+
+// recoverExpiredMTOPSession 是 HTTP/API 入口的统一 Session 失效出口。
+// 各调用点必须先保存响应 Cookie 并释放账号凭证锁，再进入续期，避免锁反转。
+func (s *Server) recoverExpiredMTOPSession(ctx context.Context, cookieID string, err error) bool {
+	if !mtop.IsSessionExpiredErr(err) {
+		return false
+	}
+	if s.Logger != nil {
+		s.Logger.Warn("MTOP API 检测到 Session 过期，停止业务请求并开始即时续期", "account", cookieID, "err", err)
+	}
+	if s.Manager == nil {
+		return false
+	}
+	return s.Manager.RecoverExpiredCredential(ctx, cookieID)
 }
 
 // Router 构建完整路由树。
@@ -349,7 +365,13 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "degraded", "database": "unavailable"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "database": "ok"})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":     "ok",
+		"database":   "ok",
+		"version":    appversion.Version,
+		"commit":     appversion.ShortCommit(),
+		"build_time": appversion.BuildTime,
+	})
 }
 
 // 各分组 mount*Real 方法在 handlers 文件中实现；为避免单文件过大，按业务域分文件。

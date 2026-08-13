@@ -839,6 +839,7 @@ func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) 
 		s.updateRunningCookie(ctx, d.ID, runtimeCookie)
 	}
 	if callErr != nil {
+		s.recoverExpiredMTOPSession(ctx, d.ID, callErr)
 		if s.Logger != nil {
 			s.Logger.Warn("刷新账号资料失败", "account", d.ID, "err", callErr)
 		}

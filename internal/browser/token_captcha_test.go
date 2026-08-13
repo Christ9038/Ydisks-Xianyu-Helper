@@ -140,3 +140,20 @@ func TestX5SecValuesCollectsAllDomains(t *testing.T) {
 		t.Fatal("缺少 two")
 	}
 }
+
+func TestTokenCaptchaDirectErrorTextRequiresAnErrorPrompt(t *testing.T) {
+	for _, text := range []string{
+		"验证失败，点击框体重试(error:YzRQd)",
+		"Oops... something's wrong. Please refresh and try again.(error:6T0DWd)",
+		"系统繁忙，请稍后重试",
+	} {
+		if !tokenCaptchaDirectErrorText(text) {
+			t.Fatalf("应识别无滑块错误提示 %q", text)
+		}
+	}
+	for _, text := range []string{"请按住滑块，拖动到最右边", "验证码加载中，请稍候", "验证码拦截"} {
+		if tokenCaptchaDirectErrorText(text) {
+			t.Fatalf("正常滑块提示不应识别为错误页 %q", text)
+		}
+	}
+}

@@ -276,7 +276,11 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 		}
 	}
 	if err != nil {
-		a.logger.Warn("token 风控滑块处理失败", "account", cookieID, "err", err)
+		manualURL := browser.TokenCaptchaManualVerificationURL(err)
+		if strings.TrimSpace(manualURL) == "" {
+			manualURL = verificationURL
+		}
+		a.logger.Warn("token 风控滑块处理失败", "account", cookieID, "err", err, "verification_url", manualURL)
 		if a.store != nil && a.store.RiskLogs != nil {
 			_ = a.store.RiskLogs.Update(ctx, logID, db.RiskControlLog{
 				ProcessingStatus: "failed",

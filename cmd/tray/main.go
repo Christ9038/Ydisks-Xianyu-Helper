@@ -24,6 +24,8 @@ import (
 type healthResponse struct {
 	Status   string `json:"status"`
 	Database string `json:"database"`
+	Version  string `json:"version"`
+	Commit   string `json:"commit"`
 }
 
 var serviceURL = strings.TrimRight(envOr("XIANYU_SERVICE_URL", "http://127.0.0.1:59188"), "/")

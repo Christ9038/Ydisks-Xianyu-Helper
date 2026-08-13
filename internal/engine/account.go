@@ -443,9 +443,19 @@ func (a *Account) Run(parent context.Context) error {
 				return err
 			}
 			if mtop.IsSessionExpiredErr(err) {
-				reason := "登录凭证已失效，请重新登录"
-				a.logger.Warn("session 已失效，停止消息登录", "err", err)
+				reason := "登录凭证已失效，正在立即续期"
+				a.logger.Warn("token API 检测到 Session 过期，停止重试并开始即时续期", "err", err)
 				a.clearTokenCache(ctx)
+				a.setRuntimeState(RuntimeReconnecting, reason)
+				a.notifyOffline(ctx, reason+"："+errString(err))
+				if a.handler != nil && a.handler.OnPasswordLoginRefresh(ctx, a.CookieID) {
+					a.reloadCookieFromDB(ctx)
+					a.clearCurrentToken()
+					a.resetFailures()
+					a.setRuntimeState(RuntimeConnecting, "Session 续期成功，正在重新连接")
+					continue
+				}
+				reason = "登录凭证已失效，自动续期失败，请重新扫码登录"
 				a.setRuntimeState(RuntimeAuthExpired, reason)
 				a.notifyOffline(ctx, reason+"："+errString(err))
 				return err

@@ -93,6 +93,9 @@ func (c *ClientImpl) PolishItem(ctx context.Context, cookiesStr, itemID string) 
 	if duplicatePolishError(err) {
 		return &AccountTaskResult{Success: true, Message: "商品今天已经擦亮", UpdatedCookies: updated}, nil
 	}
+	if IsSessionExpiredErr(err) || IsRiskVerificationErr(err) {
+		return nil, err
+	}
 	primaryErr := err
 	if strings.TrimSpace(updated) == "" {
 		updated = cookiesStr
@@ -140,6 +143,9 @@ func (c *ClientImpl) accountTaskRequest(ctx context.Context, cookiesStr, endpoin
 		}
 		if isRiskVerificationRet(decoded.Ret) {
 			return nil, updated, &RiskVerificationError{Ret: decoded.Ret}
+		}
+		if isSessionExpiredRet(decoded.Ret) {
+			return nil, updated, sessionExpiredError(api, decoded.Ret)
 		}
 		if !isTokenExpiredRet(decoded.Ret) {
 			return nil, updated, fmt.Errorf("%s 返回失败: %s", api, firstRet(decoded.Ret))

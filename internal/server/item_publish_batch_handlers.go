@@ -705,11 +705,12 @@ func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID,
 		if !claimed {
 			continue
 		}
-		if err := s.publishBatchRow(ctx, userID, client, row, workerToken); err != nil {
+		if rowErr := s.publishBatchRow(ctx, userID, client, row, workerToken); rowErr != nil {
+			sessionExpired := mtop.IsSessionExpiredErr(rowErr)
 			statusCtx, statusCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			status, _ := s.Store.PublishBatches.BatchStatus(statusCtx, batchID)
 			statusCancel()
-			message, failureKind := publishBatchFailure(err, status)
+			message, failureKind := publishBatchFailure(rowErr, status)
 			wctx, cancel := publishStatusContext(ctx)
 			marked, markErr := s.Store.PublishBatches.MarkClaimedRowFailed(wctx, row.ID, workerToken, message, failureKind)
 			cancel()
@@ -717,6 +718,10 @@ func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID,
 				if s.Logger != nil {
 					s.Logger.Warn("保存批量发布失败状态失败，等待租约恢复", "batch", batchID, "row", row.ID, "err", markErr)
 				}
+				return
+			}
+			if sessionExpired {
+				s.finishInterruptedPublishBatch(ctx, userID, batchID, workerToken)
 				return
 			}
 		}
@@ -977,6 +982,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 			s.updateRunningCookie(ctx, row.CookieID, runtimeCookie)
 		}
 		if err != nil {
+			s.recoverExpiredMTOPSession(ctx, row.CookieID, err)
 			if ctx.Err() != nil {
 				return &uncertainRemotePublishError{err: fmt.Errorf("取消时远端发布结果未知: %w", err)}
 			}

@@ -208,12 +208,46 @@ func isTokenExpiredRet(ret []string) bool {
 	for _, r := range ret {
 		if strings.Contains(r, "FAIL_SYS_TOKEN_EXOIRED") ||
 			strings.Contains(r, "FAIL_SYS_TOKEN_EXPIRED") ||
-			strings.Contains(r, "FAIL_SYS_TOKEN_EMPTY") ||
-			strings.Contains(r, "FAIL_SYS_SESSION_EXPIRED") {
+			strings.Contains(r, "FAIL_SYS_TOKEN_EMPTY") {
 			return true
 		}
 	}
 	return false
+}
+
+// SessionExpiredError 表示平台已经明确判定整个登录 Session 失效。
+// 它与可通过响应 Set-Cookie 重签的普通 MTOP token 过期不同：调用方必须
+// 立刻停止业务 API 重试，转入账号级 Session 续期流程。
+type SessionExpiredError struct {
+	API string
+	Ret []string
+}
+
+func (e *SessionExpiredError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.API == "" {
+		return fmt.Sprintf("Session 过期: ret=%v", e.Ret)
+	}
+	return fmt.Sprintf("%s Session 过期: ret=%v", e.API, e.Ret)
+}
+
+func isSessionExpiredRet(ret []string) bool {
+	for _, value := range ret {
+		lower := strings.ToLower(value)
+		if strings.Contains(lower, "fail_sys_session_expired") ||
+			strings.Contains(lower, "session过期") ||
+			strings.Contains(lower, "session expired") ||
+			strings.Contains(lower, "会话过期") {
+			return true
+		}
+	}
+	return false
+}
+
+func sessionExpiredError(api string, ret []string) error {
+	return &SessionExpiredError{API: api, Ret: append([]string(nil), ret...)}
 }
 
 // RiskVerificationError 表示闲鱼服务端要求用户验证（滑块/人脸/风控页）。
@@ -269,9 +303,15 @@ func IsSessionExpiredErr(err error) bool {
 	if err == nil {
 		return false
 	}
+	var sessionErr *SessionExpiredError
+	if errors.As(err, &sessionErr) {
+		return true
+	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "fail_sys_session_expired") ||
 		strings.Contains(msg, "session过期") ||
+		strings.Contains(msg, "session expired") ||
+		strings.Contains(msg, "会话过期") ||
 		strings.Contains(msg, "登录凭证已失效")
 }
 

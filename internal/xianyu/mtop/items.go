@@ -36,6 +36,9 @@ func (c *ClientImpl) FetchItemsPage(ctx context.Context, cookiesStr string, page
 		if res != nil {
 			return res, nil
 		}
+		if isSessionExpiredRet(ret) {
+			return nil, sessionExpiredError("商品列表接口", ret)
+		}
 		if !isTokenExpiredRet(ret) {
 			return nil, fmt.Errorf("商品列表接口返回非成功: ret=%v", ret)
 		}

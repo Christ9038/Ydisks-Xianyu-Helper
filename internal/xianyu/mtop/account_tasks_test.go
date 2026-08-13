@@ -101,3 +101,22 @@ func TestPolishItemFallsBackToAlternateAPI(t *testing.T) {
 		t.Fatalf("calls=%v want=%v", calls, want)
 	}
 }
+
+func TestPolishItemSessionExpiredDoesNotCallBackupOrTokenAPI(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		_, _ = w.Write([]byte(`{"ret":["FAIL_SYS_SESSION_EXPIRED::Session过期"],"data":{}}`))
+	}))
+	defer server.Close()
+	client := &ClientImpl{
+		HTTPClient: server.Client(), PolishItemURL: server.URL, PolishItemBackupURL: server.URL, TokenURL: server.URL,
+	}
+	_, err := client.PolishItem(context.Background(), "unb=123; _m_h5_tk=token_1", "item-1")
+	if err == nil || !IsSessionExpiredErr(err) {
+		t.Fatalf("err=%v want session expired", err)
+	}
+	if calls != 1 {
+		t.Fatalf("session expiry must stop all fallback/retry requests, calls=%d", calls)
+	}
+}

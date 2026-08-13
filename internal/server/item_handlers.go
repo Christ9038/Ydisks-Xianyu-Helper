@@ -151,6 +151,7 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		if responseCookieErr != nil {
 			callErr = errors.Join(callErr, fmt.Errorf("保存发布响应 Cookie: %w", responseCookieErr))
 		}
+		s.recoverExpiredMTOPSession(r.Context(), cookieID, callErr)
 		var perr *mtop.PublishError
 		if errors.As(callErr, &perr) {
 			status := http.StatusBadGateway
@@ -382,6 +383,7 @@ func (s *Server) syncItemsFromAccount(w http.ResponseWriter, r *http.Request) {
 		} else if valueChanged {
 			s.updateRunningCookie(r.Context(), req.CookieID, value)
 		}
+		s.recoverExpiredMTOPSession(r.Context(), req.CookieID, callErr)
 		writeErr(w, http.StatusBadGateway, callErr.Error())
 		return
 	}
@@ -389,7 +391,7 @@ func (s *Server) syncItemsFromAccount(w http.ResponseWriter, r *http.Request) {
 	if res.UpdatedCookies != "" {
 		detailCookies = res.UpdatedCookies
 	}
-	s.enrichSyncedItemMultiSpec(mtopCtx, client, detailCookies, req.CookieID, res.Items)
+	detailErr := s.enrichSyncedItemMultiSpec(mtopCtx, client, detailCookies, req.CookieID, res.Items)
 	runtimeCookie := ""
 	runtimeCookieChanged := false
 	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
@@ -417,6 +419,11 @@ func (s *Server) syncItemsFromAccount(w http.ResponseWriter, r *http.Request) {
 	credentialUnlock()
 	if runtimeCookieChanged {
 		s.updateRunningCookie(r.Context(), req.CookieID, runtimeCookie)
+	}
+	if detailErr != nil {
+		s.recoverExpiredMTOPSession(r.Context(), req.CookieID, detailErr)
+		writeErr(w, http.StatusBadGateway, detailErr.Error())
+		return
 	}
 	syncResult, syncErr := s.syncSyncedItems(r.Context(), req.CookieID, res.Items)
 	if syncErr != nil {
@@ -476,6 +483,7 @@ func (s *Server) syncItemsPageFromAccount(w http.ResponseWriter, r *http.Request
 		} else if valueChanged {
 			s.updateRunningCookie(r.Context(), req.CookieID, value)
 		}
+		s.recoverExpiredMTOPSession(r.Context(), req.CookieID, callErr)
 		writeErr(w, http.StatusBadGateway, callErr.Error())
 		return
 	}
@@ -483,7 +491,7 @@ func (s *Server) syncItemsPageFromAccount(w http.ResponseWriter, r *http.Request
 	if res.UpdatedCookies != "" {
 		detailCookies = res.UpdatedCookies
 	}
-	s.enrichSyncedItemMultiSpec(mtopCtx, client, detailCookies, req.CookieID, res.Items)
+	detailErr := s.enrichSyncedItemMultiSpec(mtopCtx, client, detailCookies, req.CookieID, res.Items)
 	runtimeCookie := ""
 	runtimeCookieChanged := false
 	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
@@ -511,6 +519,11 @@ func (s *Server) syncItemsPageFromAccount(w http.ResponseWriter, r *http.Request
 	credentialUnlock()
 	if runtimeCookieChanged {
 		s.updateRunningCookie(r.Context(), req.CookieID, runtimeCookie)
+	}
+	if detailErr != nil {
+		s.recoverExpiredMTOPSession(r.Context(), req.CookieID, detailErr)
+		writeErr(w, http.StatusBadGateway, detailErr.Error())
+		return
 	}
 	saved := s.saveSyncedItems(r.Context(), req.CookieID, res.Items)
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -592,10 +605,10 @@ func (s *Server) syncSyncedItems(ctx context.Context, cookieID string, items []m
 	return s.Store.Items.SyncFromRemote(ctx, cookieID, rows)
 }
 
-func (s *Server) enrichSyncedItemMultiSpec(ctx context.Context, client mtop.Client, cookies, cookieID string, items []mtop.ItemListItem) {
+func (s *Server) enrichSyncedItemMultiSpec(ctx context.Context, client mtop.Client, cookies, cookieID string, items []mtop.ItemListItem) error {
 	fetcher, ok := client.(mtop.ItemDetailFetcher)
 	if !ok {
-		return
+		return nil
 	}
 	for index := range items {
 		if items[index].IsMultiSpec || s.Store.Items.IsMultiSpec(ctx, cookieID, items[index].ID) {
@@ -604,6 +617,9 @@ func (s *Server) enrichSyncedItemMultiSpec(ctx context.Context, client mtop.Clie
 		}
 		isMultiSpec, err := fetcher.DetectItemMultiSpec(ctx, cookies, items[index].ID)
 		if err != nil {
+			if mtop.IsSessionExpiredErr(err) {
+				return err
+			}
 			if s.Logger != nil {
 				s.Logger.Warn("识别商品多规格状态失败", "cookie_id", cookieID, "item_id", items[index].ID, "err", err)
 			}
@@ -611,6 +627,7 @@ func (s *Server) enrichSyncedItemMultiSpec(ctx context.Context, client mtop.Clie
 		}
 		items[index].IsMultiSpec = isMultiSpec
 	}
+	return nil
 }
 
 func (s *Server) listItemsByCookie(w http.ResponseWriter, r *http.Request) {

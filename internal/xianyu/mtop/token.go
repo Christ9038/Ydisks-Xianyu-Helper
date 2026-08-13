@@ -77,6 +77,9 @@ func (c *ClientImpl) RefreshTokenWithCredentialContext(ctx context.Context, cook
 		if isRiskVerificationRet(ret) {
 			return refreshResultFromContext(ctx, currentCookies, currentSnapshot, currentSnapshotComplete, cookieStateChanged), &RiskVerificationError{Ret: ret, VerificationURL: verificationURL}
 		}
+		if isSessionExpiredRet(ret) {
+			return refreshResultFromContext(ctx, currentCookies, currentSnapshot, currentSnapshotComplete, cookieStateChanged), sessionExpiredError("token API", ret)
+		}
 		if !isOfficialTokenRetryRet(ret) {
 			return refreshResultFromContext(ctx, currentCookies, currentSnapshot, currentSnapshotComplete, cookieStateChanged), fmt.Errorf("token API 返回非成功: ret=%v (status=%d)", ret, status)
 		}

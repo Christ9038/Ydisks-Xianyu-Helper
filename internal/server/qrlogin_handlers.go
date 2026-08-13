@@ -16,6 +16,8 @@ import (
 	"xianyu-go/internal/xianyu/protocol"
 )
 
+const qrLoginGenerateTimeout = 2 * time.Minute
+
 // mountQRLoginReal 扫码登录端点（纯 HTTP，不需要浏览器）。
 func (s *Server) mountQRLoginReal(r chi.Router) {
 	r.Post("/qr-login/generate", s.generateQRLogin)
@@ -32,12 +34,26 @@ func (s *Server) generateQRLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.cleanupQRLoginSessions()
-	sessionID, qrCodeURL, err := s.QRLogin.GenerateQRCode(r.Context())
+	// 风控后的闲鱼匿名 token 接口偶尔会明显变慢。二维码生成需要连续完成
+	// token、登录参数和二维码请求，不能沿用前端通用接口的短超时。
+	generateCtx, cancel := context.WithTimeout(r.Context(), qrLoginGenerateTimeout)
+	defer cancel()
+	sessionID, qrCodeURL, err := s.QRLogin.GenerateQRCode(generateCtx)
 	if err != nil {
-		s.Logger.Error("生成二维码失败", "err", err)
+		message := "生成二维码失败: " + err.Error()
+		switch {
+		case errors.Is(err, context.Canceled):
+			s.Logger.Info("二维码生成请求已取消")
+			message = "二维码生成请求已取消，请重新获取"
+		case errors.Is(err, context.DeadlineExceeded):
+			s.Logger.Error("生成二维码超时", "err", err)
+			message = "闲鱼二维码接口响应超时，请稍后重新获取"
+		default:
+			s.Logger.Error("生成二维码失败", "err", err)
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"success": false,
-			"message": "生成二维码失败: " + err.Error(),
+			"message": message,
 		})
 		return
 	}

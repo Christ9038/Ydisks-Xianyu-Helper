@@ -163,8 +163,9 @@ export const getAccountRuntimeStatuses = async (options?: RequestControlOptions)
   return get('/cookies/runtime-status', undefined, options);
 };
 
-export const generateQRLogin = async (options?: RequestControlOptions): Promise<{ success: boolean; session_id?: string; qr_code_url?: string }> => {
-  return post('/qr-login/generate', undefined, options);
+export const generateQRLogin = async (options?: RequestControlOptions): Promise<{ success: boolean; session_id?: string; qr_code_url?: string; message?: string }> => {
+  // 风控后匿名 token 接口可能超过通用的 30 秒请求窗口；后端总生成窗口为 2 分钟。
+  return post('/qr-login/generate', undefined, { ...options, timeoutMs: options?.timeoutMs ?? 130_000 });
 };
 
 export const checkQRLoginStatus = async (sessionId: string, signal?: AbortSignal): Promise<any> => {
