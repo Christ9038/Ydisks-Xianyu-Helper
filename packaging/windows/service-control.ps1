@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('stop', 'register', 'start', 'install', 'uninstall')]
     [string]$Mode,

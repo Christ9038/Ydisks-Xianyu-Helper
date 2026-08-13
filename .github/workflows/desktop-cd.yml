@@ -200,16 +200,24 @@ jobs:
         shell: pwsh
         run: |
           go test ./cmd/tray
+          $serviceScript = (Resolve-Path 'packaging/windows/service-control.ps1').Path
           $tokens = $null
           $parseErrors = $null
           [void][System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path 'packaging/windows/service-control.ps1'),
+            $serviceScript,
             [ref]$tokens,
             [ref]$parseErrors
           )
           if ($parseErrors.Count -gt 0) {
             $parseErrors | ForEach-Object { Write-Error $_.Message }
-            throw 'Windows 服务安装脚本语法检查失败'
+            throw 'Windows 服务安装脚本在 PowerShell 7 下语法检查失败'
+          }
+
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+            -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+            -File $serviceScript -Mode stop -ServiceName "YdisksSyntaxCheck-$PID"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Windows 服务安装脚本在 Windows PowerShell 5.1 下检查失败，错误码: $LASTEXITCODE"
           }
 
       - name: 编译 Windows 桌面程序
