@@ -72,6 +72,9 @@ jobs:
     environment:
       name: production-release
     steps:
+      - name: 检出正式版本代码
+        uses: actions/checkout@v6
+
       - name: 下载全部构建产物
         uses: actions/download-artifact@v8
         with:
