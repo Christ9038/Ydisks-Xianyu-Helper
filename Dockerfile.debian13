@@ -35,6 +35,7 @@ ENV PLAYWRIGHT_DRIVER_PATH=/ms-playwright-go
 ENV PLAYWRIGHT_NODEJS_PATH=/usr/bin/node
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -45,6 +46,11 @@ RUN apt-get update \
         fonts-noto-cjk \
         nodejs \
         tzdata \
+    && update-ca-certificates --fresh \
+    && test -s "$SSL_CERT_FILE" \
+    && grep -q -- '-----BEGIN CERTIFICATE-----' "$SSL_CERT_FILE" \
+    && test -x "$PLAYWRIGHT_NODEJS_PATH" \
+    && test -x "$PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH" \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=backend /out/xianyu-server /app/xianyu-server
 COPY --from=backend /out/xianyu-dbseed /app/xianyu-dbseed

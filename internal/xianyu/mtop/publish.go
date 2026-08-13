@@ -73,6 +73,18 @@ type PublishCategory struct {
 	TBCatID      string `json:"tb_cat_id,omitempty"`
 }
 
+// PublishLocation 是闲鱼定位接口返回、可直接用于发布商品的发货地。
+type PublishLocation struct {
+	Area       string  `json:"area"`
+	City       string  `json:"city"`
+	DivisionID string  `json:"division_id"`
+	Longitude  float64 `json:"longitude"`
+	Latitude   float64 `json:"latitude"`
+	POIID      string  `json:"poi_id"`
+	POIName    string  `json:"poi_name"`
+	Province   string  `json:"province"`
+}
+
 // DefaultVirtualPublishCategory 是从闲鱼类目推荐响应中核实的“电子资料”类目。
 // 该类目没有 tbCatId，发布时必须保留为空而不是伪造淘宝类目 ID。
 func DefaultVirtualPublishCategory() PublishCategory {
@@ -91,9 +103,10 @@ type PublishItemRequest struct {
 	Quantity           int
 	PostageMode        string
 	PostageCents       int64
-	// Virtual 表示商品只通过系统的虚拟发货流程交付，不需要实物发货地址。
+	// Virtual 表示商品通过系统的虚拟发货流程交付；显式提供 Location 时仍会向闲鱼提交发货地。
 	Virtual           bool
 	PreferredCategory *PublishCategory
+	Location          *PublishLocation
 	Images            []PublishImage
 }
 
@@ -171,17 +184,35 @@ func (c *ClientImpl) PublishItem(ctx context.Context, cookiesStr string, req Pub
 			}
 		}
 	}
-	var location map[string]any
-	if !req.Virtual {
-		location, updated, err = c.defaultPublishLocation(ctx, currentCookies)
-		if err != nil {
-			return nil, err
-		}
-		if updated != "" {
-			currentCookies = updated
+	return c.publishItemOnce(ctx, currentCookies, req, uploaded, category)
+}
+
+// PublishLocations 根据浏览器提供的真实坐标查询闲鱼可用的发货地。
+func (c *ClientImpl) PublishLocations(ctx context.Context, cookiesStr string, longitude, latitude float64) ([]PublishLocation, string, error) {
+	if longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90 || (longitude == 0 && latitude == 0) {
+		return nil, cookiesStr, errors.New("经纬度无效")
+	}
+	data := map[string]any{"longitude": longitude, "latitude": latitude}
+	decoded, updated, err := c.callMTop(ctx, cookiesStr, DefaultLocationAPI, "mtop.taobao.idle.local.poi.get", "1.0", "a21ybx.publish.0.0", "a21ybx.item.sidebar.1.38262218ame5nr", "38262218ame5nr", data)
+	if err != nil {
+		return nil, updated, err
+	}
+	if !hasMTopSuccess(retFromDecoded(decoded)) {
+		return nil, updated, classifyPublishError(retFromDecoded(decoded), decoded)
+	}
+	dataMap := mapFromAny(decoded["data"])
+	addresses, _ := dataMap["commonAddresses"].([]any)
+	locations := make([]PublishLocation, 0, len(addresses))
+	for _, raw := range addresses {
+		loc := publishLocationFromMap(mapFromAny(raw))
+		if validPublishLocation(loc) {
+			locations = append(locations, loc)
 		}
 	}
-	return c.publishItemOnce(ctx, currentCookies, req, uploaded, category, location)
+	if len(locations) == 0 {
+		return nil, updated, errors.New("当前位置没有可用的闲鱼发货地，请在闲鱼中完善地址后重试")
+	}
+	return locations, updated, nil
 }
 
 // RecommendPublishCategory 根据关键词调用闲鱼推荐接口，返回可直接用于发布的完整类目。
@@ -398,28 +429,35 @@ func fallbackPublishCategory(category PublishCategory) map[string]any {
 	}
 }
 
-func (c *ClientImpl) defaultPublishLocation(ctx context.Context, cookiesStr string) (map[string]any, string, error) {
-	data := map[string]any{"longitude": 118.78248347393424, "latitude": 31.91629189813543}
-	decoded, updated, err := c.callMTop(ctx, cookiesStr, DefaultLocationAPI, "mtop.taobao.idle.local.poi.get", "1.0", "a21ybx.publish.0.0", "a21ybx.item.sidebar.1.38262218ame5nr", "38262218ame5nr", data)
-	if err != nil {
-		return nil, updated, err
+func publishLocationFromMap(loc map[string]any) PublishLocation {
+	return PublishLocation{
+		Area: strings.TrimSpace(mtopString(loc["area"])), City: strings.TrimSpace(mtopString(loc["city"])),
+		DivisionID: strings.TrimSpace(mtopString(loc["divisionId"])), Longitude: numberFromAny(loc["longitude"]),
+		Latitude: numberFromAny(loc["latitude"]), POIID: strings.TrimSpace(mtopString(loc["poiId"])),
+		POIName: strings.TrimSpace(mtopString(loc["poi"])), Province: strings.TrimSpace(mtopString(loc["prov"])),
 	}
-	if !hasMTopSuccess(retFromDecoded(decoded)) {
-		return nil, updated, classifyPublishError(retFromDecoded(decoded), decoded)
-	}
-	dataMap := mapFromAny(decoded["data"])
-	addresses, _ := dataMap["commonAddresses"].([]any)
-	if len(addresses) == 0 {
-		return nil, updated, fmt.Errorf("账号缺少默认发货地址/定位信息，无法发布商品")
-	}
-	loc := mapFromAny(addresses[0])
-	if loc == nil {
-		return nil, updated, fmt.Errorf("默认地址格式异常，无法发布商品")
-	}
-	return loc, updated, nil
 }
 
-func (c *ClientImpl) publishItemOnce(ctx context.Context, cookiesStr string, req PublishItemRequest, images []uploadedImage, category, location map[string]any) (*PublishItemResult, error) {
+func validPublishLocation(loc PublishLocation) bool {
+	return loc.DivisionID != "" && loc.Province != "" && loc.City != "" && loc.Longitude >= -180 && loc.Longitude <= 180 && loc.Latitude >= -90 && loc.Latitude <= 90 && !(loc.Longitude == 0 && loc.Latitude == 0)
+}
+
+func numberFromAny(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case json.Number:
+		f, _ := n.Float64()
+		return f
+	case string:
+		f, _ := strconv.ParseFloat(strings.TrimSpace(n), 64)
+		return f
+	default:
+		return 0
+	}
+}
+
+func (c *ClientImpl) publishItemOnce(ctx context.Context, cookiesStr string, req PublishItemRequest, images []uploadedImage, category map[string]any) (*PublishItemResult, error) {
 	imagePayloads := make([]any, 0, len(images))
 	for i, img := range images {
 		imagePayloads = append(imagePayloads, publishImagePayload(img, i == 0))
@@ -450,16 +488,17 @@ func (c *ClientImpl) publishItemOnce(ctx context.Context, cookiesStr string, req
 		"bizcode":      "pcMainPublish",
 		"publishScene": "pcMainPublish",
 	}
-	if !req.Virtual {
-		data["itemAddrDTO"] = map[string]any{
-			"area":       location["area"],
-			"city":       location["city"],
-			"divisionId": location["divisionId"],
-			"gps":        fmt.Sprintf("%s,%s", mtopString(location["longitude"]), mtopString(location["latitude"])),
-			"poiId":      location["poiId"],
-			"poiName":    location["poi"],
-			"prov":       location["prov"],
+	if req.Location != nil {
+		if !validPublishLocation(*req.Location) {
+			return nil, errors.New("发货地信息不完整，请重新定位并选择")
 		}
+		data["itemAddrDTO"] = map[string]any{
+			"area": req.Location.Area, "city": req.Location.City, "divisionId": req.Location.DivisionID,
+			"gps":   fmt.Sprintf("%s,%s", strconv.FormatFloat(req.Location.Longitude, 'f', -1, 64), strconv.FormatFloat(req.Location.Latitude, 'f', -1, 64)),
+			"poiId": req.Location.POIID, "poiName": req.Location.POIName, "prov": req.Location.Province,
+		}
+	} else if !req.Virtual {
+		return nil, errors.New("发布实物商品前必须选择发货地")
 	}
 	decoded, updated, err := c.callMTop(ctx, cookiesStr, PublishItemAPI, "mtop.idle.pc.idleitem.publish", "1.0", "a21ybx.publish.0.0", "a21ybx.home.sidebar.1.46413da6EPl7v5", "46413da6EPl7v5", data)
 	if err != nil {
