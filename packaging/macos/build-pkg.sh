@@ -60,6 +60,15 @@ mkdir -p "$APP/Contents/Resources/playwright-runtime/$ARCH"
 cp -R "$DIST_DIR/playwright-runtime/$ARCH/." "$APP/Contents/Resources/playwright-runtime/$ARCH/"
 cp "$PROJECT_ROOT/icon/macos/Assets.car" "$APP/Contents/Resources/Assets.car"
 cp "$PROJECT_ROOT/icon/macos/icon.icns" "$APP/Contents/Resources/icon.icns"
+mkdir -p "$APP/Contents/Resources/en.lproj" \
+  "$APP/Contents/Resources/zh-Hans.lproj" \
+  "$APP/Contents/Resources/zh-Hant.lproj"
+cp "$SCRIPT_DIR/Resources/en.lproj/InfoPlist.strings" \
+  "$APP/Contents/Resources/en.lproj/InfoPlist.strings"
+cp "$SCRIPT_DIR/Resources/zh-Hans.lproj/InfoPlist.strings" \
+  "$APP/Contents/Resources/zh-Hans.lproj/InfoPlist.strings"
+cp "$SCRIPT_DIR/Resources/zh-Hant.lproj/InfoPlist.strings" \
+  "$APP/Contents/Resources/zh-Hant.lproj/InfoPlist.strings"
 sed "s/__VERSION__/$VERSION/g" "$SCRIPT_DIR/Info.plist" > "$APP/Contents/Info.plist"
 chmod 0755 "$APP/Contents/MacOS/Ydisks闲鱼助手" "$APP/Contents/Helpers/xianyu-server" "$APP_DIR/卸载 Ydisks闲鱼助手.command"
 

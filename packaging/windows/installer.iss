@@ -1,4 +1,3 @@
-#define AppName "Ydisks Xianyu Helper"
 #define AppVersion GetEnv("APP_VERSION")
 #define AppPublisher "Christ9038"
 #define AppExeName "xianyu-server.exe"
@@ -10,11 +9,11 @@
 
 [Setup]
 AppId={{A6E8B04B-3C8A-4E20-AE62-6B1C3F6B31AE}
-AppName={#AppName}
+AppName={cm:ProductName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\Ydisks Xianyu Helper
-DefaultGroupName={#AppName}
+DefaultDirName={autopf}\{cm:ProductName}
+DefaultGroupName={cm:ProductName}
 OutputBaseFilename=Ydisks-Xianyu-Helper-Setup
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -23,6 +22,28 @@ UninstallDisplayIcon={app}\icon.ico
 SetupIconFile={#WindowsIconDir}\icon.ico
 Compression=lzma2
 SolidCompression=yes
+
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "chinesetraditional"; MessagesFile: "compiler:Languages\ChineseTraditional.isl"
+
+[CustomMessages]
+english.ProductName=Ydisks Xianyu Helper
+chinesesimplified.ProductName=Ydisks闲鱼助手
+chinesetraditional.ProductName=Ydisks闲鱼助手
+english.StartMenuShortcut=Create a Start Menu shortcut
+chinesesimplified.StartMenuShortcut=创建开始菜单快捷方式
+chinesetraditional.StartMenuShortcut=创建开始菜单快捷方式
+english.DesktopShortcut=Create a desktop shortcut
+chinesesimplified.DesktopShortcut=创建桌面快捷方式
+chinesetraditional.DesktopShortcut=创建桌面快捷方式
+english.ShortcutOptions=Shortcut options:
+chinesesimplified.ShortcutOptions=快捷方式选项：
+chinesetraditional.ShortcutOptions=快捷方式选项：
+english.StartTray=Start tray controller
+chinesesimplified.StartTray=启动托盘控制器
+chinesetraditional.StartTray=启动托盘控制器
 
 [Files]
 Source: "{#WindowsDistDir}\xianyu-server.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -40,8 +61,16 @@ Name: "{#AppDataDir}\logs"; Permissions: users-modify
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "YdisksXianyuHelperTray"; ValueData: """{app}\xianyu-tray.exe"""; Flags: uninsdeletevalue
 
+[Tasks]
+Name: "startmenuicon"; Description: "{cm:StartMenuShortcut}"; GroupDescription: "{cm:ShortcutOptions}"
+Name: "desktopicon"; Description: "{cm:DesktopShortcut}"; GroupDescription: "{cm:ShortcutOptions}"; Flags: unchecked
+
+[Icons]
+Name: "{group}\{cm:ProductName}"; Filename: "{app}\xianyu-tray.exe"; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"; Tasks: startmenuicon
+Name: "{autodesktop}\{cm:ProductName}"; Filename: "{app}\xianyu-tray.exe"; WorkingDir: "{app}"; IconFilename: "{app}\icon.ico"; Tasks: desktopicon
+
 [Run]
-Filename: "{app}\xianyu-tray.exe"; Description: "启动菜单栏控制器"; Flags: nowait postinstall skipifsilent runasoriginaluser; Check: ServiceStartedSuccessfully
+Filename: "{app}\xianyu-tray.exe"; Description: "{cm:StartTray}"; Flags: nowait postinstall skipifsilent runasoriginaluser; Check: ServiceStartedSuccessfully
 
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\service-control.ps1"" -Mode uninstall -TrayPath ""{app}\xianyu-tray.exe"""; Flags: runhidden waituntilterminated

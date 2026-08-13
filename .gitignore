@@ -7,6 +7,8 @@
 *.test
 !/Dockerfile.test
 *.out
+/cmd/server/rsrc_windows_amd64.syso
+/cmd/tray/rsrc_windows_amd64.syso
 
 # Local deployment environment (keep secrets out of Git)
 /.env

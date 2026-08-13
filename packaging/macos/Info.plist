@@ -5,9 +5,9 @@
 	<key>CFBundleIdentifier</key>
 	<string>com.ydisks.xianyu-helper</string>
 	<key>CFBundleName</key>
-	<string>Ydisks闲鱼助手</string>
+	<string>Ydisks Xianyu Helper</string>
 	<key>CFBundleDisplayName</key>
-	<string>Ydisks闲鱼助手</string>
+	<string>Ydisks Xianyu Helper</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleVersion</key>

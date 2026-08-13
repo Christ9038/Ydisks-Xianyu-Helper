@@ -223,6 +223,7 @@ jobs:
       - name: 编译 Windows 桌面程序
         shell: pwsh
         run: |
+          & packaging/windows/build-resources.ps1
           New-Item -ItemType Directory -Force -Path dist/windows | Out-Null
           go build -trimpath -ldflags "-s -w" -o dist/windows/xianyu-server.exe ./cmd/server
           go build -trimpath -ldflags "-s -w" -o dist/windows/browser-install.exe ./cmd/browser-install
@@ -508,6 +509,25 @@ jobs:
             }
             if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
               throw "Windows 卸载器不存在: $uninstaller"
+            }
+            $expectedTray = Join-Path $installDir 'xianyu-tray.exe'
+            $startMenuRoots = @(
+              (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs'),
+              (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs')
+            )
+            $startMenuShortcut = $startMenuRoots |
+              Where-Object { Test-Path -LiteralPath $_ -PathType Container } |
+              ForEach-Object {
+                Get-ChildItem -LiteralPath $_ -Filter '*.lnk' -Recurse -File -ErrorAction SilentlyContinue
+              } |
+              Where-Object {
+                $shortcutShell = New-Object -ComObject WScript.Shell
+                $shortcutTarget = $shortcutShell.CreateShortcut($_.FullName).TargetPath
+                [StringComparer]::OrdinalIgnoreCase.Equals($shortcutTarget, $expectedTray)
+              } |
+              Select-Object -First 1
+            if ($null -eq $startMenuShortcut) {
+              throw '安装器未创建开始菜单快捷方式'
             }
           } catch {
             if (Test-Path -LiteralPath $installLog) {
