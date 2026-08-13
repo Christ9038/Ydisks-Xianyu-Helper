@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-// publish.go 用常量 URL（UploadMediaAPI / RecommendItemAPI / DefaultLocationAPI / PublishItemAPI），
+// publish.go 用常量 URL（UploadMediaAPI / RecommendItemAPI / PublishItemAPI），
 // 通过 dispatchTransport 按 api query 参数分发到不同本地 handler，覆盖各 mtop 调用路径。
 
 type dispatchTransport struct {
@@ -78,6 +78,7 @@ func TestPublishItemValidationFailures(t *testing.T) {
 func TestPublishItemDescriptionDefaultsToTitle(t *testing.T) {
 	png1 := tinyPNG(t)
 	var gotDesc string
+	var publishedData map[string]any
 	dt := &dispatchTransport{handlers: map[string]http.HandlerFunc{
 		"_upload": func(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, `{"object":{"url":"https://cdn/a.jpg","pix":"800x600"}}`)
@@ -96,10 +97,8 @@ func TestPublishItemDescriptionDefaultsToTitle(t *testing.T) {
 			}
 			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"categoryPredictResult":{"catId":"c1","catName":"类目"}}}`)
 		},
-		"mtop.taobao.idle.local.poi.get": func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"commonAddresses":[{"area":"X","city":"Y","divisionId":"1","longitude":118.7,"latitude":31.9,"poiId":"p1","poi":"P","prov":"Z"}]}}`)
-		},
 		"mtop.idle.pc.idleitem.publish": func(w http.ResponseWriter, r *http.Request) {
+			publishedData, _ = parseDataURL(readBody(r))
 			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"itemId":"new-item-1"}}`)
 		},
 	}}
@@ -128,6 +127,10 @@ func TestPublishItemDescriptionDefaultsToTitle(t *testing.T) {
 	}
 	if res.ImageURL != "https://cdn/a.jpg" {
 		t.Fatalf("ImageURL=%q", res.ImageURL)
+	}
+	addr, ok := publishedData["itemAddrDTO"].(map[string]any)
+	if !ok || addr["gps"] != "31.9,118.7" {
+		t.Fatalf("itemAddrDTO=%+v, gps should be latitude,longitude", publishedData["itemAddrDTO"])
 	}
 }
 
@@ -220,9 +223,6 @@ func TestPublishItemLocationFailure(t *testing.T) {
 		},
 		"mtop.taobao.idle.kgraph.property.recommend": func(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"categoryPredictResult":{"catId":"c1","catName":"类目"}}}`)
-		},
-		"mtop.taobao.idle.local.poi.get": func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"commonAddresses":[]}}`)
 		},
 	}}
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: dt}}
@@ -365,9 +365,6 @@ func TestPublishItemFinalPublishFailure(t *testing.T) {
 		"mtop.taobao.idle.kgraph.property.recommend": func(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"categoryPredictResult":{"catId":"c1","catName":"类目"}}}`)
 		},
-		"mtop.taobao.idle.local.poi.get": func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"commonAddresses":[{"area":"X","city":"Y","divisionId":"1","longitude":118.7,"latitude":31.9,"poiId":"p1","poi":"P","prov":"Z"}]}}`)
-		},
 		"mtop.idle.pc.idleitem.publish": func(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, `{"ret":["FAIL_SYS_TOKEN_EXPIRED::令牌过期"]}`)
 		},
@@ -401,9 +398,6 @@ func TestPublishItemStockPermissionError(t *testing.T) {
 		},
 		"mtop.taobao.idle.kgraph.property.recommend": func(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"categoryPredictResult":{"catId":"c1","catName":"类目"}}}`)
-		},
-		"mtop.taobao.idle.local.poi.get": func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"commonAddresses":[{"area":"X","city":"Y","divisionId":"1","longitude":118.7,"latitude":31.9,"poiId":"p1","poi":"P","prov":"Z"}]}}`)
 		},
 		"mtop.idle.pc.idleitem.publish": func(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, `{"ret":["账号没有库存发布权限"]}`)
@@ -617,43 +611,6 @@ func TestRecommendPublishCategoryEmptyCatId(t *testing.T) {
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: dt}}
 	_, _, err := client.recommendPublishCategory(context.Background(), consignCookies, "T", "D", imgs)
 	if err == nil || !strings.Contains(err.Error(), "未能自动识别商品类目") {
-		t.Fatalf("err=%v", err)
-	}
-}
-
-// ---- PublishLocations 真实坐标查询测试 ----
-
-func TestPublishLocationsUsesProvidedCoordinates(t *testing.T) {
-	var requested map[string]any
-	dt := &dispatchTransport{handlers: map[string]http.HandlerFunc{
-		"mtop.taobao.idle.local.poi.get": func(w http.ResponseWriter, r *http.Request) {
-			requested, _ = parseDataURL(readBody(r))
-			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"commonAddresses":[{"area":"A","city":"C","divisionId":"1","longitude":118.7,"latitude":31.9,"poiId":"p","poi":"P","prov":"PR"},{"area":"A","city":"C","divisionId":"1","longitude":118.71,"latitude":31.91,"poiId":"p2","poi":"P2","prov":"PR"}]}}`)
-		},
-	}}
-	client := &ClientImpl{HTTPClient: &http.Client{Transport: dt}}
-	locations, _, err := client.PublishLocations(context.Background(), consignCookies, 118.7, 31.9)
-	if err != nil {
-		t.Fatalf("err=%v", err)
-	}
-	if requested["longitude"] != float64(118.7) || requested["latitude"] != float64(31.9) {
-		t.Fatalf("查询坐标=%+v", requested)
-	}
-	if len(locations) != 2 || locations[0].Area != "A" || locations[1].POIID != "p2" {
-		t.Fatalf("locations=%+v", locations)
-	}
-}
-
-func TestPublishLocationsMalformedAddress(t *testing.T) {
-	dt := &dispatchTransport{handlers: map[string]http.HandlerFunc{
-		"mtop.taobao.idle.local.poi.get": func(w http.ResponseWriter, r *http.Request) {
-			// commonAddresses[0] 不是 map
-			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"commonAddresses":["not-a-map"]}}`)
-		},
-	}}
-	client := &ClientImpl{HTTPClient: &http.Client{Transport: dt}}
-	_, _, err := client.PublishLocations(context.Background(), consignCookies, 118.7, 31.9)
-	if err == nil || !strings.Contains(err.Error(), "没有可用") {
 		t.Fatalf("err=%v", err)
 	}
 }

@@ -311,8 +311,6 @@ func TestRunItemPublishBatch_Success(t *testing.T) {
 		switch {
 		case strings.Contains(u, "stream-upload.goofish.com"):
 			body = `{"object":{"url":"https://img.alicdn.com/published.png","pix":"800_800"}}`
-		case strings.Contains(u, "mtop.taobao.idle.local.poi.get"):
-			body = `{"ret":["SUCCESS::调用成功"],"data":{"commonAddresses":[{"address":"北京"}]}}`
 		case strings.Contains(u, "mtop.taobao.idle.kgraph.property.recommend"):
 			body = `{"ret":["SUCCESS::调用成功"],"data":{}}`
 		case strings.Contains(u, "mtop.idle.pc.idleitem.publish"):

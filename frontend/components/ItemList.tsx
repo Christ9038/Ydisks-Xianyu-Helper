@@ -9,7 +9,6 @@ import {
   createItem,
   publishItem,
   recommendPublishCategory,
-	getPublishLocations,
   previewItemPublishBatch,
   startItemPublishBatch,
   getItemPublishBatch,
@@ -22,6 +21,7 @@ import {
   getShippingRules
 } from '../services/api';
 import type { PublishLocation } from '../services/api';
+import { getPublishLocations } from '../services/amapLocation';
 import { ArrowRight, Box, CheckCircle2, CircleDashed, Edit, Filter, Link2, LocateFixed, PackagePlus, Plus, RefreshCw, Save, Search, ShoppingBag, Trash2, UploadCloud, User, X } from 'lucide-react';
 
 interface ItemListProps {
@@ -292,13 +292,12 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     if (!publishForm.title.trim()) return alert('请填写商品标题');
     if (!publishForm.price.trim()) return alert('请填写商品价格');
     if (!publishForm.quantity || Number(publishForm.quantity) <= 0) return alert('库存数量必须大于 0');
-    if (publishForm.images.length === 0) return alert('至少上传 1 张商品图片');
-    if (publishForm.postage_mode === 'fixed' && !publishForm.postage.trim()) return alert('请填写一口价邮费');
-	if (!publishLocation) return alert('请获取当前位置并选择发货地');
+	if (publishForm.images.length === 0) return alert('至少上传 1 张商品图片');
+	if (publishForm.postage_mode === 'fixed' && !publishForm.postage.trim()) return alert('请填写一口价邮费');
 
     setPublishing(true);
     try {
-	  const result = await publishItem({ ...publishForm, location: publishLocation });
+	  const result = await publishItem({ ...publishForm, location: publishLocation || undefined });
       await loadItems();
       setShowPublishModal(false);
       setPublishForm({
@@ -409,7 +408,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   const handlePreviewBatch = async () => {
     if (!batchFile) return alert('请先上传商品表格');
     if (!selectedAccount) return alert('请先选择默认发布账号');
-	if (!batchLocation) return alert('请获取当前位置并选择发货地');
     setBatchLoading(true);
     try {
       const result = await previewItemPublishBatch({
@@ -417,7 +415,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
         imagesZip: batchImagesZip,
         defaultCookieId: selectedAccount,
         fallbackCategory: batchFallbackCategory,
-		location: batchLocation!,
+		location: batchLocation || undefined,
       });
       setBatchPreview(result);
       setBatchDetail(null);
@@ -538,8 +536,8 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
 		setLocationLoading(true);
 		navigator.geolocation.getCurrentPosition(async position => {
 			try {
-				const locations = await getPublishLocations(cookieId, position.coords.longitude, position.coords.latitude);
-				if (!locations.length) throw new Error('当前位置没有可用的发货地');
+				const locations = await getPublishLocations(position.coords.longitude, position.coords.latitude);
+				if (!locations.length) throw new Error('当前位置附近没有可用的高德发货地，请稍后重试');
 				if (batch) { setBatchLocations(locations); setBatchLocation(locations[0]); }
 				else { setPublishLocations(locations); setPublishLocation(locations[0]); }
 			} catch (error: any) {
@@ -906,7 +904,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
               )}
 			  <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 space-y-3">
 				<div className="flex items-center justify-between gap-3">
-				  <div><div className="text-sm font-extrabold text-gray-900">发货地</div><p className="mt-1 text-xs text-sky-800">使用当前位置向闲鱼查询可发布的行政区。</p></div>
+				  <div><div className="text-sm font-extrabold text-gray-900">发货地（可选）</div><p className="mt-1 text-xs text-sky-800">虚拟商品无需发货地；发布失败时可再定位并作为补充信息提交。</p></div>
 				  <button type="button" disabled={locationLoading || !publishForm.cookie_id} onClick={() => void locateForPublish(false)} className="ios-btn-primary flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold disabled:opacity-50">
 					<LocateFixed className="h-4 w-4" />{locationLoading ? '定位中...' : '获取当前位置'}
 				  </button>
@@ -1067,7 +1065,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
 
 				  <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 space-y-3">
 					<div className="flex items-center justify-between gap-3">
-					  <div><div className="text-sm font-extrabold text-gray-900">批次发货地</div><p className="mt-1 text-xs text-sky-800">整个批次使用同一个发货地，并随任务保存用于恢复和重试。</p></div>
+					  <div><div className="text-sm font-extrabold text-gray-900">批次发货地（可选）</div><p className="mt-1 text-xs text-sky-800">虚拟商品可留空；填写后整个批次使用同一个发货地，并随任务保存用于恢复和重试。</p></div>
 					  <button type="button" disabled={locationLoading || !selectedAccount} onClick={() => void locateForPublish(true)} className="ios-btn-primary flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold disabled:opacity-50">
 						<LocateFixed className="h-4 w-4" />{locationLoading ? '定位中...' : '获取当前位置'}
 					  </button>

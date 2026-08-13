@@ -241,8 +241,6 @@ func TestPublishItemSuccess(t *testing.T) {
 		switch {
 		case strings.Contains(u, "stream-upload.goofish.com"):
 			respBody = `{"object":{"url":"https://img.alicdn.com/published.png","pix":"800_800"}}`
-		case strings.Contains(u, "mtop.taobao.idle.local.poi.get"):
-			respBody = `{"ret":["SUCCESS::调用成功"],"data":{"commonAddresses":[{"address":"北京"}]}}`
 		case strings.Contains(u, "mtop.taobao.idle.kgraph.property.recommend"):
 			respBody = `{"ret":["SUCCESS::调用成功"],"data":{"categoryPredictResult":{"catId":"99","catName":"数码"}}}`
 		case strings.Contains(u, "mtop.idle.pc.idleitem.publish"):
@@ -330,8 +328,6 @@ func TestPublishItemStockPermissionMissing(t *testing.T) {
 		switch {
 		case strings.Contains(u, "stream-upload.goofish.com"):
 			respBody = `{"object":{"url":"https://img.alicdn.com/published.png","pix":"800_800"}}`
-		case strings.Contains(u, "mtop.taobao.idle.local.poi.get"):
-			respBody = `{"ret":["SUCCESS::调用成功"],"data":{"commonAddresses":[{"address":"北京"}]}}`
 		case strings.Contains(u, "mtop.taobao.idle.kgraph.property.recommend"):
 			respBody = `{"ret":["SUCCESS::调用成功"],"data":{"categoryPredictResult":{"catId":"99","catName":"数码"}}}`
 		case strings.Contains(u, "mtop.idle.pc.idleitem.publish"):

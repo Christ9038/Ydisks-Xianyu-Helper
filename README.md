@@ -317,6 +317,8 @@ DATABASE_URL > -db-url > -db
 | `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` | 源码 `false` / Docker `true` | 跳过下载 |
 | `TZ` | 系统时区；Docker 为 `Asia/Shanghai` | 容器和日志时区 |
 
+前端构建还支持 `VITE_AMAP_JS_KEY`，用于覆盖发布页高德 JS API 的公开 Key；未设置时使用内置的公开 Key。修改后需重新执行 `make frontend` 才会写入嵌入式前端资源。
+
 Docker Compose 还支持：
 
 | 变量 | 默认值 | 说明 |

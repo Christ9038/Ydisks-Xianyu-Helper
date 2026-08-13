@@ -24,10 +24,9 @@ import (
 )
 
 const (
-	UploadMediaAPI     = "https://stream-upload.goofish.com/api/upload.api"
-	PublishItemAPI     = "https://h5api.m.goofish.com/h5/mtop.idle.pc.idleitem.publish/1.0/"
-	RecommendItemAPI   = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.kgraph.property.recommend/2.0/"
-	DefaultLocationAPI = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.local.poi.get/1.0/"
+	UploadMediaAPI   = "https://stream-upload.goofish.com/api/upload.api"
+	PublishItemAPI   = "https://h5api.m.goofish.com/h5/mtop.idle.pc.idleitem.publish/1.0/"
+	RecommendItemAPI = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.kgraph.property.recommend/2.0/"
 )
 
 // ErrPublishCategoryUnrecognized 表示闲鱼类目推荐接口调用成功，但没有给出可发布类目。
@@ -73,7 +72,7 @@ type PublishCategory struct {
 	TBCatID      string `json:"tb_cat_id,omitempty"`
 }
 
-// PublishLocation 是闲鱼定位接口返回、可直接用于发布商品的发货地。
+// PublishLocation 是高德附近 POI 映射成的、可直接用于闲鱼发布商品的发货地。
 type PublishLocation struct {
 	Area       string  `json:"area"`
 	City       string  `json:"city"`
@@ -185,34 +184,6 @@ func (c *ClientImpl) PublishItem(ctx context.Context, cookiesStr string, req Pub
 		}
 	}
 	return c.publishItemOnce(ctx, currentCookies, req, uploaded, category)
-}
-
-// PublishLocations 根据浏览器提供的真实坐标查询闲鱼可用的发货地。
-func (c *ClientImpl) PublishLocations(ctx context.Context, cookiesStr string, longitude, latitude float64) ([]PublishLocation, string, error) {
-	if longitude < -180 || longitude > 180 || latitude < -90 || latitude > 90 || (longitude == 0 && latitude == 0) {
-		return nil, cookiesStr, errors.New("经纬度无效")
-	}
-	data := map[string]any{"longitude": longitude, "latitude": latitude}
-	decoded, updated, err := c.callMTop(ctx, cookiesStr, DefaultLocationAPI, "mtop.taobao.idle.local.poi.get", "1.0", "a21ybx.publish.0.0", "a21ybx.item.sidebar.1.38262218ame5nr", "38262218ame5nr", data)
-	if err != nil {
-		return nil, updated, err
-	}
-	if !hasMTopSuccess(retFromDecoded(decoded)) {
-		return nil, updated, classifyPublishError(retFromDecoded(decoded), decoded)
-	}
-	dataMap := mapFromAny(decoded["data"])
-	addresses, _ := dataMap["commonAddresses"].([]any)
-	locations := make([]PublishLocation, 0, len(addresses))
-	for _, raw := range addresses {
-		loc := publishLocationFromMap(mapFromAny(raw))
-		if validPublishLocation(loc) {
-			locations = append(locations, loc)
-		}
-	}
-	if len(locations) == 0 {
-		return nil, updated, errors.New("当前位置没有可用的闲鱼发货地，请在闲鱼中完善地址后重试")
-	}
-	return locations, updated, nil
 }
 
 // RecommendPublishCategory 根据关键词调用闲鱼推荐接口，返回可直接用于发布的完整类目。
@@ -429,32 +400,8 @@ func fallbackPublishCategory(category PublishCategory) map[string]any {
 	}
 }
 
-func publishLocationFromMap(loc map[string]any) PublishLocation {
-	return PublishLocation{
-		Area: strings.TrimSpace(mtopString(loc["area"])), City: strings.TrimSpace(mtopString(loc["city"])),
-		DivisionID: strings.TrimSpace(mtopString(loc["divisionId"])), Longitude: numberFromAny(loc["longitude"]),
-		Latitude: numberFromAny(loc["latitude"]), POIID: strings.TrimSpace(mtopString(loc["poiId"])),
-		POIName: strings.TrimSpace(mtopString(loc["poi"])), Province: strings.TrimSpace(mtopString(loc["prov"])),
-	}
-}
-
 func validPublishLocation(loc PublishLocation) bool {
 	return loc.DivisionID != "" && loc.Province != "" && loc.City != "" && loc.Longitude >= -180 && loc.Longitude <= 180 && loc.Latitude >= -90 && loc.Latitude <= 90 && !(loc.Longitude == 0 && loc.Latitude == 0)
-}
-
-func numberFromAny(v any) float64 {
-	switch n := v.(type) {
-	case float64:
-		return n
-	case json.Number:
-		f, _ := n.Float64()
-		return f
-	case string:
-		f, _ := strconv.ParseFloat(strings.TrimSpace(n), 64)
-		return f
-	default:
-		return 0
-	}
 }
 
 func (c *ClientImpl) publishItemOnce(ctx context.Context, cookiesStr string, req PublishItemRequest, images []uploadedImage, category map[string]any) (*PublishItemResult, error) {
@@ -494,7 +441,8 @@ func (c *ClientImpl) publishItemOnce(ctx context.Context, cookiesStr string, req
 		}
 		data["itemAddrDTO"] = map[string]any{
 			"area": req.Location.Area, "city": req.Location.City, "divisionId": req.Location.DivisionID,
-			"gps":   fmt.Sprintf("%s,%s", strconv.FormatFloat(req.Location.Longitude, 'f', -1, 64), strconv.FormatFloat(req.Location.Latitude, 'f', -1, 64)),
+			// 闲鱼网页版发布页使用 latitude,longitude 的顺序。
+			"gps":   fmt.Sprintf("%s,%s", strconv.FormatFloat(req.Location.Latitude, 'f', -1, 64), strconv.FormatFloat(req.Location.Longitude, 'f', -1, 64)),
 			"poiId": req.Location.POIID, "poiName": req.Location.POIName, "prov": req.Location.Province,
 		}
 	} else if !req.Virtual {

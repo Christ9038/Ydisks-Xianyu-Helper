@@ -279,12 +279,6 @@ func TestPublishWorkflowUsesCookieSessionForEveryRequest(t *testing.T) {
 			rotate(w, "token2")
 			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"categoryPredictResult":{"catId":"c1","catName":"类目"}}}`)
 		},
-		"mtop.taobao.idle.local.poi.get": func(w http.ResponseWriter, req *http.Request) {
-			assertCookies(req, "token2", "api_http_only=api")
-			assertSign(req, "token2")
-			rotate(w, "token3")
-			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"commonAddresses":[{"area":"X","city":"Y","divisionId":"1","longitude":118.7,"latitude":31.9,"poiId":"p1","poi":"P","prov":"Z"}]}}`)
-		},
 		"mtop.idle.pc.idleitem.publish": func(w http.ResponseWriter, req *http.Request) {
 			assertCookies(req, "token2", "api_http_only=api")
 			assertSign(req, "token2")

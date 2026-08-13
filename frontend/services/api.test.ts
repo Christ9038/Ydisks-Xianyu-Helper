@@ -17,8 +17,9 @@ import {
   getShippingRules,
   getShippingRulesPage,
   getSystemSettings,
-  getValidOrders,
-  logout,
+	getValidOrders,
+	publishItem,
+	logout,
 	importOrders,
   passwordLogin,
 	resolveAutomationRun,
@@ -226,6 +227,22 @@ test('deleteItemPublishBatch removes an abandoned preview', async () => {
     method: 'DELETE',
     credentials: 'include',
   }));
+});
+
+test('publishItem allows virtual publishing without an optional location', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+  await publishItem({
+    cookie_id: 'acc1',
+    title: '虚拟商品',
+    description: '',
+    price: '12.50',
+    quantity: 1,
+    postage_mode: 'none',
+    images: [],
+  });
+  const body = fetchMock.mock.calls[0][1].body as FormData;
+  expect(body.get('location')).toBeNull();
 });
 
 test('getItems normalizes multi-spec flags from backend values', async () => {

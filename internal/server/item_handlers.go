@@ -23,7 +23,6 @@ func (s *Server) mountItemsReal(r chi.Router) {
 	r.Post("/items/get-all-from-account", s.syncItemsFromAccount)
 	r.Post("/items/get-by-page", s.syncItemsPageFromAccount)
 	r.Post("/items/publish", s.publishItem)
-	r.Post("/items/publish-locations", s.publishLocations)
 	r.Post("/items/publish-categories/recommend", s.recommendItemPublishCategory)
 	r.Post("/items/publish-batches/preview", s.previewItemPublishBatch)
 	r.Post("/items/publish-batches", s.startItemPublishBatch)
@@ -40,57 +39,6 @@ func (s *Server) mountItemsReal(r chi.Router) {
 	r.Delete("/items/{cookie_id}/{item_id}", s.deleteItem)
 	r.Put("/items/{cookie_id}/{item_id}/multi-spec", s.setItemMultiSpec)
 	r.Put("/items/{cookie_id}/{item_id}/multi-quantity-delivery", s.setItemMultiQuantity)
-}
-
-func (s *Server) publishLocations(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		CookieID  string  `json:"cookie_id"`
-		Longitude float64 `json:"longitude"`
-		Latitude  float64 `json:"latitude"`
-	}
-	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.CookieID) == "" {
-		writeErr(w, http.StatusBadRequest, "请选择账号并提供当前位置")
-		return
-	}
-	_, userID, ok := s.cookieForCurrentUser(w, r, strings.TrimSpace(req.CookieID))
-	if !ok {
-		return
-	}
-	credentialUnlock := s.Store.LockAccountCredentials(req.CookieID)
-	defer credentialUnlock()
-	latest, err := s.Store.Cookies.GetDetails(r.Context(), req.CookieID)
-	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
-		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
-	locator, ok := s.mtopClient().(interface {
-		PublishLocations(context.Context, string, float64, float64) ([]mtop.PublishLocation, string, error)
-	})
-	if !ok {
-		writeErr(w, http.StatusNotImplemented, "当前客户端不支持查询发货地")
-		return
-	}
-	locations, updated, callErr := locator.PublishLocations(mtopCtx, latest.Value, req.Longitude, req.Latitude)
-	value, changed, handled, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
-	if persistErr != nil {
-		writeErr(w, http.StatusInternalServerError, "保存账号登录状态失败")
-		return
-	}
-	if !handled && updated != "" && updated != latest.Value {
-		if err := s.Store.Cookies.UpdateValueOwned(r.Context(), req.CookieID, updated, userID); err == nil {
-			s.updateRunningCookie(r.Context(), req.CookieID, updated)
-		}
-	} else if handled && changed {
-		s.updateRunningCookie(r.Context(), req.CookieID, value)
-	}
-	if callErr != nil {
-		writeErr(w, http.StatusBadGateway, callErr.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "locations": locations})
 }
 
 func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
