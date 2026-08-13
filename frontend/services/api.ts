@@ -526,6 +526,7 @@ export const publishItem = async (form: {
     postage_mode: string;
     postage?: string;
     images: File[];
+	location: PublishLocation;
 }): Promise<any> => {
     const body = new FormData();
     body.set('cookie_id', form.cookie_id);
@@ -536,10 +537,27 @@ export const publishItem = async (form: {
     body.set('quantity', String(form.quantity));
     body.set('postage_mode', form.postage_mode);
     body.set('postage', form.postage || '');
+	body.set('location', JSON.stringify(form.location));
     for (const file of form.images) {
       body.append('images', file);
     }
     return postForm('/items/publish', body);
+}
+
+export interface PublishLocation {
+	area: string;
+	city: string;
+	division_id: string;
+	longitude: number;
+	latitude: number;
+	poi_id: string;
+	poi_name: string;
+	province: string;
+}
+
+export const getPublishLocations = async (cookieId: string, longitude: number, latitude: number): Promise<PublishLocation[]> => {
+	const result = await post<any>('/items/publish-locations', { cookie_id: cookieId, longitude, latitude });
+	return Array.isArray(result?.locations) ? result.locations : [];
 }
 
 export const recommendPublishCategory = async (cookieId: string, keyword: string): Promise<{
@@ -564,6 +582,7 @@ export const previewItemPublishBatch = async (form: {
       channelCatId?: string;
       tbCatId?: string;
     };
+	location: PublishLocation;
 }): Promise<any> => {
     const body = new FormData();
     body.set('file', form.file);
@@ -573,6 +592,7 @@ export const previewItemPublishBatch = async (form: {
     body.set('fallback_category_name', form.fallbackCategory.catName);
     body.set('fallback_channel_category_id', form.fallbackCategory.channelCatId || '');
     body.set('fallback_tb_category_id', form.fallbackCategory.tbCatId || '');
+	body.set('location', JSON.stringify(form.location));
     return postForm('/items/publish-batches/preview', body);
 }
 

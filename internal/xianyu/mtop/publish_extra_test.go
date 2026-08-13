@@ -110,6 +110,7 @@ func TestPublishItemDescriptionDefaultsToTitle(t *testing.T) {
 		Quantity:     1,
 		PostageMode:  "fixed",
 		PostageCents: 500,
+		Location:     &PublishLocation{Area: "X", City: "Y", DivisionID: "1", Longitude: 118.7, Latitude: 31.9, POIID: "p1", POIName: "P", Province: "Z"},
 		Images:       []PublishImage{{Filename: "a.png", ContentType: "image/png", Data: png1}},
 	}
 	res, err := client.PublishItem(context.Background(), consignCookies, req)
@@ -210,7 +211,7 @@ func TestPublishItemRecommendCategoryMissingDataUsesElectronicMaterials(t *testi
 	}
 }
 
-// TestPublishItemLocationFailure: 默认地址缺失。
+// TestPublishItemLocationFailure: 实物发布没有选择发货地。
 func TestPublishItemLocationFailure(t *testing.T) {
 	png1 := tinyPNG(t)
 	dt := &dispatchTransport{handlers: map[string]http.HandlerFunc{
@@ -232,7 +233,7 @@ func TestPublishItemLocationFailure(t *testing.T) {
 		Images:     []PublishImage{{Filename: "a.png", ContentType: "image/png", Data: png1}},
 	}
 	_, err := client.PublishItem(context.Background(), consignCookies, req)
-	if err == nil || !strings.Contains(err.Error(), "缺少默认发货地址") {
+	if err == nil || !strings.Contains(err.Error(), "必须选择发货地") {
 		t.Fatalf("err=%v", err)
 	}
 }
@@ -378,6 +379,7 @@ func TestPublishItemFinalPublishFailure(t *testing.T) {
 		Quantity:     1,
 		PostageMode:  "fixed",
 		PostageCents: 500,
+		Location:     &PublishLocation{Area: "X", City: "Y", DivisionID: "1", Longitude: 118.7, Latitude: 31.9, POIID: "p1", POIName: "P", Province: "Z"},
 		Images:       []PublishImage{{Filename: "a.png", ContentType: "image/png", Data: png1}},
 	}
 	_, err := client.PublishItem(context.Background(), consignCookies, req)
@@ -412,6 +414,7 @@ func TestPublishItemStockPermissionError(t *testing.T) {
 		Title:      "T",
 		PriceCents: 1000,
 		Quantity:   1,
+		Location:   &PublishLocation{Area: "X", City: "Y", DivisionID: "1", Longitude: 118.7, Latitude: 31.9, POIID: "p1", POIName: "P", Province: "Z"},
 		Images:     []PublishImage{{Filename: "a.png", ContentType: "image/png", Data: png1}},
 	}
 	_, err := client.PublishItem(context.Background(), consignCookies, req)
@@ -618,25 +621,30 @@ func TestRecommendPublishCategoryEmptyCatId(t *testing.T) {
 	}
 }
 
-// ---- defaultPublishLocation 直接测试 ----
+// ---- PublishLocations 真实坐标查询测试 ----
 
-func TestDefaultPublishLocationSuccess(t *testing.T) {
+func TestPublishLocationsUsesProvidedCoordinates(t *testing.T) {
+	var requested map[string]any
 	dt := &dispatchTransport{handlers: map[string]http.HandlerFunc{
 		"mtop.taobao.idle.local.poi.get": func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"commonAddresses":[{"area":"A","city":"C","divisionId":"1","poiId":"p","poi":"P","prov":"PR"}]}}`)
+			requested, _ = parseDataURL(readBody(r))
+			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"commonAddresses":[{"area":"A","city":"C","divisionId":"1","longitude":118.7,"latitude":31.9,"poiId":"p","poi":"P","prov":"PR"},{"area":"A","city":"C","divisionId":"1","longitude":118.71,"latitude":31.91,"poiId":"p2","poi":"P2","prov":"PR"}]}}`)
 		},
 	}}
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: dt}}
-	loc, _, err := client.defaultPublishLocation(context.Background(), consignCookies)
+	locations, _, err := client.PublishLocations(context.Background(), consignCookies, 118.7, 31.9)
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
-	if loc["area"] != "A" || loc["city"] != "C" {
-		t.Fatalf("loc=%+v", loc)
+	if requested["longitude"] != float64(118.7) || requested["latitude"] != float64(31.9) {
+		t.Fatalf("查询坐标=%+v", requested)
+	}
+	if len(locations) != 2 || locations[0].Area != "A" || locations[1].POIID != "p2" {
+		t.Fatalf("locations=%+v", locations)
 	}
 }
 
-func TestDefaultPublishLocationMalformedAddress(t *testing.T) {
+func TestPublishLocationsMalformedAddress(t *testing.T) {
 	dt := &dispatchTransport{handlers: map[string]http.HandlerFunc{
 		"mtop.taobao.idle.local.poi.get": func(w http.ResponseWriter, r *http.Request) {
 			// commonAddresses[0] 不是 map
@@ -644,8 +652,8 @@ func TestDefaultPublishLocationMalformedAddress(t *testing.T) {
 		},
 	}}
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: dt}}
-	_, _, err := client.defaultPublishLocation(context.Background(), consignCookies)
-	if err == nil || !strings.Contains(err.Error(), "默认地址格式异常") {
+	_, _, err := client.PublishLocations(context.Background(), consignCookies, 118.7, 31.9)
+	if err == nil || !strings.Contains(err.Error(), "没有可用") {
 		t.Fatalf("err=%v", err)
 	}
 }

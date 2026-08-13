@@ -129,7 +129,7 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 	}
 	goose.SetBaseFS(migrationsFS)
 	// 依次回滚最新版本到 13，再整体升级。
-	for i := 0; i < 14; i++ {
+	for i := 0; i < 15; i++ {
 		if err := goose.Down(d, "migrations/sqlite"); err != nil {
 			t.Fatalf("down migration #%d: %v", i+1, err)
 		}
@@ -155,6 +155,9 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 	if columnExists(t, d, "orders", "deleted_at") {
 		t.Fatal("orders.deleted_at should be removed after migration 27 down")
 	}
+	if columnExists(t, d, "item_publish_batches", "location_json") {
+		t.Fatal("item_publish_batches.location_json should be removed after migration 28 down")
+	}
 	for _, table := range []string{"account_task_settings", "account_task_runs", "chat_sessions", "chat_messages"} {
 		if tableExists(t, d, table) {
 			t.Fatalf("table should be removed after migration 24 down: %s", table)
@@ -178,6 +181,7 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 		{"default_reply_records", "text_sent"},
 		{"account_tokens", "cookie_fingerprint"},
 		{"item_publish_batch_rows", "category_json"},
+		{"item_publish_batches", "location_json"},
 		{"account_task_settings", "auto_rate_enabled"},
 		{"account_task_runs", "run_key"},
 		{"chat_sessions", "unread_count"},

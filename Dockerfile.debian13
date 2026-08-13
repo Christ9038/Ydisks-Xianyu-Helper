@@ -70,6 +70,7 @@ ENV PLAYWRIGHT_DRIVER_PATH=/ms-playwright-go
 ENV PLAYWRIGHT_NODEJS_PATH=/usr/local/bin/node
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 WORKDIR /app
 COPY --from=backend /out/xianyu-server /app/xianyu-server
 COPY --from=backend /out/xianyu-dbseed /app/xianyu-dbseed
@@ -80,6 +81,14 @@ COPY --from=playwright-runtime /ms-playwright /ms-playwright
 # driver 只安装 Chromium 所需系统依赖，并在同一镜像层清理 apt/npm/临时缓存。
 RUN set -eux; \
     node /ms-playwright-go/package/cli.js install-deps chromium; \
+    apt-get update; \
+    apt-get install --reinstall -y --no-install-recommends ca-certificates; \
+    update-ca-certificates --fresh; \
+    test -s "$SSL_CERT_FILE"; \
+    grep -q -- '-----BEGIN CERTIFICATE-----' "$SSL_CERT_FILE"; \
+    test -x "$PLAYWRIGHT_NODEJS_PATH"; \
+    test -f "$PLAYWRIGHT_DRIVER_PATH/package/cli.js"; \
+    find "$PLAYWRIGHT_BROWSERS_PATH" -type f -perm -111 \( -name chrome -o -name chrome-headless-shell -o -name headless_shell \) -print -quit | grep -q .; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/* /root/.cache /tmp/* /var/tmp/*; \
     mkdir -p /app/data /app/browser_data

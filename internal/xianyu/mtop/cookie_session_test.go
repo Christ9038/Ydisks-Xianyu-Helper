@@ -286,8 +286,8 @@ func TestPublishWorkflowUsesCookieSessionForEveryRequest(t *testing.T) {
 			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"commonAddresses":[{"area":"X","city":"Y","divisionId":"1","longitude":118.7,"latitude":31.9,"poiId":"p1","poi":"P","prov":"Z"}]}}`)
 		},
 		"mtop.idle.pc.idleitem.publish": func(w http.ResponseWriter, req *http.Request) {
-			assertCookies(req, "token3", "api_http_only=api")
-			assertSign(req, "token3")
+			assertCookies(req, "token2", "api_http_only=api")
+			assertSign(req, "token2")
 			rotate(w, "token4")
 			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"itemId":"new-item"}}`)
 		},
@@ -297,12 +297,13 @@ func TestPublishWorkflowUsesCookieSessionForEveryRequest(t *testing.T) {
 		Title:      "T",
 		PriceCents: 100,
 		Quantity:   1,
+		Location:   &PublishLocation{Area: "X", City: "Y", DivisionID: "1", Longitude: 118.7, Latitude: 31.9, POIID: "p1", POIName: "P", Province: "Z"},
 		Images:     []PublishImage{{Filename: "a.png", ContentType: "image/png", Data: tinyPNG(t)}},
 	})
 	if err != nil {
 		t.Fatalf("PublishItem: %v", err)
 	}
-	if requestCount != 4 || result.ItemID != "new-item" || !strings.Contains(result.UpdatedCookies, "_m_h5_tk=token4_1") {
+	if requestCount != 3 || result.ItemID != "new-item" || !strings.Contains(result.UpdatedCookies, "_m_h5_tk=token4_1") {
 		t.Fatalf("requests=%d result=%+v", requestCount, result)
 	}
 	canonical, _, changed := session.State()

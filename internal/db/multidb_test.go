@@ -771,7 +771,7 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				t.Fatalf("set goose dialect: %v", err)
 			}
 			goose.SetBaseFS(migrationsFS)
-			for i := 0; i < 14; i++ {
+			for i := 0; i < 15; i++ {
 				if err := goose.Down(tg.store.DB, "migrations/"+subdir); err != nil {
 					t.Fatalf("migration down #%d: %v", i+1, err)
 				}
@@ -790,6 +790,9 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 			}
 			if columnExistsForDialect(t, tg.store.DB, tg.dialect, "item_publish_batch_rows", "category_json") {
 				t.Fatal("item_publish_batch_rows.category_json should be removed after down")
+			}
+			if columnExistsForDialect(t, tg.store.DB, tg.dialect, "item_publish_batches", "location_json") {
+				t.Fatal("item_publish_batches.location_json should be removed after down")
 			}
 			for _, table := range []string{"account_task_settings", "account_task_runs", "chat_sessions", "chat_messages"} {
 				if tableExistsForDialect(t, tg.store.DB, tg.dialect, table) {
@@ -816,6 +819,7 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				{"automation_runs", "action_started"},
 				{"account_tokens", "cookie_fingerprint"},
 				{"item_publish_batch_rows", "category_json"},
+				{"item_publish_batches", "location_json"},
 				{"item_info", "deleted_at"},
 				{"automation_rules", "deleted_at"},
 				{"orders", "deleted_at"},

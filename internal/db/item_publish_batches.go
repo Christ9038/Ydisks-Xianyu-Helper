@@ -25,6 +25,7 @@ type ItemPublishBatch struct {
 	DefaultCookieID string // 默认发布账号（明细行未指定账号时回退到此）
 	Filename        string // 原始上传文件名
 	UploadDir       string // 图片资源目录（发布时读取商品图片的根目录）
+	LocationJSON    string // 批次统一使用的发货地 JSON
 	Status          string // 批次状态：pending/running/completed/partially_failed/failed
 	TotalCount      int    // 明细行总数（Recount 维护）
 	SuccessCount    int    // 成功数（Recount 维护）
@@ -66,6 +67,9 @@ type ItemPublishBatchRow struct {
 // 明细行的 quantity/postage_mode/status/images_json/raw_json/automation_json 缺省值在此补齐。
 // total_count 取 len(rows)，success/failed 初始为 0。
 func (b *ItemPublishBatches) Create(ctx context.Context, batch *ItemPublishBatch, rows []ItemPublishBatchRow) error {
+	if strings.TrimSpace(batch.LocationJSON) == "" {
+		batch.LocationJSON = "{}"
+	}
 	tx, err := b.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -73,10 +77,10 @@ func (b *ItemPublishBatches) Create(ctx context.Context, batch *ItemPublishBatch
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO item_publish_batches
-		 (id,user_id,default_cookie_id,filename,upload_dir,status,total_count,success_count,failed_count)
-		 VALUES (?,?,?,?,?,?,?,?,?)`,
+		 (id,user_id,default_cookie_id,filename,upload_dir,location_json,status,total_count,success_count,failed_count)
+		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
 		batch.ID, batch.UserID, batch.DefaultCookieID, batch.Filename, batch.UploadDir,
-		batch.Status, len(rows), 0, 0); err != nil {
+		batch.LocationJSON, batch.Status, len(rows), 0, 0); err != nil {
 		return err
 	}
 	for _, row := range rows {
@@ -119,11 +123,11 @@ func (b *ItemPublishBatches) Create(ctx context.Context, batch *ItemPublishBatch
 func (b *ItemPublishBatches) Get(ctx context.Context, userID int64, id string) (*ItemPublishBatch, error) {
 	var out ItemPublishBatch
 	err := b.DB.QueryRowContext(ctx,
-		`SELECT id,user_id,default_cookie_id,filename,upload_dir,status,total_count,success_count,failed_count,
+		`SELECT id,user_id,default_cookie_id,filename,upload_dir,COALESCE(location_json,'{}'),status,total_count,success_count,failed_count,
 		        COALESCE(worker_token,''),COALESCE(lease_expires_at,0),
 		        created_at,updated_at
 		   FROM item_publish_batches WHERE id=? AND user_id=?`, id, userID).Scan(
-		&out.ID, &out.UserID, &out.DefaultCookieID, &out.Filename, &out.UploadDir, &out.Status,
+		&out.ID, &out.UserID, &out.DefaultCookieID, &out.Filename, &out.UploadDir, &out.LocationJSON, &out.Status,
 		&out.TotalCount, &out.SuccessCount, &out.FailedCount, &out.WorkerToken, &out.LeaseExpiresAt,
 		&out.CreatedAt, &out.UpdatedAt)
 	if err != nil {
@@ -140,7 +144,7 @@ func (b *ItemPublishBatches) ListForUser(ctx context.Context, userID int64, limi
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	rows, err := b.DB.QueryContext(ctx, `SELECT id,user_id,default_cookie_id,filename,upload_dir,status,
+	rows, err := b.DB.QueryContext(ctx, `SELECT id,user_id,default_cookie_id,filename,upload_dir,COALESCE(location_json,'{}'),status,
 		total_count,success_count,failed_count,COALESCE(worker_token,''),COALESCE(lease_expires_at,0),created_at,updated_at
 		FROM item_publish_batches WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ?`, userID, limit)
 	if err != nil {
@@ -150,7 +154,7 @@ func (b *ItemPublishBatches) ListForUser(ctx context.Context, userID int64, limi
 	var out []ItemPublishBatch
 	for rows.Next() {
 		var batch ItemPublishBatch
-		if err := rows.Scan(&batch.ID, &batch.UserID, &batch.DefaultCookieID, &batch.Filename, &batch.UploadDir,
+		if err := rows.Scan(&batch.ID, &batch.UserID, &batch.DefaultCookieID, &batch.Filename, &batch.UploadDir, &batch.LocationJSON,
 			&batch.Status, &batch.TotalCount, &batch.SuccessCount, &batch.FailedCount, &batch.WorkerToken,
 			&batch.LeaseExpiresAt, &batch.CreatedAt, &batch.UpdatedAt); err != nil {
 			return nil, err
@@ -165,7 +169,7 @@ func (b *ItemPublishBatches) Recoverable(ctx context.Context, now int64, limit i
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := b.DB.QueryContext(ctx, `SELECT id,user_id,default_cookie_id,filename,upload_dir,status,
+	rows, err := b.DB.QueryContext(ctx, `SELECT id,user_id,default_cookie_id,filename,upload_dir,COALESCE(location_json,'{}'),status,
 		total_count,success_count,failed_count,COALESCE(worker_token,''),COALESCE(lease_expires_at,0),created_at,updated_at
 		FROM item_publish_batches b
 		WHERE (b.status IN ('running','canceling') AND (b.lease_expires_at=0 OR b.lease_expires_at<?))
@@ -179,7 +183,7 @@ func (b *ItemPublishBatches) Recoverable(ctx context.Context, now int64, limit i
 	var out []ItemPublishBatch
 	for rows.Next() {
 		var batch ItemPublishBatch
-		if err := rows.Scan(&batch.ID, &batch.UserID, &batch.DefaultCookieID, &batch.Filename, &batch.UploadDir,
+		if err := rows.Scan(&batch.ID, &batch.UserID, &batch.DefaultCookieID, &batch.Filename, &batch.UploadDir, &batch.LocationJSON,
 			&batch.Status, &batch.TotalCount, &batch.SuccessCount, &batch.FailedCount, &batch.WorkerToken,
 			&batch.LeaseExpiresAt, &batch.CreatedAt, &batch.UpdatedAt); err != nil {
 			return nil, err
