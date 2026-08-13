@@ -387,33 +387,57 @@ jobs:
         env:
           APP_VERSION: ${{ env.APP_VERSION }}
         run: |
-          $requiredSources = @(
-            'dist/windows/xianyu-server.exe',
-            'dist/windows/xianyu-tray.exe',
-            'dist/windows/playwright-runtime/amd64',
-            'icon/windows/icon.ico',
-            'packaging/windows/service-control.ps1'
-          )
-          foreach ($source in $requiredSources) {
-            if (-not (Test-Path -LiteralPath $source)) {
-              throw "Windows 安装器源文件或目录不存在: $source"
+          $shortDrive = 'R:'
+          if (Test-Path -LiteralPath "$shortDrive\") {
+            throw "短路径盘符已被占用: $shortDrive"
+          }
+          & "$env:SystemRoot\System32\subst.exe" $shortDrive $env:GITHUB_WORKSPACE
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath "$shortDrive\")) {
+            throw "无法创建 Windows 安装器短路径盘符: $shortDrive"
+          }
+          $locationPushed = $false
+          try {
+            Push-Location "$shortDrive\"
+            $locationPushed = $true
+            $requiredSources = @(
+              'dist/windows/xianyu-server.exe',
+              'dist/windows/xianyu-tray.exe',
+              'dist/windows/playwright-runtime/amd64',
+              'icon/windows/icon.ico',
+              'packaging/windows/service-control.ps1'
+            )
+            foreach ($source in $requiredSources) {
+              if (-not (Test-Path -LiteralPath $source)) {
+                throw "Windows 安装器源文件或目录不存在: $source"
+              }
             }
-          }
-          if ($null -eq (Get-ChildItem -LiteralPath 'dist/windows/playwright-runtime/amd64' -Recurse -File | Select-Object -First 1)) {
-            throw 'Windows 安装器 Playwright runtime 为空'
-          }
+            $runtimeFiles = Get-ChildItem -LiteralPath 'dist/windows/playwright-runtime/amd64' -Recurse -File
+            if ($null -eq ($runtimeFiles | Select-Object -First 1)) {
+              throw 'Windows 安装器 Playwright runtime 为空'
+            }
+            $longestRuntimeFile = $runtimeFiles |
+              Sort-Object { $_.FullName.Length } -Descending |
+              Select-Object -First 1
+            Write-Host "Windows runtime 最长源路径长度: $($longestRuntimeFile.FullName.Length)"
+            Write-Host "Windows runtime 最长源路径: $($longestRuntimeFile.FullName)"
 
-          $compiler = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
-          $scriptPath = (Resolve-Path 'packaging/windows/installer.iss').Path
-          $outputDir = (Resolve-Path 'dist/windows').Path
-          & $compiler /Qp "/O$outputDir" $scriptPath
-          if ($LASTEXITCODE -ne 0) {
-            throw "Inno Setup 编译失败，错误码: $LASTEXITCODE"
+            $compiler = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+            $scriptPath = (Resolve-Path 'packaging/windows/installer.iss').Path
+            $outputDir = (Resolve-Path 'dist/windows').Path
+            & $compiler /Qp "/O$outputDir" $scriptPath
+            if ($LASTEXITCODE -ne 0) {
+              throw "Inno Setup 编译失败，错误码: $LASTEXITCODE"
+            }
+            $installer = Get-ChildItem -Path dist/windows -Filter 'Ydisks-Xianyu-Helper-Setup.exe' -Recurse | Select-Object -First 1
+            if ($null -eq $installer) { throw 'Inno Setup 未生成安装器' }
+            $target = Join-Path (Resolve-Path dist/windows) 'Ydisks-Xianyu-Helper-Setup.exe'
+            if ($installer.FullName -ne $target) { Copy-Item $installer.FullName $target -Force }
+          } finally {
+            if ($locationPushed) {
+              Pop-Location
+            }
+            & "$env:SystemRoot\System32\subst.exe" $shortDrive /D | Out-Null
           }
-          $installer = Get-ChildItem -Path dist/windows -Filter 'Ydisks-Xianyu-Helper-Setup.exe' -Recurse | Select-Object -First 1
-          if ($null -eq $installer) { throw 'Inno Setup 未生成安装器' }
-          $target = Join-Path (Resolve-Path dist/windows) 'Ydisks-Xianyu-Helper-Setup.exe'
-          if ($installer.FullName -ne $target) { Copy-Item $installer.FullName $target -Force }
 
       - name: 签名 Windows 安装器
         shell: pwsh
