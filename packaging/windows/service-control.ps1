@@ -1,13 +1,14 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('stop', 'install', 'uninstall')]
+    [ValidateSet('stop', 'register', 'start', 'install', 'uninstall')]
     [string]$Mode,
 
     [string]$ServiceName = 'YdisksXianyuHelper',
     [string]$ExePath = '',
     [string]$TrayPath = '',
     [string]$WorkDir = '',
-    [string]$RuntimeRoot = ''
+    [string]$RuntimeRoot = '',
+    [string]$CreatedMarkerPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,17 +17,30 @@ function Get-InstalledService {
     Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 }
 
+function Test-ServiceInstalled {
+    $service = Get-InstalledService
+    if ($null -eq $service) {
+        return $false
+    }
+    $service.Dispose()
+    return $true
+}
+
 function Stop-InstalledService {
     $service = Get-InstalledService
     if ($null -eq $service) {
         return
     }
-    if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
-        Stop-Service -Name $ServiceName -ErrorAction Stop
-        $service.WaitForStatus(
-            [System.ServiceProcess.ServiceControllerStatus]::Stopped,
-            [TimeSpan]::FromSeconds(30)
-        )
+    try {
+        if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Stopped) {
+            Stop-Service -Name $ServiceName -ErrorAction Stop
+            $service.WaitForStatus(
+                [System.ServiceProcess.ServiceControllerStatus]::Stopped,
+                [TimeSpan]::FromSeconds(30)
+            )
+        }
+    } finally {
+        $service.Dispose()
     }
 }
 
@@ -58,6 +72,16 @@ function Stop-InstalledTray {
 function Stop-InstalledComponents {
     Stop-InstalledTray
     Stop-InstalledService
+}
+
+function Wait-ServiceDeleted {
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while (Test-ServiceInstalled) {
+        if ([DateTime]::UtcNow -ge $deadline) {
+            throw "等待 Windows 服务 $ServiceName 删除超时"
+        }
+        Start-Sleep -Milliseconds 250
+    }
 }
 
 function Invoke-ScChecked {
@@ -97,38 +121,103 @@ function Grant-InteractiveUserServiceControl {
     Invoke-ScChecked sdset $ServiceName $updatedSddl
 }
 
+function Assert-ServiceInstallParameters {
+    if ([string]::IsNullOrWhiteSpace($ExePath) -or
+        [string]::IsNullOrWhiteSpace($WorkDir) -or
+        [string]::IsNullOrWhiteSpace($RuntimeRoot)) {
+        throw '安装服务缺少 ExePath、WorkDir 或 RuntimeRoot'
+    }
+}
+
+function Register-InstalledService {
+    Assert-ServiceInstallParameters
+    Stop-InstalledComponents
+
+    New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $WorkDir 'data') | Out-Null
+    New-Item -ItemType Directory -Force -Path (Join-Path $WorkDir 'logs') | Out-Null
+
+    $binaryPath = '"{0}" -service -workdir "{1}" -data-key-file "{1}\data-key" -addr 127.0.0.1:59188 -playwright-runtime-root "{2}"' -f `
+        $ExePath, $WorkDir, $RuntimeRoot
+    if (-not (Test-ServiceInstalled)) {
+        if (-not [string]::IsNullOrWhiteSpace($CreatedMarkerPath)) {
+            Set-Content -LiteralPath $CreatedMarkerPath -Value $ServiceName -Encoding ASCII
+        }
+        New-Service -Name $ServiceName `
+            -BinaryPathName $binaryPath `
+            -DisplayName 'Ydisks Xianyu Helper' `
+            -StartupType Automatic `
+            -ErrorAction Stop | Out-Null
+    } else {
+        Invoke-ScChecked config $ServiceName 'binPath=' $binaryPath
+    }
+
+    Invoke-ScChecked config $ServiceName 'start=' 'delayed-auto'
+    Invoke-ScChecked description $ServiceName 'Ydisks Xianyu Helper background service'
+    Grant-InteractiveUserServiceControl
+
+    if (-not (Test-ServiceInstalled)) {
+        throw "Windows 服务 $ServiceName 注册后无法查询"
+    }
+}
+
+function Start-InstalledService {
+    $service = Get-InstalledService
+    if ($null -eq $service) {
+        throw "Windows 服务 $ServiceName 尚未注册"
+    }
+
+    try {
+        if ($service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::StopPending) {
+            $service.WaitForStatus(
+                [System.ServiceProcess.ServiceControllerStatus]::Stopped,
+                [TimeSpan]::FromSeconds(30)
+            )
+            $service.Refresh()
+        }
+        if ($service.Status -eq [System.ServiceProcess.ServiceControllerStatus]::StartPending) {
+            $service.WaitForStatus(
+                [System.ServiceProcess.ServiceControllerStatus]::Running,
+                [TimeSpan]::FromSeconds(30)
+            )
+            $service.Refresh()
+        }
+        if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
+            Start-Service -Name $ServiceName -ErrorAction Stop
+            $service.Refresh()
+            $service.WaitForStatus(
+                [System.ServiceProcess.ServiceControllerStatus]::Running,
+                [TimeSpan]::FromSeconds(30)
+            )
+            $service.Refresh()
+        }
+        if ($service.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
+            throw "Windows 服务 $ServiceName 未进入运行状态: $($service.Status)"
+        }
+    } finally {
+        $service.Dispose()
+    }
+}
+
 switch ($Mode) {
     'stop' {
         Stop-InstalledComponents
     }
+    'register' {
+        Register-InstalledService
+    }
+    'start' {
+        Start-InstalledService
+    }
     'install' {
-        if ([string]::IsNullOrWhiteSpace($ExePath) -or
-            [string]::IsNullOrWhiteSpace($WorkDir) -or
-            [string]::IsNullOrWhiteSpace($RuntimeRoot)) {
-            throw '安装服务缺少 ExePath、WorkDir 或 RuntimeRoot'
-        }
-
-        Stop-InstalledComponents
-        $binaryPath = '"{0}" -service -workdir "{1}" -data-key-file "{1}\data-key" -addr 127.0.0.1:59188 -playwright-runtime-root "{2}"' -f `
-            $ExePath, $WorkDir, $RuntimeRoot
-        if ($null -eq (Get-InstalledService)) {
-            Invoke-ScChecked create $ServiceName 'binPath=' $binaryPath 'start=' 'delayed-auto'
-        } else {
-            Invoke-ScChecked config $ServiceName 'binPath=' $binaryPath 'start=' 'delayed-auto'
-        }
-        Invoke-ScChecked description $ServiceName 'Ydisks闲鱼助手后台服务'
-        Grant-InteractiveUserServiceControl
-
-        Start-Service -Name $ServiceName -ErrorAction Stop
-        (Get-Service -Name $ServiceName).WaitForStatus(
-            [System.ServiceProcess.ServiceControllerStatus]::Running,
-            [TimeSpan]::FromSeconds(30)
-        )
+        Register-InstalledService
+        Start-InstalledService
     }
     'uninstall' {
         Stop-InstalledComponents
-        if ($null -ne (Get-InstalledService)) {
+        if (Test-ServiceInstalled) {
             Invoke-ScChecked delete $ServiceName
+            Wait-ServiceDeleted
         }
     }
 }

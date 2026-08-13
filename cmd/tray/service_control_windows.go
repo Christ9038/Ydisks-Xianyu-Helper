@@ -37,6 +37,9 @@ func serviceAction(action string) error {
 		if action == "stop" && errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
 			return nil
 		}
+		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+			return fmt.Errorf("Windows 服务 %s 尚未安装，请重新运行安装器", name)
+		}
 		if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
 			return fmt.Errorf("没有控制 Windows 服务的权限，请重新安装当前版本以更新服务权限")
 		}

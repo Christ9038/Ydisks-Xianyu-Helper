@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - dev
       - codex/desktop-packaging
     tags:
       - 'v*.*.*'
@@ -255,6 +256,81 @@ jobs:
             Select-Object -First 1
           if ($null -eq $chromium) { throw 'Windows Chromium runtime 缺少 Chromium 可执行文件' }
 
+      - name: 实际验证 Windows 服务注册
+        shell: pwsh
+        run: |
+          $serviceName = 'YdisksXianyuHelper'
+          $workDir = Join-Path $env:RUNNER_TEMP $serviceName
+          $runtimeRoot = (Resolve-Path 'dist/windows/playwright-runtime/amd64').Path
+          $serviceScript = (Resolve-Path 'packaging/windows/service-control.ps1').Path
+          $serverPath = (Resolve-Path 'dist/windows/xianyu-server.exe').Path
+          try {
+            foreach ($registerAttempt in 1..2) {
+              & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+                -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+                -File $serviceScript -Mode register -ServiceName $serviceName `
+                -ExePath $serverPath -WorkDir $workDir -RuntimeRoot $runtimeRoot
+              if ($LASTEXITCODE -ne 0) {
+                throw "Windows 服务第 $registerAttempt 次注册失败，错误码: $LASTEXITCODE"
+              }
+            }
+            & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+              -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+              -File $serviceScript -Mode start -ServiceName $serviceName
+            if ($LASTEXITCODE -ne 0) { throw "Windows 服务启动失败，错误码: $LASTEXITCODE" }
+
+            $service = Get-Service -Name $serviceName -ErrorAction Stop
+            $serviceStatus = $service.Status
+            $service.Dispose()
+            if ($serviceStatus -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
+              throw "Windows 服务未进入运行状态: $serviceStatus"
+            }
+
+            $serviceConfig = Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" -ErrorAction Stop
+            if ($null -eq $serviceConfig) { throw 'Windows 服务注册后无法读取配置' }
+            if (-not $serviceConfig.PathName.Contains(('"{0}"' -f $serverPath)) -or
+                -not $serviceConfig.PathName.Contains('-service') -or
+                -not $serviceConfig.PathName.Contains(('-workdir "{0}"' -f $workDir)) -or
+                -not $serviceConfig.PathName.Contains(('-playwright-runtime-root "{0}"' -f $runtimeRoot))) {
+              throw "Windows 服务命令行不正确: $($serviceConfig.PathName)"
+            }
+            $delayedStart = Get-ItemPropertyValue `
+              -LiteralPath "Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\$serviceName" `
+              -Name DelayedAutostart -ErrorAction Stop
+            if ($delayedStart -ne 1) { throw "Windows 服务未配置延迟自动启动: $delayedStart" }
+            $sddl = (& "$env:SystemRoot\System32\sc.exe" sdshow $serviceName 2>&1) -join ''
+            if ($LASTEXITCODE -ne 0 -or -not $sddl.Contains('(A;;LCRPWP;;;IU)')) {
+              throw "Windows 服务未授予交互用户启停权限: $sddl"
+            }
+
+            $health = $null
+            $deadline = [DateTime]::UtcNow.AddSeconds(60)
+            while ([DateTime]::UtcNow -lt $deadline -and $null -eq $health) {
+              try {
+                $health = Invoke-RestMethod -Uri 'http://127.0.0.1:59188/health' -TimeoutSec 2
+              } catch {
+                Start-Sleep -Seconds 1
+              }
+            }
+            if ($null -eq $health -or $health.status -ne 'ok' -or $health.database -ne 'ok') {
+              throw "Windows 服务健康检查失败: $($health | ConvertTo-Json -Compress)"
+            }
+          } catch {
+            $serverLog = Join-Path $workDir 'logs\server.log'
+            if (Test-Path -LiteralPath $serverLog) {
+              Get-Content -LiteralPath $serverLog -Tail 200
+            }
+            throw
+          } finally {
+            & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+              -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+              -File $serviceScript -Mode uninstall -ServiceName $serviceName
+            if ($LASTEXITCODE -ne 0) { throw "Windows 服务清理失败，错误码: $LASTEXITCODE" }
+            if ($null -ne (Get-Service -Name $serviceName -ErrorAction SilentlyContinue)) {
+              throw 'Windows 服务卸载后仍然存在'
+            }
+          }
+
       - name: 保存 Windows Chromium runtime 缓存
         if: steps.cache-windows-playwright.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
@@ -309,20 +385,96 @@ jobs:
             -PfxPath $env:WINDOWS_SIGNING_PFX_PATH `
             -Files 'dist/windows/Ydisks-Xianyu-Helper-Setup.exe'
 
-      - name: 打包 Windows 二进制归档
+      - name: 使用安装器验证服务安装与卸载
         shell: pwsh
-        env:
-          APP_VERSION: ${{ env.APP_VERSION }}
         run: |
-          Compress-Archive -Path dist/windows/xianyu-server.exe,dist/windows/xianyu-tray.exe,dist/windows/playwright-runtime -DestinationPath "dist/windows/Ydisks-Xianyu-Helper-${env:APP_VERSION}-binaries.zip"
+          $serviceName = 'YdisksXianyuHelper'
+          $installer = (Resolve-Path 'dist/windows/Ydisks-Xianyu-Helper-Setup.exe').Path
+          $installLog = Join-Path $env:RUNNER_TEMP 'ydisks-windows-installer.log'
+          $installDir = Join-Path $env:ProgramFiles 'Ydisks Xianyu Helper'
+          $uninstaller = Join-Path $installDir 'unins000.exe'
+          try {
+            & $installer /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/LOG=$installLog"
+            $installerExitCode = $LASTEXITCODE
+            if ($installerExitCode -ne 0) {
+              if (Test-Path -LiteralPath $installLog) {
+                Get-Content -LiteralPath $installLog -Tail 200
+              }
+              throw "Windows 安装器执行失败，错误码: $installerExitCode"
+            }
+
+            $service = Get-Service -Name $serviceName -ErrorAction Stop
+            $serviceStatus = $service.Status
+            $service.Dispose()
+            if ($serviceStatus -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
+              throw "安装器未启动 Windows 服务: $serviceStatus"
+            }
+
+            $expectedServer = Join-Path $installDir 'xianyu-server.exe'
+            $expectedRuntime = Join-Path $installDir 'playwright-runtime'
+            $serviceConfig = Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" -ErrorAction Stop
+            if ($null -eq $serviceConfig -or
+                -not $serviceConfig.PathName.Contains(('"{0}"' -f $expectedServer)) -or
+                -not $serviceConfig.PathName.Contains(('-playwright-runtime-root "{0}"' -f $expectedRuntime))) {
+              throw "安装器注册的服务命令行不正确: $($serviceConfig.PathName)"
+            }
+
+            $health = $null
+            $deadline = [DateTime]::UtcNow.AddSeconds(60)
+            while ([DateTime]::UtcNow -lt $deadline -and $null -eq $health) {
+              try {
+                $health = Invoke-RestMethod -Uri 'http://127.0.0.1:59188/health' -TimeoutSec 2
+              } catch {
+                Start-Sleep -Seconds 1
+              }
+            }
+            if ($null -eq $health -or $health.status -ne 'ok' -or $health.database -ne 'ok') {
+              throw "安装器服务健康检查失败: $($health | ConvertTo-Json -Compress)"
+            }
+            if (-not (Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
+              throw "Windows 卸载器不存在: $uninstaller"
+            }
+          } catch {
+            if (Test-Path -LiteralPath $installLog) {
+              Get-Content -LiteralPath $installLog -Tail 200
+            }
+            $serverLog = Join-Path $env:ProgramData 'YdisksXianyuHelper\logs\server.log'
+            if (Test-Path -LiteralPath $serverLog) {
+              Get-Content -LiteralPath $serverLog -Tail 200
+            }
+            throw
+          } finally {
+            if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
+              & $uninstaller /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+              if ($LASTEXITCODE -ne 0) { throw "Windows 卸载器执行失败，错误码: $LASTEXITCODE" }
+            } elseif ($null -ne (Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue)) {
+              & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+                -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+                -File (Resolve-Path 'packaging/windows/service-control.ps1') `
+                -Mode uninstall -ServiceName $serviceName
+              if ($LASTEXITCODE -ne 0) { throw "Windows 服务兜底清理失败，错误码: $LASTEXITCODE" }
+            }
+            if ($null -ne (Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue)) {
+              throw 'Windows 安装器卸载后服务仍然存在'
+            }
+          }
+
+      - name: 准备唯一 Windows 构建产物
+        shell: pwsh
+        run: |
+          $artifactDir = 'dist/windows-artifact'
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+          Copy-Item -LiteralPath 'dist/windows/Ydisks-Xianyu-Helper-Setup.exe' -Destination $artifactDir
+          $artifactFiles = @(Get-ChildItem -LiteralPath $artifactDir -Recurse -File)
+          if ($artifactFiles.Count -ne 1 -or $artifactFiles[0].Name -ne 'Ydisks-Xianyu-Helper-Setup.exe') {
+            throw "Windows 构建产物必须且只能包含安装器: $($artifactFiles.FullName -join ', ')"
+          }
 
       - name: 上传 Windows 安装包
         uses: actions/upload-artifact@v7
         with:
           name: ydisks-xianyu-helper-windows-${{ env.APP_VERSION }}
-          path: |
-            dist/windows/Ydisks-Xianyu-Helper-Setup.exe
-            dist/windows/Ydisks-Xianyu-Helper-${{ env.APP_VERSION }}-binaries.zip
+          path: dist/windows-artifact/Ydisks-Xianyu-Helper-Setup.exe
           if-no-files-found: error
 
   macos:
@@ -510,9 +662,10 @@ jobs:
           test -f "dist/release/ydisks-xianyu-helper-linux-amd64-${{ needs.prepare.outputs.app_version }}.tar.gz"
           test -f "dist/release/ydisks-xianyu-helper-linux-arm64-${{ needs.prepare.outputs.app_version }}.tar.gz"
           test -f "dist/release/Ydisks-Xianyu-Helper-Setup.exe"
-          test -f "dist/release/Ydisks-Xianyu-Helper-${{ needs.prepare.outputs.app_version }}-binaries.zip"
           test -f "dist/release/Ydisks-Xianyu-Helper-${{ needs.prepare.outputs.app_version }}-arm64.pkg"
           test -f "dist/release/Ydisks-Xianyu-Helper-${{ needs.prepare.outputs.app_version }}-amd64.pkg"
+          test "$(find dist/release -maxdepth 1 -type f | wc -l)" -eq 5
+          test -z "$(find dist/release -maxdepth 1 -type f -name '*.zip' -print -quit)"
           (
             cd dist/release
             sha256sum * > SHA256SUMS
@@ -527,6 +680,13 @@ jobs:
           set -Eeuo pipefail
           mapfile -t release_files < <(find dist/release -maxdepth 1 -type f -print | sort)
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            while IFS= read -r asset_name; do
+              case "$asset_name" in
+                Ydisks-Xianyu-Helper-*-binaries.zip)
+                  gh release delete-asset "$GITHUB_REF_NAME" "$asset_name" --yes
+                  ;;
+              esac
+            done < <(gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name')
             gh release upload "$GITHUB_REF_NAME" "${release_files[@]}" --clobber
           else
             gh release create "$GITHUB_REF_NAME" "${release_files[@]}" \
