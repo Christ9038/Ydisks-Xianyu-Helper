@@ -296,10 +296,20 @@ jobs:
 
             $serviceConfig = Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" -ErrorAction Stop
             if ($null -eq $serviceConfig) { throw 'Windows 服务注册后无法读取配置' }
-            if (-not $serviceConfig.PathName.Contains(('"{0}"' -f $serverPath)) -or
-                -not $serviceConfig.PathName.Contains('-service') -or
-                -not $serviceConfig.PathName.Contains(('-workdir "{0}"' -f $workDir)) -or
-                -not $serviceConfig.PathName.Contains(('-playwright-runtime-root "{0}"' -f $runtimeRoot))) {
+            # Win32_Service.PathName 可能会省略不含空格路径两侧的引号，比较前统一去掉引号。
+            $actualServiceCommand = $serviceConfig.PathName.Replace('"', '')
+            $requiredServiceArguments = @(
+              $serverPath,
+              '-service',
+              "-workdir $workDir",
+              "-playwright-runtime-root $runtimeRoot"
+            )
+            $invalidServiceArgument = $requiredServiceArguments |
+              Where-Object {
+                $actualServiceCommand.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -lt 0
+              } |
+              Select-Object -First 1
+            if ($null -ne $invalidServiceArgument) {
               throw "Windows 服务命令行不正确: $($serviceConfig.PathName)"
             }
             $delayedStart = Get-ItemPropertyValue `
