@@ -86,17 +86,43 @@ jobs:
         run: |
           set -Eeuo pipefail
           mkdir -p dist/release dist/digests
-          find dist/artifacts -maxdepth 1 -type f -name '*.tar.gz' -exec cp {} dist/release/ \;
-          find dist/artifacts -maxdepth 1 -type f -name '*.exe' -exec cp {} dist/release/ \;
-          find dist/artifacts -maxdepth 1 -type f -name '*.pkg' -exec cp {} dist/release/ \;
-          find dist/artifacts -maxdepth 1 -type f -regex '.*/[0-9a-f]\{64\}' -exec cp {} dist/digests/ \;
-          test -f "dist/release/ydisks-xianyu-helper-linux-amd64-$APP_VERSION.tar.gz"
-          test -f "dist/release/ydisks-xianyu-helper-linux-arm64-$APP_VERSION.tar.gz"
-          test -f "dist/release/Ydisks-Xianyu-Helper-Setup.exe"
-          test -f "dist/release/Ydisks-Xianyu-Helper-$APP_VERSION-arm64.pkg"
-          test -f "dist/release/Ydisks-Xianyu-Helper-$APP_VERSION-amd64.pkg"
-          test "$(find dist/release -maxdepth 1 -type f | wc -l)" -eq 5
-          test "$(find dist/digests -maxdepth 1 -type f | wc -l)" -eq 2
+
+          echo "下载后的构建产物："
+          find dist/artifacts -maxdepth 2 -type f -printf '%P\n' | sort
+
+          expected_release_files=(
+            "ydisks-xianyu-helper-linux-amd64-$APP_VERSION.tar.gz"
+            "ydisks-xianyu-helper-linux-arm64-$APP_VERSION.tar.gz"
+            "Ydisks-Xianyu-Helper-Setup.exe"
+            "Ydisks-Xianyu-Helper-$APP_VERSION-arm64.pkg"
+            "Ydisks-Xianyu-Helper-$APP_VERSION-amd64.pkg"
+          )
+          for release_file in "${expected_release_files[@]}"; do
+            source_file="dist/artifacts/$release_file"
+            if [ ! -f "$source_file" ]; then
+              echo "缺少正式发布产物：$release_file" >&2
+              exit 1
+            fi
+            cp -- "$source_file" dist/release/
+          done
+
+          digest_count=0
+          while IFS= read -r artifact_file; do
+            artifact_name="$(basename "$artifact_file")"
+            if [[ "$artifact_name" =~ ^[0-9a-f]{64}$ ]]; then
+              cp -- "$artifact_file" dist/digests/
+              digest_count=$((digest_count + 1))
+            fi
+          done < <(find dist/artifacts -maxdepth 2 -type f -print)
+          if [ "$digest_count" -ne 2 ]; then
+            echo "Docker 镜像摘要数量错误：预期 2 个，实际 $digest_count 个。" >&2
+            exit 1
+          fi
+
+          echo "准备发布的桌面产物："
+          find dist/release -maxdepth 1 -type f -printf '%f\n' | sort
+          echo "准备发布的 Docker 摘要："
+          find dist/digests -maxdepth 1 -type f -printf '%f\n' | sort
           (cd dist/release && sha256sum * > SHA256SUMS)
 
       - name: 配置 Docker Buildx
