@@ -458,8 +458,10 @@ jobs:
           $installDir = Join-Path $env:ProgramFiles 'Ydisks Xianyu Helper'
           $uninstaller = Join-Path $installDir 'unins000.exe'
           try {
-            & $installer /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/LOG=$installLog"
-            $installerExitCode = $LASTEXITCODE
+            $installerProcess = Start-Process -FilePath $installer `
+              -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=$installLog") `
+              -Wait -PassThru
+            $installerExitCode = $installerProcess.ExitCode
             if ($installerExitCode -ne 0) {
               if (Test-Path -LiteralPath $installLog) {
                 Get-Content -LiteralPath $installLog -Tail 200
@@ -518,8 +520,12 @@ jobs:
             throw
           } finally {
             if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
-              & $uninstaller /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-              if ($LASTEXITCODE -ne 0) { throw "Windows 卸载器执行失败，错误码: $LASTEXITCODE" }
+              $uninstallerProcess = Start-Process -FilePath $uninstaller `
+                -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') `
+                -Wait -PassThru
+              if ($uninstallerProcess.ExitCode -ne 0) {
+                throw "Windows 卸载器执行失败，错误码: $($uninstallerProcess.ExitCode)"
+              }
             } elseif ($null -ne (Get-CimInstance -ClassName Win32_Service -Filter "Name='$serviceName'" -ErrorAction SilentlyContinue)) {
               & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
                 -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass `
