@@ -405,6 +405,8 @@ jobs:
               'dist/windows/xianyu-tray.exe',
               'dist/windows/playwright-runtime/amd64',
               'icon/windows/icon.ico',
+              'packaging/windows/languages/ChineseSimplified.isl',
+              'packaging/windows/languages/ChineseTraditional.isl',
               'packaging/windows/service-control.ps1'
             )
             foreach ($source in $requiredSources) {

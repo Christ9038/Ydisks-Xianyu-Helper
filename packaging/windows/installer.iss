@@ -6,6 +6,7 @@
 #define WindowsDistDir AddBackslash(RepoRoot) + "dist\windows"
 #define WindowsRuntimeDir AddBackslash(WindowsDistDir) + "playwright-runtime\amd64"
 #define WindowsIconDir AddBackslash(RepoRoot) + "icon\windows"
+#define WindowsLanguageDir AddBackslash(SourcePath) + "languages"
 
 [Setup]
 AppId={{A6E8B04B-3C8A-4E20-AE62-6B1C3F6B31AE}
@@ -25,8 +26,8 @@ SolidCompression=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
-Name: "chinesetraditional"; MessagesFile: "compiler:Languages\ChineseTraditional.isl"
+Name: "chinesesimplified"; MessagesFile: "{#WindowsLanguageDir}\ChineseSimplified.isl"
+Name: "chinesetraditional"; MessagesFile: "{#WindowsLanguageDir}\ChineseTraditional.isl"
 
 [CustomMessages]
 english.ProductName=Ydisks Xianyu Helper
