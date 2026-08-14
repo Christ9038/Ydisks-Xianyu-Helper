@@ -16,6 +16,8 @@ import (
 type accountLoginService struct {
 	// server 提供账号存储、运行时管理器和扫码会话持久化依赖。
 	server *Server
+	// repository 提供账号登录服务所需的最小凭证持久化能力。
+	repository accountLoginRepository
 }
 
 // accountLoginInput 是新增账号登录凭证用例的业务输入。
@@ -62,15 +64,15 @@ func (svc *accountLoginService) CreateCookie(ctx context.Context, input accountL
 	// s 是当前账号登录应用服务依赖的 Server。
 	s := svc.server
 	// unlock 保护账号凭证的创建与后续登录状态清理。
-	unlock := s.Store.LockAccountCredentials(input.AccountID)
+	unlock := svc.repository.LockCredentials(input.AccountID)
 	// err 表示账号凭证创建错误。
-	if err := s.Store.Cookies.CreateOwned(ctx, input.AccountID, input.Cookies, input.UserID); err != nil {
+	if err := svc.repository.CreateCookieOwned(ctx, input.AccountID, input.Cookies, input.UserID); err != nil {
 		unlock()
 		return err
 	}
-	if s.Store.Tokens != nil {
+	{
 		// err 表示清理旧连接凭证的错误，仅记录不阻断登录。
-		if err := s.Store.Tokens.Clear(ctx, input.AccountID); err != nil && s.Logger != nil {
+		if err := svc.repository.ClearTokens(ctx, input.AccountID); err != nil && s.Logger != nil {
 			s.Logger.Warn("新增账号后清理旧连接凭证失败", "cookie_id", input.AccountID, "err", err)
 		}
 	}
@@ -90,7 +92,7 @@ func (svc *accountLoginService) UpdateCookie(ctx context.Context, input accountC
 	// s 是当前账号登录应用服务依赖的 Server。
 	s := svc.server
 	// unlock 保护账号凭证更新、连接凭证清理和登录审计。
-	unlock := s.Store.LockAccountCredentials(input.AccountID)
+	unlock := svc.repository.LockCredentials(input.AccountID)
 	// detail 和 err 保存账号凭证详情查询结果。
 	detail, err := s.loadCookiePlatformDetail(ctx, input.AccountID)
 	if err != nil || detail == nil || detail.UserID != input.UserID {
@@ -101,13 +103,13 @@ func (svc *accountLoginService) UpdateCookie(ctx context.Context, input accountC
 		return err
 	}
 	// err 表示扁平 Cookie 更新错误。
-	if err := s.updateFlatCookieOwnedLocked(ctx, detail, input.Cookies); err != nil {
+	if err := svc.repository.UpdateFlatCookieOwned(ctx, detail, input.Cookies); err != nil {
 		unlock()
 		return err
 	}
-	if s.Store.Tokens != nil {
+	{
 		// err 表示清理旧连接凭证的错误，仅记录不阻断登录。
-		if err := s.Store.Tokens.Clear(ctx, input.AccountID); err != nil && s.Logger != nil {
+		if err := svc.repository.ClearTokens(ctx, input.AccountID); err != nil && s.Logger != nil {
 			s.Logger.Warn("更新账号后清理旧连接凭证失败", "cookie_id", input.AccountID, "err", err)
 		}
 	}
@@ -181,7 +183,7 @@ func (svc *accountLoginService) persistQRLoginSuccessCore(ctx context.Context, u
 	// isNew 标记本次扫码是否创建了新账号。
 	isNew := false
 	// credentialUnlock 保护账号凭证写入和登录审计。
-	credentialUnlock := s.Store.LockAccountCredentials(accountID)
+	credentialUnlock := svc.repository.LockCredentials(accountID)
 	// saveErr 保存账号凭证、Cookie Jar 和登录审计的事务错误。
 	saveErr := func() error {
 		defer credentialUnlock()
@@ -194,14 +196,14 @@ func (svc *accountLoginService) persistQRLoginSuccessCore(ctx context.Context, u
 			}
 			isNew = true
 			// err 表示创建扫码账号的错误。
-			if err := s.Store.Cookies.CreateOwned(ctx, accountID, cookies, userID); err != nil {
+			if err := svc.repository.CreateCookieOwned(ctx, accountID, cookies, userID); err != nil {
 				return err
 			}
 			if snapshotComplete {
 				// metadata 是新账号的完整 Cookie Jar 元数据。
 				metadata := cookierefresh.MetadataWithSnapshot("", cookieSnapshot)
 				// err 表示保存新账号 Cookie Jar 的错误。
-				if err := s.Store.Cookies.UpdateRenewalCookie(ctx, accountID, cookies, metadata, time.Now().Unix()); err != nil {
+				if err := svc.repository.UpdateRenewalCookie(ctx, accountID, cookies, metadata, time.Now().Unix()); err != nil {
 					return err
 				}
 			}
@@ -219,18 +221,18 @@ func (svc *accountLoginService) persistQRLoginSuccessCore(ctx context.Context, u
 				// metadata 是已有账号合并后的 Cookie Jar 元数据。
 				metadata := cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, cookieSnapshot)
 				// err 表示保存已有账号 Cookie Jar 的错误。
-				if err := s.Store.Cookies.UpdateRenewalCookie(ctx, detail.ID, cookies, metadata, time.Now().Unix()); err != nil {
+				if err := svc.repository.UpdateRenewalCookie(ctx, detail.ID, cookies, metadata, time.Now().Unix()); err != nil {
 					return err
 				}
 				// err 表示合并扁平 Cookie 的错误。
-			} else if err := s.updateFlatCookieOwnedLocked(ctx, detail, cookies); err != nil {
+			} else if err := svc.repository.UpdateFlatCookieOwned(ctx, detail, cookies); err != nil {
 				return err
 			}
 		}
 		s.markSuccessfulLogin(ctx, accountID, userID, loginMethodQRScan, "扫码登录成功")
-		if s.Store.Tokens != nil {
+		{
 			// err 表示清理旧连接凭证的错误，仅记录不阻断扫码登录。
-			if err := s.Store.Tokens.Clear(ctx, accountID); err != nil && s.Logger != nil {
+			if err := svc.repository.ClearTokens(ctx, accountID); err != nil && s.Logger != nil {
 				s.Logger.Warn("扫码登录保存后清理旧连接凭证失败", "cookie_id", accountID, "err", err)
 			}
 		}
@@ -250,7 +252,7 @@ func (svc *accountLoginService) persistQRLoginSuccessCore(ctx context.Context, u
 		s.refreshAccountProfile(ctx, detail)
 	}
 	s.wakeCredentialBlockedAutomation(ctx, accountID)
-	if s.Manager != nil && s.Store.Cookies.GetStatus(ctx, accountID) {
+	if s.Manager != nil && svc.repository.GetStatus(ctx, accountID) {
 		// err 表示扫码登录后的账号运行时重启错误。
 		if err := s.Manager.Restart(ctx, accountID); err != nil && s.Logger != nil {
 			s.Logger.Warn("扫码登录后重启账号失败", "cookie_id", accountID, "err", err)
@@ -274,7 +276,7 @@ func (svc *accountLoginService) refreshAndRestartAccount(ctx context.Context, us
 	if err == nil {
 		s.refreshAccountProfile(ctx, detail)
 	}
-	if s.Manager != nil && s.Store.Cookies.GetStatus(ctx, accountID) {
+	if s.Manager != nil && svc.repository.GetStatus(ctx, accountID) {
 		// err 表示账号运行时重启错误。
 		if err := s.Manager.Restart(ctx, accountID); err != nil && s.Logger != nil {
 			s.Logger.Warn("账号登录后重启账号失败", "cookie_id", accountID, "err", err)

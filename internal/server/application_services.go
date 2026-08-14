@@ -19,7 +19,7 @@ func newApplicationServices(server *Server) *applicationServices {
 	return &applicationServices{
 		orders:        &orderApplicationService{server: server, repository: newStoreOrderRepository(server.Store)},
 		itemPublish:   &itemPublishService{server: server, repository: newStoreItemPublishRepository(server.Store)},
-		accountLogin:  &accountLoginService{server: server},
+		accountLogin:  &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store)},
 		communication: &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},
 		analytics:     &analyticsService{repository: newStoreAnalyticsRepository(server.Store)},
 	}
