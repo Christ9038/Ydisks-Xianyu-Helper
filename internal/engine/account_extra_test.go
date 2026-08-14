@@ -1204,3 +1204,51 @@ func TestPersistPendingRenewCookiesUsesRuntimeData(t *testing.T) {
 		t.Fatal("扁平迟到 Cookie 不应伪造完整浏览器快照")
 	}
 }
+
+// scopedTokenRefreshRecorder 记录带 Cookie 快照的 token 请求参数。
+type scopedTokenRefreshRecorder struct {
+	fakeRunMtop
+	// snapshot 保存 token 请求收到的 Cookie 快照副本。
+	snapshot []cookierefresh.BrowserCookie
+}
+
+// RefreshTokenWithCredentialContext 返回成功 token，并记录请求使用的 Cookie 快照。
+func (r *scopedTokenRefreshRecorder) RefreshTokenWithCredentialContext(_ context.Context, _ string, _ string, snapshot []cookierefresh.BrowserCookie) (*mtop.RefreshResult, error) {
+	r.snapshot = append([]cookierefresh.BrowserCookie(nil), snapshot...)
+	return &mtop.RefreshResult{AccessToken: "scoped-token", AccessTokenExpireAt: time.Now().Add(time.Hour).Unix()}, nil
+}
+
+// TestRefreshTokenWithMinGapUsesMetadataWithoutLoginSecrets 验证 token 刷新读取快照时不解密登录密码。
+func TestRefreshTokenWithMinGapUsesMetadataWithoutLoginSecrets(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "engine-token-metadata-query-key")
+	// acc 和 store 是本测试的账号及数据库；cleanup 负责关闭临时数据库。
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	// ctx 是测试 token 刷新共用的上下文。
+	ctx := context.Background()
+	// snapshot 是应传给带凭证上下文 token 请求的权威 Cookie 快照。
+	snapshot := []cookierefresh.BrowserCookie{{Name: "sid", Value: "snapshot", Domain: ".goofish.com", Path: "/", Secure: true}}
+	// metadata 是包含快照的合法运行 metadata。
+	metadata := cookierefresh.MetadataWithSnapshot(`{"note":"token"}`, snapshot)
+	// updateErr 表示预置 token 刷新 metadata 失败的原因。
+	if updateErr := store.Cookies.UpdateRenewalCookie(ctx, "cid", "unb=123; _m_h5_tk=tk_1;", metadata, time.Now().Unix()); updateErr != nil {
+		t.Fatalf("preset metadata: %v", updateErr)
+	}
+	// corruptErr 表示写入故意损坏的登录密码密文失败的原因。
+	if _, corruptErr := store.DB.ExecContext(ctx,
+		`UPDATE cookies SET username=?,password=? WHERE id=?`,
+		"engine-token-user", "not-a-password-ciphertext", "cid"); corruptErr != nil {
+		t.Fatalf("corrupt password: %v", corruptErr)
+	}
+	// recorder 记录 token 请求并提供不触网的成功响应。
+	recorder := &scopedTokenRefreshRecorder{}
+	acc.mtop = recorder
+	// token、updatedCookies 和 refreshErr 是 token 刷新结果。
+	token, updatedCookies, refreshErr := acc.refreshTokenWithMinGap(ctx, false)
+	if refreshErr != nil || token != "scoped-token" || updatedCookies != "unb=123; _m_h5_tk=tk_1;" {
+		t.Fatalf("token refresh=%q cookies=%q err=%v", token, updatedCookies, refreshErr)
+	}
+	if len(recorder.snapshot) != 1 || recorder.snapshot[0].Name != "sid" || recorder.snapshot[0].Value != "snapshot" {
+		t.Fatalf("token 请求未收到 metadata 快照: %+v", recorder.snapshot)
+	}
+}

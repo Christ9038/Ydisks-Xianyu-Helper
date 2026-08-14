@@ -1343,8 +1343,8 @@ func (a *Account) refreshTokenWithMinGap(ctx context.Context, _ bool) (string, s
 		if scoped, ok := a.mtop.(scopedTokenClient); ok {
 			var snapshot []cookierefresh.BrowserCookie
 			if a.store != nil && a.store.Cookies != nil {
-				if detail, detailErr := a.store.Cookies.GetDetails(ctx, a.CookieID); detailErr == nil && detail != nil {
-					snapshot = cookierefresh.SnapshotFromMetadata(detail.MetadataJSON)
+				if metadata, metadataErr := a.store.Cookies.GetCookieMetadata(ctx, a.CookieID); metadataErr == nil { // metadata 是 token 请求所需的 Cookie 快照信息。
+					snapshot = cookierefresh.SnapshotFromMetadata(metadata)
 				}
 			}
 			res, err = scoped.RefreshTokenWithCredentialContext(ctx, cookieStr, deviceID, snapshot)

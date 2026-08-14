@@ -120,7 +120,8 @@ app shell / routes
 - 已完成阶段 2 后续切片：新增 `GetCookieMetadata` 单字段接口，并将 `internal/engine/account.go` 的 `persistRenewFlatCookie` 迁移到该接口，只读取 metadata，保持扁平 Cookie 更新和 metadata 快照清理行为；
 - 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `handleMaxFailures` 已改用 `GetValue`，只读取恢复回调所需的 Cookie 明文，保持失败计数和重连行为，并补充损坏登录密码回归测试；
 - 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `persistPendingRenewCookies` 已改用 `GetCookieRuntimeData`，只读取异步续期所需的 Cookie 与 metadata，保持迟到 Cookie 合并、凭证锁和通知行为，并补充损坏登录密码回归测试；
-- 下一最小工作项：将 `internal/engine/account.go` 的 `refreshTokenWithMinGap` metadata 读取迁移到 `GetCookieMetadata`，继续保持 Cookie 快照请求上下文和 token 刷新行为；
+- 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `refreshTokenWithMinGap` metadata 读取已迁移到 `GetCookieMetadata`，只读取 token 请求所需的 Cookie 快照信息，保持 Cookie 快照请求上下文和 token 刷新行为，并补充损坏登录密码回归测试；
+- 下一最小工作项：将 `internal/engine/account.go` 的 `adoptTokenResponseCookies` metadata 读取迁移到 `GetCookieMetadata`，继续保持 token 响应 Cookie 合并和快照持久化行为；
 - 随后工作项：再处理 Engine、Automation 等明确需要平台凭证的流程，统一使用按账号 ID 过滤的单值凭证接口；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
@@ -492,3 +493,4 @@ npm --prefix frontend run build
 | 2026-08-14 | 新增 `GetCookieMetadata` 并收窄 `persistRenewFlatCookie` | 扁平 Cookie 写回不再读取旧 Cookie、用户名或登录密码；损坏旧凭证回归测试通过 | 迁移 `handleMaxFailures` 的单值 Cookie 读取 |
 | 2026-08-14 | `handleMaxFailures` 改用 `GetValue` | 恢复回调只读取 Cookie 明文；损坏登录密码回归测试通过，失败计数和重连行为保持不变 | 迁移 `persistPendingRenewCookies` 的异步续期读取 |
 | 2026-08-14 | `persistPendingRenewCookies` 改用 `GetCookieRuntimeData` | 迟到 Cookie 合并只解密 Cookie 与 metadata；锁、并发重放和通知行为保持不变，回归测试通过 | 迁移 `refreshTokenWithMinGap` 的 metadata 读取 |
+| 2026-08-14 | `refreshTokenWithMinGap` 改用 `GetCookieMetadata` | token 请求只解密 Cookie 快照 metadata；快照上下文和 token 刷新行为保持不变，回归测试通过 | 迁移 `adoptTokenResponseCookies` 的 metadata 读取 |
