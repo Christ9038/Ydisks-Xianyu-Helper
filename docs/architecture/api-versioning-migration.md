@@ -15,10 +15,10 @@
 | 设置 | `/system-settings...`、`/user-settings...`、`/ai-reply-settings...`、`/ai-models` | `/api/v1/settings/system...`、`/api/v1/settings/user...`、`/api/v1/settings/ai-reply...`、`/api/v1/settings/ai-models` | React 系统设置、AI 设置调用已迁移；版本化入口覆盖公开设置、管理员设置、用户设置和 AI 模型查询；旧路径保留 |
 | 卡券 | `/cards...` | `/api/v1/cards...` | React 卡券列表、CRUD、批量创建和追加调用已迁移；旧路径保留并由同一 handler 提供 |
 | 通知 | `/notification-channels...`、`/message-notifications...` | `/api/v1/notifications/channels...`、`/api/v1/notifications/messages...`、`/api/v1/notifications/accounts/{cid}/bindings` | React 通知渠道、消息绑定和账号绑定调用已迁移；旧路径保留并由同一 handler 提供 |
-| 聊天 | `/api/chat...` | `/api/v1/chat...` | 旧路径保留，会话/消息 DTO 已落地 |
+| 聊天 | `/api/chat...` | `/api/v1/chat...` | React 会话、消息、图片、已读和 WebSocket 调用已迁移；旧路径保留并由同一 handler 提供 |
 | 关键词回复 | `/keywords...`、`/keywords-with-item-id...`、`/keywords-with-type...`、`/item-reply...` | `/api/v1/reply-rules...` | 旧路径保留，基础/商品/类型规则与指定商品回复 DTO 已落地 |
 | 默认回复 | `/default-replies...`、`/api/default-reply...` | `/api/v1/default-replies...` | 旧路径保留，单账号、列表和映射 DTO 已落地 |
-| 账号任务 | `/api/account-tasks...` | `/api/v1/account-tasks...` | 旧路径保留，设置、运行记录和执行摘要 DTO 已落地 |
+| 账号任务 | `/api/account-tasks...` | `/api/v1/account-tasks...` | React 设置和执行调用已迁移；版本化入口覆盖设置、运行记录和执行摘要；旧路径保留并由同一 handler 提供 |
 | 管理员 | `/admin/users...`、`/admin/cookies...`、`/admin/stats` | `/api/v1/admin/...` | 旧路径保留，用户/账号/全局统计 DTO 已落地 |
 | 统计 | `/dashboard/stats`、`/analytics/orders...` | `/api/v1/analytics/...` | 旧路径保留，概览、收益、维度和有效订单分页 DTO 已落地 |
 | 二维码生成 | `/qr-login/generate` | `/api/v1/qr-login/generate` | 旧路径保留，二维码生成、状态和验证完成 DTO 已落地；`qrLoginStatusResponse` 仅保留非敏感动态字段，状态响应继续保留兼容扩展 |
@@ -50,6 +50,7 @@
 - 商品列表、详情、发布、更新和删除已由 React 请求层迁移到 `/api/v1/items...`；Go 契约测试确认新旧入口保持商品所有权校验、具名响应和持久化语义一致。
 - 商品同步、类目推荐、批量发布预检、任务查询、取消、重试和结果下载已由版本化路由提供；React 现有同步/批量发布调用已迁移，Go 契约测试确认新旧入口状态码和参数校验语义一致。
 - 系统/用户/AI 设置、卡券 CRUD/批量/追加和通知渠道/消息/账号绑定已由版本化路由提供；React 设置、卡券和通知调用已迁移，Go 契约测试确认新旧入口权限、状态码和参数校验语义一致。
+- 聊天会话、消息、图片、已读和 WebSocket，以及账号任务设置、运行记录和执行已由版本化路由提供；React REST/WebSocket 调用已迁移，Go 契约测试确认新旧入口权限、状态码和参数校验语义一致。
 - 聊天会话、消息分页和发送结果使用独立 DTO，不直接暴露数据库模型。
 - React `frontend/types.ts` 与 `frontend/services/api.ts` 已同步具名成功响应类型，同时保留旧字段归一逻辑。
-- 会话、账号、订单、商品、设置、卡券和通知版本化入口已可用；聊天、关键词、默认回复、账号任务、管理员与统计等领域仍未宣称可用，旧路径继续保留。
+- 会话、账号、订单、商品、设置、卡券、通知、聊天和账号任务版本化入口已可用；关键词、默认回复、管理员与统计等领域仍未宣称可用，旧路径继续保留。

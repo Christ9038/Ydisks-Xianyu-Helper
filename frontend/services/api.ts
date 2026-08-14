@@ -98,18 +98,18 @@ export const getAccountDetails = async (options?: RequestControlOptions): Promis
 };
 
 export const getAccountTaskSettings = async (id: string): Promise<AccountTaskSettingsResponse> =>
-	get(`/api/account-tasks/${id}`);
+	get(`/api/v1/account-tasks/${id}`);
 
 export const updateAccountTaskSettings = async (id: string, settings: AccountTaskSettings): Promise<AccountTaskSettingsResponse> =>
-	put(`/api/account-tasks/${id}`, settings);
+	put(`/api/v1/account-tasks/${id}`, settings);
 
 export const runAccountTask = async (id: string, taskType: 'auto_rate' | 'auto_polish'): Promise<AccountTaskRunResponseEnvelope> =>
-	post(`/api/account-tasks/${id}/run`, { task_type: taskType }, { timeoutMs: 120_000 });
+	post(`/api/v1/account-tasks/${id}/run`, { task_type: taskType }, { timeoutMs: 120_000 });
 
 export interface ChatSessionPage { sessions: ChatSession[]; has_more: boolean; next_cursor?: number }
 
 export const getChatSessionPage = async (accountId: string, cursor?: number, options?: RequestControlOptions, refresh = false): Promise<ChatSessionPage> => {
-	const result = await get<ChatSessionPage>('/api/chat/sessions', { account_id: accountId, cursor, refresh: refresh ? 1 : undefined },
+	const result = await get<ChatSessionPage>('/api/v1/chat/sessions', { account_id: accountId, cursor, refresh: refresh ? 1 : undefined },
 		refresh ? { timeoutMs: 60_000, ...options } : options);
 	return { sessions: result.sessions || [], has_more: result.has_more === true, next_cursor: result.next_cursor };
 };
@@ -125,7 +125,7 @@ export interface ChatMessagePage {
 }
 
 export const getChatMessagePage = async (accountId: string, chatId: string, cursor?: number, beforeId?: number, options?: RequestControlOptions): Promise<ChatMessagePage> => {
-	const result = await get<ChatMessagePage>('/api/chat/messages', {
+	const result = await get<ChatMessagePage>('/api/v1/chat/messages', {
 		account_id: accountId, chat_id: chatId, cursor, before_id: beforeId,
 	}, options);
 	return { messages: result.messages || [], has_more: result.has_more === true, next_cursor: result.next_cursor, session: result.session };
@@ -137,7 +137,7 @@ export const getChatMessages = async (accountId: string, chatId: string, beforeI
 export const sendChatMessage = async (input: {
 	account_id: string; chat_id: string; buyer_id: string; buyer_name?: string;
 	item_id?: string; item_title?: string; text: string;
-}): Promise<{message: ChatMessage}> => post('/api/chat/messages', input);
+}): Promise<{message: ChatMessage}> => post('/api/v1/chat/messages', input);
 
 export const sendChatImage = async (input: {
 	account_id: string; chat_id: string; buyer_id: string; buyer_name?: string;
@@ -145,11 +145,11 @@ export const sendChatImage = async (input: {
 }): Promise<{message: ChatMessage}> => {
 	const form = new FormData();
 	Object.entries(input).forEach(([key, value]) => form.append(key, value));
-	return postForm('/api/chat/images', form, { timeoutMs: 120_000 });
+	return postForm('/api/v1/chat/images', form, { timeoutMs: 120_000 });
 };
 
 export const markChatRead = async (accountId: string, chatId: string): Promise<ApiResponse> =>
-	post('/api/chat/read', { account_id: accountId, chat_id: chatId });
+	post('/api/v1/chat/read', { account_id: accountId, chat_id: chatId });
 
 export interface AccountRuntimeStatus {
   state: NonNullable<AccountDetail['runtime_state']>;

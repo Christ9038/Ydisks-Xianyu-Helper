@@ -212,7 +212,7 @@ const Chat: React.FC = () => {
       if (disposed) return;
       setLiveState('connecting');
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      socket = new WebSocket(`${protocol}//${window.location.host}/api/chat/ws`);
+      socket = new WebSocket(`${protocol}//${window.location.host}/api/v1/chat/ws`);
       socket.onopen = () => { retry = 0; setLiveState('online'); };
       socket.onmessage = event => {
         try {

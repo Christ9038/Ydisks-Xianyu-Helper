@@ -34,11 +34,11 @@ import {
 	updateNotificationChannel, deleteNotificationChannel, setMessageNotification, deleteMessageNotification, deleteAccountNotifications, setAccountBindings, testNotificationChannel,
   updateSystemSettings,
   updateShippingRule,
-	getChatSessions,
-	getChatMessages,
-	sendChatMessage,
+	getChatSessions, getChatSessionPage,
+	getChatMessages, getChatMessagePage,
+	sendChatMessage, sendChatImage,
 	markChatRead,
-	updateAccountTaskSettings,
+	getAccountTaskSettings, updateAccountTaskSettings,
 	runAccountTask, login, initializeAdmin, verifySession,
 } from './api';
 
@@ -66,8 +66,8 @@ test('chat APIs preserve account and conversation scope', async () => {
 	await getChatMessages('a1', 'c1', 9);
 	await sendChatMessage({ account_id: 'a1', chat_id: 'c1', buyer_id: 'b1', text: 'hi' });
 	await markChatRead('a1', 'c1');
-	expect(fetchMock.mock.calls[0][0]).toBe('/api/chat/sessions?account_id=a1');
-	expect(fetchMock.mock.calls[1][0]).toBe('/api/chat/messages?account_id=a1&chat_id=c1&before_id=9');
+	expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/chat/sessions?account_id=a1');
+	expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/chat/messages?account_id=a1&chat_id=c1&before_id=9');
 	expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toMatchObject({ account_id: 'a1', chat_id: 'c1', buyer_id: 'b1' });
 	expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({ account_id: 'a1', chat_id: 'c1' });
 });
@@ -80,9 +80,9 @@ test('account task APIs keep rating and polish account-scoped', async () => {
 		auto_polish_enabled: true, polish_time: '03:00',
 	});
 	await runAccountTask('a1', 'auto_rate');
-	expect(fetchMock.mock.calls[0][0]).toBe('/api/account-tasks/a1');
+	expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/account-tasks/a1');
 	expect(fetchMock.mock.calls[0][1].method).toBe('PUT');
-	expect(fetchMock.mock.calls[1][0]).toBe('/api/account-tasks/a1/run');
+	expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/account-tasks/a1/run');
 	expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ task_type: 'auto_rate' });
 });
 
@@ -1005,3 +1005,44 @@ const runVersionedSettingsCardNotificationAPITest = async () => {
 };
 
 test('settings, card, and notification APIs use versioned compatibility routes', runVersionedSettingsCardNotificationAPITest);
+
+// 聊天和账号任务 API 使用版本化兼容入口。
+const runVersionedChatTaskAPITest = async () => {
+  // fetchMock 是聊天和账号任务请求的测试替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ sessions: [], has_more: false }))
+    .mockResolvedValueOnce(jsonResponse({ messages: [], has_more: false }))
+    .mockResolvedValueOnce(jsonResponse({ sessions: [], has_more: false }))
+    .mockResolvedValueOnce(jsonResponse({ messages: [], has_more: false }))
+    .mockResolvedValueOnce(jsonResponse({ message: { message_key: 'message-1' } }))
+    .mockResolvedValueOnce(jsonResponse({ message: { message_key: 'message-2' } }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ account_id: 'acc1' }))
+    .mockResolvedValueOnce(jsonResponse({ account_id: 'acc1' }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, summary: { task_type: 'auto_rate' } }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await getChatSessionPage('acc1', 3, undefined, true);
+  await getChatMessagePage('acc1', 'chat-1', 4, 9);
+  await getChatSessions('acc1');
+  await getChatMessages('acc1', 'chat-1', 9);
+  await sendChatMessage({ account_id: 'acc1', chat_id: 'chat-1', buyer_id: 'buyer-1', text: '你好' });
+  await sendChatImage({ account_id: 'acc1', chat_id: 'chat-1', buyer_id: 'buyer-1', image: new File(['image'], 'chat.png', { type: 'image/png' }) });
+  await markChatRead('acc1', 'chat-1');
+  await getAccountTaskSettings('acc1');
+  await updateAccountTaskSettings('acc1', { account_id: 'acc1', auto_rate_enabled: true, rate_content: '交易愉快', auto_polish_enabled: false, polish_time: '03:00' });
+  await runAccountTask('acc1', 'auto_rate');
+
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/chat/sessions?account_id=acc1&cursor=3&refresh=1', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/chat/messages?account_id=acc1&chat_id=chat-1&cursor=4&before_id=9', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/chat/sessions?account_id=acc1', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/chat/messages?account_id=acc1&chat_id=chat-1&before_id=9', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/chat/messages', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(6, '/api/v1/chat/images', expect.objectContaining({ method: 'POST', body: expect.any(FormData) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(7, '/api/v1/chat/read', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(8, '/api/v1/account-tasks/acc1', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(9, '/api/v1/account-tasks/acc1', expect.objectContaining({ method: 'PUT' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(10, '/api/v1/account-tasks/acc1/run', expect.objectContaining({ method: 'POST' }));
+};
+
+test('chat and account task APIs use versioned compatibility routes', runVersionedChatTaskAPITest);

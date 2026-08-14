@@ -24,7 +24,7 @@ describe('online chat UI contract', () => {
 
 	test('frontend connects only to the application chat websocket', () => {
 		const chat = source('components/Chat.tsx');
-		expect(chat).toContain('/api/chat/ws');
+		expect(chat).toContain('/api/v1/chat/ws');
 		expect(chat).not.toContain('wss-goofish.dingtalk.com');
 	});
 
