@@ -1,6 +1,6 @@
 import { get, post, put, del, postForm, type RequestControlOptions } from '../request';
 import {
-  LoginResponse, AccountDetail, Order, PaginatedResponse,
+  LoginResponse, AccountDetail, AccountSummaryResponse, Order, PaginatedResponse,
   AdminStats, DashboardStats, Card, SystemSettings, ApiResponse, OrderAnalytics,
   Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
   NotificationChannel, NotificationEventType
@@ -51,7 +51,7 @@ export const addAccount = async (id: string, value: string, loginMethod?: string
   return post('/cookies', { id, value, login_method: loginMethod });
 };
 
-const accountAvatarURL = (item: any, version: string): string => {
+const accountAvatarURL = (item: AccountSummaryResponse, version: string): string => {
   const raw = item.avatar_url || '';
   if (!raw) return '';
 
@@ -67,7 +67,7 @@ const accountAvatarURL = (item: any, version: string): string => {
 };
 
 export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => {
-  const data = await get<any[]>('/cookies/details', undefined, options);
+  const data = await get<AccountSummaryResponse[]>('/cookies/details', undefined, options);
   const avatarVersion = Date.now().toString();
   return data.map(item => ({
     id: item.id,
@@ -87,9 +87,9 @@ export const getAccountDetails = async (options?: RequestControlOptions): Promis
     avatar_url: accountAvatarURL(item, avatarVersion),
     profile_error: item.profile_error || '',
     ai_enabled: false,
-		auto_rate_enabled: item.auto_rate_enabled === true || item.auto_rate_enabled === 1,
+		auto_rate_enabled: item.auto_rate_enabled,
 		rate_content: item.rate_content || '不错的买家，交易愉快',
-		auto_polish_enabled: item.auto_polish_enabled === true || item.auto_polish_enabled === 1,
+		auto_polish_enabled: item.auto_polish_enabled,
 		polish_time: item.polish_time || '03:00',
 		last_rate_scan_at: Number(item.last_rate_scan_at || 0),
 		last_polish_date: item.last_polish_date || '',

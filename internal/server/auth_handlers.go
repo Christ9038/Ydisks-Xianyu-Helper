@@ -99,8 +99,8 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		sid, user, err := s.Auth.Login(r.Context(), req.Username, req.Password)
 		if err != nil || user == nil || sid == "" {
 			s.loginLimiter.failure(clientIP, principal, time.Now())
-			resp = loginResponse{Success: false, Message: "用户名或密码错误"}
-			writeJSON(w, http.StatusOK, resp)
+			writeErrCode(w, http.StatusUnauthorized, "authentication_failed",
+				"用户名或密码错误", "")
 			return
 		}
 		resp = loginResponse{
@@ -116,15 +116,15 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		user, err := s.Store.Users.GetByEmail(r.Context(), req.Email)
 		if err != nil || user == nil {
 			s.loginLimiter.failure(clientIP, principal, time.Now())
-			resp = loginResponse{Success: false, Message: "邮箱或密码错误"}
-			writeJSON(w, http.StatusOK, resp)
+			writeErrCode(w, http.StatusUnauthorized, "authentication_failed",
+				"邮箱或密码错误", "")
 			return
 		}
 		sid, loginUser, lerr := s.Auth.Login(r.Context(), user.Username, req.Password)
 		if lerr != nil || loginUser == nil || sid == "" {
 			s.loginLimiter.failure(clientIP, principal, time.Now())
-			resp = loginResponse{Success: false, Message: "邮箱或密码错误"}
-			writeJSON(w, http.StatusOK, resp)
+			writeErrCode(w, http.StatusUnauthorized, "authentication_failed",
+				"邮箱或密码错误", "")
 			return
 		}
 		resp = loginResponse{

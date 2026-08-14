@@ -291,11 +291,11 @@ func (s *Server) mountDirSPA(r chi.Router) {
 	// SPA catch-all：非 API 的 GET 请求返回 index.html。
 	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 		if isAPIPath(r.URL.Path) {
-			writeJSON(w, http.StatusNotFound, errDetail("接口不存在"))
+			writeErrRequest(w, r, http.StatusNotFound, "接口不存在")
 			return
 		}
 		if _, err := os.Stat(indexFile); err != nil {
-			writeJSON(w, http.StatusNotFound, errDetail("前端未构建"))
+			writeErrRequest(w, r, http.StatusNotFound, "前端未构建")
 			return
 		}
 		setNoStore(w)
@@ -314,12 +314,12 @@ func (s *Server) mountFSSPA(r chi.Router, staticFS fs.FS) {
 
 	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 		if isAPIPath(r.URL.Path) {
-			writeJSON(w, http.StatusNotFound, errDetail("接口不存在"))
+			writeErrRequest(w, r, http.StatusNotFound, "接口不存在")
 			return
 		}
 		index, err := fs.ReadFile(staticFS, "index.html")
 		if err != nil {
-			writeJSON(w, http.StatusNotFound, errDetail("前端未构建"))
+			writeErrRequest(w, r, http.StatusNotFound, "前端未构建")
 			return
 		}
 		setNoStore(w)
@@ -362,15 +362,15 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	if s.Store == nil || s.Store.DB == nil || s.Store.DB.PingContext(ctx) != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"status": "degraded", "database": "unavailable"})
+		writeJSON(w, http.StatusServiceUnavailable, healthResponse{Status: "degraded", Database: "unavailable"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":     "ok",
-		"database":   "ok",
-		"version":    appversion.Version,
-		"commit":     appversion.ShortCommit(),
-		"build_time": appversion.BuildTime,
+	writeJSON(w, http.StatusOK, healthResponse{
+		Status:    "ok",
+		Database:  "ok",
+		Version:   appversion.Version,
+		Commit:    appversion.ShortCommit(),
+		BuildTime: appversion.BuildTime,
 	})
 }
 

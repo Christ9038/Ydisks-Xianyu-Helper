@@ -70,10 +70,10 @@ const request = async <T>(method: RequestMethod, url: string, options: RequestOp
 
   if (!res.ok) {
     if (res.status === 401 && !options.skipAuthLogout) notifyAuthExpired();
-    // 尽量返回后端的detail/message，避免吞错
+    // payload 是后端统一错误 DTO 或非 JSON 错误文本。
     const payload = isJson ? await res.json().catch(() => undefined) : await res.text().catch(() => undefined);
-    const detail = typeof payload === 'string' ? payload : (payload?.detail || payload?.message || payload?.msg);
-    throw new Error(detail || `请求失败: ${res.status}`);
+    const message = errorMessageFromPayload(payload, res.status); // message 是统一错误 DTO 提取出的用户可见说明。
+    throw new Error(message);
   }
 
   if (!isJson) {
@@ -114,8 +114,8 @@ export const postForm = async <T>(url: string, body: FormData, options: RequestC
 
   if (!res.ok) {
     if (res.status === 401) notifyAuthExpired();
-    const detail = typeof payload === 'string' ? payload : (payload?.detail || payload?.message || payload?.msg);
-    const err = new Error(detail || ('请求失败: ' + res.status)) as Error & { payload?: unknown };
+    const message = errorMessageFromPayload(payload, res.status); // message 是上传失败时统一错误 DTO 提取出的说明。
+    const err = new Error(message) as Error & { payload?: unknown };
     err.payload = payload;
     throw err;
   }
@@ -137,3 +137,20 @@ const controlledSignal = (external: AbortSignal | undefined, timeoutMs: number) 
 	  },
 	};
 };
+
+/** 判断响应体是否符合统一 HTTP 错误 DTO。 */
+const isApiErrorResponse = (payload: unknown): payload is ApiErrorResponse => {
+  if (typeof payload !== 'object' || payload === null) return false;
+  // candidate 是待校验的未知 JSON 对象视图。
+  const candidate = payload as Record<string, unknown>;
+  return typeof candidate.code === 'string' && typeof candidate.message === 'string';
+};
+
+/** 从统一错误 DTO 提取用户可见消息，拒绝继续依赖 detail 或 msg 别名。 */
+const errorMessageFromPayload = (payload: unknown, status: number): string => {
+  if (typeof payload === 'string') return payload;
+  if (isApiErrorResponse(payload)) return payload.message;
+  return `请求失败: ${status}`;
+};
+
+import type { ApiErrorResponse } from './types';

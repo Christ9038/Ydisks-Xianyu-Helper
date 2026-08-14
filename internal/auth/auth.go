@@ -126,7 +126,7 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 func RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if SessionFromContext(r.Context()) == nil {
-			http.Error(w, `{"detail":"未授权访问"}`, http.StatusUnauthorized)
+			writeAuthError(w, r, http.StatusUnauthorized, "unauthorized", "未授权访问")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -138,7 +138,7 @@ func RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sess := SessionFromContext(r.Context())
 		if sess == nil || !sess.IsAdmin {
-			http.Error(w, `{"detail":"需要管理员权限"}`, http.StatusForbidden)
+			writeAuthError(w, r, http.StatusForbidden, "forbidden", "需要管理员权限")
 			return
 		}
 		next.ServeHTTP(w, r)

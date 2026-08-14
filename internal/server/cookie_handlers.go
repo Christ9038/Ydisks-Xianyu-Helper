@@ -357,7 +357,7 @@ func (s *Server) listCookies(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())                       // sess 是当前认证会话。
 	ids, err := s.Store.Cookies.ListOwnedIDs(r.Context(), sess.UserID) // ids 和 err 是账号 ID 列表及查询错误。
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "获取账号失败")
+		writeErrRequest(w, r, http.StatusInternalServerError, "获取账号失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, ids)
@@ -368,36 +368,36 @@ func (s *Server) listCookieDetails(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())                              // sess 是当前认证会话。
 	summaries, err := s.Store.Cookies.ListSummaries(r.Context(), sess.UserID) // summaries 和 err 是账号摘要及查询错误。
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "获取账号失败")
+		writeErrRequest(w, r, http.StatusInternalServerError, "获取账号失败")
 		return
 	}
-	result := make([]map[string]any, 0, len(summaries)) // result 是非敏感详情响应列表。
-	for _, summary := range summaries {                 // summary 是当前账号的非敏感摘要。
+	result := make([]cookieSummaryResponse, 0, len(summaries)) // result 是非敏感详情响应列表。
+	for _, summary := range summaries {                        // summary 是当前账号的非敏感摘要。
 		tasks, _ := s.Store.AccountTasks.Get(r.Context(), summary.ID) // tasks 是当前账号的自动化任务设置。
-		result = append(result, map[string]any{
-			"id":                  summary.ID,
-			"has_cookie":          true,
-			"enabled":             s.Store.Cookies.GetStatus(r.Context(), summary.ID),
-			"auto_confirm":        summary.AutoConfirm,
-			"remark":              summary.Remark,
-			"pause_duration":      summary.PauseDuration,
-			"paused_until":        summary.PausedUntil,
-			"paused":              summary.PausedUntil > time.Now().UTC().Unix(),
-			"show_browser":        summary.ShowBrowser,
-			"username":            summary.Username,
-			"nickname":            cachedCookieSummaryNickname(summary),
-			"avatar_url":          summary.AvatarURL,
-			"login_method":        summary.LoginMethod,
-			"last_login_at":       summary.LastLoginAt,
-			"profile_error":       "",
-			"ai_enabled":          false,
-			"auto_rate_enabled":   tasks.AutoRateEnabled,
-			"rate_content":        tasks.RateContent,
-			"auto_polish_enabled": tasks.AutoPolishEnabled,
-			"polish_time":         tasks.PolishTime,
-			"last_rate_scan_at":   tasks.LastRateScanAt,
-			"last_polish_date":    tasks.LastPolishDate,
-			"last_polish_at":      tasks.LastPolishAt,
+		result = append(result, cookieSummaryResponse{
+			ID:                summary.ID,
+			HasCookie:         true,
+			Enabled:           s.Store.Cookies.GetStatus(r.Context(), summary.ID),
+			AutoConfirm:       summary.AutoConfirm,
+			Remark:            summary.Remark,
+			PauseDuration:     summary.PauseDuration,
+			PausedUntil:       summary.PausedUntil,
+			Paused:            summary.PausedUntil > time.Now().UTC().Unix(),
+			ShowBrowser:       summary.ShowBrowser,
+			Username:          summary.Username,
+			Nickname:          cachedCookieSummaryNickname(summary),
+			AvatarURL:         summary.AvatarURL,
+			LoginMethod:       summary.LoginMethod,
+			LastLoginAt:       summary.LastLoginAt,
+			ProfileError:      "",
+			AIEnabled:         false,
+			AutoRateEnabled:   tasks.AutoRateEnabled,
+			RateContent:       tasks.RateContent,
+			AutoPolishEnabled: tasks.AutoPolishEnabled,
+			PolishTime:        tasks.PolishTime,
+			LastRateScanAt:    tasks.LastRateScanAt,
+			LastPolishDate:    tasks.LastPolishDate,
+			LastPolishAt:      tasks.LastPolishAt,
 		})
 	}
 	writeJSON(w, http.StatusOK, result)

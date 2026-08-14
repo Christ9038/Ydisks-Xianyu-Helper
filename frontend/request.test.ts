@@ -33,8 +33,8 @@ describe('request helpers', () => {
     }));
   });
 
-  test('surfaces backend errors', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: 'bad request' }), {
+  test('surfaces unified backend errors', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: 'bad_request', message: 'bad request' }), {
       status: 400,
       headers: { 'content-type': 'application/json' },
     })));

@@ -18,14 +18,14 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// errDetail 构造 {"detail": msg} 错误体。
-func errDetail(msg string) map[string]any {
-	return map[string]any{"detail": msg}
+// unifiedErrorPayload 构造统一 code/message 错误体，供无请求上下文的内部出口使用。
+func unifiedErrorPayload(msg string) map[string]any {
+	return map[string]any{"code": "internal_error", "message": msg}
 }
 
-// writeErr 写错误响应。
+// writeErr 写统一错误响应。
 func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, errDetail(msg))
+	writeErrCode(w, status, "", msg, "")
 }
 
 // decodeJSON 解析请求体 JSON。
