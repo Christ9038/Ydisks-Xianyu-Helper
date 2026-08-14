@@ -355,12 +355,7 @@ func TestStopCancelsInFlightReplyHandler(t *testing.T) {
 	acc.reply = nil
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	acc.mu.Lock()
-	acc.stopFn = cancel
-	acc.mu.Unlock()
-	acc.taskMu.Lock()
-	acc.runtimeCtx = ctx
-	acc.taskMu.Unlock()
+	acc.lifecycle.start(ctx, cancel)
 	acc.scheduleDebouncedReply(ChatMessage{ChatID: "cancel-chat", SenderUserID: "buyer", Text: "hi"})
 	select {
 	case <-handler.started:

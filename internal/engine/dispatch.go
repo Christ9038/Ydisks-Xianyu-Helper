@@ -17,9 +17,9 @@ func (a *Account) dispatch(decrypted map[string]any) {
 	if !ok {
 		return
 	}
-	a.mu.Lock()
+	a.accountRuntimeState.mu.Lock()
 	a.lastMsgReceived = time.Now()
-	a.mu.Unlock()
+	a.accountRuntimeState.mu.Unlock()
 
 	// 系统业务事件不能丢弃：并发满时让 WS 读取产生背压，等待处理槽位。
 	// 普通聊天仍采用非阻塞限流，避免聊天洪峰拖垮连接。
@@ -28,11 +28,11 @@ func (a *Account) dispatch(decrypted map[string]any) {
 		select {
 		case a.sem <- struct{}{}:
 		case <-ctx.Done():
-			a.taskWG.Done()
+			a.lifecycle.finishTask()
 			return
 		}
 		go func() {
-			defer a.taskWG.Done()
+			defer a.lifecycle.finishTask()
 			defer func() { <-a.sem }()
 			a.handleMessageContext(ctx, decrypted)
 		}()
@@ -42,12 +42,12 @@ func (a *Account) dispatch(decrypted map[string]any) {
 	select {
 	case a.sem <- struct{}{}:
 	default:
-		a.taskWG.Done()
+		a.lifecycle.finishTask()
 		a.logger.Warn("消息处理并发达上限，丢弃消息", "limit", MessageSemaphoreSize)
 		return
 	}
 	go func() {
-		defer a.taskWG.Done()
+		defer a.lifecycle.finishTask()
 		defer func() { <-a.sem }()
 		a.handleMessageContext(ctx, decrypted)
 	}()
@@ -168,7 +168,7 @@ func (a *Account) scheduleDebouncedReply(chat ChatMessage) {
 		if !ok {
 			return
 		}
-		defer a.taskWG.Done()
+		defer a.lifecycle.finishTask()
 
 		if a.reply != nil {
 			if err := a.reply.Handle(ctx, lastMsg); err != nil {

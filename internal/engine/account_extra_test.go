@@ -189,7 +189,7 @@ func TestStop_IdempotentAndClearsTimers(t *testing.T) {
 func TestStop_CancelFunc_WhenNil(t *testing.T) {
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
-	if acc.stopFn != nil {
+	if acc.lifecycle.stopFn != nil {
 		t.Fatal("未启动 Run 时 stopFn 应为 nil")
 	}
 	// 不应 panic。
