@@ -143,7 +143,7 @@ func (c *Center) accountTaskSessionBlocked(ctx context.Context, accountID string
 
 func (c *Center) accountCredentialFingerprint(ctx context.Context, accountID string) (string, error) {
 	// data 是生成自动化 Session 阻断指纹所需的最小 Cookie 与 metadata 输入。
-	data, err := c.store.Cookies.GetCookieFingerprintData(ctx, accountID)
+	data, err := c.store.Cookies.GetCookieRuntimeData(ctx, accountID)
 	if err != nil {
 		return "", err
 	}

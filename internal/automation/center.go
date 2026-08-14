@@ -834,21 +834,21 @@ func (c *Center) confirmShipmentAttempt(ctx context.Context, task Task, allowCre
 			credentialUnlock()
 		}
 	}()
-	detail, err := c.store.Cookies.GetDetails(ctx, task.AccountID)
+	// runtimeData 是确认发货所需的最小 Cookie 与 metadata 运行视图，不包含登录密码和账号资料。
+	runtimeData, err := c.store.Cookies.GetCookieRuntimeData(ctx, task.AccountID)
 	if err != nil {
 		return err
 	}
-	if detail == nil {
-		return db.ErrNotFound
-	}
-	_, completeSnapshot := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON)
-	if strings.TrimSpace(detail.Value) == "" && !completeSnapshot {
+	// runtimeData 已在凭证锁内读取；这里只根据完整快照判断空 Cookie 的合法性。
+	// completeSnapshot 表示 metadata 中是否包含可恢复的完整 Cookie Jar。
+	_, completeSnapshot := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON)
+	if strings.TrimSpace(runtimeData.Value) == "" && !completeSnapshot {
 		return fmt.Errorf("账号 %s Cookie 为空", task.AccountID)
 	}
-	cookieStr := detail.Value
+	cookieStr := runtimeData.Value
 	var mtopCtx context.Context
 	var cookieSession *mtop.CookieSession
-	if snapshot, ok := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); ok {
+	if snapshot, ok := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON); ok {
 		mtopCtx, cookieSession = mtop.WithCookieSnapshot(ctx, snapshot)
 	} else {
 		mtopCtx, cookieSession = mtop.WithFlatCookieSession(ctx, cookieStr)
@@ -862,9 +862,9 @@ func (c *Center) confirmShipmentAttempt(ctx context.Context, task Task, allowCre
 	// 格式差异回退覆盖并清除 Jar。
 	sessionHandled := snapshot != nil
 	if changed {
-		metadata := cookierefresh.MetadataWithoutSnapshot(detail.MetadataJSON)
+		metadata := cookierefresh.MetadataWithoutSnapshot(runtimeData.MetadataJSON)
 		if snapshot != nil {
-			metadata = cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, snapshot)
+			metadata = cookierefresh.MetadataWithSnapshot(runtimeData.MetadataJSON, snapshot)
 		}
 		if saveErr := c.store.Cookies.UpdateRenewalCookie(ctx, task.AccountID, value, metadata, time.Now().Unix()); saveErr != nil {
 			persistenceErrs = append(persistenceErrs, fmt.Errorf("保存确认发货响应 Cookie Jar: %w", saveErr))
@@ -877,7 +877,7 @@ func (c *Center) confirmShipmentAttempt(ctx context.Context, task Task, allowCre
 		// 注入 mock 或没有权威快照的历史账号保留扁平
 		// Cookie 兼容路径；扁平结果无法维护旧 Jar 的作用域，
 		// 因此不得继续保留可能已过期的 snapshot。
-		metadata := cookierefresh.MetadataWithoutSnapshot(detail.MetadataJSON)
+		metadata := cookierefresh.MetadataWithoutSnapshot(runtimeData.MetadataJSON)
 		if saveErr := c.store.Cookies.UpdateRenewalCookie(ctx, task.AccountID, updated, metadata, time.Now().Unix()); saveErr != nil {
 			persistenceErrs = append(persistenceErrs, fmt.Errorf("保存刷新后的 Cookie: %w", saveErr))
 		} else {

@@ -112,8 +112,9 @@ app shell / routes
 - 已完成阶段 2 后续切片：`internal/chat/service.go` 的订阅账号集合已迁移到 `ListOwnedIDs`，聊天订阅不再批量解密账号 Cookie；
 - 已完成阶段 2 后续切片：`internal/account/manager.go` 已改用受控的 `ListEnabledRuntimeCredentials` 启动账号，只解密启用账号 Cookie，不再使用 `AllForUser(ctx, 0)` 加逐账号状态查询；
 - 已完成阶段 2 后续切片：`internal/renewal/scheduler.go` 已改用 `RenewalRuntimeAccount` 窄模型及按账号重读接口，只解密 Cookie、续期 metadata 和启用状态，不再把登录密码/用户名带入续期调度器；
-- 已完成阶段 2 后续切片：`internal/automation/account_tasks.go` 的 Session 阻断指纹已改用 `GetCookieFingerprintData`，只读取 Cookie 与 metadata，不再解密完整账号详情；
-- 下一最小工作项：为 `internal/automation/center.go` 的确认发货流程建立按用途拆分的 Cookie/metadata 窄查询，保持凭证锁、Cookie Jar 和重试行为不变；
+- 已完成阶段 2 后续切片：`internal/automation/account_tasks.go` 的 Session 阻断指纹已改用 `GetCookieRuntimeData`，只读取 Cookie 与 metadata，不再解密完整账号详情；
+- 已完成阶段 2 后续切片：`internal/automation/center.go` 的确认发货流程已改用 `GetCookieRuntimeData`，只读取 Cookie 与 metadata，保留凭证锁、Cookie Jar 和重试行为；
+- 下一最小工作项：将 `internal/automation/center.go` 的通用 `cookieValue` 回退读取迁移到已有的单值 `GetValue` 接口，继续清除完整详情读取；
 - 随后工作项：再处理 Engine、Automation 等明确需要平台凭证的流程，统一使用按账号 ID 过滤的单值凭证接口；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 

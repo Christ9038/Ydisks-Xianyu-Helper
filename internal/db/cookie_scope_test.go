@@ -157,8 +157,8 @@ func TestListEnabledRuntimeCredentials(t *testing.T) {
 	}
 }
 
-// TestGetCookieFingerprintDataExcludesLoginSecrets 验证指纹查询只解密 Cookie 与 metadata，不读取损坏的登录密码。
-func TestGetCookieFingerprintDataExcludesLoginSecrets(t *testing.T) {
+// TestGetCookieRuntimeDataExcludesLoginSecrets 验证运行时窄查询只解密 Cookie 与 metadata，不读取损坏的登录密码。
+func TestGetCookieRuntimeDataExcludesLoginSecrets(t *testing.T) {
 	t.Setenv("XIANYU_DATA_KEY", "fingerprint-query-key")
 	// store 是当前测试使用的 SQLite repository 聚合器。
 	store, cleanup := newTestDB(t)
@@ -190,13 +190,13 @@ func TestGetCookieFingerprintDataExcludesLoginSecrets(t *testing.T) {
 		"fingerprint-user", "not-a-password-ciphertext", "fingerprint-cookie"); corruptErr != nil {
 		t.Fatalf("corrupt password: %v", corruptErr)
 	}
-	// data 是不受登录密码损坏影响的最小指纹输入。
-	data, dataErr := store.Cookies.GetCookieFingerprintData(ctx, "fingerprint-cookie")
+	// data 是不受登录密码损坏影响的最小运行时输入。
+	data, dataErr := store.Cookies.GetCookieRuntimeData(ctx, "fingerprint-cookie")
 	if dataErr != nil || data.Value != "sid=fingerprint" || data.MetadataJSON != metadata {
 		t.Fatalf("fingerprint data=%+v err=%v", data, dataErr)
 	}
 	// missingErr 表示不存在账号应返回统一的未找到错误。
-	if _, missingErr := store.Cookies.GetCookieFingerprintData(ctx, "fingerprint-missing"); !errors.Is(missingErr, ErrNotFound) {
+	if _, missingErr := store.Cookies.GetCookieRuntimeData(ctx, "fingerprint-missing"); !errors.Is(missingErr, ErrNotFound) {
 		t.Fatalf("missing fingerprint data err=%v", missingErr)
 	}
 }
