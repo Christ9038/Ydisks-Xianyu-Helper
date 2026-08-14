@@ -329,7 +329,7 @@ func TestCompleteQRVerificationRejectsDifferentTarget(t *testing.T) {
 		req.AddCookie(cookie)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
+		if rec.Code != http.StatusConflict {
 			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 		}
 		var result map[string]any
@@ -340,7 +340,7 @@ func TestCompleteQRVerificationRejectsDifferentTarget(t *testing.T) {
 	}
 
 	result := request()
-	if result["success"] != false || result["scanned_account_id"] != "scanned-other" {
+	if result["code"] != "qr_account_mismatch" || result["details"].(map[string]any)["scanned_account_id"] != "scanned-other" {
 		t.Fatalf("response=%+v", result)
 	}
 	original, _ := store.Cookies.GetValue(context.Background(), "acc1")

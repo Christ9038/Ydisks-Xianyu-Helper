@@ -23,14 +23,14 @@ func TestPasswordLoginAPIsArePermanentlyDisabled(t *testing.T) {
 		req.AddCookie(authCookie)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
+		if rec.Code != http.StatusNotImplemented {
 			t.Fatalf("%s %s status=%d body=%s", req.Method, req.URL.Path, rec.Code, rec.Body.String())
 		}
 		var result map[string]any
 		if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
 			t.Fatal(err)
 		}
-		if result["success"] != false || result["status"] != "disabled" {
+		if result["code"] != "password_login_disabled" || result["message"] == "" {
 			t.Fatalf("%s %s 应永久禁用: %+v", req.Method, req.URL.Path, result)
 		}
 	}

@@ -14,10 +14,11 @@ func (s *Server) mountPasswordLogin(r chi.Router) {
 	r.Delete("/password-login/cancel/{session_id}", s.passwordLoginDisabled)
 }
 
+// passwordLoginDisabled 返回密码登录已禁用的统一错误响应，保留旧路径兼容性。
 func (s *Server) passwordLoginDisabled(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success": false,
-		"status":  "disabled",
-		"message": "Go 客户端仅支持扫码登录，密码登录已禁用",
-	})
+	writeErrCode(
+		w,
+		http.StatusNotImplemented,
+		"password_login_disabled",
+		"Go 客户端仅支持扫码登录，密码登录已禁用", "")
 }

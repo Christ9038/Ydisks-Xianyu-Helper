@@ -51,10 +51,10 @@ func (s *Server) generateQRLogin(w http.ResponseWriter, r *http.Request) {
 		default:
 			s.Logger.Error("生成二维码失败", "err", err)
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"success": false,
-			"message": message,
-		})
+		writeErrCode(
+			w,
+			http.StatusBadGateway, "qr_login_generate_failed",
+			message, "")
 		return
 	}
 	s.qrMu.Lock()
@@ -106,10 +106,10 @@ func (s *Server) checkQRLoginStatusAndPersist(w http.ResponseWriter, r *http.Req
 		if s.Logger != nil {
 			s.Logger.Warn("保存扫码登录结果失败", "session_id", sessionID, "err", err)
 		}
-		result["success"] = false
-		result["status"] = "error"
-		result["message"] = "保存扫码登录结果失败: " + err.Error()
-		writeJSON(w, http.StatusOK, publicQRStatus(result))
+		writeErrCode(
+			w,
+			http.StatusInternalServerError, "qr_login_persist_failed",
+			"保存扫码登录结果失败: "+err.Error(), "")
 		return
 	}
 	result["success"] = true
@@ -131,10 +131,10 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 	cookies, unb, err := s.QRLogin.CompleteVerification(r.Context(), sessionID)
 	if err != nil {
 		s.Logger.Error("验证完成处理失败", "err", err)
-		writeJSON(w, http.StatusOK, map[string]any{
-			"success": false,
-			"message": err.Error(),
-		})
+		writeErrCode(
+			w,
+			http.StatusBadGateway, "qr_verification_failed",
+			err.Error(), "")
 		return
 	}
 	var req struct {
@@ -148,11 +148,11 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 	}
 	req.TargetAccountID = strings.TrimSpace(req.TargetAccountID)
 	if req.TargetAccountID != "" && req.TargetAccountID != unb {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"success":            false,
-			"scanned_account_id": unb,
-			"message":            "扫码账号与待重新授权账号不一致，已拒绝覆盖；请使用正确账号重新扫码",
-		})
+		writeErrDetails(
+			w, http.StatusConflict,
+			"qr_account_mismatch",
+			"扫码账号与待重新授权账号不一致，已拒绝覆盖；请使用正确账号重新扫码",
+			"", map[string]any{"scanned_account_id": unb})
 		return
 	}
 	resp := map[string]any{
@@ -176,9 +176,9 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 			if s.Logger != nil {
 				s.Logger.Warn("保存扫码验证结果失败", "session_id", sessionID, "err", persistErr)
 			}
-			resp["success"] = false
-			resp["message"] = "保存扫码登录结果失败: " + persistErr.Error()
-			writeJSON(w, http.StatusOK, resp)
+			writeErrCode(
+				w, http.StatusInternalServerError, "qr_login_persist_failed",
+				"保存扫码登录结果失败: "+persistErr.Error(), "")
 			return
 		}
 		resp["account_id"] = persisted.AccountID
