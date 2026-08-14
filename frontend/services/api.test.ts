@@ -24,7 +24,7 @@ import {
   passwordLogin,
 	resolveAutomationRun,
 	resolveDeferredAutomationTask,
-	syncOrders,
+	syncOrders, syncSingleOrder, manualShipOrder,
   updateReplyRule,
   deleteReplyRule,
   updateAccountCookie,
@@ -111,8 +111,8 @@ test('order multipart requests use the shared authenticated form request path', 
 	vi.stubGlobal('fetch', fetchMock);
 	await syncOrders('acc1', 'pending_ship');
 	await importOrders(new FormData());
-	expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/orders/refresh', expect.objectContaining({ method: 'POST', credentials: 'include', body: expect.any(FormData) }));
-	expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/orders/import', expect.objectContaining({ method: 'POST', credentials: 'include', body: expect.any(FormData) }));
+	expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/orders/refresh', expect.objectContaining({ method: 'POST', credentials: 'include', body: expect.any(FormData) }));
+	expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/orders/import', expect.objectContaining({ method: 'POST', credentials: 'include', body: expect.any(FormData) }));
 });
 
 test('legacy notification channel aliases are normalized for the editor', async () => {
@@ -835,3 +835,20 @@ const runVersionedOrderAPITest = async () => {
 };
 
 test('order list, detail, and update APIs use versioned compatibility routes', runVersionedOrderAPITest);
+
+// 订单刷新与批量操作 API 使用版本化兼容入口。
+const runVersionedOrderRefreshAPITest = async () => {
+  // fetchMock 是订单刷新与批量请求的测试替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await syncSingleOrder('order-1');
+  await manualShipOrder(['order-1'], 'status_only');
+
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/orders/order-1/refresh', expect.objectContaining({ method: 'POST', credentials: 'include' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/orders/manual-ship', expect.objectContaining({ method: 'POST', credentials: 'include' }));
+};
+
+test('order refresh and batch APIs use versioned compatibility routes', runVersionedOrderRefreshAPITest);

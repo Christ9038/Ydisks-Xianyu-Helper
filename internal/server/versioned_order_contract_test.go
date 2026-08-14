@@ -100,3 +100,116 @@ func TestVersionedOrderRoutesPreserveLegacyContracts(t *testing.T) {
 		t.Fatalf("legacy order update not persisted: order=%+v err=%v", orderValue, orderErr)
 	}
 }
+
+// TestVersionedOrderRefreshAndBatchRoutesPreserveLegacyContracts 验证订单刷新和批量操作版本化入口复用旧 handler。
+func TestVersionedOrderRefreshAndBatchRoutesPreserveLegacyContracts(t *testing.T) {
+	// srv 是用于验证订单刷新与批量路由的 HTTP 测试服务。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// ctx 是写入单订单夹具时使用的独立请求上下文。
+	ctx := context.Background()
+	// insertErr 是订单夹具写入失败的原因。
+	_, insertErr := store.DB.ExecContext(ctx, `INSERT INTO orders (order_id, item_id, buyer_id, order_status, cookie_id) VALUES ('order-refresh-v1','item-v1','buyer-v1','pending_ship','acc1')`)
+	if insertErr != nil {
+		t.Fatalf("insert refresh order fixture: %v", insertErr)
+	}
+	// handler 是当前测试使用的完整路由树。
+	handler := srv.Router()
+	// sessionCookie 是管理员登录后得到的认证会话。
+	sessionCookie := loginHelper(t, handler)
+
+	// refreshReq 是版本化订单列表刷新请求。
+	refreshReq := httptest.NewRequest(http.MethodPost, "/api/v1/orders/refresh", nil)
+	refreshReq.AddCookie(sessionCookie)
+	// refreshRecorder 是捕获版本化刷新响应的记录器。
+	refreshRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(refreshRecorder, refreshReq)
+	if refreshRecorder.Code != http.StatusOK {
+		t.Fatalf("versioned order refresh status=%d body=%s", refreshRecorder.Code, refreshRecorder.Body.String())
+	}
+	// refreshValue 是版本化刷新响应 DTO。
+	var refreshValue orderRefreshResponse
+	// refreshDecodeErr 是刷新响应反序列化失败的原因。
+	if refreshDecodeErr := json.Unmarshal(refreshRecorder.Body.Bytes(), &refreshValue); refreshDecodeErr != nil {
+		t.Fatalf("decode versioned order refresh: %v", refreshDecodeErr)
+	}
+	if refreshValue.Message == "" {
+		t.Fatalf("versioned order refresh should preserve a named success response: %+v", refreshValue)
+	}
+
+	// legacyRefreshReq 是验证旧订单列表刷新入口仍可用的请求。
+	legacyRefreshReq := httptest.NewRequest(http.MethodPost, "/api/orders/refresh", nil)
+	legacyRefreshReq.AddCookie(sessionCookie)
+	// legacyRefreshRecorder 是捕获旧刷新响应的记录器。
+	legacyRefreshRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(legacyRefreshRecorder, legacyRefreshReq)
+	if legacyRefreshRecorder.Code != http.StatusOK {
+		t.Fatalf("legacy order refresh status=%d body=%s", legacyRefreshRecorder.Code, legacyRefreshRecorder.Body.String())
+	}
+
+	// singleInsertErr 是单订单刷新夹具写入失败的原因。
+	_, singleInsertErr := store.DB.ExecContext(ctx, `INSERT INTO orders (order_id, item_id, buyer_id, order_status, cookie_id) VALUES ('order-single-v1','item-v1','buyer-v1','pending_ship','acc1')`)
+	if singleInsertErr != nil {
+		t.Fatalf("insert single refresh order fixture: %v", singleInsertErr)
+	}
+	// singleReq 是版本化单订单刷新请求。
+	singleReq := httptest.NewRequest(http.MethodPost, "/api/v1/orders/order-single-v1/refresh", nil)
+	singleReq.AddCookie(sessionCookie)
+	// singleRecorder 是捕获版本化单订单刷新响应的记录器。
+	singleRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(singleRecorder, singleReq)
+	// 夹具客户端提供订单详情响应，新旧入口都应返回成功刷新结果。
+	if singleRecorder.Code != http.StatusOK {
+		t.Fatalf("versioned single order refresh status=%d body=%s", singleRecorder.Code, singleRecorder.Body.String())
+	}
+
+	// legacySingleReq 是验证旧单订单刷新入口仍可用的请求。
+	legacySingleReq := httptest.NewRequest(http.MethodPost, "/api/orders/order-single-v1/refresh", nil)
+	legacySingleReq.AddCookie(sessionCookie)
+	// legacySingleRecorder 是捕获旧单订单刷新响应的记录器。
+	legacySingleRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(legacySingleRecorder, legacySingleReq)
+	if legacySingleRecorder.Code != singleRecorder.Code {
+		t.Fatalf("legacy single order refresh status=%d versioned=%d", legacySingleRecorder.Code, singleRecorder.Code)
+	}
+
+	// manualReq 是版本化手动发货请求，空订单列表用于验证参数边界而不触发远端调用。
+	manualReq := httptest.NewRequest(http.MethodPost, "/api/v1/orders/manual-ship", strings.NewReader(`{"order_ids":[]}`))
+	manualReq.AddCookie(sessionCookie)
+	// manualRecorder 是捕获版本化手动发货响应的记录器。
+	manualRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(manualRecorder, manualReq)
+	if manualRecorder.Code != http.StatusBadRequest {
+		t.Fatalf("versioned manual ship status=%d body=%s", manualRecorder.Code, manualRecorder.Body.String())
+	}
+
+	// legacyManualReq 是验证旧手动发货入口仍可用的请求。
+	legacyManualReq := httptest.NewRequest(http.MethodPost, "/api/orders/manual-ship", strings.NewReader(`{"order_ids":[]}`))
+	legacyManualReq.AddCookie(sessionCookie)
+	// legacyManualRecorder 是捕获旧手动发货响应的记录器。
+	legacyManualRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(legacyManualRecorder, legacyManualReq)
+	if legacyManualRecorder.Code != manualRecorder.Code {
+		t.Fatalf("legacy manual ship status=%d versioned=%d", legacyManualRecorder.Code, manualRecorder.Code)
+	}
+
+	// importReq 是版本化空订单导入请求。
+	importReq := httptest.NewRequest(http.MethodPost, "/api/v1/orders/import", strings.NewReader(`[]`))
+	importReq.AddCookie(sessionCookie)
+	// importRecorder 是捕获版本化导入响应的记录器。
+	importRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(importRecorder, importReq)
+	if importRecorder.Code != http.StatusOK {
+		t.Fatalf("versioned order import status=%d body=%s", importRecorder.Code, importRecorder.Body.String())
+	}
+
+	// legacyImportReq 是验证旧导入入口仍可用的请求。
+	legacyImportReq := httptest.NewRequest(http.MethodPost, "/api/orders/import", strings.NewReader(`[]`))
+	legacyImportReq.AddCookie(sessionCookie)
+	// legacyImportRecorder 是捕获旧导入响应的记录器。
+	legacyImportRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(legacyImportRecorder, legacyImportReq)
+	if legacyImportRecorder.Code != importRecorder.Code {
+		t.Fatalf("legacy order import status=%d versioned=%d", legacyImportRecorder.Code, importRecorder.Code)
+	}
+}

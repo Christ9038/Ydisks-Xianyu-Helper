@@ -355,15 +355,15 @@ export const syncOrders = async (cookieId?: string, status?: string): Promise<Or
   if (cookieId) formData.append('cookie_id', cookieId);
   if (status) formData.append('status', status);
 
-	return postForm('/api/orders/refresh', formData);
+	return postForm('/api/v1/orders/refresh', formData);
 };
 
 export const syncSingleOrder = async (orderId: string): Promise<OrderSingleRefreshResponse> => {
-  return post(`/api/orders/${orderId}/refresh`);
+  return post(`/api/v1/orders/${orderId}/refresh`);
 };
 
 export const manualShipOrder = async (orderIds: string[], shipMode: 'status_only' | 'full_delivery'): Promise<OrderBatchResponse> => {
-    return post('/api/orders/manual-ship', {
+    return post('/api/v1/orders/manual-ship', {
         order_ids: orderIds,
         ship_mode: shipMode,
     });
@@ -371,7 +371,7 @@ export const manualShipOrder = async (orderIds: string[], shipMode: 'status_only
 
 export const importOrders = async (data: Partial<Order>[] | FormData): Promise<OrderBatchResponse> => {
 	const isFormData = data instanceof FormData;
-	return isFormData ? postForm('/api/orders/import', data) : post('/api/orders/import', data);
+	return isFormData ? postForm('/api/v1/orders/import', data) : post('/api/v1/orders/import', data);
 }
 
 // Stats
