@@ -693,7 +693,7 @@ func (s *Server) deleteCookie(w http.ResponseWriter, r *http.Request) {
 // setCookieAutoConfirm 设置自动确认发货。
 func (s *Server) setCookieAutoConfirm(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	var req struct {
@@ -728,7 +728,7 @@ func (s *Server) getCookieAutoConfirm(w http.ResponseWriter, r *http.Request) {
 // setCookieRemark 设置备注。
 func (s *Server) setCookieRemark(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	var req struct {
@@ -749,7 +749,7 @@ func (s *Server) setCookieRemark(w http.ResponseWriter, r *http.Request) {
 // setCookiePauseDuration 设置暂停时长。
 func (s *Server) setCookiePauseDuration(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	var req struct {
@@ -776,7 +776,7 @@ func (s *Server) setCookiePauseDuration(w http.ResponseWriter, r *http.Request) 
 // getCookiePauseDuration 获取暂停时长。
 func (s *Server) getCookiePauseDuration(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	paused, pausedUntil, _ := s.Store.Cookies.IsPaused(r.Context(), cid)

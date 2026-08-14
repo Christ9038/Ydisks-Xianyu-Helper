@@ -158,7 +158,7 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getAccountBindings(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	ids, err := s.Store.Notifications.AccountBindings(r.Context(), cid)
@@ -208,7 +208,7 @@ func (s *Server) listMessageNotifications(w http.ResponseWriter, r *http.Request
 
 func (s *Server) setAccountBindings(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	var req struct {

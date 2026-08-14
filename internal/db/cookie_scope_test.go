@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -66,6 +67,30 @@ func TestCookieScopedQueriesExcludeSecrets(t *testing.T) {
 	if otherErr != nil || otherOwned {
 		t.Fatalf("ExistsOwned cross-owner: owned=%v err=%v", otherOwned, otherErr)
 	}
+	// ownerOfCookie 是不读取凭证字段即可确认账号归属的结果。
+	ownerOfCookie, ownerLookupErr := store.Cookies.GetOwnerID(ctx, "scope-owned")
+	if ownerLookupErr != nil || ownerOfCookie != ownerID {
+		t.Fatalf("GetOwnerID: owner=%d err=%v", ownerOfCookie, ownerLookupErr)
+	}
+	// readableCookieID 是通过正常加密流程创建的账号，用于验证单值凭证读取。
+	const readableCookieID = "scope-readable"
+	// saveErr 表示创建可解密测试账号失败的原因。
+	if saveErr := store.Cookies.Save(ctx, readableCookieID, "readable-cookie", ownerID); saveErr != nil {
+		t.Fatalf("创建可读 cookie: %v", saveErr)
+	}
+	// readableValue 是 owner 读取自己账号时得到的 Cookie 明文。
+	readableValue, readableErr := store.Cookies.GetValueOwned(ctx, ownerID, readableCookieID)
+	if readableErr != nil || readableValue != "readable-cookie" {
+		t.Fatalf("GetValueOwned owner: value=%q err=%v", readableValue, readableErr)
+	}
+	// wrongOwnerErr 表示其他用户不能读取该账号的 Cookie 密文。
+	if _, wrongOwnerErr := store.Cookies.GetValueOwned(ctx, otherID, readableCookieID); !errors.Is(wrongOwnerErr, ErrNotFound) {
+		t.Fatalf("GetValueOwned cross-owner 应 ErrNotFound, err=%v", wrongOwnerErr)
+	}
+	// missingOwnerErr 表示不存在账号的所有者查询应返回统一的未找到错误。
+	if _, missingOwnerErr := store.Cookies.GetOwnerID(ctx, "scope-missing"); !errors.Is(missingOwnerErr, ErrNotFound) {
+		t.Fatalf("GetOwnerID missing 应 ErrNotFound, err=%v", missingOwnerErr)
+	}
 	// invalidListErr 表示 userID=0 被所有权列表查询拒绝的错误。
 	if _, invalidListErr := store.Cookies.ListOwnedIDs(ctx, 0); invalidListErr != ErrInvalidUserID {
 		t.Fatalf("userID=0 应拒绝隐式管理员查询，err=%v", invalidListErr)
@@ -73,5 +98,9 @@ func TestCookieScopedQueriesExcludeSecrets(t *testing.T) {
 	// invalidExistsErr 表示 userID=0 被所有权存在性查询拒绝的错误。
 	if _, invalidExistsErr := store.Cookies.ExistsOwned(ctx, 0, "scope-owned"); invalidExistsErr != ErrInvalidUserID {
 		t.Fatalf("ExistsOwned userID=0 应拒绝，err=%v", invalidExistsErr)
+	}
+	// invalidValueErr 表示 userID=0 被单值凭证查询拒绝的错误。
+	if _, invalidValueErr := store.Cookies.GetValueOwned(ctx, 0, "scope-owned"); invalidValueErr != ErrInvalidUserID {
+		t.Fatalf("GetValueOwned userID=0 应拒绝，err=%v", invalidValueErr)
 	}
 }

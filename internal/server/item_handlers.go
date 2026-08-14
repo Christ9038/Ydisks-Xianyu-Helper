@@ -632,7 +632,7 @@ func (s *Server) enrichSyncedItemMultiSpec(ctx context.Context, client mtop.Clie
 
 func (s *Server) listItemsByCookie(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	items, err := s.Store.Items.AllForCookie(r.Context(), cid)
@@ -649,7 +649,7 @@ func (s *Server) listItemsByCookie(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getItem(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	itemID := chi.URLParam(r, "item_id")
@@ -668,7 +668,7 @@ func (s *Server) getItem(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createItem(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	var req struct {
@@ -702,7 +702,7 @@ func (s *Server) createItem(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) updateItem(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	itemID := chi.URLParam(r, "item_id")
@@ -773,7 +773,7 @@ func (s *Server) updateItem(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteItem(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	itemID := chi.URLParam(r, "item_id")
@@ -786,7 +786,7 @@ func (s *Server) deleteItem(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) setItemMultiSpec(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	itemID := chi.URLParam(r, "item_id")
@@ -806,7 +806,7 @@ func (s *Server) setItemMultiSpec(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) setItemMultiQuantity(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	itemID := chi.URLParam(r, "item_id")

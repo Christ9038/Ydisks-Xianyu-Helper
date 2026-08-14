@@ -127,6 +127,39 @@ func (c *Cookies) ExistsOwned(ctx context.Context, userID int64, cookieID string
 	return exists, queryErr
 }
 
+// GetOwnerID 返回指定账号的所有者 ID，不读取或解密账号凭证。
+func (c *Cookies) GetOwnerID(ctx context.Context, cookieID string) (int64, error) {
+	// ownerID 保存数据库中指定账号的所有者 ID。
+	var ownerID int64
+	// queryErr 表示按账号 ID 查询所有者失败的原因。
+	if queryErr := c.DB.QueryRowContext(ctx, `SELECT user_id FROM cookies WHERE id=?`, cookieID).Scan(&ownerID); queryErr != nil {
+		if errors.Is(queryErr, sql.ErrNoRows) {
+			return 0, ErrNotFound
+		}
+		return 0, queryErr
+	}
+	return ownerID, nil
+}
+
+// GetValueOwned 原子查询并解密指定用户拥有的单个账号 Cookie，避免先查所有权再读取凭证的竞态窗口。
+func (c *Cookies) GetValueOwned(ctx context.Context, userID int64, cookieID string) (string, error) {
+	// ownerErr 表示用户 ID 未通过正数所有权校验的原因。
+	if ownerErr := validateCookieOwnerID(userID); ownerErr != nil {
+		return "", ownerErr
+	}
+	// encryptedValue 保存经过所有权过滤后读取到的单个 Cookie 密文。
+	var encryptedValue string
+	// queryErr 表示按账号和用户联合条件读取 Cookie 失败的原因。
+	if queryErr := c.DB.QueryRowContext(ctx,
+		`SELECT value FROM cookies WHERE id=? AND user_id=?`, cookieID, userID).Scan(&encryptedValue); queryErr != nil {
+		if errors.Is(queryErr, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", queryErr
+	}
+	return c.codec.decrypt("cookie", cookieID, encryptedValue)
+}
+
 // validateCookieOwnerID 拒绝使用 0 代表管理员的隐式所有权查询。
 func validateCookieOwnerID(userID int64) error {
 	if userID <= 0 {

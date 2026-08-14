@@ -91,7 +91,7 @@ app shell / routes
 | --- | --- | --- | --- |
 | 0. 治理文档与强约束 | 已完成 | 总计划、依赖规则、注释规范、AGENTS 门禁、注释检查器 | 文档、门禁规则、Go/TypeScript 检查器和历史基线已落盘 |
 | 1. PR CI 与测试基础 | 已完成 | 独立 CI、测试 DB 模板、可执行 race | CI、独立模板、server smoke race 和完整 race 均有验证 |
-| 2. 敏感数据访问边界 | 进行中 | 摘要、凭证、登录秘密分离 | `CookieSummary`、`ListOwnedIDs`、`ExistsOwned` 及 SQLite 回归测试已建立 |
+| 2. 敏感数据访问边界 | 进行中 | 摘要、凭证、登录秘密分离 | `CookieSummary`、所有权窄查询、单值凭证读取及 SQLite 回归测试已建立 |
 | 3. HTTP API 契约 | 未开始 | 统一错误、具名 DTO、版本化路径 | 契约测试与前端类型 |
 | 4. Server 应用服务 | 未开始 | 订单、发布、登录、聊天纵向抽取 | handler 不再直接编排基础设施 |
 | 5. 应用生命周期装配 | 未开始 | 消除必需依赖 setter 回填 | 构造验证与幂等关闭测试 |
@@ -107,8 +107,9 @@ app shell / routes
 - 已完成：总计划、依赖规则、中文注释规范、`AGENTS.md` 强约束，以及 Go/TypeScript AST 注释检查器和历史基线；
 - 阶段 1 已完成：server 测试模板预置管理员和账号 cookie，普通测试约 21.3 秒，完整 server race 约 194.3 秒通过；
 - 已完成阶段 2 第一个切片：建立不读取或解密敏感字段的 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned`，并覆盖跨用户和无效 user ID 回归测试；
-- 下一最小工作项：把 `internal/server/ownership_helpers.go` 的账号所有权检查迁移到 `ExistsOwned`，确保不再通过 `AllForUser` 读取或解密全部 Cookie；
-- 随后工作项：将账号列表和非敏感详情接口迁移到 `ListSummaries`，再处理需要凭证的业务流程；
+- 已完成阶段 2 第二个切片：新增 `GetOwnerID`、原子 `GetValueOwned`，将 server 的账号所有权检查和订单凭证读取迁移到窄查询，纯所有权 handler 不再解密完整账号详情，并保留 404/403 行为回归；
+- 下一最小工作项：将账号列表和非敏感详情接口迁移到 `ListSummaries`，消除列表接口的批量凭证读取和详情 N+1 敏感查询；
+- 随后工作项：再处理明确需要平台凭证的业务流程，统一使用按用户和账号 ID 过滤的单值凭证接口；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -199,8 +200,9 @@ app shell / routes
 
 当前实现先落地了 Cookie 领域的窄查询：`CookieSummary` 不包含 `Value`、`Password` 或 `MetadataJSON`；
 `ListOwnedIDs` 只返回账号 ID；`ExistsOwned` 只返回布尔存在性，并拒绝 `userID=0` 的隐式管理员查询。
-测试使用故意无效的密文值验证摘要查询不会触发解密。旧 `AllForUser` 和 `GetDetails` 调用方暂不批量替换，
-每次迁移一个消费方并保留行为回归测试。
+`GetOwnerID` 只返回所有者 ID；`GetValueOwned` 在同一条带 user_id 过滤的查询中读取并解密单个 Cookie，避免
+所有权检查与凭证读取之间的竞态窗口。测试使用故意无效的密文值验证摘要查询和所有权检查不会触发解密，
+并使用正常加密值覆盖单值凭证读取。旧 `AllForUser` 和 `GetDetails` 调用方暂不批量替换，每次迁移一个消费方并保留行为回归测试。
 
 逐步替换使用 `AllForUser` 进行所有权检查以及使用 `GetDetails` 获取非敏感字段的调用。
 

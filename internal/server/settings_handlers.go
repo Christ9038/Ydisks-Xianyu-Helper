@@ -155,7 +155,7 @@ func (s *Server) listAIReply(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getAIReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	cfg, err := s.Store.AIReply.Get(r.Context(), cid)
@@ -196,7 +196,7 @@ func (s *Server) setAIReply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	if req.MaxDiscountPercent < 0 || req.MaxDiscountPercent > 100 {

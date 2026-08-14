@@ -1400,44 +1400,53 @@ func (s *Server) cleanupExpiredPublishUploads(ctx context.Context) {
 	}
 }
 
+// cookieOwnedByUser 判断指定账号是否属于用户，不读取或解密 Cookie 明文。
 func (s *Server) cookieOwnedByUser(ctx context.Context, userID int64, cookieID string) bool {
-	all, err := s.Store.Cookies.AllForUser(ctx, userID)
-	if err != nil {
-		return false
-	}
-	_, ok := all[cookieID]
-	return ok
+	// owned 表示数据库中是否存在匹配用户和账号 ID 的记录。
+	owned, err := s.Store.Cookies.ExistsOwned(ctx, userID, cookieID)
+	return err == nil && owned
 }
 
+// cookieValueForUser 读取指定用户拥有的单个账号 Cookie 明文。
 func (s *Server) cookieValueForUser(ctx context.Context, userID int64, cookieID string) (string, error) {
-	all, err := s.Store.Cookies.AllForUser(ctx, userID)
+	// value 是按 user_id 与账号 ID 联合过滤后解密的单个 Cookie 明文。
+	value, err := s.Store.Cookies.GetValueOwned(ctx, userID, cookieID)
 	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return "", errors.New("账号不存在或 Cookie 为空")
+		}
 		return "", err
 	}
-	value, ok := all[cookieID]
-	if !ok || strings.TrimSpace(value) == "" {
+	if strings.TrimSpace(value) == "" {
 		return "", errors.New("账号不存在或 Cookie 为空")
 	}
 	return value, nil
 }
 
+// cardOwnedByUser 判断指定卡券组是否属于用户。
 func (s *Server) cardOwnedByUser(ctx context.Context, userID int64, cardID int64) bool {
+	// exists 表示数据库中是否存在匹配用户和卡券组 ID 的记录。
 	var exists bool
+	// err 表示卡券组所有权查询失败的原因。
 	err := s.Store.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM cards WHERE id=? AND user_id=?)`, cardID, userID).Scan(&exists)
 	return err == nil && exists
 }
 
+// publishUploadRoot 返回发布图片上传文件的根目录。
 func (s *Server) publishUploadRoot() string {
 	return defaultPublishUploadRoot()
 }
 
+// defaultPublishUploadRoot 返回环境变量指定或默认的发布上传目录。
 func defaultPublishUploadRoot() string {
+	// v 是去除首尾空白后的上传目录环境变量值。
 	if v := strings.TrimSpace(os.Getenv("XIANYU_UPLOAD_DIR")); v != "" {
 		return v
 	}
 	return filepath.Join("data", "uploads")
 }
 
+// parseLooseBool 将常见的真值文本转换为布尔值。
 func parseLooseBool(raw string) bool {
 	raw = strings.ToLower(strings.TrimSpace(raw))
 	switch raw {
@@ -1448,18 +1457,22 @@ func parseLooseBool(raw string) bool {
 	}
 }
 
+// atoiPublishDefault 将数字文本转换为整数，无法解析时返回给定默认值。
 func atoiPublishDefault(raw string, def int) int {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return def
 	}
+	// f 和 err 分别表示解析出的浮点数及其错误。
 	if f, err := strconv.ParseFloat(raw, 64); err == nil {
 		return int(f)
 	}
 	return def
 }
 
+// firstNonEmpty 返回参数中第一个非空白字符串。
 func firstNonEmpty(values ...string) string {
+	// v 是当前遍历到的候选字符串。
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {
 			return v

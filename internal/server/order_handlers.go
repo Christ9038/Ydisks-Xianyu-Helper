@@ -56,7 +56,7 @@ func (s *Server) listOrders(w http.ResponseWriter, r *http.Request) {
 		pageSize = 20
 	}
 	if cookieID != "" {
-		if _, ok := s.cookieForUser(r, sess.UserID, cookieID); !ok {
+		if !s.cookieOwnedByUser(r.Context(), sess.UserID, cookieID) {
 			writeErr(w, http.StatusForbidden, "无权限操作该账号")
 			return
 		}

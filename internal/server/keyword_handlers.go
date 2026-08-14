@@ -26,7 +26,7 @@ func (s *Server) mountKeywordsReal(r chi.Router) {
 
 func (s *Server) listKeywords(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	rows, err := s.Store.Keywords.AllRows(r.Context(), cid)
@@ -43,7 +43,7 @@ func (s *Server) listKeywords(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listKeywordsWithItemID(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	rows, err := s.Store.Keywords.AllRows(r.Context(), cid)
@@ -60,7 +60,7 @@ func (s *Server) listKeywordsWithItemID(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) listKeywordsWithType(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	rows, err := s.Store.Keywords.AllRows(r.Context(), cid)
@@ -80,7 +80,7 @@ func (s *Server) listKeywordsWithType(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) addKeyword(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	var req struct {
@@ -104,7 +104,7 @@ func (s *Server) addKeyword(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) addKeywordWithItemID(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	var req struct {
@@ -204,7 +204,7 @@ func (s *Server) addKeywordWithItemID(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) updateKeywordByID(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -261,7 +261,7 @@ func (s *Server) updateKeywordByID(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteKeywordByID(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -278,7 +278,7 @@ func (s *Server) deleteKeywordByID(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteKeyword(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	index := atoiDefault(chi.URLParam(r, "index"), -1)
@@ -314,7 +314,7 @@ func (s *Server) listItemReplies(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getItemReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	itemID := chi.URLParam(r, "item_id")
@@ -330,7 +330,7 @@ func (s *Server) getItemReply(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) setItemReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	itemID := chi.URLParam(r, "item_id")
@@ -350,7 +350,7 @@ func (s *Server) setItemReply(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteItemReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	itemID := chi.URLParam(r, "item_id")

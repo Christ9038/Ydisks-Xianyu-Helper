@@ -40,7 +40,7 @@ func (s *Server) mountDefaultRepliesReal(r chi.Router) {
 
 func (s *Server) getDefaultReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	dr, err := s.Store.DefaultReps.Get(r.Context(), cid)
@@ -56,7 +56,7 @@ func (s *Server) getDefaultReply(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) setDefaultReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	var req struct {
@@ -153,7 +153,7 @@ func (s *Server) listDefaultRepliesMap(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteDefaultReply(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	_, err := s.Store.DB.ExecContext(r.Context(), `DELETE FROM default_replies WHERE cookie_id=?`, cid)
@@ -166,7 +166,7 @@ func (s *Server) deleteDefaultReply(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) clearDefaultReplyRecords(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	if _, ok := s.requireCookieOwner(w, r, cid); !ok {
+	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
 	if _, err := s.Store.DB.ExecContext(r.Context(), `DELETE FROM default_reply_records WHERE cookie_id=?`, cid); err != nil {
