@@ -153,7 +153,7 @@ func (s *Server) Router() http.Handler {
 	r.Use(s.requestLogger)
 
 	// 健康检查（无需认证）。
-	r.Get("/health", s.health)
+	s.mountHealthAndVersionedSession(r)
 
 	// 认证组（无需登录的端点，但解析会话以判断登录态）。
 	r.Group(func(r chi.Router) {

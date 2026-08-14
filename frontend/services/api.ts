@@ -19,19 +19,19 @@ const normalizeSettings = (settings: Record<string, any>): SystemSettings => {
 
 // Auth
 export const login = async (data: { username?: string; password?: string; email?: string; verification_code?: string }): Promise<LoginResponse> => {
-  return post('/login', data, { skipAuthLogout: true });
+  return post('/api/v1/session/login', data, { skipAuthLogout: true });
 };
 
 export const initializeAdmin = async (password: string): Promise<LoginResponse> => {
-  return post('/initialize', { password }, { skipAuthLogout: true });
+  return post('/api/v1/session/initialize', { password }, { skipAuthLogout: true });
 };
 
 export const verifySession = async (): Promise<{ authenticated: boolean; initialized?: boolean; user_id?: number; username?: string; is_admin?: boolean }> => {
-  return get('/verify');
+  return get('/api/v1/session');
 };
 
 export const logout = async (): Promise<ApiResponse> => {
-  return post('/logout', {});
+  return post('/api/v1/session/logout', {});
 };
 
 export const changePassword = async (currentPassword: string, newPassword: string): Promise<ApiResponse> => {

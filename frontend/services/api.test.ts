@@ -39,7 +39,7 @@ import {
 	sendChatMessage,
 	markChatRead,
 	updateAccountTaskSettings,
-	runAccountTask,
+	runAccountTask, login, initializeAdmin, verifySession,
 } from './api';
 
 afterEach(() => {
@@ -303,7 +303,7 @@ test('logout calls backend session invalidation route', async () => {
   vi.stubGlobal('fetch', fetchMock);
 
   await logout();
-  expect(fetchMock).toHaveBeenCalledWith('/logout', expect.objectContaining({
+  expect(fetchMock).toHaveBeenCalledWith('/api/v1/session/logout', expect.objectContaining({
     method: 'POST',
     credentials: 'include',
   }));
@@ -740,3 +740,26 @@ test('updateShippingRule posts review request text action without card requireme
     }),
   ]);
 });
+
+// 会话 API 使用版本化兼容入口。
+const runVersionedSessionAPITest = async () => {
+  // fetchMock 是会话 API 请求的测试替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ success: true, authenticated: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, authenticated: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, authenticated: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, authenticated: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await login({ username: 'admin', password: 'pw' });
+  await initializeAdmin('long-password');
+  await verifySession();
+  await logout();
+
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/session/login', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/session/initialize', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/session', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/session/logout', expect.objectContaining({ method: 'POST' }));
+};
+
+test('session APIs use versioned compatibility routes', runVersionedSessionAPITest);
