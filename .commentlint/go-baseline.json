@@ -22590,6 +22590,24 @@
     "name": "err"
   },
   {
+    "file": "internal/chat/repository_test.go",
+    "line": 49,
+    "kind": "local-variable",
+    "name": "service"
+  },
+  {
+    "file": "internal/chat/repository_test.go",
+    "line": 50,
+    "kind": "local-variable",
+    "name": "cancel"
+  },
+  {
+    "file": "internal/chat/repository_test.go",
+    "line": 50,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
     "file": "internal/chat/service.go",
     "line": 19,
     "kind": "type",
@@ -22897,457 +22915,439 @@
   },
   {
     "file": "internal/chat/service.go",
-    "line": 189,
+    "line": 190,
     "kind": "function",
     "name": "New"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 193,
+    "line": 199,
     "kind": "function",
     "name": "Subscribe"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 198,
+    "line": 204,
     "kind": "local-variable",
     "name": "allowed"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 204,
+    "line": 210,
     "kind": "local-variable",
     "name": "id"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 205,
+    "line": 211,
     "kind": "local-variable",
     "name": "ch"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 208,
+    "line": 214,
     "kind": "var",
     "name": "once"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 209,
+    "line": 215,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 212,
+    "line": 218,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 212,
+    "line": 218,
     "kind": "local-variable",
     "name": "sub"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 222,
+    "line": 228,
     "kind": "function",
     "name": "Publish"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 225,
+    "line": 231,
     "kind": "range-variable",
     "name": "sub"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 226,
+    "line": 232,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 238,
+    "line": 244,
     "kind": "function",
     "name": "RecordIncoming"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 242,
+    "line": 248,
     "kind": "local-variable",
     "name": "sentAt"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 246,
+    "line": 252,
     "kind": "local-variable",
     "name": "key"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 248,
+    "line": 254,
     "kind": "local-variable",
     "name": "raw"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 249,
+    "line": 255,
     "kind": "local-variable",
     "name": "digest"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 252,
+    "line": 258,
     "kind": "local-variable",
     "name": "session"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 255,
+    "line": 261,
     "kind": "local-variable",
     "name": "content"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 255,
+    "line": 261,
     "kind": "local-variable",
     "name": "messageType"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 264,
+    "line": 270,
     "kind": "local-variable",
     "name": "message"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 266,
+    "line": 272,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 266,
+    "line": 272,
     "kind": "local-variable",
     "name": "inserted"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 266,
+    "line": 272,
     "kind": "local-variable",
     "name": "stored"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 274,
+    "line": 280,
     "kind": "function",
     "name": "RecordHistoryPage"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 275,
+    "line": 281,
     "kind": "local-variable",
     "name": "page"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 276,
+    "line": 282,
     "kind": "local-variable",
     "name": "models"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 277,
+    "line": 283,
     "kind": "local-variable",
     "name": "i"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 278,
+    "line": 284,
     "kind": "local-variable",
     "name": "model"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 279,
+    "line": 285,
     "kind": "local-variable",
     "name": "message"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 279,
+    "line": 285,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 289,
+    "line": 295,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 289,
+    "line": 295,
     "kind": "local-variable",
     "name": "stored"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 294,
+    "line": 300,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 304,
+    "line": 310,
     "kind": "function",
     "name": "parseHistoryMessage"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 305,
+    "line": 311,
     "kind": "local-variable",
     "name": "message"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 309,
+    "line": 315,
     "kind": "local-variable",
     "name": "extension"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 310,
+    "line": 316,
     "kind": "local-variable",
     "name": "senderID"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 311,
+    "line": 317,
     "kind": "local-variable",
     "name": "senderName"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 315,
+    "line": 321,
     "kind": "local-variable",
     "name": "key"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 319,
+    "line": 325,
     "kind": "local-variable",
     "name": "contentMap"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 320,
+    "line": 326,
     "kind": "local-variable",
     "name": "custom"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 321,
+    "line": 327,
     "kind": "local-variable",
     "name": "rawContent"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 322,
+    "line": 328,
     "kind": "local-variable",
     "name": "encoded"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 323,
+    "line": 329,
     "kind": "local-variable",
     "name": "decoded"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 323,
+    "line": 329,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 327,
+    "line": 333,
     "kind": "local-variable",
     "name": "fallback"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 331,
+    "line": 337,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 331,
+    "line": 337,
     "kind": "local-variable",
     "name": "textBlock"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 332,
+    "line": 338,
     "kind": "local-variable",
     "name": "text"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 336,
+    "line": 342,
     "kind": "local-variable",
     "name": "content"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 336,
+    "line": 342,
     "kind": "local-variable",
     "name": "messageType"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 346,
+    "line": 352,
     "kind": "local-variable",
     "name": "direction"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 346,
+    "line": 352,
     "kind": "local-variable",
     "name": "status"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 355,
+    "line": 361,
     "kind": "function",
     "name": "mapValue"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 356,
+    "line": 362,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 356,
+    "line": 362,
     "kind": "local-variable",
     "name": "result"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 359,
+    "line": 365,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 359,
+    "line": 365,
     "kind": "local-variable",
     "name": "text"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 360,
+    "line": 366,
     "kind": "var",
     "name": "result"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 368,
+    "line": 374,
     "kind": "function",
     "name": "int64Value"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 369,
+    "line": 375,
     "kind": "local-variable",
     "name": "typed"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 377,
+    "line": 383,
     "kind": "local-variable",
     "name": "result"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 380,
+    "line": 386,
     "kind": "var",
     "name": "result"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 387,
+    "line": 393,
     "kind": "function",
     "name": "boolValue"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 388,
+    "line": 394,
     "kind": "local-variable",
     "name": "typed"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 401,
+    "line": 407,
     "kind": "function",
     "name": "extractMessageContent"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 402,
+    "line": 408,
     "kind": "var",
     "name": "inspect"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 404,
+    "line": 410,
     "kind": "local-variable",
     "name": "typed"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 406,
+    "line": 412,
     "kind": "var",
     "name": "nested"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 411,
+    "line": 417,
     "kind": "local-variable",
     "name": "contentType"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 413,
+    "line": 419,
     "kind": "local-variable",
     "name": "mediaURL"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 418,
-    "kind": "local-variable",
-    "name": "mediaURL"
-  },
-  {
-    "file": "internal/chat/service.go",
-    "line": 422,
-    "kind": "range-variable",
-    "name": "child"
-  },
-  {
-    "file": "internal/chat/service.go",
-    "line": 423,
-    "kind": "local-variable",
-    "name": "kind"
-  },
-  {
-    "file": "internal/chat/service.go",
-    "line": 423,
+    "line": 424,
     "kind": "local-variable",
     "name": "mediaURL"
   },
@@ -23371,231 +23371,237 @@
   },
   {
     "file": "internal/chat/service.go",
-    "line": 436,
+    "line": 434,
+    "kind": "range-variable",
+    "name": "child"
+  },
+  {
+    "file": "internal/chat/service.go",
+    "line": 435,
     "kind": "local-variable",
     "name": "kind"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 436,
+    "line": 435,
     "kind": "local-variable",
     "name": "mediaURL"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 446,
+    "line": 442,
+    "kind": "local-variable",
+    "name": "kind"
+  },
+  {
+    "file": "internal/chat/service.go",
+    "line": 442,
+    "kind": "local-variable",
+    "name": "mediaURL"
+  },
+  {
+    "file": "internal/chat/service.go",
+    "line": 452,
     "kind": "function",
     "name": "isOfficialSystemMessage"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 450,
+    "line": 456,
     "kind": "local-variable",
     "name": "contentType"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 459,
+    "line": 465,
     "kind": "function",
     "name": "findOfficialContentType"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 460,
+    "line": 466,
     "kind": "var",
     "name": "found"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 461,
+    "line": 467,
     "kind": "var",
     "name": "walk"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 466,
+    "line": 472,
     "kind": "local-variable",
     "name": "typed"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 468,
+    "line": 474,
     "kind": "var",
     "name": "nested"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 473,
+    "line": 479,
     "kind": "local-variable",
     "name": "candidate"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 477,
+    "line": 483,
     "kind": "range-variable",
     "name": "child"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 481,
+    "line": 487,
     "kind": "range-variable",
     "name": "child"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 490,
+    "line": 496,
     "kind": "function",
     "name": "CreateOutgoing"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 494,
+    "line": 500,
     "kind": "function",
     "name": "CreateOutgoingMedia"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 495,
+    "line": 501,
     "kind": "local-variable",
     "name": "key"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 496,
+    "line": 502,
     "kind": "local-variable",
     "name": "message"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 499,
+    "line": 505,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 499,
+    "line": 505,
     "kind": "local-variable",
     "name": "stored"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 508,
+    "line": 514,
     "kind": "function",
     "name": "RecordOutgoingSent"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 512,
+    "line": 518,
     "kind": "local-variable",
     "name": "message"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 515,
+    "line": 521,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 515,
+    "line": 521,
     "kind": "local-variable",
     "name": "stored"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 522,
+    "line": 528,
     "kind": "function",
     "name": "SetOutgoingStatus"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 523,
+    "line": 529,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 523,
+    "line": 529,
     "kind": "local-variable",
     "name": "message"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 530,
+    "line": 536,
     "kind": "function",
     "name": "randomID"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 531,
+    "line": 537,
     "kind": "var",
     "name": "value"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 532,
+    "line": 538,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 538,
+    "line": 544,
     "kind": "function",
     "name": "extractString"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 539,
+    "line": 545,
     "kind": "local-variable",
     "name": "wanted"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 540,
+    "line": 546,
     "kind": "range-variable",
     "name": "key"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 543,
+    "line": 549,
     "kind": "var",
     "name": "walk"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 545,
+    "line": 551,
     "kind": "local-variable",
     "name": "x"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 547,
+    "line": 553,
     "kind": "range-variable",
     "name": "child"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 547,
+    "line": 553,
     "kind": "range-variable",
     "name": "key"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 548,
+    "line": 554,
     "kind": "local-variable",
     "name": "ok"
-  },
-  {
-    "file": "internal/chat/service.go",
-    "line": 549,
-    "kind": "local-variable",
-    "name": "text"
-  },
-  {
-    "file": "internal/chat/service.go",
-    "line": 554,
-    "kind": "range-variable",
-    "name": "child"
   },
   {
     "file": "internal/chat/service.go",
@@ -23617,19 +23623,31 @@
   },
   {
     "file": "internal/chat/service.go",
-    "line": 571,
-    "kind": "function",
-    "name": "extractUnixMilli"
+    "line": 566,
+    "kind": "range-variable",
+    "name": "child"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 572,
+    "line": 567,
     "kind": "local-variable",
     "name": "text"
   },
   {
     "file": "internal/chat/service.go",
-    "line": 573,
+    "line": 577,
+    "kind": "function",
+    "name": "extractUnixMilli"
+  },
+  {
+    "file": "internal/chat/service.go",
+    "line": 578,
+    "kind": "local-variable",
+    "name": "text"
+  },
+  {
+    "file": "internal/chat/service.go",
+    "line": 579,
     "kind": "var",
     "name": "value"
   },

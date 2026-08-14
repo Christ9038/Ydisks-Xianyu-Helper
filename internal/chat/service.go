@@ -42,7 +42,7 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 		cid := strings.Split(strings.TrimSpace(fmt.Sprint(single["cid"])), "@")[0]
 		if visible, exists := conv["visible"]; exists && int64Value(visible) == 0 {
 			if cid != "" && cid != "<nil>" {
-				_ = s.store.Chats.DeleteSession(ctx, accountID, cid)
+				_ = s.repository.DeleteSession(ctx, accountID, cid)
 			}
 			continue
 		}
@@ -50,7 +50,7 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 		second := strings.Split(strings.TrimSpace(fmt.Sprint(single["pairSecond"])), "@")[0]
 		ext := mapValue(single["extension"])
 		if second == "0" && cleanNilString(ext["extUserId"]) != "1400" {
-			_ = s.store.Chats.DeleteSession(ctx, accountID, cid)
+			_ = s.repository.DeleteSession(ctx, accountID, cid)
 			continue
 		}
 		peerID := first
@@ -116,10 +116,10 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 		session := db.ChatSession{CookieID: accountID, ChatID: cid, BuyerID: peerID, BuyerName: peerName, BuyerAvatar: avatar,
 			ItemID: cleanNilString(ext["itemId"]), ItemTitle: cleanNilString(ext["itemTitle"]), LastMessage: summary,
 			LastMessageAt: lastMessageAt, UnreadCount: int(int64Value(conv["redPoint"]))}
-		if err := s.store.Chats.UpsertSession(ctx, session); err != nil {
+		if err := s.repository.UpsertSession(ctx, session); err != nil {
 			return page, err
 		}
-		if err := s.store.Chats.SyncSessionSummary(ctx, accountID, cid, summary, lastMessageAt, modifyTime, session.UnreadCount); err != nil {
+		if err := s.repository.SyncSessionSummary(ctx, accountID, cid, summary, lastMessageAt, modifyTime, session.UnreadCount); err != nil {
 			return page, err
 		}
 	}
@@ -180,18 +180,24 @@ type subscriber struct {
 }
 
 type Service struct {
-	store *db.Store
-	mu    sync.RWMutex
-	next  uint64
-	subs  map[uint64]subscriber
+	// repository 提供聊天服务所需的最小持久化能力。
+	repository Repository
+	mu         sync.RWMutex
+	next       uint64
+	subs       map[uint64]subscriber
 }
 
 func New(store *db.Store) *Service {
-	return &Service{store: store, subs: make(map[uint64]subscriber)}
+	return NewWithRepository(newStoreRepository(store))
+}
+
+// NewWithRepository 使用窄 repository 构造聊天服务，便于应用层和测试隔离数据库聚合器。
+func NewWithRepository(repository Repository) *Service {
+	return &Service{repository: repository, subs: make(map[uint64]subscriber)}
 }
 
 func (s *Service) Subscribe(ctx context.Context, userID int64) (<-chan Event, func(), error) {
-	accountIDs, err := s.store.Cookies.ListOwnedIDs(ctx, userID) // accountIDs 和 err 是用户账号 ID 列表及查询错误。
+	accountIDs, err := s.repository.ListOwnedIDs(ctx, userID) // accountIDs 和 err 是用户账号 ID 列表及查询错误。
 	if err != nil {
 		return nil, nil, err
 	}
@@ -236,7 +242,7 @@ func (s *Service) Publish(accountID string, event Event) {
 }
 
 func (s *Service) RecordIncoming(ctx context.Context, in Incoming) (*db.ChatMessage, bool, error) {
-	if s == nil || s.store == nil || s.store.Chats == nil {
+	if s == nil || s.repository == nil {
 		return nil, false, fmt.Errorf("聊天服务未初始化")
 	}
 	sentAt := extractUnixMilli(in.Raw)
@@ -263,7 +269,7 @@ func (s *Service) RecordIncoming(ctx context.Context, in Incoming) (*db.ChatMess
 	}
 	message := db.ChatMessage{MessageKey: key, Direction: "incoming", SenderID: in.BuyerID,
 		SenderName: in.BuyerName, MessageType: messageType, Content: content, Status: "received", SentAt: sentAt}
-	stored, inserted, err := s.store.Chats.SaveMessage(ctx, session, message, true)
+	stored, inserted, err := s.repository.SaveMessage(ctx, session, message, true)
 	if err == nil && inserted {
 		s.Publish(in.AccountID, Event{Type: "message.created", Message: stored, Session: &session})
 	}
@@ -286,12 +292,12 @@ func (s *Service) RecordHistoryPage(ctx context.Context, accountID, chatID, myID
 				session.BuyerID = message.SenderID
 			}
 		}
-		stored, _, err := s.store.Chats.SaveMessage(ctx, session, message, false)
+		stored, _, err := s.repository.SaveMessage(ctx, session, message, false)
 		if err != nil {
 			return page, err
 		}
 		if message.MessageType == "system" {
-			if err := s.store.Chats.UpdateMessageType(ctx, accountID, message.MessageKey, "system"); err != nil {
+			if err := s.repository.UpdateMessageType(ctx, accountID, message.MessageKey, "system"); err != nil {
 				return page, err
 			}
 			stored.MessageType = "system"
@@ -496,7 +502,7 @@ func (s *Service) CreateOutgoingMedia(ctx context.Context, session db.ChatSessio
 	message := db.ChatMessage{MessageKey: key, Direction: "outgoing", SenderID: session.CookieID,
 		SenderName: "我", MessageType: messageType, Content: strings.TrimSpace(content), Status: "sending",
 		SentAt: time.Now().UTC().UnixMilli()}
-	stored, _, err := s.store.Chats.SaveMessage(ctx, session, message, false)
+	stored, _, err := s.repository.SaveMessage(ctx, session, message, false)
 	if err == nil {
 		s.Publish(session.CookieID, Event{Type: "message.created", Message: stored, Session: &session})
 	}
@@ -512,7 +518,7 @@ func (s *Service) RecordOutgoingSent(ctx context.Context, session db.ChatSession
 	message := db.ChatMessage{MessageKey: "sent-" + randomID(), Direction: "outgoing", SenderID: session.CookieID,
 		SenderName: "我", MessageType: "text", Content: strings.TrimSpace(text), Status: "sent",
 		SentAt: time.Now().UTC().UnixMilli()}
-	stored, _, err := s.store.Chats.SaveMessage(ctx, session, message, false)
+	stored, _, err := s.repository.SaveMessage(ctx, session, message, false)
 	if err == nil {
 		s.Publish(session.CookieID, Event{Type: "message.created", Message: stored, Session: &session})
 	}
@@ -520,7 +526,7 @@ func (s *Service) RecordOutgoingSent(ctx context.Context, session db.ChatSession
 }
 
 func (s *Service) SetOutgoingStatus(ctx context.Context, accountID, key, status string) (*db.ChatMessage, error) {
-	message, err := s.store.Chats.UpdateMessageStatus(ctx, accountID, key, status)
+	message, err := s.repository.UpdateMessageStatus(ctx, accountID, key, status)
 	if err == nil {
 		s.Publish(accountID, Event{Type: "message.updated", Message: message})
 	}
