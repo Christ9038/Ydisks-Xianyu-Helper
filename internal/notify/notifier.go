@@ -54,12 +54,12 @@ type NotificationEvent struct {
 
 // Notifier 通知发送器。
 type Notifier struct {
-	cookieID string
-	store    *db.Store
-	logger   *slog.Logger
-	httpc    *http.Client
-	started  atomic.Bool
-	workers  sync.WaitGroup
+	cookieID   string
+	repository Repository
+	logger     *slog.Logger
+	httpc      *http.Client
+	started    atomic.Bool
+	workers    sync.WaitGroup
 }
 
 var newOutboundHTTPClient = func() *http.Client { return netguard.PublicHTTPClient(10 * time.Second) }
@@ -67,21 +67,26 @@ var dialPublicSMTP = netguard.DialPublicContext
 
 // New 构造。
 func New(cookieID string, store *db.Store, logger *slog.Logger) *Notifier {
+	return NewWithRepository(cookieID, newStoreRepository(store), logger)
+}
+
+// NewWithRepository 使用通知器所需的窄 repository 构造通知器。
+func NewWithRepository(cookieID string, repository Repository, logger *slog.Logger) *Notifier {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Notifier{
-		cookieID: cookieID,
-		store:    store,
-		logger:   logger.With("account", cookieID, "subsys", "notify"),
-		httpc:    newOutboundHTTPClient(),
+		cookieID:   cookieID,
+		repository: repository,
+		logger:     logger.With("account", cookieID, "subsys", "notify"),
+		httpc:      newOutboundHTTPClient(),
 	}
 }
 
 // Start 启动持久化 outbox worker。调用返回前会先标记为异步模式，之后的业务
 // 通知只写数据库，不在订单/账号处理调用栈中等待外部网络。
 func (n *Notifier) Start(ctx context.Context) {
-	if n == nil || n.store == nil || !n.started.CompareAndSwap(false, true) {
+	if n == nil || n.repository == nil || !n.started.CompareAndSwap(false, true) {
 		return
 	}
 	n.workers.Add(1)
@@ -131,13 +136,13 @@ func (n *Notifier) NotifyAccountEvent(accountID, eventType, level, title, body s
 
 // NotifyEvent 根据事件类型筛选渠道并发送通知。
 func (n *Notifier) NotifyEvent(ctx context.Context, ev NotificationEvent) {
-	if n.store == nil {
+	if n == nil || n.repository == nil {
 		return
 	}
 	if ev.Time.IsZero() {
 		ev.Time = time.Now()
 	}
-	channels, err := n.store.Notifications.AccountChannels(ctx, ev.AccountID)
+	channels, err := n.repository.AccountChannels(ctx, ev.AccountID)
 	if err != nil || len(channels) == 0 {
 		return
 	}
@@ -159,7 +164,7 @@ func (n *Notifier) NotifyEvent(ctx context.Context, ev NotificationEvent) {
 		for _, ch := range eligible {
 			messages = append(messages, db.NotificationOutboxInput{ChannelID: ch.ID, EventType: ev.Type, Body: full})
 		}
-		if err := n.store.Notifications.EnqueueOutbox(ctx, messages); err != nil {
+		if err := n.repository.EnqueueOutbox(ctx, messages); err != nil {
 			n.logger.Error("持久化通知失败", "event_type", ev.Type, "err", err)
 		}
 		return
@@ -192,7 +197,7 @@ func (n *Notifier) drainOutbox(ctx context.Context) {
 		n.logger.Error("生成通知 worker token 失败", "err", err)
 		return
 	}
-	messages, err := n.store.Notifications.ClaimOutbox(ctx, workerToken, time.Now(), 20)
+	messages, err := n.repository.ClaimOutbox(ctx, workerToken, time.Now(), 20)
 	if err != nil {
 		if ctx.Err() == nil {
 			n.logger.Warn("领取通知 outbox 失败", "err", err)
@@ -200,13 +205,13 @@ func (n *Notifier) drainOutbox(ctx context.Context) {
 		return
 	}
 	for _, message := range messages {
-		channel, getErr := n.store.Notifications.GetChannel(ctx, message.ChannelID)
+		channel, getErr := n.repository.GetChannel(ctx, message.ChannelID)
 		if getErr != nil {
 			n.retryOutbox(ctx, message, workerToken, getErr)
 			continue
 		}
 		if channel == nil {
-			_, _ = n.store.Notifications.CompleteOutbox(ctx, message.ID, workerToken)
+			_, _ = n.repository.CompleteOutbox(ctx, message.ID, workerToken)
 			continue
 		}
 		if sendErr := n.send(*channel, message.Body); sendErr != nil {
@@ -214,7 +219,7 @@ func (n *Notifier) drainOutbox(ctx context.Context) {
 			n.retryOutbox(ctx, message, workerToken, sendErr)
 			continue
 		}
-		if completed, completeErr := n.store.Notifications.CompleteOutbox(ctx, message.ID, workerToken); completeErr != nil {
+		if completed, completeErr := n.repository.CompleteOutbox(ctx, message.ID, workerToken); completeErr != nil {
 			n.logger.Warn("确认通知投递完成失败", "outbox_id", message.ID, "err", completeErr)
 		} else if !completed {
 			n.logger.Warn("通知 outbox 租约已转移", "outbox_id", message.ID)
@@ -226,7 +231,7 @@ func (n *Notifier) retryOutbox(ctx context.Context, message db.NotificationOutbo
 	permanent := message.AttemptCount >= 10
 	shift := min(max(message.AttemptCount-1, 0), 7)
 	delay := 5 * time.Second * time.Duration(1<<shift)
-	updated, err := n.store.Notifications.RetryOutbox(ctx, message.ID, workerToken, cause.Error(), time.Now().Add(delay).Unix(), permanent)
+	updated, err := n.repository.RetryOutbox(ctx, message.ID, workerToken, cause.Error(), time.Now().Add(delay).Unix(), permanent)
 	if err != nil {
 		n.logger.Warn("更新通知重试状态失败", "outbox_id", message.ID, "err", err)
 	} else if !updated {
@@ -244,10 +249,10 @@ func notificationWorkerToken() (string, error) {
 
 // SendToChannel 直接向指定渠道发送一条消息（用于前端“测试发送”）。
 func (n *Notifier) SendToChannel(channelID int64, body string) error {
-	if n.store == nil {
+	if n == nil || n.repository == nil {
 		return fmt.Errorf("通知器未初始化")
 	}
-	ch, err := n.store.Notifications.GetChannel(context.Background(), channelID)
+	ch, err := n.repository.GetChannel(context.Background(), channelID)
 	if err != nil {
 		return fmt.Errorf("查询渠道失败: %w", err)
 	}
@@ -743,8 +748,8 @@ func (n *Notifier) configOrSetting(ctx context.Context, cfg map[string]any, key,
 	if v := strings.TrimSpace(strOr(cfg, key, "")); v != "" {
 		return v
 	}
-	if n.store != nil && n.store.Settings != nil {
-		if v, err := n.store.Settings.Get(ctx, key); err == nil && strings.TrimSpace(v) != "" {
+	if n.repository != nil {
+		if v, err := n.repository.GetSetting(ctx, key); err == nil && strings.TrimSpace(v) != "" {
 			return strings.TrimSpace(v)
 		}
 	}
@@ -764,8 +769,8 @@ func (n *Notifier) smtpConfigValue(ctx context.Context, cfg map[string]any, key,
 		}
 		return fallbackValue
 	}
-	if n.store != nil && n.store.Settings != nil {
-		if value, err := n.store.Settings.Get(ctx, key); err == nil && strings.TrimSpace(value) != "" {
+	if n.repository != nil {
+		if value, err := n.repository.GetSetting(ctx, key); err == nil && strings.TrimSpace(value) != "" {
 			return strings.TrimSpace(value)
 		}
 	}

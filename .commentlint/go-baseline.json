@@ -52945,615 +52945,603 @@
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 83,
+    "line": 88,
     "kind": "function",
     "name": "Start"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 99,
+    "line": 104,
     "kind": "function",
     "name": "NotifyDelivery"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 117,
+    "line": 122,
     "kind": "function",
     "name": "NotifyAccountAlert"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 140,
+    "line": 145,
     "kind": "local-variable",
     "name": "channels"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 140,
+    "line": 145,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 144,
+    "line": 149,
     "kind": "local-variable",
     "name": "full"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 145,
+    "line": 150,
     "kind": "local-variable",
     "name": "eligible"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 146,
+    "line": 151,
     "kind": "range-variable",
     "name": "ch"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 147,
+    "line": 152,
     "kind": "local-variable",
     "name": "allowed"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 147,
+    "line": 152,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 158,
+    "line": 163,
     "kind": "local-variable",
     "name": "messages"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 159,
+    "line": 164,
     "kind": "range-variable",
     "name": "ch"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 162,
+    "line": 167,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 169,
+    "line": 174,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 175,
+    "line": 180,
     "kind": "function",
     "name": "runOutbox"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 177,
+    "line": 182,
     "kind": "local-variable",
     "name": "ticker"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 189,
+    "line": 194,
     "kind": "function",
     "name": "drainOutbox"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 190,
+    "line": 195,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 190,
+    "line": 195,
     "kind": "local-variable",
     "name": "workerToken"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 195,
+    "line": 200,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 195,
+    "line": 200,
     "kind": "local-variable",
     "name": "messages"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 202,
+    "line": 207,
     "kind": "range-variable",
     "name": "message"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 203,
+    "line": 208,
     "kind": "local-variable",
     "name": "channel"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 203,
+    "line": 208,
     "kind": "local-variable",
     "name": "getErr"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 212,
+    "line": 217,
     "kind": "local-variable",
     "name": "sendErr"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 217,
+    "line": 222,
     "kind": "local-variable",
     "name": "completeErr"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 217,
+    "line": 222,
     "kind": "local-variable",
     "name": "completed"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 225,
+    "line": 230,
     "kind": "function",
     "name": "retryOutbox"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 226,
+    "line": 231,
     "kind": "local-variable",
     "name": "permanent"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 227,
+    "line": 232,
     "kind": "local-variable",
     "name": "shift"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 228,
+    "line": 233,
     "kind": "local-variable",
     "name": "delay"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 229,
+    "line": 234,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 229,
+    "line": 234,
     "kind": "local-variable",
     "name": "updated"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 237,
+    "line": 242,
     "kind": "function",
     "name": "notificationWorkerToken"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 238,
+    "line": 243,
     "kind": "local-variable",
     "name": "raw"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 239,
+    "line": 244,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 250,
+    "line": 255,
     "kind": "local-variable",
     "name": "ch"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 250,
+    "line": 255,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 260,
+    "line": 265,
     "kind": "function",
     "name": "levelLabel"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 273,
+    "line": 278,
     "kind": "function",
     "name": "eventLabel"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 297,
+    "line": 302,
     "kind": "function",
     "name": "classifyAccountAlertEvent"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 298,
+    "line": 303,
     "kind": "local-variable",
     "name": "msg"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 317,
+    "line": 322,
     "kind": "function",
     "name": "formatEvent"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 318,
+    "line": 323,
     "kind": "var",
     "name": "b"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 319,
+    "line": 324,
     "kind": "local-variable",
     "name": "label"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 320,
+    "line": 325,
     "kind": "local-variable",
     "name": "level"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 324,
+    "line": 329,
     "kind": "local-variable",
     "name": "title"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 341,
+    "line": 346,
     "kind": "local-variable",
     "name": "keys"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 342,
-    "kind": "range-variable",
-    "name": "k"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 346,
-    "kind": "range-variable",
-    "name": "k"
-  },
-  {
-    "file": "internal/notify/notifier.go",
     "line": 347,
+    "kind": "range-variable",
+    "name": "k"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 351,
+    "kind": "range-variable",
+    "name": "k"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 352,
     "kind": "local-variable",
     "name": "v"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 357,
+    "line": 362,
     "kind": "local-variable",
     "name": "body"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 365,
+    "line": 370,
     "kind": "function",
     "name": "eventAllowed"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 370,
+    "line": 375,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 370,
+    "line": 375,
     "kind": "local-variable",
     "name": "events"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 380,
+    "line": 385,
     "kind": "function",
     "name": "parseEventTypes"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 385,
+    "line": 390,
     "kind": "var",
     "name": "arr"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 387,
+    "line": 392,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 398,
+    "line": 403,
     "kind": "local-variable",
     "name": "out"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 399,
+    "line": 404,
     "kind": "range-variable",
     "name": "v"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 408,
+    "line": 413,
     "kind": "function",
     "name": "sortStrings"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 409,
+    "line": 414,
     "kind": "local-variable",
     "name": "i"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 410,
+    "line": 415,
     "kind": "local-variable",
     "name": "j"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 416,
+    "line": 421,
     "kind": "function",
     "name": "send"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 417,
+    "line": 422,
     "kind": "local-variable",
     "name": "cfg"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 446,
+    "line": 451,
     "kind": "var",
     "name": "m"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 447,
+    "line": 452,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 455,
+    "line": 460,
     "kind": "local-variable",
     "name": "webhook"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 456,
-    "kind": "local-variable",
-    "name": "secret"
   },
   {
     "file": "internal/notify/notifier.go",
     "line": 461,
     "kind": "local-variable",
+    "name": "secret"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 466,
+    "kind": "local-variable",
     "name": "ts"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 462,
+    "line": 467,
     "kind": "local-variable",
     "name": "stringToSign"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 463,
+    "line": 468,
     "kind": "local-variable",
     "name": "h"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 465,
-    "kind": "local-variable",
-    "name": "sign"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 466,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 466,
-    "kind": "local-variable",
-    "name": "parsed"
   },
   {
     "file": "internal/notify/notifier.go",
     "line": 470,
     "kind": "local-variable",
+    "name": "sign"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 471,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 471,
+    "kind": "local-variable",
+    "name": "parsed"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 475,
+    "kind": "local-variable",
     "name": "query"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 476,
+    "line": 481,
     "kind": "local-variable",
     "name": "payload"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 488,
-    "kind": "local-variable",
-    "name": "webhook"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 489,
-    "kind": "local-variable",
-    "name": "secret"
-  },
-  {
-    "file": "internal/notify/notifier.go",
     "line": 493,
     "kind": "local-variable",
-    "name": "ts"
+    "name": "webhook"
   },
   {
     "file": "internal/notify/notifier.go",
     "line": 494,
     "kind": "local-variable",
+    "name": "secret"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 498,
+    "kind": "local-variable",
+    "name": "ts"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 499,
+    "kind": "local-variable",
     "name": "data"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 500,
+    "line": 505,
     "kind": "local-variable",
     "name": "stringToSign"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 501,
+    "line": 506,
     "kind": "local-variable",
     "name": "h"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 509,
+    "line": 514,
     "kind": "function",
     "name": "sendBark"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 510,
+    "line": 515,
     "kind": "local-variable",
     "name": "server"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 511,
+    "line": 516,
     "kind": "local-variable",
     "name": "deviceKey"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 515,
+    "line": 520,
     "kind": "local-variable",
     "name": "data"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 522,
+    "line": 527,
     "kind": "local-variable",
     "name": "icon"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 525,
+    "line": 530,
     "kind": "local-variable",
     "name": "u"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 532,
+    "line": 537,
     "kind": "function",
     "name": "sendWebhook"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 533,
+    "line": 538,
     "kind": "local-variable",
     "name": "webhook"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 537,
+    "line": 542,
     "kind": "local-variable",
     "name": "method"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 538,
+    "line": 543,
     "kind": "local-variable",
     "name": "headers"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 539,
+    "line": 544,
     "kind": "local-variable",
     "name": "h"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 542,
+    "line": 547,
     "kind": "local-variable",
     "name": "data"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 547,
+    "line": 552,
     "kind": "local-variable",
     "name": "body"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 548,
+    "line": 553,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 548,
+    "line": 553,
     "kind": "local-variable",
     "name": "req"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 553,
+    "line": 558,
     "kind": "range-variable",
     "name": "k"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 553,
+    "line": 558,
     "kind": "range-variable",
     "name": "v"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 556,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 556,
-    "kind": "local-variable",
-    "name": "resp"
   },
   {
     "file": "internal/notify/notifier.go",
@@ -53563,261 +53551,267 @@
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 572,
+    "line": 561,
+    "kind": "local-variable",
+    "name": "resp"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 566,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 577,
     "kind": "local-variable",
     "name": "webhook"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 583,
+    "line": 588,
     "kind": "function",
     "name": "sendTelegram"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 584,
+    "line": 589,
     "kind": "local-variable",
     "name": "botToken"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 585,
+    "line": 590,
     "kind": "local-variable",
     "name": "chatID"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 589,
+    "line": 594,
     "kind": "local-variable",
     "name": "endpoint"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 598,
+    "line": 603,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 598,
+    "line": 603,
     "kind": "local-variable",
     "name": "ctx"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 600,
+    "line": 605,
     "kind": "local-variable",
     "name": "server"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 601,
-    "kind": "local-variable",
-    "name": "port"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 602,
-    "kind": "local-variable",
-    "name": "user"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 603,
-    "kind": "local-variable",
-    "name": "pass"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 604,
-    "kind": "local-variable",
-    "name": "useTLS"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 605,
-    "kind": "local-variable",
-    "name": "useSSL"
-  },
-  {
-    "file": "internal/notify/notifier.go",
     "line": 606,
     "kind": "local-variable",
-    "name": "fromAddress"
+    "name": "port"
   },
   {
     "file": "internal/notify/notifier.go",
     "line": 607,
     "kind": "local-variable",
-    "name": "fromName"
+    "name": "user"
   },
   {
     "file": "internal/notify/notifier.go",
     "line": 608,
     "kind": "local-variable",
-    "name": "legacyFrom"
+    "name": "pass"
   },
   {
     "file": "internal/notify/notifier.go",
     "line": 609,
     "kind": "local-variable",
-    "name": "to"
+    "name": "useTLS"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 610,
+    "kind": "local-variable",
+    "name": "useSSL"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 611,
+    "kind": "local-variable",
+    "name": "fromAddress"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 612,
+    "kind": "local-variable",
+    "name": "fromName"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 613,
+    "kind": "local-variable",
+    "name": "legacyFrom"
   },
   {
     "file": "internal/notify/notifier.go",
     "line": 614,
     "kind": "local-variable",
+    "name": "to"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 619,
+    "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 614,
+    "line": 619,
     "kind": "local-variable",
     "name": "parsed"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 628,
+    "line": 633,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 628,
+    "line": 633,
     "kind": "local-variable",
     "name": "from"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 632,
+    "line": 637,
     "kind": "local-variable",
     "name": "err"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 632,
-    "kind": "local-variable",
-    "name": "recipient"
   },
   {
     "file": "internal/notify/notifier.go",
     "line": 637,
     "kind": "local-variable",
+    "name": "recipient"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 642,
+    "kind": "local-variable",
     "name": "fromHeader"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 641,
-    "kind": "local-variable",
-    "name": "toHeader"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 645,
-    "kind": "local-variable",
-    "name": "addr"
   },
   {
     "file": "internal/notify/notifier.go",
     "line": 646,
     "kind": "local-variable",
+    "name": "toHeader"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 650,
+    "kind": "local-variable",
+    "name": "addr"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 651,
+    "kind": "local-variable",
     "name": "auth"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 647,
+    "line": 652,
     "kind": "local-variable",
     "name": "msg"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 662,
+    "line": 667,
     "kind": "type",
     "name": "smtpTransportOptions"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 667,
+    "line": 672,
     "kind": "function",
     "name": "sendPublicSMTP"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 668,
+    "line": 673,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 668,
+    "line": 673,
     "kind": "local-variable",
     "name": "rawPort"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 672,
+    "line": 677,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 672,
+    "line": 677,
     "kind": "local-variable",
     "name": "port"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 676,
+    "line": 681,
     "kind": "local-variable",
     "name": "conn"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 676,
+    "line": 681,
     "kind": "local-variable",
     "name": "err"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 682,
-    "kind": "local-variable",
-    "name": "transport"
   },
   {
     "file": "internal/notify/notifier.go",
     "line": 687,
     "kind": "local-variable",
+    "name": "transport"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 692,
+    "kind": "local-variable",
     "name": "tlsConn"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 688,
+    "line": 693,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 693,
+    "line": 698,
     "kind": "local-variable",
     "name": "client"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 693,
+    "line": 698,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 699,
+    "line": 704,
     "kind": "local-variable",
     "name": "ok"
-  },
-  {
-    "file": "internal/notify/notifier.go",
-    "line": 702,
-    "kind": "local-variable",
-    "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
@@ -53827,307 +53821,313 @@
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 711,
+    "line": 712,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 714,
+    "line": 716,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 717,
+    "line": 719,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 717,
+    "line": 722,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/notify/notifier.go",
+    "line": 722,
     "kind": "local-variable",
     "name": "w"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 721,
+    "line": 726,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 725,
+    "line": 730,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 731,
+    "line": 736,
     "kind": "function",
     "name": "parseConfigBool"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 742,
+    "line": 747,
     "kind": "function",
     "name": "configOrSetting"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 743,
+    "line": 748,
     "kind": "local-variable",
     "name": "v"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 747,
+    "line": 752,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 747,
+    "line": 752,
     "kind": "local-variable",
     "name": "v"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 756,
+    "line": 761,
     "kind": "function",
     "name": "smtpConfigValue"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 757,
+    "line": 762,
     "kind": "local-variable",
     "name": "hasExplicitMode"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 757,
+    "line": 762,
     "kind": "local-variable",
     "name": "modeValue"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 762,
+    "line": 767,
     "kind": "local-variable",
     "name": "value"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 768,
+    "line": 773,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 768,
+    "line": 773,
     "kind": "local-variable",
     "name": "value"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 777,
+    "line": 782,
     "kind": "local-variable",
     "name": "body"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 777,
+    "line": 782,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 781,
+    "line": 786,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 781,
+    "line": 786,
     "kind": "local-variable",
     "name": "req"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 786,
+    "line": 791,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 786,
+    "line": 791,
     "kind": "local-variable",
     "name": "resp"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 791,
+    "line": 796,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 791,
+    "line": 796,
     "kind": "local-variable",
     "name": "responseBody"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 798,
+    "line": 803,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 804,
+    "line": 809,
     "kind": "function",
     "name": "notificationBusinessError"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 808,
+    "line": 813,
     "kind": "var",
     "name": "payload"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 812,
+    "line": 817,
     "kind": "local-variable",
     "name": "message"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 813,
+    "line": 818,
     "kind": "local-variable",
     "name": "code"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 813,
+    "line": 818,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 816,
+    "line": 821,
     "kind": "local-variable",
     "name": "code"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 816,
+    "line": 821,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 819,
+    "line": 824,
     "kind": "local-variable",
     "name": "code"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 819,
+    "line": 824,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 822,
+    "line": 827,
     "kind": "local-variable",
     "name": "exists"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 822,
+    "line": 827,
     "kind": "local-variable",
     "name": "okValue"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 828,
+    "line": 833,
     "kind": "function",
     "name": "mapNumber"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 829,
+    "line": 834,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 829,
+    "line": 834,
     "kind": "local-variable",
     "name": "value"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 833,
+    "line": 838,
     "kind": "local-variable",
     "name": "typed"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 837,
+    "line": 842,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 837,
+    "line": 842,
     "kind": "local-variable",
     "name": "number"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 844,
+    "line": 849,
     "kind": "function",
     "name": "firstMapString"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 845,
+    "line": 850,
     "kind": "range-variable",
     "name": "key"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 846,
+    "line": 851,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 846,
+    "line": 851,
     "kind": "local-variable",
     "name": "value"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 855,
+    "line": 860,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 855,
+    "line": 860,
     "kind": "local-variable",
     "name": "v"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 856,
+    "line": 861,
     "kind": "local-variable",
     "name": "x"
   },
   {
     "file": "internal/notify/notifier.go",
-    "line": 866,
+    "line": 871,
     "kind": "function",
     "name": "fallback"
   },
@@ -63889,7 +63889,7 @@
   },
   {
     "file": "internal/server/communication_service.go",
-    "line": 189,
+    "line": 191,
     "kind": "range-variable",
     "name": "row"
   },

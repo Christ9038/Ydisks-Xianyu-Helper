@@ -27,6 +27,8 @@ var (
 type communicationService struct {
 	// server 提供数据库、聊天事件中心、账号运行时和通知器依赖。
 	server *Server
+	// repository 提供账号任务、通知绑定和聊天历史的最小持久化能力。
+	repository communicationRepository
 }
 
 // accountTaskUpdateInput 是账号任务设置更新的业务输入。
@@ -90,7 +92,7 @@ func (s *Server) communicationApplication() *communicationService {
 
 // GetAccountTaskSettings 读取指定账号的任务设置。
 func (svc *communicationService) GetAccountTaskSettings(ctx context.Context, cookieID string) (db.AccountTaskSettings, error) {
-	return svc.server.Store.AccountTasks.Get(ctx, cookieID)
+	return svc.repository.GetAccountTaskSettings(ctx, cookieID)
 }
 
 // UpdateAccountTaskSettings 校验并保存账号任务设置，然后返回数据库中的最终值。
@@ -109,15 +111,15 @@ func (svc *communicationService) UpdateAccountTaskSettings(ctx context.Context, 
 		return db.AccountTaskSettings{}, errors.New("擦亮时间格式必须为 HH:mm")
 	}
 	// err 表示任务设置持久化错误。
-	if err := svc.server.Store.AccountTasks.Upsert(ctx, settings); err != nil {
+	if err := svc.repository.UpsertAccountTaskSettings(ctx, settings); err != nil {
 		return db.AccountTaskSettings{}, err
 	}
-	return svc.server.Store.AccountTasks.Get(ctx, input.CookieID)
+	return svc.repository.GetAccountTaskSettings(ctx, input.CookieID)
 }
 
 // ListAccountTaskRuns 查询账号最近的任务执行记录。
 func (svc *communicationService) ListAccountTaskRuns(ctx context.Context, cookieID string, limit int) ([]db.AccountTaskRun, error) {
-	return svc.server.Store.AccountTasks.RecentRuns(ctx, cookieID, limit)
+	return svc.repository.ListAccountTaskRuns(ctx, cookieID, limit)
 }
 
 // RunAccountTask 执行一次账号自动化任务并返回执行摘要。
@@ -130,27 +132,27 @@ func (svc *communicationService) RunAccountTask(ctx context.Context, cookieID, t
 
 // ListNotificationChannels 查询用户拥有的通知渠道。
 func (svc *communicationService) ListNotificationChannels(ctx context.Context, userID int64) ([]db.NotificationChannelRow, error) {
-	return svc.server.Store.Notifications.AllChannelsForUser(ctx, userID)
+	return svc.repository.ListNotificationChannels(ctx, userID)
 }
 
 // CreateNotificationChannel 创建用户通知渠道。
 func (svc *communicationService) CreateNotificationChannel(ctx context.Context, row db.NotificationChannelRow) (int64, error) {
-	return svc.server.Store.Notifications.CreateChannel(ctx, &row)
+	return svc.repository.CreateNotificationChannel(ctx, &row)
 }
 
 // UpdateNotificationChannel 更新用户拥有的通知渠道。
 func (svc *communicationService) UpdateNotificationChannel(ctx context.Context, row db.NotificationChannelRow, userID int64) error {
-	return svc.server.Store.Notifications.UpdateChannelForUser(ctx, &row, userID)
+	return svc.repository.UpdateNotificationChannel(ctx, &row, userID)
 }
 
 // GetNotificationChannel 查询用户拥有的单个通知渠道。
 func (svc *communicationService) GetNotificationChannel(ctx context.Context, channelID, userID int64) (*db.NotificationChannelRow, error) {
-	return svc.server.Store.Notifications.GetChannelRowForUser(ctx, channelID, userID)
+	return svc.repository.GetNotificationChannel(ctx, channelID, userID)
 }
 
 // DeleteNotificationChannel 删除用户拥有的通知渠道。
 func (svc *communicationService) DeleteNotificationChannel(ctx context.Context, channelID, userID int64) error {
-	return svc.server.Store.Notifications.DeleteChannelForUser(ctx, channelID, userID)
+	return svc.repository.DeleteNotificationChannel(ctx, channelID, userID)
 }
 
 // TestNotificationChannel 向用户拥有的通知渠道发送测试消息。
@@ -159,7 +161,7 @@ func (svc *communicationService) TestNotificationChannel(ctx context.Context, ch
 		return errCommunicationUnavailable
 	}
 	// channel 和 err 保存通知渠道查询结果。
-	channel, err := svc.server.Store.Notifications.GetChannel(ctx, channelID)
+	channel, err := svc.repository.GetNotificationChannelConfig(ctx, channelID)
 	if err != nil {
 		return err
 	}
@@ -167,7 +169,7 @@ func (svc *communicationService) TestNotificationChannel(ctx context.Context, ch
 		return db.ErrForbidden
 	}
 	// row 和 err 保存带用户归属的渠道查询结果。
-	row, err := svc.server.Store.Notifications.GetChannelRowForUser(ctx, channelID, userID)
+	row, err := svc.repository.GetNotificationChannel(ctx, channelID, userID)
 	if err != nil {
 		return err
 	}
@@ -180,7 +182,7 @@ func (svc *communicationService) TestNotificationChannel(ctx context.Context, ch
 // ListNotificationBindings 查询用户账号的通知绑定。
 func (svc *communicationService) ListNotificationBindings(ctx context.Context, userID int64) (map[string][]notificationBindingRow, error) {
 	// rows 和 err 保存绑定查询结果集。
-	rows, err := svc.server.Store.Notifications.ListBindingsForUser(ctx, userID)
+	rows, err := svc.repository.ListNotificationBindings(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -196,30 +198,30 @@ func (svc *communicationService) ListNotificationBindings(ctx context.Context, u
 
 // SetNotificationBindings 覆盖保存账号的通知渠道绑定。
 func (svc *communicationService) SetNotificationBindings(ctx context.Context, cookieID string, channelIDs []int64) error {
-	return svc.server.Store.Notifications.SetBindings(ctx, cookieID, channelIDs)
+	return svc.repository.SetNotificationBindings(ctx, cookieID, channelIDs)
 }
 
 // GetNotificationBindingIDs 查询账号当前启用的通知渠道标识。
 func (svc *communicationService) GetNotificationBindingIDs(ctx context.Context, cookieID string) ([]int64, error) {
-	return svc.server.Store.Notifications.AccountBindings(ctx, cookieID)
+	return svc.repository.GetNotificationBindingIDs(ctx, cookieID)
 }
 
 // SetSingleNotificationBinding 更新单个账号通知渠道的启用状态。
 func (svc *communicationService) SetSingleNotificationBinding(ctx context.Context, cookieID string, channelID int64, enabled bool) error {
 	if !enabled {
-		return svc.server.Store.Notifications.SetSingleBinding(ctx, cookieID, channelID, false)
+		return svc.repository.SetSingleNotificationBinding(ctx, cookieID, channelID, false)
 	}
-	return svc.server.Store.Notifications.SetSingleBinding(ctx, cookieID, channelID, true)
+	return svc.repository.SetSingleNotificationBinding(ctx, cookieID, channelID, true)
 }
 
 // DeleteNotificationBinding 删除用户账号下的一条通知绑定。
 func (svc *communicationService) DeleteNotificationBinding(ctx context.Context, userID, bindingID int64) error {
-	return svc.server.Store.Notifications.DeleteBinding(ctx, userID, bindingID)
+	return svc.repository.DeleteNotificationBinding(ctx, userID, bindingID)
 }
 
 // DeleteAccountNotificationBindings 删除用户账号的全部通知绑定。
 func (svc *communicationService) DeleteAccountNotificationBindings(ctx context.Context, userID int64, cookieID string) error {
-	return svc.server.Store.Notifications.DeleteAccountBindings(ctx, userID, cookieID)
+	return svc.repository.DeleteAccountNotificationBindings(ctx, userID, cookieID)
 }
 
 // SendChatText 创建并发送一条文字消息，失败时保留可重试的本地失败状态。
@@ -266,7 +268,7 @@ func (svc *communicationService) SendChatImage(ctx context.Context, input chatIm
 		return nil, errChatOffline
 	}
 	// cookies 和 err 保存图片上传使用的账号凭证。
-	cookies, err := s.Store.Cookies.GetValue(ctx, input.Session.CookieID)
+	cookies, err := svc.repository.GetCookieValue(ctx, input.Session.CookieID)
 	if err != nil {
 		return nil, fmt.Errorf("读取账号凭证失败: %w", err)
 	}
@@ -284,7 +286,7 @@ func (svc *communicationService) SendChatImage(ctx context.Context, input chatIm
 	}
 	if upload.UpdatedCookies != "" && upload.UpdatedCookies != cookies {
 		// err 表示保存图片上传后刷新 Cookie 的错误，仅忽略并继续发送。
-		_ = s.Store.Cookies.UpdateValueExisting(ctx, input.Session.CookieID, upload.UpdatedCookies)
+		_ = svc.repository.UpdateCookieValue(ctx, input.Session.CookieID, upload.UpdatedCookies)
 		sender.UpdateCookie(upload.UpdatedCookies)
 	}
 	// message 和 err 保存图片消息落库结果。
@@ -308,20 +310,20 @@ func (svc *communicationService) SendChatImage(ctx context.Context, input chatIm
 
 // MarkChatRead 将指定聊天会话标记为已读。
 func (svc *communicationService) MarkChatRead(ctx context.Context, userID int64, accountID, chatID string) error {
-	return svc.server.Store.Chats.MarkRead(ctx, userID, accountID, chatID)
+	return svc.repository.MarkChatRead(ctx, userID, accountID, chatID)
 }
 
 // ListStoredChatMessages 查询本地聊天历史并返回会话摘要。
 func (svc *communicationService) ListStoredChatMessages(ctx context.Context, userID int64, accountID, chatID string, beforeID int64, limit int) (chatMessagePageResult, error) {
 	// messages 和 err 保存本地聊天历史查询结果。
-	messages, err := svc.server.Store.Chats.ListMessages(ctx, userID, accountID, chatID, beforeID, limit)
+	messages, err := svc.repository.ListChatMessages(ctx, userID, accountID, chatID, beforeID, limit)
 	if err != nil {
 		return chatMessagePageResult{}, err
 	}
 	// session 保存当前聊天会话摘要。
 	var session db.ChatSession
 	// sessions 和 sessionErr 保存当前用户的聊天会话列表及查询错误。
-	if sessions, sessionErr := svc.server.Store.Chats.ListSessions(ctx, userID, accountID, 500); sessionErr == nil {
+	if sessions, sessionErr := svc.repository.ListChatSessions(ctx, userID, accountID, 500); sessionErr == nil {
 		// candidate 是当前遍历到的会话摘要。
 		for _, candidate := range sessions {
 			if candidate.ChatID == chatID {
