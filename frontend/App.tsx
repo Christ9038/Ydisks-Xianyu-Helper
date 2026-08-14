@@ -11,7 +11,7 @@ import Notifications from './components/Notifications';
 import Chat from './components/Chat';
 import { readSidebarCollapsed, writeSidebarCollapsed } from './components/sidebarState';
 import { YdisksBrandIcon } from './components/YdisksLogo';
-import { initializeAdmin, login, logout, verifySession } from './services/api';
+import { initializeAdmin, login, logout, verifySession } from './app/features/session/api';
 import { ShieldCheck, ArrowRight, Loader2, User, Lock } from 'lucide-react';
 
 interface DeliveryRuleTarget {

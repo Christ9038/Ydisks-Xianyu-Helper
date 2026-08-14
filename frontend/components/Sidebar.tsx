@@ -4,7 +4,10 @@ import {
   GitCommitHorizontal, LogOut, MessageCircleMore, Settings, ShoppingBag, Users, Zap,
 } from 'lucide-react';
 import { YdisksBrandIcon } from './YdisksLogo';
+import { getHealth } from '../app/features/system/api';
+import type { BuildInfo } from '../app/features/system/types';
 
+// SidebarProps 描述侧边栏所需的导航和会话回调。
 interface SidebarProps {
   activeTab: string;
   isAdmin?: boolean;
@@ -14,20 +17,15 @@ interface SidebarProps {
   onLogout: () => void;
 }
 
-interface BuildInfo {
-  version: string;
-  commit: string;
-}
-
 const Sidebar: React.FC<SidebarProps> = ({
   activeTab, isAdmin = false, collapsed, onToggleCollapsed, onNavigate, onLogout,
 }) => {
   const [buildInfo, setBuildInfo] = useState<BuildInfo>({ version: 'dev', commit: 'unknown' });
 
   useEffect(() => {
+    // controller 控制健康检查请求的取消。
     const controller = new AbortController();
-    fetch('/health', { signal: controller.signal })
-      .then(response => response.ok ? response.json() : Promise.reject(new Error('health request failed')))
+    getHealth({ signal: controller.signal })
       .then(data => setBuildInfo({
         version: String(data.version || 'dev'),
         commit: String(data.commit || 'unknown'),

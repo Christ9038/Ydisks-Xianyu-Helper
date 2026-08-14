@@ -32,3 +32,9 @@ test('追加目标切换后拒绝旧请求响应和旧代次响应',
     expect(isCurrentCardRequest(2, 3, '2', '2')).toBe(false);
     expect(isCurrentCardRequest(3, 3, '2', '3')).toBe(false);
   });
+
+test('卡密筛选忽略名称周围空白并支持大小写无关匹配',
+  // 用户输入的名称关键字会先裁剪空白，再进行不区分大小写的匹配。
+  () => {
+    expect(filterCards(cards, '', '  ppt ')).toEqual([cards[0], cards[2]]);
+  });

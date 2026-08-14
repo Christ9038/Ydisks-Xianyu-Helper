@@ -30,6 +30,11 @@ export const verifySession = async (options?: RequestControlOptions): Promise<{ 
   return get('/api/v1/session', undefined, options);
 };
 
+// getHealth 读取服务健康检查和构建版本信息。
+export const getHealth = async (options?: RequestControlOptions): Promise<{ version?: string; commit?: string }> => {
+  return get('/health', undefined, options);
+};
+
 export const logout = async (): Promise<ApiResponse> => {
   return post('/api/v1/session/logout', {});
 };

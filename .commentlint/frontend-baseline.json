@@ -480,6 +480,36 @@
     "name": "controller"
   },
   {
+    "file": "app/features/accounts/runtime.test.ts",
+    "line": 14,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/runtime.test.ts",
+    "line": 15,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/runtime.test.ts",
+    "line": 34,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/runtime.test.ts",
+    "line": 41,
+    "kind": "variable",
+    "name": "result"
+  },
+  {
+    "file": "app/features/accounts/runtime.test.ts",
+    "line": 54,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
     "file": "app/features/accounts/state.test.ts",
     "line": 32,
     "kind": "variable",
@@ -1896,6 +1926,54 @@
     "name": "anonymous"
   },
   {
+    "file": "app/features/rules/issueState.test.ts",
+    "line": 22,
+    "kind": "variable",
+    "name": "invalid"
+  },
+  {
+    "file": "app/features/rules/issueState.test.ts",
+    "line": 31,
+    "kind": "variable",
+    "name": "visible"
+  },
+  {
+    "file": "app/features/rules/issueState.test.ts",
+    "line": 36,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/rules/issueState.test.ts",
+    "line": 42,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/rules/issueState.test.ts",
+    "line": 43,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/rules/issueState.test.ts",
+    "line": 44,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/rules/issueState.test.ts",
+    "line": 45,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/rules/issueState.test.ts",
+    "line": 46,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
     "file": "app/features/settings/hooks.ts",
     "line": 105,
     "kind": "variable",
@@ -2466,66 +2544,6 @@
     "name": "shouldSaveNotificationBindings"
   },
   {
-    "file": "components/accountEdit.test.ts",
-    "line": 16,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/accountEdit.test.ts",
-    "line": 17,
-    "kind": "variable",
-    "name": "payload"
-  },
-  {
-    "file": "components/accountEdit.test.ts",
-    "line": 29,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/accountEdit.test.ts",
-    "line": 30,
-    "kind": "variable",
-    "name": "payload"
-  },
-  {
-    "file": "components/accountEdit.test.ts",
-    "line": 38,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/accountEdit.test.ts",
-    "line": 39,
-    "kind": "variable",
-    "name": "payload"
-  },
-  {
-    "file": "components/accountEdit.test.ts",
-    "line": 4,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/accountEdit.test.ts",
-    "line": 5,
-    "kind": "variable",
-    "name": "payload"
-  },
-  {
-    "file": "components/accountEdit.test.ts",
-    "line": 51,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/accountEdit.test.ts",
-    "line": 52,
-    "kind": "variable",
-    "name": "payload"
-  },
-  {
     "file": "components/AccountList.tsx",
     "line": 151,
     "kind": "function-expression",
@@ -2794,162 +2812,6 @@
     "line": 798,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "components/accountPause.test.ts",
-    "line": 13,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/accountPause.test.ts",
-    "line": 4,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/accountPause.test.ts",
-    "line": 5,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/accountPause.test.ts",
-    "line": 9,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/accountRuntimeState.test.ts",
-    "line": 13,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/accountRuntimeState.test.ts",
-    "line": 14,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/accountRuntimeState.test.ts",
-    "line": 15,
-    "kind": "variable",
-    "name": "result"
-  },
-  {
-    "file": "components/accountRuntimeState.test.ts",
-    "line": 39,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/accountRuntimeState.test.ts",
-    "line": 40,
-    "kind": "variable",
-    "name": "current"
-  },
-  {
-    "file": "components/accountRuntimeState.test.ts",
-    "line": 45,
-    "kind": "variable",
-    "name": "result"
-  },
-  {
-    "file": "components/accountRuntimeState.test.ts",
-    "line": 5,
-    "kind": "variable",
-    "name": "account"
-  },
-  {
-    "file": "components/accountRuntimeState.test.ts",
-    "line": 58,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/accountRuntimeState.test.ts",
-    "line": 59,
-    "kind": "variable",
-    "name": "current"
-  },
-  {
-    "file": "components/automationIssueState.test.ts",
-    "line": 18,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/automationIssueState.test.ts",
-    "line": 19,
-    "kind": "variable",
-    "name": "invalid"
-  },
-  {
-    "file": "components/automationIssueState.test.ts",
-    "line": 25,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/automationIssueState.test.ts",
-    "line": 26,
-    "kind": "variable",
-    "name": "visible"
-  },
-  {
-    "file": "components/automationIssueState.test.ts",
-    "line": 31,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/automationIssueState.test.ts",
-    "line": 32,
-    "kind": "variable",
-    "name": "receivedRules"
-  },
-  {
-    "file": "components/automationIssueState.test.ts",
-    "line": 33,
-    "kind": "variable",
-    "name": "errors"
-  },
-  {
-    "file": "components/automationIssueState.test.ts",
-    "line": 35,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/automationIssueState.test.ts",
-    "line": 36,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/automationIssueState.test.ts",
-    "line": 37,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/automationIssueState.test.ts",
-    "line": 38,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/automationIssueState.test.ts",
-    "line": 39,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/automationIssueState.test.ts",
-    "line": 5,
-    "kind": "variable",
-    "name": "issue"
   },
   {
     "file": "components/CardList.tsx",
@@ -3424,30 +3286,6 @@
     "line": 79,
     "kind": "variable",
     "name": "updateData"
-  },
-  {
-    "file": "components/cardListState.test.ts",
-    "line": 11,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/cardListState.test.ts",
-    "line": 12,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/cardListState.test.ts",
-    "line": 16,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/cardListState.test.ts",
-    "line": 5,
-    "kind": "variable",
-    "name": "cards"
   },
   {
     "file": "components/Chat.tsx",
@@ -4820,12 +4658,6 @@
   {
     "file": "components/ItemList.tsx",
     "line": 941,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/itemPublishBatchState.test.ts",
-    "line": 4,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -7153,135 +6985,111 @@
   },
   {
     "file": "components/Sidebar.tsx",
-    "line": 10,
-    "kind": "member",
-    "name": "isAdmin"
-  },
-  {
-    "file": "components/Sidebar.tsx",
-    "line": 11,
-    "kind": "member",
-    "name": "collapsed"
-  },
-  {
-    "file": "components/Sidebar.tsx",
     "line": 12,
     "kind": "member",
-    "name": "onToggleCollapsed"
+    "name": "activeTab"
   },
   {
     "file": "components/Sidebar.tsx",
     "line": 13,
     "kind": "member",
-    "name": "onNavigate"
+    "name": "isAdmin"
   },
   {
     "file": "components/Sidebar.tsx",
     "line": 14,
     "kind": "member",
+    "name": "collapsed"
+  },
+  {
+    "file": "components/Sidebar.tsx",
+    "line": 15,
+    "kind": "member",
+    "name": "onToggleCollapsed"
+  },
+  {
+    "file": "components/Sidebar.tsx",
+    "line": 16,
+    "kind": "member",
+    "name": "onNavigate"
+  },
+  {
+    "file": "components/Sidebar.tsx",
+    "line": 17,
+    "kind": "member",
     "name": "onLogout"
   },
   {
     "file": "components/Sidebar.tsx",
-    "line": 18,
-    "kind": "member",
-    "name": "version"
-  },
-  {
-    "file": "components/Sidebar.tsx",
-    "line": 19,
-    "kind": "member",
-    "name": "commit"
-  },
-  {
-    "file": "components/Sidebar.tsx",
-    "line": 22,
+    "line": 20,
     "kind": "variable",
     "name": "Sidebar"
   },
   {
     "file": "components/Sidebar.tsx",
-    "line": 25,
+    "line": 23,
     "kind": "variable",
     "name": "[buildInfo, setBuildInfo]"
   },
   {
     "file": "components/Sidebar.tsx",
-    "line": 27,
+    "line": 25,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Sidebar.tsx",
-    "line": 28,
-    "kind": "variable",
-    "name": "controller"
-  },
-  {
-    "file": "components/Sidebar.tsx",
-    "line": 30,
+    "line": 29,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Sidebar.tsx",
-    "line": 31,
+    "line": 33,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Sidebar.tsx",
-    "line": 35,
+    "line": 36,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Sidebar.tsx",
-    "line": 38,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Sidebar.tsx",
-    "line": 41,
+    "line": 39,
     "kind": "variable",
     "name": "menuItems"
   },
   {
     "file": "components/Sidebar.tsx",
-    "line": 52,
+    "line": 50,
     "kind": "variable",
     "name": "displayVersion"
   },
   {
     "file": "components/Sidebar.tsx",
-    "line": 69,
+    "line": 67,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Sidebar.tsx",
-    "line": 70,
+    "line": 68,
     "kind": "variable",
     "name": "Icon"
   },
   {
     "file": "components/Sidebar.tsx",
-    "line": 71,
+    "line": 69,
     "kind": "variable",
     "name": "active"
   },
   {
     "file": "components/Sidebar.tsx",
-    "line": 79,
+    "line": 77,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "components/Sidebar.tsx",
-    "line": 9,
-    "kind": "member",
-    "name": "activeTab"
   },
   {
     "file": "components/sidebarState.test.ts",
@@ -7636,6 +7444,120 @@
     "line": 7,
     "kind": "variable",
     "name": "date"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 21,
+    "kind": "member",
+    "name": "relativePath"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 21,
+    "kind": "member",
+    "name": "source"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 22,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 23,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 28,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 29,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 32,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 33,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 34,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 39,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 42,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 43,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 48,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 51,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 52,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 53,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 58,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 70,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 9,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "index.tsx",
@@ -8827,19 +8749,25 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 112,
+    "line": 108,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 121,
-    "kind": "variable",
-    "name": "settings"
+    "line": 109,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 130,
+    "line": 109,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 122,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -8847,19 +8775,7 @@
     "file": "services/api.test.ts",
     "line": 131,
     "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 137,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 138,
-    "kind": "variable",
-    "name": "fetchMock"
+    "name": "settings"
   },
   {
     "file": "services/api.test.ts",
@@ -8869,19 +8785,31 @@
   },
   {
     "file": "services/api.test.ts",
+    "line": 141,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 147,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 148,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
     "line": 150,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 151,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 159,
+    "line": 160,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -8889,17 +8817,11 @@
     "file": "services/api.test.ts",
     "line": 161,
     "kind": "variable",
-    "name": "result"
+    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 165,
-    "kind": "variable",
-    "name": "jsonResponse"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 170,
+    "line": 169,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -8907,19 +8829,25 @@
     "file": "services/api.test.ts",
     "line": 171,
     "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 176,
-    "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.test.ts",
-    "line": 182,
+    "line": 175,
+    "kind": "variable",
+    "name": "jsonResponse"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 180,
     "kind": "function-expression",
     "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 181,
+    "kind": "variable",
+    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
@@ -8929,99 +8857,99 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 190,
+    "line": 192,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 204,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 224,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 244,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 264,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 265,
+    "line": 196,
     "kind": "variable",
-    "name": "fetchMock"
+    "name": "result"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 200,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 214,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 234,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 254,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 274,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
     "line": 275,
     "kind": "variable",
-    "name": "result"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 298,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 299,
-    "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 304,
+    "line": 285,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.test.ts",
-    "line": 313,
+    "line": 308,
     "kind": "function-expression",
     "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 309,
+    "kind": "variable",
+    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
     "line": 314,
     "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 321,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 323,
-    "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.test.ts",
-    "line": 327,
+    "line": 323,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 328,
+    "line": 324,
     "kind": "variable",
     "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 331,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 333,
+    "kind": "variable",
+    "name": "result"
   },
   {
     "file": "services/api.test.ts",
@@ -9049,73 +8977,85 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 359,
+    "line": 357,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 358,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 369,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 363,
+    "line": 373,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 378,
+    "line": 388,
     "kind": "variable",
     "name": "items"
   },
   {
     "file": "services/api.test.ts",
-    "line": 393,
+    "line": 403,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 394,
+    "line": 404,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 405,
+    "line": 415,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 411,
+    "line": 421,
     "kind": "variable",
     "name": "settings"
   },
   {
     "file": "services/api.test.ts",
-    "line": 416,
+    "line": 426,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 417,
+    "line": 427,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 428,
+    "line": 438,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 429,
+    "line": 439,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 429,
+    "line": 439,
     "kind": "variable",
     "name": "fetchMock"
   },
@@ -9127,39 +9067,27 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 455,
+    "line": 465,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 456,
+    "line": 466,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 470,
+    "line": 480,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 484,
+    "line": 494,
     "kind": "variable",
     "name": "accounts"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 495,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 496,
-    "kind": "variable",
-    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
@@ -9169,69 +9097,75 @@
   },
   {
     "file": "services/api.test.ts",
+    "line": 505,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 506,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
     "line": 51,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 510,
+    "line": 520,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 511,
+    "line": 521,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 522,
+    "line": 532,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 523,
+    "line": 533,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 536,
+    "line": 546,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 537,
+    "line": 547,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 554,
+    "line": 564,
     "kind": "variable",
     "name": "status"
   },
   {
     "file": "services/api.test.ts",
-    "line": 562,
+    "line": 572,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 569,
+    "line": 579,
     "kind": "variable",
     "name": "controller"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 580,
-    "kind": "function-expression",
-    "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
@@ -9241,61 +9175,49 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 60,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 603,
-    "kind": "variable",
-    "name": "rules"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 617,
+    "line": 590,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 618,
+    "line": 613,
     "kind": "variable",
-    "name": "fetchMock"
+    "name": "rules"
   },
   {
     "file": "services/api.test.ts",
     "line": 627,
-    "kind": "variable",
-    "name": "rules"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 63,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 639,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 640,
+    "line": 628,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 655,
+    "line": 63,
+    "kind": "variable",
+    "name": "controller"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 637,
+    "kind": "variable",
+    "name": "rules"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 649,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 656,
+    "line": 650,
     "kind": "variable",
     "name": "fetchMock"
   },
@@ -9313,261 +9235,249 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 677,
+    "line": 675,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 678,
+    "line": 676,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 693,
+    "line": 687,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 688,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 69,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 70,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 703,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 701,
+    "line": 711,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 702,
+    "line": 712,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 713,
+    "line": 723,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 720,
+    "line": 73,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 721,
+    "line": 730,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 731,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 735,
+    "line": 745,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 736,
+    "line": 746,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 75,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 757,
+    "line": 767,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 773,
+    "line": 783,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 774,
+    "line": 784,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 802,
+    "line": 812,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 826,
+    "line": 836,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 827,
+    "line": 837,
     "kind": "variable",
     "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 839,
-    "kind": "variable",
-    "name": "body"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 840,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 840,
-    "kind": "member",
-    "name": "action_type"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 848,
-    "kind": "function-expression",
-    "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
     "line": 849,
     "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 866,
-    "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 98,
+    "line": 85,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 99,
+    "line": 850,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 99,
+    "line": 850,
+    "kind": "member",
+    "name": "action_type"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 858,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 859,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
-    "file": "services/api.ts",
-    "line": 100,
+    "file": "services/api.test.ts",
+    "line": 876,
     "kind": "variable",
-    "name": "getAccountTaskSettings"
+    "name": "body"
   },
   {
     "file": "services/api.ts",
-    "line": 1001,
+    "line": 1006,
     "kind": "variable",
     "name": "setMessageNotification"
   },
   {
     "file": "services/api.ts",
-    "line": 1005,
+    "line": 1010,
     "kind": "variable",
     "name": "deleteMessageNotification"
   },
   {
     "file": "services/api.ts",
-    "line": 1009,
+    "line": 1014,
     "kind": "variable",
     "name": "deleteAccountNotifications"
   },
   {
     "file": "services/api.ts",
-    "line": 1015,
+    "line": 1020,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.ts",
-    "line": 1019,
+    "line": 1024,
     "kind": "variable",
     "name": "setAccountBindings"
   },
   {
     "file": "services/api.ts",
-    "line": 1029,
+    "line": 1034,
     "kind": "variable",
     "name": "getDefaultReplies"
   },
   {
     "file": "services/api.ts",
-    "line": 103,
-    "kind": "variable",
-    "name": "updateAccountTaskSettings"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 1033,
+    "line": 1038,
     "kind": "variable",
     "name": "getDefaultReply"
   },
   {
     "file": "services/api.ts",
-    "line": 1034,
+    "line": 1039,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.ts",
-    "line": 1044,
+    "line": 1049,
     "kind": "variable",
     "name": "updateDefaultReply"
   },
   {
     "file": "services/api.ts",
-    "line": 1053,
+    "line": 105,
+    "kind": "variable",
+    "name": "getAccountTaskSettings"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 1058,
     "kind": "variable",
     "name": "deleteDefaultReply"
   },
   {
     "file": "services/api.ts",
-    "line": 1057,
+    "line": 1062,
     "kind": "variable",
     "name": "clearDefaultReplyRecords"
   },
   {
     "file": "services/api.ts",
-    "line": 106,
+    "line": 108,
     "kind": "variable",
-    "name": "runAccountTask"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 109,
-    "kind": "member",
-    "name": "has_more"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 109,
-    "kind": "member",
-    "name": "next_cursor"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 109,
-    "kind": "member",
-    "name": "sessions"
+    "name": "updateAccountTaskSettings"
   },
   {
     "file": "services/api.ts",
@@ -9579,19 +9489,37 @@
     "file": "services/api.ts",
     "line": 111,
     "kind": "variable",
-    "name": "getChatSessionPage"
+    "name": "runAccountTask"
   },
   {
     "file": "services/api.ts",
-    "line": 112,
+    "line": 114,
+    "kind": "member",
+    "name": "has_more"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 114,
+    "kind": "member",
+    "name": "next_cursor"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 114,
+    "kind": "member",
+    "name": "sessions"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 116,
     "kind": "variable",
-    "name": "result"
+    "name": "getChatSessionPage"
   },
   {
     "file": "services/api.ts",
     "line": 117,
     "kind": "variable",
-    "name": "getChatSessions"
+    "name": "result"
   },
   {
     "file": "services/api.ts",
@@ -9601,93 +9529,51 @@
   },
   {
     "file": "services/api.ts",
-    "line": 121,
+    "line": 122,
+    "kind": "variable",
+    "name": "getChatSessions"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 126,
     "kind": "member",
     "name": "messages"
   },
   {
     "file": "services/api.ts",
-    "line": 122,
+    "line": 127,
     "kind": "member",
     "name": "has_more"
   },
   {
     "file": "services/api.ts",
-    "line": 123,
+    "line": 128,
     "kind": "member",
     "name": "next_cursor"
   },
   {
     "file": "services/api.ts",
-    "line": 124,
+    "line": 129,
     "kind": "member",
     "name": "session"
   },
   {
     "file": "services/api.ts",
-    "line": 127,
+    "line": 132,
     "kind": "variable",
     "name": "getChatMessagePage"
   },
   {
     "file": "services/api.ts",
-    "line": 128,
+    "line": 133,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.ts",
-    "line": 134,
+    "line": 139,
     "kind": "variable",
     "name": "getChatMessages"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 137,
-    "kind": "variable",
-    "name": "sendChatMessage"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 138,
-    "kind": "member",
-    "name": "account_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 138,
-    "kind": "member",
-    "name": "buyer_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 138,
-    "kind": "member",
-    "name": "buyer_name"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 138,
-    "kind": "member",
-    "name": "chat_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 139,
-    "kind": "member",
-    "name": "item_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 139,
-    "kind": "member",
-    "name": "item_title"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 139,
-    "kind": "member",
-    "name": "text"
   },
   {
     "file": "services/api.ts",
@@ -9697,15 +9583,9 @@
   },
   {
     "file": "services/api.ts",
-    "line": 140,
-    "kind": "member",
-    "name": "message"
-  },
-  {
-    "file": "services/api.ts",
     "line": 142,
     "kind": "variable",
-    "name": "sendChatImage"
+    "name": "sendChatMessage"
   },
   {
     "file": "services/api.ts",
@@ -9735,18 +9615,6 @@
     "file": "services/api.ts",
     "line": 144,
     "kind": "member",
-    "name": "buyer_avatar_url"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 144,
-    "kind": "member",
-    "name": "image"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 144,
-    "kind": "member",
     "name": "item_id"
   },
   {
@@ -9757,117 +9625,171 @@
   },
   {
     "file": "services/api.ts",
+    "line": 144,
+    "kind": "member",
+    "name": "text"
+  },
+  {
+    "file": "services/api.ts",
     "line": 145,
     "kind": "member",
     "name": "message"
   },
   {
     "file": "services/api.ts",
-    "line": 146,
-    "kind": "variable",
-    "name": "form"
-  },
-  {
-    "file": "services/api.ts",
     "line": 147,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 151,
     "kind": "variable",
-    "name": "markChatRead"
+    "name": "sendChatImage"
   },
   {
     "file": "services/api.ts",
-    "line": 155,
+    "line": 148,
     "kind": "member",
-    "name": "state"
+    "name": "account_id"
   },
   {
     "file": "services/api.ts",
-    "line": 156,
+    "line": 148,
+    "kind": "member",
+    "name": "buyer_id"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 148,
+    "kind": "member",
+    "name": "buyer_name"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 148,
+    "kind": "member",
+    "name": "chat_id"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 149,
+    "kind": "member",
+    "name": "buyer_avatar_url"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 149,
+    "kind": "member",
+    "name": "image"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 149,
+    "kind": "member",
+    "name": "item_id"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 149,
+    "kind": "member",
+    "name": "item_title"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 150,
     "kind": "member",
     "name": "message"
   },
   {
     "file": "services/api.ts",
-    "line": 157,
+    "line": 151,
+    "kind": "variable",
+    "name": "form"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 152,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 156,
+    "kind": "variable",
+    "name": "markChatRead"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 160,
+    "kind": "member",
+    "name": "state"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 161,
+    "kind": "member",
+    "name": "message"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 162,
     "kind": "member",
     "name": "connected"
   },
   {
     "file": "services/api.ts",
-    "line": 158,
+    "line": 163,
     "kind": "member",
     "name": "failures"
   },
   {
     "file": "services/api.ts",
-    "line": 159,
+    "line": 164,
     "kind": "member",
     "name": "updated_at"
   },
   {
     "file": "services/api.ts",
-    "line": 162,
+    "line": 167,
     "kind": "variable",
     "name": "getAccountRuntimeStatuses"
   },
   {
     "file": "services/api.ts",
-    "line": 166,
+    "line": 171,
     "kind": "variable",
     "name": "generateQRLogin"
   },
   {
     "file": "services/api.ts",
-    "line": 171,
+    "line": 176,
     "kind": "variable",
     "name": "checkQRLoginStatus"
   },
   {
     "file": "services/api.ts",
-    "line": 175,
+    "line": 180,
     "kind": "variable",
     "name": "completeQRVerification"
   },
   {
     "file": "services/api.ts",
-    "line": 189,
+    "line": 194,
     "kind": "variable",
     "name": "updateAccountStatus"
   },
   {
     "file": "services/api.ts",
-    "line": 193,
+    "line": 198,
     "kind": "variable",
     "name": "deleteAccount"
   },
   {
     "file": "services/api.ts",
-    "line": 197,
+    "line": 202,
     "kind": "variable",
     "name": "updateAccountRemark"
   },
   {
     "file": "services/api.ts",
-    "line": 201,
+    "line": 206,
     "kind": "variable",
     "name": "updateAccountAutoConfirm"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 205,
-    "kind": "variable",
-    "name": "updateAccountPauseDuration"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 209,
-    "kind": "variable",
-    "name": "updateAccountCookie"
   },
   {
     "file": "services/api.ts",
@@ -9901,111 +9823,111 @@
   },
   {
     "file": "services/api.ts",
+    "line": 210,
+    "kind": "variable",
+    "name": "updateAccountPauseDuration"
+  },
+  {
+    "file": "services/api.ts",
     "line": 214,
-    "kind": "member",
-    "name": "cookie"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 215,
-    "kind": "member",
-    "name": "remark"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 216,
-    "kind": "member",
-    "name": "auto_confirm"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 217,
-    "kind": "member",
-    "name": "pause_duration"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 218,
-    "kind": "member",
-    "name": "username"
+    "kind": "variable",
+    "name": "updateAccountCookie"
   },
   {
     "file": "services/api.ts",
     "line": 219,
     "kind": "member",
-    "name": "login_password"
+    "name": "cookie"
   },
   {
     "file": "services/api.ts",
     "line": 220,
     "kind": "member",
-    "name": "clear_password"
+    "name": "remark"
   },
   {
     "file": "services/api.ts",
     "line": 221,
     "kind": "member",
-    "name": "show_browser"
+    "name": "auto_confirm"
   },
   {
     "file": "services/api.ts",
     "line": 222,
     "kind": "member",
-    "name": "channel_ids"
+    "name": "pause_duration"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 223,
+    "kind": "member",
+    "name": "username"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 224,
+    "kind": "member",
+    "name": "login_password"
   },
   {
     "file": "services/api.ts",
     "line": 225,
+    "kind": "member",
+    "name": "clear_password"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 226,
+    "kind": "member",
+    "name": "show_browser"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 227,
+    "kind": "member",
+    "name": "channel_ids"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 230,
     "kind": "variable",
     "name": "updateAccountSettings"
   },
   {
     "file": "services/api.ts",
-    "line": 230,
+    "line": 235,
     "kind": "member",
     "name": "can_open_long_login"
   },
   {
     "file": "services/api.ts",
-    "line": 231,
+    "line": 236,
     "kind": "member",
     "name": "enabled"
   },
   {
     "file": "services/api.ts",
-    "line": 234,
+    "line": 239,
     "kind": "variable",
     "name": "getLongLoginSettings"
   },
   {
     "file": "services/api.ts",
-    "line": 238,
+    "line": 243,
     "kind": "variable",
     "name": "setLongLoginSettings"
   },
   {
     "file": "services/api.ts",
-    "line": 243,
+    "line": 248,
     "kind": "member",
     "name": "success"
   },
   {
     "file": "services/api.ts",
-    "line": 244,
+    "line": 249,
     "kind": "member",
     "name": "session_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 245,
-    "kind": "member",
-    "name": "status"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 246,
-    "kind": "member",
-    "name": "message"
   },
   {
     "file": "services/api.ts",
@@ -10027,129 +9949,123 @@
   },
   {
     "file": "services/api.ts",
-    "line": 252,
-    "kind": "member",
-    "name": "account_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 253,
-    "kind": "member",
-    "name": "is_new_account"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 254,
-    "kind": "member",
-    "name": "cookie_count"
-  },
-  {
-    "file": "services/api.ts",
     "line": 255,
     "kind": "member",
-    "name": "verification_url"
+    "name": "status"
   },
   {
     "file": "services/api.ts",
     "line": 256,
     "kind": "member",
-    "name": "screenshot_path"
+    "name": "message"
   },
   {
     "file": "services/api.ts",
     "line": 257,
     "kind": "member",
-    "name": "qr_code_url"
+    "name": "account_id"
   },
   {
     "file": "services/api.ts",
     "line": 258,
     "kind": "member",
-    "name": "error"
+    "name": "is_new_account"
   },
   {
     "file": "services/api.ts",
     "line": 259,
     "kind": "member",
-    "name": "reason"
+    "name": "cookie_count"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 260,
+    "kind": "member",
+    "name": "verification_url"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 261,
+    "kind": "member",
+    "name": "screenshot_path"
   },
   {
     "file": "services/api.ts",
     "line": 262,
-    "kind": "variable",
-    "name": "passwordLogin"
+    "kind": "member",
+    "name": "qr_code_url"
   },
   {
     "file": "services/api.ts",
     "line": 263,
     "kind": "member",
-    "name": "account_id"
+    "name": "error"
   },
   {
     "file": "services/api.ts",
     "line": 264,
     "kind": "member",
+    "name": "reason"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 267,
+    "kind": "variable",
+    "name": "passwordLogin"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 268,
+    "kind": "member",
+    "name": "account_id"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 269,
+    "kind": "member",
     "name": "account"
   },
   {
     "file": "services/api.ts",
-    "line": 265,
+    "line": 270,
     "kind": "member",
     "name": "password"
   },
   {
     "file": "services/api.ts",
-    "line": 266,
+    "line": 271,
     "kind": "member",
     "name": "show_browser"
   },
   {
     "file": "services/api.ts",
-    "line": 271,
+    "line": 276,
     "kind": "variable",
     "name": "checkPasswordLoginStatus"
   },
   {
     "file": "services/api.ts",
-    "line": 275,
+    "line": 280,
     "kind": "variable",
     "name": "cancelPasswordLogin"
   },
   {
     "file": "services/api.ts",
-    "line": 279,
+    "line": 284,
     "kind": "variable",
     "name": "refreshAccountProfile"
   },
   {
     "file": "services/api.ts",
-    "line": 283,
+    "line": 288,
     "kind": "variable",
     "name": "updateAccountLoginInfo"
   },
   {
     "file": "services/api.ts",
-    "line": 284,
+    "line": 289,
     "kind": "member",
     "name": "username"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 285,
-    "kind": "member",
-    "name": "login_password"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 286,
-    "kind": "member",
-    "name": "clear_password"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 287,
-    "kind": "member",
-    "name": "show_browser"
   },
   {
     "file": "services/api.ts",
@@ -10189,493 +10105,511 @@
   },
   {
     "file": "services/api.ts",
+    "line": 290,
+    "kind": "member",
+    "name": "login_password"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 291,
+    "kind": "member",
+    "name": "clear_password"
+  },
+  {
+    "file": "services/api.ts",
     "line": 292,
-    "kind": "variable",
-    "name": "getAllAISettings"
+    "kind": "member",
+    "name": "show_browser"
   },
   {
     "file": "services/api.ts",
     "line": 297,
     "kind": "variable",
+    "name": "getAllAISettings"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 302,
+    "kind": "variable",
     "name": "normalizeOrderStatus"
   },
   {
     "file": "services/api.ts",
-    "line": 298,
+    "line": 303,
     "kind": "variable",
     "name": "status"
   },
   {
     "file": "services/api.ts",
-    "line": 305,
+    "line": 310,
     "kind": "variable",
     "name": "getOrders"
   },
   {
     "file": "services/api.ts",
-    "line": 313,
+    "line": 318,
     "kind": "variable",
     "name": "params"
   },
   {
     "file": "services/api.ts",
-    "line": 318,
+    "line": 323,
     "kind": "variable",
     "name": "res"
   },
   {
     "file": "services/api.ts",
-    "line": 321,
+    "line": 326,
     "kind": "variable",
     "name": "rawOrders"
   },
   {
     "file": "services/api.ts",
-    "line": 322,
+    "line": 327,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.ts",
-    "line": 322,
+    "line": 327,
     "kind": "variable",
     "name": "orders"
   },
   {
     "file": "services/api.ts",
-    "line": 33,
-    "kind": "variable",
-    "name": "logout"
+    "line": 34,
+    "kind": "member",
+    "name": "commit"
   },
   {
     "file": "services/api.ts",
-    "line": 338,
+    "line": 34,
+    "kind": "member",
+    "name": "version"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 343,
     "kind": "member",
     "name": "data"
   },
   {
     "file": "services/api.ts",
-    "line": 338,
+    "line": 343,
     "kind": "member",
     "name": "success"
   },
   {
     "file": "services/api.ts",
-    "line": 338,
+    "line": 343,
     "kind": "variable",
     "name": "getOrderDetail"
   },
   {
     "file": "services/api.ts",
-    "line": 339,
+    "line": 344,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.ts",
-    "line": 346,
+    "line": 351,
     "kind": "variable",
     "name": "updateOrder"
   },
   {
     "file": "services/api.ts",
-    "line": 350,
+    "line": 355,
     "kind": "variable",
     "name": "deleteOrder"
   },
   {
     "file": "services/api.ts",
-    "line": 354,
+    "line": 359,
     "kind": "variable",
     "name": "syncOrders"
   },
   {
     "file": "services/api.ts",
-    "line": 355,
+    "line": 360,
     "kind": "variable",
     "name": "formData"
   },
   {
     "file": "services/api.ts",
-    "line": 362,
+    "line": 367,
     "kind": "variable",
     "name": "syncSingleOrder"
   },
   {
     "file": "services/api.ts",
-    "line": 366,
+    "line": 371,
     "kind": "variable",
     "name": "manualShipOrder"
   },
   {
     "file": "services/api.ts",
-    "line": 37,
-    "kind": "variable",
-    "name": "changePassword"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 373,
+    "line": 378,
     "kind": "variable",
     "name": "importOrders"
   },
   {
     "file": "services/api.ts",
-    "line": 374,
+    "line": 379,
     "kind": "variable",
     "name": "isFormData"
   },
   {
     "file": "services/api.ts",
-    "line": 379,
+    "line": 38,
+    "kind": "variable",
+    "name": "logout"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 384,
     "kind": "variable",
     "name": "getAdminStats"
   },
   {
     "file": "services/api.ts",
-    "line": 383,
+    "line": 388,
     "kind": "variable",
     "name": "getDashboardStats"
   },
   {
     "file": "services/api.ts",
-    "line": 387,
+    "line": 392,
     "kind": "member",
     "name": "end_date"
   },
   {
     "file": "services/api.ts",
-    "line": 387,
+    "line": 392,
     "kind": "member",
     "name": "start_date"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 387,
-    "kind": "variable",
-    "name": "getOrderAnalytics"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 388,
-    "kind": "member",
-    "name": "end_date"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 388,
-    "kind": "member",
-    "name": "start_date"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 388,
-    "kind": "variable",
-    "name": "params"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 391,
-    "kind": "variable",
-    "name": "endDate"
   },
   {
     "file": "services/api.ts",
     "line": 392,
     "kind": "variable",
-    "name": "startDate"
+    "name": "getOrderAnalytics"
   },
   {
     "file": "services/api.ts",
-    "line": 409,
-    "kind": "member",
-    "name": "orders"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 41,
-    "kind": "variable",
-    "name": "updateLoginCredentials"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 410,
-    "kind": "member",
-    "name": "total"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 411,
-    "kind": "member",
-    "name": "truncated"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 414,
+    "line": 393,
     "kind": "member",
     "name": "end_date"
   },
   {
     "file": "services/api.ts",
-    "line": 414,
+    "line": 393,
     "kind": "member",
     "name": "start_date"
   },
   {
     "file": "services/api.ts",
+    "line": 393,
+    "kind": "variable",
+    "name": "params"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 396,
+    "kind": "variable",
+    "name": "endDate"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 397,
+    "kind": "variable",
+    "name": "startDate"
+  },
+  {
+    "file": "services/api.ts",
     "line": 414,
+    "kind": "member",
+    "name": "orders"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 415,
+    "kind": "member",
+    "name": "total"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 416,
+    "kind": "member",
+    "name": "truncated"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 419,
+    "kind": "member",
+    "name": "end_date"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 419,
+    "kind": "member",
+    "name": "start_date"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 419,
     "kind": "variable",
     "name": "getValidOrders"
   },
   {
     "file": "services/api.ts",
-    "line": 415,
-    "kind": "variable",
-    "name": "res"
-  },
-  {
-    "file": "services/api.ts",
     "line": 42,
-    "kind": "member",
-    "name": "current_password"
+    "kind": "variable",
+    "name": "changePassword"
   },
   {
     "file": "services/api.ts",
     "line": 420,
     "kind": "variable",
+    "name": "res"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 425,
+    "kind": "variable",
     "name": "orders"
   },
   {
     "file": "services/api.ts",
-    "line": 421,
+    "line": 426,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.ts",
-    "line": 421,
+    "line": 426,
     "kind": "variable",
     "name": "normalized"
   },
   {
     "file": "services/api.ts",
-    "line": 43,
-    "kind": "member",
-    "name": "new_username"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 435,
+    "line": 440,
     "kind": "variable",
     "name": "normalizeCard"
   },
   {
     "file": "services/api.ts",
-    "line": 436,
+    "line": 441,
     "kind": "variable",
     "name": "apiConfig"
   },
   {
     "file": "services/api.ts",
-    "line": 44,
-    "kind": "member",
-    "name": "new_password"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 447,
+    "line": 452,
     "kind": "variable",
     "name": "cardPayload"
   },
   {
     "file": "services/api.ts",
-    "line": 45,
-    "kind": "member",
-    "name": "requires_relogin"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 452,
+    "line": 457,
     "kind": "variable",
     "name": "getCards"
   },
   {
     "file": "services/api.ts",
-    "line": 453,
+    "line": 458,
     "kind": "variable",
     "name": "res"
   },
   {
     "file": "services/api.ts",
-    "line": 454,
+    "line": 459,
     "kind": "variable",
     "name": "cards"
   },
   {
     "file": "services/api.ts",
-    "line": 458,
+    "line": 46,
+    "kind": "variable",
+    "name": "updateLoginCredentials"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 463,
     "kind": "variable",
     "name": "createCard"
   },
   {
     "file": "services/api.ts",
-    "line": 462,
+    "line": 467,
     "kind": "variable",
     "name": "updateCard"
   },
   {
     "file": "services/api.ts",
-    "line": 466,
-    "kind": "variable",
-    "name": "deleteCard"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 470,
-    "kind": "variable",
-    "name": "getCardDetails"
+    "line": 47,
+    "kind": "member",
+    "name": "current_password"
   },
   {
     "file": "services/api.ts",
     "line": 471,
     "kind": "variable",
+    "name": "deleteCard"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 475,
+    "kind": "variable",
+    "name": "getCardDetails"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 476,
+    "kind": "variable",
     "name": "card"
   },
   {
     "file": "services/api.ts",
-    "line": 494,
-    "kind": "variable",
-    "name": "normalizeBooleanFlag"
+    "line": 48,
+    "kind": "member",
+    "name": "new_username"
   },
   {
     "file": "services/api.ts",
-    "line": 497,
-    "kind": "variable",
-    "name": "getItems"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 498,
-    "kind": "variable",
-    "name": "res"
+    "line": 49,
+    "kind": "member",
+    "name": "new_password"
   },
   {
     "file": "services/api.ts",
     "line": 499,
     "kind": "variable",
-    "name": "items"
+    "name": "normalizeBooleanFlag"
   },
   {
     "file": "services/api.ts",
     "line": 50,
-    "kind": "variable",
-    "name": "addAccount"
+    "kind": "member",
+    "name": "requires_relogin"
   },
   {
     "file": "services/api.ts",
-    "line": 500,
+    "line": 502,
+    "kind": "variable",
+    "name": "getItems"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 503,
+    "kind": "variable",
+    "name": "res"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 504,
+    "kind": "variable",
+    "name": "items"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 505,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.ts",
-    "line": 509,
+    "line": 514,
     "kind": "variable",
     "name": "syncItemsFromAccount"
   },
   {
     "file": "services/api.ts",
-    "line": 513,
+    "line": 518,
     "kind": "variable",
     "name": "deleteItem"
   },
   {
     "file": "services/api.ts",
-    "line": 517,
+    "line": 522,
     "kind": "variable",
     "name": "createItem"
   },
   {
     "file": "services/api.ts",
-    "line": 521,
+    "line": 526,
     "kind": "variable",
     "name": "publishItem"
   },
   {
     "file": "services/api.ts",
-    "line": 522,
+    "line": 527,
     "kind": "member",
     "name": "cookie_id"
   },
   {
     "file": "services/api.ts",
-    "line": 523,
+    "line": 528,
     "kind": "member",
     "name": "title"
   },
   {
     "file": "services/api.ts",
-    "line": 524,
+    "line": 529,
     "kind": "member",
     "name": "description"
   },
   {
     "file": "services/api.ts",
-    "line": 525,
+    "line": 530,
     "kind": "member",
     "name": "price"
   },
   {
     "file": "services/api.ts",
-    "line": 526,
+    "line": 531,
     "kind": "member",
     "name": "original_price"
   },
   {
     "file": "services/api.ts",
-    "line": 527,
+    "line": 532,
     "kind": "member",
     "name": "quantity"
   },
   {
     "file": "services/api.ts",
-    "line": 528,
+    "line": 533,
     "kind": "member",
     "name": "postage_mode"
   },
   {
     "file": "services/api.ts",
-    "line": 529,
+    "line": 534,
     "kind": "member",
     "name": "postage"
   },
   {
     "file": "services/api.ts",
-    "line": 530,
+    "line": 535,
     "kind": "member",
     "name": "images"
   },
   {
     "file": "services/api.ts",
-    "line": 531,
+    "line": 536,
     "kind": "member",
     "name": "location"
   },
   {
     "file": "services/api.ts",
-    "line": 533,
+    "line": 538,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.ts",
-    "line": 54,
-    "kind": "variable",
-    "name": "accountAvatarURL"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 543,
+    "line": 548,
     "kind": "variable",
     "name": "file"
   },
@@ -10683,125 +10617,125 @@
     "file": "services/api.ts",
     "line": 55,
     "kind": "variable",
-    "name": "raw"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 550,
-    "kind": "member",
-    "name": "area"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 551,
-    "kind": "member",
-    "name": "city"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 552,
-    "kind": "member",
-    "name": "division_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 553,
-    "kind": "member",
-    "name": "longitude"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 554,
-    "kind": "member",
-    "name": "latitude"
+    "name": "addAccount"
   },
   {
     "file": "services/api.ts",
     "line": 555,
     "kind": "member",
-    "name": "poi_id"
+    "name": "area"
   },
   {
     "file": "services/api.ts",
     "line": 556,
     "kind": "member",
-    "name": "poi_name"
+    "name": "city"
   },
   {
     "file": "services/api.ts",
     "line": 557,
     "kind": "member",
-    "name": "province"
+    "name": "division_id"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 558,
+    "kind": "member",
+    "name": "longitude"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 559,
+    "kind": "member",
+    "name": "latitude"
   },
   {
     "file": "services/api.ts",
     "line": 560,
+    "kind": "member",
+    "name": "poi_id"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 561,
+    "kind": "member",
+    "name": "poi_name"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 562,
+    "kind": "member",
+    "name": "province"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 565,
     "kind": "variable",
     "name": "recommendPublishCategory"
   },
   {
     "file": "services/api.ts",
-    "line": 572,
+    "line": 577,
     "kind": "variable",
     "name": "previewItemPublishBatch"
   },
   {
     "file": "services/api.ts",
-    "line": 573,
+    "line": 578,
     "kind": "member",
     "name": "file"
   },
   {
     "file": "services/api.ts",
-    "line": 574,
+    "line": 579,
     "kind": "member",
     "name": "imagesZip"
   },
   {
     "file": "services/api.ts",
-    "line": 575,
+    "line": 580,
     "kind": "member",
     "name": "defaultCookieId"
   },
   {
     "file": "services/api.ts",
-    "line": 576,
+    "line": 581,
     "kind": "member",
     "name": "fallbackCategory"
   },
   {
     "file": "services/api.ts",
-    "line": 577,
+    "line": 582,
     "kind": "member",
     "name": "catId"
   },
   {
     "file": "services/api.ts",
-    "line": 578,
+    "line": 583,
     "kind": "member",
     "name": "catName"
   },
   {
     "file": "services/api.ts",
-    "line": 579,
+    "line": 584,
     "kind": "member",
     "name": "channelCatId"
   },
   {
     "file": "services/api.ts",
-    "line": 580,
+    "line": 585,
     "kind": "member",
     "name": "tbCatId"
   },
   {
     "file": "services/api.ts",
-    "line": 582,
+    "line": 587,
     "kind": "member",
     "name": "location"
   },
   {
     "file": "services/api.ts",
-    "line": 584,
+    "line": 589,
     "kind": "variable",
     "name": "body"
   },
@@ -10809,71 +10743,65 @@
     "file": "services/api.ts",
     "line": 59,
     "kind": "variable",
-    "name": "url"
+    "name": "accountAvatarURL"
   },
   {
     "file": "services/api.ts",
-    "line": 596,
+    "line": 60,
+    "kind": "variable",
+    "name": "raw"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 601,
     "kind": "variable",
     "name": "startItemPublishBatch"
   },
   {
     "file": "services/api.ts",
-    "line": 600,
+    "line": 605,
     "kind": "variable",
     "name": "getItemPublishBatch"
   },
   {
     "file": "services/api.ts",
-    "line": 604,
+    "line": 609,
     "kind": "variable",
     "name": "getItemPublishBatches"
   },
   {
     "file": "services/api.ts",
-    "line": 605,
+    "line": 610,
     "kind": "variable",
     "name": "res"
   },
   {
     "file": "services/api.ts",
-    "line": 609,
+    "line": 614,
     "kind": "variable",
     "name": "deleteItemPublishBatch"
   },
   {
     "file": "services/api.ts",
-    "line": 613,
+    "line": 618,
     "kind": "variable",
     "name": "cancelItemPublishBatch"
   },
   {
     "file": "services/api.ts",
-    "line": 617,
+    "line": 622,
     "kind": "variable",
     "name": "retryFailedItemPublishBatch"
   },
   {
     "file": "services/api.ts",
-    "line": 621,
+    "line": 626,
     "kind": "variable",
     "name": "updateItem"
   },
   {
     "file": "services/api.ts",
-    "line": 626,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 634,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 635,
+    "line": 631,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -10885,165 +10813,135 @@
   },
   {
     "file": "services/api.ts",
-    "line": 652,
+    "line": 64,
+    "kind": "variable",
+    "name": "url"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 640,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.ts",
-    "line": 653,
+    "line": 644,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.ts",
-    "line": 654,
+    "line": 657,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 658,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 659,
     "kind": "variable",
     "name": "cfg"
   },
   {
     "file": "services/api.ts",
-    "line": 671,
+    "line": 676,
     "kind": "variable",
     "name": "getShippingRules"
   },
   {
     "file": "services/api.ts",
-    "line": 672,
+    "line": 677,
     "kind": "variable",
     "name": "res"
   },
   {
     "file": "services/api.ts",
-    "line": 673,
+    "line": 678,
     "kind": "variable",
     "name": "rules"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 678,
-    "kind": "member",
-    "name": "cookieId"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 679,
-    "kind": "member",
-    "name": "triggerType"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 680,
-    "kind": "member",
-    "name": "enabled"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 681,
-    "kind": "member",
-    "name": "search"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 682,
-    "kind": "member",
-    "name": "page"
   },
   {
     "file": "services/api.ts",
     "line": 683,
     "kind": "member",
-    "name": "pageSize"
+    "name": "cookieId"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 684,
+    "kind": "member",
+    "name": "triggerType"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 685,
+    "kind": "member",
+    "name": "enabled"
   },
   {
     "file": "services/api.ts",
     "line": 686,
+    "kind": "member",
+    "name": "search"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 687,
+    "kind": "member",
+    "name": "page"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 688,
+    "kind": "member",
+    "name": "pageSize"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 691,
     "kind": "variable",
     "name": "getShippingRulesPage"
   },
   {
     "file": "services/api.ts",
-    "line": 69,
-    "kind": "variable",
-    "name": "getAccountDetails"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 694,
+    "line": 699,
     "kind": "variable",
     "name": "res"
   },
   {
     "file": "services/api.ts",
-    "line": 70,
-    "kind": "variable",
-    "name": "data"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 702,
+    "line": 707,
     "kind": "variable",
     "name": "rules"
   },
   {
     "file": "services/api.ts",
-    "line": 71,
-    "kind": "variable",
-    "name": "avatarVersion"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 711,
+    "line": 716,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.ts",
-    "line": 716,
+    "line": 721,
     "kind": "variable",
     "name": "orderAutomationActions"
   },
   {
     "file": "services/api.ts",
-    "line": 718,
+    "line": 723,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.ts",
-    "line": 72,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 720,
+    "line": 725,
     "kind": "variable",
     "name": "sendCards"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 721,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 722,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 723,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 723,
-    "kind": "variable",
-    "name": "others"
   },
   {
     "file": "services/api.ts",
@@ -11053,565 +10951,613 @@
   },
   {
     "file": "services/api.ts",
+    "line": 727,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 728,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 728,
+    "kind": "variable",
+    "name": "others"
+  },
+  {
+    "file": "services/api.ts",
     "line": 731,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 736,
     "kind": "variable",
     "name": "updateShippingRule"
   },
   {
     "file": "services/api.ts",
-    "line": 732,
+    "line": 737,
     "kind": "variable",
     "name": "triggerType"
   },
   {
     "file": "services/api.ts",
-    "line": 733,
+    "line": 738,
     "kind": "variable",
     "name": "triggerName"
   },
   {
     "file": "services/api.ts",
-    "line": 738,
+    "line": 74,
     "kind": "variable",
-    "name": "generatedName"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 742,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 742,
-    "kind": "variable",
-    "name": "preservedNonCardActions"
+    "name": "getAccountDetails"
   },
   {
     "file": "services/api.ts",
     "line": 743,
     "kind": "variable",
-    "name": "baseActions"
+    "name": "generatedName"
   },
   {
     "file": "services/api.ts",
-    "line": 744,
+    "line": 747,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.ts",
-    "line": 764,
+    "line": 747,
+    "kind": "variable",
+    "name": "preservedNonCardActions"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 748,
+    "kind": "variable",
+    "name": "baseActions"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 749,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 75,
+    "kind": "variable",
+    "name": "data"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 76,
+    "kind": "variable",
+    "name": "avatarVersion"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 769,
     "kind": "variable",
     "name": "actions"
   },
   {
     "file": "services/api.ts",
-    "line": 765,
-    "kind": "variable",
-    "name": "payload"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 773,
+    "line": 77,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.ts",
-    "line": 787,
+    "line": 770,
+    "kind": "variable",
+    "name": "payload"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 778,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 792,
     "kind": "variable",
     "name": "deleteShippingRule"
   },
   {
     "file": "services/api.ts",
-    "line": 790,
-    "kind": "member",
-    "name": "id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 791,
-    "kind": "member",
-    "name": "cookie_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 792,
-    "kind": "member",
-    "name": "order_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 793,
-    "kind": "member",
-    "name": "trigger_type"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 794,
-    "kind": "member",
-    "name": "error_message"
-  },
-  {
-    "file": "services/api.ts",
     "line": 795,
     "kind": "member",
-    "name": "issue_kind"
+    "name": "id"
   },
   {
     "file": "services/api.ts",
     "line": 796,
     "kind": "member",
-    "name": "allowed_resolutions"
+    "name": "cookie_id"
   },
   {
     "file": "services/api.ts",
     "line": 797,
     "kind": "member",
-    "name": "action_cursor"
+    "name": "order_id"
   },
   {
     "file": "services/api.ts",
     "line": 798,
     "kind": "member",
-    "name": "sent_count"
+    "name": "trigger_type"
   },
   {
     "file": "services/api.ts",
     "line": 799,
     "kind": "member",
-    "name": "updated_at"
+    "name": "error_message"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 800,
+    "kind": "member",
+    "name": "issue_kind"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 801,
+    "kind": "member",
+    "name": "allowed_resolutions"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 802,
+    "kind": "member",
+    "name": "action_cursor"
   },
   {
     "file": "services/api.ts",
     "line": 803,
     "kind": "member",
-    "name": "id"
+    "name": "sent_count"
   },
   {
     "file": "services/api.ts",
     "line": 804,
     "kind": "member",
-    "name": "cookie_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 805,
-    "kind": "member",
-    "name": "trigger_type"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 806,
-    "kind": "member",
-    "name": "error_message"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 807,
-    "kind": "member",
-    "name": "attempt_count"
+    "name": "updated_at"
   },
   {
     "file": "services/api.ts",
     "line": 808,
     "kind": "member",
-    "name": "updated_at"
+    "name": "id"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 809,
+    "kind": "member",
+    "name": "cookie_id"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 810,
+    "kind": "member",
+    "name": "trigger_type"
   },
   {
     "file": "services/api.ts",
     "line": 811,
+    "kind": "member",
+    "name": "error_message"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 812,
+    "kind": "member",
+    "name": "attempt_count"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 813,
+    "kind": "member",
+    "name": "updated_at"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 816,
     "kind": "member",
     "name": "pending_tasks"
   },
   {
     "file": "services/api.ts",
-    "line": 811,
+    "line": 816,
     "kind": "member",
     "name": "runs"
   },
   {
     "file": "services/api.ts",
-    "line": 811,
+    "line": 816,
     "kind": "variable",
     "name": "getAutomationIssues"
   },
   {
     "file": "services/api.ts",
-    "line": 812,
+    "line": 817,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.ts",
-    "line": 819,
+    "line": 824,
     "kind": "variable",
     "name": "resolveAutomationRun"
   },
   {
     "file": "services/api.ts",
-    "line": 822,
+    "line": 827,
     "kind": "variable",
     "name": "resolveDeferredAutomationTask"
   },
   {
     "file": "services/api.ts",
-    "line": 827,
+    "line": 832,
     "kind": "member",
     "name": "id"
   },
   {
     "file": "services/api.ts",
-    "line": 828,
+    "line": 833,
     "kind": "member",
     "name": "keyword"
   },
   {
     "file": "services/api.ts",
-    "line": 829,
+    "line": 834,
     "kind": "member",
     "name": "reply"
   },
   {
     "file": "services/api.ts",
-    "line": 830,
+    "line": 835,
     "kind": "member",
     "name": "item_id"
   },
   {
     "file": "services/api.ts",
-    "line": 831,
+    "line": 836,
     "kind": "member",
     "name": "type"
   },
   {
     "file": "services/api.ts",
-    "line": 832,
+    "line": 837,
     "kind": "member",
     "name": "image_url"
   },
   {
     "file": "services/api.ts",
-    "line": 835,
+    "line": 840,
     "kind": "variable",
     "name": "normalizeKeywordRow"
   },
   {
     "file": "services/api.ts",
-    "line": 844,
+    "line": 849,
     "kind": "variable",
     "name": "getKeywordRowsWithType"
   },
   {
     "file": "services/api.ts",
-    "line": 845,
+    "line": 850,
     "kind": "variable",
     "name": "existing"
   },
   {
     "file": "services/api.ts",
-    "line": 849,
+    "line": 854,
     "kind": "variable",
     "name": "getReplyRules"
   },
   {
     "file": "services/api.ts",
-    "line": 851,
+    "line": 856,
     "kind": "variable",
     "name": "keywords"
   },
   {
     "file": "services/api.ts",
-    "line": 852,
+    "line": 857,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.ts",
-    "line": 864,
+    "line": 869,
     "kind": "variable",
     "name": "updateReplyRule"
   },
   {
     "file": "services/api.ts",
-    "line": 865,
+    "line": 870,
     "kind": "variable",
     "name": "type"
   },
   {
     "file": "services/api.ts",
-    "line": 866,
+    "line": 871,
     "kind": "variable",
     "name": "payload"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 878,
-    "kind": "variable",
-    "name": "deleteReplyRule"
   },
   {
     "file": "services/api.ts",
     "line": 883,
     "kind": "variable",
-    "name": "getSystemSettings"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 884,
-    "kind": "member",
-    "name": "data"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 884,
-    "kind": "variable",
-    "name": "res"
+    "name": "deleteReplyRule"
   },
   {
     "file": "services/api.ts",
     "line": 888,
     "kind": "variable",
-    "name": "updateSystemSettings"
+    "name": "getSystemSettings"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 889,
+    "kind": "member",
+    "name": "data"
   },
   {
     "file": "services/api.ts",
     "line": 889,
     "kind": "variable",
+    "name": "res"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 893,
+    "kind": "variable",
+    "name": "updateSystemSettings"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 894,
+    "kind": "variable",
     "name": "payload"
   },
   {
     "file": "services/api.ts",
-    "line": 890,
+    "line": 895,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 895,
-    "kind": "variable",
-    "name": "getAccountAISettings"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 899,
-    "kind": "variable",
-    "name": "updateAccountAISettings"
   },
   {
     "file": "services/api.ts",
     "line": 900,
     "kind": "variable",
+    "name": "getAccountAISettings"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 904,
+    "kind": "variable",
+    "name": "updateAccountAISettings"
+  },
+  {
+    "file": "services/api.ts",
+    "line": 905,
+    "kind": "variable",
     "name": "payload"
   },
   {
     "file": "services/api.ts",
-    "line": 910,
+    "line": 915,
     "kind": "variable",
     "name": "fetchAIModels"
   },
   {
     "file": "services/api.ts",
-    "line": 911,
+    "line": 916,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.ts",
-    "line": 919,
+    "line": 924,
     "kind": "variable",
     "name": "parseNotificationEventTypes"
   },
   {
     "file": "services/api.ts",
-    "line": 923,
+    "line": 928,
     "kind": "variable",
     "name": "parsed"
   },
   {
     "file": "services/api.ts",
-    "line": 928,
+    "line": 933,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.ts",
-    "line": 931,
+    "line": 936,
     "kind": "variable",
     "name": "stringifyNotificationEventTypes"
   },
   {
     "file": "services/api.ts",
-    "line": 932,
+    "line": 937,
     "kind": "variable",
     "name": "clean"
   },
   {
     "file": "services/api.ts",
-    "line": 936,
+    "line": 941,
     "kind": "member",
     "name": "data"
   },
   {
     "file": "services/api.ts",
-    "line": 936,
+    "line": 941,
     "kind": "member",
     "name": "success"
   },
   {
     "file": "services/api.ts",
-    "line": 936,
+    "line": 941,
     "kind": "variable",
     "name": "getNotificationChannels"
   },
   {
     "file": "services/api.ts",
-    "line": 937,
+    "line": 942,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.ts",
-    "line": 938,
+    "line": 943,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.ts",
-    "line": 938,
+    "line": 943,
     "kind": "variable",
     "name": "channels"
   },
   {
     "file": "services/api.ts",
-    "line": 939,
+    "line": 944,
     "kind": "variable",
     "name": "parsedConfig"
   },
   {
     "file": "services/api.ts",
-    "line": 959,
+    "line": 964,
     "kind": "member",
     "name": "config"
   },
   {
     "file": "services/api.ts",
-    "line": 959,
+    "line": 964,
     "kind": "member",
     "name": "enabled"
   },
   {
     "file": "services/api.ts",
-    "line": 959,
+    "line": 964,
     "kind": "member",
     "name": "event_types"
   },
   {
     "file": "services/api.ts",
-    "line": 959,
+    "line": 964,
     "kind": "member",
     "name": "name"
   },
   {
     "file": "services/api.ts",
-    "line": 959,
+    "line": 964,
     "kind": "member",
     "name": "type"
   },
   {
     "file": "services/api.ts",
-    "line": 959,
+    "line": 964,
     "kind": "variable",
     "name": "createNotificationChannel"
   },
   {
     "file": "services/api.ts",
-    "line": 967,
+    "line": 972,
     "kind": "member",
     "name": "config"
   },
   {
     "file": "services/api.ts",
-    "line": 967,
+    "line": 972,
     "kind": "member",
     "name": "enabled"
   },
   {
     "file": "services/api.ts",
-    "line": 967,
+    "line": 972,
     "kind": "member",
     "name": "event_types"
   },
   {
     "file": "services/api.ts",
-    "line": 967,
+    "line": 972,
     "kind": "member",
     "name": "name"
   },
   {
     "file": "services/api.ts",
-    "line": 967,
+    "line": 972,
     "kind": "member",
     "name": "type"
   },
   {
     "file": "services/api.ts",
-    "line": 967,
+    "line": 972,
     "kind": "variable",
     "name": "updateNotificationChannel"
   },
   {
     "file": "services/api.ts",
-    "line": 968,
+    "line": 973,
     "kind": "variable",
     "name": "payload"
   },
   {
     "file": "services/api.ts",
-    "line": 978,
+    "line": 983,
     "kind": "variable",
     "name": "deleteNotificationChannel"
   },
   {
     "file": "services/api.ts",
-    "line": 983,
+    "line": 988,
     "kind": "member",
     "name": "data"
   },
   {
     "file": "services/api.ts",
-    "line": 983,
+    "line": 988,
     "kind": "member",
     "name": "success"
   },
   {
     "file": "services/api.ts",
-    "line": 983,
+    "line": 988,
     "kind": "variable",
     "name": "getMessageNotifications"
   },
   {
     "file": "services/api.ts",
-    "line": 984,
+    "line": 989,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.ts",
-    "line": 985,
+    "line": 990,
     "kind": "variable",
     "name": "notifications"
   },
   {
     "file": "services/api.ts",
-    "line": 986,
+    "line": 991,
     "kind": "variable",
     "name": "[cookieId, channelList]"
   },
   {
     "file": "services/api.ts",
-    "line": 988,
+    "line": 993,
     "kind": "variable",
     "name": "item"
   },

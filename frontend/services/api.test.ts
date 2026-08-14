@@ -16,7 +16,7 @@ import {
 	getReplyRules, getDefaultReplies, getDefaultReply, updateDefaultReply, deleteDefaultReply, clearDefaultReplyRecords,
   getShippingRules,
   getShippingRulesPage,
-	getSystemSettings, getCards, createCard, updateCard, deleteCard, getCardDetails, batchCreateCards, appendCardData,
+	getSystemSettings, getHealth, getCards, createCard, updateCard, deleteCard, getCardDetails, batchCreateCards, appendCardData,
 	getValidOrders,
 	publishItem, recommendPublishCategory, previewItemPublishBatch,
 	logout,
@@ -54,6 +54,16 @@ test('updateSystemSettings uses one atomic bulk request', async () => {
 	expect(fetchMock).toHaveBeenCalledTimes(1);
 	expect(fetchMock).toHaveBeenCalledWith('/api/v1/settings/system', expect.objectContaining({ method: 'PUT', credentials: 'include' }));
 	expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ theme_color: 'blue', renewal_log_retention_days: 15 });
+});
+
+test('health API exposes build metadata through the request boundary', async () => {
+  // fetchMock 是健康检查 API 的请求替身。
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ version: '1.2.3', commit: 'abc123' }));
+  vi.stubGlobal('fetch', fetchMock);
+  const controller = new AbortController();
+
+  await expect(getHealth({ signal: controller.signal })).resolves.toEqual({ version: '1.2.3', commit: 'abc123' });
+  expect(fetchMock).toHaveBeenCalledWith('/health', expect.objectContaining({ method: 'GET', signal: expect.any(AbortSignal) }));
 });
 
 test('chat APIs preserve account and conversation scope', async () => {

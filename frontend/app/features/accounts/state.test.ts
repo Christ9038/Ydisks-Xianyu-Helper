@@ -80,3 +80,62 @@ test('密码登录风控和失败状态统一转换且不暴露验证链接',
       qrCodeUrl: '',
     });
   });
+
+test('登录字段更新不会用空白密码覆盖已有凭证',
+  // 账号或浏览器开关变化时只提交真正变化的非敏感字段。
+  () => {
+    expect(buildAccountLoginInfoUpdate(account({ username: 'old-user', show_browser: true }), {
+      username: 'new-user',
+      login_password: '',
+      show_browser: false,
+    })).toEqual({ username: 'new-user', show_browser: false });
+  });
+
+test('登录字段更新只在用户输入新密码时提交密码',
+  // 用户输入新密码后才允许将密码字段写入设置补丁。
+  () => {
+    expect(buildAccountLoginInfoUpdate(account(), {
+      username: 'old-user',
+      login_password: 'new-secret',
+      show_browser: false,
+    })).toEqual({ username: 'old-user', login_password: 'new-secret', show_browser: false });
+  });
+
+test('登录字段没有变化时不生成更新补丁',
+  // 没有任何登录字段变化时避免发起无意义的设置请求。
+  () => {
+    expect(buildAccountLoginInfoUpdate(account(), {
+      username: 'old-user',
+      login_password: '',
+      show_browser: false,
+    })).toBeNull();
+  });
+
+test('登录字段支持明确清空密码',
+  // 清空密码必须由用户显式勾选，不能由空白输入隐式触发。
+  () => {
+    expect(buildAccountLoginInfoUpdate(account(), {
+      username: 'old-user',
+      login_password: '',
+      show_browser: false,
+      clear_password: true,
+    })).toEqual({ username: 'old-user', show_browser: false, clear_password: true });
+  });
+
+test('明确清空密码优先于同时输入的新密码',
+  // 同时存在清空和输入时遵循显式清空意图，避免写入新密码。
+  () => {
+    expect(buildAccountLoginInfoUpdate(account(), {
+      username: 'old-user',
+      login_password: 'new-secret',
+      show_browser: false,
+      clear_password: true,
+    })).toEqual({ username: 'old-user', show_browser: false, clear_password: true });
+  });
+
+test('暂停时长相同不会重新启动账号暂停',
+  // 暂停时长没有变化时保持当前状态，避免重复写入暂停记录。
+  () => {
+    expect(shouldUpdateAccountPause(60, { pause_duration: 60, paused: false })).toBe(false);
+    expect(shouldUpdateAccountPause(60, { pause_duration: 60, paused: true })).toBe(false);
+  });
