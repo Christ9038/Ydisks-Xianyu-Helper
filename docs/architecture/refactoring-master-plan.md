@@ -106,12 +106,10 @@ app shell / routes
 - 当前阶段：阶段 2“敏感数据访问边界”（准备入口）；
 - 已完成：总计划、依赖规则、中文注释规范、`AGENTS.md` 强约束，以及 Go/TypeScript AST 注释检查器和历史基线；
 - 阶段 1 已完成：server 测试模板预置管理员和账号 cookie，普通测试约 21.3 秒，完整 server race 约 194.3 秒通过；
-- 已完成阶段 2 第一个切片：建立不读取或解密敏感字段的 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned`，并覆盖跨用户和无效 user ID 回归测试；
-- 已完成阶段 2 第二个切片：新增 `GetOwnerID`、原子 `GetValueOwned`，将 server 的账号所有权检查和订单凭证读取迁移到窄查询，纯所有权 handler 不再解密完整账号详情，并保留 404/403 行为回归；
-- 已完成阶段 2 第三个切片：账号列表、运行状态、非敏感详情和单账号详情迁移到 `ListOwnedIDs`、`ListSummaries`、`GetSummaryOwned`，刷新资料先做窄所有权过滤，消除列表批量解密和详情 N+1 完整凭证查询；
-- 已完成阶段 2 第四个切片：聊天账号校验、商品列表、关键词回复列表、卡券关联校验及管理员删除用户的账号停止流程迁移到 `ListOwnedIDs` 或 `ExistsOwned`，商品凭证读取迁移到 `GetValueOwned`；
-- 已完成阶段 2 第五个切片：订单刷新使用 `ListOwnedIDs` 和 `cookieOwnedByUser` 筛选账号，凭证仍在账号锁内按需读取，刷新后的凭证不再写回批量账号 map；
-- 下一最小工作项：迁移手动发货流程的订单账号所有权判断，再迁移订单导入的默认账号和所有权判断；
+- 已完成阶段 2 逻辑切片一“Repository 敏感数据边界”：建立 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned`、`GetOwnerID`、`GetSummaryOwned` 和原子 `GetValueOwned`，覆盖跨用户、无效 user ID 及无效密文回归；
+- 已完成阶段 2 逻辑切片二“Server 非敏感消费方”：账号列表、运行状态、账号详情、聊天、商品、关键词回复、卡券关联和管理员账号停止流程均迁移到窄查询，纯所有权流程不再解密完整凭证；
+- 已完成阶段 2 逻辑切片三“订单消费方”：订单刷新、手动发货和订单导入使用账号 ID 列表与所有权判断，凭证流程按需读取单账号详情；
+- 下一最小工作项：迁移 `internal/chat/service.go` 的订阅账号集合到 `ListOwnedIDs`，再单独处理 `internal/account/manager.go` 启动全部账号所需的管理员凭证读取接口；
 - 随后工作项：再处理明确需要平台凭证的业务流程，统一使用按用户和账号 ID 过滤的单值凭证接口；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
@@ -206,8 +204,8 @@ app shell / routes
 `GetOwnerID` 只返回所有者 ID；`GetSummaryOwned` 返回指定用户的单个非敏感摘要；`GetValueOwned` 在同一条带 user_id 过滤的查询中读取并解密单个 Cookie，避免
 所有权检查与凭证读取之间的竞态窗口。测试使用故意无效的密文值验证摘要查询和所有权检查不会触发解密，
 并使用正常加密值覆盖单值凭证读取。账号列表与详情 handler 已不再通过 `AllForUser` 或完整 `GetDetails` 读取敏感字段，
-目前 server 生产代码仅剩手动发货和订单导入的 2 处 `AllForUser`；订单刷新已经只读取账号 ID 列表，
-其余两个流程将继续按所有权判断和单值凭证边界逐个拆分。
+目前 server 生产代码已不再调用 `Cookies.AllForUser`。内部聊天订阅仍有一处仅用于账号 ID 集合的旧调用，
+账号管理器还有一处管理员视角的全账号凭证加载；两者语义不同，将分别设计 ID 列表接口和受控凭证接口。
 
 逐步替换使用 `AllForUser` 进行所有权检查以及使用 `GetDetails` 获取非敏感字段的调用。
 

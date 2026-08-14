@@ -742,7 +742,7 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sess := auth.SessionFromContext(r.Context())
-	userCookies, err := s.Store.Cookies.AllForUser(r.Context(), sess.UserID)
+	userCookieIDs, err := s.Store.Cookies.ListOwnedIDs(r.Context(), sess.UserID) // userCookieIDs 和 err 是用户账号 ID 列表及查询错误。
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询账号失败")
 		return
@@ -761,8 +761,8 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "订单不存在"})
 			continue
 		}
-		_, ok := userCookies[order.CookieID]
-		if !ok {
+		// 订单账号必须属于当前用户，且所有权判断不需要解密 Cookie。
+		if !containsCookieID(userCookieIDs, order.CookieID) {
 			failedCount++
 			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "无权操作此订单"})
 			continue
@@ -913,18 +913,18 @@ func (s *Server) importOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := auth.SessionFromContext(r.Context())
-	userCookies, err := s.Store.Cookies.AllForUser(r.Context(), sess.UserID)
+	userCookieIDs, err := s.Store.Cookies.ListOwnedIDs(r.Context(), sess.UserID) // userCookieIDs 和 err 是用户账号 ID 列表及查询错误。
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询账号失败")
 		return
 	}
 	defaultCookieID := ""
-	if len(userCookies) == 1 {
-		for cid := range userCookies {
-			defaultCookieID = cid
-		}
+	if len(userCookieIDs) == 1 {
+		// 只有一个账号时沿用该账号作为导入默认值。
+		defaultCookieID = userCookieIDs[0]
 	}
 
+	// 导入订单后续处理继续沿用原有统计与事务流程。
 	successCount, failedCount := 0, 0
 	results := make([]map[string]any, 0, len(orders))
 	for _, raw := range orders {
@@ -943,7 +943,7 @@ func (s *Server) importOrders(w http.ResponseWriter, r *http.Request) {
 			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "缺少必需字段: cookie_id"})
 			continue
 		}
-		if _, ok := userCookies[cookieID]; !ok {
+		if !containsCookieID(userCookieIDs, cookieID) { // 所有权判断不需要解密 Cookie。
 			failedCount++
 			results = append(results, map[string]any{"order_id": orderID, "success": false, "message": "无权操作此账号的订单"})
 			continue
@@ -1048,4 +1048,15 @@ func (s *Server) notifyDelivery(cookieID, buyerID, itemID, chatID, message strin
 		return
 	}
 	s.notifier.NotifyDelivery(cookieID, "", buyerID, itemID, message, chatID)
+}
+
+// containsCookieID 判断账号 ID 列表中是否包含目标账号，不触碰 Cookie 明文。
+func containsCookieID(cookieIDs []string, target string) bool {
+	// cookieID 是当前遍历到的账号 ID。
+	for _, cookieID := range cookieIDs {
+		if cookieID == target {
+			return true
+		}
+	}
+	return false
 }
