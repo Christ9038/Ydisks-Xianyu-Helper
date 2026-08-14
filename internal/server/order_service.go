@@ -18,6 +18,8 @@ import (
 type orderApplicationService struct {
 	// server 提供订单服务访问数据库、平台客户端和运行时依赖。
 	server *Server
+	// repository 提供订单用例所需的最小持久化与凭证锁能力。
+	repository orderRepository
 }
 
 var errOrderDetailUnsupported = errors.New("当前 Go MTOP 客户端不支持订单详情接口")
@@ -62,6 +64,13 @@ func orderErrorKindOf(err error) (orderErrorKind, bool) {
 // orders 返回当前 Server 绑定的订单应用服务。
 func (s *Server) orders() *orderApplicationService {
 	return s.applicationServiceSet().orders
+}
+
+// orderOwnedByUser 判断订单服务使用的账号是否归属于当前用户。
+func (a *orderApplicationService) orderOwnedByUser(ctx context.Context, userID int64, cookieID string) bool {
+	// owned 和 err 保存账号归属检查结果。
+	owned, err := a.repository.ExistsOwned(ctx, userID, cookieID)
+	return err == nil && owned
 }
 
 // orderListQuery 描述订单列表的业务查询条件。
@@ -145,11 +154,11 @@ func (a *orderApplicationService) List(ctx context.Context, query orderListQuery
 	if query.PageSize > 200 {
 		query.PageSize = 200
 	}
-	if query.CookieID != "" && !a.server.cookieOwnedByUser(ctx, query.UserID, query.CookieID) {
+	if query.CookieID != "" && !a.orderOwnedByUser(ctx, query.UserID, query.CookieID) {
 		return orderListResult{}, db.ErrForbidden
 	}
 	offset := (query.Page - 1) * query.PageSize
-	rows, total, err := a.server.Store.Orders.ListForUser(ctx, db.OrderListFilter{
+	rows, total, err := a.repository.ListOrdersForUser(ctx, db.OrderListFilter{
 		UserID: query.UserID, CookieID: query.CookieID, Status: query.Status,
 		Search: query.Search, Limit: query.PageSize, Offset: offset,
 	})
@@ -168,7 +177,7 @@ func (a *orderApplicationService) List(ctx context.Context, query orderListQuery
 
 // Get 查询订单并校验订单绑定账号属于当前用户。
 func (a *orderApplicationService) Get(ctx context.Context, userID int64, orderID string) (*db.Order, error) {
-	order, err := a.server.Store.Orders.Get(ctx, orderID)
+	order, err := a.repository.GetOrder(ctx, orderID)
 	if err != nil || order == nil {
 		if err != nil {
 			return nil, err
@@ -178,7 +187,7 @@ func (a *orderApplicationService) Get(ctx context.Context, userID int64, orderID
 	if strings.TrimSpace(order.CookieID) == "" {
 		return nil, db.ErrForbidden
 	}
-	if !a.server.cookieOwnedByUser(ctx, userID, order.CookieID) {
+	if !a.orderOwnedByUser(ctx, userID, order.CookieID) {
 		return nil, db.ErrForbidden
 	}
 	return order, nil
@@ -190,7 +199,7 @@ func (a *orderApplicationService) GetView(ctx context.Context, userID int64, ord
 	if err != nil {
 		return orderDetailResult{}, err
 	}
-	item, itemErr := a.server.Store.Items.Get(ctx, order.CookieID, order.ItemID)
+	item, itemErr := a.repository.GetItem(ctx, order.CookieID, order.ItemID)
 	if itemErr != nil {
 		item = nil
 	}
@@ -202,7 +211,7 @@ func (a *orderApplicationService) Delete(ctx context.Context, userID int64, orde
 	if _, err := a.Get(ctx, userID, orderID); err != nil {
 		return err
 	}
-	_, err := a.server.Store.Orders.SoftDelete(ctx, orderID)
+	_, err := a.repository.SoftDeleteOrder(ctx, orderID)
 	return err
 }
 
@@ -270,8 +279,8 @@ func (a *orderApplicationService) Update(ctx context.Context, userID int64, orde
 			return newOrderBadRequest("商品标题不能为空且订单必须关联商品")
 		}
 	}
-	return a.server.withTransaction(ctx, func(tx *sql.Tx) error {
-		if err := a.server.Store.Orders.PatchTx(ctx, tx, orderID, db.OrderPatch{
+	return a.repository.WithTransaction(ctx, func(tx *sql.Tx) error {
+		if err := a.repository.PatchOrderTx(ctx, tx, orderID, db.OrderPatch{
 			OrderStatus: request.OrderStatus, ItemID: request.ItemID, BuyerID: request.BuyerID,
 			SpecName: request.SpecName, SpecValue: request.SpecValue, Quantity: request.Quantity,
 			Amount: request.Amount, ReceiverName: request.ReceiverName, ReceiverPhone: request.ReceiverPhone,
@@ -281,7 +290,7 @@ func (a *orderApplicationService) Update(ctx context.Context, userID int64, orde
 			return err
 		}
 		if request.ItemTitle != nil {
-			if err := a.server.Store.Items.UpsertBasicTx(ctx, tx, &db.ItemInfoRow{
+			if err := a.repository.UpsertItemBasicTx(ctx, tx, &db.ItemInfoRow{
 				CookieID: order.CookieID, ItemID: finalItemID, ItemTitle: itemTitle,
 			}); err != nil {
 				return fmt.Errorf("更新商品标题失败: %w", err)
@@ -305,7 +314,7 @@ type orderImportResult struct {
 
 // Import 按当前用户账号所有权逐单导入订单，并为订单关联商品补全基础信息。
 func (a *orderApplicationService) Import(ctx context.Context, userID int64, rawOrders []map[string]any) (orderImportResult, error) {
-	ownedCookieIDs, err := a.server.Store.Cookies.ListOwnedIDs(ctx, userID)
+	ownedCookieIDs, err := a.repository.ListOwnedIDs(ctx, userID)
 	if err != nil {
 		return orderImportResult{}, err
 	}
@@ -353,8 +362,8 @@ func (a *orderApplicationService) importOne(ctx context.Context, ownedCookieIDs 
 	if !ok {
 		return errors.New("订单金额必须是普通格式的非负有限数字")
 	}
-	if err := a.server.withTransaction(ctx, func(tx *sql.Tx) error {
-		if err := a.server.Store.Orders.UpsertTx(ctx, tx, orderID, db.OrderUpsertOpts{
+	if err := a.repository.WithTransaction(ctx, func(tx *sql.Tx) error {
+		if err := a.repository.UpsertOrderTx(ctx, tx, orderID, db.OrderUpsertOpts{
 			CookieID: cookieID, ItemID: firstImportString(raw, "item_id"), BuyerID: firstImportString(raw, "buyer_id"),
 			OrderStatus: status, SpecName: firstImportString(raw, "spec_name"), SpecValue: firstImportString(raw, "spec_value"),
 			Quantity: firstImportString(raw, "quantity"), Amount: amount, ReceiverName: firstImportString(raw, "receiver_name"),
@@ -366,7 +375,7 @@ func (a *orderApplicationService) importOne(ctx context.Context, ownedCookieIDs 
 		// itemID 是导入订单中关联的商品标识。
 		itemID := firstImportString(raw, "item_id")
 		if itemID != "" {
-			if err := a.server.Store.Items.UpsertBasicTx(ctx, tx, &db.ItemInfoRow{
+			if err := a.repository.UpsertItemBasicTx(ctx, tx, &db.ItemInfoRow{
 				CookieID: cookieID, ItemID: itemID, ItemTitle: firstImportString(raw, "item_title"),
 				ItemPrice: firstImportString(raw, "item_price"), ItemDetail: firstImportString(raw, "item_detail", "item_description"),
 			}); err != nil {
@@ -411,7 +420,7 @@ type manualShipResult struct {
 
 // ManualShip 执行状态确认或完整自动化发货，并集中处理逐单失败而不中断批次的规则。
 func (a *orderApplicationService) ManualShip(ctx context.Context, request manualShipRequest) (manualShipResult, error) {
-	ownedCookieIDs, err := a.server.Store.Cookies.ListOwnedIDs(ctx, request.UserID)
+	ownedCookieIDs, err := a.repository.ListOwnedIDs(ctx, request.UserID)
 	if err != nil {
 		return manualShipResult{}, err
 	}
@@ -421,7 +430,7 @@ func (a *orderApplicationService) ManualShip(ctx context.Context, request manual
 		if orderID == "" {
 			continue
 		}
-		order, getErr := a.server.Store.Orders.Get(ctx, orderID)
+		order, getErr := a.repository.GetOrder(ctx, orderID)
 		if getErr != nil || order == nil {
 			a.appendManualFailure(&result, orderID, "订单不存在")
 			continue
@@ -495,7 +504,7 @@ func (a *orderApplicationService) manualStatusShip(ctx context.Context, userID i
 		return
 	}
 	sysShip := true
-	upsertErr := a.server.Store.Orders.Upsert(ctx, orderID, db.OrderUpsertOpts{
+	upsertErr := a.repository.UpsertOrder(ctx, orderID, db.OrderUpsertOpts{
 		CookieID: order.CookieID, OrderStatus: "shipped", SystemShipped: &sysShip, ItemID: order.ItemID,
 		BuyerID: order.BuyerID, ReceiverName: order.ReceiverName, ReceiverPhone: order.ReceiverPhone,
 		ReceiverAddr: order.ReceiverAddr, ReceiverCity: order.ReceiverCity, ChatID: order.ChatID,
@@ -526,14 +535,14 @@ func (a *orderApplicationService) RefreshSingle(ctx context.Context, userID int6
 		return orderSingleRefreshResponse{}, errOrderDetailUnsupported
 	}
 	cookieID := order.CookieID
-	credentialUnlock := a.server.Store.LockAccountCredentials(cookieID)
+	credentialUnlock := a.repository.LockCredentials(cookieID)
 	credentialLocked := true
 	defer func() {
 		if credentialLocked {
 			credentialUnlock()
 		}
 	}()
-	latest, err := a.server.loadCookiePlatformDetail(ctx, cookieID)
+	latest, err := a.repository.LoadCookiePlatformDetail(ctx, cookieID)
 	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
 		return orderSingleRefreshResponse{}, errOrderCredentialChanged
 	}
@@ -553,7 +562,7 @@ func (a *orderApplicationService) RefreshSingle(ctx context.Context, userID int6
 		runtimeCookie, runtimeCookieChanged = value, true
 	} else if !handled && callErr == nil && detail.UpdatedCookies != "" && detail.UpdatedCookies != latest.Value {
 		metadata := cookierefresh.MetadataWithoutSnapshot(latest.MetadataJSON)
-		if saveErr := a.server.Store.Cookies.UpdateRenewalCookie(ctx, cookieID, detail.UpdatedCookies, metadata, time.Now().Unix()); saveErr == nil {
+		if saveErr := a.repository.UpdateRenewalCookie(ctx, cookieID, detail.UpdatedCookies, metadata, time.Now().Unix()); saveErr == nil {
 			runtimeCookie, runtimeCookieChanged = detail.UpdatedCookies, true
 		}
 	}
@@ -570,19 +579,19 @@ func (a *orderApplicationService) RefreshSingle(ctx context.Context, userID int6
 	if !validEditableOrderStatus(status) {
 		status = db.NormalizeOrderStatus(order.OrderStatus)
 	}
-	if err := a.server.Store.Orders.Upsert(ctx, orderID, db.OrderUpsertOpts{CookieID: cookieID, OrderStatus: status, SpecName: detail.SpecName, SpecValue: detail.SpecValue, Quantity: detail.Quantity, Amount: detail.Amount}); err != nil {
+	if err := a.repository.UpsertOrder(ctx, orderID, db.OrderUpsertOpts{CookieID: cookieID, OrderStatus: status, SpecName: detail.SpecName, SpecValue: detail.SpecValue, Quantity: detail.Quantity, Amount: detail.Amount}); err != nil {
 		return orderSingleRefreshResponse{}, err
 	}
 	return orderSingleRefreshResponse{Success: true, Message: "订单刷新完成", Order: orderRefreshDetailResponse{Quantity: detail.Quantity, SpecName: detail.SpecName, SpecValue: detail.SpecValue, OrderStatus: db.NormalizeOrderStatus(detail.OrderStatus), Amount: detail.Amount}}, nil
 }
 func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, cookieID, status string) (orderRefreshResponse, error) {
 
-	cookieIDs, err := a.server.Store.Cookies.ListOwnedIDs(ctx, userID)
+	cookieIDs, err := a.repository.ListOwnedIDs(ctx, userID)
 	if err != nil {
 		return orderRefreshResponse{}, err
 	}
 	if cookieID != "" {
-		if !a.server.cookieOwnedByUser(ctx, userID, cookieID) {
+		if !a.orderOwnedByUser(ctx, userID, cookieID) {
 			return orderRefreshResponse{}, db.ErrForbidden
 		}
 		cookieIDs = []string{cookieID}
@@ -594,8 +603,8 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 	sessionExpiredAccounts := make(map[string]struct{})
 	if fetcher, ok := a.server.mtopClient().(mtop.SoldOrderFetcher); ok {
 		for _, cid := range cookieIDs { // cid 是当前待刷新的账号 ID。
-			credentialUnlock := a.server.Store.LockAccountCredentials(cid)
-			latest, latestErr := a.server.loadCookiePlatformDetail(ctx, cid)
+			credentialUnlock := a.repository.LockCredentials(cid)
+			latest, latestErr := a.repository.LoadCookiePlatformDetail(ctx, cid)
 			if latestErr != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
 				credentialUnlock()
 				if latestErr == nil {
@@ -634,7 +643,7 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 				"discovered": accountDiscovered, "updated": accountUpdated,
 			}
 			if discoveryErr == nil {
-				deleted, deleteErr := a.server.Store.Orders.SoftDeleteMissingForCookie(ctx, cid, accountRemoteIDs)
+				deleted, deleteErr := a.repository.SoftDeleteMissingOrders(ctx, cid, accountRemoteIDs)
 				if deleteErr != nil {
 					discoveryErr = fmt.Errorf("标记缺失订单失败: %w", deleteErr)
 					result["success"] = false
@@ -660,7 +669,7 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 			continue
 		}
 		for offset := 0; ; offset += 500 {
-			rows, err := a.server.Store.Orders.ByCookiePage(ctx, cid, 500, offset)
+			rows, err := a.repository.ListOrdersByCookiePage(ctx, cid, 500, offset)
 			if err != nil {
 				break
 			}
@@ -721,8 +730,8 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 	for cid, targets := range ordersByCookie {
 		accountSessionExpired := false
 		for _, chunk := range chunkRefreshTargets(targets, refreshOrderChunkSize) {
-			credentialUnlock := a.server.Store.LockAccountCredentials(cid)
-			latest, latestErr := a.server.loadCookiePlatformDetail(ctx, cid)
+			credentialUnlock := a.repository.LockCredentials(cid)
+			latest, latestErr := a.repository.LoadCookiePlatformDetail(ctx, cid)
 			if latestErr != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
 				credentialUnlock()
 				failed += len(chunk)
@@ -755,7 +764,7 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 				if !validEditableOrderStatus(newStatus) {
 					newStatus = target.CurrentStatus
 				}
-				err := a.server.Store.Orders.Upsert(ctx, target.OrderID, db.OrderUpsertOpts{
+				err := a.repository.UpsertOrder(ctx, target.OrderID, db.OrderUpsertOpts{
 					CookieID:    cid,
 					OrderStatus: newStatus,
 					SpecName:    detail.SpecName,
