@@ -202,7 +202,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 				}
 				failed++
 				results = append(results, map[string]any{
-					"cookie_id": cid, "stage": "discover", "success": false, "error": latestErr.Error(),
+					"cookie_id": cid, "stage": "discover", "success": false, "message": latestErr.Error(),
 				})
 				continue
 			}
@@ -250,7 +250,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		failed++
-		results = append(results, map[string]any{"stage": "discover", "success": false, "error": "当前 MTop 客户端不支持订单列表发现"})
+		results = append(results, map[string]any{"stage": "discover", "success": false, "message": "当前 MTop 客户端不支持订单列表发现"})
 	}
 
 	ordersByCookie := map[string][]refreshTarget{}
@@ -295,8 +295,8 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 			message += fmt.Sprintf("；当前 Go MTOP 客户端不支持详情接口，已跳过 %d 个订单", total)
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"success": failed == 0,
-			"message": message,
+			"partial_failure": failed > 0,
+			"message":         message,
 			"summary": map[string]int{
 				"discovered": discovered, "list_updated": listUpdated, "soft_deleted": softDeleted, "detail_total": total,
 				"total": total, "updated": 0, "no_change": 0, "failed": failed,
@@ -307,8 +307,8 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 	}
 	if total == 0 {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"success": failed == 0,
-			"message": fmt.Sprintf("订单列表同步完成，发现 %d 个新订单；没有需要补全详情的订单", discovered),
+			"partial_failure": failed > 0,
+			"message":         fmt.Sprintf("订单列表同步完成，发现 %d 个新订单；没有需要补全详情的订单", discovered),
 			"summary": map[string]int{
 				"discovered": discovered, "list_updated": listUpdated, "soft_deleted": softDeleted, "detail_total": 0,
 				"total": 0, "updated": 0, "no_change": 0, "failed": failed,
@@ -327,7 +327,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 			if latestErr != nil || latest == nil || latest.UserID != sess.UserID || !hasStoredCookieCredential(latest) {
 				credentialUnlock()
 				failed += len(chunk)
-				results = append(results, map[string]any{"cookie_id": cid, "success": false, "error": "账号凭证已变化"})
+				results = append(results, map[string]any{"cookie_id": cid, "success": false, "message": "账号凭证已变化"})
 				continue
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
@@ -344,7 +344,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 					results = append(results, map[string]any{
 						"order_id": target.OrderID,
 						"success":  false,
-						"error":    message,
+						"message":  message,
 					})
 					if mtop.IsSessionExpiredErr(fetchErr) {
 						sessionErr = fetchErr
@@ -366,7 +366,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 				})
 				if err != nil {
 					failed++
-					results = append(results, map[string]any{"order_id": target.OrderID, "success": false, "error": "更新数据库失败"})
+					results = append(results, map[string]any{"order_id": target.OrderID, "success": false, "message": "更新数据库失败"})
 					continue
 				}
 				changed := newStatus != "" && newStatus != target.CurrentStatus
@@ -387,7 +387,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 			credentialUnlock()
 			if persistErr != nil {
 				failed++
-				results = append(results, map[string]any{"cookie_id": cid, "stage": "persist_cookie", "success": false, "error": persistErr.Error()})
+				results = append(results, map[string]any{"cookie_id": cid, "stage": "persist_cookie", "success": false, "message": persistErr.Error()})
 			} else if valueChanged {
 				s.updateRunningCookie(r.Context(), cid, value)
 			}
@@ -402,8 +402,8 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"success": failed == 0,
-		"message": fmt.Sprintf("订单同步完成，发现 %d 个新订单", discovered),
+		"partial_failure": failed > 0,
+		"message":         fmt.Sprintf("订单同步完成，发现 %d 个新订单", discovered),
 		"summary": map[string]int{
 			"discovered": discovered, "list_updated": listUpdated, "soft_deleted": softDeleted, "detail_total": total,
 			"total": total, "updated": updated, "no_change": noChange, "failed": failed,
@@ -856,11 +856,11 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("手动确认发货成功（订单 %s）", orderID))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"success":       failedCount == 0,
-		"message":       fmt.Sprintf("手动发货完成: 成功%d个, 失败%d个", successCount, failedCount),
-		"success_count": successCount,
-		"failed_count":  failedCount,
-		"results":       results,
+		"partial_failure": failedCount > 0,
+		"message":         fmt.Sprintf("手动发货完成: 成功%d个, 失败%d个", successCount, failedCount),
+		"success_count":   successCount,
+		"failed_count":    failedCount,
+		"results":         results,
 	})
 }
 
@@ -1013,12 +1013,12 @@ func (s *Server) importOrders(w http.ResponseWriter, r *http.Request) {
 		results = append(results, map[string]any{"order_id": orderID, "success": true, "message": "订单已导入"})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"success":       failedCount == 0,
-		"message":       fmt.Sprintf("导入完成: 成功%d个, 失败%d个", successCount, failedCount),
-		"total":         len(orders),
-		"success_count": successCount,
-		"failed_count":  failedCount,
-		"results":       results,
+		"partial_failure": failedCount > 0,
+		"message":         fmt.Sprintf("导入完成: 成功%d个, 失败%d个", successCount, failedCount),
+		"total":           len(orders),
+		"success_count":   successCount,
+		"failed_count":    failedCount,
+		"results":         results,
 	})
 }
 

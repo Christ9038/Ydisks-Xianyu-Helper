@@ -448,7 +448,7 @@ func TestManualShipOrdersStatusOnlySuccess(t *testing.T) {
 	}
 	var res map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &res)
-	if res["success"] != true {
+	if res["partial_failure"] != false {
 		t.Fatalf("应成功: %+v", res)
 	}
 	results, _ := res["results"].([]any)
@@ -511,7 +511,7 @@ func TestManualShipOrdersConsignFail(t *testing.T) {
 	}
 	var res map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &res)
-	if res["success"] != false {
+	if res["partial_failure"] != true {
 		t.Fatalf("整体应失败: %+v", res)
 	}
 }

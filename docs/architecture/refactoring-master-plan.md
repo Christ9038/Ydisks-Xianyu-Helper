@@ -130,7 +130,8 @@ app shell / routes
 - 已完成阶段 2 最终审计：生产代码中的 `GetDetails` 仅保留登录设置和登录信息更新两条完整详情白名单；平台流程统一使用 `GetCookiePlatformRuntimeData`，所有权流程统一使用摘要查询，凭证读取继续由 `LockAccountCredentials` 保护；新增 `TestMultiDB_CookieCredentialScope` 覆盖 SQLite，并在提供环境变量时覆盖 MySQL/Postgres，验证三种方言的 Cookie、metadata、平台视图和所有权摘要一致；阶段 2 全量门禁通过并合并为一个可回滚提交；
 - 已完成阶段 3 第一个 PR 切片“HTTP 错误结构盘点与第一批契约测试”：新增共享 `httpapi.ErrorResponse`，统一 `code`/`message`/`request_id` 错误边界；认证失败改用 401 和稳定 `authentication_failed`，健康检查和账号列表改用具名 DTO；React 请求层移除 `detail/msg` 错误依赖并为账号列表补充具名类型；新增健康检查、认证失败和账号列表契约测试，Go/React 全量门禁通过并合并为一个可回滚提交；
 - 已完成阶段 3 第二个 PR 切片“剩余认证与公共 API 错误迁移”：初始化冲突、管理员/用户密码修改、登录凭据校验、用户名冲突、公开设置故障和 SPA API 404 均返回统一错误 DTO 与正确状态码；新增状态码/错误码契约测试，Go 全量门禁通过并合并为一个可回滚提交；
-- 阶段 3 下一 PR 切片为“业务 API 错误响应迁移”：按订单、账号、聊天、商品和自动化领域批量收敛遗留 `success:false`、`error`/`detail` 响应，先处理订单与账号两个领域并补充契约测试，不拆分单个 handler 提交；
+- 已完成阶段 3 第三个 PR 切片“订单与账号业务 API 错误响应迁移”：订单刷新、手动发货和订单导入不再返回顶层 HTTP 200 + `success:false`，批量结果改用 `partial_failure`，刷新明细错误统一使用 `message`；账号任务的 502 错误改用统一错误 DTO；新增订单/账号契约测试并通过全量门禁，逐项结果中的 `success` 仅保留为批处理行状态；
+- 阶段 3 下一 PR 切片为“聊天、商品与自动化业务 API 错误响应迁移”：继续按业务域批量收敛遗留 `success:false`、`error`/`detail` 响应，不拆分单个 handler 提交；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -509,3 +510,4 @@ npm --prefix frontend run build
 | 2026-08-14 | 完成阶段 2 最终审计 PR 切片 | 生产 `GetDetails` 白名单仅保留登录设置与登录信息更新；新增跨数据库 Cookie/metadata/平台视图/所有权窄查询回归；全量测试、race、vet、lint、注释和 diff 门禁通过 | 阶段 3：HTTP 错误结构盘点与第一批契约测试 |
 | 2026-08-14 | 完成阶段 3 第一个 PR 切片“HTTP 错误结构盘点与第一批契约测试” | 共享错误 DTO、认证 401、健康检查和账号列表具名 DTO 已落地；React 请求层完成错误契约迁移；Go/React 全量测试、vet、lint、注释和前端构建通过 | 阶段 3：剩余认证与公共 API 错误迁移 |
 | 2026-08-14 | 完成阶段 3 第二个 PR 切片“剩余认证与公共 API 错误迁移” | 初始化、密码修改、凭据校验、用户名冲突、公开设置故障和 SPA API 404 的状态码/错误码契约已统一；契约测试、全量测试、vet、lint、注释和 diff 门禁通过 | 阶段 3：订单与账号业务 API 错误响应迁移 |
+| 2026-08-14 | 完成阶段 3 第三个 PR 切片“订单与账号业务 API 错误响应迁移” | 订单批量接口移除顶层 HTTP 200 + `success:false`，逐项失败保留行级状态并统一为 `message`；账号任务 502 改用统一错误 DTO；订单/账号契约测试、全量测试、race、vet、lint、注释和 diff 门禁通过 | 阶段 3：聊天、商品与自动化业务 API 错误响应迁移 |

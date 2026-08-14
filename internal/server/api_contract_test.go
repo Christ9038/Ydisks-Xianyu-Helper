@@ -144,6 +144,9 @@ func assertUnifiedAPIError(t *testing.T, handler http.Handler, method, path, bod
 	if requireRequestID && response.RequestID == "" {
 		t.Fatalf("%s %s 缺少 request_id: %+v", method, path, response)
 	}
+	if strings.Contains(rec.Body.String(), `"detail"`) || strings.Contains(rec.Body.String(), `"msg"`) || strings.Contains(rec.Body.String(), `"error"`) {
+		t.Fatalf("%s %s 包含旧错误字段: %s", method, path, rec.Body.String())
+	}
 }
 
 // TestAPIContractRemainingAuthenticationErrors 验证初始化和密码凭据错误统一使用非 2xx 响应。
@@ -180,4 +183,55 @@ func TestAPIContractPublicAndSPAErrors(t *testing.T) {
 	}
 	assertUnifiedAPIError(t, handler, http.MethodGet, "/system-settings/public", "", nil, http.StatusInternalServerError, httpapi.CodeInternalError, "查询失败", false)
 	assertUnifiedAPIError(t, handler, http.MethodGet, "/api/not-found", "", nil, http.StatusNotFound, httpapi.CodeNotFound, "接口不存在", true)
+}
+
+// TestAPIContractOrderAndAccountErrors 验证订单和账号业务错误使用统一状态码及错误字段。
+func TestAPIContractOrderAndAccountErrors(t *testing.T) {
+	// srv 是用于验证订单和账号业务错误的 HTTP 测试服务。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是当前测试使用的完整路由树。
+	handler := srv.Router()
+	// sessionCookie 是管理员登录后得到的认证会话。
+	sessionCookie := loginHelper(t, handler)
+	assertUnifiedAPIError(t, handler, http.MethodGet, "/api/orders/not-found", "", sessionCookie, http.StatusNotFound, httpapi.CodeNotFound, "订单不存在", false)
+	assertUnifiedAPIError(t, handler, http.MethodPost, "/api/orders/manual-ship", `{"order_ids":["order-1"],"ship_mode":"invalid"}`, sessionCookie, http.StatusBadRequest, httpapi.CodeBadRequest, "发货模式必须是 status_only 或 full_delivery", false)
+	assertUnifiedAPIError(t, handler, http.MethodGet, "/cookie/not-found/details", "", sessionCookie, http.StatusForbidden, httpapi.CodeForbidden, "无权限操作该Cookie", false)
+	assertUnifiedAPIError(t, handler, http.MethodGet, "/api/account-tasks/not-found", "", sessionCookie, http.StatusForbidden, httpapi.CodeForbidden, "无权访问该账号", false)
+}
+
+// TestAPIContractOrderBatchPartialFailure 验证订单批量接口用 partial_failure 表示逐项失败，不再返回顶层 success=false。
+func TestAPIContractOrderBatchPartialFailure(t *testing.T) {
+	// srv 是用于验证订单批量失败响应的 HTTP 测试服务。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是当前测试使用的完整路由树。
+	handler := srv.Router()
+	// sessionCookie 是管理员登录后得到的认证会话。
+	sessionCookie := loginHelper(t, handler)
+	// req 是包含不存在订单的手动发货请求。
+	req := httptest.NewRequest(http.MethodPost, "/api/orders/manual-ship", strings.NewReader(`{"order_ids":["not-found"],"ship_mode":"status_only"}`))
+	req.AddCookie(sessionCookie)
+	// rec 是捕获批量操作响应的测试记录器。
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("batch status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	// response 是批量操作的兼容响应对象。
+	var response map[string]any
+	// decodeErr 表示批量响应 JSON 反序列化失败的原因。
+	if decodeErr := json.Unmarshal(rec.Body.Bytes(), &response); decodeErr != nil {
+		t.Fatalf("decode batch response: %v", decodeErr)
+	}
+	if response["partial_failure"] != true {
+		t.Fatalf("batch response=%+v", response)
+	}
+	// exists 表示兼容响应是否仍暴露顶层 success 字段。
+	if _, exists := response["success"]; exists {
+		t.Fatalf("batch response must not expose top-level success: %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"error"`) {
+		t.Fatalf("batch response contains legacy error field: %s", rec.Body.String())
+	}
 }

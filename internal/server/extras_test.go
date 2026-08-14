@@ -363,14 +363,14 @@ func TestOrderImportReportsPartialFailure(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var result struct {
-		Success      bool `json:"success"`
-		SuccessCount int  `json:"success_count"`
-		FailedCount  int  `json:"failed_count"`
+		PartialFailure bool `json:"partial_failure"`
+		SuccessCount   int  `json:"success_count"`
+		FailedCount    int  `json:"failed_count"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Success || result.SuccessCount != 1 || result.FailedCount != 1 {
+	if !result.PartialFailure || result.SuccessCount != 1 || result.FailedCount != 1 {
 		t.Fatalf("result=%+v", result)
 	}
 }

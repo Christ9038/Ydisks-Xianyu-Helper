@@ -100,7 +100,7 @@ func (s *Server) runAccountTask(w http.ResponseWriter, r *http.Request) {
 	}
 	summary, err := s.automation.RunAccountTask(r.Context(), cid, input.TaskType)
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"summary": summary, "error": err.Error()})
+		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "summary": summary})
