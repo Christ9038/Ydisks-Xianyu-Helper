@@ -4890,708 +4890,6 @@
     "name": "commitIfLatest"
   },
   {
-    "file": "components/Notifications.tsx",
-    "line": 155,
-    "kind": "member",
-    "name": "description"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 155,
-    "kind": "member",
-    "name": "label"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 155,
-    "kind": "member",
-    "name": "value"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 155,
-    "kind": "variable",
-    "name": "NOTIFICATION_EVENTS"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 165,
-    "kind": "variable",
-    "name": "notificationEventSummary"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 167,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 167,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 167,
-    "kind": "variable",
-    "name": "labels"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 172,
-    "kind": "member",
-    "name": "isAdmin"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 175,
-    "kind": "variable",
-    "name": "Notifications"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 176,
-    "kind": "variable",
-    "name": "[channels, setChannels]"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 177,
-    "kind": "variable",
-    "name": "[loading, setLoading]"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 178,
-    "kind": "variable",
-    "name": "[showModal, setShowModal]"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 179,
-    "kind": "variable",
-    "name": "[editing, setEditing]"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 180,
-    "kind": "variable",
-    "name": "[saving, setSaving]"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 181,
-    "kind": "variable",
-    "name": "[testingId, setTestingId]"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 182,
-    "kind": "member",
-    "name": "text"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 182,
-    "kind": "member",
-    "name": "type"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 182,
-    "kind": "variable",
-    "name": "[toast, setToast]"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 186,
-    "kind": "variable",
-    "name": "[smtpSaving, setSmtpSaving]"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 187,
-    "kind": "variable",
-    "name": "[showSmtpPassword, setShowSmtpPassword]"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 188,
-    "kind": "variable",
-    "name": "[showChannelSmtpPassword, setShowChannelSmtpPassword]"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 190,
-    "kind": "variable",
-    "name": "[form, setForm]"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 198,
-    "kind": "variable",
-    "name": "load"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 201,
-    "kind": "variable",
-    "name": "res"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 203,
-    "kind": "variable",
-    "name": "e"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 21,
-    "kind": "member",
-    "name": "label"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 210,
-    "kind": "variable",
-    "name": "loadSmtp"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 212,
-    "kind": "variable",
-    "name": "s"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 214,
-    "kind": "variable",
-    "name": "e"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 219,
-    "kind": "variable",
-    "name": "handleSaveSmtp"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 22,
-    "kind": "member",
-    "name": "icon"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 23,
-    "kind": "member",
-    "name": "fields"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 23,
-    "kind": "member",
-    "name": "help"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 23,
-    "kind": "member",
-    "name": "key"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 23,
-    "kind": "member",
-    "name": "label"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 23,
-    "kind": "member",
-    "name": "placeholder"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 23,
-    "kind": "member",
-    "name": "required"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 23,
-    "kind": "member",
-    "name": "type"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 233,
-    "kind": "variable",
-    "name": "e"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 24,
-    "kind": "member",
-    "name": "guide"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 24,
-    "kind": "member",
-    "name": "note"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 24,
-    "kind": "member",
-    "name": "steps"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 24,
-    "kind": "member",
-    "name": "urlFormat"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 240,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 249,
-    "kind": "variable",
-    "name": "showToast"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 251,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 254,
-    "kind": "variable",
-    "name": "openCreate"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 261,
-    "kind": "variable",
-    "name": "openEdit"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 263,
-    "kind": "variable",
-    "name": "normalizedEmailConfig"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 266,
-    "kind": "variable",
-    "name": "config"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 27,
-    "kind": "variable",
-    "name": "CHANNEL_TYPES"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 282,
-    "kind": "variable",
-    "name": "handleSave"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 283,
-    "kind": "variable",
-    "name": "meta"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 284,
-    "kind": "variable",
-    "name": "f"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 294,
-    "kind": "variable",
-    "name": "config"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 298,
-    "kind": "variable",
-    "name": "required"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 305,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 305,
-    "kind": "variable",
-    "name": "missing"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 314,
-    "kind": "variable",
-    "name": "payload"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 323,
-    "kind": "variable",
-    "name": "e"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 331,
-    "kind": "variable",
-    "name": "handleDelete"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 337,
-    "kind": "variable",
-    "name": "e"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 342,
-    "kind": "variable",
-    "name": "handleToggleEnabled"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 347,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 347,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 348,
-    "kind": "variable",
-    "name": "e"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 353,
-    "kind": "variable",
-    "name": "handleTest"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 358,
-    "kind": "variable",
-    "name": "e"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 365,
-    "kind": "variable",
-    "name": "meta"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 422,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 423,
-    "kind": "variable",
-    "name": "tMeta"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 424,
-    "kind": "variable",
-    "name": "Icon"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 439,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 439,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 449,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 455,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 463,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 470,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 502,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 512,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 524,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 536,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 542,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 557,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 567,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 579,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 587,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 611,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 624,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 633,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 634,
-    "kind": "variable",
-    "name": "m"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 635,
-    "kind": "variable",
-    "name": "TIcon"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 636,
-    "kind": "variable",
-    "name": "selected"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 641,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 659,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 675,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 684,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 706,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 707,
-    "kind": "variable",
-    "name": "useCustom"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 730,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 740,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 752,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 764,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 770,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 770,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 784,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 794,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 806,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 814,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 830,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 831,
-    "kind": "variable",
-    "name": "checked"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 836,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 837,
-    "kind": "variable",
-    "name": "next"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 838,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 860,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Notifications.tsx",
-    "line": 871,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
     "file": "components/OrderList.tsx",
     "line": 104,
     "kind": "variable",
@@ -9241,19 +8539,19 @@
   },
   {
     "file": "routing.test.ts",
-    "line": 102,
+    "line": 104,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 103,
+    "line": 105,
     "kind": "variable",
     "name": "vite"
   },
   {
     "file": "routing.test.ts",
-    "line": 105,
+    "line": 107,
     "kind": "variable",
     "name": "staleRoute"
   },
@@ -9265,18 +8563,6 @@
   },
   {
     "file": "routing.test.ts",
-    "line": 118,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "routing.test.ts",
-    "line": 119,
-    "kind": "variable",
-    "name": "rules"
-  },
-  {
-    "file": "routing.test.ts",
     "line": 12,
     "kind": "variable",
     "name": "match"
@@ -9284,84 +8570,96 @@
   {
     "file": "routing.test.ts",
     "line": 120,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "routing.test.ts",
+    "line": 121,
+    "kind": "variable",
+    "name": "rules"
+  },
+  {
+    "file": "routing.test.ts",
+    "line": 122,
     "kind": "variable",
     "name": "existingRuleBranch"
   },
   {
     "file": "routing.test.ts",
-    "line": 125,
+    "line": 127,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 126,
+    "line": 128,
     "kind": "variable",
     "name": "rules"
   },
   {
     "file": "routing.test.ts",
-    "line": 132,
+    "line": 134,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 133,
+    "line": 135,
     "kind": "variable",
     "name": "rules"
   },
   {
     "file": "routing.test.ts",
-    "line": 141,
+    "line": 143,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 142,
+    "line": 144,
     "kind": "variable",
     "name": "itemList"
   },
   {
     "file": "routing.test.ts",
-    "line": 150,
+    "line": 152,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 151,
+    "line": 153,
     "kind": "variable",
     "name": "itemList"
   },
   {
     "file": "routing.test.ts",
-    "line": 159,
+    "line": 161,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 160,
+    "line": 162,
     "kind": "variable",
     "name": "accounts"
   },
   {
     "file": "routing.test.ts",
-    "line": 161,
+    "line": 163,
     "kind": "variable",
     "name": "riskPanel"
   },
   {
     "file": "routing.test.ts",
-    "line": 173,
+    "line": 175,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 174,
+    "line": 176,
     "kind": "variable",
     "name": "accounts"
   },
@@ -9499,13 +8797,25 @@
   },
   {
     "file": "routing.test.ts",
-    "line": 93,
+    "line": 83,
+    "kind": "variable",
+    "name": "notificationState"
+  },
+  {
+    "file": "routing.test.ts",
+    "line": 84,
+    "kind": "variable",
+    "name": "notificationModal"
+  },
+  {
+    "file": "routing.test.ts",
+    "line": 95,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 94,
+    "line": 96,
     "kind": "variable",
     "name": "rules"
   },
@@ -9919,81 +9229,63 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 164,
+    "line": 183,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 184,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 174,
+    "line": 194,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.test.ts",
-    "line": 197,
+    "line": 217,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 198,
+    "line": 218,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 203,
+    "line": 223,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.test.ts",
-    "line": 212,
+    "line": 232,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 213,
+    "line": 233,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 220,
+    "line": 240,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 222,
+    "line": 242,
     "kind": "variable",
     "name": "result"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 226,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 227,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 236,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 237,
-    "kind": "variable",
-    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
@@ -10009,145 +9301,157 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 258,
+    "line": 256,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 257,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 266,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 267,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 278,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 262,
+    "line": 282,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 277,
+    "line": 297,
     "kind": "variable",
     "name": "items"
   },
   {
     "file": "services/api.test.ts",
-    "line": 292,
+    "line": 312,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 293,
+    "line": 313,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 304,
+    "line": 324,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 310,
+    "line": 330,
     "kind": "variable",
     "name": "settings"
   },
   {
     "file": "services/api.test.ts",
-    "line": 315,
+    "line": 335,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 316,
+    "line": 336,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 327,
+    "line": 347,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 328,
+    "line": 348,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 328,
+    "line": 348,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 354,
+    "line": 374,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 355,
+    "line": 375,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 369,
+    "line": 389,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 383,
+    "line": 403,
     "kind": "variable",
     "name": "accounts"
   },
   {
     "file": "services/api.test.ts",
-    "line": 394,
+    "line": 414,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 395,
+    "line": 415,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 409,
+    "line": 429,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 410,
+    "line": 430,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 421,
+    "line": 441,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 422,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 435,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 436,
+    "line": 442,
     "kind": "variable",
     "name": "fetchMock"
   },
@@ -10159,33 +9463,27 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 453,
+    "line": 455,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 456,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 473,
     "kind": "variable",
     "name": "status"
   },
   {
     "file": "services/api.test.ts",
-    "line": 461,
+    "line": 481,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 484,
-    "kind": "variable",
-    "name": "rules"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 498,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 499,
-    "kind": "variable",
-    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
@@ -10195,7 +9493,7 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 508,
+    "line": 504,
     "kind": "variable",
     "name": "rules"
   },
@@ -10207,67 +9505,67 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 520,
+    "line": 518,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 521,
+    "line": 519,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 536,
+    "line": 528,
+    "kind": "variable",
+    "name": "rules"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 540,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 537,
+    "line": 541,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 546,
+    "line": 556,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 547,
+    "line": 557,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 558,
+    "line": 566,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 559,
+    "line": 567,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 574,
-    "kind": "variable",
-    "name": "body"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 582,
+    "line": 578,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 583,
+    "line": 579,
     "kind": "variable",
     "name": "fetchMock"
   },
@@ -10291,25 +9589,31 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 601,
+    "line": 602,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 602,
+    "line": 603,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 616,
+    "line": 614,
+    "kind": "variable",
+    "name": "body"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 621,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 617,
+    "line": 622,
     "kind": "variable",
     "name": "fetchMock"
   },
@@ -10321,75 +9625,75 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 638,
-    "kind": "variable",
-    "name": "body"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 654,
+    "line": 636,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 655,
+    "line": 637,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 683,
+    "line": 658,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 707,
+    "line": 674,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 708,
+    "line": 675,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 720,
+    "line": 703,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 721,
+    "line": 727,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 721,
+    "line": 728,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 740,
+    "kind": "variable",
+    "name": "body"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 741,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 741,
     "kind": "member",
     "name": "action_type"
   },
   {
     "file": "services/api.test.ts",
-    "line": 729,
+    "line": 749,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 730,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 747,
-    "kind": "variable",
-    "name": "body"
   },
   {
     "file": "services/api.test.ts",
@@ -10399,6 +9703,12 @@
   },
   {
     "file": "services/api.test.ts",
+    "line": 750,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
     "line": 76,
     "kind": "function-expression",
     "name": "anonymous"
@@ -10408,6 +9718,12 @@
     "line": 76,
     "kind": "variable",
     "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 767,
+    "kind": "variable",
+    "name": "body"
   },
   {
     "file": "services/api.test.ts",

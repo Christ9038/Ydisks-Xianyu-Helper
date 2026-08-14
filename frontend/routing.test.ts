@@ -80,13 +80,15 @@ describe('frontend navigation routing', () => {
 
   test('email notification config separates system and custom SMTP modes', () => {
     const notifications = readFrontendFile('components/Notifications.tsx');
+    const notificationState = readFrontendFile('app/features/notifications/state.ts');
+    const notificationModal = readFrontendFile('app/features/notifications/components/NotificationChannelModal.tsx');
 
     expect(notifications).toContain('interface NotificationsProps');
-    expect(notifications).toContain('isAdmin && (');
-    expect(notifications).toContain("key: 'to_email'");
-    expect(notifications).toContain('完整继承系统 SMTP');
-    expect(notifications).toContain('use_custom_smtp');
-    expect(notifications).not.toContain("key: 'from'");
+    expect(notifications).toContain('{isAdmin && <NotificationSmtpSettings');
+    expect(notificationState).toContain("key: 'to_email'");
+    expect(notificationModal).toContain('完整继承系统 SMTP');
+    expect(notificationModal).toContain('use_custom_smtp');
+    expect(notificationState).not.toContain("key: 'from'");
     expect(notifications).not.toContain('注册验证码');
   });
 

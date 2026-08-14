@@ -880,16 +880,16 @@ export const deleteReplyRule = async (id: string, cookieId: string): Promise<Ope
 }
 
 // Settings
-export const getSystemSettings = async (): Promise<SystemSettings> => {
-    const res = await get<{data: SystemSettings}>('/api/v1/settings/system');
+export const getSystemSettings = async (options?: RequestControlOptions): Promise<SystemSettings> => {
+    const res = await get<{data: SystemSettings}>('/api/v1/settings/system', undefined, options);
     return normalizeSettings(res.data || res); // handle {success:true, data: {...}} wrapper if exists
 };
 
-export const updateSystemSettings = async (settings: Partial<SystemSettings>): Promise<OperationResponse> => {
+export const updateSystemSettings = async (settings: Partial<SystemSettings>, options?: RequestControlOptions): Promise<OperationResponse> => {
 	const payload = Object.fromEntries(
 		Object.entries(settings).filter(([, value]) => value !== undefined && value !== null),
 	);
-	return put('/api/v1/settings/system', payload);
+	return put('/api/v1/settings/system', payload, options);
 };
 
 export const getAccountAISettings = async (cookieId: string, options?: RequestControlOptions): Promise<AIReplySettingsResponse> => {
@@ -956,15 +956,15 @@ export const getNotificationChannels = async (options?: RequestControlOptions): 
   return { success: true, data: channels };
 }
 
-export const createNotificationChannel = async (data: { name: string; type: string; config: Record<string, unknown>; event_types?: NotificationEventType[]; enabled?: boolean }): Promise<MutationIDResponse> => {
+export const createNotificationChannel = async (data: { name: string; type: string; config: Record<string, unknown>; event_types?: NotificationEventType[]; enabled?: boolean }, options?: RequestControlOptions): Promise<MutationIDResponse> => {
   return post('/api/v1/notifications/channels', {
     ...data,
     config: JSON.stringify(data.config),
     event_types: stringifyNotificationEventTypes(data.event_types)
-  });
+  }, options);
 }
 
-export const updateNotificationChannel = async (channelId: string, data: { name?: string; type?: string; config?: Record<string, unknown>; event_types?: NotificationEventType[]; enabled?: boolean }): Promise<OperationResponse> => {
+export const updateNotificationChannel = async (channelId: string, data: { name?: string; type?: string; config?: Record<string, unknown>; event_types?: NotificationEventType[]; enabled?: boolean }, options?: RequestControlOptions): Promise<OperationResponse> => {
   const payload: Record<string, unknown> = { ...data };
   if ('config' in data) {
     payload.config = JSON.stringify(data.config);
@@ -972,11 +972,11 @@ export const updateNotificationChannel = async (channelId: string, data: { name?
   if ('event_types' in data) {
     payload.event_types = stringifyNotificationEventTypes(data.event_types);
   }
-  return put(`/api/v1/notifications/channels/${channelId}`, payload);
+  return put(`/api/v1/notifications/channels/${channelId}`, payload, options);
 }
 
-export const deleteNotificationChannel = async (channelId: string): Promise<OperationResponse> => {
-  return del(`/api/v1/notifications/channels/${channelId}`);
+export const deleteNotificationChannel = async (channelId: string, options?: RequestControlOptions): Promise<OperationResponse> => {
+  return del(`/api/v1/notifications/channels/${channelId}`, undefined, options);
 }
 
 // Message Notifications
@@ -1021,8 +1021,8 @@ export const setAccountBindings = async (cookieId: string, channelIds: number[])
 }
 
 // 测试发送
-export const testNotificationChannel = async (channelId: string): Promise<OperationResponse> => {
-  return post(`/api/v1/notifications/channels/${channelId}/test`, {});
+export const testNotificationChannel = async (channelId: string, options?: RequestControlOptions): Promise<OperationResponse> => {
+  return post(`/api/v1/notifications/channels/${channelId}/test`, {}, options);
 }
 
 // Default Reply

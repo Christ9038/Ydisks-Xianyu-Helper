@@ -160,6 +160,26 @@ test('订单查询和导入 API 转发外部取消信号', async () => {
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/orders/import', expect.objectContaining({ signal: expect.any(AbortSignal) }));
 });
 
+test('通知渠道和 SMTP API 转发外部取消信号', async () => {
+  // fetchMock 验证渠道读取、保存和 SMTP 读写都支持取消控制。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse([]))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ data: {} }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+  // controller 是通知 feature 传给服务 API 的共享取消控制器。
+  const controller = new AbortController();
+  await getNotificationChannels({ signal: controller.signal });
+  await updateNotificationChannel('channel-1', { enabled: false }, { signal: controller.signal });
+  await getSystemSettings({ signal: controller.signal });
+  await updateSystemSettings({ smtp_server: 'smtp.example.com' }, { signal: controller.signal });
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/notifications/channels', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/notifications/channels/channel-1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/settings/system', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/settings/system', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+});
+
 test('getShippingRulesPage sends filters and preserves pagination metadata', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
     data: [{ id: 7, name: '付款规则', trigger_type: 'order_paid', enabled: false, actions: [] }],
