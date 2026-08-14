@@ -194,7 +194,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 	if fetcher, ok := s.mtopClient().(mtop.SoldOrderFetcher); ok {
 		for _, cid := range cookieIDs { // cid 是当前待刷新的账号 ID。
 			credentialUnlock := s.Store.LockAccountCredentials(cid)
-			latest, latestErr := s.Store.Cookies.GetDetails(r.Context(), cid)
+			latest, latestErr := s.loadCookiePlatformDetail(r.Context(), cid)
 			if latestErr != nil || latest == nil || latest.UserID != sess.UserID || !hasStoredCookieCredential(latest) {
 				credentialUnlock()
 				if latestErr == nil {
@@ -323,7 +323,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 		accountSessionExpired := false
 		for _, chunk := range chunkRefreshTargets(targets, refreshOrderChunkSize) {
 			credentialUnlock := s.Store.LockAccountCredentials(cid)
-			latest, latestErr := s.Store.Cookies.GetDetails(r.Context(), cid)
+			latest, latestErr := s.loadCookiePlatformDetail(r.Context(), cid)
 			if latestErr != nil || latest == nil || latest.UserID != sess.UserID || !hasStoredCookieCredential(latest) {
 				credentialUnlock()
 				failed += len(chunk)
@@ -527,7 +527,7 @@ func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	sess := auth.SessionFromContext(r.Context())
-	latest, err := s.Store.Cookies.GetDetails(r.Context(), cookieID)
+	latest, err := s.loadCookiePlatformDetail(r.Context(), cookieID)
 	if err != nil || latest == nil || latest.UserID != sess.UserID || !hasStoredCookieCredential(latest) {
 		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
 		return
@@ -867,7 +867,7 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 func (s *Server) consignWithCurrentCookie(ctx context.Context, cookieID, orderID string, userID int64) (bool, []string, string, bool, error) {
 	credentialUnlock := s.Store.LockAccountCredentials(cookieID)
 	defer credentialUnlock()
-	detail, err := s.Store.Cookies.GetDetails(ctx, cookieID)
+	detail, err := s.loadCookiePlatformDetail(ctx, cookieID)
 	if err != nil {
 		return false, nil, "", false, err
 	}

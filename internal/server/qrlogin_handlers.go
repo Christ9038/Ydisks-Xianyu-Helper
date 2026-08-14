@@ -226,7 +226,7 @@ func (s *Server) persistQRLoginSuccessFor(ctx context.Context, userID int64, ses
 	credentialUnlock := s.Store.LockAccountCredentials(accountID)
 	saveErr := func() error {
 		defer credentialUnlock()
-		detail, err := s.Store.Cookies.GetDetails(ctx, accountID)
+		detail, err := s.loadCookiePlatformDetail(ctx, accountID)
 		switch {
 		case errors.Is(err, db.ErrNotFound):
 			if targetAccountID != "" {
@@ -278,7 +278,7 @@ func (s *Server) persistQRLoginSuccessFor(ctx context.Context, userID int64, ses
 		}
 		return qrLoginPersistence{}, saveErr
 	}
-	if d, err := s.Store.Cookies.GetDetails(ctx, accountID); err == nil {
+	if d, err := s.loadCookieSummaryDetail(ctx, userID, accountID); err == nil {
 		s.refreshAccountProfile(ctx, d)
 	}
 	s.wakeCredentialBlockedAutomation(ctx, accountID)

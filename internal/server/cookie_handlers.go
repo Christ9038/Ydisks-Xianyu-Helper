@@ -47,7 +47,7 @@ func (s *Server) getLongLoginSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	credentialUnlock := s.Store.LockAccountCredentials(cid)
-	detail, err := s.Store.Cookies.GetDetails(r.Context(), cid)
+	detail, err := s.loadCookiePlatformDetail(r.Context(), cid)
 	if err != nil || detail == nil || detail.UserID != ownedDetail.UserID {
 		credentialUnlock()
 		writeErr(w, http.StatusNotFound, "账号不存在")
@@ -91,7 +91,7 @@ func (s *Server) setLongLoginSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	credentialUnlock := s.Store.LockAccountCredentials(cid)
-	detail, err := s.Store.Cookies.GetDetails(r.Context(), cid)
+	detail, err := s.loadCookiePlatformDetail(r.Context(), cid)
 	if err != nil || detail == nil || detail.UserID != ownedDetail.UserID {
 		credentialUnlock()
 		writeErr(w, http.StatusNotFound, "账号不存在")
@@ -228,7 +228,7 @@ type updateCookieSettingsRequest struct {
 // updateCookieSettings 原子保存编辑弹窗中的账号字段和通知绑定。
 func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	detail, ok := s.requireCookieOwner(w, r, cid)
+	detail, ok := s.requireCookieSecretOwner(w, r, cid)
 	if !ok {
 		return
 	}
@@ -447,7 +447,7 @@ func (s *Server) refreshCookieProfile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "无权限操作该账号")
 		return
 	}
-	d, err := s.Store.Cookies.GetDetails(r.Context(), cid) // d 和 err 是账号凭证详情及查询错误。
+	d, err := s.loadCookieSummaryDetail(r.Context(), sess.UserID, cid) // d 和 err 是资料刷新所需的非敏感摘要及查询错误。
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "账号不存在")
 		return
@@ -513,7 +513,7 @@ func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
 	}
 	s.markSuccessfulLogin(r.Context(), req.ID, sess.UserID, loginMethod, "账号登录成功")
 	credentialUnlock()
-	if d, err := s.Store.Cookies.GetDetails(r.Context(), req.ID); err == nil {
+	if d, err := s.loadCookiePlatformDetail(r.Context(), req.ID); err == nil {
 		s.refreshAccountProfile(r.Context(), d)
 	}
 	if s.Manager != nil && s.Store.Cookies.GetStatus(r.Context(), req.ID) {
@@ -541,7 +541,7 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := auth.SessionFromContext(r.Context())
 	credentialUnlock := s.Store.LockAccountCredentials(cid)
-	detail, err := s.Store.Cookies.GetDetails(r.Context(), cid)
+	detail, err := s.loadCookiePlatformDetail(r.Context(), cid)
 	if err != nil || detail == nil || detail.UserID != ownedDetail.UserID || detail.UserID != sess.UserID {
 		credentialUnlock()
 		writeErr(w, http.StatusNotFound, "账号不存在")
@@ -565,7 +565,7 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 		s.markSuccessfulLogin(r.Context(), cid, sess.UserID, loginMethod, "账号登录成功")
 	}
 	credentialUnlock()
-	if d, err := s.Store.Cookies.GetDetails(r.Context(), cid); err == nil {
+	if d, err := s.loadCookieSummaryDetail(r.Context(), sess.UserID, cid); err == nil {
 		s.refreshAccountProfile(r.Context(), d)
 	}
 	if s.Manager != nil && s.Store.Cookies.GetStatus(r.Context(), cid) {
@@ -579,7 +579,7 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 // updateCookieLoginInfo 更新账号登录信息（用户名/密码/显示浏览器）。
 func (s *Server) updateCookieLoginInfo(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	detail, ok := s.requireCookieOwner(w, r, cid)
+	detail, ok := s.requireCookieSecretOwner(w, r, cid)
 	if !ok {
 		return
 	}
@@ -629,7 +629,7 @@ func (s *Server) setCookieStatus(w http.ResponseWriter, r *http.Request) {
 		reason = db.DisableReasonManual
 	}
 	credentialUnlock := s.Store.LockAccountCredentials(cid)
-	latest, err := s.Store.Cookies.GetDetails(r.Context(), cid)
+	latest, err := s.loadCookiePlatformDetail(r.Context(), cid)
 	if err != nil || latest == nil || latest.UserID != ownedDetail.UserID {
 		credentialUnlock()
 		writeErr(w, http.StatusNotFound, "账号不存在")
@@ -645,7 +645,7 @@ func (s *Server) setCookieStatus(w http.ResponseWriter, r *http.Request) {
 	if s.Manager != nil {
 		if req.Enabled {
 			// 重启拉取最新 cookie。
-			if _, e := s.Store.Cookies.GetDetails(r.Context(), cid); e == nil {
+			if _, e := s.loadCookiePlatformDetail(r.Context(), cid); e == nil {
 				if err := s.Manager.Restart(r.Context(), cid); err != nil {
 					s.Logger.Error("启用后重启账号失败", "cookie_id", cid, "err", err)
 				}
@@ -665,7 +665,7 @@ func (s *Server) deleteCookie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	credentialUnlock := s.Store.LockAccountCredentials(cid)
-	latest, err := s.Store.Cookies.GetDetails(r.Context(), cid)
+	latest, err := s.loadCookiePlatformDetail(r.Context(), cid)
 	if err != nil || latest == nil || latest.UserID != ownedDetail.UserID {
 		credentialUnlock()
 		writeErr(w, http.StatusNotFound, "账号不存在")
@@ -679,8 +679,8 @@ func (s *Server) deleteCookie(w http.ResponseWriter, r *http.Request) {
 	credentialUnlock()
 	s.Logger.Info("账号已删除",
 		"cookie_id", cid,
-		"nickname", cachedAccountNickname(latest),
-		"user_id", latest.UserID,
+		"nickname", cachedAccountNickname(ownedDetail),
+		"user_id", ownedDetail.UserID,
 	)
 	// Stop 可能需要等待运行中任务收尾，不应阻塞删除 HTTP 请求。
 	// 数据库事务已完成，先向前端确认删除，再在后台精确停止该 cid 的实例。
@@ -796,7 +796,7 @@ func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) 
 	}
 
 	credentialUnlock := s.Store.LockAccountCredentials(d.ID)
-	latest, latestErr := s.Store.Cookies.GetDetails(ctx, d.ID)
+	latest, latestErr := s.loadCookiePlatformDetail(ctx, d.ID)
 	if latestErr != nil || latest == nil || latest.UserID != d.UserID {
 		credentialUnlock()
 		if latestErr == nil {

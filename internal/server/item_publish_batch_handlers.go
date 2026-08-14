@@ -135,7 +135,7 @@ func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Req
 			s.updateRunningCookie(context.Background(), req.CookieID, runtimeCookie)
 		}
 	}()
-	latest, err := s.Store.Cookies.GetDetails(r.Context(), req.CookieID)
+	latest, err := s.loadCookiePlatformDetail(r.Context(), req.CookieID)
 	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
 		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
 		return
@@ -923,7 +923,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 		res, err = func() (*mtop.PublishItemResult, error) {
 			credentialUnlock := s.Store.LockAccountCredentials(row.CookieID)
 			defer credentialUnlock()
-			latest, latestErr := s.Store.Cookies.GetDetails(ctx, row.CookieID)
+			latest, latestErr := s.loadCookiePlatformDetail(ctx, row.CookieID)
 			if latestErr != nil {
 				return nil, latestErr
 			}

@@ -99,7 +99,7 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		selectedLocation = &location
 	}
 	credentialUnlock := s.Store.LockAccountCredentials(cookieID)
-	latest, err := s.Store.Cookies.GetDetails(r.Context(), cookieID)
+	latest, err := s.loadCookiePlatformDetail(r.Context(), cookieID)
 	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
 		credentialUnlock()
 		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
@@ -355,7 +355,7 @@ func (s *Server) syncItemsFromAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	credentialUnlock := s.Store.LockAccountCredentials(req.CookieID)
-	latest, err := s.Store.Cookies.GetDetails(r.Context(), req.CookieID)
+	latest, err := s.loadCookiePlatformDetail(r.Context(), req.CookieID)
 	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
 		credentialUnlock()
 		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
@@ -458,7 +458,7 @@ func (s *Server) syncItemsPageFromAccount(w http.ResponseWriter, r *http.Request
 		return
 	}
 	credentialUnlock := s.Store.LockAccountCredentials(req.CookieID)
-	latest, err := s.Store.Cookies.GetDetails(r.Context(), req.CookieID)
+	latest, err := s.loadCookiePlatformDetail(r.Context(), req.CookieID)
 	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
 		credentialUnlock()
 		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")

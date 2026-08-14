@@ -126,7 +126,8 @@ app shell / routes
 - 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `reloadCookieFromDB` 已改用 `GetCookieRuntimeData`，只读取外部 Cookie 更新检测所需的 Cookie 与 metadata，保持运行时替换、token 清理和错误行为，并补充损坏登录密码回归测试；
 - 已完成阶段 2 当前 PR 切片四“Engine/账号运行时凭证边界”：`cookieSnapshotMatchesDB`、`UpdateCookie` 和账号管理器 `Restart` 已分别改用 `GetCookieRuntimeData` 或 `GetValue`，只读取运行实例所需的 Cookie 数据；损坏登录密码回归测试覆盖 WS 注册前校验、运行时同步和重启路径，且三项修改合并为一个可回滚提交；
 - 已完成阶段 2 当前 PR 切片五“平台凭证流程统一窄查询”：新增不含用户名和登录密码的 `CookiePlatformRuntimeData`，并将 `internal/adapter` 的 token 风控、订单详情、协议续期以及 `internal/renewal` 的迟到 Cookie 合并统一迁移到该视图；损坏登录密码回归测试覆盖四条平台流程，且整批修改合并为一个可回滚提交；
-- 阶段 2 下一 PR 切片为“Server 剩余平台凭证流程审计”：集中复核 `internal/server` 仍使用完整账号详情的真实凭证调用，按用途迁移到平台运行视图或其他专用窄查询，完成该切片内所有调用方后再统一提交，禁止按单个函数拆分提交；
+- 已完成阶段 2 当前 PR 切片六“Server 平台凭证流程审计”：Server 的订单、发布、商品同步、二维码登录、长登录、资料刷新和账号生命周期路径已改用平台运行视图或非敏感摘要；完整 `CookieDetail` 仅保留给账号设置和登录信息更新这两个确实需要登录秘密的流程，新增 Server 窄查询回归测试并通过全量门禁，整批修改合并为一个可回滚提交；
+- 阶段 2 下一 PR 切片为“敏感数据边界最终审计”：复核生产代码完整详情读取白名单、补充跨数据库窄查询回归、确认所有权与凭证锁不变量，并在阶段 2 证据完整后再进入阶段 3 API 契约，不拆分单个调用提交；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -500,4 +501,4 @@ npm --prefix frontend run build
 | 2026-08-14 | `refreshTokenWithMinGap` 改用 `GetCookieMetadata` | token 请求只解密 Cookie 快照 metadata；快照上下文和 token 刷新行为保持不变，回归测试通过 | 迁移 `adoptTokenResponseCookies` 的 metadata 读取 |
 | 2026-08-14 | `adoptTokenResponseCookies` 改用 `GetCookieMetadata` | token 响应合并只解密 metadata；快照持久化和错误语义保持不变，回归测试通过 | 迁移 `databaseCredentialFingerprint` 的运行时凭证读取 |
 | 2026-08-14 | `databaseCredentialFingerprint` 改用 `GetCookieRuntimeData` | token 凭证一致性校验只解密 Cookie 与 metadata；空值、指纹和错误语义保持不变，回归测试通过 | 迁移 `reloadCookieFromDB` 的运行时凭证读取 |
-| 2026-08-14 | 完成阶段 2 当前 PR 切片“平台凭证流程统一窄查询” | 新增 `CookiePlatformRuntimeData`；adapter 的 token 风控、订单详情、协议续期和 renewal 迟到 Cookie 合并均不再读取完整账号详情；损坏登录密码回归测试及全量门禁通过 | 集中审计 server 剩余完整账号详情调用后再提交下一 PR 切片 |
+| 2026-08-14 | 完成阶段 2 当前 PR 切片“Server 平台凭证流程审计” | Server 平台、订单、发布、二维码和资料流程均不再读取完整账号详情；完整详情仅保留给登录设置与登录信息更新；窄查询回归测试、全量测试、race、vet、lint 和注释门禁通过 | 进行敏感数据边界最终审计，确认阶段 2 完成证据后进入阶段 3 |

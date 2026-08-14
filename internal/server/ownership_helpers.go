@@ -13,7 +13,7 @@ func (s *Server) requireCookieOwner(w http.ResponseWriter, r *http.Request, cook
 		writeErr(w, http.StatusUnauthorized, "未授权访问")
 		return nil, false
 	}
-	d, err := s.Store.Cookies.GetDetails(r.Context(), cookieID)
+	d, err := s.loadCookieSummaryDetail(r.Context(), sess.UserID, cookieID)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "账号不存在")
 		return nil, false
@@ -23,6 +23,22 @@ func (s *Server) requireCookieOwner(w http.ResponseWriter, r *http.Request, cook
 		return nil, false
 	}
 	return d, true
+}
+
+// requireCookieSecretOwner 校验账号归属后读取登录设置所需的完整详情，仅供需要密码的管理流程使用。
+func (s *Server) requireCookieSecretOwner(w http.ResponseWriter, r *http.Request, cookieID string) (*db.CookieDetail, bool) {
+	// ownerOK 表示当前会话是否通过账号所有权校验。
+	_, ownerOK := s.requireCookieOwner(w, r, cookieID)
+	if !ownerOK {
+		return nil, false
+	}
+	// detail 是登录设置流程需要的用户名、密码和浏览器显示设置。
+	detail, err := s.Store.Cookies.GetDetails(r.Context(), cookieID)
+	if err != nil || detail == nil {
+		writeErr(w, http.StatusNotFound, "账号不存在")
+		return nil, false
+	}
+	return detail, true
 }
 
 // requireCookieOwnership 校验当前会话是否拥有账号，只读取账号所有权元数据，不解密凭证。
