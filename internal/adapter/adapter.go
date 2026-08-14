@@ -225,7 +225,7 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 		return nil, false
 	}
 
-	if d, err := a.store.Cookies.GetDetails(ctx, cookieID); err == nil && d != nil {
+	if d, err := a.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID); err == nil {
 		showBrowser = d.ShowBrowser
 		metadataJSON = d.MetadataJSON
 	}
@@ -408,17 +408,17 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 	a.lastOrderFetch = time.Now()
 	credentialUnlock := a.store.LockAccountCredentials(cookieID)
 	defer credentialUnlock()
-	account, err := a.store.Cookies.GetDetails(ctx, cookieID)
+	platformData, err := a.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID) // platformData 只包含订单 MTOP 请求所需的 Cookie 与 metadata。
 	if err != nil {
 		return nil, fmt.Errorf("读取订单账号最新 Cookie: %w", err)
 	}
-	if account == nil || (strings.TrimSpace(account.Value) == "" && !hasCompleteCookieSnapshot(account.MetadataJSON)) {
+	if strings.TrimSpace(platformData.Value) == "" && !hasCompleteCookieSnapshot(platformData.MetadataJSON) {
 		return nil, fmt.Errorf("订单账号 %s Cookie 为空", cookieID)
 	}
-	cookieStr := account.Value
+	cookieStr := platformData.Value
 	var requestCtx context.Context
 	var cookieSession *mtop.CookieSession
-	if snapshot, complete := cookierefresh.SnapshotFromMetadataOK(account.MetadataJSON); complete {
+	if snapshot, complete := cookierefresh.SnapshotFromMetadataOK(platformData.MetadataJSON); complete {
 		requestCtx, cookieSession = mtop.WithCookieSnapshot(ctx, snapshot)
 	} else {
 		requestCtx, cookieSession = mtop.WithFlatCookieSession(ctx, cookieStr)
@@ -426,9 +426,9 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 	detail, fetchErr := a.orderMTop.FetchOrderDetail(requestCtx, cookieStr, orderID)
 	authoritativeCookies, authoritativeSnapshot, sessionChanged := cookieSession.State()
 	if sessionChanged {
-		metadata := cookierefresh.MetadataWithoutSnapshot(account.MetadataJSON)
+		metadata := cookierefresh.MetadataWithoutSnapshot(platformData.MetadataJSON)
 		if authoritativeSnapshot != nil {
-			metadata = cookierefresh.MetadataWithSnapshot(account.MetadataJSON, authoritativeSnapshot)
+			metadata = cookierefresh.MetadataWithSnapshot(platformData.MetadataJSON, authoritativeSnapshot)
 		}
 		if persistErr := a.store.Cookies.UpdateRenewalCookie(ctx, cookieID, authoritativeCookies, metadata, time.Now().Unix()); persistErr != nil {
 			fetchErr = errors.Join(fetchErr, fmt.Errorf("保存订单详情响应 Cookie: %w", persistErr))
@@ -444,7 +444,7 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 		return nil, errors.New("订单详情 MTOP 接口返回空结果")
 	}
 	if !sessionChanged && authoritativeSnapshot == nil && detail.UpdatedCookies != "" && detail.UpdatedCookies != cookieStr {
-		metadata := cookierefresh.MetadataWithoutSnapshot(account.MetadataJSON)
+		metadata := cookierefresh.MetadataWithoutSnapshot(platformData.MetadataJSON)
 		if err := a.store.Cookies.UpdateRenewalCookie(ctx, cookieID, detail.UpdatedCookies, metadata, time.Now().Unix()); err != nil {
 			return nil, fmt.Errorf("保存订单详情响应 Cookie: %w", err)
 		}
@@ -503,17 +503,17 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 	}
 	defer a.finishPasswordLogin(cookieID)
 
-	d, err := a.store.Cookies.GetDetails(ctx, cookieID)
+	platformData, err := a.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID) // platformData 是协议续期所需的 Cookie、metadata 和日志归属信息。
 	if err != nil {
 		a.logger.Warn("协议续期失败：读取账号详情失败", "account", cookieID, "err", err)
 		a.recordPasswordLogin(ctx, cookieID, 0, "failed", "account_lookup_failed", err.Error())
 		return false
 	}
 
-	renewed, renewErr := a.tryProtocolCredentialRenew(ctx, d)
+	renewed, renewErr := a.tryProtocolCredentialRenew(ctx, &platformData)
 	if renewed {
 		a.wakeCredentialBlockedAutomation(ctx, cookieID)
-		a.recordPasswordLogin(ctx, cookieID, d.UserID, "success", "", "Go 协议续期成功")
+		a.recordPasswordLogin(ctx, cookieID, platformData.UserID, "success", "", "Go 协议续期成功")
 		return true
 	}
 	message := "Go 协议续期未恢复登录凭证，请重新扫码登录"
@@ -522,7 +522,7 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 	}
 	a.logger.Warn("协议续期未恢复账号", "account", cookieID, "err", renewErr)
 	a.OnAccountEvent(ctx, cookieID, engine.EventAccountOffline, engine.AlertLevelWarn, "账号需要重新扫码", message)
-	a.recordPasswordLogin(ctx, cookieID, d.UserID, "failed", "qr_login_required", message)
+	a.recordPasswordLogin(ctx, cookieID, platformData.UserID, "failed", "qr_login_required", message)
 	return false
 }
 
@@ -588,7 +588,7 @@ func truncateMessage(s string, n int) string {
 	return s[:n]
 }
 
-func (a *Adapter) tryProtocolCredentialRenew(ctx context.Context, d *db.CookieDetail) (bool, error) {
+func (a *Adapter) tryProtocolCredentialRenew(ctx context.Context, d *db.CookiePlatformRuntimeData) (bool, error) {
 	if d == nil {
 		return false, nil
 	}

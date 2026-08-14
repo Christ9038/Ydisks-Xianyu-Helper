@@ -258,6 +258,20 @@ type CookieRuntimeData struct {
 	MetadataJSON string
 }
 
+// CookiePlatformRuntimeData 表示平台调用流程所需的最小账号视图，不包含用户名、登录密码或其他账号资料。
+type CookiePlatformRuntimeData struct {
+	// ID 是闲鱼账号的稳定标识，用于绑定凭证解密作用域和续期日志。
+	ID string
+	// UserID 是账号所属的本地用户 ID，仅用于记录协议续期结果的归属。
+	UserID int64
+	// Value 是 repository 解密后的 Cookie 明文，仅在平台请求边界内短暂使用。
+	Value string
+	// MetadataJSON 是 Cookie 快照等平台请求元数据，不包含登录密码。
+	MetadataJSON string
+	// ShowBrowser 表示 token 风控恢复是否允许使用可视化浏览器。
+	ShowBrowser bool
+}
+
 // GetCookieRuntimeData 返回运行时所需的最小 Cookie 与 metadata 字段，并严格跳过登录密码、用户名等其他列。
 func (c *Cookies) GetCookieRuntimeData(ctx context.Context, cookieID string) (CookieRuntimeData, error) {
 	// data 保存按账号 ID 查询到的运行时字段。
@@ -282,6 +296,37 @@ func (c *Cookies) GetCookieRuntimeData(ctx context.Context, cookieID string) (Co
 	data.MetadataJSON, decryptErr = c.codec.decrypt(cookieMetadataScope, cookieID, encryptedMetadata)
 	if decryptErr != nil {
 		return CookieRuntimeData{}, fmt.Errorf("解密账号 %s Cookie metadata: %w", cookieID, decryptErr)
+	}
+	return data, nil
+}
+
+// GetCookiePlatformRuntimeData 返回平台调用所需的 Cookie、metadata、所有者和浏览器设置，并严格跳过登录秘密。
+func (c *Cookies) GetCookiePlatformRuntimeData(ctx context.Context, cookieID string) (CookiePlatformRuntimeData, error) {
+	// data 保存按账号 ID 查询到的平台运行时字段。
+	var data CookiePlatformRuntimeData
+	// showBrowser 保存数据库中的整数布尔值。
+	var showBrowser int
+	// encryptedValue 和 encryptedMetadata 保存仅供本次解密的数据库密文。
+	var encryptedValue, encryptedMetadata string
+	// queryErr 表示账号不存在或平台运行时查询失败的原因。
+	if queryErr := c.DB.QueryRowContext(ctx,
+		`SELECT id, user_id, value, COALESCE(show_browser,0), COALESCE(metadata_json,'') FROM cookies WHERE id=?`, cookieID).
+		Scan(&data.ID, &data.UserID, &encryptedValue, &showBrowser, &encryptedMetadata); queryErr != nil {
+		if errors.Is(queryErr, sql.ErrNoRows) {
+			return CookiePlatformRuntimeData{}, ErrNotFound
+		}
+		return CookiePlatformRuntimeData{}, queryErr
+	}
+	data.ShowBrowser = showBrowser != 0
+	// decryptErr 表示 Cookie 或 metadata 密文无法解密的原因。
+	var decryptErr error
+	data.Value, decryptErr = c.codec.decrypt("cookie", data.ID, encryptedValue)
+	if decryptErr != nil {
+		return CookiePlatformRuntimeData{}, fmt.Errorf("解密账号 %s Cookie: %w", cookieID, decryptErr)
+	}
+	data.MetadataJSON, decryptErr = c.codec.decrypt(cookieMetadataScope, data.ID, encryptedMetadata)
+	if decryptErr != nil {
+		return CookiePlatformRuntimeData{}, fmt.Errorf("解密账号 %s Cookie metadata: %w", cookieID, decryptErr)
 	}
 	return data, nil
 }

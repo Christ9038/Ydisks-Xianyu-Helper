@@ -457,11 +457,11 @@ func (s *Scheduler) watchPendingAPIRenew(ctx context.Context, batchID, cookieID 
 		changed := func() bool {
 			unlock := s.store.LockAccountCredentials(cookieID)
 			defer unlock()
-			detail, getErr := s.store.Cookies.GetDetails(opCtx, cookieID)
-			if getErr != nil || detail == nil {
-				if getErr == nil {
-					getErr = db.ErrNotFound
-				}
+			detail, getErr := s.store.Cookies.GetCookiePlatformRuntimeData(opCtx, cookieID) // detail 只包含迟到 Cookie 合并所需的 Cookie 与 metadata。
+			if getErr != nil {
+				// 窄查询已统一把账号不存在转换为 ErrNotFound。
+				// 这里继续在凭证锁内终止本次迟到响应合并。
+				// 记录错误并保留原有异步任务终态语义。
 				s.logger.Warn("保存定时静默续期迟到 Cookie 前读取账号失败", "account", cookieID, "err", getErr)
 				finalErr = getErr
 				return false
