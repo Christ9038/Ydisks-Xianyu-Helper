@@ -5,18 +5,18 @@ import {
   deleteItemPublishBatch, deleteItem, cancelItemPublishBatch, retryFailedItemPublishBatch,
   checkPasswordLoginStatus,
   completeQRVerification,
-  createNotificationChannel,
+	createNotificationChannel, getAllAISettings, getAccountAISettings, updateAccountAISettings, fetchAIModels,
   getAccountDetails, getAccountRuntimeStatuses, updateAccountStatus,
 	getAutomationIssues,
 	getItems, getItemDetail, syncItemsFromAccount,
 	getItemPublishBatches, getItemPublishBatch, startItemPublishBatch,
-	getNotificationChannels,
+	getNotificationChannels, getMessageNotifications, getAccountBindings,
   getOrders, getOrderDetail, updateOrder,
 	getOrderAnalytics,
   getReplyRules,
   getShippingRules,
   getShippingRulesPage,
-  getSystemSettings,
+	getSystemSettings, getCards, createCard, updateCard, deleteCard, getCardDetails, batchCreateCards, appendCardData,
 	getValidOrders,
 	publishItem, recommendPublishCategory, previewItemPublishBatch,
 	logout,
@@ -31,7 +31,7 @@ import {
   updateAccountLoginInfo,
 	updateAccountSettings, updateAccountRemark, updateAccountAutoConfirm, updateAccountPauseDuration, getLongLoginSettings, setLongLoginSettings, refreshAccountProfile,
   updateItem,
-  updateNotificationChannel,
+	updateNotificationChannel, deleteNotificationChannel, setMessageNotification, deleteMessageNotification, deleteAccountNotifications, setAccountBindings, testNotificationChannel,
   updateSystemSettings,
   updateShippingRule,
 	getChatSessions,
@@ -52,7 +52,7 @@ test('updateSystemSettings uses one atomic bulk request', async () => {
 	vi.stubGlobal('fetch', fetchMock);
 	await updateSystemSettings({ theme_color: 'blue', renewal_log_retention_days: 15 });
 	expect(fetchMock).toHaveBeenCalledTimes(1);
-	expect(fetchMock).toHaveBeenCalledWith('/system-settings', expect.objectContaining({ method: 'PUT', credentials: 'include' }));
+	expect(fetchMock).toHaveBeenCalledWith('/api/v1/settings/system', expect.objectContaining({ method: 'PUT', credentials: 'include' }));
 	expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ theme_color: 'blue', renewal_log_retention_days: 15 });
 });
 
@@ -590,7 +590,7 @@ test('updateNotificationChannel supports partial enabled updates', async () => {
 
   await updateNotificationChannel('7', { enabled: false });
 
-  expect(fetchMock).toHaveBeenCalledWith('/notification-channels/7', expect.objectContaining({
+	expect(fetchMock).toHaveBeenCalledWith('/api/v1/notifications/channels/7', expect.objectContaining({
     method: 'PUT',
     credentials: 'include',
   }));
@@ -922,3 +922,86 @@ const runVersionedItemBatchAPITest = async () => {
 };
 
 test('item sync and batch publish APIs use versioned compatibility routes', runVersionedItemBatchAPITest);
+
+// 设置、卡券和通知 API 使用版本化兼容入口。
+const runVersionedSettingsCardNotificationAPITest = async () => {
+  // fetchMock 是设置、卡券和通知请求的测试替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ data: {} }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({}))
+    .mockResolvedValueOnce(jsonResponse({ ai_enabled: false }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ models: ['qwen-plus'] }))
+    .mockResolvedValueOnce(jsonResponse([]))
+    .mockResolvedValueOnce(jsonResponse({ success: true, id: 1 }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ id: 1, name: '卡券', type: 'text', text_content: 'CARD' }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, total: 0, created: 0, failed: 0, rows: [] }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, added: 1 }))
+    .mockResolvedValueOnce(jsonResponse([]))
+    .mockResolvedValueOnce(jsonResponse({ success: true, id: 1 }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({}))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ channel_ids: [] }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await getSystemSettings();
+  await updateSystemSettings({ theme_color: 'blue' });
+  await getAllAISettings();
+  await getAccountAISettings('acc1');
+  await updateAccountAISettings('acc1', { ai_enabled: true });
+  await fetchAIModels('https://ai.example.com');
+  await getCards();
+  await createCard({ name: '卡券', type: 'text', text_content: 'CARD' });
+  await updateCard(1, { enabled: false });
+  await deleteCard(1);
+  await getCardDetails(1);
+  await batchCreateCards(new File(['name,type,content\n卡券,text,CARD'], 'cards.csv', { type: 'text/csv' }));
+  await appendCardData(1, 'CARD-2');
+  await getNotificationChannels();
+  await createNotificationChannel({ name: '通知', type: 'bark', config: {} });
+  await updateNotificationChannel('1', { enabled: false });
+  await deleteNotificationChannel('1');
+  await getMessageNotifications();
+  await setMessageNotification('acc1', 1, true);
+  await deleteMessageNotification('1');
+  await deleteAccountNotifications('acc1');
+  await getAccountBindings('acc1');
+  await setAccountBindings('acc1', [1]);
+  await testNotificationChannel('1');
+
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/settings/system', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/settings/system', expect.objectContaining({ method: 'PUT' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/settings/ai-reply', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/settings/ai-reply/acc1', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/settings/ai-reply/acc1', expect.objectContaining({ method: 'PUT' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(6, '/api/v1/settings/ai-models', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(7, '/api/v1/cards', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(8, '/api/v1/cards', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(9, '/api/v1/cards/1', expect.objectContaining({ method: 'PUT' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(10, '/api/v1/cards/1', expect.objectContaining({ method: 'DELETE' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(11, '/api/v1/cards/1/details', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(12, '/api/v1/cards/batch', expect.objectContaining({ method: 'POST', body: expect.any(FormData) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(13, '/api/v1/cards/1/append-data', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(14, '/api/v1/notifications/channels', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(15, '/api/v1/notifications/channels', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(16, '/api/v1/notifications/channels/1', expect.objectContaining({ method: 'PUT' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(17, '/api/v1/notifications/channels/1', expect.objectContaining({ method: 'DELETE' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(18, '/api/v1/notifications/messages', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(19, '/api/v1/notifications/accounts/acc1/bindings', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(20, '/api/v1/notifications/messages/1', expect.objectContaining({ method: 'DELETE' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(21, '/api/v1/notifications/messages/account/acc1', expect.objectContaining({ method: 'DELETE' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(22, '/api/v1/notifications/accounts/acc1/bindings', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(23, '/api/v1/notifications/accounts/acc1/bindings', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(24, '/api/v1/notifications/channels/1/test', expect.objectContaining({ method: 'POST' }));
+};
+
+test('settings, card, and notification APIs use versioned compatibility routes', runVersionedSettingsCardNotificationAPITest);

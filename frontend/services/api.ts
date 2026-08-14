@@ -290,7 +290,7 @@ export const updateAccountLoginInfo = async (id: string, data: {
 };
 
 export const getAllAISettings = async (options?: RequestControlOptions): Promise<Record<string, AIReplySettings>> => {
-  return get('/ai-reply-settings', undefined, options);
+  return get('/api/v1/settings/ai-reply', undefined, options);
 };
 
 // Orders
@@ -449,25 +449,25 @@ const cardPayload = (data: Partial<Card>): Record<string, unknown> => ({
 });
 
 export const getCards = async (): Promise<Card[]> => {
-  const res = await get<Card[] | CardListResponse>('/cards');
+  const res = await get<Card[] | CardListResponse>('/api/v1/cards');
   const cards = Array.isArray(res) ? res : (res.cards || []);
   return cards.map(normalizeCard);
 };
 
 export const createCard = async (data: Partial<Card>): Promise<MutationIDResponse> => {
-  return post('/cards', cardPayload(data));
+  return post('/api/v1/cards', cardPayload(data));
 };
 
 export const updateCard = async (cardId: string | number, data: Partial<Card>): Promise<OperationResponse> => {
-  return put(`/cards/${cardId}`, cardPayload(data));
+  return put(`/api/v1/cards/${cardId}`, cardPayload(data));
 };
 
 export const deleteCard = async (cardId: string | number): Promise<OperationResponse> => {
-  return del(`/cards/${cardId}`);
+  return del(`/api/v1/cards/${cardId}`);
 };
 
 export const getCardDetails = async (cardId: string | number): Promise<Card> => {
-  const card = await get<Card>(`/cards/${cardId}/details`);
+  const card = await get<Card>(`/api/v1/cards/${cardId}/details`);
   return normalizeCard(card);
 };
 
@@ -481,12 +481,12 @@ export const batchCreateCards = async (file: File): Promise<CardBatchResponse> =
   // 此处只收紧 TypeScript 响应契约。
   const body = new FormData();
   body.append('file', file);
-  return postForm('/cards/batch', body);
+  return postForm('/api/v1/cards/batch', body);
 };
 
 // 往 data 类型卡密组批量追加卡密号
 export const appendCardData = async (cardId: string | number, content: string): Promise<CardAppendResponse> => {
-  return post(`/cards/${cardId}/append-data`, { content });
+  return post(`/api/v1/cards/${cardId}/append-data`, { content });
 };
 
 // Items
@@ -880,7 +880,7 @@ export const deleteReplyRule = async (id: string, cookieId: string): Promise<Ope
 
 // Settings
 export const getSystemSettings = async (): Promise<SystemSettings> => {
-    const res = await get<{data: SystemSettings}>('/system-settings');
+    const res = await get<{data: SystemSettings}>('/api/v1/settings/system');
     return normalizeSettings(res.data || res); // handle {success:true, data: {...}} wrapper if exists
 };
 
@@ -888,11 +888,11 @@ export const updateSystemSettings = async (settings: Partial<SystemSettings>): P
 	const payload = Object.fromEntries(
 		Object.entries(settings).filter(([, value]) => value !== undefined && value !== null),
 	);
-	return put('/system-settings', payload);
+	return put('/api/v1/settings/system', payload);
 };
 
 export const getAccountAISettings = async (cookieId: string, options?: RequestControlOptions): Promise<AIReplySettingsResponse> => {
-    return get(`/ai-reply-settings/${cookieId}`, undefined, options);
+    return get(`/api/v1/settings/ai-reply/${cookieId}`, undefined, options);
 }
 
 export const updateAccountAISettings = async (cookieId: string, settings: Partial<AIReplySettings>): Promise<OperationResponse> => {
@@ -903,11 +903,11 @@ export const updateAccountAISettings = async (cookieId: string, settings: Partia
     max_bargain_rounds: settings.max_bargain_rounds ?? 3,
     custom_prompts: settings.custom_prompts ?? ''
   };
-  return put(`/ai-reply-settings/${cookieId}`, payload);
+  return put(`/api/v1/settings/ai-reply/${cookieId}`, payload);
 }
 
 export const fetchAIModels = async (baseUrl: string, apiKey: string = ''): Promise<string[]> => {
-  const result = await post<AIModelsResponse>('/ai-models', {
+  const result = await post<AIModelsResponse>('/api/v1/settings/ai-models', {
     base_url: baseUrl,
     api_key: apiKey,
   });
@@ -933,7 +933,7 @@ const stringifyNotificationEventTypes = (events?: NotificationEventType[]): stri
 };
 
 export const getNotificationChannels = async (options?: RequestControlOptions): Promise<{ success: boolean; data?: NotificationChannel[] }> => {
-  const result = await get<NotificationChannelResponse[]>('/notification-channels', undefined, options);
+  const result = await get<NotificationChannelResponse[]>('/api/v1/notifications/channels', undefined, options);
   const channels = (result || []).map((item: any) => {
     let parsedConfig;
     try {
@@ -956,7 +956,7 @@ export const getNotificationChannels = async (options?: RequestControlOptions): 
 }
 
 export const createNotificationChannel = async (data: { name: string; type: string; config: Record<string, unknown>; event_types?: NotificationEventType[]; enabled?: boolean }): Promise<MutationIDResponse> => {
-  return post('/notification-channels', {
+  return post('/api/v1/notifications/channels', {
     ...data,
     config: JSON.stringify(data.config),
     event_types: stringifyNotificationEventTypes(data.event_types)
@@ -971,16 +971,16 @@ export const updateNotificationChannel = async (channelId: string, data: { name?
   if ('event_types' in data) {
     payload.event_types = stringifyNotificationEventTypes(data.event_types);
   }
-  return put(`/notification-channels/${channelId}`, payload);
+  return put(`/api/v1/notifications/channels/${channelId}`, payload);
 }
 
 export const deleteNotificationChannel = async (channelId: string): Promise<OperationResponse> => {
-  return del(`/notification-channels/${channelId}`);
+  return del(`/api/v1/notifications/channels/${channelId}`);
 }
 
 // Message Notifications
 export const getMessageNotifications = async (): Promise<{ success: boolean; data?: NotificationBinding[] }> => {
-  const result = await get<Record<string, NotificationBinding[]>>('/message-notifications');
+  const result = await get<Record<string, NotificationBinding[]>>('/api/v1/notifications/messages');
   const notifications: NotificationBinding[] = [];
   for (const [cookieId, channelList] of Object.entries(result || {})) {
     if (Array.isArray(channelList)) {
@@ -998,30 +998,30 @@ export const getMessageNotifications = async (): Promise<{ success: boolean; dat
 }
 
 export const setMessageNotification = async (cookieId: string, channelId: number, enabled: boolean): Promise<OperationResponse> => {
-  return post(`/message-notifications/${cookieId}`, { channel_id: channelId, enabled });
+  return post(`/api/v1/notifications/accounts/${cookieId}/bindings`, { channel_id: channelId, enabled });
 }
 
 export const deleteMessageNotification = async (notificationId: string): Promise<OperationResponse> => {
-  return del(`/message-notifications/${notificationId}`);
+  return del(`/api/v1/notifications/messages/${notificationId}`);
 }
 
 export const deleteAccountNotifications = async (cookieId: string): Promise<OperationResponse> => {
-  return del(`/message-notifications/account/${cookieId}`);
+  return del(`/api/v1/notifications/messages/account/${cookieId}`);
 }
 
 // 账号 ↔ 渠道 绑定（覆盖式）
 export const getAccountBindings = async (cookieId: string, options?: RequestControlOptions): Promise<number[]> => {
-  const result = await get<AccountBindingsResponse>(`/message-notifications/${cookieId}`, undefined, options);
+  const result = await get<AccountBindingsResponse>(`/api/v1/notifications/accounts/${cookieId}/bindings`, undefined, options);
   return result?.channel_ids || [];
 }
 
 export const setAccountBindings = async (cookieId: string, channelIds: number[]): Promise<OperationResponse> => {
-  return post(`/message-notifications/${cookieId}`, { channel_ids: channelIds });
+  return post(`/api/v1/notifications/accounts/${cookieId}/bindings`, { channel_ids: channelIds });
 }
 
 // 测试发送
 export const testNotificationChannel = async (channelId: string): Promise<OperationResponse> => {
-  return post(`/notification-channels/${channelId}/test`, {});
+  return post(`/api/v1/notifications/channels/${channelId}/test`, {});
 }
 
 // Default Reply

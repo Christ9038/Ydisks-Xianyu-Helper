@@ -12,9 +12,9 @@
 | 商品批量 | `/items/publish-batches...` | `/api/v1/items/publish-batches...` | 旧路径保留，类目推荐/预检/任务 DTO 已落地 |
 | 自动化 | `/automation-rules...` | `/api/v1/automation-rules...` | 旧路径保留，规则分页/异常 DTO 已落地 |
 | 订单 | `/api/orders...` | `/api/v1/orders...` | React 列表、详情、更新、刷新、单订单刷新、手动发货和导入调用已迁移；旧路径保留并由同一 handler 提供 |
-| 设置 | `/system-settings...`、`/user-settings...`、`/ai-reply-settings...` | `/api/v1/settings/...` | 旧路径保留，变更/查询 DTO 已落地；`settingsResponse` 明确动态字符串键值边界，动态键仍由边界适配 |
-| 卡券 | `/cards...` | `/api/v1/cards...` | 旧路径保留，CRUD/批量 DTO 已落地 |
-| 通知 | `/notification-channels...`、`/message-notifications...` | `/api/v1/notifications/...` | 旧路径保留，渠道/绑定/变更 DTO 已落地 |
+| 设置 | `/system-settings...`、`/user-settings...`、`/ai-reply-settings...`、`/ai-models` | `/api/v1/settings/system...`、`/api/v1/settings/user...`、`/api/v1/settings/ai-reply...`、`/api/v1/settings/ai-models` | React 系统设置、AI 设置调用已迁移；版本化入口覆盖公开设置、管理员设置、用户设置和 AI 模型查询；旧路径保留 |
+| 卡券 | `/cards...` | `/api/v1/cards...` | React 卡券列表、CRUD、批量创建和追加调用已迁移；旧路径保留并由同一 handler 提供 |
+| 通知 | `/notification-channels...`、`/message-notifications...` | `/api/v1/notifications/channels...`、`/api/v1/notifications/messages...`、`/api/v1/notifications/accounts/{cid}/bindings` | React 通知渠道、消息绑定和账号绑定调用已迁移；旧路径保留并由同一 handler 提供 |
 | 聊天 | `/api/chat...` | `/api/v1/chat...` | 旧路径保留，会话/消息 DTO 已落地 |
 | 关键词回复 | `/keywords...`、`/keywords-with-item-id...`、`/keywords-with-type...`、`/item-reply...` | `/api/v1/reply-rules...` | 旧路径保留，基础/商品/类型规则与指定商品回复 DTO 已落地 |
 | 默认回复 | `/default-replies...`、`/api/default-reply...` | `/api/v1/default-replies...` | 旧路径保留，单账号、列表和映射 DTO 已落地 |
@@ -49,6 +49,7 @@
 - 订单刷新、单订单刷新、手动发货和导入已由 React 请求层迁移到 `/api/v1/orders...`；Go 契约测试确认新旧批量入口保持状态码、具名响应和参数校验语义一致。
 - 商品列表、详情、发布、更新和删除已由 React 请求层迁移到 `/api/v1/items...`；Go 契约测试确认新旧入口保持商品所有权校验、具名响应和持久化语义一致。
 - 商品同步、类目推荐、批量发布预检、任务查询、取消、重试和结果下载已由版本化路由提供；React 现有同步/批量发布调用已迁移，Go 契约测试确认新旧入口状态码和参数校验语义一致。
+- 系统/用户/AI 设置、卡券 CRUD/批量/追加和通知渠道/消息/账号绑定已由版本化路由提供；React 设置、卡券和通知调用已迁移，Go 契约测试确认新旧入口权限、状态码和参数校验语义一致。
 - 聊天会话、消息分页和发送结果使用独立 DTO，不直接暴露数据库模型。
 - React `frontend/types.ts` 与 `frontend/services/api.ts` 已同步具名成功响应类型，同时保留旧字段归一逻辑。
-- 会话版本化入口已可用；除会话外的 `/api/v1` 领域入口仍未宣称可用，旧路径继续保留。
+- 会话、账号、订单、商品、设置、卡券和通知版本化入口已可用；聊天、关键词、默认回复、账号任务、管理员与统计等领域仍未宣称可用，旧路径继续保留。
