@@ -1072,3 +1072,34 @@ func TestTruncID(t *testing.T) {
 		t.Errorf("长串应截断到 53 字符并加 ...: got %q (len=%d)", got, len(got))
 	}
 }
+
+// TestTryAPIRenewUsingExcludesLoginSecrets 验证接口续期读取窄模型时不解密登录密码。
+func TestTryAPIRenewUsingExcludesLoginSecrets(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "engine-api-renew-query-key")
+	// acc 是使用接口续期窄查询路径的测试账号；cleanup 负责关闭临时数据库。
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	// ctx 是测试接口续期共用的上下文。
+	ctx := context.Background()
+	// corruptErr 表示写入故意损坏的登录密码失败的原因。
+	if _, corruptErr := store.DB.ExecContext(ctx,
+		`UPDATE cookies SET username=?,password=? WHERE id=?`,
+		"engine-api-user", "not-a-password-ciphertext", "cid"); corruptErr != nil {
+		t.Fatalf("corrupt password: %v", corruptErr)
+	}
+	// callbackCalled 表示接口续期回调是否收到窄查询得到的 Cookie。
+	callbackCalled := false
+	// result 是不产生 Cookie 更新、仅表示接口续期成功的模拟响应。
+	result := &xrenew.Result{Success: true, RenewMethod: "api"}
+	// renewed 和 renewErr 是接口续期结果及其错误。
+	renewed, renewErr := acc.tryAPIRenewUsing(ctx, func(_ context.Context, cookieStr string, _ []cookierefresh.BrowserCookie) (*xrenew.Result, error) {
+		callbackCalled = true
+		if cookieStr != "unb=123; _m_h5_tk=tk_1;" {
+			t.Fatalf("接口续期收到错误 Cookie: %q", cookieStr)
+		}
+		return result, nil
+	})
+	if renewErr != nil || !renewed || !callbackCalled {
+		t.Fatalf("接口续期应在登录密码损坏时成功: renewed=%v callback=%v err=%v", renewed, callbackCalled, renewErr)
+	}
+}

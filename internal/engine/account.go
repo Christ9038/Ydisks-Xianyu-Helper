@@ -1010,21 +1010,21 @@ func (a *Account) tryAPIRenewUsing(ctx context.Context, call func(context.Contex
 	a.mu.Unlock()
 	var snapshot []cookierefresh.BrowserCookie
 	if a.store != nil && a.store.Cookies != nil {
-		detail, detailErr := a.store.Cookies.GetDetails(ctx, a.CookieID)
-		if detailErr != nil || detail == nil {
-			if detailErr == nil {
-				detailErr = db.ErrNotFound
-			}
+		runtimeData, detailErr := a.store.Cookies.GetCookieRuntimeData(ctx, a.CookieID) // runtimeData 只包含接口续期所需的 Cookie 与 metadata。
+		if detailErr != nil {
 			a.logger.Warn("接口续期前读取最新 Cookie 失败", "err", detailErr)
 			return false, detailErr
 		}
-		if detail.Value != cookieStr {
-			cookieStr = detail.Value
+		if runtimeData.Value != cookieStr {
+			cookieStr = runtimeData.Value
 			a.replaceCookieStr(cookieStr)
 			a.clearCurrentToken()
 			a.clearTokenCache(ctx)
 		}
-		snapshot = cookierefresh.SnapshotFromMetadata(detail.MetadataJSON)
+		snapshot = cookierefresh.SnapshotFromMetadata(runtimeData.MetadataJSON)
+		// runtimeData 的 Cookie 用于续期请求，metadata 用于恢复浏览器 Cookie 快照。
+		// 读取窄模型不会触碰登录用户名、密码等无关凭证字段。
+		// API 续期仍沿用原有锁、Cookie 比较和 token 清理顺序。
 	}
 	res, err := call(ctx, cookieStr, snapshot)
 	if res == nil {
@@ -1039,15 +1039,15 @@ func (a *Account) tryAPIRenewUsing(ctx context.Context, call func(context.Contex
 	updated := false
 	persisted := false
 	if res.CookieSnapshotComplete && a.store != nil && a.store.Cookies != nil {
-		detail, detailErr := a.store.Cookies.GetDetails(ctx, a.CookieID)
-		if detailErr != nil || detail == nil {
-			if detailErr == nil {
-				detailErr = db.ErrNotFound
-			}
+		runtimeData, detailErr := a.store.Cookies.GetCookieRuntimeData(ctx, a.CookieID) // runtimeData 只包含续期快照持久化所需字段。
+		// 快照持久化只依赖 metadata，Cookie 明文由续期响应直接提供。
+		// 保留统一运行时查询模型，避免为相同凭证路径恢复完整账号详情。
+		// 下面的更新操作和错误处理保持原有续期语义不变。
+		if detailErr != nil {
 			a.logger.Warn("保存续期 Cookie 快照失败", "err", detailErr)
 			return false, detailErr
 		}
-		metadata := cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, res.CookieSnapshot)
+		metadata := cookierefresh.MetadataWithSnapshot(runtimeData.MetadataJSON, res.CookieSnapshot)
 		if err := a.store.Cookies.UpdateRenewalCookie(ctx, a.CookieID, res.NewCookies, metadata, time.Now().Unix()); err != nil {
 			a.logger.Warn("保存续期 Cookie 快照失败", "err", err)
 			return false, err
