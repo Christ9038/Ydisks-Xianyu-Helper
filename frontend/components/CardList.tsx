@@ -1,30 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Card } from '../types';
-import { getCards, createCard, updateCard, deleteCard, batchCreateCards, appendCardData } from '../services/api';
-import { Plus, CreditCard, Clock, FileText, Image as ImageIcon, Code, Edit, Trash2, Save, X, Eye, EyeOff, Package, Copy, Upload, Loader2, FileDown, ListPlus, Search, SlidersHorizontal } from 'lucide-react';
-import { filterCards } from './cardListState';
-
-type AddCardForm = {
-  name: string;
-  type: Card['type'];
-  content: string;
-  description: string;
-  enabled: boolean;
-  delay_seconds: number;
-  api_method: 'GET' | 'POST';
-  api_timeout: number;
-  api_headers: string;
-  api_params: string;
-};
-
-type EditCardForm = Partial<Card> & {
-  api_url?: string;
-  api_method?: 'GET' | 'POST';
-  api_timeout?: number;
-  api_headers?: string;
-  api_params?: string;
-};
+import { createCard, deleteCard, updateCard } from '../app/features/cards/api';
+import { Plus, CreditCard, FileText, Image as ImageIcon, Edit, Trash2, Save, X, Eye, EyeOff, Package, Copy, Upload, Loader2, Search, SlidersHorizontal } from 'lucide-react';
+import { BatchCardImportModal } from '../app/features/cards/components/BatchCardImportModal';
+import { CardIcon } from '../app/features/cards/components/CardIcon';
+import { useCardBatchActions, useCardsData } from '../app/features/cards/hooks';
+import { filterCards } from '../app/features/cards/batchState';
+import type { AddCardForm, EditCardForm } from '../app/features/cards/types';
 
 const emptyAddForm = (): AddCardForm => ({
   name: '',
@@ -40,37 +23,18 @@ const emptyAddForm = (): AddCardForm => ({
 });
 
 const CardList: React.FC = () => {
-  const [cards, setCards] = useState<Card[]>([]);
+  const { cards, loadCards } = useCardsData();
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [editForm, setEditForm] = useState<EditCardForm>({});
   const [addForm, setAddForm] = useState<AddCardForm>(emptyAddForm);
 
-  // 批量导入
-  const [showBatchModal, setShowBatchModal] = useState(false);
-  const [batchTab, setBatchTab] = useState<'create' | 'append'>('create');
-  const [batchFile, setBatchFile] = useState<File | null>(null);
-  const [batchResult, setBatchResult] = useState<any>(null);
-  const [batchBusy, setBatchBusy] = useState(false);
-  const [appendTargetId, setAppendTargetId] = useState<string>('');
-  const [appendContent, setAppendContent] = useState('');
-  const [appendResult, setAppendResult] = useState<{ added: number } | null>(null);
   const [typeFilter, setTypeFilter] = useState<Card['type'] | ''>('');
   const [nameSearch, setNameSearch] = useState('');
-
-  useEffect(() => {
-    getCards().then(setCards);
-  }, []);
-
-  const CardIcon = ({ type }: { type: string }) => {
-      switch(type) {
-          case 'text': return <FileText className="w-5 h-5 text-blue-500" />;
-          case 'image': return <ImageIcon className="w-5 h-5 text-purple-500" />;
-          case 'api': return <Code className="w-5 h-5 text-blue-500" />;
-          default: return <CreditCard className="w-5 h-5 text-gray-500" />;
-      }
-  };
+  // dataCards 只保留可追加库存的卡密组，并在卡密数据未变化时保持引用稳定。
+  const dataCards = useMemo(() => cards.filter(card => card.type === 'data'), [cards]);
+  const batchState = useCardBatchActions({ dataCards, loadCards });
 
   const handleEdit = (card: Card) => {
     setSelectedCard(card);
@@ -139,7 +103,7 @@ const CardList: React.FC = () => {
 
       await updateCard(selectedCard.id, updateData);
       setShowEditModal(false);
-      getCards().then(setCards);
+      await loadCards();
     } catch (error) {
       console.error('更新卡密失败:', error);
       alert('更新失败，请重试');
@@ -150,7 +114,7 @@ const CardList: React.FC = () => {
     if (confirm('确认删除该卡密吗？')) {
       try {
         await deleteCard(id);
-        getCards().then(setCards);
+        await loadCards();
       } catch (error) {
         console.error('删除卡密失败:', error);
         alert('删除失败，请重试');
@@ -190,7 +154,7 @@ const CardList: React.FC = () => {
       await createCard(payload);
       setShowAddModal(false);
       setAddForm(emptyAddForm());
-      getCards().then(setCards);
+      await loadCards();
     } catch (error) {
       console.error('添加卡密失败:', error);
       alert('添加失败，请重试');
@@ -200,7 +164,7 @@ const CardList: React.FC = () => {
   const toggleCardStatus = async (card: Card) => {
     try {
       await updateCard(card.id, { ...card, enabled: !card.enabled });
-      getCards().then(setCards);
+      await loadCards();
     } catch (error) {
       console.error('切换状态失败:', error);
     }
@@ -215,7 +179,6 @@ const CardList: React.FC = () => {
     }
   };
 
-  const dataCards = cards.filter(c => c.type === 'data');
   const filteredCards = useMemo(
     () => filterCards(cards, typeFilter, nameSearch),
     [cards, nameSearch, typeFilter],
@@ -242,51 +205,6 @@ const CardList: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  const handleBatchCreate = async () => {
-    if (!batchFile) return;
-    setBatchBusy(true);
-    setBatchResult(null);
-    try {
-      const res = await batchCreateCards(batchFile);
-      setBatchResult(res);
-      if (res.created > 0) {
-        const fresh = await getCards();
-        setCards(fresh);
-      }
-    } catch (e: any) {
-      setBatchResult({ error: e?.message || '上传失败' });
-    } finally {
-      setBatchBusy(false);
-    }
-  };
-
-  const handleBatchAppend = async () => {
-    if (!appendTargetId || !appendContent.trim()) return;
-    setBatchBusy(true);
-    setAppendResult(null);
-    try {
-      const res = await appendCardData(appendTargetId, appendContent);
-      setAppendResult({ added: res.added });
-      setAppendContent('');
-      const fresh = await getCards();
-      setCards(fresh);
-    } catch (e: any) {
-      alert('追加失败：' + (e?.message || '未知错误'));
-    } finally {
-      setBatchBusy(false);
-    }
-  };
-
-  const openBatchModal = () => {
-    setBatchTab('create');
-    setBatchFile(null);
-    setBatchResult(null);
-    setAppendTargetId(dataCards[0]?.id ? String(dataCards[0].id) : '');
-    setAppendContent('');
-    setAppendResult(null);
-    setShowBatchModal(true);
-  };
-
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col md:flex-row justify-between md:items-end gap-4">
@@ -296,7 +214,7 @@ const CardList: React.FC = () => {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={openBatchModal}
+            onClick={batchState.openBatchModal}
             className="px-4 py-3 bg-gray-100 hover:bg-gray-200 rounded-2xl font-bold text-gray-700 flex items-center gap-2 transition-colors"
           >
             <Upload className="w-5 h-5" />
@@ -860,146 +778,14 @@ const CardList: React.FC = () => {
         document.body
       )}
 
-      {/* 批量导入弹窗 */}
-      {showBatchModal && createPortal(
-        <div className="modal-overlay">
-          <div className="modal-container" style={{ maxWidth: '40rem' }}>
-            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="text-xl font-extrabold text-gray-900">批量导入卡密</h3>
-              <button
-                onClick={() => setShowBatchModal(false)}
-                className="w-10 h-10 rounded-2xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
-              >
-                <X className="w-5 h-5 text-gray-600" />
-              </button>
-            </div>
+      {/* 批量导入弹窗由 cards feature 组件负责渲染和请求边界。 */}
+      <BatchCardImportModal
+        dataCards={dataCards}
+        downloadCardTemplate={downloadCardTemplate}
+        {...batchState}
+      />
 
-            <div className="px-6 py-5 space-y-5">
-              {/* Tab 切换 */}
-              <div className="flex flex-wrap gap-2 p-2 bg-gray-100/50 rounded-2xl">
-                <button
-                  onClick={() => setBatchTab('create')}
-                  className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${batchTab === 'create' ? 'bg-brand text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-                >
-                  <ListPlus className="w-4 h-4" />
-                  批量创建卡密组
-                </button>
-                <button
-                  onClick={() => setBatchTab('append')}
-                  className={`flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${batchTab === 'append' ? 'bg-brand text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-                >
-                  <Upload className="w-4 h-4" />
-                  往单个组充卡密
-                </button>
-              </div>
 
-              {batchTab === 'create' ? (
-                <div className="space-y-4">
-                  <div className="rounded-xl bg-blue-50 border border-blue-100 p-4 text-xs text-blue-900 leading-5">
-                    上传表格，每行一个卡密组。表头：<code className="bg-blue-100/70 px-1.5 py-0.5 rounded">名称,类型,内容,描述,启用,延迟秒,多规格,规格名,规格值</code>。
-                    类型填 text/data/image；data 类型的"内容"按行存卡密（CSV 单元格内换行需用引号包裹）。
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={downloadCardTemplate}
-                      className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-xl font-bold text-gray-700 flex items-center gap-2 text-sm transition-colors"
-                    >
-                      <FileDown className="w-4 h-4" />
-                      下载模板
-                    </button>
-                    <label className="flex-1 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-xl font-bold text-gray-700 flex items-center gap-2 text-sm cursor-pointer transition-colors">
-                      <Upload className="w-4 h-4" />
-                      {batchFile ? batchFile.name : '选择 .xlsx / .csv / .tsv'}
-                      <input type="file" accept=".xlsx,.csv,.tsv" className="hidden" onChange={e => setBatchFile(e.target.files?.[0] || null)} />
-                    </label>
-                  </div>
-                  {batchResult && !batchResult.error && (
-                    <div className="rounded-xl border border-gray-200 p-4 space-y-2">
-                      <div className="text-sm font-bold text-gray-900">
-                        共 {batchResult.total} 行 · 成功 {batchResult.created} · 失败 {batchResult.failed}
-                      </div>
-                      {batchResult.failed > 0 && (
-                        <div className="max-h-48 overflow-y-auto space-y-1">
-                          {batchResult.rows.filter((r: any) => !r.success).map((r: any) => (
-                            <div key={r.row_no} className="text-xs text-red-600">第 {r.row_no} 行「{r.name}」：{r.error}</div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {dataCards.length === 0 ? (
-                    <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800">
-                      暂无 data（批量卡密）类型的卡密组，请先创建一个再充卡密。
-                    </div>
-                  ) : (
-                    <>
-                      <div className="space-y-2">
-                        <label className="block text-sm font-bold text-gray-800">选择卡密组</label>
-                        <select
-                          value={appendTargetId}
-                          onChange={e => setAppendTargetId(e.target.value)}
-                          className="w-full ios-input px-4 py-3 rounded-xl text-sm"
-                        >
-                          {dataCards.map(c => (
-                            <option key={c.id} value={String(c.id)}>{c.name}（ID: {c.id}）</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="space-y-2">
-                        <label className="block text-sm font-bold text-gray-800">卡密号（每行一个）</label>
-                        <textarea
-                          value={appendContent}
-                          onChange={e => setAppendContent(e.target.value)}
-                          placeholder={'VIP-001\nVIP-002\nVIP-003'}
-                          className="w-full ios-input px-4 py-3 rounded-xl text-sm font-mono h-40 resize-y"
-                        />
-                        <p className="text-xs text-gray-500">一行一个卡密号，空行自动忽略。会追加到该组现有库存末尾。</p>
-                      </div>
-                      {appendResult && (
-                        <div className="rounded-xl bg-green-50 border border-green-200 p-3 text-sm text-green-700 font-bold">
-                          已追加 {appendResult.added} 个卡密
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-end gap-3">
-              <button
-                onClick={() => setShowBatchModal(false)}
-                className="px-5 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 font-bold text-gray-700 transition-colors"
-              >
-                关闭
-              </button>
-              {batchTab === 'create' ? (
-                <button
-                  onClick={handleBatchCreate}
-                  disabled={!batchFile || batchBusy}
-                  className="ios-btn-primary px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50"
-                >
-                  {batchBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                  {batchBusy ? '处理中...' : '上传创建'}
-                </button>
-              ) : (
-                <button
-                  onClick={handleBatchAppend}
-                  disabled={!appendTargetId || !appendContent.trim() || batchBusy || dataCards.length === 0}
-                  className="ios-btn-primary px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50"
-                >
-                  {batchBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                  {batchBusy ? '处理中...' : '追加卡密'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
     </div>
   );
 };

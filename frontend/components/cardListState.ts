@@ -1,13 +1,7 @@
-import type { Card } from '../types';
-
-export const filterCards = (
-  cards: Card[],
-  typeFilter: Card['type'] | '',
-  nameSearch: string,
-): Card[] => {
-  const keyword = nameSearch.trim().toLocaleLowerCase();
-  return cards.filter(card => (
-    (!typeFilter || card.type === typeFilter)
-    && (!keyword || card.name.toLocaleLowerCase().includes(keyword))
-  ));
-};
+// 旧目录保留兼容入口，实际卡密筛选和批量状态逻辑已归入 cards feature。
+export {
+  canSubmitAppend,
+  filterCards,
+  isCurrentCardRequest,
+  previewAppendContent,
+} from '../app/features/cards/batchState';
