@@ -196,11 +196,11 @@ func (m *Manager) RuntimeStatuses() map[string]engine.RuntimeStatus {
 // Restart 重启账号（停后用最新 DB cookie 重启）。
 func (m *Manager) Restart(ctx context.Context, cookieID string) error {
 	m.Stop(cookieID)
-	d, err := m.store.Cookies.GetDetails(ctx, cookieID)
+	cookieValue, err := m.store.Cookies.GetValue(ctx, cookieID) // cookieValue 是重启运行实例所需的单值 Cookie 明文，不包含登录密码或账号资料。
 	if err != nil {
 		return fmt.Errorf("读取账号详情失败: %w", err)
 	}
-	return m.Start(ctx, cookieID, d.Value)
+	return m.Start(ctx, cookieID, cookieValue)
 }
 
 // StopAll 停止所有运行中的账号，用于进程优雅退出。

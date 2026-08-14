@@ -1682,13 +1682,13 @@ func (a *Account) cookieSnapshotMatchesDB(ctx context.Context, expectedFP string
 	if a.store == nil || a.store.Cookies == nil {
 		return true
 	}
-	detail, err := a.store.Cookies.GetDetails(ctx, a.CookieID)
-	if err != nil || detail == nil {
+	runtimeData, err := a.store.Cookies.GetCookieRuntimeData(ctx, a.CookieID) // runtimeData 只包含 WS 注册前凭证一致性校验所需的 Cookie 与 metadata。
+	if err != nil {
 		a.logger.Warn("WS 注册前读取最新 Cookie 失败，放弃本次连接", "err", err)
 		return false
 	}
-	_, snapshotComplete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON)
-	if strings.TrimSpace(detail.Value) == "" && !snapshotComplete {
+	_, snapshotComplete := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON)
+	if strings.TrimSpace(runtimeData.Value) == "" && !snapshotComplete {
 		a.logger.Warn("WS 注册前最新 Cookie 为空且没有权威 Jar，放弃本次连接")
 		return false
 	}
@@ -1696,7 +1696,7 @@ func (a *Account) cookieSnapshotMatchesDB(ctx context.Context, expectedFP string
 		a.logger.Warn("WS 注册 token 缺少绑定的凭证状态，放弃本次连接")
 		return false
 	}
-	return credentialStateFingerprint(detail.Value, detail.MetadataJSON) == expectedFP
+	return credentialStateFingerprint(runtimeData.Value, runtimeData.MetadataJSON) == expectedFP
 }
 
 // RuntimeStatus 返回账号当前连接状态的线程安全快照。
@@ -1916,19 +1916,19 @@ func (a *Account) UpdateCookie(cookieStr string) {
 	// 复读权威数据库，绝不把较旧的请求结果重新写回运行时。
 	metadataJSON := ""
 	if a.store != nil && a.store.Cookies != nil {
-		detail, err := a.store.Cookies.GetDetails(context.Background(), a.CookieID)
-		if err != nil || detail == nil {
+		runtimeData, err := a.store.Cookies.GetCookieRuntimeData(context.Background(), a.CookieID) // runtimeData 只包含同步运行时 Cookie 所需的 Cookie 与 metadata。
+		if err != nil {
 			a.logger.Warn("同步运行时 Cookie 前读取数据库失败", "err", err)
 			return
 		}
-		if strings.TrimSpace(detail.Value) == "" {
-			if _, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); !complete {
+		if strings.TrimSpace(runtimeData.Value) == "" {
+			if _, complete := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON); !complete {
 				a.logger.Warn("同步运行时 Cookie 时数据库值为空且无权威 Jar")
 				return
 			}
 		}
-		cookieStr = detail.Value
-		metadataJSON = detail.MetadataJSON
+		cookieStr = runtimeData.Value
+		metadataJSON = runtimeData.MetadataJSON
 	}
 	credentialFP := credentialStateFingerprint(cookieStr, metadataJSON)
 	a.mu.Lock()

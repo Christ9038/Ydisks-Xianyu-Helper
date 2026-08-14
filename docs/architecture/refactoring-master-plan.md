@@ -124,8 +124,8 @@ app shell / routes
 - 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `adoptTokenResponseCookies` metadata 读取已迁移到 `GetCookieMetadata`，只读取 token 响应 Cookie 合并所需的快照信息，保持响应合并、快照持久化和错误语义，并补充损坏登录密码回归测试；
 - 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `databaseCredentialFingerprint` 已改用 `GetCookieRuntimeData`，只读取 token 凭证一致性校验所需的 Cookie 与 metadata，保持空值、指纹不一致和错误语义，并补充损坏登录密码回归测试；
 - 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `reloadCookieFromDB` 已改用 `GetCookieRuntimeData`，只读取外部 Cookie 更新检测所需的 Cookie 与 metadata，保持运行时替换、token 清理和错误行为，并补充损坏登录密码回归测试；
-- 下一最小工作项：将 `internal/engine/account.go` 的 `cookieSnapshotMatchesDB` 迁移到 `GetCookieRuntimeData`，继续保持 WS 注册前凭证一致性校验行为；
-- 随后工作项：再处理 Engine、Automation 等明确需要平台凭证的流程，统一使用按账号 ID 过滤的单值凭证接口；
+- 已完成阶段 2 当前 PR 切片四“Engine/账号运行时凭证边界”：`cookieSnapshotMatchesDB`、`UpdateCookie` 和账号管理器 `Restart` 已分别改用 `GetCookieRuntimeData` 或 `GetValue`，只读取运行实例所需的 Cookie 数据；损坏登录密码回归测试覆盖 WS 注册前校验、运行时同步和重启路径，且三项修改合并为一个可回滚提交；
+- 阶段 2 下一 PR 切片为“平台凭证流程统一窄查询”：集中处理 `internal/adapter`、`internal/renewal` 及剩余明确需要平台 Cookie 的流程，完成该切片内的所有调用方后再统一提交，禁止按单个函数拆分提交；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -499,4 +499,4 @@ npm --prefix frontend run build
 | 2026-08-14 | `refreshTokenWithMinGap` 改用 `GetCookieMetadata` | token 请求只解密 Cookie 快照 metadata；快照上下文和 token 刷新行为保持不变，回归测试通过 | 迁移 `adoptTokenResponseCookies` 的 metadata 读取 |
 | 2026-08-14 | `adoptTokenResponseCookies` 改用 `GetCookieMetadata` | token 响应合并只解密 metadata；快照持久化和错误语义保持不变，回归测试通过 | 迁移 `databaseCredentialFingerprint` 的运行时凭证读取 |
 | 2026-08-14 | `databaseCredentialFingerprint` 改用 `GetCookieRuntimeData` | token 凭证一致性校验只解密 Cookie 与 metadata；空值、指纹和错误语义保持不变，回归测试通过 | 迁移 `reloadCookieFromDB` 的运行时凭证读取 |
-| 2026-08-14 | `reloadCookieFromDB` 改用 `GetCookieRuntimeData` | 外部 Cookie 更新检测只解密 Cookie 与 metadata；运行时替换、token 清理和错误行为保持不变，回归测试通过 | 迁移 `cookieSnapshotMatchesDB` 的运行时凭证读取 |
+| 2026-08-14 | 完成阶段 2 当前 PR 切片“Engine/账号运行时凭证边界” | `cookieSnapshotMatchesDB`、`UpdateCookie` 和账号重启均改用窄查询；损坏登录密码回归测试通过，WS 注册、运行时同步、重启行为保持不变 | 集中迁移 adapter、renewal 等剩余平台凭证流程后再提交下一 PR 切片 |
