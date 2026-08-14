@@ -89,7 +89,7 @@ func (s *Scheduler) scan(ctx context.Context) {
 				waitingForWS[order.CookieID]++
 				continue
 			}
-			rules, err := s.center.store.Automation.Match(ctx, order.CookieID, order.ItemID, TriggerReviewMissingTimeout)
+			rules, err := s.center.rules.match(ctx, Task{AccountID: order.CookieID, ItemID: order.ItemID, TriggerType: TriggerReviewMissingTimeout})
 			if err != nil {
 				s.center.logger.Warn("查询求评价自动化规则失败", "account", order.CookieID, "order_id", order.OrderID, "item_id", order.ItemID, "err", err)
 				continue
@@ -185,7 +185,7 @@ func (s *Scheduler) runRecoveryTasks(ctx context.Context) {
 func recoveryNeedsSender(task Task, rule db.AutomationRule, cursor int) bool {
 	actions := task.ActionPlan
 	if len(actions) == 0 {
-		actions = runnableActions(task, rule.Actions)
+		actions = (actionPlanner{}).plan(task, rule.Actions)
 	}
 	if cursor < 0 || cursor >= len(actions) {
 		return false

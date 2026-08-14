@@ -86,6 +86,12 @@ type Notifier interface {
 // Center 是统一自动化处理中心。
 // 它只接收已经分类好的系统事件或计划任务，不处理用户消息；用户消息由 engine 的回复链处理。
 type Center struct {
+	// facts 记录已解析的自动化事件事实，不执行规则动作。
+	facts eventFactRecorder
+	// rules 查询适用规则，不执行规则动作。
+	rules ruleMatcher
+	// planner 生成不可变动作计划，不执行外部 I/O。
+	planner      actionPlanner
 	store        *db.Store
 	senders      SenderProvider
 	fetcher      OrderDetailFetcher
@@ -107,7 +113,16 @@ func New(store *db.Store, senders SenderProvider, logger *slog.Logger) *Center {
 		logger = slog.Default()
 	}
 	client := mtop.NewClient()
-	return &Center{store: store, senders: senders, mtop: client, accountTasks: client, logger: logger.With("subsys", "automation")}
+	return &Center{
+		facts:        newEventFactRecorder(store),
+		rules:        newRuleMatcher(store),
+		planner:      actionPlanner{},
+		store:        store,
+		senders:      senders,
+		mtop:         client,
+		accountTasks: client,
+		logger:       logger.With("subsys", "automation"),
+	}
 }
 
 // SetMTop 注入 mtop 客户端（确认发货用）。未注入时使用默认 HTTP 实现。
@@ -148,7 +163,7 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 	if task.TriggerType == "" || task.AccountID == "" {
 		return false, nil
 	}
-	if err := c.markEventFacts(ctx, task); err != nil {
+	if err := c.facts.record(ctx, task); err != nil {
 		return false, err
 	}
 	if task.OrderID != "" {
@@ -177,25 +192,9 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 		c.logger.Info("账号已停用，记录事件事实但不执行自动化", "account", task.AccountID, "trigger", task.TriggerType)
 		return false, nil
 	}
-	var rules []db.AutomationRule
-	if resumeRunID := taskAutomationRunID(task); resumeRunID > 0 {
-		run, runErr := c.store.Automation.GetRun(ctx, resumeRunID)
-		if runErr != nil {
-			return false, runErr
-		}
-		if run.Status != "running" {
-			return false, nil
-		}
-		rule, ruleErr := c.store.Automation.Get(ctx, run.RuleID)
-		if ruleErr != nil {
-			return false, ruleErr
-		}
-		rules = []db.AutomationRule{*rule}
-	} else {
-		rules, err = c.store.Automation.Match(ctx, task.AccountID, task.ItemID, task.TriggerType)
-		if err != nil {
-			return false, err
-		}
+	rules, err := c.rules.match(ctx, task)
+	if err != nil {
+		return false, err
 	}
 	if len(rules) == 0 {
 		c.logger.Info("无匹配自动化规则，忽略事件", "trigger", task.TriggerType, "order_id", task.OrderID, "item_id", task.ItemID)
@@ -323,7 +322,7 @@ func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, 
 	if err != nil {
 		return 0, err
 	}
-	rules, err := c.store.Automation.Match(ctx, task.AccountID, task.ItemID, TriggerOrderPaid)
+	rules, err := c.rules.match(ctx, task)
 	if err != nil {
 		return 0, err
 	}
@@ -332,10 +331,10 @@ func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, 
 	}
 	sent := 0
 	for _, rule := range rules {
-		if !hasMatchingSendCard(task, rule.Actions) {
+		if !c.planner.hasMatchingSendCard(task, rule.Actions) {
 			continue
 		}
-		task.ActionPlan = runnableActions(task, immediateManualActions(rule.Actions))
+		task.ActionPlan = c.planner.plan(task, c.planner.immediateManualActions(rule.Actions))
 		rawTask := task
 		rawTask.CookieStr = ""
 		rawJSON, _ := json.Marshal(rawTask)
@@ -392,27 +391,10 @@ func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, 
 	return sent, nil
 }
 
-func immediateManualActions(actions []db.AutomationAction) []db.AutomationAction {
-	out := make([]db.AutomationAction, len(actions))
-	copy(out, actions)
-	for i := range out {
-		out[i].DelaySeconds = 0
-		if out[i].ActionType != ActionSendCard {
-			continue
-		}
-		cfg := map[string]any{}
-		_ = json.Unmarshal([]byte(out[i].ConfigJSON), &cfg)
-		cfg["delay_override"] = true
-		raw, _ := json.Marshal(cfg)
-		out[i].ConfigJSON = string(raw)
-	}
-	return out
-}
-
 func (c *Center) executeRule(ctx context.Context, task Task, rule db.AutomationRule) error {
 	var err error
 	if len(task.ActionPlan) == 0 && task.TriggerType != TriggerOrderPaid {
-		task.ActionPlan = runnableActions(task, rule.Actions)
+		task.ActionPlan = c.planner.plan(task, rule.Actions)
 	}
 	task, err = c.prepareTask(ctx, task)
 	if err != nil {
@@ -423,7 +405,7 @@ func (c *Center) executeRule(ctx context.Context, task Task, rule db.AutomationR
 		return nil
 	}
 	if len(task.ActionPlan) == 0 {
-		task.ActionPlan = runnableActions(task, rule.Actions)
+		task.ActionPlan = c.planner.plan(task, rule.Actions)
 	}
 	retryTask := task
 	retryTask.CookieStr = ""
@@ -472,7 +454,7 @@ func (c *Center) executeRule(ctx context.Context, task Task, rule db.AutomationR
 		}
 	}()
 	actions := task.ActionPlan
-	if task.TriggerType == TriggerOrderPaid && !hasMatchingSendCard(task, actions) {
+	if task.TriggerType == TriggerOrderPaid && !c.planner.hasMatchingSendCard(task, actions) {
 		status, errMsg = "failed", "未匹配到订单规格对应的卡密动作"
 		return errors.New(errMsg)
 	}
@@ -525,29 +507,6 @@ func (c *Center) executeRule(ctx context.Context, task Task, rule db.AutomationR
 		}
 	}
 	return nil
-}
-
-func runnableActions(task Task, actions []db.AutomationAction) []db.AutomationAction {
-	out := make([]db.AutomationAction, 0, len(actions))
-	if task.TriggerType == TriggerOrderPaid {
-		for _, action := range actions {
-			if action.Enabled && action.ActionType == ActionSendCard && actionMatchesOrderSpec(task, action) {
-				out = append(out, action)
-			}
-		}
-		for _, action := range actions {
-			if action.Enabled && action.ActionType == ActionConfirmShipment {
-				out = append(out, action)
-			}
-		}
-		return out
-	}
-	for _, action := range actions {
-		if action.Enabled {
-			out = append(out, action)
-		}
-	}
-	return out
 }
 
 func (c *Center) executeRunActions(ctx context.Context, task Task, ruleID int64, run *db.AutomationRun, actions []db.AutomationAction, skipDelays bool) (int, bool, error) {
@@ -658,15 +617,6 @@ func (c *Center) notifyRunNeedsReview(run db.AutomationRun, reason string) {
 	}
 	task := Task{AccountID: run.CookieID, BuyerID: run.BuyerID, ItemID: run.ItemID, ChatID: run.ChatID, OrderID: run.OrderID, TriggerType: run.TriggerType}
 	c.notifyResult(task, "needs_review", run.SentCount, "需要人工核对："+reason)
-}
-
-func hasMatchingSendCard(task Task, actions []db.AutomationAction) bool {
-	for _, action := range actions {
-		if action.Enabled && action.ActionType == ActionSendCard && actionMatchesOrderSpec(task, action) {
-			return true
-		}
-	}
-	return false
 }
 
 // actionDelaySeconds 统一卡密默认延时和动作覆盖语义。旧动作没有
@@ -1159,36 +1109,6 @@ func (c *Center) cookieValue(ctx context.Context, cookieID string) (string, erro
 		return "", err
 	}
 	return value, nil
-}
-
-func (c *Center) markEventFacts(ctx context.Context, task Task) error {
-	if task.OrderID == "" {
-		return nil
-	}
-	if err := c.store.Orders.Upsert(ctx, task.OrderID, db.OrderUpsertOpts{
-		CookieID:    task.AccountID,
-		ItemID:      task.ItemID,
-		BuyerID:     task.BuyerID,
-		ChatID:      task.ChatID,
-		OrderStatus: task.OrderStatus,
-		SpecName:    task.SpecName,
-		SpecValue:   task.SpecValue,
-		Quantity:    task.Quantity,
-		Amount:      task.Amount,
-	}); err != nil {
-		return fmt.Errorf("记录自动化事件订单事实: %w", err)
-	}
-	switch task.TriggerType {
-	case TriggerOrderPaid:
-		if err := c.store.Automation.MarkOrderEventTime(ctx, task.OrderID, "paid_at"); err != nil {
-			return fmt.Errorf("记录订单付款时间: %w", err)
-		}
-	case TriggerBuyerReviewed:
-		if err := c.store.Automation.MarkOrderEventTime(ctx, task.OrderID, "buyer_reviewed_at"); err != nil {
-			return fmt.Errorf("记录买家评价时间: %w", err)
-		}
-	}
-	return nil
 }
 
 func buildTriggerKey(task Task) string {
