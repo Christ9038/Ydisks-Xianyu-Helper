@@ -161,6 +161,7 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 	if task.TriggerType == TriggerReviewMissingTimeout && task.OrderID != "" {
 		// incrementErr 保存求评价消息成功后的提醒次数。
 		if incrementErr := r.store.Automation.IncrementReviewRequest(ctx, task.OrderID); incrementErr != nil {
+			// reason 保存原因，供当前处理流程使用
 			reason := "求评价消息已发送，但保存提醒次数失败，已停止自动重放: " + incrementErr.Error()
 			// quarantineErr 保存提醒次数写入失败的人工核对状态。
 			if quarantineErr := r.store.Automation.QuarantineRunResult(ctx, run.ID, run.AttemptCount, sent, reason); quarantineErr != nil {
@@ -201,6 +202,7 @@ func (r automationRunCoordinator) executeRunActions(ctx context.Context, task Ta
 				task.Raw["automation_delay_cursor"] = cursor
 				// dueAt 是动作重新进入可执行状态的时间点。
 				// dueAt 是动作重新进入可执行状态的时间点。
+				// dueAt 保存dueAt，供当前处理流程使用
 				dueAt := time.Now().UTC().Add(time.Duration(delaySeconds) * time.Second)
 				// leaseErr 保存延期运行续租失败的原因。
 				if leaseErr := r.store.Automation.RenewRunLease(ctx, run.ID, run.AttemptCount, dueAt.Add(5*time.Minute).Unix()); leaseErr != nil {
@@ -238,6 +240,7 @@ func (r automationRunCoordinator) executeRunActions(ctx context.Context, task Ta
 			}
 			// abortErr 清理明确未执行动作的占用检查点。
 			if abortErr := r.store.Automation.AbortRunAction(ctx, run.ID, run.AttemptCount, cursor); abortErr != nil {
+				// reason 保存原因，供当前处理流程使用
 				reason := "外部动作明确未执行，但清除动作占用状态失败，已停止自动重放: " + abortErr.Error()
 				// quarantineErr 保存动作检查点无法清理时的隔离结果。
 				if quarantineErr := r.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, reason); quarantineErr != nil {
@@ -247,7 +250,8 @@ func (r automationRunCoordinator) executeRunActions(ctx context.Context, task Ta
 			}
 			return sent, false, actionErr
 		}
-		if err := r.store.Automation.AdvanceRunAction(ctx, run.ID, run.AttemptCount, cursor, n); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := r.store.Automation.AdvanceRunAction(ctx, run.ID, run.AttemptCount, cursor, n); err != nil {
 			// quarantineErr 保存检查点失败后的人工核对状态。
 			if quarantineErr := r.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, "动作已执行但检查点保存失败，请人工核对，禁止自动重放: "+err.Error()); quarantineErr != nil {
 				r.logger.Error("保存检查点异常的人工核对状态失败", "run_id", run.ID, "err", quarantineErr)

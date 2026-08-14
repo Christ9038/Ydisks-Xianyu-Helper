@@ -10,15 +10,19 @@ import (
 	"xianyu-go/internal/db"
 )
 
+// readinessTestSender 保存readinessTestSender，供当前处理流程使用
 type readinessTestSender struct {
 	*testSender
 	ready bool
 }
 
+// AutomationReady 负责自动化Ready相关处理。
 func (s *readinessTestSender) AutomationReady() bool { return s.ready }
 
+// readinessTestProvider 保存readinessTestProvider，供当前处理流程使用
 type readinessTestProvider struct{ sender MessageSender }
 
+// Sender 负责Sender相关处理。
 func (p readinessTestProvider) Sender(string) (MessageSender, bool) { return p.sender, true }
 
 // TestParseReviewRuleConfig 默认值 + JSON 覆盖 + 非法输入兜底。
@@ -47,6 +51,7 @@ func TestParseReviewRuleConfig(t *testing.T) {
 
 // TestIntFromAny float64/int/string 三类来源 + 无效类型返回 0。
 func TestIntFromAny(t *testing.T) {
+	// cases 保存cases，供当前处理流程使用
 	cases := []struct {
 		in   any
 		want int
@@ -59,8 +64,10 @@ func TestIntFromAny(t *testing.T) {
 		{nil, 0},
 		{true, 0},
 	}
+	// c 表示当前遍历过程中的c
 	for _, c := range cases {
-		if got := intFromAny(c.in); got != c.want {
+		if // got 保存got，供当前处理流程使用
+		got := intFromAny(c.in); got != c.want {
 			t.Errorf("intFromAny(%v)=%d want %d", c.in, got, c.want)
 		}
 	}
@@ -68,22 +75,27 @@ func TestIntFromAny(t *testing.T) {
 
 // TestParseDBTime 支持的三种格式 + 无效返回零值。
 func TestParseDBTime(t *testing.T) {
-	if t1 := parseDBTime("2026-01-02 15:04:05"); t1.IsZero() {
+	if // t1 保存t1，供当前处理流程使用
+	t1 := parseDBTime("2026-01-02 15:04:05"); t1.IsZero() {
 		t.Error("datetime 格式应解析成功")
 	}
-	if t1 := parseDBTime("2026-01-02T15:04:05Z"); t1.IsZero() {
+	if // t1 保存t1，供当前处理流程使用
+	t1 := parseDBTime("2026-01-02T15:04:05Z"); t1.IsZero() {
 		t.Error("RFC3339 格式应解析成功")
 	}
-	if t1 := parseDBTime(""); !t1.IsZero() {
+	if // t1 保存t1，供当前处理流程使用
+	t1 := parseDBTime(""); !t1.IsZero() {
 		t.Error("空串应返回零值")
 	}
-	if t1 := parseDBTime("not a time"); !t1.IsZero() {
+	if // t1 保存t1，供当前处理流程使用
+	t1 := parseDBTime("not a time"); !t1.IsZero() {
 		t.Error("非法串应返回零值")
 	}
 }
 
 // TestReviewRequestRuleDue 综合判定：达到时长且未超次数 → due；否则不 due。
 func TestReviewRequestRuleDue(t *testing.T) {
+	// rule 保存规则，供当前处理流程使用
 	rule := db.AutomationRule{ConfigJSON: `{"after_shipped_hours":1,"max_attempts":2}`}
 
 	// 已发货 2 小时、未请求过 → due。
@@ -126,8 +138,11 @@ func TestReviewRequestRuleDue(t *testing.T) {
 	}
 }
 
+// TestReviewRequestRuleDueUsesRepeatIntervalAfterFirstAttempt 负责TestReview请求规则DueUsesRepeatIntervalAfterFirst尝试次数相关处理。
 func TestReviewRequestRuleDueUsesRepeatIntervalAfterFirstAttempt(t *testing.T) {
+	// rule 保存规则，供当前处理流程使用
 	rule := db.AutomationRule{ConfigJSON: `{"first_delay_hours":1,"repeat_interval_hours":24,"max_attempts":3}`}
+	// order 保存订单，供当前处理流程使用
 	order := db.Order{
 		OrderID:             "repeat-review",
 		SystemShipped:       true,
@@ -144,11 +159,14 @@ func TestReviewRequestRuleDueUsesRepeatIntervalAfterFirstAttempt(t *testing.T) {
 	}
 }
 
+// TestParseDBTimeAcceptsPostgresTimestampText 负责TestParseDB时间AcceptsPostgresTimestamp文本相关处理。
 func TestParseDBTimeAcceptsPostgresTimestampText(t *testing.T) {
+	// got 保存got，供当前处理流程使用
 	got := parseDBTime("2026-07-27 03:36:29.123456+00")
 	if got.IsZero() {
 		t.Fatal("Postgres CURRENT_TIMESTAMP 文本不应解析为零值")
 	}
+	// want 保存want，供当前处理流程使用
 	want := time.Date(2026, 7, 27, 3, 36, 29, 123456000, time.UTC)
 	if !got.Equal(want) {
 		t.Fatalf("parseDBTime=%s want %s", got, want)
@@ -157,13 +175,16 @@ func TestParseDBTimeAcceptsPostgresTimestampText(t *testing.T) {
 
 // TestFirstNonEmpty 返回首个非空串。
 func TestFirstNonEmpty(t *testing.T) {
-	if got := firstNonEmpty("", "", "x", "y"); got != "x" {
+	if // got 保存got，供当前处理流程使用
+	got := firstNonEmpty("", "", "x", "y"); got != "x" {
 		t.Errorf("firstNonEmpty=%q want x", got)
 	}
-	if got := firstNonEmpty(); got != "" {
+	if // got 保存got，供当前处理流程使用
+	got := firstNonEmpty(); got != "" {
 		t.Errorf("无参应返回空，got %q", got)
 	}
-	if got := firstNonEmpty("a"); got != "a" {
+	if // got 保存got，供当前处理流程使用
+	got := firstNonEmpty("a"); got != "a" {
 		t.Errorf("单参=%q want a", got)
 	}
 }
@@ -171,15 +192,20 @@ func TestFirstNonEmpty(t *testing.T) {
 // TestSchedulerScanExecutesDueThenSkipsOnMaxAttempts 端到端验证调度扫描：
 // 首次扫描命中到期订单 → 执行规则 → 发送文本 + 计数 +1；
 // 二次扫描因达到 max_attempts 跳过，不再发送。
+// TestSchedulerScanExecutesDueThenSkipsOnMaxAttempts 负责TestSchedulerScanExecutesDueThenSkipsOnMax尝试次数相关处理。
 func TestSchedulerScanExecutesDueThenSkipsOnMaxAttempts(t *testing.T) {
+	// database、err 保存database、err，供当前处理流程使用
 	database, _, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "sched.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer database.Close()
+	// store 保存store，供当前处理流程使用
 	store := db.NewStore(database, db.DialectSQLite)
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
 	store.Users.Create(ctx, "admin", "a@e.com", "pw")
+	// admin 保存admin，供当前处理流程使用
 	admin, _ := store.Users.GetByUsername(ctx, "admin")
 	store.Cookies.Save(ctx, "cid", "unb=1; _m_h5_tk=tk;", admin.ID)
 
@@ -205,14 +231,18 @@ func TestSchedulerScanExecutesDueThenSkipsOnMaxAttempts(t *testing.T) {
 
 	// 已发货、未评价、有 chat_id 的订单。
 	shipped := time.Now().UTC().Add(-2 * time.Hour).Format("2006-01-02 15:04:05")
-	if _, err := store.DB.ExecContext(ctx, `INSERT INTO orders
+	if // err 保存err，供当前处理流程使用
+	_, err := store.DB.ExecContext(ctx, `INSERT INTO orders
 		(order_id, cookie_id, item_id, buyer_id, chat_id, system_shipped, shipped_at, review_request_count)
 		VALUES ('o-sched', 'cid', 'item-1', 'buyer-1', 'chat-1', 1, ?, 0)`, shipped); err != nil {
 		t.Fatalf("insert order: %v", err)
 	}
 
+	// sender 保存sender，供当前处理流程使用
 	sender := &testSender{}
+	// center 保存center，供当前处理流程使用
 	center := New(store, testSenderProvider{sender: sender}, nil)
+	// sched 保存sched，供当前处理流程使用
 	sched := NewScheduler(center)
 	// 缩短间隔不影响单次 scan 调用，但避免 Run 阻塞。
 	_ = sched
@@ -236,11 +266,16 @@ func TestSchedulerScanExecutesDueThenSkipsOnMaxAttempts(t *testing.T) {
 	}
 }
 
+// TestSchedulerWaitsForWebSocketBeforeCreatingRun 负责TestSchedulerWaitsForWebSocketBeforeCreating运行相关处理。
 func TestSchedulerWaitsForWebSocketBeforeCreatingRun(t *testing.T) {
+	// store、cleanup 保存store、cleanup，供当前处理流程使用
 	store, cleanup := newAutomationTestStore(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// admin 保存admin，供当前处理流程使用
 	admin, _ := store.Users.GetByUsername(ctx, "admin")
+	// ruleID、err 保存规则ID、err，供当前处理流程使用
 	ruleID, err := store.Automation.Create(ctx, db.AutomationRuleInput{
 		UserID: admin.ID, CookieID: "cid", ItemID: "item-ready", Name: "wait-ws",
 		TriggerType: TriggerReviewMissingTimeout, Enabled: true,
@@ -250,17 +285,23 @@ func TestSchedulerWaitsForWebSocketBeforeCreatingRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// shipped 保存shipped，供当前处理流程使用
 	shipped := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339Nano)
-	if _, err := store.DB.ExecContext(ctx, `INSERT INTO orders
+	if // err 保存err，供当前处理流程使用
+	_, err := store.DB.ExecContext(ctx, `INSERT INTO orders
 		(order_id,cookie_id,item_id,buyer_id,chat_id,system_shipped,shipped_at)
 		VALUES ('wait-ws-order','cid','item-ready','buyer','chat',1,?)`, shipped); err != nil {
 		t.Fatal(err)
 	}
+	// sender 保存sender，供当前处理流程使用
 	sender := &readinessTestSender{testSender: &testSender{}, ready: false}
+	// scheduler 保存scheduler，供当前处理流程使用
 	scheduler := NewScheduler(New(store, readinessTestProvider{sender: sender}, nil))
 	scheduler.scan(ctx)
+	// count 保存数量，供当前处理流程使用
 	var count int
-	if err := store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM automation_runs WHERE rule_id=?`, ruleID).Scan(&count); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM automation_runs WHERE rule_id=?`, ruleID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 0 {
@@ -273,26 +314,35 @@ func TestSchedulerWaitsForWebSocketBeforeCreatingRun(t *testing.T) {
 	}
 }
 
+// TestSchedulerScansMoreThanOneReviewPage 负责TestSchedulerScansMoreThanOneReview页码相关处理。
 func TestSchedulerScansMoreThanOneReviewPage(t *testing.T) {
+	// store、cleanup 保存store、cleanup，供当前处理流程使用
 	store, cleanup := newAutomationTestStore(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// admin 保存admin，供当前处理流程使用
 	admin, _ := store.Users.GetByUsername(ctx, "admin")
-	if _, err := store.Automation.Create(ctx, db.AutomationRuleInput{
+	if // err 保存err，供当前处理流程使用
+	_, err := store.Automation.Create(ctx, db.AutomationRuleInput{
 		UserID: admin.ID, CookieID: "cid", Name: "review-all", TriggerType: TriggerReviewMissingTimeout, Enabled: true,
 		ConfigJSON: `{"after_shipped_hours":1,"max_attempts":1}`,
 		Actions:    []db.AutomationActionInput{{ActionType: ActionSendText, MessageTemplate: "review", Enabled: true}},
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// shipped 保存shipped，供当前处理流程使用
 	shipped := time.Now().UTC().Add(-2 * time.Hour).Format("2006-01-02 15:04:05")
-	for i := 0; i < 205; i++ {
-		if _, err := store.DB.ExecContext(ctx, `INSERT INTO orders
+	for // i 保存i，供当前处理流程使用
+	i := 0; i < 205; i++ {
+		if // err 保存err，供当前处理流程使用
+		_, err := store.DB.ExecContext(ctx, `INSERT INTO orders
 			(order_id,cookie_id,buyer_id,chat_id,system_shipped,shipped_at,review_request_count,updated_at)
 			VALUES (?,?,?,?,1,?,0,?)`, fmt.Sprintf("review-%03d", i), "cid", "buyer", fmt.Sprintf("chat-%03d", i), shipped, shipped); err != nil {
 			t.Fatal(err)
 		}
 	}
+	// sender 保存sender，供当前处理流程使用
 	sender := &testSender{}
 	NewScheduler(New(store, testSenderProvider{sender: sender}, nil)).scan(ctx)
 	if len(sender.texts) != 205 {
@@ -300,11 +350,14 @@ func TestSchedulerScansMoreThanOneReviewPage(t *testing.T) {
 	}
 }
 
+// TestRecoveryNeedsSenderUsesNextActionType 负责TestRecoveryNeedsSenderUsesNext动作类型相关处理。
 func TestRecoveryNeedsSenderUsesNextActionType(t *testing.T) {
+	// rule 保存规则，供当前处理流程使用
 	rule := db.AutomationRule{Actions: []db.AutomationAction{
 		{ActionType: ActionConfirmShipment, Enabled: true},
 		{ActionType: ActionSendText, Enabled: true},
 	}}
+	// task 保存任务，供当前处理流程使用
 	task := Task{TriggerType: TriggerBuyerReviewed}
 	if recoveryNeedsSender(task, rule, 0) {
 		t.Fatal("确认发货动作不应等待 WebSocket")
@@ -314,11 +367,16 @@ func TestRecoveryNeedsSenderUsesNextActionType(t *testing.T) {
 	}
 }
 
+// TestAutomationSchedulerWaitsForShutdown 负责Test自动化SchedulerWaitsForShutdown相关处理。
 func TestAutomationSchedulerWaitsForShutdown(t *testing.T) {
+	// store、cleanup 保存store、cleanup，供当前处理流程使用
 	store, cleanup := newAutomationTestStore(t)
 	defer cleanup()
+	// scheduler 保存scheduler，供当前处理流程使用
 	scheduler := NewScheduler(New(store, testSenderProvider{sender: &testSender{}}, nil))
+	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithCancel(context.Background())
+	// done 保存done，供当前处理流程使用
 	done := make(chan struct{})
 	go func() {
 		scheduler.Run(ctx)

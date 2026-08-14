@@ -69,6 +69,7 @@ func (e *automationActionExecutor) confirmShipment(ctx context.Context, task Tas
 	}
 	// enabled 表示账号是否打开自动确认发货设置。
 	// readErr 保存读取自动确认发货设置的错误。
+	// enabled、readErr 保存enabled、readErr，供当前处理流程使用
 	enabled, readErr := e.store.Cookies.GetAutoConfirm(ctx, task.AccountID)
 	if readErr != nil {
 		return fmt.Errorf("读取自动确认发货设置: %w", readErr)
@@ -108,7 +109,8 @@ func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, t
 	var cookieSession *mtop.CookieSession
 	// snapshot 是 metadata 中恢复出的完整 Cookie Jar。
 	// snapshotOK 表示完整 Cookie Jar 是否存在。
-	if snapshot, snapshotOK := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON); snapshotOK {
+	if // snapshot、snapshotOK 保存snapshot、snapshotOK，供当前处理流程使用
+	snapshot, snapshotOK := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON); snapshotOK {
 		mtopCtx, cookieSession = mtop.WithCookieSnapshot(ctx, snapshot)
 	} else {
 		mtopCtx, cookieSession = mtop.WithFlatCookieSession(ctx, cookieStr)
@@ -121,6 +123,7 @@ func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, t
 	// ret 保存远端返回的业务错误文本。
 	// updated 保存无权威 Cookie Jar 时的扁平 Cookie 更新结果。
 	// callErr 保存 MTOP 请求层错误。
+	// consignOK、ret、updated、callErr 保存consignOK、ret、updated、callErr，供当前处理流程使用
 	consignOK, ret, updated, callErr := e.mtop().ConsignContext(mtopCtx, cookieStr, task.OrderID)
 	// persistenceErrs 收集远端动作完成后本地状态写入失败。
 	var persistenceErrs []error
@@ -131,6 +134,7 @@ func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, t
 	// value 是 Cookie 会话合并后的扁平值。
 	// snapshot 是 Cookie 会话合并后的完整快照。
 	// changed 表示 Cookie 会话是否产生变化。
+	// value、snapshot、changed 保存value、snapshot、changed，供当前处理流程使用
 	value, snapshot, changed := cookieSession.State()
 	// sessionHandled 表示本次请求是否由完整 Cookie Jar 接管。
 	sessionHandled := snapshot != nil
@@ -164,7 +168,8 @@ func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, t
 	if runtimeCookieChanged && e.senders != nil {
 		// sender 是当前账号的在线消息发送器。
 		// running 表示账号是否仍处于运行状态。
-		if sender, running := e.senders.Sender(task.AccountID); running {
+		if // sender、running 保存sender、running，供当前处理流程使用
+		sender, running := e.senders.Sender(task.AccountID); running {
 			sender.UpdateCookie(runtimeCookie)
 		}
 	}
@@ -255,6 +260,7 @@ func (e *automationActionExecutor) sendCard(ctx context.Context, task Task, acti
 	for i := 0; i < count; i++ {
 		// content 是当前卡密文本内容。
 		// imageURL 是当前卡密图片地址。
+		// content、imageURL、readErr 保存content、imageURL、readErr，供当前处理流程使用
 		content, imageURL, readErr := e.cardContent(ctx, card)
 		if readErr != nil {
 			return sent, readErr
@@ -322,6 +328,7 @@ func (e *automationActionExecutor) sendText(ctx context.Context, task Task, text
 	}
 	// sender 是当前账号的在线消息发送器。
 	// senderOK 表示是否找到在线发送器。
+	// sender、senderOK 保存sender、senderOK，供当前处理流程使用
 	sender, senderOK := e.senders.Sender(task.AccountID)
 	if !senderOK {
 		return fmt.Errorf("%w: 账号未在线，无法发送自动化消息", ErrMessageNotSent)
@@ -339,6 +346,7 @@ func (e *automationActionExecutor) sendImage(ctx context.Context, task Task, ima
 	}
 	// sender 是当前账号的在线图片发送器。
 	// senderOK 表示是否找到在线发送器。
+	// sender、senderOK 保存sender、senderOK，供当前处理流程使用
 	sender, senderOK := e.senders.Sender(task.AccountID)
 	if !senderOK {
 		return fmt.Errorf("%w: 账号未在线，无法发送自动化图片", ErrMessageNotSent)
@@ -425,6 +433,7 @@ func parsePositiveInt(raw string) int {
 	// err 是数量文本解析错误。
 	// n 是解析后的数量值。
 	// parseErr 是数量文本解析错误。
+	// n、parseErr 保存n、parseErr，供当前处理流程使用
 	n, parseErr := strconv.Atoi(raw)
 	if parseErr != nil || n < 0 {
 		return 0

@@ -5,7 +5,9 @@ import (
 	"testing"
 )
 
+// TestExtractTaskFromWS_BuyerReviewed 负责TestExtract任务FromWS买家Reviewed相关处理。
 func TestExtractTaskFromWS_BuyerReviewed(t *testing.T) {
+	// raw 保存原始，供当前处理流程使用
 	raw := mustMap(t, `{
 	  "1": {
 	    "2": "62904549781@goofish",
@@ -19,6 +21,7 @@ func TestExtractTaskFromWS_BuyerReviewed(t *testing.T) {
 	    }
 	  }
 	}`)
+	// task 保存任务，供当前处理流程使用
 	task := ExtractTaskFromWS("acc1", "cookie", raw)
 	if task == nil {
 		t.Fatal("评价卡片应解析为自动化事件")
@@ -29,7 +32,9 @@ func TestExtractTaskFromWS_BuyerReviewed(t *testing.T) {
 	}
 }
 
+// TestExtractTaskFromWS_BuyerReviewedUsesBusinessKeyAcrossCopyVariants 负责TestExtract任务FromWS买家ReviewedUsesBusinessKeyAcrossCopyVariants相关处理。
 func TestExtractTaskFromWS_BuyerReviewedUsesBusinessKeyAcrossCopyVariants(t *testing.T) {
+	// raw 保存原始，供当前处理流程使用
 	raw := mustMap(t, `{
 	  "1":{"2":"62904549781@goofish","10":{
 	    "reminderContent":"感谢您的再次购买，评价已经完成",
@@ -38,13 +43,16 @@ func TestExtractTaskFromWS_BuyerReviewedUsesBusinessKeyAcrossCopyVariants(t *tes
 	    "extJson":"{\"updateKey\":\"62904549781:order-second:10:buyer_rate_seller:26\",\"contentType\":\"26\"}"
 	  }}
 	}`)
+	// task 保存任务，供当前处理流程使用
 	task := ExtractTaskFromWS("acc1", "cookie", raw)
 	if task == nil || task.TriggerType != TriggerBuyerReviewed || task.OrderID != "order-second" {
 		t.Fatalf("second-purchase review task=%+v", task)
 	}
 }
 
+// TestExtractTaskFromWS_ServiceReviewInvitationIgnored 负责TestExtract任务FromWSServiceReviewInvitationIgnored相关处理。
 func TestExtractTaskFromWS_ServiceReviewInvitationIgnored(t *testing.T) {
+	// raw 保存原始，供当前处理流程使用
 	raw := mustMap(t, `{
 	  "1": {
 	    "2": "62854995941@goofish",
@@ -56,12 +64,15 @@ func TestExtractTaskFromWS_ServiceReviewInvitationIgnored(t *testing.T) {
 	    }
 	  }
 	}`)
-	if task := ExtractTaskFromWS("acc1", "cookie", raw); task != nil {
+	if // task 保存任务，供当前处理流程使用
+	task := ExtractTaskFromWS("acc1", "cookie", raw); task != nil {
 		t.Fatalf("服务评价邀请不能触发买家评价赠品: %+v", task)
 	}
 }
 
+// TestExtractTaskFromWS_OrderPaid 负责TestExtract任务FromWS订单Paid相关处理。
 func TestExtractTaskFromWS_OrderPaid(t *testing.T) {
+	// raw 保存原始，供当前处理流程使用
 	raw := mustMap(t, `{
 	  "1": {
 	    "2": "63107041124@goofish",
@@ -74,13 +85,16 @@ func TestExtractTaskFromWS_OrderPaid(t *testing.T) {
 	    "6": {"3": {"5": "{\"dxCard\":{\"item\":{\"main\":{\"targetUrl\":\"fleamarket://order_detail?id=3310145690545023994&role=seller\"}}}}"}}
 	  }
 	}`)
+	// task 保存任务，供当前处理流程使用
 	task := ExtractTaskFromWS("acc1", "cookie", raw)
 	if task == nil || task.TriggerType != TriggerOrderPaid || task.OrderID != "3310145690545023994" {
 		t.Fatalf("task=%+v", task)
 	}
 }
 
+// TestExtractTaskFromWS_BuyerOrderPaidIgnored 负责TestExtract任务FromWS买家订单PaidIgnored相关处理。
 func TestExtractTaskFromWS_BuyerOrderPaidIgnored(t *testing.T) {
+	// raw 保存原始，供当前处理流程使用
 	raw := mustMap(t, `{
 	  "1": {
 	    "2": "63107041124@goofish",
@@ -93,12 +107,15 @@ func TestExtractTaskFromWS_BuyerOrderPaidIgnored(t *testing.T) {
 	    "6": {"3": {"5": "{\"dxCard\":{\"item\":{\"main\":{\"targetUrl\":\"fleamarket://order_detail?id=3310145690545023994&role=buyer\"}}}}"}}
 	  }
 	}`)
-	if task := ExtractTaskFromWS("acc1", "cookie", raw); task != nil {
+	if // task 保存任务，供当前处理流程使用
+	task := ExtractTaskFromWS("acc1", "cookie", raw); task != nil {
 		t.Fatalf("买家订单不应进入卖家自动化和订单管理: %+v", task)
 	}
 }
 
+// TestExtractTaskFromWS_BuyerOrderPaidTaskNameIgnored 负责TestExtract任务FromWS买家订单Paid任务名称Ignored相关处理。
 func TestExtractTaskFromWS_BuyerOrderPaidTaskNameIgnored(t *testing.T) {
+	// raw 保存原始，供当前处理流程使用
 	raw := mustMap(t, `{
 	  "1": {"2": "63107041124@goofish", "10": {
 	    "bizTag": "{\"taskName\":\"付款完成待发货_买家\"}",
@@ -106,15 +123,19 @@ func TestExtractTaskFromWS_BuyerOrderPaidTaskNameIgnored(t *testing.T) {
 	    "reminderContent": "[我已付款，等待你发货]"
 	  }}
 	}`)
-	if task := ExtractTaskFromWS("acc1", "cookie", raw); task != nil {
+	if // task 保存任务，供当前处理流程使用
+	task := ExtractTaskFromWS("acc1", "cookie", raw); task != nil {
 		t.Fatalf("买家侧 taskName 不应进入卖家自动化和订单管理: %+v", task)
 	}
 }
 
+// mustMap 负责mustMap相关处理。
 func mustMap(t *testing.T, s string) map[string]any {
 	t.Helper()
+	// m 保存m，供当前处理流程使用
 	var m map[string]any
-	if err := json.Unmarshal([]byte(s), &m); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := json.Unmarshal([]byte(s), &m); err != nil {
 		t.Fatal(err)
 	}
 	return m

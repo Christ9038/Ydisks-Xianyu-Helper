@@ -24,7 +24,8 @@ func TestActionPlannerPaidEventKeepsCardBeforeShipment(t *testing.T) {
 	planner := actionPlanner{}
 	// plan 是按发卡优先规则生成的不可变动作快照。
 	plan := planner.plan(task, actions)
-	if got := []int64{plan[0].ID, plan[1].ID}; !reflect.DeepEqual(got, []int64{2, 1}) {
+	if // got 保存got，供当前处理流程使用
+	got := []int64{plan[0].ID, plan[1].ID}; !reflect.DeepEqual(got, []int64{2, 1}) {
 		t.Fatalf("付款事件动作顺序=%v，want [2 1]", got)
 	}
 	if !reflect.DeepEqual(actions, original) {
@@ -36,7 +37,8 @@ func TestActionPlannerPaidEventKeepsCardBeforeShipment(t *testing.T) {
 func TestEventFactRecorderWithoutOrderIsNoOp(t *testing.T) {
 	// recorder 未注入数据库时应对无订单任务安全忽略。
 	recorder := newEventFactRecorder(nil)
-	if err := recorder.record(context.Background(), Task{AccountID: "cid", TriggerType: TriggerBuyerReviewed}); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := recorder.record(context.Background(), Task{AccountID: "cid", TriggerType: TriggerBuyerReviewed}); err != nil {
 		t.Fatalf("无订单事实应安全忽略，err=%v", err)
 	}
 }
