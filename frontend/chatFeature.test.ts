@@ -2,62 +2,62 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
-const source = (path: string) => readFileSync(resolve(__dirname, path), 'utf8');
+const source = (path: string) => readFileSync(resolve(__dirname, path), 'utf8'); /* source 表示source。 */
 
 describe('online chat UI contract', () => {
 	test('uses account tabs above a two-column buyer/chat layout', () => {
-		const chat = source('components/Chat.tsx');
+		const chat = source('components/Chat.tsx'); /* chat 表示chat。 */
 		expect(chat).toContain('role="tablist"');
 		expect(chat).toContain('grid-cols-[320px_minmax(0,1fr)]');
 		expect(chat).toContain('min-h-0 min-w-0 flex-col overflow-hidden');
 		expect(chat).not.toContain('grid-cols-[320px_minmax(0,1fr)_');
 		expect(chat).toContain('activeAccountID');
 		expect(chat).toContain('activeChatID');
-	});
+	} /* 回调函数负责当前业务流程。 */);
 
 	test('uses neutral user labels instead of assuming buyer role', () => {
-		const chat = source('components/Chat.tsx');
+		const chat = source('components/Chat.tsx'); /* chat 表示chat。 */
 		expect(chat).toContain('用户 ID：');
 		expect(chat).not.toContain('买家 ID：');
 		expect(chat).not.toContain('选择一个买家');
-	});
+	} /* 回调函数负责当前业务流程。 */);
 
 	test('frontend connects only to the application chat websocket', () => {
-		const chatHook = source('app/features/chat/hooks.ts');
+		const chatHook = source('app/features/chat/hooks.ts'); /* chatHook 表示chatHook。 */
 		expect(chatHook).toContain('/api/v1/chat/ws');
 		expect(chatHook).not.toContain('wss-goofish.dingtalk.com');
-	});
+	} /* 回调函数负责当前业务流程。 */);
 
 	test('renders peer/self identity and verified media capabilities', () => {
-		const chat = source('components/Chat.tsx');
-		const chatHook = source('app/features/chat/hooks.ts');
+		const chat = source('components/Chat.tsx'); /* chat 表示chat。 */
+		const chatHook = source('app/features/chat/hooks.ts'); /* chatHook 表示chatHook。 */
 		expect(chat).toContain('selectedSession.buyer_avatar_url');
 		expect(chat).toContain('activeAccount?.avatar_url');
 		expect(chat).toContain("message.message_type === 'image'");
 		expect(chat).toContain("message.message_type === 'video'");
 		expect(chatHook).toContain('sendChatImage');
-	});
+	} /* 回调函数负责当前业务流程。 */);
 
 	test('renders official notices as neutral system messages', () => {
-		const chat = source('components/Chat.tsx');
+		const chat = source('components/Chat.tsx'); /* chat 表示chat。 */
 		expect(chat).toContain("message.message_type === 'system'");
 		expect(chat).toContain('justify-center py-1');
-	});
+	} /* 回调函数负责当前业务流程。 */);
 
 	test('keeps the active chat at the bottom when new messages arrive', () => {
-		const chat = source('components/Chat.tsx');
-		const chatHook = source('app/features/chat/hooks.ts');
+		const chat = source('components/Chat.tsx'); /* chat 表示chat。 */
+		const chatHook = source('app/features/chat/hooks.ts'); /* chatHook 表示chatHook。 */
 		expect(chatHook).toContain('shouldScrollToBottomRef');
 		expect(chatHook).toContain('skipNextMessageScrollRef');
 		expect(chat).toContain('onScroll={handleMessageScroll}');
 		expect(chatHook).toContain('container.scrollHeight - container.scrollTop - container.clientHeight');
 		expect(chatHook).toContain('[activeAccountID, activeChatID, messages, messagesLoading]');
-	});
+	} /* 回调函数负责当前业务流程。 */);
 
 	test('sidebar exposes collapse control and chat primary navigation', () => {
-		const sidebar = source('components/Sidebar.tsx');
+		const sidebar = source('components/Sidebar.tsx'); /* sidebar 表示sidebar。 */
 		expect(sidebar).toContain("id: 'chat'");
 		expect(sidebar).toContain('onToggleCollapsed');
 		expect(sidebar).toContain('collapsed ? \'w-16\' : \'w-64\'');
-	});
-});
+	} /* 回调函数负责当前业务流程。 */);
+} /* 回调函数负责当前业务流程。 */);

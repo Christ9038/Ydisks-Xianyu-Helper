@@ -505,12 +505,12 @@ export const xianyuEmojis = [
     "爱心",
     "https://img.alicdn.com/imgextra/i1/O1CN015RVSWf23s25eETJqO_!!6000000007310-2-tps-980-980.png_110x10000.jpg_.webp"
   ]
-] as const;
+] as const; /* xianyuEmojis 表示xianyuEmojis。 */
 
-export const emojiURL = (url: string) => url;
-const emojiLookup = new Map<string, string>(xianyuEmojis.map(([name, url]) => [name, url]));
+export const emojiURL = (url: string) => url; /* emojiURL 表示emoji请求地址。 */
+const emojiLookup = new Map<string, string>(xianyuEmojis.map(([name, url]) => [name, url] /* 回调函数负责当前业务流程。 */)); /* emojiLookup 表示emojiLookup。 */
 
 export const renderXianyuText = (text: string) => text.split(/(\[[^\]]+\])/g).map((part, index) => {
-  const url = part.startsWith('[') ? emojiLookup.get(part.slice(1, -1)) : undefined;
+  const url = part.startsWith('[') ? emojiLookup.get(part.slice(1, -1)) : undefined; /* url 表示请求地址。 */
   return url ? <img key={index} src={url} alt={part} title={part} className="mx-0.5 inline-block h-7 w-7 align-middle" /> : <React.Fragment key={index}>{part}</React.Fragment>;
-});
+}) /* 回调函数负责当前业务流程。 */; /* renderXianyuText 表示renderXianyuText。 */

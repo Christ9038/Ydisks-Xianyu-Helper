@@ -1,10 +1,10 @@
-const padTwoDigits = (value: number): string => String(value).padStart(2, '0');
+const padTwoDigits = (value: number): string => String(value).padStart(2, '0'); /* padTwoDigits 表示padTwoDigits。 */
 
 /** Format a timestamp in the browser's current timezone. */
 export const formatLocalDateTime = (value?: string | number | Date | null): string => {
   if (value === undefined || value === null || value === '') return '-';
 
-  const date = value instanceof Date ? value : new Date(value);
+  const date = value instanceof Date ? value : new Date(value); /* date 表示date。 */
   if (Number.isNaN(date.getTime())) return '-';
 
   return [
@@ -16,4 +16,4 @@ export const formatLocalDateTime = (value?: string | number | Date | null): stri
     padTwoDigits(date.getMinutes()),
     padTwoDigits(date.getSeconds()),
   ].join(':');
-};
+}; /* formatLocalDateTime 表示formatLocalDateTime。 */

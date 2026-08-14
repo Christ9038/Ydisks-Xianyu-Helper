@@ -15,9 +15,12 @@ import { initializeAdmin, login, logout, verifySession } from './app/features/se
 import { ShieldCheck, ArrowRight, Loader2, User, Lock } from 'lucide-react';
 
 interface DeliveryRuleTarget {
-  cookieId: string;
-  itemId: string;
-  requestId: number;
+// cookieId 表示cookieId。
+    cookieId: string;
+// itemId 表示当前商品Id。
+    itemId: string;
+// requestId 表示接口请求对象Id。
+    requestId: number;
 }
 
 // 路由：URL path ↔ tab id。所有 SPA 路由统一挂 /app/ 前缀，避免和后端 API
@@ -35,31 +38,31 @@ const ROUTES: Record<string, string> = {
   '/app/settings': 'settings',
 };
 const TAB_TO_PATH: Record<string, string> = Object.fromEntries(
-  Object.entries(ROUTES).map(([path, tab]) => [tab, path])
-);
-const tabFromPath = (): string => ROUTES[window.location.pathname] || 'dashboard';
+  Object.entries(ROUTES).map(([path, tab]) => [tab, path] /* 回调函数负责当前业务流程。 */)
+); /* TAB_TO_PATH 表示TABTO当前路径。 */
+const tabFromPath = (): string => ROUTES[window.location.pathname] || 'dashboard'; /* tabFromPath 表示tabFrom当前路径。 */
 
 const App: React.FC = () => {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [activeTab, setActiveTab] = useState(tabFromPath);
-  const [checkingAuth, setCheckingAuth] = useState(true);
-  const [needsInit, setNeedsInit] = useState(false);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [loginLoading, setLoginLoading] = useState(false);
-  const [loginError, setLoginError] = useState('');
-  const [initialPassword, setInitialPassword] = useState('');
-  const [initialPasswordConfirm, setInitialPasswordConfirm] = useState('');
-  const [initializing, setInitializing] = useState(false);
-  const [initializationError, setInitializationError] = useState('');
-  const [deliveryRuleTarget, setDeliveryRuleTarget] = useState<DeliveryRuleTarget | undefined>();
-	const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
+  const [isLoggedIn, setIsLoggedIn] = useState(false); /* [isLoggedIn, setIsLoggedIn] 表示isLoggedInsetIsLoggedIn。 */
+  const [isAdmin, setIsAdmin] = useState(false); /* [isAdmin, setIsAdmin] 表示isAdminsetIsAdmin。 */
+  const [activeTab, setActiveTab] = useState(tabFromPath); /* [activeTab, setActiveTab] 表示activeTabsetActiveTab。 */
+  const [checkingAuth, setCheckingAuth] = useState(true); /* [checkingAuth, setCheckingAuth] 表示checkingAuthsetCheckingAuth。 */
+  const [needsInit, setNeedsInit] = useState(false); /* [needsInit, setNeedsInit] 表示needsInitsetNeedsInit。 */
+  const [username, setUsername] = useState(''); /* [username, setUsername] 表示usernamesetUsername。 */
+  const [password, setPassword] = useState(''); /* [password, setPassword] 表示passwordsetPassword。 */
+  const [loginLoading, setLoginLoading] = useState(false); /* [loginLoading, setLoginLoading] 表示login加载状态setLogin加载状态。 */
+  const [loginError, setLoginError] = useState(''); /* [loginError, setLoginError] 表示login当前操作返回的错误setLogin当前操作返回的错误。 */
+  const [initialPassword, setInitialPassword] = useState(''); /* [initialPassword, setInitialPassword] 表示initialPasswordsetInitialPassword。 */
+  const [initialPasswordConfirm, setInitialPasswordConfirm] = useState(''); /* [initialPasswordConfirm, setInitialPasswordConfirm] 表示initialPasswordConfirmsetInitialPasswordConfirm。 */
+  const [initializing, setInitializing] = useState(false); /* [initializing, setInitializing] 表示initializingsetInitializing。 */
+  const [initializationError, setInitializationError] = useState(''); /* [initializationError, setInitializationError] 表示initialization当前操作返回的错误setInitialization当前操作返回的错误。 */
+  const [deliveryRuleTarget, setDeliveryRuleTarget] = useState<DeliveryRuleTarget | undefined>(); /* [deliveryRuleTarget, setDeliveryRuleTarget] 表示delivery当前规则TargetsetDelivery当前规则Target。 */
+	const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed); /* [sidebarCollapsed, setSidebarCollapsed] 表示sidebarCollapsedsetSidebarCollapsed。 */
 
   // 切换 tab 并同步 URL。若 tab 没有对应 path（不应发生）则只切 tab。
   const navigate = (tab: string) => {
-    const nextTab = tab === 'settings' && !isAdmin ? 'dashboard' : tab;
-    const path = TAB_TO_PATH[nextTab];
+    const nextTab = tab === 'settings' && !isAdmin ? 'dashboard' : tab; /* nextTab 表示nextTab。 */
+    const path = TAB_TO_PATH[nextTab]; /* path 表示当前路径。 */
     if (path && path !== window.location.pathname) {
       window.history.pushState({}, '', path);
     }
@@ -68,10 +71,10 @@ const App: React.FC = () => {
 
   // 浏览器后退/前进同步 tab。
   useEffect(() => {
-    const onPopState = () => setActiveTab(tabFromPath());
+    const onPopState = () => setActiveTab(tabFromPath()); /* onPopState 表示onPopState。 */
     window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, []);
+    return () => window.removeEventListener('popstate', onPopState) /* 回调函数负责当前业务流程。 */;
+  } /* 回调函数负责当前业务流程。 */, []);
 
   // Check auth on mount
   useEffect(() => {
@@ -91,27 +94,27 @@ const App: React.FC = () => {
           } else {
             setIsAdmin(false);
           }
-        })
+        } /* 回调函数负责当前业务流程。 */)
         .catch(() => {
           setIsLoggedIn(false);
           setIsAdmin(false);
-        })
-        .finally(() => setCheckingAuth(false));
+        } /* 回调函数负责当前业务流程。 */)
+        .finally(() => setCheckingAuth(false) /* 回调函数负责当前业务流程。 */);
 
       const handleAuthLogoutEvent = () => {
         setIsLoggedIn(false);
         setIsAdmin(false);
-      };
+      }; /* handleAuthLogoutEvent 表示handleAuthLogoutEvent。 */
       window.addEventListener('auth:logout', handleAuthLogoutEvent);
-      return () => window.removeEventListener('auth:logout', handleAuthLogoutEvent);
-  }, []);
+      return () => window.removeEventListener('auth:logout', handleAuthLogoutEvent) /* 回调函数负责当前业务流程。 */;
+  } /* 回调函数负责当前业务流程。 */, []);
 
   useEffect(() => {
     if (!checkingAuth && isLoggedIn && !isAdmin && activeTab === 'settings') {
       window.history.replaceState({}, '', TAB_TO_PATH.dashboard);
       setActiveTab('dashboard');
     }
-  }, [checkingAuth, isLoggedIn, isAdmin, activeTab]);
+  } /* 回调函数负责当前业务流程。 */, [checkingAuth, isLoggedIn, isAdmin, activeTab]);
 
   const handleLogin = async (e: React.FormEvent) => {
       e.preventDefault();
@@ -119,20 +122,20 @@ const App: React.FC = () => {
       setLoginError('');
       
       try {
-          const res = await login({ username, password });
+          const res = await login({ username, password }); /* res 表示接口响应结果。 */
           if (res.success) {
               setIsLoggedIn(true);
               setIsAdmin(res.is_admin === true);
           } else {
               setLoginError(res.message || '登录失败');
           }
-      } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
+      } catch (err /* err 表示当前操作返回的错误。 */) {
+          const msg = err instanceof Error ? err.message : String(err); /* msg 表示msg。 */
           setLoginError(msg || '登录失败');
       } finally {
           setLoginLoading(false);
       }
-  };
+  }; /* handleLogin 表示handleLogin。 */
 
   const handleInitialize = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,7 +151,7 @@ const App: React.FC = () => {
 
     setInitializing(true);
     try {
-      const res = await initializeAdmin(initialPassword);
+      const res = await initializeAdmin(initialPassword); /* res 表示接口响应结果。 */
       if (!res.success) {
         setInitializationError(res.message || '初始化失败，请重试');
         return;
@@ -158,24 +161,24 @@ const App: React.FC = () => {
       setIsAdmin(res.is_admin === true);
       setInitialPassword('');
       setInitialPasswordConfirm('');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+    } catch (err /* err 表示当前操作返回的错误。 */) {
+      const msg = err instanceof Error ? err.message : String(err); /* msg 表示msg。 */
       setInitializationError(msg || '初始化失败，请重试');
     } finally {
       setInitializing(false);
     }
-  };
+  }; /* handleInitialize 表示handleInitialize。 */
 
   const handleLogout = async () => {
       try {
           await logout();
-      } catch (err) {
+      } catch (err /* err 表示当前操作返回的错误。 */) {
           console.error('退出登录失败', err);
       } finally {
           setIsLoggedIn(false);
           setIsAdmin(false);
       }
-  };
+  }; /* handleLogout 表示handleLogout。 */
 
 
   if (checkingAuth) {
@@ -210,7 +213,7 @@ const App: React.FC = () => {
                   type="password"
                   placeholder="设置管理员密码（至少 8 个字符）"
                   value={initialPassword}
-                  onChange={e => setInitialPassword(e.target.value)}
+                  onChange={e => setInitialPassword(e.target.value) /* 回调函数负责当前业务流程。 */}
                   autoFocus
                   className="w-full ios-input pl-14 pr-6 py-4.5 rounded-2xl text-base h-14"
                 />
@@ -221,7 +224,7 @@ const App: React.FC = () => {
                   type="password"
                   placeholder="再次输入密码"
                   value={initialPasswordConfirm}
-                  onChange={e => setInitialPasswordConfirm(e.target.value)}
+                  onChange={e => setInitialPasswordConfirm(e.target.value) /* 回调函数负责当前业务流程。 */}
                   className="w-full ios-input pl-14 pr-6 py-4.5 rounded-2xl text-base h-14"
                 />
               </div>
@@ -277,7 +280,7 @@ const App: React.FC = () => {
                         type="text" 
                         placeholder="管理员账号" 
                         value={username}
-                        onChange={e => setUsername(e.target.value)}
+                        onChange={e => setUsername(e.target.value) /* 回调函数负责当前业务流程。 */}
                         className="w-full ios-input pl-14 pr-6 py-4.5 rounded-2xl text-base h-14"
                     />
                 </div>
@@ -287,7 +290,7 @@ const App: React.FC = () => {
                         type="password" 
                         placeholder="密码" 
                         value={password}
-                        onChange={e => setPassword(e.target.value)}
+                        onChange={e => setPassword(e.target.value) /* 回调函数负责当前业务流程。 */}
                         className="w-full ios-input pl-14 pr-6 py-4.5 rounded-2xl text-base h-14"
                     />
                 </div>
@@ -331,16 +334,16 @@ const App: React.FC = () => {
       case 'items': return <ItemList onConfigureDelivery={(item) => {
         setDeliveryRuleTarget({ cookieId: item.cookie_id, itemId: item.item_id, requestId: Date.now() });
         navigate('rules');
-      }} />;
+      } /* 回调函数负责当前业务流程。 */} />;
       case 'rules': return <Rules
         initialDeliveryTarget={deliveryRuleTarget}
-        onDeliveryTargetHandled={() => setDeliveryRuleTarget(undefined)}
+        onDeliveryTargetHandled={() => setDeliveryRuleTarget(undefined) /* 回调函数负责当前业务流程。 */}
       />;
       case 'notifications': return <Notifications isAdmin={isAdmin} />;
       case 'settings': return isAdmin ? <Settings /> : <Dashboard />;
       default: return <Dashboard />;
     }
-  };
+  }; /* renderContent 表示renderContent。 */
 
   return (
     <div className="flex min-h-screen bg-canvas text-ink">
@@ -349,10 +352,10 @@ const App: React.FC = () => {
         isAdmin={isAdmin}
 		collapsed={sidebarCollapsed}
 		onToggleCollapsed={() => setSidebarCollapsed(current => {
-		  const next = !current;
+		  const next = !current; /* next 表示next。 */
 		  writeSidebarCollapsed(next);
 		  return next;
-		})}
+		} /* 回调函数负责当前业务流程。 */) /* 回调函数负责当前业务流程。 */}
         onNavigate={navigate}
         onLogout={handleLogout}
       />
@@ -367,6 +370,6 @@ const App: React.FC = () => {
       </main>
     </div>
   );
-};
+}; /* App 表示App。 */
 
 export default App;

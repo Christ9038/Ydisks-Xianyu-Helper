@@ -99,11 +99,11 @@ app shell / routes
 | 7. React Feature 化 | 已完成 | 页面、Hook、API、类型按领域拆分 | 领域 feature、行为测试、依赖门禁和构建门禁已完成 |
 | 8. DB 与事务治理 | 已完成 | 窄接口、事务执行器、方言门禁 | Chat、Automation、通知、分析、订单、发布、登录和事务边界已通过窄 repository 收口并完成 Server race |
 | 9. 架构门禁与兼容清理 | 已完成 | 自动依赖规则、删除到期兼容层 | Go 低层依赖、Server 事务边界、React 版本化调用和旧入口保留条件均已有自动检查或审计清单 |
-| 10. 注释基线清零 | 进行中 | 全仓严格中文注释检查 | 现有 Go/React 历史基线仍需按领域清零，最终删除 baseline 文件 |
+| 10. 注释基线清零 | 已完成 | 全仓严格中文注释检查 | Go/React 注释基线已删除；无基线严格门禁通过；冻结 CAPTCHA 文件由显式边界规则保护 |
 
 ### 当前执行入口
 
-- 当前阶段：阶段 10“注释基线清零与严格门禁”（进行中）；阶段 9 架构依赖与兼容清理、阶段 7 React Feature 化和阶段 8 DB 与事务治理已完成切片收口，阶段 6 Engine 与 Automation、阶段 5 应用生命周期装配、阶段 4 Server 应用服务与阶段 3 HTTP API 契约已完成最终审计；
+- 当前阶段：全部重构计划已完成；阶段 10 注释基线清零与严格门禁、阶段 9 架构依赖与兼容清理、阶段 7 React Feature 化、阶段 8 DB 与事务治理，以及此前各阶段均已完成切片收口并通过最终审计；
 - 已完成：总计划、依赖规则、中文注释规范、`AGENTS.md` 强约束，以及 Go/TypeScript AST 注释检查器和历史基线；
 - 阶段 1 已完成：server 测试模板预置管理员和账号 cookie，普通测试约 21.3 秒，完整 server race 约 194.3 秒通过；
 - 已完成阶段 2 逻辑切片一“Repository 敏感数据边界”：建立 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned`、`GetOwnerID`、`GetSummaryOwned` 和原子 `GetValueOwned`，覆盖跨用户、无效 user ID 及无效密文回归；
@@ -640,3 +640,4 @@ npm --prefix frontend run build
 | 2026-08-15 | 完成阶段 10 第十四个 PR 切片“Go 非冻结 internal/browser 注释基线按领域清零” | 为 Cookie、订单、密码登录、二维码刷新、生命周期、用户数据目录和浏览器辅助测试补齐函数、变量、字段及常量中文注释；严格跳过冻结的 slider/CAPTCHA 实现与测试；非冻结 browser 注释基线清零，冻结文件保留 664 项原有基线；Browser 定向测试和全量 Go/React 门禁通过，合并为一个可回滚提交 | 阶段 10：继续清理 cmd 与 tools 注释基线，并保留冻结基线边界 |
 | 2026-08-15 | 完成阶段 10 第十五个 PR 切片“Go cmd 与 tools 注释基线按领域清零” | 为 server、tray、dbseed、dbverify、init-admin、browser-install、spike 命令及 iconconv 工具补齐函数、变量、字段和常量中文注释；`cmd` 与 `tools` 注释基线清零；命令/工具定向测试和全量 Go/React 门禁通过，合并为一个可回滚提交 | 阶段 10：继续清理剩余基础内部包并保留冻结 browser 基线 |
 | 2026-08-15 | 完成阶段 10 第十六个 PR 切片“Go 基础内部包注释基线按领域清零” | 为 `internal/auth`、`internal/netguard`、`internal/logging`、`internal/version`、`internal/logsafe` 和 `internal/webui` 补齐函数、变量、字段及常量中文注释；这些基础包注释基线清零；定向测试和全量 Go/React 门禁通过，合并为一个可回滚提交；当前 Go 基线仅保留冻结 browser CAPTCHA 文件 | 阶段 10：冻结基线边界审计、删除可清理基线并完成最终验收 |
+| 2026-08-15 | 完成阶段 10 最终 PR 切片“冻结边界固化与全仓零基线验收” | Go/前端注释检查器显式识别冻结 CAPTCHA 文件并支持无基线严格模式；前端剩余注释债务清零；删除 `.commentlint/go-baseline.json` 与 `.commentlint/frontend-baseline.json`；无基线 Go/React 注释门禁、全量测试、类型检查和生产构建通过，冻结实现保持原样 | 阶段 10 完成：进入全仓重构计划最终审计 |

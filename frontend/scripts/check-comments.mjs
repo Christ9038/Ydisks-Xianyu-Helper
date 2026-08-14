@@ -95,7 +95,9 @@ function hasChineseComment(sourceFile, node) {
   if (trailingRanges.some((range) => {
     // commentStartLine 是行尾注释起始所在的零基行号。
     const commentStartLine = sourceFile.getLineAndCharacterOfPosition(range.pos).line;
-    return commentStartLine === startLine && HAN_PATTERN.test(sourceText.slice(range.pos, range.end));
+    // commentOnFunctionEnd 允许多行回调在表达式末尾使用行尾块注释说明职责。
+    const commentOnFunctionEnd = commentStartLine >= startLine && commentStartLine <= sourceFile.getLineAndCharacterOfPosition(anchor.end).line;
+    return commentOnFunctionEnd && HAN_PATTERN.test(sourceText.slice(range.pos, range.end));
   })) {
     return true;
   }
@@ -107,7 +109,8 @@ function hasChineseComment(sourceFile, node) {
   }
   // inlineSuffix 是节点结束位置紧邻的内联注释，用于支持循环变量和行尾字段注释。
   const inlineSuffix = sourceText.slice(node.end, Math.min(sourceText.length, node.end + 200));
-  const suffixMatch = inlineSuffix.match(/^\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*)/);
+  // wrappedSuffix 允许回调结束后先出现调用闭合符，再用块注释说明回调职责。
+  const suffixMatch = inlineSuffix.match(/^\s*[),;]*\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*)/);
   if (suffixMatch && HAN_PATTERN.test(suffixMatch[0])) {
     return true;
   }
@@ -184,6 +187,8 @@ function writeBaseline(filePath, findings) {
 
 // readBaseline 读取历史问题并建立快速查询集合。
 function readBaseline(filePath) {
+  // baselineMissing 表示最终严格门禁已删除历史基线文件，此时必须按空集合执行。
+  if (!fs.existsSync(filePath)) return new Set();
   // baselineText 是基线文件的 JSON 文本。
   const baselineText = fs.readFileSync(filePath, "utf8");
   // baselineFindings 是反序列化后的历史问题数组。

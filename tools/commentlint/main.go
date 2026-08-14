@@ -97,6 +97,11 @@ func collectFindings(root string) ([]Finding, error) {
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, ".gen.go") {
 			return nil
 		}
+		// relativePath 用于识别仓库明确冻结、不得改写的 CAPTCHA 源码文件。
+		relativePath, relativeErr := filepath.Rel(root, path)
+		if relativeErr == nil && isFrozenGoFile(filepath.ToSlash(relativePath)) {
+			return nil
+		}
 		// fileFindings 是当前文件的问题；parseErr 表示 AST 解析失败的原因。
 		fileFindings, parseErr := inspectGoFile(root, path)
 		if parseErr != nil {
@@ -109,6 +114,21 @@ func collectFindings(root string) ([]Finding, error) {
 		return nil, walkErr
 	}
 	return findings, nil
+}
+
+// isFrozenGoFile 判断文件是否属于生产冻结的滑块/CAPTCHA 实现及测试。
+func isFrozenGoFile(relativePath string) bool {
+	// frozenFiles 是与 AGENTS.md 及冻结规范一致的源码边界清单。
+	frozenFiles := map[string]bool{
+		"internal/browser/slider.go":                                  true,
+		"internal/browser/slider_test.go":                             true,
+		"internal/browser/token_captcha.go":                           true,
+		"internal/browser/token_captcha_test.go":                      true,
+		"internal/browser/token_captcha_fallback.go":                  true,
+		"internal/browser/token_captcha_fallback_integration_test.go": true,
+		"internal/browser/token_captcha_orchestrator_test.go":         true,
+	}
+	return frozenFiles[relativePath]
 }
 
 // shouldSkipDirectory 判断目录是否为依赖、构建产物或运行时数据目录。
@@ -347,6 +367,10 @@ func readBaseline(path string) (map[string]struct{}, error) {
 	// data 是基线文件的 JSON 内容。
 	data, err := os.ReadFile(path)
 	if err != nil {
+		// baselineMissing 表示严格门禁已删除历史基线文件，按空集合继续检查。
+		if os.IsNotExist(err) {
+			return map[string]struct{}{}, nil
+		}
 		return nil, err
 	}
 	// findings 是反序列化后的历史问题列表。

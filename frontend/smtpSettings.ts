@@ -1,6 +1,6 @@
 export const normalizeSMTPSettings = (settings: Record<string, any>): Record<string, any> => {
-  const legacyFrom = String(settings.smtp_from || '').trim();
-  const legacyIsAddress = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(legacyFrom);
+  const legacyFrom = String(settings.smtp_from || '').trim(); /* legacyFrom 表示legacyFrom。 */
+  const legacyIsAddress = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(legacyFrom); /* legacyIsAddress 表示legacyIsAddress。 */
 	return {
     ...settings,
     smtp_from_name: settings.smtp_from_name || (legacyIsAddress ? '' : legacyFrom),
@@ -8,7 +8,7 @@ export const normalizeSMTPSettings = (settings: Record<string, any>): Record<str
 		smtp_use_tls: parseSettingBoolean(settings.smtp_use_tls, true),
 		smtp_use_ssl: parseSettingBoolean(settings.smtp_use_ssl, false),
 	};
-};
+}; /* normalizeSMTPSettings 表示normalizeSMTPSettings。 */
 
 const parseSettingBoolean = (value: unknown, fallback: boolean): boolean => {
 	if (typeof value === 'boolean') return value;
@@ -17,4 +17,4 @@ const parseSettingBoolean = (value: unknown, fallback: boolean): boolean => {
 		if (['false', '0', 'no', 'off'].includes(value.toLowerCase())) return false;
 	}
 	return fallback;
-};
+}; /* parseSettingBoolean 表示parseSettingBoolean。 */

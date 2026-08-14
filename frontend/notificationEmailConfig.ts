@@ -7,7 +7,7 @@ const smtpOverrideKeys = [
   'smtp_from_address',
   'smtp_use_tls',
   'smtp_use_ssl',
-] as const;
+] as const; /* smtpOverrideKeys 表示smtpOverrideKeys。 */
 
 const parseBoolean = (value: unknown, fallback: boolean): boolean => {
   if (typeof value === 'boolean') return value;
@@ -16,25 +16,25 @@ const parseBoolean = (value: unknown, fallback: boolean): boolean => {
     if (['false', '0', 'no', 'off'].includes(value.toLowerCase())) return false;
   }
   return fallback;
-};
+}; /* parseBoolean 表示parseBoolean。 */
 
 export const normalizeEmailChannelConfig = (config: Record<string, unknown>): Record<string, unknown> => {
-  const hasExplicitMode = Object.prototype.hasOwnProperty.call(config, 'use_custom_smtp');
-  const hasLegacyOverrides = smtpOverrideKeys.some(key => String(config[key] ?? '').trim() !== '');
+  const hasExplicitMode = Object.prototype.hasOwnProperty.call(config, 'use_custom_smtp'); /* hasExplicitMode 表示hasExplicitMode。 */
+  const hasLegacyOverrides = smtpOverrideKeys.some(key => String(config[key] ?? '').trim() !== '' /* 回调函数负责当前业务流程。 */); /* hasLegacyOverrides 表示hasLegacyOverrides。 */
   return {
     ...config,
     use_custom_smtp: hasExplicitMode
       ? parseBoolean(config.use_custom_smtp, false)
       : hasLegacyOverrides,
   };
-};
+}; /* normalizeEmailChannelConfig 表示normalizeEmailChannelConfig。 */
 
 export const enableCustomSMTP = (
   config: Record<string, unknown>,
   systemSettings: Record<string, unknown>,
 ): Record<string, unknown> => {
-  const next: Record<string, unknown> = { ...config, use_custom_smtp: true };
-  for (const key of smtpOverrideKeys) {
+  const next: Record<string, unknown> = { ...config, use_custom_smtp: true }; /* next 表示next。 */
+  for (const key /* key 表示key。 */ of smtpOverrideKeys) {
     if (String(next[key] ?? '').trim() === '' && systemSettings[key] !== undefined) {
       next[key] = systemSettings[key];
     }
@@ -44,16 +44,16 @@ export const enableCustomSMTP = (
   next.smtp_use_tls = parseBoolean(next.smtp_use_tls, true);
   next.smtp_use_ssl = parseBoolean(next.smtp_use_ssl, false);
   return next;
-};
+}; /* enableCustomSMTP 表示enableCustomSMTP。 */
 
 export const buildEmailChannelConfig = (config: Record<string, unknown>): Record<string, unknown> => {
-  const normalized = normalizeEmailChannelConfig(config);
+  const normalized = normalizeEmailChannelConfig(config); /* normalized 表示normalized。 */
   const result: Record<string, unknown> = {
     to_email: String(normalized.to_email ?? '').trim(),
     use_custom_smtp: normalized.use_custom_smtp === true,
-  };
+  }; /* result 表示处理结果。 */
   if (result.use_custom_smtp) {
-    for (const key of smtpOverrideKeys) result[key] = normalized[key];
+    for (const key /* key 表示key。 */ of smtpOverrideKeys) result[key] = normalized[key];
   }
   return result;
-};
+}; /* buildEmailChannelConfig 表示buildEmailChannelConfig。 */

@@ -4,7 +4,7 @@ import { buildEmailChannelConfig, enableCustomSMTP, normalizeEmailChannelConfig 
 describe('email notification SMTP modes', () => {
   test('recognizes legacy channel overrides as custom SMTP', () => {
     expect(normalizeEmailChannelConfig({ to_email: 'to@example.com', smtp_server: 'legacy.example.com' }).use_custom_smtp).toBe(true);
-  });
+  } /* 回调函数负责当前业务流程。 */);
 
   test('inherit mode removes every channel-level SMTP override', () => {
     expect(buildEmailChannelConfig({
@@ -13,7 +13,7 @@ describe('email notification SMTP modes', () => {
       smtp_server: 'stale.example.com',
       smtp_use_tls: false,
     })).toEqual({ to_email: 'to@example.com', use_custom_smtp: false });
-  });
+  } /* 回调函数负责当前业务流程。 */);
 
   test('custom mode starts from a complete copy of system SMTP settings', () => {
     const result = enableCustomSMTP({ to_email: 'to@example.com' }, {
@@ -23,7 +23,7 @@ describe('email notification SMTP modes', () => {
       smtp_password: 'secret',
       smtp_use_tls: false,
       smtp_use_ssl: true,
-    });
+    }); /* result 表示处理结果。 */
     expect(result).toMatchObject({
       use_custom_smtp: true,
       smtp_server: 'smtp.example.com',
@@ -32,5 +32,5 @@ describe('email notification SMTP modes', () => {
       smtp_use_tls: false,
       smtp_use_ssl: true,
     });
-  });
-});
+  } /* 回调函数负责当前业务流程。 */);
+} /* 回调函数负责当前业务流程。 */);
