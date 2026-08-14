@@ -171,7 +171,7 @@ func (s *Server) getOrder(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
-	all, err := s.Store.Cookies.AllForUser(r.Context(), sess.UserID)
+	cookieIDs, err := s.Store.Cookies.ListOwnedIDs(r.Context(), sess.UserID) // cookieIDs 和 err 是账号 ID 列表及查询错误。
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询账号失败")
 		return
@@ -179,12 +179,12 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 	cookieID := r.FormValue("cookie_id")
 	status := r.FormValue("status")
 	if cookieID != "" {
-		value, ok := all[cookieID]
-		if !ok {
+		if !s.cookieOwnedByUser(r.Context(), sess.UserID, cookieID) {
 			writeErr(w, http.StatusForbidden, "Cookie不存在或无权访问")
 			return
 		}
-		all = map[string]string{cookieID: value}
+		// 单账号刷新只保留当前用户已通过所有权校验的账号 ID。
+		cookieIDs = []string{cookieID}
 	}
 
 	discovered, listUpdated, softDeleted, failed := 0, 0, 0, 0
@@ -192,7 +192,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 	newOrderIDs := make(map[string]struct{})
 	sessionExpiredAccounts := make(map[string]struct{})
 	if fetcher, ok := s.mtopClient().(mtop.SoldOrderFetcher); ok {
-		for cid := range all {
+		for _, cid := range cookieIDs { // cid 是当前待刷新的账号 ID。
 			credentialUnlock := s.Store.LockAccountCredentials(cid)
 			latest, latestErr := s.Store.Cookies.GetDetails(r.Context(), cid)
 			if latestErr != nil || latest == nil || latest.UserID != sess.UserID || !hasStoredCookieCredential(latest) {
@@ -206,15 +206,15 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 				})
 				continue
 			}
-			all[cid] = latest.Value
+			// latest.Value 仅用于当前账号的凭证调用，不需要写回账号列表。
 			mtopCtx, cookieSession := withMTopCookieSnapshot(r.Context(), latest)
 			accountDiscovered, accountUpdated, accountNewIDs, accountRemoteIDs, discoveryErr := s.discoverSoldOrders(mtopCtx, fetcher, cid, latest.Value)
 			value, valueChanged, _, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
 			if persistErr != nil {
 				discoveryErr = errors.Join(discoveryErr, fmt.Errorf("保存订单列表响应 Cookie Jar: %w", persistErr))
-			} else if valueChanged {
-				all[cid] = value
 			}
+			// value 通过运行时更新路径继续传递，不需要写回账号列表。
+			// 账号筛选列表只保存 ID，不承载刷新后的凭证值。
 			credentialUnlock()
 			if persistErr == nil && valueChanged {
 				s.updateRunningCookie(r.Context(), cid, value)
@@ -254,7 +254,7 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ordersByCookie := map[string][]refreshTarget{}
-	for cid := range all {
+	for _, cid := range cookieIDs { // cid 是当前需要补充订单的账号 ID。
 		if _, blocked := sessionExpiredAccounts[cid]; blocked {
 			continue
 		}
