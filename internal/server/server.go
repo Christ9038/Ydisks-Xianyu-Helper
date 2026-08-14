@@ -75,6 +75,8 @@ type Server struct {
 	Addr        string
 	// applications 保存统一装配的应用服务实例。
 	applications *applicationServices
+	// transactionRepository 提供统一事务执行所需的最小持久化能力。
+	transactionRepository transactionRepository
 
 	publishMu       sync.Mutex
 	publishCancels  map[string]publishBatchWorker
@@ -151,6 +153,7 @@ func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr st
 		}
 	}
 	server.applications = newApplicationServices(server)
+	server.transactionRepository = newStoreTransactionRepository(store)
 	return server, nil
 }
 

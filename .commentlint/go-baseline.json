@@ -84601,247 +84601,247 @@
   },
   {
     "file": "internal/server/server.go",
-    "line": 114,
+    "line": 116,
     "kind": "function",
     "name": "New"
   },
   {
     "file": "internal/server/server.go",
-    "line": 147,
+    "line": 149,
     "kind": "range-variable",
     "name": "option"
   },
   {
     "file": "internal/server/server.go",
-    "line": 167,
+    "line": 170,
     "kind": "function",
     "name": "recoverExpiredMTOPSession"
   },
   {
     "file": "internal/server/server.go",
-    "line": 182,
+    "line": 185,
     "kind": "local-variable",
     "name": "r"
   },
   {
     "file": "internal/server/server.go",
-    "line": 269,
+    "line": 272,
     "kind": "local-variable",
     "name": "start"
   },
   {
     "file": "internal/server/server.go",
-    "line": 270,
+    "line": 273,
     "kind": "local-variable",
     "name": "ww"
   },
   {
     "file": "internal/server/server.go",
-    "line": 272,
+    "line": 275,
     "kind": "local-variable",
     "name": "status"
   },
   {
     "file": "internal/server/server.go",
-    "line": 277,
+    "line": 280,
     "kind": "local-variable",
     "name": "level"
   },
   {
     "file": "internal/server/server.go",
-    "line": 300,
+    "line": 303,
     "kind": "function",
     "name": "mountSPA"
   },
   {
     "file": "internal/server/server.go",
-    "line": 305,
+    "line": 308,
     "kind": "local-variable",
     "name": "embedded"
   },
   {
     "file": "internal/server/server.go",
-    "line": 305,
+    "line": 308,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/server.go",
-    "line": 312,
+    "line": 315,
     "kind": "function",
     "name": "mountDirSPA"
   },
   {
     "file": "internal/server/server.go",
-    "line": 313,
+    "line": 316,
     "kind": "local-variable",
     "name": "indexFile"
   },
   {
     "file": "internal/server/server.go",
-    "line": 316,
+    "line": 319,
     "kind": "local-variable",
     "name": "staticFiles"
   },
   {
     "file": "internal/server/server.go",
-    "line": 330,
+    "line": 333,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/server.go",
-    "line": 339,
+    "line": 342,
     "kind": "function",
     "name": "mountFSSPA"
   },
   {
     "file": "internal/server/server.go",
-    "line": 340,
+    "line": 343,
     "kind": "local-variable",
     "name": "staticFiles"
   },
   {
     "file": "internal/server/server.go",
-    "line": 353,
+    "line": 356,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/server.go",
-    "line": 353,
+    "line": 356,
     "kind": "local-variable",
     "name": "index"
   },
   {
     "file": "internal/server/server.go",
-    "line": 364,
+    "line": 367,
     "kind": "function",
     "name": "setNoStore"
   },
   {
     "file": "internal/server/server.go",
-    "line": 372,
+    "line": 375,
     "kind": "function",
     "name": "isAPIPath"
   },
   {
     "file": "internal/server/server.go",
-    "line": 373,
+    "line": 376,
     "kind": "local-variable",
     "name": "apiPrefixes"
   },
   {
     "file": "internal/server/server.go",
-    "line": 385,
+    "line": 388,
     "kind": "range-variable",
     "name": "p"
   },
   {
     "file": "internal/server/server.go",
-    "line": 395,
+    "line": 398,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/server/server.go",
-    "line": 395,
+    "line": 398,
     "kind": "local-variable",
     "name": "ctx"
   },
   {
     "file": "internal/server/server.go",
-    "line": 438,
+    "line": 441,
     "kind": "local-variable",
     "name": "lifecycleCancel"
   },
   {
     "file": "internal/server/server.go",
-    "line": 438,
+    "line": 441,
     "kind": "local-variable",
     "name": "lifecycleCtx"
   },
   {
     "file": "internal/server/server.go",
-    "line": 456,
+    "line": 459,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/server/server.go",
-    "line": 456,
+    "line": 459,
     "kind": "local-variable",
     "name": "stopCtx"
   },
   {
     "file": "internal/server/server.go",
-    "line": 458,
+    "line": 461,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/server.go",
-    "line": 526,
+    "line": 529,
     "kind": "local-variable",
     "name": "httpServer"
   },
   {
     "file": "internal/server/server.go",
-    "line": 527,
+    "line": 530,
     "kind": "local-variable",
     "name": "httpDone"
   },
   {
     "file": "internal/server/server.go",
-    "line": 528,
+    "line": 531,
     "kind": "local-variable",
     "name": "lifecycleCancel"
   },
   {
     "file": "internal/server/server.go",
-    "line": 565,
+    "line": 568,
     "kind": "function",
     "name": "closedSignal"
   },
   {
     "file": "internal/server/server.go",
-    "line": 566,
+    "line": 569,
     "kind": "local-variable",
     "name": "done"
   },
   {
     "file": "internal/server/server.go",
-    "line": 571,
+    "line": 574,
     "kind": "function",
     "name": "lifecycleContext"
   },
   {
     "file": "internal/server/server.go",
-    "line": 579,
+    "line": 582,
     "kind": "function",
     "name": "startBackgroundTask"
   },
   {
     "file": "internal/server/server.go",
-    "line": 594,
+    "line": 597,
     "kind": "function",
     "name": "beginWorker"
   },
   {
     "file": "internal/server/server.go",
-    "line": 611,
+    "line": 614,
     "kind": "function",
     "name": "waitForWorkers"
   },
   {
     "file": "internal/server/server.go",
-    "line": 613,
+    "line": 616,
     "kind": "local-variable",
     "name": "done"
   },
   {
     "file": "internal/server/server.go",
-    "line": 619,
+    "line": 622,
     "kind": "local-variable",
     "name": "timer"
   },
@@ -87006,22 +87006,28 @@
     "name": "init"
   },
   {
+    "file": "internal/server/transaction_repository.go",
+    "line": 30,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/transaction_repository.go",
+    "line": 30,
+    "kind": "local-variable",
+    "name": "tx"
+  },
+  {
+    "file": "internal/server/transaction_repository.go",
+    "line": 41,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
     "file": "internal/server/unit_of_work.go",
-    "line": 10,
+    "line": 11,
     "kind": "function",
     "name": "withTransaction"
-  },
-  {
-    "file": "internal/server/unit_of_work.go",
-    "line": 23,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/unit_of_work.go",
-    "line": 26,
-    "kind": "local-variable",
-    "name": "err"
   },
   {
     "file": "internal/server/unit_of_work_test.go",
