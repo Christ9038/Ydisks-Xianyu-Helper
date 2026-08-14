@@ -1321,3 +1321,40 @@ func TestDatabaseCredentialFingerprintUsesRuntimeData(t *testing.T) {
 		t.Fatalf("credential fingerprint=%q err=%v", fingerprint, fingerprintErr)
 	}
 }
+
+// TestReloadCookieFromDBUsesRuntimeData 验证外部 Cookie 更新检测不解密登录密码。
+func TestReloadCookieFromDBUsesRuntimeData(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "engine-reload-cookie-query-key")
+	// acc 和 store 是本测试的账号及数据库；cleanup 负责关闭临时数据库。
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	// ctx 是测试外部 Cookie 更新检测共用的上下文。
+	ctx := context.Background()
+	// cookieValue 是数据库中待同步到运行时的 Cookie 明文。
+	cookieValue := "unb=123; _m_h5_tk=reload-runtime"
+	// metadata 是数据库中待同步的权威 Cookie 快照 metadata。
+	metadata := cookierefresh.MetadataWithSnapshot(`{"note":"reload"}`, []cookierefresh.BrowserCookie{{Name: "sid", Value: "reload", Domain: ".goofish.com", Path: "/"}})
+	// updateErr 表示预置外部 Cookie 更新失败的原因。
+	if updateErr := store.Cookies.UpdateRenewalCookie(ctx, "cid", cookieValue, metadata, time.Now().Unix()); updateErr != nil {
+		t.Fatalf("preset reload credential: %v", updateErr)
+	}
+	// corruptErr 表示写入故意损坏的登录密码密文失败的原因。
+	if _, corruptErr := store.DB.ExecContext(ctx,
+		`UPDATE cookies SET username=?,password=? WHERE id=?`,
+		"engine-reload-user", "not-a-password-ciphertext", "cid"); corruptErr != nil {
+		t.Fatalf("corrupt password: %v", corruptErr)
+	}
+	// reloaded 表示运行时是否采纳数据库中的新凭证状态。
+	reloaded := acc.reloadCookieFromDB(ctx)
+	if !reloaded || acc.currentCookieStr() != cookieValue {
+		t.Fatalf("reload result=%v runtime cookie=%q", reloaded, acc.currentCookieStr())
+	}
+	// acc.mu 保护 credentialFP，读取后用于验证 Cookie 与 metadata 均已同步。
+	acc.mu.Lock()
+	// currentFP 是运行时记录的 Cookie 与 metadata 组合指纹。
+	currentFP := acc.credentialFP
+	acc.mu.Unlock()
+	if currentFP != credentialStateFingerprint(cookieValue, metadata) {
+		t.Fatalf("runtime credential fingerprint=%q", currentFP)
+	}
+}

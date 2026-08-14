@@ -1649,16 +1649,16 @@ func (a *Account) reloadCookieFromDB(ctx context.Context) bool {
 	if a.store == nil || a.store.Cookies == nil {
 		return false
 	}
-	d, err := a.store.Cookies.GetDetails(ctx, a.CookieID)
-	if err != nil || d == nil {
+	runtimeData, err := a.store.Cookies.GetCookieRuntimeData(ctx, a.CookieID) // runtimeData 只包含检测外部凭证更新所需的 Cookie 与 metadata。
+	if err != nil {
 		return false
 	}
-	if strings.TrimSpace(d.Value) == "" {
-		if _, complete := cookierefresh.SnapshotFromMetadataOK(d.MetadataJSON); !complete {
+	if strings.TrimSpace(runtimeData.Value) == "" {
+		if _, complete := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON); !complete {
 			return false
 		}
 	}
-	databaseFP := credentialStateFingerprint(d.Value, d.MetadataJSON)
+	databaseFP := credentialStateFingerprint(runtimeData.Value, runtimeData.MetadataJSON)
 	a.mu.Lock()
 	currentFP := a.credentialFP
 	if currentFP == "" {
@@ -1669,7 +1669,7 @@ func (a *Account) reloadCookieFromDB(ctx context.Context) bool {
 		return false
 	}
 	a.logger.Info("检测到 DB cookie 已更新，重新加载", "account", a.CookieID)
-	a.replaceCredentialState(d.Value, databaseFP)
+	a.replaceCredentialState(runtimeData.Value, databaseFP)
 	a.clearCurrentToken()
 	a.clearTokenCache(ctx)
 	a.mu.Lock()

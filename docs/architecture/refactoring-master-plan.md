@@ -123,7 +123,8 @@ app shell / routes
 - 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `refreshTokenWithMinGap` metadata 读取已迁移到 `GetCookieMetadata`，只读取 token 请求所需的 Cookie 快照信息，保持 Cookie 快照请求上下文和 token 刷新行为，并补充损坏登录密码回归测试；
 - 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `adoptTokenResponseCookies` metadata 读取已迁移到 `GetCookieMetadata`，只读取 token 响应 Cookie 合并所需的快照信息，保持响应合并、快照持久化和错误语义，并补充损坏登录密码回归测试；
 - 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `databaseCredentialFingerprint` 已改用 `GetCookieRuntimeData`，只读取 token 凭证一致性校验所需的 Cookie 与 metadata，保持空值、指纹不一致和错误语义，并补充损坏登录密码回归测试；
-- 下一最小工作项：将 `internal/engine/account.go` 的 `reloadCookieFromDB` 迁移到 `GetCookieRuntimeData`，继续保持外部 Cookie 更新检测、运行时替换和 token 清理行为；
+- 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `reloadCookieFromDB` 已改用 `GetCookieRuntimeData`，只读取外部 Cookie 更新检测所需的 Cookie 与 metadata，保持运行时替换、token 清理和错误行为，并补充损坏登录密码回归测试；
+- 下一最小工作项：将 `internal/engine/account.go` 的 `cookieSnapshotMatchesDB` 迁移到 `GetCookieRuntimeData`，继续保持 WS 注册前凭证一致性校验行为；
 - 随后工作项：再处理 Engine、Automation 等明确需要平台凭证的流程，统一使用按账号 ID 过滤的单值凭证接口；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
@@ -498,3 +499,4 @@ npm --prefix frontend run build
 | 2026-08-14 | `refreshTokenWithMinGap` 改用 `GetCookieMetadata` | token 请求只解密 Cookie 快照 metadata；快照上下文和 token 刷新行为保持不变，回归测试通过 | 迁移 `adoptTokenResponseCookies` 的 metadata 读取 |
 | 2026-08-14 | `adoptTokenResponseCookies` 改用 `GetCookieMetadata` | token 响应合并只解密 metadata；快照持久化和错误语义保持不变，回归测试通过 | 迁移 `databaseCredentialFingerprint` 的运行时凭证读取 |
 | 2026-08-14 | `databaseCredentialFingerprint` 改用 `GetCookieRuntimeData` | token 凭证一致性校验只解密 Cookie 与 metadata；空值、指纹和错误语义保持不变，回归测试通过 | 迁移 `reloadCookieFromDB` 的运行时凭证读取 |
+| 2026-08-14 | `reloadCookieFromDB` 改用 `GetCookieRuntimeData` | 外部 Cookie 更新检测只解密 Cookie 与 metadata；运行时替换、token 清理和错误行为保持不变，回归测试通过 | 迁移 `cookieSnapshotMatchesDB` 的运行时凭证读取 |
