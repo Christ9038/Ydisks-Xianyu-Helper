@@ -92,11 +92,23 @@ function hasChineseComment(sourceFile, node) {
   }
   // trailingRanges 允许同一行的行尾注释为短小声明提供说明。
   const trailingRanges = ts.getTrailingCommentRanges(sourceText, anchor.end) ?? [];
-  return trailingRanges.some((range) => {
+  if (trailingRanges.some((range) => {
     // commentStartLine 是行尾注释起始所在的零基行号。
     const commentStartLine = sourceFile.getLineAndCharacterOfPosition(range.pos).line;
     return commentStartLine === startLine && HAN_PATTERN.test(sourceText.slice(range.pos, range.end));
-  });
+  })) {
+    return true;
+  }
+  // inlinePrefix 是节点前方紧邻的内联注释，用于支持调用参数和类型字面量中的字段注释。
+  const inlinePrefix = sourceText.slice(Math.max(0, node.getStart(sourceFile) - 200), node.getStart(sourceFile));
+  const prefixMatch = inlinePrefix.match(/(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*)\s*$/);
+  if (prefixMatch && HAN_PATTERN.test(prefixMatch[0])) {
+    return true;
+  }
+  // inlineSuffix 是节点结束位置紧邻的内联注释，用于支持循环变量和行尾字段注释。
+  const inlineSuffix = sourceText.slice(node.end, Math.min(sourceText.length, node.end + 200));
+  const suffixMatch = inlineSuffix.match(/^\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*)/);
+  return Boolean(suffixMatch && HAN_PATTERN.test(suffixMatch[0]));
 }
 
 // getNodeName 返回 AST 节点的可读名称。
