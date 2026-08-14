@@ -1,108 +1,185 @@
 
 export interface PaginatedResponse<T> {
+  /** 表示查询是否成功。 */
   success: boolean;
+  /** 当前页数据。 */
   data: T[];
+  /** 符合条件的总记录数。 */
   total: number;
+  /** 当前页码。 */
   page: number;
+  /** 每页记录数。 */
   page_size: number;
+  /** 总页数。 */
   total_pages: number;
+  /** 各触发类型的规则计数。 */
   trigger_counts?: Record<string, number>;
 }
 
 // Auth
 /** 会话登录和首次初始化接口的具名响应。 */
 export interface SessionResponse {
+  /** 表示登录或初始化是否成功。 */
   success: boolean;
+  /** 登录成功后的会话 Token。 */
   token?: string;
+  /** 服务端返回的操作说明。 */
   message?: string;
+  /** 当前用户 ID。 */
   user_id?: number;
+  /** 当前用户名。 */
   username?: string;
+  /** 当前用户是否为管理员。 */
   is_admin?: boolean;
 }
 
 // Accounts
 export interface AccountDetail {
+  /** 闲鱼账号稳定标识。 */
   id: string;
+  /** 账号当前 Cookie 值，仅在编辑或需要凭证的响应中使用。 */
   value?: string; // cookie value from backend
+  /** 账号是否允许运行。 */
   enabled: boolean;
+  /** 是否自动确认订单。 */
   auto_confirm: boolean;
+  /** 用户为账号设置的备注。 */
   remark?: string;
+  /** 自动回复暂停时长，单位为分钟。 */
   pause_duration?: number;
+  /** 暂停结束时间的 Unix 秒。 */
   paused_until?: number;
+  /** 当前是否处于暂停状态。 */
   paused?: boolean;
   // 登录信息
+  /** 用于密码登录的闲鱼用户名。 */
   username?: string;
+  /** 用于密码登录的登录密码。 */
   login_password?: string;
+  /** 是否在密码登录时显示浏览器。 */
   show_browser?: boolean;
   // Frontend helpers
+  /** 平台账号昵称。 */
   nickname?: string;
+  /** 平台账号头像地址。 */
   avatar_url?: string;
+  /** 资料刷新失败时的说明。 */
   profile_error?: string;
+  /** 当前账号运行状态。 */
   runtime_state?: 'starting' | 'connecting' | 'online' | 'reconnecting' | 'auth_expired' | 'verification_required' | 'error' | 'stopped' | 'disabled';
+  /** 当前运行状态的用户可见说明。 */
   runtime_message?: string;
+  /** 当前运行实例是否已连接。 */
   runtime_connected?: boolean;
+  /** 运行状态快照的更新时间。 */
   runtime_updated_at?: string;
   // AI设置
+  /** 是否启用账号 AI 回复。 */
   ai_enabled?: boolean;
+  /** 允许的最大折扣比例。 */
   max_discount_percent?: number;
+  /** 允许的最大折扣金额。 */
   max_discount_amount?: number;
+  /** 允许的最大砍价轮次。 */
   max_bargain_rounds?: number;
+  /** 账号自定义提示词。 */
   custom_prompts?: string;
 	// 账号级计划任务
+	/** 是否启用自动评价。 */
 	auto_rate_enabled?: boolean;
+	/** 自动评价使用的文案。 */
 	rate_content?: string;
+	/** 是否启用每日擦亮。 */
 	auto_polish_enabled?: boolean;
+	/** 每日擦亮执行时间。 */
 	polish_time?: string;
+	/** 最近一次自动评价扫描时间。 */
 	last_rate_scan_at?: number;
+	/** 最近一次擦亮日期。 */
 	last_polish_date?: string;
+	/** 最近一次擦亮时间。 */
 	last_polish_at?: number;
 }
 
 export interface AccountTaskSettings {
+	/** 账号稳定标识。 */
 	account_id: string;
+	/** 是否启用自动评价。 */
 	auto_rate_enabled: boolean;
+	/** 自动评价文案。 */
 	rate_content: string;
+	/** 是否启用每日擦亮。 */
 	auto_polish_enabled: boolean;
+	/** 每日擦亮执行时间。 */
 	polish_time: string;
+	/** 最近一次自动评价扫描时间。 */
 	last_rate_scan_at?: number;
+	/** 最近一次擦亮日期。 */
 	last_polish_date?: string;
+	/** 最近一次擦亮时间。 */
 	last_polish_at?: number;
 }
 
 export interface AccountTaskSummary {
+	/** 任务类型。 */
 	task_type: 'auto_rate' | 'auto_polish';
+	/** 发现的任务数量。 */
 	found: number;
+	/** 成功处理的任务数量。 */
 	success: number;
+	/** 处理失败的任务数量。 */
 	failed: number;
+	/** 跳过的任务数量。 */
 	skipped: number;
+	/** 批量处理结果说明。 */
 	message?: string;
 }
 
 export interface ChatSession {
+	/** 账号稳定标识。 */
 	account_id: string;
+	/** 会话稳定标识。 */
 	chat_id: string;
+	/** 买家平台标识。 */
 	buyer_id: string;
+	/** 买家昵称。 */
 	buyer_name: string;
+	/** 买家头像地址。 */
 	buyer_avatar_url?: string;
+	/** 会话关联商品标识。 */
 	item_id?: string;
+	/** 会话关联商品标题。 */
 	item_title?: string;
+	/** 最近一条消息内容。 */
 	last_message: string;
+	/** 最近一条消息的 Unix 秒时间戳。 */
 	last_message_at: number;
+	/** 未读消息数量。 */
 	unread_count: number;
 }
 
 export interface ChatMessage {
+	/** 消息数据库主键。 */
 	id: number;
+	/** 消息所属账号标识。 */
 	account_id: string;
+	/** 消息所属会话标识。 */
 	chat_id: string;
+	/** 平台消息去重键。 */
 	message_key: string;
+	/** 消息方向。 */
 	direction: 'incoming' | 'outgoing';
+	/** 发送者平台标识。 */
 	sender_id: string;
+	/** 发送者名称。 */
 	sender_name: string;
-	/** text/image/video are peer messages; system is an official platform notice or trade card. */
+  /** 消息类型，system 表示平台通知或交易卡片。 */
 	message_type: 'text' | 'image' | 'video' | 'system';
+	/** 消息正文或媒体地址。 */
 	content: string;
+	/** 消息发送状态。 */
 	status: 'received' | 'sending' | 'sent' | 'failed';
+	/** 消息发送时间的 Unix 秒。 */
 	sent_at: number;
 }
 
@@ -117,31 +194,53 @@ export type OrderStatus =
   | 'unknown';
 
 export interface Order {
+  /** 订单本地数据库主键。 */
   id: string;
+  /** 平台订单标识。 */
   order_id: string;
+  /** 订单所属账号标识。 */
   cookie_id: string;
+  /** 订单关联商品标识。 */
   item_id: string;
+  /** 商品标题。 */
   item_title?: string;
+  /** 商品图片地址。 */
   item_image?: string;
+  /** 商品价格文本。 */
   item_price?: string;
+  /** 买家平台标识。 */
   buyer_id: string;
+  /** 购买数量。 */
   quantity: number;
+  /** 订单金额文本。 */
   amount: string;
+  /** 前端归一化后的订单状态。 */
   status: OrderStatus;
+  /** 服务端原始订单状态。 */
   order_status?: OrderStatus;
+  /** 收货人姓名。 */
   receiver_name?: string;
+  /** 收货人电话。 */
   receiver_phone?: string;
+  /** 收货地址。 */
   receiver_address?: string;
+  /** 订单创建时间。 */
   created_at?: string;
+  /** 订单更新时间。 */
   updated_at?: string;
 }
 
 // Cards
 export interface Card {
+  /** 卡券组数值主键。 */
   id: number;
+  /** 卡券组名称。 */
   name: string;
+  /** 卡券组类型。 */
   type: 'api' | 'text' | 'data' | 'image';
+  /** 卡券组说明。 */
   description?: string;
+  /** 卡券组是否启用。 */
   enabled: boolean;
   // 文本类型
   text_content?: string;
@@ -149,38 +248,63 @@ export interface Card {
   data_content?: string;
   // API 类型配置
   api_config?: {
+    /** API 卡券请求地址。 */
     url: string;
+    /** API 卡券请求方法。 */
     method: 'GET' | 'POST';
+    /** API 请求超时时间。 */
     timeout?: number;
+    /** API 请求头 JSON。 */
     headers?: string;
+    /** API 请求参数 JSON。 */
     params?: string;
   };
   // 图片类型
+  /** 图片卡券地址。 */
   image_url?: string;
   // 通用配置
+  /** 卡券发送延迟秒数。 */
   delay_seconds?: number;
   // 多规格配置
+  /** 是否支持多规格。 */
   is_multi_spec?: boolean;
+  /** 规格名称。 */
   spec_name?: string;
+  /** 规格值。 */
   spec_value?: string;
+  /** 卡券组创建时间。 */
   created_at: string;
+  /** 卡券组更新时间。 */
   updated_at: string;
 }
 
 // Items
 export interface Item {
+  /** 本地商品数据库主键。 */
   id: string | number;
+  /** 商品所属账号标识。 */
   cookie_id: string;
+  /** 平台商品标识。 */
   item_id: string;
+  /** 商品标题。 */
   item_title?: string;
+  /** 商品描述。 */
   item_description?: string;
+  /** 商品价格文本。 */
   item_price?: string;
+  /** 商品主图地址。 */
   item_image?: string; // Inferred from common usage, though not explicitly in list model sometimes
+  /** 商品分类标识。 */
   item_category?: string;
+  /** 商品详情原始 JSON。 */
   item_detail?: string;
+  /** 是否启用多规格。 */
   is_multi_spec?: number | boolean;
+  /** 是否按数量发货。 */
   multi_quantity_delivery?: number | boolean;
+  /** 是否启用多数量发货兼容字段。 */
   is_multi_qty_ship?: number | boolean;
+  /** 商品创建时间。 */
   created_at?: string;
 }
 
@@ -189,128 +313,226 @@ export type AutomationActionType = 'confirm_shipment' | 'send_card' | 'send_text
 
 // Rules
 export interface ShippingRule {
+  /** 规则标识。 */
   id: string;
+  /** 规则名称。 */
   name: string;
+  /** 规则触发类型。 */
   trigger_type: AutomationTriggerType;
+  /** 规则匹配关键词。 */
   item_keyword: string; // Legacy UI helper
+  /** 规则限定的账号标识。 */
   cookie_id?: string;
+  /** 规则限定的商品标识。 */
   item_id?: string;
+  /** 规则限定的商品标题。 */
   item_title?: string;
+  /** 首个发卡动作使用的卡券组 ID。 */
   card_group_id: number; // First send_card action card id
+  /** 首个发卡动作使用的卡券组名称。 */
   card_group_name?: string; // UI helper
+  /** 规则优先级。 */
   priority: number;
+  /** 规则是否启用。 */
   enabled: boolean;
+  /** 规则原始配置 JSON。 */
   config_json?: string;
+  /** 规则动作列表。 */
   actions: AutomationAction[];
+  /** 规则规格变体列表。 */
   variants: ShippingVariant[];
 }
 
 export interface AutomationAction {
+  /** 动作标识。 */
   id?: string;
+  /** 动作类型。 */
   action_type: AutomationActionType;
+  /** 动作使用的卡券组 ID。 */
   card_id?: number;
+  /** 动作使用的卡券组名称。 */
   card_name?: string;
+  /** 本次发放数量。 */
   delivery_count?: number;
+  /** 文本消息模板。 */
   message_template?: string;
+  /** 动作延迟秒数。 */
   delay_seconds?: number;
+  /** 动作原始配置 JSON。 */
   config_json?: string;
+  /** 动作是否启用。 */
   enabled: boolean;
+  /** 动作排序序号。 */
   sort_order?: number;
 }
 
 export interface ShippingVariant {
+  /** 规格变体标识。 */
   id?: string;
+  /** 规格名称。 */
   spec_name: string;
+  /** 规格值。 */
   spec_value: string;
+  /** 变体使用的卡券组 ID。 */
   card_id: number;
+  /** 变体使用的卡券组名称。 */
   card_name?: string;
+  /** 卡券类型。 */
   card_type?: Card['type'];
+  /** 变体发放数量。 */
   delivery_count: number;
+  /** 变体是否启用。 */
   enabled: boolean;
+  /** 是否覆盖动作级延迟。 */
   delay_override?: boolean;
+  /** 变体延迟秒数。 */
   delay_seconds?: number;
+  /** 变体原始配置 JSON。 */
   config_json?: string;
 }
 
 export interface ReplyRule {
+  /** 回复规则标识。 */
   id: string;
+  /** 触发关键词。 */
   keyword: string;
+  /** 回复正文。 */
   reply_content: string;
+  /** 关键词匹配方式。 */
   match_type: 'exact' | 'fuzzy';
+  /** 规则是否启用。 */
   enabled: boolean;
+  /** 规则限定的商品标识。 */
   item_id?: string;
+  /** 回复类型。 */
   type?: 'text' | 'image';
+  /** 图片回复地址。 */
   image_url?: string;
 }
 
 // Stats
 export interface AdminStats {
+  /** 用户总数。 */
   total_users: number;
+  /** 账号总数。 */
   total_cookies: number;
+  /** 启用账号数。 */
   active_cookies: number;
+  /** 卡券组总数。 */
   total_cards: number;
+  /** 关键词规则总数。 */
   total_keywords: number;
+  /** 订单总数。 */
   total_orders: number;
 }
 
 export interface DashboardStats {
+  /** 账号总数。 */
   total_cookies: number;
+  /** 启用账号数。 */
   active_cookies: number;
+  /** 卡券组总数。 */
   total_cards: number;
+  /** 关键词规则总数。 */
   total_keywords: number;
+  /** 订单总数。 */
   total_orders: number;
+  /** 可用卡券库存量。 */
   available_card_stock: number;
 }
 
 export interface OrderAnalytics {
+  /** 收入汇总。 */
   revenue_stats: {
+    /** 总收入金额。 */
     total_amount: number;
+    /** 总订单数。 */
     total_orders: number;
   };
-  daily_stats: Array<{ date: string; amount: number; order_count: number }>;
-  item_stats?: Array<{
-    item_id: string;
+  /** 按日期聚合的订单统计。 */
+  daily_stats: Array<{
+    /** 统计日期。 */
+    date: string;
+    /** 当日订单金额。 */
+    amount: number;
+    /** 当日订单数量。 */
     order_count: number;
+  }>;
+  /** 按商品聚合的订单统计。 */
+  item_stats?: Array<{
+    /** 商品标识。 */
+    item_id: string;
+    /** 商品订单数。 */
+    order_count: number;
+    /** 商品订单总金额。 */
     total_amount: number;
+    /** 商品订单平均金额。 */
     avg_amount: number;
   }>;
 }
 
 // Settings
 export interface SystemSettings {
+  /** 默认 AI 模型名称。 */
   ai_model?: string;
+  /** 全局 AI API 密钥。 */
   ai_api_key?: string;
+  /** 全局 AI API 地址。 */
   ai_api_url?: string;
+  /** 全局 AI 基础地址。 */
   ai_base_url?: string;
+  /** 系统默认回复文案。 */
   default_reply?: string;
+  /** 是否允许注册新用户。 */
   registration_enabled?: boolean;
+  /** 系统 SMTP 服务器地址。 */
   smtp_server?: string;
+  /** 服务端日志级别。 */
   log_level?: 'debug' | 'info' | 'warn' | 'error' | string;
+  /** 服务端日志格式。 */
   log_format?: 'text' | 'json' | string;
+  /** 续期日志保留天数。 */
   renewal_log_retention_days?: number;
+  /** 远程验证码服务地址。 */
   'captcha.remote_service_url'?: string;
+  /** 远程验证码服务密钥。 */
   'captcha.remote_secret_key'?: string;
+  /** 远程验证码服务 Cookie 配置。 */
   'captcha.remote_pass_cookies'?: boolean | string;
+  /** 兼容未来配置键的扩展字段。 */
   [key: string]: any;
 }
 
 export interface AIReplySettings {
+  /** 是否启用账号 AI 回复。 */
   ai_enabled: boolean;
+  /** 账号使用的模型名称。 */
   model_name?: string;
+  /** 账号 AI API 密钥。 */
   api_key?: string;
+  /** 账号 AI 基础地址。 */
   base_url?: string;
+  /** 最大折扣比例。 */
   max_discount_percent: number;
+  /** 最大折扣金额。 */
   max_discount_amount?: number;
+  /** 最大砍价轮次。 */
   max_bargain_rounds: number;
+  /** 自定义提示词。 */
   custom_prompts: string;
 }
 
 // Default Reply
 export interface DefaultReply {
+  /** 账号稳定标识。 */
   cookie_id: string;
+  /** 默认回复是否启用。 */
   enabled: boolean;
+  /** 默认回复正文。 */
   reply_content: string;
+  /** 是否对同一会话只回复一次。 */
   reply_once: boolean;
+  /** 默认图片回复地址。 */
   reply_image_url?: string;
 }
 
@@ -326,13 +548,21 @@ export type NotificationEventType =
   | 'system_error';
 
 export interface NotificationChannel {
+  /** 通知渠道标识。 */
   id: string;
+  /** 通知渠道名称。 */
   name: string;
+  /** 通知渠道类型。 */
   type: NotificationChannelType;
+  /** 通知渠道配置。 */
   config: Record<string, unknown>;
+  /** 渠道绑定的事件类型。 */
   event_types?: NotificationEventType[];
+  /** 通知渠道是否启用。 */
   enabled: boolean;
+  /** 创建时间。 */
   created_at?: string;
+  /** 更新时间。 */
   updated_at?: string;
 }
 
