@@ -25,6 +25,8 @@ cd /Users/christ/Workspace/git/xianyu/Ydisks-Xianyu-Helper
 
 make build      # go build ./cmd/server
 make test       # go test ./...
+make test-server       # go test ./internal/server
+make test-server-race  # server 生命周期与凭证并发 smoke race
 make vet        # go vet ./...
 make lint       # golangci-lint run ./... (0 issues baseline)
 make check      # vet + lint + test

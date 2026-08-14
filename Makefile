@@ -3,7 +3,7 @@
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
 
-.PHONY: build build-int build-browser-install build-tray test test-int vet lint cover tidy frontend fmt comments comments-baseline check
+.PHONY: build build-int build-browser-install build-tray test test-server test-server-race test-int vet lint cover tidy frontend fmt comments comments-baseline check
 
 ## build: 编译 server（默认，跳过 integration build tag）
 build:
@@ -24,6 +24,14 @@ build-int:
 ## test: 跑全部单元测试（默认跳过 browser 集成包）
 test:
 	$(GO) test ./...
+
+## test-server: 跑 HTTP server 全量单元测试
+test-server:
+	$(GO) test ./internal/server
+
+## test-server-race: 跑已验证的 server 生命周期与凭证并发 race 子集
+test-server-race:
+	$(GO) test -race ./internal/server -run 'TestRun_|TestPublishWorkerTrackingWaitsForCompletion|TestPublishRecoveryLifecycleStopsBeforeWorkerWait|TestUpdateRunningCookieWakesCredentialBlockedAutomationWithoutManager|TestSetCookieStatusWaitsForCredentialTransition|TestDeleteCookieRechecksOwnershipInsideCredentialLock'
 
 ## test-int: 带 integration tag 跑测试（含 browser，需 Chromium）
 test-int:

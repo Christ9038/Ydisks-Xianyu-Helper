@@ -90,7 +90,7 @@ app shell / routes
 | 阶段 | 状态 | 目标 | 完成证据 |
 | --- | --- | --- | --- |
 | 0. 治理文档与强约束 | 已完成 | 总计划、依赖规则、注释规范、AGENTS 门禁、注释检查器 | 文档、门禁规则、Go/TypeScript 检查器和历史基线已落盘 |
-| 1. PR CI 与测试基础 | 未开始 | 独立 CI、测试 DB 模板、可执行 race | workflow 与测试耗时记录 |
+| 1. PR CI 与测试基础 | 进行中 | 独立 CI、测试 DB 模板、可执行 race | CI 与测试 DB 模板已完成；完整 server race 仍需分层和耗时治理 |
 | 2. 敏感数据访问边界 | 未开始 | 摘要、凭证、登录秘密分离 | repository 与多数据库测试 |
 | 3. HTTP API 契约 | 未开始 | 统一错误、具名 DTO、版本化路径 | 契约测试与前端类型 |
 | 4. Server 应用服务 | 未开始 | 订单、发布、登录、聊天纵向抽取 | handler 不再直接编排基础设施 |
@@ -105,8 +105,8 @@ app shell / routes
 
 - 当前阶段：阶段 1“PR CI 与测试基础”；
 - 已完成：总计划、依赖规则、中文注释规范、`AGENTS.md` 强约束，以及 Go/TypeScript AST 注释检查器和历史基线；
-- 下一最小工作项：新增独立 PR CI，在合并前执行 Go/前端检查、注释门禁和嵌入式前端产物一致性校验；
-- 随后工作项：优化 server 测试数据库模板，再记录 race 分层结果；
+- 下一最小工作项：定位完整 server race 超过 267 秒仍未结束的慢点，确认是测试生命周期、日志或剩余数据库初始化成本；
+- 随后工作项：完成完整 race 的耗时边界后再进入敏感数据访问边界，避免在并发基线未稳定时移动凭证查询逻辑；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -159,10 +159,18 @@ app shell / routes
 - 关闭无必要的 Goose 测试日志；
 - 记录优化前后的普通测试和 race 时间。
 
+当前实现：`internal/server/test_database_test.go` 在进程内只执行一次 Goose 迁移，随后按测试复制
+SQLite 文件并直接打开副本。普通 `internal/server` 测试从约 48.2 秒降至约 36.5 秒；完整 server
+race 在 267 秒时仍未完成且无 race 报告，已手动停止，不能把它当作通过证据。
+
 ### 1.3 Race 分层
 
 普通 PR 先运行并发敏感包的目标 race；server fixture 优化后加入稳定的 server race 子集；
 全仓 race 可以进入 nightly。任何 race 报告都必须修复，不得加入忽略名单。
+
+当前 PR 门禁使用 `make test-server-race`，覆盖 server 启停、发布 worker、凭证状态转换和锁内所有权复核
+等已验证的并发场景，实测约 12.4 秒通过。完整 `go test -race ./internal/server` 仍保留为后续专项耗时治理，
+不能用 smoke race 代替完整覆盖。
 
 ### 完成条件
 
@@ -452,3 +460,6 @@ npm --prefix frontend run build
 | 2026-08-14 | 建立长期重构计划、依赖规则和中文注释规范 | 阶段 0 开始 | 将强约束接入 AGENTS，随后实现注释基线工具与独立 CI |
 | 2026-08-14 | 将计划治理、注释、依赖、敏感数据、API、React、数据库和并发规则接入 AGENTS | 后续任务已有强制入口 | 实现注释检查器和历史基线 |
 | 2026-08-14 | 落地 Go/TypeScript AST 注释检查器、Make 目标、npm 脚本和历史基线 | 阶段 0 完成；`make comments`、前端注释检查和 typecheck 通过 | 阶段 1.1：新增独立 PR CI |
+| 2026-08-14 | 新增独立 Go/React PR CI，加入格式、注释、vet、lint、测试和嵌入产物一致性门禁 | 阶段 1 进行中；本地 Go/前端测试、构建和 YAML 解析通过 | 优化 server 测试数据库模板并记录 race 分层结果 |
+| 2026-08-14 | server 测试改为一次迁移模板 + 每测独立副本 | 普通 server 测试约 48.2s 降至约 36.5s；稳定 server race 子集约 12.4s 通过；完整 race 运行 267s 后仍未完成，未发现 race 报告 | 定位完整 race 慢点，再进入敏感数据访问边界 |
+| 2026-08-14 | 将稳定 server race 子集固化为 `make test-server-race` 并接入 PR CI | 启停、发布 worker、凭证状态转换和锁内所有权复核场景纳入合并前 smoke race | 定位完整 race 慢点 |

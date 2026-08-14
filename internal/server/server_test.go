@@ -17,10 +17,10 @@ import (
 	"xianyu-go/internal/xianyu/mtop"
 )
 
-func newTestServer(t *testing.T) (*Server, *db.Store, func()) {
+func newTestServer(t *testing.T) (*Server, *db.Store, func()) { // newTestServer 构造已完成迁移且带固定管理员数据的 HTTP 测试服务器。
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "test.db")
-	d, _, err := db.Open(context.Background(), dbPath)
+	dbPath := serverTestDatabasePath(t)      // dbPath 是已完成迁移且仅供当前测试使用的 SQLite 文件路径。
+	d, err := openServerTestDatabase(dbPath) // d 是当前测试连接；err 表示打开独立副本失败的原因。
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -28,7 +28,7 @@ func newTestServer(t *testing.T) (*Server, *db.Store, func()) {
 	store.Users.Create(context.Background(), "admin", "a@e.com", "pw")
 	store.Users.SetAdmin(context.Background(), "admin")
 	// 一个账号。
-	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
+	admin, _ := store.Users.GetByUsername(context.Background(), "admin") // admin 是测试登录流程使用的管理员账户；固定测试数据不应查询失败。
 	store.Cookies.Save(context.Background(), "acc1", "unb=123; _m_h5_tk=tk1_1;", admin.ID)
 
 	mgr := account.NewManager(store, noopHandler{}, nil)
