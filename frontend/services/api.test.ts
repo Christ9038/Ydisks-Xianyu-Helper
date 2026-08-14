@@ -12,7 +12,7 @@ import {
 	getItemPublishBatches, getItemPublishBatch, startItemPublishBatch,
 	getNotificationChannels, getMessageNotifications, getAccountBindings,
   getOrders, getOrderDetail, updateOrder,
-	getOrderAnalytics,
+	getAdminStats, getDashboardStats, getOrderAnalytics,
 	getReplyRules, getDefaultReplies, getDefaultReply, updateDefaultReply, deleteDefaultReply, clearDefaultReplyRecords,
   getShippingRules,
   getShippingRulesPage,
@@ -1084,3 +1084,26 @@ const runVersionedReplyAPITest = async () => {
 };
 
 test('keyword and default reply APIs use versioned compatibility routes', runVersionedReplyAPITest);
+
+// 管理员、仪表盘和订单分析 API 使用版本化兼容入口。
+const runVersionedAdminAnalyticsAPITest = async () => {
+  // fetchMock 是管理员和统计分析请求的测试替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ total_users: 1, total_cookies: 1, active_cookies: 1, total_cards: 0, total_keywords: 0, total_orders: 0 }))
+    .mockResolvedValueOnce(jsonResponse({ total_cookies: 1, active_cookies: 1, total_cards: 0, available_card_stock: 0, total_keywords: 0, total_orders: 0 }))
+    .mockResolvedValueOnce(jsonResponse({ revenue_stats: {}, daily_stats: [], status_stats: [], city_stats: [], item_stats: [] }))
+    .mockResolvedValueOnce(jsonResponse({ orders: [], total: 0, page: 1, page_size: 500, truncated: false }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await getAdminStats();
+  await getDashboardStats();
+  await getOrderAnalytics({ start_date: '2026-01-01', end_date: '2026-01-02' });
+  await getValidOrders({ start_date: '2026-01-01', end_date: '2026-01-02' });
+
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/admin/stats', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/analytics/dashboard', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, expect.stringContaining('/api/v1/analytics/orders?start_date=2026-01-01&end_date=2026-01-02'), expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(4, expect.stringContaining('/api/v1/analytics/orders/valid?start_date=2026-01-01&end_date=2026-01-02'), expect.objectContaining({ method: 'GET' }));
+};
+
+test('admin and analytics APIs use versioned compatibility routes', runVersionedAdminAnalyticsAPITest);

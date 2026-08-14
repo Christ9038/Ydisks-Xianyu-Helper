@@ -376,11 +376,11 @@ export const importOrders = async (data: Partial<Order>[] | FormData): Promise<O
 
 // Stats
 export const getAdminStats = async (): Promise<AdminStatsResponse> => {
-  return get('/admin/stats');
+  return get('/api/v1/admin/stats');
 };
 
 export const getDashboardStats = async (): Promise<DashboardStatsResponse> => {
-  return get('/dashboard/stats');
+  return get('/api/v1/analytics/dashboard');
 };
 
 export const getOrderAnalytics = async (daysOrParams: number | {start_date: string; end_date: string} = 7): Promise<OrderAnalyticsResponse> => {
@@ -398,7 +398,7 @@ export const getOrderAnalytics = async (daysOrParams: number | {start_date: stri
         params = daysOrParams;
     }
 
-    return get('/analytics/orders', {
+    return get('/api/v1/analytics/orders', {
         ...params,
         timezone_offset_minutes: -new Date().getTimezoneOffset(),
     });
@@ -411,7 +411,7 @@ export interface ValidOrdersResult {
 }
 
 export const getValidOrders = async (dateRange: {start_date: string; end_date: string}): Promise<ValidOrdersResult> => {
-    const res = await get<ValidOrdersResponse | ValidOrderResponse[]>('/analytics/orders/valid', {
+    const res = await get<ValidOrdersResponse | ValidOrderResponse[]>('/api/v1/analytics/orders/valid', {
         start_date: dateRange.start_date,
         end_date: dateRange.end_date,
         timezone_offset_minutes: -new Date().getTimezoneOffset(),
