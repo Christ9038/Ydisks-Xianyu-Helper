@@ -21,7 +21,7 @@ func newApplicationServices(server *Server) *applicationServices {
 		itemPublish:   &itemPublishService{server: server},
 		accountLogin:  &accountLoginService{server: server},
 		communication: &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},
-		analytics:     &analyticsService{server: server},
+		analytics:     &analyticsService{repository: newStoreAnalyticsRepository(server.Store)},
 	}
 }
 

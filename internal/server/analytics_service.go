@@ -60,14 +60,12 @@ func (e *analyticsServiceError) Unwrap() error { return e.err }
 
 // analyticsService 承载订单分析的数据库编排，不依赖 HTTP 请求或响应对象。
 type analyticsService struct {
-	// server 提供订单仓储和数据库方言依赖。
-	server *Server
+	// repository 提供分析查询、卡密库存和数据库方言能力。
+	repository analyticsRepository
 }
 
 // DashboardStats 查询当前用户的数据概览和可用卡密库存。
 func (svc *analyticsService) DashboardStats(ctx context.Context, userID int64) (dashboardStatsResponse, error) {
-	// s 是当前订单分析应用服务依赖的 Server。
-	s := svc.server
 	// counts 保存仪表盘各项计数。
 	counts := map[string]int64{"total_cookies": 0, "active_cookies": 0, "total_cards": 0, "available_card_stock": 0, "total_keywords": 0, "total_orders": 0}
 	// queries 保存用户范围内的固定统计查询。
@@ -85,7 +83,7 @@ func (svc *analyticsService) DashboardStats(ctx context.Context, userID int64) (
 		// count 是当前统计项的数据库结果。
 		var count int64
 		// err 是当前统计项查询错误。
-		if err := s.Store.Analytics.QueryRowContext(ctx, item.query, userID).Scan(&count); err != nil {
+		if err := svc.repository.QueryRowContext(ctx, item.query, userID).Scan(&count); err != nil {
 			return dashboardStatsResponse{}, err
 		}
 		counts[item.key] = count
@@ -93,7 +91,7 @@ func (svc *analyticsService) DashboardStats(ctx context.Context, userID int64) (
 	// activeCookies 是没有明确禁用记录的账号数量。
 	var activeCookies int64
 	// err 是活跃账号统计查询错误。
-	if err := s.Store.Analytics.QueryRowContext(ctx, `
+	if err := svc.repository.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM cookies c WHERE c.user_id=?
 		  AND NOT EXISTS (SELECT 1 FROM cookie_status cs WHERE cs.cookie_id=c.id AND cs.enabled=0)
 	`, userID).Scan(&activeCookies); err != nil {
@@ -101,7 +99,7 @@ func (svc *analyticsService) DashboardStats(ctx context.Context, userID int64) (
 	}
 	counts["active_cookies"] = activeCookies
 	// cards 和 err 是当前用户的卡密组列表及查询错误。
-	cards, err := s.Store.Cards.AllForUser(ctx, userID)
+	cards, err := svc.repository.ListCardsForUser(ctx, userID)
 	if err != nil {
 		return dashboardStatsResponse{}, err
 	}
@@ -127,14 +125,12 @@ func (s *Server) analyticsApplication() *analyticsService {
 
 // OrderAnalytics 查询收益及按日、状态、城市和商品维度聚合的订单分析结果。
 func (svc *analyticsService) OrderAnalytics(ctx context.Context, query analyticsQuery) (orderAnalyticsResponse, error) {
-	// s 是当前订单分析应用服务依赖的 Server。
-	s := svc.server
 	// amountFilter 是已经排除非法金额的查询条件。
 	amountFilter := query.AmountFilter
 	// revenue 保存订单收益汇总结果。
 	var revenue analyticsRevenueStatsResponse
 	// err 是收益汇总查询错误。
-	if err := s.Store.Analytics.QueryRowContext(ctx, `
+	if err := svc.repository.QueryRowContext(ctx, `
 		SELECT COUNT(DISTINCT order_id), COALESCE(SUM(`+query.AmountClean+`),0),
 		       COALESCE(AVG(`+query.AmountClean+`),0), COUNT(DISTINCT buyer_id), COUNT(DISTINCT item_id)
 		FROM orders `+query.Where+amountFilter, query.Params...).Scan(
@@ -145,7 +141,7 @@ func (svc *analyticsService) OrderAnalytics(ctx context.Context, query analytics
 	// daily 保存按用户本地日期聚合的统计结果。
 	daily := make([]analyticsDailyStatsResponse, 0)
 	// rows 和 err 是每日统计查询结果集及错误。
-	rows, err := s.Store.Analytics.QueryContext(ctx, `
+	rows, err := svc.repository.QueryContext(ctx, `
 		SELECT order_id,amount,created_at FROM orders `+query.Where+amountFilter, query.Params...)
 	if err != nil {
 		return orderAnalyticsResponse{}, &analyticsServiceError{stage: analyticsStageDaily, err: err}
@@ -210,7 +206,7 @@ func (svc *analyticsService) OrderAnalytics(ctx context.Context, query analytics
 	// statusMap 按归一化状态聚合订单数据。
 	statusMap := map[string]statusValue{}
 	// rows 和 err 是状态统计查询结果集及错误。
-	rows, err = s.Store.Analytics.QueryContext(ctx, `
+	rows, err = svc.repository.QueryContext(ctx, `
 		SELECT COALESCE(order_status,'unknown'), COUNT(DISTINCT order_id), COALESCE(SUM(`+query.AmountClean+`),0)
 		FROM orders `+query.Where+amountFilter+`
 		GROUP BY order_status ORDER BY COUNT(DISTINCT order_id) DESC`, query.Params...)
@@ -256,7 +252,7 @@ func (svc *analyticsService) OrderAnalytics(ctx context.Context, query analytics
 	// cityStats 保存按收货城市聚合的结果。
 	cityStats := make([]analyticsCityStatsResponse, 0)
 	// rows 和 err 是城市统计查询结果集及错误。
-	rows, err = s.Store.Analytics.QueryContext(ctx, `
+	rows, err = svc.repository.QueryContext(ctx, `
 		SELECT receiver_city, COUNT(DISTINCT order_id), COALESCE(SUM(`+query.AmountClean+`),0)
 		FROM orders `+query.Where+amountFilter+`
 		  AND receiver_city IS NOT NULL AND receiver_city != ''
@@ -285,7 +281,7 @@ func (svc *analyticsService) OrderAnalytics(ctx context.Context, query analytics
 	// itemStats 保存按商品标识聚合的排行结果。
 	itemStats := make([]analyticsItemStatsResponse, 0)
 	// rows 和 err 是商品统计查询结果集及错误。
-	rows, err = s.Store.Analytics.QueryContext(ctx, `
+	rows, err = svc.repository.QueryContext(ctx, `
 		SELECT item_id, COUNT(DISTINCT order_id), COALESCE(SUM(`+query.AmountClean+`),0), COALESCE(AVG(`+query.AmountClean+`),0)
 		FROM orders `+query.Where+amountFilter+`
 		  AND item_id IS NOT NULL AND item_id != ''
@@ -321,20 +317,18 @@ func (svc *analyticsService) OrderAnalytics(ctx context.Context, query analytics
 
 // ValidOrders 查询有效订单分页明细。
 func (svc *analyticsService) ValidOrders(ctx context.Context, query analyticsQuery, page, pageSize int) (validOrdersResponse, error) {
-	// s 是当前订单分析应用服务依赖的 Server。
-	s := svc.server
 	// amountFilter 是已经排除非法金额的查询条件。
 	amountFilter := query.AmountFilter
 	// total 是符合筛选条件的订单总数。
 	var total int
 	// err 是有效订单总数查询错误。
-	if err := s.Store.Analytics.QueryRowContext(ctx, `SELECT COUNT(*) FROM orders `+query.Where+amountFilter, query.Params...).Scan(&total); err != nil {
+	if err := svc.repository.QueryRowContext(ctx, `SELECT COUNT(*) FROM orders `+query.Where+amountFilter, query.Params...).Scan(&total); err != nil {
 		return validOrdersResponse{}, &analyticsServiceError{stage: analyticsStageValidCount, err: err}
 	}
 	// queryParams 是分页查询附加的 LIMIT/OFFSET 参数。
 	queryParams := append(append([]any{}, query.Params...), pageSize, (page-1)*pageSize)
 	// rows 和 err 是有效订单明细查询结果集及错误。
-	rows, err := s.Store.Analytics.QueryContext(ctx, `
+	rows, err := svc.repository.QueryContext(ctx, `
 		SELECT orders.order_id, COALESCE(orders.item_id,''), COALESCE(item_info.item_title,''),
 		       COALESCE(item_info.item_detail,''), COALESCE(orders.buyer_id,''), COALESCE(orders.quantity,'1'),
 		       orders.amount, COALESCE(orders.order_status,'unknown'), COALESCE(orders.cookie_id,''), orders.created_at
