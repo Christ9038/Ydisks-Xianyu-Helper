@@ -166,7 +166,8 @@ app shell / routes
 - 已完成阶段 6 第三个 PR 切片“Engine WebSocket 记录与消息分发边界”：将 WS 记录 worker、消息去重、防抖和并发信号量分别收口到独立组件；`Account` 保留兼容 facade，系统事件背压、聊天洪峰限流、消息顺序、自动化事件优先级和 Stop 等待语义保持不变；全量 Go 测试、Engine/Server race、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交；
 - 已完成阶段 6 第四个 PR 切片“Engine 凭证状态与 Token 生命周期边界”：将 Cookie 快照、Token 缓存、刷新锁、设备指纹和刷新诊断状态收口到独立 `credentialState`；运行状态锁改为显式 `runtimeMu`，避免匿名组件锁冲突；保留风控恢复、刷新锁、Cookie/Token 绑定和 WebSocket 注册前快照复核语义；Engine 全量测试、Engine/Server race、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交；
 - 已完成阶段 6 第五个 PR 切片“Automation 事件事实与规则匹配边界”：新增事件事实记录器、无动作副作用的规则匹配器和纯动作计划器；`Center` 与 `Scheduler` 统一通过组件查询规则和生成动作计划，规则匹配不执行外部动作，付款发货动作顺序、规格匹配、延迟快照和恢复语义保持不变；Automation/Server race、全量测试、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交；
-- 阶段 6 下一 PR 切片为“Automation 运行协调与动作执行边界”：提取运行创建、动作检查点、延迟恢复和不确定结果隔离的协调组件，保留外部动作已执行/未执行/结果未知三态语义，不改变现有数据库状态机；
+- 已完成阶段 6 第六个 PR 切片“Automation 运行协调与动作执行边界”：新增 `automationRunCoordinator`，统一运行创建/恢复、动作前后检查点、延迟任务续租、账号门禁和不确定结果隔离；`Center` 保留兼容调用入口，外部动作已执行/未执行/结果未知三态语义、人工核对状态机和恢复游标保持不变；Automation 测试、注释和 diff 门禁通过，整批修改合并为一个可回滚提交；
+- 阶段 6 下一 PR 切片为“Automation 发货、卡密与通知动作边界”：提取确认发货、卡密分配、消息发送和结果通知的动作执行组件，保留凭证锁、卡券锁、发送错误分类和通知幂等语义；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -582,3 +583,4 @@ npm --prefix frontend run build
 | 2026-08-14 | 完成阶段 6 第三个 PR 切片“Engine WebSocket 记录与消息分发边界” | 新增 `messageDispatcher` 与 `wsRecorder`，分别管理消息去重/防抖/并发投递和 WebSocket 诊断记录队列/worker；`Account` 仅保留 facade 与生命周期接线，动态 Handler、系统事件背压、聊天洪峰限流和 Stop 等待语义保持兼容；Engine 全量回归与并发测试、后续门禁通过并合并为一个可回滚提交 | 阶段 6：Engine 凭证状态与 Token 生命周期边界 |
 | 2026-08-14 | 完成阶段 6 第四个 PR 切片“Engine 凭证状态与 Token 生命周期边界” | 新增 `credentialState`，集中 Cookie 快照、Token 缓存、刷新锁、设备指纹和刷新诊断状态；运行状态组件锁改名为 `runtimeMu`，保持 `Account` facade 字段访问兼容；Cookie 更新、Token 清理、风控恢复和 WS 注册前凭证快照复核语义保持不变；Engine 全量测试、Engine/Server race、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交 | 阶段 6：Automation 事件事实与规则匹配边界 |
 | 2026-08-14 | 完成阶段 6 第五个 PR 切片“Automation 事件事实与规则匹配边界” | 新增 `eventFactRecorder`、`ruleMatcher` 和 `actionPlanner`；事件事实写入、规则查询和动作计划生成职责分离，`Center`/`Scheduler` 不再直接散落调用规则匹配；动作计划保持付款发卡优先、规格过滤和延迟快照语义，新增纯计划与无订单事实回归测试；Automation/Server race、全量测试、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交 | 阶段 6：Automation 运行协调与动作执行边界 |
+| 2026-08-14 | 完成阶段 6 第六个 PR 切片“Automation 运行协调与动作执行边界” | 新增 `automationRunCoordinator`，统一运行创建/恢复、动作前后检查点、延迟任务续租、账号门禁和不确定结果隔离；`Center` 保留兼容调用入口，外部动作三态语义、人工核对状态机和恢复游标保持不变；Automation 测试、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Automation 发货、卡密与通知动作边界 |

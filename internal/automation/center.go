@@ -91,7 +91,9 @@ type Center struct {
 	// rules 查询适用规则，不执行规则动作。
 	rules ruleMatcher
 	// planner 生成不可变动作计划，不执行外部 I/O。
-	planner      actionPlanner
+	planner actionPlanner
+	// runs 协调自动化运行创建、动作检查点、延迟恢复和结果隔离。
+	runs         automationRunCoordinator
 	store        *db.Store
 	senders      SenderProvider
 	fetcher      OrderDetailFetcher
@@ -113,7 +115,7 @@ func New(store *db.Store, senders SenderProvider, logger *slog.Logger) *Center {
 		logger = slog.Default()
 	}
 	client := mtop.NewClient()
-	return &Center{
+	center := &Center{
 		facts:        newEventFactRecorder(store),
 		rules:        newRuleMatcher(store),
 		planner:      actionPlanner{},
@@ -123,6 +125,19 @@ func New(store *db.Store, senders SenderProvider, logger *slog.Logger) *Center {
 		accountTasks: client,
 		logger:       logger.With("subsys", "automation"),
 	}
+	center.runs = automationRunCoordinator{
+		store:                    store,
+		planner:                  center.planner,
+		logger:                   center.logger,
+		prepareTask:              center.prepareTask,
+		actionDelaySeconds:       center.actionDelaySeconds,
+		accountAutomationAllowed: center.accountAutomationAllowed,
+		deferTask:                center.deferTask,
+		executeAction:            center.executeAction,
+		hasNotifier:              func() bool { return center.notifier != nil },
+		notifyResult:             center.notifyResult,
+	}
+	return center
 }
 
 // SetMTop 注入 mtop 客户端（确认发货用）。未注入时使用默认 HTTP 实现。
@@ -391,201 +406,14 @@ func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, 
 	return sent, nil
 }
 
+// executeRule 将规则执行委托给运行协调器，保持 Center 的兼容调用入口。
 func (c *Center) executeRule(ctx context.Context, task Task, rule db.AutomationRule) error {
-	var err error
-	if len(task.ActionPlan) == 0 && task.TriggerType != TriggerOrderPaid {
-		task.ActionPlan = c.planner.plan(task, rule.Actions)
-	}
-	task, err = c.prepareTask(ctx, task)
-	if err != nil {
-		return &preparationError{err: err}
-	}
-	triggerKey := buildTriggerKey(task)
-	if triggerKey == "" {
-		return nil
-	}
-	if len(task.ActionPlan) == 0 {
-		task.ActionPlan = c.planner.plan(task, rule.Actions)
-	}
-	retryTask := task
-	retryTask.CookieStr = ""
-	rawJSON, _ := json.Marshal(retryTask)
-	var run *db.AutomationRun
-	if resumeID := taskAutomationRunID(task); resumeID > 0 {
-		run, err = c.store.Automation.GetRun(ctx, resumeID)
-		if err != nil {
-			return err
-		}
-		if run.Status != "running" || run.RuleID != rule.ID {
-			return nil
-		}
-	} else {
-		var runID int64
-		var started bool
-		runID, started, err = c.store.Automation.TryStartRun(ctx, db.AutomationRun{
-			RuleID: rule.ID, CookieID: task.AccountID, ItemID: task.ItemID, OrderID: task.OrderID,
-			BuyerID: task.BuyerID, ChatID: task.ChatID, TriggerType: task.TriggerType,
-			TriggerKey: triggerKey, RawEventJSON: string(rawJSON),
-			LeaseExpiresAt: time.Now().UTC().Add(5 * time.Minute).Unix(),
-		})
-		if err != nil || !started {
-			return err
-		}
-		run, err = c.store.Automation.GetRun(ctx, runID)
-		if err != nil {
-			return err
-		}
-	}
-	status := "success"
-	errMsg := ""
-	sent := run.SentCount
-	finish := true
-	defer func() {
-		if !finish {
-			return
-		}
-		finishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if finishErr := c.store.Automation.FinishRun(finishCtx, run.ID, run.AttemptCount, status, sent, errMsg); finishErr != nil {
-			c.logger.Error("保存自动化执行结果失败", "run_id", run.ID, "err", finishErr)
-		}
-		cancel()
-		if c.notifier != nil {
-			c.notifyResult(task, status, sent, errMsg)
-		}
-	}()
-	actions := task.ActionPlan
-	if task.TriggerType == TriggerOrderPaid && !c.planner.hasMatchingSendCard(task, actions) {
-		status, errMsg = "failed", "未匹配到订单规格对应的卡密动作"
-		return errors.New(errMsg)
-	}
-	var deferred bool
-	sent, deferred, err = c.executeRunActions(ctx, task, rule.ID, run, actions, false)
-	if deferred {
-		finish = false
-		return errAutomationDeferred
-	}
-	if errors.Is(err, errAutomationNeedsReview) {
-		finish = false
-		if c.notifier != nil && !errors.Is(err, errAutomationQuarantine) {
-			c.notifyResult(task, "needs_review", sent, err.Error())
-		}
-		return err
-	}
-	if err != nil {
-		if sent > 0 && !errors.Is(err, ErrMessageNotSent) && !errors.Is(err, errActionNotPerformed) {
-			reason := "运行已完成部分动作，后续动作失败，已禁止从头自动重放: " + err.Error()
-			if quarantineErr := c.store.Automation.QuarantineRunResult(ctx, run.ID, run.AttemptCount, sent, reason); quarantineErr != nil {
-				finish = false
-				c.logger.Error("保存自动化人工核对状态失败", "run_id", run.ID, "err", quarantineErr)
-				return errors.Join(errAutomationNeedsReview, errAutomationQuarantine, err, quarantineErr)
-			}
-			finish = false
-			if c.notifier != nil {
-				c.notifyResult(task, "needs_review", sent, reason)
-			}
-			return fmt.Errorf("%w: %v", errAutomationNeedsReview, err)
-		}
-		status, errMsg = "failed", err.Error()
-		if errors.Is(err, ErrMessageNotSent) || errors.Is(err, errActionNotPerformed) {
-			errMsg = db.SafeRetryErrorPrefix + errMsg
-		}
-		return err
-	}
-	if task.TriggerType == TriggerReviewMissingTimeout && task.OrderID != "" {
-		if incrementErr := c.store.Automation.IncrementReviewRequest(ctx, task.OrderID); incrementErr != nil {
-			reason := "求评价消息已发送，但保存提醒次数失败，已停止自动重放: " + incrementErr.Error()
-			if quarantineErr := c.store.Automation.QuarantineRunResult(ctx, run.ID, run.AttemptCount, sent, reason); quarantineErr != nil {
-				finish = false
-				c.logger.Error("保存求评价人工核对状态失败", "run_id", run.ID, "err", quarantineErr)
-				return errors.Join(errAutomationNeedsReview, errAutomationQuarantine, incrementErr, quarantineErr)
-			}
-			finish = false
-			if c.notifier != nil {
-				c.notifyResult(task, "needs_review", sent, reason)
-			}
-			return fmt.Errorf("%w: %v", errAutomationNeedsReview, incrementErr)
-		}
-	}
-	return nil
+	return c.runs.executeRule(ctx, task, rule)
 }
 
+// executeRunActions 将动作执行委托给运行协调器，保持手动发货等调用方的兼容入口。
 func (c *Center) executeRunActions(ctx context.Context, task Task, ruleID int64, run *db.AutomationRun, actions []db.AutomationAction, skipDelays bool) (int, bool, error) {
-	sent := run.SentCount
-	for cursor := run.ActionCursor; cursor < len(actions); cursor++ {
-		action := actions[cursor]
-		if !skipDelays {
-			delaySeconds, err := c.actionDelaySeconds(ctx, action)
-			if err != nil {
-				return sent, false, err
-			}
-			if delaySeconds > 0 && taskDelayCursor(task) != cursor {
-				if task.Raw == nil {
-					task.Raw = map[string]any{}
-				}
-				task.Raw["automation_run_id"] = run.ID
-				task.Raw["automation_rule_id"] = ruleID
-				task.Raw["automation_delay_cursor"] = cursor
-				dueAt := time.Now().UTC().Add(time.Duration(delaySeconds) * time.Second)
-				if err := c.store.Automation.RenewRunLease(ctx, run.ID, run.AttemptCount, dueAt.Add(5*time.Minute).Unix()); err != nil {
-					return sent, false, err
-				}
-				if err := c.deferTask(ctx, task, dueAt.Unix()); err != nil {
-					return sent, false, err
-				}
-				return sent, true, nil
-			}
-		}
-		started, err := c.store.Automation.StartRunAction(ctx, run.ID, run.AttemptCount, cursor, time.Now().UTC().Add(5*time.Minute).Unix())
-		if err != nil || !started {
-			if err == nil {
-				err = errors.New("自动化动作已被其他 worker 领取")
-			}
-			return sent, false, err
-		}
-		n, actionErr := c.executeActionNow(ctx, task, action)
-		if actionErr != nil {
-			var uncertain *uncertainActionError
-			if n > 0 || errors.As(actionErr, &uncertain) {
-				reason := "外部动作可能已部分或全部执行，已禁止自动重放，请人工核对: " + actionErr.Error()
-				if quarantineErr := c.store.Automation.QuarantineRunResult(ctx, run.ID, run.AttemptCount, sent+n, reason); quarantineErr != nil {
-					c.logger.Error("保存不确定动作人工核对状态失败", "run_id", run.ID, "err", quarantineErr)
-					return sent + n, false, errors.Join(errAutomationNeedsReview, errAutomationQuarantine, actionErr, quarantineErr)
-				}
-				return sent + n, false, fmt.Errorf("%w: %v", errAutomationNeedsReview, actionErr)
-			}
-			if abortErr := c.store.Automation.AbortRunAction(ctx, run.ID, run.AttemptCount, cursor); abortErr != nil {
-				reason := "外部动作明确未执行，但清除动作占用状态失败，已停止自动重放: " + abortErr.Error()
-				if quarantineErr := c.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, reason); quarantineErr != nil {
-					c.logger.Error("隔离动作状态异常的自动化运行失败", "run_id", run.ID, "err", quarantineErr)
-				}
-				return sent, false, fmt.Errorf("%w: %s", errAutomationNeedsReview, reason)
-			}
-			return sent, false, actionErr
-		}
-		if err := c.store.Automation.AdvanceRunAction(ctx, run.ID, run.AttemptCount, cursor, n); err != nil {
-			if quarantineErr := c.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, "动作已执行但检查点保存失败，请人工核对，禁止自动重放: "+err.Error()); quarantineErr != nil {
-				c.logger.Error("保存检查点异常的人工核对状态失败", "run_id", run.ID, "err", quarantineErr)
-				return sent + n, false, errors.Join(errAutomationNeedsReview, errAutomationQuarantine, err, quarantineErr)
-			}
-			return sent + n, false, fmt.Errorf("%w: %v", errAutomationNeedsReview, err)
-		}
-		sent += n
-		if task.Raw != nil {
-			delete(task.Raw, "automation_delay_cursor")
-		}
-	}
-	return sent, false, nil
-}
-
-func (c *Center) executeActionNow(ctx context.Context, task Task, action db.AutomationAction) (int, error) {
-	allowed, err := c.accountAutomationAllowed(ctx, task.AccountID)
-	if err != nil {
-		return 0, err
-	}
-	if !allowed {
-		return 0, fmt.Errorf("账号已暂停或停用，取消自动化动作")
-	}
-	return c.executeAction(ctx, task, action)
+	return c.runs.executeRunActions(ctx, task, ruleID, run, actions, skipDelays)
 }
 
 // notifyResult 根据规则执行结果发送通知。成功且实际发出了内容才通知，
