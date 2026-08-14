@@ -324,6 +324,384 @@
     "name": "anonymous"
   },
   {
+    "file": "app/features/dashboard/DashboardTrendChart.tsx",
+    "line": 40,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/DashboardTrendChart.tsx",
+    "line": 46,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/DashboardTrendChart.tsx",
+    "line": 49,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 100,
+    "kind": "variable",
+    "name": "itemNames"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 101,
+    "kind": "variable",
+    "name": "analytics"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 102,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 102,
+    "kind": "variable",
+    "name": "chartData"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 103,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 103,
+    "kind": "variable",
+    "name": "productSalesData"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 104,
+    "kind": "variable",
+    "name": "colors"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 109,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 109,
+    "kind": "variable",
+    "name": "sourceData"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 110,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 110,
+    "kind": "variable",
+    "name": "categoryData"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 111,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 111,
+    "kind": "variable",
+    "name": "maxProductSales"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 13,
+    "kind": "member",
+    "name": "data"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 14,
+    "kind": "member",
+    "name": "status"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 15,
+    "kind": "member",
+    "name": "chartData"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 16,
+    "kind": "member",
+    "name": "productSalesData"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 17,
+    "kind": "member",
+    "name": "sourceData"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 18,
+    "kind": "member",
+    "name": "categoryData"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 19,
+    "kind": "member",
+    "name": "maxProductSales"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 20,
+    "kind": "member",
+    "name": "trendPercent"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 21,
+    "kind": "member",
+    "name": "selectedRangeLabel"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 22,
+    "kind": "member",
+    "name": "refresh"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 33,
+    "kind": "variable",
+    "name": "{ range, customStartDate, customEndDate, customRangeVersion }"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 34,
+    "kind": "variable",
+    "name": "[overview, setOverview]"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 35,
+    "kind": "variable",
+    "name": "[rangeData, setRangeData]"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 36,
+    "kind": "variable",
+    "name": "[status, setStatus]"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 37,
+    "kind": "variable",
+    "name": "[refreshKey, setRefreshKey]"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 38,
+    "kind": "variable",
+    "name": "requestSequence"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 39,
+    "kind": "variable",
+    "name": "rangeSelection"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 45,
+    "kind": "variable",
+    "name": "refresh"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 47,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 51,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 52,
+    "kind": "variable",
+    "name": "controller"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 53,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 57,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 60,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 61,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 63,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 65,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 68,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 69,
+    "kind": "variable",
+    "name": "dateRange"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 72,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 73,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 76,
+    "kind": "variable",
+    "name": "previousRange"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 77,
+    "kind": "variable",
+    "name": "sequence"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 78,
+    "kind": "variable",
+    "name": "controller"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 79,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 84,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 87,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 88,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 9,
+    "kind": "member",
+    "name": "customRangeVersion"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 90,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 92,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/hooks.ts",
+    "line": 95,
+    "kind": "variable",
+    "name": "data"
+  },
+  {
+    "file": "app/features/dashboard/state.test.ts",
+    "line": 23,
+    "kind": "variable",
+    "name": "controller"
+  },
+  {
+    "file": "app/features/dashboard/state.ts",
+    "line": 109,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/state.ts",
+    "line": 135,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/state.ts",
+    "line": 171,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/dashboard/state.ts",
+    "line": 88,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
     "file": "chatEmojis.test.tsx",
     "line": 10,
     "kind": "function-expression",
@@ -3451,9 +3829,9 @@
   },
   {
     "file": "components/Dashboard.test.tsx",
-    "line": 11,
-    "kind": "function-expression",
-    "name": "anonymous"
+    "line": 10,
+    "kind": "variable",
+    "name": "globalStyles"
   },
   {
     "file": "components/Dashboard.test.tsx",
@@ -3464,12 +3842,18 @@
   {
     "file": "components/Dashboard.test.tsx",
     "line": 13,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Dashboard.test.tsx",
+    "line": 14,
     "kind": "variable",
     "name": "html"
   },
   {
     "file": "components/Dashboard.test.tsx",
-    "line": 21,
+    "line": 22,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -3483,83 +3867,59 @@
     "file": "components/Dashboard.test.tsx",
     "line": 9,
     "kind": "variable",
-    "name": "globalStyles"
+    "name": "trendChartSource"
+  },
+  {
+    "file": "components/Dashboard.tsx",
+    "line": 10,
+    "kind": "variable",
+    "name": "cssColor"
   },
   {
     "file": "components/Dashboard.tsx",
     "line": 100,
     "kind": "variable",
-    "name": "{ startDate, endDate }"
+    "name": "totalOrders"
   },
   {
     "file": "components/Dashboard.tsx",
     "line": 101,
     "kind": "variable",
-    "name": "params"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 102,
-    "kind": "variable",
-    "name": "previous"
+    "name": "totalAmount"
   },
   {
     "file": "components/Dashboard.tsx",
     "line": 103,
     "kind": "variable",
-    "name": "sequence"
+    "name": "timeRangeOptions"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 107,
+    "line": 111,
     "kind": "variable",
-    "name": "[currentAnalytics, previousResult, orders]"
+    "name": "currentRangeDates"
+  },
+  {
+    "file": "components/Dashboard.tsx",
+    "line": 117,
+    "kind": "variable",
+    "name": "normalizedSearchTerm"
   },
   {
     "file": "components/Dashboard.tsx",
     "line": 118,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 131,
-    "kind": "variable",
-    "name": "currentAmount"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 132,
-    "kind": "variable",
-    "name": "previousAmount"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 138,
-    "kind": "variable",
-    "name": "percent"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 139,
-    "kind": "variable",
-    "name": "sign"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 143,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 144,
+    "line": 118,
     "kind": "variable",
-    "name": "cancelled"
+    "name": "filteredValidOrders"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 145,
+    "line": 148,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -3571,423 +3931,237 @@
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 155,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 158,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 16,
-    "kind": "member",
-    "name": "status"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 161,
+    "line": 166,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Dashboard.tsx",
     "line": 17,
+    "kind": "member",
+    "name": "status"
+  },
+  {
+    "file": "components/Dashboard.tsx",
+    "line": 173,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Dashboard.tsx",
+    "line": 177,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Dashboard.tsx",
+    "line": 177,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Dashboard.tsx",
+    "line": 18,
     "kind": "variable",
     "name": "styles"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 170,
+    "line": 227,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 176,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 176,
-    "kind": "variable",
-    "name": "chartData"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 185,
-    "kind": "variable",
-    "name": "totalOrders"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 186,
-    "kind": "variable",
-    "name": "totalAmount"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 190,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 196,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 198,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 198,
-    "kind": "variable",
-    "name": "maxProductSales"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 202,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 209,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 211,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 218,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 228,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 230,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 236,
-    "kind": "variable",
-    "name": "timeRangeOptions"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 244,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 244,
-    "kind": "variable",
-    "name": "selectedRangeLabel"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 245,
-    "kind": "variable",
-    "name": "currentRangeDates"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 251,
-    "kind": "variable",
-    "name": "normalizedSearchTerm"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 252,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 252,
-    "kind": "variable",
-    "name": "filteredValidOrders"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 27,
+    "line": 28,
     "kind": "variable",
     "name": "labels"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 276,
+    "line": 282,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 279,
+    "line": 287,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 294,
+    "line": 300,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 301,
+    "line": 329,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 305,
+    "line": 376,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 309,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 378,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 391,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 392,
-    "kind": "variable",
-    "name": "num"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 405,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 44,
+    "line": 45,
     "kind": "member",
     "name": "colorClass"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 44,
+    "line": 45,
     "kind": "member",
     "name": "icon"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 44,
+    "line": 45,
     "kind": "member",
     "name": "title"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 44,
+    "line": 45,
     "kind": "member",
     "name": "trend"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 44,
+    "line": 45,
     "kind": "member",
     "name": "value"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 44,
+    "line": 45,
     "kind": "variable",
     "name": "StatCard"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 468,
+    "line": 454,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 523,
+    "line": 466,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 528,
+    "line": 476,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 541,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 570,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 617,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 62,
-    "kind": "variable",
-    "name": "Dashboard"
   },
   {
     "file": "components/Dashboard.tsx",
     "line": 63,
     "kind": "variable",
-    "name": "[stats, setStats]"
+    "name": "Dashboard"
   },
   {
     "file": "components/Dashboard.tsx",
     "line": 64,
     "kind": "variable",
-    "name": "[analytics, setAnalytics]"
+    "name": "[timeRange, setTimeRange]"
   },
   {
     "file": "components/Dashboard.tsx",
     "line": 65,
     "kind": "variable",
-    "name": "[loadError, setLoadError]"
+    "name": "[customStartDate, setCustomStartDate]"
   },
   {
     "file": "components/Dashboard.tsx",
     "line": 66,
     "kind": "variable",
-    "name": "[timeRange, setTimeRange]"
+    "name": "[customEndDate, setCustomEndDate]"
   },
   {
     "file": "components/Dashboard.tsx",
     "line": 67,
     "kind": "variable",
-    "name": "[customStartDate, setCustomStartDate]"
+    "name": "[searchTerm, setSearchTerm]"
   },
   {
     "file": "components/Dashboard.tsx",
     "line": 68,
     "kind": "variable",
-    "name": "[customEndDate, setCustomEndDate]"
+    "name": "[customRangeVersion, setCustomRangeVersion]"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 695,
-    "kind": "function-expression",
-    "name": "anonymous"
+    "line": 69,
+    "kind": "variable",
+    "name": "dashboard"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 707,
-    "kind": "function-expression",
-    "name": "anonymous"
+    "line": 70,
+    "kind": "variable",
+    "name": "{ data, status, chartData, productSalesData, sourceData: sourceDataData, categoryData: categoryDataData, maxProductSales, trendPercent, selectedRangeLabel, refresh }"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 717,
-    "kind": "function-expression",
-    "name": "anonymous"
+    "line": 71,
+    "kind": "variable",
+    "name": "stats"
+  },
+  {
+    "file": "components/Dashboard.tsx",
+    "line": 72,
+    "kind": "variable",
+    "name": "analytics"
+  },
+  {
+    "file": "components/Dashboard.tsx",
+    "line": 73,
+    "kind": "variable",
+    "name": "previousAnalytics"
+  },
+  {
+    "file": "components/Dashboard.tsx",
+    "line": 74,
+    "kind": "variable",
+    "name": "validOrders"
   },
   {
     "file": "components/Dashboard.tsx",
     "line": 75,
     "kind": "variable",
-    "name": "[validOrdersTotal, setValidOrdersTotal]"
+    "name": "validOrdersTotal"
   },
   {
     "file": "components/Dashboard.tsx",
     "line": 76,
     "kind": "variable",
-    "name": "[validOrdersTruncated, setValidOrdersTruncated]"
+    "name": "validOrdersTruncated"
   },
   {
     "file": "components/Dashboard.tsx",
     "line": 77,
     "kind": "variable",
-    "name": "[ordersLoading, setOrdersLoading]"
+    "name": "ordersLoading"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 80,
+    "line": 78,
     "kind": "variable",
-    "name": "[itemNames, setItemNames]"
+    "name": "loadError"
   },
   {
     "file": "components/Dashboard.tsx",
-    "line": 81,
-    "kind": "variable",
-    "name": "rangeRequestSequence"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 9,
-    "kind": "variable",
-    "name": "cssColor"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 91,
+    "line": 88,
     "kind": "variable",
     "name": "formatCurrency"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 92,
-    "kind": "variable",
-    "name": "loadRange"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 93,
-    "kind": "variable",
-    "name": "currentRange"
-  },
-  {
-    "file": "components/Dashboard.tsx",
-    "line": 96,
-    "kind": "variable",
-    "name": "error"
   },
   {
     "file": "components/ItemList.tsx",
@@ -9235,81 +9409,63 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 184,
+    "line": 203,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 204,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 194,
+    "line": 214,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.test.ts",
-    "line": 217,
+    "line": 237,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 218,
+    "line": 238,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 223,
+    "line": 243,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.test.ts",
-    "line": 232,
+    "line": 252,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 233,
+    "line": 253,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 240,
+    "line": 260,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 242,
+    "line": 262,
     "kind": "variable",
     "name": "result"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 246,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 247,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 256,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 257,
-    "kind": "variable",
-    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
@@ -9325,135 +9481,141 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 278,
+    "line": 276,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 277,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 286,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 287,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 298,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 282,
+    "line": 302,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 297,
+    "line": 317,
     "kind": "variable",
     "name": "items"
   },
   {
     "file": "services/api.test.ts",
-    "line": 312,
+    "line": 332,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 313,
+    "line": 333,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 324,
+    "line": 344,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 330,
+    "line": 350,
     "kind": "variable",
     "name": "settings"
   },
   {
     "file": "services/api.test.ts",
-    "line": 335,
+    "line": 355,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 336,
+    "line": 356,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 347,
+    "line": 367,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 348,
+    "line": 368,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 348,
+    "line": 368,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 374,
+    "line": 394,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 375,
+    "line": 395,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 389,
+    "line": 409,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 403,
+    "line": 423,
     "kind": "variable",
     "name": "accounts"
   },
   {
     "file": "services/api.test.ts",
-    "line": 414,
+    "line": 434,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 415,
+    "line": 435,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 429,
+    "line": 449,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 430,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 441,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 442,
-    "kind": "variable",
-    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
@@ -9463,27 +9625,39 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 455,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 456,
+    "line": 450,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 473,
-    "kind": "variable",
-    "name": "status"
+    "line": 461,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 481,
+    "line": 462,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 475,
     "kind": "function-expression",
     "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 476,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 493,
+    "kind": "variable",
+    "name": "status"
   },
   {
     "file": "services/api.test.ts",
@@ -9493,9 +9667,9 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 504,
-    "kind": "variable",
-    "name": "rules"
+    "line": 501,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
@@ -9505,67 +9679,61 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 518,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 519,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 528,
+    "line": 524,
     "kind": "variable",
     "name": "rules"
   },
   {
     "file": "services/api.test.ts",
-    "line": 540,
+    "line": 538,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 541,
+    "line": 539,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 556,
+    "line": 548,
+    "kind": "variable",
+    "name": "rules"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 560,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 557,
+    "line": 561,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 566,
+    "line": 576,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 567,
+    "line": 577,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 578,
+    "line": 586,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 579,
+    "line": 587,
     "kind": "variable",
     "name": "fetchMock"
   },
@@ -9577,25 +9745,19 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 594,
-    "kind": "variable",
-    "name": "body"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 60,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 602,
+    "line": 598,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 603,
+    "line": 599,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 60,
     "kind": "variable",
     "name": "fetchMock"
   },
@@ -9607,13 +9769,13 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 621,
+    "line": 622,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 622,
+    "line": 623,
     "kind": "variable",
     "name": "fetchMock"
   },
@@ -9625,75 +9787,69 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 636,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 637,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 658,
+    "line": 634,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 674,
+    "line": 641,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 675,
+    "line": 642,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 703,
-    "kind": "variable",
-    "name": "body"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 727,
+    "line": 656,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 728,
+    "line": 657,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 740,
+    "line": 678,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 741,
+    "line": 694,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 741,
-    "kind": "member",
-    "name": "action_type"
+    "line": 695,
+    "kind": "variable",
+    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 749,
+    "line": 723,
+    "kind": "variable",
+    "name": "body"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 747,
     "kind": "function-expression",
     "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 748,
+    "kind": "variable",
+    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
@@ -9703,12 +9859,6 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 750,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
     "line": 76,
     "kind": "function-expression",
     "name": "anonymous"
@@ -9721,7 +9871,37 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 767,
+    "line": 760,
+    "kind": "variable",
+    "name": "body"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 761,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 761,
+    "kind": "member",
+    "name": "action_type"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 769,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 770,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 787,
     "kind": "variable",
     "name": "body"
   },

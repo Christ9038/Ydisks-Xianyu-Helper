@@ -160,6 +160,26 @@ test('订单查询和导入 API 转发外部取消信号', async () => {
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/orders/import', expect.objectContaining({ signal: expect.any(AbortSignal) }));
 });
 
+test('Dashboard 统计 API 转发外部取消信号', async () => {
+  // fetchMock 验证 Dashboard 的概览、趋势和订单明细共用同一个取消信号。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ total_cookies: 1, active_cookies: 1, available_card_stock: 2 }))
+    .mockResolvedValueOnce(jsonResponse([]))
+    .mockResolvedValueOnce(jsonResponse({ revenue_stats: { total_amount: 1, total_orders: 1 }, daily_stats: [] }))
+    .mockResolvedValueOnce(jsonResponse({ revenue_stats: { total_amount: 0, total_orders: 0 }, daily_stats: [] }))
+    .mockResolvedValueOnce(jsonResponse({ orders: [], total: 0, truncated: false }));
+  vi.stubGlobal('fetch', fetchMock);
+  // controller 是 Dashboard feature Hook 传入 API 的请求控制器。
+  const controller = new AbortController();
+  await getDashboardStats({ signal: controller.signal });
+  await getItems(undefined, { signal: controller.signal });
+  await getOrderAnalytics({ start_date: '2026-08-15', end_date: '2026-08-15' }, { signal: controller.signal });
+  await getValidOrders({ start_date: '2026-08-15', end_date: '2026-08-15' }, { signal: controller.signal });
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/analytics/dashboard', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, expect.stringContaining('/api/v1/analytics/orders?'), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(4, expect.stringContaining('/api/v1/analytics/orders/valid?'), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+});
+
 test('通知渠道和 SMTP API 转发外部取消信号', async () => {
   // fetchMock 验证渠道读取、保存和 SMTP 读写都支持取消控制。
   const fetchMock = vi.fn()

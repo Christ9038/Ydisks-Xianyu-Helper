@@ -175,7 +175,8 @@ app shell / routes
 - 已完成阶段 7 第四个 PR 切片“React CardList feature 化与卡密库存/批量追加行为边界”：按 `app/features/cards` 提取卡密 API 适配层、库存数据 Hook、批量导入/追加状态 Hook 和弹窗组件；卡密筛选、追加预览、提交取消、失败重试与账号切换过期响应均由 feature 状态边界负责，保留旧组件入口和 API 路径；新增状态模型测试并通过前端类型检查、全量测试、注释检查和构建门禁，合并为一个可回滚提交；
 - 已完成阶段 7 第五个 PR 切片“React OrderList feature 化与订单导入/刷新行为边界”：按 `app/features/orders` 提取订单 API 适配层、查询/分页 Hook、导入 Hook、筛选栏和导入弹窗；订单查询与辅助数据支持并行加载、取消和代次门禁，导入支持文件预检、取消、失败重试和导入后刷新；新增筛选、导入归一化、API 取消信号和过期响应测试，保留旧组件入口和 API 路径；前端类型检查、全量测试、注释检查和构建门禁通过，合并为一个可回滚提交；
 - 已完成阶段 7 第六个 PR 切片“React Notifications feature 化与渠道/事件绑定行为边界”：按 `app/features/notifications` 提取通知渠道/SMTP API 适配层、静态渠道配置、数据与动作 Hook、渠道列表、事件绑定选择器、渠道编辑弹窗和 SMTP 面板；渠道与 SMTP 请求支持取消和代次门禁，表单支持渠道字段/独立 SMTP 校验、保存失败重试和过期响应保护；更新架构字符串测试并新增状态/API 取消信号测试，保留旧页面入口和 API 路径；前端类型检查、全量测试、注释检查和构建门禁通过，合并为一个可回滚提交；
-- 阶段 7 下一 PR 切片为“React Dashboard feature 化与统计/趋势查询行为边界”：提取 Dashboard API、统计数据 Hook 和趋势图表组件，补充并行查询、刷新取消、失败重试和过期响应测试；
+- 已完成阶段 7 第七个 PR 切片“React Dashboard feature 化与统计/趋势查询行为边界”：按 `app/features/dashboard` 提取 Dashboard API 适配层、统计数据 Hook、趋势/排行派生状态和请求边界；概览、趋势和有效订单支持并行加载、刷新取消、失败重试与过期响应保护；新增统计派生数据、API 取消信号和请求代次测试，保留旧页面入口和 API 路径；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交；
+- 阶段 7 下一 PR 切片为“React Settings feature 化与系统配置校验边界”：提取设置 API、配置表单状态和敏感字段校验，补充保存取消、失败重试和过期响应测试；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -600,3 +601,4 @@ npm --prefix frontend run build
 | 2026-08-15 | 完成阶段 7 第四个 PR 切片“React CardList feature 化与卡密库存/批量追加行为边界” | 按 `app/features/cards` 提取卡密 API 适配层、库存数据 Hook、批量导入/追加状态 Hook 和弹窗组件；卡密筛选、追加预览、提交取消、失败重试与账号切换过期响应均由 feature 状态边界负责，保留旧组件入口和 API 路径；新增状态模型测试并通过前端类型检查、全量测试、注释检查和构建门禁，合并为一个可回滚提交 | 阶段 7：React OrderList feature 化与订单导入/刷新行为边界 |
 | 2026-08-15 | 完成阶段 7 第五个 PR 切片“React OrderList feature 化与订单导入/刷新行为边界” | 按 `app/features/orders` 提取订单 API 适配层、查询/分页 Hook、导入 Hook、筛选栏和导入弹窗；订单查询与辅助数据支持并行加载、取消和代次门禁，导入支持文件预检、取消、失败重试和导入后刷新；新增筛选、导入归一化、API 取消信号和过期响应测试，保留旧组件入口和 API 路径；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交 | 阶段 7：React Notifications feature 化与渠道/事件绑定行为边界 |
 | 2026-08-15 | 完成阶段 7 第六个 PR 切片“React Notifications feature 化与渠道/事件绑定行为边界” | 按 `app/features/notifications` 提取通知渠道/SMTP API 适配层、静态渠道配置、数据与动作 Hook、渠道列表、事件绑定选择器、渠道编辑弹窗和 SMTP 面板；渠道与 SMTP 请求支持取消和代次门禁，表单支持渠道字段/独立 SMTP 校验、保存失败重试和过期响应保护；更新架构字符串测试并新增状态/API 取消信号测试，保留旧页面入口和 API 路径；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交 | 阶段 7：React Dashboard feature 化与统计/趋势查询行为边界 |
+| 2026-08-15 | 完成阶段 7 第七个 PR 切片“React Dashboard feature 化与统计/趋势查询行为边界” | 按 `app/features/dashboard` 提取 Dashboard API 适配层、统计数据 Hook、趋势/排行派生状态和请求边界；概览、趋势和有效订单支持并行加载、刷新取消、失败重试与过期响应保护；新增统计派生数据、API 取消信号和请求代次测试，保留旧页面入口和 API 路径；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交 | 阶段 7：React Settings feature 化与系统配置校验边界 |

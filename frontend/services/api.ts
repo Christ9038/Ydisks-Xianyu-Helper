@@ -380,11 +380,11 @@ export const getAdminStats = async (): Promise<AdminStatsResponse> => {
   return get('/api/v1/admin/stats');
 };
 
-export const getDashboardStats = async (): Promise<DashboardStatsResponse> => {
-  return get('/api/v1/analytics/dashboard');
+export const getDashboardStats = async (options?: RequestControlOptions): Promise<DashboardStatsResponse> => {
+  return get('/api/v1/analytics/dashboard', undefined, options);
 };
 
-export const getOrderAnalytics = async (daysOrParams: number | {start_date: string; end_date: string} = 7): Promise<OrderAnalyticsResponse> => {
+export const getOrderAnalytics = async (daysOrParams: number | {start_date: string; end_date: string} = 7, options?: RequestControlOptions): Promise<OrderAnalyticsResponse> => {
     let params: {start_date: string; end_date: string};
 
     if (typeof daysOrParams === 'number') {
@@ -402,7 +402,7 @@ export const getOrderAnalytics = async (daysOrParams: number | {start_date: stri
     return get('/api/v1/analytics/orders', {
         ...params,
         timezone_offset_minutes: -new Date().getTimezoneOffset(),
-    });
+    }, options);
 }
 
 export interface ValidOrdersResult {
@@ -411,12 +411,12 @@ export interface ValidOrdersResult {
     truncated: boolean;
 }
 
-export const getValidOrders = async (dateRange: {start_date: string; end_date: string}): Promise<ValidOrdersResult> => {
+export const getValidOrders = async (dateRange: {start_date: string; end_date: string}, options?: RequestControlOptions): Promise<ValidOrdersResult> => {
     const res = await get<ValidOrdersResponse | ValidOrderResponse[]>('/api/v1/analytics/orders/valid', {
         start_date: dateRange.start_date,
         end_date: dateRange.end_date,
         timezone_offset_minutes: -new Date().getTimezoneOffset(),
-    });
+    }, options);
     const orders = Array.isArray(res) ? res : (res.orders || []);
     const normalized = orders.map((order: any) => ({
         ...order,

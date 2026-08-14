@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { DashboardStats, OrderAnalytics, Order, OrderStatus, Item } from '../types';
-import { getDashboardStats, getOrderAnalytics, getValidOrders, getItems } from '../services/api';
-import { getDateRange, getPreviousDateRange, TimeRange } from '../dateRange';
+import React, { useState } from 'react';
+import { OrderStatus } from '../types';
+import { getDateRange, TimeRange } from '../dateRange';
 import { formatLocalDateTime } from '../dateTime';
 import { TrendingUp, Users, ShoppingCart, AlertCircle, DollarSign, Activity, Package, ArrowUpRight, Calendar, X, BarChart3, PackageCheck, ExternalLink, Eye, Edit } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts';
+import { Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { useDashboard } from '../app/features/dashboard/hooks';
+import { DashboardTrendChart } from '../app/features/dashboard/DashboardTrendChart';
 
 const cssColor = (token: string, alpha?: number) => (
   alpha === undefined
@@ -60,25 +61,21 @@ const StatCard: React.FC<{ title: string; value: string | number; icon: React.El
 );
 
 const Dashboard: React.FC = () => {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [analytics, setAnalytics] = useState<OrderAnalytics | null>(null);
-  const [loadError, setLoadError] = useState('');
   const [timeRange, setTimeRange] = useState<TimeRange>('7days');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
-  const [previousAnalytics, setPreviousAnalytics] = useState<OrderAnalytics | null>(null); // 用于计算趋势
-
-  // 搜索词
   const [searchTerm, setSearchTerm] = useState('');
-  // 参与统计的订单列表
-  const [validOrders, setValidOrders] = useState<Order[]>([]);
-	const [validOrdersTotal, setValidOrdersTotal] = useState(0);
-	const [validOrdersTruncated, setValidOrdersTruncated] = useState(false);
-  const [ordersLoading, setOrdersLoading] = useState(false);
-  // 商品列表
-  const [items, setItems] = useState<Item[]>([]);
-  const [itemNames, setItemNames] = useState<Record<string, string>>({});
-  const rangeRequestSequence = useRef(0);
+  const [customRangeVersion, setCustomRangeVersion] = useState(0);
+  const dashboard = useDashboard({ range: timeRange, customStartDate, customEndDate, customRangeVersion });
+  const { data, status, chartData, productSalesData, sourceData: sourceDataData, categoryData: categoryDataData, maxProductSales, trendPercent, selectedRangeLabel, refresh } = dashboard;
+  const stats = data?.stats || null;
+  const analytics = data?.analytics || null;
+  const previousAnalytics = data?.previousAnalytics || null;
+  const validOrders = data?.validOrders.orders || [];
+  const validOrdersTotal = data?.validOrders.total || 0;
+  const validOrdersTruncated = data?.validOrders.truncated || false;
+  const ordersLoading = status.range === 'loading';
+  const loadError = status.error;
 
   // 颜色配置
   const COLORS = [
@@ -89,149 +86,19 @@ const Dashboard: React.FC = () => {
     cssColor('accent-500'),
   ];
   const formatCurrency = (value: number) => `¥${Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
-  const loadRange = async (range: TimeRange) => {
-    let currentRange;
-    try {
-      currentRange = getDateRange(range, new Date(), customStartDate, customEndDate);
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : '日期范围无效');
-      return;
-    }
-    const { startDate, endDate } = currentRange;
-    const params = { start_date: startDate, end_date: endDate };
-    const previous = getPreviousDateRange(currentRange);
-    const sequence = ++rangeRequestSequence.current;
-    setOrdersLoading(true);
-    setLoadError('');
-    try {
-      const [currentAnalytics, previousResult, orders] = await Promise.all([
-        getOrderAnalytics(params),
-        getOrderAnalytics({ start_date: previous.startDate, end_date: previous.endDate }),
-        getValidOrders(params),
-      ]);
-      if (sequence !== rangeRequestSequence.current) return;
-      setAnalytics(currentAnalytics);
-      setPreviousAnalytics(previousResult);
-		setValidOrders(orders.orders);
-		setValidOrdersTotal(orders.total);
-		setValidOrdersTruncated(orders.truncated);
-    } catch (error) {
-      if (sequence === rangeRequestSequence.current) {
-        setLoadError(error instanceof Error ? error.message : '经营数据加载失败');
-      }
-    } finally {
-      if (sequence === rangeRequestSequence.current) setOrdersLoading(false);
-    }
-  };
-
-  // 计算趋势百分比
-  const getTrendPercent = () => {
-    if (!analytics || !previousAnalytics) return null;
-
-    const currentAmount = analytics.revenue_stats.total_amount;
-    const previousAmount = previousAnalytics.revenue_stats.total_amount;
-
-    if (previousAmount === 0) {
-      return currentAmount > 0 ? '+100%' : '0%';
-    }
-
-    const percent = ((currentAmount - previousAmount) / previousAmount) * 100;
-    const sign = percent >= 0 ? '+' : '';
-    return `${sign}${percent.toFixed(1)}%`;
-  };
-
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([getDashboardStats(), getItems()]).then(([dashboardStats, itemList]) => {
-      if (cancelled) return;
-      setStats(dashboardStats);
-      setItems(itemList);
-      // 建立 item_id 到 item_title 的映射
-      const nameMap: Record<string, string> = {};
-      itemList.forEach(item => {
-        nameMap[item.item_id] = item.item_title || item.item_id;
-      });
-      setItemNames(nameMap);
-    }).catch(error => {
-      if (!cancelled) setLoadError(error instanceof Error ? error.message : '概览加载失败');
-    });
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    if (timeRange !== 'custom') void loadRange(timeRange);
-  }, [timeRange]);
 
   if (loadError && (!stats || !analytics)) {
     return (
       <div className="p-8 flex flex-col items-center gap-3 text-red-600">
         <AlertCircle className="w-8 h-8" />
         <span>{loadError}</span>
-        <button type="button" className="ios-btn-primary px-4 py-2 rounded-xl" onClick={() => window.location.reload()}>重新加载</button>
+        <button type="button" className="ios-btn-primary px-4 py-2 rounded-xl" onClick={refresh}>重新加载</button>
       </div>
     );
   }
   if (!stats || !analytics) return <div className="p-8 flex justify-center text-gray-400"><Activity className="w-8 h-8 animate-spin text-brand" /></div>;
-
-  const chartData = analytics.daily_stats?.map(d => ({
-      name: d.date.slice(5), // MM-DD
-      amount: d.amount,
-      orders: d.order_count,
-      avgAmount: d.order_count > 0 ? (d.amount / d.order_count).toFixed(2) : 0
-  })) || [];
-
-  // 计算图表数据（在渲染时直接计算）
-  const itemStats = analytics.item_stats || [];
   const totalOrders = analytics.revenue_stats.total_orders || 0;
   const totalAmount = analytics.revenue_stats.total_amount || 0;
-
-  // 1. 商品销量排行：按订单数量排序
-  const productSalesData = itemStats.length > 0 ? itemStats
-    .map(item => ({
-      name: (itemNames[item.item_id] || item.item_id).length > 12
-        ? (itemNames[item.item_id] || item.item_id).substring(0, 12) + '...'
-        : (itemNames[item.item_id] || item.item_id),
-      sales: item.order_count
-    }))
-    .sort((a, b) => b.sales - a.sales)
-    .slice(0, 10) : [];
-  const maxProductSales = Math.max(...productSalesData.map(item => item.sales), 1);
-
-  // 2. 商品下单占比：每个商品的订单数占总订单数的百分比
-  const sourceDataData = itemStats.length > 0 ? itemStats
-    .map(item => ({
-      name: (itemNames[item.item_id] || item.item_id).length > 10
-        ? (itemNames[item.item_id] || item.item_id).substring(0, 10) + '...'
-        : (itemNames[item.item_id] || item.item_id),
-      value: item.order_count,
-      percent: totalOrders > 0 ? (item.order_count / totalOrders) * 100 : 0
-    }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 6)
-    .map((item, index) => ({
-      ...item,
-      color: COLORS[index % COLORS.length]
-    })) : [];
-
-  // 3. 商品金额分析：按金额排序，取前5
-  const categoryDataData = itemStats.length > 0 ? itemStats
-    .map(item => ({
-      name: (itemNames[item.item_id] || item.item_id).length > 12
-        ? (itemNames[item.item_id] || item.item_id).substring(0, 12) + '...'
-        : (itemNames[item.item_id] || item.item_id),
-      value: item.total_amount,
-      orderCount: item.order_count,
-      percentage: totalAmount > 0
-        ? (item.total_amount / totalAmount) * 100
-        : 0
-    }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 5)
-    .map((item, index) => ({
-      ...item,
-      color: COLORS[index % COLORS.length],
-      percentage: item.percentage.toFixed(1)
-    })) : [];
 
   const timeRangeOptions = [
     { key: 'today' as TimeRange, label: '今天' },
@@ -241,7 +108,6 @@ const Dashboard: React.FC = () => {
     { key: '30days' as TimeRange, label: '一个月内' },
     { key: 'custom' as TimeRange, label: '自定义' },
   ];
-  const selectedRangeLabel = timeRangeOptions.find(option => option.key === timeRange)?.label || '所选范围';
   let currentRangeDates;
   try {
     currentRangeDates = getDateRange(timeRange, new Date(), customStartDate, customEndDate);
@@ -258,6 +124,12 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="space-y-8 animate-fade-in">
+      {loadError && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{loadError}</span>
+          <button type="button" className="font-bold underline" onClick={refresh}>重试</button>
+        </div>
+      )}
       <div className="flex flex-col md:flex-row justify-between md:items-end gap-4">
         <div>
           <h2 className="text-4xl font-extrabold text-gray-900 tracking-tight">运营概览</h2>
@@ -302,14 +174,7 @@ const Dashboard: React.FC = () => {
               className="px-3 py-2 rounded-xl text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand"
             />
             <button
-              onClick={() => {
-                try {
-                  setLoadError('');
-                  void loadRange('custom');
-                } catch (error) {
-                  setLoadError(error instanceof Error ? error.message : '日期范围无效');
-                }
-              }}
+              onClick={() => setCustomRangeVersion(value => value + 1)}
               className="px-4 py-2 rounded-xl text-sm font-bold bg-black text-white hover:bg-gray-800 transition-colors"
             >
               应用
@@ -325,7 +190,7 @@ const Dashboard: React.FC = () => {
           value={`¥${analytics.revenue_stats.total_amount.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`}
           icon={DollarSign}
           colorClass="bg-blue-400"
-          trend={getTrendPercent() || undefined}
+          trend={trendPercent || undefined}
         />
         <StatCard
           title="活跃账号 / 总数"
@@ -347,113 +212,7 @@ const Dashboard: React.FC = () => {
         />
       </div>
 
-      {/* Main Chart Section */}
-      <div className="ios-card p-8 rounded-xl">
-        <div className="mb-10">
-          <h3 className="text-xl font-bold text-gray-900">营收趋势分析</h3>
-          <p className="text-sm text-gray-400 mt-1">{selectedRangeLabel}的销售额走势</p>
-        </div>
-        <div className="dashboard-revenue-chart h-[350px] w-full">
-          {chartData.length === 0 || analytics.revenue_stats.total_amount === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-gray-400">
-              <ShoppingCart className="w-16 h-16 mb-4 opacity-20" />
-              <p className="text-lg font-medium">暂无营收数据</p>
-              <p className="text-sm mt-2">所选时间范围内暂无订单记录</p>
-            </div>
-          ) : chartData.length <= 2 ? (
-            // 数据点少于等于2个时使用美化柱状图
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 30, right: 20, left: 0, bottom: 30 }} barCategoryGap="45%">
-                <XAxis
-                  dataKey="name"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{fill: cssColor('neutral-700'), fontSize: 14, fontWeight: 600}}
-                  dy={10}
-                />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{fill: cssColor('neutral-400'), fontSize: 13, fontWeight: 500}}
-                  tickFormatter={(value) => `¥${value}`}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: cssColor('white'),
-                    borderRadius: '8px',
-                    border: `1px solid ${cssColor('neutral-200')}`,
-                    boxShadow: 'var(--shadow-xl)',
-                    padding: '12px 16px'
-                  }}
-                  labelStyle={{ color: cssColor('neutral-500'), fontWeight: 500 }}
-                  itemStyle={{ color: cssColor('brand'), fontWeight: 600 }}
-                  cursor={{ fill: cssColor('brand', 0.08) }}
-                  formatter={(value) => {
-                    const num = Number(value);
-                    return [`¥${num.toFixed(2)}`, '营收'];
-                  }}
-                />
-                <Bar
-                  dataKey="amount"
-                  fill={cssColor('brand')}
-                  maxBarSize={72}
-                  radius={[12, 12, 0, 0]}
-                  activeBar={false}
-                  stroke="none"
-                  strokeWidth={0}
-                >
-                  {chartData.map((_, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={cssColor('brand')}
-                      stroke="none"
-                      strokeWidth={0}
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            // 数据点多于2个时使用折线图
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={cssColor('brand')} stopOpacity={0.5}/>
-                    <stop offset="95%" stopColor={cssColor('brand')} stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <XAxis
-                  dataKey="name"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{fill: cssColor('neutral-400'), fontSize: 13, fontWeight: 500}}
-                  dy={15}
-                />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{fill: cssColor('neutral-400'), fontSize: 13, fontWeight: 500}}
-                />
-                <CartesianGrid vertical={false} stroke={cssColor('neutral-100')} strokeDasharray="3 3" />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: cssColor('white'),
-                    borderRadius: '8px',
-                    border: `1px solid ${cssColor('neutral-200')}`,
-                    boxShadow: 'var(--shadow-xl)',
-                    padding: '12px 16px'
-                  }}
-                  labelStyle={{ color: cssColor('neutral-500'), fontWeight: 500 }}
-                  itemStyle={{ color: cssColor('brand'), fontWeight: 600 }}
-                  cursor={{ stroke: cssColor('brand'), strokeWidth: 2, strokeDasharray: '4 4' }}
-                />
-                <Area type="monotone" dataKey="amount" stroke={cssColor('brand')} strokeWidth={4} fillOpacity={1} fill="url(#colorAmount)" activeDot={{ r: 8, fill: cssColor('white'), stroke: cssColor('brand'), strokeWidth: 2 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
+      <DashboardTrendChart chartData={chartData} selectedRangeLabel={selectedRangeLabel} totalAmount={totalAmount} />
 
       {/* 商品销量排行和订单来源分布 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

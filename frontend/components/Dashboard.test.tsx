@@ -6,6 +6,7 @@ import { describe, expect, test } from 'vitest';
 import { StatusBadge } from './Dashboard';
 
 const dashboardSource = readFileSync(resolve(__dirname, 'Dashboard.tsx'), 'utf8');
+const trendChartSource = readFileSync(resolve(__dirname, '../app/features/dashboard/DashboardTrendChart.tsx'), 'utf8');
 const globalStyles = readFileSync(resolve(__dirname, '../index.css'), 'utf8');
 
 describe('Dashboard presentation safeguards', () => {
@@ -31,10 +32,10 @@ describe('Dashboard presentation safeguards', () => {
     expect(dashboardSource.match(/wrapperStyle=\{\{ zIndex: 30, outline: 'none' \}\}/g)).toHaveLength(2);
     expect(dashboardSource.match(/absolute inset-0 z-10/g)).toHaveLength(2);
     expect(globalStyles).toContain('.dashboard-pie-chart .recharts-sector:focus');
-    expect(dashboardSource).toContain('dashboard-revenue-chart h-[350px] w-full');
-    expect(dashboardSource).toContain('activeBar={false}');
-    expect(dashboardSource).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
-    expect(dashboardSource).toContain("fill={cssColor('brand')}");
+    expect(trendChartSource).toContain('dashboard-revenue-chart h-[350px] w-full');
+    expect(trendChartSource).toContain('activeBar={false}');
+    expect(trendChartSource).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
+    expect(trendChartSource).toContain("fill={cssColor('brand')}");
     expect(globalStyles).toContain('.dashboard-revenue-chart .recharts-rectangle:focus');
     expect(globalStyles).toContain('.dashboard-revenue-chart .recharts-curve:focus');
     expect(globalStyles).toContain('.dashboard-revenue-chart [class*="recharts-zIndex-layer_"]:focus');
