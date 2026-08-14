@@ -21,7 +21,7 @@
 | 账号任务 | `/api/account-tasks...` | `/api/v1/account-tasks...` | React 设置和执行调用已迁移；版本化入口覆盖设置、运行记录和执行摘要；旧路径保留并由同一 handler 提供 |
 | 管理员 | `/admin/users...`、`/admin/cookies...`、`/admin/stats` | `/api/v1/admin/users...`、`/api/v1/admin/cookies...`、`/api/v1/admin/stats` | React 管理员统计调用已迁移；版本化入口保留管理员权限；旧路径保留并由同一 handler 提供 |
 | 统计 | `/dashboard/stats`、`/analytics/orders...` | `/api/v1/analytics/dashboard`、`/api/v1/analytics/orders...` | React 仪表盘、订单分析和有效订单调用已迁移；旧路径保留并由同一 handler 提供 |
-| 二维码生成 | `/qr-login/generate` | `/api/v1/qr-login/generate` | 旧路径保留，二维码生成、状态和验证完成 DTO 已落地；`qrLoginStatusResponse` 仅保留非敏感动态字段，状态响应继续保留兼容扩展 |
+| 二维码登录 | `/qr-login/generate`、`/qr-login/check/{session_id}`、`/qr-login/status/{session_id}`、`/qr-login/complete-verification/{session_id}` | `/api/v1/qr-login/generate`、`/api/v1/qr-login/check/{session_id}`、`/api/v1/qr-login/status/{session_id}`、`/api/v1/qr-login/complete-verification/{session_id}` | React 二维码生成、状态轮询和风控验证完成调用已迁移；状态持久化兼容入口同步提供；旧路径保留并由同一 handler 提供 |
 
 ## 迁移规则
 
@@ -53,6 +53,7 @@
 - 聊天会话、消息、图片、已读和 WebSocket，以及账号任务设置、运行记录和执行已由版本化路由提供；React REST/WebSocket 调用已迁移，Go 契约测试确认新旧入口权限、状态码和参数校验语义一致。
 - 关键词基础/商品/类型规则、指定商品回复和默认回复列表/单账号/清理已由版本化路由提供；React 关键词与默认回复调用已迁移，Go 契约测试确认新旧入口权限、状态码和参数校验语义一致。
 - 管理员用户/账号/统计、仪表盘统计、订单分析和有效订单分页已由版本化路由提供；React 管理员统计与仪表盘调用已迁移，Go 契约测试确认新旧入口权限、状态码和参数校验语义一致，普通用户无法访问管理员版本化入口。
+- 二维码生成、扫码状态查询、状态持久化和验证完成已由版本化路由提供；React 生成、轮询和验证完成调用已迁移，Go/React 契约测试确认新旧入口认证、会话所有权和状态码语义一致，状态响应继续过滤 Cookie 等敏感字段。
 - 聊天会话、消息分页和发送结果使用独立 DTO，不直接暴露数据库模型。
 - React `frontend/types.ts` 与 `frontend/services/api.ts` 已同步具名成功响应类型，同时保留旧字段归一逻辑。
-- 会话、账号、订单、商品、设置、卡券、通知、聊天、账号任务、关键词、默认回复、管理员和统计版本化入口已可用；二维码登录等领域仍未宣称可用，旧路径继续保留。
+- 会话、账号、订单、商品、设置、卡券、通知、聊天、账号任务、关键词、默认回复、管理员、统计和二维码登录版本化入口已可用；密码登录及少量公共旧调用方仍待迁移，旧路径继续保留。

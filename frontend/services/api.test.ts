@@ -4,7 +4,7 @@ import {
   cancelPasswordLogin,
   deleteItemPublishBatch, deleteItem, cancelItemPublishBatch, retryFailedItemPublishBatch,
   checkPasswordLoginStatus,
-  completeQRVerification,
+  checkQRLoginStatus, completeQRVerification, generateQRLogin,
 	createNotificationChannel, getAllAISettings, getAccountAISettings, updateAccountAISettings, fetchAIModels,
   getAccountDetails, getAccountRuntimeStatuses, updateAccountStatus,
 	getAutomationIssues,
@@ -213,7 +213,7 @@ test('completeQRVerification sends only the immutable target account', async () 
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, account_id: 'acc1' }));
   vi.stubGlobal('fetch', fetchMock);
   await completeQRVerification('session-1', 'acc1');
-  expect(fetchMock).toHaveBeenCalledWith('/qr-login/complete-verification/session-1', expect.objectContaining({
+  expect(fetchMock).toHaveBeenCalledWith('/api/v1/qr-login/complete-verification/session-1', expect.objectContaining({
     method: 'POST',
     body: JSON.stringify({ target_account_id: 'acc1' }),
   }));
@@ -1107,3 +1107,18 @@ const runVersionedAdminAnalyticsAPITest = async () => {
 };
 
 test('admin and analytics APIs use versioned compatibility routes', runVersionedAdminAnalyticsAPITest);
+
+// 二维码生成和状态轮询使用版本化兼容入口。
+const runVersionedQRLoginAPITest = async () => {
+  // fetchMock 是二维码生成和状态轮询请求的测试替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ success: true, session_id: 'session-1', qr_code_url: 'data:image/png;base64,abc' }))
+    .mockResolvedValueOnce(jsonResponse({ status: 'waiting', session_id: 'session-1' }));
+  vi.stubGlobal('fetch', fetchMock);
+  await generateQRLogin();
+  await checkQRLoginStatus('session-1');
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/qr-login/generate', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/qr-login/check/session-1', expect.objectContaining({ method: 'GET' }));
+};
+
+test('QR login generation and polling use versioned routes', runVersionedQRLoginAPITest);

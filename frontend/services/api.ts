@@ -165,18 +165,18 @@ export const getAccountRuntimeStatuses = async (options?: RequestControlOptions)
 
 export const generateQRLogin = async (options?: RequestControlOptions): Promise<QRLoginGenerateResponse> => {
   // 风控后匿名 token 接口可能超过通用的 30 秒请求窗口；后端总生成窗口为 2 分钟。
-  return post('/qr-login/generate', undefined, { ...options, timeoutMs: options?.timeoutMs ?? 130_000 });
+  return post('/api/v1/qr-login/generate', undefined, { ...options, timeoutMs: options?.timeoutMs ?? 130_000 });
 };
 
 export const checkQRLoginStatus = async (sessionId: string, signal?: AbortSignal): Promise<QRLoginStatusResponse> => {
-  return get(`/qr-login/check/${sessionId}`, undefined, { signal, timeoutMs: 10_000 });
+  return get(`/api/v1/qr-login/check/${sessionId}`, undefined, { signal, timeoutMs: 10_000 });
 };
 
 export const completeQRVerification = async (
   sessionId: string,
   targetAccountId?: string,
 ): Promise<QRLoginVerificationResponse> => {
-  return post(`/qr-login/complete-verification/${sessionId}`, {
+  return post(`/api/v1/qr-login/complete-verification/${sessionId}`, {
     target_account_id: targetAccountId || '',
   });
 };
