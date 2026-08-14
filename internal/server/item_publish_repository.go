@@ -38,6 +38,40 @@ type itemPublishRepository interface {
 	DeleteBatch(ctx context.Context, userID int64, batchID string) error
 	// ResetFailed 重置批次失败明细。
 	ResetFailed(ctx context.Context, batchID string) error
+	// RecoverableBatches 查询可恢复的批次。
+	RecoverableBatches(ctx context.Context, now int64, limit int) ([]db.ItemPublishBatch, error)
+	// FinalizeExpiredCancellation 收口已过期的取消请求。
+	FinalizeExpiredCancellation(ctx context.Context, batchID string, now int64) (bool, error)
+	// ResetInterrupted 重置进程中断的批次。
+	ResetInterrupted(ctx context.Context, batchID string) error
+	// FailClaimedBatch 标记当前 worker 持有的批次失败。
+	FailClaimedBatch(ctx context.Context, batchID, workerToken string) (bool, error)
+	// RenewBatchLease 续租批次 worker。
+	RenewBatchLease(ctx context.Context, batchID, workerToken string, leaseExpiresAt int64) (bool, error)
+	// ClaimRow 抢占批次明细行。
+	ClaimRow(ctx context.Context, rowID int64, workerToken string) (bool, error)
+	// BatchStatus 查询批次状态。
+	BatchStatus(ctx context.Context, batchID string) (string, error)
+	// MarkClaimedRowFailed 标记 worker 持有的明细行失败。
+	MarkClaimedRowFailed(ctx context.Context, rowID int64, workerToken, message, kind string) (bool, error)
+	// FinalizeCanceled 收口已取消批次。
+	FinalizeCanceled(ctx context.Context, batchID, workerToken string) (bool, error)
+	// FinalizeInterrupted 收口被中断批次。
+	FinalizeInterrupted(ctx context.Context, batchID, workerToken, message string) (string, bool, error)
+	// MarkClaimedRemoteStarted 记录远端发布已开始。
+	MarkClaimedRemoteStarted(ctx context.Context, rowID int64, workerToken string) (bool, error)
+	// SaveClaimedRemoteResult 保存远端发布结果。
+	SaveClaimedRemoteResult(ctx context.Context, rowID int64, workerToken, itemID, itemURL, rawJSON string) (bool, error)
+	// MarkClaimedRowSuccess 标记 worker 持有的明细行成功。
+	MarkClaimedRowSuccess(ctx context.Context, rowID int64, workerToken, itemID, itemURL, rawJSON string) (bool, error)
+	// ClearUploadDir 清理批次上传目录记录。
+	ClearUploadDir(ctx context.Context, batchID string) error
+	// ExpiredUploads 查询过期上传目录。
+	ExpiredUploads(ctx context.Context, cutoff string, limit int) ([]db.ItemPublishBatch, error)
+	// GetCookieValueOwned 读取用户拥有账号的 Cookie。
+	GetCookieValueOwned(ctx context.Context, userID int64, cookieID string) (string, error)
+	// ExistsOwned 判断账号是否归属于用户。
+	ExistsOwned(ctx context.Context, userID int64, cookieID string) (bool, error)
 }
 
 // storeItemPublishRepository 将完整 Store 适配为发布应用服务窄 repository。
@@ -124,6 +158,91 @@ func (r storeItemPublishRepository) DeleteBatch(ctx context.Context, userID int6
 // ResetFailed 委托失败明细重置。
 func (r storeItemPublishRepository) ResetFailed(ctx context.Context, batchID string) error {
 	return r.store.PublishBatches.ResetFailed(ctx, batchID)
+}
+
+// RecoverableBatches 委托可恢复批次查询。
+func (r storeItemPublishRepository) RecoverableBatches(ctx context.Context, now int64, limit int) ([]db.ItemPublishBatch, error) {
+	return r.store.PublishBatches.Recoverable(ctx, now, limit)
+}
+
+// FinalizeExpiredCancellation 委托过期取消收口。
+func (r storeItemPublishRepository) FinalizeExpiredCancellation(ctx context.Context, batchID string, now int64) (bool, error) {
+	return r.store.PublishBatches.FinalizeExpiredCancellation(ctx, batchID, now)
+}
+
+// ResetInterrupted 委托中断批次重置。
+func (r storeItemPublishRepository) ResetInterrupted(ctx context.Context, batchID string) error {
+	return r.store.PublishBatches.ResetInterrupted(ctx, batchID)
+}
+
+// FailClaimedBatch 委托 worker 持有批次失败标记。
+func (r storeItemPublishRepository) FailClaimedBatch(ctx context.Context, batchID, workerToken string) (bool, error) {
+	return r.store.PublishBatches.FailClaimedBatch(ctx, batchID, workerToken)
+}
+
+// RenewBatchLease 委托批次租约续期。
+func (r storeItemPublishRepository) RenewBatchLease(ctx context.Context, batchID, workerToken string, leaseExpiresAt int64) (bool, error) {
+	return r.store.PublishBatches.RenewBatchLease(ctx, batchID, workerToken, leaseExpiresAt)
+}
+
+// ClaimRow 委托批次明细行抢占。
+func (r storeItemPublishRepository) ClaimRow(ctx context.Context, rowID int64, workerToken string) (bool, error) {
+	return r.store.PublishBatches.ClaimRow(ctx, rowID, workerToken)
+}
+
+// BatchStatus 委托批次状态查询。
+func (r storeItemPublishRepository) BatchStatus(ctx context.Context, batchID string) (string, error) {
+	return r.store.PublishBatches.BatchStatus(ctx, batchID)
+}
+
+// MarkClaimedRowFailed 委托 worker 持有明细行失败标记。
+func (r storeItemPublishRepository) MarkClaimedRowFailed(ctx context.Context, rowID int64, workerToken, message, kind string) (bool, error) {
+	return r.store.PublishBatches.MarkClaimedRowFailed(ctx, rowID, workerToken, message, kind)
+}
+
+// FinalizeCanceled 委托已取消批次收口。
+func (r storeItemPublishRepository) FinalizeCanceled(ctx context.Context, batchID, workerToken string) (bool, error) {
+	return r.store.PublishBatches.FinalizeCanceled(ctx, batchID, workerToken)
+}
+
+// FinalizeInterrupted 委托中断批次收口。
+func (r storeItemPublishRepository) FinalizeInterrupted(ctx context.Context, batchID, workerToken, message string) (string, bool, error) {
+	return r.store.PublishBatches.FinalizeInterrupted(ctx, batchID, workerToken, message)
+}
+
+// MarkClaimedRemoteStarted 委托远端发布开始标记。
+func (r storeItemPublishRepository) MarkClaimedRemoteStarted(ctx context.Context, rowID int64, workerToken string) (bool, error) {
+	return r.store.PublishBatches.MarkClaimedRemoteStarted(ctx, rowID, workerToken)
+}
+
+// SaveClaimedRemoteResult 委托远端发布结果保存。
+func (r storeItemPublishRepository) SaveClaimedRemoteResult(ctx context.Context, rowID int64, workerToken, itemID, itemURL, rawJSON string) (bool, error) {
+	return r.store.PublishBatches.SaveClaimedRemoteResult(ctx, rowID, workerToken, itemID, itemURL, rawJSON)
+}
+
+// MarkClaimedRowSuccess 委托明细行成功标记。
+func (r storeItemPublishRepository) MarkClaimedRowSuccess(ctx context.Context, rowID int64, workerToken, itemID, itemURL, rawJSON string) (bool, error) {
+	return r.store.PublishBatches.MarkClaimedRowSuccess(ctx, rowID, workerToken, itemID, itemURL, rawJSON)
+}
+
+// ClearUploadDir 委托批次上传目录清理。
+func (r storeItemPublishRepository) ClearUploadDir(ctx context.Context, batchID string) error {
+	return r.store.PublishBatches.ClearUploadDir(ctx, batchID)
+}
+
+// ExpiredUploads 委托过期上传目录查询。
+func (r storeItemPublishRepository) ExpiredUploads(ctx context.Context, cutoff string, limit int) ([]db.ItemPublishBatch, error) {
+	return r.store.PublishBatches.ExpiredUploads(ctx, cutoff, limit)
+}
+
+// GetCookieValueOwned 委托用户账号 Cookie 查询。
+func (r storeItemPublishRepository) GetCookieValueOwned(ctx context.Context, userID int64, cookieID string) (string, error) {
+	return r.store.Cookies.GetValueOwned(ctx, userID, cookieID)
+}
+
+// ExistsOwned 委托账号归属查询。
+func (r storeItemPublishRepository) ExistsOwned(ctx context.Context, userID int64, cookieID string) (bool, error) {
+	return r.store.Cookies.ExistsOwned(ctx, userID, cookieID)
 }
 
 // newStoreItemPublishRepository 从完整 Store 构造发布应用服务窄 repository。

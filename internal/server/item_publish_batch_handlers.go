@@ -326,7 +326,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 			writeErr(w, http.StatusBadRequest, "表格中没有有效数据行")
 			return
 		}
-		if err := s.Store.PublishBatches.Create(r.Context(), &db.ItemPublishBatch{
+		if err := s.itemPublishRepositoryForServer().CreateBatch(r.Context(), &db.ItemPublishBatch{
 			ID:              batchID,
 			UserID:          sess.UserID,
 			DefaultCookieID: defaultCookieID,
@@ -339,7 +339,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		keepUpload = true
-		_ = s.Store.PublishBatches.Recount(r.Context(), batchID)
+		_ = s.itemPublishRepositoryForServer().RecountBatch(r.Context(), batchID)
 		// 预检响应保留逐行错误，客户端据此决定是否允许启动发布。
 		// preview_id 是后续启动、轮询和放弃预检的稳定标识。
 		// total、valid 和 invalid 继续使用旧统计口径。
@@ -512,30 +512,30 @@ func (s *Server) StartPublishBatchRecovery(ctx context.Context) {
 }
 
 func (s *Server) recoverPublishBatchesOnce(ctx context.Context) {
-	batches, err := s.Store.PublishBatches.Recoverable(ctx, time.Now().UTC().Unix(), 20)
+	batches, err := s.itemPublishRepositoryForServer().RecoverableBatches(ctx, time.Now().UTC().Unix(), 20)
 	if err != nil {
 		s.Logger.Warn("扫描可恢复批量发布任务失败", "err", err)
 		return
 	}
 	for _, batch := range batches {
 		if batch.Status == "canceling" {
-			_, _ = s.Store.PublishBatches.FinalizeExpiredCancellation(ctx, batch.ID, time.Now().UTC().Unix())
+			_, _ = s.itemPublishRepositoryForServer().FinalizeExpiredCancellation(ctx, batch.ID, time.Now().UTC().Unix())
 			continue
 		}
 		workerToken := randomHex(16)
-		claimed, claimErr := s.Store.PublishBatches.ClaimBatch(ctx, batch.ID, workerToken, time.Now().UTC().Add(publishBatchLease).Unix())
+		claimed, claimErr := s.itemPublishRepositoryForServer().ClaimBatch(ctx, batch.ID, workerToken, time.Now().UTC().Add(publishBatchLease).Unix())
 		if claimErr != nil || !claimed {
 			continue
 		}
-		if err := s.Store.PublishBatches.ResetInterrupted(ctx, batch.ID); err != nil {
+		if err := s.itemPublishRepositoryForServer().ResetInterrupted(ctx, batch.ID); err != nil {
 			s.failClaimedPublishBatch(batch.ID, workerToken)
 			continue
 		}
-		_ = s.Store.PublishBatches.Recount(ctx, batch.ID)
-		pending, pendingErr := s.Store.PublishBatches.PendingRows(ctx, batch.ID, false)
+		_ = s.itemPublishRepositoryForServer().RecountBatch(ctx, batch.ID)
+		pending, pendingErr := s.itemPublishRepositoryForServer().PendingRows(ctx, batch.ID, false)
 		if pendingErr != nil || len(pending) == 0 {
 			if pendingErr == nil {
-				_, _, _ = s.Store.PublishBatches.FinalizeBatch(ctx, batch.ID, workerToken)
+				_, _, _ = s.itemPublishRepositoryForServer().FinalizeBatch(ctx, batch.ID, workerToken)
 			} else {
 				s.failClaimedPublishBatch(batch.ID, workerToken)
 			}
@@ -548,7 +548,7 @@ func (s *Server) recoverPublishBatchesOnce(ctx context.Context) {
 func (s *Server) failClaimedPublishBatch(batchID, workerToken string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if released, err := s.Store.PublishBatches.FailClaimedBatch(ctx, batchID, workerToken); err != nil {
+	if released, err := s.itemPublishRepositoryForServer().FailClaimedBatch(ctx, batchID, workerToken); err != nil {
 		s.Logger.Warn("释放异常批量发布任务失败", "batch", batchID, "err", err)
 	} else if !released {
 		s.Logger.Debug("批量发布任务租约已转移，无需释放", "batch", batchID)
@@ -558,12 +558,12 @@ func (s *Server) failClaimedPublishBatch(batchID, workerToken string) {
 func (s *Server) downloadItemPublishBatchResult(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	batchID := chi.URLParam(r, "batch_id")
-	batch, err := s.Store.PublishBatches.Get(r.Context(), sess.UserID, batchID)
+	batch, err := s.itemPublishRepositoryForServer().GetBatch(r.Context(), sess.UserID, batchID)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "批量任务不存在")
 		return
 	}
-	rows, err := s.Store.PublishBatches.Rows(r.Context(), batch.ID)
+	rows, err := s.itemPublishRepositoryForServer().ListBatchRows(r.Context(), batch.ID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取任务明细失败")
 		return
@@ -604,7 +604,7 @@ func safeCSVCell(value string) string {
 }
 
 func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID, workerToken string, failedOnly bool) {
-	rows, err := s.Store.PublishBatches.PendingRows(ctx, batchID, failedOnly)
+	rows, err := s.itemPublishRepositoryForServer().PendingRows(ctx, batchID, failedOnly)
 	if err != nil {
 		if s.Logger != nil {
 			s.Logger.Warn("读取批量发布行失败", "batch", batchID, "err", err)
@@ -621,21 +621,21 @@ func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID,
 			return
 		}
 		wctx, cancel := publishStatusContext(ctx)
-		renewed, renewErr := s.Store.PublishBatches.RenewBatchLease(wctx, batchID, workerToken, time.Now().UTC().Add(publishBatchLease).Unix())
+		renewed, renewErr := s.itemPublishRepositoryForServer().RenewBatchLease(wctx, batchID, workerToken, time.Now().UTC().Add(publishBatchLease).Unix())
 		cancel()
 		if renewErr != nil || !renewed {
 			s.finishInterruptedPublishBatch(ctx, userID, batchID, workerToken)
 			return
 		}
 		wctx, cancel = publishStatusContext(ctx)
-		batch, err := s.Store.PublishBatches.Get(wctx, userID, batchID)
+		batch, err := s.itemPublishRepositoryForServer().GetBatch(wctx, userID, batchID)
 		cancel()
 		if err != nil || batch.Status != "running" || batch.WorkerToken != workerToken {
 			s.finishInterruptedPublishBatch(ctx, userID, batchID, workerToken)
 			return
 		}
 		wctx, cancel = publishStatusContext(ctx)
-		claimed, claimErr := s.Store.PublishBatches.ClaimRow(wctx, row.ID, workerToken)
+		claimed, claimErr := s.itemPublishRepositoryForServer().ClaimRow(wctx, row.ID, workerToken)
 		cancel()
 		if claimErr != nil {
 			s.finishInterruptedPublishBatch(ctx, userID, batchID, workerToken)
@@ -647,11 +647,11 @@ func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID,
 		if rowErr := s.publishBatchRow(ctx, userID, client, row, workerToken); rowErr != nil {
 			sessionExpired := mtop.IsSessionExpiredErr(rowErr)
 			statusCtx, statusCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			status, _ := s.Store.PublishBatches.BatchStatus(statusCtx, batchID)
+			status, _ := s.itemPublishRepositoryForServer().BatchStatus(statusCtx, batchID)
 			statusCancel()
 			message, failureKind := publishBatchFailure(rowErr, status)
 			wctx, cancel := publishStatusContext(ctx)
-			marked, markErr := s.Store.PublishBatches.MarkClaimedRowFailed(wctx, row.ID, workerToken, message, failureKind)
+			marked, markErr := s.itemPublishRepositoryForServer().MarkClaimedRowFailed(wctx, row.ID, workerToken, message, failureKind)
 			cancel()
 			if markErr != nil || !marked {
 				if s.Logger != nil {
@@ -665,7 +665,7 @@ func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID,
 			}
 		}
 		wctx, cancel = publishStatusContext(ctx)
-		if err := s.Store.PublishBatches.Recount(wctx, batchID); err != nil && s.Logger != nil {
+		if err := s.itemPublishRepositoryForServer().RecountBatch(wctx, batchID); err != nil && s.Logger != nil {
 			s.Logger.Warn("重算批量发布进度失败", "batch", batchID, "err", err)
 		}
 		cancel()
@@ -746,7 +746,7 @@ func publishStatusContext(parent context.Context) (context.Context, context.Canc
 func (s *Server) finishInterruptedPublishBatch(ctx context.Context, userID int64, batchID, workerToken string) {
 	wctx, cancel := publishStatusContext(ctx)
 	defer cancel()
-	batch, err := s.Store.PublishBatches.Get(wctx, userID, batchID)
+	batch, err := s.itemPublishRepositoryForServer().GetBatch(wctx, userID, batchID)
 	if err != nil {
 		return
 	}
@@ -755,12 +755,12 @@ func (s *Server) finishInterruptedPublishBatch(ctx context.Context, userID int64
 			if batch.WorkerToken != workerToken {
 				return
 			}
-			_, _ = s.Store.PublishBatches.FinalizeCanceled(wctx, batchID, workerToken)
+			_, _ = s.itemPublishRepositoryForServer().FinalizeCanceled(wctx, batchID, workerToken)
 		}
 		// 取消产生的 interrupted 失败行允许用户稍后重试，图片由统一的过期清理保留 7 天。
 		return
 	}
-	_, _, finalizeErr := s.Store.PublishBatches.FinalizeInterrupted(wctx, batchID, workerToken, "任务超时或已中断")
+	_, _, finalizeErr := s.itemPublishRepositoryForServer().FinalizeInterrupted(wctx, batchID, workerToken, "任务超时或已中断")
 	if finalizeErr != nil && s.Logger != nil {
 		s.Logger.Warn("结束中断的批量发布任务失败，等待租约恢复", "batch", batchID, "err", finalizeErr)
 	}
@@ -769,16 +769,16 @@ func (s *Server) finishInterruptedPublishBatch(ctx context.Context, userID int64
 func (s *Server) finishPublishBatch(ctx context.Context, userID int64, batchID, workerToken string) {
 	wctx, cancel := publishStatusContext(ctx)
 	defer cancel()
-	batch, err := s.Store.PublishBatches.Get(wctx, userID, batchID)
+	batch, err := s.itemPublishRepositoryForServer().GetBatch(wctx, userID, batchID)
 	if err != nil || batch.Status == "canceled" || batch.WorkerToken != workerToken {
 		return
 	}
 	if batch.Status == "canceling" {
-		_, _ = s.Store.PublishBatches.FinalizeCanceled(wctx, batchID, workerToken)
+		_, _ = s.itemPublishRepositoryForServer().FinalizeCanceled(wctx, batchID, workerToken)
 		// 取消任务仍可“重试失败项”，不能在此删除重试所需的本地图片。
 		return
 	}
-	finalStatus, finished, finishErr := s.Store.PublishBatches.FinalizeBatch(wctx, batchID, workerToken)
+	finalStatus, finished, finishErr := s.itemPublishRepositoryForServer().FinalizeBatch(wctx, batchID, workerToken)
 	if finishErr != nil {
 		if s.Logger != nil {
 			s.Logger.Warn("结束批量发布任务失败，等待租约恢复", "batch", batchID, "err", finishErr)
@@ -804,7 +804,7 @@ func finalPublishBatchStatus(batch *db.ItemPublishBatch) string {
 }
 
 func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.Client, row db.ItemPublishBatchRow, workerToken string) error {
-	batch, err := s.Store.PublishBatches.Get(ctx, userID, row.BatchID)
+	batch, err := s.itemPublishRepositoryForServer().GetBatch(ctx, userID, row.BatchID)
 	if err != nil {
 		return errors.New("批量任务不存在")
 	}
@@ -852,7 +852,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 			return err
 		}
 		markCtx, markCancel := publishStatusContext(ctx)
-		remoteStarted, markErr := s.Store.PublishBatches.MarkClaimedRemoteStarted(markCtx, row.ID, workerToken)
+		remoteStarted, markErr := s.itemPublishRepositoryForServer().MarkClaimedRemoteStarted(markCtx, row.ID, workerToken)
 		markCancel()
 		if markErr != nil || !remoteStarted {
 			return fmt.Errorf("保存远端发布前检查点失败: %w", firstError(markErr, errors.New("批次租约已失效")))
@@ -860,7 +860,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 		runtimeCookie := ""
 		runtimeCookieChanged := false
 		res, err = func() (*mtop.PublishItemResult, error) {
-			credentialUnlock := s.Store.LockAccountCredentials(row.CookieID)
+			credentialUnlock := s.itemPublishRepositoryForServer().LockCredentials(row.CookieID)
 			defer credentialUnlock()
 			latest, latestErr := s.loadCookiePlatformDetail(ctx, row.CookieID)
 			if latestErr != nil {
@@ -902,7 +902,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 					runtimeCookieChanged = true
 				}
 			} else if publishErr == nil && published != nil && published.UpdatedCookies != "" && published.UpdatedCookies != cookieValue {
-				if saveErr := s.Store.Cookies.UpdateValueOwned(ctx, row.CookieID, published.UpdatedCookies, userID); saveErr != nil {
+				if saveErr := s.itemPublishRepositoryForServer().UpdateCookieValueOwned(ctx, row.CookieID, published.UpdatedCookies, userID); saveErr != nil {
 					responseCookieErr = fmt.Errorf("发布商品后保存响应 Cookie: %w", saveErr)
 				} else {
 					runtimeCookie = published.UpdatedCookies
@@ -939,7 +939,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 		}
 		rawJSON, _ := json.Marshal(res.RawData)
 		saveCtx, saveCancel := publishStatusContext(ctx)
-		saved, saveErr := s.Store.PublishBatches.SaveClaimedRemoteResult(saveCtx, row.ID, workerToken, res.ItemID, res.ItemURL, string(rawJSON))
+		saved, saveErr := s.itemPublishRepositoryForServer().SaveClaimedRemoteResult(saveCtx, row.ID, workerToken, res.ItemID, res.ItemURL, string(rawJSON))
 		saveCancel()
 		if saveErr != nil || !saved {
 			return &uncertainRemotePublishError{err: fmt.Errorf("保存远端发布结果失败: %w", firstError(saveErr, errors.New("批次租约已失效")))}
@@ -953,7 +953,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 	if ctx.Err() != nil {
 		return &postPublishError{err: ctx.Err()}
 	}
-	currentBatch, err := s.Store.PublishBatches.Get(ctx, userID, row.BatchID)
+	currentBatch, err := s.itemPublishRepositoryForServer().GetBatch(ctx, userID, row.BatchID)
 	if err != nil || currentBatch.Status == "canceled" || currentBatch.WorkerToken != workerToken {
 		return &postPublishError{err: context.Canceled}
 	}
@@ -966,7 +966,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 			"publish_raw":   res.RawData,
 		}
 		detailJSON, _ := json.Marshal(detail)
-		if err := s.Store.Items.Upsert(ctx, &db.ItemInfoRow{
+		if err := s.itemPublishRepositoryForServer().UpsertItem(ctx, &db.ItemInfoRow{
 			CookieID:              row.CookieID,
 			ItemID:                res.ItemID,
 			ItemTitle:             firstNonEmpty(res.Title, row.Title),
@@ -983,7 +983,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 		}
 	}
 	rawJSON, _ := json.Marshal(res.RawData)
-	marked, err := s.Store.PublishBatches.MarkClaimedRowSuccess(ctx, row.ID, workerToken, res.ItemID, res.ItemURL, string(rawJSON))
+	marked, err := s.itemPublishRepositoryForServer().MarkClaimedRowSuccess(ctx, row.ID, workerToken, res.ItemID, res.ItemURL, string(rawJSON))
 	if err != nil {
 		return err
 	}
@@ -1321,12 +1321,12 @@ func (s *Server) removePublishUploadDir(ctx context.Context, batch *db.ItemPubli
 		return
 	}
 	_ = os.RemoveAll(batch.UploadDir)
-	_ = s.Store.PublishBatches.ClearUploadDir(ctx, batch.ID)
+	_ = s.itemPublishRepositoryForServer().ClearUploadDir(ctx, batch.ID)
 }
 
 func (s *Server) cleanupExpiredPublishUploads(ctx context.Context) {
 	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour).Format("2006-01-02 15:04:05")
-	batches, err := s.Store.PublishBatches.ExpiredUploads(ctx, cutoff, 100)
+	batches, err := s.itemPublishRepositoryForServer().ExpiredUploads(ctx, cutoff, 100)
 	if err != nil {
 		return
 	}
@@ -1338,14 +1338,14 @@ func (s *Server) cleanupExpiredPublishUploads(ctx context.Context) {
 // cookieOwnedByUser 判断指定账号是否属于用户，不读取或解密 Cookie 明文。
 func (s *Server) cookieOwnedByUser(ctx context.Context, userID int64, cookieID string) bool {
 	// owned 表示数据库中是否存在匹配用户和账号 ID 的记录。
-	owned, err := s.Store.Cookies.ExistsOwned(ctx, userID, cookieID)
+	owned, err := s.itemPublishRepositoryForServer().ExistsOwned(ctx, userID, cookieID)
 	return err == nil && owned
 }
 
 // cookieValueForUser 读取指定用户拥有的单个账号 Cookie 明文。
 func (s *Server) cookieValueForUser(ctx context.Context, userID int64, cookieID string) (string, error) {
 	// value 是按 user_id 与账号 ID 联合过滤后解密的单个 Cookie 明文。
-	value, err := s.Store.Cookies.GetValueOwned(ctx, userID, cookieID)
+	value, err := s.itemPublishRepositoryForServer().GetCookieValueOwned(ctx, userID, cookieID)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			return "", errors.New("账号不存在或 Cookie 为空")

@@ -90,6 +90,11 @@ func (s *Server) itemPublishApplication() *itemPublishService {
 	return s.applicationServiceSet().itemPublish
 }
 
+// itemPublishRepositoryForServer 返回当前 Server 装配的发布持久化边界。
+func (s *Server) itemPublishRepositoryForServer() itemPublishRepository {
+	return s.itemPublishApplication().repository
+}
+
 // PublishSingle 执行单商品发布、响应 Cookie 持久化和本地商品落库。
 func (svc *itemPublishService) PublishSingle(ctx context.Context, input itemPublishInput) (itemPublishOutcome, error) {
 	// s 是当前商品发布应用服务依赖的 Server。
