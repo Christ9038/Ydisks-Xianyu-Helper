@@ -71,32 +71,6 @@ func (s *Server) requireCookieOwnership(w http.ResponseWriter, r *http.Request, 
 	return true
 }
 
-// requireOrderOwner 校验当前会话是否拥有订单关联的账号。
-func (s *Server) requireOrderOwner(w http.ResponseWriter, r *http.Request, orderID string) (*db.Order, bool) {
-	// sess 是当前请求经过认证中间件注入的会话。
-	sess := auth.SessionFromContext(r.Context())
-	if sess == nil {
-		writeErr(w, http.StatusUnauthorized, "未授权访问")
-		return nil, false
-	}
-	// order 和 err 分别表示订单记录及其查询错误。
-	order, err := s.Store.Orders.Get(r.Context(), orderID)
-	if err != nil || order == nil {
-		writeErr(w, http.StatusNotFound, "订单不存在")
-		return nil, false
-	}
-	if order.CookieID == "" {
-		writeErr(w, http.StatusForbidden, "订单未绑定账号，无法操作")
-		return nil, false
-	}
-	// owned 表示当前会话是否拥有订单绑定的账号。
-	if !s.cookieOwnedByUser(r.Context(), sess.UserID, order.CookieID) {
-		writeErr(w, http.StatusForbidden, "无权操作此订单")
-		return nil, false
-	}
-	return order, true
-}
-
 // requireCardOwner 校验当前会话是否拥有卡券组。
 func (s *Server) requireCardOwner(w http.ResponseWriter, r *http.Request, cardID int64) (*db.CardFull, bool) {
 	// sess 是当前请求经过认证中间件注入的会话。

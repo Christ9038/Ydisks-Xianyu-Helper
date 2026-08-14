@@ -636,6 +636,42 @@ func TestIsStableOrderStatus(t *testing.T) {
 	}
 }
 
+// TestOrderApplicationServiceUsesTypedBusinessInputs 验证订单应用服务可脱离 HTTP 适配直接执行核心用例。
+func TestOrderApplicationServiceUsesTypedBusinessInputs(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	service := srv.orders()
+	list, err := service.List(ctx, orderListQuery{UserID: 1, Page: 0, PageSize: 999})
+	if err != nil {
+		t.Fatalf("订单服务列表查询失败: %v", err)
+	}
+	if list.Page != 1 || list.PageSize != 200 {
+		t.Fatalf("订单服务分页规范化异常: %+v", list)
+	}
+	if _, err := service.Import(ctx, 1, []map[string]any{{"order_id": "service-order", "cookie_id": "acc1", "status": "pending_ship", "amount": "12.50"}}); err != nil {
+		t.Fatalf("订单服务导入失败: %v", err)
+	}
+	if err := service.Update(ctx, 1, "service-order", orderUpdateRequest{Amount: stringPtrForOrderTest("13.00")}); err != nil {
+		t.Fatalf("订单服务更新失败: %v", err)
+	}
+	order, err := store.Orders.Get(ctx, "service-order")
+	if err != nil || order.Amount != "13.00" {
+		t.Fatalf("订单服务更新结果异常: order=%+v err=%v", order, err)
+	}
+	if err := service.Delete(ctx, 1, "service-order"); err != nil {
+		t.Fatalf("订单服务删除失败: %v", err)
+	}
+	if _, err := store.Orders.Get(ctx, "service-order"); err == nil {
+		t.Fatal("订单服务删除后仍可查询活动订单")
+	}
+}
+
+// stringPtrForOrderTest 返回订单服务测试使用的字符串指针。
+func stringPtrForOrderTest(value string) *string {
+	return &value
+}
+
 // TestAtoiDefault atoiDefault 表驱动。
 func TestAtoiDefault(t *testing.T) {
 	cases := map[string]int{"": 5, "abc": 5, "3": 3, "12": 12}
