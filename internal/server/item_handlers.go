@@ -317,21 +317,21 @@ func parseMoneyCents(raw string) (int64, error) {
 
 func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
-	all, err := s.Store.Cookies.AllForUser(r.Context(), sess.UserID)
+	cookieIDs, err := s.Store.Cookies.ListOwnedIDs(r.Context(), sess.UserID) // cookieIDs 和 err 是账号 ID 列表及查询错误。
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
 	cookieID := strings.TrimSpace(r.URL.Query().Get("cookie_id"))
 	if cookieID != "" {
-		if _, ok := all[cookieID]; !ok {
+		if !s.cookieOwnedByUser(r.Context(), sess.UserID, cookieID) {
 			writeErr(w, http.StatusForbidden, "无权限操作该账号")
 			return
 		}
-		all = map[string]string{cookieID: all[cookieID]}
+		cookieIDs = []string{cookieID}
 	}
 	result := []map[string]any{}
-	for cid := range all {
+	for _, cid := range cookieIDs {
 		items, _ := s.Store.Items.AllForCookie(r.Context(), cid)
 		for _, it := range items {
 			result = append(result, itemToMap(it))
@@ -538,14 +538,13 @@ func (s *Server) syncItemsPageFromAccount(w http.ResponseWriter, r *http.Request
 
 func (s *Server) cookieForCurrentUser(w http.ResponseWriter, r *http.Request, cookieID string) (string, int64, bool) {
 	sess := auth.SessionFromContext(r.Context())
-	all, err := s.Store.Cookies.AllForUser(r.Context(), sess.UserID)
+	value, err := s.Store.Cookies.GetValueOwned(r.Context(), sess.UserID, cookieID) // value 和 err 是单个 Cookie 明文及读取错误。
 	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeErr(w, http.StatusForbidden, "无权限操作该账号")
+			return "", 0, false
+		}
 		writeErr(w, http.StatusInternalServerError, "查询账号失败")
-		return "", 0, false
-	}
-	value, ok := all[cookieID]
-	if !ok {
-		writeErr(w, http.StatusForbidden, "无权限操作该账号")
 		return "", 0, false
 	}
 	if value == "" {
@@ -555,6 +554,7 @@ func (s *Server) cookieForCurrentUser(w http.ResponseWriter, r *http.Request, co
 	return value, sess.UserID, true
 }
 
+// saveSyncedItems 以下历史同步流程保持原有行为。
 func (s *Server) saveSyncedItems(ctx context.Context, cookieID string, items []mtop.ItemListItem) int {
 	saved := 0
 	for _, item := range items {

@@ -167,11 +167,11 @@ func (s *Server) itemOwnedByUser(r *http.Request, userID int64, cookieID, itemID
 	if itemID == "" {
 		return true
 	}
-	all, err := s.Store.Cookies.AllForUser(r.Context(), userID)
-	if err != nil || cookieID == "" {
+	if cookieID == "" {
 		return false
 	}
-	if _, ok := all[cookieID]; !ok {
+	owned, err := s.Store.Cookies.ExistsOwned(r.Context(), userID, cookieID) // owned 和 err 表示账号归属及查询错误。
+	if err != nil || !owned {
 		return false
 	}
 	_, err = s.Store.Items.Get(r.Context(), cookieID, itemID)

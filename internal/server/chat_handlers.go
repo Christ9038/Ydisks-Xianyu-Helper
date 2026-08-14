@@ -434,14 +434,14 @@ func (s *Server) ownsAccount(r *http.Request, accountID string) bool {
 		return false
 	}
 	sess := auth.SessionFromContext(r.Context())
-	accounts, err := s.Store.Cookies.AllForUser(r.Context(), sess.UserID)
-	if err != nil {
-		return false
-	}
-	_, ok := accounts[accountID]
-	return ok
+	owned, err := s.Store.Cookies.ExistsOwned(r.Context(), sess.UserID, accountID) // owned 和 err 表示账号归属及查询错误。
+	return err == nil && owned
 }
 
+/*
+账号查询已采用所有权窄接口。
+*/
+// parsePositiveInt 将正整数文本转换为整数，无法解析时返回备用值。
 func parsePositiveInt(raw string, fallback int) int {
 	value, err := strconv.Atoi(raw)
 	if err != nil || value <= 0 {

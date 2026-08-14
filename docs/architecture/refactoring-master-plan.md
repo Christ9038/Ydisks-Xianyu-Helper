@@ -109,7 +109,8 @@ app shell / routes
 - 已完成阶段 2 第一个切片：建立不读取或解密敏感字段的 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned`，并覆盖跨用户和无效 user ID 回归测试；
 - 已完成阶段 2 第二个切片：新增 `GetOwnerID`、原子 `GetValueOwned`，将 server 的账号所有权检查和订单凭证读取迁移到窄查询，纯所有权 handler 不再解密完整账号详情，并保留 404/403 行为回归；
 - 已完成阶段 2 第三个切片：账号列表、运行状态、非敏感详情和单账号详情迁移到 `ListOwnedIDs`、`ListSummaries`、`GetSummaryOwned`，刷新资料先做窄所有权过滤，消除列表批量解密和详情 N+1 完整凭证查询；
-- 下一最小工作项：盘点 `internal/server` 其余 `AllForUser` 调用，将只需要账号 ID 或所有权判断的流程迁移到窄查询；
+- 已完成阶段 2 第四个切片：聊天账号校验、商品列表、关键词回复列表、卡券关联校验及管理员删除用户的账号停止流程迁移到 `ListOwnedIDs` 或 `ExistsOwned`，商品凭证读取迁移到 `GetValueOwned`；
+- 下一最小工作项：拆分 `internal/server/order_handlers.go` 中订单刷新、手动发货和订单导入的账号列表与凭证读取，分别使用账号 ID 列表、所有权判断和单值凭证接口；
 - 随后工作项：再处理明确需要平台凭证的业务流程，统一使用按用户和账号 ID 过滤的单值凭证接口；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
@@ -204,7 +205,8 @@ app shell / routes
 `GetOwnerID` 只返回所有者 ID；`GetSummaryOwned` 返回指定用户的单个非敏感摘要；`GetValueOwned` 在同一条带 user_id 过滤的查询中读取并解密单个 Cookie，避免
 所有权检查与凭证读取之间的竞态窗口。测试使用故意无效的密文值验证摘要查询和所有权检查不会触发解密，
 并使用正常加密值覆盖单值凭证读取。账号列表与详情 handler 已不再通过 `AllForUser` 或完整 `GetDetails` 读取敏感字段，
-其余 `AllForUser` 和 `GetDetails` 调用方继续按消费场景逐个替换并保留行为回归测试。
+目前 server 生产代码仅剩订单刷新、手动发货和订单导入的 3 处 `AllForUser`，这些流程同时编排凭证和订单业务，
+将作为独立切片拆分，避免在一次变更中混合多个订单行为。
 
 逐步替换使用 `AllForUser` 进行所有权检查以及使用 `GetDetails` 获取非敏感字段的调用。
 

@@ -299,9 +299,9 @@ func (s *Server) mountItemRepliesReal(r chi.Router) {
 
 func (s *Server) listItemReplies(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
-	all, _ := s.Store.Cookies.AllForUser(r.Context(), sess.UserID)
+	cookieIDs, _ := s.Store.Cookies.ListOwnedIDs(r.Context(), sess.UserID) // cookieIDs 是当前用户拥有的账号 ID。
 	var result []map[string]any
-	for cid := range all {
+	for _, cid := range cookieIDs {
 		rows, _ := s.Store.ItemReps.AllForUser(r.Context(), cid)
 		for _, ir := range rows {
 			result = append(result, map[string]any{

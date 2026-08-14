@@ -65,8 +65,8 @@ func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Manager != nil {
-		if accounts, listErr := s.Store.Cookies.AllForUser(r.Context(), uid); listErr == nil {
-			for cookieID := range accounts {
+		if accountIDs, listErr := s.Store.Cookies.ListOwnedIDs(r.Context(), uid); listErr == nil { // accountIDs 是待停止的账号 ID。
+			for _, cookieID := range accountIDs {
 				s.Manager.Stop(cookieID)
 			}
 		}
