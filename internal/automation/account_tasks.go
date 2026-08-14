@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"xianyu-go/internal/db"
@@ -34,7 +35,44 @@ type AccountTaskSummary struct {
 	Message  string `json:"message,omitempty"`
 }
 
-func (c *Center) RunAccountTask(ctx context.Context, accountID, taskType string) (AccountTaskSummary, error) {
+// accountTaskCoordinator 负责账号自动评价、商品擦亮和凭证阻断状态。
+// 它拥有账号任务专用的 Session 指纹状态，Center 只保留兼容调用入口和依赖装配。
+type accountTaskCoordinator struct {
+	// store 提供账号设置、任务租约、Cookie 和运行结果的持久化能力。
+	store *db.Store
+	// client 返回当前生效的账号任务平台客户端。
+	client func() AccountTaskClient
+	// senders 用于把任务响应 Cookie 同步到在线账号运行时。
+	senders SenderProvider
+	// recoverer 返回当前生效的凭证恢复器。
+	recoverer func() CredentialRecoverer
+	// logger 记录账号任务扫描、凭证恢复和 Cookie 持久化异常。
+	logger interface {
+		Warn(string, ...any)
+	}
+	// sessionExpired 保存 Session 失效时的凭证指纹，阻止同一凭证继续调用平台 API。
+	sessionExpired sync.Map
+}
+
+// accountAutomationAllowed 判断账号是否未暂停且仍处于启用状态。
+func (c *accountTaskCoordinator) accountAutomationAllowed(ctx context.Context, accountID string) (bool, error) {
+	// paused 表示账号是否被用户临时暂停。
+	// err 保存读取账号暂停状态的错误。
+	paused, _, err := c.store.Cookies.IsPaused(ctx, accountID)
+	if err != nil {
+		return false, fmt.Errorf("读取账号暂停状态: %w", err)
+	}
+	// enabled 表示账号是否处于启用状态。
+	// statusErr 保存读取账号启用状态的错误。
+	enabled, statusErr := c.store.Cookies.Status(ctx, accountID)
+	if statusErr != nil {
+		return false, fmt.Errorf("读取账号启用状态: %w", statusErr)
+	}
+	return !paused && enabled, nil
+}
+
+// runAccountTask 执行指定账号任务，并在执行前检查账号状态门禁。
+func (c *accountTaskCoordinator) runAccountTask(ctx context.Context, accountID, taskType string) (AccountTaskSummary, error) {
 	allowed, err := c.accountAutomationAllowed(ctx, accountID)
 	if err != nil {
 		return AccountTaskSummary{TaskType: taskType}, err
@@ -49,7 +87,7 @@ func (c *Center) RunAccountTask(ctx context.Context, accountID, taskType string)
 	return c.runConfiguredAccountTask(ctx, settings, taskType)
 }
 
-func (c *Center) runConfiguredAccountTask(ctx context.Context, settings db.AccountTaskSettings, taskType string) (AccountTaskSummary, error) {
+func (c *accountTaskCoordinator) runConfiguredAccountTask(ctx context.Context, settings db.AccountTaskSettings, taskType string) (AccountTaskSummary, error) {
 	if blocked, err := c.accountTaskSessionBlocked(ctx, settings.CookieID); err != nil {
 		return AccountTaskSummary{TaskType: taskType}, err
 	} else if blocked {
@@ -74,8 +112,8 @@ func (c *Center) runConfiguredAccountTask(ctx context.Context, settings db.Accou
 	return summary, err
 }
 
-func (c *Center) scanAccountTasks(ctx context.Context) {
-	if c.accountTasks == nil || c.store.AccountTasks == nil {
+func (c *accountTaskCoordinator) scanAccountTasks(ctx context.Context) {
+	if c.client() == nil || c.store.AccountTasks == nil {
 		return
 	}
 	settings, err := c.store.AccountTasks.Enabled(ctx)
@@ -112,20 +150,20 @@ func (c *Center) scanAccountTasks(ctx context.Context) {
 	}
 }
 
-func (c *Center) recoverAccountTaskSession(ctx context.Context, accountID string, sessionErr error) error {
+func (c *accountTaskCoordinator) recoverAccountTaskSession(ctx context.Context, accountID string, sessionErr error) error {
 	fingerprint, fingerprintErr := c.accountCredentialFingerprint(ctx, accountID)
 	if fingerprintErr == nil {
 		c.sessionExpired.Store(accountID, fingerprint)
 	}
 	c.logger.Warn("自动化 API 检测到 Session 过期，停止后续请求并开始即时续期", "account", accountID, "err", sessionErr)
-	if c.recoverer != nil && c.recoverer.RecoverExpiredCredential(ctx, accountID) {
+	if recoverer := c.recoverer(); recoverer != nil && recoverer.RecoverExpiredCredential(ctx, accountID) {
 		c.sessionExpired.Delete(accountID)
 		return fmt.Errorf("%w；Session 续期成功，本次自动化已停止，下一轮将使用新凭证", sessionErr)
 	}
 	return fmt.Errorf("%w；已停止该账号自动化 API 请求，等待续期或重新登录", sessionErr)
 }
 
-func (c *Center) accountTaskSessionBlocked(ctx context.Context, accountID string) (bool, error) {
+func (c *accountTaskCoordinator) accountTaskSessionBlocked(ctx context.Context, accountID string) (bool, error) {
 	blockedFingerprint, ok := c.sessionExpired.Load(accountID)
 	if !ok {
 		return false, nil
@@ -141,7 +179,7 @@ func (c *Center) accountTaskSessionBlocked(ctx context.Context, accountID string
 	return true, nil
 }
 
-func (c *Center) accountCredentialFingerprint(ctx context.Context, accountID string) (string, error) {
+func (c *accountTaskCoordinator) accountCredentialFingerprint(ctx context.Context, accountID string) (string, error) {
 	// data 是生成自动化 Session 阻断指纹所需的最小 Cookie 与 metadata 输入。
 	data, err := c.store.Cookies.GetCookieRuntimeData(ctx, accountID)
 	if err != nil {
@@ -153,9 +191,9 @@ func (c *Center) accountCredentialFingerprint(ctx context.Context, accountID str
 }
 
 // runAutoRate 执行自动评价任务，并在明确的单值 Cookie 查询边界内调用平台 API。
-func (c *Center) runAutoRate(ctx context.Context, settings db.AccountTaskSettings) (AccountTaskSummary, error) {
+func (c *accountTaskCoordinator) runAutoRate(ctx context.Context, settings db.AccountTaskSettings) (AccountTaskSummary, error) {
 	summary := AccountTaskSummary{TaskType: TaskAutoRate}
-	if c.accountTasks == nil {
+	if c.client() == nil {
 		return summary, fmt.Errorf("自动评价客户端未初始化")
 	}
 	cookies, err := c.store.Cookies.GetValue(ctx, settings.CookieID)
@@ -165,7 +203,7 @@ func (c *Center) runAutoRate(ctx context.Context, settings db.AccountTaskSetting
 	current := cookies
 	var orders []mtop.PendingRateOrder
 	for page := 1; page <= 20; page++ {
-		pending, err := c.accountTasks.FetchPendingRateOrders(ctx, current, page, 50)
+		pending, err := c.client().FetchPendingRateOrders(ctx, current, page, 50)
 		if err != nil {
 			return summary, err
 		}
@@ -187,7 +225,7 @@ func (c *Center) runAutoRate(ctx context.Context, settings db.AccountTaskSetting
 			summary.Skipped++
 			continue
 		}
-		result, rateErr := c.accountTasks.RateBuyer(ctx, current, order.TradeID, settings.RateContent)
+		result, rateErr := c.client().RateBuyer(ctx, current, order.TradeID, settings.RateContent)
 		if rateErr != nil || result == nil || !result.Success {
 			message := errorString(rateErr)
 			if result != nil && result.Message != "" {
@@ -208,9 +246,9 @@ func (c *Center) runAutoRate(ctx context.Context, settings db.AccountTaskSetting
 	return summary, nil
 }
 
-func (c *Center) runAutoPolish(ctx context.Context, settings db.AccountTaskSettings, now time.Time, manual bool) (AccountTaskSummary, error) {
+func (c *accountTaskCoordinator) runAutoPolish(ctx context.Context, settings db.AccountTaskSettings, now time.Time, manual bool) (AccountTaskSummary, error) {
 	summary := AccountTaskSummary{TaskType: TaskAutoPolish}
-	if c.accountTasks == nil {
+	if c.client() == nil {
 		return summary, fmt.Errorf("擦亮客户端未初始化")
 	}
 	date := now.Format("2006-01-02")
@@ -235,7 +273,7 @@ func (c *Center) runAutoPolish(ctx context.Context, settings db.AccountTaskSetti
 		_ = c.store.AccountTasks.FinishRun(ctx, runKey, "failed", 0, 1, err.Error(), time.Now().UTC().Add(10*time.Minute).Unix())
 		return summary, err
 	}
-	items, err := c.accountTasks.FetchAllItems(ctx, cookies, polishItemPageSize, polishItemMaxPages)
+	items, err := c.client().FetchAllItems(ctx, cookies, polishItemPageSize, polishItemMaxPages)
 	if err != nil {
 		_ = c.store.AccountTasks.FinishRun(ctx, runKey, "failed", 0, 1, err.Error(), time.Now().UTC().Add(10*time.Minute).Unix())
 		return summary, err
@@ -244,7 +282,7 @@ func (c *Center) runAutoPolish(ctx context.Context, settings db.AccountTaskSetti
 	summary.Found = len(items.Items)
 	var lastError string
 	for _, item := range items.Items {
-		result, polishErr := c.accountTasks.PolishItem(ctx, current, item.ID)
+		result, polishErr := c.client().PolishItem(ctx, current, item.ID)
 		if polishErr != nil || result == nil || !result.Success {
 			summary.Failed++
 			lastError = errorString(polishErr)
@@ -273,7 +311,7 @@ func (c *Center) runAutoPolish(ctx context.Context, settings db.AccountTaskSetti
 	return summary, nil
 }
 
-func (c *Center) persistTaskCookies(ctx context.Context, accountID, oldValue, newValue string) string {
+func (c *accountTaskCoordinator) persistTaskCookies(ctx context.Context, accountID, oldValue, newValue string) string {
 	newValue = strings.TrimSpace(newValue)
 	if newValue == "" || newValue == oldValue {
 		return oldValue

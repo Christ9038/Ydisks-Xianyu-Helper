@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"xianyu-go/internal/db"
@@ -97,18 +96,17 @@ type Center struct {
 	actions automationActionExecutor
 	// notifications 负责把运行结果转换为可选的发货通知。
 	notifications deliveryNotifier
-	store         *db.Store
-	senders       SenderProvider
-	fetcher       OrderDetailFetcher
-	recoverer     CredentialRecoverer
-	notifier      Notifier
-	mtop          mtop.Client
-	accountTasks  AccountTaskClient
-	logger        *slog.Logger
-	cookieSrc     func(context.Context, string) (string, error)
-	// sessionExpired 保存检测到 Session 失效时的凭证指纹。在凭证续期或
-	// 重新登录真正改变之前，账号任务不得再次调用任何 MTOP 业务接口。
-	sessionExpired sync.Map
+	// taskRunner 协调账号任务执行、凭证阻断和账号状态门禁。
+	taskRunner        accountTaskCoordinator
+	store             *db.Store
+	senders           SenderProvider
+	fetcher           OrderDetailFetcher
+	recoverer         CredentialRecoverer
+	notifier          Notifier
+	mtop              mtop.Client
+	accountTaskClient AccountTaskClient
+	logger            *slog.Logger
+	cookieSrc         func(context.Context, string) (string, error)
 }
 
 // New 构造自动化中心。
@@ -118,14 +116,14 @@ func New(store *db.Store, senders SenderProvider, logger *slog.Logger) *Center {
 	}
 	client := mtop.NewClient()
 	center := &Center{
-		facts:        newEventFactRecorder(store),
-		rules:        newRuleMatcher(store),
-		planner:      actionPlanner{},
-		store:        store,
-		senders:      senders,
-		mtop:         client,
-		accountTasks: client,
-		logger:       logger.With("subsys", "automation"),
+		facts:             newEventFactRecorder(store),
+		rules:             newRuleMatcher(store),
+		planner:           actionPlanner{},
+		store:             store,
+		senders:           senders,
+		mtop:              client,
+		accountTaskClient: client,
+		logger:            logger.With("subsys", "automation"),
 	}
 	center.actions = automationActionExecutor{
 		store:   store,
@@ -150,6 +148,15 @@ func New(store *db.Store, senders SenderProvider, logger *slog.Logger) *Center {
 			return center.notifier
 		},
 	}
+	center.taskRunner = accountTaskCoordinator{
+		store:   store,
+		client:  func() AccountTaskClient { return center.accountTaskClient },
+		senders: senders,
+		recoverer: func() CredentialRecoverer {
+			return center.recoverer
+		},
+		logger: center.logger,
+	}
 	center.runs = automationRunCoordinator{
 		store:                    store,
 		planner:                  center.planner,
@@ -169,7 +176,18 @@ func New(store *db.Store, senders SenderProvider, logger *slog.Logger) *Center {
 func (c *Center) SetMTop(m mtop.Client) { c.mtop = m }
 
 // SetAccountTaskClient overrides automatic rating/polish transport for tests.
-func (c *Center) SetAccountTaskClient(client AccountTaskClient) { c.accountTasks = client }
+// SetAccountTaskClient 注入自动评价和商品擦亮的任务客户端。
+func (c *Center) SetAccountTaskClient(client AccountTaskClient) { c.accountTaskClient = client }
+
+// RunAccountTask 执行指定账号任务，并保持 Center 的公开兼容入口。
+func (c *Center) RunAccountTask(ctx context.Context, accountID, taskType string) (AccountTaskSummary, error) {
+	return c.taskRunner.runAccountTask(ctx, accountID, taskType)
+}
+
+// scanAccountTasks 扫描启用的账号任务，并委托给账号任务协调器。
+func (c *Center) scanAccountTasks(ctx context.Context) {
+	c.taskRunner.scanAccountTasks(ctx)
+}
 
 // SetOrderDetailFetcher 注入订单详情查询能力。
 func (c *Center) SetOrderDetailFetcher(fetcher OrderDetailFetcher) {
@@ -601,15 +619,7 @@ func (c *Center) sendCard(ctx context.Context, task Task, action db.AutomationAc
 
 // accountAutomationAllowed 判断账号是否仍允许执行自动化动作。
 func (c *Center) accountAutomationAllowed(ctx context.Context, accountID string) (bool, error) {
-	paused, _, err := c.store.Cookies.IsPaused(ctx, accountID)
-	if err != nil {
-		return false, fmt.Errorf("读取账号暂停状态: %w", err)
-	}
-	enabled, err := c.store.Cookies.Status(ctx, accountID)
-	if err != nil {
-		return false, fmt.Errorf("读取账号启用状态: %w", err)
-	}
-	return !paused && enabled, nil
+	return c.taskRunner.accountAutomationAllowed(ctx, accountID)
 }
 
 // accountSenderReady 判断账号是否具备可发送自动化消息的在线连接。
