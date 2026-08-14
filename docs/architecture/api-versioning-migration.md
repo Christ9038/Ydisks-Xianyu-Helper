@@ -19,6 +19,9 @@
 | 关键词回复 | `/keywords...`、`/keywords-with-item-id...`、`/keywords-with-type...`、`/item-reply...` | `/api/v1/reply-rules...` | 旧路径保留，基础/商品/类型规则与指定商品回复 DTO 已落地 |
 | 默认回复 | `/default-replies...`、`/api/default-reply...` | `/api/v1/default-replies...` | 旧路径保留，单账号、列表和映射 DTO 已落地 |
 | 账号任务 | `/api/account-tasks...` | `/api/v1/account-tasks...` | 旧路径保留，设置、运行记录和执行摘要 DTO 已落地 |
+| 管理员 | `/admin/users...`、`/admin/cookies...`、`/admin/stats` | `/api/v1/admin/...` | 旧路径保留，用户/账号/全局统计 DTO 已落地 |
+| 统计 | `/dashboard/stats`、`/analytics/orders...` | `/api/v1/analytics/...` | 旧路径保留，概览、收益、维度和有效订单分页 DTO 已落地 |
+| 二维码生成 | `/qr-login/generate` | `/api/v1/qr-login/generate` | 旧路径保留，二维码生成 DTO 已落地；状态响应继续保留动态兼容字段 |
 
 ## 迁移规则
 
@@ -38,6 +41,7 @@
 - 订单列表、详情、刷新和批量外层结果使用 `orderListResponse`、`orderDetailResponse`、`orderRefreshResponse` 与 `manualShipResponse`/`importOrdersResponse`。
 - 设置、卡券和通知分别使用 `operationResponse`、`aiReplySettingsResponse`、`aiModelsResponse`、`userSettingResponse`、`cardResponse`、`cardBatchResponse`、`notificationChannelResponse`、`notificationBindingResponse` 与 `accountBindingsResponse`。
 - 关键词回复、默认回复和账号任务分别使用 `keywordBasicResponse`/`keywordItemResponse`/`keywordTypedResponse`、`itemReplyResponse`、`defaultReplyResponse`、`accountTaskSettingsResponse`、`accountTaskRunsResponse` 与 `accountTaskRunResponseEnvelope`。
+- 管理员和统计分别使用 `adminUserResponse`/`adminCookieResponse`/`adminStatsResponse`、`dashboardStatsResponse`、`orderAnalyticsResponse` 与 `validOrdersResponse`；二维码生成使用 `qrLoginGenerateResponse`。
 - 聊天会话、消息分页和发送结果使用独立 DTO，不直接暴露数据库模型。
 - React `frontend/types.ts` 与 `frontend/services/api.ts` 已同步具名成功响应类型，同时保留旧字段归一逻辑。
 - 旧路径仍由现有路由提供，尚未宣称 `/api/v1` 已经可用。

@@ -4,7 +4,7 @@ import {
   AdminStats, DashboardStats, Card, SystemSettings, ApiResponse, OrderAnalytics,
   Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
   NotificationChannel, NotificationEventType, AccountTaskSettings, ChatSession, ChatMessage,
-  CookieSettingsResponse, CookieProfileResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope
+  CookieSettingsResponse, CookieProfileResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope, AdminStatsResponse, DashboardStatsResponse, OrderAnalyticsResponse, QRLoginGenerateResponse, ValidOrderResponse, ValidOrdersResponse
 } from '../types';
 import { formatLocalDate } from '../dateRange';
 
@@ -163,7 +163,7 @@ export const getAccountRuntimeStatuses = async (options?: RequestControlOptions)
   return get('/cookies/runtime-status', undefined, options);
 };
 
-export const generateQRLogin = async (options?: RequestControlOptions): Promise<{ success: boolean; session_id?: string; qr_code_url?: string; message?: string }> => {
+export const generateQRLogin = async (options?: RequestControlOptions): Promise<QRLoginGenerateResponse> => {
   // 风控后匿名 token 接口可能超过通用的 30 秒请求窗口；后端总生成窗口为 2 分钟。
   return post('/qr-login/generate', undefined, { ...options, timeoutMs: options?.timeoutMs ?? 130_000 });
 };
@@ -375,15 +375,15 @@ export const importOrders = async (data: Partial<Order>[] | FormData): Promise<O
 }
 
 // Stats
-export const getAdminStats = async (): Promise<AdminStats> => {
+export const getAdminStats = async (): Promise<AdminStatsResponse> => {
   return get('/admin/stats');
 };
 
-export const getDashboardStats = async (): Promise<DashboardStats> => {
+export const getDashboardStats = async (): Promise<DashboardStatsResponse> => {
   return get('/dashboard/stats');
 };
 
-export const getOrderAnalytics = async (daysOrParams: number | {start_date: string; end_date: string} = 7): Promise<OrderAnalytics> => {
+export const getOrderAnalytics = async (daysOrParams: number | {start_date: string; end_date: string} = 7): Promise<OrderAnalyticsResponse> => {
     let params: {start_date: string; end_date: string};
 
     if (typeof daysOrParams === 'number') {
@@ -411,7 +411,7 @@ export interface ValidOrdersResult {
 }
 
 export const getValidOrders = async (dateRange: {start_date: string; end_date: string}): Promise<ValidOrdersResult> => {
-    const res = await get<any>('/analytics/orders/valid', {
+    const res = await get<ValidOrdersResponse | ValidOrderResponse[]>('/analytics/orders/valid', {
         start_date: dateRange.start_date,
         end_date: dateRange.end_date,
         timezone_offset_minutes: -new Date().getTimezoneOffset(),

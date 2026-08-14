@@ -517,3 +517,153 @@ func TestReplyAndAccountTaskSuccessResponseContracts(t *testing.T) {
 		t.Fatalf("task runs response=%+v", taskRunsResponse)
 	}
 }
+
+// TestAnalyticsAdminAndPublicSuccessResponseContracts 验证统计、管理员和二维码公共成功响应的具名 DTO。
+func TestAnalyticsAdminAndPublicSuccessResponseContracts(t *testing.T) {
+	// srv 是用于验证统计、管理员和公共响应的 HTTP 测试服务。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是当前测试使用的完整路由树。
+	handler := srv.Router()
+	// sessionCookie 是管理员登录后得到的认证会话。
+	sessionCookie := loginHelper(t, handler)
+	// seedErr 是统计测试订单写入失败的原因。
+	if _, seedErr := store.DB.ExecContext(context.Background(), `INSERT INTO orders (order_id,item_id,buyer_id,quantity,amount,order_status,cookie_id,created_at) VALUES ('contract-analytics','contract-item','buyer', '2','12.50','completed','acc1','2026-08-14 10:00:00')`); seedErr != nil {
+		t.Fatalf("seed analytics order: %v", seedErr)
+	}
+
+	// adminStatsReq 是读取管理员全局统计的请求。
+	adminStatsReq := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
+	adminStatsReq.AddCookie(sessionCookie)
+	// adminStatsRecorder 是捕获管理员统计响应的记录器。
+	adminStatsRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(adminStatsRecorder, adminStatsReq)
+	if adminStatsRecorder.Code != http.StatusOK {
+		t.Fatalf("admin stats status=%d body=%s", adminStatsRecorder.Code, adminStatsRecorder.Body.String())
+	}
+	// adminStatsResponseValue 是管理员统计具名响应 DTO。
+	var adminStatsResponseValue adminStatsResponse
+	// adminStatsDecodeErr 是管理员统计响应 JSON 反序列化失败的原因。
+	if adminStatsDecodeErr := json.Unmarshal(adminStatsRecorder.Body.Bytes(), &adminStatsResponseValue); adminStatsDecodeErr != nil {
+		t.Fatalf("decode admin stats response: %v", adminStatsDecodeErr)
+	}
+	if adminStatsResponseValue.TotalUsers == 0 || adminStatsResponseValue.TotalOrders != 1 {
+		t.Fatalf("admin stats response=%+v", adminStatsResponseValue)
+	}
+
+	// adminUsersReq 是读取管理员用户列表的请求。
+	adminUsersReq := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	adminUsersReq.AddCookie(sessionCookie)
+	// adminUsersRecorder 是捕获管理员用户列表响应的记录器。
+	adminUsersRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(adminUsersRecorder, adminUsersReq)
+	if adminUsersRecorder.Code != http.StatusOK {
+		t.Fatalf("admin users status=%d body=%s", adminUsersRecorder.Code, adminUsersRecorder.Body.String())
+	}
+	// adminUsersResponse 是管理员用户列表具名响应 DTO 列表。
+	var adminUsersResponse []adminUserResponse
+	// adminUsersDecodeErr 是管理员用户列表响应 JSON 反序列化失败的原因。
+	if adminUsersDecodeErr := json.Unmarshal(adminUsersRecorder.Body.Bytes(), &adminUsersResponse); adminUsersDecodeErr != nil {
+		t.Fatalf("decode admin users response: %v", adminUsersDecodeErr)
+	}
+	if len(adminUsersResponse) != 1 || adminUsersResponse[0].Username != "admin" {
+		t.Fatalf("admin users response=%+v", adminUsersResponse)
+	}
+
+	// adminCookiesReq 是读取管理员账号列表的请求。
+	adminCookiesReq := httptest.NewRequest(http.MethodGet, "/admin/cookies", nil)
+	adminCookiesReq.AddCookie(sessionCookie)
+	// adminCookiesRecorder 是捕获管理员账号列表响应的记录器。
+	adminCookiesRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(adminCookiesRecorder, adminCookiesReq)
+	if adminCookiesRecorder.Code != http.StatusOK {
+		t.Fatalf("admin cookies status=%d body=%s", adminCookiesRecorder.Code, adminCookiesRecorder.Body.String())
+	}
+	// adminCookiesResponse 是管理员账号列表具名响应 DTO 列表。
+	var adminCookiesResponse []adminCookieResponse
+	// adminCookiesDecodeErr 是管理员账号列表响应 JSON 反序列化失败的原因。
+	if adminCookiesDecodeErr := json.Unmarshal(adminCookiesRecorder.Body.Bytes(), &adminCookiesResponse); adminCookiesDecodeErr != nil {
+		t.Fatalf("decode admin cookies response: %v", adminCookiesDecodeErr)
+	}
+	if len(adminCookiesResponse) != 1 || adminCookiesResponse[0].ID != "acc1" {
+		t.Fatalf("admin cookies response=%+v", adminCookiesResponse)
+	}
+
+	// dashboardReq 是读取当前用户概览统计的请求。
+	dashboardReq := httptest.NewRequest(http.MethodGet, "/dashboard/stats", nil)
+	dashboardReq.AddCookie(sessionCookie)
+	// dashboardRecorder 是捕获概览统计响应的记录器。
+	dashboardRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(dashboardRecorder, dashboardReq)
+	if dashboardRecorder.Code != http.StatusOK {
+		t.Fatalf("dashboard status=%d body=%s", dashboardRecorder.Code, dashboardRecorder.Body.String())
+	}
+	// dashboardResponse 是概览统计具名响应 DTO。
+	var dashboardResponse dashboardStatsResponse
+	// dashboardDecodeErr 是概览统计响应 JSON 反序列化失败的原因。
+	if dashboardDecodeErr := json.Unmarshal(dashboardRecorder.Body.Bytes(), &dashboardResponse); dashboardDecodeErr != nil {
+		t.Fatalf("decode dashboard response: %v", dashboardDecodeErr)
+	}
+	if dashboardResponse.TotalOrders != 1 {
+		t.Fatalf("dashboard response=%+v", dashboardResponse)
+	}
+
+	// analyticsReq 是读取订单分析统计的请求。
+	analyticsReq := httptest.NewRequest(http.MethodGet, "/analytics/orders?start_date=2026-08-14&end_date=2026-08-14", nil)
+	analyticsReq.AddCookie(sessionCookie)
+	// analyticsRecorder 是捕获订单分析响应的记录器。
+	analyticsRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(analyticsRecorder, analyticsReq)
+	if analyticsRecorder.Code != http.StatusOK {
+		t.Fatalf("analytics status=%d body=%s", analyticsRecorder.Code, analyticsRecorder.Body.String())
+	}
+	// analyticsResponse 是订单分析具名响应 DTO。
+	var analyticsResponse orderAnalyticsResponse
+	// analyticsDecodeErr 是订单分析响应 JSON 反序列化失败的原因。
+	if analyticsDecodeErr := json.Unmarshal(analyticsRecorder.Body.Bytes(), &analyticsResponse); analyticsDecodeErr != nil {
+		t.Fatalf("decode analytics response: %v", analyticsDecodeErr)
+	}
+	if analyticsResponse.RevenueStats.TotalOrders != 1 || len(analyticsResponse.DailyStats) != 1 {
+		t.Fatalf("analytics response=%+v", analyticsResponse)
+	}
+
+	// validOrdersReq 是读取有效订单分页的请求。
+	validOrdersReq := httptest.NewRequest(http.MethodGet, "/analytics/orders/valid?start_date=2026-08-14&end_date=2026-08-14", nil)
+	validOrdersReq.AddCookie(sessionCookie)
+	// validOrdersRecorder 是捕获有效订单响应的记录器。
+	validOrdersRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(validOrdersRecorder, validOrdersReq)
+	if validOrdersRecorder.Code != http.StatusOK {
+		t.Fatalf("valid orders status=%d body=%s", validOrdersRecorder.Code, validOrdersRecorder.Body.String())
+	}
+	// validOrdersResponseValue 是有效订单分页具名响应 DTO。
+	var validOrdersResponseValue validOrdersResponse
+	// validOrdersDecodeErr 是有效订单响应 JSON 反序列化失败的原因。
+	if validOrdersDecodeErr := json.Unmarshal(validOrdersRecorder.Body.Bytes(), &validOrdersResponseValue); validOrdersDecodeErr != nil {
+		t.Fatalf("decode valid orders response: %v", validOrdersDecodeErr)
+	}
+	if validOrdersResponseValue.Total != 1 || len(validOrdersResponseValue.Orders) != 1 {
+		t.Fatalf("valid orders response=%+v", validOrdersResponseValue)
+	}
+
+	// srv.QRLogin 是二维码生成测试替身。
+	srv.QRLogin = &fakeQRLoginService{}
+	// qrReq 是生成扫码登录二维码的请求。
+	qrReq := httptest.NewRequest(http.MethodPost, "/qr-login/generate", nil)
+	qrReq.AddCookie(sessionCookie)
+	// qrRecorder 是捕获二维码生成响应的记录器。
+	qrRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(qrRecorder, qrReq)
+	if qrRecorder.Code != http.StatusOK {
+		t.Fatalf("qr generate status=%d body=%s", qrRecorder.Code, qrRecorder.Body.String())
+	}
+	// qrResponse 是二维码生成具名响应 DTO。
+	var qrResponse qrLoginGenerateResponse
+	// qrDecodeErr 是二维码生成响应 JSON 反序列化失败的原因。
+	if qrDecodeErr := json.Unmarshal(qrRecorder.Body.Bytes(), &qrResponse); qrDecodeErr != nil {
+		t.Fatalf("decode qr response: %v", qrDecodeErr)
+	}
+	if !qrResponse.Success || qrResponse.SessionID == "" || qrResponse.QRCodeURL == "" {
+		t.Fatalf("qr response=%+v", qrResponse)
+	}
+}

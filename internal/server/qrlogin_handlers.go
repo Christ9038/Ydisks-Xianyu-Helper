@@ -60,10 +60,10 @@ func (s *Server) generateQRLogin(w http.ResponseWriter, r *http.Request) {
 	s.qrMu.Lock()
 	s.qrOwners[sessionID] = qrLoginOwner{UserID: sess.UserID, CreatedAt: time.Now().UTC()}
 	s.qrMu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success":     true,
-		"session_id":  sessionID,
-		"qr_code_url": qrCodeURL,
+	writeJSON(w, http.StatusOK, qrLoginGenerateResponse{
+		Success: true, SessionID: sessionID, QRCodeURL: qrCodeURL,
+		// 生成成功响应只暴露会话标识和二维码地址。
+		// 服务端仍然保留二维码会话所有权校验。
 	})
 }
 

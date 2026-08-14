@@ -1076,3 +1076,165 @@ export interface AccountTaskRunResponseEnvelope {
   /** 账号任务执行统计。 */
   summary: AccountTaskSummaryResponse;
 }
+
+/** 管理员用户列表项响应。 */
+export interface AdminUserResponse {
+  /** 用户主键。 */
+  id: number;
+  /** 用户登录名。 */
+  username: string;
+  /** 用户邮箱。 */
+  email: string;
+  /** 用户是否启用。 */
+  is_active: boolean;
+  /** 用户是否为管理员。 */
+  is_admin: boolean;
+  /** 用户创建时间。 */
+  created_at: string;
+  /** 用户拥有的账号数量。 */
+  cookie_count: number;
+}
+
+/** 管理员账号列表项响应。 */
+export interface AdminCookieResponse {
+  /** 账号稳定标识。 */
+  id: string;
+  /** 账号所属用户主键。 */
+  user_id: number;
+  /** 账号备注。 */
+  remark: string;
+  /** 账号创建时间。 */
+  created_at: string;
+  /** 账号所属用户名。 */
+  owner: string;
+  /** 账号是否启用。 */
+  enabled: boolean;
+}
+
+/** 管理员全局统计响应。 */
+export interface AdminStatsResponse extends AdminStats {}
+
+/** 当前用户数据概览响应。 */
+export interface DashboardStatsResponse extends DashboardStats {}
+
+/** 订单收益统计响应。 */
+export interface AnalyticsRevenueStatsResponse {
+  /** 统计范围内的订单数。 */
+  total_orders: number;
+  /** 统计范围内的订单总金额。 */
+  total_amount: number;
+  /** 订单平均金额。 */
+  avg_amount: number;
+  /** 买家数量。 */
+  unique_buyers: number;
+  /** 商品数量。 */
+  unique_items: number;
+}
+
+/** 按日期聚合的订单统计响应。 */
+export interface AnalyticsDailyStatsResponse {
+  /** 用户本地日期。 */
+  date: string;
+  /** 当天订单数。 */
+  order_count: number;
+  /** 当天订单金额。 */
+  amount: number;
+}
+
+/** 按订单状态聚合的统计响应。 */
+export interface AnalyticsStatusStatsResponse {
+  /** 归一化后的订单状态。 */
+  status: string;
+  /** 该状态订单数。 */
+  count: number;
+  /** 该状态订单金额。 */
+  amount: number;
+}
+
+/** 按收货城市聚合的统计响应。 */
+export interface AnalyticsCityStatsResponse {
+  /** 收货城市。 */
+  city: string;
+  /** 该城市订单数。 */
+  order_count: number;
+  /** 该城市订单金额。 */
+  total_amount: number;
+}
+
+/** 按商品聚合的统计响应。 */
+export interface AnalyticsItemStatsResponse {
+  /** 商品平台标识。 */
+  item_id: string;
+  /** 该商品订单数。 */
+  order_count: number;
+  /** 该商品订单金额。 */
+  total_amount: number;
+  /** 该商品订单平均金额。 */
+  avg_amount: number;
+}
+
+/** 订单分析接口响应。 */
+export interface OrderAnalyticsResponse {
+  /** 收益统计。 */
+  revenue_stats: AnalyticsRevenueStatsResponse;
+  /** 按日统计。 */
+  daily_stats: AnalyticsDailyStatsResponse[];
+  /** 按状态统计。 */
+  status_stats: AnalyticsStatusStatsResponse[];
+  /** 按城市统计。 */
+  city_stats: AnalyticsCityStatsResponse[];
+  /** 按商品统计。 */
+  item_stats: AnalyticsItemStatsResponse[];
+}
+
+/** 有效订单明细响应。 */
+export interface ValidOrderResponse {
+  /** 平台订单标识。 */
+  order_id: string;
+  /** 商品平台标识。 */
+  item_id: string;
+  /** 买家平台标识。 */
+  buyer_id: string;
+  /** 商品标题。 */
+  item_title: string;
+  /** 商品图片地址。 */
+  item_image: string;
+  /** 订单数量文本。 */
+  quantity: string;
+  /** 订单金额文本。 */
+  amount: string;
+  /** 兼容保留的订单状态。 */
+  order_status: string;
+  /** 归一化后的订单状态。 */
+  status: string;
+  /** 订单所属账号标识。 */
+  cookie_id: string;
+  /** 订单创建时间。 */
+  created_at: string;
+}
+
+/** 有效订单分页响应。 */
+export interface ValidOrdersResponse {
+  /** 当前页有效订单。 */
+  orders: ValidOrderResponse[];
+  /** 符合条件的订单总数。 */
+  total: number;
+  /** 当前页码。 */
+  page: number;
+  /** 当前页大小。 */
+  page_size: number;
+  /** 是否还有未返回的订单。 */
+  truncated: boolean;
+}
+
+/** 扫码登录二维码生成响应。 */
+export interface QRLoginGenerateResponse {
+  /** 二维码是否生成成功。 */
+  success: boolean;
+  /** 扫码登录会话标识。 */
+  session_id: string;
+  /** 二维码图片地址。 */
+  qr_code_url: string;
+  /** 可选的提示文本。 */
+  message?: string;
+}

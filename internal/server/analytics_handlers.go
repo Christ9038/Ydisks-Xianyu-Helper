@@ -84,7 +84,7 @@ func (s *Server) dashboardStats(w http.ResponseWriter, r *http.Request) {
 	}
 	counts["available_card_stock"] = available
 
-	writeJSON(w, http.StatusOK, counts)
+	writeJSON(w, http.StatusOK, dashboardStatsResponse{TotalCookies: counts["total_cookies"], ActiveCookies: counts["active_cookies"], TotalCards: counts["total_cards"], AvailableCardStock: counts["available_card_stock"], TotalKeywords: counts["total_keywords"], TotalOrders: counts["total_orders"]})
 }
 
 // 有效订单状态只统计以下几种。
@@ -122,7 +122,7 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 
 	// 2. 按用户本地日期统计。数据库统一保存 UTC，分组在 Go 中完成，避免三种方言
 	// 的时区转换函数不同以及 SQLite DATE(created_at) 把凌晨订单归到前一天。
-	daily := []map[string]any{}
+	daily := []analyticsDailyStatsResponse{}
 	rows, err := s.Store.DB.QueryContext(r.Context(), `
 		SELECT order_id,amount,created_at FROM orders `+where+amountFilter, params...)
 	if err != nil {
@@ -162,11 +162,11 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 	sort.Strings(dates)
 	for _, date := range dates {
 		value := dailyMap[date]
-		daily = append(daily, map[string]any{"date": date, "order_count": value.count, "amount": round2(value.amount)})
+		daily = append(daily, analyticsDailyStatsResponse{Date: date, OrderCount: value.count, Amount: round2(value.amount)})
 	}
 
 	// 3. 按状态统计。
-	statusStats := []map[string]any{}
+	statusStats := []analyticsStatusStatsResponse{}
 	type statusValue struct {
 		count  int
 		amount float64
@@ -207,11 +207,11 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 	})
 	for _, status := range statusNames {
 		value := statusMap[status]
-		statusStats = append(statusStats, map[string]any{"status": status, "count": value.count, "amount": round2(value.amount)})
+		statusStats = append(statusStats, analyticsStatusStatsResponse{Status: status, Count: value.count, Amount: round2(value.amount)})
 	}
 
 	// 4. 按城市统计。
-	cityStats := []map[string]any{}
+	cityStats := []analyticsCityStatsResponse{}
 	rows, err = s.Store.DB.QueryContext(r.Context(), `
 		SELECT receiver_city, COUNT(DISTINCT order_id), COALESCE(SUM(`+amountClean+`),0)
 		FROM orders `+where+amountFilter+`
@@ -226,8 +226,8 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 		var count int
 		var amount float64
 		if rows.Scan(&city, &count, &amount) == nil {
-			cityStats = append(cityStats, map[string]any{
-				"city": city, "order_count": count, "total_amount": round2(amount),
+			cityStats = append(cityStats, analyticsCityStatsResponse{
+				City: city, OrderCount: count, TotalAmount: round2(amount),
 			})
 		}
 	}
@@ -239,7 +239,7 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 	_ = rows.Close()
 
 	// 5. 商品排行。
-	itemStats := []map[string]any{}
+	itemStats := []analyticsItemStatsResponse{}
 	rows, err = s.Store.DB.QueryContext(r.Context(), `
 		SELECT item_id, COUNT(DISTINCT order_id), COALESCE(SUM(`+amountClean+`),0), COALESCE(AVG(`+amountClean+`),0)
 		FROM orders `+where+amountFilter+`
@@ -254,9 +254,9 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 		var count int
 		var total, avg float64
 		if rows.Scan(&itemID, &count, &total, &avg) == nil {
-			itemStats = append(itemStats, map[string]any{
-				"item_id": itemID, "order_count": count,
-				"total_amount": round2(total), "avg_amount": round2(avg),
+			itemStats = append(itemStats, analyticsItemStatsResponse{
+				ItemID: itemID, OrderCount: count,
+				TotalAmount: round2(total), AvgAmount: round2(avg),
 			})
 		}
 	}
@@ -267,16 +267,16 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = rows.Close()
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"revenue_stats": map[string]any{
-			"total_orders": rev.TotalOrders, "total_amount": round2(rev.TotalAmount),
-			"avg_amount": round2(rev.AvgAmount), "unique_buyers": rev.UniqueBuyers,
-			"unique_items": rev.UniqueItems,
+	writeJSON(w, http.StatusOK, orderAnalyticsResponse{
+		RevenueStats: analyticsRevenueStatsResponse{
+			TotalOrders: rev.TotalOrders, TotalAmount: round2(rev.TotalAmount),
+			AvgAmount: round2(rev.AvgAmount), UniqueBuyers: rev.UniqueBuyers,
+			UniqueItems: rev.UniqueItems,
 		},
-		"daily_stats":  daily,
-		"status_stats": statusStats,
-		"city_stats":   cityStats,
-		"item_stats":   itemStats,
+		DailyStats: daily, StatusStats: statusStats, CityStats: cityStats, ItemStats: itemStats,
+		// 各统计维度分别使用具名 DTO，避免前端依赖动态键值。
+		// daily_stats 保留用户本地日期，兼容已有图表横轴。
+		// status_stats、city_stats 和 item_stats 保留旧字段名称。
 	})
 }
 
@@ -316,16 +316,16 @@ func (s *Server) validOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	out := []map[string]any{}
+	out := []validOrderResponse{}
 	for rows.Next() {
 		var orderID, itemID, itemTitle, itemDetail, buyerID, quantity, amount, status, cookieID, createdAt string
 		if rows.Scan(&orderID, &itemID, &itemTitle, &itemDetail, &buyerID, &quantity, &amount, &status, &cookieID, &createdAt) == nil {
 			status = db.NormalizeOrderStatus(status)
-			out = append(out, map[string]any{
-				"order_id": orderID, "item_id": itemID, "buyer_id": buyerID,
-				"item_title": itemTitle, "item_image": itemImageFromDetail(itemDetail),
-				"quantity": quantity, "amount": amount, "order_status": status,
-				"status": status, "cookie_id": cookieID, "created_at": createdAt,
+			out = append(out, validOrderResponse{
+				OrderID: orderID, ItemID: itemID, BuyerID: buyerID,
+				ItemTitle: itemTitle, ItemImage: itemImageFromDetail(itemDetail),
+				Quantity: quantity, Amount: amount, OrderStatus: status,
+				Status: status, CookieID: cookieID, CreatedAt: createdAt,
 			})
 		}
 	}
@@ -333,9 +333,9 @@ func (s *Server) validOrders(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"orders": out, "total": total, "page": page, "page_size": pageSize,
-		"truncated": offset+len(out) < total,
+	writeJSON(w, http.StatusOK, validOrdersResponse{
+		Orders: out, Total: total, Page: page, PageSize: pageSize,
+		Truncated: offset+len(out) < total,
 	})
 }
 

@@ -23,7 +23,7 @@ func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	var out []map[string]any
+	var out []adminUserResponse
 	for rows.Next() {
 		var id int64
 		var username, email, createdAt string
@@ -39,10 +39,10 @@ func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, "统计用户账号失败")
 			return
 		}
-		out = append(out, map[string]any{
-			"id": id, "username": username, "email": email,
-			"is_active": isActive != 0, "is_admin": isAdmin != 0,
-			"created_at": createdAt, "cookie_count": cookieCount,
+		out = append(out, adminUserResponse{
+			ID: id, Username: username, Email: email,
+			IsActive: isActive != 0, IsAdmin: isAdmin != 0,
+			CreatedAt: createdAt, CookieCount: cookieCount,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -75,7 +75,7 @@ func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) adminListCookies(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +87,7 @@ func (s *Server) adminListCookies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rows.Close()
-	var out []map[string]any
+	var out []adminCookieResponse
 	for rows.Next() {
 		var id string
 		var uid int64
@@ -96,10 +96,10 @@ func (s *Server) adminListCookies(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, "读取账号数据失败")
 			return
 		}
-		out = append(out, map[string]any{
-			"id": id, "user_id": uid, "remark": remark,
-			"created_at": createdAt, "owner": username,
-			"enabled": s.Store.Cookies.GetStatus(r.Context(), id),
+		out = append(out, adminCookieResponse{
+			ID: id, UserID: uid, Remark: remark,
+			CreatedAt: createdAt, Owner: username,
+			Enabled: s.Store.Cookies.GetStatus(r.Context(), id),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -140,12 +140,12 @@ func (s *Server) adminStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]int64{
-		"total_users":    totalUsers,
-		"total_cookies":  totalCookies,
-		"active_cookies": activeCookies,
-		"total_cards":    totalCards,
-		"total_keywords": totalKeywords,
-		"total_orders":   totalOrders,
+	writeJSON(w, http.StatusOK, adminStatsResponse{
+		TotalUsers: totalUsers, TotalCookies: totalCookies, ActiveCookies: activeCookies,
+		TotalCards: totalCards, TotalKeywords: totalKeywords, TotalOrders: totalOrders,
+		// 统计响应继续保留原有字段名称，兼容管理员仪表盘。
+		// DTO 字段由具名结构统一维护，避免动态 map 漏字段。
+		// 所有统计值均来自当前数据库快照。
+		// 成功响应不再依赖任意键名拼接。
 	})
 }
