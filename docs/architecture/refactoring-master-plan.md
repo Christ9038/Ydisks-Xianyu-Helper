@@ -91,8 +91,8 @@ app shell / routes
 | --- | --- | --- | --- |
 | 0. 治理文档与强约束 | 已完成 | 总计划、依赖规则、注释规范、AGENTS 门禁、注释检查器 | 文档、门禁规则、Go/TypeScript 检查器和历史基线已落盘 |
 | 1. PR CI 与测试基础 | 已完成 | 独立 CI、测试 DB 模板、可执行 race | CI、独立模板、server smoke race 和完整 race 均有验证 |
-| 2. 敏感数据访问边界 | 进行中 | 摘要、凭证、登录秘密分离 | `CookieSummary`、所有权窄查询、单值凭证读取及 SQLite 回归测试已建立 |
-| 3. HTTP API 契约 | 未开始 | 统一错误、具名 DTO、版本化路径 | 契约测试与前端类型 |
+| 2. 敏感数据访问边界 | 已完成 | 摘要、凭证、登录秘密分离 | 生产完整详情白名单、所有权/凭证锁审计、SQLite/MySQL/Postgres 窄查询回归和全量门禁已完成 |
+| 3. HTTP API 契约 | 进行中 | 统一错误、具名 DTO、版本化路径 | 先完成错误结构盘点与第一批契约测试 |
 | 4. Server 应用服务 | 未开始 | 订单、发布、登录、聊天纵向抽取 | handler 不再直接编排基础设施 |
 | 5. 应用生命周期装配 | 未开始 | 消除必需依赖 setter 回填 | 构造验证与幂等关闭测试 |
 | 6. Engine 与 Automation | 未开始 | facade + 独立状态组件 | race、生命周期与冻结规范测试 |
@@ -103,7 +103,7 @@ app shell / routes
 
 ### 当前执行入口
 
-- 当前阶段：阶段 2“敏感数据访问边界”（进行中）；
+- 当前阶段：阶段 3“HTTP API 契约”（进行中）；
 - 已完成：总计划、依赖规则、中文注释规范、`AGENTS.md` 强约束，以及 Go/TypeScript AST 注释检查器和历史基线；
 - 阶段 1 已完成：server 测试模板预置管理员和账号 cookie，普通测试约 21.3 秒，完整 server race 约 194.3 秒通过；
 - 已完成阶段 2 逻辑切片一“Repository 敏感数据边界”：建立 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned`、`GetOwnerID`、`GetSummaryOwned` 和原子 `GetValueOwned`，覆盖跨用户、无效 user ID 及无效密文回归；
@@ -127,7 +127,8 @@ app shell / routes
 - 已完成阶段 2 当前 PR 切片四“Engine/账号运行时凭证边界”：`cookieSnapshotMatchesDB`、`UpdateCookie` 和账号管理器 `Restart` 已分别改用 `GetCookieRuntimeData` 或 `GetValue`，只读取运行实例所需的 Cookie 数据；损坏登录密码回归测试覆盖 WS 注册前校验、运行时同步和重启路径，且三项修改合并为一个可回滚提交；
 - 已完成阶段 2 当前 PR 切片五“平台凭证流程统一窄查询”：新增不含用户名和登录密码的 `CookiePlatformRuntimeData`，并将 `internal/adapter` 的 token 风控、订单详情、协议续期以及 `internal/renewal` 的迟到 Cookie 合并统一迁移到该视图；损坏登录密码回归测试覆盖四条平台流程，且整批修改合并为一个可回滚提交；
 - 已完成阶段 2 当前 PR 切片六“Server 平台凭证流程审计”：Server 的订单、发布、商品同步、二维码登录、长登录、资料刷新和账号生命周期路径已改用平台运行视图或非敏感摘要；完整 `CookieDetail` 仅保留给账号设置和登录信息更新这两个确实需要登录秘密的流程，新增 Server 窄查询回归测试并通过全量门禁，整批修改合并为一个可回滚提交；
-- 阶段 2 下一 PR 切片为“敏感数据边界最终审计”：复核生产代码完整详情读取白名单、补充跨数据库窄查询回归、确认所有权与凭证锁不变量，并在阶段 2 证据完整后再进入阶段 3 API 契约，不拆分单个调用提交；
+- 已完成阶段 2 最终审计：生产代码中的 `GetDetails` 仅保留登录设置和登录信息更新两条完整详情白名单；平台流程统一使用 `GetCookiePlatformRuntimeData`，所有权流程统一使用摘要查询，凭证读取继续由 `LockAccountCredentials` 保护；新增 `TestMultiDB_CookieCredentialScope` 覆盖 SQLite，并在提供环境变量时覆盖 MySQL/Postgres，验证三种方言的 Cookie、metadata、平台视图和所有权摘要一致；阶段 2 全量门禁通过并合并为一个可回滚提交；
+- 阶段 3 下一 PR 切片为“HTTP 错误结构盘点与第一批契约测试”：盘点现有错误响应形态，建立统一 `code`/`message`/`request_id` 边界和具名 DTO 迁移清单，先覆盖健康检查、认证失败和账号列表，不拆分单个 handler 提交；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -224,7 +225,7 @@ app shell / routes
 目前 server 生产代码和聊天订阅服务已不再调用 `Cookies.AllForUser`。账号管理器还保留一处管理员视角的全账号凭证加载，
 该调用不能简单替换为 ID 列表，将通过受控的启用账号凭证接口单独治理。
 
-逐步替换使用 `AllForUser` 进行所有权检查以及使用 `GetDetails` 获取非敏感字段的调用。
+逐步替换使用 `AllForUser` 进行所有权检查以及使用 `GetDetails` 获取非敏感字段的调用。最终审计已确认生产代码的完整详情读取白名单仅为登录设置和登录信息更新；平台调用、账号生命周期、订单、发布、二维码登录和资料流程均不再需要解密登录秘密。
 
 ### 2.3 安全不变量
 
@@ -238,7 +239,8 @@ app shell / routes
 
 - 账号列表没有 N+1 敏感查询；
 - 用户 ID `0` 不再表示隐式管理员查询；
-- 三种数据库的查询和并发测试通过。
+- 三种数据库的查询和并发测试通过；
+- 完整详情读取白名单、所有权过滤和凭证锁不变量均有可复核证据。
 
 ## 9. 阶段 3：HTTP API 契约
 
@@ -502,3 +504,4 @@ npm --prefix frontend run build
 | 2026-08-14 | `adoptTokenResponseCookies` 改用 `GetCookieMetadata` | token 响应合并只解密 metadata；快照持久化和错误语义保持不变，回归测试通过 | 迁移 `databaseCredentialFingerprint` 的运行时凭证读取 |
 | 2026-08-14 | `databaseCredentialFingerprint` 改用 `GetCookieRuntimeData` | token 凭证一致性校验只解密 Cookie 与 metadata；空值、指纹和错误语义保持不变，回归测试通过 | 迁移 `reloadCookieFromDB` 的运行时凭证读取 |
 | 2026-08-14 | 完成阶段 2 当前 PR 切片“Server 平台凭证流程审计” | Server 平台、订单、发布、二维码和资料流程均不再读取完整账号详情；完整详情仅保留给登录设置与登录信息更新；窄查询回归测试、全量测试、race、vet、lint 和注释门禁通过 | 进行敏感数据边界最终审计，确认阶段 2 完成证据后进入阶段 3 |
+| 2026-08-14 | 完成阶段 2 最终审计 PR 切片 | 生产 `GetDetails` 白名单仅保留登录设置与登录信息更新；新增跨数据库 Cookie/metadata/平台视图/所有权窄查询回归；全量测试、race、vet、lint、注释和 diff 门禁通过 | 阶段 3：HTTP 错误结构盘点与第一批契约测试 |
