@@ -21,6 +21,7 @@ func (l *AccountLoginLogs) Add(ctx context.Context, log AccountLoginLog) error {
 	if log.ErrorMessage == "" {
 		log.ErrorMessage = log.Message
 	}
+	// err 保存err，供当前处理流程使用
 	_, err := l.DB.ExecContext(ctx,
 		`INSERT INTO account_login_logs (
 			cookie_id, user_id, owner_id, account_pk, account_identifier,
@@ -38,6 +39,7 @@ func (l *AccountLoginLogs) ListByCookie(ctx context.Context, cookieID string, li
 	if limit <= 0 {
 		limit = 20
 	}
+	// rows、err 保存rows、err，供当前处理流程使用
 	rows, err := l.DB.QueryContext(ctx,
 		`SELECT id, cookie_id, user_id, COALESCE(owner_id,0), COALESCE(account_pk,0),
 		        COALESCE(account_identifier,''), COALESCE(username,''), method, status,
@@ -52,10 +54,13 @@ func (l *AccountLoginLogs) ListByCookie(ctx context.Context, cookieID string, li
 		return nil, err
 	}
 	defer rows.Close()
+	// out 保存out，供当前处理流程使用
 	var out []AccountLoginLog
 	for rows.Next() {
+		// log 保存log，供当前处理流程使用
 		var log AccountLoginLog
-		if err := rows.Scan(
+		if // err 保存err，供当前处理流程使用
+		err := rows.Scan(
 			&log.ID, &log.CookieID, &log.UserID, &log.OwnerID, &log.AccountPK,
 			&log.AccountIdentifier, &log.Username, &log.Method, &log.Status,
 			&log.Message, &log.TriggerReason, &log.FailureReason, &log.ErrorMessage,

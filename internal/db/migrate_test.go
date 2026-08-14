@@ -11,17 +11,23 @@ import (
 
 // TestMigrate_AppliesCleanSchema 在临时库上跑迁移，验证全量 schema 干净落地、
 // 关键不一致列（orders.system_shipped 等）存在、默认设置就位。
+// TestMigrate_AppliesCleanSchema 负责TestMigrateAppliesCleanSchema相关处理。
 func TestMigrate_AppliesCleanSchema(t *testing.T) {
+	// tmp 保存tmp，供当前处理流程使用
 	tmp := t.TempDir()
+	// dbPath 保存db路径，供当前处理流程使用
 	dbPath := filepath.Join(tmp, "test.db")
 
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// db、err 保存db、err，供当前处理流程使用
 	db, _, err := Open(ctx, dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer db.Close()
 
+	// checks 保存checks，供当前处理流程使用
 	checks := []struct {
 		table string
 		col   string
@@ -59,6 +65,7 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 		{"risk_control_logs", "duration_ms"},
 		{"notification_outbox", "worker_token"},
 	}
+	// c 表示当前遍历过程中的c
 	for _, c := range checks {
 		if !columnExists(t, db, c.table, c.col) {
 			t.Errorf("列缺失: %s.%s（应为收敛后的最终 schema）", c.table, c.col)
@@ -88,6 +95,7 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
+	// db2、err 保存db2、err，供当前处理流程使用
 	db2, _, err := Open(ctx, dbPath)
 	if err != nil {
 		t.Fatalf("二次 Open 幂等失败: %v", err)
@@ -95,16 +103,20 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 	db2.Close()
 }
 
+// columnExists 负责columnExists相关处理。
 func columnExists(t *testing.T, db *sql.DB, table, col string) bool {
 	t.Helper()
+	// rows、err 保存rows、err，供当前处理流程使用
 	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
 	if err != nil {
 		t.Fatalf("pragma_table_info(%s): %v", table, err)
 	}
 	defer rows.Close()
 	for rows.Next() {
+		// name 保存名称，供当前处理流程使用
 		var name string
-		if err := rows.Scan(&name); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := rows.Scan(&name); err != nil {
 			t.Fatalf("scan: %v", err)
 		}
 		if name == col {
@@ -114,23 +126,30 @@ func columnExists(t *testing.T, db *sql.DB, table, col string) bool {
 	return false
 }
 
+// TestLatestMigrationsDownUpSQLite 负责TestLatestMigrationsDownUpSQLite相关处理。
 func TestLatestMigrationsDownUpSQLite(t *testing.T) {
+	// tmp 保存tmp，供当前处理流程使用
 	tmp := t.TempDir()
+	// dbPath 保存db路径，供当前处理流程使用
 	dbPath := filepath.Join(tmp, "rollback.db")
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// d、err 保存d、err，供当前处理流程使用
 	d, _, err := Open(ctx, dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer d.Close()
 
-	if err := goose.SetDialect("sqlite3"); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := goose.SetDialect("sqlite3"); err != nil {
 		t.Fatalf("goose dialect: %v", err)
 	}
 	goose.SetBaseFS(migrationsFS)
 	// 依次回滚最新版本到 13，再整体升级。
 	for i := 0; i < 15; i++ {
-		if err := goose.Down(d, "migrations/sqlite"); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := goose.Down(d, "migrations/sqlite"); err != nil {
 			t.Fatalf("down migration #%d: %v", i+1, err)
 		}
 	}
@@ -158,15 +177,18 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 	if columnExists(t, d, "item_publish_batches", "location_json") {
 		t.Fatal("item_publish_batches.location_json should be removed after migration 28 down")
 	}
+	// table 表示当前遍历过程中的table
 	for _, table := range []string{"account_task_settings", "account_task_runs", "chat_sessions", "chat_messages"} {
 		if tableExists(t, d, table) {
 			t.Fatalf("table should be removed after migration 24 down: %s", table)
 		}
 	}
 
-	if err := goose.Up(d, "migrations/sqlite"); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := goose.Up(d, "migrations/sqlite"); err != nil {
 		t.Fatalf("up after down: %v", err)
 	}
+	// c 表示当前遍历过程中的c
 	for _, c := range []struct {
 		table string
 		col   string
@@ -191,15 +213,20 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 			t.Fatalf("column missing after re-up: %s.%s", c.table, c.col)
 		}
 	}
+	// val 保存val，供当前处理流程使用
 	var val string
-	if err := d.QueryRow(`SELECT value FROM system_settings WHERE key='renewal_log_retention_days'`).Scan(&val); err != nil || val != "10" {
+	if // err 保存err，供当前处理流程使用
+	err := d.QueryRow(`SELECT value FROM system_settings WHERE key='renewal_log_retention_days'`).Scan(&val); err != nil || val != "10" {
 		t.Fatalf("renewal_log_retention_days after re-up: val=%q err=%v", val, err)
 	}
 }
 
+// tableExists 负责tableExists相关处理。
 func tableExists(t *testing.T, db *sql.DB, table string) bool {
 	t.Helper()
+	// name 保存名称，供当前处理流程使用
 	var name string
+	// err 保存err，供当前处理流程使用
 	err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&name)
 	if err != nil {
 		return false

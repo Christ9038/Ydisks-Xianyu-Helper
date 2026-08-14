@@ -13,6 +13,7 @@ import (
 // 一个批次对应一次 Excel/CSV 导入，包含若干明细行（每行一个待发布商品）。
 // 发布 worker 按 row_no 顺序逐行发布，通过状态机（pending→running→success/failed）
 // 跟踪进度，支持失败重置（ResetFailed）和实时计数（Recount）。
+// ItemPublishBatches 保存商品发布批次列表，供当前处理流程使用
 type ItemPublishBatches struct{ DB *sql.DB }
 
 // ErrPublishBatchChanged 表示批次在读取与状态切换之间被其他 worker 更新，调用方可安全重试。
@@ -66,16 +67,19 @@ type ItemPublishBatchRow struct {
 // Create 在单事务内创建批次及其全部明细行。
 // 明细行的 quantity/postage_mode/status/images_json/raw_json/automation_json 缺省值在此补齐。
 // total_count 取 len(rows)，success/failed 初始为 0。
+// Create 创建当前值。
 func (b *ItemPublishBatches) Create(ctx context.Context, batch *ItemPublishBatch, rows []ItemPublishBatchRow) error {
 	if strings.TrimSpace(batch.LocationJSON) == "" {
 		batch.LocationJSON = "{}"
 	}
+	// tx、err 保存tx、err，供当前处理流程使用
 	tx, err := b.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx,
+	if // err 保存err，供当前处理流程使用
+	_, err := tx.ExecContext(ctx,
 		`INSERT INTO item_publish_batches
 		 (id,user_id,default_cookie_id,filename,upload_dir,location_json,status,total_count,success_count,failed_count)
 		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
@@ -83,6 +87,7 @@ func (b *ItemPublishBatches) Create(ctx context.Context, batch *ItemPublishBatch
 		batch.LocationJSON, batch.Status, len(rows), 0, 0); err != nil {
 		return err
 	}
+	// row 表示当前遍历过程中的row
 	for _, row := range rows {
 		if row.Quantity <= 0 {
 			row.Quantity = 1
@@ -105,7 +110,8 @@ func (b *ItemPublishBatches) Create(ctx context.Context, batch *ItemPublishBatch
 		if row.AutomationJSON == "" {
 			row.AutomationJSON = "{}"
 		}
-		if _, err := tx.ExecContext(ctx,
+		if // err 保存err，供当前处理流程使用
+		_, err := tx.ExecContext(ctx,
 			`INSERT INTO item_publish_batch_rows
 			 (batch_id,row_no,cookie_id,title,description,price,original_price,quantity,postage_mode,postage,
 			  images_json,category_json,automation_json,status,item_id,item_url,error_message,failure_kind,raw_json)
@@ -121,7 +127,9 @@ func (b *ItemPublishBatches) Create(ctx context.Context, batch *ItemPublishBatch
 
 // Get 按 ID 取批次（含 user_id 隔离校验）。未找到返回 ErrNotFound。
 func (b *ItemPublishBatches) Get(ctx context.Context, userID int64, id string) (*ItemPublishBatch, error) {
+	// out 保存out，供当前处理流程使用
 	var out ItemPublishBatch
+	// err 保存err，供当前处理流程使用
 	err := b.DB.QueryRowContext(ctx,
 		`SELECT id,user_id,default_cookie_id,filename,upload_dir,COALESCE(location_json,'{}'),status,total_count,success_count,failed_count,
 		        COALESCE(worker_token,''),COALESCE(lease_expires_at,0),
@@ -144,6 +152,7 @@ func (b *ItemPublishBatches) ListForUser(ctx context.Context, userID int64, limi
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
+	// rows、err 保存rows、err，供当前处理流程使用
 	rows, err := b.DB.QueryContext(ctx, `SELECT id,user_id,default_cookie_id,filename,upload_dir,COALESCE(location_json,'{}'),status,
 		total_count,success_count,failed_count,COALESCE(worker_token,''),COALESCE(lease_expires_at,0),created_at,updated_at
 		FROM item_publish_batches WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ?`, userID, limit)
@@ -151,10 +160,13 @@ func (b *ItemPublishBatches) ListForUser(ctx context.Context, userID int64, limi
 		return nil, err
 	}
 	defer rows.Close()
+	// out 保存out，供当前处理流程使用
 	var out []ItemPublishBatch
 	for rows.Next() {
+		// batch 保存批次，供当前处理流程使用
 		var batch ItemPublishBatch
-		if err := rows.Scan(&batch.ID, &batch.UserID, &batch.DefaultCookieID, &batch.Filename, &batch.UploadDir, &batch.LocationJSON,
+		if // err 保存err，供当前处理流程使用
+		err := rows.Scan(&batch.ID, &batch.UserID, &batch.DefaultCookieID, &batch.Filename, &batch.UploadDir, &batch.LocationJSON,
 			&batch.Status, &batch.TotalCount, &batch.SuccessCount, &batch.FailedCount, &batch.WorkerToken,
 			&batch.LeaseExpiresAt, &batch.CreatedAt, &batch.UpdatedAt); err != nil {
 			return nil, err
@@ -169,6 +181,7 @@ func (b *ItemPublishBatches) Recoverable(ctx context.Context, now int64, limit i
 	if limit <= 0 {
 		limit = 20
 	}
+	// rows、err 保存rows、err，供当前处理流程使用
 	rows, err := b.DB.QueryContext(ctx, `SELECT id,user_id,default_cookie_id,filename,upload_dir,COALESCE(location_json,'{}'),status,
 		total_count,success_count,failed_count,COALESCE(worker_token,''),COALESCE(lease_expires_at,0),created_at,updated_at
 		FROM item_publish_batches b
@@ -180,10 +193,13 @@ func (b *ItemPublishBatches) Recoverable(ctx context.Context, now int64, limit i
 		return nil, err
 	}
 	defer rows.Close()
+	// out 保存out，供当前处理流程使用
 	var out []ItemPublishBatch
 	for rows.Next() {
+		// batch 保存批次，供当前处理流程使用
 		var batch ItemPublishBatch
-		if err := rows.Scan(&batch.ID, &batch.UserID, &batch.DefaultCookieID, &batch.Filename, &batch.UploadDir, &batch.LocationJSON,
+		if // err 保存err，供当前处理流程使用
+		err := rows.Scan(&batch.ID, &batch.UserID, &batch.DefaultCookieID, &batch.Filename, &batch.UploadDir, &batch.LocationJSON,
 			&batch.Status, &batch.TotalCount, &batch.SuccessCount, &batch.FailedCount, &batch.WorkerToken,
 			&batch.LeaseExpiresAt, &batch.CreatedAt, &batch.UpdatedAt); err != nil {
 			return nil, err
@@ -195,6 +211,7 @@ func (b *ItemPublishBatches) Recoverable(ctx context.Context, now int64, limit i
 
 // Rows 取批次全部明细行，按 row_no 升序。
 func (b *ItemPublishBatches) Rows(ctx context.Context, batchID string) ([]ItemPublishBatchRow, error) {
+	// rows、err 保存rows、err，供当前处理流程使用
 	rows, err := b.DB.QueryContext(ctx,
 		`SELECT id,batch_id,row_no,cookie_id,title,description,price,original_price,quantity,postage_mode,postage,
 		        images_json,COALESCE(category_json,'{}'),COALESCE(automation_json,'{}'),status,item_id,item_url,error_message,
@@ -205,10 +222,13 @@ func (b *ItemPublishBatches) Rows(ctx context.Context, batchID string) ([]ItemPu
 		return nil, err
 	}
 	defer rows.Close()
+	// out 保存out，供当前处理流程使用
 	out := []ItemPublishBatchRow{}
 	for rows.Next() {
+		// r 保存r，供当前处理流程使用
 		var r ItemPublishBatchRow
-		if err := rows.Scan(&r.ID, &r.BatchID, &r.RowNo, &r.CookieID, &r.Title, &r.Description, &r.Price,
+		if // err 保存err，供当前处理流程使用
+		err := rows.Scan(&r.ID, &r.BatchID, &r.RowNo, &r.CookieID, &r.Title, &r.Description, &r.Price,
 			&r.OriginalPrice, &r.Quantity, &r.PostageMode, &r.Postage, &r.ImagesJSON, &r.CategoryJSON, &r.AutomationJSON,
 			&r.Status, &r.ItemID, &r.ItemURL, &r.ErrorMessage, &r.FailureKind, &r.WorkerToken,
 			&r.RawJSON, &r.CreatedAt,
@@ -222,10 +242,12 @@ func (b *ItemPublishBatches) Rows(ctx context.Context, batchID string) ([]ItemPu
 
 // PendingRows 取待处理明细行。failedOnly=true 只取失败行（用于重试），否则取 pending 行。
 func (b *ItemPublishBatches) PendingRows(ctx context.Context, batchID string, failedOnly bool) ([]ItemPublishBatchRow, error) {
+	// statuses 保存statuses，供当前处理流程使用
 	statuses := "('pending')"
 	if failedOnly {
 		statuses = "('failed')"
 	}
+	// rows、err 保存rows、err，供当前处理流程使用
 	rows, err := b.DB.QueryContext(ctx,
 		`SELECT id,batch_id,row_no,cookie_id,title,description,price,original_price,quantity,postage_mode,postage,
 		        images_json,COALESCE(category_json,'{}'),COALESCE(automation_json,'{}'),status,item_id,item_url,error_message,
@@ -236,10 +258,13 @@ func (b *ItemPublishBatches) PendingRows(ctx context.Context, batchID string, fa
 		return nil, err
 	}
 	defer rows.Close()
+	// out 保存out，供当前处理流程使用
 	out := []ItemPublishBatchRow{}
 	for rows.Next() {
+		// r 保存r，供当前处理流程使用
 		var r ItemPublishBatchRow
-		if err := rows.Scan(&r.ID, &r.BatchID, &r.RowNo, &r.CookieID, &r.Title, &r.Description, &r.Price,
+		if // err 保存err，供当前处理流程使用
+		err := rows.Scan(&r.ID, &r.BatchID, &r.RowNo, &r.CookieID, &r.Title, &r.Description, &r.Price,
 			&r.OriginalPrice, &r.Quantity, &r.PostageMode, &r.Postage, &r.ImagesJSON, &r.CategoryJSON, &r.AutomationJSON,
 			&r.Status, &r.ItemID, &r.ItemURL, &r.ErrorMessage, &r.FailureKind, &r.WorkerToken,
 			&r.RawJSON, &r.CreatedAt,
@@ -253,6 +278,7 @@ func (b *ItemPublishBatches) PendingRows(ctx context.Context, batchID string, fa
 
 // SetBatchStatus 更新批次状态（如 running/completed/failed）。
 func (b *ItemPublishBatches) SetBatchStatus(ctx context.Context, batchID, status string) error {
+	// err 保存err，供当前处理流程使用
 	_, err := b.DB.ExecContext(ctx,
 		`UPDATE item_publish_batches SET status=?,worker_token='',lease_expires_at=0,updated_at=CURRENT_TIMESTAMP WHERE id=?`, status, batchID)
 	return err
@@ -260,27 +286,34 @@ func (b *ItemPublishBatches) SetBatchStatus(ctx context.Context, batchID, status
 
 // RequestCancel 进入两阶段取消。运行中的批次保留 worker token，允许 worker
 // 把已经获得的远端商品 ID 落库后再结束；未运行批次可直接取消。
+// RequestCancel 负责请求取消相关处理。
 func (b *ItemPublishBatches) RequestCancel(ctx context.Context, batchID string) (string, bool, error) {
+	// tx、err 保存tx、err，供当前处理流程使用
 	tx, err := b.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return "", false, err
 	}
 	defer tx.Rollback()
+	// status、token 保存status、token，供当前处理流程使用
 	var status, token string
-	if err := tx.QueryRowContext(ctx, `SELECT status,worker_token FROM item_publish_batches WHERE id=?`, batchID).Scan(&status, &token); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := tx.QueryRowContext(ctx, `SELECT status,worker_token FROM item_publish_batches WHERE id=?`, batchID).Scan(&status, &token); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", false, ErrNotFound
 		}
 		return "", false, err
 	}
+	// running 保存running，供当前处理流程使用
 	running := (status == "running" || status == "canceling") && token != ""
 	if running {
+		// res、err 保存res、err，供当前处理流程使用
 		res, err := tx.ExecContext(ctx, `UPDATE item_publish_batches SET status='canceling',updated_at=CURRENT_TIMESTAMP
 			WHERE id=? AND status=? AND worker_token=?`, batchID, status, token)
 		if err != nil {
 			return "", false, err
 		}
-		if n, rowsErr := res.RowsAffected(); rowsErr != nil {
+		if // n、rowsErr 保存n、rowsErr，供当前处理流程使用
+		n, rowsErr := res.RowsAffected(); rowsErr != nil {
 			return "", false, rowsErr
 		} else if n != 1 {
 			return "", false, ErrPublishBatchChanged
@@ -293,15 +326,18 @@ func (b *ItemPublishBatches) RequestCancel(ctx context.Context, batchID string) 
 		if err != nil {
 			return "", false, err
 		}
-		if n, rowsErr := res.RowsAffected(); rowsErr != nil {
+		if // n、rowsErr 保存n、rowsErr，供当前处理流程使用
+		n, rowsErr := res.RowsAffected(); rowsErr != nil {
 			return "", false, rowsErr
 		} else if n != 1 {
 			return "", false, ErrPublishBatchChanged
 		}
-		if err := markUnfinishedFailedTx(ctx, tx, batchID, "任务已取消"); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := markUnfinishedFailedTx(ctx, tx, batchID, "任务已取消"); err != nil {
 			return "", false, err
 		}
-		if err := recountBatchTx(ctx, tx, batchID); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := recountBatchTx(ctx, tx, batchID); err != nil {
 			return "", false, err
 		}
 		res, err = tx.ExecContext(ctx, `UPDATE item_publish_batches SET status='canceled',worker_token='',lease_expires_at=0,updated_at=CURRENT_TIMESTAMP
@@ -309,19 +345,23 @@ func (b *ItemPublishBatches) RequestCancel(ctx context.Context, batchID string) 
 		if err != nil {
 			return "", false, err
 		}
-		if n, rowsErr := res.RowsAffected(); rowsErr != nil {
+		if // n、rowsErr 保存n、rowsErr，供当前处理流程使用
+		n, rowsErr := res.RowsAffected(); rowsErr != nil {
 			return "", false, rowsErr
 		} else if n != 1 {
 			return "", false, ErrPublishBatchChanged
 		}
 	}
-	if err := tx.Commit(); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := tx.Commit(); err != nil {
 		return "", false, err
 	}
 	return token, running, nil
 }
 
+// FinalizeCanceled 负责FinalizeCanceled相关处理。
 func (b *ItemPublishBatches) FinalizeCanceled(ctx context.Context, batchID, workerToken string) (bool, error) {
+	// tx、err 保存tx、err，供当前处理流程使用
 	tx, err := b.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
@@ -334,14 +374,17 @@ func (b *ItemPublishBatches) FinalizeCanceled(ctx context.Context, batchID, work
 	if err != nil {
 		return false, err
 	}
+	// n、err 保存n、err，供当前处理流程使用
 	n, err := res.RowsAffected()
 	if err != nil || n != 1 {
 		return false, err
 	}
-	if err := markUnfinishedFailedTx(ctx, tx, batchID, "任务已取消"); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := markUnfinishedFailedTx(ctx, tx, batchID, "任务已取消"); err != nil {
 		return false, err
 	}
-	if err := recountBatchTx(ctx, tx, batchID); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := recountBatchTx(ctx, tx, batchID); err != nil {
 		return false, err
 	}
 	res, err = tx.ExecContext(ctx, `UPDATE item_publish_batches
@@ -359,27 +402,34 @@ func (b *ItemPublishBatches) FinalizeCanceled(ctx context.Context, batchID, work
 
 // FinalizeInterrupted 只允许当前 worker 在一个事务内把未完成行标记为中断并结束批次。
 // 先切换到事务内的 finalizing_interrupted 状态，避免 token 检查与明细更新之间发生租约接管。
+// FinalizeInterrupted 负责FinalizeInterrupted相关处理。
 func (b *ItemPublishBatches) FinalizeInterrupted(ctx context.Context, batchID, workerToken, message string) (string, bool, error) {
+	// tx、err 保存tx、err，供当前处理流程使用
 	tx, err := b.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return "", false, err
 	}
 	defer tx.Rollback()
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := tx.ExecContext(ctx, `UPDATE item_publish_batches
 		SET status='finalizing_interrupted',updated_at=CURRENT_TIMESTAMP
 		WHERE id=? AND status='running' AND worker_token=?`, batchID, workerToken)
 	if err != nil {
 		return "", false, err
 	}
+	// n、err 保存n、err，供当前处理流程使用
 	n, err := res.RowsAffected()
 	if err != nil || n != 1 {
 		return "", false, err
 	}
-	if err := markUnfinishedFailedTx(ctx, tx, batchID, message); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := markUnfinishedFailedTx(ctx, tx, batchID, message); err != nil {
 		return "", false, err
 	}
+	// total、success、failed、unfinished 保存total、success、failed、unfinished，供当前处理流程使用
 	var total, success, failed, unfinished int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*),
+	if // err 保存err，供当前处理流程使用
+	err := tx.QueryRowContext(ctx, `SELECT COUNT(*),
 		COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN status NOT IN ('success','failed') THEN 1 ELSE 0 END),0)
@@ -389,6 +439,7 @@ func (b *ItemPublishBatches) FinalizeInterrupted(ctx context.Context, batchID, w
 	if unfinished != 0 || total != success+failed {
 		return "", false, errors.New("中断批次仍有未完成行")
 	}
+	// status 保存状态，供当前处理流程使用
 	status := finalBatchStatus(success, failed)
 	res, err = tx.ExecContext(ctx, `UPDATE item_publish_batches
 		SET status=?,total_count=?,success_count=?,failed_count=?,worker_token='',lease_expires_at=0,updated_at=CURRENT_TIMESTAMP
@@ -400,12 +451,14 @@ func (b *ItemPublishBatches) FinalizeInterrupted(ctx context.Context, batchID, w
 	if err != nil || n != 1 {
 		return "", false, err
 	}
-	if err := tx.Commit(); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := tx.Commit(); err != nil {
 		return "", false, err
 	}
 	return status, true, nil
 }
 
+// finalBatchStatus 负责final批次状态相关处理。
 func finalBatchStatus(success, failed int) string {
 	if failed == 0 {
 		return "completed"
@@ -418,73 +471,91 @@ func finalBatchStatus(success, failed int) string {
 
 // FinalizeExpiredCancellation 接管租约已过期的两阶段取消任务。远端调用已经开始但
 // 结果尚未落库的行必须保持为 uncertain_remote，其余未完成行统一标记为已取消。
+// FinalizeExpiredCancellation 负责FinalizeExpiredCancellation相关处理。
 func (b *ItemPublishBatches) FinalizeExpiredCancellation(ctx context.Context, batchID string, now int64) (bool, error) {
+	// tx、err 保存tx、err，供当前处理流程使用
 	tx, err := b.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback()
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := tx.ExecContext(ctx, `UPDATE item_publish_batches
 		SET status='canceled',worker_token='',lease_expires_at=0,updated_at=CURRENT_TIMESTAMP
 		WHERE id=? AND status='canceling' AND (lease_expires_at=0 OR lease_expires_at<?)`, batchID, now)
 	if err != nil {
 		return false, err
 	}
+	// n、err 保存n、err，供当前处理流程使用
 	n, err := res.RowsAffected()
 	if err != nil || n != 1 {
 		return false, err
 	}
-	if err := markUnfinishedFailedTx(ctx, tx, batchID, "任务已取消"); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := markUnfinishedFailedTx(ctx, tx, batchID, "任务已取消"); err != nil {
 		return false, err
 	}
-	if err := recountBatchTx(ctx, tx, batchID); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := recountBatchTx(ctx, tx, batchID); err != nil {
 		return false, err
 	}
 	return true, tx.Commit()
 }
 
+// markUnfinishedFailedTx 负责markUnfinished失败Tx相关处理。
 func markUnfinishedFailedTx(ctx context.Context, tx *sql.Tx, batchID, message string) error {
-	if _, err := tx.ExecContext(ctx, `UPDATE item_publish_batch_rows
+	if // err 保存err，供当前处理流程使用
+	_, err := tx.ExecContext(ctx, `UPDATE item_publish_batch_rows
 		SET status='failed',error_message='任务取消时远端发布结果未知，请人工核对闲鱼商品列表',
 		    failure_kind='uncertain_remote',worker_token='',updated_at=CURRENT_TIMESTAMP
 		WHERE batch_id=? AND status='running' AND failure_kind='remote_started' AND COALESCE(item_id,'')=''`, batchID); err != nil {
 		return err
 	}
+	// err 保存err，供当前处理流程使用
 	_, err := tx.ExecContext(ctx, `UPDATE item_publish_batch_rows
 		SET status='failed',error_message=?,failure_kind='interrupted',worker_token='',updated_at=CURRENT_TIMESTAMP
 		WHERE batch_id=? AND status IN ('pending','running')`, message, batchID)
 	return err
 }
 
+// recountBatchTx 负责recount批次Tx相关处理。
 func recountBatchTx(ctx context.Context, tx *sql.Tx, batchID string) error {
+	// total、success、failed 保存total、success、failed，供当前处理流程使用
 	var total, success, failed int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*),
+	if // err 保存err，供当前处理流程使用
+	err := tx.QueryRowContext(ctx, `SELECT COUNT(*),
 		COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),0)
 		FROM item_publish_batch_rows WHERE batch_id=?`, batchID).Scan(&total, &success, &failed); err != nil {
 		return err
 	}
+	// err 保存err，供当前处理流程使用
 	_, err := tx.ExecContext(ctx, `UPDATE item_publish_batches
 		SET total_count=?,success_count=?,failed_count=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`,
 		total, success, failed, batchID)
 	return err
 }
 
+// Delete 删除当前值。
 func (b *ItemPublishBatches) Delete(ctx context.Context, userID int64, batchID string) error {
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := b.DB.ExecContext(ctx, `DELETE FROM item_publish_batches WHERE id=? AND user_id=? AND status NOT IN ('running','canceling')`, batchID, userID)
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n != 1 {
+	if // n 保存n，供当前处理流程使用
+	n, _ := res.RowsAffected(); n != 1 {
 		return ErrNotFound
 	}
 	return nil
 }
 
+// ExpiredUploads 负责ExpiredUploads相关处理。
 func (b *ItemPublishBatches) ExpiredUploads(ctx context.Context, cutoff string, limit int) ([]ItemPublishBatch, error) {
 	if limit <= 0 {
 		limit = 100
 	}
+	// rows、err 保存rows、err，供当前处理流程使用
 	rows, err := b.DB.QueryContext(ctx, `SELECT id,user_id,default_cookie_id,filename,upload_dir,status,
 		total_count,success_count,failed_count,worker_token,lease_expires_at,created_at,updated_at
 		FROM item_publish_batches
@@ -494,10 +565,13 @@ func (b *ItemPublishBatches) ExpiredUploads(ctx context.Context, cutoff string, 
 		return nil, err
 	}
 	defer rows.Close()
+	// out 保存out，供当前处理流程使用
 	var out []ItemPublishBatch
 	for rows.Next() {
+		// batch 保存批次，供当前处理流程使用
 		var batch ItemPublishBatch
-		if err := rows.Scan(&batch.ID, &batch.UserID, &batch.DefaultCookieID, &batch.Filename, &batch.UploadDir,
+		if // err 保存err，供当前处理流程使用
+		err := rows.Scan(&batch.ID, &batch.UserID, &batch.DefaultCookieID, &batch.Filename, &batch.UploadDir,
 			&batch.Status, &batch.TotalCount, &batch.SuccessCount, &batch.FailedCount, &batch.WorkerToken,
 			&batch.LeaseExpiresAt, &batch.CreatedAt, &batch.UpdatedAt); err != nil {
 			return nil, err
@@ -507,13 +581,16 @@ func (b *ItemPublishBatches) ExpiredUploads(ctx context.Context, cutoff string, 
 	return out, rows.Err()
 }
 
+// ClearUploadDir 负责ClearUploadDir相关处理。
 func (b *ItemPublishBatches) ClearUploadDir(ctx context.Context, batchID string) error {
+	// err 保存err，供当前处理流程使用
 	_, err := b.DB.ExecContext(ctx, `UPDATE item_publish_batches SET upload_dir='',updated_at=CURRENT_TIMESTAMP WHERE id=?`, batchID)
 	return err
 }
 
 // ResetInterrupted 只重置确认由进程中断造成的失败行，不自动重试业务失败或远端状态不确定的行。
 func (b *ItemPublishBatches) ResetInterrupted(ctx context.Context, batchID string) error {
+	// err 保存err，供当前处理流程使用
 	_, err := b.DB.ExecContext(ctx, `UPDATE item_publish_batch_rows
 		SET status='pending',error_message='',failure_kind='',worker_token='',updated_at=CURRENT_TIMESTAMP
 		WHERE batch_id=? AND status='failed' AND failure_kind='interrupted'`, batchID)
@@ -522,11 +599,13 @@ func (b *ItemPublishBatches) ResetInterrupted(ctx context.Context, batchID strin
 
 // ClaimBatch 原子领取一个非运行批次。并发请求中只有一个 worker 能成功。
 func (b *ItemPublishBatches) ClaimBatch(ctx context.Context, batchID, workerToken string, leaseExpiresAt int64) (bool, error) {
+	// tx、err 保存tx、err，供当前处理流程使用
 	tx, err := b.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback()
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := tx.ExecContext(ctx, `UPDATE item_publish_batches
 		SET status='running',worker_token=?,lease_expires_at=?,updated_at=CURRENT_TIMESTAMP
 		WHERE id=? AND (status IN ('preview','pending','failed','partially_failed','completed','canceled')
@@ -535,6 +614,7 @@ func (b *ItemPublishBatches) ClaimBatch(ctx context.Context, batchID, workerToke
 	if err != nil {
 		return false, err
 	}
+	// n、err 保存n、err，供当前处理流程使用
 	n, err := res.RowsAffected()
 	if err != nil || n != 1 {
 		return false, err
@@ -551,7 +631,8 @@ func (b *ItemPublishBatches) ClaimBatch(ctx context.Context, batchID, workerToke
 		WHERE batch_id=? AND status='running' AND worker_token<>?`, batchID, workerToken); err != nil {
 		return false, err
 	}
-	if err := tx.Commit(); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := tx.Commit(); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -559,50 +640,60 @@ func (b *ItemPublishBatches) ClaimBatch(ctx context.Context, batchID, workerToke
 
 // RenewBatchLease 仅允许当前 worker 延长租约，长批次不会因固定截止时间被并发接管。
 func (b *ItemPublishBatches) RenewBatchLease(ctx context.Context, batchID, workerToken string, leaseExpiresAt int64) (bool, error) {
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := b.DB.ExecContext(ctx, `UPDATE item_publish_batches
 		SET lease_expires_at=?,updated_at=CURRENT_TIMESTAMP
 		WHERE id=? AND status='running' AND worker_token=?`, leaseExpiresAt, batchID, workerToken)
 	if err != nil {
 		return false, err
 	}
+	// n、err 保存n、err，供当前处理流程使用
 	n, err := res.RowsAffected()
 	return err == nil && n == 1, err
 }
 
 // FailClaimedBatch 释放初始化阶段失败的批次租约。worker token 防止旧 worker
 // 覆盖已经被新 worker 接管的状态。
+// FailClaimedBatch 负责FailClaimed批次相关处理。
 func (b *ItemPublishBatches) FailClaimedBatch(ctx context.Context, batchID, workerToken string) (bool, error) {
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := b.DB.ExecContext(ctx, `UPDATE item_publish_batches
 		SET status='failed',worker_token='',lease_expires_at=0,updated_at=CURRENT_TIMESTAMP
 		WHERE id=? AND status='running' AND worker_token=?`, batchID, workerToken)
 	if err != nil {
 		return false, err
 	}
+	// n、err 保存n、err，供当前处理流程使用
 	n, err := res.RowsAffected()
 	return err == nil && n == 1, err
 }
 
 // FinishBatchStatus 只允许当前持有租约的 worker 结束批次。
 func (b *ItemPublishBatches) FinishBatchStatus(ctx context.Context, batchID, workerToken, status string) (bool, error) {
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := b.DB.ExecContext(ctx, `UPDATE item_publish_batches
 		SET status=?,worker_token='',lease_expires_at=0,updated_at=CURRENT_TIMESTAMP
 		WHERE id=? AND status='running' AND worker_token=?`, status, batchID, workerToken)
 	if err != nil {
 		return false, err
 	}
+	// n、err 保存n、err，供当前处理流程使用
 	n, err := res.RowsAffected()
 	return err == nil && n == 1, err
 }
 
 // FinalizeBatch 在单个事务内重算计数，并且只在所有行都进入终态后结束批次。
 func (b *ItemPublishBatches) FinalizeBatch(ctx context.Context, batchID, workerToken string) (string, bool, error) {
+	// tx、err 保存tx、err，供当前处理流程使用
 	tx, err := b.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return "", false, err
 	}
 	defer tx.Rollback()
+	// total、success、failed、unfinished 保存total、success、failed、unfinished，供当前处理流程使用
 	var total, success, failed, unfinished int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*),
+	if // err 保存err，供当前处理流程使用
+	err := tx.QueryRowContext(ctx, `SELECT COUNT(*),
 		COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),0),
 		COALESCE(SUM(CASE WHEN status NOT IN ('success','failed') THEN 1 ELSE 0 END),0)
@@ -613,18 +704,22 @@ func (b *ItemPublishBatches) FinalizeBatch(ctx context.Context, batchID, workerT
 	if unfinished != 0 || total != success+failed {
 		return "", false, errors.New("批次仍有未完成行，不能进入终态")
 	}
+	// status 保存状态，供当前处理流程使用
 	status := finalBatchStatus(success, failed)
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := tx.ExecContext(ctx, `UPDATE item_publish_batches
 		SET status=?,total_count=?,success_count=?,failed_count=?,worker_token='',lease_expires_at=0,updated_at=CURRENT_TIMESTAMP
 		WHERE id=? AND status='running' AND worker_token=?`, status, total, success, failed, batchID, workerToken)
 	if err != nil {
 		return "", false, err
 	}
+	// n、err 保存n、err，供当前处理流程使用
 	n, err := res.RowsAffected()
 	if err != nil || n != 1 {
 		return "", false, err
 	}
-	if err := tx.Commit(); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := tx.Commit(); err != nil {
 		return "", false, err
 	}
 	return status, true, nil
@@ -632,7 +727,9 @@ func (b *ItemPublishBatches) FinalizeBatch(ctx context.Context, batchID, workerT
 
 // BatchStatus 取批次状态。未找到返回 ErrNotFound。
 func (b *ItemPublishBatches) BatchStatus(ctx context.Context, batchID string) (string, error) {
+	// status 保存状态，供当前处理流程使用
 	var status string
+	// err 保存err，供当前处理流程使用
 	err := b.DB.QueryRowContext(ctx, `SELECT status FROM item_publish_batches WHERE id=?`, batchID).Scan(&status)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -645,6 +742,7 @@ func (b *ItemPublishBatches) BatchStatus(ctx context.Context, batchID string) (s
 
 // MarkRowRunning 将明细行置为 running 并清空历史错误信息（发布 worker 开始处理时调用）。
 func (b *ItemPublishBatches) MarkRowRunning(ctx context.Context, rowID int64) error {
+	// err 保存err，供当前处理流程使用
 	_, err := b.DB.ExecContext(ctx,
 		`UPDATE item_publish_batch_rows SET status='running',error_message='',failure_kind='',updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'`, rowID)
 	return err
@@ -652,6 +750,7 @@ func (b *ItemPublishBatches) MarkRowRunning(ctx context.Context, rowID int64) er
 
 // ClaimRow 原子领取单行，防止多个 worker 重复发布同一商品。
 func (b *ItemPublishBatches) ClaimRow(ctx context.Context, rowID int64, workerToken string) (bool, error) {
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := b.DB.ExecContext(ctx, `UPDATE item_publish_batch_rows
 		SET status='running',worker_token=?,error_message='',failure_kind='',updated_at=CURRENT_TIMESTAMP
 		WHERE id=? AND status='pending'
@@ -661,19 +760,23 @@ func (b *ItemPublishBatches) ClaimRow(ctx context.Context, rowID int64, workerTo
 	if err != nil {
 		return false, err
 	}
+	// n、err 保存n、err，供当前处理流程使用
 	n, err := res.RowsAffected()
 	return err == nil && n == 1, err
 }
 
 // MarkClaimedRemoteStarted 在调用闲鱼发布接口前落盘。进程若在远端返回前硬退出，
 // 租约接管方会把该行隔离为 uncertain_remote，而不是再次发布。
+// MarkClaimedRemoteStarted 负责MarkClaimedRemoteStarted相关处理。
 func (b *ItemPublishBatches) MarkClaimedRemoteStarted(ctx context.Context, rowID int64, workerToken string) (bool, error) {
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := b.DB.ExecContext(ctx, `UPDATE item_publish_batch_rows
 		SET failure_kind='remote_started',updated_at=CURRENT_TIMESTAMP
 		WHERE id=? AND status='running' AND worker_token=? AND COALESCE(item_id,'')=''`, rowID, workerToken)
 	if err != nil {
 		return false, err
 	}
+	// n、err 保存n、err，供当前处理流程使用
 	n, err := res.RowsAffected()
 	return err == nil && n == 1, err
 }
@@ -683,18 +786,21 @@ func (b *ItemPublishBatches) MarkClaimedRowSuccess(ctx context.Context, rowID in
 	if rawJSON == "" {
 		rawJSON = "{}"
 	}
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := b.DB.ExecContext(ctx, `UPDATE item_publish_batch_rows
 		SET status='success',item_id=?,item_url=?,error_message='',failure_kind='',worker_token='',raw_json=?,updated_at=CURRENT_TIMESTAMP
 		WHERE id=? AND status='running' AND worker_token=?`, itemID, itemURL, rawJSON, rowID, workerToken)
 	if err != nil {
 		return false, err
 	}
+	// n、err 保存n、err，供当前处理流程使用
 	n, err := res.RowsAffected()
 	return err == nil && n == 1, err
 }
 
 // SaveClaimedRemoteResult 在闲鱼发布成功后第一时间保存远端商品标识。
 // 后续本地商品/自动化规则写入失败时，重试会从该断点继续而不会再次调用发布接口。
+// SaveClaimedRemoteResult 保存ClaimedRemote结果。
 func (b *ItemPublishBatches) SaveClaimedRemoteResult(ctx context.Context, rowID int64, workerToken, itemID, itemURL, rawJSON string) (bool, error) {
 	if strings.TrimSpace(itemID) == "" {
 		return false, errors.New("远端发布结果缺少商品ID")
@@ -702,24 +808,28 @@ func (b *ItemPublishBatches) SaveClaimedRemoteResult(ctx context.Context, rowID 
 	if rawJSON == "" {
 		rawJSON = "{}"
 	}
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := b.DB.ExecContext(ctx, `UPDATE item_publish_batch_rows
 		SET item_id=?,item_url=?,raw_json=?,failure_kind='post_publish',updated_at=CURRENT_TIMESTAMP
 		WHERE id=? AND status='running' AND worker_token=?`, itemID, itemURL, rawJSON, rowID, workerToken)
 	if err != nil {
 		return false, err
 	}
+	// n、err 保存n、err，供当前处理流程使用
 	n, err := res.RowsAffected()
 	return err == nil && n == 1, err
 }
 
 // MarkClaimedRowFailed 只允许领取该行的 worker 写入失败结果。
 func (b *ItemPublishBatches) MarkClaimedRowFailed(ctx context.Context, rowID int64, workerToken, message, kind string) (bool, error) {
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := b.DB.ExecContext(ctx, `UPDATE item_publish_batch_rows
 		SET status='failed',error_message=?,failure_kind=?,worker_token='',updated_at=CURRENT_TIMESTAMP
 		WHERE id=? AND status='running' AND worker_token=?`, message, kind, rowID, workerToken)
 	if err != nil {
 		return false, err
 	}
+	// n、err 保存n、err，供当前处理流程使用
 	n, err := res.RowsAffected()
 	return err == nil && n == 1, err
 }
@@ -729,6 +839,7 @@ func (b *ItemPublishBatches) MarkRowSuccess(ctx context.Context, rowID int64, it
 	if rawJSON == "" {
 		rawJSON = "{}"
 	}
+	// err 保存err，供当前处理流程使用
 	_, err := b.DB.ExecContext(ctx,
 		`UPDATE item_publish_batch_rows
 			    SET status='success',item_id=?,item_url=?,error_message='',failure_kind='',worker_token='',raw_json=?,updated_at=CURRENT_TIMESTAMP
@@ -741,7 +852,9 @@ func (b *ItemPublishBatches) MarkRowFailed(ctx context.Context, rowID int64, mes
 	return b.MarkRowFailedKind(ctx, rowID, message, "publish")
 }
 
+// MarkRowFailedKind 负责MarkRow失败类型相关处理。
 func (b *ItemPublishBatches) MarkRowFailedKind(ctx context.Context, rowID int64, message, kind string) error {
+	// err 保存err，供当前处理流程使用
 	_, err := b.DB.ExecContext(ctx,
 		`UPDATE item_publish_batch_rows SET status='failed',error_message=?,failure_kind=?,worker_token='',updated_at=CURRENT_TIMESTAMP WHERE id=?`,
 		message, kind, rowID)
@@ -750,11 +863,13 @@ func (b *ItemPublishBatches) MarkRowFailedKind(ctx context.Context, rowID int64,
 
 // MarkRunningFailed 将批次内仍在 running 的行标为失败。
 func (b *ItemPublishBatches) MarkRunningFailed(ctx context.Context, batchID, message string) error {
-	if _, err := b.DB.ExecContext(ctx, `UPDATE item_publish_batch_rows
+	if // err 保存err，供当前处理流程使用
+	_, err := b.DB.ExecContext(ctx, `UPDATE item_publish_batch_rows
 		SET status='failed',error_message='远端发布结果未知，请人工核对闲鱼商品列表',failure_kind='uncertain_remote',worker_token='',updated_at=CURRENT_TIMESTAMP
 		WHERE batch_id=? AND status='running' AND failure_kind='remote_started' AND COALESCE(item_id,'')=''`, batchID); err != nil {
 		return err
 	}
+	// err 保存err，供当前处理流程使用
 	_, err := b.DB.ExecContext(ctx,
 		`UPDATE item_publish_batch_rows
 			    SET status='failed',error_message=?,failure_kind='interrupted',worker_token='',updated_at=CURRENT_TIMESTAMP
@@ -765,11 +880,13 @@ func (b *ItemPublishBatches) MarkRunningFailed(ctx context.Context, batchID, mes
 
 // MarkUnfinishedFailed 将批次内 pending/running 行标为失败。
 func (b *ItemPublishBatches) MarkUnfinishedFailed(ctx context.Context, batchID, message string) error {
-	if _, err := b.DB.ExecContext(ctx, `UPDATE item_publish_batch_rows
+	if // err 保存err，供当前处理流程使用
+	_, err := b.DB.ExecContext(ctx, `UPDATE item_publish_batch_rows
 		SET status='failed',error_message='远端发布结果未知，请人工核对闲鱼商品列表',failure_kind='uncertain_remote',worker_token='',updated_at=CURRENT_TIMESTAMP
 		WHERE batch_id=? AND status='running' AND failure_kind='remote_started' AND COALESCE(item_id,'')=''`, batchID); err != nil {
 		return err
 	}
+	// err 保存err，供当前处理流程使用
 	_, err := b.DB.ExecContext(ctx,
 		`UPDATE item_publish_batch_rows
 			    SET status='failed',error_message=?,failure_kind='interrupted',worker_token='',updated_at=CURRENT_TIMESTAMP
@@ -780,6 +897,7 @@ func (b *ItemPublishBatches) MarkUnfinishedFailed(ctx context.Context, batchID, 
 
 // ResetFailed 将批次内所有 failed 行重置为 pending，便于失败重试。
 func (b *ItemPublishBatches) ResetFailed(ctx context.Context, batchID string) error {
+	// err 保存err，供当前处理流程使用
 	_, err := b.DB.ExecContext(ctx,
 		`UPDATE item_publish_batch_rows
 			    SET status='pending',error_message='',failure_kind='',worker_token='',updated_at=CURRENT_TIMESTAMP
@@ -790,15 +908,19 @@ func (b *ItemPublishBatches) ResetFailed(ctx context.Context, batchID string) er
 
 // Recount 按明细行实际状态重算批次的 total/success/failed 计数。
 // worker 每完成一行后调用，保证前端进度与 DB 一致。
+// Recount 负责Recount相关处理。
 func (b *ItemPublishBatches) Recount(ctx context.Context, batchID string) error {
+	// total、success、failed 保存total、success、failed，供当前处理流程使用
 	var total, success, failed int
-	if err := b.DB.QueryRowContext(ctx,
+	if // err 保存err，供当前处理流程使用
+	err := b.DB.QueryRowContext(ctx,
 		`SELECT COUNT(*),
 		        COALESCE(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END),0),
 		        COALESCE(SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END),0)
 		   FROM item_publish_batch_rows WHERE batch_id=?`, batchID).Scan(&total, &success, &failed); err != nil {
 		return err
 	}
+	// err 保存err，供当前处理流程使用
 	_, err := b.DB.ExecContext(ctx,
 		`UPDATE item_publish_batches
 		    SET total_count=?,success_count=?,failed_count=?,updated_at=CURRENT_TIMESTAMP

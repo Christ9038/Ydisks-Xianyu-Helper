@@ -9,7 +9,9 @@ import (
 // 关键不变量：SQLite/Postgres 用 ON CONFLICT...DO UPDATE SET，MySQL 用 ON DUPLICATE KEY UPDATE；
 // 列名按字典序输出（保证幂等可重现）；MySQL 下 EXCLUDED.col 自动改写为 VALUES(col)，
 // 大小写不敏感；CURRENT_TIMESTAMP 等非 EXCLUDED 表达式原样保留。
+// TestDialectUpsert 负责TestDialectUpsert相关处理。
 func TestDialectUpsert(t *testing.T) {
+	// cases 保存cases，供当前处理流程使用
 	cases := []struct {
 		name     string
 		d        Dialect
@@ -67,8 +69,10 @@ func TestDialectUpsert(t *testing.T) {
 			want:     "",
 		},
 	}
+	// c 表示当前遍历过程中的c
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			// got 保存got，供当前处理流程使用
 			got := DialectUpsert(c.d, c.conflict, c.updates)
 			if got != c.want {
 				t.Errorf("DialectUpsert(%s) = %q; want %q", c.d, got, c.want)
@@ -79,7 +83,9 @@ func TestDialectUpsert(t *testing.T) {
 
 // TestDialectInsertIgnore 断言“冲突即忽略”子句：MySQL 恒空（前缀模式负责），
 // SQLite/Postgres 生成 ON CONFLICT...DO NOTHING，空 conflictCols 时返回空。
+// TestDialectInsertIgnore 负责TestDialectInsertIgnore相关处理。
 func TestDialectInsertIgnore(t *testing.T) {
+	// cases 保存cases，供当前处理流程使用
 	cases := []struct {
 		d        Dialect
 		conflict []string
@@ -91,7 +97,9 @@ func TestDialectInsertIgnore(t *testing.T) {
 		{DialectMySQL, nil, ""},
 		{DialectSQLite, nil, ""},
 	}
+	// c 表示当前遍历过程中的c
 	for _, c := range cases {
+		// got 保存got，供当前处理流程使用
 		got := DialectInsertIgnore(c.d, c.conflict)
 		if got != c.want {
 			t.Errorf("DialectInsertIgnore(%s, %v) = %q; want %q", c.d, c.conflict, got, c.want)
@@ -101,19 +109,23 @@ func TestDialectInsertIgnore(t *testing.T) {
 
 // TestDialectInsertIgnorePrefix MySQL 走 INSERT IGNORE，其余走 INSERT。
 func TestDialectInsertIgnorePrefix(t *testing.T) {
-	if got := DialectInsertIgnorePrefix(DialectMySQL); got != "INSERT IGNORE" {
+	if // got 保存got，供当前处理流程使用
+	got := DialectInsertIgnorePrefix(DialectMySQL); got != "INSERT IGNORE" {
 		t.Errorf("mysql prefix = %q; want INSERT IGNORE", got)
 	}
-	if got := DialectInsertIgnorePrefix(DialectSQLite); got != "INSERT" {
+	if // got 保存got，供当前处理流程使用
+	got := DialectInsertIgnorePrefix(DialectSQLite); got != "INSERT" {
 		t.Errorf("sqlite prefix = %q; want INSERT", got)
 	}
-	if got := DialectInsertIgnorePrefix(DialectPostgres); got != "INSERT" {
+	if // got 保存got，供当前处理流程使用
+	got := DialectInsertIgnorePrefix(DialectPostgres); got != "INSERT" {
 		t.Errorf("postgres prefix = %q; want INSERT", got)
 	}
 }
 
 // TestDialectQuote Postgres 用双引号，SQLite/MySQL 用反引号。
 func TestDialectQuote(t *testing.T) {
+	// cases 保存cases，供当前处理流程使用
 	cases := []struct {
 		d    Dialect
 		name string
@@ -124,8 +136,10 @@ func TestDialectQuote(t *testing.T) {
 		{DialectPostgres, "users", `"users"`},
 		{DialectPostgres, "order_id", `"order_id"`},
 	}
+	// c 表示当前遍历过程中的c
 	for _, c := range cases {
-		if got := DialectQuote(c.d, c.name); got != c.want {
+		if // got 保存got，供当前处理流程使用
+		got := DialectQuote(c.d, c.name); got != c.want {
 			t.Errorf("DialectQuote(%s, %q) = %q; want %q", c.d, c.name, got, c.want)
 		}
 	}
@@ -133,10 +147,13 @@ func TestDialectQuote(t *testing.T) {
 
 // TestSortStrings 确认 sortStrings 原地升序排序（被 DialectUpsert 用于稳定输出顺序）。
 func TestSortStrings(t *testing.T) {
+	// in 保存in，供当前处理流程使用
 	in := []string{"banana", "apple", "cherry", "apple"}
 	sortStrings(in)
+	// want 保存want，供当前处理流程使用
 	want := "apple,apple,banana,cherry"
-	if got := strings.Join(in, ","); got != want {
+	if // got 保存got，供当前处理流程使用
+	got := strings.Join(in, ","); got != want {
 		t.Errorf("sortStrings = %q; want %q", got, want)
 	}
 }

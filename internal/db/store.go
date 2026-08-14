@@ -40,6 +40,7 @@ type Store struct {
 
 // NewStore 基于 *sql.DB 构造聚合 store。dialect 用于业务 SQL 方言分支。
 func NewStore(db *sql.DB, dialect Dialect) *Store {
+	// codec 保存codec，供当前处理流程使用
 	codec := secretCodecFromEnvironment()
 	return &Store{
 		DB:              db,
@@ -75,6 +76,7 @@ func NewStore(db *sql.DB, dialect Dialect) *Store {
 // LockAccountCredentials serializes Cookie/token state transitions for one
 // account across the IM runtime and renewal scheduler. The returned function
 // must be called exactly once.
+// LockAccountCredentials 负责锁账号Credentials相关处理。
 func (s *Store) LockAccountCredentials(cookieID string) func() {
 	if s == nil {
 		return func() {}
@@ -83,6 +85,7 @@ func (s *Store) LockAccountCredentials(cookieID string) func() {
 	if s.credentialLocks == nil {
 		s.credentialLocks = make(map[string]*sync.Mutex)
 	}
+	// lock 保存锁，供当前处理流程使用
 	lock := s.credentialLocks[cookieID]
 	if lock == nil {
 		lock = &sync.Mutex{}

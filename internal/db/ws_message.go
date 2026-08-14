@@ -32,9 +32,12 @@ func (w *WSMessageStore) AddBatch(ctx context.Context, messages []WSMessage) err
 		return nil
 	}
 
+	// query 保存查询，供当前处理流程使用
 	var query strings.Builder
 	query.WriteString("INSERT INTO ws_messages (cookie_id, direction, raw_text, parsed_json, message_kind, parse_status, error, created_at) VALUES ")
+	// args 保存args，供当前处理流程使用
 	args := make([]any, 0, len(messages)*7)
+	// i、message 表示当前遍历过程中的i、message
 	for i, message := range messages {
 		if i > 0 {
 			query.WriteByte(',')
@@ -50,12 +53,14 @@ func (w *WSMessageStore) AddBatch(ctx context.Context, messages []WSMessage) err
 			message.MessageKind, message.ParseStatus, message.Error)
 	}
 
+	// err 保存err，供当前处理流程使用
 	_, err := w.DB.ExecContext(ctx, query.String(), args...)
 	return err
 }
 
 // DeleteBefore 删除指定账号在 cutoff 之前的 WS 诊断消息。
 func (w *WSMessageStore) DeleteBefore(ctx context.Context, cookieID string, cutoff time.Time) (int64, error) {
+	// result、err 保存result、err，供当前处理流程使用
 	result, err := w.DB.ExecContext(ctx,
 		"DELETE FROM ws_messages WHERE cookie_id=? AND created_at < ?", cookieID, cutoff)
 	if err != nil {

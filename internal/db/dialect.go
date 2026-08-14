@@ -15,17 +15,23 @@ import (
 // updateAssignments 是 列名 -> SQL表达式 的映射。表达式里用 "EXCLUDED.col"
 // 表示插入值（SQLite/Postgres 语法），MySQL 下自动转成 "VALUES(col)"。
 // 其他表达式（如 "CURRENT_TIMESTAMP"）原样保留。
+// DialectUpsert 负责DialectUpsert相关处理。
 func DialectUpsert(d Dialect, conflictCols []string, updateAssignments map[string]string) string {
 	if len(conflictCols) == 0 || len(updateAssignments) == 0 {
 		return ""
 	}
+	// keys 保存keys，供当前处理流程使用
 	keys := make([]string, 0, len(updateAssignments))
+	// k 表示当前遍历过程中的k
 	for k := range updateAssignments {
 		keys = append(keys, k)
 	}
 	sortStrings(keys)
+	// sets 保存sets，供当前处理流程使用
 	sets := make([]string, 0, len(keys))
+	// col 表示当前遍历过程中的col
 	for _, col := range keys {
+		// expr 保存expr，供当前处理流程使用
 		expr := updateAssignments[col]
 		if d == DialectMySQL {
 			// EXCLUDED.col / excluded.col → VALUES(col)（大小写不敏感）
@@ -54,6 +60,8 @@ func dialectUpsert(d Dialect, cols []string, m map[string]string) string {
 //
 //	SQLite/Postgres: ON CONFLICT (cols) DO NOTHING
 //	MySQL: 空（调用方应用 DialectInsertIgnorePrefix）
+//
+// DialectInsertIgnore 负责DialectInsertIgnore相关处理。
 func DialectInsertIgnore(d Dialect, conflictCols []string) string {
 	if d == DialectMySQL {
 		return ""
@@ -64,6 +72,7 @@ func DialectInsertIgnore(d Dialect, conflictCols []string) string {
 	return " ON CONFLICT (" + strings.Join(conflictCols, ", ") + ") DO NOTHING"
 }
 
+// dialectInsertIgnore 负责dialectInsertIgnore相关处理。
 func dialectInsertIgnore(d Dialect, cols []string) string { return DialectInsertIgnore(d, cols) }
 
 // DialectInsertIgnorePrefix 返回 INSERT 前缀（MySQL 用 INSERT IGNORE）。
@@ -74,12 +83,15 @@ func DialectInsertIgnorePrefix(d Dialect) string {
 	return "INSERT"
 }
 
+// dialectInsertIgnorePrefix 负责dialectInsertIgnorePrefix相关处理。
 func dialectInsertIgnorePrefix(d Dialect) string { return DialectInsertIgnorePrefix(d) }
 
 // DialectQuote 返回方言下的标识符引用。
 //
 //	SQLite/MySQL: `name`（反引号）
 //	Postgres:     "name"（双引号）
+//
+// DialectQuote 负责DialectQuote相关处理。
 func DialectQuote(d Dialect, name string) string {
 	if d == DialectPostgres {
 		return "\"" + name + "\""
@@ -87,12 +99,15 @@ func DialectQuote(d Dialect, name string) string {
 	return "`" + name + "`"
 }
 
+// dialectQuote 负责dialectQuote相关处理。
 func dialectQuote(d Dialect, name string) string { return DialectQuote(d, name) }
 
 // sortStrings 原地排序字符串切片。
 func sortStrings(s []string) {
-	for i := 1; i < len(s); i++ {
-		for j := i; j > 0 && s[j-1] > s[j]; j-- {
+	for // i 保存i，供当前处理流程使用
+	i := 1; i < len(s); i++ {
+		for // j 保存j，供当前处理流程使用
+		j := i; j > 0 && s[j-1] > s[j]; j-- {
 			s[j-1], s[j] = s[j], s[j-1]
 		}
 	}
@@ -108,14 +123,18 @@ type DBTX interface {
 // Postgres 的 pgx driver 不支持 Result.LastInsertId（Postgres 无该概念），
 // 改用 `INSERT ... RETURNING id` + QueryRow.Scan；SQLite/MySQL 走 res.LastInsertId()。
 // query 必须是可安全追加 ` RETURNING id` 的单条 INSERT（无尾随分号/ON CONFLICT 亦可）。
+// insertReturningID 负责insertReturningID相关处理。
 func insertReturningID(ctx context.Context, exec DBTX, dialect Dialect, query string, args ...any) (int64, error) {
 	if dialect == DialectPostgres {
+		// id 保存标识，供当前处理流程使用
 		var id int64
-		if err := exec.QueryRowContext(ctx, query+" RETURNING id", args...).Scan(&id); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := exec.QueryRowContext(ctx, query+" RETURNING id", args...).Scan(&id); err != nil {
 			return 0, err
 		}
 		return id, nil
 	}
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, err

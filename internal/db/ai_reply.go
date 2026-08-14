@@ -36,9 +36,13 @@ type AIReply struct {
 
 // Get 取某账号 AI 回复配置。
 func (a *AIReply) Get(ctx context.Context, cookieID string) (*AIReplySettings, error) {
+	// s 保存s，供当前处理流程使用
 	var s AIReplySettings
+	// enabled 保存启用状态，供当前处理流程使用
 	var enabled int
+	// apiKey、customPrompts 保存apiKey、customPrompts，供当前处理流程使用
 	var apiKey, customPrompts sql.NullString
+	// err 保存err，供当前处理流程使用
 	err := a.DB.QueryRowContext(ctx,
 		`SELECT cookie_id, ai_enabled, COALESCE(model_name, ''), COALESCE(api_key, ''), COALESCE(base_url, ''),
 		        max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts
@@ -68,6 +72,7 @@ func (a *AIReply) Get(ctx context.Context, cookieID string) (*AIReplySettings, e
 
 // ListForUser 查询用户账号的 AI 回复配置，不读取或返回 API 密钥。
 func (a *AIReply) ListForUser(ctx context.Context, userID int64) ([]AIReplySettings, error) {
+	// rows、err 保存rows、err，供当前处理流程使用
 	rows, err := a.DB.QueryContext(ctx, `
 		SELECT a.cookie_id, a.ai_enabled, a.max_discount_percent, a.max_discount_amount,
 		       a.max_bargain_rounds, COALESCE(a.custom_prompts, '')
@@ -76,11 +81,15 @@ func (a *AIReply) ListForUser(ctx context.Context, userID int64) ([]AIReplySetti
 		return nil, err
 	}
 	defer rows.Close()
+	// out 保存out，供当前处理流程使用
 	var out []AIReplySettings
 	for rows.Next() {
+		// item 保存商品，供当前处理流程使用
 		var item AIReplySettings
+		// enabled 保存启用状态，供当前处理流程使用
 		var enabled int
-		if err := rows.Scan(&item.CookieID, &enabled, &item.MaxDiscountPercent, &item.MaxDiscountAmount, &item.MaxBargainRounds, &item.CustomPrompts); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := rows.Scan(&item.CookieID, &enabled, &item.MaxDiscountPercent, &item.MaxDiscountAmount, &item.MaxBargainRounds, &item.CustomPrompts); err != nil {
 			return nil, err
 		}
 		item.AIEnabled = enabled != 0
@@ -91,6 +100,7 @@ func (a *AIReply) ListForUser(ctx context.Context, userID int64) ([]AIReplySetti
 
 // UpsertSettings 保存指定账号的 AI 回复开关和砍价约束。
 func (a *AIReply) UpsertSettings(ctx context.Context, cookieID string, settings AIReplySettings) error {
+	// err 保存err，供当前处理流程使用
 	_, err := a.DB.ExecContext(ctx,
 		`INSERT INTO ai_reply_settings
 		 (cookie_id, ai_enabled, max_discount_percent, max_discount_amount,
@@ -120,6 +130,7 @@ func (a *AIReply) ConversationHistory(ctx context.Context, cookieID, chatID, ite
 	if limit <= 0 || limit > 20 {
 		limit = 10
 	}
+	// rows、err 保存rows、err，供当前处理流程使用
 	rows, err := a.DB.QueryContext(ctx, `
 		SELECT role, content, COALESCE(intent,''), COALESCE(bargain_count,0)
 		  FROM ai_conversations
@@ -129,18 +140,24 @@ func (a *AIReply) ConversationHistory(ctx context.Context, cookieID, chatID, ite
 		return nil, err
 	}
 	defer rows.Close()
+	// reversed 保存reversed，供当前处理流程使用
 	var reversed []AIConversationMessage
 	for rows.Next() {
+		// message 保存消息，供当前处理流程使用
 		var message AIConversationMessage
-		if err := rows.Scan(&message.Role, &message.Content, &message.Intent, &message.BargainCount); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := rows.Scan(&message.Role, &message.Content, &message.Intent, &message.BargainCount); err != nil {
 			return nil, err
 		}
 		reversed = append(reversed, message)
 	}
-	if err := rows.Err(); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := rows.Err(); err != nil {
 		return nil, err
 	}
+	// result 保存结果，供当前处理流程使用
 	result := make([]AIConversationMessage, len(reversed))
+	// i 表示当前遍历过程中的i
 	for i := range reversed {
 		result[len(reversed)-1-i] = reversed[i]
 	}
@@ -149,7 +166,9 @@ func (a *AIReply) ConversationHistory(ctx context.Context, cookieID, chatID, ite
 
 // CurrentBargainCount 返回会话目前的砍价轮次。
 func (a *AIReply) CurrentBargainCount(ctx context.Context, cookieID, chatID, itemID string) (int, error) {
+	// count 保存数量，供当前处理流程使用
 	var count int
+	// err 保存err，供当前处理流程使用
 	err := a.DB.QueryRowContext(ctx, `
 		SELECT COALESCE(MAX(bargain_count),0) FROM ai_conversations
 		 WHERE cookie_id=? AND chat_id=? AND item_id=?`, cookieID, chatID, itemID).Scan(&count)
@@ -158,6 +177,7 @@ func (a *AIReply) CurrentBargainCount(ctx context.Context, cookieID, chatID, ite
 
 // AddConversation 追加一条会话消息。
 func (a *AIReply) AddConversation(ctx context.Context, cookieID, chatID, userID, itemID string, message AIConversationMessage) error {
+	// err 保存err，供当前处理流程使用
 	_, err := a.DB.ExecContext(ctx, `
 		INSERT INTO ai_conversations (cookie_id,chat_id,user_id,item_id,role,content,intent,bargain_count)
 		VALUES (?,?,?,?,?,?,?,?)`, cookieID, chatID, userID, itemID, message.Role, message.Content, message.Intent, message.BargainCount)
@@ -166,17 +186,22 @@ func (a *AIReply) AddConversation(ctx context.Context, cookieID, chatID, userID,
 
 // AddConversationExchange 原子保存一轮用户消息与 AI 回复，避免上游调用失败时
 // 留下半轮历史并错误消耗砍价轮次。
+// AddConversationExchange 新增ConversationExchange。
 func (a *AIReply) AddConversationExchange(ctx context.Context, cookieID, chatID, userID, itemID string, userMessage, assistantMessage AIConversationMessage) error {
+	// tx、err 保存tx、err，供当前处理流程使用
 	tx, err := a.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	// query 保存查询，供当前处理流程使用
 	query := `INSERT INTO ai_conversations
 		(cookie_id,chat_id,user_id,item_id,role,content,intent,bargain_count)
 		VALUES (?,?,?,?,?,?,?,?)`
+	// message 表示当前遍历过程中的消息
 	for _, message := range []AIConversationMessage{userMessage, assistantMessage} {
-		if _, err := tx.ExecContext(ctx, query, cookieID, chatID, userID, itemID, message.Role, message.Content, message.Intent, message.BargainCount); err != nil {
+		if // err 保存err，供当前处理流程使用
+		_, err := tx.ExecContext(ctx, query, cookieID, chatID, userID, itemID, message.Role, message.Content, message.Intent, message.BargainCount); err != nil {
 			return err
 		}
 	}

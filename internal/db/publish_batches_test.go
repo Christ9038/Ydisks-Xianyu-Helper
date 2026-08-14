@@ -19,19 +19,26 @@ func makePublishBatch(userID int64, id string) *ItemPublishBatch {
 }
 
 // TestPublishBatches_CreateGetRows Create + Get + Rows。
+// TestPublishBatches_CreateGetRows 负责Test发布批次列表CreateGetRows相关处理。
 func TestPublishBatches_CreateGetRows(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newTestDB(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// uid 保存uid，供当前处理流程使用
 	uid, _ := seedAccount(t, s)
 
+	// batch 保存批次，供当前处理流程使用
 	batch := makePublishBatch(uid, "b1")
+	// rows 保存rows，供当前处理流程使用
 	rows := []ItemPublishBatchRow{
 		{RowNo: 1, Title: "商品A", Price: "9.9", Quantity: 0, PostageMode: ""}, // 缺省值补 1 / free
 		{RowNo: 2, Title: "商品B", Price: "19.9", Quantity: 5, PostageMode: "buyer", Status: ""},
 		{RowNo: 3, Title: "商品C", Price: "29.9", ImagesJSON: "", AutomationJSON: ""}, // 缺省 []/{}
 	}
-	if err := s.PublishBatches.Create(ctx, batch, rows); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.PublishBatches.Create(ctx, batch, rows); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -60,6 +67,7 @@ func TestPublishBatches_CreateGetRows(t *testing.T) {
 	if len(gotRows) != 3 {
 		t.Fatalf("rows len=%d want 3", len(gotRows))
 	}
+	// r0 保存r0，供当前处理流程使用
 	r0 := gotRows[0]
 	if r0.Quantity != 1 || r0.PostageMode != "free" || r0.Status != "pending" ||
 		r0.ImagesJSON != "[]" || r0.CategoryJSON != "{}" || r0.AutomationJSON != "{}" || r0.RawJSON != "{}" {
@@ -74,30 +82,40 @@ func TestPublishBatches_CreateGetRows(t *testing.T) {
 	}
 }
 
+// TestPublishBatchesListAndRecoverInterrupted 负责Test发布批次列表ListAndRecoverInterrupted相关处理。
 func TestPublishBatchesListAndRecoverInterrupted(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newTestDB(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// uid 保存uid，供当前处理流程使用
 	uid, _ := seedAccount(t, s)
-	if err := s.PublishBatches.Create(ctx, makePublishBatch(uid, "recover-list"), []ItemPublishBatchRow{{
+	if // err 保存err，供当前处理流程使用
+	err := s.PublishBatches.Create(ctx, makePublishBatch(uid, "recover-list"), []ItemPublishBatchRow{{
 		RowNo: 1, CookieID: "acc1", Title: "A", Price: "1", Status: "failed", FailureKind: "interrupted", ErrorMessage: "stopped",
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PublishBatches.SetBatchStatus(ctx, "recover-list", "failed"); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.PublishBatches.SetBatchStatus(ctx, "recover-list", "failed"); err != nil {
 		t.Fatal(err)
 	}
+	// listed、err 保存listed、err，供当前处理流程使用
 	listed, err := s.PublishBatches.ListForUser(ctx, uid, 10)
 	if err != nil || len(listed) != 1 || listed[0].ID != "recover-list" {
 		t.Fatalf("listed=%+v err=%v", listed, err)
 	}
+	// recoverable、err 保存recoverable、err，供当前处理流程使用
 	recoverable, err := s.PublishBatches.Recoverable(ctx, time.Now().UTC().Unix(), 10)
 	if err != nil || len(recoverable) != 1 || recoverable[0].ID != "recover-list" {
 		t.Fatalf("recoverable=%+v err=%v", recoverable, err)
 	}
-	if err := s.PublishBatches.ResetInterrupted(ctx, "recover-list"); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.PublishBatches.ResetInterrupted(ctx, "recover-list"); err != nil {
 		t.Fatal(err)
 	}
+	// rows 保存rows，供当前处理流程使用
 	rows, _ := s.PublishBatches.Rows(ctx, "recover-list")
 	if rows[0].Status != "pending" || rows[0].FailureKind != "" || rows[0].ErrorMessage != "" {
 		t.Fatalf("row=%+v", rows[0])
@@ -106,9 +124,12 @@ func TestPublishBatchesListAndRecoverInterrupted(t *testing.T) {
 
 // TestPublishBatches_PendingRowsAndStatus pending/failed 过滤 + 状态机流转 + Recount。
 func TestPublishBatches_PendingRowsAndStatus(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newTestDB(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// uid 保存uid，供当前处理流程使用
 	uid, _ := seedAccount(t, s)
 
 	s.PublishBatches.Create(ctx, makePublishBatch(uid, "b1"), []ItemPublishBatchRow{
@@ -124,6 +145,7 @@ func TestPublishBatches_PendingRowsAndStatus(t *testing.T) {
 	}
 
 	// BatchStatus。
+	// st、err 保存st、err，供当前处理流程使用
 	st, err := s.PublishBatches.BatchStatus(ctx, "b1")
 	if err != nil || st != "pending" {
 		t.Fatalf("BatchStatus: %q err=%v", st, err)
@@ -134,7 +156,8 @@ func TestPublishBatches_PendingRowsAndStatus(t *testing.T) {
 	}
 
 	// SetBatchStatus → running。
-	if err := s.PublishBatches.SetBatchStatus(ctx, "b1", "running"); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.PublishBatches.SetBatchStatus(ctx, "b1", "running"); err != nil {
 		t.Fatalf("SetBatchStatus: %v", err)
 	}
 	st, _ = s.PublishBatches.BatchStatus(ctx, "b1")
@@ -144,8 +167,10 @@ func TestPublishBatches_PendingRowsAndStatus(t *testing.T) {
 
 	// 取第一行，走 running → success。
 	rows, _ := s.PublishBatches.Rows(ctx, "b1")
+	// rowID 保存rowID，供当前处理流程使用
 	rowID := rows[0].ID
-	if err := s.PublishBatches.MarkRowRunning(ctx, rowID); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.PublishBatches.MarkRowRunning(ctx, rowID); err != nil {
 		t.Fatalf("MarkRowRunning: %v", err)
 	}
 	// running 中 error_message 应清空。
@@ -167,6 +192,7 @@ func TestPublishBatches_PendingRowsAndStatus(t *testing.T) {
 	if err := s.PublishBatches.Recount(ctx, "b1"); err != nil {
 		t.Fatalf("Recount: %v", err)
 	}
+	// batch 保存批次，供当前处理流程使用
 	batch, _ := s.PublishBatches.Get(ctx, uid, "b1")
 	if batch.TotalCount != 3 || batch.SuccessCount != 2 || batch.FailedCount != 1 {
 		t.Fatalf("Recount 后: total=%d success=%d failed=%d want 3/2/1",
@@ -186,12 +212,14 @@ func TestPublishBatches_PendingRowsAndStatus(t *testing.T) {
 	if err := s.PublishBatches.ResetFailed(ctx, "b1"); err != nil {
 		t.Fatalf("ResetFailed: %v", err)
 	}
+	// pendingAfter 保存pendingAfter，供当前处理流程使用
 	pendingAfter, _ := s.PublishBatches.PendingRows(ctx, "b1", false)
 	if len(pendingAfter) != 1 {
 		t.Fatalf("ResetFailed 后 pending len=%d want 1", len(pendingAfter))
 	}
 	// 验证 error_message 已清空。
 	rowsAfter, _ := s.PublishBatches.Rows(ctx, "b1")
+	// rr 表示当前遍历过程中的rr
 	for _, rr := range rowsAfter {
 		if rr.Status == "pending" && rr.ErrorMessage != "" {
 			t.Fatalf("ResetFailed 后 pending 行 error_message 应空: %q", rr.ErrorMessage)
@@ -201,48 +229,64 @@ func TestPublishBatches_PendingRowsAndStatus(t *testing.T) {
 
 // TestPublishBatches_RowsEmpty Rows 对不存在的 batch 返回空。
 func TestPublishBatches_RowsEmpty(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newTestDB(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// rows、err 保存rows、err，供当前处理流程使用
 	rows, err := s.PublishBatches.Rows(ctx, "nope")
 	if err != nil || len(rows) != 0 {
 		t.Fatalf("Rows 不存在: %#v err=%v", rows, err)
 	}
+	// pending、err 保存pending、err，供当前处理流程使用
 	pending, err := s.PublishBatches.PendingRows(ctx, "nope", false)
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("PendingRows 不存在: %#v err=%v", pending, err)
 	}
 }
 
+// TestPublishBatches_ClaimsAreAtomicAndLeaseCanBeRecovered 负责Test发布批次列表ClaimsAreAtomicAndLeaseCanBeRecovered相关处理。
 func TestPublishBatches_ClaimsAreAtomicAndLeaseCanBeRecovered(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newTestDB(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// uid 保存uid，供当前处理流程使用
 	uid, _ := seedAccount(t, s)
-	if err := s.PublishBatches.Create(ctx, makePublishBatch(uid, "claim-batch"), []ItemPublishBatchRow{
+	if // err 保存err，供当前处理流程使用
+	err := s.PublishBatches.Create(ctx, makePublishBatch(uid, "claim-batch"), []ItemPublishBatchRow{
 		{RowNo: 1, Title: "A", Price: "1"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 
+	// future 保存future，供当前处理流程使用
 	future := time.Now().UTC().Add(time.Minute).Unix()
-	if claimed, err := s.PublishBatches.ClaimBatch(ctx, "claim-batch", "worker-1", future); err != nil || !claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimBatch(ctx, "claim-batch", "worker-1", future); err != nil || !claimed {
 		t.Fatalf("first batch claim: claimed=%v err=%v", claimed, err)
 	}
+	// rows 保存rows，供当前处理流程使用
 	rows, _ := s.PublishBatches.Rows(ctx, "claim-batch")
-	if claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "worker-1"); err != nil || !claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "worker-1"); err != nil || !claimed {
 		t.Fatalf("first row claim: claimed=%v err=%v", claimed, err)
 	}
-	if claimed, err := s.PublishBatches.ClaimBatch(ctx, "claim-batch", "worker-2", future); err != nil || claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimBatch(ctx, "claim-batch", "worker-2", future); err != nil || claimed {
 		t.Fatalf("active lease must reject second worker: claimed=%v err=%v", claimed, err)
 	}
 	// 0 是从旧版本迁移来的 running 任务，和已过期租约一样必须允许接管。
 	if _, err := s.DB.ExecContext(ctx, `UPDATE item_publish_batches SET lease_expires_at=0 WHERE id=?`, "claim-batch"); err != nil {
 		t.Fatal(err)
 	}
-	if claimed, err := s.PublishBatches.ClaimBatch(ctx, "claim-batch", "worker-2", future); err != nil || !claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimBatch(ctx, "claim-batch", "worker-2", future); err != nil || !claimed {
 		t.Fatalf("expired lease should be recoverable: claimed=%v err=%v", claimed, err)
 	}
+	// batch、err 保存batch、err，供当前处理流程使用
 	batch, err := s.PublishBatches.Get(ctx, uid, "claim-batch")
 	if err != nil || batch.WorkerToken != "worker-2" {
 		t.Fatalf("recovered batch=%+v err=%v", batch, err)
@@ -251,43 +295,57 @@ func TestPublishBatches_ClaimsAreAtomicAndLeaseCanBeRecovered(t *testing.T) {
 	if rows[0].Status != "pending" || rows[0].WorkerToken != "" {
 		t.Fatalf("lease takeover must recover stale running row: %+v", rows[0])
 	}
-	if claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "worker-1"); err != nil || claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "worker-1"); err != nil || claimed {
 		t.Fatalf("stale worker must not claim after takeover: claimed=%v err=%v", claimed, err)
 	}
-	if claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "worker-2"); err != nil || !claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "worker-2"); err != nil || !claimed {
 		t.Fatalf("new worker row claim: claimed=%v err=%v", claimed, err)
 	}
-	if claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "worker-3"); err != nil || claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "worker-3"); err != nil || claimed {
 		t.Fatalf("row must only be claimed once: claimed=%v err=%v", claimed, err)
 	}
-	if marked, err := s.PublishBatches.MarkClaimedRowSuccess(ctx, rows[0].ID, "worker-1", "stale", "", "{}"); err != nil || marked {
+	if // marked、err 保存marked、err，供当前处理流程使用
+	marked, err := s.PublishBatches.MarkClaimedRowSuccess(ctx, rows[0].ID, "worker-1", "stale", "", "{}"); err != nil || marked {
 		t.Fatalf("stale worker must not finish row: marked=%v err=%v", marked, err)
 	}
-	if marked, err := s.PublishBatches.MarkClaimedRowSuccess(ctx, rows[0].ID, "worker-2", "item-1", "", "{}"); err != nil || !marked {
+	if // marked、err 保存marked、err，供当前处理流程使用
+	marked, err := s.PublishBatches.MarkClaimedRowSuccess(ctx, rows[0].ID, "worker-2", "item-1", "", "{}"); err != nil || !marked {
 		t.Fatalf("owner must finish row: marked=%v err=%v", marked, err)
 	}
-	if finished, err := s.PublishBatches.FinishBatchStatus(ctx, "claim-batch", "worker-1", "completed"); err != nil || finished {
+	if // finished、err 保存finished、err，供当前处理流程使用
+	finished, err := s.PublishBatches.FinishBatchStatus(ctx, "claim-batch", "worker-1", "completed"); err != nil || finished {
 		t.Fatalf("stale worker must not finish batch: finished=%v err=%v", finished, err)
 	}
-	if finished, err := s.PublishBatches.FinishBatchStatus(ctx, "claim-batch", "worker-2", "completed"); err != nil || !finished {
+	if // finished、err 保存finished、err，供当前处理流程使用
+	finished, err := s.PublishBatches.FinishBatchStatus(ctx, "claim-batch", "worker-2", "completed"); err != nil || !finished {
 		t.Fatalf("owner must finish batch: finished=%v err=%v", finished, err)
 	}
 }
 
+// TestPublishBatches_ResetFailedKeepsValidationFailures 负责Test发布批次列表Reset失败KeepsValidationFailures相关处理。
 func TestPublishBatches_ResetFailedKeepsValidationFailures(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newTestDB(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// uid 保存uid，供当前处理流程使用
 	uid, _ := seedAccount(t, s)
-	if err := s.PublishBatches.Create(ctx, makePublishBatch(uid, "validation-batch"), []ItemPublishBatchRow{
+	if // err 保存err，供当前处理流程使用
+	err := s.PublishBatches.Create(ctx, makePublishBatch(uid, "validation-batch"), []ItemPublishBatchRow{
 		{RowNo: 1, Title: "bad", Price: "0", Status: "failed", ErrorMessage: "价格错误", FailureKind: "validation"},
 		{RowNo: 2, Title: "retry", Price: "1", Status: "failed", ErrorMessage: "网络错误", FailureKind: "publish"},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PublishBatches.ResetFailed(ctx, "validation-batch"); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.PublishBatches.ResetFailed(ctx, "validation-batch"); err != nil {
 		t.Fatal(err)
 	}
+	// rows、err 保存rows、err，供当前处理流程使用
 	rows, err := s.PublishBatches.Rows(ctx, "validation-batch")
 	if err != nil {
 		t.Fatal(err)
@@ -300,63 +358,86 @@ func TestPublishBatches_ResetFailedKeepsValidationFailures(t *testing.T) {
 	}
 }
 
+// TestPublishBatchLeaseTakeoverQuarantinesRemoteStartedRow 负责Test发布批次LeaseTakeoverQuarantinesRemoteStartedRow相关处理。
 func TestPublishBatchLeaseTakeoverQuarantinesRemoteStartedRow(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newTestDB(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// uid 保存uid，供当前处理流程使用
 	uid, _ := seedAccount(t, s)
-	if err := s.PublishBatches.Create(ctx, makePublishBatch(uid, "remote-started"), []ItemPublishBatchRow{{RowNo: 1, Title: "A", Price: "1"}}); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.PublishBatches.Create(ctx, makePublishBatch(uid, "remote-started"), []ItemPublishBatchRow{{RowNo: 1, Title: "A", Price: "1"}}); err != nil {
 		t.Fatal(err)
 	}
-	if claimed, err := s.PublishBatches.ClaimBatch(ctx, "remote-started", "old", time.Now().Add(time.Minute).Unix()); err != nil || !claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimBatch(ctx, "remote-started", "old", time.Now().Add(time.Minute).Unix()); err != nil || !claimed {
 		t.Fatalf("claim batch=%v err=%v", claimed, err)
 	}
+	// rows 保存rows，供当前处理流程使用
 	rows, _ := s.PublishBatches.Rows(ctx, "remote-started")
-	if claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "old"); err != nil || !claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "old"); err != nil || !claimed {
 		t.Fatalf("claim row=%v err=%v", claimed, err)
 	}
-	if marked, err := s.PublishBatches.MarkClaimedRemoteStarted(ctx, rows[0].ID, "old"); err != nil || !marked {
+	if // marked、err 保存marked、err，供当前处理流程使用
+	marked, err := s.PublishBatches.MarkClaimedRemoteStarted(ctx, rows[0].ID, "old"); err != nil || !marked {
 		t.Fatalf("mark remote started=%v err=%v", marked, err)
 	}
 	_, _ = s.DB.ExecContext(ctx, `UPDATE item_publish_batches SET lease_expires_at=0 WHERE id='remote-started'`)
-	if claimed, err := s.PublishBatches.ClaimBatch(ctx, "remote-started", "new", time.Now().Add(time.Minute).Unix()); err != nil || !claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimBatch(ctx, "remote-started", "new", time.Now().Add(time.Minute).Unix()); err != nil || !claimed {
 		t.Fatalf("takeover=%v err=%v", claimed, err)
 	}
 	rows, _ = s.PublishBatches.Rows(ctx, "remote-started")
 	if rows[0].Status != "failed" || rows[0].FailureKind != "uncertain_remote" {
 		t.Fatalf("remote-started row must be quarantined: %+v", rows[0])
 	}
-	if pending, err := s.PublishBatches.PendingRows(ctx, "remote-started", false); err != nil || len(pending) != 0 {
+	if // pending、err 保存pending、err，供当前处理流程使用
+	pending, err := s.PublishBatches.PendingRows(ctx, "remote-started", false); err != nil || len(pending) != 0 {
 		t.Fatalf("quarantined row must not be replayable: %+v err=%v", pending, err)
 	}
 }
 
+// TestPublishBatchCancelPreservesRemoteCheckpointBeforeFinalizing 负责Test发布批次取消PreservesRemoteCheckpointBeforeFinalizing相关处理。
 func TestPublishBatchCancelPreservesRemoteCheckpointBeforeFinalizing(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newTestDB(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// uid 保存uid，供当前处理流程使用
 	uid, _ := seedAccount(t, s)
-	if err := s.PublishBatches.Create(ctx, makePublishBatch(uid, "cancel-checkpoint"), []ItemPublishBatchRow{{RowNo: 1, Title: "A", Price: "1"}}); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.PublishBatches.Create(ctx, makePublishBatch(uid, "cancel-checkpoint"), []ItemPublishBatchRow{{RowNo: 1, Title: "A", Price: "1"}}); err != nil {
 		t.Fatal(err)
 	}
-	if claimed, err := s.PublishBatches.ClaimBatch(ctx, "cancel-checkpoint", "worker", time.Now().Add(time.Minute).Unix()); err != nil || !claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimBatch(ctx, "cancel-checkpoint", "worker", time.Now().Add(time.Minute).Unix()); err != nil || !claimed {
 		t.Fatalf("claim batch=%v err=%v", claimed, err)
 	}
+	// rows 保存rows，供当前处理流程使用
 	rows, _ := s.PublishBatches.Rows(ctx, "cancel-checkpoint")
-	if claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "worker"); err != nil || !claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "worker"); err != nil || !claimed {
 		t.Fatalf("claim row=%v err=%v", claimed, err)
 	}
+	// token、running、err 保存token、running、err，供当前处理流程使用
 	token, running, err := s.PublishBatches.RequestCancel(ctx, "cancel-checkpoint")
 	if err != nil || !running || token != "worker" {
 		t.Fatalf("request cancel token=%q running=%v err=%v", token, running, err)
 	}
-	if saved, err := s.PublishBatches.SaveClaimedRemoteResult(ctx, rows[0].ID, "worker", "remote-1", "https://example/item", `{}`); err != nil || !saved {
+	if // saved、err 保存saved、err，供当前处理流程使用
+	saved, err := s.PublishBatches.SaveClaimedRemoteResult(ctx, rows[0].ID, "worker", "remote-1", "https://example/item", `{}`); err != nil || !saved {
 		t.Fatalf("remote checkpoint after cancel saved=%v err=%v", saved, err)
 	}
-	if _, err := s.PublishBatches.MarkClaimedRowFailed(ctx, rows[0].ID, "worker", "任务已取消", "post_publish"); err != nil {
+	if // err 保存err，供当前处理流程使用
+	_, err := s.PublishBatches.MarkClaimedRowFailed(ctx, rows[0].ID, "worker", "任务已取消", "post_publish"); err != nil {
 		t.Fatal(err)
 	}
-	if finalized, err := s.PublishBatches.FinalizeCanceled(ctx, "cancel-checkpoint", "worker"); err != nil || !finalized {
+	if // finalized、err 保存finalized、err，供当前处理流程使用
+	finalized, err := s.PublishBatches.FinalizeCanceled(ctx, "cancel-checkpoint", "worker"); err != nil || !finalized {
 		t.Fatalf("finalized=%v err=%v", finalized, err)
 	}
 	rows, _ = s.PublishBatches.Rows(ctx, "cancel-checkpoint")
@@ -365,33 +446,45 @@ func TestPublishBatchCancelPreservesRemoteCheckpointBeforeFinalizing(t *testing.
 	}
 }
 
+// TestFinalizeBatchRejectsUnfinishedRows 负责TestFinalize批次RejectsUnfinishedRows相关处理。
 func TestFinalizeBatchRejectsUnfinishedRows(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newTestDB(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// uid 保存uid，供当前处理流程使用
 	uid, _ := seedAccount(t, s)
-	if err := s.PublishBatches.Create(ctx, makePublishBatch(uid, "terminal-guard"), []ItemPublishBatchRow{
+	if // err 保存err，供当前处理流程使用
+	err := s.PublishBatches.Create(ctx, makePublishBatch(uid, "terminal-guard"), []ItemPublishBatchRow{
 		{RowNo: 1, Title: "pending", Price: "1"},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if claimed, err := s.PublishBatches.ClaimBatch(ctx, "terminal-guard", "worker", time.Now().Add(time.Minute).Unix()); err != nil || !claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimBatch(ctx, "terminal-guard", "worker", time.Now().Add(time.Minute).Unix()); err != nil || !claimed {
 		t.Fatalf("claim=%v err=%v", claimed, err)
 	}
-	if _, finalized, err := s.PublishBatches.FinalizeBatch(ctx, "terminal-guard", "worker"); err == nil || finalized {
+	if // finalized、err 保存finalized、err，供当前处理流程使用
+	_, finalized, err := s.PublishBatches.FinalizeBatch(ctx, "terminal-guard", "worker"); err == nil || finalized {
 		t.Fatalf("unfinished batch finalized=%v err=%v", finalized, err)
 	}
+	// batch 保存批次，供当前处理流程使用
 	batch, _ := s.PublishBatches.Get(ctx, uid, "terminal-guard")
 	if batch.Status != "running" || batch.WorkerToken != "worker" {
 		t.Fatalf("rejected finalization changed batch: %+v", batch)
 	}
+	// rows 保存rows，供当前处理流程使用
 	rows, _ := s.PublishBatches.Rows(ctx, "terminal-guard")
-	if claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "worker"); err != nil || !claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "worker"); err != nil || !claimed {
 		t.Fatalf("claim row=%v err=%v", claimed, err)
 	}
-	if marked, err := s.PublishBatches.MarkClaimedRowFailed(ctx, rows[0].ID, "worker", "failed", "publish"); err != nil || !marked {
+	if // marked、err 保存marked、err，供当前处理流程使用
+	marked, err := s.PublishBatches.MarkClaimedRowFailed(ctx, rows[0].ID, "worker", "failed", "publish"); err != nil || !marked {
 		t.Fatalf("mark failed=%v err=%v", marked, err)
 	}
+	// status、finalized、err 保存status、finalized、err，供当前处理流程使用
 	status, finalized, err := s.PublishBatches.FinalizeBatch(ctx, "terminal-guard", "worker")
 	if err != nil || !finalized || status != "failed" {
 		t.Fatalf("status=%q finalized=%v err=%v", status, finalized, err)
@@ -402,37 +495,50 @@ func TestFinalizeBatchRejectsUnfinishedRows(t *testing.T) {
 	}
 }
 
+// TestExpiredCancelingBatchIsRecoverableAndFinalizedSafely 负责TestExpiredCanceling批次IsRecoverableAndFinalizedSafely相关处理。
 func TestExpiredCancelingBatchIsRecoverableAndFinalizedSafely(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newTestDB(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// uid 保存uid，供当前处理流程使用
 	uid, _ := seedAccount(t, s)
-	if err := s.PublishBatches.Create(ctx, makePublishBatch(uid, "cancel-crash"), []ItemPublishBatchRow{
+	if // err 保存err，供当前处理流程使用
+	err := s.PublishBatches.Create(ctx, makePublishBatch(uid, "cancel-crash"), []ItemPublishBatchRow{
 		{RowNo: 1, Title: "remote", Price: "1"},
 		{RowNo: 2, Title: "pending", Price: "2"},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if claimed, err := s.PublishBatches.ClaimBatch(ctx, "cancel-crash", "dead-worker", 1); err != nil || !claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimBatch(ctx, "cancel-crash", "dead-worker", 1); err != nil || !claimed {
 		t.Fatalf("claim=%v err=%v", claimed, err)
 	}
+	// rows 保存rows，供当前处理流程使用
 	rows, _ := s.PublishBatches.Rows(ctx, "cancel-crash")
-	if claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "dead-worker"); err != nil || !claimed {
+	if // claimed、err 保存claimed、err，供当前处理流程使用
+	claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "dead-worker"); err != nil || !claimed {
 		t.Fatalf("claim row=%v err=%v", claimed, err)
 	}
-	if marked, err := s.PublishBatches.MarkClaimedRemoteStarted(ctx, rows[0].ID, "dead-worker"); err != nil || !marked {
+	if // marked、err 保存marked、err，供当前处理流程使用
+	marked, err := s.PublishBatches.MarkClaimedRemoteStarted(ctx, rows[0].ID, "dead-worker"); err != nil || !marked {
 		t.Fatalf("remote started=%v err=%v", marked, err)
 	}
-	if _, running, err := s.PublishBatches.RequestCancel(ctx, "cancel-crash"); err != nil || !running {
+	if // running、err 保存running、err，供当前处理流程使用
+	_, running, err := s.PublishBatches.RequestCancel(ctx, "cancel-crash"); err != nil || !running {
 		t.Fatalf("cancel running=%v err=%v", running, err)
 	}
+	// recoverable、err 保存recoverable、err，供当前处理流程使用
 	recoverable, err := s.PublishBatches.Recoverable(ctx, 2, 10)
 	if err != nil || len(recoverable) != 1 || recoverable[0].Status != "canceling" {
 		t.Fatalf("recoverable=%+v err=%v", recoverable, err)
 	}
-	if finalized, err := s.PublishBatches.FinalizeExpiredCancellation(ctx, "cancel-crash", 2); err != nil || !finalized {
+	if // finalized、err 保存finalized、err，供当前处理流程使用
+	finalized, err := s.PublishBatches.FinalizeExpiredCancellation(ctx, "cancel-crash", 2); err != nil || !finalized {
 		t.Fatalf("finalized=%v err=%v", finalized, err)
 	}
+	// batch 保存批次，供当前处理流程使用
 	batch, _ := s.PublishBatches.Get(ctx, uid, "cancel-crash")
 	rows, _ = s.PublishBatches.Rows(ctx, "cancel-crash")
 	if batch.Status != "canceled" || batch.WorkerToken != "" || batch.LeaseExpiresAt != 0 {
@@ -446,61 +552,81 @@ func TestExpiredCancelingBatchIsRecoverableAndFinalizedSafely(t *testing.T) {
 	}
 }
 
+// TestPublishBatchFinalizersFenceStaleWorker 负责Test发布批次FinalizersFenceStale工作器相关处理。
 func TestPublishBatchFinalizersFenceStaleWorker(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newTestDB(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// uid 保存uid，供当前处理流程使用
 	uid, _ := seedAccount(t, s)
 
 	t.Run("cancel", func(t *testing.T) {
+		// batchID 保存批次ID，供当前处理流程使用
 		batchID := "cancel-fence"
-		if err := s.PublishBatches.Create(ctx, makePublishBatch(uid, batchID), []ItemPublishBatchRow{{RowNo: 1, Title: "A", Price: "1"}}); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := s.PublishBatches.Create(ctx, makePublishBatch(uid, batchID), []ItemPublishBatchRow{{RowNo: 1, Title: "A", Price: "1"}}); err != nil {
 			t.Fatal(err)
 		}
-		if claimed, err := s.PublishBatches.ClaimBatch(ctx, batchID, "old", 1); err != nil || !claimed {
+		if // claimed、err 保存claimed、err，供当前处理流程使用
+		claimed, err := s.PublishBatches.ClaimBatch(ctx, batchID, "old", 1); err != nil || !claimed {
 			t.Fatalf("old claim=%v err=%v", claimed, err)
 		}
+		// rows 保存rows，供当前处理流程使用
 		rows, _ := s.PublishBatches.Rows(ctx, batchID)
-		if claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "old"); err != nil || !claimed {
+		if // claimed、err 保存claimed、err，供当前处理流程使用
+		claimed, err := s.PublishBatches.ClaimRow(ctx, rows[0].ID, "old"); err != nil || !claimed {
 			t.Fatalf("old row claim=%v err=%v", claimed, err)
 		}
-		if claimed, err := s.PublishBatches.ClaimBatch(ctx, batchID, "new", time.Now().Add(time.Minute).Unix()); err != nil || !claimed {
+		if // claimed、err 保存claimed、err，供当前处理流程使用
+		claimed, err := s.PublishBatches.ClaimBatch(ctx, batchID, "new", time.Now().Add(time.Minute).Unix()); err != nil || !claimed {
 			t.Fatalf("takeover=%v err=%v", claimed, err)
 		}
+		// token、running、err 保存token、running、err，供当前处理流程使用
 		token, running, err := s.PublishBatches.RequestCancel(ctx, batchID)
 		if err != nil || !running || token != "new" {
 			t.Fatalf("cancel token=%q running=%v err=%v", token, running, err)
 		}
-		if finalized, err := s.PublishBatches.FinalizeCanceled(ctx, batchID, "old"); err != nil || finalized {
+		if // finalized、err 保存finalized、err，供当前处理流程使用
+		finalized, err := s.PublishBatches.FinalizeCanceled(ctx, batchID, "old"); err != nil || finalized {
 			t.Fatalf("stale cancel finalized=%v err=%v", finalized, err)
 		}
 		rows, _ = s.PublishBatches.Rows(ctx, batchID)
 		if rows[0].Status != "pending" {
 			t.Fatalf("stale cancel changed current row: %+v", rows[0])
 		}
-		if finalized, err := s.PublishBatches.FinalizeCanceled(ctx, batchID, "new"); err != nil || !finalized {
+		if // finalized、err 保存finalized、err，供当前处理流程使用
+		finalized, err := s.PublishBatches.FinalizeCanceled(ctx, batchID, "new"); err != nil || !finalized {
 			t.Fatalf("current cancel finalized=%v err=%v", finalized, err)
 		}
 	})
 
 	t.Run("interrupted", func(t *testing.T) {
+		// batchID 保存批次ID，供当前处理流程使用
 		batchID := "interrupt-fence"
-		if err := s.PublishBatches.Create(ctx, makePublishBatch(uid, batchID), []ItemPublishBatchRow{{RowNo: 1, Title: "A", Price: "1"}}); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := s.PublishBatches.Create(ctx, makePublishBatch(uid, batchID), []ItemPublishBatchRow{{RowNo: 1, Title: "A", Price: "1"}}); err != nil {
 			t.Fatal(err)
 		}
-		if claimed, err := s.PublishBatches.ClaimBatch(ctx, batchID, "old", 1); err != nil || !claimed {
+		if // claimed、err 保存claimed、err，供当前处理流程使用
+		claimed, err := s.PublishBatches.ClaimBatch(ctx, batchID, "old", 1); err != nil || !claimed {
 			t.Fatalf("old claim=%v err=%v", claimed, err)
 		}
-		if claimed, err := s.PublishBatches.ClaimBatch(ctx, batchID, "new", time.Now().Add(time.Minute).Unix()); err != nil || !claimed {
+		if // claimed、err 保存claimed、err，供当前处理流程使用
+		claimed, err := s.PublishBatches.ClaimBatch(ctx, batchID, "new", time.Now().Add(time.Minute).Unix()); err != nil || !claimed {
 			t.Fatalf("takeover=%v err=%v", claimed, err)
 		}
-		if _, finalized, err := s.PublishBatches.FinalizeInterrupted(ctx, batchID, "old", "old interrupted"); err != nil || finalized {
+		if // finalized、err 保存finalized、err，供当前处理流程使用
+		_, finalized, err := s.PublishBatches.FinalizeInterrupted(ctx, batchID, "old", "old interrupted"); err != nil || finalized {
 			t.Fatalf("stale interrupt finalized=%v err=%v", finalized, err)
 		}
+		// rows 保存rows，供当前处理流程使用
 		rows, _ := s.PublishBatches.Rows(ctx, batchID)
 		if rows[0].Status != "pending" {
 			t.Fatalf("stale interrupt changed current row: %+v", rows[0])
 		}
+		// status、finalized、err 保存status、finalized、err，供当前处理流程使用
 		status, finalized, err := s.PublishBatches.FinalizeInterrupted(ctx, batchID, "new", "new interrupted")
 		if err != nil || !finalized || status != "failed" {
 			t.Fatalf("current interrupt status=%q finalized=%v err=%v", status, finalized, err)
