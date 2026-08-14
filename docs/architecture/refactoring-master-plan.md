@@ -91,7 +91,7 @@ app shell / routes
 | --- | --- | --- | --- |
 | 0. 治理文档与强约束 | 已完成 | 总计划、依赖规则、注释规范、AGENTS 门禁、注释检查器 | 文档、门禁规则、Go/TypeScript 检查器和历史基线已落盘 |
 | 1. PR CI 与测试基础 | 已完成 | 独立 CI、测试 DB 模板、可执行 race | CI、独立模板、server smoke race 和完整 race 均有验证 |
-| 2. 敏感数据访问边界 | 未开始 | 摘要、凭证、登录秘密分离 | repository 与多数据库测试 |
+| 2. 敏感数据访问边界 | 进行中 | 摘要、凭证、登录秘密分离 | `CookieSummary`、`ListOwnedIDs`、`ExistsOwned` 及 SQLite 回归测试已建立 |
 | 3. HTTP API 契约 | 未开始 | 统一错误、具名 DTO、版本化路径 | 契约测试与前端类型 |
 | 4. Server 应用服务 | 未开始 | 订单、发布、登录、聊天纵向抽取 | handler 不再直接编排基础设施 |
 | 5. 应用生命周期装配 | 未开始 | 消除必需依赖 setter 回填 | 构造验证与幂等关闭测试 |
@@ -106,8 +106,9 @@ app shell / routes
 - 当前阶段：阶段 2“敏感数据访问边界”（准备入口）；
 - 已完成：总计划、依赖规则、中文注释规范、`AGENTS.md` 强约束，以及 Go/TypeScript AST 注释检查器和历史基线；
 - 阶段 1 已完成：server 测试模板预置管理员和账号 cookie，普通测试约 21.3 秒，完整 server race 约 194.3 秒通过；
-- 下一最小工作项：盘点账号列表、所有权检查和凭证读取调用，先为 `ListSummaries`、`ListOwnedIDs`、`ExistsOwned` 建立消费方清单和回归测试；
-- 随后工作项：实现不读取或解密敏感字段的摘要与所有权查询，再迁移凭证和密码登录秘密查询；
+- 已完成阶段 2 第一个切片：建立不读取或解密敏感字段的 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned`，并覆盖跨用户和无效 user ID 回归测试；
+- 下一最小工作项：把 `internal/server/ownership_helpers.go` 的账号所有权检查迁移到 `ExistsOwned`，确保不再通过 `AllForUser` 读取或解密全部 Cookie；
+- 随后工作项：将账号列表和非敏感详情接口迁移到 `ListSummaries`，再处理需要凭证的业务流程；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -195,6 +196,11 @@ app shell / routes
 - `GetCredential`；
 - `GetLoginSecret`；
 - `GetRuntimeSettings`。
+
+当前实现先落地了 Cookie 领域的窄查询：`CookieSummary` 不包含 `Value`、`Password` 或 `MetadataJSON`；
+`ListOwnedIDs` 只返回账号 ID；`ExistsOwned` 只返回布尔存在性，并拒绝 `userID=0` 的隐式管理员查询。
+测试使用故意无效的密文值验证摘要查询不会触发解密。旧 `AllForUser` 和 `GetDetails` 调用方暂不批量替换，
+每次迁移一个消费方并保留行为回归测试。
 
 逐步替换使用 `AllForUser` 进行所有权检查以及使用 `GetDetails` 获取非敏感字段的调用。
 
@@ -465,3 +471,4 @@ npm --prefix frontend run build
 | 2026-08-14 | server 测试改为一次迁移模板 + 每测独立副本 | 普通 server 测试约 48.2s 降至约 36.5s；稳定 server race 子集约 12.4s 通过；完整 race 运行 267s 后仍未完成，未发现 race 报告 | 定位完整 race 慢点，再进入敏感数据访问边界 |
 | 2026-08-14 | 将稳定 server race 子集固化为 `make test-server-race` 并接入 PR CI | 启停、发布 worker、凭证状态转换和锁内所有权复核场景纳入合并前 smoke race | 定位完整 race 慢点 |
 | 2026-08-14 | 将管理员与账号 cookie 预置到 server 测试模板 | 普通 server 测试约 21.3s；完整 `go test -race ./internal/server` 约 194.3s 通过；阶段 1 完成 | 阶段 2：盘点敏感数据查询调用方 |
+| 2026-08-14 | 新增 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned` 及跨用户/无效 user ID 回归测试 | 阶段 2 第一个数据边界切片完成；故意无效密文摘要查询通过 | 迁移 server ownership helper，移除 `AllForUser` 所有权读取 |
