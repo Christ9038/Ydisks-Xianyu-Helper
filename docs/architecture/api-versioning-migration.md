@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | 会话 | `/login`、`/initialize`、`/verify`、`/logout` | `/api/v1/session/login`、`/api/v1/session/initialize`、`/api/v1/session`、`/api/v1/session/logout` | React 会话调用方已迁移到版本化入口；旧路径保留并由同一 handler 提供 |
 | 账号 | `/cookies`、`/cookies/details`、`/cookies/runtime-status`、`/cookies/{cid}/...` | `/api/v1/accounts`、`/api/v1/accounts/details`、`/api/v1/accounts/runtime-status`、`/api/v1/accounts/{cid}/...` | React 摘要、详情、运行状态、启停状态、设置、备注、暂停、自动确认、长登录、资料刷新、Cookie 更新和登录信息设置调用已迁移；旧路径保留并由同一 handler 提供 |
-| 商品 | `/items...` | `/api/v1/items...` | React 列表、详情、发布、更新和删除调用已迁移；旧路径保留并由同一 handler 提供，同步与批量发布调用仍按后续切片迁移 |
+| 商品 | `/items...` | `/api/v1/items...` | React 列表、详情、发布、更新、删除、同步、类目推荐和批量发布调用已迁移；旧路径保留并由同一 handler 提供 |
 | 商品批量 | `/items/publish-batches...` | `/api/v1/items/publish-batches...` | 旧路径保留，类目推荐/预检/任务 DTO 已落地 |
 | 自动化 | `/automation-rules...` | `/api/v1/automation-rules...` | 旧路径保留，规则分页/异常 DTO 已落地 |
 | 订单 | `/api/orders...` | `/api/v1/orders...` | React 列表、详情、更新、刷新、单订单刷新、手动发货和导入调用已迁移；旧路径保留并由同一 handler 提供 |
@@ -48,6 +48,7 @@
 - 订单列表、详情和更新已由 React 请求层迁移到 `/api/v1/orders...`；Go 契约测试确认版本化入口与旧更新入口共用 handler，订单归属校验和状态更新语义保持不变。
 - 订单刷新、单订单刷新、手动发货和导入已由 React 请求层迁移到 `/api/v1/orders...`；Go 契约测试确认新旧批量入口保持状态码、具名响应和参数校验语义一致。
 - 商品列表、详情、发布、更新和删除已由 React 请求层迁移到 `/api/v1/items...`；Go 契约测试确认新旧入口保持商品所有权校验、具名响应和持久化语义一致。
+- 商品同步、类目推荐、批量发布预检、任务查询、取消、重试和结果下载已由版本化路由提供；React 现有同步/批量发布调用已迁移，Go 契约测试确认新旧入口状态码和参数校验语义一致。
 - 聊天会话、消息分页和发送结果使用独立 DTO，不直接暴露数据库模型。
 - React `frontend/types.ts` 与 `frontend/services/api.ts` 已同步具名成功响应类型，同时保留旧字段归一逻辑。
 - 会话版本化入口已可用；除会话外的 `/api/v1` 领域入口仍未宣称可用，旧路径继续保留。

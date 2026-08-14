@@ -506,7 +506,7 @@ export const getItems = async (cookieId?: string): Promise<Item[]> => {
 }
 
 export const syncItemsFromAccount = async (cookieId: string): Promise<ItemSyncResponse> => {
-    return post('/items/get-all-from-account', { cookie_id: cookieId });
+    return post('/api/v1/items/get-all-from-account', { cookie_id: cookieId });
 }
 
 export const deleteItem = async (cookieId: string, itemId: string): Promise<OperationResponse> => {
@@ -565,7 +565,7 @@ export const recommendPublishCategory = async (cookieId: string, keyword: string
     // 该类型收口不改变凭证刷新和错误处理。
     // 前端批量发布流程可直接复用 category。
     // 旧路径继续由现有 Vite 代理转发。
-    return post('/items/publish-categories/recommend', { cookie_id: cookieId, keyword });
+    return post('/api/v1/items/publish-categories/recommend', { cookie_id: cookieId, keyword });
 };
 
 export const previewItemPublishBatch = async (form: {
@@ -589,32 +589,32 @@ export const previewItemPublishBatch = async (form: {
     body.set('fallback_channel_category_id', form.fallbackCategory.channelCatId || '');
     body.set('fallback_tb_category_id', form.fallbackCategory.tbCatId || '');
 	if (form.location) body.set('location', JSON.stringify(form.location));
-    return postForm('/items/publish-batches/preview', body);
+    return postForm('/api/v1/items/publish-batches/preview', body);
 }
 
 export const startItemPublishBatch = async (previewId: string): Promise<BatchIDResponse> => {
-    return post('/items/publish-batches', { preview_id: previewId });
+    return post('/api/v1/items/publish-batches', { preview_id: previewId });
 }
 
 export const getItemPublishBatch = async (batchId: string): Promise<ItemPublishBatchResponse> => {
-    return get(`/items/publish-batches/${batchId}`);
+    return get(`/api/v1/items/publish-batches/${batchId}`);
 }
 
 export const getItemPublishBatches = async (limit = 20): Promise<ItemPublishBatchResponse[]> => {
-    const res = await get<ItemPublishBatchListResponse>('/items/publish-batches', { limit });
+    const res = await get<ItemPublishBatchListResponse>('/api/v1/items/publish-batches', { limit });
     return Array.isArray(res) ? res : (res.batches || []);
 }
 
 export const deleteItemPublishBatch = async (batchId: string): Promise<OperationResponse> => {
-    return del(`/items/publish-batches/${batchId}`);
+    return del(`/api/v1/items/publish-batches/${batchId}`);
 }
 
 export const cancelItemPublishBatch = async (batchId: string): Promise<BatchCancelResponse> => {
-    return post(`/items/publish-batches/${batchId}/cancel`, {});
+    return post(`/api/v1/items/publish-batches/${batchId}/cancel`, {});
 }
 
 export const retryFailedItemPublishBatch = async (batchId: string): Promise<BatchIDResponse> => {
-    return post(`/items/publish-batches/${batchId}/retry-failed`, {});
+    return post(`/api/v1/items/publish-batches/${batchId}/retry-failed`, {});
 }
 
 export const updateItem = async (cookieId: string, itemId: string, data: Partial<Item>): Promise<OperationResponse> => {

@@ -2,14 +2,14 @@ import { afterEach, expect, test, vi } from 'vitest';
 import {
   addAccount,
   cancelPasswordLogin,
-  deleteItemPublishBatch, deleteItem,
+  deleteItemPublishBatch, deleteItem, cancelItemPublishBatch, retryFailedItemPublishBatch,
   checkPasswordLoginStatus,
   completeQRVerification,
   createNotificationChannel,
   getAccountDetails, getAccountRuntimeStatuses, updateAccountStatus,
 	getAutomationIssues,
-	getItems, getItemDetail,
-	getItemPublishBatches,
+	getItems, getItemDetail, syncItemsFromAccount,
+	getItemPublishBatches, getItemPublishBatch, startItemPublishBatch,
 	getNotificationChannels,
   getOrders, getOrderDetail, updateOrder,
 	getOrderAnalytics,
@@ -18,7 +18,7 @@ import {
   getShippingRulesPage,
   getSystemSettings,
 	getValidOrders,
-	publishItem,
+	publishItem, recommendPublishCategory, previewItemPublishBatch,
 	logout,
 	importOrders,
   passwordLogin,
@@ -90,7 +90,7 @@ test('getItemPublishBatches unwraps persisted batch list', async () => {
 	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ batches: [{ id: 'batch-1', status: 'running' }] }));
 	vi.stubGlobal('fetch', fetchMock);
 	await expect(getItemPublishBatches(10)).resolves.toEqual([{ id: 'batch-1', status: 'running' }]);
-	expect(fetchMock).toHaveBeenCalledWith('/items/publish-batches?limit=10', expect.objectContaining({ credentials: 'include' }));
+	expect(fetchMock).toHaveBeenCalledWith('/api/v1/items/publish-batches?limit=10', expect.objectContaining({ credentials: 'include' }));
 });
 
 test('automation issue APIs expose and resolve quarantined work', async () => {
@@ -223,7 +223,7 @@ test('deleteItemPublishBatch removes an abandoned preview', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
   vi.stubGlobal('fetch', fetchMock);
   await deleteItemPublishBatch('preview-1');
-  expect(fetchMock).toHaveBeenCalledWith('/items/publish-batches/preview-1', expect.objectContaining({
+  expect(fetchMock).toHaveBeenCalledWith('/api/v1/items/publish-batches/preview-1', expect.objectContaining({
     method: 'DELETE',
     credentials: 'include',
   }));
@@ -881,3 +881,44 @@ const runVersionedItemAPITest = async () => {
 };
 
 test('item list, detail, publish, update, and delete APIs use versioned compatibility routes', runVersionedItemAPITest);
+
+// 商品同步、类目推荐和批量发布 API 使用版本化兼容入口。
+const runVersionedItemBatchAPITest = async () => {
+  // fetchMock 是商品同步和批量发布请求的测试替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, category: { cat_id: 'cat-1' } }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, preview_id: 'preview-1', total: 0, valid: 0, invalid: 0, rows: [] }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, batch_id: 'batch-1' }))
+    .mockResolvedValueOnce(jsonResponse({ batches: [] }))
+    .mockResolvedValueOnce(jsonResponse({ id: 'batch-1', status: 'preview', rows: [] }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, status: 'canceled' }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, batch_id: 'batch-1' }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await syncItemsFromAccount('acc1');
+  await recommendPublishCategory('acc1', '资料');
+  await previewItemPublishBatch({
+    file: new File(['order_id\nitem-1'], 'items.csv', { type: 'text/csv' }),
+    fallbackCategory: { catId: 'cat-1', catName: '资料', channelCatId: 'channel-1' },
+  });
+  await startItemPublishBatch('preview-1');
+  await getItemPublishBatches(10);
+  await getItemPublishBatch('batch-1');
+  await cancelItemPublishBatch('batch-1');
+  await retryFailedItemPublishBatch('batch-1');
+  await deleteItemPublishBatch('batch-1');
+
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/items/get-all-from-account', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/items/publish-categories/recommend', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/items/publish-batches/preview', expect.objectContaining({ method: 'POST', body: expect.any(FormData) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/items/publish-batches', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/items/publish-batches?limit=10', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(6, '/api/v1/items/publish-batches/batch-1', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(7, '/api/v1/items/publish-batches/batch-1/cancel', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(8, '/api/v1/items/publish-batches/batch-1/retry-failed', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(9, '/api/v1/items/publish-batches/batch-1', expect.objectContaining({ method: 'DELETE' }));
+};
+
+test('item sync and batch publish APIs use versioned compatibility routes', runVersionedItemBatchAPITest);
