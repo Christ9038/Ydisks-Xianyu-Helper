@@ -1317,3 +1317,26 @@ func TestReviewRequestCounterFailureMovesCompletedActionToNeedsReview(t *testing
 		t.Fatalf("status=%q message=%q", status, message)
 	}
 }
+
+// TestCookieValueFallbackUsesSingleValueQuery 验证订单详情补全的 Cookie 回退不会读取登录密码等完整账号字段。
+func TestCookieValueFallbackUsesSingleValueQuery(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "cookie-value-fallback-key")
+	// store 是当前测试使用的 SQLite repository 聚合器。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是测试数据库操作共用的上下文。
+	ctx := context.Background()
+	// corruptErr 表示写入故意损坏的登录密码失败的原因。
+	if _, corruptErr := store.DB.ExecContext(ctx,
+		`UPDATE cookies SET username=?,password=? WHERE id=?`,
+		"fallback-user", "not-a-password-ciphertext", "cid"); corruptErr != nil {
+		t.Fatalf("corrupt password: %v", corruptErr)
+	}
+	// center 是待验证 Cookie 回退读取逻辑的自动化中心。
+	center := New(store, nil, nil)
+	// value 是单值查询返回的 Cookie 明文。
+	value, valueErr := center.cookieValue(ctx, "cid")
+	if valueErr != nil || value != "unb=123; _m_h5_tk=tk_1;" {
+		t.Fatalf("cookieValue value=%q err=%v", value, valueErr)
+	}
+}

@@ -1154,11 +1154,11 @@ func (c *Center) cookieValue(ctx context.Context, cookieID string) (string, erro
 	if c.cookieSrc != nil {
 		return c.cookieSrc(ctx, cookieID)
 	}
-	d, err := c.store.Cookies.GetDetails(ctx, cookieID)
+	value, err := c.store.Cookies.GetValue(ctx, cookieID) // value 是只读取账号 Cookie 明文的单值结果，不会展开完整账号详情。
 	if err != nil {
 		return "", err
 	}
-	return d.Value, nil
+	return value, nil
 }
 
 func (c *Center) markEventFacts(ctx context.Context, task Task) error {
