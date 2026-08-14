@@ -75,7 +75,7 @@ type Server struct {
 	workerMu       sync.Mutex
 	workerCount    int
 	workersDone    chan struct{}
-	recoveryWG     sync.WaitGroup
+	backgroundWG   sync.WaitGroup
 	lifecycleMu    sync.RWMutex
 	lifecycleCtx   context.Context
 
@@ -390,15 +390,15 @@ func (s *Server) Run(ctx context.Context) error {
 		WriteTimeout: 2 * time.Minute,
 		IdleTimeout:  2 * time.Minute,
 	}
-	// #nosec G118 -- 关闭协程由传入的服务生命周期上下文控制。
-	go func() {
+	// 关闭任务由传入的服务生命周期上下文控制，并登记到统一后台生命周期。
+	s.startBackgroundTask("HTTP 服务关闭", func() {
 		<-ctx.Done()
 		shCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(shCtx); err != nil {
 			s.Logger.Warn("HTTP 服务关闭异常", "err", err)
 		}
-	}()
+	})
 	s.Logger.Info("HTTP 服务启动", "addr", s.Addr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
@@ -411,7 +411,7 @@ func (s *Server) WaitForBackground() {
 	if s == nil {
 		return
 	}
-	s.recoveryWG.Wait()
+	s.backgroundWG.Wait()
 	s.waitForWorkers(10 * time.Second)
 }
 
@@ -425,6 +425,23 @@ func (s *Server) lifecycleContext() context.Context {
 	s.lifecycleMu.RLock()
 	defer s.lifecycleMu.RUnlock()
 	return s.lifecycleCtx
+}
+
+// startBackgroundTask 登记并启动一个受 Server 生命周期管理的后台任务。
+// 调用方负责在任务函数内部响应上下文取消；WaitForBackground 会等待任务退出。
+func (s *Server) startBackgroundTask(name string, task func()) {
+	s.backgroundWG.Add(1)
+	// #nosec G118 -- 任务由调用方提供的 Server 生命周期控制。
+	go func() {
+		defer s.backgroundWG.Done()
+		if task == nil {
+			if s.Logger != nil {
+				s.Logger.Warn("跳过空后台任务", "task", name)
+			}
+			return
+		}
+		task()
+	}()
 }
 
 func (s *Server) beginWorker() func() {

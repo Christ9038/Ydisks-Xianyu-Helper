@@ -184,16 +184,6 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// persistQRLoginSuccess 保留历史调用方，委托账号登录应用服务完成扫码结果持久化。
-func (s *Server) persistQRLoginSuccess(ctx context.Context, userID int64, sessionID string, result map[string]any) (qrLoginPersistence, error) {
-	return s.accountLoginApplication().PersistQRLoginSuccess(ctx, userID, sessionID, result, "")
-}
-
-// persistQRLoginSuccessFor 保留带目标账号的历史调用方，委托账号登录应用服务完成幂等持久化。
-func (s *Server) persistQRLoginSuccessFor(ctx context.Context, userID int64, sessionID string, result map[string]any, targetAccountID string) (qrLoginPersistence, error) {
-	return s.accountLoginApplication().PersistQRLoginSuccess(ctx, userID, sessionID, result, targetAccountID)
-}
-
 func (s *Server) requireQRSessionOwner(w http.ResponseWriter, r *http.Request, sessionID string) bool {
 	sess := auth.SessionFromContext(r.Context())
 	if sess == nil {

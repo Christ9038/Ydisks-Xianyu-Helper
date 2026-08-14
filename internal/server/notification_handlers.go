@@ -140,6 +140,10 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "无效ID")
 		return
 	}
+	if s.notifier == nil {
+		writeErr(w, http.StatusServiceUnavailable, "通知器未启用")
+		return
+	}
 	if !s.requireChannelOwner(w, r, id) {
 		return
 	}

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -269,28 +270,25 @@ func (a *orderApplicationService) Update(ctx context.Context, userID int64, orde
 			return newOrderBadRequest("商品标题不能为空且订单必须关联商品")
 		}
 	}
-	tx, err := a.server.Store.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if err := a.server.Store.Orders.PatchTx(ctx, tx, orderID, db.OrderPatch{
-		OrderStatus: request.OrderStatus, ItemID: request.ItemID, BuyerID: request.BuyerID,
-		SpecName: request.SpecName, SpecValue: request.SpecValue, Quantity: request.Quantity,
-		Amount: request.Amount, ReceiverName: request.ReceiverName, ReceiverPhone: request.ReceiverPhone,
-		ReceiverAddr: request.ReceiverAddress, ReceiverCity: request.ReceiverCity, ChatID: request.ChatID,
-		SystemShipped: request.SystemShipped,
-	}); err != nil {
-		return err
-	}
-	if request.ItemTitle != nil {
-		if err := a.server.Store.Items.UpsertBasicTx(ctx, tx, &db.ItemInfoRow{
-			CookieID: order.CookieID, ItemID: finalItemID, ItemTitle: itemTitle,
+	return a.server.withTransaction(ctx, func(tx *sql.Tx) error {
+		if err := a.server.Store.Orders.PatchTx(ctx, tx, orderID, db.OrderPatch{
+			OrderStatus: request.OrderStatus, ItemID: request.ItemID, BuyerID: request.BuyerID,
+			SpecName: request.SpecName, SpecValue: request.SpecValue, Quantity: request.Quantity,
+			Amount: request.Amount, ReceiverName: request.ReceiverName, ReceiverPhone: request.ReceiverPhone,
+			ReceiverAddr: request.ReceiverAddress, ReceiverCity: request.ReceiverCity, ChatID: request.ChatID,
+			SystemShipped: request.SystemShipped,
 		}); err != nil {
-			return fmt.Errorf("更新商品标题失败: %w", err)
+			return err
 		}
-	}
-	return tx.Commit()
+		if request.ItemTitle != nil {
+			if err := a.server.Store.Items.UpsertBasicTx(ctx, tx, &db.ItemInfoRow{
+				CookieID: order.CookieID, ItemID: finalItemID, ItemTitle: itemTitle,
+			}); err != nil {
+				return fmt.Errorf("更新商品标题失败: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 // orderImportResult 描述批量导入的逐单结果和统计。
@@ -355,31 +353,29 @@ func (a *orderApplicationService) importOne(ctx context.Context, ownedCookieIDs 
 	if !ok {
 		return errors.New("订单金额必须是普通格式的非负有限数字")
 	}
-	tx, err := a.server.Store.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return errors.New("开始导入事务失败")
-	}
-	defer tx.Rollback()
-	if err := a.server.Store.Orders.UpsertTx(ctx, tx, orderID, db.OrderUpsertOpts{
-		CookieID: cookieID, ItemID: firstImportString(raw, "item_id"), BuyerID: firstImportString(raw, "buyer_id"),
-		OrderStatus: status, SpecName: firstImportString(raw, "spec_name"), SpecValue: firstImportString(raw, "spec_value"),
-		Quantity: firstImportString(raw, "quantity"), Amount: amount, ReceiverName: firstImportString(raw, "receiver_name"),
-		ReceiverPhone: firstImportString(raw, "receiver_phone"), ReceiverAddr: firstImportString(raw, "receiver_address"),
-		ReceiverCity: firstImportString(raw, "receiver_city"), ChatID: firstImportString(raw, "chat_id"),
-	}); err != nil {
-		return err
-	}
-	itemID := firstImportString(raw, "item_id")
-	if itemID != "" {
-		if err := a.server.Store.Items.UpsertBasicTx(ctx, tx, &db.ItemInfoRow{
-			CookieID: cookieID, ItemID: itemID, ItemTitle: firstImportString(raw, "item_title"),
-			ItemPrice: firstImportString(raw, "item_price"), ItemDetail: firstImportString(raw, "item_detail", "item_description"),
+	if err := a.server.withTransaction(ctx, func(tx *sql.Tx) error {
+		if err := a.server.Store.Orders.UpsertTx(ctx, tx, orderID, db.OrderUpsertOpts{
+			CookieID: cookieID, ItemID: firstImportString(raw, "item_id"), BuyerID: firstImportString(raw, "buyer_id"),
+			OrderStatus: status, SpecName: firstImportString(raw, "spec_name"), SpecValue: firstImportString(raw, "spec_value"),
+			Quantity: firstImportString(raw, "quantity"), Amount: amount, ReceiverName: firstImportString(raw, "receiver_name"),
+			ReceiverPhone: firstImportString(raw, "receiver_phone"), ReceiverAddr: firstImportString(raw, "receiver_address"),
+			ReceiverCity: firstImportString(raw, "receiver_city"), ChatID: firstImportString(raw, "chat_id"),
 		}); err != nil {
-			return fmt.Errorf("补全商品信息失败: %w", err)
+			return err
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return errors.New("提交导入事务失败")
+		// itemID 是导入订单中关联的商品标识。
+		itemID := firstImportString(raw, "item_id")
+		if itemID != "" {
+			if err := a.server.Store.Items.UpsertBasicTx(ctx, tx, &db.ItemInfoRow{
+				CookieID: cookieID, ItemID: itemID, ItemTitle: firstImportString(raw, "item_title"),
+				ItemPrice: firstImportString(raw, "item_price"), ItemDetail: firstImportString(raw, "item_detail", "item_description"),
+			}); err != nil {
+				return fmt.Errorf("补全商品信息失败: %w", err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return errors.New("订单导入事务失败: " + err.Error())
 	}
 	return nil
 }

@@ -74,6 +74,10 @@ func (s *Server) listAccountTaskRuns(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) runAccountTask(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
+	if s.automation == nil {
+		writeErr(w, http.StatusServiceUnavailable, "自动化中心未启用")
+		return
+	}
 	if !s.ownsAccount(r, cid) {
 		writeErr(w, http.StatusForbidden, "无权操作该账号")
 		return
