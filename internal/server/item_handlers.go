@@ -41,6 +41,7 @@ func (s *Server) mountItemsReal(r chi.Router) {
 	r.Put("/items/{cookie_id}/{item_id}/multi-quantity-delivery", s.setItemMultiQuantity)
 }
 
+// publishItem 解析 HTTP 发布请求并调用商品发布应用服务完成单商品发布。
 func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 	// 最多 9 张 10 MiB 图片，额外预留 multipart 元数据空间。
 	r.Body = http.MaxBytesReader(w, r.Body, maxItemPublishBytes)
@@ -98,19 +99,57 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		}
 		selectedLocation = &location
 	}
-	credentialUnlock := s.Store.LockAccountCredentials(cookieID)
-	latest, err := s.loadCookiePlatformDetail(r.Context(), cookieID)
-	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
-		credentialUnlock()
-		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
+	outcome, callErr := s.itemPublishApplication().PublishSingle(r.Context(), itemPublishInput{
+		UserID: userID, CookieID: cookieID, Title: title, Description: description,
+		PriceCents: priceCents, OriginalPriceCents: origCents, Quantity: quantity,
+		PostageMode: postageMode, PostageCents: postageCents, Location: selectedLocation, Images: images,
+	})
+	res := outcome.Result
+	if callErr != nil {
+		var perr *mtop.PublishError
+		if errors.As(callErr, &perr) {
+			status := http.StatusBadGateway
+			msg := perr.Error()
+			if perr.Code == mtop.PublishErrorStockPermissionMissing {
+				status = http.StatusForbidden
+				msg = "该账号没有库存发布权限，无法按库存数量发布商品"
+			}
+			writeErrCode(w, status, string(perr.Code), msg, "")
+			return
+		}
+		if strings.Contains(callErr.Error(), "账号凭证已变化") {
+			writeErr(w, http.StatusConflict, callErr.Error())
+			return
+		}
+		writeErr(w, http.StatusBadGateway, callErr.Error())
 		return
 	}
-	cookieValue := latest.Value
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
-	defer cancel()
-	client := s.mtopClient()
-	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
-	res, callErr := client.PublishItem(mtopCtx, cookieValue, mtop.PublishItemRequest{
+	if res == nil || strings.TrimSpace(res.ItemID) == "" {
+		writeErrCode(w, http.StatusBadGateway, "publish_result_missing_item_id", "平台返回发布成功，但缺少商品 ID，无法确认发布结果", "")
+		return
+	}
+	if outcome.LocalSaveErr != nil {
+		if s.Logger != nil {
+			s.Logger.Error("平台已发布但保存本地商品失败", "cookie_id", cookieID, "item_id", res.ItemID, "err", outcome.LocalSaveErr)
+		}
+		writeErrDetails(w, http.StatusInternalServerError, "remote_published_local_save_failed", "商品已在平台发布，但本地保存失败，请勿重复发布并根据商品 ID 人工核对", "", map[string]any{"item_id": res.ItemID, "item_url": res.ItemURL})
+		return
+	}
+	if outcome.ResponseCookieErr != nil {
+		writeErrDetails(w, http.StatusInternalServerError, "remote_published_cookie_save_failed", "商品已在平台发布并保存到本地，但登录凭证更新保存失败，请勿重复发布并尽快重新登录", "", map[string]any{"item_id": res.ItemID, "item_url": res.ItemURL})
+		return
+	}
+	writeJSON(w, http.StatusOK, itemPublishResponse{
+		Success: true, Message: "商品发布成功", ItemID: res.ItemID, ItemURL: res.ItemURL,
+		ItemImage: res.ImageURL, ItemTitle: res.Title, ItemPrice: res.PriceText, Quantity: res.Quantity,
+		CategoryID: res.CategoryID, CategoryName: res.CategoryName,
+	})
+
+	/*
+		旧实现保留在版本控制历史中，当前单商品发布由 itemPublishService 统一处理。
+		服务边界保证 MTOP 调用、Cookie 更新和本地商品落库的顺序不变。
+	*/
+	/*res, callErr := client.PublishItem(mtopCtx, cookieValue, mtop.PublishItemRequest{
 		Title:              title,
 		Description:        description,
 		PriceCents:         priceCents,
@@ -223,7 +262,7 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		Success: true, Message: "商品发布成功", ItemID: res.ItemID, ItemURL: res.ItemURL,
 		ItemImage: res.ImageURL, ItemTitle: res.Title, ItemPrice: res.PriceText, Quantity: res.Quantity,
 		CategoryID: res.CategoryID, CategoryName: res.CategoryName,
-	})
+	})*/
 	// 商品发布 DTO 保留历史客户端使用的字段名称和成功语义。
 	// 平台发布结果与本地保存结果的失败分支仍通过统一错误 DTO 返回。
 	// item_id 和 item_url 可用于发布后人工核对平台商品。

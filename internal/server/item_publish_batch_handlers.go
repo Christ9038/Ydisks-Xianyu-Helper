@@ -98,6 +98,7 @@ type publishCategoryRecommender interface {
 	RecommendPublishCategory(ctx context.Context, cookiesStr, keyword string) (mtop.PublishCategory, string, error)
 }
 
+// recommendItemPublishCategory 解析类目关键词并返回平台推荐类目。
 func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CookieID string `json:"cookie_id"`
@@ -121,44 +122,20 @@ func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
-	recommender, ok := s.mtopClient().(publishCategoryRecommender)
-	if !ok {
-		writeErr(w, http.StatusNotImplemented, "当前 MTOP 客户端不支持类目推荐")
-		return
-	}
-
-	credentialUnlock := s.Store.LockAccountCredentials(req.CookieID)
-	runtimeCookie := ""
-	defer func() {
-		credentialUnlock()
-		if runtimeCookie != "" {
-			s.updateRunningCookie(context.Background(), req.CookieID, runtimeCookie)
-		}
-	}()
-	latest, err := s.loadCookiePlatformDetail(r.Context(), req.CookieID)
-	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
-		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
-	category, updatedCookies, callErr := recommender.RecommendPublishCategory(mtopCtx, latest.Value, req.Keyword)
-	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
-	if persistErr != nil {
-		writeErr(w, http.StatusInternalServerError, "保存账号登录状态失败")
-		return
-	}
-	if !handled && updatedCookies != "" && updatedCookies != latest.Value {
-		if err := s.Store.Cookies.UpdateValueOwned(r.Context(), req.CookieID, updatedCookies, userID); err != nil {
-			writeErr(w, http.StatusInternalServerError, "保存账号登录状态失败")
+	category, callErr := s.itemPublishApplication().RecommendCategory(r.Context(), userID, req.CookieID, req.Keyword)
+	if callErr != nil {
+		if strings.Contains(callErr.Error(), "当前 MTOP 客户端不支持") {
+			writeErr(w, http.StatusNotImplemented, callErr.Error())
 			return
 		}
-		runtimeCookie = updatedCookies
-	} else if handled && valueChanged {
-		runtimeCookie = value
-	}
-	if callErr != nil {
+		if strings.Contains(callErr.Error(), "账号凭证已变化") {
+			writeErr(w, http.StatusConflict, callErr.Error())
+			return
+		}
+		if strings.Contains(callErr.Error(), "保存账号登录状态") {
+			writeErr(w, http.StatusInternalServerError, callErr.Error())
+			return
+		}
 		if errors.Is(callErr, mtop.ErrPublishCategoryUnrecognized) {
 			writeErr(w, http.StatusNotFound, "没有匹配到可发布类目，请换一个关键词")
 			return
@@ -169,6 +146,7 @@ func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, categoryRecommendationResponse{Success: true, Category: category})
 }
 
+// previewItemPublishBatch 处理表格上传、图片归档和批量发布预检。
 func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	s.cleanupExpiredPublishUploads(r.Context())
@@ -202,7 +180,6 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
-	locationBytes, _ := json.Marshal(batchLocation)
 	hasDefaultCategory := fallbackCategory.CatID != "" || fallbackCategory.CatName != "" || fallbackCategory.ChannelCatID != "" || fallbackCategory.TBCatID != ""
 	if hasDefaultCategory && (fallbackCategory.CatID == "" || fallbackCategory.CatName == "" || fallbackCategory.ChannelCatID == "") {
 		writeErr(w, http.StatusBadRequest, "默认类目信息不完整，请重新通过关键词获取")
@@ -279,85 +256,101 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	parsed := s.parsePublishRows(r.Context(), sess.UserID, defaultCookieID, uploadDir, fallbackCategory, maps)
-	rows := make([]db.ItemPublishBatchRow, 0, len(parsed))
-	previewRows := make([]publishBatchPreviewRow, 0, len(parsed))
-	valid, invalid := 0, 0
-	for _, p := range parsed {
-		isValid := len(p.Errors) == 0
-		if isValid {
-			valid++
+	preview, err := s.itemPublishApplication().PersistPreview(r.Context(), itemPublishPreviewInput{
+		UserID: sess.UserID, BatchID: batchID, DefaultCookieID: defaultCookieID,
+		Filename: sourceName, UploadDir: uploadDir, Location: batchLocation, Rows: parsed,
+	})
+	if err != nil {
+		if errors.Is(err, errItemPublishBatchNoRows) {
+			writeErr(w, http.StatusBadRequest, "表格中没有有效数据行")
 		} else {
-			invalid++
+			writeErr(w, http.StatusInternalServerError, "保存预检结果失败")
 		}
-		imagesJSON, _ := json.Marshal(p.Images)
-		categoryJSON, _ := json.Marshal(p.Category)
-		automationJSON, _ := json.Marshal(p.Automation)
-		rawJSON, _ := json.Marshal(p.Raw)
-		status := "pending"
-		errMsg := ""
-		if !isValid {
-			status = "failed"
-			errMsg = strings.Join(p.Errors, "；")
-		}
-		rows = append(rows, db.ItemPublishBatchRow{
-			RowNo:          p.RowNo,
-			CookieID:       p.CookieID,
-			Title:          p.Title,
-			Description:    p.Description,
-			Price:          p.Price,
-			OriginalPrice:  p.OriginalPrice,
-			Quantity:       p.Quantity,
-			PostageMode:    p.PostageMode,
-			Postage:        p.Postage,
-			ImagesJSON:     string(imagesJSON),
-			CategoryJSON:   string(categoryJSON),
-			AutomationJSON: string(automationJSON),
-			Status:         status,
-			ErrorMessage:   errMsg,
-			FailureKind:    map[bool]string{true: "", false: "validation"}[isValid],
-			RawJSON:        string(rawJSON),
-		})
-		previewRows = append(previewRows, publishBatchPreviewRow{
-			RowNo:      p.RowNo,
-			Valid:      isValid,
-			Errors:     p.Errors,
-			CookieID:   p.CookieID,
-			Title:      p.Title,
-			Price:      p.Price,
-			Quantity:   p.Quantity,
-			Images:     p.Images,
-			Category:   p.Category,
-			Automation: p.Automation,
-		})
-	}
-	if len(rows) == 0 {
-		writeErr(w, http.StatusBadRequest, "表格中没有有效数据行")
-		return
-	}
-	if err := s.Store.PublishBatches.Create(r.Context(), &db.ItemPublishBatch{
-		ID:              batchID,
-		UserID:          sess.UserID,
-		DefaultCookieID: defaultCookieID,
-		Filename:        sourceName,
-		UploadDir:       uploadDir,
-		LocationJSON:    string(locationBytes),
-		Status:          "preview",
-	}, rows); err != nil {
-		writeErr(w, http.StatusInternalServerError, "保存预检结果失败")
 		return
 	}
 	keepUpload = true
-	_ = s.Store.PublishBatches.Recount(r.Context(), batchID)
-	// 预检响应保留逐行错误，客户端据此决定是否允许启动发布。
-	// preview_id 是后续启动、轮询和放弃预检的稳定标识。
-	// total、valid 和 invalid 继续使用旧统计口径。
-	// rows 保留类目和自动化配置，避免前端重复解析上传表格。
-	// 预检成功不代表远端商品已经发布。
-	// 远端发布失败仍由批次明细状态表达。
-	// 该 DTO 不改变上传目录清理和批次持久化时序。
-	writeJSON(w, http.StatusOK, itemPublishBatchPreviewResponse{Success: true, PreviewID: batchID, Total: len(rows), Valid: valid, Invalid: invalid, Rows: previewRows})
+	writeJSON(w, http.StatusOK, preview)
+	/*
+		rows := make([]db.ItemPublishBatchRow, 0, len(parsed))
+		previewRows := make([]publishBatchPreviewRow, 0, len(parsed))
+		valid, invalid := 0, 0
+		for _, p := range parsed {
+			isValid := len(p.Errors) == 0
+			if isValid {
+				valid++
+			} else {
+				invalid++
+			}
+			imagesJSON, _ := json.Marshal(p.Images)
+			categoryJSON, _ := json.Marshal(p.Category)
+			automationJSON, _ := json.Marshal(p.Automation)
+			rawJSON, _ := json.Marshal(p.Raw)
+			status := "pending"
+			errMsg := ""
+			if !isValid {
+				status = "failed"
+				errMsg = strings.Join(p.Errors, "；")
+			}
+			rows = append(rows, db.ItemPublishBatchRow{
+				RowNo:          p.RowNo,
+				CookieID:       p.CookieID,
+				Title:          p.Title,
+				Description:    p.Description,
+				Price:          p.Price,
+				OriginalPrice:  p.OriginalPrice,
+				Quantity:       p.Quantity,
+				PostageMode:    p.PostageMode,
+				Postage:        p.Postage,
+				ImagesJSON:     string(imagesJSON),
+				CategoryJSON:   string(categoryJSON),
+				AutomationJSON: string(automationJSON),
+				Status:         status,
+				ErrorMessage:   errMsg,
+				FailureKind:    map[bool]string{true: "", false: "validation"}[isValid],
+				RawJSON:        string(rawJSON),
+			})
+			previewRows = append(previewRows, publishBatchPreviewRow{
+				RowNo:      p.RowNo,
+				Valid:      isValid,
+				Errors:     p.Errors,
+				CookieID:   p.CookieID,
+				Title:      p.Title,
+				Price:      p.Price,
+				Quantity:   p.Quantity,
+				Images:     p.Images,
+				Category:   p.Category,
+				Automation: p.Automation,
+			})
+		}
+		if len(rows) == 0 {
+			writeErr(w, http.StatusBadRequest, "表格中没有有效数据行")
+			return
+		}
+		if err := s.Store.PublishBatches.Create(r.Context(), &db.ItemPublishBatch{
+			ID:              batchID,
+			UserID:          sess.UserID,
+			DefaultCookieID: defaultCookieID,
+			Filename:        sourceName,
+			UploadDir:       uploadDir,
+			LocationJSON:    string(locationBytes),
+			Status:          "preview",
+		}, rows); err != nil {
+			writeErr(w, http.StatusInternalServerError, "保存预检结果失败")
+			return
+		}
+		keepUpload = true
+		_ = s.Store.PublishBatches.Recount(r.Context(), batchID)
+		// 预检响应保留逐行错误，客户端据此决定是否允许启动发布。
+		// preview_id 是后续启动、轮询和放弃预检的稳定标识。
+		// total、valid 和 invalid 继续使用旧统计口径。
+		// rows 保留类目和自动化配置，避免前端重复解析上传表格。
+		// 预检成功不代表远端商品已经发布。
+		// 远端发布失败仍由批次明细状态表达。
+		// 该 DTO 不改变上传目录清理和批次持久化时序。
+		writeJSON(w, http.StatusOK, itemPublishBatchPreviewResponse{Success: true, PreviewID: batchID, Total: len(rows), Valid: valid, Invalid: invalid, Rows: previewRows})*/
 }
 
+// startItemPublishBatch 启动指定批次的后台发布 worker。
 func (s *Server) startItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	var req struct {
@@ -376,162 +369,110 @@ func (s *Server) startItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "缺少 preview_id")
 		return
 	}
-	batch, err := s.Store.PublishBatches.Get(r.Context(), sess.UserID, batchID)
+	startedID, err := s.itemPublishApplication().StartBatch(r.Context(), sess.UserID, batchID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "批量任务不存在")
+		switch {
+		case errors.Is(err, errItemPublishBatchNotFound):
+			writeErr(w, http.StatusNotFound, "批量任务不存在")
+		case errors.Is(err, errItemPublishBatchConflict):
+			writeErr(w, http.StatusConflict, "任务正在由其他 worker 运行")
+		case errors.Is(err, errItemPublishBatchInvalidState):
+			writeErr(w, http.StatusBadRequest, "当前任务状态不能开始发布")
+		case errors.Is(err, errItemPublishBatchNoRows):
+			writeErr(w, http.StatusBadRequest, "没有可发布的商品行")
+		default:
+			writeErr(w, http.StatusInternalServerError, "启动任务失败")
+		}
 		return
 	}
-	activeRunning := batch.Status == "running" && batch.LeaseExpiresAt > time.Now().UTC().Unix()
-	if activeRunning {
-		writeErr(w, http.StatusConflict, "任务正在由其他 worker 运行")
-		return
-	}
-	if batch.Status != "preview" && batch.Status != "pending" && batch.Status != "completed" && batch.Status != "running" {
-		writeErr(w, http.StatusBadRequest, "当前任务状态不能开始发布")
-		return
-	}
-	workerToken := randomHex(16)
-	claimed, err := s.Store.PublishBatches.ClaimBatch(r.Context(), batch.ID, workerToken, time.Now().UTC().Add(publishBatchLease).Unix())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "启动任务失败")
-		return
-	}
-	if !claimed {
-		writeErr(w, http.StatusConflict, "任务已被其他 worker 启动")
-		return
-	}
-	pending, err := s.Store.PublishBatches.PendingRows(r.Context(), batch.ID, false)
-	if err != nil {
-		s.failClaimedPublishBatch(batch.ID, workerToken)
-		writeErr(w, http.StatusInternalServerError, "读取任务失败")
-		return
-	}
-	if len(pending) == 0 {
-		_, _, _ = s.Store.PublishBatches.FinalizeBatch(r.Context(), batch.ID, workerToken)
-		writeErr(w, http.StatusBadRequest, "没有可发布的商品行")
-		return
-	}
-	s.startPublishBatchWorker(s.lifecycleContext(), sess.UserID, batch.ID, workerToken)
-	writeJSON(w, http.StatusOK, batchIDResponse{Success: true, BatchID: batch.ID})
+	writeJSON(w, http.StatusOK, batchIDResponse{Success: true, BatchID: startedID})
 }
 
+// listItemPublishBatches 返回当前用户的批量发布任务列表。
 func (s *Server) listItemPublishBatches(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	limit := atoiDefault(r.URL.Query().Get("limit"), 20)
-	batches, err := s.Store.PublishBatches.ListForUser(r.Context(), sess.UserID, limit)
+	result, err := s.itemPublishApplication().ListBatches(r.Context(), sess.UserID, limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取批量任务失败")
 		return
 	}
-	result := make([]itemPublishBatchResponse, 0, len(batches))
-	for i := range batches {
-		result = append(result, publishBatchToMap(&batches[i], nil))
-	}
 	writeJSON(w, http.StatusOK, itemPublishBatchListResponse{Batches: result})
 }
 
+// getItemPublishBatch 返回指定批次及其发布明细。
 func (s *Server) getItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	batchID := chi.URLParam(r, "batch_id")
-	batch, err := s.Store.PublishBatches.Get(r.Context(), sess.UserID, batchID)
+	result, err := s.itemPublishApplication().GetBatch(r.Context(), sess.UserID, batchID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "批量任务不存在")
+		if errors.Is(err, errItemPublishBatchNotFound) {
+			writeErr(w, http.StatusNotFound, "批量任务不存在")
+		} else {
+			writeErr(w, http.StatusInternalServerError, "读取任务明细失败")
+		}
 		return
 	}
-	rows, err := s.Store.PublishBatches.Rows(r.Context(), batch.ID)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取任务明细失败")
-		return
-	}
-	writeJSON(w, http.StatusOK, publishBatchToMap(batch, rows))
+	writeJSON(w, http.StatusOK, result)
 }
 
+// cancelItemPublishBatch 请求取消指定批次并通知运行中的 worker。
 func (s *Server) cancelItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	batchID := chi.URLParam(r, "batch_id")
-	_, err := s.Store.PublishBatches.Get(r.Context(), sess.UserID, batchID)
+	status, err := s.itemPublishApplication().CancelBatch(r.Context(), sess.UserID, batchID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "批量任务不存在")
-		return
-	}
-	workerToken, running, err := s.Store.PublishBatches.RequestCancel(r.Context(), batchID)
-	if err != nil {
-		if errors.Is(err, db.ErrPublishBatchChanged) {
+		if errors.Is(err, errItemPublishBatchNotFound) {
+			writeErr(w, http.StatusNotFound, "批量任务不存在")
+		} else if errors.Is(err, errItemPublishBatchConflict) {
 			writeErr(w, http.StatusConflict, "任务状态刚刚发生变化，请重试")
-			return
+		} else {
+			writeErr(w, http.StatusInternalServerError, "取消任务失败")
 		}
-		writeErr(w, http.StatusInternalServerError, "取消任务失败")
 		return
 	}
-	if running {
-		s.cancelPublishBatch(batchID, workerToken)
-	}
-	writeJSON(w, http.StatusOK, batchCancelResponse{Success: true, Status: map[bool]string{true: "canceling", false: "canceled"}[running]})
+	writeJSON(w, http.StatusOK, batchCancelResponse{Success: true, Status: status})
 }
 
+// deleteItemPublishBatch 删除已结束的批次及其上传目录。
 func (s *Server) deleteItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	batchID := chi.URLParam(r, "batch_id")
-	batch, err := s.Store.PublishBatches.Get(r.Context(), sess.UserID, batchID)
+	uploadDir, err := s.itemPublishApplication().DeleteBatch(r.Context(), sess.UserID, batchID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "批量任务不存在")
+		if errors.Is(err, errItemPublishBatchNotFound) {
+			writeErr(w, http.StatusNotFound, "批量任务不存在")
+		} else if errors.Is(err, errItemPublishBatchConflict) {
+			writeErr(w, http.StatusConflict, "运行中的任务不能删除，请先取消")
+		} else {
+			writeErr(w, http.StatusInternalServerError, "删除批量任务失败")
+		}
 		return
 	}
-	if batch.Status == "running" || batch.Status == "canceling" {
-		writeErr(w, http.StatusConflict, "运行中的任务不能删除，请先取消")
-		return
-	}
-	if err := s.Store.PublishBatches.Delete(r.Context(), sess.UserID, batchID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "删除批量任务失败")
-		return
-	}
-	if strings.TrimSpace(batch.UploadDir) != "" {
-		_ = os.RemoveAll(batch.UploadDir)
+	if strings.TrimSpace(uploadDir) != "" {
+		_ = os.RemoveAll(uploadDir)
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
+// retryFailedItemPublishBatch 重置失败明细并启动批次重试 worker。
 func (s *Server) retryFailedItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	batchID := chi.URLParam(r, "batch_id")
-	batch, err := s.Store.PublishBatches.Get(r.Context(), sess.UserID, batchID)
+	startedID, err := s.itemPublishApplication().RetryFailedBatch(r.Context(), sess.UserID, batchID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "批量任务不存在")
+		if errors.Is(err, errItemPublishBatchNotFound) {
+			writeErr(w, http.StatusNotFound, "批量任务不存在")
+		} else if errors.Is(err, errItemPublishBatchConflict) {
+			writeErr(w, http.StatusConflict, "任务正在运行，不能重复重试")
+		} else if errors.Is(err, errItemPublishBatchNoRows) {
+			writeErr(w, http.StatusBadRequest, "没有可重试的失败项")
+		} else {
+			writeErr(w, http.StatusInternalServerError, "启动重试失败")
+		}
 		return
 	}
-	if batch.Status == "running" && batch.LeaseExpiresAt > time.Now().UTC().Unix() {
-		writeErr(w, http.StatusConflict, "任务正在运行，不能重复重试")
-		return
-	}
-	workerToken := randomHex(16)
-	claimed, err := s.Store.PublishBatches.ClaimBatch(r.Context(), batchID, workerToken, time.Now().UTC().Add(publishBatchLease).Unix())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "启动重试失败")
-		return
-	}
-	if !claimed {
-		writeErr(w, http.StatusConflict, "任务已被其他 worker 启动")
-		return
-	}
-	if err := s.Store.PublishBatches.ResetFailed(r.Context(), batchID); err != nil {
-		s.failClaimedPublishBatch(batchID, workerToken)
-		writeErr(w, http.StatusInternalServerError, "重置失败项失败")
-		return
-	}
-	_ = s.Store.PublishBatches.Recount(r.Context(), batchID)
-	pending, err := s.Store.PublishBatches.PendingRows(r.Context(), batchID, false)
-	if err != nil {
-		s.failClaimedPublishBatch(batchID, workerToken)
-		writeErr(w, http.StatusInternalServerError, "读取可重试项失败")
-		return
-	}
-	if len(pending) == 0 {
-		_, _, _ = s.Store.PublishBatches.FinalizeBatch(r.Context(), batchID, workerToken)
-		writeErr(w, http.StatusBadRequest, "没有可重试的失败项")
-		return
-	}
-	s.startPublishBatchWorker(s.lifecycleContext(), sess.UserID, batchID, workerToken)
-	writeJSON(w, http.StatusOK, batchIDResponse{Success: true, BatchID: batchID})
+	writeJSON(w, http.StatusOK, batchIDResponse{Success: true, BatchID: startedID})
 }
 
 func (s *Server) startPublishBatchWorker(parent context.Context, userID int64, batchID, workerToken string) {

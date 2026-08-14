@@ -69895,1165 +69895,1045 @@
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 44,
-    "kind": "function",
-    "name": "publishItem"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 52,
+    "line": 53,
     "kind": "local-variable",
     "name": "cookieID"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 57,
+    "line": 58,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 57,
+    "line": 58,
     "kind": "local-variable",
     "name": "userID"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 61,
-    "kind": "local-variable",
-    "name": "title"
   },
   {
     "file": "internal/server/item_handlers.go",
     "line": 62,
     "kind": "local-variable",
-    "name": "description"
+    "name": "title"
   },
   {
     "file": "internal/server/item_handlers.go",
     "line": 63,
     "kind": "local-variable",
+    "name": "description"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 64,
+    "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 63,
+    "line": 64,
     "kind": "local-variable",
     "name": "priceCents"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 68,
+    "line": 69,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 68,
+    "line": 69,
     "kind": "local-variable",
     "name": "origCents"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 73,
+    "line": 74,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 73,
+    "line": 74,
     "kind": "local-variable",
     "name": "quantity"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 78,
+    "line": 79,
     "kind": "local-variable",
     "name": "postageMode"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 82,
+    "line": 83,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 82,
+    "line": 83,
     "kind": "local-variable",
     "name": "postageCents"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 87,
+    "line": 88,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 87,
+    "line": 88,
     "kind": "local-variable",
     "name": "images"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 92,
-    "kind": "var",
-    "name": "location"
   },
   {
     "file": "internal/server/item_handlers.go",
     "line": 93,
     "kind": "var",
-    "name": "selectedLocation"
+    "name": "location"
   },
   {
     "file": "internal/server/item_handlers.go",
     "line": 94,
-    "kind": "local-variable",
-    "name": "rawLocation"
+    "kind": "var",
+    "name": "selectedLocation"
   },
   {
     "file": "internal/server/item_handlers.go",
     "line": 95,
     "kind": "local-variable",
-    "name": "err"
+    "name": "rawLocation"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 101,
-    "kind": "local-variable",
-    "name": "credentialUnlock"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 102,
+    "line": 96,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
     "line": 102,
-    "kind": "local-variable",
-    "name": "latest"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 108,
-    "kind": "local-variable",
-    "name": "cookieValue"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 109,
-    "kind": "local-variable",
-    "name": "cancel"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 109,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 111,
-    "kind": "local-variable",
-    "name": "client"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 112,
-    "kind": "local-variable",
-    "name": "cookieSession"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 112,
-    "kind": "local-variable",
-    "name": "mtopCtx"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 113,
     "kind": "local-variable",
     "name": "callErr"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 113,
+    "line": 102,
+    "kind": "local-variable",
+    "name": "outcome"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 107,
     "kind": "local-variable",
     "name": "res"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 125,
-    "kind": "local-variable",
-    "name": "runtimeCookie"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 126,
-    "kind": "local-variable",
-    "name": "runtimeCookieChanged"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 127,
-    "kind": "var",
-    "name": "responseCookieErr"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 128,
-    "kind": "local-variable",
-    "name": "handled"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 128,
-    "kind": "local-variable",
-    "name": "persistErr"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 128,
-    "kind": "local-variable",
-    "name": "value"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 128,
-    "kind": "local-variable",
-    "name": "valueChanged"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 138,
-    "kind": "local-variable",
-    "name": "saveErr"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 155,
+    "line": 109,
     "kind": "var",
     "name": "perr"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 157,
+    "line": 111,
     "kind": "local-variable",
     "name": "status"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 158,
+    "line": 112,
     "kind": "local-variable",
     "name": "msg"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 182,
-    "kind": "local-variable",
-    "name": "detail"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 189,
-    "kind": "local-variable",
-    "name": "detailJSON"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 190,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 236,
+    "line": 275,
     "kind": "function",
     "name": "readPublishImages"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 240,
+    "line": 279,
     "kind": "local-variable",
     "name": "files"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 250,
+    "line": 289,
     "kind": "local-variable",
     "name": "images"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 251,
+    "line": 290,
     "kind": "range-variable",
     "name": "fh"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 252,
+    "line": 291,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 252,
+    "line": 291,
     "kind": "local-variable",
     "name": "f"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 256,
+    "line": 295,
     "kind": "local-variable",
     "name": "data"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 256,
+    "line": 295,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 256,
+    "line": 295,
     "kind": "local-variable",
     "name": "tooLarge"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 267,
+    "line": 306,
     "kind": "local-variable",
     "name": "contentType"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 279,
+    "line": 318,
     "kind": "function",
     "name": "parseMoneyCents"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 286,
+    "line": 325,
     "kind": "local-variable",
     "name": "sign"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 293,
+    "line": 332,
     "kind": "local-variable",
     "name": "parts"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 297,
+    "line": 336,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 297,
+    "line": 336,
     "kind": "local-variable",
     "name": "yuan"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 301,
+    "line": 340,
     "kind": "local-variable",
     "name": "cents"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 303,
+    "line": 342,
     "kind": "local-variable",
     "name": "frac"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 318,
+    "line": 357,
     "kind": "function",
     "name": "listItems"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 319,
+    "line": 358,
     "kind": "local-variable",
     "name": "sess"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 325,
-    "kind": "local-variable",
-    "name": "cookieID"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 333,
-    "kind": "local-variable",
-    "name": "result"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 334,
-    "kind": "range-variable",
-    "name": "cid"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 335,
-    "kind": "local-variable",
-    "name": "items"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 336,
-    "kind": "range-variable",
-    "name": "it"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 343,
-    "kind": "function",
-    "name": "syncItemsFromAccount"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 344,
-    "kind": "var",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 349,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 353,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 353,
-    "kind": "local-variable",
-    "name": "userID"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 357,
-    "kind": "local-variable",
-    "name": "credentialUnlock"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 358,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 358,
-    "kind": "local-variable",
-    "name": "latest"
   },
   {
     "file": "internal/server/item_handlers.go",
     "line": 364,
     "kind": "local-variable",
-    "name": "cookieValue"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 368,
-    "kind": "local-variable",
-    "name": "cancel"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 368,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 370,
-    "kind": "local-variable",
-    "name": "client"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 371,
-    "kind": "local-variable",
-    "name": "cookieSession"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 371,
-    "kind": "local-variable",
-    "name": "mtopCtx"
+    "name": "cookieID"
   },
   {
     "file": "internal/server/item_handlers.go",
     "line": 372,
     "kind": "local-variable",
-    "name": "callErr"
+    "name": "result"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 372,
-    "kind": "local-variable",
-    "name": "res"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 377,
-    "kind": "local-variable",
-    "name": "persistErr"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 377,
-    "kind": "local-variable",
-    "name": "value"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 377,
-    "kind": "local-variable",
-    "name": "valueChanged"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 390,
-    "kind": "local-variable",
-    "name": "detailCookies"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 394,
-    "kind": "local-variable",
-    "name": "detailErr"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 395,
-    "kind": "local-variable",
-    "name": "runtimeCookie"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 396,
-    "kind": "local-variable",
-    "name": "runtimeCookieChanged"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 397,
-    "kind": "local-variable",
-    "name": "handled"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 397,
-    "kind": "local-variable",
-    "name": "persistErr"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 397,
-    "kind": "local-variable",
-    "name": "value"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 397,
-    "kind": "local-variable",
-    "name": "valueChanged"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 409,
-    "kind": "local-variable",
-    "name": "saveErr"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 428,
-    "kind": "local-variable",
-    "name": "syncErr"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 428,
-    "kind": "local-variable",
-    "name": "syncResult"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 446,
-    "kind": "function",
-    "name": "syncItemsPageFromAccount"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 447,
-    "kind": "var",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 452,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 456,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 456,
-    "kind": "local-variable",
-    "name": "userID"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 460,
-    "kind": "local-variable",
-    "name": "credentialUnlock"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 461,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 461,
-    "kind": "local-variable",
-    "name": "latest"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 467,
-    "kind": "local-variable",
-    "name": "cookieValue"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 468,
-    "kind": "local-variable",
-    "name": "cancel"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 468,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 470,
-    "kind": "local-variable",
-    "name": "client"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 471,
-    "kind": "local-variable",
-    "name": "cookieSession"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 471,
-    "kind": "local-variable",
-    "name": "mtopCtx"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 472,
-    "kind": "local-variable",
-    "name": "callErr"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 472,
-    "kind": "local-variable",
-    "name": "res"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 477,
-    "kind": "local-variable",
-    "name": "persistErr"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 477,
-    "kind": "local-variable",
-    "name": "value"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 477,
-    "kind": "local-variable",
-    "name": "valueChanged"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 490,
-    "kind": "local-variable",
-    "name": "detailCookies"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 494,
-    "kind": "local-variable",
-    "name": "detailErr"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 495,
-    "kind": "local-variable",
-    "name": "runtimeCookie"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 496,
-    "kind": "local-variable",
-    "name": "runtimeCookieChanged"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 497,
-    "kind": "local-variable",
-    "name": "handled"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 497,
-    "kind": "local-variable",
-    "name": "persistErr"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 497,
-    "kind": "local-variable",
-    "name": "value"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 497,
-    "kind": "local-variable",
-    "name": "valueChanged"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 509,
-    "kind": "local-variable",
-    "name": "saveErr"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 528,
-    "kind": "local-variable",
-    "name": "saved"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 539,
-    "kind": "function",
-    "name": "cookieForCurrentUser"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 540,
-    "kind": "local-variable",
-    "name": "sess"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 559,
-    "kind": "local-variable",
-    "name": "saved"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 560,
+    "line": 373,
     "kind": "range-variable",
-    "name": "item"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 561,
-    "kind": "local-variable",
-    "name": "priceText"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 565,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 576,
-    "kind": "local-variable",
-    "name": "multiErr"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 588,
-    "kind": "function",
-    "name": "syncSyncedItems"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 589,
-    "kind": "local-variable",
-    "name": "rows"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 590,
-    "kind": "range-variable",
-    "name": "item"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 591,
-    "kind": "local-variable",
-    "name": "priceText"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 608,
-    "kind": "function",
-    "name": "enrichSyncedItemMultiSpec"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 609,
-    "kind": "local-variable",
-    "name": "fetcher"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 609,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 613,
-    "kind": "range-variable",
-    "name": "index"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 618,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 618,
-    "kind": "local-variable",
-    "name": "isMultiSpec"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 633,
-    "kind": "function",
-    "name": "listItemsByCookie"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 634,
-    "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 638,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 638,
+    "line": 374,
     "kind": "local-variable",
     "name": "items"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 643,
-    "kind": "local-variable",
-    "name": "out"
-  },
-  {
-    "file": "internal/server/item_handlers.go",
-    "line": 644,
+    "line": 375,
     "kind": "range-variable",
     "name": "it"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 650,
+    "line": 382,
+    "kind": "function",
+    "name": "syncItemsFromAccount"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 383,
+    "kind": "var",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 388,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 392,
+    "kind": "local-variable",
+    "name": "ok"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 392,
+    "kind": "local-variable",
+    "name": "userID"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 396,
+    "kind": "local-variable",
+    "name": "credentialUnlock"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 397,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 397,
+    "kind": "local-variable",
+    "name": "latest"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 403,
+    "kind": "local-variable",
+    "name": "cookieValue"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 407,
+    "kind": "local-variable",
+    "name": "cancel"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 407,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 409,
+    "kind": "local-variable",
+    "name": "client"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 410,
+    "kind": "local-variable",
+    "name": "cookieSession"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 410,
+    "kind": "local-variable",
+    "name": "mtopCtx"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 411,
+    "kind": "local-variable",
+    "name": "callErr"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 411,
+    "kind": "local-variable",
+    "name": "res"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 416,
+    "kind": "local-variable",
+    "name": "persistErr"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 416,
+    "kind": "local-variable",
+    "name": "value"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 416,
+    "kind": "local-variable",
+    "name": "valueChanged"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 429,
+    "kind": "local-variable",
+    "name": "detailCookies"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 433,
+    "kind": "local-variable",
+    "name": "detailErr"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 434,
+    "kind": "local-variable",
+    "name": "runtimeCookie"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 435,
+    "kind": "local-variable",
+    "name": "runtimeCookieChanged"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 436,
+    "kind": "local-variable",
+    "name": "handled"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 436,
+    "kind": "local-variable",
+    "name": "persistErr"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 436,
+    "kind": "local-variable",
+    "name": "value"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 436,
+    "kind": "local-variable",
+    "name": "valueChanged"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 448,
+    "kind": "local-variable",
+    "name": "saveErr"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 467,
+    "kind": "local-variable",
+    "name": "syncErr"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 467,
+    "kind": "local-variable",
+    "name": "syncResult"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 485,
+    "kind": "function",
+    "name": "syncItemsPageFromAccount"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 486,
+    "kind": "var",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 491,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 495,
+    "kind": "local-variable",
+    "name": "ok"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 495,
+    "kind": "local-variable",
+    "name": "userID"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 499,
+    "kind": "local-variable",
+    "name": "credentialUnlock"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 500,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 500,
+    "kind": "local-variable",
+    "name": "latest"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 506,
+    "kind": "local-variable",
+    "name": "cookieValue"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 507,
+    "kind": "local-variable",
+    "name": "cancel"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 507,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 509,
+    "kind": "local-variable",
+    "name": "client"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 510,
+    "kind": "local-variable",
+    "name": "cookieSession"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 510,
+    "kind": "local-variable",
+    "name": "mtopCtx"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 511,
+    "kind": "local-variable",
+    "name": "callErr"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 511,
+    "kind": "local-variable",
+    "name": "res"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 516,
+    "kind": "local-variable",
+    "name": "persistErr"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 516,
+    "kind": "local-variable",
+    "name": "value"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 516,
+    "kind": "local-variable",
+    "name": "valueChanged"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 529,
+    "kind": "local-variable",
+    "name": "detailCookies"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 533,
+    "kind": "local-variable",
+    "name": "detailErr"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 534,
+    "kind": "local-variable",
+    "name": "runtimeCookie"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 535,
+    "kind": "local-variable",
+    "name": "runtimeCookieChanged"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 536,
+    "kind": "local-variable",
+    "name": "handled"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 536,
+    "kind": "local-variable",
+    "name": "persistErr"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 536,
+    "kind": "local-variable",
+    "name": "value"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 536,
+    "kind": "local-variable",
+    "name": "valueChanged"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 548,
+    "kind": "local-variable",
+    "name": "saveErr"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 567,
+    "kind": "local-variable",
+    "name": "saved"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 578,
+    "kind": "function",
+    "name": "cookieForCurrentUser"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 579,
+    "kind": "local-variable",
+    "name": "sess"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 598,
+    "kind": "local-variable",
+    "name": "saved"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 599,
+    "kind": "range-variable",
+    "name": "item"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 600,
+    "kind": "local-variable",
+    "name": "priceText"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 604,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 615,
+    "kind": "local-variable",
+    "name": "multiErr"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 627,
+    "kind": "function",
+    "name": "syncSyncedItems"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 628,
+    "kind": "local-variable",
+    "name": "rows"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 629,
+    "kind": "range-variable",
+    "name": "item"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 630,
+    "kind": "local-variable",
+    "name": "priceText"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 647,
+    "kind": "function",
+    "name": "enrichSyncedItemMultiSpec"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 648,
+    "kind": "local-variable",
+    "name": "fetcher"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 648,
+    "kind": "local-variable",
+    "name": "ok"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 652,
+    "kind": "range-variable",
+    "name": "index"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 657,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 657,
+    "kind": "local-variable",
+    "name": "isMultiSpec"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 672,
+    "kind": "function",
+    "name": "listItemsByCookie"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 673,
+    "kind": "local-variable",
+    "name": "cid"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 677,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 677,
+    "kind": "local-variable",
+    "name": "items"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 682,
+    "kind": "local-variable",
+    "name": "out"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 683,
+    "kind": "range-variable",
+    "name": "it"
+  },
+  {
+    "file": "internal/server/item_handlers.go",
+    "line": 689,
     "kind": "function",
     "name": "getItem"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 651,
+    "line": 690,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 655,
+    "line": 694,
     "kind": "local-variable",
     "name": "itemID"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 656,
+    "line": 695,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 656,
+    "line": 695,
     "kind": "local-variable",
     "name": "it"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 670,
+    "line": 709,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 674,
+    "line": 713,
     "kind": "var",
     "name": "req"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 685,
+    "line": 724,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 692,
+    "line": 731,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 703,
+    "line": 742,
     "kind": "function",
     "name": "updateItem"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 704,
+    "line": 743,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 708,
+    "line": 747,
     "kind": "local-variable",
     "name": "itemID"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 709,
+    "line": 748,
     "kind": "var",
     "name": "req"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 719,
+    "line": 758,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 723,
+    "line": 762,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 723,
+    "line": 762,
     "kind": "local-variable",
     "name": "existing"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 732,
+    "line": 771,
     "kind": "local-variable",
     "name": "row"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 767,
+    "line": 806,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 774,
+    "line": 813,
     "kind": "function",
     "name": "deleteItem"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 775,
+    "line": 814,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 779,
+    "line": 818,
     "kind": "local-variable",
     "name": "itemID"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 780,
+    "line": 819,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 787,
+    "line": 826,
     "kind": "function",
     "name": "setItemMultiSpec"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 788,
+    "line": 827,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 792,
+    "line": 831,
     "kind": "local-variable",
     "name": "itemID"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 793,
+    "line": 832,
     "kind": "var",
     "name": "req"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 796,
+    "line": 835,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 800,
+    "line": 839,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 807,
+    "line": 846,
     "kind": "function",
     "name": "setItemMultiQuantity"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 808,
+    "line": 847,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 812,
+    "line": 851,
     "kind": "local-variable",
     "name": "itemID"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 813,
+    "line": 852,
     "kind": "var",
     "name": "req"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 816,
+    "line": 855,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 820,
+    "line": 859,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 844,
+    "line": 883,
     "kind": "var",
     "name": "m"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 845,
+    "line": 884,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 848,
+    "line": 887,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 848,
+    "line": 887,
     "kind": "local-variable",
     "name": "pic"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 849,
+    "line": 888,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 849,
+    "line": 888,
     "kind": "local-variable",
     "name": "url"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 853,
+    "line": 892,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/item_handlers.go",
-    "line": 853,
+    "line": 892,
     "kind": "local-variable",
     "name": "url"
   },
@@ -72709,223 +72589,175 @@
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 101,
-    "kind": "function",
-    "name": "recommendItemPublishCategory"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 102,
+    "line": 103,
     "kind": "var",
     "name": "req"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 106,
+    "line": 107,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 120,
+    "line": 121,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 120,
+    "line": 121,
     "kind": "local-variable",
     "name": "userID"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 124,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 124,
-    "kind": "local-variable",
-    "name": "recommender"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 130,
-    "kind": "local-variable",
-    "name": "credentialUnlock"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 131,
-    "kind": "local-variable",
-    "name": "runtimeCookie"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 138,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 138,
-    "kind": "local-variable",
-    "name": "latest"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 143,
-    "kind": "local-variable",
-    "name": "cancel"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 143,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 145,
-    "kind": "local-variable",
-    "name": "cookieSession"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 145,
-    "kind": "local-variable",
-    "name": "mtopCtx"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 146,
+    "line": 125,
     "kind": "local-variable",
     "name": "callErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 146,
+    "line": 125,
     "kind": "local-variable",
     "name": "category"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 146,
-    "kind": "local-variable",
-    "name": "updatedCookies"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 147,
-    "kind": "local-variable",
-    "name": "handled"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 147,
-    "kind": "local-variable",
-    "name": "persistErr"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 147,
-    "kind": "local-variable",
-    "name": "value"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 147,
-    "kind": "local-variable",
-    "name": "valueChanged"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 153,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 172,
-    "kind": "function",
-    "name": "previewItemPublishBatch"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 173,
+    "line": 151,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 182,
+    "line": 160,
     "kind": "local-variable",
     "name": "defaultCookieID"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 191,
+    "line": 169,
     "kind": "local-variable",
     "name": "fallbackCategory"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 197,
+    "line": 175,
     "kind": "var",
     "name": "batchLocation"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 198,
+    "line": 176,
     "kind": "local-variable",
     "name": "locationJSON"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 205,
-    "kind": "local-variable",
-    "name": "locationBytes"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 206,
+    "line": 183,
     "kind": "local-variable",
     "name": "hasDefaultCategory"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 211,
+    "line": 188,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 211,
+    "line": 188,
     "kind": "local-variable",
     "name": "source"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 211,
+    "line": 188,
     "kind": "local-variable",
     "name": "sourceHeader"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 217,
+    "line": 194,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 217,
+    "line": 194,
     "kind": "local-variable",
     "name": "sourceBytes"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 217,
+    "line": 194,
+    "kind": "local-variable",
+    "name": "tooLarge"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 203,
+    "kind": "local-variable",
+    "name": "batchID"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 204,
+    "kind": "local-variable",
+    "name": "uploadDir"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 205,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 209,
+    "kind": "local-variable",
+    "name": "keepUpload"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 215,
+    "kind": "local-variable",
+    "name": "sourceName"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 219,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 224,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 224,
+    "kind": "local-variable",
+    "name": "zipFile"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 224,
+    "kind": "local-variable",
+    "name": "zipHeader"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 226,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 226,
     "kind": "local-variable",
     "name": "tooLarge"
   },
@@ -72933,337 +72765,175 @@
     "file": "internal/server/item_publish_batch_handlers.go",
     "line": 226,
     "kind": "local-variable",
-    "name": "batchID"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 227,
-    "kind": "local-variable",
-    "name": "uploadDir"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 228,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 232,
-    "kind": "local-variable",
-    "name": "keepUpload"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 238,
-    "kind": "local-variable",
-    "name": "sourceName"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 242,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 247,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 247,
-    "kind": "local-variable",
-    "name": "zipFile"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 247,
-    "kind": "local-variable",
-    "name": "zipHeader"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 249,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 249,
-    "kind": "local-variable",
-    "name": "tooLarge"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 249,
-    "kind": "local-variable",
     "name": "zipBytes"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 258,
+    "line": 235,
     "kind": "local-variable",
     "name": "zipName"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 262,
+    "line": 239,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 266,
+    "line": 243,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 272,
+    "line": 249,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 272,
+    "line": 249,
     "kind": "local-variable",
     "name": "maps"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 281,
+    "line": 258,
     "kind": "local-variable",
     "name": "parsed"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 282,
-    "kind": "local-variable",
-    "name": "rows"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 283,
-    "kind": "local-variable",
-    "name": "previewRows"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 284,
-    "kind": "local-variable",
-    "name": "invalid"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 284,
-    "kind": "local-variable",
-    "name": "valid"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 285,
-    "kind": "range-variable",
-    "name": "p"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 286,
-    "kind": "local-variable",
-    "name": "isValid"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 292,
-    "kind": "local-variable",
-    "name": "imagesJSON"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 293,
-    "kind": "local-variable",
-    "name": "categoryJSON"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 294,
-    "kind": "local-variable",
-    "name": "automationJSON"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 295,
-    "kind": "local-variable",
-    "name": "rawJSON"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 296,
-    "kind": "local-variable",
-    "name": "status"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 297,
-    "kind": "local-variable",
-    "name": "errMsg"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 337,
+    "line": 259,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 361,
-    "kind": "function",
-    "name": "startItemPublishBatch"
+    "line": 259,
+    "kind": "local-variable",
+    "name": "preview"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 362,
+    "line": 355,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 363,
+    "line": 356,
     "kind": "var",
     "name": "req"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 367,
+    "line": 360,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 371,
+    "line": 364,
     "kind": "local-variable",
     "name": "batchID"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 379,
-    "kind": "local-variable",
-    "name": "batch"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 379,
+    "line": 372,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 384,
+    "line": 372,
     "kind": "local-variable",
-    "name": "activeRunning"
+    "name": "startedID"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
     "line": 393,
     "kind": "local-variable",
-    "name": "workerToken"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 394,
-    "kind": "local-variable",
-    "name": "claimed"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 394,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 403,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 403,
-    "kind": "local-variable",
-    "name": "pending"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 418,
-    "kind": "function",
-    "name": "listItemPublishBatches"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 419,
-    "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 420,
+    "line": 394,
     "kind": "local-variable",
     "name": "limit"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 421,
-    "kind": "local-variable",
-    "name": "batches"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 421,
+    "line": 395,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 426,
+    "line": 395,
     "kind": "local-variable",
     "name": "result"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 427,
-    "kind": "range-variable",
-    "name": "i"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 433,
-    "kind": "function",
-    "name": "getItemPublishBatch"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 434,
+    "line": 405,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 435,
+    "line": 406,
     "kind": "local-variable",
     "name": "batchID"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 436,
+    "line": 407,
     "kind": "local-variable",
-    "name": "batch"
+    "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 436,
+    "line": 407,
+    "kind": "local-variable",
+    "name": "result"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 421,
+    "kind": "local-variable",
+    "name": "sess"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 422,
+    "kind": "local-variable",
+    "name": "batchID"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 423,
     "kind": "local-variable",
     "name": "err"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 423,
+    "kind": "local-variable",
+    "name": "status"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 439,
+    "kind": "local-variable",
+    "name": "sess"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 440,
+    "kind": "local-variable",
+    "name": "batchID"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
@@ -73275,1469 +72945,1349 @@
     "file": "internal/server/item_publish_batch_handlers.go",
     "line": 441,
     "kind": "local-variable",
-    "name": "rows"
+    "name": "uploadDir"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 449,
-    "kind": "function",
-    "name": "cancelItemPublishBatch"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 450,
+    "line": 460,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 451,
+    "line": 461,
     "kind": "local-variable",
     "name": "batchID"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 452,
+    "line": 462,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 457,
+    "line": 462,
     "kind": "local-variable",
-    "name": "err"
+    "name": "startedID"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 457,
-    "kind": "local-variable",
-    "name": "running"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 457,
-    "kind": "local-variable",
-    "name": "workerToken"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 472,
+    "line": 478,
     "kind": "function",
-    "name": "deleteItemPublishBatch"
+    "name": "startPublishBatchWorker"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 473,
+    "line": 479,
     "kind": "local-variable",
-    "name": "sess"
+    "name": "workerDone"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 474,
+    "line": 483,
     "kind": "local-variable",
-    "name": "batchID"
+    "name": "cancel"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 475,
+    "line": 483,
     "kind": "local-variable",
-    "name": "batch"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 475,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 484,
-    "kind": "local-variable",
-    "name": "err"
+    "name": "jobCtx"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
     "line": 494,
+    "kind": "local-variable",
+    "name": "ticker"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 508,
     "kind": "function",
-    "name": "retryFailedItemPublishBatch"
+    "name": "StartPublishBatchRecovery"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 495,
+    "line": 516,
+    "kind": "function",
+    "name": "recoverPublishBatchesOnce"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 517,
     "kind": "local-variable",
-    "name": "sess"
+    "name": "batches"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 496,
-    "kind": "local-variable",
-    "name": "batchID"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 497,
-    "kind": "local-variable",
-    "name": "batch"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 497,
+    "line": 517,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 506,
+    "line": 522,
+    "kind": "range-variable",
+    "name": "batch"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 527,
     "kind": "local-variable",
     "name": "workerToken"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 507,
+    "line": 528,
+    "kind": "local-variable",
+    "name": "claimErr"
+  },
+  {
+    "file": "internal/server/item_publish_batch_handlers.go",
+    "line": 528,
     "kind": "local-variable",
     "name": "claimed"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 507,
+    "line": 532,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 516,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 522,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 522,
+    "line": 537,
     "kind": "local-variable",
     "name": "pending"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
     "line": 537,
-    "kind": "function",
-    "name": "startPublishBatchWorker"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 538,
-    "kind": "local-variable",
-    "name": "workerDone"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 542,
-    "kind": "local-variable",
-    "name": "cancel"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 542,
-    "kind": "local-variable",
-    "name": "jobCtx"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 553,
-    "kind": "local-variable",
-    "name": "ticker"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 567,
-    "kind": "function",
-    "name": "StartPublishBatchRecovery"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 575,
-    "kind": "function",
-    "name": "recoverPublishBatchesOnce"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 576,
-    "kind": "local-variable",
-    "name": "batches"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 576,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 581,
-    "kind": "range-variable",
-    "name": "batch"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 586,
-    "kind": "local-variable",
-    "name": "workerToken"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 587,
-    "kind": "local-variable",
-    "name": "claimErr"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 587,
-    "kind": "local-variable",
-    "name": "claimed"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 591,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 596,
-    "kind": "local-variable",
-    "name": "pending"
-  },
-  {
-    "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 596,
     "kind": "local-variable",
     "name": "pendingErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 609,
+    "line": 550,
     "kind": "function",
     "name": "failClaimedPublishBatch"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 610,
+    "line": 551,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 610,
+    "line": 551,
     "kind": "local-variable",
     "name": "ctx"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 612,
+    "line": 553,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 612,
+    "line": 553,
     "kind": "local-variable",
     "name": "released"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 619,
+    "line": 560,
     "kind": "function",
     "name": "downloadItemPublishBatchResult"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 620,
+    "line": 561,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 621,
+    "line": 562,
     "kind": "local-variable",
     "name": "batchID"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 622,
+    "line": 563,
     "kind": "local-variable",
     "name": "batch"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 622,
+    "line": 563,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 627,
+    "line": 568,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 627,
+    "line": 568,
     "kind": "local-variable",
     "name": "rows"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 632,
+    "line": 573,
     "kind": "var",
     "name": "buf"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 634,
+    "line": 575,
     "kind": "local-variable",
     "name": "cw"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 636,
+    "line": 577,
     "kind": "range-variable",
     "name": "row"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 637,
+    "line": 578,
     "kind": "var",
     "name": "category"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 646,
+    "line": 587,
     "kind": "local-variable",
     "name": "filename"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 654,
+    "line": 595,
     "kind": "function",
     "name": "safeCSVCell"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 655,
+    "line": 596,
     "kind": "local-variable",
     "name": "trimmed"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 667,
+    "line": 608,
     "kind": "function",
     "name": "runItemPublishBatch"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 668,
+    "line": 609,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 668,
+    "line": 609,
     "kind": "local-variable",
     "name": "rows"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 678,
+    "line": 619,
     "kind": "local-variable",
     "name": "client"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 679,
+    "line": 620,
     "kind": "range-variable",
     "name": "idx"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 679,
+    "line": 620,
     "kind": "range-variable",
     "name": "row"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 684,
+    "line": 625,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 684,
+    "line": 625,
     "kind": "local-variable",
     "name": "wctx"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 685,
+    "line": 626,
     "kind": "local-variable",
     "name": "renewErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 685,
+    "line": 626,
     "kind": "local-variable",
     "name": "renewed"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 692,
+    "line": 633,
     "kind": "local-variable",
     "name": "batch"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 692,
+    "line": 633,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 699,
+    "line": 640,
     "kind": "local-variable",
     "name": "claimErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 699,
+    "line": 640,
     "kind": "local-variable",
     "name": "claimed"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 708,
+    "line": 649,
     "kind": "local-variable",
     "name": "rowErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 709,
+    "line": 650,
     "kind": "local-variable",
     "name": "sessionExpired"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 710,
+    "line": 651,
     "kind": "local-variable",
     "name": "statusCancel"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 710,
+    "line": 651,
     "kind": "local-variable",
     "name": "statusCtx"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 711,
+    "line": 652,
     "kind": "local-variable",
     "name": "status"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 713,
+    "line": 654,
     "kind": "local-variable",
     "name": "failureKind"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 713,
+    "line": 654,
     "kind": "local-variable",
     "name": "message"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 714,
+    "line": 655,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 714,
+    "line": 655,
     "kind": "local-variable",
     "name": "wctx"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 715,
+    "line": 656,
     "kind": "local-variable",
     "name": "markErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 715,
+    "line": 656,
     "kind": "local-variable",
     "name": "marked"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 729,
+    "line": 670,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 734,
+    "line": 675,
     "kind": "local-variable",
     "name": "delay"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 735,
+    "line": 676,
     "kind": "local-variable",
     "name": "timer"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 748,
+    "line": 689,
     "kind": "function",
     "name": "publishBatchFailure"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 749,
+    "line": 690,
     "kind": "local-variable",
     "name": "message"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 750,
+    "line": 691,
     "kind": "local-variable",
     "name": "failureKind"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 751,
+    "line": 692,
     "kind": "var",
     "name": "postErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 752,
+    "line": 693,
     "kind": "var",
     "name": "uncertainErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 769,
+    "line": 710,
     "kind": "function",
     "name": "registerPublishBatchCancel"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 775,
+    "line": 716,
     "kind": "local-variable",
     "name": "old"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 781,
+    "line": 722,
     "kind": "function",
     "name": "unregisterPublishBatchCancel"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 784,
+    "line": 725,
     "kind": "local-variable",
     "name": "current"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 789,
+    "line": 730,
     "kind": "function",
     "name": "cancelPublishBatch"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 791,
+    "line": 732,
     "kind": "local-variable",
     "name": "worker"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 800,
+    "line": 741,
     "kind": "function",
     "name": "publishStatusContext"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 807,
+    "line": 748,
     "kind": "function",
     "name": "finishInterruptedPublishBatch"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 808,
+    "line": 749,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 808,
+    "line": 749,
     "kind": "local-variable",
     "name": "wctx"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 810,
+    "line": 751,
     "kind": "local-variable",
     "name": "batch"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 810,
+    "line": 751,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 824,
+    "line": 765,
     "kind": "local-variable",
     "name": "finalizeErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 830,
+    "line": 771,
     "kind": "function",
     "name": "finishPublishBatch"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 831,
+    "line": 772,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 831,
+    "line": 772,
     "kind": "local-variable",
     "name": "wctx"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 833,
+    "line": 774,
     "kind": "local-variable",
     "name": "batch"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 833,
+    "line": 774,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 842,
+    "line": 783,
     "kind": "local-variable",
     "name": "finalStatus"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 842,
+    "line": 783,
     "kind": "local-variable",
     "name": "finishErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 842,
+    "line": 783,
     "kind": "local-variable",
     "name": "finished"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 854,
+    "line": 795,
     "kind": "function",
     "name": "finalPublishBatchStatus"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 867,
+    "line": 808,
     "kind": "function",
     "name": "publishBatchRow"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 868,
+    "line": 809,
     "kind": "local-variable",
     "name": "batch"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 868,
+    "line": 809,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 872,
+    "line": 813,
     "kind": "var",
     "name": "location"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 873,
+    "line": 814,
     "kind": "local-variable",
     "name": "locationJSON"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 877,
+    "line": 818,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 880,
+    "line": 821,
     "kind": "var",
     "name": "selectedLocation"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 884,
+    "line": 825,
     "kind": "local-variable",
     "name": "cookieValue"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 884,
+    "line": 825,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 888,
+    "line": 829,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 888,
+    "line": 829,
     "kind": "local-variable",
     "name": "priceCents"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 892,
+    "line": 833,
     "kind": "local-variable",
     "name": "origCents"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 893,
+    "line": 834,
     "kind": "local-variable",
     "name": "postageCents"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 894,
+    "line": 835,
     "kind": "local-variable",
     "name": "res"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 895,
+    "line": 836,
     "kind": "var",
     "name": "responseCookieErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 897,
+    "line": 838,
     "kind": "var",
     "name": "preferredCategory"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 898,
+    "line": 839,
     "kind": "local-variable",
     "name": "rawCategory"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 900,
+    "line": 841,
     "kind": "var",
     "name": "configured"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 901,
+    "line": 842,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 911,
+    "line": 852,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 911,
+    "line": 852,
     "kind": "local-variable",
     "name": "images"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 915,
+    "line": 856,
     "kind": "local-variable",
     "name": "markCancel"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 915,
+    "line": 856,
     "kind": "local-variable",
     "name": "markCtx"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 916,
+    "line": 857,
     "kind": "local-variable",
     "name": "markErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 916,
+    "line": 857,
     "kind": "local-variable",
     "name": "remoteStarted"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 921,
+    "line": 862,
     "kind": "local-variable",
     "name": "runtimeCookie"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 922,
+    "line": 863,
     "kind": "local-variable",
     "name": "runtimeCookieChanged"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 924,
+    "line": 865,
     "kind": "local-variable",
     "name": "credentialUnlock"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 926,
+    "line": 867,
     "kind": "local-variable",
     "name": "latest"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 926,
+    "line": 867,
     "kind": "local-variable",
     "name": "latestErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 937,
+    "line": 878,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 937,
+    "line": 878,
     "kind": "local-variable",
     "name": "pctx"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 939,
+    "line": 880,
     "kind": "local-variable",
     "name": "cookieSession"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 939,
+    "line": 880,
     "kind": "local-variable",
     "name": "mtopCtx"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 940,
+    "line": 881,
     "kind": "local-variable",
     "name": "publishErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 940,
+    "line": 881,
     "kind": "local-variable",
     "name": "published"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 953,
+    "line": 894,
     "kind": "local-variable",
     "name": "handled"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 953,
+    "line": 894,
     "kind": "local-variable",
     "name": "persistErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 953,
+    "line": 894,
     "kind": "local-variable",
     "name": "value"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 953,
+    "line": 894,
     "kind": "local-variable",
     "name": "valueChanged"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 955,
+    "line": 896,
     "kind": "local-variable",
     "name": "cookieErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 966,
+    "line": 907,
     "kind": "local-variable",
     "name": "saveErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 989,
+    "line": 930,
     "kind": "var",
     "name": "perr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1001,
+    "line": 942,
     "kind": "local-variable",
     "name": "rawJSON"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1002,
+    "line": 943,
     "kind": "local-variable",
     "name": "saveCancel"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1002,
+    "line": 943,
     "kind": "local-variable",
     "name": "saveCtx"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1003,
+    "line": 944,
     "kind": "local-variable",
     "name": "saveErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1003,
+    "line": 944,
     "kind": "local-variable",
     "name": "saved"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1017,
+    "line": 958,
     "kind": "local-variable",
     "name": "currentBatch"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1017,
+    "line": 958,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1022,
+    "line": 963,
     "kind": "local-variable",
     "name": "detail"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1029,
+    "line": 970,
     "kind": "local-variable",
     "name": "detailJSON"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1030,
+    "line": 971,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1042,
+    "line": 983,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1046,
+    "line": 987,
     "kind": "local-variable",
     "name": "rawJSON"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1047,
+    "line": 988,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1047,
+    "line": 988,
     "kind": "local-variable",
     "name": "marked"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1057,
+    "line": 998,
     "kind": "function",
     "name": "firstError"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1064,
+    "line": 1005,
     "kind": "function",
     "name": "createPublishAutomationRules"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1065,
+    "line": 1006,
     "kind": "var",
     "name": "cfg"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1066,
+    "line": 1007,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1069,
+    "line": 1010,
     "kind": "local-variable",
     "name": "title"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1071,
+    "line": 1012,
     "kind": "local-variable",
     "name": "actions"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1072,
+    "line": 1013,
     "kind": "range-variable",
     "name": "action"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1072,
+    "line": 1013,
     "kind": "range-variable",
     "name": "index"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1073,
+    "line": 1014,
     "kind": "local-variable",
     "name": "actionConfig"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1083,
+    "line": 1024,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1093,
+    "line": 1034,
     "kind": "local-variable",
     "name": "actions"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1094,
+    "line": 1035,
     "kind": "range-variable",
     "name": "action"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1094,
+    "line": 1035,
     "kind": "range-variable",
     "name": "index"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1095,
+    "line": 1036,
     "kind": "local-variable",
     "name": "actionConfig"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1102,
+    "line": 1043,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1112,
+    "line": 1053,
     "kind": "local-variable",
     "name": "cfgJSON"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1113,
+    "line": 1054,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1127,
+    "line": 1068,
     "kind": "function",
     "name": "ensurePublishAutomationRule"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1128,
+    "line": 1069,
     "kind": "var",
     "name": "exists"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1129,
+    "line": 1070,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1143,
+    "line": 1084,
     "kind": "function",
     "name": "parsePublishRows"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1144,
+    "line": 1085,
     "kind": "local-variable",
     "name": "out"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1145,
+    "line": 1086,
     "kind": "range-variable",
     "name": "i"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1145,
+    "line": 1086,
     "kind": "range-variable",
     "name": "m"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1146,
+    "line": 1087,
     "kind": "local-variable",
     "name": "row"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1174,
+    "line": 1115,
     "kind": "local-variable",
     "name": "rowCategory"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1180,
+    "line": 1121,
     "kind": "local-variable",
     "name": "hasRowCategory"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1199,
+    "line": 1140,
     "kind": "local-variable",
     "name": "cents"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1199,
+    "line": 1140,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1203,
+    "line": 1144,
     "kind": "local-variable",
     "name": "cents"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1203,
+    "line": 1144,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1214,
+    "line": 1155,
     "kind": "local-variable",
     "name": "cents"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1214,
+    "line": 1155,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1224,
+    "line": 1165,
     "kind": "range-variable",
     "name": "ref"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1225,
+    "line": 1166,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1235,
+    "line": 1176,
     "kind": "function",
     "name": "parsePublishAutomation"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1236,
+    "line": 1177,
     "kind": "local-variable",
     "name": "cfg"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1237,
+    "line": 1178,
     "kind": "local-variable",
     "name": "paidActions"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1237,
+    "line": 1178,
     "kind": "local-variable",
     "name": "paidParseErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1243,
+    "line": 1184,
     "kind": "local-variable",
     "name": "reviewGiftActions"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1243,
+    "line": 1184,
     "kind": "local-variable",
     "name": "reviewGiftParseErr"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1261,
+    "line": 1202,
     "kind": "local-variable",
     "name": "entries"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1267,
+    "line": 1208,
     "kind": "local-variable",
     "name": "actions"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1268,
+    "line": 1209,
     "kind": "range-variable",
     "name": "entry"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1268,
+    "line": 1209,
     "kind": "range-variable",
     "name": "index"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1269,
+    "line": 1210,
     "kind": "local-variable",
     "name": "parts"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1273,
+    "line": 1214,
     "kind": "local-variable",
     "name": "cardID"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1273,
+    "line": 1214,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1277,
+    "line": 1218,
     "kind": "local-variable",
     "name": "count"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1284,
+    "line": 1225,
     "kind": "local-variable",
     "name": "delay"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1296,
+    "line": 1237,
     "kind": "function",
     "name": "validatePublishAutomation"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1297,
+    "line": 1238,
     "kind": "var",
     "name": "errs"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1298,
+    "line": 1239,
     "kind": "local-variable",
     "name": "validateCards"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1310,
+    "line": 1251,
     "kind": "range-variable",
     "name": "action"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1310,
+    "line": 1251,
     "kind": "range-variable",
     "name": "index"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1311,
+    "line": 1252,
     "kind": "local-variable",
     "name": "prefix"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1339,
+    "line": 1280,
     "kind": "function",
     "name": "publishBatchToMap"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1340,
+    "line": 1281,
     "kind": "local-variable",
     "name": "locationJSON"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1344,
+    "line": 1285,
     "kind": "local-variable",
     "name": "outRows"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1345,
+    "line": 1286,
     "kind": "local-variable",
     "name": "pending"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1346,
+    "line": 1287,
     "kind": "local-variable",
     "name": "running"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1347,
+    "line": 1288,
     "kind": "range-variable",
     "name": "row"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1354,
+    "line": 1295,
     "kind": "var",
     "name": "refs"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1356,
+    "line": 1297,
     "kind": "var",
     "name": "category"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1358,
+    "line": 1299,
     "kind": "var",
     "name": "automationCfg"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1369,
+    "line": 1310,
     "kind": "local-variable",
     "name": "retryable"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1370,
+    "line": 1311,
     "kind": "range-variable",
     "name": "row"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1384,
+    "line": 1325,
     "kind": "function",
     "name": "removePublishUploadDir"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1392,
+    "line": 1333,
     "kind": "function",
     "name": "cleanupExpiredPublishUploads"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1393,
+    "line": 1334,
     "kind": "local-variable",
     "name": "cutoff"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1394,
+    "line": 1335,
     "kind": "local-variable",
     "name": "batches"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1394,
+    "line": 1335,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/item_publish_batch_handlers.go",
-    "line": 1398,
+    "line": 1339,
     "kind": "range-variable",
     "name": "i"
   },
