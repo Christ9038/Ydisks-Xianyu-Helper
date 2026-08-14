@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"regexp"
 	"strings"
@@ -26,7 +27,7 @@ func (s *Server) getAccountTaskSettings(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusForbidden, "无权访问该账号")
 		return
 	}
-	settings, err := s.Store.AccountTasks.Get(r.Context(), cid)
+	settings, err := s.communicationApplication().GetAccountTaskSettings(r.Context(), cid)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取账号任务配置失败")
 		return
@@ -45,25 +46,15 @@ func (s *Server) updateAccountTaskSettings(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	input.CookieID = cid
-	input.RateContent = strings.TrimSpace(input.RateContent)
-	if input.AutoRateEnabled && input.RateContent == "" {
-		writeErr(w, http.StatusBadRequest, "启用自动评价时评价内容不能为空")
+	stored, err := s.communicationApplication().UpdateAccountTaskSettings(r.Context(), accountTaskUpdateInput{CookieID: cid, Settings: input})
+	if err != nil {
+		if strings.Contains(err.Error(), "不能为空") || strings.Contains(err.Error(), "不能超过") || strings.Contains(err.Error(), "格式必须") {
+			writeErr(w, http.StatusBadRequest, err.Error())
+		} else {
+			writeErr(w, http.StatusInternalServerError, "保存账号任务配置失败")
+		}
 		return
 	}
-	if len([]rune(input.RateContent)) > 500 {
-		writeErr(w, http.StatusBadRequest, "评价内容不能超过 500 个字符")
-		return
-	}
-	if !accountTaskTimePattern.MatchString(input.PolishTime) {
-		writeErr(w, http.StatusBadRequest, "擦亮时间格式必须为 HH:mm")
-		return
-	}
-	if err := s.Store.AccountTasks.Upsert(r.Context(), input); err != nil {
-		writeErr(w, http.StatusInternalServerError, "保存账号任务配置失败")
-		return
-	}
-	stored, _ := s.Store.AccountTasks.Get(r.Context(), cid)
 	writeJSON(w, http.StatusOK, newAccountTaskSettingsResponse(stored))
 }
 
@@ -73,7 +64,7 @@ func (s *Server) listAccountTaskRuns(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "无权访问该账号")
 		return
 	}
-	runs, err := s.Store.AccountTasks.RecentRuns(r.Context(), cid, parsePositiveInt(r.URL.Query().Get("limit"), 20))
+	runs, err := s.communicationApplication().ListAccountTaskRuns(r.Context(), cid, parsePositiveInt(r.URL.Query().Get("limit"), 20))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取任务记录失败")
 		return
@@ -87,10 +78,6 @@ func (s *Server) runAccountTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "无权操作该账号")
 		return
 	}
-	if s.automation == nil {
-		writeErr(w, http.StatusServiceUnavailable, "自动化中心未启用")
-		return
-	}
 	var input struct {
 		TaskType string `json:"task_type"`
 	}
@@ -98,8 +85,12 @@ func (s *Server) runAccountTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "不支持的任务类型")
 		return
 	}
-	summary, err := s.automation.RunAccountTask(r.Context(), cid, input.TaskType)
+	summary, err := s.communicationApplication().RunAccountTask(r.Context(), cid, input.TaskType)
 	if err != nil {
+		if errors.Is(err, errCommunicationUnavailable) {
+			writeErr(w, http.StatusServiceUnavailable, "自动化中心未启用")
+			return
+		}
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}

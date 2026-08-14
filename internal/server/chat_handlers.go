@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -15,7 +16,6 @@ import (
 
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/db"
-	"xianyu-go/internal/engine"
 	"xianyu-go/internal/xianyu/mtop"
 )
 
@@ -171,48 +171,22 @@ func (s *Server) sendChatImage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "图片不能为空且不能超过 10MB")
 		return
 	}
-	sender, ok := s.Manager.GetInstance(accountID)
-	if !ok || sender == nil {
-		writeErr(w, http.StatusConflict, "账号当前离线，无法发送图片")
-		return
-	}
-	cookies, err := s.Store.Cookies.GetValue(r.Context(), accountID)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取账号凭证失败")
-		return
-	}
-	uploader, ok := s.mtopClient().(interface {
-		UploadChatImage(context.Context, string, string, string, []byte) (*mtop.ChatImageUpload, error)
-	})
-	if !ok {
-		writeErr(w, http.StatusServiceUnavailable, "图片上传服务未启用")
-		return
-	}
-	upload, err := uploader.UploadChatImage(r.Context(), cookies, header.Filename, contentType, data)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, "图片上传到闲鱼失败: "+err.Error())
-		return
-	}
-	if upload.UpdatedCookies != "" && upload.UpdatedCookies != cookies {
-		_ = s.Store.Cookies.UpdateValueExisting(r.Context(), accountID, upload.UpdatedCookies)
-		sender.UpdateCookie(upload.UpdatedCookies)
-	}
 	session := db.ChatSession{CookieID: accountID, ChatID: chatID, BuyerID: buyerID,
 		BuyerName: r.FormValue("buyer_name"), BuyerAvatar: r.FormValue("buyer_avatar_url"),
 		ItemID: r.FormValue("item_id"), ItemTitle: r.FormValue("item_title")}
-	message, err := s.chat.CreateOutgoingMedia(r.Context(), session, "image", upload.URL)
+	sent, err := s.communicationApplication().SendChatImage(r.Context(), chatImageInput{Session: session, Filename: header.Filename, ContentType: contentType, Data: data})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "保存待发送图片失败")
-		return
-	}
-	if err := sender.SendImage(engine.WithOutgoingMessageKey(r.Context(), message.MessageKey), chatID, buyerID, upload.URL, 0); err != nil {
-		failed, _ := s.chat.SetOutgoingStatus(context.Background(), accountID, message.MessageKey, "failed")
-		writeErrDetails(w, http.StatusBadGateway, "chat_image_send_failed", "图片发送失败，请重试", "", map[string]any{"outgoing_message": failed})
-		return
-	}
-	sent, err := s.chat.SetOutgoingStatus(r.Context(), accountID, message.MessageKey, "sent")
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "图片已发送，但状态保存失败")
+		if errors.Is(err, errCommunicationUnavailable) {
+			writeErr(w, http.StatusServiceUnavailable, "图片上传服务未启用")
+		} else if errors.Is(err, errChatOffline) {
+			writeErr(w, http.StatusConflict, "账号当前离线，无法发送图片")
+		} else if errors.Is(err, errChatSend) {
+			writeErrDetails(w, http.StatusBadGateway, "chat_image_send_failed", "图片发送失败，请重试", "", map[string]any{"outgoing_message": sent})
+		} else if errors.Is(err, errChatStatusSave) {
+			writeErr(w, http.StatusInternalServerError, "图片已发送，但状态保存失败")
+		} else {
+			writeErr(w, http.StatusInternalServerError, "保存待发送图片失败")
+		}
 		return
 	}
 	writeJSON(w, http.StatusCreated, chatMessageEnvelope{Message: newChatMessageDTOFromPointer(sent)})
@@ -262,22 +236,12 @@ func (s *Server) listChatMessages(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	rows, err := s.Store.Chats.ListMessages(r.Context(), sess.UserID, accountID, chatID, beforeID,
-		limit)
+	page, err := s.communicationApplication().ListStoredChatMessages(r.Context(), sess.UserID, accountID, chatID, beforeID, limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取聊天消息失败")
 		return
 	}
-	var current db.ChatSession
-	if sessions, sessionErr := s.Store.Chats.ListSessions(r.Context(), sess.UserID, accountID, 500); sessionErr == nil {
-		for _, candidate := range sessions {
-			if candidate.ChatID == chatID {
-				current = s.resolveSelectedChatIdentity(r.Context(), accountID, candidate)
-				break
-			}
-		}
-	}
-	writeJSON(w, http.StatusOK, chatMessagePageResponse{Messages: newChatMessageDTOs(rows), HasMore: len(rows) == limit, Session: newChatSessionDTO(current)})
+	writeJSON(w, http.StatusOK, chatMessagePageResponse{Messages: newChatMessageDTOs(page.Messages), HasMore: page.HasMore, Session: newChatSessionDTO(page.Session)})
 }
 
 func (s *Server) resolveSelectedChatIdentity(ctx context.Context, accountID string, session db.ChatSession) db.ChatSession {
@@ -340,26 +304,19 @@ func (s *Server) sendChatMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "消息不能超过 2000 个字符")
 		return
 	}
-	sender, ok := s.Manager.GetInstance(input.AccountID)
-	if !ok || sender == nil {
-		writeErr(w, http.StatusConflict, "账号当前离线，无法发送消息")
-		return
-	}
-	message, err := s.chat.CreateOutgoing(r.Context(), db.ChatSession{CookieID: input.AccountID, ChatID: input.ChatID,
-		BuyerID: input.BuyerID, BuyerName: input.BuyerName, ItemID: input.ItemID, ItemTitle: input.ItemTitle}, input.Text)
+	sent, err := s.communicationApplication().SendChatText(r.Context(), chatTextInput{Session: db.ChatSession{CookieID: input.AccountID, ChatID: input.ChatID, BuyerID: input.BuyerID, BuyerName: input.BuyerName, ItemID: input.ItemID, ItemTitle: input.ItemTitle}, Text: input.Text})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "保存待发送消息失败")
-		return
-	}
-	sendContext := engine.WithOutgoingMessageKey(r.Context(), message.MessageKey)
-	if err := sender.SendText(sendContext, input.ChatID, input.BuyerID, input.Text); err != nil {
-		failed, _ := s.chat.SetOutgoingStatus(context.Background(), input.AccountID, message.MessageKey, "failed")
-		writeErrDetails(w, http.StatusBadGateway, "chat_message_send_failed", "发送失败，请重试", "", map[string]any{"outgoing_message": failed})
-		return
-	}
-	sent, err := s.chat.SetOutgoingStatus(r.Context(), input.AccountID, message.MessageKey, "sent")
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "消息已发送，但状态保存失败")
+		if errors.Is(err, errCommunicationUnavailable) {
+			writeErr(w, http.StatusServiceUnavailable, "聊天服务未启用")
+		} else if errors.Is(err, errChatOffline) {
+			writeErr(w, http.StatusConflict, "账号当前离线，无法发送消息")
+		} else if errors.Is(err, errChatSend) {
+			writeErrDetails(w, http.StatusBadGateway, "chat_message_send_failed", "发送失败，请重试", "", map[string]any{"outgoing_message": sent})
+		} else if errors.Is(err, errChatStatusSave) {
+			writeErr(w, http.StatusInternalServerError, "消息已发送，但状态保存失败")
+		} else {
+			writeErr(w, http.StatusInternalServerError, "保存待发送消息失败")
+		}
 		return
 	}
 	writeJSON(w, http.StatusCreated, chatMessageEnvelope{Message: newChatMessageDTOFromPointer(sent)})
@@ -379,7 +336,7 @@ func (s *Server) markChatRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := auth.SessionFromContext(r.Context())
-	if err := s.Store.Chats.MarkRead(r.Context(), sess.UserID, input.AccountID, input.ChatID); err != nil {
+	if err := s.communicationApplication().MarkChatRead(r.Context(), sess.UserID, input.AccountID, input.ChatID); err != nil {
 		writeErr(w, http.StatusInternalServerError, "更新已读状态失败")
 		return
 	}

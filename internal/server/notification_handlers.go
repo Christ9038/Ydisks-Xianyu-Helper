@@ -27,7 +27,7 @@ func (s *Server) mountNotificationsReal(r chi.Router) {
 
 func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 	sess := authSess(r)
-	chs, err := s.Store.Notifications.AllChannelsForUser(r.Context(), sess.UserID)
+	chs, err := s.communicationApplication().ListNotificationChannels(r.Context(), sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
@@ -48,7 +48,7 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name 和 type 必填")
 		return
 	}
-	id, err := s.Store.Notifications.CreateChannel(r.Context(), &db.NotificationChannelRow{
+	id, err := s.communicationApplication().CreateNotificationChannel(r.Context(), db.NotificationChannelRow{
 		Name: req.Name, Type: req.Type, Config: req.Config, EventTypes: req.EventTypes, Enabled: req.Enabled, UserID: sess.UserID,
 	})
 	if err != nil {
@@ -76,7 +76,7 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := authSess(r)
-	row, err := s.Store.Notifications.GetChannelRowForUser(r.Context(), id, sess.UserID)
+	row, err := s.communicationApplication().GetNotificationChannel(r.Context(), id, sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
@@ -104,7 +104,7 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name 和 type 必填")
 		return
 	}
-	if err := s.Store.Notifications.UpdateChannelForUser(r.Context(), row, sess.UserID); err != nil {
+	if err := s.communicationApplication().UpdateNotificationChannel(r.Context(), *row, sess.UserID); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
 			return
@@ -122,7 +122,7 @@ func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := authSess(r)
-	if err := s.Store.Notifications.DeleteChannelForUser(r.Context(), id, sess.UserID); err != nil {
+	if err := s.communicationApplication().DeleteNotificationChannel(r.Context(), id, sess.UserID); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
 			return
@@ -140,16 +140,16 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "无效ID")
 		return
 	}
-	if s.notifier == nil {
-		writeErr(w, http.StatusServiceUnavailable, "通知器未启用")
-		return
-	}
 	if !s.requireChannelOwner(w, r, id) {
 		return
 	}
 	body := "🧪 通知渠道测试\n\n这是一条来自Ydisks闲鱼助手的测试通知，收到说明渠道配置正常。\n时间: " +
 		time.Now().Format("2006-01-02 15:04:05")
-	if err := s.notifier.SendToChannel(id, body); err != nil {
+	if err := s.communicationApplication().TestNotificationChannel(r.Context(), id, authSess(r).UserID, body); err != nil {
+		if errors.Is(err, errCommunicationUnavailable) {
+			writeErr(w, http.StatusServiceUnavailable, "通知器未启用")
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, "发送失败: "+err.Error())
 		return
 	}
@@ -161,7 +161,7 @@ func (s *Server) getAccountBindings(w http.ResponseWriter, r *http.Request) {
 	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
-	ids, err := s.Store.Notifications.AccountBindings(r.Context(), cid)
+	ids, err := s.communicationApplication().GetNotificationBindingIDs(r.Context(), cid)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
@@ -171,37 +171,16 @@ func (s *Server) getAccountBindings(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listMessageNotifications(w http.ResponseWriter, r *http.Request) {
 	sess := authSess(r)
-	rows, err := s.Store.DB.QueryContext(r.Context(),
-		`SELECT mn.id, mn.cookie_id, mn.channel_id, COALESCE(nc.name, ''), mn.enabled
-		   FROM message_notifications mn
-		   JOIN cookies c ON c.id=mn.cookie_id
-		   JOIN notification_channels nc ON nc.id=mn.channel_id AND nc.user_id=c.user_id
-		  WHERE c.user_id=?
-		  ORDER BY mn.id DESC`, sess.UserID)
+	rows, err := s.communicationApplication().ListNotificationBindings(r.Context(), sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	defer rows.Close()
-	out := make(notificationBindingListResponse)
-	for rows.Next() {
-		var id, channelID int64
-		var cookieID, channelName string
-		var enabled int
-		if err := rows.Scan(&id, &cookieID, &channelID, &channelName, &enabled); err != nil {
-			writeErr(w, http.StatusInternalServerError, "查询失败")
-			return
+	out := make(notificationBindingListResponse, len(rows))
+	for cookieID, bindings := range rows {
+		for _, binding := range bindings {
+			out[cookieID] = append(out[cookieID], notificationBindingResponse{ID: binding.ID, ChannelID: binding.ChannelID, ChannelName: binding.ChannelName, Enabled: binding.Enabled})
 		}
-		out[cookieID] = append(out[cookieID], notificationBindingResponse{
-			ID:          id,
-			ChannelID:   channelID,
-			ChannelName: channelName,
-			Enabled:     enabled != 0,
-		})
-	}
-	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
-		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -228,13 +207,7 @@ func (s *Server) setAccountBindings(w http.ResponseWriter, r *http.Request) {
 		if req.Enabled != nil {
 			enabled = *req.Enabled
 		}
-		_, err := s.Store.DB.ExecContext(r.Context(),
-			`INSERT INTO message_notifications (cookie_id, channel_id, enabled)
-			 VALUES (?, ?, ?)`+db.DialectUpsert(s.Store.Dialect, []string{"cookie_id", "channel_id"}, map[string]string{
-				"enabled":    "EXCLUDED.enabled",
-				"updated_at": "CURRENT_TIMESTAMP",
-			}),
-			cid, req.ChannelID, btoi(enabled))
+		err := s.communicationApplication().SetSingleNotificationBinding(r.Context(), cid, req.ChannelID, enabled)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "保存失败")
 			return
@@ -247,7 +220,7 @@ func (s *Server) setAccountBindings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.Store.Notifications.SetBindings(r.Context(), cid, req.ChannelIDs); err != nil {
+	if err := s.communicationApplication().SetNotificationBindings(r.Context(), cid, req.ChannelIDs); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
 	}
@@ -261,10 +234,7 @@ func (s *Server) deleteMessageNotification(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusBadRequest, "无效ID")
 		return
 	}
-	_, err = s.Store.DB.ExecContext(r.Context(),
-		`DELETE FROM message_notifications
-		  WHERE id=? AND cookie_id IN (SELECT id FROM cookies WHERE user_id=?)`,
-		id, sess.UserID)
+	err = s.communicationApplication().DeleteNotificationBinding(r.Context(), sess.UserID, id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
@@ -275,10 +245,7 @@ func (s *Server) deleteMessageNotification(w http.ResponseWriter, r *http.Reques
 func (s *Server) deleteAccountNotifications(w http.ResponseWriter, r *http.Request) {
 	sess := authSess(r)
 	cid := chi.URLParam(r, "cid")
-	_, err := s.Store.DB.ExecContext(r.Context(),
-		`DELETE FROM message_notifications
-		  WHERE cookie_id=? AND cookie_id IN (SELECT id FROM cookies WHERE user_id=?)`,
-		cid, sess.UserID)
+	err := s.communicationApplication().DeleteAccountNotificationBindings(r.Context(), sess.UserID, cid)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return

@@ -59407,121 +59407,121 @@
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 14,
+    "line": 15,
     "kind": "var",
     "name": "accountTaskTimePattern"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 16,
+    "line": 17,
     "kind": "function",
     "name": "mountAccountTasks"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 23,
+    "line": 24,
     "kind": "function",
     "name": "getAccountTaskSettings"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 24,
+    "line": 25,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 29,
+    "line": 30,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 29,
+    "line": 30,
     "kind": "local-variable",
     "name": "settings"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 37,
+    "line": 38,
     "kind": "function",
     "name": "updateAccountTaskSettings"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 38,
+    "line": 39,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 43,
+    "line": 44,
     "kind": "var",
     "name": "input"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 62,
+    "line": 49,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 66,
+    "line": 49,
     "kind": "local-variable",
     "name": "stored"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 70,
+    "line": 61,
     "kind": "function",
     "name": "listAccountTaskRuns"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 71,
+    "line": 62,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 76,
+    "line": 67,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 76,
+    "line": 67,
     "kind": "local-variable",
     "name": "runs"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 84,
+    "line": 75,
     "kind": "function",
     "name": "runAccountTask"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 85,
+    "line": 76,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 94,
+    "line": 81,
     "kind": "var",
     "name": "input"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 101,
+    "line": 88,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/account_task_handlers.go",
-    "line": 101,
+    "line": 88,
     "kind": "local-variable",
     "name": "summary"
   },
@@ -64611,521 +64611,383 @@
     "file": "internal/server/chat_handlers.go",
     "line": 174,
     "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 174,
-    "kind": "local-variable",
-    "name": "sender"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 179,
-    "kind": "local-variable",
-    "name": "cookies"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 179,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 184,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 184,
-    "kind": "local-variable",
-    "name": "uploader"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 191,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 191,
-    "kind": "local-variable",
-    "name": "upload"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 200,
-    "kind": "local-variable",
     "name": "session"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 203,
+    "line": 177,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 203,
-    "kind": "local-variable",
-    "name": "message"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 208,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 209,
-    "kind": "local-variable",
-    "name": "failed"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 213,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 213,
+    "line": 177,
     "kind": "local-variable",
     "name": "sent"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 221,
+    "line": 195,
     "kind": "function",
     "name": "listChatMessages"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 222,
+    "line": 196,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 223,
+    "line": 197,
     "kind": "local-variable",
     "name": "accountID"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 224,
+    "line": 198,
     "kind": "local-variable",
     "name": "chatID"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 233,
+    "line": 207,
     "kind": "local-variable",
     "name": "beforeID"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 234,
+    "line": 208,
     "kind": "local-variable",
     "name": "cursor"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 235,
+    "line": 209,
     "kind": "local-variable",
     "name": "limit"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 237,
+    "line": 211,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 237,
+    "line": 211,
     "kind": "local-variable",
     "name": "sender"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 238,
+    "line": 212,
     "kind": "local-variable",
     "name": "fetcher"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 238,
+    "line": 212,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 241,
+    "line": 215,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 241,
+    "line": 215,
     "kind": "local-variable",
     "name": "fetchCtx"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 242,
+    "line": 216,
     "kind": "local-variable",
     "name": "body"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 242,
+    "line": 216,
     "kind": "local-variable",
     "name": "fetchErr"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 242,
+    "line": 216,
     "kind": "local-variable",
     "name": "myID"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 245,
+    "line": 219,
     "kind": "local-variable",
     "name": "sessions"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 246,
+    "line": 220,
     "kind": "var",
     "name": "current"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 247,
+    "line": 221,
     "kind": "range-variable",
     "name": "candidate"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 253,
+    "line": 227,
     "kind": "local-variable",
     "name": "page"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 253,
+    "line": 227,
     "kind": "local-variable",
     "name": "saveErr"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 265,
+    "line": 239,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 265,
+    "line": 239,
     "kind": "local-variable",
-    "name": "rows"
+    "name": "page"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 271,
-    "kind": "var",
-    "name": "current"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 272,
-    "kind": "local-variable",
-    "name": "sessionErr"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 272,
-    "kind": "local-variable",
-    "name": "sessions"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 273,
-    "kind": "range-variable",
-    "name": "candidate"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 283,
+    "line": 247,
     "kind": "function",
     "name": "resolveSelectedChatIdentity"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 285,
+    "line": 249,
     "kind": "local-variable",
     "name": "cookieErr"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 285,
+    "line": 249,
     "kind": "local-variable",
     "name": "cookies"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 286,
+    "line": 250,
     "kind": "local-variable",
     "name": "client"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 286,
+    "line": 250,
     "kind": "local-variable",
     "name": "supported"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 290,
+    "line": 254,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 290,
+    "line": 254,
     "kind": "local-variable",
     "name": "resolveCtx"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 291,
+    "line": 255,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 291,
+    "line": 255,
     "kind": "local-variable",
     "name": "info"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 294,
+    "line": 258,
     "kind": "local-variable",
     "name": "nickname"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 309,
+    "line": 273,
     "kind": "type",
     "name": "sendChatMessageRequest"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 319,
+    "line": 283,
     "kind": "function",
     "name": "sendChatMessage"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 324,
+    "line": 288,
     "kind": "var",
     "name": "input"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 325,
+    "line": 289,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 343,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 343,
-    "kind": "local-variable",
-    "name": "sender"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 348,
+    "line": 307,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 348,
-    "kind": "local-variable",
-    "name": "message"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 354,
-    "kind": "local-variable",
-    "name": "sendContext"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 355,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 356,
-    "kind": "local-variable",
-    "name": "failed"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 360,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/chat_handlers.go",
-    "line": 360,
+    "line": 307,
     "kind": "local-variable",
     "name": "sent"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 368,
+    "line": 325,
     "kind": "function",
     "name": "markChatRead"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 369,
+    "line": 326,
     "kind": "var",
     "name": "input"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 381,
+    "line": 338,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 382,
+    "line": 339,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 389,
+    "line": 346,
     "kind": "function",
     "name": "chatWebSocket"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 394,
+    "line": 351,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 395,
+    "line": 352,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 395,
+    "line": 352,
     "kind": "local-variable",
     "name": "events"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 395,
+    "line": 352,
     "kind": "local-variable",
     "name": "unsubscribe"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 401,
+    "line": 358,
     "kind": "local-variable",
     "name": "conn"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 401,
+    "line": 358,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 406,
+    "line": 363,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 406,
+    "line": 363,
     "kind": "local-variable",
     "name": "ctx"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 411,
+    "line": 368,
     "kind": "local-variable",
     "name": "readErr"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 417,
+    "line": 374,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 424,
+    "line": 381,
     "kind": "local-variable",
     "name": "event"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 424,
+    "line": 381,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 432,
+    "line": 389,
     "kind": "function",
     "name": "ownsAccount"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 436,
+    "line": 393,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 445,
+    "line": 402,
     "kind": "function",
     "name": "parsePositiveInt"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 446,
+    "line": 403,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/chat_handlers.go",
-    "line": 446,
+    "line": 403,
     "kind": "local-variable",
     "name": "value"
   },
@@ -77005,13 +76867,13 @@
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 150,
+    "line": 146,
     "kind": "local-variable",
     "name": "body"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 152,
+    "line": 148,
     "kind": "local-variable",
     "name": "err"
   },
@@ -77065,145 +76927,121 @@
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 186,
+    "line": 179,
     "kind": "local-variable",
     "name": "out"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 188,
-    "kind": "var",
-    "name": "channelID"
+    "line": 180,
+    "kind": "range-variable",
+    "name": "bindings"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 188,
-    "kind": "var",
-    "name": "id"
-  },
-  {
-    "file": "internal/server/notification_handlers.go",
-    "line": 189,
-    "kind": "var",
-    "name": "channelName"
-  },
-  {
-    "file": "internal/server/notification_handlers.go",
-    "line": 189,
-    "kind": "var",
+    "line": 180,
+    "kind": "range-variable",
     "name": "cookieID"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 190,
-    "kind": "var",
-    "name": "enabled"
+    "line": 181,
+    "kind": "range-variable",
+    "name": "binding"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 191,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/notification_handlers.go",
-    "line": 202,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/notification_handlers.go",
-    "line": 209,
+    "line": 188,
     "kind": "function",
     "name": "setAccountBindings"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 210,
+    "line": 189,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 214,
+    "line": 193,
     "kind": "var",
     "name": "req"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 219,
+    "line": 198,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 227,
+    "line": 206,
     "kind": "local-variable",
     "name": "enabled"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 231,
+    "line": 210,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 245,
+    "line": 218,
     "kind": "range-variable",
     "name": "channelID"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 250,
+    "line": 223,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 257,
+    "line": 230,
     "kind": "function",
     "name": "deleteMessageNotification"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 258,
+    "line": 231,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 259,
+    "line": 232,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 259,
+    "line": 232,
     "kind": "local-variable",
     "name": "id"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 275,
+    "line": 245,
     "kind": "function",
     "name": "deleteAccountNotifications"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 276,
+    "line": 246,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 277,
+    "line": 247,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/notification_handlers.go",
-    "line": 278,
+    "line": 248,
     "kind": "local-variable",
     "name": "err"
   },
