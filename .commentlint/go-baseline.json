@@ -44611,1453 +44611,1453 @@
   },
   {
     "file": "internal/engine/account.go",
-    "line": 220,
+    "line": 205,
     "kind": "type",
     "name": "debounceEntry"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 228,
+    "line": 213,
     "kind": "type",
     "name": "WSConn"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 242,
+    "line": 227,
     "kind": "type",
     "name": "defaultDialer"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 244,
+    "line": 229,
     "kind": "function",
     "name": "Dial"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 248,
+    "line": 233,
     "kind": "type",
     "name": "cookieRenewer"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 252,
+    "line": 237,
     "kind": "type",
     "name": "loginStatusChecker"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 256,
+    "line": 241,
     "kind": "type",
     "name": "scopedTokenClient"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 260,
+    "line": 245,
     "kind": "type",
     "name": "loginStatusCheckResult"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 283,
+    "line": 268,
     "kind": "local-variable",
     "name": "logger"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 287,
+    "line": 272,
     "kind": "local-variable",
     "name": "mtopWasNil"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 288,
+    "line": 273,
     "kind": "local-variable",
     "name": "mtopClient"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 292,
+    "line": 277,
     "kind": "local-variable",
     "name": "renewer"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 296,
+    "line": 281,
     "kind": "local-variable",
     "name": "cookies"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 297,
+    "line": 282,
     "kind": "local-variable",
     "name": "myid"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 298,
+    "line": 283,
     "kind": "local-variable",
     "name": "wsDialer"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 302,
+    "line": 287,
     "kind": "local-variable",
     "name": "a"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 340,
+    "line": 327,
     "kind": "function",
     "name": "Run"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 341,
+    "line": 328,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 341,
+    "line": 328,
     "kind": "local-variable",
     "name": "ctx"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 383,
+    "line": 370,
     "kind": "local-variable",
     "name": "conn"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 383,
+    "line": 370,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 389,
+    "line": 376,
     "kind": "local-variable",
     "name": "retryErr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 398,
+    "line": 385,
     "kind": "local-variable",
     "name": "cookieStr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 398,
+    "line": 385,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 398,
+    "line": 385,
     "kind": "local-variable",
     "name": "token"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 406,
+    "line": 393,
     "kind": "local-variable",
     "name": "status"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 407,
+    "line": 394,
     "kind": "local-variable",
     "name": "nonCounted"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 411,
+    "line": 398,
     "kind": "local-variable",
     "name": "tokenFailures"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 422,
+    "line": 409,
     "kind": "local-variable",
     "name": "reason"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 443,
+    "line": 430,
     "kind": "local-variable",
     "name": "sleepErr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 458,
+    "line": 445,
     "kind": "local-variable",
     "name": "deviceID"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 459,
+    "line": 446,
     "kind": "local-variable",
     "name": "tokenCredentialFP"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 475,
+    "line": 462,
     "kind": "local-variable",
     "name": "retryErr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 487,
+    "line": 474,
     "kind": "local-variable",
     "name": "offlineSince"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 503,
+    "line": 490,
     "kind": "local-variable",
     "name": "refreshAt"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 504,
+    "line": 491,
     "kind": "local-variable",
     "name": "expiresAt"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 522,
+    "line": 509,
     "kind": "local-variable",
     "name": "reason"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 537,
+    "line": 524,
     "kind": "local-variable",
     "name": "receiveErr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 577,
+    "line": 564,
     "kind": "function",
     "name": "handleWSConnectFailure"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 579,
+    "line": 566,
     "kind": "local-variable",
     "name": "reason"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 595,
+    "line": 582,
     "kind": "function",
     "name": "acquireFreshConnectionToken"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 602,
+    "line": 589,
     "kind": "function",
     "name": "clearConnectionToken"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 627,
+    "line": 614,
     "kind": "function",
     "name": "beginTask"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 635,
+    "line": 622,
     "kind": "local-variable",
     "name": "loginStatus"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 645,
+    "line": 632,
     "kind": "local-variable",
     "name": "credentialUnlock"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 674,
+    "line": 661,
     "kind": "function",
     "name": "markAuthExpired"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 684,
+    "line": 671,
     "kind": "function",
     "name": "notifyOffline"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 692,
+    "line": 679,
     "kind": "function",
     "name": "notifyRecoveringOffline"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 700,
+    "line": 687,
     "kind": "function",
     "name": "markOfflineNotified"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 718,
+    "line": 705,
     "kind": "function",
     "name": "alertEvent"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 722,
+    "line": 709,
     "kind": "local-variable",
     "name": "h"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 722,
+    "line": 709,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 729,
+    "line": 716,
     "kind": "function",
     "name": "resetFailures"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 735,
+    "line": 722,
     "kind": "function",
     "name": "formatTimeOrUnknown"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 745,
+    "line": 732,
     "kind": "function",
     "name": "tryLoginStatusCheck"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 746,
+    "line": 733,
     "kind": "local-variable",
     "name": "checker"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 746,
+    "line": 733,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 750,
+    "line": 737,
     "kind": "local-variable",
     "name": "credentialUnlock"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 756,
+    "line": 743,
     "kind": "local-variable",
     "name": "cookieStr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 758,
+    "line": 745,
     "kind": "local-variable",
     "name": "requestCtx"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 759,
+    "line": 746,
     "kind": "var",
     "name": "cookieSession"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 760,
+    "line": 747,
     "kind": "local-variable",
     "name": "metadataJSON"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 772,
+    "line": 759,
     "kind": "local-variable",
     "name": "complete"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 772,
+    "line": 759,
     "kind": "local-variable",
     "name": "snapshot"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 778,
+    "line": 765,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 778,
+    "line": 765,
     "kind": "local-variable",
     "name": "res"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 780,
+    "line": 767,
     "kind": "local-variable",
     "name": "changed"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 780,
+    "line": 767,
     "kind": "local-variable",
     "name": "snapshot"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 780,
+    "line": 767,
     "kind": "local-variable",
     "name": "value"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 782,
+    "line": 769,
     "kind": "local-variable",
     "name": "metadata"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 786,
+    "line": 773,
     "kind": "local-variable",
     "name": "persistErr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 822,
+    "line": 809,
     "kind": "function",
     "name": "tryAPIRenew"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 826,
+    "line": 813,
     "kind": "local-variable",
     "name": "renewed"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 832,
+    "line": 819,
     "kind": "function",
     "name": "tryAPIRenewUsing"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 835,
+    "line": 822,
     "kind": "local-variable",
     "name": "credentialUnlock"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 844,
+    "line": 831,
     "kind": "local-variable",
     "name": "cookieStr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 846,
+    "line": 833,
     "kind": "var",
     "name": "snapshot"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 864,
+    "line": 851,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 864,
+    "line": 851,
     "kind": "local-variable",
     "name": "res"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 874,
+    "line": 861,
     "kind": "local-variable",
     "name": "updated"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 875,
+    "line": 862,
     "kind": "local-variable",
     "name": "persisted"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 885,
+    "line": 872,
     "kind": "local-variable",
     "name": "metadata"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 886,
+    "line": 873,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 892,
+    "line": 879,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 898,
+    "line": 885,
     "kind": "local-variable",
     "name": "credentialChanged"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 932,
+    "line": 919,
     "kind": "function",
     "name": "persistRenewFlatCookie"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 949,
+    "line": 936,
     "kind": "function",
     "name": "watchPendingAPIRenew"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 956,
+    "line": 943,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 956,
+    "line": 943,
     "kind": "local-variable",
     "name": "ctx"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 958,
+    "line": 945,
     "kind": "local-variable",
     "name": "late"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 958,
+    "line": 945,
     "kind": "local-variable",
     "name": "waitErr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 965,
+    "line": 952,
     "kind": "local-variable",
     "name": "persistErr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 975,
+    "line": 962,
     "kind": "function",
     "name": "persistPendingRenewCookies"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 981,
+    "line": 968,
     "kind": "local-variable",
     "name": "credentialUnlock"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 990,
+    "line": 977,
     "kind": "local-variable",
     "name": "changed"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 990,
+    "line": 977,
     "kind": "local-variable",
     "name": "metadata"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 990,
+    "line": 977,
     "kind": "local-variable",
     "name": "newCookies"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 994,
+    "line": 981,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1007,
+    "line": 994,
     "kind": "function",
     "name": "adoptRecoveredCookie"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1012,
+    "line": 999,
     "kind": "local-variable",
     "name": "oldCookies"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1018,
+    "line": 1005,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1031,
+    "line": 1018,
     "kind": "function",
     "name": "notifyCredentialUpdated"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1032,
+    "line": 1019,
     "kind": "local-variable",
     "name": "handler"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1032,
+    "line": 1019,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1039,
+    "line": 1026,
     "kind": "function",
     "name": "retryDelay"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1041,
+    "line": 1028,
     "kind": "local-variable",
     "name": "f"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1046,
+    "line": 1033,
     "kind": "local-variable",
     "name": "base"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1047,
+    "line": 1034,
     "kind": "local-variable",
     "name": "secs"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1059,
+    "line": 1046,
     "kind": "function",
     "name": "networkRetryDelay"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1061,
+    "line": 1048,
     "kind": "local-variable",
     "name": "f"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1069,
+    "line": 1056,
     "kind": "function",
     "name": "exponentialSeconds"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1079,
+    "line": 1066,
     "kind": "function",
     "name": "withRetryJitter"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1083,
+    "line": 1070,
     "kind": "local-variable",
     "name": "maxJitter"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1087,
+    "line": 1074,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1087,
+    "line": 1074,
     "kind": "local-variable",
     "name": "n"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1095,
+    "line": 1082,
     "kind": "function",
     "name": "isEstablishedNetworkError"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1099,
+    "line": 1086,
     "kind": "local-variable",
     "name": "msg"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1100,
+    "line": 1087,
     "kind": "range-variable",
     "name": "marker"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1112,
+    "line": 1099,
     "kind": "function",
     "name": "recordShortDisconnect"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1119,
+    "line": 1106,
     "kind": "local-variable",
     "name": "now"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1121,
+    "line": 1108,
     "kind": "local-variable",
     "name": "cutoff"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1122,
+    "line": 1109,
     "kind": "local-variable",
     "name": "kept"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1123,
+    "line": 1110,
     "kind": "range-variable",
     "name": "disconnectedAt"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1135,
+    "line": 1122,
     "kind": "function",
     "name": "refreshToken"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1141,
+    "line": 1128,
     "kind": "function",
     "name": "refreshTokenWithMinGap"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1144,
+    "line": 1131,
     "kind": "local-variable",
     "name": "credentialUnlock"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1153,
+    "line": 1140,
     "kind": "local-variable",
     "name": "remaining"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1161,
+    "line": 1148,
     "kind": "local-variable",
     "name": "cookieStr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1166,
+    "line": 1153,
     "kind": "local-variable",
     "name": "deviceID"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1168,
+    "line": 1155,
     "kind": "local-variable",
     "name": "unb"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1175,
+    "line": 1162,
     "kind": "local-variable",
     "name": "captchaRetry"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1176,
+    "line": 1163,
     "kind": "var",
     "name": "res"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1177,
+    "line": 1164,
     "kind": "var",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1178,
+    "line": 1165,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1178,
+    "line": 1165,
     "kind": "local-variable",
     "name": "scoped"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1179,
+    "line": 1166,
     "kind": "var",
     "name": "snapshot"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1191,
+    "line": 1178,
     "kind": "var",
     "name": "persistErr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1199,
+    "line": 1186,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1199,
+    "line": 1186,
     "kind": "local-variable",
     "name": "recovered"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1212,
+    "line": 1199,
     "kind": "local-variable",
     "name": "status"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1226,
+    "line": 1213,
     "kind": "local-variable",
     "name": "credentialFP"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1226,
+    "line": 1213,
     "kind": "local-variable",
     "name": "fingerprintErr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1253,
+    "line": 1240,
     "kind": "function",
     "name": "clearCurrentToken"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1260,
+    "line": 1247,
     "kind": "function",
     "name": "adoptTokenResponseCookies"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1280,
+    "line": 1267,
     "kind": "local-variable",
     "name": "snapshot"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1285,
+    "line": 1272,
     "kind": "local-variable",
     "name": "snapshot"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1285,
+    "line": 1272,
     "kind": "local-variable",
     "name": "snapshotOK"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1293,
+    "line": 1280,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1306,
+    "line": 1293,
     "kind": "function",
     "name": "tryTokenCaptchaRecovery"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1307,
+    "line": 1294,
     "kind": "local-variable",
     "name": "h"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1307,
+    "line": 1294,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1311,
+    "line": 1298,
     "kind": "var",
     "name": "riskErr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1317,
+    "line": 1304,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1317,
+    "line": 1304,
     "kind": "local-variable",
     "name": "result"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1321,
+    "line": 1308,
     "kind": "local-variable",
     "name": "persistErr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1321,
+    "line": 1308,
     "kind": "local-variable",
     "name": "updatedCookies"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1333,
+    "line": 1320,
     "kind": "function",
     "name": "markTokenCaptchaFailure"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1339,
+    "line": 1326,
     "kind": "function",
     "name": "tokenCaptchaCooldownRemaining"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1341,
+    "line": 1328,
     "kind": "local-variable",
     "name": "lastFailure"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1346,
+    "line": 1333,
     "kind": "local-variable",
     "name": "remaining"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1356,
+    "line": 1343,
     "kind": "function",
     "name": "acquireToken"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1362,
+    "line": 1349,
     "kind": "function",
     "name": "acquireRuntimeToken"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1366,
+    "line": 1353,
     "kind": "function",
     "name": "acquireTokenWithMinGap"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1373,
+    "line": 1360,
     "kind": "function",
     "name": "setLastTokenStatus"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1379,
+    "line": 1366,
     "kind": "function",
     "name": "classifyTokenFailure"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1389,
+    "line": 1376,
     "kind": "local-variable",
     "name": "msg"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1396,
+    "line": 1383,
     "kind": "function",
     "name": "tokenFailureIsNonCounted"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1408,
+    "line": 1395,
     "kind": "function",
     "name": "saveTokenCache"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1412,
+    "line": 1399,
     "kind": "local-variable",
     "name": "now"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1413,
+    "line": 1400,
     "kind": "local-variable",
     "name": "expiresAt"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1413,
+    "line": 1400,
     "kind": "local-variable",
     "name": "refreshAt"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1414,
+    "line": 1401,
     "kind": "local-variable",
     "name": "tokenFP"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1416,
+    "line": 1403,
     "kind": "local-variable",
     "name": "previousTokenFP"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1426,
+    "line": 1413,
     "kind": "local-variable",
     "name": "expireAt"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1434,
+    "line": 1421,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1441,
+    "line": 1428,
     "kind": "function",
     "name": "tokenFingerprint"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1442,
+    "line": 1429,
     "kind": "local-variable",
     "name": "sum"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1454,
+    "line": 1441,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1462,
+    "line": 1449,
     "kind": "function",
     "name": "databaseCredentialFingerprint"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1473,
+    "line": 1460,
     "kind": "local-variable",
     "name": "snapshotComplete"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1485,
+    "line": 1472,
     "kind": "function",
     "name": "reloadCookieFromDB"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1494,
+    "line": 1481,
     "kind": "local-variable",
     "name": "complete"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1498,
+    "line": 1485,
     "kind": "local-variable",
     "name": "databaseFP"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1500,
+    "line": 1487,
     "kind": "local-variable",
     "name": "currentFP"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1518,
+    "line": 1505,
     "kind": "function",
     "name": "cookieSnapshotMatchesDB"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1527,
+    "line": 1514,
     "kind": "local-variable",
     "name": "snapshotComplete"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1555,
+    "line": 1542,
     "kind": "local-variable",
     "name": "remaining"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1562,
+    "line": 1549,
     "kind": "local-variable",
     "name": "status"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1585,
+    "line": 1572,
     "kind": "function",
     "name": "tokenRetryDelay"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1587,
+    "line": 1574,
     "kind": "local-variable",
     "name": "expiresAt"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1588,
+    "line": 1575,
     "kind": "local-variable",
     "name": "failures"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1590,
+    "line": 1577,
     "kind": "local-variable",
     "name": "delay"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1600,
+    "line": 1587,
     "kind": "function",
     "name": "notifyTransportReady"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1601,
+    "line": 1588,
     "kind": "local-variable",
     "name": "handler"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1601,
+    "line": 1588,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1606,
+    "line": 1593,
     "kind": "function",
     "name": "setRuntimeState"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1614,
+    "line": 1601,
     "kind": "function",
     "name": "setRuntimeError"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1615,
+    "line": 1602,
     "kind": "local-variable",
     "name": "msg"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1617,
+    "line": 1604,
     "kind": "local-variable",
     "name": "prev"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1640,
+    "line": 1627,
     "kind": "local-variable",
     "name": "conn"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1640,
+    "line": 1627,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1640,
+    "line": 1627,
     "kind": "local-variable",
     "name": "myID"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1644,
+    "line": 1631,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1644,
+    "line": 1631,
     "kind": "local-variable",
     "name": "sendCtx"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1646,
+    "line": 1633,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1649,
+    "line": 1636,
     "kind": "local-variable",
     "name": "observer"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1649,
+    "line": 1636,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1650,
+    "line": 1637,
     "kind": "local-variable",
     "name": "key"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1651,
+    "line": 1638,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1669,
+    "line": 1656,
     "kind": "local-variable",
     "name": "conn"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1669,
+    "line": 1656,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1669,
+    "line": 1656,
     "kind": "local-variable",
     "name": "myID"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1673,
+    "line": 1660,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1673,
+    "line": 1660,
     "kind": "local-variable",
     "name": "sendCtx"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1678,
+    "line": 1665,
     "kind": "function",
     "name": "currentSenderState"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1688,
+    "line": 1675,
     "kind": "local-variable",
     "name": "myID"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1701,
+    "line": 1688,
     "kind": "function",
     "name": "FetchChatHistory"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1702,
+    "line": 1689,
     "kind": "local-variable",
     "name": "conn"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1702,
+    "line": 1689,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1702,
+    "line": 1689,
     "kind": "local-variable",
     "name": "myID"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1706,
+    "line": 1693,
     "kind": "local-variable",
     "name": "history"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1706,
+    "line": 1693,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1712,
+    "line": 1699,
     "kind": "local-variable",
     "name": "body"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1712,
+    "line": 1699,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1716,
+    "line": 1703,
     "kind": "function",
     "name": "FetchChatConversations"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1717,
+    "line": 1704,
     "kind": "local-variable",
     "name": "conn"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1717,
+    "line": 1704,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1717,
+    "line": 1704,
     "kind": "local-variable",
     "name": "myID"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1721,
+    "line": 1708,
     "kind": "local-variable",
     "name": "fetcher"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1721,
+    "line": 1708,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1727,
+    "line": 1714,
     "kind": "local-variable",
     "name": "body"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1727,
+    "line": 1714,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1738,
+    "line": 1725,
     "kind": "function",
     "name": "replaceCookieStr"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1742,
+    "line": 1729,
     "kind": "function",
     "name": "replaceCredentialState"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1747,
+    "line": 1734,
     "kind": "local-variable",
     "name": "unb"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1754,
+    "line": 1741,
     "kind": "function",
     "name": "rotatePageDeviceID"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1756,
+    "line": 1743,
     "kind": "local-variable",
     "name": "userID"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1771,
+    "line": 1758,
     "kind": "local-variable",
     "name": "credentialUnlock"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1779,
+    "line": 1766,
     "kind": "local-variable",
     "name": "metadataJSON"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1787,
+    "line": 1774,
     "kind": "local-variable",
     "name": "complete"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1795,
+    "line": 1782,
     "kind": "local-variable",
     "name": "credentialFP"
   },
   {
     "file": "internal/engine/account.go",
-    "line": 1797,
+    "line": 1784,
     "kind": "local-variable",
     "name": "changed"
   },
@@ -48592,6 +48592,12 @@
     "line": 90,
     "kind": "local-variable",
     "name": "connectedDuration"
+  },
+  {
+    "file": "internal/engine/credential_state.go",
+    "line": 12,
+    "kind": "type",
+    "name": "credentialState"
   },
   {
     "file": "internal/engine/dispatch.go",

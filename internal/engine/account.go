@@ -176,9 +176,10 @@ const (
 
 // Account 单账号运行时。
 type Account struct {
-	CookieID  string
-	CookieStr string
-	UserID    string // unb（myid）
+	// CookieID 是账号在数据库中的稳定标识。
+	CookieID string
+	// credentialState 独立保护 Cookie、Token、设备指纹和刷新状态。
+	credentialState
 
 	// accountRuntimeState 独立保护连接状态、失败计数和离线告警状态。
 	accountRuntimeState
@@ -193,22 +194,6 @@ type Account struct {
 	wsDialer WSDialer
 	handler  Handler
 	logger   *slog.Logger
-
-	// 运行时状态（受 mu 保护）
-	mu                 sync.Mutex
-	refreshMu          sync.Mutex
-	currentToken       string
-	deviceID           string
-	lastTokenRefresh   time.Time
-	lastCaptchaFailure time.Time
-	lastTokenStatus    string
-	tokenFetchFailures int
-	credentialFP       string // 当前内存扁平 Cookie + 权威 Jar 的完整状态指纹
-	tokenCredentialFP  string // currentToken 获取完成时绑定的完整凭证状态
-	tokenAcquiredAt    time.Time
-	tokenExpiresAt     time.Time
-	tokenRefreshAt     time.Time
-	tokenFingerprint   string // 仅用于诊断，不保存原始 Token
 
 	reply *ReplyService
 	// recorder 管理 WebSocket 报文记录 worker 的队列和等待。
@@ -301,23 +286,25 @@ func New(cfg Config) *Account {
 	}
 	a := &Account{
 		CookieID:  cfg.CookieID,
-		CookieStr: cfg.CookieStr,
-		UserID:    myid,
 		store:     cfg.Store,
 		mtop:      mtopClient,
 		renewer:   renewer,
 		wsDialer:  wsDialer,
 		handler:   cfg.Handler,
 		logger:    logger.With("account", cfg.CookieID),
-		deviceID:  protocol.GenerateDeviceID(myid),
 		lifecycle: accountLifecycle{accepting: true},
 		accountRuntimeState: accountRuntimeState{
 			runtimeState:     RuntimeStarting,
 			runtimeMessage:   "正在启动账号服务",
 			runtimeUpdatedAt: time.Now(),
 		},
-		recorder:     newWSRecorder(cfg.Store, cfg.CookieID, logger),
-		credentialFP: credentialStateFingerprint(cfg.CookieStr, ""),
+		recorder: newWSRecorder(cfg.Store, cfg.CookieID, logger),
+		credentialState: credentialState{
+			CookieStr:    cfg.CookieStr,
+			UserID:       myid,
+			deviceID:     protocol.GenerateDeviceID(myid),
+			credentialFP: credentialStateFingerprint(cfg.CookieStr, ""),
+		},
 	}
 	if cfg.Store != nil {
 		a.reply = NewReplyService(cfg.CookieID, cfg.Store, a, nil, NewAIReplier(cfg.CookieID, cfg.Store, logger), logger)
@@ -477,7 +464,7 @@ func (a *Account) Run(parent context.Context) error {
 			}
 			continue
 		}
-		a.accountRuntimeState.mu.Lock()
+		a.runtimeMu.Lock()
 		a.conn = conn
 		a.connStartedAt = time.Now()
 		a.connFailures = 0
@@ -488,7 +475,7 @@ func (a *Account) Run(parent context.Context) error {
 		a.offlineNotified = false
 		a.offlineSince = time.Time{}
 		a.lastOfflineReason = ""
-		a.accountRuntimeState.mu.Unlock()
+		a.runtimeMu.Unlock()
 		a.setRuntimeState(RuntimeOnline, "消息服务连接正常")
 		a.notifyTransportReady(ctx)
 		if shouldRecovered {
@@ -672,8 +659,8 @@ func (a *Account) handleMaxFailures(ctx context.Context) error {
 // markAuthExpired 标记进入 auth_expired 状态。仅在首次（未告警过）返回 true，
 // 连接恢复后由 Run 的 online 分支复位 authExpiredAlerted，避免重复告警刷屏。
 func (a *Account) markAuthExpired() bool {
-	a.accountRuntimeState.mu.Lock()
-	defer a.accountRuntimeState.mu.Unlock()
+	a.runtimeMu.Lock()
+	defer a.runtimeMu.Unlock()
 	if a.authExpiredAlerted {
 		return false
 	}
@@ -698,15 +685,15 @@ func (a *Account) notifyRecoveringOffline(ctx context.Context, reason string) {
 }
 
 func (a *Account) markOfflineNotified(reason string) bool {
-	a.accountRuntimeState.mu.Lock()
+	a.runtimeMu.Lock()
 	if a.offlineNotified {
-		a.accountRuntimeState.mu.Unlock()
+		a.runtimeMu.Unlock()
 		return false
 	}
 	a.offlineNotified = true
 	a.offlineSince = time.Now()
 	a.lastOfflineReason = reason
-	a.accountRuntimeState.mu.Unlock()
+	a.runtimeMu.Unlock()
 	return true
 }
 
@@ -727,8 +714,8 @@ func (a *Account) alertEvent(ctx context.Context, eventType, level, title, body 
 }
 
 func (a *Account) resetFailures() {
-	a.accountRuntimeState.mu.Lock()
-	defer a.accountRuntimeState.mu.Unlock()
+	a.runtimeMu.Lock()
+	defer a.runtimeMu.Unlock()
 	a.connFailures = 0
 }
 
@@ -1037,9 +1024,9 @@ func (a *Account) notifyCredentialUpdated(ctx context.Context) {
 // retryDelay 按错误类型计算退避，并加入 0-30% 抖动。
 // 多账号同时断线时，纯固定退避会让所有账号在同一秒重连，容易形成重连风暴。
 func (a *Account) retryDelay(errMsg string) time.Duration {
-	a.accountRuntimeState.mu.Lock()
+	a.runtimeMu.Lock()
 	f := a.connFailures
-	a.accountRuntimeState.mu.Unlock()
+	a.runtimeMu.Unlock()
 	if f < 1 {
 		f = 1
 	}
@@ -1057,9 +1044,9 @@ func (a *Account) retryDelay(errMsg string) time.Duration {
 }
 
 func (a *Account) networkRetryDelay() time.Duration {
-	a.accountRuntimeState.mu.Lock()
+	a.runtimeMu.Lock()
 	f := a.networkFailures
-	a.accountRuntimeState.mu.Unlock()
+	a.runtimeMu.Unlock()
 	if f < 1 {
 		f = 1
 	}
@@ -1110,8 +1097,8 @@ func isEstablishedNetworkError(err error) bool {
 }
 
 func (a *Account) recordShortDisconnect(connectedDuration time.Duration) bool {
-	a.accountRuntimeState.mu.Lock()
-	defer a.accountRuntimeState.mu.Unlock()
+	a.runtimeMu.Lock()
+	defer a.runtimeMu.Unlock()
 	if connectedDuration >= ShortConnectionThreshold {
 		a.shortDisconnects = nil
 		return false
@@ -1238,9 +1225,9 @@ func (a *Account) refreshTokenWithMinGap(ctx context.Context, _ bool) (string, s
 		a.tokenFetchFailures = 0
 		a.lastTokenStatus = tokenRefreshSuccess
 		a.mu.Unlock()
-		a.accountRuntimeState.mu.Lock()
+		a.runtimeMu.Lock()
 		a.lastMsgReceived = time.Time{}
-		a.accountRuntimeState.mu.Unlock()
+		a.runtimeMu.Unlock()
 		return res.AccessToken, cookieStr, nil
 	}
 
@@ -1538,7 +1525,7 @@ func (a *Account) cookieSnapshotMatchesDB(ctx context.Context, expectedFP string
 
 // RuntimeStatus 返回账号当前连接状态的线程安全快照。
 func (a *Account) RuntimeStatus() RuntimeStatus {
-	a.accountRuntimeState.mu.Lock()
+	a.runtimeMu.Lock()
 	// state 是当前运行状态枚举快照。
 	state := a.runtimeState
 	// message 是当前运行状态说明快照。
@@ -1549,7 +1536,7 @@ func (a *Account) RuntimeStatus() RuntimeStatus {
 	failures := a.connFailures
 	// updatedAt 是状态最近更新时间快照。
 	updatedAt := a.runtimeUpdatedAt
-	a.accountRuntimeState.mu.Unlock()
+	a.runtimeMu.Unlock()
 
 	a.mu.Lock()
 	remaining := int64(0)
@@ -1577,9 +1564,9 @@ func (a *Account) RuntimeStatus() RuntimeStatus {
 
 // recordMessageReceived 更新最近收到消息时间，供 messageDispatcher 使用。
 func (a *Account) recordMessageReceived(receivedAt time.Time) {
-	a.accountRuntimeState.mu.Lock()
+	a.runtimeMu.Lock()
 	a.lastMsgReceived = receivedAt
-	a.accountRuntimeState.mu.Unlock()
+	a.runtimeMu.Unlock()
 }
 
 func (a *Account) tokenRetryDelay() time.Duration {
@@ -1604,8 +1591,8 @@ func (a *Account) notifyTransportReady(ctx context.Context) {
 }
 
 func (a *Account) setRuntimeState(state, message string) {
-	a.accountRuntimeState.mu.Lock()
-	defer a.accountRuntimeState.mu.Unlock()
+	a.runtimeMu.Lock()
+	defer a.runtimeMu.Unlock()
 	a.runtimeState = state
 	a.runtimeMessage = message
 	a.runtimeUpdatedAt = time.Now()
@@ -1613,9 +1600,9 @@ func (a *Account) setRuntimeState(state, message string) {
 
 func (a *Account) setRuntimeError(ctx context.Context, err error) {
 	msg := strings.ToLower(errString(err))
-	a.accountRuntimeState.mu.Lock()
+	a.runtimeMu.Lock()
 	prev := a.runtimeState
-	a.accountRuntimeState.mu.Unlock()
+	a.runtimeMu.Unlock()
 	switch {
 	case strings.Contains(msg, "验证"), strings.Contains(msg, "captcha"), strings.Contains(msg, "risk"), strings.Contains(msg, "rgv587"), strings.Contains(msg, "fail_sys_user_validate"):
 		a.setRuntimeState(RuntimeVerificationRequired, "闲鱼要求安全验证，请重新扫码并完成验证")
@@ -1676,10 +1663,10 @@ func (a *Account) SendImage(ctx context.Context, chatID, toUserID, imageURL stri
 }
 
 func (a *Account) currentSenderState() (WSConn, string, error) {
-	a.accountRuntimeState.mu.Lock()
+	a.runtimeMu.Lock()
 	// conn 是当前连接快照；后续读取账号身份字段使用 Account 自身的凭证锁。
 	conn := a.conn
-	a.accountRuntimeState.mu.Unlock()
+	a.runtimeMu.Unlock()
 	if conn == nil {
 		return nil, "", fmt.Errorf("%w: 账号 %s 当前没有可用 WebSocket 连接", automation.ErrMessageNotSent, a.CookieID)
 	}
@@ -1730,8 +1717,8 @@ func (a *Account) FetchChatConversations(ctx context.Context, cursor int64, limi
 
 // AutomationReady 报告自动化消息是否可以立即使用当前 WS 连接发送。
 func (a *Account) AutomationReady() bool {
-	a.accountRuntimeState.mu.Lock()
-	defer a.accountRuntimeState.mu.Unlock()
+	a.runtimeMu.Lock()
+	defer a.runtimeMu.Unlock()
 	return a.conn != nil && a.runtimeState == RuntimeOnline
 }
 

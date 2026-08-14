@@ -15,10 +15,10 @@ func TestRunConnectionSessionOwnsHeartbeatAndReceiveCleanup(t *testing.T) {
 	// conn 是可通过关闭信号结束接收循环的测试连接。
 	conn := &fakeWSConn{recvBlock: true, closeCh: make(chan struct{}), heartbeatDone: heartbeatDone}
 	// accountRuntimeState 记录本次会话的连接和建立时间，模拟注册成功后的状态。
-	account.accountRuntimeState.mu.Lock()
+	account.runtimeMu.Lock()
 	account.conn = conn
 	account.connStartedAt = time.Now().Add(-time.Second)
-	account.accountRuntimeState.mu.Unlock()
+	account.runtimeMu.Unlock()
 	// ctx 是控制会话 goroutine 退出的上下文。
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -43,10 +43,10 @@ func TestRunConnectionSessionOwnsHeartbeatAndReceiveCleanup(t *testing.T) {
 	if result.Rotated {
 		t.Fatal("取消会话不应被识别为 Token 主动轮换")
 	}
-	account.accountRuntimeState.mu.Lock()
+	account.runtimeMu.Lock()
 	// currentConn 是会话组件清理后的连接状态快照。
 	currentConn := account.conn
-	account.accountRuntimeState.mu.Unlock()
+	account.runtimeMu.Unlock()
 	if currentConn != nil {
 		t.Fatal("会话结束后连接状态未清理")
 	}

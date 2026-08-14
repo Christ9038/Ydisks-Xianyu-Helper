@@ -164,7 +164,8 @@ app shell / routes
 - 已完成阶段 6 第一个 PR 切片“Engine 账号 facade 与运行状态边界”：将连接状态、失败计数、离线告警和业务任务生命周期分别提取为独立锁组件；`Account` 保留 facade，`Stop` 对并发调用保持幂等并等待已登记任务；新增生命周期并发回归测试，未改变 WebSocket、凭证、自动化和冻结风控逻辑；全量测试、Engine race、Server race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交；
 - 已完成阶段 6 第二个 PR 切片“Engine WebSocket 连接循环边界”：`registerConnection` 在凭证锁内统一快照复核与 WebSocket 注册，`runConnectionSession` 统一心跳、接收、Token 轮换 goroutine 的创建/取消/等待；`Account` 继续负责凭证错误、风控和重连结果解释；新增会话收束测试，未改变冻结风控行为；全量测试、Engine race、Server race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交；
 - 已完成阶段 6 第三个 PR 切片“Engine WebSocket 记录与消息分发边界”：将 WS 记录 worker、消息去重、防抖和并发信号量分别收口到独立组件；`Account` 保留兼容 facade，系统事件背压、聊天洪峰限流、消息顺序、自动化事件优先级和 Stop 等待语义保持不变；全量 Go 测试、Engine/Server race、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交；
-- 阶段 6 下一 PR 切片为“Engine 凭证状态与 Token 生命周期边界”：集中 Cookie 快照、Token 缓存、刷新/清理和设备指纹的一致性边界，保留风控恢复、刷新锁和冻结规范行为，不拆分 Automation；
+- 已完成阶段 6 第四个 PR 切片“Engine 凭证状态与 Token 生命周期边界”：将 Cookie 快照、Token 缓存、刷新锁、设备指纹和刷新诊断状态收口到独立 `credentialState`；运行状态锁改为显式 `runtimeMu`，避免匿名组件锁冲突；保留风控恢复、刷新锁、Cookie/Token 绑定和 WebSocket 注册前快照复核语义；Engine 全量测试、Engine/Server race、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交；
+- 阶段 6 下一 PR 切片为“Automation 事件事实与规则匹配边界”：先分离 WebSocket 事件事实提取、规则匹配和动作计划生成，禁止规则匹配隐式执行外部动作，保留自动化事件优先级与结果状态语义；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -578,3 +579,4 @@ npm --prefix frontend run build
 | 2026-08-14 | 完成阶段 6 第一个 PR 切片“Engine 账号 facade 与运行状态边界” | 将连接状态、失败计数、离线告警和业务任务生命周期分别提取为独立锁组件；`Account` 保留 facade，`Stop` 对并发调用保持幂等并等待已登记任务；新增生命周期并发回归测试，未改变 WebSocket、凭证、自动化和冻结风控逻辑；全量测试、Engine race、Server race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Engine WebSocket 连接循环边界 |
 | 2026-08-14 | 完成阶段 6 第二个 PR 切片“Engine WebSocket 连接循环边界” | `registerConnection` 在凭证锁内统一快照复核与 WebSocket 注册，`runConnectionSession` 统一心跳、接收、Token 轮换 goroutine 的创建/取消/等待；`Account` 继续负责凭证错误、风控和重连结果解释；新增会话收束测试，未改变冻结风控行为；全量测试、Engine race、Server race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Engine WebSocket 记录与消息分发边界 |
 | 2026-08-14 | 完成阶段 6 第三个 PR 切片“Engine WebSocket 记录与消息分发边界” | 新增 `messageDispatcher` 与 `wsRecorder`，分别管理消息去重/防抖/并发投递和 WebSocket 诊断记录队列/worker；`Account` 仅保留 facade 与生命周期接线，动态 Handler、系统事件背压、聊天洪峰限流和 Stop 等待语义保持兼容；Engine 全量回归与并发测试、后续门禁通过并合并为一个可回滚提交 | 阶段 6：Engine 凭证状态与 Token 生命周期边界 |
+| 2026-08-14 | 完成阶段 6 第四个 PR 切片“Engine 凭证状态与 Token 生命周期边界” | 新增 `credentialState`，集中 Cookie 快照、Token 缓存、刷新锁、设备指纹和刷新诊断状态；运行状态组件锁改名为 `runtimeMu`，保持 `Account` facade 字段访问兼容；Cookie 更新、Token 清理、风控恢复和 WS 注册前凭证快照复核语义保持不变；Engine 全量测试、Engine/Server race、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交 | 阶段 6：Automation 事件事实与规则匹配边界 |

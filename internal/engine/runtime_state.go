@@ -6,11 +6,12 @@ import (
 )
 
 // accountRuntimeState 保存账号连接状态及其诊断计数。
-// mu 只保护本组件字段；调用方不得持有该锁执行数据库、网络或通知 I/O。
+// runtimeMu 只保护本组件字段；调用方不得持有该锁执行数据库、网络或通知 I/O。
 
 // accountRuntimeState 是账号连接运行状态组件。
 type accountRuntimeState struct {
-	mu sync.Mutex
+	// runtimeMu 保护连接、失败计数和离线告警字段。
+	runtimeMu sync.Mutex
 
 	// connFailures 是连续连接或认证失败次数。
 	connFailures int
