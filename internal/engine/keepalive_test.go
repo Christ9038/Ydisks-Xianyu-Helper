@@ -337,3 +337,29 @@ func TestHandleMaxFailures_AlertOnce(t *testing.T) {
 		t.Fatalf("两次 handleMaxFailures 应只发一次掉线 warn 和一次恢复失败 critical，got %+v", h.alerts)
 	}
 }
+
+// TestTryLoginStatusCheckUsesRuntimeDataWithoutLoginSecrets 验证登录态检查不读取损坏的登录密码字段。
+func TestTryLoginStatusCheckUsesRuntimeDataWithoutLoginSecrets(t *testing.T) {
+	// mtopClient 返回登录态正常结果，测试只关注凭证查询边界。
+	mtopClient := &statusMtop{
+		fakeRunMtop: fakeRunMtop{token: "tok-runtime-data"},
+		result:      &mtop.LoginStatusResult{Status: mtop.LoginStatusSuccess, Message: "登录状态正常"},
+	}
+	t.Setenv("XIANYU_DATA_KEY", "engine-runtime-query-key")
+	// acc 是使用窄凭证读取路径执行登录态检查的测试账号；cleanup 负责关闭临时数据库。
+	acc, _, store, cleanup := newRunAccount(t, mtopClient)
+	defer cleanup()
+	// ctx 是测试登录态检查共用的上下文。
+	ctx := context.Background()
+	// corruptErr 表示写入故意损坏的登录密码失败的原因。
+	if _, corruptErr := store.DB.ExecContext(ctx,
+		`UPDATE cookies SET username=?,password=? WHERE id=?`,
+		"engine-user", "not-a-password-ciphertext", "cid"); corruptErr != nil {
+		t.Fatalf("corrupt password: %v", corruptErr)
+	}
+	// result 是登录态检查在窄凭证查询后返回的状态。
+	result := acc.tryLoginStatusCheck(ctx)
+	if result.recovered || result.riskRequired {
+		t.Fatalf("正常登录态不应触发恢复或风控: %+v", result)
+	}
+}

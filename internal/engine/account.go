@@ -924,16 +924,16 @@ func (a *Account) tryLoginStatusCheck(ctx context.Context) loginStatusCheckResul
 	var cookieSession *mtop.CookieSession
 	metadataJSON := ""
 	if a.store != nil && a.store.Cookies != nil {
-		detail, detailErr := a.store.Cookies.GetDetails(ctx, a.CookieID)
-		if detailErr != nil || detail == nil {
-			if detailErr == nil {
-				detailErr = db.ErrNotFound
-			}
+		runtimeData, detailErr := a.store.Cookies.GetCookieRuntimeData(ctx, a.CookieID) // runtimeData 只包含登录态检查所需的 Cookie 与 metadata。
+		if detailErr != nil {
 			a.logger.Warn("登录态检查前读取最新 Cookie 失败", "err", detailErr)
 			return loginStatusCheckResult{}
 		}
-		cookieStr = detail.Value
-		metadataJSON = detail.MetadataJSON
+		cookieStr = runtimeData.Value
+		metadataJSON = runtimeData.MetadataJSON
+		// runtimeData 已在凭证锁内读取，下面只负责根据 metadata 建立 Cookie 会话。
+		// metadataJSON 保留完整 Jar 信息，不能退化为仅使用扁平 Cookie。
+		// snapshot 分支继续沿用登录态检查原有的请求作用域和持久化顺序。
 		if snapshot, complete := cookierefresh.SnapshotFromMetadataOK(metadataJSON); complete {
 			requestCtx, cookieSession = mtop.WithCookieSnapshot(ctx, snapshot)
 		} else {
