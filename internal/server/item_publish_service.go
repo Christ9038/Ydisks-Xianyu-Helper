@@ -81,6 +81,8 @@ type itemPublishPreviewInput struct {
 type itemPublishService struct {
 	// server 提供数据库、MTOP 客户端、运行时 Cookie 和 worker 生命周期依赖。
 	server *Server
+	// repository 提供商品发布用例所需的最小持久化能力。
+	repository itemPublishRepository
 }
 
 // itemPublishApplication 返回当前 Server 绑定的商品发布应用服务。
@@ -93,7 +95,7 @@ func (svc *itemPublishService) PublishSingle(ctx context.Context, input itemPubl
 	// s 是当前商品发布应用服务依赖的 Server。
 	s := svc.server
 	// unlock 释放当前账号的凭证串行化锁。
-	unlock := s.Store.LockAccountCredentials(input.CookieID)
+	unlock := svc.repository.LockCredentials(input.CookieID)
 	// err 和 latest 保存账号平台详情查询结果。
 	latest, err := s.loadCookiePlatformDetail(ctx, input.CookieID)
 	if err != nil || latest == nil || latest.UserID != input.UserID || !hasStoredCookieCredential(latest) {
@@ -128,7 +130,7 @@ func (svc *itemPublishService) PublishSingle(ctx context.Context, input itemPubl
 		runtimeCookie = value
 	} else if !handled && callErr == nil && result != nil && result.UpdatedCookies != "" && result.UpdatedCookies != cookieValue {
 		// saveErr 表示保存平台返回新 Cookie 的错误。
-		if saveErr := s.Store.Cookies.UpdateValueOwned(ctx, input.CookieID, result.UpdatedCookies, input.UserID); saveErr != nil {
+		if saveErr := svc.repository.UpdateCookieValueOwned(ctx, input.CookieID, result.UpdatedCookies, input.UserID); saveErr != nil {
 			persistErr = saveErr
 		} else {
 			runtimeCookie = result.UpdatedCookies
@@ -153,7 +155,7 @@ func (svc *itemPublishService) PublishSingle(ctx context.Context, input itemPubl
 	// detailJSON 是本地商品详情 JSON。
 	detailJSON, _ := json.Marshal(detail)
 	// localErr 表示平台发布成功后本地商品落库的错误。
-	localErr := s.Store.Items.Upsert(ctx, &db.ItemInfoRow{
+	localErr := svc.repository.UpsertItem(ctx, &db.ItemInfoRow{
 		CookieID: input.CookieID, ItemID: result.ItemID, ItemTitle: result.Title,
 		ItemDescription: input.Description, ItemCategory: result.CategoryID,
 		ItemPrice: result.PriceText, ItemDetail: string(detailJSON), MultiQuantityDelivery: input.Quantity > 1,
@@ -171,7 +173,7 @@ func (svc *itemPublishService) RecommendCategory(ctx context.Context, userID int
 		return mtop.PublishCategory{}, errors.New("当前 MTOP 客户端不支持类目推荐")
 	}
 	// unlock 释放当前账号的凭证串行化锁。
-	unlock := s.Store.LockAccountCredentials(cookieID)
+	unlock := svc.repository.LockCredentials(cookieID)
 	// runtimeCookie 是需要在释放凭证锁后同步的刷新凭证。
 	runtimeCookie := ""
 	defer func() {
@@ -199,7 +201,7 @@ func (svc *itemPublishService) RecommendCategory(ctx context.Context, userID int
 	}
 	if !handled && updatedCookies != "" && updatedCookies != latest.Value {
 		// err 表示保存平台返回新 Cookie 的错误。
-		if err := s.Store.Cookies.UpdateValueOwned(ctx, cookieID, updatedCookies, userID); err != nil {
+		if err := svc.repository.UpdateCookieValueOwned(ctx, cookieID, updatedCookies, userID); err != nil {
 			return mtop.PublishCategory{}, fmt.Errorf("保存账号登录状态失败: %w", err)
 		}
 		runtimeCookie = updatedCookies
@@ -251,10 +253,10 @@ func (svc *itemPublishService) PersistPreview(ctx context.Context, input itemPub
 	// locationBytes 是批次发货地配置的 JSON 表示。
 	locationBytes, _ := json.Marshal(input.Location)
 	// err 表示批次及其明细的事务写入错误。
-	if err := svc.server.Store.PublishBatches.Create(ctx, &db.ItemPublishBatch{ID: input.BatchID, UserID: input.UserID, DefaultCookieID: input.DefaultCookieID, Filename: input.Filename, UploadDir: input.UploadDir, LocationJSON: string(locationBytes), Status: "preview"}, rows); err != nil {
+	if err := svc.repository.CreateBatch(ctx, &db.ItemPublishBatch{ID: input.BatchID, UserID: input.UserID, DefaultCookieID: input.DefaultCookieID, Filename: input.Filename, UploadDir: input.UploadDir, LocationJSON: string(locationBytes), Status: "preview"}, rows); err != nil {
 		return itemPublishBatchPreviewResponse{}, fmt.Errorf("保存预检结果失败: %w", err)
 	}
-	_ = svc.server.Store.PublishBatches.Recount(ctx, input.BatchID)
+	_ = svc.repository.RecountBatch(ctx, input.BatchID)
 	return itemPublishBatchPreviewResponse{Success: true, PreviewID: input.BatchID, Total: len(rows), Valid: valid, Invalid: invalid, Rows: previewRows}, nil
 }
 
@@ -263,7 +265,7 @@ func (svc *itemPublishService) StartBatch(ctx context.Context, userID int64, bat
 	// s 是当前商品发布应用服务依赖的 Server。
 	s := svc.server
 	// batch 和 err 保存批次查询结果。
-	batch, err := s.Store.PublishBatches.Get(ctx, userID, batchID)
+	batch, err := svc.repository.GetBatch(ctx, userID, batchID)
 	if err != nil {
 		return "", errItemPublishBatchNotFound
 	}
@@ -276,7 +278,7 @@ func (svc *itemPublishService) StartBatch(ctx context.Context, userID int64, bat
 	// token 是本次 worker 租约的随机凭证。
 	token := randomHex(16)
 	// claimed 和 err 保存批次租约声明结果。
-	claimed, err := s.Store.PublishBatches.ClaimBatch(ctx, batch.ID, token, time.Now().UTC().Add(publishBatchLease).Unix())
+	claimed, err := svc.repository.ClaimBatch(ctx, batch.ID, token, time.Now().UTC().Add(publishBatchLease).Unix())
 	if err != nil {
 		return "", fmt.Errorf("启动任务失败: %w", err)
 	}
@@ -284,13 +286,13 @@ func (svc *itemPublishService) StartBatch(ctx context.Context, userID int64, bat
 		return "", errItemPublishBatchConflict
 	}
 	// pending 和 err 保存待处理明细查询结果。
-	pending, err := s.Store.PublishBatches.PendingRows(ctx, batch.ID, false)
+	pending, err := svc.repository.PendingRows(ctx, batch.ID, false)
 	if err != nil {
 		s.failClaimedPublishBatch(batch.ID, token)
 		return "", fmt.Errorf("读取任务失败: %w", err)
 	}
 	if len(pending) == 0 {
-		_, _, _ = s.Store.PublishBatches.FinalizeBatch(ctx, batch.ID, token)
+		_, _, _ = svc.repository.FinalizeBatch(ctx, batch.ID, token)
 		return "", errItemPublishBatchNoRows
 	}
 	s.startPublishBatchWorker(s.lifecycleContext(), userID, batch.ID, token)
@@ -300,7 +302,7 @@ func (svc *itemPublishService) StartBatch(ctx context.Context, userID int64, bat
 // ListBatches 查询用户的批量任务并映射为 HTTP 无关的响应 DTO。
 func (svc *itemPublishService) ListBatches(ctx context.Context, userID int64, limit int) ([]itemPublishBatchResponse, error) {
 	// batches 和 err 保存用户批次列表查询结果。
-	batches, err := svc.server.Store.PublishBatches.ListForUser(ctx, userID, limit)
+	batches, err := svc.repository.ListBatchesForUser(ctx, userID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -316,12 +318,12 @@ func (svc *itemPublishService) ListBatches(ctx context.Context, userID int64, li
 // GetBatch 查询用户拥有的批量任务及其明细行。
 func (svc *itemPublishService) GetBatch(ctx context.Context, userID int64, batchID string) (itemPublishBatchResponse, error) {
 	// batch 和 err 保存批次查询结果。
-	batch, err := svc.server.Store.PublishBatches.Get(ctx, userID, batchID)
+	batch, err := svc.repository.GetBatch(ctx, userID, batchID)
 	if err != nil {
 		return itemPublishBatchResponse{}, errItemPublishBatchNotFound
 	}
 	// rows 和 err 保存批次明细查询结果。
-	rows, err := svc.server.Store.PublishBatches.Rows(ctx, batch.ID)
+	rows, err := svc.repository.ListBatchRows(ctx, batch.ID)
 	if err != nil {
 		return itemPublishBatchResponse{}, err
 	}
@@ -333,11 +335,11 @@ func (svc *itemPublishService) CancelBatch(ctx context.Context, userID int64, ba
 	// s 是当前商品发布应用服务依赖的 Server。
 	s := svc.server
 	// err 表示批次所有权查询错误。
-	if _, err := s.Store.PublishBatches.Get(ctx, userID, batchID); err != nil {
+	if _, err := svc.repository.GetBatch(ctx, userID, batchID); err != nil {
 		return "", errItemPublishBatchNotFound
 	}
 	// token、running 和 err 保存取消请求及当前 worker 状态。
-	token, running, err := s.Store.PublishBatches.RequestCancel(ctx, batchID)
+	token, running, err := svc.repository.RequestCancel(ctx, batchID)
 	if err != nil {
 		if errors.Is(err, db.ErrPublishBatchChanged) {
 			return "", errItemPublishBatchConflict
@@ -355,10 +357,8 @@ func (svc *itemPublishService) CancelBatch(ctx context.Context, userID int64, ba
 
 // DeleteBatch 删除非运行中的批量任务并返回其上传目录供适配层清理。
 func (svc *itemPublishService) DeleteBatch(ctx context.Context, userID int64, batchID string) (string, error) {
-	// s 是当前商品发布应用服务依赖的 Server。
-	s := svc.server
 	// batch 和 err 保存批次查询结果。
-	batch, err := s.Store.PublishBatches.Get(ctx, userID, batchID)
+	batch, err := svc.repository.GetBatch(ctx, userID, batchID)
 	if err != nil {
 		return "", errItemPublishBatchNotFound
 	}
@@ -366,7 +366,7 @@ func (svc *itemPublishService) DeleteBatch(ctx context.Context, userID int64, ba
 		return "", errItemPublishBatchConflict
 	}
 	// err 表示批次删除错误。
-	if err := s.Store.PublishBatches.Delete(ctx, userID, batchID); err != nil {
+	if err := svc.repository.DeleteBatch(ctx, userID, batchID); err != nil {
 		return "", err
 	}
 	return batch.UploadDir, nil
@@ -377,7 +377,7 @@ func (svc *itemPublishService) RetryFailedBatch(ctx context.Context, userID int6
 	// s 是当前商品发布应用服务依赖的 Server。
 	s := svc.server
 	// batch 和 err 保存批次查询结果。
-	batch, err := s.Store.PublishBatches.Get(ctx, userID, batchID)
+	batch, err := svc.repository.GetBatch(ctx, userID, batchID)
 	if err != nil {
 		return "", errItemPublishBatchNotFound
 	}
@@ -387,7 +387,7 @@ func (svc *itemPublishService) RetryFailedBatch(ctx context.Context, userID int6
 	// token 是本次重试 worker 的租约凭证。
 	token := randomHex(16)
 	// claimed 和 err 保存重试租约声明结果。
-	claimed, err := s.Store.PublishBatches.ClaimBatch(ctx, batchID, token, time.Now().UTC().Add(publishBatchLease).Unix())
+	claimed, err := svc.repository.ClaimBatch(ctx, batchID, token, time.Now().UTC().Add(publishBatchLease).Unix())
 	if err != nil {
 		return "", err
 	}
@@ -395,19 +395,19 @@ func (svc *itemPublishService) RetryFailedBatch(ctx context.Context, userID int6
 		return "", errItemPublishBatchConflict
 	}
 	// err 表示重置失败明细的错误。
-	if err := s.Store.PublishBatches.ResetFailed(ctx, batchID); err != nil {
+	if err := svc.repository.ResetFailed(ctx, batchID); err != nil {
 		s.failClaimedPublishBatch(batchID, token)
 		return "", err
 	}
-	_ = s.Store.PublishBatches.Recount(ctx, batchID)
+	_ = svc.repository.RecountBatch(ctx, batchID)
 	// pending 和 err 保存可重试明细查询结果。
-	pending, err := s.Store.PublishBatches.PendingRows(ctx, batchID, false)
+	pending, err := svc.repository.PendingRows(ctx, batchID, false)
 	if err != nil {
 		s.failClaimedPublishBatch(batchID, token)
 		return "", err
 	}
 	if len(pending) == 0 {
-		_, _, _ = s.Store.PublishBatches.FinalizeBatch(ctx, batchID, token)
+		_, _, _ = svc.repository.FinalizeBatch(ctx, batchID, token)
 		return "", errItemPublishBatchNoRows
 	}
 	s.startPublishBatchWorker(s.lifecycleContext(), userID, batchID, token)

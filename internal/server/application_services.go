@@ -18,7 +18,7 @@ type applicationServices struct {
 func newApplicationServices(server *Server) *applicationServices {
 	return &applicationServices{
 		orders:        &orderApplicationService{server: server, repository: newStoreOrderRepository(server.Store)},
-		itemPublish:   &itemPublishService{server: server},
+		itemPublish:   &itemPublishService{server: server, repository: newStoreItemPublishRepository(server.Store)},
 		accountLogin:  &accountLoginService{server: server},
 		communication: &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},
 		analytics:     &analyticsService{repository: newStoreAnalyticsRepository(server.Store)},
