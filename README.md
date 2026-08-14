@@ -723,3 +723,9 @@ go run ./cmd/server -init-admin -db data/xianyu_data.db -admin-password '新密�
 连续性或数据完整性的长期兼容。因使用本项目造成的账号限制、交易纠纷、数据损失或
 其他直接与间接损失，应由使用者自行承担。请勿将本项目用于垃圾消息、欺诈、未授权
 访问、规避平台限制或任何违法违规活动。
+
+## 社区支持
+
+本项目受到 LINUX DO 社区的交流与反馈支持：
+
+[访问 LINUX DO 社区](https://linux.do/)
