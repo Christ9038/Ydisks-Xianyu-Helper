@@ -19,6 +19,7 @@ type mtopResp struct {
 
 // withMTopTransport 用自定义 transport 构造 *mtop.ClientImpl（按 URL 分发用闭包）。
 func withMTopTransport(rt roundTripFunc) *mtop.ClientImpl {
+	// cli 保存cli，供当前处理流程使用
 	cli := mtop.NewClient()
 	cli.HTTPClient = &http.Client{Transport: rt}
 	return cli
@@ -27,16 +28,20 @@ func withMTopTransport(rt roundTripFunc) *mtop.ClientImpl {
 // 默认对未匹配 URL 返回 SUCCESS。
 func newMockMTop(t *testing.T, resp mtopResp) *mtop.ClientImpl {
 	t.Helper()
+	// cli 保存cli，供当前处理流程使用
 	cli := mtop.NewClient()
 	cli.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		// body 保存请求体，供当前处理流程使用
 		body := resp.body
 		if body == "" {
 			body = `{"ret":["` + strings.Join(resp.ret, "\",\"") + `"]}`
 		}
+		// status 保存状态，供当前处理流程使用
 		status := resp.statusCode
 		if status == 0 {
 			status = http.StatusOK
 		}
+		// r 保存r，供当前处理流程使用
 		r := &http.Response{
 			StatusCode: status,
 			Header:     make(http.Header),

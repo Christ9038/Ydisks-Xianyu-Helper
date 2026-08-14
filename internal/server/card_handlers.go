@@ -23,8 +23,11 @@ func (s *Server) mountCardsReal(r chi.Router) {
 	r.Delete("/cards/{card_id}", s.deleteCard)
 }
 
+// listCards 负责list卡密列表相关处理。
 func (s *Server) listCards(w http.ResponseWriter, r *http.Request) {
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
+	// cards、err 保存cards、err，供当前处理流程使用
 	cards, err := s.Store.Cards.AllForUser(r.Context(), sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
@@ -33,12 +36,15 @@ func (s *Server) listCards(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newCardResponses(cards))
 }
 
+// getCard 负责get卡密相关处理。
 func (s *Server) getCard(w http.ResponseWriter, r *http.Request) {
+	// id、err 保存id、err，供当前处理流程使用
 	id, err := strconv.ParseInt(chi.URLParam(r, "card_id"), 10, 64)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "无效卡券ID")
 		return
 	}
+	// cf、ok 保存cf、ok，供当前处理流程使用
 	cf, ok := s.requireCardOwner(w, r, id)
 	if !ok {
 		return
@@ -46,8 +52,11 @@ func (s *Server) getCard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newCardResponse(*cf))
 }
 
+// createCard 负责create卡密相关处理。
 func (s *Server) createCard(w http.ResponseWriter, r *http.Request) {
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
+	// cf、err 保存cf、err，供当前处理流程使用
 	cf, err := decodeCard(r)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -58,6 +67,7 @@ func (s *Server) createCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "API 卡密暂不支持自动发货，不能新建")
 		return
 	}
+	// id、err 保存id、err，供当前处理流程使用
 	id, err := s.Store.Cards.Create(r.Context(), cf)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "创建失败")
@@ -66,17 +76,21 @@ func (s *Server) createCard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, mutationIDResponse{Success: true, ID: id})
 }
 
+// updateCard 负责update卡密相关处理。
 func (s *Server) updateCard(w http.ResponseWriter, r *http.Request) {
+	// id、err 保存id、err，供当前处理流程使用
 	id, err := strconv.ParseInt(chi.URLParam(r, "card_id"), 10, 64)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "无效卡券ID")
 		return
 	}
+	// cf、err 保存cf、err，供当前处理流程使用
 	cf, err := decodeCard(r)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// existing、ok 保存existing、ok，供当前处理流程使用
 	existing, ok := s.requireCardOwner(w, r, id)
 	if !ok {
 		return
@@ -87,30 +101,37 @@ func (s *Server) updateCard(w http.ResponseWriter, r *http.Request) {
 	}
 	cf.ID = id
 	cf.UserID = existing.UserID
-	if err := s.Store.Cards.Update(r.Context(), cf); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.Store.Cards.Update(r.Context(), cf); err != nil {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
+// deleteCard 负责delete卡密相关处理。
 func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request) {
+	// id、err 保存id、err，供当前处理流程使用
 	id, err := strconv.ParseInt(chi.URLParam(r, "card_id"), 10, 64)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "无效卡券ID")
 		return
 	}
-	if _, ok := s.requireCardOwner(w, r, id); !ok {
+	if // ok 保存ok，供当前处理流程使用
+	_, ok := s.requireCardOwner(w, r, id); !ok {
 		return
 	}
-	if err := s.Store.Cards.Delete(r.Context(), id); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.Store.Cards.Delete(r.Context(), id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
+// decodeCard 负责decode卡密相关处理。
 func decodeCard(r *http.Request) (*db.CardFull, error) {
+	// req 保存req，供当前处理流程使用
 	var req struct {
 		Name         string `json:"name"`
 		Type         string `json:"type"`
@@ -125,7 +146,8 @@ func decodeCard(r *http.Request) (*db.CardFull, error) {
 		SpecName     string `json:"spec_name"`
 		SpecValue    string `json:"spec_value"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil {
 		return nil, err
 	}
 	if req.Name == "" || req.Type == "" {
@@ -163,6 +185,7 @@ func decodeCard(r *http.Request) (*db.CardFull, error) {
 
 // itemOwnedByUser 校验 cookieID 归属当前用户且其下存在 itemID 商品。
 // 由自动化规则校验复用（原 deliveryRuleItemOwned，发货规则删除后改名）。
+// itemOwnedByUser 负责商品OwnedBy用户相关处理。
 func (s *Server) itemOwnedByUser(r *http.Request, userID int64, cookieID, itemID string) bool {
 	if itemID == "" {
 		return true
@@ -178,8 +201,11 @@ func (s *Server) itemOwnedByUser(r *http.Request, userID int64, cookieID, itemID
 	return err == nil
 }
 
+// errStr 负责errStr相关处理。
 func errStr(s string) error { return &simpleError{s} }
 
+// simpleError 保存simple错误，供当前处理流程使用
 type simpleError struct{ msg string }
 
+// Error 负责错误相关处理。
 func (e *simpleError) Error() string { return e.msg }

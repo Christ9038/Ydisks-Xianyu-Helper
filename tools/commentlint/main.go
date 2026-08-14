@@ -205,7 +205,8 @@ func checkSpec(fileNode *ast.File, fileSet *token.FileSet, relativePath string, 
 	case *ast.ValueSpec:
 		// name 表示常量或变量规范中的一个绑定名称。
 		for _, name := range current.Names {
-			if name.Name == "_" || hasChineseComment(fileNode, fileSet, current) {
+			// declaration 允许分组 const/var 声明共用紧邻声明块的职责说明。
+			if name.Name == "_" || hasChineseComment(fileNode, fileSet, declaration) || hasChineseComment(fileNode, fileSet, current) {
 				continue
 			}
 			*findings = append(*findings, newFinding(relativePath, fileSet, current, kind, name.Name))
@@ -265,7 +266,8 @@ func hasChineseComment(fileNode *ast.File, fileSet *token.FileSet, node ast.Node
 		commentStart := fileSet.Position(group.Pos()).Line
 		// commentEnd 是注释组末尾所在的行。
 		commentEnd := fileSet.Position(group.End()).Line
-		if commentEnd > startLine || commentStart < startLine-1 {
+		// commentEnd 必须紧邻声明；同一文档块可以跨越多行说明完整职责。
+		if commentEnd > startLine || commentEnd < startLine-1 {
 			continue
 		}
 		if commentStart == startLine || commentEnd == startLine-1 || commentStart <= endLine && commentEnd >= startLine {

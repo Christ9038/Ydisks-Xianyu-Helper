@@ -17,44 +17,56 @@ import (
 	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
+// seedStaleCookieSnapshot 负责seedStale登录凭证Snapshot相关处理。
 func seedStaleCookieSnapshot(t *testing.T, store *db.Store, cookieID string) {
 	t.Helper()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// detail、err 保存detail、err，供当前处理流程使用
 	detail, err := store.Cookies.GetDetails(ctx, cookieID)
 	if err != nil {
 		t.Fatalf("GetDetails before seeding snapshot: %v", err)
 	}
+	// metadata 保存metadata，供当前处理流程使用
 	metadata := cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, []cookierefresh.BrowserCookie{{
 		Name: "stale_snapshot", Value: "old", Domain: ".goofish.com", Path: "/",
 	}})
-	if err := store.Cookies.UpdateRenewalCookie(ctx, cookieID, detail.Value, metadata, time.Now().Unix()); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := store.Cookies.UpdateRenewalCookie(ctx, cookieID, detail.Value, metadata, time.Now().Unix()); err != nil {
 		t.Fatalf("seed stale snapshot: %v", err)
 	}
 }
 
+// requireCookieSnapshotCleared 负责require登录凭证SnapshotCleared相关处理。
 func requireCookieSnapshotCleared(t *testing.T, store *db.Store, cookieID string) {
 	t.Helper()
+	// detail、err 保存detail、err，供当前处理流程使用
 	detail, err := store.Cookies.GetDetails(context.Background(), cookieID)
 	if err != nil {
 		t.Fatalf("GetDetails after cookie overwrite: %v", err)
 	}
-	if snapshot, ok := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); ok {
+	if // snapshot、ok 保存snapshot、ok，供当前处理流程使用
+	snapshot, ok := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); ok {
 		t.Fatalf("扁平 Cookie 覆盖后必须清除旧快照: %+v", snapshot)
 	}
 }
 
+// TestLongLoginSettingsProxyAndPersistCookieSnapshot 负责TestLong登录设置ProxyAndPersist登录凭证Snapshot相关处理。
 func TestLongLoginSettingsProxyAndPersistCookieSnapshot(t *testing.T) {
+	// passport 保存passport，供当前处理流程使用
 	passport := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("fromSite") != "77" || r.URL.Query().Get("appName") != "xianyu" || r.URL.Query().Get("bizEntrance") != "web" {
 			t.Fatalf("query=%s", r.URL.RawQuery)
 		}
+		// requestCookies 保存请求Cookies，供当前处理流程使用
 		requestCookies := r.Header.Get("Cookie")
 		if !strings.Contains(requestCookies, "passport_only=allowed") || strings.Contains(requestCookies, "www_only=blocked") {
 			http.Error(w, "Cookie 未按 passport 域作用域发送: "+requestCookies, http.StatusBadRequest)
 			return
 		}
 		if strings.Contains(r.URL.Path, "set") {
-			if err := r.ParseForm(); err != nil || r.Form.Get("status") != "0" {
+			if // err 保存err，供当前处理流程使用
+			err := r.ParseForm(); err != nil || r.Form.Get("status") != "0" {
 				t.Fatalf("form=%v err=%v", r.Form, err)
 			}
 		}
@@ -67,6 +79,7 @@ func TestLongLoginSettingsProxyAndPersistCookieSnapshot(t *testing.T) {
 	}))
 	defer passport.Close()
 
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	srv.CookieRenew = xrenew.Service{
@@ -74,34 +87,44 @@ func TestLongLoginSettingsProxyAndPersistCookieSnapshot(t *testing.T) {
 		QueryLoginSettingsURL: passport.URL + "/queryLoginSettings.do",
 		SetLoginSettingsURL:   passport.URL + "/setLoginSettings.do",
 	}
+	// detail、err 保存detail、err，供当前处理流程使用
 	detail, err := store.Cookies.GetDetails(context.Background(), "acc1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	// snapshot 保存snapshot，供当前处理流程使用
 	snapshot := cookierefresh.SnapshotFromCookieString(detail.Value, ".goofish.com")
 	snapshot = append(snapshot,
 		cookierefresh.BrowserCookie{Name: "passport_only", Value: "allowed", Domain: ".goofish.com", Path: "/", Secure: true},
 		cookierefresh.BrowserCookie{Name: "www_only", Value: "blocked", Domain: "www.goofish.com", Path: "/", Secure: true},
 	)
+	// metadata 保存metadata，供当前处理流程使用
 	metadata := cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, snapshot)
-	if err := store.Cookies.UpdateRenewalCookie(context.Background(), "acc1", detail.Value, metadata, time.Now().Unix()); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := store.Cookies.UpdateRenewalCookie(context.Background(), "acc1", detail.Value, metadata, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// session 保存会话，供当前处理流程使用
 	session := loginHelper(t, h)
 
+	// request 表示当前遍历过程中的请求
 	for _, request := range []*http.Request{
 		httptest.NewRequest(http.MethodGet, "/cookies/acc1/long-login", nil),
 		httptest.NewRequest(http.MethodPut, "/cookies/acc1/long-login", strings.NewReader(`{"enabled":true}`)),
 	} {
 		request.AddCookie(session)
+		// recorder 保存recorder，供当前处理流程使用
 		recorder := httptest.NewRecorder()
 		h.ServeHTTP(recorder, request)
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("%s status=%d body=%s", request.Method, recorder.Code, recorder.Body.String())
 		}
+		// result 保存结果，供当前处理流程使用
 		var result xrenew.LongLoginSettings
-		if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil || !result.CanOpenLongLogin || !result.Enabled {
+		if // err 保存err，供当前处理流程使用
+		err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil || !result.CanOpenLongLogin || !result.Enabled {
 			t.Fatalf("result=%+v err=%v", result, err)
 		}
 	}
@@ -111,7 +134,9 @@ func TestLongLoginSettingsProxyAndPersistCookieSnapshot(t *testing.T) {
 		t.Fatalf("cookie detail=%+v err=%v", detail, err)
 	}
 	snapshot = cookierefresh.SnapshotFromMetadata(detail.MetadataJSON)
+	// longLoginCookie 保存long登录登录凭证，供当前处理流程使用
 	var longLoginCookie *cookierefresh.BrowserCookie
+	// i 表示当前遍历过程中的i
 	for i := range snapshot {
 		if snapshot[i].Name == "havana_lgc_exp" {
 			longLoginCookie = &snapshot[i]
@@ -123,28 +148,36 @@ func TestLongLoginSettingsProxyAndPersistCookieSnapshot(t *testing.T) {
 	}
 }
 
+// TestLongLoginFailureStillPersistsResponseCookiesWithoutInventingSnapshot 负责TestLong登录FailureStillPersists响应CookiesWithoutInventingSnapshot相关处理。
 func TestLongLoginFailureStillPersistsResponseCookiesWithoutInventingSnapshot(t *testing.T) {
+	// passport 保存passport，供当前处理流程使用
 	passport := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Add("Set-Cookie", "rotated=fresh; Domain=.goofish.com; Path=/; Secure; HttpOnly")
 		_, _ = w.Write([]byte(`not-json`))
 	}))
 	defer passport.Close()
 
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	srv.CookieRenew = xrenew.Service{
 		HTTPClient:            passport.Client(),
 		QueryLoginSettingsURL: passport.URL + "/queryLoginSettings.do",
 	}
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// session 保存会话，供当前处理流程使用
 	session := loginHelper(t, h)
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodGet, "/cookies/acc1/long-login", nil)
 	req.AddCookie(session)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	// detail、err 保存detail、err，供当前处理流程使用
 	detail, err := store.Cookies.GetDetails(context.Background(), "acc1")
 	if err != nil {
 		t.Fatal(err)
@@ -152,38 +185,49 @@ func TestLongLoginFailureStillPersistsResponseCookiesWithoutInventingSnapshot(t 
 	if !strings.Contains(detail.Value, "rotated=fresh") {
 		t.Fatalf("失败响应头的 Cookie 未持久化: %q", detail.Value)
 	}
-	if _, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
+	if // complete 保存complete，供当前处理流程使用
+	_, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
 		t.Fatal("历史扁平 Cookie 不得因长登录响应伪造成完整浏览器 Jar")
 	}
 }
 
+// TestLongLoginAuthoritativeSnapshotCanBeDeletedToEmpty 负责TestLong登录AuthoritativeSnapshotCanBeDeletedToEmpty相关处理。
 func TestLongLoginAuthoritativeSnapshotCanBeDeletedToEmpty(t *testing.T) {
+	// passport 保存passport，供当前处理流程使用
 	passport := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Add("Set-Cookie", "only_cookie=; Domain=.goofish.com; Path=/; Max-Age=0; Secure")
 		_, _ = w.Write([]byte(`{"content":{"data":{"returnValue":{"canOpenLongLogin":true,"hasLongTokenLogin":true}}}}`))
 	}))
 	defer passport.Close()
 
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	// detail、err 保存detail、err，供当前处理流程使用
 	detail, err := store.Cookies.GetDetails(context.Background(), "acc1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	// metadata 保存metadata，供当前处理流程使用
 	metadata := cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, []cookierefresh.BrowserCookie{{
 		Name: "only_cookie", Value: "old", Domain: ".goofish.com", Path: "/", Secure: true,
 	}})
-	if err := store.Cookies.UpdateRenewalCookie(context.Background(), "acc1", "only_cookie=old", metadata, time.Now().Unix()); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := store.Cookies.UpdateRenewalCookie(context.Background(), "acc1", "only_cookie=old", metadata, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
 	srv.CookieRenew = xrenew.Service{
 		HTTPClient:            passport.Client(),
 		QueryLoginSettingsURL: passport.URL + "/queryLoginSettings.do",
 	}
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// session 保存会话，供当前处理流程使用
 	session := loginHelper(t, h)
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodGet, "/cookies/acc1/long-login", nil)
 	req.AddCookie(session)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -196,6 +240,7 @@ func TestLongLoginAuthoritativeSnapshotCanBeDeletedToEmpty(t *testing.T) {
 	if detail.Value != "" {
 		t.Fatalf("权威 Jar 删除后扁平值=%q want empty", detail.Value)
 	}
+	// snapshot、complete 保存snapshot、complete，供当前处理流程使用
 	snapshot, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON)
 	if !complete || len(snapshot) != 0 {
 		t.Fatalf("应保留权威空 Jar，complete=%v snapshot=%+v", complete, snapshot)
@@ -204,18 +249,24 @@ func TestLongLoginAuthoritativeSnapshotCanBeDeletedToEmpty(t *testing.T) {
 
 // TestListCookies 列表 cookie_id。
 func TestListCookies(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodGet, "/cookies", nil)
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	// ids 保存ids，供当前处理流程使用
 	var ids []string
 	json.Unmarshal(rec.Body.Bytes(), &ids)
 	if len(ids) != 1 || ids[0] != "acc1" {
@@ -225,18 +276,24 @@ func TestListCookies(t *testing.T) {
 
 // TestRefreshCookieProfile 主动刷新账号资料。
 func TestRefreshCookieProfile(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPost, "/cookies/acc1/refresh-profile", nil)
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	// res 保存响应，供当前处理流程使用
 	var res map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &res)
 	if res["success"] != true {
@@ -249,13 +306,18 @@ func TestRefreshCookieProfile(t *testing.T) {
 
 // TestRefreshCookieProfileBadCookie 无权账号 403。
 func TestRefreshCookieProfileBadCookie(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPost, "/cookies/other/refresh-profile", nil)
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
@@ -265,18 +327,24 @@ func TestRefreshCookieProfileBadCookie(t *testing.T) {
 
 // TestGetCookieDetails 单账号详情。
 func TestGetCookieDetails(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodGet, "/cookie/acc1/details", nil)
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	// d 保存d，供当前处理流程使用
 	var d map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &d)
 	if d["id"] != "acc1" || d["has_cookie"] != true {
@@ -284,56 +352,78 @@ func TestGetCookieDetails(t *testing.T) {
 	}
 }
 
+// TestListCookieDetailsIncludesShowBrowser 负责TestList登录凭证DetailsIncludesShow浏览器相关处理。
 func TestListCookieDetailsIncludesShowBrowser(t *testing.T) {
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
-	if err := store.Cookies.UpdateLoginInfo(ctx, "acc1", "login-user", "secret", true); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := store.Cookies.UpdateLoginInfo(ctx, "acc1", "login-user", "secret", true); err != nil {
 		t.Fatalf("UpdateLoginInfo: %v", err)
 	}
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodGet, "/cookies/details", nil)
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	// details 保存details，供当前处理流程使用
 	var details []map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &details); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := json.Unmarshal(rec.Body.Bytes(), &details); err != nil {
 		t.Fatalf("decode details: %v", err)
 	}
 	if len(details) != 1 || details[0]["show_browser"] != true {
 		t.Fatalf("账号列表应返回 show_browser=true: %+v", details)
 	}
-	if _, ok := details[0]["login_password"]; ok {
+	if // ok 保存ok，供当前处理流程使用
+	_, ok := details[0]["login_password"]; ok {
 		t.Fatalf("账号列表不应返回登录密码: %+v", details[0])
 	}
 }
 
+// TestUpdateCookieSettingsAtomically 负责TestUpdate登录凭证设置Atomically相关处理。
 func TestUpdateCookieSettingsAtomically(t *testing.T) {
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
+	// admin 保存admin，供当前处理流程使用
 	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
+	// channelID、err 保存渠道ID、err，供当前处理流程使用
 	channelID, err := store.Notifications.CreateChannel(context.Background(), &db.NotificationChannelRow{
 		Name: "owned", Type: "webhook", Config: `{}`, Enabled: true, UserID: admin.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	// body 保存请求体，供当前处理流程使用
 	body := `{"remark":"atomic","auto_confirm":false,"pause_duration":3,"username":"login-user","show_browser":true,"channel_ids":[` + jsonInt(channelID) + `]}`
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/settings", strings.NewReader(body))
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	// detail 保存detail，供当前处理流程使用
 	detail, _ := store.Cookies.GetDetails(context.Background(), "acc1")
+	// bindings 保存bindings，供当前处理流程使用
 	bindings, _ := store.Notifications.AccountBindings(context.Background(), "acc1")
 	if detail.Remark != "atomic" || detail.AutoConfirm || detail.PauseDuration != 3 || detail.Username != "login-user" || !detail.ShowBrowser {
 		t.Fatalf("detail=%+v", detail)
@@ -343,23 +433,32 @@ func TestUpdateCookieSettingsAtomically(t *testing.T) {
 	}
 }
 
+// TestUpdateCookieSettingsClearsTokenButKeepsDeviceID 负责TestUpdate登录凭证设置Clears令牌ButKeepsDeviceID相关处理。
 func TestUpdateCookieSettingsClearsTokenButKeepsDeviceID(t *testing.T) {
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
-	if err := store.Tokens.Save(ctx, "acc1", "permanent-device", "old-token", time.Now().Add(time.Hour).Unix()); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := store.Tokens.Save(ctx, "acc1", "permanent-device", "old-token", time.Now().Add(time.Hour).Unix()); err != nil {
 		t.Fatal(err)
 	}
 	seedStaleCookieSnapshot(t, store, "acc1")
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/settings", strings.NewReader(`{"cookie":"unb=123; _m_h5_tk=new_1;"}`))
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	// token、err 保存token、err，供当前处理流程使用
 	token, err := store.Tokens.Get(ctx, "acc1")
 	if err != nil || token.DeviceID != "permanent-device" || token.AccessToken != "" || token.ExpireAt != 0 {
 		t.Fatalf("token=%+v err=%v", token, err)
@@ -367,17 +466,23 @@ func TestUpdateCookieSettingsClearsTokenButKeepsDeviceID(t *testing.T) {
 	requireCookieSnapshotCleared(t, store, "acc1")
 }
 
+// jsonInt 负责jsonInt相关处理。
 func jsonInt(value int64) string { return strconv.FormatInt(value, 10) }
 
 // TestGetCookieDetailsBadCookie 无权账号 403。
 func TestGetCookieDetailsBadCookie(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodGet, "/cookie/other/details", nil)
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
@@ -387,24 +492,33 @@ func TestGetCookieDetailsBadCookie(t *testing.T) {
 
 // TestUpdateCookie 更新 cookie 值。
 func TestUpdateCookie(t *testing.T) {
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
-	if err := store.Tokens.Save(ctx, "acc1", "permanent-device", "old-token", time.Now().Add(time.Hour).Unix()); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := store.Tokens.Save(ctx, "acc1", "permanent-device", "old-token", time.Now().Add(time.Hour).Unix()); err != nil {
 		t.Fatal(err)
 	}
 	seedStaleCookieSnapshot(t, store, "acc1")
 
+	// body 保存请求体，供当前处理流程使用
 	body := `{"value":"unb=123; _m_h5_tk=newtoken_2;"}`
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1", strings.NewReader(body))
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("update status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	// d、err 保存d、err，供当前处理流程使用
 	d, err := store.Cookies.GetDetails(ctx, "acc1")
 	if err != nil {
 		t.Fatalf("GetDetails: %v", err)
@@ -412,6 +526,7 @@ func TestUpdateCookie(t *testing.T) {
 	if d.LoginMethod != "" || d.LastLoginAt != 0 {
 		t.Fatalf("普通 Cookie 更新不应刷新登录审计字段: method=%q last=%d", d.LoginMethod, d.LastLoginAt)
 	}
+	// token、err 保存token、err，供当前处理流程使用
 	token, err := store.Tokens.Get(ctx, "acc1")
 	if err != nil || token.DeviceID != "permanent-device" || token.AccessToken != "" || token.ExpireAt != 0 {
 		t.Fatalf("token=%+v err=%v", token, err)
@@ -419,12 +534,17 @@ func TestUpdateCookie(t *testing.T) {
 	requireCookieSnapshotCleared(t, store, "acc1")
 }
 
+// TestUpdateRunningCookieWakesCredentialBlockedAutomationWithoutManager 负责TestUpdateRunning登录凭证WakesCredentialBlocked自动化WithoutManager相关处理。
 func TestUpdateRunningCookieWakesCredentialBlockedAutomationWithoutManager(t *testing.T) {
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// dueAt 保存dueAt，供当前处理流程使用
 	dueAt := time.Now().UTC().Add(time.Hour).Unix()
-	if err := store.Automation.DeferTask(ctx, db.DeferredAutomationTask{
+	if // err 保存err，供当前处理流程使用
+	err := store.Automation.DeferTask(ctx, db.DeferredAutomationTask{
 		TaskKey: "acc1:credential", CookieID: "acc1", TriggerType: automation.TriggerOrderPaid,
 		TaskJSON: `{}`, DueAt: dueAt, ErrorMessage: "FAIL_SYS_SESSION_EXPIRED",
 	}); err != nil {
@@ -432,8 +552,10 @@ func TestUpdateRunningCookieWakesCredentialBlockedAutomationWithoutManager(t *te
 	}
 	srv.Manager = nil
 	srv.updateRunningCookie(ctx, "acc1", "unb=123; _m_h5_tk=fresh_1;")
+	// got 保存got，供当前处理流程使用
 	var got int64
-	if err := store.DB.QueryRowContext(ctx, `SELECT due_at FROM automation_pending_tasks WHERE task_key=?`, "acc1:credential").Scan(&got); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := store.DB.QueryRowContext(ctx, `SELECT due_at FROM automation_pending_tasks WHERE task_key=?`, "acc1:credential").Scan(&got); err != nil {
 		t.Fatal(err)
 	}
 	if got != 0 {
@@ -441,19 +563,28 @@ func TestUpdateRunningCookieWakesCredentialBlockedAutomationWithoutManager(t *te
 	}
 }
 
+// TestUpdateCookieQRLoginEnablesAccount 负责TestUpdate登录凭证QR登录Enables账号相关处理。
 func TestUpdateCookieQRLoginEnablesAccount(t *testing.T) {
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
-	if err := store.Cookies.SetStatusWithReason(ctx, "acc1", false, "token 失效"); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := store.Cookies.SetStatusWithReason(ctx, "acc1", false, "token 失效"); err != nil {
 		t.Fatalf("SetStatusWithReason: %v", err)
 	}
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// body 保存请求体，供当前处理流程使用
 	body := `{"value":"unb=123; _m_h5_tk=qr_2;","login_method":"qr_scan"}`
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1", strings.NewReader(body))
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
@@ -462,13 +593,16 @@ func TestUpdateCookieQRLoginEnablesAccount(t *testing.T) {
 	if !store.Cookies.GetStatus(ctx, "acc1") {
 		t.Fatal("扫码登录成功后应重新启用账号")
 	}
+	// reason 保存原因，供当前处理流程使用
 	var reason string
-	if err := store.DB.QueryRowContext(ctx, `SELECT disable_reason FROM cookie_status WHERE cookie_id='acc1'`).Scan(&reason); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := store.DB.QueryRowContext(ctx, `SELECT disable_reason FROM cookie_status WHERE cookie_id='acc1'`).Scan(&reason); err != nil {
 		t.Fatalf("query disable_reason: %v", err)
 	}
 	if reason != "" {
 		t.Fatalf("扫码登录成功后应清空禁用原因，got %q", reason)
 	}
+	// d、err 保存d、err，供当前处理流程使用
 	d, err := store.Cookies.GetDetails(ctx, "acc1")
 	if err != nil {
 		t.Fatalf("GetDetails: %v", err)
@@ -478,21 +612,30 @@ func TestUpdateCookieQRLoginEnablesAccount(t *testing.T) {
 	}
 }
 
+// TestSetCookieStatusRecordsManualDisableReason 负责TestSet登录凭证状态RecordsManualDisable原因相关处理。
 func TestSetCookieStatusRecordsManualDisableReason(t *testing.T) {
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/status", strings.NewReader(`{"enabled":false}`))
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	// enabled 保存启用状态，供当前处理流程使用
 	var enabled int
+	// reason 保存原因，供当前处理流程使用
 	var reason string
-	if err := store.DB.QueryRow(`SELECT enabled,disable_reason FROM cookie_status WHERE cookie_id='acc1'`).Scan(&enabled, &reason); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := store.DB.QueryRow(`SELECT enabled,disable_reason FROM cookie_status WHERE cookie_id='acc1'`).Scan(&enabled, &reason); err != nil {
 		t.Fatal(err)
 	}
 	if enabled != 0 || reason != db.DisableReasonManual {
@@ -500,31 +643,41 @@ func TestSetCookieStatusRecordsManualDisableReason(t *testing.T) {
 	}
 }
 
+// TestSetCookieStatusWaitsForCredentialTransition 负责TestSet登录凭证状态WaitsForCredentialTransition相关处理。
 func TestSetCookieStatusWaitsForCredentialTransition(t *testing.T) {
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	srv.Manager = nil
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
 	credentialUnlock := store.LockAccountCredentials("acc1")
+	// done 保存done，供当前处理流程使用
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
+		// req 保存req，供当前处理流程使用
 		req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/status", strings.NewReader(`{"enabled":false}`))
 		req.AddCookie(cookie)
+		// rec 保存rec，供当前处理流程使用
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		done <- rec
 	}()
 	select {
-	case rec := <-done:
+	case // rec 保存rec，供当前处理流程使用
+	rec := <-done:
 		credentialUnlock()
 		t.Fatalf("状态更新绕过了账号凭证锁: status=%d body=%s", rec.Code, rec.Body.String())
 	case <-time.After(50 * time.Millisecond):
 	}
 	credentialUnlock()
 	select {
-	case rec := <-done:
+	case // rec 保存rec，供当前处理流程使用
+	rec := <-done:
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 		}
@@ -533,49 +686,65 @@ func TestSetCookieStatusWaitsForCredentialTransition(t *testing.T) {
 	}
 }
 
+// TestDeleteCookieRechecksOwnershipInsideCredentialLock 负责TestDelete登录凭证RechecksOwnershipInsideCredential锁相关处理。
 func TestDeleteCookieRechecksOwnershipInsideCredentialLock(t *testing.T) {
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	srv.Manager = nil
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
-	if ok, err := store.Users.Create(ctx, "member-delete", "member-delete@example.com", "pw"); err != nil || !ok {
+	if // ok、err 保存ok、err，供当前处理流程使用
+	ok, err := store.Users.Create(ctx, "member-delete", "member-delete@example.com", "pw"); err != nil || !ok {
 		t.Fatalf("create replacement owner: ok=%v err=%v", ok, err)
 	}
+	// replacementOwner、err 保存replacementOwner、err，供当前处理流程使用
 	replacementOwner, err := store.Users.GetByUsername(ctx, "member-delete")
 	if err != nil {
 		t.Fatal(err)
 	}
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
 	credentialUnlock := store.LockAccountCredentials("acc1")
+	// done 保存done，供当前处理流程使用
 	done := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
+		// req 保存req，供当前处理流程使用
 		req := httptest.NewRequest(http.MethodDelete, "/cookies/acc1", nil)
 		req.AddCookie(cookie)
+		// rec 保存rec，供当前处理流程使用
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		done <- rec
 	}()
 	select {
-	case rec := <-done:
+	case // rec 保存rec，供当前处理流程使用
+	rec := <-done:
 		credentialUnlock()
 		t.Fatalf("删除绕过了账号凭证锁: status=%d body=%s", rec.Code, rec.Body.String())
 	case <-time.After(50 * time.Millisecond):
 	}
-	if err := store.Cookies.Delete(ctx, "acc1"); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := store.Cookies.Delete(ctx, "acc1"); err != nil {
 		credentialUnlock()
 		t.Fatal(err)
 	}
-	if err := store.Cookies.CreateOwned(ctx, "acc1", "unb=replacement; _m_h5_tk=fresh", replacementOwner.ID); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := store.Cookies.CreateOwned(ctx, "acc1", "unb=replacement; _m_h5_tk=fresh", replacementOwner.ID); err != nil {
 		credentialUnlock()
 		t.Fatal(err)
 	}
 	credentialUnlock()
+	// rec 保存rec，供当前处理流程使用
 	rec := <-done
 	if rec.Code == http.StatusOK {
 		t.Fatalf("旧 owner 的并发请求不得删除新 owner 账号: body=%s", rec.Body.String())
 	}
+	// detail、err 保存detail、err，供当前处理流程使用
 	detail, err := store.Cookies.GetDetails(ctx, "acc1")
 	if err != nil || detail.UserID != replacementOwner.ID {
 		t.Fatalf("替换后的账号被误删: detail=%+v err=%v", detail, err)
@@ -584,13 +753,18 @@ func TestDeleteCookieRechecksOwnershipInsideCredentialLock(t *testing.T) {
 
 // TestUpdateCookieBadJSON 非法 JSON 400。
 func TestUpdateCookieBadJSON(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1", strings.NewReader("not-json"))
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -600,20 +774,28 @@ func TestUpdateCookieBadJSON(t *testing.T) {
 
 // TestUpdateCookieLoginInfo 更新登录信息。
 func TestUpdateCookieLoginInfo(t *testing.T) {
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// body 保存请求体，供当前处理流程使用
 	body := `{"username":"u1","password":"p1","show_browser":true}`
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/login-info", strings.NewReader(body))
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	// d、err 保存d、err，供当前处理流程使用
 	d, err := store.Cookies.GetDetails(ctx, "acc1")
 	if err != nil {
 		t.Fatalf("GetDetails: %v", err)
@@ -657,13 +839,18 @@ func TestUpdateCookieLoginInfo(t *testing.T) {
 
 // TestUpdateCookieLoginInfoBadJSON 非法 JSON 400。
 func TestUpdateCookieLoginInfoBadJSON(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/login-info", strings.NewReader("not-json"))
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -673,18 +860,24 @@ func TestUpdateCookieLoginInfoBadJSON(t *testing.T) {
 
 // TestSetCookieStatus 启停账号。
 func TestSetCookieStatus(t *testing.T) {
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
 	// 先设置账号为停用，便于测试启用路径。
 	store.Cookies.SetStatus(ctx, "acc1", false)
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
 	// 启用。
 	body := `{"enabled":true}`
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/status", strings.NewReader(body))
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
@@ -696,8 +889,10 @@ func TestSetCookieStatus(t *testing.T) {
 
 	// 停用。
 	body2 := `{"enabled":false}`
+	// req2 保存req2，供当前处理流程使用
 	req2 := httptest.NewRequest(http.MethodPut, "/cookies/acc1/status", strings.NewReader(body2))
 	req2.AddCookie(cookie)
+	// rec2 保存rec2，供当前处理流程使用
 	rec2 := httptest.NewRecorder()
 	h.ServeHTTP(rec2, req2)
 	if rec2.Code != 200 {
@@ -710,13 +905,18 @@ func TestSetCookieStatus(t *testing.T) {
 
 // TestSetCookieStatusBadJSON 非法 JSON 400。
 func TestSetCookieStatusBadJSON(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/status", strings.NewReader("not-json"))
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -726,13 +926,18 @@ func TestSetCookieStatusBadJSON(t *testing.T) {
 
 // TestSetCookieAutoConfirmBadJSON 非法 JSON 400。
 func TestSetCookieAutoConfirmBadJSON(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/auto-confirm", strings.NewReader("not-json"))
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -742,13 +947,18 @@ func TestSetCookieAutoConfirmBadJSON(t *testing.T) {
 
 // TestSetCookieRemarkBadJSON 非法 JSON 400。
 func TestSetCookieRemarkBadJSON(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1/remark", strings.NewReader("not-json"))
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -758,39 +968,53 @@ func TestSetCookieRemarkBadJSON(t *testing.T) {
 
 // TestDeleteCookie 删除账号。
 func TestDeleteCookie(t *testing.T) {
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
 	store.Cookies.Save(ctx, "acc-del", "unb=1; _m_h5_tk=t_1;", 1)
 	store.Cookies.Save(ctx, "acc-keep", "unb=2; _m_h5_tk=t_2;", 1)
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodDelete, "/cookies/acc-del", nil)
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("delete status=%d", rec.Code)
 	}
-	if _, err := store.Cookies.GetDetails(ctx, "acc-del"); !errors.Is(err, db.ErrNotFound) {
+	if // err 保存err，供当前处理流程使用
+	_, err := store.Cookies.GetDetails(ctx, "acc-del"); !errors.Is(err, db.ErrNotFound) {
 		t.Fatalf("目标账号应被删除，err=%v", err)
 	}
-	if kept, err := store.Cookies.GetDetails(ctx, "acc-keep"); err != nil || kept.ID != "acc-keep" {
+	if // kept、err 保存kept、err，供当前处理流程使用
+	kept, err := store.Cookies.GetDetails(ctx, "acc-keep"); err != nil || kept.ID != "acc-keep" {
 		t.Fatalf("非目标账号不应被删除，kept=%+v err=%v", kept, err)
 	}
 }
 
 // TestAddCookieBad 缺 id 或 value 400。
 func TestAddCookieBad(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// body 保存请求体，供当前处理流程使用
 	body := `{"id":"acc2"}`
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPost, "/cookies", strings.NewReader(body))
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -798,22 +1022,31 @@ func TestAddCookieBad(t *testing.T) {
 	}
 }
 
+// TestAddCookieDefaultsManualLoginAudit 负责TestAdd登录凭证DefaultsManual登录Audit相关处理。
 func TestAddCookieDefaultsManualLoginAudit(t *testing.T) {
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	srv.Manager = nil
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// body 保存请求体，供当前处理流程使用
 	body := `{"id":"acc-manual","value":"unb=456; _m_h5_tk=manual_1;"}`
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPost, "/cookies", strings.NewReader(body))
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("add status=%d body=%s", rec.Code, rec.Body.String())
 	}
+	// d、err 保存d、err，供当前处理流程使用
 	d, err := store.Cookies.GetDetails(ctx, "acc-manual")
 	if err != nil {
 		t.Fatalf("GetDetails: %v", err)
@@ -821,6 +1054,7 @@ func TestAddCookieDefaultsManualLoginAudit(t *testing.T) {
 	if d.LoginMethod != "manual" || d.LastLoginAt == 0 {
 		t.Fatalf("手动新增 Cookie 应记录 manual 登录审计字段: %+v", d)
 	}
+	// logs、err 保存logs、err，供当前处理流程使用
 	logs, err := store.LoginLogs.ListByCookie(ctx, "acc-manual", 10)
 	if err != nil || len(logs) != 1 || logs[0].Method != "manual" || logs[0].TriggerReason != "手动Cookie录入" {
 		t.Fatalf("手动新增 Cookie 应记录登录日志: logs=%#v err=%v", logs, err)
@@ -829,13 +1063,18 @@ func TestAddCookieDefaultsManualLoginAudit(t *testing.T) {
 
 // TestAddCookieBadJSON 非法 JSON 400。
 func TestAddCookieBadJSON(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPost, "/cookies", strings.NewReader("not-json"))
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -845,13 +1084,18 @@ func TestAddCookieBadJSON(t *testing.T) {
 
 // TestGetCookieAutoConfirmNotFound 不存在账号 404。
 func TestGetCookieAutoConfirmNotFound(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
 	cookie := loginHelper(t, h)
 
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodGet, "/cookies/no-such/auto-confirm", nil)
 	req.AddCookie(cookie)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
@@ -861,6 +1105,7 @@ func TestGetCookieAutoConfirmNotFound(t *testing.T) {
 
 // TestCachedAccountNickname 备注优先于昵称。
 func TestCachedAccountNickname(t *testing.T) {
+	// cases 保存cases，供当前处理流程使用
 	cases := []struct {
 		remark, nickname, id, want string
 	}{
@@ -868,7 +1113,9 @@ func TestCachedAccountNickname(t *testing.T) {
 		{"", "昵称", "acc1", "昵称"},
 		{"", "", "acc1234567890", "账号 acc123"},
 	}
+	// c 表示当前遍历过程中的c
 	for _, c := range cases {
+		// got 保存got，供当前处理流程使用
 		got := cachedAccountNickname(&db.CookieDetail{ID: c.id, Nickname: c.nickname, Remark: c.remark})
 		if got != c.want {
 			t.Errorf("cachedAccountNickname(remark=%q,nick=%q,id=%q)=%q want %q", c.remark, c.nickname, c.id, got, c.want)
@@ -878,6 +1125,7 @@ func TestCachedAccountNickname(t *testing.T) {
 
 // TestNormalizeProfileAvatarURL 头像 URL 归一。
 func TestNormalizeProfileAvatarURL(t *testing.T) {
+	// cases 保存cases，供当前处理流程使用
 	cases := map[string]string{
 		"":                                 "",
 		"//img.alicdn.com/x.jpg":           "https://img.alicdn.com/x.jpg",
@@ -885,8 +1133,10 @@ func TestNormalizeProfileAvatarURL(t *testing.T) {
 		"https://img.alicdn.com/x.jpg":     "https://img.alicdn.com/x.jpg",
 		"  https://img.alicdn.com/x.jpg  ": "https://img.alicdn.com/x.jpg",
 	}
+	// in、want 表示当前遍历过程中的in、want
 	for in, want := range cases {
-		if got := normalizeProfileAvatarURL(in); got != want {
+		if // got 保存got，供当前处理流程使用
+		got := normalizeProfileAvatarURL(in); got != want {
 			t.Errorf("normalizeProfileAvatarURL(%q)=%q want %q", in, got, want)
 		}
 	}
@@ -894,10 +1144,12 @@ func TestNormalizeProfileAvatarURL(t *testing.T) {
 
 // TestTruncate truncate 不超长则原样返回。
 func TestTruncate(t *testing.T) {
-	if got := truncate("abc", 5); got != "abc" {
+	if // got 保存got，供当前处理流程使用
+	got := truncate("abc", 5); got != "abc" {
 		t.Fatalf("got %q", got)
 	}
-	if got := truncate("abcdef", 3); got != "abc" {
+	if // got 保存got，供当前处理流程使用
+	got := truncate("abcdef", 3); got != "abc" {
 		t.Fatalf("got %q", got)
 	}
 }

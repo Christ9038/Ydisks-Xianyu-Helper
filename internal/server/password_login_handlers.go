@@ -8,6 +8,7 @@ import (
 
 // mountPasswordLogin 保留历史 API 路径，避免旧前端收到 404。Go 客户端的
 // 登录凭证只允许由扫码流程产生；这里永远不会调用 Chromium 密码登录。
+// mountPasswordLogin 负责mount密码登录相关处理。
 func (s *Server) mountPasswordLogin(r chi.Router) {
 	r.Post("/password-login", s.passwordLoginDisabled)
 	r.Get("/password-login/check/{session_id}", s.passwordLoginDisabled)

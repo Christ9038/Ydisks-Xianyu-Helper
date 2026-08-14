@@ -7,12 +7,15 @@ import (
 	"xianyu-go/internal/db"
 )
 
+// requireCookieOwner 负责require登录凭证所有者相关处理。
 func (s *Server) requireCookieOwner(w http.ResponseWriter, r *http.Request, cookieID string) (*db.CookieDetail, bool) {
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
 	if sess == nil {
 		writeErr(w, http.StatusUnauthorized, "未授权访问")
 		return nil, false
 	}
+	// d、err 保存d、err，供当前处理流程使用
 	d, err := s.loadCookieSummaryDetail(r.Context(), sess.UserID, cookieID)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "账号不存在")

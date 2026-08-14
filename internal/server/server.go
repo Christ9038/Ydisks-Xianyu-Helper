@@ -32,12 +32,14 @@ import (
 	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
+// qrLoginService 保存qr登录Service，供当前处理流程使用
 type qrLoginService interface {
 	GenerateQRCode(ctx context.Context) (sessionID string, qrCodeURL string, err error)
 	GetSessionStatus(sessionID string) map[string]any
 	CompleteVerification(ctx context.Context, sessionID string) (cookies string, unb string, err error)
 }
 
+// qrLoginPersistence 保存qr登录Persistence，供当前处理流程使用
 type qrLoginPersistence struct {
 	AccountID string
 	IsNew     bool
@@ -45,11 +47,13 @@ type qrLoginPersistence struct {
 	CreatedAt time.Time
 }
 
+// qrLoginOwner 保存qr登录所有者，供当前处理流程使用
 type qrLoginOwner struct {
 	UserID    int64
 	CreatedAt time.Time
 }
 
+// publishBatchWorker 保存发布批次工作器，供当前处理流程使用
 type publishBatchWorker struct {
 	token  string
 	cancel context.CancelFunc
@@ -60,6 +64,7 @@ type ServerOption func(*Server)
 
 // Server 聚合 HTTP 服务依赖。Automation 与 Notifier 由构造函数注入，
 // 不再允许外部直接改字段，避免运行时被替换成 nil。
+// Server 保存Server，供当前处理流程使用
 type Server struct {
 	Store       *db.Store
 	Auth        *auth.Service
@@ -113,6 +118,7 @@ func WithChatService(service *chat.Service) ServerOption {
 
 // New 构造并校验 HTTP 服务所需依赖。autoCenter/notifier 由调用方完成创建后注入
 // （创建顺序：adapter → manager → automation → notifier → server）。
+// New 负责New相关处理。
 func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr string, logger *slog.Logger, autoCenter *automation.Center, notifier *notify.Notifier, options ...ServerOption) (*Server, error) {
 	if store == nil {
 		return nil, fmt.Errorf("server 依赖 db.Store 不能为空")
@@ -146,6 +152,7 @@ func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr st
 		qrOwners:       make(map[string]qrLoginOwner),
 		loginLimiter:   newLoginFailureLimiter(),
 	}
+	// option 表示当前遍历过程中的option
 	for _, option := range options {
 		// option 是当前构造调用提供的可选依赖配置。
 		if option != nil {
@@ -167,6 +174,7 @@ func (s *Server) mtopClient() mtop.Client {
 
 // recoverExpiredMTOPSession 是 HTTP/API 入口的统一 Session 失效出口。
 // 各调用点必须先保存响应 Cookie 并释放账号凭证锁，再进入续期，避免锁反转。
+// recoverExpiredMTOPSession 负责recoverExpiredMTOP会话相关处理。
 func (s *Server) recoverExpiredMTOPSession(ctx context.Context, cookieID string, err error) bool {
 	if !mtop.IsSessionExpiredErr(err) {
 		return false
@@ -182,6 +190,7 @@ func (s *Server) recoverExpiredMTOPSession(ctx context.Context, cookieID string,
 
 // Router 构建完整路由树。
 func (s *Server) Router() http.Handler {
+	// r 保存r，供当前处理流程使用
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
@@ -269,14 +278,18 @@ func (s *Server) authMiddleware(h http.Handler) http.Handler {
 // requestLogger 记录请求完成状态、耗时和 chi request_id。
 func (s *Server) requestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// start 保存开始，供当前处理流程使用
 		start := time.Now()
+		// ww 保存ww，供当前处理流程使用
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
+		// status 保存状态，供当前处理流程使用
 		status := ww.Status()
 		if status == 0 {
 			status = http.StatusOK
 		}
 
+		// level 保存level，供当前处理流程使用
 		level := slog.LevelDebug
 		if status >= 500 {
 			level = slog.LevelError
@@ -300,11 +313,13 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 // 前端 vite base 为 /static/，构建后 index.html 引用 /static/assets/...、/static/favicon.svg。
 // 故静态资源统一从 /static/ 前缀提供；非 API 的 GET 请求（/、/login 等客户端路由）
 // 返回 /static/index.html，交给 React Router 接管。
+// mountSPA 负责mountSPA相关处理。
 func (s *Server) mountSPA(r chi.Router) {
 	if s.WebDir != "" {
 		s.mountDirSPA(r)
 		return
 	}
+	// embedded、err 保存embedded、err，供当前处理流程使用
 	embedded, err := webui.Static()
 	if err != nil {
 		return
@@ -312,10 +327,13 @@ func (s *Server) mountSPA(r chi.Router) {
 	s.mountFSSPA(r, embedded)
 }
 
+// mountDirSPA 负责mountDirSPA相关处理。
 func (s *Server) mountDirSPA(r chi.Router) {
+	// indexFile 保存index文件，供当前处理流程使用
 	indexFile := filepath.Join(s.WebDir, "index.html")
 	// /static/* 直接作为静态文件服务（assets/、favicon.svg 等）。
 	// StripPrefix("/static/") 后，URL /static/assets/x.js → WebDir/assets/x.js。
+	// staticFiles 保存static文件列表，供当前处理流程使用
 	staticFiles := http.StripPrefix("/static/", http.FileServer(http.Dir(s.WebDir)))
 	r.Handle("/static/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/static/" || r.URL.Path == "/static/index.html" {
@@ -330,7 +348,8 @@ func (s *Server) mountDirSPA(r chi.Router) {
 			writeErrRequest(w, r, http.StatusNotFound, "接口不存在")
 			return
 		}
-		if _, err := os.Stat(indexFile); err != nil {
+		if // err 保存err，供当前处理流程使用
+		_, err := os.Stat(indexFile); err != nil {
 			writeErrRequest(w, r, http.StatusNotFound, "前端未构建")
 			return
 		}
@@ -339,7 +358,9 @@ func (s *Server) mountDirSPA(r chi.Router) {
 	})
 }
 
+// mountFSSPA 负责mountFSSPA相关处理。
 func (s *Server) mountFSSPA(r chi.Router, staticFS fs.FS) {
+	// staticFiles 保存static文件列表，供当前处理流程使用
 	staticFiles := http.StripPrefix("/static/", http.FileServer(http.FS(staticFS)))
 	r.Handle("/static/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/static/" || r.URL.Path == "/static/index.html" {
@@ -353,6 +374,7 @@ func (s *Server) mountFSSPA(r chi.Router, staticFS fs.FS) {
 			writeErrRequest(w, r, http.StatusNotFound, "接口不存在")
 			return
 		}
+		// index、err 保存index、err，供当前处理流程使用
 		index, err := fs.ReadFile(staticFS, "index.html")
 		if err != nil {
 			writeErrRequest(w, r, http.StatusNotFound, "前端未构建")
@@ -364,6 +386,7 @@ func (s *Server) mountFSSPA(r chi.Router, staticFS fs.FS) {
 	})
 }
 
+// setNoStore 负责setNoStore相关处理。
 func setNoStore(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	w.Header().Set("Pragma", "no-cache")
@@ -372,7 +395,9 @@ func setNoStore(w http.ResponseWriter) {
 
 // isAPIPath 判断是否为 API 路径（不应被 SPA 拦截）。
 // 仅保留实际挂载的路由前缀，与 Router() 中的 mount* 一一对应。
+// isAPIPath 负责isAPI路径相关处理。
 func isAPIPath(path string) bool {
+	// apiPrefixes 保存apiPrefixes，供当前处理流程使用
 	apiPrefixes := []string{
 		"/api/", "/admin/", "/health", "/login", "/initialize", "/logout", "/verify",
 		"/change-password", "/change-admin-password", "/account/",
@@ -385,6 +410,7 @@ func isAPIPath(path string) bool {
 		"/qr-login", "/password-login",
 		"/static/", // 静态资源（由 /static/* handler 处理，不进 catch-all）
 	}
+	// p 表示当前遍历过程中的p
 	for _, p := range apiPrefixes {
 		if strings.HasPrefix(path, p) {
 			return true
@@ -395,6 +421,7 @@ func isAPIPath(path string) bool {
 
 // health 健康检查。
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	if s.Store == nil || s.Store.DB == nil || s.Store.DB.PingContext(ctx) != nil {
@@ -438,6 +465,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	// lifecycleCtx 是 Server 内部可取消的生命周期上下文。
 	// lifecycleCancel 是触发 Server 生命周期收束的取消函数。
+	// lifecycleCtx、lifecycleCancel 保存lifecycleCtx、lifecycle取消，供当前处理流程使用
 	lifecycleCtx, lifecycleCancel := context.WithCancel(ctx)
 	s.lifecycleCtx = lifecycleCtx
 	s.lifecycleCancel = lifecycleCancel
@@ -456,9 +484,11 @@ func (s *Server) Start(ctx context.Context) error {
 		<-lifecycleCtx.Done()
 		// stopCtx 是自动关闭 HTTP 服务时使用的有限时长上下文。
 		// cancel 释放 stopCtx 的定时器资源。
+		// stopCtx、cancel 保存stopCtx、cancel，供当前处理流程使用
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := s.Stop(stopCtx); err != nil && s.Logger != nil {
+		if // err 保存err，供当前处理流程使用
+		err := s.Stop(stopCtx); err != nil && s.Logger != nil {
 			s.Logger.Warn("HTTP 服务关闭异常", "err", err)
 		}
 	}()
@@ -526,8 +556,11 @@ func (s *Server) Stop(ctx context.Context) error {
 	// httpServer 是需要执行优雅关闭的标准库 HTTP 服务。
 	// httpDone 是监听 goroutine 退出的完成信号。
 	// lifecycleCancel 是取消 Server 内部生命周期上下文的函数。
+	// httpServer 保存httpServer，供当前处理流程使用
 	httpServer := s.httpServer
+	// httpDone 保存httpDone，供当前处理流程使用
 	httpDone := s.httpDone
+	// lifecycleCancel 保存lifecycle取消，供当前处理流程使用
 	lifecycleCancel := s.lifecycleCancel
 	s.lifecycleMu.Unlock()
 
@@ -565,12 +598,15 @@ func (s *Server) WaitForBackground() {
 	s.waitForWorkers(10 * time.Second)
 }
 
+// closedSignal 负责closedSignal相关处理。
 func closedSignal() chan struct{} {
+	// done 保存done，供当前处理流程使用
 	done := make(chan struct{})
 	close(done)
 	return done
 }
 
+// lifecycleContext 负责lifecycle上下文相关处理。
 func (s *Server) lifecycleContext() context.Context {
 	s.lifecycleMu.RLock()
 	defer s.lifecycleMu.RUnlock()
@@ -579,6 +615,7 @@ func (s *Server) lifecycleContext() context.Context {
 
 // startBackgroundTask 登记并启动一个受 Server 生命周期管理的后台任务。
 // 调用方负责在任务函数内部响应上下文取消；WaitForBackground 会等待任务退出。
+// startBackgroundTask 负责开始Background任务相关处理。
 func (s *Server) startBackgroundTask(name string, task func()) {
 	s.backgroundWG.Add(1)
 	// #nosec G118 -- 任务由调用方提供的 Server 生命周期控制。
@@ -594,6 +631,7 @@ func (s *Server) startBackgroundTask(name string, task func()) {
 	}()
 }
 
+// beginWorker 负责begin工作器相关处理。
 func (s *Server) beginWorker() func() {
 	s.workerMu.Lock()
 	if s.workerCount == 0 {
@@ -611,14 +649,17 @@ func (s *Server) beginWorker() func() {
 	}
 }
 
+// waitForWorkers 负责waitForWorkers相关处理。
 func (s *Server) waitForWorkers(timeout time.Duration) {
 	s.workerMu.Lock()
+	// done 保存done，供当前处理流程使用
 	done := s.workersDone
 	s.workerMu.Unlock()
 	if timeout <= 0 {
 		<-done
 		return
 	}
+	// timer 保存定时器，供当前处理流程使用
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {

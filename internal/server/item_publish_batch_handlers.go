@@ -22,22 +22,32 @@ import (
 	"xianyu-go/internal/xianyu/mtop"
 )
 
+// maxPublishBatchRows 保存max发布批次Rows，供当前处理流程使用
 const (
 	maxPublishBatchRows    = 50
 	publishBatchLease      = 5 * time.Minute
 	publishBatchJobTimeout = 2 * time.Hour
 )
 
+// postPublishError 保存post发布错误，供当前处理流程使用
 type postPublishError struct{ err error }
 
+// Error 负责错误相关处理。
 func (e *postPublishError) Error() string { return e.err.Error() }
+
+// Unwrap 负责Unwrap相关处理。
 func (e *postPublishError) Unwrap() error { return e.err }
 
+// uncertainRemotePublishError 保存uncertainRemote发布错误，供当前处理流程使用
 type uncertainRemotePublishError struct{ err error }
 
+// Error 负责错误相关处理。
 func (e *uncertainRemotePublishError) Error() string { return e.err.Error() }
+
+// Unwrap 负责Unwrap相关处理。
 func (e *uncertainRemotePublishError) Unwrap() error { return e.err }
 
+// publishBatchPreviewRow 保存发布批次PreviewRow，供当前处理流程使用
 type publishBatchPreviewRow struct {
 	RowNo      int                     `json:"row_no"`
 	Valid      bool                    `json:"valid"`
@@ -51,6 +61,7 @@ type publishBatchPreviewRow struct {
 	Automation publishAutomationConfig `json:"automation"`
 }
 
+// publishBatchParsedRow 保存发布批次解析结果Row，供当前处理流程使用
 type publishBatchParsedRow struct {
 	RowNo         int
 	CookieID      string
@@ -68,24 +79,28 @@ type publishBatchParsedRow struct {
 	Raw           map[string]any
 }
 
+// publishAutomationConfig 保存发布自动化配置，供当前处理流程使用
 type publishAutomationConfig struct {
 	PaidDelivery  publishCardAutomation   `json:"paid_delivery"`
 	ReviewGift    publishCardAutomation   `json:"review_gift"`
 	ReviewRequest publishReviewRequestCfg `json:"review_request"`
 }
 
+// publishCardAutomation 保存发布卡密自动化，供当前处理流程使用
 type publishCardAutomation struct {
 	Enabled    bool                `json:"enabled"`
 	Actions    []publishCardAction `json:"actions"`
 	ParseError string              `json:"-"`
 }
 
+// publishCardAction 保存发布卡密动作，供当前处理流程使用
 type publishCardAction struct {
 	CardID        int64 `json:"card_id"`
 	DeliveryCount int   `json:"delivery_count"`
 	DelaySeconds  int   `json:"delay_seconds"`
 }
 
+// publishReviewRequestCfg 保存发布Review请求Cfg，供当前处理流程使用
 type publishReviewRequestCfg struct {
 	Enabled           bool   `json:"enabled"`
 	AfterShippedHours int    `json:"after_shipped_hours"`
@@ -94,17 +109,20 @@ type publishReviewRequestCfg struct {
 	DelaySeconds      int    `json:"delay_seconds"`
 }
 
+// publishCategoryRecommender 保存发布分类Recommender，供当前处理流程使用
 type publishCategoryRecommender interface {
 	RecommendPublishCategory(ctx context.Context, cookiesStr, keyword string) (mtop.PublishCategory, string, error)
 }
 
 // recommendItemPublishCategory 解析类目关键词并返回平台推荐类目。
 func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Request) {
+	// req 保存req，供当前处理流程使用
 	var req struct {
 		CookieID string `json:"cookie_id"`
 		Keyword  string `json:"keyword"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
@@ -118,10 +136,12 @@ func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Req
 		writeErr(w, http.StatusBadRequest, "请输入类目关键词")
 		return
 	}
+	// userID、ok 保存用户ID、ok，供当前处理流程使用
 	_, userID, ok := s.cookieForCurrentUser(w, r, req.CookieID)
 	if !ok {
 		return
 	}
+	// category、callErr 保存category、callErr，供当前处理流程使用
 	category, callErr := s.itemPublishApplication().RecommendCategory(r.Context(), userID, req.CookieID, req.Keyword)
 	if callErr != nil {
 		if strings.Contains(callErr.Error(), "当前 MTOP 客户端不支持") {
@@ -148,6 +168,7 @@ func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Req
 
 // previewItemPublishBatch 处理表格上传、图片归档和批量发布预检。
 func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request) {
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
 	s.cleanupExpiredPublishUploads(r.Context())
 	// 表格最大 20 MiB，图片压缩包最大 200 MiB，额外预留 multipart 元数据空间。
@@ -157,6 +178,7 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusBadRequest, "解析上传文件失败")
 		return
 	}
+	// defaultCookieID 保存default登录凭证ID，供当前处理流程使用
 	defaultCookieID := strings.TrimSpace(r.FormValue("default_cookie_id"))
 	if defaultCookieID == "" {
 		writeErr(w, http.StatusBadRequest, "请选择默认发布账号")
@@ -166,13 +188,16 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusForbidden, "默认账号不属于当前用户")
 		return
 	}
+	// fallbackCategory 保存fallback分类，供当前处理流程使用
 	fallbackCategory := mtop.PublishCategory{
 		CatID:        strings.TrimSpace(r.FormValue("fallback_category_id")),
 		CatName:      strings.TrimSpace(r.FormValue("fallback_category_name")),
 		ChannelCatID: strings.TrimSpace(r.FormValue("fallback_channel_category_id")),
 		TBCatID:      strings.TrimSpace(r.FormValue("fallback_tb_category_id")),
 	}
+	// batchLocation 保存批次地址，供当前处理流程使用
 	var batchLocation mtop.PublishLocation
+	// locationJSON 保存地址JSON，供当前处理流程使用
 	locationJSON := strings.TrimSpace(r.FormValue("location"))
 	if locationJSON != "" {
 		if json.Unmarshal([]byte(locationJSON), &batchLocation) != nil {
@@ -180,17 +205,20 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
+	// hasDefaultCategory 保存hasDefault分类，供当前处理流程使用
 	hasDefaultCategory := fallbackCategory.CatID != "" || fallbackCategory.CatName != "" || fallbackCategory.ChannelCatID != "" || fallbackCategory.TBCatID != ""
 	if hasDefaultCategory && (fallbackCategory.CatID == "" || fallbackCategory.CatName == "" || fallbackCategory.ChannelCatID == "") {
 		writeErr(w, http.StatusBadRequest, "默认类目信息不完整，请重新通过关键词获取")
 		return
 	}
+	// source、sourceHeader、err 保存source、sourceHeader、err，供当前处理流程使用
 	source, sourceHeader, err := r.FormFile("file")
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "缺少商品表格文件")
 		return
 	}
 	defer source.Close()
+	// sourceBytes、tooLarge、err 保存sourceBytes、tooLarge、err，供当前处理流程使用
 	sourceBytes, tooLarge, err := readLimitedBytes(source, 20<<20)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "读取商品表格失败")
@@ -200,29 +228,37 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusBadRequest, "商品表格不能超过 20 MiB")
 		return
 	}
+	// batchID 保存批次ID，供当前处理流程使用
 	batchID := "batch_" + randomHex(12)
+	// uploadDir 保存uploadDir，供当前处理流程使用
 	uploadDir := filepath.Join(s.publishUploadRoot(), "publish_batches", batchID)
-	if err := os.MkdirAll(uploadDir, 0o750); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := os.MkdirAll(uploadDir, 0o750); err != nil {
 		writeErr(w, http.StatusInternalServerError, "创建上传目录失败")
 		return
 	}
+	// keepUpload 保存keepUpload，供当前处理流程使用
 	keepUpload := false
 	defer func() {
 		if !keepUpload {
 			_ = os.RemoveAll(uploadDir)
 		}
 	}()
+	// sourceName 保存source名称，供当前处理流程使用
 	sourceName := safeBaseName(sourceHeader.Filename)
 	if sourceName == "" {
 		sourceName = "products.csv"
 	}
-	if err := writeFileWithinRoot(uploadDir, sourceName, sourceBytes); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := writeFileWithinRoot(uploadDir, sourceName, sourceBytes); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存商品表格失败")
 		return
 	}
 
-	if zipFile, zipHeader, err := r.FormFile("images_zip"); err == nil {
+	if // zipFile、zipHeader、err 保存zipFile、zipHeader、err，供当前处理流程使用
+	zipFile, zipHeader, err := r.FormFile("images_zip"); err == nil {
 		defer zipFile.Close()
+		// zipBytes、tooLarge、err 保存zipBytes、tooLarge、err，供当前处理流程使用
 		zipBytes, tooLarge, err := readLimitedBytes(zipFile, 200<<20)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, "读取图片 zip 失败")
@@ -232,20 +268,24 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 			writeErr(w, http.StatusBadRequest, "图片 zip 不能超过 200 MiB")
 			return
 		}
+		// zipName 保存zip名称，供当前处理流程使用
 		zipName := safeBaseName(zipHeader.Filename)
 		if zipName == "" {
 			zipName = "images.zip"
 		}
-		if err := writeFileWithinRoot(uploadDir, zipName, zipBytes); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := writeFileWithinRoot(uploadDir, zipName, zipBytes); err != nil {
 			writeErr(w, http.StatusInternalServerError, "保存图片 zip 失败")
 			return
 		}
-		if err := extractPublishImagesZip(zipBytes, uploadDir); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := extractPublishImagesZip(zipBytes, uploadDir); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 
+	// maps、err 保存maps、err，供当前处理流程使用
 	maps, err := parsePublishSheetBytesWithLimit(sourceBytes, sourceName, maxPublishBatchRows)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -255,7 +295,9 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusBadRequest, fmt.Sprintf("单个批次最多支持 %d 条商品", maxPublishBatchRows))
 		return
 	}
+	// parsed 保存解析结果，供当前处理流程使用
 	parsed := s.parsePublishRows(r.Context(), sess.UserID, defaultCookieID, uploadDir, fallbackCategory, maps)
+	// preview、err 保存preview、err，供当前处理流程使用
 	preview, err := s.itemPublishApplication().PersistPreview(r.Context(), itemPublishPreviewInput{
 		UserID: sess.UserID, BatchID: batchID, DefaultCookieID: defaultCookieID,
 		Filename: sourceName, UploadDir: uploadDir, Location: batchLocation, Rows: parsed,
@@ -352,15 +394,19 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 
 // startItemPublishBatch 启动指定批次的后台发布 worker。
 func (s *Server) startItemPublishBatch(w http.ResponseWriter, r *http.Request) {
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
+	// req 保存req，供当前处理流程使用
 	var req struct {
 		PreviewID string `json:"preview_id"`
 		BatchID   string `json:"batch_id"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
+	// batchID 保存批次ID，供当前处理流程使用
 	batchID := strings.TrimSpace(req.PreviewID)
 	if batchID == "" {
 		batchID = strings.TrimSpace(req.BatchID)
@@ -369,6 +415,7 @@ func (s *Server) startItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "缺少 preview_id")
 		return
 	}
+	// startedID、err 保存startedID、err，供当前处理流程使用
 	startedID, err := s.itemPublishApplication().StartBatch(r.Context(), sess.UserID, batchID)
 	if err != nil {
 		switch {
@@ -390,8 +437,11 @@ func (s *Server) startItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 
 // listItemPublishBatches 返回当前用户的批量发布任务列表。
 func (s *Server) listItemPublishBatches(w http.ResponseWriter, r *http.Request) {
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
+	// limit 保存上限，供当前处理流程使用
 	limit := atoiDefault(r.URL.Query().Get("limit"), 20)
+	// result、err 保存result、err，供当前处理流程使用
 	result, err := s.itemPublishApplication().ListBatches(r.Context(), sess.UserID, limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取批量任务失败")
@@ -402,8 +452,11 @@ func (s *Server) listItemPublishBatches(w http.ResponseWriter, r *http.Request) 
 
 // getItemPublishBatch 返回指定批次及其发布明细。
 func (s *Server) getItemPublishBatch(w http.ResponseWriter, r *http.Request) {
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
+	// batchID 保存批次ID，供当前处理流程使用
 	batchID := chi.URLParam(r, "batch_id")
+	// result、err 保存result、err，供当前处理流程使用
 	result, err := s.itemPublishApplication().GetBatch(r.Context(), sess.UserID, batchID)
 	if err != nil {
 		if errors.Is(err, errItemPublishBatchNotFound) {
@@ -418,8 +471,11 @@ func (s *Server) getItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 
 // cancelItemPublishBatch 请求取消指定批次并通知运行中的 worker。
 func (s *Server) cancelItemPublishBatch(w http.ResponseWriter, r *http.Request) {
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
+	// batchID 保存批次ID，供当前处理流程使用
 	batchID := chi.URLParam(r, "batch_id")
+	// status、err 保存status、err，供当前处理流程使用
 	status, err := s.itemPublishApplication().CancelBatch(r.Context(), sess.UserID, batchID)
 	if err != nil {
 		if errors.Is(err, errItemPublishBatchNotFound) {
@@ -436,8 +492,11 @@ func (s *Server) cancelItemPublishBatch(w http.ResponseWriter, r *http.Request) 
 
 // deleteItemPublishBatch 删除已结束的批次及其上传目录。
 func (s *Server) deleteItemPublishBatch(w http.ResponseWriter, r *http.Request) {
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
+	// batchID 保存批次ID，供当前处理流程使用
 	batchID := chi.URLParam(r, "batch_id")
+	// uploadDir、err 保存uploadDir、err，供当前处理流程使用
 	uploadDir, err := s.itemPublishApplication().DeleteBatch(r.Context(), sess.UserID, batchID)
 	if err != nil {
 		if errors.Is(err, errItemPublishBatchNotFound) {
@@ -457,8 +516,11 @@ func (s *Server) deleteItemPublishBatch(w http.ResponseWriter, r *http.Request) 
 
 // retryFailedItemPublishBatch 重置失败明细并启动批次重试 worker。
 func (s *Server) retryFailedItemPublishBatch(w http.ResponseWriter, r *http.Request) {
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
+	// batchID 保存批次ID，供当前处理流程使用
 	batchID := chi.URLParam(r, "batch_id")
+	// startedID、err 保存startedID、err，供当前处理流程使用
 	startedID, err := s.itemPublishApplication().RetryFailedBatch(r.Context(), sess.UserID, batchID)
 	if err != nil {
 		if errors.Is(err, errItemPublishBatchNotFound) {
@@ -475,11 +537,14 @@ func (s *Server) retryFailedItemPublishBatch(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, batchIDResponse{Success: true, BatchID: startedID})
 }
 
+// startPublishBatchWorker 负责开始发布批次工作器相关处理。
 func (s *Server) startPublishBatchWorker(parent context.Context, userID int64, batchID, workerToken string) {
+	// workerDone 保存工作器Done，供当前处理流程使用
 	workerDone := s.beginWorker()
 	// #nosec G118 -- worker 由超时和 Server 根 context 共同约束。
 	go func() {
 		defer workerDone()
+		// jobCtx、cancel 保存jobCtx、cancel，供当前处理流程使用
 		jobCtx, cancel := context.WithTimeout(parent, publishBatchJobTimeout)
 		s.registerPublishBatchCancel(batchID, workerToken, cancel)
 		defer cancel()
@@ -491,6 +556,7 @@ func (s *Server) startPublishBatchWorker(parent context.Context, userID int64, b
 // RunPublishBatchRecovery 定期接管租约过期或明确因进程中断失败的批次。
 func (s *Server) RunPublishBatchRecovery(ctx context.Context) {
 	s.recoverPublishBatchesOnce(ctx)
+	// ticker 保存ticker，供当前处理流程使用
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
@@ -505,33 +571,41 @@ func (s *Server) RunPublishBatchRecovery(ctx context.Context) {
 
 // StartPublishBatchRecovery 先登记生命周期，再启动恢复循环，避免关闭流程在
 // goroutine 尚未调度时误判扫描器已经退出。
+// StartPublishBatchRecovery 启动发布批次Recovery。
 func (s *Server) StartPublishBatchRecovery(ctx context.Context) {
 	s.startBackgroundTask("批量发布恢复扫描器", func() {
 		s.RunPublishBatchRecovery(ctx)
 	})
 }
 
+// recoverPublishBatchesOnce 负责recover发布批次列表Once相关处理。
 func (s *Server) recoverPublishBatchesOnce(ctx context.Context) {
+	// batches、err 保存batches、err，供当前处理流程使用
 	batches, err := s.itemPublishRepositoryForServer().RecoverableBatches(ctx, time.Now().UTC().Unix(), 20)
 	if err != nil {
 		s.Logger.Warn("扫描可恢复批量发布任务失败", "err", err)
 		return
 	}
+	// batch 表示当前遍历过程中的批次
 	for _, batch := range batches {
 		if batch.Status == "canceling" {
 			_, _ = s.itemPublishRepositoryForServer().FinalizeExpiredCancellation(ctx, batch.ID, time.Now().UTC().Unix())
 			continue
 		}
+		// workerToken 保存工作器令牌，供当前处理流程使用
 		workerToken := randomHex(16)
+		// claimed、claimErr 保存claimed、claimErr，供当前处理流程使用
 		claimed, claimErr := s.itemPublishRepositoryForServer().ClaimBatch(ctx, batch.ID, workerToken, time.Now().UTC().Add(publishBatchLease).Unix())
 		if claimErr != nil || !claimed {
 			continue
 		}
-		if err := s.itemPublishRepositoryForServer().ResetInterrupted(ctx, batch.ID); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := s.itemPublishRepositoryForServer().ResetInterrupted(ctx, batch.ID); err != nil {
 			s.failClaimedPublishBatch(batch.ID, workerToken)
 			continue
 		}
 		_ = s.itemPublishRepositoryForServer().RecountBatch(ctx, batch.ID)
+		// pending、pendingErr 保存pending、pendingErr，供当前处理流程使用
 		pending, pendingErr := s.itemPublishRepositoryForServer().PendingRows(ctx, batch.ID, false)
 		if pendingErr != nil || len(pending) == 0 {
 			if pendingErr == nil {
@@ -545,34 +619,46 @@ func (s *Server) recoverPublishBatchesOnce(ctx context.Context) {
 	}
 }
 
+// failClaimedPublishBatch 负责failClaimed发布批次相关处理。
 func (s *Server) failClaimedPublishBatch(batchID, workerToken string) {
+	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if released, err := s.itemPublishRepositoryForServer().FailClaimedBatch(ctx, batchID, workerToken); err != nil {
+	if // released、err 保存released、err，供当前处理流程使用
+	released, err := s.itemPublishRepositoryForServer().FailClaimedBatch(ctx, batchID, workerToken); err != nil {
 		s.Logger.Warn("释放异常批量发布任务失败", "batch", batchID, "err", err)
 	} else if !released {
 		s.Logger.Debug("批量发布任务租约已转移，无需释放", "batch", batchID)
 	}
 }
 
+// downloadItemPublishBatchResult 负责download商品发布批次结果相关处理。
 func (s *Server) downloadItemPublishBatchResult(w http.ResponseWriter, r *http.Request) {
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
+	// batchID 保存批次ID，供当前处理流程使用
 	batchID := chi.URLParam(r, "batch_id")
+	// batch、err 保存batch、err，供当前处理流程使用
 	batch, err := s.itemPublishRepositoryForServer().GetBatch(r.Context(), sess.UserID, batchID)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "批量任务不存在")
 		return
 	}
+	// rows、err 保存rows、err，供当前处理流程使用
 	rows, err := s.itemPublishRepositoryForServer().ListBatchRows(r.Context(), batch.ID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取任务明细失败")
 		return
 	}
+	// buf 保存buf，供当前处理流程使用
 	var buf bytes.Buffer
 	buf.WriteString("\xEF\xBB\xBF")
+	// cw 保存cw，供当前处理流程使用
 	cw := csv.NewWriter(&buf)
 	_ = cw.Write([]string{"行号", "状态", "账号ID", "标题", "价格", "库存", "默认类目ID", "默认类目名称", "商品ID", "商品URL", "错误原因"})
+	// row 表示当前遍历过程中的row
 	for _, row := range rows {
+		// category 保存分类，供当前处理流程使用
 		var category mtop.PublishCategory
 		_ = json.Unmarshal([]byte(row.CategoryJSON), &category)
 		_ = cw.Write([]string{
@@ -582,6 +668,7 @@ func (s *Server) downloadItemPublishBatchResult(w http.ResponseWriter, r *http.R
 		})
 	}
 	cw.Flush()
+	// filename 保存filename，供当前处理流程使用
 	filename := fmt.Sprintf("publish_result_%s.csv", batch.ID)
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(filename))
@@ -590,7 +677,9 @@ func (s *Server) downloadItemPublishBatchResult(w http.ResponseWriter, r *http.R
 
 // safeCSVCell 防止用户可控内容被电子表格应用解释为公式。开头的单引号
 // 在 Excel/LibreOffice 中作为文本标记，不改变导出的可见内容。
+// safeCSVCell 负责safeCSVCell相关处理。
 func safeCSVCell(value string) string {
+	// trimmed 保存trimmed，供当前处理流程使用
 	trimmed := strings.TrimLeft(value, " \t\r\n")
 	if trimmed == "" {
 		return value
@@ -603,7 +692,9 @@ func safeCSVCell(value string) string {
 	}
 }
 
+// runItemPublishBatch 负责运行商品发布批次相关处理。
 func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID, workerToken string, failedOnly bool) {
+	// rows、err 保存rows、err，供当前处理流程使用
 	rows, err := s.itemPublishRepositoryForServer().PendingRows(ctx, batchID, failedOnly)
 	if err != nil {
 		if s.Logger != nil {
@@ -614,13 +705,17 @@ func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID,
 		}
 		return
 	}
+	// client 保存client，供当前处理流程使用
 	client := s.mtopClient()
+	// idx、row 表示当前遍历过程中的idx、row
 	for idx, row := range rows {
 		if ctx.Err() != nil {
 			s.finishInterruptedPublishBatch(ctx, userID, batchID, workerToken)
 			return
 		}
+		// wctx、cancel 保存wctx、cancel，供当前处理流程使用
 		wctx, cancel := publishStatusContext(ctx)
+		// renewed、renewErr 保存renewed、renewErr，供当前处理流程使用
 		renewed, renewErr := s.itemPublishRepositoryForServer().RenewBatchLease(wctx, batchID, workerToken, time.Now().UTC().Add(publishBatchLease).Unix())
 		cancel()
 		if renewErr != nil || !renewed {
@@ -628,6 +723,7 @@ func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID,
 			return
 		}
 		wctx, cancel = publishStatusContext(ctx)
+		// batch、err 保存batch、err，供当前处理流程使用
 		batch, err := s.itemPublishRepositoryForServer().GetBatch(wctx, userID, batchID)
 		cancel()
 		if err != nil || batch.Status != "running" || batch.WorkerToken != workerToken {
@@ -635,6 +731,7 @@ func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID,
 			return
 		}
 		wctx, cancel = publishStatusContext(ctx)
+		// claimed、claimErr 保存claimed、claimErr，供当前处理流程使用
 		claimed, claimErr := s.itemPublishRepositoryForServer().ClaimRow(wctx, row.ID, workerToken)
 		cancel()
 		if claimErr != nil {
@@ -644,13 +741,20 @@ func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID,
 		if !claimed {
 			continue
 		}
-		if rowErr := s.publishBatchRow(ctx, userID, client, row, workerToken); rowErr != nil {
+		if // rowErr 保存rowErr，供当前处理流程使用
+		rowErr := s.publishBatchRow(ctx, userID, client, row, workerToken); rowErr != nil {
+			// sessionExpired 保存会话Expired，供当前处理流程使用
 			sessionExpired := mtop.IsSessionExpiredErr(rowErr)
+			// statusCtx、statusCancel 保存状态Ctx、status取消，供当前处理流程使用
 			statusCtx, statusCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			// status 保存状态，供当前处理流程使用
 			status, _ := s.itemPublishRepositoryForServer().BatchStatus(statusCtx, batchID)
 			statusCancel()
+			// message、failureKind 保存message、failure类型，供当前处理流程使用
 			message, failureKind := publishBatchFailure(rowErr, status)
+			// wctx、cancel 保存wctx、cancel，供当前处理流程使用
 			wctx, cancel := publishStatusContext(ctx)
+			// marked、markErr 保存marked、markErr，供当前处理流程使用
 			marked, markErr := s.itemPublishRepositoryForServer().MarkClaimedRowFailed(wctx, row.ID, workerToken, message, failureKind)
 			cancel()
 			if markErr != nil || !marked {
@@ -665,12 +769,15 @@ func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID,
 			}
 		}
 		wctx, cancel = publishStatusContext(ctx)
-		if err := s.itemPublishRepositoryForServer().RecountBatch(wctx, batchID); err != nil && s.Logger != nil {
+		if // err 保存err，供当前处理流程使用
+		err := s.itemPublishRepositoryForServer().RecountBatch(wctx, batchID); err != nil && s.Logger != nil {
 			s.Logger.Warn("重算批量发布进度失败", "batch", batchID, "err", err)
 		}
 		cancel()
 		if idx < len(rows)-1 {
+			// delay 保存延迟，供当前处理流程使用
 			delay := time.Duration(10+idx%21) * time.Second
+			// timer 保存定时器，供当前处理流程使用
 			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
@@ -684,10 +791,15 @@ func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID,
 	s.finishPublishBatch(ctx, userID, batchID, workerToken)
 }
 
+// publishBatchFailure 负责发布批次Failure相关处理。
 func publishBatchFailure(err error, batchStatus string) (string, string) {
+	// message 保存消息，供当前处理流程使用
 	message := err.Error()
+	// failureKind 保存failure类型，供当前处理流程使用
 	failureKind := "publish"
+	// postErr 保存postErr，供当前处理流程使用
 	var postErr *postPublishError
+	// uncertainErr 保存uncertainErr，供当前处理流程使用
 	var uncertainErr *uncertainRemotePublishError
 	if errors.As(err, &uncertainErr) {
 		failureKind = "uncertain_remote"
@@ -705,28 +817,34 @@ func publishBatchFailure(err error, batchStatus string) (string, string) {
 	return message, failureKind
 }
 
+// registerPublishBatchCancel 负责register发布批次取消相关处理。
 func (s *Server) registerPublishBatchCancel(batchID, workerToken string, cancel context.CancelFunc) {
 	s.publishMu.Lock()
 	defer s.publishMu.Unlock()
 	if s.publishCancels == nil {
 		s.publishCancels = make(map[string]publishBatchWorker)
 	}
-	if old := s.publishCancels[batchID]; old.cancel != nil {
+	if // old 保存old，供当前处理流程使用
+	old := s.publishCancels[batchID]; old.cancel != nil {
 		old.cancel()
 	}
 	s.publishCancels[batchID] = publishBatchWorker{token: workerToken, cancel: cancel}
 }
 
+// unregisterPublishBatchCancel 负责unregister发布批次取消相关处理。
 func (s *Server) unregisterPublishBatchCancel(batchID, workerToken string) {
 	s.publishMu.Lock()
 	defer s.publishMu.Unlock()
-	if current := s.publishCancels[batchID]; current.token == workerToken {
+	if // current 保存current，供当前处理流程使用
+	current := s.publishCancels[batchID]; current.token == workerToken {
 		delete(s.publishCancels, batchID)
 	}
 }
 
+// cancelPublishBatch 负责取消发布批次相关处理。
 func (s *Server) cancelPublishBatch(batchID, workerToken string) bool {
 	s.publishMu.Lock()
+	// worker 保存工作器，供当前处理流程使用
 	worker := s.publishCancels[batchID]
 	s.publishMu.Unlock()
 	if worker.token != workerToken || worker.cancel == nil {
@@ -736,6 +854,7 @@ func (s *Server) cancelPublishBatch(batchID, workerToken string) bool {
 	return true
 }
 
+// publishStatusContext 负责发布状态上下文相关处理。
 func publishStatusContext(parent context.Context) (context.Context, context.CancelFunc) {
 	if parent != nil && parent.Err() == nil {
 		return context.WithTimeout(parent, 5*time.Second)
@@ -743,9 +862,12 @@ func publishStatusContext(parent context.Context) (context.Context, context.Canc
 	return context.WithTimeout(context.Background(), 5*time.Second)
 }
 
+// finishInterruptedPublishBatch 负责finishInterrupted发布批次相关处理。
 func (s *Server) finishInterruptedPublishBatch(ctx context.Context, userID int64, batchID, workerToken string) {
+	// wctx、cancel 保存wctx、cancel，供当前处理流程使用
 	wctx, cancel := publishStatusContext(ctx)
 	defer cancel()
+	// batch、err 保存batch、err，供当前处理流程使用
 	batch, err := s.itemPublishRepositoryForServer().GetBatch(wctx, userID, batchID)
 	if err != nil {
 		return
@@ -760,15 +882,19 @@ func (s *Server) finishInterruptedPublishBatch(ctx context.Context, userID int64
 		// 取消产生的 interrupted 失败行允许用户稍后重试，图片由统一的过期清理保留 7 天。
 		return
 	}
+	// finalizeErr 保存finalizeErr，供当前处理流程使用
 	_, _, finalizeErr := s.itemPublishRepositoryForServer().FinalizeInterrupted(wctx, batchID, workerToken, "任务超时或已中断")
 	if finalizeErr != nil && s.Logger != nil {
 		s.Logger.Warn("结束中断的批量发布任务失败，等待租约恢复", "batch", batchID, "err", finalizeErr)
 	}
 }
 
+// finishPublishBatch 负责finish发布批次相关处理。
 func (s *Server) finishPublishBatch(ctx context.Context, userID int64, batchID, workerToken string) {
+	// wctx、cancel 保存wctx、cancel，供当前处理流程使用
 	wctx, cancel := publishStatusContext(ctx)
 	defer cancel()
+	// batch、err 保存batch、err，供当前处理流程使用
 	batch, err := s.itemPublishRepositoryForServer().GetBatch(wctx, userID, batchID)
 	if err != nil || batch.Status == "canceled" || batch.WorkerToken != workerToken {
 		return
@@ -778,6 +904,7 @@ func (s *Server) finishPublishBatch(ctx context.Context, userID int64, batchID, 
 		// 取消任务仍可“重试失败项”，不能在此删除重试所需的本地图片。
 		return
 	}
+	// finalStatus、finished、finishErr 保存finalStatus、finished、finishErr，供当前处理流程使用
 	finalStatus, finished, finishErr := s.itemPublishRepositoryForServer().FinalizeBatch(wctx, batchID, workerToken)
 	if finishErr != nil {
 		if s.Logger != nil {
@@ -790,6 +917,7 @@ func (s *Server) finishPublishBatch(ctx context.Context, userID int64, batchID, 
 	}
 }
 
+// finalPublishBatchStatus 负责final发布批次状态相关处理。
 func finalPublishBatchStatus(batch *db.ItemPublishBatch) string {
 	if batch == nil {
 		return "failed"
@@ -803,41 +931,57 @@ func finalPublishBatchStatus(batch *db.ItemPublishBatch) string {
 	return "completed"
 }
 
+// publishBatchRow 负责发布批次Row相关处理。
 func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.Client, row db.ItemPublishBatchRow, workerToken string) error {
+	// batch、err 保存batch、err，供当前处理流程使用
 	batch, err := s.itemPublishRepositoryForServer().GetBatch(ctx, userID, row.BatchID)
 	if err != nil {
 		return errors.New("批量任务不存在")
 	}
+	// location 保存地址，供当前处理流程使用
 	var location mtop.PublishLocation
+	// locationJSON 保存地址JSON，供当前处理流程使用
 	locationJSON := strings.TrimSpace(batch.LocationJSON)
 	if locationJSON == "" {
 		locationJSON = "{}"
 	}
-	if err := json.Unmarshal([]byte(locationJSON), &location); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := json.Unmarshal([]byte(locationJSON), &location); err != nil {
 		return errors.New("批量任务发货地配置损坏，请重新创建任务")
 	}
+	// selectedLocation 保存selected地址，供当前处理流程使用
 	var selectedLocation *mtop.PublishLocation
 	if strings.TrimSpace(location.DivisionID) != "" {
 		selectedLocation = &location
 	}
+	// cookieValue、err 保存登录凭证Value、err，供当前处理流程使用
 	cookieValue, err := s.cookieValueForUser(ctx, userID, row.CookieID)
 	if err != nil {
 		return err
 	}
+	// priceCents、err 保存priceCents、err，供当前处理流程使用
 	priceCents, err := parseMoneyCents(row.Price)
 	if err != nil || priceCents <= 0 {
 		return errors.New("商品价格必须大于 0")
 	}
+	// origCents 保存origCents，供当前处理流程使用
 	origCents, _ := parseMoneyCents(row.OriginalPrice)
+	// postageCents 保存postageCents，供当前处理流程使用
 	postageCents, _ := parseMoneyCents(row.Postage)
+	// res 保存响应，供当前处理流程使用
 	res := &mtop.PublishItemResult{ItemID: row.ItemID, ItemURL: row.ItemURL, Title: row.Title, PriceText: row.Price, Quantity: row.Quantity}
+	// responseCookieErr 保存响应登录凭证Err，供当前处理流程使用
 	var responseCookieErr error
 	if row.ItemID == "" {
+		// preferredCategory 保存preferred分类，供当前处理流程使用
 		var preferredCategory *mtop.PublishCategory
+		// rawCategory 保存原始分类，供当前处理流程使用
 		rawCategory := strings.TrimSpace(row.CategoryJSON)
 		if rawCategory != "" && rawCategory != "{}" {
+			// configured 保存configured，供当前处理流程使用
 			var configured mtop.PublishCategory
-			if err := json.Unmarshal([]byte(rawCategory), &configured); err != nil {
+			if // err 保存err，供当前处理流程使用
+			err := json.Unmarshal([]byte(rawCategory), &configured); err != nil {
 				return errors.New("默认类目配置损坏，请重新创建批量任务")
 			}
 			if strings.TrimSpace(configured.CatID) != "" || strings.TrimSpace(configured.CatName) != "" || strings.TrimSpace(configured.ChannelCatID) != "" || strings.TrimSpace(configured.TBCatID) != "" {
@@ -847,21 +991,28 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 				preferredCategory = &configured
 			}
 		}
+		// images、err 保存images、err，供当前处理流程使用
 		images, err := loadBatchPublishImages(ctx, batch.UploadDir, row)
 		if err != nil {
 			return err
 		}
+		// markCtx、markCancel 保存markCtx、mark取消，供当前处理流程使用
 		markCtx, markCancel := publishStatusContext(ctx)
+		// remoteStarted、markErr 保存remoteStarted、markErr，供当前处理流程使用
 		remoteStarted, markErr := s.itemPublishRepositoryForServer().MarkClaimedRemoteStarted(markCtx, row.ID, workerToken)
 		markCancel()
 		if markErr != nil || !remoteStarted {
 			return fmt.Errorf("保存远端发布前检查点失败: %w", firstError(markErr, errors.New("批次租约已失效")))
 		}
+		// runtimeCookie 保存runtime登录凭证，供当前处理流程使用
 		runtimeCookie := ""
+		// runtimeCookieChanged 保存runtime登录凭证Changed，供当前处理流程使用
 		runtimeCookieChanged := false
 		res, err = func() (*mtop.PublishItemResult, error) {
+			// credentialUnlock 保存credentialUnlock，供当前处理流程使用
 			credentialUnlock := s.itemPublishRepositoryForServer().LockCredentials(row.CookieID)
 			defer credentialUnlock()
+			// latest、latestErr 保存latest、latestErr，供当前处理流程使用
 			latest, latestErr := s.loadCookiePlatformDetail(ctx, row.CookieID)
 			if latestErr != nil {
 				return nil, latestErr
@@ -873,9 +1024,12 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 				return nil, errors.New("账号 Cookie 为空")
 			}
 			cookieValue = latest.Value
+			// pctx、cancel 保存pctx、cancel，供当前处理流程使用
 			pctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 			defer cancel()
+			// mtopCtx、cookieSession 保存mtopCtx、cookie会话，供当前处理流程使用
 			mtopCtx, cookieSession := withMTopCookieSnapshot(pctx, latest)
+			// published、publishErr 保存published、publishErr，供当前处理流程使用
 			published, publishErr := client.PublishItem(mtopCtx, cookieValue, mtop.PublishItemRequest{
 				Title:              row.Title,
 				Description:        firstNonEmpty(row.Description, row.Title),
@@ -889,8 +1043,10 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 				PreferredCategory:  preferredCategory,
 				Images:             images,
 			})
+			// value、valueChanged、handled、persistErr 保存value、valueChanged、handled、persistErr，供当前处理流程使用
 			value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(ctx, latest, cookieSession)
 			if persistErr != nil {
+				// cookieErr 保存登录凭证Err，供当前处理流程使用
 				cookieErr := fmt.Errorf("发布商品后保存响应 Cookie Jar: %w", persistErr)
 				if publishErr != nil {
 					return published, errors.Join(publishErr, cookieErr)
@@ -902,7 +1058,8 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 					runtimeCookieChanged = true
 				}
 			} else if publishErr == nil && published != nil && published.UpdatedCookies != "" && published.UpdatedCookies != cookieValue {
-				if saveErr := s.itemPublishRepositoryForServer().UpdateCookieValueOwned(ctx, row.CookieID, published.UpdatedCookies, userID); saveErr != nil {
+				if // saveErr 保存saveErr，供当前处理流程使用
+				saveErr := s.itemPublishRepositoryForServer().UpdateCookieValueOwned(ctx, row.CookieID, published.UpdatedCookies, userID); saveErr != nil {
 					responseCookieErr = fmt.Errorf("发布商品后保存响应 Cookie: %w", saveErr)
 				} else {
 					runtimeCookie = published.UpdatedCookies
@@ -925,6 +1082,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 			if ctx.Err() != nil {
 				return &uncertainRemotePublishError{err: fmt.Errorf("取消时远端发布结果未知: %w", err)}
 			}
+			// perr 保存perr，供当前处理流程使用
 			var perr *mtop.PublishError
 			if errors.As(err, &perr) {
 				if perr.Code == mtop.PublishErrorStockPermissionMissing {
@@ -937,8 +1095,11 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 			}
 			return &uncertainRemotePublishError{err: fmt.Errorf("远端发布调用失败且结果未知: %w", err)}
 		}
+		// rawJSON 保存原始JSON，供当前处理流程使用
 		rawJSON, _ := json.Marshal(res.RawData)
+		// saveCtx、saveCancel 保存saveCtx、save取消，供当前处理流程使用
 		saveCtx, saveCancel := publishStatusContext(ctx)
+		// saved、saveErr 保存saved、saveErr，供当前处理流程使用
 		saved, saveErr := s.itemPublishRepositoryForServer().SaveClaimedRemoteResult(saveCtx, row.ID, workerToken, res.ItemID, res.ItemURL, string(rawJSON))
 		saveCancel()
 		if saveErr != nil || !saved {
@@ -953,11 +1114,13 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 	if ctx.Err() != nil {
 		return &postPublishError{err: ctx.Err()}
 	}
+	// currentBatch、err 保存currentBatch、err，供当前处理流程使用
 	currentBatch, err := s.itemPublishRepositoryForServer().GetBatch(ctx, userID, row.BatchID)
 	if err != nil || currentBatch.Status == "canceled" || currentBatch.WorkerToken != workerToken {
 		return &postPublishError{err: context.Canceled}
 	}
 	if res.ItemID != "" {
+		// detail 保存detail，供当前处理流程使用
 		detail := map[string]any{
 			"item_image":    res.ImageURL,
 			"web_url":       res.ItemURL,
@@ -965,8 +1128,10 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 			"quantity":      res.Quantity,
 			"publish_raw":   res.RawData,
 		}
+		// detailJSON 保存detailJSON，供当前处理流程使用
 		detailJSON, _ := json.Marshal(detail)
-		if err := s.itemPublishRepositoryForServer().UpsertItem(ctx, &db.ItemInfoRow{
+		if // err 保存err，供当前处理流程使用
+		err := s.itemPublishRepositoryForServer().UpsertItem(ctx, &db.ItemInfoRow{
 			CookieID:              row.CookieID,
 			ItemID:                res.ItemID,
 			ItemTitle:             firstNonEmpty(res.Title, row.Title),
@@ -978,11 +1143,14 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 		}); err != nil {
 			return &postPublishError{err: fmt.Errorf("保存发布商品信息: %w", err)}
 		}
-		if err := s.createPublishAutomationRules(ctx, userID, row, res); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := s.createPublishAutomationRules(ctx, userID, row, res); err != nil {
 			return &postPublishError{err: fmt.Errorf("创建发布商品自动化规则: %w", err)}
 		}
 	}
+	// rawJSON 保存原始JSON，供当前处理流程使用
 	rawJSON, _ := json.Marshal(res.RawData)
+	// marked、err 保存marked、err，供当前处理流程使用
 	marked, err := s.itemPublishRepositoryForServer().MarkClaimedRowSuccess(ctx, row.ID, workerToken, res.ItemID, res.ItemURL, string(rawJSON))
 	if err != nil {
 		return err
@@ -993,6 +1161,7 @@ func (s *Server) publishBatchRow(ctx context.Context, userID int64, client mtop.
 	return nil
 }
 
+// firstError 负责first错误相关处理。
 func firstError(err, fallback error) error {
 	if err != nil {
 		return err
@@ -1000,15 +1169,22 @@ func firstError(err, fallback error) error {
 	return fallback
 }
 
+// createPublishAutomationRules 负责create发布自动化规则列表相关处理。
 func (s *Server) createPublishAutomationRules(ctx context.Context, userID int64, row db.ItemPublishBatchRow, res *mtop.PublishItemResult) error {
+	// cfg 保存cfg，供当前处理流程使用
 	var cfg publishAutomationConfig
-	if err := json.Unmarshal([]byte(row.AutomationJSON), &cfg); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := json.Unmarshal([]byte(row.AutomationJSON), &cfg); err != nil {
 		return err
 	}
+	// title 保存标题，供当前处理流程使用
 	title := firstNonEmpty(res.Title, row.Title)
 	if cfg.PaidDelivery.Enabled {
+		// actions 保存动作列表，供当前处理流程使用
 		actions := make([]db.AutomationActionInput, 0, len(cfg.PaidDelivery.Actions)+1)
+		// index、action 表示当前遍历过程中的index、action
 		for index, action := range cfg.PaidDelivery.Actions {
+			// actionConfig 保存动作配置，供当前处理流程使用
 			actionConfig, _ := json.Marshal(map[string]any{"delay_override": true})
 			actions = append(actions, db.AutomationActionInput{
 				ActionType: automation.ActionSendCard, CardID: action.CardID,
@@ -1019,7 +1195,8 @@ func (s *Server) createPublishAutomationRules(ctx context.Context, userID int64,
 		actions = append(actions, db.AutomationActionInput{
 			ActionType: automation.ActionConfirmShipment, Enabled: true, SortOrder: len(actions) + 1,
 		})
-		if err := s.ensurePublishAutomationRule(ctx, db.AutomationRuleInput{
+		if // err 保存err，供当前处理流程使用
+		err := s.ensurePublishAutomationRule(ctx, db.AutomationRuleInput{
 			UserID: userID, CookieID: row.CookieID, ItemID: res.ItemID,
 			Name: "付款后自动发货 - " + title, TriggerType: automation.TriggerOrderPaid,
 			Enabled: true, Priority: 100, ConfigJSON: "{}",
@@ -1029,8 +1206,11 @@ func (s *Server) createPublishAutomationRules(ctx context.Context, userID int64,
 		}
 	}
 	if cfg.ReviewGift.Enabled {
+		// actions 保存动作列表，供当前处理流程使用
 		actions := make([]db.AutomationActionInput, 0, len(cfg.ReviewGift.Actions))
+		// index、action 表示当前遍历过程中的index、action
 		for index, action := range cfg.ReviewGift.Actions {
+			// actionConfig 保存动作配置，供当前处理流程使用
 			actionConfig, _ := json.Marshal(map[string]any{"delay_override": true})
 			actions = append(actions, db.AutomationActionInput{
 				ActionType: automation.ActionSendCard, CardID: action.CardID,
@@ -1038,7 +1218,8 @@ func (s *Server) createPublishAutomationRules(ctx context.Context, userID int64,
 				ConfigJSON: string(actionConfig), Enabled: true, SortOrder: index + 1,
 			})
 		}
-		if err := s.ensurePublishAutomationRule(ctx, db.AutomationRuleInput{
+		if // err 保存err，供当前处理流程使用
+		err := s.ensurePublishAutomationRule(ctx, db.AutomationRuleInput{
 			UserID: userID, CookieID: row.CookieID, ItemID: res.ItemID,
 			Name: "评价后发送赠品 - " + title, TriggerType: automation.TriggerBuyerReviewed,
 			Enabled: true, Priority: 100, ConfigJSON: "{}",
@@ -1048,8 +1229,10 @@ func (s *Server) createPublishAutomationRules(ctx context.Context, userID int64,
 		}
 	}
 	if cfg.ReviewRequest.Enabled {
+		// cfgJSON 保存cfgJSON，供当前处理流程使用
 		cfgJSON, _ := json.Marshal(map[string]any{"after_shipped_hours": cfg.ReviewRequest.AfterShippedHours, "max_attempts": cfg.ReviewRequest.MaxAttempts})
-		if err := s.ensurePublishAutomationRule(ctx, db.AutomationRuleInput{
+		if // err 保存err，供当前处理流程使用
+		err := s.ensurePublishAutomationRule(ctx, db.AutomationRuleInput{
 			UserID: userID, CookieID: row.CookieID, ItemID: res.ItemID,
 			Name: "超时未评价求评价 - " + title, TriggerType: automation.TriggerReviewMissingTimeout,
 			Enabled: true, Priority: 100, ConfigJSON: string(cfgJSON),
@@ -1063,7 +1246,9 @@ func (s *Server) createPublishAutomationRules(ctx context.Context, userID int64,
 	return nil
 }
 
+// ensurePublishAutomationRule 负责ensure发布自动化规则相关处理。
 func (s *Server) ensurePublishAutomationRule(ctx context.Context, input db.AutomationRuleInput) error {
+	// exists、err 保存exists、err，供当前处理流程使用
 	exists, err := s.Store.Automation.ExistsPublishRule(ctx, input)
 	if err != nil {
 		return err
@@ -1075,9 +1260,13 @@ func (s *Server) ensurePublishAutomationRule(ctx context.Context, input db.Autom
 	return err
 }
 
+// parsePublishRows 负责parse发布Rows相关处理。
 func (s *Server) parsePublishRows(ctx context.Context, userID int64, defaultCookieID, uploadDir string, fallbackCategory mtop.PublishCategory, input []map[string]any) []publishBatchParsedRow {
+	// out 保存out，供当前处理流程使用
 	out := make([]publishBatchParsedRow, 0, len(input))
+	// i、m 表示当前遍历过程中的i、m
 	for i, m := range input {
+		// row 保存row，供当前处理流程使用
 		row := publishBatchParsedRow{
 			RowNo:         i + 2,
 			CookieID:      firstImportString(m, "cookie_id", "账号ID", "账号id", "账号"),
@@ -1106,12 +1295,14 @@ func (s *Server) parsePublishRows(ctx context.Context, userID int64, defaultCook
 			row.PostageMode = "fixed"
 		}
 		row.Quantity = atoiPublishDefault(firstImportString(m, "quantity", "库存", "数量"), 1)
+		// rowCategory 保存row分类，供当前处理流程使用
 		rowCategory := mtop.PublishCategory{
 			CatID:        firstImportString(m, "category_id", "类目ID", "商品类目ID"),
 			CatName:      firstImportString(m, "category_name", "类目名称", "商品类目名称", "类目"),
 			ChannelCatID: firstImportString(m, "channel_category_id", "频道类目ID"),
 			TBCatID:      firstImportString(m, "tb_category_id", "淘宝类目ID"),
 		}
+		// hasRowCategory 保存hasRow分类，供当前处理流程使用
 		hasRowCategory := rowCategory.CatID != "" || rowCategory.CatName != "" || rowCategory.ChannelCatID != "" || rowCategory.TBCatID != ""
 		if hasRowCategory {
 			row.Category = rowCategory
@@ -1131,11 +1322,13 @@ func (s *Server) parsePublishRows(ctx context.Context, userID int64, defaultCook
 		if strings.TrimSpace(row.Title) == "" {
 			row.Errors = append(row.Errors, "缺少标题")
 		}
-		if cents, err := parseMoneyCents(row.Price); err != nil || cents <= 0 {
+		if // cents、err 保存cents、err，供当前处理流程使用
+		cents, err := parseMoneyCents(row.Price); err != nil || cents <= 0 {
 			row.Errors = append(row.Errors, "价格必须大于 0")
 		}
 		if strings.TrimSpace(row.OriginalPrice) != "" {
-			if cents, err := parseMoneyCents(row.OriginalPrice); err != nil || cents <= 0 {
+			if // cents、err 保存cents、err，供当前处理流程使用
+			cents, err := parseMoneyCents(row.OriginalPrice); err != nil || cents <= 0 {
 				row.Errors = append(row.Errors, "原价格式错误")
 			}
 		}
@@ -1146,7 +1339,8 @@ func (s *Server) parsePublishRows(ctx context.Context, userID int64, defaultCook
 			row.Errors = append(row.Errors, "邮费模式必须是 free 或 fixed")
 		}
 		if row.PostageMode == "fixed" {
-			if cents, err := parseMoneyCents(row.Postage); err != nil || cents < 0 {
+			if // cents、err 保存cents、err，供当前处理流程使用
+			cents, err := parseMoneyCents(row.Postage); err != nil || cents < 0 {
 				row.Errors = append(row.Errors, "固定邮费格式错误")
 			}
 		}
@@ -1156,8 +1350,10 @@ func (s *Server) parsePublishRows(ctx context.Context, userID int64, defaultCook
 		if len(row.Images) > 9 {
 			row.Errors = append(row.Errors, "商品图片最多 9 张")
 		}
+		// ref 表示当前遍历过程中的ref
 		for _, ref := range row.Images {
-			if err := validateBatchImageRef(uploadDir, ref); err != nil {
+			if // err 保存err，供当前处理流程使用
+			err := validateBatchImageRef(uploadDir, ref); err != nil {
 				row.Errors = append(row.Errors, err.Error())
 			}
 		}
@@ -1167,14 +1363,18 @@ func (s *Server) parsePublishRows(ctx context.Context, userID int64, defaultCook
 	return out
 }
 
+// parsePublishAutomation 负责parse发布自动化相关处理。
 func parsePublishAutomation(m map[string]any) publishAutomationConfig {
+	// cfg 保存cfg，供当前处理流程使用
 	cfg := publishAutomationConfig{}
+	// paidActions、paidParseErr 保存paidActions、paidParseErr，供当前处理流程使用
 	paidActions, paidParseErr := parsePublishCardActions(firstImportString(m, "paid_delivery_contents", "付款发货内容"))
 	cfg.PaidDelivery = publishCardAutomation{
 		Enabled:    parseLooseBool(firstImportString(m, "paid_delivery_enabled", "付款发货启用")),
 		Actions:    paidActions,
 		ParseError: paidParseErr,
 	}
+	// reviewGiftActions、reviewGiftParseErr 保存reviewGiftActions、reviewGiftParseErr，供当前处理流程使用
 	reviewGiftActions, reviewGiftParseErr := parsePublishCardActions(firstImportString(m, "review_gift_contents", "评价赠品内容"))
 	cfg.ReviewGift = publishCardAutomation{
 		Enabled:    parseLooseBool(firstImportString(m, "review_gift_enabled", "评价赠品启用")),
@@ -1193,22 +1393,28 @@ func parsePublishAutomation(m map[string]any) publishAutomationConfig {
 
 // parsePublishCardActions 解析“卡密组ID:每件份数:延迟秒”，多条内容用分号或换行分隔。
 func parsePublishCardActions(raw string) ([]publishCardAction, string) {
+	// entries 保存entries，供当前处理流程使用
 	entries := strings.FieldsFunc(strings.TrimSpace(raw), func(r rune) bool {
 		return r == ';' || r == '；' || r == '\n' || r == '\r'
 	})
 	if len(entries) == 0 {
 		return nil, ""
 	}
+	// actions 保存动作列表，供当前处理流程使用
 	actions := make([]publishCardAction, 0, len(entries))
+	// index、entry 表示当前遍历过程中的index、entry
 	for index, entry := range entries {
+		// parts 保存parts，供当前处理流程使用
 		parts := strings.Split(strings.ReplaceAll(strings.TrimSpace(entry), "：", ":"), ":")
 		if len(parts) < 1 || len(parts) > 3 || strings.TrimSpace(parts[0]) == "" {
 			return nil, fmt.Sprintf("第%d项格式错误，应为 卡密组ID:每件份数:延迟秒", index+1)
 		}
+		// cardID、err 保存卡密ID、err，供当前处理流程使用
 		cardID, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
 		if err != nil || cardID <= 0 {
 			return nil, fmt.Sprintf("第%d项卡密组ID无效", index+1)
 		}
+		// count 保存数量，供当前处理流程使用
 		count := 1
 		if len(parts) >= 2 && strings.TrimSpace(parts[1]) != "" {
 			count, err = strconv.Atoi(strings.TrimSpace(parts[1]))
@@ -1216,6 +1422,7 @@ func parsePublishCardActions(raw string) ([]publishCardAction, string) {
 				return nil, fmt.Sprintf("第%d项每件份数必须大于0", index+1)
 			}
 		}
+		// delay 保存延迟，供当前处理流程使用
 		delay := 0
 		if len(parts) == 3 && strings.TrimSpace(parts[2]) != "" {
 			delay, err = strconv.Atoi(strings.TrimSpace(parts[2]))
@@ -1228,8 +1435,11 @@ func parsePublishCardActions(raw string) ([]publishCardAction, string) {
 	return actions, ""
 }
 
+// validatePublishAutomation 负责validate发布自动化相关处理。
 func (s *Server) validatePublishAutomation(ctx context.Context, userID int64, cfg publishAutomationConfig) []string {
+	// errs 保存errs，供当前处理流程使用
 	var errs []string
+	// validateCards 保存validate卡密列表，供当前处理流程使用
 	validateCards := func(config publishCardAutomation, label string) {
 		if !config.Enabled {
 			return
@@ -1242,7 +1452,9 @@ func (s *Server) validatePublishAutomation(ctx context.Context, userID int64, cf
 			errs = append(errs, label+"需要至少配置一条发货内容")
 			return
 		}
+		// index、action 表示当前遍历过程中的index、action
 		for index, action := range config.Actions {
+			// prefix 保存prefix，供当前处理流程使用
 			prefix := fmt.Sprintf("%s第%d项", label, index+1)
 			if !s.cardOwnedByUser(ctx, userID, action.CardID) {
 				errs = append(errs, prefix+"卡密组不存在或不属于当前用户")
@@ -1271,14 +1483,20 @@ func (s *Server) validatePublishAutomation(ctx context.Context, userID int64, cf
 	return errs
 }
 
+// publishBatchToMap 负责发布批次ToMap相关处理。
 func publishBatchToMap(batch *db.ItemPublishBatch, rows []db.ItemPublishBatchRow) itemPublishBatchResponse {
+	// locationJSON 保存地址JSON，供当前处理流程使用
 	locationJSON := strings.TrimSpace(batch.LocationJSON)
 	if locationJSON == "" {
 		locationJSON = "{}"
 	}
+	// outRows 保存outRows，供当前处理流程使用
 	outRows := make([]itemPublishBatchRowResponse, 0, len(rows))
+	// pending 保存pending，供当前处理流程使用
 	pending := 0
+	// running 保存running，供当前处理流程使用
 	running := 0
+	// row 表示当前遍历过程中的row
 	for _, row := range rows {
 		if row.Status == "pending" {
 			pending++
@@ -1286,10 +1504,13 @@ func publishBatchToMap(batch *db.ItemPublishBatch, rows []db.ItemPublishBatchRow
 		if row.Status == "running" {
 			running++
 		}
+		// refs 保存refs，供当前处理流程使用
 		var refs []string
 		_ = json.Unmarshal([]byte(row.ImagesJSON), &refs)
+		// category 保存分类，供当前处理流程使用
 		var category mtop.PublishCategory
 		_ = json.Unmarshal([]byte(row.CategoryJSON), &category)
+		// automationCfg 保存自动化Cfg，供当前处理流程使用
 		var automationCfg publishAutomationConfig
 		_ = json.Unmarshal([]byte(row.AutomationJSON), &automationCfg)
 		outRows = append(outRows, itemPublishBatchRowResponse{
@@ -1301,7 +1522,9 @@ func publishBatchToMap(batch *db.ItemPublishBatch, rows []db.ItemPublishBatchRow
 			ErrorMessage: row.ErrorMessage, FailureKind: row.FailureKind,
 		})
 	}
+	// retryable 保存retryable，供当前处理流程使用
 	retryable := 0
+	// row 表示当前遍历过程中的row
 	for _, row := range rows {
 		if row.Status == "failed" && row.FailureKind != "validation" && row.FailureKind != "uncertain_remote" {
 			retryable++
@@ -1316,6 +1539,7 @@ func publishBatchToMap(batch *db.ItemPublishBatch, rows []db.ItemPublishBatchRow
 	}
 }
 
+// removePublishUploadDir 负责remove发布UploadDir相关处理。
 func (s *Server) removePublishUploadDir(ctx context.Context, batch *db.ItemPublishBatch) {
 	if batch == nil || strings.TrimSpace(batch.UploadDir) == "" {
 		return
@@ -1324,12 +1548,16 @@ func (s *Server) removePublishUploadDir(ctx context.Context, batch *db.ItemPubli
 	_ = s.itemPublishRepositoryForServer().ClearUploadDir(ctx, batch.ID)
 }
 
+// cleanupExpiredPublishUploads 负责cleanupExpired发布Uploads相关处理。
 func (s *Server) cleanupExpiredPublishUploads(ctx context.Context) {
+	// cutoff 保存cutoff，供当前处理流程使用
 	cutoff := time.Now().UTC().Add(-7 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	// batches、err 保存batches、err，供当前处理流程使用
 	batches, err := s.itemPublishRepositoryForServer().ExpiredUploads(ctx, cutoff, 100)
 	if err != nil {
 		return
 	}
+	// i 表示当前遍历过程中的i
 	for i := range batches {
 		s.removePublishUploadDir(ctx, &batches[i])
 	}

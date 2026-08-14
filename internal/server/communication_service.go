@@ -188,6 +188,7 @@ func (svc *communicationService) ListNotificationBindings(ctx context.Context, u
 	}
 	// result 是按账号分组的通知绑定列表。
 	result := make(map[string][]notificationBindingRow)
+	// row 表示当前遍历过程中的row
 	for _, row := range rows {
 		// binding 保存当前扫描到的通知绑定记录。
 		binding := notificationBindingRow{ID: row.ID, CookieID: row.CookieID, ChannelID: row.ChannelID, ChannelName: row.ChannelName, Enabled: row.Enabled}

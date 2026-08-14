@@ -11,10 +11,12 @@ import (
 // freeAddr 获取一个空闲 TCP 端口（立即释放，供测试绑定）。
 func freeAddr(t *testing.T) string {
 	t.Helper()
+	// l、err 保存l、err，供当前处理流程使用
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
+	// addr 保存addr，供当前处理流程使用
 	addr := l.Addr().String()
 	l.Close()
 	return addr
@@ -22,19 +24,25 @@ func freeAddr(t *testing.T) string {
 
 // TestRun_ServesHealthAndShutdowns 启动 HTTP 服务，/health 可访问，ctx 取消后优雅退出。
 func TestRun_ServesHealthAndShutdowns(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	srv.Addr = freeAddr(t)
 
+	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithCancel(context.Background())
+	// runDone 保存运行Done，供当前处理流程使用
 	runDone := make(chan error, 1)
 	go func() { runDone <- srv.Run(ctx) }()
 
 	// 轮询 /health 直到可用（最多 3s）。
 	url := "http://" + srv.Addr + "/health"
+	// ok 保存ok，供当前处理流程使用
 	var ok bool
+	// deadline 保存deadline，供当前处理流程使用
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
+		// resp、err 保存resp、err，供当前处理流程使用
 		resp, err := http.Get(url)
 		if err == nil {
 			resp.Body.Close()
@@ -53,7 +61,8 @@ func TestRun_ServesHealthAndShutdowns(t *testing.T) {
 	// 取消 ctx → Run 应优雅退出。
 	cancel()
 	select {
-	case err := <-runDone:
+	case // err 保存err，供当前处理流程使用
+	err := <-runDone:
 		if err != nil {
 			t.Fatalf("Run 应返回 nil，got %v", err)
 		}
@@ -62,10 +71,14 @@ func TestRun_ServesHealthAndShutdowns(t *testing.T) {
 	}
 }
 
+// TestPublishWorkerTrackingWaitsForCompletion 负责Test发布工作器TrackingWaitsForCompletion相关处理。
 func TestPublishWorkerTrackingWaitsForCompletion(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	// doneWorker 保存done工作器，供当前处理流程使用
 	doneWorker := srv.beginWorker()
+	// waited 保存waited，供当前处理流程使用
 	waited := make(chan struct{})
 	go func() {
 		srv.waitForWorkers(time.Second)
@@ -84,12 +97,16 @@ func TestPublishWorkerTrackingWaitsForCompletion(t *testing.T) {
 	}
 }
 
+// TestPublishRecoveryLifecycleStopsBeforeWorkerWait 负责Test发布RecoveryLifecycleStopsBefore工作器Wait相关处理。
 func TestPublishRecoveryLifecycleStopsBeforeWorkerWait(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
+	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithCancel(context.Background())
 	srv.StartPublishBatchRecovery(ctx)
 	cancel()
+	// done 保存done，供当前处理流程使用
 	done := make(chan struct{})
 	go func() {
 		srv.WaitForBackground()
@@ -126,10 +143,12 @@ func TestServerStartStopIsIdempotentAndWaitsForWorkers(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	srv.Addr = freeAddr(t)
-	if err := srv.Start(context.Background()); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := srv.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if err := srv.Start(context.Background()); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := srv.Start(context.Background()); err != nil {
 		t.Fatalf("重复 Start: %v", err)
 	}
 	// workerDone 是模拟批量发布 worker 完成时调用的释放函数。

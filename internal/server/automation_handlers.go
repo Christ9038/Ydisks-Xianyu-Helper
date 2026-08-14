@@ -14,6 +14,7 @@ import (
 	"xianyu-go/internal/db"
 )
 
+// mountAutomation 负责mount自动化相关处理。
 func (s *Server) mountAutomation(r chi.Router) {
 	r.Get("/automation-rules", s.listAutomationRules)
 	r.Post("/automation-rules", s.createAutomationRule)
@@ -24,8 +25,11 @@ func (s *Server) mountAutomation(r chi.Router) {
 	r.Post("/automation-pending-tasks/{task_id}/resolve", s.resolveDeferredAutomationTask)
 }
 
+// listAutomationIssues 负责list自动化问题列表相关处理。
 func (s *Server) listAutomationIssues(w http.ResponseWriter, r *http.Request) {
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
+	// runs、tasks、err 保存runs、tasks、err，供当前处理流程使用
 	runs, tasks, err := s.Store.Automation.ListIssues(r.Context(), sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询自动化异常任务失败")
@@ -34,21 +38,27 @@ func (s *Server) listAutomationIssues(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, automationIssuesResponse{Runs: runs, PendingTasks: tasks})
 }
 
+// resolveAutomationRun 负责resolve自动化运行相关处理。
 func (s *Server) resolveAutomationRun(w http.ResponseWriter, r *http.Request) {
+	// runID、err 保存运行ID、err，供当前处理流程使用
 	runID, err := strconv.ParseInt(chi.URLParam(r, "run_id"), 10, 64)
 	if err != nil || runID <= 0 {
 		writeErr(w, http.StatusBadRequest, "无效运行ID")
 		return
 	}
+	// req 保存req，供当前处理流程使用
 	var req struct {
 		Resolution string `json:"resolution"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
-	if err := s.Store.Automation.ResolveRunIssue(r.Context(), sess.UserID, runID, strings.TrimSpace(req.Resolution)); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.Store.Automation.ResolveRunIssue(r.Context(), sess.UserID, runID, strings.TrimSpace(req.Resolution)); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			writeErr(w, http.StatusNotFound, "异常运行不存在或已处理")
 			return
@@ -59,27 +69,34 @@ func (s *Server) resolveAutomationRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
+// resolveDeferredAutomationTask 负责resolveDeferred自动化任务相关处理。
 func (s *Server) resolveDeferredAutomationTask(w http.ResponseWriter, r *http.Request) {
+	// taskID、err 保存任务ID、err，供当前处理流程使用
 	taskID, err := strconv.ParseInt(chi.URLParam(r, "task_id"), 10, 64)
 	if err != nil || taskID <= 0 {
 		writeErr(w, http.StatusBadRequest, "无效任务ID")
 		return
 	}
+	// req 保存req，供当前处理流程使用
 	var req struct {
 		Resolution string `json:"resolution"`
 	}
-	if err := decodeJSON(r, &req); err != nil || (req.Resolution != "retry" && req.Resolution != "dismiss") {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil || (req.Resolution != "retry" && req.Resolution != "dismiss") {
 		writeErr(w, http.StatusBadRequest, "处理方式必须是 retry 或 dismiss")
 		return
 	}
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
-	if err := s.Store.Automation.ResolveDeferredIssue(r.Context(), sess.UserID, taskID, req.Resolution == "retry"); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.Store.Automation.ResolveDeferredIssue(r.Context(), sess.UserID, taskID, req.Resolution == "retry"); err != nil {
 		writeErr(w, http.StatusNotFound, "异常任务不存在或已处理")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
+// automationActionRequest 保存自动化动作请求，供当前处理流程使用
 type automationActionRequest struct {
 	ActionType      string `json:"action_type"`
 	CardID          int64  `json:"card_id"`
@@ -91,6 +108,7 @@ type automationActionRequest struct {
 	SortOrder       int    `json:"sort_order"`
 }
 
+// automationRuleRequest 保存自动化规则请求，供当前处理流程使用
 type automationRuleRequest struct {
 	CookieID    string                    `json:"cookie_id"`
 	ItemID      string                    `json:"item_id"`
@@ -102,11 +120,16 @@ type automationRuleRequest struct {
 	Actions     []automationActionRequest `json:"actions"`
 }
 
+// listAutomationRules 负责list自动化规则列表相关处理。
 func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
+	// query 保存查询，供当前处理流程使用
 	query := r.URL.Query()
+	// paginated 保存paginated，供当前处理流程使用
 	_, paginated := query["page"]
 	if !paginated {
+		// rules、err 保存rules、err，供当前处理流程使用
 		rules, err := s.Store.Automation.ListForUser(r.Context(), sess.UserID)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "查询自动化规则失败")
@@ -116,7 +139,9 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// page 保存页码，供当前处理流程使用
 	page := atoiDefault(query.Get("page"), 1)
+	// pageSize 保存每页数量，供当前处理流程使用
 	pageSize := atoiDefault(query.Get("page_size"), 10)
 	if page < 1 {
 		page = 1
@@ -127,6 +152,7 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 	if pageSize > 100 {
 		pageSize = 100
 	}
+	// cookieID 保存登录凭证ID，供当前处理流程使用
 	cookieID := strings.TrimSpace(query.Get("cookie_id"))
 	if cookieID != "" {
 		if !s.cookieOwnedByUser(r.Context(), sess.UserID, cookieID) {
@@ -134,6 +160,7 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// triggerType 保存trigger类型，供当前处理流程使用
 	triggerType := strings.TrimSpace(query.Get("trigger_type"))
 	if triggerType != "" {
 		switch triggerType {
@@ -143,8 +170,11 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// enabled 保存启用状态，供当前处理流程使用
 	var enabled *bool
-	if rawEnabled := strings.TrimSpace(query.Get("enabled")); rawEnabled != "" {
+	if // rawEnabled 保存原始启用状态，供当前处理流程使用
+	rawEnabled := strings.TrimSpace(query.Get("enabled")); rawEnabled != "" {
+		// value、parseErr 保存value、parseErr，供当前处理流程使用
 		value, parseErr := strconv.ParseBool(rawEnabled)
 		if parseErr != nil {
 			writeErr(w, http.StatusBadRequest, "启用状态必须是 true 或 false")
@@ -153,6 +183,7 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 		enabled = &value
 	}
 
+	// rules、total、err 保存rules、total、err，供当前处理流程使用
 	rules, total, err := s.Store.Automation.ListPageForUser(r.Context(), db.AutomationRuleListFilter{
 		UserID: sess.UserID, CookieID: cookieID, TriggerType: triggerType, Enabled: enabled,
 		Search: query.Get("search"), Limit: pageSize, Offset: (page - 1) * pageSize,
@@ -161,15 +192,18 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询自动化规则失败")
 		return
 	}
+	// filter 保存filter，供当前处理流程使用
 	filter := db.AutomationRuleListFilter{
 		UserID: sess.UserID, CookieID: cookieID, TriggerType: triggerType, Enabled: enabled,
 		Search: query.Get("search"),
 	}
+	// triggerCounts、err 保存triggerCounts、err，供当前处理流程使用
 	triggerCounts, err := s.Store.Automation.CountByTriggerForUser(r.Context(), filter)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "统计自动化规则失败")
 		return
 	}
+	// totalPages 保存总数Pages，供当前处理流程使用
 	totalPages := (total + pageSize - 1) / pageSize
 	if totalPages > 0 && page > totalPages {
 		page = totalPages
@@ -188,10 +222,15 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// automationRulesJSON 负责自动化规则列表JSON相关处理。
 func automationRulesJSON(rules []db.AutomationRule) []automationRuleResponse {
+	// out 保存out，供当前处理流程使用
 	out := make([]automationRuleResponse, 0, len(rules))
+	// rule 表示当前遍历过程中的规则
 	for _, rule := range rules {
+		// actions 保存动作列表，供当前处理流程使用
 		actions := make([]automationActionResponse, 0, len(rule.Actions))
+		// action 表示当前遍历过程中的动作
 		for _, action := range rule.Actions {
 			actions = append(actions, automationActionResponse{
 				ID: action.ID, ActionType: action.ActionType, CardID: action.CardID, CardName: action.CardName,
@@ -211,17 +250,22 @@ func automationRulesJSON(rules []db.AutomationRule) []automationRuleResponse {
 
 // createAutomationRule 创建自动化规则并返回数值主键 DTO。
 func (s *Server) createAutomationRule(w http.ResponseWriter, r *http.Request) {
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
+	// req 保存req，供当前处理流程使用
 	var req automationRuleRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
+	// in、err 保存in、err，供当前处理流程使用
 	in, err := s.normalizeAutomationRuleRequest(r, sess.UserID, req)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// id、err 保存id、err，供当前处理流程使用
 	id, err := s.Store.Automation.Create(r.Context(), in)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "创建自动化规则失败")
@@ -230,24 +274,31 @@ func (s *Server) createAutomationRule(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, mutationIDResponse{Success: true, ID: id})
 }
 
+// updateAutomationRule 负责update自动化规则相关处理。
 func (s *Server) updateAutomationRule(w http.ResponseWriter, r *http.Request) {
+	// ruleID、err 保存规则ID、err，供当前处理流程使用
 	ruleID, err := strconv.ParseInt(chi.URLParam(r, "rule_id"), 10, 64)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "无效规则ID")
 		return
 	}
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
+	// req 保存req，供当前处理流程使用
 	var req automationRuleRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
+	// in、err 保存in、err，供当前处理流程使用
 	in, err := s.normalizeAutomationRuleRequest(r, sess.UserID, req)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := s.Store.Automation.Update(r.Context(), sess.UserID, ruleID, in); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.Store.Automation.Update(r.Context(), sess.UserID, ruleID, in); err != nil {
 		if err == db.ErrNotFound {
 			writeErr(w, http.StatusNotFound, "自动化规则不存在")
 			return
@@ -258,14 +309,18 @@ func (s *Server) updateAutomationRule(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
+// deleteAutomationRule 负责delete自动化规则相关处理。
 func (s *Server) deleteAutomationRule(w http.ResponseWriter, r *http.Request) {
+	// ruleID、err 保存规则ID、err，供当前处理流程使用
 	ruleID, err := strconv.ParseInt(chi.URLParam(r, "rule_id"), 10, 64)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "无效规则ID")
 		return
 	}
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
-	if err := s.Store.Automation.Delete(r.Context(), sess.UserID, ruleID); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.Store.Automation.Delete(r.Context(), sess.UserID, ruleID); err != nil {
 		if err == db.ErrNotFound {
 			writeErr(w, http.StatusNotFound, "自动化规则不存在")
 			return
@@ -280,6 +335,7 @@ func (s *Server) deleteAutomationRule(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
+// normalizeAutomationRuleRequest 负责normalize自动化规则请求相关处理。
 func (s *Server) normalizeAutomationRuleRequest(r *http.Request, userID int64, req automationRuleRequest) (db.AutomationRuleInput, error) {
 	req.CookieID = strings.TrimSpace(req.CookieID)
 	req.ItemID = strings.TrimSpace(req.ItemID)
@@ -299,6 +355,7 @@ func (s *Server) normalizeAutomationRuleRequest(r *http.Request, userID int64, r
 	if req.Priority <= 0 {
 		req.Priority = 100
 	}
+	// config 保存配置，供当前处理流程使用
 	config := req.ConfigJSON
 	if config == "" {
 		config = "{}"
@@ -312,9 +369,13 @@ func (s *Server) normalizeAutomationRuleRequest(r *http.Request, userID int64, r
 	if req.Name == "" {
 		req.Name = defaultAutomationRuleName(req.TriggerType, req.ItemID)
 	}
+	// actions 保存动作列表，供当前处理流程使用
 	actions := make([]db.AutomationActionInput, 0, len(req.Actions))
+	// hasSendCard、hasSendText、hasConfirmShipment 保存hasSendCard、hasSendText、hasConfirmShipment，供当前处理流程使用
 	hasSendCard, hasSendText, hasConfirmShipment := false, false, false
+	// i、act 表示当前遍历过程中的i、act
 	for i, act := range req.Actions {
+		// enabled 保存启用状态，供当前处理流程使用
 		enabled := true
 		if act.Enabled != nil {
 			enabled = *act.Enabled
@@ -327,6 +388,7 @@ func (s *Server) normalizeAutomationRuleRequest(r *http.Request, userID int64, r
 			if act.CardID <= 0 {
 				return db.AutomationRuleInput{}, errStr("发送卡密动作必须选择卡密组")
 			}
+			// card、cardErr 保存card、cardErr，供当前处理流程使用
 			card, cardErr := s.Store.Cards.Get(r.Context(), act.CardID)
 			if cardErr != nil || card.UserID != userID {
 				return db.AutomationRuleInput{}, errStr("卡密组不存在或不属于当前用户")
@@ -388,7 +450,9 @@ func (s *Server) normalizeAutomationRuleRequest(r *http.Request, userID int64, r
 	}, nil
 }
 
+// defaultAutomationRuleName 负责default自动化规则名称相关处理。
 func defaultAutomationRuleName(triggerType, itemID string) string {
+	// name 保存名称，供当前处理流程使用
 	name := map[string]string{
 		automation.TriggerOrderPaid:            "付款后自动发货",
 		automation.TriggerBuyerReviewed:        "评价后发送赠品",
@@ -403,11 +467,14 @@ func defaultAutomationRuleName(triggerType, itemID string) string {
 	return name
 }
 
+// isJSONObject 负责isJSONObject相关处理。
 func isJSONObject(s string) bool {
+	// m 保存m，供当前处理流程使用
 	var m map[string]any
 	return json.Unmarshal([]byte(s), &m) == nil
 }
 
+// firstNonZero 负责firstNonZero相关处理。
 func firstNonZero(v, fallback int) int {
 	if v != 0 {
 		return v

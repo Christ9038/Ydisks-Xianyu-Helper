@@ -27,6 +27,7 @@ func (r storeTransactionRepository) WithTransaction(ctx context.Context, work fu
 	}
 	// tx 是本次用例使用的数据库事务。
 	// err 表示事务创建错误。
+	// tx、err 保存tx、err，供当前处理流程使用
 	tx, err := r.store.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -38,7 +39,8 @@ func (r storeTransactionRepository) WithTransaction(ctx context.Context, work fu
 			_ = tx.Rollback()
 		}
 	}()
-	if err := work(tx); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := work(tx); err != nil {
 		return err
 	}
 	// err 表示事务提交错误。

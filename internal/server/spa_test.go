@@ -19,13 +19,16 @@ func TestSPAServing(t *testing.T) {
 	os.WriteFile(filepath.Join(webDir, "assets", "app.js"), []byte("console.log(1)"), 0644)
 	os.WriteFile(filepath.Join(webDir, "favicon.svg"), []byte("<svg/>"), 0644)
 
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	srv.WebDir = webDir
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
 
 	// 1) / 应返回 index.html。
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
@@ -37,6 +40,7 @@ func TestSPAServing(t *testing.T) {
 
 	// 2) /static/assets/app.js 应返回 JS（vite base=/static/）。
 	req2 := httptest.NewRequest(http.MethodGet, "/static/assets/app.js", nil)
+	// rec2 保存rec2，供当前处理流程使用
 	rec2 := httptest.NewRecorder()
 	h.ServeHTTP(rec2, req2)
 	if rec2.Code != 200 {
@@ -47,7 +51,9 @@ func TestSPAServing(t *testing.T) {
 	}
 
 	// 3) /static/favicon.svg。
+	// req3 保存req3，供当前处理流程使用
 	req3 := httptest.NewRequest(http.MethodGet, "/static/favicon.svg", nil)
+	// rec3 保存rec3，供当前处理流程使用
 	rec3 := httptest.NewRecorder()
 	h.ServeHTTP(rec3, req3)
 	if rec3.Code != 200 {
@@ -56,6 +62,7 @@ func TestSPAServing(t *testing.T) {
 
 	// 4) 客户端路由（如 /dashboard）应返回 index.html（React Router 接管）。
 	req4 := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+	// rec4 保存rec4，供当前处理流程使用
 	rec4 := httptest.NewRecorder()
 	h.ServeHTTP(rec4, req4)
 	if rec4.Code != 200 || rec4.Body.String() != "<html>SPA</html>" {
@@ -64,6 +71,7 @@ func TestSPAServing(t *testing.T) {
 
 	// 5) API 路径不应返回 index.html。
 	req5 := httptest.NewRequest(http.MethodGet, "/api/orders", nil)
+	// rec5 保存rec5，供当前处理流程使用
 	rec5 := httptest.NewRecorder()
 	h.ServeHTTP(rec5, req5)
 	// /api/orders 需认证，应 401（不是 index.html）。
@@ -74,12 +82,16 @@ func TestSPAServing(t *testing.T) {
 
 // TestSPAEmbeddedWithoutWebDir 未配置 WebDir 时使用内嵌 SPA。
 func TestSPAEmbeddedWithoutWebDir(t *testing.T) {
+	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	srv.WebDir = ""
+	// h 保存h，供当前处理流程使用
 	h := srv.Router()
 
+	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -90,6 +102,7 @@ func TestSPAEmbeddedWithoutWebDir(t *testing.T) {
 	}
 }
 
+// init 负责init相关处理。
 func init() {
 	// newTestServer 用 context.Background，确保可用。
 	_ = context.Background

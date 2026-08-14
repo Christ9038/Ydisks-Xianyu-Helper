@@ -21,6 +21,7 @@ func (s *Server) mountAnalyticsReal(r chi.Router) {
 
 // dashboardStats 返回当前登录用户的数据概览。管理员全局统计仍由 /admin/stats 提供，
 // 避免普通用户访问管理员接口，也避免把全局资源数和用户自己的订单收益混在一起。
+// dashboardStats 负责dashboardStats相关处理。
 func (s *Server) dashboardStats(w http.ResponseWriter, r *http.Request) {
 	// sess 是当前请求的认证会话。
 	sess := auth.SessionFromContext(r.Context())
@@ -42,7 +43,9 @@ func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	// startDate、endDate 和 location 是订单分析的日期范围及时区参数。
 	startDate := r.URL.Query().Get("start_date")
+	// endDate 保存结束日期，供当前处理流程使用
 	endDate := r.URL.Query().Get("end_date")
+	// location 保存地址，供当前处理流程使用
 	location := analyticsLocation(r.URL.Query().Get("timezone_offset_minutes"))
 	// where 和 params 是按用户、日期和状态归一化后的查询条件。
 	where, params := buildAnalyticsWhere(startDate, endDate, sess.UserID, validOrderStatuses, location)
@@ -65,7 +68,9 @@ func (s *Server) validOrders(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	// startDate、endDate 和 location 是有效订单的日期范围及时区参数。
 	startDate := r.URL.Query().Get("start_date")
+	// endDate 保存结束日期，供当前处理流程使用
 	endDate := r.URL.Query().Get("end_date")
+	// location 保存地址，供当前处理流程使用
 	location := analyticsLocation(r.URL.Query().Get("timezone_offset_minutes"))
 	// where 和 params 是按用户、日期和状态归一化后的查询条件。
 	where, params := buildAnalyticsWhere(startDate, endDate, sess.UserID, validOrderStatuses, location)
@@ -73,6 +78,7 @@ func (s *Server) validOrders(w http.ResponseWriter, r *http.Request) {
 	amountClean, amountFilter := analyticsQueryAmountFilter(s.Store, "orders.amount")
 	// page 和 pageSize 是已经限制在安全范围内的分页参数。
 	page := atoiDefault(r.URL.Query().Get("page"), 1)
+	// pageSize 保存每页数量，供当前处理流程使用
 	pageSize := atoiDefault(r.URL.Query().Get("page_size"), 500)
 	if page < 1 {
 		page = 1
@@ -93,8 +99,11 @@ func (s *Server) validOrders(w http.ResponseWriter, r *http.Request) {
 
 // buildAnalyticsWhere 构建 WHERE 子句（user_id 经 cookies 关联过滤 + 日期 + 状态）。
 // 返回 (whereClause, params)，whereClause 已含 WHERE 前缀。
+// buildAnalyticsWhere 负责buildAnalyticsWhere相关处理。
 func buildAnalyticsWhere(startDate, endDate string, userID int64, statuses []string, location *time.Location) (string, []any) {
+	// conds 保存conds，供当前处理流程使用
 	conds := []string{"orders.deleted_at IS NULL"}
+	// params 保存params，供当前处理流程使用
 	params := []any{}
 	if startDate != "" {
 		conds = append(conds, "orders.created_at >= ?")
@@ -109,13 +118,16 @@ func buildAnalyticsWhere(startDate, endDate string, userID int64, statuses []str
 		params = append(params, userID)
 	}
 	if len(statuses) > 0 {
+		// ph 保存ph，供当前处理流程使用
 		ph := strings.Repeat("?,", len(statuses))
 		ph = strings.TrimSuffix(ph, ",")
 		conds = append(conds, "orders.order_status IN ("+ph+")")
+		// s 表示当前遍历过程中的s
 		for _, s := range statuses {
 			params = append(params, s)
 		}
 	}
+	// where 保存where，供当前处理流程使用
 	where := ""
 	if len(conds) > 0 {
 		where = "WHERE " + strings.Join(conds, " AND ")
@@ -127,10 +139,12 @@ func buildAnalyticsWhere(startDate, endDate string, userID int64, statuses []str
 	return where, params
 }
 
+// analyticsDateBoundary 负责analytics日期Boundary相关处理。
 func analyticsDateBoundary(raw string, endExclusive bool, location *time.Location) string {
 	if location == nil {
 		location = time.Local
 	}
+	// t、err 保存t、err，供当前处理流程使用
 	t, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(raw), location)
 	if err != nil {
 		return raw
@@ -141,7 +155,9 @@ func analyticsDateBoundary(raw string, endExclusive bool, location *time.Locatio
 	return t.UTC().Format("2006-01-02 15:04:05")
 }
 
+// analyticsLocation 负责analytics地址相关处理。
 func analyticsLocation(rawOffset string) *time.Location {
+	// offset、err 保存offset、err，供当前处理流程使用
 	offset, err := strconv.Atoi(strings.TrimSpace(rawOffset))
 	if err != nil || offset < -14*60 || offset > 14*60 {
 		return time.Local
@@ -149,7 +165,9 @@ func analyticsLocation(rawOffset string) *time.Location {
 	return time.FixedZone("browser", offset*60)
 }
 
+// analyticsAmountExpression 负责analyticsAmountExpression相关处理。
 func analyticsAmountExpression(dialect db.Dialect, column string) string {
+	// clean 保存clean，供当前处理流程使用
 	clean := `TRIM(REPLACE(REPLACE(` + column + `, '¥', ''), ',', ''))`
 	switch dialect {
 	case db.DialectPostgres:
@@ -161,21 +179,27 @@ func analyticsAmountExpression(dialect db.Dialect, column string) string {
 	}
 }
 
+// parseAnalyticsDBTime 负责parseAnalyticsDB时间相关处理。
 func parseAnalyticsDBTime(raw string) time.Time {
+	// layout 表示当前遍历过程中的layout
 	for _, layout := range []string{"2006-01-02 15:04:05", time.RFC3339, "2006-01-02T15:04:05Z07:00"} {
-		if t, err := time.ParseInLocation(layout, strings.TrimSpace(raw), time.UTC); err == nil {
+		if // t、err 保存t、err，供当前处理流程使用
+		t, err := time.ParseInLocation(layout, strings.TrimSpace(raw), time.UTC); err == nil {
 			return t
 		}
 	}
 	return time.Time{}
 }
 
+// parseAnalyticsAmount 负责parseAnalyticsAmount相关处理。
 func parseAnalyticsAmount(raw string) float64 {
 	raw = strings.TrimSpace(strings.NewReplacer("¥", "", ",", "").Replace(raw))
+	// value 保存值，供当前处理流程使用
 	value, _ := strconv.ParseFloat(raw, 64)
 	return value
 }
 
+// round2 负责round2相关处理。
 func round2(f float64) float64 {
 	return float64(int(f*100+0.5)) / 100
 }

@@ -40,27 +40,37 @@ func (s *Server) mountCookies(r chi.Router) {
 	r.Get("/cookies/{cid}/pause-duration", s.getCookiePauseDuration)
 }
 
+// getLongLoginSettings 负责getLong登录设置相关处理。
 func (s *Server) getLongLoginSettings(w http.ResponseWriter, r *http.Request) {
+	// cid 保存cid，供当前处理流程使用
 	cid := chi.URLParam(r, "cid")
+	// ownedDetail、ok 保存ownedDetail、ok，供当前处理流程使用
 	ownedDetail, ok := s.requireCookieOwner(w, r, cid)
 	if !ok {
 		return
 	}
+	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
 	credentialUnlock := s.Store.LockAccountCredentials(cid)
+	// detail、err 保存detail、err，供当前处理流程使用
 	detail, err := s.loadCookiePlatformDetail(r.Context(), cid)
 	if err != nil || detail == nil || detail.UserID != ownedDetail.UserID {
 		credentialUnlock()
 		writeErr(w, http.StatusNotFound, "账号不存在")
 		return
 	}
+	// requestCookies 保存请求Cookies，供当前处理流程使用
 	requestCookies := scopedCookieHeader(detail, xrenew.QueryLoginSettingsURL)
+	// result 保存结果，供当前处理流程使用
 	var result *xrenew.LongLoginSettings
+	// requestErr 保存请求Err，供当前处理流程使用
 	var requestErr error
-	if snapshot, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
+	if // snapshot、complete 保存snapshot、complete，供当前处理流程使用
+	snapshot, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
 		result, requestErr = s.CookieRenew.QueryLongLoginSettings(r.Context(), requestCookies, snapshot)
 	} else {
 		result, requestErr = s.CookieRenew.QueryLongLoginSettings(r.Context(), requestCookies)
 	}
+	// credentialChanged、persistErr 保存credentialChanged、persistErr，供当前处理流程使用
 	credentialChanged, persistErr := s.persistLongLoginCookies(r.Context(), detail, result, xrenew.QueryLoginSettingsURL)
 	credentialUnlock()
 	if persistErr != nil {
@@ -77,34 +87,46 @@ func (s *Server) getLongLoginSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// setLongLoginSettings 负责setLong登录设置相关处理。
 func (s *Server) setLongLoginSettings(w http.ResponseWriter, r *http.Request) {
+	// cid 保存cid，供当前处理流程使用
 	cid := chi.URLParam(r, "cid")
+	// ownedDetail、ok 保存ownedDetail、ok，供当前处理流程使用
 	ownedDetail, ok := s.requireCookieOwner(w, r, cid)
 	if !ok {
 		return
 	}
+	// req 保存req，供当前处理流程使用
 	var req struct {
 		Enabled *bool `json:"enabled"`
 	}
-	if err := decodeJSON(r, &req); err != nil || req.Enabled == nil {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil || req.Enabled == nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
+	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
 	credentialUnlock := s.Store.LockAccountCredentials(cid)
+	// detail、err 保存detail、err，供当前处理流程使用
 	detail, err := s.loadCookiePlatformDetail(r.Context(), cid)
 	if err != nil || detail == nil || detail.UserID != ownedDetail.UserID {
 		credentialUnlock()
 		writeErr(w, http.StatusNotFound, "账号不存在")
 		return
 	}
+	// requestCookies 保存请求Cookies，供当前处理流程使用
 	requestCookies := scopedCookieHeader(detail, xrenew.SetLoginSettingsURL)
+	// result 保存结果，供当前处理流程使用
 	var result *xrenew.LongLoginSettings
+	// requestErr 保存请求Err，供当前处理流程使用
 	var requestErr error
-	if snapshot, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
+	if // snapshot、complete 保存snapshot、complete，供当前处理流程使用
+	snapshot, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
 		result, requestErr = s.CookieRenew.SetLongLoginSettings(r.Context(), requestCookies, *req.Enabled, snapshot)
 	} else {
 		result, requestErr = s.CookieRenew.SetLongLoginSettings(r.Context(), requestCookies, *req.Enabled)
 	}
+	// credentialChanged、persistErr 保存credentialChanged、persistErr，供当前处理流程使用
 	credentialChanged, persistErr := s.persistLongLoginCookies(r.Context(), detail, result, xrenew.SetLoginSettingsURL)
 	credentialUnlock()
 	if persistErr != nil {
@@ -123,11 +145,14 @@ func (s *Server) setLongLoginSettings(w http.ResponseWriter, r *http.Request) {
 
 // persistLongLoginCookies 必须在账号凭证锁内调用。它只更新持久化状态；
 // 运行中实例的 Cookie 更新必须等调用方释放凭证锁后再执行。
+// persistLongLoginCookies 负责persistLong登录Cookies相关处理。
 func (s *Server) persistLongLoginCookies(ctx context.Context, detail *db.CookieDetail, result *xrenew.LongLoginSettings, requestURL string) (bool, error) {
 	if result == nil || detail == nil {
 		return false, nil
 	}
+	// metadata 保存metadata，供当前处理流程使用
 	metadata := detail.MetadataJSON
+	// snapshot、hasSnapshot 保存snapshot、hasSnapshot，供当前处理流程使用
 	snapshot, hasSnapshot := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON)
 	if result.CookieSnapshotComplete {
 		snapshot = cookierefresh.NormalizeSnapshot(result.CookieSnapshot)
@@ -155,22 +180,26 @@ func (s *Server) persistLongLoginCookies(ctx context.Context, detail *db.CookieD
 		result.NewCookies = xrenew.MergeSetCookies(detail.Value, result.SetCookies)
 		metadata = cookierefresh.MetadataWithoutSnapshot(metadata)
 	}
+	// credentialChanged 保存credentialChanged，供当前处理流程使用
 	credentialChanged := result.NewCookies != detail.Value || metadata != detail.MetadataJSON
 	if !credentialChanged && len(result.SetCookies) == 0 {
 		return false, nil
 	}
-	if err := s.Store.Cookies.UpdateRenewalCookie(ctx, detail.ID, result.NewCookies, metadata, time.Now().Unix()); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.Store.Cookies.UpdateRenewalCookie(ctx, detail.ID, result.NewCookies, metadata, time.Now().Unix()); err != nil {
 		s.Logger.Warn("保存长登录 Cookie 失败", "cookie_id", detail.ID, "err", err)
 		return false, err
 	}
 	if credentialChanged && s.Store.Tokens != nil {
-		if err := s.Store.Tokens.Clear(ctx, detail.ID); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := s.Store.Tokens.Clear(ctx, detail.ID); err != nil {
 			s.Logger.Warn("长登录 Cookie 保存后清理旧连接凭证失败", "cookie_id", detail.ID, "err", err)
 		}
 	}
 	return credentialChanged, nil
 }
 
+// updateRunningCookie 负责updateRunning登录凭证相关处理。
 func (s *Server) updateRunningCookie(ctx context.Context, cookieID, value string) {
 	s.wakeCredentialBlockedAutomation(ctx, cookieID)
 	// repository 提供运行时更新前的账号启用状态读取。
@@ -178,32 +207,39 @@ func (s *Server) updateRunningCookie(ctx context.Context, cookieID, value string
 	if s.Manager == nil || repository == nil || !repository.GetStatus(ctx, cookieID) {
 		return
 	}
-	if sender, ok := s.Manager.GetInstance(cookieID); ok {
+	if // sender、ok 保存sender、ok，供当前处理流程使用
+	sender, ok := s.Manager.GetInstance(cookieID); ok {
 		sender.UpdateCookie(value)
 	}
 }
 
+// wakeCredentialBlockedAutomation 负责wakeCredentialBlocked自动化相关处理。
 func (s *Server) wakeCredentialBlockedAutomation(ctx context.Context, cookieID string) {
 	if s == nil || s.Store == nil || s.Store.Automation == nil {
 		return
 	}
-	if err := s.Store.Automation.WakeCredentialBlocked(ctx, cookieID); err != nil && s.Logger != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.Store.Automation.WakeCredentialBlocked(ctx, cookieID); err != nil && s.Logger != nil {
 		s.Logger.Warn("Cookie 更新后唤醒自动化任务失败", "account", cookieID, "err", err)
 	}
 }
 
+// scopedCookieHeader 负责scoped登录凭证Header相关处理。
 func scopedCookieHeader(detail *db.CookieDetail, requestURL string) string {
 	if detail == nil {
 		return ""
 	}
-	if snapshot, ok := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); ok {
-		if header, authoritative := cookierefresh.ScopedCookieHeaderForRequest(snapshot, requestURL, "https://goofish.com", time.Now()); authoritative {
+	if // snapshot、ok 保存snapshot、ok，供当前处理流程使用
+	snapshot, ok := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); ok {
+		if // header、authoritative 保存header、authoritative，供当前处理流程使用
+		header, authoritative := cookierefresh.ScopedCookieHeaderForRequest(snapshot, requestURL, "https://goofish.com", time.Now()); authoritative {
 			return header
 		}
 	}
 	return detail.Value
 }
 
+// updateCookieSettingsRequest 保存update登录凭证设置请求，供当前处理流程使用
 type updateCookieSettingsRequest struct {
 	Cookie        *string  `json:"cookie"`
 	Remark        *string  `json:"remark"`
@@ -218,13 +254,17 @@ type updateCookieSettingsRequest struct {
 
 // updateCookieSettings 原子保存编辑弹窗中的账号字段和通知绑定。
 func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
+	// cid 保存cid，供当前处理流程使用
 	cid := chi.URLParam(r, "cid")
+	// detail、ok 保存detail、ok，供当前处理流程使用
 	detail, ok := s.requireCookieSecretOwner(w, r, cid)
 	if !ok {
 		return
 	}
+	// req 保存req，供当前处理流程使用
 	var req updateCookieSettingsRequest
-	if err := decodeJSON(r, &req); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
@@ -245,7 +285,9 @@ func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
 	credentialUnlock := s.Store.LockAccountCredentials(cid)
+	// latestDetail、err 保存latestDetail、err，供当前处理流程使用
 	latestDetail, err := s.Store.Cookies.GetDetails(r.Context(), cid)
 	if err != nil || latestDetail == nil || latestDetail.UserID != detail.UserID {
 		credentialUnlock()
@@ -254,6 +296,7 @@ func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	detail = latestDetail
 
+	// input 保存input，供当前处理流程使用
 	input := db.AccountSettingsUpdate{
 		UserID:        detail.UserID,
 		Value:         req.Cookie,
@@ -262,12 +305,15 @@ func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
 		PauseDuration: req.PauseDuration,
 		ChannelIDs:    req.ChannelIDs,
 	}
+	// loginChanged 保存登录Changed，供当前处理流程使用
 	loginChanged := req.Username != nil || req.LoginPassword != nil || req.ShowBrowser != nil || req.ClearPassword
 	if loginChanged {
+		// username 保存username，供当前处理流程使用
 		username := detail.Username
 		if req.Username != nil {
 			username = *req.Username
 		}
+		// password 保存密码，供当前处理流程使用
 		password := detail.Password
 		if req.LoginPassword != nil && *req.LoginPassword != "" {
 			password = *req.LoginPassword
@@ -275,6 +321,7 @@ func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
 		if req.ClearPassword {
 			password = ""
 		}
+		// showBrowser 保存show浏览器，供当前处理流程使用
 		showBrowser := detail.ShowBrowser
 		if req.ShowBrowser != nil {
 			showBrowser = *req.ShowBrowser
@@ -283,6 +330,7 @@ func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
 		input.Password = &password
 		input.ShowBrowser = &showBrowser
 	}
+	// pausedUntil、err 保存pausedUntil、err，供当前处理流程使用
 	pausedUntil, err := s.Store.Cookies.UpdateSettings(r.Context(), cid, input)
 	if err != nil {
 		credentialUnlock()
@@ -300,14 +348,16 @@ func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
 		// UpdateSettings 已在同一事务中写入 Cookie 并清除旧快照，不能再做
 		// 第二次非原子覆盖。
 		if s.Store.Tokens != nil {
-			if err := s.Store.Tokens.Clear(r.Context(), cid); err != nil {
+			if // err 保存err，供当前处理流程使用
+			err := s.Store.Tokens.Clear(r.Context(), cid); err != nil {
 				s.Logger.Warn("账号设置保存后清理旧连接凭证失败", "cookie_id", cid, "err", err)
 			}
 		}
 	}
 	credentialUnlock()
 	if req.Cookie != nil && s.Manager != nil && s.Store.Cookies.GetStatus(r.Context(), cid) {
-		if err := s.Manager.Restart(r.Context(), cid); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := s.Manager.Restart(r.Context(), cid); err != nil {
 			s.Logger.Error("账号设置保存后重启失败", "cookie_id", cid, "err", err)
 		}
 	}
@@ -438,6 +488,7 @@ func (s *Server) refreshCookieProfile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "无权限操作该账号")
 		return
 	}
+	// profile、err 保存profile、err，供当前处理流程使用
 	profile, err := s.accountLoginApplication().RefreshProfile(r.Context(), sess.UserID, cid)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "账号不存在")
@@ -468,17 +519,21 @@ func (s *Server) refreshCookieProfile(w http.ResponseWriter, r *http.Request) {
 
 // addCookie 添加账号 cookie。
 func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
+	// req 保存req，供当前处理流程使用
 	var req struct {
 		ID          string `json:"id"`
 		Value       string `json:"value"`
 		LoginMethod string `json:"login_method"`
 	}
-	if err := decodeJSON(r, &req); err != nil || req.ID == "" || req.Value == "" {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil || req.ID == "" || req.Value == "" {
 		writeErr(w, http.StatusBadRequest, "缺少 id 或 value")
 		return
 	}
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
-	if err := s.accountLoginApplication().CreateCookie(r.Context(), accountLoginInput{AccountID: req.ID, Cookies: req.Value, UserID: sess.UserID, LoginMethod: req.LoginMethod}); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.accountLoginApplication().CreateCookie(r.Context(), accountLoginInput{AccountID: req.ID, Cookies: req.Value, UserID: sess.UserID, LoginMethod: req.LoginMethod}); err != nil {
 		if errors.Is(err, db.ErrForbidden) {
 			writeErr(w, http.StatusForbidden, "该账号ID已存在且不属于当前用户")
 			return
@@ -495,21 +550,27 @@ func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
 
 // updateCookie 更新 cookie 值。
 func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
+	// cid 保存cid，供当前处理流程使用
 	cid := chi.URLParam(r, "cid")
+	// ok 保存ok，供当前处理流程使用
 	_, ok := s.requireCookieOwner(w, r, cid)
 	if !ok {
 		return
 	}
+	// req 保存req，供当前处理流程使用
 	var req struct {
 		Value       string `json:"value"`
 		LoginMethod string `json:"login_method"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
+	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
-	if err := s.accountLoginApplication().UpdateCookie(r.Context(), accountCookieUpdateInput{AccountID: cid, Cookies: req.Value, UserID: sess.UserID, LoginMethod: req.LoginMethod}); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.accountLoginApplication().UpdateCookie(r.Context(), accountCookieUpdateInput{AccountID: cid, Cookies: req.Value, UserID: sess.UserID, LoginMethod: req.LoginMethod}); err != nil {
 		if errors.Is(err, db.ErrForbidden) {
 			writeErr(w, http.StatusForbidden, "无权限操作该账号")
 			return
@@ -522,11 +583,14 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 
 // updateCookieLoginInfo 更新账号登录信息（用户名/密码/显示浏览器）。
 func (s *Server) updateCookieLoginInfo(w http.ResponseWriter, r *http.Request) {
+	// cid 保存cid，供当前处理流程使用
 	cid := chi.URLParam(r, "cid")
+	// detail、ok 保存detail、ok，供当前处理流程使用
 	detail, ok := s.requireCookieSecretOwner(w, r, cid)
 	if !ok {
 		return
 	}
+	// req 保存req，供当前处理流程使用
 	var req struct {
 		Username      string `json:"username"`
 		Password      string `json:"password"`
@@ -534,10 +598,12 @@ func (s *Server) updateCookieLoginInfo(w http.ResponseWriter, r *http.Request) {
 		ShowBrowser   bool   `json:"show_browser"`
 		ClearPassword bool   `json:"clear_password"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
+	// password 保存密码，供当前处理流程使用
 	password := req.Password
 	if password == "" {
 		password = req.LoginPassword
@@ -547,7 +613,8 @@ func (s *Server) updateCookieLoginInfo(w http.ResponseWriter, r *http.Request) {
 	} else if password == "" && detail != nil {
 		password = detail.Password
 	}
-	if err := s.Store.Cookies.UpdateLoginInfo(r.Context(), cid, req.Username, password, req.ShowBrowser); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.Store.Cookies.UpdateLoginInfo(r.Context(), cid, req.Username, password, req.ShowBrowser); err != nil {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
@@ -556,30 +623,38 @@ func (s *Server) updateCookieLoginInfo(w http.ResponseWriter, r *http.Request) {
 
 // setCookieStatus 启用/禁用账号。
 func (s *Server) setCookieStatus(w http.ResponseWriter, r *http.Request) {
+	// cid 保存cid，供当前处理流程使用
 	cid := chi.URLParam(r, "cid")
+	// ownedDetail、ok 保存ownedDetail、ok，供当前处理流程使用
 	ownedDetail, ok := s.requireCookieOwner(w, r, cid)
 	if !ok {
 		return
 	}
+	// req 保存req，供当前处理流程使用
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
+	// reason 保存原因，供当前处理流程使用
 	reason := ""
 	if !req.Enabled {
 		reason = db.DisableReasonManual
 	}
+	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
 	credentialUnlock := s.Store.LockAccountCredentials(cid)
+	// latest、err 保存latest、err，供当前处理流程使用
 	latest, err := s.loadCookiePlatformDetail(r.Context(), cid)
 	if err != nil || latest == nil || latest.UserID != ownedDetail.UserID {
 		credentialUnlock()
 		writeErr(w, http.StatusNotFound, "账号不存在")
 		return
 	}
-	if err := s.Store.Cookies.SetStatusWithReason(r.Context(), cid, req.Enabled, reason); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.Store.Cookies.SetStatusWithReason(r.Context(), cid, req.Enabled, reason); err != nil {
 		credentialUnlock()
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
@@ -590,7 +665,8 @@ func (s *Server) setCookieStatus(w http.ResponseWriter, r *http.Request) {
 		if req.Enabled {
 			// 重启拉取最新 cookie。
 			if _, e := s.loadCookiePlatformDetail(r.Context(), cid); e == nil {
-				if err := s.Manager.Restart(r.Context(), cid); err != nil {
+				if // err 保存err，供当前处理流程使用
+				err := s.Manager.Restart(r.Context(), cid); err != nil {
 					s.Logger.Error("启用后重启账号失败", "cookie_id", cid, "err", err)
 				}
 			}
@@ -603,19 +679,24 @@ func (s *Server) setCookieStatus(w http.ResponseWriter, r *http.Request) {
 
 // deleteCookie 删除账号。
 func (s *Server) deleteCookie(w http.ResponseWriter, r *http.Request) {
+	// cid 保存cid，供当前处理流程使用
 	cid := chi.URLParam(r, "cid")
+	// ownedDetail、ok 保存ownedDetail、ok，供当前处理流程使用
 	ownedDetail, ok := s.requireCookieOwner(w, r, cid)
 	if !ok {
 		return
 	}
+	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
 	credentialUnlock := s.Store.LockAccountCredentials(cid)
+	// latest、err 保存latest、err，供当前处理流程使用
 	latest, err := s.loadCookiePlatformDetail(r.Context(), cid)
 	if err != nil || latest == nil || latest.UserID != ownedDetail.UserID {
 		credentialUnlock()
 		writeErr(w, http.StatusNotFound, "账号不存在")
 		return
 	}
-	if err := s.Store.Cookies.Delete(r.Context(), cid); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := s.Store.Cookies.Delete(r.Context(), cid); err != nil {
 		credentialUnlock()
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
@@ -636,20 +717,24 @@ func (s *Server) deleteCookie(w http.ResponseWriter, r *http.Request) {
 
 // setCookieAutoConfirm 设置自动确认发货。
 func (s *Server) setCookieAutoConfirm(w http.ResponseWriter, r *http.Request) {
+	// cid 保存cid，供当前处理流程使用
 	cid := chi.URLParam(r, "cid")
 	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
+	// req 保存req，供当前处理流程使用
 	var req struct {
 		AutoConfirm bool `json:"auto_confirm"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
 	// sess 是当前请求的认证会话，用于让 repository 再次确认账号归属。
 	sess := authSess(r)
-	if _, err := s.Store.Cookies.UpdateSettings(r.Context(), cid, db.AccountSettingsUpdate{
+	if // err 保存err，供当前处理流程使用
+	_, err := s.Store.Cookies.UpdateSettings(r.Context(), cid, db.AccountSettingsUpdate{
 		UserID: sess.UserID, AutoConfirm: &req.AutoConfirm,
 	}); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存自动确认设置失败")
@@ -660,7 +745,9 @@ func (s *Server) setCookieAutoConfirm(w http.ResponseWriter, r *http.Request) {
 
 // getCookieAutoConfirm 获取自动确认发货设置。
 func (s *Server) getCookieAutoConfirm(w http.ResponseWriter, r *http.Request) {
+	// cid 保存cid，供当前处理流程使用
 	cid := chi.URLParam(r, "cid")
+	// d、ok 保存d、ok，供当前处理流程使用
 	d, ok := s.requireCookieOwner(w, r, cid)
 	if !ok {
 		return
@@ -670,20 +757,24 @@ func (s *Server) getCookieAutoConfirm(w http.ResponseWriter, r *http.Request) {
 
 // setCookieRemark 设置备注。
 func (s *Server) setCookieRemark(w http.ResponseWriter, r *http.Request) {
+	// cid 保存cid，供当前处理流程使用
 	cid := chi.URLParam(r, "cid")
 	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
+	// req 保存req，供当前处理流程使用
 	var req struct {
 		Remark string `json:"remark"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
 	// sess 是当前请求的认证会话，用于让 repository 再次确认账号归属。
 	sess := authSess(r)
-	if _, err := s.Store.Cookies.UpdateSettings(r.Context(), cid, db.AccountSettingsUpdate{
+	if // err 保存err，供当前处理流程使用
+	_, err := s.Store.Cookies.UpdateSettings(r.Context(), cid, db.AccountSettingsUpdate{
 		UserID: sess.UserID, Remark: &req.Remark,
 	}); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存账号备注失败")
@@ -694,14 +785,17 @@ func (s *Server) setCookieRemark(w http.ResponseWriter, r *http.Request) {
 
 // setCookiePauseDuration 设置暂停时长。
 func (s *Server) setCookiePauseDuration(w http.ResponseWriter, r *http.Request) {
+	// cid 保存cid，供当前处理流程使用
 	cid := chi.URLParam(r, "cid")
 	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
+	// req 保存req，供当前处理流程使用
 	var req struct {
 		PauseDuration int `json:"pause_duration"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
@@ -709,6 +803,7 @@ func (s *Server) setCookiePauseDuration(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "暂停时长必须在 0 到 1440 分钟之间")
 		return
 	}
+	// pausedUntil、err 保存pausedUntil、err，供当前处理流程使用
 	pausedUntil, err := s.Store.Cookies.SetPause(r.Context(), cid, req.PauseDuration)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存暂停时长失败")
@@ -721,10 +816,12 @@ func (s *Server) setCookiePauseDuration(w http.ResponseWriter, r *http.Request) 
 
 // getCookiePauseDuration 获取暂停时长。
 func (s *Server) getCookiePauseDuration(w http.ResponseWriter, r *http.Request) {
+	// cid 保存cid，供当前处理流程使用
 	cid := chi.URLParam(r, "cid")
 	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
+	// paused、pausedUntil 保存paused、pausedUntil，供当前处理流程使用
 	paused, pausedUntil, _ := s.Store.Cookies.IsPaused(r.Context(), cid)
 	writeJSON(w, http.StatusOK, pauseDurationResponse{
 		PauseDuration: s.Store.Cookies.GetPauseDuration(r.Context(), cid), PausedUntil: pausedUntil, Paused: paused,
@@ -733,6 +830,7 @@ func (s *Server) getCookiePauseDuration(w http.ResponseWriter, r *http.Request) 
 
 // refreshAccountProfile 刷新账号平台资料并返回展示字段。
 // 该流程按需读取平台凭证，调用方负责所有权校验。
+// refreshAccountProfile 负责refresh账号Profile相关处理。
 func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) (string, string, string) {
 	if d == nil {
 		return "", "", ""
@@ -746,7 +844,9 @@ func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) 
 	if repository == nil {
 		return cachedAccountNickname(d), d.AvatarURL, "账号登录持久化未初始化"
 	}
+	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
 	credentialUnlock := repository.LockCredentials(d.ID)
+	// latest、latestErr 保存latest、latestErr，供当前处理流程使用
 	latest, latestErr := repository.LoadPlatformDetail(ctx, d.ID)
 	if latestErr != nil || latest == nil || latest.UserID != d.UserID {
 		credentialUnlock()
@@ -755,10 +855,15 @@ func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) 
 		}
 		return cachedAccountNickname(d), d.AvatarURL, truncate(latestErr.Error(), 180)
 	}
+	// mtopCtx、cookieSession 保存mtopCtx、cookie会话，供当前处理流程使用
 	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
+	// profile、callErr 保存profile、callErr，供当前处理流程使用
 	profile, callErr := s.MTop.FetchUserProfile(mtopCtx, latest.Value)
+	// runtimeCookie 保存runtime登录凭证，供当前处理流程使用
 	runtimeCookie := ""
+	// runtimeCookieChanged 保存runtime登录凭证Changed，供当前处理流程使用
 	runtimeCookieChanged := false
+	// value、valueChanged、handled、persistErr 保存value、valueChanged、handled、persistErr，供当前处理流程使用
 	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(ctx, latest, cookieSession)
 	if persistErr != nil {
 		if s.Logger != nil {
@@ -774,7 +879,8 @@ func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) 
 	} else if callErr == nil && profile != nil && profile.UpdatedCookies != "" && profile.UpdatedCookies != latest.Value {
 		// 注入 mock 或没有权威快照的历史账号继续沿用扁平 Cookie 路径；
 		// 该路径必须清除旧 snapshot，不能伪造完整 Jar。
-		if err := repository.UpdateFlatCookieOwned(ctx, latest, profile.UpdatedCookies); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := repository.UpdateFlatCookieOwned(ctx, latest, profile.UpdatedCookies); err != nil {
 			if s.Logger != nil {
 				s.Logger.Warn("保存账号刷新 cookie 失败", "account", d.ID, "err", err)
 			}
@@ -800,9 +906,12 @@ func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) 
 		return cachedAccountNickname(d), d.AvatarURL, "账号资料接口未返回结果"
 	}
 
+	// apiNickname 保存apiNickname，供当前处理流程使用
 	apiNickname := strings.TrimSpace(profile.Nickname)
+	// apiAvatarURL 保存apiAvatarURL，供当前处理流程使用
 	apiAvatarURL := normalizeProfileAvatarURL(profile.AvatarURL)
-	if err := repository.UpdateProfile(ctx, d.ID, apiNickname, apiAvatarURL); err != nil && s.Logger != nil {
+	if // err 保存err，供当前处理流程使用
+	err := repository.UpdateProfile(ctx, d.ID, apiNickname, apiAvatarURL); err != nil && s.Logger != nil {
 		s.Logger.Warn("保存账号资料失败", "account", d.ID, "err", err)
 	}
 	if apiNickname == "" {
@@ -814,6 +923,7 @@ func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) 
 	return apiNickname, apiAvatarURL, ""
 }
 
+// cachedAccountNickname 负责cached账号Nickname相关处理。
 func cachedAccountNickname(d *db.CookieDetail) string {
 	if strings.TrimSpace(d.Remark) != "" {
 		return strings.TrimSpace(d.Remark)
@@ -824,6 +934,7 @@ func cachedAccountNickname(d *db.CookieDetail) string {
 	return "账号 " + truncate(d.ID, 6)
 }
 
+// normalizeProfileAvatarURL 负责normalizeProfileAvatarURL相关处理。
 func normalizeProfileAvatarURL(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -838,6 +949,7 @@ func normalizeProfileAvatarURL(raw string) string {
 	return raw
 }
 
+// truncate 负责truncate相关处理。
 func truncate(s string, n int) string {
 	if len(s) <= n {
 		return s

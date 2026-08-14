@@ -20,6 +20,7 @@ func TestWithTransactionCommitAndRollback(t *testing.T) {
 	}
 	// commitErr 是提交事务执行结果。
 	commitErr := srv.withTransaction(ctx, func(tx *sql.Tx) error {
+		// err 保存err，供当前处理流程使用
 		_, err := tx.ExecContext(ctx, `INSERT INTO unit_of_work_probe (id, value) VALUES (1, 'committed')`)
 		return err
 	})
@@ -28,7 +29,9 @@ func TestWithTransactionCommitAndRollback(t *testing.T) {
 	}
 	// rollbackErr 是故意触发回滚事务的错误。
 	rollbackErr := errors.New("故意回滚")
-	if err := srv.withTransaction(ctx, func(tx *sql.Tx) error {
+	if // err 保存err，供当前处理流程使用
+	err := srv.withTransaction(ctx, func(tx *sql.Tx) error {
+		// err 保存err，供当前处理流程使用
 		_, err := tx.ExecContext(ctx, `INSERT INTO unit_of_work_probe (id, value) VALUES (2, 'rolled back')`)
 		if err != nil {
 			return err
@@ -39,7 +42,8 @@ func TestWithTransactionCommitAndRollback(t *testing.T) {
 	}
 	// count 是事务提交后测试表中的记录数。
 	var count int
-	if err := srv.Store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unit_of_work_probe`).Scan(&count); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := srv.Store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unit_of_work_probe`).Scan(&count); err != nil {
 		t.Fatalf("查询事务测试结果失败: %v", err)
 	}
 	if count != 1 {

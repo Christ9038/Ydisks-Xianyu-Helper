@@ -38,11 +38,14 @@ func (s *Server) mountDefaultRepliesReal(r chi.Router) {
 	r.Post("/api/default-reply/{cid}/clear-records", s.clearDefaultReplyRecords)
 }
 
+// getDefaultReply 负责getDefault回复相关处理。
 func (s *Server) getDefaultReply(w http.ResponseWriter, r *http.Request) {
+	// cid 保存cid，供当前处理流程使用
 	cid := chi.URLParam(r, "cid")
 	if !s.requireCookieOwnership(w, r, cid) {
 		return
 	}
+	// dr、err 保存dr、err，供当前处理流程使用
 	dr, err := s.Store.DefaultReps.Get(r.Context(), cid)
 	if err != nil {
 		writeJSON(w, http.StatusOK, defaultReplyResponse{Enabled: false, ReplyContent: "", ReplyOnce: false})
@@ -95,6 +98,7 @@ func (s *Server) listDefaultReplies(w http.ResponseWriter, r *http.Request) {
 	}
 	// out 是默认回复列表响应。
 	var out []defaultReplyResponse
+	// row 表示当前遍历过程中的row
 	for _, row := range rows {
 		out = append(out, defaultReplyResponse{
 			CookieID: row.CookieID, Enabled: row.Enabled, ReplyContent: row.ReplyContent, ReplyOnce: row.ReplyOnce,
@@ -117,6 +121,7 @@ func (s *Server) listDefaultRepliesMap(w http.ResponseWriter, r *http.Request) {
 	}
 	// out 是按账号标识索引的默认回复映射。
 	out := make(map[string]defaultReplyResponse)
+	// row 表示当前遍历过程中的row
 	for _, row := range rows {
 		out[row.CookieID] = defaultReplyResponse{
 			CookieID:      row.CookieID,
