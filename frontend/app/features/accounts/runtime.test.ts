@@ -5,7 +5,7 @@ import { mergeAccountRuntimeStatuses } from './runtime';
 // account 创建运行状态测试使用的最小账号对象。
 const account = (overrides: Partial<AccountDetail> = {}): AccountDetail => ({
   id: 'account-1',
-  cookie: 'cookie',
+  value: 'cookie',
   enabled: true,
   auto_confirm: false,
   ...overrides,

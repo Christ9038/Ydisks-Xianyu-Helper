@@ -77,11 +77,9 @@ export const getAccountDetails = async (options?: RequestControlOptions): Promis
   return data.map(item => ({
     id: item.id,
     value: '',
-    cookie: '',
     enabled: item.enabled,
     auto_confirm: item.auto_confirm,
     remark: item.remark,
-    note: item.remark,
     pause_duration: item.pause_duration,
     paused_until: Number(item.paused_until || 0),
     paused: item.paused === true,

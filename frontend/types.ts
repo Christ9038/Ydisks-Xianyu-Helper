@@ -24,11 +24,9 @@ export interface SessionResponse {
 export interface AccountDetail {
   id: string;
   value?: string; // cookie value from backend
-  cookie?: string; // alias for value
   enabled: boolean;
   auto_confirm: boolean;
   remark?: string;
-  note?: string; // alias for remark
   pause_duration?: number;
   paused_until?: number;
   paused?: boolean;

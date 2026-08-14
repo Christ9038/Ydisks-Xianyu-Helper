@@ -318,7 +318,6 @@ const AccountList: React.FC = () => {
       account.id,
       account.nickname,
       account.remark,
-      account.note,
       account.username,
       account.runtime_message,
     ].some(value => (value || '').toLowerCase().includes(keyword));
@@ -408,7 +407,7 @@ const AccountList: React.FC = () => {
                 </div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
                   <div className="text-sm font-medium text-gray-500">
-                  <p>{account.remark || account.note || '暂无备注'}</p>
+                  <p>{account.remark || '暂无备注'}</p>
                   <p className="font-mono text-xs text-gray-400">ID: {account.id}</p>
                   </div>
                 {account.runtime_message && account.runtime_state !== 'online' && account.runtime_state !== 'disabled' && (

@@ -124,7 +124,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
     clearPasswordTimer();
     setPasswordLoginView({ sessionId: '', status: 'idle', message: '', qrCodeUrl: '' });
     setEditingAccount(account);
-    setEditForm({ remark: account.remark || account.note || '', cookie: account.cookie || account.value || '', auto_confirm: account.auto_confirm || false, pause_duration: account.pause_duration || 0, username: account.username || '', login_password: account.login_password || '', show_browser: account.show_browser || false, showLoginPassword: false, clear_password: false });
+    setEditForm({ remark: account.remark || '', cookie: account.value || '', auto_confirm: account.auto_confirm || false, pause_duration: account.pause_duration || 0, username: account.username || '', login_password: account.login_password || '', show_browser: account.show_browser || false, showLoginPassword: false, clear_password: false });
     setActiveModal('edit');
     setLongLogin({ loading: true, saving: false, canOpen: false, enabled: false, error: '' });
     // longLoginResult 保存长登录设置读取结果。
@@ -199,8 +199,8 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
     try {
       // payload 保存需要提交的账号编辑补丁。
       const payload: Parameters<typeof updateAccountSettings>[1] = {};
-      if (editForm.remark !== (editingAccount.remark || editingAccount.note || '')) payload.remark = editForm.remark;
-      if (editForm.cookie && editForm.cookie !== (editingAccount.cookie || editingAccount.value || '')) payload.cookie = editForm.cookie;
+      if (editForm.remark !== (editingAccount.remark || '')) payload.remark = editForm.remark;
+      if (editForm.cookie && editForm.cookie !== (editingAccount.value || '')) payload.cookie = editForm.cookie;
       if (editForm.auto_confirm !== editingAccount.auto_confirm) payload.auto_confirm = editForm.auto_confirm;
       if (shouldUpdateAccountPause(editForm.pause_duration, editingAccount)) payload.pause_duration = editForm.pause_duration;
       // loginInfo 保存登录字段变更补丁。
