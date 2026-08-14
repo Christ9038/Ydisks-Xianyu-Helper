@@ -109,6 +109,24 @@ test('account task APIs keep rating and polish account-scoped', async () => {
 	expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ task_type: 'auto_rate' });
 });
 
+test('账号自动任务 API 转发外部取消信号', async () => {
+  // fetchMock 验证读取、保存和执行账号任务都支持请求取消。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ account_id: 'a1', auto_rate_enabled: true, rate_content: '交易愉快', auto_polish_enabled: false, polish_time: '03:00' }))
+    .mockResolvedValueOnce(jsonResponse({ account_id: 'a1', auto_rate_enabled: true, rate_content: '交易愉快', auto_polish_enabled: false, polish_time: '03:00' }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, summary: { task_type: 'auto_rate', found: 1, success: 1, failed: 0, skipped: 0 } }));
+  vi.stubGlobal('fetch', fetchMock);
+  // controller 是 AccountAutomation feature Hook 使用的请求控制器。
+  const controller = new AbortController();
+  const settings = { account_id: 'a1', auto_rate_enabled: true, rate_content: '交易愉快', auto_polish_enabled: false, polish_time: '03:00' };
+  await getAccountTaskSettings('a1', { signal: controller.signal });
+  await updateAccountTaskSettings('a1', settings, { signal: controller.signal });
+  await runAccountTask('a1', 'auto_rate', { signal: controller.signal });
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/account-tasks/a1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/account-tasks/a1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/account-tasks/a1/run', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+});
+
 test('getItemPublishBatches unwraps persisted batch list', async () => {
 	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ batches: [{ id: 'batch-1', status: 'running' }] }));
 	vi.stubGlobal('fetch', fetchMock);

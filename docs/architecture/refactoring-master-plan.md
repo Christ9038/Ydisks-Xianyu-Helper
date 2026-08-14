@@ -178,7 +178,8 @@ app shell / routes
 - 已完成阶段 7 第七个 PR 切片“React Dashboard feature 化与统计/趋势查询行为边界”：按 `app/features/dashboard` 提取 Dashboard API 适配层、统计数据 Hook、趋势/排行派生状态和请求边界；概览、趋势和有效订单支持并行加载、刷新取消、失败重试与过期响应保护；新增统计派生数据、API 取消信号和请求代次测试，保留旧页面入口和 API 路径；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交；
 - 已完成阶段 7 第八个 PR 切片“React Settings feature 化与系统配置校验边界”：按 `app/features/settings` 提取系统配置/模型/凭据 API 适配层、配置常量、表单状态和敏感字段校验；配置读取与保存支持并行加载、请求取消、失败重试和过期响应保护，登录凭据提交保留现有校验与重登录语义；新增配置裁剪、凭据校验、API 取消信号和请求代次测试，保留旧页面入口和 API 路径；
 - 已完成阶段 7 第九个 PR 切片“React Chat feature 化与会话消息行为边界”：按 `app/features/chat` 提取聊天 API、会话筛选/消息合并状态、账号/会话/消息分页 Hook；会话切换、联系人分页和消息加载支持取消与请求代次保护，文本/图片发送支持失败重试，WebSocket 和滚动语义保持不变；新增会话筛选、消息去重、分页过期响应、发送取消与 API 取消信号测试，保留旧页面入口和 API 路径；
-- 阶段 7 下一 PR 切片为“React AccountAutomation feature 化与任务设置行为边界”：提取账号任务设置/执行 API、任务表单状态和运行结果面板，补充账号切换取消、重复执行阻断和失败重试测试；
+- 已完成阶段 7 第十个 PR 切片“React AccountAutomation feature 化与任务设置行为边界”：按 `app/features/accountAutomation` 提取账号任务 API、默认设置与重复执行状态模型、任务设置 Hook；账号切换支持取消和请求代次保护，保存/立即执行支持重复提交阻断、失败重试和结果刷新；新增默认值、动作门禁、API 取消信号测试，保留旧弹窗入口和 API 路径；
+- 阶段 7 下一 PR 切片为“React AccountList 子模块收口与页面组合边界”：收口账号编辑、密码登录、AI 设置和通知绑定子模块的共享状态，补充账号编辑过期响应与跨子模块刷新测试；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -606,3 +607,4 @@ npm --prefix frontend run build
 | 2026-08-15 | 完成阶段 7 第七个 PR 切片“React Dashboard feature 化与统计/趋势查询行为边界” | 按 `app/features/dashboard` 提取 Dashboard API 适配层、统计数据 Hook、趋势/排行派生状态和请求边界；概览、趋势和有效订单支持并行加载、刷新取消、失败重试与过期响应保护；新增统计派生数据、API 取消信号和请求代次测试，保留旧页面入口和 API 路径；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交 | 阶段 7：React Settings feature 化与系统配置校验边界 |
 | 2026-08-15 | 完成阶段 7 第八个 PR 切片“React Settings feature 化与系统配置校验边界” | 按 `app/features/settings` 提取系统配置/模型/凭据 API 适配层、配置常量、表单状态和敏感字段校验；配置读取与保存支持并行加载、请求取消、失败重试和过期响应保护，登录凭据提交保留现有校验与重登录语义；新增配置裁剪、凭据校验、API 取消信号和请求代次测试，保留旧页面入口和 API 路径 | 阶段 7：React Chat feature 化与会话消息行为边界 |
 | 2026-08-15 | 完成阶段 7 第九个 PR 切片“React Chat feature 化与会话消息行为边界” | 按 `app/features/chat` 提取聊天 API、会话筛选/消息合并状态、账号/会话/消息分页 Hook；会话切换、联系人分页和消息加载支持取消与请求代次保护，文本/图片发送支持失败重试，WebSocket 和滚动语义保持不变；新增会话筛选、消息去重、分页过期响应、发送取消与 API 取消信号测试，保留旧页面入口和 API 路径 | 阶段 7：React AccountAutomation feature 化与任务设置行为边界 |
+| 2026-08-15 | 完成阶段 7 第十个 PR 切片“React AccountAutomation feature 化与任务设置行为边界” | 按 `app/features/accountAutomation` 提取账号任务 API、默认设置与重复执行状态模型、任务设置 Hook；账号切换支持取消和请求代次保护，保存/立即执行支持重复提交阻断、失败重试和结果刷新；新增默认值、动作门禁、API 取消信号测试，保留旧弹窗入口和 API 路径 | 阶段 7：React AccountList 子模块收口与页面组合边界 |

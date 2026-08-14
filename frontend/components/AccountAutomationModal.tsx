@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { CalendarClock, Loader2, MessageSquareQuote, Play, Save, Sparkles, X } from 'lucide-react';
-import { AccountDetail, AccountTaskSettings, AccountTaskSummary } from '../types';
-import { getAccountTaskSettings, runAccountTask, updateAccountTaskSettings } from '../services/api';
+import { AccountDetail, AccountTaskSettings } from '../types';
+import { useAccountAutomation } from '../app/features/accountAutomation/hooks';
 
 interface Props {
   account: AccountDetail;
@@ -17,52 +17,8 @@ const Toggle: React.FC<{checked: boolean; onChange: () => void; label: string}> 
 );
 
 const AccountAutomationModal: React.FC<Props> = ({ account, onClose, onSaved }) => {
-  const [form, setForm] = useState<AccountTaskSettings>({
-    account_id: account.id,
-    auto_rate_enabled: account.auto_rate_enabled === true,
-    rate_content: account.rate_content || '不错的买家，交易愉快',
-    auto_polish_enabled: account.auto_polish_enabled === true,
-    polish_time: account.polish_time || '03:00',
-    last_rate_scan_at: account.last_rate_scan_at,
-    last_polish_date: account.last_polish_date,
-    last_polish_at: account.last_polish_at,
-  });
-  const [saving, setSaving] = useState(false);
-  const [running, setRunning] = useState<'' | 'auto_rate' | 'auto_polish'>('');
-  const [error, setError] = useState('');
-  const [summary, setSummary] = useState<AccountTaskSummary | null>(null);
-
-  const save = async () => {
-    setSaving(true);
-    setError('');
-    try {
-      const stored = await updateAccountTaskSettings(account.id, form);
-      setForm(stored);
-      onSaved(stored);
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : '保存失败');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const run = async (taskType: 'auto_rate' | 'auto_polish') => {
-    setRunning(taskType);
-    setError('');
-    setSummary(null);
-    try {
-      await updateAccountTaskSettings(account.id, form);
-      const result = await runAccountTask(account.id, taskType);
-	  const stored = await getAccountTaskSettings(account.id);
-      setSummary(result.summary);
-	  setForm(stored);
-      onSaved(stored);
-    } catch (runError) {
-      setError(runError instanceof Error ? runError.message : '任务执行失败');
-    } finally {
-      setRunning('');
-    }
-  };
+  // automationState 是账号任务 feature Hook 提供的表单和动作状态。
+  const { form, loading, saving, running, error, summary, retryAvailable, setForm, save, run, retry } = useAccountAutomation({ account, onSaved });
 
   return (
     <div className="modal-overlay-centered">
@@ -78,6 +34,7 @@ const AccountAutomationModal: React.FC<Props> = ({ account, onClose, onSaved }) 
         </div>
 
         <div className="modal-body space-y-5">
+          {loading && <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500">正在读取任务设置...</div>}
           <section className="rounded-2xl border border-slate-200 bg-white p-5">
             <div className="flex items-start gap-4">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600"><MessageSquareQuote className="h-5 w-5" /></div>
@@ -135,7 +92,7 @@ const AccountAutomationModal: React.FC<Props> = ({ account, onClose, onSaved }) 
               本次发现 {summary.found} 项，成功 {summary.success}，失败 {summary.failed}，跳过 {summary.skipped}。{summary.message || ''}
             </div>
           )}
-          {error && <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</div>}
+          {error && <div className="flex items-center justify-between gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"><span>{error}</span>{retryAvailable && <button type="button" className="font-bold underline" onClick={() => void retry()}>重试</button>}</div>}
         </div>
 
         <div className="modal-footer">

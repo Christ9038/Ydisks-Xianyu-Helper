@@ -97,14 +97,14 @@ export const getAccountDetails = async (options?: RequestControlOptions): Promis
   }));
 };
 
-export const getAccountTaskSettings = async (id: string): Promise<AccountTaskSettingsResponse> =>
-	get(`/api/v1/account-tasks/${id}`);
+export const getAccountTaskSettings = async (id: string, options?: RequestControlOptions): Promise<AccountTaskSettingsResponse> =>
+	get(`/api/v1/account-tasks/${id}`, undefined, options);
 
-export const updateAccountTaskSettings = async (id: string, settings: AccountTaskSettings): Promise<AccountTaskSettingsResponse> =>
-	put(`/api/v1/account-tasks/${id}`, settings);
+export const updateAccountTaskSettings = async (id: string, settings: AccountTaskSettings, options?: RequestControlOptions): Promise<AccountTaskSettingsResponse> =>
+	put(`/api/v1/account-tasks/${id}`, settings, options);
 
-export const runAccountTask = async (id: string, taskType: 'auto_rate' | 'auto_polish'): Promise<AccountTaskRunResponseEnvelope> =>
-	post(`/api/v1/account-tasks/${id}/run`, { task_type: taskType }, { timeoutMs: 120_000 });
+export const runAccountTask = async (id: string, taskType: 'auto_rate' | 'auto_polish', options?: RequestControlOptions): Promise<AccountTaskRunResponseEnvelope> =>
+	post(`/api/v1/account-tasks/${id}/run`, { task_type: taskType }, { timeoutMs: 120_000, ...options });
 
 export interface ChatSessionPage { sessions: ChatSession[]; has_more: boolean; next_cursor?: number }
 
