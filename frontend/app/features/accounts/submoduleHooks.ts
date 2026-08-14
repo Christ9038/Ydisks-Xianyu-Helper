@@ -69,7 +69,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
 
   /** 清理密码登录轮询定时器。 */
   // clearPasswordTimerCallback 是 React 稳定的定时器清理函数。
-  const clearPasswordTimer = useCallback(() => {
+  const clearPasswordTimer = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ () => {
     if (passwordTimer.current !== null) {
       window.clearTimeout(passwordTimer.current);
       passwordTimer.current = null;
@@ -78,7 +78,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
 
   /** 加载当前账号通知渠道和绑定关系，并隔离过期响应。 */
   // loadNotificationBindingsCallback 是通知绑定加载回调。
-  const loadNotificationBindings = useCallback(async (accountId: string): Promise<void> => {
+  const loadNotificationBindings = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (accountId: string): Promise<void> => {
     // sequence 是通知绑定请求的递增代次。
     const sequence = ++bindingsSequence.current;
     bindingsAbort.current?.abort();
@@ -104,14 +104,14 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
 
   /** 切换一个通知渠道绑定。 */
   // toggleNotificationChannelCallback 是通知渠道切换回调。
-  const toggleNotificationChannel = useCallback((channelId: number) => {
-    setSelectedChannelIds(current => current.includes(channelId) ? current.filter(id => id !== channelId) : [...current, channelId]);
+  const toggleNotificationChannel = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ (channelId: number) => {
+    setSelectedChannelIds(/* 当前回调处理集合中的单个元素。 */ current => current.includes(channelId) ? current.filter(/* 当前回调处理集合中的单个元素。 */ id => id !== channelId) : [...current, channelId]);
     setBindingsDirty(true);
   }, []);
 
   /** 打开账号编辑弹窗并并行读取绑定和长登录状态。 */
   // openEditModalCallback 是账号编辑弹窗打开回调。
-  const openEditModal = useCallback(async (account: AccountDetail): Promise<void> => {
+  const openEditModal = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (account: AccountDetail): Promise<void> => {
     // longLoginRequest 是当前长登录读取请求代次。
     const longLoginRequest = ++longLoginSequence.current;
     longLoginAbort.current?.abort();
@@ -136,24 +136,24 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
 
   /** 切换官方长登录设置。 */
   // handleLongLoginToggleCallback 是长登录设置切换回调。
-  const handleLongLoginToggle = useCallback(async (): Promise<void> => {
+  const handleLongLoginToggle = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (): Promise<void> => {
     if (!editingAccount || longLogin.loading || longLogin.saving || !longLogin.canOpen) return;
     // enabled 是本次准备提交的长登录开关值。
     const enabled = !longLogin.enabled;
-    setLongLogin(current => ({ ...current, saving: true, error: '' }));
+    setLongLogin(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, saving: true, error: '' }));
     try {
       // result 保存长登录设置接口返回值。
       const result = await setLongLoginSettings(editingAccount.id, enabled);
       setLongLogin({ loading: false, saving: false, canOpen: result.can_open_long_login, enabled: result.enabled, error: '' });
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       // error 保存长登录设置保存失败原因。
-      setLongLogin(current => ({ ...current, saving: false, error: error instanceof Error ? error.message : '保存登录信息设置失败' }));
+      setLongLogin(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, saving: false, error: error instanceof Error ? error.message : '保存登录信息设置失败' }));
     }
   }, [editingAccount, longLogin]);
 
   /** 打开 AI 设置并隔离过期账号响应。 */
   // openAIModalCallback 是 AI 设置弹窗打开回调。
-  const openAIModal = useCallback(async (account: AccountDetail): Promise<void> => {
+  const openAIModal = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (account: AccountDetail): Promise<void> => {
     // sequence 是 AI 设置请求的递增代次。
     const sequence = ++aiSequence.current;
     aiAbort.current?.abort();
@@ -168,7 +168,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
       const settings = await getAccountAISettings(account.id, { signal: controller.signal });
       if (!isCurrentAccountRequest(sequence, aiSequence.current, account.id, account.id)) return;
       setAiSettings({ ai_enabled: settings.ai_enabled ?? false, max_discount_percent: settings.max_discount_percent ?? 10, max_discount_amount: settings.max_discount_amount ?? 100, max_bargain_rounds: settings.max_bargain_rounds ?? 3, custom_prompts: settings.custom_prompts ?? '' });
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       // error 保存 AI 设置读取失败原因。
       if (isCurrentAccountRequest(sequence, aiSequence.current, account.id, account.id)) console.error('加载 AI 设置失败:', error);
     } finally {
@@ -178,14 +178,14 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
 
   /** 保存 AI 设置并刷新账号列表。 */
   // handleSaveAISettingsCallback 是 AI 设置保存回调。
-  const handleSaveAISettings = useCallback(async (): Promise<void> => {
+  const handleSaveAISettings = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (): Promise<void> => {
     if (!editingAccount || saving) return;
     setSaving(true);
     try {
       await updateAccountAISettings(editingAccount.id, aiSettings);
       setActiveModal(null);
       await loadAccounts();
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       // error 保存 AI 设置保存失败原因。
       console.error('更新 AI 设置失败:', error);
     } finally { setSaving(false); }
@@ -193,7 +193,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
 
   /** 保存账号编辑表单和通知绑定。 */
   // handleSaveEditCallback 是账号编辑表单保存回调。
-  const handleSaveEdit = useCallback(async (): Promise<void> => {
+  const handleSaveEdit = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (): Promise<void> => {
     if (!editingAccount || saving) return;
     setSaving(true);
     try {
@@ -210,7 +210,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
       if (Object.keys(payload).length > 0) await updateAccountSettings(editingAccount.id, payload);
       setActiveModal(null);
       await loadAccounts();
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       // error 保存账号编辑保存失败原因。
       console.error('更新账号失败:', error);
     } finally { setSaving(false); }
@@ -218,21 +218,21 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
 
   /** 按当前暂停时长重新暂停账号。 */
   // handleRestartPauseCallback 是重新暂停账号回调。
-  const handleRestartPause = useCallback(async (): Promise<void> => {
+  const handleRestartPause = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (): Promise<void> => {
     if (!editingAccount || editForm.pause_duration <= 0 || saving) return;
     setSaving(true);
     try {
       // result 保存重新暂停接口返回的账号状态。
       const result = await updateAccountPauseDuration(editingAccount.id, editForm.pause_duration);
-      setEditingAccount(current => current ? { ...current, pause_duration: editForm.pause_duration, paused: result?.paused === true, paused_until: Number(result?.paused_until || 0) } : current);
+      setEditingAccount(/* 当前回调处理用户交互或异步状态变化。 */ current => current ? { ...current, pause_duration: editForm.pause_duration, paused: result?.paused === true, paused_until: Number(result?.paused_until || 0) } : current);
       await loadAccounts();
-    } catch (error) { console.error('重新暂停失败:', error); }
+    } catch (/* error 表示错误。 */ error) { console.error('重新暂停失败:', error); }
     finally { setSaving(false); }
   }, [editForm.pause_duration, editingAccount, loadAccounts, saving, setEditingAccount]);
 
   /** 按账号和请求代次轮询密码登录状态。 */
   // pollPasswordLoginCallback 是密码登录状态轮询回调。
-  const pollPasswordLogin = useCallback(async (sessionId: string, generation: number, accountId: string): Promise<void> => {
+  const pollPasswordLogin = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (sessionId: string, generation: number, accountId: string): Promise<void> => {
     passwordAbort.current?.abort();
     // controller 控制当前密码登录状态查询的取消。
     const controller = new AbortController();
@@ -246,19 +246,19 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
       if (result.status === 'success') {
         clearPasswordTimer();
         setPasswordLoginView(nextView);
-        setEditForm(current => ({ ...current, login_password: '', showLoginPassword: false }));
+        setEditForm(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, login_password: '', showLoginPassword: false }));
         await loadAccounts();
         return;
       }
       if (result.status === 'processing' || result.status === 'verification_required') {
         setPasswordLoginView(nextView);
         clearPasswordTimer();
-        passwordTimer.current = window.setTimeout(() => void pollPasswordLogin(sessionId, generation, accountId), 1500);
+        passwordTimer.current = window.setTimeout(/* 当前回调处理用户交互或异步状态变化。 */ () => void pollPasswordLogin(sessionId, generation, accountId), 1500);
         return;
       }
       clearPasswordTimer();
       setPasswordLoginView(nextView);
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       // error 保存密码登录状态查询失败原因。
       if (!isCurrentAccountRequest(generation, passwordGeneration.current, accountId, passwordAccount.current)) return;
       clearPasswordTimer();
@@ -268,7 +268,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
 
   /** 启动账号密码登录刷新授权。 */
   // handlePasswordLoginCallback 是密码登录启动回调。
-  const handlePasswordLogin = useCallback(async (): Promise<void> => {
+  const handlePasswordLogin = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (): Promise<void> => {
     if (!editingAccount) return;
     // accountName 是本次登录使用的闲鱼账号名。
     const accountName = editForm.username.trim();
@@ -289,7 +289,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
       if (!result.success || !result.session_id) throw new Error(result.message || '无法启动密码登录');
       setPasswordLoginView({ sessionId: result.session_id, status: 'processing', message: result.message || '登录处理中', qrCodeUrl: '' });
       await pollPasswordLogin(result.session_id, generation, editingAccount.id);
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       // error 保存密码登录启动失败原因。
       if (!isCurrentAccountRequest(generation, passwordGeneration.current, editingAccount.id, passwordAccount.current)) return;
       setPasswordLoginView({ sessionId: '', status: 'failed', message: error instanceof Error ? error.message : '启动密码登录失败', qrCodeUrl: '' });
@@ -298,20 +298,20 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
 
   /** 取消当前密码登录会话。 */
   // handleCancelPasswordLoginCallback 是密码登录取消回调。
-  const handleCancelPasswordLogin = useCallback(async (): Promise<void> => {
+  const handleCancelPasswordLogin = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (): Promise<void> => {
     // sessionId 是当前待取消的密码登录会话。
     const sessionId = passwordLoginView.sessionId;
     passwordGeneration.current += 1;
     passwordAccount.current = '';
     passwordAbort.current?.abort();
     clearPasswordTimer();
-    if (sessionId) await cancelPasswordLogin(sessionId).catch(() => undefined);
+    if (sessionId) await cancelPasswordLogin(sessionId).catch(/* 当前回调处理异步操作结果。 */ () => undefined);
     setPasswordLoginView({ sessionId: '', status: 'idle', message: '', qrCodeUrl: '' });
   }, [clearPasswordTimer, passwordLoginView.sessionId]);
 
   /** 关闭编辑弹窗并取消未完成的子模块请求。 */
   // closeEditModalCallback 是编辑弹窗关闭回调。
-  const closeEditModal = useCallback(async (): Promise<void> => {
+  const closeEditModal = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (): Promise<void> => {
     bindingsAbort.current?.abort();
     longLoginSequence.current += 1;
     longLoginAbort.current?.abort();
@@ -322,14 +322,14 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
 
   /** 关闭 AI 设置弹窗并取消读取请求。 */
   // closeAIModalCallback 是 AI 设置弹窗关闭回调。
-  const closeAIModal = useCallback(() => {
+  const closeAIModal = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ () => {
     aiSequence.current += 1;
     aiAbort.current?.abort();
     setActiveModal(null);
   }, [setActiveModal]);
 
   // cleanupSubmodulesEffect 在 Hook 卸载时取消所有子模块请求。
-  useEffect(() => () => {
+  useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => /* 当前回调同步 React 副作用和资源生命周期。 */ () => {
     bindingsAbort.current?.abort();
     longLoginAbort.current?.abort();
     aiAbort.current?.abort();

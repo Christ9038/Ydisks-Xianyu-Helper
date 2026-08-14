@@ -1,14 +1,15 @@
 import React from 'react';
 
 interface YdisksLogoProps {
-  className?: string;
+  /** className 表示附加的 CSS 类名。 */ className?: string;
 }
 
 interface YdisksBrandIconProps {
-  sizeClass?: string;
-  logoClassName?: string;
+  /** sizeClass 表示数量Class。 */ sizeClass?: string;
+  /** logoClassName 表示品牌图标的 CSS 类名。 */ logoClassName?: string;
 }
 
+// YdisksLogo 渲染应用品牌标志。
 const YdisksLogo: React.FC<YdisksLogoProps> = ({ className = 'w-full h-full text-white' }) => (
   <svg className={className} viewBox="0 0 256 256" aria-hidden="true">
     <g stroke="none" fill="none" fillRule="evenodd">
@@ -17,6 +18,7 @@ const YdisksLogo: React.FC<YdisksLogoProps> = ({ className = 'w-full h-full text
   </svg>
 );
 
+// YdisksBrandIcon 渲染品牌图标。
 export const YdisksBrandIcon: React.FC<YdisksBrandIconProps> = ({
   sizeClass = 'w-12 h-12',
   logoClassName = 'w-full h-full text-white',

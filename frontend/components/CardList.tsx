@@ -9,6 +9,7 @@ import { useCardBatchActions, useCardsData } from '../app/features/cards/hooks';
 import { filterCards } from '../app/features/cards/batchState';
 import type { AddCardForm, EditCardForm } from '../app/features/cards/types';
 
+// emptyAddForm 新增卡密表单初始值。
 const emptyAddForm = (): AddCardForm => ({
   name: '',
   type: 'data',
@@ -22,20 +23,31 @@ const emptyAddForm = (): AddCardForm => ({
   api_params: '',
 });
 
+// CardList 渲染卡密列表组件。
 const CardList: React.FC = () => {
+  // { 解构得到当前 Hook 返回的状态和操作函数。
   const { cards, loadCards } = useCardsData();
+  // [showEditModal, 解构得到当前 Hook 返回的状态和操作函数。
   const [showEditModal, setShowEditModal] = useState(false);
+  // [showAddModal, 解构得到当前 Hook 返回的状态和操作函数。
   const [showAddModal, setShowAddModal] = useState(false);
+  // [selectedCard, 解构得到当前 Hook 返回的状态和操作函数。
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
+  // [editForm, 解构得到当前 Hook 返回的状态和操作函数。
   const [editForm, setEditForm] = useState<EditCardForm>({});
+  // [addForm, 解构得到当前 Hook 返回的状态和操作函数。
   const [addForm, setAddForm] = useState<AddCardForm>(emptyAddForm);
 
+  // [typeFilter, 解构得到当前 Hook 返回的状态和操作函数。
   const [typeFilter, setTypeFilter] = useState<Card['type'] | ''>('');
+  // [nameSearch, 解构得到当前 Hook 返回的状态和操作函数。
   const [nameSearch, setNameSearch] = useState('');
   // dataCards 只保留可追加库存的卡密组，并在卡密数据未变化时保持引用稳定。
-  const dataCards = useMemo(() => cards.filter(card => card.type === 'data'), [cards]);
+  const dataCards = useMemo(/* 当前回调处理集合中的单个元素。 */ () => cards.filter(/* 当前回调处理集合中的单个元素。 */ card => card.type === 'data'), [cards]);
+  // batchState 批量发布状态。
   const batchState = useCardBatchActions({ dataCards, loadCards });
 
+  // handleEdit 处理当前用户操作（Edit）。
   const handleEdit = (card: Card) => {
     setSelectedCard(card);
     setEditForm({
@@ -62,6 +74,7 @@ const CardList: React.FC = () => {
     setShowEditModal(true);
   };
 
+  // handleSaveEdit 处理当前用户操作（SaveEdit）。
   const handleSaveEdit = async () => {
     if (!selectedCard) return;
 
@@ -76,6 +89,7 @@ const CardList: React.FC = () => {
     }
 
     try {
+      // updateData 更新当前数据（返回数据）。
       const updateData: Partial<Card> = {
         name: editForm.name.trim(),
         type: editForm.type as any,
@@ -104,24 +118,26 @@ const CardList: React.FC = () => {
       await updateCard(selectedCard.id, updateData);
       setShowEditModal(false);
       await loadCards();
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       console.error('更新卡密失败:', error);
       alert('更新失败，请重试');
     }
   };
 
+  // handleDelete 处理当前用户操作（Delete）。
   const handleDelete = async (id: string | number) => {
     if (confirm('确认删除该卡密吗？')) {
       try {
         await deleteCard(id);
         await loadCards();
-      } catch (error) {
+      } catch (/* error 表示错误。 */ error) {
         console.error('删除卡密失败:', error);
         alert('删除失败，请重试');
       }
     }
   };
 
+  // handleAddCard 处理当前用户操作（Add卡密）。
   const handleAddCard = async () => {
     if (!addForm.name.trim()) {
       alert('请输入卡密名称');
@@ -132,6 +148,7 @@ const CardList: React.FC = () => {
       return;
     }
     try {
+      // payload 请求载荷。
       const payload: Partial<Card> = {
         name: addForm.name.trim(),
         type: addForm.type,
@@ -155,21 +172,23 @@ const CardList: React.FC = () => {
       setShowAddModal(false);
       setAddForm(emptyAddForm());
       await loadCards();
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       console.error('添加卡密失败:', error);
       alert('添加失败，请重试');
     }
   };
 
+  // toggleCardStatus 切换当前状态（卡密状态）。
   const toggleCardStatus = async (card: Card) => {
     try {
       await updateCard(card.id, { ...card, enabled: !card.enabled });
       await loadCards();
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       console.error('切换状态失败:', error);
     }
   };
 
+  // copyCardID 复制卡密标识函数。
   const copyCardID = async (id: string | number) => {
     try {
       await navigator.clipboard.writeText(String(id));
@@ -179,23 +198,31 @@ const CardList: React.FC = () => {
     }
   };
 
+  // filteredCards 过滤后的卡密列表，负责当前功能中的对应处理。
   const filteredCards = useMemo(
-    () => filterCards(cards, typeFilter, nameSearch),
+    /* 当前回调计算并缓存派生数据。 */ () => filterCards(cards, typeFilter, nameSearch),
     [cards, nameSearch, typeFilter],
   );
 
+  // downloadCardTemplate 下载卡密模板函数。
   const downloadCardTemplate = () => {
+    // headers 请求头。
     const headers = ['名称', '类型', '内容', '描述', '启用', '延迟秒', '多规格', '规格名', '规格值'];
+    // rows 行数据。
     const rows = [
       ['VIP月卡', 'data', 'VIP-MONTH-001\nVIP-MONTH-002\nVIP-MONTH-003', '按行消费的卡密队列', '是', '0', '否', '', ''],
       ['感谢文案', 'text', '感谢购买，如有问题联系客服～', '固定文本', '是', '0', '否', '', ''],
       ['教程图', 'image', 'https://cdn.example.com/tutorial.jpg', '图片URL', '是', '0', '否', '', ''],
     ];
+    // csv csv，负责当前功能中的对应处理。
     const csv = [headers, ...rows]
-      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .map(/* 当前回调处理集合中的单个元素。 */ row => row.map(/* 当前回调处理集合中的单个元素。 */ cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
       .join('\n');
+    // blob blob，负责当前功能中的对应处理。
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+    // url 地址。
     const url = URL.createObjectURL(blob);
+    // link 链接。
     const link = document.createElement('a');
     link.href = url;
     link.download = '卡密组批量导入模板.csv';
@@ -221,7 +248,7 @@ const CardList: React.FC = () => {
             批量导入
           </button>
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowAddModal(true)}
             className="ios-btn-primary flex items-center gap-2 px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-transform hover:scale-105 active:scale-95"
         >
           <Plus className="w-5 h-5" />
@@ -238,7 +265,7 @@ const CardList: React.FC = () => {
               <select
                 aria-label="按卡密类型筛选"
                 value={typeFilter}
-                onChange={event => setTypeFilter(event.target.value as Card['type'] | '')}
+                onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setTypeFilter(event.target.value as Card['type'] | '')}
                 className="ios-input w-full rounded-xl border-none bg-white py-2.5 pl-10 pr-9 text-sm shadow-sm"
               >
                 <option value="">全部类型</option>
@@ -255,7 +282,7 @@ const CardList: React.FC = () => {
                 aria-label="按卡密名称搜索"
                 placeholder="搜索卡密名称..."
                 value={nameSearch}
-                onChange={event => setNameSearch(event.target.value)}
+                onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setNameSearch(event.target.value)}
                 className="ios-input w-full rounded-xl border-none bg-white py-2.5 pl-10 pr-4 text-sm shadow-sm"
               />
             </div>
@@ -278,11 +305,12 @@ const CardList: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filteredCards.map((card) => {
+              {filteredCards.map(/* 当前回调处理集合中的单个元素。 */ (card) => {
                 // 计算库存或内容预览
                 let stockInfo = '';
                 if (card.type === 'data' && card.data_content) {
-                  const lines = card.data_content.split('\n').filter(line => line.trim());
+                  // lines 文本行列表。
+                  const lines = card.data_content.split('\n').filter(/* 当前回调处理集合中的单个元素。 */ line => line.trim());
                   stockInfo = `库存: ${lines.length} 条`;
                 } else if (card.type === 'text' && card.text_content) {
                   stockInfo = card.text_content;
@@ -304,7 +332,7 @@ const CardList: React.FC = () => {
                     </td>
                     <td className="px-3 py-5">
                       <button
-                        onClick={() => copyCardID(card.id)}
+                        onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => copyCardID(card.id)}
                         className="inline-flex max-w-full items-center gap-1 rounded-lg bg-gray-100 px-2 py-1.5 font-mono text-[11px] font-extrabold text-gray-700 transition-colors hover:bg-gray-200"
                         title="复制卡密组ID，用于批量铺货表格"
                       >
@@ -339,7 +367,7 @@ const CardList: React.FC = () => {
                     </td>
                     <td className="px-2 py-5">
                       <button
-                        onClick={() => toggleCardStatus(card)}
+                        onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => toggleCardStatus(card)}
                         className={`w-12 h-8 rounded-full relative transition-colors ${
                           card.enabled ? 'bg-green-500' : 'bg-gray-300'
                         }`}
@@ -352,14 +380,14 @@ const CardList: React.FC = () => {
                     <td className="px-3 py-5">
                       <div className="flex items-center justify-end gap-0.5">
                         <button
-                          onClick={() => handleEdit(card)}
+                          onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleEdit(card)}
                           className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-black"
                           title="编辑"
                         >
                           <Edit className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => handleDelete(card.id)}
+                          onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleDelete(card.id)}
                           className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -388,7 +416,7 @@ const CardList: React.FC = () => {
             <div className="modal-header">
               <h3 className="text-2xl font-extrabold text-gray-900">编辑卡密</h3>
               <button
-                onClick={() => setShowEditModal(false)}
+                onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowEditModal(false)}
                 className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
               >
                 <X className="w-5 h-5 text-gray-500" />
@@ -404,7 +432,7 @@ const CardList: React.FC = () => {
                     <input
                       type="text"
                       value={editForm.name || ''}
-                      onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                      onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, name: e.target.value })}
                       className="w-full ios-input px-4 py-3 rounded-xl"
                       placeholder="例如：游戏点卡、会员卡等"
                     />
@@ -413,7 +441,7 @@ const CardList: React.FC = () => {
                     <label className="block text-sm font-bold text-gray-700 mb-2">卡券类型</label>
                     <select
                       value={editForm.type || 'text'}
-                      onChange={(e) => setEditForm({ ...editForm, type: e.target.value as any })}
+                      onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, type: e.target.value as any })}
                       className="w-full ios-input px-4 py-3 rounded-xl"
                     >
                       <option value="">请选择类型</option>
@@ -434,7 +462,7 @@ const CardList: React.FC = () => {
                       <input
                         type="url"
                         value={editForm.api_url || ''}
-                        onChange={(e) => setEditForm({ ...editForm, api_url: e.target.value })}
+                        onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, api_url: e.target.value })}
                         className="w-full ios-input px-4 py-3 rounded-xl font-mono text-sm"
                         placeholder="https://api.example.com/get-card"
                       />
@@ -444,7 +472,7 @@ const CardList: React.FC = () => {
                         <label className="block text-sm font-bold text-gray-700 mb-2">请求方法</label>
                         <select
                           value={editForm.api_method || 'GET'}
-                          onChange={(e) => setEditForm({ ...editForm, api_method: e.target.value as 'GET' | 'POST' })}
+                          onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, api_method: e.target.value as 'GET' | 'POST' })}
                           className="w-full ios-input px-4 py-3 rounded-xl"
                         >
                           <option value="GET">GET</option>
@@ -456,7 +484,7 @@ const CardList: React.FC = () => {
                         <input
                           type="number"
                           value={editForm.api_timeout || 10}
-                          onChange={(e) => setEditForm({ ...editForm, api_timeout: parseInt(e.target.value) || 10 })}
+                          onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, api_timeout: parseInt(e.target.value) || 10 })}
                           className="w-full ios-input px-4 py-3 rounded-xl"
                           min="1"
                           max="60"
@@ -467,7 +495,7 @@ const CardList: React.FC = () => {
                       <label className="block text-sm font-bold text-gray-700 mb-2">请求头（JSON 格式）</label>
                       <textarea
                         value={editForm.api_headers || ''}
-                        onChange={(e) => setEditForm({ ...editForm, api_headers: e.target.value })}
+                        onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, api_headers: e.target.value })}
                         className="w-full ios-input px-4 py-3 rounded-xl h-20 resize-none font-mono text-sm"
                         placeholder='{"Authorization": "Bearer token"}'
                       />
@@ -476,7 +504,7 @@ const CardList: React.FC = () => {
                       <label className="block text-sm font-bold text-gray-700 mb-2">请求参数（JSON 格式）</label>
                       <textarea
                         value={editForm.api_params || ''}
-                        onChange={(e) => setEditForm({ ...editForm, api_params: e.target.value })}
+                        onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, api_params: e.target.value })}
                         className="w-full ios-input px-4 py-3 rounded-xl h-20 resize-none font-mono text-sm"
                         placeholder='{"type": "card", "count": 1}'
                       />
@@ -492,7 +520,7 @@ const CardList: React.FC = () => {
                       <label className="block text-sm font-bold text-gray-700 mb-2">文字内容</label>
                       <textarea
                         value={editForm.text_content || ''}
-                        onChange={(e) => setEditForm({ ...editForm, text_content: e.target.value })}
+                        onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, text_content: e.target.value })}
                         className="w-full ios-input px-4 py-3 rounded-xl h-32 resize-none"
                         placeholder="请输入要发送的固定文字内容..."
                       />
@@ -508,13 +536,13 @@ const CardList: React.FC = () => {
                       <label className="block text-sm font-bold text-gray-700 mb-2">数据内容（一行一个）</label>
                       <textarea
                         value={editForm.data_content || ''}
-                        onChange={(e) => setEditForm({ ...editForm, data_content: e.target.value })}
+                        onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, data_content: e.target.value })}
                         className="w-full ios-input px-4 py-3 rounded-xl h-80 resize-none font-mono text-sm"
                         placeholder="请输入数据，每行一个：&#10;卡号1:密码1&#10;卡号2:密码2&#10;或者&#10;兑换码1&#10;兑换码2"
                       />
                       <p className="text-xs text-gray-500 mt-2">支持格式：卡号:密码 或 单独的兑换码</p>
                       <p className="text-xs text-gray-500">当前库存：<span className="font-bold text-blue-600">
-                        {editForm.data_content ? editForm.data_content.split('\n').filter(line => line.trim()).length : 0}
+                        {editForm.data_content ? editForm.data_content.split('\n').filter(/* 当前回调处理集合中的单个元素。 */ line => line.trim()).length : 0}
                       </span> 条</p>
                     </div>
                   </div>
@@ -529,7 +557,7 @@ const CardList: React.FC = () => {
                       <input
                         type="url"
                         value={editForm.image_url || ''}
-                        onChange={(e) => setEditForm({ ...editForm, image_url: e.target.value })}
+                        onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, image_url: e.target.value })}
                         className="w-full ios-input px-4 py-3 rounded-xl font-mono text-sm"
                         placeholder="https://example.com/image.png"
                       />
@@ -542,7 +570,7 @@ const CardList: React.FC = () => {
                           src={editForm.image_url}
                           alt="预览"
                           className="max-w-full max-h-48 rounded-xl border border-gray-200"
-                          onError={(e) => { e.currentTarget.src = 'https://via.placeholder.com/400x200?text=图片加载失败'; }}
+                          onError={/* 当前回调处理用户交互或异步状态变化。 */ (e) => { e.currentTarget.src = 'https://via.placeholder.com/400x200?text=图片加载失败'; }}
                         />
                       </div>
                     )}
@@ -556,7 +584,7 @@ const CardList: React.FC = () => {
                     <input
                       type="number"
                       value={editForm.delay_seconds || 0}
-                      onChange={(e) => setEditForm({ ...editForm, delay_seconds: parseInt(e.target.value) || 0 })}
+                      onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, delay_seconds: parseInt(e.target.value) || 0 })}
                       className="flex-1 ios-input px-4 py-3 rounded-xl"
                       min="0"
                       max="3600"
@@ -572,7 +600,7 @@ const CardList: React.FC = () => {
                   <label className="block text-sm font-bold text-gray-700 mb-2">备注信息</label>
                   <textarea
                     value={editForm.description || ''}
-                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditForm({ ...editForm, description: e.target.value })}
                     className="w-full ios-input px-4 py-3 rounded-xl h-40 resize-none"
                     placeholder="可选的备注信息"
                   />
@@ -583,7 +611,7 @@ const CardList: React.FC = () => {
                   <span className="font-bold text-gray-900">启用状态</span>
                   <button
                     type="button"
-                    onClick={() => setEditForm({ ...editForm, enabled: !editForm.enabled })}
+                    onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setEditForm({ ...editForm, enabled: !editForm.enabled })}
                     className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${
                       editForm.enabled ? 'bg-brand' : 'bg-gray-300'
                     }`}
@@ -601,7 +629,7 @@ const CardList: React.FC = () => {
             <div className="modal-footer">
               <div className="flex gap-3 w-full">
                 <button
-                  onClick={() => setShowEditModal(false)}
+                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowEditModal(false)}
                   className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
                 >
                   取消
@@ -630,7 +658,7 @@ const CardList: React.FC = () => {
                 <p className="text-sm text-gray-500 mt-1">选择交付方式并录入自动发货内容</p>
               </div>
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowAddModal(false)}
                 className="p-2 rounded-xl hover:bg-gray-100 transition-colors flex-shrink-0"
                 title="关闭"
               >
@@ -645,7 +673,7 @@ const CardList: React.FC = () => {
                   <input
                     type="text"
                     value={addForm.name}
-                    onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
+                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setAddForm({ ...addForm, name: e.target.value })}
                     placeholder="例如：VIP会员卡密"
                     className="w-full ios-input px-4 py-3 rounded-xl"
                   />
@@ -656,7 +684,7 @@ const CardList: React.FC = () => {
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     <button
                       type="button"
-                      onClick={() => setAddForm({ ...addForm, type: 'data', content: '' })}
+                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'data', content: '' })}
                       className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'data' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                     >
                       <CreditCard className="w-5 h-5 mx-auto mb-1" />
@@ -664,7 +692,7 @@ const CardList: React.FC = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setAddForm({ ...addForm, type: 'text', content: '' })}
+                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'text', content: '' })}
                       className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'text' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600'}`}
                     >
                       <FileText className="w-5 h-5 mx-auto mb-1" />
@@ -672,7 +700,7 @@ const CardList: React.FC = () => {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setAddForm({ ...addForm, type: 'image', content: '' })}
+                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAddForm({ ...addForm, type: 'image', content: '' })}
                       className={`p-3 rounded-xl font-bold transition-all ${addForm.type === 'image' ? 'bg-brand text-white' : 'bg-gray-100 text-gray-600'}`}
                     >
                       <ImageIcon className="w-5 h-5 mx-auto mb-1" />
@@ -689,7 +717,7 @@ const CardList: React.FC = () => {
                     <input
                       type="url"
                       value={addForm.content}
-                      onChange={(e) => setAddForm({ ...addForm, content: e.target.value })}
+                      onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setAddForm({ ...addForm, content: e.target.value })}
                       placeholder="https://api.example.com/get-code"
                       className="w-full ios-input px-4 py-3 rounded-xl"
                     />
@@ -697,20 +725,20 @@ const CardList: React.FC = () => {
                     <input
                       type="url"
                       value={addForm.content}
-                      onChange={(e) => setAddForm({ ...addForm, content: e.target.value })}
+                      onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setAddForm({ ...addForm, content: e.target.value })}
                       className="w-full ios-input px-4 py-3 rounded-xl"
                       placeholder="https://example.com/card.png"
                     />
                   ) : (
                     <textarea
                       value={addForm.content}
-                      onChange={(e) => setAddForm({ ...addForm, content: e.target.value })}
+                      onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setAddForm({ ...addForm, content: e.target.value })}
                       className={`w-full ios-input px-4 py-3 rounded-xl resize-none text-sm ${addForm.type === 'data' ? 'h-48 font-mono' : 'h-32'}`}
                       placeholder={addForm.type === 'data' ? 'CODE-123456\nCODE-789012\n...' : '请输入每次发货时发送的固定文字'}
                     />
                   )}
                   {addForm.type === 'data' && (
-                    <p className="text-xs text-gray-500">当前库存：<span className="font-bold text-brand">{addForm.content.split('\n').filter(line => line.trim()).length}</span> 条</p>
+                    <p className="text-xs text-gray-500">当前库存：<span className="font-bold text-brand">{addForm.content.split('\n').filter(/* 当前回调处理集合中的单个元素。 */ line => line.trim()).length}</span> 条</p>
                   )}
                 </div>
 
@@ -719,24 +747,24 @@ const CardList: React.FC = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <label className="block text-sm font-bold text-gray-700">请求方法</label>
-                        <select value={addForm.api_method} onChange={e => setAddForm({...addForm, api_method: e.target.value as 'GET' | 'POST'})} className="w-full ios-input px-4 py-3 rounded-xl">
+                        <select value={addForm.api_method} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setAddForm({...addForm, api_method: e.target.value as 'GET' | 'POST'})} className="w-full ios-input px-4 py-3 rounded-xl">
                           <option value="GET">GET</option>
                           <option value="POST">POST</option>
                         </select>
                       </div>
                       <div className="space-y-2">
                         <label className="block text-sm font-bold text-gray-700">超时时间（秒）</label>
-                        <input type="number" min="1" max="60" value={addForm.api_timeout} onChange={e => setAddForm({...addForm, api_timeout: parseInt(e.target.value) || 10})} className="w-full ios-input px-4 py-3 rounded-xl" />
+                        <input type="number" min="1" max="60" value={addForm.api_timeout} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setAddForm({...addForm, api_timeout: parseInt(e.target.value) || 10})} className="w-full ios-input px-4 py-3 rounded-xl" />
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <label className="block text-sm font-bold text-gray-700">请求头（JSON）</label>
-                        <textarea value={addForm.api_headers} onChange={e => setAddForm({...addForm, api_headers: e.target.value})} className="w-full ios-input px-4 py-3 rounded-xl h-24 resize-none font-mono text-xs" placeholder='{"Authorization":"Bearer token"}' />
+                        <textarea value={addForm.api_headers} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setAddForm({...addForm, api_headers: e.target.value})} className="w-full ios-input px-4 py-3 rounded-xl h-24 resize-none font-mono text-xs" placeholder='{"Authorization":"Bearer token"}' />
                       </div>
                       <div className="space-y-2">
                         <label className="block text-sm font-bold text-gray-700">请求参数（JSON）</label>
-                        <textarea value={addForm.api_params} onChange={e => setAddForm({...addForm, api_params: e.target.value})} className="w-full ios-input px-4 py-3 rounded-xl h-24 resize-none font-mono text-xs" placeholder='{"order_id":"{order_id}"}' />
+                        <textarea value={addForm.api_params} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setAddForm({...addForm, api_params: e.target.value})} className="w-full ios-input px-4 py-3 rounded-xl h-24 resize-none font-mono text-xs" placeholder='{"order_id":"{order_id}"}' />
                       </div>
                     </div>
                   </div>
@@ -745,11 +773,11 @@ const CardList: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-[1fr_180px] gap-4">
                   <div className="space-y-2">
                     <label className="block text-sm font-bold text-gray-700">描述</label>
-                    <input value={addForm.description} onChange={e => setAddForm({...addForm, description: e.target.value})} placeholder="卡密用途描述（可选）" className="w-full ios-input px-4 py-3 rounded-xl" />
+                    <input value={addForm.description} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setAddForm({...addForm, description: e.target.value})} placeholder="卡密用途描述（可选）" className="w-full ios-input px-4 py-3 rounded-xl" />
                   </div>
                   <div className="space-y-2">
                     <label className="block text-sm font-bold text-gray-700">延时发货（秒）</label>
-                    <input type="number" value={addForm.delay_seconds} onChange={e => setAddForm({...addForm, delay_seconds: parseInt(e.target.value) || 0})} className="w-full ios-input px-4 py-3 rounded-xl" min="0" max="3600" />
+                    <input type="number" value={addForm.delay_seconds} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setAddForm({...addForm, delay_seconds: parseInt(e.target.value) || 0})} className="w-full ios-input px-4 py-3 rounded-xl" min="0" max="3600" />
                   </div>
                 </div>
 
@@ -759,7 +787,7 @@ const CardList: React.FC = () => {
             <div className="modal-footer">
               <div className="flex gap-3 w-full">
                 <button
-                  onClick={() => setShowAddModal(false)}
+                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowAddModal(false)}
                   className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
                 >
                   取消

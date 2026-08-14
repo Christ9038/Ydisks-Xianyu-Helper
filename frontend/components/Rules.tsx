@@ -45,15 +45,24 @@ import { finishRuleSubmission, idleRuleSubmitState, startRuleSubmission, type Ru
 
 // Rules 是规则 feature 在旧页面目录下保留的兼容入口组件。
 const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHandled }) => {
+  // [activeTab, 解构得到当前 Hook 返回的状态和操作函数。
   const [activeTab, setActiveTab] = useState<RulesTab>('automation');
+  // [selectedAccountId, 解构得到当前 Hook 返回的状态和操作函数。
   const [selectedAccountId, setSelectedAccountId] = useState('');
+  // [automationSearch, 解构得到当前 Hook 返回的状态和操作函数。
   const [automationSearch, setAutomationSearch] = useState('');
+  // [debouncedAutomationSearch, 解构得到当前 Hook 返回的状态和操作函数。
   const [debouncedAutomationSearch, setDebouncedAutomationSearch] = useState('');
+  // [automationTriggerFilter, 解构得到当前 Hook 返回的状态和操作函数。
   const [automationTriggerFilter, setAutomationTriggerFilter] = useState<AutomationTriggerType | ''>('');
+  // [automationStatusFilter, 解构得到当前 Hook 返回的状态和操作函数。
   const [automationStatusFilter, setAutomationStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
+  // [automationPage, 解构得到当前 Hook 返回的状态和操作函数。
   const [automationPage, setAutomationPage] = useState(1);
+  // [automationPageSize, 解构得到当前 Hook 返回的状态和操作函数。
   const [automationPageSize, setAutomationPageSize] = useState(10);
 
+  // rulesData 规则列表数据，负责当前功能中的对应处理。
   const rulesData = useRulesData({
     activeTab,
     selectedAccountId,
@@ -65,6 +74,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     setSelectedAccountId,
     onAutomationPageChange: setAutomationPage,
   });
+  // 解构数据 解构得到当前 Hook 返回的状态和操作函数。
   const {
     automationRules,
     automationIssues,
@@ -88,8 +98,11 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     refresh,
   } = rulesData;
 
+  // [showAutomationModal, 解构得到当前 Hook 返回的状态和操作函数。
   const [showAutomationModal, setShowAutomationModal] = useState(false);
+  // [showReplyModal, 解构得到当前 Hook 返回的状态和操作函数。
   const [showReplyModal, setShowReplyModal] = useState(false);
+  // [showDefaultModal, 解构得到当前 Hook 返回的状态和操作函数。
   const [showDefaultModal, setShowDefaultModal] = useState(false);
   // automationSubmitState 防止自动化规则保存按钮在请求期间重复提交。
   const [automationSubmitState, setAutomationSubmitState] = useState<RuleSubmitState>(idleRuleSubmitState);
@@ -97,8 +110,11 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
   const [replySubmitState, setReplySubmitState] = useState<RuleSubmitState>(idleRuleSubmitState);
   // defaultReplySubmitState 防止默认回复保存按钮在请求期间重复提交。
   const [defaultReplySubmitState, setDefaultReplySubmitState] = useState<RuleSubmitState>(idleRuleSubmitState);
+  // [editingAutomationRule, 解构得到当前 Hook 返回的状态和操作函数。
   const [editingAutomationRule, setEditingAutomationRule] = useState<Partial<ShippingRule> | null>(null);
+  // [editingReplyRule, 解构得到当前 Hook 返回的状态和操作函数。
   const [editingReplyRule, setEditingReplyRule] = useState<Partial<ReplyRule> | null>(null);
+  // [defaultForm, 解构得到当前 Hook 返回的状态和操作函数。
   const [defaultForm, setDefaultForm] = useState<DefaultReplyForm>({
     cookie_id: '',
     enabled: false,
@@ -106,50 +122,60 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     reply_once: false,
     reply_image_url: '',
   });
-  const selectedAccount = accounts.find(account => account.id === selectedAccountId);
+  // selectedAccount 处理当前选择（ed账号）。
+  const selectedAccount = accounts.find(/* 当前回调处理集合中的单个元素。 */ account => account.id === selectedAccountId);
 
-  useEffect(() => {
-	const timer = window.setTimeout(() => {
+  useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
+	// timer 定时器。
+	const timer = window.setTimeout(/* 当前回调处理用户交互或异步状态变化。 */ () => {
 	  setAutomationPage(1);
 	  setDebouncedAutomationSearch(automationSearch.trim());
 	}, 300);
-	return () => window.clearTimeout(timer);
+	return /* 当前回调处理用户交互或异步状态变化。 */ () => window.clearTimeout(timer);
   }, [automationSearch]);
 
-  useEffect(() => {
-	void loadReferenceData().catch(error => console.error('加载规则参考数据失败', error));
+  useEffect(/* 当前回调处理异步操作结果。 */ () => {
+	void loadReferenceData().catch(/* 当前回调处理异步操作结果。 */ error => console.error('加载规则参考数据失败', error));
   }, [loadReferenceData]);
 
-  useEffect(() => {
-	void refresh().catch(error => console.error('刷新规则页面失败', error));
+  useEffect(/* 当前回调处理异步操作结果。 */ () => {
+	void refresh().catch(/* 当前回调处理异步操作结果。 */ error => console.error('刷新规则页面失败', error));
   }, [refresh]);
 
+  // visibleAutomationRules 可见数据自动化规则列表，负责当前功能中的对应处理。
   const visibleAutomationRules = useMemo(
-    () => automationRules.filter(rule => !selectedAccountId || rule.cookie_id === selectedAccountId),
+    /* 当前回调处理集合中的单个元素。 */ () => automationRules.filter(/* 当前回调处理集合中的单个元素。 */ rule => !selectedAccountId || rule.cookie_id === selectedAccountId),
     [automationRules, selectedAccountId],
   );
 
+  // visibleAutomationIssues 可见数据自动化Issues，负责当前功能中的对应处理。
   const visibleAutomationIssues = useMemo(
-	() => filterAutomationIssues(automationIssues, selectedAccountId),
+	/* 当前回调计算并缓存派生数据。 */ () => filterAutomationIssues(automationIssues, selectedAccountId),
 	[automationIssues, selectedAccountId],
   );
 
+  // visibleDefaultAccounts 可见数据默认账号列表，负责当前功能中的对应处理。
   const visibleDefaultAccounts = useMemo(
-    () => accounts.filter(account => !selectedAccountId || account.id === selectedAccountId),
+    /* 当前回调处理集合中的单个元素。 */ () => accounts.filter(/* 当前回调处理集合中的单个元素。 */ account => !selectedAccountId || account.id === selectedAccountId),
     [accounts, selectedAccountId],
   );
 
-  const automationPageNumbers = useMemo(() => {
+  // automationPageNumbers 自动化页码Numbers，负责当前功能中的对应处理。
+  const automationPageNumbers = useMemo(/* 当前回调计算并缓存派生数据。 */ () => {
 	if (automationTotalPages <= 1) return [];
+	// first 首项。
 	const first = Math.max(1, Math.min(automationPage - 2, automationTotalPages - 4));
+	// last last，负责当前功能中的对应处理。
 	const last = Math.min(automationTotalPages, first + 4);
-	return Array.from({ length: last - first + 1 }, (_, index) => first + index);
+	return Array.from({ length: last - first + 1 }, /* 当前回调处理用户交互或异步状态变化。 */ (_, index) => first + index);
   }, [automationPage, automationTotalPages]);
 
+  // hasAutomationListFilters has自动化列表Filters，负责当前功能中的对应处理。
   const hasAutomationListFilters = Boolean(
 	automationSearch.trim() || automationTriggerFilter || automationStatusFilter !== 'all',
   );
 
+  // clearAutomationListFilters 清理自动化列表Filters，负责当前功能中的对应处理。
   const clearAutomationListFilters = () => {
 	setAutomationSearch('');
 	setDebouncedAutomationSearch('');
@@ -158,27 +184,37 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 	setAutomationPage(1);
   };
 
-  const modalAccountItems = useMemo(() => {
+  // modalAccountItems modal账号商品列表，负责当前功能中的对应处理。
+  const modalAccountItems = useMemo(/* 当前回调计算并缓存派生数据。 */ () => {
+    // cookieID 账号凭证标识。
     const cookieID = editingAutomationRule?.cookie_id || selectedAccountId;
-    return items.filter(item => item.cookie_id === cookieID);
+    return items.filter(/* 当前回调处理集合中的单个元素。 */ item => item.cookie_id === cookieID);
   }, [editingAutomationRule?.cookie_id, items, selectedAccountId]);
 
-  const selectedRuleItem = useMemo(() => {
+  // selectedRuleItem 处理当前选择（ed规则商品）。
+  const selectedRuleItem = useMemo(/* 当前回调计算并缓存派生数据。 */ () => {
     if (!editingAutomationRule?.cookie_id || !editingAutomationRule?.item_id) return undefined;
-    return items.find(item => item.cookie_id === editingAutomationRule.cookie_id && item.item_id === editingAutomationRule.item_id);
+    return items.find(/* 当前回调处理集合中的单个元素。 */ item => item.cookie_id === editingAutomationRule.cookie_id && item.item_id === editingAutomationRule.item_id);
   }, [editingAutomationRule?.cookie_id, editingAutomationRule?.item_id, items]);
 
+  // isMultiSpecRule isMultiSpec规则，负责当前功能中的对应处理。
   const isMultiSpecRule = boolFlag(selectedRuleItem?.is_multi_spec);
+  // currentTrigger 当前触发条件。
   const currentTrigger = (editingAutomationRule?.trigger_type || 'order_paid') as AutomationTriggerType;
+  // currentMeta 当前触发元数据。
   const currentMeta = triggerMeta[currentTrigger];
+  // reviewConfig 评价配置。
   const reviewConfig = parseJSONObject(editingAutomationRule?.config_json);
 
-  const buildAutomationDraft = useCallback((
+  // buildAutomationDraft 构建自动化Draft，负责当前功能中的对应处理。
+  const buildAutomationDraft = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ (
     trigger: AutomationTriggerType = 'order_paid',
     cookieID = selectedAccountId,
     itemID = '',
   ): Partial<ShippingRule> => {
-    const item = items.find(candidate => candidate.cookie_id === cookieID && candidate.item_id === itemID);
+    // item 商品。
+    const item = items.find(/* 当前回调处理集合中的单个元素。 */ candidate => candidate.cookie_id === cookieID && candidate.item_id === itemID);
+    // itemLabel 商品标签，负责当前功能中的对应处理。
     const itemLabel = item?.item_title || itemID;
     return {
       name: defaultRuleName(trigger, itemLabel),
@@ -196,31 +232,36 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     };
   }, [items, selectedAccountId]);
 
-  const openAutomationRule = useCallback((rule: ShippingRule) => {
+  // openAutomationRule 打开当前界面（自动化规则）。
+  const openAutomationRule = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ (rule: ShippingRule) => {
+    // trigger 触发条件。
     const trigger = (rule.trigger_type || 'order_paid') as AutomationTriggerType;
     setEditingAutomationRule({
       ...rule,
       trigger_type: trigger,
       config_json: trigger === 'review_missing_timeout' ? buildReviewConfig(rule.config_json) : (rule.config_json || '{}'),
-      actions: rule.actions?.length ? rule.actions.map(action => ({ ...action })) : cardActionsForTrigger(trigger, rule.card_group_id),
-      variants: rule.variants?.length ? rule.variants.map(variant => ({ ...variant })) : (trigger === 'review_missing_timeout' ? [] : [emptyVariant()]),
+      actions: rule.actions?.length ? rule.actions.map(/* 当前回调处理集合中的单个元素。 */ action => ({ ...action })) : cardActionsForTrigger(trigger, rule.card_group_id),
+      variants: rule.variants?.length ? rule.variants.map(/* 当前回调处理集合中的单个元素。 */ variant => ({ ...variant })) : (trigger === 'review_missing_timeout' ? [] : [emptyVariant()]),
     });
     setShowAutomationModal(true);
   }, []);
 
-  useEffect(() => {
+  useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
     if (!initialDeliveryTarget) return;
+    // cancelled 取消当前操作（led）。
     let cancelled = false;
 
+    // openLinkedRule 打开当前界面（Linked规则）。
     const openLinkedRule = async () => {
       setActiveTab('automation');
       setSelectedAccountId(initialDeliveryTarget.cookieId);
       setLoading(true);
       try {
+        // [ruleList, 解构得到当前 Hook 返回的状态和操作函数。
         const [ruleList, itemList, cardList] = await Promise.all([
           getShippingRules(),
           getItems(),
-          getCards().catch(error => {
+          getCards().catch(/* 当前回调处理异步操作结果。 */ error => {
             console.warn('加载卡密库存失败，不阻断打开自动化规则', error);
             return [];
           }),
@@ -229,7 +270,8 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
         setAutomationRules(ruleList);
         setItems(itemList);
         setCards(cardList);
-        const rule = ruleList.find(candidate =>
+        // rule 规则。
+        const rule = ruleList.find(/* 当前回调处理集合中的单个元素。 */ candidate =>
           candidate.cookie_id === initialDeliveryTarget.cookieId &&
           candidate.item_id === initialDeliveryTarget.itemId &&
           candidate.trigger_type === 'order_paid'
@@ -237,7 +279,8 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
         if (rule) {
           openAutomationRule(rule);
         } else {
-          const item = itemList.find(candidate =>
+          // item 商品。
+          const item = itemList.find(/* 当前回调处理集合中的单个元素。 */ candidate =>
             candidate.cookie_id === initialDeliveryTarget.cookieId &&
             candidate.item_id === initialDeliveryTarget.itemId
           );
@@ -249,7 +292,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
           });
           setShowAutomationModal(true);
         }
-      } catch (error) {
+      } catch (/* error 表示错误。 */ error) {
         console.error('打开商品自动化规则失败', error);
         alert('无法加载该商品的自动化规则');
       } finally {
@@ -261,9 +304,10 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     };
 
     void openLinkedRule();
-    return () => { cancelled = true; };
+    return /* 当前回调处理用户交互或异步状态变化。 */ () => { cancelled = true; };
   }, [buildAutomationDraft, initialDeliveryTarget, onDeliveryTargetHandled, openAutomationRule]);
 
+  // openNewAutomationRule 打开当前界面（New自动化规则）。
   const openNewAutomationRule = (trigger: AutomationTriggerType = 'order_paid') => {
     if (!selectedAccountId) {
       alert('请先选择账号');
@@ -273,13 +317,16 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     setShowAutomationModal(true);
   };
 
+  // handleTriggerChange 处理当前用户操作（触发条件Change）。
   const handleTriggerChange = (trigger: AutomationTriggerType) => {
     if (!editingAutomationRule) return;
+    // currentCardID 当前卡密组标识。
     const currentCardID =
-      editingAutomationRule.variants?.find(variant => variant.card_id)?.card_id ||
-      editingAutomationRule.actions?.find(action => action.action_type === 'send_card')?.card_id ||
+      editingAutomationRule.variants?.find(/* 当前回调处理集合中的单个元素。 */ variant => variant.card_id)?.card_id ||
+      editingAutomationRule.actions?.find(/* 当前回调处理集合中的单个元素。 */ action => action.action_type === 'send_card')?.card_id ||
       editingAutomationRule.card_group_id ||
       0;
+    // itemLabel 商品标签，负责当前功能中的对应处理。
     const itemLabel = selectedRuleItem?.item_title || editingAutomationRule.item_title || editingAutomationRule.item_id || '';
     setEditingAutomationRule({
       ...editingAutomationRule,
@@ -296,12 +343,15 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     });
   };
 
+  // handleAutomationItemChange 处理当前用户操作（自动化商品Change）。
   const handleAutomationItemChange = (itemID: string) => {
     if (!editingAutomationRule) return;
-    const item = items.find(candidate =>
+    // item 商品。
+    const item = items.find(/* 当前回调处理集合中的单个元素。 */ candidate =>
       candidate.cookie_id === (editingAutomationRule.cookie_id || selectedAccountId) &&
       candidate.item_id === itemID
     );
+    // itemLabel 商品标签，负责当前功能中的对应处理。
     const itemLabel = item?.item_title || itemID;
     setEditingAutomationRule({
       ...editingAutomationRule,
@@ -314,13 +364,16 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     });
   };
 
+  // displayVariants 展示规格列表。
   const displayVariants = editingAutomationRule?.variants?.length
     ? editingAutomationRule.variants
     : [emptyVariant()];
 
+  // updateVariant 更新当前数据（Variant）。
   const updateVariant = (index: number, patch: Partial<ShippingVariant>) => {
     if (!editingAutomationRule) return;
-    const next = displayVariants.map((variant, variantIndex) =>
+    // next 下一项。
+    const next = displayVariants.map(/* 当前回调处理集合中的单个元素。 */ (variant, variantIndex) =>
       variantIndex === index ? { ...variant, ...patch } : variant
     );
     setEditingAutomationRule({
@@ -330,8 +383,10 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     });
   };
 
+  // appendDeliveryContent 追加发货内容。
   const appendDeliveryContent = () => {
     if (!editingAutomationRule) return;
+    // previous 上一项。
     const previous = displayVariants[displayVariants.length - 1];
     setEditingAutomationRule({
       ...editingAutomationRule,
@@ -346,37 +401,42 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     });
   };
 
+  // handleSaveAutomationRule 处理当前用户操作（Save自动化规则）。
   const handleSaveAutomationRule = async () => {
     if (!editingAutomationRule || automationSubmitState.submitting) return;
+    // trigger 触发条件。
     const trigger = (editingAutomationRule.trigger_type || 'order_paid') as AutomationTriggerType;
     if (!editingAutomationRule.cookie_id) {
       alert('请选择账号');
       return;
     }
 
+    // variants 规格列表。
     const variants = editingAutomationRule.variants?.length ? editingAutomationRule.variants : [];
     if (trigger !== 'review_missing_timeout') {
-      if (!variants.length || variants.some(variant => !variant.card_id)) {
+      if (!variants.length || variants.some(/* 当前回调处理集合中的单个元素。 */ variant => !variant.card_id)) {
         alert(trigger === 'buyer_reviewed' ? '请选择评价赠品卡密库存' : '请选择发货卡密库存');
         return;
       }
-      if (isMultiSpecRule && variants.some(variant => !variant.spec_name.trim() || !variant.spec_value.trim())) {
+      if (isMultiSpecRule && variants.some(/* 当前回调处理集合中的单个元素。 */ variant => !variant.spec_name.trim() || !variant.spec_value.trim())) {
         alert('多规格商品必须填写每一行的规格名称和规格值');
         return;
       }
     }
 
     if (trigger === 'review_missing_timeout') {
-      const text = editingAutomationRule.actions?.find(action => action.action_type === 'send_text')?.message_template || '';
+      // text 文本。
+      const text = editingAutomationRule.actions?.find(/* 当前回调处理集合中的单个元素。 */ action => action.action_type === 'send_text')?.message_template || '';
       if (!text.trim()) {
         alert('请填写求评价文案');
         return;
       }
     }
 
+    // saveVariants 保存当前数据（Variants）。
     const saveVariants = trigger === 'review_missing_timeout'
       ? []
-      : variants.map(variant => ({
+      : variants.map(variant => ({/* 当前回调处理集合中的单个元素。 */
         ...variant,
         spec_name: isMultiSpecRule ? variant.spec_name.trim() : '',
         spec_value: isMultiSpecRule ? variant.spec_value.trim() : '',
@@ -385,6 +445,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       }));
 
     setAutomationSubmitState(startRuleSubmission(automationSubmitState));
+    // succeeded 是否成功。
     let succeeded = false;
     try {
       await updateShippingRule({
@@ -404,35 +465,39 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       await Promise.all([loadAutomationRules(), loadReferenceData()]);
       alert('保存成功');
       succeeded = true;
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       console.error('保存自动化规则失败:', error);
       alert('保存失败：' + (error as Error).message);
     } finally {
-      setAutomationSubmitState(current => finishRuleSubmission(current, succeeded));
+      setAutomationSubmitState(/* 当前回调处理用户交互或异步状态变化。 */ current => finishRuleSubmission(current, succeeded));
     }
   };
 
+  // handleDeleteAutomation 处理当前用户操作（Delete自动化）。
   const handleDeleteAutomation = async (id: string) => {
     if (!confirm('确定删除该自动化规则吗？')) return;
     try {
       await deleteShippingRule(id);
       await loadAutomationRules();
       alert('删除成功');
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       alert('删除失败：' + (error as Error).message);
     }
   };
 
+  // handleToggleAutomation 处理当前用户操作（Toggle自动化）。
   const handleToggleAutomation = async (rule: ShippingRule) => {
     try {
       await updateShippingRule({ ...rule, enabled: !rule.enabled });
       await loadAutomationRules();
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       alert('操作失败：' + (error as Error).message);
     }
   };
 
+  // handleResolveRunIssue 处理当前用户操作（ResolveRun问题）。
   const handleResolveRunIssue = async (id: number, resolution: 'continue' | 'retry' | 'cancel') => {
+    // prompt 提示文案。
     const prompt = resolution === 'continue'
       ? '确认外部动作已经执行成功，并跳到下一步吗？'
       : resolution === 'retry'
@@ -442,21 +507,23 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     try {
       await resolveAutomationRun(id, resolution);
       await loadAutomationRules();
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       alert('处理失败：' + (error as Error).message);
     }
   };
 
+  // handleResolveDeferredIssue 处理当前用户操作（ResolveDeferred问题）。
   const handleResolveDeferredIssue = async (id: number, resolution: 'retry' | 'dismiss') => {
     if (!confirm(resolution === 'retry' ? '确认重新执行该任务吗？' : '确认忽略并删除该异常任务吗？')) return;
     try {
       await resolveDeferredAutomationTask(id, resolution);
       await loadAutomationRules();
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       alert('处理失败：' + (error as Error).message);
     }
   };
 
+  // handleAddReplyRule 处理当前用户操作（Add回复规则）。
   const handleAddReplyRule = () => {
     if (!selectedAccountId) {
       alert('请先选择账号');
@@ -474,8 +541,10 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     setShowReplyModal(true);
   };
 
+  // handleSaveReplyRule 处理当前用户操作（Save回复规则）。
   const handleSaveReplyRule = async () => {
     if (!editingReplyRule || !selectedAccountId || replySubmitState.submitting) return;
+    // hasReplyContent 是否包含回复内容。
     const hasReplyContent = editingReplyRule.type === 'image'
       ? Boolean(editingReplyRule.image_url?.trim())
       : Boolean(editingReplyRule.reply_content?.trim());
@@ -484,6 +553,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       return;
     }
     setReplySubmitState(startRuleSubmission(replySubmitState));
+    // succeeded 是否成功。
     let succeeded = false;
     try {
       await updateReplyRule({ ...editingReplyRule, match_type: 'fuzzy', enabled: true }, selectedAccountId);
@@ -491,30 +561,33 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       await loadReplyRules();
       alert('保存成功');
       succeeded = true;
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       alert('保存失败：' + (error as Error).message);
     } finally {
-      setReplySubmitState(current => finishRuleSubmission(current, succeeded));
+      setReplySubmitState(/* 当前回调处理用户交互或异步状态变化。 */ current => finishRuleSubmission(current, succeeded));
     }
   };
 
+  // handleDeleteReply 处理当前用户操作（Delete回复）。
   const handleDeleteReply = async (id: string) => {
     if (!selectedAccountId || !confirm('确定删除该回复规则吗？')) return;
     try {
       await deleteReplyRule(id, selectedAccountId);
       await loadReplyRules();
       alert('删除成功');
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       alert('删除失败：' + (error as Error).message);
     }
   };
 
+  // openDefaultReplyModal 打开当前界面（Default回复Modal）。
   const openDefaultReplyModal = async (cookieID = selectedAccountId) => {
     if (!cookieID) {
       alert('请先选择账号');
       return;
     }
     try {
+      // data 数据。
       const data = await getDefaultReply(cookieID);
       setDefaultForm({
         cookie_id: cookieID,
@@ -535,6 +608,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     setShowDefaultModal(true);
   };
 
+  // handleSaveDefaultReply 处理当前用户操作（SaveDefault回复）。
   const handleSaveDefaultReply = async () => {
     if (defaultReplySubmitState.submitting) return;
     if (!defaultForm.cookie_id) {
@@ -546,6 +620,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       return;
     }
     setDefaultReplySubmitState(startRuleSubmission(defaultReplySubmitState));
+    // succeeded 是否成功。
     let succeeded = false;
     try {
       await updateDefaultReply(defaultForm.cookie_id, {
@@ -558,34 +633,37 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       await loadDefaultReplies();
       alert('保存成功');
       succeeded = true;
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       alert('保存失败：' + (error as Error).message);
     } finally {
-      setDefaultReplySubmitState(current => finishRuleSubmission(current, succeeded));
+      setDefaultReplySubmitState(/* 当前回调处理用户交互或异步状态变化。 */ current => finishRuleSubmission(current, succeeded));
     }
   };
 
+  // handleDeleteDefaultReply 处理当前用户操作（DeleteDefault回复）。
   const handleDeleteDefaultReply = async (cookieID: string) => {
     if (!confirm('确定删除该账号默认回复吗？')) return;
     try {
       await deleteDefaultReply(cookieID);
       await loadDefaultReplies();
       alert('删除成功');
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       alert('删除失败：' + (error as Error).message);
     }
   };
 
+  // handleClearDefaultReplyRecords 处理当前用户操作（ClearDefault回复Records）。
   const handleClearDefaultReplyRecords = async (cookieID: string) => {
     if (!confirm('确定清空该账号的默认回复记录吗？清空后可重新对所有会话使用“只回复一次”。')) return;
     try {
       await clearDefaultReplyRecords(cookieID);
       alert('清空成功');
-    } catch (error) {
+    } catch (/* error 表示错误。 */ error) {
       alert('清空失败：' + (error as Error).message);
     }
   };
 
+  // primaryActionLabel 主操作按钮文案。
   const primaryActionLabel = activeTab === 'automation'
     ? '新建自动化'
     : activeTab === 'reply'
@@ -602,14 +680,14 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
         <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3">
           <select
             value={selectedAccountId}
-            onChange={event => {
+            onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => {
 			  setSelectedAccountId(event.target.value);
 			  setAutomationPage(1);
 			}}
             className="ios-input w-full px-4 py-3 rounded-2xl text-sm sm:w-64"
           >
             <option value="">全部账号</option>
-            {accounts.map(account => (
+            {accounts.map(/* 当前回调处理集合中的单个元素。 */ account => (
               <option key={account.id} value={account.id}>{accountLabel(account)}</option>
             ))}
           </select>
@@ -621,7 +699,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
             刷新
           </button>
           <button
-            onClick={activeTab === 'automation' ? () => openNewAutomationRule('order_paid') : activeTab === 'reply' ? handleAddReplyRule : () => void openDefaultReplyModal()}
+            onClick={activeTab === 'automation' ? /* 当前回调处理用户交互或异步状态变化。 */ () => openNewAutomationRule('order_paid') : activeTab === 'reply' ? handleAddReplyRule : /* 当前回调处理用户交互或异步状态变化。 */ () => void openDefaultReplyModal()}
             disabled={!selectedAccountId}
             className="ios-btn-primary px-5 py-3 rounded-2xl text-sm font-extrabold flex items-center justify-center gap-2 whitespace-nowrap disabled:opacity-50"
           >
@@ -636,12 +714,13 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
           { id: 'automation' as const, label: '交易自动化', icon: Zap },
           { id: 'reply' as const, label: '关键词回复', icon: MessageCircle },
           { id: 'default' as const, label: '账号默认回复', icon: Bot },
-        ].map(tab => {
+        ].map(/* 当前回调处理用户交互或异步状态变化。 */ tab => {
+          // Icon 渲染Icon React 组件。
           const Icon = tab.icon;
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setActiveTab(tab.id)}
               className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
                 activeTab === tab.id
                   ? 'bg-brand text-white shadow-md'
@@ -659,8 +738,8 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 	    <AutomationIssuePanel
 	      runs={visibleAutomationIssues.runs}
 	      pendingTasks={visibleAutomationIssues.pending_tasks}
-	      onResolveRun={(id, resolution) => void handleResolveRunIssue(id, resolution)}
-	      onResolveDeferredTask={(id, resolution) => void handleResolveDeferredIssue(id, resolution)}
+	      onResolveRun={/* 当前回调处理用户交互或异步状态变化。 */ (id, resolution) => void handleResolveRunIssue(id, resolution)}
+	      onResolveDeferredTask={/* 当前回调处理用户交互或异步状态变化。 */ (id, resolution) => void handleResolveDeferredIssue(id, resolution)}
 	    />
 	  )}
 
@@ -671,14 +750,16 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
               <h3 className="font-black text-gray-900 mb-1">新建规则</h3>
               <p className="text-sm text-gray-500 mb-4">先选自动化类型，再配置对应动作。</p>
               <div className="space-y-3">
-                {triggerOrder.map(trigger => {
+                {triggerOrder.map(/* 当前回调处理集合中的单个元素。 */ trigger => {
+                  // meta 元数据。
                   const meta = triggerMeta[trigger];
+                  // Icon 渲染Icon React 组件。
                   const Icon = meta.icon;
                   return (
                     <button
                       key={trigger}
                       type="button"
-                      onClick={() => openNewAutomationRule(trigger)}
+                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => openNewAutomationRule(trigger)}
                       className={`w-full text-left rounded-2xl border p-4 transition-colors ${accentClasses(meta.accent)}`}
                     >
                       <div className="flex items-start gap-3">
@@ -702,8 +783,10 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 				<span className="text-xs font-bold text-gray-400">共 {automationTotal} 条</span>
 			  </div>
               <div className="space-y-3">
-                {triggerOrder.map(trigger => {
+                {triggerOrder.map(/* 当前回调处理集合中的单个元素。 */ trigger => {
+                  // meta 元数据。
                   const meta = triggerMeta[trigger];
+                  // Icon 渲染Icon React 组件。
                   const Icon = meta.icon;
                   return (
                     <div key={trigger} className="flex items-center justify-between rounded-2xl bg-gray-50 p-3">
@@ -729,7 +812,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 					aria-label="搜索自动化规则"
 					placeholder="搜索规则名、商品名或商品 ID..."
 					value={automationSearch}
-					onChange={event => {
+					onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => {
 					  setAutomationSearch(event.target.value);
 					  setAutomationPage(1);
 					}}
@@ -741,20 +824,20 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 				  <select
 					aria-label="按自动化类型筛选"
 					value={automationTriggerFilter}
-					onChange={event => {
+					onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => {
 					  setAutomationTriggerFilter(event.target.value as AutomationTriggerType | '');
 					  setAutomationPage(1);
 					}}
 					className="ios-input w-full rounded-xl border-none bg-white py-2.5 pl-10 pr-9 text-sm shadow-sm"
 				  >
 					<option value="">全部自动化类型</option>
-					{triggerOrder.map(trigger => <option key={trigger} value={trigger}>{triggerMeta[trigger].shortLabel}</option>)}
+					{triggerOrder.map(/* 当前回调处理集合中的单个元素。 */ trigger => <option key={trigger} value={trigger}>{triggerMeta[trigger].shortLabel}</option>)}
 				  </select>
 				</div>
 				<select
 				  aria-label="按启用状态筛选"
 				  value={automationStatusFilter}
-				  onChange={event => {
+				  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => {
 					setAutomationStatusFilter(event.target.value as 'all' | 'enabled' | 'disabled');
 					setAutomationPage(1);
 				  }}
@@ -794,8 +877,10 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 				<p className="text-gray-500 mt-2">{hasAutomationListFilters ? '调整或清除筛选条件后再试。' : '从左侧选择一个模板开始配置。'}</p>
 			  </div>
 			) : (
-			  visibleAutomationRules.map(rule => {
+			  visibleAutomationRules.map(/* 当前回调处理集合中的单个元素。 */ rule => {
+                // meta 元数据。
                 const meta = triggerMeta[rule.trigger_type];
+                // Icon 渲染Icon React 组件。
                 const Icon = meta.icon;
                 return (
                   <article key={rule.id} className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm hover:shadow-lg transition-all">
@@ -821,20 +906,20 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 
                       <div className="flex items-center gap-2 shrink-0">
                         <button
-                          onClick={() => openAutomationRule(rule)}
+                          onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => openAutomationRule(rule)}
                           className="px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-bold flex items-center gap-2"
                         >
                           <Edit className="w-4 h-4" />
                           编辑
                         </button>
                         <button
-                          onClick={() => handleToggleAutomation(rule)}
+                          onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleToggleAutomation(rule)}
                           className={`px-4 py-2 rounded-xl text-sm font-bold ${rule.enabled ? 'bg-amber-50 text-amber-700 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
                         >
                           {rule.enabled ? '禁用' : '启用'}
                         </button>
                         <button
-                          onClick={() => handleDeleteAutomation(rule.id)}
+                          onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleDeleteAutomation(rule.id)}
                           className="p-2.5 rounded-xl text-red-500 hover:bg-red-50"
                           title="删除"
                         >
@@ -856,13 +941,13 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 					<span className="sr-only">每页显示数量</span>
 					<select
 					  value={automationPageSize}
-					  onChange={event => {
+					  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => {
 						setAutomationPageSize(Number(event.target.value));
 						setAutomationPage(1);
 					  }}
 					  className="ios-input rounded-lg border-none bg-gray-50 px-2.5 py-2 text-sm"
 					>
-					  {[10, 20, 50].map(size => <option key={size} value={size}>{size} 条/页</option>)}
+					  {[10, 20, 50].map(/* 当前回调处理集合中的单个元素。 */ size => <option key={size} value={size}>{size} 条/页</option>)}
 					</select>
 				  </label>
 				</div>
@@ -870,19 +955,19 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 				  <button
 					type="button"
 					disabled={automationPage <= 1 || loading}
-					onClick={() => setAutomationPage(page => Math.max(1, page - 1))}
+					onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAutomationPage(/* 当前回调处理用户交互或异步状态变化。 */ page => Math.max(1, page - 1))}
 					className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-50 text-gray-600 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
 					aria-label="上一页"
 					title="上一页"
 				  >
 					<ChevronLeft className="h-4 w-4" />
 				  </button>
-				  {automationPageNumbers.map(pageNumber => (
+				  {automationPageNumbers.map(/* 当前回调处理集合中的单个元素。 */ pageNumber => (
 					<button
 					  key={pageNumber}
 					  type="button"
 					  disabled={loading}
-					  onClick={() => setAutomationPage(pageNumber)}
+					  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAutomationPage(pageNumber)}
 					  className={`h-9 min-w-9 rounded-lg px-2 text-sm font-bold transition-colors ${pageNumber === automationPage ? 'bg-brand text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'} disabled:cursor-not-allowed disabled:opacity-60`}
 					  aria-label={`第 ${pageNumber} 页`}
 					  aria-current={pageNumber === automationPage ? 'page' : undefined}
@@ -893,7 +978,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 				  <button
 					type="button"
 					disabled={automationPage >= automationTotalPages || loading}
-					onClick={() => setAutomationPage(page => Math.min(automationTotalPages, page + 1))}
+					onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAutomationPage(/* 当前回调处理用户交互或异步状态变化。 */ page => Math.min(automationTotalPages, page + 1))}
 					className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-50 text-gray-600 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
 					aria-label="下一页"
 					title="下一页"
@@ -914,7 +999,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
             这里只处理买家用户消息；系统通知不会进入关键词或 AI 回复。
           </div>
           <div className="space-y-3">
-            {replyRules.map(rule => (
+            {replyRules.map(/* 当前回调处理集合中的单个元素。 */ rule => (
               <div key={rule.id} className="flex flex-col md:flex-row md:items-center justify-between p-5 rounded-2xl border border-gray-100 bg-surface-subtle hover:bg-white hover:shadow-lg transition-all gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-2">
@@ -927,7 +1012,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                 </div>
                 <div className="flex items-center gap-3 border-t md:border-t-0 md:border-l border-gray-200 pt-4 md:pt-0 md:pl-6">
                   <button
-                    onClick={() => {
+                    onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => {
                       setEditingReplyRule({ ...rule });
                       setShowReplyModal(true);
                     }}
@@ -936,7 +1021,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                   >
                     <Edit className="w-4 h-4" />
                   </button>
-                  <button onClick={() => handleDeleteReply(rule.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors" title="删除">
+                  <button onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleDeleteReply(rule.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors" title="删除">
                     <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
@@ -954,8 +1039,10 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
             默认回复只处理买家用户消息；关键词未命中且 AI 未接管时才会使用。
           </div>
           <div className="space-y-3">
-            {visibleDefaultAccounts.map(account => {
+            {visibleDefaultAccounts.map(/* 当前回调处理集合中的单个元素。 */ account => {
+              // defaultReply 默认Reply，负责当前功能中的对应处理。
               const defaultReply = defaultReplies[account.id];
+              // enabled 启用状态。
               const enabled = Boolean(defaultReply?.enabled);
               return (
                 <div key={account.id} className={`flex flex-col md:flex-row md:items-center justify-between p-5 rounded-2xl border transition-all gap-4 ${enabled ? 'border-purple-100 bg-purple-50/50 hover:bg-white hover:shadow-lg' : 'border-gray-100 bg-surface-subtle hover:bg-white hover:shadow-lg'}`}>
@@ -980,7 +1067,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                   </div>
                   <div className="flex items-center gap-3 border-t md:border-t-0 md:border-l border-gray-200 pt-4 md:pt-0 md:pl-6">
                     <button
-                      onClick={() => void openDefaultReplyModal(account.id)}
+                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void openDefaultReplyModal(account.id)}
                       className="p-2 text-gray-400 hover:text-black hover:bg-gray-100 rounded-xl transition-colors"
                       title="编辑"
                     >
@@ -989,12 +1076,12 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                     {enabled && (
                       <>
                         <button
-                          onClick={() => void handleClearDefaultReplyRecords(account.id)}
+                          onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void handleClearDefaultReplyRecords(account.id)}
                           className="px-3 py-2 text-xs font-bold text-blue-600 hover:bg-blue-50 rounded-xl transition-colors"
                         >
                           清空记录
                         </button>
-                        <button onClick={() => void handleDeleteDefaultReply(account.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors" title="删除">
+                        <button onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void handleDeleteDefaultReply(account.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors" title="删除">
                           <Trash2 className="w-5 h-5" />
                         </button>
                       </>
@@ -1017,7 +1104,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                 <p className="text-sm text-gray-500 mt-1">{currentMeta.description}</p>
               </div>
               <button
-                onClick={() => setShowAutomationModal(false)}
+                onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowAutomationModal(false)}
                 className="w-10 h-10 rounded-2xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
                 title="关闭"
               >
@@ -1029,15 +1116,18 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
               <aside className="bg-slate-900 text-white p-5 overflow-y-auto">
                 <div className="text-xs font-bold text-slate-400 mb-3">选择自动化类型</div>
                 <div className="space-y-3">
-                  {triggerOrder.map(trigger => {
+                  {triggerOrder.map(/* 当前回调处理集合中的单个元素。 */ trigger => {
+                    // meta 元数据。
                     const meta = triggerMeta[trigger];
+                    // Icon 渲染Icon React 组件。
                     const Icon = meta.icon;
+                    // selected 处理当前选择（ed）。
                     const selected = currentTrigger === trigger;
                     return (
                       <button
                         key={trigger}
                         type="button"
-                        onClick={() => handleTriggerChange(trigger)}
+                        onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleTriggerChange(trigger)}
                         className={`w-full rounded-2xl p-4 text-left border transition-all ${
                           selected ? 'bg-white text-slate-950 border-white' : 'bg-white/5 text-white border-white/10 hover:bg-white/10'
                         }`}
@@ -1057,7 +1147,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                 <div className="mt-6 rounded-2xl bg-white/5 border border-white/10 p-4">
                   <div className="text-xs font-bold text-slate-400 mb-3">执行流程</div>
                   <div className="space-y-3">
-                    {currentMeta.flow.map((step, index) => (
+                    {currentMeta.flow.map(/* 当前回调处理集合中的单个元素。 */ (step, index) => (
                       <div key={step} className="flex items-center gap-3">
                         <div className="w-6 h-6 rounded-full bg-white text-slate-950 text-xs font-black flex items-center justify-center">{index + 1}</div>
                         <span className="text-sm font-bold text-gray-100">{step}</span>
@@ -1080,7 +1170,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                         <input
                           type="text"
                           value={editingAutomationRule.name || ''}
-                          onChange={event => setEditingAutomationRule({ ...editingAutomationRule, name: event.target.value })}
+                          onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingAutomationRule({ ...editingAutomationRule, name: event.target.value })}
                           placeholder="不填时按类型和商品自动生成"
                           className="w-full ios-input px-4 py-3 rounded-xl"
                         />
@@ -1089,7 +1179,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                         <label className="block text-sm font-bold text-gray-700 mb-2">闲鱼账号</label>
                         <select
                           value={editingAutomationRule.cookie_id || ''}
-                          onChange={event => setEditingAutomationRule({
+                          onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingAutomationRule({
                             ...editingAutomationRule,
                             cookie_id: event.target.value,
                             item_id: '',
@@ -1099,7 +1189,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                           className="w-full ios-input px-4 py-3 rounded-xl"
                         >
                           <option value="">选择账号</option>
-                          {accounts.map(account => (
+                          {accounts.map(/* 当前回调处理集合中的单个元素。 */ account => (
                             <option key={account.id} value={account.id}>{accountLabel(account)}</option>
                           ))}
                         </select>
@@ -1108,11 +1198,11 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                         <label className="block text-sm font-bold text-gray-700 mb-2">关联商品</label>
                         <select
                           value={editingAutomationRule.item_id || ''}
-                          onChange={event => handleAutomationItemChange(event.target.value)}
+                          onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => handleAutomationItemChange(event.target.value)}
                           className="w-full ios-input px-4 py-3 rounded-xl"
                         >
                           <option value="">账号级规则（不限定商品）</option>
-                          {modalAccountItems.map(item => (
+                          {modalAccountItems.map(/* 当前回调处理集合中的单个元素。 */ item => (
                             <option key={`${item.cookie_id}-${item.item_id}`} value={item.item_id}>{item.item_title || item.item_id}</option>
                           ))}
                         </select>
@@ -1160,7 +1250,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                       </div>
 
                       <div className="space-y-3">
-                        {displayVariants.map((variant, index) => (
+                        {displayVariants.map((variant, index) => (/* 当前回调处理集合中的单个元素。 */
                           <div
                             key={variant.id || index}
                             className={`grid grid-cols-1 gap-3 items-end rounded-2xl border border-gray-200 p-4 ${isMultiSpecRule ? 'md:grid-cols-[1fr_1fr_1.4fr_110px_40px]' : 'md:grid-cols-[1.4fr_110px_40px]'}`}
@@ -1171,7 +1261,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                   <label className="block text-xs font-bold text-gray-600 mb-2">规格名称</label>
                                   <input
                                     value={variant.spec_name}
-                                    onChange={event => updateVariant(index, { spec_name: event.target.value })}
+                                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => updateVariant(index, { spec_name: event.target.value })}
                                     className="w-full ios-input px-3 py-2.5 rounded-lg"
                                     placeholder="例如：套餐"
                                   />
@@ -1180,7 +1270,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                   <label className="block text-xs font-bold text-gray-600 mb-2">规格值</label>
                                   <input
                                     value={variant.spec_value}
-                                    onChange={event => updateVariant(index, { spec_value: event.target.value })}
+                                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => updateVariant(index, { spec_value: event.target.value })}
                                     className="w-full ios-input px-3 py-2.5 rounded-lg"
                                     placeholder="例如：30天"
                                   />
@@ -1191,11 +1281,11 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                               <label className="block text-xs font-bold text-gray-600 mb-2">卡密库存</label>
                               <select
                                 value={variant.card_id || ''}
-                                onChange={event => updateVariant(index, { card_id: Number(event.target.value) })}
+                                onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => updateVariant(index, { card_id: Number(event.target.value) })}
                                 className="w-full ios-input px-3 py-2.5 rounded-lg"
                               >
                                 <option value="">请选择卡密库存</option>
-                                {cards.filter(card => card.enabled && card.type !== 'api').map(card => (
+                                {cards.filter(/* 当前回调处理集合中的单个元素。 */ card => card.enabled && card.type !== 'api').map(/* 当前回调处理集合中的单个元素。 */ card => (
                                   <option key={card.id} value={card.id}>{card.name}</option>
                                 ))}
                               </select>
@@ -1207,7 +1297,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                 min="1"
                                 max="100"
                                 value={variant.delivery_count}
-                                onChange={event => updateVariant(index, { delivery_count: Math.max(1, Number(event.target.value) || 1) })}
+                                onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => updateVariant(index, { delivery_count: Math.max(1, Number(event.target.value) || 1) })}
                                 className="w-full ios-input px-3 py-2.5 rounded-lg"
                               />
                             </div>
@@ -1216,7 +1306,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                 <input
                                   type="checkbox"
                                   checked={variant.delay_override === true}
-                                  onChange={event => updateVariant(index, { delay_override: event.target.checked })}
+                                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => updateVariant(index, { delay_override: event.target.checked })}
                                   className="accent-brand"
                                 />
                                 覆盖卡密默认延时
@@ -1227,7 +1317,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                                   min="0"
                                   max="3600"
                                   value={variant.delay_seconds || 0}
-                                  onChange={event => updateVariant(index, { delay_seconds: Math.max(0, Number(event.target.value) || 0) })}
+                                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => updateVariant(index, { delay_seconds: Math.max(0, Number(event.target.value) || 0) })}
                                   className="w-28 ios-input px-2 py-1.5 rounded-lg text-xs"
                                   aria-label="动作延时秒数"
                                 />
@@ -1237,9 +1327,9 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                             <button
                               type="button"
                               disabled={displayVariants.length === 1}
-                              onClick={() => setEditingAutomationRule({
+                              onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setEditingAutomationRule({
                                 ...editingAutomationRule,
-                                variants: displayVariants.filter((_, variantIndex) => variantIndex !== index),
+                                variants: displayVariants.filter(/* 当前回调处理集合中的单个元素。 */ (_, variantIndex) => variantIndex !== index),
                               })}
                               className="w-10 h-10 flex items-center justify-center rounded-lg text-red-500 hover:bg-red-50 disabled:opacity-25"
                               title="删除发货内容"
@@ -1263,7 +1353,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                             type="number"
                             min="1"
                             value={Number(reviewConfig.after_shipped_hours || 72)}
-                            onChange={event => setEditingAutomationRule({
+                            onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingAutomationRule({
                               ...editingAutomationRule,
                               config_json: buildReviewConfig(editingAutomationRule.config_json, {
                                 after_shipped_hours: Math.max(1, Number(event.target.value) || 72),
@@ -1278,7 +1368,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                             type="number"
                             min="1"
                             value={Number(reviewConfig.repeat_interval_hours || 24)}
-                            onChange={event => setEditingAutomationRule({
+                            onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingAutomationRule({
                               ...editingAutomationRule,
                               config_json: buildReviewConfig(editingAutomationRule.config_json, {
                                 repeat_interval_hours: Math.max(1, Number(event.target.value) || 24),
@@ -1293,7 +1383,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                             type="number"
                             min="1"
                             value={Number(reviewConfig.max_attempts || 1)}
-                            onChange={event => setEditingAutomationRule({
+                            onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingAutomationRule({
                               ...editingAutomationRule,
                               config_json: buildReviewConfig(editingAutomationRule.config_json, {
                                 max_attempts: Math.max(1, Number(event.target.value) || 1),
@@ -1305,10 +1395,10 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                         <div className="md:col-span-3">
                           <label className="block text-sm font-bold text-gray-700 mb-2">求评价文案</label>
                           <textarea
-                            value={editingAutomationRule.actions?.find(action => action.action_type === 'send_text')?.message_template || ''}
-                            onChange={event => setEditingAutomationRule({
+                            value={editingAutomationRule.actions?.find(/* 当前回调处理集合中的单个元素。 */ action => action.action_type === 'send_text')?.message_template || ''}
+                            onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingAutomationRule({
                               ...editingAutomationRule,
-                              actions: (editingAutomationRule.actions?.length ? editingAutomationRule.actions : cardActionsForTrigger('review_missing_timeout')).map(action =>
+                              actions: (editingAutomationRule.actions?.length ? editingAutomationRule.actions : cardActionsForTrigger('review_missing_timeout')).map(/* 当前回调处理用户交互或异步状态变化。 */ action =>
                                 action.action_type === 'send_text' ? { ...action, message_template: event.target.value } : action
                               ),
                             })}
@@ -1327,7 +1417,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                         <input
                           type="number"
                           value={editingAutomationRule.priority || 100}
-                          onChange={event => setEditingAutomationRule({ ...editingAutomationRule, priority: Number(event.target.value) || 100 })}
+                          onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingAutomationRule({ ...editingAutomationRule, priority: Number(event.target.value) || 100 })}
                           min="1"
                           className="w-full ios-input px-4 py-3 rounded-xl"
                         />
@@ -1336,7 +1426,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                         <input
                           type="checkbox"
                           checked={editingAutomationRule.enabled !== false}
-                          onChange={event => setEditingAutomationRule({ ...editingAutomationRule, enabled: event.target.checked })}
+                          onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingAutomationRule({ ...editingAutomationRule, enabled: event.target.checked })}
                           className="w-4 h-4 rounded"
                         />
                         启用规则
@@ -1348,7 +1438,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
             </div>
 
             <div className="px-6 py-4 border-t border-gray-100 bg-white flex gap-3">
-              <button onClick={() => setShowAutomationModal(false)} className="flex-1 px-6 py-3 rounded-2xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200">
+              <button onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowAutomationModal(false)} className="flex-1 px-6 py-3 rounded-2xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200">
                 取消
               </button>
               <button onClick={handleSaveAutomationRule} className="flex-1 ios-btn-primary px-6 py-3 rounded-2xl font-bold flex items-center justify-center gap-2">
@@ -1370,7 +1460,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                   {editingReplyRule.id ? '编辑回复规则' : '新增回复规则'}
                 </h3>
                 <button
-                  onClick={() => setShowReplyModal(false)}
+                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowReplyModal(false)}
                   className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
                 >
                   <X className="w-5 h-5 text-gray-600" />
@@ -1384,11 +1474,11 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                   <label className="block text-sm font-bold text-gray-700 mb-2">关联商品</label>
                   <select
                     value={editingReplyRule.item_id || ''}
-                    onChange={event => setEditingReplyRule({ ...editingReplyRule, item_id: event.target.value })}
+                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingReplyRule({ ...editingReplyRule, item_id: event.target.value })}
                     className="w-full ios-input px-4 py-3 rounded-xl"
                   >
                     <option value="">账号级回复</option>
-                    {items.filter(item => !selectedAccountId || item.cookie_id === selectedAccountId).map(item => (
+                    {items.filter(/* 当前回调处理集合中的单个元素。 */ item => !selectedAccountId || item.cookie_id === selectedAccountId).map(/* 当前回调处理集合中的单个元素。 */ item => (
                       <option key={`${item.cookie_id}-${item.item_id}`} value={item.item_id}>{item.item_title || item.item_id}</option>
                     ))}
                   </select>
@@ -1397,7 +1487,8 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                   <label className="block text-sm font-bold text-gray-700 mb-2">回复类型</label>
                   <select
                     value={editingReplyRule.type || 'text'}
-                    onChange={event => {
+                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => {
+                      // type 类型。
                       const type = event.target.value as 'text' | 'image';
                       setEditingReplyRule({
                         ...editingReplyRule,
@@ -1418,7 +1509,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                 <input
                   type="text"
                   value={editingReplyRule.keyword || ''}
-                  onChange={event => setEditingReplyRule({ ...editingReplyRule, keyword: event.target.value })}
+                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingReplyRule({ ...editingReplyRule, keyword: event.target.value })}
                   placeholder="买家发送的关键词"
                   className="w-full ios-input px-4 py-3 rounded-xl"
                 />
@@ -1429,7 +1520,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                   <label className="block text-sm font-bold text-gray-700 mb-2">图片 URL</label>
                   <input
                     value={editingReplyRule.image_url || ''}
-                    onChange={event => setEditingReplyRule({ ...editingReplyRule, image_url: event.target.value })}
+                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingReplyRule({ ...editingReplyRule, image_url: event.target.value })}
                     placeholder="https://..."
                     className="w-full ios-input px-4 py-3 rounded-xl"
                   />
@@ -1439,7 +1530,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                   <label className="block text-sm font-bold text-gray-700 mb-2">回复内容</label>
                   <textarea
                     value={editingReplyRule.reply_content || ''}
-                    onChange={event => setEditingReplyRule({ ...editingReplyRule, reply_content: event.target.value })}
+                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setEditingReplyRule({ ...editingReplyRule, reply_content: event.target.value })}
                     placeholder="自动回复的内容"
                     className="w-full ios-input px-4 py-3 rounded-xl h-32 resize-none"
                   />
@@ -1448,7 +1539,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
 
               <div className="flex gap-3 pt-4">
                 <button
-                  onClick={() => setShowReplyModal(false)}
+                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowReplyModal(false)}
                   className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
                 >
                   取消
@@ -1477,7 +1568,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                   <p className="text-sm text-gray-500 mt-1">关键词和 AI 都未处理时，才会使用默认回复。</p>
                 </div>
                 <button
-                  onClick={() => setShowDefaultModal(false)}
+                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowDefaultModal(false)}
                   className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
                   title="关闭"
                 >
@@ -1491,11 +1582,11 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                 <label className="block text-sm font-bold text-gray-700 mb-2">闲鱼账号</label>
                 <select
                   value={defaultForm.cookie_id}
-                  onChange={event => setDefaultForm({ ...defaultForm, cookie_id: event.target.value })}
+                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setDefaultForm({ ...defaultForm, cookie_id: event.target.value })}
                   className="w-full ios-input px-4 py-3 rounded-xl"
                 >
                   <option value="">选择账号</option>
-                  {accounts.map(account => (
+                  {accounts.map(/* 当前回调处理集合中的单个元素。 */ account => (
                     <option key={account.id} value={account.id}>{accountLabel(account)}</option>
                   ))}
                 </select>
@@ -1508,7 +1599,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                 </div>
                 <button
                   type="button"
-                  onClick={() => setDefaultForm({ ...defaultForm, enabled: !defaultForm.enabled })}
+                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setDefaultForm({ ...defaultForm, enabled: !defaultForm.enabled })}
                   className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${defaultForm.enabled ? 'bg-brand' : 'bg-gray-300'}`}
                 >
                   <span className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 block ${defaultForm.enabled ? 'translate-x-7' : 'translate-x-1'}`} />
@@ -1519,7 +1610,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                 <label className="block text-sm font-bold text-gray-700 mb-2">回复内容</label>
                 <textarea
                   value={defaultForm.reply_content}
-                  onChange={event => setDefaultForm({ ...defaultForm, reply_content: event.target.value })}
+                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setDefaultForm({ ...defaultForm, reply_content: event.target.value })}
                   placeholder="输入默认回复内容"
                   className="w-full ios-input px-4 py-3 rounded-xl h-32 resize-none"
                 />
@@ -1530,7 +1621,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                 <input
                   type="text"
                   value={defaultForm.reply_image_url}
-                  onChange={event => setDefaultForm({ ...defaultForm, reply_image_url: event.target.value })}
+                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setDefaultForm({ ...defaultForm, reply_image_url: event.target.value })}
                   placeholder="https://example.com/image.jpg"
                   className="w-full ios-input px-4 py-3 rounded-xl"
                 />
@@ -1544,14 +1635,14 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                 <input
                   type="checkbox"
                   checked={defaultForm.reply_once}
-                  onChange={event => setDefaultForm({ ...defaultForm, reply_once: event.target.checked })}
+                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setDefaultForm({ ...defaultForm, reply_once: event.target.checked })}
                   className="w-4 h-4 rounded"
                 />
               </label>
 
               <div className="flex gap-3 pt-4">
                 <button
-                  onClick={() => setShowDefaultModal(false)}
+                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowDefaultModal(false)}
                   className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
                 >
                   取消

@@ -9,33 +9,36 @@ import type { BuildInfo } from '../app/features/system/types';
 
 // SidebarProps 描述侧边栏所需的导航和会话回调。
 interface SidebarProps {
-  activeTab: string;
-  isAdmin?: boolean;
-  collapsed: boolean;
-  onToggleCollapsed: () => void;
-  onNavigate: (tab: string) => void;
-  onLogout: () => void;
+  /** activeTab 表示当前Tab。 */ activeTab: string;
+  /** isAdmin 表示当前用户是否为管理员。 */ isAdmin?: boolean;
+  /** collapsed 表示侧边栏是否折叠。 */ collapsed: boolean;
+  /** onToggleCollapsed 表示切换侧边栏折叠状态的回调。 */ onToggleCollapsed: () => void;
+  /** onNavigate 表示切换主导航页面的回调。 */ onNavigate: (tab: string) => void;
+  /** onLogout 表示注销当前会话的回调。 */ onLogout: () => void;
 }
 
+// Sidebar 渲染侧边栏导航组件。
 const Sidebar: React.FC<SidebarProps> = ({
   activeTab, isAdmin = false, collapsed, onToggleCollapsed, onNavigate, onLogout,
 }) => {
+  // [buildInfo, 解构得到当前 Hook 返回的状态和操作函数。
   const [buildInfo, setBuildInfo] = useState<BuildInfo>({ version: 'dev', commit: 'unknown' });
 
-  useEffect(() => {
+  useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
     // controller 控制健康检查请求的取消。
     const controller = new AbortController();
     getHealth({ signal: controller.signal })
-      .then(data => setBuildInfo({
+      .then(/* 当前回调处理异步操作结果。 */ data => setBuildInfo({
         version: String(data.version || 'dev'),
         commit: String(data.commit || 'unknown'),
       }))
-      .catch(error => {
+      .catch(/* 当前回调处理异步操作结果。 */ error => {
         if (error instanceof DOMException && error.name === 'AbortError') return;
       });
-    return () => controller.abort();
+    return /* 当前回调处理用户交互或异步状态变化。 */ () => controller.abort();
   }, []);
 
+  // menuItems 侧边栏菜单项。
   const menuItems = [
     { id: 'dashboard', icon: LayoutDashboard, label: '仪表盘' },
     { id: 'accounts', icon: Users, label: '账号管理' },
@@ -47,6 +50,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { id: 'notifications', icon: Bell, label: '通知设置' },
     ...(isAdmin ? [{ id: 'settings', icon: Settings, label: '系统与AI' }] : []),
   ];
+  // displayVersion 显示版本号。
   const displayVersion = /^\d+\.\d+\.\d+$/.test(buildInfo.version)
     ? `v${buildInfo.version}`
     : buildInfo.version;
@@ -64,8 +68,10 @@ const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       <nav className={`flex-1 space-y-1.5 overflow-y-auto pt-5 ${collapsed ? 'px-2' : 'px-3'}`} aria-label="主导航">
-        {menuItems.map((item) => {
+        {menuItems.map(/* 当前回调处理集合中的单个元素。 */ (item) => {
+          // Icon 渲染Icon React 组件。
           const Icon = item.icon;
+          // active 当前状态。
           const active = activeTab === item.id;
           return (
             <React.Fragment key={item.id}>
@@ -74,7 +80,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               title={collapsed ? item.label : undefined}
               aria-label={item.label}
               aria-current={active ? 'page' : undefined}
-              onClick={() => onNavigate(item.id)}
+              onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => onNavigate(item.id)}
               className={`group relative flex h-11 w-full items-center rounded-xl transition-colors ${collapsed ? 'justify-center' : 'gap-3 px-3.5'} ${
                 active
                   ? 'bg-brand text-white shadow-brand-active'

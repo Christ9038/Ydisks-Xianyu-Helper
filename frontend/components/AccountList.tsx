@@ -24,6 +24,7 @@ import { useAccountSubmodules, type AccountModalType } from '../app/features/acc
 import { accountRuntimePresentation } from '../app/features/accounts/runtime';
 import type { AccountEditForm } from '../app/features/accounts/types';
 
+// AccountList 渲染账号列表组件。
 const AccountList: React.FC = () => {
   // accountData 保存账号列表及其加载控制器。
   const { accounts, setAccounts, loading, loadAccounts } = useAccountsData();
@@ -148,16 +149,16 @@ const AccountList: React.FC = () => {
   // scheduleQRModalClose 在登录成功后延迟关闭二维码弹窗。
   const scheduleQRModalClose = () => {
     clearQRCloseTimer();
-    qrCloseTimerRef.current = window.setTimeout(() => {
+    qrCloseTimerRef.current = window.setTimeout(/* 当前回调处理用户交互或异步状态变化。 */ () => {
       qrCloseTimerRef.current = null;
       setShowQRModal(false);
       loadAccounts();
     }, 1000);
   };
 
-  useEffect(() => {
+  useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
     // 页面卸载时取消二维码、通知绑定、AI 设置和密码登录的异步资源。
-    return () => {
+    return /* 当前回调处理用户交互或异步状态变化。 */ () => {
       stopQRPolling();
       qrRequestGateRef.current?.cancel();
       qrGenerateAbortRef.current?.abort();
@@ -194,9 +195,9 @@ const AccountList: React.FC = () => {
     setDeleteError('');
     try {
       await deleteAccount(account.id);
-      setAccounts(current => current.filter(item => item.id !== account.id));
+      setAccounts(/* 当前回调处理集合中的单个元素。 */ current => current.filter(/* 当前回调处理集合中的单个元素。 */ item => item.id !== account.id));
       setDeleteDialogAccount(null);
-    } catch (error: any) {
+    } catch (/* error 表示错误。 */ error: any) {
       console.error('删除账号失败:', error);
       setDeleteError(error?.message || '删除账号失败，请稍后重试');
     } finally {
@@ -214,7 +215,7 @@ const AccountList: React.FC = () => {
         alert('资料刷新失败：' + res.profile_error);
       }
       await loadAccounts();
-    } catch (error: any) {
+    } catch (/* error 表示错误。 */ error: any) {
       console.error('刷新账号资料失败:', error);
       alert(error?.message || '刷新账号资料失败，请先重新授权该账号');
     } finally {
@@ -264,14 +265,15 @@ const AccountList: React.FC = () => {
         setQrStatus('waiting');
 
         qrPollerRef.current?.start(generatedSessionID, checkQRLoginStatus, {
-          onSuccess: async () => {
+          onSuccess: /* 当前回调处理用户交互或异步状态变化。 */ async () => {
             try {
+              // accountId 账号标识，负责当前功能中的对应处理。
               const accountId = await completeAndPersistQRSession(generatedSessionID, targetAccount);
               if (!accountId) {
                 setQrStatus('error');
                 return;
               }
-            } catch (e) {
+            } catch (/* e 表示e。 */ e) {
               console.error('保存扫码授权失败', e);
               setQrStatus('error');
               return;
@@ -279,17 +281,17 @@ const AccountList: React.FC = () => {
             setQrStatus('success');
             scheduleQRModalClose();
           },
-          onScanned: () => {
+          onScanned: /* 当前回调处理用户交互或异步状态变化。 */ () => {
             setQrStatus('waiting'); // 已扫描，继续等待确认
           },
-          onTerminalError: () => {
+          onTerminalError: /* 当前回调处理用户交互或异步状态变化。 */ () => {
             setQrStatus('error');
           },
-          onPollError: (error) => {
+          onPollError: /* 当前回调处理用户交互或异步状态变化。 */ (error) => {
             console.error('轮询扫码状态失败', error);
             setQrStatus('error');
           },
-          onVerificationRequired: (statusRes) => {
+          onVerificationRequired: /* 当前回调处理用户交互或异步状态变化。 */ (statusRes) => {
             setQrStatus('verification');
             if (statusRes.face_qr_url) {
               setFaceQrUrl(statusRes.face_qr_url);
@@ -300,7 +302,7 @@ const AccountList: React.FC = () => {
           },
         });
       }
-    } catch (e) {
+    } catch (/* e 表示e。 */ e) {
       if (!qrRequestGateRef.current?.isCurrent(requestGeneration)) return;
       setQrErrorMessage(e instanceof Error ? e.message : '二维码获取失败，请稍后重试');
       setQrStatus('error');
@@ -311,7 +313,9 @@ const AccountList: React.FC = () => {
 
   if (loading) return <div className="p-20 flex justify-center"><Loader2 className="w-8 h-8 text-brand animate-spin"/></div>;
 
-  const filteredAccounts = accounts.filter(account => {
+  // filteredAccounts 过滤后的账号列表，负责当前功能中的对应处理。
+  const filteredAccounts = accounts.filter(/* 当前回调处理集合中的单个元素。 */ account => {
+    // keyword 搜索关键词。
     const keyword = accountSearch.trim().toLowerCase();
     if (!keyword) return true;
     return [
@@ -320,7 +324,7 @@ const AccountList: React.FC = () => {
       account.remark,
       account.username,
       account.runtime_message,
-    ].some(value => (value || '').toLowerCase().includes(keyword));
+    ].some(/* 当前回调处理用户交互或异步状态变化。 */ value => (value || '').toLowerCase().includes(keyword));
   });
 
   return (
@@ -333,12 +337,12 @@ const AccountList: React.FC = () => {
         <div className="flex flex-col sm:flex-row gap-3">
           <input
             value={accountSearch}
-            onChange={event => setAccountSearch(event.target.value)}
+            onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setAccountSearch(event.target.value)}
             placeholder="搜索昵称 / 备注 / 账号ID"
             className="ios-input px-4 py-3 rounded-2xl text-sm w-full sm:w-72"
           />
           <button
-            onClick={() => startQRLogin()}
+            onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => startQRLogin()}
             className="ios-btn-primary flex items-center gap-2 px-6 py-3 rounded-2xl font-bold shadow-lg shadow-blue-200 transition-transform hover:scale-105 active:scale-95"
           >
             <QrCode className="w-5 h-5" />
@@ -354,8 +358,10 @@ const AccountList: React.FC = () => {
 
       {/* Account Grid */}
       <div className="grid grid-cols-1 gap-6">
-        {filteredAccounts.map((account) => {
+        {filteredAccounts.map(/* 当前回调处理集合中的单个元素。 */ (account) => {
+          // runtime 运行状态。
           const runtime = accountRuntimePresentation(account);
+          // requiresLogin 是否需要重新登录。
           const requiresLogin = account.runtime_state === 'auth_expired' || account.runtime_state === 'verification_required';
           return (
           <div key={account.id} className="ios-card rounded-xl p-6 group transition-all duration-300 hover:border-brand">
@@ -417,7 +423,7 @@ const AccountList: React.FC = () => {
                     {requiresLogin && (
                       <button
                         type="button"
-                        onClick={() => startQRLogin(account)}
+                        onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => startQRLogin(account)}
                         className="inline-flex items-center gap-1.5 rounded-lg bg-red-50 px-2.5 py-1 text-xs font-bold text-red-700 hover:bg-red-100"
                       >
                         <QrCode className="w-3.5 h-3.5" /> 重新授权
@@ -428,7 +434,7 @@ const AccountList: React.FC = () => {
                   {account.paused && <span className="flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700"><Clock className="h-3 w-3" /> 暂停处理中</span>}
                 <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
                 <button
-                    onClick={() => handleRefreshProfile(account)}
+                    onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleRefreshProfile(account)}
                     disabled={refreshingProfileId === account.id}
                     className="p-3 rounded-xl transition-colors text-gray-600 hover:bg-gray-100 disabled:opacity-50"
                     title="刷新昵称和头像"
@@ -436,42 +442,42 @@ const AccountList: React.FC = () => {
                     <RefreshCw className={`w-5 h-5 ${refreshingProfileId === account.id ? 'animate-spin' : ''}`} />
                 </button>
                 <button
-                    onClick={() => startQRLogin(account)}
+                    onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => startQRLogin(account)}
                     className={`p-3 rounded-xl transition-colors ${requiresLogin ? 'text-red-600 bg-red-50 hover:bg-red-100' : 'text-blue-600 hover:bg-blue-50'}`}
                     title="重新扫码授权当前账号"
                 >
                     <QrCode className="w-5 h-5" />
                 </button>
                 <button
-                    onClick={() => openEditModal(account)}
+                    onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => openEditModal(account)}
                     className="p-3 rounded-xl hover:bg-gray-100 transition-colors text-gray-600"
                     title="编辑账号"
                 >
                     <Edit2 className="w-5 h-5" />
                 </button>
                 <button
-                    onClick={() => openAIModal(account)}
+                    onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => openAIModal(account)}
                     className="p-3 rounded-xl hover:bg-purple-100 transition-colors text-purple-600"
                     title="AI设置"
                 >
                     <Bot className="w-5 h-5" />
                 </button>
                 <button
-                    onClick={() => setTaskAccount(account)}
+                    onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setTaskAccount(account)}
                     className="p-3 rounded-xl hover:bg-amber-100 transition-colors text-amber-600"
                     title="自动评价与每日擦亮"
                 >
                     <CalendarClock className="w-5 h-5" />
                 </button>
                 <button
-                    onClick={() => handleToggle(account.id, account.enabled)}
+                    onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleToggle(account.id, account.enabled)}
                   className={`p-3 rounded-xl transition-colors ${account.enabled ? 'text-green-600 hover:bg-green-50' : 'text-gray-400 hover:bg-gray-100'}`}
                   title={account.enabled ? '停用账号' : '启用账号'}
                 >
                     <Power className="w-5 h-5" />
                 </button>
                 <button
-                    onClick={() => openDeleteDialog(account)}
+                    onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => openDeleteDialog(account)}
                     disabled={deletingAccountId !== ''}
                     className="p-3 rounded-xl hover:bg-red-100 transition-colors text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
                     title={deletingAccountId === account.id ? '删除中…' : `删除账号 ${account.nickname || account.remark || account.id}`}
@@ -507,9 +513,9 @@ const AccountList: React.FC = () => {
       {taskAccount && createPortal(
         <AccountAutomationModal
           account={taskAccount}
-          onClose={() => setTaskAccount(null)}
-          onSaved={settings => {
-            setAccounts(current => current.map(account => account.id === taskAccount.id ? {
+          onClose={/* 当前回调处理用户交互或异步状态变化。 */ () => setTaskAccount(null)}
+          onSaved={/* 当前回调处理集合中的单个元素。 */ settings => {
+            setAccounts(/* 当前回调处理集合中的单个元素。 */ current => current.map(/* 当前回调处理集合中的单个元素。 */ account => account.id === taskAccount.id ? {
               ...account,
               auto_rate_enabled: settings.auto_rate_enabled,
               rate_content: settings.rate_content,
@@ -607,7 +613,7 @@ const AccountList: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => void confirmDeleteAccount()}
+                onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void confirmDeleteAccount()}
                 disabled={deletingAccountId !== ''}
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-3 text-sm font-extrabold text-white shadow-lg shadow-red-200 transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-400"
               >
@@ -695,9 +701,9 @@ const AccountList: React.FC = () => {
           bindingsLoaded={bindingsLoaded}
           bindingsLoading={bindingsLoading}
           bindingsLoadError={bindingsLoadError}
-          onRetryBindings={() => loadNotificationBindings(editingAccount.id)}
+          onRetryBindings={/* 当前回调处理用户交互或异步状态变化。 */ () => loadNotificationBindings(editingAccount.id)}
           onToggleChannel={toggleNotificationChannel}
-          onSettingsDirty={() => setBindingsDirty(true)}
+          onSettingsDirty={/* 当前回调处理用户交互或异步状态变化。 */ () => setBindingsDirty(true)}
         />
       )}
 
@@ -734,7 +740,7 @@ const AccountList: React.FC = () => {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setAiSettings({ ...aiSettings, ai_enabled: !aiSettings.ai_enabled })}
+                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setAiSettings({ ...aiSettings, ai_enabled: !aiSettings.ai_enabled })}
                   className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${
                     aiSettings.ai_enabled ? 'bg-brand' : 'bg-gray-300'
                   }`}
@@ -756,7 +762,7 @@ const AccountList: React.FC = () => {
                     <input
                       type="number"
                       value={aiSettings.max_discount_percent}
-                      onChange={(e) => setAiSettings({ ...aiSettings, max_discount_percent: parseInt(e.target.value) || 0 })}
+                      onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setAiSettings({ ...aiSettings, max_discount_percent: parseInt(e.target.value) || 0 })}
                       className="w-full ios-input px-4 py-3 rounded-xl"
                       min="0"
                       max="100"
@@ -768,7 +774,7 @@ const AccountList: React.FC = () => {
                     <input
                       type="number"
                       value={aiSettings.max_discount_amount}
-                      onChange={(e) => setAiSettings({ ...aiSettings, max_discount_amount: parseInt(e.target.value) || 0 })}
+                      onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setAiSettings({ ...aiSettings, max_discount_amount: parseInt(e.target.value) || 0 })}
                       className="w-full ios-input px-4 py-3 rounded-xl"
                       min="0"
                     />
@@ -779,7 +785,7 @@ const AccountList: React.FC = () => {
                     <input
                       type="number"
                       value={aiSettings.max_bargain_rounds}
-                      onChange={(e) => setAiSettings({ ...aiSettings, max_bargain_rounds: parseInt(e.target.value) || 1 })}
+                      onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setAiSettings({ ...aiSettings, max_bargain_rounds: parseInt(e.target.value) || 1 })}
                       className="w-full ios-input px-4 py-3 rounded-xl"
                       min="1"
                       max="10"
@@ -794,7 +800,7 @@ const AccountList: React.FC = () => {
                 <label className="block text-sm font-bold text-gray-700 mb-2">自定义提示词（可选）</label>
                 <textarea
                   value={aiSettings.custom_prompts}
-                  onChange={(e) => setAiSettings({ ...aiSettings, custom_prompts: e.target.value })}
+                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setAiSettings({ ...aiSettings, custom_prompts: e.target.value })}
                   placeholder="输入自定义的AI回复规则或风格指引...&#10;&#10;例如：回复时保持礼貌专业、使用简洁的语言、强调产品质量等"
                   className="w-full ios-input px-4 py-3 rounded-xl h-40 resize-none"
                 />

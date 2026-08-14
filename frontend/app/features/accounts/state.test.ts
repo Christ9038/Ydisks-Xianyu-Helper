@@ -29,7 +29,9 @@ test('账号切换后只接受当前请求代次和账号的响应',
 test('编辑子模块共享同一账号边界，旧绑定、AI 和密码登录响应全部失效',
   // 三类异步子模块都使用相同的代次与账号判定，防止旧弹窗响应污染新账号。
   () => {
+    // currentGeneration 当前请求代次，负责当前功能中的对应处理。
     const currentGeneration = 4;
+    // currentAccountId 当前账号标识，负责当前功能中的对应处理。
     const currentAccountId = 'account-4';
     expect(isCurrentAccountRequest(3, currentGeneration, 'account-3', currentAccountId)).toBe(false);
     expect(isCurrentAccountRequest(currentGeneration, currentGeneration, currentAccountId, currentAccountId)).toBe(true);

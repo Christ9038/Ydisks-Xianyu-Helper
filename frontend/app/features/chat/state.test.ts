@@ -21,6 +21,7 @@ test('Chat 会话筛选和历史消息合并保持账号内顺序',
 test('Chat 实时消息替换同键记录并拒绝过期请求',
   // 请求边界测试验证实时回执不会产生重复消息，切换会话后的旧请求不能写入。
   () => {
+    // controller 请求取消控制器。
     const controller = new AbortController();
     expect(mergeLiveMessage([messageFixture], { ...messageFixture, content: '新消息' })[0].content).toBe('新消息');
     expect(isCurrentChatRequest(3, 3, controller.signal)).toBe(true);

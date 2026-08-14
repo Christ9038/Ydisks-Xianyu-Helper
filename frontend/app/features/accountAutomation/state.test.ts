@@ -16,6 +16,7 @@ test('账号任务默认设置继承账号配置并保持安全文案',
 test('账号任务阻断重复提交并拒绝过期响应',
   // 动作边界测试验证保存或执行中不会重复发起任务，账号切换后的旧响应不能写入。
   () => {
+    // controller 请求取消控制器。
     const controller = new AbortController();
     expect(canStartAccountTask(false, '')).toBe(true);
     expect(canStartAccountTask(true, '')).toBe(false);

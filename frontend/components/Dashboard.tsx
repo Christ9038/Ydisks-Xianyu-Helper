@@ -7,6 +7,7 @@ import { Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recha
 import { useDashboard } from '../app/features/dashboard/hooks';
 import { DashboardTrendChart } from '../app/features/dashboard/DashboardTrendChart';
 
+// cssColor 状态颜色样式。
 const cssColor = (token: string, alpha?: number) => (
   alpha === undefined
     ? `rgb(var(--color-${token}))`
@@ -14,7 +15,8 @@ const cssColor = (token: string, alpha?: number) => (
 );
 
 // 状态徽章组件
-export const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
+export const StatusBadge: React.FC<{ /** status 表示状态。 */ status: OrderStatus }> = ({ status }) => {
+  // styles 样式表。
   const styles = {
     processing: 'bg-blue-100 text-blue-800',
     pending_ship: 'bg-brand text-white',
@@ -25,6 +27,7 @@ export const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
     unknown: 'bg-gray-100 text-gray-500',
   };
 
+  // labels labels，负责当前功能中的对应处理。
   const labels = {
     processing: '处理中',
     pending_ship: '待发货',
@@ -42,7 +45,8 @@ export const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
   );
 };
 
-const StatCard: React.FC<{ title: string; value: string | number; icon: React.ElementType; colorClass: string; trend?: string }> = ({ title, value, icon: Icon, colorClass, trend }) => (
+// StatCard 渲染统计卡片组件。
+const StatCard: React.FC<{ /** title 表示标题。 */ title: string; /** value 表示值。 */ value: string | number; /** icon 表示icon。 */ icon: React.ElementType; /** colorClass 表示颜色Class。 */ colorClass: string; /** trend 表示趋势。 */ trend?: string }> = ({ title, value, icon: Icon, colorClass, trend }) => (
   <div className="ios-card p-6 rounded-xl flex flex-col justify-between hover:translate-y-[-4px] transition-all duration-300 h-full relative overflow-hidden group border-0">
     <div className={`absolute -right-6 -top-6 w-32 h-32 ${colorClass} opacity-10 rounded-full group-hover:scale-125 transition-transform duration-500 blur-2xl`}></div>
     <div className="flex justify-between items-start mb-6">
@@ -60,21 +64,37 @@ const StatCard: React.FC<{ title: string; value: string | number; icon: React.El
   </div>
 );
 
+// Dashboard 渲染仪表盘页面组件。
 const Dashboard: React.FC = () => {
+  // [timeRange, 解构得到当前 Hook 返回的状态和操作函数。
   const [timeRange, setTimeRange] = useState<TimeRange>('7days');
+  // [customStartDate, 解构得到当前 Hook 返回的状态和操作函数。
   const [customStartDate, setCustomStartDate] = useState('');
+  // [customEndDate, 解构得到当前 Hook 返回的状态和操作函数。
   const [customEndDate, setCustomEndDate] = useState('');
+  // [searchTerm, 解构得到当前 Hook 返回的状态和操作函数。
   const [searchTerm, setSearchTerm] = useState('');
+  // [customRangeVersion, 解构得到当前 Hook 返回的状态和操作函数。
   const [customRangeVersion, setCustomRangeVersion] = useState(0);
+  // dashboard 仪表盘数据。
   const dashboard = useDashboard({ range: timeRange, customStartDate, customEndDate, customRangeVersion });
+  // { 解构得到当前 Hook 返回的状态和操作函数。
   const { data, status, chartData, productSalesData, sourceData: sourceDataData, categoryData: categoryDataData, maxProductSales, trendPercent, selectedRangeLabel, refresh } = dashboard;
+  // stats 统计概览数据。
   const stats = data?.stats || null;
+  // analytics 统计分析数据。
   const analytics = data?.analytics || null;
+  // previousAnalytics 上一份统计数据。
   const previousAnalytics = data?.previousAnalytics || null;
+  // validOrders 有效订单列表。
   const validOrders = data?.validOrders.orders || [];
+  // validOrdersTotal 有效数据订单列表总数，负责当前功能中的对应处理。
   const validOrdersTotal = data?.validOrders.total || 0;
+  // validOrdersTruncated 有效数据订单列表Truncated，负责当前功能中的对应处理。
   const validOrdersTruncated = data?.validOrders.truncated || false;
+  // ordersLoading 订单加载状态。
   const ordersLoading = status.range === 'loading';
+  // loadError 加载当前数据（错误）。
   const loadError = status.error;
 
   // 颜色配置
@@ -85,6 +105,7 @@ const Dashboard: React.FC = () => {
     cssColor('warning-500'),
     cssColor('accent-500'),
   ];
+  // formatCurrency 格式化金额函数。
   const formatCurrency = (value: number) => `¥${Number(value || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 
   if (loadError && (!stats || !analytics)) {
@@ -97,9 +118,12 @@ const Dashboard: React.FC = () => {
     );
   }
   if (!stats || !analytics) return <div className="p-8 flex justify-center text-gray-400"><Activity className="w-8 h-8 animate-spin text-brand" /></div>;
+  // totalOrders 总数订单列表，负责当前功能中的对应处理。
   const totalOrders = analytics.revenue_stats.total_orders || 0;
+  // totalAmount 订单总金额。
   const totalAmount = analytics.revenue_stats.total_amount || 0;
 
+  // timeRangeOptions time范围Options，负责当前功能中的对应处理。
   const timeRangeOptions = [
     { key: 'today' as TimeRange, label: '今天' },
     { key: 'yesterday' as TimeRange, label: '昨天' },
@@ -108,14 +132,17 @@ const Dashboard: React.FC = () => {
     { key: '30days' as TimeRange, label: '一个月内' },
     { key: 'custom' as TimeRange, label: '自定义' },
   ];
+  // currentRangeDates 当前统计日期范围。
   let currentRangeDates;
   try {
     currentRangeDates = getDateRange(timeRange, new Date(), customStartDate, customEndDate);
   } catch {
     currentRangeDates = { startDate: customStartDate, endDate: customEndDate };
   }
+  // normalizedSearchTerm 归一化当前数据（d搜索条件Term）。
   const normalizedSearchTerm = searchTerm.trim().toLowerCase();
-  const filteredValidOrders = validOrders.filter((order) =>
+  // filteredValidOrders 过滤后的有效订单列表。
+  const filteredValidOrders = validOrders.filter(/* 当前回调处理集合中的单个元素。 */ (order) =>
     order.order_id?.toLowerCase().includes(normalizedSearchTerm) ||
     order.item_id?.toLowerCase().includes(normalizedSearchTerm) ||
     order.item_title?.toLowerCase().includes(normalizedSearchTerm) ||
@@ -145,10 +172,10 @@ const Dashboard: React.FC = () => {
 
       {/* Time Range Selector */}
       <div className="flex flex-wrap gap-2 p-2 bg-gray-100/50 rounded-2xl">
-        {timeRangeOptions.map((option) => (
+        {timeRangeOptions.map(/* 当前回调处理集合中的单个元素。 */ (option) => (
           <button
             key={option.key}
-            onClick={() => setTimeRange(option.key)}
+            onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setTimeRange(option.key)}
             className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
               timeRange === option.key
                 ? 'bg-brand text-white shadow-md'
@@ -163,18 +190,18 @@ const Dashboard: React.FC = () => {
             <input
               type="date"
               value={customStartDate}
-              onChange={(e) => setCustomStartDate(e.target.value)}
+              onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setCustomStartDate(e.target.value)}
               className="px-3 py-2 rounded-xl text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand"
             />
             <span className="self-center text-gray-400">-</span>
             <input
               type="date"
               value={customEndDate}
-              onChange={(e) => setCustomEndDate(e.target.value)}
+              onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setCustomEndDate(e.target.value)}
               className="px-3 py-2 rounded-xl text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand"
             />
             <button
-              onClick={() => setCustomRangeVersion(value => value + 1)}
+              onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setCustomRangeVersion(/* 当前回调处理用户交互或异步状态变化。 */ value => value + 1)}
               className="px-4 py-2 rounded-xl text-sm font-bold bg-black text-white hover:bg-gray-800 transition-colors"
             >
               应用
@@ -224,7 +251,7 @@ const Dashboard: React.FC = () => {
               <div className="flex items-center justify-center h-full text-gray-400">暂无数据</div>
             ) : (
               <div className="h-full space-y-4 overflow-y-auto pr-2">
-                {productSalesData.map((item, index) => (
+                {productSalesData.map(/* 当前回调处理集合中的单个元素。 */ (item, index) => (
                   <div key={`${item.name}-${index}`} className="space-y-2">
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex items-center gap-3 min-w-0">
@@ -279,12 +306,12 @@ const Dashboard: React.FC = () => {
                       label={false}
                       labelLine={false}
                     >
-                      {sourceDataData.map((entry, index) => (
+                      {sourceDataData.map(/* 当前回调处理集合中的单个元素。 */ (entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>
                     <Tooltip
-                      formatter={(value) => `${Number(value || 0)} 单`}
+                      formatter={/* 当前回调处理用户交互或异步状态变化。 */ (value) => `${Number(value || 0)} 单`}
                       wrapperStyle={{ zIndex: 30, outline: 'none' }}
                       contentStyle={{
                         backgroundColor: cssColor('white'),
@@ -297,7 +324,7 @@ const Dashboard: React.FC = () => {
                       verticalAlign="bottom"
                       height={36}
                       iconType="circle"
-                      formatter={(value) => <span style={{ color: cssColor('neutral-500'), fontWeight: 500 }}>{value}</span>}
+                      formatter={/* 当前回调处理用户交互或异步状态变化。 */ (value) => <span style={{ color: cssColor('neutral-500'), fontWeight: 500 }}>{value}</span>}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -326,7 +353,7 @@ const Dashboard: React.FC = () => {
               <input
                 placeholder="搜索订单号/商品/买家..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setSearchTerm(e.target.value)}
                 className="pl-4 pr-4 py-2 rounded-xl bg-white border border-gray-100 text-sm focus:border-blue-400 outline-none w-48"
                 type="text"
               />
@@ -373,7 +400,7 @@ const Dashboard: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {filteredValidOrders.map((order) => (
+                  {filteredValidOrders.map(/* 当前回调处理集合中的单个元素。 */ (order) => (
                       <tr key={order.order_id} className="hover:bg-warning-50/50 transition-colors group">
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
@@ -451,7 +478,7 @@ const Dashboard: React.FC = () => {
                       label={false}
                       labelLine={false}
                     >
-                      {categoryDataData.map((entry, index) => (
+                      {categoryDataData.map(/* 当前回调处理集合中的单个元素。 */ (entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.color || COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
@@ -463,7 +490,7 @@ const Dashboard: React.FC = () => {
                         borderRadius: '6px',
                         boxShadow: 'var(--shadow-md)'
                       }}
-                      formatter={(value) => `¥${Number(value || 0).toLocaleString()}`}
+                      formatter={/* 当前回调处理用户交互或异步状态变化。 */ (value) => `¥${Number(value || 0).toLocaleString()}`}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -473,7 +500,7 @@ const Dashboard: React.FC = () => {
                 </div>
               </div>
               <div className="space-y-3 mt-4">
-                {categoryDataData.map((cat) => (
+                {categoryDataData.map(/* 当前回调处理集合中的单个元素。 */ (cat) => (
                   <div key={cat.name} className="flex justify-between items-center gap-3 text-sm">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <div

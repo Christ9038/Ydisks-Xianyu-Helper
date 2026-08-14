@@ -33,12 +33,15 @@ const Chat: React.FC = () => {
           </div>
         </div>
         <div className="flex gap-1 overflow-x-auto pb-0" role="tablist" aria-label="聊天账号">
-          {accounts.map(account => {
+          {accounts.map(/* 当前回调处理集合中的单个元素。 */ account => {
+            // active 当前状态。
             const active = account.id === activeAccountID;
+            // unread unread，负责当前功能中的对应处理。
             const unread = unreadForAccount(account.id);
+            // online 响应当前用户操作（line）。
             const online = account.runtime_state === 'online';
             return (
-              <button key={account.id} type="button" role="tab" aria-selected={active} onClick={() => setActiveAccountID(account.id)}
+              <button key={account.id} type="button" role="tab" aria-selected={active} onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setActiveAccountID(account.id)}
                 className={`relative flex h-11 shrink-0 items-center gap-2 border-b-2 px-3 text-sm font-extrabold transition-colors ${active ? 'border-sky-500 text-sky-700' : 'border-transparent text-slate-500 hover:text-slate-900'}`}>
                 <span className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                 <span className="max-w-36 truncate">{account.nickname || account.remark || account.id}</span>
@@ -61,22 +64,22 @@ const Chat: React.FC = () => {
             <div className="space-y-3 border-b border-slate-200 p-3">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索用户、商品或消息"
+                <input value={search} onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setSearch(event.target.value)} placeholder="搜索用户、商品或消息"
                   className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-100" />
               </div>
               <div className="flex items-center justify-between">
-                <button type="button" onClick={() => setUnreadOnly(value => !value)}
+                <button type="button" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setUnreadOnly(/* 当前回调处理用户交互或异步状态变化。 */ value => !value)}
                   className={`rounded-lg px-2.5 py-1.5 text-xs font-bold ${unreadOnly ? 'bg-sky-100 text-sky-700' : 'text-slate-500 hover:bg-slate-100'}`}>
                   {unreadOnly ? '只看未读' : '全部会话'}
                 </button>
-                <button type="button" title="刷新会话" onClick={() => void reloadSessions(activeAccountID)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                <button type="button" title="刷新会话" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void reloadSessions(activeAccountID)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
                   <RefreshCw className="h-4 w-4" />
                 </button>
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
-              {filteredSessions.map(session => (
-                <button key={session.chat_id} type="button" onClick={() => setActiveChatID(session.chat_id)}
+              {filteredSessions.map(/* 当前回调处理集合中的单个元素。 */ session => (
+                <button key={session.chat_id} type="button" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setActiveChatID(session.chat_id)}
                   className={`flex w-full gap-3 border-b border-slate-100 p-4 text-left transition-colors ${session.chat_id === activeChatID ? 'bg-white shadow-chat-active' : 'hover:bg-white/80'}`}>
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-slate-500">
                     {session.buyer_avatar_url ? <img src={session.buyer_avatar_url} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-5 w-5" />}
@@ -96,7 +99,7 @@ const Chat: React.FC = () => {
               ))}
               {filteredSessions.length === 0 && <div className="px-6 py-16 text-center text-sm text-slate-400">当前账号暂无匹配会话</div>}
               {hasMoreContacts && !search && !unreadOnly && <div className="flex justify-center p-4">
-                <button type="button" onClick={() => void loadMoreContacts()} disabled={contactsLoading}
+                <button type="button" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void loadMoreContacts()} disabled={contactsLoading}
                   className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-500 shadow-sm hover:border-sky-200 hover:text-sky-600 disabled:opacity-50">
                   {contactsLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{contactsLoading ? '正在加载' : '加载更多历史联系人'}
                 </button>
@@ -119,13 +122,15 @@ const Chat: React.FC = () => {
                 <div ref={scrollRef} onScroll={handleMessageScroll} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
                   {messagesLoading ? <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-sky-500" /></div> : <>
                     {hasOlder && <div className="flex justify-center pb-1">
-                      <button type="button" onClick={() => void loadOlderMessages()} disabled={olderLoading}
+                      <button type="button" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void loadOlderMessages()} disabled={olderLoading}
                         className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-1.5 text-xs font-bold text-slate-500 shadow-sm transition hover:border-sky-200 hover:text-sky-600 disabled:opacity-50">
                         {olderLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{olderLoading ? '正在加载' : '加载更早消息'}
                       </button>
                     </div>}
-                    {messages.map(message => {
+                    {messages.map(/* 当前回调处理集合中的单个元素。 */ message => {
+                    // outgoing 是否为发送方消息。
                     const outgoing = message.direction === 'outgoing';
+                    // system 系统。
                     const system = message.message_type === 'system';
                     if (system) {
                       return (
@@ -166,27 +171,27 @@ const Chat: React.FC = () => {
                     })}
                   </>}
                 </div>
-                {error && <div className="flex items-center justify-between gap-3 border-t border-red-100 bg-red-50 px-5 py-2 text-xs font-medium text-red-700"><span>{error}</span>{retryAvailable && <button type="button" className="font-bold underline" onClick={() => void retrySend()}>重试发送</button>}</div>}
+                {error && <div className="flex items-center justify-between gap-3 border-t border-red-100 bg-red-50 px-5 py-2 text-xs font-medium text-red-700"><span>{error}</span>{retryAvailable && <button type="button" className="font-bold underline" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void retrySend()}>重试发送</button>}</div>}
                 <div className="relative z-10 shrink-0 border-t border-slate-200 bg-white p-4 shadow-chat-input">
                   <div className="mb-2 flex items-center gap-1">
                     <div className="relative">
-                      <button type="button" onClick={() => setEmojiOpen(value => !value)} disabled={sending || activeAccount?.runtime_state !== 'online'} className="rounded-lg p-2 text-slate-500 hover:bg-sky-50 hover:text-sky-600 disabled:opacity-40" title="闲鱼表情"><Smile className="h-5 w-5" /></button>
+                      <button type="button" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setEmojiOpen(/* 当前回调处理用户交互或异步状态变化。 */ value => !value)} disabled={sending || activeAccount?.runtime_state !== 'online'} className="rounded-lg p-2 text-slate-500 hover:bg-sky-50 hover:text-sky-600 disabled:opacity-40" title="闲鱼表情"><Smile className="h-5 w-5" /></button>
                       {emojiOpen && <div className="absolute bottom-11 left-0 z-30 w-[360px] rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl">
                         <div className="mb-2 text-xs font-bold text-slate-500">全部表情</div>
                         <div className="grid max-h-72 grid-cols-8 gap-1 overflow-y-auto">
-                          {xianyuEmojis.map(([name, file]) => <button key={name} type="button" title={`[${name}]`} onClick={() => { setDraft(value => value + `[${name}]`); setEmojiOpen(false); }} className="flex h-10 w-10 items-center justify-center rounded-lg hover:bg-slate-100"><img src={emojiURL(file)} alt={`[${name}]`} className="h-8 w-8 object-contain" /></button>)}
+                          {xianyuEmojis.map(/* 当前回调处理集合中的单个元素。 */ ([name, file]) => <button key={name} type="button" title={`[${name}]`} onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => { setDraft(/* 当前回调处理用户交互或异步状态变化。 */ value => value + `[${name}]`); setEmojiOpen(false); }} className="flex h-10 w-10 items-center justify-center rounded-lg hover:bg-slate-100"><img src={emojiURL(file)} alt={`[${name}]`} className="h-8 w-8 object-contain" /></button>)}
                         </div>
                       </div>}
                     </div>
-                    <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={event => void handleImage(event.target.files?.[0])} />
-                    <button type="button" onClick={() => imageInputRef.current?.click()} disabled={sending || activeAccount?.runtime_state !== 'online'} className="rounded-lg p-2 text-slate-500 transition hover:bg-sky-50 hover:text-sky-600 disabled:opacity-40" title="发送图片（最大 10MB）"><ImagePlus className="h-5 w-5" /></button>
+                    <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => void handleImage(event.target.files?.[0])} />
+                    <button type="button" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => imageInputRef.current?.click()} disabled={sending || activeAccount?.runtime_state !== 'online'} className="rounded-lg p-2 text-slate-500 transition hover:bg-sky-50 hover:text-sky-600 disabled:opacity-40" title="发送图片（最大 10MB）"><ImagePlus className="h-5 w-5" /></button>
                   </div>
                   <div className="flex items-end gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-2 transition focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-100">
-                    <textarea value={draft} onChange={event => setDraft(event.target.value)} rows={2} maxLength={2000}
-                      onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void handleSend(); } }}
+                    <textarea value={draft} onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setDraft(event.target.value)} rows={2} maxLength={2000}
+                      onKeyDown={/* 当前回调处理用户交互或异步状态变化。 */ event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void handleSend(); } }}
                       disabled={activeAccount?.runtime_state !== 'online'} placeholder={activeAccount?.runtime_state === 'online' ? '输入消息，Enter 发送，Shift + Enter 换行' : '账号离线，暂时无法发送'}
                       className="max-h-32 min-h-12 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-6 outline-none disabled:cursor-not-allowed" />
-                    <button type="button" onClick={() => void handleSend()} disabled={!draft.trim() || sending || activeAccount?.runtime_state !== 'online'} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500 text-white shadow-md shadow-sky-100 transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none" aria-label="发送消息">
+                    <button type="button" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void handleSend()} disabled={!draft.trim() || sending || activeAccount?.runtime_state !== 'online'} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500 text-white shadow-md shadow-sky-100 transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none" aria-label="发送消息">
                       {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     </button>
                   </div>

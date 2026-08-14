@@ -5,12 +5,16 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 import { StatusBadge } from './Dashboard';
 
+// dashboardSource 仪表盘测试数据源。
 const dashboardSource = readFileSync(resolve(__dirname, 'Dashboard.tsx'), 'utf8');
+// trendChartSource 趋势图测试数据源。
 const trendChartSource = readFileSync(resolve(__dirname, '../app/features/dashboard/DashboardTrendChart.tsx'), 'utf8');
+// globalStyles 测试用全局样式。
 const globalStyles = readFileSync(resolve(__dirname, '../index.css'), 'utf8');
 
-describe('Dashboard presentation safeguards', () => {
-  test('keeps order status badges on one line', () => {
+describe('Dashboard presentation safeguards', /* 当前回调处理用户交互或异步状态变化。 */ () => {
+  test('keeps order status badges on one line', /* 当前回调处理用户交互或异步状态变化。 */ () => {
+    // html 渲染后的 HTML。
     const html = renderToStaticMarkup(<StatusBadge status="shipped" />);
 
     expect(html).toContain('已发货');
@@ -19,7 +23,7 @@ describe('Dashboard presentation safeguards', () => {
     expect(dashboardSource).toContain('min-w-[760px]');
   });
 
-  test('pie charts use enlarged active sectors without focus rings or external label lines', () => {
+  test('pie charts use enlarged active sectors without focus rings or external label lines', /* 当前回调处理用户交互或异步状态变化。 */ () => {
     expect(dashboardSource.match(/accessibilityLayer=\{false\}/g)).toHaveLength(2);
     expect(dashboardSource.match(/activeShape=\{\{/g)).toHaveLength(2);
     expect(dashboardSource).toContain('outerRadius: 96');

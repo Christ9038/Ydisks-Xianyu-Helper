@@ -61,7 +61,7 @@ const Settings: React.FC = () => {
       {saveError && (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
           <span>{saveError}</span>
-          <button type="button" className="font-bold underline" onClick={() => void handleSave}>重试保存</button>
+          <button type="button" className="font-bold underline" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void handleSave}>重试保存</button>
         </div>
       )}
 
@@ -83,10 +83,10 @@ const Settings: React.FC = () => {
                   <label className="block text-sm font-bold text-gray-800">日志输出等级</label>
                   <select
                     value={settings.log_level || 'info'}
-                    onChange={event => setSettings({ ...settings, log_level: event.target.value })}
+                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setSettings({ ...settings, log_level: event.target.value })}
                     className="w-full ios-input px-4 py-3 rounded-xl"
                   >
-                    {LOG_LEVELS.map(level => (
+                    {LOG_LEVELS.map(/* 当前回调处理集合中的单个元素。 */ level => (
                       <option key={level.value} value={level.value}>{level.label}</option>
                     ))}
                   </select>
@@ -96,7 +96,7 @@ const Settings: React.FC = () => {
                   <label className="block text-sm font-bold text-gray-800">日志输出格式</label>
                   <select
                     value={settings.log_format || 'text'}
-                    onChange={event => setSettings({ ...settings, log_format: event.target.value })}
+                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setSettings({ ...settings, log_format: event.target.value })}
                     className="w-full ios-input px-4 py-3 rounded-xl"
                   >
                     <option value="text">Text</option>
@@ -111,7 +111,7 @@ const Settings: React.FC = () => {
                 <input
                   type="number"
                   value={settings.renewal_log_retention_days ?? 10}
-                  onChange={(e) => setSettings({ ...settings, renewal_log_retention_days: parseInt(e.target.value) || 0 })}
+                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setSettings({ ...settings, renewal_log_retention_days: parseInt(e.target.value) || 0 })}
                   className="w-full ios-input px-4 py-3 rounded-xl"
                   min="0"
                   max="365"
@@ -136,7 +136,7 @@ const Settings: React.FC = () => {
                 <input
                   type="text"
                   value={settings.ai_api_url || DEFAULT_AI_API_URL}
-                  onChange={e => setSettings({...settings, ai_api_url: e.target.value})}
+                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setSettings({...settings, ai_api_url: e.target.value})}
                   className="w-full ios-input px-4 py-3 rounded-xl text-sm"
                   placeholder="https://api.openai.com/v1"
                 />
@@ -149,13 +149,13 @@ const Settings: React.FC = () => {
                   <input
                     type={showApiKey ? 'text' : 'password'}
                     value={settings.ai_api_key || ''}
-                    onChange={e => setSettings({...settings, ai_api_key: e.target.value})}
+                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setSettings({...settings, ai_api_key: e.target.value})}
                     className="w-full ios-input px-4 py-3 pr-12 rounded-xl font-mono text-sm"
                     placeholder="sk-..."
                   />
                   <button
                     type="button"
-                    onClick={() => setShowApiKey(!showApiKey)}
+                    onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowApiKey(!showApiKey)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-gray-600 transition-colors"
                   >
                     {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -169,12 +169,12 @@ const Settings: React.FC = () => {
                   <div className="relative flex-1">
                     <input
                       value={currentModel}
-                      onFocus={() => aiModels.length > 0 && setModelDropdownOpen(true)}
-                      onChange={e => {
+                      onFocus={/* 当前回调处理用户交互或异步状态变化。 */ () => aiModels.length > 0 && setModelDropdownOpen(true)}
+                      onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => {
                         setSettings({...settings, ai_model: e.target.value});
                         if (aiModels.length > 0) setModelDropdownOpen(true);
                       }}
-                      onKeyDown={e => {
+                      onKeyDown={/* 当前回调处理用户交互或异步状态变化。 */ e => {
                         if (e.key === 'Escape') setModelDropdownOpen(false);
                         if (e.key === 'ArrowDown' && aiModels.length > 0) setModelDropdownOpen(true);
                       }}
@@ -183,7 +183,7 @@ const Settings: React.FC = () => {
                     />
                     <button
                       type="button"
-                      onClick={() => aiModels.length > 0 && setModelDropdownOpen(open => !open)}
+                      onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => aiModels.length > 0 && setModelDropdownOpen(/* 当前回调处理用户交互或异步状态变化。 */ open => !open)}
                       disabled={aiModels.length === 0}
                       className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-gray-600 disabled:opacity-30"
                       aria-label="展开模型列表"
@@ -193,11 +193,11 @@ const Settings: React.FC = () => {
                     {modelDropdownOpen && (
                       <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-40 max-h-64 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-xl shadow-gray-200/70 py-1">
                         {visibleAIModels.length > 0 ? (
-                          visibleAIModels.map(model => (
+                          visibleAIModels.map(/* 当前回调处理集合中的单个元素。 */ model => (
                             <button
                               key={model}
                               type="button"
-                              onClick={() => {
+                              onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => {
                                 setSettings({...settings, ai_model: model});
                                 setModelDropdownOpen(false);
                               }}
@@ -215,7 +215,7 @@ const Settings: React.FC = () => {
                   </div>
                   <button
                     type="button"
-                    onClick={() => loadAIModels(undefined, true)}
+                    onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => loadAIModels(undefined, true)}
                     disabled={modelsLoading}
                     className="px-4 py-3 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-60 font-bold flex items-center justify-center gap-2 whitespace-nowrap"
                   >
@@ -259,7 +259,7 @@ const Settings: React.FC = () => {
                 <input
                   type="url"
                   value={settings['captcha.remote_service_url'] || ''}
-                  onChange={event => setSettings({...settings, 'captcha.remote_service_url': event.target.value})}
+                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setSettings({...settings, 'captcha.remote_service_url': event.target.value})}
                   className="w-full ios-input px-4 py-3 rounded-xl text-sm"
                   placeholder="https://example.com/internal/captcha/solve"
                 />
@@ -271,13 +271,13 @@ const Settings: React.FC = () => {
                   <input
                     type={showCaptchaSecret ? 'text' : 'password'}
                     value={settings['captcha.remote_secret_key'] || ''}
-                    onChange={event => setSettings({...settings, 'captcha.remote_secret_key': event.target.value})}
+                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setSettings({...settings, 'captcha.remote_secret_key': event.target.value})}
                     className="w-full ios-input px-4 py-3 pr-12 rounded-xl font-mono text-sm"
                     autoComplete="off"
                   />
                   <button
                     type="button"
-                    onClick={() => setShowCaptchaSecret(!showCaptchaSecret)}
+                    onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowCaptchaSecret(!showCaptchaSecret)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-gray-600"
                     title={showCaptchaSecret ? '隐藏秘钥' : '显示秘钥'}
                   >
@@ -290,7 +290,7 @@ const Settings: React.FC = () => {
                 <input
                   type="checkbox"
                   checked={String(settings['captcha.remote_pass_cookies'] || '').toLowerCase() === 'true'}
-                  onChange={event => setSettings({...settings, 'captcha.remote_pass_cookies': event.target.checked})}
+                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setSettings({...settings, 'captcha.remote_pass_cookies': event.target.checked})}
                   className="mt-0.5 w-4 h-4 rounded border-gray-300"
                 />
                 <span>
@@ -321,7 +321,7 @@ const Settings: React.FC = () => {
                   <input
                     type="text"
                     value={credentials.new_username}
-                    onChange={event => setCredentials({...credentials, new_username: event.target.value})}
+                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setCredentials({...credentials, new_username: event.target.value})}
                     className="w-full ios-input pl-11 pr-4 py-3 rounded-xl text-sm"
                     autoComplete="username"
                   />
@@ -334,12 +334,12 @@ const Settings: React.FC = () => {
                   <input
                     type={showCurrentPassword ? 'text' : 'password'}
                     value={credentials.current_password}
-                    onChange={event => setCredentials({...credentials, current_password: event.target.value})}
+                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setCredentials({...credentials, current_password: event.target.value})}
                     className="w-full ios-input px-4 py-3 pr-12 rounded-xl text-sm"
                     placeholder="用于确认当前身份"
                     autoComplete="current-password"
                   />
-                  <button type="button" onClick={() => setShowCurrentPassword(!showCurrentPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-gray-600" title={showCurrentPassword ? '隐藏密码' : '显示密码'}>
+                  <button type="button" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowCurrentPassword(!showCurrentPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-gray-600" title={showCurrentPassword ? '隐藏密码' : '显示密码'}>
                     {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
@@ -352,12 +352,12 @@ const Settings: React.FC = () => {
                     <input
                       type={showNewPassword ? 'text' : 'password'}
                       value={credentials.new_password}
-                      onChange={event => setCredentials({...credentials, new_password: event.target.value})}
+                      onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setCredentials({...credentials, new_password: event.target.value})}
                       className="w-full ios-input px-4 py-3 pr-11 rounded-xl text-sm"
                       placeholder="不修改则留空"
                       autoComplete="new-password"
                     />
-                    <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-gray-600" title={showNewPassword ? '隐藏密码' : '显示密码'}>
+                    <button type="button" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowNewPassword(!showNewPassword)} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-gray-600" title={showNewPassword ? '隐藏密码' : '显示密码'}>
                       {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
@@ -367,7 +367,7 @@ const Settings: React.FC = () => {
                   <input
                     type={showNewPassword ? 'text' : 'password'}
                     value={credentials.confirm_password}
-                    onChange={event => setCredentials({...credentials, confirm_password: event.target.value})}
+                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setCredentials({...credentials, confirm_password: event.target.value})}
                     className="w-full ios-input px-4 py-3 rounded-xl text-sm"
                     placeholder="再次输入新密码"
                     autoComplete="new-password"

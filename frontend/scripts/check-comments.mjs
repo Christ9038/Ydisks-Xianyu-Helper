@@ -108,7 +108,13 @@ function hasChineseComment(sourceFile, node) {
   // inlineSuffix 是节点结束位置紧邻的内联注释，用于支持循环变量和行尾字段注释。
   const inlineSuffix = sourceText.slice(node.end, Math.min(sourceText.length, node.end + 200));
   const suffixMatch = inlineSuffix.match(/^\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*)/);
-  return Boolean(suffixMatch && HAN_PATTERN.test(suffixMatch[0]));
+  if (suffixMatch && HAN_PATTERN.test(suffixMatch[0])) {
+    return true;
+  }
+  // inlineBody 是箭头函数主体开头的注释，用于保持 JSX/源码关键片段可读且不打断表达式前缀。
+  const inlineBody = sourceText.slice(node.getStart(sourceFile), Math.min(sourceText.length, node.getStart(sourceFile) + 120));
+  const bodyMatch = inlineBody.match(/=>[\s\S]{0,80}?\/\*[\s\S]*?\*\//);
+  return Boolean(bodyMatch && HAN_PATTERN.test(bodyMatch[0]));
 }
 
 // getNodeName 返回 AST 节点的可读名称。

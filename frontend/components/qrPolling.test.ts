@@ -1,23 +1,27 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { createLatestRequestGate, createQRLoginPoller } from './qrPolling';
 
-afterEach(() => {
+afterEach(/* 当前回调处理用户交互或异步状态变化。 */ () => {
   vi.useRealTimers();
 });
 
+// flushMicrotasks 刷新微任务队列。
 const flushMicrotasks = async () => {
   await Promise.resolve();
   await Promise.resolve();
 };
 
-test('QR poller clears the previous interval before starting another session', () => {
+test('QR poller clears the previous interval before starting another session', /* 当前回调处理用户交互或异步状态变化。 */ () => {
   vi.useFakeTimers();
+  // checkStatus check状态，负责当前功能中的对应处理。
   const checkStatus = vi.fn().mockResolvedValue({ status: 'waiting' });
+  // handlers 处理当前用户操作（rs）。
   const handlers = {
     onSuccess: vi.fn(),
     onTerminalError: vi.fn(),
     onPollError: vi.fn(),
   };
+  // poller poller，负责当前功能中的对应处理。
   const poller = createQRLoginPoller();
 
   poller.start('sid-1', checkStatus, handlers);
@@ -28,13 +32,17 @@ test('QR poller clears the previous interval before starting another session', (
 	expect(checkStatus).toHaveBeenCalledWith('sid-2', expect.any(AbortSignal));
 });
 
-test('QR poller stops on success and terminal errors', async () => {
+test('QR poller stops on success and terminal errors', /* 当前回调处理用户交互或异步状态变化。 */ async () => {
   vi.useFakeTimers();
+  // checkStatus check状态，负责当前功能中的对应处理。
   const checkStatus = vi.fn()
     .mockResolvedValueOnce({ status: 'success', cookies: 'a=b', unb: 'acc1' })
     .mockResolvedValueOnce({ status: 'expired' });
+  // onSuccess 响应当前用户操作（Success）。
   const onSuccess = vi.fn();
+  // onTerminalError 响应当前用户操作（Terminal错误）。
   const onTerminalError = vi.fn();
+  // poller poller，负责当前功能中的对应处理。
   const poller = createQRLoginPoller();
 
   poller.start('sid-1', checkStatus, {
@@ -62,8 +70,9 @@ test('QR poller stops on success and terminal errors', async () => {
   expect(poller.isActive()).toBe(false);
 });
 
-test('QR poller keeps polling during verification and stops on thrown errors', async () => {
+test('QR poller keeps polling during verification and stops on thrown errors', /* 当前回调处理用户交互或异步状态变化。 */ async () => {
   vi.useFakeTimers();
+  // checkStatus check状态，负责当前功能中的对应处理。
   const checkStatus = vi.fn()
     .mockResolvedValueOnce({
       status: 'verification_required',
@@ -71,8 +80,11 @@ test('QR poller keeps polling during verification and stops on thrown errors', a
       face_qr_url: 'https://face.example',
     })
     .mockRejectedValueOnce(new Error('network down'));
+  // onVerificationRequired 响应当前用户操作（VerificationRequired）。
   const onVerificationRequired = vi.fn();
+  // onPollError 响应当前用户操作（轮询函数错误）。
   const onPollError = vi.fn();
+  // poller poller，负责当前功能中的对应处理。
   const poller = createQRLoginPoller();
 
   poller.start('sid-1', checkStatus, {
@@ -97,12 +109,15 @@ test('QR poller keeps polling during verification and stops on thrown errors', a
   expect(poller.isActive()).toBe(false);
 });
 
-test('QR poller never overlaps slow status requests', async () => {
+test('QR poller never overlaps slow status requests', /* 当前回调处理用户交互或异步状态变化。 */ async () => {
   vi.useFakeTimers();
-  let resolveStatus: ((value: { status: string }) => void) | undefined;
-  const checkStatus = vi.fn(() => new Promise<{ status: string }>(resolve => {
+  // resolveStatus resolve状态，负责当前功能中的对应处理。
+  let resolveStatus: ((value: { /** status 表示状态。 */ status: string }) => void) | undefined;
+  // checkStatus check状态，负责当前功能中的对应处理。
+  const checkStatus = vi.fn(/* 当前回调处理用户交互或异步状态变化。 */ () => new Promise<{ /** status 表示状态。 */ status: string }>(/* 当前回调处理用户交互或异步状态变化。 */ resolve => {
     resolveStatus = resolve;
   }));
+  // poller poller，负责当前功能中的对应处理。
   const poller = createQRLoginPoller();
   poller.start('slow-session', checkStatus, {
     onSuccess: vi.fn(),
@@ -120,9 +135,12 @@ test('QR poller never overlaps slow status requests', async () => {
   poller.stop();
 });
 
-test('latest request gate rejects stale generation after switch or cancel', () => {
+test('latest request gate rejects stale generation after switch or cancel', /* 当前回调处理用户交互或异步状态变化。 */ () => {
+  // gate gate，负责当前功能中的对应处理。
   const gate = createLatestRequestGate();
+  // first 首项。
   const first = gate.next();
+  // second second，负责当前功能中的对应处理。
   const second = gate.next();
 
   expect(gate.isCurrent(first)).toBe(false);
@@ -132,16 +150,20 @@ test('latest request gate rejects stale generation after switch or cancel', () =
   expect(gate.isCurrent(second)).toBe(false);
 });
 
-test('stopping QR polling aborts the in-flight status request without reporting an error', async () => {
+test('stopping QR polling aborts the in-flight status request without reporting an error', /* 当前回调处理用户交互或异步状态变化。 */ async () => {
 	vi.useFakeTimers();
+	// onPollError 响应当前用户操作（轮询函数错误）。
 	const onPollError = vi.fn();
+	// observedSignal observedSignal，负责当前功能中的对应处理。
 	let observedSignal: AbortSignal | undefined;
-	const checkStatus = vi.fn((_sessionId: string, signal?: AbortSignal) => {
+	// checkStatus check状态，负责当前功能中的对应处理。
+	const checkStatus = vi.fn(/* 当前回调处理用户交互或异步状态变化。 */ (_sessionId: string, signal?: AbortSignal) => {
 	  observedSignal = signal;
-	  return new Promise<{ status: string }>((_resolve, reject) => {
-		signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+	  return new Promise<{ /** status 表示状态。 */ status: string }>(/* 当前回调处理用户交互或异步状态变化。 */ (_resolve, reject) => {
+		signal?.addEventListener('abort', /* 当前回调处理用户交互或异步状态变化。 */ () => reject(new DOMException('aborted', 'AbortError')), { once: true });
 	  });
 	});
+	// poller poller，负责当前功能中的对应处理。
 	const poller = createQRLoginPoller();
 	poller.start('sid', checkStatus, { onSuccess: vi.fn(), onTerminalError: vi.fn(), onPollError });
 	await vi.advanceTimersByTimeAsync(2000);

@@ -1,3 +1,4 @@
+// commitIfLatest 仅在请求仍为最新时提交结果。
 export const commitIfLatest = <T>(
   requestID: number,
   currentRequestID: number,

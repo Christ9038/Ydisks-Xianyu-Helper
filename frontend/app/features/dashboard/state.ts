@@ -85,7 +85,7 @@ export const buildProductSalesData = (analytics: OrderAnalytics, itemNames: Reco
         return { name: itemName.length > 12 ? `${itemName.substring(0, 12)}...` : itemName, sales: item.order_count };
       },
     )
-    .sort((left, right) => right.sales - left.sales)
+    .sort(/* 当前回调处理集合中的单个元素。 */ (left, right) => right.sales - left.sales)
     .slice(0, 10)
 );
 
@@ -106,7 +106,7 @@ export const buildSourceData = (analytics: OrderAnalytics, itemNames: Record<str
         };
       },
     )
-    .sort((left, right) => right.value - left.value)
+    .sort(/* 当前回调处理集合中的单个元素。 */ (left, right) => right.value - left.value)
     .slice(0, 6)
     .map(
       // item 是截取后的商品占比数据，index 用于选择稳定颜色。
@@ -132,7 +132,7 @@ export const buildCategoryData = (analytics: OrderAnalytics, itemNames: Record<s
         };
       },
     )
-    .sort((left, right) => right.value - left.value)
+    .sort(/* 当前回调处理集合中的单个元素。 */ (left, right) => right.value - left.value)
     .slice(0, 5)
     .map(
       // item 是截取后的金额排行数据，index 用于选择稳定颜色。
@@ -168,7 +168,7 @@ export const getRangeLabel = (selection: DashboardRangeSelection): string => {
 };
 
 /** 计算销量排行中用于进度条归一化的最大值。 */
-export const getMaxProductSales = (productSales: DashboardProductPoint[]): number => Math.max(...productSales.map(item => item.sales), 1);
+export const getMaxProductSales = (productSales: DashboardProductPoint[]): number => Math.max(...productSales.map(/* 当前回调处理集合中的单个元素。 */ item => item.sales), 1);
 
 /** 判断旧的日期范围请求结果是否仍然可以写入当前页面。 */
 export const isCurrentDashboardRequest = (currentSequence: number, requestSequence: number, signal: AbortSignal): boolean => (

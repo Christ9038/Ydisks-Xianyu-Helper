@@ -11,8 +11,8 @@ const account = (overrides: Partial<AccountDetail> = {}): AccountDetail => ({
   ...overrides,
 });
 
-describe('Accounts runtime state', () => {
-  test('最新在线状态替换风控恢复中的旧提示', () => {
+describe('Accounts runtime state', /* 当前回调处理用户交互或异步状态变化。 */ () => {
+  test('最新在线状态替换风控恢复中的旧提示', /* 当前回调处理用户交互或异步状态变化。 */ () => {
     // result 是合并当前运行状态后的账号列表。
     const result = mergeAccountRuntimeStatuses([account({
       runtime_state: 'connecting',
@@ -31,13 +31,14 @@ describe('Accounts runtime state', () => {
     expect(result[0]).toMatchObject({ runtime_state: 'online', runtime_message: '消息服务连接正常', runtime_connected: true });
   });
 
-  test('晚到达的旧状态响应不会覆盖当前账号状态', () => {
+  test('晚到达的旧状态响应不会覆盖当前账号状态', /* 当前回调处理用户交互或异步状态变化。 */ () => {
     // current 是当前页面已经展示的较新账号状态。
     const current = account({
       runtime_state: 'online',
       runtime_message: '消息服务连接正常',
       runtime_updated_at: '2026-07-13T13:16:02+08:00',
     });
+    // result 处理结果。
     const result = mergeAccountRuntimeStatuses([current], {
       'account-1': {
         state: 'connecting',
@@ -51,7 +52,7 @@ describe('Accounts runtime state', () => {
     expect(result[0]).toBe(current);
   });
 
-  test('缺少对应运行状态时保留原账号对象', () => {
+  test('缺少对应运行状态时保留原账号对象', /* 当前回调处理用户交互或异步状态变化。 */ () => {
     // current 是没有新运行状态可合并的账号对象。
     const current = account();
     expect(mergeAccountRuntimeStatuses([current], {})[0]).toBe(current);

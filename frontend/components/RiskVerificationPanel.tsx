@@ -2,10 +2,11 @@ import React from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 
 interface RiskVerificationPanelProps {
-  faceQrUrl?: string;
-  verificationScreenshot?: string;
+  /** faceQrUrl 表示人脸验证二维码地址。 */ faceQrUrl?: string;
+  /** verificationScreenshot 表示验证失败截图地址。 */ verificationScreenshot?: string;
 }
 
+// RiskVerificationPanel 渲染风控验证面板。
 export const RiskVerificationPanel: React.FC<RiskVerificationPanelProps> = ({
   faceQrUrl,
   verificationScreenshot,
