@@ -352,6 +352,8 @@ export interface ApiErrorResponse {
   message: string;
   /** 可选的服务端请求追踪标识。 */
   request_id?: string;
+  /** 仅供恢复或审计使用的结构化附加信息。 */
+  details?: Record<string, unknown>;
 }
 
 /** 账号列表接口返回的非敏感具名 DTO。 */

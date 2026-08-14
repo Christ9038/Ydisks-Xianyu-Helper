@@ -37,6 +37,8 @@ type ErrorResponse struct {
 	Message string `json:"message"`
 	// RequestID 是可选的请求追踪标识，便于服务端日志关联。
 	RequestID string `json:"request_id,omitempty"`
+	// Details 是仅供恢复或审计使用的结构化附加信息，不承载错误判定逻辑。
+	Details map[string]any `json:"details,omitempty"`
 }
 
 // CodeForStatus 将 HTTP 状态码映射为稳定的通用错误码。
@@ -67,8 +69,13 @@ func CodeForStatus(status int) string {
 
 // WriteError 使用统一的 code、message 和可选 request_id 写入 JSON 错误响应。
 func WriteError(w http.ResponseWriter, status int, code, message, requestID string) {
+	WriteErrorDetails(w, status, code, message, requestID, nil)
+}
+
+// WriteErrorDetails 使用统一错误字段和可选附加详情写入 JSON 错误响应。
+func WriteErrorDetails(w http.ResponseWriter, status int, code, message, requestID string, details map[string]any) {
 	// response 是本次请求要序列化的统一错误 DTO。
-	response := ErrorResponse{Code: code, Message: message, RequestID: requestID}
+	response := ErrorResponse{Code: code, Message: message, RequestID: requestID, Details: details}
 	if response.Code == "" {
 		response.Code = CodeForStatus(status)
 	}

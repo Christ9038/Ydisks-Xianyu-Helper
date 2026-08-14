@@ -207,7 +207,7 @@ func (s *Server) sendChatImage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := sender.SendImage(engine.WithOutgoingMessageKey(r.Context(), message.MessageKey), chatID, buyerID, upload.URL, 0); err != nil {
 		failed, _ := s.chat.SetOutgoingStatus(context.Background(), accountID, message.MessageKey, "failed")
-		writeJSON(w, http.StatusBadGateway, map[string]any{"message": failed, "error": "图片发送失败，请重试"})
+		writeErrDetails(w, http.StatusBadGateway, "chat_image_send_failed", "图片发送失败，请重试", "", map[string]any{"outgoing_message": failed})
 		return
 	}
 	sent, err := s.chat.SetOutgoingStatus(r.Context(), accountID, message.MessageKey, "sent")
@@ -354,7 +354,7 @@ func (s *Server) sendChatMessage(w http.ResponseWriter, r *http.Request) {
 	sendContext := engine.WithOutgoingMessageKey(r.Context(), message.MessageKey)
 	if err := sender.SendText(sendContext, input.ChatID, input.BuyerID, input.Text); err != nil {
 		failed, _ := s.chat.SetOutgoingStatus(context.Background(), input.AccountID, message.MessageKey, "failed")
-		writeJSON(w, http.StatusBadGateway, map[string]any{"message": failed, "error": "发送失败，请重试"})
+		writeErrDetails(w, http.StatusBadGateway, "chat_message_send_failed", "发送失败，请重试", "", map[string]any{"outgoing_message": failed})
 		return
 	}
 	sent, err := s.chat.SetOutgoingStatus(r.Context(), input.AccountID, message.MessageKey, "sent")

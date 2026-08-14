@@ -91,6 +91,11 @@ func writeErrCode(w http.ResponseWriter, status int, code, msg, requestID string
 	httpapi.WriteError(w, status, code, msg, requestID)
 }
 
+// writeErrDetails 写带恢复信息的统一错误响应，详情只作为附加数据返回。
+func writeErrDetails(w http.ResponseWriter, status int, code, msg, requestID string, details map[string]any) {
+	httpapi.WriteErrorDetails(w, status, code, msg, requestID, details)
+}
+
 // writeCredentialVerificationError 将当前密码校验失败区分为认证失败或内部故障。
 func writeCredentialVerificationError(w http.ResponseWriter, err error) {
 	if errors.Is(err, db.ErrPasswordMismatch) {

@@ -160,23 +160,23 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 				status = http.StatusForbidden
 				msg = "该账号没有库存发布权限，无法按库存数量发布商品"
 			}
-			writeJSON(w, status, map[string]any{
-				"success": false,
-				"code":    perr.Code,
-				"message": msg,
-				"ret":     perr.Ret,
-			})
+			writeErrCode(
+				w,
+				status,
+				string(perr.Code),
+				msg,
+				"")
 			return
 		}
 		writeErr(w, http.StatusBadGateway, callErr.Error())
 		return
 	}
 	if res == nil || strings.TrimSpace(res.ItemID) == "" {
-		writeJSON(w, http.StatusBadGateway, map[string]any{
-			"success": false,
-			"code":    "publish_result_missing_item_id",
-			"message": "平台返回发布成功，但缺少商品 ID，无法确认发布结果",
-		})
+		writeErrCode(w, http.StatusBadGateway,
+			"publish_result_missing_item_id",
+			"平台返回发布成功，但缺少商品 ID，无法确认发布结果",
+			"",
+		)
 		return
 	}
 	detail := map[string]any{
@@ -200,23 +200,23 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		if s.Logger != nil {
 			s.Logger.Error("平台已发布但保存本地商品失败", "cookie_id", cookieID, "item_id", res.ItemID, "err", err)
 		}
-		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			"success":  false,
-			"code":     "remote_published_local_save_failed",
-			"message":  "商品已在平台发布，但本地保存失败，请勿重复发布并根据商品 ID 人工核对",
-			"item_id":  res.ItemID,
-			"item_url": res.ItemURL,
-		})
+		writeErrDetails(
+			w,
+			http.StatusInternalServerError,
+			"remote_published_local_save_failed",
+			"商品已在平台发布，但本地保存失败，请勿重复发布并根据商品 ID 人工核对",
+			"",
+			map[string]any{"item_id": res.ItemID, "item_url": res.ItemURL})
 		return
 	}
 	if responseCookieErr != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			"success":  false,
-			"code":     "remote_published_cookie_save_failed",
-			"message":  "商品已在平台发布并保存到本地，但登录凭证更新保存失败，请勿重复发布并尽快重新登录",
-			"item_id":  res.ItemID,
-			"item_url": res.ItemURL,
-		})
+		writeErrDetails(
+			w,
+			http.StatusInternalServerError,
+			"remote_published_cookie_save_failed",
+			"商品已在平台发布并保存到本地，但登录凭证更新保存失败，请勿重复发布并尽快重新登录",
+			"",
+			map[string]any{"item_id": res.ItemID, "item_url": res.ItemURL})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
