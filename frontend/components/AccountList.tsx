@@ -1,71 +1,65 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AccountDetail, AIReplySettings, NotificationChannel } from '../types';
+import { AccountDetail } from '../types';
 import {
   updateAccountStatus,
   deleteAccount,
   generateQRLogin,
   checkQRLoginStatus,
   completeQRVerification,
-  updateAccountPauseDuration,
   refreshAccountProfile,
-  updateAccountSettings,
-  passwordLogin,
-  checkPasswordLoginStatus,
-  cancelPasswordLogin,
-  updateAccountAISettings,
-  getAccountAISettings,
-  getNotificationChannels,
-  getAccountBindings,
-  getLongLoginSettings,
-  setLongLoginSettings,
 } from '../app/features/accounts/api';
 import {
   Power, Edit2, Trash2, QrCode, X, Check, Loader2,
   RefreshCw, Save, User, Clock, MessageCircle,
   Bot, Settings, AlertCircle, CalendarClock, Sparkles
 } from 'lucide-react';
-import { buildAccountLoginInfoUpdate, isCurrentAccountRequest, passwordLoginViewFromStatus, shouldUpdateAccountPause } from '../app/features/accounts/state';
-import { shouldSaveNotificationBindings } from './accountBindings';
 import { createLatestRequestGate, createQRLoginPoller } from './qrPolling';
 import { RiskVerificationPanel } from './RiskVerificationPanel';
 import { SquareQRCode } from './SquareQRCode';
 import AccountAutomationModal from './AccountAutomationModal';
 import { AccountEditModal } from '../app/features/accounts/components/AccountEditModal';
 import { useAccountsData } from '../app/features/accounts/hooks';
+import { useAccountSubmodules, type AccountModalType } from '../app/features/accounts/submoduleHooks';
 import { accountRuntimePresentation } from '../app/features/accounts/runtime';
-import type { AccountEditForm, LongLoginState, PasswordLoginView } from '../app/features/accounts/types';
-
-type ModalType = 'edit' | 'ai-settings' | null;
+import type { AccountEditForm } from '../app/features/accounts/types';
 
 const AccountList: React.FC = () => {
+  // accountData 保存账号列表及其加载控制器。
   const { accounts, setAccounts, loading, loadAccounts } = useAccountsData();
+  // accountSearch 保存列表过滤关键词。
   const [accountSearch, setAccountSearch] = useState('');
+  // refreshingProfileId 保存正在刷新资料的账号 ID。
   const [refreshingProfileId, setRefreshingProfileId] = useState<string>('');
+  // deletingAccountId 保存正在删除的账号 ID。
   const [deletingAccountId, setDeletingAccountId] = useState<string>('');
+  // deleteDialogAccount 保存待确认删除的账号。
   const [deleteDialogAccount, setDeleteDialogAccount] = useState<AccountDetail | null>(null);
+  // deleteError 保存删除失败提示。
   const [deleteError, setDeleteError] = useState('');
+  // showQRModal 表示二维码登录弹窗是否打开。
   const [showQRModal, setShowQRModal] = useState(false);
+  // qrCodeUrl 保存当前二维码登录地址。
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
+  // qrStatus 保存二维码登录流程状态。
   const [qrStatus, setQrStatus] = useState<string>('pending');
+  // qrErrorMessage 保存二维码登录错误说明。
   const [qrErrorMessage, setQrErrorMessage] = useState<string>('');
+  // verificationScreenshot 保存风控验证截图地址。
   const [verificationScreenshot, setVerificationScreenshot] = useState<string>('');
+  // faceQrUrl 保存人脸验证二维码地址。
   const [faceQrUrl, setFaceQrUrl] = useState<string>('');
+  // qrReauthTarget 保存需要重新授权的目标账号。
   const [qrReauthTarget, setQrReauthTarget] = useState<AccountDetail | null>(null);
-  const [activeModal, setActiveModal] = useState<ModalType>(null);
+  // activeModal 保存当前打开的账号配置弹窗。
+  const [activeModal, setActiveModal] = useState<AccountModalType>(null);
+  // editingAccount 保存当前编辑账号。
   const [editingAccount, setEditingAccount] = useState<AccountDetail | null>(null);
+  // taskAccount 保存当前打开自动化任务弹窗的账号。
   const [taskAccount, setTaskAccount] = useState<AccountDetail | null>(null);
-  const [longLogin, setLongLogin] = useState<LongLoginState>({ loading: false, saving: false, canOpen: false, enabled: false, error: '' });
 
-  // 通知渠道绑定（编辑弹窗用）
-  const [notifChannels, setNotifChannels] = useState<NotificationChannel[]>([]);
-  const [selectedChannelIds, setSelectedChannelIds] = useState<number[]>([]);
-  const [bindingsLoaded, setBindingsLoaded] = useState(false);
-  const [bindingsLoading, setBindingsLoading] = useState(false);
-  const [bindingsDirty, setBindingsDirty] = useState(false);
-  const [bindingsLoadError, setBindingsLoadError] = useState('');
-
-  // 编辑表单状态
+  // 编辑表单状态。
+  // editForm 保存编辑弹窗中的账号草稿。
   const [editForm, setEditForm] = useState<AccountEditForm>({
     remark: '',
     cookie: '',
@@ -78,37 +72,58 @@ const AccountList: React.FC = () => {
     clear_password: false,
   });
 
-  // AI设置表单状态
-  const [aiSettings, setAiSettings] = useState<AIReplySettings>({
-    ai_enabled: false,
-    max_discount_percent: 10,
-    max_discount_amount: 100,
-    max_bargain_rounds: 3,
-    custom_prompts: '',
+  // accountSubmodules 集中管理编辑弹窗的长登录、通知绑定、AI 和密码登录状态。
+  const accountSubmodules = useAccountSubmodules({
+    editingAccount,
+    setEditingAccount,
+    setActiveModal,
+    editForm,
+    setEditForm,
+    loadAccounts,
   });
-  const [saving, setSaving] = useState(false);
-  const [passwordLoginView, setPasswordLoginView] = useState<PasswordLoginView>({ sessionId: '', status: 'idle', message: '', qrCodeUrl: '' });
+  // submoduleHandlers 保存编辑弹窗子模块的状态和事件处理函数。
+  const {
+    longLogin,
+    notifChannels,
+    selectedChannelIds,
+    bindingsLoaded,
+    bindingsLoading,
+    bindingsLoadError,
+    aiSettings,
+    saving,
+    passwordLoginView,
+    setAiSettings,
+    setBindingsDirty,
+    openEditModal,
+    closeEditModal,
+    openAIModal,
+    closeAIModal,
+    loadNotificationBindings,
+    toggleNotificationChannel,
+    handleLongLoginToggle,
+    handleSaveAISettings,
+    handleSaveEdit,
+    handleRestartPause,
+    handlePasswordLogin,
+    handleCancelPasswordLogin,
+  } = accountSubmodules;
+
+  // qrPollerRef 保存二维码登录状态轮询器。
   const qrPollerRef = useRef<ReturnType<typeof createQRLoginPoller> | null>(null);
+  // qrRequestGateRef 隔离过期的二维码生成请求。
   const qrRequestGateRef = useRef<ReturnType<typeof createLatestRequestGate> | null>(null);
-  const bindingsLoadGateRef = useRef<ReturnType<typeof createLatestRequestGate> | null>(null);
-  const aiLoadGateRef = useRef<ReturnType<typeof createLatestRequestGate> | null>(null);
-  const bindingsLoadAbortRef = useRef<AbortController | null>(null);
-  const aiLoadAbortRef = useRef<AbortController | null>(null);
+  // qrGenerateAbortRef 保存二维码生成请求控制器。
   const qrGenerateAbortRef = useRef<AbortController | null>(null);
-  const passwordPollAbortRef = useRef<AbortController | null>(null);
+  // qrCloseTimerRef 保存二维码弹窗延迟关闭定时器。
   const qrCloseTimerRef = useRef<number | null>(null);
-  const passwordPollTimerRef = useRef<number | null>(null);
-  const passwordPollGenerationRef = useRef(0);
-  const passwordPollAccountRef = useRef('');
   if (qrPollerRef.current === null) {
     qrPollerRef.current = createQRLoginPoller();
   }
   if (qrRequestGateRef.current === null) {
     qrRequestGateRef.current = createLatestRequestGate();
   }
-  if (bindingsLoadGateRef.current === null) bindingsLoadGateRef.current = createLatestRequestGate();
-  if (aiLoadGateRef.current === null) aiLoadGateRef.current = createLatestRequestGate();
 
+  // clearQRCloseTimer 清理二维码弹窗延迟关闭定时器。
   const clearQRCloseTimer = () => {
     if (qrCloseTimerRef.current !== null) {
       window.clearTimeout(qrCloseTimerRef.current);
@@ -116,17 +131,12 @@ const AccountList: React.FC = () => {
     }
   };
 
-  const clearPasswordPollTimer = () => {
-    if (passwordPollTimerRef.current !== null) {
-      window.clearTimeout(passwordPollTimerRef.current);
-      passwordPollTimerRef.current = null;
-    }
-  };
-
+  // stopQRPolling 停止二维码登录状态轮询。
   const stopQRPolling = () => {
     qrPollerRef.current?.stop();
   };
 
+  // closeQRModal 关闭二维码登录弹窗并取消请求。
   const closeQRModal = () => {
 	qrGenerateAbortRef.current?.abort();
     qrRequestGateRef.current?.cancel();
@@ -135,6 +145,7 @@ const AccountList: React.FC = () => {
     setShowQRModal(false);
   };
 
+  // scheduleQRModalClose 在登录成功后延迟关闭二维码弹窗。
   const scheduleQRModalClose = () => {
     clearQRCloseTimer();
     qrCloseTimerRef.current = window.setTimeout(() => {
@@ -149,36 +160,34 @@ const AccountList: React.FC = () => {
     return () => {
       stopQRPolling();
       qrRequestGateRef.current?.cancel();
-      bindingsLoadGateRef.current?.cancel();
-      aiLoadGateRef.current?.cancel();
-      bindingsLoadAbortRef.current?.abort();
-      aiLoadAbortRef.current?.abort();
       qrGenerateAbortRef.current?.abort();
-      passwordPollAbortRef.current?.abort();
       clearQRCloseTimer();
-      passwordPollGenerationRef.current += 1;
-      clearPasswordPollTimer();
     };
   }, []);
 
+  // handleToggle 切换账号启用状态。
   const handleToggle = async (id: string, currentStatus: boolean) => {
     await updateAccountStatus(id, !currentStatus);
     loadAccounts();
   };
 
+  // openDeleteDialog 打开账号删除确认框。
   const openDeleteDialog = (account: AccountDetail) => {
     if (deletingAccountId) return;
     setDeleteError('');
     setDeleteDialogAccount(account);
   };
 
+  // closeDeleteDialog 关闭账号删除确认框。
   const closeDeleteDialog = () => {
     if (deletingAccountId) return;
     setDeleteError('');
     setDeleteDialogAccount(null);
   };
 
+  // confirmDeleteAccount 执行账号删除并刷新列表状态。
   const confirmDeleteAccount = async () => {
+    // account 保存当前确认删除的账号。
     const account = deleteDialogAccount;
     if (!account || deletingAccountId) return;
     setDeletingAccountId(account.id);
@@ -195,9 +204,11 @@ const AccountList: React.FC = () => {
     }
   };
 
+  // handleRefreshProfile 刷新账号资料并同步列表。
   const handleRefreshProfile = async (account: AccountDetail) => {
     setRefreshingProfileId(account.id);
     try {
+      // res 保存资料刷新接口返回值。
       const res = await refreshAccountProfile(account.id);
       if (res?.profile_error) {
         alert('资料刷新失败：' + res.profile_error);
@@ -210,308 +221,9 @@ const AccountList: React.FC = () => {
       setRefreshingProfileId('');
     }
   };
-
-  const loadNotificationBindings = async (accountId: string) => {
-	const generation = bindingsLoadGateRef.current!.next();
-	bindingsLoadAbortRef.current?.abort();
-	const controller = new AbortController();
-	bindingsLoadAbortRef.current = controller;
-    setBindingsLoading(true);
-    setBindingsLoaded(false);
-    setBindingsDirty(false);
-    setBindingsLoadError('');
-    const [channelsResult, bindingsResult] = await Promise.allSettled([
-	  getNotificationChannels({ signal: controller.signal }),
-	  getAccountBindings(accountId, { signal: controller.signal }),
-    ]);
-	if (!bindingsLoadGateRef.current?.isCurrent(generation)) return;
-    if (channelsResult.status === 'fulfilled') {
-      setNotifChannels(channelsResult.value.data || []);
-    } else {
-      setNotifChannels([]);
-      setBindingsLoadError('通知渠道列表加载失败，请重试');
-    }
-    if (bindingsResult.status === 'fulfilled') {
-      setSelectedChannelIds(bindingsResult.value || []);
-      setBindingsLoaded(true);
-    } else {
-      setSelectedChannelIds([]);
-      setBindingsLoadError('通知绑定加载失败；本次保存不会修改现有绑定');
-    }
-    setBindingsLoading(false);
-  };
-
-  // toggleNotificationChannel 使用函数式更新切换通知绑定，避免连续点击覆盖选择结果。
-  const toggleNotificationChannel = (channelId: number) => {
-    setSelectedChannelIds(current => current.includes(channelId)
-      ? current.filter(id => id !== channelId)
-      : [...current, channelId]);
-  };
-
-  const openEditModal = async (account: AccountDetail) => {
-    passwordPollGenerationRef.current += 1;
-	passwordPollAccountRef.current = account.id;
-	passwordPollAbortRef.current?.abort();
-    clearPasswordPollTimer();
-    setPasswordLoginView({ sessionId: '', status: 'idle', message: '', qrCodeUrl: '' });
-    setEditingAccount(account);
-    setEditForm({
-      remark: account.remark || account.note || '',
-      cookie: account.cookie || account.value || '',
-      auto_confirm: account.auto_confirm || false,
-      pause_duration: account.pause_duration || 0,
-      username: account.username || '',
-      login_password: account.login_password || '',
-      show_browser: account.show_browser || false,
-      showLoginPassword: false,
-      clear_password: false,
-    });
-    setActiveModal('edit');
-    setLongLogin({ loading: true, saving: false, canOpen: false, enabled: false, error: '' });
-    const [, longLoginResult] = await Promise.allSettled([
-      loadNotificationBindings(account.id),
-      getLongLoginSettings(account.id),
-    ]);
-    if (longLoginResult.status === 'fulfilled') {
-      setLongLogin({ loading: false, saving: false, canOpen: longLoginResult.value.can_open_long_login, enabled: longLoginResult.value.enabled, error: '' });
-    } else {
-      setLongLogin({ loading: false, saving: false, canOpen: false, enabled: false, error: '无法读取闲鱼保存登录信息状态' });
-    }
-  };
-
-  const handleLongLoginToggle = async () => {
-    if (!editingAccount || longLogin.loading || longLogin.saving || !longLogin.canOpen) return;
-    const enabled = !longLogin.enabled;
-    setLongLogin(current => ({ ...current, saving: true, error: '' }));
-    try {
-      const result = await setLongLoginSettings(editingAccount.id, enabled);
-      setLongLogin({ loading: false, saving: false, canOpen: result.can_open_long_login, enabled: result.enabled, error: '' });
-    } catch (error) {
-      setLongLogin(current => ({ ...current, saving: false, error: error instanceof Error ? error.message : '保存登录信息设置失败' }));
-    }
-  };
-
-  const openAIModal = async (account: AccountDetail) => {
-	const generation = aiLoadGateRef.current!.next();
-	aiLoadAbortRef.current?.abort();
-	const controller = new AbortController();
-	aiLoadAbortRef.current = controller;
-    setEditingAccount(account);
-	setActiveModal('ai-settings');
-    setSaving(true);
-    try {
-	  const settings = await getAccountAISettings(account.id, { signal: controller.signal });
-	  if (!aiLoadGateRef.current?.isCurrent(generation)) return;
-      setAiSettings({
-        ai_enabled: settings.ai_enabled ?? false,
-        max_discount_percent: settings.max_discount_percent ?? 10,
-        max_discount_amount: settings.max_discount_amount ?? 100,
-        max_bargain_rounds: settings.max_bargain_rounds ?? 3,
-        custom_prompts: settings.custom_prompts ?? '',
-      });
-    } catch (e) {
-	  if (aiLoadGateRef.current?.isCurrent(generation)) console.error('Failed to load AI settings:', e);
-    } finally {
-	  if (aiLoadGateRef.current?.isCurrent(generation)) setSaving(false);
-    }
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editingAccount) return;
-    setSaving(true);
-
-    try {
-	  const payload: Parameters<typeof updateAccountSettings>[1] = {};
-
-      // 更新备注
-      if (editForm.remark !== (editingAccount.remark || editingAccount.note || '')) {
-		payload.remark = editForm.remark;
-      }
-
-      // 更新Cookie
-      if (editForm.cookie && editForm.cookie !== (editingAccount.cookie || editingAccount.value || '')) {
-		payload.cookie = editForm.cookie;
-      }
-
-      // 更新自动确认
-      if (editForm.auto_confirm !== editingAccount.auto_confirm) {
-		payload.auto_confirm = editForm.auto_confirm;
-      }
-
-      // 更新暂停时长
-	  if (shouldUpdateAccountPause(editForm.pause_duration, editingAccount)) {
-		payload.pause_duration = editForm.pause_duration;
-	  }
-
-      // 更新登录信息
-      const loginInfo = buildAccountLoginInfoUpdate(editingAccount, editForm);
-      if (loginInfo) {
-		Object.assign(payload, loginInfo);
-      }
-
-      // 只有成功加载且用户确实改动后才覆盖，避免加载失败被误解释成解绑全部。
-      if (shouldSaveNotificationBindings(bindingsLoaded, bindingsDirty)) {
-		payload.channel_ids = selectedChannelIds;
-      }
-
-	  if (Object.keys(payload).length > 0) await updateAccountSettings(editingAccount.id, payload);
-      setActiveModal(null);
-      loadAccounts();
-    } catch (error) {
-      console.error('更新账号失败:', error);
-      alert('更新失败，请重试');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleRestartPause = async () => {
-    if (!editingAccount || editForm.pause_duration <= 0) return;
-    setSaving(true);
-    try {
-      const result = await updateAccountPauseDuration(editingAccount.id, editForm.pause_duration);
-      setEditingAccount({
-        ...editingAccount,
-        pause_duration: editForm.pause_duration,
-        paused: result?.paused === true,
-        paused_until: Number(result?.paused_until || 0),
-      });
-      await loadAccounts();
-    } catch (error) {
-      alert(error instanceof Error ? error.message : '重新暂停失败');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSaveAISettings = async () => {
-    if (!editingAccount) return;
-    setSaving(true);
-
-    try {
-      await updateAccountAISettings(editingAccount.id, aiSettings);
-      setActiveModal(null);
-      loadAccounts();
-    } catch (error) {
-      console.error('更新AI设置失败:', error);
-      alert('更新失败，请重试');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // pollPasswordLogin 轮询密码登录状态，并按账号和请求代次隔离过期响应。
-  const pollPasswordLogin = async (sessionId: string, generation: number, accountId: string) => {
-    passwordPollAbortRef.current?.abort();
-    // controller 取消上一轮仍未完成的密码登录状态请求。
-    const controller = new AbortController();
-    passwordPollAbortRef.current = controller;
-    try {
-      // result 是后端返回的当前密码登录状态。
-      const result = await checkPasswordLoginStatus(sessionId, controller.signal);
-      if (!isCurrentAccountRequest(generation, passwordPollGenerationRef.current, accountId, passwordPollAccountRef.current)) return;
-      // nextView 是统一转换后的密码登录展示状态。
-      const nextView = { ...passwordLoginViewFromStatus(result), sessionId };
-      if (result.status === 'success') {
-        clearPasswordPollTimer();
-        setPasswordLoginView(nextView);
-        setEditForm(current => ({ ...current, login_password: '', showLoginPassword: false }));
-        await loadAccounts();
-        return;
-      }
-      if (result.status === 'processing' || result.status === 'verification_required') {
-        setPasswordLoginView(nextView);
-        clearPasswordPollTimer();
-        passwordPollTimerRef.current = window.setTimeout(
-          // pollNextStatus 在短暂间隔后继续查询当前密码登录会话。
-          () => void pollPasswordLogin(sessionId, generation, accountId),
-          1500,
-        );
-        return;
-      }
-      clearPasswordPollTimer();
-      setPasswordLoginView(nextView);
-    } catch (error /* 密码登录状态查询错误 */) {
-      if (!isCurrentAccountRequest(generation, passwordPollGenerationRef.current, accountId, passwordPollAccountRef.current)) return;
-      clearPasswordPollTimer();
-      setPasswordLoginView({
-        sessionId,
-        status: 'failed',
-        message: error instanceof Error ? error.message : '查询密码登录状态失败',
-        qrCodeUrl: '',
-      });
-    }
-  };
-
-
-  const handlePasswordLogin = async () => {
-    if (!editingAccount) return;
-    const account = editForm.username.trim();
-    if (!account || !editForm.login_password) {
-      alert('请先填写登录账号和本次登录密码');
-      return;
-    }
-    clearPasswordPollTimer();
-	passwordPollAbortRef.current?.abort();
-    const generation = ++passwordPollGenerationRef.current;
-    passwordPollAccountRef.current = editingAccount.id;
-    setPasswordLoginView({ sessionId: '', status: 'processing', message: '正在启动密码登录…', qrCodeUrl: '' });
-    try {
-      const result = await passwordLogin({
-        account_id: editingAccount.id,
-        account,
-        password: editForm.login_password,
-        show_browser: editForm.show_browser,
-      });
-      if (!isCurrentAccountRequest(generation, passwordPollGenerationRef.current, editingAccount.id, passwordPollAccountRef.current)) return;
-      if (!result.success || !result.session_id) {
-        throw new Error(result.message || '无法启动密码登录');
-      }
-      setPasswordLoginView({ sessionId: result.session_id, status: 'processing', message: result.message || '登录处理中', qrCodeUrl: '' });
-      await pollPasswordLogin(result.session_id, generation, editingAccount.id);
-    } catch (error) {
-      if (!isCurrentAccountRequest(generation, passwordPollGenerationRef.current, editingAccount.id, passwordPollAccountRef.current)) return;
-      setPasswordLoginView({
-        sessionId: '',
-        status: 'failed',
-        message: error instanceof Error ? error.message : '启动密码登录失败',
-        qrCodeUrl: '',
-      });
-    }
-  };
-
-  const handleCancelPasswordLogin = async () => {
-    const sessionId = passwordLoginView.sessionId;
-	passwordPollGenerationRef.current += 1;
-	passwordPollAccountRef.current = '';
-	passwordPollAbortRef.current?.abort();
-    clearPasswordPollTimer();
-    if (sessionId) {
-      try {
-        await cancelPasswordLogin(sessionId);
-      } catch (error) {
-        console.error('取消密码登录失败', error);
-      }
-    }
-    setPasswordLoginView({ sessionId: '', status: 'idle', message: '', qrCodeUrl: '' });
-  };
-
-  const closeEditModal = async () => {
-	bindingsLoadGateRef.current?.cancel();
-	bindingsLoadAbortRef.current?.abort();
-    if (passwordLoginView.status === 'processing' || passwordLoginView.status === 'verification_required') {
-      await handleCancelPasswordLogin();
-    }
-    setActiveModal(null);
-  };
-
-  const closeAIModal = () => {
-	aiLoadGateRef.current?.cancel();
-	aiLoadAbortRef.current?.abort();
-	setActiveModal(null);
-  };
-
+  // completeAndPersistQRSession 完成二维码风控验证并持久化授权结果。
   const completeAndPersistQRSession = async (sessionId: string, target?: AccountDetail | null) => {
+    // res 保存风控验证完成接口返回值。
     const res = await completeQRVerification(sessionId, target?.id);
     if (!res.success || !res.account_id) {
       throw new Error(res.message || '保存扫码授权失败');
@@ -519,13 +231,17 @@ const AccountList: React.FC = () => {
     return res.account_id;
   };
 
+  // startQRLogin 启动二维码登录或账号重新授权流程。
   const startQRLogin = async (target?: AccountDetail) => {
     stopQRPolling();
 	qrGenerateAbortRef.current?.abort();
+	// controller 控制当前二维码生成请求的取消。
 	const controller = new AbortController();
 	qrGenerateAbortRef.current = controller;
+    // requestGeneration 标识当前二维码生成请求代次。
     const requestGeneration = qrRequestGateRef.current!.next();
     clearQRCloseTimer();
+    // targetAccount 保存当前二维码授权目标账号。
     const targetAccount = target || null;
     setQrReauthTarget(targetAccount);
     setShowQRModal(true);
@@ -535,12 +251,14 @@ const AccountList: React.FC = () => {
     setVerificationScreenshot('');
     setFaceQrUrl('');
     try {
+	  // res 保存二维码生成接口返回值。
 	  const res = await generateQRLogin({ signal: controller.signal });
       if (!qrRequestGateRef.current?.isCurrent(requestGeneration)) return;
       if (!res.success || !res.qr_code_url || !res.session_id) {
         throw new Error(res.message || '闲鱼未返回可用的登录二维码');
       }
       if (res.success && res.qr_code_url && res.session_id) {
+        // generatedSessionID 保存后端生成的二维码登录会话。
         const generatedSessionID = res.session_id;
         setQrCodeUrl(res.qr_code_url);
         setQrStatus('waiting');

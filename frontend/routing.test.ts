@@ -177,6 +177,7 @@ describe('frontend navigation routing', () => {
     const accounts = [
       readFrontendFile('components/AccountList.tsx'),
       readFrontendFile('app/features/accounts/components/AccountEditModal.tsx'),
+      readFrontendFile('app/features/accounts/submoduleHooks.ts'),
     ].join('\n');
     expect(accounts).toContain('passwordLogin({');
 	expect(accounts).toContain('checkPasswordLoginStatus(sessionId, controller.signal)');

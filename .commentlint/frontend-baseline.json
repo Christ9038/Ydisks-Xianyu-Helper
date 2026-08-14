@@ -475,9 +475,207 @@
   },
   {
     "file": "app/features/accountAutomation/state.test.ts",
-    "line": 20,
+    "line": 19,
     "kind": "variable",
     "name": "controller"
+  },
+  {
+    "file": "app/features/accounts/state.test.ts",
+    "line": 32,
+    "kind": "variable",
+    "name": "currentGeneration"
+  },
+  {
+    "file": "app/features/accounts/state.test.ts",
+    "line": 33,
+    "kind": "variable",
+    "name": "currentAccountId"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 107,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 108,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 108,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 114,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 139,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 143,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 148,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 150,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 156,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 171,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 181,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 188,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 196,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 213,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 221,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 227,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 229,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 235,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 249,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 256,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 261,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 271,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 292,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 301,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 308,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 314,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 325,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 332,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 332,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 72,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/accounts/submoduleHooks.ts",
+    "line": 81,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "app/features/chat/hooks.ts",
@@ -2329,225 +2527,75 @@
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 100,
-    "kind": "variable",
-    "name": "passwordPollTimerRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 101,
-    "kind": "variable",
-    "name": "passwordPollGenerationRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 102,
-    "kind": "variable",
-    "name": "passwordPollAccountRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 1020,
+    "line": 151,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1042,
+    "line": 158,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1054,
+    "line": 160,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1065,
+    "line": 197,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1080,
+    "line": 197,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 112,
-    "kind": "variable",
-    "name": "clearQRCloseTimer"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 119,
-    "kind": "variable",
-    "name": "clearPasswordPollTimer"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 126,
-    "kind": "variable",
-    "name": "stopQRPolling"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 130,
-    "kind": "variable",
-    "name": "closeQRModal"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 138,
-    "kind": "variable",
-    "name": "scheduleQRModalClose"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 140,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 147,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 149,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 164,
-    "kind": "variable",
-    "name": "handleToggle"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 169,
-    "kind": "variable",
-    "name": "openDeleteDialog"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 175,
-    "kind": "variable",
-    "name": "closeDeleteDialog"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 181,
-    "kind": "variable",
-    "name": "confirmDeleteAccount"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 182,
-    "kind": "variable",
-    "name": "account"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 188,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 188,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 190,
+    "line": 199,
     "kind": "variable",
     "name": "error"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 198,
-    "kind": "variable",
-    "name": "handleRefreshProfile"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 201,
-    "kind": "variable",
-    "name": "res"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 206,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 214,
-    "kind": "variable",
-    "name": "loadNotificationBindings"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 215,
-    "kind": "variable",
-    "name": "generation"
   },
   {
     "file": "components/AccountList.tsx",
     "line": 217,
     "kind": "variable",
-    "name": "controller"
+    "name": "error"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 223,
-    "kind": "variable",
-    "name": "[channelsResult, bindingsResult]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 246,
+    "line": 267,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 247,
-    "kind": "function-expression",
-    "name": "anonymous"
+    "line": 269,
+    "kind": "variable",
+    "name": "accountId"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 251,
+    "line": 27,
     "kind": "variable",
-    "name": "openEditModal"
+    "name": "AccountList"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 271,
+    "line": 274,
     "kind": "variable",
-    "name": "[, longLoginResult]"
+    "name": "e"
   },
   {
     "file": "components/AccountList.tsx",
     "line": 282,
-    "kind": "variable",
-    "name": "handleLongLoginToggle"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 284,
-    "kind": "variable",
-    "name": "enabled"
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
@@ -2557,609 +2605,195 @@
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 287,
-    "kind": "variable",
-    "name": "result"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 289,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 290,
+    "line": 288,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 294,
-    "kind": "variable",
-    "name": "openAIModal"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 295,
-    "kind": "variable",
-    "name": "generation"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 297,
-    "kind": "variable",
-    "name": "controller"
+    "line": 292,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
     "line": 303,
     "kind": "variable",
-    "name": "settings"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 312,
-    "kind": "variable",
     "name": "e"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 319,
-    "kind": "variable",
-    "name": "handleSaveEdit"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 324,
-    "kind": "variable",
-    "name": "payload"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 360,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 368,
-    "kind": "variable",
-    "name": "handleRestartPause"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 372,
-    "kind": "variable",
-    "name": "result"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 380,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 387,
-    "kind": "variable",
-    "name": "handleSaveAISettings"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 395,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 41,
-    "kind": "variable",
-    "name": "AccountList"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 418,
+    "line": 314,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 42,
-    "kind": "variable",
-    "name": "{ accounts, setAccounts, loading, loadAccounts }"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 43,
-    "kind": "variable",
-    "name": "[accountSearch, setAccountSearch]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 44,
-    "kind": "variable",
-    "name": "[refreshingProfileId, setRefreshingProfileId]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 447,
-    "kind": "variable",
-    "name": "handlePasswordLogin"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 449,
-    "kind": "variable",
-    "name": "account"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 45,
-    "kind": "variable",
-    "name": "[deletingAccountId, setDeletingAccountId]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 456,
-    "kind": "variable",
-    "name": "generation"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 46,
-    "kind": "variable",
-    "name": "[deleteDialogAccount, setDeleteDialogAccount]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 460,
-    "kind": "variable",
-    "name": "result"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 47,
-    "kind": "variable",
-    "name": "[deleteError, setDeleteError]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 472,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 48,
-    "kind": "variable",
-    "name": "[showQRModal, setShowQRModal]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 483,
-    "kind": "variable",
-    "name": "handleCancelPasswordLogin"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 484,
-    "kind": "variable",
-    "name": "sessionId"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 49,
-    "kind": "variable",
-    "name": "[qrCodeUrl, setQrCodeUrl]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 492,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 499,
-    "kind": "variable",
-    "name": "closeEditModal"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 50,
-    "kind": "variable",
-    "name": "[qrStatus, setQrStatus]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 508,
-    "kind": "variable",
-    "name": "closeAIModal"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 51,
-    "kind": "variable",
-    "name": "[qrErrorMessage, setQrErrorMessage]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 514,
-    "kind": "variable",
-    "name": "completeAndPersistQRSession"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 515,
-    "kind": "variable",
-    "name": "res"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 52,
-    "kind": "variable",
-    "name": "[verificationScreenshot, setVerificationScreenshot]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 522,
-    "kind": "variable",
-    "name": "startQRLogin"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 525,
-    "kind": "variable",
-    "name": "controller"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 527,
-    "kind": "variable",
-    "name": "requestGeneration"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 529,
-    "kind": "variable",
-    "name": "targetAccount"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 53,
-    "kind": "variable",
-    "name": "[faceQrUrl, setFaceQrUrl]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 538,
-    "kind": "variable",
-    "name": "res"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 54,
-    "kind": "variable",
-    "name": "[qrReauthTarget, setQrReauthTarget]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 544,
-    "kind": "variable",
-    "name": "generatedSessionID"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 549,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 55,
-    "kind": "variable",
-    "name": "[activeModal, setActiveModal]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 551,
-    "kind": "variable",
-    "name": "accountId"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 556,
-    "kind": "variable",
-    "name": "e"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 56,
-    "kind": "variable",
-    "name": "[editingAccount, setEditingAccount]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 564,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 567,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 57,
-    "kind": "variable",
-    "name": "[taskAccount, setTaskAccount]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 570,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 574,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 58,
-    "kind": "variable",
-    "name": "[longLogin, setLongLogin]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 585,
-    "kind": "variable",
-    "name": "e"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 596,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 596,
+    "line": 314,
     "kind": "variable",
     "name": "filteredAccounts"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 597,
+    "line": 315,
     "kind": "variable",
     "name": "keyword"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 606,
+    "line": 324,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 619,
+    "line": 337,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 62,
-    "kind": "variable",
-    "name": "[selectedChannelIds, setSelectedChannelIds]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 624,
+    "line": 342,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 63,
-    "kind": "variable",
-    "name": "[bindingsLoaded, setBindingsLoaded]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 64,
-    "kind": "variable",
-    "name": "[bindingsLoading, setBindingsLoading]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 640,
+    "line": 358,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 641,
+    "line": 359,
     "kind": "variable",
     "name": "runtime"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 642,
+    "line": 360,
     "kind": "variable",
     "name": "requiresLogin"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 65,
-    "kind": "variable",
-    "name": "[bindingsDirty, setBindingsDirty]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 66,
-    "kind": "variable",
-    "name": "[bindingsLoadError, setBindingsLoadError]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 703,
+    "line": 421,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 714,
+    "line": 432,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 722,
+    "line": 440,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 729,
+    "line": 447,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 736,
+    "line": 454,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 743,
+    "line": 461,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 750,
+    "line": 468,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 757,
+    "line": 475,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 793,
+    "line": 511,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 794,
+    "line": 512,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 795,
+    "line": 513,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 795,
+    "line": 513,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 89,
-    "kind": "variable",
-    "name": "[saving, setSaving]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 893,
+    "line": 611,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 90,
-    "kind": "variable",
-    "name": "[passwordLoginView, setPasswordLoginView]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 91,
-    "kind": "variable",
-    "name": "qrPollerRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 92,
-    "kind": "variable",
-    "name": "qrRequestGateRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 93,
-    "kind": "variable",
-    "name": "bindingsLoadGateRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 94,
-    "kind": "variable",
-    "name": "aiLoadGateRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 95,
-    "kind": "variable",
-    "name": "bindingsLoadAbortRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 96,
-    "kind": "variable",
-    "name": "aiLoadAbortRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 97,
-    "kind": "variable",
-    "name": "qrGenerateAbortRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 98,
-    "kind": "variable",
-    "name": "passwordPollAbortRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 981,
+    "line": 699,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 983,
+    "line": 701,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 99,
-    "kind": "variable",
-    "name": "qrCloseTimerRef"
+    "line": 738,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 760,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 772,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 783,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 798,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "components/accountPause.test.ts",
@@ -9589,19 +9223,19 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 585,
+    "line": 569,
     "kind": "variable",
-    "name": "rules"
+    "name": "controller"
   },
   {
     "file": "services/api.test.ts",
-    "line": 59,
+    "line": 580,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 599,
+    "line": 59,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -9613,27 +9247,27 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 600,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 609,
+    "line": 603,
     "kind": "variable",
     "name": "rules"
   },
   {
     "file": "services/api.test.ts",
-    "line": 621,
+    "line": 617,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 622,
+    "line": 618,
     "kind": "variable",
     "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 627,
+    "kind": "variable",
+    "name": "rules"
   },
   {
     "file": "services/api.test.ts",
@@ -9643,93 +9277,99 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 637,
+    "line": 639,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 638,
+    "line": 640,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 647,
+    "line": 655,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 648,
+    "line": 656,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 659,
+    "line": 665,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 660,
+    "line": 666,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 675,
+    "line": 677,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 678,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 693,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 683,
+    "line": 701,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 684,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 695,
-    "kind": "variable",
-    "name": "body"
   },
   {
     "file": "services/api.test.ts",
     "line": 702,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 703,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 717,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 718,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 739,
+    "line": 713,
     "kind": "variable",
     "name": "body"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 720,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 721,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 735,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 736,
+    "kind": "variable",
+    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
@@ -9739,67 +9379,73 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 755,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 756,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 784,
+    "line": 757,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 808,
+    "line": 773,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 809,
+    "line": 774,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 821,
+    "line": 802,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 822,
+    "line": 826,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 822,
+    "line": 827,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 839,
+    "kind": "variable",
+    "name": "body"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 840,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 840,
     "kind": "member",
     "name": "action_type"
   },
   {
     "file": "services/api.test.ts",
-    "line": 830,
+    "line": 848,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 831,
+    "line": 849,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 848,
+    "line": 866,
     "kind": "variable",
     "name": "body"
   },

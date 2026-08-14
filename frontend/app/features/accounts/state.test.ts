@@ -26,6 +26,15 @@ test('账号切换后只接受当前请求代次和账号的响应',
     expect(isCurrentAccountRequest(2, 2, 'account-1', 'account-2')).toBe(false);
   });
 
+test('编辑子模块共享同一账号边界，旧绑定、AI 和密码登录响应全部失效',
+  // 三类异步子模块都使用相同的代次与账号判定，防止旧弹窗响应污染新账号。
+  () => {
+    const currentGeneration = 4;
+    const currentAccountId = 'account-4';
+    expect(isCurrentAccountRequest(3, currentGeneration, 'account-3', currentAccountId)).toBe(false);
+    expect(isCurrentAccountRequest(currentGeneration, currentGeneration, currentAccountId, currentAccountId)).toBe(true);
+  });
+
 test('暂停时长未变化时不会重复启动已结束的暂停',
   // 相同的时长只保留当前状态，不自动重新提交暂停请求。
   () => {

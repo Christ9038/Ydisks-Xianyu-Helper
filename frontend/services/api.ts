@@ -202,8 +202,8 @@ export const updateAccountAutoConfirm = async (id: string, autoConfirm: boolean)
   return put(`/api/v1/accounts/${id}/auto-confirm`, { auto_confirm: autoConfirm });
 };
 
-export const updateAccountPauseDuration = async (id: string, pauseDuration: number): Promise<CookieSettingsResponse> => {
-  return put(`/api/v1/accounts/${id}/pause-duration`, { pause_duration: pauseDuration });
+export const updateAccountPauseDuration = async (id: string, pauseDuration: number, options?: RequestControlOptions): Promise<CookieSettingsResponse> => {
+  return put(`/api/v1/accounts/${id}/pause-duration`, { pause_duration: pauseDuration }, options);
 };
 
 export const updateAccountCookie = async (id: string, value: string, loginMethod?: string): Promise<OperationResponse> => {
@@ -222,8 +222,8 @@ export interface AccountSettingsUpdate {
   channel_ids?: number[];
 }
 
-export const updateAccountSettings = async (id: string, data: AccountSettingsUpdate): Promise<CookieSettingsResponse> => {
-  return put(`/api/v1/accounts/${id}/settings`, data);
+export const updateAccountSettings = async (id: string, data: AccountSettingsUpdate, options?: RequestControlOptions): Promise<CookieSettingsResponse> => {
+  return put(`/api/v1/accounts/${id}/settings`, data, options);
 };
 
 export interface LongLoginSettings {
@@ -231,12 +231,12 @@ export interface LongLoginSettings {
   enabled: boolean;
 }
 
-export const getLongLoginSettings = async (id: string): Promise<LongLoginSettings> => {
-  return get(`/api/v1/accounts/${id}/long-login`);
+export const getLongLoginSettings = async (id: string, options?: RequestControlOptions): Promise<LongLoginSettings> => {
+  return get(`/api/v1/accounts/${id}/long-login`, undefined, options);
 };
 
-export const setLongLoginSettings = async (id: string, enabled: boolean): Promise<LongLoginSettings> => {
-  return put(`/api/v1/accounts/${id}/long-login`, { enabled });
+export const setLongLoginSettings = async (id: string, enabled: boolean, options?: RequestControlOptions): Promise<LongLoginSettings> => {
+  return put(`/api/v1/accounts/${id}/long-login`, { enabled }, options);
 };
 
 export interface PasswordLoginStartResponse {
@@ -264,16 +264,16 @@ export const passwordLogin = async (data: {
   account: string;
   password: string;
   show_browser?: boolean;
-}): Promise<PasswordLoginStartResponse> => {
-  return post('/api/v1/password-login', data);
+}, options?: RequestControlOptions): Promise<PasswordLoginStartResponse> => {
+  return post('/api/v1/password-login', data, options);
 };
 
 export const checkPasswordLoginStatus = async (sessionId: string, signal?: AbortSignal): Promise<PasswordLoginStatusResponse> => {
   return get(`/api/v1/password-login/check/${sessionId}`, undefined, { signal, timeoutMs: 10_000 });
 };
 
-export const cancelPasswordLogin = async (sessionId: string): Promise<ApiResponse> => {
-  return del(`/api/v1/password-login/cancel/${sessionId}`);
+export const cancelPasswordLogin = async (sessionId: string, options?: RequestControlOptions): Promise<ApiResponse> => {
+  return del(`/api/v1/password-login/cancel/${sessionId}`, undefined, options);
 };
 
 export const refreshAccountProfile = async (id: string): Promise<CookieProfileResponse> => {
@@ -896,7 +896,7 @@ export const getAccountAISettings = async (cookieId: string, options?: RequestCo
     return get(`/api/v1/settings/ai-reply/${cookieId}`, undefined, options);
 }
 
-export const updateAccountAISettings = async (cookieId: string, settings: Partial<AIReplySettings>): Promise<OperationResponse> => {
+export const updateAccountAISettings = async (cookieId: string, settings: Partial<AIReplySettings>, options?: RequestControlOptions): Promise<OperationResponse> => {
   const payload = {
     ai_enabled: settings.ai_enabled ?? false,
     max_discount_percent: settings.max_discount_percent ?? 10,
@@ -904,7 +904,7 @@ export const updateAccountAISettings = async (cookieId: string, settings: Partia
     max_bargain_rounds: settings.max_bargain_rounds ?? 3,
     custom_prompts: settings.custom_prompts ?? ''
   };
-  return put(`/api/v1/settings/ai-reply/${cookieId}`, payload);
+  return put(`/api/v1/settings/ai-reply/${cookieId}`, payload, options);
 }
 
 export const fetchAIModels = async (baseUrl: string, apiKey: string = '', options?: RequestControlOptions): Promise<string[]> => {

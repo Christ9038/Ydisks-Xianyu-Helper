@@ -559,6 +559,24 @@ test('password login service uses upstream-compatible routes', async () => {
 	  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/password-login/cancel/sid', expect.objectContaining({ method: 'DELETE' }));
 });
 
+test('账号编辑子模块请求支持取消过期响应', async () => {
+  // fetchMock 是验证请求取消信号透传的测试替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ can_open_long_login: true, enabled: false }))
+    .mockResolvedValueOnce(jsonResponse({ ai_enabled: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, session_id: 'sid' }));
+  vi.stubGlobal('fetch', fetchMock);
+  const controller = new AbortController();
+
+  await getLongLoginSettings('acc1', { signal: controller.signal });
+  await getAccountAISettings('acc1', { signal: controller.signal });
+  await passwordLogin({ account_id: 'acc1', account: 'u', password: 'p' }, { signal: controller.signal });
+
+  expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  expect(fetchMock.mock.calls[1][1].signal).toBeInstanceOf(AbortSignal);
+  expect(fetchMock.mock.calls[2][1].signal).toBeInstanceOf(AbortSignal);
+});
+
 test('getShippingRules exposes buyer reviewed gift rules as automation rules', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([{
     id: 12,
