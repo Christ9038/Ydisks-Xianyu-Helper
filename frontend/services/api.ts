@@ -3,8 +3,8 @@ import {
   LoginResponse, AccountDetail, AccountSummaryResponse, Order, PaginatedResponse,
   AdminStats, DashboardStats, Card, SystemSettings, ApiResponse, OrderAnalytics,
   Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
-  NotificationChannel, NotificationEventType
-	, AccountTaskSettings, AccountTaskSummary, ChatSession, ChatMessage
+  NotificationChannel, NotificationEventType, AccountTaskSettings, AccountTaskSummary, ChatSession, ChatMessage,
+  CookieSettingsResponse, CookieProfileResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, AutomationRuleResponse, AutomationRulePageResponse
 } from '../types';
 import { formatLocalDate } from '../dateRange';
 
@@ -202,7 +202,7 @@ export const updateAccountAutoConfirm = async (id: string, autoConfirm: boolean)
   return put(`/cookies/${id}/auto-confirm`, { auto_confirm: autoConfirm });
 };
 
-export const updateAccountPauseDuration = async (id: string, pauseDuration: number): Promise<any> => {
+export const updateAccountPauseDuration = async (id: string, pauseDuration: number): Promise<CookieSettingsResponse> => {
   return put(`/cookies/${id}/pause-duration`, { pause_duration: pauseDuration });
 };
 
@@ -222,7 +222,7 @@ export interface AccountSettingsUpdate {
   channel_ids?: number[];
 }
 
-export const updateAccountSettings = async (id: string, data: AccountSettingsUpdate): Promise<ApiResponse> => {
+export const updateAccountSettings = async (id: string, data: AccountSettingsUpdate): Promise<CookieSettingsResponse> => {
   return put(`/cookies/${id}/settings`, data);
 };
 
@@ -276,7 +276,7 @@ export const cancelPasswordLogin = async (sessionId: string): Promise<ApiRespons
   return del(`/password-login/cancel/${sessionId}`);
 };
 
-export const refreshAccountProfile = async (id: string): Promise<any> => {
+export const refreshAccountProfile = async (id: string): Promise<CookieProfileResponse> => {
   return post(`/cookies/${id}/refresh-profile`, {});
 };
 
@@ -314,7 +314,7 @@ export const getOrders = async (
   if (status && status !== 'all') params.status = status;
   if (search?.trim()) params.search = search.trim();
 
-  const res = await get<any>('/api/orders', params);
+  const res = await get<PaginatedResponse<Order> & { orders?: Order[] /* 后端兼容的订单列表字段。 */ }>('/api/orders', params);
 
   // Handle backend response variations
   const rawOrders = res.orders || res.data || [];
@@ -334,11 +334,11 @@ export const getOrders = async (
   };
 };
 
-export const getOrderDetail = async (orderId: string): Promise<{ success: boolean; data?: Order }> => {
-  const result = await get<{ order?: Order; data?: Order }>(`/api/orders/${orderId}`);
+export const getOrderDetail = async (orderId: string): Promise<{ success: boolean; data?: OrderDTOResponse }> => {
+  const result = await get<OrderDetailResponse>(`/api/orders/${orderId}`);
   return {
     success: true,
-    data: result.order || result.data
+    data: result.data
   };
 };
 
@@ -358,18 +358,18 @@ export const syncOrders = async (cookieId?: string, status?: string): Promise<an
 	return postForm('/api/orders/refresh', formData);
 };
 
-export const syncSingleOrder = async (orderId: string): Promise<any> => {
+export const syncSingleOrder = async (orderId: string): Promise<OrderSingleRefreshResponse> => {
   return post(`/api/orders/${orderId}/refresh`);
 };
 
-export const manualShipOrder = async (orderIds: string[], shipMode: 'status_only' | 'full_delivery'): Promise<any> => {
+export const manualShipOrder = async (orderIds: string[], shipMode: 'status_only' | 'full_delivery'): Promise<OrderBatchResponse> => {
     return post('/api/orders/manual-ship', {
         order_ids: orderIds,
         ship_mode: shipMode,
     });
 }
 
-export const importOrders = async (data: Partial<Order>[] | FormData): Promise<any> => {
+export const importOrders = async (data: Partial<Order>[] | FormData): Promise<OrderBatchResponse> => {
 	const isFormData = data instanceof FormData;
 	return isFormData ? postForm('/api/orders/import', data) : post('/api/orders/import', data);
 }
@@ -505,7 +505,7 @@ export const getItems = async (cookieId?: string): Promise<Item[]> => {
     }));
 }
 
-export const syncItemsFromAccount = async (cookieId: string): Promise<any> => {
+export const syncItemsFromAccount = async (cookieId: string): Promise<ItemSyncResponse> => {
     return post('/items/get-all-from-account', { cookie_id: cookieId });
 }
 
@@ -528,7 +528,7 @@ export const publishItem = async (form: {
     postage?: string;
     images: File[];
 	location?: PublishLocation;
-}): Promise<any> => {
+}): Promise<ItemPublishResponse> => {
     const body = new FormData();
     body.set('cookie_id', form.cookie_id);
     body.set('title', form.title);
@@ -668,8 +668,8 @@ const normalizeShippingRules = (rules: any[]): ShippingRule[] => rules.map((item
     }));
 
 export const getShippingRules = async (): Promise<ShippingRule[]> => {
-    const res = await get<any>('/automation-rules');
-    const rules = Array.isArray(res) ? res : (res.data || res.rules || []);
+    const res = await get<AutomationRuleResponse[] | AutomationRulePageResponse>('/automation-rules');
+    const rules = Array.isArray(res) ? res : (res.data || []);
     return normalizeShippingRules(rules);
 }
 
@@ -690,7 +690,7 @@ export const getShippingRulesPage = async ({
   page = 1,
   pageSize = 10,
 }: ShippingRuleListParams = {}): Promise<PaginatedResponse<ShippingRule>> => {
-  const res = await get<any>('/automation-rules', {
+  const res = await get<AutomationRuleResponse[] | AutomationRulePageResponse>('/automation-rules', {
     page,
     page_size: pageSize,
     cookie_id: cookieId || undefined,
@@ -698,16 +698,16 @@ export const getShippingRulesPage = async ({
     enabled,
     search: search?.trim() || undefined,
   });
-  const rules = normalizeShippingRules(Array.isArray(res) ? res : (res.data || res.rules || []));
+  const rules = normalizeShippingRules(Array.isArray(res) ? res : (res.data || []));
   return {
     success: true,
     data: rules,
-    total: Number(res.total ?? rules.length),
-    page: Number(res.page ?? page),
-    page_size: Number(res.page_size ?? pageSize),
-    total_pages: Number(res.total_pages ?? (rules.length ? 1 : 0)),
+    total: Number(Array.isArray(res) ? rules.length : (res.total ?? rules.length)),
+    page: Number(Array.isArray(res) ? page : (res.page ?? page)),
+    page_size: Number(Array.isArray(res) ? pageSize : (res.page_size ?? pageSize)),
+    total_pages: Number(Array.isArray(res) ? (rules.length ? 1 : 0) : (res.total_pages ?? (rules.length ? 1 : 0))),
     trigger_counts: Object.fromEntries(
-      Object.entries(res.trigger_counts || {}).map(([key, value]) => [key, Number(value)]),
+      Object.entries(Array.isArray(res) ? {} : res.trigger_counts || {}).map(([key, value]) => [key, Number(value)]),
     ),
   };
 }

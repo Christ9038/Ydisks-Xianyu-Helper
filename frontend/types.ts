@@ -405,3 +405,293 @@ export interface AccountSummaryResponse {
   /** 最近一次自动擦亮时间。 */
   last_polish_at: number;
 }
+
+/** 账号设置变更接口的具名成功响应。 */
+export interface CookieSettingsResponse {
+  /** 表示设置是否保存成功。 */
+  success: boolean;
+  /** 暂停结束 Unix 秒。 */
+  paused_until: number;
+  /** 表示账号当前是否暂停。 */
+  paused: boolean;
+}
+
+/** 账号资料刷新接口的具名响应。 */
+export interface CookieProfileResponse {
+  /** 表示资料刷新是否成功。 */
+  success: boolean;
+  /** 账号稳定标识。 */
+  id: string;
+  /** 平台账号昵称。 */
+  nickname: string;
+  /** 平台账号头像地址。 */
+  avatar_url: string;
+  /** 资料刷新错误说明。 */
+  profile_error: string;
+}
+
+/** 账号暂停时长查询接口的具名响应。 */
+export interface PauseDurationResponse {
+  /** 暂停时长，单位为分钟。 */
+  pause_duration: number;
+  /** 暂停结束 Unix 秒。 */
+  paused_until: number;
+  /** 表示账号当前是否暂停。 */
+  paused: boolean;
+}
+
+/** 单个本地商品详情接口的具名响应。 */
+export interface ItemDetailResponse {
+  /** 商品所属账号标识。 */
+  cookie_id: string;
+  /** 平台商品标识。 */
+  item_id: string;
+  /** 商品标题。 */
+  item_title: string;
+  /** 商品描述。 */
+  item_description: string;
+  /** 商品分类标识。 */
+  item_category: string;
+  /** 商品价格文本。 */
+  item_price: string;
+  /** 商品详情原始 JSON。 */
+  item_detail: string;
+  /** 是否有多规格。 */
+  is_multi_spec: boolean;
+  /** 是否按数量发货。 */
+  multi_quantity_delivery: boolean;
+}
+
+/** 商品发布接口的具名成功响应。 */
+export interface ItemPublishResponse {
+  /** 表示商品是否发布成功。 */
+  success: boolean;
+  /** 发布结果说明。 */
+  message: string;
+  /** 新商品的平台标识。 */
+  item_id: string;
+  /** 新商品的平台详情地址。 */
+  item_url: string;
+  /** 新商品主图地址。 */
+  item_image: string;
+  /** 新商品标题。 */
+  item_title: string;
+  /** 新商品价格文本。 */
+  item_price: string;
+  /** 新商品库存数量。 */
+  quantity: number;
+  /** 新商品分类标识。 */
+  category_id: string;
+  /** 新商品分类名称。 */
+  category_name: string;
+}
+
+/** 商品全集同步接口的具名响应。 */
+export interface ItemSyncResponse {
+  /** 表示同步是否完成。 */
+  success: boolean;
+  /** 同步结果说明。 */
+  message: string;
+  /** 平台返回的商品总数。 */
+  total_count: number;
+  /** 平台商品总页数。 */
+  total_pages: number;
+  /** 本地保存的商品数量。 */
+  saved_count: number;
+  /** 本地删除标记的商品数量。 */
+  deleted_count: number;
+}
+
+/** 商品分页同步接口的具名响应。 */
+export interface ItemPageSyncResponse {
+  /** 表示同步是否完成。 */
+  success: boolean;
+  /** 同步结果说明。 */
+  message: string;
+  /** 当前同步页码。 */
+  page_number: number;
+  /** 当前同步页大小。 */
+  page_size: number;
+  /** 当前页商品数量。 */
+  current_count: number;
+  /** 本地保存的商品数量。 */
+  saved_count: number;
+}
+
+/** 订单详情接口返回的原始具名订单 DTO。 */
+export interface OrderDTOResponse {
+  /** 平台订单标识。 */
+  order_id: string;
+  /** 关联商品标识。 */
+  item_id: string;
+  /** 关联商品标题。 */
+  item_title: string;
+  /** 关联商品图片地址。 */
+  item_image: string;
+  /** 买家平台标识。 */
+  buyer_id: string;
+  /** 商品规格名称。 */
+  spec_name: string;
+  /** 商品规格值。 */
+  spec_value: string;
+  /** 购买数量文本。 */
+  quantity: string;
+  /** 实付金额文本。 */
+  amount: string;
+  /** 归一化订单状态。 */
+  order_status: string;
+  /** 兼容前端使用的订单状态别名。 */
+  status: string;
+  /** 所属账号标识。 */
+  cookie_id: string;
+  /** 是否议价订单。 */
+  is_bargain: number;
+  /** 是否系统发货。 */
+  system_shipped: boolean;
+  /** 收货人姓名。 */
+  receiver_name: string;
+  /** 收货人电话。 */
+  receiver_phone: string;
+  /** 收货地址。 */
+  receiver_address: string;
+  /** 收货城市。 */
+  receiver_city: string;
+  /** 创建时间。 */
+  created_at: string;
+  /** 更新时间。 */
+  updated_at: string;
+}
+
+/** 订单详情接口的具名响应。 */
+export interface OrderDetailResponse extends OrderDTOResponse {
+  /** 表示查询是否完成。 */
+  success: boolean;
+  /** 新版客户端读取的订单对象。 */
+  data: OrderDTOResponse;
+}
+
+/** 订单单条刷新返回的远端详情。 */
+export interface OrderRefreshDetailResponse {
+  /** 购买数量文本。 */
+  quantity: string;
+  /** 商品规格名称。 */
+  spec_name: string;
+  /** 商品规格值。 */
+  spec_value: string;
+  /** 归一化订单状态。 */
+  order_status: string;
+  /** 实付金额文本。 */
+  amount: string;
+}
+
+/** 订单单条刷新接口的具名响应。 */
+export interface OrderSingleRefreshResponse {
+  /** 表示刷新是否完成。 */
+  success: boolean;
+  /** 刷新结果说明。 */
+  message: string;
+  /** 刷新后的订单详情。 */
+  order: OrderRefreshDetailResponse;
+}
+
+/** 自动化规则动作的原始具名 DTO。 */
+export interface AutomationActionResponse {
+  /** 动作稳定标识。 */
+  id: number;
+  /** 动作类型。 */
+  action_type: string;
+  /** 关联卡券组标识。 */
+  card_id: number;
+  /** 关联卡券组名称。 */
+  card_name: string;
+  /** 发送数量。 */
+  delivery_count: number;
+  /** 消息模板。 */
+  message_template: string;
+  /** 延迟秒数。 */
+  delay_seconds: number;
+  /** 扩展配置 JSON。 */
+  config_json: string;
+  /** 是否启用。 */
+  enabled: boolean;
+  /** 执行顺序。 */
+  sort_order: number;
+}
+
+/** 自动化规则的原始具名 DTO。 */
+export interface AutomationRuleResponse {
+  /** 规则稳定标识。 */
+  id: number;
+  /** 所属账号标识。 */
+  cookie_id: string;
+  /** 关联商品标识。 */
+  item_id: string;
+  /** 关联商品标题。 */
+  item_title: string;
+  /** 规则名称。 */
+  name: string;
+  /** 触发类型。 */
+  trigger_type: string;
+  /** 是否启用。 */
+  enabled: boolean;
+  /** 规则优先级。 */
+  priority: number;
+  /** 扩展配置 JSON。 */
+  config_json: string;
+  /** 规则动作列表。 */
+  actions: AutomationActionResponse[];
+  /** 创建时间。 */
+  created_at: string;
+  /** 更新时间。 */
+  updated_at: string;
+}
+
+/** 自动化规则分页接口的具名响应。 */
+export interface AutomationRulePageResponse {
+  /** 表示查询是否完成。 */
+  success: boolean;
+  /** 当前页规则列表。 */
+  data: AutomationRuleResponse[];
+  /** 规则总数。 */
+  total: number;
+  /** 当前页码。 */
+  page: number;
+  /** 当前页大小。 */
+  page_size: number;
+  /** 总页数。 */
+  total_pages: number;
+  /** 各触发类型规则数量。 */
+  trigger_counts: Record<string, number>;
+}
+
+/** 订单批量变更接口的具名响应。 */
+export interface OrderBatchResponse {
+  /** 表示批量操作是否存在部分失败。 */
+  partial_failure: boolean;
+  /** 批量操作结果说明。 */
+  message: string;
+  /** 订单总数，导入接口提供。 */
+  total?: number;
+  /** 成功处理数量。 */
+  success_count: number;
+  /** 失败处理数量。 */
+  failed_count: number;
+	/** 逐订单兼容结果行。 */
+	results: OrderBatchResult[];
+}
+
+/** 订单批量接口的逐订单结果行。 */
+export interface OrderBatchResult {
+  /** 订单平台标识。 */
+  order_id?: string;
+  /** 表示该订单是否处理成功。 */
+  success?: boolean;
+  /** 该订单处理结果说明。 */
+  message: string;
+  /** 兼容接口可能返回的账号标识。 */
+  cookie_id?: string;
+  /** 兼容接口可能返回的处理阶段。 */
+  stage?: string;
+  /** 允许后端保留尚未结构化的扩展字段。 */
+  [key: string]: unknown;
+}

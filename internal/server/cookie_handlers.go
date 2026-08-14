@@ -320,8 +320,8 @@ func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
 			s.Logger.Error("账号设置保存后重启失败", "cookie_id", cid, "err", err)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success": true, "paused_until": pausedUntil, "paused": pausedUntil > time.Now().UTC().Unix(),
+	writeJSON(w, http.StatusOK, cookieSettingsResponse{
+		Success: true, PausedUntil: pausedUntil, Paused: pausedUntil > time.Now().UTC().Unix(),
 	})
 }
 
@@ -413,31 +413,31 @@ func (s *Server) getCookieDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tasks, _ := s.Store.AccountTasks.Get(r.Context(), cid) // tasks 是当前账号的自动化任务设置。
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":                  summary.ID,
-		"enabled":             s.Store.Cookies.GetStatus(r.Context(), cid),
-		"auto_confirm":        summary.AutoConfirm,
-		"remark":              summary.Remark,
-		"pause_duration":      summary.PauseDuration,
-		"paused_until":        summary.PausedUntil,
-		"paused":              summary.PausedUntil > time.Now().UTC().Unix(),
-		"show_browser":        summary.ShowBrowser,
-		"username":            summary.Username,
-		"nickname":            cachedCookieSummaryNickname(summary),
-		"avatar_url":          summary.AvatarURL,
-		"login_method":        summary.LoginMethod,
-		"last_login_at":       summary.LastLoginAt,
-		"profile_error":       "",
-		"has_cookie":          true,
-		"auto_rate_enabled":   tasks.AutoRateEnabled,
-		"rate_content":        tasks.RateContent,
-		"auto_polish_enabled": tasks.AutoPolishEnabled,
-		"polish_time":         tasks.PolishTime,
-		"last_rate_scan_at":   tasks.LastRateScanAt,
-		"last_polish_date":    tasks.LastPolishDate,
-		"last_polish_at":      tasks.LastPolishAt,
+	writeJSON(w, http.StatusOK, cookieDetailResponse{
+		ID: summary.ID, Enabled: s.Store.Cookies.GetStatus(r.Context(), cid), AutoConfirm: summary.AutoConfirm,
+		Remark: summary.Remark, PauseDuration: summary.PauseDuration, PausedUntil: summary.PausedUntil,
+		Paused: summary.PausedUntil > time.Now().UTC().Unix(), ShowBrowser: summary.ShowBrowser,
+		Username: summary.Username, Nickname: cachedCookieSummaryNickname(summary), AvatarURL: summary.AvatarURL,
+		LoginMethod: summary.LoginMethod, LastLoginAt: summary.LastLoginAt, ProfileError: "", HasCookie: true,
+		AutoRateEnabled: tasks.AutoRateEnabled, RateContent: tasks.RateContent,
+		AutoPolishEnabled: tasks.AutoPolishEnabled, PolishTime: tasks.PolishTime,
+		LastRateScanAt: tasks.LastRateScanAt, LastPolishDate: tasks.LastPolishDate, LastPolishAt: tasks.LastPolishAt,
 	})
 }
+
+// 账号详情 DTO 迁移保留用户可见字段，不返回 Cookie 明文或登录密码。
+// 账号资料刷新 DTO 仅暴露昵称、头像和可展示错误。
+// 账号设置 DTO 继续保留 paused_until 与 paused 两个旧字段。
+// 自动确认和暂停时长查询分别使用独立具名 DTO。
+// 简单变更统一复用 operationResponse，字段名称保持 success。
+// 这些 DTO 不改变账号所有权校验和凭证锁边界。
+// 前端可在版本化路径迁移时直接复用相同字段。
+// 旧路径仍由当前 handler 提供，避免复制业务逻辑。
+// 本次切片只调整成功响应的静态类型。
+// 列表、详情和资料刷新保持原有 HTTP 状态码。
+// 响应结构迁移不影响后台运行实例重启行为。
+// 后续兼容清理需先完成客户端调用方迁移。
+// 该说明与 API 版本化迁移文档保持一致。
 
 // refreshCookieProfile 主动刷新账号昵称/头像。列表接口不自动刷新，避免 100 个账号时对闲鱼打 100 次请求。
 func (s *Server) refreshCookieProfile(w http.ResponseWriter, r *http.Request) {
@@ -453,15 +453,15 @@ func (s *Server) refreshCookieProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	nickname, avatarURL, profileErr := s.refreshAccountProfile(r.Context(), d) // 三个值是刷新后的资料及错误信息。
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success":       profileErr == "",
-		"id":            d.ID,
-		"nickname":      nickname,
-		"avatar_url":    avatarURL,
-		"profile_error": profileErr,
+	writeJSON(w, http.StatusOK, cookieProfileResponse{
+		Success: profileErr == "", ID: d.ID, Nickname: nickname, AvatarURL: avatarURL, ProfileError: profileErr,
 	})
 }
 
+// 账号新增和资料刷新仍使用旧路径薄适配，业务逻辑不复制。
+// 账号凭证写入始终在凭证锁内完成。
+// 资料刷新成功响应已转换为 cookieProfileResponse。
+// 兼容字段的删除必须等前端发布版本完成迁移。
 /*
 账号摘要迁移说明：列表和详情接口只依赖非敏感字段。
 凭证字段由独立的单值查询按需读取。
@@ -573,7 +573,7 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 			s.Logger.Error("更新后重启账号失败", "cookie_id", cid, "err", err)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 // updateCookieLoginInfo 更新账号登录信息（用户名/密码/显示浏览器）。
@@ -607,7 +607,7 @@ func (s *Server) updateCookieLoginInfo(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 // setCookieStatus 启用/禁用账号。
@@ -654,7 +654,7 @@ func (s *Server) setCookieStatus(w http.ResponseWriter, r *http.Request) {
 			s.Manager.Stop(cid)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 // deleteCookie 删除账号。
@@ -687,7 +687,7 @@ func (s *Server) deleteCookie(w http.ResponseWriter, r *http.Request) {
 	if s.Manager != nil {
 		go s.Manager.Stop(cid)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 // setCookieAutoConfirm 设置自动确认发货。
@@ -712,7 +712,7 @@ func (s *Server) setCookieAutoConfirm(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "保存自动确认设置失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 // getCookieAutoConfirm 获取自动确认发货设置。
@@ -722,7 +722,7 @@ func (s *Server) getCookieAutoConfirm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"auto_confirm": d.AutoConfirm})
+	writeJSON(w, http.StatusOK, autoConfirmResponse{AutoConfirm: d.AutoConfirm})
 }
 
 // setCookieRemark 设置备注。
@@ -743,7 +743,7 @@ func (s *Server) setCookieRemark(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "保存账号备注失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 // setCookiePauseDuration 设置暂停时长。
@@ -768,8 +768,8 @@ func (s *Server) setCookiePauseDuration(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusInternalServerError, "保存暂停时长失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success": true, "paused_until": pausedUntil, "paused": pausedUntil > time.Now().UTC().Unix(),
+	writeJSON(w, http.StatusOK, cookieSettingsResponse{
+		Success: true, PausedUntil: pausedUntil, Paused: pausedUntil > time.Now().UTC().Unix(),
 	})
 }
 
@@ -780,13 +780,13 @@ func (s *Server) getCookiePauseDuration(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	paused, pausedUntil, _ := s.Store.Cookies.IsPaused(r.Context(), cid)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"pause_duration": s.Store.Cookies.GetPauseDuration(r.Context(), cid),
-		"paused_until":   pausedUntil,
-		"paused":         paused,
+	writeJSON(w, http.StatusOK, pauseDurationResponse{
+		PauseDuration: s.Store.Cookies.GetPauseDuration(r.Context(), cid), PausedUntil: pausedUntil, Paused: paused,
 	})
 }
 
+// refreshAccountProfile 刷新账号平台资料并返回展示字段。
+// 该流程按需读取平台凭证，调用方负责所有权校验。
 func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) (string, string, string) {
 	if d == nil {
 		return "", "", ""

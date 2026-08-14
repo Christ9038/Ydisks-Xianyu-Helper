@@ -219,18 +219,18 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"item_id": res.ItemID, "item_url": res.ItemURL})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success":       true,
-		"message":       "商品发布成功",
-		"item_id":       res.ItemID,
-		"item_url":      res.ItemURL,
-		"item_image":    res.ImageURL,
-		"item_title":    res.Title,
-		"item_price":    res.PriceText,
-		"quantity":      res.Quantity,
-		"category_id":   res.CategoryID,
-		"category_name": res.CategoryName,
+	writeJSON(w, http.StatusOK, itemPublishResponse{
+		Success: true, Message: "商品发布成功", ItemID: res.ItemID, ItemURL: res.ItemURL,
+		ItemImage: res.ImageURL, ItemTitle: res.Title, ItemPrice: res.PriceText, Quantity: res.Quantity,
+		CategoryID: res.CategoryID, CategoryName: res.CategoryName,
 	})
+	// 商品发布 DTO 保留历史客户端使用的字段名称和成功语义。
+	// 平台发布结果与本地保存结果的失败分支仍通过统一错误 DTO 返回。
+	// item_id 和 item_url 可用于发布后人工核对平台商品。
+	// item_image 和 item_title 供前端列表即时展示。
+	// quantity、category_id 和 category_name 保留平台回传信息。
+	// 本次迁移不改变发布接口的 HTTP 状态码。
+	// 后续版本化路径迁移继续复用该具名 DTO。
 }
 
 func readPublishImages(r *http.Request, maxImages int) ([]mtop.PublishImage, error) {
@@ -330,7 +330,7 @@ func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 		}
 		cookieIDs = []string{cookieID}
 	}
-	result := []map[string]any{}
+	result := []itemListResponse{}
 	for _, cid := range cookieIDs {
 		items, _ := s.Store.Items.AllForCookie(r.Context(), cid)
 		for _, it := range items {
@@ -433,16 +433,16 @@ func (s *Server) syncItemsFromAccount(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "保存商品同步结果失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success":       true,
-		"message":       "成功获取商品，共 " + strconv.Itoa(len(res.Items)) + " 件，保存 " + strconv.Itoa(syncResult.Saved) + " 件，删除 " + strconv.Itoa(syncResult.Deleted) + " 件",
-		"total_count":   len(res.Items),
-		"total_pages":   res.TotalPages,
-		"saved_count":   syncResult.Saved,
-		"deleted_count": syncResult.Deleted,
+	writeJSON(w, http.StatusOK, itemSyncResponse{
+		Success:    true,
+		Message:    "成功获取商品，共 " + strconv.Itoa(len(res.Items)) + " 件，保存 " + strconv.Itoa(syncResult.Saved) + " 件，删除 " + strconv.Itoa(syncResult.Deleted) + " 件",
+		TotalCount: len(res.Items), TotalPages: res.TotalPages, SavedCount: syncResult.Saved, DeletedCount: syncResult.Deleted,
 	})
 }
 
+// syncItemsPageFromAccount 同步指定页商品并返回分页统计 DTO。
+// 该接口沿用现有凭证锁和 Cookie 持久化流程。
+// 分页成功响应使用 itemPageSyncResponse。
 func (s *Server) syncItemsPageFromAccount(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CookieID   string `json:"cookie_id"`
@@ -526,14 +526,14 @@ func (s *Server) syncItemsPageFromAccount(w http.ResponseWriter, r *http.Request
 		return
 	}
 	saved := s.saveSyncedItems(r.Context(), req.CookieID, res.Items)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success":       true,
-		"message":       "成功获取第" + strconv.Itoa(res.PageNumber) + "页 " + strconv.Itoa(len(res.Items)) + " 个商品",
-		"page_number":   res.PageNumber,
-		"page_size":     res.PageSize,
-		"current_count": len(res.Items),
-		"saved_count":   saved,
+	writeJSON(w, http.StatusOK, itemPageSyncResponse{
+		Success: true, Message: "成功获取第" + strconv.Itoa(res.PageNumber) + "页 " + strconv.Itoa(len(res.Items)) + " 个商品",
+		PageNumber: res.PageNumber, PageSize: res.PageSize, CurrentCount: len(res.Items), SavedCount: saved,
 	})
+	// 分页同步 DTO 与全集同步 DTO 分离，避免不同统计语义混用。
+	// page_number 和 page_size 描述平台请求页，current_count 描述实际返回数量。
+	// saved_count 只统计本次写入本地的商品。
+	// 失败仍由统一错误响应负责，不在成功 DTO 中嵌入错误别名。
 }
 
 func (s *Server) cookieForCurrentUser(w http.ResponseWriter, r *http.Request, cookieID string) (string, int64, bool) {
@@ -640,7 +640,7 @@ func (s *Server) listItemsByCookie(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	out := make([]map[string]any, 0, len(items))
+	out := make([]itemListResponse, 0, len(items))
 	for _, it := range items {
 		out = append(out, itemToMap(it))
 	}
@@ -658,14 +658,14 @@ func (s *Server) getItem(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "商品不存在")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"cookie_id": it.CookieID, "item_id": it.ItemID, "item_title": it.ItemTitle,
-		"item_description": it.ItemDescription, "item_category": it.ItemCategory,
-		"item_price": it.ItemPrice, "item_detail": it.ItemDetail,
-		"is_multi_spec": it.IsMultiSpec, "multi_quantity_delivery": it.MultiQuantityDelivery,
+	writeJSON(w, http.StatusOK, itemDetailResponse{
+		CookieID: it.CookieID, ItemID: it.ItemID, ItemTitle: it.ItemTitle, ItemDescription: it.ItemDescription,
+		ItemCategory: it.ItemCategory, ItemPrice: it.ItemPrice, ItemDetail: it.ItemDetail,
+		IsMultiSpec: it.IsMultiSpec, MultiQuantityDelivery: it.MultiQuantityDelivery,
 	})
 }
 
+// createItem 创建本地商品记录并返回统一操作结果。
 func (s *Server) createItem(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cookie_id")
 	if !s.requireCookieOwnership(w, r, cid) {
@@ -697,7 +697,7 @@ func (s *Server) createItem(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "新增失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) updateItem(w http.ResponseWriter, r *http.Request) {
@@ -768,7 +768,7 @@ func (s *Server) updateItem(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) deleteItem(w http.ResponseWriter, r *http.Request) {
@@ -781,7 +781,7 @@ func (s *Server) deleteItem(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) setItemMultiSpec(w http.ResponseWriter, r *http.Request) {
@@ -801,7 +801,7 @@ func (s *Server) setItemMultiSpec(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) setItemMultiQuantity(w http.ResponseWriter, r *http.Request) {
@@ -821,22 +821,22 @@ func (s *Server) setItemMultiQuantity(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
-func itemToMap(it db.ItemInfoRow) map[string]any {
+func itemToMap(it db.ItemInfoRow) itemListResponse { // itemToMap 将数据库商品行转换为商品列表 DTO。
 	imageURL := itemImageFromDetail(it.ItemDetail)
-	return map[string]any{
-		"id":        it.ID,
-		"cookie_id": it.CookieID, "item_id": it.ItemID, "item_title": it.ItemTitle,
-		"item_description": it.ItemDescription, "item_category": it.ItemCategory,
-		"item_price": it.ItemPrice, "item_detail": it.ItemDetail,
-		"item_image":    imageURL,
-		"is_multi_spec": it.IsMultiSpec, "multi_quantity_delivery": it.MultiQuantityDelivery,
-		"is_multi_qty_ship": it.MultiQuantityDelivery,
+	return itemListResponse{
+		ID: it.ID, CookieID: it.CookieID, ItemID: it.ItemID, ItemTitle: it.ItemTitle,
+		ItemDescription: it.ItemDescription, ItemCategory: it.ItemCategory, ItemPrice: it.ItemPrice,
+		ItemDetail: it.ItemDetail, ItemImage: imageURL, IsMultiSpec: it.IsMultiSpec,
+		MultiQuantityDelivery: it.MultiQuantityDelivery, IsMultiQtyShip: it.MultiQuantityDelivery,
 	}
 }
 
+// itemImageFromDetail 解析本地商品详情中的主图地址。
+
+// 商品详情解析失败时返回空字符串，保持列表响应可渲染。
 func itemImageFromDetail(detail string) string {
 	if detail == "" {
 		return ""

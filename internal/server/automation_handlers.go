@@ -31,7 +31,7 @@ func (s *Server) listAutomationIssues(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询自动化异常任务失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": runs, "pending_tasks": tasks})
+	writeJSON(w, http.StatusOK, automationIssuesResponse{Runs: runs, PendingTasks: tasks})
 }
 
 func (s *Server) resolveAutomationRun(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +56,7 @@ func (s *Server) resolveAutomationRun(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) resolveDeferredAutomationTask(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +77,7 @@ func (s *Server) resolveDeferredAutomationTask(w http.ResponseWriter, r *http.Re
 		writeErr(w, http.StatusNotFound, "异常任务不存在或已处理")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 type automationActionRequest struct {
@@ -182,34 +182,34 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success": true, "data": automationRulesJSON(rules), "total": total,
-		"page": page, "page_size": pageSize, "total_pages": totalPages, "trigger_counts": triggerCounts,
+	writeJSON(w, http.StatusOK, automationRulePageResponse{
+		Success: true, Data: automationRulesJSON(rules), Total: total, Page: page,
+		PageSize: pageSize, TotalPages: totalPages, TriggerCounts: triggerCounts,
 	})
 }
 
-func automationRulesJSON(rules []db.AutomationRule) []map[string]any {
-	out := make([]map[string]any, 0, len(rules))
+func automationRulesJSON(rules []db.AutomationRule) []automationRuleResponse {
+	out := make([]automationRuleResponse, 0, len(rules))
 	for _, rule := range rules {
-		actions := make([]map[string]any, 0, len(rule.Actions))
+		actions := make([]automationActionResponse, 0, len(rule.Actions))
 		for _, action := range rule.Actions {
-			actions = append(actions, map[string]any{
-				"id": action.ID, "action_type": action.ActionType, "card_id": action.CardID,
-				"card_name": action.CardName, "delivery_count": action.DeliveryCount,
-				"message_template": action.MessageTemplate, "delay_seconds": action.DelaySeconds,
-				"config_json": action.ConfigJSON, "enabled": action.Enabled, "sort_order": action.SortOrder,
+			actions = append(actions, automationActionResponse{
+				ID: action.ID, ActionType: action.ActionType, CardID: action.CardID, CardName: action.CardName,
+				DeliveryCount: action.DeliveryCount, MessageTemplate: action.MessageTemplate,
+				DelaySeconds: action.DelaySeconds, ConfigJSON: action.ConfigJSON, Enabled: action.Enabled,
+				SortOrder: action.SortOrder,
 			})
 		}
-		out = append(out, map[string]any{
-			"id": rule.ID, "cookie_id": rule.CookieID, "item_id": rule.ItemID, "item_title": rule.ItemTitle,
-			"name": rule.Name, "trigger_type": rule.TriggerType, "enabled": rule.Enabled,
-			"priority": rule.Priority, "config_json": rule.ConfigJSON, "actions": actions,
-			"created_at": rule.CreatedAt, "updated_at": rule.UpdatedAt,
+		out = append(out, automationRuleResponse{
+			ID: rule.ID, CookieID: rule.CookieID, ItemID: rule.ItemID, ItemTitle: rule.ItemTitle,
+			Name: rule.Name, TriggerType: rule.TriggerType, Enabled: rule.Enabled, Priority: rule.Priority,
+			ConfigJSON: rule.ConfigJSON, Actions: actions, CreatedAt: rule.CreatedAt, UpdatedAt: rule.UpdatedAt,
 		})
 	}
 	return out
 }
 
+// createAutomationRule 创建自动化规则并返回数值主键 DTO。
 func (s *Server) createAutomationRule(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	var req automationRuleRequest
@@ -227,7 +227,7 @@ func (s *Server) createAutomationRule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "创建自动化规则失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "id": id})
+	writeJSON(w, http.StatusOK, mutationIDResponse{Success: true, ID: id})
 }
 
 func (s *Server) updateAutomationRule(w http.ResponseWriter, r *http.Request) {
@@ -255,7 +255,7 @@ func (s *Server) updateAutomationRule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "更新自动化规则失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) deleteAutomationRule(w http.ResponseWriter, r *http.Request) {
@@ -277,7 +277,7 @@ func (s *Server) deleteAutomationRule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "删除自动化规则失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) normalizeAutomationRuleRequest(r *http.Request, userID int64, req automationRuleRequest) (db.AutomationRuleInput, error) {

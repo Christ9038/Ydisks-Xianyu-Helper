@@ -121,52 +121,52 @@ func (s *Server) getOrder(w http.ResponseWriter, r *http.Request) {
 		itemTitle = item.ItemTitle
 		itemImage = itemImageFromDetail(item.ItemDetail)
 	}
-	payload := map[string]any{
-		"order_id":         o.OrderID,
-		"item_id":          o.ItemID,
-		"item_title":       itemTitle,
-		"item_image":       itemImage,
-		"buyer_id":         o.BuyerID,
-		"spec_name":        o.SpecName,
-		"spec_value":       o.SpecValue,
-		"quantity":         o.Quantity,
-		"amount":           o.Amount,
-		"order_status":     db.NormalizeOrderStatus(o.OrderStatus),
-		"status":           db.NormalizeOrderStatus(o.OrderStatus),
-		"cookie_id":        o.CookieID,
-		"is_bargain":       o.IsBargain,
-		"system_shipped":   o.SystemShipped,
-		"receiver_name":    o.ReceiverName,
-		"receiver_phone":   o.ReceiverPhone,
-		"receiver_address": o.ReceiverAddr,
-		"receiver_city":    o.ReceiverCity,
-		"created_at":       o.CreatedAt,
-		"updated_at":       o.UpdatedAt,
-	}
-	payload["success"] = true
-	payload["data"] = map[string]any{
-		"order_id":         o.OrderID,
-		"item_id":          o.ItemID,
-		"item_title":       itemTitle,
-		"item_image":       itemImage,
-		"buyer_id":         o.BuyerID,
-		"spec_name":        o.SpecName,
-		"spec_value":       o.SpecValue,
-		"quantity":         o.Quantity,
-		"amount":           o.Amount,
-		"order_status":     db.NormalizeOrderStatus(o.OrderStatus),
-		"status":           db.NormalizeOrderStatus(o.OrderStatus),
-		"cookie_id":        o.CookieID,
-		"is_bargain":       o.IsBargain,
-		"system_shipped":   o.SystemShipped,
-		"receiver_name":    o.ReceiverName,
-		"receiver_phone":   o.ReceiverPhone,
-		"receiver_address": o.ReceiverAddr,
-		"receiver_city":    o.ReceiverCity,
-		"created_at":       o.CreatedAt,
-		"updated_at":       o.UpdatedAt,
-	}
-	writeJSON(w, http.StatusOK, payload)
+	writeJSON(w, http.StatusOK, orderDetailResponse{
+		orderDTO: orderDTO{
+			OrderID:         o.OrderID,
+			ItemID:          o.ItemID,
+			ItemTitle:       itemTitle,
+			ItemImage:       itemImage,
+			BuyerID:         o.BuyerID,
+			SpecName:        o.SpecName,
+			SpecValue:       o.SpecValue,
+			Quantity:        o.Quantity,
+			Amount:          o.Amount,
+			OrderStatus:     db.NormalizeOrderStatus(o.OrderStatus),
+			Status:          db.NormalizeOrderStatus(o.OrderStatus),
+			CookieID:        o.CookieID,
+			IsBargain:       o.IsBargain,
+			SystemShipped:   o.SystemShipped,
+			ReceiverName:    o.ReceiverName,
+			ReceiverPhone:   o.ReceiverPhone,
+			ReceiverAddress: o.ReceiverAddr,
+			ReceiverCity:    o.ReceiverCity,
+			CreatedAt:       o.CreatedAt,
+			UpdatedAt:       o.UpdatedAt,
+		}, Success: true,
+		Data: orderDTO{
+			OrderID:         o.OrderID,
+			ItemID:          o.ItemID,
+			ItemTitle:       itemTitle,
+			ItemImage:       itemImage,
+			BuyerID:         o.BuyerID,
+			SpecName:        o.SpecName,
+			SpecValue:       o.SpecValue,
+			Quantity:        o.Quantity,
+			Amount:          o.Amount,
+			OrderStatus:     db.NormalizeOrderStatus(o.OrderStatus),
+			Status:          db.NormalizeOrderStatus(o.OrderStatus),
+			CookieID:        o.CookieID,
+			IsBargain:       o.IsBargain,
+			SystemShipped:   o.SystemShipped,
+			ReceiverName:    o.ReceiverName,
+			ReceiverPhone:   o.ReceiverPhone,
+			ReceiverAddress: o.ReceiverAddr,
+			ReceiverCity:    o.ReceiverCity,
+			CreatedAt:       o.CreatedAt,
+			UpdatedAt:       o.UpdatedAt,
+		},
+	})
 }
 
 func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
@@ -294,30 +294,30 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 		if total > 0 {
 			message += fmt.Sprintf("；当前 Go MTOP 客户端不支持详情接口，已跳过 %d 个订单", total)
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"partial_failure": failed > 0,
-			"message":         message,
-			"summary": map[string]int{
-				"discovered": discovered, "list_updated": listUpdated, "soft_deleted": softDeleted, "detail_total": total,
-				"total": total, "updated": 0, "no_change": 0, "failed": failed,
+		writeJSON(w, http.StatusOK, orderRefreshResponse{
+			PartialFailure: failed > 0, Message: message,
+			Summary: orderRefreshSummary{
+				Discovered: discovered, ListUpdated: listUpdated, SoftDeleted: softDeleted, DetailTotal: total,
+				Total: total, Updated: 0, NoChange: 0, Failed: failed,
 			},
-			"results": results,
+			Results: results,
 		})
 		return
 	}
 	if total == 0 {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"partial_failure": failed > 0,
-			"message":         fmt.Sprintf("订单列表同步完成，发现 %d 个新订单；没有需要补全详情的订单", discovered),
-			"summary": map[string]int{
-				"discovered": discovered, "list_updated": listUpdated, "soft_deleted": softDeleted, "detail_total": 0,
-				"total": 0, "updated": 0, "no_change": 0, "failed": failed,
+		writeJSON(w, http.StatusOK, orderRefreshResponse{
+			PartialFailure: failed > 0,
+			Message:        fmt.Sprintf("订单列表同步完成，发现 %d 个新订单；没有需要补全详情的订单", discovered),
+			Summary: orderRefreshSummary{
+				Discovered: discovered, ListUpdated: listUpdated, SoftDeleted: softDeleted, DetailTotal: 0,
+				Total: 0, Updated: 0, NoChange: 0, Failed: failed,
 			},
-			"results": results,
+			Results: results,
 		})
 		return
 	}
 
+	// 订单详情刷新阶段分别统计状态变化和无变化结果。
 	updated, noChange := 0, 0
 	for cid, targets := range ordersByCookie {
 		accountSessionExpired := false
@@ -401,18 +401,18 @@ func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"partial_failure": failed > 0,
-		"message":         fmt.Sprintf("订单同步完成，发现 %d 个新订单", discovered),
-		"summary": map[string]int{
-			"discovered": discovered, "list_updated": listUpdated, "soft_deleted": softDeleted, "detail_total": total,
-			"total": total, "updated": updated, "no_change": noChange, "failed": failed,
+	writeJSON(w, http.StatusOK, orderRefreshResponse{
+		PartialFailure: failed > 0, Message: fmt.Sprintf("订单同步完成，发现 %d 个新订单", discovered),
+		Summary: orderRefreshSummary{
+			Discovered: discovered, ListUpdated: listUpdated, SoftDeleted: softDeleted, DetailTotal: total,
+			Total: total, Updated: updated, NoChange: noChange, Failed: failed,
 		},
-		"results": results,
+		Results: results,
 	})
 }
 
-func (s *Server) discoverSoldOrders(ctx context.Context, fetcher mtop.SoldOrderFetcher, cookieID, cookies string) (int, int, map[string]struct{}, map[string]struct{}, error) {
+// 订单发现阶段将远端订单索引与本地软删除状态保持一致。
+func (s *Server) discoverSoldOrders(ctx context.Context, fetcher mtop.SoldOrderFetcher, cookieID, cookies string) (int, int, map[string]struct{}, map[string]struct{}, error) { // discoverSoldOrders 拉取远端订单列表并同步本地订单索引。
 	discovered, updated := 0, 0
 	newOrderIDs := make(map[string]struct{})
 	remoteOrderIDs := make(map[string]struct{})
@@ -507,7 +507,7 @@ func missingRefreshTargetIDs(targets []refreshTarget, seen map[string]struct{}) 
 	return missing
 }
 
-func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) {
+func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) { // refreshSingleOrder 保持单订单刷新与批量刷新使用相同的详情 DTO。
 	orderID := chi.URLParam(r, "order_id")
 	order, ok := s.requireOrderOwner(w, r, orderID)
 	if !ok {
@@ -585,7 +585,7 @@ func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "更新订单失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "订单刷新完成", "order": detail})
+	writeJSON(w, http.StatusOK, orderSingleRefreshResponse{Success: true, Message: "订单刷新完成", Order: orderRefreshDetailResponse{Quantity: detail.Quantity, SpecName: detail.SpecName, SpecValue: detail.SpecValue, OrderStatus: db.NormalizeOrderStatus(detail.OrderStatus), Amount: detail.Amount}})
 }
 
 // deleteOrder 逻辑删除订单，保留订单历史，避免破坏自动化审计数据。
@@ -599,7 +599,7 @@ func (s *Server) deleteOrder(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 // updateOrder 更新订单（手动发货等）。
@@ -699,7 +699,7 @@ func (s *Server) updateOrder(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func validOrderAmount(raw string) bool {
@@ -855,12 +855,12 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 		s.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID,
 			fmt.Sprintf("手动确认发货成功（订单 %s）", orderID))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"partial_failure": failedCount > 0,
-		"message":         fmt.Sprintf("手动发货完成: 成功%d个, 失败%d个", successCount, failedCount),
-		"success_count":   successCount,
-		"failed_count":    failedCount,
-		"results":         results,
+	writeJSON(w, http.StatusOK, manualShipResponse{
+		PartialFailure: failedCount > 0,
+
+		Message: fmt.Sprintf("手动发货完成: 成功%d个, 失败%d个", successCount, failedCount),
+		// Results 保留逐订单兼容字段，便于旧客户端展示失败原因。
+		SuccessCount: successCount, FailedCount: failedCount, Results: results,
 	})
 }
 
@@ -1012,13 +1012,13 @@ func (s *Server) importOrders(w http.ResponseWriter, r *http.Request) {
 		successCount++
 		results = append(results, map[string]any{"order_id": orderID, "success": true, "message": "订单已导入"})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"partial_failure": failedCount > 0,
-		"message":         fmt.Sprintf("导入完成: 成功%d个, 失败%d个", successCount, failedCount),
-		"total":           len(orders),
-		"success_count":   successCount,
-		"failed_count":    failedCount,
-		"results":         results,
+	writeJSON(w, http.StatusOK, importOrdersResponse{
+		PartialFailure: failedCount > 0,
+
+		Message: fmt.Sprintf("导入完成: 成功%d个, 失败%d个", successCount, failedCount),
+		// Total 和 Results 共同保留导入批次的统计及逐单结果。
+		// 兼容客户端继续使用 partial_failure 判断批次是否需要复核。
+		Total: len(orders), SuccessCount: successCount, FailedCount: failedCount, Results: results,
 	})
 }
 

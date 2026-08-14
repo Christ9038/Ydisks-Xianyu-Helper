@@ -7,8 +7,10 @@
 | 领域 | 现有路径 | 目标 `/api/v1` 路径 | 迁移状态 |
 | --- | --- | --- | --- |
 | 会话 | `/verify`、`/logout` | `/api/v1/session`、`/api/v1/session/logout` | 旧路径保留，待前端统一请求层后迁移 |
-| 账号 | `/cookies/details`、`/cookies/{cid}/...` | `/api/v1/accounts/...` | 旧路径保留，具名 DTO 已开始落地 |
-| 订单 | `/api/orders...` | `/api/v1/orders...` | 旧路径保留，列表 DTO 已落地 |
+| 账号 | `/cookies/details`、`/cookies/{cid}/...` | `/api/v1/accounts/...` | 旧路径保留，详情/设置/资料/暂停 DTO 已落地 |
+| 商品 | `/items...` | `/api/v1/items...` | 旧路径保留，发布/同步/列表/详情 DTO 已落地 |
+| 自动化 | `/automation-rules...` | `/api/v1/automation-rules...` | 旧路径保留，规则分页/异常 DTO 已落地 |
+| 订单 | `/api/orders...` | `/api/v1/orders...` | 旧路径保留，列表/详情/刷新/批量外层 DTO 已落地 |
 | 聊天 | `/api/chat...` | `/api/v1/chat...` | 旧路径保留，会话/消息 DTO 已落地 |
 
 ## 迁移规则
@@ -22,6 +24,10 @@
 ## 当前切片证据
 
 - 认证会话校验使用 `sessionVerificationResponse`。
-- 订单列表使用 `orderListResponse` 和 `orderDTO`。
+- 账号详情、设置、资料刷新和暂停查询使用 `cookieDetailResponse`、`cookieSettingsResponse`、`cookieProfileResponse` 与 `pauseDurationResponse`。
+- 商品发布、同步、列表和详情使用 `itemPublishResponse`、`itemSyncResponse`、`itemPageSyncResponse`、`itemListResponse` 与 `itemDetailResponse`。
+- 自动化规则分页、动作和异常列表使用 `automationRulePageResponse`、`automationRuleResponse`、`automationActionResponse` 与 `automationIssuesResponse`。
+- 订单列表、详情、刷新和批量外层结果使用 `orderListResponse`、`orderDetailResponse`、`orderRefreshResponse` 与 `manualShipResponse`/`importOrdersResponse`。
 - 聊天会话、消息分页和发送结果使用独立 DTO，不直接暴露数据库模型。
+- React `frontend/types.ts` 与 `frontend/services/api.ts` 已同步具名成功响应类型，同时保留旧字段归一逻辑。
 - 旧路径仍由现有路由提供，尚未宣称 `/api/v1` 已经可用。
