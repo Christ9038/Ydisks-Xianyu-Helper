@@ -51,6 +51,12 @@ func serverTestDatabasePath(t *testing.T) string {
 			serverTestTemplateErr = err
 			return
 		}
+		// seedErr 表示向模板写入固定管理员和账号夹具时的错误。
+		if seedErr := seedServerTestTemplate(templateDB); seedErr != nil {
+			serverTestTemplateErr = seedErr
+			_ = templateDB.Close()
+			return
+		}
 		// closeErr 表示模板连接关闭失败；关闭后才能安全复制 SQLite 文件。
 		if closeErr := templateDB.Close(); closeErr != nil {
 			serverTestTemplateErr = closeErr
@@ -71,6 +77,32 @@ func serverTestDatabasePath(t *testing.T) string {
 		t.Fatalf("复制 server 测试数据库模板失败: %v", writeErr)
 	}
 	return testPath
+}
+
+// seedServerTestTemplate 向已迁移的模板写入所有普通 server 测试共同需要的固定数据。
+func seedServerTestTemplate(database *sql.DB) error {
+	// ctx 是模板初始化期间复用的无取消数据库上下文。
+	ctx := context.Background()
+	// store 聚合模板初始化所需的用户和账号 repository。
+	store := db.NewStore(database, db.DialectSQLite)
+	// createErr 表示创建固定管理员账户失败的原因。
+	if _, createErr := store.Users.Create(ctx, "admin", "a@e.com", "pw"); createErr != nil {
+		return fmt.Errorf("创建 server 测试管理员: %w", createErr)
+	}
+	// adminErr 表示把固定账户标记为管理员失败的原因。
+	if adminErr := store.Users.SetAdmin(ctx, "admin"); adminErr != nil {
+		return fmt.Errorf("设置 server 测试管理员: %w", adminErr)
+	}
+	// admin 是账号 cookie 所属的固定管理员用户。
+	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
+	if adminErr != nil {
+		return fmt.Errorf("读取 server 测试管理员: %w", adminErr)
+	}
+	// cookieErr 表示创建测试账号 cookie 夹具失败的原因。
+	if cookieErr := store.Cookies.Save(ctx, "acc1", "unb=123; _m_h5_tk=tk1_1;", admin.ID); cookieErr != nil {
+		return fmt.Errorf("创建 server 测试账号: %w", cookieErr)
+	}
+	return nil
 }
 
 // openServerTestDatabase 直接打开已迁移的 SQLite 副本，避免每个测试再次执行 goose。

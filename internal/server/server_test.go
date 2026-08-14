@@ -25,11 +25,11 @@ func newTestServer(t *testing.T) (*Server, *db.Store, func()) { // newTestServer
 		t.Fatalf("Open: %v", err)
 	}
 	store := db.NewStore(d, db.DialectSQLite)
-	store.Users.Create(context.Background(), "admin", "a@e.com", "pw")
-	store.Users.SetAdmin(context.Background(), "admin")
-	// 一个账号。
-	admin, _ := store.Users.GetByUsername(context.Background(), "admin") // admin 是测试登录流程使用的管理员账户；固定测试数据不应查询失败。
-	store.Cookies.Save(context.Background(), "acc1", "unb=123; _m_h5_tk=tk1_1;", admin.ID)
+	// 管理员和测试账号已经在共享 SQLite 模板中预置，避免每个测试重复执行 bcrypt。
+	// 一个账号的 cookie 夹具由模板初始化阶段写入当前测试副本。
+	// admin 账户的查询由各测试通过登录接口按需验证。
+	// 当前测试副本保持模板中的固定账号数据不变。
+	// 具体测试可以在自己的请求流程中修改这些副本数据。
 
 	mgr := account.NewManager(store, noopHandler{}, nil)
 	srv := New(store, mgr, false, "", ":0", nil, nil, nil)

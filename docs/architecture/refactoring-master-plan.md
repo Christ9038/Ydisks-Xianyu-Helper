@@ -90,7 +90,7 @@ app shell / routes
 | 阶段 | 状态 | 目标 | 完成证据 |
 | --- | --- | --- | --- |
 | 0. 治理文档与强约束 | 已完成 | 总计划、依赖规则、注释规范、AGENTS 门禁、注释检查器 | 文档、门禁规则、Go/TypeScript 检查器和历史基线已落盘 |
-| 1. PR CI 与测试基础 | 进行中 | 独立 CI、测试 DB 模板、可执行 race | CI 与测试 DB 模板已完成；完整 server race 仍需分层和耗时治理 |
+| 1. PR CI 与测试基础 | 已完成 | 独立 CI、测试 DB 模板、可执行 race | CI、独立模板、server smoke race 和完整 race 均有验证 |
 | 2. 敏感数据访问边界 | 未开始 | 摘要、凭证、登录秘密分离 | repository 与多数据库测试 |
 | 3. HTTP API 契约 | 未开始 | 统一错误、具名 DTO、版本化路径 | 契约测试与前端类型 |
 | 4. Server 应用服务 | 未开始 | 订单、发布、登录、聊天纵向抽取 | handler 不再直接编排基础设施 |
@@ -103,10 +103,11 @@ app shell / routes
 
 ### 当前执行入口
 
-- 当前阶段：阶段 1“PR CI 与测试基础”；
+- 当前阶段：阶段 2“敏感数据访问边界”（准备入口）；
 - 已完成：总计划、依赖规则、中文注释规范、`AGENTS.md` 强约束，以及 Go/TypeScript AST 注释检查器和历史基线；
-- 下一最小工作项：定位完整 server race 超过 267 秒仍未结束的慢点，确认是测试生命周期、日志或剩余数据库初始化成本；
-- 随后工作项：完成完整 race 的耗时边界后再进入敏感数据访问边界，避免在并发基线未稳定时移动凭证查询逻辑；
+- 阶段 1 已完成：server 测试模板预置管理员和账号 cookie，普通测试约 21.3 秒，完整 server race 约 194.3 秒通过；
+- 下一最小工作项：盘点账号列表、所有权检查和凭证读取调用，先为 `ListSummaries`、`ListOwnedIDs`、`ExistsOwned` 建立消费方清单和回归测试；
+- 随后工作项：实现不读取或解密敏感字段的摘要与所有权查询，再迁移凭证和密码登录秘密查询；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -159,9 +160,9 @@ app shell / routes
 - 关闭无必要的 Goose 测试日志；
 - 记录优化前后的普通测试和 race 时间。
 
-当前实现：`internal/server/test_database_test.go` 在进程内只执行一次 Goose 迁移，随后按测试复制
-SQLite 文件并直接打开副本。普通 `internal/server` 测试从约 48.2 秒降至约 36.5 秒；完整 server
-race 在 267 秒时仍未完成且无 race 报告，已手动停止，不能把它当作通过证据。
+当前实现：`internal/server/test_database_test.go` 在进程内只执行一次 Goose 迁移，并预置普通测试共同需要的
+管理员和账号 cookie，随后按测试复制 SQLite 文件并直接打开副本。普通 `internal/server` 测试从约 48.2 秒
+降至约 21.3 秒；完整 server race 从 267 秒未完成改善为约 194.3 秒通过。
 
 ### 1.3 Race 分层
 
@@ -169,13 +170,13 @@ race 在 267 秒时仍未完成且无 race 报告，已手动停止，不能把�
 全仓 race 可以进入 nightly。任何 race 报告都必须修复，不得加入忽略名单。
 
 当前 PR 门禁使用 `make test-server-race`，覆盖 server 启停、发布 worker、凭证状态转换和锁内所有权复核
-等已验证的并发场景，实测约 12.4 秒通过。完整 `go test -race ./internal/server` 仍保留为后续专项耗时治理，
-不能用 smoke race 代替完整覆盖。
+等已验证的并发场景，实测约 12.4 秒通过；完整 `go test -race ./internal/server` 已在预置测试夹具后约 194.3 秒通过，
+可作为 nightly 或手工发布前验证，不用 smoke race 代替完整覆盖。
 
 ### 完成条件
 
 - PR 在合并前获得稳定、独立的质量结果；
-- `internal/server` race 不再因重复迁移触发十分钟超时；
+- `internal/server` race 不再因重复迁移和重复密码哈希触发长时间超时；
 - CI 不修改工作区后假装通过格式检查。
 
 ## 8. 阶段 2：敏感数据访问边界
@@ -463,3 +464,4 @@ npm --prefix frontend run build
 | 2026-08-14 | 新增独立 Go/React PR CI，加入格式、注释、vet、lint、测试和嵌入产物一致性门禁 | 阶段 1 进行中；本地 Go/前端测试、构建和 YAML 解析通过 | 优化 server 测试数据库模板并记录 race 分层结果 |
 | 2026-08-14 | server 测试改为一次迁移模板 + 每测独立副本 | 普通 server 测试约 48.2s 降至约 36.5s；稳定 server race 子集约 12.4s 通过；完整 race 运行 267s 后仍未完成，未发现 race 报告 | 定位完整 race 慢点，再进入敏感数据访问边界 |
 | 2026-08-14 | 将稳定 server race 子集固化为 `make test-server-race` 并接入 PR CI | 启停、发布 worker、凭证状态转换和锁内所有权复核场景纳入合并前 smoke race | 定位完整 race 慢点 |
+| 2026-08-14 | 将管理员与账号 cookie 预置到 server 测试模板 | 普通 server 测试约 21.3s；完整 `go test -race ./internal/server` 约 194.3s 通过；阶段 1 完成 | 阶段 2：盘点敏感数据查询调用方 |
