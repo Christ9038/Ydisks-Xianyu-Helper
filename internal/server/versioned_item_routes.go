@@ -13,6 +13,7 @@ func (s *Server) mountVersionedItems(r chi.Router) {
 		r.Use(auth.RequireAuth)
 		r.Get("/api/v1/items", s.listItems)
 		r.Get("/api/v1/items/{cookie_id}/{item_id}", s.getItem)
+		r.Post("/api/v1/items/{cookie_id}", s.createItem)
 		r.Post("/api/v1/items/publish", s.publishItem)
 		r.Put("/api/v1/items/{cookie_id}/{item_id}", s.updateItem)
 		r.Delete("/api/v1/items/{cookie_id}/{item_id}", s.deleteItem)

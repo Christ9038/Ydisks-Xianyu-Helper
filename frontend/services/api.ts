@@ -35,7 +35,7 @@ export const logout = async (): Promise<ApiResponse> => {
 };
 
 export const changePassword = async (currentPassword: string, newPassword: string): Promise<ApiResponse> => {
-  return post('/change-password', { current_password: currentPassword, new_password: newPassword });
+  return post('/api/v1/session/password', { current_password: currentPassword, new_password: newPassword });
 };
 
 export const updateLoginCredentials = async (data: {
@@ -43,7 +43,7 @@ export const updateLoginCredentials = async (data: {
   new_username: string;
   new_password?: string;
 }): Promise<ApiResponse & { requires_relogin?: boolean }> => {
-  return put('/account/credentials', data);
+  return put('/api/v1/session/credentials', data);
 };
 
 // Accounts
@@ -191,7 +191,7 @@ export const updateAccountStatus = async (id: string, enabled: boolean): Promise
 };
 
 export const deleteAccount = async (id: string): Promise<OperationResponse> => {
-  return del(`/cookies/${id}`);
+  return del(`/api/v1/accounts/${id}`);
 };
 
 export const updateAccountRemark = async (id: string, remark: string): Promise<OperationResponse> => {
@@ -265,15 +265,15 @@ export const passwordLogin = async (data: {
   password: string;
   show_browser?: boolean;
 }): Promise<PasswordLoginStartResponse> => {
-  return post('/password-login', data);
+  return post('/api/v1/password-login', data);
 };
 
 export const checkPasswordLoginStatus = async (sessionId: string, signal?: AbortSignal): Promise<PasswordLoginStatusResponse> => {
-  return get(`/password-login/check/${sessionId}`, undefined, { signal, timeoutMs: 10_000 });
+  return get(`/api/v1/password-login/check/${sessionId}`, undefined, { signal, timeoutMs: 10_000 });
 };
 
 export const cancelPasswordLogin = async (sessionId: string): Promise<ApiResponse> => {
-  return del(`/password-login/cancel/${sessionId}`);
+  return del(`/api/v1/password-login/cancel/${sessionId}`);
 };
 
 export const refreshAccountProfile = async (id: string): Promise<CookieProfileResponse> => {
@@ -347,7 +347,7 @@ export const updateOrder = async (orderId: string, data: Partial<Order>): Promis
 };
 
 export const deleteOrder = async (orderId: string): Promise<ApiResponse> => {
-  return del(`/api/orders/${orderId}`);
+  return del(`/api/v1/orders/${orderId}`);
 };
 
 export const syncOrders = async (cookieId?: string, status?: string): Promise<OrderRefreshResponse> => {
@@ -514,7 +514,7 @@ export const deleteItem = async (cookieId: string, itemId: string): Promise<Oper
 }
 
 export const createItem = async (cookieId: string, data: Partial<Item>): Promise<OperationResponse> => {
-    return post(`/items/${cookieId}`, data);
+    return post(`/api/v1/items/${cookieId}`, data);
 }
 
 export const publishItem = async (form: {
@@ -668,7 +668,7 @@ const normalizeShippingRules = (rules: any[]): ShippingRule[] => rules.map((item
     }));
 
 export const getShippingRules = async (): Promise<ShippingRule[]> => {
-    const res = await get<AutomationRuleResponse[] | AutomationRulePageResponse>('/automation-rules');
+    const res = await get<AutomationRuleResponse[] | AutomationRulePageResponse>('/api/v1/automation-rules');
     const rules = Array.isArray(res) ? res : (res.data || []);
     return normalizeShippingRules(rules);
 }
@@ -690,7 +690,7 @@ export const getShippingRulesPage = async ({
   page = 1,
   pageSize = 10,
 }: ShippingRuleListParams = {}): Promise<PaginatedResponse<ShippingRule>> => {
-  const res = await get<AutomationRuleResponse[] | AutomationRulePageResponse>('/automation-rules', {
+  const res = await get<AutomationRuleResponse[] | AutomationRulePageResponse>('/api/v1/automation-rules', {
     page,
     page_size: pageSize,
     cookie_id: cookieId || undefined,
@@ -780,10 +780,10 @@ export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<O
           sort_order: action.sort_order || index + 1,
         })),
     };
-    return rule.id ? put(`/automation-rules/${rule.id}`, payload) : post('/automation-rules', payload);
+    return rule.id ? put(`/api/v1/automation-rules/${rule.id}`, payload) : post('/api/v1/automation-rules', payload);
 }
 
-export const deleteShippingRule = async (id: string): Promise<OperationResponse> => del(`/automation-rules/${id}`);
+export const deleteShippingRule = async (id: string): Promise<OperationResponse> => del(`/api/v1/automation-rules/${id}`);
 
 export interface AutomationRunIssue {
   id: number;
@@ -808,7 +808,7 @@ export interface DeferredAutomationIssue {
 }
 
 export const getAutomationIssues = async (): Promise<{ runs: AutomationRunIssue[]; pending_tasks: DeferredAutomationIssue[] }> => {
-  const result = await get<AutomationIssuesEnvelope>('/automation-issues');
+  const result = await get<AutomationIssuesEnvelope>('/api/v1/automation-issues');
   return {
     runs: Array.isArray(result?.runs) ? result.runs : [],
     pending_tasks: Array.isArray(result?.pending_tasks) ? result.pending_tasks : [],
@@ -816,10 +816,10 @@ export const getAutomationIssues = async (): Promise<{ runs: AutomationRunIssue[
 };
 
 export const resolveAutomationRun = async (id: number, resolution: 'continue' | 'retry' | 'cancel'): Promise<OperationResponse> =>
-  post(`/automation-runs/${id}/resolve`, { resolution });
+  post(`/api/v1/automation-runs/${id}/resolve`, { resolution });
 
 export const resolveDeferredAutomationTask = async (id: number, resolution: 'retry' | 'dismiss'): Promise<OperationResponse> =>
-  post(`/automation-pending-tasks/${id}/resolve`, { resolution });
+  post(`/api/v1/automation-pending-tasks/${id}/resolve`, { resolution });
 
 // Rules - 关键词回复规则 (使用关键词API)
 type KeywordRowPayload = {

@@ -7,7 +7,7 @@ import {
   checkQRLoginStatus, completeQRVerification, generateQRLogin,
 	createNotificationChannel, getAllAISettings, getAccountAISettings, updateAccountAISettings, fetchAIModels,
   getAccountDetails, getAccountRuntimeStatuses, updateAccountStatus,
-	getAutomationIssues,
+	getAutomationIssues, changePassword, createItem, deleteAccount, deleteOrder, deleteShippingRule, updateLoginCredentials,
 	getItems, getItemDetail, syncItemsFromAccount,
 	getItemPublishBatches, getItemPublishBatch, startItemPublishBatch,
 	getNotificationChannels, getMessageNotifications, getAccountBindings,
@@ -101,9 +101,9 @@ test('automation issue APIs expose and resolve quarantined work', async () => {
 	await expect(getAutomationIssues()).resolves.toEqual({ runs: [{ id: 1 }], pending_tasks: [{ id: 2 }] });
 	await resolveAutomationRun(1, 'continue');
 	await resolveDeferredAutomationTask(2, 'retry');
-	expect(fetchMock.mock.calls[1][0]).toBe('/automation-runs/1/resolve');
+	expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/automation-runs/1/resolve');
 	expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ resolution: 'continue' });
-	expect(fetchMock.mock.calls[2][0]).toBe('/automation-pending-tasks/2/resolve');
+	expect(fetchMock.mock.calls[2][0]).toBe('/api/v1/automation-pending-tasks/2/resolve');
 });
 
 test('order multipart requests use the shared authenticated form request path', async () => {
@@ -175,7 +175,7 @@ test('getShippingRulesPage sends filters and preserves pagination metadata', asy
   });
   expect(result.data[0]).toMatchObject({ id: '7', name: '付款规则', enabled: false });
   expect(fetchMock).toHaveBeenCalledWith(
-    '/automation-rules?page=2&page_size=20&cookie_id=acc1&trigger_type=order_paid&enabled=false&search=%E5%95%86%E5%93%81',
+	    '/api/v1/automation-rules?page=2&page_size=20&cookie_id=acc1&trigger_type=order_paid&enabled=false&search=%E5%95%86%E5%93%81',
     expect.objectContaining({ method: 'GET', credentials: 'include' }),
   );
 });
@@ -426,7 +426,7 @@ test('password login service uses upstream-compatible routes', async () => {
   vi.stubGlobal('fetch', fetchMock);
 
   await passwordLogin({ account_id: 'acc1', account: 'u', password: 'p' });
-  expect(fetchMock).toHaveBeenNthCalledWith(1, '/password-login', expect.objectContaining({
+	  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/password-login', expect.objectContaining({
     method: 'POST',
     credentials: 'include',
   }));
@@ -438,10 +438,10 @@ test('password login service uses upstream-compatible routes', async () => {
 
   const status = await checkPasswordLoginStatus('sid');
   expect(status.status).toBe('success');
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/password-login/check/sid', expect.objectContaining({ method: 'GET' }));
+	  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/password-login/check/sid', expect.objectContaining({ method: 'GET' }));
 
   await cancelPasswordLogin('sid');
-  expect(fetchMock).toHaveBeenNthCalledWith(3, '/password-login/cancel/sid', expect.objectContaining({ method: 'DELETE' }));
+	  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/password-login/cancel/sid', expect.objectContaining({ method: 'DELETE' }));
 });
 
 test('getShippingRules exposes buyer reviewed gift rules as automation rules', async () => {
@@ -617,7 +617,7 @@ test('updateShippingRule posts buyer reviewed gift payload to automation-rules',
     }],
   });
 
-  expect(fetchMock).toHaveBeenCalledWith('/automation-rules', expect.objectContaining({
+	  expect(fetchMock).toHaveBeenCalledWith('/api/v1/automation-rules', expect.objectContaining({
     method: 'POST',
     credentials: 'include',
   }));
@@ -1122,3 +1122,68 @@ const runVersionedQRLoginAPITest = async () => {
 };
 
 test('QR login generation and polling use versioned routes', runVersionedQRLoginAPITest);
+
+// 密码登录、会话凭证、账号删除、自动化以及剩余订单商品调用使用版本化入口。
+const runVersionedRemainingAPITest = async () => {
+  // fetchMock 是剩余公共 API 请求的测试替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, session_id: 'sid' }))
+    .mockResolvedValueOnce(jsonResponse({ status: 'failed' }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse([]))
+    .mockResolvedValueOnce(jsonResponse({ data: [], total: 0, page: 1, page_size: 10, total_pages: 0 }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ runs: [], pending_tasks: [] }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await changePassword('old-password', 'new-password');
+  await updateLoginCredentials({ current_password: 'old-password', new_username: 'new-user' });
+  await deleteAccount('acc1');
+  await passwordLogin({ account_id: 'acc1', account: 'user', password: 'password' });
+  await checkPasswordLoginStatus('sid');
+  await cancelPasswordLogin('sid');
+  await deleteOrder('order-1');
+  await createItem('acc1', { item_title: '新商品' });
+  await getShippingRules();
+  await getShippingRulesPage();
+  await updateShippingRule({ cookie_id: 'acc1', trigger_type: 'order_paid' });
+  await deleteShippingRule('7');
+  await getAutomationIssues();
+  await resolveAutomationRun(1, 'retry');
+  await resolveDeferredAutomationTask(2, 'dismiss');
+
+  // paths 是请求层实际发出的版本化 URL 顺序。
+  const paths: unknown[] = [];
+  // index 是当前请求调用在模拟调用列表中的位置。
+  let index = 0;
+  for (index = 0; index < fetchMock.mock.calls.length; index += 1) {
+    paths.push(fetchMock.mock.calls[index][0]);
+  }
+  expect(paths).toEqual([
+    '/api/v1/session/password',
+    '/api/v1/session/credentials',
+    '/api/v1/accounts/acc1',
+    '/api/v1/password-login',
+    '/api/v1/password-login/check/sid',
+    '/api/v1/password-login/cancel/sid',
+    '/api/v1/orders/order-1',
+    '/api/v1/items/acc1',
+    '/api/v1/automation-rules',
+    '/api/v1/automation-rules?page=1&page_size=10',
+    '/api/v1/automation-rules',
+    '/api/v1/automation-rules/7',
+    '/api/v1/automation-issues',
+    '/api/v1/automation-runs/1/resolve',
+    '/api/v1/automation-pending-tasks/2/resolve',
+  ]);
+};
+
+test('remaining public APIs use versioned compatibility routes', runVersionedRemainingAPITest);

@@ -27,6 +27,7 @@ func (s *Server) mountVersionedAccounts(r chi.Router) {
 		r.Get("/api/v1/accounts/{cid}/pause-duration", s.getCookiePauseDuration)
 		r.Put("/api/v1/accounts/{cid}/pause-duration", s.setCookiePauseDuration)
 		r.Put("/api/v1/accounts/{cid}", s.updateCookie)
+		r.Delete("/api/v1/accounts/{cid}", s.deleteCookie)
 		r.Put("/api/v1/accounts/{cid}/login-info", s.updateCookieLoginInfo)
 	})
 }

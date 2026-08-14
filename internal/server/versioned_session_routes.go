@@ -1,6 +1,10 @@
 package server
 
-import "github.com/go-chi/chi/v5"
+import (
+	"github.com/go-chi/chi/v5"
+
+	"xianyu-go/internal/auth"
+)
 
 // mountHealthAndVersionedRoutes 挂载健康检查及当前阶段的版本化 API 入口。
 func (s *Server) mountHealthAndVersionedRoutes(r chi.Router) {
@@ -15,6 +19,8 @@ func (s *Server) mountHealthAndVersionedRoutes(r chi.Router) {
 	s.mountVersionedReplyRoutes(r)
 	s.mountVersionedAdminAnalyticsRoutes(r)
 	s.mountVersionedQRLoginRoutes(r)
+	s.mountVersionedPasswordLoginRoutes(r)
+	s.mountVersionedAutomationRoutes(r)
 }
 
 // mountVersionedSession 挂载会话 API 的 `/api/v1` 兼容入口，复用现有 handler。
@@ -25,5 +31,17 @@ func (s *Server) mountVersionedSession(r chi.Router) {
 		r.Post("/api/v1/session/initialize", s.initialize)
 		r.Get("/api/v1/session", s.verify)
 		r.Post("/api/v1/session/logout", s.logout)
+	})
+	r.Group(func(r chi.Router) {
+		r.Use(s.Auth.Middleware)
+		r.Use(auth.RequireAuth)
+		r.Post("/api/v1/session/password", s.changePassword)
+		r.Put("/api/v1/session/credentials", s.updateCredentials)
+	})
+	r.Group(func(r chi.Router) {
+		r.Use(s.Auth.Middleware)
+		r.Use(auth.RequireAuth)
+		r.Use(auth.RequireAdmin)
+		r.Post("/api/v1/admin/password", s.changeAdminPassword)
 	})
 }
