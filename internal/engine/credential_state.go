@@ -9,6 +9,7 @@ import (
 // mu 保护本组件全部字段；持锁时不得执行数据库、网络或通知 I/O。
 // refreshMu 串行化完整的凭证刷新事务，允许在锁内执行必要的凭证 I/O，
 // 但调用方不得在持有它时再次获取同一锁。
+// credentialState 保存credential状态，供当前处理流程使用
 type credentialState struct {
 	// mu 保护 Cookie、Token、设备指纹和刷新诊断字段。
 	mu sync.Mutex

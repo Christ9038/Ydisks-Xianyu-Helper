@@ -11,6 +11,7 @@ import (
 
 // wsRecorder 负责 WebSocket 报文诊断记录的有界队列和后台写入生命周期。
 // once 保护单次启动，wg 等待写入 worker；组件锁不覆盖数据库 I/O。
+// wsRecorder 保存wsRecorder，供当前处理流程使用
 type wsRecorder struct {
 	// store 提供 WebSocket 报文持久化 repository。
 	store *db.Store
@@ -110,7 +111,8 @@ func (r *wsRecorder) start(ctx context.Context) {
 				select {
 				case <-ctx.Done():
 					return
-				case message := <-r.queue:
+				case // message 保存消息，供当前处理流程使用
+				message := <-r.queue:
 					batch = append(batch, message)
 					if len(batch) >= WSRecordBatchSize {
 						flush()

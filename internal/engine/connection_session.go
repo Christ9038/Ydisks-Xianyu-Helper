@@ -84,9 +84,11 @@ func (a *Account) runConnectionSession(ctx context.Context, conn WSConn, refresh
 	}
 	// connectedDuration 是从运行状态组件读取的连接持续时间快照。
 	a.runtimeMu.Lock()
+	// startedAt 保存startedAt，供当前处理流程使用
 	startedAt := a.connStartedAt
 	a.conn = nil
 	a.runtimeMu.Unlock()
+	// connectedDuration 保存connected时长，供当前处理流程使用
 	connectedDuration := time.Since(startedAt)
 	return connectionSessionResult{
 		ReceiveErr:        receiveErr,

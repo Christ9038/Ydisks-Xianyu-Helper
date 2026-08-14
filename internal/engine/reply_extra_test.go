@@ -15,6 +15,7 @@ type fakeAPIReplier struct {
 	called int
 }
 
+// Reply 负责回复相关处理。
 func (f *fakeAPIReplier) Reply(_ context.Context, _ ChatMessage) (*ReplyResult, error) {
 	f.called++
 	return f.result, f.err
@@ -27,6 +28,7 @@ type fakeAIReplier struct {
 	called int
 }
 
+// Reply 负责回复相关处理。
 func (f *fakeAIReplier) Reply(_ context.Context, _ ChatMessage) (*ReplyResult, error) {
 	f.called++
 	return f.result, f.err
@@ -40,15 +42,18 @@ type recordingSender struct {
 	imageErr error
 }
 
+// textSent 保存文本Sent，供当前处理流程使用
 type textSent struct {
 	chatID, toUserID, text string
 }
 
+// imageSent 保存图片Sent，供当前处理流程使用
 type imageSent struct {
 	chatID, toUserID, url string
 	cardID                int64
 }
 
+// SendText 负责Send文本相关处理。
 func (r *recordingSender) SendText(_ context.Context, chatID, toUserID, text string) error {
 	if r.textErr != nil {
 		return r.textErr
@@ -57,6 +62,7 @@ func (r *recordingSender) SendText(_ context.Context, chatID, toUserID, text str
 	return nil
 }
 
+// SendImage 负责Send图片相关处理。
 func (r *recordingSender) SendImage(_ context.Context, chatID, toUserID, url string, cardID int64) error {
 	if r.imageErr != nil {
 		return r.imageErr
@@ -65,31 +71,41 @@ func (r *recordingSender) SendImage(_ context.Context, chatID, toUserID, url str
 	return nil
 }
 
+// TestReplyOnceRetriesOnlyFailedParts 负责Test回复OnceRetriesOnly失败Parts相关处理。
 func TestReplyOnceRetriesOnlyFailedParts(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newReplyStore(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
 	s.DB.ExecContext(ctx, `INSERT INTO default_replies
 		(cookie_id,enabled,reply_content,reply_image_url,reply_once)
 		VALUES ('cid',1,'文字','http://img/retry.png',1)`)
 
+	// textFailure 保存文本Failure，供当前处理流程使用
 	textFailure := errors.New("text failed")
+	// firstSender 保存firstSender，供当前处理流程使用
 	firstSender := &recordingSender{textErr: textFailure}
+	// service 保存service，供当前处理流程使用
 	service := NewReplyService("cid", s, firstSender, nil, nil, nil)
-	if err := service.Handle(ctx, chatMsg("在吗", "", "chat-retry")); !errors.Is(err, textFailure) {
+	if // err 保存err，供当前处理流程使用
+	err := service.Handle(ctx, chatMsg("在吗", "", "chat-retry")); !errors.Is(err, textFailure) {
 		t.Fatalf("first error=%v want text failure", err)
 	}
 	if len(firstSender.images) != 1 || len(firstSender.texts) != 0 {
 		t.Fatalf("first delivery images=%+v texts=%+v", firstSender.images, firstSender.texts)
 	}
+	// record、err 保存record、err，供当前处理流程使用
 	record, err := s.DefaultReps.Record(ctx, "cid", "chat-retry")
 	if err != nil || record.Status != "failed" || !record.ImageSent || record.TextSent {
 		t.Fatalf("failed record=%+v err=%v", record, err)
 	}
 
+	// secondSender 保存secondSender，供当前处理流程使用
 	secondSender := &recordingSender{}
 	service = NewReplyService("cid", s, secondSender, nil, nil, nil)
-	if err := service.Handle(ctx, chatMsg("再问", "", "chat-retry")); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := service.Handle(ctx, chatMsg("再问", "", "chat-retry")); err != nil {
 		t.Fatal(err)
 	}
 	if len(secondSender.images) != 0 || len(secondSender.texts) != 1 {
@@ -103,14 +119,18 @@ func TestReplyOnceRetriesOnlyFailedParts(t *testing.T) {
 
 // TestReply_APIPriorityAndError API 回复命中时优先级最高；API 报错时降级到关键词。
 func TestReply_APIPriorityAndError(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newReplyStore(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
 	s.DB.ExecContext(ctx, `INSERT INTO keywords (cookie_id,keyword,reply,type) VALUES ('cid','在吗','关键词回复','text')`)
 
 	// API 返回结果 → 用 API。
 	api := &fakeAPIReplier{result: &ReplyResult{Text: "API回复"}}
+	// r 保存r，供当前处理流程使用
 	r := NewReplyService("cid", s, nil, api, nil, nil)
+	// res 保存响应，供当前处理流程使用
 	res := r.resolve(ctx, chatMsg("在吗", "", "chat1"))
 	if res == nil || res.Source != "API" || res.Text != "API回复" {
 		t.Fatalf("API 命中应优先，got %+v", res)
@@ -118,7 +138,9 @@ func TestReply_APIPriorityAndError(t *testing.T) {
 
 	// API 报错 → 降级到关键词。
 	api2 := &fakeAPIReplier{err: errors.New("upstream down")}
+	// r2 保存r2，供当前处理流程使用
 	r2 := NewReplyService("cid", s, nil, api2, nil, nil)
+	// res2 保存res2，供当前处理流程使用
 	res2 := r2.resolve(ctx, chatMsg("在吗", "", "chat1"))
 	if res2 == nil || res2.Source != "关键词" || res2.Text != "关键词回复" {
 		t.Fatalf("API 报错应降级到关键词，got %+v", res2)
@@ -126,7 +148,9 @@ func TestReply_APIPriorityAndError(t *testing.T) {
 
 	// API 返回 nil（无回复）→ 降级到关键词。
 	api3 := &fakeAPIReplier{result: nil}
+	// r3 保存r3，供当前处理流程使用
 	r3 := NewReplyService("cid", s, nil, api3, nil, nil)
+	// res3 保存res3，供当前处理流程使用
 	res3 := r3.resolve(ctx, chatMsg("在吗", "", "chat1"))
 	if res3 == nil || res3.Source != "关键词" {
 		t.Fatalf("API nil 应降级到关键词，got %+v", res3)
@@ -135,13 +159,18 @@ func TestReply_APIPriorityAndError(t *testing.T) {
 
 // TestReply_AIPriorityOverDefault AI 回复优先于默认回复；AI 报错降级到默认。
 func TestReply_AIPriorityOverDefault(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newReplyStore(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
 	s.DB.ExecContext(ctx, `INSERT INTO default_replies (cookie_id,enabled,reply_content,reply_once) VALUES ('cid',1,'默认回复',0)`)
 
+	// ai 保存人工智能，供当前处理流程使用
 	ai := &fakeAIReplier{result: &ReplyResult{Text: "AI回复"}}
+	// r 保存r，供当前处理流程使用
 	r := NewReplyService("cid", s, nil, nil, ai, nil)
+	// res 保存响应，供当前处理流程使用
 	res := r.resolve(ctx, chatMsg("复杂问题", "", "chat1"))
 	if res == nil || res.Source != "AI" || res.Text != "AI回复" {
 		t.Fatalf("AI 命中应优先于默认，got %+v", res)
@@ -149,7 +178,9 @@ func TestReply_AIPriorityOverDefault(t *testing.T) {
 
 	// AI 报错 → 降级到默认。
 	ai2 := &fakeAIReplier{err: errors.New("model timeout")}
+	// r2 保存r2，供当前处理流程使用
 	r2 := NewReplyService("cid", s, nil, nil, ai2, nil)
+	// res2 保存res2，供当前处理流程使用
 	res2 := r2.resolve(ctx, chatMsg("复杂问题", "", "chat1"))
 	if res2 == nil || res2.Source != "默认" || res2.Text != "默认回复" {
 		t.Fatalf("AI 报错应降级到默认，got %+v", res2)
@@ -158,12 +189,16 @@ func TestReply_AIPriorityOverDefault(t *testing.T) {
 
 // TestReply_ImageKeyword 图片类型关键词返回 ImageURL。
 func TestReply_ImageKeyword(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newReplyStore(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
 	s.DB.ExecContext(ctx, `INSERT INTO keywords (cookie_id,keyword,reply,image_url,type) VALUES ('cid','看图','','http://img/x.png','image')`)
 
+	// r 保存r，供当前处理流程使用
 	r := NewReplyService("cid", s, nil, nil, nil, nil)
+	// res 保存响应，供当前处理流程使用
 	res := r.resolve(ctx, chatMsg("发看图", "item1", "chat1"))
 	if res == nil || res.Source != "关键词" || res.ImageURL != "http://img/x.png" {
 		t.Fatalf("图片关键词应返回 ImageURL，got %+v", res)
@@ -172,14 +207,19 @@ func TestReply_ImageKeyword(t *testing.T) {
 
 // TestReply_HandleSendsImageThenText Handle 先发图片后发文本；Skip 不发送。
 func TestReply_HandleSendsImageThenText(t *testing.T) {
+	// s、cleanup 保存s、cleanup，供当前处理流程使用
 	s, cleanup := newReplyStore(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
 	s.DB.ExecContext(ctx, `INSERT INTO default_replies (cookie_id,enabled,reply_content,reply_image_url,reply_once) VALUES ('cid',1,'文字','http://img/y.png',0)`)
 
+	// sender 保存sender，供当前处理流程使用
 	sender := &recordingSender{}
+	// r 保存r，供当前处理流程使用
 	r := NewReplyService("cid", s, sender, nil, nil, nil)
-	if err := r.Handle(ctx, chatMsg("在吗", "", "chat9")); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := r.Handle(ctx, chatMsg("在吗", "", "chat9")); err != nil {
 		t.Fatalf("Handle: %v", err)
 	}
 	if len(sender.images) != 1 || sender.images[0].url != "http://img/y.png" {
@@ -191,9 +231,12 @@ func TestReply_HandleSendsImageThenText(t *testing.T) {
 
 	// Skip（空默认回复）不应发送任何内容。
 	s.DB.ExecContext(ctx, `UPDATE default_replies SET reply_content='', reply_image_url='' WHERE cookie_id='cid'`)
+	// sender2 保存sender2，供当前处理流程使用
 	sender2 := &recordingSender{}
+	// r2 保存r2，供当前处理流程使用
 	r2 := NewReplyService("cid", s, sender2, nil, nil, nil)
-	if err := r2.Handle(ctx, chatMsg("在吗", "", "chat9")); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := r2.Handle(ctx, chatMsg("在吗", "", "chat9")); err != nil {
 		t.Fatalf("Handle skip: %v", err)
 	}
 	if len(sender2.texts) != 0 || len(sender2.images) != 0 {
@@ -203,14 +246,17 @@ func TestReply_HandleSendsImageThenText(t *testing.T) {
 
 // TestParseMessageIDFromJSON bizTag/extJson 中提取 messageId。
 func TestParseMessageIDFromJSON(t *testing.T) {
+	// cases 保存cases，供当前处理流程使用
 	cases := map[string]string{
 		`{"messageId":"abc123"}`: "abc123",
 		`{"sourceId":"x"}`:       "",
 		`not json`:               "",
 		`{}`:                     "",
 	}
+	// in、want 表示当前遍历过程中的in、want
 	for in, want := range cases {
-		if got := parseMessageIDFromJSON(in); got != want {
+		if // got 保存got，供当前处理流程使用
+		got := parseMessageIDFromJSON(in); got != want {
 			t.Errorf("parseMessageIDFromJSON(%q)=%q want %q", in, got, want)
 		}
 	}
@@ -218,7 +264,8 @@ func TestParseMessageIDFromJSON(t *testing.T) {
 
 // TestExtractMessageID 优先 bizTag，其次 extJson，无则空。
 func TestExtractMessageID(t *testing.T) {
-	if got := extractMessageID(map[string]any{
+	if // got 保存got，供当前处理流程使用
+	got := extractMessageID(map[string]any{
 		"1": map[string]any{
 			"10": map[string]any{
 				"bizTag":  `{"messageId":"biz-id"}`,
@@ -228,7 +275,8 @@ func TestExtractMessageID(t *testing.T) {
 	}); got != "biz-id" {
 		t.Errorf("bizTag 优先: got %q", got)
 	}
-	if got := extractMessageID(map[string]any{
+	if // got 保存got，供当前处理流程使用
+	got := extractMessageID(map[string]any{
 		"1": map[string]any{
 			"10": map[string]any{
 				"extJson": `{"messageId":"ext-id"}`,
@@ -237,7 +285,8 @@ func TestExtractMessageID(t *testing.T) {
 	}); got != "ext-id" {
 		t.Errorf("extJson 兜底: got %q", got)
 	}
-	if got := extractMessageID(map[string]any{"1": map[string]any{}}); got != "" {
+	if // got 保存got，供当前处理流程使用
+	got := extractMessageID(map[string]any{"1": map[string]any{}}); got != "" {
 		t.Errorf("无 ID: got %q", got)
 	}
 }
@@ -287,6 +336,7 @@ func TestIsNonUserChatNotice(t *testing.T) {
 	}
 }
 
+// TestIsNonUserChatNoticeFiltersOfficialSenderAndPlaceholder 负责TestIsNon用户聊天NoticeFiltersOfficialSenderAndPlaceholder相关处理。
 func TestIsNonUserChatNoticeFiltersOfficialSenderAndPlaceholder(t *testing.T) {
 	if !isNonUserChatNotice(map[string]any{}, map[string]any{"senderUserId": "1400", "reminderContent": "邀您填写售后问卷"}, "邀您填写售后问卷") {
 		t.Error("闲小蜜消息应判为官方系统消息")
@@ -298,19 +348,24 @@ func TestIsNonUserChatNoticeFiltersOfficialSenderAndPlaceholder(t *testing.T) {
 
 // TestToStringAndTrimFloatInt 数字/字符串安全转换。
 func TestToStringAndTrimFloatInt(t *testing.T) {
-	if got := toString(float64(26)); got != "26" {
+	if // got 保存got，供当前处理流程使用
+	got := toString(float64(26)); got != "26" {
 		t.Errorf("toString(float64 26)=%q", got)
 	}
-	if got := toString("hello"); got != "hello" {
+	if // got 保存got，供当前处理流程使用
+	got := toString("hello"); got != "hello" {
 		t.Errorf("toString(string)=%q", got)
 	}
-	if got := toString(nil); got != "" {
+	if // got 保存got，供当前处理流程使用
+	got := toString(nil); got != "" {
 		t.Errorf("toString(nil)=%q", got)
 	}
-	if got := trimFloatInt(12.00); got != "12" {
+	if // got 保存got，供当前处理流程使用
+	got := trimFloatInt(12.00); got != "12" {
 		t.Errorf("trimFloatInt(12.00)=%q", got)
 	}
-	if got := trimFloatInt(12.50); got != "12.5" {
+	if // got 保存got，供当前处理流程使用
+	got := trimFloatInt(12.50); got != "12.5" {
 		t.Errorf("trimFloatInt(12.50)=%q", got)
 	}
 }
