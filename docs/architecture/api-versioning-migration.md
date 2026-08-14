@@ -16,8 +16,8 @@
 | 卡券 | `/cards...` | `/api/v1/cards...` | React 卡券列表、CRUD、批量创建和追加调用已迁移；旧路径保留并由同一 handler 提供 |
 | 通知 | `/notification-channels...`、`/message-notifications...` | `/api/v1/notifications/channels...`、`/api/v1/notifications/messages...`、`/api/v1/notifications/accounts/{cid}/bindings` | React 通知渠道、消息绑定和账号绑定调用已迁移；旧路径保留并由同一 handler 提供 |
 | 聊天 | `/api/chat...` | `/api/v1/chat...` | React 会话、消息、图片、已读和 WebSocket 调用已迁移；旧路径保留并由同一 handler 提供 |
-| 关键词回复 | `/keywords...`、`/keywords-with-item-id...`、`/keywords-with-type...`、`/item-reply...` | `/api/v1/reply-rules...` | 旧路径保留，基础/商品/类型规则与指定商品回复 DTO 已落地 |
-| 默认回复 | `/default-replies...`、`/api/default-reply...` | `/api/v1/default-replies...` | 旧路径保留，单账号、列表和映射 DTO 已落地 |
+| 关键词回复 | `/keywords...`、`/keywords-with-item-id...`、`/keywords-with-type...`、`/item-reply...`、`/itemReplays` | `/api/v1/reply-rules/{cid}...`、`/api/v1/reply-rules/items...` | React 类型规则、指定商品回复调用已迁移；版本化入口覆盖基础/商品/类型规则和指定商品回复；旧路径保留并由同一 handler 提供 |
+| 默认回复 | `/default-replies...`、`/api/default-replies`、`/api/default-reply...` | `/api/v1/default-replies`、`/api/v1/default-replies/list`、`/api/v1/default-replies/{cid}...` | React 单账号、列表、删除和记录清理调用已迁移；旧路径保留并由同一 handler 提供 |
 | 账号任务 | `/api/account-tasks...` | `/api/v1/account-tasks...` | React 设置和执行调用已迁移；版本化入口覆盖设置、运行记录和执行摘要；旧路径保留并由同一 handler 提供 |
 | 管理员 | `/admin/users...`、`/admin/cookies...`、`/admin/stats` | `/api/v1/admin/...` | 旧路径保留，用户/账号/全局统计 DTO 已落地 |
 | 统计 | `/dashboard/stats`、`/analytics/orders...` | `/api/v1/analytics/...` | 旧路径保留，概览、收益、维度和有效订单分页 DTO 已落地 |
@@ -51,6 +51,7 @@
 - 商品同步、类目推荐、批量发布预检、任务查询、取消、重试和结果下载已由版本化路由提供；React 现有同步/批量发布调用已迁移，Go 契约测试确认新旧入口状态码和参数校验语义一致。
 - 系统/用户/AI 设置、卡券 CRUD/批量/追加和通知渠道/消息/账号绑定已由版本化路由提供；React 设置、卡券和通知调用已迁移，Go 契约测试确认新旧入口权限、状态码和参数校验语义一致。
 - 聊天会话、消息、图片、已读和 WebSocket，以及账号任务设置、运行记录和执行已由版本化路由提供；React REST/WebSocket 调用已迁移，Go 契约测试确认新旧入口权限、状态码和参数校验语义一致。
+- 关键词基础/商品/类型规则、指定商品回复和默认回复列表/单账号/清理已由版本化路由提供；React 关键词与默认回复调用已迁移，Go 契约测试确认新旧入口权限、状态码和参数校验语义一致。
 - 聊天会话、消息分页和发送结果使用独立 DTO，不直接暴露数据库模型。
 - React `frontend/types.ts` 与 `frontend/services/api.ts` 已同步具名成功响应类型，同时保留旧字段归一逻辑。
-- 会话、账号、订单、商品、设置、卡券、通知、聊天和账号任务版本化入口已可用；关键词、默认回复、管理员与统计等领域仍未宣称可用，旧路径继续保留。
+- 会话、账号、订单、商品、设置、卡券、通知、聊天、账号任务、关键词和默认回复版本化入口已可用；管理员与统计等领域仍未宣称可用，旧路径继续保留。

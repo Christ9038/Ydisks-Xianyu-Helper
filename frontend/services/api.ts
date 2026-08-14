@@ -841,7 +841,7 @@ const normalizeKeywordRow = (item: any): KeywordRowPayload => ({
 });
 
 const getKeywordRowsWithType = async (cookieId: string): Promise<KeywordRowPayload[]> => {
-    const existing = await get<KeywordTypedResponse[]>(`/keywords-with-type/${cookieId}`);
+    const existing = await get<KeywordTypedResponse[]>(`/api/v1/reply-rules/${cookieId}/typed`);
     return Array.isArray(existing) ? existing.map(normalizeKeywordRow) : [];
 };
 
@@ -870,12 +870,12 @@ export const updateReplyRule = async (rule: Partial<ReplyRule>, cookieId: string
 		image_url: type === 'image' ? (rule.image_url || '') : '',
 	};
 	return rule.id
-		? put(`/keywords-with-type/${cookieId}/${rule.id}`, payload)
-		: post(`/keywords-with-item-id/${cookieId}`, payload);
+		? put(`/api/v1/reply-rules/${cookieId}/typed/${rule.id}`, payload)
+		: post(`/api/v1/reply-rules/${cookieId}/items`, payload);
 }
 
 export const deleteReplyRule = async (id: string, cookieId: string): Promise<OperationResponse> => {
-	return del(`/keywords-with-type/${cookieId}/${id}`);
+	return del(`/api/v1/reply-rules/${cookieId}/typed/${id}`);
 }
 
 // Settings
@@ -1026,11 +1026,11 @@ export const testNotificationChannel = async (channelId: string): Promise<Operat
 
 // Default Reply
 export const getDefaultReplies = async (): Promise<Record<string, DefaultReplyResponse>> => {
-	return get('/api/default-replies');
+	return get('/api/v1/default-replies');
 };
 
 export const getDefaultReply = async (cookieId: string): Promise<DefaultReply> => {
-	const result = await get<DefaultReplyResponse>(`/api/default-reply/${cookieId}`);
+	const result = await get<DefaultReplyResponse>(`/api/v1/default-replies/${cookieId}`);
   return {
     cookie_id: cookieId,
     enabled: result.enabled || false,
@@ -1041,7 +1041,7 @@ export const getDefaultReply = async (cookieId: string): Promise<DefaultReply> =
 };
 
 export const updateDefaultReply = async (cookieId: string, data: Partial<DefaultReply>): Promise<OperationResponse> => {
-  return put(`/api/default-reply/${cookieId}`, {
+  return put(`/api/v1/default-replies/${cookieId}`, {
     enabled: data.enabled ?? false,
     reply_content: data.reply_content || '',
     reply_once: data.reply_once ?? false,
@@ -1050,11 +1050,11 @@ export const updateDefaultReply = async (cookieId: string, data: Partial<Default
 };
 
 export const deleteDefaultReply = async (cookieId: string): Promise<OperationResponse> => {
-  return del(`/api/default-reply/${cookieId}`);
+	return del(`/api/v1/default-replies/${cookieId}`);
 };
 
 export const clearDefaultReplyRecords = async (cookieId: string): Promise<OperationResponse> => {
-  return post(`/api/default-reply/${cookieId}/clear-records`, {});
+	return post(`/api/v1/default-replies/${cookieId}/clear-records`, {});
 };
 
 // getItemDetail 获取指定账号下单个商品的详情。

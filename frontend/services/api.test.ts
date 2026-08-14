@@ -13,7 +13,7 @@ import {
 	getNotificationChannels, getMessageNotifications, getAccountBindings,
   getOrders, getOrderDetail, updateOrder,
 	getOrderAnalytics,
-  getReplyRules,
+	getReplyRules, getDefaultReplies, getDefaultReply, updateDefaultReply, deleteDefaultReply, clearDefaultReplyRecords,
   getShippingRules,
   getShippingRulesPage,
 	getSystemSettings, getCards, createCard, updateCard, deleteCard, getCardDetails, batchCreateCards, appendCardData,
@@ -492,7 +492,7 @@ test('getReplyRules labels keyword matching according to engine contains behavio
   vi.stubGlobal('fetch', fetchMock);
 
   const rules = await getReplyRules('acc1');
-  expect(fetchMock).toHaveBeenCalledWith('/keywords-with-type/acc1', expect.objectContaining({ method: 'GET' }));
+	expect(fetchMock).toHaveBeenCalledWith('/api/v1/reply-rules/acc1/typed', expect.objectContaining({ method: 'GET' }));
   expect(rules[0]).toMatchObject({
     id: '42',
     keyword: '发货',
@@ -510,7 +510,7 @@ test('updateReplyRule preserves keyword image metadata when saving text edits', 
   await updateReplyRule({ id: '42', keyword: '发货', reply_content: '稍后安排', item_id: 'item-1' }, 'acc1');
 
   expect(fetchMock).toHaveBeenCalledTimes(1);
-  expect(fetchMock).toHaveBeenCalledWith('/keywords-with-type/acc1/42', expect.objectContaining({
+	expect(fetchMock).toHaveBeenCalledWith('/api/v1/reply-rules/acc1/typed/42', expect.objectContaining({
     method: 'PUT',
     credentials: 'include',
   }));
@@ -535,7 +535,7 @@ test('deleteReplyRule deletes one stable keyword row instead of replacing the li
 
   await deleteReplyRule('42', 'acc1');
   expect(fetchMock).toHaveBeenCalledTimes(1);
-  expect(fetchMock).toHaveBeenCalledWith('/keywords-with-type/acc1/42', expect.objectContaining({
+	expect(fetchMock).toHaveBeenCalledWith('/api/v1/reply-rules/acc1/typed/42', expect.objectContaining({
     method: 'DELETE',
     credentials: 'include',
   }));
@@ -1046,3 +1046,41 @@ const runVersionedChatTaskAPITest = async () => {
 };
 
 test('chat and account task APIs use versioned compatibility routes', runVersionedChatTaskAPITest);
+
+// 关键词回复、指定商品回复和默认回复 API 使用版本化兼容入口。
+const runVersionedReplyAPITest = async () => {
+  // fetchMock 是关键词和默认回复请求的测试替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse([]))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, id: 7 }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({}))
+    .mockResolvedValueOnce(jsonResponse({ enabled: true, reply_content: '欢迎', reply_once: false, reply_image_url: '' }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await getReplyRules('acc1');
+  await updateReplyRule({ id: '42', keyword: '发货', reply_content: '稍后安排' }, 'acc1');
+  await updateReplyRule({ keyword: '售后', reply_content: '请联系客服' }, 'acc1');
+  await deleteReplyRule('42', 'acc1');
+  await getDefaultReplies();
+  await getDefaultReply('acc1');
+  await updateDefaultReply('acc1', { enabled: true, reply_content: '欢迎' });
+  await deleteDefaultReply('acc1');
+  await clearDefaultReplyRecords('acc1');
+
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/reply-rules/acc1/typed', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/reply-rules/acc1/typed/42', expect.objectContaining({ method: 'PUT' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/reply-rules/acc1/items', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/reply-rules/acc1/typed/42', expect.objectContaining({ method: 'DELETE' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/default-replies', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(6, '/api/v1/default-replies/acc1', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(7, '/api/v1/default-replies/acc1', expect.objectContaining({ method: 'PUT' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(8, '/api/v1/default-replies/acc1', expect.objectContaining({ method: 'DELETE' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(9, '/api/v1/default-replies/acc1/clear-records', expect.objectContaining({ method: 'POST' }));
+};
+
+test('keyword and default reply APIs use versioned compatibility routes', runVersionedReplyAPITest);
