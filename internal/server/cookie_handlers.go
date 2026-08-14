@@ -447,14 +447,13 @@ func (s *Server) refreshCookieProfile(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "无权限操作该账号")
 		return
 	}
-	d, err := s.loadCookieSummaryDetail(r.Context(), sess.UserID, cid) // d 和 err 是资料刷新所需的非敏感摘要及查询错误。
+	profile, err := s.accountLoginApplication().RefreshProfile(r.Context(), sess.UserID, cid)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "账号不存在")
 		return
 	}
-	nickname, avatarURL, profileErr := s.refreshAccountProfile(r.Context(), d) // 三个值是刷新后的资料及错误信息。
 	writeJSON(w, http.StatusOK, cookieProfileResponse{
-		Success: profileErr == "", ID: d.ID, Nickname: nickname, AvatarURL: avatarURL, ProfileError: profileErr,
+		Success: profile.ErrorMessage == "", ID: cid, Nickname: profile.Nickname, AvatarURL: profile.AvatarURL, ProfileError: profile.ErrorMessage,
 	})
 }
 
@@ -488,9 +487,7 @@ func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := auth.SessionFromContext(r.Context())
-	credentialUnlock := s.Store.LockAccountCredentials(req.ID)
-	if err := s.Store.Cookies.CreateOwned(r.Context(), req.ID, req.Value, sess.UserID); err != nil {
-		credentialUnlock()
+	if err := s.accountLoginApplication().CreateCookie(r.Context(), accountLoginInput{AccountID: req.ID, Cookies: req.Value, UserID: sess.UserID, LoginMethod: req.LoginMethod}); err != nil {
 		if errors.Is(err, db.ErrForbidden) {
 			writeErr(w, http.StatusForbidden, "该账号ID已存在且不属于当前用户")
 			return
@@ -502,32 +499,13 @@ func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if s.Store.Tokens != nil {
-		if err := s.Store.Tokens.Clear(r.Context(), req.ID); err != nil {
-			s.Logger.Warn("新增账号后清理旧连接凭证失败", "cookie_id", req.ID, "err", err)
-		}
-	}
-	loginMethod := normalizeLoginMethod(req.LoginMethod)
-	if loginMethod == "" {
-		loginMethod = loginMethodManual
-	}
-	s.markSuccessfulLogin(r.Context(), req.ID, sess.UserID, loginMethod, "账号登录成功")
-	credentialUnlock()
-	if d, err := s.loadCookiePlatformDetail(r.Context(), req.ID); err == nil {
-		s.refreshAccountProfile(r.Context(), d)
-	}
-	if s.Manager != nil && s.Store.Cookies.GetStatus(r.Context(), req.ID) {
-		if err := s.Manager.Restart(r.Context(), req.ID); err != nil {
-			s.Logger.Error("更新后重启账号失败", "cookie_id", req.ID, "err", err)
-		}
-	}
 	writeJSON(w, http.StatusOK, accountMutationResponse{Success: true, ID: req.ID})
 }
 
 // updateCookie 更新 cookie 值。
 func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")
-	ownedDetail, ok := s.requireCookieOwner(w, r, cid)
+	_, ok := s.requireCookieOwner(w, r, cid)
 	if !ok {
 		return
 	}
@@ -540,38 +518,13 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := auth.SessionFromContext(r.Context())
-	credentialUnlock := s.Store.LockAccountCredentials(cid)
-	detail, err := s.loadCookiePlatformDetail(r.Context(), cid)
-	if err != nil || detail == nil || detail.UserID != ownedDetail.UserID || detail.UserID != sess.UserID {
-		credentialUnlock()
-		writeErr(w, http.StatusNotFound, "账号不存在")
-		return
-	}
-	if err := s.updateFlatCookieOwnedLocked(r.Context(), detail, req.Value); err != nil {
-		credentialUnlock()
+	if err := s.accountLoginApplication().UpdateCookie(r.Context(), accountCookieUpdateInput{AccountID: cid, Cookies: req.Value, UserID: sess.UserID, LoginMethod: req.LoginMethod}); err != nil {
 		if errors.Is(err, db.ErrForbidden) {
 			writeErr(w, http.StatusForbidden, "无权限操作该账号")
 			return
 		}
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
-	}
-	if s.Store.Tokens != nil {
-		if err := s.Store.Tokens.Clear(r.Context(), cid); err != nil {
-			s.Logger.Warn("更新账号后清理旧连接凭证失败", "cookie_id", cid, "err", err)
-		}
-	}
-	if loginMethod := normalizeLoginMethod(req.LoginMethod); loginMethod != "" {
-		s.markSuccessfulLogin(r.Context(), cid, sess.UserID, loginMethod, "账号登录成功")
-	}
-	credentialUnlock()
-	if d, err := s.loadCookieSummaryDetail(r.Context(), sess.UserID, cid); err == nil {
-		s.refreshAccountProfile(r.Context(), d)
-	}
-	if s.Manager != nil && s.Store.Cookies.GetStatus(r.Context(), cid) {
-		if err := s.Manager.Restart(r.Context(), cid); err != nil {
-			s.Logger.Error("更新后重启账号失败", "cookie_id", cid, "err", err)
-		}
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }

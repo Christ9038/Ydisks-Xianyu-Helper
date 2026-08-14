@@ -65533,51 +65533,57 @@
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 481,
+    "line": 450,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/cookie_handlers.go",
+    "line": 450,
+    "kind": "local-variable",
+    "name": "profile"
+  },
+  {
+    "file": "internal/server/cookie_handlers.go",
+    "line": 480,
     "kind": "var",
     "name": "req"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 486,
+    "line": 485,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 490,
+    "line": 489,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 491,
-    "kind": "local-variable",
-    "name": "credentialUnlock"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 492,
+    "line": 490,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 506,
+    "line": 507,
     "kind": "local-variable",
-    "name": "err"
+    "name": "cid"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 510,
+    "line": 508,
     "kind": "local-variable",
-    "name": "loginMethod"
+    "name": "ok"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 516,
-    "kind": "local-variable",
-    "name": "d"
+    "line": 512,
+    "kind": "var",
+    "name": "req"
   },
   {
     "file": "internal/server/cookie_handlers.go",
@@ -65589,59 +65595,41 @@
     "file": "internal/server/cookie_handlers.go",
     "line": 520,
     "kind": "local-variable",
+    "name": "sess"
+  },
+  {
+    "file": "internal/server/cookie_handlers.go",
+    "line": 521,
+    "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 529,
+    "line": 534,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 530,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 530,
-    "kind": "local-variable",
-    "name": "ownedDetail"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 534,
-    "kind": "var",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 538,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 542,
-    "kind": "local-variable",
-    "name": "sess"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 543,
-    "kind": "local-variable",
-    "name": "credentialUnlock"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 544,
+    "line": 535,
     "kind": "local-variable",
     "name": "detail"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 544,
+    "line": 535,
+    "kind": "local-variable",
+    "name": "ok"
+  },
+  {
+    "file": "internal/server/cookie_handlers.go",
+    "line": 539,
+    "kind": "var",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/cookie_handlers.go",
+    "line": 546,
     "kind": "local-variable",
     "name": "err"
   },
@@ -65649,77 +65637,77 @@
     "file": "internal/server/cookie_handlers.go",
     "line": 550,
     "kind": "local-variable",
-    "name": "err"
+    "name": "password"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 560,
+    "line": 559,
     "kind": "local-variable",
     "name": "err"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 564,
-    "kind": "local-variable",
-    "name": "loginMethod"
   },
   {
     "file": "internal/server/cookie_handlers.go",
     "line": 568,
-    "kind": "local-variable",
-    "name": "d"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 568,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 572,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 581,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 582,
-    "kind": "local-variable",
-    "name": "detail"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 582,
+    "line": 569,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 586,
+    "line": 569,
+    "kind": "local-variable",
+    "name": "ownedDetail"
+  },
+  {
+    "file": "internal/server/cookie_handlers.go",
+    "line": 573,
     "kind": "var",
     "name": "req"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 593,
+    "line": 576,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 597,
+    "line": 580,
     "kind": "local-variable",
-    "name": "password"
+    "name": "reason"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 606,
+    "line": 584,
+    "kind": "local-variable",
+    "name": "credentialUnlock"
+  },
+  {
+    "file": "internal/server/cookie_handlers.go",
+    "line": 585,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/cookie_handlers.go",
+    "line": 585,
+    "kind": "local-variable",
+    "name": "latest"
+  },
+  {
+    "file": "internal/server/cookie_handlers.go",
+    "line": 591,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/cookie_handlers.go",
+    "line": 602,
     "kind": "local-variable",
     "name": "err"
   },
@@ -65744,336 +65732,270 @@
   {
     "file": "internal/server/cookie_handlers.go",
     "line": 620,
-    "kind": "var",
-    "name": "req"
+    "kind": "local-variable",
+    "name": "credentialUnlock"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 623,
+    "line": 621,
     "kind": "local-variable",
     "name": "err"
+  },
+  {
+    "file": "internal/server/cookie_handlers.go",
+    "line": 621,
+    "kind": "local-variable",
+    "name": "latest"
   },
   {
     "file": "internal/server/cookie_handlers.go",
     "line": 627,
     "kind": "local-variable",
-    "name": "reason"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 631,
-    "kind": "local-variable",
-    "name": "credentialUnlock"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 632,
-    "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 632,
-    "kind": "local-variable",
-    "name": "latest"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 638,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 649,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 662,
+    "line": 648,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 663,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 663,
-    "kind": "local-variable",
-    "name": "ownedDetail"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 667,
-    "kind": "local-variable",
-    "name": "credentialUnlock"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 668,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 668,
-    "kind": "local-variable",
-    "name": "latest"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 674,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 695,
-    "kind": "local-variable",
-    "name": "cid"
-  },
-  {
-    "file": "internal/server/cookie_handlers.go",
-    "line": 699,
+    "line": 652,
     "kind": "var",
     "name": "req"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 702,
+    "line": 655,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 706,
+    "line": 659,
     "kind": "local-variable",
     "name": "v"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 710,
+    "line": 663,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 720,
+    "line": 673,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 721,
+    "line": 674,
     "kind": "local-variable",
     "name": "d"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 721,
+    "line": 674,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 730,
+    "line": 683,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 734,
+    "line": 687,
     "kind": "var",
     "name": "req"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 737,
+    "line": 690,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 741,
+    "line": 694,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 751,
+    "line": 704,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 755,
+    "line": 708,
     "kind": "var",
     "name": "req"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 758,
+    "line": 711,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 766,
+    "line": 719,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 766,
+    "line": 719,
     "kind": "local-variable",
     "name": "pausedUntil"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 778,
+    "line": 731,
     "kind": "local-variable",
     "name": "cid"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 782,
+    "line": 735,
     "kind": "local-variable",
     "name": "paused"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 782,
+    "line": 735,
     "kind": "local-variable",
     "name": "pausedUntil"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 790,
+    "line": 743,
     "kind": "function",
     "name": "refreshAccountProfile"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 798,
+    "line": 751,
     "kind": "local-variable",
     "name": "credentialUnlock"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 799,
+    "line": 752,
     "kind": "local-variable",
     "name": "latest"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 799,
+    "line": 752,
     "kind": "local-variable",
     "name": "latestErr"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 807,
+    "line": 760,
     "kind": "local-variable",
     "name": "cookieSession"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 807,
+    "line": 760,
     "kind": "local-variable",
     "name": "mtopCtx"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 808,
+    "line": 761,
     "kind": "local-variable",
     "name": "callErr"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 808,
+    "line": 761,
     "kind": "local-variable",
     "name": "profile"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 809,
+    "line": 762,
     "kind": "local-variable",
     "name": "runtimeCookie"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 810,
+    "line": 763,
     "kind": "local-variable",
     "name": "runtimeCookieChanged"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 811,
+    "line": 764,
     "kind": "local-variable",
     "name": "handled"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 811,
+    "line": 764,
     "kind": "local-variable",
     "name": "persistErr"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 811,
+    "line": 764,
     "kind": "local-variable",
     "name": "value"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 811,
+    "line": 764,
     "kind": "local-variable",
     "name": "valueChanged"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 826,
+    "line": 779,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 852,
+    "line": 805,
     "kind": "local-variable",
     "name": "apiNickname"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 853,
+    "line": 806,
     "kind": "local-variable",
     "name": "apiAvatarURL"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 854,
+    "line": 807,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 866,
+    "line": 819,
     "kind": "function",
     "name": "cachedAccountNickname"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 876,
+    "line": 829,
     "kind": "function",
     "name": "normalizeProfileAvatarURL"
   },
   {
     "file": "internal/server/cookie_handlers.go",
-    "line": 890,
+    "line": 843,
     "kind": "function",
     "name": "truncate"
   },
@@ -84067,523 +83989,361 @@
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 19,
+    "line": 16,
     "kind": "const",
     "name": "qrLoginGenerateTimeout"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 31,
+    "line": 28,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 39,
+    "line": 36,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 39,
+    "line": 36,
     "kind": "local-variable",
     "name": "generateCtx"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 41,
+    "line": 38,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 41,
+    "line": 38,
     "kind": "local-variable",
     "name": "qrCodeURL"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 41,
+    "line": 38,
     "kind": "local-variable",
     "name": "sessionID"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 43,
+    "line": 40,
     "kind": "local-variable",
     "name": "message"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 72,
+    "line": 69,
     "kind": "local-variable",
     "name": "sessionID"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 80,
+    "line": 77,
     "kind": "local-variable",
     "name": "result"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 86,
+    "line": 83,
     "kind": "local-variable",
     "name": "sessionID"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 94,
+    "line": 91,
     "kind": "local-variable",
     "name": "result"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 99,
+    "line": 96,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 104,
+    "line": 101,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 104,
+    "line": 101,
     "kind": "local-variable",
     "name": "persisted"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 123,
+    "line": 120,
     "kind": "local-variable",
     "name": "sessionID"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 131,
+    "line": 128,
     "kind": "local-variable",
     "name": "cookies"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 131,
+    "line": 128,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 131,
+    "line": 128,
     "kind": "local-variable",
     "name": "unb"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 140,
+    "line": 137,
     "kind": "var",
     "name": "req"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 144,
+    "line": 141,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 158,
+    "line": 155,
     "kind": "local-variable",
     "name": "resp"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 162,
+    "line": 159,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 164,
+    "line": 161,
     "kind": "local-variable",
     "name": "result"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 169,
+    "line": 166,
     "kind": "local-variable",
     "name": "current"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 170,
+    "line": 167,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 170,
+    "line": 167,
     "kind": "local-variable",
     "name": "snapshot"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 174,
+    "line": 171,
     "kind": "local-variable",
     "name": "persistErr"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 174,
+    "line": 171,
     "kind": "local-variable",
     "name": "persisted"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 190,
-    "kind": "function",
-    "name": "persistQRLoginSuccess"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 194,
-    "kind": "function",
-    "name": "persistQRLoginSuccessFor"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 195,
-    "kind": "local-variable",
-    "name": "lockValue"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 196,
-    "kind": "local-variable",
-    "name": "persistMu"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 204,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 204,
-    "kind": "local-variable",
-    "name": "persisted"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 212,
-    "kind": "local-variable",
-    "name": "cookies"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 213,
-    "kind": "local-variable",
-    "name": "cookieSnapshot"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 213,
-    "kind": "local-variable",
-    "name": "snapshotComplete"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 214,
-    "kind": "local-variable",
-    "name": "scannedAccountID"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 218,
-    "kind": "local-variable",
-    "name": "accountID"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 225,
-    "kind": "local-variable",
-    "name": "isNew"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 226,
-    "kind": "local-variable",
-    "name": "credentialUnlock"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 227,
-    "kind": "local-variable",
-    "name": "saveErr"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 229,
-    "kind": "local-variable",
-    "name": "detail"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 229,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 236,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 240,
-    "kind": "local-variable",
-    "name": "metadata"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 241,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 256,
-    "kind": "local-variable",
-    "name": "metadata"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 257,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 260,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 266,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 281,
-    "kind": "local-variable",
-    "name": "d"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 281,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 286,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 290,
-    "kind": "local-variable",
-    "name": "persisted"
-  },
-  {
-    "file": "internal/server/qrlogin_handlers.go",
-    "line": 298,
+    "line": 197,
     "kind": "function",
     "name": "requireQRSessionOwner"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 299,
+    "line": 198,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 305,
+    "line": 204,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 305,
+    "line": 204,
     "kind": "local-variable",
     "name": "owner"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 306,
+    "line": 205,
     "kind": "local-variable",
     "name": "expired"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 314,
+    "line": 213,
     "kind": "local-variable",
     "name": "cleanable"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 314,
+    "line": 213,
     "kind": "local-variable",
     "name": "cleaner"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 325,
+    "line": 224,
     "kind": "function",
     "name": "cleanupQRLoginSessions"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 326,
+    "line": 225,
     "kind": "local-variable",
     "name": "cutoff"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 327,
+    "line": 226,
     "kind": "local-variable",
     "name": "expired"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 329,
+    "line": 228,
     "kind": "range-variable",
     "name": "id"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 329,
+    "line": 228,
     "kind": "range-variable",
     "name": "owner"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 338,
+    "line": 237,
     "kind": "local-variable",
     "name": "cleaner"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 338,
+    "line": 237,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 339,
+    "line": 238,
     "kind": "range-variable",
     "name": "id"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 345,
+    "line": 244,
     "kind": "function",
     "name": "cloneQRStatus"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 346,
+    "line": 245,
     "kind": "local-variable",
     "name": "dst"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 347,
+    "line": 246,
     "kind": "range-variable",
     "name": "k"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 347,
+    "line": 246,
     "kind": "range-variable",
     "name": "v"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 355,
+    "line": 254,
     "kind": "function",
     "name": "publicQRStatus"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 356,
+    "line": 255,
     "kind": "local-variable",
     "name": "dst"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 362,
+    "line": 261,
     "kind": "function",
     "name": "qrStatus"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 363,
+    "line": 262,
     "kind": "local-variable",
     "name": "status"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 367,
+    "line": 266,
     "kind": "function",
     "name": "qrString"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 368,
+    "line": 267,
     "kind": "local-variable",
     "name": "value"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 372,
+    "line": 271,
     "kind": "function",
     "name": "qrCookieSnapshot"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 373,
+    "line": 272,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 373,
+    "line": 272,
     "kind": "local-variable",
     "name": "raw"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 377,
+    "line": 276,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 377,
+    "line": 276,
     "kind": "local-variable",
     "name": "snapshot"
   },
   {
     "file": "internal/server/qrlogin_handlers.go",
-    "line": 381,
+    "line": 280,
     "kind": "local-variable",
     "name": "normalized"
   },

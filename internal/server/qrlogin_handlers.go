@@ -5,15 +5,12 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"xianyu-go/internal/auth"
-	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/cookierefresh"
-	"xianyu-go/internal/xianyu/protocol"
 )
 
 const qrLoginGenerateTimeout = 2 * time.Minute
@@ -101,7 +98,7 @@ func (s *Server) checkQRLoginStatusAndPersist(w http.ResponseWriter, r *http.Req
 		writeErr(w, http.StatusUnauthorized, "未授权访问")
 		return
 	}
-	persisted, err := s.persistQRLoginSuccess(r.Context(), sess.UserID, sessionID, result)
+	persisted, err := s.accountLoginApplication().PersistQRLoginSuccess(r.Context(), sess.UserID, sessionID, result, "")
 	if err != nil {
 		if s.Logger != nil {
 			s.Logger.Warn("保存扫码登录结果失败", "session_id", sessionID, "err", err)
@@ -171,7 +168,7 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 				result["cookie_snapshot"] = snapshot
 			}
 		}
-		persisted, persistErr := s.persistQRLoginSuccessFor(r.Context(), sess.UserID, sessionID, result, req.TargetAccountID)
+		persisted, persistErr := s.accountLoginApplication().PersistQRLoginSuccess(r.Context(), sess.UserID, sessionID, result, req.TargetAccountID)
 		if persistErr != nil {
 			if s.Logger != nil {
 				s.Logger.Warn("保存扫码验证结果失败", "session_id", sessionID, "err", persistErr)
@@ -187,112 +184,14 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// persistQRLoginSuccess 保留历史调用方，委托账号登录应用服务完成扫码结果持久化。
 func (s *Server) persistQRLoginSuccess(ctx context.Context, userID int64, sessionID string, result map[string]any) (qrLoginPersistence, error) {
-	return s.persistQRLoginSuccessFor(ctx, userID, sessionID, result, "")
+	return s.accountLoginApplication().PersistQRLoginSuccess(ctx, userID, sessionID, result, "")
 }
 
+// persistQRLoginSuccessFor 保留带目标账号的历史调用方，委托账号登录应用服务完成幂等持久化。
 func (s *Server) persistQRLoginSuccessFor(ctx context.Context, userID int64, sessionID string, result map[string]any, targetAccountID string) (qrLoginPersistence, error) {
-	lockValue, _ := s.qrPersistLocks.LoadOrStore(sessionID, &sync.Mutex{})
-	persistMu := lockValue.(*sync.Mutex)
-	persistMu.Lock()
-	defer persistMu.Unlock()
-
-	s.qrMu.Lock()
-	if s.qrPersisted == nil {
-		s.qrPersisted = make(map[string]qrLoginPersistence)
-	}
-	if persisted, ok := s.qrPersisted[sessionID]; ok {
-		s.qrMu.Unlock()
-		if persisted.UserID != userID {
-			return qrLoginPersistence{}, errors.New("扫码会话不属于当前用户")
-		}
-		return persisted, nil
-	}
-	s.qrMu.Unlock()
-	cookies := qrString(result, "cookies")
-	cookieSnapshot, snapshotComplete := qrCookieSnapshot(result)
-	scannedAccountID := strings.TrimSpace(firstNonEmpty(qrString(result, "unb"), protocol.TransCookies(cookies)["unb"]))
-	if cookies == "" || scannedAccountID == "" {
-		return qrLoginPersistence{}, errors.New("扫码结果缺少 cookies 或 unb")
-	}
-	accountID := strings.TrimSpace(targetAccountID)
-	if accountID == "" {
-		accountID = scannedAccountID
-	} else if accountID != scannedAccountID {
-		return qrLoginPersistence{}, errors.New("扫码账号与待重新授权账号不一致，已拒绝覆盖")
-	}
-
-	isNew := false
-	credentialUnlock := s.Store.LockAccountCredentials(accountID)
-	saveErr := func() error {
-		defer credentialUnlock()
-		detail, err := s.loadCookiePlatformDetail(ctx, accountID)
-		switch {
-		case errors.Is(err, db.ErrNotFound):
-			if targetAccountID != "" {
-				return errors.New("待重新授权账号不存在")
-			}
-			isNew = true
-			if err := s.Store.Cookies.CreateOwned(ctx, accountID, cookies, userID); err != nil {
-				return err
-			}
-			if snapshotComplete {
-				metadata := cookierefresh.MetadataWithSnapshot("", cookieSnapshot)
-				if err := s.Store.Cookies.UpdateRenewalCookie(ctx, accountID, cookies, metadata, time.Now().Unix()); err != nil {
-					return err
-				}
-			}
-		case err != nil:
-			return err
-		case detail == nil:
-			return db.ErrNotFound
-		case detail.UserID != userID:
-			if targetAccountID != "" {
-				return errors.New("待重新授权账号不属于当前用户")
-			}
-			return db.ErrForbidden
-		default:
-			if snapshotComplete {
-				metadata := cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, cookieSnapshot)
-				if err := s.Store.Cookies.UpdateRenewalCookie(ctx, detail.ID, cookies, metadata, time.Now().Unix()); err != nil {
-					return err
-				}
-			} else if err := s.updateFlatCookieOwnedLocked(ctx, detail, cookies); err != nil {
-				return err
-			}
-		}
-		s.markSuccessfulLogin(ctx, accountID, userID, loginMethodQRScan, "扫码登录成功")
-		if s.Store.Tokens != nil {
-			if err := s.Store.Tokens.Clear(ctx, accountID); err != nil {
-				s.Logger.Warn("扫码登录保存后清理旧连接凭证失败", "cookie_id", accountID, "err", err)
-			}
-		}
-		return nil
-	}()
-	if saveErr != nil {
-		if errors.Is(saveErr, db.ErrForbidden) {
-			return qrLoginPersistence{}, errors.New("该账号ID已存在且不属于当前用户")
-		}
-		if errors.Is(saveErr, db.ErrAlreadyExists) {
-			return qrLoginPersistence{}, errors.New("该账号ID已被并发创建，请重新获取账号状态")
-		}
-		return qrLoginPersistence{}, saveErr
-	}
-	if d, err := s.loadCookieSummaryDetail(ctx, userID, accountID); err == nil {
-		s.refreshAccountProfile(ctx, d)
-	}
-	s.wakeCredentialBlockedAutomation(ctx, accountID)
-	if s.Manager != nil && s.Store.Cookies.GetStatus(ctx, accountID) {
-		if err := s.Manager.Restart(ctx, accountID); err != nil && s.Logger != nil {
-			s.Logger.Warn("扫码登录后重启账号失败", "cookie_id", accountID, "err", err)
-		}
-	}
-	persisted := qrLoginPersistence{AccountID: accountID, IsNew: isNew, UserID: userID, CreatedAt: time.Now().UTC()}
-	s.qrMu.Lock()
-	s.qrPersisted[sessionID] = persisted
-	s.qrMu.Unlock()
-	s.qrPersistLocks.Delete(sessionID)
-	return persisted, nil
+	return s.accountLoginApplication().PersistQRLoginSuccess(ctx, userID, sessionID, result, targetAccountID)
 }
 
 func (s *Server) requireQRSessionOwner(w http.ResponseWriter, r *http.Request, sessionID string) bool {
