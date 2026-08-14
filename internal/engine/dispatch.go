@@ -3,184 +3,35 @@ package engine
 import (
 	"context"
 	"encoding/json"
-	"sort"
 	"strings"
 	"time"
-
-	"xianyu-go/internal/automation"
 )
 
 // dispatch 是 ws.ReceiveLoop 的回调，对每条解密后的消息做：
 // 标记消息接收时间 → 提取消息 ID 去重 → 信号量限并发 → 分类（聊天/系统）→ 防抖投递。
 func (a *Account) dispatch(decrypted map[string]any) {
-	ctx, ok := a.beginTask()
-	if !ok {
-		return
-	}
-	a.accountRuntimeState.mu.Lock()
-	a.lastMsgReceived = time.Now()
-	a.accountRuntimeState.mu.Unlock()
-
-	// 系统业务事件不能丢弃：并发满时让 WS 读取产生背压，等待处理槽位。
-	// 普通聊天仍采用非阻塞限流，避免聊天洪峰拖垮连接。
-	isSystemEvent := automation.ExtractTaskFromWS(a.CookieID, a.currentCookieStr(), decrypted) != nil
-	if isSystemEvent {
-		select {
-		case a.sem <- struct{}{}:
-		case <-ctx.Done():
-			a.lifecycle.finishTask()
-			return
-		}
-		go func() {
-			defer a.lifecycle.finishTask()
-			defer func() { <-a.sem }()
-			a.handleMessageContext(ctx, decrypted)
-		}()
-		return
-	}
-
-	select {
-	case a.sem <- struct{}{}:
-	default:
-		a.lifecycle.finishTask()
-		a.logger.Warn("消息处理并发达上限，丢弃消息", "limit", MessageSemaphoreSize)
-		return
-	}
-	go func() {
-		defer a.lifecycle.finishTask()
-		defer func() { <-a.sem }()
-		a.handleMessageContext(ctx, decrypted)
-	}()
+	a.messageDispatcher.dispatch(decrypted)
 }
 
 // handleMessage 分类并投递消息。
 func (a *Account) handleMessage(decrypted map[string]any) {
-	a.handleMessageContext(context.Background(), decrypted)
-}
-
-func (a *Account) handleMessageContext(ctx context.Context, decrypted map[string]any) {
-	// 第一优先级：系统卡片和平台通知进入自动化中心。
-	// 这里不判断具体业务，只做“平台事件”事实解析；系统消息永远不进入 AI 回复范围。
-	if task := automation.ExtractTaskFromWS(a.CookieID, a.currentCookieStr(), decrypted); task != nil {
-		if a.handler != nil {
-			if err := a.handler.HandleSystemEvent(ctx, *task); err != nil {
-				a.logger.Error("处理系统自动化事件失败", "err", err, "trigger", task.TriggerType)
-			}
-		}
-		return
-	}
-
-	chat := extractChatMessage(decrypted, a.CookieID, a.currentCookieStr())
-	if chat != nil && chat.Text != "" {
-		// 去重。
-		if !a.markAndCheckDedup(decrypted, chat) {
-			return
-		}
-		// 用户消息走防抖，合并连续文本后再进入关键词/AI/默认回复链。
-		a.scheduleDebouncedReply(*chat)
-		return
-	}
+	a.messageDispatcher.handleMessage(decrypted)
 }
 
 // markAndCheckDedup 提取消息 ID，检查 1 小时内是否已处理；未处理则标记。
 // 返回 true 表示应继续处理。移植自 _schedule_debounced_reply 的去重段。
 func (a *Account) markAndCheckDedup(decrypted map[string]any, chat *ChatMessage) bool {
-	msgID := extractMessageID(decrypted)
-	if msgID == "" {
-		// 备用标识：chat_id + text + create_time。
-		createTime := "0"
-		if m1, ok := decrypted["1"].(map[string]any); ok {
-			if t, ok := m1["5"]; ok {
-				createTime = toString(t)
-			}
-		}
-		msgID = chat.ChatID + "_" + chat.Text + "_" + createTime
-	}
-
-	a.dedupMu.Lock()
-	defer a.dedupMu.Unlock()
-	now := time.Now()
-	if last, ok := a.processed[msgID]; ok {
-		if now.Sub(last) < MessageExpireTime {
-			a.logger.Info("消息已处理过，跳过", "msg_id", truncID(msgID))
-			return false
-		}
-	}
-	a.processed[msgID] = now
-
-	// 清理：超上限时删过期记录，仍超则删最旧一半。
-	if len(a.processed) > ProcessedIDsMaxSize {
-		a.cleanupDedupLocked(now)
-	}
-	return true
+	return a.messageDispatcher.markAndCheckDedup(decrypted, chat)
 }
 
 func (a *Account) cleanupDedupLocked(now time.Time) {
-	for id, t := range a.processed {
-		if now.Sub(t) > MessageExpireTime {
-			delete(a.processed, id)
-		}
-	}
-	if len(a.processed) > ProcessedIDsMaxSize {
-		// 仍超上限：按时间升序排序后删最旧一半。
-		type kv struct {
-			id string
-			t  time.Time
-		}
-		all := make([]kv, 0, len(a.processed))
-		for id, t := range a.processed {
-			all = append(all, kv{id, t})
-		}
-		sort.Slice(all, func(i, j int) bool { return all[i].t.Before(all[j].t) })
-		remove := len(all) / 2
-		for i := 0; i < remove; i++ {
-			delete(a.processed, all[i].id)
-		}
-	}
+	a.messageDispatcher.cleanupDedupLocked(now)
 }
 
 // scheduleDebouncedReply 为 chat_id 调度防抖回复：
 // 同一 chat_id 连续来消息时取消旧定时器、用最新消息重新计时，1s 后投递最后一条。
 func (a *Account) scheduleDebouncedReply(chat ChatMessage) {
-	a.debounceMu.Lock()
-	defer a.debounceMu.Unlock()
-
-	deadline := time.Now()
-	// 取消旧定时器。
-	if old, ok := a.debounceTimers[chat.ChatID]; ok && old.timer != nil {
-		old.timer.Stop()
-	}
-	entry := &debounceEntry{lastMsg: chat, deadline: deadline}
-	a.debounceTimers[chat.ChatID] = entry
-
-	entry.timer = time.AfterFunc(MessageDebounceDelay, func() {
-		a.debounceMu.Lock()
-		cur, ok := a.debounceTimers[chat.ChatID]
-		if !ok || cur.deadline != deadline {
-			// 期间有新消息，跳过旧消息处理。
-			a.debounceMu.Unlock()
-			return
-		}
-		delete(a.debounceTimers, chat.ChatID)
-		lastMsg := cur.lastMsg
-		a.debounceMu.Unlock()
-		ctx, ok := a.beginTask()
-		if !ok {
-			return
-		}
-		defer a.lifecycle.finishTask()
-
-		if a.reply != nil {
-			if err := a.reply.Handle(ctx, lastMsg); err != nil {
-				a.logger.Error("处理自动回复失败", "err", err, "chat_id", chat.ChatID)
-			}
-		}
-		if a.handler != nil {
-			if err := a.handler.HandleChatMessage(ctx, lastMsg); err != nil {
-				a.logger.Error("处理聊天消息失败", "err", err, "chat_id", chat.ChatID)
-			}
-		}
-	})
+	a.messageDispatcher.scheduleDebouncedReply(chat)
 }
 
 // extractMessageID 从 message["1"]["10"]["bizTag"] 或 extJson 中提取 messageId。

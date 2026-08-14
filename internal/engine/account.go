@@ -184,6 +184,8 @@ type Account struct {
 	accountRuntimeState
 	// lifecycle 独立保护业务任务接入、取消和等待语义。
 	lifecycle accountLifecycle
+	// messageDispatcher 独立保护消息去重、防抖和并发投递状态。
+	messageDispatcher
 
 	store    *db.Store
 	mtop     mtop.Client
@@ -208,22 +210,10 @@ type Account struct {
 	tokenRefreshAt     time.Time
 	tokenFingerprint   string // 仅用于诊断，不保存原始 Token
 
-	// 去重
-	dedupMu   sync.Mutex
-	processed map[string]time.Time
-
-	// 防抖：chat_id → 防抖句柄
-	debounceMu     sync.Mutex
-	debounceTimers map[string]*debounceEntry
-
-	// 消息处理信号量
-	sem chan struct{}
-
 	reply *ReplyService
+	// recorder 管理 WebSocket 报文记录 worker 的队列和等待。
+	recorder *wsRecorder
 
-	wsRecordOnce   sync.Once
-	wsRecordWG     sync.WaitGroup
-	wsRecordQueue  chan db.WSMessage
 	pendingRenewWG sync.WaitGroup
 }
 
@@ -310,33 +300,38 @@ func New(cfg Config) *Account {
 		wsDialer = defaultDialer{}
 	}
 	a := &Account{
-		CookieID:       cfg.CookieID,
-		CookieStr:      cfg.CookieStr,
-		UserID:         myid,
-		store:          cfg.Store,
-		mtop:           mtopClient,
-		renewer:        renewer,
-		wsDialer:       wsDialer,
-		handler:        cfg.Handler,
-		logger:         logger.With("account", cfg.CookieID),
-		deviceID:       protocol.GenerateDeviceID(myid),
-		processed:      make(map[string]time.Time),
-		debounceTimers: make(map[string]*debounceEntry),
-		sem:            make(chan struct{}, MessageSemaphoreSize),
-		lifecycle:      accountLifecycle{accepting: true},
+		CookieID:  cfg.CookieID,
+		CookieStr: cfg.CookieStr,
+		UserID:    myid,
+		store:     cfg.Store,
+		mtop:      mtopClient,
+		renewer:   renewer,
+		wsDialer:  wsDialer,
+		handler:   cfg.Handler,
+		logger:    logger.With("account", cfg.CookieID),
+		deviceID:  protocol.GenerateDeviceID(myid),
+		lifecycle: accountLifecycle{accepting: true},
 		accountRuntimeState: accountRuntimeState{
 			runtimeState:     RuntimeStarting,
 			runtimeMessage:   "正在启动账号服务",
 			runtimeUpdatedAt: time.Now(),
 		},
+		recorder:     newWSRecorder(cfg.Store, cfg.CookieID, logger),
 		credentialFP: credentialStateFingerprint(cfg.CookieStr, ""),
 	}
 	if cfg.Store != nil {
 		a.reply = NewReplyService(cfg.CookieID, cfg.Store, a, nil, NewAIReplier(cfg.CookieID, cfg.Store, logger), logger)
-		if cfg.Store.WSMessages != nil {
-			a.wsRecordQueue = make(chan db.WSMessage, 256)
-		}
 	}
+	a.messageDispatcher = newMessageDispatcher(messageDispatcherConfig{
+		CookieID:       cfg.CookieID,
+		CurrentCookie:  a.currentCookieStr,
+		CurrentHandler: func() Handler { return a.handler },
+		Reply:          a.reply,
+		Logger:         logger,
+		BeginTask:      a.lifecycle.beginTask,
+		FinishTask:     a.lifecycle.finishTask,
+		RecordMessage:  a.recordMessageReceived,
+	})
 	return a
 }
 
@@ -346,7 +341,9 @@ func (a *Account) Run(parent context.Context) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer func() {
 		cancel()
-		a.wsRecordWG.Wait()
+		if a.recorder != nil {
+			a.recorder.wait()
+		}
 		a.pendingRenewWG.Wait()
 	}()
 	a.lifecycle.start(ctx, cancel)
@@ -567,75 +564,14 @@ func (a *Account) Run(parent context.Context) error {
 	}
 }
 
+// wsRecorder 返回供 WebSocket 连接记录报文的非阻塞回调。
 func (a *Account) wsRecorder() func(direction, rawText, parsedJSON, parseStatus, errMsg string) {
-	if a.store == nil || a.store.WSMessages == nil || a.wsRecordQueue == nil {
-		return nil
-	}
-	return func(direction, rawText, parsedJSON, parseStatus, errMsg string) {
-		message := db.WSMessage{
-			CookieID:    a.CookieID,
-			Direction:   direction,
-			RawText:     rawText,
-			ParsedJSON:  parsedJSON,
-			MessageKind: "",
-			ParseStatus: parseStatus,
-			Error:       errMsg,
-		}
-		select {
-		case a.wsRecordQueue <- message:
-		default:
-			a.logger.Warn("WS 报文记录队列已满，丢弃诊断记录", "cookie_id", a.CookieID, "direction", direction)
-		}
-	}
+	return a.recorder.callback()
 }
 
+// startWSRecorder 启动账号级 WebSocket 报文记录 worker。
 func (a *Account) startWSRecorder(ctx context.Context) {
-	if a.store == nil || a.store.WSMessages == nil || a.wsRecordQueue == nil {
-		return
-	}
-	a.wsRecordOnce.Do(func() {
-		a.wsRecordWG.Add(1)
-		go func() {
-			defer a.wsRecordWG.Done()
-			cleanupCtx, cleanupCancel := context.WithTimeout(ctx, WSRecordWriteTimeout)
-			deleted, cleanupErr := a.store.WSMessages.DeleteBefore(cleanupCtx, a.CookieID, time.Now().Add(-WSRecordRetention))
-			cleanupCancel()
-			if cleanupErr != nil && ctx.Err() == nil {
-				a.logger.Warn("清理过期 WS 报文失败", "cookie_id", a.CookieID, "err", cleanupErr)
-			} else if deleted > 0 {
-				a.logger.Info("已清理过期 WS 报文", "cookie_id", a.CookieID, "deleted", deleted)
-			}
-
-			ticker := time.NewTicker(WSRecordFlushInterval)
-			defer ticker.Stop()
-			batch := make([]db.WSMessage, 0, WSRecordBatchSize)
-			flush := func() {
-				if len(batch) == 0 {
-					return
-				}
-				writeCtx, cancel := context.WithTimeout(ctx, WSRecordWriteTimeout)
-				err := a.store.WSMessages.AddBatch(writeCtx, batch)
-				cancel()
-				if err != nil && ctx.Err() == nil {
-					a.logger.Warn("记录 WS 报文失败", "cookie_id", a.CookieID, "count", len(batch), "err", err)
-				}
-				batch = batch[:0]
-			}
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case message := <-a.wsRecordQueue:
-					batch = append(batch, message)
-					if len(batch) >= WSRecordBatchSize {
-						flush()
-					}
-				case <-ticker.C:
-					flush()
-				}
-			}
-		}()
-	})
+	a.recorder.start(ctx)
 }
 
 func (a *Account) handleWSConnectFailure(ctx context.Context, err error) error {
@@ -680,15 +616,8 @@ func (a *Account) Stop() {
 	if cancel != nil {
 		cancel()
 	}
-	// 取消所有防抖定时器。
-	a.debounceMu.Lock()
-	for _, e := range a.debounceTimers {
-		if e.timer != nil {
-			e.timer.Stop()
-		}
-	}
-	a.debounceTimers = make(map[string]*debounceEntry)
-	a.debounceMu.Unlock()
+	// 取消所有防抖定时器；回调任务仍由 lifecycle 统一等待。
+	a.stop()
 
 	if !a.lifecycle.wait(10 * time.Second) {
 		a.logger.Warn("等待账号业务任务退出超时")
@@ -1644,6 +1573,13 @@ func (a *Account) RuntimeStatus() RuntimeStatus {
 	}
 	a.mu.Unlock()
 	return status
+}
+
+// recordMessageReceived 更新最近收到消息时间，供 messageDispatcher 使用。
+func (a *Account) recordMessageReceived(receivedAt time.Time) {
+	a.accountRuntimeState.mu.Lock()
+	a.lastMsgReceived = receivedAt
+	a.accountRuntimeState.mu.Unlock()
 }
 
 func (a *Account) tokenRetryDelay() time.Duration {
