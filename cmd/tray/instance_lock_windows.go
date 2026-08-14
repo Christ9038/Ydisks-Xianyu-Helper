@@ -8,11 +8,14 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// acquireTrayInstance 负责acquireTrayInstance相关处理。
 func acquireTrayInstance() (release func(), acquired bool, err error) {
+	// mutexName、err 保存mutexName、err，供当前处理流程使用
 	mutexName, err := windows.UTF16PtrFromString(`Local\YdisksXianyuHelperTray`)
 	if err != nil {
 		return nil, false, fmt.Errorf("生成托盘互斥锁名称失败: %w", err)
 	}
+	// handle、err 保存handle、err，供当前处理流程使用
 	handle, err := windows.CreateMutex(nil, false, mutexName)
 	if err == windows.ERROR_ALREADY_EXISTS {
 		if handle != 0 {

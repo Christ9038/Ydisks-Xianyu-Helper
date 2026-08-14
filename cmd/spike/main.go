@@ -36,18 +36,24 @@ import (
 	"xianyu-go/internal/xianyu/ws"
 )
 
+// main 负责main相关处理。
 func main() {
+	// cookieFile 保存登录凭证文件，供当前处理流程使用
 	cookieFile := flag.String("cookie-file", "", "从文件读取 cookie（首行）")
+	// verbose 保存verbose，供当前处理流程使用
 	verbose := flag.Bool("v", false, "调试日志")
 	flag.Parse()
 
+	// logger 保存logger，供当前处理流程使用
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	if *verbose {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	}
 
+	// cookieStr 保存登录凭证Str，供当前处理流程使用
 	cookieStr := strings.TrimSpace(os.Getenv("XIANYU_COOKIE"))
 	if *cookieFile != "" {
+		// b、err 保存b、err，供当前处理流程使用
 		b, err := os.ReadFile(*cookieFile)
 		if err != nil {
 			logger.Error("读取 cookie 文件失败", "err", err)
@@ -68,12 +74,15 @@ func main() {
 	}
 	logger.Info("cookie 已加载", "account_hash", logsafe.ID(c["unb"]), "fields", len(c))
 
+	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	// 1) mtop token API → accessToken。
+	// mc 保存mc，供当前处理流程使用
 	mc := mtop.NewClient()
 	logger.Info("步骤 1/3：刷新 token")
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := mc.RefreshToken(cookieStr)
 	if err != nil {
 		logger.Error("刷新 token 失败", "err", err)
@@ -83,12 +92,14 @@ func main() {
 
 	// 2) WS 连接 + 注册。
 	deviceID := protocol.GenerateDeviceID(c["unb"])
+	// cfg 保存cfg，供当前处理流程使用
 	cfg := ws.Config{
 		CookieStr:   res.UpdatedCookies,
 		DeviceID:    deviceID,
 		AccessToken: res.AccessToken,
 	}
 	logger.Info("步骤 2/3：连接 WebSocket", "device_id", deviceID)
+	// conn、err 保存conn、err，供当前处理流程使用
 	conn, err := ws.Dial(ctx, cfg, logger)
 	if err != nil {
 		logger.Error("WS 连接/注册失败", "err", err)
@@ -99,15 +110,18 @@ func main() {
 	// 3) 心跳 + 收消息。
 	logger.Info("步骤 3/3：心跳与消息接收（等待闲鱼消息…）")
 	go func() {
-		if err := conn.HeartbeatLoop(ctx, 15*time.Second); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := conn.HeartbeatLoop(ctx, 15*time.Second); err != nil {
 			logger.Error("心跳循环退出", "err", err)
 			cancel()
 		}
 	}()
 
+	// gotMessage 保存got消息，供当前处理流程使用
 	gotMessage := false
 	err = conn.ReceiveLoop(ctx, func(decrypted map[string]any) {
 		gotMessage = true
+		// b 保存b，供当前处理流程使用
 		b, _ := json.MarshalIndent(decrypted, "", "  ")
 		fmt.Println("\n========== 收到并解密一条消息 ==========")
 		fmt.Println(string(b))
