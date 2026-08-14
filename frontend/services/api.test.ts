@@ -11,7 +11,7 @@ import {
   getItems,
 	getItemPublishBatches,
 	getNotificationChannels,
-  getOrders,
+  getOrders, getOrderDetail, updateOrder,
 	getOrderAnalytics,
   getReplyRules,
   getShippingRules,
@@ -135,7 +135,7 @@ test('getOrders normalizes backend order fields', async () => {
   const result = await getOrders(undefined, 'all', 1, 20, ' buyer ');
   expect(result.data[0]).toMatchObject({ id: 'o1', status: 'shipped', quantity: 2 });
   expect(result.total).toBe(1);
-  expect(fetchMock).toHaveBeenCalledWith('/api/orders?page=1&page_size=20&search=buyer', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenCalledWith('/api/v1/orders?page=1&page_size=20&search=buyer', expect.objectContaining({ method: 'GET' }));
 });
 
 test('getOrders maps unsupported backend statuses to unknown', async () => {
@@ -815,3 +815,23 @@ const runVersionedAccountSettingsAPITest = async () => {
 };
 
 test('account settings and profile APIs use versioned compatibility routes', runVersionedAccountSettingsAPITest);
+
+// 订单列表、详情和更新 API 使用版本化兼容入口。
+const runVersionedOrderAPITest = async () => {
+  // fetchMock 是订单 API 请求的测试替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ data: [{ order_id: 'order-1', order_status: 'pending_ship' }], total: 1 }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, order_id: 'order-1', data: { order_id: 'order-1', order_status: 'pending_ship' } }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await getOrders();
+  await getOrderDetail('order-1');
+  await updateOrder('order-1', { status: 'shipped' });
+
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/orders?page=1&page_size=20', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/orders/order-1', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/orders/order-1', expect.objectContaining({ method: 'PUT' }));
+};
+
+test('order list, detail, and update APIs use versioned compatibility routes', runVersionedOrderAPITest);

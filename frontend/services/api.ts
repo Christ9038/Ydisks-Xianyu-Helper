@@ -314,7 +314,7 @@ export const getOrders = async (
   if (status && status !== 'all') params.status = status;
   if (search?.trim()) params.search = search.trim();
 
-  const res = await get<PaginatedResponse<Order> & { orders?: Order[] /* 后端兼容的订单列表字段。 */ }>('/api/orders', params);
+  const res = await get<PaginatedResponse<Order> & { orders?: Order[] /* 后端兼容的订单列表字段。 */ }>('/api/v1/orders', params);
 
   // Handle backend response variations
   const rawOrders = res.orders || res.data || [];
@@ -335,7 +335,7 @@ export const getOrders = async (
 };
 
 export const getOrderDetail = async (orderId: string): Promise<{ success: boolean; data?: OrderDTOResponse }> => {
-  const result = await get<OrderDetailResponse>(`/api/orders/${orderId}`);
+  const result = await get<OrderDetailResponse>(`/api/v1/orders/${orderId}`);
   return {
     success: true,
     data: result.data
@@ -343,7 +343,7 @@ export const getOrderDetail = async (orderId: string): Promise<{ success: boolea
 };
 
 export const updateOrder = async (orderId: string, data: Partial<Order>): Promise<ApiResponse> => {
-  return put(`/api/orders/${orderId}`, data);
+  return put(`/api/v1/orders/${orderId}`, data);
 };
 
 export const deleteOrder = async (orderId: string): Promise<ApiResponse> => {

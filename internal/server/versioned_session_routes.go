@@ -7,6 +7,7 @@ func (s *Server) mountHealthAndVersionedRoutes(r chi.Router) {
 	r.Get("/health", s.health)
 	s.mountVersionedSession(r)
 	s.mountVersionedAccounts(r)
+	s.mountVersionedOrders(r)
 }
 
 // mountVersionedSession 挂载会话 API 的 `/api/v1` 兼容入口，复用现有 handler。

@@ -11,7 +11,7 @@
 | 商品 | `/items...` | `/api/v1/items...` | 旧路径保留，发布/同步/列表/详情 DTO 已落地 |
 | 商品批量 | `/items/publish-batches...` | `/api/v1/items/publish-batches...` | 旧路径保留，类目推荐/预检/任务 DTO 已落地 |
 | 自动化 | `/automation-rules...` | `/api/v1/automation-rules...` | 旧路径保留，规则分页/异常 DTO 已落地 |
-| 订单 | `/api/orders...` | `/api/v1/orders...` | 旧路径保留，列表/详情/刷新/批量外层 DTO 已落地 |
+| 订单 | `/api/orders...` | `/api/v1/orders...` | React 列表、详情和更新调用已迁移；旧路径保留并由同一 handler 提供，刷新/批量调用仍按后续切片迁移 |
 | 设置 | `/system-settings...`、`/user-settings...`、`/ai-reply-settings...` | `/api/v1/settings/...` | 旧路径保留，变更/查询 DTO 已落地；`settingsResponse` 明确动态字符串键值边界，动态键仍由边界适配 |
 | 卡券 | `/cards...` | `/api/v1/cards...` | 旧路径保留，CRUD/批量 DTO 已落地 |
 | 通知 | `/notification-channels...`、`/message-notifications...` | `/api/v1/notifications/...` | 旧路径保留，渠道/绑定/变更 DTO 已落地 |
@@ -45,6 +45,7 @@
 - 动态设置和二维码兼容边界分别使用 `settingsResponse`、`qrLoginStatusResponse` 与 `qrLoginVerificationResponse`；二维码状态契约测试确认 `cookies` 等敏感字段不会回传。
 - 会话登录、初始化、校验和登出已由 React 请求层迁移到 `/api/v1/session/...`，Go 契约测试确认版本化入口与旧路径共用 handler 且旧路径仍可用。
 - 账号摘要、非敏感详情、运行状态、启停状态、设置、备注、暂停、自动确认、长登录、资料刷新、Cookie 更新和登录信息设置已由 React 请求层迁移到 `/api/v1/accounts...`；Go 契约测试确认账号详情与凭证变更响应不泄露 Cookie/密码，且旧详情、设置和登录信息入口仍可用。
+- 订单列表、详情和更新已由 React 请求层迁移到 `/api/v1/orders...`；Go 契约测试确认版本化入口与旧更新入口共用 handler，订单归属校验和状态更新语义保持不变。
 - 聊天会话、消息分页和发送结果使用独立 DTO，不直接暴露数据库模型。
 - React `frontend/types.ts` 与 `frontend/services/api.ts` 已同步具名成功响应类型，同时保留旧字段归一逻辑。
 - 会话版本化入口已可用；除会话外的 `/api/v1` 领域入口仍未宣称可用，旧路径继续保留。
