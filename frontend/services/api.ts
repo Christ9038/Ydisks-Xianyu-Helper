@@ -26,8 +26,8 @@ export const initializeAdmin = async (password: string): Promise<LoginResponse> 
   return post('/api/v1/session/initialize', { password }, { skipAuthLogout: true });
 };
 
-export const verifySession = async (): Promise<{ authenticated: boolean; initialized?: boolean; user_id?: number; username?: string; is_admin?: boolean }> => {
-  return get('/api/v1/session');
+export const verifySession = async (options?: RequestControlOptions): Promise<{ authenticated: boolean; initialized?: boolean; user_id?: number; username?: string; is_admin?: boolean }> => {
+  return get('/api/v1/session', undefined, options);
 };
 
 export const logout = async (): Promise<ApiResponse> => {
@@ -42,8 +42,8 @@ export const updateLoginCredentials = async (data: {
   current_password: string;
   new_username: string;
   new_password?: string;
-}): Promise<ApiResponse & { requires_relogin?: boolean }> => {
-  return put('/api/v1/session/credentials', data);
+}, options?: RequestControlOptions): Promise<ApiResponse & { requires_relogin?: boolean }> => {
+  return put('/api/v1/session/credentials', data, options);
 };
 
 // Accounts
@@ -907,11 +907,11 @@ export const updateAccountAISettings = async (cookieId: string, settings: Partia
   return put(`/api/v1/settings/ai-reply/${cookieId}`, payload);
 }
 
-export const fetchAIModels = async (baseUrl: string, apiKey: string = ''): Promise<string[]> => {
+export const fetchAIModels = async (baseUrl: string, apiKey: string = '', options?: RequestControlOptions): Promise<string[]> => {
   const result = await post<AIModelsResponse>('/api/v1/settings/ai-models', {
     base_url: baseUrl,
     api_key: apiKey,
-  });
+  }, options);
   return result.models || [];
 };
 

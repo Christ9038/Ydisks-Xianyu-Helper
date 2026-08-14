@@ -324,24 +324,6 @@
     "name": "anonymous"
   },
   {
-    "file": "app/features/dashboard/DashboardTrendChart.tsx",
-    "line": 40,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "app/features/dashboard/DashboardTrendChart.tsx",
-    "line": 46,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "app/features/dashboard/DashboardTrendChart.tsx",
-    "line": 49,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
     "file": "app/features/dashboard/hooks.ts",
     "line": 100,
     "kind": "variable",
@@ -672,12 +654,6 @@
     "name": "data"
   },
   {
-    "file": "app/features/dashboard/state.test.ts",
-    "line": 23,
-    "kind": "variable",
-    "name": "controller"
-  },
-  {
     "file": "app/features/dashboard/state.ts",
     "line": 109,
     "kind": "function-expression",
@@ -700,6 +676,162 @@
     "line": 88,
     "kind": "function-expression",
     "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 105,
+    "kind": "variable",
+    "name": "models"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 110,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 112,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 122,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 122,
+    "kind": "variable",
+    "name": "loadSettings"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 131,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 134,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 137,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 142,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 147,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 149,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 152,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 158,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 161,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 161,
+    "kind": "variable",
+    "name": "handleSave"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 172,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 180,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 180,
+    "kind": "variable",
+    "name": "handleCredentialsSave"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 206,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 207,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 218,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 72,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 88,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 91,
+    "kind": "variable",
+    "name": "controller"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 97,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/settings/hooks.ts",
+    "line": 97,
+    "kind": "variable",
+    "name": "loadAIModels"
   },
   {
     "file": "chatEmojis.test.tsx",
@@ -7213,75 +7345,27 @@
   },
   {
     "file": "components/Settings.tsx",
-    "line": 107,
-    "kind": "variable",
-    "name": "loadSettings"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 111,
+    "line": 114,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 115,
+    "line": 139,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 119,
+    "line": 152,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 122,
-    "kind": "variable",
-    "name": "handleSave"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 126,
-    "kind": "variable",
-    "name": "persistable"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 127,
+    "line": 158,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 133,
-    "kind": "variable",
-    "name": "e"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 140,
-    "kind": "variable",
-    "name": "handleCredentialsSave"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 143,
-    "kind": "variable",
-    "name": "username"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 16,
-    "kind": "variable",
-    "name": "DEFAULT_AI_API_URL"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 162,
-    "kind": "variable",
-    "name": "result"
   },
   {
     "file": "components/Settings.tsx",
@@ -7292,374 +7376,128 @@
   {
     "file": "components/Settings.tsx",
     "line": 173,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 18,
-    "kind": "variable",
-    "name": "LOG_LEVELS"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 188,
-    "kind": "variable",
-    "name": "currentModel"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 189,
-    "kind": "variable",
-    "name": "visibleAIModels"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 231,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 234,
+    "line": 177,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 244,
+    "line": 186,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 25,
-    "kind": "variable",
-    "name": "SETTINGS_SAVE_OMIT_KEYS"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 259,
+    "line": 186,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 284,
+    "line": 196,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 297,
+    "line": 200,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 303,
+    "line": 218,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 317,
+    "line": 262,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 318,
+    "line": 274,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 322,
+    "line": 280,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 331,
+    "line": 293,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 331,
+    "line": 324,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 341,
+    "line": 337,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 345,
+    "line": 342,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 363,
+    "line": 355,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 407,
+    "line": 360,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 419,
+    "line": 370,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 42,
-    "kind": "variable",
-    "name": "Settings"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 425,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 43,
-    "kind": "variable",
-    "name": "[settings, setSettings]"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 438,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 44,
-    "kind": "variable",
-    "name": "[loading, setLoading]"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 45,
-    "kind": "variable",
-    "name": "[loadError, setLoadError]"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 46,
-    "kind": "variable",
-    "name": "[saving, setSaving]"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 469,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 47,
-    "kind": "variable",
-    "name": "[aiModels, setAiModels]"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 48,
-    "kind": "variable",
-    "name": "[modelsLoading, setModelsLoading]"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 482,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 487,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 49,
-    "kind": "variable",
-    "name": "[modelError, setModelError]"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 50,
-    "kind": "variable",
-    "name": "[modelDropdownOpen, setModelDropdownOpen]"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 500,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 505,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 51,
-    "kind": "variable",
-    "name": "modelPickerRef"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 515,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 54,
-    "kind": "variable",
-    "name": "[showApiKey, setShowApiKey]"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 55,
-    "kind": "variable",
-    "name": "[showCaptchaSecret, setShowCaptchaSecret]"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 56,
-    "kind": "variable",
-    "name": "[showCurrentPassword, setShowCurrentPassword]"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 57,
-    "kind": "variable",
-    "name": "[showNewPassword, setShowNewPassword]"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 58,
-    "kind": "variable",
-    "name": "[credentialsSaving, setCredentialsSaving]"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 59,
-    "kind": "member",
-    "name": "text"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 59,
-    "kind": "member",
-    "name": "type"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 59,
-    "kind": "variable",
-    "name": "[credentialsMessage, setCredentialsMessage]"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 60,
-    "kind": "variable",
-    "name": "[credentials, setCredentials]"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 67,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 69,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 71,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 73,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 76,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 77,
-    "kind": "variable",
-    "name": "handlePointerDown"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 83,
+    "line": 64,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
     "line": 86,
-    "kind": "variable",
-    "name": "loadAIModels"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 87,
-    "kind": "variable",
-    "name": "current"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 88,
-    "kind": "variable",
-    "name": "baseUrl"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 92,
-    "kind": "variable",
-    "name": "models"
-  },
-  {
-    "file": "components/Settings.tsx",
-    "line": 96,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Settings.tsx",
-    "line": 98,
-    "kind": "variable",
-    "name": "e"
+    "line": 89,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Settings.tsx",
+    "line": 99,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "components/Sidebar.tsx",
@@ -8713,19 +8551,19 @@
   },
   {
     "file": "routing.test.ts",
-    "line": 104,
+    "line": 105,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 105,
+    "line": 106,
     "kind": "variable",
     "name": "vite"
   },
   {
     "file": "routing.test.ts",
-    "line": 107,
+    "line": 108,
     "kind": "variable",
     "name": "staleRoute"
   },
@@ -8743,97 +8581,97 @@
   },
   {
     "file": "routing.test.ts",
-    "line": 120,
+    "line": 121,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "routing.test.ts",
-    "line": 121,
-    "kind": "variable",
-    "name": "rules"
   },
   {
     "file": "routing.test.ts",
     "line": 122,
     "kind": "variable",
+    "name": "rules"
+  },
+  {
+    "file": "routing.test.ts",
+    "line": 123,
+    "kind": "variable",
     "name": "existingRuleBranch"
   },
   {
     "file": "routing.test.ts",
-    "line": 127,
+    "line": 128,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 128,
+    "line": 129,
     "kind": "variable",
     "name": "rules"
-  },
-  {
-    "file": "routing.test.ts",
-    "line": 134,
-    "kind": "function-expression",
-    "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
     "line": 135,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "routing.test.ts",
+    "line": 136,
     "kind": "variable",
     "name": "rules"
   },
   {
     "file": "routing.test.ts",
-    "line": 143,
+    "line": 144,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 144,
+    "line": 145,
     "kind": "variable",
     "name": "itemList"
-  },
-  {
-    "file": "routing.test.ts",
-    "line": 152,
-    "kind": "function-expression",
-    "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
     "line": 153,
-    "kind": "variable",
-    "name": "itemList"
-  },
-  {
-    "file": "routing.test.ts",
-    "line": 161,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 162,
+    "line": 154,
     "kind": "variable",
-    "name": "accounts"
+    "name": "itemList"
+  },
+  {
+    "file": "routing.test.ts",
+    "line": 162,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
     "line": 163,
     "kind": "variable",
+    "name": "accounts"
+  },
+  {
+    "file": "routing.test.ts",
+    "line": 164,
+    "kind": "variable",
     "name": "riskPanel"
   },
   {
     "file": "routing.test.ts",
-    "line": 175,
+    "line": 176,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 176,
+    "line": 177,
     "kind": "variable",
     "name": "accounts"
   },
@@ -8911,33 +8749,39 @@
   },
   {
     "file": "routing.test.ts",
+    "line": 46,
+    "kind": "variable",
+    "name": "settingsConstants"
+  },
+  {
+    "file": "routing.test.ts",
     "line": 5,
     "kind": "variable",
     "name": "repoRoot"
   },
   {
     "file": "routing.test.ts",
-    "line": 56,
+    "line": 57,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 57,
+    "line": 58,
     "kind": "variable",
     "name": "app"
   },
   {
     "file": "routing.test.ts",
-    "line": 58,
+    "line": 59,
     "kind": "variable",
     "name": "sidebar"
   },
   {
     "file": "routing.test.ts",
-    "line": 59,
+    "line": 60,
     "kind": "variable",
-    "name": "settings"
+    "name": "settingsHook"
   },
   {
     "file": "routing.test.ts",
@@ -8947,49 +8791,49 @@
   },
   {
     "file": "routing.test.ts",
-    "line": 70,
+    "line": 71,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 71,
+    "line": 72,
     "kind": "variable",
     "name": "settings"
   },
   {
     "file": "routing.test.ts",
-    "line": 81,
+    "line": 82,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "routing.test.ts",
-    "line": 82,
-    "kind": "variable",
-    "name": "notifications"
   },
   {
     "file": "routing.test.ts",
     "line": 83,
     "kind": "variable",
-    "name": "notificationState"
+    "name": "notifications"
   },
   {
     "file": "routing.test.ts",
     "line": 84,
     "kind": "variable",
+    "name": "notificationState"
+  },
+  {
+    "file": "routing.test.ts",
+    "line": 85,
+    "kind": "variable",
     "name": "notificationModal"
   },
   {
     "file": "routing.test.ts",
-    "line": 95,
+    "line": 96,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "routing.test.ts",
-    "line": 96,
+    "line": 97,
     "kind": "variable",
     "name": "rules"
   },
@@ -9415,81 +9259,63 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 204,
+    "line": 223,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 224,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 214,
+    "line": 234,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.test.ts",
-    "line": 237,
+    "line": 257,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 238,
+    "line": 258,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 243,
+    "line": 263,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.test.ts",
-    "line": 252,
+    "line": 272,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 253,
+    "line": 273,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 260,
+    "line": 280,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 262,
+    "line": 282,
     "kind": "variable",
     "name": "result"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 266,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 267,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 276,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 277,
-    "kind": "variable",
-    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
@@ -9505,117 +9331,123 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 298,
+    "line": 296,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 297,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 306,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 307,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 318,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 302,
+    "line": 322,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 317,
+    "line": 337,
     "kind": "variable",
     "name": "items"
   },
   {
     "file": "services/api.test.ts",
-    "line": 332,
+    "line": 352,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 333,
+    "line": 353,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 344,
+    "line": 364,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 350,
+    "line": 370,
     "kind": "variable",
     "name": "settings"
   },
   {
     "file": "services/api.test.ts",
-    "line": 355,
+    "line": 375,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 356,
+    "line": 376,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 367,
+    "line": 387,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 368,
+    "line": 388,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 368,
+    "line": 388,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 394,
+    "line": 414,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 395,
+    "line": 415,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 409,
+    "line": 429,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 423,
+    "line": 443,
     "kind": "variable",
     "name": "accounts"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 434,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 435,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 449,
-    "kind": "function-expression",
-    "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
@@ -9625,49 +9457,55 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 450,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 461,
+    "line": 454,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 462,
+    "line": 455,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 475,
+    "line": 469,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 476,
+    "line": 470,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 493,
+    "line": 481,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 482,
     "kind": "variable",
-    "name": "status"
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 495,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 496,
+    "kind": "variable",
+    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
     "line": 50,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 501,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -9679,61 +9517,49 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 524,
+    "line": 513,
+    "kind": "variable",
+    "name": "status"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 521,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 544,
     "kind": "variable",
     "name": "rules"
   },
   {
     "file": "services/api.test.ts",
-    "line": 538,
+    "line": 558,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 539,
+    "line": 559,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 548,
+    "line": 568,
     "kind": "variable",
     "name": "rules"
   },
   {
     "file": "services/api.test.ts",
-    "line": 560,
+    "line": 580,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 561,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 576,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 577,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 586,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 587,
+    "line": 581,
     "kind": "variable",
     "name": "fetchMock"
   },
@@ -9745,13 +9571,13 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 598,
+    "line": 596,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 599,
+    "line": 597,
     "kind": "variable",
     "name": "fetchMock"
   },
@@ -9763,19 +9589,25 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 614,
-    "kind": "variable",
-    "name": "body"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 622,
+    "line": 606,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 623,
+    "line": 607,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 618,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 619,
     "kind": "variable",
     "name": "fetchMock"
   },
@@ -9793,63 +9625,69 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 641,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
     "line": 642,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 656,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 657,
+    "line": 643,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 678,
+    "line": 654,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 694,
+    "line": 661,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 695,
+    "line": 662,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 723,
+    "line": 676,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 677,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 698,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 747,
+    "line": 714,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 748,
+    "line": 715,
     "kind": "variable",
     "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 743,
+    "kind": "variable",
+    "name": "body"
   },
   {
     "file": "services/api.test.ts",
@@ -9871,37 +9709,49 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 760,
-    "kind": "variable",
-    "name": "body"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 761,
+    "line": 767,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 761,
-    "kind": "member",
-    "name": "action_type"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 769,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 770,
+    "line": 768,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 787,
+    "line": 780,
+    "kind": "variable",
+    "name": "body"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 781,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 781,
+    "kind": "member",
+    "name": "action_type"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 789,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 790,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 807,
     "kind": "variable",
     "name": "body"
   },

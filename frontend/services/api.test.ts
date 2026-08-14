@@ -180,6 +180,26 @@ test('Dashboard 统计 API 转发外部取消信号', async () => {
   expect(fetchMock).toHaveBeenNthCalledWith(4, expect.stringContaining('/api/v1/analytics/orders/valid?'), expect.objectContaining({ signal: expect.any(AbortSignal) }));
 });
 
+test('Settings 配置、模型和凭据 API 转发外部取消信号', async () => {
+  // fetchMock 验证 Settings 的读取、模型发现和凭据保存共享取消控制能力。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ data: { log_level: 'info' } }))
+    .mockResolvedValueOnce(jsonResponse({ models: ['model-a'] }))
+    .mockResolvedValueOnce(jsonResponse({ authenticated: true, username: 'admin' }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, message: '已更新' }));
+  vi.stubGlobal('fetch', fetchMock);
+  // controller 是 Settings feature Hook 使用的请求控制器。
+  const controller = new AbortController();
+  await getSystemSettings({ signal: controller.signal });
+  await fetchAIModels('https://ai.example.com', 'secret', { signal: controller.signal });
+  await verifySession({ signal: controller.signal });
+  await updateLoginCredentials({ current_password: 'old', new_username: 'admin' }, { signal: controller.signal });
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/settings/system', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/settings/ai-models', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/session', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/session/credentials', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+});
+
 test('通知渠道和 SMTP API 转发外部取消信号', async () => {
   // fetchMock 验证渠道读取、保存和 SMTP 读写都支持取消控制。
   const fetchMock = vi.fn()

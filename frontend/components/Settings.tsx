@@ -1,191 +1,39 @@
-import React, { useEffect, useRef, useState } from 'react';
-import {
-  fetchAIModels,
-  getSystemSettings,
-  updateLoginCredentials,
-  updateSystemSettings,
-  verifySession,
-} from '../services/api';
-import { SystemSettings } from '../types';
+import React from 'react';
 import {
   Save, Sparkles, Settings as SettingsIcon,
   Eye, EyeOff, RefreshCw, Database, ChevronDown, Check,
   LockKeyhole, UserRound, ShieldCheck
 } from 'lucide-react';
+import { DEFAULT_AI_API_URL, LOG_LEVELS } from '../app/features/settings/constants';
+import { useSettings } from '../app/features/settings/hooks';
 
-const DEFAULT_AI_API_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
-
-const LOG_LEVELS = [
-  { value: 'debug', label: 'Debug' },
-  { value: 'info', label: 'Info' },
-  { value: 'warn', label: 'Warn' },
-  { value: 'error', label: 'Error' },
-];
-
-const SETTINGS_SAVE_OMIT_KEYS = new Set([
-  'smtp_server',
-  'smtp_port',
-  'smtp_user',
-  'smtp_password',
-  'smtp_from',
-  'smtp_from_name',
-  'smtp_from_address',
-  'registration_enabled',
-  'show_default_login_info',
-  'login_captcha_enabled',
-  'item_sync_enabled',
-  'item_sync_interval',
-  'item_sync_max_pages',
-  'default_reply',
-]);
-
+// Settings 展示系统配置、AI 模型和登录凭据编辑页面。
 const Settings: React.FC = () => {
-  const [settings, setSettings] = useState<SystemSettings | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [aiModels, setAiModels] = useState<string[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(false);
-  const [modelError, setModelError] = useState('');
-  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
-  const modelPickerRef = useRef<HTMLDivElement>(null);
-
-  // Password visibility states
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [showCaptchaSecret, setShowCaptchaSecret] = useState(false);
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [credentialsSaving, setCredentialsSaving] = useState(false);
-  const [credentialsMessage, setCredentialsMessage] = useState<{type: 'success' | 'error'; text: string} | null>(null);
-  const [credentials, setCredentials] = useState({
-    new_username: '',
-    current_password: '',
-    new_password: '',
-    confirm_password: '',
-  });
-
-  useEffect(() => {
-    loadSettings();
-    verifySession().then(session => {
-      if (session.username) {
-        setCredentials(current => ({...current, new_username: session.username || ''}));
-      }
-    }).catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!modelPickerRef.current?.contains(event.target as Node)) {
-        setModelDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handlePointerDown);
-    return () => document.removeEventListener('mousedown', handlePointerDown);
-  }, []);
-
-  const loadAIModels = async (source?: SystemSettings | null, openAfterLoad = false) => {
-    const current = source || settings;
-    const baseUrl = current?.ai_api_url || current?.ai_base_url || DEFAULT_AI_API_URL;
-    setModelsLoading(true);
-    setModelError('');
-    try {
-      const models = await fetchAIModels(baseUrl, current?.ai_api_key || '');
-      setAiModels(models);
-      setModelDropdownOpen(openAfterLoad && models.length > 0);
-      if (!current?.ai_model && models.length > 0) {
-        setSettings(prev => prev ? { ...prev, ai_model: models[0] } : prev);
-      }
-    } catch (e) {
-      setAiModels([]);
-      setModelDropdownOpen(false);
-      setModelError((e as Error).message || '读取模型失败');
-    } finally {
-      setModelsLoading(false);
-    }
-  };
-
-  const loadSettings = () => {
-    setLoading(true);
-    setLoadError('');
-    getSystemSettings()
-      .then(data => {
-        setSettings(data);
-        loadAIModels(data);
-      })
-      .catch(error => {
-        setSettings(null);
-        setLoadError((error as Error).message || '加载配置失败');
-      })
-      .finally(() => setLoading(false));
-  };
-
-  const handleSave = async () => {
-      if(!settings) return;
-      setSaving(true);
-      try {
-        const persistable = Object.fromEntries(
-          Object.entries(settings).filter(([key, value]) =>
-            !SETTINGS_SAVE_OMIT_KEYS.has(key) && value !== undefined && value !== null
-          )
-        ) as Partial<SystemSettings>;
-        await updateSystemSettings(persistable);
-        alert('系统配置已保存');
-      } catch (e) {
-        alert('保存失败：' + (e as Error).message);
-      } finally {
-        setSaving(false);
-      }
-  };
-
-  const handleCredentialsSave = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setCredentialsMessage(null);
-    const username = credentials.new_username.trim();
-    if (username.length < 3) {
-      setCredentialsMessage({type: 'error', text: '用户名至少需要 3 个字符'});
-      return;
-    }
-    if (!credentials.current_password) {
-      setCredentialsMessage({type: 'error', text: '请输入当前密码确认身份'});
-      return;
-    }
-    if (credentials.new_password && credentials.new_password.length < 8) {
-      setCredentialsMessage({type: 'error', text: '新密码至少需要 8 个字符'});
-      return;
-    }
-    if (credentials.new_password !== credentials.confirm_password) {
-      setCredentialsMessage({type: 'error', text: '两次输入的新密码不一致'});
-      return;
-    }
-    setCredentialsSaving(true);
-    try {
-      const result = await updateLoginCredentials({
-        current_password: credentials.current_password,
-        new_username: username,
-        new_password: credentials.new_password || undefined,
-      });
-      if (!result.success) {
-        setCredentialsMessage({type: 'error', text: result.message || '登录凭据更新失败'});
-        return;
-      }
-      setCredentialsMessage({type: 'success', text: result.message || '登录凭据已更新'});
-      window.setTimeout(() => window.location.reload(), 1400);
-    } catch (error) {
-      setCredentialsMessage({type: 'error', text: (error as Error).message || '登录凭据更新失败'});
-    } finally {
-      setCredentialsSaving(false);
-    }
-  };
+  // featureState 是 Settings Hook 提供的状态与动作集合。
+  const {
+    settings, loading, loadError, saving, saveError, aiModels, modelsLoading, modelError, modelDropdownOpen,
+    showApiKey, showCaptchaSecret, showCurrentPassword, showNewPassword, credentialsSaving, credentialsMessage,
+    credentials, modelPickerRef, loadSettings, loadAIModels, handleSave, handleCredentialsSave,
+    setSettings, setModelDropdownOpen, setShowApiKey, setShowCaptchaSecret, setShowCurrentPassword,
+    setShowNewPassword, setCredentials,
+  } = useSettings();
 
   if (!settings) {
     return (
-      <div className="p-8 text-center text-gray-400">
+      <div className="p-8 text-center text-gray-400 space-y-3">
         {loadError || (loading ? '加载配置中...' : '暂无配置')}
+        {!loading && loadError && (
+          <div>
+            <button type="button" className="ios-btn-primary px-4 py-2 rounded-xl" onClick={loadSettings}>重新加载</button>
+          </div>
+        )}
       </div>
     );
   }
 
+  // currentModel 是当前配置中的模型名称。
   const currentModel = settings.ai_model || '';
+  // visibleAIModels 是模型下拉框当前展示的候选列表。
   const visibleAIModels = aiModels;
 
   return (
@@ -209,6 +57,13 @@ const Settings: React.FC = () => {
           刷新
         </button>
       </div>
+
+      {saveError && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{saveError}</span>
+          <button type="button" className="font-bold underline" onClick={() => void handleSave}>重试保存</button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left Column */}

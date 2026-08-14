@@ -43,20 +43,21 @@ describe('frontend navigation routing', () => {
 
   test('settings page does not expose backend-inactive system controls', () => {
     const settings = readFrontendFile('components/Settings.tsx');
+    const settingsConstants = readFrontendFile('app/features/settings/constants.ts');
 
     expect(settings).not.toContain('允许用户注册');
     expect(settings).not.toContain('显示默认登录信息');
     expect(settings).not.toContain('启用商品自动同步');
     expect(settings).not.toContain('商品同步间隔');
     expect(settings).not.toContain('默认自动回复内容');
-    expect(settings).toContain('SETTINGS_SAVE_OMIT_KEYS');
+    expect(settingsConstants).toContain('SETTINGS_SAVE_OMIT_KEYS');
     expect(settings).toContain('保存后需重启服务生效');
   });
 
   test('admin-only settings navigation is gated by session role', () => {
     const app = readFrontendFile('App.tsx');
     const sidebar = readFrontendFile('components/Sidebar.tsx');
-    const settings = readFrontendFile('components/Settings.tsx');
+    const settingsHook = readFrontendFile('app/features/settings/hooks.ts');
 
     expect(app).toContain('const [isAdmin, setIsAdmin] = useState(false)');
     expect(app).toContain('setIsAdmin(res.is_admin === true)');
@@ -64,7 +65,7 @@ describe('frontend navigation routing', () => {
     expect(app).toContain('isAdmin ? <Settings /> : <Dashboard />');
     expect(sidebar).toContain('isAdmin = false');
     expect(sidebar).toContain("...(isAdmin ? [{ id: 'settings'");
-    expect(settings).toContain('setLoadError');
+    expect(settingsHook).toContain('setLoadError');
   });
 
   test('captcha remote settings expose the reference privacy and fallback semantics', () => {
