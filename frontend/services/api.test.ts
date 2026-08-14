@@ -2,13 +2,13 @@ import { afterEach, expect, test, vi } from 'vitest';
 import {
   addAccount,
   cancelPasswordLogin,
-  deleteItemPublishBatch,
+  deleteItemPublishBatch, deleteItem,
   checkPasswordLoginStatus,
   completeQRVerification,
   createNotificationChannel,
   getAccountDetails, getAccountRuntimeStatuses, updateAccountStatus,
 	getAutomationIssues,
-  getItems,
+	getItems, getItemDetail,
 	getItemPublishBatches,
 	getNotificationChannels,
   getOrders, getOrderDetail, updateOrder,
@@ -281,7 +281,7 @@ test('getItems forwards the selected account filter', async () => {
 
   await getItems('account-2');
 
-  expect(fetchMock).toHaveBeenCalledWith('/items?cookie_id=account-2', expect.objectContaining({
+  expect(fetchMock).toHaveBeenCalledWith('/api/v1/items?cookie_id=account-2', expect.objectContaining({
     method: 'GET',
     credentials: 'include',
   }));
@@ -409,7 +409,7 @@ test('updateItem sends only the fields selected by the editor', async () => {
   vi.stubGlobal('fetch', fetchMock);
 
   await updateItem('acc1', 'item1', { item_title: '改名商品' });
-  expect(fetchMock).toHaveBeenCalledWith('/items/acc1/item1', expect.objectContaining({
+  expect(fetchMock).toHaveBeenCalledWith('/api/v1/items/acc1/item1', expect.objectContaining({
     method: 'PUT',
     credentials: 'include',
   }));
@@ -852,3 +852,32 @@ const runVersionedOrderRefreshAPITest = async () => {
 };
 
 test('order refresh and batch APIs use versioned compatibility routes', runVersionedOrderRefreshAPITest);
+
+// 商品列表、详情、发布、更新和删除 API 使用版本化兼容入口。
+const runVersionedItemAPITest = async () => {
+  // fetchMock 是商品 API 请求的测试替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse([]))
+    .mockResolvedValueOnce(jsonResponse({ cookie_id: 'acc1', item_id: 'item-1', item_title: '商品' }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, item_id: 'item-1' }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await getItems('acc1');
+  await getItemDetail('acc1', 'item-1');
+  await publishItem({
+    cookie_id: 'acc1', title: '商品', description: '', price: '1.00', quantity: 1,
+    postage_mode: 'none', images: [],
+  });
+  await updateItem('acc1', 'item-1', { item_title: '新商品名' });
+  await deleteItem('acc1', 'item-1');
+
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/items?cookie_id=acc1', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/items/acc1/item-1', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/items/publish', expect.objectContaining({ method: 'POST', body: expect.any(FormData) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/items/acc1/item-1', expect.objectContaining({ method: 'PUT' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/items/acc1/item-1', expect.objectContaining({ method: 'DELETE' }));
+};
+
+test('item list, detail, publish, update, and delete APIs use versioned compatibility routes', runVersionedItemAPITest);

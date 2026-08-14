@@ -4,7 +4,7 @@ import {
   AdminStats, DashboardStats, Card, SystemSettings, ApiResponse, OrderAnalytics,
   Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
   NotificationChannel, NotificationEventType, AccountTaskSettings, ChatSession, ChatMessage, ItemListEnvelope, AutomationIssuesEnvelope,
-  CookieSettingsResponse, CookieProfileResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, OrderRefreshResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope, AdminStatsResponse, DashboardStatsResponse, OrderAnalyticsResponse, QRLoginGenerateResponse, QRLoginStatusResponse, QRLoginVerificationResponse, ValidOrderResponse, ValidOrdersResponse
+  CookieSettingsResponse, CookieProfileResponse, ItemDetailResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, OrderRefreshResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope, AdminStatsResponse, DashboardStatsResponse, OrderAnalyticsResponse, QRLoginGenerateResponse, QRLoginStatusResponse, QRLoginVerificationResponse, ValidOrderResponse, ValidOrdersResponse
 } from '../types';
 import { formatLocalDate } from '../dateRange';
 
@@ -494,7 +494,7 @@ const normalizeBooleanFlag = (value: unknown): boolean =>
     value === true || value === 1 || value === '1';
 
 export const getItems = async (cookieId?: string): Promise<Item[]> => {
-    const res = await get<Item[] | ItemListEnvelope>('/items', cookieId ? { cookie_id: cookieId } : undefined);
+    const res = await get<Item[] | ItemListEnvelope>('/api/v1/items', cookieId ? { cookie_id: cookieId } : undefined);
     const items = Array.isArray(res) ? res : (res.items || []);
     return items.map((item: any) => ({
       ...item,
@@ -510,7 +510,7 @@ export const syncItemsFromAccount = async (cookieId: string): Promise<ItemSyncRe
 }
 
 export const deleteItem = async (cookieId: string, itemId: string): Promise<OperationResponse> => {
-    return del(`/items/${cookieId}/${itemId}`);
+    return del(`/api/v1/items/${cookieId}/${itemId}`);
 }
 
 export const createItem = async (cookieId: string, data: Partial<Item>): Promise<OperationResponse> => {
@@ -542,7 +542,7 @@ export const publishItem = async (form: {
     for (const file of form.images) {
       body.append('images', file);
     }
-    return postForm('/items/publish', body);
+    return postForm('/api/v1/items/publish', body);
 }
 
 export interface PublishLocation {
@@ -618,7 +618,7 @@ export const retryFailedItemPublishBatch = async (batchId: string): Promise<Batc
 }
 
 export const updateItem = async (cookieId: string, itemId: string, data: Partial<Item>): Promise<OperationResponse> => {
-    return put(`/items/${cookieId}/${itemId}`, data);
+    return put(`/api/v1/items/${cookieId}/${itemId}`, data);
 }
 
 // Rules - 自动化规则
@@ -1055,4 +1055,9 @@ export const deleteDefaultReply = async (cookieId: string): Promise<OperationRes
 
 export const clearDefaultReplyRecords = async (cookieId: string): Promise<OperationResponse> => {
   return post(`/api/default-reply/${cookieId}/clear-records`, {});
+};
+
+// getItemDetail 获取指定账号下单个商品的详情。
+export const getItemDetail = async (cookieId: string, itemId: string): Promise<ItemDetailResponse> => {
+  return get(`/api/v1/items/${cookieId}/${itemId}`);
 };
