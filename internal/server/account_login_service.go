@@ -20,6 +20,16 @@ type accountLoginService struct {
 	repository accountLoginRepository
 }
 
+// accountLoginApplication 返回当前 Server 绑定的账号登录应用服务。
+func (s *Server) accountLoginApplication() *accountLoginService {
+	return s.applicationServiceSet().accountLogin
+}
+
+// accountLoginRepositoryForServer 返回当前 Server 装配的账号登录持久化边界。
+func (s *Server) accountLoginRepositoryForServer() accountLoginRepository {
+	return s.accountLoginApplication().repository
+}
+
 // accountLoginInput 是新增账号登录凭证用例的业务输入。
 type accountLoginInput struct {
 	// AccountID 是待创建的账号标识。
@@ -52,11 +62,6 @@ type accountProfileResult struct {
 	AvatarURL string
 	// ErrorMessage 是资料刷新失败时的可展示错误。
 	ErrorMessage string
-}
-
-// accountLoginApplication 返回当前 Server 绑定的账号登录应用服务。
-func (s *Server) accountLoginApplication() *accountLoginService {
-	return s.applicationServiceSet().accountLogin
 }
 
 // CreateCookie 创建账号凭证并完成登录审计、资料刷新和运行时重启。

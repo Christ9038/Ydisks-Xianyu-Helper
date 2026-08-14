@@ -171,20 +171,11 @@ func (s *Server) persistLongLoginCookies(ctx context.Context, detail *db.CookieD
 	return credentialChanged, nil
 }
 
-// updateFlatCookieOwnedLocked 用新的扁平 Cookie 覆盖账号时同步移除旧浏览器
-// 快照，避免下一次浏览器取 token 又把旧 Cookie 注入回来。调用方必须持有
-// 对应账号的凭证锁，并已验证 detail 的归属。
-func (s *Server) updateFlatCookieOwnedLocked(ctx context.Context, detail *db.CookieDetail, value string) error {
-	if detail == nil {
-		return db.ErrNotFound
-	}
-	metadata := cookierefresh.MetadataWithoutSnapshot(detail.MetadataJSON)
-	return s.Store.Cookies.UpdateRenewalCookie(ctx, detail.ID, value, metadata, time.Now().Unix())
-}
-
 func (s *Server) updateRunningCookie(ctx context.Context, cookieID, value string) {
 	s.wakeCredentialBlockedAutomation(ctx, cookieID)
-	if s.Manager == nil || !s.Store.Cookies.GetStatus(ctx, cookieID) {
+	// repository 提供运行时更新前的账号启用状态读取。
+	repository := s.accountLoginRepositoryForServer()
+	if s.Manager == nil || repository == nil || !repository.GetStatus(ctx, cookieID) {
 		return
 	}
 	if sender, ok := s.Manager.GetInstance(cookieID); ok {
@@ -750,8 +741,13 @@ func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) 
 		return cachedAccountNickname(d), d.AvatarURL, "账号资料客户端未初始化"
 	}
 
-	credentialUnlock := s.Store.LockAccountCredentials(d.ID)
-	latest, latestErr := s.loadCookiePlatformDetail(ctx, d.ID)
+	// repository 提供资料刷新所需的凭证锁、平台视图和资料持久化能力。
+	repository := s.accountLoginRepositoryForServer()
+	if repository == nil {
+		return cachedAccountNickname(d), d.AvatarURL, "账号登录持久化未初始化"
+	}
+	credentialUnlock := repository.LockCredentials(d.ID)
+	latest, latestErr := repository.LoadPlatformDetail(ctx, d.ID)
 	if latestErr != nil || latest == nil || latest.UserID != d.UserID {
 		credentialUnlock()
 		if latestErr == nil {
@@ -778,7 +774,7 @@ func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) 
 	} else if callErr == nil && profile != nil && profile.UpdatedCookies != "" && profile.UpdatedCookies != latest.Value {
 		// 注入 mock 或没有权威快照的历史账号继续沿用扁平 Cookie 路径；
 		// 该路径必须清除旧 snapshot，不能伪造完整 Jar。
-		if err := s.updateFlatCookieOwnedLocked(ctx, latest, profile.UpdatedCookies); err != nil {
+		if err := repository.UpdateFlatCookieOwned(ctx, latest, profile.UpdatedCookies); err != nil {
 			if s.Logger != nil {
 				s.Logger.Warn("保存账号刷新 cookie 失败", "account", d.ID, "err", err)
 			}
@@ -806,7 +802,7 @@ func (s *Server) refreshAccountProfile(ctx context.Context, d *db.CookieDetail) 
 
 	apiNickname := strings.TrimSpace(profile.Nickname)
 	apiAvatarURL := normalizeProfileAvatarURL(profile.AvatarURL)
-	if err := s.Store.Cookies.UpdateProfile(ctx, d.ID, apiNickname, apiAvatarURL); err != nil && s.Logger != nil {
+	if err := repository.UpdateProfile(ctx, d.ID, apiNickname, apiAvatarURL); err != nil && s.Logger != nil {
 		s.Logger.Warn("保存账号资料失败", "account", d.ID, "err", err)
 	}
 	if apiNickname == "" {

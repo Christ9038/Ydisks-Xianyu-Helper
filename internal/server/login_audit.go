@@ -30,19 +30,24 @@ func normalizeLoginMethod(method string) string {
 }
 
 func (s *Server) markSuccessfulLogin(ctx context.Context, cookieID string, userID int64, method, message string) {
+	// repository 提供登录审计和账号状态持久化能力。
+	repository := s.accountLoginRepositoryForServer()
+	if repository == nil {
+		return
+	}
 	method = normalizeLoginMethod(method)
 	if method == "" {
 		return
 	}
 	at := time.Now().Unix()
-	if err := s.Store.Cookies.MarkLogin(ctx, cookieID, method, at); err != nil {
+	if err := repository.MarkLogin(ctx, cookieID, method, at); err != nil {
 		if s.Logger != nil {
 			s.Logger.Warn("记录账号登录方式失败", "cookie_id", cookieID, "method", method, "err", err)
 		}
 		return
 	}
 	if method == loginMethodPassword || method == loginMethodQRScan {
-		if err := s.Store.Cookies.SetStatusWithReason(ctx, cookieID, true, ""); err != nil && s.Logger != nil {
+		if err := repository.SetStatusWithReason(ctx, cookieID, true, ""); err != nil && s.Logger != nil {
 			s.Logger.Warn("成功登录后启用账号失败", "cookie_id", cookieID, "method", method, "err", err)
 		}
 	}
@@ -50,13 +55,15 @@ func (s *Server) markSuccessfulLogin(ctx context.Context, cookieID string, userI
 }
 
 func (s *Server) addLoginLog(ctx context.Context, cookieID string, userID int64, method, status, failureReason, message string, at int64) {
-	if s.Store == nil || s.Store.LoginLogs == nil {
+	// repository 提供登录日志持久化能力。
+	repository := s.accountLoginRepositoryForServer()
+	if repository == nil {
 		return
 	}
 	if at == 0 {
 		at = time.Now().Unix()
 	}
-	if err := s.Store.LoginLogs.Add(ctx, db.AccountLoginLog{
+	if err := repository.AddLoginLog(ctx, db.AccountLoginLog{
 		CookieID:          cookieID,
 		UserID:            userID,
 		OwnerID:           userID,

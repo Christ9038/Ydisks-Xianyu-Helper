@@ -8,7 +8,7 @@ import (
 	"xianyu-go/internal/xianyu/cookierefresh"
 )
 
-// accountLoginRepository 定义账号登录服务写入凭证、清理 Token 和读取账号状态所需的最小能力。
+// accountLoginRepository 定义账号登录服务写入凭证、审计登录、更新资料和读取账号状态所需的最小能力。
 type accountLoginRepository interface {
 	// LockCredentials 串行化账号登录凭证变更。
 	LockCredentials(accountID string) func()
@@ -24,6 +24,14 @@ type accountLoginRepository interface {
 	ClearTokens(ctx context.Context, accountID string) error
 	// GetStatus 返回账号是否启用。
 	GetStatus(ctx context.Context, accountID string) bool
+	// MarkLogin 保存账号最近一次成功登录方式。
+	MarkLogin(ctx context.Context, accountID, method string, at int64) error
+	// SetStatusWithReason 更新账号启用状态及禁用原因。
+	SetStatusWithReason(ctx context.Context, accountID string, enabled bool, reason string) error
+	// AddLoginLog 写入账号登录审计记录。
+	AddLoginLog(ctx context.Context, log db.AccountLoginLog) error
+	// UpdateProfile 保存账号展示资料。
+	UpdateProfile(ctx context.Context, accountID, nickname, avatarURL string) error
 }
 
 // storeAccountLoginRepository 将完整 Store 适配为账号登录服务窄 repository。
@@ -78,6 +86,29 @@ func (r storeAccountLoginRepository) ClearTokens(ctx context.Context, accountID 
 // GetStatus 委托账号启用状态查询。
 func (r storeAccountLoginRepository) GetStatus(ctx context.Context, accountID string) bool {
 	return r.store.Cookies.GetStatus(ctx, accountID)
+}
+
+// MarkLogin 委托账号最近一次成功登录方式保存。
+func (r storeAccountLoginRepository) MarkLogin(ctx context.Context, accountID, method string, at int64) error {
+	return r.store.Cookies.MarkLogin(ctx, accountID, method, at)
+}
+
+// SetStatusWithReason 委托账号启用状态更新。
+func (r storeAccountLoginRepository) SetStatusWithReason(ctx context.Context, accountID string, enabled bool, reason string) error {
+	return r.store.Cookies.SetStatusWithReason(ctx, accountID, enabled, reason)
+}
+
+// AddLoginLog 委托账号登录审计记录写入；未启用审计 repository 时保持兼容空操作。
+func (r storeAccountLoginRepository) AddLoginLog(ctx context.Context, log db.AccountLoginLog) error {
+	if r.store.LoginLogs == nil {
+		return nil
+	}
+	return r.store.LoginLogs.Add(ctx, log)
+}
+
+// UpdateProfile 委托账号展示资料更新。
+func (r storeAccountLoginRepository) UpdateProfile(ctx context.Context, accountID, nickname, avatarURL string) error {
+	return r.store.Cookies.UpdateProfile(ctx, accountID, nickname, avatarURL)
 }
 
 // newStoreAccountLoginRepository 从完整 Store 构造账号登录服务窄 repository。
