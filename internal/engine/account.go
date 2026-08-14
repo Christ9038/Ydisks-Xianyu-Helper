@@ -1431,14 +1431,14 @@ func (a *Account) adoptTokenResponseCookies(ctx context.Context, cookieStr strin
 		return cookieStr, nil
 	}
 	if a.store != nil && a.store.Cookies != nil {
-		detail, detailErr := a.store.Cookies.GetDetails(ctx, a.CookieID)
+		metadata, detailErr := a.store.Cookies.GetCookieMetadata(ctx, a.CookieID) // metadata 只包含 token 响应 Cookie 合并所需的快照信息。
 		if detailErr != nil {
 			return cookieStr, detailErr
 		}
-		if detail == nil {
-			return cookieStr, db.ErrNotFound
-		}
-		metadata := detail.MetadataJSON
+		// metadata 已在 repository 层按账号作用域解密，不读取旧 Cookie 或登录秘密。
+		// 下面继续根据响应类型合并已有快照，并由 UpdateRenewalCookie 统一持久化。
+		// 错误返回和运行时状态更新顺序保持原有 token 响应语义。
+		// 只有 token 响应本身发生变化时才进入后续快照合并逻辑。
 		if res.CookieSnapshotComplete {
 			snapshot := cookierefresh.NormalizeSnapshot(res.CookieSnapshot)
 			if snapshot == nil {

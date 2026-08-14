@@ -1252,3 +1252,43 @@ func TestRefreshTokenWithMinGapUsesMetadataWithoutLoginSecrets(t *testing.T) {
 		t.Fatalf("token 请求未收到 metadata 快照: %+v", recorder.snapshot)
 	}
 }
+
+// TestAdoptTokenResponseCookiesUsesMetadataWithoutLoginSecrets 验证 token 响应合并不解密旧 Cookie 或登录密码。
+func TestAdoptTokenResponseCookiesUsesMetadataWithoutLoginSecrets(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "engine-adopt-token-query-key")
+	// acc 和 store 是本测试的账号及数据库；cleanup 负责关闭临时数据库。
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	// ctx 是测试 token 响应合并共用的上下文。
+	ctx := context.Background()
+	// snapshot 是数据库中已有的权威 Cookie 快照。
+	snapshot := []cookierefresh.BrowserCookie{{Name: "sid", Value: "old", Domain: ".goofish.com", Path: "/", Secure: true}}
+	// metadata 是包含权威快照的合法运行 metadata。
+	metadata := cookierefresh.MetadataWithSnapshot(`{"note":"adopt"}`, snapshot)
+	// updateErr 表示预置 token 响应合并输入失败的原因。
+	if updateErr := store.Cookies.UpdateRenewalCookie(ctx, "cid", "sid=old", metadata, time.Now().Unix()); updateErr != nil {
+		t.Fatalf("preset metadata: %v", updateErr)
+	}
+	// corruptErr 表示写入故意损坏的登录密码密文失败的原因。
+	if _, corruptErr := store.DB.ExecContext(ctx,
+		`UPDATE cookies SET username=?,password=? WHERE id=?`,
+		"engine-adopt-token-user", "not-a-password-ciphertext", "cid"); corruptErr != nil {
+		t.Fatalf("corrupt password: %v", corruptErr)
+	}
+	// updatedCookies 是 token 响应带来的扁平 Cookie 更新。
+	updatedCookies := "sid=fresh; token=next"
+	// adoptedCookies 和 adoptErr 是 token 响应合并后的 Cookie 与错误。
+	adoptedCookies, adoptErr := acc.adoptTokenResponseCookies(ctx, "sid=old", &mtop.RefreshResult{UpdatedCookies: updatedCookies})
+	if adoptErr != nil || adoptedCookies != updatedCookies {
+		t.Fatalf("adopt cookies=%q err=%v", adoptedCookies, adoptErr)
+	}
+	// runtimeData 是持久化后读取的 Cookie 与 metadata 窄模型。
+	runtimeData, runtimeErr := store.Cookies.GetCookieRuntimeData(ctx, "cid")
+	if runtimeErr != nil || runtimeData.Value != updatedCookies || !strings.Contains(runtimeData.MetadataJSON, `"note":"adopt"`) {
+		t.Fatalf("adopted runtime data=%+v err=%v", runtimeData, runtimeErr)
+	}
+	// snapshotComplete 表示 token 响应合并后是否仍保留权威快照。
+	if _, snapshotComplete := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON); !snapshotComplete {
+		t.Fatal("已有权威 Cookie 快照不应在 token 响应合并后丢失")
+	}
+}
