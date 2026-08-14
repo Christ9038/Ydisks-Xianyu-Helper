@@ -87,6 +87,44 @@ func (c *Cookies) ListSummaries(ctx context.Context, userID int64) ([]CookieSumm
 	return summaries, rows.Err()
 }
 
+// GetSummaryOwned 返回指定用户拥有的单个账号摘要，不读取或解密任何敏感凭证。
+func (c *Cookies) GetSummaryOwned(ctx context.Context, userID int64, cookieID string) (CookieSummary, error) {
+	// ownerErr 表示用户 ID 未通过正数所有权校验的原因。
+	if ownerErr := validateCookieOwnerID(userID); ownerErr != nil {
+		return CookieSummary{}, ownerErr
+	}
+	// summary 保存按账号和用户联合过滤得到的非敏感摘要。
+	var summary CookieSummary
+	// autoConfirm 和 showBrowser 将 SQLite 整数布尔值转换为 Go bool。
+	var autoConfirm, showBrowser int
+	// pauseDuration 允许兼容历史 NULL 值，同时保留默认暂停时长 10 分钟。
+	var pauseDuration sql.NullInt64
+	// queryErr 表示按账号和用户联合条件读取摘要失败的原因。
+	queryErr := c.DB.QueryRowContext(ctx, `
+		SELECT id, user_id, auto_confirm, COALESCE(remark,''), pause_duration,
+		       COALESCE(paused_until,0), COALESCE(username,''), show_browser,
+		       COALESCE(nickname,''), COALESCE(avatar_url,''), COALESCE(last_refresh_at,0),
+		       COALESCE(login_method,''), COALESCE(last_login_at,0), created_at
+		FROM cookies WHERE id=? AND user_id=?`, cookieID, userID).Scan(
+		&summary.ID, &summary.UserID, &autoConfirm, &summary.Remark, &pauseDuration,
+		&summary.PausedUntil, &summary.Username, &showBrowser, &summary.Nickname,
+		&summary.AvatarURL, &summary.LastRefreshAt, &summary.LoginMethod,
+		&summary.LastLoginAt, &summary.CreatedAt)
+	if queryErr != nil {
+		if errors.Is(queryErr, sql.ErrNoRows) {
+			return CookieSummary{}, ErrNotFound
+		}
+		return CookieSummary{}, queryErr
+	}
+	summary.AutoConfirm = autoConfirm != 0
+	summary.ShowBrowser = showBrowser != 0
+	summary.PauseDuration = 10
+	if pauseDuration.Valid {
+		summary.PauseDuration = int(pauseDuration.Int64)
+	}
+	return summary, nil
+}
+
 // ListOwnedIDs 返回指定用户拥有的账号 ID，不读取 Cookie 明文或其他凭证字段。
 func (c *Cookies) ListOwnedIDs(ctx context.Context, userID int64) ([]string, error) {
 	// ownerErr 表示用户 ID 未通过正数所有权校验的原因。

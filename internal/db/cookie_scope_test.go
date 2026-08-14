@@ -49,6 +49,15 @@ func TestCookieScopedQueriesExcludeSecrets(t *testing.T) {
 	if len(summaries) != 1 || summaries[0].ID != "scope-owned" || summaries[0].UserID != ownerID {
 		t.Fatalf("摘要范围错误: %#v", summaries)
 	}
+	// summary 是按账号和用户联合过滤得到的单账号非敏感摘要。
+	summary, summaryLookupErr := store.Cookies.GetSummaryOwned(ctx, ownerID, "scope-owned")
+	if summaryLookupErr != nil || summary.ID != "scope-owned" || summary.Remark != "主账号" {
+		t.Fatalf("GetSummaryOwned: summary=%#v err=%v", summary, summaryLookupErr)
+	}
+	// crossSummaryErr 表示其他用户不能通过摘要查询读取该账号。
+	if _, crossSummaryErr := store.Cookies.GetSummaryOwned(ctx, otherID, "scope-owned"); !errors.Is(crossSummaryErr, ErrNotFound) {
+		t.Fatalf("GetSummaryOwned cross-owner 应 ErrNotFound, err=%v", crossSummaryErr)
+	}
 	if !summaries[0].AutoConfirm || summaries[0].PauseDuration != 15 || summaries[0].Username != "login-user" {
 		t.Fatalf("摘要字段错误: %#v", summaries[0])
 	}

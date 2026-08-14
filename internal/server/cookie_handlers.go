@@ -327,23 +327,23 @@ func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
 
 // listCookieRuntimeStatus 返回本地账号引擎状态，不请求闲鱼 API，可安全用于前端轮询。
 func (s *Server) listCookieRuntimeStatus(w http.ResponseWriter, r *http.Request) {
-	sess := auth.SessionFromContext(r.Context())
-	all, err := s.Store.Cookies.AllForUser(r.Context(), sess.UserID)
+	sess := auth.SessionFromContext(r.Context())                             // sess 是当前认证会话。
+	cookieIDs, err := s.Store.Cookies.ListOwnedIDs(r.Context(), sess.UserID) // cookieIDs 和 err 是账号 ID 列表及查询错误。
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "获取账号失败")
 		return
 	}
-	runtime := map[string]engine.RuntimeStatus{}
+	runtime := map[string]engine.RuntimeStatus{} // runtime 保存当前账号引擎状态。
 	if s.Manager != nil {
 		runtime = s.Manager.RuntimeStatuses()
 	}
-	result := make(map[string]engine.RuntimeStatus, len(all))
-	for cid := range all {
+	result := make(map[string]engine.RuntimeStatus, len(cookieIDs)) // result 是返回给前端的状态映射。
+	for _, cid := range cookieIDs {                                 // cid 是当前账号 ID。
 		if !s.Store.Cookies.GetStatus(r.Context(), cid) {
 			result[cid] = engine.RuntimeStatus{State: "disabled", Message: "账号已停用", UpdatedAt: time.Now()}
 			continue
 		}
-		if status, ok := runtime[cid]; ok {
+		if status, ok := runtime[cid]; ok { // status 和 ok 表示已记录的运行状态及存在性。
 			result[cid] = status
 			continue
 		}
@@ -354,49 +354,41 @@ func (s *Server) listCookieRuntimeStatus(w http.ResponseWriter, r *http.Request)
 
 // listCookies 列出当前用户的 cookie_id。
 func (s *Server) listCookies(w http.ResponseWriter, r *http.Request) {
-	sess := auth.SessionFromContext(r.Context())
-	all, err := s.Store.Cookies.AllForUser(r.Context(), sess.UserID)
+	sess := auth.SessionFromContext(r.Context())                       // sess 是当前认证会话。
+	ids, err := s.Store.Cookies.ListOwnedIDs(r.Context(), sess.UserID) // ids 和 err 是账号 ID 列表及查询错误。
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "获取账号失败")
 		return
-	}
-	ids := make([]string, 0, len(all))
-	for id := range all {
-		ids = append(ids, id)
 	}
 	writeJSON(w, http.StatusOK, ids)
 }
 
 // listCookieDetails 账号非敏感详情（不含 cookie 明文/密码，遵循 Fork 安全基线）。
 func (s *Server) listCookieDetails(w http.ResponseWriter, r *http.Request) {
-	sess := auth.SessionFromContext(r.Context())
-	all, err := s.Store.Cookies.AllForUser(r.Context(), sess.UserID)
+	sess := auth.SessionFromContext(r.Context())                              // sess 是当前认证会话。
+	summaries, err := s.Store.Cookies.ListSummaries(r.Context(), sess.UserID) // summaries 和 err 是账号摘要及查询错误。
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "获取账号失败")
 		return
 	}
-	result := make([]map[string]any, 0, len(all))
-	for cid := range all {
-		d, err := s.Store.Cookies.GetDetails(r.Context(), cid)
-		if err != nil || d == nil {
-			continue
-		}
-		tasks, _ := s.Store.AccountTasks.Get(r.Context(), cid)
+	result := make([]map[string]any, 0, len(summaries)) // result 是非敏感详情响应列表。
+	for _, summary := range summaries {                 // summary 是当前账号的非敏感摘要。
+		tasks, _ := s.Store.AccountTasks.Get(r.Context(), summary.ID) // tasks 是当前账号的自动化任务设置。
 		result = append(result, map[string]any{
-			"id":                  d.ID,
+			"id":                  summary.ID,
 			"has_cookie":          true,
-			"enabled":             s.Store.Cookies.GetStatus(r.Context(), cid),
-			"auto_confirm":        d.AutoConfirm,
-			"remark":              d.Remark,
-			"pause_duration":      d.PauseDuration,
-			"paused_until":        d.PausedUntil,
-			"paused":              d.PausedUntil > time.Now().UTC().Unix(),
-			"show_browser":        d.ShowBrowser,
-			"username":            d.Username,
-			"nickname":            cachedAccountNickname(d),
-			"avatar_url":          d.AvatarURL,
-			"login_method":        d.LoginMethod,
-			"last_login_at":       d.LastLoginAt,
+			"enabled":             s.Store.Cookies.GetStatus(r.Context(), summary.ID),
+			"auto_confirm":        summary.AutoConfirm,
+			"remark":              summary.Remark,
+			"pause_duration":      summary.PauseDuration,
+			"paused_until":        summary.PausedUntil,
+			"paused":              summary.PausedUntil > time.Now().UTC().Unix(),
+			"show_browser":        summary.ShowBrowser,
+			"username":            summary.Username,
+			"nickname":            cachedCookieSummaryNickname(summary),
+			"avatar_url":          summary.AvatarURL,
+			"login_method":        summary.LoginMethod,
+			"last_login_at":       summary.LastLoginAt,
 			"profile_error":       "",
 			"ai_enabled":          false,
 			"auto_rate_enabled":   tasks.AutoRateEnabled,
@@ -413,33 +405,28 @@ func (s *Server) listCookieDetails(w http.ResponseWriter, r *http.Request) {
 
 // getCookieDetails 单个账号非敏感详情。
 func (s *Server) getCookieDetails(w http.ResponseWriter, r *http.Request) {
-	cid := chi.URLParam(r, "cid")
-	sess := auth.SessionFromContext(r.Context())
-	all, _ := s.Store.Cookies.AllForUser(r.Context(), sess.UserID)
-	if _, ok := all[cid]; !ok {
+	cid := chi.URLParam(r, "cid")                                                  // cid 是请求路径中的账号 ID。
+	sess := auth.SessionFromContext(r.Context())                                   // sess 是当前认证会话。
+	summary, err := s.Store.Cookies.GetSummaryOwned(r.Context(), sess.UserID, cid) // summary 和 err 是账号摘要及查询错误。
+	if err != nil {
 		writeErr(w, http.StatusForbidden, "无权限操作该Cookie")
 		return
 	}
-	d, err := s.Store.Cookies.GetDetails(r.Context(), cid)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "账号不存在")
-		return
-	}
-	tasks, _ := s.Store.AccountTasks.Get(r.Context(), cid)
+	tasks, _ := s.Store.AccountTasks.Get(r.Context(), cid) // tasks 是当前账号的自动化任务设置。
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":                  d.ID,
+		"id":                  summary.ID,
 		"enabled":             s.Store.Cookies.GetStatus(r.Context(), cid),
-		"auto_confirm":        d.AutoConfirm,
-		"remark":              d.Remark,
-		"pause_duration":      d.PauseDuration,
-		"paused_until":        d.PausedUntil,
-		"paused":              d.PausedUntil > time.Now().UTC().Unix(),
-		"show_browser":        d.ShowBrowser,
-		"username":            d.Username,
-		"nickname":            cachedAccountNickname(d),
-		"avatar_url":          d.AvatarURL,
-		"login_method":        d.LoginMethod,
-		"last_login_at":       d.LastLoginAt,
+		"auto_confirm":        summary.AutoConfirm,
+		"remark":              summary.Remark,
+		"pause_duration":      summary.PauseDuration,
+		"paused_until":        summary.PausedUntil,
+		"paused":              summary.PausedUntil > time.Now().UTC().Unix(),
+		"show_browser":        summary.ShowBrowser,
+		"username":            summary.Username,
+		"nickname":            cachedCookieSummaryNickname(summary),
+		"avatar_url":          summary.AvatarURL,
+		"login_method":        summary.LoginMethod,
+		"last_login_at":       summary.LastLoginAt,
 		"profile_error":       "",
 		"has_cookie":          true,
 		"auto_rate_enabled":   tasks.AutoRateEnabled,
@@ -454,19 +441,18 @@ func (s *Server) getCookieDetails(w http.ResponseWriter, r *http.Request) {
 
 // refreshCookieProfile 主动刷新账号昵称/头像。列表接口不自动刷新，避免 100 个账号时对闲鱼打 100 次请求。
 func (s *Server) refreshCookieProfile(w http.ResponseWriter, r *http.Request) {
-	cid := chi.URLParam(r, "cid")
-	sess := auth.SessionFromContext(r.Context())
-	all, _ := s.Store.Cookies.AllForUser(r.Context(), sess.UserID)
-	if _, ok := all[cid]; !ok {
+	cid := chi.URLParam(r, "cid")                // cid 是请求路径中的账号 ID。
+	sess := auth.SessionFromContext(r.Context()) // sess 是当前认证会话。
+	if !s.cookieOwnedByUser(r.Context(), sess.UserID, cid) {
 		writeErr(w, http.StatusForbidden, "无权限操作该账号")
 		return
 	}
-	d, err := s.Store.Cookies.GetDetails(r.Context(), cid)
+	d, err := s.Store.Cookies.GetDetails(r.Context(), cid) // d 和 err 是账号凭证详情及查询错误。
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "账号不存在")
 		return
 	}
-	nickname, avatarURL, profileErr := s.refreshAccountProfile(r.Context(), d)
+	nickname, avatarURL, profileErr := s.refreshAccountProfile(r.Context(), d) // 三个值是刷新后的资料及错误信息。
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success":       profileErr == "",
 		"id":            d.ID,
@@ -475,6 +461,20 @@ func (s *Server) refreshCookieProfile(w http.ResponseWriter, r *http.Request) {
 		"profile_error": profileErr,
 	})
 }
+
+/*
+账号摘要迁移说明：列表和详情接口只依赖非敏感字段。
+凭证字段由独立的单值查询按需读取。
+账号状态仍由运行状态查询单独提供。
+任务配置仍按账号 ID 查询，保持原有响应结构。
+摘要查询不触发 Cookie、密码或 metadata 解密。
+列表顺序由 repository 统一定义，避免 map 遍历的不确定性。
+详情接口使用用户与账号 ID 联合过滤。
+跨用户账号不会暴露摘要字段。
+刷新资料流程仍在通过所有权校验后读取完整凭证。
+本次切片不改变 HTTP 字段名称和错误响应格式。
+后续凭证流程继续迁移到按用户过滤的单值接口。
+*/
 
 // addCookie 添加账号 cookie。
 func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
@@ -892,4 +892,15 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// cachedCookieSummaryNickname 根据账号摘要生成展示名称，不依赖敏感凭证字段。
+func cachedCookieSummaryNickname(summary db.CookieSummary) string {
+	if strings.TrimSpace(summary.Remark) != "" {
+		return strings.TrimSpace(summary.Remark)
+	}
+	if strings.TrimSpace(summary.Nickname) != "" {
+		return strings.TrimSpace(summary.Nickname)
+	}
+	return "账号 " + truncate(summary.ID, 6)
 }
