@@ -12,6 +12,7 @@ import (
 
 	"xianyu-go/internal/account"
 	"xianyu-go/internal/automation"
+	"xianyu-go/internal/chat"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
 	"xianyu-go/internal/xianyu/mtop"
@@ -24,6 +25,7 @@ func newTestServer(t *testing.T) (*Server, *db.Store, func()) { // newTestServer
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
+	// store 是当前测试数据库的 repository 聚合入口。
 	store := db.NewStore(d, db.DialectSQLite)
 	// 管理员和测试账号已经在共享 SQLite 模板中预置，避免每个测试重复执行 bcrypt。
 	// 一个账号的 cookie 夹具由模板初始化阶段写入当前测试副本。
@@ -31,8 +33,13 @@ func newTestServer(t *testing.T) (*Server, *db.Store, func()) { // newTestServer
 	// 当前测试副本保持模板中的固定账号数据不变。
 	// 具体测试可以在自己的请求流程中修改这些副本数据。
 
+	// mgr 是使用空处理器的测试账号管理器。
 	mgr := account.NewManager(store, noopHandler{}, nil)
-	srv := New(store, mgr, false, "", ":0", nil, nil, nil)
+	// srv 是未启用聊天服务的基础测试 HTTP 服务。
+	srv, err := New(store, mgr, false, "", ":0", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
 	mtopClient := mtop.NewClient()
 	mtopClient.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{
@@ -51,16 +58,34 @@ func newTestServer(t *testing.T) (*Server, *db.Store, func()) { // newTestServer
 	}
 }
 
+// newTestServerWithChat 构造启用通信应用服务的测试服务器，供聊天 REST/WebSocket 测试复用。
+func newTestServerWithChat(t *testing.T) (*Server, *db.Store, func()) {
+	// srv、store 和 cleanup 分别是基础 HTTP 服务、数据库聚合和资源释放函数。
+	srv, store, cleanup := newTestServer(t)
+	// chatService 是仅供聊天测试使用的通信应用服务实例。
+	chatService := chat.New(store)
+	// srv.chat 在测试构造阶段一次性注入通信服务，模拟构造 option 的效果。
+	srv.chat = chatService
+	return srv, store, cleanup
+}
+
 func newUninitializedTestServer(t *testing.T) (*Server, *db.Store, func()) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
+	// d 是当前未初始化测试使用的数据库连接；err 是打开错误。
 	d, _, err := db.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
+	// store 是未初始化测试数据库的 repository 聚合入口。
 	store := db.NewStore(d, db.DialectSQLite)
+	// mgr 是未初始化测试使用的空处理器账号管理器。
 	mgr := account.NewManager(store, noopHandler{}, nil)
-	srv := New(store, mgr, false, "", ":0", nil, nil, nil)
+	// srv 是未初始化测试使用的 HTTP 服务实例。
+	srv, err := New(store, mgr, false, "", ":0", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
 	return srv, store, func() {
 		mgr.StopAll()
 		_ = d.Close()

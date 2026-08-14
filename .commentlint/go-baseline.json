@@ -1879,267 +1879,255 @@
   },
   {
     "file": "cmd/server/main.go",
-    "line": 35,
+    "line": 36,
     "kind": "type",
     "name": "serverOptions"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 59,
+    "line": 60,
     "kind": "const",
     "name": "defaultDBPath"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 60,
+    "line": 61,
     "kind": "const",
     "name": "userDataDirName"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 61,
+    "line": 62,
     "kind": "const",
     "name": "defaultDataKeyName"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 64,
+    "line": 65,
     "kind": "function",
     "name": "main"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 65,
+    "line": 66,
     "kind": "local-variable",
     "name": "opts"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 71,
+    "line": 72,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 77,
+    "line": 78,
     "kind": "local-variable",
     "name": "run"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 79,
+    "line": 80,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 86,
+    "line": 87,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 86,
+    "line": 87,
     "kind": "local-variable",
     "name": "ctx"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 88,
+    "line": 89,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 94,
+    "line": 95,
     "kind": "function",
     "name": "parseOptions"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 95,
+    "line": 96,
     "kind": "var",
     "name": "opts"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 120,
+    "line": 121,
     "kind": "function",
     "name": "runServer"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 121,
+    "line": 122,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 121,
+    "line": 122,
     "kind": "local-variable",
     "name": "ctx"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 124,
+    "line": 125,
     "kind": "local-variable",
     "name": "dataDir"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 124,
+    "line": 125,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 128,
+    "line": 129,
     "kind": "local-variable",
     "name": "packagedPlaywrightRuntime"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 131,
+    "line": 132,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 150,
+    "line": 151,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 155,
+    "line": 156,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 160,
+    "line": 161,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 160,
+    "line": 161,
     "kind": "local-variable",
     "name": "key"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 164,
+    "line": 165,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 169,
+    "line": 170,
     "kind": "local-variable",
     "name": "resolvedDBURL"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 177,
+    "line": 178,
     "kind": "local-variable",
     "name": "err"
-  },
-  {
-    "file": "cmd/server/main.go",
-    "line": 182,
-    "kind": "local-variable",
-    "name": "resolvedLogLevel"
   },
   {
     "file": "cmd/server/main.go",
     "line": 183,
     "kind": "local-variable",
+    "name": "resolvedLogLevel"
+  },
+  {
+    "file": "cmd/server/main.go",
+    "line": 184,
+    "kind": "local-variable",
     "name": "explicitLogLevel"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 192,
+    "line": 193,
     "kind": "local-variable",
     "name": "err"
-  },
-  {
-    "file": "cmd/server/main.go",
-    "line": 195,
-    "kind": "local-variable",
-    "name": "resolvedLogFormat"
   },
   {
     "file": "cmd/server/main.go",
     "line": 196,
     "kind": "local-variable",
+    "name": "resolvedLogFormat"
+  },
+  {
+    "file": "cmd/server/main.go",
+    "line": 197,
+    "kind": "local-variable",
     "name": "explicitLogFormat"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 201,
+    "line": 202,
     "kind": "local-variable",
     "name": "closeLog"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 201,
+    "line": 202,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 201,
+    "line": 202,
     "kind": "local-variable",
     "name": "logWriter"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 206,
+    "line": 207,
     "kind": "local-variable",
     "name": "logger"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 209,
+    "line": 210,
     "kind": "local-variable",
     "name": "database"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 209,
+    "line": 210,
     "kind": "local-variable",
     "name": "dialect"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 209,
+    "line": 210,
     "kind": "local-variable",
     "name": "err"
-  },
-  {
-    "file": "cmd/server/main.go",
-    "line": 215,
-    "kind": "local-variable",
-    "name": "store"
   },
   {
     "file": "cmd/server/main.go",
     "line": 216,
     "kind": "local-variable",
-    "name": "err"
+    "name": "store"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 220,
+    "line": 217,
     "kind": "local-variable",
     "name": "err"
-  },
-  {
-    "file": "cmd/server/main.go",
-    "line": 220,
-    "kind": "local-variable",
-    "name": "lv"
   },
   {
     "file": "cmd/server/main.go",
@@ -2149,217 +2137,211 @@
   },
   {
     "file": "cmd/server/main.go",
-    "line": 227,
+    "line": 221,
+    "kind": "local-variable",
+    "name": "lv"
+  },
+  {
+    "file": "cmd/server/main.go",
+    "line": 222,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 227,
+    "line": 228,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "cmd/server/main.go",
+    "line": 228,
     "kind": "local-variable",
     "name": "format"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 234,
+    "line": 235,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 241,
+    "line": 242,
     "kind": "local-variable",
     "name": "created"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 241,
+    "line": 242,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 250,
+    "line": 251,
     "kind": "local-variable",
     "name": "init"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 254,
+    "line": 255,
     "kind": "var",
     "name": "bm"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 257,
+    "line": 258,
     "kind": "local-variable",
     "name": "err"
-  },
-  {
-    "file": "cmd/server/main.go",
-    "line": 262,
-    "kind": "local-variable",
-    "name": "ap"
   },
   {
     "file": "cmd/server/main.go",
     "line": 263,
     "kind": "local-variable",
-    "name": "chatService"
+    "name": "ap"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 265,
+    "line": 264,
     "kind": "local-variable",
-    "name": "mgr"
+    "name": "chatService"
   },
   {
     "file": "cmd/server/main.go",
     "line": 266,
     "kind": "local-variable",
+    "name": "mgr"
+  },
+  {
+    "file": "cmd/server/main.go",
+    "line": 267,
+    "kind": "local-variable",
     "name": "autoCenter"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 268,
+    "line": 269,
     "kind": "local-variable",
     "name": "notifier"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 273,
+    "line": 274,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 276,
+    "line": 277,
     "kind": "local-variable",
     "name": "automationScheduler"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 278,
+    "line": 279,
     "kind": "local-variable",
     "name": "renewalScheduler"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 281,
+    "line": 300,
     "kind": "local-variable",
-    "name": "srv"
+    "name": "stopCancel"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 284,
+    "line": 300,
     "kind": "local-variable",
-    "name": "runErr"
+    "name": "stopCtx"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 304,
+    "line": 317,
     "kind": "function",
     "name": "openServerLogWriter"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 305,
+    "line": 318,
     "kind": "local-variable",
     "name": "logDir"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 312,
+    "line": 325,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 315,
+    "line": 328,
     "kind": "local-variable",
     "name": "logPath"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 316,
+    "line": 329,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 316,
+    "line": 329,
     "kind": "local-variable",
     "name": "file"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 323,
+    "line": 336,
     "kind": "function",
     "name": "applyPlaywrightRuntimeRoot"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 327,
+    "line": 340,
     "kind": "local-variable",
     "name": "root"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 331,
+    "line": 344,
     "kind": "local-variable",
     "name": "archRoot"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 343,
+    "line": 356,
     "kind": "function",
     "name": "resolveDataDir"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 350,
+    "line": 363,
     "kind": "local-variable",
     "name": "configDir"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 350,
+    "line": 363,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 357,
+    "line": 370,
     "kind": "function",
     "name": "resolveDBPath"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 364,
+    "line": 377,
     "kind": "function",
     "name": "loadOrCreateDataKey"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 369,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "cmd/server/main.go",
-    "line": 369,
-    "kind": "local-variable",
-    "name": "raw"
-  },
-  {
-    "file": "cmd/server/main.go",
-    "line": 370,
-    "kind": "local-variable",
-    "name": "key"
-  },
-  {
-    "file": "cmd/server/main.go",
-    "line": 379,
+    "line": 382,
     "kind": "local-variable",
     "name": "err"
   },
@@ -2373,25 +2355,31 @@
     "file": "cmd/server/main.go",
     "line": 383,
     "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "cmd/server/main.go",
-    "line": 386,
-    "kind": "local-variable",
     "name": "key"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 387,
+    "line": 392,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 393,
-    "kind": "function",
-    "name": "ensureAdmin"
+    "line": 395,
+    "kind": "local-variable",
+    "name": "raw"
+  },
+  {
+    "file": "cmd/server/main.go",
+    "line": 396,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "cmd/server/main.go",
+    "line": 399,
+    "kind": "local-variable",
+    "name": "key"
   },
   {
     "file": "cmd/server/main.go",
@@ -2401,25 +2389,37 @@
   },
   {
     "file": "cmd/server/main.go",
-    "line": 404,
+    "line": 406,
     "kind": "function",
-    "name": "ensureAdminIfMissing"
+    "name": "ensureAdmin"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 405,
-    "kind": "local-variable",
-    "name": "admin"
-  },
-  {
-    "file": "cmd/server/main.go",
-    "line": 405,
+    "line": 413,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "cmd/server/main.go",
-    "line": 412,
+    "line": 417,
+    "kind": "function",
+    "name": "ensureAdminIfMissing"
+  },
+  {
+    "file": "cmd/server/main.go",
+    "line": 418,
+    "kind": "local-variable",
+    "name": "admin"
+  },
+  {
+    "file": "cmd/server/main.go",
+    "line": 418,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "cmd/server/main.go",
+    "line": 425,
     "kind": "local-variable",
     "name": "err"
   },
@@ -63693,65 +63693,59 @@
     "file": "internal/server/chat_account_tasks_test.go",
     "line": 21,
     "kind": "local-variable",
-    "name": "service"
-  },
-  {
-    "file": "internal/server/chat_account_tasks_test.go",
-    "line": 23,
-    "kind": "local-variable",
     "name": "handler"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 24,
+    "line": 22,
     "kind": "local-variable",
     "name": "cookie"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 26,
+    "line": 24,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 32,
+    "line": 30,
     "kind": "local-variable",
     "name": "request"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 34,
+    "line": 32,
     "kind": "local-variable",
     "name": "recorder"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 58,
+    "line": 56,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 58,
+    "line": 56,
     "kind": "local-variable",
     "name": "settings"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 64,
+    "line": 62,
     "kind": "function",
     "name": "TestChatWebSocketStreamsOnlyAuthenticatedAccountEvents"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 65,
+    "line": 63,
     "kind": "local-variable",
     "name": "cleanup"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 65,
+    "line": 63,
     "kind": "local-variable",
     "name": "srv"
   },
@@ -63759,67 +63753,67 @@
     "file": "internal/server/chat_account_tasks_test.go",
     "line": 65,
     "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/chat_account_tasks_test.go",
-    "line": 67,
-    "kind": "local-variable",
     "name": "service"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 69,
+    "line": 66,
     "kind": "local-variable",
     "name": "handler"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 70,
+    "line": 67,
     "kind": "local-variable",
     "name": "cookie"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 71,
+    "line": 68,
     "kind": "local-variable",
     "name": "httpServer"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 74,
+    "line": 71,
     "kind": "local-variable",
     "name": "header"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 76,
+    "line": 73,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 76,
+    "line": 73,
     "kind": "local-variable",
     "name": "ctx"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 78,
+    "line": 75,
     "kind": "local-variable",
     "name": "conn"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 78,
+    "line": 75,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 83,
+    "line": 80,
     "kind": "var",
     "name": "ready"
+  },
+  {
+    "file": "internal/server/chat_account_tasks_test.go",
+    "line": 81,
+    "kind": "local-variable",
+    "name": "err"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
@@ -63829,73 +63823,67 @@
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 87,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/chat_account_tasks_test.go",
-    "line": 91,
+    "line": 88,
     "kind": "var",
     "name": "event"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 92,
+    "line": 89,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 97,
+    "line": 94,
     "kind": "function",
     "name": "TestChatAndTaskEndpointsEnforceOwnershipAndValidation"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 98,
+    "line": 95,
     "kind": "local-variable",
     "name": "cleanup"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 98,
+    "line": 95,
     "kind": "local-variable",
     "name": "srv"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 101,
+    "line": 97,
     "kind": "local-variable",
     "name": "handler"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 102,
+    "line": 98,
     "kind": "local-variable",
     "name": "cookie"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 104,
+    "line": 100,
     "kind": "local-variable",
     "name": "cases"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 113,
+    "line": 109,
     "kind": "range-variable",
     "name": "tc"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 114,
+    "line": 110,
     "kind": "local-variable",
     "name": "request"
   },
   {
     "file": "internal/server/chat_account_tasks_test.go",
-    "line": 117,
+    "line": 113,
     "kind": "local-variable",
     "name": "recorder"
   },
@@ -85080,6 +85068,18 @@
     "name": "done"
   },
   {
+    "file": "internal/server/run_test.go",
+    "line": 129,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/run_test.go",
+    "line": 132,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
     "file": "internal/server/security_endpoint_test.go",
     "line": 13,
     "kind": "function",
@@ -85273,1039 +85273,997 @@
   },
   {
     "file": "internal/server/server.go",
-    "line": 34,
+    "line": 35,
     "kind": "type",
     "name": "qrLoginService"
   },
   {
     "file": "internal/server/server.go",
-    "line": 40,
+    "line": 41,
     "kind": "type",
     "name": "qrLoginPersistence"
   },
   {
     "file": "internal/server/server.go",
-    "line": 47,
+    "line": 48,
     "kind": "type",
     "name": "qrLoginOwner"
   },
   {
     "file": "internal/server/server.go",
-    "line": 52,
+    "line": 53,
     "kind": "type",
     "name": "publishBatchWorker"
   },
   {
     "file": "internal/server/server.go",
-    "line": 59,
+    "line": 63,
     "kind": "type",
     "name": "Server"
   },
   {
     "file": "internal/server/server.go",
-    "line": 95,
-    "kind": "function",
-    "name": "SetChatService"
-  },
-  {
-    "file": "internal/server/server.go",
-    "line": 99,
+    "line": 114,
     "kind": "function",
     "name": "New"
   },
   {
     "file": "internal/server/server.go",
-    "line": 103,
-    "kind": "local-variable",
-    "name": "qrMgr"
+    "line": 147,
+    "kind": "range-variable",
+    "name": "option"
   },
   {
     "file": "internal/server/server.go",
-    "line": 104,
-    "kind": "local-variable",
-    "name": "server"
-  },
-  {
-    "file": "internal/server/server.go",
-    "line": 138,
+    "line": 167,
     "kind": "function",
     "name": "recoverExpiredMTOPSession"
   },
   {
     "file": "internal/server/server.go",
-    "line": 153,
+    "line": 182,
     "kind": "local-variable",
     "name": "r"
   },
   {
     "file": "internal/server/server.go",
-    "line": 240,
+    "line": 269,
     "kind": "local-variable",
     "name": "start"
   },
   {
     "file": "internal/server/server.go",
-    "line": 241,
+    "line": 270,
     "kind": "local-variable",
     "name": "ww"
   },
   {
     "file": "internal/server/server.go",
-    "line": 243,
+    "line": 272,
     "kind": "local-variable",
     "name": "status"
   },
   {
     "file": "internal/server/server.go",
-    "line": 248,
+    "line": 277,
     "kind": "local-variable",
     "name": "level"
   },
   {
     "file": "internal/server/server.go",
-    "line": 271,
+    "line": 300,
     "kind": "function",
     "name": "mountSPA"
   },
   {
     "file": "internal/server/server.go",
-    "line": 276,
+    "line": 305,
     "kind": "local-variable",
     "name": "embedded"
   },
   {
     "file": "internal/server/server.go",
-    "line": 276,
+    "line": 305,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/server.go",
-    "line": 283,
+    "line": 312,
     "kind": "function",
     "name": "mountDirSPA"
   },
   {
     "file": "internal/server/server.go",
-    "line": 284,
+    "line": 313,
     "kind": "local-variable",
     "name": "indexFile"
   },
   {
     "file": "internal/server/server.go",
-    "line": 287,
+    "line": 316,
     "kind": "local-variable",
     "name": "staticFiles"
   },
   {
     "file": "internal/server/server.go",
-    "line": 301,
+    "line": 330,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/server.go",
-    "line": 310,
+    "line": 339,
     "kind": "function",
     "name": "mountFSSPA"
   },
   {
     "file": "internal/server/server.go",
-    "line": 311,
+    "line": 340,
     "kind": "local-variable",
     "name": "staticFiles"
   },
   {
     "file": "internal/server/server.go",
-    "line": 324,
+    "line": 353,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/server.go",
-    "line": 324,
+    "line": 353,
     "kind": "local-variable",
     "name": "index"
   },
   {
     "file": "internal/server/server.go",
-    "line": 335,
+    "line": 364,
     "kind": "function",
     "name": "setNoStore"
   },
   {
     "file": "internal/server/server.go",
-    "line": 343,
+    "line": 372,
     "kind": "function",
     "name": "isAPIPath"
   },
   {
     "file": "internal/server/server.go",
-    "line": 344,
+    "line": 373,
     "kind": "local-variable",
     "name": "apiPrefixes"
   },
   {
     "file": "internal/server/server.go",
-    "line": 356,
+    "line": 385,
     "kind": "range-variable",
     "name": "p"
   },
   {
     "file": "internal/server/server.go",
-    "line": 366,
+    "line": 395,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/server/server.go",
-    "line": 366,
+    "line": 395,
     "kind": "local-variable",
     "name": "ctx"
   },
   {
     "file": "internal/server/server.go",
-    "line": 388,
+    "line": 438,
     "kind": "local-variable",
-    "name": "srv"
+    "name": "lifecycleCancel"
   },
   {
     "file": "internal/server/server.go",
-    "line": 400,
+    "line": 438,
+    "kind": "local-variable",
+    "name": "lifecycleCtx"
+  },
+  {
+    "file": "internal/server/server.go",
+    "line": 456,
     "kind": "local-variable",
     "name": "cancel"
   },
   {
     "file": "internal/server/server.go",
-    "line": 400,
+    "line": 456,
     "kind": "local-variable",
-    "name": "shCtx"
+    "name": "stopCtx"
   },
   {
     "file": "internal/server/server.go",
-    "line": 402,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/server.go",
-    "line": 407,
+    "line": 458,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/server.go",
-    "line": 422,
+    "line": 526,
+    "kind": "local-variable",
+    "name": "httpServer"
+  },
+  {
+    "file": "internal/server/server.go",
+    "line": 527,
+    "kind": "local-variable",
+    "name": "httpDone"
+  },
+  {
+    "file": "internal/server/server.go",
+    "line": 528,
+    "kind": "local-variable",
+    "name": "lifecycleCancel"
+  },
+  {
+    "file": "internal/server/server.go",
+    "line": 565,
     "kind": "function",
     "name": "closedSignal"
   },
   {
     "file": "internal/server/server.go",
-    "line": 423,
+    "line": 566,
     "kind": "local-variable",
     "name": "done"
   },
   {
     "file": "internal/server/server.go",
-    "line": 428,
+    "line": 571,
     "kind": "function",
     "name": "lifecycleContext"
   },
   {
     "file": "internal/server/server.go",
-    "line": 436,
+    "line": 579,
     "kind": "function",
     "name": "startBackgroundTask"
   },
   {
     "file": "internal/server/server.go",
-    "line": 451,
+    "line": 594,
     "kind": "function",
     "name": "beginWorker"
   },
   {
     "file": "internal/server/server.go",
-    "line": 468,
+    "line": 611,
     "kind": "function",
     "name": "waitForWorkers"
   },
   {
     "file": "internal/server/server.go",
-    "line": 470,
+    "line": 613,
     "kind": "local-variable",
     "name": "done"
   },
   {
     "file": "internal/server/server.go",
-    "line": 472,
+    "line": 619,
     "kind": "local-variable",
     "name": "timer"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 27,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 34,
-    "kind": "local-variable",
-    "name": "mgr"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 35,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 36,
+    "line": 43,
     "kind": "local-variable",
     "name": "mtopClient"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 54,
+    "line": 72,
     "kind": "function",
     "name": "newUninitializedTestServer"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 56,
+    "line": 74,
     "kind": "local-variable",
     "name": "dbPath"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 57,
-    "kind": "local-variable",
-    "name": "d"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 57,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 61,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 62,
-    "kind": "local-variable",
-    "name": "mgr"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 63,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 70,
+    "line": 95,
     "kind": "type",
     "name": "roundTripFunc"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 72,
+    "line": 97,
     "kind": "function",
     "name": "RoundTrip"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 76,
+    "line": 101,
     "kind": "type",
     "name": "noopHandler"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 78,
+    "line": 103,
     "kind": "function",
     "name": "HandleChatMessage"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 79,
+    "line": 104,
     "kind": "function",
     "name": "HandleSystemEvent"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 80,
+    "line": 105,
     "kind": "function",
     "name": "OnPasswordLoginRefresh"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 81,
+    "line": 106,
     "kind": "function",
     "name": "OnAccountAlert"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 85,
+    "line": 110,
     "kind": "local-variable",
     "name": "cleanup"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 85,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 87,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 91,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 92,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 97,
-    "kind": "var",
-    "name": "lr"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 102,
-    "kind": "local-variable",
-    "name": "cookie"
   },
   {
     "file": "internal/server/server_test.go",
     "line": 110,
     "kind": "local-variable",
-    "name": "rec2"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 112,
-    "kind": "var",
-    "name": "v"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 120,
-    "kind": "local-variable",
-    "name": "rec3"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 130,
-    "kind": "local-variable",
-    "name": "rec4"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 134,
-    "kind": "local-variable",
-    "name": "cleared"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 135,
-    "kind": "range-variable",
-    "name": "c"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 147,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 147,
-    "kind": "local-variable",
     "name": "srv"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 149,
+    "line": 112,
     "kind": "local-variable",
     "name": "h"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 151,
-    "kind": "local-variable",
-    "name": "body"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 152,
+    "line": 116,
     "kind": "local-variable",
     "name": "req"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 153,
+    "line": 117,
     "kind": "local-variable",
     "name": "rec"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 155,
+    "line": 122,
     "kind": "var",
     "name": "lr"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 162,
-    "kind": "function",
-    "name": "TestInitializeFromWebUI"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 163,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 163,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 163,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 165,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 167,
-    "kind": "local-variable",
-    "name": "shortReq"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 168,
-    "kind": "local-variable",
-    "name": "shortRec"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 174,
-    "kind": "local-variable",
-    "name": "initReq"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 175,
-    "kind": "local-variable",
-    "name": "initRec"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 180,
-    "kind": "var",
-    "name": "initResult"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 181,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 188,
-    "kind": "local-variable",
-    "name": "admin"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 188,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 192,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 192,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 196,
-    "kind": "local-variable",
-    "name": "cookies"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 200,
-    "kind": "local-variable",
-    "name": "verifyReq"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 202,
-    "kind": "local-variable",
-    "name": "verifyRec"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 204,
-    "kind": "var",
-    "name": "verifyResult"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 205,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 212,
-    "kind": "local-variable",
-    "name": "secondReq"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 213,
-    "kind": "local-variable",
-    "name": "secondRec"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 220,
-    "kind": "function",
-    "name": "TestUpdateCredentialsRenamesUserAndRevokesSessions"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 221,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 221,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 223,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 225,
-    "kind": "local-variable",
-    "name": "loginReq"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 226,
-    "kind": "local-variable",
-    "name": "loginRec"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 228,
-    "kind": "local-variable",
-    "name": "sessionCookie"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 230,
-    "kind": "local-variable",
-    "name": "updateReq"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 234,
-    "kind": "local-variable",
-    "name": "updateRec"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 239,
-    "kind": "var",
-    "name": "updateResult"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 245,
-    "kind": "local-variable",
-    "name": "verifyReq"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 247,
-    "kind": "local-variable",
-    "name": "verifyRec"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 249,
-    "kind": "var",
-    "name": "verifyResult"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 255,
-    "kind": "local-variable",
-    "name": "oldLoginReq"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 256,
-    "kind": "local-variable",
-    "name": "oldLoginRec"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 258,
-    "kind": "var",
-    "name": "oldLogin"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 264,
-    "kind": "local-variable",
-    "name": "newLoginReq"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 265,
-    "kind": "local-variable",
-    "name": "newLoginRec"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 267,
-    "kind": "var",
-    "name": "newLogin"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 276,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 276,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 278,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 280,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 281,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 290,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 290,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 292,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 296,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 297,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 299,
+    "line": 127,
     "kind": "local-variable",
     "name": "cookie"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 304,
+    "line": 135,
     "kind": "local-variable",
     "name": "rec2"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 309,
+    "line": 137,
     "kind": "var",
-    "name": "arr"
+    "name": "v"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 323,
-    "kind": "function",
-    "name": "TestCookieRuntimeStatusWithAuth"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 324,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 324,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 326,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 328,
-    "kind": "local-variable",
-    "name": "loginReq"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 329,
-    "kind": "local-variable",
-    "name": "loginRec"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 331,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 333,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 335,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 340,
-    "kind": "var",
-    "name": "statuses"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 341,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 351,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 351,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 353,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 355,
-    "kind": "local-variable",
-    "name": "body"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 356,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 357,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 359,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 363,
-    "kind": "local-variable",
-    "name": "req2"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 365,
-    "kind": "local-variable",
-    "name": "rec2"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 374,
+    "line": 145,
     "kind": "local-variable",
     "name": "rec3"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 383,
+    "line": 155,
+    "kind": "local-variable",
+    "name": "rec4"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 159,
+    "kind": "local-variable",
+    "name": "cleared"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 160,
+    "kind": "range-variable",
+    "name": "c"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 172,
     "kind": "local-variable",
     "name": "cleanup"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 383,
+    "line": 172,
     "kind": "local-variable",
     "name": "srv"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 385,
+    "line": 174,
     "kind": "local-variable",
     "name": "h"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 387,
+    "line": 176,
+    "kind": "local-variable",
+    "name": "body"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 177,
     "kind": "local-variable",
     "name": "req"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 388,
+    "line": 178,
     "kind": "local-variable",
     "name": "rec"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 398,
-    "kind": "function",
-    "name": "TestHealthReportsUnavailableDatabase"
+    "line": 180,
+    "kind": "var",
+    "name": "lr"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 399,
+    "line": 187,
+    "kind": "function",
+    "name": "TestInitializeFromWebUI"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 188,
     "kind": "local-variable",
     "name": "cleanup"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 399,
+    "line": 188,
     "kind": "local-variable",
     "name": "srv"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 399,
+    "line": 188,
     "kind": "local-variable",
     "name": "store"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 401,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/server_test.go",
-    "line": 404,
+    "line": 190,
     "kind": "local-variable",
     "name": "h"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 405,
+    "line": 192,
+    "kind": "local-variable",
+    "name": "shortReq"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 193,
+    "kind": "local-variable",
+    "name": "shortRec"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 199,
+    "kind": "local-variable",
+    "name": "initReq"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 200,
+    "kind": "local-variable",
+    "name": "initRec"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 205,
+    "kind": "var",
+    "name": "initResult"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 206,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 213,
+    "kind": "local-variable",
+    "name": "admin"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 213,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 217,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 217,
+    "kind": "local-variable",
+    "name": "ok"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 221,
+    "kind": "local-variable",
+    "name": "cookies"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 225,
+    "kind": "local-variable",
+    "name": "verifyReq"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 227,
+    "kind": "local-variable",
+    "name": "verifyRec"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 229,
+    "kind": "var",
+    "name": "verifyResult"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 230,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 237,
+    "kind": "local-variable",
+    "name": "secondReq"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 238,
+    "kind": "local-variable",
+    "name": "secondRec"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 245,
+    "kind": "function",
+    "name": "TestUpdateCredentialsRenamesUserAndRevokesSessions"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 246,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 246,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 248,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 250,
+    "kind": "local-variable",
+    "name": "loginReq"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 251,
+    "kind": "local-variable",
+    "name": "loginRec"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 253,
+    "kind": "local-variable",
+    "name": "sessionCookie"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 255,
+    "kind": "local-variable",
+    "name": "updateReq"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 259,
+    "kind": "local-variable",
+    "name": "updateRec"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 264,
+    "kind": "var",
+    "name": "updateResult"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 270,
+    "kind": "local-variable",
+    "name": "verifyReq"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 272,
+    "kind": "local-variable",
+    "name": "verifyRec"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 274,
+    "kind": "var",
+    "name": "verifyResult"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 280,
+    "kind": "local-variable",
+    "name": "oldLoginReq"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 281,
+    "kind": "local-variable",
+    "name": "oldLoginRec"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 283,
+    "kind": "var",
+    "name": "oldLogin"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 289,
+    "kind": "local-variable",
+    "name": "newLoginReq"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 290,
+    "kind": "local-variable",
+    "name": "newLoginRec"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 292,
+    "kind": "var",
+    "name": "newLogin"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 301,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 301,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 303,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 305,
     "kind": "local-variable",
     "name": "req"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 406,
+    "line": 306,
     "kind": "local-variable",
     "name": "rec"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 411,
+    "line": 315,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 315,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 317,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 321,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 322,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 324,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 329,
+    "kind": "local-variable",
+    "name": "rec2"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 334,
+    "kind": "var",
+    "name": "arr"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 348,
+    "kind": "function",
+    "name": "TestCookieRuntimeStatusWithAuth"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 349,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 349,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 351,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 353,
+    "kind": "local-variable",
+    "name": "loginReq"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 354,
+    "kind": "local-variable",
+    "name": "loginRec"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 356,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 358,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 360,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 365,
+    "kind": "var",
+    "name": "statuses"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 366,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 376,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 376,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 378,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 380,
+    "kind": "local-variable",
+    "name": "body"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 381,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 382,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 384,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 388,
+    "kind": "local-variable",
+    "name": "req2"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 390,
+    "kind": "local-variable",
+    "name": "rec2"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 399,
+    "kind": "local-variable",
+    "name": "rec3"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 408,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 408,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 410,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 412,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 413,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 423,
+    "kind": "function",
+    "name": "TestHealthReportsUnavailableDatabase"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 424,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 424,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 424,
+    "kind": "local-variable",
+    "name": "store"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 426,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 429,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 430,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 431,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/server_test.go",
+    "line": 436,
     "kind": "var",
     "name": "response"
   },
   {
     "file": "internal/server/server_test.go",
-    "line": 412,
+    "line": 437,
     "kind": "local-variable",
     "name": "err"
   },

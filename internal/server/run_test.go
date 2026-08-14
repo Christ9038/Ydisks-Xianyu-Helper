@@ -101,3 +101,59 @@ func TestPublishRecoveryLifecycleStopsBeforeWorkerWait(t *testing.T) {
 		t.Fatal("批量发布恢复扫描器关闭后没有退出")
 	}
 }
+
+// TestNewRejectsMissingRequiredDependencies 确保 HTTP 服务构造阶段拒绝缺失核心依赖。
+func TestNewRejectsMissingRequiredDependencies(t *testing.T) {
+	// err 是缺少 Store 时的构造校验错误。
+	if _, err := New(nil, nil, false, "", ":0", nil, nil, nil); err == nil {
+		t.Fatal("缺少 db.Store 时应返回构造错误")
+	}
+	// srv 是用于提供合法 Store 的测试服务；cleanup 负责释放测试数据库。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	if srv == nil {
+		t.Fatal("测试服务不应为空")
+	}
+	// err 是缺少 Manager 时的构造校验错误。
+	if _, err := New(srv.Store, nil, false, "", ":0", nil, nil, nil); err == nil {
+		t.Fatal("缺少 account.Manager 时应返回构造错误")
+	}
+}
+
+// TestServerStartStopIsIdempotentAndWaitsForWorkers 验证 Start/Stop 可重复调用且 Stop 等待 worker。
+func TestServerStartStopIsIdempotentAndWaitsForWorkers(t *testing.T) {
+	// srv 是待验证幂等生命周期的 HTTP 服务；cleanup 负责释放测试资源。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.Addr = freeAddr(t)
+	if err := srv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := srv.Start(context.Background()); err != nil {
+		t.Fatalf("重复 Start: %v", err)
+	}
+	// workerDone 是模拟批量发布 worker 完成时调用的释放函数。
+	workerDone := srv.beginWorker()
+	// stopDone 是显式 Stop 完成时关闭的测试信号。
+	stopDone := make(chan struct{})
+	go func() {
+		// 显式停止过程的错误不影响本测试对等待语义的判断。
+		_ = srv.Stop(context.Background())
+		close(stopDone)
+	}()
+	select {
+	case <-stopDone:
+		t.Fatal("Stop 在 worker 完成前提前返回")
+	case <-time.After(50 * time.Millisecond):
+	}
+	workerDone()
+	select {
+	case <-stopDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Stop 未在 worker 完成后返回")
+	}
+	// err 是重复 Stop 返回的关闭错误。
+	if err := srv.Stop(context.Background()); err != nil {
+		t.Fatalf("重复 Stop: %v", err)
+	}
+}

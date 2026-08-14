@@ -16,10 +16,8 @@ import (
 )
 
 func TestChatHistoryAndAccountTaskSettingsEndpoints(t *testing.T) {
-	srv, store, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServerWithChat(t)
 	defer cleanup()
-	service := chat.New(store)
-	srv.SetChatService(service)
 	handler := srv.Router()
 	cookie := loginHelper(t, handler)
 
@@ -62,10 +60,9 @@ func TestChatHistoryAndAccountTaskSettingsEndpoints(t *testing.T) {
 }
 
 func TestChatWebSocketStreamsOnlyAuthenticatedAccountEvents(t *testing.T) {
-	srv, store, cleanup := newTestServer(t)
+	srv, _, cleanup := newTestServerWithChat(t)
 	defer cleanup()
-	service := chat.New(store)
-	srv.SetChatService(service)
+	service := srv.chat
 	handler := srv.Router()
 	cookie := loginHelper(t, handler)
 	httpServer := httptest.NewServer(handler)
@@ -95,9 +92,8 @@ func TestChatWebSocketStreamsOnlyAuthenticatedAccountEvents(t *testing.T) {
 }
 
 func TestChatAndTaskEndpointsEnforceOwnershipAndValidation(t *testing.T) {
-	srv, _, cleanup := newTestServer(t)
+	srv, _, cleanup := newTestServerWithChat(t)
 	defer cleanup()
-	srv.SetChatService(chat.New(srv.Store))
 	handler := srv.Router()
 	cookie := loginHelper(t, handler)
 

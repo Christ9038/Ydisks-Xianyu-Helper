@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"xianyu-go/internal/account"
 	"xianyu-go/internal/adapter"
@@ -278,15 +279,27 @@ func runServer(parent context.Context, opts serverOptions) error {
 	renewalScheduler := renewal.NewScheduler(store, mgr, ap, logger, notifier)
 	go renewalScheduler.Run(ctx)
 
-	srv := server.New(store, mgr, opts.secure, opts.webDir, opts.addr, logger, autoCenter, notifier)
-	srv.SetChatService(chatService)
+	// srv 是完成依赖校验并注入聊天服务后的 HTTP 应用实例。
+	srv, err := server.New(store, mgr, opts.secure, opts.webDir, opts.addr, logger, autoCenter, notifier, server.WithChatService(chatService))
+	if err != nil {
+		return fmt.Errorf("构造 HTTP 服务失败: %w", err)
+	}
 	srv.StartPublishBatchRecovery(ctx)
-	runErr := srv.Run(ctx)
+	// err 是 HTTP 服务显式启动失败的原因。
+	if err := srv.Start(ctx); err != nil {
+		return fmt.Errorf("启动 HTTP 服务失败: %w", err)
+	}
+	// runErr 是 HTTP 监听退出时返回的错误。
+	runErr := srv.Wait()
 	if runErr != nil {
 		logger.Error("HTTP 服务退出", "err", runErr)
 	}
 	cancel()
-	srv.WaitForBackground()
+	// stopCtx 是关闭 HTTP 服务及其后台 worker 的有限等待上下文。
+	// stopCancel 释放 stopCtx 的定时器资源。
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	_ = srv.Stop(stopCtx)
+	stopCancel()
 	automationScheduler.Wait()
 	renewalScheduler.Wait()
 	mgr.StopAll()

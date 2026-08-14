@@ -6,6 +6,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -54,6 +55,9 @@ type publishBatchWorker struct {
 	cancel context.CancelFunc
 }
 
+// ServerOption 是 Server 构造阶段应用可选依赖的配置函数。
+type ServerOption func(*Server)
+
 // Server 聚合 HTTP 服务依赖。Automation 与 Notifier 由构造函数注入，
 // 不再允许外部直接改字段，避免运行时被替换成 nil。
 type Server struct {
@@ -72,14 +76,20 @@ type Server struct {
 	// applications 保存统一装配的应用服务实例。
 	applications *applicationServices
 
-	publishMu      sync.Mutex
-	publishCancels map[string]publishBatchWorker
-	workerMu       sync.Mutex
-	workerCount    int
-	workersDone    chan struct{}
-	backgroundWG   sync.WaitGroup
-	lifecycleMu    sync.RWMutex
-	lifecycleCtx   context.Context
+	publishMu       sync.Mutex
+	publishCancels  map[string]publishBatchWorker
+	workerMu        sync.Mutex
+	workerCount     int
+	workersDone     chan struct{}
+	backgroundWG    sync.WaitGroup
+	lifecycleMu     sync.RWMutex
+	lifecycleCtx    context.Context
+	lifecycleCancel context.CancelFunc
+	httpServer      *http.Server
+	httpDone        chan struct{}
+	httpErr         error
+	started         bool
+	stopped         bool
 
 	qrMu        sync.Mutex
 	qrPersisted map[string]qrLoginPersistence
@@ -91,16 +101,29 @@ type Server struct {
 	initializationMu sync.Mutex
 }
 
-// SetChatService installs the shared chat persistence and live event hub.
-func (s *Server) SetChatService(service *chat.Service) { s.chat = service }
+// WithChatService 注入聊天持久化与实时事件中心。
+func WithChatService(service *chat.Service) ServerOption {
+	return func(server *Server) {
+		// server 是当前构造流程中待注入聊天服务的 HTTP 服务实例。
+		server.chat = service
+	}
+}
 
-// New 构造。autoCenter/notifier 由调用方完成创建后注入（创建顺序：
-// adapter → manager → automation → notifier → server）。
-func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr string, logger *slog.Logger, autoCenter *automation.Center, notifier *notify.Notifier) *Server {
+// New 构造并校验 HTTP 服务所需依赖。autoCenter/notifier 由调用方完成创建后注入
+// （创建顺序：adapter → manager → automation → notifier → server）。
+func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr string, logger *slog.Logger, autoCenter *automation.Center, notifier *notify.Notifier, options ...ServerOption) (*Server, error) {
+	if store == nil {
+		return nil, fmt.Errorf("server 依赖 db.Store 不能为空")
+	}
+	if manager == nil {
+		return nil, fmt.Errorf("server 依赖 account.Manager 不能为空")
+	}
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
+	// qrMgr 是二维码登录流程使用的默认会话管理器。
 	qrMgr := qrlogin.NewManager(logger)
+	// server 是完成依赖装配、等待应用服务初始化后的 HTTP 服务实例。
 	server := &Server{
 		Store:       store,
 		Auth:        &auth.Service{Store: store, Logger: logger, Secure: secure},
@@ -121,8 +144,14 @@ func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr st
 		qrOwners:       make(map[string]qrLoginOwner),
 		loginLimiter:   newLoginFailureLimiter(),
 	}
+	for _, option := range options {
+		// option 是当前构造调用提供的可选依赖配置。
+		if option != nil {
+			option(server)
+		}
+	}
 	server.applications = newApplicationServices(server)
-	return server
+	return server, nil
 }
 
 // mtopClient 返回注入的 mtop 客户端；未注入时退回默认 HTTP 实现（保证零值可用）。
@@ -380,12 +409,22 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 
 // 各分组 mount*Real 方法在 handlers 文件中实现；为避免单文件过大，按业务域分文件。
 
-// Run 启动 HTTP 服务（阻塞）。
-func (s *Server) Run(ctx context.Context) error {
+// Start 启动 HTTP 服务及其生命周期监听。重复调用不会重复监听端口。
+func (s *Server) Start(ctx context.Context) error {
+	if s == nil {
+		return fmt.Errorf("server 不能为空")
+	}
+	// ctx 是控制 HTTP 服务及其后台任务的进程级生命周期上下文。
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.lifecycleMu.Lock()
-	s.lifecycleCtx = ctx
-	s.lifecycleMu.Unlock()
-	srv := &http.Server{
+	if s.started {
+		s.lifecycleMu.Unlock()
+		return nil
+	}
+	// httpServer 是本次启动创建的标准库 HTTP 监听器。
+	httpServer := &http.Server{
 		Addr:              s.Addr,
 		Handler:           s.Router(),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -394,20 +433,124 @@ func (s *Server) Run(ctx context.Context) error {
 		WriteTimeout: 2 * time.Minute,
 		IdleTimeout:  2 * time.Minute,
 	}
-	// 关闭任务由传入的服务生命周期上下文控制，并登记到统一后台生命周期。
-	s.startBackgroundTask("HTTP 服务关闭", func() {
-		<-ctx.Done()
-		shCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// lifecycleCtx 是 Server 内部可取消的生命周期上下文。
+	// lifecycleCancel 是触发 Server 生命周期收束的取消函数。
+	lifecycleCtx, lifecycleCancel := context.WithCancel(ctx)
+	s.lifecycleCtx = lifecycleCtx
+	s.lifecycleCancel = lifecycleCancel
+	s.httpServer = httpServer
+	s.httpDone = make(chan struct{})
+	s.httpErr = nil
+	s.started = true
+	s.stopped = false
+	// httpDone 是 HTTP 监听 goroutine 结束时关闭的完成信号。
+	httpDone := s.httpDone
+	s.lifecycleMu.Unlock()
+
+	// 生命周期上下文取消时触发统一 Stop；该 goroutine 不登记到后台任务组，
+	// 避免 Stop 等待自身造成死锁。
+	go func() {
+		<-lifecycleCtx.Done()
+		// stopCtx 是自动关闭 HTTP 服务时使用的有限时长上下文。
+		// cancel 释放 stopCtx 的定时器资源。
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := srv.Shutdown(shCtx); err != nil {
+		if err := s.Stop(stopCtx); err != nil && s.Logger != nil {
 			s.Logger.Warn("HTTP 服务关闭异常", "err", err)
 		}
-	})
-	s.Logger.Info("HTTP 服务启动", "addr", s.Addr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	}()
+	go func() {
+		s.Logger.Info("HTTP 服务启动", "addr", s.Addr)
+		// err 是 HTTP 监听器退出时返回的原始错误。
+		err := httpServer.ListenAndServe()
+		if err == http.ErrServerClosed {
+			err = nil
+		}
+		s.lifecycleMu.Lock()
+		s.httpErr = err
+		s.lifecycleMu.Unlock()
+		close(httpDone)
+	}()
+	return nil
+}
+
+// Wait 等待 HTTP 服务结束，并返回监听或关闭错误。
+func (s *Server) Wait() error {
+	if s == nil {
+		return nil
+	}
+	s.lifecycleMu.RLock()
+	// httpDone 是 HTTP 监听 goroutine 的完成信号。
+	httpDone := s.httpDone
+	s.lifecycleMu.RUnlock()
+	if httpDone == nil {
+		return fmt.Errorf("server 尚未启动")
+	}
+	<-httpDone
+	s.lifecycleMu.RLock()
+	// err 是监听 goroutine 记录的退出错误。
+	err := s.httpErr
+	s.lifecycleMu.RUnlock()
+	return err
+}
+
+// Stop 幂等关闭 HTTP 服务，并等待 Server 自有后台任务和批量 worker 退出。
+func (s *Server) Stop(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	// ctx 是限制 HTTP 优雅关闭等待时间的上下文。
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.lifecycleMu.Lock()
+	if !s.started {
+		s.lifecycleMu.Unlock()
+		return nil
+	}
+	if s.stopped {
+		// httpDone 是已进入停止流程的 HTTP 监听完成信号。
+		httpDone := s.httpDone
+		s.lifecycleMu.Unlock()
+		if httpDone != nil {
+			<-httpDone
+		}
+		s.backgroundWG.Wait()
+		s.waitForWorkers(0)
+		return nil
+	}
+	s.stopped = true
+	// httpServer 是需要执行优雅关闭的标准库 HTTP 服务。
+	// httpDone 是监听 goroutine 退出的完成信号。
+	// lifecycleCancel 是取消 Server 内部生命周期上下文的函数。
+	httpServer := s.httpServer
+	httpDone := s.httpDone
+	lifecycleCancel := s.lifecycleCancel
+	s.lifecycleMu.Unlock()
+
+	if lifecycleCancel != nil {
+		lifecycleCancel()
+	}
+	// shutdownErr 是 HTTP 优雅关闭返回的错误；后台等待错误由 worker 自身记录。
+	var shutdownErr error
+	if httpServer != nil {
+		shutdownErr = httpServer.Shutdown(ctx)
+	}
+	if httpDone != nil {
+		<-httpDone
+	}
+	s.backgroundWG.Wait()
+	s.waitForWorkers(0)
+	return shutdownErr
+}
+
+// Run 启动并阻塞等待 HTTP 服务结束，兼容旧的进程入口调用方式。
+func (s *Server) Run(ctx context.Context) error {
+	// err 是显式启动阶段返回的构造或监听准备错误。
+	if err := s.Start(ctx); err != nil {
 		return err
 	}
-	return nil
+	return s.Wait()
 }
 
 // WaitForBackground 等待恢复扫描器先退出，再等待其已经登记的批量 worker。
@@ -469,6 +612,10 @@ func (s *Server) waitForWorkers(timeout time.Duration) {
 	s.workerMu.Lock()
 	done := s.workersDone
 	s.workerMu.Unlock()
+	if timeout <= 0 {
+		<-done
+		return
+	}
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {
