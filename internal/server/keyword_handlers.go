@@ -34,9 +34,9 @@ func (s *Server) listKeywords(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	out := make([]map[string]any, 0, len(rows))
+	out := make([]keywordBasicResponse, 0, len(rows))
 	for _, k := range rows {
-		out = append(out, map[string]any{"keyword": k.Keyword, "reply": k.Reply})
+		out = append(out, keywordBasicResponse{Keyword: k.Keyword, Reply: k.Reply})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -51,9 +51,9 @@ func (s *Server) listKeywordsWithItemID(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	out := make([]map[string]any, 0, len(rows))
+	out := make([]keywordItemResponse, 0, len(rows))
 	for _, k := range rows {
-		out = append(out, map[string]any{"keyword": k.Keyword, "reply": k.Reply, "item_id": k.ItemID})
+		out = append(out, keywordItemResponse{Keyword: k.Keyword, Reply: k.Reply, ItemID: k.ItemID})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -68,11 +68,11 @@ func (s *Server) listKeywordsWithType(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	out := make([]map[string]any, 0, len(rows))
+	out := make([]keywordTypedResponse, 0, len(rows))
 	for _, k := range rows {
-		out = append(out, map[string]any{
-			"id": k.ID, "keyword": k.Keyword, "reply": k.Reply, "item_id": k.ItemID,
-			"type": k.Type, "image_url": k.ImageURL,
+		out = append(out, keywordTypedResponse{
+			ID: k.ID, Keyword: k.Keyword, Reply: k.Reply, ItemID: k.ItemID,
+			Type: k.Type, ImageURL: k.ImageURL,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -99,7 +99,7 @@ func (s *Server) addKeyword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "添加失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) addKeywordWithItemID(w http.ResponseWriter, r *http.Request) {
@@ -166,7 +166,7 @@ func (s *Server) addKeywordWithItemID(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, "保存失败")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"success": true})
+		writeJSON(w, http.StatusOK, operationResponse{Success: true})
 		return
 	}
 	if strings.TrimSpace(req.Keyword) == "" {
@@ -199,7 +199,7 @@ func (s *Server) addKeywordWithItemID(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "添加失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "id": id})
+	writeJSON(w, http.StatusOK, mutationIDResponse{Success: true, ID: id})
 }
 
 func (s *Server) updateKeywordByID(w http.ResponseWriter, r *http.Request) {
@@ -256,7 +256,7 @@ func (s *Server) updateKeywordByID(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) deleteKeywordByID(w http.ResponseWriter, r *http.Request) {
@@ -273,7 +273,7 @@ func (s *Server) deleteKeywordByID(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "关键字不存在")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) deleteKeyword(w http.ResponseWriter, r *http.Request) {
@@ -286,7 +286,7 @@ func (s *Server) deleteKeyword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "关键字不存在")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 // ---- 指定商品回复 ----
@@ -300,12 +300,12 @@ func (s *Server) mountItemRepliesReal(r chi.Router) {
 func (s *Server) listItemReplies(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	cookieIDs, _ := s.Store.Cookies.ListOwnedIDs(r.Context(), sess.UserID) // cookieIDs 是当前用户拥有的账号 ID。
-	var result []map[string]any
+	var result []itemReplyResponse
 	for _, cid := range cookieIDs {
 		rows, _ := s.Store.ItemReps.AllForUser(r.Context(), cid)
 		for _, ir := range rows {
-			result = append(result, map[string]any{
-				"item_id": ir.ItemID, "cookie_id": ir.CookieID, "reply_content": ir.ReplyContent,
+			result = append(result, itemReplyResponse{
+				ItemID: ir.ItemID, CookieID: ir.CookieID, ReplyContent: ir.ReplyContent,
 			})
 		}
 	}
@@ -320,11 +320,11 @@ func (s *Server) getItemReply(w http.ResponseWriter, r *http.Request) {
 	itemID := chi.URLParam(r, "item_id")
 	ir, err := s.Store.ItemReps.Get(r.Context(), cid, itemID)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"reply_content": ""})
+		writeJSON(w, http.StatusOK, itemReplyResponse{ReplyContent: ""})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"item_id": ir.ItemID, "cookie_id": ir.CookieID, "reply_content": ir.ReplyContent,
+	writeJSON(w, http.StatusOK, itemReplyResponse{
+		ItemID: ir.ItemID, CookieID: ir.CookieID, ReplyContent: ir.ReplyContent,
 	})
 }
 
@@ -345,7 +345,7 @@ func (s *Server) setItemReply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) deleteItemReply(w http.ResponseWriter, r *http.Request) {
@@ -358,5 +358,5 @@ func (s *Server) deleteItemReply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }

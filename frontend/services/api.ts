@@ -3,8 +3,8 @@ import {
   LoginResponse, AccountDetail, AccountSummaryResponse, Order, PaginatedResponse,
   AdminStats, DashboardStats, Card, SystemSettings, ApiResponse, OrderAnalytics,
   Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
-  NotificationChannel, NotificationEventType, AccountTaskSettings, AccountTaskSummary, ChatSession, ChatMessage,
-  CookieSettingsResponse, CookieProfileResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse
+  NotificationChannel, NotificationEventType, AccountTaskSettings, ChatSession, ChatMessage,
+  CookieSettingsResponse, CookieProfileResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope
 } from '../types';
 import { formatLocalDate } from '../dateRange';
 
@@ -97,13 +97,13 @@ export const getAccountDetails = async (options?: RequestControlOptions): Promis
   }));
 };
 
-export const getAccountTaskSettings = async (id: string): Promise<AccountTaskSettings> =>
+export const getAccountTaskSettings = async (id: string): Promise<AccountTaskSettingsResponse> =>
 	get(`/api/account-tasks/${id}`);
 
-export const updateAccountTaskSettings = async (id: string, settings: AccountTaskSettings): Promise<AccountTaskSettings> =>
+export const updateAccountTaskSettings = async (id: string, settings: AccountTaskSettings): Promise<AccountTaskSettingsResponse> =>
 	put(`/api/account-tasks/${id}`, settings);
 
-export const runAccountTask = async (id: string, taskType: 'auto_rate' | 'auto_polish'): Promise<{success: boolean; summary: AccountTaskSummary}> =>
+export const runAccountTask = async (id: string, taskType: 'auto_rate' | 'auto_polish'): Promise<AccountTaskRunResponseEnvelope> =>
 	post(`/api/account-tasks/${id}/run`, { task_type: taskType }, { timeoutMs: 120_000 });
 
 export interface ChatSessionPage { sessions: ChatSession[]; has_more: boolean; next_cursor?: number }
@@ -841,7 +841,7 @@ const normalizeKeywordRow = (item: any): KeywordRowPayload => ({
 });
 
 const getKeywordRowsWithType = async (cookieId: string): Promise<KeywordRowPayload[]> => {
-    const existing = await get<any>(`/keywords-with-type/${cookieId}`);
+    const existing = await get<KeywordTypedResponse[]>(`/keywords-with-type/${cookieId}`);
     return Array.isArray(existing) ? existing.map(normalizeKeywordRow) : [];
 };
 
@@ -860,7 +860,7 @@ export const getReplyRules = async (cookieId?: string): Promise<ReplyRule[]> => 
     }));
 }
 
-export const updateReplyRule = async (rule: Partial<ReplyRule>, cookieId: string): Promise<any> => {
+export const updateReplyRule = async (rule: Partial<ReplyRule>, cookieId: string): Promise<OperationResponse> => {
 	const type = rule.type || 'text';
 	const payload = {
 		keyword: rule.keyword || '',
@@ -874,7 +874,7 @@ export const updateReplyRule = async (rule: Partial<ReplyRule>, cookieId: string
 		: post(`/keywords-with-item-id/${cookieId}`, payload);
 }
 
-export const deleteReplyRule = async (id: string, cookieId: string): Promise<any> => {
+export const deleteReplyRule = async (id: string, cookieId: string): Promise<OperationResponse> => {
 	return del(`/keywords-with-type/${cookieId}/${id}`);
 }
 
@@ -1025,12 +1025,12 @@ export const testNotificationChannel = async (channelId: string): Promise<Operat
 }
 
 // Default Reply
-export const getDefaultReplies = async (): Promise<Record<string, DefaultReply>> => {
-  return get('/api/default-replies');
+export const getDefaultReplies = async (): Promise<Record<string, DefaultReplyResponse>> => {
+	return get('/api/default-replies');
 };
 
 export const getDefaultReply = async (cookieId: string): Promise<DefaultReply> => {
-  const result = await get<any>(`/api/default-reply/${cookieId}`);
+	const result = await get<DefaultReplyResponse>(`/api/default-reply/${cookieId}`);
   return {
     cookie_id: cookieId,
     enabled: result.enabled || false,
@@ -1040,7 +1040,7 @@ export const getDefaultReply = async (cookieId: string): Promise<DefaultReply> =
   };
 };
 
-export const updateDefaultReply = async (cookieId: string, data: Partial<DefaultReply>): Promise<ApiResponse> => {
+export const updateDefaultReply = async (cookieId: string, data: Partial<DefaultReply>): Promise<OperationResponse> => {
   return put(`/api/default-reply/${cookieId}`, {
     enabled: data.enabled ?? false,
     reply_content: data.reply_content || '',
@@ -1049,10 +1049,10 @@ export const updateDefaultReply = async (cookieId: string, data: Partial<Default
   });
 };
 
-export const deleteDefaultReply = async (cookieId: string): Promise<ApiResponse> => {
+export const deleteDefaultReply = async (cookieId: string): Promise<OperationResponse> => {
   return del(`/api/default-reply/${cookieId}`);
 };
 
-export const clearDefaultReplyRecords = async (cookieId: string): Promise<ApiResponse> => {
+export const clearDefaultReplyRecords = async (cookieId: string): Promise<OperationResponse> => {
   return post(`/api/default-reply/${cookieId}/clear-records`, {});
 };

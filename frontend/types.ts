@@ -966,3 +966,113 @@ export interface CardListResponse {
   /** 当前用户卡券列表。 */
   cards: Card[];
 }
+
+/** 传统关键词列表项响应。 */
+export interface KeywordBasicResponse {
+  /** 匹配关键词。 */
+  keyword: string;
+  /** 文字回复内容。 */
+  reply: string;
+}
+
+/** 带商品范围的关键词列表项响应。 */
+export interface KeywordItemResponse extends KeywordBasicResponse {
+  /** 限定的商品标识。 */
+  item_id: string;
+}
+
+/** 带类型和主键的关键词列表项响应。 */
+export interface KeywordTypedResponse extends KeywordItemResponse {
+  /** 关键词规则主键。 */
+  id: number;
+  /** 回复类型。 */
+  type: 'text' | 'image';
+  /** 图片回复地址。 */
+  image_url: string;
+}
+
+/** 指定商品回复项响应。 */
+export interface ItemReplyResponse {
+  /** 商品平台标识。 */
+  item_id?: string;
+  /** 账号稳定标识。 */
+  cookie_id?: string;
+  /** 指定商品的回复内容。 */
+  reply_content: string;
+}
+
+/** 默认回复查询响应。 */
+export interface DefaultReplyResponse extends DefaultReply {
+  /** 账号稳定标识。 */
+  cookie_id: string;
+}
+
+/** 账号任务设置响应。 */
+export interface AccountTaskSettingsResponse {
+  /** 账号稳定标识。 */
+  account_id: string;
+  /** 是否启用自动评价。 */
+  auto_rate_enabled: boolean;
+  /** 自动评价文案。 */
+  rate_content: string;
+  /** 是否启用自动擦亮。 */
+  auto_polish_enabled: boolean;
+  /** 自动擦亮本地时间。 */
+  polish_time: string;
+  /** 最近一次评价扫描时间。 */
+  last_rate_scan_at: number;
+  /** 最近一次擦亮日期。 */
+  last_polish_date: string;
+  /** 最近一次擦亮时间。 */
+  last_polish_at: number;
+}
+
+/** 账号任务执行记录响应。 */
+export interface AccountTaskRunResponse {
+  /** 任务执行记录主键。 */
+  id: number;
+  /** 任务幂等键。 */
+  run_key: string;
+  /** 账号稳定标识。 */
+  account_id: string;
+  /** 任务类型。 */
+  task_type: string;
+  /** 任务目标标识。 */
+  target_id: string;
+  /** 任务业务日期。 */
+  run_date: string;
+  /** 任务执行状态。 */
+  status: string;
+  /** 任务成功数量。 */
+  success_count: number;
+  /** 任务失败数量。 */
+  failed_count: number;
+  /** 任务失败说明。 */
+  error_message: string;
+  /** 下一次重试时间。 */
+  next_retry_at: number;
+  /** 任务开始时间。 */
+  started_at: number;
+  /** 任务完成时间。 */
+  finished_at: number;
+}
+
+/** 账号任务执行记录列表响应。 */
+export interface AccountTaskRunsResponse {
+  /** 当前账号的任务执行记录。 */
+  runs: AccountTaskRunResponse[];
+}
+
+/** 手动执行账号任务的统计响应。 */
+export interface AccountTaskSummaryResponse extends AccountTaskSummary {
+  /** 任务结果说明。 */
+  message?: string;
+}
+
+/** 手动执行账号任务的成功响应。 */
+export interface AccountTaskRunResponseEnvelope {
+  /** 任务请求是否成功完成。 */
+  success: boolean;
+  /** 账号任务执行统计。 */
+  summary: AccountTaskSummaryResponse;
+}

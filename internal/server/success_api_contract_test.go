@@ -370,3 +370,150 @@ func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
 		t.Fatalf("batch response=%+v", batchResponse)
 	}
 }
+
+// TestReplyAndAccountTaskSuccessResponseContracts 验证回复规则、默认回复和账号任务成功响应的具名 DTO。
+func TestReplyAndAccountTaskSuccessResponseContracts(t *testing.T) {
+	// srv 是用于验证回复和账号任务响应的 HTTP 测试服务。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是当前测试使用的完整路由树。
+	handler := srv.Router()
+	// sessionCookie 是管理员登录后得到的认证会话。
+	sessionCookie := loginHelper(t, handler)
+
+	// keywordReq 是创建带商品范围关键词的请求。
+	keywordReq := httptest.NewRequest(http.MethodPost, "/keywords-with-item-id/acc1", strings.NewReader(`{"keyword":"契约关键词","reply":"契约回复","item_id":"contract-item"}`))
+	keywordReq.Header.Set("Content-Type", "application/json")
+	keywordReq.AddCookie(sessionCookie)
+	// keywordRecorder 是捕获关键词创建响应的记录器。
+	keywordRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(keywordRecorder, keywordReq)
+	if keywordRecorder.Code != http.StatusOK {
+		t.Fatalf("keyword status=%d body=%s", keywordRecorder.Code, keywordRecorder.Body.String())
+	}
+	// keywordResponse 是关键词创建具名响应 DTO。
+	var keywordResponse mutationIDResponse
+	// keywordDecodeErr 是关键词创建响应 JSON 反序列化失败的原因。
+	if keywordDecodeErr := json.Unmarshal(keywordRecorder.Body.Bytes(), &keywordResponse); keywordDecodeErr != nil {
+		t.Fatalf("decode keyword response: %v", keywordDecodeErr)
+	}
+	if !keywordResponse.Success || keywordResponse.ID == 0 {
+		t.Fatalf("keyword response=%+v", keywordResponse)
+	}
+
+	// keywordListReq 是读取带类型关键词列表的请求。
+	keywordListReq := httptest.NewRequest(http.MethodGet, "/keywords-with-type/acc1", nil)
+	keywordListReq.AddCookie(sessionCookie)
+	// keywordListRecorder 是捕获关键词列表响应的记录器。
+	keywordListRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(keywordListRecorder, keywordListReq)
+	if keywordListRecorder.Code != http.StatusOK {
+		t.Fatalf("keyword list status=%d body=%s", keywordListRecorder.Code, keywordListRecorder.Body.String())
+	}
+	// keywordListResponse 是关键词列表具名响应 DTO 列表。
+	var keywordListResponse []keywordTypedResponse
+	// keywordListDecodeErr 是关键词列表响应 JSON 反序列化失败的原因。
+	if keywordListDecodeErr := json.Unmarshal(keywordListRecorder.Body.Bytes(), &keywordListResponse); keywordListDecodeErr != nil {
+		t.Fatalf("decode keyword list response: %v", keywordListDecodeErr)
+	}
+	if len(keywordListResponse) != 1 || keywordListResponse[0].ItemID != "contract-item" {
+		t.Fatalf("keyword list response=%+v", keywordListResponse)
+	}
+
+	// itemReplyReq 是保存指定商品回复的请求。
+	itemReplyReq := httptest.NewRequest(http.MethodPut, "/item-reply/acc1/contract-item", strings.NewReader(`{"reply_content":"商品契约回复"}`))
+	itemReplyReq.Header.Set("Content-Type", "application/json")
+	itemReplyReq.AddCookie(sessionCookie)
+	// itemReplyRecorder 是捕获指定商品回复响应的记录器。
+	itemReplyRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(itemReplyRecorder, itemReplyReq)
+	if itemReplyRecorder.Code != http.StatusOK {
+		t.Fatalf("item reply status=%d body=%s", itemReplyRecorder.Code, itemReplyRecorder.Body.String())
+	}
+	// itemReplyResponse 是指定商品回复变更具名响应 DTO。
+	var itemReplyResponse operationResponse
+	// itemReplyDecodeErr 是指定商品回复响应 JSON 反序列化失败的原因。
+	if itemReplyDecodeErr := json.Unmarshal(itemReplyRecorder.Body.Bytes(), &itemReplyResponse); itemReplyDecodeErr != nil {
+		t.Fatalf("decode item reply response: %v", itemReplyDecodeErr)
+	}
+	if !itemReplyResponse.Success {
+		t.Fatalf("item reply response=%+v", itemReplyResponse)
+	}
+
+	// defaultReplyReq 是保存默认回复的请求。
+	defaultReplyReq := httptest.NewRequest(http.MethodPut, "/api/default-reply/acc1", strings.NewReader(`{"enabled":true,"reply_content":"默认契约回复","reply_once":true,"reply_image_url":""}`))
+	defaultReplyReq.Header.Set("Content-Type", "application/json")
+	defaultReplyReq.AddCookie(sessionCookie)
+	// defaultReplyRecorder 是捕获默认回复响应的记录器。
+	defaultReplyRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(defaultReplyRecorder, defaultReplyReq)
+	if defaultReplyRecorder.Code != http.StatusOK {
+		t.Fatalf("default reply status=%d body=%s", defaultReplyRecorder.Code, defaultReplyRecorder.Body.String())
+	}
+	// defaultReplyResponseValue 是默认回复变更具名响应 DTO。
+	var defaultReplyResponseValue operationResponse
+	// defaultReplyDecodeErr 是默认回复响应 JSON 反序列化失败的原因。
+	if defaultReplyDecodeErr := json.Unmarshal(defaultReplyRecorder.Body.Bytes(), &defaultReplyResponseValue); defaultReplyDecodeErr != nil {
+		t.Fatalf("decode default reply response: %v", defaultReplyDecodeErr)
+	}
+	if !defaultReplyResponseValue.Success {
+		t.Fatalf("default reply response=%+v", defaultReplyResponseValue)
+	}
+
+	// defaultReplyGetReq 是读取默认回复的请求。
+	defaultReplyGetReq := httptest.NewRequest(http.MethodGet, "/api/default-reply/acc1", nil)
+	defaultReplyGetReq.AddCookie(sessionCookie)
+	// defaultReplyGetRecorder 是捕获默认回复查询响应的记录器。
+	defaultReplyGetRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(defaultReplyGetRecorder, defaultReplyGetReq)
+	if defaultReplyGetRecorder.Code != http.StatusOK {
+		t.Fatalf("default reply get status=%d body=%s", defaultReplyGetRecorder.Code, defaultReplyGetRecorder.Body.String())
+	}
+	// defaultReplyGetResponse 是默认回复查询具名响应 DTO。
+	var defaultReplyGetResponse defaultReplyResponse
+	// defaultReplyGetDecodeErr 是默认回复查询响应 JSON 反序列化失败的原因。
+	if defaultReplyGetDecodeErr := json.Unmarshal(defaultReplyGetRecorder.Body.Bytes(), &defaultReplyGetResponse); defaultReplyGetDecodeErr != nil {
+		t.Fatalf("decode default reply get response: %v", defaultReplyGetDecodeErr)
+	}
+	if !defaultReplyGetResponse.Enabled || defaultReplyGetResponse.ReplyContent != "默认契约回复" {
+		t.Fatalf("default reply get response=%+v", defaultReplyGetResponse)
+	}
+
+	// taskSettingsReq 是读取账号任务设置的请求。
+	taskSettingsReq := httptest.NewRequest(http.MethodGet, "/api/account-tasks/acc1", nil)
+	taskSettingsReq.AddCookie(sessionCookie)
+	// taskSettingsRecorder 是捕获账号任务设置响应的记录器。
+	taskSettingsRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(taskSettingsRecorder, taskSettingsReq)
+	if taskSettingsRecorder.Code != http.StatusOK {
+		t.Fatalf("task settings status=%d body=%s", taskSettingsRecorder.Code, taskSettingsRecorder.Body.String())
+	}
+	// taskSettingsResponse 是账号任务设置具名响应 DTO。
+	var taskSettingsResponse accountTaskSettingsResponse
+	// taskSettingsDecodeErr 是账号任务设置响应 JSON 反序列化失败的原因。
+	if taskSettingsDecodeErr := json.Unmarshal(taskSettingsRecorder.Body.Bytes(), &taskSettingsResponse); taskSettingsDecodeErr != nil {
+		t.Fatalf("decode task settings response: %v", taskSettingsDecodeErr)
+	}
+	if taskSettingsResponse.AccountID != "acc1" {
+		t.Fatalf("task settings response=%+v", taskSettingsResponse)
+	}
+
+	// taskRunsReq 是读取账号任务执行记录的请求。
+	taskRunsReq := httptest.NewRequest(http.MethodGet, "/api/account-tasks/acc1/runs", nil)
+	taskRunsReq.AddCookie(sessionCookie)
+	// taskRunsRecorder 是捕获账号任务执行记录响应的记录器。
+	taskRunsRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(taskRunsRecorder, taskRunsReq)
+	if taskRunsRecorder.Code != http.StatusOK {
+		t.Fatalf("task runs status=%d body=%s", taskRunsRecorder.Code, taskRunsRecorder.Body.String())
+	}
+	// taskRunsResponse 是账号任务执行记录列表具名响应 DTO。
+	var taskRunsResponse accountTaskRunsResponse
+	// taskRunsDecodeErr 是账号任务执行记录响应 JSON 反序列化失败的原因。
+	if taskRunsDecodeErr := json.Unmarshal(taskRunsRecorder.Body.Bytes(), &taskRunsResponse); taskRunsDecodeErr != nil {
+		t.Fatalf("decode task runs response: %v", taskRunsDecodeErr)
+	}
+	if taskRunsResponse.Runs == nil {
+		t.Fatalf("task runs response=%+v", taskRunsResponse)
+	}
+}

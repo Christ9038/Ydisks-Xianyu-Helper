@@ -31,7 +31,7 @@ func (s *Server) getAccountTaskSettings(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusInternalServerError, "读取账号任务配置失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, settings)
+	writeJSON(w, http.StatusOK, newAccountTaskSettingsResponse(settings))
 }
 
 func (s *Server) updateAccountTaskSettings(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +64,7 @@ func (s *Server) updateAccountTaskSettings(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	stored, _ := s.Store.AccountTasks.Get(r.Context(), cid)
-	writeJSON(w, http.StatusOK, stored)
+	writeJSON(w, http.StatusOK, newAccountTaskSettingsResponse(stored))
 }
 
 func (s *Server) listAccountTaskRuns(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +78,7 @@ func (s *Server) listAccountTaskRuns(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "读取任务记录失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+	writeJSON(w, http.StatusOK, accountTaskRunsResponse{Runs: newAccountTaskRunResponses(runs)})
 }
 
 func (s *Server) runAccountTask(w http.ResponseWriter, r *http.Request) {
@@ -103,5 +103,5 @@ func (s *Server) runAccountTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "summary": summary})
+	writeJSON(w, http.StatusOK, accountTaskRunResponseEnvelope{Success: true, Summary: newAccountTaskSummaryResponse(summary)})
 }
