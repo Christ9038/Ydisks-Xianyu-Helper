@@ -41,6 +41,9 @@ jobs:
       - name: 检查中文注释
         run: go run ./tools/commentlint -mode check -root . -baseline .commentlint/go-baseline.json
 
+      - name: 检查架构依赖
+        run: go run ./tools/architecturecheck
+
       - name: 运行 go vet
         run: go vet ./...
 

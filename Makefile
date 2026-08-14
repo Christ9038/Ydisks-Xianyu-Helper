@@ -3,7 +3,7 @@
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
 
-.PHONY: build build-int build-browser-install build-tray test test-server test-server-race test-int vet lint cover tidy frontend fmt comments comments-baseline check
+.PHONY: build build-int build-browser-install build-tray test test-server test-server-race test-int vet lint architecture cover tidy frontend fmt comments comments-baseline check
 
 ## build: 编译 server（默认，跳过 integration build tag）
 build:
@@ -45,6 +45,10 @@ vet:
 lint:
 	$(GOLANGCI_LINT) run ./...
 
+## architecture: 检查 Go 低层依赖方向和 Server 事务边界
+architecture:
+	$(GO) run ./tools/architecturecheck
+
 ## cover: 生成覆盖率报告
 cover:
 	$(GO) test -coverprofile=cover.out ./... && $(GO) tool cover -func=cover.out | tail -1
@@ -73,4 +77,4 @@ comments-baseline:
 	node frontend/scripts/check-comments.mjs --mode baseline --root frontend --baseline .commentlint/frontend-baseline.json
 
 ## check: 本地提交前全套检查（fmt + vet + lint + test）
-check: fmt vet lint test comments
+check: fmt architecture vet lint test comments

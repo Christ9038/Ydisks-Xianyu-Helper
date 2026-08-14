@@ -96,14 +96,14 @@ app shell / routes
 | 4. Server 应用服务 | 已完成 | 订单、发布、登录、聊天纵向抽取 | 应用服务、事务边界、后台生命周期和 Server 查询依赖均已收口，handler 不再直接访问数据库 |
 | 5. 应用生命周期装配 | 已完成 | 消除必需依赖 setter 回填 | 构造验证与幂等关闭测试 |
 | 6. Engine 与 Automation | 已完成 | facade + 独立状态组件 | Engine/Automation 组件边界、race、生命周期与冻结规范测试均已通过 |
-| 7. React Feature 化 | 进行中 | 页面、Hook、API、类型按领域拆分 | 行为测试、懒加载和 bundle 记录 |
-| 8. DB 与事务治理 | 未开始 | 窄接口、事务执行器、方言门禁 | 上层无裸 DB，多数据库回归 |
-| 9. 架构门禁与兼容清理 | 未开始 | 自动依赖规则、删除到期兼容层 | 架构检查与迁移说明 |
+| 7. React Feature 化 | 已完成 | 页面、Hook、API、类型按领域拆分 | 领域 feature、行为测试、依赖门禁和构建门禁已完成 |
+| 8. DB 与事务治理 | 已完成 | 窄接口、事务执行器、方言门禁 | Chat、Automation、通知、分析、订单、发布、登录和事务边界已通过窄 repository 收口并完成 Server race |
+| 9. 架构门禁与兼容清理 | 进行中 | 自动依赖规则、删除到期兼容层 | `tools/architecturecheck` 已建立 Go 低层依赖与 Server 事务边界门禁 |
 | 10. 注释基线清零 | 未开始 | 全仓严格中文注释检查 | baseline 文件删除 |
 
 ### 当前执行入口
 
-- 当前阶段：阶段 7“React Feature 化”（进行中）；阶段 6 Engine 与 Automation、阶段 5 应用生命周期装配、阶段 4 Server 应用服务与阶段 3 HTTP API 契约已完成最终审计；
+- 当前阶段：阶段 9“架构门禁与兼容清理”（进行中）；阶段 7 React Feature 化和阶段 8 DB 与事务治理已完成切片收口，阶段 6 Engine 与 Automation、阶段 5 应用生命周期装配、阶段 4 Server 应用服务与阶段 3 HTTP API 契约已完成最终审计；
 - 已完成：总计划、依赖规则、中文注释规范、`AGENTS.md` 强约束，以及 Go/TypeScript AST 注释检查器和历史基线；
 - 阶段 1 已完成：server 测试模板预置管理员和账号 cookie，普通测试约 21.3 秒，完整 server race 约 194.3 秒通过；
 - 已完成阶段 2 逻辑切片一“Repository 敏感数据边界”：建立 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned`、`GetOwnerID`、`GetSummaryOwned` 和原子 `GetValueOwned`，覆盖跨用户、无效 user ID 及无效密文回归；
@@ -620,3 +620,4 @@ npm --prefix frontend run build
 | 2026-08-15 | 完成阶段 8 第八个 PR 切片“账号登录凭证与 Token repository 边界” | 新增 `accountLoginRepository`，账号登录服务的凭证创建/更新、Cookie Jar 元数据写回、凭证锁、Token 清理和运行状态读取统一通过窄接口；保留登录服务对资料刷新、登录审计和运行时重启的既有编排，未改变扫码幂等、Cookie 合并与凭证锁时序；Server 全量测试、Server race、Go vet、lint、注释和全量门禁通过并合并为一个可回滚提交 | 阶段 8：登录审计与资料刷新共享 repository 边界 |
 | 2026-08-15 | 完成阶段 8 第九个 PR 切片“登录审计与资料刷新共享 repository 边界” | 登录方式/状态、登录审计日志、账号资料更新、资料刷新凭证锁与平台视图读取统一通过 `accountLoginRepository`；运行时 Cookie 更新复用同一账号状态边界，移除无调用方的旧扁平 Cookie helper，保持 MTOP Cookie Jar 合并、资料刷新失败恢复和运行时唤醒语义不变；Server 全量测试、Server race、Go vet、lint、注释和全量门禁通过并合并为一个可回滚提交 | 阶段 8：数据库直连与事务边界最终审计 |
 | 2026-08-15 | 完成阶段 8 第十个 PR 切片“统一事务执行 repository 边界” | Server 统一事务入口不再直接持有 `Store.DB`，改由 `transactionRepository` 负责创建、提交和回滚事务；事务初始化失败、业务错误和提交失败均保持回滚语义，Server 依赖装配与事务回归测试已覆盖；Server 全量测试、Server race、Go vet、lint、注释和全量门禁通过并合并为一个可回滚提交 | 阶段 9：架构依赖门禁与数据库直连最终审计 |
+| 2026-08-15 | 完成阶段 9 第一个 PR 切片“Go/React 架构依赖门禁与数据库直连审计” | 新增 `tools/architecturecheck`，阻止 `internal/db`、`internal/xianyu`、`internal/browser` 反向依赖上层应用包，并阻止 Server 业务层直接创建事务；门禁接入 Makefile、CI 和 `make check`，同步更新阶段状态；架构检查、Go 全量测试、vet、lint、注释和前端注释门禁通过并合并为一个可回滚提交 | 阶段 9：兼容路由/字段调用方最终清理 |
