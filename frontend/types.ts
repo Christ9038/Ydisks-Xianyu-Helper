@@ -1238,3 +1238,139 @@ export interface QRLoginGenerateResponse {
   /** 可选的提示文本。 */
   message?: string;
 }
+
+/** 二维码登录状态响应。 */
+export interface QRLoginStatusResponse {
+  /** 当前二维码会话状态。 */
+  status: string;
+  /** 扫码登录会话标识。 */
+  session_id?: string;
+  /** 平台账号标识。 */
+  unb?: string;
+  /** 持久化后的本地账号标识。 */
+  account_id?: string;
+  /** 是否新建了本地账号。 */
+  is_new_account?: boolean;
+  /** 状态提示文本。 */
+  message?: string;
+  /** 兼容上游可能扩展的非敏感状态字段。 */
+  [key: string]: unknown;
+}
+
+/** 二维码验证完成响应。 */
+export interface QRLoginVerificationResponse {
+  /** 验证结果是否成功。 */
+  success: boolean;
+  /** 平台账号标识。 */
+  unb?: string;
+  /** 持久化后的本地账号标识。 */
+  account_id?: string;
+  /** 是否新建了本地账号。 */
+  is_new_account?: boolean;
+  /** 扫码账号与目标账号不一致时的提示标识。 */
+  scanned_account_id?: string;
+  /** 验证结果提示文本。 */
+  message?: string;
+}
+
+/** 订单列表刷新逐项结果。 */
+export interface OrderRefreshResultResponse {
+  /** 结果所属账号标识。 */
+  cookie_id?: string;
+  /** 当前处理阶段。 */
+  stage?: string;
+  /** 当前项是否处理成功。 */
+  success: boolean;
+  /** 结果说明。 */
+  message?: string;
+  /** 发现的新订单数量。 */
+  discovered?: number;
+  /** 更新的订单数量。 */
+  updated?: number;
+  /** 标记删除的订单数量。 */
+  soft_deleted?: number;
+  /** 订单平台标识。 */
+  order_id?: string;
+  /** 结果错误说明。 */
+  error?: string;
+}
+
+/** 订单列表刷新统计摘要。 */
+export interface OrderRefreshSummaryResponse {
+  /** 发现的新订单数量。 */
+  discovered: number;
+  /** 订单列表更新数量。 */
+  list_updated: number;
+  /** 标记删除数量。 */
+  soft_deleted: number;
+  /** 需要补全详情的订单数量。 */
+  detail_total: number;
+  /** 本次处理订单总数。 */
+  total: number;
+  /** 状态发生变化数量。 */
+  updated: number;
+  /** 状态未变化数量。 */
+  no_change: number;
+  /** 刷新失败数量。 */
+  failed: number;
+}
+
+/** 订单列表刷新响应。 */
+export interface OrderRefreshResponse {
+  /** 是否存在部分失败。 */
+  partial_failure: boolean;
+  /** 刷新结果说明。 */
+  message: string;
+  /** 刷新统计摘要。 */
+  summary: OrderRefreshSummaryResponse;
+  /** 逐项兼容结果。 */
+  results: OrderRefreshResultResponse[];
+}
+
+// ItemListEnvelope 是商品列表接口的兼容分页响应。
+export interface ItemListEnvelope {
+  /** items 是兼容分页响应中的商品列表。 */
+  items?: Item[];
+}
+
+// AutomationIssuesEnvelope 是自动化异常接口的兼容响应。
+export interface AutomationIssuesEnvelope {
+  /** runs 是待处理的自动化运行记录。 */
+  runs?: Array<{
+    /** 记录标识。 */
+    id: number;
+    /** 所属账号标识。 */
+    cookie_id: string;
+    /** 所属订单标识。 */
+    order_id: string;
+    /** 自动化触发类型。 */
+    trigger_type: string;
+    /** 外部错误说明。 */
+    error_message: string;
+    /** 异常类别。 */
+    issue_kind: 'external_result_unknown' | 'invalid_snapshot' | 'rule_unavailable' | 'partial_failure' | 'execution_failed';
+    /** 允许的处理动作。 */
+    allowed_resolutions: Array<'continue' | 'retry' | 'cancel'>;
+    /** 当前动作游标。 */
+    action_cursor: number;
+    /** 已发送数量。 */
+    sent_count: number;
+    /** 更新时间。 */
+    updated_at: string;
+  }>;
+  /** pending_tasks 是延迟自动化任务列表。 */
+  pending_tasks?: Array<{
+    /** 任务标识。 */
+    id: number;
+    /** 所属账号标识。 */
+    cookie_id: string;
+    /** 自动化触发类型。 */
+    trigger_type: string;
+    /** 错误说明。 */
+    error_message: string;
+    /** 当前重试次数。 */
+    attempt_count: number;
+    /** 更新时间。 */
+    updated_at: string;
+  }>;
+}

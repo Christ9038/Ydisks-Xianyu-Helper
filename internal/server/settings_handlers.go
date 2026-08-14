@@ -73,7 +73,7 @@ func (s *Server) publicSettings(w http.ResponseWriter, r *http.Request) {
 		writeErrRequest(w, r, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, m)
+	writeJSON(w, http.StatusOK, settingsResponse(m))
 }
 
 func (s *Server) allSettings(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +82,7 @@ func (s *Server) allSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, m)
+	writeJSON(w, http.StatusOK, settingsResponse(m))
 }
 
 func (s *Server) setSetting(w http.ResponseWriter, r *http.Request) {
@@ -398,7 +398,7 @@ func (s *Server) listUserSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, m)
+	writeJSON(w, http.StatusOK, settingsResponse(m))
 }
 
 func (s *Server) getUserSetting(w http.ResponseWriter, r *http.Request) {

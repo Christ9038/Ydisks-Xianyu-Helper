@@ -371,6 +371,130 @@ func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
 	}
 }
 
+// TestDynamicCompatibilitySuccessContracts 验证动态设置与二维码兼容响应保留明确边界。
+func TestDynamicCompatibilitySuccessContracts(t *testing.T) {
+	// srv 是用于验证动态成功响应的 HTTP 测试服务。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是当前测试使用的完整路由树。
+	handler := srv.Router()
+	// sessionCookie 是管理员登录后得到的认证会话。
+	sessionCookie := loginHelper(t, handler)
+
+	// publicSettingsReq 是读取公开系统设置的请求。
+	publicSettingsReq := httptest.NewRequest(http.MethodGet, "/system-settings/public", nil)
+	// publicSettingsRecorder 是捕获公开设置响应的记录器。
+	publicSettingsRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(publicSettingsRecorder, publicSettingsReq)
+	if publicSettingsRecorder.Code != http.StatusOK {
+		t.Fatalf("public settings status=%d body=%s", publicSettingsRecorder.Code, publicSettingsRecorder.Body.String())
+	}
+	// publicSettingsValue 是公开设置动态键值响应。
+	var publicSettingsValue settingsResponse
+	// publicSettingsDecodeErr 是公开设置响应反序列化失败的原因。
+	if publicSettingsDecodeErr := json.Unmarshal(publicSettingsRecorder.Body.Bytes(), &publicSettingsValue); publicSettingsDecodeErr != nil {
+		t.Fatalf("decode public settings response: %v", publicSettingsDecodeErr)
+	}
+	if publicSettingsValue == nil {
+		t.Fatal("public settings response must be an object")
+	}
+
+	// allSettingsReq 是读取管理员系统设置的请求。
+	allSettingsReq := httptest.NewRequest(http.MethodGet, "/system-settings", nil)
+	allSettingsReq.AddCookie(sessionCookie)
+	// allSettingsRecorder 是捕获管理员设置响应的记录器。
+	allSettingsRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(allSettingsRecorder, allSettingsReq)
+	if allSettingsRecorder.Code != http.StatusOK {
+		t.Fatalf("all settings status=%d body=%s", allSettingsRecorder.Code, allSettingsRecorder.Body.String())
+	}
+	// allSettingsValue 是管理员设置动态键值响应。
+	var allSettingsValue settingsResponse
+	// allSettingsDecodeErr 是管理员设置响应反序列化失败的原因。
+	if allSettingsDecodeErr := json.Unmarshal(allSettingsRecorder.Body.Bytes(), &allSettingsValue); allSettingsDecodeErr != nil {
+		t.Fatalf("decode all settings response: %v", allSettingsDecodeErr)
+	}
+	if allSettingsValue == nil {
+		t.Fatal("all settings response must be an object")
+	}
+
+	// userSettingsReq 是读取当前用户设置的请求。
+	userSettingsReq := httptest.NewRequest(http.MethodGet, "/user-settings", nil)
+	userSettingsReq.AddCookie(sessionCookie)
+	// userSettingsRecorder 是捕获用户设置响应的记录器。
+	userSettingsRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(userSettingsRecorder, userSettingsReq)
+	if userSettingsRecorder.Code != http.StatusOK {
+		t.Fatalf("user settings status=%d body=%s", userSettingsRecorder.Code, userSettingsRecorder.Body.String())
+	}
+	// userSettingsValue 是用户设置动态键值响应。
+	var userSettingsValue settingsResponse
+	// userSettingsDecodeErr 是用户设置响应反序列化失败的原因。
+	if userSettingsDecodeErr := json.Unmarshal(userSettingsRecorder.Body.Bytes(), &userSettingsValue); userSettingsDecodeErr != nil {
+		t.Fatalf("decode user settings response: %v", userSettingsDecodeErr)
+	}
+	if userSettingsValue == nil {
+		t.Fatal("user settings response must be an object")
+	}
+
+	// srv.QRLogin 是二维码状态与验证的测试替身。
+	srv.QRLogin = &fakeQRLoginService{status: map[string]any{
+		"status":       "waiting",
+		"session_id":   "contract-qr",
+		"custom_field": "kept",
+		"cookies":      "must-not-leak",
+	}}
+	// statusSessionID 是二维码状态测试会话标识。
+	statusSessionID := "contract-qr"
+	ownQRSession(t, srv, store, statusSessionID)
+	// qrStatusReq 是读取二维码状态的请求。
+	qrStatusReq := httptest.NewRequest(http.MethodGet, "/qr-login/check/"+statusSessionID, nil)
+	qrStatusReq.AddCookie(sessionCookie)
+	// qrStatusRecorder 是捕获二维码状态响应的记录器。
+	qrStatusRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(qrStatusRecorder, qrStatusReq)
+	if qrStatusRecorder.Code != http.StatusOK {
+		t.Fatalf("qr status=%d body=%s", qrStatusRecorder.Code, qrStatusRecorder.Body.String())
+	}
+	// qrStatusValue 是二维码状态兼容响应。
+	var qrStatusValue qrLoginStatusResponse
+	// qrStatusDecodeErr 是二维码状态响应反序列化失败的原因。
+	if qrStatusDecodeErr := json.Unmarshal(qrStatusRecorder.Body.Bytes(), &qrStatusValue); qrStatusDecodeErr != nil {
+		t.Fatalf("decode qr status response: %v", qrStatusDecodeErr)
+	}
+	if qrStatusValue["status"] != "waiting" || qrStatusValue["custom_field"] != "kept" {
+		t.Fatalf("qr status response=%+v", qrStatusValue)
+	}
+	// leaked 表示二维码状态响应是否意外包含敏感 Cookie 字段。
+	if _, leaked := qrStatusValue["cookies"]; leaked {
+		t.Fatalf("qr status response leaked cookies: %+v", qrStatusValue)
+	}
+
+	// srv.QRLogin 替换为完成验证场景的测试替身。
+	srv.QRLogin = &fakeQRLoginService{completeCookies: "unb=contract-unb; _m_h5_tk=token;", completeUNB: "contract-unb"}
+	// completeSessionID 是二维码验证完成测试会话标识。
+	completeSessionID := "contract-complete"
+	ownQRSession(t, srv, store, completeSessionID)
+	// completeReq 是提交二维码风控验证完成的请求。
+	completeReq := httptest.NewRequest(http.MethodPost, "/qr-login/complete-verification/"+completeSessionID, nil)
+	completeReq.AddCookie(sessionCookie)
+	// completeRecorder 是捕获验证完成响应的记录器。
+	completeRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(completeRecorder, completeReq)
+	if completeRecorder.Code != http.StatusOK {
+		t.Fatalf("complete verification status=%d body=%s", completeRecorder.Code, completeRecorder.Body.String())
+	}
+	// completeValue 是二维码验证完成具名响应。
+	var completeValue qrLoginVerificationResponse
+	// completeDecodeErr 是验证完成响应反序列化失败的原因。
+	if completeDecodeErr := json.Unmarshal(completeRecorder.Body.Bytes(), &completeValue); completeDecodeErr != nil {
+		t.Fatalf("decode complete verification response: %v", completeDecodeErr)
+	}
+	if !completeValue.Success || completeValue.UNB != "contract-unb" || completeValue.AccountID != "contract-unb" {
+		t.Fatalf("complete verification response=%+v", completeValue)
+	}
+}
+
 // TestReplyAndAccountTaskSuccessResponseContracts 验证回复规则、默认回复和账号任务成功响应的具名 DTO。
 func TestReplyAndAccountTaskSuccessResponseContracts(t *testing.T) {
 	// srv 是用于验证回复和账号任务响应的 HTTP 测试服务。

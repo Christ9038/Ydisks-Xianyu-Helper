@@ -3,8 +3,8 @@ import {
   LoginResponse, AccountDetail, AccountSummaryResponse, Order, PaginatedResponse,
   AdminStats, DashboardStats, Card, SystemSettings, ApiResponse, OrderAnalytics,
   Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
-  NotificationChannel, NotificationEventType, AccountTaskSettings, ChatSession, ChatMessage,
-  CookieSettingsResponse, CookieProfileResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope, AdminStatsResponse, DashboardStatsResponse, OrderAnalyticsResponse, QRLoginGenerateResponse, ValidOrderResponse, ValidOrdersResponse
+  NotificationChannel, NotificationEventType, AccountTaskSettings, ChatSession, ChatMessage, ItemListEnvelope, AutomationIssuesEnvelope,
+  CookieSettingsResponse, CookieProfileResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, OrderRefreshResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope, AdminStatsResponse, DashboardStatsResponse, OrderAnalyticsResponse, QRLoginGenerateResponse, QRLoginStatusResponse, QRLoginVerificationResponse, ValidOrderResponse, ValidOrdersResponse
 } from '../types';
 import { formatLocalDate } from '../dateRange';
 
@@ -168,37 +168,37 @@ export const generateQRLogin = async (options?: RequestControlOptions): Promise<
   return post('/qr-login/generate', undefined, { ...options, timeoutMs: options?.timeoutMs ?? 130_000 });
 };
 
-export const checkQRLoginStatus = async (sessionId: string, signal?: AbortSignal): Promise<any> => {
+export const checkQRLoginStatus = async (sessionId: string, signal?: AbortSignal): Promise<QRLoginStatusResponse> => {
   return get(`/qr-login/check/${sessionId}`, undefined, { signal, timeoutMs: 10_000 });
 };
 
 export const completeQRVerification = async (
   sessionId: string,
   targetAccountId?: string,
-): Promise<{
-  success: boolean;
-  account_id?: string;
-  scanned_account_id?: string;
-  message?: string;
-}> => {
+): Promise<QRLoginVerificationResponse> => {
   return post(`/qr-login/complete-verification/${sessionId}`, {
     target_account_id: targetAccountId || '',
   });
 };
 
-export const updateAccountStatus = async (id: string, enabled: boolean): Promise<any> => {
+
+
+
+
+
+export const updateAccountStatus = async (id: string, enabled: boolean): Promise<OperationResponse> => {
   return put(`/cookies/${id}/status`, { enabled });
 };
 
-export const deleteAccount = async (id: string): Promise<any> => {
+export const deleteAccount = async (id: string): Promise<OperationResponse> => {
   return del(`/cookies/${id}`);
 };
 
-export const updateAccountRemark = async (id: string, remark: string): Promise<any> => {
+export const updateAccountRemark = async (id: string, remark: string): Promise<OperationResponse> => {
   return put(`/cookies/${id}/remark`, { remark });
 };
 
-export const updateAccountAutoConfirm = async (id: string, autoConfirm: boolean): Promise<any> => {
+export const updateAccountAutoConfirm = async (id: string, autoConfirm: boolean): Promise<OperationResponse> => {
   return put(`/cookies/${id}/auto-confirm`, { auto_confirm: autoConfirm });
 };
 
@@ -206,7 +206,7 @@ export const updateAccountPauseDuration = async (id: string, pauseDuration: numb
   return put(`/cookies/${id}/pause-duration`, { pause_duration: pauseDuration });
 };
 
-export const updateAccountCookie = async (id: string, value: string, loginMethod?: string): Promise<any> => {
+export const updateAccountCookie = async (id: string, value: string, loginMethod?: string): Promise<OperationResponse> => {
   return put(`/cookies/${id}`, { id, value, login_method: loginMethod });
 };
 
@@ -285,7 +285,7 @@ export const updateAccountLoginInfo = async (id: string, data: {
   login_password?: string;
   clear_password?: boolean;
   show_browser?: boolean;
-}): Promise<any> => {
+}): Promise<OperationResponse> => {
   return put(`/cookies/${id}/login-info`, data);
 };
 
@@ -350,7 +350,7 @@ export const deleteOrder = async (orderId: string): Promise<ApiResponse> => {
   return del(`/api/orders/${orderId}`);
 };
 
-export const syncOrders = async (cookieId?: string, status?: string): Promise<any> => {
+export const syncOrders = async (cookieId?: string, status?: string): Promise<OrderRefreshResponse> => {
   const formData = new FormData();
   if (cookieId) formData.append('cookie_id', cookieId);
   if (status) formData.append('status', status);
@@ -494,7 +494,7 @@ const normalizeBooleanFlag = (value: unknown): boolean =>
     value === true || value === 1 || value === '1';
 
 export const getItems = async (cookieId?: string): Promise<Item[]> => {
-    const res = await get<any>('/items', cookieId ? { cookie_id: cookieId } : undefined);
+    const res = await get<Item[] | ItemListEnvelope>('/items', cookieId ? { cookie_id: cookieId } : undefined);
     const items = Array.isArray(res) ? res : (res.items || []);
     return items.map((item: any) => ({
       ...item,
@@ -509,11 +509,11 @@ export const syncItemsFromAccount = async (cookieId: string): Promise<ItemSyncRe
     return post('/items/get-all-from-account', { cookie_id: cookieId });
 }
 
-export const deleteItem = async (cookieId: string, itemId: string): Promise<any> => {
+export const deleteItem = async (cookieId: string, itemId: string): Promise<OperationResponse> => {
     return del(`/items/${cookieId}/${itemId}`);
 }
 
-export const createItem = async (cookieId: string, data: any): Promise<any> => {
+export const createItem = async (cookieId: string, data: Partial<Item>): Promise<OperationResponse> => {
     return post(`/items/${cookieId}`, data);
 }
 
@@ -617,7 +617,7 @@ export const retryFailedItemPublishBatch = async (batchId: string): Promise<Batc
     return post(`/items/publish-batches/${batchId}/retry-failed`, {});
 }
 
-export const updateItem = async (cookieId: string, itemId: string, data: Partial<Item>): Promise<any> => {
+export const updateItem = async (cookieId: string, itemId: string, data: Partial<Item>): Promise<OperationResponse> => {
     return put(`/items/${cookieId}/${itemId}`, data);
 }
 
@@ -727,7 +727,7 @@ const orderAutomationActions = (triggerType: string, actions: AutomationAction[]
     ];
 };
 
-export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<any> => {
+export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<OperationResponse | MutationIDResponse> => {
     const triggerType = rule.trigger_type || 'order_paid';
     const triggerName: Record<string, string> = {
       order_paid: '付款后自动发货',
@@ -783,7 +783,7 @@ export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<a
     return rule.id ? put(`/automation-rules/${rule.id}`, payload) : post('/automation-rules', payload);
 }
 
-export const deleteShippingRule = async (id: string): Promise<any> => del(`/automation-rules/${id}`);
+export const deleteShippingRule = async (id: string): Promise<OperationResponse> => del(`/automation-rules/${id}`);
 
 export interface AutomationRunIssue {
   id: number;
@@ -808,17 +808,17 @@ export interface DeferredAutomationIssue {
 }
 
 export const getAutomationIssues = async (): Promise<{ runs: AutomationRunIssue[]; pending_tasks: DeferredAutomationIssue[] }> => {
-  const result = await get<any>('/automation-issues');
+  const result = await get<AutomationIssuesEnvelope>('/automation-issues');
   return {
     runs: Array.isArray(result?.runs) ? result.runs : [],
     pending_tasks: Array.isArray(result?.pending_tasks) ? result.pending_tasks : [],
   };
 };
 
-export const resolveAutomationRun = async (id: number, resolution: 'continue' | 'retry' | 'cancel'): Promise<any> =>
+export const resolveAutomationRun = async (id: number, resolution: 'continue' | 'retry' | 'cancel'): Promise<OperationResponse> =>
   post(`/automation-runs/${id}/resolve`, { resolution });
 
-export const resolveDeferredAutomationTask = async (id: number, resolution: 'retry' | 'dismiss'): Promise<any> =>
+export const resolveDeferredAutomationTask = async (id: number, resolution: 'retry' | 'dismiss'): Promise<OperationResponse> =>
   post(`/automation-pending-tasks/${id}/resolve`, { resolution });
 
 // Rules - 关键词回复规则 (使用关键词API)

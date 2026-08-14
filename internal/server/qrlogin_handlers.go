@@ -155,9 +155,9 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 			"", map[string]any{"scanned_account_id": unb})
 		return
 	}
-	resp := map[string]any{
-		"success": true,
-		"unb":     unb,
+	resp := qrLoginVerificationResponse{
+		Success: true, UNB: unb,
+		// 验证完成响应保留平台账号标识，兼容旧客户端。
 	}
 	sess := auth.SessionFromContext(r.Context())
 	if sess != nil {
@@ -181,8 +181,8 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 				"保存扫码登录结果失败: "+persistErr.Error(), "")
 			return
 		}
-		resp["account_id"] = persisted.AccountID
-		resp["is_new_account"] = persisted.IsNew
+		resp.AccountID = persisted.AccountID
+		resp.IsNewAccount = persisted.IsNew
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -352,8 +352,8 @@ func cloneQRStatus(src map[string]any) map[string]any {
 
 // publicQRStatus 返回可暴露给浏览器的扫码状态。闲鱼 Cookie 只在服务端持久化，
 // 永远不进入前端、浏览器日志或代理响应。
-func publicQRStatus(src map[string]any) map[string]any {
-	dst := cloneQRStatus(src)
+func publicQRStatus(src map[string]any) qrLoginStatusResponse {
+	dst := qrLoginStatusResponse(cloneQRStatus(src))
 	delete(dst, "cookies")
 	delete(dst, "cookie_snapshot")
 	return dst

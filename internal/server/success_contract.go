@@ -1251,3 +1251,21 @@ type qrLoginGenerateResponse struct {
 	// Message 是可选的提示文本。
 	Message string `json:"message,omitempty"`
 }
+
+// settingsResponse 是动态设置查询的具名边界类型，键和值仍由设置仓库定义。
+type settingsResponse map[string]string
+
+// qrLoginStatusResponse 是二维码状态的兼容响应类型，允许上游扩展非敏感字段。
+type qrLoginStatusResponse map[string]any
+
+// qrLoginVerificationResponse 是二维码风控验证完成的具名响应 DTO。
+type qrLoginVerificationResponse struct {
+	// Success 表示验证结果是否成功。
+	Success bool `json:"success"`
+	// UNB 是平台账号标识。
+	UNB string `json:"unb"`
+	// AccountID 是持久化后的本地账号标识。
+	AccountID string `json:"account_id,omitempty"`
+	// IsNewAccount 表示是否新建了本地账号。
+	IsNewAccount bool `json:"is_new_account,omitempty"`
+}

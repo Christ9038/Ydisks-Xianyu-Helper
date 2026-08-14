@@ -12,7 +12,7 @@
 | 商品批量 | `/items/publish-batches...` | `/api/v1/items/publish-batches...` | 旧路径保留，类目推荐/预检/任务 DTO 已落地 |
 | 自动化 | `/automation-rules...` | `/api/v1/automation-rules...` | 旧路径保留，规则分页/异常 DTO 已落地 |
 | 订单 | `/api/orders...` | `/api/v1/orders...` | 旧路径保留，列表/详情/刷新/批量外层 DTO 已落地 |
-| 设置 | `/system-settings...`、`/user-settings...`、`/ai-reply-settings...` | `/api/v1/settings/...` | 旧路径保留，变更/查询 DTO 已落地；动态键仍由边界适配 |
+| 设置 | `/system-settings...`、`/user-settings...`、`/ai-reply-settings...` | `/api/v1/settings/...` | 旧路径保留，变更/查询 DTO 已落地；`settingsResponse` 明确动态字符串键值边界，动态键仍由边界适配 |
 | 卡券 | `/cards...` | `/api/v1/cards...` | 旧路径保留，CRUD/批量 DTO 已落地 |
 | 通知 | `/notification-channels...`、`/message-notifications...` | `/api/v1/notifications/...` | 旧路径保留，渠道/绑定/变更 DTO 已落地 |
 | 聊天 | `/api/chat...` | `/api/v1/chat...` | 旧路径保留，会话/消息 DTO 已落地 |
@@ -21,7 +21,7 @@
 | 账号任务 | `/api/account-tasks...` | `/api/v1/account-tasks...` | 旧路径保留，设置、运行记录和执行摘要 DTO 已落地 |
 | 管理员 | `/admin/users...`、`/admin/cookies...`、`/admin/stats` | `/api/v1/admin/...` | 旧路径保留，用户/账号/全局统计 DTO 已落地 |
 | 统计 | `/dashboard/stats`、`/analytics/orders...` | `/api/v1/analytics/...` | 旧路径保留，概览、收益、维度和有效订单分页 DTO 已落地 |
-| 二维码生成 | `/qr-login/generate` | `/api/v1/qr-login/generate` | 旧路径保留，二维码生成 DTO 已落地；状态响应继续保留动态兼容字段 |
+| 二维码生成 | `/qr-login/generate` | `/api/v1/qr-login/generate` | 旧路径保留，二维码生成、状态和验证完成 DTO 已落地；`qrLoginStatusResponse` 仅保留非敏感动态字段，状态响应继续保留兼容扩展 |
 
 ## 迁移规则
 
@@ -42,6 +42,7 @@
 - 设置、卡券和通知分别使用 `operationResponse`、`aiReplySettingsResponse`、`aiModelsResponse`、`userSettingResponse`、`cardResponse`、`cardBatchResponse`、`notificationChannelResponse`、`notificationBindingResponse` 与 `accountBindingsResponse`。
 - 关键词回复、默认回复和账号任务分别使用 `keywordBasicResponse`/`keywordItemResponse`/`keywordTypedResponse`、`itemReplyResponse`、`defaultReplyResponse`、`accountTaskSettingsResponse`、`accountTaskRunsResponse` 与 `accountTaskRunResponseEnvelope`。
 - 管理员和统计分别使用 `adminUserResponse`/`adminCookieResponse`/`adminStatsResponse`、`dashboardStatsResponse`、`orderAnalyticsResponse` 与 `validOrdersResponse`；二维码生成使用 `qrLoginGenerateResponse`。
+- 动态设置和二维码兼容边界分别使用 `settingsResponse`、`qrLoginStatusResponse` 与 `qrLoginVerificationResponse`；二维码状态契约测试确认 `cookies` 等敏感字段不会回传。
 - 聊天会话、消息分页和发送结果使用独立 DTO，不直接暴露数据库模型。
 - React `frontend/types.ts` 与 `frontend/services/api.ts` 已同步具名成功响应类型，同时保留旧字段归一逻辑。
 - 旧路径仍由现有路由提供，尚未宣称 `/api/v1` 已经可用。
