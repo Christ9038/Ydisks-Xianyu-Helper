@@ -98,12 +98,12 @@ app shell / routes
 | 6. Engine 与 Automation | 已完成 | facade + 独立状态组件 | Engine/Automation 组件边界、race、生命周期与冻结规范测试均已通过 |
 | 7. React Feature 化 | 已完成 | 页面、Hook、API、类型按领域拆分 | 领域 feature、行为测试、依赖门禁和构建门禁已完成 |
 | 8. DB 与事务治理 | 已完成 | 窄接口、事务执行器、方言门禁 | Chat、Automation、通知、分析、订单、发布、登录和事务边界已通过窄 repository 收口并完成 Server race |
-| 9. 架构门禁与兼容清理 | 进行中 | 自动依赖规则、删除到期兼容层 | `tools/architecturecheck` 已建立 Go 低层依赖与 Server 事务边界门禁 |
-| 10. 注释基线清零 | 未开始 | 全仓严格中文注释检查 | baseline 文件删除 |
+| 9. 架构门禁与兼容清理 | 已完成 | 自动依赖规则、删除到期兼容层 | Go 低层依赖、Server 事务边界、React 版本化调用和旧入口保留条件均已有自动检查或审计清单 |
+| 10. 注释基线清零 | 进行中 | 全仓严格中文注释检查 | 现有 Go/React 历史基线仍需按领域清零，最终删除 baseline 文件 |
 
 ### 当前执行入口
 
-- 当前阶段：阶段 9“架构门禁与兼容清理”（进行中）；阶段 7 React Feature 化和阶段 8 DB 与事务治理已完成切片收口，阶段 6 Engine 与 Automation、阶段 5 应用生命周期装配、阶段 4 Server 应用服务与阶段 3 HTTP API 契约已完成最终审计；
+- 当前阶段：阶段 10“注释基线清零与严格门禁”（进行中）；阶段 9 架构依赖与兼容清理、阶段 7 React Feature 化和阶段 8 DB 与事务治理已完成切片收口，阶段 6 Engine 与 Automation、阶段 5 应用生命周期装配、阶段 4 Server 应用服务与阶段 3 HTTP API 契约已完成最终审计；
 - 已完成：总计划、依赖规则、中文注释规范、`AGENTS.md` 强约束，以及 Go/TypeScript AST 注释检查器和历史基线；
 - 阶段 1 已完成：server 测试模板预置管理员和账号 cookie，普通测试约 21.3 秒，完整 server race 约 194.3 秒通过；
 - 已完成阶段 2 逻辑切片一“Repository 敏感数据边界”：建立 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned`、`GetOwnerID`、`GetSummaryOwned` 和原子 `GetValueOwned`，覆盖跨用户、无效 user ID 及无效密文回归；
@@ -623,3 +623,4 @@ npm --prefix frontend run build
 | 2026-08-15 | 完成阶段 9 第一个 PR 切片“Go/React 架构依赖门禁与数据库直连审计” | 新增 `tools/architecturecheck`，阻止 `internal/db`、`internal/xianyu`、`internal/browser` 反向依赖上层应用包，并阻止 Server 业务层直接创建事务；门禁接入 Makefile、CI 和 `make check`，同步更新阶段状态；架构检查、Go 全量测试、vet、lint、注释和前端注释门禁通过并合并为一个可回滚提交 | 阶段 9：兼容路由/字段调用方最终清理 |
 | 2026-08-15 | 完成阶段 9 第二个 PR 切片“前端泛化兼容响应类型清理” | 移除未被调用方使用的 `ApiResponse` 和含义不清的 `LoginResponse`，认证初始化/登录统一使用 `SessionResponse`，登出、密码修改、账号、聊天、订单等操作统一使用 `OperationResponse`；未改变 HTTP 路径和业务状态字段；前端类型检查、184 个测试、注释检查和构建门禁通过并合并为一个可回滚提交 | 阶段 9：账号 `cookie`/`note` 兼容字段调用方清理 |
 | 2026-08-15 | 完成阶段 9 第三个 PR 切片“账号 cookie/note 兼容字段调用方清理” | `AccountDetail` 移除历史 `cookie`/`note` 别名，账号详情归一化、搜索/展示、编辑回填和运行状态测试统一使用 `value`/`remark`；编辑表单的 `cookie` 保留为真实用户输入字段；前端类型检查、184 个测试、注释检查、仓库 `make check` 和生产构建通过，嵌入式 bundle 已同步并合并为一个可回滚提交 | 阶段 9：旧路由与剩余兼容字段最终审计 |
+| 2026-08-15 | 完成阶段 9 第四个 PR 切片“旧路由与剩余兼容字段最终审计” | 新增 API 兼容边界清单，明确旧服务端入口的保留条件、复用 handler 约束和删除证据要求；新增 React 架构测试，禁止生产 API 适配层重新调用未版本化 `/api/...` 路径；服务端新旧入口契约测试继续覆盖兼容行为，前端 185 个测试、类型检查和注释门禁通过并合并为一个可回滚提交 | 阶段 10：注释基线清零与严格门禁 |

@@ -7549,7 +7549,31 @@
   },
   {
     "file": "featureArchitecture.test.ts",
-    "line": 70,
+    "line": 61,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 62,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 63,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 68,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "featureArchitecture.test.ts",
+    "line": 80,
     "kind": "function-expression",
     "name": "anonymous"
   },

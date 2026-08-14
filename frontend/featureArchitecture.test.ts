@@ -55,6 +55,16 @@ describe('React feature dependency boundaries', () => {
     expect(violations).toEqual([]);
   });
 
+  test('production API adapters use versioned HTTP paths', () => {
+    // violations 保存 API 适配层中仍然指向未版本化前缀的生产源码路径。
+    const violations = productionSources()
+      .filter(file => file.relativePath === 'services/api.ts' || file.relativePath.endsWith('/api.ts'))
+      .filter(file => /['"`]\/api\/(?!v1(?:\/|['"`]))/.test(file.source))
+      .map(file => file.relativePath);
+
+    expect(violations).toEqual([]);
+  });
+
   test('legacy component state compatibility entrypoints have been removed', () => {
     // legacyEntrypoints 是不应重新引入页面层状态转发文件的旧路径。
     const legacyEntrypoints = [
