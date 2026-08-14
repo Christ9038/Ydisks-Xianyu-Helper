@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"xianyu-go/internal/db"
 )
 
 // TestRefreshOrdersNoBrowser 浏览器未启用时仍应完成订单列表发现。
@@ -670,6 +672,19 @@ func TestOrderApplicationServiceUsesTypedBusinessInputs(t *testing.T) {
 // stringPtrForOrderTest 返回订单服务测试使用的字符串指针。
 func stringPtrForOrderTest(value string) *string {
 	return &value
+}
+
+// TestOrderResponseMappingAndErrorClassification 验证订单响应映射和业务错误分类不依赖 HTTP。
+func TestOrderResponseMappingAndErrorClassification(t *testing.T) {
+	row := db.OrderRow{OrderID: "mapped-order", ItemID: "mapped-item", ItemTitle: "测试商品", ItemDetail: `{"pic_info":{"picUrl":"https://img.example/mapped.png"}}`, OrderStatus: "2"}
+	view := orderDTOFromRow(row)
+	if view.OrderStatus != "pending_ship" || view.Status != "pending_ship" || view.ItemImage != "https://img.example/mapped.png" {
+		t.Fatalf("订单响应映射异常: %+v", view)
+	}
+	validationErr := newOrderBadRequest("不支持的订单状态")
+	if kind, ok := orderErrorKindOf(validationErr); !ok || kind != orderErrorBadRequest {
+		t.Fatalf("订单错误分类异常: kind=%v ok=%v", kind, ok)
+	}
 }
 
 // TestAtoiDefault atoiDefault 表驱动。

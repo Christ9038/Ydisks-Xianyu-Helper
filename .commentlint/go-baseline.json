@@ -77737,2581 +77737,2233 @@
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 19,
+    "line": 18,
     "kind": "const",
     "name": "refreshOrderChunkSize"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 20,
+    "line": 19,
     "kind": "const",
     "name": "maxSoldOrderPages"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 22,
+    "line": 21,
     "kind": "type",
     "name": "refreshTarget"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 27,
+    "line": 26,
     "kind": "type",
     "name": "orderDetailMTop"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 45,
+    "line": 44,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 46,
+    "line": 45,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 46,
+    "line": 45,
     "kind": "local-variable",
     "name": "result"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 59,
-    "kind": "local-variable",
-    "name": "orders"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 60,
-    "kind": "range-variable",
-    "name": "o"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 61,
-    "kind": "local-variable",
-    "name": "st"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 97,
+    "line": 70,
     "kind": "local-variable",
     "name": "orderID"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 98,
+    "line": 71,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 99,
+    "line": 72,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 99,
-    "kind": "local-variable",
-    "name": "o"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 108,
-    "kind": "local-variable",
-    "name": "itemImage"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 108,
-    "kind": "local-variable",
-    "name": "itemTitle"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 109,
-    "kind": "local-variable",
-    "name": "item"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 109,
-    "kind": "local-variable",
-    "name": "itemErr"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 163,
-    "kind": "local-variable",
-    "name": "sess"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 164,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 164,
+    "line": 72,
     "kind": "local-variable",
     "name": "result"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 179,
+    "line": 88,
     "kind": "local-variable",
-    "name": "cookieIDs"
+    "name": "sess"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 179,
+    "line": 89,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 190,
+    "line": 89,
     "kind": "local-variable",
-    "name": "discovered"
+    "name": "result"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 190,
-    "kind": "local-variable",
-    "name": "failed"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 190,
-    "kind": "local-variable",
-    "name": "listUpdated"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 190,
-    "kind": "local-variable",
-    "name": "softDeleted"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 191,
-    "kind": "local-variable",
-    "name": "results"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 192,
+    "line": 104,
     "kind": "local-variable",
     "name": "newOrderIDs"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 193,
+    "line": 105,
     "kind": "local-variable",
-    "name": "sessionExpiredAccounts"
+    "name": "remoteOrderIDs"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 194,
+    "line": 106,
     "kind": "local-variable",
-    "name": "fetcher"
+    "name": "pageNumber"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 194,
+    "line": 107,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 107,
+    "kind": "local-variable",
+    "name": "page"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 111,
+    "kind": "range-variable",
+    "name": "remote"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 113,
+    "kind": "local-variable",
+    "name": "normalizedAmount"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 113,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 197,
+    "line": 116,
     "kind": "local-variable",
-    "name": "latest"
+    "name": "existing"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 197,
+    "line": 116,
     "kind": "local-variable",
-    "name": "latestErr"
+    "name": "getErr"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 211,
+    "line": 117,
     "kind": "local-variable",
-    "name": "accountDiscovered"
+    "name": "isNew"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 211,
+    "line": 121,
     "kind": "local-variable",
-    "name": "accountNewIDs"
+    "name": "changed"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 211,
+    "line": 122,
     "kind": "local-variable",
-    "name": "accountRemoteIDs"
+    "name": "status"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 211,
-    "kind": "local-variable",
-    "name": "accountUpdated"
+    "line": 126,
+    "kind": "var",
+    "name": "isBargain"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 211,
-    "kind": "local-variable",
-    "name": "discoveryErr"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 212,
-    "kind": "local-variable",
-    "name": "persistErr"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 212,
+    "line": 128,
     "kind": "local-variable",
     "name": "value"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 212,
+    "line": 131,
     "kind": "local-variable",
-    "name": "valueChanged"
+    "name": "err"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 228,
+    "line": 154,
+    "kind": "function",
+    "name": "soldOrderChanged"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 158,
+    "kind": "local-variable",
+    "name": "statusChanged"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 172,
+    "kind": "function",
+    "name": "chunkRefreshTargets"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 176,
+    "kind": "local-variable",
+    "name": "chunks"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 177,
+    "kind": "local-variable",
+    "name": "start"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 178,
+    "kind": "local-variable",
+    "name": "end"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 187,
+    "kind": "function",
+    "name": "missingRefreshTargetIDs"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 188,
+    "kind": "local-variable",
+    "name": "missing"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 189,
     "kind": "range-variable",
+    "name": "target"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 190,
+    "kind": "local-variable",
+    "name": "ok"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 199,
+    "kind": "local-variable",
+    "name": "sess"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 200,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 200,
+    "kind": "local-variable",
+    "name": "result"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 230,
+    "kind": "local-variable",
     "name": "orderID"
   },
   {
     "file": "internal/server/order_handlers.go",
     "line": 231,
     "kind": "local-variable",
-    "name": "result"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 236,
-    "kind": "local-variable",
-    "name": "deleteErr"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 236,
-    "kind": "local-variable",
-    "name": "deleted"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 256,
-    "kind": "local-variable",
-    "name": "ordersByCookie"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 261,
-    "kind": "local-variable",
-    "name": "offset"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 262,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 262,
-    "kind": "local-variable",
-    "name": "rows"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 266,
-    "kind": "range-variable",
-    "name": "row"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 267,
-    "kind": "local-variable",
-    "name": "currentStatus"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 284,
-    "kind": "local-variable",
-    "name": "total"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 285,
-    "kind": "range-variable",
-    "name": "targets"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 288,
-    "kind": "local-variable",
-    "name": "detailFetcher"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 288,
-    "kind": "local-variable",
-    "name": "detailSupported"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 290,
-    "kind": "local-variable",
-    "name": "message"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 320,
-    "kind": "range-variable",
-    "name": "cid"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 320,
-    "kind": "range-variable",
-    "name": "targets"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 321,
-    "kind": "local-variable",
-    "name": "accountSessionExpired"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 322,
-    "kind": "range-variable",
-    "name": "chunk"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 323,
-    "kind": "local-variable",
-    "name": "credentialUnlock"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 324,
-    "kind": "local-variable",
-    "name": "latest"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 324,
-    "kind": "local-variable",
-    "name": "latestErr"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 331,
-    "kind": "local-variable",
-    "name": "cancel"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 331,
-    "kind": "local-variable",
-    "name": "detailCtx"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 332,
-    "kind": "local-variable",
-    "name": "cookieSession"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 332,
-    "kind": "local-variable",
-    "name": "mtopCtx"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 333,
-    "kind": "var",
-    "name": "sessionErr"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 334,
-    "kind": "range-variable",
-    "name": "target"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 335,
-    "kind": "local-variable",
-    "name": "detail"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 335,
-    "kind": "local-variable",
-    "name": "fetchErr"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 338,
-    "kind": "local-variable",
-    "name": "message"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 353,
-    "kind": "local-variable",
-    "name": "newStatus"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 357,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 370,
-    "kind": "local-variable",
-    "name": "changed"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 384,
-    "kind": "local-variable",
-    "name": "persistErr"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 384,
-    "kind": "local-variable",
-    "name": "value"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 384,
-    "kind": "local-variable",
-    "name": "valueChanged"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 416,
-    "kind": "local-variable",
-    "name": "newOrderIDs"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 417,
-    "kind": "local-variable",
-    "name": "remoteOrderIDs"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 418,
-    "kind": "local-variable",
-    "name": "pageNumber"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 419,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 419,
-    "kind": "local-variable",
-    "name": "page"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 423,
-    "kind": "range-variable",
-    "name": "remote"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 425,
-    "kind": "local-variable",
-    "name": "normalizedAmount"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 425,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 428,
-    "kind": "local-variable",
-    "name": "existing"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 428,
-    "kind": "local-variable",
-    "name": "getErr"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 429,
-    "kind": "local-variable",
-    "name": "isNew"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 433,
-    "kind": "local-variable",
-    "name": "changed"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 434,
-    "kind": "local-variable",
-    "name": "status"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 438,
-    "kind": "var",
-    "name": "isBargain"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 440,
-    "kind": "local-variable",
-    "name": "value"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 443,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 466,
-    "kind": "function",
-    "name": "soldOrderChanged"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 470,
-    "kind": "local-variable",
-    "name": "statusChanged"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 484,
-    "kind": "function",
-    "name": "chunkRefreshTargets"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 488,
-    "kind": "local-variable",
-    "name": "chunks"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 489,
-    "kind": "local-variable",
-    "name": "start"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 490,
-    "kind": "local-variable",
-    "name": "end"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 499,
-    "kind": "function",
-    "name": "missingRefreshTargetIDs"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 500,
-    "kind": "local-variable",
-    "name": "missing"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 501,
-    "kind": "range-variable",
-    "name": "target"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 502,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 511,
-    "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 512,
+    "line": 232,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 512,
-    "kind": "local-variable",
-    "name": "result"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 542,
+    "line": 245,
     "kind": "local-variable",
     "name": "orderID"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 543,
-    "kind": "local-variable",
-    "name": "sess"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 544,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 557,
-    "kind": "local-variable",
-    "name": "orderID"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 558,
+    "line": 246,
     "kind": "var",
     "name": "req"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 575,
+    "line": 263,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 579,
+    "line": 267,
     "kind": "local-variable",
     "name": "status"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 584,
+    "line": 272,
     "kind": "local-variable",
     "name": "normalized"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 591,
+    "line": 279,
     "kind": "local-variable",
     "name": "stringPtrFromAny"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 595,
+    "line": 283,
     "kind": "local-variable",
     "name": "v"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 598,
+    "line": 286,
     "kind": "local-variable",
     "name": "amount"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 600,
+    "line": 288,
     "kind": "local-variable",
     "name": "normalized"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 600,
+    "line": 288,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 607,
+    "line": 295,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 608,
+    "line": 296,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 628,
+    "line": 302,
+    "kind": "local-variable",
+    "name": "classified"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 302,
+    "kind": "local-variable",
+    "name": "kind"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 316,
     "kind": "function",
     "name": "validOrderAmount"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 629,
+    "line": 317,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 633,
+    "line": 321,
     "kind": "function",
     "name": "normalizeOrderAmount"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 637,
+    "line": 325,
     "kind": "function",
     "name": "validEditableOrderStatus"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 646,
+    "line": 334,
     "kind": "function",
     "name": "manualShipOrders"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 647,
+    "line": 335,
     "kind": "var",
     "name": "req"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 651,
+    "line": 339,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 666,
+    "line": 354,
     "kind": "local-variable",
     "name": "sess"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 667,
+    "line": 355,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 667,
+    "line": 355,
     "kind": "local-variable",
     "name": "result"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 682,
+    "line": 370,
     "kind": "function",
     "name": "consignWithCurrentCookie"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 683,
+    "line": 371,
     "kind": "local-variable",
     "name": "credentialUnlock"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 685,
+    "line": 373,
     "kind": "local-variable",
     "name": "detail"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 685,
+    "line": 373,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 695,
+    "line": 383,
     "kind": "local-variable",
     "name": "cookieSession"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 695,
+    "line": 383,
     "kind": "local-variable",
     "name": "mtopCtx"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 696,
+    "line": 384,
     "kind": "local-variable",
     "name": "callErr"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 696,
+    "line": 384,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 696,
+    "line": 384,
     "kind": "local-variable",
     "name": "ret"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 696,
+    "line": 384,
     "kind": "local-variable",
     "name": "updatedCookies"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 697,
+    "line": 385,
     "kind": "local-variable",
     "name": "handled"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 697,
+    "line": 385,
     "kind": "local-variable",
     "name": "persistErr"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 697,
+    "line": 385,
     "kind": "local-variable",
     "name": "value"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 697,
+    "line": 385,
     "kind": "local-variable",
     "name": "valueChanged"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 706,
+    "line": 394,
     "kind": "local-variable",
     "name": "runtimeCookie"
   },
   {
     "file": "internal/server/order_handlers.go",
-    "line": 718,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 724,
-    "kind": "function",
-    "name": "importOrders"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 725,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 725,
-    "kind": "local-variable",
-    "name": "orders"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 730,
-    "kind": "local-variable",
-    "name": "sess"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 731,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 731,
-    "kind": "local-variable",
-    "name": "result"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 745,
-    "kind": "function",
-    "name": "atoiDefault"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 749,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 749,
-    "kind": "local-variable",
-    "name": "n"
-  },
-  {
-    "file": "internal/server/order_handlers.go",
-    "line": 756,
-    "kind": "function",
-    "name": "isStableOrderStatus"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 16,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 16,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 18,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 19,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 21,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 23,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 30,
-    "kind": "function",
-    "name": "TestRefreshOrdersDiscoversNewOrdersWithoutBrowser"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 31,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 31,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 31,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 35,
-    "kind": "local-variable",
-    "name": "body"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 38,
-    "kind": "local-variable",
-    "name": "body"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 45,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 46,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 47,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 49,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 54,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 54,
-    "kind": "local-variable",
-    "name": "order"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 64,
-    "kind": "function",
-    "name": "TestRefreshOrdersSoftDeletesOrdersMissingFromSellerList"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 65,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 65,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 65,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 67,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 71,
-    "kind": "local-variable",
-    "name": "body"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 74,
-    "kind": "local-variable",
-    "name": "body"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 79,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 80,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 81,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 83,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 88,
-    "kind": "var",
-    "name": "deletedAt"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 89,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 92,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 97,
-    "kind": "function",
-    "name": "TestMissingRefreshResultsAreCounted"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 98,
-    "kind": "local-variable",
-    "name": "targets"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 99,
-    "kind": "local-variable",
-    "name": "missing"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 107,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 107,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 107,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 110,
-    "kind": "local-variable",
-    "name": "body"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 113,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 115,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 116,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 118,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 120,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 129,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 129,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 133,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 135,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 137,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 147,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 147,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 147,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 149,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 152,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 153,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 155,
-    "kind": "local-variable",
-    "name": "body"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 156,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 158,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 167,
-    "kind": "local-variable",
-    "name": "rec2"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 169,
-    "kind": "var",
-    "name": "got"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 174,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 174,
-    "kind": "local-variable",
-    "name": "item"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 180,
-    "kind": "function",
-    "name": "TestUpdateOrderUsesNewItemIDForTitle"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 181,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 181,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 181,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 183,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 186,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 187,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 188,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 190,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 195,
-    "kind": "local-variable",
-    "name": "order"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 199,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 199,
-    "kind": "local-variable",
-    "name": "newItem"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 203,
-    "kind": "local-variable",
-    "name": "oldItem"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 209,
-    "kind": "function",
-    "name": "TestImportOrdersRejectsInvalidAmountWithoutWritingOrder"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 210,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 210,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 210,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 212,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 213,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 214,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 219,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 224,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 229,
-    "kind": "function",
-    "name": "TestImportOrdersRejectsUnknownStatusWithoutWritingOrder"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 230,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 230,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 230,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 232,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 233,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 234,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 239,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 244,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 249,
-    "kind": "function",
-    "name": "TestImportOrdersRollsBackOrderWhenItemWriteFails"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 250,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 250,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 250,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 252,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 255,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 256,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 257,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 262,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 267,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 272,
-    "kind": "function",
-    "name": "TestUpdateOrderRejectsInvalidAmount"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 273,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 273,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 273,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 275,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 277,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 278,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 279,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 281,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 286,
-    "kind": "local-variable",
-    "name": "order"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 292,
-    "kind": "function",
-    "name": "TestValidOrderAmountMatchesAnalyticsDecimalFormat"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 293,
-    "kind": "range-variable",
-    "name": "invalid"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 298,
-    "kind": "range-variable",
-    "name": "input"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 298,
-    "kind": "range-variable",
-    "name": "want"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 299,
-    "kind": "local-variable",
-    "name": "got"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 299,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 306,
-    "kind": "function",
-    "name": "TestChunkRefreshTargetsBoundsBrowserBatchSize"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 307,
-    "kind": "local-variable",
-    "name": "targets"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 308,
-    "kind": "range-variable",
-    "name": "i"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 311,
-    "kind": "local-variable",
-    "name": "chunks"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 317,
-    "kind": "function",
-    "name": "TestUpdateOrderAndItemTitleRollBackTogether"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 318,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 318,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 318,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 320,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 324,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 325,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 326,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 328,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 333,
-    "kind": "local-variable",
-    "name": "order"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 339,
-    "kind": "function",
-    "name": "TestUpdateOrderRejectsUnknownStatus"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 340,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 340,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 340,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 342,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 344,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 345,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 346,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 348,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 353,
-    "kind": "local-variable",
-    "name": "order"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 359,
-    "kind": "function",
-    "name": "TestUpdateOrderCanExplicitlyClearFields"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 360,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 360,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 360,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 362,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 366,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 367,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 369,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 371,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 376,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 376,
-    "kind": "local-variable",
-    "name": "order"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 385,
-    "kind": "function",
-    "name": "TestListOrdersSearchUsesBackendPaginationScope"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 386,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 386,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 386,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 388,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 393,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 394,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 395,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 397,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 402,
-    "kind": "var",
-    "name": "response"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
     "line": 406,
     "kind": "local-variable",
     "name": "err"
   },
   {
+    "file": "internal/server/order_handlers.go",
+    "line": 412,
+    "kind": "function",
+    "name": "importOrders"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 413,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 413,
+    "kind": "local-variable",
+    "name": "orders"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 418,
+    "kind": "local-variable",
+    "name": "sess"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 419,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 419,
+    "kind": "local-variable",
+    "name": "result"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 433,
+    "kind": "function",
+    "name": "atoiDefault"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 437,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 437,
+    "kind": "local-variable",
+    "name": "n"
+  },
+  {
+    "file": "internal/server/order_handlers.go",
+    "line": 444,
+    "kind": "function",
+    "name": "isStableOrderStatus"
+  },
+  {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 416,
+    "line": 18,
     "kind": "local-variable",
     "name": "cleanup"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 416,
+    "line": 18,
     "kind": "local-variable",
     "name": "srv"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 416,
-    "kind": "local-variable",
-    "name": "store"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 418,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 420,
+    "line": 20,
     "kind": "local-variable",
     "name": "h"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 421,
+    "line": 21,
     "kind": "local-variable",
     "name": "cookie"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 423,
+    "line": 23,
     "kind": "local-variable",
     "name": "req"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 425,
+    "line": 25,
     "kind": "local-variable",
     "name": "rec"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 434,
+    "line": 32,
+    "kind": "function",
+    "name": "TestRefreshOrdersDiscoversNewOrdersWithoutBrowser"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 33,
     "kind": "local-variable",
     "name": "cleanup"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 434,
+    "line": 33,
     "kind": "local-variable",
     "name": "srv"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 434,
+    "line": 33,
     "kind": "local-variable",
     "name": "store"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 436,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 438,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 439,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 441,
+    "line": 37,
     "kind": "local-variable",
     "name": "body"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 442,
+    "line": 40,
+    "kind": "local-variable",
+    "name": "body"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 47,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 48,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 49,
     "kind": "local-variable",
     "name": "req"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 444,
+    "line": 51,
     "kind": "local-variable",
     "name": "rec"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 449,
+    "line": 56,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 56,
+    "kind": "local-variable",
+    "name": "order"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 66,
+    "kind": "function",
+    "name": "TestRefreshOrdersSoftDeletesOrdersMissingFromSellerList"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 67,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 67,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 67,
+    "kind": "local-variable",
+    "name": "store"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 69,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 73,
+    "kind": "local-variable",
+    "name": "body"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 76,
+    "kind": "local-variable",
+    "name": "body"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 81,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 82,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 83,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 85,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 90,
     "kind": "var",
-    "name": "res"
+    "name": "deletedAt"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 454,
+    "line": 91,
     "kind": "local-variable",
-    "name": "results"
+    "name": "err"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 460,
+    "line": 94,
     "kind": "local-variable",
-    "name": "req2"
+    "name": "err"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 462,
+    "line": 99,
+    "kind": "function",
+    "name": "TestMissingRefreshResultsAreCounted"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 100,
+    "kind": "local-variable",
+    "name": "targets"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 101,
+    "kind": "local-variable",
+    "name": "missing"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 109,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 109,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 109,
+    "kind": "local-variable",
+    "name": "store"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 112,
+    "kind": "local-variable",
+    "name": "body"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 115,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 117,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 118,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 120,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 122,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 131,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 131,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 135,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 137,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 139,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 149,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 149,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 149,
+    "kind": "local-variable",
+    "name": "store"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 151,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 154,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 155,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 157,
+    "kind": "local-variable",
+    "name": "body"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 158,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 160,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 169,
     "kind": "local-variable",
     "name": "rec2"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 470,
-    "kind": "function",
-    "name": "TestManualShipOrdersRejectsNonPendingStatus"
+    "line": 171,
+    "kind": "var",
+    "name": "got"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 471,
+    "line": 176,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 176,
+    "kind": "local-variable",
+    "name": "item"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 182,
+    "kind": "function",
+    "name": "TestUpdateOrderUsesNewItemIDForTitle"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 183,
     "kind": "local-variable",
     "name": "cleanup"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 471,
+    "line": 183,
     "kind": "local-variable",
     "name": "srv"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 471,
+    "line": 183,
     "kind": "local-variable",
     "name": "store"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 473,
+    "line": 185,
     "kind": "local-variable",
     "name": "ctx"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 475,
+    "line": 188,
     "kind": "local-variable",
     "name": "h"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 476,
+    "line": 189,
     "kind": "local-variable",
     "name": "cookie"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 477,
+    "line": 190,
     "kind": "local-variable",
     "name": "req"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 479,
+    "line": 192,
     "kind": "local-variable",
     "name": "rec"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 484,
+    "line": 197,
     "kind": "local-variable",
     "name": "order"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 492,
+    "line": 201,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 201,
+    "kind": "local-variable",
+    "name": "newItem"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 205,
+    "kind": "local-variable",
+    "name": "oldItem"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 211,
+    "kind": "function",
+    "name": "TestImportOrdersRejectsInvalidAmountWithoutWritingOrder"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 212,
     "kind": "local-variable",
     "name": "cleanup"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 492,
+    "line": 212,
     "kind": "local-variable",
     "name": "srv"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 492,
+    "line": 212,
     "kind": "local-variable",
     "name": "store"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 494,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 502,
+    "line": 214,
     "kind": "local-variable",
     "name": "h"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 503,
+    "line": 215,
     "kind": "local-variable",
     "name": "cookie"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 504,
-    "kind": "local-variable",
-    "name": "body"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 505,
+    "line": 216,
     "kind": "local-variable",
     "name": "req"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 507,
+    "line": 221,
     "kind": "local-variable",
     "name": "rec"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 512,
-    "kind": "var",
-    "name": "res"
+    "line": 226,
+    "kind": "local-variable",
+    "name": "err"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 521,
+    "line": 231,
+    "kind": "function",
+    "name": "TestImportOrdersRejectsUnknownStatusWithoutWritingOrder"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 232,
     "kind": "local-variable",
     "name": "cleanup"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 521,
+    "line": 232,
     "kind": "local-variable",
     "name": "srv"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 523,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 524,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 526,
-    "kind": "local-variable",
-    "name": "body"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 527,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 529,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 534,
-    "kind": "var",
-    "name": "res"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 543,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 543,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 545,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 546,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 548,
-    "kind": "local-variable",
-    "name": "body"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 549,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 551,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 560,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 560,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 562,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 563,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 565,
-    "kind": "local-variable",
-    "name": "body"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 566,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 568,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 577,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 577,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 579,
-    "kind": "local-variable",
-    "name": "h"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 580,
-    "kind": "local-variable",
-    "name": "cookie"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 582,
-    "kind": "local-variable",
-    "name": "req"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 584,
-    "kind": "local-variable",
-    "name": "rec"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 593,
-    "kind": "local-variable",
-    "name": "cleanup"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 593,
-    "kind": "local-variable",
-    "name": "srv"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 593,
+    "line": 232,
     "kind": "local-variable",
     "name": "store"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 595,
-    "kind": "local-variable",
-    "name": "ctx"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 597,
+    "line": 234,
     "kind": "local-variable",
     "name": "h"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 598,
+    "line": 235,
     "kind": "local-variable",
     "name": "cookie"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 600,
-    "kind": "local-variable",
-    "name": "body"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 601,
+    "line": 236,
     "kind": "local-variable",
     "name": "req"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 603,
+    "line": 241,
     "kind": "local-variable",
     "name": "rec"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 608,
+    "line": 246,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 251,
+    "kind": "function",
+    "name": "TestImportOrdersRollsBackOrderWhenItemWriteFails"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 252,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 252,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 252,
+    "kind": "local-variable",
+    "name": "store"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 254,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 257,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 258,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 259,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 264,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 269,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 274,
+    "kind": "function",
+    "name": "TestUpdateOrderRejectsInvalidAmount"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 275,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 275,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 275,
+    "kind": "local-variable",
+    "name": "store"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 277,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 279,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 280,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 281,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 283,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 288,
+    "kind": "local-variable",
+    "name": "order"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 294,
+    "kind": "function",
+    "name": "TestValidOrderAmountMatchesAnalyticsDecimalFormat"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 295,
+    "kind": "range-variable",
+    "name": "invalid"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 300,
+    "kind": "range-variable",
+    "name": "input"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 300,
+    "kind": "range-variable",
+    "name": "want"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 301,
+    "kind": "local-variable",
+    "name": "got"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 301,
+    "kind": "local-variable",
+    "name": "ok"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 308,
+    "kind": "function",
+    "name": "TestChunkRefreshTargetsBoundsBrowserBatchSize"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 309,
+    "kind": "local-variable",
+    "name": "targets"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 310,
+    "kind": "range-variable",
+    "name": "i"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 313,
+    "kind": "local-variable",
+    "name": "chunks"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 319,
+    "kind": "function",
+    "name": "TestUpdateOrderAndItemTitleRollBackTogether"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 320,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 320,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 320,
+    "kind": "local-variable",
+    "name": "store"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 322,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 326,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 327,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 328,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 330,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 335,
+    "kind": "local-variable",
+    "name": "order"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 341,
+    "kind": "function",
+    "name": "TestUpdateOrderRejectsUnknownStatus"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 342,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 342,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 342,
+    "kind": "local-variable",
+    "name": "store"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 344,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 346,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 347,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 348,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 350,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 355,
+    "kind": "local-variable",
+    "name": "order"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 361,
+    "kind": "function",
+    "name": "TestUpdateOrderCanExplicitlyClearFields"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 362,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 362,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 362,
+    "kind": "local-variable",
+    "name": "store"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 364,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 368,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 369,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 371,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 373,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 378,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 378,
+    "kind": "local-variable",
+    "name": "order"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 387,
+    "kind": "function",
+    "name": "TestListOrdersSearchUsesBackendPaginationScope"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 388,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 388,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 388,
+    "kind": "local-variable",
+    "name": "store"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 390,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 395,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 396,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 397,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 399,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 404,
+    "kind": "var",
+    "name": "response"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 408,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 418,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 418,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 418,
+    "kind": "local-variable",
+    "name": "store"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 420,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 422,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 423,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 425,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 427,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 436,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 436,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 436,
+    "kind": "local-variable",
+    "name": "store"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 438,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 440,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 441,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 443,
+    "kind": "local-variable",
+    "name": "body"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 444,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 446,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 451,
     "kind": "var",
     "name": "res"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 613,
+    "line": 456,
     "kind": "local-variable",
     "name": "results"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 617,
+    "line": 462,
     "kind": "local-variable",
-    "name": "r0"
+    "name": "req2"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 625,
+    "line": 464,
     "kind": "local-variable",
-    "name": "stable"
+    "name": "rec2"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 626,
-    "kind": "local-variable",
-    "name": "unstable"
+    "line": 472,
+    "kind": "function",
+    "name": "TestManualShipOrdersRejectsNonPendingStatus"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 627,
-    "kind": "range-variable",
-    "name": "s"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 627,
-    "kind": "range-variable",
-    "name": "want"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 628,
-    "kind": "local-variable",
-    "name": "got"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 632,
-    "kind": "range-variable",
-    "name": "s"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 632,
-    "kind": "range-variable",
-    "name": "want"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 633,
-    "kind": "local-variable",
-    "name": "got"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 641,
+    "line": 473,
     "kind": "local-variable",
     "name": "cleanup"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 641,
+    "line": 473,
     "kind": "local-variable",
     "name": "srv"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 641,
+    "line": 473,
     "kind": "local-variable",
     "name": "store"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 643,
+    "line": 475,
     "kind": "local-variable",
     "name": "ctx"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 644,
+    "line": 477,
     "kind": "local-variable",
-    "name": "service"
+    "name": "h"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 645,
+    "line": 478,
     "kind": "local-variable",
-    "name": "err"
+    "name": "cookie"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 645,
+    "line": 479,
     "kind": "local-variable",
-    "name": "list"
+    "name": "req"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 652,
+    "line": 481,
     "kind": "local-variable",
-    "name": "err"
+    "name": "rec"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 655,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 658,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_handlers_extra_test.go",
-    "line": 658,
+    "line": 486,
     "kind": "local-variable",
     "name": "order"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 662,
+    "line": 494,
     "kind": "local-variable",
-    "name": "err"
+    "name": "cleanup"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 665,
+    "line": 494,
     "kind": "local-variable",
-    "name": "err"
+    "name": "srv"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 677,
+    "line": 494,
     "kind": "local-variable",
-    "name": "cases"
+    "name": "store"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 678,
+    "line": 496,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 504,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 505,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 506,
+    "kind": "local-variable",
+    "name": "body"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 507,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 509,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 514,
+    "kind": "var",
+    "name": "res"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 523,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 523,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 525,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 526,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 528,
+    "kind": "local-variable",
+    "name": "body"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 529,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 531,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 536,
+    "kind": "var",
+    "name": "res"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 545,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 545,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 547,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 548,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 550,
+    "kind": "local-variable",
+    "name": "body"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 551,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 553,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 562,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 562,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 564,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 565,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 567,
+    "kind": "local-variable",
+    "name": "body"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 568,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 570,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 579,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 579,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 581,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 582,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 584,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 586,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 595,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 595,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 595,
+    "kind": "local-variable",
+    "name": "store"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 597,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 599,
+    "kind": "local-variable",
+    "name": "h"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 600,
+    "kind": "local-variable",
+    "name": "cookie"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 602,
+    "kind": "local-variable",
+    "name": "body"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 603,
+    "kind": "local-variable",
+    "name": "req"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 605,
+    "kind": "local-variable",
+    "name": "rec"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 610,
+    "kind": "var",
+    "name": "res"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 615,
+    "kind": "local-variable",
+    "name": "results"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 619,
+    "kind": "local-variable",
+    "name": "r0"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 627,
+    "kind": "local-variable",
+    "name": "stable"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 628,
+    "kind": "local-variable",
+    "name": "unstable"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 629,
     "kind": "range-variable",
-    "name": "in"
+    "name": "s"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
-    "line": 678,
+    "line": 629,
     "kind": "range-variable",
     "name": "want"
   },
   {
     "file": "internal/server/order_handlers_extra_test.go",
+    "line": 630,
+    "kind": "local-variable",
+    "name": "got"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 634,
+    "kind": "range-variable",
+    "name": "s"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 634,
+    "kind": "range-variable",
+    "name": "want"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 635,
+    "kind": "local-variable",
+    "name": "got"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 643,
+    "kind": "local-variable",
+    "name": "cleanup"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 643,
+    "kind": "local-variable",
+    "name": "srv"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 643,
+    "kind": "local-variable",
+    "name": "store"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 645,
+    "kind": "local-variable",
+    "name": "ctx"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 646,
+    "kind": "local-variable",
+    "name": "service"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 647,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 647,
+    "kind": "local-variable",
+    "name": "list"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 654,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 657,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 660,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 660,
+    "kind": "local-variable",
+    "name": "order"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 664,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 667,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
     "line": 679,
+    "kind": "local-variable",
+    "name": "row"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 680,
+    "kind": "local-variable",
+    "name": "view"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 684,
+    "kind": "local-variable",
+    "name": "validationErr"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 685,
+    "kind": "local-variable",
+    "name": "kind"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 685,
+    "kind": "local-variable",
+    "name": "ok"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 692,
+    "kind": "local-variable",
+    "name": "cases"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 693,
+    "kind": "range-variable",
+    "name": "in"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 693,
+    "kind": "range-variable",
+    "name": "want"
+  },
+  {
+    "file": "internal/server/order_handlers_extra_test.go",
+    "line": 694,
     "kind": "local-variable",
     "name": "got"
   },
@@ -80929,229 +80581,193 @@
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 16,
+    "line": 17,
     "kind": "type",
     "name": "orderApplicationService"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 21,
+    "line": 22,
     "kind": "var",
     "name": "errOrderDetailUnsupported"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 22,
+    "line": 23,
     "kind": "var",
     "name": "errOrderCredentialChanged"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 73,
-    "kind": "local-variable",
-    "name": "offset"
+    "line": 54,
+    "kind": "var",
+    "name": "applicationErr"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 74,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 74,
-    "kind": "local-variable",
-    "name": "rows"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 74,
-    "kind": "local-variable",
-    "name": "total"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 89,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 89,
-    "kind": "local-variable",
-    "name": "order"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 107,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 110,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 148,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 148,
-    "kind": "local-variable",
-    "name": "order"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 153,
-    "kind": "local-variable",
-    "name": "normalized"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 160,
-    "kind": "local-variable",
-    "name": "normalized"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 160,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 166,
-    "kind": "local-variable",
-    "name": "finalItemID"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 171,
-    "kind": "local-variable",
-    "name": "itemTitle"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 178,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 178,
-    "kind": "local-variable",
-    "name": "tx"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 183,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 193,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 216,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 216,
-    "kind": "local-variable",
-    "name": "ownedCookieIDs"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 220,
-    "kind": "local-variable",
-    "name": "defaultCookieID"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 224,
-    "kind": "local-variable",
-    "name": "result"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 225,
-    "kind": "range-variable",
-    "name": "raw"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 226,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 239,
-    "kind": "local-variable",
-    "name": "orderID"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 243,
-    "kind": "local-variable",
-    "name": "cookieID"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 253,
+    "line": 98,
     "kind": "local-variable",
     "name": "status"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 260,
+    "line": 113,
     "kind": "local-variable",
-    "name": "amount"
+    "name": "itemImage"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 260,
+    "line": 113,
+    "kind": "local-variable",
+    "name": "itemTitle"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 118,
+    "kind": "local-variable",
+    "name": "status"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 150,
+    "kind": "local-variable",
+    "name": "offset"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 151,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 151,
+    "kind": "local-variable",
+    "name": "rows"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 151,
+    "kind": "local-variable",
+    "name": "total"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 158,
+    "kind": "local-variable",
+    "name": "orders"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 159,
+    "kind": "range-variable",
+    "name": "row"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 170,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 170,
+    "kind": "local-variable",
+    "name": "order"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 188,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 188,
+    "kind": "local-variable",
+    "name": "order"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 192,
+    "kind": "local-variable",
+    "name": "item"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 192,
+    "kind": "local-variable",
+    "name": "itemErr"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 201,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 204,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 242,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 242,
+    "kind": "local-variable",
+    "name": "order"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 247,
+    "kind": "local-variable",
+    "name": "normalized"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 254,
+    "kind": "local-variable",
+    "name": "normalized"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 254,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 264,
+    "line": 260,
+    "kind": "local-variable",
+    "name": "finalItemID"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 265,
+    "kind": "local-variable",
+    "name": "itemTitle"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 272,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 264,
+    "line": 272,
     "kind": "local-variable",
     "name": "tx"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 269,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 278,
-    "kind": "local-variable",
-    "name": "itemID"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 280,
+    "line": 277,
     "kind": "local-variable",
     "name": "err"
   },
@@ -81163,279 +80779,735 @@
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 295,
-    "kind": "local-variable",
-    "name": "orderID"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 324,
+    "line": 310,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 324,
+    "line": 310,
     "kind": "local-variable",
     "name": "ownedCookieIDs"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 328,
+    "line": 314,
+    "kind": "local-variable",
+    "name": "defaultCookieID"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 318,
     "kind": "local-variable",
     "name": "result"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 329,
+    "line": 319,
     "kind": "range-variable",
-    "name": "rawOrderID"
+    "name": "raw"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 330,
+    "line": 320,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 333,
     "kind": "local-variable",
     "name": "orderID"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 334,
-    "kind": "local-variable",
-    "name": "getErr"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 334,
-    "kind": "local-variable",
-    "name": "order"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 368,
-    "kind": "local-variable",
-    "name": "running"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 372,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 372,
-    "kind": "local-variable",
-    "name": "sent"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 389,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 389,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 389,
-    "kind": "local-variable",
-    "name": "ret"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 389,
-    "kind": "local-variable",
-    "name": "runtimeCookie"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 389,
-    "kind": "local-variable",
-    "name": "runtimeCookieChanged"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 399,
-    "kind": "local-variable",
-    "name": "message"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 407,
-    "kind": "local-variable",
-    "name": "sysShip"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 408,
-    "kind": "local-variable",
-    "name": "upsertErr"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 418,
-    "kind": "local-variable",
-    "name": "message"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 419,
-    "kind": "local-variable",
-    "name": "warning"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 430,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 430,
-    "kind": "local-variable",
-    "name": "order"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 434,
-    "kind": "local-variable",
-    "name": "detailFetcher"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 434,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/server/order_service.go",
-    "line": 438,
+    "line": 337,
     "kind": "local-variable",
     "name": "cookieID"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 439,
+    "line": 347,
     "kind": "local-variable",
-    "name": "credentialUnlock"
+    "name": "status"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 440,
+    "line": 354,
     "kind": "local-variable",
-    "name": "credentialLocked"
+    "name": "amount"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 446,
+    "line": 354,
+    "kind": "local-variable",
+    "name": "ok"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 358,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 446,
+    "line": 358,
     "kind": "local-variable",
-    "name": "latest"
+    "name": "tx"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 450,
+    "line": 363,
     "kind": "local-variable",
-    "name": "cancel"
+    "name": "err"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 450,
+    "line": 372,
     "kind": "local-variable",
-    "name": "refreshCtx"
+    "name": "itemID"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 452,
+    "line": 374,
     "kind": "local-variable",
-    "name": "cookieSession"
+    "name": "err"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 452,
+    "line": 381,
     "kind": "local-variable",
-    "name": "mtopCtx"
+    "name": "err"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 453,
+    "line": 389,
     "kind": "local-variable",
-    "name": "callErr"
+    "name": "orderID"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 453,
+    "line": 418,
     "kind": "local-variable",
-    "name": "detail"
+    "name": "err"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 457,
+    "line": 418,
     "kind": "local-variable",
-    "name": "runtimeCookie"
+    "name": "ownedCookieIDs"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 458,
+    "line": 422,
     "kind": "local-variable",
-    "name": "runtimeCookieChanged"
+    "name": "result"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 459,
-    "kind": "local-variable",
-    "name": "handled"
+    "line": 423,
+    "kind": "range-variable",
+    "name": "rawOrderID"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 459,
+    "line": 424,
     "kind": "local-variable",
-    "name": "persistErr"
+    "name": "orderID"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 459,
+    "line": 428,
     "kind": "local-variable",
-    "name": "value"
+    "name": "getErr"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 459,
+    "line": 428,
     "kind": "local-variable",
-    "name": "valueChanged"
+    "name": "order"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 465,
+    "line": 462,
     "kind": "local-variable",
-    "name": "metadata"
+    "name": "running"
   },
   {
     "file": "internal/server/order_service.go",
     "line": 466,
     "kind": "local-variable",
-    "name": "saveErr"
+    "name": "err"
   },
   {
     "file": "internal/server/order_service.go",
-    "line": 479,
+    "line": 466,
     "kind": "local-variable",
-    "name": "status"
+    "name": "sent"
   },
   {
     "file": "internal/server/order_service.go",
     "line": 483,
     "kind": "local-variable",
     "name": "err"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 483,
+    "kind": "local-variable",
+    "name": "ok"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 483,
+    "kind": "local-variable",
+    "name": "ret"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 483,
+    "kind": "local-variable",
+    "name": "runtimeCookie"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 483,
+    "kind": "local-variable",
+    "name": "runtimeCookieChanged"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 493,
+    "kind": "local-variable",
+    "name": "message"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 501,
+    "kind": "local-variable",
+    "name": "sysShip"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 502,
+    "kind": "local-variable",
+    "name": "upsertErr"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 512,
+    "kind": "local-variable",
+    "name": "message"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 513,
+    "kind": "local-variable",
+    "name": "warning"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 524,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 524,
+    "kind": "local-variable",
+    "name": "order"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 528,
+    "kind": "local-variable",
+    "name": "detailFetcher"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 528,
+    "kind": "local-variable",
+    "name": "ok"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 532,
+    "kind": "local-variable",
+    "name": "cookieID"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 533,
+    "kind": "local-variable",
+    "name": "credentialUnlock"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 534,
+    "kind": "local-variable",
+    "name": "credentialLocked"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 540,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 540,
+    "kind": "local-variable",
+    "name": "latest"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 544,
+    "kind": "local-variable",
+    "name": "cancel"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 544,
+    "kind": "local-variable",
+    "name": "refreshCtx"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 546,
+    "kind": "local-variable",
+    "name": "cookieSession"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 546,
+    "kind": "local-variable",
+    "name": "mtopCtx"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 547,
+    "kind": "local-variable",
+    "name": "callErr"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 547,
+    "kind": "local-variable",
+    "name": "detail"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 551,
+    "kind": "local-variable",
+    "name": "runtimeCookie"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 552,
+    "kind": "local-variable",
+    "name": "runtimeCookieChanged"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 553,
+    "kind": "local-variable",
+    "name": "handled"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 553,
+    "kind": "local-variable",
+    "name": "persistErr"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 553,
+    "kind": "local-variable",
+    "name": "value"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 553,
+    "kind": "local-variable",
+    "name": "valueChanged"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 559,
+    "kind": "local-variable",
+    "name": "metadata"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 560,
+    "kind": "local-variable",
+    "name": "saveErr"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 573,
+    "kind": "local-variable",
+    "name": "status"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 577,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 582,
+    "kind": "function",
+    "name": "Refresh"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 584,
+    "kind": "local-variable",
+    "name": "cookieIDs"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 584,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 595,
+    "kind": "local-variable",
+    "name": "discovered"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 595,
+    "kind": "local-variable",
+    "name": "failed"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 595,
+    "kind": "local-variable",
+    "name": "listUpdated"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 595,
+    "kind": "local-variable",
+    "name": "softDeleted"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 596,
+    "kind": "local-variable",
+    "name": "results"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 597,
+    "kind": "local-variable",
+    "name": "newOrderIDs"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 598,
+    "kind": "local-variable",
+    "name": "sessionExpiredAccounts"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 599,
+    "kind": "local-variable",
+    "name": "fetcher"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 599,
+    "kind": "local-variable",
+    "name": "ok"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 602,
+    "kind": "local-variable",
+    "name": "latest"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 602,
+    "kind": "local-variable",
+    "name": "latestErr"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 616,
+    "kind": "local-variable",
+    "name": "accountDiscovered"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 616,
+    "kind": "local-variable",
+    "name": "accountNewIDs"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 616,
+    "kind": "local-variable",
+    "name": "accountRemoteIDs"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 616,
+    "kind": "local-variable",
+    "name": "accountUpdated"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 616,
+    "kind": "local-variable",
+    "name": "discoveryErr"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 617,
+    "kind": "local-variable",
+    "name": "persistErr"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 617,
+    "kind": "local-variable",
+    "name": "value"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 617,
+    "kind": "local-variable",
+    "name": "valueChanged"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 633,
+    "kind": "range-variable",
+    "name": "orderID"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 636,
+    "kind": "local-variable",
+    "name": "result"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 641,
+    "kind": "local-variable",
+    "name": "deleteErr"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 641,
+    "kind": "local-variable",
+    "name": "deleted"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 661,
+    "kind": "local-variable",
+    "name": "ordersByCookie"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 666,
+    "kind": "local-variable",
+    "name": "offset"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 667,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 667,
+    "kind": "local-variable",
+    "name": "rows"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 671,
+    "kind": "range-variable",
+    "name": "row"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 672,
+    "kind": "local-variable",
+    "name": "currentStatus"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 689,
+    "kind": "local-variable",
+    "name": "total"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 690,
+    "kind": "range-variable",
+    "name": "targets"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 693,
+    "kind": "local-variable",
+    "name": "detailFetcher"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 693,
+    "kind": "local-variable",
+    "name": "detailSupported"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 695,
+    "kind": "local-variable",
+    "name": "message"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 725,
+    "kind": "range-variable",
+    "name": "cid"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 725,
+    "kind": "range-variable",
+    "name": "targets"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 726,
+    "kind": "local-variable",
+    "name": "accountSessionExpired"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 727,
+    "kind": "range-variable",
+    "name": "chunk"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 728,
+    "kind": "local-variable",
+    "name": "credentialUnlock"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 729,
+    "kind": "local-variable",
+    "name": "latest"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 729,
+    "kind": "local-variable",
+    "name": "latestErr"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 736,
+    "kind": "local-variable",
+    "name": "cancel"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 736,
+    "kind": "local-variable",
+    "name": "detailCtx"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 737,
+    "kind": "local-variable",
+    "name": "cookieSession"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 737,
+    "kind": "local-variable",
+    "name": "mtopCtx"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 738,
+    "kind": "var",
+    "name": "sessionErr"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 739,
+    "kind": "range-variable",
+    "name": "target"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 740,
+    "kind": "local-variable",
+    "name": "detail"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 740,
+    "kind": "local-variable",
+    "name": "fetchErr"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 743,
+    "kind": "local-variable",
+    "name": "message"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 758,
+    "kind": "local-variable",
+    "name": "newStatus"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 762,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 775,
+    "kind": "local-variable",
+    "name": "changed"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 789,
+    "kind": "local-variable",
+    "name": "persistErr"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 789,
+    "kind": "local-variable",
+    "name": "value"
+  },
+  {
+    "file": "internal/server/order_service.go",
+    "line": 789,
+    "kind": "local-variable",
+    "name": "valueChanged"
   },
   {
     "file": "internal/server/ownership_helpers.go",
