@@ -55,26 +55,26 @@ func (m *Manager) StartAll(ctx context.Context) error {
 	m.mu.Lock()
 	m.runCtx = ctx
 	m.mu.Unlock()
-	// 管理员视角取全部 cookie（userID=0）。
-	all, err := m.store.Cookies.AllForUser(ctx, 0)
+	// credentials 是系统启动视角下已过滤启用状态、仅含 Cookie 的最小凭证集合。
+	credentials, err := m.store.Cookies.ListEnabledRuntimeCredentials(ctx)
 	if err != nil {
 		return fmt.Errorf("加载账号失败: %w", err)
 	}
-	for cookieID, cookieValue := range all {
-		enabled, statusErr := m.store.Cookies.Status(ctx, cookieID)
-		if statusErr != nil {
-			return fmt.Errorf("读取账号 %s 启用状态: %w", cookieID, statusErr)
-		}
-		if !enabled {
-			m.logger.Info("账号已禁用，跳过启动", "account", cookieID)
-			continue
-		}
-		if err := m.Start(ctx, cookieID, cookieValue); err != nil {
-			m.logger.Error("启动账号失败", "account", cookieID, "err", err)
+	// credential 是当前允许启动的账号及其短暂 Cookie 明文，不得离开运行时边界。
+	for _, credential := range credentials {
+		if err := m.Start(ctx, credential.ID, credential.Value); err != nil { // err 表示当前账号运行实例启动失败，但不阻断其他账号。
+			m.logger.Error("启动账号失败", "account", credential.ID, "err", err)
 		}
 	}
 	return nil
 }
+
+/*
+StartAll 只把启用账号交给运行时 supervisor。
+凭证查询由 db repository 负责解密和范围收敛。
+启动失败只记录当前账号错误，继续处理其他账号。
+调用方负责提供进程级生命周期 Context。
+*/
 
 // Start 启动单个账号（若已在运行则跳过；若上次实例已退出则清理后重启）。
 func (m *Manager) Start(ctx context.Context, cookieID, cookieValue string) error {

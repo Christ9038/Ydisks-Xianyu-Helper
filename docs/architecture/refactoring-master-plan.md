@@ -110,8 +110,9 @@ app shell / routes
 - 已完成阶段 2 逻辑切片二“Server 非敏感消费方”：账号列表、运行状态、账号详情、聊天、商品、关键词回复、卡券关联和管理员账号停止流程均迁移到窄查询，纯所有权流程不再解密完整凭证；
 - 已完成阶段 2 逻辑切片三“订单消费方”：订单刷新、手动发货和订单导入使用账号 ID 列表与所有权判断，凭证流程按需读取单账号详情；
 - 已完成阶段 2 后续切片：`internal/chat/service.go` 的订阅账号集合已迁移到 `ListOwnedIDs`，聊天订阅不再批量解密账号 Cookie；
-- 下一最小工作项：为 `internal/account/manager.go` 设计并实现受控的管理员视角账号凭证读取接口，替换启动全部账号时的 `AllForUser(ctx, 0)`；
-- 随后工作项：再处理明确需要平台凭证的业务流程，统一使用按用户和账号 ID 过滤的单值凭证接口；
+- 已完成阶段 2 后续切片：`internal/account/manager.go` 已改用受控的 `ListEnabledRuntimeCredentials` 启动账号，只解密启用账号 Cookie，不再使用 `AllForUser(ctx, 0)` 加逐账号状态查询；
+- 下一最小工作项：为 `internal/renewal/scheduler.go` 识别并拆分启用账号所需的 Cookie、登录秘密和运行配置读取，先建立按消费者字段收敛的窄模型，不改变续期行为；
+- 随后工作项：再处理 Engine、Automation 等明确需要平台凭证的流程，统一使用按账号 ID 过滤的单值凭证接口；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束

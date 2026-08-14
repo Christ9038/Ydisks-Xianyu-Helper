@@ -113,3 +113,46 @@ func TestCookieScopedQueriesExcludeSecrets(t *testing.T) {
 		t.Fatalf("GetValueOwned userID=0 应拒绝，err=%v", invalidValueErr)
 	}
 }
+
+// TestListEnabledRuntimeCredentials 只返回启用账号的 Cookie，并验证不会因其他敏感字段损坏而扩大读取范围。
+func TestListEnabledRuntimeCredentials(t *testing.T) {
+	// store 是当前测试使用的 SQLite repository 聚合器。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 是测试数据库操作共用的上下文。
+	ctx := context.Background()
+	// ownerID 是测试账号所属用户，用于创建两条账号记录。
+	var ownerID int64
+	// ownerCreateErr 表示创建测试用户失败的原因。
+	if ownerCreateErr := store.DB.QueryRowContext(ctx,
+		`INSERT INTO users (username,email,password_hash) VALUES (?,?,?) RETURNING id`,
+		"runtime-owner", "runtime-owner@example.com", "test-hash").Scan(&ownerID); ownerCreateErr != nil {
+		t.Fatalf("创建测试用户: %v", ownerCreateErr)
+	}
+	// enabledSaveErr 表示创建启用账号失败的原因。
+	if enabledSaveErr := store.Cookies.Save(ctx, "runtime-enabled", "runtime-cookie", ownerID); enabledSaveErr != nil {
+		t.Fatalf("创建启用账号: %v", enabledSaveErr)
+	}
+	// disabledSaveErr 表示创建禁用账号失败的原因。
+	if disabledSaveErr := store.Cookies.Save(ctx, "runtime-disabled", "disabled-cookie", ownerID); disabledSaveErr != nil {
+		t.Fatalf("创建禁用账号: %v", disabledSaveErr)
+	}
+	// statusErr 表示将测试账号标记为禁用失败的原因。
+	if statusErr := store.Cookies.SetStatus(ctx, "runtime-disabled", false); statusErr != nil {
+		t.Fatalf("禁用账号: %v", statusErr)
+	}
+	// corruptErr 表示写入故意损坏的密码和 metadata 测试值失败的原因。
+	if _, corruptErr := store.DB.ExecContext(ctx,
+		`UPDATE cookies SET password=?, metadata_json=? WHERE id=?`,
+		"not-a-password-ciphertext", "not-a-metadata-ciphertext", "runtime-enabled"); corruptErr != nil {
+		t.Fatalf("损坏非运行时字段: %v", corruptErr)
+	}
+	// credentials 是只应包含启用账号的最小运行时凭证集合。
+	credentials, listErr := store.Cookies.ListEnabledRuntimeCredentials(ctx)
+	if listErr != nil {
+		t.Fatalf("ListEnabledRuntimeCredentials: %v", listErr)
+	}
+	if len(credentials) != 1 || credentials[0].ID != "runtime-enabled" || credentials[0].Value != "runtime-cookie" {
+		t.Fatalf("运行时凭证范围或值错误: %#v", credentials)
+	}
+}

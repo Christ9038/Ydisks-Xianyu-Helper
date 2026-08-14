@@ -473,13 +473,13 @@ func TestStart_RestartsExited(t *testing.T) {
 }
 
 // TestStartAll_LoadError 验证 StartAll 在 DB 加载失败时返回包装错误。
-// 通过提前关闭底层 sql.DB 触发 AllForUser 查询错误。
+// 通过提前关闭底层 sql.DB 触发运行时凭证查询错误。
 func TestStartAll_LoadError(t *testing.T) {
 	store, cleanup := newTestStore(t)
 	defer cleanup()
 	mgr := NewManager(store, noopHandler{}, nil)
 
-	// 提前关闭 DB 让 AllForUser 失败。
+	// 提前关闭 DB 让 ListEnabledRuntimeCredentials 失败。
 	if err := store.DB.Close(); err != nil {
 		t.Fatalf("关闭 DB: %v", err)
 	}

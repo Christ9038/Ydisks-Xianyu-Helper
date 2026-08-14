@@ -4,10 +4,54 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 )
 
 // ErrInvalidUserID 表示调用方没有提供可用于所有权过滤的正数用户 ID。
 var ErrInvalidUserID = errors.New("user_id 必须大于 0")
+
+// RuntimeCookieCredential 表示账号运行实例启动所需的最小凭证视图；Value 仅允许在启动流程内部短暂传递，不得写入日志、响应或持久化状态。
+type RuntimeCookieCredential struct {
+	// ID 是闲鱼账号的稳定标识，用于绑定运行实例和解密作用域。
+	ID string
+	// Value 是已经由 repository 解密的 Cookie 明文，仅供账号运行时使用。
+	Value string
+}
+
+// ListEnabledRuntimeCredentials 返回所有启用账号的运行时 Cookie 凭证；该系统启动视图只选择并解密 Cookie，不读取密码、metadata 或其他账号资料。
+func (c *Cookies) ListEnabledRuntimeCredentials(ctx context.Context) ([]RuntimeCookieCredential, error) {
+	// rows 是按启用状态过滤后仅包含账号 ID 和 Cookie 密文的查询结果集。
+	rows, err := c.DB.QueryContext(ctx, `
+		SELECT c.id, c.value
+		FROM cookies c
+		LEFT JOIN cookie_status cs ON cs.cookie_id = c.id
+		WHERE COALESCE(cs.enabled, 1) <> 0
+		ORDER BY c.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	// credentials 保存供账号 supervisor 启动运行实例的最小明文凭证集合。
+	credentials := make([]RuntimeCookieCredential, 0)
+	for rows.Next() {
+		// credential 保存当前行的账号 ID 和待解密 Cookie。
+		var credential RuntimeCookieCredential
+		// encryptedValue 保存数据库中按账号作用域加密的 Cookie 密文。
+		var encryptedValue string
+		// scanErr 表示当前运行时凭证行无法映射到模型的原因。
+		if scanErr := rows.Scan(&credential.ID, &encryptedValue); scanErr != nil {
+			return nil, scanErr
+		}
+		// decryptErr 表示当前账号 Cookie 密文无法用 repository 的数据密钥解密。
+		var decryptErr error
+		credential.Value, decryptErr = c.codec.decrypt("cookie", credential.ID, encryptedValue)
+		if decryptErr != nil {
+			return nil, fmt.Errorf("解密账号 %s Cookie: %w", credential.ID, decryptErr)
+		}
+		credentials = append(credentials, credential)
+	}
+	return credentials, rows.Err()
+}
 
 // CookieSummary 表示不包含 Cookie、密码和加密 metadata 的账号摘要。
 type CookieSummary struct {
