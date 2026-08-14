@@ -308,13 +308,14 @@ export const getOrders = async (
   page: number = 1,
   pageSize: number = 20,
   search?: string,
+  options?: RequestControlOptions,
 ): Promise<PaginatedResponse<Order>> => {
   const params: any = { page, page_size: pageSize };
   if (cookieId) params.cookie_id = cookieId;
   if (status && status !== 'all') params.status = status;
   if (search?.trim()) params.search = search.trim();
 
-  const res = await get<PaginatedResponse<Order> & { orders?: Order[] /* 后端兼容的订单列表字段。 */ }>('/api/v1/orders', params);
+  const res = await get<PaginatedResponse<Order> & { orders?: Order[] /* 后端兼容的订单列表字段。 */ }>('/api/v1/orders', params, options);
 
   // Handle backend response variations
   const rawOrders = res.orders || res.data || [];
@@ -369,9 +370,9 @@ export const manualShipOrder = async (orderIds: string[], shipMode: 'status_only
     });
 }
 
-export const importOrders = async (data: Partial<Order>[] | FormData): Promise<OrderBatchResponse> => {
+export const importOrders = async (data: Partial<Order>[] | FormData, options?: RequestControlOptions): Promise<OrderBatchResponse> => {
 	const isFormData = data instanceof FormData;
-	return isFormData ? postForm('/api/v1/orders/import', data) : post('/api/v1/orders/import', data);
+	return isFormData ? postForm('/api/v1/orders/import', data, options) : post('/api/v1/orders/import', data, options);
 }
 
 // Stats
@@ -493,8 +494,8 @@ export const appendCardData = async (cardId: string | number, content: string, o
 const normalizeBooleanFlag = (value: unknown): boolean =>
     value === true || value === 1 || value === '1';
 
-export const getItems = async (cookieId?: string): Promise<Item[]> => {
-    const res = await get<Item[] | ItemListEnvelope>('/api/v1/items', cookieId ? { cookie_id: cookieId } : undefined);
+export const getItems = async (cookieId?: string, options?: RequestControlOptions): Promise<Item[]> => {
+    const res = await get<Item[] | ItemListEnvelope>('/api/v1/items', cookieId ? { cookie_id: cookieId } : undefined, options);
     const items = Array.isArray(res) ? res : (res.items || []);
     return items.map((item: any) => ({
       ...item,

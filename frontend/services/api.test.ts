@@ -146,6 +146,20 @@ test('getOrders maps unsupported backend statuses to unknown', async () => {
   expect(result.data[0].status).toBe('unknown');
 });
 
+test('订单查询和导入 API 转发外部取消信号', async () => {
+  // fetchMock 是同时验证订单查询和文件上传请求控制参数的替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ data: [], total_pages: 1 }))
+    .mockResolvedValueOnce(jsonResponse({ success_count: 1, failed_count: 0, results: [] }));
+  vi.stubGlobal('fetch', fetchMock);
+  // controller 是 feature Hook 传入 API 的取消控制器。
+  const controller = new AbortController();
+  await getOrders(undefined, 'all', 1, 20, '', { signal: controller.signal });
+  await importOrders(new FormData(), { signal: controller.signal });
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/orders?page=1&page_size=20', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/orders/import', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+});
+
 test('getShippingRulesPage sends filters and preserves pagination metadata', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
     data: [{ id: 7, name: '付款规则', trigger_type: 'order_paid', enabled: false, actions: [] }],
