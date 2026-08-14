@@ -521,7 +521,7 @@ func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
 			s.Logger.Error("更新后重启账号失败", "cookie_id", req.ID, "err", err)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "id": req.ID})
+	writeJSON(w, http.StatusOK, accountMutationResponse{Success: true, ID: req.ID})
 }
 
 // updateCookie 更新 cookie 值。

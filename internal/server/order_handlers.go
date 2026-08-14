@@ -72,40 +72,40 @@ func (s *Server) listOrders(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	orders := make([]map[string]any, 0, len(rows))
+	orders := make([]orderDTO, 0, len(rows))
 	for _, o := range rows {
 		st := db.NormalizeOrderStatus(o.OrderStatus)
-		orders = append(orders, map[string]any{
-			"order_id":         o.OrderID,
-			"item_id":          o.ItemID,
-			"item_title":       o.ItemTitle,
-			"item_image":       itemImageFromDetail(o.ItemDetail),
-			"buyer_id":         o.BuyerID,
-			"spec_name":        o.SpecName,
-			"spec_value":       o.SpecValue,
-			"quantity":         o.Quantity,
-			"amount":           o.Amount,
-			"order_status":     st,
-			"status":           st,
-			"cookie_id":        o.CookieID,
-			"is_bargain":       o.IsBargain,
-			"system_shipped":   o.SystemShipped,
-			"receiver_name":    o.ReceiverName,
-			"receiver_phone":   o.ReceiverPhone,
-			"receiver_address": o.ReceiverAddr,
-			"receiver_city":    o.ReceiverCity,
-			"created_at":       o.CreatedAt,
-			"updated_at":       o.UpdatedAt,
+		orders = append(orders, orderDTO{
+			OrderID:         o.OrderID,
+			ItemID:          o.ItemID,
+			ItemTitle:       o.ItemTitle,
+			ItemImage:       itemImageFromDetail(o.ItemDetail),
+			BuyerID:         o.BuyerID,
+			SpecName:        o.SpecName,
+			SpecValue:       o.SpecValue,
+			Quantity:        o.Quantity,
+			Amount:          o.Amount,
+			OrderStatus:     st,
+			Status:          st,
+			CookieID:        o.CookieID,
+			IsBargain:       o.IsBargain,
+			SystemShipped:   o.SystemShipped,
+			ReceiverName:    o.ReceiverName,
+			ReceiverPhone:   o.ReceiverPhone,
+			ReceiverAddress: o.ReceiverAddr,
+			ReceiverCity:    o.ReceiverCity,
+			CreatedAt:       o.CreatedAt,
+			UpdatedAt:       o.UpdatedAt,
 		})
 	}
 	totalPages := (total + pageSize - 1) / pageSize
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success":     true,
-		"data":        orders,
-		"total":       total,
-		"page":        page,
-		"page_size":   pageSize,
-		"total_pages": totalPages,
+	writeJSON(w, http.StatusOK, orderListResponse{
+		Success:    true,
+		Data:       orders,
+		Total:      total,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: totalPages,
 	})
 }
 

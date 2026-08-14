@@ -75,7 +75,7 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request) {
 				FetchChatUserInfo(context.Context, string, string) (*mtop.ChatUserInfo, error)
 			})
 			if !canResolve {
-				writeJSON(w, http.StatusOK, map[string]any{"sessions": rows, "has_more": hasMore, "next_cursor": nextCursor})
+				writeJSON(w, http.StatusOK, chatSessionPageResponse{Sessions: newChatSessionDTOs(rows), HasMore: hasMore, NextCursor: nextCursor})
 				return
 			}
 			resolveCtx, resolveCancel := context.WithTimeout(r.Context(), 25*time.Second)
@@ -131,7 +131,7 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": rows, "has_more": hasMore, "next_cursor": nextCursor})
+	writeJSON(w, http.StatusOK, chatSessionPageResponse{Sessions: newChatSessionDTOs(rows), HasMore: hasMore, NextCursor: nextCursor})
 }
 
 func (s *Server) sendChatImage(w http.ResponseWriter, r *http.Request) {
@@ -215,7 +215,7 @@ func (s *Server) sendChatImage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "图片已发送，但状态保存失败")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"message": sent})
+	writeJSON(w, http.StatusCreated, chatMessageEnvelope{Message: newChatMessageDTOFromPointer(sent)})
 }
 
 func (s *Server) listChatMessages(w http.ResponseWriter, r *http.Request) {
@@ -256,7 +256,7 @@ func (s *Server) listChatMessages(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 					current = s.resolveSelectedChatIdentity(r.Context(), accountID, current)
-					writeJSON(w, http.StatusOK, map[string]any{"messages": page.Messages, "has_more": page.HasMore, "next_cursor": page.NextCursor, "session": current})
+					writeJSON(w, http.StatusOK, chatMessagePageResponse{Messages: newChatMessageDTOs(page.Messages), HasMore: page.HasMore, NextCursor: page.NextCursor, Session: newChatSessionDTO(current)})
 					return
 				}
 			}
@@ -277,7 +277,7 @@ func (s *Server) listChatMessages(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"messages": rows, "has_more": len(rows) == limit, "session": current})
+	writeJSON(w, http.StatusOK, chatMessagePageResponse{Messages: newChatMessageDTOs(rows), HasMore: len(rows) == limit, Session: newChatSessionDTO(current)})
 }
 
 func (s *Server) resolveSelectedChatIdentity(ctx context.Context, accountID string, session db.ChatSession) db.ChatSession {
@@ -362,7 +362,7 @@ func (s *Server) sendChatMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "消息已发送，但状态保存失败")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"message": sent})
+	writeJSON(w, http.StatusCreated, chatMessageEnvelope{Message: newChatMessageDTOFromPointer(sent)})
 }
 
 func (s *Server) markChatRead(w http.ResponseWriter, r *http.Request) {
@@ -383,7 +383,7 @@ func (s *Server) markChatRead(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "更新已读状态失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) chatWebSocket(w http.ResponseWriter, r *http.Request) {

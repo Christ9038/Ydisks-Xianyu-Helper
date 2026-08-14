@@ -147,18 +147,18 @@ func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
 	initialized, _ := s.Store.Users.IsSystemInitialized(ctx)
 	sess := auth.SessionFromContext(ctx)
 	if sess != nil {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"authenticated": true,
-			"user_id":       sess.UserID,
-			"username":      sess.Username,
-			"is_admin":      sess.IsAdmin,
-			"initialized":   initialized,
+		writeJSON(w, http.StatusOK, sessionVerificationResponse{
+			Authenticated: true,
+			UserID:        sess.UserID,
+			Username:      sess.Username,
+			IsAdmin:       sess.IsAdmin,
+			Initialized:   initialized,
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"authenticated": false,
-		"initialized":   initialized,
+	writeJSON(w, http.StatusOK, sessionVerificationResponse{
+		Authenticated: false,
+		Initialized:   initialized,
 	})
 }
 
@@ -169,7 +169,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		s.Auth.Logout(r.Context(), sess.SessionID)
 	}
 	s.Auth.ClearSessionCookie(w)
-	writeJSON(w, http.StatusOK, map[string]any{"message": "已登出"})
+	writeJSON(w, http.StatusOK, messageResponse{Message: "已登出"})
 }
 
 // changeAdminPassword 修改管理员密码。
@@ -203,7 +203,7 @@ func (s *Server) changeAdminPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Auth.ClearSessionCookie(w)
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "密码修改成功，请重新登录", "requires_relogin": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true, Message: "密码修改成功，请重新登录", RequiresRelogin: true})
 }
 
 // changePassword 修改当前用户密码。
@@ -236,7 +236,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Auth.ClearSessionCookie(w)
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "密码修改成功，请重新登录", "requires_relogin": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true, Message: "密码修改成功，请重新登录", RequiresRelogin: true})
 }
 
 // updateCredentials 修改当前登录用户的用户名和/或密码，并撤销全部旧会话。
@@ -291,9 +291,9 @@ func (s *Server) updateCredentials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Auth.ClearSessionCookie(w)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success":          true,
-		"message":          "登录凭据已更新，请使用新用户名和密码重新登录",
-		"requires_relogin": true,
+	writeJSON(w, http.StatusOK, operationResponse{
+		Success:         true,
+		Message:         "登录凭据已更新，请使用新用户名和密码重新登录",
+		RequiresRelogin: true,
 	})
 }
