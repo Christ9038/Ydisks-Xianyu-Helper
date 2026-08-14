@@ -1,7 +1,7 @@
 import { get, post, put, del, postForm, type RequestControlOptions } from '../request';
 import {
-  LoginResponse, AccountDetail, AccountSummaryResponse, Order, PaginatedResponse,
-  AdminStats, DashboardStats, Card, SystemSettings, ApiResponse, OrderAnalytics,
+  SessionResponse, AccountDetail, AccountSummaryResponse, Order, PaginatedResponse,
+  AdminStats, DashboardStats, Card, SystemSettings, OrderAnalytics,
   Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
   NotificationChannel, NotificationEventType, AccountTaskSettings, ChatSession, ChatMessage, ItemListEnvelope, AutomationIssuesEnvelope,
   CookieSettingsResponse, CookieProfileResponse, ItemDetailResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, OrderRefreshResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope, AdminStatsResponse, DashboardStatsResponse, OrderAnalyticsResponse, QRLoginGenerateResponse, QRLoginStatusResponse, QRLoginVerificationResponse, ValidOrderResponse, ValidOrdersResponse
@@ -18,11 +18,11 @@ const normalizeSettings = (settings: Record<string, any>): SystemSettings => {
 };
 
 // Auth
-export const login = async (data: { username?: string; password?: string; email?: string; verification_code?: string }): Promise<LoginResponse> => {
+export const login = async (data: { username?: string; password?: string; email?: string; verification_code?: string }): Promise<SessionResponse> => {
   return post('/api/v1/session/login', data, { skipAuthLogout: true });
 };
 
-export const initializeAdmin = async (password: string): Promise<LoginResponse> => {
+export const initializeAdmin = async (password: string): Promise<SessionResponse> => {
   return post('/api/v1/session/initialize', { password }, { skipAuthLogout: true });
 };
 
@@ -35,11 +35,11 @@ export const getHealth = async (options?: RequestControlOptions): Promise<{ vers
   return get('/health', undefined, options);
 };
 
-export const logout = async (): Promise<ApiResponse> => {
+export const logout = async (): Promise<OperationResponse> => {
   return post('/api/v1/session/logout', {});
 };
 
-export const changePassword = async (currentPassword: string, newPassword: string): Promise<ApiResponse> => {
+export const changePassword = async (currentPassword: string, newPassword: string): Promise<OperationResponse> => {
   return post('/api/v1/session/password', { current_password: currentPassword, new_password: newPassword });
 };
 
@@ -47,12 +47,12 @@ export const updateLoginCredentials = async (data: {
   current_password: string;
   new_username: string;
   new_password?: string;
-}, options?: RequestControlOptions): Promise<ApiResponse & { requires_relogin?: boolean }> => {
+}, options?: RequestControlOptions): Promise<OperationResponse> => {
   return put('/api/v1/session/credentials', data, options);
 };
 
 // Accounts
-export const addAccount = async (id: string, value: string, loginMethod?: string): Promise<ApiResponse> => {
+export const addAccount = async (id: string, value: string, loginMethod?: string): Promise<OperationResponse> => {
   return post('/api/v1/accounts', { id, value, login_method: loginMethod });
 };
 
@@ -153,7 +153,7 @@ export const sendChatImage = async (input: {
 	return postForm('/api/v1/chat/images', form, { timeoutMs: 120_000, ...options });
 };
 
-export const markChatRead = async (accountId: string, chatId: string, options?: RequestControlOptions): Promise<ApiResponse> =>
+export const markChatRead = async (accountId: string, chatId: string, options?: RequestControlOptions): Promise<OperationResponse> =>
 	post('/api/v1/chat/read', { account_id: accountId, chat_id: chatId }, options);
 
 export interface AccountRuntimeStatus {
@@ -277,7 +277,7 @@ export const checkPasswordLoginStatus = async (sessionId: string, signal?: Abort
   return get(`/api/v1/password-login/check/${sessionId}`, undefined, { signal, timeoutMs: 10_000 });
 };
 
-export const cancelPasswordLogin = async (sessionId: string, options?: RequestControlOptions): Promise<ApiResponse> => {
+export const cancelPasswordLogin = async (sessionId: string, options?: RequestControlOptions): Promise<OperationResponse> => {
   return del(`/api/v1/password-login/cancel/${sessionId}`, undefined, options);
 };
 
@@ -348,11 +348,11 @@ export const getOrderDetail = async (orderId: string): Promise<{ success: boolea
   };
 };
 
-export const updateOrder = async (orderId: string, data: Partial<Order>): Promise<ApiResponse> => {
+export const updateOrder = async (orderId: string, data: Partial<Order>): Promise<OperationResponse> => {
   return put(`/api/v1/orders/${orderId}`, data);
 };
 
-export const deleteOrder = async (orderId: string): Promise<ApiResponse> => {
+export const deleteOrder = async (orderId: string): Promise<OperationResponse> => {
   return del(`/api/v1/orders/${orderId}`);
 };
 

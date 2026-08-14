@@ -1,11 +1,4 @@
 
-// API Response Bases
-export interface ApiResponse {
-  success?: boolean;
-  message?: string;
-  msg?: string;
-}
-
 export interface PaginatedResponse<T> {
   success: boolean;
   data: T[];
@@ -17,7 +10,8 @@ export interface PaginatedResponse<T> {
 }
 
 // Auth
-export interface LoginResponse {
+/** 会话登录和首次初始化接口的具名响应。 */
+export interface SessionResponse {
   success: boolean;
   token?: string;
   message?: string;
