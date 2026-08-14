@@ -1145,14 +1145,14 @@ func (a *Account) persistPendingRenewCookies(ctx context.Context, result *renew.
 	defer a.refreshMu.Unlock()
 	credentialUnlock := a.store.LockAccountCredentials(a.CookieID)
 	defer credentialUnlock()
-	detail, err := a.store.Cookies.GetDetails(ctx, a.CookieID)
-	if err != nil || detail == nil {
-		if err == nil {
-			err = db.ErrNotFound
-		}
+	runtimeData, err := a.store.Cookies.GetCookieRuntimeData(ctx, a.CookieID) // runtimeData 只包含迟到续期合并所需的 Cookie 与 metadata。
+	if err != nil {
 		return err
 	}
-	newCookies, metadata, changed := renew.RebaseResponseCookies(detail.Value, detail.MetadataJSON, result)
+	// runtimeData 已在凭证锁内读取，避免迟到响应覆盖并发写入的最新凭证状态。
+	// RebaseResponseCookies 继续根据当前 Cookie 与 metadata 重放 Set-Cookie。
+	// 下面的 UpdateRenewalCookie、运行时状态和通知顺序保持原有行为。
+	newCookies, metadata, changed := renew.RebaseResponseCookies(runtimeData.Value, runtimeData.MetadataJSON, result)
 	if !changed {
 		return nil
 	}

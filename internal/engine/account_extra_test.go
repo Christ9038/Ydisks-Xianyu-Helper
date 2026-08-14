@@ -1173,3 +1173,34 @@ func TestHandleMaxFailuresUsesValueWithoutLoginSecrets(t *testing.T) {
 		t.Fatalf("恢复回调或 Cookie 异常: refresh=%d cookie=%q", handler.refresh, acc.currentCookieStr())
 	}
 }
+
+// TestPersistPendingRenewCookiesUsesRuntimeData 验证迟到续期合并不解密损坏的登录密码。
+func TestPersistPendingRenewCookiesUsesRuntimeData(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "engine-pending-renew-query-key")
+	// acc 和 store 是本测试的账号及数据库；cleanup 负责关闭临时数据库。
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	// ctx 是测试迟到续期合并共用的上下文。
+	ctx := context.Background()
+	// corruptErr 表示写入故意损坏的登录密码密文失败的原因。
+	if _, corruptErr := store.DB.ExecContext(ctx,
+		`UPDATE cookies SET username=?,password=? WHERE id=?`,
+		"engine-pending-renew-user", "not-a-password-ciphertext", "cid"); corruptErr != nil {
+		t.Fatalf("corrupt password: %v", corruptErr)
+	}
+	// lateResult 是后台静默续期迟到的 Set-Cookie 响应。
+	lateResult := &xrenew.Result{SetCookies: []string{"sdkSilent=9999999999999; Domain=goofish.com; Path=/; Secure; HttpOnly"}}
+	// persistErr 表示迟到 Cookie 合并和持久化的结果。
+	if persistErr := acc.persistPendingRenewCookies(ctx, lateResult); persistErr != nil {
+		t.Fatalf("persist pending renew cookies: %v", persistErr)
+	}
+	// runtimeData 是合并后读取的运行时 Cookie 与 metadata 窄模型。
+	runtimeData, runtimeErr := store.Cookies.GetCookieRuntimeData(ctx, "cid")
+	if runtimeErr != nil || !strings.Contains(runtimeData.Value, "sdkSilent=9999999999999") {
+		t.Fatalf("迟到 Cookie 未写入: data=%+v err=%v", runtimeData, runtimeErr)
+	}
+	// snapshotComplete 表示迟到扁平 Cookie 是否被错误标记为完整浏览器快照。
+	if _, snapshotComplete := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON); snapshotComplete {
+		t.Fatal("扁平迟到 Cookie 不应伪造完整浏览器快照")
+	}
+}
