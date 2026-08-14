@@ -249,3 +249,39 @@ func validateCookieOwnerID(userID int64) error {
 	}
 	return nil
 }
+
+// CookieFingerprintData 表示自动化 Session 阻断指纹所需的 Cookie 与 metadata，不包含登录密码或账号资料。
+type CookieFingerprintData struct {
+	// Value 是 repository 解密后的 Cookie 明文，仅用于生成进程内指纹，不得写入日志或响应。
+	Value string
+	// MetadataJSON 是 repository 解密后的 Cookie 运行 metadata，用于识别完整 Cookie Jar 的变化。
+	MetadataJSON string
+}
+
+// GetCookieFingerprintData 返回生成账号凭证指纹所需的最小字段，并严格跳过登录密码、用户名等其他列。
+func (c *Cookies) GetCookieFingerprintData(ctx context.Context, cookieID string) (CookieFingerprintData, error) {
+	// data 保存按账号 ID 查询到的指纹输入字段。
+	var data CookieFingerprintData
+	// encryptedValue 和 encryptedMetadata 保存仅供本次解密的数据库密文。
+	var encryptedValue, encryptedMetadata string
+	// queryErr 表示账号不存在或指纹输入查询失败的原因。
+	if queryErr := c.DB.QueryRowContext(ctx,
+		`SELECT value, COALESCE(metadata_json,'') FROM cookies WHERE id=?`, cookieID).
+		Scan(&encryptedValue, &encryptedMetadata); queryErr != nil {
+		if errors.Is(queryErr, sql.ErrNoRows) {
+			return CookieFingerprintData{}, ErrNotFound
+		}
+		return CookieFingerprintData{}, queryErr
+	}
+	// decryptErr 表示 Cookie 或 metadata 密文无法解密的原因。
+	var decryptErr error
+	data.Value, decryptErr = c.codec.decrypt("cookie", cookieID, encryptedValue)
+	if decryptErr != nil {
+		return CookieFingerprintData{}, fmt.Errorf("解密账号 %s Cookie: %w", cookieID, decryptErr)
+	}
+	data.MetadataJSON, decryptErr = c.codec.decrypt(cookieMetadataScope, cookieID, encryptedMetadata)
+	if decryptErr != nil {
+		return CookieFingerprintData{}, fmt.Errorf("解密账号 %s Cookie metadata: %w", cookieID, decryptErr)
+	}
+	return data, nil
+}

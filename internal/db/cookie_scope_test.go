@@ -156,3 +156,47 @@ func TestListEnabledRuntimeCredentials(t *testing.T) {
 		t.Fatalf("运行时凭证范围或值错误: %#v", credentials)
 	}
 }
+
+// TestGetCookieFingerprintDataExcludesLoginSecrets 验证指纹查询只解密 Cookie 与 metadata，不读取损坏的登录密码。
+func TestGetCookieFingerprintDataExcludesLoginSecrets(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "fingerprint-query-key")
+	// store 是当前测试使用的 SQLite repository 聚合器。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 是测试数据库操作共用的上下文。
+	ctx := context.Background()
+	// createErr 表示创建测试用户失败的原因。
+	if ok, createErr := store.Users.Create(ctx, "fingerprint-owner", "fingerprint-owner@example.com", "pw"); createErr != nil || !ok {
+		t.Fatalf("create owner: ok=%v err=%v", ok, createErr)
+	}
+	// owner 是测试账号的所有者。
+	owner, ownerErr := store.Users.GetByUsername(ctx, "fingerprint-owner")
+	if ownerErr != nil {
+		t.Fatalf("get owner: %v", ownerErr)
+	}
+	// saveErr 表示创建测试账号失败的原因。
+	if saveErr := store.Cookies.CreateOwned(ctx, "fingerprint-cookie", "sid=fingerprint", owner.ID); saveErr != nil {
+		t.Fatalf("create cookie: %v", saveErr)
+	}
+	// metadata 是指纹查询应读取的合法运行 metadata。
+	metadata := `{"jar":"fingerprint"}`
+	// updateErr 表示写入测试 Cookie 与 metadata 失败的原因。
+	if updateErr := store.Cookies.UpdateRenewalCookie(ctx, "fingerprint-cookie", "sid=fingerprint", metadata, 1); updateErr != nil {
+		t.Fatalf("update cookie: %v", updateErr)
+	}
+	// corruptErr 表示写入故意损坏的登录密码失败的原因。
+	if _, corruptErr := store.DB.ExecContext(ctx,
+		`UPDATE cookies SET username=?,password=? WHERE id=?`,
+		"fingerprint-user", "not-a-password-ciphertext", "fingerprint-cookie"); corruptErr != nil {
+		t.Fatalf("corrupt password: %v", corruptErr)
+	}
+	// data 是不受登录密码损坏影响的最小指纹输入。
+	data, dataErr := store.Cookies.GetCookieFingerprintData(ctx, "fingerprint-cookie")
+	if dataErr != nil || data.Value != "sid=fingerprint" || data.MetadataJSON != metadata {
+		t.Fatalf("fingerprint data=%+v err=%v", data, dataErr)
+	}
+	// missingErr 表示不存在账号应返回统一的未找到错误。
+	if _, missingErr := store.Cookies.GetCookieFingerprintData(ctx, "fingerprint-missing"); !errors.Is(missingErr, ErrNotFound) {
+		t.Fatalf("missing fingerprint data err=%v", missingErr)
+	}
+}

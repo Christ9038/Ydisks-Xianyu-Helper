@@ -142,17 +142,17 @@ func (c *Center) accountTaskSessionBlocked(ctx context.Context, accountID string
 }
 
 func (c *Center) accountCredentialFingerprint(ctx context.Context, accountID string) (string, error) {
-	detail, err := c.store.Cookies.GetDetails(ctx, accountID)
+	// data 是生成自动化 Session 阻断指纹所需的最小 Cookie 与 metadata 输入。
+	data, err := c.store.Cookies.GetCookieFingerprintData(ctx, accountID)
 	if err != nil {
 		return "", err
 	}
-	if detail == nil {
-		return "", db.ErrNotFound
-	}
-	sum := sha256.Sum256([]byte(detail.Value + "\x00" + detail.MetadataJSON))
+	// sum 是不暴露凭证内容的稳定摘要，用于判断续期是否更新了账号凭证。
+	sum := sha256.Sum256([]byte(data.Value + "\x00" + data.MetadataJSON))
 	return fmt.Sprintf("%x", sum[:]), nil
 }
 
+// runAutoRate 执行自动评价任务，并在明确的单值 Cookie 查询边界内调用平台 API。
 func (c *Center) runAutoRate(ctx context.Context, settings db.AccountTaskSettings) (AccountTaskSummary, error) {
 	summary := AccountTaskSummary{TaskType: TaskAutoRate}
 	if c.accountTasks == nil {
