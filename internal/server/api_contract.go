@@ -1,9 +1,12 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5/middleware"
+
+	"xianyu-go/internal/db"
 	"xianyu-go/internal/httpapi"
 )
 
@@ -86,4 +89,13 @@ func writeErrCode(w http.ResponseWriter, status int, code, msg, requestID string
 		return
 	}
 	httpapi.WriteError(w, status, code, msg, requestID)
+}
+
+// writeCredentialVerificationError 将当前密码校验失败区分为认证失败或内部故障。
+func writeCredentialVerificationError(w http.ResponseWriter, err error) {
+	if errors.Is(err, db.ErrPasswordMismatch) {
+		writeErrCode(w, http.StatusUnauthorized, "authentication_failed", "当前密码错误", "")
+		return
+	}
+	writeErr(w, http.StatusInternalServerError, "验证当前密码失败")
 }

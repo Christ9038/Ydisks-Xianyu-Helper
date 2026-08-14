@@ -195,11 +195,11 @@ func (s *Server) changeAdminPassword(w http.ResponseWriter, r *http.Request) {
 	// 校验当前密码。
 	user, ok, _ := s.Store.Users.VerifyAndUpgrade(ctx, sess.Username, req.CurrentPassword)
 	if !ok || user == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"success": false, "message": "当前密码错误"})
+		writeErrCode(w, http.StatusUnauthorized, "authentication_failed", "当前密码错误", "")
 		return
 	}
 	if _, err := s.Store.Users.UpdatePassword(ctx, sess.Username, req.NewPassword); err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"success": false, "message": "更新失败"})
+		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
 	s.Auth.ClearSessionCookie(w)
@@ -228,11 +228,11 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	user, _, _ := s.Store.Users.VerifyAndUpgrade(ctx, sess.Username, req.CurrentPassword)
 	if user == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"success": false, "message": "当前密码错误"})
+		writeErrCode(w, http.StatusUnauthorized, "authentication_failed", "当前密码错误", "")
 		return
 	}
 	if _, err := s.Store.Users.UpdatePassword(ctx, sess.Username, req.NewPassword); err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"success": false, "message": "更新失败"})
+		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
 	s.Auth.ClearSessionCookie(w)
@@ -275,16 +275,16 @@ func (s *Server) updateCredentials(w http.ResponseWriter, r *http.Request) {
 	}
 	user, ok, err := s.Store.Users.VerifyAndUpgrade(r.Context(), sess.Username, req.CurrentPassword)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "验证当前密码失败")
+		writeCredentialVerificationError(w, err)
 		return
 	}
 	if !ok || user == nil || user.ID != sess.UserID {
-		writeJSON(w, http.StatusOK, map[string]any{"success": false, "message": "当前密码错误"})
+		writeErrCode(w, http.StatusUnauthorized, "authentication_failed", "当前密码错误", "")
 		return
 	}
 	if err := s.Store.Users.UpdateCredentials(r.Context(), sess.UserID, username, req.NewPassword); err != nil {
 		if errors.Is(err, db.ErrUsernameTaken) {
-			writeJSON(w, http.StatusConflict, map[string]any{"success": false, "message": "用户名已被占用"})
+			writeErrCode(w, http.StatusConflict, "username_taken", "用户名已被占用", "")
 			return
 		}
 		writeErr(w, http.StatusInternalServerError, "更新登录凭据失败")

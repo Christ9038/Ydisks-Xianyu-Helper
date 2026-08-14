@@ -70,7 +70,7 @@ func (s *Server) setSettings(w http.ResponseWriter, r *http.Request) {
 func (s *Server) publicSettings(w http.ResponseWriter, r *http.Request) {
 	m, err := s.Store.Settings.Public(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeErrRequest(w, r, http.StatusInternalServerError, "查询失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, m)
