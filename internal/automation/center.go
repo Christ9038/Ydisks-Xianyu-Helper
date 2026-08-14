@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
-	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
 )
 
@@ -93,17 +92,20 @@ type Center struct {
 	// planner 生成不可变动作计划，不执行外部 I/O。
 	planner actionPlanner
 	// runs 协调自动化运行创建、动作检查点、延迟恢复和结果隔离。
-	runs         automationRunCoordinator
-	store        *db.Store
-	senders      SenderProvider
-	fetcher      OrderDetailFetcher
-	recoverer    CredentialRecoverer
-	notifier     Notifier
-	mtop         mtop.Client
-	accountTasks AccountTaskClient
-	logger       *slog.Logger
-	cookieSrc    func(context.Context, string) (string, error)
-	cardLocks    sync.Map
+	runs automationRunCoordinator
+	// actions 执行确认发货、卡密和消息动作，集中维护外部副作用边界。
+	actions automationActionExecutor
+	// notifications 负责把运行结果转换为可选的发货通知。
+	notifications deliveryNotifier
+	store         *db.Store
+	senders       SenderProvider
+	fetcher       OrderDetailFetcher
+	recoverer     CredentialRecoverer
+	notifier      Notifier
+	mtop          mtop.Client
+	accountTasks  AccountTaskClient
+	logger        *slog.Logger
+	cookieSrc     func(context.Context, string) (string, error)
 	// sessionExpired 保存检测到 Session 失效时的凭证指纹。在凭证续期或
 	// 重新登录真正改变之前，账号任务不得再次调用任何 MTOP 业务接口。
 	sessionExpired sync.Map
@@ -124,6 +126,29 @@ func New(store *db.Store, senders SenderProvider, logger *slog.Logger) *Center {
 		mtop:         client,
 		accountTasks: client,
 		logger:       logger.With("subsys", "automation"),
+	}
+	center.actions = automationActionExecutor{
+		store:   store,
+		senders: senders,
+		mtop: func() mtop.Client {
+			return center.mtop
+		},
+		recoverer: func() CredentialRecoverer {
+			return center.recoverer
+		},
+		logger: center.logger,
+		cookieSource: func(ctx context.Context, cookieID string) (string, error) {
+			if center.cookieSrc != nil {
+				return center.cookieSrc(ctx, cookieID)
+			}
+			return center.store.Cookies.GetValue(ctx, cookieID)
+		},
+		wakeCredentialBlocked: center.wakeCredentialBlockedAutomation,
+	}
+	center.notifications = deliveryNotifier{
+		current: func() Notifier {
+			return center.notifier
+		},
 	}
 	center.runs = automationRunCoordinator{
 		store:                    store,
@@ -419,32 +444,14 @@ func (c *Center) executeRunActions(ctx context.Context, task Task, ruleID int64,
 // notifyResult 根据规则执行结果发送通知。成功且实际发出了内容才通知，
 // 避免无匹配动作的空跑刷屏；失败时发失败通知。
 func (c *Center) notifyResult(task Task, status string, sent int, errMsg string) {
-	triggerName := map[string]string{
-		TriggerOrderPaid:            "付款发货",
-		TriggerBuyerReviewed:        "评价赠品",
-		TriggerReviewMissingTimeout: "求评价",
-	}[task.TriggerType]
-	if triggerName == "" {
-		triggerName = task.TriggerType
-	}
-	if status == "success" {
-		if sent <= 0 {
-			return
-		}
-		msg := fmt.Sprintf("✅ %s成功（订单 %s，已发送 %d 条）", triggerName, task.OrderID, sent)
-		c.notifier.NotifyDelivery(task.AccountID, "", task.BuyerID, task.ItemID, msg, task.ChatID)
-		return
-	}
-	msg := fmt.Sprintf("🚨 %s失败（订单 %s）：%s", triggerName, task.OrderID, errMsg)
-	c.notifier.NotifyDelivery(task.AccountID, "", task.BuyerID, task.ItemID, msg, task.ChatID)
+	c.notifications.notifyResult(task, status, sent, errMsg)
 }
 
 func (c *Center) notifyRunNeedsReview(run db.AutomationRun, reason string) {
-	if c == nil || c.notifier == nil {
+	if c == nil {
 		return
 	}
-	task := Task{AccountID: run.CookieID, BuyerID: run.BuyerID, ItemID: run.ItemID, ChatID: run.ChatID, OrderID: run.OrderID, TriggerType: run.TriggerType}
-	c.notifyResult(task, "needs_review", run.SentCount, "需要人工核对："+reason)
+	c.notifications.notifyRunNeedsReview(run, reason)
 }
 
 // actionDelaySeconds 统一卡密默认延时和动作覆盖语义。旧动作没有
@@ -567,162 +574,17 @@ func mergeOrderIntoTask(task Task, order *db.Order) Task {
 	return task
 }
 
+// executeAction 将具体动作委托给发货动作执行器。
 func (c *Center) executeAction(ctx context.Context, task Task, action db.AutomationAction) (int, error) {
-	switch action.ActionType {
-	case ActionConfirmShipment:
-		return 0, c.confirmShipment(ctx, task)
-	case ActionSendCard:
-		return c.sendCard(ctx, task, action)
-	case ActionSendText:
-		text := renderTemplate(action.MessageTemplate, task)
-		if strings.TrimSpace(text) == "" {
-			return 0, nil
-		}
-		if err := c.sendText(ctx, task, text); err != nil {
-			if errors.Is(err, ErrMessageNotSent) {
-				return 0, err
-			}
-			return 0, uncertainAction(err)
-		}
-		return 1, nil
-	default:
-		return 0, fmt.Errorf("未知自动化动作: %s", action.ActionType)
-	}
+	return c.actions.executeAction(ctx, task, action)
 }
 
+// confirmShipment 将确认发货委托给发货动作执行器。
 func (c *Center) confirmShipment(ctx context.Context, task Task) error {
-	if task.OrderID == "" {
-		return fmt.Errorf("确认发货缺少订单ID")
-	}
-	enabled, err := c.store.Cookies.GetAutoConfirm(ctx, task.AccountID)
-	if err != nil {
-		return fmt.Errorf("读取自动确认发货设置: %w", err)
-	}
-	if !enabled && !task.ForceConfirmShipment {
-		return nil
-	}
-	return c.confirmShipmentAttempt(ctx, task, true)
+	return c.actions.confirmShipment(ctx, task)
 }
 
-func (c *Center) confirmShipmentAttempt(ctx context.Context, task Task, allowCredentialRecovery bool) error {
-	credentialUnlock := c.store.LockAccountCredentials(task.AccountID)
-	credentialLocked := true
-	defer func() {
-		if credentialLocked {
-			credentialUnlock()
-		}
-	}()
-	// runtimeData 是确认发货所需的最小 Cookie 与 metadata 运行视图，不包含登录密码和账号资料。
-	runtimeData, err := c.store.Cookies.GetCookieRuntimeData(ctx, task.AccountID)
-	if err != nil {
-		return err
-	}
-	// runtimeData 已在凭证锁内读取；这里只根据完整快照判断空 Cookie 的合法性。
-	// completeSnapshot 表示 metadata 中是否包含可恢复的完整 Cookie Jar。
-	_, completeSnapshot := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON)
-	if strings.TrimSpace(runtimeData.Value) == "" && !completeSnapshot {
-		return fmt.Errorf("账号 %s Cookie 为空", task.AccountID)
-	}
-	cookieStr := runtimeData.Value
-	var mtopCtx context.Context
-	var cookieSession *mtop.CookieSession
-	if snapshot, ok := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON); ok {
-		mtopCtx, cookieSession = mtop.WithCookieSnapshot(ctx, snapshot)
-	} else {
-		mtopCtx, cookieSession = mtop.WithFlatCookieSession(ctx, cookieStr)
-	}
-	ok, ret, updated, callErr := c.mtop.ConsignContext(mtopCtx, cookieStr, task.OrderID)
-	var persistenceErrs []error
-	runtimeCookie := ""
-	runtimeCookieChanged := false
-	value, snapshot, changed := cookieSession.State()
-	// 完整 Jar 已接管时，即使响应没有 Cookie 变化，也不能因扁平字符串
-	// 格式差异回退覆盖并清除 Jar。
-	sessionHandled := snapshot != nil
-	if changed {
-		metadata := cookierefresh.MetadataWithoutSnapshot(runtimeData.MetadataJSON)
-		if snapshot != nil {
-			metadata = cookierefresh.MetadataWithSnapshot(runtimeData.MetadataJSON, snapshot)
-		}
-		if saveErr := c.store.Cookies.UpdateRenewalCookie(ctx, task.AccountID, value, metadata, time.Now().Unix()); saveErr != nil {
-			persistenceErrs = append(persistenceErrs, fmt.Errorf("保存确认发货响应 Cookie Jar: %w", saveErr))
-		} else if value != cookieStr {
-			runtimeCookie = value
-			runtimeCookieChanged = true
-		}
-	}
-	if !sessionHandled && callErr == nil && updated != "" && updated != cookieStr {
-		// 注入 mock 或没有权威快照的历史账号保留扁平
-		// Cookie 兼容路径；扁平结果无法维护旧 Jar 的作用域，
-		// 因此不得继续保留可能已过期的 snapshot。
-		metadata := cookierefresh.MetadataWithoutSnapshot(runtimeData.MetadataJSON)
-		if saveErr := c.store.Cookies.UpdateRenewalCookie(ctx, task.AccountID, updated, metadata, time.Now().Unix()); saveErr != nil {
-			persistenceErrs = append(persistenceErrs, fmt.Errorf("保存刷新后的 Cookie: %w", saveErr))
-		} else {
-			runtimeCookie = updated
-			runtimeCookieChanged = true
-		}
-	}
-	credentialUnlock()
-	credentialLocked = false
-	if runtimeCookieChanged && c.senders != nil {
-		if sender, running := c.senders.Sender(task.AccountID); running {
-			sender.UpdateCookie(runtimeCookie)
-		}
-	}
-	if runtimeCookieChanged {
-		c.wakeCredentialBlockedAutomation(ctx, task.AccountID)
-	}
-	sessionErr := callErr
-	if sessionErr == nil && !ok {
-		sessionErr = errors.New(strings.Join(ret, "; "))
-	}
-	if mtop.IsSessionExpiredErr(sessionErr) {
-		if len(persistenceErrs) > 0 {
-			return errors.Join(fmt.Errorf("确认发货 Session 已失效: %w", sessionErr), errors.Join(persistenceErrs...))
-		}
-		if allowCredentialRecovery && c.recoverer != nil && c.recoverer.RecoverExpiredCredential(ctx, task.AccountID) {
-			c.logger.Info("确认发货凭证恢复成功，重新执行确认发货", "account", task.AccountID, "order_id", task.OrderID)
-			return c.confirmShipmentAttempt(ctx, task, false)
-		}
-		if !allowCredentialRecovery {
-			return fmt.Errorf("%w: 确认发货在凭证恢复后仍返回 Session 失效: %v", errActionNotPerformed, sessionErr)
-		}
-		return fmt.Errorf("%w: 确认发货 Session 已失效且凭证恢复失败: %v", errActionNotPerformed, sessionErr)
-	}
-	if callErr != nil {
-		if len(persistenceErrs) > 0 {
-			callErr = errors.Join(callErr, errors.Join(persistenceErrs...))
-		}
-		return uncertainAction(callErr)
-	}
-	if !ok {
-		failure := fmt.Errorf("确认发货失败: %s", strings.Join(ret, "; "))
-		if len(persistenceErrs) > 0 {
-			return errors.Join(failure, errors.Join(persistenceErrs...))
-		}
-		return failure
-	}
-	sysShip := true
-	if upsertErr := c.store.Orders.Upsert(ctx, task.OrderID, db.OrderUpsertOpts{
-		CookieID:      task.AccountID,
-		ItemID:        task.ItemID,
-		BuyerID:       task.BuyerID,
-		ChatID:        task.ChatID,
-		OrderStatus:   "shipped",
-		SystemShipped: &sysShip,
-	}); upsertErr != nil {
-		persistenceErrs = append(persistenceErrs, fmt.Errorf("保存本地订单发货状态: %w", upsertErr))
-	}
-	if eventErr := c.store.Automation.MarkOrderEventTime(ctx, task.OrderID, "shipped_at"); eventErr != nil {
-		persistenceErrs = append(persistenceErrs, fmt.Errorf("保存订单发货时间: %w", eventErr))
-	}
-	if len(persistenceErrs) > 0 {
-		return uncertainAction(fmt.Errorf("闲鱼已确认发货，但本地状态保存失败: %w", errors.Join(persistenceErrs...)))
-	}
-	return nil
-}
-
+// wakeCredentialBlockedAutomation 在 Cookie 更新后唤醒凭证阻塞的自动化任务。
 func (c *Center) wakeCredentialBlockedAutomation(ctx context.Context, accountID string) {
 	if c == nil || c.store == nil || c.store.Automation == nil {
 		return
@@ -732,81 +594,12 @@ func (c *Center) wakeCredentialBlockedAutomation(ctx context.Context, accountID 
 	}
 }
 
+// sendCard 将卡密发送委托给发货动作执行器。
 func (c *Center) sendCard(ctx context.Context, task Task, action db.AutomationAction) (int, error) {
-	if !actionMatchesOrderSpec(task, action) {
-		return 0, nil
-	}
-	if action.CardID <= 0 {
-		return 0, fmt.Errorf("发送卡密动作缺少卡密组ID")
-	}
-	count := deliverySendCount(task, action)
-	card, err := c.store.Cards.Get(ctx, action.CardID)
-	if err != nil {
-		return 0, err
-	}
-	if !card.Enabled {
-		return 0, fmt.Errorf("卡密组 %d 已停用", card.ID)
-	}
-	if card.Type == "data" {
-		return c.sendDataCard(ctx, task, card, count)
-	}
-	sent := 0
-	for i := 0; i < count; i++ {
-		content, imageURL, err := c.cardContent(ctx, card)
-		if err != nil {
-			return sent, err
-		}
-		if imageURL != "" {
-			if err := c.sendImage(ctx, task, imageURL, card.ID); err != nil {
-				return sent, classifyMessageSendError(err)
-			}
-		}
-		if strings.TrimSpace(content) != "" {
-			if err := c.sendText(ctx, task, renderTemplate(content, task)); err != nil {
-				return sent, classifyMessageSendError(err)
-			}
-		}
-		if strings.TrimSpace(content) == "" && strings.TrimSpace(imageURL) == "" {
-			return sent, fmt.Errorf("卡密组 %d 没有可发送内容", card.ID)
-		}
-		sent++
-	}
-	return sent, nil
+	return c.actions.sendCard(ctx, task, action)
 }
 
-func (c *Center) sendDataCard(ctx context.Context, task Task, card *db.CardFull, count int) (int, error) {
-	unlock := c.lockCard(card.ID)
-	defer unlock()
-	sent := 0
-	for i := 0; i < count; i++ {
-		content, err := c.store.Cards.ConsumeBatchData(ctx, card.ID)
-		if err != nil {
-			return sent, err
-		}
-		if strings.TrimSpace(content) != "" {
-			if err := c.sendText(ctx, task, renderTemplate(content, task)); err != nil {
-				if errors.Is(err, ErrMessageNotSent) {
-					if restoreErr := c.store.Cards.RestoreBatchData(ctx, card.ID, content); restoreErr != nil {
-						return sent, uncertainAction(errors.Join(err, fmt.Errorf("恢复未发送卡密库存: %w", restoreErr)))
-					}
-					return sent, err
-				}
-				// 请求已经交给传输层后无法判断远端是否收到，保留消费状态并人工核对。
-				return sent, uncertainAction(err)
-			}
-		}
-		sent++
-	}
-	return sent, nil
-}
-
-func classifyMessageSendError(err error) error {
-	if err == nil || errors.Is(err, ErrMessageNotSent) {
-		return err
-	}
-	return uncertainAction(err)
-}
-
+// accountAutomationAllowed 判断账号是否仍允许执行自动化动作。
 func (c *Center) accountAutomationAllowed(ctx context.Context, accountID string) (bool, error) {
 	paused, _, err := c.store.Cookies.IsPaused(ctx, accountID)
 	if err != nil {
@@ -819,6 +612,7 @@ func (c *Center) accountAutomationAllowed(ctx context.Context, accountID string)
 	return !paused && enabled, nil
 }
 
+// accountSenderReady 判断账号是否具备可发送自动化消息的在线连接。
 func (c *Center) accountSenderReady(accountID string) bool {
 	if c == nil || c.senders == nil {
 		return false
@@ -833,110 +627,19 @@ func (c *Center) accountSenderReady(accountID string) bool {
 	return true
 }
 
-func (c *Center) lockCard(cardID int64) func() {
-	raw, _ := c.cardLocks.LoadOrStore(cardID, &sync.Mutex{})
-	mu := raw.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
-}
-
-func actionMatchesOrderSpec(task Task, action db.AutomationAction) bool {
-	var cfg struct {
-		SpecName  string `json:"spec_name"`
-		SpecValue string `json:"spec_value"`
-	}
-	if json.Unmarshal([]byte(action.ConfigJSON), &cfg) != nil {
-		return false
-	}
-	if strings.TrimSpace(cfg.SpecName) == "" && strings.TrimSpace(cfg.SpecValue) == "" {
-		return true
-	}
-	return strings.TrimSpace(task.SpecName) == strings.TrimSpace(cfg.SpecName) &&
-		strings.TrimSpace(task.SpecValue) == strings.TrimSpace(cfg.SpecValue)
-}
-
-func deliverySendCount(task Task, action db.AutomationAction) int {
-	perUnit := action.DeliveryCount
-	if perUnit <= 0 {
-		perUnit = 1
-	}
-	qty := parsePositiveInt(task.Quantity)
-	if qty <= 0 {
-		qty = 1
-	}
-	return perUnit * qty
-}
-
-func parsePositiveInt(raw string) int {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return 0
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n < 0 {
-		return 0
-	}
-	return n
-}
-
+// cardContent 获取卡密组内容的兼容入口。
 func (c *Center) cardContent(ctx context.Context, card *db.CardFull) (text, imageURL string, err error) {
-	switch card.Type {
-	case "text":
-		if strings.TrimSpace(card.TextContent) == "" {
-			return "", "", fmt.Errorf("文本卡密组缺少内容")
-		}
-		return card.TextContent, "", nil
-	case "data":
-		return "", "", fmt.Errorf("data 卡密必须通过 sendDataCard 发送")
-	case "image":
-		if strings.TrimSpace(card.ImageURL) == "" {
-			return "", "", fmt.Errorf("图片卡密组缺少图片 URL")
-		}
-		return "", card.ImageURL, nil
-	case "api":
-		return "", "", fmt.Errorf("自动化中心暂不支持 API 卡密动作")
-	default:
-		return "", "", fmt.Errorf("未知卡密类型: %s", card.Type)
-	}
+	return c.actions.cardContent(ctx, card)
 }
 
-func (c *Center) sendText(ctx context.Context, task Task, text string) error {
-	if task.ChatID == "" || task.BuyerID == "" {
-		return fmt.Errorf("%w: 发送消息缺少 chat_id 或 buyer_id", ErrMessageNotSent)
-	}
-	if c.senders == nil {
-		return fmt.Errorf("%w: 账号发送器未初始化", ErrMessageNotSent)
-	}
-	sender, ok := c.senders.Sender(task.AccountID)
-	if !ok {
-		return fmt.Errorf("%w: 账号未在线，无法发送自动化消息", ErrMessageNotSent)
-	}
-	return sender.SendText(ctx, task.ChatID, task.BuyerID, text)
-}
-
+// sendImage 将图片消息发送委托给发货动作执行器。
 func (c *Center) sendImage(ctx context.Context, task Task, imageURL string, cardID int64) error {
-	if task.ChatID == "" || task.BuyerID == "" {
-		return fmt.Errorf("%w: 发送图片缺少 chat_id 或 buyer_id", ErrMessageNotSent)
-	}
-	if c.senders == nil {
-		return fmt.Errorf("%w: 账号发送器未初始化", ErrMessageNotSent)
-	}
-	sender, ok := c.senders.Sender(task.AccountID)
-	if !ok {
-		return fmt.Errorf("%w: 账号未在线，无法发送自动化图片", ErrMessageNotSent)
-	}
-	return sender.SendImage(ctx, task.ChatID, task.BuyerID, imageURL, cardID)
+	return c.actions.sendImage(ctx, task, imageURL, cardID)
 }
 
+// cookieValue 读取账号 Cookie 的兼容入口。
 func (c *Center) cookieValue(ctx context.Context, cookieID string) (string, error) {
-	if c.cookieSrc != nil {
-		return c.cookieSrc(ctx, cookieID)
-	}
-	value, err := c.store.Cookies.GetValue(ctx, cookieID) // value 是只读取账号 Cookie 明文的单值结果，不会展开完整账号详情。
-	if err != nil {
-		return "", err
-	}
-	return value, nil
+	return c.actions.cookieValue(ctx, cookieID)
 }
 
 func buildTriggerKey(task Task) string {
@@ -952,23 +655,4 @@ func buildTriggerKey(task Task) string {
 		return task.TriggerType + ":" + task.UpdateKey
 	}
 	return ""
-}
-
-func renderTemplate(tpl string, task Task) string {
-	out := tpl
-	repl := map[string]string{
-		"{order_id}":     task.OrderID,
-		"{item_id}":      task.ItemID,
-		"{buyer_id}":     task.BuyerID,
-		"{chat_id}":      task.ChatID,
-		"{trigger_type}": task.TriggerType,
-		"{spec_name}":    task.SpecName,
-		"{spec_value}":   task.SpecValue,
-		"{quantity}":     task.Quantity,
-		"{amount}":       task.Amount,
-	}
-	for k, v := range repl {
-		out = strings.ReplaceAll(out, k, v)
-	}
-	return out
 }

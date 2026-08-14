@@ -167,7 +167,8 @@ app shell / routes
 - 已完成阶段 6 第四个 PR 切片“Engine 凭证状态与 Token 生命周期边界”：将 Cookie 快照、Token 缓存、刷新锁、设备指纹和刷新诊断状态收口到独立 `credentialState`；运行状态锁改为显式 `runtimeMu`，避免匿名组件锁冲突；保留风控恢复、刷新锁、Cookie/Token 绑定和 WebSocket 注册前快照复核语义；Engine 全量测试、Engine/Server race、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交；
 - 已完成阶段 6 第五个 PR 切片“Automation 事件事实与规则匹配边界”：新增事件事实记录器、无动作副作用的规则匹配器和纯动作计划器；`Center` 与 `Scheduler` 统一通过组件查询规则和生成动作计划，规则匹配不执行外部动作，付款发货动作顺序、规格匹配、延迟快照和恢复语义保持不变；Automation/Server race、全量测试、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交；
 - 已完成阶段 6 第六个 PR 切片“Automation 运行协调与动作执行边界”：新增 `automationRunCoordinator`，统一运行创建/恢复、动作前后检查点、延迟任务续租、账号门禁和不确定结果隔离；`Center` 保留兼容调用入口，外部动作已执行/未执行/结果未知三态语义、人工核对状态机和恢复游标保持不变；Automation 测试、注释和 diff 门禁通过，整批修改合并为一个可回滚提交；
-- 阶段 6 下一 PR 切片为“Automation 发货、卡密与通知动作边界”：提取确认发货、卡密分配、消息发送和结果通知的动作执行组件，保留凭证锁、卡券锁、发送错误分类和通知幂等语义；
+- 已完成阶段 6 第七个 PR 切片“Automation 发货、卡密与通知动作边界”：新增 `automationActionExecutor` 与 `deliveryNotifier`，统一确认发货、Cookie/Jar 合并、卡券锁与库存消费、消息错误三态分类和结果通知；`Center` 保留兼容入口，凭证锁、卡券库存、恢复唤醒和通知文案语义保持不变；新增动作执行器回归测试，Automation 测试、注释和 diff 门禁通过，整批修改合并为一个可回滚提交；
+- 阶段 6 下一 PR 切片为“Automation 账号任务与凭证门禁边界”：提取账号自动评价/发货任务的调度、凭证阻塞和账号状态门禁边界，保留 Session 失效恢复、任务租约和失败重试语义；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -584,3 +585,4 @@ npm --prefix frontend run build
 | 2026-08-14 | 完成阶段 6 第四个 PR 切片“Engine 凭证状态与 Token 生命周期边界” | 新增 `credentialState`，集中 Cookie 快照、Token 缓存、刷新锁、设备指纹和刷新诊断状态；运行状态组件锁改名为 `runtimeMu`，保持 `Account` facade 字段访问兼容；Cookie 更新、Token 清理、风控恢复和 WS 注册前凭证快照复核语义保持不变；Engine 全量测试、Engine/Server race、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交 | 阶段 6：Automation 事件事实与规则匹配边界 |
 | 2026-08-14 | 完成阶段 6 第五个 PR 切片“Automation 事件事实与规则匹配边界” | 新增 `eventFactRecorder`、`ruleMatcher` 和 `actionPlanner`；事件事实写入、规则查询和动作计划生成职责分离，`Center`/`Scheduler` 不再直接散落调用规则匹配；动作计划保持付款发卡优先、规格过滤和延迟快照语义，新增纯计划与无订单事实回归测试；Automation/Server race、全量测试、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交 | 阶段 6：Automation 运行协调与动作执行边界 |
 | 2026-08-14 | 完成阶段 6 第六个 PR 切片“Automation 运行协调与动作执行边界” | 新增 `automationRunCoordinator`，统一运行创建/恢复、动作前后检查点、延迟任务续租、账号门禁和不确定结果隔离；`Center` 保留兼容调用入口，外部动作三态语义、人工核对状态机和恢复游标保持不变；Automation 测试、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Automation 发货、卡密与通知动作边界 |
+| 2026-08-14 | 完成阶段 6 第七个 PR 切片“Automation 发货、卡密与通知动作边界” | 新增 `automationActionExecutor` 与 `deliveryNotifier`，统一确认发货、Cookie/Jar 合并、卡券锁与库存消费、消息错误三态分类和结果通知；`Center` 保留兼容入口，凭证锁、卡券库存、恢复唤醒和通知文案语义保持不变；新增动作执行器回归测试；Automation 测试、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Automation 账号任务与凭证门禁边界 |

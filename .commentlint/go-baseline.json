@@ -9138,1174 +9138,778 @@
     "name": "settings"
   },
   {
+    "file": "internal/automation/action_executor.go",
+    "line": 72,
+    "kind": "local-variable",
+    "name": "enabled"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 72,
+    "kind": "local-variable",
+    "name": "readErr"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 111,
+    "kind": "local-variable",
+    "name": "snapshot"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 111,
+    "kind": "local-variable",
+    "name": "snapshotOK"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 124,
+    "kind": "local-variable",
+    "name": "callErr"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 124,
+    "kind": "local-variable",
+    "name": "consignOK"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 124,
+    "kind": "local-variable",
+    "name": "ret"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 124,
+    "kind": "local-variable",
+    "name": "updated"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 134,
+    "kind": "local-variable",
+    "name": "changed"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 134,
+    "kind": "local-variable",
+    "name": "snapshot"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 134,
+    "kind": "local-variable",
+    "name": "value"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 167,
+    "kind": "local-variable",
+    "name": "running"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 167,
+    "kind": "local-variable",
+    "name": "sender"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 258,
+    "kind": "local-variable",
+    "name": "content"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 258,
+    "kind": "local-variable",
+    "name": "imageURL"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 258,
+    "kind": "local-variable",
+    "name": "readErr"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 325,
+    "kind": "local-variable",
+    "name": "sender"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 325,
+    "kind": "local-variable",
+    "name": "senderOK"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 342,
+    "kind": "local-variable",
+    "name": "sender"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 342,
+    "kind": "local-variable",
+    "name": "senderOK"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 428,
+    "kind": "local-variable",
+    "name": "n"
+  },
+  {
+    "file": "internal/automation/action_executor.go",
+    "line": 428,
+    "kind": "local-variable",
+    "name": "parseErr"
+  },
+  {
     "file": "internal/automation/center.go",
-    "line": 20,
+    "line": 19,
     "kind": "var",
     "name": "errAutomationDeferred"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 21,
+    "line": 20,
     "kind": "var",
     "name": "errAutomationNeedsReview"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 22,
+    "line": 21,
     "kind": "var",
     "name": "errAutomationQuarantine"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 23,
+    "line": 22,
     "kind": "var",
     "name": "errActionNotPerformed"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 27,
+    "line": 26,
     "kind": "var",
     "name": "ErrMessageNotSent"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 30,
+    "line": 29,
     "kind": "type",
     "name": "preparationError"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 32,
+    "line": 31,
     "kind": "function",
     "name": "Error"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 33,
+    "line": 32,
     "kind": "function",
     "name": "Unwrap"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 35,
+    "line": 34,
     "kind": "type",
     "name": "uncertainActionError"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 37,
+    "line": 36,
     "kind": "function",
     "name": "Error"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 38,
+    "line": 37,
     "kind": "function",
     "name": "Unwrap"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 40,
+    "line": 39,
     "kind": "function",
     "name": "uncertainAction"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 44,
+    "line": 43,
     "kind": "var",
     "name": "existing"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 53,
+    "line": 52,
     "kind": "type",
     "name": "SenderProvider"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 66,
+    "line": 65,
     "kind": "type",
     "name": "automationReadySender"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 72,
+    "line": 71,
     "kind": "type",
     "name": "OrderDetailFetcher"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 88,
+    "line": 87,
     "kind": "type",
     "name": "Center"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 117,
+    "line": 119,
     "kind": "local-variable",
     "name": "client"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 118,
+    "line": 120,
     "kind": "local-variable",
     "name": "center"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 147,
+    "line": 172,
     "kind": "function",
     "name": "SetAccountTaskClient"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 152,
+    "line": 177,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 152,
+    "line": 177,
     "kind": "local-variable",
     "name": "recoverer"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 169,
+    "line": 194,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 173,
+    "line": 198,
     "kind": "function",
     "name": "handleTask"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 181,
+    "line": 206,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 185,
+    "line": 210,
     "kind": "local-variable",
     "name": "order"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 185,
+    "line": 210,
     "kind": "local-variable",
     "name": "orderErr"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 191,
+    "line": 216,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 191,
+    "line": 216,
     "kind": "local-variable",
     "name": "paused"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 191,
+    "line": 216,
     "kind": "local-variable",
     "name": "until"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 196,
+    "line": 221,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 202,
+    "line": 227,
     "kind": "local-variable",
     "name": "enabled"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 202,
+    "line": 227,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 210,
+    "line": 235,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 210,
+    "line": 235,
     "kind": "local-variable",
     "name": "rules"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 218,
+    "line": 243,
     "kind": "var",
     "name": "firstErr"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 219,
+    "line": 244,
     "kind": "range-variable",
     "name": "rule"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 220,
+    "line": 245,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 221,
+    "line": 246,
     "kind": "var",
     "name": "prepErr"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 223,
+    "line": 248,
     "kind": "local-variable",
     "name": "dueAt"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 224,
+    "line": 249,
     "kind": "local-variable",
     "name": "deferErr"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 243,
+    "line": 268,
     "kind": "function",
     "name": "taskAutomationRunID"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 247,
-    "kind": "local-variable",
-    "name": "value"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 248,
-    "kind": "local-variable",
-    "name": "id"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 252,
-    "kind": "function",
-    "name": "taskDelayCursor"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 256,
-    "kind": "local-variable",
-    "name": "value"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 257,
-    "kind": "local-variable",
-    "name": "cursor"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 257,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 264,
-    "kind": "function",
-    "name": "isDeferredReplay"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 268,
-    "kind": "function",
-    "name": "deferTask"
-  },
-  {
-    "file": "internal/automation/center.go",
     "line": 272,
-    "kind": "function",
-    "name": "deferTaskWithError"
+    "kind": "local-variable",
+    "name": "value"
   },
   {
     "file": "internal/automation/center.go",
     "line": 273,
     "kind": "local-variable",
-    "name": "key"
+    "name": "id"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 278,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 278,
-    "kind": "local-variable",
-    "name": "raw"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 290,
+    "line": 277,
     "kind": "function",
-    "name": "ManualFullDelivery"
+    "name": "taskDelayCursor"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 297,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 297,
-    "kind": "local-variable",
-    "name": "paused"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 297,
-    "kind": "local-variable",
-    "name": "until"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 304,
-    "kind": "local-variable",
-    "name": "enabled"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 304,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 320,
-    "kind": "local-variable",
-    "name": "task"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 340,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 340,
-    "kind": "local-variable",
-    "name": "rules"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 347,
-    "kind": "local-variable",
-    "name": "sent"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 348,
-    "kind": "range-variable",
-    "name": "rule"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 353,
-    "kind": "local-variable",
-    "name": "rawTask"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 355,
-    "kind": "local-variable",
-    "name": "rawJSON"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 356,
-    "kind": "local-variable",
-    "name": "runID"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 356,
-    "kind": "local-variable",
-    "name": "startErr"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 356,
-    "kind": "local-variable",
-    "name": "started"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 374,
-    "kind": "local-variable",
-    "name": "getErr"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 374,
-    "kind": "local-variable",
-    "name": "run"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 378,
-    "kind": "local-variable",
-    "name": "deferred"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 378,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 378,
-    "kind": "local-variable",
-    "name": "n"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 386,
-    "kind": "local-variable",
-    "name": "errMsg"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 386,
-    "kind": "local-variable",
-    "name": "status"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 390,
-    "kind": "local-variable",
-    "name": "cancel"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 390,
-    "kind": "local-variable",
-    "name": "finishCtx"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 391,
-    "kind": "local-variable",
-    "name": "finishErr"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 421,
-    "kind": "function",
-    "name": "notifyResult"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 422,
-    "kind": "local-variable",
-    "name": "triggerName"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 434,
-    "kind": "local-variable",
-    "name": "msg"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 438,
-    "kind": "local-variable",
-    "name": "msg"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 442,
-    "kind": "function",
-    "name": "notifyRunNeedsReview"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 446,
-    "kind": "local-variable",
-    "name": "task"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 452,
-    "kind": "function",
-    "name": "actionDelaySeconds"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 456,
-    "kind": "var",
-    "name": "cfg"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 460,
-    "kind": "local-variable",
-    "name": "card"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 460,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 473,
-    "kind": "function",
-    "name": "prepareTask"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 483,
-    "kind": "local-variable",
-    "name": "needsDetail"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 484,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 484,
-    "kind": "local-variable",
-    "name": "existing"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 498,
-    "kind": "local-variable",
-    "name": "cookieStr"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 500,
-    "kind": "var",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 506,
-    "kind": "local-variable",
-    "name": "detail"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 506,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 542,
-    "kind": "function",
-    "name": "mergeOrderIntoTask"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 570,
-    "kind": "function",
-    "name": "executeAction"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 577,
-    "kind": "local-variable",
-    "name": "text"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 581,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 593,
-    "kind": "function",
-    "name": "confirmShipment"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 597,
-    "kind": "local-variable",
-    "name": "enabled"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 597,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 607,
-    "kind": "function",
-    "name": "confirmShipmentAttempt"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 608,
-    "kind": "local-variable",
-    "name": "credentialUnlock"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 609,
-    "kind": "local-variable",
-    "name": "credentialLocked"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 622,
-    "kind": "local-variable",
-    "name": "completeSnapshot"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 626,
-    "kind": "local-variable",
-    "name": "cookieStr"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 627,
-    "kind": "var",
-    "name": "mtopCtx"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 628,
-    "kind": "var",
-    "name": "cookieSession"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 629,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 629,
-    "kind": "local-variable",
-    "name": "snapshot"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 634,
-    "kind": "local-variable",
-    "name": "callErr"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 634,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 634,
-    "kind": "local-variable",
-    "name": "ret"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 634,
-    "kind": "local-variable",
-    "name": "updated"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 635,
-    "kind": "var",
-    "name": "persistenceErrs"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 636,
-    "kind": "local-variable",
-    "name": "runtimeCookie"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 637,
-    "kind": "local-variable",
-    "name": "runtimeCookieChanged"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 638,
-    "kind": "local-variable",
-    "name": "changed"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 638,
-    "kind": "local-variable",
-    "name": "snapshot"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 638,
+    "line": 281,
     "kind": "local-variable",
     "name": "value"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 641,
+    "line": 282,
     "kind": "local-variable",
-    "name": "sessionHandled"
+    "name": "cursor"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 643,
+    "line": 282,
     "kind": "local-variable",
-    "name": "metadata"
+    "name": "err"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 647,
-    "kind": "local-variable",
-    "name": "saveErr"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 658,
-    "kind": "local-variable",
-    "name": "metadata"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 659,
-    "kind": "local-variable",
-    "name": "saveErr"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 669,
-    "kind": "local-variable",
-    "name": "running"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 669,
-    "kind": "local-variable",
-    "name": "sender"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 676,
-    "kind": "local-variable",
-    "name": "sessionErr"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 700,
-    "kind": "local-variable",
-    "name": "failure"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 706,
-    "kind": "local-variable",
-    "name": "sysShip"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 707,
-    "kind": "local-variable",
-    "name": "upsertErr"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 717,
-    "kind": "local-variable",
-    "name": "eventErr"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 726,
+    "line": 289,
     "kind": "function",
-    "name": "wakeCredentialBlockedAutomation"
+    "name": "isDeferredReplay"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 730,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 735,
+    "line": 293,
     "kind": "function",
-    "name": "sendCard"
+    "name": "deferTask"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 742,
-    "kind": "local-variable",
-    "name": "count"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 743,
-    "kind": "local-variable",
-    "name": "card"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 743,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 753,
-    "kind": "local-variable",
-    "name": "sent"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 754,
-    "kind": "local-variable",
-    "name": "i"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 755,
-    "kind": "local-variable",
-    "name": "content"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 755,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 755,
-    "kind": "local-variable",
-    "name": "imageURL"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 760,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 765,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 777,
+    "line": 297,
     "kind": "function",
-    "name": "sendDataCard"
+    "name": "deferTaskWithError"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 778,
+    "line": 298,
     "kind": "local-variable",
-    "name": "unlock"
+    "name": "key"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 780,
-    "kind": "local-variable",
-    "name": "sent"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 781,
-    "kind": "local-variable",
-    "name": "i"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 782,
-    "kind": "local-variable",
-    "name": "content"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 782,
+    "line": 303,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 787,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 789,
-    "kind": "local-variable",
-    "name": "restoreErr"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 803,
-    "kind": "function",
-    "name": "classifyMessageSendError"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 810,
-    "kind": "function",
-    "name": "accountAutomationAllowed"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 811,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 811,
-    "kind": "local-variable",
-    "name": "paused"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 815,
-    "kind": "local-variable",
-    "name": "enabled"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 815,
-    "kind": "local-variable",
-    "name": "err"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 822,
-    "kind": "function",
-    "name": "accountSenderReady"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 826,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 826,
-    "kind": "local-variable",
-    "name": "sender"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 830,
-    "kind": "local-variable",
-    "name": "ok"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 830,
-    "kind": "local-variable",
-    "name": "ready"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 836,
-    "kind": "function",
-    "name": "lockCard"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 837,
+    "line": 303,
     "kind": "local-variable",
     "name": "raw"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 838,
-    "kind": "local-variable",
-    "name": "mu"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 843,
+    "line": 315,
     "kind": "function",
-    "name": "actionMatchesOrderSpec"
+    "name": "ManualFullDelivery"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 844,
-    "kind": "var",
-    "name": "cfg"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 858,
-    "kind": "function",
-    "name": "deliverySendCount"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 859,
-    "kind": "local-variable",
-    "name": "perUnit"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 863,
-    "kind": "local-variable",
-    "name": "qty"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 870,
-    "kind": "function",
-    "name": "parsePositiveInt"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 875,
+    "line": 322,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 875,
+    "line": 322,
+    "kind": "local-variable",
+    "name": "paused"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 322,
+    "kind": "local-variable",
+    "name": "until"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 329,
+    "kind": "local-variable",
+    "name": "enabled"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 329,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 345,
+    "kind": "local-variable",
+    "name": "task"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 365,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 365,
+    "kind": "local-variable",
+    "name": "rules"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 372,
+    "kind": "local-variable",
+    "name": "sent"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 373,
+    "kind": "range-variable",
+    "name": "rule"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 378,
+    "kind": "local-variable",
+    "name": "rawTask"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 380,
+    "kind": "local-variable",
+    "name": "rawJSON"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 381,
+    "kind": "local-variable",
+    "name": "runID"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 381,
+    "kind": "local-variable",
+    "name": "startErr"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 381,
+    "kind": "local-variable",
+    "name": "started"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 399,
+    "kind": "local-variable",
+    "name": "getErr"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 399,
+    "kind": "local-variable",
+    "name": "run"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 403,
+    "kind": "local-variable",
+    "name": "deferred"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 403,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 403,
     "kind": "local-variable",
     "name": "n"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 882,
-    "kind": "function",
-    "name": "cardContent"
+    "line": 411,
+    "kind": "local-variable",
+    "name": "errMsg"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 903,
-    "kind": "function",
-    "name": "sendText"
+    "line": 411,
+    "kind": "local-variable",
+    "name": "status"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 910,
+    "line": 415,
+    "kind": "local-variable",
+    "name": "cancel"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 415,
+    "kind": "local-variable",
+    "name": "finishCtx"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 416,
+    "kind": "local-variable",
+    "name": "finishErr"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 446,
+    "kind": "function",
+    "name": "notifyResult"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 450,
+    "kind": "function",
+    "name": "notifyRunNeedsReview"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 459,
+    "kind": "function",
+    "name": "actionDelaySeconds"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 463,
+    "kind": "var",
+    "name": "cfg"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 467,
+    "kind": "local-variable",
+    "name": "card"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 467,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 480,
+    "kind": "function",
+    "name": "prepareTask"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 490,
+    "kind": "local-variable",
+    "name": "needsDetail"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 491,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 491,
+    "kind": "local-variable",
+    "name": "existing"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 505,
+    "kind": "local-variable",
+    "name": "cookieStr"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 507,
+    "kind": "var",
+    "name": "err"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 513,
+    "kind": "local-variable",
+    "name": "detail"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 513,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 549,
+    "kind": "function",
+    "name": "mergeOrderIntoTask"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 592,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 604,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 604,
+    "kind": "local-variable",
+    "name": "paused"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 608,
+    "kind": "local-variable",
+    "name": "enabled"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 608,
+    "kind": "local-variable",
+    "name": "err"
+  },
+  {
+    "file": "internal/automation/center.go",
+    "line": 620,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 910,
+    "line": 620,
     "kind": "local-variable",
     "name": "sender"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 917,
-    "kind": "function",
-    "name": "sendImage"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 924,
+    "line": 624,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 924,
+    "line": 624,
     "kind": "local-variable",
-    "name": "sender"
+    "name": "ready"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 931,
-    "kind": "function",
-    "name": "cookieValue"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 942,
+    "line": 645,
     "kind": "function",
     "name": "buildTriggerKey"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 944,
+    "line": 647,
     "kind": "local-variable",
     "name": "attempt"
   },
   {
     "file": "internal/automation/center.go",
-    "line": 944,
+    "line": 647,
     "kind": "local-variable",
     "name": "ok"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 957,
-    "kind": "function",
-    "name": "renderTemplate"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 958,
-    "kind": "local-variable",
-    "name": "out"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 959,
-    "kind": "local-variable",
-    "name": "repl"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 970,
-    "kind": "range-variable",
-    "name": "k"
-  },
-  {
-    "file": "internal/automation/center.go",
-    "line": 970,
-    "kind": "range-variable",
-    "name": "v"
   },
   {
     "file": "internal/automation/center_mock_mtop_test.go",
