@@ -162,7 +162,8 @@ app shell / routes
 - 已完成阶段 4 第七个 PR 切片“Server 直接依赖清理与应用服务装配收口”：统一装配订单、发布、登录、通信和分析应用服务；默认回复、账号设置、AI 设置、通知绑定、管理员查询及订单分析查询均迁移到 repository 或应用服务边界；handler 不再直接访问 `Store.DB`，新增装配一致性测试并通过全量门禁，合并为一个可回滚提交；
 - 已完成阶段 5 PR 切片“应用构造依赖验证与生命周期接口”：`Server.New` 在构造阶段校验 `Store/Manager`，聊天服务通过 option 注入并移除生产运行时 setter；新增幂等 `Start/Wait/Stop`，`Stop` 统一等待 HTTP、后台扫描器和批量 worker；`cmd/server` 迁移到显式生命周期入口；新增构造失败、重复启动/停止和 worker 等待测试，并通过全量门禁，合并为一个可回滚提交；
 - 已完成阶段 6 第一个 PR 切片“Engine 账号 facade 与运行状态边界”：将连接状态、失败计数、离线告警和业务任务生命周期分别提取为独立锁组件；`Account` 保留 facade，`Stop` 对并发调用保持幂等并等待已登记任务；新增生命周期并发回归测试，未改变 WebSocket、凭证、自动化和冻结风控逻辑；全量测试、Engine race、Server race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交；
-- 阶段 6 下一 PR 切片为“Engine WebSocket 连接循环边界”：将连接建立、心跳、接收和 Token 轮换的生命周期编排收口到窄组件，保留凭证锁、重连结果和冻结风控行为，不提前拆分凭证或自动化策略；
+- 已完成阶段 6 第二个 PR 切片“Engine WebSocket 连接循环边界”：`registerConnection` 在凭证锁内统一快照复核与 WebSocket 注册，`runConnectionSession` 统一心跳、接收、Token 轮换 goroutine 的创建/取消/等待；`Account` 继续负责凭证错误、风控和重连结果解释；新增会话收束测试，未改变冻结风控行为；全量测试、Engine race、Server race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交；
+- 阶段 6 下一 PR 切片为“Engine WebSocket 记录与消息分发边界”：合并 WS 记录 worker、消息去重、防抖和并发信号量的生命周期边界，保留消息顺序、自动化事件优先级和 Stop 等待语义，不提前拆分凭证策略；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -574,3 +575,4 @@ npm --prefix frontend run build
 | 2026-08-14 | 完成阶段 4 第七个 PR 切片“Server 直接依赖清理与应用服务装配收口” | 统一装配订单、发布、登录、通信和分析应用服务；默认回复、账号设置、AI 设置、通知绑定、管理员查询及订单分析查询迁移到 repository 或应用服务边界；handler 不再直接访问 `Store.DB`；装配测试、Go 全量测试、race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 5：应用构造依赖验证与生命周期接口 |
 | 2026-08-14 | 完成阶段 5 PR 切片“应用构造依赖验证与生命周期接口” | `Server.New` 在构造阶段校验 `Store/Manager`，聊天服务改用 option 注入并移除生产运行时 setter；新增幂等 `Start/Wait/Stop`，`Stop` 统一等待 HTTP、后台扫描器和批量 worker；`cmd/server` 迁移到显式生命周期入口；构造失败、重复启动/停止和 worker 等待测试、全量测试、race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Engine 账号 facade 与运行状态边界 |
 | 2026-08-14 | 完成阶段 6 第一个 PR 切片“Engine 账号 facade 与运行状态边界” | 将连接状态、失败计数、离线告警和业务任务生命周期分别提取为独立锁组件；`Account` 保留 facade，`Stop` 对并发调用保持幂等并等待已登记任务；新增生命周期并发回归测试，未改变 WebSocket、凭证、自动化和冻结风控逻辑；全量测试、Engine race、Server race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Engine WebSocket 连接循环边界 |
+| 2026-08-14 | 完成阶段 6 第二个 PR 切片“Engine WebSocket 连接循环边界” | `registerConnection` 在凭证锁内统一快照复核与 WebSocket 注册，`runConnectionSession` 统一心跳、接收、Token 轮换 goroutine 的创建/取消/等待；`Account` 继续负责凭证错误、风控和重连结果解释；新增会话收束测试，未改变冻结风控行为；全量测试、Engine race、Server race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Engine WebSocket 记录与消息分发边界 |

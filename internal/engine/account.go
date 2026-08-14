@@ -461,18 +461,14 @@ func (a *Account) Run(parent context.Context) error {
 		deviceID := a.deviceID
 		tokenCredentialFP := a.tokenCredentialFP
 		a.mu.Unlock()
-		credentialUnlock := func() {}
-		if a.store != nil {
-			credentialUnlock = a.store.LockAccountCredentials(a.CookieID)
-		}
-		if !a.cookieSnapshotMatchesDB(ctx, tokenCredentialFP) {
-			credentialUnlock()
+		// registerResult 是凭证快照复核与 WebSocket 注册的窄边界结果。
+		registerResult := a.registerConnection(ctx, conn, deviceID, token, tokenCredentialFP)
+		if !registerResult.Registered {
 			_ = conn.Close()
 			a.reloadCookieFromDB(ctx)
 			continue
 		}
-		err = conn.Register(ctx, deviceID, token)
-		credentialUnlock()
+		err = registerResult.Err
 		if err != nil {
 			_ = conn.Close()
 			if ctx.Err() != nil {
@@ -505,76 +501,33 @@ func (a *Account) Run(parent context.Context) error {
 
 		// 3) 健康连接维持心跳和收包，并在服务端 Token 过期前主动关闭，
 		// 进入下一轮连接以重新调用 Token API 和 /reg。
-		hbCtx, hbCancel := context.WithCancel(ctx)
-		var hbErr error
-		hbDone := make(chan struct{})
-		go func() {
-			hbErr = conn.HeartbeatLoop(hbCtx, HeartbeatInterval)
-			_ = conn.Close()
-			hbCancel()
-			close(hbDone)
-		}()
-		rotateCh := make(chan struct{}, 1)
+		// refreshAt 和 expiresAt 是本次连接 Token 的轮换时间与服务端过期时间快照。
 		a.mu.Lock()
 		refreshAt := a.tokenRefreshAt
 		expiresAt := a.tokenExpiresAt
 		a.mu.Unlock()
-		if refreshAt.IsZero() || !refreshAt.After(time.Now()) {
-			refreshAt = time.Now()
-		}
-		rotateTimer := time.NewTimer(time.Until(refreshAt))
-		rotateDone := make(chan struct{})
-		go func() {
-			defer close(rotateDone)
-			select {
-			case <-hbCtx.Done():
-			case <-rotateTimer.C:
-				select {
-				case rotateCh <- struct{}{}:
-				default:
-				}
-				_ = conn.Close()
-			}
-		}()
-
-		recvErr := conn.ReceiveLoop(ctx, a.dispatch)
-		if !rotateTimer.Stop() {
-			select {
-			case <-rotateTimer.C:
-			default:
-			}
-		}
-		hbCancel()
-		<-rotateDone
-		<-hbDone // 确保 hbErr 写入完成后再读取（消除数据竞争）。
-		_ = conn.Close()
+		// session 是本次已注册连接的心跳、接收和 Token 轮换收束结果。
+		session := a.runConnectionSession(ctx, conn, refreshAt)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		// 连接结束：只有认证类失败才清 token。已经建立后的网络断线继续
 		// 使用内存 token 与数据库缓存，避免无意义调用 Token API。
-		a.accountRuntimeState.mu.Lock()
-		startedAt := a.connStartedAt
-		a.conn = nil
-		a.accountRuntimeState.mu.Unlock()
-		connectedDuration := time.Since(startedAt)
-		select {
-		case <-rotateCh:
+		if session.Rotated {
 			a.logger.Info("WS Token 到达提前轮换时间，正在重新获取 Token", "expires_at", expiresAt, "remaining", time.Until(expiresAt).Round(time.Second))
 			a.clearConnectionToken(ctx)
 			a.setRuntimeState(RuntimeReconnecting, "WS Token 即将到期，正在主动轮换")
 			continue
-		default:
 		}
-		if ws.IsConnectLimitError(recvErr) {
+		if ws.IsConnectLimitError(session.ReceiveErr) {
 			a.clearConnectionToken(ctx)
 			reason := "消息会话已被服务端移除"
 			a.setRuntimeState(RuntimeAuthExpired, reason)
 			a.notifyOffline(ctx, reason)
 			return nil
 		}
-		if ws.IsAuthenticationError(recvErr) {
+		if ws.IsAuthenticationError(session.ReceiveErr) {
 			// 官网把 /push/kickout 转成 UNCONNECTED，页面监听器随后立即
 			// reConnect，并由 authTokenCallback 获取新的连接凭证。
 			a.clearConnectionToken(ctx)
@@ -583,22 +536,24 @@ func (a *Account) Run(parent context.Context) error {
 		}
 		// 心跳失败会先关闭连接，ReceiveLoop 往往只观察到 context canceled。
 		// 官网以心跳 Promise 的 reject 为真实断线原因并立即 reConnect。
-		if hbErr != nil && !errors.Is(hbErr, context.Canceled) &&
-			(recvErr == nil || errors.Is(recvErr, context.Canceled)) {
-			recvErr = hbErr
+		// receiveErr 是后续错误分类使用的本地副本；心跳错误优先于 context canceled。
+		receiveErr := session.ReceiveErr
+		if session.HeartbeatErr != nil && !errors.Is(session.HeartbeatErr, context.Canceled) &&
+			(receiveErr == nil || errors.Is(receiveErr, context.Canceled)) {
+			receiveErr = session.HeartbeatErr
 		}
 
 		// 正常 close 的 async-for 会直接进入下一轮，不计任何失败。
-		if recvErr == nil {
+		if receiveErr == nil {
 			a.clearConnectionToken(ctx)
 			a.setRuntimeState(RuntimeReconnecting, "消息连接已结束，正在重新连接")
 			continue
 		}
 
-		if isEstablishedNetworkError(recvErr) || errors.Is(recvErr, context.Canceled) {
+		if isEstablishedNetworkError(receiveErr) || errors.Is(receiveErr, context.Canceled) {
 			a.clearConnectionToken(ctx)
 			a.setRuntimeState(RuntimeReconnecting, "网络连接已断开，正在重新连接")
-			a.logger.Warn("WS 网络连接结束", "err", recvErr, "connected_duration", connectedDuration.Round(time.Second), "heartbeat_err", hbErr)
+			a.logger.Warn("WS 网络连接结束", "err", receiveErr, "connected_duration", session.ConnectedDuration.Round(time.Second), "heartbeat_err", session.HeartbeatErr)
 			// 官网当前页面在 CONN_UNCONNECTED 事件后立即调用 reConnect。
 			continue
 		}
@@ -607,7 +562,7 @@ func (a *Account) Run(parent context.Context) error {
 		// 密码登录、指数退避或永久禁用。
 		a.clearConnectionToken(ctx)
 		a.setRuntimeState(RuntimeReconnecting, "消息连接已断开，正在重新连接")
-		a.logger.Warn("WS 连接结束", "err", recvErr, "heartbeat_err", hbErr)
+		a.logger.Warn("WS 连接结束", "err", receiveErr, "heartbeat_err", session.HeartbeatErr)
 		continue
 	}
 }
