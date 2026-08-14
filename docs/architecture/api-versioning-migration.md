@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | 会话 | `/login`、`/initialize`、`/verify`、`/logout`、`/change-password`、`/account/credentials` | `/api/v1/session/login`、`/api/v1/session/initialize`、`/api/v1/session`、`/api/v1/session/logout`、`/api/v1/session/password`、`/api/v1/session/credentials` | React 会话、密码修改和登录凭证调用已迁移到版本化入口；旧路径保留并由同一 handler 提供 |
 | 账号 | `/cookies`、`/cookies/details`、`/cookies/runtime-status`、`/cookies/{cid}/...` | `/api/v1/accounts`、`/api/v1/accounts/details`、`/api/v1/accounts/runtime-status`、`/api/v1/accounts/{cid}/...` | React 摘要、详情、运行状态、启停状态、设置、备注、暂停、自动确认、长登录、资料刷新、Cookie 更新、登录信息设置和删除调用已迁移；旧路径保留并由同一 handler 提供 |
-| 商品 | `/items...` | `/api/v1/items...` | React 列表、详情、创建、发布、更新、删除、同步、类目推荐和批量发布调用已迁移；旧路径保留并由同一 handler 提供 |
+| 商品 | `/items...` | `/api/v1/items...` | React 列表、按账号列表、详情、创建、发布、更新、删除、多规格/多数量设置、同步、类目推荐和批量发布调用已迁移；旧路径保留并由同一 handler 提供 |
 | 商品批量 | `/items/publish-batches...` | `/api/v1/items/publish-batches...` | 旧路径保留，类目推荐/预检/任务 DTO 已落地 |
 | 自动化 | `/automation-rules...`、`/automation-issues`、`/automation-runs...`、`/automation-pending-tasks...` | `/api/v1/automation-rules...`、`/api/v1/automation-issues`、`/api/v1/automation-runs...`、`/api/v1/automation-pending-tasks...` | React 规则分页、增删改、异常查询和异常处理调用已迁移；旧路径保留并由同一 handler 提供 |
 | 订单 | `/api/orders...` | `/api/v1/orders...` | React 列表、详情、更新、删除、刷新、单订单刷新、手动发货和导入调用已迁移；旧路径保留并由同一 handler 提供 |
@@ -48,7 +48,7 @@
 - 账号摘要、非敏感详情、运行状态、启停状态、设置、备注、暂停、自动确认、长登录、资料刷新、Cookie 更新和登录信息设置已由 React 请求层迁移到 `/api/v1/accounts...`；Go 契约测试确认账号详情与凭证变更响应不泄露 Cookie/密码，且旧详情、设置和登录信息入口仍可用。
 - 订单列表、详情和更新已由 React 请求层迁移到 `/api/v1/orders...`；Go 契约测试确认版本化入口与旧更新入口共用 handler，订单归属校验和状态更新语义保持不变。
 - 订单刷新、单订单刷新、手动发货和导入已由 React 请求层迁移到 `/api/v1/orders...`；Go 契约测试确认新旧批量入口保持状态码、具名响应和参数校验语义一致。
-- 商品列表、详情、发布、更新和删除已由 React 请求层迁移到 `/api/v1/items...`；Go 契约测试确认新旧入口保持商品所有权校验、具名响应和持久化语义一致。
+- 商品列表、按账号列表、详情、创建、发布、更新、删除、多规格/多数量设置已由版本化路由提供，React 请求层已迁移实际调用；Go 契约测试确认新旧入口保持商品所有权校验、具名响应和持久化语义一致。
 - 商品同步、类目推荐、批量发布预检、任务查询、取消、重试和结果下载已由版本化路由提供；React 现有同步/批量发布调用已迁移，Go 契约测试确认新旧入口状态码和参数校验语义一致。
 - 系统/用户/AI 设置、卡券 CRUD/批量/追加和通知渠道/消息/账号绑定已由版本化路由提供；React 设置、卡券和通知调用已迁移，Go 契约测试确认新旧入口权限、状态码和参数校验语义一致。
 - 聊天会话、消息、图片、已读和 WebSocket，以及账号任务设置、运行记录和执行已由版本化路由提供；React REST/WebSocket 调用已迁移，Go 契约测试确认新旧入口权限、状态码和参数校验语义一致。
@@ -59,3 +59,4 @@
 - 聊天会话、消息分页和发送结果使用独立 DTO，不直接暴露数据库模型。
 - React `frontend/types.ts` 与 `frontend/services/api.ts` 已同步具名成功响应类型，同时保留旧字段归一逻辑。
 - 会话、账号、订单、商品、自动化、设置、卡券、通知、聊天、账号任务、关键词、默认回复、管理员、统计、二维码登录和密码登录版本化入口已可用；旧路径继续保留。
+- 最终调用方审计确认 React 生产请求、批量结果下载和 Vite 开发代理均不再使用业务旧路径；旧路径仅作为服务端兼容入口保留，后续删除必须遵循调用方、发布日期和回滚条件记录。

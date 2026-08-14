@@ -16470,18 +16470,6 @@
     "name": "unread_count"
   },
   {
-    "file": "vite.config.ts",
-    "line": 135,
-    "kind": "member",
-    "name": "manualChunks"
-  },
-  {
-    "file": "vite.config.ts",
-    "line": 136,
-    "kind": "variable",
-    "name": "modulePath"
-  },
-  {
     "file": "viteConfig.test.ts",
     "line": 5,
     "kind": "function-expression",

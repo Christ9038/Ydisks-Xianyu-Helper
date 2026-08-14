@@ -1320,7 +1320,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                       正在保存远端结果并安全取消…
                     </button>
                   ) : (
-                    <button onClick={() => window.open(`/items/publish-batches/${batchDetail.id}/result.csv`, '_blank')} className="flex-1 px-6 py-3.5 rounded-xl bg-gray-900 text-white hover:bg-black font-bold">
+                    <button onClick={() => window.open(`/api/v1/items/publish-batches/${batchDetail.id}/result.csv`, '_blank')} className="flex-1 px-6 py-3.5 rounded-xl bg-gray-900 text-white hover:bg-black font-bold">
                       下载结果
                     </button>
                   )}

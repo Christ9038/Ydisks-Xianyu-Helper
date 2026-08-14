@@ -59,6 +59,9 @@ func TestVersionedRemainingRoutesPreserveLegacyContracts(t *testing.T) {
 		{name: "automation-task-resolve", method: http.MethodPost, versionedPath: "/api/v1/automation-pending-tasks/invalid/resolve", legacyPath: "/automation-pending-tasks/invalid/resolve", body: `{}`, wantStatus: http.StatusBadRequest},
 		{name: "delete-order", method: http.MethodDelete, versionedPath: "/api/v1/orders/missing-order", legacyPath: "/api/orders/missing-order", wantStatus: http.StatusNotFound},
 		{name: "create-item", method: http.MethodPost, versionedPath: "/api/v1/items/missing-account", legacyPath: "/items/missing-account", body: `{}`, wantStatus: http.StatusNotFound},
+		{name: "list-items-by-cookie", method: http.MethodGet, versionedPath: "/api/v1/items/cookie/missing-account", legacyPath: "/items/cookie/missing-account", wantStatus: http.StatusNotFound},
+		{name: "set-item-multi-spec", method: http.MethodPut, versionedPath: "/api/v1/items/missing-account/item/multi-spec", legacyPath: "/items/missing-account/item/multi-spec", body: `{}`, wantStatus: http.StatusNotFound},
+		{name: "set-item-multi-quantity", method: http.MethodPut, versionedPath: "/api/v1/items/missing-account/item/multi-quantity-delivery", legacyPath: "/items/missing-account/item/multi-quantity-delivery", body: `{}`, wantStatus: http.StatusNotFound},
 	}
 	for _, routeCase := range cases { // routeCase 是当前正在执行的剩余公共路由样例。
 		// versionedStatus 是版本化入口实际返回的状态码。
