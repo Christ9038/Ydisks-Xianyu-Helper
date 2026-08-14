@@ -1626,21 +1626,21 @@ func (a *Account) databaseCredentialFingerprint(ctx context.Context, cookieStr s
 	if a.store == nil || a.store.Cookies == nil {
 		return credentialStateFingerprint(cookieStr, ""), nil
 	}
-	detail, err := a.store.Cookies.GetDetails(ctx, a.CookieID)
+	runtimeData, err := a.store.Cookies.GetCookieRuntimeData(ctx, a.CookieID) // runtimeData 只包含 token 凭证一致性校验所需的 Cookie 与 metadata。
 	if err != nil {
 		return "", err
 	}
-	if detail == nil {
-		return "", db.ErrNotFound
-	}
-	_, snapshotComplete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON)
-	if strings.TrimSpace(detail.Value) == "" && !snapshotComplete {
+	// runtimeData 已在调用方凭证锁内读取，避免校验期间混入另一笔 Cookie 更新。
+	// Cookie 与 metadata 均由 repository 按账号作用域解密，登录密码不会进入此流程。
+	// 后续空值判断、指纹比较和错误文案保持原有 token 绑定语义。
+	_, snapshotComplete := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON)
+	if strings.TrimSpace(runtimeData.Value) == "" && !snapshotComplete {
 		return "", fmt.Errorf("数据库 Cookie 为空且没有权威 Jar")
 	}
-	if credentialCookieFingerprint(detail.Value) != credentialCookieFingerprint(cookieStr) {
+	if credentialCookieFingerprint(runtimeData.Value) != credentialCookieFingerprint(cookieStr) {
 		return "", fmt.Errorf("token 请求期间数据库 Cookie 已变化")
 	}
-	return credentialStateFingerprint(detail.Value, detail.MetadataJSON), nil
+	return credentialStateFingerprint(runtimeData.Value, runtimeData.MetadataJSON), nil
 }
 
 // reloadCookieFromDB 复读 DB cookie：与内存不同则采纳，并清 token 缓存。普通 Cookie

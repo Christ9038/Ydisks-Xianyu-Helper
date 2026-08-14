@@ -1292,3 +1292,32 @@ func TestAdoptTokenResponseCookiesUsesMetadataWithoutLoginSecrets(t *testing.T) 
 		t.Fatal("已有权威 Cookie 快照不应在 token 响应合并后丢失")
 	}
 }
+
+// TestDatabaseCredentialFingerprintUsesRuntimeData 验证 token 凭证指纹不解密登录密码。
+func TestDatabaseCredentialFingerprintUsesRuntimeData(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "engine-credential-fingerprint-query-key")
+	// acc 和 store 是本测试的账号及数据库；cleanup 负责关闭临时数据库。
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	// ctx 是测试凭证指纹共用的上下文。
+	ctx := context.Background()
+	// cookieValue 是 token 请求期间数据库中的权威 Cookie 明文。
+	cookieValue := "unb=123; _m_h5_tk=fingerprint"
+	// metadata 是用于计算完整凭证状态指纹的运行 metadata。
+	metadata := cookierefresh.MetadataWithSnapshot(`{"note":"fingerprint"}`, []cookierefresh.BrowserCookie{{Name: "sid", Value: "fp", Domain: ".goofish.com", Path: "/"}})
+	// updateErr 表示预置凭证指纹输入失败的原因。
+	if updateErr := store.Cookies.UpdateRenewalCookie(ctx, "cid", cookieValue, metadata, time.Now().Unix()); updateErr != nil {
+		t.Fatalf("preset credential: %v", updateErr)
+	}
+	// corruptErr 表示写入故意损坏的登录密码密文失败的原因。
+	if _, corruptErr := store.DB.ExecContext(ctx,
+		`UPDATE cookies SET username=?,password=? WHERE id=?`,
+		"engine-fingerprint-user", "not-a-password-ciphertext", "cid"); corruptErr != nil {
+		t.Fatalf("corrupt password: %v", corruptErr)
+	}
+	// fingerprint 和 fingerprintErr 是窄查询生成的凭证状态指纹及错误。
+	fingerprint, fingerprintErr := acc.databaseCredentialFingerprint(ctx, cookieValue)
+	if fingerprintErr != nil || fingerprint != credentialStateFingerprint(cookieValue, metadata) {
+		t.Fatalf("credential fingerprint=%q err=%v", fingerprint, fingerprintErr)
+	}
+}
