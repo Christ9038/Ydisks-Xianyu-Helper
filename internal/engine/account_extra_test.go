@@ -1103,3 +1103,41 @@ func TestTryAPIRenewUsingExcludesLoginSecrets(t *testing.T) {
 		t.Fatalf("接口续期应在登录密码损坏时成功: renewed=%v callback=%v err=%v", renewed, callbackCalled, renewErr)
 	}
 }
+
+// TestPersistRenewFlatCookieExcludesLoginSecrets 验证扁平 Cookie 写回只读取 metadata，不解密旧 Cookie 或登录密码。
+func TestPersistRenewFlatCookieExcludesLoginSecrets(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "engine-flat-renew-query-key")
+	// acc 是执行扁平 Cookie 写回的测试账号；cleanup 负责关闭临时数据库。
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	// ctx 是测试扁平 Cookie 写回共用的上下文。
+	ctx := context.Background()
+	// metadata 是包含旧浏览器快照和其他配置的合法运行 metadata。
+	metadata := cookierefresh.MetadataWithSnapshot(`{"other":true}`, []cookierefresh.BrowserCookie{{Name: "sid", Value: "old", Domain: ".goofish.com", Path: "/"}})
+	// updateErr 表示预置完整 metadata 失败的原因。
+	if updateErr := store.Cookies.UpdateRenewalCookie(ctx, "cid", "sid=old", metadata, time.Now().Unix()); updateErr != nil {
+		t.Fatalf("preset metadata: %v", updateErr)
+	}
+	// corruptErr 表示将旧 Cookie 和登录密码密文损坏，用于验证写回只读取 metadata。
+	if _, corruptErr := store.DB.ExecContext(ctx,
+		`UPDATE cookies SET value=?,password=? WHERE id=?`,
+		"not-a-cookie-ciphertext", "not-a-password-ciphertext", "cid"); corruptErr != nil {
+		t.Fatalf("corrupt secrets: %v", corruptErr)
+	}
+	// persistErr 表示使用新响应 Cookie 写回数据库的结果。
+	if persistErr := acc.persistRenewFlatCookie(ctx, "sid=fresh"); persistErr != nil {
+		t.Fatalf("persist flat cookie: %v", persistErr)
+	}
+	// runtimeData 是写回后读取的 Cookie 与 metadata 窄模型。
+	runtimeData, runtimeErr := store.Cookies.GetCookieRuntimeData(ctx, "cid")
+	if runtimeErr != nil || runtimeData.Value != "sid=fresh" {
+		t.Fatalf("runtime data=%+v err=%v", runtimeData, runtimeErr)
+	}
+	// complete 表示写回后的 metadata 是否仍包含完整浏览器 Cookie 快照。
+	if _, complete := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON); complete {
+		t.Fatal("扁平 Cookie 写回不得保留完整浏览器快照")
+	}
+	if !strings.Contains(runtimeData.MetadataJSON, `"other":true`) {
+		t.Fatalf("扁平 Cookie 写回应保留其他 metadata: %s", runtimeData.MetadataJSON)
+	}
+}

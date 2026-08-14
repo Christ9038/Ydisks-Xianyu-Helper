@@ -195,8 +195,23 @@ func TestGetCookieRuntimeDataExcludesLoginSecrets(t *testing.T) {
 	if dataErr != nil || data.Value != "sid=fingerprint" || data.MetadataJSON != metadata {
 		t.Fatalf("fingerprint data=%+v err=%v", data, dataErr)
 	}
+	// corruptValueErr 表示将 Cookie 明文密文损坏，用于证明 metadata 单值查询不会读取 Cookie。
+	if _, corruptValueErr := store.DB.ExecContext(ctx,
+		`UPDATE cookies SET value=?,password=? WHERE id=?`,
+		"not-a-cookie-ciphertext", "not-a-password-ciphertext", "fingerprint-cookie"); corruptValueErr != nil {
+		t.Fatalf("corrupt cookie: %v", corruptValueErr)
+	}
+	// metadataOnly 是只解密 metadata 的窄查询结果。
+	metadataOnly, metadataOnlyErr := store.Cookies.GetCookieMetadata(ctx, "fingerprint-cookie")
+	if metadataOnlyErr != nil || metadataOnly != metadata {
+		t.Fatalf("metadata-only data=%q err=%v", metadataOnly, metadataOnlyErr)
+	}
 	// missingErr 表示不存在账号应返回统一的未找到错误。
 	if _, missingErr := store.Cookies.GetCookieRuntimeData(ctx, "fingerprint-missing"); !errors.Is(missingErr, ErrNotFound) {
 		t.Fatalf("missing fingerprint data err=%v", missingErr)
+	}
+	// missingMetadataErr 表示不存在账号的 metadata 查询应返回统一的未找到错误。
+	if _, missingMetadataErr := store.Cookies.GetCookieMetadata(ctx, "fingerprint-missing"); !errors.Is(missingMetadataErr, ErrNotFound) {
+		t.Fatalf("missing metadata err=%v", missingMetadataErr)
 	}
 }

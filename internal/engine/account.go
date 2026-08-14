@@ -1098,16 +1098,16 @@ func (a *Account) persistRenewFlatCookie(ctx context.Context, newCookies string)
 	if a.store == nil || a.store.Cookies == nil {
 		return nil
 	}
-	detail, err := a.store.Cookies.GetDetails(ctx, a.CookieID)
-	if err != nil || detail == nil {
-		if err != nil {
-			return err
-		}
-		return db.ErrNotFound
+	metadata, err := a.store.Cookies.GetCookieMetadata(ctx, a.CookieID) // metadata 只包含扁平 Cookie 写回所需的快照信息。
+	if err != nil {
+		return err
 	}
+	// 该流程不需要读取现有 Cookie 明文或登录秘密。
+	// metadata 已在 repository 层按账号作用域解密，下面只清理旧快照。
+	// 更新操作继续由 UpdateRenewalCookie 负责加密和账号存在性校验。
 	// 没有权威 Jar 时，接口 Set-Cookie 只能更新兼容扁平值。不能把
 	// Domain/Path/HttpOnly/PartitionKey 均未知的 Cookie 伪造成完整快照。
-	metadata := cookierefresh.MetadataWithoutSnapshot(detail.MetadataJSON)
+	metadata = cookierefresh.MetadataWithoutSnapshot(metadata)
 	return a.store.Cookies.UpdateRenewalCookie(ctx, a.CookieID, newCookies, metadata, time.Now().Unix())
 }
 

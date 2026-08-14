@@ -117,7 +117,8 @@ app shell / routes
 - 已完成阶段 2 后续切片：`internal/automation/center.go` 的通用 `cookieValue` 回退读取已迁移到 `GetValue`，Automation 生产代码不再直接读取完整账号详情；
 - 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `tryLoginStatusCheck` 已改用 `GetCookieRuntimeData`，只读取 Cookie 与 metadata，保持重试、Cookie Jar 和锁语义；
 - 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `tryAPIRenewUsing` 已改用 `GetCookieRuntimeData`，只读取接口续期所需的 Cookie 与 metadata，保持续期、快照持久化、锁和 token 清理语义，并补充损坏登录密码回归测试；
-- 下一最小工作项：将 `internal/engine/account.go` 的 `persistRenewFlatCookie` 迁移到按字段读取的窄接口，继续不改变扁平 Cookie 更新和 metadata 快照清理行为；
+- 已完成阶段 2 后续切片：新增 `GetCookieMetadata` 单字段接口，并将 `internal/engine/account.go` 的 `persistRenewFlatCookie` 迁移到该接口，只读取 metadata，保持扁平 Cookie 更新和 metadata 快照清理行为；
+- 下一最小工作项：将 `internal/engine/account.go` 的 `handleMaxFailures` 迁移到 `GetValue`，继续只读取恢复回调所需的 Cookie 明文，不改变失败计数和重连行为；
 - 随后工作项：再处理 Engine、Automation 等明确需要平台凭证的流程，统一使用按账号 ID 过滤的单值凭证接口；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
@@ -486,3 +487,4 @@ npm --prefix frontend run build
 | 2026-08-14 | 将管理员与账号 cookie 预置到 server 测试模板 | 普通 server 测试约 21.3s；完整 `go test -race ./internal/server` 约 194.3s 通过；阶段 1 完成 | 阶段 2：盘点敏感数据查询调用方 |
 | 2026-08-14 | 新增 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned` 及跨用户/无效 user ID 回归测试 | 阶段 2 第一个数据边界切片完成；故意无效密文摘要查询通过 | 迁移 server ownership helper，移除 `AllForUser` 所有权读取 |
 | 2026-08-14 | Engine 登录态检查与接口续期改用 `GetCookieRuntimeData` | 只解密 Cookie 与 metadata；接口续期窄查询回归测试通过，未改变锁、token 清理和快照持久化语义 | 迁移 `persistRenewFlatCookie` 的 metadata 窄查询 |
+| 2026-08-14 | 新增 `GetCookieMetadata` 并收窄 `persistRenewFlatCookie` | 扁平 Cookie 写回不再读取旧 Cookie、用户名或登录密码；损坏旧凭证回归测试通过 | 迁移 `handleMaxFailures` 的单值 Cookie 读取 |

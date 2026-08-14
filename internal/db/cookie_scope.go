@@ -285,3 +285,24 @@ func (c *Cookies) GetCookieRuntimeData(ctx context.Context, cookieID string) (Co
 	}
 	return data, nil
 }
+
+// GetCookieMetadata 只返回指定账号的 Cookie metadata，供不需要 Cookie 明文的运行时写回流程使用。
+func (c *Cookies) GetCookieMetadata(ctx context.Context, cookieID string) (string, error) {
+	// encryptedMetadata 保存数据库中按账号作用域加密的 metadata 密文。
+	var encryptedMetadata string
+	// queryErr 表示账号不存在或 metadata 查询失败的原因。
+	if queryErr := c.DB.QueryRowContext(ctx,
+		`SELECT COALESCE(metadata_json,'') FROM cookies WHERE id=?`, cookieID).
+		Scan(&encryptedMetadata); queryErr != nil {
+		if errors.Is(queryErr, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", queryErr
+	}
+	// metadata 是 repository 解密后供 Cookie 快照处理使用的 metadata 明文。
+	metadata, decryptErr := c.codec.decrypt(cookieMetadataScope, cookieID, encryptedMetadata)
+	if decryptErr != nil {
+		return "", fmt.Errorf("解密账号 %s Cookie metadata: %w", cookieID, decryptErr)
+	}
+	return metadata, nil
+}
