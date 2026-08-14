@@ -11,20 +11,27 @@ import (
 	"testing"
 )
 
+// TestRemoteCaptchaSuccessWorksWithoutLocalBrowser 负责TestRemoteCaptchaSuccessWorksWithoutLocal浏览器相关处理。
 func TestRemoteCaptchaSuccessWorksWithoutLocalBrowser(t *testing.T) {
+	// payload 保存请求载荷，供当前处理流程使用
 	var payload map[string]any
+	// remote 保存remote，供当前处理流程使用
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Errorf("decode payload: %v", err)
 		}
 		_, _ = io.WriteString(w, `{"success":true,"data":{"cookies":{"x5sec":"fresh","other":"must-not-merge"}}}`)
 	}))
 	defer remote.Close()
 
+	// store、cleanup 保存store、cleanup，供当前处理流程使用
 	store, cleanup := newAdapterTestStore(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
-	if err := store.Settings.SetMany(ctx, map[string]string{
+	if // err 保存err，供当前处理流程使用
+	err := store.Settings.SetMany(ctx, map[string]string{
 		"captcha.remote_service_url":  remote.URL,
 		"captcha.remote_secret_key":   "remote-secret",
 		"captcha.remote_pass_cookies": "false",
@@ -32,7 +39,9 @@ func TestRemoteCaptchaSuccessWorksWithoutLocalBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// a 保存a，供当前处理流程使用
 	a := New(store, nil, nil)
+	// result、ok 保存result、ok，供当前处理流程使用
 	result, ok := a.OnTokenCaptchaVerification(ctx, "cid", "unb=1; old=keep", "https://punish.example", "device-private")
 	if !ok || result == nil || !strings.Contains(result.UpdatedCookies, "x5sec=fresh") {
 		t.Fatalf("remote result=%+v ok=%v", result, ok)
@@ -43,14 +52,18 @@ func TestRemoteCaptchaSuccessWorksWithoutLocalBrowser(t *testing.T) {
 	if payload["secret_key"] != "remote-secret" || payload["account_id"] != "cid" || payload["browser_timeout"] != float64(20) {
 		t.Fatalf("remote payload=%#v", payload)
 	}
-	if _, exists := payload["cookies"]; exists {
+	if // exists 保存exists，供当前处理流程使用
+	_, exists := payload["cookies"]; exists {
 		t.Fatalf("关闭传递 Cookie 时不应发送账号 Cookie: %#v", payload)
 	}
-	if _, exists := payload["device_id"]; exists {
+	if // exists 保存exists，供当前处理流程使用
+	_, exists := payload["device_id"]; exists {
 		t.Fatalf("关闭传递 Cookie 时不应发送设备 ID: %#v", payload)
 	}
+	// status、engineName 保存status、engine名称，供当前处理流程使用
 	var status, engineName string
-	if err := store.DB.QueryRowContext(ctx,
+	if // err 保存err，供当前处理流程使用
+	err := store.DB.QueryRowContext(ctx,
 		`SELECT processing_status,captcha_engine FROM risk_control_logs WHERE cookie_id='cid' ORDER BY id DESC LIMIT 1`).
 		Scan(&status, &engineName); err != nil {
 		t.Fatal(err)
@@ -60,12 +73,18 @@ func TestRemoteCaptchaSuccessWorksWithoutLocalBrowser(t *testing.T) {
 	}
 }
 
+// TestRemoteCaptchaURLExpiredRefreshesTwiceAtMost 负责TestRemoteCaptchaURLExpiredRefreshesTwiceAtMost相关处理。
 func TestRemoteCaptchaURLExpiredRefreshesTwiceAtMost(t *testing.T) {
+	// calls 保存calls，供当前处理流程使用
 	var calls int
+	// gotURLs 保存gotURLs，供当前处理流程使用
 	var gotURLs []string
+	// gotCookies 保存gotCookies，供当前处理流程使用
 	var gotCookies []string
+	// remote 保存remote，供当前处理流程使用
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
+		// payload 保存请求载荷，供当前处理流程使用
 		var payload map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&payload)
 		gotURLs = append(gotURLs, payload["url"].(string))
@@ -78,7 +97,9 @@ func TestRemoteCaptchaURLExpiredRefreshesTwiceAtMost(t *testing.T) {
 	}))
 	defer remote.Close()
 
+	// providerCalls 保存providerCalls，供当前处理流程使用
 	providerCalls := 0
+	// provider 保存provider，供当前处理流程使用
 	provider := func(_ context.Context, current string) (string, bool, string, error) {
 		providerCalls++
 		if current != "unb=1" {
@@ -86,6 +107,7 @@ func TestRemoteCaptchaURLExpiredRefreshesTwiceAtMost(t *testing.T) {
 		}
 		return "https://fresh.example", false, "unb=1; _m_h5_tk=fresh", nil
 	}
+	// cookies、handled、err 保存cookies、handled、err，供当前处理流程使用
 	cookies, handled, err := solveRemoteCaptcha(context.Background(), remote.Client(), remoteCaptchaConfig{
 		URL: remote.URL, Secret: "secret", PassCookies: true,
 	}, "cid", "https://expired.example", "unb=1", "device-1", provider)
@@ -100,14 +122,18 @@ func TestRemoteCaptchaURLExpiredRefreshesTwiceAtMost(t *testing.T) {
 	}
 }
 
+// TestRemoteCaptchaTokenAlreadyUsableReturnsUpdatedCookies 负责TestRemoteCaptcha令牌AlreadyUsableReturnsUpdatedCookies相关处理。
 func TestRemoteCaptchaTokenAlreadyUsableReturnsUpdatedCookies(t *testing.T) {
+	// remote 保存remote，供当前处理流程使用
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{"success":false,"data":{"url_expired":true}}`)
 	}))
 	defer remote.Close()
+	// provider 保存provider，供当前处理流程使用
 	provider := func(context.Context, string) (string, bool, string, error) {
 		return "", true, "unb=1; _m_h5_tk=renewed", nil
 	}
+	// cookies、handled、err 保存cookies、handled、err，供当前处理流程使用
 	cookies, handled, err := solveRemoteCaptcha(context.Background(), remote.Client(), remoteCaptchaConfig{
 		URL: remote.URL, Secret: "secret",
 	}, "cid", "https://expired.example", "unb=1", "device", provider)
@@ -116,21 +142,28 @@ func TestRemoteCaptchaTokenAlreadyUsableReturnsUpdatedCookies(t *testing.T) {
 	}
 }
 
+// TestRemoteCaptchaExplicitFailureDoesNotFallbackToBrowser 负责TestRemoteCaptchaExplicitFailureDoesNotFallbackTo浏览器相关处理。
 func TestRemoteCaptchaExplicitFailureDoesNotFallbackToBrowser(t *testing.T) {
+	// remote 保存remote，供当前处理流程使用
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{"success":false,"data":{"url_expired":false}}`)
 	}))
 	defer remote.Close()
+	// store、cleanup 保存store、cleanup，供当前处理流程使用
 	store, cleanup := newAdapterTestStore(t)
 	defer cleanup()
+	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
 	_ = store.Settings.SetMany(ctx, map[string]string{
 		"captcha.remote_service_url": remote.URL, "captcha.remote_secret_key": "secret",
 	})
+	// fb 保存fb，供当前处理流程使用
 	fb := &fakeBrowser{tokenCaptchaResult: "unb=1; x5sec=local"}
+	// a 保存a，供当前处理流程使用
 	a := New(store, nil, nil)
 	a.SetBrowser(fb)
-	if result, ok := a.OnTokenCaptchaVerification(ctx, "cid", "unb=1", "https://punish.example", "device"); ok || result != nil {
+	if // result、ok 保存result、ok，供当前处理流程使用
+	result, ok := a.OnTokenCaptchaVerification(ctx, "cid", "unb=1", "https://punish.example", "device"); ok || result != nil {
 		t.Fatalf("明确远程失败应直接失败: result=%+v ok=%v", result, ok)
 	}
 	if fb.tokenCaptchaCalls != 0 {
@@ -138,14 +171,19 @@ func TestRemoteCaptchaExplicitFailureDoesNotFallbackToBrowser(t *testing.T) {
 	}
 }
 
+// failingRoundTripper 保存failingRoundTripper，供当前处理流程使用
 type failingRoundTripper struct{}
 
+// RoundTrip 负责RoundTrip相关处理。
 func (failingRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, errors.New("network unavailable")
 }
 
+// TestRemoteCaptchaNetworkErrorRequestsLocalFallback 负责TestRemoteCaptchaNetwork错误请求列表LocalFallback相关处理。
 func TestRemoteCaptchaNetworkErrorRequestsLocalFallback(t *testing.T) {
+	// client 保存client，供当前处理流程使用
 	client := &http.Client{Transport: failingRoundTripper{}}
+	// handled、err 保存handled、err，供当前处理流程使用
 	_, handled, err := solveRemoteCaptcha(context.Background(), client, remoteCaptchaConfig{
 		URL: "https://remote.example", Secret: "secret",
 	}, "cid", "https://punish.example", "unb=1", "device", nil)
@@ -154,14 +192,18 @@ func TestRemoteCaptchaNetworkErrorRequestsLocalFallback(t *testing.T) {
 	}
 }
 
+// TestRemoteCaptchaProviderErrorIsHandledFailure 负责TestRemoteCaptchaProvider错误IsHandledFailure相关处理。
 func TestRemoteCaptchaProviderErrorIsHandledFailure(t *testing.T) {
+	// remote 保存remote，供当前处理流程使用
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{"success":false,"data":{"url_expired":true}}`)
 	}))
 	defer remote.Close()
+	// provider 保存provider，供当前处理流程使用
 	provider := func(context.Context, string) (string, bool, string, error) {
 		return "", false, "", errors.New("token request failed")
 	}
+	// handled、err 保存handled、err，供当前处理流程使用
 	_, handled, err := solveRemoteCaptcha(context.Background(), remote.Client(), remoteCaptchaConfig{
 		URL: remote.URL, Secret: "secret",
 	}, "cid", "https://expired.example", "unb=1", "device", provider)
