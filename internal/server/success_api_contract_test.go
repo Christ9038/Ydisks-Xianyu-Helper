@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -185,5 +186,187 @@ func TestRemainingSuccessResponseContracts(t *testing.T) {
 	}
 	if !orderResponse.Success || orderResponse.Data.OrderID != "contract-order" || orderResponse.OrderID != "contract-order" {
 		t.Fatalf("order response=%+v", orderResponse)
+	}
+}
+
+// TestSettingsCardsNotificationsBatchContracts 验证设置、卡券、通知和商品批量接口的具名成功响应。
+func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
+	// srv 是用于验证设置、卡券、通知和商品批量响应的 HTTP 测试服务。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是当前测试使用的完整路由树。
+	handler := srv.Router()
+	// sessionCookie 是管理员登录后得到的认证会话。
+	sessionCookie := loginHelper(t, handler)
+
+	// settingReq 是更新单个系统设置的请求。
+	settingReq := httptest.NewRequest(http.MethodPut, "/system-settings/theme_color", strings.NewReader(`{"value":"contract-blue"}`))
+	settingReq.AddCookie(sessionCookie)
+	// settingRecorder 是捕获系统设置响应的记录器。
+	settingRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(settingRecorder, settingReq)
+	if settingRecorder.Code != http.StatusOK {
+		t.Fatalf("setting status=%d body=%s", settingRecorder.Code, settingRecorder.Body.String())
+	}
+	// settingResponse 是系统设置变更具名响应 DTO。
+	var settingResponse operationResponse
+	// settingDecodeErr 是系统设置响应 JSON 反序列化失败的原因。
+	if settingDecodeErr := json.Unmarshal(settingRecorder.Body.Bytes(), &settingResponse); settingDecodeErr != nil {
+		t.Fatalf("decode setting response: %v", settingDecodeErr)
+	}
+	if !settingResponse.Success {
+		t.Fatalf("setting response=%+v", settingResponse)
+	}
+
+	// aiReq 是更新账号 AI 回复设置的请求。
+	aiReq := httptest.NewRequest(http.MethodPut, "/ai-reply-settings/acc1", strings.NewReader(`{"ai_enabled":true,"max_discount_percent":12,"max_discount_amount":88,"max_bargain_rounds":4,"custom_prompts":"契约测试"}`))
+	aiReq.AddCookie(sessionCookie)
+	// aiRecorder 是捕获账号 AI 设置响应的记录器。
+	aiRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(aiRecorder, aiReq)
+	if aiRecorder.Code != http.StatusOK {
+		t.Fatalf("ai update status=%d body=%s", aiRecorder.Code, aiRecorder.Body.String())
+	}
+	// aiResponse 是账号 AI 设置变更具名响应 DTO。
+	var aiResponse operationResponse
+	// aiDecodeErr 是账号 AI 设置响应 JSON 反序列化失败的原因。
+	if aiDecodeErr := json.Unmarshal(aiRecorder.Body.Bytes(), &aiResponse); aiDecodeErr != nil {
+		t.Fatalf("decode ai update response: %v", aiDecodeErr)
+	}
+	if !aiResponse.Success {
+		t.Fatalf("ai update response=%+v", aiResponse)
+	}
+
+	// aiGetReq 是读取账号 AI 设置的请求。
+	aiGetReq := httptest.NewRequest(http.MethodGet, "/ai-reply-settings/acc1", nil)
+	aiGetReq.AddCookie(sessionCookie)
+	// aiGetRecorder 是捕获账号 AI 设置查询响应的记录器。
+	aiGetRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(aiGetRecorder, aiGetReq)
+	if aiGetRecorder.Code != http.StatusOK {
+		t.Fatalf("ai get status=%d body=%s", aiGetRecorder.Code, aiGetRecorder.Body.String())
+	}
+	// aiGetResponse 是账号 AI 设置查询具名响应 DTO。
+	var aiGetResponse aiReplySettingsResponse
+	// aiGetDecodeErr 是账号 AI 设置查询响应 JSON 反序列化失败的原因。
+	if aiGetDecodeErr := json.Unmarshal(aiGetRecorder.Body.Bytes(), &aiGetResponse); aiGetDecodeErr != nil {
+		t.Fatalf("decode ai get response: %v", aiGetDecodeErr)
+	}
+	if !aiGetResponse.AIEnabled || aiGetResponse.MaxDiscountPercent != 12 {
+		t.Fatalf("ai get response=%+v", aiGetResponse)
+	}
+
+	// cardReq 是创建文本卡券组的请求。
+	cardReq := httptest.NewRequest(http.MethodPost, "/cards", strings.NewReader(`{"name":"契约卡","type":"text","text_content":"CARD","enabled":true}`))
+	cardReq.AddCookie(sessionCookie)
+	// cardRecorder 是捕获卡券创建响应的记录器。
+	cardRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(cardRecorder, cardReq)
+	if cardRecorder.Code != http.StatusOK {
+		t.Fatalf("card status=%d body=%s", cardRecorder.Code, cardRecorder.Body.String())
+	}
+	// cardResponse 是卡券创建具名响应 DTO。
+	var cardCreateResponse mutationIDResponse
+	// cardDecodeErr 是卡券创建响应 JSON 反序列化失败的原因。
+	if cardDecodeErr := json.Unmarshal(cardRecorder.Body.Bytes(), &cardCreateResponse); cardDecodeErr != nil {
+		t.Fatalf("decode card response: %v", cardDecodeErr)
+	}
+	if !cardCreateResponse.Success || cardCreateResponse.ID == 0 {
+		t.Fatalf("card response=%+v", cardCreateResponse)
+	}
+
+	// cardGetReq 是读取卡券详情的请求。
+	cardGetReq := httptest.NewRequest(http.MethodGet, "/cards/"+strconv.FormatInt(cardCreateResponse.ID, 10), nil)
+	cardGetReq.AddCookie(sessionCookie)
+	// cardGetRecorder 是捕获卡券详情响应的记录器。
+	cardGetRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(cardGetRecorder, cardGetReq)
+	if cardGetRecorder.Code != http.StatusOK {
+		t.Fatalf("card get status=%d body=%s", cardGetRecorder.Code, cardGetRecorder.Body.String())
+	}
+	// cardGetResponse 是卡券详情具名响应 DTO。
+	var cardGetResponse cardResponse
+	// cardGetDecodeErr 是卡券详情响应 JSON 反序列化失败的原因。
+	if cardGetDecodeErr := json.Unmarshal(cardGetRecorder.Body.Bytes(), &cardGetResponse); cardGetDecodeErr != nil {
+		t.Fatalf("decode card get response: %v", cardGetDecodeErr)
+	}
+	if cardGetResponse.ID != cardCreateResponse.ID || cardGetResponse.Name != "契约卡" {
+		t.Fatalf("card get response=%+v", cardGetResponse)
+	}
+
+	// channelReq 是创建通知渠道的请求。
+	channelReq := httptest.NewRequest(http.MethodPost, "/notification-channels", strings.NewReader(`{"name":"契约通知","type":"bark","config":"{}","enabled":true}`))
+	channelReq.AddCookie(sessionCookie)
+	// channelRecorder 是捕获通知渠道创建响应的记录器。
+	channelRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(channelRecorder, channelReq)
+	if channelRecorder.Code != http.StatusOK {
+		t.Fatalf("channel status=%d body=%s", channelRecorder.Code, channelRecorder.Body.String())
+	}
+	// channelResponse 是通知渠道创建具名响应 DTO。
+	var channelResponse mutationIDResponse
+	// channelDecodeErr 是通知渠道创建响应 JSON 反序列化失败的原因。
+	if channelDecodeErr := json.Unmarshal(channelRecorder.Body.Bytes(), &channelResponse); channelDecodeErr != nil {
+		t.Fatalf("decode channel response: %v", channelDecodeErr)
+	}
+	if !channelResponse.Success || channelResponse.ID == 0 {
+		t.Fatalf("channel response=%+v", channelResponse)
+	}
+
+	// bindingReq 是将通知渠道绑定到测试账号的请求。
+	bindingReq := httptest.NewRequest(http.MethodPost, "/message-notifications/acc1", strings.NewReader(`{"channel_ids":[`+strconv.FormatInt(channelResponse.ID, 10)+`]}`))
+	bindingReq.AddCookie(sessionCookie)
+	// bindingRecorder 是捕获通知绑定响应的记录器。
+	bindingRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(bindingRecorder, bindingReq)
+	if bindingRecorder.Code != http.StatusOK {
+		t.Fatalf("binding status=%d body=%s", bindingRecorder.Code, bindingRecorder.Body.String())
+	}
+	// bindingResponse 是通知绑定变更具名响应 DTO。
+	var bindingResponse operationResponse
+	// bindingDecodeErr 是通知绑定响应 JSON 反序列化失败的原因。
+	if bindingDecodeErr := json.Unmarshal(bindingRecorder.Body.Bytes(), &bindingResponse); bindingDecodeErr != nil {
+		t.Fatalf("decode binding response: %v", bindingDecodeErr)
+	}
+	if !bindingResponse.Success {
+		t.Fatalf("binding response=%+v", bindingResponse)
+	}
+
+	// bindingGetReq 是读取账号通知绑定的请求。
+	bindingGetReq := httptest.NewRequest(http.MethodGet, "/message-notifications/acc1", nil)
+	bindingGetReq.AddCookie(sessionCookie)
+	// bindingGetRecorder 是捕获账号通知绑定响应的记录器。
+	bindingGetRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(bindingGetRecorder, bindingGetReq)
+	if bindingGetRecorder.Code != http.StatusOK {
+		t.Fatalf("binding get status=%d body=%s", bindingGetRecorder.Code, bindingGetRecorder.Body.String())
+	}
+	// bindingGetResponse 是账号通知绑定具名响应 DTO。
+	var bindingGetResponse accountBindingsResponse
+	// bindingGetDecodeErr 是账号通知绑定响应 JSON 反序列化失败的原因。
+	if bindingGetDecodeErr := json.Unmarshal(bindingGetRecorder.Body.Bytes(), &bindingGetResponse); bindingGetDecodeErr != nil {
+		t.Fatalf("decode binding get response: %v", bindingGetDecodeErr)
+	}
+	if bindingGetResponse.CookieID != "acc1" || len(bindingGetResponse.ChannelIDs) != 1 {
+		t.Fatalf("binding get response=%+v", bindingGetResponse)
+	}
+
+	// batchReq 是读取商品批量任务列表的请求。
+	batchReq := httptest.NewRequest(http.MethodGet, "/items/publish-batches?limit=10", nil)
+	batchReq.AddCookie(sessionCookie)
+	// batchRecorder 是捕获商品批量任务列表响应的记录器。
+	batchRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(batchRecorder, batchReq)
+	if batchRecorder.Code != http.StatusOK {
+		t.Fatalf("batch status=%d body=%s", batchRecorder.Code, batchRecorder.Body.String())
+	}
+	// batchResponse 是商品批量任务列表具名响应 DTO。
+	var batchResponse itemPublishBatchListResponse
+	// batchDecodeErr 是商品批量任务列表响应 JSON 反序列化失败的原因。
+	if batchDecodeErr := json.Unmarshal(batchRecorder.Body.Bytes(), &batchResponse); batchDecodeErr != nil {
+		t.Fatalf("decode batch response: %v", batchDecodeErr)
+	}
+	if batchResponse.Batches == nil {
+		t.Fatalf("batch response=%+v", batchResponse)
 	}
 }

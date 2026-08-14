@@ -172,7 +172,7 @@ func TestPublicHTTPClient(t *testing.T) {
 	}
 }
 
-// TestPublishBatchToMap 批次转 map 序列化 + 状态计数。
+// TestPublishBatchToMap 批次转具名 DTO 序列化并校验状态计数。
 func TestPublishBatchToMap(t *testing.T) {
 	batch := &db.ItemPublishBatch{ID: "b1", Status: "running", Filename: "x.csv"}
 	rows := []db.ItemPublishBatchRow{
@@ -180,10 +180,10 @@ func TestPublishBatchToMap(t *testing.T) {
 		{ID: 2, RowNo: 2, CookieID: "c1", Title: "t2", Status: "running"},
 	}
 	m := publishBatchToMap(batch, rows)
-	if m["id"] != "b1" || m["status"] != "running" {
+	if m.ID != "b1" || m.Status != "running" {
 		t.Fatalf("batch 字段异常: %+v", m)
 	}
-	rs, _ := m["rows"].([]map[string]any)
+	rs := m.Rows
 	if len(rs) != 2 {
 		t.Fatalf("rows 数异常: %d", len(rs))
 	}

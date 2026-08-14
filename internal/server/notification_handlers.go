@@ -32,7 +32,7 @@ func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, chs)
+	writeJSON(w, http.StatusOK, newNotificationChannelResponses(chs))
 }
 
 func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +55,7 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "创建失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "id": id})
+	writeJSON(w, http.StatusOK, mutationIDResponse{Success: true, ID: id})
 }
 
 func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
@@ -112,7 +112,7 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
@@ -130,7 +130,7 @@ func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 // testChannel 向指定渠道发送一条测试通知，便于用户验证配置是否正确。
@@ -153,7 +153,7 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "发送失败: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) getAccountBindings(w http.ResponseWriter, r *http.Request) {
@@ -166,7 +166,7 @@ func (s *Server) getAccountBindings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"cookie_id": cid, "channel_ids": ids})
+	writeJSON(w, http.StatusOK, accountBindingsResponse{CookieID: cid, ChannelIDs: ids})
 }
 
 func (s *Server) listMessageNotifications(w http.ResponseWriter, r *http.Request) {
@@ -183,7 +183,7 @@ func (s *Server) listMessageNotifications(w http.ResponseWriter, r *http.Request
 		return
 	}
 	defer rows.Close()
-	out := make(map[string][]map[string]any)
+	out := make(notificationBindingListResponse)
 	for rows.Next() {
 		var id, channelID int64
 		var cookieID, channelName string
@@ -192,11 +192,11 @@ func (s *Server) listMessageNotifications(w http.ResponseWriter, r *http.Request
 			writeErr(w, http.StatusInternalServerError, "查询失败")
 			return
 		}
-		out[cookieID] = append(out[cookieID], map[string]any{
-			"id":           id,
-			"channel_id":   channelID,
-			"channel_name": channelName,
-			"enabled":      enabled != 0,
+		out[cookieID] = append(out[cookieID], notificationBindingResponse{
+			ID:          id,
+			ChannelID:   channelID,
+			ChannelName: channelName,
+			Enabled:     enabled != 0,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -239,7 +239,7 @@ func (s *Server) setAccountBindings(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, "保存失败")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"success": true})
+		writeJSON(w, http.StatusOK, operationResponse{Success: true})
 		return
 	}
 	for _, channelID := range req.ChannelIDs {
@@ -251,7 +251,7 @@ func (s *Server) setAccountBindings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) deleteMessageNotification(w http.ResponseWriter, r *http.Request) {
@@ -269,7 +269,7 @@ func (s *Server) deleteMessageNotification(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) deleteAccountNotifications(w http.ResponseWriter, r *http.Request) {
@@ -283,5 +283,5 @@ func (s *Server) deleteAccountNotifications(w http.ResponseWriter, r *http.Reque
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }

@@ -131,13 +131,13 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 		created++
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success": true,
-		"total":   len(maps),
-		"created": created,
-		"failed":  failed,
-		"rows":    results,
-	})
+	// 批量响应使用具名 DTO，但保留逐行结果供客户端展示失败原因。
+	// total、created 和 failed 的统计语义与旧接口保持一致。
+	// rows 中的 success 仅表示对应表格行是否创建成功。
+	// 卡券批量接口仍返回 HTTP 200，单行失败不改变批次级成功语义。
+	// 后续版本化迁移可直接复用该字段结构。
+	// 该 DTO 不暴露未使用的数据库用户字段。
+	writeJSON(w, http.StatusOK, cardBatchResponse{Success: true, Total: len(maps), Created: created, Failed: failed, Rows: results})
 }
 
 // appendCardData 往 data 类型卡密组追加卡密号（按行）。
@@ -178,5 +178,5 @@ func (s *Server) appendCardData(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "追加失败: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "added": added})
+	writeJSON(w, http.StatusOK, cardAppendResponse{Success: true, Added: added})
 }

@@ -64,7 +64,7 @@ func (s *Server) setSettings(w http.ResponseWriter, r *http.Request) {
 	if level, ok := values["log_level"]; ok {
 		_ = logging.SetLevel(level)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) publicSettings(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +104,7 @@ func (s *Server) setSetting(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 // ---- AI 回复设置 ----
@@ -129,7 +129,7 @@ func (s *Server) listAIReply(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	result := make(map[string]any)
+	result := make(map[string]aiReplySettingsResponse)
 	for rows.Next() {
 		var cookieID, customPrompts string
 		var enabled, maxDiscountPercent, maxDiscountAmount, maxBargainRounds int
@@ -137,13 +137,13 @@ func (s *Server) listAIReply(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, "查询失败")
 			return
 		}
-		result[cookieID] = map[string]any{
-			"cookie_id":            cookieID,
-			"ai_enabled":           enabled != 0,
-			"max_discount_percent": maxDiscountPercent,
-			"max_discount_amount":  maxDiscountAmount,
-			"max_bargain_rounds":   maxBargainRounds,
-			"custom_prompts":       customPrompts,
+		result[cookieID] = aiReplySettingsResponse{
+			CookieID: cookieID, AIEnabled: enabled != 0, MaxDiscountPercent: maxDiscountPercent,
+			MaxDiscountAmount: maxDiscountAmount, MaxBargainRounds: maxBargainRounds, CustomPrompts: customPrompts,
+			// 账号标识和五项配置字段保持旧 JSON 名称。
+			// 布尔值继续由数据库整数转换得到。
+			// 自定义提示词不做额外格式化。
+			// DTO 转换不改变查询失败处理。
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -164,23 +164,23 @@ func (s *Server) getAIReply(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, "查询失败")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"ai_enabled":           false,
-			"max_discount_percent": 10,
-			"max_discount_amount":  100,
-			"max_bargain_rounds":   3,
-			"custom_prompts":       "",
-		})
+		// 未保存配置使用与旧接口一致的默认值。
+		// 默认响应不携带 cookie_id，避免误认为已持久化账号配置。
+		// max_discount_percent 保持默认 10 的业务约束。
+		// max_discount_amount 保持默认 100 的业务约束。
+		// max_bargain_rounds 保持默认 3 的业务约束。
+		// custom_prompts 为空表示未配置自定义提示词。
+		writeJSON(w, http.StatusOK, aiReplySettingsResponse{AIEnabled: false, MaxDiscountPercent: 10, MaxDiscountAmount: 100, MaxBargainRounds: 3, CustomPrompts: ""})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"cookie_id":            cfg.CookieID,
-		"ai_enabled":           cfg.AIEnabled,
-		"max_discount_percent": cfg.MaxDiscountPercent,
-		"max_discount_amount":  cfg.MaxDiscountAmount,
-		"max_bargain_rounds":   cfg.MaxBargainRounds,
-		"custom_prompts":       cfg.CustomPrompts,
-	})
+	// 已保存配置返回账号标识，客户端可据此区分账号级设置。
+	// AIEnabled 表示账号 AI 回复开关。
+	// 折扣上限字段保持原有数值类型和命名。
+	// 砍价轮次字段保持原有校验范围。
+	// CustomPrompts 仍返回原始提示词文本。
+	// 该响应仅静态化 JSON 结构，不改变存储或校验逻辑。
+	// 旧客户端可以继续直接读取这些字段。
+	writeJSON(w, http.StatusOK, aiReplySettingsResponse{CookieID: cfg.CookieID, AIEnabled: cfg.AIEnabled, MaxDiscountPercent: cfg.MaxDiscountPercent, MaxDiscountAmount: cfg.MaxDiscountAmount, MaxBargainRounds: cfg.MaxBargainRounds, CustomPrompts: cfg.CustomPrompts})
 }
 
 func (s *Server) setAIReply(w http.ResponseWriter, r *http.Request) {
@@ -229,7 +229,7 @@ func (s *Server) setAIReply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) listAIModels(w http.ResponseWriter, r *http.Request) {
@@ -268,7 +268,7 @@ func (s *Server) listAIModels(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+	writeJSON(w, http.StatusOK, aiModelsResponse{Models: models})
 }
 
 var newSettingsOutboundHTTPClient = func(baseURL string) (*http.Client, error) {
@@ -409,10 +409,10 @@ func (s *Server) getUserSetting(w http.ResponseWriter, r *http.Request) {
 	err := s.Store.DB.QueryRowContext(r.Context(),
 		`SELECT value FROM user_settings WHERE user_id=? AND `+keyCol+`=?`, sess.UserID, key).Scan(&v)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"value": ""})
+		writeJSON(w, http.StatusOK, userSettingResponse{Value: ""})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"value": v})
+	writeJSON(w, http.StatusOK, userSettingResponse{Value: v})
 }
 
 func (s *Server) setUserSetting(w http.ResponseWriter, r *http.Request) {
@@ -437,5 +437,5 @@ func (s *Server) setUserSetting(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }

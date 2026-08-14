@@ -166,7 +166,7 @@ func (s *Server) recommendItemPublishCategory(w http.ResponseWriter, r *http.Req
 		writeErr(w, http.StatusBadGateway, callErr.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "category": category})
+	writeJSON(w, http.StatusOK, categoryRecommendationResponse{Success: true, Category: category})
 }
 
 func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request) {
@@ -348,14 +348,14 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 	}
 	keepUpload = true
 	_ = s.Store.PublishBatches.Recount(r.Context(), batchID)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"success":    true,
-		"preview_id": batchID,
-		"total":      len(rows),
-		"valid":      valid,
-		"invalid":    invalid,
-		"rows":       previewRows,
-	})
+	// 预检响应保留逐行错误，客户端据此决定是否允许启动发布。
+	// preview_id 是后续启动、轮询和放弃预检的稳定标识。
+	// total、valid 和 invalid 继续使用旧统计口径。
+	// rows 保留类目和自动化配置，避免前端重复解析上传表格。
+	// 预检成功不代表远端商品已经发布。
+	// 远端发布失败仍由批次明细状态表达。
+	// 该 DTO 不改变上传目录清理和批次持久化时序。
+	writeJSON(w, http.StatusOK, itemPublishBatchPreviewResponse{Success: true, PreviewID: batchID, Total: len(rows), Valid: valid, Invalid: invalid, Rows: previewRows})
 }
 
 func (s *Server) startItemPublishBatch(w http.ResponseWriter, r *http.Request) {
@@ -412,7 +412,7 @@ func (s *Server) startItemPublishBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.startPublishBatchWorker(s.lifecycleContext(), sess.UserID, batch.ID, workerToken)
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "batch_id": batch.ID})
+	writeJSON(w, http.StatusOK, batchIDResponse{Success: true, BatchID: batch.ID})
 }
 
 func (s *Server) listItemPublishBatches(w http.ResponseWriter, r *http.Request) {
@@ -423,11 +423,11 @@ func (s *Server) listItemPublishBatches(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusInternalServerError, "读取批量任务失败")
 		return
 	}
-	result := make([]map[string]any, 0, len(batches))
+	result := make([]itemPublishBatchResponse, 0, len(batches))
 	for i := range batches {
 		result = append(result, publishBatchToMap(&batches[i], nil))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"batches": result})
+	writeJSON(w, http.StatusOK, itemPublishBatchListResponse{Batches: result})
 }
 
 func (s *Server) getItemPublishBatch(w http.ResponseWriter, r *http.Request) {
@@ -466,7 +466,7 @@ func (s *Server) cancelItemPublishBatch(w http.ResponseWriter, r *http.Request) 
 	if running {
 		s.cancelPublishBatch(batchID, workerToken)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "status": map[bool]string{true: "canceling", false: "canceled"}[running]})
+	writeJSON(w, http.StatusOK, batchCancelResponse{Success: true, Status: map[bool]string{true: "canceling", false: "canceled"}[running]})
 }
 
 func (s *Server) deleteItemPublishBatch(w http.ResponseWriter, r *http.Request) {
@@ -488,7 +488,7 @@ func (s *Server) deleteItemPublishBatch(w http.ResponseWriter, r *http.Request) 
 	if strings.TrimSpace(batch.UploadDir) != "" {
 		_ = os.RemoveAll(batch.UploadDir)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) retryFailedItemPublishBatch(w http.ResponseWriter, r *http.Request) {
@@ -531,7 +531,7 @@ func (s *Server) retryFailedItemPublishBatch(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	s.startPublishBatchWorker(s.lifecycleContext(), sess.UserID, batchID, workerToken)
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "batch_id": batchID})
+	writeJSON(w, http.StatusOK, batchIDResponse{Success: true, BatchID: batchID})
 }
 
 func (s *Server) startPublishBatchWorker(parent context.Context, userID int64, batchID, workerToken string) {
@@ -1336,12 +1336,12 @@ func (s *Server) validatePublishAutomation(ctx context.Context, userID int64, cf
 	return errs
 }
 
-func publishBatchToMap(batch *db.ItemPublishBatch, rows []db.ItemPublishBatchRow) map[string]any {
+func publishBatchToMap(batch *db.ItemPublishBatch, rows []db.ItemPublishBatchRow) itemPublishBatchResponse {
 	locationJSON := strings.TrimSpace(batch.LocationJSON)
 	if locationJSON == "" {
 		locationJSON = "{}"
 	}
-	outRows := make([]map[string]any, 0, len(rows))
+	outRows := make([]itemPublishBatchRowResponse, 0, len(rows))
 	pending := 0
 	running := 0
 	for _, row := range rows {
@@ -1357,13 +1357,13 @@ func publishBatchToMap(batch *db.ItemPublishBatch, rows []db.ItemPublishBatchRow
 		_ = json.Unmarshal([]byte(row.CategoryJSON), &category)
 		var automationCfg publishAutomationConfig
 		_ = json.Unmarshal([]byte(row.AutomationJSON), &automationCfg)
-		outRows = append(outRows, map[string]any{
-			"id": row.ID, "row_no": row.RowNo, "cookie_id": row.CookieID, "title": row.Title,
-			"price": row.Price, "quantity": row.Quantity, "images": refs,
-			"category":   category,
-			"automation": automationCfg,
-			"status":     row.Status, "item_id": row.ItemID, "item_url": row.ItemURL,
-			"error_message": row.ErrorMessage, "failure_kind": row.FailureKind,
+		outRows = append(outRows, itemPublishBatchRowResponse{
+			ID: row.ID, RowNo: row.RowNo, CookieID: row.CookieID, Title: row.Title,
+			Price: row.Price, Quantity: row.Quantity, Images: refs,
+			Category:   category,
+			Automation: automationCfg,
+			Status:     row.Status, ItemID: row.ItemID, ItemURL: row.ItemURL,
+			ErrorMessage: row.ErrorMessage, FailureKind: row.FailureKind,
 		})
 	}
 	retryable := 0
@@ -1372,12 +1372,12 @@ func publishBatchToMap(batch *db.ItemPublishBatch, rows []db.ItemPublishBatchRow
 			retryable++
 		}
 	}
-	return map[string]any{
-		"id": batch.ID, "status": batch.Status, "filename": batch.Filename,
-		"total": batch.TotalCount, "success": batch.SuccessCount, "failed": batch.FailedCount,
-		"pending": pending, "running": running, "retryable": retryable, "rows": outRows,
-		"location":   json.RawMessage(locationJSON),
-		"created_at": batch.CreatedAt, "updated_at": batch.UpdatedAt,
+	return itemPublishBatchResponse{
+		ID: batch.ID, Status: batch.Status, Filename: batch.Filename,
+		Total: batch.TotalCount, Success: batch.SuccessCount, Failed: batch.FailedCount,
+		Pending: pending, Running: running, Retryable: retryable, Rows: outRows,
+		Location:  json.RawMessage(locationJSON),
+		CreatedAt: batch.CreatedAt, UpdatedAt: batch.UpdatedAt,
 	}
 }
 

@@ -4,7 +4,7 @@ import {
   AdminStats, DashboardStats, Card, SystemSettings, ApiResponse, OrderAnalytics,
   Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
   NotificationChannel, NotificationEventType, AccountTaskSettings, AccountTaskSummary, ChatSession, ChatMessage,
-  CookieSettingsResponse, CookieProfileResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, AutomationRuleResponse, AutomationRulePageResponse
+  CookieSettingsResponse, CookieProfileResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse
 } from '../types';
 import { formatLocalDate } from '../dateRange';
 
@@ -449,43 +449,43 @@ const cardPayload = (data: Partial<Card>): Record<string, unknown> => ({
 });
 
 export const getCards = async (): Promise<Card[]> => {
-  const res = await get<any>('/cards');
+  const res = await get<Card[] | CardListResponse>('/cards');
   const cards = Array.isArray(res) ? res : (res.cards || []);
   return cards.map(normalizeCard);
 };
 
-export const createCard = async (data: Partial<Card>): Promise<{ id: number; message: string }> => {
+export const createCard = async (data: Partial<Card>): Promise<MutationIDResponse> => {
   return post('/cards', cardPayload(data));
 };
 
-export const updateCard = async (cardId: string | number, data: Partial<Card>): Promise<ApiResponse> => {
+export const updateCard = async (cardId: string | number, data: Partial<Card>): Promise<OperationResponse> => {
   return put(`/cards/${cardId}`, cardPayload(data));
 };
 
-export const deleteCard = async (cardId: string | number): Promise<ApiResponse> => {
+export const deleteCard = async (cardId: string | number): Promise<OperationResponse> => {
   return del(`/cards/${cardId}`);
 };
 
-export const getCardDetails = async (cardId: string | number): Promise<any> => {
-  const card = await get<any>(`/cards/${cardId}/details`);
+export const getCardDetails = async (cardId: string | number): Promise<Card> => {
+  const card = await get<Card>(`/cards/${cardId}/details`);
   return normalizeCard(card);
 };
 
 // 批量创建卡密组（上传表格）
-export const batchCreateCards = async (file: File): Promise<{
-  success: boolean;
-  total: number;
-  created: number;
-  failed: number;
-  rows: { row_no: number; success: boolean; id?: number; name: string; type?: string; error?: string }[];
-}> => {
+export const batchCreateCards = async (file: File): Promise<CardBatchResponse> => {
+  // 批量创建接口返回总行数、成功数、失败数和逐行结果。
+  // CardBatchResponse 保留旧字段名称，调用方无需转换统计字段。
+  // rows 中的 id 只在创建成功时返回。
+  // rows 中的 error 只在对应行失败时返回。
+  // 表单上传方式和接口路径保持不变。
+  // 此处只收紧 TypeScript 响应契约。
   const body = new FormData();
   body.append('file', file);
   return postForm('/cards/batch', body);
 };
 
 // 往 data 类型卡密组批量追加卡密号
-export const appendCardData = async (cardId: string | number, content: string): Promise<{ success: boolean; added: number }> => {
+export const appendCardData = async (cardId: string | number, content: string): Promise<CardAppendResponse> => {
   return post(`/cards/${cardId}/append-data`, { content });
 };
 
@@ -556,15 +556,15 @@ export interface PublishLocation {
 	province: string;
 }
 
-export const recommendPublishCategory = async (cookieId: string, keyword: string): Promise<{
-    success: boolean;
-    category: {
-      cat_id: string;
-      cat_name: string;
-      channel_cat_id: string;
-      tb_cat_id?: string;
-    };
-}> => {
+export const recommendPublishCategory = async (cookieId: string, keyword: string): Promise<CategoryRecommendationResponse> => {
+    // 类目推荐成功响应使用共享 CategoryRecommendationResponse。
+    // category 字段保留平台类目 ID、名称和频道类目 ID。
+    // tb_cat_id 继续保持可选，兼容电子资料类目。
+    // 请求仍携带账号 ID 和关键词。
+    // 失败响应由共享 HTTP 错误结构处理。
+    // 该类型收口不改变凭证刷新和错误处理。
+    // 前端批量发布流程可直接复用 category。
+    // 旧路径继续由现有 Vite 代理转发。
     return post('/items/publish-categories/recommend', { cookie_id: cookieId, keyword });
 };
 
@@ -579,7 +579,7 @@ export const previewItemPublishBatch = async (form: {
       tbCatId?: string;
     };
 	location?: PublishLocation;
-}): Promise<any> => {
+}): Promise<ItemPublishBatchPreviewResponse> => {
     const body = new FormData();
     body.set('file', form.file);
     if (form.imagesZip) body.set('images_zip', form.imagesZip);
@@ -592,28 +592,28 @@ export const previewItemPublishBatch = async (form: {
     return postForm('/items/publish-batches/preview', body);
 }
 
-export const startItemPublishBatch = async (previewId: string): Promise<any> => {
+export const startItemPublishBatch = async (previewId: string): Promise<BatchIDResponse> => {
     return post('/items/publish-batches', { preview_id: previewId });
 }
 
-export const getItemPublishBatch = async (batchId: string): Promise<any> => {
+export const getItemPublishBatch = async (batchId: string): Promise<ItemPublishBatchResponse> => {
     return get(`/items/publish-batches/${batchId}`);
 }
 
-export const getItemPublishBatches = async (limit = 20): Promise<any[]> => {
-    const res = await get<any>('/items/publish-batches', { limit });
+export const getItemPublishBatches = async (limit = 20): Promise<ItemPublishBatchResponse[]> => {
+    const res = await get<ItemPublishBatchListResponse>('/items/publish-batches', { limit });
     return Array.isArray(res) ? res : (res.batches || []);
 }
 
-export const deleteItemPublishBatch = async (batchId: string): Promise<any> => {
+export const deleteItemPublishBatch = async (batchId: string): Promise<OperationResponse> => {
     return del(`/items/publish-batches/${batchId}`);
 }
 
-export const cancelItemPublishBatch = async (batchId: string): Promise<any> => {
+export const cancelItemPublishBatch = async (batchId: string): Promise<BatchCancelResponse> => {
     return post(`/items/publish-batches/${batchId}/cancel`, {});
 }
 
-export const retryFailedItemPublishBatch = async (batchId: string): Promise<any> => {
+export const retryFailedItemPublishBatch = async (batchId: string): Promise<BatchIDResponse> => {
     return post(`/items/publish-batches/${batchId}/retry-failed`, {});
 }
 
@@ -884,18 +884,18 @@ export const getSystemSettings = async (): Promise<SystemSettings> => {
     return normalizeSettings(res.data || res); // handle {success:true, data: {...}} wrapper if exists
 };
 
-export const updateSystemSettings = async (settings: Partial<SystemSettings>): Promise<ApiResponse> => {
+export const updateSystemSettings = async (settings: Partial<SystemSettings>): Promise<OperationResponse> => {
 	const payload = Object.fromEntries(
 		Object.entries(settings).filter(([, value]) => value !== undefined && value !== null),
 	);
 	return put('/system-settings', payload);
 };
 
-export const getAccountAISettings = async (cookieId: string, options?: RequestControlOptions): Promise<AIReplySettings> => {
+export const getAccountAISettings = async (cookieId: string, options?: RequestControlOptions): Promise<AIReplySettingsResponse> => {
     return get(`/ai-reply-settings/${cookieId}`, undefined, options);
 }
 
-export const updateAccountAISettings = async (cookieId: string, settings: Partial<AIReplySettings>): Promise<ApiResponse> => {
+export const updateAccountAISettings = async (cookieId: string, settings: Partial<AIReplySettings>): Promise<OperationResponse> => {
   const payload = {
     ai_enabled: settings.ai_enabled ?? false,
     max_discount_percent: settings.max_discount_percent ?? 10,
@@ -907,7 +907,7 @@ export const updateAccountAISettings = async (cookieId: string, settings: Partia
 }
 
 export const fetchAIModels = async (baseUrl: string, apiKey: string = ''): Promise<string[]> => {
-  const result = await post<{ models?: string[] }>('/ai-models', {
+  const result = await post<AIModelsResponse>('/ai-models', {
     base_url: baseUrl,
     api_key: apiKey,
   });
@@ -933,7 +933,7 @@ const stringifyNotificationEventTypes = (events?: NotificationEventType[]): stri
 };
 
 export const getNotificationChannels = async (options?: RequestControlOptions): Promise<{ success: boolean; data?: NotificationChannel[] }> => {
-  const result = await get<any[]>('/notification-channels', undefined, options);
+  const result = await get<NotificationChannelResponse[]>('/notification-channels', undefined, options);
   const channels = (result || []).map((item: any) => {
     let parsedConfig;
     try {
@@ -955,7 +955,7 @@ export const getNotificationChannels = async (options?: RequestControlOptions): 
   return { success: true, data: channels };
 }
 
-export const createNotificationChannel = async (data: { name: string; type: string; config: Record<string, unknown>; event_types?: NotificationEventType[]; enabled?: boolean }): Promise<ApiResponse> => {
+export const createNotificationChannel = async (data: { name: string; type: string; config: Record<string, unknown>; event_types?: NotificationEventType[]; enabled?: boolean }): Promise<MutationIDResponse> => {
   return post('/notification-channels', {
     ...data,
     config: JSON.stringify(data.config),
@@ -963,7 +963,7 @@ export const createNotificationChannel = async (data: { name: string; type: stri
   });
 }
 
-export const updateNotificationChannel = async (channelId: string, data: { name?: string; type?: string; config?: Record<string, unknown>; event_types?: NotificationEventType[]; enabled?: boolean }): Promise<ApiResponse> => {
+export const updateNotificationChannel = async (channelId: string, data: { name?: string; type?: string; config?: Record<string, unknown>; event_types?: NotificationEventType[]; enabled?: boolean }): Promise<OperationResponse> => {
   const payload: Record<string, unknown> = { ...data };
   if ('config' in data) {
     payload.config = JSON.stringify(data.config);
@@ -974,14 +974,14 @@ export const updateNotificationChannel = async (channelId: string, data: { name?
   return put(`/notification-channels/${channelId}`, payload);
 }
 
-export const deleteNotificationChannel = async (channelId: string): Promise<ApiResponse> => {
+export const deleteNotificationChannel = async (channelId: string): Promise<OperationResponse> => {
   return del(`/notification-channels/${channelId}`);
 }
 
 // Message Notifications
-export const getMessageNotifications = async (): Promise<{ success: boolean; data?: any[] }> => {
-  const result = await get<Record<string, any[]>>('/message-notifications');
-  const notifications = [];
+export const getMessageNotifications = async (): Promise<{ success: boolean; data?: NotificationBinding[] }> => {
+  const result = await get<Record<string, NotificationBinding[]>>('/message-notifications');
+  const notifications: NotificationBinding[] = [];
   for (const [cookieId, channelList] of Object.entries(result || {})) {
     if (Array.isArray(channelList)) {
       for (const item of channelList) {
@@ -997,30 +997,30 @@ export const getMessageNotifications = async (): Promise<{ success: boolean; dat
   return { success: true, data: notifications };
 }
 
-export const setMessageNotification = async (cookieId: string, channelId: number, enabled: boolean): Promise<ApiResponse> => {
+export const setMessageNotification = async (cookieId: string, channelId: number, enabled: boolean): Promise<OperationResponse> => {
   return post(`/message-notifications/${cookieId}`, { channel_id: channelId, enabled });
 }
 
-export const deleteMessageNotification = async (notificationId: string): Promise<ApiResponse> => {
+export const deleteMessageNotification = async (notificationId: string): Promise<OperationResponse> => {
   return del(`/message-notifications/${notificationId}`);
 }
 
-export const deleteAccountNotifications = async (cookieId: string): Promise<ApiResponse> => {
+export const deleteAccountNotifications = async (cookieId: string): Promise<OperationResponse> => {
   return del(`/message-notifications/account/${cookieId}`);
 }
 
 // 账号 ↔ 渠道 绑定（覆盖式）
 export const getAccountBindings = async (cookieId: string, options?: RequestControlOptions): Promise<number[]> => {
-  const result = await get<{ cookie_id: string; channel_ids: number[] }>(`/message-notifications/${cookieId}`, undefined, options);
+  const result = await get<AccountBindingsResponse>(`/message-notifications/${cookieId}`, undefined, options);
   return result?.channel_ids || [];
 }
 
-export const setAccountBindings = async (cookieId: string, channelIds: number[]): Promise<ApiResponse> => {
+export const setAccountBindings = async (cookieId: string, channelIds: number[]): Promise<OperationResponse> => {
   return post(`/message-notifications/${cookieId}`, { channel_ids: channelIds });
 }
 
 // 测试发送
-export const testNotificationChannel = async (channelId: string): Promise<ApiResponse> => {
+export const testNotificationChannel = async (channelId: string): Promise<OperationResponse> => {
   return post(`/notification-channels/${channelId}/test`, {});
 }
 

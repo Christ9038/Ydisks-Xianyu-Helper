@@ -1,6 +1,9 @@
 package server
 
-import "xianyu-go/internal/db"
+import (
+	"xianyu-go/internal/db"
+	"xianyu-go/internal/xianyu/mtop"
+)
 
 // operationResponse 是密码、会话和设置变更接口共用的操作结果 DTO。
 type operationResponse struct {
@@ -603,4 +606,275 @@ type importOrdersResponse struct {
 	FailedCount int `json:"failed_count"`
 	// Results 是逐订单的兼容结果行。
 	Results []map[string]any `json:"results"`
+}
+
+// aiReplySettingsResponse 是账号 AI 回复设置接口的具名响应 DTO。
+type aiReplySettingsResponse struct {
+	// CookieID 是账号稳定标识；默认配置响应省略该字段。
+	CookieID string `json:"cookie_id,omitempty"`
+	// AIEnabled 表示账号 AI 回复是否启用。
+	AIEnabled bool `json:"ai_enabled"`
+	// MaxDiscountPercent 是允许的最大折扣比例。
+	MaxDiscountPercent int `json:"max_discount_percent"`
+	// MaxDiscountAmount 是允许的最大折扣金额。
+	MaxDiscountAmount int `json:"max_discount_amount"`
+	// MaxBargainRounds 是允许的最大砍价轮次。
+	MaxBargainRounds int `json:"max_bargain_rounds"`
+	// CustomPrompts 是账号自定义提示词。
+	CustomPrompts string `json:"custom_prompts"`
+}
+
+// aiModelsResponse 是 AI 模型发现接口的具名响应 DTO。
+type aiModelsResponse struct {
+	// Models 是远端可用模型名称列表。
+	Models []string `json:"models"`
+}
+
+// userSettingResponse 是单个用户设置查询接口的具名响应 DTO。
+type userSettingResponse struct {
+	// Value 是设置值文本。
+	Value string `json:"value"`
+}
+
+// cardResponse 是卡券详情和列表接口的具名响应 DTO。
+type cardResponse struct {
+	// ID 是卡券组稳定标识。
+	ID int64 `json:"id"`
+	// Name 是卡券组名称。
+	Name string `json:"name"`
+	// Type 是卡券类型。
+	Type string `json:"type"`
+	// APIConfig 是 API 卡券配置 JSON。
+	APIConfig string `json:"api_config"`
+	// TextContent 是文本卡券内容。
+	TextContent string `json:"text_content"`
+	// DataContent 是批量数据卡券内容。
+	DataContent string `json:"data_content"`
+	// ImageURL 是图片卡券地址。
+	ImageURL string `json:"image_url"`
+	// Description 是卡券组描述。
+	Description string `json:"description"`
+	// Enabled 表示卡券组是否启用。
+	Enabled bool `json:"enabled"`
+	// DelaySeconds 是自动发货延迟秒数。
+	DelaySeconds int `json:"delay_seconds"`
+	// IsMultiSpec 表示卡券组是否按规格区分。
+	IsMultiSpec bool `json:"is_multi_spec"`
+	// SpecName 是卡券规格名称。
+	SpecName string `json:"spec_name"`
+	// SpecValue 是卡券规格值。
+	SpecValue string `json:"spec_value"`
+	// UserID 是卡券所属用户标识，保留旧接口字段。
+	UserID int64 `json:"user_id,omitempty"`
+}
+
+// newCardResponse 将数据库卡券模型转换为 HTTP DTO。
+func newCardResponse(card db.CardFull) cardResponse {
+	return cardResponse{
+		ID: card.ID, Name: card.Name, Type: card.Type, APIConfig: card.APIConfig,
+		TextContent: card.TextContent, DataContent: card.DataContent, ImageURL: card.ImageURL,
+		Description: card.Description, Enabled: card.Enabled, DelaySeconds: card.DelaySeconds,
+		IsMultiSpec: card.IsMultiSpec, SpecName: card.SpecName, SpecValue: card.SpecValue, UserID: card.UserID,
+	}
+}
+
+// newCardResponses 批量转换卡券列表，避免直接暴露数据库模型。
+func newCardResponses(cards []db.CardFull) []cardResponse {
+	// result 是转换后的卡券 DTO 列表。
+	result := make([]cardResponse, 0, len(cards))
+	// card 是当前待转换的卡券数据库模型。
+	for _, card := range cards {
+		result = append(result, newCardResponse(card))
+	}
+	return result
+}
+
+// cardBatchResponse 是卡券批量创建接口的具名响应 DTO。
+type cardBatchResponse struct {
+	// Success 表示批量解析和处理流程已完成。
+	Success bool `json:"success"`
+	// Total 是表格中解析出的数据行数量。
+	Total int `json:"total"`
+	// Created 是成功创建的卡券组数量。
+	Created int `json:"created"`
+	// Failed 是创建失败的数据行数量。
+	Failed int `json:"failed"`
+	// Rows 是逐行处理结果。
+	Rows []cardBatchResultRow `json:"rows"`
+}
+
+// cardAppendResponse 是追加卡密接口的具名响应 DTO。
+type cardAppendResponse struct {
+	// Success 表示追加操作是否完成。
+	Success bool `json:"success"`
+	// Added 是实际追加的卡密数量。
+	Added int `json:"added"`
+}
+
+// notificationChannelResponse 是通知渠道接口的具名响应 DTO。
+type notificationChannelResponse struct {
+	// ID 是通知渠道稳定标识。
+	ID int64 `json:"id"`
+	// Name 是通知渠道名称。
+	Name string `json:"name"`
+	// Type 是通知渠道类型。
+	Type string `json:"type"`
+	// Config 是通知渠道配置 JSON。
+	Config string `json:"config"`
+	// EventTypes 是订阅事件类型 JSON 或兼容分隔文本。
+	EventTypes string `json:"event_types,omitempty"`
+	// Enabled 表示通知渠道是否启用。
+	Enabled bool `json:"enabled"`
+	// UserID 是渠道所属用户标识，保留旧接口字段。
+	UserID int64 `json:"user_id,omitempty"`
+}
+
+// newNotificationChannelResponse 将数据库通知渠道转换为 HTTP DTO。
+func newNotificationChannelResponse(channel db.NotificationChannelRow) notificationChannelResponse {
+	return notificationChannelResponse{
+		ID: channel.ID, Name: channel.Name, Type: channel.Type, Config: channel.Config,
+		EventTypes: channel.EventTypes, Enabled: channel.Enabled, UserID: channel.UserID,
+	}
+}
+
+// newNotificationChannelResponses 批量转换通知渠道，保持数据库模型不穿透 HTTP 层。
+func newNotificationChannelResponses(channels []db.NotificationChannelRow) []notificationChannelResponse {
+	// result 是转换后的通知渠道 DTO 列表。
+	result := make([]notificationChannelResponse, 0, len(channels))
+	// channel 是当前待转换的通知渠道数据库模型。
+	for _, channel := range channels {
+		result = append(result, newNotificationChannelResponse(channel))
+	}
+	return result
+}
+
+// notificationBindingResponse 是单条账号通知绑定的具名 DTO。
+type notificationBindingResponse struct {
+	// ID 是绑定记录稳定标识。
+	ID int64 `json:"id"`
+	// ChannelID 是通知渠道标识。
+	ChannelID int64 `json:"channel_id"`
+	// ChannelName 是通知渠道名称。
+	ChannelName string `json:"channel_name"`
+	// Enabled 表示该账号绑定是否启用。
+	Enabled bool `json:"enabled"`
+}
+
+// notificationBindingListResponse 是按账号分组的通知绑定响应 DTO。
+type notificationBindingListResponse map[string][]notificationBindingResponse
+
+// accountBindingsResponse 是账号与通知渠道绑定查询接口的具名响应 DTO。
+type accountBindingsResponse struct {
+	// CookieID 是账号稳定标识。
+	CookieID string `json:"cookie_id"`
+	// ChannelIDs 是当前账号绑定的通知渠道标识列表。
+	ChannelIDs []int64 `json:"channel_ids"`
+}
+
+// categoryRecommendationResponse 是商品类目推荐接口的具名响应 DTO。
+type categoryRecommendationResponse struct {
+	// Success 表示类目推荐是否成功。
+	Success bool `json:"success"`
+	// Category 是推荐的商品类目。
+	Category mtop.PublishCategory `json:"category"`
+}
+
+// itemPublishBatchPreviewResponse 是商品批量发布预检接口的具名响应 DTO。
+type itemPublishBatchPreviewResponse struct {
+	// Success 表示预检是否完成。
+	Success bool `json:"success"`
+	// PreviewID 是后续启动批量发布使用的预检批次标识。
+	PreviewID string `json:"preview_id"`
+	// Total 是预检数据行总数。
+	Total int `json:"total"`
+	// Valid 是通过预检的数据行数量。
+	Valid int `json:"valid"`
+	// Invalid 是未通过预检的数据行数量。
+	Invalid int `json:"invalid"`
+	// Rows 是逐行预检结果。
+	Rows []publishBatchPreviewRow `json:"rows"`
+}
+
+// batchIDResponse 是商品批量任务启动或重试接口的具名响应 DTO。
+type batchIDResponse struct {
+	// Success 表示任务操作是否完成。
+	Success bool `json:"success"`
+	// BatchID 是商品批量任务标识。
+	BatchID string `json:"batch_id"`
+}
+
+// batchCancelResponse 是商品批量任务取消接口的具名响应 DTO。
+type batchCancelResponse struct {
+	// Success 表示取消请求是否完成。
+	Success bool `json:"success"`
+	// Status 是任务取消后的状态。
+	Status string `json:"status"`
+}
+
+// itemPublishBatchRowResponse 是商品批量任务逐行详情 DTO。
+type itemPublishBatchRowResponse struct {
+	// ID 是批量任务明细行主键。
+	ID int64 `json:"id"`
+	// RowNo 是导入表格中的行号。
+	RowNo int `json:"row_no"`
+	// CookieID 是商品发布目标账号标识。
+	CookieID string `json:"cookie_id"`
+	// Title 是商品标题。
+	Title string `json:"title"`
+	// Price 是商品价格文本。
+	Price string `json:"price"`
+	// Quantity 是商品库存数量。
+	Quantity int `json:"quantity"`
+	// Images 是商品图片引用列表。
+	Images []string `json:"images"`
+	// Category 是商品发布类目。
+	Category mtop.PublishCategory `json:"category"`
+	// Automation 是发布后自动化配置。
+	Automation publishAutomationConfig `json:"automation"`
+	// Status 是当前明细行状态。
+	Status string `json:"status"`
+	// ItemID 是发布成功后的平台商品标识。
+	ItemID string `json:"item_id"`
+	// ItemURL 是发布成功后的商品地址。
+	ItemURL string `json:"item_url"`
+	// ErrorMessage 是明细行失败原因。
+	ErrorMessage string `json:"error_message"`
+	// FailureKind 是失败类型。
+	FailureKind string `json:"failure_kind"`
+}
+
+// itemPublishBatchResponse 是商品批量任务详情接口的具名响应 DTO。
+type itemPublishBatchResponse struct {
+	// ID 是商品批量任务标识。
+	ID string `json:"id"`
+	// Status 是批量任务状态。
+	Status string `json:"status"`
+	// Filename 是原始上传文件名。
+	Filename string `json:"filename"`
+	// Total 是明细行总数。
+	Total int `json:"total"`
+	// Success 是成功发布的明细行数量，保留旧字段名称。
+	Success int `json:"success"`
+	// Failed 是失败明细行数量。
+	Failed int `json:"failed"`
+	// Pending 是待处理明细行数量。
+	Pending int `json:"pending"`
+	// Running 是正在处理明细行数量。
+	Running int `json:"running"`
+	// Retryable 是可重试明细行数量。
+	Retryable int `json:"retryable"`
+	// Rows 是批量任务逐行结果。
+	Rows []itemPublishBatchRowResponse `json:"rows"`
+	// Location 是批次统一发货地对象。
+	Location any `json:"location"`
+	// CreatedAt 是任务创建时间。
+	CreatedAt string `json:"created_at"`
+	// UpdatedAt 是任务更新时间。
+	UpdatedAt string `json:"updated_at"`
+}
+
+// itemPublishBatchListResponse 是商品批量任务列表接口的具名响应 DTO。
+type itemPublishBatchListResponse struct {
+	// Batches 是当前用户的商品批量任务列表。
+	Batches []itemPublishBatchResponse `json:"batches"`
 }

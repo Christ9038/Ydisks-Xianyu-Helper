@@ -695,3 +695,274 @@ export interface OrderBatchResult {
   /** 允许后端保留尚未结构化的扩展字段。 */
   [key: string]: unknown;
 }
+
+/** 账号 AI 回复设置接口的具名响应。 */
+export interface AIReplySettingsResponse {
+  /** 账号稳定标识；默认配置响应可能省略。 */
+  cookie_id?: string;
+  /** AI 回复是否启用。 */
+  ai_enabled: boolean;
+  /** 最大折扣比例。 */
+  max_discount_percent: number;
+  /** 最大折扣金额。 */
+  max_discount_amount: number;
+  /** 最大砍价轮次。 */
+  max_bargain_rounds: number;
+  /** 自定义提示词。 */
+  custom_prompts: string;
+}
+
+/** AI 模型发现接口的具名响应。 */
+export interface AIModelsResponse {
+  /** 远端可用模型名称。 */
+  models: string[];
+}
+
+/** 单个用户设置查询接口的具名响应。 */
+export interface UserSettingResponse {
+  /** 设置值文本。 */
+  value: string;
+}
+
+/** 卡券批量创建接口的逐行结果。 */
+export interface CardBatchResult {
+  /** 表格中的原始行号。 */
+  row_no: number;
+  /** 当前行是否创建成功。 */
+  success: boolean;
+  /** 新建卡券组主键。 */
+  id?: number;
+  /** 卡券组名称。 */
+  name: string;
+  /** 卡券类型。 */
+  type?: string;
+  /** 当前行失败原因。 */
+  error?: string;
+}
+
+/** 卡券批量创建接口的具名响应。 */
+export interface CardBatchResponse {
+  /** 批量处理流程是否完成。 */
+  success: boolean;
+  /** 解析出的总行数。 */
+  total: number;
+  /** 创建成功行数。 */
+  created: number;
+  /** 创建失败行数。 */
+  failed: number;
+  /** 逐行处理结果。 */
+  rows: CardBatchResult[];
+}
+
+/** 卡券追加数据接口的具名响应。 */
+export interface CardAppendResponse {
+  /** 追加操作是否完成。 */
+  success: boolean;
+  /** 实际追加数量。 */
+  added: number;
+}
+
+/** 通知绑定列表中的单条记录。 */
+export interface NotificationBinding {
+  /** 账号稳定标识，列表归一化后补充。 */
+  cookie_id?: string;
+  /** 绑定记录主键。 */
+  id?: number;
+  /** 通知渠道主键。 */
+  channel_id: number;
+  /** 通知渠道名称。 */
+  channel_name: string;
+  /** 绑定是否启用。 */
+  enabled: boolean;
+}
+
+/** 账号通知渠道绑定查询响应。 */
+export interface AccountBindingsResponse {
+  /** 账号稳定标识。 */
+  cookie_id: string;
+  /** 已绑定通知渠道主键列表。 */
+  channel_ids: number[];
+}
+
+/** 商品类目推荐接口的具名响应。 */
+export interface CategoryRecommendationResponse {
+  /** 类目推荐是否成功。 */
+  success: boolean;
+  /** 推荐商品类目。 */
+  category: {
+    /** 平台类目主键。 */
+    cat_id: string;
+    /** 平台类目名称。 */
+    cat_name: string;
+    /** 频道类目主键。 */
+    channel_cat_id: string;
+    /** 淘宝类目主键。 */
+    tb_cat_id?: string;
+  };
+}
+
+/** 商品批量发布预检逐行结果。 */
+export interface ItemPublishBatchPreviewRow {
+  /** 上传表格行号。 */
+  row_no: number;
+  /** 当前行是否通过预检。 */
+  valid: boolean;
+  /** 当前行校验错误列表。 */
+  errors?: string[];
+  /** 发布目标账号标识。 */
+  cookie_id: string;
+  /** 商品标题。 */
+  title: string;
+  /** 商品价格文本。 */
+  price: string;
+  /** 商品库存数量。 */
+  quantity: number;
+  /** 商品图片引用列表。 */
+  images: string[];
+  /** 商品发布类目。 */
+  category: CategoryRecommendationResponse['category'];
+  /** 发布后自动化配置。 */
+  automation?: Record<string, unknown>;
+}
+
+/** 商品批量发布预检响应。 */
+export interface ItemPublishBatchPreviewResponse {
+  /** 预检流程是否完成。 */
+  success: boolean;
+  /** 后续启动发布使用的预检批次标识。 */
+  preview_id: string;
+  /** 预检总行数。 */
+  total: number;
+  /** 通过预检行数。 */
+  valid: number;
+  /** 未通过预检行数。 */
+  invalid: number;
+  /** 逐行预检结果。 */
+  rows: ItemPublishBatchPreviewRow[];
+}
+
+/** 商品批量发布任务启动或重试响应。 */
+export interface BatchIDResponse {
+  /** 任务操作是否完成。 */
+  success: boolean;
+  /** 商品批量任务标识。 */
+  batch_id: string;
+}
+
+/** 商品批量发布任务取消响应。 */
+export interface BatchCancelResponse {
+  /** 取消请求是否完成。 */
+  success: boolean;
+  /** 取消后的任务状态。 */
+  status: string;
+}
+
+/** 商品批量发布任务逐行详情。 */
+export interface ItemPublishBatchRowResponse {
+  /** 明细行主键。 */
+  id: number;
+  /** 导入表格行号。 */
+  row_no: number;
+  /** 发布目标账号标识。 */
+  cookie_id: string;
+  /** 商品标题。 */
+  title: string;
+  /** 商品价格文本。 */
+  price: string;
+  /** 商品库存数量。 */
+  quantity: number;
+  /** 商品图片引用列表。 */
+  images: string[];
+  /** 商品发布类目。 */
+  category: CategoryRecommendationResponse['category'];
+  /** 发布后自动化配置。 */
+  automation: Record<string, unknown>;
+  /** 明细行状态。 */
+  status: string;
+  /** 发布成功后的平台商品标识。 */
+  item_id: string;
+  /** 发布成功后的商品地址。 */
+  item_url: string;
+  /** 明细行失败原因。 */
+  error_message: string;
+  /** 明细行失败类型。 */
+  failure_kind: string;
+}
+
+/** 商品批量发布任务详情响应。 */
+export interface ItemPublishBatchResponse {
+  /** 批量任务标识。 */
+  id: string;
+  /** 批量任务状态。 */
+  status: string;
+  /** 原始上传文件名。 */
+  filename: string;
+  /** 明细行总数。 */
+  total: number;
+  /** 成功发布数量。 */
+  success: number;
+  /** 失败数量。 */
+  failed: number;
+  /** 待处理数量。 */
+  pending: number;
+  /** 运行中数量。 */
+  running: number;
+  /** 可重试数量。 */
+  retryable: number;
+  /** 明细行结果。 */
+  rows: ItemPublishBatchRowResponse[];
+  /** 批次统一发货地。 */
+  location?: Record<string, unknown>;
+  /** 创建时间。 */
+  created_at: string;
+  /** 更新时间。 */
+  updated_at: string;
+}
+
+/** 商品批量发布任务列表响应。 */
+export interface ItemPublishBatchListResponse {
+  /** 当前用户的批量任务列表。 */
+  batches: ItemPublishBatchResponse[];
+}
+
+/** 简单资源创建接口的数值主键响应。 */
+export interface MutationIDResponse {
+  /** 资源创建是否完成。 */
+  success: boolean;
+  /** 新资源数值主键。 */
+  id: number;
+}
+
+/** 简单变更接口的统一成功响应。 */
+export interface OperationResponse {
+  /** 操作是否完成。 */
+  success: boolean;
+  /** 可选的操作说明。 */
+  message?: string;
+  /** 操作完成后是否需要重新登录。 */
+  requires_relogin?: boolean;
+}
+
+/** 通知渠道接口返回的原始具名 DTO。 */
+export interface NotificationChannelResponse {
+  /** 通知渠道主键。 */
+  id: number;
+  /** 通知渠道名称。 */
+  name: string;
+  /** 通知渠道类型。 */
+  type: string;
+  /** 通知渠道配置 JSON。 */
+  config: string;
+  /** 订阅事件类型 JSON 或兼容文本。 */
+  event_types?: string;
+  /** 通知渠道是否启用。 */
+  enabled: boolean;
+  /** 所属用户主键。 */
+  user_id?: number;
+}
+
+/** 卡券列表接口的兼容包装响应。 */
+export interface CardListResponse {
+  /** 当前用户卡券列表。 */
+  cards: Card[];
+}

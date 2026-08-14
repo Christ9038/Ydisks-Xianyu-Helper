@@ -30,7 +30,7 @@ func (s *Server) listCards(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, cards)
+	writeJSON(w, http.StatusOK, newCardResponses(cards))
 }
 
 func (s *Server) getCard(w http.ResponseWriter, r *http.Request) {
@@ -43,7 +43,7 @@ func (s *Server) getCard(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, cf)
+	writeJSON(w, http.StatusOK, newCardResponse(*cf))
 }
 
 func (s *Server) createCard(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +63,7 @@ func (s *Server) createCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "创建失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "id": id})
+	writeJSON(w, http.StatusOK, mutationIDResponse{Success: true, ID: id})
 }
 
 func (s *Server) updateCard(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +91,7 @@ func (s *Server) updateCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +107,7 @@ func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
 func decodeCard(r *http.Request) (*db.CardFull, error) {
