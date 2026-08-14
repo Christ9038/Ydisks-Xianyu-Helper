@@ -4681,51 +4681,9 @@
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 100,
-    "kind": "variable",
-    "name": "[batchPhase, setBatchPhase]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 1001,
+    "line": 1003,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 1008,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 101,
-    "kind": "variable",
-    "name": "[batchFile, setBatchFile]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 102,
-    "kind": "variable",
-    "name": "[batchImagesZip, setBatchImagesZip]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 1026,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 1027,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 103,
-    "kind": "variable",
-    "name": "[batchCategoryKeyword, setBatchCategoryKeyword]"
   },
   {
     "file": "components/ItemList.tsx",
@@ -4735,27 +4693,9 @@
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 104,
-    "kind": "variable",
-    "name": "[batchCategoryLoading, setBatchCategoryLoading]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 105,
-    "kind": "variable",
-    "name": "[locationLoading, setLocationLoading]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 1057,
+    "line": 1058,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 106,
-    "kind": "variable",
-    "name": "[publishLocations, setPublishLocations]"
   },
   {
     "file": "components/ItemList.tsx",
@@ -4765,157 +4705,49 @@
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 107,
-    "kind": "variable",
-    "name": "[publishLocation, setPublishLocation]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 1073,
+    "line": 114,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 1074,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 108,
-    "kind": "variable",
-    "name": "[batchLocations, setBatchLocations]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 1087,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 109,
-    "kind": "variable",
-    "name": "[batchLocation, setBatchLocation]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 1098,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 110,
-    "kind": "variable",
-    "name": "[batchFallbackCategory, setBatchFallbackCategory]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 116,
-    "kind": "variable",
-    "name": "[batchPreview, setBatchPreview]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 1161,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 117,
-    "kind": "member",
-    "name": "preview_id"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 118,
-    "kind": "member",
-    "name": "total"
   },
   {
     "file": "components/ItemList.tsx",
     "line": 119,
-    "kind": "member",
-    "name": "valid"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 120,
-    "kind": "member",
-    "name": "invalid"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 1206,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 121,
-    "kind": "member",
-    "name": "rows"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 123,
+    "line": 119,
     "kind": "variable",
-    "name": "[batchDetail, setBatchDetail]"
+    "name": "previews"
   },
   {
     "file": "components/ItemList.tsx",
     "line": 124,
-    "kind": "variable",
-    "name": "[recentBatch, setRecentBatch]"
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
     "line": 125,
-    "kind": "variable",
-    "name": "batchPollInFlight"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 126,
-    "kind": "variable",
-    "name": "[selectedItem, setSelectedItem]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 1268,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 127,
-    "kind": "variable",
-    "name": "[editForm, setEditForm]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 128,
-    "kind": "variable",
-    "name": "[addForm, setAddForm]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 1303,
+    "line": 129,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 1323,
+    "line": 131,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 1334,
+    "line": 135,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -4923,571 +4755,529 @@
     "file": "components/ItemList.tsx",
     "line": 135,
     "kind": "variable",
-    "name": "[publishForm, setPublishForm]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 146,
-    "kind": "member",
-    "name": "key"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 146,
-    "kind": "member",
-    "name": "url"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 146,
-    "kind": "variable",
-    "name": "[publishImagePreviews, setPublishImagePreviews]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 148,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 153,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 153,
-    "kind": "variable",
-    "name": "previews"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 158,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 159,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 163,
-    "kind": "variable",
-    "name": "loadItems"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 164,
-    "kind": "variable",
-    "name": "itemsList"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 168,
-    "kind": "variable",
-    "name": "loadShippingRules"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 172,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 174,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 178,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 178,
-    "kind": "variable",
     "name": "recoverable"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 179,
+    "line": 136,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 182,
+    "line": 139,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 185,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 187,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 187,
-    "kind": "variable",
-    "name": "timer"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 191,
-    "kind": "variable",
-    "name": "detail"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 199,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 205,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 210,
+    "line": 142,
     "kind": "variable",
     "name": "handleSync"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 214,
+    "line": 146,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 217,
+    "line": 149,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 225,
+    "line": 157,
     "kind": "variable",
     "name": "handleEdit"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 231,
+    "line": 163,
     "kind": "variable",
     "name": "handleSaveEdit"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 245,
+    "line": 177,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 251,
+    "line": 183,
     "kind": "variable",
     "name": "handleDelete"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 255,
+    "line": 187,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 255,
+    "line": 187,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 256,
+    "line": 188,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 263,
+    "line": 195,
     "kind": "variable",
     "name": "handleAddItem"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 28,
-    "kind": "member",
-    "name": "onConfigureDelivery"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 284,
+    "line": 216,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 290,
+    "line": 222,
     "kind": "variable",
     "name": "handlePublishItem"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 300,
+    "line": 232,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 317,
+    "line": 249,
     "kind": "variable",
     "name": "publishedItem"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 330,
+    "line": 26,
+    "kind": "variable",
+    "name": "formatItemPrice"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 262,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 332,
+    "line": 264,
     "kind": "variable",
     "name": "payload"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 34,
-    "kind": "member",
-    "name": "cat_id"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 343,
+    "line": 27,
     "kind": "variable",
-    "name": "openBatchModal"
+    "name": "value"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 35,
-    "kind": "member",
-    "name": "cat_name"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 356,
-    "kind": "variable",
-    "name": "batches"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 357,
-    "kind": "variable",
-    "name": "recoverable"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 359,
-    "kind": "variable",
-    "name": "detail"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 36,
-    "kind": "member",
-    "name": "channel_cat_id"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 364,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 37,
-    "kind": "member",
-    "name": "tb_cat_id"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 371,
-    "kind": "variable",
-    "name": "handleRecommendBatchCategory"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 372,
-    "kind": "variable",
-    "name": "keyword"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 377,
-    "kind": "variable",
-    "name": "result"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 378,
-    "kind": "variable",
-    "name": "category"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 385,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 393,
-    "kind": "variable",
-    "name": "openRecentBatchResult"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 398,
-    "kind": "variable",
-    "name": "detail"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 401,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 408,
-    "kind": "variable",
-    "name": "handlePreviewBatch"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 41,
-    "kind": "member",
-    "name": "row_no"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 413,
-    "kind": "variable",
-    "name": "result"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 42,
-    "kind": "member",
-    "name": "valid"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 423,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 43,
-    "kind": "member",
-    "name": "errors"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 431,
-    "kind": "variable",
-    "name": "handleStartBatch"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 436,
-    "kind": "variable",
-    "name": "started"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 437,
-    "kind": "variable",
-    "name": "detail"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 44,
-    "kind": "member",
-    "name": "cookie_id"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 441,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 449,
-    "kind": "variable",
-    "name": "handleCancelBatch"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 45,
-    "kind": "member",
-    "name": "title"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 454,
-    "kind": "variable",
-    "name": "result"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 455,
-    "kind": "variable",
-    "name": "detail"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 458,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 46,
-    "kind": "member",
-    "name": "price"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 465,
-    "kind": "variable",
-    "name": "abandonBatchPreview"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 466,
-    "kind": "variable",
-    "name": "previewId"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 47,
-    "kind": "member",
-    "name": "quantity"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 470,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 478,
-    "kind": "variable",
-    "name": "closeBatchModal"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 48,
-    "kind": "member",
-    "name": "images"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 483,
-    "kind": "variable",
-    "name": "handleRetryBatchFailed"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 49,
-    "kind": "member",
-    "name": "category"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 490,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 497,
+    "line": 275,
     "kind": "variable",
     "name": "downloadPublishTemplate"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 498,
+    "line": 276,
     "kind": "variable",
     "name": "headers"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 504,
+    "line": 282,
     "kind": "variable",
     "name": "rows"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 508,
+    "line": 286,
     "kind": "variable",
     "name": "csv"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 509,
+    "line": 287,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 509,
+    "line": 287,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 511,
+    "line": 289,
     "kind": "variable",
     "name": "blob"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 512,
+    "line": 290,
     "kind": "variable",
     "name": "url"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 513,
+    "line": 291,
     "kind": "variable",
     "name": "link"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 522,
+    "line": 300,
     "kind": "variable",
     "name": "openAddModal"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 301,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 305,
+    "kind": "variable",
+    "name": "openPublishModal"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 306,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 310,
+    "kind": "variable",
+    "name": "locateForPublish"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 311,
+    "kind": "variable",
+    "name": "cookieId"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 315,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 317,
+    "kind": "variable",
+    "name": "locations"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 32,
+    "kind": "variable",
+    "name": "ItemList"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 321,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 324,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 33,
+    "kind": "variable",
+    "name": "[items, setItems]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 330,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 330,
+    "kind": "variable",
+    "name": "rulesForItem"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 333,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 334,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 336,
+    "kind": "variable",
+    "name": "accountMap"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 337,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 337,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 34,
+    "kind": "variable",
+    "name": "[shippingRules, setShippingRules]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 340,
+    "kind": "variable",
+    "name": "visibleItems"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 341,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 341,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 344,
+    "kind": "variable",
+    "name": "accountName"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 345,
+    "kind": "variable",
+    "name": "account"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 346,
+    "kind": "variable",
+    "name": "name"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 349,
+    "kind": "variable",
+    "name": "accountNickname"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 35,
+    "kind": "variable",
+    "name": "[accounts, setAccounts]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 350,
+    "kind": "variable",
+    "name": "account"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 36,
+    "kind": "variable",
+    "name": "[selectedAccount, setSelectedAccount]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 37,
+    "kind": "variable",
+    "name": "[accountFilter, setAccountFilter]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 373,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 376,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 38,
+    "kind": "variable",
+    "name": "[loading, setLoading]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 39,
+    "kind": "variable",
+    "name": "[publishing, setPublishing]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 393,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 396,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 40,
+    "kind": "variable",
+    "name": "[showEditModal, setShowEditModal]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 41,
+    "kind": "variable",
+    "name": "[showAddModal, setShowAddModal]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 42,
+    "kind": "variable",
+    "name": "[showPublishModal, setShowPublishModal]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 425,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 43,
+    "kind": "variable",
+    "name": "[locationLoading, setLocationLoading]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 433,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 44,
+    "kind": "variable",
+    "name": "[publishLocations, setPublishLocations]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 443,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 444,
+    "kind": "variable",
+    "name": "linkedRules"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 445,
+    "kind": "variable",
+    "name": "hasRule"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 45,
+    "kind": "variable",
+    "name": "[publishLocation, setPublishLocation]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 450,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 457,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 46,
+    "kind": "variable",
+    "name": "[selectedItem, setSelectedItem]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 47,
+    "kind": "variable",
+    "name": "[editForm, setEditForm]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 48,
+    "kind": "variable",
+    "name": "[addForm, setAddForm]"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 490,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 516,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 521,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 522,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
@@ -5497,409 +5287,241 @@
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 527,
-    "kind": "variable",
-    "name": "openPublishModal"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 528,
+    "line": 524,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 53,
-    "kind": "member",
-    "name": "id"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 532,
-    "kind": "variable",
-    "name": "locateForPublish"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 533,
-    "kind": "variable",
-    "name": "cookieId"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 537,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 539,
-    "kind": "variable",
-    "name": "locations"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 54,
-    "kind": "member",
-    "name": "row_no"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 543,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 546,
+    "line": 544,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
     "line": 55,
-    "kind": "member",
-    "name": "cookie_id"
+    "kind": "variable",
+    "name": "[publishForm, setPublishForm]"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 552,
+    "line": 551,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 552,
-    "kind": "variable",
-    "name": "rulesForItem"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 555,
+    "line": 553,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 556,
+    "line": 559,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 558,
-    "kind": "variable",
-    "name": "batchStatusText"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 56,
-    "kind": "member",
-    "name": "title"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 57,
-    "kind": "member",
-    "name": "price"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 573,
-    "kind": "variable",
-    "name": "batchStatusClass"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 58,
-    "kind": "member",
-    "name": "quantity"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 59,
-    "kind": "member",
-    "name": "status"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 590,
-    "kind": "variable",
-    "name": "accountMap"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 591,
+    "line": 563,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 591,
+    "line": 568,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 594,
-    "kind": "variable",
-    "name": "visibleItems"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 595,
+    "line": 572,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 595,
+    "line": 593,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 598,
-    "kind": "variable",
-    "name": "accountName"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 599,
-    "kind": "variable",
-    "name": "account"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 60,
-    "kind": "member",
-    "name": "item_id"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 600,
-    "kind": "variable",
-    "name": "name"
   },
   {
     "file": "components/ItemList.tsx",
     "line": 603,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 609,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 615,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 619,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 624,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 629,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 633,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 637,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 648,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 654,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 658,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 659,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 66,
+    "kind": "member",
+    "name": "key"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 66,
+    "kind": "member",
+    "name": "url"
+  },
+  {
+    "file": "components/ItemList.tsx",
+    "line": 66,
     "kind": "variable",
-    "name": "accountNickname"
+    "name": "[publishImagePreviews, setPublishImagePreviews]"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 604,
-    "kind": "variable",
-    "name": "account"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 61,
-    "kind": "member",
-    "name": "item_url"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 62,
-    "kind": "member",
-    "name": "error_message"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 627,
+    "line": 673,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 63,
-    "kind": "member",
-    "name": "failure_kind"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 630,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 64,
-    "kind": "member",
-    "name": "images"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 647,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 65,
-    "kind": "member",
-    "name": "category"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 650,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 679,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 687,
+    "line": 678,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
     "line": 69,
-    "kind": "member",
-    "name": "id"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 697,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 698,
-    "kind": "variable",
-    "name": "linkedRules"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 699,
-    "kind": "variable",
-    "name": "hasRule"
   },
   {
     "file": "components/ItemList.tsx",
     "line": 70,
-    "kind": "member",
-    "name": "status"
+    "kind": "variable",
+    "name": "itemsList"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 704,
+    "line": 705,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 71,
-    "kind": "member",
-    "name": "filename"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 711,
+    "line": 736,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 72,
-    "kind": "member",
-    "name": "total"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 73,
-    "kind": "member",
-    "name": "success"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 74,
-    "kind": "member",
-    "name": "failed"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 744,
+    "line": 743,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
     "line": 75,
-    "kind": "member",
-    "name": "pending"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 76,
-    "kind": "member",
-    "name": "running"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 77,
-    "kind": "member",
-    "name": "retryable"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 770,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 775,
+    "line": 761,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 776,
+    "line": 762,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 777,
+    "line": 773,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 778,
+    "line": 792,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 78,
-    "kind": "member",
-    "name": "rows"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 798,
+    "line": 804,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 805,
+    "line": 808,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 807,
+    "line": 809,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -5907,25 +5529,7 @@
     "file": "components/ItemList.tsx",
     "line": 81,
     "kind": "variable",
-    "name": "formatItemPrice"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 813,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 817,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 82,
-    "kind": "variable",
-    "name": "value"
+    "name": "{\n    showBatchModal,\n    setShowBatchModal,\n    batchLoading,\n    batchPhase,\n    batchFile,\n    setBatchFile,\n    batchImagesZip,\n    setBatchImagesZip,\n    batchCategoryKeyword,\n    setBatchCategoryKeyword,\n    batchCategoryLoading,\n    batchFallbackCategory,\n    setBatchFallbackCategory,\n    batchPreview,\n    batchDetail,\n    recentBatch,\n    setRecentBatch,\n    batchLocations,\n    batchLocation,\n    setBatchLocations,\n    setBatchLocation,\n    openBatchModal,\n    handleRecommendBatchCategory,\n    openRecentBatchResult,\n    handlePreviewBatch,\n    handleStartBatch,\n    handleCancelBatch,\n    abandonBatchPreview,\n    closeBatchModal,\n    handleRetryBatchFailed,\n  }"
   },
   {
     "file": "components/ItemList.tsx",
@@ -5935,217 +5539,25 @@
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 826,
+    "line": 833,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 847,
+    "line": 896,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/ItemList.tsx",
-    "line": 857,
+    "line": 941,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 863,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 869,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 87,
-    "kind": "variable",
-    "name": "ItemList"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 873,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 878,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 88,
-    "kind": "variable",
-    "name": "[items, setItems]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 883,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 887,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 89,
-    "kind": "variable",
-    "name": "[shippingRules, setShippingRules]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 891,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 90,
-    "kind": "variable",
-    "name": "[accounts, setAccounts]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 902,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 908,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 91,
-    "kind": "variable",
-    "name": "[selectedAccount, setSelectedAccount]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 912,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 913,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 92,
-    "kind": "variable",
-    "name": "[accountFilter, setAccountFilter]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 927,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 93,
-    "kind": "variable",
-    "name": "[loading, setLoading]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 932,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 94,
-    "kind": "variable",
-    "name": "[publishing, setPublishing]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 95,
-    "kind": "variable",
-    "name": "[batchLoading, setBatchLoading]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 959,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 96,
-    "kind": "variable",
-    "name": "[showEditModal, setShowEditModal]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 97,
-    "kind": "variable",
-    "name": "[showAddModal, setShowAddModal]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 971,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 98,
-    "kind": "variable",
-    "name": "[showPublishModal, setShowPublishModal]"
-  },
-  {
-    "file": "components/ItemList.tsx",
-    "line": 99,
-    "kind": "variable",
-    "name": "[showBatchModal, setShowBatchModal]"
   },
   {
     "file": "components/itemPublishBatchState.test.ts",
     "line": 4,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/itemPublishBatchState.ts",
-    "line": 2,
-    "kind": "member",
-    "name": "id"
-  },
-  {
-    "file": "components/itemPublishBatchState.ts",
-    "line": 3,
-    "kind": "member",
-    "name": "status"
-  },
-  {
-    "file": "components/itemPublishBatchState.ts",
-    "line": 6,
-    "kind": "variable",
-    "name": "selectActivePublishBatch"
-  },
-  {
-    "file": "components/itemPublishBatchState.ts",
-    "line": 7,
     "kind": "function-expression",
     "name": "anonymous"
   },

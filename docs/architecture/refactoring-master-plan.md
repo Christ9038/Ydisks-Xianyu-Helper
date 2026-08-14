@@ -170,7 +170,8 @@ app shell / routes
 - 已完成阶段 6 第七个 PR 切片“Automation 发货、卡密与通知动作边界”：新增 `automationActionExecutor` 与 `deliveryNotifier`，统一确认发货、Cookie/Jar 合并、卡券锁与库存消费、消息错误三态分类和结果通知；`Center` 保留兼容入口，凭证锁、卡券库存、恢复唤醒和通知文案语义保持不变；新增动作执行器回归测试，Automation 测试、注释和 diff 门禁通过，整批修改合并为一个可回滚提交；
 - 已完成阶段 6 第八个 PR 切片“Automation 账号任务与凭证门禁边界”：新增 `accountTaskCoordinator`，统一账号状态门禁、自动评价/商品擦亮调度、任务租约、Session 指纹阻断、凭证恢复和 Cookie 同步；`Center` 保留公开任务入口，Session 失效恢复、任务幂等、失败重试和账号暂停语义保持不变；Automation 测试、注释和 diff 门禁通过，整批修改合并为一个可回滚提交；阶段 6 完成；
 - 已完成阶段 7 第一个 PR 切片“React Rules feature 化与 API/行为测试边界”：按 `app/features/rules` 提取 Rules API 适配层、领域类型、数据 Hook、异常面板和交互状态模型；规则页通过 Hook 管理服务端数据与请求代次，保留旧组件入口和现有 API 路径；行为测试覆盖成功、失败、重复提交、过期响应和页签切换；前端类型检查、全量测试、注释检查和构建门禁通过，合并为一个可回滚提交；
-- 阶段 7 下一 PR 切片为“React ItemList feature 化与批量发布行为边界”：按同一 feature 结构提取商品 API、批量发布 Hook 和页面组件，补充批量预检、取消、失败重试与过期任务行为测试；
+- 已完成阶段 7 第二个 PR 切片“React ItemList feature 化与批量发布行为边界”：按 `app/features/items` 提取商品/批量 API 适配层、批量任务类型、批量 Hook 和阶段指示器组件；批量预检、任务恢复、轮询取消、失败重试和过期响应均由 feature 状态边界负责；行为测试覆盖预检门禁、取消状态、失败重试、历史任务筛选和过期轮询响应；前端类型检查、全量测试、注释检查和构建门禁通过，合并为一个可回滚提交；
+- 阶段 7 下一 PR 切片为“React AccountList feature 化与账号运行状态行为边界”：提取账号 API、运行状态 Hook 和账号编辑组件，补充账号切换、暂停/恢复、凭证失败和过期状态响应测试；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -590,3 +591,4 @@ npm --prefix frontend run build
 | 2026-08-14 | 完成阶段 6 第七个 PR 切片“Automation 发货、卡密与通知动作边界” | 新增 `automationActionExecutor` 与 `deliveryNotifier`，统一确认发货、Cookie/Jar 合并、卡券锁与库存消费、消息错误三态分类和结果通知；`Center` 保留兼容入口，凭证锁、卡券库存、恢复唤醒和通知文案语义保持不变；新增动作执行器回归测试；Automation 测试、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Automation 账号任务与凭证门禁边界 |
 | 2026-08-14 | 完成阶段 6 第八个 PR 切片“Automation 账号任务与凭证门禁边界” | 新增 `accountTaskCoordinator`，统一账号状态门禁、自动评价/商品擦亮调度、任务租约、Session 指纹阻断、凭证恢复和 Cookie 同步；`Center` 保留公开任务入口，Session 失效恢复、任务幂等、失败重试和账号暂停语义保持不变；Automation 测试、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 7：React Rules feature 化与 API/行为测试边界 |
 | 2026-08-14 | 完成阶段 7 第一个 PR 切片“React Rules feature 化与 API/行为测试边界” | 新增 `app/features/rules` 的 API 适配层、领域类型、数据 Hook、异常面板和交互状态模型；规则请求支持并行加载与请求代次门禁，保存动作阻断重复提交；行为测试覆盖成功、失败、重复提交、过期响应和页签切换；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交 | 阶段 7：React ItemList feature 化与批量发布行为边界 |
+| 2026-08-14 | 完成阶段 7 第二个 PR 切片“React ItemList feature 化与批量发布行为边界” | 新增 `app/features/items` 的 API 适配层、批量任务类型、批量 Hook、批量状态模型和阶段指示器组件；批量预检、任务恢复、轮询过期响应、安全取消和失败重试均有独立状态边界；行为测试覆盖预检门禁、取消状态、失败重试、历史任务筛选和过期轮询响应；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交 | 阶段 7：React AccountList feature 化与账号运行状态行为边界 |

@@ -1,82 +1,27 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { selectActivePublishBatch } from './itemPublishBatchState';
-import { Item, AccountDetail, ShippingRule } from '../types';
+import type { Item } from '../types';
 import {
-  getItems,
-  getAccountDetails,
   syncItemsFromAccount,
   createItem,
   publishItem,
-  recommendPublishCategory,
-  previewItemPublishBatch,
-  startItemPublishBatch,
-  getItemPublishBatch,
-  getItemPublishBatches,
-  deleteItemPublishBatch,
-  cancelItemPublishBatch,
-  retryFailedItemPublishBatch,
   updateItem,
   deleteItem,
-  getShippingRules
-} from '../services/api';
-import type { PublishLocation } from '../services/api';
-import { getPublishLocations } from '../services/amapLocation';
+} from '../app/features/items/api';
+import type { PublishLocation } from '../app/features/items/api';
+import {
+  getItems,
+  getAccountDetails,
+  getShippingRules,
+  getItemPublishBatches,
+  getPublishLocations,
+} from '../app/features/items/api';
+import type { AccountDetail, ShippingRule } from '../types';
+import type { ItemListProps } from '../app/features/items/types';
+import { useItemPublishBatch } from '../app/features/items/hooks';
+import { batchStatusClass, batchStatusText } from '../app/features/items/batchState';
+import { BatchPhaseIndicator } from '../app/features/items/components/BatchPhaseIndicator';
 import { ArrowRight, Box, CheckCircle2, CircleDashed, Edit, Filter, Link2, LocateFixed, PackagePlus, Plus, RefreshCw, Save, Search, ShoppingBag, Trash2, UploadCloud, User, X } from 'lucide-react';
-
-interface ItemListProps {
-  onConfigureDelivery: (item: Item) => void;
-}
-
-type BatchPhase = 'upload' | 'preview' | 'running' | 'done';
-
-interface PublishCategory {
-  cat_id: string;
-  cat_name: string;
-  channel_cat_id?: string;
-  tb_cat_id?: string;
-}
-
-interface PublishBatchPreviewRow {
-  row_no: number;
-  valid: boolean;
-  errors?: string[];
-  cookie_id: string;
-  title: string;
-  price: string;
-  quantity: number;
-  images: string[];
-  category: PublishCategory;
-}
-
-interface PublishBatchDetailRow {
-  id: number;
-  row_no: number;
-  cookie_id: string;
-  title: string;
-  price: string;
-  quantity: number;
-  status: string;
-  item_id: string;
-  item_url: string;
-  error_message: string;
-  failure_kind: string;
-  images?: string[];
-  category: PublishCategory;
-}
-
-interface PublishBatchDetail {
-  id: string;
-  status: string;
-  filename: string;
-  total: number;
-  success: number;
-  failed: number;
-  pending: number;
-  running: number;
-  retryable: number;
-  rows: PublishBatchDetailRow[];
-}
 
 const formatItemPrice = (price?: string) => {
   const value = String(price || '').trim();
@@ -92,37 +37,12 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   const [accountFilter, setAccountFilter] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [batchLoading, setBatchLoading] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
-  const [showBatchModal, setShowBatchModal] = useState(false);
-  const [batchPhase, setBatchPhase] = useState<BatchPhase>('upload');
-  const [batchFile, setBatchFile] = useState<File | null>(null);
-  const [batchImagesZip, setBatchImagesZip] = useState<File | null>(null);
-  const [batchCategoryKeyword, setBatchCategoryKeyword] = useState('');
-  const [batchCategoryLoading, setBatchCategoryLoading] = useState(false);
 	const [locationLoading, setLocationLoading] = useState(false);
 	const [publishLocations, setPublishLocations] = useState<PublishLocation[]>([]);
 	const [publishLocation, setPublishLocation] = useState<PublishLocation | null>(null);
-	const [batchLocations, setBatchLocations] = useState<PublishLocation[]>([]);
-	const [batchLocation, setBatchLocation] = useState<PublishLocation | null>(null);
-  const [batchFallbackCategory, setBatchFallbackCategory] = useState({
-    catId: '',
-    catName: '',
-    channelCatId: '',
-    tbCatId: '',
-  });
-  const [batchPreview, setBatchPreview] = useState<{
-    preview_id: string;
-    total: number;
-    valid: number;
-    invalid: number;
-    rows: PublishBatchPreviewRow[];
-  } | null>(null);
-  const [batchDetail, setBatchDetail] = useState<PublishBatchDetail | null>(null);
-  const [recentBatch, setRecentBatch] = useState<PublishBatchDetail | null>(null);
-  const batchPollInFlight = useRef(false);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [editForm, setEditForm] = useState<Partial<Item>>({});
   const [addForm, setAddForm] = useState({
@@ -145,6 +65,52 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   });
   const [publishImagePreviews, setPublishImagePreviews] = useState<{ key: string; url: string }[]>([]);
 
+  // loadItems 刷新商品列表，供普通操作和批量任务完成后复用。
+  const loadItems = useCallback(async () => {
+    const itemsList = await getItems();
+    setItems(itemsList);
+  }, []);
+
+  // loadShippingRules 刷新商品关联的自动化规则。
+  const loadShippingRules = useCallback(async () => {
+    setShippingRules(await getShippingRules());
+  }, []);
+
+  // batchState 是 ItemList feature 提供的批量铺货状态和动作边界。
+  const batchState = useItemPublishBatch({ selectedAccount, loadItems, loadShippingRules });
+  const {
+    showBatchModal,
+    setShowBatchModal,
+    batchLoading,
+    batchPhase,
+    batchFile,
+    setBatchFile,
+    batchImagesZip,
+    setBatchImagesZip,
+    batchCategoryKeyword,
+    setBatchCategoryKeyword,
+    batchCategoryLoading,
+    batchFallbackCategory,
+    setBatchFallbackCategory,
+    batchPreview,
+    batchDetail,
+    recentBatch,
+    setRecentBatch,
+    batchLocations,
+    batchLocation,
+    setBatchLocations,
+    setBatchLocation,
+    openBatchModal,
+    handleRecommendBatchCategory,
+    openRecentBatchResult,
+    handlePreviewBatch,
+    handleStartBatch,
+    handleCancelBatch,
+    abandonBatchPreview,
+    closeBatchModal,
+    handleRetryBatchFailed,
+  } = batchState;
+
   useEffect(() => {
     if (!showPublishModal || publishForm.images.length === 0) {
       setPublishImagePreviews([]);
@@ -160,15 +126,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     };
   }, [showPublishModal, publishForm.images]);
 
-  const loadItems = async () => {
-    const itemsList = await getItems();
-    setItems(itemsList);
-  };
-
-  const loadShippingRules = async () => {
-    setShippingRules(await getShippingRules());
-  };
-
   useEffect(() => {
     Promise.all([getAccountDetails(), getItems(), getShippingRules(), getItemPublishBatches(20)])
       .then(([accountList, itemList, ruleList, batches]) => {
@@ -181,31 +138,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
       })
       .catch((e) => console.error('加载商品配置失败:', e));
   }, []);
-
-  useEffect(() => {
-    if (!showBatchModal || !batchDetail?.id || !['running', 'canceling'].includes(batchDetail.status)) return;
-    const timer = window.setInterval(async () => {
-      if (batchPollInFlight.current) return;
-      batchPollInFlight.current = true;
-      try {
-        const detail = await getItemPublishBatch(batchDetail.id);
-        setBatchDetail(detail);
-        setRecentBatch(detail);
-        if (!['running', 'canceling'].includes(detail.status)) {
-          setBatchPhase('done');
-          await loadItems();
-          await loadShippingRules();
-        }
-      } catch (error) {
-        console.error('刷新批量铺货进度失败:', error);
-      } finally {
-        batchPollInFlight.current = false;
-      }
-    }, 3000);
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [showBatchModal, batchDetail?.id, batchDetail?.status]);
 
   const handleSync = async () => {
       if (!selectedAccount) return alert('请先选择账号');
@@ -340,160 +272,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     }
   };
 
-  const openBatchModal = async () => {
-    setBatchPhase('upload');
-    setBatchPreview(null);
-    setBatchDetail(null);
-    setBatchFile(null);
-    setBatchImagesZip(null);
-    setBatchCategoryKeyword('');
-    setBatchFallbackCategory({ catId: '', catName: '', channelCatId: '', tbCatId: '' });
-	setBatchLocations([]);
-	setBatchLocation(null);
-    setShowBatchModal(true);
-    setBatchLoading(true);
-    try {
-      const batches = await getItemPublishBatches(20);
-      const recoverable = selectActivePublishBatch(batches);
-      if (recoverable?.id) {
-        const detail = await getItemPublishBatch(recoverable.id);
-        setRecentBatch(detail);
-        setBatchDetail(detail);
-        setBatchPhase(['running', 'canceling'].includes(detail.status) ? 'running' : 'done');
-      }
-    } catch (error) {
-      console.error('恢复最近批量铺货任务失败:', error);
-    } finally {
-      setBatchLoading(false);
-    }
-  };
-
-  const handleRecommendBatchCategory = async () => {
-    const keyword = batchCategoryKeyword.trim();
-    if (!selectedAccount) return alert('请先选择默认发布账号');
-    if (!keyword) return alert('请输入类目关键词');
-    setBatchCategoryLoading(true);
-    try {
-      const result = await recommendPublishCategory(selectedAccount, keyword);
-      const category = result.category;
-      setBatchFallbackCategory({
-        catId: category.cat_id,
-        catName: category.cat_name,
-        channelCatId: category.channel_cat_id,
-        tbCatId: category.tb_cat_id || '',
-      });
-    } catch (error: any) {
-      console.error('获取推荐类目失败:', error);
-      alert(error?.message || '没有匹配到类目，请换一个更具体的关键词');
-    } finally {
-      setBatchCategoryLoading(false);
-    }
-  };
-
-  const openRecentBatchResult = async () => {
-    if (!recentBatch?.id) return;
-    setBatchLoading(true);
-    setShowBatchModal(true);
-    try {
-      const detail = await getItemPublishBatch(recentBatch.id);
-      setBatchDetail(detail);
-      setBatchPhase(['running', 'canceling'].includes(detail.status) ? 'running' : 'done');
-    } catch (error) {
-      console.error('加载最近批量铺货结果失败:', error);
-    } finally {
-      setBatchLoading(false);
-    }
-  };
-
-  const handlePreviewBatch = async () => {
-    if (!batchFile) return alert('请先上传商品表格');
-    if (!selectedAccount) return alert('请先选择默认发布账号');
-    setBatchLoading(true);
-    try {
-      const result = await previewItemPublishBatch({
-        file: batchFile,
-        imagesZip: batchImagesZip,
-        defaultCookieId: selectedAccount,
-        fallbackCategory: batchFallbackCategory,
-		location: batchLocation || undefined,
-      });
-      setBatchPreview(result);
-      setBatchDetail(null);
-      setBatchPhase('preview');
-    } catch (error: any) {
-      console.error('批量铺货预检失败:', error);
-      alert(error?.message || '预检失败，请检查表格和图片 zip');
-    } finally {
-      setBatchLoading(false);
-    }
-  };
-
-  const handleStartBatch = async () => {
-    if (!batchPreview?.preview_id) return;
-    if (batchPreview.valid <= 0) return alert('没有可发布的商品行');
-    setBatchLoading(true);
-    try {
-      const started = await startItemPublishBatch(batchPreview.preview_id);
-      const detail = await getItemPublishBatch(started.batch_id || batchPreview.preview_id);
-      setBatchDetail(detail);
-      setRecentBatch(detail);
-      setBatchPhase(detail.status === 'running' ? 'running' : 'done');
-    } catch (error: any) {
-      console.error('启动批量铺货失败:', error);
-      alert(error?.message || '启动发布任务失败');
-    } finally {
-      setBatchLoading(false);
-    }
-  };
-
-  const handleCancelBatch = async () => {
-    if (!batchDetail?.id) return;
-    if (!confirm('确认取消当前批量铺货任务吗？正在发布的单个商品可能会继续完成。')) return;
-    setBatchLoading(true);
-    try {
-      const result = await cancelItemPublishBatch(batchDetail.id);
-      const detail = await getItemPublishBatch(batchDetail.id);
-      setBatchDetail(detail);
-      setBatchPhase(result?.status === 'canceling' || detail.status === 'canceling' ? 'running' : 'done');
-    } catch (error: any) {
-      alert(error?.message || '取消失败');
-    } finally {
-      setBatchLoading(false);
-    }
-  };
-
-  const abandonBatchPreview = async () => {
-    const previewId = batchPreview?.preview_id;
-    if (previewId && batchPhase === 'preview') {
-      try {
-        await deleteItemPublishBatch(previewId);
-      } catch (error) {
-        console.error('清理批量铺货预检失败:', error);
-      }
-    }
-    setBatchPreview(null);
-    setBatchPhase('upload');
-  };
-
-  const closeBatchModal = async () => {
-    await abandonBatchPreview();
-    setShowBatchModal(false);
-  };
-
-  const handleRetryBatchFailed = async () => {
-    if (!batchDetail?.id) return;
-    setBatchLoading(true);
-    try {
-      await retryFailedItemPublishBatch(batchDetail.id);
-      setBatchDetail(await getItemPublishBatch(batchDetail.id));
-      setBatchPhase('running');
-    } catch (error: any) {
-      alert(error?.message || '重试失败');
-    } finally {
-      setBatchLoading(false);
-    }
-  };
-
   const downloadPublishTemplate = () => {
     const headers = [
       '账号ID', '标题', '描述', '价格', '原价', '库存', '邮费模式', '邮费', '图片',
@@ -554,38 +332,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   ).length > 0
     ? shippingRules.filter(rule => rule.cookie_id === item.cookie_id && rule.item_id === item.item_id)
     : shippingRules.filter(rule => rule.cookie_id === item.cookie_id && !rule.item_id);
-
-  const batchStatusText = (status?: string) => {
-    switch (status) {
-      case 'preview': return '待确认';
-      case 'pending': return '等待中';
-      case 'running': return '发布中';
-      case 'canceling': return '正在安全取消';
-      case 'success': return '成功';
-      case 'failed': return '失败';
-      case 'completed': return '已完成';
-      case 'partially_failed': return '部分失败';
-      case 'canceled': return '已取消';
-      default: return status || '-';
-    }
-  };
-
-  const batchStatusClass = (status?: string) => {
-    switch (status) {
-      case 'success':
-      case 'completed':
-        return 'bg-emerald-50 text-emerald-700 border-emerald-100';
-      case 'partially_failed':
-      case 'failed':
-        return 'bg-red-50 text-red-700 border-red-100';
-      case 'running':
-        return 'bg-blue-50 text-blue-700 border-blue-100';
-      case 'canceled':
-        return 'bg-gray-100 text-gray-600 border-gray-200';
-      default:
-        return 'bg-amber-50 text-amber-700 border-amber-100';
-    }
-  };
 
   const accountMap = useMemo(
     () => new Map(accounts.map(account => [account.id, account])),
@@ -962,18 +708,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
             </div>
 
             <div className="modal-body space-y-5">
-              <div className="grid grid-cols-4 gap-2">
-                {[
-                  ['upload', '1 上传'],
-                  ['preview', '2 预检'],
-                  ['running', '3 发布'],
-                  ['done', '4 结果']
-                ].map(([phase, label]) => (
-                  <div key={phase} className={`rounded-xl px-3 py-2 text-center text-xs font-extrabold border ${batchPhase === phase ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-50 text-gray-500 border-gray-100'}`}>
-                    {label}
-                  </div>
-                ))}
-              </div>
+              <BatchPhaseIndicator phase={batchPhase} />
 
               {batchPhase === 'upload' && (
                 <div className="space-y-5">
