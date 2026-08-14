@@ -171,7 +171,10 @@ describe('frontend navigation routing', () => {
   });
 
   test('account editor exposes password-login refresh and never renders its verification URL', () => {
-    const accounts = readFrontendFile('components/AccountList.tsx');
+    const accounts = [
+      readFrontendFile('components/AccountList.tsx'),
+      readFrontendFile('app/features/accounts/components/AccountEditModal.tsx'),
+    ].join('\n');
     expect(accounts).toContain('passwordLogin({');
 	expect(accounts).toContain('checkPasswordLoginStatus(sessionId, controller.signal)');
     expect(accounts).toContain('密码登录刷新授权');

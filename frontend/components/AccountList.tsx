@@ -2,8 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AccountDetail, AIReplySettings, NotificationChannel } from '../types';
 import {
-  getAccountDetails,
-  getAccountRuntimeStatuses,
   updateAccountStatus,
   deleteAccount,
   generateQRLogin,
@@ -16,32 +14,32 @@ import {
   checkPasswordLoginStatus,
   cancelPasswordLogin,
   updateAccountAISettings,
-  getAllAISettings,
   getAccountAISettings,
   getNotificationChannels,
   getAccountBindings,
   getLongLoginSettings,
   setLongLoginSettings,
-} from '../services/api';
-import { shouldUpdateAccountPause } from './accountPause';
+} from '../app/features/accounts/api';
 import {
-  Plus, Power, Edit2, Trash2, QrCode, X, Check, Loader2,
+  Power, Edit2, Trash2, QrCode, X, Check, Loader2,
   RefreshCw, Save, User, Clock, MessageCircle,
-  Upload, Key, Eye, EyeOff, Bot, Settings, AlertCircle, Bell, CalendarClock, Sparkles
+  Bot, Settings, AlertCircle, CalendarClock, Sparkles
 } from 'lucide-react';
-import { buildAccountLoginInfoUpdate } from './accountEdit';
+import { buildAccountLoginInfoUpdate, isCurrentAccountRequest, passwordLoginViewFromStatus, shouldUpdateAccountPause } from '../app/features/accounts/state';
 import { shouldSaveNotificationBindings } from './accountBindings';
-import { mergeAccountRuntimeStatuses } from './accountRuntimeState';
 import { createLatestRequestGate, createQRLoginPoller } from './qrPolling';
 import { RiskVerificationPanel } from './RiskVerificationPanel';
 import { SquareQRCode } from './SquareQRCode';
 import AccountAutomationModal from './AccountAutomationModal';
+import { AccountEditModal } from '../app/features/accounts/components/AccountEditModal';
+import { useAccountsData } from '../app/features/accounts/hooks';
+import { accountRuntimePresentation } from '../app/features/accounts/runtime';
+import type { AccountEditForm, LongLoginState, PasswordLoginView } from '../app/features/accounts/types';
 
 type ModalType = 'edit' | 'ai-settings' | null;
 
 const AccountList: React.FC = () => {
-  const [accounts, setAccounts] = useState<AccountDetail[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { accounts, setAccounts, loading, loadAccounts } = useAccountsData();
   const [accountSearch, setAccountSearch] = useState('');
   const [refreshingProfileId, setRefreshingProfileId] = useState<string>('');
   const [deletingAccountId, setDeletingAccountId] = useState<string>('');
@@ -57,7 +55,7 @@ const AccountList: React.FC = () => {
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [editingAccount, setEditingAccount] = useState<AccountDetail | null>(null);
   const [taskAccount, setTaskAccount] = useState<AccountDetail | null>(null);
-  const [longLogin, setLongLogin] = useState({ loading: false, saving: false, canOpen: false, enabled: false, error: '' });
+  const [longLogin, setLongLogin] = useState<LongLoginState>({ loading: false, saving: false, canOpen: false, enabled: false, error: '' });
 
   // 通知渠道绑定（编辑弹窗用）
   const [notifChannels, setNotifChannels] = useState<NotificationChannel[]>([]);
@@ -68,7 +66,7 @@ const AccountList: React.FC = () => {
   const [bindingsLoadError, setBindingsLoadError] = useState('');
 
   // 编辑表单状态
-  const [editForm, setEditForm] = useState({
+  const [editForm, setEditForm] = useState<AccountEditForm>({
     remark: '',
     cookie: '',
     auto_confirm: false,
@@ -89,18 +87,11 @@ const AccountList: React.FC = () => {
     custom_prompts: '',
   });
   const [saving, setSaving] = useState(false);
-  const [passwordLoginView, setPasswordLoginView] = useState<{
-    sessionId: string;
-    status: 'idle' | 'processing' | 'verification_required' | 'success' | 'failed';
-    message: string;
-    qrCodeUrl: string;
-  }>({ sessionId: '', status: 'idle', message: '', qrCodeUrl: '' });
+  const [passwordLoginView, setPasswordLoginView] = useState<PasswordLoginView>({ sessionId: '', status: 'idle', message: '', qrCodeUrl: '' });
   const qrPollerRef = useRef<ReturnType<typeof createQRLoginPoller> | null>(null);
   const qrRequestGateRef = useRef<ReturnType<typeof createLatestRequestGate> | null>(null);
-  const accountLoadGateRef = useRef<ReturnType<typeof createLatestRequestGate> | null>(null);
   const bindingsLoadGateRef = useRef<ReturnType<typeof createLatestRequestGate> | null>(null);
   const aiLoadGateRef = useRef<ReturnType<typeof createLatestRequestGate> | null>(null);
-  const accountLoadAbortRef = useRef<AbortController | null>(null);
   const bindingsLoadAbortRef = useRef<AbortController | null>(null);
   const aiLoadAbortRef = useRef<AbortController | null>(null);
   const qrGenerateAbortRef = useRef<AbortController | null>(null);
@@ -108,13 +99,13 @@ const AccountList: React.FC = () => {
   const qrCloseTimerRef = useRef<number | null>(null);
   const passwordPollTimerRef = useRef<number | null>(null);
   const passwordPollGenerationRef = useRef(0);
+  const passwordPollAccountRef = useRef('');
   if (qrPollerRef.current === null) {
     qrPollerRef.current = createQRLoginPoller();
   }
   if (qrRequestGateRef.current === null) {
     qrRequestGateRef.current = createLatestRequestGate();
   }
-  if (accountLoadGateRef.current === null) accountLoadGateRef.current = createLatestRequestGate();
   if (bindingsLoadGateRef.current === null) bindingsLoadGateRef.current = createLatestRequestGate();
   if (aiLoadGateRef.current === null) aiLoadGateRef.current = createLatestRequestGate();
 
@@ -153,113 +144,22 @@ const AccountList: React.FC = () => {
     }, 1000);
   };
 
-  const loadAccounts = async () => {
-	const generation = accountLoadGateRef.current!.next();
-	accountLoadAbortRef.current?.abort();
-	const controller = new AbortController();
-	accountLoadAbortRef.current = controller;
-    setLoading(true);
-    try {
-	  const options = { signal: controller.signal };
-	  const [detailsResult, aiResult] = await Promise.allSettled([getAccountDetails(options), getAllAISettings(options)]);
-	  if (!accountLoadGateRef.current?.isCurrent(generation)) return;
-	  if (detailsResult.status === 'rejected') throw detailsResult.reason;
-	  const data = detailsResult.value;
-	  const allAISettings = aiResult.status === 'fulfilled' ? aiResult.value : {};
-	  if (aiResult.status === 'rejected') console.error('Failed to load AI settings:', aiResult.reason);
-
-      // 合并AI设置到账号数据
-      const accountsWithAI = data.map(account => ({
-        ...account,
-        ai_enabled: allAISettings[account.id]?.ai_enabled ?? false,
-        max_discount_percent: allAISettings[account.id]?.max_discount_percent ?? 10,
-        max_discount_amount: allAISettings[account.id]?.max_discount_amount ?? 100,
-        max_bargain_rounds: allAISettings[account.id]?.max_bargain_rounds ?? 3,
-        custom_prompts: allAISettings[account.id]?.custom_prompts ?? '',
-      }));
-
-	  if (accountLoadGateRef.current?.isCurrent(generation)) setAccounts(accountsWithAI);
-    } catch (error) {
-	  if (accountLoadGateRef.current?.isCurrent(generation) && !controller.signal.aborted) {
-		console.error('Failed to load accounts:', error);
-	  }
-    } finally {
-	  if (accountLoadGateRef.current?.isCurrent(generation)) setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    let cancelled = false;
-    let timer: number | null = null;
-	const runtimeController = new AbortController();
-
-    const pollRuntimeStatuses = async () => {
-      try {
-		const statuses = await getAccountRuntimeStatuses({ signal: runtimeController.signal, timeoutMs: 10_000 });
-        if (!cancelled) {
-          setAccounts(current => mergeAccountRuntimeStatuses(current, statuses));
-        }
-      } catch (error) {
-        if (!cancelled) console.error('Failed to load account runtime statuses:', error);
-      } finally {
-        if (!cancelled) {
-          // 运行时状态只读取本地内存；短轮询让风控恢复提示在约 2 秒内收敛。
-          timer = window.setTimeout(() => void pollRuntimeStatuses(), 2_000);
-        }
-      }
-    };
-
-    void loadAccounts().finally(() => {
-      if (!cancelled) void pollRuntimeStatuses();
-    });
-    return () => {
-      cancelled = true;
-	  runtimeController.abort();
-      if (timer !== null) window.clearTimeout(timer);
-    };
-  }, []);
-
-  useEffect(() => {
+    // 页面卸载时取消二维码、通知绑定、AI 设置和密码登录的异步资源。
     return () => {
       stopQRPolling();
       qrRequestGateRef.current?.cancel();
-	  accountLoadGateRef.current?.cancel();
-	  bindingsLoadGateRef.current?.cancel();
-	  aiLoadGateRef.current?.cancel();
-	  accountLoadAbortRef.current?.abort();
-	  bindingsLoadAbortRef.current?.abort();
-	  aiLoadAbortRef.current?.abort();
-	  qrGenerateAbortRef.current?.abort();
-	  passwordPollAbortRef.current?.abort();
+      bindingsLoadGateRef.current?.cancel();
+      aiLoadGateRef.current?.cancel();
+      bindingsLoadAbortRef.current?.abort();
+      aiLoadAbortRef.current?.abort();
+      qrGenerateAbortRef.current?.abort();
+      passwordPollAbortRef.current?.abort();
       clearQRCloseTimer();
       passwordPollGenerationRef.current += 1;
       clearPasswordPollTimer();
     };
   }, []);
-
-  const runtimePresentation = (account: AccountDetail) => {
-    if (!account.enabled || account.runtime_state === 'disabled') {
-      return { label: '已停用', badge: 'bg-gray-100 text-gray-500', dot: 'bg-gray-300' };
-    }
-    switch (account.runtime_state) {
-      case 'online':
-        return { label: '在线', badge: 'bg-green-100 text-green-700', dot: 'bg-green-500' };
-      case 'starting':
-      case 'connecting':
-        return { label: '连接中', badge: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500' };
-      case 'reconnecting':
-        return { label: '重连中', badge: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500' };
-      case 'auth_expired':
-        return { label: '登录已失效', badge: 'bg-red-100 text-red-700', dot: 'bg-red-500' };
-      case 'verification_required':
-        return { label: '需要验证', badge: 'bg-orange-100 text-orange-700', dot: 'bg-orange-500' };
-      case 'error':
-      case 'stopped':
-        return { label: '运行异常', badge: 'bg-red-100 text-red-700', dot: 'bg-red-500' };
-      default:
-        return { label: '状态检测中', badge: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400' };
-    }
-  };
 
   const handleToggle = async (id: string, currentStatus: boolean) => {
     await updateAccountStatus(id, !currentStatus);
@@ -341,8 +241,16 @@ const AccountList: React.FC = () => {
     setBindingsLoading(false);
   };
 
+  // toggleNotificationChannel 使用函数式更新切换通知绑定，避免连续点击覆盖选择结果。
+  const toggleNotificationChannel = (channelId: number) => {
+    setSelectedChannelIds(current => current.includes(channelId)
+      ? current.filter(id => id !== channelId)
+      : [...current, channelId]);
+  };
+
   const openEditModal = async (account: AccountDetail) => {
     passwordPollGenerationRef.current += 1;
+	passwordPollAccountRef.current = account.id;
 	passwordPollAbortRef.current?.abort();
     clearPasswordPollTimer();
     setPasswordLoginView({ sessionId: '', status: 'idle', message: '', qrCodeUrl: '' });
@@ -492,45 +400,39 @@ const AccountList: React.FC = () => {
     }
   };
 
-  const pollPasswordLogin = async (sessionId: string, generation: number) => {
-	passwordPollAbortRef.current?.abort();
-	const controller = new AbortController();
-	passwordPollAbortRef.current = controller;
+  // pollPasswordLogin 轮询密码登录状态，并按账号和请求代次隔离过期响应。
+  const pollPasswordLogin = async (sessionId: string, generation: number, accountId: string) => {
+    passwordPollAbortRef.current?.abort();
+    // controller 取消上一轮仍未完成的密码登录状态请求。
+    const controller = new AbortController();
+    passwordPollAbortRef.current = controller;
     try {
-	  const result = await checkPasswordLoginStatus(sessionId, controller.signal);
-      if (generation !== passwordPollGenerationRef.current) return;
+      // result 是后端返回的当前密码登录状态。
+      const result = await checkPasswordLoginStatus(sessionId, controller.signal);
+      if (!isCurrentAccountRequest(generation, passwordPollGenerationRef.current, accountId, passwordPollAccountRef.current)) return;
+      // nextView 是统一转换后的密码登录展示状态。
+      const nextView = { ...passwordLoginViewFromStatus(result), sessionId };
       if (result.status === 'success') {
         clearPasswordPollTimer();
-        setPasswordLoginView({
-          sessionId,
-          status: 'success',
-          message: result.message || '账号密码登录成功，授权信息已更新',
-          qrCodeUrl: '',
-        });
+        setPasswordLoginView(nextView);
         setEditForm(current => ({ ...current, login_password: '', showLoginPassword: false }));
         await loadAccounts();
         return;
       }
       if (result.status === 'processing' || result.status === 'verification_required') {
-        setPasswordLoginView({
-          sessionId,
-          status: result.status,
-          message: result.message || (result.status === 'verification_required' ? '账号触发风控，需要完成人脸识别' : '登录处理中'),
-          qrCodeUrl: result.qr_code_url || '',
-        });
+        setPasswordLoginView(nextView);
         clearPasswordPollTimer();
-        passwordPollTimerRef.current = window.setTimeout(() => void pollPasswordLogin(sessionId, generation), 1500);
+        passwordPollTimerRef.current = window.setTimeout(
+          // pollNextStatus 在短暂间隔后继续查询当前密码登录会话。
+          () => void pollPasswordLogin(sessionId, generation, accountId),
+          1500,
+        );
         return;
       }
       clearPasswordPollTimer();
-      setPasswordLoginView({
-        sessionId,
-        status: 'failed',
-        message: result.error || result.message || '密码登录失败，请检查账号信息后重试',
-        qrCodeUrl: '',
-      });
-    } catch (error) {
-      if (generation !== passwordPollGenerationRef.current) return;
+      setPasswordLoginView(nextView);
+    } catch (error /* 密码登录状态查询错误 */) {
+      if (!isCurrentAccountRequest(generation, passwordPollGenerationRef.current, accountId, passwordPollAccountRef.current)) return;
       clearPasswordPollTimer();
       setPasswordLoginView({
         sessionId,
@@ -540,6 +442,7 @@ const AccountList: React.FC = () => {
       });
     }
   };
+
 
   const handlePasswordLogin = async () => {
     if (!editingAccount) return;
@@ -551,6 +454,7 @@ const AccountList: React.FC = () => {
     clearPasswordPollTimer();
 	passwordPollAbortRef.current?.abort();
     const generation = ++passwordPollGenerationRef.current;
+    passwordPollAccountRef.current = editingAccount.id;
     setPasswordLoginView({ sessionId: '', status: 'processing', message: '正在启动密码登录…', qrCodeUrl: '' });
     try {
       const result = await passwordLogin({
@@ -559,14 +463,14 @@ const AccountList: React.FC = () => {
         password: editForm.login_password,
         show_browser: editForm.show_browser,
       });
-      if (generation !== passwordPollGenerationRef.current) return;
+      if (!isCurrentAccountRequest(generation, passwordPollGenerationRef.current, editingAccount.id, passwordPollAccountRef.current)) return;
       if (!result.success || !result.session_id) {
         throw new Error(result.message || '无法启动密码登录');
       }
       setPasswordLoginView({ sessionId: result.session_id, status: 'processing', message: result.message || '登录处理中', qrCodeUrl: '' });
-      await pollPasswordLogin(result.session_id, generation);
+      await pollPasswordLogin(result.session_id, generation, editingAccount.id);
     } catch (error) {
-      if (generation !== passwordPollGenerationRef.current) return;
+      if (!isCurrentAccountRequest(generation, passwordPollGenerationRef.current, editingAccount.id, passwordPollAccountRef.current)) return;
       setPasswordLoginView({
         sessionId: '',
         status: 'failed',
@@ -579,6 +483,7 @@ const AccountList: React.FC = () => {
   const handleCancelPasswordLogin = async () => {
     const sessionId = passwordLoginView.sessionId;
 	passwordPollGenerationRef.current += 1;
+	passwordPollAccountRef.current = '';
 	passwordPollAbortRef.current?.abort();
     clearPasswordPollTimer();
     if (sessionId) {
@@ -733,7 +638,7 @@ const AccountList: React.FC = () => {
       {/* Account Grid */}
       <div className="grid grid-cols-1 gap-6">
         {filteredAccounts.map((account) => {
-          const runtime = runtimePresentation(account);
+          const runtime = accountRuntimePresentation(account);
           const requiresLogin = account.runtime_state === 'auth_expired' || account.runtime_state === 'verification_required';
           return (
           <div key={account.id} className="ios-card rounded-xl p-6 group transition-all duration-300 hover:border-brand">
@@ -1053,303 +958,32 @@ const AccountList: React.FC = () => {
           document.body
       )}
 
-      {/* 编辑账号弹窗 */}
-      {activeModal === 'edit' && editingAccount && createPortal(
-        <div className="modal-overlay-centered">
-          <div className="modal-container" style={{maxWidth: '600px'}}>
-            <div className="modal-header">
-              <div>
-                <h3 className="text-2xl font-extrabold text-gray-900">编辑账号</h3>
-                <p className="text-sm text-gray-500 mt-1">{editingAccount.nickname || editingAccount.remark || editingAccount.id}</p>
-              </div>
-              <button
-				onClick={() => void closeEditModal()}
-                className="p-2 rounded-xl hover:bg-gray-100 transition-colors flex-shrink-0"
-              >
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-
-            <div className="modal-body space-y-6">
-              {/* 账号ID */}
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">账号ID</label>
-                <input
-                  type="text"
-                  value={editingAccount.id}
-                  disabled
-                  className="w-full ios-input px-4 py-3 rounded-xl bg-gray-50 text-gray-500"
-                />
-              </div>
-
-              {/* 备注 */}
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">备注</label>
-                <input
-                  type="text"
-                  value={editForm.remark}
-                  onChange={(e) => setEditForm({ ...editForm, remark: e.target.value })}
-                  placeholder="为账号添加备注"
-                  className="w-full ios-input px-4 py-3 rounded-xl"
-                />
-              </div>
-
-              {/* Cookie */}
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">Cookie</label>
-                <textarea
-                  value={editForm.cookie}
-                  onChange={(e) => setEditForm({ ...editForm, cookie: e.target.value })}
-                  placeholder="更新账号Cookie"
-                  className="w-full ios-input px-4 py-3 rounded-xl h-32 resize-none font-mono text-xs"
-                />
-                <p className="text-xs text-gray-500 mt-1">当前Cookie长度: {editForm.cookie.length} 字符</p>
-              </div>
-
-              {/* 自动确认发货 */}
-              <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
-                <div>
-                  <div className="font-bold text-gray-900 flex items-center gap-2">
-                    <Check className="w-4 h-4 text-green-500" />
-                    自动确认发货
-                  </div>
-                  <div className="text-xs text-gray-500">自动将闲鱼订单标记为已发货</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setEditForm({ ...editForm, auto_confirm: !editForm.auto_confirm })}
-                  className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${
-                    editForm.auto_confirm ? 'bg-brand' : 'bg-gray-300'
-                  }`}
-                >
-                  <span
-                    className={`absolute left-1 top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${
-                      editForm.auto_confirm ? 'translate-x-6' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-              </div>
-
-              {/* 暂停时长 */}
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-blue-500" />
-                  暂停处理时长（分钟）
-                </label>
-                <input
-                  type="number"
-                  value={editForm.pause_duration}
-                  onChange={(e) => setEditForm({ ...editForm, pause_duration: parseInt(e.target.value) || 0 })}
-                  placeholder="0"
-                  min="0"
-                  max="1440"
-                  className="w-full ios-input px-4 py-3 rounded-xl"
-                />
-                <p className="text-xs text-gray-500 mt-1">设置后会暂停处理该账号的订单，到时间后自动恢复</p>
-                {editForm.pause_duration > 0 && !editingAccount.paused && editForm.pause_duration === (editingAccount.pause_duration || 0) && (
-                  <button
-                    type="button"
-                    disabled={saving}
-                    onClick={() => void handleRestartPause()}
-                    className="mt-3 px-4 py-2 rounded-xl bg-amber-50 text-amber-700 hover:bg-amber-100 text-sm font-bold disabled:opacity-50"
-                  >
-                    立即按当前时长重新暂停
-                  </button>
-                )}
-              </div>
-
-              {/* 登录信息 */}
-              <div className="border-t border-gray-200 pt-6">
-                <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                  <Key className="w-5 h-5 text-blue-500" />
-                  登录信息
-                </h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between gap-4 rounded-xl bg-blue-50 p-4">
-                    <div>
-                      <div className="font-bold text-gray-900">保存登录信息</div>
-                      <div className="mt-1 text-xs text-gray-500">状态直接读取并修改闲鱼官方长登录设置</div>
-                      {longLogin.error && <div className="mt-1 text-xs text-red-600">{longLogin.error}</div>}
-                    </div>
-                    <button
-                      type="button"
-                      aria-label="保存登录信息"
-                      disabled={longLogin.loading || longLogin.saving || !longLogin.canOpen}
-                      onClick={() => void handleLongLoginToggle()}
-                      className={`relative h-8 w-14 flex-shrink-0 rounded-full transition-colors ${longLogin.enabled ? 'bg-brand' : 'bg-gray-300'} disabled:cursor-not-allowed disabled:opacity-50`}
-                    >
-                      <span className={`absolute left-1 top-1 h-6 w-6 rounded-full bg-white shadow-md transition-transform ${longLogin.enabled ? 'translate-x-6' : 'translate-x-0'}`} />
-                    </button>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">用户名</label>
-                    <input
-                      type="text"
-                      value={editForm.username}
-                      onChange={(e) => setEditForm({ ...editForm, username: e.target.value })}
-                      placeholder="闲鱼账号/手机号"
-                      className="w-full ios-input px-4 py-3 rounded-xl"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">登录密码</label>
-                    <div className="relative">
-                      <input
-                        type={editForm.showLoginPassword ? 'text' : 'password'}
-                        value={editForm.login_password}
-                        onChange={(e) => setEditForm({ ...editForm, login_password: e.target.value, clear_password: false })}
-                        placeholder="用于自动登录"
-                        className="w-full ios-input px-4 py-3 rounded-xl pr-12"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setEditForm({ ...editForm, showLoginPassword: !editForm.showLoginPassword })}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      >
-                        {editForm.showLoginPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                      </button>
-                    </div>
-                    <label className="mt-3 flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editForm.clear_password}
-                        onChange={(e) => setEditForm({ ...editForm, clear_password: e.target.checked, login_password: e.target.checked ? '' : editForm.login_password })}
-                        className="w-4 h-4 accent-brand"
-                      />
-                      <span className="text-sm font-bold text-gray-700">清空已保存密码</span>
-                    </label>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-bold text-gray-900">登录时显示浏览器</div>
-                      <div className="text-xs text-gray-500">调试时可开启查看登录过程</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setEditForm({ ...editForm, show_browser: !editForm.show_browser })}
-                      className={`w-14 h-8 rounded-full transition-colors duration-300 relative ${
-                        editForm.show_browser ? 'bg-brand' : 'bg-gray-300'
-                      }`}
-                    >
-                      <span
-                        className={`absolute left-1 top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${
-                          editForm.show_browser ? 'translate-x-6' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 space-y-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                      <div>
-                        <div className="font-bold text-blue-950">立即执行账号密码登录</div>
-                        <div className="text-xs text-blue-700 mt-1">需要在上方重新输入本次登录密码；成功后后端会更新 Cookie 和保存的登录信息。</div>
-                      </div>
-                      {(passwordLoginView.status === 'processing' || passwordLoginView.status === 'verification_required') ? (
-                        <button type="button" onClick={handleCancelPasswordLogin} className="px-4 py-2 rounded-xl bg-white text-red-600 font-bold text-sm border border-red-100">
-                          取消登录
-                        </button>
-                      ) : (
-                        <button type="button" onClick={handlePasswordLogin} className="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-sm whitespace-nowrap">
-                          密码登录刷新授权
-                        </button>
-                      )}
-                    </div>
-                    {passwordLoginView.message && (
-                      <div className={`text-sm font-medium ${passwordLoginView.status === 'failed' ? 'text-red-700' : passwordLoginView.status === 'success' ? 'text-green-700' : 'text-blue-800'}`}>
-                        {passwordLoginView.message}
-                      </div>
-                    )}
-                    {passwordLoginView.status === 'verification_required' && (
-                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
-                        <div className="font-extrabold">账号已触发平台风控，需要完成人脸识别</div>
-                        <div className="text-xs mt-1 leading-5">请在闲鱼 App 或已打开的登录浏览器中按提示完成验证。本页面不会提供可直接打开的风控链接。</div>
-                        {passwordLoginView.qrCodeUrl && (
-                          <div className="mt-3 aspect-square w-48 overflow-hidden rounded-xl border bg-white">
-                            <SquareQRCode src={passwordLoginView.qrCodeUrl} alt="密码登录风控二维码" className="p-2" />
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* 通知渠道绑定 */}
-              {(notifChannels.length > 0 || bindingsLoading || bindingsLoadError) && (
-                <div className="border-t border-gray-200 pt-6">
-                  <h3 className="text-lg font-bold text-gray-900 mb-1 flex items-center gap-2">
-                    <Bell className="w-5 h-5 text-blue-500" />
-                    通知渠道绑定
-                  </h3>
-                  <p className="text-xs text-gray-500 mb-4">勾选后，该账号的 token 失效、自动恢复失败、风控验证等事件会推送到这些渠道</p>
-                  {bindingsLoading && (
-                    <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="w-4 h-4 animate-spin" />正在加载通知绑定</div>
-                  )}
-                  {bindingsLoadError && !bindingsLoading && (
-                    <div className="mb-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-800 flex items-center justify-between gap-3">
-                      <span>{bindingsLoadError}</span>
-                      <button type="button" className="font-bold whitespace-nowrap" onClick={() => loadNotificationBindings(editingAccount.id)}>重试</button>
-                    </div>
-                  )}
-                  <div className="space-y-2">
-                    {notifChannels.map(ch => {
-                      const checked = selectedChannelIds.includes(Number(ch.id));
-                      return (
-                        <label
-                          key={ch.id}
-                          className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 hover:bg-gray-50 cursor-pointer transition-colors"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!bindingsLoaded) return;
-                              setSelectedChannelIds(prev =>
-                                checked ? prev.filter(id => id !== Number(ch.id)) : [...prev, Number(ch.id)]
-                              );
-                              setBindingsDirty(true);
-                            }}
-                            disabled={!bindingsLoaded}
-                            className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
-                              checked ? 'bg-brand border-brand' : 'bg-white border-gray-300'
-                            }`}
-                          >
-                            {checked && <Check className="w-3.5 h-3.5 text-white" />}
-                          </button>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-bold text-gray-900 text-sm">{ch.name}</div>
-                            <div className="text-xs text-gray-500">{ch.type}{ch.enabled ? '' : ' · 已停用'}</div>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="modal-footer">
-              <div className="flex gap-3 w-full">
-                <button
-				  onClick={() => void closeEditModal()}
-                  className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
-                  disabled={saving}
-                >
-                  取消
-                </button>
-                <button
-                  onClick={handleSaveEdit}
-                  className="flex-1 ios-btn-primary px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2"
-                  disabled={saving}
-                >
-                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  {saving ? '保存中...' : '保存'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>,
-        document.body
+      {/* 编辑账号弹窗由 accounts feature 组件负责渲染和表单交互。 */}
+      {activeModal === 'edit' && editingAccount && (
+        <AccountEditModal
+          account={editingAccount}
+          editForm={editForm}
+          setEditForm={setEditForm}
+          saving={saving}
+          onClose={closeEditModal}
+          onSave={handleSaveEdit}
+          onRestartPause={handleRestartPause}
+          longLogin={longLogin}
+          onToggleLongLogin={handleLongLoginToggle}
+          passwordLoginView={passwordLoginView}
+          onPasswordLogin={handlePasswordLogin}
+          onCancelPasswordLogin={handleCancelPasswordLogin}
+          notifChannels={notifChannels}
+          selectedChannelIds={selectedChannelIds}
+          bindingsLoaded={bindingsLoaded}
+          bindingsLoading={bindingsLoading}
+          bindingsLoadError={bindingsLoadError}
+          onRetryBindings={() => loadNotificationBindings(editingAccount.id)}
+          onToggleChannel={toggleNotificationChannel}
+          onSettingsDirty={() => setBindingsDirty(true)}
+        />
       )}
+
 
       {/* AI设置弹窗 */}
       {activeModal === 'ai-settings' && editingAccount && createPortal(

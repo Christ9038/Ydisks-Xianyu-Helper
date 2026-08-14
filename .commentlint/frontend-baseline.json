@@ -852,328 +852,94 @@
     "name": "payload"
   },
   {
-    "file": "components/accountEdit.ts",
-    "line": 11,
-    "kind": "member",
-    "name": "username"
-  },
-  {
-    "file": "components/accountEdit.ts",
-    "line": 12,
-    "kind": "member",
-    "name": "login_password"
-  },
-  {
-    "file": "components/accountEdit.ts",
-    "line": 13,
-    "kind": "member",
-    "name": "clear_password"
-  },
-  {
-    "file": "components/accountEdit.ts",
-    "line": 14,
-    "kind": "member",
-    "name": "show_browser"
-  },
-  {
-    "file": "components/accountEdit.ts",
-    "line": 17,
-    "kind": "variable",
-    "name": "buildAccountLoginInfoUpdate"
-  },
-  {
-    "file": "components/accountEdit.ts",
-    "line": 21,
-    "kind": "variable",
-    "name": "usernameChanged"
-  },
-  {
-    "file": "components/accountEdit.ts",
-    "line": 22,
-    "kind": "variable",
-    "name": "showBrowserChanged"
-  },
-  {
-    "file": "components/accountEdit.ts",
-    "line": 23,
-    "kind": "variable",
-    "name": "passwordChanged"
-  },
-  {
-    "file": "components/accountEdit.ts",
-    "line": 24,
-    "kind": "variable",
-    "name": "passwordCleared"
-  },
-  {
-    "file": "components/accountEdit.ts",
-    "line": 29,
-    "kind": "variable",
-    "name": "payload"
-  },
-  {
-    "file": "components/accountEdit.ts",
-    "line": 4,
-    "kind": "member",
-    "name": "username"
-  },
-  {
-    "file": "components/accountEdit.ts",
-    "line": 5,
-    "kind": "member",
-    "name": "login_password"
-  },
-  {
-    "file": "components/accountEdit.ts",
-    "line": 6,
-    "kind": "member",
-    "name": "show_browser"
-  },
-  {
-    "file": "components/accountEdit.ts",
-    "line": 7,
-    "kind": "member",
-    "name": "clear_password"
-  },
-  {
     "file": "components/AccountList.tsx",
     "line": 100,
-    "kind": "variable",
-    "name": "accountLoadGateRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 101,
-    "kind": "variable",
-    "name": "bindingsLoadGateRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 102,
-    "kind": "variable",
-    "name": "aiLoadGateRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 103,
-    "kind": "variable",
-    "name": "accountLoadAbortRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 104,
-    "kind": "variable",
-    "name": "bindingsLoadAbortRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 105,
-    "kind": "variable",
-    "name": "aiLoadAbortRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 106,
-    "kind": "variable",
-    "name": "qrGenerateAbortRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 1066,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 107,
-    "kind": "variable",
-    "name": "passwordPollAbortRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 108,
-    "kind": "variable",
-    "name": "qrCloseTimerRef"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 109,
     "kind": "variable",
     "name": "passwordPollTimerRef"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1091,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 110,
+    "line": 101,
     "kind": "variable",
     "name": "passwordPollGenerationRef"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1102,
+    "line": 102,
+    "kind": "variable",
+    "name": "passwordPollAccountRef"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 1020,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1120,
+    "line": 1042,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1142,
+    "line": 1054,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1153,
+    "line": 1065,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1178,
+    "line": 1080,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1189,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 1200,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 1206,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 121,
+    "line": 112,
     "kind": "variable",
     "name": "clearQRCloseTimer"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1216,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 1229,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 128,
+    "line": 119,
     "kind": "variable",
     "name": "clearPasswordPollTimer"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1291,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 1295,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 1296,
-    "kind": "variable",
-    "name": "checked"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 1304,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 1306,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 1307,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 1333,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 135,
+    "line": 126,
     "kind": "variable",
     "name": "stopQRPolling"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1386,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 139,
+    "line": 130,
     "kind": "variable",
     "name": "closeQRModal"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1408,
-    "kind": "function-expression",
-    "name": "anonymous"
+    "line": 138,
+    "kind": "variable",
+    "name": "scheduleQRModalClose"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 1420,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 1431,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 1446,
+    "line": 140,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
     "line": 147,
-    "kind": "variable",
-    "name": "scheduleQRModalClose"
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
@@ -1183,367 +949,295 @@
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 156,
-    "kind": "variable",
-    "name": "loadAccounts"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 157,
-    "kind": "variable",
-    "name": "generation"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 159,
-    "kind": "variable",
-    "name": "controller"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 163,
-    "kind": "variable",
-    "name": "options"
-  },
-  {
-    "file": "components/AccountList.tsx",
     "line": 164,
-    "kind": "variable",
-    "name": "[detailsResult, aiResult]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 167,
-    "kind": "variable",
-    "name": "data"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 168,
-    "kind": "variable",
-    "name": "allAISettings"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 172,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 182,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 191,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 192,
-    "kind": "variable",
-    "name": "cancelled"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 193,
-    "kind": "variable",
-    "name": "timer"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 194,
-    "kind": "variable",
-    "name": "runtimeController"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 196,
-    "kind": "variable",
-    "name": "pollRuntimeStatuses"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 198,
-    "kind": "variable",
-    "name": "statuses"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 200,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 202,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 207,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 212,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 215,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 222,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 223,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 240,
-    "kind": "variable",
-    "name": "runtimePresentation"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 264,
     "kind": "variable",
     "name": "handleToggle"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 269,
+    "line": 169,
     "kind": "variable",
     "name": "openDeleteDialog"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 275,
+    "line": 175,
     "kind": "variable",
     "name": "closeDeleteDialog"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 281,
+    "line": 181,
     "kind": "variable",
     "name": "confirmDeleteAccount"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 282,
+    "line": 182,
     "kind": "variable",
     "name": "account"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 288,
+    "line": 188,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 288,
+    "line": 188,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 290,
+    "line": 190,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 298,
+    "line": 198,
     "kind": "variable",
     "name": "handleRefreshProfile"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 301,
+    "line": 201,
     "kind": "variable",
     "name": "res"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 306,
+    "line": 206,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 314,
+    "line": 214,
     "kind": "variable",
     "name": "loadNotificationBindings"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 315,
+    "line": 215,
     "kind": "variable",
     "name": "generation"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 317,
+    "line": 217,
     "kind": "variable",
     "name": "controller"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 323,
+    "line": 223,
     "kind": "variable",
     "name": "[channelsResult, bindingsResult]"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 344,
+    "line": 246,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 247,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 251,
     "kind": "variable",
     "name": "openEditModal"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 363,
+    "line": 271,
     "kind": "variable",
     "name": "[, longLoginResult]"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 374,
+    "line": 282,
     "kind": "variable",
     "name": "handleLongLoginToggle"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 376,
+    "line": 284,
     "kind": "variable",
     "name": "enabled"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 377,
+    "line": 285,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 379,
+    "line": 287,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 381,
+    "line": 289,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 382,
+    "line": 290,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 386,
+    "line": 294,
     "kind": "variable",
     "name": "openAIModal"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 387,
+    "line": 295,
     "kind": "variable",
     "name": "generation"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 389,
+    "line": 297,
     "kind": "variable",
     "name": "controller"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 395,
+    "line": 303,
     "kind": "variable",
     "name": "settings"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 404,
+    "line": 312,
     "kind": "variable",
     "name": "e"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 411,
+    "line": 319,
     "kind": "variable",
     "name": "handleSaveEdit"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 416,
+    "line": 324,
     "kind": "variable",
     "name": "payload"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 42,
-    "kind": "variable",
-    "name": "AccountList"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 43,
-    "kind": "variable",
-    "name": "[accounts, setAccounts]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 44,
-    "kind": "variable",
-    "name": "[loading, setLoading]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 45,
-    "kind": "variable",
-    "name": "[accountSearch, setAccountSearch]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 452,
+    "line": 360,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 46,
-    "kind": "variable",
-    "name": "[refreshingProfileId, setRefreshingProfileId]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 460,
+    "line": 368,
     "kind": "variable",
     "name": "handleRestartPause"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 464,
+    "line": 372,
+    "kind": "variable",
+    "name": "result"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 380,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 387,
+    "kind": "variable",
+    "name": "handleSaveAISettings"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 395,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 41,
+    "kind": "variable",
+    "name": "AccountList"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 418,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 42,
+    "kind": "variable",
+    "name": "{ accounts, setAccounts, loading, loadAccounts }"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 43,
+    "kind": "variable",
+    "name": "[accountSearch, setAccountSearch]"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 44,
+    "kind": "variable",
+    "name": "[refreshingProfileId, setRefreshingProfileId]"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 447,
+    "kind": "variable",
+    "name": "handlePasswordLogin"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 449,
+    "kind": "variable",
+    "name": "account"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 45,
+    "kind": "variable",
+    "name": "[deletingAccountId, setDeletingAccountId]"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 456,
+    "kind": "variable",
+    "name": "generation"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 46,
+    "kind": "variable",
+    "name": "[deleteDialogAccount, setDeleteDialogAccount]"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 460,
     "kind": "variable",
     "name": "result"
   },
@@ -1551,7 +1245,7 @@
     "file": "components/AccountList.tsx",
     "line": 47,
     "kind": "variable",
-    "name": "[deletingAccountId, setDeletingAccountId]"
+    "name": "[deleteError, setDeleteError]"
   },
   {
     "file": "components/AccountList.tsx",
@@ -1561,337 +1255,283 @@
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 479,
-    "kind": "variable",
-    "name": "handleSaveAISettings"
-  },
-  {
-    "file": "components/AccountList.tsx",
     "line": 48,
-    "kind": "variable",
-    "name": "[deleteDialogAccount, setDeleteDialogAccount]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 487,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 49,
-    "kind": "variable",
-    "name": "[deleteError, setDeleteError]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 495,
-    "kind": "variable",
-    "name": "pollPasswordLogin"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 497,
-    "kind": "variable",
-    "name": "controller"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 50,
     "kind": "variable",
     "name": "[showQRModal, setShowQRModal]"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 500,
-    "kind": "variable",
-    "name": "result"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 51,
-    "kind": "variable",
-    "name": "[qrCodeUrl, setQrCodeUrl]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 510,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 52,
-    "kind": "variable",
-    "name": "[qrStatus, setQrStatus]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 522,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 53,
-    "kind": "variable",
-    "name": "[qrErrorMessage, setQrErrorMessage]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 532,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 54,
-    "kind": "variable",
-    "name": "[verificationScreenshot, setVerificationScreenshot]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 544,
-    "kind": "variable",
-    "name": "handlePasswordLogin"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 546,
-    "kind": "variable",
-    "name": "account"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 55,
-    "kind": "variable",
-    "name": "[faceQrUrl, setFaceQrUrl]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 553,
-    "kind": "variable",
-    "name": "generation"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 556,
-    "kind": "variable",
-    "name": "result"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 56,
-    "kind": "variable",
-    "name": "[qrReauthTarget, setQrReauthTarget]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 568,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 57,
-    "kind": "variable",
-    "name": "[activeModal, setActiveModal]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 579,
+    "line": 483,
     "kind": "variable",
     "name": "handleCancelPasswordLogin"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 58,
-    "kind": "variable",
-    "name": "[editingAccount, setEditingAccount]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 580,
+    "line": 484,
     "kind": "variable",
     "name": "sessionId"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 587,
+    "line": 49,
+    "kind": "variable",
+    "name": "[qrCodeUrl, setQrCodeUrl]"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 492,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 59,
-    "kind": "variable",
-    "name": "[taskAccount, setTaskAccount]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 594,
+    "line": 499,
     "kind": "variable",
     "name": "closeEditModal"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 60,
+    "line": 50,
     "kind": "variable",
-    "name": "[longLogin, setLongLogin]"
+    "name": "[qrStatus, setQrStatus]"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 603,
+    "line": 508,
     "kind": "variable",
     "name": "closeAIModal"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 609,
+    "line": 51,
+    "kind": "variable",
+    "name": "[qrErrorMessage, setQrErrorMessage]"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 514,
     "kind": "variable",
     "name": "completeAndPersistQRSession"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 610,
+    "line": 515,
     "kind": "variable",
     "name": "res"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 617,
+    "line": 52,
+    "kind": "variable",
+    "name": "[verificationScreenshot, setVerificationScreenshot]"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 522,
     "kind": "variable",
     "name": "startQRLogin"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 620,
+    "line": 525,
     "kind": "variable",
     "name": "controller"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 622,
+    "line": 527,
     "kind": "variable",
     "name": "requestGeneration"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 624,
+    "line": 529,
     "kind": "variable",
     "name": "targetAccount"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 633,
+    "line": 53,
+    "kind": "variable",
+    "name": "[faceQrUrl, setFaceQrUrl]"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 538,
     "kind": "variable",
     "name": "res"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 639,
+    "line": 54,
+    "kind": "variable",
+    "name": "[qrReauthTarget, setQrReauthTarget]"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 544,
     "kind": "variable",
     "name": "generatedSessionID"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 64,
-    "kind": "variable",
-    "name": "[selectedChannelIds, setSelectedChannelIds]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 644,
+    "line": 549,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 646,
+    "line": 55,
+    "kind": "variable",
+    "name": "[activeModal, setActiveModal]"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 551,
     "kind": "variable",
     "name": "accountId"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 65,
-    "kind": "variable",
-    "name": "[bindingsLoaded, setBindingsLoaded]"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 651,
+    "line": 556,
     "kind": "variable",
     "name": "e"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 659,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 66,
+    "line": 56,
     "kind": "variable",
-    "name": "[bindingsLoading, setBindingsLoading]"
+    "name": "[editingAccount, setEditingAccount]"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 662,
+    "line": 564,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 665,
+    "line": 567,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 669,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 67,
+    "line": 57,
     "kind": "variable",
-    "name": "[bindingsDirty, setBindingsDirty]"
+    "name": "[taskAccount, setTaskAccount]"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 68,
+    "line": 570,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 574,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 58,
     "kind": "variable",
-    "name": "[bindingsLoadError, setBindingsLoadError]"
+    "name": "[longLogin, setLongLogin]"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 680,
+    "line": 585,
     "kind": "variable",
     "name": "e"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 691,
+    "line": 596,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 691,
+    "line": 596,
     "kind": "variable",
     "name": "filteredAccounts"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 692,
+    "line": 597,
     "kind": "variable",
     "name": "keyword"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 701,
+    "line": 606,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 619,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 62,
+    "kind": "variable",
+    "name": "[selectedChannelIds, setSelectedChannelIds]"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 624,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 63,
+    "kind": "variable",
+    "name": "[bindingsLoaded, setBindingsLoaded]"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 64,
+    "kind": "variable",
+    "name": "[bindingsLoading, setBindingsLoading]"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 640,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 641,
+    "kind": "variable",
+    "name": "runtime"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 642,
+    "kind": "variable",
+    "name": "requiresLogin"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 65,
+    "kind": "variable",
+    "name": "[bindingsDirty, setBindingsDirty]"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 66,
+    "kind": "variable",
+    "name": "[bindingsLoadError, setBindingsLoadError]"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 703,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -1903,145 +1543,139 @@
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 719,
+    "line": 722,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 735,
+    "line": 729,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
     "line": 736,
-    "kind": "variable",
-    "name": "runtime"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 737,
-    "kind": "variable",
-    "name": "requiresLogin"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 798,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 809,
+    "line": 743,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 817,
+    "line": 750,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 824,
+    "line": 757,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 831,
+    "line": 793,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 838,
+    "line": 794,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 845,
+    "line": 795,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 852,
+    "line": 795,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 888,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 889,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 890,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 890,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 91,
+    "line": 89,
     "kind": "variable",
     "name": "[saving, setSaving]"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 92,
+    "line": 893,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 90,
     "kind": "variable",
     "name": "[passwordLoginView, setPasswordLoginView]"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 93,
-    "kind": "member",
-    "name": "sessionId"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 94,
-    "kind": "member",
-    "name": "status"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 95,
-    "kind": "member",
-    "name": "message"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 96,
-    "kind": "member",
-    "name": "qrCodeUrl"
-  },
-  {
-    "file": "components/AccountList.tsx",
-    "line": 98,
+    "line": 91,
     "kind": "variable",
     "name": "qrPollerRef"
   },
   {
     "file": "components/AccountList.tsx",
-    "line": 988,
+    "line": 92,
+    "kind": "variable",
+    "name": "qrRequestGateRef"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 93,
+    "kind": "variable",
+    "name": "bindingsLoadGateRef"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 94,
+    "kind": "variable",
+    "name": "aiLoadGateRef"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 95,
+    "kind": "variable",
+    "name": "bindingsLoadAbortRef"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 96,
+    "kind": "variable",
+    "name": "aiLoadAbortRef"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 97,
+    "kind": "variable",
+    "name": "qrGenerateAbortRef"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 98,
+    "kind": "variable",
+    "name": "passwordPollAbortRef"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 981,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/AccountList.tsx",
+    "line": 983,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -2049,7 +1683,7 @@
     "file": "components/AccountList.tsx",
     "line": 99,
     "kind": "variable",
-    "name": "qrRequestGateRef"
+    "name": "qrCloseTimerRef"
   },
   {
     "file": "components/accountPause.test.ts",
@@ -2074,18 +1708,6 @@
     "line": 9,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "components/accountPause.ts",
-    "line": 3,
-    "kind": "variable",
-    "name": "shouldUpdateAccountPause"
-  },
-  {
-    "file": "components/accountPause.ts",
-    "line": 7,
-    "kind": "variable",
-    "name": "savedMinutes"
   },
   {
     "file": "components/accountRuntimeState.test.ts",
@@ -2140,36 +1762,6 @@
     "line": 59,
     "kind": "variable",
     "name": "current"
-  },
-  {
-    "file": "components/accountRuntimeState.ts",
-    "line": 17,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/accountRuntimeState.ts",
-    "line": 18,
-    "kind": "variable",
-    "name": "status"
-  },
-  {
-    "file": "components/accountRuntimeState.ts",
-    "line": 4,
-    "kind": "variable",
-    "name": "isOlderStatus"
-  },
-  {
-    "file": "components/accountRuntimeState.ts",
-    "line": 6,
-    "kind": "variable",
-    "name": "currentTime"
-  },
-  {
-    "file": "components/accountRuntimeState.ts",
-    "line": 7,
-    "kind": "variable",
-    "name": "incomingTime"
   },
   {
     "file": "components/automationIssueState.test.ts",

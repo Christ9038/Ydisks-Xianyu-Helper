@@ -1,9 +1,2 @@
-import type { AccountDetail } from '../types';
-
-export const shouldUpdateAccountPause = (
-  requestedMinutes: number,
-  account: Pick<AccountDetail, 'pause_duration' | 'paused'>,
-): boolean => {
-  const savedMinutes = account.pause_duration || 0;
-  return requestedMinutes !== savedMinutes;
-};
+// 旧目录保留兼容入口，实际暂停时长门禁已归入 accounts feature。
+export { shouldUpdateAccountPause } from '../app/features/accounts/state';
