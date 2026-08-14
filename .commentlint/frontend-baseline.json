@@ -2250,120 +2250,6 @@
     "name": "issue"
   },
   {
-    "file": "components/automationIssueState.ts",
-    "line": 10,
-    "kind": "variable",
-    "name": "filterAutomationIssues"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 11,
-    "kind": "member",
-    "name": "pending_tasks"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 11,
-    "kind": "member",
-    "name": "runs"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 14,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 15,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 18,
-    "kind": "variable",
-    "name": "automationIssueKindLabel"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 26,
-    "kind": "variable",
-    "name": "loadAutomationPageData"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 27,
-    "kind": "member",
-    "name": "loadRules"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 28,
-    "kind": "member",
-    "name": "loadIssues"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 28,
-    "kind": "member",
-    "name": "pending_tasks"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 28,
-    "kind": "member",
-    "name": "runs"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 29,
-    "kind": "member",
-    "name": "onRules"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 30,
-    "kind": "member",
-    "name": "onIssues"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 30,
-    "kind": "member",
-    "name": "pending_tasks"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 30,
-    "kind": "member",
-    "name": "runs"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 31,
-    "kind": "member",
-    "name": "onIssuesError"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 33,
-    "kind": "variable",
-    "name": "issuesPromise"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 34,
-    "kind": "variable",
-    "name": "rules"
-  },
-  {
-    "file": "components/automationIssueState.ts",
-    "line": 5,
-    "kind": "variable",
-    "name": "canResolveAutomationIssue"
-  },
-  {
     "file": "components/CardList.tsx",
     "line": 10,
     "kind": "member",
@@ -8209,25 +8095,55 @@
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1026,
+    "line": 100,
+    "kind": "variable",
+    "name": "[editingAutomationRule, setEditingAutomationRule]"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 101,
+    "kind": "variable",
+    "name": "[editingReplyRule, setEditingReplyRule]"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 102,
+    "kind": "variable",
+    "name": "[defaultForm, setDefaultForm]"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1020,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1027,
+    "line": 1032,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1033,
     "kind": "variable",
     "name": "meta"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1028,
+    "line": 1034,
     "kind": "variable",
     "name": "Icon"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1053,
+    "line": 1035,
+    "kind": "variable",
+    "name": "selected"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1040,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -8239,19 +8155,25 @@
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1066,
+    "line": 1083,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1088,
+    "line": 109,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1094,
+    "line": 109,
+    "kind": "variable",
+    "name": "selectedAccount"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1092,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -8263,235 +8185,289 @@
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1102,
+    "line": 111,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1109,
+    "line": 1111,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1114,
+    "line": 1115,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1125,
+    "line": 112,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1125,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1146,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1159,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1168,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1186,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1187,
+    "line": 112,
     "kind": "variable",
-    "name": "defaultReply"
+    "name": "timer"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1188,
-    "kind": "variable",
-    "name": "enabled"
+    "line": 116,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1163,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1174,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1183,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 119,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1194,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1198,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1198,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
     "line": 120,
-    "kind": "variable",
-    "name": "triggerOrder"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 121,
-    "kind": "variable",
-    "name": "reviewRequestText"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1212,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1221,
+    "line": 1210,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1226,
+    "line": 1219,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
     "line": 123,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1230,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 124,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1240,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1242,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1266,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 127,
     "kind": "variable",
-    "name": "emptyVariant"
+    "name": "visibleAutomationRules"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1249,
+    "line": 128,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1261,
+    "line": 128,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1262,
+    "line": 1281,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1296,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1308,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1309,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1311,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 132,
     "kind": "variable",
-    "name": "meta"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1263,
-    "kind": "variable",
-    "name": "Icon"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1264,
-    "kind": "variable",
-    "name": "selected"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1269,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1289,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1312,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1321,
-    "kind": "function-expression",
-    "name": "anonymous"
+    "name": "visibleAutomationIssues"
   },
   {
     "file": "components/Rules.tsx",
     "line": 133,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1330,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1339,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1351,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 137,
     "kind": "variable",
-    "name": "parseJSONObject"
+    "name": "visibleDefaultAccounts"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1331,
+    "line": 1373,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1340,
+    "line": 138,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1344,
+    "line": 138,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 136,
+    "line": 1387,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1391,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1391,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1400,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1401,
     "kind": "variable",
-    "name": "value"
+    "name": "type"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1392,
+    "line": 142,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1403,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1412,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1423,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1427,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1427,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 143,
+    "line": 142,
     "kind": "variable",
-    "name": "buildReviewConfig"
+    "name": "automationPageNumbers"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1439,
+    "line": 1421,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1432,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -8499,47 +8475,65 @@
     "file": "components/Rules.tsx",
     "line": 144,
     "kind": "variable",
-    "name": "current"
+    "name": "first"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1448,
+    "line": 1442,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1459,
+    "line": 145,
+    "kind": "variable",
+    "name": "last"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1451,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1469,
+    "line": 146,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1471,
+    "line": 1480,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1495,
+    "line": 149,
+    "kind": "variable",
+    "name": "hasAutomationListFilters"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1494,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1510,
+    "line": 1498,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1525,
+    "line": 1511,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 1522,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -8547,65 +8541,23 @@
     "file": "components/Rules.tsx",
     "line": 153,
     "kind": "variable",
-    "name": "defaultRuleName"
+    "name": "clearAutomationListFilters"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1537,
+    "line": 1533,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1538,
+    "line": 1547,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 154,
-    "kind": "variable",
-    "name": "base"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1540,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1559,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1568,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 158,
-    "kind": "variable",
-    "name": "shouldReplaceGeneratedName"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1580,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 159,
-    "kind": "variable",
-    "name": "trimmed"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1602,
+    "line": 1554,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -8617,1207 +8569,733 @@
   },
   {
     "file": "components/Rules.tsx",
-    "line": 1616,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1620,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1620,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1629,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1630,
+    "line": 161,
     "kind": "variable",
-    "name": "type"
+    "name": "modalAccountItems"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 164,
-    "kind": "variable",
-    "name": "cardActionsForTrigger"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1650,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1661,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1671,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1680,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1709,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1723,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1727,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 174,
-    "kind": "variable",
-    "name": "sendCard"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1740,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1751,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1762,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1776,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 1783,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 191,
-    "kind": "variable",
-    "name": "actionSummary"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 193,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 195,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 195,
-    "kind": "variable",
-    "name": "cards"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 197,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 200,
-    "kind": "variable",
-    "name": "accentClasses"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 201,
-    "kind": "variable",
-    "name": "map"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 209,
-    "kind": "variable",
-    "name": "statusPill"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 212,
-    "kind": "variable",
-    "name": "accountLabel"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 214,
-    "kind": "variable",
-    "name": "boolFlag"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 216,
-    "kind": "variable",
-    "name": "Rules"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 217,
-    "kind": "variable",
-    "name": "[activeTab, setActiveTab]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 218,
-    "kind": "variable",
-    "name": "[automationRules, setAutomationRules]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 219,
-    "kind": "member",
-    "name": "pending_tasks"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 219,
-    "kind": "member",
-    "name": "runs"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 219,
-    "kind": "variable",
-    "name": "[automationIssues, setAutomationIssues]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 220,
-    "kind": "variable",
-    "name": "[replyRules, setReplyRules]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 221,
-    "kind": "variable",
-    "name": "[defaultReplies, setDefaultReplies]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 222,
-    "kind": "variable",
-    "name": "[accounts, setAccounts]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 223,
-    "kind": "variable",
-    "name": "[cards, setCards]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 224,
-    "kind": "variable",
-    "name": "[items, setItems]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 225,
-    "kind": "variable",
-    "name": "[loading, setLoading]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 226,
-    "kind": "variable",
-    "name": "[selectedAccountId, setSelectedAccountId]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 227,
-    "kind": "variable",
-    "name": "[automationSearch, setAutomationSearch]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 228,
-    "kind": "variable",
-    "name": "[debouncedAutomationSearch, setDebouncedAutomationSearch]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 229,
-    "kind": "variable",
-    "name": "[automationTriggerFilter, setAutomationTriggerFilter]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 230,
-    "kind": "variable",
-    "name": "[automationStatusFilter, setAutomationStatusFilter]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 231,
-    "kind": "variable",
-    "name": "[automationPage, setAutomationPage]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 232,
-    "kind": "variable",
-    "name": "[automationPageSize, setAutomationPageSize]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 233,
-    "kind": "variable",
-    "name": "[automationTotal, setAutomationTotal]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 234,
-    "kind": "variable",
-    "name": "[automationTotalPages, setAutomationTotalPages]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 235,
-    "kind": "variable",
-    "name": "[automationTriggerCounts, setAutomationTriggerCounts]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 236,
-    "kind": "variable",
-    "name": "automationRulesRequest"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 237,
-    "kind": "variable",
-    "name": "replyRulesRequest"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 238,
-    "kind": "variable",
-    "name": "selectedAccountRef"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 241,
-    "kind": "variable",
-    "name": "[showAutomationModal, setShowAutomationModal]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 242,
-    "kind": "variable",
-    "name": "[showReplyModal, setShowReplyModal]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 243,
-    "kind": "variable",
-    "name": "[showDefaultModal, setShowDefaultModal]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 244,
-    "kind": "variable",
-    "name": "[editingAutomationRule, setEditingAutomationRule]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 245,
-    "kind": "variable",
-    "name": "[editingReplyRule, setEditingReplyRule]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 246,
-    "kind": "variable",
-    "name": "[defaultForm, setDefaultForm]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 253,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 253,
-    "kind": "variable",
-    "name": "selectedAccount"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 255,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 255,
-    "kind": "variable",
-    "name": "loadReferenceData"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 256,
-    "kind": "variable",
-    "name": "[accountList, cardList, itemList, defaultReplyMap]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 266,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 269,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 269,
-    "kind": "variable",
-    "name": "loadAutomationRules"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 270,
-    "kind": "variable",
-    "name": "requestID"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 271,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 271,
-    "kind": "variable",
-    "name": "issuesPromise"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 275,
-    "kind": "variable",
-    "name": "result"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 289,
-    "kind": "variable",
-    "name": "issues"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 294,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 294,
-    "kind": "variable",
-    "name": "loadReplyRules"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 295,
+    "line": 162,
     "kind": "variable",
     "name": "cookieID"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 297,
-    "kind": "variable",
-    "name": "requestID"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 302,
-    "kind": "variable",
-    "name": "rules"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 306,
+    "line": 163,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 306,
+    "line": 166,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 166,
     "kind": "variable",
-    "name": "loadDefaultReplies"
+    "name": "selectedRuleItem"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 310,
+    "line": 168,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 310,
+    "line": 171,
     "kind": "variable",
-    "name": "refresh"
+    "name": "isMultiSpecRule"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 325,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 326,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 326,
+    "line": 172,
     "kind": "variable",
-    "name": "timer"
+    "name": "currentTrigger"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 330,
+    "line": 173,
+    "kind": "variable",
+    "name": "currentMeta"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 174,
+    "kind": "variable",
+    "name": "reviewConfig"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 176,
     "kind": "function-expression",
     "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 176,
+    "kind": "variable",
+    "name": "buildAutomationDraft"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 181,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 181,
+    "kind": "variable",
+    "name": "item"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 182,
+    "kind": "variable",
+    "name": "itemLabel"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 199,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 199,
+    "kind": "variable",
+    "name": "openAutomationRule"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 200,
+    "kind": "variable",
+    "name": "trigger"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 205,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 206,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 211,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 213,
+    "kind": "variable",
+    "name": "cancelled"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 215,
+    "kind": "variable",
+    "name": "openLinkedRule"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 220,
+    "kind": "variable",
+    "name": "[ruleList, itemList, cardList]"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 223,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 232,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 232,
+    "kind": "variable",
+    "name": "rule"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 240,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 240,
+    "kind": "variable",
+    "name": "item"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 252,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 264,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 267,
+    "kind": "variable",
+    "name": "openNewAutomationRule"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 276,
+    "kind": "variable",
+    "name": "handleTriggerChange"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 278,
+    "kind": "variable",
+    "name": "currentCardID"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 279,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 280,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 283,
+    "kind": "variable",
+    "name": "itemLabel"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 299,
+    "kind": "variable",
+    "name": "handleAutomationItemChange"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 301,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 301,
+    "kind": "variable",
+    "name": "item"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 305,
+    "kind": "variable",
+    "name": "itemLabel"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 317,
+    "kind": "variable",
+    "name": "displayVariants"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 321,
+    "kind": "variable",
+    "name": "updateVariant"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 323,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 323,
+    "kind": "variable",
+    "name": "next"
   },
   {
     "file": "components/Rules.tsx",
     "line": 333,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 334,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 337,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 338,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 341,
     "kind": "variable",
-    "name": "visibleAutomationRules"
+    "name": "appendDeliveryContent"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 342,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 342,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 346,
+    "line": 335,
     "kind": "variable",
-    "name": "visibleAutomationIssues"
+    "name": "previous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 347,
-    "kind": "function-expression",
-    "name": "anonymous"
+    "line": 349,
+    "kind": "variable",
+    "name": "handleSaveAutomationRule"
   },
   {
     "file": "components/Rules.tsx",
     "line": 351,
     "kind": "variable",
-    "name": "visibleDefaultAccounts"
+    "name": "trigger"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 352,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 352,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 356,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 356,
+    "line": 357,
     "kind": "variable",
-    "name": "automationPageNumbers"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 358,
-    "kind": "variable",
-    "name": "first"
+    "name": "variants"
   },
   {
     "file": "components/Rules.tsx",
     "line": 359,
-    "kind": "variable",
-    "name": "last"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 360,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
     "line": 363,
-    "kind": "variable",
-    "name": "hasAutomationListFilters"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 367,
-    "kind": "variable",
-    "name": "clearAutomationListFilters"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 375,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 375,
-    "kind": "variable",
-    "name": "modalAccountItems"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 376,
-    "kind": "variable",
-    "name": "cookieID"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 377,
+    "line": 370,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 380,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 380,
-    "kind": "variable",
-    "name": "selectedRuleItem"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 382,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 385,
-    "kind": "variable",
-    "name": "isMultiSpecRule"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 386,
-    "kind": "variable",
-    "name": "currentTrigger"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 387,
-    "kind": "variable",
-    "name": "currentMeta"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 388,
-    "kind": "variable",
-    "name": "reviewConfig"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 390,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 390,
-    "kind": "variable",
-    "name": "buildAutomationDraft"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 395,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 395,
-    "kind": "variable",
-    "name": "item"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 396,
-    "kind": "variable",
-    "name": "itemLabel"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 413,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 413,
-    "kind": "variable",
-    "name": "openAutomationRule"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 414,
-    "kind": "variable",
-    "name": "trigger"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 419,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 420,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 425,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 427,
-    "kind": "variable",
-    "name": "cancelled"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 429,
-    "kind": "variable",
-    "name": "openLinkedRule"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 434,
-    "kind": "variable",
-    "name": "[ruleList, itemList, cardList]"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 437,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 446,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 446,
-    "kind": "variable",
-    "name": "rule"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 454,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 454,
-    "kind": "variable",
-    "name": "item"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 466,
-    "kind": "variable",
-    "name": "error"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 478,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 481,
-    "kind": "variable",
-    "name": "openNewAutomationRule"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 490,
-    "kind": "variable",
-    "name": "handleTriggerChange"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 492,
-    "kind": "variable",
-    "name": "currentCardID"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 493,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 494,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 497,
-    "kind": "variable",
-    "name": "itemLabel"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 513,
-    "kind": "variable",
-    "name": "handleAutomationItemChange"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 515,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 515,
-    "kind": "variable",
-    "name": "item"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 519,
-    "kind": "variable",
-    "name": "itemLabel"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 531,
-    "kind": "variable",
-    "name": "displayVariants"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 535,
-    "kind": "variable",
-    "name": "updateVariant"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 537,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 537,
-    "kind": "variable",
-    "name": "next"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 547,
-    "kind": "variable",
-    "name": "appendDeliveryContent"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 549,
-    "kind": "variable",
-    "name": "previous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 563,
-    "kind": "variable",
-    "name": "handleSaveAutomationRule"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 565,
-    "kind": "variable",
-    "name": "trigger"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 571,
-    "kind": "variable",
-    "name": "variants"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 573,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 577,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 584,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 584,
+    "line": 370,
     "kind": "variable",
     "name": "text"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 591,
+    "line": 377,
     "kind": "variable",
     "name": "saveVariants"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 593,
+    "line": 379,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 618,
+    "line": 388,
+    "kind": "variable",
+    "name": "succeeded"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 407,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 624,
+    "line": 411,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 415,
     "kind": "variable",
     "name": "handleDeleteAutomation"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 630,
+    "line": 421,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 635,
+    "line": 426,
     "kind": "variable",
     "name": "handleToggleAutomation"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 639,
+    "line": 430,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 644,
+    "line": 435,
     "kind": "variable",
     "name": "handleResolveRunIssue"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 645,
+    "line": 436,
     "kind": "variable",
     "name": "prompt"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 654,
+    "line": 445,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 659,
+    "line": 450,
     "kind": "variable",
     "name": "handleResolveDeferredIssue"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 664,
+    "line": 455,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 669,
+    "line": 460,
     "kind": "variable",
     "name": "handleAddReplyRule"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 68,
-    "kind": "member",
-    "name": "initialDeliveryTarget"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 686,
+    "line": 477,
     "kind": "variable",
     "name": "handleSaveReplyRule"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 688,
+    "line": 479,
     "kind": "variable",
     "name": "hasReplyContent"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 69,
-    "kind": "member",
-    "name": "cookieId"
+    "line": 48,
+    "kind": "variable",
+    "name": "[activeTab, setActiveTab]"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 70,
-    "kind": "member",
-    "name": "itemId"
+    "line": 487,
+    "kind": "variable",
+    "name": "succeeded"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 700,
+    "line": 49,
+    "kind": "variable",
+    "name": "[selectedAccountId, setSelectedAccountId]"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 494,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 705,
+    "line": 497,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 50,
+    "kind": "variable",
+    "name": "[automationSearch, setAutomationSearch]"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 501,
     "kind": "variable",
     "name": "handleDeleteReply"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 71,
-    "kind": "member",
-    "name": "requestId"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 711,
+    "line": 507,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 716,
+    "line": 51,
+    "kind": "variable",
+    "name": "[debouncedAutomationSearch, setDebouncedAutomationSearch]"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 512,
     "kind": "variable",
     "name": "openDefaultReplyModal"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 722,
+    "line": 518,
     "kind": "variable",
     "name": "data"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 73,
-    "kind": "member",
-    "name": "onDeliveryTargetHandled"
+    "line": 52,
+    "kind": "variable",
+    "name": "[automationTriggerFilter, setAutomationTriggerFilter]"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 742,
+    "line": 53,
+    "kind": "variable",
+    "name": "[automationStatusFilter, setAutomationStatusFilter]"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 538,
     "kind": "variable",
     "name": "handleSaveDefaultReply"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 761,
+    "line": 54,
+    "kind": "variable",
+    "name": "[automationPage, setAutomationPage]"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 549,
+    "kind": "variable",
+    "name": "succeeded"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 55,
+    "kind": "variable",
+    "name": "[automationPageSize, setAutomationPageSize]"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 561,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 766,
+    "line": 564,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 568,
     "kind": "variable",
     "name": "handleDeleteDefaultReply"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 77,
-    "kind": "member",
-    "name": "cookie_id"
+    "line": 57,
+    "kind": "variable",
+    "name": "rulesData"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 772,
+    "line": 574,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 777,
+    "line": 579,
     "kind": "variable",
     "name": "handleClearDefaultReplyRecords"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 78,
-    "kind": "member",
-    "name": "enabled"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 782,
+    "line": 584,
     "kind": "variable",
     "name": "error"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 787,
+    "line": 589,
     "kind": "variable",
     "name": "primaryActionLabel"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 79,
-    "kind": "member",
-    "name": "reply_content"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 80,
-    "kind": "member",
-    "name": "reply_once"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 803,
+    "line": 605,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 81,
-    "kind": "member",
-    "name": "reply_image_url"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 810,
+    "line": 612,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 822,
+    "line": 624,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 822,
+    "line": 624,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 639,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 640,
+    "kind": "variable",
+    "name": "Icon"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 644,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 662,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 663,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 674,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 675,
+    "kind": "variable",
+    "name": "meta"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 676,
+    "kind": "variable",
+    "name": "Icon"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 68,
+    "kind": "variable",
+    "name": "{\n    automationRules,\n    automationIssues,\n    replyRules,\n    defaultReplies,\n    accounts,\n    cards,\n    items,\n    loading,\n    setLoading,\n    automationTotal,\n    automationTotalPages,\n    automationTriggerCounts,\n    setAutomationRules,\n    setCards,\n    setItems,\n    loadReferenceData,\n    loadAutomationRules,\n    loadReplyRules,\n    loadDefaultReplies,\n    refresh,\n  }"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 681,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 705,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 706,
+    "kind": "variable",
+    "name": "meta"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 707,
+    "kind": "variable",
+    "name": "Icon"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 732,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 744,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 751,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 757,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 797,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 798,
+    "kind": "variable",
+    "name": "meta"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 799,
+    "kind": "variable",
+    "name": "Icon"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 824,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 831,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -9829,63 +9307,27 @@
   },
   {
     "file": "components/Rules.tsx",
-    "line": 838,
-    "kind": "variable",
-    "name": "Icon"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 842,
+    "line": 859,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 85,
-    "kind": "member",
-    "name": "label"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 86,
-    "kind": "member",
-    "name": "shortLabel"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 866,
+    "line": 865,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 87,
-    "kind": "member",
-    "name": "description"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 874,
+    "line": 873,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 875,
+    "line": 873,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 876,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 88,
-    "kind": "member",
-    "name": "flow"
   },
   {
     "file": "components/Rules.tsx",
@@ -9895,97 +9337,91 @@
   },
   {
     "file": "components/Rules.tsx",
-    "line": 887,
+    "line": 885,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 888,
+    "line": 896,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 89,
-    "kind": "member",
-    "name": "accent"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 90,
-    "kind": "member",
-    "name": "icon"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 903,
+    "line": 896,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 904,
+    "line": 91,
     "kind": "variable",
-    "name": "meta"
+    "name": "[showAutomationModal, setShowAutomationModal]"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 905,
-    "kind": "variable",
-    "name": "Icon"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 910,
+    "line": 917,
     "kind": "function-expression",
     "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 92,
+    "kind": "variable",
+    "name": "[showReplyModal, setShowReplyModal]"
   },
   {
     "file": "components/Rules.tsx",
     "line": 93,
     "kind": "variable",
-    "name": "triggerMeta"
+    "name": "[showDefaultModal, setShowDefaultModal]"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 934,
+    "line": 930,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 935,
+    "line": 939,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 957,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Rules.tsx",
+    "line": 958,
     "kind": "variable",
-    "name": "meta"
+    "name": "defaultReply"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 936,
+    "line": 959,
     "kind": "variable",
-    "name": "Icon"
+    "name": "enabled"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 961,
+    "line": 983,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 973,
+    "line": 992,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Rules.tsx",
-    "line": 980,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Rules.tsx",
-    "line": 986,
+    "line": 997,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -11245,12 +10681,6 @@
   },
   {
     "file": "request.ts",
-    "line": 117,
-    "kind": "variable",
-    "name": "detail"
-  },
-  {
-    "file": "request.ts",
     "line": 118,
     "kind": "member",
     "name": "payload"
@@ -11428,12 +10858,6 @@
     "line": 74,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "request.ts",
-    "line": 75,
-    "kind": "variable",
-    "name": "detail"
   },
   {
     "file": "request.ts",
@@ -12722,18 +12146,6 @@
   {
     "file": "services/api.ts",
     "line": 1014,
-    "kind": "member",
-    "name": "channel_ids"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 1014,
-    "kind": "member",
-    "name": "cookie_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 1014,
     "kind": "variable",
     "name": "result"
   },
@@ -12784,18 +12196,6 @@
     "line": 1056,
     "kind": "variable",
     "name": "clearDefaultReplyRecords"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 106,
-    "kind": "member",
-    "name": "success"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 106,
-    "kind": "member",
-    "name": "summary"
   },
   {
     "file": "services/api.ts",
@@ -13070,30 +12470,6 @@
   {
     "file": "services/api.ts",
     "line": 166,
-    "kind": "member",
-    "name": "message"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 166,
-    "kind": "member",
-    "name": "qr_code_url"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 166,
-    "kind": "member",
-    "name": "session_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 166,
-    "kind": "member",
-    "name": "success"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 166,
     "kind": "variable",
     "name": "generateQRLogin"
   },
@@ -13108,30 +12484,6 @@
     "line": 175,
     "kind": "variable",
     "name": "completeQRVerification"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 179,
-    "kind": "member",
-    "name": "success"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 180,
-    "kind": "member",
-    "name": "account_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 181,
-    "kind": "member",
-    "name": "scanned_account_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 182,
-    "kind": "member",
-    "name": "message"
   },
   {
     "file": "services/api.ts",
@@ -13568,18 +12920,6 @@
   {
     "file": "services/api.ts",
     "line": 338,
-    "kind": "member",
-    "name": "data"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 338,
-    "kind": "member",
-    "name": "order"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 338,
     "kind": "variable",
     "name": "result"
   },
@@ -13826,18 +13166,6 @@
   {
     "file": "services/api.ts",
     "line": 457,
-    "kind": "member",
-    "name": "id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 457,
-    "kind": "member",
-    "name": "message"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 457,
     "kind": "variable",
     "name": "createCard"
   },
@@ -13864,90 +13192,6 @@
     "line": 470,
     "kind": "variable",
     "name": "card"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 476,
-    "kind": "member",
-    "name": "success"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 477,
-    "kind": "member",
-    "name": "total"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 478,
-    "kind": "member",
-    "name": "created"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 479,
-    "kind": "member",
-    "name": "failed"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 480,
-    "kind": "member",
-    "name": "error"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 480,
-    "kind": "member",
-    "name": "id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 480,
-    "kind": "member",
-    "name": "name"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 480,
-    "kind": "member",
-    "name": "row_no"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 480,
-    "kind": "member",
-    "name": "rows"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 480,
-    "kind": "member",
-    "name": "success"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 480,
-    "kind": "member",
-    "name": "type"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 482,
-    "kind": "variable",
-    "name": "body"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 488,
-    "kind": "member",
-    "name": "added"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 488,
-    "kind": "member",
-    "name": "success"
   },
   {
     "file": "services/api.ts",
@@ -14146,42 +13390,6 @@
     "line": 559,
     "kind": "variable",
     "name": "recommendPublishCategory"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 560,
-    "kind": "member",
-    "name": "success"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 561,
-    "kind": "member",
-    "name": "category"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 562,
-    "kind": "member",
-    "name": "cat_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 563,
-    "kind": "member",
-    "name": "cat_name"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 564,
-    "kind": "member",
-    "name": "channel_cat_id"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 565,
-    "kind": "member",
-    "name": "tb_cat_id"
   },
   {
     "file": "services/api.ts",
@@ -14854,12 +14062,6 @@
     "line": 909,
     "kind": "variable",
     "name": "fetchAIModels"
-  },
-  {
-    "file": "services/api.ts",
-    "line": 910,
-    "kind": "member",
-    "name": "models"
   },
   {
     "file": "services/api.ts",

@@ -1,38 +1,21 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  AccountDetail,
-  AutomationAction,
-  AutomationTriggerType,
-  Card,
-  DefaultReply,
-  Item,
-  ReplyRule,
-  ShippingRule,
-  ShippingVariant,
-} from '../types';
+import type { AutomationTriggerType, ReplyRule, ShippingRule, ShippingVariant } from '../app/features/rules/types';
 import {
   clearDefaultReplyRecords,
   deleteDefaultReply,
   deleteReplyRule,
   deleteShippingRule,
-  getAccountDetails,
   getCards,
-  getDefaultReplies,
   getDefaultReply,
   getItems,
-  getAutomationIssues,
-  getReplyRules,
   getShippingRules,
-  getShippingRulesPage,
   updateDefaultReply,
   updateReplyRule,
   updateShippingRule,
   resolveAutomationRun,
   resolveDeferredAutomationTask,
-  AutomationRunIssue,
-  DeferredAutomationIssue,
-} from '../services/api';
+} from '../app/features/rules/api';
 import {
   AlertCircle,
   Bot,
@@ -41,10 +24,8 @@ import {
   ChevronRight,
   Clock3,
   Edit,
-  Gift,
   Layers3,
   MessageCircle,
-  PackageCheck,
   Plus,
   RefreshCw,
   Save,
@@ -55,174 +36,16 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import {
-  automationIssueKindLabel,
-  canResolveAutomationIssue,
-  filterAutomationIssues,
-} from './automationIssueState';
-import { commitIfLatest } from './latestRequest';
+import { AutomationIssuePanel } from '../app/features/rules/components/AutomationIssuePanel';
+import { useRulesData } from '../app/features/rules/hooks';
+import { filterAutomationIssues } from '../app/features/rules/issueState';
+import { triggerMeta, triggerOrder, emptyVariant, parseJSONObject, buildReviewConfig, defaultRuleName, shouldReplaceGeneratedName, cardActionsForTrigger, actionSummary, accentClasses, statusPill, accountLabel, boolFlag } from '../app/features/rules/utils';
+import type { RulesProps, RulesTab, DefaultReplyForm } from '../app/features/rules/types';
+import { finishRuleSubmission, idleRuleSubmitState, startRuleSubmission, type RuleSubmitState } from '../app/features/rules/interactionState';
 
-type RulesTab = 'automation' | 'reply' | 'default';
-
-interface RulesProps {
-  initialDeliveryTarget?: {
-    cookieId: string;
-    itemId: string;
-    requestId: number;
-  };
-  onDeliveryTargetHandled?: () => void;
-}
-
-interface DefaultReplyForm {
-  cookie_id: string;
-  enabled: boolean;
-  reply_content: string;
-  reply_once: boolean;
-  reply_image_url: string;
-}
-
-interface TriggerMeta {
-  label: string;
-  shortLabel: string;
-  description: string;
-  flow: string[];
-  accent: string;
-  icon: React.ElementType;
-}
-
-const triggerMeta: Record<AutomationTriggerType, TriggerMeta> = {
-  order_paid: {
-    label: '付款后自动发货',
-    shortLabel: '自动发货',
-    description: '闲鱼付款系统卡片进入自动化中心后，先发送卡密，成功后再确认发货。',
-    flow: ['付款系统卡片', '匹配商品/规格', '发送卡密', '确认发货'],
-    accent: 'blue',
-    icon: PackageCheck,
-  },
-  buyer_reviewed: {
-    label: '评价后发送赠品',
-    shortLabel: '评价赠品',
-    description: '闲鱼评价系统卡片进入自动化中心后，给买家发送赠品卡密。',
-    flow: ['评价系统卡片', '匹配商品/规格', '发送赠品'],
-    accent: 'emerald',
-    icon: Gift,
-  },
-  review_missing_timeout: {
-    label: '超时未评价求评价',
-    shortLabel: '求评价',
-    description: '计划任务扫描已发货未评价订单，到期后发送求评价文案。',
-    flow: ['计划任务扫描', '已发货未评价', '达到等待时间', '发送提醒'],
-    accent: 'amber',
-    icon: Clock3,
-  },
-};
-
-const triggerOrder: AutomationTriggerType[] = ['order_paid', 'buyer_reviewed', 'review_missing_timeout'];
-const reviewRequestText = '亲，商品使用满意的话，麻烦给个评价，谢谢～';
-
-const emptyVariant = (): ShippingVariant => ({
-  spec_name: '',
-  spec_value: '',
-  card_id: 0,
-  delivery_count: 1,
-  enabled: true,
-  delay_override: false,
-  delay_seconds: 0,
-});
-
-const parseJSONObject = (raw?: string): Record<string, any> => {
-  if (!raw) return {};
-  try {
-    const value = JSON.parse(raw);
-    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-  } catch {
-    return {};
-  }
-};
-
-const buildReviewConfig = (raw?: string, patch: Record<string, number> = {}) => {
-  const current = parseJSONObject(raw);
-  return JSON.stringify({
-    after_shipped_hours: Number(current.after_shipped_hours || 72),
-    repeat_interval_hours: Number(current.repeat_interval_hours || 24),
-    max_attempts: Number(current.max_attempts || 1),
-    ...patch,
-  });
-};
-
-const defaultRuleName = (trigger: AutomationTriggerType, itemLabel?: string) => {
-  const base = triggerMeta[trigger]?.label || '自动化规则';
-  return itemLabel ? `${base} - ${itemLabel}` : base;
-};
-
-const shouldReplaceGeneratedName = (name?: string) => {
-  const trimmed = (name || '').trim();
-  if (!trimmed) return true;
-  return Object.values(triggerMeta).some(meta => trimmed === meta.label || trimmed.startsWith(`${meta.label} -`));
-};
-
-const cardActionsForTrigger = (trigger: AutomationTriggerType, cardID = 0): AutomationAction[] => {
-  if (trigger === 'review_missing_timeout') {
-    return [{
-      action_type: 'send_text',
-      message_template: reviewRequestText,
-      enabled: true,
-      sort_order: 1,
-    }];
-  }
-
-  const sendCard: AutomationAction = {
-    action_type: 'send_card',
-    card_id: cardID,
-    delivery_count: 1,
-    enabled: true,
-    sort_order: 1,
-  };
-
-  if (trigger === 'order_paid') {
-    return [
-      sendCard,
-      { action_type: 'confirm_shipment', enabled: true, sort_order: 2 },
-    ];
-  }
-  return [sendCard];
-};
-
-const actionSummary = (rule: ShippingRule) => {
-  if (rule.trigger_type === 'review_missing_timeout') {
-    return rule.actions?.find(action => action.action_type === 'send_text')?.message_template || '发送求评价文案';
-  }
-  const cards = (rule.actions || []).filter(action => action.action_type === 'send_card');
-  if (!cards.length) return '未配置卡密库存';
-  return cards.map(action => action.card_name || `卡密 ${action.card_id}`).join(' / ');
-};
-
-const accentClasses = (accent: TriggerMeta['accent'], selected = false) => {
-  const map: Record<string, string> = {
-    blue: selected ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-blue-100 bg-blue-50/60 text-blue-700 hover:border-blue-300',
-    emerald: selected ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-emerald-100 bg-emerald-50/60 text-emerald-700 hover:border-emerald-300',
-    amber: selected ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-amber-100 bg-amber-50/60 text-amber-700 hover:border-amber-300',
-  };
-  return map[accent] || map.blue;
-};
-
-const statusPill = (enabled: boolean) =>
-  enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500';
-
-const accountLabel = (account?: AccountDetail) => account?.nickname || account?.remark || account?.id || '未知账号';
-
-const boolFlag = (value: unknown): boolean => value === true || value === 1 || value === '1';
-
+// Rules 是规则 feature 在旧页面目录下保留的兼容入口组件。
 const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHandled }) => {
   const [activeTab, setActiveTab] = useState<RulesTab>('automation');
-  const [automationRules, setAutomationRules] = useState<ShippingRule[]>([]);
-  const [automationIssues, setAutomationIssues] = useState<{ runs: AutomationRunIssue[]; pending_tasks: DeferredAutomationIssue[] }>({ runs: [], pending_tasks: [] });
-  const [replyRules, setReplyRules] = useState<ReplyRule[]>([]);
-  const [defaultReplies, setDefaultReplies] = useState<Record<string, DefaultReply>>({});
-  const [accounts, setAccounts] = useState<AccountDetail[]>([]);
-  const [cards, setCards] = useState<Card[]>([]);
-  const [items, setItems] = useState<Item[]>([]);
-  const [loading, setLoading] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [automationSearch, setAutomationSearch] = useState('');
   const [debouncedAutomationSearch, setDebouncedAutomationSearch] = useState('');
@@ -230,17 +53,50 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
   const [automationStatusFilter, setAutomationStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
   const [automationPage, setAutomationPage] = useState(1);
   const [automationPageSize, setAutomationPageSize] = useState(10);
-  const [automationTotal, setAutomationTotal] = useState(0);
-  const [automationTotalPages, setAutomationTotalPages] = useState(0);
-  const [automationTriggerCounts, setAutomationTriggerCounts] = useState<Record<string, number>>({});
-  const automationRulesRequest = useRef(0);
-  const replyRulesRequest = useRef(0);
-  const selectedAccountRef = useRef('');
-  selectedAccountRef.current = selectedAccountId;
+
+  const rulesData = useRulesData({
+    activeTab,
+    selectedAccountId,
+    automationTriggerFilter,
+    automationStatusFilter,
+    debouncedAutomationSearch,
+    automationPage,
+    automationPageSize,
+    setSelectedAccountId,
+    onAutomationPageChange: setAutomationPage,
+  });
+  const {
+    automationRules,
+    automationIssues,
+    replyRules,
+    defaultReplies,
+    accounts,
+    cards,
+    items,
+    loading,
+    setLoading,
+    automationTotal,
+    automationTotalPages,
+    automationTriggerCounts,
+    setAutomationRules,
+    setCards,
+    setItems,
+    loadReferenceData,
+    loadAutomationRules,
+    loadReplyRules,
+    loadDefaultReplies,
+    refresh,
+  } = rulesData;
 
   const [showAutomationModal, setShowAutomationModal] = useState(false);
   const [showReplyModal, setShowReplyModal] = useState(false);
   const [showDefaultModal, setShowDefaultModal] = useState(false);
+  // automationSubmitState 防止自动化规则保存按钮在请求期间重复提交。
+  const [automationSubmitState, setAutomationSubmitState] = useState<RuleSubmitState>(idleRuleSubmitState);
+  // replySubmitState 防止关键词回复保存按钮在请求期间重复提交。
+  const [replySubmitState, setReplySubmitState] = useState<RuleSubmitState>(idleRuleSubmitState);
+  // defaultReplySubmitState 防止默认回复保存按钮在请求期间重复提交。
+  const [defaultReplySubmitState, setDefaultReplySubmitState] = useState<RuleSubmitState>(idleRuleSubmitState);
   const [editingAutomationRule, setEditingAutomationRule] = useState<Partial<ShippingRule> | null>(null);
   const [editingReplyRule, setEditingReplyRule] = useState<Partial<ReplyRule> | null>(null);
   const [defaultForm, setDefaultForm] = useState<DefaultReplyForm>({
@@ -251,76 +107,6 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     reply_image_url: '',
   });
   const selectedAccount = accounts.find(account => account.id === selectedAccountId);
-
-  const loadReferenceData = useCallback(async () => {
-    const [accountList, cardList, itemList, defaultReplyMap] = await Promise.all([
-      getAccountDetails(),
-      getCards(),
-      getItems(),
-      getDefaultReplies(),
-    ]);
-    setAccounts(accountList);
-    setCards(cardList);
-    setItems(itemList);
-    setDefaultReplies(defaultReplyMap);
-    setSelectedAccountId(current => current || accountList[0]?.id || '');
-  }, []);
-
-  const loadAutomationRules = useCallback(async () => {
-	const requestID = ++automationRulesRequest.current;
-	const issuesPromise = getAutomationIssues().catch(error => {
-	  console.warn('加载自动化异常列表失败，不阻断规则展示', error);
-	  return null;
-	});
-	const result = await getShippingRulesPage({
-	  cookieId: selectedAccountId || undefined,
-	  triggerType: automationTriggerFilter,
-	  enabled: automationStatusFilter === 'all' ? undefined : automationStatusFilter === 'enabled',
-	  search: debouncedAutomationSearch,
-	  page: automationPage,
-	  pageSize: automationPageSize,
-	});
-	if (requestID !== automationRulesRequest.current) return;
-	setAutomationRules(result.data);
-	setAutomationTotal(result.total);
-	setAutomationTotalPages(result.total_pages);
-	setAutomationTriggerCounts(result.trigger_counts || {});
-	if (result.page !== automationPage) setAutomationPage(result.page);
-	const issues = await issuesPromise;
-	if (requestID !== automationRulesRequest.current) return;
-	if (issues) setAutomationIssues(issues);
-  }, [automationPage, automationPageSize, automationStatusFilter, automationTriggerFilter, debouncedAutomationSearch, selectedAccountId]);
-
-  const loadReplyRules = useCallback(async () => {
-	const cookieID = selectedAccountId;
-	if (cookieID !== selectedAccountRef.current) return;
-	const requestID = ++replyRulesRequest.current;
-	setReplyRules([]);
-	if (!cookieID) {
-	  return;
-	}
-	const rules = await getReplyRules(cookieID);
-	commitIfLatest(requestID, replyRulesRequest.current, cookieID, selectedAccountRef.current, rules, setReplyRules);
-  }, [selectedAccountId]);
-
-  const loadDefaultReplies = useCallback(async () => {
-    setDefaultReplies(await getDefaultReplies());
-  }, []);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    try {
-      if (activeTab === 'automation') {
-        await loadAutomationRules();
-      } else if (activeTab === 'reply') {
-        await loadReplyRules();
-      } else {
-        await loadDefaultReplies();
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [activeTab, loadAutomationRules, loadDefaultReplies, loadReplyRules]);
 
   useEffect(() => {
 	const timer = window.setTimeout(() => {
@@ -561,7 +347,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
   };
 
   const handleSaveAutomationRule = async () => {
-    if (!editingAutomationRule) return;
+    if (!editingAutomationRule || automationSubmitState.submitting) return;
     const trigger = (editingAutomationRule.trigger_type || 'order_paid') as AutomationTriggerType;
     if (!editingAutomationRule.cookie_id) {
       alert('请选择账号');
@@ -598,6 +384,8 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
         enabled: variant.enabled !== false,
       }));
 
+    setAutomationSubmitState(startRuleSubmission(automationSubmitState));
+    let succeeded = false;
     try {
       await updateShippingRule({
         ...editingAutomationRule,
@@ -615,9 +403,12 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       setShowAutomationModal(false);
       await Promise.all([loadAutomationRules(), loadReferenceData()]);
       alert('保存成功');
+      succeeded = true;
     } catch (error) {
       console.error('保存自动化规则失败:', error);
       alert('保存失败：' + (error as Error).message);
+    } finally {
+      setAutomationSubmitState(current => finishRuleSubmission(current, succeeded));
     }
   };
 
@@ -684,7 +475,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
   };
 
   const handleSaveReplyRule = async () => {
-    if (!editingReplyRule || !selectedAccountId) return;
+    if (!editingReplyRule || !selectedAccountId || replySubmitState.submitting) return;
     const hasReplyContent = editingReplyRule.type === 'image'
       ? Boolean(editingReplyRule.image_url?.trim())
       : Boolean(editingReplyRule.reply_content?.trim());
@@ -692,13 +483,18 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       alert('请填写关键词和回复内容');
       return;
     }
+    setReplySubmitState(startRuleSubmission(replySubmitState));
+    let succeeded = false;
     try {
       await updateReplyRule({ ...editingReplyRule, match_type: 'fuzzy', enabled: true }, selectedAccountId);
       setShowReplyModal(false);
       await loadReplyRules();
       alert('保存成功');
+      succeeded = true;
     } catch (error) {
       alert('保存失败：' + (error as Error).message);
+    } finally {
+      setReplySubmitState(current => finishRuleSubmission(current, succeeded));
     }
   };
 
@@ -740,6 +536,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
   };
 
   const handleSaveDefaultReply = async () => {
+    if (defaultReplySubmitState.submitting) return;
     if (!defaultForm.cookie_id) {
       alert('请先选择账号');
       return;
@@ -748,6 +545,8 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       alert('启用默认回复时，请填写回复内容或图片 URL');
       return;
     }
+    setDefaultReplySubmitState(startRuleSubmission(defaultReplySubmitState));
+    let succeeded = false;
     try {
       await updateDefaultReply(defaultForm.cookie_id, {
         enabled: defaultForm.enabled,
@@ -758,8 +557,11 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       setShowDefaultModal(false);
       await loadDefaultReplies();
       alert('保存成功');
+      succeeded = true;
     } catch (error) {
       alert('保存失败：' + (error as Error).message);
+    } finally {
+      setDefaultReplySubmitState(current => finishRuleSubmission(current, succeeded));
     }
   };
 
@@ -854,44 +656,13 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
       </div>
 
 	  {activeTab === 'automation' && (visibleAutomationIssues.runs.length > 0 || visibleAutomationIssues.pending_tasks.length > 0) && (
-        <section className="rounded-2xl border border-red-200 bg-red-50 p-5 space-y-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
-            <div>
-              <h3 className="font-black text-red-900">需要人工处理的自动化任务</h3>
-              <p className="text-sm text-red-700 mt-1">请先在闲鱼聊天、订单或商品列表中核对真实结果，再选择继续或重试。</p>
-            </div>
-          </div>
-          <div className="space-y-3">
-			{visibleAutomationIssues.runs.map(issue => (
-              <div key={`run-${issue.id}`} className="rounded-xl border border-red-100 bg-white p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-bold text-gray-900">账号 {issue.cookie_id} · 订单 {issue.order_id || '-'} · 已记录发送 {issue.sent_count} 条</div>
-				  <div className="text-xs font-bold text-red-800 mt-1">{automationIssueKindLabel(issue.issue_kind)}</div>
-				  <div className="text-xs text-red-700 mt-1 break-words">{issue.error_message}</div>
-                </div>
-                <div className="flex flex-wrap gap-2 shrink-0">
-				  {canResolveAutomationIssue(issue, 'continue') && <button onClick={() => void handleResolveRunIssue(issue.id, 'continue')} className="px-3 py-2 rounded-lg bg-emerald-100 text-emerald-800 text-xs font-bold">已执行，继续下一步</button>}
-				  {canResolveAutomationIssue(issue, 'retry') && <button onClick={() => void handleResolveRunIssue(issue.id, 'retry')} className="px-3 py-2 rounded-lg bg-amber-100 text-amber-800 text-xs font-bold">未执行，安全重试</button>}
-				  {canResolveAutomationIssue(issue, 'cancel') && <button onClick={() => void handleResolveRunIssue(issue.id, 'cancel')} className="px-3 py-2 rounded-lg bg-gray-100 text-gray-700 text-xs font-bold">终止</button>}
-                </div>
-              </div>
-            ))}
-			{visibleAutomationIssues.pending_tasks.map(issue => (
-              <div key={`task-${issue.id}`} className="rounded-xl border border-red-100 bg-white p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="font-bold text-gray-900">账号 {issue.cookie_id} · 延迟任务重试已达 {issue.attempt_count} 次</div>
-                  <div className="text-xs text-red-700 mt-1 break-words">{issue.error_message}</div>
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  <button onClick={() => void handleResolveDeferredIssue(issue.id, 'retry')} className="px-3 py-2 rounded-lg bg-amber-100 text-amber-800 text-xs font-bold">重新入队</button>
-                  <button onClick={() => void handleResolveDeferredIssue(issue.id, 'dismiss')} className="px-3 py-2 rounded-lg bg-gray-100 text-gray-700 text-xs font-bold">忽略</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+	    <AutomationIssuePanel
+	      runs={visibleAutomationIssues.runs}
+	      pendingTasks={visibleAutomationIssues.pending_tasks}
+	      onResolveRun={(id, resolution) => void handleResolveRunIssue(id, resolution)}
+	      onResolveDeferredTask={(id, resolution) => void handleResolveDeferredIssue(id, resolution)}
+	    />
+	  )}
 
       {activeTab === 'automation' && (
         <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(270px,0.72fr)_minmax(0,1.28fr)]">

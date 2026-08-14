@@ -96,7 +96,7 @@ app shell / routes
 | 4. Server 应用服务 | 已完成 | 订单、发布、登录、聊天纵向抽取 | 应用服务、事务边界、后台生命周期和 Server 查询依赖均已收口，handler 不再直接访问数据库 |
 | 5. 应用生命周期装配 | 已完成 | 消除必需依赖 setter 回填 | 构造验证与幂等关闭测试 |
 | 6. Engine 与 Automation | 已完成 | facade + 独立状态组件 | Engine/Automation 组件边界、race、生命周期与冻结规范测试均已通过 |
-| 7. React Feature 化 | 未开始 | 页面、Hook、API、类型按领域拆分 | 行为测试、懒加载和 bundle 记录 |
+| 7. React Feature 化 | 进行中 | 页面、Hook、API、类型按领域拆分 | 行为测试、懒加载和 bundle 记录 |
 | 8. DB 与事务治理 | 未开始 | 窄接口、事务执行器、方言门禁 | 上层无裸 DB，多数据库回归 |
 | 9. 架构门禁与兼容清理 | 未开始 | 自动依赖规则、删除到期兼容层 | 架构检查与迁移说明 |
 | 10. 注释基线清零 | 未开始 | 全仓严格中文注释检查 | baseline 文件删除 |
@@ -169,7 +169,8 @@ app shell / routes
 - 已完成阶段 6 第六个 PR 切片“Automation 运行协调与动作执行边界”：新增 `automationRunCoordinator`，统一运行创建/恢复、动作前后检查点、延迟任务续租、账号门禁和不确定结果隔离；`Center` 保留兼容调用入口，外部动作已执行/未执行/结果未知三态语义、人工核对状态机和恢复游标保持不变；Automation 测试、注释和 diff 门禁通过，整批修改合并为一个可回滚提交；
 - 已完成阶段 6 第七个 PR 切片“Automation 发货、卡密与通知动作边界”：新增 `automationActionExecutor` 与 `deliveryNotifier`，统一确认发货、Cookie/Jar 合并、卡券锁与库存消费、消息错误三态分类和结果通知；`Center` 保留兼容入口，凭证锁、卡券库存、恢复唤醒和通知文案语义保持不变；新增动作执行器回归测试，Automation 测试、注释和 diff 门禁通过，整批修改合并为一个可回滚提交；
 - 已完成阶段 6 第八个 PR 切片“Automation 账号任务与凭证门禁边界”：新增 `accountTaskCoordinator`，统一账号状态门禁、自动评价/商品擦亮调度、任务租约、Session 指纹阻断、凭证恢复和 Cookie 同步；`Center` 保留公开任务入口，Session 失效恢复、任务幂等、失败重试和账号暂停语义保持不变；Automation 测试、注释和 diff 门禁通过，整批修改合并为一个可回滚提交；阶段 6 完成；
-- 阶段 7 下一 PR 切片为“React Rules feature 化与 API/行为测试边界”：按 `app/features/shared` 分层提取 Rules 页面 API、类型、Hook 和组件，补充成功、失败、取消、切换和重复提交行为测试，保持现有 API 路径兼容；
+- 已完成阶段 7 第一个 PR 切片“React Rules feature 化与 API/行为测试边界”：按 `app/features/rules` 提取 Rules API 适配层、领域类型、数据 Hook、异常面板和交互状态模型；规则页通过 Hook 管理服务端数据与请求代次，保留旧组件入口和现有 API 路径；行为测试覆盖成功、失败、重复提交、过期响应和页签切换；前端类型检查、全量测试、注释检查和构建门禁通过，合并为一个可回滚提交；
+- 阶段 7 下一 PR 切片为“React ItemList feature 化与批量发布行为边界”：按同一 feature 结构提取商品 API、批量发布 Hook 和页面组件，补充批量预检、取消、失败重试与过期任务行为测试；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -588,3 +589,4 @@ npm --prefix frontend run build
 | 2026-08-14 | 完成阶段 6 第六个 PR 切片“Automation 运行协调与动作执行边界” | 新增 `automationRunCoordinator`，统一运行创建/恢复、动作前后检查点、延迟任务续租、账号门禁和不确定结果隔离；`Center` 保留兼容调用入口，外部动作三态语义、人工核对状态机和恢复游标保持不变；Automation 测试、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Automation 发货、卡密与通知动作边界 |
 | 2026-08-14 | 完成阶段 6 第七个 PR 切片“Automation 发货、卡密与通知动作边界” | 新增 `automationActionExecutor` 与 `deliveryNotifier`，统一确认发货、Cookie/Jar 合并、卡券锁与库存消费、消息错误三态分类和结果通知；`Center` 保留兼容入口，凭证锁、卡券库存、恢复唤醒和通知文案语义保持不变；新增动作执行器回归测试；Automation 测试、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Automation 账号任务与凭证门禁边界 |
 | 2026-08-14 | 完成阶段 6 第八个 PR 切片“Automation 账号任务与凭证门禁边界” | 新增 `accountTaskCoordinator`，统一账号状态门禁、自动评价/商品擦亮调度、任务租约、Session 指纹阻断、凭证恢复和 Cookie 同步；`Center` 保留公开任务入口，Session 失效恢复、任务幂等、失败重试和账号暂停语义保持不变；Automation 测试、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 7：React Rules feature 化与 API/行为测试边界 |
+| 2026-08-14 | 完成阶段 7 第一个 PR 切片“React Rules feature 化与 API/行为测试边界” | 新增 `app/features/rules` 的 API 适配层、领域类型、数据 Hook、异常面板和交互状态模型；规则请求支持并行加载与请求代次门禁，保存动作阻断重复提交；行为测试覆盖成功、失败、重复提交、过期响应和页签切换；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交 | 阶段 7：React ItemList feature 化与批量发布行为边界 |
