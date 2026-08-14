@@ -815,8 +815,8 @@ func (a *Account) handleMaxFailures(ctx context.Context) error {
 	a.logger.Warn("连续失败达上限，触发 Go 协议续期", "failures", MaxConnectionFailures)
 	a.notifyRecoveringOffline(ctx, fmt.Sprintf("消息服务连续认证/连接失败 %d 次，开始自动恢复", MaxConnectionFailures))
 	if a.handler != nil && a.handler.OnPasswordLoginRefresh(ctx, a.CookieID) {
-		if d, err := a.store.Cookies.GetDetails(ctx, a.CookieID); err == nil && d != nil && d.Value != "" {
-			a.replaceCookieStr(d.Value)
+		if cookieValue, err := a.store.Cookies.GetValue(ctx, a.CookieID); err == nil && cookieValue != "" { // cookieValue 是恢复回调刚写入的 Cookie 明文。
+			a.replaceCookieStr(cookieValue)
 			a.clearCurrentToken()
 			a.clearTokenCache(ctx)
 		}

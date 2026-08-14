@@ -1141,3 +1141,35 @@ func TestPersistRenewFlatCookieExcludesLoginSecrets(t *testing.T) {
 		t.Fatalf("扁平 Cookie 写回应保留其他 metadata: %s", runtimeData.MetadataJSON)
 	}
 }
+
+// TestHandleMaxFailuresUsesValueWithoutLoginSecrets 验证恢复回调只读取 Cookie 明文，不解密登录密码。
+func TestHandleMaxFailuresUsesValueWithoutLoginSecrets(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "engine-max-failures-query-key")
+	// acc、handler 和 store 是本测试的账号、恢复回调记录器及数据库。
+	acc, handler, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	// ctx 是测试数据库和恢复流程共用的上下文。
+	ctx := context.Background()
+	// corruptErr 表示写入故意损坏的登录密码密文失败的原因。
+	if _, corruptErr := store.DB.ExecContext(ctx,
+		`UPDATE cookies SET username=?,password=? WHERE id=?`,
+		"engine-max-failures-user", "not-a-password-ciphertext", "cid"); corruptErr != nil {
+		t.Fatalf("corrupt password: %v", corruptErr)
+	}
+	// 将账号置于最大连接失败状态，确保进入密码登录成功后的 Cookie 写回分支。
+	acc.mu.Lock()
+	acc.lastMsgReceived = time.Time{}
+	acc.connFailures = MaxConnectionFailures
+	acc.mu.Unlock()
+	// cctx 让成功恢复后的固定等待快速结束，避免测试实际等待两秒。
+	cctx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	// handleErr 是最大失败恢复流程的结果。
+	handleErr := acc.handleMaxFailures(cctx)
+	if handleErr != cctx.Err() {
+		t.Fatalf("恢复成功后的等待应返回 ctx.Err(): got %v want %v", handleErr, cctx.Err())
+	}
+	if handler.refresh != 1 || acc.currentCookieStr() != "unb=123; _m_h5_tk=tk_1;" {
+		t.Fatalf("恢复回调或 Cookie 异常: refresh=%d cookie=%q", handler.refresh, acc.currentCookieStr())
+	}
+}

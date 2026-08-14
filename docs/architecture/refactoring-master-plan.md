@@ -118,7 +118,8 @@ app shell / routes
 - 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `tryLoginStatusCheck` 已改用 `GetCookieRuntimeData`，只读取 Cookie 与 metadata，保持重试、Cookie Jar 和锁语义；
 - 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `tryAPIRenewUsing` 已改用 `GetCookieRuntimeData`，只读取接口续期所需的 Cookie 与 metadata，保持续期、快照持久化、锁和 token 清理语义，并补充损坏登录密码回归测试；
 - 已完成阶段 2 后续切片：新增 `GetCookieMetadata` 单字段接口，并将 `internal/engine/account.go` 的 `persistRenewFlatCookie` 迁移到该接口，只读取 metadata，保持扁平 Cookie 更新和 metadata 快照清理行为；
-- 下一最小工作项：将 `internal/engine/account.go` 的 `handleMaxFailures` 迁移到 `GetValue`，继续只读取恢复回调所需的 Cookie 明文，不改变失败计数和重连行为；
+- 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `handleMaxFailures` 已改用 `GetValue`，只读取恢复回调所需的 Cookie 明文，保持失败计数和重连行为，并补充损坏登录密码回归测试；
+- 下一最小工作项：将 `internal/engine/account.go` 的 `persistPendingRenewCookies` 迁移到 `GetCookieRuntimeData`，继续只读取异步续期所需的 Cookie 与 metadata，不改变迟到 Cookie 合并行为；
 - 随后工作项：再处理 Engine、Automation 等明确需要平台凭证的流程，统一使用按账号 ID 过滤的单值凭证接口；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
@@ -488,3 +489,4 @@ npm --prefix frontend run build
 | 2026-08-14 | 新增 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned` 及跨用户/无效 user ID 回归测试 | 阶段 2 第一个数据边界切片完成；故意无效密文摘要查询通过 | 迁移 server ownership helper，移除 `AllForUser` 所有权读取 |
 | 2026-08-14 | Engine 登录态检查与接口续期改用 `GetCookieRuntimeData` | 只解密 Cookie 与 metadata；接口续期窄查询回归测试通过，未改变锁、token 清理和快照持久化语义 | 迁移 `persistRenewFlatCookie` 的 metadata 窄查询 |
 | 2026-08-14 | 新增 `GetCookieMetadata` 并收窄 `persistRenewFlatCookie` | 扁平 Cookie 写回不再读取旧 Cookie、用户名或登录密码；损坏旧凭证回归测试通过 | 迁移 `handleMaxFailures` 的单值 Cookie 读取 |
+| 2026-08-14 | `handleMaxFailures` 改用 `GetValue` | 恢复回调只读取 Cookie 明文；损坏登录密码回归测试通过，失败计数和重连行为保持不变 | 迁移 `persistPendingRenewCookies` 的异步续期读取 |
