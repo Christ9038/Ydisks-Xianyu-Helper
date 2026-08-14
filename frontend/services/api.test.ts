@@ -315,7 +315,7 @@ test('account cookie APIs include login_method when provided', async () => {
   vi.stubGlobal('fetch', fetchMock);
 
   await addAccount('acc1', 'unb=acc1', 'qr_scan');
-  expect(fetchMock).toHaveBeenCalledWith('/cookies', expect.objectContaining({
+  expect(fetchMock).toHaveBeenCalledWith('/api/v1/accounts', expect.objectContaining({
     method: 'POST',
     credentials: 'include',
   }));
@@ -326,7 +326,7 @@ test('account cookie APIs include login_method when provided', async () => {
   });
 
   await updateAccountCookie('acc1', 'unb=acc1; x=1', 'qr_scan');
-  expect(fetchMock).toHaveBeenCalledWith('/cookies/acc1', expect.objectContaining({
+  expect(fetchMock).toHaveBeenCalledWith('/api/v1/accounts/acc1', expect.objectContaining({
     method: 'PUT',
     credentials: 'include',
   }));
@@ -382,7 +382,7 @@ test('updateAccountLoginInfo sends exactly provided fields', async () => {
   vi.stubGlobal('fetch', fetchMock);
 
   await updateAccountLoginInfo('acc1', { username: 'login-user', show_browser: false });
-  expect(fetchMock).toHaveBeenCalledWith('/cookies/acc1/login-info', expect.objectContaining({
+  expect(fetchMock).toHaveBeenCalledWith('/api/v1/accounts/acc1/login-info', expect.objectContaining({
     method: 'PUT',
     credentials: 'include',
   }));

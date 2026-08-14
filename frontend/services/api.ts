@@ -48,7 +48,7 @@ export const updateLoginCredentials = async (data: {
 
 // Accounts
 export const addAccount = async (id: string, value: string, loginMethod?: string): Promise<ApiResponse> => {
-  return post('/cookies', { id, value, login_method: loginMethod });
+  return post('/api/v1/accounts', { id, value, login_method: loginMethod });
 };
 
 const accountAvatarURL = (item: AccountSummaryResponse, version: string): string => {
@@ -207,7 +207,7 @@ export const updateAccountPauseDuration = async (id: string, pauseDuration: numb
 };
 
 export const updateAccountCookie = async (id: string, value: string, loginMethod?: string): Promise<OperationResponse> => {
-  return put(`/cookies/${id}`, { id, value, login_method: loginMethod });
+  return put(`/api/v1/accounts/${id}`, { id, value, login_method: loginMethod });
 };
 
 export interface AccountSettingsUpdate {
@@ -286,7 +286,7 @@ export const updateAccountLoginInfo = async (id: string, data: {
   clear_password?: boolean;
   show_browser?: boolean;
 }): Promise<OperationResponse> => {
-  return put(`/cookies/${id}/login-info`, data);
+  return put(`/api/v1/accounts/${id}/login-info`, data);
 };
 
 export const getAllAISettings = async (options?: RequestControlOptions): Promise<Record<string, AIReplySettings>> => {

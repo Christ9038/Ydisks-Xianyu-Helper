@@ -12,6 +12,7 @@ func (s *Server) mountVersionedAccounts(r chi.Router) {
 		r.Use(s.Auth.Middleware)
 		r.Use(auth.RequireAuth)
 		r.Get("/api/v1/accounts", s.listCookies)
+		r.Post("/api/v1/accounts", s.addCookie)
 		r.Get("/api/v1/accounts/details", s.listCookieDetails)
 		r.Get("/api/v1/accounts/runtime-status", s.listCookieRuntimeStatus)
 		r.Get("/api/v1/accounts/{cid}", s.getCookieDetails)
@@ -25,5 +26,7 @@ func (s *Server) mountVersionedAccounts(r chi.Router) {
 		r.Put("/api/v1/accounts/{cid}/remark", s.setCookieRemark)
 		r.Get("/api/v1/accounts/{cid}/pause-duration", s.getCookiePauseDuration)
 		r.Put("/api/v1/accounts/{cid}/pause-duration", s.setCookiePauseDuration)
+		r.Put("/api/v1/accounts/{cid}", s.updateCookie)
+		r.Put("/api/v1/accounts/{cid}/login-info", s.updateCookieLoginInfo)
 	})
 }

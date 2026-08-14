@@ -141,7 +141,8 @@ app shell / routes
 - 已完成阶段 3 第十二个 PR 切片“HTTP API 版本化兼容入口与会话调用方迁移”：新增 `/api/v1/session/login`、`/api/v1/session/initialize`、`/api/v1/session` 与 `/api/v1/session/logout` 薄适配入口，复用旧 handler；React 登录、初始化、会话校验和登出已迁移，旧路径保留；新增 Go/React 契约测试并保持独立可回滚提交；
 - 已完成阶段 3 第十三个 PR 切片“账号 API 版本化兼容入口与调用方迁移”：新增 `/api/v1/accounts`、详情、运行状态、单账号详情和启停状态薄适配入口，复用旧 handler；React 账号摘要、详情、运行状态和启停状态调用已迁移，旧路径保留；新增 Go/React 契约测试并保持独立可回滚提交；
 - 已完成阶段 3 第十四个 PR 切片“账号设置与资料 API 版本化兼容入口迁移”：新增账号聚合设置、备注、暂停、自动确认、长登录和资料刷新 `/api/v1/accounts/{cid}/...` 薄适配入口，复用旧 handler；React 相关调用已迁移，旧路径保留；新增 Go/React 契约测试并保持独立可回滚提交；
-- 阶段 3 下一 PR 切片为“账号凭证与登录信息 API 版本化兼容入口迁移”：迁移 Cookie 更新和登录信息设置的一组调用方，继续保留敏感字段边界与旧路径，不拆分单个 handler 提交；
+- 已完成阶段 3 第十五个 PR 切片“账号凭证与登录信息 API 版本化兼容入口迁移”：新增账号新增、Cookie 更新和登录信息设置 `/api/v1/accounts...` 薄适配入口，复用既有凭证锁与权限 handler；React 对应调用已迁移，旧路径保留；新增敏感字段边界契约测试并保持独立可回滚提交；
+- 阶段 3 下一 PR 切片为“订单 API 版本化兼容入口与调用方迁移”：迁移订单列表、详情和更新的一组调用方，继续保留旧路径，不拆分单个 handler 提交；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -532,3 +533,4 @@ npm --prefix frontend run build
 | 2026-08-14 | 完成阶段 3 第十二个 PR 切片“HTTP API 版本化兼容入口与会话调用方迁移” | 新增 `/api/v1/session/login`、`/api/v1/session/initialize`、`/api/v1/session` 与 `/api/v1/session/logout` 薄适配入口，全部复用既有认证 handler；React 登录、初始化、会话校验和登出调用已迁移；Go/React 契约测试确认新旧路径兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：账号 API 版本化兼容入口与调用方迁移 |
 | 2026-08-14 | 完成阶段 3 第十三个 PR 切片“账号 API 版本化兼容入口与调用方迁移” | 新增 `/api/v1/accounts`、`/api/v1/accounts/details`、`/api/v1/accounts/runtime-status`、`/api/v1/accounts/{cid}` 与启停状态薄适配入口，全部复用既有账号 handler；React 账号摘要、详情、运行状态和启停状态调用已迁移；Go/React 契约测试确认新旧路径兼容且详情不泄露凭证；全量门禁通过并合并为一个可回滚提交 | 阶段 3：账号设置与资料 API 版本化兼容入口迁移 |
 | 2026-08-14 | 完成阶段 3 第十四个 PR 切片“账号设置与资料 API 版本化兼容入口迁移” | 新增 `/api/v1/accounts/{cid}/settings`、`remark`、`pause-duration`、`auto-confirm`、`long-login` 和 `refresh-profile` 薄适配入口，全部复用既有账号 handler；React 账号设置、备注、暂停、自动确认、长登录和资料刷新调用已迁移；Go/React 契约测试确认新旧路径兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：账号凭证与登录信息 API 版本化兼容入口迁移 |
+| 2026-08-14 | 完成阶段 3 第十五个 PR 切片“账号凭证与登录信息 API 版本化兼容入口迁移” | 新增 `/api/v1/accounts`、`/api/v1/accounts/{cid}`、`/api/v1/accounts/{cid}/login-info` 薄适配入口，复用既有 handler 和凭证锁；React 新增/更新 Cookie 与登录信息调用已迁移；Go/React 契约测试确认敏感字段不回传且旧路径兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：订单 API 版本化兼容入口与调用方迁移 |

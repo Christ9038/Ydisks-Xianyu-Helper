@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -136,6 +137,101 @@ func TestVersionedAccountRoutesPreserveLegacyContracts(t *testing.T) {
 	handler.ServeHTTP(restoreRecorder, restoreReq)
 	if restoreRecorder.Code != http.StatusOK {
 		t.Fatalf("restore account status=%d body=%s", restoreRecorder.Code, restoreRecorder.Body.String())
+	}
+}
+
+// TestVersionedAccountCredentialRoutesPreserveLegacyContracts 验证账号凭证与登录信息版本化入口的兼容性及敏感字段边界。
+func TestVersionedAccountCredentialRoutesPreserveLegacyContracts(t *testing.T) {
+	// srv 是用于验证账号凭证版本化路由的 HTTP 测试服务。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// srv.Manager 置空后，新增和更新请求不会启动后台运行时。
+	srv.Manager = nil
+	// handler 是当前测试使用的完整路由树。
+	handler := srv.Router()
+	// sessionCookie 是管理员登录后得到的认证会话。
+	sessionCookie := loginHelper(t, handler)
+
+	// addReq 是通过版本化入口新增账号凭证的请求。
+	addReq := httptest.NewRequest(http.MethodPost, "/api/v1/accounts", strings.NewReader(`{"id":"cred-v1","value":"unb=cred-v1","login_method":"qr_scan"}`))
+	addReq.AddCookie(sessionCookie)
+	// addRecorder 是捕获新增账号响应的记录器。
+	addRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(addRecorder, addReq)
+	if addRecorder.Code != http.StatusOK {
+		t.Fatalf("versioned add account status=%d body=%s", addRecorder.Code, addRecorder.Body.String())
+	}
+	// addValue 是新增账号响应中的具名结果 DTO。
+	var addValue accountMutationResponse
+	// addDecodeErr 是新增账号响应反序列化失败的原因。
+	if addDecodeErr := json.Unmarshal(addRecorder.Body.Bytes(), &addValue); addDecodeErr != nil {
+		t.Fatalf("decode versioned add account: %v", addDecodeErr)
+	}
+	if !addValue.Success || addValue.ID != "cred-v1" {
+		t.Fatalf("versioned add account=%+v", addValue)
+	}
+	if strings.Contains(addRecorder.Body.String(), "unb=cred-v1") || strings.Contains(addRecorder.Body.String(), "password") {
+		t.Fatalf("versioned add account exposes credential: %s", addRecorder.Body.String())
+	}
+
+	// updateReq 是通过版本化入口更新账号 Cookie 的请求。
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/v1/accounts/cred-v1", strings.NewReader(`{"value":"unb=cred-v1; token=v2","login_method":"manual"}`))
+	updateReq.AddCookie(sessionCookie)
+	// updateRecorder 是捕获 Cookie 更新响应的记录器。
+	updateRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(updateRecorder, updateReq)
+	if updateRecorder.Code != http.StatusOK {
+		t.Fatalf("versioned update account status=%d body=%s", updateRecorder.Code, updateRecorder.Body.String())
+	}
+	// updateValue 是 Cookie 更新响应中的具名结果 DTO。
+	var updateValue operationResponse
+	// updateDecodeErr 是 Cookie 更新响应反序列化失败的原因。
+	if updateDecodeErr := json.Unmarshal(updateRecorder.Body.Bytes(), &updateValue); updateDecodeErr != nil {
+		t.Fatalf("decode versioned update account: %v", updateDecodeErr)
+	}
+	if !updateValue.Success {
+		t.Fatalf("versioned update account=%+v", updateValue)
+	}
+	if strings.Contains(updateRecorder.Body.String(), "token=v2") || strings.Contains(updateRecorder.Body.String(), "password") {
+		t.Fatalf("versioned update account exposes credential: %s", updateRecorder.Body.String())
+	}
+
+	// loginInfoReq 是通过版本化入口更新账号登录信息的请求。
+	loginInfoReq := httptest.NewRequest(http.MethodPut, "/api/v1/accounts/acc1/login-info", strings.NewReader(`{"username":"versioned-login","show_browser":false}`))
+	loginInfoReq.AddCookie(sessionCookie)
+	// loginInfoRecorder 是捕获登录信息更新响应的记录器。
+	loginInfoRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(loginInfoRecorder, loginInfoReq)
+	if loginInfoRecorder.Code != http.StatusOK {
+		t.Fatalf("versioned login info status=%d body=%s", loginInfoRecorder.Code, loginInfoRecorder.Body.String())
+	}
+	// loginInfoValue 是登录信息更新响应中的具名结果 DTO。
+	var loginInfoValue operationResponse
+	// loginInfoDecodeErr 是登录信息响应反序列化失败的原因。
+	if loginInfoDecodeErr := json.Unmarshal(loginInfoRecorder.Body.Bytes(), &loginInfoValue); loginInfoDecodeErr != nil {
+		t.Fatalf("decode versioned login info: %v", loginInfoDecodeErr)
+	}
+	if !loginInfoValue.Success {
+		t.Fatalf("versioned login info=%+v", loginInfoValue)
+	}
+	if strings.Contains(loginInfoRecorder.Body.String(), "password") || strings.Contains(loginInfoRecorder.Body.String(), "login_password") {
+		t.Fatalf("versioned login info exposes password: %s", loginInfoRecorder.Body.String())
+	}
+
+	// detail 是数据库中用于确认登录信息已持久化的完整账号详情。
+	detail, detailErr := store.Cookies.GetDetails(context.Background(), "acc1")
+	if detailErr != nil || detail == nil || detail.Username != "versioned-login" || detail.ShowBrowser {
+		t.Fatalf("versioned login info not persisted: detail=%+v err=%v", detail, detailErr)
+	}
+
+	// legacyReq 是验证旧登录信息入口仍可用的请求。
+	legacyReq := httptest.NewRequest(http.MethodPut, "/cookies/acc1/login-info", strings.NewReader(`{"username":"legacy-login","show_browser":false}`))
+	legacyReq.AddCookie(sessionCookie)
+	// legacyRecorder 是捕获旧登录信息响应的记录器。
+	legacyRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(legacyRecorder, legacyReq)
+	if legacyRecorder.Code != http.StatusOK {
+		t.Fatalf("legacy login info status=%d body=%s", legacyRecorder.Code, legacyRecorder.Body.String())
 	}
 }
 
