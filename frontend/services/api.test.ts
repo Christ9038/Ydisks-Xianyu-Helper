@@ -29,7 +29,7 @@ import {
   deleteReplyRule,
   updateAccountCookie,
   updateAccountLoginInfo,
-	updateAccountSettings,
+	updateAccountSettings, updateAccountRemark, updateAccountAutoConfirm, updateAccountPauseDuration, getLongLoginSettings, setLongLoginSettings, refreshAccountProfile,
   updateItem,
   updateNotificationChannel,
   updateSystemSettings,
@@ -345,7 +345,7 @@ test('account editor settings use one aggregate request', async () => {
 	  username: 'user', show_browser: true, channel_ids: [1, 2],
 	});
 	expect(fetchMock).toHaveBeenCalledTimes(1);
-	expect(fetchMock).toHaveBeenCalledWith('/cookies/acc1/settings', expect.objectContaining({ method: 'PUT' }));
+	expect(fetchMock).toHaveBeenCalledWith('/api/v1/accounts/acc1/settings', expect.objectContaining({ method: 'PUT' }));
 	expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
 	  remark: 'main', auto_confirm: false, pause_duration: 5,
 	  username: 'user', show_browser: true, channel_ids: [1, 2],
@@ -783,3 +783,35 @@ const runVersionedAccountAPITest = async () => {
 };
 
 test('account summary and status APIs use versioned compatibility routes', runVersionedAccountAPITest);
+
+// 账号设置、长登录和资料 API 使用版本化兼容入口。
+const runVersionedAccountSettingsAPITest = async () => {
+  // fetchMock 是账号设置与资料请求的测试替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ success: true, paused_until: 0, paused: false }))
+    .mockResolvedValueOnce(jsonResponse({ can_open_long_login: true, enabled: false }))
+    .mockResolvedValueOnce(jsonResponse({ can_open_long_login: true, enabled: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, id: 'acc1', nickname: '主账号', avatar_url: '', profile_error: '' }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, paused_until: 0, paused: false }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await updateAccountSettings('acc1', { remark: '主账号' });
+  await getLongLoginSettings('acc1');
+  await setLongLoginSettings('acc1', true);
+  await refreshAccountProfile('acc1');
+  await updateAccountRemark('acc1', '新的备注');
+  await updateAccountAutoConfirm('acc1', true);
+  await updateAccountPauseDuration('acc1', 15);
+
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/accounts/acc1/settings', expect.objectContaining({ method: 'PUT' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/accounts/acc1/long-login', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/accounts/acc1/long-login', expect.objectContaining({ method: 'PUT' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/accounts/acc1/refresh-profile', expect.objectContaining({ method: 'POST' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/accounts/acc1/remark', expect.objectContaining({ method: 'PUT' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(6, '/api/v1/accounts/acc1/auto-confirm', expect.objectContaining({ method: 'PUT' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(7, '/api/v1/accounts/acc1/pause-duration', expect.objectContaining({ method: 'PUT' }));
+};
+
+test('account settings and profile APIs use versioned compatibility routes', runVersionedAccountSettingsAPITest);

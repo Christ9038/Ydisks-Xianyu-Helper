@@ -195,15 +195,15 @@ export const deleteAccount = async (id: string): Promise<OperationResponse> => {
 };
 
 export const updateAccountRemark = async (id: string, remark: string): Promise<OperationResponse> => {
-  return put(`/cookies/${id}/remark`, { remark });
+  return put(`/api/v1/accounts/${id}/remark`, { remark });
 };
 
 export const updateAccountAutoConfirm = async (id: string, autoConfirm: boolean): Promise<OperationResponse> => {
-  return put(`/cookies/${id}/auto-confirm`, { auto_confirm: autoConfirm });
+  return put(`/api/v1/accounts/${id}/auto-confirm`, { auto_confirm: autoConfirm });
 };
 
 export const updateAccountPauseDuration = async (id: string, pauseDuration: number): Promise<CookieSettingsResponse> => {
-  return put(`/cookies/${id}/pause-duration`, { pause_duration: pauseDuration });
+  return put(`/api/v1/accounts/${id}/pause-duration`, { pause_duration: pauseDuration });
 };
 
 export const updateAccountCookie = async (id: string, value: string, loginMethod?: string): Promise<OperationResponse> => {
@@ -223,7 +223,7 @@ export interface AccountSettingsUpdate {
 }
 
 export const updateAccountSettings = async (id: string, data: AccountSettingsUpdate): Promise<CookieSettingsResponse> => {
-  return put(`/cookies/${id}/settings`, data);
+  return put(`/api/v1/accounts/${id}/settings`, data);
 };
 
 export interface LongLoginSettings {
@@ -232,11 +232,11 @@ export interface LongLoginSettings {
 }
 
 export const getLongLoginSettings = async (id: string): Promise<LongLoginSettings> => {
-  return get(`/cookies/${id}/long-login`);
+  return get(`/api/v1/accounts/${id}/long-login`);
 };
 
 export const setLongLoginSettings = async (id: string, enabled: boolean): Promise<LongLoginSettings> => {
-  return put(`/cookies/${id}/long-login`, { enabled });
+  return put(`/api/v1/accounts/${id}/long-login`, { enabled });
 };
 
 export interface PasswordLoginStartResponse {
@@ -277,7 +277,7 @@ export const cancelPasswordLogin = async (sessionId: string): Promise<ApiRespons
 };
 
 export const refreshAccountProfile = async (id: string): Promise<CookieProfileResponse> => {
-  return post(`/cookies/${id}/refresh-profile`, {});
+  return post(`/api/v1/accounts/${id}/refresh-profile`, {});
 };
 
 export const updateAccountLoginInfo = async (id: string, data: {
