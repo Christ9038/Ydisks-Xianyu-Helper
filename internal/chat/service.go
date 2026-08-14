@@ -191,12 +191,12 @@ func New(store *db.Store) *Service {
 }
 
 func (s *Service) Subscribe(ctx context.Context, userID int64) (<-chan Event, func(), error) {
-	accounts, err := s.store.Cookies.AllForUser(ctx, userID)
+	accountIDs, err := s.store.Cookies.ListOwnedIDs(ctx, userID) // accountIDs 和 err 是用户账号 ID 列表及查询错误。
 	if err != nil {
 		return nil, nil, err
 	}
-	allowed := make(map[string]struct{}, len(accounts))
-	for accountID := range accounts {
+	allowed := make(map[string]struct{}, len(accountIDs))
+	for _, accountID := range accountIDs { // accountID 是当前订阅允许接收事件的账号。
 		allowed[accountID] = struct{}{}
 	}
 	s.mu.Lock()

@@ -109,7 +109,8 @@ app shell / routes
 - 已完成阶段 2 逻辑切片一“Repository 敏感数据边界”：建立 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned`、`GetOwnerID`、`GetSummaryOwned` 和原子 `GetValueOwned`，覆盖跨用户、无效 user ID 及无效密文回归；
 - 已完成阶段 2 逻辑切片二“Server 非敏感消费方”：账号列表、运行状态、账号详情、聊天、商品、关键词回复、卡券关联和管理员账号停止流程均迁移到窄查询，纯所有权流程不再解密完整凭证；
 - 已完成阶段 2 逻辑切片三“订单消费方”：订单刷新、手动发货和订单导入使用账号 ID 列表与所有权判断，凭证流程按需读取单账号详情；
-- 下一最小工作项：迁移 `internal/chat/service.go` 的订阅账号集合到 `ListOwnedIDs`，再单独处理 `internal/account/manager.go` 启动全部账号所需的管理员凭证读取接口；
+- 已完成阶段 2 后续切片：`internal/chat/service.go` 的订阅账号集合已迁移到 `ListOwnedIDs`，聊天订阅不再批量解密账号 Cookie；
+- 下一最小工作项：为 `internal/account/manager.go` 设计并实现受控的管理员视角账号凭证读取接口，替换启动全部账号时的 `AllForUser(ctx, 0)`；
 - 随后工作项：再处理明确需要平台凭证的业务流程，统一使用按用户和账号 ID 过滤的单值凭证接口；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
@@ -204,8 +205,8 @@ app shell / routes
 `GetOwnerID` 只返回所有者 ID；`GetSummaryOwned` 返回指定用户的单个非敏感摘要；`GetValueOwned` 在同一条带 user_id 过滤的查询中读取并解密单个 Cookie，避免
 所有权检查与凭证读取之间的竞态窗口。测试使用故意无效的密文值验证摘要查询和所有权检查不会触发解密，
 并使用正常加密值覆盖单值凭证读取。账号列表与详情 handler 已不再通过 `AllForUser` 或完整 `GetDetails` 读取敏感字段，
-目前 server 生产代码已不再调用 `Cookies.AllForUser`。内部聊天订阅仍有一处仅用于账号 ID 集合的旧调用，
-账号管理器还有一处管理员视角的全账号凭证加载；两者语义不同，将分别设计 ID 列表接口和受控凭证接口。
+目前 server 生产代码和聊天订阅服务已不再调用 `Cookies.AllForUser`。账号管理器还保留一处管理员视角的全账号凭证加载，
+该调用不能简单替换为 ID 列表，将通过受控的启用账号凭证接口单独治理。
 
 逐步替换使用 `AllForUser` 进行所有权检查以及使用 `GetDetails` 获取非敏感字段的调用。
 
