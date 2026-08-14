@@ -8,6 +8,8 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "comments:check": "node scripts/check-comments.mjs --mode check --root . --baseline ../.commentlint/frontend-baseline.json",
+    "comments:baseline": "node scripts/check-comments.mjs --mode baseline --root . --baseline ../.commentlint/frontend-baseline.json",
     "preview": "vite preview"
   },
   "dependencies": {
