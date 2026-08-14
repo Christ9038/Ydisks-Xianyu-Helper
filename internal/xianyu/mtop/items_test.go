@@ -14,6 +14,7 @@ import (
 
 // items.go 的 fetchItemsPageOnce 硬编码 ItemListAPI 常量，用 rewriteTransport 改写到本地 server。
 
+// itemsPage1JSON 保存商品列表Page1JSON，供当前处理流程使用
 const itemsPage1JSON = `{"ret":["SUCCESS::调用成功"],"data":{"cardList":[
   {"cardType":1,"cardData":{"id":"item-1","title":"商品A","categoryId":"cat-1","auctionType":"b","itemStatus":0,
     "priceInfo":{"price":"12.50","preText":"￥"},
@@ -28,13 +29,17 @@ const itemsPage1JSON = `{"ret":["SUCCESS::调用成功"],"data":{"cardList":[
 
 // TestFetchItemsPageSuccess: 解析多商品，含 pageCount/字段映射。
 func TestFetchItemsPageSuccess(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, itemsPage1JSON)
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := client.FetchItemsPage(context.Background(), consignCookies, 1, 20)
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -42,6 +47,7 @@ func TestFetchItemsPageSuccess(t *testing.T) {
 	if len(res.Items) != 2 {
 		t.Fatalf("items=%d want 2", len(res.Items))
 	}
+	// it 保存it，供当前处理流程使用
 	it := res.Items[0]
 	if it.ID != "item-1" || it.Title != "商品A" || it.Price != "12.50" ||
 		it.PriceText != "￥12.50" || it.CategoryID != "cat-1" ||
@@ -55,7 +61,8 @@ func TestFetchItemsPageSuccess(t *testing.T) {
 	}
 	// ItemDetail 应为合法 JSON
 	var detail map[string]any
-	if err := json.Unmarshal([]byte(it.ItemDetail), &detail); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := json.Unmarshal([]byte(it.ItemDetail), &detail); err != nil {
 		t.Fatalf("ItemDetail 非 JSON: %v (%s)", err, it.ItemDetail)
 	}
 	if detail["card_type"].(float64) != 1 {
@@ -65,13 +72,17 @@ func TestFetchItemsPageSuccess(t *testing.T) {
 
 // TestFetchItemsPageMissingUnbCookie: cookie 缺 unb 报错。
 func TestFetchItemsPageMissingUnbCookie(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Errorf("不应发请求")
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// err 保存err，供当前处理流程使用
 	_, err := client.FetchItemsPage(context.Background(), "_m_h5_tk=t_1;", 1, 20)
 	if err == nil || !strings.Contains(err.Error(), "cookie 缺少 unb") {
 		t.Fatalf("err=%v", err)
@@ -80,13 +91,17 @@ func TestFetchItemsPageMissingUnbCookie(t *testing.T) {
 
 // TestFetchItemsPageEmptyCardList: SUCCESS 但 cardList 为空。
 func TestFetchItemsPageEmptyCardList(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{}}`)
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := client.FetchItemsPage(context.Background(), consignCookies, 1, 20)
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -98,6 +113,7 @@ func TestFetchItemsPageEmptyCardList(t *testing.T) {
 
 // TestFetchItemsPageAutoPrefixFiltered: auto_ 前缀商品被过滤。
 func TestFetchItemsPageAutoPrefixFiltered(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"cardList":[
 		  {"cardData":{"title":"auto商品","detailParams":{"itemId":"auto_123"}}},
@@ -106,8 +122,11 @@ func TestFetchItemsPageAutoPrefixFiltered(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := client.FetchItemsPage(context.Background(), consignCookies, 1, 20)
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -119,13 +138,17 @@ func TestFetchItemsPageAutoPrefixFiltered(t *testing.T) {
 
 // TestFetchItemsPageNonSuccessRet: 非 token 过期失败 ret。
 func TestFetchItemsPageNonSuccessRet(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"ret":["FAIL_BIZ_LIST_ERROR::列表错误"]}`)
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// err 保存err，供当前处理流程使用
 	_, err := client.FetchItemsPage(context.Background(), consignCookies, 1, 20)
 	if err == nil || !strings.Contains(err.Error(), "商品列表接口返回非成功") {
 		t.Fatalf("err=%v", err)
@@ -134,13 +157,17 @@ func TestFetchItemsPageNonSuccessRet(t *testing.T) {
 
 // TestFetchItemsPageParseFailure: 响应非 JSON。
 func TestFetchItemsPageParseFailure(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `bad{`)
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// err 保存err，供当前处理流程使用
 	_, err := client.FetchItemsPage(context.Background(), consignCookies, 1, 20)
 	if err == nil || !strings.Contains(err.Error(), "解析商品列表响应失败") {
 		t.Fatalf("err=%v", err)
@@ -149,13 +176,17 @@ func TestFetchItemsPageParseFailure(t *testing.T) {
 
 // TestFetchItemsPageDefaultsInvalidPage: pageNumber<1 / pageSize<1 兜底。
 func TestFetchItemsPageDefaultsInvalidPage(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{}}`)
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := client.FetchItemsPage(context.Background(), consignCookies, 0, 0)
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -167,8 +198,11 @@ func TestFetchItemsPageDefaultsInvalidPage(t *testing.T) {
 
 // TestFetchItemsPageTokenExpiredRetriesWithSetCookie: token 过期 + Set-Cookie，二次成功。
 func TestFetchItemsPageTokenExpiredRetriesWithSetCookie(t *testing.T) {
+	// requests 保存请求列表，供当前处理流程使用
 	var requests atomic.Int32
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// attempt 保存尝试次数，供当前处理流程使用
 		attempt := requests.Add(1)
 		if attempt == 1 {
 			http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "newtoken_3", Path: "/"})
@@ -179,10 +213,14 @@ func TestFetchItemsPageTokenExpiredRetriesWithSetCookie(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// err 保存err，供当前处理流程使用
 	_, err := client.FetchItemsPage(ctx, consignCookies, 1, 20)
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -194,8 +232,11 @@ func TestFetchItemsPageTokenExpiredRetriesWithSetCookie(t *testing.T) {
 
 // TestFetchAllItemsMultiPage: 多页翻页（pageCount 驱动 / len < pageSize 终止）。
 func TestFetchAllItemsMultiPage(t *testing.T) {
+	// pageReqs 保存页码Reqs，供当前处理流程使用
 	var pageReqs atomic.Int32
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// page 保存页码，供当前处理流程使用
 		page := pageReqs.Add(1)
 		// 第 1 页 2 条（pageSize=2，满页），第 2 页 1 条（不满，终止）
 		if page == 1 {
@@ -211,10 +252,14 @@ func TestFetchAllItemsMultiPage(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := client.FetchAllItems(ctx, consignCookies, 2, 10)
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -227,9 +272,13 @@ func TestFetchAllItemsMultiPage(t *testing.T) {
 	}
 }
 
+// TestFetchAllItemsUsesRemotePageCountWhenPageIsShort 负责TestFetchAll商品列表UsesRemote页码数量When页码IsShort相关处理。
 func TestFetchAllItemsUsesRemotePageCountWhenPageIsShort(t *testing.T) {
+	// pageReqs 保存页码Reqs，供当前处理流程使用
 	var pageReqs atomic.Int32
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// page 保存页码，供当前处理流程使用
 		page := pageReqs.Add(1)
 		if page == 1 {
 			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"pageCount":2,"cardList":[
@@ -243,8 +292,11 @@ func TestFetchAllItemsUsesRemotePageCountWhenPageIsShort(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := client.FetchAllItems(context.Background(), consignCookies, 20, 10)
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -256,7 +308,9 @@ func TestFetchAllItemsUsesRemotePageCountWhenPageIsShort(t *testing.T) {
 
 // TestFetchAllItemsMaxPagesCap: maxPages 限制最大页数。
 func TestFetchAllItemsMaxPagesCap(t *testing.T) {
+	// pageReqs 保存页码Reqs，供当前处理流程使用
 	var pageReqs atomic.Int32
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pageReqs.Add(1)
 		// 每页满（pageSize=1），但 maxPages=2 应只取 2 页
@@ -266,10 +320,14 @@ func TestFetchAllItemsMaxPagesCap(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := client.FetchAllItems(ctx, consignCookies, 1, 2)
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -284,15 +342,20 @@ func TestFetchAllItemsMaxPagesCap(t *testing.T) {
 
 // TestFetchAllItemsEmptyFirstPage: 首页空立即终止。
 func TestFetchAllItemsEmptyFirstPage(t *testing.T) {
+	// pageReqs 保存页码Reqs，供当前处理流程使用
 	var pageReqs atomic.Int32
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pageReqs.Add(1)
 		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{}}`)
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := client.FetchAllItems(context.Background(), consignCookies, 20, 5)
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -307,13 +370,17 @@ func TestFetchAllItemsEmptyFirstPage(t *testing.T) {
 
 // TestFetchAllItemsDefaultPageSize: pageSize<=0 默认 20。
 func TestFetchAllItemsDefaultPageSize(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{}}`)
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := client.FetchAllItems(context.Background(), consignCookies, 0, 5)
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -325,13 +392,17 @@ func TestFetchAllItemsDefaultPageSize(t *testing.T) {
 
 // TestFetchAllItemsPropagatesError: 子页失败透传。
 func TestFetchAllItemsPropagatesError(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"ret":["FAIL_BIZ_LIST_ERROR::错误"]}`)
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// err 保存err，供当前处理流程使用
 	_, err := client.FetchAllItems(context.Background(), consignCookies, 20, 5)
 	if err == nil || !strings.Contains(err.Error(), "商品列表接口返回非成功") {
 		t.Fatalf("err=%v", err)
@@ -340,18 +411,25 @@ func TestFetchAllItemsPropagatesError(t *testing.T) {
 
 // TestFetchItemsPageRetryExhausted: token 过期但每次下发不同 Set-Cookie，4 次重试耗尽。
 func TestFetchItemsPageRetryExhausted(t *testing.T) {
+	// requests 保存请求列表，供当前处理流程使用
 	var requests atomic.Int32
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// n 保存n，供当前处理流程使用
 		n := requests.Add(1)
 		http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: fmt.Sprintf("tok_%d", n), Path: "/"})
 		fmt.Fprint(w, `{"ret":["FAIL_SYS_TOKEN_EXOIRED::令牌过期"]}`)
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 15 * time.Second}}
+	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	// err 保存err，供当前处理流程使用
 	_, err := client.FetchItemsPage(ctx, consignCookies, 1, 20)
 	if err == nil || !strings.Contains(err.Error(), "商品列表接口 token 重试失败") {
 		t.Fatalf("err=%v", err)
@@ -363,13 +441,17 @@ func TestFetchItemsPageRetryExhausted(t *testing.T) {
 
 // TestFetchItemsPageRefreshTokenFailure: token 过期无 Set-Cookie，RefreshToken 失败。
 func TestFetchItemsPageRefreshTokenFailure(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"ret":["FAIL_SYS_TOKEN_EXOIRED::令牌过期"]}`)
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// err 保存err，供当前处理流程使用
 	_, err := client.FetchItemsPage(context.Background(), consignCookies, 1, 20)
 	if err == nil || !strings.Contains(err.Error(), "刷新 mtop token 失败") {
 		t.Fatalf("err=%v", err)
@@ -378,27 +460,35 @@ func TestFetchItemsPageRefreshTokenFailure(t *testing.T) {
 
 // ---- parseItemList 边缘字段 ----
 
+// TestParseItemListEmpty 负责TestParse商品ListEmpty相关处理。
 func TestParseItemListEmpty(t *testing.T) {
-	if got := parseItemList(map[string]any{}); len(got) != 0 {
+	if // got 保存got，供当前处理流程使用
+	got := parseItemList(map[string]any{}); len(got) != 0 {
 		t.Fatalf("got=%v want empty", got)
 	}
 }
 
+// TestParseItemListNonMapCardSkipped 负责TestParse商品ListNonMap卡密Skipped相关处理。
 func TestParseItemListNonMapCardSkipped(t *testing.T) {
+	// data 保存数据，供当前处理流程使用
 	data := map[string]any{"cardList": []any{"not-a-map", 123, nil}}
-	if got := parseItemList(data); len(got) != 0 {
+	if // got 保存got，供当前处理流程使用
+	got := parseItemList(data); len(got) != 0 {
 		t.Fatalf("got=%v", got)
 	}
 }
 
+// TestParseItemListNilCardDataSkipped 负责TestParse商品ListNil卡密数据Skipped相关处理。
 func TestParseItemListNilCardDataSkipped(t *testing.T) {
 	// card 是 map 但 cardData 为 nil，应跳过
 	data := map[string]any{"cardList": []any{map[string]any{"cardType": 1}}}
-	if got := parseItemList(data); len(got) != 0 {
+	if // got 保存got，供当前处理流程使用
+	got := parseItemList(data); len(got) != 0 {
 		t.Fatalf("got=%v", got)
 	}
 }
 
+// TestParseItemListIdFallsBackToCardDataId 负责TestParse商品List标识FallsBackTo卡密数据标识相关处理。
 func TestParseItemListIdFallsBackToCardDataId(t *testing.T) {
 	// detailParams.itemId 为空，回退到 cardData.id
 	data := map[string]any{
@@ -412,12 +502,14 @@ func TestParseItemListIdFallsBackToCardDataId(t *testing.T) {
 			},
 		},
 	}
+	// items 保存商品列表，供当前处理流程使用
 	items := parseItemList(data)
 	if len(items) != 1 || items[0].ID != "fallback-id" {
 		t.Fatalf("items=%+v", items)
 	}
 }
 
+// TestParseItemListEmptyIdSkipped 负责TestParse商品ListEmpty标识Skipped相关处理。
 func TestParseItemListEmptyIdSkipped(t *testing.T) {
 	// 两个 id 都空，跳过
 	data := map[string]any{
@@ -430,11 +522,13 @@ func TestParseItemListEmptyIdSkipped(t *testing.T) {
 			},
 		},
 	}
-	if got := parseItemList(data); len(got) != 0 {
+	if // got 保存got，供当前处理流程使用
+	got := parseItemList(data); len(got) != 0 {
 		t.Fatalf("got=%v", got)
 	}
 }
 
+// TestParseItemListNumericFields 负责TestParse商品ListNumeric字段列表相关处理。
 func TestParseItemListNumericFields(t *testing.T) {
 	// price / auctionType 为数字，itemStatus 为数字
 	data := map[string]any{
@@ -452,17 +546,21 @@ func TestParseItemListNumericFields(t *testing.T) {
 			},
 		},
 	}
+	// items 保存商品列表，供当前处理流程使用
 	items := parseItemList(data)
 	if len(items) != 1 {
 		t.Fatalf("items=%d", len(items))
 	}
+	// it 保存it，供当前处理流程使用
 	it := items[0]
 	if it.Price != "99" || it.PriceText != "$99" || it.CategoryID != "7" || it.ItemStatus != 2 {
 		t.Fatalf("item=%+v", it)
 	}
 }
 
+// TestBuildItemListQuery 负责TestBuild商品List查询相关处理。
 func TestBuildItemListQuery(t *testing.T) {
+	// q 保存q，供当前处理流程使用
 	q := buildItemListQuery("T", "SIGN")
 	if !strings.Contains(q, "t=T") || !strings.Contains(q, "sign=SIGN") ||
 		!strings.Contains(q, "api=mtop.idle.web.xyh.item.list") ||

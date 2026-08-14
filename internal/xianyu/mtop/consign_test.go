@@ -12,18 +12,23 @@ import (
 	"time"
 )
 
+// consignCookies 保存consignCookies，供当前处理流程使用
 const consignCookies = "unb=123; _m_h5_tk=token_1;"
 
 // TestConsignSuccess: ret SUCCESS 直接成功，无需重试。
 func TestConsignSuccess(t *testing.T) {
+	// requests 保存请求列表，供当前处理流程使用
 	var requests atomic.Int32
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"]}`)
 	}))
 	defer server.Close()
 
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/"}
+	// ok、ret、updated、err 保存ok、ret、updated、err，供当前处理流程使用
 	ok, ret, updated, err := client.ConsignContext(context.Background(), consignCookies, "order-1")
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -41,12 +46,15 @@ func TestConsignSuccess(t *testing.T) {
 
 // TestConsignWrapper: Consign（无 Context）等价于 ConsignContext。
 func TestConsignWrapper(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"]}`)
 	}))
 	defer server.Close()
 
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/"}
+	// ok、ret、err 保存ok、ret、err，供当前处理流程使用
 	ok, ret, _, err := client.Consign(consignCookies, "order-1")
 	if err != nil || !ok || len(ret) == 0 {
 		t.Fatalf("ok=%v ret=%v err=%v", ok, ret, err)
@@ -55,14 +63,18 @@ func TestConsignWrapper(t *testing.T) {
 
 // TestConsignRetFailure: 非 token 过期的失败 ret，不重试，返回 ok=false。
 func TestConsignRetFailure(t *testing.T) {
+	// requests 保存请求列表，供当前处理流程使用
 	var requests atomic.Int32
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		fmt.Fprint(w, `{"ret":["FAIL_BIZ_ORDER_STATUS_ERROR::订单状态错误"]}`)
 	}))
 	defer server.Close()
 
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/"}
+	// ok、ret、err 保存ok、ret、err，供当前处理流程使用
 	ok, ret, _, err := client.ConsignContext(context.Background(), consignCookies, "order-1")
 	if err != nil || ok || len(ret) == 0 {
 		t.Fatalf("ok=%v ret=%v err=%v", ok, ret, err)
@@ -74,6 +86,7 @@ func TestConsignRetFailure(t *testing.T) {
 
 // TestConsignMergesSetCookie: 成功响应里的 Set-Cookie 应合并进 updated。
 func TestConsignMergesSetCookie(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "fresh_token", Path: "/"})
 		http.SetCookie(w, &http.Cookie{Name: "extra", Value: "v", Path: "/"})
@@ -81,7 +94,9 @@ func TestConsignMergesSetCookie(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/"}
+	// updated、err 保存updated、err，供当前处理流程使用
 	_, _, updated, err := client.ConsignContext(context.Background(), consignCookies, "order-1")
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -93,10 +108,13 @@ func TestConsignMergesSetCookie(t *testing.T) {
 
 // TestConsignRequestError: 网络错误直接返回 err。
 func TestConsignRequestError(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	server.Close()
 
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/"}
+	// err 保存err，供当前处理流程使用
 	_, _, _, err := client.ConsignContext(context.Background(), consignCookies, "order-1")
 	if err == nil || !strings.Contains(err.Error(), "consign 请求失败") {
 		t.Fatalf("err=%v", err)
@@ -105,12 +123,15 @@ func TestConsignRequestError(t *testing.T) {
 
 // TestConsignParseFailure: 响应非 JSON 解析失败。
 func TestConsignParseFailure(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `not-json{`)
 	}))
 	defer server.Close()
 
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/"}
+	// err 保存err，供当前处理流程使用
 	_, _, _, err := client.ConsignContext(context.Background(), consignCookies, "order-1")
 	if err == nil || !strings.Contains(err.Error(), "解析 consign 响应失败") {
 		t.Fatalf("err=%v", err)
@@ -119,8 +140,11 @@ func TestConsignParseFailure(t *testing.T) {
 
 // TestConsignTokenExpiredNoCookieRefreshFails: token 过期且响应无 Set-Cookie 时，
 // 会调用 RefreshTokenContext 刷新；刷新失败（凭证失效）应返回 err。
+// TestConsignTokenExpiredNoCookieRefreshFails 负责TestConsign令牌ExpiredNo登录凭证RefreshFails相关处理。
 func TestConsignTokenExpiredNoCookieRefreshFails(t *testing.T) {
+	// requests 保存请求列表，供当前处理流程使用
 	var requests atomic.Int32
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		// token 过期，但不 Set-Cookie
@@ -128,6 +152,7 @@ func TestConsignTokenExpiredNoCookieRefreshFails(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/", TokenURL: server.URL + "/"}
 	// 使用 token 过期但无新 Cookie 的场景：RefreshTokenContext 会返回"登录凭证已失效"
 	_, _, _, err := client.ConsignContext(context.Background(), consignCookies, "order-1")
@@ -143,9 +168,13 @@ func TestConsignTokenExpiredNoCookieRefreshFails(t *testing.T) {
 
 // TestConsignTokenExpiredThenRefreshSucceeds: token 过期无 Set-Cookie，
 // 但 RefreshToken 刷新成功（返回新 Cookie），第二次 consign 成功。
+// TestConsignTokenExpiredThenRefreshSucceeds 负责TestConsign令牌ExpiredThenRefreshSucceeds相关处理。
 func TestConsignTokenExpiredThenRefreshSucceeds(t *testing.T) {
+	// consignReqs 保存consignReqs，供当前处理流程使用
 	var consignReqs atomic.Int32
+	// tokenReqs 保存令牌Reqs，供当前处理流程使用
 	var tokenReqs atomic.Int32
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 通过 URL 路径区分 consign / token 请求
 		if strings.Contains(r.URL.Path, "token") || r.URL.Query().Get("api") == "mtop.taobao.idlemessage.pc.login.token" {
@@ -156,6 +185,7 @@ func TestConsignTokenExpiredThenRefreshSucceeds(t *testing.T) {
 			return
 		}
 		// consign
+		// attempt 保存尝试次数，供当前处理流程使用
 		attempt := consignReqs.Add(1)
 		if attempt == 1 {
 			// token 过期，不 Set-Cookie（强制走 RefreshToken）
@@ -166,9 +196,12 @@ func TestConsignTokenExpiredThenRefreshSucceeds(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/c", TokenURL: server.URL + "/t"}
+	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// ok、updated、err 保存ok、updated、err，供当前处理流程使用
 	ok, _, updated, err := client.ConsignContext(ctx, consignCookies, "order-1")
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -183,7 +216,9 @@ func TestConsignTokenExpiredThenRefreshSucceeds(t *testing.T) {
 
 // TestConsignContextCanceled: ctx 取消应中止重试。
 func TestConsignContextCanceled(t *testing.T) {
+	// requests 保存请求列表，供当前处理流程使用
 	var requests atomic.Int32
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		// 不 Set-Cookie，触发 RefreshToken 重试路径
@@ -191,7 +226,9 @@ func TestConsignContextCanceled(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/", TokenURL: server.URL + "/"}
+	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // 已取消
 	_, _, _, err := client.ConsignContext(ctx, consignCookies, "order-1")
@@ -206,17 +243,23 @@ func TestConsignContextCanceled(t *testing.T) {
 
 // TestConsignRetryExhausted: token 过期但每次下发不同 Set-Cookie，4 次重试耗尽返回 ok=false。
 func TestConsignRetryExhausted(t *testing.T) {
+	// requests 保存请求列表，供当前处理流程使用
 	var requests atomic.Int32
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// n 保存n，供当前处理流程使用
 		n := requests.Add(1)
 		http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: fmt.Sprintf("tok_%d", n), Path: "/"})
 		fmt.Fprint(w, `{"ret":["FAIL_SYS_TOKEN_EXOIRED::令牌过期"]}`)
 	}))
 	defer server.Close()
 
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/"}
+	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	// ok、ret、err 保存ok、ret、err，供当前处理流程使用
 	ok, ret, _, err := client.ConsignContext(ctx, consignCookies, "order-1")
 	if err != nil || ok {
 		t.Fatalf("ok=%v err=%v want ok=false err=nil", ok, err)
@@ -231,6 +274,7 @@ func TestConsignRetryExhausted(t *testing.T) {
 
 // TestBuildConsignQuery: 验证 query 拼接顺序与字段。
 func TestBuildConsignQuery(t *testing.T) {
+	// q 保存q，供当前处理流程使用
 	q := buildConsignQuery("123", "SIGN")
 	if !strings.Contains(q, "t=123") || !strings.Contains(q, "sign=SIGN") ||
 		!strings.Contains(q, "api=mtop.taobao.idle.logistic.consign.dummy") ||

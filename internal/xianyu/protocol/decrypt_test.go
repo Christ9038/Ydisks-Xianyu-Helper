@@ -18,6 +18,7 @@ func mp(b ...byte) string { return b64(b) }
 
 // TestMessagePack_DecodePrimitives 覆盖 msgpack 各原生类型的解码。
 func TestMessagePack_DecodePrimitives(t *testing.T) {
+	// cases 保存cases，供当前处理流程使用
 	cases := []struct {
 		name string
 		raw  []byte
@@ -56,9 +57,12 @@ func TestMessagePack_DecodePrimitives(t *testing.T) {
 		{"bin16", append([]byte{0xc5, 0x00, 0x03}, []byte("xyz")...), []byte("xyz")},
 		{"bin32", append([]byte{0xc6, 0x00, 0x00, 0x00, 0x03}, []byte("xyz")...), []byte("xyz")},
 	}
+	// tc 表示当前遍历过程中的tc
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			// d 保存d，供当前处理流程使用
 			d := &msgpackDecoder{data: tc.raw}
+			// got、err 保存got、err，供当前处理流程使用
 			got, err := d.decodeValue()
 			if err != nil {
 				t.Fatalf("decodeValue() err: %v", err)
@@ -73,11 +77,14 @@ func TestMessagePack_DecodePrimitives(t *testing.T) {
 // TestMessagePack_DecodeArrays 覆盖 fixarray / array16 / array32 与嵌套数组。
 func TestMessagePack_DecodeArrays(t *testing.T) {
 	t.Run("fixarray empty", func(t *testing.T) {
+		// d 保存d，供当前处理流程使用
 		d := &msgpackDecoder{data: []byte{0x90}}
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := d.decodeValue()
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
+		// want 保存want，供当前处理流程使用
 		want := []any{}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %#v, want %#v", got, want)
@@ -85,11 +92,14 @@ func TestMessagePack_DecodeArrays(t *testing.T) {
 	})
 	t.Run("fixarray mixed types", func(t *testing.T) {
 		// [1, "a", true, nil]
+		// d 保存d，供当前处理流程使用
 		d := &msgpackDecoder{data: []byte{0x94, 0x01, 0xa1, 'a', 0xc3, 0xc0}}
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := d.decodeValue()
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
+		// want 保存want，供当前处理流程使用
 		want := []any{int64(1), "a", true, nil}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %#v, want %#v", got, want)
@@ -97,11 +107,14 @@ func TestMessagePack_DecodeArrays(t *testing.T) {
 	})
 	t.Run("array16", func(t *testing.T) {
 		// array16 with 2 elements: [1, 2]
+		// d 保存d，供当前处理流程使用
 		d := &msgpackDecoder{data: []byte{0xdc, 0x00, 0x02, 0x01, 0x02}}
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := d.decodeValue()
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
+		// want 保存want，供当前处理流程使用
 		want := []any{int64(1), int64(2)}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %#v, want %#v", got, want)
@@ -109,11 +122,14 @@ func TestMessagePack_DecodeArrays(t *testing.T) {
 	})
 	t.Run("array32", func(t *testing.T) {
 		// array32 with 2 elements: [1, 2]
+		// d 保存d，供当前处理流程使用
 		d := &msgpackDecoder{data: []byte{0xdd, 0x00, 0x00, 0x00, 0x02, 0x01, 0x02}}
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := d.decodeValue()
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
+		// want 保存want，供当前处理流程使用
 		want := []any{int64(1), int64(2)}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %#v, want %#v", got, want)
@@ -121,11 +137,14 @@ func TestMessagePack_DecodeArrays(t *testing.T) {
 	})
 	t.Run("nested arrays", func(t *testing.T) {
 		// [[1, 2], [3, 4]]
+		// d 保存d，供当前处理流程使用
 		d := &msgpackDecoder{data: []byte{0x92, 0x92, 0x01, 0x02, 0x92, 0x03, 0x04}}
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := d.decodeValue()
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
+		// want 保存want，供当前处理流程使用
 		want := []any{[]any{int64(1), int64(2)}, []any{int64(3), int64(4)}}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %#v, want %#v", got, want)
@@ -136,11 +155,14 @@ func TestMessagePack_DecodeArrays(t *testing.T) {
 // TestMessagePack_DecodeMaps 覆盖 fixmap / map16 / map32 及嵌套 map。
 func TestMessagePack_DecodeMaps(t *testing.T) {
 	t.Run("fixmap empty", func(t *testing.T) {
+		// d 保存d，供当前处理流程使用
 		d := &msgpackDecoder{data: []byte{0x80}}
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := d.decodeValue()
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
+		// want 保存want，供当前处理流程使用
 		want := map[any]any{}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %#v, want %#v", got, want)
@@ -148,11 +170,14 @@ func TestMessagePack_DecodeMaps(t *testing.T) {
 	})
 	t.Run("fixmap string keys", func(t *testing.T) {
 		// {"a": 1, "b": 2}
+		// d 保存d，供当前处理流程使用
 		d := &msgpackDecoder{data: []byte{0x82, 0xa1, 'a', 0x01, 0xa1, 'b', 0x02}}
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := d.decodeValue()
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
+		// want 保存want，供当前处理流程使用
 		want := map[any]any{"a": int64(1), "b": int64(2)}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %#v, want %#v", got, want)
@@ -160,11 +185,14 @@ func TestMessagePack_DecodeMaps(t *testing.T) {
 	})
 	t.Run("fixmap integer keys", func(t *testing.T) {
 		// {1: "a", 2: "b"}
+		// d 保存d，供当前处理流程使用
 		d := &msgpackDecoder{data: []byte{0x82, 0x01, 0xa1, 'a', 0x02, 0xa1, 'b'}}
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := d.decodeValue()
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
+		// want 保存want，供当前处理流程使用
 		want := map[any]any{int64(1): "a", int64(2): "b"}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %#v, want %#v", got, want)
@@ -172,11 +200,14 @@ func TestMessagePack_DecodeMaps(t *testing.T) {
 	})
 	t.Run("map16", func(t *testing.T) {
 		// map16 with 1 pair: {"k": 1}
+		// d 保存d，供当前处理流程使用
 		d := &msgpackDecoder{data: []byte{0xde, 0x00, 0x01, 0xa1, 'k', 0x01}}
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := d.decodeValue()
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
+		// want 保存want，供当前处理流程使用
 		want := map[any]any{"k": int64(1)}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %#v, want %#v", got, want)
@@ -184,11 +215,14 @@ func TestMessagePack_DecodeMaps(t *testing.T) {
 	})
 	t.Run("map32", func(t *testing.T) {
 		// map32 with 1 pair: {"k": 1}
+		// d 保存d，供当前处理流程使用
 		d := &msgpackDecoder{data: []byte{0xdf, 0x00, 0x00, 0x00, 0x01, 0xa1, 'k', 0x01}}
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := d.decodeValue()
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
+		// want 保存want，供当前处理流程使用
 		want := map[any]any{"k": int64(1)}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("got %#v, want %#v", got, want)
@@ -196,16 +230,20 @@ func TestMessagePack_DecodeMaps(t *testing.T) {
 	})
 	t.Run("nested map and array", func(t *testing.T) {
 		// {"arr": [1, 2], "obj": {"k": "v"}}
+		// raw 保存原始，供当前处理流程使用
 		raw := []byte{
 			0x82,
 			0xa3, 'a', 'r', 'r', 0x92, 0x01, 0x02,
 			0xa3, 'o', 'b', 'j', 0x81, 0xa1, 'k', 0xa1, 'v',
 		}
+		// d 保存d，供当前处理流程使用
 		d := &msgpackDecoder{data: raw}
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := d.decodeValue()
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
+		// want 保存want，供当前处理流程使用
 		want := map[any]any{
 			"arr": []any{int64(1), int64(2)},
 			"obj": map[any]any{"k": "v"},
@@ -218,6 +256,7 @@ func TestMessagePack_DecodeMaps(t *testing.T) {
 
 // TestMessagePack_Errors 覆盖解码错误路径：截断、未知格式字节。
 func TestMessagePack_Errors(t *testing.T) {
+	// cases 保存cases，供当前处理流程使用
 	cases := []struct {
 		name string
 		raw  []byte
@@ -253,9 +292,12 @@ func TestMessagePack_Errors(t *testing.T) {
 		{"truncated map value", []byte{0x81, 0xa1, 'k'}},
 		{"truncated map key", []byte{0x81}},
 	}
+	// tc 表示当前遍历过程中的tc
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			// d 保存d，供当前处理流程使用
 			d := &msgpackDecoder{data: tc.raw}
+			// err 保存err，供当前处理流程使用
 			_, err := d.decodeValue()
 			if err == nil {
 				t.Fatal("expected error")
@@ -267,6 +309,7 @@ func TestMessagePack_Errors(t *testing.T) {
 // TestDecrypt_Types 端到端覆盖 Decrypt 对各 msgpack 类型的 JSON 归一化输出。
 func TestDecrypt_Types(t *testing.T) {
 	t.Run("nil", func(t *testing.T) {
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := Decrypt(mp(0xc0))
 		if err != nil {
 			t.Fatalf("err: %v", err)
@@ -276,6 +319,7 @@ func TestDecrypt_Types(t *testing.T) {
 		}
 	})
 	t.Run("bool true", func(t *testing.T) {
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := Decrypt(mp(0xc3))
 		if err != nil {
 			t.Fatalf("err: %v", err)
@@ -286,10 +330,12 @@ func TestDecrypt_Types(t *testing.T) {
 	})
 	t.Run("integer key map", func(t *testing.T) {
 		// {1: "a"} → {"1":"a"}
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := Decrypt(mp(0x81, 0x01, 0xa1, 'a'))
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
+		// want 保存want，供当前处理流程使用
 		want := `{"1":"a"}`
 		if got != want {
 			t.Fatalf("got %q, want %q", got, want)
@@ -297,21 +343,25 @@ func TestDecrypt_Types(t *testing.T) {
 	})
 	t.Run("nested map array", func(t *testing.T) {
 		// {"arr":[1,2],"obj":{"k":"v"}}
+		// raw 保存原始，供当前处理流程使用
 		raw := []byte{
 			0x82,
 			0xa3, 'a', 'r', 'r', 0x92, 0x01, 0x02,
 			0xa3, 'o', 'b', 'j', 0x81, 0xa1, 'k', 0xa1, 'v',
 		}
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := Decrypt(mp(raw...))
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
 		// JSON 结构比对（顺序无关）。
 		var gv, wv any
-		if err := json.Unmarshal([]byte(got), &gv); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := json.Unmarshal([]byte(got), &gv); err != nil {
 			t.Fatalf("unmarshal got: %v", err)
 		}
-		if err := json.Unmarshal([]byte(`{"arr":[1,2],"obj":{"k":"v"}}`), &wv); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := json.Unmarshal([]byte(`{"arr":[1,2],"obj":{"k":"v"}}`), &wv); err != nil {
 			t.Fatalf("unmarshal want: %v", err)
 		}
 		if !reflect.DeepEqual(gv, wv) {
@@ -320,10 +370,12 @@ func TestDecrypt_Types(t *testing.T) {
 	})
 	t.Run("bin to utf8 string", func(t *testing.T) {
 		// bin8 of "hello"
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := Decrypt(mp(append([]byte{0xc4, 0x05}, []byte("hello")...)...))
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
+		// want 保存want，供当前处理流程使用
 		want := `"hello"`
 		if got != want {
 			t.Fatalf("got %q, want %q", got, want)
@@ -331,6 +383,7 @@ func TestDecrypt_Types(t *testing.T) {
 	})
 	t.Run("bin with invalid utf8 dropped", func(t *testing.T) {
 		// bin8 with 0xff (invalid utf8 lead byte) → ToValidUTF8 drops it.
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := Decrypt(mp(0xc4, 0x02, 0xff, 0x41))
 		if err != nil {
 			t.Fatalf("err: %v", err)
@@ -341,16 +394,21 @@ func TestDecrypt_Types(t *testing.T) {
 		}
 	})
 	t.Run("float64", func(t *testing.T) {
+		// bits 保存bits，供当前处理流程使用
 		bits := math.Float64bits(3.14)
+		// buf 保存buf，供当前处理流程使用
 		buf := make([]byte, 9)
 		buf[0] = 0xcb
 		binary.BigEndian.PutUint64(buf[1:], bits)
+		// got、err 保存got、err，供当前处理流程使用
 		got, err := Decrypt(mp(buf...))
 		if err != nil {
 			t.Fatalf("err: %v", err)
 		}
+		// g 保存g，供当前处理流程使用
 		var g float64
-		if err := json.Unmarshal([]byte(got), &g); err != nil {
+		if // err 保存err，供当前处理流程使用
+		err := json.Unmarshal([]byte(got), &g); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
 		if g != 3.14 {
@@ -363,7 +421,9 @@ func TestDecrypt_Types(t *testing.T) {
 func TestDecrypt_Base64Padding(t *testing.T) {
 	// msgpack fixstr "hij" → 字节 0xa3 'h' 'i' 'j'，再 base64 编码。
 	// 4 字节输入 → base64 输出 8 字符（含 1 个 '=' padding）。
+	// full 保存full，供当前处理流程使用
 	full := b64([]byte{0xa3, 'h', 'i', 'j'})
+	// trimmed 保存trimmed，供当前处理流程使用
 	trimmed := strings.TrimRight(full, "=")
 	// 去掉 padding 后长度模 4 ≠ 0，应触发补齐逻辑并解码成功。
 	got, err := Decrypt(trimmed)
@@ -423,6 +483,7 @@ func TestDecrypt_Errors(t *testing.T) {
 // TestNormalizeForJSON 覆盖 normalizeForJSON 的各分支。
 func TestNormalizeForJSON(t *testing.T) {
 	t.Run("map[any]any with mixed keys", func(t *testing.T) {
+		// in 保存in，供当前处理流程使用
 		in := map[any]any{
 			"str":        "v",
 			int64(2):     int64(3),
@@ -431,7 +492,9 @@ func TestNormalizeForJSON(t *testing.T) {
 			nil:          "n",
 			float64(1.5): "f",
 		}
+		// out 保存out，供当前处理流程使用
 		out := normalizeForJSON(in)
+		// m、ok 保存m、ok，供当前处理流程使用
 		m, ok := out.(map[string]any)
 		if !ok {
 			t.Fatalf("expected map[string]any, got %T", out)
@@ -444,8 +507,11 @@ func TestNormalizeForJSON(t *testing.T) {
 		}
 	})
 	t.Run("nested []any", func(t *testing.T) {
+		// in 保存in，供当前处理流程使用
 		in := []any{int64(1), []any{int64(2), "x"}}
+		// out 保存out，供当前处理流程使用
 		out := normalizeForJSON(in)
+		// arr、ok 保存arr、ok，供当前处理流程使用
 		arr, ok := out.([]any)
 		if !ok {
 			t.Fatalf("expected []any, got %T", out)
@@ -453,28 +519,37 @@ func TestNormalizeForJSON(t *testing.T) {
 		if arr[0] != int64(1) {
 			t.Fatalf("arr[0] = %#v", arr[0])
 		}
-		if inner, ok := arr[1].([]any); !ok || inner[0] != int64(2) || inner[1] != "x" {
+		if // inner、ok 保存inner、ok，供当前处理流程使用
+		inner, ok := arr[1].([]any); !ok || inner[0] != int64(2) || inner[1] != "x" {
 			t.Fatalf("arr[1] = %#v", arr[1])
 		}
 	})
 	t.Run("[]byte normalized to valid utf8", func(t *testing.T) {
+		// in 保存in，供当前处理流程使用
 		in := []byte{0x41, 0xff, 0x42} // 'A', invalid, 'B'
+		// out 保存out，供当前处理流程使用
 		out := normalizeForJSON(in)
 		if out != "AB" {
 			t.Fatalf("got %q, want %q", out, "AB")
 		}
 	})
 	t.Run("scalar passthrough", func(t *testing.T) {
+		// in 表示当前遍历过程中的in
 		for _, in := range []any{int64(1), uint64(2), float64(3.5), "s", true, nil} {
-			if out := normalizeForJSON(in); out != in {
+			if // out 保存out，供当前处理流程使用
+			out := normalizeForJSON(in); out != in {
 				t.Fatalf("normalizeForJSON(%#v) = %#v, want passthrough", in, out)
 			}
 		}
 	})
 	t.Run("map[any]any with unknown key type falls to default", func(t *testing.T) {
+		// custom 保存custom，供当前处理流程使用
 		type custom struct{ X int }
+		// in 保存in，供当前处理流程使用
 		in := map[any]any{custom{1}: "v"}
+		// out 保存out，供当前处理流程使用
 		out := normalizeForJSON(in)
+		// m、ok 保存m、ok，供当前处理流程使用
 		m, ok := out.(map[string]any)
 		if !ok {
 			t.Fatalf("expected map[string]any, got %T", out)
@@ -487,6 +562,7 @@ func TestNormalizeForJSON(t *testing.T) {
 
 // TestKeyToString 覆盖 keyToString 的各类型分支。
 func TestKeyToString(t *testing.T) {
+	// cases 保存cases，供当前处理流程使用
 	cases := []struct {
 		name string
 		in   any
@@ -502,15 +578,19 @@ func TestKeyToString(t *testing.T) {
 		{"bytes valid utf8", []byte("hello"), "hello"},
 		{"bytes invalid utf8", []byte{0xff, 0x41}, "A"},
 	}
+	// tc 表示当前遍历过程中的tc
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := keyToString(tc.in); got != tc.want {
+			if // got 保存got，供当前处理流程使用
+			got := keyToString(tc.in); got != tc.want {
 				t.Fatalf("keyToString(%#v) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}
 	t.Run("default fallback", func(t *testing.T) {
+		// custom 保存custom，供当前处理流程使用
 		type custom struct{ X int }
+		// got 保存got，供当前处理流程使用
 		got := keyToString(custom{X: 7})
 		if got == "" {
 			t.Fatal("expected non-empty default fallback")
@@ -524,6 +604,7 @@ func TestKeyToString(t *testing.T) {
 
 // TestStripNonASCII 覆盖 stripNonASCII 行为。
 func TestStripNonASCII(t *testing.T) {
+	// cases 保存cases，供当前处理流程使用
 	cases := []struct {
 		name string
 		in   string
@@ -537,9 +618,11 @@ func TestStripNonASCII(t *testing.T) {
 		{"del 0x7f kept", "a\x7fb", "a\x7fb"},
 		{"0x80 stripped", "a\x80b", "ab"},
 	}
+	// tc 表示当前遍历过程中的tc
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := stripNonASCII(tc.in); got != tc.want {
+			if // got 保存got，供当前处理流程使用
+			got := stripNonASCII(tc.in); got != tc.want {
 				t.Fatalf("stripNonASCII(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})

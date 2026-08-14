@@ -15,6 +15,7 @@ const SignAppKey = "34839810"
 
 // GenerateSign 生成 mtop API 签名：MD5(token + "&" + t + "&" + appKey + "&" + data)。
 func GenerateSign(t, token, data string) string {
+	// msg 保存msg，供当前处理流程使用
 	msg := token + "&" + t + "&" + SignAppKey + "&" + data
 	// #nosec G401 -- MTOP 协议明确要求 MD5，不能替换为其他摘要算法。
 	sum := md5.Sum([]byte(msg))
@@ -23,7 +24,9 @@ func GenerateSign(t, token, data string) string {
 
 // GenerateMid 生成非密码学用途的消息 ID，形如 "<0-999随机><毫秒时间戳> 0"。
 func GenerateMid() string {
+	// randomPart 保存randomPart，供当前处理流程使用
 	randomPart := randomInt(1000)
+	// ts 保存ts，供当前处理流程使用
 	ts := time.Now().UnixMilli()
 	return fmt.Sprintf("%d%d 0", randomPart, ts)
 }
@@ -33,13 +36,17 @@ func GenerateUUID() string {
 	return fmt.Sprintf("-%d1", time.Now().UnixMilli())
 }
 
+// deviceIDChars 保存deviceIDChars，供当前处理流程使用
 const deviceIDChars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 // GenerateDeviceID 生成设备 ID：36 位 UUID 格式（位置 8/13/18/23 为 "-"，14 为 "4"，
 // 19 取 (rand&0x3)|0x8），末尾追加 "-<userID>"。
+// GenerateDeviceID 负责GenerateDeviceID相关处理。
 func GenerateDeviceID(userID string) string {
+	// result 保存结果，供当前处理流程使用
 	result := make([]byte, 36)
-	for i := 0; i < 36; i++ {
+	for // i 保存i，供当前处理流程使用
+	i := 0; i < 36; i++ {
 		switch i {
 		case 8, 13, 18, 23:
 			result[i] = '-'
@@ -54,6 +61,7 @@ func GenerateDeviceID(userID string) string {
 	return string(result) + "-" + userID
 }
 
+// randomFallback 保存randomFallback，供当前处理流程使用
 var randomFallback atomic.Uint64
 
 // randomInt 返回 [0,max) 的密码学随机数；系统熵源异常时使用进程内单调计数兜底。
@@ -61,6 +69,7 @@ func randomInt(max int) int {
 	if max <= 1 {
 		return 0
 	}
+	// n、err 保存n、err，供当前处理流程使用
 	n, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
 	if err == nil {
 		return int(n.Int64())

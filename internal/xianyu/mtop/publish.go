@@ -23,6 +23,7 @@ import (
 	"xianyu-go/internal/xianyu/protocol"
 )
 
+// UploadMediaAPI 保存UploadMediaAPI，供当前处理流程使用
 const (
 	UploadMediaAPI   = "https://stream-upload.goofish.com/api/upload.api"
 	PublishItemAPI   = "https://h5api.m.goofish.com/h5/mtop.idle.pc.idleitem.publish/1.0/"
@@ -31,22 +32,27 @@ const (
 
 // ErrPublishCategoryUnrecognized 表示闲鱼类目推荐接口调用成功，但没有给出可发布类目。
 // 这是发生在最终发布接口之前的确定性结果，调用方可以安全地改用人工指定类目。
+// ErrPublishCategoryUnrecognized 保存Err发布分类Unrecognized，供当前处理流程使用
 var ErrPublishCategoryUnrecognized = errors.New("未能自动识别商品类目，请调整标题或图片后重试")
 
+// PublishErrorCode 保存发布错误Code，供当前处理流程使用
 type PublishErrorCode string
 
+// PublishErrorUnknown 保存发布错误Unknown，供当前处理流程使用
 const (
 	PublishErrorUnknown                PublishErrorCode = "publish_failed"
 	PublishErrorTokenExpired           PublishErrorCode = "auth_expired"
 	PublishErrorStockPermissionMissing PublishErrorCode = "stock_permission_missing"
 )
 
+// PublishError 保存发布错误，供当前处理流程使用
 type PublishError struct {
 	Code PublishErrorCode
 	Ret  []string
 	Body string
 }
 
+// Error 负责错误相关处理。
 func (e *PublishError) Error() string {
 	if len(e.Ret) > 0 {
 		return strings.Join(e.Ret, "; ")
@@ -57,6 +63,7 @@ func (e *PublishError) Error() string {
 	return string(e.Code)
 }
 
+// PublishImage 保存发布图片，供当前处理流程使用
 type PublishImage struct {
 	Filename    string
 	ContentType string
@@ -65,6 +72,7 @@ type PublishImage struct {
 
 // PublishCategory 是发布商品时可使用的人工兜底类目。
 // CatID、CatName 和 ChannelCatID 必填；部分闲鱼类目没有 TBCatID。
+// PublishCategory 保存发布分类，供当前处理流程使用
 type PublishCategory struct {
 	CatID        string `json:"cat_id"`
 	CatName      string `json:"cat_name"`
@@ -86,6 +94,7 @@ type PublishLocation struct {
 
 // DefaultVirtualPublishCategory 是从闲鱼类目推荐响应中核实的“电子资料”类目。
 // 该类目没有 tbCatId，发布时必须保留为空而不是伪造淘宝类目 ID。
+// DefaultVirtualPublishCategory 负责DefaultVirtual发布分类相关处理。
 func DefaultVirtualPublishCategory() PublishCategory {
 	return PublishCategory{
 		CatID:        "50023914",
@@ -94,6 +103,7 @@ func DefaultVirtualPublishCategory() PublishCategory {
 	}
 }
 
+// PublishItemRequest 保存发布商品请求，供当前处理流程使用
 type PublishItemRequest struct {
 	Title              string
 	Description        string
@@ -109,6 +119,7 @@ type PublishItemRequest struct {
 	Images            []PublishImage
 }
 
+// PublishItemResult 保存发布商品结果，供当前处理流程使用
 type PublishItemResult struct {
 	ItemID         string
 	ItemURL        string
@@ -122,12 +133,14 @@ type PublishItemResult struct {
 	UpdatedCookies string
 }
 
+// uploadedImage 保存uploaded图片，供当前处理流程使用
 type uploadedImage struct {
 	URL    string
 	Width  int
 	Height int
 }
 
+// PublishItem 负责发布商品相关处理。
 func (c *ClientImpl) PublishItem(ctx context.Context, cookiesStr string, req PublishItemRequest) (*PublishItemResult, error) {
 	if strings.TrimSpace(req.Title) == "" {
 		return nil, errors.New("商品标题不能为空")
@@ -150,12 +163,17 @@ func (c *ClientImpl) PublishItem(ctx context.Context, cookiesStr string, req Pub
 	if req.PreferredCategory != nil && !validPublishCategory(*req.PreferredCategory) {
 		return nil, errors.New("默认类目必须同时包含类目 ID、类目名称和频道类目 ID")
 	}
+	// currentCookies 保存currentCookies，供当前处理流程使用
 	currentCookies := cookiesStr
-	if session := cookieSessionFromContext(ctx); session != nil {
+	if // session 保存会话，供当前处理流程使用
+	session := cookieSessionFromContext(ctx); session != nil {
 		currentCookies, _, _ = session.State()
 	}
+	// uploaded 保存uploaded，供当前处理流程使用
 	uploaded := make([]uploadedImage, 0, len(req.Images))
+	// img 表示当前遍历过程中的img
 	for _, img := range req.Images {
+		// res、updated、err 保存res、updated、err，供当前处理流程使用
 		res, updated, err := c.uploadPublishImage(ctx, currentCookies, img)
 		if err != nil {
 			return nil, err
@@ -165,8 +183,11 @@ func (c *ClientImpl) PublishItem(ctx context.Context, cookiesStr string, req Pub
 		}
 		uploaded = append(uploaded, res)
 	}
+	// category 保存分类，供当前处理流程使用
 	var category map[string]any
+	// updated 保存updated，供当前处理流程使用
 	var updated string
+	// err 保存err，供当前处理流程使用
 	var err error
 	if req.PreferredCategory != nil {
 		category = fallbackPublishCategory(*req.PreferredCategory)
@@ -192,11 +213,14 @@ func (c *ClientImpl) RecommendPublishCategory(ctx context.Context, cookiesStr, k
 	if keyword == "" {
 		return PublishCategory{}, cookiesStr, errors.New("类目关键词不能为空")
 	}
+	// data、updated、err 保存data、updated、err，供当前处理流程使用
 	data, updated, err := c.recommendPublishCategory(ctx, cookiesStr, keyword, keyword, nil)
 	if err != nil {
 		return PublishCategory{}, updated, err
 	}
+	// cat 保存cat，供当前处理流程使用
 	cat := mapFromAny(data["categoryPredictResult"])
+	// category 保存分类，供当前处理流程使用
 	category := PublishCategory{
 		CatID:        strings.TrimSpace(mtopString(cat["catId"])),
 		CatName:      strings.TrimSpace(mtopString(cat["catName"])),
@@ -209,7 +233,9 @@ func (c *ClientImpl) RecommendPublishCategory(ctx context.Context, cookiesStr, k
 	return category, updated, nil
 }
 
+// uploadPublishImage 负责upload发布图片相关处理。
 func (c *ClientImpl) uploadPublishImage(ctx context.Context, cookiesStr string, img PublishImage) (uploadedImage, string, error) {
+	// hc 保存hc，供当前处理流程使用
 	hc := c.httpClientWithTimeout(60 * time.Second)
 	if img.ContentType == "" {
 		img.ContentType = "application/octet-stream"
@@ -217,41 +243,54 @@ func (c *ClientImpl) uploadPublishImage(ctx context.Context, cookiesStr string, 
 	if img.Filename == "" {
 		img.Filename = "image"
 	}
+	// body 保存请求体，供当前处理流程使用
 	var body bytes.Buffer
+	// mw 保存mw，供当前处理流程使用
 	mw := multipart.NewWriter(&body)
+	// header 保存header，供当前处理流程使用
 	header := make(textproto.MIMEHeader)
 	header.Set("Content-Disposition", fmt.Sprintf("form-data; name=\"file\"; filename=\"%s\"", escapeMultipartFilename(filepath.Base(img.Filename))))
 	header.Set("Content-Type", img.ContentType)
+	// part、err 保存part、err，供当前处理流程使用
 	part, err := mw.CreatePart(header)
 	if err != nil {
 		return uploadedImage{}, cookiesStr, err
 	}
-	if _, err := part.Write(img.Data); err != nil {
+	if // err 保存err，供当前处理流程使用
+	_, err := part.Write(img.Data); err != nil {
 		return uploadedImage{}, cookiesStr, err
 	}
-	if err := mw.Close(); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := mw.Close(); err != nil {
 		return uploadedImage{}, cookiesStr, err
 	}
+	// u 保存u，供当前处理流程使用
 	u, _ := url.Parse(UploadMediaAPI)
+	// q 保存q，供当前处理流程使用
 	q := u.Query()
 	q.Set("floderId", "0")
 	q.Set("appkey", "xy_chat")
 	q.Set("_input_charset", "utf-8")
 	u.RawQuery = q.Encode()
+	// req、err 保存req、err，供当前处理流程使用
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), &body)
 	if err != nil {
 		return uploadedImage{}, cookiesStr, err
 	}
+	// requestCookies 保存请求Cookies，供当前处理流程使用
 	_, requestCookies := mtopRequestCookies(ctx, cookiesStr, "https://www.goofish.com/", u.String())
 	req.Header.Set("content-type", mw.FormDataContentType())
 	setBrowserHeaders(req, requestCookies)
 	req.Header.Set("accept", "*/*")
+	// resp、err 保存resp、err，供当前处理流程使用
 	resp, err := hc.Do(req)
 	if err != nil {
 		return uploadedImage{}, cookiesStr, fmt.Errorf("上传商品图片失败: %w", err)
 	}
 	defer resp.Body.Close()
+	// updated 保存updated，供当前处理流程使用
 	updated := absorbMTopResponseCookies(ctx, cookiesStr, resp)
+	// raw、err 保存raw、err，供当前处理流程使用
 	raw, err := readMTopBody(resp)
 	if err != nil {
 		return uploadedImage{}, updated, err
@@ -259,14 +298,18 @@ func (c *ClientImpl) uploadPublishImage(ctx context.Context, cookiesStr string, 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return uploadedImage{}, updated, fmt.Errorf("上传商品图片失败: http=%d body=%s", resp.StatusCode, truncate(string(raw), 240))
 	}
+	// decoded 保存decoded，供当前处理流程使用
 	var decoded map[string]any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := json.Unmarshal(raw, &decoded); err != nil {
 		return uploadedImage{}, updated, fmt.Errorf("解析图片上传响应失败: %w (body=%s)", err, truncate(string(raw), 240))
 	}
+	// obj 保存obj，供当前处理流程使用
 	obj := mapFromAny(decoded["object"])
 	if obj == nil {
 		obj = mapFromAny(decoded["data"])
 	}
+	// imageURL 保存图片URL，供当前处理流程使用
 	imageURL := mtopString(obj["url"])
 	if imageURL == "" {
 		imageURL = mtopString(decoded["url"])
@@ -274,9 +317,11 @@ func (c *ClientImpl) uploadPublishImage(ctx context.Context, cookiesStr string, 
 	if imageURL == "" {
 		return uploadedImage{}, updated, fmt.Errorf("图片上传响应缺少 url: %s", truncate(string(raw), 240))
 	}
+	// width、height 保存width、height，供当前处理流程使用
 	width, height := parsePix(mtopString(obj["pix"]))
 	if width == 0 || height == 0 {
-		if cfg, _, err := image.DecodeConfig(bytes.NewReader(img.Data)); err == nil {
+		if // cfg、err 保存cfg、err，供当前处理流程使用
+		cfg, _, err := image.DecodeConfig(bytes.NewReader(img.Data)); err == nil {
 			width, height = cfg.Width, cfg.Height
 		}
 	}
@@ -289,11 +334,15 @@ func (c *ClientImpl) uploadPublishImage(ctx context.Context, cookiesStr string, 
 	return uploadedImage{URL: imageURL, Width: width, Height: height}, updated, nil
 }
 
+// recommendPublishCategory 负责recommend发布分类相关处理。
 func (c *ClientImpl) recommendPublishCategory(ctx context.Context, cookiesStr, title, desc string, images []uploadedImage) (map[string]any, string, error) {
+	// imageInfos 保存图片Infos，供当前处理流程使用
 	imageInfos := make([]any, 0, len(images))
+	// i、img 表示当前遍历过程中的i、img
 	for i, img := range images {
 		imageInfos = append(imageInfos, publishImagePayload(img, i == 0))
 	}
+	// data 保存数据，供当前处理流程使用
 	data := map[string]any{
 		"title":        title,
 		"lockCpv":      false,
@@ -306,6 +355,7 @@ func (c *ClientImpl) recommendPublishCategory(ctx context.Context, cookiesStr, t
 	if len(imageInfos) > 0 {
 		data["imageInfos"] = imageInfos
 	}
+	// decoded、updated、err 保存decoded、updated、err，供当前处理流程使用
 	decoded, updated, err := c.callMTop(ctx, cookiesStr, RecommendItemAPI, "mtop.taobao.idle.kgraph.property.recommend", "2.0", "a21ybx.publish.0.0", "a21ybx.item.sidebar.1.67321598K9Vgx8", "67321598K9Vgx8", data)
 	if err != nil {
 		return nil, updated, err
@@ -313,15 +363,18 @@ func (c *ClientImpl) recommendPublishCategory(ctx context.Context, cookiesStr, t
 	if !hasMTopSuccess(retFromDecoded(decoded)) {
 		return nil, updated, classifyPublishError(retFromDecoded(decoded), decoded)
 	}
+	// dataMap 保存数据Map，供当前处理流程使用
 	dataMap := mapFromAny(decoded["data"])
 	if dataMap == nil {
 		return nil, updated, fmt.Errorf("%w: 类目推荐响应缺少 data", ErrPublishCategoryUnrecognized)
 	}
+	// cat 保存cat，供当前处理流程使用
 	cat := mapFromAny(dataMap["categoryPredictResult"])
 	if !validPublishCategoryMap(cat) {
 		// 部分账号/场景仅在 cardList 的“分类”卡片返回已选中的类目，
 		// 不返回 categoryPredictResult。将其转换为统一的发布类目结构。
-		if selected := selectedCategoryFromCards(dataMap); selected != nil {
+		if // selected 保存selected，供当前处理流程使用
+		selected := selectedCategoryFromCards(dataMap); selected != nil {
 			cat = selected
 			dataMap["categoryPredictResult"] = selected
 		}
@@ -332,6 +385,7 @@ func (c *ClientImpl) recommendPublishCategory(ctx context.Context, cookiesStr, t
 	return dataMap, updated, nil
 }
 
+// validPublishCategoryMap 负责有效发布分类Map相关处理。
 func validPublishCategoryMap(category map[string]any) bool {
 	return category != nil &&
 		strings.TrimSpace(mtopString(category["catId"])) != "" &&
@@ -339,15 +393,22 @@ func validPublishCategoryMap(category map[string]any) bool {
 		strings.TrimSpace(mtopString(category["channelCatId"])) != ""
 }
 
+// selectedCategoryFromCards 负责selected分类From卡密列表相关处理。
 func selectedCategoryFromCards(data map[string]any) map[string]any {
+	// cards 保存卡密列表，供当前处理流程使用
 	cards, _ := data["cardList"].([]any)
+	// rawCard 表示当前遍历过程中的原始卡密
 	for _, rawCard := range cards {
+		// cardData 保存卡密数据，供当前处理流程使用
 		cardData := mapFromAny(mapFromAny(rawCard)["cardData"])
 		if cardData == nil || mtopString(cardData["propertyId"]) != "-10000" {
 			continue
 		}
+		// values 保存values，供当前处理流程使用
 		values, _ := cardData["valuesList"].([]any)
+		// rawValue 表示当前遍历过程中的原始值
 		for _, rawValue := range values {
+			// value 保存值，供当前处理流程使用
 			value := mapFromAny(rawValue)
 			if value == nil || !publishLabelSelected(value["isClicked"]) || mtopString(value["catId"]) == "" {
 				continue
@@ -363,12 +424,14 @@ func selectedCategoryFromCards(data map[string]any) map[string]any {
 	return nil
 }
 
+// validPublishCategory 负责有效发布分类相关处理。
 func validPublishCategory(category PublishCategory) bool {
 	return strings.TrimSpace(category.CatID) != "" &&
 		strings.TrimSpace(category.CatName) != "" &&
 		strings.TrimSpace(category.ChannelCatID) != ""
 }
 
+// fallbackPublishCategory 负责fallback发布分类相关处理。
 func fallbackPublishCategory(category PublishCategory) map[string]any {
 	category = PublishCategory{
 		CatID:        strings.TrimSpace(category.CatID),
@@ -400,16 +463,22 @@ func fallbackPublishCategory(category PublishCategory) map[string]any {
 	}
 }
 
+// validPublishLocation 负责有效发布地址相关处理。
 func validPublishLocation(loc PublishLocation) bool {
 	return loc.DivisionID != "" && loc.Province != "" && loc.City != "" && loc.Longitude >= -180 && loc.Longitude <= 180 && loc.Latitude >= -90 && loc.Latitude <= 90 && !(loc.Longitude == 0 && loc.Latitude == 0)
 }
 
+// publishItemOnce 负责发布商品Once相关处理。
 func (c *ClientImpl) publishItemOnce(ctx context.Context, cookiesStr string, req PublishItemRequest, images []uploadedImage, category map[string]any) (*PublishItemResult, error) {
+	// imagePayloads 保存图片Payloads，供当前处理流程使用
 	imagePayloads := make([]any, 0, len(images))
+	// i、img 表示当前遍历过程中的i、img
 	for i, img := range images {
 		imagePayloads = append(imagePayloads, publishImagePayload(img, i == 0))
 	}
+	// cat 保存cat，供当前处理流程使用
 	cat := mapFromAny(category["categoryPredictResult"])
+	// data 保存数据，供当前处理流程使用
 	data := map[string]any{
 		"freebies":         false,
 		"itemTypeStr":      "b",
@@ -448,19 +517,24 @@ func (c *ClientImpl) publishItemOnce(ctx context.Context, cookiesStr string, req
 	} else if !req.Virtual {
 		return nil, errors.New("发布实物商品前必须选择发货地")
 	}
+	// decoded、updated、err 保存decoded、updated、err，供当前处理流程使用
 	decoded, updated, err := c.callMTop(ctx, cookiesStr, PublishItemAPI, "mtop.idle.pc.idleitem.publish", "1.0", "a21ybx.publish.0.0", "a21ybx.home.sidebar.1.46413da6EPl7v5", "46413da6EPl7v5", data)
 	if err != nil {
 		return nil, err
 	}
+	// ret 保存ret，供当前处理流程使用
 	ret := retFromDecoded(decoded)
 	if !hasMTopSuccess(ret) {
 		return nil, classifyPublishError(ret, decoded)
 	}
+	// dataMap 保存数据Map，供当前处理流程使用
 	dataMap := mapFromAny(decoded["data"])
+	// itemID 保存商品ID，供当前处理流程使用
 	itemID := findStringDeep(dataMap, "itemId", "item_id", "id", "itemID")
 	if itemID == "" {
 		itemID = findStringDeep(decoded, "itemId", "item_id", "itemID")
 	}
+	// result 保存结果，供当前处理流程使用
 	result := &PublishItemResult{
 		ItemID:         itemID,
 		Title:          req.Title,
@@ -478,38 +552,55 @@ func (c *ClientImpl) publishItemOnce(ctx context.Context, cookiesStr string, req
 	return result, nil
 }
 
+// callMTop 负责callMTop相关处理。
 func (c *ClientImpl) callMTop(ctx context.Context, cookiesStr, endpoint, api, version, spmCnt, spmPre, logID string, data any) (map[string]any, string, error) {
+	// hc 保存hc，供当前处理流程使用
 	hc := c.httpClient()
+	// rawData 保存原始数据，供当前处理流程使用
 	rawData, _ := json.Marshal(data)
+	// dataVal 保存数据Val，供当前处理流程使用
 	dataVal := string(rawData)
+	// signingCookies、requestCookies 保存signingCookies、requestCookies，供当前处理流程使用
 	signingCookies, requestCookies := mtopRequestCookies(ctx, cookiesStr, "https://www.goofish.com/", endpoint)
+	// t 保存t，供当前处理流程使用
 	t := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	// sign 保存sign，供当前处理流程使用
 	sign := protocol.GenerateSign(t, protocol.SignToken(signingCookies), dataVal)
+	// query 保存查询，供当前处理流程使用
 	query := buildMTopQuery(api, version, t, sign, spmCnt, spmPre, logID)
+	// body 保存请求体，供当前处理流程使用
 	body := "data=" + url.QueryEscape(dataVal)
+	// req、err 保存req、err，供当前处理流程使用
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"?"+query, strings.NewReader(body))
 	if err != nil {
 		return nil, cookiesStr, err
 	}
 	setCommonHeaders(req, requestCookies)
+	// resp、err 保存resp、err，供当前处理流程使用
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, cookiesStr, fmt.Errorf("%s 请求失败: %w", api, err)
 	}
 	defer resp.Body.Close()
+	// updated 保存updated，供当前处理流程使用
 	updated := absorbMTopResponseCookies(ctx, cookiesStr, resp)
+	// raw、err 保存raw、err，供当前处理流程使用
 	raw, err := readMTopBody(resp)
 	if err != nil {
 		return nil, updated, err
 	}
+	// decoded 保存decoded，供当前处理流程使用
 	var decoded map[string]any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
+	if // err 保存err，供当前处理流程使用
+	err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, updated, fmt.Errorf("解析 %s 响应失败: %w (body=%s)", api, err, truncate(string(raw), 300))
 	}
 	return decoded, updated, nil
 }
 
+// buildMTopQuery 负责buildMTop查询相关处理。
 func buildMTopQuery(api, version, t, sign, spmCnt, spmPre, logID string) string {
+	// parts 保存parts，供当前处理流程使用
 	parts := [][2]string{
 		{"jsv", "2.7.2"},
 		{"appKey", protocol.SignAppKey},
@@ -526,7 +617,9 @@ func buildMTopQuery(api, version, t, sign, spmCnt, spmPre, logID string) string 
 		{"spm_pre", spmPre},
 		{"log_id", logID},
 	}
+	// b 保存b，供当前处理流程使用
 	var b strings.Builder
+	// i、p 表示当前遍历过程中的i、p
 	for i, p := range parts {
 		if i > 0 {
 			b.WriteByte('&')
@@ -538,6 +631,7 @@ func buildMTopQuery(api, version, t, sign, spmCnt, spmPre, logID string) string 
 	return b.String()
 }
 
+// setBrowserHeaders 负责set浏览器Headers相关处理。
 func setBrowserHeaders(req *http.Request, cookiesStr string) {
 	xianyu.ApplyBrowserFingerprint(req.Header)
 	req.Header.Set("accept-language", "zh-CN,zh;q=0.9,en;q=0.8")
@@ -548,6 +642,7 @@ func setBrowserHeaders(req *http.Request, cookiesStr string) {
 	req.Header.Set("cookie", cookiesStr)
 }
 
+// publishImagePayload 负责发布图片请求载荷相关处理。
 func publishImagePayload(img uploadedImage, major bool) map[string]any {
 	return map[string]any{
 		"extraInfo":  map[string]any{"isH": "false", "isT": "false", "raw": "false"},
@@ -561,7 +656,9 @@ func publishImagePayload(img uploadedImage, major bool) map[string]any {
 	}
 }
 
+// publishPriceDTO 负责发布PriceDTO相关处理。
 func publishPriceDTO(req PublishItemRequest) map[string]any {
+	// out 保存out，供当前处理流程使用
 	out := map[string]any{"priceInCent": strconv.FormatInt(req.PriceCents, 10)}
 	if req.OriginalPriceCents > 0 {
 		out["origPriceInCent"] = strconv.FormatInt(req.OriginalPriceCents, 10)
@@ -569,7 +666,9 @@ func publishPriceDTO(req PublishItemRequest) map[string]any {
 	return out
 }
 
+// postageDTO 负责postageDTO相关处理。
 func postageDTO(req PublishItemRequest) map[string]any {
+	// out 保存out，供当前处理流程使用
 	out := map[string]any{"canFreeShipping": false, "supportFreight": false, "onlyTakeSelf": false}
 	switch req.PostageMode {
 	case "free", "":
@@ -591,24 +690,37 @@ func postageDTO(req PublishItemRequest) map[string]any {
 	return out
 }
 
+// publishLabels 负责发布Labels相关处理。
 func publishLabels(category map[string]any) []any {
+	// cards 保存卡密列表，供当前处理流程使用
 	cards, _ := category["cardList"].([]any)
+	// out 保存out，供当前处理流程使用
 	out := []any{}
+	// rawCard 表示当前遍历过程中的原始卡密
 	for _, rawCard := range cards {
+		// card 保存卡密，供当前处理流程使用
 		card := mapFromAny(rawCard)
+		// cardData 保存卡密数据，供当前处理流程使用
 		cardData := mapFromAny(card["cardData"])
 		if cardData == nil {
 			continue
 		}
+		// values 保存values，供当前处理流程使用
 		values, _ := cardData["valuesList"].([]any)
+		// rawValue 表示当前遍历过程中的原始值
 		for _, rawValue := range values {
+			// value 保存值，供当前处理流程使用
 			value := mapFromAny(rawValue)
 			if !publishLabelSelected(value["isClicked"]) {
 				continue
 			}
+			// propertyID 保存propertyID，供当前处理流程使用
 			propertyID := mtopString(cardData["propertyId"])
+			// propertyName 保存property名称，供当前处理流程使用
 			propertyName := mtopString(cardData["propertyName"])
+			// channelCatID 保存渠道CatID，供当前处理流程使用
 			channelCatID := mtopString(value["channelCatId"])
+			// catName 保存cat名称，供当前处理流程使用
 			catName := mtopString(value["catName"])
 			out = append(out, map[string]any{
 				"channelCateName": catName,
@@ -635,8 +747,10 @@ func publishLabels(category map[string]any) []any {
 	return out
 }
 
+// publishLabelSelected 负责发布LabelSelected相关处理。
 func publishLabelSelected(value any) bool {
-	if selected, ok := value.(bool); ok {
+	if // selected、ok 保存selected、ok，供当前处理流程使用
+	selected, ok := value.(bool); ok {
 		return selected
 	}
 	switch strings.ToLower(strings.TrimSpace(mtopString(value))) {
@@ -647,14 +761,20 @@ func publishLabelSelected(value any) bool {
 	}
 }
 
+// classifyPublishError 负责classify发布错误相关处理。
 func classifyPublishError(ret []string, decoded map[string]any) error {
+	// bodyBytes 保存请求体Bytes，供当前处理流程使用
 	bodyBytes, _ := json.Marshal(decoded)
+	// body 保存请求体，供当前处理流程使用
 	body := string(bodyBytes)
+	// joined 保存joined，供当前处理流程使用
 	joined := strings.ToLower(strings.Join(append(ret, body), " "))
 	if isTokenExpiredRet(ret) || strings.Contains(joined, "login") || strings.Contains(joined, "session") {
 		return &PublishError{Code: PublishErrorTokenExpired, Ret: ret, Body: body}
 	}
+	// stockTerms 保存stockTerms，供当前处理流程使用
 	stockTerms := []string{"库存", "数量", "多库存", "多件", "quantity", "stock", "inventory"}
+	// permissionTerms 保存permissionTerms，供当前处理流程使用
 	permissionTerms := []string{"权限", "未开通", "不支持", "没有", "无法", "permission", "forbidden", "not allow", "not support"}
 	if containsAny(joined, stockTerms) && containsAny(joined, permissionTerms) {
 		return &PublishError{Code: PublishErrorStockPermissionMissing, Ret: ret, Body: body}
@@ -662,7 +782,9 @@ func classifyPublishError(ret []string, decoded map[string]any) error {
 	return &PublishError{Code: PublishErrorUnknown, Ret: ret, Body: body}
 }
 
+// containsAny 负责containsAny相关处理。
 func containsAny(s string, terms []string) bool {
+	// term 表示当前遍历过程中的term
 	for _, term := range terms {
 		if strings.Contains(s, strings.ToLower(term)) {
 			return true
@@ -671,56 +793,78 @@ func containsAny(s string, terms []string) bool {
 	return false
 }
 
+// retFromDecoded 负责retFromDecoded相关处理。
 func retFromDecoded(decoded map[string]any) []string {
+	// raw 保存原始，供当前处理流程使用
 	raw, _ := decoded["ret"].([]any)
+	// out 保存out，供当前处理流程使用
 	out := make([]string, 0, len(raw))
+	// r 表示当前遍历过程中的r
 	for _, r := range raw {
 		out = append(out, mtopString(r))
 	}
 	return out
 }
 
+// mapFromAny 负责mapFromAny相关处理。
 func mapFromAny(v any) map[string]any {
-	if m, ok := v.(map[string]any); ok {
+	if // m、ok 保存m、ok，供当前处理流程使用
+	m, ok := v.(map[string]any); ok {
 		return m
 	}
 	return nil
 }
 
+// parsePix 负责parsePix相关处理。
 func parsePix(pix string) (int, int) {
+	// parts 保存parts，供当前处理流程使用
 	parts := strings.Split(pix, "x")
 	if len(parts) != 2 {
 		return 0, 0
 	}
+	// w 保存w，供当前处理流程使用
 	w, _ := strconv.Atoi(parts[0])
+	// h 保存h，供当前处理流程使用
 	h, _ := strconv.Atoi(parts[1])
 	return w, h
 }
 
+// findStringDeep 负责findStringDeep相关处理。
 func findStringDeep(v any, keys ...string) string {
+	// keySet 保存keySet，供当前处理流程使用
 	keySet := map[string]struct{}{}
+	// k 表示当前遍历过程中的k
 	for _, k := range keys {
 		keySet[k] = struct{}{}
 	}
+	// walk 保存walk，供当前处理流程使用
 	var walk func(any) string
 	walk = func(cur any) string {
-		switch x := cur.(type) {
+		switch // x 保存x，供当前处理流程使用
+		x := cur.(type) {
 		case map[string]any:
+			// k、v 表示当前遍历过程中的k、v
 			for k, v := range x {
-				if _, ok := keySet[k]; ok {
-					if s := mtopString(v); s != "" {
+				if // ok 保存ok，供当前处理流程使用
+				_, ok := keySet[k]; ok {
+					if // s 保存s，供当前处理流程使用
+					s := mtopString(v); s != "" {
 						return s
 					}
 				}
 			}
+			// v 表示当前遍历过程中的v
 			for _, v := range x {
-				if s := walk(v); s != "" {
+				if // s 保存s，供当前处理流程使用
+				s := walk(v); s != "" {
 					return s
 				}
 			}
 		case []any:
+			// v 表示当前遍历过程中的v
 			for _, v := range x {
-				if s := walk(v); s != "" {
+				if // s 保存s，供当前处理流程使用
+				s := walk(v); s != "" {
 					return s
 				}
 			}
@@ -730,10 +874,12 @@ func findStringDeep(v any, keys ...string) string {
 	return walk(v)
 }
 
+// centsText 负责cents文本相关处理。
 func centsText(cents int64) string {
 	return strconv.FormatFloat(float64(cents)/100, 'f', 2, 64)
 }
 
+// escapeMultipartFilename 负责escapeMultipartFilename相关处理。
 func escapeMultipartFilename(s string) string {
 	return strings.NewReplacer("\\", "\\\\", "\"", "\\\"").Replace(s)
 }

@@ -12,6 +12,8 @@ import (
 //   - map 的键统一转为字符串（整数键 → 数字字符串）
 //   - []byte（msgpack bin）→ UTF-8 字符串（忽略无效字节）
 //   - 其余类型原样保留
+//
+// Decrypt 负责Decrypt相关处理。
 func Decrypt(data string) (string, error) {
 	// 清理非 ASCII。
 	data = stripNonASCII(data)
@@ -19,7 +21,8 @@ func Decrypt(data string) (string, error) {
 	// base64 解码，必要时补 padding。
 	decoded, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
-		if pad := len(data) % 4; pad != 0 {
+		if // pad 保存pad，供当前处理流程使用
+		pad := len(data) % 4; pad != 0 {
 			decoded, err = base64.StdEncoding.DecodeString(data + strings.Repeat("=", 4-pad))
 		}
 		if err != nil {
@@ -27,13 +30,17 @@ func Decrypt(data string) (string, error) {
 		}
 	}
 
+	// d 保存d，供当前处理流程使用
 	d := &msgpackDecoder{data: decoded}
+	// val、err 保存val、err，供当前处理流程使用
 	val, err := d.decodeValue()
 	if err != nil {
 		return "", fmt.Errorf("解密失败: %w", err)
 	}
 
+	// normalized 保存normalized，供当前处理流程使用
 	normalized := normalizeForJSON(val)
+	// b、err 保存b、err，供当前处理流程使用
 	b, err := json.Marshal(normalized)
 	if err != nil {
 		return "", fmt.Errorf("解密失败: JSON 序列化: %w", err)
@@ -43,8 +50,10 @@ func Decrypt(data string) (string, error) {
 
 // stripNonASCII 删除非 ASCII 字符。
 func stripNonASCII(s string) string {
+	// b 保存b，供当前处理流程使用
 	var b strings.Builder
 	b.Grow(len(s))
+	// r 表示当前遍历过程中的r
 	for _, r := range s {
 		if r < 0x80 {
 			b.WriteRune(r)
@@ -55,15 +64,20 @@ func stripNonASCII(s string) string {
 
 // normalizeForJSON 把 msgpack 解码出的任意结构转为 json.Marshal 友好的结构。
 func normalizeForJSON(v any) any {
-	switch x := v.(type) {
+	switch // x 保存x，供当前处理流程使用
+	x := v.(type) {
 	case map[any]any:
+		// m 保存m，供当前处理流程使用
 		m := make(map[string]any, len(x))
+		// k、val 表示当前遍历过程中的k、val
 		for k, val := range x {
 			m[keyToString(k)] = normalizeForJSON(val)
 		}
 		return m
 	case []any:
+		// out 保存out，供当前处理流程使用
 		out := make([]any, len(x))
+		// i、e 表示当前遍历过程中的i、e
 		for i, e := range x {
 			out[i] = normalizeForJSON(e)
 		}
@@ -78,7 +92,8 @@ func normalizeForJSON(v any) any {
 
 // keyToString 将非字符串 map 键转换为 JSON 对象键。
 func keyToString(k any) string {
-	switch x := k.(type) {
+	switch // x 保存x，供当前处理流程使用
+	x := k.(type) {
 	case string:
 		return x
 	case int64:

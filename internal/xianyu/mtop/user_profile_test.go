@@ -21,8 +21,10 @@ type rewriteTransport struct {
 	target string
 }
 
+// RoundTrip 负责RoundTrip相关处理。
 func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
+	// target、err 保存target、err，供当前处理流程使用
 	target, err := url.Parse(t.target)
 	if err != nil {
 		return nil, err
@@ -30,6 +32,7 @@ func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	target.RawQuery = req.URL.RawQuery
 	req.URL = target
 	req.Host = target.Host
+	// rt 保存rt，供当前处理流程使用
 	rt := t.base
 	if rt == nil {
 		rt = http.DefaultTransport
@@ -39,7 +42,9 @@ func (t *rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 // TestFetchUserProfileSuccess: 成功解析 module.base。
 func TestFetchUserProfileSuccess(t *testing.T) {
+	// requests 保存请求列表，供当前处理流程使用
 	var requests atomic.Int32
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "fresh_8", Path: "/"})
@@ -47,8 +52,11 @@ func TestFetchUserProfileSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := client.FetchUserProfile(context.Background(), consignCookies)
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -66,13 +74,17 @@ func TestFetchUserProfileSuccess(t *testing.T) {
 
 // TestFetchUserProfileNonSuccessRet: 非 token 过期失败 ret 报错。
 func TestFetchUserProfileNonSuccessRet(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"ret":["FAIL_BIZ_USER_NOT_FOUND::用户不存在"]}`)
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// err 保存err，供当前处理流程使用
 	_, err := client.FetchUserProfile(context.Background(), consignCookies)
 	if err == nil || !strings.Contains(err.Error(), "账号资料接口返回非成功") {
 		t.Fatalf("err=%v", err)
@@ -81,13 +93,17 @@ func TestFetchUserProfileNonSuccessRet(t *testing.T) {
 
 // TestFetchUserProfileParseFailure: 响应非 JSON。
 func TestFetchUserProfileParseFailure(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `not-json{`)
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// err 保存err，供当前处理流程使用
 	_, err := client.FetchUserProfile(context.Background(), consignCookies)
 	if err == nil || !strings.Contains(err.Error(), "解析账号资料响应失败") {
 		t.Fatalf("err=%v", err)
@@ -98,7 +114,9 @@ func TestFetchUserProfileParseFailure(t *testing.T) {
 func TestFetchUserProfileRequestError(t *testing.T) {
 	// 指向一个不可达地址
 	rt := &rewriteTransport{base: http.DefaultTransport, target: "http://127.0.0.1:1"}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 200 * time.Millisecond}}
+	// err 保存err，供当前处理流程使用
 	_, err := client.FetchUserProfile(context.Background(), consignCookies)
 	if err == nil {
 		t.Fatalf("expected err")
@@ -107,8 +125,11 @@ func TestFetchUserProfileRequestError(t *testing.T) {
 
 // TestFetchUserProfileTokenExpiredRetriesWithSetCookie: token 过期 + Set-Cookie，二次成功。
 func TestFetchUserProfileTokenExpiredRetriesWithSetCookie(t *testing.T) {
+	// requests 保存请求列表，供当前处理流程使用
 	var requests atomic.Int32
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// attempt 保存尝试次数，供当前处理流程使用
 		attempt := requests.Add(1)
 		if attempt == 1 {
 			http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "newtoken_9", Path: "/"})
@@ -119,10 +140,14 @@ func TestFetchUserProfileTokenExpiredRetriesWithSetCookie(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	// res、err 保存res、err，供当前处理流程使用
 	res, err := client.FetchUserProfile(ctx, consignCookies)
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -139,14 +164,18 @@ func TestFetchUserProfileTokenExpiredRetriesWithSetCookie(t *testing.T) {
 
 // TestFetchUserProfileRefreshTokenFailure: token 过期无 Set-Cookie，RefreshToken 失败时报错。
 func TestFetchUserProfileRefreshTokenFailure(t *testing.T) {
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// profile 持续返回 token 过期且不 Set-Cookie；token API 也返回失败
 		fmt.Fprint(w, `{"ret":["FAIL_SYS_TOKEN_EXOIRED::令牌过期"]}`)
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 5 * time.Second}}
+	// err 保存err，供当前处理流程使用
 	_, err := client.FetchUserProfile(context.Background(), consignCookies)
 	if err == nil || !strings.Contains(err.Error(), "刷新 mtop token 失败") {
 		t.Fatalf("err=%v", err)
@@ -155,9 +184,13 @@ func TestFetchUserProfileRefreshTokenFailure(t *testing.T) {
 
 // TestFetchUserProfileRetryExhausted: token 过期但每次都通过新 Set-Cookie 重试，4 次后耗尽。
 // 关键：每次下发的 Cookie 值都不同，使 updatedCookies != currentCookies，跳过 RefreshToken 走 continue。
+// TestFetchUserProfileRetryExhausted 负责TestFetch用户Profile重试Exhausted相关处理。
 func TestFetchUserProfileRetryExhausted(t *testing.T) {
+	// requests 保存请求列表，供当前处理流程使用
 	var requests atomic.Int32
+	// server 保存server，供当前处理流程使用
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// n 保存n，供当前处理流程使用
 		n := requests.Add(1)
 		// 每次下发不同的 _m_h5_tk 值，确保 updatedCookies != currentCookies
 		http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: fmt.Sprintf("tok_%d", n), Path: "/"})
@@ -165,10 +198,14 @@ func TestFetchUserProfileRetryExhausted(t *testing.T) {
 	}))
 	defer server.Close()
 
+	// rt 保存rt，供当前处理流程使用
 	rt := &rewriteTransport{base: server.Client().Transport, target: server.URL}
+	// client 保存client，供当前处理流程使用
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: rt, Timeout: 15 * time.Second}}
+	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	// err 保存err，供当前处理流程使用
 	_, err := client.FetchUserProfile(ctx, consignCookies)
 	if err == nil || !strings.Contains(err.Error(), "账号资料接口 token 重试失败") {
 		t.Fatalf("err=%v", err)
@@ -177,7 +214,10 @@ func TestFetchUserProfileRetryExhausted(t *testing.T) {
 		t.Fatalf("requests=%d want 4（重试上限）", requests.Load())
 	}
 }
+
+// TestParseUserProfileFull 负责TestParse用户ProfileFull相关处理。
 func TestParseUserProfileFull(t *testing.T) {
+	// data 保存数据，供当前处理流程使用
 	data := map[string]any{
 		"module": map[string]any{
 			"base": map[string]any{
@@ -187,6 +227,7 @@ func TestParseUserProfileFull(t *testing.T) {
 			},
 		},
 	}
+	// p 保存p，供当前处理流程使用
 	p := parseUserProfile(data)
 	if p.Nickname != "小明" || p.DisplayNick != "小明昵称" || p.AvatarURL != "https://cdn/avatar.jpg" {
 		t.Fatalf("p=%+v", p)
@@ -195,6 +236,7 @@ func TestParseUserProfileFull(t *testing.T) {
 
 // TestParseUserProfileNicknameFallsBackToDisplayNick: displayName 为空时用 displayNick。
 func TestParseUserProfileNicknameFallsBackToDisplayNick(t *testing.T) {
+	// data 保存数据，供当前处理流程使用
 	data := map[string]any{
 		"module": map[string]any{
 			"base": map[string]any{
@@ -202,6 +244,7 @@ func TestParseUserProfileNicknameFallsBackToDisplayNick(t *testing.T) {
 			},
 		},
 	}
+	// p 保存p，供当前处理流程使用
 	p := parseUserProfile(data)
 	if p.Nickname != "fallbackNick" || p.DisplayNick != "fallbackNick" {
 		t.Fatalf("p=%+v", p)
@@ -210,6 +253,7 @@ func TestParseUserProfileNicknameFallsBackToDisplayNick(t *testing.T) {
 
 // TestParseUserProfileEmptyBase: base 为 nil 时返回空结构。
 func TestParseUserProfileEmptyBase(t *testing.T) {
+	// p 保存p，供当前处理流程使用
 	p := parseUserProfile(map[string]any{"module": map[string]any{}})
 	if p == nil || p.Nickname != "" || p.AvatarURL != "" {
 		t.Fatalf("p=%+v want empty", p)
@@ -218,6 +262,7 @@ func TestParseUserProfileEmptyBase(t *testing.T) {
 
 // TestParseUserProfileNoModule: module 缺失也返回空结构。
 func TestParseUserProfileNoModule(t *testing.T) {
+	// p 保存p，供当前处理流程使用
 	p := parseUserProfile(map[string]any{})
 	if p == nil || p.Nickname != "" {
 		t.Fatalf("p=%+v want empty", p)
@@ -226,6 +271,7 @@ func TestParseUserProfileNoModule(t *testing.T) {
 
 // TestParseUserProfileTrimsWhitespace: 字段带空白被 TrimSpace。
 func TestParseUserProfileTrimsWhitespace(t *testing.T) {
+	// data 保存数据，供当前处理流程使用
 	data := map[string]any{
 		"module": map[string]any{
 			"base": map[string]any{
@@ -234,6 +280,7 @@ func TestParseUserProfileTrimsWhitespace(t *testing.T) {
 			},
 		},
 	}
+	// p 保存p，供当前处理流程使用
 	p := parseUserProfile(data)
 	if p.Nickname != "小明" || p.AvatarURL != "https://cdn/a.jpg" {
 		t.Fatalf("p=%+v", p)
@@ -242,6 +289,7 @@ func TestParseUserProfileTrimsWhitespace(t *testing.T) {
 
 // TestParseUserProfileNumericAvatar: 非字符串字段经 mtopString 转换。
 func TestParseUserProfileNumericAvatar(t *testing.T) {
+	// data 保存数据，供当前处理流程使用
 	data := map[string]any{
 		"module": map[string]any{
 			"base": map[string]any{
@@ -249,6 +297,7 @@ func TestParseUserProfileNumericAvatar(t *testing.T) {
 			},
 		},
 	}
+	// p 保存p，供当前处理流程使用
 	p := parseUserProfile(data)
 	if p.Nickname != "12345" {
 		t.Fatalf("Nickname=%q want 12345", p.Nickname)
@@ -257,6 +306,7 @@ func TestParseUserProfileNumericAvatar(t *testing.T) {
 
 // TestBuildUserPageNavQuery: 验证 query 拼接与编码。
 func TestBuildUserPageNavQuery(t *testing.T) {
+	// q 保存q，供当前处理流程使用
 	q := buildUserPageNavQuery("1000", "SIGN")
 	if !strings.Contains(q, "t=1000") || !strings.Contains(q, "sign=SIGN") ||
 		!strings.Contains(q, "api=mtop.idle.web.user.page.nav") ||
