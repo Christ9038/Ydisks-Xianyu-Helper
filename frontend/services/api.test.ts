@@ -72,6 +72,29 @@ test('chat APIs preserve account and conversation scope', async () => {
 	expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({ account_id: 'a1', chat_id: 'c1' });
 });
 
+test('Chat 会话、消息和发送 API 转发外部取消信号', async () => {
+  // fetchMock 验证会话切换、消息分页和文本/图片发送共享取消控制能力。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ sessions: [], has_more: false }))
+    .mockResolvedValueOnce(jsonResponse({ messages: [], has_more: false }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, message: { message_key: 'm1' } }))
+    .mockResolvedValueOnce(jsonResponse({ success: true, message: { message_key: 'm2' } }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+  // controller 是 Chat feature Hook 使用的请求控制器。
+  const controller = new AbortController();
+  await getChatSessionPage('a1', undefined, { signal: controller.signal });
+  await getChatMessagePage('a1', 'c1', undefined, undefined, { signal: controller.signal });
+  await sendChatMessage({ account_id: 'a1', chat_id: 'c1', buyer_id: 'b1', text: 'hi' }, { signal: controller.signal });
+  await sendChatImage({ account_id: 'a1', chat_id: 'c1', buyer_id: 'b1', image: new File(['image'], 'chat.png', { type: 'image/png' }) }, { signal: controller.signal });
+  await markChatRead('a1', 'c1', { signal: controller.signal });
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/chat/sessions?account_id=a1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/chat/messages?account_id=a1&chat_id=c1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/chat/messages', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/chat/images', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/chat/read', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+});
+
 test('account task APIs keep rating and polish account-scoped', async () => {
 	const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ success: true, summary: { task_type: 'auto_rate' } })));
 	vi.stubGlobal('fetch', fetchMock);

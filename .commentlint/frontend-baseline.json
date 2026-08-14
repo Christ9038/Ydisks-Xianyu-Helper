@@ -324,6 +324,870 @@
     "name": "anonymous"
   },
   {
+    "file": "app/features/chat/hooks.ts",
+    "line": 140,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 141,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 144,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 145,
+    "kind": "variable",
+    "name": "sequence"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 147,
+    "kind": "variable",
+    "name": "controller"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 150,
+    "kind": "variable",
+    "name": "page"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 152,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 153,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 154,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 156,
+    "kind": "variable",
+    "name": "error"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 162,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 163,
+    "kind": "variable",
+    "name": "controller"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 164,
+    "kind": "variable",
+    "name": "load"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 167,
+    "kind": "variable",
+    "name": "[details, statuses]"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 171,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 171,
+    "kind": "variable",
+    "name": "withRuntime"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 176,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 176,
+    "kind": "variable",
+    "name": "enabled"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 177,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 177,
+    "kind": "variable",
+    "name": "sessionPages"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 180,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 181,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 182,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 183,
+    "kind": "variable",
+    "name": "stored"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 184,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 184,
+    "kind": "variable",
+    "name": "first"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 186,
+    "kind": "variable",
+    "name": "loadError"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 193,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 196,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 197,
+    "kind": "variable",
+    "name": "disposed"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 198,
+    "kind": "variable",
+    "name": "timer"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 199,
+    "kind": "variable",
+    "name": "controller"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 200,
+    "kind": "variable",
+    "name": "poll"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 203,
+    "kind": "variable",
+    "name": "statuses"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 204,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 204,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 216,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 223,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 226,
+    "kind": "variable",
+    "name": "sessions"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 227,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 227,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 230,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 236,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 241,
+    "kind": "variable",
+    "name": "sequence"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 243,
+    "kind": "variable",
+    "name": "controller"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 249,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 254,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 254,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 255,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 255,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 256,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 258,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 261,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 264,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 269,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 274,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 274,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 282,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 284,
+    "kind": "variable",
+    "name": "container"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 285,
+    "kind": "variable",
+    "name": "previousHeight"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 286,
+    "kind": "variable",
+    "name": "sequence"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 287,
+    "kind": "variable",
+    "name": "controller"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 292,
+    "kind": "variable",
+    "name": "oldestID"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 293,
+    "kind": "variable",
+    "name": "page"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 295,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 298,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 301,
+    "kind": "variable",
+    "name": "loadError"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 309,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 310,
+    "kind": "variable",
+    "name": "disposed"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 311,
+    "kind": "variable",
+    "name": "reconnectTimer"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 312,
+    "kind": "variable",
+    "name": "retry"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 313,
+    "kind": "variable",
+    "name": "socket"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 314,
+    "kind": "variable",
+    "name": "connect"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 317,
+    "kind": "variable",
+    "name": "protocol"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 319,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 320,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 322,
+    "kind": "variable",
+    "name": "payload"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 323,
+    "kind": "variable",
+    "name": "message"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 325,
+    "kind": "variable",
+    "name": "accountID"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 326,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 327,
+    "kind": "variable",
+    "name": "rows"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 328,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 328,
+    "kind": "variable",
+    "name": "found"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 333,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 338,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 341,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 348,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 351,
+    "kind": "variable",
+    "name": "delay"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 354,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 357,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 365,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 366,
+    "kind": "variable",
+    "name": "container"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 368,
+    "kind": "variable",
+    "name": "distanceFromBottom"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 372,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 373,
+    "kind": "variable",
+    "name": "contextChanged"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 376,
+    "kind": "variable",
+    "name": "container"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 385,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 385,
+    "kind": "variable",
+    "name": "activeAccount"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 386,
+    "kind": "variable",
+    "name": "activeSessions"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 387,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 387,
+    "kind": "variable",
+    "name": "selectedSession"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 388,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 388,
+    "kind": "variable",
+    "name": "filteredSessions"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 389,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 389,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 389,
+    "kind": "variable",
+    "name": "unreadForAccount"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 392,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 394,
+    "kind": "variable",
+    "name": "sequence"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 396,
+    "kind": "variable",
+    "name": "controller"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 398,
+    "kind": "variable",
+    "name": "accountID"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 402,
+    "kind": "variable",
+    "name": "page"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 404,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 405,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 406,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 407,
+    "kind": "variable",
+    "name": "loadError"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 415,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 417,
+    "kind": "variable",
+    "name": "sequence"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 419,
+    "kind": "variable",
+    "name": "controller"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 424,
+    "kind": "variable",
+    "name": "result"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 428,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 429,
+    "kind": "variable",
+    "name": "sendError"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 440,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 442,
+    "kind": "variable",
+    "name": "sequence"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 444,
+    "kind": "variable",
+    "name": "controller"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 449,
+    "kind": "variable",
+    "name": "result"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 452,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 453,
+    "kind": "variable",
+    "name": "sendError"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 467,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 468,
+    "kind": "variable",
+    "name": "text"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 474,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/hooks.ts",
+    "line": 480,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/state.test.ts",
+    "line": 25,
+    "kind": "variable",
+    "name": "controller"
+  },
+  {
+    "file": "app/features/chat/state.ts",
+    "line": 10,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/state.ts",
+    "line": 16,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/state.ts",
+    "line": 16,
+    "kind": "variable",
+    "name": "keys"
+  },
+  {
+    "file": "app/features/chat/state.ts",
+    "line": 17,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/state.ts",
+    "line": 22,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/state.ts",
+    "line": 22,
+    "kind": "variable",
+    "name": "index"
+  },
+  {
+    "file": "app/features/chat/state.ts",
+    "line": 24,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "app/features/chat/state.ts",
+    "line": 38,
+    "kind": "variable",
+    "name": "date"
+  },
+  {
+    "file": "app/features/chat/state.ts",
+    "line": 39,
+    "kind": "variable",
+    "name": "today"
+  },
+  {
+    "file": "app/features/chat/state.ts",
+    "line": 48,
+    "kind": "variable",
+    "name": "date"
+  },
+  {
+    "file": "app/features/chat/state.ts",
+    "line": 5,
+    "kind": "variable",
+    "name": "keyword"
+  },
+  {
+    "file": "app/features/chat/state.ts",
+    "line": 6,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
     "file": "app/features/dashboard/hooks.ts",
     "line": 100,
     "kind": "variable",
@@ -933,7 +1797,7 @@
     "file": "chatFeature.test.ts",
     "line": 26,
     "kind": "variable",
-    "name": "chat"
+    "name": "chatHook"
   },
   {
     "file": "chatFeature.test.ts",
@@ -949,27 +1813,39 @@
   },
   {
     "file": "chatFeature.test.ts",
-    "line": 40,
-    "kind": "function-expression",
-    "name": "anonymous"
+    "line": 33,
+    "kind": "variable",
+    "name": "chatHook"
   },
   {
     "file": "chatFeature.test.ts",
     "line": 41,
-    "kind": "variable",
-    "name": "chat"
-  },
-  {
-    "file": "chatFeature.test.ts",
-    "line": 46,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "chatFeature.test.ts",
-    "line": 47,
+    "line": 42,
     "kind": "variable",
     "name": "chat"
+  },
+  {
+    "file": "chatFeature.test.ts",
+    "line": 47,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "chatFeature.test.ts",
+    "line": 48,
+    "kind": "variable",
+    "name": "chat"
+  },
+  {
+    "file": "chatFeature.test.ts",
+    "line": 49,
+    "kind": "variable",
+    "name": "chatHook"
   },
   {
     "file": "chatFeature.test.ts",
@@ -979,13 +1855,13 @@
   },
   {
     "file": "chatFeature.test.ts",
-    "line": 55,
+    "line": 57,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "chatFeature.test.ts",
-    "line": 56,
+    "line": 58,
     "kind": "variable",
     "name": "sidebar"
   },
@@ -2851,55 +3727,7 @@
   },
   {
     "file": "components/Chat.tsx",
-    "line": 101,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 104,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 105,
-    "kind": "variable",
-    "name": "disposed"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 106,
-    "kind": "variable",
-    "name": "timer"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 107,
-    "kind": "variable",
-    "name": "controller"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 108,
-    "kind": "variable",
-    "name": "poll"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 111,
-    "kind": "variable",
-    "name": "statuses"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 113,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 113,
+    "line": 122,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -2911,97 +3739,19 @@
   },
   {
     "file": "components/Chat.tsx",
-    "line": 134,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 137,
+    "line": 128,
     "kind": "variable",
-    "name": "sessions"
+    "name": "outgoing"
   },
   {
     "file": "components/Chat.tsx",
-    "line": 138,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 138,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 141,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 144,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 149,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 15,
+    "line": 129,
     "kind": "variable",
-    "name": "accountStorageKey"
+    "name": "system"
   },
   {
     "file": "components/Chat.tsx",
-    "line": 154,
-    "kind": "variable",
-    "name": "controller"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 159,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 164,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 164,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 166,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 168,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 17,
-    "kind": "variable",
-    "name": "formatClock"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 171,
+    "line": 169,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -3013,39 +3763,51 @@
   },
   {
     "file": "components/Chat.tsx",
-    "line": 176,
+    "line": 173,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Chat.tsx",
-    "line": 179,
-    "kind": "variable",
-    "name": "loadOlderMessages"
+    "line": 177,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Chat.tsx",
+    "line": 177,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "components/Chat.tsx",
+    "line": 177,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "components/Chat.tsx",
     "line": 181,
-    "kind": "variable",
-    "name": "container"
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "components/Chat.tsx",
     "line": 182,
-    "kind": "variable",
-    "name": "previousHeight"
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "components/Chat.tsx",
-    "line": 187,
-    "kind": "variable",
-    "name": "oldestID"
+    "line": 185,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "components/Chat.tsx",
-    "line": 188,
-    "kind": "variable",
-    "name": "page"
+    "line": 186,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "components/Chat.tsx",
@@ -3055,793 +3817,37 @@
   },
   {
     "file": "components/Chat.tsx",
-    "line": 19,
-    "kind": "variable",
-    "name": "date"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 190,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 190,
-    "kind": "variable",
-    "name": "keys"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 191,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 195,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 198,
-    "kind": "variable",
-    "name": "loadError"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 20,
-    "kind": "variable",
-    "name": "today"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 206,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 207,
-    "kind": "variable",
-    "name": "disposed"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 208,
-    "kind": "variable",
-    "name": "reconnectTimer"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 209,
-    "kind": "variable",
-    "name": "retry"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 210,
-    "kind": "variable",
-    "name": "socket"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 211,
-    "kind": "variable",
-    "name": "connect"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 214,
-    "kind": "variable",
-    "name": "protocol"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 216,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 217,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 219,
-    "kind": "variable",
-    "name": "payload"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 220,
-    "kind": "variable",
-    "name": "message"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 222,
-    "kind": "variable",
-    "name": "accountID"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 223,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 224,
-    "kind": "variable",
-    "name": "rows"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 225,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 225,
-    "kind": "variable",
-    "name": "found"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 232,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 238,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 242,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 243,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 243,
-    "kind": "variable",
-    "name": "index"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 244,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 253,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 256,
-    "kind": "variable",
-    "name": "delay"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 259,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 262,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 269,
-    "kind": "variable",
-    "name": "handleMessageScroll"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 27,
-    "kind": "variable",
-    "name": "messageTime"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 270,
-    "kind": "variable",
-    "name": "container"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 272,
-    "kind": "variable",
-    "name": "distanceFromBottom"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 276,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 277,
-    "kind": "variable",
-    "name": "contextChanged"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 28,
-    "kind": "variable",
-    "name": "date"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 282,
-    "kind": "variable",
-    "name": "container"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 292,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 292,
-    "kind": "variable",
-    "name": "activeAccount"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 293,
-    "kind": "variable",
-    "name": "activeSessions"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 294,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 294,
-    "kind": "variable",
-    "name": "selectedSession"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 295,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 295,
-    "kind": "variable",
-    "name": "filteredSessions"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 296,
-    "kind": "variable",
-    "name": "keyword"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 297,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 301,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 305,
-    "kind": "variable",
-    "name": "unreadForAccount"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 306,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 308,
-    "kind": "variable",
-    "name": "loadMoreContacts"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 313,
-    "kind": "variable",
-    "name": "page"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 314,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 315,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 316,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 317,
-    "kind": "variable",
-    "name": "loadError"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 32,
-    "kind": "variable",
-    "name": "Chat"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 322,
-    "kind": "variable",
-    "name": "handleSend"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 323,
-    "kind": "variable",
-    "name": "text"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 328,
-    "kind": "variable",
-    "name": "result"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 33,
-    "kind": "variable",
-    "name": "[accounts, setAccounts]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 334,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 334,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 335,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 337,
-    "kind": "variable",
-    "name": "sendError"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 34,
-    "kind": "variable",
-    "name": "[activeAccountID, setActiveAccountID]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 345,
-    "kind": "variable",
-    "name": "handleImage"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 35,
-    "kind": "variable",
-    "name": "[sessionsByAccount, setSessionsByAccount]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 350,
-    "kind": "variable",
-    "name": "result"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 355,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 355,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 356,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 358,
-    "kind": "variable",
-    "name": "sendError"
-  },
-  {
-    "file": "components/Chat.tsx",
     "line": 36,
-    "kind": "variable",
-    "name": "[activeChatID, setActiveChatID]"
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "components/Chat.tsx",
     "line": 37,
     "kind": "variable",
-    "name": "[messages, setMessages]"
+    "name": "active"
   },
   {
     "file": "components/Chat.tsx",
     "line": 38,
     "kind": "variable",
-    "name": "[search, setSearch]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 382,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 383,
-    "kind": "variable",
-    "name": "active"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 384,
-    "kind": "variable",
     "name": "unread"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 385,
-    "kind": "variable",
-    "name": "online"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 387,
-    "kind": "function-expression",
-    "name": "anonymous"
   },
   {
     "file": "components/Chat.tsx",
     "line": 39,
     "kind": "variable",
-    "name": "[unreadOnly, setUnreadOnly]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 40,
-    "kind": "variable",
-    "name": "[draft, setDraft]"
+    "name": "online"
   },
   {
     "file": "components/Chat.tsx",
     "line": 41,
-    "kind": "variable",
-    "name": "[loading, setLoading]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 410,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Chat.tsx",
-    "line": 414,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 414,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 418,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 42,
-    "kind": "variable",
-    "name": "[messagesLoading, setMessagesLoading]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 424,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 425,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 43,
-    "kind": "variable",
-    "name": "[olderLoading, setOlderLoading]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 44,
-    "kind": "variable",
-    "name": "[hasOlder, setHasOlder]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 445,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 45,
-    "kind": "variable",
-    "name": "[historyCursor, setHistoryCursor]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 46,
-    "kind": "variable",
-    "name": "[contactCursors, setContactCursors]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 468,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 47,
-    "kind": "variable",
-    "name": "[hasMoreContacts, setHasMoreContacts]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 473,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 474,
-    "kind": "variable",
-    "name": "outgoing"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 475,
-    "kind": "variable",
-    "name": "system"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 48,
-    "kind": "variable",
-    "name": "[contactsLoading, setContactsLoading]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 49,
-    "kind": "variable",
-    "name": "[emojiOpen, setEmojiOpen]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 50,
-    "kind": "variable",
-    "name": "[sending, setSending]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 51,
-    "kind": "variable",
-    "name": "[error, setError]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 519,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 519,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 52,
-    "kind": "variable",
-    "name": "[liveState, setLiveState]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 523,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 523,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 523,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 527,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 528,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 53,
-    "kind": "variable",
-    "name": "activeAccountRef"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 532,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 533,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 536,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 54,
-    "kind": "variable",
-    "name": "activeChatRef"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 55,
-    "kind": "variable",
-    "name": "scrollRef"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 56,
-    "kind": "variable",
-    "name": "scrollContextRef"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 57,
-    "kind": "variable",
-    "name": "shouldScrollToBottomRef"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 58,
-    "kind": "variable",
-    "name": "skipNextMessageScrollRef"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 59,
-    "kind": "variable",
-    "name": "imageInputRef"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 60,
-    "kind": "variable",
-    "name": "refreshedAccountsRef"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 62,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 63,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 65,
-    "kind": "variable",
-    "name": "reloadSessions"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 66,
-    "kind": "variable",
-    "name": "page"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 67,
+    "line": 64,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -3853,111 +3859,33 @@
   },
   {
     "file": "components/Chat.tsx",
-    "line": 69,
+    "line": 68,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Chat.tsx",
-    "line": 73,
+    "line": 72,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 74,
-    "kind": "variable",
-    "name": "cancelled"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 75,
-    "kind": "variable",
-    "name": "load"
   },
   {
     "file": "components/Chat.tsx",
     "line": 78,
-    "kind": "variable",
-    "name": "[details, statuses]"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 79,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Chat.tsx",
     "line": 79,
-    "kind": "variable",
-    "name": "withRuntime"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 84,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "components/Chat.tsx",
-    "line": 84,
-    "kind": "variable",
-    "name": "enabled"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 85,
+    "line": 99,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 85,
-    "kind": "variable",
-    "name": "sessionPages"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 88,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 89,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 90,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 91,
-    "kind": "variable",
-    "name": "stored"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 92,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 92,
-    "kind": "variable",
-    "name": "first"
-  },
-  {
-    "file": "components/Chat.tsx",
-    "line": 94,
-    "kind": "variable",
-    "name": "loadError"
   },
   {
     "file": "components/Dashboard.test.tsx",
@@ -9175,19 +9103,19 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 109,
+    "line": 112,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 110,
+    "line": 113,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 118,
+    "line": 119,
     "kind": "function-expression",
     "name": "anonymous"
   },
@@ -9195,31 +9123,25 @@
     "file": "services/api.test.ts",
     "line": 120,
     "kind": "variable",
-    "name": "result"
+    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 124,
-    "kind": "variable",
-    "name": "jsonResponse"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 129,
+    "line": 122,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 130,
-    "kind": "variable",
-    "name": "fetchMock"
+    "line": 132,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 135,
+    "line": 133,
     "kind": "variable",
-    "name": "result"
+    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
@@ -9229,81 +9151,87 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 145,
+    "line": 143,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.test.ts",
-    "line": 149,
+    "line": 147,
+    "kind": "variable",
+    "name": "jsonResponse"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 152,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 163,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 183,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 203,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 223,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 224,
+    "line": 153,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 234,
+    "line": 158,
     "kind": "variable",
     "name": "result"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 164,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 168,
+    "kind": "variable",
+    "name": "result"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 172,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 186,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 206,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 226,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 246,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 247,
+    "kind": "variable",
+    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
     "line": 257,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 258,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 263,
     "kind": "variable",
     "name": "result"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 272,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 273,
-    "kind": "variable",
-    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
@@ -9313,87 +9241,93 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 282,
+    "line": 281,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 286,
     "kind": "variable",
     "name": "result"
   },
   {
     "file": "services/api.test.ts",
-    "line": 286,
+    "line": 295,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 287,
-    "kind": "variable",
-    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
     "line": 296,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 297,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 306,
+    "line": 303,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 307,
+    "line": 305,
+    "kind": "variable",
+    "name": "result"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 309,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 310,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 318,
+    "line": 319,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 320,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 329,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 330,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 341,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 322,
+    "line": 345,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 337,
+    "line": 360,
     "kind": "variable",
     "name": "items"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 352,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 353,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 364,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 370,
-    "kind": "variable",
-    "name": "settings"
   },
   {
     "file": "services/api.test.ts",
@@ -9415,39 +9349,51 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 388,
+    "line": 393,
+    "kind": "variable",
+    "name": "settings"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 398,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 388,
+    "line": 399,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 414,
+    "line": 410,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 415,
+    "line": 411,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 411,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 429,
+    "line": 437,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 443,
+    "line": 438,
     "kind": "variable",
-    "name": "accounts"
+    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
@@ -9457,49 +9403,37 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 454,
+    "line": 452,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 455,
+    "line": 466,
+    "kind": "variable",
+    "name": "accounts"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 477,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 478,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 469,
+    "line": 492,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 470,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 481,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 482,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 495,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 496,
+    "line": 493,
     "kind": "variable",
     "name": "fetchMock"
   },
@@ -9511,55 +9445,61 @@
   },
   {
     "file": "services/api.test.ts",
+    "line": 504,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 505,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
     "line": 51,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 513,
-    "kind": "variable",
-    "name": "status"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 521,
+    "line": 518,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 544,
-    "kind": "variable",
-    "name": "rules"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 558,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 559,
+    "line": 519,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 568,
+    "line": 536,
     "kind": "variable",
-    "name": "rules"
+    "name": "status"
   },
   {
     "file": "services/api.test.ts",
-    "line": 580,
+    "line": 544,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
+    "line": 567,
+    "kind": "variable",
+    "name": "rules"
+  },
+  {
+    "file": "services/api.test.ts",
     "line": 581,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 582,
     "kind": "variable",
     "name": "fetchMock"
   },
@@ -9571,15 +9511,9 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 596,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 597,
+    "line": 591,
     "kind": "variable",
-    "name": "fetchMock"
+    "name": "rules"
   },
   {
     "file": "services/api.test.ts",
@@ -9589,27 +9523,33 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 606,
+    "line": 603,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 607,
+    "line": 604,
     "kind": "variable",
     "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 618,
-    "kind": "function-expression",
-    "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
     "line": 619,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 620,
     "kind": "variable",
     "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 629,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
@@ -9619,75 +9559,87 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 634,
+    "line": 630,
     "kind": "variable",
-    "name": "body"
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 641,
+    "kind": "function-expression",
+    "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
     "line": 642,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 643,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 654,
+    "line": 657,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 661,
+    "line": 665,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 662,
+    "line": 666,
     "kind": "variable",
     "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 676,
-    "kind": "function-expression",
-    "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
     "line": 677,
     "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 698,
-    "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 714,
+    "line": 684,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 715,
+    "line": 685,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 743,
+    "line": 699,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 700,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 721,
     "kind": "variable",
     "name": "body"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 737,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 738,
+    "kind": "variable",
+    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
@@ -9697,93 +9649,75 @@
   },
   {
     "file": "services/api.test.ts",
-    "line": 76,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 76,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 767,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 768,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 780,
+    "line": 766,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 781,
+    "line": 790,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 781,
+    "line": 791,
+    "kind": "variable",
+    "name": "fetchMock"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 803,
+    "kind": "variable",
+    "name": "body"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 804,
+    "kind": "function-expression",
+    "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 804,
     "kind": "member",
     "name": "action_type"
   },
   {
     "file": "services/api.test.ts",
-    "line": 789,
+    "line": 812,
     "kind": "function-expression",
     "name": "anonymous"
   },
   {
     "file": "services/api.test.ts",
-    "line": 790,
+    "line": 813,
     "kind": "variable",
     "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
-    "line": 807,
+    "line": 830,
     "kind": "variable",
     "name": "body"
   },
   {
     "file": "services/api.test.ts",
-    "line": 89,
+    "line": 98,
     "kind": "function-expression",
     "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 90,
-    "kind": "variable",
-    "name": "fetchMock"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 96,
-    "kind": "function-expression",
-    "name": "anonymous"
-  },
-  {
-    "file": "services/api.test.ts",
-    "line": 97,
-    "kind": "variable",
-    "name": "fetchMock"
   },
   {
     "file": "services/api.test.ts",
     "line": 99,
     "kind": "function-expression",
     "name": "anonymous"
+  },
+  {
+    "file": "services/api.test.ts",
+    "line": 99,
+    "kind": "variable",
+    "name": "fetchMock"
   },
   {
     "file": "services/api.ts",

@@ -23,18 +23,19 @@ describe('online chat UI contract', () => {
 	});
 
 	test('frontend connects only to the application chat websocket', () => {
-		const chat = source('components/Chat.tsx');
-		expect(chat).toContain('/api/v1/chat/ws');
-		expect(chat).not.toContain('wss-goofish.dingtalk.com');
+		const chatHook = source('app/features/chat/hooks.ts');
+		expect(chatHook).toContain('/api/v1/chat/ws');
+		expect(chatHook).not.toContain('wss-goofish.dingtalk.com');
 	});
 
 	test('renders peer/self identity and verified media capabilities', () => {
 		const chat = source('components/Chat.tsx');
+		const chatHook = source('app/features/chat/hooks.ts');
 		expect(chat).toContain('selectedSession.buyer_avatar_url');
 		expect(chat).toContain('activeAccount?.avatar_url');
 		expect(chat).toContain("message.message_type === 'image'");
 		expect(chat).toContain("message.message_type === 'video'");
-		expect(chat).toContain('sendChatImage');
+		expect(chatHook).toContain('sendChatImage');
 	});
 
 	test('renders official notices as neutral system messages', () => {
@@ -45,11 +46,12 @@ describe('online chat UI contract', () => {
 
 	test('keeps the active chat at the bottom when new messages arrive', () => {
 		const chat = source('components/Chat.tsx');
-		expect(chat).toContain('shouldScrollToBottomRef');
-		expect(chat).toContain('skipNextMessageScrollRef');
+		const chatHook = source('app/features/chat/hooks.ts');
+		expect(chatHook).toContain('shouldScrollToBottomRef');
+		expect(chatHook).toContain('skipNextMessageScrollRef');
 		expect(chat).toContain('onScroll={handleMessageScroll}');
-		expect(chat).toContain('container.scrollHeight - container.scrollTop - container.clientHeight');
-		expect(chat).toContain('[activeAccountID, activeChatID, messages, messagesLoading]');
+		expect(chatHook).toContain('container.scrollHeight - container.scrollTop - container.clientHeight');
+		expect(chatHook).toContain('[activeAccountID, activeChatID, messages, messagesLoading]');
 	});
 
 	test('sidebar exposes collapse control and chat primary navigation', () => {

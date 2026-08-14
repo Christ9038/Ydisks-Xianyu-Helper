@@ -135,21 +135,21 @@ export const getChatMessages = async (accountId: string, chatId: string, beforeI
 	(await getChatMessagePage(accountId, chatId, undefined, beforeId, options)).messages;
 
 export const sendChatMessage = async (input: {
-	account_id: string; chat_id: string; buyer_id: string; buyer_name?: string;
-	item_id?: string; item_title?: string; text: string;
-}): Promise<{message: ChatMessage}> => post('/api/v1/chat/messages', input);
+  account_id: string; chat_id: string; buyer_id: string; buyer_name?: string;
+  item_id?: string; item_title?: string; text: string;
+}, options?: RequestControlOptions): Promise<{message: ChatMessage}> => post('/api/v1/chat/messages', input, options);
 
 export const sendChatImage = async (input: {
-	account_id: string; chat_id: string; buyer_id: string; buyer_name?: string;
-	buyer_avatar_url?: string; item_id?: string; item_title?: string; image: File;
-}): Promise<{message: ChatMessage}> => {
+  account_id: string; chat_id: string; buyer_id: string; buyer_name?: string;
+  buyer_avatar_url?: string; item_id?: string; item_title?: string; image: File;
+}, options?: RequestControlOptions): Promise<{message: ChatMessage}> => {
 	const form = new FormData();
 	Object.entries(input).forEach(([key, value]) => form.append(key, value));
-	return postForm('/api/v1/chat/images', form, { timeoutMs: 120_000 });
+	return postForm('/api/v1/chat/images', form, { timeoutMs: 120_000, ...options });
 };
 
-export const markChatRead = async (accountId: string, chatId: string): Promise<ApiResponse> =>
-	post('/api/v1/chat/read', { account_id: accountId, chat_id: chatId });
+export const markChatRead = async (accountId: string, chatId: string, options?: RequestControlOptions): Promise<ApiResponse> =>
+	post('/api/v1/chat/read', { account_id: accountId, chat_id: chatId }, options);
 
 export interface AccountRuntimeStatus {
   state: NonNullable<AccountDetail['runtime_state']>;
