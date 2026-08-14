@@ -99,7 +99,7 @@ type apiRenewLogSnapshot struct {
 	requestCount       int
 }
 
-func createSchedulerAccount(t *testing.T, store *db.Store, cookieID, cookieValue string) db.RenewalAccount {
+func createSchedulerAccount(t *testing.T, store *db.Store, cookieID, cookieValue string) db.RenewalRuntimeAccount {
 	t.Helper()
 	ctx := context.Background()
 	username := "user_" + strings.ReplaceAll(cookieID, "-", "_")
@@ -113,7 +113,7 @@ func createSchedulerAccount(t *testing.T, store *db.Store, cookieID, cookieValue
 	if err := store.Cookies.Save(ctx, cookieID, cookieValue, user.ID); err != nil {
 		t.Fatalf("Save cookie: %v", err)
 	}
-	return db.RenewalAccount{ID: cookieID, Value: cookieValue, UserID: user.ID, Enabled: true}
+	return db.RenewalRuntimeAccount{ID: cookieID, Value: cookieValue, Enabled: true}
 }
 
 func lastAPIRenewLog(t *testing.T, store *db.Store, cookieID string) apiRenewLogSnapshot {

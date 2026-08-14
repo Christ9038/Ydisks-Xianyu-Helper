@@ -123,3 +123,59 @@ func TestEncryptLegacySecretsMigratesCookieMetadata(t *testing.T) {
 		t.Fatalf("detail=%+v err=%v", detail, err)
 	}
 }
+
+// TestRenewalRuntimeQueriesExcludeLoginSecrets 验证续期窄查询只解密 Cookie 与 metadata，不读取登录密码并过滤禁用账号。
+func TestRenewalRuntimeQueriesExcludeLoginSecrets(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "renewal-runtime-query-key")
+	// store 是当前测试使用的 SQLite repository 聚合器。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 是测试数据库操作共用的上下文。
+	ctx := context.Background()
+	// createErr 表示创建测试用户失败的原因。
+	if ok, createErr := store.Users.Create(ctx, "runtime-renewal-owner", "runtime-renewal-owner@example.com", "pw"); createErr != nil || !ok {
+		t.Fatalf("create owner: ok=%v err=%v", ok, createErr)
+	}
+	// owner 是测试账号的所有者。
+	owner, ownerErr := store.Users.GetByUsername(ctx, "runtime-renewal-owner")
+	if ownerErr != nil {
+		t.Fatalf("get owner: %v", ownerErr)
+	}
+	// activeErr 表示创建启用账号失败的原因。
+	if activeErr := store.Cookies.CreateOwned(ctx, "runtime-renewal-active", "sid=active", owner.ID); activeErr != nil {
+		t.Fatalf("create active account: %v", activeErr)
+	}
+	// metadata 是续期运行所需的合法 Cookie 快照元数据。
+	metadata := `{"other":"runtime-metadata"}`
+	// updateErr 表示写入启用账号 Cookie 和 metadata 失败的原因。
+	if updateErr := store.Cookies.UpdateRenewalCookie(ctx, "runtime-renewal-active", "sid=active", metadata, 1); updateErr != nil {
+		t.Fatalf("update active account: %v", updateErr)
+	}
+	// disabledErr 表示创建禁用账号失败的原因。
+	if disabledErr := store.Cookies.CreateOwned(ctx, "runtime-renewal-disabled", "sid=disabled", owner.ID); disabledErr != nil {
+		t.Fatalf("create disabled account: %v", disabledErr)
+	}
+	// statusErr 表示禁用测试账号失败的原因。
+	if statusErr := store.Cookies.SetStatus(ctx, "runtime-renewal-disabled", false); statusErr != nil {
+		t.Fatalf("disable account: %v", statusErr)
+	}
+	// corruptErr 表示写入故意损坏的登录字段失败的原因；窄查询不应读取这些字段。
+	if _, corruptErr := store.DB.ExecContext(ctx,
+		`UPDATE cookies SET username=?,password=? WHERE id=?`,
+		"runtime-user", "not-a-password-ciphertext", "runtime-renewal-active"); corruptErr != nil {
+		t.Fatalf("corrupt login fields: %v", corruptErr)
+	}
+	// accounts 是过滤禁用账号后得到的续期窄模型列表。
+	accounts, listErr := store.Cookies.ActiveRenewalRuntimeAccounts(ctx)
+	if listErr != nil {
+		t.Fatalf("ActiveRenewalRuntimeAccounts: %v", listErr)
+	}
+	if len(accounts) != 1 || accounts[0].ID != "runtime-renewal-active" || accounts[0].Value != "sid=active" || accounts[0].MetadataJSON != metadata {
+		t.Fatalf("runtime accounts=%+v", accounts)
+	}
+	// account 是按账号 ID 原子重读到的启用续期窄模型。
+	account, getErr := store.Cookies.GetRenewalRuntimeAccount(ctx, "runtime-renewal-active")
+	if getErr != nil || !account.Enabled || account.Value != "sid=active" || account.MetadataJSON != metadata {
+		t.Fatalf("GetRenewalRuntimeAccount account=%+v err=%v", account, getErr)
+	}
+}

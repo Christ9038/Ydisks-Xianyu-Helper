@@ -168,7 +168,7 @@ func (s *Scheduler) runFixed(ctx context.Context, name, settingKey, intervalKey 
 func (s *Scheduler) executeLoginRenew(ctx context.Context) {
 	s.cleanupExpiredLogs(ctx)
 	batchID := newBatchID()
-	accounts, err := s.store.Cookies.ActiveRenewalAccounts(ctx)
+	accounts, err := s.store.Cookies.ActiveRenewalRuntimeAccounts(ctx)
 	if err != nil {
 		s.logger.Warn("login_renew 加载账号失败", "err", err)
 		return
@@ -185,7 +185,7 @@ func (s *Scheduler) executeLoginRenew(ctx context.Context) {
 	}
 }
 
-func (s *Scheduler) loginRenewOne(ctx context.Context, batchID string, account db.RenewalAccount) {
+func (s *Scheduler) loginRenewOne(ctx context.Context, batchID string, account db.RenewalRuntimeAccount) {
 	credentialUnlock := s.store.LockAccountCredentials(account.ID)
 	credentialUpdated := false
 	sessionExpired := false
@@ -284,7 +284,7 @@ func (s *Scheduler) loginRenewOne(ctx context.Context, batchID string, account d
 func (s *Scheduler) executeAPICookieRenew(ctx context.Context) {
 	s.cleanupExpiredLogs(ctx)
 	batchID := newBatchID()
-	accounts, err := s.store.Cookies.ActiveRenewalAccounts(ctx)
+	accounts, err := s.store.Cookies.ActiveRenewalRuntimeAccounts(ctx)
 	if err != nil {
 		s.logger.Warn("api_cookie_renew 加载账号失败", "err", err)
 		return
@@ -297,7 +297,7 @@ func (s *Scheduler) executeAPICookieRenew(ctx context.Context) {
 	}
 }
 
-func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, account db.RenewalAccount) {
+func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, account db.RenewalRuntimeAccount) {
 	credentialUnlock := s.store.LockAccountCredentials(account.ID)
 	credentialLocked := true
 	credentialChanged := false
@@ -560,29 +560,29 @@ func (s *Scheduler) settingConfigured(ctx context.Context, key string) bool {
 	return err == nil && strings.TrimSpace(value) != ""
 }
 
-func (s *Scheduler) reloadRenewalAccount(ctx context.Context, account db.RenewalAccount) (db.RenewalAccount, error) {
-	detail, err := s.store.Cookies.GetDetails(ctx, account.ID)
-	if err != nil || detail == nil {
-		if err == nil {
-			err = db.ErrNotFound
-		}
-		return db.RenewalAccount{}, err
-	}
-	enabled, reason, err := s.store.Cookies.StatusWithReason(ctx, account.ID)
+func (s *Scheduler) reloadRenewalAccount(ctx context.Context, account db.RenewalRuntimeAccount) (db.RenewalRuntimeAccount, error) {
+	// latest 是锁内重新读取的续期窄模型，用于避免批次列表中的旧 Cookie 覆盖新状态。
+	latest, err := s.store.Cookies.GetRenewalRuntimeAccount(ctx, account.ID)
 	if err != nil {
-		return db.RenewalAccount{}, err
+		return db.RenewalRuntimeAccount{}, err
 	}
-	account.Value = detail.Value
-	account.UserID = detail.UserID
-	account.Enabled = enabled
-	account.DisableReason = reason
-	account.Username = detail.Username
-	account.Password = detail.Password
-	account.ShowBrowser = detail.ShowBrowser
-	account.MetadataJSON = detail.MetadataJSON
-	account.LastRefreshAt = detail.LastRefreshAt
-	return account, nil
+	return latest, nil
 }
+
+/*
+reloadRenewalAccount 在每个账号续期前重新读取最新的 Cookie。
+重新读取同时复核账号启用状态，避免批次快照覆盖并发更新。
+repository 负责解密最小运行视图，不再展开登录用户名和密码。
+续期任务仍在账号凭证锁内调用此边界。
+Cookie 更新后的重启和自动化唤醒逻辑保持原有顺序。
+本次切片只收窄读取字段，不改变续期请求参数。
+禁用账号会由调用方根据 Enabled 字段跳过后续请求。
+查询失败仍由当前任务记录失败并结束该账号处理。
+后续的保存函数继续复用 UpdateRenewalCookie。
+它不代表新增的业务分支或兼容行为。
+窄模型中的 metadata 仍用于完整 Cookie Jar 恢复。
+Cookie 明文只在本次调用链中短暂存在。
+*/
 
 func (s *Scheduler) saveRenewedCookies(ctx context.Context, cookieID, cookieStr, metadata string) bool {
 	if err := s.store.Cookies.UpdateRenewalCookie(ctx, cookieID, cookieStr, metadata, time.Now().Unix()); err != nil {

@@ -333,3 +333,90 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
+
+// RenewalRuntimeAccount 表示续期调度器运行一次 Cookie 续期所需的最小账号视图，不包含登录密码或用户名。
+type RenewalRuntimeAccount struct {
+	// ID 是闲鱼账号的稳定标识，用于绑定续期任务和运行实例。
+	ID string
+	// Value 是 repository 解密后的 Cookie 明文，仅在续期调用和账号重启边界内短暂使用。
+	Value string
+	// Enabled 表示账号当前是否允许续期；状态由 cookie_status 缺省值推导为启用。
+	Enabled bool
+	// MetadataJSON 是 Cookie 快照等续期运行元数据，不包含登录密码。
+	MetadataJSON string
+}
+
+// ActiveRenewalRuntimeAccounts 返回启用账号的续期运行视图，只解密 Cookie 和续期 metadata。
+func (c *Cookies) ActiveRenewalRuntimeAccounts(ctx context.Context) ([]RenewalRuntimeAccount, error) {
+	// rows 和 err 分别表示续期运行视图查询结果集及其数据库错误。
+	rows, err := c.DB.QueryContext(ctx, `
+		SELECT c.id, c.value, COALESCE(cs.enabled, 1), COALESCE(c.metadata_json,'')
+		FROM cookies c
+		LEFT JOIN cookie_status cs ON cs.cookie_id = c.id
+		WHERE COALESCE(cs.enabled, 1) <> 0
+		ORDER BY c.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	// accounts 保存按账号 ID 排序的启用续期运行视图。
+	accounts := make([]RenewalRuntimeAccount, 0)
+	for rows.Next() {
+		// account 保存当前数据库行对应的续期账号。
+		var account RenewalRuntimeAccount
+		// enabledInt 保存数据库中的整数启用状态。
+		var enabledInt int
+		// encryptedValue 和 encryptedMetadata 保存仅供本次解密的数据库密文。
+		var encryptedValue, encryptedMetadata string
+		// scanErr 表示当前续期账号行无法映射到窄模型的原因。
+		if scanErr := rows.Scan(&account.ID, &encryptedValue, &enabledInt, &encryptedMetadata); scanErr != nil {
+			return nil, scanErr
+		}
+		account.Enabled = enabledInt != 0
+		// decryptErr 表示当前账号 Cookie 或续期 metadata 无法解密的原因。
+		var decryptErr error
+		account.Value, decryptErr = c.codec.decrypt("cookie", account.ID, encryptedValue)
+		if decryptErr != nil {
+			return nil, fmt.Errorf("解密账号 %s Cookie: %w", account.ID, decryptErr)
+		}
+		account.MetadataJSON, decryptErr = c.codec.decrypt(cookieMetadataScope, account.ID, encryptedMetadata)
+		if decryptErr != nil {
+			return nil, fmt.Errorf("解密账号 %s Cookie metadata: %w", account.ID, decryptErr)
+		}
+		accounts = append(accounts, account)
+	}
+	return accounts, rows.Err()
+}
+
+// GetRenewalRuntimeAccount 返回指定账号的续期运行视图，并原子读取当前启用状态。
+func (c *Cookies) GetRenewalRuntimeAccount(ctx context.Context, cookieID string) (RenewalRuntimeAccount, error) {
+	// account 保存按账号 ID 读取的续期窄模型。
+	var account RenewalRuntimeAccount
+	// enabledInt 保存数据库中的整数启用状态。
+	var enabledInt int
+	// encryptedValue 和 encryptedMetadata 保存仅供本次解密的数据库密文。
+	var encryptedValue, encryptedMetadata string
+	// queryErr 表示账号不存在或续期窄查询执行失败的原因。
+	if queryErr := c.DB.QueryRowContext(ctx, `
+		SELECT c.id, c.value, COALESCE(cs.enabled, 1), COALESCE(c.metadata_json,'')
+		FROM cookies c
+		LEFT JOIN cookie_status cs ON cs.cookie_id = c.id
+		WHERE c.id=?`, cookieID).Scan(&account.ID, &encryptedValue, &enabledInt, &encryptedMetadata); queryErr != nil {
+		if errors.Is(queryErr, sql.ErrNoRows) {
+			return RenewalRuntimeAccount{}, ErrNotFound
+		}
+		return RenewalRuntimeAccount{}, queryErr
+	}
+	account.Enabled = enabledInt != 0
+	// decryptErr 表示当前账号 Cookie 或续期 metadata 无法解密的原因。
+	var decryptErr error
+	account.Value, decryptErr = c.codec.decrypt("cookie", account.ID, encryptedValue)
+	if decryptErr != nil {
+		return RenewalRuntimeAccount{}, fmt.Errorf("解密账号 %s Cookie: %w", account.ID, decryptErr)
+	}
+	account.MetadataJSON, decryptErr = c.codec.decrypt(cookieMetadataScope, account.ID, encryptedMetadata)
+	if decryptErr != nil {
+		return RenewalRuntimeAccount{}, fmt.Errorf("解密账号 %s Cookie metadata: %w", account.ID, decryptErr)
+	}
+	return account, nil
+}

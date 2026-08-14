@@ -111,7 +111,8 @@ app shell / routes
 - 已完成阶段 2 逻辑切片三“订单消费方”：订单刷新、手动发货和订单导入使用账号 ID 列表与所有权判断，凭证流程按需读取单账号详情；
 - 已完成阶段 2 后续切片：`internal/chat/service.go` 的订阅账号集合已迁移到 `ListOwnedIDs`，聊天订阅不再批量解密账号 Cookie；
 - 已完成阶段 2 后续切片：`internal/account/manager.go` 已改用受控的 `ListEnabledRuntimeCredentials` 启动账号，只解密启用账号 Cookie，不再使用 `AllForUser(ctx, 0)` 加逐账号状态查询；
-- 下一最小工作项：为 `internal/renewal/scheduler.go` 识别并拆分启用账号所需的 Cookie、登录秘密和运行配置读取，先建立按消费者字段收敛的窄模型，不改变续期行为；
+- 已完成阶段 2 后续切片：`internal/renewal/scheduler.go` 已改用 `RenewalRuntimeAccount` 窄模型及按账号重读接口，只解密 Cookie、续期 metadata 和启用状态，不再把登录密码/用户名带入续期调度器；
+- 下一最小工作项：盘点 `internal/automation` 中仍直接读取完整账号详情的凭证流程，先选择一个明确消费者建立按用途拆分的单账号窄查询，不改变自动化行为；
 - 随后工作项：再处理 Engine、Automation 等明确需要平台凭证的流程，统一使用按账号 ID 过滤的单值凭证接口；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
