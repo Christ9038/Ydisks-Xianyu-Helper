@@ -38,8 +38,8 @@ type AccountTaskSummary struct {
 // accountTaskCoordinator 负责账号自动评价、商品擦亮和凭证阻断状态。
 // 它拥有账号任务专用的 Session 指纹状态，Center 只保留兼容调用入口和依赖装配。
 type accountTaskCoordinator struct {
-	// store 提供账号设置、任务租约、Cookie 和运行结果的持久化能力。
-	store *db.Store
+	// repository 提供账号任务所需的最小持久化能力。
+	repository AccountTaskRepository
 	// client 返回当前生效的账号任务平台客户端。
 	client func() AccountTaskClient
 	// senders 用于把任务响应 Cookie 同步到在线账号运行时。
@@ -56,15 +56,18 @@ type accountTaskCoordinator struct {
 
 // accountAutomationAllowed 判断账号是否未暂停且仍处于启用状态。
 func (c *accountTaskCoordinator) accountAutomationAllowed(ctx context.Context, accountID string) (bool, error) {
+	if c == nil || c.repository == nil {
+		return false, fmt.Errorf("账号任务存储未初始化")
+	}
 	// paused 表示账号是否被用户临时暂停。
 	// err 保存读取账号暂停状态的错误。
-	paused, _, err := c.store.Cookies.IsPaused(ctx, accountID)
+	paused, _, err := c.repository.IsPaused(ctx, accountID)
 	if err != nil {
 		return false, fmt.Errorf("读取账号暂停状态: %w", err)
 	}
 	// enabled 表示账号是否处于启用状态。
 	// statusErr 保存读取账号启用状态的错误。
-	enabled, statusErr := c.store.Cookies.Status(ctx, accountID)
+	enabled, statusErr := c.repository.Status(ctx, accountID)
 	if statusErr != nil {
 		return false, fmt.Errorf("读取账号启用状态: %w", statusErr)
 	}
@@ -80,7 +83,7 @@ func (c *accountTaskCoordinator) runAccountTask(ctx context.Context, accountID, 
 	if !allowed {
 		return AccountTaskSummary{TaskType: taskType}, fmt.Errorf("账号已停用或暂停，无法执行任务")
 	}
-	settings, err := c.store.AccountTasks.Get(ctx, accountID)
+	settings, err := c.repository.Get(ctx, accountID)
 	if err != nil {
 		return AccountTaskSummary{TaskType: taskType}, err
 	}
@@ -113,10 +116,10 @@ func (c *accountTaskCoordinator) runConfiguredAccountTask(ctx context.Context, s
 }
 
 func (c *accountTaskCoordinator) scanAccountTasks(ctx context.Context) {
-	if c.client() == nil || c.store.AccountTasks == nil {
+	if c.client() == nil || c.repository == nil {
 		return
 	}
-	settings, err := c.store.AccountTasks.Enabled(ctx)
+	settings, err := c.repository.Enabled(ctx)
 	if err != nil {
 		c.logger.Warn("扫描账号任务配置失败", "err", err)
 		return
@@ -181,7 +184,7 @@ func (c *accountTaskCoordinator) accountTaskSessionBlocked(ctx context.Context, 
 
 func (c *accountTaskCoordinator) accountCredentialFingerprint(ctx context.Context, accountID string) (string, error) {
 	// data 是生成自动化 Session 阻断指纹所需的最小 Cookie 与 metadata 输入。
-	data, err := c.store.Cookies.GetCookieRuntimeData(ctx, accountID)
+	data, err := c.repository.GetCookieRuntimeData(ctx, accountID)
 	if err != nil {
 		return "", err
 	}
@@ -196,7 +199,7 @@ func (c *accountTaskCoordinator) runAutoRate(ctx context.Context, settings db.Ac
 	if c.client() == nil {
 		return summary, fmt.Errorf("自动评价客户端未初始化")
 	}
-	cookies, err := c.store.Cookies.GetValue(ctx, settings.CookieID)
+	cookies, err := c.repository.GetValue(ctx, settings.CookieID)
 	if err != nil {
 		return summary, err
 	}
@@ -216,7 +219,7 @@ func (c *accountTaskCoordinator) runAutoRate(ctx context.Context, settings db.Ac
 	summary.Found = len(orders)
 	for _, order := range orders {
 		runKey := "rate:" + settings.CookieID + ":" + order.TradeID
-		claimed, err := c.store.AccountTasks.ClaimRun(ctx, db.AccountTaskRun{RunKey: runKey, CookieID: settings.CookieID,
+		claimed, err := c.repository.ClaimRun(ctx, db.AccountTaskRun{RunKey: runKey, CookieID: settings.CookieID,
 			TaskType: TaskAutoRate, TargetID: order.TradeID}, time.Now().UTC().Unix())
 		if err != nil {
 			return summary, err
@@ -231,7 +234,7 @@ func (c *accountTaskCoordinator) runAutoRate(ctx context.Context, settings db.Ac
 			if result != nil && result.Message != "" {
 				message = result.Message
 			}
-			_ = c.store.AccountTasks.FinishRun(ctx, runKey, "failed", 0, 1, message, time.Now().UTC().Add(10*time.Minute).Unix())
+			_ = c.repository.FinishRun(ctx, runKey, "failed", 0, 1, message, time.Now().UTC().Add(10*time.Minute).Unix())
 			summary.Failed++
 			if mtop.IsSessionExpiredErr(rateErr) {
 				return summary, rateErr
@@ -239,10 +242,10 @@ func (c *accountTaskCoordinator) runAutoRate(ctx context.Context, settings db.Ac
 			continue
 		}
 		current = c.persistTaskCookies(ctx, settings.CookieID, current, result.UpdatedCookies)
-		_ = c.store.AccountTasks.FinishRun(ctx, runKey, "success", 1, 0, "", 0)
+		_ = c.repository.FinishRun(ctx, runKey, "success", 1, 0, "", 0)
 		summary.Success++
 	}
-	_ = c.store.AccountTasks.MarkRateScan(ctx, settings.CookieID, time.Now().UTC().Unix())
+	_ = c.repository.MarkRateScan(ctx, settings.CookieID, time.Now().UTC().Unix())
 	return summary, nil
 }
 
@@ -257,9 +260,9 @@ func (c *accountTaskCoordinator) runAutoPolish(ctx context.Context, settings db.
 	var claimed bool
 	var err error
 	if manual {
-		claimed, err = c.store.AccountTasks.ClaimRunImmediately(ctx, run, time.Now().UTC().Unix())
+		claimed, err = c.repository.ClaimRunImmediately(ctx, run, time.Now().UTC().Unix())
 	} else {
-		claimed, err = c.store.AccountTasks.ClaimRun(ctx, run, time.Now().UTC().Unix())
+		claimed, err = c.repository.ClaimRun(ctx, run, time.Now().UTC().Unix())
 	}
 	if err != nil || !claimed {
 		if !claimed && err == nil {
@@ -268,14 +271,14 @@ func (c *accountTaskCoordinator) runAutoPolish(ctx context.Context, settings db.
 		}
 		return summary, err
 	}
-	cookies, err := c.store.Cookies.GetValue(ctx, settings.CookieID)
+	cookies, err := c.repository.GetValue(ctx, settings.CookieID)
 	if err != nil {
-		_ = c.store.AccountTasks.FinishRun(ctx, runKey, "failed", 0, 1, err.Error(), time.Now().UTC().Add(10*time.Minute).Unix())
+		_ = c.repository.FinishRun(ctx, runKey, "failed", 0, 1, err.Error(), time.Now().UTC().Add(10*time.Minute).Unix())
 		return summary, err
 	}
 	items, err := c.client().FetchAllItems(ctx, cookies, polishItemPageSize, polishItemMaxPages)
 	if err != nil {
-		_ = c.store.AccountTasks.FinishRun(ctx, runKey, "failed", 0, 1, err.Error(), time.Now().UTC().Add(10*time.Minute).Unix())
+		_ = c.repository.FinishRun(ctx, runKey, "failed", 0, 1, err.Error(), time.Now().UTC().Add(10*time.Minute).Unix())
 		return summary, err
 	}
 	current := c.persistTaskCookies(ctx, settings.CookieID, cookies, items.UpdatedCookies)
@@ -290,7 +293,7 @@ func (c *accountTaskCoordinator) runAutoPolish(ctx context.Context, settings db.
 				lastError = result.Message
 			}
 			if mtop.IsSessionExpiredErr(polishErr) {
-				_ = c.store.AccountTasks.FinishRun(ctx, runKey, "failed", summary.Success, summary.Failed, lastError, 0)
+				_ = c.repository.FinishRun(ctx, runKey, "failed", summary.Success, summary.Failed, lastError, 0)
 				return summary, polishErr
 			}
 			continue
@@ -302,9 +305,9 @@ func (c *accountTaskCoordinator) runAutoPolish(ctx context.Context, settings db.
 	if summary.Failed > 0 {
 		status, retryAt = "failed", time.Now().UTC().Add(10*time.Minute).Unix()
 	} else {
-		_ = c.store.AccountTasks.MarkPolished(ctx, settings.CookieID, date, time.Now().UTC().Unix())
+		_ = c.repository.MarkPolished(ctx, settings.CookieID, date, time.Now().UTC().Unix())
 	}
-	_ = c.store.AccountTasks.FinishRun(ctx, runKey, status, summary.Success, summary.Failed, lastError, retryAt)
+	_ = c.repository.FinishRun(ctx, runKey, status, summary.Success, summary.Failed, lastError, retryAt)
 	if summary.Failed > 0 {
 		return summary, fmt.Errorf("%d 个商品擦亮失败: %s", summary.Failed, lastError)
 	}
@@ -316,7 +319,7 @@ func (c *accountTaskCoordinator) persistTaskCookies(ctx context.Context, account
 	if newValue == "" || newValue == oldValue {
 		return oldValue
 	}
-	if err := c.store.Cookies.UpdateValueExisting(ctx, accountID, newValue); err != nil {
+	if err := c.repository.UpdateValueExisting(ctx, accountID, newValue); err != nil {
 		c.logger.Warn("保存账号任务响应 Cookie 失败", "account", accountID, "err", err)
 		return oldValue
 	}

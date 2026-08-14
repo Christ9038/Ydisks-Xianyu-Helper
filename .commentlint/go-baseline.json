@@ -8257,457 +8257,457 @@
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 61,
+    "line": 64,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 61,
+    "line": 64,
     "kind": "local-variable",
     "name": "paused"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 67,
+    "line": 70,
     "kind": "local-variable",
     "name": "enabled"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 67,
+    "line": 70,
     "kind": "local-variable",
     "name": "statusErr"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 76,
+    "line": 79,
     "kind": "local-variable",
     "name": "allowed"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 76,
+    "line": 79,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 83,
+    "line": 86,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 83,
+    "line": 86,
     "kind": "local-variable",
     "name": "settings"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 90,
+    "line": 93,
     "kind": "function",
     "name": "runConfiguredAccountTask"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 91,
+    "line": 94,
     "kind": "local-variable",
     "name": "blocked"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 91,
+    "line": 94,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 98,
+    "line": 101,
     "kind": "var",
     "name": "summary"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 99,
+    "line": 102,
     "kind": "var",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 115,
+    "line": 118,
     "kind": "function",
     "name": "scanAccountTasks"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 119,
+    "line": 122,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 119,
+    "line": 122,
     "kind": "local-variable",
     "name": "settings"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 124,
+    "line": 127,
     "kind": "local-variable",
     "name": "now"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 125,
+    "line": 128,
     "kind": "range-variable",
     "name": "setting"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 126,
+    "line": 129,
     "kind": "local-variable",
     "name": "allowed"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 126,
+    "line": 129,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 130,
+    "line": 133,
     "kind": "local-variable",
     "name": "blockErr"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 130,
+    "line": 133,
     "kind": "local-variable",
     "name": "blocked"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 134,
+    "line": 137,
     "kind": "local-variable",
     "name": "err"
-  },
-  {
-    "file": "internal/automation/account_tasks.go",
-    "line": 139,
-    "kind": "local-variable",
-    "name": "blocked"
   },
   {
     "file": "internal/automation/account_tasks.go",
     "line": 142,
     "kind": "local-variable",
+    "name": "blocked"
+  },
+  {
+    "file": "internal/automation/account_tasks.go",
+    "line": 145,
+    "kind": "local-variable",
     "name": "taskErr"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 153,
+    "line": 156,
     "kind": "function",
     "name": "recoverAccountTaskSession"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 154,
+    "line": 157,
     "kind": "local-variable",
     "name": "fingerprint"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 154,
+    "line": 157,
     "kind": "local-variable",
     "name": "fingerprintErr"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 159,
+    "line": 162,
     "kind": "local-variable",
     "name": "recoverer"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 166,
+    "line": 169,
     "kind": "function",
     "name": "accountTaskSessionBlocked"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 167,
+    "line": 170,
     "kind": "local-variable",
     "name": "blockedFingerprint"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 167,
+    "line": 170,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 171,
+    "line": 174,
     "kind": "local-variable",
     "name": "current"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 171,
+    "line": 174,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 182,
+    "line": 185,
     "kind": "function",
     "name": "accountCredentialFingerprint"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 195,
+    "line": 198,
     "kind": "local-variable",
     "name": "summary"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 199,
+    "line": 202,
     "kind": "local-variable",
     "name": "cookies"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 199,
+    "line": 202,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 203,
+    "line": 206,
     "kind": "local-variable",
     "name": "current"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 204,
+    "line": 207,
     "kind": "var",
     "name": "orders"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 205,
+    "line": 208,
     "kind": "local-variable",
     "name": "page"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 206,
+    "line": 209,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 206,
+    "line": 209,
     "kind": "local-variable",
     "name": "pending"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 217,
+    "line": 220,
     "kind": "range-variable",
     "name": "order"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 218,
+    "line": 221,
     "kind": "local-variable",
     "name": "runKey"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 219,
+    "line": 222,
     "kind": "local-variable",
     "name": "claimed"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 219,
+    "line": 222,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 228,
+    "line": 231,
     "kind": "local-variable",
     "name": "rateErr"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 228,
+    "line": 231,
     "kind": "local-variable",
     "name": "result"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 230,
+    "line": 233,
     "kind": "local-variable",
     "name": "message"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 249,
+    "line": 252,
     "kind": "function",
     "name": "runAutoPolish"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 250,
+    "line": 253,
     "kind": "local-variable",
     "name": "summary"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 254,
+    "line": 257,
     "kind": "local-variable",
     "name": "date"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 255,
+    "line": 258,
     "kind": "local-variable",
     "name": "runKey"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 256,
+    "line": 259,
     "kind": "local-variable",
     "name": "run"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 257,
+    "line": 260,
     "kind": "var",
     "name": "claimed"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 258,
+    "line": 261,
     "kind": "var",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 271,
+    "line": 274,
     "kind": "local-variable",
     "name": "cookies"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 271,
+    "line": 274,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 276,
+    "line": 279,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 276,
+    "line": 279,
     "kind": "local-variable",
     "name": "items"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 281,
+    "line": 284,
     "kind": "local-variable",
     "name": "current"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 283,
+    "line": 286,
     "kind": "var",
     "name": "lastError"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 284,
+    "line": 287,
     "kind": "range-variable",
     "name": "item"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 285,
+    "line": 288,
     "kind": "local-variable",
     "name": "polishErr"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 285,
+    "line": 288,
     "kind": "local-variable",
     "name": "result"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 301,
+    "line": 304,
     "kind": "local-variable",
     "name": "retryAt"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 301,
+    "line": 304,
     "kind": "local-variable",
     "name": "status"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 314,
+    "line": 317,
     "kind": "function",
     "name": "persistTaskCookies"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 319,
+    "line": 322,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 324,
+    "line": 327,
     "kind": "local-variable",
     "name": "ok"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 324,
+    "line": 327,
     "kind": "local-variable",
     "name": "sender"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 331,
+    "line": 334,
     "kind": "function",
     "name": "beijingNow"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 335,
+    "line": 338,
     "kind": "function",
     "name": "polishDue"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 339,
+    "line": 342,
     "kind": "local-variable",
     "name": "err"
   },
   {
     "file": "internal/automation/account_tasks.go",
-    "line": 339,
+    "line": 342,
     "kind": "local-variable",
     "name": "target"
   },

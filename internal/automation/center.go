@@ -149,9 +149,9 @@ func New(store *db.Store, senders SenderProvider, logger *slog.Logger) *Center {
 		},
 	}
 	center.taskRunner = accountTaskCoordinator{
-		store:   store,
-		client:  func() AccountTaskClient { return center.accountTaskClient },
-		senders: senders,
+		repository: newStoreAccountTaskRepository(store),
+		client:     func() AccountTaskClient { return center.accountTaskClient },
+		senders:    senders,
 		recoverer: func() CredentialRecoverer {
 			return center.recoverer
 		},
