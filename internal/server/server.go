@@ -69,6 +69,8 @@ type Server struct {
 	Logger      *slog.Logger
 	WebDir      string // 前端静态资源目录（含 index.html）
 	Addr        string
+	// applications 保存统一装配的应用服务实例。
+	applications *applicationServices
 
 	publishMu      sync.Mutex
 	publishCancels map[string]publishBatchWorker
@@ -99,7 +101,7 @@ func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr st
 		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
 	}
 	qrMgr := qrlogin.NewManager(logger)
-	return &Server{
+	server := &Server{
 		Store:       store,
 		Auth:        &auth.Service{Store: store, Logger: logger, Secure: secure},
 		Manager:     manager,
@@ -119,6 +121,8 @@ func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr st
 		qrOwners:       make(map[string]qrLoginOwner),
 		loginLimiter:   newLoginFailureLimiter(),
 	}
+	server.applications = newApplicationServices(server)
+	return server
 }
 
 // mtopClient 返回注入的 mtop 客户端；未注入时退回默认 HTTP 实现（保证零值可用）。

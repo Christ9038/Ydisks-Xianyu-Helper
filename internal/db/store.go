@@ -22,6 +22,7 @@ type Store struct {
 	AIReply        *AIReply
 	Notifications  *Notifications
 	Settings       *SystemSettings
+	UserSettings   *UserSettings
 	WSMessages     *WSMessageStore
 	PublishBatches *ItemPublishBatches
 	Tokens         *AccountTokens
@@ -30,6 +31,8 @@ type Store struct {
 	RiskLogs       *RiskControlLogs
 	Chats          *ChatStore
 	AccountTasks   *AccountTaskStore
+	Admin          *AdminQueries
+	Analytics      *AnalyticsQueries
 
 	credentialMu    sync.Mutex
 	credentialLocks map[string]*sync.Mutex
@@ -51,9 +54,10 @@ func NewStore(db *sql.DB, dialect Dialect) *Store {
 		Keywords:        &Keywords{DB: db, Dialect: dialect},
 		DefaultReps:     &DefaultReplies{DB: db, Dialect: dialect},
 		ItemReps:        &ItemReplies{DB: db, Dialect: dialect},
-		AIReply:         &AIReply{DB: db, codec: codec},
+		AIReply:         &AIReply{DB: db, Dialect: dialect, codec: codec},
 		Notifications:   &Notifications{DB: db, Dialect: dialect, codec: codec},
 		Settings:        &SystemSettings{DB: db, Dialect: dialect, codec: codec},
+		UserSettings:    &UserSettings{DB: db, Dialect: dialect},
 		WSMessages:      &WSMessageStore{DB: db},
 		PublishBatches:  &ItemPublishBatches{DB: db},
 		Tokens:          &AccountTokens{DB: db, Dialect: dialect, codec: codec},
@@ -62,6 +66,8 @@ func NewStore(db *sql.DB, dialect Dialect) *Store {
 		RiskLogs:        &RiskControlLogs{DB: db, Dialect: dialect},
 		Chats:           &ChatStore{DB: db, Dialect: dialect},
 		AccountTasks:    &AccountTaskStore{DB: db, Dialect: dialect},
+		Admin:           &AdminQueries{DB: db},
+		Analytics:       &AnalyticsQueries{DB: db},
 		credentialLocks: make(map[string]*sync.Mutex),
 	}
 }

@@ -100,12 +100,8 @@ func (s *Server) requireChannelOwner(w http.ResponseWriter, r *http.Request, cha
 		writeErr(w, http.StatusUnauthorized, "未授权访问")
 		return false
 	}
-	// exists 表示通知渠道是否由当前用户拥有。
-	var exists bool
-	// err 表示通知渠道所有权查询失败的原因。
-	err := s.Store.DB.QueryRowContext(r.Context(),
-		`SELECT EXISTS(SELECT 1 FROM notification_channels WHERE id=? AND user_id=?)`,
-		channelID, sess.UserID).Scan(&exists)
+	// exists 和 err 表示通知渠道归属查询结果及错误。
+	exists, err := s.Store.Notifications.OwnsChannel(r.Context(), channelID, sess.UserID)
 	if err != nil || !exists {
 		writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
 		return false

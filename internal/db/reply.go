@@ -24,6 +24,20 @@ type DefaultReply struct {
 	ReplyOnce     bool
 }
 
+// DefaultReplySummary 是按账号查询默认回复列表时使用的带账号标识视图。
+type DefaultReplySummary struct {
+	// CookieID 是默认回复所属账号标识。
+	CookieID string
+	// Enabled 表示默认回复是否启用。
+	Enabled bool
+	// ReplyContent 是默认回复文字。
+	ReplyContent string
+	// ReplyImageURL 是默认回复图片地址。
+	ReplyImageURL string
+	// ReplyOnce 表示同一聊天是否只发送一次。
+	ReplyOnce bool
+}
+
 // DefaultReplyRecord 记录 reply_once 消息各部分的投递状态。
 type DefaultReplyRecord struct {
 	Status    string
@@ -89,6 +103,64 @@ func (d *DefaultReplies) Get(ctx context.Context, cookieID string) (*DefaultRepl
 	dr.ReplyImageURL = imageURL.String
 	dr.ReplyOnce = replyOnce != 0
 	return &dr, nil
+}
+
+// Upsert 保存或覆盖指定账号的默认回复配置。
+func (d *DefaultReplies) Upsert(ctx context.Context, cookieID string, reply DefaultReply) error {
+	_, err := d.DB.ExecContext(ctx,
+		`INSERT INTO default_replies (cookie_id, enabled, reply_content, reply_image_url, reply_once, updated_at)
+		 VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)`+dialectUpsert(d.Dialect, []string{"cookie_id"}, map[string]string{
+			"enabled":         "EXCLUDED.enabled",
+			"reply_content":   "EXCLUDED.reply_content",
+			"reply_image_url": "EXCLUDED.reply_image_url",
+			"reply_once":      "EXCLUDED.reply_once",
+			"updated_at":      "CURRENT_TIMESTAMP",
+		}),
+		cookieID, boolToInt(reply.Enabled), reply.ReplyContent, defaultReplyNullableString(reply.ReplyImageURL), boolToInt(reply.ReplyOnce))
+	return err
+}
+
+// defaultReplyNullableString 将空图片地址转换为数据库 NULL，保持历史存储语义。
+func defaultReplyNullableString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+// ListForUser 查询用户所有账号的默认回复配置。
+func (d *DefaultReplies) ListForUser(ctx context.Context, userID int64) ([]DefaultReplySummary, error) {
+	rows, err := d.DB.QueryContext(ctx, `
+		SELECT dr.cookie_id, dr.enabled, COALESCE(dr.reply_content,''), dr.reply_once, COALESCE(dr.reply_image_url,'')
+		  FROM default_replies dr JOIN cookies c ON c.id=dr.cookie_id WHERE c.user_id=?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DefaultReplySummary
+	for rows.Next() {
+		var item DefaultReplySummary
+		var enabled, replyOnce int
+		if err := rows.Scan(&item.CookieID, &enabled, &item.ReplyContent, &replyOnce, &item.ReplyImageURL); err != nil {
+			return nil, err
+		}
+		item.Enabled = enabled != 0
+		item.ReplyOnce = replyOnce != 0
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+// Delete 删除指定账号的默认回复配置。
+func (d *DefaultReplies) Delete(ctx context.Context, cookieID string) error {
+	_, err := d.DB.ExecContext(ctx, `DELETE FROM default_replies WHERE cookie_id=?`, cookieID)
+	return err
+}
+
+// ClearRecords 清空指定账号的默认回复投递记录。
+func (d *DefaultReplies) ClearRecords(ctx context.Context, cookieID string) error {
+	_, err := d.DB.ExecContext(ctx, `DELETE FROM default_reply_records WHERE cookie_id=?`, cookieID)
+	return err
 }
 
 // HasRecord 是否已对该 chat_id 回复过（reply_once 用）。

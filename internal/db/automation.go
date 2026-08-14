@@ -24,6 +24,16 @@ type AutomationRules struct {
 	Dialect Dialect
 }
 
+// ExistsPublishRule 判断指定发布自动化规则是否已经存在，避免重复创建同一规则。
+func (a *AutomationRules) ExistsPublishRule(ctx context.Context, input AutomationRuleInput) (bool, error) {
+	var exists bool
+	err := a.DB.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM automation_rules
+		 WHERE user_id=? AND cookie_id=? AND item_id=? AND trigger_type=? AND name=? AND deleted_at IS NULL
+	)`, input.UserID, input.CookieID, input.ItemID, input.TriggerType, input.Name).Scan(&exists)
+	return exists, err
+}
+
 // AutomationRule 是一条自动化规则。规则只描述“什么时候、对哪个商品生效”，
 // 具体做什么放在 AutomationAction 中，便于组合付款发货、评价赠品、求评价等流程。
 type AutomationRule struct {

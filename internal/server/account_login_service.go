@@ -54,7 +54,7 @@ type accountProfileResult struct {
 
 // accountLoginApplication 返回当前 Server 绑定的账号登录应用服务。
 func (s *Server) accountLoginApplication() *accountLoginService {
-	return &accountLoginService{server: s}
+	return s.applicationServiceSet().accountLogin
 }
 
 // CreateCookie 创建账号凭证并完成登录审计、资料刷新和运行时重启。

@@ -72,16 +72,10 @@ func (s *Server) setDefaultReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// err 是默认回复写入错误。
-	_, err := s.Store.DB.ExecContext(r.Context(),
-		`INSERT INTO default_replies (cookie_id, enabled, reply_content, reply_image_url, reply_once, updated_at)
-		 VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)`+db.DialectUpsert(s.Store.Dialect, []string{"cookie_id"}, map[string]string{
-			"enabled":         "EXCLUDED.enabled",
-			"reply_content":   "EXCLUDED.reply_content",
-			"reply_image_url": "EXCLUDED.reply_image_url",
-			"reply_once":      "EXCLUDED.reply_once",
-			"updated_at":      "CURRENT_TIMESTAMP",
-		}),
-		cid, btoi(req.Enabled), req.ReplyContent, nullIfEmpty(req.ReplyImageURL), btoi(req.ReplyOnce))
+	err := s.Store.DefaultReps.Upsert(r.Context(), cid, db.DefaultReply{
+		Enabled: req.Enabled, ReplyContent: req.ReplyContent,
+		ReplyImageURL: req.ReplyImageURL, ReplyOnce: req.ReplyOnce,
+	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
@@ -93,38 +87,20 @@ func (s *Server) setDefaultReply(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listDefaultReplies(w http.ResponseWriter, r *http.Request) {
 	// sess 是当前登录用户会话。
 	sess := auth.SessionFromContext(r.Context())
-	// err 是默认回复列表查询错误，rows 是查询结果游标。
-	rows, err := s.Store.DB.QueryContext(r.Context(),
-		`SELECT dr.cookie_id, dr.enabled, COALESCE(dr.reply_content,''), dr.reply_once, COALESCE(dr.reply_image_url,'')
-		   FROM default_replies dr
-		   JOIN cookies c ON c.id=dr.cookie_id
-		  WHERE c.user_id=?`, sess.UserID)
+	// rows 和 err 是当前用户的默认回复列表及查询错误。
+	rows, err := s.Store.DefaultReps.ListForUser(r.Context(), sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	defer rows.Close()
 	// out 是默认回复列表响应。
 	var out []defaultReplyResponse
-	for rows.Next() {
-		// cid、content 和 imageURL 是当前默认回复的文本字段。
-		var cid, content, imageURL string
-		// enabled 和 replyOnce 是数据库中的布尔数值字段。
-		var enabled, replyOnce int
-		// err 是当前默认回复行扫描错误。
-		if err := rows.Scan(&cid, &enabled, &content, &replyOnce, &imageURL); err != nil {
-			continue
-		}
+	for _, row := range rows {
 		out = append(out, defaultReplyResponse{
-			CookieID: cid, Enabled: enabled != 0, ReplyContent: content, ReplyOnce: replyOnce != 0,
-			ReplyImageURL: imageURL,
+			CookieID: row.CookieID, Enabled: row.Enabled, ReplyContent: row.ReplyContent, ReplyOnce: row.ReplyOnce,
+			ReplyImageURL: row.ReplyImageURL,
 			// 列表 DTO 保留账号标识，前端可直接建立按账号索引。
 		})
-	}
-	// err 是默认回复游标迭代错误。
-	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
-		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -133,41 +109,23 @@ func (s *Server) listDefaultReplies(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listDefaultRepliesMap(w http.ResponseWriter, r *http.Request) {
 	// sess 是当前登录用户会话。
 	sess := auth.SessionFromContext(r.Context())
-	// err 是默认回复映射查询错误，rows 是查询结果游标。
-	rows, err := s.Store.DB.QueryContext(r.Context(),
-		`SELECT dr.cookie_id, dr.enabled, COALESCE(dr.reply_content, ''), dr.reply_once, COALESCE(dr.reply_image_url, '')
-		   FROM default_replies dr
-		   JOIN cookies c ON c.id=dr.cookie_id
-		  WHERE c.user_id=?`, sess.UserID)
+	// rows 和 err 是当前用户的默认回复列表及查询错误。
+	rows, err := s.Store.DefaultReps.ListForUser(r.Context(), sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	defer rows.Close()
 	// out 是按账号标识索引的默认回复映射。
 	out := make(map[string]defaultReplyResponse)
-	for rows.Next() {
-		// cid、content 和 imageURL 是当前默认回复的文本字段。
-		var cid, content, imageURL string
-		// enabled 和 replyOnce 是数据库中的布尔数值字段。
-		var enabled, replyOnce int
-		// err 是当前默认回复行扫描错误。
-		if err := rows.Scan(&cid, &enabled, &content, &replyOnce, &imageURL); err != nil {
-			continue
-		}
-		out[cid] = defaultReplyResponse{
-			CookieID:      cid,
-			Enabled:       enabled != 0,
-			ReplyContent:  content,
-			ReplyOnce:     replyOnce != 0,
-			ReplyImageURL: imageURL,
+	for _, row := range rows {
+		out[row.CookieID] = defaultReplyResponse{
+			CookieID:      row.CookieID,
+			Enabled:       row.Enabled,
+			ReplyContent:  row.ReplyContent,
+			ReplyOnce:     row.ReplyOnce,
+			ReplyImageURL: row.ReplyImageURL,
 			// map 键与 cookie_id 同时保留，兼容旧前端索引方式。
 		}
-	}
-	// err 是默认回复映射游标迭代错误。
-	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
-		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -180,7 +138,7 @@ func (s *Server) deleteDefaultReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// err 是默认回复删除错误。
-	_, err := s.Store.DB.ExecContext(r.Context(), `DELETE FROM default_replies WHERE cookie_id=?`, cid)
+	err := s.Store.DefaultReps.Delete(r.Context(), cid)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
@@ -196,7 +154,7 @@ func (s *Server) clearDefaultReplyRecords(w http.ResponseWriter, r *http.Request
 		return
 	}
 	// err 是默认回复记录清理错误。
-	if _, err := s.Store.DB.ExecContext(r.Context(), `DELETE FROM default_reply_records WHERE cookie_id=?`, cid); err != nil {
+	if err := s.Store.DefaultReps.ClearRecords(r.Context(), cid); err != nil {
 		writeErr(w, http.StatusInternalServerError, "清空失败")
 		return
 	}

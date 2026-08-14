@@ -117,38 +117,21 @@ func (s *Server) mountAIReplyReal(r chi.Router) {
 
 func (s *Server) listAIReply(w http.ResponseWriter, r *http.Request) {
 	sess := authSess(r)
-	rows, err := s.Store.DB.QueryContext(r.Context(),
-		`SELECT a.cookie_id, a.ai_enabled, a.max_discount_percent, a.max_discount_amount,
-		        a.max_bargain_rounds, COALESCE(a.custom_prompts, '')
-		   FROM ai_reply_settings a
-		   JOIN cookies c ON c.id=a.cookie_id
-		  WHERE c.user_id=?`, sess.UserID)
+	rows, err := s.Store.AIReply.ListForUser(r.Context(), sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	defer rows.Close()
-
 	result := make(map[string]aiReplySettingsResponse)
-	for rows.Next() {
-		var cookieID, customPrompts string
-		var enabled, maxDiscountPercent, maxDiscountAmount, maxBargainRounds int
-		if err := rows.Scan(&cookieID, &enabled, &maxDiscountPercent, &maxDiscountAmount, &maxBargainRounds, &customPrompts); err != nil {
-			writeErr(w, http.StatusInternalServerError, "查询失败")
-			return
-		}
-		result[cookieID] = aiReplySettingsResponse{
-			CookieID: cookieID, AIEnabled: enabled != 0, MaxDiscountPercent: maxDiscountPercent,
-			MaxDiscountAmount: maxDiscountAmount, MaxBargainRounds: maxBargainRounds, CustomPrompts: customPrompts,
+	for _, row := range rows {
+		result[row.CookieID] = aiReplySettingsResponse{
+			CookieID: row.CookieID, AIEnabled: row.AIEnabled, MaxDiscountPercent: row.MaxDiscountPercent,
+			MaxDiscountAmount: row.MaxDiscountAmount, MaxBargainRounds: row.MaxBargainRounds, CustomPrompts: row.CustomPrompts,
 			// 账号标识和五项配置字段保持旧 JSON 名称。
 			// 布尔值继续由数据库整数转换得到。
 			// 自定义提示词不做额外格式化。
 			// DTO 转换不改变查询失败处理。
 		}
-	}
-	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
-		return
 	}
 	writeJSON(w, http.StatusOK, result)
 }
@@ -211,20 +194,12 @@ func (s *Server) setAIReply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "最大砍价轮次必须在 1 到 10 之间")
 		return
 	}
-	_, err := s.Store.DB.ExecContext(r.Context(),
-		`INSERT INTO ai_reply_settings
-		 (cookie_id, ai_enabled, max_discount_percent, max_discount_amount,
-		  max_bargain_rounds, custom_prompts, updated_at)
-		 VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)`+db.DialectUpsert(s.Store.Dialect, []string{"cookie_id"}, map[string]string{
-			"ai_enabled":           "EXCLUDED.ai_enabled",
-			"max_discount_percent": "EXCLUDED.max_discount_percent",
-			"max_discount_amount":  "EXCLUDED.max_discount_amount",
-			"max_bargain_rounds":   "EXCLUDED.max_bargain_rounds",
-			"custom_prompts":       "EXCLUDED.custom_prompts",
-			"updated_at":           "CURRENT_TIMESTAMP",
-		}),
-		cid, btoi(req.AIEnabled), req.MaxDiscountPercent, req.MaxDiscountAmount,
-		req.MaxBargainRounds, nullIfEmpty(req.CustomPrompts))
+	// err 是 AI 回复配置写入错误。
+	err := s.Store.AIReply.UpsertSettings(r.Context(), cid, db.AIReplySettings{
+		AIEnabled: req.AIEnabled, MaxDiscountPercent: req.MaxDiscountPercent,
+		MaxDiscountAmount: req.MaxDiscountAmount, MaxBargainRounds: req.MaxBargainRounds,
+		CustomPrompts: req.CustomPrompts,
+	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
@@ -379,35 +354,18 @@ func (s *Server) mountUserReal(r chi.Router) {
 
 func (s *Server) listUserSettings(w http.ResponseWriter, r *http.Request) {
 	sess := authSess(r)
-	keyCol := db.DialectQuote(s.Store.Dialect, "key")
-	rows, err := s.Store.DB.QueryContext(r.Context(),
-		`SELECT `+keyCol+`, value FROM user_settings WHERE user_id=?`, sess.UserID)
+	settings, err := s.Store.UserSettings.AllForUser(r.Context(), sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	defer rows.Close()
-	m := make(map[string]string)
-	for rows.Next() {
-		var k, v string
-		if rows.Scan(&k, &v) == nil {
-			m[k] = v
-		}
-	}
-	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
-		return
-	}
-	writeJSON(w, http.StatusOK, settingsResponse(m))
+	writeJSON(w, http.StatusOK, settingsResponse(settings))
 }
 
 func (s *Server) getUserSetting(w http.ResponseWriter, r *http.Request) {
 	sess := authSess(r)
 	key := chi.URLParam(r, "key")
-	var v string
-	keyCol := db.DialectQuote(s.Store.Dialect, "key")
-	err := s.Store.DB.QueryRowContext(r.Context(),
-		`SELECT value FROM user_settings WHERE user_id=? AND `+keyCol+`=?`, sess.UserID, key).Scan(&v)
+	v, err := s.Store.UserSettings.GetForUser(r.Context(), sess.UserID, key)
 	if err != nil {
 		writeJSON(w, http.StatusOK, userSettingResponse{Value: ""})
 		return
@@ -425,14 +383,8 @@ func (s *Server) setUserSetting(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	keyCol := db.DialectQuote(s.Store.Dialect, "key")
-	_, err := s.Store.DB.ExecContext(r.Context(),
-		`INSERT INTO user_settings (user_id, `+keyCol+`, value, updated_at) VALUES (?,?,?,CURRENT_TIMESTAMP)`+
-			db.DialectUpsert(s.Store.Dialect, []string{"user_id", keyCol}, map[string]string{
-				"value":      "EXCLUDED.value",
-				"updated_at": "CURRENT_TIMESTAMP",
-			}),
-		sess.UserID, key, req.Value)
+	// err 是用户设置写入错误。
+	err := s.Store.UserSettings.SetForUser(r.Context(), sess.UserID, key, req.Value)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return

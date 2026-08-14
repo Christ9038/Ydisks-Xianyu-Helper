@@ -85,7 +85,7 @@ type itemPublishService struct {
 
 // itemPublishApplication 返回当前 Server 绑定的商品发布应用服务。
 func (s *Server) itemPublishApplication() *itemPublishService {
-	return &itemPublishService{server: s}
+	return s.applicationServiceSet().itemPublish
 }
 
 // PublishSingle 执行单商品发布、响应 Cookie 持久化和本地商品落库。

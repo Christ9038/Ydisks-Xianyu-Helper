@@ -656,12 +656,11 @@ func (s *Server) setCookieAutoConfirm(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	v := 0
-	if req.AutoConfirm {
-		v = 1
-	}
-	if _, err := s.Store.DB.ExecContext(r.Context(),
-		`UPDATE cookies SET auto_confirm=? WHERE id=?`, v, cid); err != nil {
+	// sess 是当前请求的认证会话，用于让 repository 再次确认账号归属。
+	sess := authSess(r)
+	if _, err := s.Store.Cookies.UpdateSettings(r.Context(), cid, db.AccountSettingsUpdate{
+		UserID: sess.UserID, AutoConfirm: &req.AutoConfirm,
+	}); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存自动确认设置失败")
 		return
 	}
@@ -691,8 +690,11 @@ func (s *Server) setCookieRemark(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	if _, err := s.Store.DB.ExecContext(r.Context(),
-		`UPDATE cookies SET remark=? WHERE id=?`, req.Remark, cid); err != nil {
+	// sess 是当前请求的认证会话，用于让 repository 再次确认账号归属。
+	sess := authSess(r)
+	if _, err := s.Store.Cookies.UpdateSettings(r.Context(), cid, db.AccountSettingsUpdate{
+		UserID: sess.UserID, Remark: &req.Remark,
+	}); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存账号备注失败")
 		return
 	}

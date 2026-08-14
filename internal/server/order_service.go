@@ -61,7 +61,7 @@ func orderErrorKindOf(err error) (orderErrorKind, bool) {
 
 // orders 返回当前 Server 绑定的订单应用服务。
 func (s *Server) orders() *orderApplicationService {
-	return &orderApplicationService{server: s}
+	return s.applicationServiceSet().orders
 }
 
 // orderListQuery 描述订单列表的业务查询条件。

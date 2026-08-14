@@ -310,6 +310,13 @@ type CardFull struct {
 	UserID       int64  `json:"user_id"`
 }
 
+// ExistsOwned 判断卡密组是否属于指定用户。
+func (c *Cards) ExistsOwned(ctx context.Context, cardID, userID int64) (bool, error) {
+	var exists bool
+	err := c.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM cards WHERE id=? AND user_id=?)`, cardID, userID).Scan(&exists)
+	return exists, err
+}
+
 // Get 取单个卡券。
 func (c *Cards) Get(ctx context.Context, cardID int64) (*CardFull, error) {
 	var cf CardFull

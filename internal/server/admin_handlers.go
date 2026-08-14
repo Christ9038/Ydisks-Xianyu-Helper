@@ -16,38 +16,18 @@ func (s *Server) mountAdminReal(r chi.Router) {
 }
 
 func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.Store.DB.QueryContext(r.Context(),
-		`SELECT id, username, email, is_active, is_admin, created_at FROM users ORDER BY id`)
+	rows, err := s.Store.Admin.ListUsers(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	defer rows.Close()
 	var out []adminUserResponse
-	for rows.Next() {
-		var id int64
-		var username, email, createdAt string
-		var isActive, isAdmin int
-		if err := rows.Scan(&id, &username, &email, &isActive, &isAdmin, &createdAt); err != nil {
-			writeErr(w, http.StatusInternalServerError, "读取用户数据失败")
-			return
-		}
-		// 统计每个用户的账号数。
-		var cookieCount int
-		if err := s.Store.DB.QueryRowContext(r.Context(),
-			`SELECT COUNT(*) FROM cookies WHERE user_id=?`, id).Scan(&cookieCount); err != nil {
-			writeErr(w, http.StatusInternalServerError, "统计用户账号失败")
-			return
-		}
+	for _, row := range rows {
 		out = append(out, adminUserResponse{
-			ID: id, Username: username, Email: email,
-			IsActive: isActive != 0, IsAdmin: isAdmin != 0,
-			CreatedAt: createdAt, CookieCount: cookieCount,
+			ID: row.ID, Username: row.Username, Email: row.Email,
+			IsActive: row.IsActive, IsAdmin: row.IsAdmin,
+			CreatedAt: row.CreatedAt, CookieCount: row.CookieCount,
 		})
-	}
-	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取用户数据失败")
-		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -79,70 +59,33 @@ func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) adminListCookies(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.Store.DB.QueryContext(r.Context(),
-		`SELECT c.id, c.user_id, COALESCE(c.remark,''), c.created_at, u.username
-		 FROM cookies c LEFT JOIN users u ON c.user_id=u.id ORDER BY c.created_at DESC`)
+	rows, err := s.Store.Admin.ListCookies(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	defer rows.Close()
 	var out []adminCookieResponse
-	for rows.Next() {
-		var id string
-		var uid int64
-		var remark, createdAt, username string
-		if err := rows.Scan(&id, &uid, &remark, &createdAt, &username); err != nil {
-			writeErr(w, http.StatusInternalServerError, "读取账号数据失败")
-			return
-		}
+	for _, row := range rows {
 		out = append(out, adminCookieResponse{
-			ID: id, UserID: uid, Remark: remark,
-			CreatedAt: createdAt, Owner: username,
-			Enabled: s.Store.Cookies.GetStatus(r.Context(), id),
+			ID: row.ID, UserID: row.UserID, Remark: row.Remark,
+			CreatedAt: row.CreatedAt, Owner: row.Owner,
+			Enabled: s.Store.Cookies.GetStatus(r.Context(), row.ID),
 		})
-	}
-	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取账号数据失败")
-		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) adminStats(w http.ResponseWriter, r *http.Request) {
-	// 字段名与前端 AdminStats 接口对齐：
-	// total_users / total_cookies / active_cookies / total_cards / total_keywords / total_orders
-	var totalUsers, totalCookies, totalCards, totalOrders, totalKeywords int64
-	counts := []struct {
-		query string
-		dest  *int64
-	}{
-		{`SELECT COUNT(*) FROM users`, &totalUsers},
-		{`SELECT COUNT(*) FROM cookies`, &totalCookies},
-		{`SELECT COUNT(*) FROM cards`, &totalCards},
-		{`SELECT COUNT(*) FROM orders WHERE deleted_at IS NULL`, &totalOrders},
-		{`SELECT COUNT(*) FROM keywords`, &totalKeywords},
-	}
-	for _, count := range counts {
-		if err := s.Store.DB.QueryRowContext(r.Context(), count.query).Scan(count.dest); err != nil {
-			writeErr(w, http.StatusInternalServerError, "统计数据失败")
-			return
-		}
-	}
-
-	// 活跃账号：cookie_status.enabled=1 的数量（无记录默认启用，故统计 enabled=1 或无记录的）。
-	var activeCookies int64
-	if err := s.Store.DB.QueryRowContext(r.Context(), `
-		SELECT COUNT(*) FROM cookies c
-		WHERE NOT EXISTS (SELECT 1 FROM cookie_status cs WHERE cs.cookie_id=c.id AND cs.enabled=0)
-	`).Scan(&activeCookies); err != nil {
-		writeErr(w, http.StatusInternalServerError, "统计活跃账号失败")
+	// stats 是管理员仪表盘的数据库聚合结果。
+	stats, err := s.Store.Admin.Stats(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "统计数据失败")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, adminStatsResponse{
-		TotalUsers: totalUsers, TotalCookies: totalCookies, ActiveCookies: activeCookies,
-		TotalCards: totalCards, TotalKeywords: totalKeywords, TotalOrders: totalOrders,
+		TotalUsers: stats.TotalUsers, TotalCookies: stats.TotalCookies, ActiveCookies: stats.ActiveCookies,
+		TotalCards: stats.TotalCards, TotalKeywords: stats.TotalKeywords, TotalOrders: stats.TotalOrders,
 		// 统计响应继续保留原有字段名称，兼容管理员仪表盘。
 		// DTO 字段由具名结构统一维护，避免动态 map 漏字段。
 		// 所有统计值均来自当前数据库快照。

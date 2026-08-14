@@ -29,8 +29,9 @@ type AIReplySettings struct {
 
 // AIReply 操作。
 type AIReply struct {
-	DB    *sql.DB
-	codec *secretCodec
+	DB      *sql.DB
+	Dialect Dialect
+	codec   *secretCodec
 }
 
 // Get 取某账号 AI 回复配置。
@@ -63,6 +64,55 @@ func (a *AIReply) Get(ctx context.Context, cookieID string) (*AIReplySettings, e
 		s.BaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 	}
 	return &s, nil
+}
+
+// ListForUser 查询用户账号的 AI 回复配置，不读取或返回 API 密钥。
+func (a *AIReply) ListForUser(ctx context.Context, userID int64) ([]AIReplySettings, error) {
+	rows, err := a.DB.QueryContext(ctx, `
+		SELECT a.cookie_id, a.ai_enabled, a.max_discount_percent, a.max_discount_amount,
+		       a.max_bargain_rounds, COALESCE(a.custom_prompts, '')
+		  FROM ai_reply_settings a JOIN cookies c ON c.id=a.cookie_id WHERE c.user_id=?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AIReplySettings
+	for rows.Next() {
+		var item AIReplySettings
+		var enabled int
+		if err := rows.Scan(&item.CookieID, &enabled, &item.MaxDiscountPercent, &item.MaxDiscountAmount, &item.MaxBargainRounds, &item.CustomPrompts); err != nil {
+			return nil, err
+		}
+		item.AIEnabled = enabled != 0
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+// UpsertSettings 保存指定账号的 AI 回复开关和砍价约束。
+func (a *AIReply) UpsertSettings(ctx context.Context, cookieID string, settings AIReplySettings) error {
+	_, err := a.DB.ExecContext(ctx,
+		`INSERT INTO ai_reply_settings
+		 (cookie_id, ai_enabled, max_discount_percent, max_discount_amount,
+		  max_bargain_rounds, custom_prompts, updated_at)
+		 VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)`+dialectUpsert(a.Dialect, []string{"cookie_id"}, map[string]string{
+			"ai_enabled":           "EXCLUDED.ai_enabled",
+			"max_discount_percent": "EXCLUDED.max_discount_percent",
+			"max_discount_amount":  "EXCLUDED.max_discount_amount",
+			"max_bargain_rounds":   "EXCLUDED.max_bargain_rounds",
+			"custom_prompts":       "EXCLUDED.custom_prompts",
+			"updated_at":           "CURRENT_TIMESTAMP",
+		}), cookieID, boolToInt(settings.AIEnabled), settings.MaxDiscountPercent,
+		settings.MaxDiscountAmount, settings.MaxBargainRounds, nullableAIString(settings.CustomPrompts))
+	return err
+}
+
+// nullableAIString 将空的自定义提示词转换为数据库 NULL。
+func nullableAIString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 // ConversationHistory 返回最近的会话消息，结果按时间正序排列。

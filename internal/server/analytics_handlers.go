@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -23,68 +22,15 @@ func (s *Server) mountAnalyticsReal(r chi.Router) {
 // dashboardStats 返回当前登录用户的数据概览。管理员全局统计仍由 /admin/stats 提供，
 // 避免普通用户访问管理员接口，也避免把全局资源数和用户自己的订单收益混在一起。
 func (s *Server) dashboardStats(w http.ResponseWriter, r *http.Request) {
+	// sess 是当前请求的认证会话。
 	sess := auth.SessionFromContext(r.Context())
-	if sess == nil {
-		writeErr(w, http.StatusUnauthorized, "未登录")
-		return
-	}
-
-	counts := map[string]int64{
-		"total_cookies":        0,
-		"active_cookies":       0,
-		"total_cards":          0,
-		"available_card_stock": 0,
-		"total_keywords":       0,
-		"total_orders":         0,
-	}
-	queries := []struct {
-		key   string
-		query string
-	}{
-		{"total_cookies", `SELECT COUNT(*) FROM cookies WHERE user_id=?`},
-		{"total_cards", `SELECT COUNT(*) FROM cards WHERE user_id=?`},
-		{"total_keywords", `SELECT COUNT(*) FROM keywords k WHERE EXISTS (
-			SELECT 1 FROM cookies c WHERE c.id=k.cookie_id AND c.user_id=?)`},
-		{"total_orders", `SELECT COUNT(*) FROM orders o WHERE o.deleted_at IS NULL AND EXISTS (
-			SELECT 1 FROM cookies c WHERE c.id=o.cookie_id AND c.user_id=?)`},
-	}
-	for _, item := range queries {
-		var count int64
-		if err := s.Store.DB.QueryRowContext(r.Context(), item.query, sess.UserID).Scan(&count); err != nil {
-			writeErr(w, http.StatusInternalServerError, "统计数据失败")
-			return
-		}
-		counts[item.key] = count
-	}
-
-	var activeCookies int64
-	if err := s.Store.DB.QueryRowContext(r.Context(), `
-		SELECT COUNT(*) FROM cookies c
-		WHERE c.user_id=?
-		  AND NOT EXISTS (SELECT 1 FROM cookie_status cs WHERE cs.cookie_id=c.id AND cs.enabled=0)
-	`, sess.UserID).Scan(&activeCookies); err != nil {
-		writeErr(w, http.StatusInternalServerError, "统计活跃账号失败")
-		return
-	}
-	counts["active_cookies"] = activeCookies
-	cards, err := s.Store.Cards.AllForUser(r.Context(), sess.UserID)
+	// result 和 err 是订单分析应用服务返回的仪表盘摘要。
+	result, err := s.analyticsApplication().DashboardStats(r.Context(), sess.UserID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "统计卡密库存失败")
+		writeErr(w, http.StatusInternalServerError, "统计数据失败")
 		return
 	}
-	var available int64
-	for _, card := range cards {
-		if card.Enabled && card.Type == "data" {
-			for _, line := range strings.Split(strings.ReplaceAll(card.DataContent, "\r\n", "\n"), "\n") {
-				if strings.TrimSpace(line) != "" {
-					available++
-				}
-			}
-		}
-	}
-	counts["available_card_stock"] = available
-
-	writeJSON(w, http.StatusOK, dashboardStatsResponse{TotalCookies: counts["total_cookies"], ActiveCookies: counts["active_cookies"], TotalCards: counts["total_cards"], AvailableCardStock: counts["available_card_stock"], TotalKeywords: counts["total_keywords"], TotalOrders: counts["total_orders"]})
+	writeJSON(w, http.StatusOK, result)
 }
 
 // 有效订单状态只统计以下几种。
@@ -92,202 +38,40 @@ var validOrderStatuses = []string{"pending_ship", "paid", "2", "shipped", "3", "
 
 // orderAnalytics 汇总指定日期范围内的收益以及按日、状态、城市和商品分布。
 func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
+	// sess 是当前请求的认证会话。
 	sess := auth.SessionFromContext(r.Context())
+	// startDate、endDate 和 location 是订单分析的日期范围及时区参数。
 	startDate := r.URL.Query().Get("start_date")
 	endDate := r.URL.Query().Get("end_date")
 	location := analyticsLocation(r.URL.Query().Get("timezone_offset_minutes"))
-
-	// 构建 WHERE 条件（user_id 通过 cookies 关联过滤）。
+	// where 和 params 是按用户、日期和状态归一化后的查询条件。
 	where, params := buildAnalyticsWhere(startDate, endDate, sess.UserID, validOrderStatuses, location)
-	// 金额先做方言相关的格式校验再转换，避免 PostgreSQL 遇到历史脏数据时整页 500。
-	amountClean := analyticsAmountExpression(s.Store.Dialect, "amount")
-	amountFilter := ` AND ` + amountClean + ` IS NOT NULL`
-
-	// 1. 收益统计。
-	var rev struct {
-		TotalOrders  int
-		TotalAmount  float64
-		AvgAmount    float64
-		UniqueBuyers int
-		UniqueItems  int
-	}
-	if err := s.Store.DB.QueryRowContext(r.Context(), `
-		SELECT COUNT(DISTINCT order_id), COALESCE(SUM(`+amountClean+`),0),
-		       COALESCE(AVG(`+amountClean+`),0), COUNT(DISTINCT buyer_id), COUNT(DISTINCT item_id)
-		FROM orders `+where+amountFilter, params...).Scan(
-		&rev.TotalOrders, &rev.TotalAmount, &rev.AvgAmount, &rev.UniqueBuyers, &rev.UniqueItems); err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询收益统计失败")
-		return
-	}
-
-	// 2. 按用户本地日期统计。数据库统一保存 UTC，分组在 Go 中完成，避免三种方言
-	// 的时区转换函数不同以及 SQLite DATE(created_at) 把凌晨订单归到前一天。
-	daily := []analyticsDailyStatsResponse{}
-	rows, err := s.Store.DB.QueryContext(r.Context(), `
-		SELECT order_id,amount,created_at FROM orders `+where+amountFilter, params...)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询每日统计失败")
-		return
-	}
-	type dailyValue struct {
-		count  int
-		amount float64
-	}
-	dailyMap := map[string]dailyValue{}
-	for rows.Next() {
-		var orderID, amountRaw, createdAt string
-		if rows.Scan(&orderID, &amountRaw, &createdAt) != nil {
-			continue
-		}
-		created := parseAnalyticsDBTime(createdAt)
-		if created.IsZero() {
-			continue
-		}
-		date := created.In(location).Format("2006-01-02")
-		value := dailyMap[date]
-		value.count++
-		value.amount += parseAnalyticsAmount(amountRaw)
-		dailyMap[date] = value
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		writeErr(w, http.StatusInternalServerError, "查询每日统计失败")
-		return
-	}
-	_ = rows.Close()
-	dates := make([]string, 0, len(dailyMap))
-	for date := range dailyMap {
-		dates = append(dates, date)
-	}
-	sort.Strings(dates)
-	for _, date := range dates {
-		value := dailyMap[date]
-		daily = append(daily, analyticsDailyStatsResponse{Date: date, OrderCount: value.count, Amount: round2(value.amount)})
-	}
-
-	// 3. 按状态统计。
-	statusStats := []analyticsStatusStatsResponse{}
-	type statusValue struct {
-		count  int
-		amount float64
-	}
-	statusMap := map[string]statusValue{}
-	rows, err = s.Store.DB.QueryContext(r.Context(), `
-		SELECT COALESCE(order_status,'unknown'), COUNT(DISTINCT order_id), COALESCE(SUM(`+amountClean+`),0)
-		FROM orders `+where+amountFilter+`
-		GROUP BY order_status ORDER BY COUNT(DISTINCT order_id) DESC`, params...)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询状态统计失败")
-		return
-	}
-	for rows.Next() {
-		var status string
-		var count int
-		var amount float64
-		if rows.Scan(&status, &count, &amount) == nil {
-			status = db.NormalizeOrderStatus(status)
-			value := statusMap[status]
-			value.count += count
-			value.amount += amount
-			statusMap[status] = value
-		}
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		writeErr(w, http.StatusInternalServerError, "查询状态统计失败")
-		return
-	}
-	_ = rows.Close()
-	statusNames := make([]string, 0, len(statusMap))
-	for status := range statusMap {
-		statusNames = append(statusNames, status)
-	}
-	sort.Slice(statusNames, func(i, j int) bool {
-		return statusMap[statusNames[i]].count > statusMap[statusNames[j]].count
+	// amountClean 和 amountFilter 是按数据库方言生成的金额过滤条件。
+	amountClean, amountFilter := analyticsQueryAmountFilter(s.Store, "amount")
+	// result 和 err 是订单分析应用服务返回的具名统计结果。
+	result, err := s.analyticsApplication().OrderAnalytics(r.Context(), analyticsQuery{
+		Where: where, Params: analyticsQueryParamsCopy(params), AmountClean: amountClean, AmountFilter: amountFilter, Location: location,
 	})
-	for _, status := range statusNames {
-		value := statusMap[status]
-		statusStats = append(statusStats, analyticsStatusStatsResponse{Status: status, Count: value.count, Amount: round2(value.amount)})
-	}
-
-	// 4. 按城市统计。
-	cityStats := []analyticsCityStatsResponse{}
-	rows, err = s.Store.DB.QueryContext(r.Context(), `
-		SELECT receiver_city, COUNT(DISTINCT order_id), COALESCE(SUM(`+amountClean+`),0)
-		FROM orders `+where+amountFilter+`
-		  AND receiver_city IS NOT NULL AND receiver_city != ''
-		GROUP BY receiver_city ORDER BY COUNT(DISTINCT order_id) DESC LIMIT 50`, params...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询城市统计失败")
+		writeErr(w, http.StatusInternalServerError, analyticsErrorMessage(err))
 		return
 	}
-	for rows.Next() {
-		var city string
-		var count int
-		var amount float64
-		if rows.Scan(&city, &count, &amount) == nil {
-			cityStats = append(cityStats, analyticsCityStatsResponse{
-				City: city, OrderCount: count, TotalAmount: round2(amount),
-			})
-		}
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		writeErr(w, http.StatusInternalServerError, "查询城市统计失败")
-		return
-	}
-	_ = rows.Close()
-
-	// 5. 商品排行。
-	itemStats := []analyticsItemStatsResponse{}
-	rows, err = s.Store.DB.QueryContext(r.Context(), `
-		SELECT item_id, COUNT(DISTINCT order_id), COALESCE(SUM(`+amountClean+`),0), COALESCE(AVG(`+amountClean+`),0)
-		FROM orders `+where+amountFilter+`
-		  AND item_id IS NOT NULL AND item_id != ''
-		GROUP BY item_id ORDER BY COUNT(DISTINCT order_id) DESC LIMIT 20`, params...)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询商品统计失败")
-		return
-	}
-	for rows.Next() {
-		var itemID string
-		var count int
-		var total, avg float64
-		if rows.Scan(&itemID, &count, &total, &avg) == nil {
-			itemStats = append(itemStats, analyticsItemStatsResponse{
-				ItemID: itemID, OrderCount: count,
-				TotalAmount: round2(total), AvgAmount: round2(avg),
-			})
-		}
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
-		writeErr(w, http.StatusInternalServerError, "查询商品统计失败")
-		return
-	}
-	_ = rows.Close()
-
-	writeJSON(w, http.StatusOK, orderAnalyticsResponse{
-		RevenueStats: analyticsRevenueStatsResponse{
-			TotalOrders: rev.TotalOrders, TotalAmount: round2(rev.TotalAmount),
-			AvgAmount: round2(rev.AvgAmount), UniqueBuyers: rev.UniqueBuyers,
-			UniqueItems: rev.UniqueItems,
-		},
-		DailyStats: daily, StatusStats: statusStats, CityStats: cityStats, ItemStats: itemStats,
-		// 各统计维度分别使用具名 DTO，避免前端依赖动态键值。
-		// daily_stats 保留用户本地日期，兼容已有图表横轴。
-		// status_stats、city_stats 和 item_stats 保留旧字段名称。
-	})
+	writeJSON(w, http.StatusOK, result)
 }
 
 // validOrders 有效订单明细列表（用于统计中的订单明细）。
 func (s *Server) validOrders(w http.ResponseWriter, r *http.Request) {
+	// sess 是当前请求的认证会话。
 	sess := auth.SessionFromContext(r.Context())
+	// startDate、endDate 和 location 是有效订单的日期范围及时区参数。
 	startDate := r.URL.Query().Get("start_date")
 	endDate := r.URL.Query().Get("end_date")
 	location := analyticsLocation(r.URL.Query().Get("timezone_offset_minutes"))
+	// where 和 params 是按用户、日期和状态归一化后的查询条件。
 	where, params := buildAnalyticsWhere(startDate, endDate, sess.UserID, validOrderStatuses, location)
-	amountFilter := ` AND ` + analyticsAmountExpression(s.Store.Dialect, "orders.amount") + ` IS NOT NULL`
+	// amountClean 和 amountFilter 是按数据库方言生成的金额过滤条件。
+	amountClean, amountFilter := analyticsQueryAmountFilter(s.Store, "orders.amount")
+	// page 和 pageSize 是已经限制在安全范围内的分页参数。
 	page := atoiDefault(r.URL.Query().Get("page"), 1)
 	pageSize := atoiDefault(r.URL.Query().Get("page_size"), 500)
 	if page < 1 {
@@ -296,47 +80,15 @@ func (s *Server) validOrders(w http.ResponseWriter, r *http.Request) {
 	if pageSize < 1 || pageSize > 500 {
 		pageSize = 500
 	}
-	offset := (page - 1) * pageSize
-	var total int
-	if err := s.Store.DB.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM orders `+where+amountFilter, params...).Scan(&total); err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
-		return
-	}
-
-	queryParams := append(append([]any{}, params...), pageSize, offset)
-	rows, err := s.Store.DB.QueryContext(r.Context(), `
-		SELECT orders.order_id, COALESCE(orders.item_id,''), COALESCE(item_info.item_title, ''),
-		       COALESCE(item_info.item_detail, ''), COALESCE(orders.buyer_id,''), COALESCE(orders.quantity, '1'),
-		       orders.amount, COALESCE(orders.order_status,'unknown'), COALESCE(orders.cookie_id,''), orders.created_at
-		FROM orders
-		LEFT JOIN item_info ON item_info.cookie_id = orders.cookie_id AND item_info.item_id = orders.item_id
-			`+where+amountFilter+` ORDER BY orders.created_at DESC LIMIT ? OFFSET ?`, queryParams...)
+	// result 和 err 是订单分析应用服务返回的分页结果。
+	result, err := s.analyticsApplication().ValidOrders(r.Context(), analyticsQuery{
+		Where: where, Params: analyticsQueryParamsCopy(params), AmountClean: amountClean, AmountFilter: amountFilter,
+	}, page, pageSize)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeErr(w, http.StatusInternalServerError, analyticsErrorMessage(err))
 		return
 	}
-	defer rows.Close()
-	out := []validOrderResponse{}
-	for rows.Next() {
-		var orderID, itemID, itemTitle, itemDetail, buyerID, quantity, amount, status, cookieID, createdAt string
-		if rows.Scan(&orderID, &itemID, &itemTitle, &itemDetail, &buyerID, &quantity, &amount, &status, &cookieID, &createdAt) == nil {
-			status = db.NormalizeOrderStatus(status)
-			out = append(out, validOrderResponse{
-				OrderID: orderID, ItemID: itemID, BuyerID: buyerID,
-				ItemTitle: itemTitle, ItemImage: itemImageFromDetail(itemDetail),
-				Quantity: quantity, Amount: amount, OrderStatus: status,
-				Status: status, CookieID: cookieID, CreatedAt: createdAt,
-			})
-		}
-	}
-	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
-		return
-	}
-	writeJSON(w, http.StatusOK, validOrdersResponse{
-		Orders: out, Total: total, Page: page, PageSize: pageSize,
-		Truncated: offset+len(out) < total,
-	})
+	writeJSON(w, http.StatusOK, result)
 }
 
 // buildAnalyticsWhere 构建 WHERE 子句（user_id 经 cookies 关联过滤 + 日期 + 状态）。

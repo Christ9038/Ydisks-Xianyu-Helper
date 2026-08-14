@@ -85,7 +85,7 @@ type notificationBindingRow struct {
 
 // communicationApplication 返回当前 Server 绑定的通信应用服务。
 func (s *Server) communicationApplication() *communicationService {
-	return &communicationService{server: s}
+	return s.applicationServiceSet().communication
 }
 
 // GetAccountTaskSettings 读取指定账号的任务设置。
@@ -180,31 +180,18 @@ func (svc *communicationService) TestNotificationChannel(ctx context.Context, ch
 // ListNotificationBindings 查询用户账号的通知绑定。
 func (svc *communicationService) ListNotificationBindings(ctx context.Context, userID int64) (map[string][]notificationBindingRow, error) {
 	// rows 和 err 保存绑定查询结果集。
-	rows, err := svc.server.Store.DB.QueryContext(ctx, `
-		SELECT mn.id, mn.cookie_id, mn.channel_id, COALESCE(nc.name, ''), mn.enabled
-		  FROM message_notifications mn
-		  JOIN cookies c ON c.id=mn.cookie_id
-		  JOIN notification_channels nc ON nc.id=mn.channel_id AND nc.user_id=c.user_id
-		 WHERE c.user_id=? ORDER BY mn.id DESC`, userID)
+	rows, err := svc.server.Store.Notifications.ListBindingsForUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	// result 是按账号分组的通知绑定列表。
 	result := make(map[string][]notificationBindingRow)
-	for rows.Next() {
+	for _, row := range rows {
 		// binding 保存当前扫描到的通知绑定记录。
-		var binding notificationBindingRow
-		// enabled 保存数据库中的整数布尔值。
-		var enabled int
-		// err 表示当前绑定行扫描错误。
-		if err := rows.Scan(&binding.ID, &binding.CookieID, &binding.ChannelID, &binding.ChannelName, &enabled); err != nil {
-			return nil, err
-		}
-		binding.Enabled = enabled != 0
+		binding := notificationBindingRow{ID: row.ID, CookieID: row.CookieID, ChannelID: row.ChannelID, ChannelName: row.ChannelName, Enabled: row.Enabled}
 		result[binding.CookieID] = append(result[binding.CookieID], binding)
 	}
-	return result, rows.Err()
+	return result, nil
 }
 
 // SetNotificationBindings 覆盖保存账号的通知渠道绑定。
@@ -220,32 +207,19 @@ func (svc *communicationService) GetNotificationBindingIDs(ctx context.Context, 
 // SetSingleNotificationBinding 更新单个账号通知渠道的启用状态。
 func (svc *communicationService) SetSingleNotificationBinding(ctx context.Context, cookieID string, channelID int64, enabled bool) error {
 	if !enabled {
-		// err 表示删除单个通知绑定的错误。
-		_, err := svc.server.Store.DB.ExecContext(ctx, `DELETE FROM message_notifications WHERE cookie_id=? AND channel_id=?`, cookieID, channelID)
-		return err
+		return svc.server.Store.Notifications.SetSingleBinding(ctx, cookieID, channelID, false)
 	}
-	// err 表示写入单个通知绑定的错误。
-	_, err := svc.server.Store.DB.ExecContext(ctx,
-		`INSERT INTO message_notifications (cookie_id, channel_id, enabled) VALUES (?, ?, ?)`+
-			db.DialectUpsert(svc.server.Store.Dialect, []string{"cookie_id", "channel_id"}, map[string]string{"enabled": "EXCLUDED.enabled", "updated_at": "CURRENT_TIMESTAMP"}),
-		cookieID, channelID, 1)
-	return err
+	return svc.server.Store.Notifications.SetSingleBinding(ctx, cookieID, channelID, true)
 }
 
 // DeleteNotificationBinding 删除用户账号下的一条通知绑定。
 func (svc *communicationService) DeleteNotificationBinding(ctx context.Context, userID, bindingID int64) error {
-	// err 表示删除指定通知绑定的错误。
-	_, err := svc.server.Store.DB.ExecContext(ctx, `
-		DELETE FROM message_notifications WHERE id=? AND cookie_id IN (SELECT id FROM cookies WHERE user_id=?)`, bindingID, userID)
-	return err
+	return svc.server.Store.Notifications.DeleteBinding(ctx, userID, bindingID)
 }
 
 // DeleteAccountNotificationBindings 删除用户账号的全部通知绑定。
 func (svc *communicationService) DeleteAccountNotificationBindings(ctx context.Context, userID int64, cookieID string) error {
-	// err 表示删除账号通知绑定的错误。
-	_, err := svc.server.Store.DB.ExecContext(ctx, `
-		DELETE FROM message_notifications WHERE cookie_id=? AND cookie_id IN (SELECT id FROM cookies WHERE user_id=?)`, cookieID, userID)
-	return err
+	return svc.server.Store.Notifications.DeleteAccountBindings(ctx, userID, cookieID)
 }
 
 // SendChatText 创建并发送一条文字消息，失败时保留可重试的本地失败状态。

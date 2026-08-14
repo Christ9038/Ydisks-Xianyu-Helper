@@ -23,6 +23,15 @@ type Notifications struct {
 	codec   *secretCodec
 }
 
+// OwnsChannel 判断通知渠道是否归属于指定用户。
+func (n *Notifications) OwnsChannel(ctx context.Context, channelID, userID int64) (bool, error) {
+	var exists bool
+	err := n.DB.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM notification_channels WHERE id=? AND user_id=?)`,
+		channelID, userID).Scan(&exists)
+	return exists, err
+}
+
 type NotificationOutboxInput struct {
 	ChannelID int64
 	EventType string
@@ -35,6 +44,72 @@ type NotificationOutboxMessage struct {
 	EventType    string
 	Body         string
 	AttemptCount int
+}
+
+// NotificationBindingRow 是用户账号与通知渠道的绑定摘要。
+type NotificationBindingRow struct {
+	// ID 是绑定记录标识。
+	ID int64
+	// CookieID 是账号标识。
+	CookieID string
+	// ChannelID 是通知渠道标识。
+	ChannelID int64
+	// ChannelName 是通知渠道名称。
+	ChannelName string
+	// Enabled 表示绑定是否启用。
+	Enabled bool
+}
+
+// ListBindingsForUser 查询用户所有账号的通知渠道绑定。
+func (n *Notifications) ListBindingsForUser(ctx context.Context, userID int64) ([]NotificationBindingRow, error) {
+	rows, err := n.DB.QueryContext(ctx, `
+		SELECT mn.id, mn.cookie_id, mn.channel_id, COALESCE(nc.name, ''), mn.enabled
+		  FROM message_notifications mn
+		  JOIN cookies c ON c.id=mn.cookie_id
+		  JOIN notification_channels nc ON nc.id=mn.channel_id AND nc.user_id=c.user_id
+		 WHERE c.user_id=? ORDER BY mn.id DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []NotificationBindingRow
+	for rows.Next() {
+		var item NotificationBindingRow
+		var enabled int
+		if err := rows.Scan(&item.ID, &item.CookieID, &item.ChannelID, &item.ChannelName, &enabled); err != nil {
+			return nil, err
+		}
+		item.Enabled = enabled != 0
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+// SetSingleBinding 更新单个账号通知渠道的启用状态。
+func (n *Notifications) SetSingleBinding(ctx context.Context, cookieID string, channelID int64, enabled bool) error {
+	if !enabled {
+		_, err := n.DB.ExecContext(ctx, `DELETE FROM message_notifications WHERE cookie_id=? AND channel_id=?`, cookieID, channelID)
+		return err
+	}
+	_, err := n.DB.ExecContext(ctx,
+		`INSERT INTO message_notifications (cookie_id, channel_id, enabled) VALUES (?, ?, ?)`+
+			dialectUpsert(n.Dialect, []string{"cookie_id", "channel_id"}, map[string]string{"enabled": "EXCLUDED.enabled", "updated_at": "CURRENT_TIMESTAMP"}),
+		cookieID, channelID, 1)
+	return err
+}
+
+// DeleteBinding 删除用户账号下的一条通知绑定。
+func (n *Notifications) DeleteBinding(ctx context.Context, userID, bindingID int64) error {
+	_, err := n.DB.ExecContext(ctx, `
+		DELETE FROM message_notifications WHERE id=? AND cookie_id IN (SELECT id FROM cookies WHERE user_id=?)`, bindingID, userID)
+	return err
+}
+
+// DeleteAccountBindings 删除用户账号下的全部通知绑定。
+func (n *Notifications) DeleteAccountBindings(ctx context.Context, userID int64, cookieID string) error {
+	_, err := n.DB.ExecContext(ctx, `
+		DELETE FROM message_notifications WHERE cookie_id=? AND cookie_id IN (SELECT id FROM cookies WHERE user_id=?)`, cookieID, userID)
+	return err
 }
 
 // AccountChannels 取某账号已启用的通知渠道（message_notifications JOIN notification_channels）。

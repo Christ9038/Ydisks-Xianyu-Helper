@@ -1064,11 +1064,7 @@ func (s *Server) createPublishAutomationRules(ctx context.Context, userID int64,
 }
 
 func (s *Server) ensurePublishAutomationRule(ctx context.Context, input db.AutomationRuleInput) error {
-	var exists bool
-	err := s.Store.DB.QueryRowContext(ctx, `SELECT EXISTS(
-		SELECT 1 FROM automation_rules
-		 WHERE user_id=? AND cookie_id=? AND item_id=? AND trigger_type=? AND name=? AND deleted_at IS NULL
-	)`, input.UserID, input.CookieID, input.ItemID, input.TriggerType, input.Name).Scan(&exists)
+	exists, err := s.Store.Automation.ExistsPublishRule(ctx, input)
 	if err != nil {
 		return err
 	}
@@ -1364,10 +1360,8 @@ func (s *Server) cookieValueForUser(ctx context.Context, userID int64, cookieID 
 
 // cardOwnedByUser 判断指定卡券组是否属于用户。
 func (s *Server) cardOwnedByUser(ctx context.Context, userID int64, cardID int64) bool {
-	// exists 表示数据库中是否存在匹配用户和卡券组 ID 的记录。
-	var exists bool
-	// err 表示卡券组所有权查询失败的原因。
-	err := s.Store.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM cards WHERE id=? AND user_id=?)`, cardID, userID).Scan(&exists)
+	// exists 和 err 表示卡券组所有权查询结果及错误。
+	exists, err := s.Store.Cards.ExistsOwned(ctx, cardID, userID)
 	return err == nil && exists
 }
 
