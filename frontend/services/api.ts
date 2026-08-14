@@ -67,7 +67,7 @@ const accountAvatarURL = (item: AccountSummaryResponse, version: string): string
 };
 
 export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => {
-  const data = await get<AccountSummaryResponse[]>('/cookies/details', undefined, options);
+  const data = await get<AccountSummaryResponse[]>('/api/v1/accounts/details', undefined, options);
   const avatarVersion = Date.now().toString();
   return data.map(item => ({
     id: item.id,
@@ -160,7 +160,7 @@ export interface AccountRuntimeStatus {
 }
 
 export const getAccountRuntimeStatuses = async (options?: RequestControlOptions): Promise<Record<string, AccountRuntimeStatus>> => {
-  return get('/cookies/runtime-status', undefined, options);
+  return get('/api/v1/accounts/runtime-status', undefined, options);
 };
 
 export const generateQRLogin = async (options?: RequestControlOptions): Promise<QRLoginGenerateResponse> => {
@@ -187,7 +187,7 @@ export const completeQRVerification = async (
 
 
 export const updateAccountStatus = async (id: string, enabled: boolean): Promise<OperationResponse> => {
-  return put(`/cookies/${id}/status`, { enabled });
+  return put(`/api/v1/accounts/${id}/status`, { enabled });
 };
 
 export const deleteAccount = async (id: string): Promise<OperationResponse> => {

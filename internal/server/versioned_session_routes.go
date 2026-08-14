@@ -2,10 +2,11 @@ package server
 
 import "github.com/go-chi/chi/v5"
 
-// mountHealthAndVersionedSession 挂载健康检查和版本化会话入口。
-func (s *Server) mountHealthAndVersionedSession(r chi.Router) {
+// mountHealthAndVersionedRoutes 挂载健康检查及当前阶段的版本化 API 入口。
+func (s *Server) mountHealthAndVersionedRoutes(r chi.Router) {
 	r.Get("/health", s.health)
 	s.mountVersionedSession(r)
+	s.mountVersionedAccounts(r)
 }
 
 // mountVersionedSession 挂载会话 API 的 `/api/v1` 兼容入口，复用现有 handler。

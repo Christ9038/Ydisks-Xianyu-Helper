@@ -6,7 +6,7 @@ import {
   checkPasswordLoginStatus,
   completeQRVerification,
   createNotificationChannel,
-  getAccountDetails,
+  getAccountDetails, getAccountRuntimeStatuses, updateAccountStatus,
 	getAutomationIssues,
   getItems,
 	getItemPublishBatches,
@@ -763,3 +763,23 @@ const runVersionedSessionAPITest = async () => {
 };
 
 test('session APIs use versioned compatibility routes', runVersionedSessionAPITest);
+
+// 账号摘要、详情和状态 API 使用版本化兼容入口。
+const runVersionedAccountAPITest = async () => {
+  // fetchMock 是账号 API 请求的测试替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse([{ id: 'acc1', enabled: true, remark: '主账号' }]))
+    .mockResolvedValueOnce(jsonResponse({ acc1: { state: 'error', connected: false, failures: 0, updated_at: '' } }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+
+  await getAccountDetails();
+  await getAccountRuntimeStatuses();
+  await updateAccountStatus('acc1', false);
+
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/accounts/details', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/accounts/runtime-status', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/accounts/acc1/status', expect.objectContaining({ method: 'PUT' }));
+};
+
+test('account summary and status APIs use versioned compatibility routes', runVersionedAccountAPITest);
