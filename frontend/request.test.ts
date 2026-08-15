@@ -110,6 +110,22 @@ describe('request helpers', () => {
     expect(listener).toHaveBeenCalledOnce();
   } /* 回调函数负责当前业务流程。 */);
 
+  test('并发认证失败只触发一次登出事件', /* 当前回调验证认证失效通知的并发去重。 */ async () => {
+    // events 是认证失效事件分发目标。
+    const events = new EventTarget();
+    // listener 是认证失效事件监听器。
+    const listener = vi.fn();
+    events.addEventListener('auth:logout', listener);
+    vi.stubGlobal('window', events);
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(/* responseFactory 为每次调用生成认证失败响应。 */ () => Promise.resolve(new Response('{}', {
+      status: 401,
+      headers: { 'content-type': 'application/json' },
+    }))));
+
+    await Promise.allSettled([get('/private-a'), get('/private-b')]);
+    expect(listener).toHaveBeenCalledOnce();
+  } /* 回调函数负责当前业务流程。 */);
+
   test('does not notify logout for a failed login request', async () => {
     const events = new EventTarget(); /* events 表示events。 */
     const listener = vi.fn(); /* listener 表示listener。 */
@@ -209,5 +225,39 @@ describe('request helpers', () => {
       expect(uploadError.message).toBe('文件格式不支持');
       expect(uploadError.payload).toEqual(payload);
     }
+  } /* 回调函数负责当前业务流程。 */);
+
+  test('非 JSON 上传错误体读取失败时使用状态码兜底', /* 当前回调验证上传错误文本读取失败分支。 */ async () => {
+    // response 是文本读取失败的上传响应替身。
+    const response = { ok: false, status: 500, headers: { get: /* contentTypeGetter 返回纯文本类型。 */ () => 'text/plain' }, text: vi.fn().mockRejectedValue(new Error('读取失败')) } as unknown as Response;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
+    await expect(postForm('/upload', new FormData())).rejects.toThrow('请求失败: 500');
+  } /* 回调函数负责当前业务流程。 */);
+
+  test('上传认证失败也会触发登出事件', /* 当前回调验证上传请求的认证失效通知。 */ async () => {
+    // events 是上传认证失效事件分发目标。
+    const events = new EventTarget();
+    // listener 是上传认证失效事件监听器。
+    const listener = vi.fn();
+    events.addEventListener('auth:logout', listener);
+    vi.stubGlobal('window', events);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', {
+      status: 401,
+      headers: { 'content-type': 'application/json' },
+    })));
+    await expect(postForm('/upload', new FormData())).rejects.toThrow();
+    expect(listener).toHaveBeenCalledOnce();
+  } /* 回调函数负责当前业务流程。 */);
+
+  test('请求开始前已取消的外部信号返回取消错误', /* 当前回调验证预取消信号分支。 */ async () => {
+    // controller 是预先取消请求的外部控制器。
+    const controller = new AbortController();
+    controller.abort();
+    // fetchMock 是观察预取消信号的网络替身。
+    const fetchMock = vi.fn(/* fetchFactory 创建预取消信号网络替身。 */ (_url: string, init: RequestInit) => new Promise<Response>(/* fetchExecutor 观察预取消信号。 */ (_resolve, reject) => {
+      if (init.signal?.aborted) reject(new DOMException('aborted', 'AbortError'));
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(get('/pre-cancelled', undefined, { signal: controller.signal })).rejects.toThrow('请求已取消');
   } /* 回调函数负责当前业务流程。 */);
 } /* 回调函数负责当前业务流程。 */);
