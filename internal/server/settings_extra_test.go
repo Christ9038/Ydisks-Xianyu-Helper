@@ -552,3 +552,65 @@ func TestSystemSettingsEndpointRedactsSensitiveValues(t *testing.T) {
 		}
 	}
 }
+
+// TestSystemSettingsEndpointUsesExplicitSecretCommands 验证 HTTP 设置更新不会把秘密混入普通字段。
+func TestSystemSettingsEndpointUsesExplicitSecretCommands(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "server-secret-command-key")
+	// srv、store、cleanup 是测试服务、数据库及其清理函数。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// ctx 是当前测试使用的请求上下文。
+	ctx := context.Background()
+	// err 是初始敏感设置写入错误。
+	if err := store.Settings.Set(ctx, "ai_api_key", "before"); err != nil {
+		t.Fatal(err)
+	}
+	// h 是当前测试服务的 HTTP 路由器。
+	h := srv.Router()
+	// cookie 是管理员登录后得到的会话 Cookie。
+	cookie := loginHelper(t, h)
+	// replaceReq 是提交敏感替换命令的请求。
+	replaceReq := httptest.NewRequest(http.MethodPut, "/system-settings", strings.NewReader(`{"values":{"theme_color":"blue"},"secrets":{"ai_api_key":{"action":"replace","value":"after"}}}`))
+	replaceReq.AddCookie(cookie)
+	// replaceRec 是替换命令的 HTTP 响应记录器。
+	replaceRec := httptest.NewRecorder()
+	h.ServeHTTP(replaceRec, replaceReq)
+	if replaceRec.Code != http.StatusOK {
+		t.Fatalf("replace status=%d body=%s", replaceRec.Code, replaceRec.Body.String())
+	}
+	// value、err 是替换后的秘密读取结果及错误。
+	if value, err := store.Settings.Get(ctx, "ai_api_key"); err != nil || value != "after" {
+		t.Fatalf("replace value=%q err=%v", value, err)
+	}
+	// clearReq 是提交敏感清除命令的请求。
+	clearReq := httptest.NewRequest(http.MethodPut, "/system-settings", strings.NewReader(`{"secrets":{"ai_api_key":{"action":"clear"}}}`))
+	clearReq.AddCookie(cookie)
+	// clearRec 是清除命令的 HTTP 响应记录器。
+	clearRec := httptest.NewRecorder()
+	h.ServeHTTP(clearRec, clearReq)
+	if clearRec.Code != http.StatusOK {
+		t.Fatalf("clear status=%d body=%s", clearRec.Code, clearRec.Body.String())
+	}
+	// value、err 是清除后的秘密读取结果及错误。
+	if value, err := store.Settings.Get(ctx, "ai_api_key"); err != nil || value != "" {
+		t.Fatalf("clear value=%q err=%v", value, err)
+	}
+	// forbiddenReq 是尝试把敏感值放进普通 values 的请求。
+	forbiddenReq := httptest.NewRequest(http.MethodPut, "/system-settings", strings.NewReader(`{"values":{"ai_api_key":"leak"}}`))
+	forbiddenReq.AddCookie(cookie)
+	// forbiddenRec 是拒绝普通敏感字段的 HTTP 响应记录器。
+	forbiddenRec := httptest.NewRecorder()
+	h.ServeHTTP(forbiddenRec, forbiddenReq)
+	if forbiddenRec.Code != http.StatusBadRequest {
+		t.Fatalf("forbidden status=%d body=%s", forbiddenRec.Code, forbiddenRec.Body.String())
+	}
+	// legacyForbiddenReq 是旧版顶层敏感字段请求，必须同样被拒绝。
+	legacyForbiddenReq := httptest.NewRequest(http.MethodPut, "/system-settings", strings.NewReader(`{"ai_api_key":"legacy-leak"}`))
+	legacyForbiddenReq.AddCookie(cookie)
+	// legacyForbiddenRec 是旧版顶层敏感字段的 HTTP 响应记录器。
+	legacyForbiddenRec := httptest.NewRecorder()
+	h.ServeHTTP(legacyForbiddenRec, legacyForbiddenReq)
+	if legacyForbiddenRec.Code != http.StatusBadRequest {
+		t.Fatalf("legacy forbidden status=%d body=%s", legacyForbiddenRec.Code, legacyForbiddenRec.Body.String())
+	}
+}

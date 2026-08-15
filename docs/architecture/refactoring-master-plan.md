@@ -701,7 +701,7 @@ npm --prefix frontend run build
 
 | 优先级 | PR 切片 | 主要范围 | 完成条件 |
 | --- | --- | --- | --- |
-| P0 | 敏感系统设置与运维输出脱敏 | `SystemSettings.Redacted`、敏感值 retain/replace/clear、管理端响应、dbverify 指纹输出、前端敏感字段状态 | HTTP 响应和 React 状态不出现秘密；空值显式清除、缺省值保留；Go/React 回归覆盖；三库迁移测试通过 |
+| P0 | 敏感系统设置与运维输出脱敏 | `SystemSettings.Redacted`、敏感值 retain/replace/clear、管理端响应、dbverify 指纹输出、前端敏感字段状态 | HTTP 响应和 React 状态不出现秘密；空值显式清除、缺省值保留；Go/React 回归覆盖；三库迁移测试通过；显式 `values` 不得携带敏感键 |
 | P1 | 应用 Port 与架构允许边 | `internal/application/orders`、订单命令/结果 DTO、基础设施适配器、`architecturecheck` | Server 不再创建或持有订单应用实现；Port 不出现 `sql.Tx`、`db.*`、HTTP 类型；架构门禁能主动拒绝违规 |
 | P1 | 凭证快照与账号操作协调器 | 凭证版本、短锁快照、外部调用重试/合并、每账号有界协调、锁指标和锁 Map 回收 | 慢速外部调用不持有共享凭证锁；并发更新有版本冲突测试；锁等待和队列可观测 |
 | P1 | 生命周期与删除 fencing | `Server.Stop(ctx)`、`Manager.Stop(ctx)`、StopAll 并发收束、账号删除任务登记和状态 fencing | 所有等待受关闭 Context 限制；删除接口不会产生游离 Stop goroutine；超时有明确错误和可追踪任务 |
@@ -726,3 +726,4 @@ npm --prefix frontend run build
 | 2026-08-15 | P1 凭证快照与账号操作协调器（Engine 登录态检查切片） | 已完成 | `Account.tryLoginStatusCheck` 改为锁内读取、锁外执行登录态检查、锁内重读提交；检查期间数据库 Cookie/metadata 发生变化时丢弃旧会话响应，避免更新运行时和数据库为过期状态；新增 Engine 慢 I/O 不占锁及并发旧响应拒绝测试，Engine 全量测试、聚焦 race 和注释门禁通过。Engine 其他 token/续期路径、Automation、Server 其他调用方和版本化持久化冲突控制仍未完成，阶段 2/4/5/8/9 继续保持“进行中” |
 | 2026-08-15 | P1 凭证快照与账号操作协调器（Engine API 续期切片） | 已完成 | `Account.tryAPIRenewUsing` 保留 `refreshMu` 的同账号刷新串行语义，但改为锁内读取、锁外执行续期回调、锁内重读提交；外部期间凭证变化时用 `RebaseResponseCookies` 基于最新状态合并 `Set-Cookie`，无可重放数据则拒绝旧状态；新增慢 I/O、并发锁获取和 Cookie 合并测试，Engine 全量测试、聚焦 race、注释门禁通过。Engine Token 刷新、Automation、Server 其他调用方和版本化持久化冲突控制仍未完成，阶段 2/4/5/8/9 继续保持“进行中” |
 | 2026-08-15 | P1 凭证快照与账号操作协调器（Engine Token 刷新切片） | 已完成 | `refreshTokenWithMinGap` 保留 `refreshMu` 的同账号 Token 刷新和风控重试串行语义，但网络请求、风控恢复均在共享凭证锁外执行；每次响应提交前重读最新 Cookie/metadata，检测到并发变化时丢弃旧 Token 响应并使用最新快照重试；新增慢 I/O、锁可获取和并发 Cookie 变化重试测试，Engine 全量测试、聚焦 race、注释门禁通过。Automation、Server 其他调用方和版本化持久化冲突控制仍未完成，阶段 2/4/5/8/9 继续保持“进行中” |
+| 2026-08-15 | P0 敏感系统设置命令语义切片 | 已完成 | 管理端系统设置更新新增 `values`/`secrets` 分离 DTO；敏感设置仅接受 `retain`、`replace`、`clear` 命令，普通 `values` 和旧版顶层字段均拒绝敏感键；数据库原子应用普通设置与敏感命令；补充 Go 数据库/HTTP 回归和 React API 请求体测试，定向 Go/React 测试与前端类型检查通过。P0 三库迁移回归、所有运维输出和敏感访问审计仍待完成 |

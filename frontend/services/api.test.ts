@@ -56,6 +56,20 @@ test('updateSystemSettings uses one atomic bulk request', async () => {
 	expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ theme_color: 'blue', renewal_log_retention_days: 15 });
 } /* 回调函数负责当前业务流程。 */);
 
+test('updateSystemSettings separates sensitive values into explicit commands', /* 当前回调验证敏感设置三态命令请求体。 */ async () => {
+  // fetchMock 是系统设置更新请求的 HTTP 替身。
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+  await updateSystemSettings({ ai_api_key: 'new-secret', smtp_password: '' });
+  // payload 是普通设置与敏感命令分离后的请求体。
+  const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+  expect(payload.values).toEqual({});
+  expect(payload.secrets).toEqual({
+    ai_api_key: { action: 'replace', value: 'new-secret' },
+    smtp_password: { action: 'clear' },
+  });
+});
+
 test('health API exposes build metadata through the request boundary', async () => {
   // fetchMock 是健康检查 API 的请求替身。
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ version: '1.2.3', commit: 'abc123' }));

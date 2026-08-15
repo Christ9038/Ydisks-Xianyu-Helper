@@ -1031,6 +1031,46 @@ export const deleteReplyRule = async (id: string, cookieId: string): Promise<Ope
 }
 
 // Settings
+/** 敏感系统设置的显式三态变更命令。 */
+export type SensitiveSettingChange = {
+  /** 敏感设置的三态动作。 */
+  action: 'retain' | 'replace' | 'clear';
+  /** replace 动作要保存的新秘密。 */
+  value?: string;
+};
+
+/** 系统设置批量更新请求，敏感值只能通过 secrets 命令提交。 */
+export type SystemSettingsUpdate = {
+  /** 普通系统设置字段集合。 */
+  values?: Record<string, unknown>;
+  /** 敏感系统设置命令集合。 */
+  secrets?: Record<string, SensitiveSettingChange>;
+};
+
+// SENSITIVE_SYSTEM_SETTING_KEYS 保存不能进入普通 values 的秘密配置键。
+const SENSITIVE_SYSTEM_SETTING_KEYS = new Set(['ai_api_key', 'smtp_password', 'qq_reply_secret_key', 'captcha.remote_secret_key']);
+
+/** 将兼容的设置草稿转换为普通值与敏感命令分离的请求。 */
+const normalizeSystemSettingsUpdate = (settings: Partial<SystemSettings> | SystemSettingsUpdate): Record<string, unknown> => {
+  if ('values' in settings || 'secrets' in settings) return settings as Record<string, unknown>;
+  // values 保存不会泄露秘密的普通设置。
+  const values: Record<string, unknown> = {};
+  // secrets 保存需要服务端执行的敏感设置命令。
+  const secrets: Record<string, SensitiveSettingChange> = {};
+  // entry 表示当前遍历的设置键值对。
+  for (const entry /* entry 表示当前遍历的设置键值对。 */ of Object.entries(settings)) {
+    // key、value 是当前设置键和值。
+    const [key, value] = entry;
+    if (value === undefined || value === null) continue;
+    if (SENSITIVE_SYSTEM_SETTING_KEYS.has(key)) {
+      secrets[key] = value === '' ? { action: 'clear' } : { action: 'replace', value: String(value) };
+    } else {
+      values[key] = value;
+    }
+  }
+  return Object.keys(secrets).length > 0 ? { values, secrets } : values;
+};
+
 // getSystemSettings 读取系统设置。
 export const getSystemSettings = async (options?: RequestControlOptions): Promise<SystemSettings> => {
     // res 接口响应结果，用于当前 API 处理流程。
@@ -1039,11 +1079,9 @@ export const getSystemSettings = async (options?: RequestControlOptions): Promis
 };
 
 // updateSystemSettings 更新系统设置。
-export const updateSystemSettings = async (settings: Partial<SystemSettings>, options?: RequestControlOptions): Promise<OperationResponse> => {
-	// payload 请求载荷，用于当前 API 处理流程。
-	const payload = Object.fromEntries(
-		Object.entries(settings).filter(/* 当前回调用于处理集合元素或接口响应。 */ ([, value]) => value !== undefined && value !== null),
-	);
+export const updateSystemSettings = async (settings: Partial<SystemSettings> | SystemSettingsUpdate, options?: RequestControlOptions): Promise<OperationResponse> => {
+	// payload 是普通设置与敏感变更命令分离后的请求体。
+	const payload = normalizeSystemSettingsUpdate(settings);
 	return put('/api/v1/settings/system', payload, options);
 };
 

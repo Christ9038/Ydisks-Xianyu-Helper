@@ -142,6 +142,60 @@ func TestSystemSettingsRedactedNeverReturnsSensitivePlaintext(t *testing.T) {
 	}
 }
 
+// TestSystemSettingsApplyChangesUsesExplicitSecretCommands 验证敏感设置只能通过三态命令更新。
+func TestSystemSettingsApplyChangesUsesExplicitSecretCommands(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "apply-change-test-key")
+	// store、cleanup 是测试数据库及其清理函数。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 是当前测试使用的请求上下文。
+	ctx := context.Background()
+	// err 是初始敏感设置写入错误。
+	if err := store.Settings.Set(ctx, "ai_api_key", "before"); err != nil {
+		t.Fatal(err)
+	}
+	// err 是 retain 命令应用错误。
+	if err := store.Settings.ApplyChanges(ctx, map[string]string{"theme_color": "blue"}, map[string]SensitiveSettingChange{
+		"ai_api_key": {Action: "retain"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// value、err 是 retain 后的秘密读取结果及错误。
+	if value, err := store.Settings.Get(ctx, "ai_api_key"); err != nil || value != "before" {
+		t.Fatalf("retain value=%q err=%v", value, err)
+	}
+	// err 是 replace 命令应用错误。
+	if err := store.Settings.ApplyChanges(ctx, nil, map[string]SensitiveSettingChange{
+		"ai_api_key": {Action: "replace", Value: "after"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// value、err 是 replace 后的秘密读取结果及错误。
+	if value, err := store.Settings.Get(ctx, "ai_api_key"); err != nil || value != "after" {
+		t.Fatalf("replace value=%q err=%v", value, err)
+	}
+	// err 是 clear 命令应用错误。
+	if err := store.Settings.ApplyChanges(ctx, nil, map[string]SensitiveSettingChange{
+		"ai_api_key": {Action: "clear"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// value、err 是 clear 后的秘密读取结果及错误。
+	if value, err := store.Settings.Get(ctx, "ai_api_key"); err != nil || value != "" {
+		t.Fatalf("clear value=%q err=%v", value, err)
+	}
+	// err 是普通 values 误带敏感键时返回的拒绝错误。
+	if err := store.Settings.ApplyChanges(ctx, map[string]string{"ai_api_key": "forbidden"}, nil); err == nil {
+		t.Fatal("普通 values 不应接受敏感设置")
+	}
+	// err 是 replace 空秘密时返回的校验错误。
+	if err := store.Settings.ApplyChanges(ctx, nil, map[string]SensitiveSettingChange{
+		"ai_api_key": {Action: "replace", Value: ""},
+	}); err == nil {
+		t.Fatal("replace 不应接受空秘密")
+	}
+}
+
 // TestSensitiveSettingEmptyValueClearsSecret 验证敏感设置显式提交空值时会删除密文。
 func TestSensitiveSettingEmptyValueClearsSecret(t *testing.T) {
 	t.Setenv("XIANYU_DATA_KEY", "clear-test-key")

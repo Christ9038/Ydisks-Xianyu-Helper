@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -460,6 +461,15 @@ type SystemSettings struct {
 	codec   *secretCodec
 }
 
+// SensitiveSettingChange 描述敏感系统设置的显式变更命令。
+// retain 保留现有密文，replace 写入 Value，clear 删除现有密文。
+type SensitiveSettingChange struct {
+	// Action 是 retain、replace 或 clear 之一。
+	Action string
+	// Value 是 replace 操作要加密保存的新秘密。
+	Value string
+}
+
 // Get 取单项设置。
 func (s *SystemSettings) Get(ctx context.Context, key string) (string, error) {
 	// v 保存v，供当前处理流程使用
@@ -542,42 +552,93 @@ func (s *SystemSettings) Set(ctx context.Context, key, value string) error {
 
 // SetMany 在单个事务中原子保存多项设置。
 func (s *SystemSettings) SetMany(ctx context.Context, values map[string]string) error {
+	// regular 保存普通设置，避免敏感明文进入 ApplyChanges 的普通值参数。
+	regular := make(map[string]string, len(values))
+	// secrets 保存兼容旧调用方转换出的显式敏感命令。
+	secrets := make(map[string]SensitiveSettingChange)
+	// key 表示当前兼容设置的键。
+	// value 表示当前兼容设置的值。
+	for key, value := range values {
+		if !isSensitiveSettingKey(key) {
+			regular[key] = value
+			continue
+		}
+		if strings.TrimSpace(value) == "" {
+			secrets[key] = SensitiveSettingChange{Action: "clear"}
+		} else {
+			secrets[key] = SensitiveSettingChange{Action: "replace", Value: value}
+		}
+	}
+	return s.ApplyChanges(ctx, regular, secrets)
+}
+
+// ApplyChanges 原子保存普通设置和敏感设置命令，避免把敏感明文放入响应模型。
+func (s *SystemSettings) ApplyChanges(ctx context.Context, values map[string]string, secrets map[string]SensitiveSettingChange) error {
 	// tx、err 保存tx、err，供当前处理流程使用
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	// keyCol 保存keyCol，供当前处理流程使用
-	keyCol := dialectQuote(s.Dialect, "key")
-	// query 保存查询，供当前处理流程使用
-	query := `INSERT INTO system_settings (` + keyCol + `, value, updated_at) VALUES (?,?,CURRENT_TIMESTAMP)` +
-		dialectUpsert(s.Dialect, []string{keyCol}, map[string]string{
-			"value": "EXCLUDED.value", "updated_at": "CURRENT_TIMESTAMP",
-		})
 	// key、value 表示当前遍历过程中的key、value
 	for key, value := range values {
 		if isSensitiveSettingKey(key) {
-			if strings.TrimSpace(value) == "" {
-				// err 保存敏感设置清除操作的数据库错误。
-				if _, err := tx.ExecContext(ctx, `DELETE FROM system_settings WHERE `+keyCol+`=?`, key); err != nil {
-					return err
-				}
-				continue
-			}
-			// encrypted、err 保存encrypted、err，供当前处理流程使用
-			encrypted, err := s.codec.encrypt("system-setting", key, value)
-			if err != nil {
-				return err
-			}
-			value = encrypted
+			return fmt.Errorf("敏感设置 %q 必须通过显式变更命令提交", key)
 		}
 		if // err 保存err，供当前处理流程使用
-		_, err := tx.ExecContext(ctx, query, key, value); err != nil {
+		err := upsertSystemSetting(ctx, tx, s.Dialect, key, value); err != nil {
 			return err
 		}
 	}
+	// key 表示当前敏感设置命令的键。
+	// change 表示当前敏感设置的变更命令。
+	for key, change := range secrets {
+		if !isSensitiveSettingKey(key) {
+			return fmt.Errorf("设置 %q 不是敏感设置", key)
+		}
+		switch change.Action {
+		case "retain":
+			continue
+		case "clear":
+			// keyCol 是当前数据库方言下的设置键列名。
+			keyCol := dialectQuote(s.Dialect, "key")
+			// err 是删除敏感设置时返回的数据库错误。
+			if _, err := tx.ExecContext(ctx, `DELETE FROM system_settings WHERE `+keyCol+`=?`, key); err != nil {
+				return err
+			}
+		case "replace":
+			if strings.TrimSpace(change.Value) == "" {
+				return fmt.Errorf("敏感设置 %q 的 replace 值不能为空", key)
+			}
+			// encrypted 是加密后的敏感设置密文。
+			// err 是敏感设置加密错误。
+			encrypted, err := s.codec.encrypt("system-setting", key, change.Value)
+			if err != nil {
+				return err
+			}
+			// err 是敏感密文写入错误。
+			if err := upsertSystemSetting(ctx, tx, s.Dialect, key, encrypted); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("敏感设置 %q 的变更命令无效", key)
+		}
+	}
 	return tx.Commit()
+}
+
+// upsertSystemSetting 在事务内写入一项已经完成敏感处理的设置值。
+func upsertSystemSetting(ctx context.Context, tx *sql.Tx, dialect Dialect, key, value string) error {
+	// keyCol 保存当前数据库方言下的设置键列名。
+	keyCol := dialectQuote(dialect, "key")
+	// query 保存当前数据库方言下的设置 upsert 语句。
+	query := `INSERT INTO system_settings (` + keyCol + `, value, updated_at) VALUES (?,?,CURRENT_TIMESTAMP)` +
+		dialectUpsert(dialect, []string{keyCol}, map[string]string{
+			"value": "EXCLUDED.value", "updated_at": "CURRENT_TIMESTAMP",
+		})
+	// err 保存设置写入错误。
+	_, err := tx.ExecContext(ctx, query, key, value)
+	return err
 }
 
 // Redacted 返回可供管理端展示的系统设置，并以 *_configured 标记敏感值是否已配置。

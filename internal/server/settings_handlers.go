@@ -21,6 +21,14 @@ import (
 // maxOpenAIModelsResponseBytes 保存maxOpenAI模型列表响应Bytes，供当前处理流程使用
 const maxOpenAIModelsResponseBytes = 4 << 20
 
+// systemSettingSecretChangeRequest 是 HTTP 层接收的敏感设置变更命令。
+type systemSettingSecretChangeRequest struct {
+	// Action 是 retain、replace 或 clear。
+	Action string `json:"action"`
+	// Value 是 replace 操作要保存的新秘密。
+	Value string `json:"value,omitempty"`
+}
+
 // authSess 从上下文取会话。
 func authSess(r *http.Request) *db.Session {
 	return auth.SessionFromContext(r.Context())
@@ -39,42 +47,137 @@ func (s *Server) mountSettingsReal(r chi.Router) {
 
 // setSettings 负责set设置相关处理。
 func (s *Server) setSettings(w http.ResponseWriter, r *http.Request) {
-	// raw 保存原始，供当前处理流程使用
-	var raw map[string]any
-	if // err 保存err，供当前处理流程使用
-	err := decodeJSON(r, &raw); err != nil || len(raw) == 0 {
+	// raw 保存兼容旧客户端和显式 DTO 的原始请求字段。
+	var raw map[string]json.RawMessage
+	// err 是设置请求 JSON 解析错误。
+	if err := decodeJSON(r, &raw); err != nil || len(raw) == 0 {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	// values 保存values，供当前处理流程使用
+	// values 保存普通设置值。
 	values := make(map[string]string, len(raw))
-	// key、value 表示当前遍历过程中的key、value
-	for key, value := range raw {
-		key = strings.TrimSpace(key)
-		if key == "" || len(key) > 100 || value == nil {
-			writeErr(w, http.StatusBadRequest, "设置键或值无效")
+	// secrets 保存敏感设置的显式变更命令。
+	secrets := make(map[string]db.SensitiveSettingChange)
+	// valuesRaw 是普通设置对象的原始 JSON；ok 表示请求是否包含该对象。
+	if valuesRaw, ok := raw["values"]; ok {
+		// explicitValues 是显式请求中的普通设置字段。
+		var explicitValues map[string]json.RawMessage
+		// err 是普通设置对象解析错误。
+		if err := json.Unmarshal(valuesRaw, &explicitValues); err != nil {
+			writeErr(w, http.StatusBadRequest, "普通设置格式错误")
 			return
 		}
-		values[key] = stringFromAny(value)
-	}
-	if // level、ok 保存level、ok，供当前处理流程使用
-	level, ok := values["log_level"]; ok {
-		if // err 保存err，供当前处理流程使用
-		_, err := logging.ParseLevel(level); err != nil {
+		// key 是显式普通设置中的字段名。
+		for key := range explicitValues {
+			if db.IsSensitiveSettingKey(key) {
+				writeErr(w, http.StatusBadRequest, "敏感设置必须放入 secrets 命令")
+				return
+			}
+		}
+		// err 是普通设置字段校验错误。
+		if err := collectSystemSettingValues(explicitValues, values); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
-	if // err 保存err，供当前处理流程使用
-	err := s.Store.Settings.SetMany(r.Context(), values); err != nil {
+	// secretsRaw 是敏感设置命令对象的原始 JSON；ok 表示请求是否包含该对象。
+	if secretsRaw, ok := raw["secrets"]; ok {
+		// explicitSecrets 是显式请求中的敏感设置命令。
+		var explicitSecrets map[string]systemSettingSecretChangeRequest
+		// err 是敏感设置命令对象解析错误。
+		if err := json.Unmarshal(secretsRaw, &explicitSecrets); err != nil {
+			writeErr(w, http.StatusBadRequest, "敏感设置命令格式错误")
+			return
+		}
+		// key 是敏感设置键；change 是对应的三态命令。
+		for key, change := range explicitSecrets {
+			key = strings.TrimSpace(key)
+			if !db.IsSensitiveSettingKey(key) || !validSecretSettingAction(change.Action) || change.Action == "replace" && strings.TrimSpace(change.Value) == "" {
+				writeErr(w, http.StatusBadRequest, "敏感设置命令无效")
+				return
+			}
+			secrets[key] = db.SensitiveSettingChange{Action: change.Action, Value: change.Value}
+		}
+	}
+	// legacy 保存旧版顶层普通设置字段，确保兼容接口可以渐进迁移。
+	legacy := make(map[string]json.RawMessage, len(raw))
+	// key 是兼容顶层字段名；value 是其原始 JSON 值。
+	for key, value := range raw {
+		if key != "values" && key != "secrets" {
+			if db.IsSensitiveSettingKey(key) {
+				writeErr(w, http.StatusBadRequest, "敏感设置必须放入 secrets 命令")
+				return
+			}
+			legacy[key] = value
+		}
+	}
+	// err 是兼容顶层字段校验错误。
+	if err := collectSystemSettingValues(legacy, values); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(values) == 0 && len(secrets) == 0 {
+		writeErr(w, http.StatusBadRequest, "设置不能为空")
+		return
+	}
+	// err 是普通设置业务校验错误。
+	if err := validateSystemSettingValues(values); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// err 是普通设置与敏感命令原子保存错误。
+	if err := s.Store.Settings.ApplyChanges(r.Context(), values, secrets); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
 	}
-	if // level、ok 保存level、ok，供当前处理流程使用
-	level, ok := values["log_level"]; ok {
+	// level 是待应用的日志级别；ok 表示请求是否更新日志级别。
+	if level, ok := values["log_level"]; ok {
 		_ = logging.SetLevel(level)
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
+}
+
+// collectSystemSettingValues 解析普通设置字段并拒绝敏感明文。
+func collectSystemSettingValues(raw map[string]json.RawMessage, values map[string]string) error {
+	// key 是当前设置键；rawValue 是尚未转换的 JSON 值。
+	for key, rawValue := range raw {
+		key = strings.TrimSpace(key)
+		if key == "" || len(key) > 100 {
+			return errors.New("设置键无效")
+		}
+		if db.IsSensitiveSettingKey(key) {
+			return fmt.Errorf("敏感设置 %q 必须使用 secrets 命令", key)
+		}
+		// value 是普通设置转换后的任意 JSON 值。
+		var value any
+		// err 是普通设置值 JSON 解析错误。
+		if err := json.Unmarshal(rawValue, &value); err != nil || value == nil {
+			return errors.New("设置值无效")
+		}
+		values[key] = stringFromAny(value)
+	}
+	return nil
+}
+
+// validateSystemSettingValues 校验批量更新中的普通设置值。
+func validateSystemSettingValues(values map[string]string) error {
+	// level 是待校验的日志级别；ok 表示普通设置中包含该字段。
+	if level, ok := values["log_level"]; ok {
+		// err 是日志级别解析错误。
+		_, err := logging.ParseLevel(level)
+		return err
+	}
+	return nil
+}
+
+// validSecretSettingAction 判断敏感设置命令是否属于受支持的三态语义。
+func validSecretSettingAction(action string) bool {
+	switch action {
+	case "retain", "replace", "clear":
+		return true
+	default:
+		return false
+	}
 }
 
 // publicSettings 负责public设置相关处理。
@@ -105,11 +208,29 @@ func (s *Server) setSetting(w http.ResponseWriter, r *http.Request) {
 	key := chi.URLParam(r, "key")
 	// req 保存req，供当前处理流程使用
 	var req struct {
+		// Value 是普通设置值或 replace 命令的新秘密。
 		Value string `json:"value"`
+		// Action 是敏感设置的显式 retain、replace、clear 命令。
+		Action string `json:"action"`
 	}
 	if // err 保存err，供当前处理流程使用
 	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	if db.IsSensitiveSettingKey(key) {
+		// action 是最终采用的敏感设置命令。
+		action := req.Action
+		if !validSecretSettingAction(action) {
+			writeErr(w, http.StatusBadRequest, "敏感设置命令无效")
+			return
+		}
+		// err 是单项敏感设置原子保存错误。
+		if err := s.Store.Settings.ApplyChanges(r.Context(), nil, map[string]db.SensitiveSettingChange{key: {Action: action, Value: req.Value}}); err != nil {
+			writeErr(w, http.StatusInternalServerError, "保存失败")
+			return
+		}
+		writeJSON(w, http.StatusOK, operationResponse{Success: true})
 		return
 	}
 	if key == "log_level" {

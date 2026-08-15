@@ -301,3 +301,8 @@ func isSensitiveSettingKey(key string) bool {
 		return false
 	}
 }
+
+// IsSensitiveSettingKey 判断系统设置键是否属于必须隔离处理的敏感配置。
+func IsSensitiveSettingKey(key string) bool {
+	return isSensitiveSettingKey(key)
+}
