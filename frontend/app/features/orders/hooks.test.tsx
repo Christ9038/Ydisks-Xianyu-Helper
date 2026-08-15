@@ -244,4 +244,47 @@ describe('useOrderQuery 与 useOrderImport', /* 当前回调处理订单查询�
     expect(importOrdersMock).not.toHaveBeenCalled();
     hook.unmount();
   });
+
+  test('重复查询订单时丢弃先发出的旧响应', /* 当前回调验证订单列表请求代次隔离。 */ async () => {
+    // OrderPageResponse 是旧订单查询使用的最小成功响应。
+    type OrderPageResponse = {
+      // success 表示请求成功。
+      success: true;
+      // data 保存订单列表。
+      data: typeof orderFixture[];
+      // total 保存订单总数。
+      total: number;
+      // page 保存当前页码。
+      page: number;
+      // pageSize 保存分页大小。
+      page_size: number;
+      // totalPages 保存总页数。
+      total_pages: number;
+      // triggerCounts 保存状态聚合数量。
+      trigger_counts: Record<string, number>;
+    };
+    // resolveFirst 是旧订单查询的完成控制器。
+    let resolveFirst: (value: OrderPageResponse) => void = () => undefined;
+    // firstRequest 是保持未完成的旧订单查询 Promise。
+    const firstRequest = new Promise<OrderPageResponse>(/* firstExecutor 保存旧请求完成函数。 */ resolve => { resolveFirst = resolve; });
+    getOrdersMock.mockReset();
+    getOrdersMock.mockReturnValueOnce(firstRequest);
+    getOrdersMock.mockResolvedValue({ success: true, data: [orderFixture], total: 1, page: 1, page_size: 20, total_pages: 2, trigger_counts: {} });
+    // hook 是订单查询刷新竞态场景的 Hook 渲染结果。
+    const hook = renderHook(
+      // staleOrderHookFactory 创建订单旧响应场景的 Hook。
+      () => useOrderQuery({ pageSize: 20 }),
+    );
+    await act(
+      // refreshAction 发起第二次订单查询并使首次请求过期。
+      async () => hook.result.current.loadOrders(),
+    );
+    resolveFirst({ success: true, data: [orderFixture], total: 1, page: 1, page_size: 20, total_pages: 2, trigger_counts: {} });
+    await act(
+      // staleResolveAction 完成已过期的首次订单响应。
+      async () => { await firstRequest; },
+    );
+    expect(hook.result.current.orders).toEqual([orderFixture]);
+    hook.unmount();
+  });
 });

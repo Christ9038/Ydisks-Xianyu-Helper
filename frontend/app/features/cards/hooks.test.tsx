@@ -186,4 +186,30 @@ describe('useCardsData 与 useCardBatchActions', /* 当前回调处理卡密库�
     expect(hook.result.current.appendTargetId).toBe('');
     hook.unmount();
   });
+
+  test('库存刷新时丢弃先发出的旧响应', /* 当前回调验证卡密库存请求代次隔离。 */ async () => {
+    // resolveFirst 是旧库存请求的完成控制器。
+    let resolveFirst: (value: Card[]) => void = () => undefined;
+    // firstRequest 是保持未完成的旧库存请求 Promise。
+    const firstRequest = new Promise<Card[]>(/* firstExecutor 保存旧请求完成函数。 */ resolve => { resolveFirst = resolve; });
+    getCardsMock.mockReset();
+    getCardsMock.mockReturnValueOnce(firstRequest);
+    getCardsMock.mockResolvedValueOnce([]);
+    // hook 是库存刷新竞态场景的 Hook 渲染结果。
+    const hook = renderHook(
+      // staleCardsHookFactory 创建库存旧响应场景的 Hook。
+      () => useCardsData(),
+    );
+    await act(
+      // refreshAction 发起第二次库存刷新并使首次请求过期。
+      async () => hook.result.current.loadCards(),
+    );
+    resolveFirst([cardFixture]);
+    await act(
+      // staleResolveAction 完成已过期的首次库存响应。
+      async () => { await firstRequest; },
+    );
+    expect(hook.result.current.cards).toEqual([]);
+    hook.unmount();
+  });
 });

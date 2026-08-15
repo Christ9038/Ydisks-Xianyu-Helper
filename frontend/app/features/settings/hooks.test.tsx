@@ -206,4 +206,31 @@ describe('useSettings', /* 当前回调处理系统设置、模型和凭据请�
     );
     hook.unmount();
   });
+
+  test('重复加载设置时丢弃先发出的旧响应', /* 当前回调验证系统设置请求代次隔离。 */ async () => {
+    // resolveFirst 是旧设置请求的完成控制器。
+    let resolveFirst: (value: SystemSettings) => void = () => undefined;
+    // firstRequest 是保持未完成的旧设置请求 Promise。
+    const firstRequest = new Promise<SystemSettings>(/* firstExecutor 保存旧请求完成函数。 */ resolve => { resolveFirst = resolve; });
+    getSettingsMock.mockReset();
+    getSettingsMock.mockReturnValueOnce(firstRequest);
+    getSettingsMock.mockResolvedValue(settingsFixture);
+    // hook 是系统设置刷新竞态场景的 Hook 渲染结果。
+    const hook = renderHook(renderSettingsHook);
+    await act(
+      // refreshAction 发起第二次设置加载并使首次请求过期。
+      () => hook.result.current.loadSettings(),
+    );
+    await waitFor(
+      // successAssertion 等待第二次设置加载成功。
+      () => expect(hook.result.current.requestStatus).toBe('success'),
+    );
+    resolveFirst(settingsFixture);
+    await act(
+      // staleResolveAction 完成已过期的首次设置响应。
+      async () => { await firstRequest; },
+    );
+    expect(hook.result.current.settings).toMatchObject({ ...settingsFixture, ai_model: 'model-a' });
+    hook.unmount();
+  });
 });

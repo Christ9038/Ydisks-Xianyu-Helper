@@ -115,4 +115,31 @@ describe('useDashboard', /* 当前回调处理仪表盘并行请求和派生数�
     );
     expect(hook.result.current.status.error).toBe('经营数据服务失败');
   });
+
+  test('刷新期间丢弃旧经营数据响应', /* 当前回调验证仪表盘范围请求代次隔离。 */ async () => {
+    // resolveFirst 是旧经营数据请求的完成控制器。
+    let resolveFirst: (value: OrderAnalyticsResponse) => void = () => undefined;
+    // firstRequest 是保持未完成的旧经营数据请求 Promise。
+    const firstRequest = new Promise<OrderAnalyticsResponse>(/* firstExecutor 保存旧请求完成函数。 */ resolve => { resolveFirst = resolve; });
+    getAnalyticsMock.mockReset();
+    getAnalyticsMock.mockReturnValueOnce(firstRequest);
+    getAnalyticsMock.mockResolvedValue(analyticsFixture);
+    // hook 是仪表盘经营数据刷新竞态场景的 Hook 渲染结果。
+    const hook = renderHook(renderDashboardHook);
+    await act(
+      // refreshAction 发起第二次经营数据刷新并使首次请求过期。
+      () => hook.result.current.refresh(),
+    );
+    await waitFor(
+      // rangeAssertion 等待第二次经营数据请求成功。
+      () => expect(hook.result.current.status.range).toBe('success'),
+    );
+    resolveFirst(analyticsFixture);
+    await act(
+      // staleResolveAction 完成已过期的首次经营数据响应。
+      async () => { await firstRequest; },
+    );
+    expect(hook.result.current.status.range).toBe('success');
+    hook.unmount();
+  });
 });
