@@ -35,8 +35,8 @@ type automationRunCoordinator struct {
 	notifyResult func(Task, string, int, string)
 }
 
-// executeRule 创建或恢复一次自动化运行，并统一处理运行成功、失败、延期和人工核对结果。
-func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, rule db.AutomationRule) error {
+// executeRule 创建或恢复一次自动化运行，并统一处理运行成功、失败、延期和人工核对结果；resultErr 返回动作执行或结果收口错误。
+func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, rule db.AutomationRule) (resultErr error) {
 	// err 保存任务准备、运行创建或动作执行阶段的错误。
 	var err error
 	if len(task.ActionPlan) == 0 && task.TriggerType != TriggerOrderPaid {
@@ -109,7 +109,18 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 		finishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		// finishErr 保存运行结果写入失败，避免覆盖原始动作错误。
 		if finishErr := r.store.Automation.FinishRun(finishCtx, run.ID, run.AttemptCount, status, sent, errMsg); finishErr != nil {
-			r.logger.Error("保存自动化执行结果失败", "run_id", run.ID, "err", finishErr)
+			// reason 说明结果落库失败后禁止自动重放的原因，并用于人工核对记录。
+			reason := "自动化运行结果保存失败，已停止自动重放，请人工核对: " + finishErr.Error()
+			// status 和 errMsg 让统一通知明确告知结果未知，避免误报成功或失败可重试。
+			status, errMsg = "needs_review", reason
+			// quarantineErr 保存将外部动作结果转为人工核对状态时的错误。
+			quarantineErr := r.store.Automation.QuarantineRunResult(finishCtx, run.ID, run.AttemptCount, sent, reason)
+			if quarantineErr != nil {
+				r.logger.Error("保存自动化执行结果和人工核对状态均失败", "run_id", run.ID, "finish_err", finishErr, "quarantine_err", quarantineErr)
+				resultErr = errors.Join(resultErr, errAutomationNeedsReview, fmt.Errorf("保存自动化执行结果失败: %w", finishErr), fmt.Errorf("保存人工核对状态失败: %w", quarantineErr))
+			} else {
+				resultErr = errors.Join(resultErr, errAutomationNeedsReview, fmt.Errorf("保存自动化执行结果失败: %w", finishErr))
+			}
 		}
 		cancel()
 		if r.hasNotifier() {

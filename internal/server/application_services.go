@@ -1,7 +1,10 @@
 package server
 
-import orderapp "xianyu-go/internal/application/orders"
-import itemapp "xianyu-go/internal/application/items"
+import (
+	accountapp "xianyu-go/internal/application/account"
+	itemapp "xianyu-go/internal/application/items"
+	orderapp "xianyu-go/internal/application/orders"
+)
 
 // applicationServices 聚合 Server 使用的应用服务实例，统一管理共享基础设施依赖。
 type applicationServices struct {
@@ -13,6 +16,8 @@ type applicationServices struct {
 	itemSinglePublish *itemapp.Service
 	// accountLogin 是账号登录应用服务。
 	accountLogin *accountLoginService
+	// accountProfile 是账号资料刷新应用服务。
+	accountProfile *accountapp.ProfileService
 	// communication 是聊天、通知和账号任务应用服务。
 	communication *communicationService
 	// analytics 是订单分析应用服务。
@@ -27,14 +32,25 @@ func newApplicationServices(server *Server) *applicationServices {
 	orderRuntime := newServerOrderRuntime(server)
 	// orderServices 保存应用层统一构造的订单业务服务集合。
 	orderServices := orderapp.NewServiceSet(orderRepository, orderRepository, orderRuntime, orderRuntime, newStoreOrderRefreshJobRepository(server.Store), refreshOrderChunkSize)
+	// accountProfile 保存账号资料刷新用例的构造结果。
+	accountProfile, profileErr := newAccountProfileApplication(server)
+	if profileErr != nil {
+		panic(profileErr)
+	}
 	return &applicationServices{
 		orders:            &orderHTTPAdapter{services: orderServices, repository: orderRepository},
 		itemPublish:       &itemPublishService{server: server, repository: newStoreItemPublishRepository(server.Store)},
 		itemSinglePublish: newItemPublishApplication(server),
 		accountLogin:      &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store)},
+		accountProfile:    accountProfile,
 		communication:     &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},
 		analytics:         &analyticsService{repository: newStoreAnalyticsRepository(server.Store)},
 	}
+}
+
+// accountProfileApplication 返回当前 Server 绑定的账号资料应用服务。
+func (s *Server) accountProfileApplication() *accountapp.ProfileService {
+	return s.applicationServiceSet().accountProfile
 }
 
 // applicationServiceSet 返回当前 Server 的应用服务集合，并兼容测试 Server。

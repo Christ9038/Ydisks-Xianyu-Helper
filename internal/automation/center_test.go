@@ -95,6 +95,95 @@ func TestPartialAutomationRunIsQuarantined(t *testing.T) {
 	}
 }
 
+// TestFinishRunFailureQuarantinesSuccessfulExternalAction 验证外部消息已发送但运行结果落库失败时，系统会转入人工核对而不是允许重复重放。
+func TestFinishRunFailureQuarantinesSuccessfulExternalAction(t *testing.T) {
+	// store 是当前测试使用的 SQLite 自动化存储。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是测试数据库操作共用的上下文。
+	ctx := context.Background()
+	// admin 是创建自动化规则所需的管理员用户。
+	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
+	if adminErr != nil {
+		t.Fatal(adminErr)
+	}
+	// ruleErr 表示创建本次测试消息动作规则时的数据库错误。
+	if _, ruleErr := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", Name: "finish-failure", TriggerType: TriggerBuyerReviewed, Enabled: true,
+		Actions: []db.AutomationActionInput{{ActionType: ActionSendText, MessageTemplate: "gift", Enabled: true}},
+	}); ruleErr != nil {
+		t.Fatal(ruleErr)
+	}
+	// triggerErr 表示故意阻止 success 状态写入的 SQLite 触发器创建错误。
+	if _, triggerErr := store.DB.ExecContext(ctx, `CREATE TRIGGER reject_automation_success
+		BEFORE UPDATE OF status ON automation_runs
+		WHEN NEW.status='success'
+		BEGIN SELECT RAISE(ABORT, 'forced finish failure'); END`); triggerErr != nil {
+		t.Fatal(triggerErr)
+	}
+	// sender 记录已经交给在线发送器的消息，验证外部副作用只发生一次。
+	sender := &testSender{}
+	// center 是待验证运行结果补偿逻辑的自动化中心。
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	// runErr 保存动作已执行但结果收口失败后的人工核对错误。
+	runErr := center.HandleTask(ctx, Task{AccountID: "cid", TriggerType: TriggerBuyerReviewed, OrderID: "finish-failure-order", ChatID: "chat", BuyerID: "buyer"})
+	if !errors.Is(runErr, errAutomationNeedsReview) {
+		t.Fatalf("运行结果落库失败应转人工核对，err=%v", runErr)
+	}
+	if len(sender.texts) != 1 || sender.texts[0] != "gift" {
+		t.Fatalf("外部消息应只发送一次，got %v", sender.texts)
+	}
+	// status、message 保存补偿后的运行状态和人工核对原因。
+	var status, message string
+	// queryErr 表示读取补偿后运行状态时的数据库错误。
+	if queryErr := store.DB.QueryRowContext(ctx, `SELECT status,error_message FROM automation_runs WHERE order_id=?`, "finish-failure-order").Scan(&status, &message); queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	if status != "needs_review" || !strings.Contains(message, "自动化运行结果保存失败") {
+		t.Fatalf("运行未进入人工核对状态: status=%q message=%q", status, message)
+	}
+}
+
+// TestFinishAndQuarantineFailureIsReturned 验证运行结果和人工核对状态均无法落库时，两个错误都会返回给上层而不会被日志吞掉。
+func TestFinishAndQuarantineFailureIsReturned(t *testing.T) {
+	// store 是当前测试使用的 SQLite 自动化存储。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是测试数据库操作共用的上下文。
+	ctx := context.Background()
+	// admin 是创建自动化规则所需的管理员用户。
+	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
+	if adminErr != nil {
+		t.Fatal(adminErr)
+	}
+	// ruleErr 表示创建本次测试消息动作规则时的数据库错误。
+	if _, ruleErr := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", Name: "finish-and-quarantine-failure", TriggerType: TriggerBuyerReviewed, Enabled: true,
+		Actions: []db.AutomationActionInput{{ActionType: ActionSendText, MessageTemplate: "gift", Enabled: true}},
+	}); ruleErr != nil {
+		t.Fatal(ruleErr)
+	}
+	// triggerErr 表示故意阻止 success 和 needs_review 状态写入的 SQLite 触发器创建错误。
+	if _, triggerErr := store.DB.ExecContext(ctx, `CREATE TRIGGER reject_automation_result_states
+		BEFORE UPDATE OF status ON automation_runs
+		WHEN NEW.status IN ('success','needs_review')
+		BEGIN SELECT RAISE(ABORT, 'forced result-state failure'); END`); triggerErr != nil {
+		t.Fatal(triggerErr)
+	}
+	// sender 记录已经交给在线发送器的消息，验证外部副作用只发生一次。
+	sender := &testSender{}
+	// center 是待验证双重落库失败错误传播逻辑的自动化中心。
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	// runErr 保存结果收口和补偿收口均失败后的组合错误。
+	runErr := center.HandleTask(ctx, Task{AccountID: "cid", TriggerType: TriggerBuyerReviewed, OrderID: "finish-and-quarantine-failure-order", ChatID: "chat", BuyerID: "buyer"})
+	if !errors.Is(runErr, errAutomationNeedsReview) || !strings.Contains(runErr.Error(), "保存人工核对状态失败") {
+		t.Fatalf("双重落库失败应返回完整人工核对错误，err=%v", runErr)
+	}
+	if len(sender.texts) != 1 {
+		t.Fatalf("外部消息应只发送一次，got %v", sender.texts)
+	}
+}
+
 // TestMessageDefinitelyNotSentIsRetried 负责Test消息DefinitelyNotSentIsRetried相关处理。
 func TestMessageDefinitelyNotSentIsRetried(t *testing.T) {
 	// store、cleanup 保存store、cleanup，供当前处理流程使用

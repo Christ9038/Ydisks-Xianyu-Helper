@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	accountapp "xianyu-go/internal/application/account"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/protocol"
@@ -18,6 +19,37 @@ type accountLoginService struct {
 	server *Server
 	// repository 提供账号登录服务所需的最小凭证持久化能力。
 	repository accountLoginRepository
+}
+
+// serverAccountProfilePort 将平台资料刷新适配为账号应用层 Port。
+type serverAccountProfilePort struct {
+	// server 提供平台会话、凭证锁、资料保存和运行时同步能力。
+	server *Server
+}
+
+// RefreshProfile 执行平台资料刷新，并把平台结果转换为应用层 DTO。
+func (p serverAccountProfilePort) RefreshProfile(ctx context.Context, input accountapp.ProfileInput) (accountapp.ProfileResult, error) {
+	// detail 是兼容 Server 资料刷新器所需的非敏感账号摘要模型。
+	detail := &db.CookieDetail{
+		ID: input.Summary.ID, UserID: input.Summary.UserID,
+		Remark: input.Summary.Remark, Nickname: input.Summary.Nickname,
+		AvatarURL: input.Summary.AvatarURL,
+	}
+	// nickname、avatarURL 和 profileErr 保存平台资料刷新后的展示结果。
+	nickname, avatarURL, profileErr := p.server.refreshAccountProfile(ctx, detail)
+	return accountapp.ProfileResult{
+		AccountID: input.AccountID, Nickname: nickname,
+		AvatarURL: avatarURL, ErrorMessage: profileErr,
+	}, nil
+}
+
+// newAccountProfileApplication 从 Server 的数据库和平台能力构造账号资料应用服务。
+func newAccountProfileApplication(server *Server) (*accountapp.ProfileService, error) {
+	// repository 是只返回非敏感摘要的数据库适配器。
+	repository := storeAccountProfileRepository{store: server.Store}
+	// profilePort 是负责平台请求和资料持久化的 Server 适配器。
+	profilePort := serverAccountProfilePort{server: server}
+	return accountapp.NewProfileService(repository, profilePort)
 }
 
 // accountLoginApplication 返回当前 Server 绑定的账号登录应用服务。
@@ -52,16 +84,6 @@ type accountCookieUpdateInput struct {
 	UserID int64
 	// LoginMethod 是可选的登录方式。
 	LoginMethod string
-}
-
-// accountProfileResult 是账号资料刷新后的展示结果。
-type accountProfileResult struct {
-	// Nickname 是平台昵称或本地兜底昵称。
-	Nickname string
-	// AvatarURL 是平台头像地址或本地兜底地址。
-	AvatarURL string
-	// ErrorMessage 是资料刷新失败时的可展示错误。
-	ErrorMessage string
 }
 
 // CreateCookie 创建账号凭证并完成登录审计、资料刷新和运行时重启。
@@ -125,18 +147,6 @@ func (svc *accountLoginService) UpdateCookie(ctx context.Context, input accountC
 	unlock()
 	svc.refreshAndRestartAccount(ctx, input.UserID, input.AccountID)
 	return nil
-}
-
-// RefreshProfile 按用户归属读取账号摘要并刷新平台资料。
-func (svc *accountLoginService) RefreshProfile(ctx context.Context, userID int64, accountID string) (accountProfileResult, error) {
-	// detail 和 err 保存资料刷新所需的非敏感账号摘要。
-	detail, err := svc.server.loadCookieSummaryDetail(ctx, userID, accountID)
-	if err != nil {
-		return accountProfileResult{}, err
-	}
-	// nickname、avatarURL 和 profileErr 保存平台资料刷新结果。
-	nickname, avatarURL, profileErr := svc.server.refreshAccountProfile(ctx, detail)
-	return accountProfileResult{Nickname: nickname, AvatarURL: avatarURL, ErrorMessage: profileErr}, nil
 }
 
 // PersistQRLoginSuccess 持久化扫码登录结果，复用会话级幂等锁和账号重启流程。

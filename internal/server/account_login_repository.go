@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	accountapp "xianyu-go/internal/application/account"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/cookierefresh"
 )
@@ -38,6 +40,36 @@ type accountLoginRepository interface {
 type storeAccountLoginRepository struct {
 	// store 保存数据库聚合入口，仅在适配器内部使用。
 	store *db.Store
+}
+
+// storeAccountProfileRepository 将 Server 的摘要查询适配为账号应用层 Port。
+type storeAccountProfileRepository struct {
+	// store 提供账号摘要查询能力；凭证字段不会通过该适配器读取。
+	store *db.Store
+}
+
+// GetOwnedSummary 查询指定用户拥有的非敏感账号摘要。
+func (r storeAccountProfileRepository) GetOwnedSummary(ctx context.Context, userID int64, accountID string) (accountapp.Summary, error) {
+	// summary 保存数据库返回的非敏感账号摘要。
+	summary, err := r.store.Cookies.GetSummaryOwned(ctx, userID, accountID)
+	if err != nil {
+		if errors.Is(err, db.ErrForbidden) {
+			return accountapp.Summary{}, accountapp.ErrForbidden
+		}
+		if errors.Is(err, db.ErrNotFound) {
+			// ownerID 和 ownerErr 用于区分不存在账号与跨用户账号，保持 HTTP 兼容状态码。
+			ownerID, ownerErr := r.store.Cookies.GetOwnerID(ctx, accountID)
+			if ownerErr == nil && ownerID != userID {
+				return accountapp.Summary{}, accountapp.ErrForbidden
+			}
+			return accountapp.Summary{}, accountapp.ErrNotFound
+		}
+		return accountapp.Summary{}, err
+	}
+	return accountapp.Summary{
+		ID: summary.ID, UserID: summary.UserID, Remark: summary.Remark,
+		Nickname: summary.Nickname, AvatarURL: summary.AvatarURL,
+	}, nil
 }
 
 // LockCredentials 委托账号凭证锁。

@@ -1,6 +1,8 @@
 package browser
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -9,6 +11,85 @@ import (
 
 	playwright "github.com/mxschmitt/playwright-go"
 )
+
+// TestManagerCloseContextWaitsForActiveOperation 验证关闭会等待已登记的浏览器调用，且关闭期间拒绝新调用。
+func TestManagerCloseContextWaitsForActiveOperation(t *testing.T) {
+	// manager 保存不启动 Chromium 的管理器，测试仅验证生命周期状态机。
+	manager := newTestManager(1)
+	// err 表示测试活动调用登记失败时的状态机错误。
+	if err := manager.beginOperation(context.Background()); err != nil {
+		t.Fatalf("登记活动调用失败: %v", err)
+	}
+	// closeDone 保存带超时关闭的结果，避免测试本身留下未观察的 goroutine。
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- manager.CloseContext(context.Background())
+	}()
+	select {
+	// err 表示关闭 goroutine 在活动调用释放前意外完成的结果。
+	case err := <-closeDone:
+		t.Fatalf("活动调用未释放前不应完成关闭，结果=%v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	// err 表示关闭期间尝试创建新活动调用得到的拒绝原因。
+	if err := manager.beginOperation(context.Background()); !errors.Is(err, ErrManagerClosed) {
+		t.Fatalf("关闭期间应拒绝新调用，错误=%v", err)
+	}
+	manager.endOperation()
+	select {
+	// err 表示释放活动调用后 CloseContext 的最终结果。
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("活动调用释放后关闭失败: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("关闭等待活动调用超时")
+	}
+	// err 表示重复关闭的结果，已关闭管理器应返回 nil。
+	if err := manager.CloseContext(context.Background()); err != nil {
+		t.Fatalf("重复关闭应幂等: %v", err)
+	}
+}
+
+// TestManagerCloseContextTimeoutIsRetryable 验证关闭超时会显式返回，并允许释放活动调用后重试。
+func TestManagerCloseContextTimeoutIsRetryable(t *testing.T) {
+	// manager 保存不启动 Chromium 的管理器，测试超时路径不依赖外部浏览器。
+	manager := newTestManager(1)
+	// err 表示测试活动调用登记失败时的状态机错误。
+	if err := manager.beginOperation(context.Background()); err != nil {
+		t.Fatalf("登记活动调用失败: %v", err)
+	}
+	// waitContext 保存短超时上下文，用于验证 CloseContext 不启动游离关闭任务。
+	waitContext, cancelWait := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancelWait()
+	// err 表示等待活动调用超时后返回的明确 Context 错误。
+	if err := manager.CloseContext(waitContext); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("关闭超时应返回 DeadlineExceeded，错误=%v", err)
+	}
+	// err 表示超时关闭后尝试创建新活动调用得到的拒绝原因。
+	if err := manager.beginOperation(context.Background()); !errors.Is(err, ErrManagerClosed) {
+		t.Fatalf("超时后管理器仍应拒绝新调用，错误=%v", err)
+	}
+	manager.endOperation()
+	// err 表示释放活动调用后重试关闭的结果。
+	if err := manager.CloseContext(context.Background()); err != nil {
+		t.Fatalf("释放活动调用后重试关闭失败: %v", err)
+	}
+}
+
+// TestManagerCloseContextWithoutOperations 验证没有活动调用时关闭立即完成且可重复执行。
+func TestManagerCloseContextWithoutOperations(t *testing.T) {
+	// manager 保存不启动 Chromium 的管理器，验证空池和 nil Playwright 的安全关闭。
+	manager := newTestManager(1)
+	// err 表示空管理器首次关闭的结果。
+	if err := manager.CloseContext(context.Background()); err != nil {
+		t.Fatalf("空管理器关闭失败: %v", err)
+	}
+	// err 表示已关闭管理器重复调用 Close 的结果。
+	if err := manager.Close(); err != nil {
+		t.Fatalf("Close 重复调用失败: %v", err)
+	}
+}
 
 // TestChromiumLaunchArgs 验证启动参数含关键安全/反检测项。
 func TestChromiumLaunchArgs(t *testing.T) {

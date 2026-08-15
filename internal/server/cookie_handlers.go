@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	accountapp "xianyu-go/internal/application/account"
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
@@ -484,14 +485,19 @@ func (s *Server) getCookieDetails(w http.ResponseWriter, r *http.Request) {
 func (s *Server) refreshCookieProfile(w http.ResponseWriter, r *http.Request) {
 	cid := chi.URLParam(r, "cid")                // cid 是请求路径中的账号 ID。
 	sess := auth.SessionFromContext(r.Context()) // sess 是当前认证会话。
-	if !s.cookieOwnedByUser(r.Context(), sess.UserID, cid) {
-		writeErr(w, http.StatusForbidden, "无权限操作该账号")
-		return
-	}
 	// profile、err 保存profile、err，供当前处理流程使用
-	profile, err := s.accountLoginApplication().RefreshProfile(r.Context(), sess.UserID, cid)
+	profile, err := s.accountProfileApplication().RefreshProfile(r.Context(), sess.UserID, cid)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "账号不存在")
+		if errors.Is(err, accountapp.ErrForbidden) {
+			writeErr(w, http.StatusForbidden, "无权限操作该账号")
+			return
+		}
+		if errors.Is(err, accountapp.ErrNotFound) {
+			// 旧路径将不存在与无权账号统一视为不可操作，保留既有客户端状态码兼容性。
+			writeErr(w, http.StatusForbidden, "无权限操作该账号")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "刷新账号资料失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, cookieProfileResponse{

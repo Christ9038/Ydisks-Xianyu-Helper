@@ -16,6 +16,11 @@ import (
 // verificationURL 为空时跳过验证步骤（无风控场景）。
 // QRCookieRefresh 负责QR登录凭证Refresh相关处理。
 func (m *Manager) QRCookieRefresh(ctx context.Context, tmpCookies, verificationURL string, onScreenshot func(string)) (realCookies string, unb string, err error) {
+	// err 表示管理器已关闭或调用方已取消，不能启动一次性二维码浏览器。
+	if err := m.beginOperation(ctx); err != nil {
+		return "", "", err
+	}
+	defer m.endOperation()
 	if tmpCookies == "" {
 		return "", "", fmt.Errorf("扫码临时 cookie 为空")
 	}

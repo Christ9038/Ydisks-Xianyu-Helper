@@ -19,18 +19,6 @@ func TestAccountLoginServiceValidateCookieInput(t *testing.T) {
 	}
 }
 
-// TestAccountLoginServiceRefreshProfileNotFound 验证资料刷新服务不会越权读取不存在账号。
-func TestAccountLoginServiceRefreshProfileNotFound(t *testing.T) {
-	// srv、store 和 cleanup 构造并释放测试服务。
-	srv, _, cleanup := newTestServer(t)
-	defer cleanup()
-	// err 保存资料刷新服务返回的账号查询错误。
-	_, err := srv.accountLoginApplication().RefreshProfile(context.Background(), 1, "missing-account")
-	if err == nil {
-		t.Fatal("不存在账号的资料刷新应该返回错误")
-	}
-}
-
 // TestAccountLoginServicePersistQRLoginRejectsIncompleteResult 验证扫码结果缺少凭证时不会写入账号。
 func TestAccountLoginServicePersistQRLoginRejectsIncompleteResult(t *testing.T) {
 	// service 使用空 Server 即可在凭证校验前验证失败结果。

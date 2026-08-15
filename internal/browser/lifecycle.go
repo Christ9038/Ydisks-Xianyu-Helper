@@ -118,8 +118,24 @@ func packagedPlaywrightRuntimeReady() bool {
 	return false
 }
 
+// ErrManagerClosed 表示浏览器管理器已经进入关闭流程，不能再创建新的浏览器实例。
+var ErrManagerClosed = errors.New("浏览器管理器已关闭")
+
 // Manager 管理浏览器生命周期与按账号复用的上下文池。
 type Manager struct {
+	// lifecycleMu 保护关闭状态和活动浏览器调用计数；关闭时不持有它执行 Playwright I/O。
+	lifecycleMu sync.Mutex
+	// lifecycleCond 在活动调用归零时唤醒等待关闭的调用方。
+	lifecycleCond *sync.Cond
+	// closing 表示管理器已经拒绝新的浏览器调用但仍在等待已有调用退出。
+	closing bool
+	// closed 表示所有池实例和 Playwright 进程均已同步释放。
+	closed bool
+	// inFlight 统计从浏览器实例创建到对应 release 执行完毕的活动调用。
+	inFlight int
+	// closeMu 串行化多个 CloseContext 调用，避免重复停止同一个 Playwright 进程。
+	closeMu sync.Mutex
+
 	pw     *playwright.Playwright
 	logger *slog.Logger
 
@@ -161,7 +177,8 @@ func NewManager(logger *slog.Logger) *Manager {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Manager{
+	// manager 保存已配置生命周期条件变量和浏览器池的管理器实例。
+	manager := &Manager{
 		logger:     logger,
 		pool:       make(map[string]*poolEntry),
 		maxSize:    3,
@@ -186,6 +203,48 @@ func NewManager(logger *slog.Logger) *Manager {
 			return playwright.Run()
 		},
 	}
+	manager.lifecycleCond = sync.NewCond(&manager.lifecycleMu)
+	return manager
+}
+
+// beginOperation 登记一个可能持有 Chromium 实例的调用；关闭开始后拒绝新调用。
+// ctx 仅用于在进入状态机前传播调用方取消语义，不会启动无法回收的等待 goroutine。
+func (m *Manager) beginOperation(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// err 表示调用方 Context 已取消，管理器不会为已取消调用登记活动任务。
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+	if m.closing || m.closed {
+		return ErrManagerClosed
+	}
+	m.inFlight++
+	return nil
+}
+
+// endOperation 释放活动调用登记，并唤醒等待 Manager 关闭的调用方。
+func (m *Manager) endOperation() {
+	m.lifecycleMu.Lock()
+	if m.inFlight > 0 {
+		m.inFlight--
+	}
+	if m.lifecycleCond != nil && m.inFlight == 0 {
+		m.lifecycleCond.Broadcast()
+	}
+	m.lifecycleMu.Unlock()
+}
+
+// ensureLifecycleCond 为测试构造的零值 Manager 补齐关闭等待条件变量。
+func (m *Manager) ensureLifecycleCond() {
+	m.lifecycleMu.Lock()
+	if m.lifecycleCond == nil {
+		m.lifecycleCond = sync.NewCond(&m.lifecycleMu)
+	}
+	m.lifecycleMu.Unlock()
 }
 
 // accountRenewLock 负责账号Renew锁相关处理。
@@ -248,7 +307,14 @@ func (m *Manager) init() error {
 // Initialize starts Playwright and publishes the bundled Chromium's native
 // browser identity before any non-browser client sends requests.
 // Initialize 负责Initialize相关处理。
-func (m *Manager) Initialize() error { return m.init() }
+func (m *Manager) Initialize() error {
+	// err 表示管理器已进入关闭流程，不能继续初始化 Playwright。
+	if err := m.beginOperation(context.Background()); err != nil {
+		return err
+	}
+	defer m.endOperation()
+	return m.init()
+}
 
 // detectBrowserFingerprint 负责detect浏览器Fingerprint相关处理。
 func (m *Manager) detectBrowserFingerprint() error {
@@ -307,8 +373,54 @@ func (m *Manager) detectBrowserFingerprint() error {
 	return nil
 }
 
-// Close 释放所有浏览器与 playwright。
+// Close 释放所有浏览器与 Playwright；它会等待活动实例退出且不会遗留关闭 goroutine。
 func (m *Manager) Close() error {
+	return m.CloseContext(context.Background())
+}
+
+// CloseContext 拒绝新调用并等待已有浏览器调用结束后同步释放资源。
+// ctx 到期时返回 ctx.Err，管理器保持 closing 状态，调用方可稍后用更长的 Context 重试；
+// 实现不通过后台 goroutine 包装 Close，因此超时不会留下无法观察的关闭任务。
+func (m *Manager) CloseContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// err 表示调用方在关闭开始前已经取消等待，管理器保持可重试状态。
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.closeMu.Lock()
+	defer m.closeMu.Unlock()
+	m.ensureLifecycleCond()
+	m.lifecycleMu.Lock()
+	if m.closed {
+		m.lifecycleMu.Unlock()
+		return nil
+	}
+	m.closing = true
+	m.lifecycleMu.Unlock()
+
+	// 轮询等待而不是把条件等待放进 goroutine，以便 Context 取消时没有游离任务。
+	for {
+		m.lifecycleMu.Lock()
+		// remaining 表示仍持有浏览器实例或上下文的活动调用数量。
+		remaining := m.inFlight
+		m.lifecycleMu.Unlock()
+		if remaining == 0 {
+			break
+		}
+		// waitTimer 限制单次轮询间隔，避免为 Context 等待启动后台 goroutine。
+		waitTimer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			if !waitTimer.Stop() {
+				<-waitTimer.C
+			}
+			return ctx.Err()
+		case <-waitTimer.C:
+		}
+	}
+
 	m.mu.Lock()
 	// entries 保存entries，供当前处理流程使用
 	entries := make([]*poolEntry, 0, len(m.pool))
@@ -323,23 +435,40 @@ func (m *Manager) Close() error {
 	for _, e := range entries {
 		closeEntry(e, m.logger)
 	}
+	// stopErr 保存 Playwright 进程同步停止时返回的错误。
+	var stopErr error
 	if m.pw != nil {
-		return m.pw.Stop()
+		stopErr = m.pw.Stop()
 	}
-	return nil
+	m.lifecycleMu.Lock()
+	m.closed = true
+	m.lifecycleMu.Unlock()
+	return stopErr
 }
 
 // newPage 从池中取（或创建）一个 context，返回新 page + 释放函数。
 // 每次请求新建 page，避免并发导航冲突（与 browser_pool.get_browser 一致）。
 // newPage 负责new页码相关处理。
 func (m *Manager) newPage(ctx context.Context, cookieID, cookieStr string, headless bool) (playwright.Page, func(), error) {
+	// err 表示管理器已关闭或调用方已取消，不能继续申请浏览器页。
+	if err := m.beginOperation(ctx); err != nil {
+		return nil, nil, err
+	}
+	// operationOnce 保证 page release 重复调用时只结束一次活动登记。
+	var operationOnce sync.Once
+	// finishOperation 在 page 释放或创建失败时结束生命周期登记。
+	finishOperation := func() {
+		operationOnce.Do(m.endOperation)
+	}
 	if // err 保存err，供当前处理流程使用
 	err := m.init(); err != nil {
+		finishOperation()
 		return nil, nil, err
 	}
 	// entry、err 保存entry、err，供当前处理流程使用
 	entry, err := m.acquireEntry(cookieID, cookieStr, headless)
 	if err != nil {
+		finishOperation()
 		return nil, nil, err
 	}
 	// page、err 保存page、err，供当前处理流程使用
@@ -350,12 +479,14 @@ func (m *Manager) newPage(ctx context.Context, cookieID, cookieStr string, headl
 		m.evict(cookieID)
 		entry, err = m.acquireEntry(cookieID, cookieStr, headless)
 		if err != nil {
+			finishOperation()
 			return nil, nil, err
 		}
 		page, err = entry.context.NewPage()
 		if err != nil {
 			m.releaseEntry(cookieID, entry)
 			m.evict(cookieID)
+			finishOperation()
 			return nil, nil, fmt.Errorf("新建 page 失败: %w", err)
 		}
 	}
@@ -363,6 +494,7 @@ func (m *Manager) newPage(ctx context.Context, cookieID, cookieStr string, headl
 	release := func() {
 		_ = page.Close()
 		m.releaseEntry(cookieID, entry)
+		finishOperation()
 	}
 	return page, release, nil
 }

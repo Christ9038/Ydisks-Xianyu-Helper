@@ -788,6 +788,9 @@ npm --prefix frontend run build
 | 2026-08-15 | P1 单商品发布应用 Port 闭环切片 | 已完成本切片 | 新增纯应用层 `internal/application/items` 的发布输入、结果、平台 Port 和商品仓储 Port；`publishItem` 仅在 Server 边界完成 HTTP/MTOP/DB 模型转换，单商品平台发布与本地商品落库编排已移出 Server；新增应用服务构造、平台失败和成功落库测试，架构门禁、中文注释门禁、Server 回归及聚焦 race 通过。批量发布、商品同步及其他 Server 应用服务仍待迁移；现有商品发布凭证锁覆盖远端 I/O 的风险保留给后续凭证协调切片 |
 | 2026-08-15 | P1 续期调度器 Context-aware Stop 切片 | 已完成本切片 | `internal/renewal.Scheduler` 新增私有运行 Context、`StopContext` 和兼容 `Stop`，主动停止会取消登录续期/API 续期 worker 并在调用方 Context 内等待 watcher 收束；重复停止保持幂等；新增主动取消与超时回归，续期测试、全量门禁和聚焦 race 通过。浏览器、Engine 内部任务、账号删除任务登记和统一生命周期清单仍未完成 |
 | 2026-08-15 | P1 发货本地事实补偿闭环切片 | 已完成本切片 | 自动化发货远端成功但本地订单状态或事件时间写入失败时创建 `manual_status_ship` pending 补偿记录；补偿记录创建失败会并入 uncertain 错误，不再吞错；扩展远端成功/本地失败回归并实际运行 reconciliation worker 恢复订单状态、清理 pending。其他不可逆自动化动作、退避策略和统一运维查询仍待治理 |
+| 2026-08-15 | P1 账号资料刷新应用 Port 闭环切片 | 已完成本切片 | 新增纯应用层 `internal/application/account` 的非敏感账号摘要、资料刷新 Port 和结果模型；资料刷新 handler 通过用户+账号联合查询完成归属校验，Server 只在既有账号适配边界转换 `db.CookieDetail` 与平台调用；删除旧的 Server 资料刷新双实现，新增应用服务构造、归属失败和平台失败测试，架构门禁、中文注释门禁和 Server 回归通过。账号登录凭证写入、扫码和其他账号操作仍待迁移 |
+| 2026-08-15 | P1 浏览器实例生命周期 CloseContext 切片 | 已完成本切片 | Browser Manager 增加活动调用登记、关闭 fencing、幂等 `CloseContext(ctx)` 和 `ErrManagerClosed`；`newPage`、初始化、二维码刷新及持久化续期上下文均在创建/释放时登记，关闭超时返回明确错误且可用更长 Context 重试，不创建游离关闭 goroutine；新增等待、超时重试和空管理器测试，浏览器全量及聚焦 race 通过。Playwright 底层同步 Close 无法被 Context 中断，Engine/账号其他任务仍待统一清单治理 |
+| 2026-08-15 | P1 自动化外部成功结果 quarantine 切片 | 已完成本切片 | 统一 automation run 在外部消息已发送但 `FinishRun` 落库失败时立即写入 `needs_review` quarantine 结果并返回 `errAutomationNeedsReview`，避免租约自然重放造成重复外部动作；quarantine 写入失败与 FinishRun 失败使用 `errors.Join` 返回，通知只发送一次；新增双重失败回归，automation 全量和 race 通过。账号任务等旁路仍有忽略 FinishRun/Mark* 错误，后续需继续盘点 |
 
 ### 11.2 执行纠偏审计（2026-08-15）
 

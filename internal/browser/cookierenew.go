@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -47,6 +48,16 @@ func (m *Manager) CookieRenew(ctx context.Context, cookieID, cookieStr string, h
 
 // newPersistentPasswordContext 负责newPersistent密码上下文相关处理。
 func (m *Manager) newPersistentPasswordContext(ctx context.Context, cookieID, userDataDir string, headless bool) (playwright.BrowserContext, func(), error) {
+	// err 表示管理器拒绝新建持久化上下文的原因，并用于下面的短路返回。
+	if err := m.beginOperation(ctx); err != nil {
+		return nil, nil, err
+	}
+	// operationOnce 保证重复调用 release 时只减少一次活动调用计数。
+	var operationOnce sync.Once
+	// finishOperation 在持久化上下文释放或创建失败时结束生命周期登记。
+	finishOperation := func() {
+		operationOnce.Do(m.endOperation)
+	}
 	// lock 保存锁，供当前处理流程使用
 	lock := m.accountRenewLock(cookieID)
 	lock.Lock()
@@ -57,18 +68,21 @@ func (m *Manager) newPersistentPasswordContext(ctx context.Context, cookieID, us
 	releaseSlot, err := m.acquireRenewSlot(ctx)
 	if err != nil {
 		unlock()
+		finishOperation()
 		return nil, nil, err
 	}
 	if // err 保存err，供当前处理流程使用
 	err := m.init(); err != nil {
 		releaseSlot()
 		unlock()
+		finishOperation()
 		return nil, nil, err
 	}
 	userDataDir, err = resolvePersistentUserDataDir(userDataDir)
 	if err != nil {
 		releaseSlot()
 		unlock()
+		finishOperation()
 		return nil, nil, err
 	}
 	cleanSingletonFiles(userDataDir)
@@ -89,6 +103,7 @@ func (m *Manager) newPersistentPasswordContext(ctx context.Context, cookieID, us
 	if bctx == nil {
 		releaseSlot()
 		unlock()
+		finishOperation()
 		return nil, nil, fmt.Errorf("启动持久化浏览器失败: %w", lastErr)
 	}
 	// release 保存release，供当前处理流程使用
@@ -96,6 +111,7 @@ func (m *Manager) newPersistentPasswordContext(ctx context.Context, cookieID, us
 		_ = bctx.Close()
 		releaseSlot()
 		unlock()
+		finishOperation()
 	}
 	return bctx, release, nil
 }
@@ -522,6 +538,16 @@ func cleanSingletonFiles(userDataDir string) {
 
 // newPersistentRenewContext 负责newPersistentRenew上下文相关处理。
 func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cookieStr string, snapshot []cookierefresh.BrowserCookie, headless bool, captchaProfile ...bool) (playwright.BrowserContext, func(), error) {
+	// err 表示管理器拒绝新建续期上下文的原因，并用于下面的短路返回。
+	if err := m.beginOperation(ctx); err != nil {
+		return nil, nil, err
+	}
+	// operationOnce 保证重复调用 release 时只减少一次活动调用计数。
+	var operationOnce sync.Once
+	// finishOperation 在续期上下文释放或创建失败时结束生命周期登记。
+	finishOperation := func() {
+		operationOnce.Do(m.endOperation)
+	}
 	// lock 保存锁，供当前处理流程使用
 	lock := m.accountRenewLock(cookieID)
 	lock.Lock()
@@ -532,6 +558,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 	releaseSlot, err := m.acquireRenewSlot(ctx)
 	if err != nil {
 		unlock()
+		finishOperation()
 		return nil, nil, err
 	}
 
@@ -539,6 +566,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 	err := m.init(); err != nil {
 		releaseSlot()
 		unlock()
+		finishOperation()
 		return nil, nil, err
 	}
 
@@ -547,6 +575,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 	if err != nil {
 		releaseSlot()
 		unlock()
+		finishOperation()
 		return nil, nil, err
 	}
 	cleanSingletonFiles(userDataDir)
@@ -580,6 +609,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 	if bctx == nil {
 		releaseSlot()
 		unlock()
+		finishOperation()
 		return nil, nil, fmt.Errorf("启动持久化浏览器失败: %w", lastErr)
 	}
 
@@ -593,6 +623,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 			_ = bctx.Close()
 			releaseSlot()
 			unlock()
+			finishOperation()
 			return nil, nil, fmt.Errorf("浏览器续期清理旧 Cookie 失败: %w", err)
 		}
 		if // err 保存err，供当前处理流程使用
@@ -600,6 +631,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 			_ = bctx.Close()
 			releaseSlot()
 			unlock()
+			finishOperation()
 			return nil, nil, fmt.Errorf("浏览器续期注入 Cookie 快照失败: %w", err)
 		}
 	} else if cookieStr != "" {
@@ -608,6 +640,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 			_ = bctx.Close()
 			releaseSlot()
 			unlock()
+			finishOperation()
 			return nil, nil, fmt.Errorf("浏览器续期注入 Cookie 字符串失败: %w", err)
 		}
 	}
@@ -617,6 +650,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 		_ = bctx.Close()
 		releaseSlot()
 		unlock()
+		finishOperation()
 	}
 	return bctx, release, nil
 }
