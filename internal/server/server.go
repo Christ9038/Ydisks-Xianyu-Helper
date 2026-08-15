@@ -24,6 +24,7 @@ import (
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/chat"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/logging"
 	"xianyu-go/internal/notify"
 	"xianyu-go/internal/reconciliation"
 	appversion "xianyu-go/internal/version"
@@ -136,7 +137,7 @@ func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr st
 		return nil, fmt.Errorf("server 依赖 account.Manager 不能为空")
 	}
 	if logger == nil {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+		logger = logging.NewLogger(os.Stdout, "text")
 	}
 	// qrMgr 是二维码登录流程使用的默认会话管理器。
 	qrMgr := qrlogin.NewManager(logger)

@@ -440,40 +440,6 @@ func (c *Cookies) GetValue(ctx context.Context, cookieID string) (string, error)
 	return c.codec.decrypt("cookie", cookieID, v)
 }
 
-// AllForUser 取某用户的所有 cookie（id→value）。userID 为 0 时取全部（管理员视图）。
-func (c *Cookies) AllForUser(ctx context.Context, userID int64) (map[string]string, error) {
-	// rows 保存rows，供当前处理流程使用
-	var rows *sql.Rows
-	// err 保存err，供当前处理流程使用
-	var err error
-	if userID == 0 {
-		rows, err = c.DB.QueryContext(ctx, `SELECT id, value FROM cookies`)
-	} else {
-		rows, err = c.DB.QueryContext(ctx, `SELECT id, value FROM cookies WHERE user_id=?`, userID)
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	// m 保存m，供当前处理流程使用
-	m := make(map[string]string)
-	for rows.Next() {
-		// id、v 保存id、v，供当前处理流程使用
-		var id, v string
-		if // err 保存err，供当前处理流程使用
-		err := rows.Scan(&id, &v); err != nil {
-			return nil, err
-		}
-		// plain、err 保存plain、err，供当前处理流程使用
-		plain, err := c.codec.decrypt("cookie", id, v)
-		if err != nil {
-			return nil, err
-		}
-		m[id] = plain
-	}
-	return m, rows.Err()
-}
-
 // GetDetails 取账号完整详情。不存在返回 ErrNotFound。
 func (c *Cookies) GetDetails(ctx context.Context, cookieID string) (*CookieDetail, error) {
 	// d 保存d，供当前处理流程使用

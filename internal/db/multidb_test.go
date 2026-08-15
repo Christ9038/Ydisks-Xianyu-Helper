@@ -225,8 +225,9 @@ func postgresTarget(t *testing.T, url string) testTarget {
 // 它不返回数据库名，只校验 URL 含有数据库名；临时数据库会替换原名称，但保留 sslmode、时区等参数。
 func externalTargetURLParts(t *testing.T, envName, rawURL string) (string, string) {
 	t.Helper()
-	// scheme 保存调用方要求的数据库 URL scheme，避免把错误 scheme 误当成目标配置。
+	// scheme 保存调用方要求的数据库 URL scheme，避免把环境变量后缀 URL 误当成连接 scheme。
 	scheme := strings.TrimPrefix(envName, "TEST_")
+	scheme = strings.TrimSuffix(scheme, "_URL")
 	scheme = strings.ToLower(scheme)
 	// authority、query、err 保存 URL 拆分得到的连接 authority、查询参数及格式错误。
 	authority, query, err := splitExternalTargetURL(rawURL, scheme)

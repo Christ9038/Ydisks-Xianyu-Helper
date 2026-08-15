@@ -421,10 +421,10 @@ func TestCookies_DeleteAndStatuses(t *testing.T) {
 		t.Fatalf("UpdateProfile 后: %#v", d)
 	}
 
-	// AllForUser userID=0 取全部（管理员视图）。
-	all, err := s.Cookies.AllForUser(ctx, 0)
-	if err != nil || all[cid] != "cv=admin" {
-		t.Fatalf("AllForUser(0): %#v err=%v", all, err)
+	// value 保存按账号 ID 读取的单个 Cookie 明文；批量解密接口已移除，避免管理员视图无边界展开全部凭证。
+	value, valueErr := s.Cookies.GetValue(ctx, cid)
+	if valueErr != nil || value != "cv=admin" {
+		t.Fatalf("GetValue: %q err=%v", value, valueErr)
 	}
 
 	if // err 保存err，供当前处理流程使用

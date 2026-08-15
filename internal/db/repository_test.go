@@ -166,10 +166,10 @@ func TestCookieSaveRequiresInit(t *testing.T) {
 	if err != nil || d.Value != "cookievalue" || d.PauseDuration != 10 {
 		t.Fatalf("GetDetails: %+v err=%v", d, err)
 	}
-	// all 保存all，供当前处理流程使用
-	all, _ := s.Cookies.AllForUser(ctx, admin.ID)
-	if all["cid"] != "cookievalue" {
-		t.Fatalf("AllForUser: %v", all)
+	// value 保存按账号 ID 读取的单个 Cookie 明文，验证保存流程不会依赖批量凭证展开。
+	value, valueErr := s.Cookies.GetValue(ctx, "cid")
+	if valueErr != nil || value != "cookievalue" {
+		t.Fatalf("GetValue: %q err=%v", value, valueErr)
 	}
 	if // pd 保存pd，供当前处理流程使用
 	pd := s.Cookies.GetPauseDuration(ctx, "cid"); pd != 10 {

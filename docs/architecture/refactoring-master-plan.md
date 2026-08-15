@@ -93,7 +93,7 @@ app shell / routes
 | --- | --- | --- | --- |
 | 0. 治理文档与强约束 | 已完成 | 总计划、依赖规则、注释规范、AGENTS 门禁、注释检查器 | 文档、门禁规则、Go/TypeScript 检查器和历史基线已落盘 |
 | 1. PR CI 与测试基础 | 已完成 | 独立 CI、测试 DB 模板、可执行 race | CI、独立模板、server smoke race 和完整 race 均有验证 |
-| 2. 敏感数据访问边界 | 进行中 | 摘要、凭证、登录秘密和系统设置分离 | Cookie/平台运行视图、系统设置脱敏读写、已知生产敏感设置调用方审计和运维诊断输出脱敏已收口；MySQL/Postgres 实测证据、外部凭证访问的更广泛审计和普通业务错误日志的全量脱敏策略仍待完成 |
+| 2. 敏感数据访问边界 | 已完成 | 摘要、凭证、登录秘密和系统设置分离 | Cookie/平台运行视图、系统设置脱敏读写、已知生产敏感设置调用方审计和运维诊断输出脱敏已收口；SQLite、MySQL 8.4、PostgreSQL 17 的真实多库迁移与 CRUD 回归均通过；高频运行时仅读取窄视图、不逐次写审计，管理/一次性敏感读取均有审计和 fail-closed 测试 |
 | 3. HTTP API 契约 | 已完成 | 统一错误、具名 DTO、版本化路径 | 统一错误 DTO、具名成功 DTO、所有前端业务调用方版本化、旧路径兼容和最终审计均已完成 |
 | 4. Server 应用服务 | 进行中 | 订单、发布、登录、聊天纵向抽取 | 订单业务服务已迁入 `internal/application/orders`，Server 仅保留订单 HTTP/基础设施适配器；商品发布、登录、聊天仍由 Server 持有，handler 的低层依赖与其他领域 Port 仍待收口 |
 | 5. 应用生命周期装配 | 进行中 | 消除必需依赖 setter 回填并统一关闭边界 | 已有 Server 自有 worker 等待；待完成 Context-aware Stop、账号 StopAll 超时、删除任务登记和统一生命周期清单 |
@@ -105,7 +105,7 @@ app shell / routes
 
 ### 当前执行入口
 
-- 当前阶段：审计重开后的过渡架构治理；不得使用“全部完成”表述。执行顺序固定为：先关闭 P0 敏感数据父切片（包括运维输出脱敏、凭证访问审计、外部数据库实测和秘密调用方盘点），再关闭 P1 应用 Port/生命周期/补偿父切片，最后处理 P2 批量同步、HTTP 兼容退场和 React 页面边界；在当前 P0/P1 父切片关闭前暂停继续拆分 React 页面子切片；每个 PR 必须同时更新完成证据和剩余风险；
+- 当前阶段：审计重开后的过渡架构治理；不得使用“全部完成”表述。P0 敏感数据父切片已按完成条件关闭；当前按顺序推进 P1 应用 Port、生命周期和外部动作补偿父切片，之后才处理 P2 批量同步、HTTP 兼容退场和 React 页面边界；在 P1 父切片关闭前继续暂停新的 React 页面细粒度子切片；每个 PR 必须同时更新完成证据和剩余风险；
 - 已完成：总计划、依赖规则、中文注释规范、`AGENTS.md` 强约束，以及 Go/TypeScript AST 注释检查器和历史基线；
 - 阶段 1 已完成：server 测试模板预置管理员和账号 cookie，普通测试约 21.3 秒，完整 server race 约 194.3 秒通过；
 - 已完成阶段 2 逻辑切片一“Repository 敏感数据边界”：建立 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned`、`GetOwnerID`、`GetSummaryOwned` 和原子 `GetValueOwned`，覆盖跨用户、无效 user ID 及无效密文回归；
@@ -727,7 +727,7 @@ npm --prefix frontend run build
 | 日期 | 切片 | 状态 | 证据 |
 | --- | --- | --- | --- |
 | 2026-08-15 | 审计重开与完成条件纠偏 | 已完成 | 已将阶段 2、4、5、8、9、10 从“已完成”改为“进行中”，建立九个可回滚 PR 切片，并明确“测试通过不等于架构完成”的新验收规则 |
-| 2026-08-15 | P0 敏感系统设置与运维输出脱敏 | 进行中 | 已完成 `SystemSettings.Redacted`、敏感值 retain/replace/clear、管理端脱敏和 dbverify 指纹输出；但该父切片的完成条件仍未满足：运维输出全面脱敏、凭证访问审计、所有秘密调用方盘点及 MySQL/Postgres 实测证据尚未齐全。因此此前的“已完成”仅代表局部子切片，现已重新打开父切片 |
+| 2026-08-15 | P0 敏感系统设置与运维输出脱敏 | 已完成 | `SystemSettings.Redacted`、敏感值 retain/replace/clear、管理端脱敏、已知敏感调用方审计、集中式日志属性脱敏和 dbverify 指纹输出均已收口；真实执行 SQLite、MySQL 8.4、PostgreSQL 17 的 `make test-multidb` 全部 `TestMultiDB_*` 通过，Go/React 回归、类型/构建、架构和中文注释门禁通过；高频运行时窄视图不逐次写审计的边界已记录并有测试，不再把 SQLite 单库结果误判为三库证据 |
 | 2026-08-15 | P1 订单读模型 Port 与架构依赖门禁 | 已完成 | 新增 `internal/application/orders` 纯业务 `OrderRow`/`ListFilter`/`Reader`；订单列表适配器负责 `db.*` 到应用模型的转换；架构门禁统一模块路径、禁止应用层依赖 `db/server/xianyu/browser/sql/http`，并对 Server 新增低层依赖要求临时白名单；新增门禁测试，`make check` 通过。订单写入事务 Port、其他应用服务和既有白名单仍未完成，阶段 4/8/9 继续保持“进行中” |
 | 2026-08-15 | P1 订单事务 Writer Port | 已完成 | 新增 `orders.OrderPatch`、`ItemWrite`、`UpsertOptions`、`Writer` 和 `UnitOfWork`；订单更新、导入、手动发货和刷新统一通过应用 Writer，`*sql.Tx` 仅存在于 Server 基础设施适配器；保留现有提交/回滚语义并通过订单回归与 `make check`。订单实体读取、凭证 Port、其他应用服务和 Server 白名单仍未完成，阶段 4/8/9 继续保持“进行中” |
 | 2026-08-15 | P1 订单实体读取与平台运行视图 Port | 已完成 | 新增纯应用层 `Order`、`ItemInfo`、`PlatformRuntimeData`；订单详情、商品读取、订单分页和刷新凭证读取不再通过 repository 暴露 `db.Order`、`db.ItemInfo`、`db.OrderRow` 或 `db.CookieDetail`；Server 到现有自动化/会话辅助函数保留显式边界适配；新增字段完整性转换测试，`make check` 和注释门禁通过。该三切片仅收口订单 Port，凭证协调器、生命周期、补偿、批量同步和其他领域依赖仍未完成，阶段 4/8/9 继续保持“进行中” |
@@ -770,7 +770,7 @@ npm --prefix frontend run build
 | 2026-08-15 | P2 订单详情分片单条多值 UPSERT 切片 | 已完成本切片 | 新增应用层 `RefreshOrderWrite` 与 `BatchUpsertOrders` Port；详情分片先收集成功结果，再由 Server 适配器在单事务内调用数据库 `UpsertManyTx`，数据库以一条多值 UPSERT 写入整片订单，保留状态防倒退、空字段不覆盖、软删除恢复和跨账号归属检查；新增批量订单 SQLite 回归（状态、版本、金额、跨账号、重复订单）及应用层“单次批量调用”断言；定向 Go 测试、`make check`、架构门禁、中文注释门禁和 `git diff --check` 通过。当前环境未提供 `TEST_MYSQL_URL`/`TEST_POSTGRES_URL`，因此未宣称外部数据库实测完成；订单发现仍为逐账号游标、商品批量同步和其他批量写入仍未完成，阶段 4/5/8/9 保持“进行中” |
 | 2026-08-15 | P2 订单发现批量读写切片 | 已完成本切片 | 订单发现不再对远端订单逐条 `FindOrder` + `UpsertOrder`；新增 `FindOrdersByIDs`（按 500 个标识分片，兼容 SQLite 参数上限），远端列表先去重/归一化，再一次批量读取和一次多值 UPSERT，补齐 `is_bargain` 写入且保留已有砍价标记；未知状态不会覆盖已有进阶状态，批量失败不返回虚假发现统计；新增去重、批量调用次数、未知状态防倒退、批量读写失败和 SQLite 回归；`make check`、订单/Server 聚焦 race、架构门禁、中文注释门禁、`git diff --check` 通过。当前未配置 MySQL/Postgres 外部实例，三库 SQL 仅完成代码路径兼容设计，后续仍需外部查询计划/大数据量实测；跨账号账号级平台请求、商品/其他领域批量同步和阶段 4/5/8/9 仍未完成 |
 | 2026-08-15 | P1 订单应用服务集合装配下沉切片 | 已完成本切片 | 新增 `internal/application/orders.ServiceSet` 与 `NewServiceSet`，统一构造订单列表、详情、删除、更新、导入、手动发货、刷新和刷新任务服务；`internal/server` 的订单对象重命名为 `orderHTTPAdapter`，只负责兼容 HTTP DTO/错误映射与归属适配，Server 不再分别创建订单业务服务；刷新任务 handler 改为通过应用层 ServiceSet 的任务 Port；新增应用集合构造测试与 Server 装配断言，订单/Server 定向测试和中文注释门禁通过。商品发布、登录、聊天等其他 Server 应用服务仍未迁移，低层 handler 依赖、生命周期统一清单、旧 API 兼容退场和整体阶段 4/5/8/9 仍保持“进行中” |
-| 2026-08-15 | P0 敏感设置访问审计切片 | 已完成本切片 | 新增 SQLite/MySQL/Postgres `security_audit_logs` 迁移、`SecurityAuditLogs` repository 和 Store 装配；系统设置读取、敏感设置写入及 AI 模型密钥使用均记录用户、动作、资源和键名，审计记录不保存秘密值；审计存储不可用时管理端敏感操作 fail closed；新增数据库防泄露、HTTP 访问审计、审计存储缺失和迁移字段回归，定向测试、`make check`、架构/中文注释门禁通过。当前环境未配置 `TEST_MYSQL_URL`/`TEST_POSTGRES_URL`，因此仅确认三库迁移/SQL 代码兼容与 SQLite 实测，未宣称外部三库执行完成；运维输出脱敏、凭证访问审计和其他秘密调用方仍待继续治理，阶段 2 继续保持“进行中” |
+| 2026-08-15 | P0 敏感设置访问审计切片 | 已完成本切片 | 新增 SQLite/MySQL/Postgres `security_audit_logs` 迁移、`SecurityAuditLogs` repository 和 Store 装配；系统设置读取、敏感设置写入及 AI 模型密钥使用均记录用户、动作、资源和键名，审计记录不保存秘密值；审计存储不可用时管理端敏感操作 fail closed；新增数据库防泄露、HTTP 访问审计、审计存储缺失和迁移字段回归，定向测试、`make check`、架构/中文注释门禁通过。该历史子切片当时仅有 SQLite 实测，外部三库证据、运维输出脱敏和其他秘密调用方治理在后续 P0 子切片补齐 |
 | 2026-08-15 | P2 React AccountList 子模块收口与页面组合边界 | 已完成本切片 | 新增 `AccountCard`、`AccountDeleteDialog`、`AccountQRCodeModal` 和 `AccountAISettingsModal`，将账号卡片与四类弹窗从 851 行根组件拆出；根组件保留请求取消、二维码轮询、账号列表刷新和编辑子模块协调，不改变现有业务行为；新增账号卡片操作转发、AI 草稿补丁、删除错误、二维码风控无外链测试；前端 322 个测试、类型检查、注释门禁和生产构建通过。React 路由懒加载、Provider/页面组合边界、完整页面行为覆盖和首屏包体预算仍未完成，阶段 7 保持“进行中” |
 | 2026-08-15 | P2 React 路由懒加载与首屏入口包体边界 | 已完成本切片 | 认证根组件保留会话与导航状态，9 个业务页面在 `app/shell/AuthenticatedShell.tsx` 中改为 `React.lazy`，统一由 `Suspense` 提供加载占位；新增 `bundleBoundary.test.ts`，对入口脚本设置 100KB 原始字节预算、禁止图表 vendor 首屏预加载并要求 9 个页面 chunk 均存在；生产构建实测入口约 41.5KB、页面 chunk 独立生成，前端 325 个测试、类型检查、注释门禁、构建和仓库 `make check` 通过。Provider/路由壳细粒度状态边界、动态 chunk 独立预算、完整页面行为覆盖和大型页面进一步拆分仍未完成，阶段 7 保持“进行中” |
 | 2026-08-15 | P2 React 认证后路由壳与页面组合边界 | 已完成本切片 | 新增 `frontend/app/shell/AuthenticatedShell.tsx`，由 `AuthenticatedShell` 统一组合 Sidebar、主内容布局和 `AppContent` 页面选择；`App.tsx` 只保留认证、导航状态及跨页面联动协调，权限回退和商品→规则页参数语义不变；更新 `routing.test.ts`、`rulesFeature.test.ts` 以验证新的壳边界，前端 326 个测试、类型检查、注释门禁、生产构建和 `make check` 通过。Provider 状态边界、动态 chunk 独立预算、完整页面行为覆盖和大型页面进一步拆分仍未完成，阶段 7 保持“进行中” |
@@ -783,20 +783,21 @@ npm --prefix frontend run build
 | 2026-08-15 | P2 React CardList 动作协调器 feature 化 | 已完成本切片 | 新增 `frontend/app/features/cards/cardActions.ts` 和 `cardActions.test.tsx`，将卡密新增、编辑、删除、启停、筛选、复制和模板下载状态/动作从 `CardList` 根组件迁入 cards feature；新增 `CardList.test.tsx` 真实挂载页面，覆盖筛选计数、批量导入入口、新增/编辑字段映射、启停、复制和删除；补充行级按钮无障碍名称。Rules/ItemList 等其他大型页面行为覆盖、页面级 Provider 组合和阶段 7 总体验收仍未完成 |
 | 2026-08-15 | P2 React Rules 动作协调器 feature 化 | 已完成本切片 | 新增 `frontend/app/features/rules/ruleActions.ts` 和 `ruleActions.test.tsx`，将自动化规则、关键词回复、默认回复的草稿与动作状态从 `Rules` 根组件迁入 rules feature；保留商品页联动加载、触发/规格编辑、归一化保存、异常恢复与确认语义，更新路由静态契约测试以跟随实现边界；前端全量 366 个测试、类型检查、中文注释门禁和生产构建通过。ItemList 其他大型页面行为覆盖、页面级 Provider 组合和阶段 7 总体验收仍未完成 |
 | 2026-08-15 | P2 React ItemList 普通商品动作协调器 feature 化 | 已完成本切片 | 新增 `frontend/app/features/items/itemActions.ts` 和 `itemActions.test.tsx`，将商品同步、编辑、删除、手动添加、普通发布、图片预览、模板下载和发货地定位从 `ItemList` 根组件迁入 items feature；批量发布 Hook 保持独立，更新图片预览静态契约；前端全量 62 个测试文件/369 个用例、类型检查、中文注释门禁、生产构建和仓库 `make check` 通过。ItemList 真实页面组合覆盖、页面级 Provider 组合和阶段 7 总体验收仍未完成 |
-| 2026-08-15 | P0 敏感配置调用方与运维输出脱敏代码切片 | 已完成本子切片 | 新增 `Store.ReadSensitiveSetting`/`ReadSensitiveSettingForAccount`，AI API Key、远程验证码密钥、系统 SMTP 密码和 AI 模型查询均在解密前写入不含秘密值的访问审计；新增 `logsafe.Error/Text`，dbverify/dbseed/init-admin/server/spike 及关键 URL/错误日志不再直接输出凭证、查询参数或解密消息正文；三库矩阵新增严格 `REQUIRE_MULTIDB=1` 门禁和 `make test-multidb`，无外部 URL 时明确跳过/失败而不伪造证据。定向 Go 测试、`make check`、前端 369 测试/类型检查/构建和注释门禁通过；当前环境未配置 MySQL/Postgres，父 P0 仍保持“进行中”，受影响包全量 race 曾命中既有订单并发测试一次，聚焦重复验证通过 |
+| 2026-08-15 | P0 敏感配置调用方与运维输出脱敏代码切片 | 已完成本子切片 | 新增 `Store.ReadSensitiveSetting`/`ReadSensitiveSettingForAccount`，AI API Key、远程验证码密钥、系统 SMTP 密码和 AI 模型查询均在解密前写入不含秘密值的访问审计；新增 `logsafe.Error/Text`，dbverify/dbseed/init-admin/server/spike 及关键 URL/错误日志不再直接输出凭证、查询参数或解密消息正文；三库矩阵新增严格 `REQUIRE_MULTIDB=1` 门禁和 `make test-multidb`，无外部 URL 时明确跳过/失败而不伪造证据。定向 Go 测试、`make check`、前端 369 测试/类型检查/构建和注释门禁通过；受影响包全量 race 曾命中既有订单并发测试一次，聚焦重复验证通过，外部三库证据在后续验收子切片补齐 |
+| 2026-08-15 | P0 父切片三库实测与集中式日志/凭证边界验收 | 已完成 | `.github/workflows/ci.yml` 新增 MySQL 8.4/PostgreSQL 17 service job，`docs/architecture/multidb-test-runbook.md` 提供本地复现方式；本机 Docker 实际执行 `make test-multidb`，SQLite/MySQL/PostgreSQL 全部多库测试通过并在结束后清理容器与数据卷；移除无人调用的批量解密 API，集中式 `slog` handler 递归清理敏感属性，Server/spike 的 logger fallback 也统一接入，审计边界与剩余 P1 风险已更新 |
 
 ### 11.2 执行纠偏审计（2026-08-15）
 
 本次审计确认此前的提交节奏和计划顺序均出现偏差，后续以本节为执行闸门：
 
 - 当日 00:00 至审计时产生 159 个提交，15:00 后产生 39 个提交；其中多个提交只完成一个页面动作或一个 Hook 分支，不能等同于计划中的完整 PR 切片。
-- 阶段状态并非“全部打开”：阶段 0、1、3、6 已有完整完成证据；阶段 2、4、5、7、8、9、10 仍为“进行中”。阶段 3/6 的关闭不代表审计重开后的目标架构已经完成。
-- 11.1 中标记为“已完成”的记录均按“子切片”解释，不能自动关闭父 PR。尤其 P0 父切片因外部数据库实测、运维输出脱敏、凭证访问审计和秘密调用方盘点未齐，已重新标记为“进行中”。
-- 在 P0 父切片和 P1 父切片关闭前，暂停新的 React 页面细粒度提交；已完成的 React 子切片保留，不回滚，但不再继续扩展阶段 7。
+- 阶段状态并非“全部打开”：阶段 0、1、2、3、6 已有完整完成证据；阶段 4、5、7、8、9、10 仍为“进行中”。阶段 2 的关闭不代表审计重开后的目标架构已经完成。
+- 11.1 中标记为“已完成”的记录均按“子切片”解释，不能自动关闭父 PR；P0 曾因外部数据库实测、运维输出脱敏、凭证访问审计和秘密调用方盘点未齐而保持“进行中”，现已由后续验收子切片补齐证据并关闭。其余父 PR 仍按下表状态执行。
+- P0 父切片已经关闭；在 P1 父切片关闭前继续暂停新的 React 页面细粒度提交；已完成的 React 子切片保留，不回滚，但不再继续扩展阶段 7。
 
 | 父 PR 切片 | 当前真实状态 | 关闭前必须补齐 |
 | --- | --- | --- |
-| P0 敏感系统设置与运维输出脱敏 | 进行中 | 运维日志/诊断/导出全面脱敏；凭证访问审计；所有秘密调用方清单与收口；MySQL/Postgres 实测迁移与 CRUD 证据；Go/React 回归 |
+| P0 敏感系统设置与运维输出脱敏 | 已完成 | 运维日志/诊断输出集中脱敏；管理/一次性敏感读取审计且 fail closed；已知秘密调用方清单收口；SQLite/MySQL 8.4/PostgreSQL 17 实测迁移与 CRUD 证据；Go/React 回归 |
 | P1 应用 Port 与架构允许边 | 进行中 | 不只订单，其他应用服务和 Server 允许边全部收口；禁止 `sql.Tx`、`db.*`、HTTP/Server 类型泄露；移除临时白名单 |
 | P1 凭证快照与账号操作协调器 | 进行中 | 剩余 Server、Renewal、Engine、Automation 调用方统一协调；版本冲突/锁等待可观测；慢 I/O、重试和合并语义有完整回归 |
 | P1 生命周期与删除 fencing | 进行中 | 调度器、浏览器、Engine 内部任务纳入统一清单；所有 Stop 等待受 Context 限制；删除任务状态可追踪且无游离 goroutine |

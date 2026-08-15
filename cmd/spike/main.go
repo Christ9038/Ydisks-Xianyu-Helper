@@ -22,7 +22,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"sort"
@@ -30,6 +29,7 @@ import (
 	"syscall"
 	"time"
 
+	"xianyu-go/internal/logging"
 	"xianyu-go/internal/logsafe"
 	"xianyu-go/internal/xianyu/mtop"
 	"xianyu-go/internal/xianyu/protocol"
@@ -44,10 +44,13 @@ func main() {
 	verbose := flag.Bool("v", false, "调试日志")
 	flag.Parse()
 
-	// logger 保存logger，供当前处理流程使用
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	// logger 保存带集中式脱敏策略的诊断日志实例。
+	logger := logging.NewLogger(os.Stdout, "text")
 	if *verbose {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		// verboseErr 保存切换调试日志等级时的配置错误；固定值 debug 理论上不会失败。
+		if verboseErr := logging.SetLevel("debug"); verboseErr != nil {
+			logger.Error("启用调试日志失败", "err", logsafe.Error(verboseErr))
+		}
 	}
 
 	// cookieStr 保存登录凭证Str，供当前处理流程使用

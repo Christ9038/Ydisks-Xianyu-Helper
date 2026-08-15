@@ -91,3 +91,52 @@ jobs:
           set -Eeuo pipefail
           npm run build --prefix frontend
           git diff --exit-code -- internal/webui/static
+
+  multidb:
+    name: MySQL/PostgreSQL 多数据库回归
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: test-root-password
+          MYSQL_ROOT_HOST: "%"
+          MYSQL_DATABASE: xianyu
+          TZ: UTC
+        ports:
+          - "3306:3306"
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -ptest-root-password --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: xianyu
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test-postgres-password
+          TZ: UTC
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd="pg_isready -U postgres -d xianyu"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    env:
+      TEST_MYSQL_URL: "mysql://root:test-root-password@tcp(127.0.0.1:3306)/xianyu?parseTime=true&loc=UTC"
+      TEST_POSTGRES_URL: "postgres://postgres:test-postgres-password@127.0.0.1:5432/xianyu?sslmode=disable&timezone=UTC"
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 配置 Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 执行三方言实测回归
+        run: make test-multidb

@@ -53,7 +53,7 @@ func TestUpdateRenewalCookieEncryptsCookieAndMetadataAtRest(t *testing.T) {
 		t.Fatalf("detail=%+v", detail)
 	}
 	// accounts、err 保存accounts、err，供当前处理流程使用
-	accounts, err := store.Cookies.ActiveRenewalAccounts(ctx)
+	accounts, err := store.Cookies.ActiveRenewalRuntimeAccounts(ctx)
 	if err != nil || len(accounts) != 1 {
 		t.Fatalf("accounts=%+v err=%v", accounts, err)
 	}
