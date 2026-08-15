@@ -217,6 +217,8 @@ Playwright 主引擎
 - 启动前清理现有 singleton 文件和 `DevToolsActivePort`，退出后再次清理 singleton 文件。
 - 保留 `--remote-debugging-port=0`、`--window-size=1920,1080`、`--lang=zh-CN`、`--disable-blink-features=AutomationControlled` 等现有启动参数。
 - headless 时使用 `--headless=new`。
+- 直接 Chromium 必须同时携带与当前 Playwright runtime 匹配的兼容启动参数集合（包括后台网络、扩展、Storage 分区、渲染器后台化、SwiftShader 等参数），否则通过 CDP 访问默认上下文的 Cookie Storage 可能无响应；该集合必须随 Playwright runtime 升级同步核对。
+- 备用引擎对默认上下文执行 Cookie 清理、注入和读取时，每次操作最多等待 `5s`；超时必须中止当前备用引擎流程并释放浏览器，不得无限阻塞续期协程。
 - 默认总超时为 `25s`，可由现有环境变量控制；导航超时为 `15s`。
 
 备用距离规则固定如下：

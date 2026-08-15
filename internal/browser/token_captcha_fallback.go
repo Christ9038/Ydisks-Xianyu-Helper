@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -14,6 +15,12 @@ import (
 
 	"github.com/mxschmitt/playwright-go"
 )
+
+// fallbackBrowserContextOperationTimeout 限制 CDP 默认上下文存储操作的最长等待时间。
+const fallbackBrowserContextOperationTimeout = 5 * time.Second
+
+// errFallbackBrowserContextOperationTimeout 表示 CDP 默认上下文操作未在限定时间内返回。
+var errFallbackBrowserContextOperationTimeout = errors.New("备用滑块引擎浏览器上下文操作超时")
 
 var fallbackTrackSelectors = []string{
 	"#nc_1_n1t", ".nc_scale",
@@ -88,10 +95,10 @@ func (m *Manager) tokenCaptchaCDPFallback(ctx context.Context, cookieID, cookieS
 		return "", fmt.Errorf("备用滑块引擎未取得默认浏览器上下文")
 	}
 	bctx := contexts[0]
-	if err := addCookieStr(bctx, cookieStr); err != nil {
+	if err := addFallbackCookieStr(ctx, bctx, cookieStr); err != nil {
 		return "", fmt.Errorf("备用滑块引擎注入 Cookie: %w", err)
 	}
-	before, err := bctx.Cookies()
+	before, err := fallbackBrowserContextCookies(ctx, bctx)
 	if err != nil {
 		return "", fmt.Errorf("备用滑块引擎读取旧 Cookie: %w", err)
 	}
@@ -195,17 +202,106 @@ func fallbackChromiumArgs(profileDir string, headless bool) []string {
 		"--remote-debugging-port=0",
 		"--no-sandbox",
 		"--disable-setuid-sandbox",
-		"--disable-dev-shm-usage",
 		"--disable-blink-features=AutomationControlled",
-		"--no-first-run",
 		"--window-size=1920,1080",
 		"--lang=zh-CN",
 		"about:blank",
 	}
+	args = append(playwrightChromiumCompatibilityArgs(), args...)
 	if headless {
 		args = append([]string{"--headless=new"}, args...)
 	}
 	return args
+}
+
+// playwrightChromiumCompatibilityArgs 返回 Playwright 推荐的 Chromium 兼容启动参数。
+func playwrightChromiumCompatibilityArgs() []string {
+	return []string{
+		"--disable-field-trial-config",
+		"--disable-background-networking",
+		"--disable-background-timer-throttling",
+		"--disable-backgrounding-occluded-windows",
+		"--disable-back-forward-cache",
+		"--disable-breakpad",
+		"--disable-client-side-phishing-detection",
+		"--disable-component-extensions-with-background-pages",
+		"--disable-component-update",
+		"--no-default-browser-check",
+		"--disable-default-apps",
+		"--disable-extensions",
+		"--disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints,msForceBrowserSignIn,msEdgeUpdateLaunchServicesPreferredVersion",
+		"--enable-features=CDPScreenshotNewSurface",
+		"--allow-pre-commit-input",
+		"--disable-hang-monitor",
+		"--disable-ipc-flooding-protection",
+		"--disable-popup-blocking",
+		"--disable-prompt-on-repost",
+		"--disable-renderer-backgrounding",
+		"--force-color-profile=srgb",
+		"--metrics-recording-only",
+		"--password-store=basic",
+		"--use-mock-keychain",
+		"--no-service-autorun",
+		"--export-tagged-pdf",
+		"--disable-search-engine-choice-screen",
+		"--unsafely-disable-devtools-self-xss-warnings",
+		"--disable-infobars",
+		"--disable-sync",
+		"--enable-unsafe-swiftshader",
+		"--hide-scrollbars",
+		"--mute-audio",
+		"--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4",
+	}
+}
+
+// addFallbackCookieStr 在 CDP 默认上下文中清理并注入 Cookie，同时避免协议调用无限阻塞。
+func addFallbackCookieStr(ctx context.Context, browserContext playwright.BrowserContext, cookieStr string) error {
+	cookies := parseCookieStrToPlaywright(cookieStr)
+	if len(cookies) == 0 {
+		return errors.New("cookie 为空或格式错误")
+	}
+	if err := runFallbackBrowserContextOperation(ctx, fallbackBrowserContextOperationTimeout, func() error {
+		return browserContext.ClearCookies()
+	}); err != nil {
+		return fmt.Errorf("清理浏览器旧 cookie: %w", err)
+	}
+	if err := runFallbackBrowserContextOperation(ctx, fallbackBrowserContextOperationTimeout, func() error {
+		return browserContext.AddCookies(cookies)
+	}); err != nil {
+		return fmt.Errorf("注入浏览器 cookie: %w", err)
+	}
+	return nil
+}
+
+// fallbackBrowserContextCookies 在限定时间内读取 CDP 默认上下文的 Cookie。
+func fallbackBrowserContextCookies(ctx context.Context, browserContext playwright.BrowserContext) ([]playwright.Cookie, error) {
+	var (
+		cookies []playwright.Cookie
+		err     error
+	)
+	if runErr := runFallbackBrowserContextOperation(ctx, fallbackBrowserContextOperationTimeout, func() error {
+		cookies, err = browserContext.Cookies()
+		return err
+	}); runErr != nil {
+		return nil, runErr
+	}
+	return cookies, nil
+}
+
+// runFallbackBrowserContextOperation 为无法接收 context 的 Playwright 操作提供超时保护。
+func runFallbackBrowserContextOperation(ctx context.Context, timeout time.Duration, operation func() error) error {
+	done := make(chan error, 1)
+	go func() { done <- operation() }()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return errFallbackBrowserContextOperationTimeout
+	}
 }
 
 func waitForDevToolsEndpoint(ctx context.Context, profileDir string, processDone <-chan error, timeout time.Duration) (string, error) {
@@ -426,7 +522,9 @@ func simulateFallbackSlide(ctx context.Context, page playwright.Page, button pla
 func waitForFallbackSuccess(ctx context.Context, bctx playwright.BrowserContext, page playwright.Page, previousX5 map[string]struct{}, deadline time.Time) (map[string]string, bool) {
 	var latest map[string]string
 	for {
-		all, err := bctx.Cookies()
+		operationCtx, cancel := context.WithDeadline(ctx, deadline)
+		all, err := fallbackBrowserContextCookies(operationCtx, bctx)
+		cancel()
 		if err == nil {
 			x5, fresh := freshX5Cookies(all, previousX5)
 			latest = x5

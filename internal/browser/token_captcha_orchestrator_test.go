@@ -267,6 +267,35 @@ func TestFallbackChromiumArgsUsePersistentCDPProfile(t *testing.T) {
 	}
 }
 
+// TestFallbackChromiumArgsIncludePlaywrightCompatibilityFlags 验证备用 Chromium 保留 Playwright 兼容启动参数。
+func TestFallbackChromiumArgsIncludePlaywrightCompatibilityFlags(t *testing.T) {
+	args := strings.Join(fallbackChromiumArgs("/tmp/profile", true), " ")
+	for _, want := range []string{
+		"--disable-background-networking",
+		"--disable-component-extensions-with-background-pages",
+		"--disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,BoundaryEventDispatchTracksNodeRemoval,DestroyProfileOnBrowserClose,DialMediaRouteProvider,GlobalMediaControls,HttpsUpgrades,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,Translate,AutoDeElevate,RenderDocument,OptimizationHints,msForceBrowserSignIn,msEdgeUpdateLaunchServicesPreferredVersion",
+		"--disable-ipc-flooding-protection",
+		"--enable-unsafe-swiftshader",
+	} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("args 缺少 Playwright 兼容参数 %q: %s", want, args)
+		}
+	}
+}
+
+// TestRunFallbackBrowserContextOperationTimeout 验证无 context 参数的 CDP 操作会按时返回超时错误。
+func TestRunFallbackBrowserContextOperationTimeout(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	err := runFallbackBrowserContextOperation(context.Background(), time.Millisecond, func() error {
+		<-release
+		return nil
+	})
+	if !errors.Is(err, errFallbackBrowserContextOperationTimeout) {
+		t.Fatalf("操作超时错误=%v", err)
+	}
+}
+
 func TestWaitForDevToolsEndpoint(t *testing.T) {
 	dir := t.TempDir()
 	processDone := make(chan error)
