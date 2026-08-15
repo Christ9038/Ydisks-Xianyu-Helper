@@ -1,10 +1,12 @@
 import ReactDOMServer from 'react-dom/server';
 import { describe, expect, test } from 'vitest';
 import type { NotificationChannel } from '../../types';
+import type { SystemSettings } from '../../types';
 import { CardIcon } from './cards/components/CardIcon';
 import { BatchPhaseIndicator } from './items/components/BatchPhaseIndicator';
 import { NotificationChannelList } from './notifications/components/NotificationChannelList';
 import { NotificationEventSelector } from './notifications/components/NotificationEventSelector';
+import { NotificationSmtpSettings } from './notifications/components/NotificationSmtpSettings';
 import { OrderFilterBar } from './orders/components/OrderFilterBar';
 import { AutomationIssuePanel } from './rules/components/AutomationIssuePanel';
 import type { AutomationRunIssue, DeferredAutomationIssue } from './rules/api';
@@ -32,6 +34,15 @@ const noopRunResolution = (): void => undefined;
 
 // noopDeferredResolution 是静态渲染测试使用的延迟任务处理占位实现。
 const noopDeferredResolution = (): void => undefined;
+
+// noopSmtpUpdate 是静态渲染测试使用的 SMTP 配置更新占位实现。
+const noopSmtpUpdate = (): void => undefined;
+
+// noopPasswordToggle 是静态渲染测试使用的密码显隐更新占位实现。
+const noopPasswordToggle = (): void => undefined;
+
+// noopSmtpSave 是静态渲染测试使用的 SMTP 保存占位实现。
+const noopSmtpSave = (): void => undefined;
 
 describe('前端纯展示组件', /* 当前回调处理无浏览器依赖的展示组件断言。 */ () => {
   test('卡密图标覆盖各交付类型', /* 当前回调处理库存图标类型分支。 */ () => {
@@ -71,6 +82,21 @@ describe('前端纯展示组件', /* 当前回调处理无浏览器依赖的展�
     expect(list).toContain('已停用');
     expect(list).toContain('系统错误');
     expect(list).toContain('animate-spin');
+  });
+
+  test('SMTP 设置面板覆盖密码显隐和保存中状态', /* 当前回调处理系统邮件配置的展示分支。 */ () => {
+    // smtp 是覆盖 TLS/SSL 和发件人回填的系统邮件配置。
+    const smtp: SystemSettings = { smtp_server: 'smtp.example.com', smtp_port: 465, smtp_user: 'sender@example.com', smtp_password: 'secret', smtp_use_tls: false, smtp_use_ssl: true };
+    // hiddenMarkup 是密码隐藏且保存按钮可用时的静态 HTML。
+    const hiddenMarkup = render(<NotificationSmtpSettings smtp={smtp} setSmtp={noopSmtpUpdate} smtpSaving={false} showPassword={false} setShowPassword={noopPasswordToggle} onSave={noopSmtpSave} />);
+    expect(hiddenMarkup).toContain('type="password"');
+    expect(hiddenMarkup).toContain('保存 SMTP 配置');
+    expect(hiddenMarkup).toContain('SMTP 邮件配置');
+    // savingMarkup 是密码显示且请求执行中的静态 HTML。
+    const savingMarkup = render(<NotificationSmtpSettings smtp={smtp} setSmtp={noopSmtpUpdate} smtpSaving showPassword setShowPassword={noopPasswordToggle} onSave={noopSmtpSave} />);
+    expect(savingMarkup).toContain('type="text"');
+    expect(savingMarkup).toContain('保存中...');
+    expect(savingMarkup).toContain('disabled');
   });
 
   test('自动化异常面板渲染运行异常和延迟任务操作', /* 当前回调处理人工核对面板的异常分支。 */ () => {
