@@ -104,4 +104,15 @@ describe('useDashboard', /* 当前回调处理仪表盘并行请求和派生数�
     expect(getAnalyticsMock).not.toHaveBeenCalled();
     expect(getValidOrdersMock).not.toHaveBeenCalled();
   });
+
+  test('经营数据请求失败时展示范围错误', /* 当前回调验证趋势和有效订单请求失败分支。 */ async () => {
+    getAnalyticsMock.mockRejectedValueOnce(new Error('经营数据服务失败'));
+    // hook 是经营数据请求失败场景的仪表盘 Hook 渲染结果。
+    const hook = renderHook(renderDashboardHook);
+    await waitFor(
+      // rangeErrorAssertion 等待范围请求错误状态写入。
+      () => expect(hook.result.current.status.range).toBe('error'),
+    );
+    expect(hook.result.current.status.error).toBe('经营数据服务失败');
+  });
 });
