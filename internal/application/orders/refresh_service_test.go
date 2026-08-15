@@ -24,6 +24,12 @@ type refreshRepositoryFake struct {
 	upsertCount int
 	// batchUpsertCount 保存详情分片批量写入调用次数。
 	batchUpsertCount int
+	// batchFindCount 保存订单发现批量读取调用次数。
+	batchFindCount int
+	// batchFindErr 保存测试批量读取错误。
+	batchFindErr error
+	// batchUpsertErr 保存测试批量写入错误。
+	batchUpsertErr error
 	// transactionErr 保存事务错误。
 	transactionErr error
 	// loadErr 保存账号视图读取错误。
@@ -63,6 +69,27 @@ func (f *refreshRepositoryFake) FindOrder(_ context.Context, orderID string) (*O
 	return order, order != nil, err
 }
 
+// FindOrdersByIDs 返回测试订单发现批量读取结果。
+func (f *refreshRepositoryFake) FindOrdersByIDs(_ context.Context, orderIDs []string) (map[string]*Order, error) {
+	f.batchFindCount++
+	if f.batchFindErr != nil {
+		return nil, f.batchFindErr
+	}
+	// result 保存批量读取到的测试订单。
+	result := make(map[string]*Order, len(orderIDs))
+	if f.orders == nil {
+		return result, nil
+	}
+	// orderID 是当前批量读取的订单标识。
+	for _, orderID := range orderIDs {
+		// order 保存当前标识对应的测试订单。
+		if order := f.orders[orderID]; order != nil {
+			result[orderID] = order
+		}
+	}
+	return result, nil
+}
+
 // LockCredentials 返回无需等待的测试凭证锁。
 func (f *refreshRepositoryFake) LockCredentials(string) func() {
 	return func() {}
@@ -97,6 +124,9 @@ func (f *refreshRepositoryFake) UpsertOrder(_ context.Context, orderID string, o
 // BatchUpsertOrders 记录测试详情分片批量写入。
 func (f *refreshRepositoryFake) BatchUpsertOrders(ctx context.Context, rows []RefreshOrderWrite) error {
 	f.batchUpsertCount++
+	if f.batchUpsertErr != nil {
+		return f.batchUpsertErr
+	}
 	// row 是当前测试批量写入的订单详情。
 	for _, row := range rows {
 		// err 保存测试订单写入错误。
@@ -253,7 +283,39 @@ func TestRefreshBatchDiscoveryAndDetails(t *testing.T) {
 	}
 	// result、err 保存批量刷新结果和错误。
 	result, err := NewRefreshService(repository, runtime, 1).Refresh(context.Background(), 7, "", "all")
-	if err != nil || result.Summary.Discovered != 1 || result.Summary.SoftDeleted != 1 || result.Summary.DetailTotal == 0 || repository.upsertCount == 0 || repository.batchUpsertCount != 1 {
+	if err != nil || result.Summary.Discovered != 1 || result.Summary.SoftDeleted != 1 || result.Summary.DetailTotal == 0 || repository.upsertCount == 0 || repository.batchFindCount != 1 || repository.batchUpsertCount != 2 {
 		t.Fatalf("批量刷新结果异常: result=%+v err=%v repository=%+v", result, err, repository)
+	}
+}
+
+// TestPersistSoldOrdersBatchesLookupAndWrite 验证订单发现会去重并批量读取、写入本地订单。
+func TestPersistSoldOrdersBatchesLookupAndWrite(t *testing.T) {
+	// repository 保存订单发现使用的内存持久化依赖。
+	repository := &refreshRepositoryFake{orders: map[string]*Order{"existing": {OrderID: "existing", CookieID: "cookie-1", OrderStatus: "processing", Amount: "1.00"}}}
+	// service 保存仅用于调用订单发现持久化的应用服务。
+	service := &RefreshService{repository: repository}
+	// discovered、updated、newIDs、remoteIDs、err 保存批量发现结果。
+	discovered, updated, newIDs, remoteIDs, err := service.persistSoldOrders(context.Background(), "cookie-1", []RefreshSoldOrder{
+		{OrderID: " existing ", OrderStatus: "unknown", Amount: "2.00"},
+		{OrderID: "new-order", OrderStatus: "processing", Amount: "3.00"},
+		{OrderID: "new-order", OrderStatus: "processing", Amount: "3.00"},
+	})
+	if err != nil || discovered != 1 || updated != 1 || len(newIDs) != 1 || len(remoteIDs) != 2 || repository.batchFindCount != 1 || repository.batchUpsertCount != 1 || repository.upsertCount != 2 || repository.orders["existing"].OrderStatus != "processing" {
+		t.Fatalf("批量订单发现结果异常: discovered=%d updated=%d new=%v remote=%v repository=%+v err=%v", discovered, updated, newIDs, remoteIDs, repository, err)
+	}
+}
+
+// TestPersistSoldOrdersReturnsBatchWriteError 验证批量写入失败不会返回虚假的发现统计。
+func TestPersistSoldOrdersReturnsBatchWriteError(t *testing.T) {
+	// writeErr 保存预置的批量写入错误。
+	writeErr := errors.New("批量写入失败")
+	// repository 保存返回批量写入错误的内存依赖。
+	repository := &refreshRepositoryFake{batchUpsertErr: writeErr}
+	// service 保存订单刷新应用服务。
+	service := &RefreshService{repository: repository}
+	// discovered、updated、newIDs、remoteIDs、err 保存批量写入失败结果。
+	discovered, updated, newIDs, remoteIDs, err := service.persistSoldOrders(context.Background(), "cookie-1", []RefreshSoldOrder{{OrderID: "failed-order", OrderStatus: "processing"}})
+	if err == nil || discovered != 0 || updated != 0 || len(newIDs) != 0 || len(remoteIDs) != 1 || !errors.Is(err, writeErr) {
+		t.Fatalf("批量写入失败结果异常: discovered=%d updated=%d new=%v remote=%v err=%v", discovered, updated, newIDs, remoteIDs, err)
 	}
 }

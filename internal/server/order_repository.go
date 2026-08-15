@@ -119,6 +119,22 @@ func (r storeOrderRepository) FindOrder(ctx context.Context, orderID string) (*o
 	return orderFromDB(order), true, nil
 }
 
+// FindOrdersByIDs 委托数据库批量读取订单并转换为应用实体。
+func (r storeOrderRepository) FindOrdersByIDs(ctx context.Context, orderIDs []string) (map[string]*orderapp.Order, error) {
+	// orders、err 保存数据库批量订单及查询错误。
+	orders, err := r.store.Orders.FindByIDs(ctx, orderIDs)
+	if err != nil {
+		return nil, err
+	}
+	// converted 保存转换后的应用订单索引。
+	converted := make(map[string]*orderapp.Order, len(orders))
+	// orderID、order 保存当前数据库订单的标识和实体。
+	for orderID, order := range orders {
+		converted[orderID] = orderFromDB(order)
+	}
+	return converted, nil
+}
+
 // GetItem 委托商品信息查询。
 func (r storeOrderRepository) GetItem(ctx context.Context, cookieID, itemID string) (*orderapp.ItemInfo, error) {
 	// item 和 err 保存数据库商品查询结果及其错误。
@@ -222,7 +238,7 @@ func (r storeOrderRepository) BatchUpsertOrders(ctx context.Context, rows []orde
 	converted := make([]db.BatchOrderUpsert, 0, len(rows))
 	// row 是当前待转换的应用层批量订单记录。
 	for _, row := range rows {
-		converted = append(converted, db.BatchOrderUpsert{OrderID: row.OrderID, Options: db.OrderUpsertOpts{ItemID: row.Options.ItemID, BuyerID: row.Options.BuyerID, CookieID: row.Options.CookieID, OrderStatus: row.Options.OrderStatus, SpecName: row.Options.SpecName, SpecValue: row.Options.SpecValue, Quantity: row.Options.Quantity, Amount: row.Options.Amount, ReceiverName: row.Options.ReceiverName, ReceiverPhone: row.Options.ReceiverPhone, ReceiverAddr: row.Options.ReceiverAddress, ReceiverCity: row.Options.ReceiverCity, ChatID: row.Options.ChatID}})
+		converted = append(converted, db.BatchOrderUpsert{OrderID: row.OrderID, Options: db.OrderUpsertOpts{ItemID: row.Options.ItemID, BuyerID: row.Options.BuyerID, CookieID: row.Options.CookieID, OrderStatus: row.Options.OrderStatus, SpecName: row.Options.SpecName, SpecValue: row.Options.SpecValue, Quantity: row.Options.Quantity, Amount: row.Options.Amount, ReceiverName: row.Options.ReceiverName, ReceiverPhone: row.Options.ReceiverPhone, ReceiverAddr: row.Options.ReceiverAddress, ReceiverCity: row.Options.ReceiverCity, ChatID: row.Options.ChatID, IsBargain: row.Options.IsBargain, SystemShipped: row.Options.SystemShipped}})
 	}
 	// tx、err 保存详情分片事务及创建错误。
 	tx, err := r.store.DB.BeginTx(ctx, nil)

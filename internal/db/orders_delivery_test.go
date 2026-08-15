@@ -148,8 +148,10 @@ func TestOrdersUpsertMany(t *testing.T) {
 	ctx := context.Background()
 	// cookieID 保存测试账号标识。
 	_, cookieID := seedAccount(t, store)
+	// bargain 保存已有订单的砍价标记。
+	bargain := true
 	// err 表示初始订单写入错误。
-	if err := store.Orders.Upsert(ctx, "batch-existing", OrderUpsertOpts{CookieID: cookieID, OrderStatus: "shipped", Amount: "10"}); err != nil {
+	if err := store.Orders.Upsert(ctx, "batch-existing", OrderUpsertOpts{CookieID: cookieID, OrderStatus: "shipped", Amount: "10", IsBargain: &bargain}); err != nil {
 		t.Fatalf("seed existing order: %v", err)
 	}
 	// before 保存批量写入前的订单版本。
@@ -160,7 +162,7 @@ func TestOrdersUpsertMany(t *testing.T) {
 	// rows 保存待一次性写入的订单详情。
 	rows := []BatchOrderUpsert{
 		{OrderID: "batch-existing", Options: OrderUpsertOpts{CookieID: cookieID, OrderStatus: "pending_ship", SpecName: "颜色", SpecValue: "蓝", Amount: "¥12.50"}},
-		{OrderID: "batch-new", Options: OrderUpsertOpts{CookieID: cookieID, OrderStatus: "pending_ship", Quantity: "2", Amount: "5.00"}},
+		{OrderID: "batch-new", Options: OrderUpsertOpts{CookieID: cookieID, OrderStatus: "pending_ship", Quantity: "2", Amount: "5.00", IsBargain: &bargain}},
 	}
 	// err 保存批量订单写入错误。
 	if err := store.Orders.UpsertMany(ctx, rows); err != nil {
@@ -177,11 +179,25 @@ func TestOrdersUpsertMany(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read batch new order: %v", err)
 	}
-	if existing.OrderStatus != "shipped" || existing.SpecValue != "蓝" || existing.Amount != "12.50" || existing.Version <= before.Version {
+	if existing.OrderStatus != "shipped" || existing.SpecValue != "蓝" || existing.Amount != "12.50" || existing.IsBargain != 1 || existing.Version <= before.Version {
 		t.Fatalf("batch existing order=%+v before=%+v", existing, before)
 	}
-	if newOrder.OrderStatus != "pending_ship" || newOrder.Quantity != "2" || newOrder.Amount != "5.00" {
+	if newOrder.OrderStatus != "pending_ship" || newOrder.Quantity != "2" || newOrder.Amount != "5.00" || newOrder.IsBargain != 1 {
 		t.Fatalf("batch new order=%+v", newOrder)
+	}
+	// err 保存空状态批量写入错误。
+	if err := store.Orders.UpsertMany(ctx, []BatchOrderUpsert{{OrderID: "batch-existing", Options: OrderUpsertOpts{CookieID: cookieID, OrderStatus: ""}}}); err != nil {
+		t.Fatalf("batch unknown status upsert: %v", err)
+	}
+	// preserved、preserveErr 保存空状态写入后的已有订单及读取错误。
+	preserved, preserveErr := store.Orders.Get(ctx, "batch-existing")
+	if preserveErr != nil || preserved.OrderStatus != "shipped" {
+		t.Fatalf("batch unknown status regressed order=%+v err=%v", preserved, preserveErr)
+	}
+	// found、findErr 保存批量读取的已有订单和查询错误。
+	found, findErr := store.Orders.FindByIDs(ctx, []string{"batch-existing", "batch-new", "missing"})
+	if findErr != nil || len(found) != 2 || found["batch-existing"] == nil || found["batch-new"] == nil {
+		t.Fatalf("batch find result=%v err=%v", found, findErr)
 	}
 	// forbiddenErr 保存跨账号订单写入错误。
 	forbiddenErr := store.Orders.UpsertMany(ctx, []BatchOrderUpsert{{OrderID: "batch-existing", Options: OrderUpsertOpts{CookieID: "other-cookie", OrderStatus: "completed"}}})

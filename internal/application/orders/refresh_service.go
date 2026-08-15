@@ -170,6 +170,8 @@ type RefreshRepository interface {
 	GetOrder(ctx context.Context, orderID string) (*Order, error)
 	// FindOrder 读取订单实体并以 exists 区分不存在。
 	FindOrder(ctx context.Context, orderID string) (*Order, bool, error)
+	// FindOrdersByIDs 批量读取订单实体，避免订单发现逐单查询。
+	FindOrdersByIDs(ctx context.Context, orderIDs []string) (map[string]*Order, error)
 	// LockCredentials 获取账号凭证互斥锁。
 	LockCredentials(cookieID string) func()
 	// LoadCookiePlatformDetail 读取平台请求所需的账号视图。
@@ -553,25 +555,55 @@ func (s *RefreshService) persistSoldOrders(ctx context.Context, cookieID string,
 	newOrderIDs := make(map[string]struct{})
 	// remoteOrderIDs 保存远端订单标识集合。
 	remoteOrderIDs := make(map[string]struct{})
+	// normalizedRemoteOrders 保存去重并完成金额归一化的平台订单。
+	normalizedRemoteOrders := make([]RefreshSoldOrder, 0, len(remoteOrders))
+	// seenRemoteIDs 保存已经处理的平台订单标识。
+	seenRemoteIDs := make(map[string]struct{}, len(remoteOrders))
 	// remote 是当前平台订单列表项。
 	for _, remote := range remoteOrders {
+		remote.OrderID = strings.TrimSpace(remote.OrderID)
+		if remote.OrderID == "" {
+			continue
+		}
+		// exists 表示当前远端订单是否已经在本批次出现。
+		if _, exists := seenRemoteIDs[remote.OrderID]; exists {
+			continue
+		}
+		seenRemoteIDs[remote.OrderID] = struct{}{}
 		remoteOrderIDs[remote.OrderID] = struct{}{}
 		// normalizedAmount、ok 保存金额归一化结果。
 		normalizedAmount, ok := NormalizeOrderAmount(remote.Amount)
 		if ok {
 			remote.Amount = normalizedAmount
 		}
-		// existing、exists、getErr 保存本地订单查询结果。
-		existing, exists, getErr := s.repository.FindOrder(ctx, remote.OrderID)
-		if getErr != nil {
-			return discovered, updated, newOrderIDs, remoteOrderIDs, fmt.Errorf("读取订单 %s 失败: %w", remote.OrderID, getErr)
-		}
+		normalizedRemoteOrders = append(normalizedRemoteOrders, remote)
+	}
+	if len(normalizedRemoteOrders) == 0 {
+		return discovered, updated, newOrderIDs, remoteOrderIDs, nil
+	}
+	// remoteIDs 保存批量读取本地订单的标识集合。
+	remoteIDs := make([]string, 0, len(normalizedRemoteOrders))
+	// remote 是当前已归一化的平台订单。
+	for _, remote := range normalizedRemoteOrders {
+		remoteIDs = append(remoteIDs, remote.OrderID)
+	}
+	// existingOrders、findErr 保存批量读取的本地订单及错误。
+	existingOrders, findErr := s.repository.FindOrdersByIDs(ctx, remoteIDs)
+	if findErr != nil {
+		return discovered, updated, newOrderIDs, remoteOrderIDs, fmt.Errorf("批量读取订单失败: %w", findErr)
+	}
+	// batchRows 保存订单发现阶段待一次性写入的订单。
+	batchRows := make([]RefreshOrderWrite, 0, len(normalizedRemoteOrders))
+	// remote 是当前待比较并写入的平台订单。
+	for _, remote := range normalizedRemoteOrders {
+		// existing、exists 保存当前订单的本地实体及存在标记。
+		existing, exists := existingOrders[remote.OrderID]
 		// changed 表示远端订单字段是否发生变化。
 		changed := !exists || refreshSoldOrderChanged(existing, remote)
 		// status 保存待写入的订单状态。
 		status := remote.OrderStatus
 		if exists && status == "unknown" {
-			status = ""
+			status = existing.OrderStatus
 		}
 		// bargain 保存砍价订单标记指针。
 		var bargain *bool
@@ -580,16 +612,17 @@ func (s *RefreshService) persistSoldOrders(ctx context.Context, cookieID string,
 			value := true
 			bargain = &value
 		}
-		// err 保存平台订单写入错误。
-		if err := s.repository.UpsertOrder(ctx, remote.OrderID, UpsertOptions{ItemID: remote.ItemID, BuyerID: remote.BuyerID, CookieID: cookieID, OrderStatus: status, Quantity: remote.Quantity, Amount: remote.Amount, ReceiverName: remote.ReceiverName, ReceiverPhone: remote.ReceiverPhone, ReceiverAddress: remote.ReceiverAddr, ReceiverCity: remote.ReceiverCity, IsBargain: bargain}); err != nil {
-			return discovered, updated, newOrderIDs, remoteOrderIDs, fmt.Errorf("保存订单 %s 失败: %w", remote.OrderID, err)
-		}
+		batchRows = append(batchRows, RefreshOrderWrite{OrderID: remote.OrderID, Options: UpsertOptions{ItemID: remote.ItemID, BuyerID: remote.BuyerID, CookieID: cookieID, OrderStatus: status, Quantity: remote.Quantity, Amount: remote.Amount, ReceiverName: remote.ReceiverName, ReceiverPhone: remote.ReceiverPhone, ReceiverAddress: remote.ReceiverAddr, ReceiverCity: remote.ReceiverCity, IsBargain: bargain}})
 		if !exists {
 			discovered++
 			newOrderIDs[remote.OrderID] = struct{}{}
 		} else if changed {
 			updated++
 		}
+	}
+	// err 保存订单发现批量写入错误。
+	if err := s.repository.BatchUpsertOrders(ctx, batchRows); err != nil {
+		return 0, 0, make(map[string]struct{}), remoteOrderIDs, fmt.Errorf("批量保存订单失败: %w", err)
 	}
 	return discovered, updated, newOrderIDs, remoteOrderIDs, nil
 }

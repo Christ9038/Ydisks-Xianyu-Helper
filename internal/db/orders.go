@@ -228,7 +228,7 @@ func upsertManyOrders(ctx context.Context, execer sqlQueryExecer, dialect Dialec
 	}
 
 	// columns 保存多值 INSERT 的公共列集合。
-	columns := []string{"order_id", "item_id", "buyer_id", "cookie_id", "order_status", "spec_name", "spec_value", "quantity", "amount", "receiver_name", "receiver_phone", "receiver_address", "receiver_city", "version"}
+	columns := []string{"order_id", "item_id", "buyer_id", "cookie_id", "order_status", "is_bargain", "spec_name", "spec_value", "quantity", "amount", "receiver_name", "receiver_phone", "receiver_address", "receiver_city", "version"}
 	// values 保存多行占位符和参数。
 	values := make([]string, 0, len(normalizedRows))
 	// args 保存批量插入参数。
@@ -236,7 +236,12 @@ func upsertManyOrders(ctx context.Context, execer sqlQueryExecer, dialect Dialec
 	// row 是当前待插入的批量订单。
 	for _, row := range normalizedRows {
 		values = append(values, "("+strings.TrimRight(strings.Repeat("?,", len(columns)), ",")+")")
-		args = append(args, row.OrderID, row.Options.ItemID, row.Options.BuyerID, row.Options.CookieID, row.Options.OrderStatus, row.Options.SpecName, row.Options.SpecValue, row.Options.Quantity, row.Options.Amount, row.Options.ReceiverName, row.Options.ReceiverPhone, row.Options.ReceiverAddr, row.Options.ReceiverCity, 1)
+		// isBargain 保存批量订单是否包含砍价标记。
+		isBargain := 0
+		if row.Options.IsBargain != nil && *row.Options.IsBargain {
+			isBargain = 1
+		}
+		args = append(args, row.OrderID, row.Options.ItemID, row.Options.BuyerID, row.Options.CookieID, row.Options.OrderStatus, isBargain, row.Options.SpecName, row.Options.SpecValue, row.Options.Quantity, row.Options.Amount, row.Options.ReceiverName, row.Options.ReceiverPhone, row.Options.ReceiverAddr, row.Options.ReceiverCity, 1)
 	}
 	// excludedValue 返回当前数据库方言读取插入候选值的表达式。
 	excludedValue := func(column string) string {
@@ -254,13 +259,16 @@ func upsertManyOrders(ctx context.Context, execer sqlQueryExecer, dialect Dialec
 	// incomingStatus 保存候选订单状态表达式。
 	incomingStatus := excludedValue("order_status")
 	// statusAssignment 保存防止状态倒退的跨方言状态表达式。
-	statusAssignment := "CASE WHEN " + incomingStatus + " IS NULL OR " + incomingStatus + "='' THEN order_status WHEN order_status='unknown' OR order_status=" + incomingStatus + " THEN " + incomingStatus + " WHEN " + incomingStatus + " IN ('processing','pending_ship') AND order_status IN ('shipped','completed','refunding','cancelled') THEN order_status WHEN " + incomingStatus + "='shipped' AND order_status IN ('completed','cancelled') THEN order_status ELSE " + incomingStatus + " END"
+	statusAssignment := "CASE WHEN " + incomingStatus + " IS NULL OR " + incomingStatus + "='' OR (" + incomingStatus + "='unknown' AND order_status<>'unknown') THEN order_status WHEN order_status='unknown' OR order_status=" + incomingStatus + " THEN " + incomingStatus + " WHEN " + incomingStatus + " IN ('processing','pending_ship') AND order_status IN ('shipped','completed','refunding','cancelled') THEN order_status WHEN " + incomingStatus + "='shipped' AND order_status IN ('completed','cancelled') THEN order_status ELSE " + incomingStatus + " END"
+	// incomingBargain 保存候选订单砍价标记表达式。
+	incomingBargain := excludedValue("is_bargain")
 	// assignments 保存批量 UPSERT 的更新列表达式。
 	assignments := map[string]string{
 		"item_id":          mergeValue("item_id"),
 		"buyer_id":         mergeValue("buyer_id"),
 		"cookie_id":        mergeValue("cookie_id"),
 		"order_status":     statusAssignment,
+		"is_bargain":       "CASE WHEN " + incomingBargain + "=1 THEN 1 ELSE is_bargain END",
 		"spec_name":        mergeValue("spec_name"),
 		"spec_value":       mergeValue("spec_value"),
 		"quantity":         mergeValue("quantity"),
@@ -467,6 +475,82 @@ type OrderUpsertOpts struct {
 	ChatID        string
 	IsBargain     *bool
 	SystemShipped *bool
+}
+
+// maxOrderBatchLookupSize 限制批量订单查询的 IN 参数数量，兼容 SQLite 参数上限。
+const maxOrderBatchLookupSize = 500
+
+// FindByIDs 按订单标识批量读取未删除订单，避免订单发现阶段逐单查询。
+func (o *Orders) FindByIDs(ctx context.Context, orderIDs []string) (map[string]*Order, error) {
+	// result 保存按订单标识索引的本地订单。
+	result := make(map[string]*Order, len(orderIDs))
+	// normalizedIDs 保存去重后的非空订单标识。
+	normalizedIDs := make([]string, 0, len(orderIDs))
+	// seen 保存已经加入查询的订单标识。
+	seen := make(map[string]struct{}, len(orderIDs))
+	// orderID 是当前待规范化的订单标识。
+	for _, orderID := range orderIDs {
+		orderID = strings.TrimSpace(orderID)
+		if orderID == "" {
+			continue
+		}
+		// exists 表示当前订单标识是否已经加入批量查询。
+		if _, exists := seen[orderID]; exists {
+			continue
+		}
+		seen[orderID] = struct{}{}
+		normalizedIDs = append(normalizedIDs, orderID)
+	}
+	// start 是当前批量查询的起始下标。
+	for start := 0; start < len(normalizedIDs); start += maxOrderBatchLookupSize {
+		// end 保存当前批量查询的结束下标。
+		end := start + maxOrderBatchLookupSize
+		if end > len(normalizedIDs) {
+			end = len(normalizedIDs)
+		}
+		// batchIDs 保存当前批量查询的订单标识。
+		batchIDs := normalizedIDs[start:end]
+		// placeholders 保存当前查询的占位符。
+		placeholders := make([]string, len(batchIDs))
+		// args 保存当前查询的订单标识参数。
+		args := make([]any, len(batchIDs))
+		// index、orderID 保存当前查询参数的下标和订单标识。
+		for index, orderID := range batchIDs {
+			placeholders[index] = "?"
+			args[index] = orderID
+		}
+		// query 保存当前批量订单查询 SQL。
+		query := `SELECT order_id,item_id,buyer_id,quantity,amount,order_status,cookie_id,is_bargain,
+		        receiver_name,receiver_phone,receiver_address,receiver_city
+		 FROM orders WHERE order_id IN (` + strings.Join(placeholders, ",") + `) AND deleted_at IS NULL`
+		// rows 保存当前批量订单查询结果集。
+		rows, err := o.DB.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		// rowOrder 保存当前结果集扫描出的订单。
+		for rows.Next() {
+			// orderIDValue、itemID、buyerID、quantity、amount、status、cookieID、receiverName、receiverPhone、receiverAddr、receiverCity 保存可空订单文本字段。
+			var orderIDValue, itemID, buyerID, quantity, amount, status, cookieID, receiverName, receiverPhone, receiverAddr, receiverCity sql.NullString
+			// isBargain 保存当前订单砍价标记。
+			var isBargain sql.NullInt64
+			// scanErr 保存当前订单行扫描错误。
+			if scanErr := rows.Scan(&orderIDValue, &itemID, &buyerID, &quantity, &amount, &status, &cookieID, &isBargain, &receiverName, &receiverPhone, &receiverAddr, &receiverCity); scanErr != nil {
+				_ = rows.Close()
+				return nil, scanErr
+			}
+			// rowOrder 保存当前结果集扫描出的订单。
+			rowOrder := &Order{OrderID: orderIDValue.String, ItemID: itemID.String, BuyerID: buyerID.String, Quantity: quantity.String, Amount: amount.String, OrderStatus: status.String, CookieID: cookieID.String, IsBargain: int(isBargain.Int64), ReceiverName: receiverName.String, ReceiverPhone: receiverPhone.String, ReceiverAddr: receiverAddr.String, ReceiverCity: receiverCity.String}
+			result[rowOrder.OrderID] = rowOrder
+		}
+		// rowsErr 保存当前批量订单结果集遍历错误。
+		rowsErr := rows.Err()
+		_ = rows.Close()
+		if rowsErr != nil {
+			return nil, rowsErr
+		}
+	}
+	return result, nil
 }
 
 // Get 按 order_id 查询。
