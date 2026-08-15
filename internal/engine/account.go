@@ -802,10 +802,17 @@ func (a *Account) tryLoginStatusCheck(ctx context.Context) loginStatusCheckResul
 	}
 	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
 	credentialUnlock := func() {}
+	// credentialLocked 标识当前调用是否持有账号凭证锁。
+	credentialLocked := false
 	if a.store != nil {
 		credentialUnlock = a.store.LockAccountCredentials(a.CookieID)
+		credentialLocked = true
 	}
-	defer credentialUnlock()
+	defer func() {
+		if credentialLocked {
+			credentialUnlock()
+		}
+	}()
 	a.mu.Lock()
 	// cookieStr 保存登录凭证Str，供当前处理流程使用
 	cookieStr := a.CookieStr
@@ -834,8 +841,35 @@ func (a *Account) tryLoginStatusCheck(ctx context.Context) loginStatusCheckResul
 			requestCtx, cookieSession = mtop.WithFlatCookieSession(ctx, cookieStr)
 		}
 	}
+	// 登录态检查只使用当前凭证快照；慢速外部调用不得持有共享账号锁。
+	if credentialLocked {
+		credentialUnlock()
+		credentialLocked = false
+	}
 	// res、err 保存res、err，供当前处理流程使用
 	res, err := checker.CheckLoginStatusContext(requestCtx, cookieStr)
+	if a.store != nil && a.store.Cookies != nil {
+		// credentialUnlock 保存外部检查完成后重新进入提交临界区的释放函数。
+		credentialUnlock = a.store.LockAccountCredentials(a.CookieID)
+		credentialLocked = true
+		// latestRuntimeData 和 reloadErr 保存外部检查完成后的最新凭证视图及重读错误。
+		latestRuntimeData, reloadErr := a.store.Cookies.GetCookieRuntimeData(ctx, a.CookieID)
+		if reloadErr != nil {
+			a.logger.Warn("登录态检查完成后读取最新 Cookie 失败", "err", reloadErr)
+			return loginStatusCheckResult{}
+		}
+		// credentialSnapshotChanged 表示外部检查期间已有其他流程更新 Cookie 或 metadata。
+		credentialSnapshotChanged := latestRuntimeData.Value != cookieStr || latestRuntimeData.MetadataJSON != metadataJSON
+		cookieStr = latestRuntimeData.Value
+		metadataJSON = latestRuntimeData.MetadataJSON
+		if credentialSnapshotChanged {
+			// 外部响应基于旧快照，当前切片不具备可安全重放的 Cookie 集合，因此丢弃旧响应状态。
+			cookieSession = nil
+			if res != nil {
+				res.UpdatedCookies = cookieStr
+			}
+		}
+	}
 	if cookieSession != nil {
 		// value、snapshot、changed 保存value、snapshot、changed，供当前处理流程使用
 		value, snapshot, changed := cookieSession.State()
