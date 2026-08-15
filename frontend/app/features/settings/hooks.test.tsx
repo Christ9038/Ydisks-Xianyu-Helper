@@ -137,4 +137,40 @@ describe('useSettings', /* 当前回调处理系统设置、模型和凭据请�
     expect(hook.result.current.loadError).toBe('设置服务失败');
     expect(hook.result.current.settings).toBeNull();
   });
+
+  test('配置保存和凭据网络异常时保留错误状态', /* 当前回调验证设置保存与凭据网络错误分支。 */ async () => {
+    // hook 是设置保存异常场景的系统设置 Hook 渲染结果。
+    const hook = renderHook(renderSettingsHook);
+    await waitFor(
+      // statusAssertion 等待设置读取完成。
+      () => expect(hook.result.current.requestStatus).toBe('success'),
+    );
+    updateSettingsMock.mockRejectedValueOnce(new Error('配置保存失败'));
+    await act(
+      // saveErrorAction 触发系统配置保存错误。
+      async () => hook.result.current.handleSave(),
+    );
+    expect(hook.result.current.saveError).toBe('配置保存失败');
+
+    await act(
+      // credentialsAction 写入合法登录凭据。
+      () => hook.result.current.setCredentials({ new_username: 'new-admin', current_password: 'old-password', new_password: 'new-password', confirm_password: 'new-password' }),
+    );
+    updateCredentialsMock.mockRejectedValueOnce(new Error('凭据网络失败'));
+    // credentialsEvent 是触发凭据保存的表单事件。
+    const credentialsEvent = { preventDefault: vi.fn() } as unknown as React.FormEvent;
+    await act(
+      // credentialsErrorAction 触发凭据网络异常。
+      async () => hook.result.current.handleCredentialsSave(credentialsEvent),
+    );
+    expect(hook.result.current.credentialsMessage).toEqual({ type: 'error', text: '凭据网络失败' });
+
+    updateCredentialsMock.mockResolvedValueOnce({ success: true, message: '更新成功' });
+    await act(
+      // credentialsSuccessAction 验证凭据成功提示和重载调度。
+      async () => hook.result.current.handleCredentialsSave(credentialsEvent),
+    );
+    expect(hook.result.current.credentialsMessage).toEqual({ type: 'success', text: '更新成功' });
+    hook.unmount();
+  });
 });
