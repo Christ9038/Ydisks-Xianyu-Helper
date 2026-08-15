@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/reconciliation"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
 )
@@ -323,6 +324,35 @@ func TestConfirmShipmentQuarantinesKnownRemoteSuccessWhenLocalPersistenceFails(t
 	}
 	if order.SystemShipped {
 		t.Fatal("failed local write must not be reported as persisted")
+	}
+	// pendingReconciliations 保存远端成功后创建的本地订单补偿记录。
+	pendingReconciliations, listErr := store.Reconciliations.ListPending(ctx, 10)
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if len(pendingReconciliations) != 1 || pendingReconciliations[0].OrderID != "persist-failure" || pendingReconciliations[0].Kind != "manual_status_ship" {
+		t.Fatalf("远端发货成功后必须创建订单补偿记录: %+v", pendingReconciliations)
+	}
+	// err 表示移除一次性故障触发器时产生的数据库错误。
+	if _, err := store.DB.ExecContext(ctx, `DROP TRIGGER reject_shipped_state`); err != nil {
+		t.Fatal(err)
+	}
+	// err 表示补偿 worker 首次重试时返回的扫描级错误。
+	if err := reconciliation.New(store, nil).RunOnce(ctx); err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	// reconciledOrder、getErr 保存补偿后的订单状态及查询错误。
+	reconciledOrder, getErr := store.Orders.Get(ctx, "persist-failure")
+	if getErr != nil || reconciledOrder == nil || !reconciledOrder.SystemShipped || reconciledOrder.OrderStatus != "shipped" {
+		t.Fatalf("补偿 worker 未修复订单状态: order=%+v err=%v", reconciledOrder, getErr)
+	}
+	// remainingReconciliations 保存补偿完成后仍待处理的记录。
+	remainingReconciliations, listErr := store.Reconciliations.ListPending(ctx, 10)
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if len(remainingReconciliations) != 0 {
+		t.Fatalf("补偿完成后不应残留 pending 记录: %+v", remainingReconciliations)
 	}
 }
 

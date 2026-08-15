@@ -56,6 +56,7 @@ type PasswordRefresher interface {
 
 // Scheduler 保存Scheduler，供当前处理流程使用
 type Scheduler struct {
+	mu        sync.Mutex
 	store     *db.Store
 	starter   AccountStarter
 	refresher PasswordRefresher
@@ -68,6 +69,8 @@ type Scheduler struct {
 	done      chan struct{}
 	workers   sync.WaitGroup
 	watchers  sync.WaitGroup
+	// runCancel 取消当前调度器派生的运行上下文；只有 Run 成功登记后才非空。
+	runCancel context.CancelFunc
 }
 
 // RenewalNotifier 保存RenewalNotifier，供当前处理流程使用
@@ -103,13 +106,22 @@ func (s *Scheduler) Run(ctx context.Context) {
 	if s == nil || s.store == nil {
 		return
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.runOnce.Do(func() {
+		// runCtx、cancel 将父生命周期转换为调度器私有的可主动停止上下文。
+		runCtx, cancel := context.WithCancel(ctx)
+		s.mu.Lock()
+		s.runCancel = cancel
+		s.mu.Unlock()
 		go func() {
 			defer close(s.done)
+			defer cancel()
 			s.workers.Add(2)
 			go func() {
 				defer s.workers.Done()
-				s.runFixed(ctx, "login_renew", loginRenewEnabledSetting, loginRenewIntervalSetting, false, loginRenewInterval, s.executeLoginRenew)
+				s.runFixed(runCtx, "login_renew", loginRenewEnabledSetting, loginRenewIntervalSetting, false, loginRenewInterval, s.executeLoginRenew)
 			}()
 			// 官网静默插件在账号启动时执行，并由此任务按保守频率持续检查；闲鱼
 			// 下发的 sdkSilent 疲劳窗口仍会在请求前阻止重复续期。
@@ -117,12 +129,36 @@ func (s *Scheduler) Run(ctx context.Context) {
 			// goroutine，否则同时开启时会重复续期并连续重启同一账号。
 			go func() {
 				defer s.workers.Done()
-				s.runAPICookieRenewFixed(ctx)
+				s.runAPICookieRenewFixed(runCtx)
 			}()
 			s.workers.Wait()
 			s.watchers.Wait()
 		}()
 	})
+}
+
+// StopContext 主动取消续期调度器并在 ctx 允许的时间内等待所有任务和迟到响应 watcher 收束。
+// 调用可重复执行；已经停止或尚未启动的调度器视为成功完成。
+func (s *Scheduler) StopContext(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.mu.Lock()
+	// cancel 是调度器运行上下文的取消函数快照，避免持锁执行取消回调。
+	cancel := s.runCancel
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return s.WaitContext(ctx)
+}
+
+// Stop 主动停止调度器并无限期等待，兼容旧调用方的无错误返回签名。
+func (s *Scheduler) Stop() {
+	_ = s.StopContext(context.Background())
 }
 
 // Wait 等待定时循环和迟到响应 watcher 完成。

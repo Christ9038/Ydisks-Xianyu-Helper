@@ -349,6 +349,30 @@ func TestRenewalSchedulerWaitContextHonorsDeadline(t *testing.T) {
 	}
 }
 
+// TestRenewalSchedulerStopContextCancelsRun 验证主动停止会取消调度器私有上下文并等待 worker 退出。
+func TestRenewalSchedulerStopContextCancelsRun(t *testing.T) {
+	// store、cleanup 保存调度器所需的本地测试数据库及其清理函数。
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	// scheduler 保存待验证主动停止语义的续期调度器。
+	scheduler := NewScheduler(store, nil, nil, nil)
+	scheduler.Run(context.Background())
+	// stopCtx、cancel 限制停止等待时间，防止回归测试在 worker 异常时永久阻塞。
+	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	// err 表示首次主动停止调度器时的收束结果。
+	if err := scheduler.StopContext(stopCtx); err != nil {
+		t.Fatalf("StopContext error=%v", err)
+	}
+	// repeatCtx、repeatCancel 验证重复停止保持幂等且不会重新启动 worker。
+	repeatCtx, repeatCancel := context.WithTimeout(context.Background(), time.Second)
+	defer repeatCancel()
+	// err 表示重复主动停止调度器时的幂等收束结果。
+	if err := scheduler.StopContext(repeatCtx); err != nil {
+		t.Fatalf("重复 StopContext error=%v", err)
+	}
+}
+
 // TestPendingAPIRenewRestartFailureIsFinalFailure 负责TestPendingAPIRenewRestartFailureIsFinalFailure相关处理。
 func TestPendingAPIRenewRestartFailureIsFinalFailure(t *testing.T) {
 	// store、cleanup 保存store、cleanup，供当前处理流程使用

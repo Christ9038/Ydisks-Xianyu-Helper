@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	itemapp "xianyu-go/internal/application/items"
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
@@ -115,10 +116,26 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		selectedLocation = &location
 	}
 	// outcome、callErr 保存outcome、callErr，供当前处理流程使用
-	outcome, callErr := s.itemPublishApplication().PublishSingle(r.Context(), itemPublishInput{
+	// applicationLocation 是 HTTP DTO 转换后的应用发货地模型。
+	var applicationLocation *itemapp.Location
+	if selectedLocation != nil {
+		applicationLocation = &itemapp.Location{
+			Area: selectedLocation.Area, City: selectedLocation.City, DivisionID: selectedLocation.DivisionID,
+			Longitude: selectedLocation.Longitude, Latitude: selectedLocation.Latitude, POIID: selectedLocation.POIID,
+			POIName: selectedLocation.POIName, Province: selectedLocation.Province,
+		}
+	}
+	// applicationImages 是 HTTP 上传图片转换后的应用图片模型。
+	applicationImages := make([]itemapp.Image, 0, len(images))
+	// image 表示当前待转换的 HTTP 上传图片。
+	for _, image := range images {
+		applicationImages = append(applicationImages, itemapp.Image{Filename: image.Filename, ContentType: image.ContentType, Data: image.Data})
+	}
+	// outcome、callErr 保存应用服务返回的发布结果及调用错误。
+	outcome, callErr := s.itemSinglePublishApplication().PublishSingle(r.Context(), itemapp.PublishInput{
 		UserID: userID, CookieID: cookieID, Title: title, Description: description,
 		PriceCents: priceCents, OriginalPriceCents: origCents, Quantity: quantity,
-		PostageMode: postageMode, PostageCents: postageCents, Location: selectedLocation, Images: images,
+		PostageMode: postageMode, PostageCents: postageCents, Location: applicationLocation, Images: applicationImages,
 	})
 	// res 保存响应，供当前处理流程使用
 	res := outcome.Result

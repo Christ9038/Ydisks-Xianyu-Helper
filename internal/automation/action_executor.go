@@ -80,7 +80,7 @@ func (e *automationActionExecutor) confirmShipment(ctx context.Context, task Tas
 	return e.confirmShipmentAttempt(ctx, task, true)
 }
 
-// confirmShipmentAttempt 在凭证锁内调用 Consign，并处理 Cookie 合并、凭证恢复和本地状态收口。
+// confirmShipmentAttempt 在凭证锁内调用 Consign，处理 Cookie 合并、凭证恢复和本地状态收口；远端成功但订单事实落库失败时创建可重试补偿记录。
 func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, task Task, allowCredentialRecovery bool) error {
 	// credentialUnlock 是账号凭证锁的释放函数。
 	credentialUnlock := e.store.LockAccountCredentials(task.AccountID)
@@ -127,6 +127,8 @@ func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, t
 	consignOK, ret, updated, callErr := e.mtop().ConsignContext(mtopCtx, cookieStr, task.OrderID)
 	// persistenceErrs 收集远端动作完成后本地状态写入失败。
 	var persistenceErrs []error
+	// shipmentStateNeedsReconciliation 标记订单发货事实是否需要异步补偿。
+	shipmentStateNeedsReconciliation := false
 	// runtimeCookie 保存需要同步到在线发送器的最新 Cookie。
 	runtimeCookie := ""
 	// runtimeCookieChanged 表示在线运行时是否需要替换 Cookie。
@@ -222,12 +224,34 @@ func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, t
 		SystemShipped: &sysShip,
 	}); upsertErr != nil {
 		persistenceErrs = append(persistenceErrs, fmt.Errorf("保存本地订单发货状态: %w", upsertErr))
+		shipmentStateNeedsReconciliation = true
 	}
 	// eventErr 保存订单发货事实写入错误。
 	if eventErr := e.store.Automation.MarkOrderEventTime(ctx, task.OrderID, "shipped_at"); eventErr != nil {
 		persistenceErrs = append(persistenceErrs, fmt.Errorf("保存订单发货时间: %w", eventErr))
+		shipmentStateNeedsReconciliation = true
 	}
 	if len(persistenceErrs) > 0 {
+		if shipmentStateNeedsReconciliation {
+			if e.store == nil || e.store.Reconciliations == nil {
+				persistenceErrs = append(persistenceErrs, errors.New("创建订单发货补偿记录: 补偿存储未初始化"))
+			} else {
+				// reconciliationID 保存本地订单状态补偿记录的幂等追踪标识；当前运行由 triggerKey 保证同一事件不会重复执行。
+				// reconciliationErr 保存补偿记录写入失败原因。
+				reconciliationID, reconciliationErr := e.store.Reconciliations.CreatePending(
+					ctx,
+					task.OrderID,
+					task.AccountID,
+					"manual_status_ship",
+					"闲鱼已确认发货，但本地订单状态写入失败: "+errors.Join(persistenceErrs...).Error(),
+				)
+				if reconciliationErr != nil {
+					persistenceErrs = append(persistenceErrs, fmt.Errorf("创建订单发货补偿记录: %w", reconciliationErr))
+				} else {
+					persistenceErrs = append(persistenceErrs, fmt.Errorf("订单发货补偿记录 %s 已创建", reconciliationID))
+				}
+			}
+		}
 		return uncertainAction(fmt.Errorf("闲鱼已确认发货，但本地状态保存失败: %w", errors.Join(persistenceErrs...)))
 	}
 	return nil

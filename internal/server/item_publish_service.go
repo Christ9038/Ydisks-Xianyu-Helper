@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	itemapp "xianyu-go/internal/application/items"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
 )
@@ -22,42 +23,6 @@ var (
 	// errItemPublishBatchNoRows 表示批量任务没有可继续处理的明细行。
 	errItemPublishBatchNoRows = errors.New("商品批量任务没有可处理的明细行")
 )
-
-// itemPublishInput 是单个商品发布用例的业务输入，不包含 HTTP 请求对象。
-type itemPublishInput struct {
-	// UserID 是发起发布操作的用户标识。
-	UserID int64
-	// CookieID 是执行商品发布的账号标识。
-	CookieID string
-	// Title 是商品标题。
-	Title string
-	// Description 是商品描述。
-	Description string
-	// PriceCents 是商品售价，单位为分。
-	PriceCents int64
-	// OriginalPriceCents 是商品原价，单位为分。
-	OriginalPriceCents int64
-	// Quantity 是商品库存数量。
-	Quantity int
-	// PostageMode 是邮费模式。
-	PostageMode string
-	// PostageCents 是邮费金额，单位为分。
-	PostageCents int64
-	// Location 是可选的发货地。
-	Location *mtop.PublishLocation
-	// Images 是待上传的商品图片。
-	Images []mtop.PublishImage
-}
-
-// itemPublishOutcome 是单个商品发布用例的结果及发布后的持久化风险。
-type itemPublishOutcome struct {
-	// Result 是平台返回的商品信息。
-	Result *mtop.PublishItemResult
-	// ResponseCookieErr 是平台响应 Cookie 未能持久化时的错误。
-	ResponseCookieErr error
-	// LocalSaveErr 是平台成功后本地商品落库失败时的错误。
-	LocalSaveErr error
-}
 
 // itemPublishPreviewInput 是批量发布预检结果持久化所需的业务输入。
 type itemPublishPreviewInput struct {
@@ -90,82 +55,14 @@ func (s *Server) itemPublishApplication() *itemPublishService {
 	return s.applicationServiceSet().itemPublish
 }
 
+// itemSinglePublishApplication 返回只负责单商品发布用例的应用服务。
+func (s *Server) itemSinglePublishApplication() *itemapp.Service {
+	return s.applicationServiceSet().itemSinglePublish
+}
+
 // itemPublishRepositoryForServer 返回当前 Server 装配的发布持久化边界。
 func (s *Server) itemPublishRepositoryForServer() itemPublishRepository {
 	return s.itemPublishApplication().repository
-}
-
-// PublishSingle 执行单商品发布、响应 Cookie 持久化和本地商品落库。
-func (svc *itemPublishService) PublishSingle(ctx context.Context, input itemPublishInput) (itemPublishOutcome, error) {
-	// s 是当前商品发布应用服务依赖的 Server。
-	s := svc.server
-	// unlock 释放当前账号的凭证串行化锁。
-	unlock := svc.repository.LockCredentials(input.CookieID)
-	// err 和 latest 保存账号平台详情查询结果。
-	latest, err := s.loadCookiePlatformDetail(ctx, input.CookieID)
-	if err != nil || latest == nil || latest.UserID != input.UserID || !hasStoredCookieCredential(latest) {
-		unlock()
-		return itemPublishOutcome{}, errors.New("账号凭证已变化，请重试")
-	}
-	// cookieValue 是本次 MTOP 调用使用的账号凭证。
-	cookieValue := latest.Value
-	// requestCtx 和 cancel 控制单商品发布的最长执行时间。
-	requestCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	// client 是平台发布客户端。
-	client := s.mtopClient()
-	// mtopCtx 和 cookieSession 保存带 Cookie 快照的平台调用上下文。
-	mtopCtx, cookieSession := withMTopCookieSnapshot(requestCtx, latest)
-	// result 和 callErr 是平台发布结果及调用错误。
-	result, callErr := client.PublishItem(mtopCtx, cookieValue, mtop.PublishItemRequest{
-		Title: input.Title, Description: input.Description, PriceCents: input.PriceCents,
-		OriginalPriceCents: input.OriginalPriceCents, Quantity: input.Quantity,
-		PostageMode: input.PostageMode, PostageCents: input.PostageCents, Virtual: true,
-		Location: input.Location, Images: input.Images,
-	})
-	// runtimeCookie 是需要同步到运行时账号的刷新凭证。
-	runtimeCookie := ""
-	// value、valueChanged、handled 和 persistErr 描述 Cookie Jar 持久化结果。
-	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(ctx, latest, cookieSession)
-	if persistErr != nil {
-		if s.Logger != nil {
-			s.Logger.Error("保存发布响应 Cookie Jar 失败", "cookie_id", input.CookieID, "err", persistErr)
-		}
-	} else if handled && valueChanged {
-		runtimeCookie = value
-	} else if !handled && callErr == nil && result != nil && result.UpdatedCookies != "" && result.UpdatedCookies != cookieValue {
-		// saveErr 表示保存平台返回新 Cookie 的错误。
-		if saveErr := svc.repository.UpdateCookieValueOwned(ctx, input.CookieID, result.UpdatedCookies, input.UserID); saveErr != nil {
-			persistErr = saveErr
-		} else {
-			runtimeCookie = result.UpdatedCookies
-		}
-	}
-	unlock()
-	if runtimeCookie != "" {
-		s.updateRunningCookie(ctx, input.CookieID, runtimeCookie)
-	}
-	if callErr != nil {
-		if persistErr != nil {
-			callErr = errors.Join(callErr, fmt.Errorf("保存发布响应 Cookie: %w", persistErr))
-		}
-		s.recoverExpiredMTOPSession(ctx, input.CookieID, callErr)
-		return itemPublishOutcome{ResponseCookieErr: persistErr}, callErr
-	}
-	if result == nil || strings.TrimSpace(result.ItemID) == "" {
-		return itemPublishOutcome{Result: result, ResponseCookieErr: persistErr}, nil
-	}
-	// detail 保存平台商品附加信息。
-	detail := map[string]any{"item_image": result.ImageURL, "web_url": result.ItemURL, "category_name": result.CategoryName, "quantity": result.Quantity, "publish_raw": result.RawData}
-	// detailJSON 是本地商品详情 JSON。
-	detailJSON, _ := json.Marshal(detail)
-	// localErr 表示平台发布成功后本地商品落库的错误。
-	localErr := svc.repository.UpsertItem(ctx, &db.ItemInfoRow{
-		CookieID: input.CookieID, ItemID: result.ItemID, ItemTitle: result.Title,
-		ItemDescription: input.Description, ItemCategory: result.CategoryID,
-		ItemPrice: result.PriceText, ItemDetail: string(detailJSON), MultiQuantityDelivery: input.Quantity > 1,
-	})
-	return itemPublishOutcome{Result: result, ResponseCookieErr: persistErr, LocalSaveErr: localErr}, nil
 }
 
 // RecommendCategory 调用平台类目推荐并持久化刷新后的账号登录状态。
@@ -417,4 +314,118 @@ func (svc *itemPublishService) RetryFailedBatch(ctx context.Context, userID int6
 	}
 	s.startPublishBatchWorker(s.lifecycleContext(), userID, batchID, token)
 	return batchID, nil
+}
+
+// serverItemPublishPort 将 MTOP、Cookie 会话与运行时同步适配为应用商品发布端口。
+type serverItemPublishPort struct {
+	// server 保存平台调用和账号凭证适配所需的 Server 依赖。
+	server *Server
+	// repository 提供账号锁、平台凭证查询和 Cookie 写回能力。
+	repository itemPublishRepository
+}
+
+// Publish 执行单商品平台发布及响应 Cookie 持久化，不向应用层泄露 MTOP 类型。
+func (p serverItemPublishPort) Publish(ctx context.Context, input itemapp.PublishInput) (itemapp.PublishOutcome, error) {
+	// unlock 释放当前账号的凭证串行化锁；锁覆盖现有平台会话不变量。
+	unlock := p.repository.LockCredentials(input.CookieID)
+	// latest 保存加锁后读取的平台运行凭证视图。
+	latest, err := p.server.loadCookiePlatformDetail(ctx, input.CookieID)
+	if err != nil || latest == nil || latest.UserID != input.UserID || !hasStoredCookieCredential(latest) {
+		unlock()
+		return itemapp.PublishOutcome{}, errors.New("账号凭证已变化，请重试")
+	}
+	// requestCtx 和 cancel 控制单商品平台发布的最长执行时间。
+	requestCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	// images 保存应用图片 DTO 转换后的平台图片请求。
+	images := make([]mtop.PublishImage, 0, len(input.Images))
+	// image 表示当前待转换的应用图片。
+	for _, image := range input.Images {
+		images = append(images, mtop.PublishImage{Filename: image.Filename, ContentType: image.ContentType, Data: image.Data})
+	}
+	// location 保存应用发货地 DTO 转换后的平台位置请求。
+	var location *mtop.PublishLocation
+	if input.Location != nil {
+		location = &mtop.PublishLocation{
+			Area: input.Location.Area, City: input.Location.City, DivisionID: input.Location.DivisionID,
+			Longitude: input.Location.Longitude, Latitude: input.Location.Latitude, POIID: input.Location.POIID,
+			POIName: input.Location.POIName, Province: input.Location.Province,
+		}
+	}
+	// mtopCtx 和 cookieSession 保存带 Cookie 快照的平台调用上下文。
+	mtopCtx, cookieSession := withMTopCookieSnapshot(requestCtx, latest)
+	// result 和 callErr 保存平台发布结果及调用错误。
+	result, callErr := p.server.mtopClient().PublishItem(mtopCtx, latest.Value, mtop.PublishItemRequest{
+		Title: input.Title, Description: input.Description, PriceCents: input.PriceCents,
+		OriginalPriceCents: input.OriginalPriceCents, Quantity: input.Quantity,
+		PostageMode: input.PostageMode, PostageCents: input.PostageCents, Virtual: true,
+		Location: location, Images: images,
+	})
+	// runtimeCookie 保存需要在释放凭证锁后同步到运行时的刷新 Cookie。
+	runtimeCookie := ""
+	// value、valueChanged、handled 和 persistErr 描述 Cookie Jar 持久化结果。
+	value, valueChanged, handled, persistErr := p.server.persistMTopCookieSessionLocked(ctx, latest, cookieSession)
+	if persistErr != nil {
+		if p.server.Logger != nil {
+			p.server.Logger.Error("保存发布响应 Cookie Jar 失败", "cookie_id", input.CookieID, "err", persistErr)
+		}
+	} else if handled && valueChanged {
+		runtimeCookie = value
+	} else if !handled && callErr == nil && result != nil && result.UpdatedCookies != "" && result.UpdatedCookies != latest.Value {
+		// saveErr 表示保存平台返回新 Cookie 的错误。
+		if saveErr := p.repository.UpdateCookieValueOwned(ctx, input.CookieID, result.UpdatedCookies, input.UserID); saveErr != nil {
+			persistErr = saveErr
+		} else {
+			runtimeCookie = result.UpdatedCookies
+		}
+	}
+	unlock()
+	if runtimeCookie != "" {
+		p.server.updateRunningCookie(ctx, input.CookieID, runtimeCookie)
+	}
+	if callErr != nil {
+		if persistErr != nil {
+			callErr = errors.Join(callErr, fmt.Errorf("保存发布响应 Cookie: %w", persistErr))
+		}
+		p.server.recoverExpiredMTOPSession(ctx, input.CookieID, callErr)
+		return itemapp.PublishOutcome{ResponseCookieErr: persistErr}, callErr
+	}
+	if result == nil || strings.TrimSpace(result.ItemID) == "" {
+		return itemapp.PublishOutcome{ResponseCookieErr: persistErr}, nil
+	}
+	return itemapp.PublishOutcome{Result: &itemapp.PublishResult{
+		ItemID: result.ItemID, ItemURL: result.ItemURL, Title: result.Title, PriceText: result.PriceText,
+		CategoryID: result.CategoryID, CategoryName: result.CategoryName, ImageURL: result.ImageURL,
+		Quantity: result.Quantity, RawData: result.RawData,
+	}, ResponseCookieErr: persistErr}, nil
+}
+
+// storeItemPublishItemRepository 将商品数据库写入适配为应用层商品仓储端口。
+type storeItemPublishItemRepository struct {
+	// store 保存数据库聚合入口，仅在 Server 适配器内部使用。
+	store *db.Store
+}
+
+// Upsert 保存应用层商品记录，并在边界转换为数据库行模型。
+func (r storeItemPublishItemRepository) Upsert(ctx context.Context, record itemapp.ItemRecord) error {
+	return r.store.Items.Upsert(ctx, &db.ItemInfoRow{
+		CookieID: record.CookieID, ItemID: record.ItemID, ItemTitle: record.ItemTitle,
+		ItemDescription: record.ItemDescription, ItemCategory: record.ItemCategory,
+		ItemPrice: record.ItemPrice, ItemDetail: record.ItemDetail,
+		MultiQuantityDelivery: record.MultiQuantityDelivery,
+	})
+}
+
+// newItemPublishApplication 创建单商品发布应用服务并绑定 Server 适配器。
+func newItemPublishApplication(server *Server) *itemapp.Service {
+	// publisher 是商品发布平台端口适配器。
+	publisher := serverItemPublishPort{server: server, repository: newStoreItemPublishRepository(server.Store)}
+	// repository 是商品本地持久化端口适配器。
+	repository := storeItemPublishItemRepository{store: server.Store}
+	// service 和 err 保存应用服务构造结果。
+	service, err := itemapp.NewService(publisher, repository)
+	if err != nil {
+		panic(fmt.Sprintf("商品发布应用服务装配失败: %v", err))
+	}
+	return service
 }

@@ -12,7 +12,7 @@ func TestNewServerAssemblesApplicationServices(t *testing.T) {
 	}
 	// services 是统一应用服务集合。
 	services := srv.applicationServiceSet()
-	if services.orders == nil || services.itemPublish == nil || services.accountLogin == nil || services.communication == nil || services.analytics == nil {
+	if services.orders == nil || services.itemPublish == nil || services.itemSinglePublish == nil || services.accountLogin == nil || services.communication == nil || services.analytics == nil {
 		t.Fatal("应用服务集合存在未装配的服务")
 	}
 	if services.orders.services == nil || services.orders.services.List == nil || services.orders.services.Detail == nil || services.orders.services.Refresh == nil || services.orders.services.RefreshJobs == nil {

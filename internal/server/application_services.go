@@ -1,6 +1,7 @@
 package server
 
 import orderapp "xianyu-go/internal/application/orders"
+import itemapp "xianyu-go/internal/application/items"
 
 // applicationServices 聚合 Server 使用的应用服务实例，统一管理共享基础设施依赖。
 type applicationServices struct {
@@ -8,6 +9,8 @@ type applicationServices struct {
 	orders *orderHTTPAdapter
 	// itemPublish 是商品发布应用服务。
 	itemPublish *itemPublishService
+	// itemSinglePublish 是仅负责单商品发布用例的纯应用服务。
+	itemSinglePublish *itemapp.Service
 	// accountLogin 是账号登录应用服务。
 	accountLogin *accountLoginService
 	// communication 是聊天、通知和账号任务应用服务。
@@ -25,11 +28,12 @@ func newApplicationServices(server *Server) *applicationServices {
 	// orderServices 保存应用层统一构造的订单业务服务集合。
 	orderServices := orderapp.NewServiceSet(orderRepository, orderRepository, orderRuntime, orderRuntime, newStoreOrderRefreshJobRepository(server.Store), refreshOrderChunkSize)
 	return &applicationServices{
-		orders:        &orderHTTPAdapter{services: orderServices, repository: orderRepository},
-		itemPublish:   &itemPublishService{server: server, repository: newStoreItemPublishRepository(server.Store)},
-		accountLogin:  &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store)},
-		communication: &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},
-		analytics:     &analyticsService{repository: newStoreAnalyticsRepository(server.Store)},
+		orders:            &orderHTTPAdapter{services: orderServices, repository: orderRepository},
+		itemPublish:       &itemPublishService{server: server, repository: newStoreItemPublishRepository(server.Store)},
+		itemSinglePublish: newItemPublishApplication(server),
+		accountLogin:      &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store)},
+		communication:     &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},
+		analytics:         &analyticsService{repository: newStoreAnalyticsRepository(server.Store)},
 	}
 }
 
