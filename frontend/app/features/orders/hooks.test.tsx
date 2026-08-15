@@ -62,6 +62,8 @@ describe('useOrderQuery 与 useOrderImport', /* 当前回调处理订单查询�
     expect(hook.result.current.getItemNameById('account-1', 'item-1')).toBe('测试商品');
     expect(hook.result.current.getItemNameById('account-1', 'missing', '订单商品标题')).toBe('订单商品标题');
     expect(hook.result.current.getItemNameById('account-1', 'missing')).toBe('未知商品');
+    expect(hook.result.current.accountName('missing-account')).toBe('账号 missing-');
+    expect(hook.result.current.accountNickname('missing-account')).toBe('未命名账号');
   });
 
   test('订单导入成功后刷新列表并关闭弹窗', /* 当前回调验证订单导入成功路径。 */ async () => {
@@ -122,5 +124,48 @@ describe('useOrderQuery 与 useOrderImport', /* 当前回调处理订单查询�
     );
     expect(hook.result.current.importError).toBe('导入服务失败');
     expect(hook.result.current.importing).toBe(false);
+  });
+
+  test('部分失败导入保留结果并支持重试和关闭', /* 当前回调验证订单导入部分成功状态机。 */ async () => {
+    // hook 是订单导入部分失败场景的 Hook 渲染结果。
+    const hook = renderHook(
+      // partialHookFactory 创建部分失败场景的订单导入 Hook。
+      () => useOrderImport(noopLoadOrders),
+    );
+    // file 是进入服务端导入阶段的 CSV 文件。
+    const file = new File(['order_id'], 'partial.csv', { type: 'text/csv' });
+    importOrdersMock.mockResolvedValueOnce({ partial_failure: true, message: '部分失败', total: 2, success_count: 1, failed_count: 1, results: [{ order_id: 'order-1', success: true, message: '成功' }, { order_id: 'order-2', success: false, message: '失败' }] });
+    await act(
+      // openAction 打开订单导入弹窗。
+      () => hook.result.current.openImportModal(),
+    );
+    await act(
+      // fileAction 写入部分失败导入文件。
+      () => hook.result.current.setImportFile(file),
+    );
+    await act(
+      // importAction 提交部分失败导入请求。
+      async () => hook.result.current.handleImportOrders(),
+    );
+    expect(hook.result.current.showImportModal).toBe(true);
+    expect(hook.result.current.importResult).toMatchObject({ failed_count: 1, success_count: 1 });
+    expect(hook.result.current.importFile).toBeNull();
+
+    importOrdersMock.mockResolvedValueOnce({ partial_failure: false, message: '重试成功', total: 1, success_count: 1, failed_count: 0, results: [{ order_id: 'order-2', success: true, message: '成功' }] });
+    await act(
+      // retryFileAction 写入重试所需的导入文件。
+      () => hook.result.current.setImportFile(file),
+    );
+    await act(
+      // retryAction 重试部分失败导入。
+      async () => hook.result.current.handleRetryImport(),
+    );
+    expect(importOrdersMock).toHaveBeenCalledTimes(2);
+    await act(
+      // closeAction 关闭订单导入弹窗并清理结果。
+      () => hook.result.current.closeImportModal(),
+    );
+    expect(hook.result.current.showImportModal).toBe(false);
+    expect(hook.result.current.importResult).toBeNull();
   });
 });
