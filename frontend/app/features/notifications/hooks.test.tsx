@@ -193,4 +193,73 @@ describe('useNotifications', /* 当前回调处理通知渠道、SMTP 和动作�
     expect(hook.result.current.toast).toEqual({ type: 'error', text: 'SMTP保存失败' });
     hook.unmount();
   });
+
+  test('SMTP 初始加载失败时记录错误并保持渠道加载完成', /* 当前回调验证管理员 SMTP 初始化错误分支。 */ async () => {
+    getSmtpMock.mockRejectedValueOnce(new Error('SMTP读取失败'));
+    // consoleError 是 SMTP 加载错误日志的可控替身。
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(/* errorLogger 忽略测试日志输出。 */ () => undefined);
+    // hook 是 SMTP 初始化失败场景的通知 Hook 渲染结果。
+    const hook = renderHook(
+      // smtpFailureHookFactory 创建 SMTP 初始化失败场景的 Hook。
+      () => useNotifications(true),
+    );
+    await waitFor(
+      // loadingAssertion 等待通知渠道列表加载完成。
+      () => expect(hook.result.current.loading).toBe(false),
+    );
+    expect(consoleError).toHaveBeenCalledWith('加载 SMTP 配置失败', expect.any(Error));
+    hook.unmount();
+    consoleError.mockRestore();
+  });
+
+  test('提示自动消失、弹窗关闭和删除拒绝均清理状态', /* 当前回调验证通知 Hook 的定时器与守卫分支。 */ async () => {
+    vi.useFakeTimers();
+    try {
+      // hook 是通知提示和弹窗状态场景的 Hook 渲染结果。
+      const hook = renderHook(
+        // toastHookFactory 创建通知提示场景的 Hook。
+        () => useNotifications(false),
+      );
+      await act(
+        // toastAction 展示一条短暂提示。
+        () => hook.result.current.showToast('success', '短暂提示'),
+      );
+      expect(hook.result.current.toast).toEqual({ type: 'success', text: '短暂提示' });
+      await act(
+        // toastTimerAction 推进三秒自动清理提示。
+        async () => { await vi.advanceTimersByTimeAsync(3_000); },
+      );
+      expect(hook.result.current.toast).toBeNull();
+      await act(
+        // openAction 打开渠道弹窗。
+        () => hook.result.current.openCreate(),
+      );
+      await act(
+        // closeAction 关闭渠道弹窗并取消动作。
+        () => hook.result.current.closeModal(),
+      );
+      expect(hook.result.current.showModal).toBe(false);
+      // confirmMock 是用户取消删除时的浏览器确认框替身。
+      vi.mocked(window.confirm).mockReturnValue(false);
+      await act(
+        // rejectedDeleteAction 触发用户拒绝删除。
+        async () => hook.result.current.handleDelete(channelFixture),
+      );
+      expect(deleteChannelMock).not.toHaveBeenCalled();
+      vi.mocked(window.confirm).mockReturnValue(true);
+      deleteChannelMock.mockRejectedValueOnce(new Error('删除失败'));
+      await act(
+        // failedDeleteAction 触发删除请求失败。
+        async () => hook.result.current.handleDelete(channelFixture),
+      );
+      expect(hook.result.current.toast).toEqual({ type: 'error', text: '删除失败' });
+      await act(
+        // cleanupToastAction 创建未到期提示后卸载 Hook，验证定时器清理。
+        () => hook.result.current.showToast('success', '卸载清理'),
+      );
+      hook.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
