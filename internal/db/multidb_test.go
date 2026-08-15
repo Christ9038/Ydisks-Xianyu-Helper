@@ -448,6 +448,7 @@ func TestMultiDB_ReliabilityStateAndSearch(t *testing.T) {
 
 // TestMultiDB_SettingsQuoteKey 负责TestMultiDB设置QuoteKey相关处理。
 func TestMultiDB_SettingsQuoteKey(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "multidb-settings-secret-key")
 	// tg 表示当前遍历过程中的tg
 	for _, tg := range allTestTargets(t) {
 		t.Run(tg.name, func(t *testing.T) {
@@ -473,6 +474,39 @@ func TestMultiDB_SettingsQuoteKey(t *testing.T) {
 			got, err := s.Settings.Get(ctx, "theme_color")
 			if err != nil || got != "blue" {
 				t.Fatalf("Settings.Get=%q err=%v want blue", got, err)
+			}
+			// err 是敏感配置 replace 命令的应用错误。
+			if err := s.Settings.ApplyChanges(ctx, nil, map[string]SensitiveSettingChange{
+				"ai_api_key": {Action: "replace", Value: tg.name + "-secret"},
+			}); err != nil {
+				t.Fatalf("Settings.ApplyChanges replace: %v", err)
+			}
+			// secret、err 是敏感配置读取结果及错误。
+			secret, err := s.Settings.Get(ctx, "ai_api_key")
+			if err != nil || secret != tg.name+"-secret" {
+				t.Fatalf("Settings.Get secret=%q err=%v", secret, err)
+			}
+			// err 是敏感配置 retain 命令的应用错误。
+			if err := s.Settings.ApplyChanges(ctx, nil, map[string]SensitiveSettingChange{
+				"ai_api_key": {Action: "retain"},
+			}); err != nil {
+				t.Fatalf("Settings.ApplyChanges retain: %v", err)
+			}
+			// redacted、err 是敏感配置脱敏视图及错误。
+			redacted, err := s.Settings.Redacted(ctx)
+			if err != nil || redacted["ai_api_key"] != "" || redacted["ai_api_key_configured"] != "true" {
+				t.Fatalf("Settings.Redacted=%#v err=%v", redacted, err)
+			}
+			// err 是敏感配置 clear 命令的应用错误。
+			if err := s.Settings.ApplyChanges(ctx, nil, map[string]SensitiveSettingChange{
+				"ai_api_key": {Action: "clear"},
+			}); err != nil {
+				t.Fatalf("Settings.ApplyChanges clear: %v", err)
+			}
+			// secret、err 是清除后的敏感配置读取结果及错误。
+			secret, err = s.Settings.Get(ctx, "ai_api_key")
+			if err != nil || secret != "" {
+				t.Fatalf("Settings.Get cleared secret=%q err=%v", secret, err)
 			}
 			// all、err 保存all、err，供当前处理流程使用
 			all, err := s.Settings.All(ctx)
