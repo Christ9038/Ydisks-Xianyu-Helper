@@ -190,4 +190,117 @@ describe('useItemPublishBatch', /* 当前回调处理批量发布的表单、任
     expect(deleteBatchMock).not.toHaveBeenCalled();
     hook.unmount();
   });
+
+  test('类目、预检、启动、取消和重试失败都会提示错误', /* 当前回调验证批量动作的异常响应分支。 */ async () => {
+    // hook 是默认账号异常动作场景的批量 Hook 渲染结果。
+    const hook = renderHook(/* errorHookFactory 创建异常动作场景的 Hook。 */ () => useItemPublishBatch({ selectedAccount: 'account-1', loadItems: vi.fn(), loadShippingRules: vi.fn() }));
+    await act(
+      // keywordAction 写入类目关键词。
+      () => hook.result.current.setBatchCategoryKeyword('服饰'),
+    );
+    recommendCategoryMock.mockRejectedValueOnce(new Error('类目失败'));
+    await act(
+      // recommendAction 触发失败的类目推荐。
+      async () => hook.result.current.handleRecommendBatchCategory(),
+    );
+    expect(alert).toHaveBeenCalledWith('类目失败');
+
+    await act(
+      // fileAction 设置商品表格文件。
+      () => hook.result.current.setBatchFile(new File(['title'], 'items.xlsx')),
+    );
+    previewBatchMock.mockRejectedValueOnce(new Error('预检失败'));
+    await act(
+      // previewAction 触发失败的批量预检。
+      async () => hook.result.current.handlePreviewBatch(),
+    );
+    expect(alert).toHaveBeenCalledWith('预检失败');
+
+    await act(
+      // previewStateAction 注入可启动预检结果。
+      () => hook.result.current.setBatchPreview(previewFixture),
+    );
+    startBatchMock.mockRejectedValueOnce(new Error('启动失败'));
+    await act(
+      // startAction 触发失败的批量启动。
+      async () => hook.result.current.handleStartBatch(),
+    );
+    expect(alert).toHaveBeenCalledWith('启动失败');
+
+    await act(
+      // detailStateAction 注入运行中的任务详情。
+      () => hook.result.current.setBatchDetail(runningBatchFixture),
+    );
+    cancelBatchMock.mockRejectedValueOnce(new Error('取消失败'));
+    await act(
+      // cancelAction 触发失败的批量取消。
+      async () => hook.result.current.handleCancelBatch(),
+    );
+    expect(alert).toHaveBeenCalledWith('取消失败');
+
+    await act(
+      // failedDetailAction 注入存在失败行的任务详情。
+      () => hook.result.current.setBatchDetail(failedBatchFixture),
+    );
+    retryBatchMock.mockRejectedValueOnce(new Error('重试失败'));
+    await act(
+      // retryAction 触发失败行重试错误。
+      async () => hook.result.current.handleRetryBatchFailed(),
+    );
+    expect(alert).toHaveBeenCalledWith('重试失败');
+
+    await act(
+      // recentStateAction 注入最近任务以覆盖结果读取异常。
+      () => hook.result.current.setRecentBatch(runningBatchFixture),
+    );
+    getBatchMock.mockRejectedValueOnce(new Error('结果读取失败'));
+    await act(
+      // recentAction 触发最近任务读取错误。
+      async () => hook.result.current.openRecentBatchResult(),
+    );
+    expect(hook.result.current.batchLoading).toBe(false);
+
+    await act(
+      // previewStateAction 注入临时预检任务。
+      () => {
+        hook.result.current.setBatchPreview(previewFixture);
+        hook.result.current.setBatchPhase('preview');
+      },
+    );
+    deleteBatchMock.mockRejectedValueOnce(new Error('清理失败'));
+    await act(
+      // abandonAction 触发临时预检清理错误。
+      async () => hook.result.current.abandonBatchPreview(),
+    );
+    expect(hook.result.current.batchPhase).toBe('upload');
+    hook.unmount();
+  });
+
+  test('轮询完成后刷新商品和发货规则列表', /* 当前回调验证批量轮询完成分支。 */ async () => {
+    vi.useFakeTimers();
+    // loadItems 是轮询完成后的商品列表刷新替身。
+    const loadItems = vi.fn().mockResolvedValue(undefined);
+    // loadShippingRules 是轮询完成后的规则列表刷新替身。
+    const loadShippingRules = vi.fn().mockResolvedValue(undefined);
+    // doneBatchFixture 是轮询返回的完成任务详情。
+    const doneBatchFixture = { ...runningBatchFixture, status: 'completed' as const, running: 0, success: 1 };
+    getBatchMock.mockResolvedValueOnce(doneBatchFixture);
+    // hook 是批量轮询场景的 Hook 渲染结果。
+    const hook = renderHook(/* pollingHookFactory 创建批量轮询场景的 Hook。 */ () => useItemPublishBatch({ selectedAccount: 'account-1', loadItems, loadShippingRules }));
+    await act(
+      // stateAction 打开弹窗并注入运行中的任务。
+      () => {
+        hook.result.current.setShowBatchModal(true);
+        hook.result.current.setBatchDetail(runningBatchFixture);
+      },
+    );
+    await act(/* timerAction 推进批量轮询计时器。 */ async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(getBatchMock).toHaveBeenCalledWith('batch-1');
+    expect(loadItems).toHaveBeenCalledOnce();
+    expect(loadShippingRules).toHaveBeenCalledOnce();
+    hook.unmount();
+    vi.useRealTimers();
+  });
 });
