@@ -102,4 +102,37 @@ describe('useAccountAutomation', /* 当前回调处理账号任务 Hook 的请�
     );
     expect(runTaskMock).not.toHaveBeenCalled();
   });
+
+  test('加载设置失败时展示业务错误', /* 当前回调验证首次读取失败分支。 */ async () => {
+    getSettingsMock.mockRejectedValueOnce(new Error('读取失败'));
+    // hook 是读取失败场景下的账号任务 Hook 渲染结果。
+    const hook = renderHook(renderAutomationHook);
+    await waitFor(
+      // loadingAssertion 等待读取失败状态完成。
+      () => expect(hook.result.current.loading).toBe(false),
+    );
+    expect(hook.result.current.error).toBe('读取失败');
+  });
+
+  test('执行失败后可通过 retry 重试', /* 当前回调验证执行失败与重试动作。 */ async () => {
+    // hook 是执行失败场景下的账号任务 Hook 渲染结果。
+    const hook = renderHook(renderAutomationHook);
+    await waitFor(
+      // loadingAssertion 等待首次设置请求完成。
+      () => expect(hook.result.current.loading).toBe(false),
+    );
+    runTaskMock.mockRejectedValueOnce(new Error('执行失败'));
+    await act(
+      // runAction 执行预期失败的账号任务。
+      async () => hook.result.current.run('auto_rate'),
+    );
+    expect(hook.result.current.error).toBe('执行失败');
+    expect(hook.result.current.retryAvailable).toBe(true);
+    await act(
+      // retryAction 触发最近一次执行动作的重试。
+      async () => hook.result.current.retry(),
+    );
+    expect(runTaskMock).toHaveBeenCalledTimes(2);
+    expect(hook.result.current.error).toBe('');
+  });
 });
