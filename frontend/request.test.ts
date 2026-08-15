@@ -66,6 +66,17 @@ describe('request helpers', () => {
     await expect(get('/gateway')).rejects.toThrow('网关暂时不可用');
   } /* 回调函数负责当前业务流程。 */);
 
+  test('成功的非 JSON 响应直接返回文本', async () => {
+    // fetchMock 是返回纯文本成功响应的网络替身。
+    const fetchMock = vi.fn().mockResolvedValue(new Response('ok', {
+      status: 200,
+      headers: { 'content-type': 'text/plain' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(get('/text')).resolves.toBe('ok');
+  } /* 回调函数负责当前业务流程。 */);
+
   test('JSON 错误体无法解析时使用 HTTP 状态兜底', async () => {
     // fetchMock 是返回损坏 JSON 错误体的网络替身。
     const fetchMock = vi.fn().mockResolvedValue(new Response('{broken', {
