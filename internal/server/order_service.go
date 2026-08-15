@@ -125,7 +125,7 @@ func orderDTOFromRow(row orderapp.OrderRow) orderDTO {
 }
 
 // orderDTOFromOrder 把订单实体和关联商品信息转换为详情响应视图。
-func orderDTOFromOrder(order *db.Order, item *db.ItemInfo) orderDTO {
+func orderDTOFromOrder(order *orderapp.Order, item *orderapp.ItemInfo) orderDTO {
 	// itemTitle、itemImage 保存商品Title、item图片，供当前处理流程使用
 	itemTitle, itemImage := "", ""
 	if item != nil {
@@ -140,8 +140,38 @@ func orderDTOFromOrder(order *db.Order, item *db.ItemInfo) orderDTO {
 		Quantity: order.Quantity, Amount: order.Amount, OrderStatus: status, Status: status,
 		CookieID: order.CookieID, IsBargain: order.IsBargain, SystemShipped: order.SystemShipped,
 		ReceiverName: order.ReceiverName, ReceiverPhone: order.ReceiverPhone,
-		ReceiverAddress: order.ReceiverAddr, ReceiverCity: order.ReceiverCity,
+		ReceiverAddress: order.ReceiverAddress, ReceiverCity: order.ReceiverCity,
 		CreatedAt: order.CreatedAt, UpdatedAt: order.UpdatedAt,
+	}
+}
+
+// orderForAutomation 将订单应用实体转换为尚未迁移完成的自动化中心数据库实体。
+func orderForAutomation(order *orderapp.Order) *db.Order {
+	if order == nil {
+		return nil
+	}
+	return &db.Order{
+		OrderID: order.OrderID, ItemID: order.ItemID, BuyerID: order.BuyerID,
+		SpecName: order.SpecName, SpecValue: order.SpecValue, Quantity: order.Quantity,
+		Amount: order.Amount, OrderStatus: order.OrderStatus, CookieID: order.CookieID,
+		IsBargain: order.IsBargain, ReceiverName: order.ReceiverName,
+		ReceiverPhone: order.ReceiverPhone, ReceiverAddr: order.ReceiverAddress,
+		ReceiverCity: order.ReceiverCity, Version: order.Version, ChatID: order.ChatID,
+		SystemShipped: order.SystemShipped, PaidAt: order.PaidAt, ShippedAt: order.ShippedAt,
+		CompletedAt: order.CompletedAt, BuyerReviewedAt: order.BuyerReviewedAt,
+		LastReviewRequestAt: order.LastReviewRequestAt, ReviewRequestCount: order.ReviewRequestCount,
+		CreatedAt: order.CreatedAt, UpdatedAt: order.UpdatedAt,
+	}
+}
+
+// cookieDetailForOrderPlatform 将订单应用层平台运行视图转换为共享 Server 会话辅助函数所需的兼容详情。
+func cookieDetailForOrderPlatform(data *orderapp.PlatformRuntimeData) *db.CookieDetail {
+	if data == nil {
+		return nil
+	}
+	return &db.CookieDetail{
+		ID: data.ID, UserID: data.UserID, Value: data.Value,
+		MetadataJSON: data.MetadataJSON, ShowBrowser: data.ShowBrowser,
 	}
 }
 
@@ -188,7 +218,7 @@ func (a *orderApplicationService) List(ctx context.Context, query orderListQuery
 }
 
 // Get 查询订单并校验订单绑定账号属于当前用户。
-func (a *orderApplicationService) Get(ctx context.Context, userID int64, orderID string) (*db.Order, error) {
+func (a *orderApplicationService) Get(ctx context.Context, userID int64, orderID string) (*orderapp.Order, error) {
 	// order、err 保存order、err，供当前处理流程使用
 	order, err := a.repository.GetOrder(ctx, orderID)
 	if err != nil || order == nil {
@@ -501,7 +531,7 @@ func (a *orderApplicationService) appendManualFailure(result *manualShipResult, 
 }
 
 // manualFullDelivery 执行完整自动化发货分支。
-func (a *orderApplicationService) manualFullDelivery(ctx context.Context, order *db.Order, orderID string, result *manualShipResult) {
+func (a *orderApplicationService) manualFullDelivery(ctx context.Context, order *orderapp.Order, orderID string, result *manualShipResult) {
 	if a.server.Manager == nil || a.server.automation == nil {
 		a.appendManualFailure(result, orderID, "自动化中心未初始化")
 		return
@@ -512,7 +542,7 @@ func (a *orderApplicationService) manualFullDelivery(ctx context.Context, order 
 		return
 	}
 	// sent、err 保存sent、err，供当前处理流程使用
-	sent, err := a.server.automation.ManualFullDelivery(ctx, order)
+	sent, err := a.server.automation.ManualFullDelivery(ctx, orderForAutomation(order))
 	if err != nil {
 		a.appendManualFailure(result, orderID, err.Error())
 		a.server.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID, "手动完整发货失败: "+err.Error())
@@ -524,7 +554,7 @@ func (a *orderApplicationService) manualFullDelivery(ctx context.Context, order 
 }
 
 // manualStatusShip 调用平台确认发货并把成功状态写入本地订单。
-func (a *orderApplicationService) manualStatusShip(ctx context.Context, userID int64, order *db.Order, orderID string, result *manualShipResult) {
+func (a *orderApplicationService) manualStatusShip(ctx context.Context, userID int64, order *orderapp.Order, orderID string, result *manualShipResult) {
 	if a.server.MTop == nil {
 		a.appendManualFailure(result, orderID, "mtop 客户端未初始化")
 		return
@@ -555,7 +585,7 @@ func (a *orderApplicationService) manualStatusShip(ctx context.Context, userID i
 	upsertErr := a.repository.UpsertOrder(ctx, orderID, orderapp.UpsertOptions{
 		CookieID: order.CookieID, OrderStatus: "shipped", SystemShipped: &sysShip, ItemID: order.ItemID,
 		BuyerID: order.BuyerID, ReceiverName: order.ReceiverName, ReceiverPhone: order.ReceiverPhone,
-		ReceiverAddress: order.ReceiverAddr, ReceiverCity: order.ReceiverCity, ChatID: order.ChatID,
+		ReceiverAddress: order.ReceiverAddress, ReceiverCity: order.ReceiverCity, ChatID: order.ChatID,
 		SpecName: order.SpecName, SpecValue: order.SpecValue, Quantity: order.Quantity, Amount: order.Amount,
 	})
 	if upsertErr != nil && a.server.Logger != nil {
@@ -599,16 +629,18 @@ func (a *orderApplicationService) RefreshSingle(ctx context.Context, userID int6
 	}()
 	// latest、err 保存latest、err，供当前处理流程使用
 	latest, err := a.repository.LoadCookiePlatformDetail(ctx, cookieID)
-	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
+	// latestDetail 是转换到共享会话辅助函数的最小平台详情。
+	latestDetail := cookieDetailForOrderPlatform(latest)
+	if err != nil || latestDetail == nil || latestDetail.UserID != userID || !hasStoredCookieCredential(latestDetail) {
 		return orderSingleRefreshResponse{}, errOrderCredentialChanged
 	}
 	// refreshCtx、cancel 保存refreshCtx、cancel，供当前处理流程使用
 	refreshCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	// mtopCtx、cookieSession 保存mtopCtx、cookie会话，供当前处理流程使用
-	mtopCtx, cookieSession := withMTopCookieSnapshot(refreshCtx, latest)
+	mtopCtx, cookieSession := withMTopCookieSnapshot(refreshCtx, latestDetail)
 	// detail、callErr 保存detail、callErr，供当前处理流程使用
-	detail, callErr := detailFetcher.FetchOrderDetail(mtopCtx, latest.Value, orderID)
+	detail, callErr := detailFetcher.FetchOrderDetail(mtopCtx, latestDetail.Value, orderID)
 	if callErr == nil && detail == nil {
 		callErr = errors.New("订单详情接口未返回结果")
 	}
@@ -617,14 +649,14 @@ func (a *orderApplicationService) RefreshSingle(ctx context.Context, userID int6
 	// runtimeCookieChanged 保存runtime登录凭证Changed，供当前处理流程使用
 	runtimeCookieChanged := false
 	// value、valueChanged、handled、persistErr 保存value、valueChanged、handled、persistErr，供当前处理流程使用
-	value, valueChanged, handled, persistErr := a.server.persistMTopCookieSessionLocked(ctx, latest, cookieSession)
+	value, valueChanged, handled, persistErr := a.server.persistMTopCookieSessionLocked(ctx, latestDetail, cookieSession)
 	if persistErr != nil {
 		callErr = errors.Join(callErr, fmt.Errorf("保存订单详情响应 Cookie Jar: %w", persistErr))
 	} else if handled && valueChanged {
 		runtimeCookie, runtimeCookieChanged = value, true
-	} else if !handled && callErr == nil && detail.UpdatedCookies != "" && detail.UpdatedCookies != latest.Value {
+	} else if !handled && callErr == nil && detail.UpdatedCookies != "" && detail.UpdatedCookies != latestDetail.Value {
 		// metadata 保存metadata，供当前处理流程使用
-		metadata := cookierefresh.MetadataWithoutSnapshot(latest.MetadataJSON)
+		metadata := cookierefresh.MetadataWithoutSnapshot(latestDetail.MetadataJSON)
 		if // saveErr 保存saveErr，供当前处理流程使用
 		saveErr := a.repository.UpdateRenewalCookie(ctx, cookieID, detail.UpdatedCookies, metadata, time.Now().Unix()); saveErr == nil {
 			runtimeCookie, runtimeCookieChanged = detail.UpdatedCookies, true
@@ -680,7 +712,9 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 			credentialUnlock := a.repository.LockCredentials(cid)
 			// latest、latestErr 保存latest、latestErr，供当前处理流程使用
 			latest, latestErr := a.repository.LoadCookiePlatformDetail(ctx, cid)
-			if latestErr != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
+			// latestDetail 是转换到共享会话辅助函数的最小平台详情。
+			latestDetail := cookieDetailForOrderPlatform(latest)
+			if latestErr != nil || latestDetail == nil || latestDetail.UserID != userID || !hasStoredCookieCredential(latestDetail) {
 				credentialUnlock()
 				if latestErr == nil {
 					latestErr = errors.New("账号凭证已变化")
@@ -692,11 +726,11 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 				continue
 			}
 			// latest.Value 仅用于当前账号的凭证调用，不需要写回账号列表。
-			mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
+			mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latestDetail)
 			// accountDiscovered、accountUpdated、accountNewIDs、accountRemoteIDs、discoveryErr 保存账号Discovered、accountUpdated、accountNewIDs、accountRemoteIDs、discoveryErr，供当前处理流程使用
-			accountDiscovered, accountUpdated, accountNewIDs, accountRemoteIDs, discoveryErr := a.server.discoverSoldOrders(mtopCtx, fetcher, cid, latest.Value)
+			accountDiscovered, accountUpdated, accountNewIDs, accountRemoteIDs, discoveryErr := a.server.discoverSoldOrders(mtopCtx, fetcher, cid, latestDetail.Value)
 			// value、valueChanged、persistErr 保存value、valueChanged、persistErr，供当前处理流程使用
-			value, valueChanged, _, persistErr := a.server.persistMTopCookieSessionLocked(ctx, latest, cookieSession)
+			value, valueChanged, _, persistErr := a.server.persistMTopCookieSessionLocked(ctx, latestDetail, cookieSession)
 			if persistErr != nil {
 				discoveryErr = errors.Join(discoveryErr, fmt.Errorf("保存订单列表响应 Cookie Jar: %w", persistErr))
 			}
@@ -826,7 +860,9 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 			credentialUnlock := a.repository.LockCredentials(cid)
 			// latest、latestErr 保存latest、latestErr，供当前处理流程使用
 			latest, latestErr := a.repository.LoadCookiePlatformDetail(ctx, cid)
-			if latestErr != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
+			// latestDetail 是转换到共享会话辅助函数的最小平台详情。
+			latestDetail := cookieDetailForOrderPlatform(latest)
+			if latestErr != nil || latestDetail == nil || latestDetail.UserID != userID || !hasStoredCookieCredential(latestDetail) {
 				credentialUnlock()
 				failed += len(chunk)
 				results = append(results, map[string]any{"cookie_id": cid, "success": false, "message": "账号凭证已变化"})
@@ -835,13 +871,13 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 			// detailCtx、cancel 保存detailCtx、cancel，供当前处理流程使用
 			detailCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 			// mtopCtx、cookieSession 保存mtopCtx、cookie会话，供当前处理流程使用
-			mtopCtx, cookieSession := withMTopCookieSnapshot(detailCtx, latest)
+			mtopCtx, cookieSession := withMTopCookieSnapshot(detailCtx, latestDetail)
 			// sessionErr 保存会话Err，供当前处理流程使用
 			var sessionErr error
 			// target 表示当前遍历过程中的target
 			for _, target := range chunk {
 				// detail、fetchErr 保存detail、fetchErr，供当前处理流程使用
-				detail, fetchErr := detailFetcher.FetchOrderDetail(mtopCtx, latest.Value, target.OrderID)
+				detail, fetchErr := detailFetcher.FetchOrderDetail(mtopCtx, latestDetail.Value, target.OrderID)
 				if fetchErr != nil || detail == nil {
 					failed++
 					// message 保存消息，供当前处理流程使用
@@ -895,7 +931,7 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 			}
 			cancel()
 			// value、valueChanged、persistErr 保存value、valueChanged、persistErr，供当前处理流程使用
-			value, valueChanged, _, persistErr := a.server.persistMTopCookieSessionLocked(ctx, latest, cookieSession)
+			value, valueChanged, _, persistErr := a.server.persistMTopCookieSessionLocked(ctx, latestDetail, cookieSession)
 			credentialUnlock()
 			if persistErr != nil {
 				failed++

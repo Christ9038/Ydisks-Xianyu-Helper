@@ -16,9 +16,9 @@ type orderRepository interface {
 	// ListOrdersForUser 查询用户范围内的订单列表。
 	ListOrdersForUser(ctx context.Context, filter orderapp.ListFilter) ([]orderapp.OrderRow, int, error)
 	// GetOrder 查询单个订单。
-	GetOrder(ctx context.Context, orderID string) (*db.Order, error)
+	GetOrder(ctx context.Context, orderID string) (*orderapp.Order, error)
 	// GetItem 查询账号下的商品信息。
-	GetItem(ctx context.Context, cookieID, itemID string) (*db.ItemInfo, error)
+	GetItem(ctx context.Context, cookieID, itemID string) (*orderapp.ItemInfo, error)
 	// SoftDeleteOrder 逻辑删除订单。
 	SoftDeleteOrder(ctx context.Context, orderID string) (bool, error)
 	// WithTransaction 在应用层 Writer 中执行订单持久化操作。
@@ -28,13 +28,13 @@ type orderRepository interface {
 	// LockCredentials 串行化账号凭证状态变更。
 	LockCredentials(cookieID string) func()
 	// LoadCookiePlatformDetail 读取账号平台凭证详情。
-	LoadCookiePlatformDetail(ctx context.Context, cookieID string) (*db.CookieDetail, error)
+	LoadCookiePlatformDetail(ctx context.Context, cookieID string) (*orderapp.PlatformRuntimeData, error)
 	// UpdateRenewalCookie 更新账号续期 Cookie 和 metadata。
 	UpdateRenewalCookie(ctx context.Context, cookieID, value, metadata string, at int64) error
 	// SoftDeleteMissingOrders 删除账号下远端已不存在的订单。
 	SoftDeleteMissingOrders(ctx context.Context, cookieID string, activeIDs map[string]struct{}) (int, error)
 	// ListOrdersByCookiePage 分页读取账号订单。
-	ListOrdersByCookiePage(ctx context.Context, cookieID string, limit, offset int) ([]db.OrderRow, error)
+	ListOrdersByCookiePage(ctx context.Context, cookieID string, limit, offset int) ([]orderapp.OrderRow, error)
 }
 
 // storeOrderRepository 将完整 Store 适配为订单应用服务窄 repository。
@@ -84,14 +84,65 @@ func orderRowsFromDB(rows []db.OrderRow) []orderapp.OrderRow {
 	return converted
 }
 
+// orderFromDB 将数据库订单实体转换为不暴露存储层字段命名的应用实体。
+func orderFromDB(order *db.Order) *orderapp.Order {
+	if order == nil {
+		return nil
+	}
+	return &orderapp.Order{
+		OrderID: order.OrderID, ItemID: order.ItemID, BuyerID: order.BuyerID,
+		SpecName: order.SpecName, SpecValue: order.SpecValue, Quantity: order.Quantity,
+		Amount: order.Amount, OrderStatus: order.OrderStatus, CookieID: order.CookieID,
+		IsBargain: order.IsBargain, ReceiverName: order.ReceiverName,
+		ReceiverPhone: order.ReceiverPhone, ReceiverAddress: order.ReceiverAddr,
+		ReceiverCity: order.ReceiverCity, Version: order.Version, ChatID: order.ChatID,
+		SystemShipped: order.SystemShipped, PaidAt: order.PaidAt, ShippedAt: order.ShippedAt,
+		CompletedAt: order.CompletedAt, BuyerReviewedAt: order.BuyerReviewedAt,
+		LastReviewRequestAt: order.LastReviewRequestAt, ReviewRequestCount: order.ReviewRequestCount,
+		CreatedAt: order.CreatedAt, UpdatedAt: order.UpdatedAt,
+	}
+}
+
+// itemInfoFromDB 将数据库商品实体转换为订单应用层商品模型。
+func itemInfoFromDB(item *db.ItemInfo) *orderapp.ItemInfo {
+	if item == nil {
+		return nil
+	}
+	return &orderapp.ItemInfo{
+		ID: item.ID, CookieID: item.CookieID, ItemID: item.ItemID,
+		ItemTitle: item.ItemTitle, ItemDescription: item.ItemDescription,
+		ItemCategory: item.ItemCategory, ItemPrice: item.ItemPrice,
+		ItemDetail: item.ItemDetail, IsMultiSpec: item.IsMultiSpec,
+		MultiQuantityDelivery: item.MultiQuantityDelivery,
+	}
+}
+
+// platformRuntimeDataFromDB 将数据库平台运行视图转换为订单应用层模型。
+func platformRuntimeDataFromDB(data db.CookiePlatformRuntimeData) *orderapp.PlatformRuntimeData {
+	return &orderapp.PlatformRuntimeData{
+		ID: data.ID, UserID: data.UserID, Value: data.Value,
+		MetadataJSON: data.MetadataJSON, ShowBrowser: data.ShowBrowser,
+	}
+}
+
 // GetOrder 委托订单详情查询。
-func (r storeOrderRepository) GetOrder(ctx context.Context, orderID string) (*db.Order, error) {
-	return r.store.Orders.Get(ctx, orderID)
+func (r storeOrderRepository) GetOrder(ctx context.Context, orderID string) (*orderapp.Order, error) {
+	// order 和 err 保存数据库订单查询结果及其错误。
+	order, err := r.store.Orders.Get(ctx, orderID)
+	if err != nil {
+		return nil, err
+	}
+	return orderFromDB(order), nil
 }
 
 // GetItem 委托商品信息查询。
-func (r storeOrderRepository) GetItem(ctx context.Context, cookieID, itemID string) (*db.ItemInfo, error) {
-	return r.store.Items.Get(ctx, cookieID, itemID)
+func (r storeOrderRepository) GetItem(ctx context.Context, cookieID, itemID string) (*orderapp.ItemInfo, error) {
+	// item 和 err 保存数据库商品查询结果及其错误。
+	item, err := r.store.Items.Get(ctx, cookieID, itemID)
+	if err != nil {
+		return nil, err
+	}
+	return itemInfoFromDB(item), nil
 }
 
 // SoftDeleteOrder 委托订单逻辑删除。
@@ -184,13 +235,13 @@ func (r storeOrderRepository) LockCredentials(cookieID string) func() {
 }
 
 // LoadCookiePlatformDetail 委托平台凭证详情查询。
-func (r storeOrderRepository) LoadCookiePlatformDetail(ctx context.Context, cookieID string) (*db.CookieDetail, error) {
+func (r storeOrderRepository) LoadCookiePlatformDetail(ctx context.Context, cookieID string) (*orderapp.PlatformRuntimeData, error) {
 	// data 和 err 保存平台运行视图查询结果。
 	data, err := r.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID)
 	if err != nil {
 		return nil, err
 	}
-	return &db.CookieDetail{ID: data.ID, UserID: data.UserID, Value: data.Value, MetadataJSON: data.MetadataJSON, ShowBrowser: data.ShowBrowser}, nil
+	return platformRuntimeDataFromDB(data), nil
 }
 
 // UpdateRenewalCookie 委托续期 Cookie 更新。
@@ -204,8 +255,13 @@ func (r storeOrderRepository) SoftDeleteMissingOrders(ctx context.Context, cooki
 }
 
 // ListOrdersByCookiePage 委托账号订单分页查询。
-func (r storeOrderRepository) ListOrdersByCookiePage(ctx context.Context, cookieID string, limit, offset int) ([]db.OrderRow, error) {
-	return r.store.Orders.ByCookiePage(ctx, cookieID, limit, offset)
+func (r storeOrderRepository) ListOrdersByCookiePage(ctx context.Context, cookieID string, limit, offset int) ([]orderapp.OrderRow, error) {
+	// rows 和 err 保存数据库订单分页结果及其错误。
+	rows, err := r.store.Orders.ByCookiePage(ctx, cookieID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	return orderRowsFromDB(rows), nil
 }
 
 // newStoreOrderRepository 从完整 Store 构造订单应用服务窄 repository。
