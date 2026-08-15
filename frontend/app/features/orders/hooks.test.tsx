@@ -230,4 +230,18 @@ describe('useOrderQuery 与 useOrderImport', /* 当前回调处理订单查询�
     hook.unmount();
     consoleError.mockRestore();
   });
+
+  test('没有导入文件时不会提交订单导入请求', /* 当前回调验证订单导入提交前置条件。 */ async () => {
+    // hook 是没有导入文件场景的订单导入 Hook 渲染结果。
+    const hook = renderHook(
+      // emptyImportHookFactory 创建空文件导入场景的 Hook。
+      () => useOrderImport(noopLoadOrders),
+    );
+    await act(
+      // emptyImportAction 在没有文件时触发导入守卫。
+      async () => hook.result.current.handleImportOrders(),
+    );
+    expect(importOrdersMock).not.toHaveBeenCalled();
+    hook.unmount();
+  });
 });

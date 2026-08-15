@@ -166,6 +166,25 @@ describe('request helpers', () => {
 	vi.useRealTimers();
   } /* 回调函数负责当前业务流程。 */);
 
+  test('上传请求超时后返回上传专用错误', /* 当前回调验证上传请求的超时错误分支。 */ async () => {
+    vi.useFakeTimers();
+    try {
+      // fetchMock 是等待上传超时信号的网络替身。
+      const fetchMock = vi.fn(/* uploadTimeoutFactory 创建等待上传超时的网络替身。 */ (_url: string, init: RequestInit) => new Promise<Response>(/* uploadTimeoutExecutor 等待上传控制器超时。 */ (_resolve, reject) => {
+        init.signal?.addEventListener('abort', /* abortCallback 将上传超时转换为网络异常。 */ () => reject(new DOMException('timeout', 'AbortError')), { once: true });
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+      // pending 是等待上传超时结果的请求 Promise。
+      const pending = postForm('/slow-upload', new FormData(), { timeoutMs: 50 });
+      // rejection 是断言上传超时错误的异步结果。
+      const rejection = expect(pending).rejects.toThrow('上传超时');
+      await vi.advanceTimersByTimeAsync(50);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
+  } /* 回调函数负责当前业务流程。 */);
+
   test('外部 AbortSignal 取消请求时返回取消错误', async () => {
     // controller 是调用方主动取消请求的控制器。
     const controller = new AbortController();

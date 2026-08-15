@@ -44,5 +44,6 @@ test('Chat 状态工具覆盖追加消息、搜索字段和时间格式化',
     expect(isChatAbortError('请求已取消')).toBe(false);
     expect(formatClock(0)).toBe('');
     expect(formatClock(Date.now())).toMatch(/^\d{2}:\d{2}$/);
+    expect(formatClock(Date.now() - 86_400_000)).toMatch(/\d{2}\/\d{2}/);
     expect(messageTime(Date.now())).toMatch(/\d{2}\/\d{2}/);
   });

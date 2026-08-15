@@ -157,4 +157,33 @@ describe('useCardsData 与 useCardBatchActions', /* 当前回调处理卡密库�
     expect(appendCardMock).toHaveBeenCalledTimes(2);
     batchHook.unmount();
   });
+
+  test('批量创建和追加的前置条件阻止空操作', /* 当前回调验证卡密批量操作的空输入守卫。 */ async () => {
+    // hook 是空库存和空输入守卫场景的批量 Hook 渲染结果。
+    const hook = renderHook(
+      // guardHookFactory 创建批量操作守卫场景的 Hook。
+      () => useCardBatchActions({ dataCards: [], loadCards: loadCardsFixture }),
+    );
+    await act(
+      // emptyCreateAction 在没有文件时阻止批量创建。
+      async () => hook.result.current.handleBatchCreate(),
+    );
+    expect(batchCreateMock).not.toHaveBeenCalled();
+    await act(
+      // emptyAppendAction 在没有目标和内容时阻止卡密追加。
+      async () => hook.result.current.handleBatchAppend(),
+    );
+    expect(appendCardMock).not.toHaveBeenCalled();
+    await act(
+      // emptyRetryAction 在没有上次目标时阻止追加重试。
+      async () => hook.result.current.handleRetryBatchAppend(),
+    );
+    expect(appendCardMock).not.toHaveBeenCalled();
+    await act(
+      // openAction 打开空库存批量弹窗并验证目标为空。
+      () => hook.result.current.openBatchModal(),
+    );
+    expect(hook.result.current.appendTargetId).toBe('');
+    hook.unmount();
+  });
 });

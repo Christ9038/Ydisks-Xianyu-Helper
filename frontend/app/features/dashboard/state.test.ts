@@ -34,6 +34,11 @@ test('Dashboard 派生数据覆盖空值、零值和名称截断分支',
     expect(buildChartData(empty)).toEqual([]);
     expect(buildChartData({ ...empty, daily_stats: [{ date: '2026-08-15', amount: 0, order_count: 0 }] })).toEqual([{ name: '08-15', amount: 0, orders: 0, avgAmount: 0 }]);
     expect(buildProductSalesData({ ...analytics, item_stats: [{ ...analytics.item_stats![0], item_id: 'item-long' }] }, { 'item-long': longName })[0].name).toBe('这是一个超过十二个字符的...');
+    // rankedAnalytics 是包含多个商品的排行数据，用于覆盖排序比较器。
+    const rankedAnalytics = { ...analytics, revenue_stats: { total_amount: 40, total_orders: 4 }, item_stats: [{ item_id: 'item-a', order_count: 1, total_amount: 10, avg_amount: 10 }, { item_id: 'item-b', order_count: 3, total_amount: 30, avg_amount: 10 }] } as OrderAnalytics;
+    expect(buildProductSalesData(rankedAnalytics, { 'item-a': '商品A', 'item-b': '商品B' })).toEqual([{ name: '商品B', sales: 3 }, { name: '商品A', sales: 1 }]);
+    expect(buildSourceData(rankedAnalytics, { 'item-a': '商品A', 'item-b': '商品B' }, ['red', 'blue'])[0]).toMatchObject({ name: '商品B', percent: 75, color: 'red' });
+    expect(buildCategoryData(rankedAnalytics, { 'item-a': '商品A', 'item-b': '商品B' }, ['blue', 'red'])[0]).toMatchObject({ name: '商品B', percentage: '75.0', color: 'blue' });
     expect(buildSourceData(analytics, {}, ['red'])[0]).toMatchObject({ name: 'item-long', percent: 100, color: 'red' });
     expect(buildCategoryData(analytics, {}, ['blue'])[0]).toMatchObject({ name: 'item-long', percentage: '100.0', color: 'blue' });
     expect(getTrendPercent(null, analytics)).toBeNull();

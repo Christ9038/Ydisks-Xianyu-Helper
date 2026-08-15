@@ -324,4 +324,45 @@ describe('useAccountSubmodules', /* 当前回调处理账号编辑、AI、通知
     expect(cancelPasswordMock).toHaveBeenCalledWith('session-1');
     hook.unmount();
   });
+
+  test('通知绑定可移除且 AI 默认值与密码登录终态可归一化', /* 当前回调验证账号子模块的派生默认值和终态分支。 */ async () => {
+    // setEditingAccount 是派生默认值测试的编辑账号状态替身。
+    const setEditingAccount = vi.fn();
+    // setActiveModal 是派生默认值测试的弹窗状态替身。
+    const setActiveModal = vi.fn();
+    // setEditForm 是派生默认值测试的表单状态替身。
+    const setEditForm = vi.fn();
+    // loadAccounts 是派生默认值测试的账号刷新替身。
+    const loadAccounts = vi.fn().mockResolvedValue(undefined);
+    // hook 是通知绑定移除和密码终态场景的 Hook 渲染结果。
+    const hook = renderHook(
+      // derivedHookFactory 创建派生默认值场景的子模块 Hook。
+      () => useAccountSubmodules({ editingAccount: accountFixture, setEditingAccount, setActiveModal, editForm: editFormFixture, setEditForm, loadAccounts }),
+    );
+    await act(
+      // editAction 打开编辑弹窗并加载通知绑定。
+      async () => hook.result.current.openEditModal(accountFixture),
+    );
+    await act(
+      // removeBindingAction 移除已经绑定的通知渠道。
+      () => hook.result.current.toggleNotificationChannel(1),
+    );
+    expect(hook.result.current.selectedChannelIds).toEqual([]);
+
+    accountAIMock.mockResolvedValueOnce({ ai_enabled: undefined, max_discount_percent: undefined, max_discount_amount: undefined, max_bargain_rounds: undefined, custom_prompts: undefined } as never);
+    await act(
+      // defaultAIAction 读取缺少字段的 AI 设置并应用默认值。
+      async () => hook.result.current.openAIModal(accountFixture),
+    );
+    expect(hook.result.current.aiSettings).toMatchObject({ ai_enabled: false, max_discount_percent: 10, max_discount_amount: 100, max_bargain_rounds: 3, custom_prompts: '' });
+
+    passwordLoginMock.mockResolvedValueOnce({ success: true, session_id: 'session-failed', status: 'processing', message: '处理中' });
+    passwordStatusMock.mockResolvedValueOnce({ status: 'failed', message: '密码登录失败' });
+    await act(
+      // failedStatusAction 验证密码登录失败终态不再继续轮询。
+      async () => hook.result.current.handlePasswordLogin(),
+    );
+    expect(hook.result.current.passwordLoginView).toMatchObject({ status: 'failed', message: '密码登录失败' });
+    hook.unmount();
+  });
 });

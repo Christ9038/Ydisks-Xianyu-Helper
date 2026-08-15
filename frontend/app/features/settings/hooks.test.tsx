@@ -136,6 +136,12 @@ describe('useSettings', /* 当前回调处理系统设置、模型和凭据请�
     );
     expect(hook.result.current.loadError).toBe('设置服务失败');
     expect(hook.result.current.settings).toBeNull();
+    await act(
+      // saveGuardAction 在没有配置数据时阻止保存请求。
+      async () => hook.result.current.handleSave(),
+    );
+    expect(updateSettingsMock).not.toHaveBeenCalled();
+    hook.unmount();
   });
 
   test('配置保存和凭据网络异常时保留错误状态', /* 当前回调验证设置保存与凭据网络错误分支。 */ async () => {
@@ -171,6 +177,33 @@ describe('useSettings', /* 当前回调处理系统设置、模型和凭据请�
       async () => hook.result.current.handleCredentialsSave(credentialsEvent),
     );
     expect(hook.result.current.credentialsMessage).toEqual({ type: 'success', text: '更新成功' });
+    await waitFor(
+      // reloadAssertion 等待凭据保存成功后的页面重载调度。
+      () => expect(noopReload).toHaveBeenCalled(),
+      { timeout: 2_000 },
+    );
+    hook.unmount();
+  });
+
+  test('点击模型选择器外部会关闭下拉框', /* 当前回调验证模型选择器的文档事件边界。 */ async () => {
+    // hook 是模型选择器外部点击场景的系统设置 Hook 渲染结果。
+    const hook = renderHook(renderSettingsHook);
+    await waitFor(
+      // statusAssertion 等待设置加载完成后再操作下拉框。
+      () => expect(hook.result.current.requestStatus).toBe('success'),
+    );
+    // picker 是模型选择器根节点替身。
+    const picker = document.createElement('div');
+    hook.result.current.modelPickerRef.current = picker;
+    await act(
+      // openAction 打开模型下拉框。
+      () => hook.result.current.setModelDropdownOpen(true),
+    );
+    document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await waitFor(
+      // closeAssertion 等待外部点击关闭下拉框。
+      () => expect(hook.result.current.modelDropdownOpen).toBe(false),
+    );
     hook.unmount();
   });
 });

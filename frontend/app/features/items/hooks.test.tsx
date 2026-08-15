@@ -308,6 +308,11 @@ describe('useItemPublishBatch', /* 当前回调处理批量发布的表单、任
     // hook 是批量操作守卫场景的 Hook 渲染结果。
     const hook = renderHook(/* guardHookFactory 创建批量操作守卫场景的 Hook。 */ () => useItemPublishBatch({ selectedAccount: 'account-1', loadItems: vi.fn(), loadShippingRules: vi.fn() }));
     await act(
+      // emptyKeywordAction 在有账号但没有关键词时阻止类目推荐。
+      async () => hook.result.current.handleRecommendBatchCategory(),
+    );
+    expect(recommendCategoryMock).not.toHaveBeenCalled();
+    await act(
       // emptyRecentAction 在没有最近任务时保持状态稳定。
       async () => hook.result.current.openRecentBatchResult(),
     );
@@ -318,6 +323,11 @@ describe('useItemPublishBatch', /* 当前回调处理批量发布的表单、任
     );
     expect(startBatchMock).not.toHaveBeenCalled();
     await act(
+      // noDetailCancelAction 在没有任务详情时阻止取消请求。
+      async () => hook.result.current.handleCancelBatch(),
+    );
+    expect(cancelBatchMock).not.toHaveBeenCalled();
+    await act(
       // invalidPreviewAction 注入没有有效行的预检结果。
       () => hook.result.current.setBatchPreview({ ...previewFixture, valid: 0 }),
     );
@@ -327,6 +337,22 @@ describe('useItemPublishBatch', /* 当前回调处理批量发布的表单、任
     );
     expect(startBatchMock).not.toHaveBeenCalled();
     expect(alert).toHaveBeenCalledWith('没有可发布的商品行');
+    await act(
+      // noAccountPreviewAction 验证有文件但没有默认账号时阻止预检。
+      () => hook.result.current.setBatchFile(new File(['title'], 'items.xlsx')),
+    );
+    // noAccountHook 是没有默认账号的预检 Hook 渲染结果。
+    const noAccountHook = renderHook(/* noAccountPreviewHookFactory 创建无账号预检场景的 Hook。 */ () => useItemPublishBatch({ selectedAccount: '', loadItems: vi.fn(), loadShippingRules: vi.fn() }));
+    await act(
+      // noAccountFileAction 为无账号预检场景写入文件。
+      () => noAccountHook.result.current.setBatchFile(new File(['title'], 'items.xlsx')),
+    );
+    await act(
+      // noAccountPreviewAction2 触发无默认账号预检守卫。
+      async () => noAccountHook.result.current.handlePreviewBatch(),
+    );
+    expect(previewBatchMock).not.toHaveBeenCalled();
+    noAccountHook.unmount();
     await act(
       // detailAction 注入可取消的任务详情。
       () => hook.result.current.setBatchDetail(runningBatchFixture),
