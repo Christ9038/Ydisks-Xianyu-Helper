@@ -1,0 +1,141 @@
+// @vitest-environment jsdom
+import { act, renderHook } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import type { Order } from '../../../types';
+import { deleteOrder, manualShipOrder, syncOrders, syncSingleOrder, updateOrder } from './api';
+import { useOrderActions } from './orderActions';
+
+// orderActionMocks 保存订单动作 Hook 测试使用的 API 替身。
+const orderActionMocks = vi.hoisted(/* orderActionMockFactory 创建订单动作 API 替身。 */ () => ({
+  deleteOrder: vi.fn(),
+  manualShipOrder: vi.fn(),
+  syncOrders: vi.fn(),
+  syncSingleOrder: vi.fn(),
+  updateOrder: vi.fn(),
+}));
+
+vi.mock('./api', /* orderApiMockFactory 提供订单动作 API 替身。 */ () => ({
+  deleteOrder: orderActionMocks.deleteOrder,
+  manualShipOrder: orderActionMocks.manualShipOrder,
+  syncOrders: orderActionMocks.syncOrders,
+  syncSingleOrder: orderActionMocks.syncSingleOrder,
+  updateOrder: orderActionMocks.updateOrder,
+}));
+
+// orderFixture 表示订单动作 Hook 使用的最小订单。
+const orderFixture: Order = {
+  id: 'row-1',
+  order_id: 'order-1',
+  cookie_id: 'account-1',
+  item_id: 'item-1',
+  item_title: '测试商品',
+  buyer_id: 'buyer-1',
+  quantity: 1,
+  amount: '10.00',
+  status: 'pending_ship',
+};
+
+// createActionHook 创建订单动作 Hook 并注入页面依赖替身。
+const createActionHook = () => {
+  // loadOrders 是订单动作完成后的列表刷新替身。
+  const loadOrders = vi.fn().mockResolvedValue(undefined);
+  // setPage 是订单删除后分页调整替身。
+  const setPage = vi.fn();
+  // hook 是订单动作 Hook 的渲染结果。
+  const hook = renderHook(/* hookFactory 创建订单动作 Hook。 */ () => useOrderActions({
+    orders: [orderFixture],
+    page: 2,
+    accountFilter: 'account-1',
+    filter: 'pending_ship',
+    setPage,
+    loadOrders,
+  }));
+  return { hook, loadOrders, setPage };
+};
+
+describe('useOrderActions 订单动作协调器', /* 当前回调验证订单动作成功、失败、取消和弹窗清理边界。 */ () => {
+  beforeEach(/* 当前回调重置订单 API 和浏览器提示替身。 */ () => {
+    vi.clearAllMocks();
+    orderActionMocks.syncOrders.mockResolvedValue({ message: '同步完成' });
+    orderActionMocks.manualShipOrder.mockResolvedValue({ results: [{ success: true, message: '发货成功' }] });
+    orderActionMocks.syncSingleOrder.mockResolvedValue({ success: true, message: '同步完成' });
+    orderActionMocks.updateOrder.mockResolvedValue({ success: true });
+    orderActionMocks.deleteOrder.mockResolvedValue({ success: true });
+    vi.spyOn(window, 'alert').mockImplementation(/* alertImplementation 屏蔽订单动作提示。 */ () => undefined);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  });
+
+  afterEach(/* 当前回调恢复浏览器提示替身。 */ () => {
+    vi.restoreAllMocks();
+  });
+
+  test('同步失败和单笔同步失败均返回稳定提示', /* 当前回调验证订单同步异常分支。 */ async () => {
+    orderActionMocks.syncOrders.mockRejectedValueOnce(new Error('批量同步失败'));
+    // actionContext 保存订单动作 Hook 和刷新依赖。
+    const { hook } = createActionHook();
+    await act(/* syncAction 执行失败的订单批量同步。 */ async () => hook.result.current.handleSync());
+    expect(window.alert).toHaveBeenCalledWith('批量同步失败');
+
+    orderActionMocks.syncSingleOrder.mockResolvedValueOnce({ success: false, message: '单笔同步失败' });
+    await act(/* singleSyncAction 执行失败的单笔同步。 */ async () => hook.result.current.handleSyncSingle('order-1'));
+    expect(window.alert).toHaveBeenCalledWith('单笔同步失败');
+    expect(hook.result.current.syncingOrderId).toBeNull();
+  });
+
+  test('发货结果失败和异常均保留错误结果', /* 当前回调验证订单发货异常分支。 */ async () => {
+    // actionContext 保存发货动作 Hook 和刷新依赖。
+    const { hook } = createActionHook();
+    act(/* openShipAction 打开发货弹窗。 */ () => hook.result.current.handleShip('order-1'));
+    orderActionMocks.manualShipOrder.mockResolvedValueOnce({ results: [{ success: false, message: '卡券不足' }] });
+    await act(/* failedShipAction 执行返回失败结果的发货。 */ async () => hook.result.current.executeShip('full_delivery'));
+    expect(hook.result.current.shipResult).toEqual({ success: false, message: '卡券不足' });
+
+    orderActionMocks.manualShipOrder.mockRejectedValueOnce(new Error('发货网络失败'));
+    await act(/* errorShipAction 执行抛出异常的发货。 */ async () => hook.result.current.executeShip('status_only'));
+    expect(hook.result.current.shipResult).toEqual({ success: false, message: '发货网络失败' });
+  });
+
+  test('编辑草稿使用函数式补丁并在保存失败时保留弹窗', /* 当前回调验证订单编辑草稿和失败收束。 */ async () => {
+    // actionContext 保存订单编辑动作 Hook 和刷新依赖。
+    const { hook } = createActionHook();
+    act(/* openEditAction 打开订单编辑弹窗。 */ () => hook.result.current.handleEdit(orderFixture));
+    act(/* patchAction 更新订单编辑草稿。 */ () => hook.result.current.updateEditingOrder({ buyer_id: 'buyer-2' }));
+    expect(hook.result.current.editingOrder?.buyer_id).toBe('buyer-2');
+
+    orderActionMocks.updateOrder.mockRejectedValueOnce(new Error('编辑失败'));
+    await act(/* saveEditAction 执行失败的订单编辑保存。 */ async () => hook.result.current.handleSaveEdit());
+    expect(window.alert).toHaveBeenCalledWith('更新失败，请重试');
+    expect(hook.result.current.showEditModal).toBe(true);
+  });
+
+  test('删除确认取消不调用 API，删除异常会刷新列表', /* 当前回调验证订单删除取消和异常分支。 */ async () => {
+    // actionContext 保存订单删除动作 Hook、刷新函数和分页 Setter。
+    const { hook, loadOrders, setPage } = createActionHook();
+    vi.mocked(window.confirm).mockReturnValueOnce(false);
+    await act(/* cancelDeleteAction 取消订单删除确认。 */ async () => hook.result.current.handleDelete('order-1'));
+    expect(orderActionMocks.deleteOrder).not.toHaveBeenCalled();
+
+    orderActionMocks.deleteOrder.mockRejectedValueOnce(new Error('删除失败'));
+    await act(/* errorDeleteAction 执行抛出异常的订单删除。 */ async () => hook.result.current.handleDelete('order-1'));
+    expect(window.alert).toHaveBeenCalledWith('删除失败');
+    expect(loadOrders).toHaveBeenCalledTimes(1);
+    expect(setPage).not.toHaveBeenCalled();
+  });
+
+  test('关闭三个弹窗会清理对应状态', /* 当前回调验证订单弹窗状态收束。 */ () => {
+    // actionContext 保存订单弹窗动作 Hook 和刷新依赖。
+    const { hook } = createActionHook();
+    act(/* detailAction 打开订单详情弹窗。 */ () => hook.result.current.handleViewDetail(orderFixture));
+    act(/* editAction 打开订单编辑弹窗。 */ () => hook.result.current.handleEdit(orderFixture));
+    act(/* shipAction 打开发货弹窗。 */ () => hook.result.current.handleShip('order-1'));
+    act(/* closeAction 关闭订单详情、编辑和发货弹窗。 */ () => {
+      hook.result.current.closeDetailModal();
+      hook.result.current.closeEditModal();
+      hook.result.current.closeShipModal();
+    });
+    expect(hook.result.current.showDetailModal).toBe(false);
+    expect(hook.result.current.showEditModal).toBe(false);
+    expect(hook.result.current.showShipModal).toBe(false);
+    expect(hook.result.current.shipResult).toBeNull();
+  });
+});

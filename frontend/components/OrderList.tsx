@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { createPortal } from 'react-dom';
-import type { Order, OrderStatus } from '../types';
-import { deleteOrder, manualShipOrder, syncOrders, syncSingleOrder, updateOrder } from '../app/features/orders/api';
+import type { OrderStatus } from '../types';
 import { OrderFilterBar } from '../app/features/orders/components/OrderFilterBar';
 import { OrderImportModal } from '../app/features/orders/components/OrderImportModal';
 import { useOrderImport, useOrderQuery } from '../app/features/orders/hooks';
+import { useOrderActions } from '../app/features/orders/orderActions';
 import { Truck, RefreshCw, ChevronLeft, ChevronRight, PackageCheck, Edit, Eye, Plus, Save, X, User as UserIcon, ExternalLink, Trash2 } from 'lucide-react';
 import { formatLocalDateTime } from '../dateTime';
 
@@ -47,26 +47,33 @@ const OrderList: React.FC = () => {
   const importState = useOrderImport(orderQuery.loadOrders);
   // { 解构得到当前 Hook 返回的状态和操作函数。
   const { orders, accounts, filter, setFilter, accountFilter, setAccountFilter, searchText, setSearchText, page, setPage, totalPages, loading, loadOrders, accountName, accountNickname, getItemNameById } = orderQuery;
-  // [showDetailModal, 解构得到当前 Hook 返回的状态和操作函数。
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  // [showEditModal, 解构得到当前 Hook 返回的状态和操作函数。
-  const [showEditModal, setShowEditModal] = useState(false);
-  // [selectedOrder, 解构得到当前 Hook 返回的状态和操作函数。
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  // [editingOrder, 解构得到当前 Hook 返回的状态和操作函数。
-  const [editingOrder, setEditingOrder] = useState<Partial<Order> | null>(null);
-  // [showShipModal, 解构得到当前 Hook 返回的状态和操作函数。
-  const [showShipModal, setShowShipModal] = useState(false);
-  // [shipOrderId, 解构得到当前 Hook 返回的状态和操作函数。
-  const [shipOrderId, setShipOrderId] = useState<string>('');
-  // [shipLoading, 解构得到当前 Hook 返回的状态和操作函数。
-  const [shipLoading, setShipLoading] = useState(false);
-  // [shipResult, 解构得到当前 Hook 返回的状态和操作函数。
-  const [shipResult, setShipResult] = useState<{/** success 表示success。 */ success: boolean; /** message 表示消息。 */ message: string} | null>(null);
-  // [syncingOrderId, 解构得到当前 Hook 返回的状态和操作函数。
-  const [syncingOrderId, setSyncingOrderId] = useState<string | null>(null);
-  // [deletingOrderId, 解构得到当前 Hook 返回的状态和操作函数。
-  const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
+  // orderActions 集中管理订单动作、弹窗状态和异步结果。
+  const orderActions = useOrderActions({ orders, page, accountFilter, filter, setPage, loadOrders });
+  // actionState 解构得到页面动作协调器的状态和操作函数。
+  const {
+    showDetailModal,
+    selectedOrder,
+    showEditModal,
+    editingOrder,
+    showShipModal,
+    shipOrderId,
+    shipLoading,
+    shipResult,
+    syncingOrderId,
+    deletingOrderId,
+    handleSync,
+    handleShip,
+    executeShip,
+    handleViewDetail,
+    handleEdit,
+    handleSaveEdit,
+    updateEditingOrder,
+    handleSyncSingle,
+    handleDelete,
+    closeDetailModal,
+    closeEditModal,
+    closeShipModal,
+  } = orderActions;
 
   // handleFilterChange 切换订单状态筛选并回到第一页。
   const handleFilterChange = (value: string) => {
@@ -83,146 +90,6 @@ const OrderList: React.FC = () => {
   const handleSearchChange = (value: string) => {
     setSearchText(value);
     setPage(1);
-  };
-
-  // handleSync 处理当前用户操作（Sync）。
-  const handleSync = async () => {
-      try {
-          // result 处理结果。
-          const result = await syncOrders(accountFilter || undefined, filter);
-          await loadOrders();
-          if (result?.message) {
-              alert(result.message);
-          }
-      } catch (/* error 表示错误。 */ error: any) {
-          console.error('同步订单失败:', error);
-          alert(error?.message || '同步失败，请重试');
-      }
-  };
-
-  // handleShip 处理当前用户操作（Ship）。
-  const handleShip = (id: string) => {
-      setShipOrderId(id);
-      setShipResult(null);
-      setShowShipModal(true);
-  };
-
-  // executeShip 执行发货函数。
-  const executeShip = async (mode: 'status_only' | 'full_delivery') => {
-      setShipLoading(true);
-      setShipResult(null);
-      try {
-          // res res，负责当前功能中的对应处理。
-          const res = await manualShipOrder([shipOrderId], mode);
-          // result 处理结果。
-          const result = res?.results?.[0];
-          if (result?.success) {
-              setShipResult({ success: true, message: result.message });
-              loadOrders();
-          } else {
-              setShipResult({ success: false, message: result?.message || '发货失败' });
-          }
-      } catch (/* e 表示e。 */ e: any) {
-          setShipResult({ success: false, message: e?.message || '请求失败' });
-      } finally {
-          setShipLoading(false);
-      }
-  };
-
-  // handleViewDetail 处理当前用户操作（ViewDetail）。
-  const handleViewDetail = (order: Order) => {
-    setSelectedOrder(order);
-    setShowDetailModal(true);
-  };
-
-  // handleEdit 处理当前用户操作（Edit）。
-  const handleEdit = (order: Order) => {
-    setEditingOrder({ ...order });
-    setShowEditModal(true);
-  };
-
-  // handleSaveEdit 处理当前用户操作（SaveEdit）。
-  const handleSaveEdit = async () => {
-    if (!editingOrder || !editingOrder.order_id) return;
-    try {
-      // 映射前端字段到后端期望的字段名
-      const updateData: Record<string, any> = {};
-
-      if (editingOrder.status !== undefined) {
-        updateData.order_status = editingOrder.status;
-      }
-      if (editingOrder.buyer_id !== undefined) {
-        updateData.buyer_id = editingOrder.buyer_id;
-      }
-      if (editingOrder.amount !== undefined) {
-        updateData.amount = editingOrder.amount;
-      }
-      if (editingOrder.receiver_name !== undefined) {
-        updateData.receiver_name = editingOrder.receiver_name;
-      }
-      if (editingOrder.receiver_phone !== undefined) {
-        updateData.receiver_phone = editingOrder.receiver_phone;
-      }
-      if (editingOrder.receiver_address !== undefined) {
-        updateData.receiver_address = editingOrder.receiver_address;
-      }
-      if (editingOrder.item_id !== undefined) {
-        updateData.item_id = editingOrder.item_id;
-      }
-      if (editingOrder.quantity !== undefined) {
-        updateData.quantity = editingOrder.quantity;
-      }
-	  if (editingOrder.item_title !== undefined) {
-		updateData.item_title = editingOrder.item_title;
-	  }
-
-      await updateOrder(editingOrder.order_id, updateData);
-      setShowEditModal(false);
-      setEditingOrder(null);
-      loadOrders();
-    } catch (/* error 表示错误。 */ error) {
-      console.error('更新订单失败:', error);
-      alert('更新失败，请重试');
-    }
-  };
-
-  // handleSyncSingle 处理当前用户操作（SyncSingle）。
-  const handleSyncSingle = async (orderId: string) => {
-    setSyncingOrderId(orderId);
-    try {
-      // result 处理结果。
-      const result = await syncSingleOrder(orderId);
-      if (result.success) {
-        await loadOrders();
-      } else {
-        alert(result.message || '同步失败');
-      }
-    } catch (/* error 表示错误。 */ error: any) {
-      console.error('同步订单失败:', error);
-      alert(error?.message || '同步失败，请重试');
-    } finally {
-      setSyncingOrderId(null);
-    }
-  };
-
-  // handleDelete 处理当前用户操作（Delete）。
-  const handleDelete = async (orderId: string) => {
-    if (!confirm('确认删除该订单吗？删除后无法恢复。')) return;
-    setDeletingOrderId(orderId);
-    try {
-      await deleteOrder(orderId);
-      if (orders.length === 1 && page > 1) {
-        setPage(/* 当前回调处理用户交互或异步状态变化。 */ current => current - 1);
-      } else {
-        await loadOrders();
-      }
-    } catch (/* error 表示错误。 */ error: any) {
-      console.error('删除订单失败:', error);
-      alert(error?.message || '删除失败，请重试');
-      await loadOrders();
-    } finally {
-      setDeletingOrderId(null);
-    }
   };
 
   return (
@@ -418,7 +285,7 @@ const OrderList: React.FC = () => {
               <div className="flex items-center justify-between w-full">
                 <h3 className="text-2xl font-extrabold text-gray-900">订单详情</h3>
                 <button
-                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowDetailModal(false)}
+                  onClick={closeDetailModal}
                   className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
                 >
                   <X className="w-5 h-5 text-gray-600" />
@@ -510,7 +377,7 @@ const OrderList: React.FC = () => {
             <div className="modal-footer">
               <div className="flex gap-3 w-full">
                 <button
-                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowDetailModal(false)}
+                  onClick={closeDetailModal}
                   className="flex-1 px-6 py-3 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold transition-colors"
                 >
                   关闭
@@ -518,7 +385,7 @@ const OrderList: React.FC = () => {
                 {selectedOrder.status === 'pending_ship' && (
                   <button
                     onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => {
-                      setShowDetailModal(false);
+                      closeDetailModal();
                       handleShip(selectedOrder.order_id);
                     }}
                     className="flex-1 px-6 py-3 rounded-xl ios-btn-primary font-bold shadow-lg shadow-blue-200"
@@ -543,7 +410,7 @@ const OrderList: React.FC = () => {
               <div className="flex items-center justify-between w-full">
                 <h3 className="text-2xl font-extrabold text-gray-900">立即发货</h3>
                 <button
-                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => { setShowShipModal(false); setShipResult(null); }}
+                  onClick={closeShipModal}
                   className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
                 >
                   <X className="w-5 h-5 text-gray-600" />
@@ -612,7 +479,7 @@ const OrderList: React.FC = () => {
 
             <div className="modal-footer">
               <button
-                onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => { setShowShipModal(false); setShipResult(null); }}
+                onClick={closeShipModal}
                 className="w-full px-6 py-3 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold transition-colors"
               >
                 {shipResult?.success ? '完成' : '取消'}
@@ -631,7 +498,7 @@ const OrderList: React.FC = () => {
               <div className="flex items-center justify-between w-full">
                 <h3 className="text-2xl font-extrabold text-gray-900">编辑订单</h3>
                 <button
-                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowEditModal(false)}
+                  onClick={closeEditModal}
                   className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
                 >
                   <X className="w-5 h-5 text-gray-600" />
@@ -654,7 +521,7 @@ const OrderList: React.FC = () => {
                   <label className="block text-sm font-bold text-gray-700 mb-2">订单状态</label>
                   <select
                     value={editingOrder.status}
-                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditingOrder({ ...editingOrder, status: e.target.value as OrderStatus })}
+                    onChange={/* 当前回调更新订单状态草稿。 */ (e) => updateEditingOrder({ status: e.target.value as OrderStatus })}
                     className="w-full ios-input px-4 py-3 rounded-xl"
                   >
                     <option value="processing">处理中</option>
@@ -673,7 +540,7 @@ const OrderList: React.FC = () => {
                   <input
                     type="text"
                     value={editingOrder.buyer_id}
-                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditingOrder({ ...editingOrder, buyer_id: e.target.value })}
+                    onChange={/* 当前回调更新买家标识草稿。 */ (e) => updateEditingOrder({ buyer_id: e.target.value })}
                     className="w-full ios-input px-4 py-3 rounded-xl"
                   />
                 </div>
@@ -682,7 +549,7 @@ const OrderList: React.FC = () => {
                   <input
                     type="number"
                     value={editingOrder.amount}
-                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditingOrder({ ...editingOrder, amount: e.target.value })}
+                    onChange={/* 当前回调更新订单金额草稿。 */ (e) => updateEditingOrder({ amount: e.target.value })}
                     className="w-full ios-input px-4 py-3 rounded-xl"
                   />
                 </div>
@@ -694,7 +561,7 @@ const OrderList: React.FC = () => {
                   <input
                     type="text"
                     value={editingOrder.receiver_name || ''}
-                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditingOrder({ ...editingOrder, receiver_name: e.target.value })}
+                    onChange={/* 当前回调更新收货人草稿。 */ (e) => updateEditingOrder({ receiver_name: e.target.value })}
                     className="w-full ios-input px-4 py-3 rounded-xl"
                   />
                 </div>
@@ -703,7 +570,7 @@ const OrderList: React.FC = () => {
                   <input
                     type="text"
                     value={editingOrder.receiver_phone || ''}
-                    onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditingOrder({ ...editingOrder, receiver_phone: e.target.value })}
+                    onChange={/* 当前回调更新收货电话草稿。 */ (e) => updateEditingOrder({ receiver_phone: e.target.value })}
                     className="w-full ios-input px-4 py-3 rounded-xl"
                   />
                 </div>
@@ -713,7 +580,7 @@ const OrderList: React.FC = () => {
                 <label className="block text-sm font-bold text-gray-700 mb-2">收货地址</label>
                 <textarea
                   value={editingOrder.receiver_address || ''}
-                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditingOrder({ ...editingOrder, receiver_address: e.target.value })}
+                  onChange={/* 当前回调更新收货地址草稿。 */ (e) => updateEditingOrder({ receiver_address: e.target.value })}
                   rows={2}
                   className="w-full ios-input px-4 py-3 rounded-xl resize-none"
                 />
@@ -724,7 +591,7 @@ const OrderList: React.FC = () => {
                 <input
                   type="text"
                   value={editingOrder.item_title || ''}
-                  onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setEditingOrder({ ...editingOrder, item_title: e.target.value })}
+                  onChange={/* 当前回调更新商品标题草稿。 */ (e) => updateEditingOrder({ item_title: e.target.value })}
                   className="w-full ios-input px-4 py-3 rounded-xl"
                 />
               </div>
@@ -733,7 +600,7 @@ const OrderList: React.FC = () => {
             <div className="modal-footer">
               <div className="flex gap-3 w-full">
                 <button
-                  onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setShowEditModal(false)}
+                  onClick={closeEditModal}
                   className="flex-1 px-6 py-3 rounded-xl font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
                 >
                   取消
