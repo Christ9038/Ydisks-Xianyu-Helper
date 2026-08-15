@@ -763,6 +763,64 @@ func (s *Server) syncSyncedItems(ctx context.Context, cookieID string, items []m
 // itemSpecProbeConcurrency 限制商品多规格远端探测的并发数，避免同步洪峰压垮平台接口。
 const itemSpecProbeConcurrency = 4
 
+// itemSpecCacheTTL 定义商品多规格探测结果的短期缓存时长。
+const itemSpecCacheTTL = 10 * time.Minute
+
+// itemSpecCacheEntry 保存商品多规格结果及其过期时间。
+type itemSpecCacheEntry struct {
+	// isMultiSpec 表示商品是否包含多规格。
+	isMultiSpec bool
+	// expiresAt 表示该缓存项失效的时间。
+	expiresAt time.Time
+}
+
+// itemSpecCacheKey 生成账号与商品组合的缓存键，避免不同账号同商品 ID 相互污染。
+func itemSpecCacheKey(cookieID, itemID string) string {
+	return cookieID + "\x00" + itemID
+}
+
+// cachedItemSpec 读取未过期的商品多规格缓存。
+func (s *Server) cachedItemSpec(cookieID, itemID string) (bool, bool) {
+	if s == nil {
+		return false, false
+	}
+	s.itemSpecCacheMu.Lock()
+	defer s.itemSpecCacheMu.Unlock()
+	// key 表示账号与商品组合的缓存键。
+	key := itemSpecCacheKey(cookieID, itemID)
+	// entry、exists 保存缓存项及其存在状态。
+	entry, exists := s.itemSpecCache[key]
+	if !exists {
+		return false, false
+	}
+	if time.Now().After(entry.expiresAt) {
+		delete(s.itemSpecCache, key)
+		return false, false
+	}
+	return entry.isMultiSpec, true
+}
+
+// cacheItemSpec 写入商品多规格结果并清理已过期缓存项。
+func (s *Server) cacheItemSpec(cookieID, itemID string, isMultiSpec bool) {
+	if s == nil || itemID == "" {
+		return
+	}
+	s.itemSpecCacheMu.Lock()
+	defer s.itemSpecCacheMu.Unlock()
+	if s.itemSpecCache == nil {
+		s.itemSpecCache = make(map[string]itemSpecCacheEntry)
+	}
+	// now 表示本次写入缓存的时间基准。
+	now := time.Now()
+	// key、entry 分别表示缓存键及其缓存项。
+	for key, entry := range s.itemSpecCache {
+		if now.After(entry.expiresAt) {
+			delete(s.itemSpecCache, key)
+		}
+	}
+	s.itemSpecCache[itemSpecCacheKey(cookieID, itemID)] = itemSpecCacheEntry{isMultiSpec: isMultiSpec, expiresAt: now.Add(itemSpecCacheTTL)}
+}
+
 // enrichSyncedItemMultiSpec 批量读取本地标记并受限并发探测剩余商品的多规格状态。
 func (s *Server) enrichSyncedItemMultiSpec(ctx context.Context, client mtop.Client, cookies, cookieID string, items []mtop.ItemListItem) error {
 	// fetcher、ok 保存fetcher、ok，供当前处理流程使用
@@ -784,10 +842,16 @@ func (s *Server) enrichSyncedItemMultiSpec(ctx context.Context, client mtop.Clie
 	// candidates 保存需要访问远端接口的商品下标。
 	candidates := make([]int, 0, len(items))
 	// index 表示当前商品在同步列表中的下标。
-	// index 表示当前商品在同步列表中的下标。
 	for index := range items {
 		if items[index].IsMultiSpec || localFlags[items[index].ID] {
 			items[index].IsMultiSpec = true
+			s.cacheItemSpec(cookieID, items[index].ID, true)
+			continue
+		}
+		// cachedValue、cached 表示当前商品是否命中短期探测缓存。
+		cachedValue, cached := s.cachedItemSpec(cookieID, items[index].ID)
+		if cached {
+			items[index].IsMultiSpec = cachedValue
 			continue
 		}
 		candidates = append(candidates, index)
@@ -837,6 +901,7 @@ func (s *Server) enrichSyncedItemMultiSpec(ctx context.Context, client mtop.Clie
 				}
 				return
 			}
+			s.cacheItemSpec(cookieID, items[index].ID, isMultiSpec)
 			items[index].IsMultiSpec = isMultiSpec
 		}(index)
 	}

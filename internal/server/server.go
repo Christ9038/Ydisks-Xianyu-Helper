@@ -85,6 +85,10 @@ type Server struct {
 	reconciliation *reconciliation.Service
 	// transactionRepository 提供统一事务执行所需的最小持久化能力。
 	transactionRepository transactionRepository
+	// itemSpecCacheMu 保护商品多规格探测缓存。
+	itemSpecCacheMu sync.Mutex
+	// itemSpecCache 保存短期商品多规格探测结果，减少重复远端请求。
+	itemSpecCache map[string]itemSpecCacheEntry
 
 	publishMu       sync.Mutex
 	publishCancels  map[string]publishBatchWorker
@@ -154,6 +158,7 @@ func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr st
 		qrPersisted:    make(map[string]qrLoginPersistence),
 		qrOwners:       make(map[string]qrLoginOwner),
 		loginLimiter:   newLoginFailureLimiter(),
+		itemSpecCache:  make(map[string]itemSpecCacheEntry),
 	}
 	// option 表示当前遍历过程中的option
 	for _, option := range options {

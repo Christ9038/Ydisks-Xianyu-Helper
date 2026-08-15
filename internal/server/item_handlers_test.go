@@ -641,12 +641,15 @@ func TestEnrichSyncedItemMultiSpecLimitsProbeConcurrency(t *testing.T) {
 	var stateMu sync.Mutex
 	// active、maxActive 保存当前及观测到的最大远端探测并发数。
 	active, maxActive := 0, 0
+	// probeCalls 统计测试客户端收到的商品详情探测请求数。
+	probeCalls := 0
 	// client 是带并发计数的商品详情测试客户端。
 	client := withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if !strings.Contains(req.URL.String(), "mtop.taobao.idle.pc.detail") {
 			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`)), Request: req}, nil
 		}
 		stateMu.Lock()
+		probeCalls++
 		active++
 		if active > maxActive {
 			maxActive = active
@@ -678,10 +681,41 @@ func TestEnrichSyncedItemMultiSpecLimitsProbeConcurrency(t *testing.T) {
 			t.Fatalf("item %d was not marked multi spec", index)
 		}
 	}
+	// cachedItems 保存第二次调用使用的商品列表，验证命中跨请求缓存。
+	cachedItems := make([]mtop.ItemListItem, 8)
+	// index 表示缓存测试商品下标。
+	for index := range cachedItems {
+		cachedItems[index].ID = fmt.Sprintf("probe-%d", index)
+	}
+	// err 表示第二次商品多规格探测错误。
+	if err := srv.enrichSyncedItemMultiSpec(context.Background(), client, "unb=1; _m_h5_tk=t_1;", "acc1", cachedItems); err != nil {
+		t.Fatalf("cached enrich multi spec: %v", err)
+	}
+	if probeCalls != 8 {
+		t.Fatalf("cached probe calls=%d want 8", probeCalls)
+	}
 	// flags、err 保存数据库批量标记查询结果及错误，确认本地查询未误报候选商品。
 	flags, err := store.Items.MultiSpecFlags(context.Background(), "acc1", []string{"probe-0"})
 	if err != nil || len(flags) != 0 {
 		t.Fatalf("unexpected local flags=%v err=%v", flags, err)
+	}
+}
+
+// TestItemSpecCacheExpires 验证商品多规格缓存过期后不会继续返回旧值。
+func TestItemSpecCacheExpires(t *testing.T) {
+	// srv 是仅用于验证商品多规格缓存生命周期的服务实例。
+	srv := &Server{itemSpecCache: map[string]itemSpecCacheEntry{
+		itemSpecCacheKey("acc1", "item-1"): {isMultiSpec: true, expiresAt: time.Now().Add(-time.Second)},
+	}}
+	// value、ok 保存过期缓存的读取结果。
+	value, ok := srv.cachedItemSpec("acc1", "item-1")
+	if ok || value {
+		t.Fatalf("expired cache should miss: value=%v ok=%v", value, ok)
+	}
+	srv.cacheItemSpec("acc1", "item-1", false)
+	value, ok = srv.cachedItemSpec("acc1", "item-1")
+	if !ok || value {
+		t.Fatalf("fresh false cache mismatch: value=%v ok=%v", value, ok)
 	}
 }
 
