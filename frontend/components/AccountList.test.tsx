@@ -72,7 +72,7 @@ vi.mock('../app/features/accounts/api', /* accountApiMockFactory 提供账号页
   refreshAccountProfile: accountListMocks.refreshAccountProfile,
 }));
 
-vi.mock('../components/qrPolling', /* qrPollingMockFactory 提供二维码轮询器替身。 */ () => ({
+vi.mock('../app/features/accounts/qrPolling', /* qrPollingMockFactory 提供二维码轮询器替身。 */ () => ({
   createLatestRequestGate: /* requestGateFactory 创建二维码请求代次门禁。 */ () => ({
     next: accountListMocks.requestNext,
     isCurrent: accountListMocks.requestIsCurrent,

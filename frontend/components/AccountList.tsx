@@ -1,16 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AccountDetail } from '../types';
 import {
   updateAccountStatus,
   deleteAccount,
-  generateQRLogin,
-  checkQRLoginStatus,
-  completeQRVerification,
   refreshAccountProfile,
 } from '../app/features/accounts/api';
 import { Loader2, QrCode, User } from 'lucide-react';
-import { createLatestRequestGate, createQRLoginPoller } from './qrPolling';
 import AccountAutomationModal from './AccountAutomationModal';
 import { AccountEditModal } from '../app/features/accounts/components/AccountEditModal';
 import { AccountAISettingsModal } from '../app/features/accounts/components/AccountAISettingsModal';
@@ -18,6 +14,7 @@ import { AccountCard } from '../app/features/accounts/components/AccountCard';
 import { AccountDeleteDialog } from '../app/features/accounts/components/AccountDeleteDialog';
 import { AccountQRCodeModal } from '../app/features/accounts/components/AccountQRCodeModal';
 import { useAccountsData } from '../app/features/accounts/hooks';
+import { useAccountQRCodeLogin } from '../app/features/accounts/qrLogin';
 import { useAccountSubmodules, type AccountModalType } from '../app/features/accounts/submoduleHooks';
 import type { AccountEditForm } from '../app/features/accounts/types';
 
@@ -35,20 +32,6 @@ const AccountList: React.FC = () => {
   const [deleteDialogAccount, setDeleteDialogAccount] = useState<AccountDetail | null>(null);
   // deleteError 保存删除失败提示。
   const [deleteError, setDeleteError] = useState('');
-  // showQRModal 表示二维码登录弹窗是否打开。
-  const [showQRModal, setShowQRModal] = useState(false);
-  // qrCodeUrl 保存当前二维码登录地址。
-  const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
-  // qrStatus 保存二维码登录流程状态。
-  const [qrStatus, setQrStatus] = useState<string>('pending');
-  // qrErrorMessage 保存二维码登录错误说明。
-  const [qrErrorMessage, setQrErrorMessage] = useState<string>('');
-  // verificationScreenshot 保存风控验证截图地址。
-  const [verificationScreenshot, setVerificationScreenshot] = useState<string>('');
-  // faceQrUrl 保存人脸验证二维码地址。
-  const [faceQrUrl, setFaceQrUrl] = useState<string>('');
-  // qrReauthTarget 保存需要重新授权的目标账号。
-  const [qrReauthTarget, setQrReauthTarget] = useState<AccountDetail | null>(null);
   // activeModal 保存当前打开的账号配置弹窗。
   const [activeModal, setActiveModal] = useState<AccountModalType>(null);
   // editingAccount 保存当前编辑账号。
@@ -106,62 +89,20 @@ const AccountList: React.FC = () => {
     handleCancelPasswordLogin,
   } = accountSubmodules;
 
-  // qrPollerRef 保存二维码登录状态轮询器。
-  const qrPollerRef = useRef<ReturnType<typeof createQRLoginPoller> | null>(null);
-  // qrRequestGateRef 隔离过期的二维码生成请求。
-  const qrRequestGateRef = useRef<ReturnType<typeof createLatestRequestGate> | null>(null);
-  // qrGenerateAbortRef 保存二维码生成请求控制器。
-  const qrGenerateAbortRef = useRef<AbortController | null>(null);
-  // qrCloseTimerRef 保存二维码弹窗延迟关闭定时器。
-  const qrCloseTimerRef = useRef<number | null>(null);
-  if (qrPollerRef.current === null) {
-    qrPollerRef.current = createQRLoginPoller();
-  }
-  if (qrRequestGateRef.current === null) {
-    qrRequestGateRef.current = createLatestRequestGate();
-  }
-
-  // clearQRCloseTimer 清理二维码弹窗延迟关闭定时器。
-  const clearQRCloseTimer = () => {
-    if (qrCloseTimerRef.current !== null) {
-      window.clearTimeout(qrCloseTimerRef.current);
-      qrCloseTimerRef.current = null;
-    }
-  };
-
-  // stopQRPolling 停止二维码登录状态轮询。
-  const stopQRPolling = () => {
-    qrPollerRef.current?.stop();
-  };
-
-  // closeQRModal 关闭二维码登录弹窗并取消请求。
-  const closeQRModal = () => {
-	qrGenerateAbortRef.current?.abort();
-    qrRequestGateRef.current?.cancel();
-    stopQRPolling();
-    clearQRCloseTimer();
-    setShowQRModal(false);
-  };
-
-  // scheduleQRModalClose 在登录成功后延迟关闭二维码弹窗。
-  const scheduleQRModalClose = () => {
-    clearQRCloseTimer();
-    qrCloseTimerRef.current = window.setTimeout(/* 当前回调处理用户交互或异步状态变化。 */ () => {
-      qrCloseTimerRef.current = null;
-      setShowQRModal(false);
-      loadAccounts();
-    }, 1000);
-  };
-
-  useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
-    // 页面卸载时取消二维码、通知绑定、AI 设置和密码登录的异步资源。
-    return /* 当前回调处理用户交互或异步状态变化。 */ () => {
-      stopQRPolling();
-      qrRequestGateRef.current?.cancel();
-      qrGenerateAbortRef.current?.abort();
-      clearQRCloseTimer();
-    };
-  }, []);
+  // qrLogin 集中管理二维码弹窗状态、轮询、风控验证和异步资源收束。
+  const qrLogin = useAccountQRCodeLogin({ onLoginSuccess: loadAccounts });
+  // qrViewState 解构二维码弹窗向页面展示和触发操作所需的最小状态。
+  const {
+    showQRModal,
+    qrCodeUrl,
+    qrStatus,
+    qrErrorMessage,
+    verificationScreenshot,
+    faceQrUrl,
+    qrReauthTarget,
+    startQRLogin,
+    closeQRModal,
+  } = qrLogin;
 
   // handleToggle 切换账号启用状态。
   const handleToggle = async (id: string, currentStatus: boolean) => {
@@ -219,95 +160,6 @@ const AccountList: React.FC = () => {
       setRefreshingProfileId('');
     }
   };
-  // completeAndPersistQRSession 完成二维码风控验证并持久化授权结果。
-  const completeAndPersistQRSession = async (sessionId: string, target?: AccountDetail | null) => {
-    // res 保存风控验证完成接口返回值。
-    const res = await completeQRVerification(sessionId, target?.id);
-    if (!res.success || !res.account_id) {
-      throw new Error(res.message || '保存扫码授权失败');
-    }
-    return res.account_id;
-  };
-
-  // startQRLogin 启动二维码登录或账号重新授权流程。
-  const startQRLogin = async (target?: AccountDetail) => {
-    stopQRPolling();
-	qrGenerateAbortRef.current?.abort();
-	// controller 控制当前二维码生成请求的取消。
-	const controller = new AbortController();
-	qrGenerateAbortRef.current = controller;
-    // requestGeneration 标识当前二维码生成请求代次。
-    const requestGeneration = qrRequestGateRef.current!.next();
-    clearQRCloseTimer();
-    // targetAccount 保存当前二维码授权目标账号。
-    const targetAccount = target || null;
-    setQrReauthTarget(targetAccount);
-    setShowQRModal(true);
-    setQrStatus('loading');
-    setQrErrorMessage('');
-    setQrCodeUrl('');
-    setVerificationScreenshot('');
-    setFaceQrUrl('');
-    try {
-	  // res 保存二维码生成接口返回值。
-	  const res = await generateQRLogin({ signal: controller.signal });
-      if (!qrRequestGateRef.current?.isCurrent(requestGeneration)) return;
-      if (!res.success || !res.qr_code_url || !res.session_id) {
-        throw new Error(res.message || '闲鱼未返回可用的登录二维码');
-      }
-      if (res.success && res.qr_code_url && res.session_id) {
-        // generatedSessionID 保存后端生成的二维码登录会话。
-        const generatedSessionID = res.session_id;
-        setQrCodeUrl(res.qr_code_url);
-        setQrStatus('waiting');
-
-        qrPollerRef.current?.start(generatedSessionID, checkQRLoginStatus, {
-          onSuccess: /* 当前回调处理用户交互或异步状态变化。 */ async () => {
-            try {
-              // accountId 账号标识，负责当前功能中的对应处理。
-              const accountId = await completeAndPersistQRSession(generatedSessionID, targetAccount);
-              if (!accountId) {
-                setQrStatus('error');
-                return;
-              }
-            } catch (/* e 表示e。 */ e) {
-              console.error('保存扫码授权失败', e);
-              setQrStatus('error');
-              return;
-            }
-            setQrStatus('success');
-            scheduleQRModalClose();
-          },
-          onScanned: /* 当前回调处理用户交互或异步状态变化。 */ () => {
-            setQrStatus('waiting'); // 已扫描，继续等待确认
-          },
-          onTerminalError: /* 当前回调处理用户交互或异步状态变化。 */ () => {
-            setQrStatus('error');
-          },
-          onPollError: /* 当前回调处理用户交互或异步状态变化。 */ (error) => {
-            console.error('轮询扫码状态失败', error);
-            setQrStatus('error');
-          },
-          onVerificationRequired: /* 当前回调处理用户交互或异步状态变化。 */ (statusRes) => {
-            setQrStatus('verification');
-            if (statusRes.face_qr_url) {
-              setFaceQrUrl(statusRes.face_qr_url);
-            }
-            if (statusRes.verification_screenshot) {
-              setVerificationScreenshot(statusRes.verification_screenshot);
-            }
-          },
-        });
-      }
-    } catch (/* e 表示e。 */ e) {
-      if (!qrRequestGateRef.current?.isCurrent(requestGeneration)) return;
-      setQrErrorMessage(e instanceof Error ? e.message : '二维码获取失败，请稍后重试');
-      setQrStatus('error');
-    } finally {
-      if (qrGenerateAbortRef.current === controller) qrGenerateAbortRef.current = null;
-    }
-  };
-
   if (loading) return <div className="p-20 flex justify-center"><Loader2 className="w-8 h-8 text-brand animate-spin"/></div>;
 
   // filteredAccounts 过滤后的账号列表，负责当前功能中的对应处理。
