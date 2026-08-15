@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	itemapp "xianyu-go/internal/application/items"
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
@@ -549,7 +550,10 @@ func (s *Server) startPublishBatchWorker(parent context.Context, userID int64, b
 		s.registerPublishBatchCancel(batchID, workerToken, cancel)
 		defer cancel()
 		defer s.unregisterPublishBatchCancel(batchID, workerToken)
-		s.runItemPublishBatch(jobCtx, userID, batchID, workerToken, false)
+		// runner 负责批量发布的租约、逐行失败记录和最终状态收口。
+		if runErr := s.itemBatchRunnerApplication().Run(jobCtx, userID, batchID, workerToken, false); runErr != nil && s.Logger != nil {
+			s.Logger.Warn("批量发布 worker 结束", "batch", batchID, "err", runErr)
+		}
 	}()
 }
 
@@ -656,7 +660,7 @@ func (s *Server) downloadItemPublishBatchResult(w http.ResponseWriter, r *http.R
 	// cw 保存cw，供当前处理流程使用
 	cw := csv.NewWriter(&buf)
 	_ = cw.Write([]string{"行号", "状态", "账号ID", "标题", "价格", "库存", "默认类目ID", "默认类目名称", "商品ID", "商品URL", "错误原因"})
-	// row 表示当前遍历过程中的row
+	// row 表示当前导出的批量明细行。
 	for _, row := range rows {
 		// category 保存分类，供当前处理流程使用
 		var category mtop.PublishCategory
@@ -690,105 +694,6 @@ func safeCSVCell(value string) string {
 	default:
 		return value
 	}
-}
-
-// runItemPublishBatch 负责运行商品发布批次相关处理。
-func (s *Server) runItemPublishBatch(ctx context.Context, userID int64, batchID, workerToken string, failedOnly bool) {
-	// rows、err 保存rows、err，供当前处理流程使用
-	rows, err := s.itemPublishRepositoryForServer().PendingRows(ctx, batchID, failedOnly)
-	if err != nil {
-		if s.Logger != nil {
-			s.Logger.Warn("读取批量发布行失败", "batch", batchID, "err", err)
-		}
-		if ctx.Err() != nil {
-			s.finishInterruptedPublishBatch(ctx, userID, batchID, workerToken)
-		}
-		return
-	}
-	// client 保存client，供当前处理流程使用
-	client := s.mtopClient()
-	// idx、row 表示当前遍历过程中的idx、row
-	for idx, row := range rows {
-		if ctx.Err() != nil {
-			s.finishInterruptedPublishBatch(ctx, userID, batchID, workerToken)
-			return
-		}
-		// wctx、cancel 保存wctx、cancel，供当前处理流程使用
-		wctx, cancel := publishStatusContext(ctx)
-		// renewed、renewErr 保存renewed、renewErr，供当前处理流程使用
-		renewed, renewErr := s.itemPublishRepositoryForServer().RenewBatchLease(wctx, batchID, workerToken, time.Now().UTC().Add(publishBatchLease).Unix())
-		cancel()
-		if renewErr != nil || !renewed {
-			s.finishInterruptedPublishBatch(ctx, userID, batchID, workerToken)
-			return
-		}
-		wctx, cancel = publishStatusContext(ctx)
-		// batch、err 保存batch、err，供当前处理流程使用
-		batch, err := s.itemPublishRepositoryForServer().GetBatch(wctx, userID, batchID)
-		cancel()
-		if err != nil || batch.Status != "running" || batch.WorkerToken != workerToken {
-			s.finishInterruptedPublishBatch(ctx, userID, batchID, workerToken)
-			return
-		}
-		wctx, cancel = publishStatusContext(ctx)
-		// claimed、claimErr 保存claimed、claimErr，供当前处理流程使用
-		claimed, claimErr := s.itemPublishRepositoryForServer().ClaimRow(wctx, row.ID, workerToken)
-		cancel()
-		if claimErr != nil {
-			s.finishInterruptedPublishBatch(ctx, userID, batchID, workerToken)
-			return
-		}
-		if !claimed {
-			continue
-		}
-		if // rowErr 保存rowErr，供当前处理流程使用
-		rowErr := s.publishBatchRow(ctx, userID, client, row, workerToken); rowErr != nil {
-			// sessionExpired 保存会话Expired，供当前处理流程使用
-			sessionExpired := mtop.IsSessionExpiredErr(rowErr)
-			// statusCtx、statusCancel 保存状态Ctx、status取消，供当前处理流程使用
-			statusCtx, statusCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			// status 保存状态，供当前处理流程使用
-			status, _ := s.itemPublishRepositoryForServer().BatchStatus(statusCtx, batchID)
-			statusCancel()
-			// message、failureKind 保存message、failure类型，供当前处理流程使用
-			message, failureKind := publishBatchFailure(rowErr, status)
-			// wctx、cancel 保存wctx、cancel，供当前处理流程使用
-			wctx, cancel := publishStatusContext(ctx)
-			// marked、markErr 保存marked、markErr，供当前处理流程使用
-			marked, markErr := s.itemPublishRepositoryForServer().MarkClaimedRowFailed(wctx, row.ID, workerToken, message, failureKind)
-			cancel()
-			if markErr != nil || !marked {
-				if s.Logger != nil {
-					s.Logger.Warn("保存批量发布失败状态失败，等待租约恢复", "batch", batchID, "row", row.ID, "err", markErr)
-				}
-				return
-			}
-			if sessionExpired {
-				s.finishInterruptedPublishBatch(ctx, userID, batchID, workerToken)
-				return
-			}
-		}
-		wctx, cancel = publishStatusContext(ctx)
-		if // err 保存err，供当前处理流程使用
-		err := s.itemPublishRepositoryForServer().RecountBatch(wctx, batchID); err != nil && s.Logger != nil {
-			s.Logger.Warn("重算批量发布进度失败", "batch", batchID, "err", err)
-		}
-		cancel()
-		if idx < len(rows)-1 {
-			// delay 保存延迟，供当前处理流程使用
-			delay := time.Duration(10+idx%21) * time.Second
-			// timer 保存定时器，供当前处理流程使用
-			timer := time.NewTimer(delay)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				s.finishInterruptedPublishBatch(ctx, userID, batchID, workerToken)
-				return
-			case <-timer.C:
-			}
-		}
-	}
-	s.finishPublishBatch(ctx, userID, batchID, workerToken)
 }
 
 // publishBatchFailure 负责发布批次Failure相关处理。
@@ -860,61 +765,6 @@ func publishStatusContext(parent context.Context) (context.Context, context.Canc
 		return context.WithTimeout(parent, 5*time.Second)
 	}
 	return context.WithTimeout(context.Background(), 5*time.Second)
-}
-
-// finishInterruptedPublishBatch 负责finishInterrupted发布批次相关处理。
-func (s *Server) finishInterruptedPublishBatch(ctx context.Context, userID int64, batchID, workerToken string) {
-	// wctx、cancel 保存wctx、cancel，供当前处理流程使用
-	wctx, cancel := publishStatusContext(ctx)
-	defer cancel()
-	// batch、err 保存batch、err，供当前处理流程使用
-	batch, err := s.itemPublishRepositoryForServer().GetBatch(wctx, userID, batchID)
-	if err != nil {
-		return
-	}
-	if batch.Status == "canceled" || batch.Status == "canceling" {
-		if batch.Status == "canceling" {
-			if batch.WorkerToken != workerToken {
-				return
-			}
-			_, _ = s.itemPublishRepositoryForServer().FinalizeCanceled(wctx, batchID, workerToken)
-		}
-		// 取消产生的 interrupted 失败行允许用户稍后重试，图片由统一的过期清理保留 7 天。
-		return
-	}
-	// finalizeErr 保存finalizeErr，供当前处理流程使用
-	_, _, finalizeErr := s.itemPublishRepositoryForServer().FinalizeInterrupted(wctx, batchID, workerToken, "任务超时或已中断")
-	if finalizeErr != nil && s.Logger != nil {
-		s.Logger.Warn("结束中断的批量发布任务失败，等待租约恢复", "batch", batchID, "err", finalizeErr)
-	}
-}
-
-// finishPublishBatch 负责finish发布批次相关处理。
-func (s *Server) finishPublishBatch(ctx context.Context, userID int64, batchID, workerToken string) {
-	// wctx、cancel 保存wctx、cancel，供当前处理流程使用
-	wctx, cancel := publishStatusContext(ctx)
-	defer cancel()
-	// batch、err 保存batch、err，供当前处理流程使用
-	batch, err := s.itemPublishRepositoryForServer().GetBatch(wctx, userID, batchID)
-	if err != nil || batch.Status == "canceled" || batch.WorkerToken != workerToken {
-		return
-	}
-	if batch.Status == "canceling" {
-		_, _ = s.itemPublishRepositoryForServer().FinalizeCanceled(wctx, batchID, workerToken)
-		// 取消任务仍可“重试失败项”，不能在此删除重试所需的本地图片。
-		return
-	}
-	// finalStatus、finished、finishErr 保存finalStatus、finished、finishErr，供当前处理流程使用
-	finalStatus, finished, finishErr := s.itemPublishRepositoryForServer().FinalizeBatch(wctx, batchID, workerToken)
-	if finishErr != nil {
-		if s.Logger != nil {
-			s.Logger.Warn("结束批量发布任务失败，等待租约恢复", "batch", batchID, "err", finishErr)
-		}
-		return
-	}
-	if finished && finalStatus == "completed" && strings.TrimSpace(batch.UploadDir) != "" {
-		s.removePublishUploadDir(wctx, batch)
-	}
 }
 
 // finalPublishBatchStatus 负责final发布批次状态相关处理。
@@ -1496,7 +1346,7 @@ func publishBatchToMap(batch *db.ItemPublishBatch, rows []db.ItemPublishBatchRow
 	pending := 0
 	// running 保存running，供当前处理流程使用
 	running := 0
-	// row 表示当前遍历过程中的row
+	// row 表示当前待转换的批量明细行。
 	for _, row := range rows {
 		if row.Status == "pending" {
 			pending++
@@ -1524,7 +1374,7 @@ func publishBatchToMap(batch *db.ItemPublishBatch, rows []db.ItemPublishBatchRow
 	}
 	// retryable 保存retryable，供当前处理流程使用
 	retryable := 0
-	// row 表示当前遍历过程中的row
+	// row 表示当前用于统计可重试数量的批量明细行。
 	for _, row := range rows {
 		if row.Status == "failed" && row.FailureKind != "validation" && row.FailureKind != "uncertain_remote" {
 			retryable++
@@ -1640,4 +1490,127 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// serverBatchRepository 将数据库批次仓储转换为应用层批量发布端口。
+type serverBatchRepository struct {
+	// server 保存文件清理和数据库适配所需的 Server 引用。
+	server *Server
+	// repository 保存批量状态的窄数据库接口。
+	repository itemPublishRepository
+}
+
+// PendingRows 查询数据库明细并移除数据库模型依赖。
+func (r serverBatchRepository) PendingRows(ctx context.Context, batchID string, failedOnly bool) ([]itemapp.BatchRow, error) {
+	// rows、err 保存数据库批量明细及查询错误。
+	rows, err := r.repository.PendingRows(ctx, batchID, failedOnly)
+	if err != nil {
+		return nil, err
+	}
+	// result 保存应用层批量明细。
+	result := make([]itemapp.BatchRow, 0, len(rows))
+	// row 表示当前转换的数据库批量明细。
+	for _, row := range rows {
+		result = append(result, toApplicationBatchRow(row))
+	}
+	return result, nil
+}
+
+// RenewBatchLease 委托数据库续租并保持应用层只接收基础类型。
+func (r serverBatchRepository) RenewBatchLease(ctx context.Context, batchID, workerToken string, leaseExpiresAt int64) (bool, error) {
+	return r.repository.RenewBatchLease(ctx, batchID, workerToken, leaseExpiresAt)
+}
+
+// GetBatch 查询数据库批次并转换为应用层状态模型。
+func (r serverBatchRepository) GetBatch(ctx context.Context, userID int64, batchID string) (itemapp.BatchInfo, error) {
+	// batch、err 保存数据库批次及查询错误。
+	batch, err := r.repository.GetBatch(ctx, userID, batchID)
+	if err != nil {
+		return itemapp.BatchInfo{}, err
+	}
+	return itemapp.BatchInfo{ID: batch.ID, UserID: batch.UserID, Status: batch.Status, WorkerToken: batch.WorkerToken, UploadDir: batch.UploadDir}, nil
+}
+
+// ClaimRow 委托数据库抢占明细租约。
+func (r serverBatchRepository) ClaimRow(ctx context.Context, rowID int64, workerToken string) (bool, error) {
+	return r.repository.ClaimRow(ctx, rowID, workerToken)
+}
+
+// BatchStatus 委托数据库读取批次状态用于失败分类。
+func (r serverBatchRepository) BatchStatus(ctx context.Context, batchID string) (string, error) {
+	return r.repository.BatchStatus(ctx, batchID)
+}
+
+// MarkClaimedRowFailed 委托数据库记录当前 worker 的失败明细。
+func (r serverBatchRepository) MarkClaimedRowFailed(ctx context.Context, rowID int64, workerToken, message, kind string) (bool, error) {
+	return r.repository.MarkClaimedRowFailed(ctx, rowID, workerToken, message, kind)
+}
+
+// RecountBatch 委托数据库重算批次进度。
+func (r serverBatchRepository) RecountBatch(ctx context.Context, batchID string) error {
+	return r.repository.RecountBatch(ctx, batchID)
+}
+
+// FinalizeBatch 委托数据库正常收口批次。
+func (r serverBatchRepository) FinalizeBatch(ctx context.Context, batchID, workerToken string) (string, bool, error) {
+	return r.repository.FinalizeBatch(ctx, batchID, workerToken)
+}
+
+// FinalizeCanceled 委托数据库收口取消中的批次。
+func (r serverBatchRepository) FinalizeCanceled(ctx context.Context, batchID, workerToken string) (bool, error) {
+	return r.repository.FinalizeCanceled(ctx, batchID, workerToken)
+}
+
+// FinalizeInterrupted 委托数据库收口中断批次。
+func (r serverBatchRepository) FinalizeInterrupted(ctx context.Context, batchID, workerToken, message string) (string, bool, error) {
+	return r.repository.FinalizeInterrupted(ctx, batchID, workerToken, message)
+}
+
+// DeleteUpload 删除已完成批次的上传目录并清除数据库路径。
+func (r serverBatchRepository) DeleteUpload(ctx context.Context, batchID, uploadDir string) error {
+	if uploadDir == "" {
+		return nil
+	}
+	// removeErr 保存上传目录删除错误；数据库记录仍需尝试清理。
+	removeErr := os.RemoveAll(uploadDir)
+	// clearErr 保存数据库上传目录字段清理错误。
+	clearErr := r.repository.ClearUploadDir(ctx, batchID)
+	if removeErr != nil {
+		return removeErr
+	}
+	return clearErr
+}
+
+// serverBatchPublisher 将 Server 的商品发布细节适配为应用层批量发布端口。
+type serverBatchPublisher struct {
+	// server 保存平台发布和本地商品结果适配所需的 Server 引用。
+	server *Server
+}
+
+// PublishRow 调用现有单行发布适配，应用层不再接触数据库或 MTOP 类型。
+func (p serverBatchPublisher) PublishRow(ctx context.Context, userID int64, row itemapp.BatchRow, workerToken string) error {
+	return p.server.publishBatchRow(ctx, userID, p.server.mtopClient(), fromApplicationBatchRow(row), workerToken)
+}
+
+// toApplicationBatchRow 将数据库行映射为纯应用 DTO。
+func toApplicationBatchRow(row db.ItemPublishBatchRow) itemapp.BatchRow {
+	return itemapp.BatchRow{ID: row.ID, BatchID: row.BatchID, CookieID: row.CookieID, Title: row.Title, Description: row.Description, Price: row.Price, OriginalPrice: row.OriginalPrice, Quantity: row.Quantity, PostageMode: row.PostageMode, Postage: row.Postage, ImagesJSON: row.ImagesJSON, CategoryJSON: row.CategoryJSON, AutomationJSON: row.AutomationJSON, RawJSON: row.RawJSON, ItemID: row.ItemID, ItemURL: row.ItemURL}
+}
+
+// fromApplicationBatchRow 将应用 DTO 还原为 Server 平台适配所需的数据库行模型。
+func fromApplicationBatchRow(row itemapp.BatchRow) db.ItemPublishBatchRow {
+	return db.ItemPublishBatchRow{ID: row.ID, BatchID: row.BatchID, CookieID: row.CookieID, Title: row.Title, Description: row.Description, Price: row.Price, OriginalPrice: row.OriginalPrice, Quantity: row.Quantity, PostageMode: row.PostageMode, Postage: row.Postage, ImagesJSON: row.ImagesJSON, CategoryJSON: row.CategoryJSON, AutomationJSON: row.AutomationJSON, RawJSON: row.RawJSON, ItemID: row.ItemID, ItemURL: row.ItemURL}
+}
+
+// newItemBatchRunnerApplication 创建批量发布应用层 worker 编排器。
+func newItemBatchRunnerApplication(server *Server) (*itemapp.BatchRunner, error) {
+	// options 配置批量 worker 的租约、间隔和平台错误语义。
+	options := itemapp.BatchRunOptions{
+		LeaseDuration: publishBatchLease,
+		IsSessionExpired: func(err error) bool {
+			return mtop.IsSessionExpiredErr(err)
+		},
+		ClassifyFailure: publishBatchFailure,
+	}
+	return itemapp.NewBatchRunner(serverBatchRepository{server: server, repository: newStoreItemPublishRepository(server.Store)}, serverBatchPublisher{server: server}, options)
 }

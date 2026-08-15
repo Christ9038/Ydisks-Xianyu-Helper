@@ -660,7 +660,6 @@ func (a *Account) StopContext(ctx context.Context) error {
 	if !shouldStop {
 		return nil
 	}
-	defer a.lifecycle.finishStop()
 	a.setRuntimeState(RuntimeStopped, "账号服务已停止")
 	if cancel != nil {
 		cancel()
@@ -670,6 +669,13 @@ func (a *Account) StopContext(ctx context.Context) error {
 
 	if !a.lifecycle.waitContext(ctx) {
 		a.logger.Warn("等待账号业务任务退出超时")
+		if ctx == nil || ctx.Err() == nil {
+			return context.DeadlineExceeded
+		}
+		return ctx.Err()
+	}
+	if a.recorder != nil && !a.recorder.waitContext(ctx) {
+		a.logger.Warn("等待账号 WS 记录 worker 退出超时")
 		if ctx == nil || ctx.Err() == nil {
 			return context.DeadlineExceeded
 		}
@@ -1140,11 +1146,21 @@ func (a *Account) watchPendingAPIRenew(parent context.Context, result *renew.Res
 	if result == nil || !result.HasPending() {
 		return
 	}
+	// taskCtx 是迟到续期任务继承的账号生命周期上下文；Stop 会先取消它，再等待任务收束。
+	taskCtx, accepted := a.beginTask()
+	if !accepted {
+		return
+	}
+	if parent != nil {
+		// Run 传入的 parent 就是账号运行上下文；直接沿用它可同时响应调用方取消和 Stop 的取消。
+		taskCtx = parent
+	}
 	a.pendingRenewWG.Add(1)
 	go func() {
+		defer a.lifecycle.finishTask()
 		defer a.pendingRenewWG.Done()
 		// ctx、cancel 保存ctx、cancel，供当前处理流程使用
-		ctx, cancel := context.WithTimeout(parent, 35*time.Second)
+		ctx, cancel := context.WithTimeout(taskCtx, 35*time.Second)
 		defer cancel()
 		// late、waitErr 保存late、waitErr，供当前处理流程使用
 		late, waitErr := result.AwaitPending(ctx)

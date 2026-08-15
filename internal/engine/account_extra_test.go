@@ -502,11 +502,18 @@ func TestTryAPIRenewPendingWatcherStopsWithAccountContext(t *testing.T) {
 	acc.renewer = xrenew.Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1, PromiseTimeout: 5 * time.Millisecond}
 	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithCancel(context.Background())
+	acc.lifecycle.start(ctx, cancel)
 	if acc.tryAPIRenew(ctx) {
 		t.Fatal("Promise 超时不得伪装成同步续期成功")
 	}
 	cancel()
-	acc.pendingRenewWG.Wait()
+	// stopCtx 验证账号停止会等待迟到续期 worker，而不是只取消其父上下文。
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
+	defer stopCancel()
+	// stopErr 表示停止账号并等待迟到续期 worker 的结果。
+	if stopErr := acc.StopContext(stopCtx); stopErr != nil {
+		t.Fatalf("StopContext 未等待迟到续期 worker: %v", stopErr)
+	}
 	// detail、err 保存detail、err，供当前处理流程使用
 	detail, err := store.Cookies.GetDetails(context.Background(), "cid")
 	if err != nil {

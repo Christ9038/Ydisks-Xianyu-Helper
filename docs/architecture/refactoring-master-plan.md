@@ -791,6 +791,9 @@ npm --prefix frontend run build
 | 2026-08-15 | P1 账号资料刷新应用 Port 闭环切片 | 已完成本切片 | 新增纯应用层 `internal/application/account` 的非敏感账号摘要、资料刷新 Port 和结果模型；资料刷新 handler 通过用户+账号联合查询完成归属校验，Server 只在既有账号适配边界转换 `db.CookieDetail` 与平台调用；删除旧的 Server 资料刷新双实现，新增应用服务构造、归属失败和平台失败测试，架构门禁、中文注释门禁和 Server 回归通过。账号登录凭证写入、扫码和其他账号操作仍待迁移 |
 | 2026-08-15 | P1 浏览器实例生命周期 CloseContext 切片 | 已完成本切片 | Browser Manager 增加活动调用登记、关闭 fencing、幂等 `CloseContext(ctx)` 和 `ErrManagerClosed`；`newPage`、初始化、二维码刷新及持久化续期上下文均在创建/释放时登记，关闭超时返回明确错误且可用更长 Context 重试，不创建游离关闭 goroutine；新增等待、超时重试和空管理器测试，浏览器全量及聚焦 race 通过。Playwright 底层同步 Close 无法被 Context 中断，Engine/账号其他任务仍待统一清单治理 |
 | 2026-08-15 | P1 自动化外部成功结果 quarantine 切片 | 已完成本切片 | 统一 automation run 在外部消息已发送但 `FinishRun` 落库失败时立即写入 `needs_review` quarantine 结果并返回 `errAutomationNeedsReview`，避免租约自然重放造成重复外部动作；quarantine 写入失败与 FinishRun 失败使用 `errors.Join` 返回，通知只发送一次；新增双重失败回归，automation 全量和 race 通过。账号任务等旁路仍有忽略 FinishRun/Mark* 错误，后续需继续盘点 |
+| 2026-08-15 | P1 商品批量发布应用 Port 闭环切片 | 已完成本切片 | 新增纯应用层 `items.BatchRunner`、批次/明细模型、租约/取消/中断/收口 Port 和测试；批量 worker 的逐行 claim、失败分类、租约续期和上传清理从 Server 迁入应用层，Server 仅保留既有批量平台单行适配与数据库转换，未扩大新的临时低层白名单；批量 HTTP/应用回归、架构门禁和中文注释门禁通过。单行平台适配、商品同步及其他领域 Port 仍待治理 |
+| 2026-08-15 | P1 Engine 内部任务生命周期切片 | 已完成本切片 | Engine 迟到 API 续期 watcher 纳入账号生命周期 `beginTask/finishTask`，继承账号运行 Context，StopContext 会等待其退出；WS recorder 关闭等待改为 Context-aware，未启动 recorder 不误报超时，停止超时后可重试；新增任务超时/重试和迟到 watcher 回归，Engine 全量测试、聚焦 race 和中文注释门禁通过。其他 Engine 网络/浏览器任务仍需统一清单审计 |
+| 2026-08-15 | P1 账号自动化动作错误收口切片 | 已完成本切片 | 自动评价/擦亮任务不再吞 Cookie、FinishRun、MarkRateScan/MarkPolished 错误；外部动作成功但本地状态失败会写 `needs_review` 并返回 `errAutomationNeedsReview`，隔离写入失败使用 `errors.Join` 保留双重原因；新增单失败、双失败和日期写入失败回归，automation 全量测试通过。账号任务其他动作和通知旁路仍待盘点 |
 
 ### 11.2 执行纠偏审计（2026-08-15）
 

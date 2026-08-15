@@ -23,6 +23,8 @@ type accountLifecycle struct {
 	accepting bool
 	// taskWG 等待所有已经通过 beginTask 的业务任务退出。
 	taskWG sync.WaitGroup
+	// activeTasks 记录尚未完成的任务数量，用于在超时 Stop 后由最后一个任务关闭 stopDone。
+	activeTasks int
 	// stopDone 在第一次 Stop 的清理完成后关闭，保证并发 Stop 调用也等待完整收束。
 	stopDone chan struct{}
 }
@@ -33,6 +35,8 @@ func (l *accountLifecycle) start(ctx context.Context, cancel context.CancelFunc)
 	l.stopFn = cancel
 	l.runtimeCtx = ctx
 	l.accepting = true
+	l.stopped = false
+	l.stopDone = nil
 	l.mu.Unlock()
 }
 
@@ -58,20 +62,14 @@ func (l *accountLifecycle) stopContext(ctx context.Context) (context.CancelFunc,
 	l.stopped = true
 	l.accepting = false
 	l.stopDone = make(chan struct{})
+	if l.activeTasks == 0 {
+		close(l.stopDone)
+		l.stopDone = nil
+	}
 	// cancel 是当前账号 Run 上下文的取消函数。
 	cancel := l.stopFn
 	l.mu.Unlock()
 	return cancel, true, nil
-}
-
-// finishStop 标记第一次 Stop 的清理已完成，并唤醒并发 Stop 调用者。
-func (l *accountLifecycle) finishStop() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.stopDone != nil {
-		close(l.stopDone)
-		l.stopDone = nil
-	}
 }
 
 // beginTask 在生命周期锁内登记业务任务，避免 Stop 与 WaitGroup.Add 竞争。
@@ -90,12 +88,22 @@ func (l *accountLifecycle) beginTask() (context.Context, bool) {
 		return nil, false
 	}
 	l.taskWG.Add(1)
+	l.activeTasks++
 	return ctx, true
 }
 
 // finishTask 标记一个已登记的业务任务退出。
 func (l *accountLifecycle) finishTask() {
 	l.taskWG.Done()
+	l.mu.Lock()
+	if l.activeTasks > 0 {
+		l.activeTasks--
+	}
+	if l.stopped && l.activeTasks == 0 && l.stopDone != nil {
+		close(l.stopDone)
+		l.stopDone = nil
+	}
+	l.mu.Unlock()
 }
 
 // waitContext 等待已登记业务任务结束，并在 ctx 到期时及时返回。

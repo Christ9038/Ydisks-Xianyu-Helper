@@ -14,6 +14,8 @@ type applicationServices struct {
 	itemPublish *itemPublishService
 	// itemSinglePublish 是仅负责单商品发布用例的纯应用服务。
 	itemSinglePublish *itemapp.Service
+	// itemBatchRunner 是商品批量发布 worker 的应用层编排器。
+	itemBatchRunner *itemapp.BatchRunner
 	// accountLogin 是账号登录应用服务。
 	accountLogin *accountLoginService
 	// accountProfile 是账号资料刷新应用服务。
@@ -37,15 +39,26 @@ func newApplicationServices(server *Server) *applicationServices {
 	if profileErr != nil {
 		panic(profileErr)
 	}
+	// itemBatchRunner 是批量发布 worker 的构造结果，失败表示必需端口装配错误。
+	itemBatchRunner, batchRunnerErr := newItemBatchRunnerApplication(server)
+	if batchRunnerErr != nil {
+		panic(batchRunnerErr)
+	}
 	return &applicationServices{
 		orders:            &orderHTTPAdapter{services: orderServices, repository: orderRepository},
 		itemPublish:       &itemPublishService{server: server, repository: newStoreItemPublishRepository(server.Store)},
 		itemSinglePublish: newItemPublishApplication(server),
+		itemBatchRunner:   itemBatchRunner,
 		accountLogin:      &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store)},
 		accountProfile:    accountProfile,
 		communication:     &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},
 		analytics:         &analyticsService{repository: newStoreAnalyticsRepository(server.Store)},
 	}
+}
+
+// itemBatchRunnerApplication 返回当前 Server 绑定的批量发布 worker 编排器。
+func (s *Server) itemBatchRunnerApplication() *itemapp.BatchRunner {
+	return s.applicationServiceSet().itemBatchRunner
 }
 
 // accountProfileApplication 返回当前 Server 绑定的账号资料应用服务。

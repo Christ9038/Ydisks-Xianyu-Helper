@@ -83,5 +83,24 @@ func TestAccountStopContextBoundsTaskWait(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("StopContext waited too long: %s", elapsed)
 	}
+	// retryDone 表示第一次超时后的第二次 Stop 是否仍等待原任务收束。
+	retryDone := make(chan error, 1)
+	go func() {
+		retryDone <- account.StopContext(context.Background())
+	}()
+	select {
+	case <-retryDone:
+		t.Fatal("第一次 Stop 超时后，重试不应在任务完成前返回")
+	case <-time.After(20 * time.Millisecond):
+	}
 	account.lifecycle.finishTask()
+	select {
+	// retryErr 表示第一次超时后再次停止账号的等待结果。
+	case retryErr := <-retryDone:
+		if retryErr != nil {
+			t.Fatalf("重试 StopContext error=%v", retryErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("第一次 Stop 超时后，重试未在任务完成后返回")
+	}
 }

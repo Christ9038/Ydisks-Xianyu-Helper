@@ -3,6 +3,7 @@ package automation
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -220,6 +221,45 @@ func (c *accountTaskCoordinator) accountCredentialFingerprint(ctx context.Contex
 	return fmt.Sprintf("%x", sum[:]), nil
 }
 
+// finishAccountTaskRun 保存账号任务的最终状态；首次写入失败时立即隔离运行记录，避免外部动作已经成功却被下一轮重复执行。
+// 返回值会同时保留首次写入和隔离写入的错误，调用方可据此告警并阻止自动重放。
+func (c *accountTaskCoordinator) finishAccountTaskRun(ctx context.Context, runKey, status string, success, failed int, message string, nextRetryAt int64) error {
+	// finishErr 表示尝试写入预期运行状态时的数据库错误。
+	finishErr := c.repository.FinishRun(ctx, runKey, status, success, failed, message, nextRetryAt)
+	if finishErr == nil {
+		return nil
+	}
+	// quarantineMessage 说明外部动作结果已经产生但本地状态未能正常收口，禁止系统自动重放。
+	quarantineMessage := fmt.Sprintf("账号任务外部动作结果可能已执行，但运行状态保存失败，请人工核对，禁止自动重放: %v", finishErr)
+	// quarantineErr 表示把运行记录转为人工核对状态时的数据库错误。
+	quarantineErr := c.repository.FinishRun(ctx, runKey, "needs_review", success, failed, quarantineMessage, 0)
+	if quarantineErr != nil {
+		return errors.Join(
+			errAutomationNeedsReview,
+			fmt.Errorf("保存账号任务运行结果失败: %w", finishErr),
+			fmt.Errorf("保存账号任务人工核对状态失败: %w", quarantineErr),
+		)
+	}
+	return errors.Join(errAutomationNeedsReview, fmt.Errorf("保存账号任务运行结果失败: %w", finishErr))
+}
+
+// quarantineAccountTaskRun 将外部动作结果未知的账号任务运行记录隔离到人工核对状态。
+// 当隔离写入再次失败时，返回值会保留原始原因和第二次数据库错误。
+func (c *accountTaskCoordinator) quarantineAccountTaskRun(ctx context.Context, runKey string, success, failed int, reason error) error {
+	// quarantineMessage 将本地持久化故障转换为运维可识别的人工核对原因。
+	quarantineMessage := fmt.Sprintf("账号任务外部动作结果未知，请人工核对，禁止自动重放: %v", reason)
+	// quarantineErr 表示写入人工核对状态时的数据库错误。
+	quarantineErr := c.repository.FinishRun(ctx, runKey, "needs_review", success, failed, quarantineMessage, 0)
+	if quarantineErr != nil {
+		return errors.Join(
+			errAutomationNeedsReview,
+			fmt.Errorf("账号任务本地持久化失败: %w", reason),
+			fmt.Errorf("保存账号任务人工核对状态失败: %w", quarantineErr),
+		)
+	}
+	return errors.Join(errAutomationNeedsReview, fmt.Errorf("账号任务本地持久化失败: %w", reason))
+}
+
 // runAutoRate 执行自动评价任务，并在明确的单值 Cookie 查询边界内调用平台 API。
 func (c *accountTaskCoordinator) runAutoRate(ctx context.Context, settings db.AccountTaskSettings) (AccountTaskSummary, error) {
 	// summary 保存summary，供当前处理流程使用
@@ -243,7 +283,12 @@ func (c *accountTaskCoordinator) runAutoRate(ctx context.Context, settings db.Ac
 		if err != nil {
 			return summary, err
 		}
-		current = c.persistTaskCookies(ctx, settings.CookieID, current, pending.UpdatedCookies)
+		// updatedCookies 保存扫描接口返回的最新 Cookie；cookieErr 表示同步该 Cookie 时的持久化错误。
+		updatedCookies, cookieErr := c.persistTaskCookies(ctx, settings.CookieID, current, pending.UpdatedCookies)
+		if cookieErr != nil {
+			return summary, cookieErr
+		}
+		current = updatedCookies
 		orders = append(orders, pending.Orders...)
 		if len(pending.Orders) < 50 {
 			break
@@ -272,18 +317,35 @@ func (c *accountTaskCoordinator) runAutoRate(ctx context.Context, settings db.Ac
 			if result != nil && result.Message != "" {
 				message = result.Message
 			}
-			_ = c.repository.FinishRun(ctx, runKey, "failed", 0, 1, message, time.Now().UTC().Add(10*time.Minute).Unix())
+			// finishErr 保存失败结果的落库错误；失败时隔离运行记录，避免错误状态不明导致重放。
+			finishErr := c.finishAccountTaskRun(ctx, runKey, "failed", 0, 1, message, time.Now().UTC().Add(10*time.Minute).Unix())
+			if finishErr != nil {
+				return summary, errors.Join(rateErr, finishErr)
+			}
 			summary.Failed++
 			if mtop.IsSessionExpiredErr(rateErr) {
 				return summary, rateErr
 			}
 			continue
 		}
-		current = c.persistTaskCookies(ctx, settings.CookieID, current, result.UpdatedCookies)
-		_ = c.repository.FinishRun(ctx, runKey, "success", 1, 0, "", 0)
+		// updatedCookies 保存评价接口返回的最新 Cookie；cookieErr 表示动作成功后同步 Cookie 的落库错误。
+		updatedCookies, cookieErr := c.persistTaskCookies(ctx, settings.CookieID, current, result.UpdatedCookies)
+		if cookieErr != nil {
+			return summary, c.quarantineAccountTaskRun(ctx, runKey, summary.Success+1, summary.Failed, cookieErr)
+		}
+		current = updatedCookies
+		// finishErr 保存评价成功结果的落库错误；失败时会把运行记录隔离为人工核对。
+		finishErr := c.finishAccountTaskRun(ctx, runKey, "success", 1, 0, "", 0)
+		if finishErr != nil {
+			return summary, finishErr
+		}
 		summary.Success++
 	}
-	_ = c.repository.MarkRateScan(ctx, settings.CookieID, time.Now().UTC().Unix())
+	// markErr 表示自动评价扫描时间写入失败；不能静默忽略，否则调度状态会永久滞后。
+	markErr := c.repository.MarkRateScan(ctx, settings.CookieID, time.Now().UTC().Unix())
+	if markErr != nil {
+		return summary, fmt.Errorf("保存自动评价扫描时间: %w", markErr)
+	}
 	return summary, nil
 }
 
@@ -319,17 +381,19 @@ func (c *accountTaskCoordinator) runAutoPolish(ctx context.Context, settings db.
 	// cookies、err 保存cookies、err，供当前处理流程使用
 	cookies, err := c.repository.GetValue(ctx, settings.CookieID)
 	if err != nil {
-		_ = c.repository.FinishRun(ctx, runKey, "failed", 0, 1, err.Error(), time.Now().UTC().Add(10*time.Minute).Unix())
-		return summary, err
+		return summary, errors.Join(err, c.finishAccountTaskRun(ctx, runKey, "failed", 0, 1, err.Error(), time.Now().UTC().Add(10*time.Minute).Unix()))
 	}
 	// items、err 保存items、err，供当前处理流程使用
 	items, err := c.client().FetchAllItems(ctx, cookies, polishItemPageSize, polishItemMaxPages)
 	if err != nil {
-		_ = c.repository.FinishRun(ctx, runKey, "failed", 0, 1, err.Error(), time.Now().UTC().Add(10*time.Minute).Unix())
-		return summary, err
+		return summary, errors.Join(err, c.finishAccountTaskRun(ctx, runKey, "failed", 0, 1, err.Error(), time.Now().UTC().Add(10*time.Minute).Unix()))
 	}
 	// current 保存current，供当前处理流程使用
-	current := c.persistTaskCookies(ctx, settings.CookieID, cookies, items.UpdatedCookies)
+	// current 保存擦亮接口返回前可继续使用的最新 Cookie。
+	current, cookieErr := c.persistTaskCookies(ctx, settings.CookieID, cookies, items.UpdatedCookies)
+	if cookieErr != nil {
+		return summary, errors.Join(cookieErr, c.quarantineAccountTaskRun(ctx, runKey, 0, 0, cookieErr))
+	}
 	summary.Found = len(items.Items)
 	// lastError 保存last错误，供当前处理流程使用
 	var lastError string
@@ -344,12 +408,16 @@ func (c *accountTaskCoordinator) runAutoPolish(ctx context.Context, settings db.
 				lastError = result.Message
 			}
 			if mtop.IsSessionExpiredErr(polishErr) {
-				_ = c.repository.FinishRun(ctx, runKey, "failed", summary.Success, summary.Failed, lastError, 0)
-				return summary, polishErr
+				return summary, errors.Join(polishErr, c.finishAccountTaskRun(ctx, runKey, "failed", summary.Success, summary.Failed, lastError, 0))
 			}
 			continue
 		}
-		current = c.persistTaskCookies(ctx, settings.CookieID, current, result.UpdatedCookies)
+		// updatedCookies 保存擦亮接口返回的最新 Cookie；cookieErr 表示外部动作成功后同步 Cookie 的落库错误。
+		updatedCookies, cookieErr := c.persistTaskCookies(ctx, settings.CookieID, current, result.UpdatedCookies)
+		if cookieErr != nil {
+			return summary, c.quarantineAccountTaskRun(ctx, runKey, summary.Success+1, summary.Failed, cookieErr)
+		}
+		current = updatedCookies
 		summary.Success++
 	}
 	// status、retryAt 保存status、retryAt，供当前处理流程使用
@@ -357,9 +425,19 @@ func (c *accountTaskCoordinator) runAutoPolish(ctx context.Context, settings db.
 	if summary.Failed > 0 {
 		status, retryAt = "failed", time.Now().UTC().Add(10*time.Minute).Unix()
 	} else {
-		_ = c.repository.MarkPolished(ctx, settings.CookieID, date, time.Now().UTC().Unix())
+		// markErr 表示所有商品已擦亮但日期索引写入失败；返回错误以便运维补偿而不伪装成成功。
+		markErr := c.repository.MarkPolished(ctx, settings.CookieID, date, time.Now().UTC().Unix())
+		if markErr != nil {
+			// persistenceErr 为日期索引失败补充业务上下文，便于人工核对具体失败边界。
+			persistenceErr := fmt.Errorf("保存商品擦亮日期: %w", markErr)
+			return summary, errors.Join(persistenceErr, c.quarantineAccountTaskRun(ctx, runKey, summary.Success, summary.Failed, persistenceErr))
+		}
 	}
-	_ = c.repository.FinishRun(ctx, runKey, status, summary.Success, summary.Failed, lastError, retryAt)
+	// finishErr 保存擦亮任务汇总结果的落库错误；失败时将运行记录隔离，避免下一次重放已完成商品。
+	finishErr := c.finishAccountTaskRun(ctx, runKey, status, summary.Success, summary.Failed, lastError, retryAt)
+	if finishErr != nil {
+		return summary, finishErr
+	}
 	if summary.Failed > 0 {
 		return summary, fmt.Errorf("%d 个商品擦亮失败: %s", summary.Failed, lastError)
 	}
@@ -367,15 +445,15 @@ func (c *accountTaskCoordinator) runAutoPolish(ctx context.Context, settings db.
 }
 
 // persistTaskCookies 负责persist任务Cookies相关处理。
-func (c *accountTaskCoordinator) persistTaskCookies(ctx context.Context, accountID, oldValue, newValue string) string {
+func (c *accountTaskCoordinator) persistTaskCookies(ctx context.Context, accountID, oldValue, newValue string) (string, error) {
 	newValue = strings.TrimSpace(newValue)
 	if newValue == "" || newValue == oldValue {
-		return oldValue
+		return oldValue, nil
 	}
 	if // err 保存err，供当前处理流程使用
 	err := c.repository.UpdateValueExisting(ctx, accountID, newValue); err != nil {
 		c.logger.Warn("保存账号任务响应 Cookie 失败", "account", accountID, "err", err)
-		return oldValue
+		return oldValue, fmt.Errorf("保存账号任务响应 Cookie: %w", err)
 	}
 	if c.senders != nil {
 		if // sender、ok 保存sender、ok，供当前处理流程使用
@@ -383,7 +461,7 @@ func (c *accountTaskCoordinator) persistTaskCookies(ctx context.Context, account
 			sender.UpdateCookie(newValue)
 		}
 	}
-	return newValue
+	return newValue, nil
 }
 
 // beijingNow 负责beijingNow相关处理。

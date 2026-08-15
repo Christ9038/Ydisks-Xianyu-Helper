@@ -91,6 +91,132 @@ func TestAccountTaskRateIsOrderIdempotent(t *testing.T) {
 	}
 }
 
+// TestAccountTaskRateFinishFailureQuarantinesExternalSuccess 验证评价动作已成功但运行结果写入失败时会隔离记录，避免下一轮重复评价。
+func TestAccountTaskRateFinishFailureQuarantinesExternalSuccess(t *testing.T) {
+	// store 是当前测试使用的 SQLite 自动化存储。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是测试数据库操作共用的上下文。
+	ctx := context.Background()
+	// triggerErr 表示故意阻止 success 状态写入的 SQLite 触发器创建错误。
+	if _, triggerErr := store.DB.ExecContext(ctx, `CREATE TRIGGER reject_account_task_success
+		BEFORE UPDATE OF status ON account_task_runs
+		WHEN NEW.status='success'
+		BEGIN SELECT RAISE(ABORT, 'forced account task finish failure'); END`); triggerErr != nil {
+		t.Fatal(triggerErr)
+	}
+	// client 记录远端评价调用次数，验证本地状态异常不会触发同一轮的重复外部动作。
+	client := &fakeAccountTaskClient{pending: []mtop.PendingRateOrder{{TradeID: "order-finish-failure"}}}
+	// center 是待验证账号任务结果隔离逻辑的自动化中心。
+	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
+	center.SetAccountTaskClient(client)
+	// settingsErr 表示写入自动评价设置时的数据库错误。
+	if settingsErr := store.AccountTasks.Upsert(ctx, db.AccountTaskSettings{CookieID: "cid", AutoRateEnabled: true,
+		RateContent: "交易愉快", PolishTime: "03:00"}); settingsErr != nil {
+		t.Fatal(settingsErr)
+	}
+	// runErr 保存外部动作成功但本地运行结果收口失败后的人工核对错误。
+	_, runErr := center.RunAccountTask(ctx, "cid", TaskAutoRate)
+	if !errors.Is(runErr, errAutomationNeedsReview) || !strings.Contains(runErr.Error(), "保存账号任务运行结果失败") {
+		t.Fatalf("运行结果写入失败应返回人工核对错误，err=%v", runErr)
+	}
+	if client.rateCalls != 1 {
+		t.Fatalf("外部评价动作应只执行一次，calls=%d", client.rateCalls)
+	}
+	// status、successCount、message 保存隔离后的任务状态、已完成动作数和人工核对原因。
+	var status, message string
+	// successCount 保存已确认完成的评价动作数量。
+	var successCount int
+	// queryErr 表示读取隔离后任务状态时的数据库错误。
+	queryErr := store.DB.QueryRowContext(ctx, `SELECT status,success_count,error_message FROM account_task_runs WHERE run_key=?`,
+		"rate:cid:order-finish-failure").Scan(&status, &successCount, &message)
+	if queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	if status != "needs_review" || successCount != 1 || !strings.Contains(message, "禁止自动重放") {
+		t.Fatalf("任务未正确隔离: status=%q success=%d message=%q", status, successCount, message)
+	}
+}
+
+// TestAccountTaskRateFinishAndQuarantineFailureJoinsErrors 验证运行结果和人工核对状态均无法落库时不会吞掉任一错误。
+func TestAccountTaskRateFinishAndQuarantineFailureJoinsErrors(t *testing.T) {
+	// store 是当前测试使用的 SQLite 自动化存储。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是测试数据库操作共用的上下文。
+	ctx := context.Background()
+	// triggerErr 表示故意阻止 success 与 needs_review 状态写入的 SQLite 触发器创建错误。
+	if _, triggerErr := store.DB.ExecContext(ctx, `CREATE TRIGGER reject_account_task_result_states
+		BEFORE UPDATE OF status ON account_task_runs
+		WHEN NEW.status IN ('success','needs_review')
+		BEGIN SELECT RAISE(ABORT, 'forced account task result failure'); END`); triggerErr != nil {
+		t.Fatal(triggerErr)
+	}
+	// client 记录已经成功执行的远端评价动作。
+	client := &fakeAccountTaskClient{pending: []mtop.PendingRateOrder{{TradeID: "order-double-failure"}}}
+	// center 是待验证双重落库错误传播逻辑的自动化中心。
+	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
+	center.SetAccountTaskClient(client)
+	// settingsErr 表示写入自动评价设置时的数据库错误。
+	if settingsErr := store.AccountTasks.Upsert(ctx, db.AccountTaskSettings{CookieID: "cid", AutoRateEnabled: true,
+		RateContent: "交易愉快", PolishTime: "03:00"}); settingsErr != nil {
+		t.Fatal(settingsErr)
+	}
+	// runErr 保存结果写入和隔离写入均失败后的组合错误。
+	_, runErr := center.RunAccountTask(ctx, "cid", TaskAutoRate)
+	if !errors.Is(runErr, errAutomationNeedsReview) || !strings.Contains(runErr.Error(), "保存账号任务运行结果失败") ||
+		!strings.Contains(runErr.Error(), "保存账号任务人工核对状态失败") {
+		t.Fatalf("双重落库失败应返回完整错误链，err=%v", runErr)
+	}
+	if client.rateCalls != 1 {
+		t.Fatalf("外部评价动作应只执行一次，calls=%d", client.rateCalls)
+	}
+}
+
+// TestAccountTaskPolishMarkFailureQuarantinesExternalSuccess 验证商品擦亮成功但日期索引写入失败时会隔离运行记录。
+func TestAccountTaskPolishMarkFailureQuarantinesExternalSuccess(t *testing.T) {
+	// store 是当前测试使用的 SQLite 自动化存储。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是测试数据库操作共用的上下文。
+	ctx := context.Background()
+	// settingsErr 表示写入擦亮设置时的数据库错误。
+	if settingsErr := store.AccountTasks.Upsert(ctx, db.AccountTaskSettings{CookieID: "cid", AutoPolishEnabled: true,
+		RateContent: "交易愉快", PolishTime: "00:00"}); settingsErr != nil {
+		t.Fatal(settingsErr)
+	}
+	// triggerErr 表示故意阻止擦亮日期索引写入的 SQLite 触发器创建错误。
+	if _, triggerErr := store.DB.ExecContext(ctx, `CREATE TRIGGER reject_account_task_polish_mark
+		BEFORE UPDATE OF last_polish_date ON account_task_settings
+		WHEN NEW.last_polish_date <> ''
+		BEGIN SELECT RAISE(ABORT, 'forced account task polish mark failure'); END`); triggerErr != nil {
+		t.Fatal(triggerErr)
+	}
+	// client 记录远端擦亮调用次数，验证本地状态异常不会导致同一轮重复执行。
+	client := &fakeAccountTaskClient{items: []mtop.ItemListItem{{ID: "item-mark-failure"}}}
+	// center 是待验证擦亮结果隔离逻辑的自动化中心。
+	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
+	center.SetAccountTaskClient(client)
+	// runErr 保存外部擦亮成功但日期索引收口失败后的人工核对错误。
+	_, runErr := center.RunAccountTask(ctx, "cid", TaskAutoPolish)
+	if !errors.Is(runErr, errAutomationNeedsReview) || !strings.Contains(runErr.Error(), "保存商品擦亮日期") {
+		t.Fatalf("擦亮日期写入失败应返回人工核对错误，err=%v", runErr)
+	}
+	if client.polishCalls != 1 {
+		t.Fatalf("外部擦亮动作应只执行一次，calls=%d", client.polishCalls)
+	}
+	// status 保存被隔离的擦亮运行状态。
+	var status string
+	// queryErr 表示读取隔离后擦亮运行状态时的数据库错误。
+	queryErr := store.DB.QueryRowContext(ctx, `SELECT status FROM account_task_runs WHERE run_key LIKE 'polish:cid:%'`).Scan(&status)
+	if queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	if status != "needs_review" {
+		t.Fatalf("擦亮日期写入失败后应隔离任务，status=%q", status)
+	}
+}
+
 // TestAccountTaskSessionExpiredRecoversOnceAndBlocksFurtherAPIRequests 负责Test账号任务会话ExpiredRecoversOnceAndBlocksFurtherAPI请求列表相关处理。
 func TestAccountTaskSessionExpiredRecoversOnceAndBlocksFurtherAPIRequests(t *testing.T) {
 	// store、cleanup 保存store、cleanup，供当前处理流程使用

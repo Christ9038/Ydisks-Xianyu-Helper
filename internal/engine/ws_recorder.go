@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"xianyu-go/internal/db"
@@ -23,6 +24,10 @@ type wsRecorder struct {
 	once sync.Once
 	// wg 等待 recorder worker 退出。
 	wg sync.WaitGroup
+	// done 在 recorder worker 退出时关闭，供 Context-aware 等待直接选择而不创建旁路 goroutine。
+	done chan struct{}
+	// started 表示 recorder worker 是否实际启动；未启动的 recorder 无需等待。
+	started atomic.Bool
 	// queue 是有界的报文内存队列，满时丢弃诊断记录而不阻塞 WS。
 	queue chan db.WSMessage
 }
@@ -40,6 +45,7 @@ func newWSRecorder(store *db.Store, cookieID string, logger *slog.Logger) *wsRec
 		cookieID: cookieID,
 		logger:   logger,
 		queue:    make(chan db.WSMessage, 256),
+		done:     make(chan struct{}),
 	}
 }
 
@@ -73,9 +79,11 @@ func (r *wsRecorder) start(ctx context.Context) {
 		return
 	}
 	r.once.Do(func() {
+		r.started.Store(true)
 		r.wg.Add(1)
 		go func() {
 			defer r.wg.Done()
+			defer close(r.done)
 			// cleanupCtx 是清理历史报文时的有限时长上下文。
 			cleanupCtx, cleanupCancel := context.WithTimeout(ctx, WSRecordWriteTimeout)
 			// deleted 是本次清理删除的历史报文数量。
@@ -129,5 +137,29 @@ func (r *wsRecorder) start(ctx context.Context) {
 func (r *wsRecorder) wait() {
 	if r != nil {
 		r.wg.Wait()
+	}
+}
+
+// waitContext 在 ctx 约束内等待 recorder worker 退出；数据库写入异常阻塞时及时把停止超时交给调用方。
+func (r *wsRecorder) waitContext(ctx context.Context) bool {
+	if r == nil {
+		return true
+	}
+	if !r.started.Load() {
+		return true
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// done 表示 recorder worker 已经退出，供当前等待调用选择上下文超时或正常完成。
+	done := r.done
+	if done == nil {
+		return true
+	}
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
