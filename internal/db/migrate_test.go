@@ -146,11 +146,21 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 		t.Fatalf("goose dialect: %v", err)
 	}
 	goose.SetBaseFS(migrationsFS)
-	// 依次回滚最新版本到 13，再整体升级。
-	for i := 0; i < 15; i++ {
+	// 读取当前最新迁移版本，动态回滚到 13，避免新增迁移后固定次数失效。
+	// version、err 保存当前迁移版本及读取错误。
+	version, err := goose.GetDBVersion(d)
+	if err != nil {
+		t.Fatalf("get migration version: %v", err)
+	}
+	// i 表示本次回滚操作序号。
+	for i := 0; version >= 14; i++ {
 		if // err 保存err，供当前处理流程使用
 		err := goose.Down(d, "migrations/sqlite"); err != nil {
 			t.Fatalf("down migration #%d: %v", i+1, err)
+		}
+		version, err = goose.GetDBVersion(d)
+		if err != nil {
+			t.Fatalf("get migration version after down: %v", err)
 		}
 	}
 	if columnExists(t, d, "notification_channels", "event_types") {

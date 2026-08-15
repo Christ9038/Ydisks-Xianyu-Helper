@@ -1004,11 +1004,20 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				t.Fatalf("set goose dialect: %v", err)
 			}
 			goose.SetBaseFS(migrationsFS)
-			for // i 保存i，供当前处理流程使用
-			i := 0; i < 15; i++ {
+			// version、err 保存当前数据库迁移版本及读取错误。
+			version, err := goose.GetDBVersion(tg.store.DB)
+			if err != nil {
+				t.Fatalf("get migration version: %v", err)
+			}
+			// i 表示本次回滚操作序号。
+			for i := 0; version >= 14; i++ {
 				if // err 保存err，供当前处理流程使用
 				err := goose.Down(tg.store.DB, "migrations/"+subdir); err != nil {
 					t.Fatalf("migration down #%d: %v", i+1, err)
+				}
+				version, err = goose.GetDBVersion(tg.store.DB)
+				if err != nil {
+					t.Fatalf("get migration version after down: %v", err)
 				}
 			}
 			if columnExistsForDialect(t, tg.store.DB, tg.dialect, "notification_channels", "event_types") {

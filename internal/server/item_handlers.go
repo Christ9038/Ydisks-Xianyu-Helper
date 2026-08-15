@@ -453,14 +453,31 @@ func (s *Server) syncItemsFromAccount(w http.ResponseWriter, r *http.Request) {
 	client := s.mtopClient()
 	// mtopCtx、cookieSession 保存mtopCtx、cookie会话，供当前处理流程使用
 	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
+	// 账号凭证快照已读取完成；慢速商品列表请求不得继续持有共享凭证锁。
+	credentialUnlock()
 	// res、callErr 保存res、callErr，供当前处理流程使用
 	res, callErr := client.FetchAllItems(mtopCtx, cookieValue, req.PageSize, req.MaxPages)
+	// credentialUnlock 保存外部请求完成后重新进入凭证提交临界区的释放函数。
+	credentialUnlock = s.Store.LockAccountCredentials(req.CookieID)
+	// latestAfterFetch、reloadErr 保存外部请求完成后的最新凭证快照及重读错误。
+	latestAfterFetch, reloadErr := s.loadCookiePlatformDetail(r.Context(), req.CookieID)
+	if reloadErr != nil || latestAfterFetch == nil || latestAfterFetch.UserID != userID {
+		credentialUnlock()
+		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
+		return
+	}
+	// credentialSnapshotChanged 标记外部商品请求期间是否已有其他流程更新凭证。
+	credentialSnapshotChanged := latestAfterFetch.Value != latest.Value || latestAfterFetch.MetadataJSON != latest.MetadataJSON
+	latest = latestAfterFetch
 	if callErr == nil && res == nil {
 		callErr = errors.New("商品列表接口未返回结果")
 	}
 	if callErr != nil {
 		// value、valueChanged、persistErr 保存value、valueChanged、persistErr，供当前处理流程使用
-		value, valueChanged, _, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
+		value, valueChanged, _, persistErr := "", false, false, error(nil)
+		if !credentialSnapshotChanged {
+			value, valueChanged, _, persistErr = s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
+		}
 		credentialUnlock()
 		if persistErr != nil {
 			s.Logger.Error("保存商品同步响应 Cookie Jar 失败", "cookie_id", req.CookieID, "err", persistErr)
@@ -478,14 +495,28 @@ func (s *Server) syncItemsFromAccount(w http.ResponseWriter, r *http.Request) {
 	if res.UpdatedCookies != "" {
 		detailCookies = res.UpdatedCookies
 	}
-	// detailErr 保存detailErr，供当前处理流程使用
+	credentialUnlock()
+	// detailErr 保存规格探测结果及错误。
 	detailErr := s.enrichSyncedItemMultiSpec(mtopCtx, client, detailCookies, req.CookieID, res.Items)
+	credentialUnlock = s.Store.LockAccountCredentials(req.CookieID)
+	// latestAfterEnrich、enrichReloadErr 保存规格探测完成后的最新凭证快照及重读错误。
+	latestAfterEnrich, enrichReloadErr := s.loadCookiePlatformDetail(r.Context(), req.CookieID)
+	if enrichReloadErr != nil || latestAfterEnrich == nil || latestAfterEnrich.UserID != userID {
+		credentialUnlock()
+		writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
+		return
+	}
+	credentialSnapshotChanged = credentialSnapshotChanged || latestAfterEnrich.Value != latest.Value || latestAfterEnrich.MetadataJSON != latest.MetadataJSON
+	latest = latestAfterEnrich
 	// runtimeCookie 保存runtime登录凭证，供当前处理流程使用
 	runtimeCookie := ""
 	// runtimeCookieChanged 保存runtime登录凭证Changed，供当前处理流程使用
 	runtimeCookieChanged := false
 	// value、valueChanged、handled、persistErr 保存value、valueChanged、handled、persistErr，供当前处理流程使用
-	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
+	value, valueChanged, handled, persistErr := "", false, false, error(nil)
+	if !credentialSnapshotChanged {
+		value, valueChanged, handled, persistErr = s.persistMTopCookieSessionLocked(r.Context(), latest, cookieSession)
+	}
 	if persistErr != nil {
 		s.Logger.Error("保存商品同步响应 Cookie Jar 失败", "cookie_id", req.CookieID, "err", persistErr)
 		credentialUnlock()
@@ -496,7 +527,7 @@ func (s *Server) syncItemsFromAccount(w http.ResponseWriter, r *http.Request) {
 			runtimeCookie = value
 			runtimeCookieChanged = true
 		}
-	} else if res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
+	} else if !credentialSnapshotChanged && res.UpdatedCookies != "" && res.UpdatedCookies != cookieValue {
 		if // saveErr 保存saveErr，供当前处理流程使用
 		saveErr := s.Store.Cookies.UpdateValueOwned(r.Context(), req.CookieID, res.UpdatedCookies, userID); saveErr != nil {
 			s.Logger.Error("保存刷新后的 cookie 失败", "cookie_id", req.CookieID, "err", saveErr)

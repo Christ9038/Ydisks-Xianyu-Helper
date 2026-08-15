@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/textproto"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -533,6 +534,65 @@ func TestSyncItemsFromAccountSuccess(t *testing.T) {
 	if item.ItemID != "it-sync-1" || item.ItemTitle != "同步商品A" || item.ItemPrice != "¥12.50" || item.ItemDescription != "本地描述" ||
 		!item.IsMultiSpec || !item.MultiQuantityDelivery {
 		t.Fatalf("线上商品更新或本地配置保留异常: %+v", item)
+	}
+}
+
+// TestSyncItemsFromAccountReleasesCredentialLockDuringRemoteCall 验证商品远端同步期间不会占用账号凭证锁。
+func TestSyncItemsFromAccountReleasesCredentialLockDuringRemoteCall(t *testing.T) {
+	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// started 表示远端商品请求已经进入阻塞点。
+	started := make(chan struct{})
+	// release 允许测试释放阻塞的远端请求。
+	release := make(chan struct{})
+	// once 保证 started 只关闭一次。
+	var once sync.Once
+	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		once.Do(func() { close(started) })
+		<-release
+		// body 是空商品列表的成功响应。
+		body := `{"ret":["SUCCESS::调用成功"],"data":{"cardList":[]}}`
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	}))
+	// h 保存h，供当前处理流程使用
+	h := srv.Router()
+	// cookie 保存登录凭证，供当前处理流程使用
+	cookie := loginHelper(t, h)
+	// requestDone 表示同步请求已经返回。
+	requestDone := make(chan struct{})
+	go func() {
+		defer close(requestDone)
+		// req 是触发商品同步的测试请求。
+		req := httptest.NewRequest(http.MethodPost, "/items/get-all-from-account", strings.NewReader(`{"cookie_id":"acc1","page_size":10}`))
+		req.AddCookie(cookie)
+		// rec 保存商品同步请求的测试响应。
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("远端商品请求未进入阻塞点")
+	}
+	// lockAcquired 表示另一个操作已成功取得同账号凭证锁。
+	lockAcquired := make(chan struct{})
+	go func() {
+		// unlock 释放测试 goroutine 取得的账号凭证锁。
+		unlock := store.LockAccountCredentials("acc1")
+		close(lockAcquired)
+		unlock()
+	}()
+	select {
+	case <-lockAcquired:
+	case <-time.After(time.Second):
+		t.Fatal("远端商品请求期间凭证锁仍被占用")
+	}
+	close(release)
+	select {
+	case <-requestDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("商品同步请求未收束")
 	}
 }
 

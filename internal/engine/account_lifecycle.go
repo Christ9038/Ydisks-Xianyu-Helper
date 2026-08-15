@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"sync"
-	"time"
 )
 
 // accountLifecycle 管理单账号运行上下文和业务任务生命周期。
@@ -35,13 +34,6 @@ func (l *accountLifecycle) start(ctx context.Context, cancel context.CancelFunc)
 	l.runtimeCtx = ctx
 	l.accepting = true
 	l.mu.Unlock()
-}
-
-// stop 原子地禁止新任务并取出运行上下文取消函数。
-func (l *accountLifecycle) stop() (context.CancelFunc, bool) {
-	// cancel、first 分别表示运行上下文取消函数和是否由本次调用负责首次停止。
-	cancel, first, _ := l.stopContext(context.Background())
-	return cancel, first
 }
 
 // stopContext 原子地禁止新任务并取出取消函数；并发停止调用会受 ctx 限制地等待首次清理完成。
@@ -104,17 +96,6 @@ func (l *accountLifecycle) beginTask() (context.Context, bool) {
 // finishTask 标记一个已登记的业务任务退出。
 func (l *accountLifecycle) finishTask() {
 	l.taskWG.Done()
-}
-
-// wait 等待所有已登记业务任务结束；timeout 小于等于零表示无限等待。
-func (l *accountLifecycle) wait(timeout time.Duration) bool {
-	if timeout <= 0 {
-		return l.waitContext(context.Background())
-	}
-	// ctx、cancel 分别表示有限等待上下文和释放定时器的函数。
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	return l.waitContext(ctx)
 }
 
 // waitContext 等待已登记业务任务结束，并在 ctx 到期时及时返回。
