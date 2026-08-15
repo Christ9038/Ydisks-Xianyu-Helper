@@ -15,6 +15,42 @@ import (
 	"xianyu-go/internal/db"
 )
 
+// waitOrderRefreshJob 等待订单刷新后台任务完成并返回具名刷新结果。
+func waitOrderRefreshJob(t *testing.T, handler http.Handler, cookie *http.Cookie, jobID string) orderRefreshResponse {
+	t.Helper()
+	// deadline 保存测试任务允许的最长等待时间。
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		// req 保存当前任务状态查询请求。
+		req := httptest.NewRequest(http.MethodGet, "/api/orders/refresh/"+jobID, nil)
+		req.AddCookie(cookie)
+		// rec 保存当前任务状态响应。
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("refresh job status=%d body=%s", rec.Code, rec.Body.String())
+		}
+		// status 保存任务状态响应。
+		var status orderRefreshJobStatusResponse
+		// err 表示任务状态 JSON 解析错误。
+		if err := json.Unmarshal(rec.Body.Bytes(), &status); err != nil {
+			t.Fatalf("decode refresh job status: %v", err)
+		}
+		if status.Status == "succeeded" {
+			if status.Result == nil {
+				t.Fatalf("succeeded refresh job has no result: %+v", status)
+			}
+			return *status.Result
+		}
+		if status.Status == "failed" {
+			t.Fatalf("refresh job failed: %+v", status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("refresh job %s did not complete", jobID)
+	return orderRefreshResponse{}
+}
+
 // TestRefreshOrdersNoBrowser 浏览器未启用时仍应完成订单列表发现。
 func TestRefreshOrdersNoBrowser(t *testing.T) {
 	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
@@ -31,8 +67,19 @@ func TestRefreshOrdersNoBrowser(t *testing.T) {
 	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "订单列表同步完成") {
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("无浏览器仍应同步列表，got %d body=%s", rec.Code, rec.Body.String())
+	}
+	// start 保存后台任务创建响应。
+	var start orderRefreshJobStartResponse
+	// err 表示任务创建响应 JSON 解析错误。
+	if err := json.Unmarshal(rec.Body.Bytes(), &start); err != nil {
+		t.Fatal(err)
+	}
+	// result 保存完成后的订单刷新结果。
+	result := waitOrderRefreshJob(t, h, cookie, start.JobID)
+	if !strings.Contains(result.Message, "订单列表同步完成") {
+		t.Fatalf("refresh result=%+v", result)
 	}
 }
 
@@ -65,8 +112,19 @@ func TestRefreshOrdersDiscoversNewOrdersWithoutBrowser(t *testing.T) {
 	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"discovered":1`) {
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	// start 保存后台任务创建响应。
+	var start orderRefreshJobStartResponse
+	// err 表示任务创建响应 JSON 解析错误。
+	if err := json.Unmarshal(rec.Body.Bytes(), &start); err != nil {
+		t.Fatal(err)
+	}
+	// result 保存完成后的订单刷新结果。
+	result := waitOrderRefreshJob(t, h, cookie, start.JobID)
+	if result.Summary.Discovered != 1 {
+		t.Fatalf("refresh result=%+v", result)
 	}
 	// order、err 保存order、err，供当前处理流程使用
 	order, err := store.Orders.Get(context.Background(), "sold-new-1")
@@ -168,8 +226,19 @@ func TestRefreshOrdersSoftDeletesOrdersMissingFromSellerList(t *testing.T) {
 	// rec 保存rec，供当前处理流程使用
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"soft_deleted":1`) {
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	// start 保存后台任务创建响应。
+	var start orderRefreshJobStartResponse
+	// err 表示任务创建响应 JSON 解析错误。
+	if err := json.Unmarshal(rec.Body.Bytes(), &start); err != nil {
+		t.Fatal(err)
+	}
+	// result 保存完成后的订单刷新结果。
+	result := waitOrderRefreshJob(t, h, cookie, start.JobID)
+	if result.Summary.SoftDeleted != 1 {
+		t.Fatalf("refresh result=%+v", result)
 	}
 	// deletedAt 保存deletedAt，供当前处理流程使用
 	var deletedAt string

@@ -1561,6 +1561,30 @@ export interface OrderRefreshResponse {
   results: OrderRefreshResultResponse[];
 }
 
+/** 创建订单刷新后台任务的响应。 */
+export interface OrderRefreshJobStartResponse {
+  /** 任务是否创建成功。 */
+  success: boolean;
+  /** 后台任务标识。 */
+  job_id: string;
+  /** 任务当前状态。 */
+  status: 'queued' | 'running';
+}
+
+/** 查询订单刷新后台任务的响应。 */
+export interface OrderRefreshJobStatusResponse {
+  /** 查询是否成功。 */
+  success: boolean;
+  /** 后台任务标识。 */
+  job_id: string;
+  /** 任务当前状态。 */
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  /** 任务失败原因。 */
+  error_message?: string;
+  /** 任务成功后的订单刷新结果。 */
+  result?: OrderRefreshResponse;
+}
+
 // ItemListEnvelope 是商品列表接口的兼容分页响应。
 export interface ItemListEnvelope {
   /** items 是兼容分页响应中的商品列表。 */

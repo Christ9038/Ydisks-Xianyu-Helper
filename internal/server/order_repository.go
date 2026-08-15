@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"database/sql"
+	"errors"
 	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/db"
 )
@@ -234,9 +235,89 @@ func (r storeOrderRepository) ListOrdersByCookieCursor(ctx context.Context, cook
 	return orderRowsFromDB(rows), nil
 }
 
+// Create 创建订单刷新后台任务并同步应用层模型默认值。
+func (r storeOrderRepository) Create(ctx context.Context, job *orderapp.RefreshJob) error {
+	// dbJob 保存待写入的数据库任务模型。
+	dbJob := &db.OrderRefreshJob{
+		ID: job.ID, UserID: job.UserID, CookieID: job.CookieID, FilterStatus: job.FilterStatus,
+		Status: job.Status, ResultJSON: job.ResultJSON, ErrorMessage: job.ErrorMessage,
+		WorkerToken: job.WorkerToken, LeaseExpiresAt: job.LeaseExpiresAt,
+	}
+	// err 表示数据库任务创建错误。
+	if err := r.store.OrderRefreshJobs.Create(ctx, dbJob); err != nil {
+		return err
+	}
+	job.Status, job.ResultJSON = dbJob.Status, dbJob.ResultJSON
+	return nil
+}
+
+// Get 按用户读取订单刷新后台任务并转换为应用层模型。
+func (r storeOrderRepository) Get(ctx context.Context, userID int64, id string) (*orderapp.RefreshJob, error) {
+	// job、err 保存数据库任务读取结果及错误。
+	job, err := r.store.OrderRefreshJobs.Get(ctx, userID, id)
+	if errors.Is(err, db.ErrNotFound) {
+		return nil, orderapp.ErrRefreshJobNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return refreshJobFromDB(job), nil
+}
+
+// Claim 原子抢占订单刷新后台任务。
+func (r storeOrderRepository) Claim(ctx context.Context, id, token string, leaseExpiresAt int64) (bool, error) {
+	return r.store.OrderRefreshJobs.Claim(ctx, id, token, leaseExpiresAt)
+}
+
+// Complete 以租约令牌安全写入订单刷新后台任务终态。
+func (r storeOrderRepository) Complete(ctx context.Context, id, token, status, resultJSON, errorMessage string) (bool, error) {
+	return r.store.OrderRefreshJobs.Complete(ctx, id, token, status, resultJSON, errorMessage)
+}
+
+// Recoverable 查询租约过期的订单刷新后台任务。
+func (r storeOrderRepository) Recoverable(ctx context.Context, now int64, limit int) ([]orderapp.RefreshJob, error) {
+	// jobs、err 保存数据库层可恢复任务及查询错误。
+	jobs, err := r.store.OrderRefreshJobs.Recoverable(ctx, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	// converted 保存转换后的应用层任务列表。
+	converted := make([]orderapp.RefreshJob, 0, len(jobs))
+	for _, job := range jobs { // job 表示当前待转换的数据库任务。
+		converted = append(converted, *refreshJobFromDB(&job))
+	}
+	return converted, nil
+}
+
+// RequeueExpired 将过期订单刷新后台任务恢复为 queued。
+func (r storeOrderRepository) RequeueExpired(ctx context.Context, id string, now int64) (bool, error) {
+	return r.store.OrderRefreshJobs.RequeueExpired(ctx, id, now)
+}
+
+// refreshJobFromDB 将数据库任务模型转换为应用层任务模型。
+func refreshJobFromDB(job *db.OrderRefreshJob) *orderapp.RefreshJob {
+	if job == nil {
+		return nil
+	}
+	return &orderapp.RefreshJob{
+		ID: job.ID, UserID: job.UserID, CookieID: job.CookieID, FilterStatus: job.FilterStatus,
+		Status: job.Status, ResultJSON: job.ResultJSON, ErrorMessage: job.ErrorMessage,
+		WorkerToken: job.WorkerToken, LeaseExpiresAt: job.LeaseExpiresAt,
+		CreatedAt: job.CreatedAt, UpdatedAt: job.UpdatedAt,
+	}
+}
+
 // newStoreOrderRepository 从完整 Store 构造订单应用服务窄 repository。
 func newStoreOrderRepository(store *db.Store) orderapp.Repository {
 	if store == nil || store.Cookies == nil || store.Orders == nil || store.Items == nil {
+		return nil
+	}
+	return storeOrderRepository{store: store}
+}
+
+// newStoreOrderRefreshJobRepository 构造订单刷新任务持久化适配器。
+func newStoreOrderRefreshJobRepository(store *db.Store) orderapp.RefreshJobRepository {
+	if store == nil || store.OrderRefreshJobs == nil {
 		return nil
 	}
 	return storeOrderRepository{store: store}
@@ -246,3 +327,4 @@ func newStoreOrderRepository(store *db.Store) orderapp.Repository {
 var _ orderapp.Repository = storeOrderRepository{}
 var _ orderapp.UnitOfWork = storeOrderRepository{}
 var _ orderapp.Writer = storeOrderWriter{}
+var _ orderapp.RefreshJobRepository = storeOrderRepository{}

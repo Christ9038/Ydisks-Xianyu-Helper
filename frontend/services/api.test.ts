@@ -172,12 +172,38 @@ test('automation issue APIs expose and resolve quarantined work', async () => {
 } /* 回调函数负责当前业务流程。 */);
 
 test('order multipart requests use the shared authenticated form request path', async () => {
-	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
+	const fetchMock = vi.fn()
+		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-1', status: 'running' }))
+		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-1', status: 'succeeded', result: { partial_failure: false, message: '同步完成', summary: { discovered: 0, list_updated: 0, soft_deleted: 0, detail_total: 0, total: 0, updated: 0, no_change: 0, failed: 0 }, results: [] } }))
+		.mockResolvedValueOnce(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
 	vi.stubGlobal('fetch', fetchMock);
 	await syncOrders('acc1', 'pending_ship');
 	await importOrders(new FormData());
 	expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/orders/refresh', expect.objectContaining({ method: 'POST', credentials: 'include', body: expect.any(FormData) }));
-	expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/orders/import', expect.objectContaining({ method: 'POST', credentials: 'include', body: expect.any(FormData) }));
+	expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/orders/refresh/job-1', expect.objectContaining({ method: 'GET', credentials: 'include' }));
+	expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/orders/import', expect.objectContaining({ method: 'POST', credentials: 'include', body: expect.any(FormData) }));
+} /* 回调函数负责当前业务流程。 */);
+
+test('syncOrders surfaces failed persisted job status', async () => {
+	const fetchMock = vi.fn()
+		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-failed', status: 'running' }))
+		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-failed', status: 'failed', error_message: '平台会话已过期' })); /* fetchMock 表示fetchMock。 */
+	vi.stubGlobal('fetch', fetchMock);
+	await expect(syncOrders()).rejects.toThrow('平台会话已过期');
+} /* 回调函数负责当前业务流程。 */);
+
+test('syncOrders aborts while waiting for persisted job status', async () => {
+	const fetchMock = vi.fn()
+		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-running', status: 'running' }))
+		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-running', status: 'running' })); /* fetchMock 表示fetchMock。 */
+	vi.stubGlobal('fetch', fetchMock);
+	// controller 控制订单刷新轮询的取消信号。
+	const controller = new AbortController();
+	// pending 保存等待取消结果的订单刷新请求。
+	const pending = syncOrders(undefined, undefined, { signal: controller.signal });
+	await Promise.resolve();
+	controller.abort();
+	await expect(pending).rejects.toThrow('请求已取消');
 } /* 回调函数负责当前业务流程。 */);
 
 test('legacy notification channel aliases are normalized for the editor', async () => {

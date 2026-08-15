@@ -36,7 +36,7 @@ type orderDetailMTop interface {
 func (s *Server) mountOrdersReal(r chi.Router) {
 	r.Get("/api/orders", s.listOrders)
 	r.Get("/api/orders/{order_id}", s.getOrder)
-	r.Post("/api/orders/refresh", s.refreshOrders)
+	s.mountOrderRefreshJobRoutes(r, "/api")
 	r.Post("/api/orders/{order_id}/refresh", s.refreshSingleOrder)
 	r.Post("/api/orders/manual-ship", s.manualShipOrders)
 	r.Post("/api/orders/import", s.importOrders)
@@ -91,23 +91,6 @@ func (s *Server) getOrder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, orderDetailResponse{
 		orderDTO: result.Order, Success: true, Data: result.Order,
 	})
-}
-
-// refreshOrders 将 HTTP 请求转换为订单刷新应用服务调用并编码兼容响应。
-func (s *Server) refreshOrders(w http.ResponseWriter, r *http.Request) {
-	// sess 保存sess，供当前处理流程使用
-	sess := auth.SessionFromContext(r.Context())
-	// result、err 保存result、err，供当前处理流程使用
-	result, err := s.orders().Refresh(r.Context(), sess.UserID, r.FormValue("cookie_id"), r.FormValue("status"))
-	if errors.Is(err, db.ErrForbidden) {
-		writeErr(w, http.StatusForbidden, "Cookie不存在或无权访问")
-		return
-	}
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询账号失败")
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
 }
 
 // 订单发现阶段将远端订单索引与本地软删除状态保持一致。

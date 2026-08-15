@@ -17,7 +17,7 @@ type applicationServices struct {
 // newApplicationServices 为指定 Server 装配全部应用服务实例。
 func newApplicationServices(server *Server) *applicationServices {
 	return &applicationServices{
-		orders:        &orderApplicationService{server: newServerOrderRuntime(server), repository: newStoreOrderRepository(server.Store)},
+		orders:        &orderApplicationService{server: newServerOrderRuntime(server), repository: newStoreOrderRepository(server.Store), refreshJobs: newStoreOrderRefreshJobRepository(server.Store)},
 		itemPublish:   &itemPublishService{server: server, repository: newStoreItemPublishRepository(server.Store)},
 		accountLogin:  &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store)},
 		communication: &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},

@@ -4,7 +4,7 @@ import {
   AdminStats, DashboardStats, Card, SystemSettings, OrderAnalytics,
   Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
   NotificationChannel, NotificationEventType, AccountTaskSettings, ChatSession, ChatMessage, ItemListEnvelope, AutomationIssuesEnvelope,
-  CookieSettingsResponse, CookieProfileResponse, ItemDetailResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, OrderRefreshResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope, AdminStatsResponse, DashboardStatsResponse, OrderAnalyticsResponse, QRLoginGenerateResponse, QRLoginStatusResponse, QRLoginVerificationResponse, ValidOrderResponse, ValidOrdersResponse
+  CookieSettingsResponse, CookieProfileResponse, ItemDetailResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, OrderRefreshResponse, OrderRefreshJobStartResponse, OrderRefreshJobStatusResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope, AdminStatsResponse, DashboardStatsResponse, OrderAnalyticsResponse, QRLoginGenerateResponse, QRLoginStatusResponse, QRLoginVerificationResponse, ValidOrderResponse, ValidOrdersResponse
 } from '../types';
 import { formatLocalDate } from '../dateRange';
 
@@ -423,13 +423,47 @@ export const deleteOrder = async (orderId: string): Promise<OperationResponse> =
 };
 
 // syncOrders 同步订单。
-export const syncOrders = async (cookieId?: string, status?: string): Promise<OrderRefreshResponse> => {
+export const syncOrders = async (cookieId?: string, status?: string, options?: RequestControlOptions): Promise<OrderRefreshResponse> => {
   // formData 表单数据，用于当前 API 处理流程。
   const formData = new FormData();
   if (cookieId) formData.append('cookie_id', cookieId);
   if (status) formData.append('status', status);
 
-	return postForm('/api/v1/orders/refresh', formData);
+	// start 表示后台订单刷新任务创建响应。
+	const start = await postForm<OrderRefreshJobStartResponse>('/api/v1/orders/refresh', formData, options);
+	// pollLimit 限制前端等待后台任务的轮询次数。
+	const pollLimit = 180;
+	// pollIndex 表示当前订单刷新任务状态轮询次数。
+	let pollIndex = 0;
+	while (pollIndex < pollLimit) {
+		// job 表示当前轮询得到的后台任务状态。
+		const job = await get<OrderRefreshJobStatusResponse>(`/api/v1/orders/refresh/${start.job_id}`, undefined, options);
+		if (job.status === 'succeeded' && job.result) {
+			return job.result;
+		}
+		if (job.status === 'failed' || job.status === 'cancelled') {
+			throw new Error(job.error_message || '订单刷新任务失败');
+		}
+		// waitMs 是下一次任务状态轮询前的等待时间。
+		const waitMs = 500;
+		await new Promise<void>(/* 轮询等待器负责等待下一次任务状态查询。 */ (resolve, reject) => {
+			// abort 负责响应调用方取消轮询。
+			const abort = () => {
+				globalThis.clearTimeout(timer);
+				reject(new Error('请求已取消'));
+			};
+			// timer 表示当前轮询等待定时器。
+			const timer = globalThis.setTimeout(/* 轮询完成回调清理取消监听并结束等待。 */ () => {
+				options?.signal?.removeEventListener('abort', abort);
+				resolve();
+			}, waitMs);
+			if (!options?.signal) return;
+			if (options.signal.aborted) abort();
+			else options.signal.addEventListener('abort', abort, { once: true });
+		});
+		pollIndex += 1;
+	}
+	throw new Error('订单刷新任务等待超时');
 };
 
 // syncSingleOrder 同步单个订单。

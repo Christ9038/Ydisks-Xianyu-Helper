@@ -124,15 +124,17 @@ func TestVersionedOrderRefreshAndBatchRoutesPreserveLegacyContracts(t *testing.T
 	// refreshRecorder 是捕获版本化刷新响应的记录器。
 	refreshRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(refreshRecorder, refreshReq)
-	if refreshRecorder.Code != http.StatusOK {
+	if refreshRecorder.Code != http.StatusAccepted {
 		t.Fatalf("versioned order refresh status=%d body=%s", refreshRecorder.Code, refreshRecorder.Body.String())
 	}
-	// refreshValue 是版本化刷新响应 DTO。
-	var refreshValue orderRefreshResponse
-	// refreshDecodeErr 是刷新响应反序列化失败的原因。
-	if refreshDecodeErr := json.Unmarshal(refreshRecorder.Body.Bytes(), &refreshValue); refreshDecodeErr != nil {
+	// refreshStart 是版本化刷新任务创建响应 DTO。
+	var refreshStart orderRefreshJobStartResponse
+	// refreshDecodeErr 是刷新任务创建响应反序列化失败的原因。
+	if refreshDecodeErr := json.Unmarshal(refreshRecorder.Body.Bytes(), &refreshStart); refreshDecodeErr != nil {
 		t.Fatalf("decode versioned order refresh: %v", refreshDecodeErr)
 	}
+	// refreshValue 是版本化刷新任务完成后的具名结果。
+	refreshValue := waitOrderRefreshJob(t, handler, sessionCookie, refreshStart.JobID)
 	if refreshValue.Message == "" {
 		t.Fatalf("versioned order refresh should preserve a named success response: %+v", refreshValue)
 	}
@@ -143,9 +145,16 @@ func TestVersionedOrderRefreshAndBatchRoutesPreserveLegacyContracts(t *testing.T
 	// legacyRefreshRecorder 是捕获旧刷新响应的记录器。
 	legacyRefreshRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(legacyRefreshRecorder, legacyRefreshReq)
-	if legacyRefreshRecorder.Code != http.StatusOK {
+	if legacyRefreshRecorder.Code != http.StatusAccepted {
 		t.Fatalf("legacy order refresh status=%d body=%s", legacyRefreshRecorder.Code, legacyRefreshRecorder.Body.String())
 	}
+	// legacyRefreshStart 是旧路径刷新任务创建响应 DTO。
+	var legacyRefreshStart orderRefreshJobStartResponse
+	// err 表示旧路径任务创建响应解析错误。
+	if err := json.Unmarshal(legacyRefreshRecorder.Body.Bytes(), &legacyRefreshStart); err != nil {
+		t.Fatalf("decode legacy order refresh: %v", err)
+	}
+	waitOrderRefreshJob(t, handler, sessionCookie, legacyRefreshStart.JobID)
 
 	// singleInsertErr 是单订单刷新夹具写入失败的原因。
 	_, singleInsertErr := store.DB.ExecContext(ctx, `INSERT INTO orders (order_id, item_id, buyer_id, order_status, cookie_id) VALUES ('order-single-v1','item-v1','buyer-v1','pending_ship','acc1')`)

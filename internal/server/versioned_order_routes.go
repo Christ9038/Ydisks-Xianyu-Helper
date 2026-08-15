@@ -15,7 +15,7 @@ func (s *Server) mountVersionedOrders(r chi.Router) {
 		r.Get("/api/v1/orders/{order_id}", s.getOrder)
 		r.Put("/api/v1/orders/{order_id}", s.updateOrder)
 		r.Delete("/api/v1/orders/{order_id}", s.deleteOrder)
-		r.Post("/api/v1/orders/refresh", s.refreshOrders)
+		s.mountOrderRefreshJobRoutes(r, "/api/v1")
 		r.Post("/api/v1/orders/manual-ship", s.manualShipOrders)
 		r.Post("/api/v1/orders/import", s.importOrders)
 		r.Post("/api/v1/orders/{order_id}/refresh", s.refreshSingleOrder)

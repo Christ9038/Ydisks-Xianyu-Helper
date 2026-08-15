@@ -146,6 +146,8 @@ type orderApplicationService struct {
 	server orderRuntimePort
 	// repository 提供订单用例所需的应用层持久化与凭证锁 Port。
 	repository orderapp.Repository
+	// refreshJobs 提供订单刷新后台任务的持久化 Port。
+	refreshJobs orderapp.RefreshJobRepository
 }
 
 // orderRefreshWrite 保存已从平台成功获取、等待同一事务批量写入的订单详情。
