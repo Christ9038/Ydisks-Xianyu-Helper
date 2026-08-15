@@ -116,5 +116,34 @@ describe('useCardsData 与 useCardBatchActions', /* 当前回调处理卡密库�
     );
     expect(batchHook.result.current.appendError).toBe('追加失败');
     expect(batchHook.result.current.batchBusy).toBe(false);
+
+    batchCreateMock.mockRejectedValueOnce(new Error('创建失败'));
+    await act(
+      // fileAction 写入批量创建失败测试文件。
+      () => batchHook.result.current.setBatchFile(new File(['name'], 'cards.csv')),
+    );
+    await act(
+      // createErrorAction 提交失败的批量创建请求。
+      async () => batchHook.result.current.handleBatchCreate(),
+    );
+    expect(batchHook.result.current.batchResult).toEqual({ error: '创建失败' });
+
+    appendCardMock.mockResolvedValueOnce({ success: true, added: 1 });
+    await act(
+      // appendRetryAction 重试当前卡密追加。
+      async () => batchHook.result.current.handleRetryBatchAppend(),
+    );
+    expect(appendCardMock).toHaveBeenCalledTimes(2);
+
+    await act(
+      // targetSwitchAction 切换追加目标以阻止旧目标重试。
+      () => batchHook.result.current.setAppendTargetId('2'),
+    );
+    await act(
+      // staleRetryAction 验证切换目标后不再提交旧目标请求。
+      async () => batchHook.result.current.handleRetryBatchAppend(),
+    );
+    expect(appendCardMock).toHaveBeenCalledTimes(2);
+    batchHook.unmount();
   });
 });
