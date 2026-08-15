@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -13,12 +14,126 @@ import (
 	"xianyu-go/internal/xianyu/mtop"
 )
 
+// orderRuntimePort 定义订单用例访问运行时平台、自动化和通知能力的最小 Port。
+// 该接口隔离 Server 聚合对象，避免订单应用服务持有 *Server。
+type orderRuntimePort interface {
+	// AccountRunning 判断账号运行时是否在线。
+	AccountRunning(cookieID string) bool
+	// AutomationReady 判断完整发货自动化依赖是否已装配。
+	AutomationReady() bool
+	// ManualFullDelivery 执行完整自动化发货。
+	ManualFullDelivery(ctx context.Context, order *db.Order) (int, error)
+	// MTopAvailable 判断平台客户端是否已注入。
+	MTopAvailable() bool
+	// MTopClient 返回平台客户端。
+	mtopClient() mtop.Client
+	// consignWithCurrentCookie 使用当前账号凭证确认发货。
+	consignWithCurrentCookie(ctx context.Context, cookieID, orderID string, userID int64) (bool, []string, string, bool, error)
+	// updateRunningCookie 同步运行时账号 Cookie。
+	updateRunningCookie(ctx context.Context, cookieID, value string)
+	// notifyDelivery 发送发货结果通知。
+	notifyDelivery(cookieID, buyerID, itemID, chatID, message string)
+	// persistMTopCookieSessionLocked 持久化平台响应 Cookie Jar。
+	persistMTopCookieSessionLocked(ctx context.Context, detail *db.CookieDetail, session *mtop.CookieSession) (string, bool, bool, error)
+	// recoverExpiredMTOPSession 处理平台会话过期。
+	recoverExpiredMTOPSession(ctx context.Context, cookieID string, err error) bool
+	// discoverSoldOrders 拉取并同步账号已售订单索引。
+	discoverSoldOrders(ctx context.Context, fetcher mtop.SoldOrderFetcher, cookieID, cookies string) (int, int, map[string]struct{}, map[string]struct{}, error)
+	// logger 返回订单服务可选日志器。
+	logger() *slog.Logger
+}
+
+// serverOrderRuntimeAdapter 将 Server 的运行时能力适配为订单应用 Port。
+// 适配器只存在于装配边界，订单应用服务本身不再依赖 *Server。
+type serverOrderRuntimeAdapter struct {
+	// server 保存需要被适配的 Server 聚合对象。
+	server *Server
+}
+
+// newServerOrderRuntime 创建订单运行时 Port 的 Server 适配器。
+func newServerOrderRuntime(server *Server) orderRuntimePort {
+	return serverOrderRuntimeAdapter{server: server}
+}
+
+// AccountRunning 判断指定账号是否在线运行。
+func (a serverOrderRuntimeAdapter) AccountRunning(cookieID string) bool {
+	if a.server == nil || a.server.Manager == nil {
+		return false
+	}
+	// running 表示账号是否已有运行中的实例。
+	_, running := a.server.Manager.GetInstance(cookieID)
+	return running
+}
+
+// AutomationReady 判断完整发货自动化依赖是否已装配。
+func (a serverOrderRuntimeAdapter) AutomationReady() bool {
+	return a.server != nil && a.server.Manager != nil && a.server.automation != nil
+}
+
+// ManualFullDelivery 执行完整自动化发货。
+func (a serverOrderRuntimeAdapter) ManualFullDelivery(ctx context.Context, order *db.Order) (int, error) {
+	if a.server == nil || a.server.automation == nil {
+		return 0, errors.New("自动化中心未初始化")
+	}
+	return a.server.automation.ManualFullDelivery(ctx, order)
+}
+
+// MTopAvailable 判断平台客户端是否已注入。
+func (a serverOrderRuntimeAdapter) MTopAvailable() bool {
+	return a.server != nil && a.server.MTop != nil
+}
+
+// mtopClient 返回订单流程使用的平台客户端。
+func (a serverOrderRuntimeAdapter) mtopClient() mtop.Client {
+	if a.server == nil {
+		return nil
+	}
+	return a.server.mtopClient()
+}
+
+// consignWithCurrentCookie 使用当前账号凭证确认发货。
+func (a serverOrderRuntimeAdapter) consignWithCurrentCookie(ctx context.Context, cookieID, orderID string, userID int64) (bool, []string, string, bool, error) {
+	return a.server.consignWithCurrentCookie(ctx, cookieID, orderID, userID)
+}
+
+// updateRunningCookie 同步运行时账号 Cookie。
+func (a serverOrderRuntimeAdapter) updateRunningCookie(ctx context.Context, cookieID, value string) {
+	a.server.updateRunningCookie(ctx, cookieID, value)
+}
+
+// notifyDelivery 发送发货结果通知。
+func (a serverOrderRuntimeAdapter) notifyDelivery(cookieID, buyerID, itemID, chatID, message string) {
+	a.server.notifyDelivery(cookieID, buyerID, itemID, chatID, message)
+}
+
+// persistMTopCookieSessionLocked 持久化平台响应 Cookie Jar。
+func (a serverOrderRuntimeAdapter) persistMTopCookieSessionLocked(ctx context.Context, detail *db.CookieDetail, session *mtop.CookieSession) (string, bool, bool, error) {
+	return a.server.persistMTopCookieSessionLocked(ctx, detail, session)
+}
+
+// recoverExpiredMTOPSession 处理平台会话过期。
+func (a serverOrderRuntimeAdapter) recoverExpiredMTOPSession(ctx context.Context, cookieID string, err error) bool {
+	return a.server.recoverExpiredMTOPSession(ctx, cookieID, err)
+}
+
+// discoverSoldOrders 拉取并同步账号已售订单索引。
+func (a serverOrderRuntimeAdapter) discoverSoldOrders(ctx context.Context, fetcher mtop.SoldOrderFetcher, cookieID, cookies string) (int, int, map[string]struct{}, map[string]struct{}, error) {
+	return a.server.discoverSoldOrders(ctx, fetcher, cookieID, cookies)
+}
+
+// logger 返回订单服务使用的可选日志器。
+func (a serverOrderRuntimeAdapter) logger() *slog.Logger {
+	if a.server == nil {
+		return nil
+	}
+	return a.server.Logger
+}
+
 // orderApplicationService 承载订单用例的业务编排，不依赖 HTTP 请求或响应对象。
 // HTTP handler 只负责把请求转换为这些类型，再把结果编码为兼容 DTO。
-// orderApplicationService 保存订单ApplicationService，供当前处理流程使用
 type orderApplicationService struct {
-	// server 提供订单服务访问数据库、平台客户端和运行时依赖。
-	server *Server
+	// server 是订单运行时 Port，名称保留以降低本次迁移的调用面。
+	server orderRuntimePort
 	// repository 提供订单用例所需的最小持久化与凭证锁能力。
 	repository orderRepository
 }
@@ -532,17 +647,17 @@ func (a *orderApplicationService) appendManualFailure(result *manualShipResult, 
 
 // manualFullDelivery 执行完整自动化发货分支。
 func (a *orderApplicationService) manualFullDelivery(ctx context.Context, order *orderapp.Order, orderID string, result *manualShipResult) {
-	if a.server.Manager == nil || a.server.automation == nil {
+	if !a.server.AutomationReady() {
 		a.appendManualFailure(result, orderID, "自动化中心未初始化")
 		return
 	}
 	if // running 保存running，供当前处理流程使用
-	_, running := a.server.Manager.GetInstance(order.CookieID); !running {
+	!a.server.AccountRunning(order.CookieID) {
 		a.appendManualFailure(result, orderID, "该账号未在线运行，无法执行完整发货")
 		return
 	}
 	// sent、err 保存sent、err，供当前处理流程使用
-	sent, err := a.server.automation.ManualFullDelivery(ctx, orderForAutomation(order))
+	sent, err := a.server.ManualFullDelivery(ctx, orderForAutomation(order))
 	if err != nil {
 		a.appendManualFailure(result, orderID, err.Error())
 		a.server.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID, "手动完整发货失败: "+err.Error())
@@ -555,7 +670,7 @@ func (a *orderApplicationService) manualFullDelivery(ctx context.Context, order 
 
 // manualStatusShip 调用平台确认发货并把成功状态写入本地订单。
 func (a *orderApplicationService) manualStatusShip(ctx context.Context, userID int64, order *orderapp.Order, orderID string, result *manualShipResult) {
-	if a.server.MTop == nil {
+	if !a.server.MTopAvailable() {
 		a.appendManualFailure(result, orderID, "mtop 客户端未初始化")
 		return
 	}
@@ -588,8 +703,8 @@ func (a *orderApplicationService) manualStatusShip(ctx context.Context, userID i
 		ReceiverAddress: order.ReceiverAddress, ReceiverCity: order.ReceiverCity, ChatID: order.ChatID,
 		SpecName: order.SpecName, SpecValue: order.SpecValue, Quantity: order.Quantity, Amount: order.Amount,
 	})
-	if upsertErr != nil && a.server.Logger != nil {
-		a.server.Logger.Error("更新订单为系统已发货失败", "order_id", orderID, "err", upsertErr)
+	if upsertErr != nil && a.server.logger() != nil {
+		a.server.logger().Error("更新订单为系统已发货失败", "order_id", orderID, "err", upsertErr)
 	}
 	result.SuccessCount++
 	// message 保存消息，供当前处理流程使用
