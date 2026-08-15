@@ -133,6 +133,34 @@ describe('useAccountSubmodules', /* 当前回调处理账号编辑、AI、通知
       async () => hook.result.current.handleRestartPause(),
     );
     expect(pauseMock).toHaveBeenCalledWith('account-1', 60);
+
+    setLongLoginMock.mockRejectedValueOnce(new Error('长登录保存失败'));
+    await act(
+      // longLoginErrorAction 验证长期登录保存失败提示。
+      async () => hook.result.current.handleLongLoginToggle(),
+    );
+    expect(hook.result.current.longLogin.error).toBe('长登录保存失败');
+
+    updateAIMock.mockRejectedValueOnce(new Error('AI保存失败'));
+    await act(
+      // aiSaveErrorAction 验证 AI 设置保存失败后的状态清理。
+      async () => hook.result.current.handleSaveAISettings(),
+    );
+    expect(hook.result.current.saving).toBe(false);
+
+    updateAccountMock.mockRejectedValueOnce(new Error('账号保存失败'));
+    await act(
+      // editSaveErrorAction 验证账号编辑保存失败后的状态清理。
+      async () => hook.result.current.handleSaveEdit(),
+    );
+    expect(hook.result.current.saving).toBe(false);
+
+    pauseMock.mockRejectedValueOnce(new Error('暂停失败'));
+    await act(
+      // pauseErrorAction 验证重新暂停失败后的状态清理。
+      async () => hook.result.current.handleRestartPause(),
+    );
+    expect(hook.result.current.saving).toBe(false);
     hook.unmount();
   });
 
@@ -164,6 +192,40 @@ describe('useAccountSubmodules', /* 当前回调处理账号编辑、AI、通知
     );
     expect(cancelPasswordMock).toHaveBeenCalledWith('session-1');
     expect(hook.result.current.passwordLoginView.status).toBe('idle');
+    hook.unmount();
+  });
+
+  test('密码登录启动失败和状态查询失败时展示错误', /* 当前回调验证密码登录的异常状态转换。 */ async () => {
+    // setEditingAccount 是密码登录异常测试的账号状态替身。
+    const setEditingAccount = vi.fn();
+    // setActiveModal 是密码登录异常测试的弹窗状态替身。
+    const setActiveModal = vi.fn() as unknown as Dispatch<SetStateAction<AccountModalType>>;
+    // setEditForm 是密码登录异常测试的表单状态替身。
+    const setEditForm = vi.fn();
+    // loadAccounts 是密码登录异常测试的列表刷新替身。
+    const loadAccounts = vi.fn().mockResolvedValue(undefined);
+    // hook 是密码登录异常场景的 Hook 渲染结果。
+    const hook = renderHook(
+      // passwordErrorHookFactory 创建密码登录异常场景的子模块 Hook。
+      () => useAccountSubmodules({ editingAccount: accountFixture, setEditingAccount, setActiveModal, editForm: editFormFixture, setEditForm, loadAccounts }),
+    );
+
+    passwordLoginMock.mockResolvedValueOnce({ success: false, message: '账号密码错误' });
+    await act(
+      // startErrorAction 验证密码登录启动失败状态。
+      async () => hook.result.current.handlePasswordLogin(),
+    );
+    expect(hook.result.current.passwordLoginView.status).toBe('failed');
+    expect(hook.result.current.passwordLoginView.message).toBe('账号密码错误');
+
+    passwordLoginMock.mockResolvedValueOnce({ success: true, session_id: 'session-2', status: 'processing', message: '处理中' });
+    passwordStatusMock.mockRejectedValueOnce(new Error('状态查询失败'));
+    await act(
+      // statusErrorAction 验证密码登录状态查询失败转换。
+      async () => hook.result.current.handlePasswordLogin(),
+    );
+    expect(hook.result.current.passwordLoginView.status).toBe('failed');
+    expect(hook.result.current.passwordLoginView.message).toBe('状态查询失败');
     hook.unmount();
   });
 
