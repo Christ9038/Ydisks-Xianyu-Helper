@@ -892,7 +892,7 @@ func TestOrderResponseMappingAndErrorClassification(t *testing.T) {
 	// row 保存row，供当前处理流程使用
 	row := db.OrderRow{OrderID: "mapped-order", ItemID: "mapped-item", ItemTitle: "测试商品", ItemDetail: `{"pic_info":{"picUrl":"https://img.example/mapped.png"}}`, OrderStatus: "2"}
 	// view 保存view，供当前处理流程使用
-	view := orderDTOFromRow(row)
+	view := orderDTOFromRow(orderRowsFromDB([]db.OrderRow{row})[0])
 	if view.OrderStatus != "pending_ship" || view.Status != "pending_ship" || view.ItemImage != "https://img.example/mapped.png" {
 		t.Fatalf("订单响应映射异常: %+v", view)
 	}

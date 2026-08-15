@@ -1,4 +1,4 @@
-// architecturecheck 检查 Go 低层包依赖方向和 Server 裸事务入口。
+// architecturecheck 检查 Go 依赖方向、应用 Port 边界和 Server 裸事务入口。
 package main
 
 import (
@@ -100,16 +100,35 @@ func checkGoFile(root, relativePath string, fset *token.FileSet) ([]violation, e
 		if err != nil {
 			return nil, err
 		}
-		if !isForbiddenLowLevelImport(importPath, importedPath) {
-			continue
+		// normalizedImport 是去除模块前缀后的内部导入路径。
+		normalizedImport := normalizeImportPath(importedPath)
+		if isForbiddenLowLevelImport(importPath, normalizedImport) {
+			// line 是低层包反向依赖所在的源码行号。
+			line := fset.Position(imp.Pos()).Line
+			violations = append(violations, violation{
+				file:    filepath.ToSlash(relativePath),
+				line:    line,
+				message: fmt.Sprintf("低层包禁止依赖上层应用包 %q", importedPath),
+			})
 		}
-		// line 是导入声明所在的源码行号。
-		line := fset.Position(imp.Pos()).Line
-		violations = append(violations, violation{
-			file:    filepath.ToSlash(relativePath),
-			line:    line,
-			message: fmt.Sprintf("低层包禁止依赖上层应用包 %q", importedPath),
-		})
+		if isForbiddenApplicationImport(importPath, normalizedImport) {
+			// line 是应用层导入基础设施所在的源码行号。
+			line := fset.Position(imp.Pos()).Line
+			violations = append(violations, violation{
+				file:    filepath.ToSlash(relativePath),
+				line:    line,
+				message: fmt.Sprintf("应用层禁止依赖基础设施或 HTTP 层 %q", importedPath),
+			})
+		}
+		if isForbiddenServerLowLevelImport(importPath, normalizedImport) {
+			// line 是 Server 新增低层依赖所在的源码行号。
+			line := fset.Position(imp.Pos()).Line
+			violations = append(violations, violation{
+				file:    filepath.ToSlash(relativePath),
+				line:    line,
+				message: fmt.Sprintf("Server 新增低层依赖必须先迁移到应用 Port 或登记临时白名单 %q", importedPath),
+			})
+		}
 	}
 	if strings.HasPrefix(filepath.ToSlash(relativePath), "internal/server/") && !strings.HasSuffix(relativePath, "_repository.go") {
 		// sourceLine 是裸 BeginTx 调用首次出现的源码行号。
@@ -123,6 +142,80 @@ func checkGoFile(root, relativePath string, fset *token.FileSet) ([]violation, e
 		}
 	}
 	return violations, nil
+}
+
+// normalizeImportPath 去除当前模块前缀，统一架构规则使用的内部包路径。
+func normalizeImportPath(importedPath string) string {
+	return strings.TrimPrefix(importedPath, "xianyu-go/")
+}
+
+// isForbiddenApplicationImport 判断应用层是否依赖了基础设施或 HTTP 层。
+func isForbiddenApplicationImport(filePath, importedPath string) bool {
+	if !strings.HasPrefix(filePath, "internal/application/") {
+		return false
+	}
+	for _, forbidden /* forbidden 是应用层禁止依赖的包前缀。 */ := range []string{
+		"internal/db", "internal/server", "internal/xianyu", "internal/browser",
+		"database/sql", "net/http", "github.com/go-chi/chi",
+	} {
+		if importedPath == forbidden || strings.HasPrefix(importedPath, forbidden+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// isForbiddenServerLowLevelImport 判断 Server 是否新增了未登记的基础设施依赖。
+func isForbiddenServerLowLevelImport(filePath, importedPath string) bool {
+	if !strings.HasPrefix(filePath, "internal/server/") || strings.HasSuffix(filePath, "_test.go") {
+		return false
+	}
+	if importedPath != "internal/db" && !strings.HasPrefix(importedPath, "internal/db/") &&
+		importedPath != "internal/xianyu" && !strings.HasPrefix(importedPath, "internal/xianyu/") &&
+		importedPath != "internal/browser" && !strings.HasPrefix(importedPath, "internal/browser/") {
+		return false
+	}
+	return !temporaryServerLowLevelAllowlist[filePath]
+}
+
+// temporaryServerLowLevelAllowlist 是审计重开前已存在的 Server 低层依赖临时白名单。
+// 每迁移一个业务域，必须删除对应文件条目；新文件不得加入白名单代替迁移。
+var temporaryServerLowLevelAllowlist = map[string]bool{
+	"internal/server/account_login_repository.go":    true,
+	"internal/server/account_login_service.go":       true,
+	"internal/server/account_task_handlers.go":       true,
+	"internal/server/analytics_handlers.go":          true,
+	"internal/server/analytics_repository.go":        true,
+	"internal/server/analytics_service.go":           true,
+	"internal/server/api_contract.go":                true,
+	"internal/server/auth_handlers.go":               true,
+	"internal/server/automation_handlers.go":         true,
+	"internal/server/card_batch_handlers.go":         true,
+	"internal/server/card_handlers.go":               true,
+	"internal/server/chat_handlers.go":               true,
+	"internal/server/communication_repository.go":    true,
+	"internal/server/communication_service.go":       true,
+	"internal/server/cookie_handlers.go":             true,
+	"internal/server/default_reply_handlers.go":      true,
+	"internal/server/item_handlers.go":               true,
+	"internal/server/item_publish_batch_handlers.go": true,
+	"internal/server/item_publish_images.go":         true,
+	"internal/server/item_publish_repository.go":     true,
+	"internal/server/item_publish_service.go":        true,
+	"internal/server/keyword_handlers.go":            true,
+	"internal/server/login_audit.go":                 true,
+	"internal/server/mtop_cookie_session.go":         true,
+	"internal/server/notification_handlers.go":       true,
+	"internal/server/order_handlers.go":              true,
+	"internal/server/order_repository.go":            true,
+	"internal/server/order_service.go":               true,
+	"internal/server/ownership_helpers.go":           true,
+	"internal/server/platform_runtime.go":            true,
+	"internal/server/server.go":                      true,
+	"internal/server/settings_handlers.go":           true,
+	"internal/server/success_contract.go":            true,
+	"internal/server/transaction_repository.go":      true,
+	"internal/server/qrlogin_handlers.go":            true,
 }
 
 // isForbiddenLowLevelImport 判断低层包是否依赖了上层应用包。

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
@@ -109,7 +110,7 @@ type orderListResult struct {
 }
 
 // orderDTOFromRow 把数据库订单列表行转换为稳定的订单响应视图。
-func orderDTOFromRow(row db.OrderRow) orderDTO {
+func orderDTOFromRow(row orderapp.OrderRow) orderDTO {
 	// status 保存状态，供当前处理流程使用
 	status := db.NormalizeOrderStatus(row.OrderStatus)
 	return orderDTO{
@@ -168,7 +169,7 @@ func (a *orderApplicationService) List(ctx context.Context, query orderListQuery
 	// offset 保存偏移量，供当前处理流程使用
 	offset := (query.Page - 1) * query.PageSize
 	// rows、total、err 保存rows、total、err，供当前处理流程使用
-	rows, total, err := a.repository.ListOrdersForUser(ctx, db.OrderListFilter{
+	rows, total, err := a.repository.ListOrdersForUser(ctx, orderapp.ListFilter{
 		UserID: query.UserID, CookieID: query.CookieID, Status: query.Status,
 		Search: query.Search, Limit: query.PageSize, Offset: offset,
 	})

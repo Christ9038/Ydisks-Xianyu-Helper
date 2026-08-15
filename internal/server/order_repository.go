@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 
+	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/db"
 )
 
@@ -14,7 +15,7 @@ type orderRepository interface {
 	// ListOwnedIDs 返回用户拥有的账号 ID。
 	ListOwnedIDs(ctx context.Context, userID int64) ([]string, error)
 	// ListOrdersForUser 查询用户范围内的订单列表。
-	ListOrdersForUser(ctx context.Context, filter db.OrderListFilter) ([]db.OrderRow, int, error)
+	ListOrdersForUser(ctx context.Context, filter orderapp.ListFilter) ([]orderapp.OrderRow, int, error)
 	// GetOrder 查询单个订单。
 	GetOrder(ctx context.Context, orderID string) (*db.Order, error)
 	// GetItem 查询账号下的商品信息。
@@ -60,8 +61,34 @@ func (r storeOrderRepository) ListOwnedIDs(ctx context.Context, userID int64) ([
 }
 
 // ListOrdersForUser 委托用户订单列表查询。
-func (r storeOrderRepository) ListOrdersForUser(ctx context.Context, filter db.OrderListFilter) ([]db.OrderRow, int, error) {
-	return r.store.Orders.ListForUser(ctx, filter)
+func (r storeOrderRepository) ListOrdersForUser(ctx context.Context, filter orderapp.ListFilter) ([]orderapp.OrderRow, int, error) {
+	// rows、total、err 是数据库订单列表查询结果及其错误。
+	rows, total, err := r.store.Orders.ListForUser(ctx, db.OrderListFilter{
+		UserID: filter.UserID, CookieID: filter.CookieID, Status: filter.Status,
+		Search: filter.Search, Limit: filter.Limit, Offset: filter.Offset,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return orderRowsFromDB(rows), total, nil
+}
+
+// orderRowsFromDB 将数据库列表模型转换为订单应用层模型。
+func orderRowsFromDB(rows []db.OrderRow) []orderapp.OrderRow {
+	// converted 保存转换后的应用层订单行。
+	converted := make([]orderapp.OrderRow, 0, len(rows))
+	for _, row := range rows { // row 是待转换的数据库订单列表行。
+		converted = append(converted, orderapp.OrderRow{
+			OrderID: row.OrderID, ItemID: row.ItemID, ItemTitle: row.ItemTitle,
+			ItemDetail: row.ItemDetail, BuyerID: row.BuyerID, SpecName: row.SpecName,
+			SpecValue: row.SpecValue, Quantity: row.Quantity, Amount: row.Amount,
+			OrderStatus: row.OrderStatus, CookieID: row.CookieID, IsBargain: row.IsBargain,
+			SystemShipped: row.SystemShipped, ReceiverName: row.ReceiverName,
+			ReceiverPhone: row.ReceiverPhone, ReceiverAddr: row.ReceiverAddr,
+			ReceiverCity: row.ReceiverCity, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		})
+	}
+	return converted
 }
 
 // GetOrder 委托订单详情查询。
