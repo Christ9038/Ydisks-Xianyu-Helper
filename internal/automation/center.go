@@ -447,8 +447,11 @@ func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, 
 		// rawTask 保存原始任务，供当前处理流程使用
 		rawTask := task
 		rawTask.CookieStr = ""
-		// rawJSON 保存原始JSON，供当前处理流程使用
-		rawJSON, _ := json.Marshal(rawTask)
+		// rawJSON 保存原始JSON，供恢复运行读取；marshalErr 表示快照序列化失败，失败时不能继续执行不可逆动作。
+		rawJSON, marshalErr := json.Marshal(rawTask)
+		if marshalErr != nil {
+			return 0, fmt.Errorf("保存完整发货运行快照: %w", marshalErr)
+		}
 		// runID、started、startErr 保存运行ID、started、startErr，供当前处理流程使用
 		runID, started, startErr := c.store.Automation.TryStartRun(ctx, db.AutomationRun{
 			RuleID:         rule.ID,
@@ -491,10 +494,22 @@ func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, 
 		finishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		// finishErr 保存finishErr，供当前处理流程使用
 		finishErr := c.store.Automation.FinishRun(finishCtx, runID, run.AttemptCount, status, sent, errMsg)
-		cancel()
 		if finishErr != nil {
-			return sent, fmt.Errorf("保存完整发货执行结果: %w", finishErr)
+			// reason 说明外部动作已经可能执行，但运行结果未能收口，必须禁止自动重放并转人工核对。
+			reason := "完整发货外部动作可能已执行，但运行结果保存失败，已停止自动重放，请人工核对: " + finishErr.Error()
+			// quarantineErr 保存把手动运行转为人工核对状态时的错误。
+			quarantineErr := c.store.Automation.QuarantineRunResult(finishCtx, runID, run.AttemptCount, sent, reason)
+			cancel()
+			if quarantineErr != nil {
+				return sent, errors.Join(
+					errAutomationNeedsReview,
+					fmt.Errorf("保存完整发货执行结果: %w", finishErr),
+					fmt.Errorf("保存完整发货人工核对状态: %w", quarantineErr),
+				)
+			}
+			return sent, errors.Join(errAutomationNeedsReview, fmt.Errorf("保存完整发货执行结果: %w", finishErr))
 		}
+		cancel()
 		if err != nil {
 			return sent, err
 		}
@@ -564,12 +579,15 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 	if task.OrderID == "" {
 		return task, nil
 	}
-	_ = c.store.Orders.Upsert(ctx, task.OrderID, db.OrderUpsertOpts{
+	// upsertErr 保存自动化准备阶段订单事实写入结果；失败时禁止继续执行外部动作。
+	if err := c.store.Orders.Upsert(ctx, task.OrderID, db.OrderUpsertOpts{
 		CookieID: task.AccountID,
 		ItemID:   task.ItemID,
 		BuyerID:  task.BuyerID,
 		ChatID:   task.ChatID,
-	})
+	}); err != nil {
+		return task, fmt.Errorf("保存自动化准备阶段订单事实: %w", err)
+	}
 	// needsDetail 保存needsDetail，供当前处理流程使用
 	needsDetail := task.TriggerType == TriggerOrderPaid
 	if // existing、err 保存existing、err，供当前处理流程使用
@@ -620,7 +638,8 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 	if detail.OrderStatus != "" {
 		task.OrderStatus = detail.OrderStatus
 	}
-	_ = c.store.Orders.Upsert(ctx, task.OrderID, db.OrderUpsertOpts{
+	// upsertErr 保存补齐订单详情后的事实写入结果，失败时不允许进入动作执行阶段。
+	if err := c.store.Orders.Upsert(ctx, task.OrderID, db.OrderUpsertOpts{
 		CookieID:    task.AccountID,
 		ItemID:      task.ItemID,
 		BuyerID:     task.BuyerID,
@@ -630,7 +649,9 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 		Quantity:    task.Quantity,
 		Amount:      task.Amount,
 		OrderStatus: task.OrderStatus,
-	})
+	}); err != nil {
+		return task, fmt.Errorf("保存订单详情事实: %w", err)
+	}
 	return task, nil
 }
 

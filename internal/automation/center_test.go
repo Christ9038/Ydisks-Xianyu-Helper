@@ -1501,6 +1501,140 @@ func TestManualFullDeliveryIsImmediateIdempotentAndForcesConfirmation(t *testing
 	}
 }
 
+// newManualDeliveryFixture 创建可重复使用的手动完整发货测试夹具，并返回清理函数。
+func newManualDeliveryFixture(t *testing.T, orderID string) (context.Context, *db.Store, *Center, *testSender, *fakeMTop, *db.Order, func()) {
+	t.Helper()
+	// store、cleanup 保存测试数据库及其关闭函数。
+	store, cleanup := newAutomationTestStore(t)
+	// ctx 保存夹具共用的数据库上下文。
+	ctx := context.Background()
+	// admin 保存创建卡密和规则所需的管理员用户。
+	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
+	if adminErr != nil {
+		t.Fatal(adminErr)
+	}
+	// updateResult 保存关闭自动确认后执行 SQL 的结果。
+	if _, updateResultErr := store.DB.ExecContext(ctx, `UPDATE cookies SET auto_confirm=0 WHERE id='cid'`); updateResultErr != nil {
+		t.Fatal(updateResultErr)
+	}
+	// itemResult 保存测试商品占位记录的写入结果。
+	if _, itemResultErr := store.DB.ExecContext(ctx, `INSERT INTO item_info (cookie_id,item_id,item_title) VALUES ('cid','manual-item','会员')`); itemResultErr != nil {
+		t.Fatal(itemResultErr)
+	}
+	// cardID 保存手动发货使用的卡密组标识。
+	cardID, cardErr := store.Cards.Create(ctx, &db.CardFull{
+		Name: "manual-card", Type: "text", TextContent: "MANUAL-CARD", Enabled: true, DelaySeconds: 86400, UserID: admin.ID,
+	})
+	if cardErr != nil {
+		t.Fatal(cardErr)
+	}
+	// ruleInputErr 保存自动发货规则创建错误。
+	if _, ruleInputErr := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", ItemID: "manual-item", Name: "manual-finish-failure", TriggerType: TriggerOrderPaid, Enabled: true,
+		Actions: []db.AutomationActionInput{
+			{ActionType: ActionSendCard, CardID: cardID, DeliveryCount: 1, ConfigJSON: `{}`, Enabled: true, SortOrder: 1},
+			{ActionType: ActionConfirmShipment, Enabled: true, SortOrder: 2},
+		},
+	}); ruleInputErr != nil {
+		t.Fatal(ruleInputErr)
+	}
+	// sender 记录手动发货发送的卡密消息。
+	sender := &testSender{}
+	// mtopMock 记录远端确认发货调用。
+	mtopMock := &fakeMTop{consignOk: true}
+	// center 是待验证的自动化中心。
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	center.SetMTop(mtopMock)
+	center.SetOrderDetailFetcher(testFetcher{detail: &OrderDetail{Quantity: "1", OrderStatus: "pending_ship"}})
+	// order 保存夹具使用的订单输入。
+	order := &db.Order{OrderID: orderID, CookieID: "cid", ItemID: "manual-item", BuyerID: "buyer", ChatID: "chat"}
+	return ctx, store, center, sender, mtopMock, order, cleanup
+}
+
+// TestManualFullDeliveryFinishFailureQuarantinesExternalSuccess 验证手动发货外部动作完成但 FinishRun 失败时会隔离运行，避免重复发货。
+func TestManualFullDeliveryFinishFailureQuarantinesExternalSuccess(t *testing.T) {
+	// ctx、store、center、sender、mtopMock、order、cleanup 保存手动发货测试夹具。
+	ctx, store, center, sender, mtopMock, order, cleanup := newManualDeliveryFixture(t, "manual-finish-failure-order")
+	defer cleanup()
+	// triggerErr 表示故意阻止 success 状态写入的 SQLite 触发器创建错误。
+	if _, triggerErr := store.DB.ExecContext(ctx, `CREATE TRIGGER reject_manual_finish_success
+		BEFORE UPDATE OF status ON automation_runs
+		WHEN NEW.status='success'
+		BEGIN SELECT RAISE(ABORT, 'forced manual finish failure'); END`); triggerErr != nil {
+		t.Fatal(triggerErr)
+	}
+	// sent、runErr 保存外部发货数量和结果收口错误。
+	sent, runErr := center.ManualFullDelivery(ctx, order)
+	if !errors.Is(runErr, errAutomationNeedsReview) {
+		t.Fatalf("FinishRun 失败应转人工核对: sent=%d err=%v", sent, runErr)
+	}
+	if sent != 1 || len(sender.texts) != 1 || mtopMock.consignCalls != 1 {
+		t.Fatalf("外部动作应只执行一次: sent=%d texts=%v consign=%d", sent, sender.texts, mtopMock.consignCalls)
+	}
+	// status、message 保存手动发货隔离后的状态和原因。
+	var status, message string
+	// queryErr 保存读取手动发货运行终态的数据库错误。
+	if queryErr := store.DB.QueryRowContext(ctx, `SELECT status,error_message FROM automation_runs WHERE order_id=?`, order.OrderID).Scan(&status, &message); queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	if status != "needs_review" || !strings.Contains(message, "完整发货外部动作可能已执行") {
+		t.Fatalf("手动发货未进入人工核对: status=%q message=%q", status, message)
+	}
+}
+
+// TestManualFullDeliveryQuarantineFailureIsReturned 验证手动发货结果和人工核对状态均无法落库时会返回双重错误。
+func TestManualFullDeliveryQuarantineFailureIsReturned(t *testing.T) {
+	// ctx、store、center、sender、mtopMock、order、cleanup 保存手动发货测试夹具。
+	ctx, store, center, sender, mtopMock, order, cleanup := newManualDeliveryFixture(t, "manual-quarantine-failure-order")
+	defer cleanup()
+	// triggerErr 表示故意阻止 success 与 needs_review 状态写入的 SQLite 触发器创建错误。
+	if _, triggerErr := store.DB.ExecContext(ctx, `CREATE TRIGGER reject_manual_result_states
+		BEFORE UPDATE OF status ON automation_runs
+		WHEN NEW.status IN ('success','needs_review')
+		BEGIN SELECT RAISE(ABORT, 'forced manual result-state failure'); END`); triggerErr != nil {
+		t.Fatal(triggerErr)
+	}
+	// runErr 保存结果收口和人工核对收口均失败后的组合错误。
+	_, runErr := center.ManualFullDelivery(ctx, order)
+	if !errors.Is(runErr, errAutomationNeedsReview) || !strings.Contains(runErr.Error(), "保存完整发货人工核对状态") {
+		t.Fatalf("双重落库失败应保留完整错误: %v", runErr)
+	}
+	if len(sender.texts) != 1 || mtopMock.consignCalls != 1 {
+		t.Fatalf("双重落库失败不应重复外部动作: texts=%v consign=%d", sender.texts, mtopMock.consignCalls)
+	}
+}
+
+// TestPrepareTaskUpsertFailureStopsBeforeExternalAction 验证自动化准备阶段订单事实写入失败时不会继续执行外部动作。
+func TestPrepareTaskUpsertFailureStopsBeforeExternalAction(t *testing.T) {
+	// ctx、store、center、sender、cleanup 保存准备阶段测试夹具。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 保存测试数据库上下文。
+	ctx := context.Background()
+	// triggerErr 表示故意阻止准备阶段订单占位写入的 SQLite 触发器创建错误。
+	if _, triggerErr := store.DB.ExecContext(ctx, `CREATE TRIGGER reject_prepare_order_insert
+		BEFORE INSERT ON orders
+		BEGIN SELECT RAISE(ABORT, 'forced preparation order failure'); END`); triggerErr != nil {
+		t.Fatal(triggerErr)
+	}
+	// sender 记录准备阶段不应触发的外部消息。
+	sender := &testSender{}
+	// center 是只用于执行规则准备阶段的自动化中心。
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	// task 保存待准备的付款事件。
+	task := Task{AccountID: "cid", TriggerType: TriggerOrderPaid, OrderID: "prepare-failure-order", ChatID: "chat", BuyerID: "buyer"}
+	// rule 保存会尝试发送消息的规则，验证准备失败会在动作前返回。
+	rule := db.AutomationRule{ID: 1, CookieID: "cid", TriggerType: TriggerOrderPaid, Enabled: true, Actions: []db.AutomationAction{{ActionType: ActionSendText, MessageTemplate: "must-not-send", Enabled: true}}}
+	// runErr 保存准备阶段订单事实写入失败后的错误。
+	runErr := center.executeRule(ctx, task, rule)
+	if runErr == nil || !strings.Contains(runErr.Error(), "保存自动化准备阶段订单事实") {
+		t.Fatalf("准备阶段写入失败应返回明确错误: %v", runErr)
+	}
+	if len(sender.texts) != 0 {
+		t.Fatalf("准备阶段失败不应发送外部消息: %v", sender.texts)
+	}
+}
+
 // recordingNotifier 记录所有 NotifyDelivery 调用，用于断言 automation.Center 接线。
 type recordingNotifier struct {
 	mu    sync.Mutex

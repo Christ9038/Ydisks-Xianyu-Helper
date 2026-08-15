@@ -703,62 +703,35 @@ func (s *Server) deleteCookie(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
-	credentialUnlock := s.Store.LockAccountCredentials(cid)
-	// latest、err 保存latest、err，供当前处理流程使用
-	latest, err := s.loadCookiePlatformDetail(r.Context(), cid)
-	if err != nil || latest == nil || latest.UserID != ownedDetail.UserID {
-		credentialUnlock()
+	// sess 保存当前认证用户；删除服务会在持久化边界再次确认账号归属。
+	sess := authSess(r)
+	if sess == nil {
+		writeErr(w, http.StatusUnauthorized, "未授权访问")
+		return
+	}
+	// deleteService 负责归属复核、停止 fencing、Context 限制和最终删除。
+	deleteService := s.accountDeleteApplication()
+	if deleteService == nil {
+		writeErr(w, http.StatusInternalServerError, "账号删除服务未启用")
+		return
+	}
+	// deleteErr 保存账号删除应用用例的统一错误结果。
+	deleteErr := deleteService.Delete(r.Context(), sess.UserID, cid)
+	if errors.Is(deleteErr, accountapp.ErrDeleteConflict) {
+		writeErr(w, http.StatusConflict, "账号运行时尚未停止，请稍后重试")
+		return
+	}
+	if errors.Is(deleteErr, accountapp.ErrForbidden) {
+		writeErr(w, http.StatusForbidden, "无权限操作该账号")
+		return
+	}
+	if errors.Is(deleteErr, accountapp.ErrNotFound) || errors.Is(deleteErr, db.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "账号不存在")
 		return
 	}
-	// managerFenced 表示删除流程是否已阻止该账号被新的 runtime 重新启动。
-	managerFenced := false
-	if s.Manager != nil {
-		if !s.Manager.BeginStopping(cid) {
-			credentialUnlock()
-			writeErr(w, http.StatusConflict, "账号正在停止，请稍后重试")
-			return
-		}
-		managerFenced = true
-	}
-	credentialUnlock()
-	if managerFenced {
-		// stopCtx、stopCancel 限制删除前 runtime fencing 的等待时间。
-		stopCtx, stopCancel := context.WithTimeout(r.Context(), 5*time.Second)
-		// stopErr 表示删除前停止账号 runtime 的错误。
-		stopErr := s.Manager.StopContext(stopCtx, cid)
-		stopCancel()
-		if stopErr != nil {
-			s.Manager.EndStopping(cid)
-			writeErr(w, http.StatusConflict, "账号运行时尚未停止，请稍后重试")
-			return
-		}
-	}
-	// 删除前重新取得凭证锁，避免删除与其他凭证更新并发写入。
-	credentialUnlock = s.Store.LockAccountCredentials(cid)
-	// latestAfterStop 重新确认停止期间账号仍归当前用户所有，避免误删被替换的账号。
-	latestAfterStop, latestErr := s.loadCookiePlatformDetail(r.Context(), cid)
-	if latestErr != nil || latestAfterStop == nil || latestAfterStop.UserID != ownedDetail.UserID {
-		if managerFenced {
-			s.Manager.EndStopping(cid)
-		}
-		credentialUnlock()
-		writeErr(w, http.StatusNotFound, "账号不存在")
-		return
-	}
-	if // err 保存err，供当前处理流程使用
-	err := s.Store.Cookies.Delete(r.Context(), cid); err != nil {
-		if managerFenced {
-			s.Manager.EndStopping(cid)
-		}
-		credentialUnlock()
+	if deleteErr != nil {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
-	}
-	credentialUnlock()
-	if managerFenced {
-		s.Manager.EndStopping(cid)
 	}
 	s.Logger.Info("账号已删除",
 		"cookie_id", cid,

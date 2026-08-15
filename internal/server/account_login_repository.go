@@ -72,6 +72,21 @@ func (r storeAccountProfileRepository) GetOwnedSummary(ctx context.Context, user
 	}, nil
 }
 
+// DeleteOwned 在凭证锁内再次确认账号归属并删除账号，避免停止 fencing 期间误删被替换账号。
+func (r storeAccountProfileRepository) DeleteOwned(ctx context.Context, userID int64, accountID string) error {
+	if r.store == nil || r.store.Cookies == nil {
+		return errors.New("账号删除存储未初始化")
+	}
+	// unlock 保护最终归属复核与删除之间的账号凭证状态，避免并发替换穿透删除边界。
+	unlock := r.store.LockAccountCredentials(accountID)
+	defer unlock()
+	// summary、summaryErr 保存锁内的非敏感归属复核结果。
+	if _, summaryErr := r.GetOwnedSummary(ctx, userID, accountID); summaryErr != nil {
+		return summaryErr
+	}
+	return r.store.Cookies.Delete(ctx, accountID)
+}
+
 // LockCredentials 委托账号凭证锁。
 func (r storeAccountLoginRepository) LockCredentials(accountID string) func() {
 	return r.store.LockAccountCredentials(accountID)

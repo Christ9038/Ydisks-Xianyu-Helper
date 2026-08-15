@@ -1144,6 +1144,11 @@ func TestMultiDB_Notifications(t *testing.T) {
 			if len(channels) != 1 || !channels[0].Enabled || channels[0].Config != `{"url":"x"}` {
 				t.Fatalf("channels = %#v", channels)
 			}
+			// summaries、summaryErr 保存不解密配置的三库渠道摘要结果。
+			summaries, summaryErr := s.Notifications.ListChannelSummariesForUser(ctx, user.ID)
+			if summaryErr != nil || len(summaries) != 1 || summaries[0].Name != "wh" || summaries[0].UserID != user.ID {
+				t.Fatalf("channel summaries = %+v err=%v", summaries, summaryErr)
+			}
 			if // err 保存err，供当前处理流程使用
 			err := s.Notifications.SetBindings(ctx, cid, []int64{chID}); err != nil {
 				t.Fatalf("SetBindings: %v", err)

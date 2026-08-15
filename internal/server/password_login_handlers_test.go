@@ -44,3 +44,30 @@ func TestPasswordLoginAPIsArePermanentlyDisabled(t *testing.T) {
 		}
 	}
 }
+
+// TestPasswordLoginRouteDelegatesDisabledPolicy 验证旧路径与版本化路径均通过应用服务返回关闭策略，而不是解析或传播密码。
+func TestPasswordLoginRouteDelegatesDisabledPolicy(t *testing.T) {
+	// srv、cleanup 保存带完整应用服务装配的 HTTP 测试服务及其释放函数。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 保存当前测试使用的完整路由树。
+	handler := srv.Router()
+	// sessionCookie 保存管理员登录后得到的认证会话。
+	sessionCookie := loginHelper(t, handler)
+	// paths 保存需要验证的旧路径和版本化路径。
+	paths := []string{"/password-login", "/api/v1/password-login"}
+	for _, path := range paths { // path 表示当前待验证的密码登录入口。
+		// request 使用故意无法解析的正文，确认关闭策略先于请求体解析执行。
+		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader("not-json-password-body"))
+		request.AddCookie(sessionCookie)
+		// recorder 捕获当前入口的 HTTP 响应。
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusNotImplemented {
+			t.Fatalf("%s 应由应用策略返回 501，got %d body=%s", path, recorder.Code, recorder.Body.String())
+		}
+		if strings.Contains(recorder.Body.String(), "not-json-password-body") {
+			t.Fatalf("%s 不得回显密码登录请求体", path)
+		}
+	}
+}

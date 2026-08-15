@@ -135,6 +135,41 @@ func TestExtraRepositoriesCRUD(t *testing.T) {
 	}
 }
 
+// TestNotificationChannelSummaryDoesNotDecryptConfig 验证渠道列表摘要不会因损坏密文而解密失败。
+func TestNotificationChannelSummaryDoesNotDecryptConfig(t *testing.T) {
+	// store、cleanup 保存隔离数据库及其释放函数。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 保存本次摘要查询使用的请求上下文。
+	ctx := context.Background()
+	// created、createErr 保存测试用户创建结果。
+	created, createErr := store.Users.Create(ctx, "summary-user", "summary@example.com", "password")
+	if createErr != nil || !created {
+		t.Fatalf("create user: created=%v err=%v", created, createErr)
+	}
+	// user、userErr 保存渠道所属用户及查询错误。
+	user, userErr := store.Users.GetByUsername(ctx, "summary-user")
+	if userErr != nil {
+		t.Fatal(userErr)
+	}
+	// channelID、channelErr 保存渠道创建结果。
+	channelID, channelErr := store.Notifications.CreateChannel(ctx, &NotificationChannelRow{
+		Name: "webhook", Type: "webhook", Config: `{"url":"secret"}`, UserID: user.ID,
+	})
+	if channelErr != nil {
+		t.Fatal(channelErr)
+	}
+	// corruptErr 保存故意写入损坏密文的错误；摘要查询不应读取该字段。
+	if _, corruptErr := store.DB.ExecContext(ctx, `UPDATE notification_channels SET config=? WHERE id=?`, "not-a-ciphertext", channelID); corruptErr != nil {
+		t.Fatal(corruptErr)
+	}
+	// summaries、summaryErr 保存摘要查询结果及错误。
+	summaries, summaryErr := store.Notifications.ListChannelSummariesForUser(ctx, user.ID)
+	if summaryErr != nil || len(summaries) != 1 || summaries[0].Name != "webhook" {
+		t.Fatalf("summaries=%+v err=%v", summaries, summaryErr)
+	}
+}
+
 // TestItemsSyncFromRemoteReconcilesAndPreservesLocalSettings 负责Test商品列表SyncFromRemoteReconcilesAndPreservesLocal设置相关处理。
 func TestItemsSyncFromRemoteReconcilesAndPreservesLocalSettings(t *testing.T) {
 	// store、cleanup 保存store、cleanup，供当前处理流程使用

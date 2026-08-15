@@ -218,6 +218,22 @@ type NotificationChannelRow struct {
 	UserID     int64  `json:"user_id,omitempty"`
 }
 
+// NotificationChannelSummaryRow 是通知渠道列表的非敏感摘要行，刻意不包含加密配置。
+type NotificationChannelSummaryRow struct {
+	// ID 是渠道稳定标识。
+	ID int64
+	// Name 是用户可识别的渠道名称。
+	Name string
+	// Type 是通知渠道协议类型。
+	Type string
+	// EventTypes 是渠道订阅事件编码。
+	EventTypes string
+	// Enabled 表示渠道是否启用。
+	Enabled bool
+	// UserID 是渠道所属用户，用于保留归属信息但不读取秘密配置。
+	UserID int64
+}
+
 // AllChannelsForUser 取某用户全部通知渠道。
 func (n *Notifications) AllChannelsForUser(ctx context.Context, userID int64) ([]NotificationChannelRow, error) {
 	// rows、err 保存rows、err，供当前处理流程使用
@@ -247,6 +263,33 @@ func (n *Notifications) AllChannelsForUser(ctx context.Context, userID int64) ([
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// ListChannelSummariesForUser 查询用户渠道摘要，不读取或解密 Config。
+func (n *Notifications) ListChannelSummariesForUser(ctx context.Context, userID int64) ([]NotificationChannelSummaryRow, error) {
+	// rows、err 保存仅包含非敏感字段的渠道查询结果及数据库错误。
+	rows, err := n.DB.QueryContext(ctx,
+		`SELECT id, name, type, COALESCE(event_types,''), enabled, COALESCE(user_id,1) FROM notification_channels
+		 WHERE user_id=? ORDER BY id DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	// summaries 保存不含渠道配置的用户渠道摘要。
+	summaries := make([]NotificationChannelSummaryRow, 0)
+	for rows.Next() {
+		// summary 保存当前遍历到的非敏感渠道字段；enabledValue 保存数据库布尔值。
+		var summary NotificationChannelSummaryRow
+		// enabledValue 保存数据库中启用标记的整数表示。
+		var enabledValue int
+		// scanErr 保存当前摘要行字段转换失败的数据库错误。
+		if scanErr := rows.Scan(&summary.ID, &summary.Name, &summary.Type, &summary.EventTypes, &enabledValue, &summary.UserID); scanErr != nil {
+			return nil, scanErr
+		}
+		summary.Enabled = enabledValue != 0
+		summaries = append(summaries, summary)
+	}
+	return summaries, rows.Err()
 }
 
 // CreateChannel 创建通知渠道。

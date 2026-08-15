@@ -59,8 +59,8 @@ type storeNotificationChannelRepository struct {
 
 // ListChannels 查询渠道摘要并丢弃配置，避免敏感配置进入应用展示模型。
 func (r storeNotificationChannelRepository) ListChannels(ctx context.Context, userID int64) ([]notificationsapp.ChannelSummary, error) {
-	// rows、err 保存数据库渠道读取结果；Config 仅在适配器内部被解密读取。
-	rows, err := r.store.Notifications.AllChannelsForUser(ctx, userID)
+	// rows、err 保存数据库渠道非敏感摘要；列表路径不会读取或解密 Config。
+	rows, err := r.store.Notifications.ListChannelSummariesForUser(ctx, userID)
 	if err != nil {
 		return nil, err
 	}

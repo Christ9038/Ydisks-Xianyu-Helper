@@ -20,6 +20,10 @@ type applicationServices struct {
 	itemBatchRunner *itemapp.BatchRunner
 	// accountLogin 是账号登录应用服务。
 	accountLogin *accountLoginService
+	// passwordLogin 是密码登录策略应用服务；当前只返回关闭策略，不保存登录秘密或会话。
+	passwordLogin *accountapp.PasswordLoginService
+	// accountDelete 是账号删除应用服务，负责停止 fencing 和归属复核后的持久化删除。
+	accountDelete *accountapp.DeleteService
 	// accountProfile 是账号资料刷新应用服务。
 	accountProfile *accountapp.ProfileService
 	// communication 是聊天、通知和账号任务应用服务。
@@ -47,6 +51,16 @@ func newApplicationServices(server *Server) *applicationServices {
 	if profileErr != nil {
 		panic(profileErr)
 	}
+	// deleteRuntime 是可选的账号运行时端口；显式保持 nil，避免把 nil *Manager 装入非空接口后触发 panic。
+	var deleteRuntime accountapp.DeleteRuntime
+	if server.Manager != nil {
+		deleteRuntime = server.Manager
+	}
+	// accountDelete 是账号删除用例的构造结果，运行时端口可为空以兼容无 Manager 的测试 Server。
+	accountDelete, deleteErr := accountapp.NewDeleteService(storeAccountProfileRepository{store: server.Store}, deleteRuntime)
+	if deleteErr != nil {
+		panic(deleteErr)
+	}
 	// itemBatchRunner 是批量发布 worker 的构造结果，失败表示必需端口装配错误。
 	itemBatchRunner, batchRunnerErr := newItemBatchRunnerApplication(server)
 	if batchRunnerErr != nil {
@@ -73,6 +87,8 @@ func newApplicationServices(server *Server) *applicationServices {
 		itemSinglePublish:      newItemPublishApplication(server),
 		itemBatchRunner:        itemBatchRunner,
 		accountLogin:           &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store), createApplication: accountLoginCreate, qrApplication: accountQRLogin},
+		passwordLogin:          accountapp.NewPasswordLoginService(),
+		accountDelete:          accountDelete,
 		accountProfile:         accountProfile,
 		communication:          &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},
 		chat:                   newChatSendingApplication(server),
@@ -90,6 +106,11 @@ func (s *Server) itemBatchRunnerApplication() *itemapp.BatchRunner {
 // accountProfileApplication 返回当前 Server 绑定的账号资料应用服务。
 func (s *Server) accountProfileApplication() *accountapp.ProfileService {
 	return s.applicationServiceSet().accountProfile
+}
+
+// accountDeleteApplication 返回当前 Server 绑定的账号删除应用服务。
+func (s *Server) accountDeleteApplication() *accountapp.DeleteService {
+	return s.applicationServiceSet().accountDelete
 }
 
 // applicationServiceSet 返回当前 Server 的应用服务集合，并兼容测试 Server。
