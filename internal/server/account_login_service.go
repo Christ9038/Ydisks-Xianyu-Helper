@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,59 @@ type accountLoginService struct {
 	server *Server
 	// repository 提供账号登录服务所需的最小凭证持久化能力。
 	repository accountLoginRepository
+	// createApplication 提供已迁移的手动 Cookie 登录应用用例。
+	createApplication *accountapp.LoginService
+}
+
+// serverLoginLifecyclePort 将登录成功后的审计、资料刷新和运行时重启适配到应用层端口。
+type serverLoginLifecyclePort struct {
+	// server 提供现有 Server 运行时与审计适配能力。
+	server *Server
+}
+
+// AfterSuccessfulLogin 在凭证写入并释放凭证锁后执行 Server 侧登录后续编排。
+func (p serverLoginLifecyclePort) AfterSuccessfulLogin(ctx context.Context, userID int64, accountID, method string) {
+	if p.server == nil {
+		return
+	}
+	p.server.markSuccessfulLogin(ctx, accountID, userID, method, "账号登录成功")
+	p.server.accountLoginApplication().refreshAndRestartAccount(ctx, userID, accountID)
+}
+
+// serverCookieWriter 将本次请求中的明文 Cookie 限制在 Server 基础设施适配器内。
+type serverCookieWriter struct {
+	// repository 提供凭证锁、写入和旧 Token 清理能力。
+	repository accountLoginRepository
+	// cookies 保存当前请求明文 Cookie；仅在 CreateOwnedCookie 调用期间使用，不进入应用层模型。
+	cookies string
+	// logger 提供旧 Token 清理失败的脱敏日志能力。
+	logger *slog.Logger
+}
+
+// CreateOwnedCookie 在凭证锁内原子校验归属、写入 Cookie 并清理旧连接 Token。
+func (w serverCookieWriter) CreateOwnedCookie(ctx context.Context, accountID string, userID int64) error {
+	if w.repository == nil {
+		return errors.New("账号登录凭证 repository 未初始化")
+	}
+	// unlock 保护凭证写入与旧连接 Token 清理，外部网络和运行时操作在锁外执行。
+	unlock := w.repository.LockCredentials(accountID)
+	defer unlock()
+	// writeErr 保存凭证写入错误；归属校验失败时直接返回且不清理 Token。
+	writeErr := w.repository.CreateCookieOwned(ctx, accountID, w.cookies, userID)
+	if writeErr != nil {
+		return writeErr
+	}
+	// clearErr 保存旧连接 Token 清理错误；清理失败不回滚已经成功写入的 Cookie。
+	clearErr := w.repository.ClearTokens(ctx, accountID)
+	if clearErr != nil && w.logger != nil {
+		w.logger.Warn("新增账号后清理旧连接凭证失败", "cookie_id", accountID, "err", clearErr)
+	}
+	return nil
+}
+
+// newAccountLoginCreateApplication 构造手动 Cookie 登录应用服务及其 Server 生命周期适配器。
+func newAccountLoginCreateApplication(server *Server) (*accountapp.LoginService, error) {
+	return accountapp.NewLoginService(serverLoginLifecyclePort{server: server})
 }
 
 // serverAccountProfilePort 将平台资料刷新适配为账号应用层 Port。
@@ -88,30 +142,12 @@ type accountCookieUpdateInput struct {
 
 // CreateCookie 创建账号凭证并完成登录审计、资料刷新和运行时重启。
 func (svc *accountLoginService) CreateCookie(ctx context.Context, input accountLoginInput) error {
-	// s 是当前账号登录应用服务依赖的 Server。
-	s := svc.server
-	// unlock 保护账号凭证的创建与后续登录状态清理。
-	unlock := svc.repository.LockCredentials(input.AccountID)
-	// err 表示账号凭证创建错误。
-	if err := svc.repository.CreateCookieOwned(ctx, input.AccountID, input.Cookies, input.UserID); err != nil {
-		unlock()
-		return err
+	if svc == nil || svc.createApplication == nil || svc.server == nil {
+		return errors.New("账号登录应用服务未初始化")
 	}
-	{
-		// err 表示清理旧连接凭证的错误，仅记录不阻断登录。
-		if err := svc.repository.ClearTokens(ctx, input.AccountID); err != nil && s.Logger != nil {
-			s.Logger.Warn("新增账号后清理旧连接凭证失败", "cookie_id", input.AccountID, "err", err)
-		}
-	}
-	// loginMethod 是归一化后的登录方式。
-	loginMethod := normalizeLoginMethod(input.LoginMethod)
-	if loginMethod == "" {
-		loginMethod = loginMethodManual
-	}
-	s.markSuccessfulLogin(ctx, input.AccountID, input.UserID, loginMethod, "账号登录成功")
-	unlock()
-	svc.refreshAndRestartAccount(ctx, input.UserID, input.AccountID)
-	return nil
+	return svc.createApplication.CreateCookie(ctx, accountapp.CreateCookieInput{
+		AccountID: input.AccountID, UserID: input.UserID, LoginMethod: input.LoginMethod,
+	}, serverCookieWriter{repository: svc.repository, cookies: input.Cookies, logger: svc.server.Logger})
 }
 
 // UpdateCookie 更新账号凭证并完成登录审计、资料刷新和运行时重启。

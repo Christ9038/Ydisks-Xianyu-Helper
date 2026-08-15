@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -259,7 +260,13 @@ func (n *Notifier) drainOutbox(ctx context.Context) {
 			continue
 		}
 		if channel == nil {
-			_, _ = n.repository.CompleteOutbox(ctx, message.ID, workerToken)
+			// completed、completeErr 保存无效渠道消息的清理结果和数据库错误。
+			completed, completeErr := n.repository.CompleteOutbox(ctx, message.ID, workerToken)
+			if completeErr != nil {
+				n.logger.Warn("清理无效通知渠道消息失败", "outbox_id", message.ID, "err", logsafe.Error(completeErr))
+			} else if !completed {
+				n.logger.Warn("清理无效通知渠道消息时租约已转移", "outbox_id", message.ID)
+			}
 			continue
 		}
 		if // sendErr 保存sendErr，供当前处理流程使用
@@ -270,7 +277,15 @@ func (n *Notifier) drainOutbox(ctx context.Context) {
 		}
 		if // completed、completeErr 保存completed、completeErr，供当前处理流程使用
 		completed, completeErr := n.repository.CompleteOutbox(ctx, message.ID, workerToken); completeErr != nil {
-			n.logger.Warn("确认通知投递完成失败", "outbox_id", message.ID, "err", completeErr)
+			// uncertain、uncertainErr 保存发送成功后的隔离结果和隔离失败错误。
+			uncertain, uncertainErr := n.repository.MarkOutboxUncertain(ctx, message.ID, workerToken, completeErr.Error())
+			if uncertainErr != nil {
+				n.logger.Error("确认通知投递完成失败且无法隔离消息", "outbox_id", message.ID, "err", logsafe.Error(errors.Join(completeErr, uncertainErr)))
+			} else if !uncertain {
+				n.logger.Warn("确认通知投递完成失败且租约已转移", "outbox_id", message.ID, "err", logsafe.Error(completeErr))
+			} else {
+				n.logger.Warn("通知已发送但本地确认失败，消息已隔离", "outbox_id", message.ID, "err", logsafe.Error(completeErr))
+			}
 		} else if !completed {
 			n.logger.Warn("通知 outbox 租约已转移", "outbox_id", message.ID)
 		}

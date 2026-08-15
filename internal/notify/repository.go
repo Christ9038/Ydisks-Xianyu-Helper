@@ -20,6 +20,8 @@ type Repository interface {
 	GetChannel(ctx context.Context, channelID int64) (*db.NotificationChannel, error)
 	// CompleteOutbox 确认当前 worker 已完成 outbox 消息。
 	CompleteOutbox(ctx context.Context, messageID int64, workerToken string) (bool, error)
+	// MarkOutboxUncertain 隔离外部发送成功但本地确认失败的 outbox 消息。
+	MarkOutboxUncertain(ctx context.Context, messageID int64, workerToken, lastError string) (bool, error)
 	// RetryOutbox 写入 outbox 消息的重试状态。
 	RetryOutbox(ctx context.Context, messageID int64, workerToken, lastError string, nextAttemptAt int64, permanent bool) (bool, error)
 	// GetSetting 读取系统设置中的字符串值。
@@ -57,6 +59,11 @@ func (r storeRepository) GetChannel(ctx context.Context, channelID int64) (*db.N
 // CompleteOutbox 委托通知 outbox 完成确认。
 func (r storeRepository) CompleteOutbox(ctx context.Context, messageID int64, workerToken string) (bool, error) {
 	return r.store.Notifications.CompleteOutbox(ctx, messageID, workerToken)
+}
+
+// MarkOutboxUncertain 委托通知 outbox 不确定状态隔离。
+func (r storeRepository) MarkOutboxUncertain(ctx context.Context, messageID int64, workerToken, lastError string) (bool, error) {
+	return r.store.Notifications.MarkOutboxUncertain(ctx, messageID, workerToken, lastError)
 }
 
 // RetryOutbox 委托通知 outbox 重试状态更新。

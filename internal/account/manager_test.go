@@ -3,6 +3,7 @@ package account
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -114,6 +115,25 @@ func TestManagerStoppingFence(t *testing.T) {
 		t.Fatal("释放 fencing 后应允许重新建立停止 fencing")
 	}
 	mgr.EndStopping("fenced")
+}
+
+// TestManagerGlobalStoppingFence 验证全量关闭期间不允许新的账号运行实例进入管理器。
+func TestManagerGlobalStoppingFence(t *testing.T) {
+	// mgr 是只验证生命周期 fencing 的管理器，不需要数据库或平台处理器。
+	mgr := NewManager(nil, noopHandler{}, nil)
+	mgr.mu.Lock()
+	// stoppingAll 模拟 StopAllContext 已经建立的全局关闭屏障。
+	mgr.stoppingAll = true
+	mgr.mu.Unlock()
+
+	// err 表示全局关闭期间尝试启动账号得到的拒绝原因。
+	err := mgr.Start(context.Background(), "during-stop", "cookie")
+	if err == nil {
+		t.Fatal("全量停止期间不应允许启动账号")
+	}
+	if !strings.Contains(err.Error(), "正在停止") {
+		t.Fatalf("全量停止错误=%v，未说明停止 fencing", err)
+	}
 }
 
 // TestManagerConcurrentStartCreatesSingleManagedInstance 负责TestManagerConcurrent开始CreatesSingleManagedInstance相关处理。

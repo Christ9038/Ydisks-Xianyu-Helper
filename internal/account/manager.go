@@ -27,7 +27,9 @@ type Manager struct {
 	accounts map[string]*managedAccount
 	// stopping 保存正在执行删除/停止 fencing 的账号，阻止其被并发重新启动。
 	stopping map[string]struct{}
-	runCtx   context.Context
+	// stoppingAll 表示管理器正在执行全量关闭；关闭期间禁止新账号进入运行实例表。
+	stoppingAll bool
+	runCtx      context.Context
 }
 
 // managedAccount 保存managed账号，供当前处理流程使用
@@ -36,6 +38,8 @@ type managedAccount struct {
 	acc      *engine.Account
 	cancel   context.CancelFunc
 	done     chan struct{} // Run 返回后关闭
+	// stopping 表示该运行实例已经收到停止请求；保持为 true 直到完整收束，防止重启逃逸。
+	stopping bool
 	err      error
 }
 
@@ -57,6 +61,9 @@ func NewManager(store *db.Store, handler engine.Handler, logger *slog.Logger) *M
 // 已禁用的账号不启动；启动失败的账号记录错误但不影响其他账号。
 // StartAll 启动All。
 func (m *Manager) StartAll(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	m.mu.Lock()
 	m.runCtx = ctx
 	m.mu.Unlock()
@@ -83,7 +90,14 @@ StartAll 只把启用账号交给运行时 supervisor。
 
 // Start 启动单个账号（若已在运行则跳过；若上次实例已退出则清理后重启）。
 func (m *Manager) Start(ctx context.Context, cookieID, cookieValue string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	m.mu.Lock()
+	if m.stoppingAll {
+		m.mu.Unlock()
+		return fmt.Errorf("账号管理器正在停止")
+	}
 	// stopping 表示当前账号是否已进入删除/停止 fencing。
 	if _, stopping := m.stopping[cookieID]; stopping {
 		m.mu.Unlock()
@@ -94,6 +108,10 @@ func (m *Manager) Start(ctx context.Context, cookieID, cookieValue string) error
 	}
 	if // ma、ok 保存ma、ok，供当前处理流程使用
 	ma, ok := m.accounts[cookieID]; ok {
+		if ma.stopping {
+			m.mu.Unlock()
+			return fmt.Errorf("账号 %s 正在停止", cookieID)
+		}
 		// 已存在：若已退出则清理后重启，否则跳过。select 非阻塞，持锁安全。
 		select {
 		case <-ma.done:
@@ -169,6 +187,10 @@ func (m *Manager) StopContext(ctx context.Context, cookieID string) error {
 	m.mu.Lock()
 	// ma、ok 保存ma、ok，供当前处理流程使用
 	ma, ok := m.accounts[cookieID]
+	if ok {
+		// stopping 标记会阻止 Start 在停止上下文超时后重新替换仍可能存活的运行实例。
+		ma.stopping = true
+	}
 	m.mu.Unlock()
 	if !ok {
 		return nil
@@ -274,6 +296,8 @@ func (m *Manager) StopAllContext(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	m.mu.Lock()
+	// stoppingAll 在收集账号前建立全局 fencing，防止并发 Start 把新实例遗漏在本次关闭之外。
+	m.stoppingAll = true
 	// ids 保存ids，供当前处理流程使用
 	ids := make([]string, 0, len(m.accounts))
 	// id 表示当前遍历过程中的标识
@@ -288,5 +312,11 @@ func (m *Manager) StopAllContext(ctx context.Context) error {
 			return err
 		}
 	}
+	m.mu.Lock()
+	// stoppingAll 仅在所有已登记实例收束后解除；超时返回时保留 fencing，供下一次 StopAllContext 重试。
+	if len(m.accounts) == 0 {
+		m.stoppingAll = false
+	}
+	m.mu.Unlock()
 	return nil
 }

@@ -62,6 +62,11 @@ func TestNotificationOutboxLeaseFencesStaleWorker(t *testing.T) {
 	completed, err := store.Notifications.CompleteOutbox(ctx, first[0].ID, "worker-1"); err != nil || completed {
 		t.Fatalf("stale completion: completed=%v err=%v", completed, err)
 	}
+	// staleUncertain、err 保存旧 worker 尝试隔离当前消息的结果和数据库错误。
+	staleUncertain, err := store.Notifications.MarkOutboxUncertain(ctx, first[0].ID, "worker-1", "旧 worker 确认失败")
+	if err != nil || staleUncertain {
+		t.Fatalf("stale uncertain: uncertain=%v err=%v", staleUncertain, err)
+	}
 	if // retried、err 保存retried、err，供当前处理流程使用
 	retried, err := store.Notifications.RetryOutbox(ctx, second[0].ID, "worker-2", "temporary", now.Add(2*time.Minute).Unix(), false); err != nil || !retried {
 		t.Fatalf("retry: retried=%v err=%v", retried, err)
@@ -75,8 +80,79 @@ func TestNotificationOutboxLeaseFencesStaleWorker(t *testing.T) {
 	if err != nil || len(due) != 1 {
 		t.Fatalf("due retry claim: messages=%+v err=%v", due, err)
 	}
-	if // completed、err 保存completed、err，供当前处理流程使用
-	completed, err := store.Notifications.CompleteOutbox(ctx, due[0].ID, "worker-3"); err != nil || !completed {
-		t.Fatalf("complete: completed=%v err=%v", completed, err)
+	// uncertain、err 保存不确定状态隔离结果和数据库错误。
+	uncertain, err := store.Notifications.MarkOutboxUncertain(ctx, due[0].ID, "worker-3", "本地确认失败")
+	if err != nil || !uncertain {
+		t.Fatalf("mark uncertain: uncertain=%v err=%v", uncertain, err)
+	}
+	// status、workerToken、lastError、uncertainAt 保存隔离后的状态、租约和诊断信息。
+	var uncertainStatus, uncertainWorkerToken, uncertainLastError string
+	// uncertainAt 保存消息进入不确定隔离态的 Unix 时间戳。
+	var uncertainAt int64
+	// queryErr 保存读取不确定状态时的数据库错误。
+	if queryErr := store.DB.QueryRowContext(ctx, `SELECT status,worker_token,last_error,uncertain_at
+		FROM notification_outbox WHERE id=?`, due[0].ID).
+		Scan(&uncertainStatus, &uncertainWorkerToken, &uncertainLastError, &uncertainAt); queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	if uncertainStatus != "uncertain" || uncertainWorkerToken != "" || uncertainLastError != "本地确认失败" || uncertainAt == 0 {
+		t.Fatalf("unexpected uncertain state: status=%q worker=%q error=%q at=%d", uncertainStatus, uncertainWorkerToken, uncertainLastError, uncertainAt)
+	}
+	// afterUncertain、err 保存隔离消息再次领取的结果，确保不会自动重发。
+	afterUncertain, err := store.Notifications.ClaimOutbox(ctx, "worker-4", now.Add(4*time.Minute), 10)
+	if err != nil || len(afterUncertain) != 0 {
+		t.Fatalf("uncertain message was claimable: messages=%+v err=%v", afterUncertain, err)
+	}
+}
+
+// TestNotificationOutboxPermanentRetry 将达到重试上限的发送失败消息标记为 dead 隔离。
+func TestNotificationOutboxPermanentRetry(t *testing.T) {
+	// store、cleanup 保存测试数据库及其关闭责任。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 保存本测试使用的根上下文。
+	ctx := context.Background()
+	// ok、err 保存测试用户创建结果和数据库错误。
+	ok, err := store.Users.Create(ctx, "notify-dead", "notify-dead@example.com", "pw")
+	if err != nil || !ok {
+		t.Fatalf("create owner: ok=%v err=%v", ok, err)
+	}
+	// owner、ownerErr 保存通知渠道所属用户和查询错误。
+	owner, ownerErr := store.Users.GetByUsername(ctx, "notify-dead")
+	if ownerErr != nil {
+		t.Fatal(ownerErr)
+	}
+	// result、err 保存通知渠道插入结果和数据库错误。
+	result, err := store.DB.ExecContext(ctx, `INSERT INTO notification_channels (name,type,config,enabled,user_id) VALUES (?,?,?,?,?)`, "dead", "webhook", `{}`, 1, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// channelID、err 保存渠道标识和读取标识时的错误。
+	channelID, err := result.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// enqueueErr 保存写入待发送消息时的数据库错误。
+	if enqueueErr := store.Notifications.EnqueueOutbox(ctx, []NotificationOutboxInput{{ChannelID: channelID, EventType: "test", Body: "body"}}); enqueueErr != nil {
+		t.Fatal(enqueueErr)
+	}
+	// claimed、err 保存领取到的消息和数据库错误。
+	claimed, err := store.Notifications.ClaimOutbox(ctx, "worker-dead", time.Unix(100, 0), 10)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("claim: messages=%+v err=%v", claimed, err)
+	}
+	// updated、err 保存永久失败状态更新结果和数据库错误。
+	updated, err := store.Notifications.RetryOutbox(ctx, claimed[0].ID, "worker-dead", "远端发送失败", time.Unix(200, 0).Unix(), true)
+	if err != nil || !updated {
+		t.Fatalf("retry dead: updated=%v err=%v", updated, err)
+	}
+	// status 保存永久失败消息的最终隔离状态。
+	var status string
+	// queryErr 保存读取永久失败状态时的数据库错误。
+	if queryErr := store.DB.QueryRowContext(ctx, `SELECT status FROM notification_outbox WHERE id=?`, claimed[0].ID).Scan(&status); queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	if status != "dead" {
+		t.Fatalf("status=%q want dead", status)
 	}
 }

@@ -1170,8 +1170,27 @@ func TestMultiDB_Notifications(t *testing.T) {
 			if err != nil || len(messages) != 1 {
 				t.Fatalf("ClaimOutbox: messages=%+v err=%v", messages, err)
 			}
+			// uncertain、err 保存三方言不确定隔离结果和数据库错误。
+			uncertain, err := s.Notifications.MarkOutboxUncertain(ctx, messages[0].ID, "worker", "确认落库失败")
+			if err != nil || !uncertain {
+				t.Fatalf("MarkOutboxUncertain: uncertain=%v err=%v", uncertain, err)
+			}
+			// afterUncertain、err 保存不确定消息再次领取的结果和数据库错误。
+			afterUncertain, err := s.Notifications.ClaimOutbox(ctx, "worker-2", time.Now().Add(time.Minute), 10)
+			if err != nil || len(afterUncertain) != 0 {
+				t.Fatalf("uncertain outbox was claimable: messages=%+v err=%v", afterUncertain, err)
+			}
+			// enqueueErr 保存第二条消息重新入队时的数据库错误。
+			if enqueueErr := s.Notifications.EnqueueOutbox(ctx, []NotificationOutboxInput{{ChannelID: chID, EventType: "test-complete", Body: "body"}}); enqueueErr != nil {
+				t.Fatalf("EnqueueOutbox complete: %v", enqueueErr)
+			}
+			// completeMessages、err 保存第二条消息领取结果和数据库错误。
+			completeMessages, err := s.Notifications.ClaimOutbox(ctx, "worker-3", time.Now(), 10)
+			if err != nil || len(completeMessages) != 1 {
+				t.Fatalf("ClaimOutbox complete: messages=%+v err=%v", completeMessages, err)
+			}
 			if // completed、err 保存completed、err，供当前处理流程使用
-			completed, err := s.Notifications.CompleteOutbox(ctx, messages[0].ID, "worker"); err != nil || !completed {
+			completed, err := s.Notifications.CompleteOutbox(ctx, completeMessages[0].ID, "worker-3"); err != nil || !completed {
 				t.Fatalf("CompleteOutbox: completed=%v err=%v", completed, err)
 			}
 		})

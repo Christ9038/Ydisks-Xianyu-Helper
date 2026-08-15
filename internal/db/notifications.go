@@ -258,6 +258,23 @@ func (n *Notifications) CompleteOutbox(ctx context.Context, id int64, workerToke
 	return err == nil && count == 1, err
 }
 
+// MarkOutboxUncertain 将外部发送成功但本地确认失败的消息隔离，阻止租约过期后自动重复发送。
+// 只有仍持有当前租约的 worker 才能完成状态转移；返回 false 表示租约已被其他 worker 接管。
+func (n *Notifications) MarkOutboxUncertain(ctx context.Context, id int64, workerToken, message string) (bool, error) {
+	// uncertainAt 保存消息进入不确定隔离态的 Unix 时间戳，便于运维定位确认失败窗口。
+	uncertainAt := time.Now().Unix()
+	// result、err 保存状态更新结果和数据库错误。
+	result, err := n.DB.ExecContext(ctx, `UPDATE notification_outbox
+		SET status='uncertain',uncertain_at=?,next_attempt_at=0,lease_expires_at=0,worker_token='',last_error=?,updated_at=CURRENT_TIMESTAMP
+		WHERE id=? AND status='running' AND worker_token=?`, uncertainAt, message, id, workerToken)
+	if err != nil {
+		return false, err
+	}
+	// affected、err 保存本次状态更新影响的行数和读取错误。
+	affected, err := result.RowsAffected()
+	return err == nil && affected == 1, err
+}
+
 // RetryOutbox 重试Outbox。
 func (n *Notifications) RetryOutbox(ctx context.Context, id int64, workerToken, message string, nextAttemptAt int64, permanent bool) (bool, error) {
 	// status 保存状态，供当前处理流程使用

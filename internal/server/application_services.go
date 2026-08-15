@@ -44,12 +44,17 @@ func newApplicationServices(server *Server) *applicationServices {
 	if batchRunnerErr != nil {
 		panic(batchRunnerErr)
 	}
+	// accountLoginCreate 是手动 Cookie 登录应用服务的构造结果。
+	accountLoginCreate, accountLoginCreateErr := newAccountLoginCreateApplication(server)
+	if accountLoginCreateErr != nil {
+		panic(accountLoginCreateErr)
+	}
 	return &applicationServices{
 		orders:            &orderHTTPAdapter{services: orderServices, repository: orderRepository},
 		itemPublish:       &itemPublishService{server: server, repository: newStoreItemPublishRepository(server.Store)},
 		itemSinglePublish: newItemPublishApplication(server),
 		itemBatchRunner:   itemBatchRunner,
-		accountLogin:      &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store)},
+		accountLogin:      &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store), createApplication: accountLoginCreate},
 		accountProfile:    accountProfile,
 		communication:     &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},
 		analytics:         &analyticsService{repository: newStoreAnalyticsRepository(server.Store)},

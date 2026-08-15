@@ -2,6 +2,7 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,69 @@ import (
 
 	"xianyu-go/internal/db"
 )
+
+// scriptedOutboxRepository 为 outbox worker 测试提供可控的领取、确认和隔离结果。
+type scriptedOutboxRepository struct {
+	// channel 保存 worker 发送时返回的渠道配置。
+	channel *db.NotificationChannel
+	// pending 保存下一次 ClaimOutbox 应返回的消息；领取后立即清空以模拟持久化状态转移。
+	pending []db.NotificationOutboxMessage
+	// completeErr 保存本地完成确认故障，用于验证外部成功后的不确定隔离。
+	completeErr error
+	// uncertainResult 保存隔离调用是否成功。
+	uncertainResult bool
+	// uncertainErr 保存隔离状态写入故障。
+	uncertainErr error
+	// uncertainCalls 记录隔离调用次数。
+	uncertainCalls int
+	// retryCalls 记录发送失败重试调用次数。
+	retryCalls int
+}
+
+// AccountChannels 返回测试不使用的账号渠道列表。
+func (r *scriptedOutboxRepository) AccountChannels(context.Context, string) ([]db.NotificationChannel, error) {
+	return nil, nil
+}
+
+// EnqueueOutbox 返回测试不使用的入队结果。
+func (r *scriptedOutboxRepository) EnqueueOutbox(context.Context, []db.NotificationOutboxInput) error {
+	return nil
+}
+
+// ClaimOutbox 返回一次可控的 outbox 消息并模拟领取后不再重复领取。
+func (r *scriptedOutboxRepository) ClaimOutbox(context.Context, string, time.Time, int) ([]db.NotificationOutboxMessage, error) {
+	// messages 保存本次领取的消息，并在返回前清空替身队列以模拟一次性领取。
+	messages := r.pending
+	r.pending = nil
+	return messages, nil
+}
+
+// GetChannel 返回 worker 发送所需的测试渠道。
+func (r *scriptedOutboxRepository) GetChannel(context.Context, int64) (*db.NotificationChannel, error) {
+	return r.channel, nil
+}
+
+// CompleteOutbox 返回预置的本地确认故障，模拟发送成功后的落库失败。
+func (r *scriptedOutboxRepository) CompleteOutbox(context.Context, int64, string) (bool, error) {
+	return false, r.completeErr
+}
+
+// MarkOutboxUncertain 记录不确定隔离调用并返回预置结果。
+func (r *scriptedOutboxRepository) MarkOutboxUncertain(context.Context, int64, string, string) (bool, error) {
+	r.uncertainCalls++
+	return r.uncertainResult, r.uncertainErr
+}
+
+// RetryOutbox 记录发送失败重试调用，便于断言发送成功不会进入重试。
+func (r *scriptedOutboxRepository) RetryOutbox(context.Context, int64, string, string, int64, bool) (bool, error) {
+	r.retryCalls++
+	return true, nil
+}
+
+// GetSetting 返回测试不使用的系统设置值。
+func (r *scriptedOutboxRepository) GetSetting(context.Context, string) (string, error) {
+	return "", nil
+}
 
 // nilLogger 返回一个丢弃所有输出的 logger，用于不需要日志噪声的测试。
 func nilLogger() *slog.Logger {
@@ -145,6 +209,40 @@ func TestNotifyEventUsesPersistentOutboxWhenStarted(t *testing.T) {
 	if // err 保存err，供当前处理流程使用
 	err := s.DB.QueryRow(`SELECT COUNT(*) FROM notification_outbox`).Scan(&queued); err != nil || queued != 0 {
 		t.Fatalf("remaining=%d err=%v", queued, err)
+	}
+}
+
+// TestDrainOutbox_SendSuccessCompletionFailureQuarantines 验证外部发送成功但本地确认失败时进入不确定隔离且不重发。
+func TestDrainOutbox_SendSuccessCompletionFailureQuarantines(t *testing.T) {
+	// calls 保存测试 HTTP 服务实际收到的请求次数。
+	var calls int32
+	// server 保存接收测试通知的本地 HTTP 服务。
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	// repository 保存可控的 outbox 状态转换替身。
+	repository := &scriptedOutboxRepository{
+		channel:         &db.NotificationChannel{ID: 7, Type: "webhook", Config: `{"webhook_url":"` + server.URL + `"}`},
+		pending:         []db.NotificationOutboxMessage{{ID: 11, ChannelID: 7, EventType: EventSystemError, Body: "正文", AttemptCount: 1}},
+		completeErr:     errors.New("确认落库失败"),
+		uncertainResult: true,
+	}
+	// notifier 保存使用替身 repository 的通知器。
+	notifier := NewWithRepository("cid", repository, nilLogger())
+	notifier.started.Store(true)
+	notifier.drainOutbox(context.Background())
+	notifier.drainOutbox(context.Background())
+	if // got 保存外部服务收到的请求次数。
+	got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("send count=%d want 1", got)
+	}
+	if repository.uncertainCalls != 1 {
+		t.Fatalf("uncertain calls=%d want 1", repository.uncertainCalls)
+	}
+	if repository.retryCalls != 0 {
+		t.Fatalf("retry calls=%d want 0", repository.retryCalls)
 	}
 }
 

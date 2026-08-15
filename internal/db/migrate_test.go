@@ -220,6 +220,7 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 		{"account_task_runs", "run_key"},
 		{"chat_sessions", "unread_count"},
 		{"chat_messages", "message_key"},
+		{"notification_outbox", "uncertain_at"},
 	} {
 		if !columnExists(t, d, c.table, c.col) {
 			t.Fatalf("column missing after re-up: %s.%s", c.table, c.col)

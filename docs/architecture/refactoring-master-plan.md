@@ -794,6 +794,9 @@ npm --prefix frontend run build
 | 2026-08-15 | P1 商品批量发布应用 Port 闭环切片 | 已完成本切片 | 新增纯应用层 `items.BatchRunner`、批次/明细模型、租约/取消/中断/收口 Port 和测试；批量 worker 的逐行 claim、失败分类、租约续期和上传清理从 Server 迁入应用层，Server 仅保留既有批量平台单行适配与数据库转换，未扩大新的临时低层白名单；批量 HTTP/应用回归、架构门禁和中文注释门禁通过。单行平台适配、商品同步及其他领域 Port 仍待治理 |
 | 2026-08-15 | P1 Engine 内部任务生命周期切片 | 已完成本切片 | Engine 迟到 API 续期 watcher 纳入账号生命周期 `beginTask/finishTask`，继承账号运行 Context，StopContext 会等待其退出；WS recorder 关闭等待改为 Context-aware，未启动 recorder 不误报超时，停止超时后可重试；新增任务超时/重试和迟到 watcher 回归，Engine 全量测试、聚焦 race 和中文注释门禁通过。其他 Engine 网络/浏览器任务仍需统一清单审计 |
 | 2026-08-15 | P1 账号自动化动作错误收口切片 | 已完成本切片 | 自动评价/擦亮任务不再吞 Cookie、FinishRun、MarkRateScan/MarkPolished 错误；外部动作成功但本地状态失败会写 `needs_review` 并返回 `errAutomationNeedsReview`，隔离写入失败使用 `errors.Join` 保留双重原因；新增单失败、双失败和日期写入失败回归，automation 全量测试通过。账号任务其他动作和通知旁路仍待盘点 |
+| 2026-08-15 | P1 手动登录凭证应用 Port 闭环切片 | 已完成本切片 | 新增纯应用层 `account.LoginService`，输入 DTO 不含 Cookie/密码；明文 Cookie 只由 Server request-scoped `CookieWriter` 在凭证锁内完成归属校验、写入和旧 Token 清理，登录后审计/资料刷新/运行时重启通过生命周期 Port；新增成功、归属失败、写入失败和缺失依赖测试，Server/应用回归及中文注释门禁通过。密码登录、扫码登录和更新凭证流程仍待统一协调 |
+| 2026-08-15 | P1 账号管理器全局 Stop fencing 切片 | 已完成本切片 | `Manager.StopAllContext` 在收集账号前建立全局 stopping fence，停止期间拒绝新的 Start；单账号 Stop 超时保留 stopping 标记，防止存活实例被重启替换；全量停止完成后解除 fence，补充并发启动/停止和已取消 Context 兼容回归，account/Server 测试及 race 通过。删除任务状态查询和统一生命周期清单仍待完善 |
+| 2026-08-15 | P1 通知 outbox 不确定状态隔离切片 | 已完成本切片 | 新增 SQLite/MySQL/Postgres `notification_outbox.uncertain_at` 迁移及 `MarkOutboxUncertain`；通知已发送但 `CompleteOutbox` 失败时原子转 `uncertain`、清除租约并禁止自动重发，隔离失败用 `errors.Join` 记录；无效渠道清理不再吞错；新增 SQLite、通知 worker 和三库矩阵回归，notify/db race、全量门禁通过。人工核对查询与运维展示仍待补充 |
 
 ### 11.2 执行纠偏审计（2026-08-15）
 
