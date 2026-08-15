@@ -373,8 +373,48 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 	if !account.Enabled {
 		return
 	}
+	// 续期请求只使用当前快照；慢速外部 API 调用不得持有共享凭证锁。
+	credentialUnlock()
+	credentialLocked = false
 	// res、callErr 保存res、callErr，供当前处理流程使用
 	res, callErr := s.renewAPI(ctx, account.Value, cookierefresh.SnapshotFromMetadata(account.MetadataJSON))
+	// credentialUnlock 保存外部请求完成后重新进入提交临界区的释放函数。
+	credentialUnlock = s.store.LockAccountCredentials(account.ID)
+	credentialLocked = true
+	// latestAfterCall 和 reloadErr 保存外部调用完成后的最新账号快照及重读错误。
+	latestAfterCall, reloadErr := s.reloadRenewalAccount(ctx, account)
+	if reloadErr != nil {
+		s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "failed", ErrorMessage: "外部续期后重读账号凭证失败: " + reloadErr.Error(), RenewMethod: "auto_login_plugin", DurationMS: time.Since(started).Milliseconds()})
+		s.logger.Warn("接口续期完成后重读账号凭证失败", "account", account.ID, "err", reloadErr)
+		return
+	}
+	if !latestAfterCall.Enabled {
+		s.addAPILog(ctx, db.RenewalLog{BatchID: batchID, CookieID: account.ID, Status: "skipped", ErrorMessage: "账号在接口续期期间已停用", RenewMethod: "auto_login_plugin", DurationMS: time.Since(started).Milliseconds()})
+		return
+	}
+	// credentialSnapshotChanged 表示外部请求期间已有其他流程写入 Cookie 或 metadata。
+	credentialSnapshotChanged := latestAfterCall.Value != account.Value || latestAfterCall.MetadataJSON != account.MetadataJSON
+	// responseMetadataOverride 保存基于最新账号快照重放后的 metadata。
+	responseMetadataOverride := ""
+	// responseMetadataOverridden 表示续期响应已完成最新快照重放。
+	responseMetadataOverridden := false
+	account = latestAfterCall
+	if res != nil && credentialSnapshotChanged {
+		if len(res.SetCookies) > 0 {
+			// rebasedCookies、rebasedMetadata 保存基于最新账号快照重放响应 Cookie 的结果。
+			rebasedCookies, rebasedMetadata, _ := apirenew.RebaseResponseCookies(account.Value, account.MetadataJSON, res)
+			res.NewCookies = rebasedCookies
+			res.CookieSnapshot = nil
+			res.CookieSnapshotComplete = false
+			responseMetadataOverride = rebasedMetadata
+			responseMetadataOverridden = true
+		} else {
+			// 没有可重放的 Set-Cookie 时，拒绝把旧请求计算出的完整状态写回。
+			res.NewCookies = account.Value
+			res.CookieSnapshot = nil
+			res.CookieSnapshotComplete = false
+		}
+	}
 	if res == nil {
 		// message 保存消息，供当前处理流程使用
 		message := "接口续期未返回结果"
@@ -402,6 +442,9 @@ func (s *Scheduler) apiCookieRenewOne(ctx context.Context, batchID string, accou
 		metadata := cookierefresh.MetadataWithoutSnapshot(account.MetadataJSON)
 		if res.CookieSnapshotComplete {
 			metadata = cookierefresh.MetadataWithSnapshot(account.MetadataJSON, res.CookieSnapshot)
+		}
+		if responseMetadataOverridden {
+			metadata = responseMetadataOverride
 		}
 		// 扁平 Cookie 的排序和尾分号不是凭证变化；只有字段值变化才需要
 		// 写回和重启。完整 Jar 则还要比较 Domain/Path/Expires 等 metadata。
