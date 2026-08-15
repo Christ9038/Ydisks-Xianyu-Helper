@@ -230,6 +230,26 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     );
     expect(hook.result.current.error).toBe('联系人读取失败');
 
+    getSessionPageMock.mockRejectedValueOnce(new Error('历史联系人失败'));
+    await act(
+      // moreContactsErrorAction 触发联系人分页错误。
+      async () => hook.result.current.loadMoreContacts(),
+    );
+    expect(hook.result.current.error).toBe('历史联系人失败');
+
+    // scrollContainer 是滚动策略测试使用的最小 DOM 容器。
+    const scrollContainer = { scrollHeight: 100, scrollTop: 20, clientHeight: 50 } as HTMLDivElement;
+    hook.result.current.scrollRef.current = scrollContainer;
+    await act(
+      // scrollAction 验证距离底部较远时不自动滚动。
+      () => hook.result.current.handleMessageScroll(),
+    );
+    scrollContainer.scrollTop = 60;
+    await act(
+      // nearBottomScrollAction 验证接近底部时启用自动滚动。
+      () => hook.result.current.handleMessageScroll(),
+    );
+
     getMessagePageMock.mockRejectedValueOnce(new Error('消息读取失败'));
     await act(
       // chatSwitchAction 切换到不存在会话以触发消息读取错误。

@@ -80,6 +80,17 @@ describe('useCardsData 与 useCardBatchActions', /* 当前回调处理卡密库�
     );
     expect(batchCreateMock).toHaveBeenCalledWith(expect.any(File), expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(batchHook.result.current.batchResult).toMatchObject({ created: 1 });
+    await act(
+      // createRetryAction 重试当前批量创建文件。
+      async () => batchHook.result.current.handleRetryBatchCreate(),
+    );
+    expect(batchCreateMock).toHaveBeenCalledTimes(2);
+    await act(
+      // closeAction 关闭批量操作弹窗并取消当前请求。
+      () => batchHook.result.current.closeBatchModal(),
+    );
+    expect(batchHook.result.current.showBatchModal).toBe(false);
+    batchHook.unmount();
   });
 
   test('库存加载和追加失败时保留可见错误', /* 当前回调验证卡密 Hook 的失败路径。 */ async () => {
