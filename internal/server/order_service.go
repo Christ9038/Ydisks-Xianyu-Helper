@@ -869,10 +869,24 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 			}
 			// latest.Value 仅用于当前账号的凭证调用，不需要写回账号列表。
 			mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latestDetail)
+			// 账号凭证快照已读取完成；慢速订单发现请求不得继续持有共享凭证锁。
+			credentialUnlock()
 			// accountDiscovered、accountUpdated、accountNewIDs、accountRemoteIDs、discoveryErr 保存账号Discovered、accountUpdated、accountNewIDs、accountRemoteIDs、discoveryErr，供当前处理流程使用
 			accountDiscovered, accountUpdated, accountNewIDs, accountRemoteIDs, discoveryErr := a.server.discoverSoldOrders(mtopCtx, fetcher, cid, latestDetail.Value)
+			// credentialUnlock 保存外部订单发现完成后重新进入凭证提交临界区的释放函数。
+			credentialUnlock = a.repository.LockCredentials(cid)
+			// latestAfterDiscovery、reloadErr 保存外部请求完成后的最新凭证快照及重读错误。
+			latestAfterDiscovery, reloadErr := a.repository.LoadCookiePlatformDetail(ctx, cid)
+			// credentialSnapshotChanged 表示订单发现期间账号凭证是否已被其他流程更新。
+			credentialSnapshotChanged := reloadErr == nil && latestAfterDiscovery != nil && (latestAfterDiscovery.Value != latestDetail.Value || latestAfterDiscovery.MetadataJSON != latestDetail.MetadataJSON)
+			if reloadErr != nil || latestAfterDiscovery == nil || latestAfterDiscovery.UserID != userID {
+				discoveryErr = errors.Join(discoveryErr, errors.New("订单发现完成后账号凭证无法复核"))
+			}
 			// value、valueChanged、persistErr 保存value、valueChanged、persistErr，供当前处理流程使用
-			value, valueChanged, _, persistErr := a.server.persistMTopCookieSessionLocked(ctx, latestDetail, cookieSession)
+			value, valueChanged, _, persistErr := "", false, false, error(nil)
+			if reloadErr == nil && latestAfterDiscovery != nil && latestAfterDiscovery.UserID == userID && !credentialSnapshotChanged {
+				value, valueChanged, _, persistErr = a.server.persistMTopCookieSessionLocked(ctx, latestDetail, cookieSession)
+			}
 			if persistErr != nil {
 				discoveryErr = errors.Join(discoveryErr, fmt.Errorf("保存订单列表响应 Cookie Jar: %w", persistErr))
 			}
@@ -1014,6 +1028,8 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 			detailCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 			// mtopCtx、cookieSession 保存mtopCtx、cookie会话，供当前处理流程使用
 			mtopCtx, cookieSession := withMTopCookieSnapshot(detailCtx, latestDetail)
+			// 账号凭证快照已读取完成；订单详情批量请求不得继续持有共享凭证锁。
+			credentialUnlock()
 			// sessionErr 保存会话Err，供当前处理流程使用
 			var sessionErr error
 			// target 表示当前遍历过程中的target
@@ -1072,9 +1088,22 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 				})
 			}
 			cancel()
+			// credentialUnlock 保存外部订单详情完成后重新进入凭证提交临界区的释放函数。
+			credentialUnlock = a.repository.LockCredentials(cid)
+			// latestAfterDetails、detailsReloadErr 保存详情请求完成后的最新凭证快照及重读错误。
+			latestAfterDetails, detailsReloadErr := a.repository.LoadCookiePlatformDetail(ctx, cid)
+			// credentialSnapshotChanged 表示订单详情期间账号凭证是否已被其他流程更新。
+			credentialSnapshotChanged := detailsReloadErr != nil || latestAfterDetails == nil || latestAfterDetails.UserID != userID || latestAfterDetails.Value != latestDetail.Value || latestAfterDetails.MetadataJSON != latestDetail.MetadataJSON
 			// value、valueChanged、persistErr 保存value、valueChanged、persistErr，供当前处理流程使用
-			value, valueChanged, _, persistErr := a.server.persistMTopCookieSessionLocked(ctx, latestDetail, cookieSession)
+			value, valueChanged, _, persistErr := "", false, false, error(nil)
+			if !credentialSnapshotChanged {
+				value, valueChanged, _, persistErr = a.server.persistMTopCookieSessionLocked(ctx, latestDetail, cookieSession)
+			}
 			credentialUnlock()
+			if detailsReloadErr != nil {
+				failed += len(chunk)
+				results = append(results, map[string]any{"cookie_id": cid, "stage": "persist_cookie", "success": false, "message": "订单详情完成后账号凭证无法复核"})
+			}
 			if persistErr != nil {
 				failed++
 				results = append(results, map[string]any{"cookie_id": cid, "stage": "persist_cookie", "success": false, "message": persistErr.Error()})

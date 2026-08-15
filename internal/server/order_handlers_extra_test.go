@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"xianyu-go/internal/db"
 )
@@ -74,6 +76,65 @@ func TestRefreshOrdersDiscoversNewOrdersWithoutBrowser(t *testing.T) {
 	if order.CookieID != "acc1" || order.ItemID != "item-new" || order.OrderStatus != "pending_ship" ||
 		order.Amount != "19.90" || order.Quantity != "2" || order.IsBargain != 1 || order.ReceiverName != "张三" {
 		t.Fatalf("discovered order=%+v", order)
+	}
+}
+
+// TestRefreshOrdersReleasesCredentialLockDuringDiscovery 验证订单发现远端请求期间不会占用账号凭证锁。
+func TestRefreshOrdersReleasesCredentialLockDuringDiscovery(t *testing.T) {
+	// srv、store、cleanup 保存srv、store、cleanup
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// started 表示订单发现请求已经进入阻塞点。
+	started := make(chan struct{})
+	// release 允许测试释放阻塞的订单发现请求。
+	release := make(chan struct{})
+	// once 保证 started 只关闭一次。
+	var once sync.Once
+	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		once.Do(func() { close(started) })
+		<-release
+		// body 是空订单列表的成功响应。
+		body := `{"ret":["SUCCESS::调用成功"],"data":{"module":{"nextPage":"false","totalCount":"0","items":[]}}}`
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	}))
+	// h 保存 HTTP 路由处理器。
+	h := srv.Router()
+	// cookie 保存登录凭证。
+	cookie := loginHelper(t, h)
+	// requestDone 表示订单刷新请求已经返回。
+	requestDone := make(chan struct{})
+	go func() {
+		defer close(requestDone)
+		// req 是触发订单刷新的测试请求。
+		req := httptest.NewRequest(http.MethodPost, "/api/orders/refresh", nil)
+		req.AddCookie(cookie)
+		// rec 保存订单刷新请求的测试响应。
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("订单发现请求未进入阻塞点")
+	}
+	// lockAcquired 表示另一个操作已成功取得同账号凭证锁。
+	lockAcquired := make(chan struct{})
+	go func() {
+		// unlock 释放测试 goroutine 取得的账号凭证锁。
+		unlock := store.LockAccountCredentials("acc1")
+		close(lockAcquired)
+		unlock()
+	}()
+	select {
+	case <-lockAcquired:
+	case <-time.After(time.Second):
+		t.Fatal("订单发现期间凭证锁仍被占用")
+	}
+	close(release)
+	select {
+	case <-requestDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("订单刷新请求未收束")
 	}
 }
 
