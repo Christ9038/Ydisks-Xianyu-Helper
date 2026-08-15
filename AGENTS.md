@@ -163,9 +163,11 @@ debt and record the scope in `docs/architecture/refactoring-master-plan.md`.
 - Run `make cover` for the ordinary Go baseline, `make cover-browser` when Chromium is available, and
   `make cover-frontend` for the React/Vite V8 report. Coverage reports are verification artifacts and MUST NOT be
   committed (`cover*.out` and `frontend/coverage/` remain generated files).
-- Do not exclude production files, lower thresholds, mark code as ignored, or weaken assertions merely to improve a
-  percentage. Any remaining uncovered code must be classified in the plan as deterministic work, environment-only
-  work, or real-account/external-platform work.
+- Do not exclude production business files, lower thresholds, mark business code as ignored, or weaken assertions
+  merely to improve a percentage. Per the current user requirement, pure React UI components are outside the business
+  coverage target and may be excluded by the frontend coverage configuration; their business behavior must remain in
+  tested Hook/state/service modules. Any remaining uncovered business code must be classified in the plan as
+  deterministic work, environment-only work, or real-account/external-platform work.
 - Tests may skip only behavior that genuinely requires a real account, private platform state, or an unavailable
   external service. Local browser behavior, error handling, cancellation, lifecycle, parsing and UI state transitions
   MUST use deterministic fixtures and remain covered.

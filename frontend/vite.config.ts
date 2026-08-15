@@ -34,6 +34,13 @@ export default defineConfig({
         '**/dist/**',
         '**/scripts/**',
         '**/vite.config.ts',
+        // 纯 UI 组件不属于本项目的业务覆盖率目标，交互逻辑应在业务 Hook/状态模块中验证。
+        '**/components/**',
+        'components/**',
+        'App.tsx',
+        'index.tsx',
+        'chatEmojis.tsx',
+        'app/features/dashboard/DashboardTrendChart.tsx',
       ],
     },
   },
