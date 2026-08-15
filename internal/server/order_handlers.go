@@ -493,14 +493,3 @@ func (s *Server) notifyDelivery(cookieID, buyerID, itemID, chatID, message strin
 	}
 	s.notifier.NotifyDelivery(cookieID, "", buyerID, itemID, message, chatID)
 }
-
-// containsCookieID 判断账号 ID 列表中是否包含目标账号，不触碰 Cookie 明文。
-func containsCookieID(cookieIDs []string, target string) bool {
-	// cookieID 是当前遍历到的账号 ID。
-	for _, cookieID := range cookieIDs {
-		if cookieID == target {
-			return true
-		}
-	}
-	return false
-}

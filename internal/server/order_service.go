@@ -53,7 +53,7 @@ type serverOrderRuntimeAdapter struct {
 }
 
 // newServerOrderRuntime 创建订单运行时 Port 的 Server 适配器。
-func newServerOrderRuntime(server *Server) orderRuntimePort {
+func newServerOrderRuntime(server *Server) serverOrderRuntimeAdapter {
 	return serverOrderRuntimeAdapter{server: server}
 }
 
@@ -98,14 +98,34 @@ func (a serverOrderRuntimeAdapter) consignWithCurrentCookie(ctx context.Context,
 	return a.server.consignWithCurrentCookie(ctx, cookieID, orderID, userID)
 }
 
+// ConfirmShipment 将 Server 的确认发货能力适配为应用层结果模型。
+func (a serverOrderRuntimeAdapter) ConfirmShipment(ctx context.Context, cookieID, orderID string, userID int64) orderapp.ConsignResult {
+	// ok、messages、runtimeCookie、runtimeCookieChanged、err 保存确认发货结果及凭证变化。
+	ok, messages, runtimeCookie, runtimeCookieChanged, err := a.consignWithCurrentCookie(ctx, cookieID, orderID, userID)
+	return orderapp.ConsignResult{
+		Success: ok, Messages: messages, RuntimeCookie: runtimeCookie,
+		RuntimeCookieChanged: runtimeCookieChanged, Err: err,
+	}
+}
+
 // updateRunningCookie 同步运行时账号 Cookie。
 func (a serverOrderRuntimeAdapter) updateRunningCookie(ctx context.Context, cookieID, value string) {
 	a.server.updateRunningCookie(ctx, cookieID, value)
 }
 
+// UpdateRunningCookie 将运行时账号 Cookie 能力暴露给手动发货应用 Port。
+func (a serverOrderRuntimeAdapter) UpdateRunningCookie(ctx context.Context, cookieID, value string) {
+	a.updateRunningCookie(ctx, cookieID, value)
+}
+
 // notifyDelivery 发送发货结果通知。
 func (a serverOrderRuntimeAdapter) notifyDelivery(cookieID, buyerID, itemID, chatID, message string) {
 	a.server.notifyDelivery(cookieID, buyerID, itemID, chatID, message)
+}
+
+// NotifyDelivery 将发货通知能力暴露给手动发货应用 Port。
+func (a serverOrderRuntimeAdapter) NotifyDelivery(cookieID, buyerID, itemID, chatID, message string) {
+	a.notifyDelivery(cookieID, buyerID, itemID, chatID, message)
 }
 
 // RecordOrderReconciliation 将外部动作成功后的本地状态异常写入补偿记录。
@@ -114,6 +134,19 @@ func (a serverOrderRuntimeAdapter) RecordOrderReconciliation(ctx context.Context
 		return "", errors.New("订单补偿存储未初始化")
 	}
 	return a.server.Store.Reconciliations.CreatePending(ctx, orderID, cookieID, kind, message)
+}
+
+// RecordReconciliation 将补偿记录能力暴露给手动发货应用 Port。
+func (a serverOrderRuntimeAdapter) RecordReconciliation(ctx context.Context, orderID, cookieID, kind, message string) (string, error) {
+	return a.RecordOrderReconciliation(ctx, orderID, cookieID, kind, message)
+}
+
+// ReportPersistenceFailure 记录手动发货本地订单状态持久化失败。
+func (a serverOrderRuntimeAdapter) ReportPersistenceFailure(orderID string, err error) {
+	if a.server == nil || a.server.Logger == nil || err == nil {
+		return
+	}
+	a.server.Logger.Error("更新订单为系统已发货失败", "order_id", orderID, "err", err)
 }
 
 // persistMTopCookieSessionLocked 持久化平台响应 Cookie Jar。
@@ -156,6 +189,8 @@ type orderApplicationService struct {
 	update *orderapp.UpdateService
 	// importOrders 负责订单导入的归属校验和事务写入。
 	importOrders *orderapp.ImportService
+	// manualShip 负责手动发货的远端动作、本地状态和补偿规则。
+	manualShip *orderapp.ManualShipService
 	// refreshJobs 提供订单刷新后台任务的持久化 Port。
 	refreshJobs orderapp.RefreshJobRepository
 }
@@ -532,138 +567,29 @@ type manualShipResult struct {
 
 // ManualShip 执行状态确认或完整自动化发货，并集中处理逐单失败而不中断批次的规则。
 func (a *orderApplicationService) ManualShip(ctx context.Context, request manualShipRequest) (manualShipResult, error) {
-	// ownedCookieIDs、err 保存owned登录凭证IDs、err，供当前处理流程使用
-	ownedCookieIDs, err := a.repository.ListOwnedIDs(ctx, request.UserID)
+	// result 保存应用层手动发货结果。
+	result, err := a.manualShip.ManualShip(ctx, orderapp.ManualShipRequest{UserID: request.UserID, OrderIDs: request.OrderIDs, ShipMode: request.ShipMode})
 	if err != nil {
 		return manualShipResult{}, err
 	}
-	// result 保存结果，供当前处理流程使用
-	result := manualShipResult{Results: make([]map[string]any, 0, len(request.OrderIDs))}
-	// rawOrderID 表示当前遍历过程中的原始订单ID
-	for _, rawOrderID := range request.OrderIDs {
-		// orderID 保存订单ID，供当前处理流程使用
-		orderID := strings.TrimSpace(rawOrderID)
-		if orderID == "" {
-			continue
-		}
-		// order、getErr 保存order、getErr，供当前处理流程使用
-		order, getErr := a.repository.GetOrder(ctx, orderID)
-		if getErr != nil || order == nil {
-			a.appendManualFailure(&result, orderID, "订单不存在")
-			continue
-		}
-		if !containsCookieID(ownedCookieIDs, order.CookieID) {
-			a.appendManualFailure(&result, orderID, "无权操作此订单")
-			continue
-		}
-		if db.NormalizeOrderStatus(strings.TrimSpace(order.OrderStatus)) != "pending_ship" {
-			a.appendManualFailure(&result, orderID, "仅待发货订单可以执行手动发货")
-			continue
-		}
-		if request.ShipMode == "full_delivery" {
-			a.manualFullDelivery(ctx, order, orderID, &result)
-			continue
-		}
-		a.manualStatusShip(ctx, request.UserID, order, orderID, &result)
-	}
-	return result, nil
+	return manualShipResultFromApplication(result), nil
 }
 
-// appendManualFailure 追加一条手动发货失败记录并更新失败计数。
-func (a *orderApplicationService) appendManualFailure(result *manualShipResult, orderID, message string) {
-	result.FailedCount++
-	result.Results = append(result.Results, map[string]any{"order_id": orderID, "status": "failed", "success": false, "message": message})
-}
-
-// manualFullDelivery 执行完整自动化发货分支。
-func (a *orderApplicationService) manualFullDelivery(ctx context.Context, order *orderapp.Order, orderID string, result *manualShipResult) {
-	if !a.server.AutomationReady() {
-		a.appendManualFailure(result, orderID, "自动化中心未初始化")
-		return
-	}
-	if // running 保存running，供当前处理流程使用
-	!a.server.AccountRunning(order.CookieID) {
-		a.appendManualFailure(result, orderID, "该账号未在线运行，无法执行完整发货")
-		return
-	}
-	// sent、err 保存sent、err，供当前处理流程使用
-	sent, err := a.server.ManualFullDelivery(ctx, order)
-	if err != nil {
-		a.appendManualFailure(result, orderID, err.Error())
-		a.server.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID, "手动完整发货失败: "+err.Error())
-		return
-	}
-	result.SuccessCount++
-	result.Results = append(result.Results, map[string]any{"order_id": orderID, "status": "succeeded", "success": true, "message": fmt.Sprintf("完整发货成功，已发送%d条卡券信息给买家", sent)})
-	a.server.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID, fmt.Sprintf("手动完整发货成功（订单 %s，已发送 %d 条）", orderID, sent))
-}
-
-// manualStatusShip 调用平台确认发货并把成功状态写入本地订单。
-func (a *orderApplicationService) manualStatusShip(ctx context.Context, userID int64, order *orderapp.Order, orderID string, result *manualShipResult) {
-	if !a.server.MTopAvailable() {
-		a.appendManualFailure(result, orderID, "mtop 客户端未初始化")
-		return
-	}
-	// ok、ret、runtimeCookie、runtimeCookieChanged、err 保存ok、ret、runtimeCookie、runtime登录凭证Changed、err，供当前处理流程使用
-	ok, ret, runtimeCookie, runtimeCookieChanged, err := a.server.consignWithCurrentCookie(ctx, order.CookieID, orderID, userID)
-	if runtimeCookieChanged {
-		a.server.updateRunningCookie(ctx, order.CookieID, runtimeCookie)
-	}
-	if err != nil && !ok {
-		a.appendManualFailure(result, orderID, "确认发货异常: "+err.Error())
-		a.server.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID, "手动确认发货异常: "+err.Error())
-		return
-	}
-	if !ok {
-		// message 保存消息，供当前处理流程使用
-		message := "确认发货失败"
-		if len(ret) > 0 {
-			message += ": " + strings.Join(ret, "; ")
+// manualShipResultFromApplication 将应用层手动发货结果转换为旧 HTTP 响应兼容模型。
+func manualShipResultFromApplication(result orderapp.ManualShipResult) manualShipResult {
+	// results 保存兼容客户端使用的逐条动态结果。
+	results := make([]map[string]any, 0, len(result.Results))
+	// item 保存当前应用层手动发货结果行。
+	for _, item := range result.Results {
+		// row 保存兼容客户端使用的单条结果。
+		row := map[string]any{"order_id": item.OrderID, "status": item.Status, "success": item.Success, "message": item.Message}
+		if item.ReconciliationFieldsPresent {
+			row["reconciliation_id"] = item.ReconciliationID
+			row["reconciliation_warning"] = item.ReconciliationWarning
 		}
-		a.appendManualFailure(result, orderID, message)
-		a.server.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID, "手动确认发货失败: "+message)
-		return
+		results = append(results, row)
 	}
-	// sysShip 保存sysShip，供当前处理流程使用
-	sysShip := true
-	// upsertErr 保存upsertErr，供当前处理流程使用
-	upsertErr := a.repository.UpsertOrder(ctx, orderID, orderapp.UpsertOptions{
-		CookieID: order.CookieID, OrderStatus: "shipped", SystemShipped: &sysShip, ItemID: order.ItemID,
-		BuyerID: order.BuyerID, ReceiverName: order.ReceiverName, ReceiverPhone: order.ReceiverPhone,
-		ReceiverAddress: order.ReceiverAddress, ReceiverCity: order.ReceiverCity, ChatID: order.ChatID,
-		SpecName: order.SpecName, SpecValue: order.SpecValue, Quantity: order.Quantity, Amount: order.Amount,
-	})
-	if upsertErr != nil && a.server.logger() != nil {
-		a.server.logger().Error("更新订单为系统已发货失败", "order_id", orderID, "err", upsertErr)
-	}
-	result.SuccessCount++
-	// status 表示远端动作与本地状态同步的三态结果。
-	status := "succeeded"
-	// message 保存消息，供当前处理流程使用。
-	message := "已成功修改闲鱼发货状态"
-	// reconciliationID 保存待补偿记录标识。
-	reconciliationID := ""
-	// reconciliationWarning 保存本地状态写入或补偿记录写入错误。
-	reconciliationWarning := ""
-	if upsertErr != nil {
-		status = "reconciliation_required"
-		message = "闲鱼已确认发货；本地订单状态待补偿，请勿重复确认发货"
-		reconciliationWarning = upsertErr.Error()
-		// reconciliationID、recordErr 保存补偿记录标识及其写入错误。
-		var recordErr error
-		// recordCtx、recordCancel 确保请求取消后仍有短暂时间写入补偿记录。
-		recordCtx, recordCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		reconciliationID, recordErr = a.server.RecordOrderReconciliation(recordCtx, orderID, order.CookieID, "manual_status_ship", upsertErr.Error())
-		recordCancel()
-		if recordErr != nil {
-			reconciliationWarning = errors.Join(errors.New(reconciliationWarning), fmt.Errorf("写入补偿记录失败: %w", recordErr)).Error()
-		}
-	}
-	result.Results = append(result.Results, map[string]any{
-		"order_id": orderID, "status": status, "success": true, "message": message,
-		"reconciliation_id": reconciliationID, "reconciliation_warning": reconciliationWarning,
-	})
-	a.server.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID, fmt.Sprintf("手动确认发货成功（订单 %s）", orderID))
+	return manualShipResult{SuccessCount: result.SuccessCount, FailedCount: result.FailedCount, Results: results}
 }
 
 // RefreshSingle 刷新单个订单详情并写回本地订单。
