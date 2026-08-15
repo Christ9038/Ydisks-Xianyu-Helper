@@ -1,236 +1,45 @@
-import React, { useMemo, useState } from 'react';
+import React from 'react';
 import { createPortal } from 'react-dom';
 import { Card } from '../types';
-import { createCard, deleteCard, updateCard } from '../app/features/cards/api';
 import { Plus, CreditCard, FileText, Image as ImageIcon, Edit, Trash2, Save, X, Eye, EyeOff, Package, Copy, Upload, Loader2, Search, SlidersHorizontal } from 'lucide-react';
 import { BatchCardImportModal } from '../app/features/cards/components/BatchCardImportModal';
 import { CardIcon } from '../app/features/cards/components/CardIcon';
 import { useCardBatchActions, useCardsData } from '../app/features/cards/hooks';
-import { filterCards } from '../app/features/cards/batchState';
-import type { AddCardForm, EditCardForm } from '../app/features/cards/types';
-
-// emptyAddForm 新增卡密表单初始值。
-const emptyAddForm = (): AddCardForm => ({
-  name: '',
-  type: 'data',
-  content: '',
-  description: '',
-  enabled: true,
-  delay_seconds: 0,
-  api_method: 'GET',
-  api_timeout: 10,
-  api_headers: '',
-  api_params: '',
-});
+import { useCardActions } from '../app/features/cards/cardActions';
 
 // CardList 渲染卡密列表组件。
 const CardList: React.FC = () => {
   // { 解构得到当前 Hook 返回的状态和操作函数。
   const { cards, loadCards } = useCardsData();
-  // [showEditModal, 解构得到当前 Hook 返回的状态和操作函数。
-  const [showEditModal, setShowEditModal] = useState(false);
-  // [showAddModal, 解构得到当前 Hook 返回的状态和操作函数。
-  const [showAddModal, setShowAddModal] = useState(false);
-  // [selectedCard, 解构得到当前 Hook 返回的状态和操作函数。
-  const [selectedCard, setSelectedCard] = useState<Card | null>(null);
-  // [editForm, 解构得到当前 Hook 返回的状态和操作函数。
-  const [editForm, setEditForm] = useState<EditCardForm>({});
-  // [addForm, 解构得到当前 Hook 返回的状态和操作函数。
-  const [addForm, setAddForm] = useState<AddCardForm>(emptyAddForm);
-
-  // [typeFilter, 解构得到当前 Hook 返回的状态和操作函数。
-  const [typeFilter, setTypeFilter] = useState<Card['type'] | ''>('');
-  // [nameSearch, 解构得到当前 Hook 返回的状态和操作函数。
-  const [nameSearch, setNameSearch] = useState('');
-  // dataCards 只保留可追加库存的卡密组，并在卡密数据未变化时保持引用稳定。
-  const dataCards = useMemo(/* 当前回调处理集合中的单个元素。 */ () => cards.filter(/* 当前回调处理集合中的单个元素。 */ card => card.type === 'data'), [cards]);
+  // cardActions 集中管理卡密编辑、新增、删除、筛选和模板动作。
+  const cardActions = useCardActions({ cards, loadCards });
+  // actionState 解构得到卡密页面动作协调器状态和方法。
+  const {
+    dataCards,
+    filteredCards,
+    typeFilter,
+    setTypeFilter,
+    nameSearch,
+    setNameSearch,
+    showEditModal,
+    setShowEditModal,
+    showAddModal,
+    setShowAddModal,
+    selectedCard,
+    editForm,
+    setEditForm,
+    addForm,
+    setAddForm,
+    handleEdit,
+    handleSaveEdit,
+    handleDelete,
+    handleAddCard,
+    toggleCardStatus,
+    copyCardID,
+    downloadCardTemplate,
+  } = cardActions;
   // batchState 批量发布状态。
   const batchState = useCardBatchActions({ dataCards, loadCards });
-
-  // handleEdit 处理当前用户操作（Edit）。
-  const handleEdit = (card: Card) => {
-    setSelectedCard(card);
-    setEditForm({
-      id: card.id,
-      name: card.name || '',
-      type: card.type || 'text',
-      // API 配置
-      api_url: card.api_config?.url || '',
-      api_method: card.api_config?.method || 'GET',
-      api_timeout: card.api_config?.timeout || 10,
-      api_headers: card.api_config?.headers || '',
-      api_params: card.api_config?.params || '',
-      // 文本配置
-      text_content: card.text_content || '',
-      // 批量数据配置
-      data_content: card.data_content || '',
-      // 图片配置
-      image_url: card.image_url || '',
-      // 通用配置
-      delay_seconds: card.delay_seconds || 0,
-      description: card.description || '',
-      enabled: card.enabled
-    });
-    setShowEditModal(true);
-  };
-
-  // handleSaveEdit 处理当前用户操作（SaveEdit）。
-  const handleSaveEdit = async () => {
-    if (!selectedCard) return;
-
-    // 验证必填字段
-    if (!editForm.name?.trim()) {
-      alert('请输入卡密名称');
-      return;
-    }
-    if (!editForm.type) {
-      alert('请选择卡密类型');
-      return;
-    }
-
-    try {
-      // updateData 更新当前数据（返回数据）。
-      const updateData: Partial<Card> = {
-        name: editForm.name.trim(),
-        type: editForm.type as any,
-        description: editForm.description?.trim(),
-        delay_seconds: editForm.delay_seconds || 0,
-        enabled: editForm.enabled ?? true,
-      };
-
-      // 根据类型设置内容
-      if (editForm.type === 'api') {
-        updateData.api_config = {
-          url: editForm.api_url?.trim() || '',
-          method: editForm.api_method as 'GET' | 'POST',
-          timeout: editForm.api_timeout || 10,
-          headers: editForm.api_headers?.trim() || undefined,
-          params: editForm.api_params?.trim() || undefined
-        };
-      } else if (editForm.type === 'text') {
-        updateData.text_content = editForm.text_content?.trim() || '';
-      } else if (editForm.type === 'data') {
-        updateData.data_content = editForm.data_content?.trim() || '';
-      } else if (editForm.type === 'image') {
-        updateData.image_url = editForm.image_url?.trim() || '';
-      }
-
-      await updateCard(selectedCard.id, updateData);
-      setShowEditModal(false);
-      await loadCards();
-    } catch (/* error 表示错误。 */ error) {
-      console.error('更新卡密失败:', error);
-      alert('更新失败，请重试');
-    }
-  };
-
-  // handleDelete 处理当前用户操作（Delete）。
-  const handleDelete = async (id: string | number) => {
-    if (confirm('确认删除该卡密吗？')) {
-      try {
-        await deleteCard(id);
-        await loadCards();
-      } catch (/* error 表示错误。 */ error) {
-        console.error('删除卡密失败:', error);
-        alert('删除失败，请重试');
-      }
-    }
-  };
-
-  // handleAddCard 处理当前用户操作（Add卡密）。
-  const handleAddCard = async () => {
-    if (!addForm.name.trim()) {
-      alert('请输入卡密名称');
-      return;
-    }
-    if (!addForm.content.trim()) {
-      alert(addForm.type === 'api' ? '请输入 API 地址' : '请输入卡密内容');
-      return;
-    }
-    try {
-      // payload 请求载荷。
-      const payload: Partial<Card> = {
-        name: addForm.name.trim(),
-        type: addForm.type,
-        description: addForm.description.trim(),
-        enabled: addForm.enabled,
-        delay_seconds: addForm.delay_seconds,
-      };
-      if (addForm.type === 'text') payload.text_content = addForm.content.trim();
-      if (addForm.type === 'data') payload.data_content = addForm.content.trim();
-      if (addForm.type === 'image') payload.image_url = addForm.content.trim();
-      if (addForm.type === 'api') {
-        payload.api_config = {
-          url: addForm.content.trim(),
-          method: addForm.api_method,
-          timeout: addForm.api_timeout,
-          headers: addForm.api_headers.trim() || undefined,
-          params: addForm.api_params.trim() || undefined,
-        };
-      }
-      await createCard(payload);
-      setShowAddModal(false);
-      setAddForm(emptyAddForm());
-      await loadCards();
-    } catch (/* error 表示错误。 */ error) {
-      console.error('添加卡密失败:', error);
-      alert('添加失败，请重试');
-    }
-  };
-
-  // toggleCardStatus 切换当前状态（卡密状态）。
-  const toggleCardStatus = async (card: Card) => {
-    try {
-      await updateCard(card.id, { ...card, enabled: !card.enabled });
-      await loadCards();
-    } catch (/* error 表示错误。 */ error) {
-      console.error('切换状态失败:', error);
-    }
-  };
-
-  // copyCardID 复制卡密标识函数。
-  const copyCardID = async (id: string | number) => {
-    try {
-      await navigator.clipboard.writeText(String(id));
-      alert(`已复制卡密组ID：${id}`);
-    } catch {
-      prompt('复制卡密组ID', String(id));
-    }
-  };
-
-  // filteredCards 过滤后的卡密列表，负责当前功能中的对应处理。
-  const filteredCards = useMemo(
-    /* 当前回调计算并缓存派生数据。 */ () => filterCards(cards, typeFilter, nameSearch),
-    [cards, nameSearch, typeFilter],
-  );
-
-  // downloadCardTemplate 下载卡密模板函数。
-  const downloadCardTemplate = () => {
-    // headers 请求头。
-    const headers = ['名称', '类型', '内容', '描述', '启用', '延迟秒', '多规格', '规格名', '规格值'];
-    // rows 行数据。
-    const rows = [
-      ['VIP月卡', 'data', 'VIP-MONTH-001\nVIP-MONTH-002\nVIP-MONTH-003', '按行消费的卡密队列', '是', '0', '否', '', ''],
-      ['感谢文案', 'text', '感谢购买，如有问题联系客服～', '固定文本', '是', '0', '否', '', ''],
-      ['教程图', 'image', 'https://cdn.example.com/tutorial.jpg', '图片URL', '是', '0', '否', '', ''],
-    ];
-    // csv csv，负责当前功能中的对应处理。
-    const csv = [headers, ...rows]
-      .map(/* 当前回调处理集合中的单个元素。 */ row => row.map(/* 当前回调处理集合中的单个元素。 */ cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-    // blob blob，负责当前功能中的对应处理。
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
-    // url 地址。
-    const url = URL.createObjectURL(blob);
-    // link 链接。
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = '卡密组批量导入模板.csv';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -368,6 +177,7 @@ const CardList: React.FC = () => {
                     <td className="px-2 py-5">
                       <button
                         onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => toggleCardStatus(card)}
+                        aria-label={`切换卡密 ${card.name} 状态`}
                         className={`w-12 h-8 rounded-full relative transition-colors ${
                           card.enabled ? 'bg-green-500' : 'bg-gray-300'
                         }`}
@@ -388,6 +198,7 @@ const CardList: React.FC = () => {
                         </button>
                         <button
                           onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => handleDelete(card.id)}
+                          aria-label={`删除卡密 ${card.name}`}
                           className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500"
                         >
                           <Trash2 className="h-4 w-4" />
