@@ -148,6 +148,18 @@ type orderApplicationService struct {
 	repository orderapp.Repository
 }
 
+// orderRefreshWrite 保存已从平台成功获取、等待同一事务批量写入的订单详情。
+type orderRefreshWrite struct {
+	// orderID 是待更新订单的业务标识。
+	orderID string
+	// currentStatus 是刷新前的订单状态。
+	currentStatus string
+	// newStatus 是平台返回并经过本地规则校正后的订单状态。
+	newStatus string
+	// options 是写入订单所需的应用层字段集合。
+	options orderapp.UpsertOptions
+}
+
 // errOrderDetailUnsupported 保存err订单DetailUnsupported，供当前处理流程使用
 var errOrderDetailUnsupported = errors.New("当前 Go MTOP 客户端不支持订单详情接口")
 
@@ -1032,6 +1044,8 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 			credentialUnlock()
 			// sessionErr 保存会话Err，供当前处理流程使用
 			var sessionErr error
+			// pendingWrites 保存当前详情分片中已成功获取、等待事务批量写入的订单。
+			pendingWrites := make([]orderRefreshWrite, 0, len(chunk))
 			// target 表示当前遍历过程中的target
 			for _, target := range chunk {
 				// detail、fetchErr 保存detail、fetchErr，供当前处理流程使用
@@ -1059,32 +1073,44 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 				if !validEditableOrderStatus(newStatus) {
 					newStatus = target.CurrentStatus
 				}
-				// err 保存err，供当前处理流程使用
-				err := a.repository.UpsertOrder(ctx, target.OrderID, orderapp.UpsertOptions{
-					CookieID:    cid,
-					OrderStatus: newStatus,
-					SpecName:    detail.SpecName,
-					SpecValue:   detail.SpecValue,
-					Quantity:    detail.Quantity,
-					Amount:      detail.Amount,
+				pendingWrites = append(pendingWrites, orderRefreshWrite{
+					orderID:       target.OrderID,
+					currentStatus: target.CurrentStatus,
+					newStatus:     newStatus,
+					options: orderapp.UpsertOptions{
+						CookieID: cid, OrderStatus: newStatus, SpecName: detail.SpecName,
+						SpecValue: detail.SpecValue, Quantity: detail.Quantity, Amount: detail.Amount,
+					},
 				})
-				if err != nil {
+			}
+			// batchWriteErr 表示当前详情分片的订单批量事务写入错误。
+			batchWriteErr := a.repository.WithTransaction(ctx, func(writer orderapp.Writer) error {
+				// write 表示当前事务中待写入的订单详情。
+				for _, write := range pendingWrites {
+					// err 表示当前订单写入失败的底层错误。
+					if err := writer.UpsertOrder(ctx, write.orderID, write.options); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+			// write 表示当前批量写入结果对应的订单详情。
+			for _, write := range pendingWrites {
+				if batchWriteErr != nil {
 					failed++
-					results = append(results, map[string]any{"order_id": target.OrderID, "success": false, "message": "更新数据库失败"})
+					results = append(results, map[string]any{"order_id": write.orderID, "success": false, "message": "批量更新数据库失败"})
 					continue
 				}
-				// changed 保存changed，供当前处理流程使用
-				changed := newStatus != "" && newStatus != target.CurrentStatus
+				// changed 表示当前订单状态是否发生变化。
+				changed := write.newStatus != "" && write.newStatus != write.currentStatus
 				if changed {
 					updated++
 				} else {
 					noChange++
 				}
 				results = append(results, map[string]any{
-					"order_id":   target.OrderID,
-					"success":    true,
-					"old_status": target.CurrentStatus,
-					"new_status": newStatus,
+					"order_id": write.orderID, "success": true,
+					"old_status": write.currentStatus, "new_status": write.newStatus,
 				})
 			}
 			cancel()
