@@ -6,7 +6,7 @@ const source = (path: string) => readFileSync(resolve(__dirname, path), 'utf8');
 
 describe('responsive rules layout', () => {
   test('allows the rules page to shrink inside the sidebar layout', () => {
-    const app = source('App.tsx'); /* app 表示app。 */
+    const app = source('app/shell/AuthenticatedShell.tsx'); /* app 表示认证后应用壳源码。 */
     const rules = source('components/Rules.tsx'); /* rules 表示规则集合。 */
     expect(app).toContain('h-screen min-w-0 flex-1 overflow-x-hidden');
     expect(rules).toContain('min-w-0 space-y-8');

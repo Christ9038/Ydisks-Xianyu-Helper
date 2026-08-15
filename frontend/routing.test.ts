@@ -18,7 +18,7 @@ const extractSingleQuotedValues = (source: string, pattern: RegExp) => {
 describe('frontend navigation routing', () => {
   test('sidebar entries and App activeTab routes stay in sync', () => {
     const sidebar = readFrontendFile('components/Sidebar.tsx'); /* sidebar 表示sidebar。 */
-    const app = readFrontendFile('App.tsx'); /* app 表示app。 */
+    const app = readFrontendFile('app/shell/AuthenticatedShell.tsx'); /* app 表示认证后页面组合器源码。 */
 
     const sidebarIDs = extractSingleQuotedValues(sidebar, /id:\s*'([^']+)'/g); /* sidebarIDs 表示sidebarIDs。 */
     const appRouteIDs = extractSingleQuotedValues(app, /case\s+'([^']+)'/g); /* appRouteIDs 表示appRouteIDs。 */
@@ -34,13 +34,24 @@ describe('frontend navigation routing', () => {
   } /* 回调函数负责当前业务流程。 */);
 
   test('route pages are lazy-loaded behind a shared Suspense boundary', () => {
-    const app = readFrontendFile('App.tsx'); /* app 表示应用根组件源码。 */
+    const app = readFrontendFile('app/shell/AuthenticatedShell.tsx'); /* app 表示认证后页面组合器源码。 */
     const lazyPageCount = (app.match(/const (Dashboard|AccountList|OrderList|CardList|ItemList|Settings|Rules|Notifications|Chat) = lazy\(/g) || []).length; /* lazyPageCount 表示按路由懒加载的页面数量。 */
 
     expect(lazyPageCount).toBe(9);
     expect(app).toContain('const PageLoading: React.FC');
     expect(app).toContain('<Suspense fallback={<PageLoading />}>');
-    expect(app).not.toContain("import Dashboard from './components/Dashboard'");
+    expect(app).not.toContain("import Dashboard from '../../components/Dashboard'");
+  } /* 回调函数负责当前业务流程。 */);
+
+  test('authenticated shell owns sidebar and page composition', () => {
+    const app = readFrontendFile('App.tsx'); /* app 表示认证状态根组件源码。 */
+    const shell = readFrontendFile('app/shell/AuthenticatedShell.tsx'); /* shell 表示认证后应用壳源码。 */
+
+    expect(app).toContain("import AuthenticatedShell, { type DeliveryRuleTarget }");
+    expect(app).not.toContain('const renderContent = () =>');
+    expect(shell).toContain('const AuthenticatedShell: React.FC<AuthenticatedShellProps>');
+    expect(shell).toContain('<Sidebar');
+    expect(shell).toContain('<AppContent');
   } /* 回调函数负责当前业务流程。 */);
 
   test('logout button invalidates the backend session before clearing UI state', () => {
@@ -66,13 +77,14 @@ describe('frontend navigation routing', () => {
 
   test('admin-only settings navigation is gated by session role', () => {
     const app = readFrontendFile('App.tsx'); /* app 表示app。 */
+    const shell = readFrontendFile('app/shell/AuthenticatedShell.tsx'); /* shell 表示认证后应用壳源码。 */
     const sidebar = readFrontendFile('components/Sidebar.tsx'); /* sidebar 表示sidebar。 */
     const settingsHook = readFrontendFile('app/features/settings/hooks.ts'); /* settingsHook 表示settingsHook。 */
 
     expect(app).toContain('const [isAdmin, setIsAdmin] = useState(false)');
     expect(app).toContain('setIsAdmin(res.is_admin === true)');
     expect(app).toContain("activeTab === 'settings'");
-    expect(app).toContain('isAdmin ? <Settings /> : <Dashboard />');
+    expect(shell).toContain('isAdmin ? <Settings /> : <Dashboard />');
     expect(sidebar).toContain('isAdmin = false');
     expect(sidebar).toContain("...(isAdmin ? [{ id: 'settings'");
     expect(settingsHook).toContain('setLoadError');

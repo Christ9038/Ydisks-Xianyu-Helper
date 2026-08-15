@@ -1,44 +1,9 @@
-import React, { lazy, Suspense, useState, useEffect } from 'react';
-import Sidebar from './components/Sidebar';
+import React, { useState, useEffect } from 'react';
 import { readSidebarCollapsed, writeSidebarCollapsed } from './components/sidebarState';
 import { YdisksBrandIcon } from './components/YdisksLogo';
 import { initializeAdmin, login, logout, verifySession } from './app/features/session/api';
 import { ShieldCheck, ArrowRight, Loader2, User, Lock } from 'lucide-react';
-
-// Dashboard 是按需加载的仪表盘页面，避免首屏同步载入图表依赖。
-const Dashboard = lazy(/* Dashboard 页面按路由激活时加载。 */ () => import('./components/Dashboard'));
-// AccountList 是按需加载的账号管理页面，避免未访问时载入账号弹窗和二维码代码。
-const AccountList = lazy(/* AccountList 页面按路由激活时加载。 */ () => import('./components/AccountList'));
-// OrderList 是按需加载的订单页面，避免首屏载入订单导入与刷新代码。
-const OrderList = lazy(/* OrderList 页面按路由激活时加载。 */ () => import('./components/OrderList'));
-// CardList 是按需加载的卡密页面，避免首屏载入卡密批量处理代码。
-const CardList = lazy(/* CardList 页面按路由激活时加载。 */ () => import('./components/CardList'));
-// ItemList 是按需加载的商品页面，避免首屏载入商品发布编辑器代码。
-const ItemList = lazy(/* ItemList 页面按路由激活时加载。 */ () => import('./components/ItemList'));
-// Settings 是按需加载的系统设置页面，仅在管理员访问时加载。
-const Settings = lazy(/* Settings 页面按路由激活时加载。 */ () => import('./components/Settings'));
-// Rules 是按需加载的自动化规则页面，避免首屏载入规则编辑器代码。
-const Rules = lazy(/* Rules 页面按路由激活时加载。 */ () => import('./components/Rules'));
-// Notifications 是按需加载的通知页面，避免首屏载入通知配置代码。
-const Notifications = lazy(/* Notifications 页面按路由激活时加载。 */ () => import('./components/Notifications'));
-// Chat 是按需加载的聊天页面，避免未访问时载入聊天历史和 WebSocket 视图。
-const Chat = lazy(/* Chat 页面按路由激活时加载。 */ () => import('./components/Chat'));
-
-// PageLoading 展示路由页面代码加载期间的统一占位状态。
-const PageLoading: React.FC = () => (
-  <div className="flex min-h-[24rem] items-center justify-center" role="status" aria-label="正在加载页面">
-    <Loader2 className="h-8 w-8 animate-spin text-brand" />
-  </div>
-);
-
-interface DeliveryRuleTarget {
-// cookieId 表示cookieId。
-    cookieId: string;
-// itemId 表示当前商品Id。
-    itemId: string;
-// requestId 表示接口请求对象Id。
-    requestId: number;
-}
+import AuthenticatedShell, { type DeliveryRuleTarget } from './app/shell/AuthenticatedShell';
 
 // 路由：URL path ↔ tab id。所有 SPA 路由统一挂 /app/ 前缀，避免和后端 API
 // 路径（/orders、/cards、/items 等）冲突——后者在 chi 里先注册，刷新会直接
@@ -340,54 +305,35 @@ const App: React.FC = () => {
     );
   }
 
-  // Main App Layout
-  const renderContent = () => {
-    switch (activeTab) {
-      case 'dashboard': return <Dashboard />;
-      case 'accounts': return <AccountList />;
-	  case 'chat': return <Chat />;
-      case 'orders': return <OrderList />;
-      case 'cards': return <CardList />;
-      case 'items': return <ItemList onConfigureDelivery={(item) => {
-        setDeliveryRuleTarget({ cookieId: item.cookie_id, itemId: item.item_id, requestId: Date.now() });
-        navigate('rules');
-      } /* 回调函数负责当前业务流程。 */} />;
-      case 'rules': return <Rules
-        initialDeliveryTarget={deliveryRuleTarget}
-        onDeliveryTargetHandled={() => setDeliveryRuleTarget(undefined) /* 回调函数负责当前业务流程。 */}
-      />;
-      case 'notifications': return <Notifications isAdmin={isAdmin} />;
-      case 'settings': return isAdmin ? <Settings /> : <Dashboard />;
-      default: return <Dashboard />;
-    }
-  }; /* renderContent 表示renderContent。 */
+  // handleConfigureDelivery 保存商品页传来的规则目标并切换到规则页面。
+  const handleConfigureDelivery = (target /* target 表示商品页传来的规则配置目标。 */: DeliveryRuleTarget) => {
+    setDeliveryRuleTarget(target);
+    navigate('rules');
+  };
+
+  // handleDeliveryTargetHandled 清理已经被规则页面消费的联动目标。
+  const handleDeliveryTargetHandled = () => setDeliveryRuleTarget(undefined);
+
+  // handleToggleSidebar 切换侧边栏状态并持久化用户偏好。
+  const handleToggleSidebar = () => setSidebarCollapsed(/* current 表示更新前的侧边栏折叠状态。 */ current => {
+    // next 表示切换后的侧边栏折叠状态。
+    const next = !current;
+    writeSidebarCollapsed(next);
+    return next;
+  });
 
   return (
-    <div className="flex min-h-screen bg-canvas text-ink">
-      <Sidebar
-        activeTab={activeTab}
-        isAdmin={isAdmin}
-		collapsed={sidebarCollapsed}
-		onToggleCollapsed={() => setSidebarCollapsed(current => {
-		  const next = !current; /* next 表示next。 */
-		  writeSidebarCollapsed(next);
-		  return next;
-		} /* 回调函数负责当前业务流程。 */) /* 回调函数负责当前业务流程。 */}
-        onNavigate={navigate}
-        onLogout={handleLogout}
-      />
-      
-      <main className={`h-screen min-w-0 flex-1 overflow-x-hidden overflow-y-auto scroll-smooth transition-[margin] duration-300 ${sidebarCollapsed ? 'ml-16' : 'ml-64'} ${activeTab === 'chat' ? 'p-4 md:p-6' : 'p-8 md:p-12'}`}>
-        {/* Subtle background decoration */}
-        <div className="fixed top-0 right-0 w-[800px] h-[800px] bg-gradient-to-bl from-blue-50 to-transparent rounded-full blur-[120px] pointer-events-none -z-10 opacity-60"></div>
-        
-			<div className={`${activeTab === 'chat' ? 'mx-auto max-w-[1680px]' : 'mx-auto max-w-[1400px] pb-10'}`}>
-            <Suspense fallback={<PageLoading />}>
-              {renderContent()}
-            </Suspense>
-        </div>
-      </main>
-    </div>
+    <AuthenticatedShell
+      activeTab={activeTab}
+      isAdmin={isAdmin}
+      collapsed={sidebarCollapsed}
+      deliveryRuleTarget={deliveryRuleTarget}
+      onToggleCollapsed={handleToggleSidebar}
+      onNavigate={navigate}
+      onLogout={handleLogout}
+      onConfigureDelivery={handleConfigureDelivery}
+      onDeliveryTargetHandled={handleDeliveryTargetHandled}
+    />
   );
 }; /* App 表示App。 */
 
