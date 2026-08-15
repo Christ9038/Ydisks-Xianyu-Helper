@@ -695,30 +695,59 @@ func (s *Server) deleteCookie(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "账号不存在")
 		return
 	}
+	// managerFenced 表示删除流程是否已阻止该账号被新的 runtime 重新启动。
+	managerFenced := false
+	if s.Manager != nil {
+		if !s.Manager.BeginStopping(cid) {
+			credentialUnlock()
+			writeErr(w, http.StatusConflict, "账号正在停止，请稍后重试")
+			return
+		}
+		managerFenced = true
+	}
+	credentialUnlock()
+	if managerFenced {
+		// stopCtx、stopCancel 限制删除前 runtime fencing 的等待时间。
+		stopCtx, stopCancel := context.WithTimeout(r.Context(), 5*time.Second)
+		// stopErr 表示删除前停止账号 runtime 的错误。
+		stopErr := s.Manager.StopContext(stopCtx, cid)
+		stopCancel()
+		if stopErr != nil {
+			s.Manager.EndStopping(cid)
+			writeErr(w, http.StatusConflict, "账号运行时尚未停止，请稍后重试")
+			return
+		}
+	}
+	// 删除前重新取得凭证锁，避免删除与其他凭证更新并发写入。
+	credentialUnlock = s.Store.LockAccountCredentials(cid)
+	// latestAfterStop 重新确认停止期间账号仍归当前用户所有，避免误删被替换的账号。
+	latestAfterStop, latestErr := s.loadCookiePlatformDetail(r.Context(), cid)
+	if latestErr != nil || latestAfterStop == nil || latestAfterStop.UserID != ownedDetail.UserID {
+		if managerFenced {
+			s.Manager.EndStopping(cid)
+		}
+		credentialUnlock()
+		writeErr(w, http.StatusNotFound, "账号不存在")
+		return
+	}
 	if // err 保存err，供当前处理流程使用
 	err := s.Store.Cookies.Delete(r.Context(), cid); err != nil {
+		if managerFenced {
+			s.Manager.EndStopping(cid)
+		}
 		credentialUnlock()
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
 	credentialUnlock()
+	if managerFenced {
+		s.Manager.EndStopping(cid)
+	}
 	s.Logger.Info("账号已删除",
 		"cookie_id", cid,
 		"nickname", cachedAccountNickname(ownedDetail),
 		"user_id", ownedDetail.UserID,
 	)
-	// Stop 可能需要等待运行中任务收尾，不应阻塞删除 HTTP 请求。
-	// 数据库事务已完成，先向前端确认删除，再将精确停止该 cid 的任务登记到 Server 生命周期。
-	if s.Manager != nil {
-		// lifecycleCtx 是删除后运行时收束使用的 Server 生命周期上下文。
-		lifecycleCtx := s.lifecycleContext()
-		s.startBackgroundTask("删除账号运行时收束", func() {
-			// err 表示删除账号运行时停止失败或生命周期上下文已到期。
-			if err := s.Manager.StopContext(lifecycleCtx, cid); err != nil && s.Logger != nil {
-				s.Logger.Warn("删除账号后停止运行时失败", "cookie_id", cid, "err", err)
-			}
-		})
-	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 

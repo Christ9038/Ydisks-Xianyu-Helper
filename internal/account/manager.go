@@ -25,6 +25,8 @@ type Manager struct {
 
 	mu       sync.Mutex
 	accounts map[string]*managedAccount
+	// stopping 保存正在执行删除/停止 fencing 的账号，阻止其被并发重新启动。
+	stopping map[string]struct{}
 	runCtx   context.Context
 }
 
@@ -47,6 +49,7 @@ func NewManager(store *db.Store, handler engine.Handler, logger *slog.Logger) *M
 		handler:  handler,
 		logger:   logger,
 		accounts: make(map[string]*managedAccount),
+		stopping: make(map[string]struct{}),
 	}
 }
 
@@ -81,6 +84,11 @@ StartAll 只把启用账号交给运行时 supervisor。
 // Start 启动单个账号（若已在运行则跳过；若上次实例已退出则清理后重启）。
 func (m *Manager) Start(ctx context.Context, cookieID, cookieValue string) error {
 	m.mu.Lock()
+	// stopping 表示当前账号是否已进入删除/停止 fencing。
+	if _, stopping := m.stopping[cookieID]; stopping {
+		m.mu.Unlock()
+		return fmt.Errorf("账号 %s 正在停止", cookieID)
+	}
 	if m.runCtx != nil {
 		ctx = m.runCtx
 	}
@@ -127,6 +135,25 @@ func (m *Manager) Start(ctx context.Context, cookieID, cookieValue string) error
 		m.logger.Info("账号运行结束", "account", cookieID, "err", err)
 	}()
 	return nil
+}
+
+// BeginStopping 建立账号停止 fencing，阻止新的运行实例在删除流程中启动。
+func (m *Manager) BeginStopping(cookieID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// exists 表示当前账号是否已有其他删除流程建立 fencing。
+	if _, exists := m.stopping[cookieID]; exists {
+		return false
+	}
+	m.stopping[cookieID] = struct{}{}
+	return true
+}
+
+// EndStopping 释放账号停止 fencing，供删除成功或失败后的收束路径调用。
+func (m *Manager) EndStopping(cookieID string) {
+	m.mu.Lock()
+	delete(m.stopping, cookieID)
+	m.mu.Unlock()
 }
 
 // Stop 停止单个账号，并兼容不需要错误返回值的旧调用方。

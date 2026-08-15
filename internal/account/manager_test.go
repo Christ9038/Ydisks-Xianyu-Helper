@@ -94,6 +94,28 @@ func TestManagerStartStop(t *testing.T) {
 	}
 }
 
+// TestManagerStoppingFence 验证账号删除期间禁止并发启动，并支持失败后的 fencing 释放。
+func TestManagerStoppingFence(t *testing.T) {
+	// mgr 是仅用于验证停止 fencing 状态机的账号管理器。
+	mgr := NewManager(nil, noopHandler{}, nil)
+	if !mgr.BeginStopping("fenced") {
+		t.Fatal("首次建立停止 fencing 应成功")
+	}
+	if mgr.BeginStopping("fenced") {
+		t.Fatal("重复建立停止 fencing 应被拒绝")
+	}
+	// err 表示 fencing 期间尝试启动账号的结果。
+	err := mgr.Start(context.Background(), "fenced", "cookie")
+	if err == nil {
+		t.Fatal("停止 fencing 期间不应允许启动账号")
+	}
+	mgr.EndStopping("fenced")
+	if !mgr.BeginStopping("fenced") {
+		t.Fatal("释放 fencing 后应允许重新建立停止 fencing")
+	}
+	mgr.EndStopping("fenced")
+}
+
 // TestManagerConcurrentStartCreatesSingleManagedInstance 负责TestManagerConcurrent开始CreatesSingleManagedInstance相关处理。
 func TestManagerConcurrentStartCreatesSingleManagedInstance(t *testing.T) {
 	// dbPath 保存db路径，供当前处理流程使用
