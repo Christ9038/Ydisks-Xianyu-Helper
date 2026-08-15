@@ -742,6 +742,27 @@ test('updateNotificationChannel supports partial enabled updates', async () => {
   });
 } /* 回调函数负责当前业务流程。 */);
 
+test('updateNotificationChannel serializes config and event types', /* 当前回调验证通知渠道请求体序列化。 */ async () => {
+  // fetchMock 是通知渠道更新接口的网络替身。
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+  await updateNotificationChannel('7', { config: { server_url: 'https://example.com' }, event_types: ['system_error'] });
+  // body 是通知渠道更新请求体。
+  const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+  expect(body.config).toBe(JSON.stringify({ server_url: 'https://example.com' }));
+  expect(body.event_types).toBe(JSON.stringify(['system_error']));
+});
+
+test('getMessageNotifications 展开数组并忽略非法绑定值', /* 当前回调验证消息通知响应归一化。 */ async () => {
+  // fetchMock 是消息通知接口的网络替身。
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
+    'account-1': [{ channel_id: 1, channel_name: '邮件', enabled: true }],
+    'account-2': null,
+  }));
+  vi.stubGlobal('fetch', fetchMock);
+  await expect(getMessageNotifications()).resolves.toEqual({ success: true, data: [{ cookie_id: 'account-1', channel_id: 1, channel_name: '邮件', enabled: true }] });
+});
+
 test('updateShippingRule posts buyer reviewed gift payload to automation-rules', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, id: 1 })); /* fetchMock 表示fetchMock。 */
   vi.stubGlobal('fetch', fetchMock);
