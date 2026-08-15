@@ -39,6 +39,20 @@ const messageFixture = { id: 1, account_id: 'account-1', chat_id: 'chat-1', mess
 // sentMessageFixture 是文字发送成功后返回的消息。
 const sentMessageFixture = { ...messageFixture, id: 2, message_key: 'message-2', direction: 'outgoing', content: '回复内容' } as ChatMessage;
 
+// latestSocket 保存当前测试创建的 WebSocket 替身。
+let latestSocket: {
+  // close 是关闭 WebSocket 的替身方法。
+  close: ReturnType<typeof vi.fn>;
+  // onopen 是 WebSocket 建立连接回调。
+  onopen: (() => void) | null;
+  // onmessage 是 WebSocket 消息回调。
+  onmessage: ((event: { /* data 是 WebSocket 事件数据。 */ data: string }) => void) | null;
+  // onclose 是 WebSocket 断开回调。
+  onclose: (() => void) | null;
+  // onerror 是 WebSocket 错误回调。
+  onerror: (() => void) | null;
+} | null = null;
+
 describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时连接状态。 */ () => {
   beforeEach(/* 当前回调重置聊天 API 替身和 WebSocket。 */ () => {
     vi.clearAllMocks();
@@ -53,7 +67,10 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     const websocketFactory = vi.fn(
       // websocketConstructor 创建不连接真实服务器的 WebSocket 实例。
       function websocketConstructor() {
-      return { close: vi.fn(), onopen: null, onmessage: null, onclose: null, onerror: null };
+      // socket 是当前 WebSocket 连接的可控替身。
+      const socket = { close: vi.fn(), onopen: null, onmessage: null, onclose: null, onerror: null };
+      latestSocket = socket;
+      return socket;
       },
     );
     vi.stubGlobal('WebSocket', websocketFactory);
@@ -148,6 +165,109 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
       async () => hook.result.current.retrySend(),
     );
     expect(sendMessageMock).toHaveBeenCalledTimes(2);
+    hook.unmount();
+  });
+
+  test('WebSocket 连接和消息事件更新聊天状态', /* 当前回调验证实时连接和消息回调边界。 */ async () => {
+    // hook 是实时连接场景的聊天 Hook 渲染结果。
+    const hook = renderHook(
+      // socketHookFactory 创建实时连接场景的聊天 Hook。
+      () => useChat(),
+    );
+    await waitFor(
+      // loadingAssertion 等待聊天初始数据加载完成。
+      () => expect(hook.result.current.loading).toBe(false),
+    );
+    await waitFor(
+      // activeChatAssertion 等待实时消息目标会话选中。
+      () => expect(hook.result.current.activeChatID).toBe('chat-1'),
+    );
+    expect(latestSocket).not.toBeNull();
+    await act(
+      // openAction 触发 WebSocket 建立连接事件。
+      () => latestSocket?.onopen?.(),
+    );
+    expect(hook.result.current.liveState).toBe('online');
+    // incomingMessage 是实时 WebSocket 推送的入站消息。
+    const incomingMessage = { ...messageFixture, id: 3, message_key: 'message-3', sent_at: 3, content: '实时消息' };
+    await act(
+      // messageAction 触发合法的实时消息事件。
+      () => latestSocket?.onmessage?.({ data: JSON.stringify({ message: incomingMessage }) }),
+    );
+    expect(hook.result.current.messages).toContainEqual(incomingMessage);
+    expect(markReadMock).toHaveBeenCalledWith('account-1', 'chat-1');
+    await act(
+      // invalidMessageAction 触发非法消息帧并保持状态稳定。
+      () => latestSocket?.onmessage?.({ data: '{broken' }),
+    );
+    await act(
+      // closeAction 触发 WebSocket 断开事件。
+      () => latestSocket?.onclose?.(),
+    );
+    expect(hook.result.current.liveState).toBe('offline');
+    hook.unmount();
+  });
+
+  test('联系人、消息、历史分页和图片发送失败时保留可恢复错误', /* 当前回调验证聊天业务请求错误分支。 */ async () => {
+    // hook 是聊天请求错误场景的 Hook 渲染结果。
+    const hook = renderHook(
+      // errorHookFactory 创建聊天请求错误场景的 Hook。
+      () => useChat(),
+    );
+    await waitFor(
+      // loadingAssertion 等待聊天初始数据加载完成。
+      () => expect(hook.result.current.loading).toBe(false),
+    );
+    await waitFor(
+      // activeChatAssertion 等待默认会话选中。
+      () => expect(hook.result.current.activeChatID).toBe('chat-1'),
+    );
+
+    getSessionPageMock.mockRejectedValueOnce(new Error('联系人读取失败'));
+    await act(
+      // contactsErrorAction 触发联系人刷新错误。
+      async () => hook.result.current.reloadSessions('account-1'),
+    );
+    expect(hook.result.current.error).toBe('联系人读取失败');
+
+    getMessagePageMock.mockRejectedValueOnce(new Error('消息读取失败'));
+    await act(
+      // chatSwitchAction 切换到不存在会话以触发消息读取错误。
+      () => hook.result.current.setActiveChatID('chat-2'),
+    );
+    await waitFor(
+      // messageErrorAssertion 等待消息读取错误收口。
+      () => expect(hook.result.current.error).toBe('消息读取失败'),
+    );
+
+    await act(
+      // chatRestoreAction 恢复默认会话以继续验证历史分页。
+      () => hook.result.current.setActiveChatID('chat-1'),
+    );
+    await waitFor(
+      // restoredMessageAssertion 等待默认会话消息恢复。
+      () => expect(hook.result.current.messagesLoading).toBe(false),
+    );
+    getMessagePageMock.mockRejectedValueOnce(new Error('历史消息失败'));
+    await act(
+      // olderErrorAction 触发历史消息分页错误。
+      async () => hook.result.current.loadOlderMessages(),
+    );
+    expect(hook.result.current.error).toBe('历史消息失败');
+
+    sendImageMock.mockRejectedValueOnce(new Error('图片发送失败'));
+    await act(
+      // imageErrorAction 触发图片发送错误。
+      async () => hook.result.current.handleImage(new File(['image'], 'error.png', { type: 'image/png' })),
+    );
+    expect(hook.result.current.error).toBe('图片发送失败');
+    expect(hook.result.current.retryAvailable).toBe(true);
+    sendImageMock.mockResolvedValueOnce({ message: sentMessageFixture });
+    await act(
+      // imageRetryAction 重试最近一次图片发送。
+      async () => hook.result.current.retrySend(),
+    );
+    expect(sendImageMock).toHaveBeenCalledTimes(2);
     hook.unmount();
   });
 });
