@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"time"
 )
 
 // OrderRow 订单列表展示行（含 item_title）。
@@ -198,6 +199,50 @@ func (o *Orders) ByCookiePage(ctx context.Context, cookieID string, limit, offse
 		return nil, err
 	}
 	defer rows.Close()
+	return scanOrderRows(rows, cookieID)
+}
+
+// ByCookieCursor 使用 created_at 与 order_id 复合游标扫描账号订单，避免大 OFFSET 的线性跳过成本。
+func (o *Orders) ByCookieCursor(ctx context.Context, cookieID string, limit int, afterCreatedAt, afterOrderID string) ([]OrderRow, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	// query 保存按复合游标扫描订单的 SQL。
+	query := `SELECT order_id, item_id, buyer_id, spec_name, spec_value, quantity, amount,
+		        order_status, is_bargain, system_shipped, receiver_name, receiver_phone,
+		        receiver_address, receiver_city, created_at, updated_at
+		 FROM orders WHERE cookie_id=? AND deleted_at IS NULL`
+	// args 保存游标查询参数。
+	args := []any{cookieID}
+	if afterCreatedAt != "" || afterOrderID != "" {
+		// cursorCreatedAt 将驱动层返回的 RFC3339 时间还原为数据库通用的时间文本格式。
+		cursorCreatedAt := normalizeOrderCursorTime(afterCreatedAt)
+		query += ` AND (created_at < ? OR (created_at = ? AND order_id < ?))`
+		args = append(args, cursorCreatedAt, cursorCreatedAt, afterOrderID)
+	}
+	query += ` ORDER BY created_at DESC,order_id DESC LIMIT ?`
+	args = append(args, limit)
+	// rows、err 保存游标查询结果及错误。
+	rows, err := o.DB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanOrderRows(rows, cookieID)
+}
+
+// normalizeOrderCursorTime 将订单行时间转换为跨数据库可比较的 UTC 文本。
+func normalizeOrderCursorTime(value string) string {
+	// parsed 表示驱动层返回的标准时间值。
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err == nil {
+		return parsed.UTC().Format("2006-01-02 15:04:05.999999999")
+	}
+	return strings.Replace(strings.TrimSuffix(value, "Z"), "T", " ", 1)
+}
+
+// scanOrderRows 将订单查询行转换为统一的订单列表模型。
+func scanOrderRows(rows *sql.Rows, cookieID string) ([]OrderRow, error) {
 	// out 保存out，供当前处理流程使用
 	var out []OrderRow
 	for rows.Next() {

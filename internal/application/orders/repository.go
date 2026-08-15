@@ -29,6 +29,6 @@ type Repository interface {
 	UpdateRenewalCookie(ctx context.Context, cookieID, value, metadata string, at int64) error
 	// SoftDeleteMissingOrders 删除账号下远端已不存在的订单。
 	SoftDeleteMissingOrders(ctx context.Context, cookieID string, activeIDs map[string]struct{}) (int, error)
-	// ListOrdersByCookiePage 分页读取账号订单。
-	ListOrdersByCookiePage(ctx context.Context, cookieID string, limit, offset int) ([]OrderRow, error)
+	// ListOrdersByCookieCursor 使用复合游标读取账号订单，避免大 OFFSET 扫描。
+	ListOrdersByCookieCursor(ctx context.Context, cookieID string, limit int, afterCreatedAt, afterOrderID string) ([]OrderRow, error)
 }

@@ -36,6 +36,34 @@ func TestOrdersByCookiePageScansBeyondLegacyLimit(t *testing.T) {
 	if err != nil || len(third) != 1 {
 		t.Fatalf("third len=%d err=%v", len(third), err)
 	}
+	// cursorIDs 记录游标分页返回的订单，验证大数据量扫描不依赖 OFFSET 且不重复。
+	cursorIDs := make(map[string]struct{}, 1001)
+	// afterCreatedAt、afterOrderID 保存当前游标位置。
+	afterCreatedAt, afterOrderID := "", ""
+	for {
+		// page、pageErr 保存当前游标页及查询错误。
+		page, pageErr := s.Orders.ByCookieCursor(ctx, cookieID, 500, afterCreatedAt, afterOrderID)
+		if pageErr != nil {
+			t.Fatalf("cursor page: %v", pageErr)
+		}
+		// row 表示当前游标页中的订单行。
+		for _, row := range page {
+			// exists 表示当前订单是否已在前页返回。
+			if _, exists := cursorIDs[row.OrderID]; exists {
+				t.Fatalf("cursor page returned duplicate order %q", row.OrderID)
+			}
+			cursorIDs[row.OrderID] = struct{}{}
+		}
+		if len(page) < 500 {
+			break
+		}
+		// lastRow 保存当前游标页最后一条订单。
+		lastRow := page[len(page)-1]
+		afterCreatedAt, afterOrderID = lastRow.CreatedAt, lastRow.OrderID
+	}
+	if len(cursorIDs) != 1001 {
+		t.Fatalf("cursor scan count=%d want 1001", len(cursorIDs))
+	}
 }
 
 // TestOrdersSoftDeleteMissingForCookie 负责Test订单列表SoftDeleteMissingFor登录凭证相关处理。

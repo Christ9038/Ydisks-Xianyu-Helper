@@ -951,10 +951,11 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 		if _, blocked := sessionExpiredAccounts[cid]; blocked {
 			continue
 		}
-		for // offset 保存偏移量，供当前处理流程使用
-		offset := 0; ; offset += 500 {
+		// afterCreatedAt、afterOrderID 保存当前账号订单扫描游标。
+		afterCreatedAt, afterOrderID := "", ""
+		for {
 			// rows、err 保存rows、err，供当前处理流程使用
-			rows, err := a.repository.ListOrdersByCookiePage(ctx, cid, 500, offset)
+			rows, err := a.repository.ListOrdersByCookieCursor(ctx, cid, 500, afterCreatedAt, afterOrderID)
 			if err != nil {
 				break
 			}
@@ -975,6 +976,12 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 			if len(rows) < 500 {
 				break
 			}
+			// lastRow 保存本页最后一条订单，用于推进下一页复合游标。
+			lastRow := rows[len(rows)-1]
+			if lastRow.CreatedAt == afterCreatedAt && lastRow.OrderID == afterOrderID {
+				break
+			}
+			afterCreatedAt, afterOrderID = lastRow.CreatedAt, lastRow.OrderID
 		}
 	}
 

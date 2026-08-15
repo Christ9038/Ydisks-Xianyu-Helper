@@ -224,10 +224,10 @@ func (r storeOrderRepository) SoftDeleteMissingOrders(ctx context.Context, cooki
 	return r.store.Orders.SoftDeleteMissingForCookie(ctx, cookieID, activeIDs)
 }
 
-// ListOrdersByCookiePage 委托账号订单分页查询。
-func (r storeOrderRepository) ListOrdersByCookiePage(ctx context.Context, cookieID string, limit, offset int) ([]orderapp.OrderRow, error) {
-	// rows 和 err 保存数据库订单分页结果及其错误。
-	rows, err := r.store.Orders.ByCookiePage(ctx, cookieID, limit, offset)
+// ListOrdersByCookieCursor 委托订单复合游标查询并转换应用层模型。
+func (r storeOrderRepository) ListOrdersByCookieCursor(ctx context.Context, cookieID string, limit int, afterCreatedAt, afterOrderID string) ([]orderapp.OrderRow, error) {
+	// rows、err 保存数据库游标查询结果及错误。
+	rows, err := r.store.Orders.ByCookieCursor(ctx, cookieID, limit, afterCreatedAt, afterOrderID)
 	if err != nil {
 		return nil, err
 	}
