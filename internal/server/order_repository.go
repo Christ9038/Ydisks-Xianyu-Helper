@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"database/sql"
-
 	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/db"
 )
@@ -22,16 +21,10 @@ type orderRepository interface {
 	GetItem(ctx context.Context, cookieID, itemID string) (*db.ItemInfo, error)
 	// SoftDeleteOrder 逻辑删除订单。
 	SoftDeleteOrder(ctx context.Context, orderID string) (bool, error)
-	// WithTransaction 在一个事务中执行订单用例的持久化操作。
-	WithTransaction(ctx context.Context, work func(*sql.Tx) error) error
-	// PatchOrderTx 在事务内更新订单字段。
-	PatchOrderTx(ctx context.Context, tx *sql.Tx, orderID string, patch db.OrderPatch) error
-	// UpsertItemBasicTx 在事务内写入商品基础信息。
-	UpsertItemBasicTx(ctx context.Context, tx *sql.Tx, item *db.ItemInfoRow) error
-	// UpsertOrderTx 在事务内写入订单。
-	UpsertOrderTx(ctx context.Context, tx *sql.Tx, orderID string, opts db.OrderUpsertOpts) error
+	// WithTransaction 在应用层 Writer 中执行订单持久化操作。
+	WithTransaction(ctx context.Context, work func(orderapp.Writer) error) error
 	// UpsertOrder 写入订单。
-	UpsertOrder(ctx context.Context, orderID string, opts db.OrderUpsertOpts) error
+	UpsertOrder(ctx context.Context, orderID string, opts orderapp.UpsertOptions) error
 	// LockCredentials 串行化账号凭证状态变更。
 	LockCredentials(cookieID string) func()
 	// LoadCookiePlatformDetail 读取账号平台凭证详情。
@@ -107,7 +100,7 @@ func (r storeOrderRepository) SoftDeleteOrder(ctx context.Context, orderID strin
 }
 
 // WithTransaction 创建、提交或回滚订单事务。
-func (r storeOrderRepository) WithTransaction(ctx context.Context, work func(*sql.Tx) error) error {
+func (r storeOrderRepository) WithTransaction(ctx context.Context, work func(orderapp.Writer) error) error {
 	// tx 和 err 保存事务创建结果。
 	tx, err := r.store.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -120,8 +113,10 @@ func (r storeOrderRepository) WithTransaction(ctx context.Context, work func(*sq
 			_ = tx.Rollback()
 		}
 	}()
+	// writer 是隐藏数据库事务细节的订单写入适配器。
+	writer := storeOrderWriter{store: r.store, tx: tx}
 	// err 保存事务工作函数的执行错误。
-	if err := work(tx); err != nil {
+	if err := work(writer); err != nil {
 		return err
 	}
 	// err 保存事务提交错误。
@@ -132,24 +127,55 @@ func (r storeOrderRepository) WithTransaction(ctx context.Context, work func(*sq
 	return nil
 }
 
-// PatchOrderTx 委托事务内订单更新。
-func (r storeOrderRepository) PatchOrderTx(ctx context.Context, tx *sql.Tx, orderID string, patch db.OrderPatch) error {
-	return r.store.Orders.PatchTx(ctx, tx, orderID, patch)
+// storeOrderWriter 将订单应用写入模型适配为数据库事务操作。
+type storeOrderWriter struct {
+	// store 保存数据库 repository 聚合入口。
+	store *db.Store
+	// tx 保存当前事务，仅在基础设施适配器内部可见。
+	tx *sql.Tx
 }
 
-// UpsertItemBasicTx 委托事务内商品基础信息写入。
-func (r storeOrderRepository) UpsertItemBasicTx(ctx context.Context, tx *sql.Tx, item *db.ItemInfoRow) error {
-	return r.store.Items.UpsertBasicTx(ctx, tx, item)
+// PatchOrder 委托事务内订单更新。
+func (w storeOrderWriter) PatchOrder(ctx context.Context, orderID string, patch orderapp.OrderPatch) error {
+	return w.store.Orders.PatchTx(ctx, w.tx, orderID, db.OrderPatch{
+		OrderStatus: patch.OrderStatus, ItemID: patch.ItemID, BuyerID: patch.BuyerID,
+		SpecName: patch.SpecName, SpecValue: patch.SpecValue, Quantity: patch.Quantity,
+		Amount: patch.Amount, ReceiverName: patch.ReceiverName, ReceiverPhone: patch.ReceiverPhone,
+		ReceiverAddr: patch.ReceiverAddress, ReceiverCity: patch.ReceiverCity, ChatID: patch.ChatID,
+		SystemShipped: patch.SystemShipped,
+	})
 }
 
-// UpsertOrderTx 委托事务内订单写入。
-func (r storeOrderRepository) UpsertOrderTx(ctx context.Context, tx *sql.Tx, orderID string, opts db.OrderUpsertOpts) error {
-	return r.store.Orders.UpsertTx(ctx, tx, orderID, opts)
+// UpsertItemBasic 委托事务内商品基础信息写入。
+func (w storeOrderWriter) UpsertItemBasic(ctx context.Context, item orderapp.ItemWrite) error {
+	return w.store.Items.UpsertBasicTx(ctx, w.tx, &db.ItemInfoRow{
+		CookieID: item.CookieID, ItemID: item.ItemID, ItemTitle: item.ItemTitle,
+		ItemPrice: item.ItemPrice, ItemDetail: item.ItemDetail,
+	})
+}
+
+// UpsertOrder 委托事务内订单写入。
+func (w storeOrderWriter) UpsertOrder(ctx context.Context, orderID string, options orderapp.UpsertOptions) error {
+	return w.store.Orders.UpsertTx(ctx, w.tx, orderID, db.OrderUpsertOpts{
+		ItemID: options.ItemID, BuyerID: options.BuyerID, CookieID: options.CookieID,
+		OrderStatus: options.OrderStatus, SpecName: options.SpecName, SpecValue: options.SpecValue,
+		Quantity: options.Quantity, Amount: options.Amount, ReceiverName: options.ReceiverName,
+		ReceiverPhone: options.ReceiverPhone, ReceiverAddr: options.ReceiverAddress,
+		ReceiverCity: options.ReceiverCity, ChatID: options.ChatID,
+		IsBargain: options.IsBargain, SystemShipped: options.SystemShipped,
+	})
 }
 
 // UpsertOrder 委托订单写入。
-func (r storeOrderRepository) UpsertOrder(ctx context.Context, orderID string, opts db.OrderUpsertOpts) error {
-	return r.store.Orders.Upsert(ctx, orderID, opts)
+func (r storeOrderRepository) UpsertOrder(ctx context.Context, orderID string, opts orderapp.UpsertOptions) error {
+	return r.store.Orders.Upsert(ctx, orderID, db.OrderUpsertOpts{
+		ItemID: opts.ItemID, BuyerID: opts.BuyerID, CookieID: opts.CookieID,
+		OrderStatus: opts.OrderStatus, SpecName: opts.SpecName, SpecValue: opts.SpecValue,
+		Quantity: opts.Quantity, Amount: opts.Amount, ReceiverName: opts.ReceiverName,
+		ReceiverPhone: opts.ReceiverPhone, ReceiverAddr: opts.ReceiverAddress,
+		ReceiverCity: opts.ReceiverCity, ChatID: opts.ChatID,
+		IsBargain: opts.IsBargain, SystemShipped: opts.SystemShipped,
+	})
 }
 
 // LockCredentials 委托账号凭证锁。
@@ -192,3 +218,5 @@ func newStoreOrderRepository(store *db.Store) orderRepository {
 
 // 确保 Store 适配器始终覆盖订单应用服务所需的全部能力。
 var _ orderRepository = storeOrderRepository{}
+var _ orderapp.UnitOfWork = storeOrderRepository{}
+var _ orderapp.Writer = storeOrderWriter{}

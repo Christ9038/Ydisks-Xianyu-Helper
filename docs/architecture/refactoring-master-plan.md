@@ -718,3 +718,4 @@ npm --prefix frontend run build
 | 2026-08-15 | 审计重开与完成条件纠偏 | 已完成 | 已将阶段 2、4、5、8、9、10 从“已完成”改为“进行中”，建立九个可回滚 PR 切片，并明确“测试通过不等于架构完成”的新验收规则 |
 | 2026-08-15 | P0 敏感系统设置与运维输出脱敏 | 已完成 | 新增 `SystemSettings.Redacted`；管理端不再返回 `ai_api_key`、SMTP 密码和验证码密钥明文；敏感设置缺省保留、显式空值清除；dbverify 改为长度+指纹；Go/React 回归、类型检查、前端构建和 `make check` 通过。阶段 2 仍保持“进行中”，因为凭证锁审计、访问审计和三库回归尚未全部完成 |
 | 2026-08-15 | P1 订单读模型 Port 与架构依赖门禁 | 已完成 | 新增 `internal/application/orders` 纯业务 `OrderRow`/`ListFilter`/`Reader`；订单列表适配器负责 `db.*` 到应用模型的转换；架构门禁统一模块路径、禁止应用层依赖 `db/server/xianyu/browser/sql/http`，并对 Server 新增低层依赖要求临时白名单；新增门禁测试，`make check` 通过。订单写入事务 Port、其他应用服务和既有白名单仍未完成，阶段 4/8/9 继续保持“进行中” |
+| 2026-08-15 | P1 订单事务 Writer Port | 已完成 | 新增 `orders.OrderPatch`、`ItemWrite`、`UpsertOptions`、`Writer` 和 `UnitOfWork`；订单更新、导入、手动发货和刷新统一通过应用 Writer，`*sql.Tx` 仅存在于 Server 基础设施适配器；保留现有提交/回滚语义并通过订单回归与 `make check`。订单实体读取、凭证 Port、其他应用服务和 Server 白名单仍未完成，阶段 4/8/9 继续保持“进行中” |

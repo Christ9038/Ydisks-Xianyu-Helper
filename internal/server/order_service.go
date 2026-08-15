@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -302,20 +301,20 @@ func (a *orderApplicationService) Update(ctx context.Context, userID int64, orde
 			return newOrderBadRequest("商品标题不能为空且订单必须关联商品")
 		}
 	}
-	return a.repository.WithTransaction(ctx, func(tx *sql.Tx) error {
+	return a.repository.WithTransaction(ctx, func(writer orderapp.Writer) error {
 		if // err 保存err，供当前处理流程使用
-		err := a.repository.PatchOrderTx(ctx, tx, orderID, db.OrderPatch{
+		err := writer.PatchOrder(ctx, orderID, orderapp.OrderPatch{
 			OrderStatus: request.OrderStatus, ItemID: request.ItemID, BuyerID: request.BuyerID,
 			SpecName: request.SpecName, SpecValue: request.SpecValue, Quantity: request.Quantity,
 			Amount: request.Amount, ReceiverName: request.ReceiverName, ReceiverPhone: request.ReceiverPhone,
-			ReceiverAddr: request.ReceiverAddress, ReceiverCity: request.ReceiverCity, ChatID: request.ChatID,
+			ReceiverAddress: request.ReceiverAddress, ReceiverCity: request.ReceiverCity, ChatID: request.ChatID,
 			SystemShipped: request.SystemShipped,
 		}); err != nil {
 			return err
 		}
 		if request.ItemTitle != nil {
 			if // err 保存err，供当前处理流程使用
-			err := a.repository.UpsertItemBasicTx(ctx, tx, &db.ItemInfoRow{
+			err := writer.UpsertItemBasic(ctx, orderapp.ItemWrite{
 				CookieID: order.CookieID, ItemID: finalItemID, ItemTitle: itemTitle,
 			}); err != nil {
 				return fmt.Errorf("更新商品标题失败: %w", err)
@@ -397,13 +396,13 @@ func (a *orderApplicationService) importOne(ctx context.Context, ownedCookieIDs 
 		return errors.New("订单金额必须是普通格式的非负有限数字")
 	}
 	if // err 保存err，供当前处理流程使用
-	err := a.repository.WithTransaction(ctx, func(tx *sql.Tx) error {
+	err := a.repository.WithTransaction(ctx, func(writer orderapp.Writer) error {
 		if // err 保存err，供当前处理流程使用
-		err := a.repository.UpsertOrderTx(ctx, tx, orderID, db.OrderUpsertOpts{
+		err := writer.UpsertOrder(ctx, orderID, orderapp.UpsertOptions{
 			CookieID: cookieID, ItemID: firstImportString(raw, "item_id"), BuyerID: firstImportString(raw, "buyer_id"),
 			OrderStatus: status, SpecName: firstImportString(raw, "spec_name"), SpecValue: firstImportString(raw, "spec_value"),
 			Quantity: firstImportString(raw, "quantity"), Amount: amount, ReceiverName: firstImportString(raw, "receiver_name"),
-			ReceiverPhone: firstImportString(raw, "receiver_phone"), ReceiverAddr: firstImportString(raw, "receiver_address"),
+			ReceiverPhone: firstImportString(raw, "receiver_phone"), ReceiverAddress: firstImportString(raw, "receiver_address"),
 			ReceiverCity: firstImportString(raw, "receiver_city"), ChatID: firstImportString(raw, "chat_id"),
 		}); err != nil {
 			return err
@@ -412,7 +411,7 @@ func (a *orderApplicationService) importOne(ctx context.Context, ownedCookieIDs 
 		itemID := firstImportString(raw, "item_id")
 		if itemID != "" {
 			if // err 保存err，供当前处理流程使用
-			err := a.repository.UpsertItemBasicTx(ctx, tx, &db.ItemInfoRow{
+			err := writer.UpsertItemBasic(ctx, orderapp.ItemWrite{
 				CookieID: cookieID, ItemID: itemID, ItemTitle: firstImportString(raw, "item_title"),
 				ItemPrice: firstImportString(raw, "item_price"), ItemDetail: firstImportString(raw, "item_detail", "item_description"),
 			}); err != nil {
@@ -553,10 +552,10 @@ func (a *orderApplicationService) manualStatusShip(ctx context.Context, userID i
 	// sysShip 保存sysShip，供当前处理流程使用
 	sysShip := true
 	// upsertErr 保存upsertErr，供当前处理流程使用
-	upsertErr := a.repository.UpsertOrder(ctx, orderID, db.OrderUpsertOpts{
+	upsertErr := a.repository.UpsertOrder(ctx, orderID, orderapp.UpsertOptions{
 		CookieID: order.CookieID, OrderStatus: "shipped", SystemShipped: &sysShip, ItemID: order.ItemID,
 		BuyerID: order.BuyerID, ReceiverName: order.ReceiverName, ReceiverPhone: order.ReceiverPhone,
-		ReceiverAddr: order.ReceiverAddr, ReceiverCity: order.ReceiverCity, ChatID: order.ChatID,
+		ReceiverAddress: order.ReceiverAddr, ReceiverCity: order.ReceiverCity, ChatID: order.ChatID,
 		SpecName: order.SpecName, SpecValue: order.SpecValue, Quantity: order.Quantity, Amount: order.Amount,
 	})
 	if upsertErr != nil && a.server.Logger != nil {
@@ -646,7 +645,7 @@ func (a *orderApplicationService) RefreshSingle(ctx context.Context, userID int6
 		status = db.NormalizeOrderStatus(order.OrderStatus)
 	}
 	if // err 保存err，供当前处理流程使用
-	err := a.repository.UpsertOrder(ctx, orderID, db.OrderUpsertOpts{CookieID: cookieID, OrderStatus: status, SpecName: detail.SpecName, SpecValue: detail.SpecValue, Quantity: detail.Quantity, Amount: detail.Amount}); err != nil {
+	err := a.repository.UpsertOrder(ctx, orderID, orderapp.UpsertOptions{CookieID: cookieID, OrderStatus: status, SpecName: detail.SpecName, SpecValue: detail.SpecValue, Quantity: detail.Quantity, Amount: detail.Amount}); err != nil {
 		return orderSingleRefreshResponse{}, err
 	}
 	return orderSingleRefreshResponse{Success: true, Message: "订单刷新完成", Order: orderRefreshDetailResponse{Quantity: detail.Quantity, SpecName: detail.SpecName, SpecValue: detail.SpecValue, OrderStatus: db.NormalizeOrderStatus(detail.OrderStatus), Amount: detail.Amount}}, nil
@@ -867,7 +866,7 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 					newStatus = target.CurrentStatus
 				}
 				// err 保存err，供当前处理流程使用
-				err := a.repository.UpsertOrder(ctx, target.OrderID, db.OrderUpsertOpts{
+				err := a.repository.UpsertOrder(ctx, target.OrderID, orderapp.UpsertOptions{
 					CookieID:    cid,
 					OrderStatus: newStatus,
 					SpecName:    detail.SpecName,
