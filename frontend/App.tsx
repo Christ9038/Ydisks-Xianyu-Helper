@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { readSidebarCollapsed, writeSidebarCollapsed } from './components/sidebarState';
 import { YdisksBrandIcon } from './components/YdisksLogo';
-import { initializeAdmin, login, logout, verifySession } from './app/features/session/api';
 import { ShieldCheck, ArrowRight, Loader2, User, Lock } from 'lucide-react';
 import AuthenticatedShell, { type DeliveryRuleTarget } from './app/shell/AuthenticatedShell';
+import { SessionProvider, useSession } from './app/providers/SessionProvider';
 
 // 路由：URL path ↔ tab id。所有 SPA 路由统一挂 /app/ 前缀，避免和后端 API
 // 路径（/orders、/cards、/items 等）冲突——后者在 chi 里先注册，刷新会直接
@@ -24,12 +24,11 @@ const TAB_TO_PATH: Record<string, string> = Object.fromEntries(
 ); /* TAB_TO_PATH 表示TABTO当前路径。 */
 const tabFromPath = (): string => ROUTES[window.location.pathname] || 'dashboard'; /* tabFromPath 表示tabFrom当前路径。 */
 
-const App: React.FC = () => {
-  const [isLoggedIn, setIsLoggedIn] = useState(false); /* [isLoggedIn, setIsLoggedIn] 表示isLoggedInsetIsLoggedIn。 */
-  const [isAdmin, setIsAdmin] = useState(false); /* [isAdmin, setIsAdmin] 表示isAdminsetIsAdmin。 */
+// AppView 渲染认证表单、路由状态和认证成功后的应用壳。
+const AppView: React.FC = () => {
+  // session 从 Provider 读取认证状态和会话操作，避免页面直接管理全局会话副作用。
+  const { checkingAuth, isLoggedIn, isAdmin, needsInit, signIn, initialize, signOut } = useSession();
   const [activeTab, setActiveTab] = useState(tabFromPath); /* [activeTab, setActiveTab] 表示activeTabsetActiveTab。 */
-  const [checkingAuth, setCheckingAuth] = useState(true); /* [checkingAuth, setCheckingAuth] 表示checkingAuthsetCheckingAuth。 */
-  const [needsInit, setNeedsInit] = useState(false); /* [needsInit, setNeedsInit] 表示needsInitsetNeedsInit。 */
   const [username, setUsername] = useState(''); /* [username, setUsername] 表示usernamesetUsername。 */
   const [password, setPassword] = useState(''); /* [password, setPassword] 表示passwordsetPassword。 */
   const [loginLoading, setLoginLoading] = useState(false); /* [loginLoading, setLoginLoading] 表示login加载状态setLogin加载状态。 */
@@ -58,39 +57,6 @@ const App: React.FC = () => {
     return () => window.removeEventListener('popstate', onPopState) /* 回调函数负责当前业务流程。 */;
   } /* 回调函数负责当前业务流程。 */, []);
 
-  // Check auth on mount
-  useEffect(() => {
-      verifySession()
-        .then((res) => {
-          if (res?.initialized === false) {
-            setNeedsInit(true);
-            setIsLoggedIn(false);
-            setIsAdmin(false);
-            return;
-          }
-
-          setNeedsInit(false);
-          if (res?.authenticated) {
-            setIsLoggedIn(true);
-            setIsAdmin(res.is_admin === true);
-          } else {
-            setIsAdmin(false);
-          }
-        } /* 回调函数负责当前业务流程。 */)
-        .catch(() => {
-          setIsLoggedIn(false);
-          setIsAdmin(false);
-        } /* 回调函数负责当前业务流程。 */)
-        .finally(() => setCheckingAuth(false) /* 回调函数负责当前业务流程。 */);
-
-      const handleAuthLogoutEvent = () => {
-        setIsLoggedIn(false);
-        setIsAdmin(false);
-      }; /* handleAuthLogoutEvent 表示handleAuthLogoutEvent。 */
-      window.addEventListener('auth:logout', handleAuthLogoutEvent);
-      return () => window.removeEventListener('auth:logout', handleAuthLogoutEvent) /* 回调函数负责当前业务流程。 */;
-  } /* 回调函数负责当前业务流程。 */, []);
-
   useEffect(() => {
     if (!checkingAuth && isLoggedIn && !isAdmin && activeTab === 'settings') {
       window.history.replaceState({}, '', TAB_TO_PATH.dashboard);
@@ -104,11 +70,8 @@ const App: React.FC = () => {
       setLoginError('');
       
       try {
-          const res = await login({ username, password }); /* res 表示接口响应结果。 */
-          if (res.success) {
-              setIsLoggedIn(true);
-              setIsAdmin(res.is_admin === true);
-          } else {
+          const res = await signIn({ username, password }); /* res 表示接口响应结果。 */
+          if (!res.success) {
               setLoginError(res.message || '登录失败');
           }
       } catch (err /* err 表示当前操作返回的错误。 */) {
@@ -133,14 +96,11 @@ const App: React.FC = () => {
 
     setInitializing(true);
     try {
-      const res = await initializeAdmin(initialPassword); /* res 表示接口响应结果。 */
+      const res = await initialize(initialPassword); /* res 表示接口响应结果。 */
       if (!res.success) {
         setInitializationError(res.message || '初始化失败，请重试');
         return;
       }
-      setNeedsInit(false);
-      setIsLoggedIn(true);
-      setIsAdmin(res.is_admin === true);
       setInitialPassword('');
       setInitialPasswordConfirm('');
     } catch (err /* err 表示当前操作返回的错误。 */) {
@@ -153,12 +113,9 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
       try {
-          await logout();
+          await signOut();
       } catch (err /* err 表示当前操作返回的错误。 */) {
           console.error('退出登录失败', err);
-      } finally {
-          setIsLoggedIn(false);
-          setIsAdmin(false);
       }
   }; /* handleLogout 表示handleLogout。 */
 
@@ -335,6 +292,13 @@ const App: React.FC = () => {
       onDeliveryTargetHandled={handleDeliveryTargetHandled}
     />
   );
-}; /* App 表示App。 */
+}; /* AppView 表示认证页面和应用壳视图。 */
+
+// App 在根部装配 SessionProvider，确保所有认证状态共享同一生命周期。
+const App: React.FC = () => (
+  <SessionProvider>
+    <AppView />
+  </SessionProvider>
+);
 
 export default App;

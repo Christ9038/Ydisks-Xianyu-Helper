@@ -56,9 +56,11 @@ describe('frontend navigation routing', () => {
 
   test('logout button invalidates the backend session before clearing UI state', () => {
     const app = readFrontendFile('App.tsx'); /* app 表示app。 */
+    const sessionProvider = readFrontendFile('app/providers/SessionProvider.tsx'); /* sessionProvider 表示认证 Provider 源码。 */
 
-    expect(app).toContain('import { initializeAdmin, login, logout, verifySession }');
-    expect(app).toContain('await logout();');
+    expect(app).toContain("import { SessionProvider, useSession }");
+    expect(sessionProvider).toContain('await logout();');
+    expect(sessionProvider).toContain("window.addEventListener('auth:logout'");
     expect(app).toContain('onLogout={handleLogout}');
   } /* 回调函数负责当前业务流程。 */);
 
@@ -77,12 +79,13 @@ describe('frontend navigation routing', () => {
 
   test('admin-only settings navigation is gated by session role', () => {
     const app = readFrontendFile('App.tsx'); /* app 表示app。 */
+    const sessionProvider = readFrontendFile('app/providers/SessionProvider.tsx'); /* sessionProvider 表示认证 Provider 源码。 */
     const shell = readFrontendFile('app/shell/AuthenticatedShell.tsx'); /* shell 表示认证后应用壳源码。 */
     const sidebar = readFrontendFile('components/Sidebar.tsx'); /* sidebar 表示sidebar。 */
     const settingsHook = readFrontendFile('app/features/settings/hooks.ts'); /* settingsHook 表示settingsHook。 */
 
-    expect(app).toContain('const [isAdmin, setIsAdmin] = useState(false)');
-    expect(app).toContain('setIsAdmin(res.is_admin === true)');
+    expect(app).toContain('const { checkingAuth, isLoggedIn, isAdmin, needsInit, signIn, initialize, signOut } = useSession();');
+    expect(sessionProvider).toContain('setIsAdmin(response.is_admin === true)');
     expect(app).toContain("activeTab === 'settings'");
     expect(shell).toContain('isAdmin ? <Settings /> : <Dashboard />');
     expect(sidebar).toContain('isAdmin = false');
