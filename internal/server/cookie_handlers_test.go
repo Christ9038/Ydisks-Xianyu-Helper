@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -532,6 +533,55 @@ func TestUpdateCookie(t *testing.T) {
 		t.Fatalf("token=%+v err=%v", token, err)
 	}
 	requireCookieSnapshotCleared(t, store, "acc1")
+}
+
+// TestUpdateCookieRejectsStaleRevision 验证客户端携带过期凭证版本时不会覆盖较新的 Cookie。
+func TestUpdateCookieRejectsStaleRevision(t *testing.T) {
+	// srv、store、cleanup 保存测试服务器、数据库和资源释放函数。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// ctx 保存本次测试使用的数据库上下文。
+	ctx := context.Background()
+	// baselineValue 保存建立可比较版本所需的旧 Cookie 值。
+	baselineValue := "unb=baseline; _m_h5_tk=baseline_token;"
+	// baselineErr 表示写入可比较版本基线时的数据库错误。
+	if baselineErr := store.Cookies.UpdateRenewalCookie(ctx, "acc1", baselineValue, `{}`, 100); baselineErr != nil {
+		t.Fatalf("写入基线 Cookie 失败: %v", baselineErr)
+	}
+	// initialErr 保存读取初始账号详情时的错误。
+	initial, initialErr := store.Cookies.GetDetails(ctx, "acc1")
+	if initialErr != nil {
+		t.Fatalf("读取初始账号详情失败: %v", initialErr)
+	}
+	// newerValue 是并发请求已经写入的新 Cookie 值。
+	newerValue := "unb=latest; _m_h5_tk=latest_token;"
+	// updateErr 表示写入并发新 Cookie 时的数据库错误。
+	if updateErr := store.Cookies.UpdateRenewalCookie(ctx, "acc1", newerValue, initial.MetadataJSON, 200); updateErr != nil {
+		t.Fatalf("写入并发新 Cookie 失败: %v", updateErr)
+	}
+	// h 保存 HTTP 路由；session 保存当前用户的会话 Cookie。
+	h := srv.Router()
+	// session 保存当前用户登录后的 HttpOnly 会话 Cookie。
+	session := loginHelper(t, h)
+	// body 保存携带旧版本的更新请求体。
+	body := fmt.Sprintf(`{"value":"unb=stale; _m_h5_tk=stale_token;","last_refresh_at":%d}`, initial.LastRefreshAt)
+	// req、rec 保存 HTTP 请求与响应记录器。
+	req := httptest.NewRequest(http.MethodPut, "/cookies/acc1", strings.NewReader(body))
+	req.AddCookie(session)
+	// rec 记录过期版本请求的 HTTP 响应，供状态码与错误契约断言。
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("过期版本应返回 409，got %d body=%s", rec.Code, rec.Body.String())
+	}
+	// latest、latestErr 保存冲突后数据库中的凭证值和读取错误。
+	latest, latestErr := store.Cookies.GetDetails(ctx, "acc1")
+	if latestErr != nil {
+		t.Fatalf("读取冲突后账号详情失败: %v", latestErr)
+	}
+	if latest.Value != newerValue {
+		t.Fatalf("过期版本覆盖了新 Cookie: %q", latest.Value)
+	}
 }
 
 // TestUpdateRunningCookieWakesCredentialBlockedAutomationWithoutManager 负责TestUpdateRunning登录凭证WakesCredentialBlocked自动化WithoutManager相关处理。

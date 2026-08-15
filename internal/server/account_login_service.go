@@ -36,7 +36,9 @@ func (p serverLoginLifecyclePort) AfterSuccessfulLogin(ctx context.Context, user
 	if p.server == nil {
 		return
 	}
-	p.server.markSuccessfulLogin(ctx, accountID, userID, method, "账号登录成功")
+	if strings.TrimSpace(method) != "" {
+		p.server.markSuccessfulLogin(ctx, accountID, userID, method, "账号登录成功")
+	}
 	p.server.accountLoginApplication().refreshAndRestartAccount(ctx, userID, accountID)
 }
 
@@ -67,6 +69,36 @@ func (w serverCookieWriter) CreateOwnedCookie(ctx context.Context, accountID str
 	clearErr := w.repository.ClearTokens(ctx, accountID)
 	if clearErr != nil && w.logger != nil {
 		w.logger.Warn("新增账号后清理旧连接凭证失败", "cookie_id", accountID, "err", clearErr)
+	}
+	return nil
+}
+
+// UpdateOwnedCookie 在账号凭证短锁内完成归属复核、Cookie 写入和旧 Token 清理；慢速资料刷新由应用服务在解锁后触发。
+func (w serverCookieWriter) UpdateOwnedCookie(ctx context.Context, accountID string, userID, expectedRevision int64) error {
+	if w.repository == nil {
+		return errors.New("账号登录凭证 repository 未初始化")
+	}
+	// unlock 只保护凭证快照读取、数据库写入和旧 Token 清理，不跨越网络或运行时操作。
+	unlock := w.repository.LockCredentials(accountID)
+	defer unlock()
+	// detail 保存锁内读取的平台凭证窄视图；该视图不会把登录密码传入应用层。
+	detail, loadErr := w.repository.LoadPlatformDetail(ctx, accountID)
+	if loadErr != nil {
+		return loadErr
+	}
+	if detail == nil || detail.UserID != userID {
+		return db.ErrForbidden
+	}
+	if expectedRevision != 0 && detail.LastRefreshAt != expectedRevision {
+		return accountapp.ErrCredentialConflict
+	}
+	// updateErr 保存归属已确认后的 Cookie 持久化结果；适配器负责清除旧完整快照。
+	if updateErr := w.repository.UpdateFlatCookieOwned(ctx, detail, w.cookies); updateErr != nil {
+		return updateErr
+	}
+	// clearErr 保存旧连接 Token 清理错误；凭证已成功写入时清理失败仅记录并继续。
+	if clearErr := w.repository.ClearTokens(ctx, accountID); clearErr != nil && w.logger != nil {
+		w.logger.Warn("更新账号后清理旧连接凭证失败", "cookie_id", accountID, "err", clearErr)
 	}
 	return nil
 }
@@ -144,6 +176,8 @@ type accountCookieUpdateInput struct {
 	UserID int64
 	// LoginMethod 是可选的登录方式。
 	LoginMethod string
+	// ExpectedRevision 是客户端读取到的最近 Cookie 刷新时间，用于检测并发覆盖。
+	ExpectedRevision int64
 }
 
 // CreateCookie 创建账号凭证并完成登录审计、资料刷新和运行时重启。
@@ -158,37 +192,12 @@ func (svc *accountLoginService) CreateCookie(ctx context.Context, input accountL
 
 // UpdateCookie 更新账号凭证并完成登录审计、资料刷新和运行时重启。
 func (svc *accountLoginService) UpdateCookie(ctx context.Context, input accountCookieUpdateInput) error {
-	// s 是当前账号登录应用服务依赖的 Server。
-	s := svc.server
-	// unlock 保护账号凭证更新、连接凭证清理和登录审计。
-	unlock := svc.repository.LockCredentials(input.AccountID)
-	// detail 和 err 保存账号凭证详情查询结果。
-	detail, err := s.loadCookiePlatformDetail(ctx, input.AccountID)
-	if err != nil || detail == nil || detail.UserID != input.UserID {
-		unlock()
-		if err == nil {
-			return db.ErrNotFound
-		}
-		return err
+	if svc == nil || svc.createApplication == nil || svc.server == nil {
+		return errors.New("账号登录应用服务未初始化")
 	}
-	// err 表示扁平 Cookie 更新错误。
-	if err := svc.repository.UpdateFlatCookieOwned(ctx, detail, input.Cookies); err != nil {
-		unlock()
-		return err
-	}
-	{
-		// err 表示清理旧连接凭证的错误，仅记录不阻断登录。
-		if err := svc.repository.ClearTokens(ctx, input.AccountID); err != nil && s.Logger != nil {
-			s.Logger.Warn("更新账号后清理旧连接凭证失败", "cookie_id", input.AccountID, "err", err)
-		}
-	}
-	// loginMethod 是可选的归一化登录方式。
-	if loginMethod := normalizeLoginMethod(input.LoginMethod); loginMethod != "" {
-		s.markSuccessfulLogin(ctx, input.AccountID, input.UserID, loginMethod, "账号登录成功")
-	}
-	unlock()
-	svc.refreshAndRestartAccount(ctx, input.UserID, input.AccountID)
-	return nil
+	return svc.createApplication.UpdateCookie(ctx, accountapp.UpdateCookieInput{
+		AccountID: input.AccountID, UserID: input.UserID, LoginMethod: input.LoginMethod, ExpectedRevision: input.ExpectedRevision,
+	}, serverCookieWriter{repository: svc.repository, cookies: input.Cookies, logger: svc.server.Logger})
 }
 
 // serverQRLoginLifecycle 将扫码登录成功后的审计、资料刷新和运行时同步适配到应用端口。

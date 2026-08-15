@@ -144,6 +144,20 @@ func newChatMessageDTOFromPointer(message *db.ChatMessage) chatMessageDTO {
 	return newChatMessageDTO(*message)
 }
 
+// newChatMessageDTOFromApplication 将聊天应用层发送结果转换为 HTTP DTO，避免响应引用数据库模型。
+func newChatMessageDTOFromApplication(message *chatapp.Message) chatMessageDTO {
+	if message == nil {
+		return chatMessageDTO{}
+	}
+	return chatMessageDTO{
+		ID: message.ID, AccountID: message.AccountID, ChatID: message.ChatID,
+		MessageKey: message.MessageKey, Direction: message.Direction,
+		SenderID: message.SenderID, SenderName: message.SenderName,
+		MessageType: message.MessageType, Content: message.Content,
+		Status: message.Status, SentAt: message.SentAt,
+	}
+}
+
 // newChatMessageDTOs 批量转换聊天消息，保持接口响应与数据库模型解耦。
 func newChatMessageDTOs(messages []db.ChatMessage) []chatMessageDTO {
 	// result 是转换后的聊天消息 DTO 列表。
@@ -738,8 +752,6 @@ type notificationChannelResponse struct {
 	Name string `json:"name"`
 	// Type 是通知渠道类型。
 	Type string `json:"type"`
-	// Config 是通知渠道配置 JSON。
-	Config string `json:"config"`
 	// EventTypes 是订阅事件类型 JSON 或兼容分隔文本。
 	EventTypes string `json:"event_types,omitempty"`
 	// Enabled 表示通知渠道是否启用。
@@ -749,15 +761,15 @@ type notificationChannelResponse struct {
 }
 
 // newNotificationChannelResponse 将数据库通知渠道转换为 HTTP DTO。
-func newNotificationChannelResponse(channel db.NotificationChannelRow) notificationChannelResponse {
+func newNotificationChannelResponse(channel notificationsapp.ChannelSummary) notificationChannelResponse {
 	return notificationChannelResponse{
-		ID: channel.ID, Name: channel.Name, Type: channel.Type, Config: channel.Config,
+		ID: channel.ID, Name: channel.Name, Type: channel.Type,
 		EventTypes: channel.EventTypes, Enabled: channel.Enabled, UserID: channel.UserID,
 	}
 }
 
 // newNotificationChannelResponses 批量转换通知渠道，保持数据库模型不穿透 HTTP 层。
-func newNotificationChannelResponses(channels []db.NotificationChannelRow) []notificationChannelResponse {
+func newNotificationChannelResponses(channels []notificationsapp.ChannelSummary) []notificationChannelResponse {
 	// result 是转换后的通知渠道 DTO 列表。
 	result := make([]notificationChannelResponse, 0, len(channels))
 	// channel 是当前待转换的通知渠道数据库模型。

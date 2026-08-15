@@ -554,6 +554,16 @@ func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, accountMutationResponse{Success: true, ID: req.ID})
 }
 
+// updateCookieRequest 是更新账号 Cookie 的 HTTP 请求 DTO；last_refresh_at 用于兼容客户端的并发覆盖检测。
+type updateCookieRequest struct {
+	// Value 是本次请求携带的明文 Cookie；只在 Server 请求作用域内传递。
+	Value string `json:"value"`
+	// LoginMethod 是可选登录方式，用于成功审计和账号启用语义。
+	LoginMethod string `json:"login_method"`
+	// LastRefreshAt 是客户端读取到的最近凭证刷新时间；零值表示旧客户端不启用冲突检查。
+	LastRefreshAt int64 `json:"last_refresh_at"`
+}
+
 // updateCookie 更新 cookie 值。
 func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 	// cid 保存cid，供当前处理流程使用
@@ -563,11 +573,8 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// req 保存req，供当前处理流程使用
-	var req struct {
-		Value       string `json:"value"`
-		LoginMethod string `json:"login_method"`
-	}
+	// req 保存请求中的 Cookie、登录方式和可选凭证版本。
+	var req updateCookieRequest
 	if // err 保存err，供当前处理流程使用
 	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
@@ -576,7 +583,11 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
 	if // err 保存err，供当前处理流程使用
-	err := s.accountLoginApplication().UpdateCookie(r.Context(), accountCookieUpdateInput{AccountID: cid, Cookies: req.Value, UserID: sess.UserID, LoginMethod: req.LoginMethod}); err != nil {
+	err := s.accountLoginApplication().UpdateCookie(r.Context(), accountCookieUpdateInput{AccountID: cid, Cookies: req.Value, UserID: sess.UserID, LoginMethod: req.LoginMethod, ExpectedRevision: req.LastRefreshAt}); err != nil {
+		if errors.Is(err, accountapp.ErrCredentialConflict) {
+			writeErr(w, http.StatusConflict, err.Error())
+			return
+		}
 		if errors.Is(err, db.ErrForbidden) {
 			writeErr(w, http.StatusForbidden, "无权限操作该账号")
 			return

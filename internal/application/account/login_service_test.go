@@ -16,6 +16,24 @@ type fakeCookieWriter struct {
 	called    bool
 }
 
+// fakeCookieUpdater 是更新凭证应用服务测试用的专用端口替身，不接收明文 Cookie。
+type fakeCookieUpdater struct {
+	// err 是更新端口需要模拟的失败，包括归属失败、版本冲突和持久化失败。
+	err error
+	// accountID 和 userID 保存最近一次更新请求，用于验证应用层只传递非敏感身份。
+	accountID string
+	userID    int64
+	called    bool
+}
+
+// UpdateOwnedCookie 记录更新请求并返回预设结果。
+func (u *fakeCookieUpdater) UpdateOwnedCookie(_ context.Context, accountID string, userID, _ int64) error {
+	u.called = true
+	u.accountID = accountID
+	u.userID = userID
+	return u.err
+}
+
 // CreateOwnedCookie 记录写入请求但不接收明文 Cookie。
 func (w *fakeCookieWriter) CreateOwnedCookie(_ context.Context, accountID string, userID int64) error {
 	w.called = true
@@ -130,5 +148,96 @@ func TestLoginServiceCreateCookiePropagatesOwnershipFailure(t *testing.T) {
 	}
 	if lifecycle.calls != 0 {
 		t.Fatal("归属校验失败时不应触发登录成功后续编排")
+	}
+}
+
+// TestLoginServiceUpdateCookieSuccess 验证更新成功后才触发统一登录后续编排。
+func TestLoginServiceUpdateCookieSuccess(t *testing.T) {
+	// lifecycle 记录更新成功后的审计、资料和运行时同步调用。
+	lifecycle := &fakeLoginLifecycle{}
+	// updater 只接收账号身份，不接收明文 Cookie。
+	updater := &fakeCookieUpdater{}
+	// service 保存使用有效生命周期端口构造的登录应用服务；serviceErr 保存构造错误。
+	service, serviceErr := NewLoginService(lifecycle)
+	if serviceErr != nil {
+		t.Fatalf("构造登录服务失败: %v", serviceErr)
+	}
+	// updateErr 保存应用服务返回的更新结果。
+	updateErr := service.UpdateCookie(context.Background(), UpdateCookieInput{AccountID: "acc1", UserID: 7, LoginMethod: "qr_scan"}, updater)
+	if updateErr != nil {
+		t.Fatalf("更新 Cookie 失败: %v", updateErr)
+	}
+	if !updater.called || updater.accountID != "acc1" || updater.userID != 7 {
+		t.Fatalf("更新端口输入异常: %+v", updater)
+	}
+	if lifecycle.calls != 1 || lifecycle.method != "qr_scan" {
+		t.Fatalf("成功更新后未触发正确后续编排: %+v", lifecycle)
+	}
+}
+
+// TestLoginServiceUpdateCookiePropagatesOwnershipFailure 验证归属失败不会触发成功后续编排。
+func TestLoginServiceUpdateCookiePropagatesOwnershipFailure(t *testing.T) {
+	// ownershipErr 是凭证适配器完成账号归属校验后返回的越权错误。
+	ownershipErr := errors.New("账号不属于当前用户")
+	// lifecycle 用于确认归属失败时不会记录登录成功。
+	lifecycle := &fakeLoginLifecycle{}
+	// updater 模拟归属校验失败。
+	updater := &fakeCookieUpdater{err: ownershipErr}
+	// service 保存有效应用服务；serviceErr 保存构造错误。
+	service, serviceErr := NewLoginService(lifecycle)
+	if serviceErr != nil {
+		t.Fatalf("构造登录服务失败: %v", serviceErr)
+	}
+	// updateErr 保存归属失败结果。
+	updateErr := service.UpdateCookie(context.Background(), UpdateCookieInput{AccountID: "other", UserID: 7}, updater)
+	if !errors.Is(updateErr, ownershipErr) {
+		t.Fatalf("应保留归属失败错误，got %v", updateErr)
+	}
+	if lifecycle.calls != 0 {
+		t.Fatal("归属失败时不应触发登录成功后续编排")
+	}
+}
+
+// TestLoginServiceUpdateCookiePropagatesVersionConflict 验证并发版本冲突会原样返回并阻止旧响应生效。
+func TestLoginServiceUpdateCookiePropagatesVersionConflict(t *testing.T) {
+	// lifecycle 用于确认版本冲突不会触发运行时重启。
+	lifecycle := &fakeLoginLifecycle{}
+	// updater 模拟凭证快照已被其他请求更新后的冲突结果。
+	updater := &fakeCookieUpdater{err: ErrCredentialConflict}
+	// service 保存有效应用服务；serviceErr 保存构造错误。
+	service, serviceErr := NewLoginService(lifecycle)
+	if serviceErr != nil {
+		t.Fatalf("构造登录服务失败: %v", serviceErr)
+	}
+	// updateErr 保存并发版本冲突结果。
+	updateErr := service.UpdateCookie(context.Background(), UpdateCookieInput{AccountID: "acc1", UserID: 7}, updater)
+	if !errors.Is(updateErr, ErrCredentialConflict) {
+		t.Fatalf("应返回版本冲突，got %v", updateErr)
+	}
+	if lifecycle.calls != 0 {
+		t.Fatal("版本冲突时不应触发登录成功后续编排")
+	}
+}
+
+// TestLoginServiceUpdateCookiePropagatesWriteFailure 验证凭证持久化失败不会伪造登录成功。
+func TestLoginServiceUpdateCookiePropagatesWriteFailure(t *testing.T) {
+	// writeErr 是凭证适配器返回的底层写入故障。
+	writeErr := errors.New("凭证写入失败")
+	// lifecycle 用于确认写入失败时未触发后续编排。
+	lifecycle := &fakeLoginLifecycle{}
+	// updater 模拟数据库写入失败。
+	updater := &fakeCookieUpdater{err: writeErr}
+	// service 保存有效应用服务；serviceErr 保存构造错误。
+	service, serviceErr := NewLoginService(lifecycle)
+	if serviceErr != nil {
+		t.Fatalf("构造登录服务失败: %v", serviceErr)
+	}
+	// updateErr 保存写入失败结果。
+	updateErr := service.UpdateCookie(context.Background(), UpdateCookieInput{AccountID: "acc1", UserID: 7}, updater)
+	if !errors.Is(updateErr, writeErr) {
+		t.Fatalf("应返回凭证写入错误，got %v", updateErr)
+	}
+	if lifecycle.calls != 0 {
+		t.Fatal("写入失败时不应触发登录成功后续编排")
 	}
 }

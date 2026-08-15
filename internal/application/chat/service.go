@@ -82,6 +82,12 @@ type Repository interface {
 type Service struct {
 	// repository 保存由调用方注入的最小持久化端口。
 	repository Repository
+	// outgoing 保存实时发送用例的本地消息写入端口。
+	outgoing OutgoingRepository
+	// senders 保存按账号解析在线发送实例的端口。
+	senders SenderProvider
+	// uploader 保存图片上传的平台适配端口。
+	uploader ImageUploader
 }
 
 // New 创建聊天历史应用服务；空端口会导致构造结果不可用。

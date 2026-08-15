@@ -89,7 +89,12 @@ func (r storeAccountLoginRepository) LoadPlatformDetail(ctx context.Context, acc
 	if err != nil {
 		return nil, err
 	}
-	return &db.CookieDetail{ID: data.ID, UserID: data.UserID, Value: data.Value, MetadataJSON: data.MetadataJSON, ShowBrowser: data.ShowBrowser}, nil
+	// summary 只补充非敏感版本字段，避免为乐观冲突检查读取或解密登录密码。
+	summary, summaryErr := r.store.Cookies.GetSummaryOwned(ctx, data.UserID, accountID)
+	if summaryErr != nil {
+		return nil, summaryErr
+	}
+	return &db.CookieDetail{ID: data.ID, UserID: data.UserID, Value: data.Value, MetadataJSON: data.MetadataJSON, ShowBrowser: data.ShowBrowser, LastRefreshAt: summary.LastRefreshAt}, nil
 }
 
 // UpdateFlatCookieOwned 委托扁平 Cookie 更新并清除旧的完整 Cookie Jar 快照。

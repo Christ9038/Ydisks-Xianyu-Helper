@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// ErrCredentialConflict 表示凭证写入前后检测到更新版本已变化，调用方应重新读取后重试。
+var ErrCredentialConflict = errors.New("账号凭证已发生变化，请重试")
+
 // CreateCookieInput 是手动录入账号 Cookie 用例的非敏感输入；明文 Cookie 由调用方专用端口封装。
 type CreateCookieInput struct {
 	// AccountID 是待创建的平台账号稳定标识。
@@ -16,10 +19,28 @@ type CreateCookieInput struct {
 	LoginMethod string
 }
 
+// UpdateCookieInput 是更新既有账号凭证用例的非敏感输入；明文 Cookie 由调用方专用端口封装。
+type UpdateCookieInput struct {
+	// AccountID 是待更新的平台账号稳定标识。
+	AccountID string
+	// UserID 是当前用户的本地身份标识。
+	UserID int64
+	// LoginMethod 是可选登录方式；空值表示普通凭证替换且不写入登录审计。
+	LoginMethod string
+	// ExpectedRevision 是调用方读取到的最近 Cookie 刷新时间；零值关闭兼容客户端的乐观冲突检查。
+	ExpectedRevision int64
+}
+
 // CookieWriter 定义一次性写入账号凭证的端口；实现方负责在最小作用域内持有明文 Cookie。
 type CookieWriter interface {
 	// CreateOwnedCookie 原子校验账号归属并写入凭证；明文不应进入应用层 DTO 或日志。
 	CreateOwnedCookie(context.Context, string, int64) error
+}
+
+// CookieUpdater 定义更新既有账号凭证的专用端口；实现方负责在最小作用域内接收明文 Cookie。
+type CookieUpdater interface {
+	// UpdateOwnedCookie 原子校验账号归属、可选版本并写入新凭证；明文不应进入应用层输入或日志。
+	UpdateOwnedCookie(context.Context, string, int64, int64) error
 }
 
 // LoginLifecyclePort 定义凭证成功写入后的审计、启用、资料刷新和运行时同步边界。
@@ -60,6 +81,31 @@ func (s *LoginService) CreateCookie(ctx context.Context, input CreateCookieInput
 	}
 	// method 是归一化后的登录方式，供审计和运行时适配器保持统一语义。
 	method := normalizeLoginMethod(input.LoginMethod)
+	s.lifecycle.AfterSuccessfulLogin(ctx, input.UserID, input.AccountID, method)
+	return nil
+}
+
+// UpdateCookie 执行既有账号的凭证更新；写入成功后才触发登录审计、资料刷新与运行时同步。
+func (s *LoginService) UpdateCookie(ctx context.Context, input UpdateCookieInput, updater CookieUpdater) error {
+	if s == nil || s.lifecycle == nil {
+		return errors.New("账号登录服务未初始化")
+	}
+	if updater == nil {
+		return errors.New("账号 Cookie 更新端口未初始化")
+	}
+	if strings.TrimSpace(input.AccountID) == "" {
+		return errors.New("缺少账号 ID")
+	}
+	// updateErr 保存凭证适配器完成归属校验、短锁写入和冲突检测后的结果。
+	updateErr := updater.UpdateOwnedCookie(ctx, input.AccountID, input.UserID, input.ExpectedRevision)
+	if updateErr != nil {
+		return updateErr
+	}
+	// method 是归一化后的登录方式；更新凭证未声明登录方式时必须保持普通替换，不写入登录审计。
+	method := ""
+	if strings.TrimSpace(input.LoginMethod) != "" {
+		method = normalizeLoginMethod(input.LoginMethod)
+	}
 	s.lifecycle.AfterSuccessfulLogin(ctx, input.UserID, input.AccountID, method)
 	return nil
 }
