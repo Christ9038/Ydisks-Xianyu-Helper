@@ -456,7 +456,13 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 	a.lastOrderFetch = time.Now()
 	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
 	credentialUnlock := a.store.LockAccountCredentials(cookieID)
-	defer credentialUnlock()
+	// credentialLocked 标识当前调用是否持有账号凭证锁。
+	credentialLocked := true
+	defer func() {
+		if credentialLocked {
+			credentialUnlock()
+		}
+	}()
 	platformData, err := a.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID) // platformData 只包含订单 MTOP 请求所需的 Cookie 与 metadata。
 	if err != nil {
 		return nil, fmt.Errorf("读取订单账号最新 Cookie: %w", err)
@@ -476,15 +482,29 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 	} else {
 		requestCtx, cookieSession = mtop.WithFlatCookieSession(ctx, cookieStr)
 	}
+	// 账号凭证快照已读取完成；慢速 MTOP 请求不得继续持有共享凭证锁。
+	credentialUnlock()
+	credentialLocked = false
 	// detail、fetchErr 保存detail、fetchErr，供当前处理流程使用
 	detail, fetchErr := a.orderMTop.FetchOrderDetail(requestCtx, cookieStr, orderID)
 	// authoritativeCookies、authoritativeSnapshot、sessionChanged 保存authoritativeCookies、authoritativeSnapshot、sessionChanged，供当前处理流程使用
 	authoritativeCookies, authoritativeSnapshot, sessionChanged := cookieSession.State()
-	if sessionChanged {
+	// credentialUnlock 保存重新进入凭证提交临界区的释放函数。
+	credentialUnlock = a.store.LockAccountCredentials(cookieID)
+	credentialLocked = true
+	// latestPlatformData 和 reloadErr 保存外部调用完成后的最新凭证快照及重读错误。
+	latestPlatformData, reloadErr := a.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID)
+	if reloadErr != nil {
+		fetchErr = errors.Join(fetchErr, fmt.Errorf("重读订单账号最新 Cookie: %w", reloadErr))
+	} else if latestPlatformData.Value != platformData.Value || latestPlatformData.MetadataJSON != platformData.MetadataJSON {
+		// 凭证在外部调用期间已被其他流程更新，丢弃旧快照响应，避免覆盖更新后的状态。
+		sessionChanged = false
+		authoritativeSnapshot = nil
+	} else if sessionChanged {
 		// metadata 保存metadata，供当前处理流程使用
-		metadata := cookierefresh.MetadataWithoutSnapshot(platformData.MetadataJSON)
+		metadata := cookierefresh.MetadataWithoutSnapshot(latestPlatformData.MetadataJSON)
 		if authoritativeSnapshot != nil {
-			metadata = cookierefresh.MetadataWithSnapshot(platformData.MetadataJSON, authoritativeSnapshot)
+			metadata = cookierefresh.MetadataWithSnapshot(latestPlatformData.MetadataJSON, authoritativeSnapshot)
 		}
 		if // persistErr 保存persistErr，供当前处理流程使用
 		persistErr := a.store.Cookies.UpdateRenewalCookie(ctx, cookieID, authoritativeCookies, metadata, time.Now().Unix()); persistErr != nil {
@@ -500,15 +520,18 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 	if detail == nil {
 		return nil, errors.New("订单详情 MTOP 接口返回空结果")
 	}
-	if !sessionChanged && authoritativeSnapshot == nil && detail.UpdatedCookies != "" && detail.UpdatedCookies != cookieStr {
+	if reloadErr == nil && latestPlatformData.Value == platformData.Value && latestPlatformData.MetadataJSON == platformData.MetadataJSON && !sessionChanged && authoritativeSnapshot == nil && detail.UpdatedCookies != "" && detail.UpdatedCookies != cookieStr {
 		// metadata 保存metadata，供当前处理流程使用
-		metadata := cookierefresh.MetadataWithoutSnapshot(platformData.MetadataJSON)
+		metadata := cookierefresh.MetadataWithoutSnapshot(latestPlatformData.MetadataJSON)
 		if // err 保存err，供当前处理流程使用
 		err := a.store.Cookies.UpdateRenewalCookie(ctx, cookieID, detail.UpdatedCookies, metadata, time.Now().Unix()); err != nil {
 			return nil, fmt.Errorf("保存订单详情响应 Cookie: %w", err)
 		}
 		a.wakeCredentialBlockedAutomation(ctx, cookieID)
 	}
+	// 外部调用产生的凭证结果已处理完成，释放短暂提交临界区。
+	credentialUnlock()
+	credentialLocked = false
 	return &automation.OrderDetail{
 		Quantity: detail.Quantity, SpecName: detail.SpecName, SpecValue: detail.SpecValue,
 		Amount: detail.Amount, OrderStatus: detail.OrderStatus,

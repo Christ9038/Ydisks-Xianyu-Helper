@@ -35,7 +35,15 @@ type Store struct {
 	Analytics      *AnalyticsQueries
 
 	credentialMu    sync.Mutex
-	credentialLocks map[string]*sync.Mutex
+	credentialLocks map[string]*credentialLockEntry
+}
+
+// credentialLockEntry 保存单个账号凭证锁及当前排队/持有者数量。
+type credentialLockEntry struct {
+	// mu 串行化该账号的 Cookie、token 和 metadata 状态变更。
+	mu sync.Mutex
+	// refs 记录仍可能使用该 entry 的调用方数量，用于安全回收空闲锁。
+	refs int
 }
 
 // NewStore 基于 *sql.DB 构造聚合 store。dialect 用于业务 SQL 方言分支。
@@ -69,7 +77,7 @@ func NewStore(db *sql.DB, dialect Dialect) *Store {
 		AccountTasks:    &AccountTaskStore{DB: db, Dialect: dialect},
 		Admin:           &AdminQueries{DB: db},
 		Analytics:       &AnalyticsQueries{DB: db},
-		credentialLocks: make(map[string]*sync.Mutex),
+		credentialLocks: make(map[string]*credentialLockEntry),
 	}
 }
 
@@ -83,15 +91,35 @@ func (s *Store) LockAccountCredentials(cookieID string) func() {
 	}
 	s.credentialMu.Lock()
 	if s.credentialLocks == nil {
-		s.credentialLocks = make(map[string]*sync.Mutex)
+		s.credentialLocks = make(map[string]*credentialLockEntry)
 	}
-	// lock 保存锁，供当前处理流程使用
-	lock := s.credentialLocks[cookieID]
-	if lock == nil {
-		lock = &sync.Mutex{}
-		s.credentialLocks[cookieID] = lock
+	// entry 保存账号锁及其引用计数。
+	entry := s.credentialLocks[cookieID]
+	if entry == nil {
+		entry = &credentialLockEntry{}
+		s.credentialLocks[cookieID] = entry
 	}
+	entry.refs++
 	s.credentialMu.Unlock()
-	lock.Lock()
-	return lock.Unlock
+	entry.mu.Lock()
+	// unlocked 防止异常重复调用释放函数破坏锁和引用计数。
+	unlocked := false
+	// unlockMu 保护释放函数的幂等状态。
+	var unlockMu sync.Mutex
+	return func() {
+		unlockMu.Lock()
+		if unlocked {
+			unlockMu.Unlock()
+			return
+		}
+		unlocked = true
+		unlockMu.Unlock()
+		entry.mu.Unlock()
+		s.credentialMu.Lock()
+		entry.refs--
+		if entry.refs == 0 && s.credentialLocks[cookieID] == entry {
+			delete(s.credentialLocks, cookieID)
+		}
+		s.credentialMu.Unlock()
+	}
 }
