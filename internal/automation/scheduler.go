@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -78,7 +79,8 @@ func (s *Scheduler) WaitContext(ctx context.Context) error {
 
 // scan 负责scan相关处理。
 func (s *Scheduler) scan(ctx context.Context) {
-	s.runDeferredTasks(ctx)
+	// deferredErr 汇总延迟任务状态收口失败，供本轮扫描结束时统一告警。
+	deferredErr := s.runDeferredTasks(ctx)
 	s.center.scanAccountTasks(ctx)
 	if // recovered、err 保存recovered、err，供当前处理流程使用
 	recovered, err := s.center.store.Automation.RecoverDefinitelyUnsentReviewRuns(ctx); err != nil {
@@ -86,7 +88,12 @@ func (s *Scheduler) scan(ctx context.Context) {
 	} else if recovered > 0 {
 		s.center.logger.Info("已恢复历史求评价未发送任务，等待安全重试", "count", recovered)
 	}
-	s.runRecoveryTasks(ctx)
+	// recoveryErr 汇总恢复运行状态收口失败，避免数据库写错误只记录日志后丢失。
+	recoveryErr := s.runRecoveryTasks(ctx)
+	if // scanErr 汇总两个自动化扫描阶段的状态收口错误，供统一告警使用。
+	scanErr := errors.Join(deferredErr, recoveryErr); scanErr != nil {
+		s.center.logger.Error("自动化计划任务状态收口失败", "err", scanErr)
+	}
 	// 逐页执行，避免把所有到期订单一次性装入内存。稳定 ID 游标确保本轮有界。
 	afterOrderID := ""
 	// waitingForWS 保存waitingForWS，供当前处理流程使用
@@ -150,20 +157,23 @@ func (s *Scheduler) scan(ctx context.Context) {
 }
 
 // runRecoveryTasks 负责运行Recovery任务列表相关处理。
-func (s *Scheduler) runRecoveryTasks(ctx context.Context) {
+func (s *Scheduler) runRecoveryTasks(ctx context.Context) error {
+	// resultErr 汇总本轮恢复任务的持久化错误，调用方可据此触发统一告警。
+	var resultErr error
 	// runs、err 保存runs、err，供当前处理流程使用
 	runs, err := s.center.store.Automation.DueRecoveryRuns(ctx, 100)
 	if err != nil {
 		s.center.logger.Warn("扫描失败自动化运行失败", "err", err)
-		return
+		return err
 	}
 	// run 表示当前遍历过程中的运行
 	for _, run := range runs {
 		if run.ActionStarted {
 			// reason 保存原因，供当前处理流程使用
 			reason := "进程在外部动作执行期间中断，发送结果未知，已禁止自动重放"
-			_ = s.center.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, reason)
-			s.center.notifyRunNeedsReview(run, reason)
+			// quarantineErr 表示把外部动作结果未知的运行转为人工核对状态时的错误。
+			quarantineErr := s.quarantineRunForReview(ctx, run, reason)
+			resultErr = errors.Join(resultErr, quarantineErr)
 			continue
 		}
 		// task 保存任务，供当前处理流程使用
@@ -172,8 +182,9 @@ func (s *Scheduler) runRecoveryTasks(ctx context.Context) {
 		err := json.Unmarshal([]byte(run.RawEventJSON), &task); err != nil || task.AccountID == "" {
 			// reason 保存原因，供当前处理流程使用
 			reason := "历史运行数据无法安全解析，已移入人工检查"
-			_ = s.center.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, reason)
-			s.center.notifyRunNeedsReview(run, reason)
+			// quarantineErr 表示历史任务无法解析时写入人工核对状态的错误。
+			quarantineErr := s.quarantineRunForReview(ctx, run, reason)
+			resultErr = errors.Join(resultErr, quarantineErr)
 			continue
 		}
 		// allowed、err 保存allowed、err，供当前处理流程使用
@@ -182,6 +193,7 @@ func (s *Scheduler) runRecoveryTasks(ctx context.Context) {
 			if // postponeErr 保存postponeErr，供当前处理流程使用
 			postponeErr := s.center.store.Automation.PostponeRecoveryRun(ctx, run.ID, run.AttemptCount, time.Now().UTC().Add(10*time.Minute).Unix()); postponeErr != nil {
 				s.center.logger.Warn("延期自动化恢复任务失败", "run_id", run.ID, "err", postponeErr)
+				resultErr = errors.Join(resultErr, fmt.Errorf("延期自动化恢复任务失败: %w", postponeErr))
 			}
 			continue
 		}
@@ -189,7 +201,7 @@ func (s *Scheduler) runRecoveryTasks(ctx context.Context) {
 		rule, err := s.center.store.Automation.Get(ctx, run.RuleID)
 		if err != nil && !errors.Is(err, db.ErrNotFound) {
 			if ctx.Err() != nil {
-				return
+				return errors.Join(resultErr, ctx.Err())
 			}
 			s.center.logger.Warn("读取自动化恢复规则失败，保留任务等待重试", "run_id", run.ID, "rule_id", run.RuleID, "err", err)
 			continue
@@ -197,19 +209,26 @@ func (s *Scheduler) runRecoveryTasks(ctx context.Context) {
 		if errors.Is(err, db.ErrNotFound) || rule == nil || !rule.Enabled {
 			// reason 保存原因，供当前处理流程使用
 			reason := "自动化规则不存在或已停用，无法恢复"
-			_ = s.center.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, reason)
-			s.center.notifyRunNeedsReview(run, reason)
+			// quarantineErr 表示规则不可恢复时写入人工核对状态的错误。
+			quarantineErr := s.quarantineRunForReview(ctx, run, reason)
+			resultErr = errors.Join(resultErr, quarantineErr)
 			continue
 		}
 		if recoveryNeedsSender(task, *rule, run.ActionCursor) && !s.center.accountSenderReady(task.AccountID) {
 			if // postponeErr 保存postponeErr，供当前处理流程使用
 			postponeErr := s.center.store.Automation.PostponeRecoveryRun(ctx, run.ID, run.AttemptCount, time.Now().UTC().Add(defaultReviewRequestScanInterval).Unix()); postponeErr != nil {
 				s.center.logger.Warn("等待 WebSocket 时延期自动化任务失败", "run_id", run.ID, "err", postponeErr)
+				resultErr = errors.Join(resultErr, fmt.Errorf("等待 WebSocket 时延期自动化任务失败: %w", postponeErr))
 			}
 			continue
 		}
 		// claimed、claimErr 保存claimed、claimErr，供当前处理流程使用
 		claimed, claimErr := s.center.store.Automation.ClaimRecoveryRun(ctx, run.ID, time.Now().UTC().Add(5*time.Minute).Unix())
+		if claimErr != nil {
+			// claimFailure 表示领取恢复运行的状态写入失败，必须返回而不能被当作并发未领取。
+			claimFailure := fmt.Errorf("领取自动化恢复任务失败: %w", claimErr)
+			resultErr = errors.Join(resultErr, claimFailure)
+		}
 		if claimErr != nil || !claimed {
 			continue
 		}
@@ -221,8 +240,26 @@ func (s *Scheduler) runRecoveryTasks(ctx context.Context) {
 		if // err 保存err，供当前处理流程使用
 		err := s.center.executeRule(ctx, task, *rule); err != nil && !errors.Is(err, errAutomationDeferred) {
 			s.center.logger.Warn("重试自动化运行失败", "run_id", run.ID, "err", err)
+			resultErr = errors.Join(resultErr, err)
 		}
 	}
+	return resultErr
+}
+
+// quarantineRunForReview 将恢复运行置为人工核对并发送运维通知；写入失败时返回统一 needs_review 错误，禁止调用方误认为状态已收口。
+func (s *Scheduler) quarantineRunForReview(ctx context.Context, run db.AutomationRun, reason string) error {
+	// quarantineErr 表示人工核对状态写入失败；失败时数据库中的原状态仍可能允许下一轮恢复。
+	quarantineErr := s.center.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, reason)
+	s.center.notifyRunNeedsReview(run, reason)
+	if quarantineErr == nil {
+		return nil
+	}
+	s.center.logger.Error("保存自动化恢复运行人工核对状态失败", "run_id", run.ID, "err", quarantineErr)
+	return errors.Join(
+		errAutomationNeedsReview,
+		errAutomationQuarantine,
+		fmt.Errorf("保存自动化恢复运行人工核对状态失败: %w", quarantineErr),
+	)
 }
 
 // recoveryNeedsSender 负责recoveryNeedsSender相关处理。
@@ -244,12 +281,14 @@ func recoveryNeedsSender(task Task, rule db.AutomationRule, cursor int) bool {
 }
 
 // runDeferredTasks 负责运行Deferred任务列表相关处理。
-func (s *Scheduler) runDeferredTasks(ctx context.Context) {
+func (s *Scheduler) runDeferredTasks(ctx context.Context) error {
+	// resultErr 汇总延迟任务最终状态写入失败，避免领取成功后状态异常被静默吞掉。
+	var resultErr error
 	// tasks、err 保存tasks、err，供当前处理流程使用
 	tasks, err := s.center.store.Automation.ClaimDueDeferredTasks(ctx, 100)
 	if err != nil {
 		s.center.logger.Warn("扫描暂停期间自动化事件失败", "err", err)
-		return
+		return err
 	}
 	// pending 表示当前遍历过程中的pending
 	for _, pending := range tasks {
@@ -257,7 +296,16 @@ func (s *Scheduler) runDeferredTasks(ctx context.Context) {
 		var task Task
 		if // err 保存err，供当前处理流程使用
 		err := json.Unmarshal([]byte(pending.TaskJSON), &task); err != nil {
-			_ = s.center.store.Automation.FinishDeferredTask(ctx, pending.ID, pending.ClaimVersion, false, "解析任务失败: "+err.Error())
+			// finishErr 表示解析失败后写入延迟任务重试或死信状态时的错误。
+			finishErr := s.center.store.Automation.FinishDeferredTask(ctx, pending.ID, pending.ClaimVersion, false, "解析任务失败: "+err.Error())
+			if finishErr != nil {
+				s.center.logger.Error("保存解析失败的暂停事件状态失败", "task_id", pending.ID, "err", finishErr)
+				resultErr = errors.Join(
+					resultErr,
+					errAutomationNeedsReview,
+					fmt.Errorf("保存解析失败的暂停事件状态失败: %w", finishErr),
+				)
+			}
 			continue
 		}
 		if task.Raw == nil {
@@ -273,8 +321,10 @@ func (s *Scheduler) runDeferredTasks(ctx context.Context) {
 		if // err 保存err，供当前处理流程使用
 		err := s.center.store.Automation.FinishDeferredTask(ctx, pending.ID, pending.ClaimVersion, runErr == nil, errorString(runErr)); err != nil {
 			s.center.logger.Warn("保存暂停事件重放结果失败", "task_id", pending.ID, "err", err)
+			resultErr = errors.Join(resultErr, errAutomationNeedsReview, runErr, fmt.Errorf("保存暂停事件重放结果失败: %w", err))
 		}
 	}
+	return resultErr
 }
 
 // errorString 负责错误String相关处理。

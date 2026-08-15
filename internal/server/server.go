@@ -99,14 +99,18 @@ type Server struct {
 	workerCount         int
 	workersDone         chan struct{}
 	backgroundWG        sync.WaitGroup
-	lifecycleMu         sync.RWMutex
-	lifecycleCtx        context.Context
-	lifecycleCancel     context.CancelFunc
-	httpServer          *http.Server
-	httpDone            chan struct{}
-	httpErr             error
-	started             bool
-	stopped             bool
+	// taskRegistryMu 保护后台任务注册表的惰性初始化，避免测试构造的零值 Server 产生数据竞争。
+	taskRegistryMu sync.Mutex
+	// taskRegistry 保存 Server 自有后台任务的生命周期状态，不持久化业务数据或敏感凭证。
+	taskRegistry    *taskRegistry
+	lifecycleMu     sync.RWMutex
+	lifecycleCtx    context.Context
+	lifecycleCancel context.CancelFunc
+	httpServer      *http.Server
+	httpDone        chan struct{}
+	httpErr         error
+	started         bool
+	stopped         bool
 
 	qrMu        sync.Mutex
 	qrPersisted map[string]qrLoginPersistence
@@ -163,6 +167,7 @@ func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr st
 		qrOwners:            make(map[string]qrLoginOwner),
 		loginLimiter:        newLoginFailureLimiter(),
 		itemSpecCache:       make(map[string]itemSpecCacheEntry),
+		taskRegistry:        newTaskRegistry(),
 	}
 	// option 表示当前遍历过程中的option
 	for _, option := range options {
@@ -631,11 +636,20 @@ func (s *Server) lifecycleContext() context.Context {
 // startBackgroundTask 登记并启动一个受 Server 生命周期管理的后台任务。
 // 调用方负责在任务函数内部响应上下文取消；WaitForBackground 会等待任务退出。
 // startBackgroundTask 负责开始Background任务相关处理。
-func (s *Server) startBackgroundTask(name string, task func()) {
+func (s *Server) startBackgroundTask(name string, task func()) string {
+	return s.startBackgroundTaskContext(name, s.lifecycleContext(), task)
+}
+
+// startBackgroundTaskContext 登记并启动带显式 Context 的 Server 后台任务。
+// 返回值是可供管理端查询的任务 ID；任务完成、取消或超时后会保留有限历史。
+func (s *Server) startBackgroundTaskContext(name string, ctx context.Context, task func()) string {
+	// taskID、complete 记录任务状态并提供一次性收束回调。
+	taskID, complete := s.taskRegistryForServer().start(name, ctx)
 	s.backgroundWG.Add(1)
 	// #nosec G118 -- 任务由调用方提供的 Server 生命周期控制。
 	go func() {
 		defer s.backgroundWG.Done()
+		defer complete(nil)
 		if task == nil {
 			if s.Logger != nil {
 				s.Logger.Warn("跳过空后台任务", "task", name)
@@ -644,16 +658,30 @@ func (s *Server) startBackgroundTask(name string, task func()) {
 		}
 		task()
 	}()
+	return taskID
 }
 
 // StartOrderReconciliationRecovery 启动受 Server 生命周期管理的订单补偿扫描器。
-func (s *Server) StartOrderReconciliationRecovery(ctx context.Context) {
+func (s *Server) StartOrderReconciliationRecovery(ctx context.Context) string {
 	if s == nil || s.reconciliation == nil {
-		return
+		return ""
 	}
-	s.startBackgroundTask("订单状态补偿扫描器", func() {
+	return s.startBackgroundTaskContext("订单状态补偿扫描器", ctx, func() {
 		s.reconciliation.Run(ctx)
 	})
+}
+
+// taskRegistryForServer 返回 Server 的后台任务注册表；零值 Server 也会安全惰性初始化。
+func (s *Server) taskRegistryForServer() *taskRegistry {
+	if s == nil {
+		return newTaskRegistry()
+	}
+	s.taskRegistryMu.Lock()
+	defer s.taskRegistryMu.Unlock()
+	if s.taskRegistry == nil {
+		s.taskRegistry = newTaskRegistry()
+	}
+	return s.taskRegistry
 }
 
 // beginWorker 负责begin工作器相关处理。
@@ -695,6 +723,10 @@ func (s *Server) waitForWorkersContext(ctx context.Context) bool {
 	// done 保存done，供当前处理流程使用
 	done := s.workersDone
 	s.workerMu.Unlock()
+	if done == nil {
+		// 零值 Server 尚未登记批量 worker，可直接视为已完成。
+		return true
+	}
 	select {
 	case <-done:
 		return true

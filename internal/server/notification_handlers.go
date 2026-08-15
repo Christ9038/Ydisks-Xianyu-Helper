@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -8,8 +9,76 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	notificationsapp "xianyu-go/internal/application/notifications"
 	"xianyu-go/internal/db"
 )
+
+// storeNotificationUncertainRepository 将数据库通知摘要查询适配为应用层端口。
+type storeNotificationUncertainRepository struct {
+	// store 保存数据库聚合入口，仅在脱敏摘要适配器内使用。
+	store *db.Store
+}
+
+// ListUncertainForUser 查询指定用户的不确定通知摘要，并转换为应用模型。
+func (r storeNotificationUncertainRepository) ListUncertainForUser(ctx context.Context, userID int64, limit int) ([]notificationsapp.UncertainSummary, error) {
+	// rows、err 保存数据库摘要查询结果及错误。
+	rows, err := r.store.Notifications.ListUncertainOutboxForUser(ctx, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return newNotificationUncertainApplicationSummaries(rows), nil
+}
+
+// CountUncertainForUser 统计指定用户的不确定通知数量。
+func (r storeNotificationUncertainRepository) CountUncertainForUser(ctx context.Context, userID int64) (int, error) {
+	return r.store.Notifications.CountUncertainOutboxForUser(ctx, userID)
+}
+
+// ListUncertainForAdmin 查询全局不确定通知摘要，并转换为应用模型。
+func (r storeNotificationUncertainRepository) ListUncertainForAdmin(ctx context.Context, limit int) ([]notificationsapp.UncertainSummary, error) {
+	// rows、err 保存数据库全局摘要查询结果及错误。
+	rows, err := r.store.Notifications.ListUncertainOutboxForAdmin(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	return newNotificationUncertainApplicationSummaries(rows), nil
+}
+
+// CountUncertainForAdmin 统计全局不确定通知数量。
+func (r storeNotificationUncertainRepository) CountUncertainForAdmin(ctx context.Context) (int, error) {
+	return r.store.Notifications.CountUncertainOutboxForAdmin(ctx)
+}
+
+// newStoreNotificationUncertainRepository 创建通知不确定状态应用服务使用的数据库适配器。
+func newStoreNotificationUncertainRepository(store *db.Store) notificationsapp.Repository {
+	if store == nil || store.Notifications == nil {
+		return nil
+	}
+	return storeNotificationUncertainRepository{store: store}
+}
+
+// newNotificationUncertainApplicationSummaries 将数据库摘要转换为不含正文的应用模型。
+func newNotificationUncertainApplicationSummaries(rows []db.NotificationUncertainSummary) []notificationsapp.UncertainSummary {
+	// summaries 保存脱离数据库模型的非敏感通知摘要。
+	summaries := make([]notificationsapp.UncertainSummary, 0, len(rows))
+	// row 表示当前待转换的数据库通知摘要。
+	for _, row := range rows {
+		summaries = append(summaries, notificationsapp.UncertainSummary{
+			ID: row.ID, ChannelID: row.ChannelID, OwnerUserID: row.OwnerUserID,
+			EventType: row.EventType, AttemptCount: row.AttemptCount,
+			UncertainAt: row.UncertainAt, HasError: row.HasError,
+		})
+	}
+	return summaries
+}
+
+// 确保数据库适配器覆盖通知不确定状态应用端口的全部能力。
+var _ notificationsapp.Repository = storeNotificationUncertainRepository{}
+
+// uncertainNotificationsApplication 返回当前 Server 绑定的通知不确定状态应用服务。
+func (s *Server) uncertainNotificationsApplication() *notificationsapp.Service {
+	return s.applicationServiceSet().uncertainNotifications
+}
 
 // mountNotificationsReal 通知渠道 + 账号绑定。
 func (s *Server) mountNotificationsReal(r chi.Router) {
@@ -32,15 +101,9 @@ func (s *Server) listUncertainNotifications(w http.ResponseWriter, r *http.Reque
 	// limit 保存运维列表页请求的最大条数，超出范围时使用数据库默认上限。
 	limit := parsePositiveInt(r.URL.Query().Get("limit"), 20)
 	// items 保存当前用户可见的不确定通知摘要。
-	items, err := s.Store.Notifications.ListUncertainOutboxForUser(r.Context(), sess.UserID, limit)
+	items, total, err := s.uncertainNotificationsApplication().ListForUser(r.Context(), sess.UserID, limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询通知状态失败")
-		return
-	}
-	// total 保存当前用户渠道的不确定通知总数。
-	total, err := s.Store.Notifications.CountUncertainOutboxForUser(r.Context(), sess.UserID)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "统计通知状态失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, newNotificationUncertainOutboxResponse(items, total, false))
@@ -51,15 +114,9 @@ func (s *Server) listAdminUncertainNotifications(w http.ResponseWriter, r *http.
 	// limit 保存管理员运维查询的最大条数，超出范围时使用数据库默认上限。
 	limit := parsePositiveInt(r.URL.Query().Get("limit"), 50)
 	// items 保存所有用户渠道的不确定通知摘要，但不包含正文和错误原文。
-	items, err := s.Store.Notifications.ListUncertainOutboxForAdmin(r.Context(), limit)
+	items, total, err := s.uncertainNotificationsApplication().ListForAdmin(r.Context(), limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询通知状态失败")
-		return
-	}
-	// total 保存全局不确定通知总数。
-	total, err := s.Store.Notifications.CountUncertainOutboxForAdmin(r.Context())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "统计通知状态失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, newNotificationUncertainOutboxResponse(items, total, true))

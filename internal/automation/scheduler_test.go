@@ -2,9 +2,11 @@ package automation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +50,149 @@ func TestParseReviewRuleConfig(t *testing.T) {
 	if cfg.AfterShippedHours != 72 || cfg.MaxAttempts != 1 {
 		t.Fatalf("非正值应忽略: %+v", cfg)
 	}
+}
+
+// TestSchedulerQuarantineSuccess 验证恢复任务成功隔离时返回 nil，并把运行状态写成 needs_review。
+func TestSchedulerQuarantineSuccess(t *testing.T) {
+	// t 提供测试失败定位、临时目录和清理注册能力。
+	_ = t
+	// store 是本测试使用的 SQLite 自动化存储。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是恢复任务共用的数据库上下文。
+	ctx := context.Background()
+	// runID 是已执行外部动作且租约过期的运行主键。
+	runID := seedExpiredRecoveryRun(t, store, ctx, "success")
+	// scheduler 负责扫描并隔离过期恢复运行。
+	scheduler := &Scheduler{center: New(store, testSenderProvider{sender: &testSender{}}, nil)}
+	// runErr 保存本轮状态收口结果，成功隔离时不应产生错误。
+	runErr := scheduler.runRecoveryTasks(ctx)
+	if runErr != nil {
+		t.Fatalf("隔离成功不应返回错误: %v", runErr)
+	}
+	// run 保存隔离后的运行记录，用于确认人工核对状态已落库。
+	run, getErr := store.Automation.GetRun(ctx, runID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if run.Status != "needs_review" {
+		t.Fatalf("status=%q want needs_review", run.Status)
+	}
+}
+
+// TestSchedulerQuarantineWriteFailureUsesJoinedNeedsReviewError 验证隔离写失败不会被吞掉，并保留 needs_review 与 quarantine 错误哨兵。
+func TestSchedulerQuarantineWriteFailureUsesJoinedNeedsReviewError(t *testing.T) {
+	// t 提供测试失败定位、临时目录和清理注册能力。
+	_ = t
+	// store 是本测试使用的 SQLite 自动化存储。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是恢复任务共用的数据库上下文。
+	ctx := context.Background()
+	// runID 确保数据库中存在一条待隔离的过期运行。
+	_ = seedExpiredRecoveryRun(t, store, ctx, "write-failure")
+	// triggerErr 表示阻止人工核对状态写入的数据库触发器创建错误。
+	if _, triggerErr := store.DB.ExecContext(ctx, `CREATE TRIGGER reject_scheduler_quarantine
+		BEFORE UPDATE OF status ON automation_runs
+		WHEN NEW.status='needs_review'
+		BEGIN SELECT RAISE(ABORT, 'forced scheduler quarantine failure'); END`); triggerErr != nil {
+		t.Fatal(triggerErr)
+	}
+	// scheduler 负责扫描并返回隔离写失败。
+	scheduler := &Scheduler{center: New(store, testSenderProvider{sender: &testSender{}}, nil)}
+	// runErr 保存统一收口错误，必须同时包含人工核对和隔离失败哨兵。
+	runErr := scheduler.runRecoveryTasks(ctx)
+	if runErr == nil || !errors.Is(runErr, errAutomationNeedsReview) || !errors.Is(runErr, errAutomationQuarantine) {
+		t.Fatalf("runErr=%v want joined needs_review/quarantine error", runErr)
+	}
+	if !strings.Contains(runErr.Error(), "保存自动化恢复运行人工核对状态失败") {
+		t.Fatalf("runErr=%v 缺少隔离写失败上下文", runErr)
+	}
+}
+
+// TestSchedulerDeferredFinishWriteFailureUsesNeedsReviewError 验证非法延迟任务的最终状态写失败会返回人工核对错误。
+func TestSchedulerDeferredFinishWriteFailureUsesNeedsReviewError(t *testing.T) {
+	// t 提供测试失败定位、临时目录和清理注册能力。
+	_ = t
+	// store 是本测试使用的 SQLite 自动化存储。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是延迟任务共用的数据库上下文。
+	ctx := context.Background()
+	// insertErr 表示写入故意非法延迟任务时的数据库错误。
+	if _, insertErr := store.DB.ExecContext(ctx, `INSERT INTO automation_pending_tasks
+		(task_key,cookie_id,trigger_type,task_json,due_at,status,attempt_count,lease_expires_at,error_message)
+		VALUES ('cid:scheduler-bad','cid',?,'{"broken',0,'pending',0,0,'')`, TriggerBuyerReviewed); insertErr != nil {
+		t.Fatal(insertErr)
+	}
+	// triggerErr 表示阻止非法任务进入重试或死信状态的数据库触发器创建错误。
+	if _, triggerErr := store.DB.ExecContext(ctx, `CREATE TRIGGER reject_scheduler_deferred_finish
+		BEFORE UPDATE OF status ON automation_pending_tasks
+		WHEN NEW.status IN ('pending','dead_letter')
+		BEGIN SELECT RAISE(ABORT, 'forced scheduler deferred finish failure'); END`); triggerErr != nil {
+		t.Fatal(triggerErr)
+	}
+	// scheduler 负责扫描并返回延迟任务状态写失败。
+	scheduler := &Scheduler{center: New(store, testSenderProvider{sender: &testSender{}}, nil)}
+	// runErr 保存统一收口错误，避免状态写失败被当作已处理。
+	runErr := scheduler.runDeferredTasks(ctx)
+	if runErr == nil || !errors.Is(runErr, errAutomationNeedsReview) {
+		t.Fatalf("runErr=%v want needs_review error", runErr)
+	}
+	if !strings.Contains(runErr.Error(), "保存解析失败的暂停事件状态失败") {
+		t.Fatalf("runErr=%v 缺少延迟任务状态写失败上下文", runErr)
+	}
+}
+
+// seedExpiredRecoveryRun 创建一条外部动作已开始且租约已过期的恢复运行，供调度器状态收口测试复用。
+func seedExpiredRecoveryRun(t *testing.T, store *db.Store, ctx context.Context, suffix string) int64 {
+	// t 提供测试失败定位和临时资源辅助能力。
+	_ = t
+	// store 是待写入恢复运行的自动化数据库存储。
+	_ = store
+	// ctx 约束本次恢复运行构造过程中的数据库操作。
+	_ = ctx
+	// suffix 区分同一测试数据库内的运行规则和触发键，避免测试数据冲突。
+	_ = suffix
+	t.Helper()
+	// admin 是创建自动化规则所需的管理员用户。
+	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
+	if adminErr != nil {
+		t.Fatal(adminErr)
+	}
+	// ruleID 是测试恢复运行引用的自动化规则主键。
+	ruleID, ruleErr := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", Name: "scheduler-" + suffix, TriggerType: TriggerBuyerReviewed, Enabled: true,
+		Actions: []db.AutomationActionInput{{ActionType: ActionSendText, MessageTemplate: "must-not-repeat", Enabled: true}},
+	})
+	if ruleErr != nil {
+		t.Fatal(ruleErr)
+	}
+	// task 是恢复运行中保存的无敏感事件快照。
+	task := Task{AccountID: "cid", TriggerType: TriggerBuyerReviewed, OrderID: "scheduler-" + suffix, ChatID: "chat", BuyerID: "buyer"}
+	// raw 保存可被恢复逻辑解析的任务 JSON。
+	raw, marshalErr := json.Marshal(task)
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	// runID 是新建自动化运行的数据库主键。
+	runID, started, startErr := store.Automation.TryStartRun(ctx, db.AutomationRun{
+		RuleID: ruleID, CookieID: "cid", OrderID: task.OrderID, TriggerType: task.TriggerType,
+		TriggerKey: "scheduler:" + suffix, RawEventJSON: string(raw), LeaseExpiresAt: time.Now().Add(time.Minute).Unix(),
+	})
+	if startErr != nil || !started {
+		t.Fatalf("start=%v err=%v", started, startErr)
+	}
+	// actionStarted 表示恢复运行已进入外部动作检查点。
+	actionStarted, actionErr := store.Automation.StartRunAction(ctx, runID, 1, 0, time.Now().Add(-time.Minute).Unix())
+	if actionErr != nil || !actionStarted {
+		t.Fatalf("start action=%v err=%v", actionStarted, actionErr)
+	}
+	// updateErr 表示把租约置为过期以便调度器选中运行时的数据库错误。
+	if _, updateErr := store.DB.ExecContext(ctx, `UPDATE automation_runs SET lease_expires_at=0 WHERE id=?`, runID); updateErr != nil {
+		t.Fatal(updateErr)
+	}
+	return runID
 }
 
 // TestIntFromAny float64/int/string 三类来源 + 无效类型返回 0。

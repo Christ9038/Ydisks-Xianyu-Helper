@@ -267,8 +267,8 @@ func (s *Server) RunOrderRefreshRecovery(ctx context.Context) {
 }
 
 // StartOrderRefreshRecovery 启动受 Server 生命周期管理的订单刷新恢复扫描器。
-func (s *Server) StartOrderRefreshRecovery(ctx context.Context) {
-	s.startBackgroundTask("订单刷新恢复扫描器", func() {
+func (s *Server) StartOrderRefreshRecovery(ctx context.Context) string {
+	return s.startBackgroundTaskContext("订单刷新恢复扫描器", ctx, func() {
 		s.RunOrderRefreshRecovery(ctx)
 	})
 }

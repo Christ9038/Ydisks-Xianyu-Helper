@@ -95,11 +95,11 @@ app shell / routes
 | 1. PR CI 与测试基础 | 已完成 | 独立 CI、测试 DB 模板、可执行 race | CI、独立模板、server smoke race 和完整 race 均有验证 |
 | 2. 敏感数据访问边界 | 已完成 | 摘要、凭证、登录秘密和系统设置分离 | Cookie/平台运行视图、系统设置脱敏读写、已知生产敏感设置调用方审计和运维诊断输出脱敏已收口；SQLite、MySQL 8.4、PostgreSQL 17 的真实多库迁移与 CRUD 回归均通过；高频运行时仅读取窄视图、不逐次写审计，管理/一次性敏感读取均有审计和 fail-closed 测试 |
 | 3. HTTP API 契约 | 已完成 | 统一错误、具名 DTO、版本化路径 | 统一错误 DTO、具名成功 DTO、所有前端业务调用方版本化、旧路径兼容和最终审计均已完成 |
-| 4. Server 应用服务 | 进行中 | 订单、发布、登录、聊天纵向抽取 | 订单、单/批量商品发布、账号资料刷新和手动 Cookie 登录已通过应用 Port 接入；密码/扫码/更新凭证、聊天及部分商品辅助流程仍由 Server 持有，handler 的低层依赖与其他领域 Port 仍待收口 |
-| 5. 应用生命周期装配 | 进行中 | 消除必需依赖 setter 回填并统一关闭边界 | Server、续期调度器、浏览器 Manager、Engine watcher、账号 Manager 的 Stop/Close 已具备 Context/fencing 与回归；统一任务清单、删除任务状态查询、通知/自动化后台运维状态仍待补齐 |
+| 4. Server 应用服务 | 进行中 | 订单、发布、登录、聊天纵向抽取 | 订单、单/批量商品发布、账号资料刷新、手动/扫码登录、聊天历史和通知 uncertain 查询已通过应用 Port 接入；更新凭证、聊天写入及部分商品辅助流程仍由 Server 持有，handler 的低层依赖与其他领域 Port 仍待收口 |
+| 5. 应用生命周期装配 | 进行中 | 消除必需依赖 setter 回填并统一关闭边界 | Server、续期调度器、浏览器 Manager、Engine watcher、账号 Manager 的 Stop/Close 已具备 Context/fencing 与回归；Server 后台/恢复任务已有进程内 ID、状态和 Context 超时查询，删除任务仍同步执行且进程重启不保留历史，统一跨组件清单仍待补齐 |
 | 6. Engine 与 Automation | 已完成 | facade + 独立状态组件 | Engine/Automation 组件边界、race、生命周期与冻结规范测试均已通过 |
 | 7. React Feature 化 | 进行中 | 页面、Hook、API、类型按领域拆分 | Rules、Items、Accounts、Cards、Orders、Notifications、Dashboard、Settings、Chat 和 AccountAutomation 的 feature/API/Hook 已拆分，App 路由懒加载和入口包体预算已收口；Provider/路由壳、完整页面行为覆盖和剩余大型页面边界仍待完成 |
-| 8. DB 与事务治理 | 进行中 | 窄接口、事务执行器、方言门禁 | 订单/商品应用 Port、批量 worker、订单 reconciliation、通知 uncertain 状态和三库迁移证据已补齐；仍有 Server 低层适配集中、`sql.Tx`/`db.*` 旧边界、更多批量读写与补偿查询待收口 |
+| 8. DB 与事务治理 | 进行中 | 窄接口、事务执行器、方言门禁 | 订单/商品/通知应用 Port、批量 worker、订单 reconciliation、通知 uncertain 状态和三库迁移证据已补齐；任务状态明确为非持久化进程内元数据；仍有 Server 低层适配集中、`sql.Tx`/`db.*` 旧边界、更多批量读写与补偿查询待收口 |
 | 9. 架构门禁与兼容清理 | 进行中 | 允许依赖图、临时例外、兼容路径退场 | `architecturecheck` 已覆盖应用 Port AST 类型和 Server 新增低层依赖；仍保留历史 Server 临时白名单，密码/扫码/聊天等 Port、旧 API 遥测和 Sunset 条件尚未完成 |
 | 10. 注释基线清零 | 进行中 | 全仓准确中文注释检查 | 已有字符级/AST 门禁；待完成模板短语黑名单、业务语义抽查、复杂度门禁和冻结文件精确例外 |
 
@@ -797,6 +797,9 @@ npm --prefix frontend run build
 | 2026-08-15 | P1 手动登录凭证应用 Port 闭环切片 | 已完成本切片 | 新增纯应用层 `account.LoginService`，输入 DTO 不含 Cookie/密码；明文 Cookie 只由 Server request-scoped `CookieWriter` 在凭证锁内完成归属校验、写入和旧 Token 清理，登录后审计/资料刷新/运行时重启通过生命周期 Port；新增成功、归属失败、写入失败和缺失依赖测试，Server/应用回归及中文注释门禁通过。密码登录、扫码登录和更新凭证流程仍待统一协调 |
 | 2026-08-15 | P1 账号管理器全局 Stop fencing 切片 | 已完成本切片 | `Manager.StopAllContext` 在收集账号前建立全局 stopping fence，停止期间拒绝新的 Start；单账号 Stop 超时保留 stopping 标记，防止存活实例被重启替换；全量停止完成后解除 fence，补充并发启动/停止和已取消 Context 兼容回归，account/Server 测试及 race 通过。删除任务状态查询和统一生命周期清单仍待完善 |
 | 2026-08-15 | P1 通知 outbox 不确定状态隔离切片 | 已完成本切片 | 新增 SQLite/MySQL/Postgres `notification_outbox.uncertain_at` 迁移及 `MarkOutboxUncertain`；通知已发送但 `CompleteOutbox` 失败时原子转 `uncertain`、清除租约并禁止自动重发，隔离失败用 `errors.Join` 记录；无效渠道清理不再吞错；新增 SQLite、通知 worker 和三库矩阵回归，notify/db race、全量门禁通过。人工核对查询与运维展示仍待补充 |
+| 2026-08-16 | P1 自动化调度器结果收口切片 | 已完成本切片 | 恢复扫描、延迟任务和异常规则处理不再吞 `Claim/Finish/Postpone/Quarantine` 落库错误；外部动作或状态收口失败统一保留原始错误、`needs_review` 和隔离错误，新增隔离成功/失败与非法延迟状态回归。Automation 全量、架构和中文注释门禁通过；账号任务及其他旁路仍待继续盘点 |
+| 2026-08-16 | P1 通知 uncertain 查询应用 Port 切片 | 已完成本切片 | 新增纯应用层通知 uncertain DTO、归属隔离 Repository/Service；用户与管理员查询 handler 仅做 DB→应用→HTTP 适配，不再直接编排数据库查询；保留正文、错误原文、渠道配置和凭证不出边界，应用/Server 回归、架构和中文注释门禁通过 |
+| 2026-08-16 | P1 Server 后台任务生命周期登记切片 | 已完成本切片 | 新增进程内有限历史任务注册表、任务 ID、running/succeeded/failed/canceled/timed_out 状态和管理员 `/api/v1/admin/tasks` 查询；订单/商品/补偿恢复扫描器使用显式 Context 登记，关闭等待仍受 backgroundWG/Context 约束；不新增 DB 迁移，历史随进程重启清空，补充状态/超时/HTTP/WaitForBackground 回归 |
 | 2026-08-15 | P1 扫码登录应用 Port 闭环切片 | 已完成本切片 | 新增纯应用层扫码登录 DTO、凭证 Repository 和生命周期 Port；Server 仅负责平台结果转换、会话幂等和基础设施适配，扫码新建/更新、归属校验、Cookie 快照合并及旧 Token 清理由应用服务编排；新增成功、跨用户、目标不一致、写入失败、清理失败和敏感结果不泄露测试，账号/Server 回归、架构门禁和中文注释门禁通过。更新凭证及其他账号操作仍待迁移 |
 | 2026-08-15 | P1 聊天历史应用 Port 闭环切片 | 已完成本切片 | 新增纯应用层聊天消息/会话分页 DTO、最小 Repository 和 Service；聊天历史 handler 完成实际接入，旧 communication service/repository 不再持有历史查询职责；新增用户归属、参数校验、未装配依赖、底层失败和会话摘要失败测试，Server、架构和中文注释门禁通过。聊天写入与实时会话编排仍待迁移 |
 | 2026-08-15 | P1 通知不确定态运维可见性切片 | 已完成本切片 | 新增按用户/管理员隔离的 uncertain outbox 元数据查询、计数和版本化 HTTP 接口；响应不返回通知正文、渠道配置、错误原文或凭证；补充 SQLite 隔离、管理员汇总、非管理员 403、脱敏和 limit 回归，DB/Server、架构和中文注释门禁通过。更多统一运维任务清单和旧入口退场仍待完成 |

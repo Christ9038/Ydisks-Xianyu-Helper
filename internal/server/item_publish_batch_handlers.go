@@ -576,8 +576,8 @@ func (s *Server) RunPublishBatchRecovery(ctx context.Context) {
 // StartPublishBatchRecovery 先登记生命周期，再启动恢复循环，避免关闭流程在
 // goroutine 尚未调度时误判扫描器已经退出。
 // StartPublishBatchRecovery 启动发布批次Recovery。
-func (s *Server) StartPublishBatchRecovery(ctx context.Context) {
-	s.startBackgroundTask("批量发布恢复扫描器", func() {
+func (s *Server) StartPublishBatchRecovery(ctx context.Context) string {
+	return s.startBackgroundTaskContext("批量发布恢复扫描器", ctx, func() {
 		s.RunPublishBatchRecovery(ctx)
 	})
 }

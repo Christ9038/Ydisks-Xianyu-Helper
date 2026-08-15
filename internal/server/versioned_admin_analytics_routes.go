@@ -26,5 +26,6 @@ func (s *Server) mountVersionedAdminAnalyticsRoutes(r chi.Router) {
 		r.Delete("/api/v1/admin/users/{user_id}", s.adminDeleteUser)
 		r.Get("/api/v1/admin/cookies", s.adminListCookies)
 		r.Get("/api/v1/admin/stats", s.adminStats)
+		r.Get("/api/v1/admin/tasks", s.listAdminTasks)
 	})
 }

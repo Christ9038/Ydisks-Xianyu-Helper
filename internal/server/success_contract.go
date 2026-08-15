@@ -2,6 +2,7 @@ package server
 
 import (
 	chatapp "xianyu-go/internal/application/chat"
+	notificationsapp "xianyu-go/internal/application/notifications"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
@@ -816,12 +817,12 @@ type notificationUncertainOutboxResponse struct {
 	Items []notificationUncertainOutboxItem `json:"items"`
 }
 
-// newNotificationUncertainOutboxResponse 将数据库不确定状态摘要转换为非敏感 HTTP DTO。
+// newNotificationUncertainOutboxResponse 将应用层不确定状态摘要转换为非敏感 HTTP DTO。
 // includeOwner 仅管理员列表使用，用于展示渠道所属用户但不改变正文脱敏边界。
-func newNotificationUncertainOutboxResponse(items []db.NotificationUncertainSummary, total int, includeOwner bool) notificationUncertainOutboxResponse {
+func newNotificationUncertainOutboxResponse(items []notificationsapp.UncertainSummary, total int, includeOwner bool) notificationUncertainOutboxResponse {
 	// result 保存不确定通知查询的具名响应。
 	result := notificationUncertainOutboxResponse{Total: total, Items: make([]notificationUncertainOutboxItem, 0, len(items))}
-	// item 保存当前待转换的数据库摘要。
+	// item 保存当前待转换的应用层摘要。
 	for _, item := range items {
 		// responseItem 保存当前摘要对应的非敏感 API 行。
 		responseItem := notificationUncertainOutboxItem{

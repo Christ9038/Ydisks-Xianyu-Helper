@@ -4,6 +4,7 @@ import (
 	accountapp "xianyu-go/internal/application/account"
 	chatapp "xianyu-go/internal/application/chat"
 	itemapp "xianyu-go/internal/application/items"
+	notificationsapp "xianyu-go/internal/application/notifications"
 	orderapp "xianyu-go/internal/application/orders"
 )
 
@@ -25,6 +26,8 @@ type applicationServices struct {
 	communication *communicationService
 	// chat 是聊天历史查询应用服务，负责用户归属和分页编排。
 	chat *chatapp.Service
+	// uncertainNotifications 是通知不确定状态运维查询应用服务。
+	uncertainNotifications *notificationsapp.Service
 	// analytics 是订单分析应用服务。
 	analytics *analyticsService
 }
@@ -63,15 +66,16 @@ func newApplicationServices(server *Server) *applicationServices {
 		}
 	}
 	return &applicationServices{
-		orders:            &orderHTTPAdapter{services: orderServices, repository: orderRepository},
-		itemPublish:       &itemPublishService{server: server, repository: newStoreItemPublishRepository(server.Store)},
-		itemSinglePublish: newItemPublishApplication(server),
-		itemBatchRunner:   itemBatchRunner,
-		accountLogin:      &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store), createApplication: accountLoginCreate, qrApplication: accountQRLogin},
-		accountProfile:    accountProfile,
-		communication:     &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},
-		chat:              chatapp.New(newStoreChatApplicationRepository(server.Store)),
-		analytics:         &analyticsService{repository: newStoreAnalyticsRepository(server.Store)},
+		orders:                 &orderHTTPAdapter{services: orderServices, repository: orderRepository},
+		itemPublish:            &itemPublishService{server: server, repository: newStoreItemPublishRepository(server.Store)},
+		itemSinglePublish:      newItemPublishApplication(server),
+		itemBatchRunner:        itemBatchRunner,
+		accountLogin:           &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store), createApplication: accountLoginCreate, qrApplication: accountQRLogin},
+		accountProfile:         accountProfile,
+		communication:          &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},
+		chat:                   chatapp.New(newStoreChatApplicationRepository(server.Store)),
+		uncertainNotifications: notificationsapp.New(newStoreNotificationUncertainRepository(server.Store)),
+		analytics:              &analyticsService{repository: newStoreAnalyticsRepository(server.Store)},
 	}
 }
 
