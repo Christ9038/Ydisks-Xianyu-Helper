@@ -276,7 +276,7 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
       setBatchLoading(false);
     }
     },
-    [batchDetail?.id],
+    [batchDetail],
   );
 
   useEffect(
