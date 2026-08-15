@@ -98,7 +98,7 @@ app shell / routes
 | 4. Server 应用服务 | 进行中 | 订单、发布、登录、聊天纵向抽取 | 订单业务服务已迁入 `internal/application/orders`，Server 仅保留订单 HTTP/基础设施适配器；商品发布、登录、聊天仍由 Server 持有，handler 的低层依赖与其他领域 Port 仍待收口 |
 | 5. 应用生命周期装配 | 进行中 | 消除必需依赖 setter 回填并统一关闭边界 | 已有 Server 自有 worker 等待；待完成 Context-aware Stop、账号 StopAll 超时、删除任务登记和统一生命周期清单 |
 | 6. Engine 与 Automation | 已完成 | facade + 独立状态组件 | Engine/Automation 组件边界、race、生命周期与冻结规范测试均已通过 |
-| 7. React Feature 化 | 进行中 | 页面、Hook、API、类型按领域拆分 | Rules、Items、Accounts、Cards、Orders、Notifications、Dashboard、Settings、Chat 和 AccountAutomation 的 feature/API/Hook 已拆分；AccountList 页面组合、路由懒加载、Provider 边界和首屏包体预算仍待完成 |
+| 7. React Feature 化 | 进行中 | 页面、Hook、API、类型按领域拆分 | Rules、Items、Accounts、Cards、Orders、Notifications、Dashboard、Settings、Chat 和 AccountAutomation 的 feature/API/Hook 已拆分，App 路由懒加载和入口包体预算已收口；Provider/路由壳、完整页面行为覆盖和剩余大型页面边界仍待完成 |
 | 8. DB 与事务治理 | 进行中 | 窄接口、事务执行器、方言门禁 | 已有部分 repository；待完成禁止 `sql.Tx`/`db.*` 泄露、UoW 在基础设施适配器实现、批量读写和补偿记录 |
 | 9. 架构门禁与兼容清理 | 进行中 | 允许依赖图、临时例外、兼容路径退场 | 当前门禁只覆盖低层反向依赖；待完成 Server/application 允许边、Port 类型扫描、旧 API 遥测与 Sunset 条件 |
 | 10. 注释基线清零 | 进行中 | 全仓准确中文注释检查 | 已有字符级/AST 门禁；待完成模板短语黑名单、业务语义抽查、复杂度门禁和冻结文件精确例外 |
@@ -182,6 +182,7 @@ app shell / routes
 - 已完成阶段 7 第九个 PR 切片“React Chat feature 化与会话消息行为边界”：按 `app/features/chat` 提取聊天 API、会话筛选/消息合并状态、账号/会话/消息分页 Hook；会话切换、联系人分页和消息加载支持取消与请求代次保护，文本/图片发送支持失败重试，WebSocket 和滚动语义保持不变；新增会话筛选、消息去重、分页过期响应、发送取消与 API 取消信号测试，保留旧页面入口和 API 路径；
 - 已完成阶段 7 第十个 PR 切片“React AccountAutomation feature 化与任务设置行为边界”：按 `app/features/accountAutomation` 提取账号任务 API、默认设置与重复执行状态模型、任务设置 Hook；账号切换支持取消和请求代次保护，保存/立即执行支持重复提交阻断、失败重试和结果刷新；新增默认值、动作门禁、API 取消信号测试，保留旧弹窗入口和 API 路径；
 - 已完成阶段 7 当前 PR 切片“React AccountList 子模块收口与页面组合边界”：账号卡片、删除确认、二维码授权和 AI 设置弹窗已迁入 `app/features/accounts/components`，根页面只负责列表状态、请求代次和子模块组合；新增展示/交互边界测试，前端 322 个测试、类型检查、注释门禁和生产构建通过。路由懒加载、Provider 边界、AccountList 完整页面行为测试和首屏包体预算仍待完成；
+- 已完成阶段 7 当前 PR 切片“React 路由懒加载与首屏入口包体边界”：`App.tsx` 的 9 个业务页面改为 `React.lazy` 按路由加载，统一 `Suspense` 页面占位，保留权限回退、历史导航和页面参数语义；新增生产 bundle 边界测试，验证入口脚本小于 100KB、图表依赖不被首屏预加载且 9 个页面均有独立 chunk；前端 325 个测试、类型检查、注释门禁和生产构建通过。Provider/路由壳、完整页面行为覆盖、动态 chunk 独立预算和大型页面进一步拆分仍待完成；
 - 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
 
 ## 6. 阶段 0：治理文档与强约束
@@ -761,3 +762,4 @@ npm --prefix frontend run build
 | 2026-08-15 | P1 订单应用服务集合装配下沉切片 | 已完成本切片 | 新增 `internal/application/orders.ServiceSet` 与 `NewServiceSet`，统一构造订单列表、详情、删除、更新、导入、手动发货、刷新和刷新任务服务；`internal/server` 的订单对象重命名为 `orderHTTPAdapter`，只负责兼容 HTTP DTO/错误映射与归属适配，Server 不再分别创建订单业务服务；刷新任务 handler 改为通过应用层 ServiceSet 的任务 Port；新增应用集合构造测试与 Server 装配断言，订单/Server 定向测试和中文注释门禁通过。商品发布、登录、聊天等其他 Server 应用服务仍未迁移，低层 handler 依赖、生命周期统一清单、旧 API 兼容退场和整体阶段 4/5/8/9 仍保持“进行中” |
 | 2026-08-15 | P0 敏感设置访问审计切片 | 已完成本切片 | 新增 SQLite/MySQL/Postgres `security_audit_logs` 迁移、`SecurityAuditLogs` repository 和 Store 装配；系统设置读取、敏感设置写入及 AI 模型密钥使用均记录用户、动作、资源和键名，审计记录不保存秘密值；审计存储不可用时管理端敏感操作 fail closed；新增数据库防泄露、HTTP 访问审计、审计存储缺失和迁移字段回归，定向测试、`make check`、架构/中文注释门禁通过。当前环境未配置 `TEST_MYSQL_URL`/`TEST_POSTGRES_URL`，因此仅确认三库迁移/SQL 代码兼容与 SQLite 实测，未宣称外部三库执行完成；运维输出脱敏、凭证访问审计和其他秘密调用方仍待继续治理，阶段 2 继续保持“进行中” |
 | 2026-08-15 | P2 React AccountList 子模块收口与页面组合边界 | 已完成本切片 | 新增 `AccountCard`、`AccountDeleteDialog`、`AccountQRCodeModal` 和 `AccountAISettingsModal`，将账号卡片与四类弹窗从 851 行根组件拆出；根组件保留请求取消、二维码轮询、账号列表刷新和编辑子模块协调，不改变现有业务行为；新增账号卡片操作转发、AI 草稿补丁、删除错误、二维码风控无外链测试；前端 322 个测试、类型检查、注释门禁和生产构建通过。React 路由懒加载、Provider/页面组合边界、完整页面行为覆盖和首屏包体预算仍未完成，阶段 7 保持“进行中” |
+| 2026-08-15 | P2 React 路由懒加载与首屏入口包体边界 | 已完成本切片 | `App.tsx` 的 Dashboard、Accounts、Orders、Cards、Items、Settings、Rules、Notifications、Chat 九个页面改为 `React.lazy`，统一由 `Suspense` 提供加载占位；新增 `bundleBoundary.test.ts`，对入口脚本设置 100KB 原始字节预算、禁止图表 vendor 首屏预加载并要求九个页面 chunk 均存在；生产构建实测入口约 40.9KB、页面 chunk 独立生成，前端 325 个测试、类型检查、注释门禁、构建和仓库 `make check` 通过。Provider/路由壳、动态 chunk 独立预算、完整页面行为覆盖和大型页面进一步拆分仍未完成，阶段 7 保持“进行中” |

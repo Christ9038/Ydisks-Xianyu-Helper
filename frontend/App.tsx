@@ -1,18 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
-import Dashboard from './components/Dashboard';
-import AccountList from './components/AccountList';
-import OrderList from './components/OrderList';
-import CardList from './components/CardList';
-import ItemList from './components/ItemList';
-import Settings from './components/Settings';
-import Rules from './components/Rules';
-import Notifications from './components/Notifications';
-import Chat from './components/Chat';
 import { readSidebarCollapsed, writeSidebarCollapsed } from './components/sidebarState';
 import { YdisksBrandIcon } from './components/YdisksLogo';
 import { initializeAdmin, login, logout, verifySession } from './app/features/session/api';
 import { ShieldCheck, ArrowRight, Loader2, User, Lock } from 'lucide-react';
+
+// Dashboard 是按需加载的仪表盘页面，避免首屏同步载入图表依赖。
+const Dashboard = lazy(/* Dashboard 页面按路由激活时加载。 */ () => import('./components/Dashboard'));
+// AccountList 是按需加载的账号管理页面，避免未访问时载入账号弹窗和二维码代码。
+const AccountList = lazy(/* AccountList 页面按路由激活时加载。 */ () => import('./components/AccountList'));
+// OrderList 是按需加载的订单页面，避免首屏载入订单导入与刷新代码。
+const OrderList = lazy(/* OrderList 页面按路由激活时加载。 */ () => import('./components/OrderList'));
+// CardList 是按需加载的卡密页面，避免首屏载入卡密批量处理代码。
+const CardList = lazy(/* CardList 页面按路由激活时加载。 */ () => import('./components/CardList'));
+// ItemList 是按需加载的商品页面，避免首屏载入商品发布编辑器代码。
+const ItemList = lazy(/* ItemList 页面按路由激活时加载。 */ () => import('./components/ItemList'));
+// Settings 是按需加载的系统设置页面，仅在管理员访问时加载。
+const Settings = lazy(/* Settings 页面按路由激活时加载。 */ () => import('./components/Settings'));
+// Rules 是按需加载的自动化规则页面，避免首屏载入规则编辑器代码。
+const Rules = lazy(/* Rules 页面按路由激活时加载。 */ () => import('./components/Rules'));
+// Notifications 是按需加载的通知页面，避免首屏载入通知配置代码。
+const Notifications = lazy(/* Notifications 页面按路由激活时加载。 */ () => import('./components/Notifications'));
+// Chat 是按需加载的聊天页面，避免未访问时载入聊天历史和 WebSocket 视图。
+const Chat = lazy(/* Chat 页面按路由激活时加载。 */ () => import('./components/Chat'));
+
+// PageLoading 展示路由页面代码加载期间的统一占位状态。
+const PageLoading: React.FC = () => (
+  <div className="flex min-h-[24rem] items-center justify-center" role="status" aria-label="正在加载页面">
+    <Loader2 className="h-8 w-8 animate-spin text-brand" />
+  </div>
+);
 
 interface DeliveryRuleTarget {
 // cookieId 表示cookieId。
@@ -364,8 +381,10 @@ const App: React.FC = () => {
         {/* Subtle background decoration */}
         <div className="fixed top-0 right-0 w-[800px] h-[800px] bg-gradient-to-bl from-blue-50 to-transparent rounded-full blur-[120px] pointer-events-none -z-10 opacity-60"></div>
         
-		<div className={`${activeTab === 'chat' ? 'mx-auto max-w-[1680px]' : 'mx-auto max-w-[1400px] pb-10'}`}>
-            {renderContent()}
+			<div className={`${activeTab === 'chat' ? 'mx-auto max-w-[1680px]' : 'mx-auto max-w-[1400px] pb-10'}`}>
+            <Suspense fallback={<PageLoading />}>
+              {renderContent()}
+            </Suspense>
         </div>
       </main>
     </div>

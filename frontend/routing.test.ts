@@ -33,6 +33,16 @@ describe('frontend navigation routing', () => {
     expect(sidebar).not.toContain("'bg-sky-500 text-white'");
   } /* 回调函数负责当前业务流程。 */);
 
+  test('route pages are lazy-loaded behind a shared Suspense boundary', () => {
+    const app = readFrontendFile('App.tsx'); /* app 表示应用根组件源码。 */
+    const lazyPageCount = (app.match(/const (Dashboard|AccountList|OrderList|CardList|ItemList|Settings|Rules|Notifications|Chat) = lazy\(/g) || []).length; /* lazyPageCount 表示按路由懒加载的页面数量。 */
+
+    expect(lazyPageCount).toBe(9);
+    expect(app).toContain('const PageLoading: React.FC');
+    expect(app).toContain('<Suspense fallback={<PageLoading />}>');
+    expect(app).not.toContain("import Dashboard from './components/Dashboard'");
+  } /* 回调函数负责当前业务流程。 */);
+
   test('logout button invalidates the backend session before clearing UI state', () => {
     const app = readFrontendFile('App.tsx'); /* app 表示app。 */
 

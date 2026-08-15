@@ -1,0 +1,1 @@
+const n=t=>String(t).padStart(2,"0"),o=t=>{if(t==null||t==="")return"-";const e=t instanceof Date?t:new Date(t);return Number.isNaN(e.getTime())?"-":[e.getFullYear(),n(e.getMonth()+1),n(e.getDate())].join("-")+" "+[n(e.getHours()),n(e.getMinutes()),n(e.getSeconds())].join(":")};export{o as f};
