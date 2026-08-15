@@ -763,6 +763,32 @@ test('getMessageNotifications 展开数组并忽略非法绑定值', /* 当前�
   await expect(getMessageNotifications()).resolves.toEqual({ success: true, data: [{ cookie_id: 'account-1', channel_id: 1, channel_name: '邮件', enabled: true }] });
 });
 
+test('publishItem 序列化图片和地点字段', /* 当前回调验证商品发布 multipart 请求体。 */ async () => {
+  // fetchMock 是商品发布上传接口的网络替身。
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+  // image 是待上传的商品图片文件。
+  const image = new File(['image'], 'item.png', { type: 'image/png' });
+  await publishItem({ cookie_id: 'account-1', title: '商品', description: '描述', price: '10', quantity: 2, postage_mode: 'free', images: [image], location: { area: '区域', city: '城市', division_id: '1', longitude: 120, latitude: 30, poi_id: 'poi-1', poi_name: '地点', province: '省' } });
+  // body 是商品发布 multipart 请求体。
+  const body = fetchMock.mock.calls[0][1].body as FormData;
+  expect(body.get('location')).toContain('poi-1');
+  expect(body.getAll('images')).toHaveLength(1);
+});
+
+test('通知事件字段支持 JSON 数组和分隔符格式', /* 当前回调验证通知事件响应解析兼容性。 */ async () => {
+  // fetchMock 是返回多种通知事件编码的网络替身。
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse([
+    { id: 1, name: 'JSON', type: 'bark', config: '{}', event_types: '["system_error", "order_paid"]', enabled: true },
+    { id: 2, name: '分隔符', type: 'bark', config: '{}', event_types: 'system_error, order_paid; buyer_reviewed', enabled: true },
+  ]));
+  vi.stubGlobal('fetch', fetchMock);
+  // result 是通知事件字段解析后的渠道列表。
+  const result = await getNotificationChannels();
+  expect(result.data?.[0].event_types).toEqual(['system_error', 'order_paid']);
+  expect(result.data?.[1].event_types).toEqual(['system_error', 'order_paid', 'buyer_reviewed']);
+});
+
 test('updateShippingRule posts buyer reviewed gift payload to automation-rules', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, id: 1 })); /* fetchMock 表示fetchMock。 */
   vi.stubGlobal('fetch', fetchMock);
