@@ -708,9 +708,16 @@ func (s *Server) deleteCookie(w http.ResponseWriter, r *http.Request) {
 		"user_id", ownedDetail.UserID,
 	)
 	// Stop 可能需要等待运行中任务收尾，不应阻塞删除 HTTP 请求。
-	// 数据库事务已完成，先向前端确认删除，再在后台精确停止该 cid 的实例。
+	// 数据库事务已完成，先向前端确认删除，再将精确停止该 cid 的任务登记到 Server 生命周期。
 	if s.Manager != nil {
-		go s.Manager.Stop(cid)
+		// lifecycleCtx 是删除后运行时收束使用的 Server 生命周期上下文。
+		lifecycleCtx := s.lifecycleContext()
+		s.startBackgroundTask("删除账号运行时收束", func() {
+			// err 表示删除账号运行时停止失败或生命周期上下文已到期。
+			if err := s.Manager.StopContext(lifecycleCtx, cid); err != nil && s.Logger != nil {
+				s.Logger.Warn("删除账号后停止运行时失败", "cookie_id", cid, "err", err)
+			}
+		})
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }

@@ -989,6 +989,8 @@ func TestDeleteCookie(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("delete status=%d", rec.Code)
 	}
+	// 删除后的运行时停止必须登记到 Server 生命周期，等待其完成后再验证清理结果。
+	srv.WaitForBackground()
 	if // err 保存err，供当前处理流程使用
 	_, err := store.Cookies.GetDetails(ctx, "acc-del"); !errors.Is(err, db.ErrNotFound) {
 		t.Fatalf("目标账号应被删除，err=%v", err)
