@@ -35,6 +35,17 @@ test('规则异常按账号筛选后再决定是否展示面板',
     expect(visible.pending_tasks).toEqual([]);
   });
 
+test('异常面板支持空筛选和延迟任务账号过滤',
+  // 空筛选应保留全部异常，账号筛选只保留对应记录。
+  () => {
+    // pendingTask 是延迟任务筛选使用的最小异常对象。
+    const pendingTask = { cookie_id: 'a' } as never;
+    // issues 是包含运行异常和延迟任务的异常状态。
+    const issues = { runs: [issue('a', ['cancel'])], pending_tasks: [pendingTask] };
+    expect(filterAutomationIssues(issues, '').pending_tasks).toEqual([pendingTask]);
+    expect(filterAutomationIssues(issues, 'a').pending_tasks).toEqual([pendingTask]);
+  });
+
 test('规则列表不因异常接口失败而停止加载', /* 当前回调处理用户交互或异步状态变化。 */ async () => {
   // receivedRules 保存主规则列表加载器收到的结果。
   const receivedRules: string[][] = [];

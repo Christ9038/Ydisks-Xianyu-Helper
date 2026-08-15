@@ -146,4 +146,21 @@ describe('useRulesData', /* 当前回调处理规则页参考数据、分页和�
     emptyHook.unmount();
     hook.unmount();
   });
+
+  test('参考账号为空时清空当前账号选择', /* 当前回调验证参考数据无账号的默认选择分支。 */ async () => {
+    // setSelectedAccountId 是空账号参考数据的选择状态替身。
+    const setSelectedAccountId = vi.fn();
+    accountsMock.mockResolvedValueOnce([]);
+    // hook 是空账号参考数据场景的规则 Hook 渲染结果。
+    const hook = renderHook(
+      // emptyReferenceHookFactory 创建空账号参考数据的规则 Hook。
+      () => useRulesData({ activeTab: 'default', selectedAccountId: '', automationTriggerFilter: '', automationStatusFilter: 'all', debouncedAutomationSearch: '', automationPage: 1, automationPageSize: 10, setSelectedAccountId }),
+    );
+    await act(
+      // referenceAction 加载空账号参考数据。
+      async () => hook.result.current.loadReferenceData(),
+    );
+    expect(setSelectedAccountId).toHaveBeenCalledWith(expect.any(Function));
+    hook.unmount();
+  });
 });
