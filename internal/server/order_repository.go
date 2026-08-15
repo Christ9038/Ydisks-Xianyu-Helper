@@ -106,6 +106,19 @@ func (r storeOrderRepository) GetOrder(ctx context.Context, orderID string) (*or
 	return orderFromDB(order), nil
 }
 
+// FindOrder 委托订单查询并把数据库的不存在错误转换为 exists=false。
+func (r storeOrderRepository) FindOrder(ctx context.Context, orderID string) (*orderapp.Order, bool, error) {
+	// order、err 保存数据库订单查询结果及其错误。
+	order, err := r.store.Orders.Get(ctx, orderID)
+	if errors.Is(err, db.ErrNotFound) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return orderFromDB(order), true, nil
+}
+
 // GetItem 委托商品信息查询。
 func (r storeOrderRepository) GetItem(ctx context.Context, cookieID, itemID string) (*orderapp.ItemInfo, error) {
 	// item 和 err 保存数据库商品查询结果及其错误。
@@ -308,11 +321,11 @@ func refreshJobFromDB(job *db.OrderRefreshJob) *orderapp.RefreshJob {
 }
 
 // newStoreOrderRepository 从完整 Store 构造订单应用服务窄 repository。
-func newStoreOrderRepository(store *db.Store) orderapp.Repository {
+func newStoreOrderRepository(store *db.Store) *storeOrderRepository {
 	if store == nil || store.Cookies == nil || store.Orders == nil || store.Items == nil {
 		return nil
 	}
-	return storeOrderRepository{store: store}
+	return &storeOrderRepository{store: store}
 }
 
 // newStoreOrderRefreshJobRepository 构造订单刷新任务持久化适配器。

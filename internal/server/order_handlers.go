@@ -93,92 +93,6 @@ func (s *Server) getOrder(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// 订单发现阶段将远端订单索引与本地软删除状态保持一致。
-func (s *Server) discoverSoldOrders(ctx context.Context, fetcher mtop.SoldOrderFetcher, cookieID, cookies string) (int, int, map[string]struct{}, map[string]struct{}, error) { // discoverSoldOrders 拉取远端订单列表并同步本地订单索引。
-	discovered, updated := 0, 0
-	// newOrderIDs 保存new订单IDs，供当前处理流程使用
-	newOrderIDs := make(map[string]struct{})
-	// remoteOrderIDs 保存remote订单IDs，供当前处理流程使用
-	remoteOrderIDs := make(map[string]struct{})
-	for // pageNumber 保存页码Number，供当前处理流程使用
-	pageNumber := 1; pageNumber <= maxSoldOrderPages; pageNumber++ {
-		// page、err 保存page、err，供当前处理流程使用
-		page, err := fetcher.FetchSoldOrdersPage(ctx, cookies, pageNumber, 30)
-		if err != nil {
-			return discovered, updated, newOrderIDs, remoteOrderIDs, err
-		}
-		// remote 表示当前遍历过程中的remote
-		for _, remote := range page.Items {
-			remoteOrderIDs[remote.OrderID] = struct{}{}
-			if // normalizedAmount、ok 保存normalizedAmount、ok，供当前处理流程使用
-			normalizedAmount, ok := db.NormalizeOrderAmount(remote.Amount); ok {
-				remote.Amount = normalizedAmount
-			}
-			// existing、getErr 保存existing、getErr，供当前处理流程使用
-			existing, getErr := s.Store.Orders.Get(ctx, remote.OrderID)
-			// isNew 保存isNew，供当前处理流程使用
-			isNew := errors.Is(getErr, db.ErrNotFound)
-			if getErr != nil && !isNew {
-				return discovered, updated, newOrderIDs, remoteOrderIDs, fmt.Errorf("读取订单 %s 失败: %w", remote.OrderID, getErr)
-			}
-			// changed 保存changed，供当前处理流程使用
-			changed := isNew || soldOrderChanged(existing, remote)
-			// status 保存状态，供当前处理流程使用
-			status := remote.OrderStatus
-			if !isNew && status == "unknown" {
-				status = ""
-			}
-			// isBargain 保存isBargain，供当前处理流程使用
-			var isBargain *bool
-			if remote.IsBargain {
-				// value 保存值，供当前处理流程使用
-				value := true
-				isBargain = &value
-			}
-			if // err 保存err，供当前处理流程使用
-			err := s.Store.Orders.Upsert(ctx, remote.OrderID, db.OrderUpsertOpts{
-				ItemID: remote.ItemID, BuyerID: remote.BuyerID, CookieID: cookieID,
-				OrderStatus: status, Quantity: remote.Quantity, Amount: remote.Amount,
-				ReceiverName: remote.ReceiverName, ReceiverPhone: remote.ReceiverPhone,
-				ReceiverAddr: remote.ReceiverAddr, ReceiverCity: remote.ReceiverCity,
-				IsBargain: isBargain,
-			}); err != nil {
-				return discovered, updated, newOrderIDs, remoteOrderIDs, fmt.Errorf("保存订单 %s 失败: %w", remote.OrderID, err)
-			}
-			if isNew {
-				discovered++
-				newOrderIDs[remote.OrderID] = struct{}{}
-			} else if changed {
-				updated++
-			}
-		}
-		if !page.NextPage || len(page.Items) == 0 {
-			return discovered, updated, newOrderIDs, remoteOrderIDs, nil
-		}
-	}
-	return discovered, updated, newOrderIDs, remoteOrderIDs, fmt.Errorf("订单列表超过 %d 页，已停止继续同步", maxSoldOrderPages)
-}
-
-// soldOrderChanged 负责sold订单Changed相关处理。
-func soldOrderChanged(existing *db.Order, remote mtop.SoldOrder) bool {
-	if existing == nil {
-		return true
-	}
-	// statusChanged 保存状态Changed，供当前处理流程使用
-	statusChanged := remote.OrderStatus != "" && remote.OrderStatus != "unknown" &&
-		db.NormalizeOrderStatus(existing.OrderStatus) != remote.OrderStatus
-	return statusChanged ||
-		(remote.ItemID != "" && existing.ItemID != remote.ItemID) ||
-		(remote.BuyerID != "" && existing.BuyerID != remote.BuyerID) ||
-		(remote.Quantity != "" && existing.Quantity != remote.Quantity) ||
-		(remote.Amount != "" && existing.Amount != remote.Amount) ||
-		(remote.ReceiverName != "" && existing.ReceiverName != remote.ReceiverName) ||
-		(remote.ReceiverPhone != "" && existing.ReceiverPhone != remote.ReceiverPhone) ||
-		(remote.ReceiverAddr != "" && existing.ReceiverAddr != remote.ReceiverAddr) ||
-		(remote.ReceiverCity != "" && existing.ReceiverCity != remote.ReceiverCity) ||
-		(remote.IsBargain && existing.IsBargain == 0)
-}
-
 // chunkRefreshTargets 负责chunkRefreshTargets相关处理。
 func chunkRefreshTargets(targets []refreshTarget, size int) [][]refreshTarget {
 	if size <= 0 {
@@ -340,11 +254,6 @@ func validOrderAmount(raw string) bool {
 // normalizeOrderAmount 负责normalize订单Amount相关处理。
 func normalizeOrderAmount(raw string) (string, bool) {
 	return orderapp.NormalizeOrderAmount(raw)
-}
-
-// validEditableOrderStatus 负责有效Editable订单状态相关处理。
-func validEditableOrderStatus(status string) bool {
-	return orderapp.ValidEditableOrderStatus(status)
 }
 
 // manualShipOrders 负责manualShip订单列表相关处理。

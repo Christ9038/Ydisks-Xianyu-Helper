@@ -23,7 +23,7 @@ func newApplicationServices(server *Server) *applicationServices {
 	// orderRuntime 保存订单服务共享的运行时能力适配器。
 	orderRuntime := newServerOrderRuntime(server)
 	return &applicationServices{
-		orders:        &orderApplicationService{server: orderRuntime, repository: orderRepository, list: orderapp.NewListService(orderRepository), detail: orderapp.NewDetailService(orderRepository), delete: orderapp.NewDeleteService(orderRepository), update: orderapp.NewUpdateService(orderRepository), importOrders: orderapp.NewImportService(orderRepository), manualShip: orderapp.NewManualShipService(orderRepository, orderRuntime), refreshJobs: newStoreOrderRefreshJobRepository(server.Store)},
+		orders:        &orderApplicationService{server: orderRuntime, repository: orderRepository, list: orderapp.NewListService(orderRepository), detail: orderapp.NewDetailService(orderRepository), delete: orderapp.NewDeleteService(orderRepository), update: orderapp.NewUpdateService(orderRepository), importOrders: orderapp.NewImportService(orderRepository), manualShip: orderapp.NewManualShipService(orderRepository, orderRuntime), refresh: orderapp.NewRefreshService(orderRepository, orderRuntime, refreshOrderChunkSize), refreshJobs: newStoreOrderRefreshJobRepository(server.Store)},
 		itemPublish:   &itemPublishService{server: server, repository: newStoreItemPublishRepository(server.Store)},
 		accountLogin:  &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store)},
 		communication: &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},
