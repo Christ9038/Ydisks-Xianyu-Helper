@@ -4,8 +4,8 @@ import orderapp "xianyu-go/internal/application/orders"
 
 // applicationServices 聚合 Server 使用的应用服务实例，统一管理共享基础设施依赖。
 type applicationServices struct {
-	// orders 是订单应用服务。
-	orders *orderApplicationService
+	// orders 是订单 HTTP 适配器；业务服务集合由应用层统一构造。
+	orders *orderHTTPAdapter
 	// itemPublish 是商品发布应用服务。
 	itemPublish *itemPublishService
 	// accountLogin 是账号登录应用服务。
@@ -22,8 +22,10 @@ func newApplicationServices(server *Server) *applicationServices {
 	orderRepository := newStoreOrderRepository(server.Store)
 	// orderRuntime 保存订单服务共享的运行时能力适配器。
 	orderRuntime := newServerOrderRuntime(server)
+	// orderServices 保存应用层统一构造的订单业务服务集合。
+	orderServices := orderapp.NewServiceSet(orderRepository, orderRepository, orderRuntime, orderRuntime, newStoreOrderRefreshJobRepository(server.Store), refreshOrderChunkSize)
 	return &applicationServices{
-		orders:        &orderApplicationService{server: orderRuntime, repository: orderRepository, list: orderapp.NewListService(orderRepository), detail: orderapp.NewDetailService(orderRepository), delete: orderapp.NewDeleteService(orderRepository), update: orderapp.NewUpdateService(orderRepository), importOrders: orderapp.NewImportService(orderRepository), manualShip: orderapp.NewManualShipService(orderRepository, orderRuntime), refresh: orderapp.NewRefreshService(orderRepository, orderRuntime, refreshOrderChunkSize), refreshJobs: newStoreOrderRefreshJobRepository(server.Store)},
+		orders:        &orderHTTPAdapter{services: orderServices, repository: orderRepository},
 		itemPublish:   &itemPublishService{server: server, repository: newStoreItemPublishRepository(server.Store)},
 		accountLogin:  &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store)},
 		communication: &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},

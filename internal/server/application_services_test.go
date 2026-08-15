@@ -15,6 +15,9 @@ func TestNewServerAssemblesApplicationServices(t *testing.T) {
 	if services.orders == nil || services.itemPublish == nil || services.accountLogin == nil || services.communication == nil || services.analytics == nil {
 		t.Fatal("应用服务集合存在未装配的服务")
 	}
+	if services.orders.services == nil || services.orders.services.List == nil || services.orders.services.Detail == nil || services.orders.services.Refresh == nil || services.orders.services.RefreshJobs == nil {
+		t.Fatal("订单应用服务应由应用层 ServiceSet 完整装配")
+	}
 	if srv.orders() != services.orders || srv.itemPublishApplication() != services.itemPublish || srv.accountLoginApplication() != services.accountLogin || srv.communicationApplication() != services.communication || srv.analyticsApplication() != services.analytics {
 		t.Fatal("应用服务访问器未返回统一装配实例")
 	}

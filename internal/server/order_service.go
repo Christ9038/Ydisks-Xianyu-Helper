@@ -12,31 +12,6 @@ import (
 	"xianyu-go/internal/xianyu/mtop"
 )
 
-// orderRuntimePort 定义订单用例访问运行时平台、自动化和通知能力的最小 Port。
-// 该接口隔离 Server 聚合对象，避免订单应用服务持有 *Server。
-type orderRuntimePort interface {
-	// AccountRunning 判断账号运行时是否在线。
-	AccountRunning(cookieID string) bool
-	// AutomationReady 判断完整发货自动化依赖是否已装配。
-	AutomationReady() bool
-	// ManualFullDelivery 执行完整自动化发货。
-	ManualFullDelivery(ctx context.Context, order *orderapp.Order) (int, error)
-	// MTopAvailable 判断平台客户端是否已注入。
-	MTopAvailable() bool
-	// MTopClient 返回平台客户端。
-	mtopClient() mtop.Client
-	// consignWithCurrentCookie 使用当前账号凭证确认发货。
-	consignWithCurrentCookie(ctx context.Context, cookieID, orderID string, userID int64) (bool, []string, string, bool, error)
-	// updateRunningCookie 同步运行时账号 Cookie。
-	updateRunningCookie(ctx context.Context, cookieID, value string)
-	// notifyDelivery 发送发货结果通知。
-	notifyDelivery(cookieID, buyerID, itemID, chatID, message string)
-	// RecordOrderReconciliation 记录外部发货成功但本地状态未完成的补偿任务。
-	RecordOrderReconciliation(ctx context.Context, orderID, cookieID, kind, message string) (string, error)
-	// recoverExpiredMTOPSession 处理平台会话过期。
-	recoverExpiredMTOPSession(ctx context.Context, cookieID string, err error) bool
-}
-
 // serverOrderRuntimeAdapter 将 Server 的运行时能力适配为订单应用 Port。
 // 适配器只存在于装配边界，订单应用服务本身不再依赖 *Server。
 type serverOrderRuntimeAdapter struct {
@@ -139,11 +114,6 @@ func (a serverOrderRuntimeAdapter) ReportPersistenceFailure(orderID string, err 
 		return
 	}
 	a.server.Logger.Error("更新订单为系统已发货失败", "order_id", orderID, "err", err)
-}
-
-// recoverExpiredMTOPSession 处理平台会话过期。
-func (a serverOrderRuntimeAdapter) recoverExpiredMTOPSession(ctx context.Context, cookieID string, err error) bool {
-	return a.server.recoverExpiredMTOPSession(ctx, cookieID, err)
 }
 
 // RecoverExpiredSession 处理订单刷新应用服务报告的平台会话过期。
@@ -263,35 +233,19 @@ func (a serverOrderRuntimeAdapter) IsSessionExpired(err error) bool {
 	return mtop.IsSessionExpiredErr(err)
 }
 
-// orderApplicationService 承载订单用例的业务编排，不依赖 HTTP 请求或响应对象。
-// HTTP handler 只负责把请求转换为这些类型，再把结果编码为兼容 DTO。
-type orderApplicationService struct {
-	// server 是订单运行时 Port，名称保留以降低本次迁移的调用面。
-	server orderRuntimePort
-	// repository 提供订单用例所需的应用层持久化与凭证锁 Port。
+// orderHTTPAdapter 将 HTTP 请求模型和兼容响应模型适配到应用层订单服务。
+// 订单业务编排由 internal/application/orders.ServiceSet 负责。
+type orderHTTPAdapter struct {
+	// services 保存应用层统一构造的订单业务服务集合。
+	services *orderapp.ServiceSet
+	// repository 保存 HTTP 适配器需要的账号归属查询 Port。
 	repository orderapp.Repository
-	// list 负责订单列表分页和账号所有权规则。
-	list *orderapp.ListService
-	// detail 负责订单详情读取、商品补全和账号所有权规则。
-	detail *orderapp.DetailService
-	// delete 负责订单删除的所有权校验和逻辑删除。
-	delete *orderapp.DeleteService
-	// update 负责订单更新字段校验和事务写入。
-	update *orderapp.UpdateService
-	// importOrders 负责订单导入的归属校验和事务写入。
-	importOrders *orderapp.ImportService
-	// manualShip 负责手动发货的远端动作、本地状态和补偿规则。
-	manualShip *orderapp.ManualShipService
-	// refresh 负责订单单笔和批量刷新应用编排。
-	refresh *orderapp.RefreshService
-	// refreshJobs 提供订单刷新后台任务的持久化 Port。
-	refreshJobs orderapp.RefreshJobRepository
 }
 
 // RefreshSingle 刷新单个订单详情并转换为兼容 HTTP 响应模型。
-func (a *orderApplicationService) RefreshSingle(ctx context.Context, userID int64, orderID string) (orderSingleRefreshResponse, error) {
+func (a *orderHTTPAdapter) RefreshSingle(ctx context.Context, userID int64, orderID string) (orderSingleRefreshResponse, error) {
 	// result、err 保存应用层单订单刷新结果和错误。
-	result, err := a.refresh.RefreshSingle(ctx, userID, orderID)
+	result, err := a.services.Refresh.RefreshSingle(ctx, userID, orderID)
 	if errors.Is(err, orderapp.ErrNotFound) {
 		return orderSingleRefreshResponse{}, db.ErrNotFound
 	}
@@ -311,9 +265,9 @@ func (a *orderApplicationService) RefreshSingle(ctx context.Context, userID int6
 }
 
 // Refresh 刷新当前用户订单并转换为兼容 HTTP 响应模型。
-func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, cookieID, status string) (orderRefreshResponse, error) {
+func (a *orderHTTPAdapter) Refresh(ctx context.Context, userID int64, cookieID, status string) (orderRefreshResponse, error) {
 	// result、err 保存应用层批量刷新结果和错误。
-	result, err := a.refresh.Refresh(ctx, userID, cookieID, status)
+	result, err := a.services.Refresh.Refresh(ctx, userID, cookieID, status)
 	if errors.Is(err, orderapp.ErrForbidden) {
 		return orderRefreshResponse{}, db.ErrForbidden
 	}
@@ -401,12 +355,12 @@ func orderErrorKindOf(err error) (orderErrorKind, bool) {
 }
 
 // orders 返回当前 Server 绑定的订单应用服务。
-func (s *Server) orders() *orderApplicationService {
+func (s *Server) orders() *orderHTTPAdapter {
 	return s.applicationServiceSet().orders
 }
 
 // orderOwnedByUser 判断订单服务使用的账号是否归属于当前用户。
-func (a *orderApplicationService) orderOwnedByUser(ctx context.Context, userID int64, cookieID string) bool {
+func (a *orderHTTPAdapter) orderOwnedByUser(ctx context.Context, userID int64, cookieID string) bool {
 	// owned 和 err 保存账号归属检查结果。
 	owned, err := a.repository.ExistsOwned(ctx, userID, cookieID)
 	return err == nil && owned
@@ -516,9 +470,9 @@ type orderDetailResult struct {
 }
 
 // List 查询当前用户可见的订单，并集中处理分页和账号所有权规则。
-func (a *orderApplicationService) List(ctx context.Context, query orderListQuery) (orderListResult, error) {
+func (a *orderHTTPAdapter) List(ctx context.Context, query orderListQuery) (orderListResult, error) {
 	// result、err 保存应用层订单列表结果及错误。
-	result, err := a.list.List(ctx, orderapp.ListQuery{
+	result, err := a.services.List.List(ctx, orderapp.ListQuery{
 		UserID: query.UserID, CookieID: query.CookieID, Status: query.Status,
 		Search: query.Search, Page: query.Page, PageSize: query.PageSize,
 	})
@@ -541,9 +495,9 @@ func (a *orderApplicationService) List(ctx context.Context, query orderListQuery
 }
 
 // Get 查询订单并校验订单绑定账号属于当前用户。
-func (a *orderApplicationService) Get(ctx context.Context, userID int64, orderID string) (*orderapp.Order, error) {
+func (a *orderHTTPAdapter) Get(ctx context.Context, userID int64, orderID string) (*orderapp.Order, error) {
 	// order、err 保存应用层订单详情结果及错误。
-	order, err := a.detail.Get(ctx, userID, orderID)
+	order, err := a.services.Detail.Get(ctx, userID, orderID)
 	if errors.Is(err, orderapp.ErrNotFound) {
 		return nil, db.ErrNotFound
 	}
@@ -554,9 +508,9 @@ func (a *orderApplicationService) Get(ctx context.Context, userID int64, orderID
 }
 
 // GetView 查询订单并补全商品标题和主图，供详情 handler 直接编码。
-func (a *orderApplicationService) GetView(ctx context.Context, userID int64, orderID string) (orderDetailResult, error) {
+func (a *orderHTTPAdapter) GetView(ctx context.Context, userID int64, orderID string) (orderDetailResult, error) {
 	// result、err 保存应用层详情结果及错误。
-	result, err := a.detail.GetView(ctx, userID, orderID)
+	result, err := a.services.Detail.GetView(ctx, userID, orderID)
 	if errors.Is(err, orderapp.ErrNotFound) {
 		return orderDetailResult{}, db.ErrNotFound
 	}
@@ -570,9 +524,9 @@ func (a *orderApplicationService) GetView(ctx context.Context, userID int64, ord
 }
 
 // Delete 逻辑删除订单，保留历史记录供审计使用。
-func (a *orderApplicationService) Delete(ctx context.Context, userID int64, orderID string) error {
+func (a *orderHTTPAdapter) Delete(ctx context.Context, userID int64, orderID string) error {
 	// err 保存应用层订单删除错误。
-	err := a.delete.Delete(ctx, userID, orderID)
+	err := a.services.Delete.Delete(ctx, userID, orderID)
 	if errors.Is(err, orderapp.ErrForbidden) {
 		return db.ErrForbidden
 	}
@@ -615,9 +569,9 @@ type orderUpdateRequest struct {
 }
 
 // Update 在单事务内更新订单及可选的商品标题。
-func (a *orderApplicationService) Update(ctx context.Context, userID int64, orderID string, request orderUpdateRequest) error {
+func (a *orderHTTPAdapter) Update(ctx context.Context, userID int64, orderID string, request orderUpdateRequest) error {
 	// err 保存应用层订单更新错误。
-	err := a.update.Update(ctx, userID, orderID, orderapp.UpdateRequest{
+	err := a.services.Update.Update(ctx, userID, orderID, orderapp.UpdateRequest{
 		OrderStatus: request.OrderStatus, ItemID: request.ItemID, BuyerID: request.BuyerID,
 		SpecName: request.SpecName, SpecValue: request.SpecValue, Quantity: request.Quantity,
 		Amount: request.Amount, ReceiverName: request.ReceiverName, ReceiverPhone: request.ReceiverPhone,
@@ -654,7 +608,7 @@ type orderImportResult struct {
 }
 
 // Import 按当前用户账号所有权逐单导入订单，并为订单关联商品补全基础信息。
-func (a *orderApplicationService) Import(ctx context.Context, userID int64, rawOrders []map[string]any) (orderImportResult, error) {
+func (a *orderHTTPAdapter) Import(ctx context.Context, userID int64, rawOrders []map[string]any) (orderImportResult, error) {
 	// inputs 保存文件/HTTP 原始数据转换后的应用导入行。
 	inputs := make([]orderapp.ImportOrder, 0, len(rawOrders))
 	// raw 保存当前待转换的原始导入行。
@@ -662,7 +616,7 @@ func (a *orderApplicationService) Import(ctx context.Context, userID int64, rawO
 		inputs = append(inputs, importOrderFromRaw(raw))
 	}
 	// result、err 保存应用层导入结果和错误。
-	result, err := a.importOrders.Import(ctx, userID, inputs)
+	result, err := a.services.Import.Import(ctx, userID, inputs)
 	if err != nil {
 		return orderImportResult{}, err
 	}
@@ -716,9 +670,9 @@ type manualShipResult struct {
 }
 
 // ManualShip 执行状态确认或完整自动化发货，并集中处理逐单失败而不中断批次的规则。
-func (a *orderApplicationService) ManualShip(ctx context.Context, request manualShipRequest) (manualShipResult, error) {
+func (a *orderHTTPAdapter) ManualShip(ctx context.Context, request manualShipRequest) (manualShipResult, error) {
 	// result 保存应用层手动发货结果。
-	result, err := a.manualShip.ManualShip(ctx, orderapp.ManualShipRequest{UserID: request.UserID, OrderIDs: request.OrderIDs, ShipMode: request.ShipMode})
+	result, err := a.services.ManualShip.ManualShip(ctx, orderapp.ManualShipRequest{UserID: request.UserID, OrderIDs: request.OrderIDs, ShipMode: request.ShipMode})
 	if err != nil {
 		return manualShipResult{}, err
 	}

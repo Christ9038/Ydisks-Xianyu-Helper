@@ -84,14 +84,14 @@ func (s *Server) startOrderRefreshJob(w http.ResponseWriter, r *http.Request) {
 		CookieID: cookieID, FilterStatus: filterStatus,
 	}
 	// err 表示创建任务的数据库错误。
-	if err := s.orders().refreshJobs.Create(r.Context(), job); err != nil {
+	if err := s.orders().services.RefreshJobs.Create(r.Context(), job); err != nil {
 		writeErr(w, http.StatusInternalServerError, "创建订单刷新任务失败")
 		return
 	}
 	// token 保存本次执行者的租约令牌。
 	token := randomHex(16)
 	// claimed、claimErr 保存任务抢占结果及错误。
-	claimed, claimErr := s.orders().refreshJobs.Claim(r.Context(), job.ID, token, time.Now().Add(orderRefreshJobLease).Unix())
+	claimed, claimErr := s.orders().services.RefreshJobs.Claim(r.Context(), job.ID, token, time.Now().Add(orderRefreshJobLease).Unix())
 	if claimErr != nil || !claimed {
 		writeErr(w, http.StatusInternalServerError, "启动订单刷新任务失败")
 		return
@@ -107,7 +107,7 @@ func (s *Server) getOrderRefreshJob(w http.ResponseWriter, r *http.Request) {
 	// jobID 保存路径中的订单刷新任务标识。
 	jobID := chi.URLParam(r, "job_id")
 	// job、err 保存任务读取结果及错误。
-	job, err := s.orders().refreshJobs.Get(r.Context(), sess.UserID, jobID)
+	job, err := s.orders().services.RefreshJobs.Get(r.Context(), sess.UserID, jobID)
 	if errors.Is(err, orderapp.ErrRefreshJobNotFound) {
 		writeErr(w, http.StatusNotFound, "订单刷新任务不存在")
 		return
@@ -141,7 +141,7 @@ func (s *Server) cancelOrderRefreshJob(w http.ResponseWriter, r *http.Request) {
 	// jobID 保存路径中的订单刷新任务标识。
 	jobID := chi.URLParam(r, "job_id")
 	// cancelled、err 保存数据库取消结果及错误。
-	cancelled, err := s.orders().refreshJobs.Cancel(r.Context(), sess.UserID, jobID)
+	cancelled, err := s.orders().services.RefreshJobs.Cancel(r.Context(), sess.UserID, jobID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "取消订单刷新任务失败")
 		return
@@ -152,7 +152,7 @@ func (s *Server) cancelOrderRefreshJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// job、getErr 保存取消未生效时的当前任务状态及查询错误。
-	job, getErr := s.orders().refreshJobs.Get(r.Context(), sess.UserID, jobID)
+	job, getErr := s.orders().services.RefreshJobs.Get(r.Context(), sess.UserID, jobID)
 	if errors.Is(getErr, orderapp.ErrRefreshJobNotFound) {
 		writeErr(w, http.StatusNotFound, "订单刷新任务不存在")
 		return
@@ -233,7 +233,7 @@ func (s *Server) runOrderRefreshJob(ctx context.Context, job *orderapp.RefreshJo
 	result, err := s.orders().Refresh(ctx, job.UserID, job.CookieID, job.FilterStatus)
 	if err != nil {
 		// completeErr 表示失败终态写入错误。
-		if _, completeErr := s.orders().refreshJobs.Complete(context.Background(), job.ID, token, "failed", "{}", err.Error()); completeErr != nil && s.Logger != nil {
+		if _, completeErr := s.orders().services.RefreshJobs.Complete(context.Background(), job.ID, token, "failed", "{}", err.Error()); completeErr != nil && s.Logger != nil {
 			s.Logger.Warn("写入订单刷新失败终态失败", "job_id", job.ID, "err", completeErr)
 		}
 		return
@@ -241,11 +241,11 @@ func (s *Server) runOrderRefreshJob(ctx context.Context, job *orderapp.RefreshJo
 	// resultJSON、marshalErr 保存具名刷新结果 JSON 及序列化错误。
 	resultJSON, marshalErr := json.Marshal(result)
 	if marshalErr != nil {
-		_, _ = s.orders().refreshJobs.Complete(context.Background(), job.ID, token, "failed", "{}", marshalErr.Error())
+		_, _ = s.orders().services.RefreshJobs.Complete(context.Background(), job.ID, token, "failed", "{}", marshalErr.Error())
 		return
 	}
 	// completeErr 表示成功终态写入错误。
-	if _, completeErr := s.orders().refreshJobs.Complete(context.Background(), job.ID, token, "succeeded", string(resultJSON), ""); completeErr != nil && s.Logger != nil {
+	if _, completeErr := s.orders().services.RefreshJobs.Complete(context.Background(), job.ID, token, "succeeded", string(resultJSON), ""); completeErr != nil && s.Logger != nil {
 		s.Logger.Warn("写入订单刷新成功终态失败", "job_id", job.ID, "err", completeErr)
 	}
 }
@@ -276,7 +276,7 @@ func (s *Server) StartOrderRefreshRecovery(ctx context.Context) {
 // recoverOrderRefreshJobsOnce 将过期任务重新入队并启动新的 worker。
 func (s *Server) recoverOrderRefreshJobsOnce(ctx context.Context) {
 	// jobs、err 保存可恢复任务及扫描错误。
-	jobs, err := s.orders().refreshJobs.Recoverable(ctx, time.Now().Unix(), 20)
+	jobs, err := s.orders().services.RefreshJobs.Recoverable(ctx, time.Now().Unix(), 20)
 	if err != nil {
 		if s.Logger != nil {
 			s.Logger.Warn("扫描订单刷新恢复任务失败", "err", err)
@@ -286,14 +286,14 @@ func (s *Server) recoverOrderRefreshJobsOnce(ctx context.Context) {
 	// job 表示当前待恢复的订单刷新任务。
 	for _, job := range jobs {
 		// requeued、requeueErr 保存重新入队结果及错误。
-		requeued, requeueErr := s.orders().refreshJobs.RequeueExpired(ctx, job.ID, time.Now().Unix())
+		requeued, requeueErr := s.orders().services.RefreshJobs.RequeueExpired(ctx, job.ID, time.Now().Unix())
 		if requeueErr != nil || !requeued {
 			continue
 		}
 		// token 保存恢复 worker 的新租约令牌。
 		token := randomHex(16)
 		// claimed、claimErr 保存恢复任务抢占结果及错误。
-		claimed, claimErr := s.orders().refreshJobs.Claim(ctx, job.ID, token, time.Now().Add(orderRefreshJobLease).Unix())
+		claimed, claimErr := s.orders().services.RefreshJobs.Claim(ctx, job.ID, token, time.Now().Add(orderRefreshJobLease).Unix())
 		if claimErr == nil && claimed {
 			s.startOrderRefreshWorker(&job, token)
 		}

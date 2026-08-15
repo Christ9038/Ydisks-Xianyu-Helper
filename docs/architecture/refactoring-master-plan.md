@@ -95,7 +95,7 @@ app shell / routes
 | 1. PR CI 与测试基础 | 已完成 | 独立 CI、测试 DB 模板、可执行 race | CI、独立模板、server smoke race 和完整 race 均有验证 |
 | 2. 敏感数据访问边界 | 进行中 | 摘要、凭证、登录秘密和系统设置分离 | Cookie/平台运行视图已收口；待完成系统设置脱敏读写、运维输出脱敏、敏感字段访问审计和三库回归 |
 | 3. HTTP API 契约 | 已完成 | 统一错误、具名 DTO、版本化路径 | 统一错误 DTO、具名成功 DTO、所有前端业务调用方版本化、旧路径兼容和最终审计均已完成 |
-| 4. Server 应用服务 | 进行中 | 订单、发布、登录、聊天纵向抽取 | 已完成文件级服务拆分；待完成应用 Port 独立包、Server 不持有业务服务定位器、handler 不依赖 db/xianyu/browser |
+| 4. Server 应用服务 | 进行中 | 订单、发布、登录、聊天纵向抽取 | 订单业务服务已迁入 `internal/application/orders`，Server 仅保留订单 HTTP/基础设施适配器；商品发布、登录、聊天仍由 Server 持有，handler 的低层依赖与其他领域 Port 仍待收口 |
 | 5. 应用生命周期装配 | 进行中 | 消除必需依赖 setter 回填并统一关闭边界 | 已有 Server 自有 worker 等待；待完成 Context-aware Stop、账号 StopAll 超时、删除任务登记和统一生命周期清单 |
 | 6. Engine 与 Automation | 已完成 | facade + 独立状态组件 | Engine/Automation 组件边界、race、生命周期与冻结规范测试均已通过 |
 | 7. React Feature 化 | 已完成 | 页面、Hook、API、类型按领域拆分 | 领域 feature、行为测试、依赖门禁和构建门禁已完成 |
@@ -758,3 +758,4 @@ npm --prefix frontend run build
 | 2026-08-15 | P1 订单刷新任务取消与状态 fencing 切片 | 已完成本切片 | 新增按用户归属的 `Cancel` 持久化命令，仅允许 `queued/running` 任务转为 `cancelled` 并清理旧 worker 租约；Server 在 worker 启动前登记可取消 Context，取消端点同时收束内存 worker，旧 worker 的 `Complete` 无法覆盖取消终态；新增 legacy/versioned DELETE 路由、前端 `cancelOrderRefreshJob`，`syncOrders` 在轮询取消时通知后端；覆盖 SQLite 任务生命周期、跨用户隔离、旧 worker fencing、HTTP 和前端 API 回归；`make check`、Go/React 注释门禁、Go 全量测试、前端 318 测试、类型检查和生产构建通过。刷新进度事件、三库任务迁移实测、后台运维查询、批量 UPSERT 和其他领域迁移仍未完成，阶段 4/5/8/9 保持“进行中” |
 | 2026-08-15 | P2 订单详情分片单条多值 UPSERT 切片 | 已完成本切片 | 新增应用层 `RefreshOrderWrite` 与 `BatchUpsertOrders` Port；详情分片先收集成功结果，再由 Server 适配器在单事务内调用数据库 `UpsertManyTx`，数据库以一条多值 UPSERT 写入整片订单，保留状态防倒退、空字段不覆盖、软删除恢复和跨账号归属检查；新增批量订单 SQLite 回归（状态、版本、金额、跨账号、重复订单）及应用层“单次批量调用”断言；定向 Go 测试、`make check`、架构门禁、中文注释门禁和 `git diff --check` 通过。当前环境未提供 `TEST_MYSQL_URL`/`TEST_POSTGRES_URL`，因此未宣称外部数据库实测完成；订单发现仍为逐账号游标、商品批量同步和其他批量写入仍未完成，阶段 4/5/8/9 保持“进行中” |
 | 2026-08-15 | P2 订单发现批量读写切片 | 已完成本切片 | 订单发现不再对远端订单逐条 `FindOrder` + `UpsertOrder`；新增 `FindOrdersByIDs`（按 500 个标识分片，兼容 SQLite 参数上限），远端列表先去重/归一化，再一次批量读取和一次多值 UPSERT，补齐 `is_bargain` 写入且保留已有砍价标记；未知状态不会覆盖已有进阶状态，批量失败不返回虚假发现统计；新增去重、批量调用次数、未知状态防倒退、批量读写失败和 SQLite 回归；`make check`、订单/Server 聚焦 race、架构门禁、中文注释门禁、`git diff --check` 通过。当前未配置 MySQL/Postgres 外部实例，三库 SQL 仅完成代码路径兼容设计，后续仍需外部查询计划/大数据量实测；跨账号账号级平台请求、商品/其他领域批量同步和阶段 4/5/8/9 仍未完成 |
+| 2026-08-15 | P1 订单应用服务集合装配下沉切片 | 已完成本切片 | 新增 `internal/application/orders.ServiceSet` 与 `NewServiceSet`，统一构造订单列表、详情、删除、更新、导入、手动发货、刷新和刷新任务服务；`internal/server` 的订单对象重命名为 `orderHTTPAdapter`，只负责兼容 HTTP DTO/错误映射与归属适配，Server 不再分别创建订单业务服务；刷新任务 handler 改为通过应用层 ServiceSet 的任务 Port；新增应用集合构造测试与 Server 装配断言，订单/Server 定向测试和中文注释门禁通过。商品发布、登录、聊天等其他 Server 应用服务仍未迁移，低层 handler 依赖、生命周期统一清单、旧 API 兼容退场和整体阶段 4/5/8/9 仍保持“进行中” |
