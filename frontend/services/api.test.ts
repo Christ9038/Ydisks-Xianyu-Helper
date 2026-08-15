@@ -328,6 +328,16 @@ test('getOrderAnalytics sends the browser timezone offset', async () => {
 	expect(fetchMock.mock.calls[0][0]).toContain('timezone_offset_minutes=330');
 } /* 回调函数负责当前业务流程。 */);
 
+test('getOrderAnalytics 支持数字天数参数', /* 当前回调验证订单分析默认日期范围构造。 */ async () => {
+  // fetchMock 是数字天数分析请求的网络替身。
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ revenue_stats: {}, daily_stats: [], status_stats: [], city_stats: [] }));
+  vi.stubGlobal('fetch', fetchMock);
+  await getOrderAnalytics(3);
+  expect(fetchMock.mock.calls[0][0]).toContain('/api/v1/analytics/orders?');
+  expect(fetchMock.mock.calls[0][0]).toContain('start_date=');
+  expect(fetchMock.mock.calls[0][0]).toContain('end_date=');
+});
+
 test('paid orders are normalized to pending shipment', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ data: [{ order_id: 'o-paid', order_status: 'paid' }] })));
   const result = await getOrders(); /* result 表示处理结果。 */
@@ -502,6 +512,21 @@ test('getAccountDetails normalizes show_browser and never exposes password', asy
   });
 } /* 回调函数负责当前业务流程。 */);
 
+test('getAccountDetails 归一化头像地址并保留非法地址', /* 当前回调验证头像缓存参数和 URL 兼容边界。 */ async () => {
+  // windowStub 是头像 URL 解析使用的浏览器位置替身。
+  vi.stubGlobal('window', { location: { origin: 'http://localhost' } });
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([
+    { id: 'acc1', enabled: true, avatar_url: 'https://avatar.alicdn.com/avatar.jpg' },
+    { id: 'acc2', enabled: true, avatar_url: 'https://avatar.example.com/avatar.jpg' },
+    { id: 'acc3', enabled: true, avatar_url: 'http://[invalid' },
+  ])));
+  // accounts 是头像地址归一化后的账号列表。
+  const accounts = await getAccountDetails();
+  expect(accounts[0].avatar_url).toContain('avatar.alicdn.com/avatar.jpg?_v=');
+  expect(accounts[1].avatar_url).toBe('https://avatar.example.com/avatar.jpg');
+  expect(accounts[2].avatar_url).toBe('http://[invalid');
+});
+
 test('updateAccountLoginInfo sends exactly provided fields', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
   vi.stubGlobal('fetch', fetchMock);
@@ -645,6 +670,23 @@ test('getReplyRules labels keyword matching according to engine contains behavio
     image_url: 'https://img.example/reply.png',
   });
 } /* 回调函数负责当前业务流程。 */);
+
+test('getReplyRules 没有账号时直接返回空列表', /* 当前回调验证关键词规则的账号守卫。 */ async () => {
+  await expect(getReplyRules()).resolves.toEqual([]);
+});
+
+test('getCards 解析 JSON 和损坏 JSON 的卡密接口配置', /* 当前回调验证卡密配置归一化边界。 */ async () => {
+  // fetchMock 是卡密列表接口的网络替身。
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse([
+    { id: 1, name: '有效', api_config: '{"endpoint":"https://example.com"}' },
+    { id: 2, name: '损坏', api_config: '{broken' },
+  ]));
+  vi.stubGlobal('fetch', fetchMock);
+  // cards 是卡密配置归一化后的库存列表。
+  const cards = await getCards();
+  expect(cards[0].api_config).toEqual({ endpoint: 'https://example.com' });
+  expect(cards[1].api_config).toBeUndefined();
+});
 
 test('updateReplyRule preserves keyword image metadata when saving text edits', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
@@ -1091,7 +1133,10 @@ const runVersionedItemBatchAPITest = async () => {
   await recommendPublishCategory('acc1', '资料');
   await previewItemPublishBatch({
     file: new File(['order_id\nitem-1'], 'items.csv', { type: 'text/csv' }),
-    fallbackCategory: { catId: 'cat-1', catName: '资料', channelCatId: 'channel-1' },
+    imagesZip: new File(['zip'], 'images.zip', { type: 'application/zip' }),
+    defaultCookieId: 'acc1',
+    fallbackCategory: { catId: 'cat-1', catName: '资料', channelCatId: 'channel-1', tbCatId: 'tb-1' },
+    location: { area: '区域', city: '城市', division_id: '1', longitude: 120, latitude: 30, poi_id: 'poi-1', poi_name: '地点', province: '省' },
   });
   await startItemPublishBatch('preview-1');
   await getItemPublishBatches(10);
