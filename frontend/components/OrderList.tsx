@@ -393,6 +393,7 @@ const OrderList: React.FC = () => {
                 <button
                     disabled={page <= 1}
                     onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setPage(/* 当前回调处理用户交互或异步状态变化。 */ p => p - 1)}
+                    aria-label="上一页"
                     className="p-2.5 rounded-xl bg-gray-50 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-gray-600 transition-colors"
                 >
                     <ChevronLeft className="w-5 h-5" />
@@ -400,6 +401,7 @@ const OrderList: React.FC = () => {
                 <button
                     disabled={page >= totalPages}
                     onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setPage(/* 当前回调处理用户交互或异步状态变化。 */ p => p + 1)}
+                    aria-label="下一页"
                     className="p-2.5 rounded-xl bg-gray-50 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-gray-600 transition-colors"
                 >
                     <ChevronRight className="w-5 h-5" />
