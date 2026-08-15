@@ -2,6 +2,7 @@ package automation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -388,5 +389,23 @@ func TestAutomationSchedulerWaitsForShutdown(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("自动化调度器关闭后没有退出")
+	}
+}
+
+// TestAutomationSchedulerWaitContextHonorsDeadline 验证自动化调度器等待受关闭上下文限制。
+func TestAutomationSchedulerWaitContextHonorsDeadline(t *testing.T) {
+	// scheduler 保存尚未完成的调度器，以验证等待超时不会永久阻塞。
+	scheduler := &Scheduler{done: make(chan struct{})}
+	// ctx、cancel 保存短时关闭上下文及其释放函数。
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+	// err 表示尚未完成调度器在超时上下文下的等待结果。
+	if err := scheduler.WaitContext(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitContext error=%v, want deadline exceeded", err)
+	}
+	close(scheduler.done)
+	// err 表示已完成调度器的等待结果。
+	if err := scheduler.WaitContext(context.Background()); err != nil {
+		t.Fatalf("completed WaitContext error=%v", err)
 	}
 }

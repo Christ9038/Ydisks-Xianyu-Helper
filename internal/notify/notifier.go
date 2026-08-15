@@ -61,6 +61,7 @@ type Notifier struct {
 	httpc      *http.Client
 	started    atomic.Bool
 	workers    sync.WaitGroup
+	done       chan struct{}
 }
 
 // newOutboundHTTPClient 保存newOutboundHTTPClient，供当前处理流程使用
@@ -84,6 +85,7 @@ func NewWithRepository(cookieID string, repository Repository, logger *slog.Logg
 		repository: repository,
 		logger:     logger.With("account", cookieID, "subsys", "notify"),
 		httpc:      newOutboundHTTPClient(),
+		done:       make(chan struct{}),
 	}
 }
 
@@ -97,12 +99,34 @@ func (n *Notifier) Start(ctx context.Context) {
 	n.workers.Add(1)
 	go func() {
 		defer n.workers.Done()
+		defer close(n.done)
 		n.runOutbox(ctx)
 	}()
 }
 
-// Wait 等待 outbox worker 随生命周期 context 退出。
-func (n *Notifier) Wait() { n.workers.Wait() }
+// Wait 等待 outbox worker 随生命周期 context 退出，并兼容旧调用方。
+func (n *Notifier) Wait() {
+	_ = n.WaitContext(context.Background())
+}
+
+// WaitContext 在 ctx 约束内等待 outbox worker 退出。
+func (n *Notifier) WaitContext(ctx context.Context) error {
+	if n == nil {
+		return nil
+	}
+	if !n.started.Load() || n.done == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-n.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 // NotifyDelivery 发送发货结果通知。
 // accountID 为 cookie_id。向该账号所有已启用渠道发送发货通知。

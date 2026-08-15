@@ -3,14 +3,35 @@ package notify
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"xianyu-go/internal/db"
 )
+
+// TestNotifierWaitContextHonorsDeadline 验证通知 worker 等待受关闭上下文限制。
+func TestNotifierWaitContextHonorsDeadline(t *testing.T) {
+	// notifier 保存已启动但尚未完成的通知器，以验证等待超时不会永久阻塞。
+	notifier := &Notifier{done: make(chan struct{})}
+	notifier.started.Store(true)
+	// ctx、cancel 保存短时关闭上下文及其释放函数。
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+	// err 表示尚未完成 worker 在超时上下文下的等待结果。
+	if err := notifier.WaitContext(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitContext error=%v, want deadline exceeded", err)
+	}
+	close(notifier.done)
+	// err 表示已完成 worker 的等待结果。
+	if err := notifier.WaitContext(context.Background()); err != nil {
+		t.Fatalf("completed WaitContext error=%v", err)
+	}
+}
 
 // newNotifyStore 负责newNotifyStore相关处理。
 func newNotifyStore(t *testing.T) (*db.Store, func()) {

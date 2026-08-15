@@ -127,10 +127,23 @@ func (s *Scheduler) Run(ctx context.Context) {
 
 // Wait 等待定时循环和迟到响应 watcher 完成。
 func (s *Scheduler) Wait() {
+	_ = s.WaitContext(context.Background())
+}
+
+// WaitContext 在 ctx 约束内等待定时循环和 watcher 完成。
+func (s *Scheduler) WaitContext(ctx context.Context) error {
 	if s == nil || s.done == nil {
-		return
+		return nil
 	}
-	<-s.done
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-s.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // runAPICookieRenewFixed 负责运行API登录凭证RenewFixed相关处理。

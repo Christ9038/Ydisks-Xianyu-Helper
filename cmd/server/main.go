@@ -350,9 +350,14 @@ func runServer(parent context.Context, opts serverOptions) error {
 	// stopCtx、stopCancel 保存stopCtx、stop取消，供当前处理流程使用
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	_ = srv.Stop(stopCtx)
-	stopCancel()
-	automationScheduler.Wait()
-	renewalScheduler.Wait()
+	// err 表示自动化调度器在关闭上下文内未完成退出的错误。
+	if err := automationScheduler.WaitContext(stopCtx); err != nil {
+		logger.Warn("自动化调度器关闭未完成", "err", err)
+	}
+	// err 表示续期调度器在关闭上下文内未完成退出的错误。
+	if err := renewalScheduler.WaitContext(stopCtx); err != nil {
+		logger.Warn("续期调度器关闭未完成", "err", err)
+	}
 	// err 表示账号运行时未能在关闭上下文内完整停止的错误。
 	if err := mgr.StopAllContext(stopCtx); err != nil {
 		logger.Warn("账号运行时关闭未完成", "err", err)
@@ -360,7 +365,11 @@ func runServer(parent context.Context, opts serverOptions) error {
 	if bm != nil {
 		_ = bm.Close()
 	}
-	notifier.Wait()
+	// err 表示通知 worker 在关闭上下文内未完成退出的错误。
+	if err := notifier.WaitContext(stopCtx); err != nil {
+		logger.Warn("通知 worker 关闭未完成", "err", err)
+	}
+	stopCancel()
 	return runErr
 }
 

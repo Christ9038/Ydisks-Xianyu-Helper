@@ -55,11 +55,25 @@ func (s *Scheduler) Run(ctx context.Context) {
 	})
 }
 
-// Wait 负责Wait相关处理。
+// Wait 等待调度器完成，并兼容不需要超时的旧调用方。
 func (s *Scheduler) Wait() {
+	_ = s.WaitContext(context.Background())
+}
+
+// WaitContext 在 ctx 约束内等待调度器完成，避免关闭流程无限阻塞。
+func (s *Scheduler) WaitContext(ctx context.Context) error {
 	if s != nil && s.done != nil {
-		<-s.done
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		select {
+		case <-s.done:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
+	return nil
 }
 
 // scan 负责scan相关处理。
