@@ -53,6 +53,19 @@ describe('AMap 脚本加载边界', /* describeCallback 组织高德脚本加载
     await expect(pending).resolves.toMatchObject([{ poi_id: 'poi-1' }]);
   });
 
+  test('并发地点查询共享同一个脚本加载请求', /* concurrentCallback 验证加载 Promise 复用。 */ async () => {
+    vi.resetModules();
+    const amapModule = await import('./amapLocation');
+    // firstPending 是第一路地点查询的加载 Promise。
+    const firstPending = amapModule.getPublishLocations(120, 30);
+    // secondPending 是并发复用脚本加载器的第二路地点查询。
+    const secondPending = amapModule.getPublishLocations(120, 30);
+    expect(document.querySelectorAll(`#${SCRIPT_ID}`)).toHaveLength(1);
+    window.AMap = createAmapStub() as NonNullable<Window['AMap']>;
+    window.__ydisksAmapLoaded?.();
+    await expect(Promise.all([firstPending, secondPending])).resolves.toHaveLength(2);
+  });
+
   test('已有脚本节点触发错误时返回加载失败', /* errorCallback 验证脚本错误加载。 */ async () => {
     // existingScript 是预先插入页面的高德脚本节点。
     const existingScript = document.createElement('script');

@@ -75,8 +75,17 @@ describe('AMap 地点业务适配', /* 当前回调覆盖坐标校验和地点�
     await expect(getPublishLocations(120, 30)).rejects.toThrow('附近地址查询失败');
   });
 
+  test('完成状态没有 POI 时返回空数组', /* 当前回调验证高德成功但无地点结果的边界。 */ async () => {
+    // placeSearch 是返回空地点列表的构造器替身。
+    const placeSearch = placeSearchFactory('complete');
+    Object.defineProperty(window, 'AMap', { configurable: true, value: { PlaceSearch: placeSearch } });
+    await expect(getPublishLocations(120, 30)).resolves.toEqual([]);
+  });
+
   test('POI 映射拒绝越界坐标和缺失行政字段', /* 当前回调验证领域地点模型的完整性守卫。 */ () => {
     expect(amapPOIToPublishLocation({ id: 'poi', name: '地点', adcode: '1', pname: '省', cityname: '市', location: { lng: 181, lat: 30 } })).toBeNull();
     expect(amapPOIToPublishLocation({ id: 'poi', name: '地点', adcode: '1', pname: '省', cityname: '市', location: { lng: 120, lat: 30 } })).not.toBeNull();
+    expect(amapPOIToPublishLocation({ name: '地点', adcode: '1', pname: '省', cityname: '市', location: { lng: 120, lat: 30 } })).toBeNull();
+    expect(amapPOIToPublishLocation({ id: 'poi', adcode: '1', pname: '省', cityname: '市', location: { lng: 120, lat: 30 } })).toBeNull();
   });
 });
