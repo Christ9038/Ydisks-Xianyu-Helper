@@ -148,6 +148,8 @@ type orderApplicationService struct {
 	repository orderapp.Repository
 	// list 负责订单列表分页和账号所有权规则。
 	list *orderapp.ListService
+	// detail 负责订单详情读取、商品补全和账号所有权规则。
+	detail *orderapp.DetailService
 	// refreshJobs 提供订单刷新后台任务的持久化 Port。
 	refreshJobs orderapp.RefreshJobRepository
 }
@@ -349,36 +351,31 @@ func (a *orderApplicationService) List(ctx context.Context, query orderListQuery
 
 // Get 查询订单并校验订单绑定账号属于当前用户。
 func (a *orderApplicationService) Get(ctx context.Context, userID int64, orderID string) (*orderapp.Order, error) {
-	// order、err 保存order、err，供当前处理流程使用
-	order, err := a.repository.GetOrder(ctx, orderID)
-	if err != nil || order == nil {
-		if err != nil {
-			return nil, err
-		}
+	// order、err 保存应用层订单详情结果及错误。
+	order, err := a.detail.Get(ctx, userID, orderID)
+	if errors.Is(err, orderapp.ErrNotFound) {
 		return nil, db.ErrNotFound
 	}
-	if strings.TrimSpace(order.CookieID) == "" {
+	if errors.Is(err, orderapp.ErrForbidden) {
 		return nil, db.ErrForbidden
 	}
-	if !a.orderOwnedByUser(ctx, userID, order.CookieID) {
-		return nil, db.ErrForbidden
-	}
-	return order, nil
+	return order, err
 }
 
 // GetView 查询订单并补全商品标题和主图，供详情 handler 直接编码。
 func (a *orderApplicationService) GetView(ctx context.Context, userID int64, orderID string) (orderDetailResult, error) {
-	// order、err 保存order、err，供当前处理流程使用
-	order, err := a.Get(ctx, userID, orderID)
+	// result、err 保存应用层详情结果及错误。
+	result, err := a.detail.GetView(ctx, userID, orderID)
+	if errors.Is(err, orderapp.ErrNotFound) {
+		return orderDetailResult{}, db.ErrNotFound
+	}
+	if errors.Is(err, orderapp.ErrForbidden) {
+		return orderDetailResult{}, db.ErrForbidden
+	}
 	if err != nil {
 		return orderDetailResult{}, err
 	}
-	// item、itemErr 保存item、itemErr，供当前处理流程使用
-	item, itemErr := a.repository.GetItem(ctx, order.CookieID, order.ItemID)
-	if itemErr != nil {
-		item = nil
-	}
-	return orderDetailResult{Order: orderDTOFromOrder(order, item)}, nil
+	return orderDetailResult{Order: orderDTOFromOrder(result.Order, result.Item)}, nil
 }
 
 // Delete 逻辑删除订单，保留历史记录供审计使用。
