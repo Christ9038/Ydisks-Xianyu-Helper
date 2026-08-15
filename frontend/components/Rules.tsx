@@ -1,21 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { AutomationTriggerType, ReplyRule, ShippingRule, ShippingVariant } from '../app/features/rules/types';
-import {
-  clearDefaultReplyRecords,
-  deleteDefaultReply,
-  deleteReplyRule,
-  deleteShippingRule,
-  getCards,
-  getDefaultReply,
-  getItems,
-  getShippingRules,
-  updateDefaultReply,
-  updateReplyRule,
-  updateShippingRule,
-  resolveAutomationRun,
-  resolveDeferredAutomationTask,
-} from '../app/features/rules/api';
+import type { AutomationTriggerType } from '../app/features/rules/types';
 import {
   AlertCircle,
   Bot,
@@ -39,9 +24,9 @@ import {
 import { AutomationIssuePanel } from '../app/features/rules/components/AutomationIssuePanel';
 import { useRulesData } from '../app/features/rules/hooks';
 import { filterAutomationIssues } from '../app/features/rules/issueState';
-import { triggerMeta, triggerOrder, emptyVariant, parseJSONObject, buildReviewConfig, defaultRuleName, shouldReplaceGeneratedName, cardActionsForTrigger, actionSummary, accentClasses, statusPill, accountLabel, boolFlag } from '../app/features/rules/utils';
-import type { RulesProps, RulesTab, DefaultReplyForm } from '../app/features/rules/types';
-import { finishRuleSubmission, idleRuleSubmitState, startRuleSubmission, type RuleSubmitState } from '../app/features/rules/interactionState';
+import { triggerMeta, triggerOrder, actionSummary, accentClasses, statusPill, accountLabel, buildReviewConfig, cardActionsForTrigger } from '../app/features/rules/utils';
+import type { RulesProps, RulesTab } from '../app/features/rules/types';
+import { useRuleActions } from '../app/features/rules/ruleActions';
 
 // Rules 是规则 feature 在旧页面目录下保留的兼容入口组件。
 const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHandled }) => {
@@ -98,32 +83,33 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     refresh,
   } = rulesData;
 
-  // [showAutomationModal, 解构得到当前 Hook 返回的状态和操作函数。
-  const [showAutomationModal, setShowAutomationModal] = useState(false);
-  // [showReplyModal, 解构得到当前 Hook 返回的状态和操作函数。
-  const [showReplyModal, setShowReplyModal] = useState(false);
-  // [showDefaultModal, 解构得到当前 Hook 返回的状态和操作函数。
-  const [showDefaultModal, setShowDefaultModal] = useState(false);
-  // automationSubmitState 防止自动化规则保存按钮在请求期间重复提交。
-  const [automationSubmitState, setAutomationSubmitState] = useState<RuleSubmitState>(idleRuleSubmitState);
-  // replySubmitState 防止关键词回复保存按钮在请求期间重复提交。
-  const [replySubmitState, setReplySubmitState] = useState<RuleSubmitState>(idleRuleSubmitState);
-  // defaultReplySubmitState 防止默认回复保存按钮在请求期间重复提交。
-  const [defaultReplySubmitState, setDefaultReplySubmitState] = useState<RuleSubmitState>(idleRuleSubmitState);
-  // [editingAutomationRule, 解构得到当前 Hook 返回的状态和操作函数。
-  const [editingAutomationRule, setEditingAutomationRule] = useState<Partial<ShippingRule> | null>(null);
-  // [editingReplyRule, 解构得到当前 Hook 返回的状态和操作函数。
-  const [editingReplyRule, setEditingReplyRule] = useState<Partial<ReplyRule> | null>(null);
-  // [defaultForm, 解构得到当前 Hook 返回的状态和操作函数。
-  const [defaultForm, setDefaultForm] = useState<DefaultReplyForm>({
-    cookie_id: '',
-    enabled: false,
-    reply_content: '',
-    reply_once: false,
-    reply_image_url: '',
+  // ruleActions 规则 feature 提供弹窗状态、编辑草稿和所有保存删除动作。
+  const ruleActions = useRuleActions({
+    selectedAccountId,
+    setSelectedAccountId,
+    setActiveTab,
+    items,
+    setAutomationRules,
+    setCards,
+    setItems,
+    setLoading,
+    loadAutomationRules,
+    loadReferenceData,
+    loadReplyRules,
+    loadDefaultReplies,
+    initialDeliveryTarget,
+    onDeliveryTargetHandled,
   });
-  // selectedAccount 处理当前选择（ed账号）。
-  const selectedAccount = accounts.find(/* 当前回调处理集合中的单个元素。 */ account => account.id === selectedAccountId);
+  // 解构规则动作，保持旧页面 JSX 的字段名称和行为不变。
+  const {
+    showAutomationModal, setShowAutomationModal, showReplyModal, setShowReplyModal, showDefaultModal, setShowDefaultModal,
+    automationSubmitState, replySubmitState, defaultReplySubmitState, editingAutomationRule, setEditingAutomationRule,
+    editingReplyRule, setEditingReplyRule, defaultForm, setDefaultForm, selectedRuleItem, isMultiSpecRule, currentTrigger,
+    currentMeta, reviewConfig, displayVariants, openAutomationRule, openNewAutomationRule, handleTriggerChange,
+    handleAutomationItemChange, updateVariant, appendDeliveryContent, handleSaveAutomationRule, handleDeleteAutomation,
+    handleToggleAutomation, handleResolveRunIssue, handleResolveDeferredIssue, handleAddReplyRule, handleSaveReplyRule,
+    handleDeleteReply, openDefaultReplyModal, handleSaveDefaultReply, handleDeleteDefaultReply, handleClearDefaultReplyRecords,
+  } = ruleActions;
 
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
 	// timer 定时器。
@@ -190,478 +176,6 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     const cookieID = editingAutomationRule?.cookie_id || selectedAccountId;
     return items.filter(/* 当前回调处理集合中的单个元素。 */ item => item.cookie_id === cookieID);
   }, [editingAutomationRule?.cookie_id, items, selectedAccountId]);
-
-  // selectedRuleItem 处理当前选择（ed规则商品）。
-  const selectedRuleItem = useMemo(/* 当前回调计算并缓存派生数据。 */ () => {
-    if (!editingAutomationRule?.cookie_id || !editingAutomationRule?.item_id) return undefined;
-    return items.find(/* 当前回调处理集合中的单个元素。 */ item => item.cookie_id === editingAutomationRule.cookie_id && item.item_id === editingAutomationRule.item_id);
-  }, [editingAutomationRule?.cookie_id, editingAutomationRule?.item_id, items]);
-
-  // isMultiSpecRule isMultiSpec规则，负责当前功能中的对应处理。
-  const isMultiSpecRule = boolFlag(selectedRuleItem?.is_multi_spec);
-  // currentTrigger 当前触发条件。
-  const currentTrigger = (editingAutomationRule?.trigger_type || 'order_paid') as AutomationTriggerType;
-  // currentMeta 当前触发元数据。
-  const currentMeta = triggerMeta[currentTrigger];
-  // reviewConfig 评价配置。
-  const reviewConfig = parseJSONObject(editingAutomationRule?.config_json);
-
-  // buildAutomationDraft 构建自动化Draft，负责当前功能中的对应处理。
-  const buildAutomationDraft = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ (
-    trigger: AutomationTriggerType = 'order_paid',
-    cookieID = selectedAccountId,
-    itemID = '',
-  ): Partial<ShippingRule> => {
-    // item 商品。
-    const item = items.find(/* 当前回调处理集合中的单个元素。 */ candidate => candidate.cookie_id === cookieID && candidate.item_id === itemID);
-    // itemLabel 商品标签，负责当前功能中的对应处理。
-    const itemLabel = item?.item_title || itemID;
-    return {
-      name: defaultRuleName(trigger, itemLabel),
-      trigger_type: trigger,
-      cookie_id: cookieID,
-      item_id: itemID,
-      item_title: item?.item_title || '',
-      item_keyword: itemLabel,
-      card_group_id: 0,
-      priority: 100,
-      enabled: true,
-      config_json: trigger === 'review_missing_timeout' ? buildReviewConfig() : '{}',
-      actions: cardActionsForTrigger(trigger),
-      variants: trigger === 'review_missing_timeout' ? [] : [emptyVariant()],
-    };
-  }, [items, selectedAccountId]);
-
-  // openAutomationRule 打开当前界面（自动化规则）。
-  const openAutomationRule = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ (rule: ShippingRule) => {
-    // trigger 触发条件。
-    const trigger = (rule.trigger_type || 'order_paid') as AutomationTriggerType;
-    setEditingAutomationRule({
-      ...rule,
-      trigger_type: trigger,
-      config_json: trigger === 'review_missing_timeout' ? buildReviewConfig(rule.config_json) : (rule.config_json || '{}'),
-      actions: rule.actions?.length ? rule.actions.map(/* 当前回调处理集合中的单个元素。 */ action => ({ ...action })) : cardActionsForTrigger(trigger, rule.card_group_id),
-      variants: rule.variants?.length ? rule.variants.map(/* 当前回调处理集合中的单个元素。 */ variant => ({ ...variant })) : (trigger === 'review_missing_timeout' ? [] : [emptyVariant()]),
-    });
-    setShowAutomationModal(true);
-  }, []);
-
-  useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
-    if (!initialDeliveryTarget) return;
-    // cancelled 取消当前操作（led）。
-    let cancelled = false;
-
-    // openLinkedRule 打开当前界面（Linked规则）。
-    const openLinkedRule = async () => {
-      setActiveTab('automation');
-      setSelectedAccountId(initialDeliveryTarget.cookieId);
-      setLoading(true);
-      try {
-        // [ruleList, 解构得到当前 Hook 返回的状态和操作函数。
-        const [ruleList, itemList, cardList] = await Promise.all([
-          getShippingRules(),
-          getItems(),
-          getCards().catch(/* 当前回调处理异步操作结果。 */ error => {
-            console.warn('加载卡密库存失败，不阻断打开自动化规则', error);
-            return [];
-          }),
-        ]);
-        if (cancelled) return;
-        setAutomationRules(ruleList);
-        setItems(itemList);
-        setCards(cardList);
-        // rule 规则。
-        const rule = ruleList.find(/* 当前回调处理集合中的单个元素。 */ candidate =>
-          candidate.cookie_id === initialDeliveryTarget.cookieId &&
-          candidate.item_id === initialDeliveryTarget.itemId &&
-          candidate.trigger_type === 'order_paid'
-        );
-        if (rule) {
-          openAutomationRule(rule);
-        } else {
-          // item 商品。
-          const item = itemList.find(/* 当前回调处理集合中的单个元素。 */ candidate =>
-            candidate.cookie_id === initialDeliveryTarget.cookieId &&
-            candidate.item_id === initialDeliveryTarget.itemId
-          );
-          setEditingAutomationRule({
-            ...buildAutomationDraft('order_paid', initialDeliveryTarget.cookieId, initialDeliveryTarget.itemId),
-            item_title: item?.item_title || '',
-            item_keyword: item?.item_title || initialDeliveryTarget.itemId,
-            name: defaultRuleName('order_paid', item?.item_title || initialDeliveryTarget.itemId),
-          });
-          setShowAutomationModal(true);
-        }
-      } catch (/* error 表示错误。 */ error) {
-        console.error('打开商品自动化规则失败', error);
-        alert('无法加载该商品的自动化规则');
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-          onDeliveryTargetHandled?.();
-        }
-      }
-    };
-
-    void openLinkedRule();
-    return /* 当前回调处理用户交互或异步状态变化。 */ () => { cancelled = true; };
-  }, [buildAutomationDraft, initialDeliveryTarget, onDeliveryTargetHandled, openAutomationRule]);
-
-  // openNewAutomationRule 打开当前界面（New自动化规则）。
-  const openNewAutomationRule = (trigger: AutomationTriggerType = 'order_paid') => {
-    if (!selectedAccountId) {
-      alert('请先选择账号');
-      return;
-    }
-    setEditingAutomationRule(buildAutomationDraft(trigger));
-    setShowAutomationModal(true);
-  };
-
-  // handleTriggerChange 处理当前用户操作（触发条件Change）。
-  const handleTriggerChange = (trigger: AutomationTriggerType) => {
-    if (!editingAutomationRule) return;
-    // currentCardID 当前卡密组标识。
-    const currentCardID =
-      editingAutomationRule.variants?.find(/* 当前回调处理集合中的单个元素。 */ variant => variant.card_id)?.card_id ||
-      editingAutomationRule.actions?.find(/* 当前回调处理集合中的单个元素。 */ action => action.action_type === 'send_card')?.card_id ||
-      editingAutomationRule.card_group_id ||
-      0;
-    // itemLabel 商品标签，负责当前功能中的对应处理。
-    const itemLabel = selectedRuleItem?.item_title || editingAutomationRule.item_title || editingAutomationRule.item_id || '';
-    setEditingAutomationRule({
-      ...editingAutomationRule,
-      trigger_type: trigger,
-      name: shouldReplaceGeneratedName(editingAutomationRule.name)
-        ? defaultRuleName(trigger, itemLabel)
-        : editingAutomationRule.name,
-      card_group_id: currentCardID,
-      config_json: trigger === 'review_missing_timeout' ? buildReviewConfig(editingAutomationRule.config_json) : '{}',
-      actions: cardActionsForTrigger(trigger, currentCardID),
-      variants: trigger === 'review_missing_timeout'
-        ? []
-        : (editingAutomationRule.variants?.length ? editingAutomationRule.variants : [{ ...emptyVariant(), card_id: currentCardID }]),
-    });
-  };
-
-  // handleAutomationItemChange 处理当前用户操作（自动化商品Change）。
-  const handleAutomationItemChange = (itemID: string) => {
-    if (!editingAutomationRule) return;
-    // item 商品。
-    const item = items.find(/* 当前回调处理集合中的单个元素。 */ candidate =>
-      candidate.cookie_id === (editingAutomationRule.cookie_id || selectedAccountId) &&
-      candidate.item_id === itemID
-    );
-    // itemLabel 商品标签，负责当前功能中的对应处理。
-    const itemLabel = item?.item_title || itemID;
-    setEditingAutomationRule({
-      ...editingAutomationRule,
-      item_id: itemID,
-      item_title: item?.item_title || '',
-      item_keyword: itemLabel,
-      name: shouldReplaceGeneratedName(editingAutomationRule.name)
-        ? defaultRuleName(currentTrigger, itemLabel)
-        : editingAutomationRule.name,
-    });
-  };
-
-  // displayVariants 展示规格列表。
-  const displayVariants = editingAutomationRule?.variants?.length
-    ? editingAutomationRule.variants
-    : [emptyVariant()];
-
-  // updateVariant 更新当前数据（Variant）。
-  const updateVariant = (index: number, patch: Partial<ShippingVariant>) => {
-    if (!editingAutomationRule) return;
-    // next 下一项。
-    const next = displayVariants.map(/* 当前回调处理集合中的单个元素。 */ (variant, variantIndex) =>
-      variantIndex === index ? { ...variant, ...patch } : variant
-    );
-    setEditingAutomationRule({
-      ...editingAutomationRule,
-      variants: next,
-      card_group_id: next[0]?.card_id || 0,
-    });
-  };
-
-  // appendDeliveryContent 追加发货内容。
-  const appendDeliveryContent = () => {
-    if (!editingAutomationRule) return;
-    // previous 上一项。
-    const previous = displayVariants[displayVariants.length - 1];
-    setEditingAutomationRule({
-      ...editingAutomationRule,
-      variants: [
-        ...displayVariants,
-        {
-          ...emptyVariant(),
-          spec_name: isMultiSpecRule ? previous?.spec_name || '' : '',
-          spec_value: isMultiSpecRule ? previous?.spec_value || '' : '',
-        },
-      ],
-    });
-  };
-
-  // handleSaveAutomationRule 处理当前用户操作（Save自动化规则）。
-  const handleSaveAutomationRule = async () => {
-    if (!editingAutomationRule || automationSubmitState.submitting) return;
-    // trigger 触发条件。
-    const trigger = (editingAutomationRule.trigger_type || 'order_paid') as AutomationTriggerType;
-    if (!editingAutomationRule.cookie_id) {
-      alert('请选择账号');
-      return;
-    }
-
-    // variants 规格列表。
-    const variants = editingAutomationRule.variants?.length ? editingAutomationRule.variants : [];
-    if (trigger !== 'review_missing_timeout') {
-      if (!variants.length || variants.some(/* 当前回调处理集合中的单个元素。 */ variant => !variant.card_id)) {
-        alert(trigger === 'buyer_reviewed' ? '请选择评价赠品卡密库存' : '请选择发货卡密库存');
-        return;
-      }
-      if (isMultiSpecRule && variants.some(/* 当前回调处理集合中的单个元素。 */ variant => !variant.spec_name.trim() || !variant.spec_value.trim())) {
-        alert('多规格商品必须填写每一行的规格名称和规格值');
-        return;
-      }
-    }
-
-    if (trigger === 'review_missing_timeout') {
-      // text 文本。
-      const text = editingAutomationRule.actions?.find(/* 当前回调处理集合中的单个元素。 */ action => action.action_type === 'send_text')?.message_template || '';
-      if (!text.trim()) {
-        alert('请填写求评价文案');
-        return;
-      }
-    }
-
-    // saveVariants 保存当前数据（Variants）。
-    const saveVariants = trigger === 'review_missing_timeout'
-      ? []
-      : variants.map(variant => ({/* 当前回调处理集合中的单个元素。 */
-        ...variant,
-        spec_name: isMultiSpecRule ? variant.spec_name.trim() : '',
-        spec_value: isMultiSpecRule ? variant.spec_value.trim() : '',
-        delivery_count: Math.max(1, Number(variant.delivery_count) || 1),
-        enabled: variant.enabled !== false,
-      }));
-
-    setAutomationSubmitState(startRuleSubmission(automationSubmitState));
-    // succeeded 是否成功。
-    let succeeded = false;
-    try {
-      await updateShippingRule({
-        ...editingAutomationRule,
-        trigger_type: trigger,
-        name: (editingAutomationRule.name || '').trim() ||
-          defaultRuleName(trigger, selectedRuleItem?.item_title || editingAutomationRule.item_id || ''),
-        config_json: trigger === 'review_missing_timeout'
-          ? buildReviewConfig(editingAutomationRule.config_json)
-          : (editingAutomationRule.config_json || '{}'),
-        actions: editingAutomationRule.actions?.length
-          ? editingAutomationRule.actions
-          : cardActionsForTrigger(trigger, saveVariants[0]?.card_id || editingAutomationRule.card_group_id || 0),
-        variants: saveVariants,
-      });
-      setShowAutomationModal(false);
-      await Promise.all([loadAutomationRules(), loadReferenceData()]);
-      alert('保存成功');
-      succeeded = true;
-    } catch (/* error 表示错误。 */ error) {
-      console.error('保存自动化规则失败:', error);
-      alert('保存失败：' + (error as Error).message);
-    } finally {
-      setAutomationSubmitState(/* 当前回调处理用户交互或异步状态变化。 */ current => finishRuleSubmission(current, succeeded));
-    }
-  };
-
-  // handleDeleteAutomation 处理当前用户操作（Delete自动化）。
-  const handleDeleteAutomation = async (id: string) => {
-    if (!confirm('确定删除该自动化规则吗？')) return;
-    try {
-      await deleteShippingRule(id);
-      await loadAutomationRules();
-      alert('删除成功');
-    } catch (/* error 表示错误。 */ error) {
-      alert('删除失败：' + (error as Error).message);
-    }
-  };
-
-  // handleToggleAutomation 处理当前用户操作（Toggle自动化）。
-  const handleToggleAutomation = async (rule: ShippingRule) => {
-    try {
-      await updateShippingRule({ ...rule, enabled: !rule.enabled });
-      await loadAutomationRules();
-    } catch (/* error 表示错误。 */ error) {
-      alert('操作失败：' + (error as Error).message);
-    }
-  };
-
-  // handleResolveRunIssue 处理当前用户操作（ResolveRun问题）。
-  const handleResolveRunIssue = async (id: number, resolution: 'continue' | 'retry' | 'cancel') => {
-    // prompt 提示文案。
-    const prompt = resolution === 'continue'
-      ? '确认外部动作已经执行成功，并跳到下一步吗？'
-      : resolution === 'retry'
-        ? '确认外部动作没有执行，可以安全重试吗？错误判断可能造成重复发送。'
-        : '确认终止该自动化运行吗？';
-    if (!confirm(prompt)) return;
-    try {
-      await resolveAutomationRun(id, resolution);
-      await loadAutomationRules();
-    } catch (/* error 表示错误。 */ error) {
-      alert('处理失败：' + (error as Error).message);
-    }
-  };
-
-  // handleResolveDeferredIssue 处理当前用户操作（ResolveDeferred问题）。
-  const handleResolveDeferredIssue = async (id: number, resolution: 'retry' | 'dismiss') => {
-    if (!confirm(resolution === 'retry' ? '确认重新执行该任务吗？' : '确认忽略并删除该异常任务吗？')) return;
-    try {
-      await resolveDeferredAutomationTask(id, resolution);
-      await loadAutomationRules();
-    } catch (/* error 表示错误。 */ error) {
-      alert('处理失败：' + (error as Error).message);
-    }
-  };
-
-  // handleAddReplyRule 处理当前用户操作（Add回复规则）。
-  const handleAddReplyRule = () => {
-    if (!selectedAccountId) {
-      alert('请先选择账号');
-      return;
-    }
-    setEditingReplyRule({
-      keyword: '',
-      reply_content: '',
-      image_url: '',
-      item_id: '',
-      type: 'text',
-      match_type: 'fuzzy',
-      enabled: true,
-    });
-    setShowReplyModal(true);
-  };
-
-  // handleSaveReplyRule 处理当前用户操作（Save回复规则）。
-  const handleSaveReplyRule = async () => {
-    if (!editingReplyRule || !selectedAccountId || replySubmitState.submitting) return;
-    // hasReplyContent 是否包含回复内容。
-    const hasReplyContent = editingReplyRule.type === 'image'
-      ? Boolean(editingReplyRule.image_url?.trim())
-      : Boolean(editingReplyRule.reply_content?.trim());
-    if (!editingReplyRule.keyword?.trim() || !hasReplyContent) {
-      alert('请填写关键词和回复内容');
-      return;
-    }
-    setReplySubmitState(startRuleSubmission(replySubmitState));
-    // succeeded 是否成功。
-    let succeeded = false;
-    try {
-      await updateReplyRule({ ...editingReplyRule, match_type: 'fuzzy', enabled: true }, selectedAccountId);
-      setShowReplyModal(false);
-      await loadReplyRules();
-      alert('保存成功');
-      succeeded = true;
-    } catch (/* error 表示错误。 */ error) {
-      alert('保存失败：' + (error as Error).message);
-    } finally {
-      setReplySubmitState(/* 当前回调处理用户交互或异步状态变化。 */ current => finishRuleSubmission(current, succeeded));
-    }
-  };
-
-  // handleDeleteReply 处理当前用户操作（Delete回复）。
-  const handleDeleteReply = async (id: string) => {
-    if (!selectedAccountId || !confirm('确定删除该回复规则吗？')) return;
-    try {
-      await deleteReplyRule(id, selectedAccountId);
-      await loadReplyRules();
-      alert('删除成功');
-    } catch (/* error 表示错误。 */ error) {
-      alert('删除失败：' + (error as Error).message);
-    }
-  };
-
-  // openDefaultReplyModal 打开当前界面（Default回复Modal）。
-  const openDefaultReplyModal = async (cookieID = selectedAccountId) => {
-    if (!cookieID) {
-      alert('请先选择账号');
-      return;
-    }
-    try {
-      // data 数据。
-      const data = await getDefaultReply(cookieID);
-      setDefaultForm({
-        cookie_id: cookieID,
-        enabled: data.enabled,
-        reply_content: data.reply_content,
-        reply_once: data.reply_once,
-        reply_image_url: data.reply_image_url || '',
-      });
-    } catch {
-      setDefaultForm({
-        cookie_id: cookieID,
-        enabled: false,
-        reply_content: '',
-        reply_once: false,
-        reply_image_url: '',
-      });
-    }
-    setShowDefaultModal(true);
-  };
-
-  // handleSaveDefaultReply 处理当前用户操作（SaveDefault回复）。
-  const handleSaveDefaultReply = async () => {
-    if (defaultReplySubmitState.submitting) return;
-    if (!defaultForm.cookie_id) {
-      alert('请先选择账号');
-      return;
-    }
-    if (defaultForm.enabled && !defaultForm.reply_content.trim() && !defaultForm.reply_image_url.trim()) {
-      alert('启用默认回复时，请填写回复内容或图片 URL');
-      return;
-    }
-    setDefaultReplySubmitState(startRuleSubmission(defaultReplySubmitState));
-    // succeeded 是否成功。
-    let succeeded = false;
-    try {
-      await updateDefaultReply(defaultForm.cookie_id, {
-        enabled: defaultForm.enabled,
-        reply_content: defaultForm.reply_content,
-        reply_once: defaultForm.reply_once,
-        reply_image_url: defaultForm.reply_image_url,
-      });
-      setShowDefaultModal(false);
-      await loadDefaultReplies();
-      alert('保存成功');
-      succeeded = true;
-    } catch (/* error 表示错误。 */ error) {
-      alert('保存失败：' + (error as Error).message);
-    } finally {
-      setDefaultReplySubmitState(/* 当前回调处理用户交互或异步状态变化。 */ current => finishRuleSubmission(current, succeeded));
-    }
-  };
-
-  // handleDeleteDefaultReply 处理当前用户操作（DeleteDefault回复）。
-  const handleDeleteDefaultReply = async (cookieID: string) => {
-    if (!confirm('确定删除该账号默认回复吗？')) return;
-    try {
-      await deleteDefaultReply(cookieID);
-      await loadDefaultReplies();
-      alert('删除成功');
-    } catch (/* error 表示错误。 */ error) {
-      alert('删除失败：' + (error as Error).message);
-    }
-  };
-
-  // handleClearDefaultReplyRecords 处理当前用户操作（ClearDefault回复Records）。
-  const handleClearDefaultReplyRecords = async (cookieID: string) => {
-    if (!confirm('确定清空该账号的默认回复记录吗？清空后可重新对所有会话使用“只回复一次”。')) return;
-    try {
-      await clearDefaultReplyRecords(cookieID);
-      alert('清空成功');
-    } catch (/* error 表示错误。 */ error) {
-      alert('清空失败：' + (error as Error).message);
-    }
-  };
 
   // primaryActionLabel 主操作按钮文案。
   const primaryActionLabel = activeTab === 'automation'

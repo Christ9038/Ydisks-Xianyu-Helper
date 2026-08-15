@@ -144,25 +144,26 @@ describe('frontend navigation routing', () => {
   } /* 回调函数负责当前业务流程。 */);
 
   test('item delivery shortcut opens existing automation rule modal', () => {
-    const rules = readFrontendFile('components/Rules.tsx'); /* rules 表示规则集合。 */
-    const existingRuleBranch = rules.match(/if \(rule\) \{([\s\S]*?)\} else \{/); /* existingRuleBranch 表示existing当前规则Branch。 */
+    const actions = readFrontendFile('app/features/rules/ruleActions.ts'); /* actions 表示规则动作协调器源码。 */
+    const existingRuleBranch = actions.match(/if \(rule\) \{([\s\S]*?)\} else \{/); /* existingRuleBranch 表示existing当前规则Branch。 */
 
     expect(existingRuleBranch?.[1]).toContain('openAutomationRule(rule)');
   } /* 回调函数负责当前业务流程。 */);
 
   test('item delivery shortcut is not marked handled before async open completes', () => {
-    const rules = readFrontendFile('components/Rules.tsx'); /* rules 表示规则集合。 */
+    const actions = readFrontendFile('app/features/rules/ruleActions.ts'); /* actions 表示规则动作协调器源码。 */
 
-    expect(rules).not.toContain('handledDeliveryTarget.current = initialDeliveryTarget.requestId');
-    expect(rules).toContain('onDeliveryTargetHandled?.();');
+    expect(actions).not.toContain('handledDeliveryTarget.current = initialDeliveryTarget.requestId');
+    expect(actions).toContain('onDeliveryTargetHandled?.();');
   } /* 回调函数负责当前业务流程。 */);
 
   test('automation editor keeps multiple delivery contents for normal products', () => {
     const rules = readFrontendFile('components/Rules.tsx'); /* rules 表示规则集合。 */
+    const actions = readFrontendFile('app/features/rules/ruleActions.ts'); /* actions 表示规则动作协调器源码。 */
 
     expect(rules).toContain('添加发货内容');
     expect(rules).toContain('{displayVariants.map((variant, index) => (');
-    expect(rules).toContain(': variants.map(variant => ({');
+    expect(actions).toContain('variants.map(');
     expect(rules).not.toContain(': (isMultiSpecRule ? variants : [variants[0]]).map');
   } /* 回调函数负责当前业务流程。 */);
 
