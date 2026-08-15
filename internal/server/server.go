@@ -25,6 +25,7 @@ import (
 	"xianyu-go/internal/chat"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/notify"
+	"xianyu-go/internal/reconciliation"
 	appversion "xianyu-go/internal/version"
 	"xianyu-go/internal/webui"
 	"xianyu-go/internal/xianyu/mtop"
@@ -80,6 +81,8 @@ type Server struct {
 	Addr        string
 	// applications 保存统一装配的应用服务实例。
 	applications *applicationServices
+	// reconciliation 负责恢复外部发货成功但本地订单状态未完成的记录。
+	reconciliation *reconciliation.Service
 	// transactionRepository 提供统一事务执行所需的最小持久化能力。
 	transactionRepository transactionRepository
 
@@ -161,6 +164,7 @@ func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr st
 	}
 	server.applications = newApplicationServices(server)
 	server.transactionRepository = newStoreTransactionRepository(store)
+	server.reconciliation = reconciliation.New(store, logger)
 	return server, nil
 }
 
@@ -631,6 +635,16 @@ func (s *Server) startBackgroundTask(name string, task func()) {
 		}
 		task()
 	}()
+}
+
+// StartOrderReconciliationRecovery 启动受 Server 生命周期管理的订单补偿扫描器。
+func (s *Server) StartOrderReconciliationRecovery(ctx context.Context) {
+	if s == nil || s.reconciliation == nil {
+		return
+	}
+	s.startBackgroundTask("订单状态补偿扫描器", func() {
+		s.reconciliation.Run(ctx)
+	})
 }
 
 // beginWorker 负责begin工作器相关处理。

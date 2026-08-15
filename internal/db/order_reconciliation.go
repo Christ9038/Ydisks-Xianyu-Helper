@@ -113,3 +113,24 @@ func (r *OrderReconciliations) MarkResolved(ctx context.Context, id, message str
 	}
 	return nil
 }
+
+// RecordAttempt 记录一次补偿失败并保持 pending 状态，供后续 worker 重试。
+func (r *OrderReconciliations) RecordAttempt(ctx context.Context, id, message string) error {
+	if r == nil || r.DB == nil {
+		return errors.New("补偿记录存储未初始化")
+	}
+	// result、err 保存补偿尝试写入结果及错误。
+	result, err := r.DB.ExecContext(ctx,
+		`UPDATE order_reconciliations SET error_message=?, attempts=attempts+1, updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='pending'`,
+		message, id)
+	if err != nil {
+		return err
+	}
+	// affected、err 保存受影响行数及读取行数错误。
+	if affected, err := result.RowsAffected(); err != nil {
+		return err
+	} else if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}

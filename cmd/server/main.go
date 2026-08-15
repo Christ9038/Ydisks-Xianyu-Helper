@@ -333,6 +333,7 @@ func runServer(parent context.Context, opts serverOptions) error {
 		return fmt.Errorf("构造 HTTP 服务失败: %w", err)
 	}
 	srv.StartPublishBatchRecovery(ctx)
+	srv.StartOrderReconciliationRecovery(ctx)
 	// err 是 HTTP 服务显式启动失败的原因。
 	if err := srv.Start(ctx); err != nil {
 		return fmt.Errorf("启动 HTTP 服务失败: %w", err)
