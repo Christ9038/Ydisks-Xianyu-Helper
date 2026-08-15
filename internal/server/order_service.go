@@ -146,6 +146,8 @@ type orderApplicationService struct {
 	server orderRuntimePort
 	// repository 提供订单用例所需的应用层持久化与凭证锁 Port。
 	repository orderapp.Repository
+	// list 负责订单列表分页和账号所有权规则。
+	list *orderapp.ListService
 	// refreshJobs 提供订单刷新后台任务的持久化 Port。
 	refreshJobs orderapp.RefreshJobRepository
 }
@@ -322,37 +324,26 @@ type orderDetailResult struct {
 
 // List 查询当前用户可见的订单，并集中处理分页和账号所有权规则。
 func (a *orderApplicationService) List(ctx context.Context, query orderListQuery) (orderListResult, error) {
-	if query.Page < 1 {
-		query.Page = 1
-	}
-	if query.PageSize < 1 {
-		query.PageSize = 20
-	}
-	if query.PageSize > 200 {
-		query.PageSize = 200
-	}
-	if query.CookieID != "" && !a.orderOwnedByUser(ctx, query.UserID, query.CookieID) {
+	// result、err 保存应用层订单列表结果及错误。
+	result, err := a.list.List(ctx, orderapp.ListQuery{
+		UserID: query.UserID, CookieID: query.CookieID, Status: query.Status,
+		Search: query.Search, Page: query.Page, PageSize: query.PageSize,
+	})
+	if errors.Is(err, orderapp.ErrForbidden) {
 		return orderListResult{}, db.ErrForbidden
 	}
-	// offset 保存偏移量，供当前处理流程使用
-	offset := (query.Page - 1) * query.PageSize
-	// rows、total、err 保存rows、total、err，供当前处理流程使用
-	rows, total, err := a.repository.ListOrdersForUser(ctx, orderapp.ListFilter{
-		UserID: query.UserID, CookieID: query.CookieID, Status: query.Status,
-		Search: query.Search, Limit: query.PageSize, Offset: offset,
-	})
 	if err != nil {
 		return orderListResult{}, err
 	}
 	// orders 保存订单列表，供当前处理流程使用
-	orders := make([]orderDTO, 0, len(rows))
+	orders := make([]orderDTO, 0, len(result.Rows))
 	// row 表示当前遍历过程中的row
-	for _, row := range rows {
+	for _, row := range result.Rows {
 		orders = append(orders, orderDTOFromRow(row))
 	}
 	return orderListResult{
-		Orders: orders, Total: total, Page: query.Page, PageSize: query.PageSize,
-		TotalPages: (total + query.PageSize - 1) / query.PageSize,
+		Orders: orders, Total: result.Total, Page: result.Page, PageSize: result.PageSize,
+		TotalPages: result.TotalPages,
 	}, nil
 }
 

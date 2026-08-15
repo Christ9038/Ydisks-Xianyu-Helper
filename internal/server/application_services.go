@@ -1,5 +1,7 @@
 package server
 
+import orderapp "xianyu-go/internal/application/orders"
+
 // applicationServices 聚合 Server 使用的应用服务实例，统一管理共享基础设施依赖。
 type applicationServices struct {
 	// orders 是订单应用服务。
@@ -16,8 +18,10 @@ type applicationServices struct {
 
 // newApplicationServices 为指定 Server 装配全部应用服务实例。
 func newApplicationServices(server *Server) *applicationServices {
+	// orderRepository 保存订单应用服务共享的基础设施适配器。
+	orderRepository := newStoreOrderRepository(server.Store)
 	return &applicationServices{
-		orders:        &orderApplicationService{server: newServerOrderRuntime(server), repository: newStoreOrderRepository(server.Store), refreshJobs: newStoreOrderRefreshJobRepository(server.Store)},
+		orders:        &orderApplicationService{server: newServerOrderRuntime(server), repository: orderRepository, list: orderapp.NewListService(orderRepository), refreshJobs: newStoreOrderRefreshJobRepository(server.Store)},
 		itemPublish:   &itemPublishService{server: server, repository: newStoreItemPublishRepository(server.Store)},
 		accountLogin:  &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store)},
 		communication: &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},
