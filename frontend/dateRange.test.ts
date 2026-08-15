@@ -27,4 +27,10 @@ describe('date ranges', () => {
   test('rejects reversed custom dates', () => {
     expect(() => getDateRange('custom', now, '2026-07-11', '2026-07-10') /* 回调函数负责当前业务流程。 */).toThrow('开始日期不能晚于结束日期');
   } /* 回调函数负责当前业务流程。 */);
+
+  test('支持自定义日期和昨天范围', () => {
+    expect(getDateRange('custom', now, '2026-07-01', '2026-07-05')).toEqual({ startDate: '2026-07-01', endDate: '2026-07-05' });
+    expect(getDateRange('yesterday', now)).toEqual({ startDate: '2026-07-09', endDate: '2026-07-09' });
+    expect(getDateRange('today', now)).toEqual({ startDate: '2026-07-10', endDate: '2026-07-10' });
+  } /* 回调函数负责当前业务流程。 */);
 } /* 回调函数负责当前业务流程。 */);

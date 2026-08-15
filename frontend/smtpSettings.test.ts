@@ -33,4 +33,9 @@ describe('normalizeSMTPSettings', () => {
 			smtp_use_ssl: true,
 		});
 	} /* 回调函数负责当前业务流程。 */);
+
+  test('保留布尔值并对未知字符串使用默认值', () => {
+    expect(normalizeSMTPSettings({ smtp_use_tls: true, smtp_use_ssl: false })).toMatchObject({ smtp_use_tls: true, smtp_use_ssl: false });
+    expect(normalizeSMTPSettings({ smtp_use_tls: 'unknown', smtp_use_ssl: 'unknown' })).toMatchObject({ smtp_use_tls: true, smtp_use_ssl: false });
+  } /* 回调函数负责当前业务流程。 */);
 } /* 回调函数负责当前业务流程。 */);

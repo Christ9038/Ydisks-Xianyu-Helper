@@ -33,4 +33,25 @@ describe('email notification SMTP modes', () => {
       smtp_use_ssl: true,
     });
   } /* 回调函数负责当前业务流程。 */);
+
+  test('显式字符串开关和未知值遵循默认策略', () => {
+    expect(normalizeEmailChannelConfig({ use_custom_smtp: 'true' }).use_custom_smtp).toBe(true);
+    expect(normalizeEmailChannelConfig({ use_custom_smtp: 'off' }).use_custom_smtp).toBe(false);
+    expect(normalizeEmailChannelConfig({ use_custom_smtp: 'unknown' }).use_custom_smtp).toBe(false);
+  } /* 回调函数负责当前业务流程。 */);
+
+  test('启用自定义 SMTP 时补齐默认端口和发件地址', () => {
+    // result 是仅提供账号信息时补齐默认 SMTP 字段的配置。
+    const result = enableCustomSMTP({ smtp_user: 'sender@example.com', smtp_use_tls: 'invalid', smtp_use_ssl: 'invalid' }, {});
+    expect(result.smtp_port).toBe(587);
+    expect(result.smtp_from_address).toBe('sender@example.com');
+    expect(result.smtp_use_tls).toBe(true);
+    expect(result.smtp_use_ssl).toBe(false);
+  } /* 回调函数负责当前业务流程。 */);
+
+  test('构建自定义模式配置时保留完整 SMTP 覆盖字段', () => {
+    // result 是自定义 SMTP 渠道的规范化配置。
+    const result = buildEmailChannelConfig({ to_email: ' to@example.com ', use_custom_smtp: true, smtp_server: 'smtp.example.com', smtp_port: 465 });
+    expect(result).toMatchObject({ to_email: 'to@example.com', use_custom_smtp: true, smtp_server: 'smtp.example.com', smtp_port: 465 });
+  } /* 回调函数负责当前业务流程。 */);
 } /* 回调函数负责当前业务流程。 */);
