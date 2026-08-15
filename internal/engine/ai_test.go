@@ -274,6 +274,37 @@ func TestGlobalAIConfig(t *testing.T) {
 	}
 }
 
+// TestGlobalAIConfigAuditsAPIKeyAccess 验证 AI 回复读取全局 API Key 时按账号所有者写入敏感访问审计。
+func TestGlobalAIConfigAuditsAPIKeyAccess(t *testing.T) {
+	// s、cleanup 保存 AI 审计测试数据库及清理函数。
+	s, cleanup := newAIStore(t)
+	defer cleanup()
+	// ctx 保存当前 AI 配置审计测试上下文。
+	ctx := context.Background()
+	// setErr 表示写入 AI 测试 API Key 时返回的错误。
+	if setErr := s.Settings.Set(ctx, "ai_api_key", "sk-audit-only"); setErr != nil {
+		t.Fatal(setErr)
+	}
+	// cfg、configErr 保存读取到的 AI 配置及读取错误。
+	cfg, configErr := NewAIReplier("cid", s, nil).globalAIConfig(ctx)
+	if configErr != nil || cfg.APIKey != "sk-audit-only" {
+		t.Fatalf("AI 配置读取失败: cfg=%+v err=%v", cfg, configErr)
+	}
+	// ownerID、ownerErr 保存测试账号所有者及查询错误。
+	ownerID, ownerErr := s.Cookies.GetOwnerID(ctx, "cid")
+	if ownerErr != nil {
+		t.Fatal(ownerErr)
+	}
+	// records、listErr 保存 AI API Key 访问审计记录及查询错误。
+	records, listErr := s.SecurityAudit.ListByUser(ctx, ownerID, 10)
+	if listErr != nil || len(records) != 1 {
+		t.Fatalf("AI API Key 审计记录异常: records=%+v err=%v", records, listErr)
+	}
+	if records[0].Action != "settings.use" || records[0].Resource != "ai_reply" || len(records[0].Keys) != 1 || records[0].Keys[0] != "ai_api_key" {
+		t.Fatalf("AI API Key 审计上下文异常: %+v", records[0])
+	}
+}
+
 // TestAIReplierItemInfo 商品缺失时兜底占位；存在时取真实标题/价格/描述。
 func TestAIReplierItemInfo(t *testing.T) {
 	// s、cleanup 保存s、cleanup，供当前处理流程使用

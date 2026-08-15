@@ -11,6 +11,7 @@ import (
 
 	"github.com/mxschmitt/playwright-go"
 
+	"xianyu-go/internal/logsafe"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
 )
@@ -52,7 +53,7 @@ func (m *Manager) FetchOrderDetail(ctx context.Context, orderID, cookieID, cooki
 			OrderStatus: direct.OrderStatus, Amount: direct.Amount, UpdatedCookies: direct.UpdatedCookies,
 		}, nil
 	} else if directErr != nil {
-		m.logger.Warn("MTop 订单详情获取失败，回退浏览器", "order_id", orderID, "err", directErr)
+		m.logger.Warn("MTop 订单详情获取失败，回退浏览器", "order_id", orderID, "err", logsafe.Error(directErr))
 	}
 	// A shared Chromium context owns one mutable Cookie Jar. Serialize browser
 	// fallback refreshes for the account so concurrent batch rows cannot clear
@@ -133,7 +134,7 @@ func (m *Manager) FetchOrderDetail(ctx context.Context, orderID, cookieID, cooki
 		WaitUntil: playwright.WaitUntilStateNetworkidle,
 		Timeout:   playwright.Float(30000),
 	}); err != nil {
-		m.logger.Warn("访问订单详情页超时", "err", err)
+		m.logger.Warn("访问订单详情页超时", "err", logsafe.Error(err))
 	}
 	time.Sleep(2 * time.Second)
 	_, _ = page.Evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
@@ -176,7 +177,7 @@ func (m *Manager) FetchOrderDetail(ctx context.Context, orderID, cookieID, cooki
 	if od.Amount == "" {
 		// title 保存标题，供当前处理流程使用
 		title, _ := page.Title()
-		m.logger.Warn("订单详情未解析到实付金额", "order_id", orderID, "page_title", title, "page_url", page.URL(), "api_captured", body != nil, "observed_apis", observedAPIs)
+		m.logger.Warn("订单详情未解析到实付金额", "order_id", orderID, "page_title", title, "page_url", logsafe.URL(page.URL()), "api_captured", body != nil, "observed_apis", observedAPIs)
 	}
 	return od, nil
 }

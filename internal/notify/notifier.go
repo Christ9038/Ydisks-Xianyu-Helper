@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/logsafe"
 	"xianyu-go/internal/netguard"
 )
 
@@ -72,7 +73,7 @@ var dialPublicSMTP = netguard.DialPublicContext
 
 // New 构造。
 func New(cookieID string, store *db.Store, logger *slog.Logger) *Notifier {
-	return NewWithRepository(cookieID, newStoreRepository(store), logger)
+	return NewWithRepository(cookieID, newStoreRepository(cookieID, store), logger)
 }
 
 // NewWithRepository 使用通知器所需的窄 repository 构造通知器。
@@ -212,7 +213,7 @@ func (n *Notifier) NotifyEvent(ctx context.Context, ev NotificationEvent) {
 	for _, ch := range eligible {
 		if // err 保存err，供当前处理流程使用
 		err := n.send(ch, full); err != nil {
-			n.logger.Error("发送通知失败", "channel", ch.Type, "event_type", ev.Type, "err", err)
+			n.logger.Error("发送通知失败", "channel", ch.Type, "event_type", ev.Type, "err", logsafe.Error(err))
 		}
 	}
 }
@@ -263,7 +264,7 @@ func (n *Notifier) drainOutbox(ctx context.Context) {
 		}
 		if // sendErr 保存sendErr，供当前处理流程使用
 		sendErr := n.send(*channel, message.Body); sendErr != nil {
-			n.logger.Error("发送通知失败", "channel", channel.Type, "event_type", message.EventType, "attempt", message.AttemptCount, "err", sendErr)
+			n.logger.Error("发送通知失败", "channel", channel.Type, "event_type", message.EventType, "attempt", message.AttemptCount, "err", logsafe.Error(sendErr))
 			n.retryOutbox(ctx, message, workerToken, sendErr)
 			continue
 		}

@@ -27,6 +27,7 @@ import (
 	"xianyu-go/internal/chat"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/logging"
+	"xianyu-go/internal/logsafe"
 	"xianyu-go/internal/notify"
 	"xianyu-go/internal/renewal"
 	"xianyu-go/internal/server"
@@ -75,7 +76,7 @@ func main() {
 	if opts.workDir != "" {
 		if // err 保存err，供当前处理流程使用
 		err := os.Chdir(opts.workDir); err != nil {
-			fmt.Fprintf(os.Stderr, "切换工作目录失败: %v\n", err)
+			fmt.Fprintf(os.Stderr, "切换工作目录失败: %s\n", logsafe.Error(err))
 			os.Exit(2)
 		}
 	}
@@ -85,7 +86,7 @@ func main() {
 	if opts.service {
 		if // err 保存err，供当前处理流程使用
 		err := runPlatformService("YdisksXianyuHelper", run); err != nil {
-			fmt.Fprintf(os.Stderr, "服务运行失败: %v\n", err)
+			fmt.Fprintf(os.Stderr, "服务运行失败: %s\n", logsafe.Error(err))
 			os.Exit(1)
 		}
 		return
@@ -96,7 +97,7 @@ func main() {
 	defer cancel()
 	if // err 保存err，供当前处理流程使用
 	err := run(ctx); err != nil {
-		slog.Error("服务退出", "err", err)
+		slog.Error("服务退出", "err", logsafe.Error(err))
 		os.Exit(1)
 	}
 }

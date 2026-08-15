@@ -713,6 +713,14 @@ func TestSendEmail_UsesSystemSMTPFallback(t *testing.T) {
 	if !strings.Contains(body, "From: system@e.com") || !strings.Contains(body, "系统SMTP正文") {
 		t.Fatalf("system SMTP fallback body mismatch: %s", body)
 	}
+	// auditRecords、auditErr 保存系统 SMTP 密码读取产生的访问审计记录及查询错误。
+	auditRecords, auditErr := store.SecurityAudit.ListByUser(ctx, 1, 10)
+	if auditErr != nil || len(auditRecords) != 1 {
+		t.Fatalf("系统 SMTP 密码审计记录异常: records=%+v err=%v", auditRecords, auditErr)
+	}
+	if auditRecords[0].Action != "settings.use" || auditRecords[0].Resource != "notifications" || len(auditRecords[0].Keys) != 1 || auditRecords[0].Keys[0] != "smtp_password" {
+		t.Fatalf("系统 SMTP 密码审计上下文异常: %+v", auditRecords[0])
+	}
 }
 
 // TestSMTPConfigValueUsesExclusiveExplicitModes 负责TestSMTP配置值UsesExclusiveExplicitModes相关处理。

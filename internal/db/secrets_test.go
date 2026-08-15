@@ -2,10 +2,98 @@ package db
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 )
+
+// TestReadSensitiveSettingForAccountAuditsWithoutSecret 验证账号运行时读取系统秘密前会审计且审计记录不含秘密值。
+func TestReadSensitiveSettingForAccountAuditsWithoutSecret(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "audited-setting-key")
+	// store、cleanup 保存审计读取测试使用的数据库及清理函数。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 保存当前敏感设置访问测试上下文。
+	ctx := context.Background()
+	// createErr 表示创建测试用户时返回的错误。
+	if _, createErr := store.Users.Create(ctx, "audit-owner", "audit-owner@example.com", "pw"); createErr != nil {
+		t.Fatal(createErr)
+	}
+	// owner、ownerErr 保存测试账号所有者及查询错误。
+	owner, ownerErr := store.Users.GetByUsername(ctx, "audit-owner")
+	if ownerErr != nil {
+		t.Fatal(ownerErr)
+	}
+	// saveErr 表示创建绑定所有者的测试账号时返回的错误。
+	if saveErr := store.Cookies.Save(ctx, "audit-account", "unb=audit", owner.ID); saveErr != nil {
+		t.Fatal(saveErr)
+	}
+	// setErr 表示写入待审计敏感设置时返回的错误。
+	if setErr := store.Settings.Set(ctx, "ai_api_key", "audit-secret-value"); setErr != nil {
+		t.Fatal(setErr)
+	}
+	// value、readErr 保存敏感设置明文及受控读取错误。
+	value, readErr := store.ReadSensitiveSettingForAccount(ctx, "audit-account", "ai_api_key", "settings.use", "ai_reply")
+	if readErr != nil || value != "audit-secret-value" {
+		t.Fatalf("读取敏感设置失败: value=%q err=%v", value, readErr)
+	}
+	// records、listErr 保存按所有者读取的访问审计记录及查询错误。
+	records, listErr := store.SecurityAudit.ListByUser(ctx, owner.ID, 10)
+	if listErr != nil || len(records) != 1 {
+		t.Fatalf("敏感设置访问审计记录异常: records=%+v err=%v", records, listErr)
+	}
+	if records[0].Action != "settings.use" || records[0].Resource != "ai_reply" || len(records[0].Keys) != 1 || records[0].Keys[0] != "ai_api_key" {
+		t.Fatalf("审计上下文异常: %+v", records[0])
+	}
+	// rawKeys 保存数据库中的审计键 JSON，用于确认秘密值没有进入审计存储。
+	var rawKeys string
+	// queryErr 表示读取审计键 JSON 时返回的数据库错误。
+	if queryErr := store.DB.QueryRowContext(ctx, `SELECT keys_json FROM security_audit_logs WHERE id=?`, records[0].ID).Scan(&rawKeys); queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	if strings.Contains(rawKeys, "audit-secret-value") {
+		t.Fatalf("审计记录泄露敏感设置值: %q", rawKeys)
+	}
+}
+
+// TestReadSensitiveSettingRejectsUnownedOrUnauditedAccess 验证敏感设置读取遇到无所有者、非敏感键或审计故障时拒绝继续。
+func TestReadSensitiveSettingRejectsUnownedOrUnauditedAccess(t *testing.T) {
+	// store、cleanup 保存拒绝路径测试使用的数据库及清理函数。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 保存当前拒绝路径测试上下文。
+	ctx := context.Background()
+	// missingErr 表示不存在账号的所有者查询错误。
+	_, missingErr := store.ReadSensitiveSettingForAccount(ctx, "missing-account", "ai_api_key", "settings.use", "ai_reply")
+	if !errors.Is(missingErr, ErrNotFound) {
+		t.Fatalf("不存在账号应返回 ErrNotFound: %v", missingErr)
+	}
+	// invalidKeyErr 表示非敏感键被错误请求审计读取时的校验错误。
+	_, invalidKeyErr := store.ReadSensitiveSetting(ctx, 1, "theme_color", "settings.use", "ai_reply")
+	if invalidKeyErr == nil || !strings.Contains(invalidKeyErr.Error(), "敏感设置白名单") {
+		t.Fatalf("非敏感键应被拒绝: %v", invalidKeyErr)
+	}
+	// invalidUserErr 表示缺少有效用户所有者时的校验错误。
+	_, invalidUserErr := store.ReadSensitiveSetting(ctx, 0, "ai_api_key", "settings.use", "ai_reply")
+	if !errors.Is(invalidUserErr, ErrInvalidUserID) {
+		t.Fatalf("无效用户 ID 应被拒绝: %v", invalidUserErr)
+	}
+	// store.SecurityAudit 置空模拟审计依赖未装配，验证秘密读取不会绕过审计。
+	store.SecurityAudit = nil
+	// auditMissingErr 表示审计存储缺失时的拒绝错误。
+	_, auditMissingErr := store.ReadSensitiveSetting(ctx, 1, "ai_api_key", "settings.use", "ai_reply")
+	if auditMissingErr == nil || !strings.Contains(auditMissingErr.Error(), "审计") {
+		t.Fatalf("审计存储缺失应拒绝读取: %v", auditMissingErr)
+	}
+	// store.SecurityAudit 恢复为无数据库连接的实例，模拟审计写入失败。
+	store.SecurityAudit = &SecurityAuditLogs{}
+	// auditWriteErr 表示审计写入失败时的拒绝错误。
+	_, auditWriteErr := store.ReadSensitiveSetting(ctx, 1, "ai_api_key", "settings.use", "ai_reply")
+	if auditWriteErr == nil || !strings.Contains(auditWriteErr.Error(), "记录敏感设置访问审计失败") {
+		t.Fatalf("审计写入失败应拒绝读取: %v", auditWriteErr)
+	}
+}
 
 // TestSensitiveRepositoriesEncryptAtRestAndDecryptOnRead 负责TestSensitiveRepositoriesEncryptAtRestAndDecryptOnRead相关处理。
 func TestSensitiveRepositoriesEncryptAtRestAndDecryptOnRead(t *testing.T) {

@@ -30,6 +30,8 @@ type Repository interface {
 type storeRepository struct {
 	// store 保存数据库聚合入口，仅在适配器内部使用。
 	store *db.Store
+	// cookieID 保存当前通知器绑定的账号标识，用于为系统敏感设置访问解析所有者并写入审计。
+	cookieID string
 }
 
 // AccountChannels 委托账号通知渠道查询。
@@ -67,13 +69,16 @@ func (r storeRepository) GetSetting(ctx context.Context, key string) (string, er
 	if r.store.Settings == nil {
 		return "", errors.New("系统设置 repository 未初始化")
 	}
+	if db.IsSensitiveSettingKey(key) {
+		return r.store.ReadSensitiveSettingForAccount(ctx, r.cookieID, key, "settings.use", "notifications")
+	}
 	return r.store.Settings.Get(ctx, key)
 }
 
 // newStoreRepository 从完整 Store 构造通知器使用的窄 repository。
-func newStoreRepository(store *db.Store) Repository {
+func newStoreRepository(cookieID string, store *db.Store) Repository {
 	if store == nil || store.Notifications == nil {
 		return nil
 	}
-	return storeRepository{store: store}
+	return storeRepository{store: store, cookieID: cookieID}
 }

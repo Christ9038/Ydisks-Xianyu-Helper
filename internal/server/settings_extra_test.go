@@ -15,7 +15,7 @@ import (
 // TestListAIModels 通过 mock OpenAI 端点返回模型列表。
 func TestListAIModels(t *testing.T) {
 	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// 注入一个本地 HTTP server 作为 ai_api_url。
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +47,19 @@ func TestListAIModels(t *testing.T) {
 	models, _ := res["models"].([]any)
 	if len(models) != 2 {
 		t.Fatalf("应2个模型，got %+v", res)
+	}
+	// admin、adminErr 保存当前登录管理员，用于验证 AI 模型请求已记录敏感密钥使用审计。
+	admin, adminErr := store.Users.GetByUsername(context.Background(), "admin")
+	if adminErr != nil {
+		t.Fatal(adminErr)
+	}
+	// auditRecords、auditErr 保存 AI 模型请求产生的审计记录及查询错误。
+	auditRecords, auditErr := store.SecurityAudit.ListByUser(context.Background(), admin.ID, 10)
+	if auditErr != nil || len(auditRecords) != 1 {
+		t.Fatalf("AI 模型请求审计记录异常: records=%+v err=%v", auditRecords, auditErr)
+	}
+	if auditRecords[0].Action != "settings.use" || auditRecords[0].Resource != "ai_models" || len(auditRecords[0].Keys) != 1 || auditRecords[0].Keys[0] != "ai_api_key" {
+		t.Fatalf("AI 模型请求审计上下文异常: %+v", auditRecords[0])
 	}
 }
 

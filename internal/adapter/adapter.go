@@ -19,6 +19,7 @@ import (
 	"xianyu-go/internal/chat"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
+	"xianyu-go/internal/logsafe"
 	"xianyu-go/internal/renewal"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
@@ -278,7 +279,7 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 	// err 保存err，供当前处理流程使用
 	var err error
 	if // remoteConfig 保存remote配置，供当前处理流程使用
-	remoteConfig := a.loadRemoteCaptchaConfig(ctx); remoteConfig != nil {
+	remoteConfig := a.loadRemoteCaptchaConfig(ctx, cookieID); remoteConfig != nil {
 		newCookies, remoteHandled, err = solveRemoteCaptcha(
 			ctx, newRemoteCaptchaHTTPClient(), *remoteConfig,
 			cookieID, verificationURL, cookieStr, deviceID, provider,
@@ -315,7 +316,7 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 		if strings.TrimSpace(manualURL) == "" {
 			manualURL = verificationURL
 		}
-		a.logger.Warn("token 风控滑块处理失败", "account", cookieID, "err", err, "verification_url", manualURL)
+		a.logger.Warn("token 风控滑块处理失败", "account", cookieID, "err", logsafe.Error(err), "verification_url", logsafe.URL(manualURL))
 		if a.store != nil && a.store.RiskLogs != nil {
 			_ = a.store.RiskLogs.Update(ctx, logID, db.RiskControlLog{
 				ProcessingStatus: "failed",

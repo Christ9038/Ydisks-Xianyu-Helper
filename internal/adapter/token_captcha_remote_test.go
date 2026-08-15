@@ -71,6 +71,14 @@ func TestRemoteCaptchaSuccessWorksWithoutLocalBrowser(t *testing.T) {
 	if status != "success" || engineName != "remote" {
 		t.Fatalf("risk log status=%q engine=%q", status, engineName)
 	}
+	// auditRecords、auditErr 保存远程过滑块读取系统密钥产生的访问审计记录及查询错误。
+	auditRecords, auditErr := store.SecurityAudit.ListByUser(ctx, 1, 10)
+	if auditErr != nil || len(auditRecords) != 1 {
+		t.Fatalf("远程过滑块密钥审计记录异常: records=%+v err=%v", auditRecords, auditErr)
+	}
+	if auditRecords[0].Action != "settings.use" || auditRecords[0].Resource != "captcha_remote" || len(auditRecords[0].Keys) != 1 || auditRecords[0].Keys[0] != "captcha.remote_secret_key" {
+		t.Fatalf("远程过滑块密钥审计上下文异常: %+v", auditRecords[0])
+	}
 }
 
 // TestRemoteCaptchaURLExpiredRefreshesTwiceAtMost 负责TestRemoteCaptchaURLExpiredRefreshesTwiceAtMost相关处理。

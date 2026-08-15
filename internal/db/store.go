@@ -1,7 +1,11 @@
 package db
 
 import (
+	"context"
 	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -86,6 +90,56 @@ func NewStore(db *sql.DB, dialect Dialect) *Store {
 		Analytics:        &AnalyticsQueries{DB: db},
 		credentialLocks:  make(map[string]*credentialLockEntry),
 	}
+}
+
+// ReadSensitiveSetting 读取指定用户可用的敏感系统设置，并在解密前写入不含秘密值的访问审计。
+// userID 必须是正数；key 必须属于敏感设置白名单；action 和 resource 用于区分调用场景。
+// 审计存储不可用或参数不合法时拒绝读取，避免未记录的秘密访问继续执行。
+func (s *Store) ReadSensitiveSetting(ctx context.Context, userID int64, key, action, resource string) (string, error) {
+	if s == nil || s.Settings == nil {
+		return "", errors.New("敏感设置存储未初始化")
+	}
+	if userID <= 0 {
+		return "", ErrInvalidUserID
+	}
+	key = strings.TrimSpace(key)
+	if !IsSensitiveSettingKey(key) {
+		return "", fmt.Errorf("设置 %q 不属于敏感设置白名单", key)
+	}
+	if strings.TrimSpace(action) == "" || strings.TrimSpace(resource) == "" {
+		return "", errors.New("敏感设置审计上下文无效")
+	}
+	if s.SecurityAudit == nil {
+		return "", errors.New("敏感设置访问审计未初始化")
+	}
+	// auditErr 表示敏感设置读取前写入访问审计时发生的错误。
+	auditErr := s.SecurityAudit.Add(ctx, SecurityAuditLog{
+		UserID: userID, Action: strings.TrimSpace(action), Resource: strings.TrimSpace(resource),
+		Keys: []string{key}, Outcome: "accepted",
+	})
+	if auditErr != nil {
+		return "", fmt.Errorf("记录敏感设置访问审计失败: %w", auditErr)
+	}
+	// value、readErr 保存审计成功后解密得到的设置值及读取错误；value 只返回给受控调用方。
+	value, readErr := s.Settings.Get(ctx, key)
+	if readErr != nil {
+		return "", readErr
+	}
+	return value, nil
+}
+
+// ReadSensitiveSettingForAccount 按账号所有者读取敏感系统设置并记录访问审计。
+// 账号所有者通过非敏感账号 ID 查询得到，调用方无需持有或传递登录 Cookie、密码等凭证字段。
+func (s *Store) ReadSensitiveSettingForAccount(ctx context.Context, cookieID, key, action, resource string) (string, error) {
+	if s == nil || s.Cookies == nil {
+		return "", errors.New("账号凭证存储未初始化")
+	}
+	// ownerID、ownerErr 保存账号所有者查询结果；该查询只读取 user_id，不解密任何凭证。
+	ownerID, ownerErr := s.Cookies.GetOwnerID(ctx, strings.TrimSpace(cookieID))
+	if ownerErr != nil {
+		return "", fmt.Errorf("读取敏感设置所属账号失败: %w", ownerErr)
+	}
+	return s.ReadSensitiveSetting(ctx, ownerID, key, action, resource)
 }
 
 // LockAccountCredentials serializes Cookie/token state transitions for one

@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/logsafe"
 )
 
 // main 负责main相关处理。
@@ -33,10 +34,10 @@ func main() {
 		if cleanup != nil {
 			if // err 保存err，供当前处理流程使用
 			err := cleanup(); err != nil {
-				fmt.Printf("⚠️ 清理验证数据失败: %v\n", err)
+				fmt.Printf("⚠️ 清理验证数据失败: %s\n", logsafe.Error(err))
 			}
 		}
-		fmt.Printf(format, args...)
+		fmt.Printf(format, safeDiagnosticArgs(args)...)
 		os.Exit(1)
 	}
 
@@ -213,12 +214,26 @@ func main() {
 
 	if // err 保存err，供当前处理流程使用
 	err := cleanup(); err != nil {
-		fmt.Printf("❌ 清理验证数据失败: %v\n", err)
+		fmt.Printf("❌ 清理验证数据失败: %s\n", logsafe.Error(err))
 		os.Exit(1)
 	}
 	cleanup = nil
 	fmt.Println("✅ 验证数据已清理")
 	fmt.Println("\n🎉 全部验证通过")
+}
+
+// safeDiagnosticArgs 将错误参数转换为脱敏文本，避免验证工具把连接凭证写到终端。
+func safeDiagnosticArgs(args []any) []any {
+	// safeArgs 保存经过错误脱敏的格式化参数；非错误参数保持原有类型和格式语义。
+	safeArgs := append([]any(nil), args...)
+	// index 表示当前格式化参数下标；value 表示待检查的原始参数。
+	for index, value := range safeArgs {
+		// errValue 表示当前参数是否为错误对象。
+		if errValue, ok := value.(error); ok {
+			safeArgs[index] = logsafe.Error(errValue)
+		}
+	}
+	return safeArgs
 }
 
 // maskURL 负责maskURL相关处理。

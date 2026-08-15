@@ -20,12 +20,12 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -56,7 +56,7 @@ func main() {
 		// b、err 保存b、err，供当前处理流程使用
 		b, err := os.ReadFile(*cookieFile)
 		if err != nil {
-			logger.Error("读取 cookie 文件失败", "err", err)
+			logger.Error("读取 cookie 文件失败", "err", logsafe.Error(err))
 			os.Exit(1)
 		}
 		cookieStr = strings.TrimSpace(strings.SplitN(string(b), "\n", 2)[0])
@@ -85,7 +85,7 @@ func main() {
 	// res、err 保存res、err，供当前处理流程使用
 	res, err := mc.RefreshToken(cookieStr)
 	if err != nil {
-		logger.Error("刷新 token 失败", "err", err)
+		logger.Error("刷新 token 失败", "err", logsafe.Error(err))
 		os.Exit(1)
 	}
 	logger.Info("token 刷新成功", "accessToken_len", len(res.AccessToken))
@@ -102,7 +102,7 @@ func main() {
 	// conn、err 保存conn、err，供当前处理流程使用
 	conn, err := ws.Dial(ctx, cfg, logger)
 	if err != nil {
-		logger.Error("WS 连接/注册失败", "err", err)
+		logger.Error("WS 连接/注册失败", "err", logsafe.Error(err))
 		os.Exit(1)
 	}
 	defer conn.Close()
@@ -112,7 +112,7 @@ func main() {
 	go func() {
 		if // err 保存err，供当前处理流程使用
 		err := conn.HeartbeatLoop(ctx, 15*time.Second); err != nil {
-			logger.Error("心跳循环退出", "err", err)
+			logger.Error("心跳循环退出", "err", logsafe.Error(err))
 			cancel()
 		}
 	}()
@@ -121,16 +121,25 @@ func main() {
 	gotMessage := false
 	err = conn.ReceiveLoop(ctx, func(decrypted map[string]any) {
 		gotMessage = true
-		// b 保存b，供当前处理流程使用
-		b, _ := json.MarshalIndent(decrypted, "", "  ")
-		fmt.Println("\n========== 收到并解密一条消息 ==========")
-		fmt.Println(string(b))
-		fmt.Println("========================================")
-		logger.Info("✅ 成功收到并解密消息，Phase 0 闸门通过")
+		// fieldNames 保存消息顶层字段名；只输出结构摘要，避免把消息正文或凭证带入终端。
+		fieldNames := diagnosticFieldNames(decrypted)
+		logger.Info("✅ 成功收到并解密消息，Phase 0 闸门通过（正文已省略）", "field_count", len(fieldNames), "fields", fieldNames)
 		cancel()
 	})
 	if !gotMessage {
-		logger.Error("未收到消息即退出", "err", err)
+		logger.Error("未收到消息即退出", "err", logsafe.Error(err))
 		os.Exit(1)
 	}
+}
+
+// diagnosticFieldNames 返回消息顶层字段的排序列表，用于安全诊断而不暴露消息值。
+func diagnosticFieldNames(message map[string]any) []string {
+	// fields 保存消息字段名；字段值不会被复制到诊断输出。
+	fields := make([]string, 0, len(message))
+	// fieldName 表示当前消息的顶层字段名。
+	for fieldName := range message {
+		fields = append(fields, fieldName)
+	}
+	sort.Strings(fields)
+	return fields
 }

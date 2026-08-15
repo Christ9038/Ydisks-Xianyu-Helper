@@ -18,6 +18,7 @@ import (
 
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/logsafe"
 )
 
 // main 负责main相关处理。
@@ -198,8 +199,17 @@ func isNotFound(err error) bool { return errors.Is(err, db.ErrNotFound) }
 
 // fatalf 负责fatalf相关处理。
 func fatalf(format string, a ...any) {
+	// safeArgs 保存经过错误脱敏的初始化错误参数，避免数据库连接凭证进入终端。
+	safeArgs := append([]any(nil), a...)
+	// index 表示当前格式化参数下标；value 表示待检查的原始参数。
+	for index, value := range safeArgs {
+		// errValue 表示当前参数是否为错误对象。
+		if errValue, ok := value.(error); ok {
+			safeArgs[index] = logsafe.Error(errValue)
+		}
+	}
 	if // err 保存err，供当前处理流程使用
-	_, err := fmt.Fprintf(os.Stderr, format+"\n", a...); err != nil {
+	_, err := fmt.Fprintf(os.Stderr, format+"\n", safeArgs...); err != nil {
 		os.Exit(1)
 	}
 	os.Exit(1)

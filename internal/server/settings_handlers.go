@@ -450,11 +450,6 @@ func (s *Server) listAIModels(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "审计失败")
 		return
 	}
-	// err 保存 AI 密钥使用审计错误。
-	if err := s.auditSensitiveSettingsAccess(r.Context(), sess.UserID, "settings.use", "ai_models", []string{"ai_api_key"}); err != nil {
-		writeErr(w, http.StatusInternalServerError, "审计失败")
-		return
-	}
 	// baseURL 保存baseURL，供当前处理流程使用
 	baseURL := strings.TrimSpace(req.BaseURL)
 	if baseURL == "" {
@@ -472,13 +467,19 @@ func (s *Server) listAIModels(w http.ResponseWriter, r *http.Request) {
 	// apiKey 保存apiKey，供当前处理流程使用
 	apiKey := strings.TrimSpace(req.APIKey)
 	if apiKey == "" {
-		// v、err 保存v、err，供当前处理流程使用
-		v, err := s.Store.Settings.Get(r.Context(), "ai_api_key")
+		// v、err 保存经访问审计后读取的 AI 密钥及错误。
+		v, err := s.Store.ReadSensitiveSetting(r.Context(), sess.UserID, "ai_api_key", "settings.use", "ai_models")
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "读取AI Key失败")
 			return
 		}
 		apiKey = v
+	} else if
+	// auditErr 表示审计外部传入 AI 密钥时返回的错误。
+	auditErr := s.auditSensitiveSettingsAccess(r.Context(), sess.UserID, "settings.use", "ai_models", []string{"ai_api_key"}); auditErr != nil {
+		// 外部传入的 AI 密钥也属于敏感使用，审计不可用时拒绝继续请求。
+		writeErr(w, http.StatusInternalServerError, "审计失败")
+		return
 	}
 
 	// models、err 保存models、err，供当前处理流程使用

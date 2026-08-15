@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/logsafe"
 )
 
 // seedOptions 保存seedOptions，供当前处理流程使用
@@ -372,6 +373,15 @@ func fallback(value, defaultValue string) string {
 
 // fatalf 负责fatalf相关处理。
 func fatalf(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, format+"\n", args...)
+	// safeArgs 保存经过错误脱敏的命令行错误参数，避免目标数据库连接信息进入终端。
+	safeArgs := append([]any(nil), args...)
+	// index 表示当前格式化参数下标；value 表示待检查的原始参数。
+	for index, value := range safeArgs {
+		// errValue 表示当前参数是否为错误对象。
+		if errValue, ok := value.(error); ok {
+			safeArgs[index] = logsafe.Error(errValue)
+		}
+	}
+	fmt.Fprintf(os.Stderr, format+"\n", safeArgs...)
 	os.Exit(1)
 }

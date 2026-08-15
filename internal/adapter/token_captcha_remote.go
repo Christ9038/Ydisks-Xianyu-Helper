@@ -46,7 +46,7 @@ type remoteCaptchaResult struct {
 }
 
 // loadRemoteCaptchaConfig 负责loadRemoteCaptcha配置相关处理。
-func (a *Adapter) loadRemoteCaptchaConfig(ctx context.Context) *remoteCaptchaConfig {
+func (a *Adapter) loadRemoteCaptchaConfig(ctx context.Context, cookieID string) *remoteCaptchaConfig {
 	if a.store == nil || a.store.Settings == nil {
 		return nil
 	}
@@ -57,7 +57,7 @@ func (a *Adapter) loadRemoteCaptchaConfig(ctx context.Context) *remoteCaptchaCon
 		return nil
 	}
 	// secret、err 保存secret、err，供当前处理流程使用
-	secret, err := a.store.Settings.Get(ctx, "captcha.remote_secret_key")
+	secret, err := a.store.ReadSensitiveSettingForAccount(ctx, cookieID, "captcha.remote_secret_key", "settings.use", "captcha_remote")
 	if err != nil {
 		a.logger.Warn("读取远程过滑块密钥失败，回退本机逻辑", "err", err)
 		return nil

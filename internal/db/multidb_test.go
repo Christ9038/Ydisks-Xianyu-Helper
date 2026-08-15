@@ -27,10 +27,77 @@ import (
 
 var multidbCounter uint64 // 生成一次性数据库名的原子计数器。
 
+// requireMultiDBEnv 控制多数据库回归是否必须同时连接 MySQL 与 PostgreSQL。
+// 未设置时，开发者可以只运行内置 SQLite；设为 1 时，缺少任一外部数据库配置会让门禁失败。
+const requireMultiDBEnv = "REQUIRE_MULTIDB"
+
 // TestMain 关闭 goose 默认日志，避免每个目标库的迁移输出刷屏测试结果。
 func TestMain(m *testing.M) {
 	goose.SetLogger(goose.NopLogger())
 	os.Exit(m.Run())
+}
+
+// TestMultiDB_TargetMatrix 输出本次运行实际具备的数据库矩阵，避免 SQLite 单库通过被误读为三库证据。
+// REQUIRE_MULTIDB=1 时，MySQL 与 PostgreSQL 必须同时配置 TEST_MYSQL_URL 和 TEST_POSTGRES_URL；
+// 连接、迁移和敏感设置行为仍由各个 TestMultiDB_* 子测试实际验证。
+func TestMultiDB_TargetMatrix(t *testing.T) {
+	t.Run("sqlite", func(t *testing.T) {
+		t.Log("SQLite：内置目标，所有多数据库回归都会执行")
+	})
+
+	// externalTargets 保存外部方言及其连接配置环境变量，供矩阵报告逐项输出。
+	externalTargets := []struct {
+		name string
+		env  string
+	}{
+		{name: "mysql", env: "TEST_MYSQL_URL"},
+		{name: "postgres", env: "TEST_POSTGRES_URL"},
+	}
+	// target 保存当前正在报告的外部数据库目标。
+	for _, target := range externalTargets {
+		// target 保存当前子测试闭包独占的数据库目标副本，避免循环变量复用。
+		target := target
+		t.Run(target.name, func(t *testing.T) {
+			if strings.TrimSpace(os.Getenv(target.env)) == "" {
+				if multiDBRequired() {
+					t.Fatalf("多数据库门禁要求 %s，但环境变量 %s 未设置", target.name, target.env)
+				}
+				t.Skipf("未配置 %s；本次仅有 SQLite 证据，不能宣称 %s 实测通过", target.env, target.name)
+			}
+			t.Logf("%s：已配置 %s；实际连通性、迁移和业务回归由 TestMultiDB_* 验证", target.name, target.env)
+		})
+	}
+}
+
+// multiDBRequired 判断当前运行是否要求 MySQL 与 PostgreSQL 都必须可用。
+// 只接受明确的 1/true/yes 值，避免普通开发环境中偶然继承的任意字符串改变门禁语义。
+func multiDBRequired() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(requireMultiDBEnv))) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
+// requireConfiguredExternalTargets 在实际创建测试数据库前检查严格矩阵门禁。
+// 它只检查配置是否存在；URL 格式、数据库连通性和迁移结果仍由 mysqlTarget/postgresTarget 验证。
+func requireConfiguredExternalTargets(t *testing.T) {
+	t.Helper()
+	if !multiDBRequired() {
+		return
+	}
+	// missing 保存严格门禁下缺失的外部数据库目标名称。
+	missing := make([]string, 0, 2)
+	if strings.TrimSpace(os.Getenv("TEST_MYSQL_URL")) == "" {
+		missing = append(missing, "MySQL(TEST_MYSQL_URL)")
+	}
+	if strings.TrimSpace(os.Getenv("TEST_POSTGRES_URL")) == "" {
+		missing = append(missing, "PostgreSQL(TEST_POSTGRES_URL)")
+	}
+	if len(missing) > 0 {
+		t.Fatalf("多数据库门禁未满足：缺少 %s；SQLite 通过不能替代外部方言实测", strings.Join(missing, ", "))
+	}
 }
 
 // testTarget 是一个可被测试的数据库目标。
@@ -44,6 +111,7 @@ type testTarget struct {
 // allTestTargets 返回所有可用的测试目标。SQLite 永远包含；MySQL/Postgres 按环境变量追加。
 func allTestTargets(t *testing.T) []testTarget {
 	t.Helper()
+	requireConfiguredExternalTargets(t)
 	// targets 保存targets，供当前处理流程使用
 	targets := []testTarget{sqliteTarget(t)}
 	if // u 保存u，供当前处理流程使用
@@ -75,18 +143,16 @@ func sqliteTarget(t *testing.T) testTarget {
 // mysqlTarget 负责mysqlTarget相关处理。
 func mysqlTarget(t *testing.T, url string) testTarget {
 	t.Helper()
-	// dsn 保存dsn，供当前处理流程使用
-	dsn := strings.TrimPrefix(url, "mysql://")
-	// slash 保存slash，供当前处理流程使用
-	slash := strings.LastIndex(dsn, "/")
-	if slash < 0 {
-		t.Fatalf("TEST_MYSQL_URL 缺少 /dbname: %s", url)
-	}
-	// baseDSN 保存baseDSN，供当前处理流程使用
-	baseDSN := dsn[:slash] // user:pass@tcp(host:port)
+	// baseDSN、query 保存 MySQL 连接 authority 与查询参数，供临时库连接复用。
+	baseDSN, query := externalTargetURLParts(t, "TEST_MYSQL_URL", url)
 
 	// admin、err 保存admin、err，供当前处理流程使用
-	admin, err := sql.Open("mysql", baseDSN+"/")
+	adminDSN := baseDSN + "/"
+	if query != "" {
+		adminDSN += "?" + query
+	}
+	// admin、err 保存管理员连接及打开错误；连接只用于创建和销毁临时数据库。
+	admin, err := sql.Open("mysql", adminDSN)
 	if err != nil {
 		t.Fatalf("open mysql admin: %v", err)
 	}
@@ -100,8 +166,8 @@ func mysqlTarget(t *testing.T, url string) testTarget {
 	_, err := admin.Exec("CREATE DATABASE " + dbName); err != nil {
 		t.Fatalf("create mysql db: %v", err)
 	}
-	// db、err 保存db、err，供当前处理流程使用
-	db, _, err := Open(context.Background(), "mysql://"+baseDSN+"/"+dbName)
+	// db、err 保存临时 MySQL 数据库连接及打开错误；query 保留 SSL、时区等测试配置。
+	db, _, err := Open(context.Background(), externalTargetDSN("mysql", baseDSN, dbName, query))
 	if err != nil {
 		_, _ = admin.Exec("DROP DATABASE " + dbName)
 		t.Fatalf("open mysql test db: %v", err)
@@ -120,19 +186,13 @@ func mysqlTarget(t *testing.T, url string) testTarget {
 // postgresTarget 负责postgresTarget相关处理。
 func postgresTarget(t *testing.T, url string) testTarget {
 	t.Helper()
-	// rest 保存rest，供当前处理流程使用
-	rest := strings.TrimPrefix(url, "postgres://")
-	// rest = user:pass@host:port/xianyu
-	// slash 保存slash，供当前处理流程使用
-	slash := strings.LastIndex(rest, "/")
-	if slash < 0 {
-		t.Fatalf("TEST_POSTGRES_URL 缺少 /dbname: %s", url)
-	}
-	// server 保存server，供当前处理流程使用
-	server := rest[:slash] // user:pass@host:port
+	// server、query 保存 PostgreSQL 连接 authority 与查询参数，供临时库连接复用。
+	server, query := externalTargetURLParts(t, "TEST_POSTGRES_URL", url)
 
-	// admin、err 保存admin、err，供当前处理流程使用
-	admin, err := sql.Open("pgx_compat", "postgres://"+server+"/postgres")
+	// adminDSN 保存维护库连接地址；查询参数用于保持外部数据库测试的 SSL 与时区配置。
+	adminDSN := externalTargetDSN("postgres", server, "postgres", query)
+	// admin、err 保存 PostgreSQL 管理员连接及打开错误；管理员连接只负责临时库生命周期。
+	admin, err := sql.Open("pgx_compat", adminDSN)
 	if err != nil {
 		t.Fatalf("open pg admin: %v", err)
 	}
@@ -146,8 +206,8 @@ func postgresTarget(t *testing.T, url string) testTarget {
 	_, err := admin.Exec("CREATE DATABASE " + dbName); err != nil {
 		t.Fatalf("create pg db: %v", err)
 	}
-	// db、err 保存db、err，供当前处理流程使用
-	db, _, err := Open(context.Background(), "postgres://"+server+"/"+dbName)
+	// db、err 保存临时 PostgreSQL 数据库连接及打开错误；query 保留 sslmode 与时区配置。
+	db, _, err := Open(context.Background(), externalTargetDSN("postgres", server, dbName, query))
 	if err != nil {
 		_, _ = admin.Exec("DROP DATABASE " + dbName)
 		t.Fatalf("open pg test db: %v", err)
@@ -159,6 +219,111 @@ func postgresTarget(t *testing.T, url string) testTarget {
 		admin.Close()
 	}
 	return testTarget{name: "postgres", dialect: DialectPostgres, store: NewStore(db, DialectPostgres), cleanup: cleanup}
+}
+
+// externalTargetURLParts 拆分外部数据库 URL 的 authority 与查询参数。
+// 它不返回数据库名，只校验 URL 含有数据库名；临时数据库会替换原名称，但保留 sslmode、时区等参数。
+func externalTargetURLParts(t *testing.T, envName, rawURL string) (string, string) {
+	t.Helper()
+	// scheme 保存调用方要求的数据库 URL scheme，避免把错误 scheme 误当成目标配置。
+	scheme := strings.TrimPrefix(envName, "TEST_")
+	scheme = strings.ToLower(scheme)
+	// authority、query、err 保存 URL 拆分得到的连接 authority、查询参数及格式错误。
+	authority, query, err := splitExternalTargetURL(rawURL, scheme)
+	if err != nil {
+		t.Fatalf("%s 格式无效：%v", envName, err)
+	}
+	return authority, query
+}
+
+// splitExternalTargetURL 解析测试数据库 URL，返回 authority 和查询参数。
+// 错误消息只描述格式，不回显原始 URL，避免测试失败输出泄露连接凭证。
+func splitExternalTargetURL(rawURL, scheme string) (string, string, error) {
+	// prefix 保存期望的 URL scheme 前缀，供格式校验使用。
+	prefix := scheme + "://"
+	if !strings.HasPrefix(rawURL, prefix) {
+		return "", "", fmt.Errorf("必须使用 %s scheme", scheme)
+	}
+	// rest 保存去除 scheme 后的 authority、数据库名和查询参数。
+	rest := strings.TrimPrefix(rawURL, prefix)
+	// slash 保存 authority 与数据库路径之间的分隔位置。
+	slash := strings.LastIndex(rest, "/")
+	if slash <= 0 || slash == len(rest)-1 {
+		return "", "", fmt.Errorf("必须包含 authority 和数据库名")
+	}
+	// authority 保存用户、密码和主机信息；只在连接字符串内部传递，不写入日志。
+	authority := rest[:slash]
+	// databasePart 保存数据库名及其查询参数，供后续拆分。
+	databasePart := rest[slash+1:]
+	// databaseName、query、hasQuery 保存数据库名、查询参数及是否存在问号。
+	databaseName, query, hasQuery := strings.Cut(databasePart, "?")
+	if databaseName == "" {
+		return "", "", fmt.Errorf("数据库名不能为空")
+	}
+	if hasQuery && query == "" {
+		return "", "", fmt.Errorf("查询参数不能为空")
+	}
+	return authority, query, nil
+}
+
+// externalTargetDSN 为外部数据库临时库拼接保留原查询参数的连接 URL。
+// databaseName 是每次测试生成的隔离库名；query 可能包含 sslmode、时区或驱动选项。
+func externalTargetDSN(scheme, authority, databaseName, query string) string {
+	// dsn 保存最终连接 URL；其中 authority 可能包含凭证，但调用方不得打印它。
+	dsn := scheme + "://" + authority + "/" + databaseName
+	if query != "" {
+		dsn += "?" + query
+	}
+	return dsn
+}
+
+// TestSplitExternalTargetURLPreservesQuery 验证三数据库测试 URL 替换临时库名时保留驱动参数。
+func TestSplitExternalTargetURLPreservesQuery(t *testing.T) {
+	// cases 保存不同方言 URL 及其应保留的 authority、查询参数。
+	cases := []struct {
+		name      string
+		rawURL    string
+		scheme    string
+		authority string
+		query     string
+	}{
+		{name: "mysql", rawURL: "mysql://user:secret@tcp(host:3306)/xianyu?parseTime=true&loc=UTC", scheme: "mysql", authority: "user:secret@tcp(host:3306)", query: "parseTime=true&loc=UTC"},
+		{name: "postgres", rawURL: "postgres://user:secret@host:5432/xianyu?sslmode=disable&timezone=UTC", scheme: "postgres", authority: "user:secret@host:5432", query: "sslmode=disable&timezone=UTC"},
+	}
+	// testCase 保存当前 URL 解析用例，供子测试闭包使用。
+	for _, testCase := range cases {
+		// testCase 保存当前子测试闭包独占的用例副本，避免循环变量复用。
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			// authority、query、err 保存 URL 拆分结果及错误。
+			authority, query, err := splitExternalTargetURL(testCase.rawURL, testCase.scheme)
+			if err != nil {
+				t.Fatalf("split URL: %v", err)
+			}
+			if authority != testCase.authority || query != testCase.query {
+				t.Fatalf("split URL 未保留预期的 authority/query 结构")
+			}
+			// dsn 保存替换临时数据库名后的连接 URL，确认查询参数未丢失。
+			dsn := externalTargetDSN(testCase.scheme, authority, "xytest_1", query)
+			if !strings.HasSuffix(dsn, "/xytest_1?"+testCase.query) {
+				t.Fatalf("temporary DSN 未保留查询参数")
+			}
+		})
+	}
+}
+
+// TestSplitExternalTargetURLDoesNotEchoSecrets 验证错误信息不会回显数据库 URL 中的密码。
+func TestSplitExternalTargetURLDoesNotEchoSecrets(t *testing.T) {
+	// secretURL 保存格式错误且包含密码的测试 URL；错误信息不得包含该密码。
+	secretURL := "postgres://user:super-secret@host:5432"
+	// _, _, err 保存解析失败结果及错误。
+	_, _, err := splitExternalTargetURL(secretURL, "postgres")
+	if err == nil {
+		t.Fatal("缺少数据库名时应返回错误")
+	}
+	if strings.Contains(err.Error(), "super-secret") {
+		t.Fatalf("格式错误不应回显连接密码: %v", err)
+	}
 }
 
 // TestMultiDB_CookiesUpsertBool 验证 cookie UPSERT + auto_confirm 布尔读写跨三库一致。

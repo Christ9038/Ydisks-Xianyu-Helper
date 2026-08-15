@@ -19,6 +19,7 @@ import (
 
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/logsafe"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
 	"xianyu-go/internal/xianyu/protocol"
@@ -922,7 +923,7 @@ func (a *Account) tryLoginStatusCheck(ctx context.Context) loginStatusCheckResul
 	}
 	if res.Status == mtop.LoginStatusRiskRequired {
 		a.setRuntimeState(RuntimeVerificationRequired, "闲鱼要求安全验证")
-		a.logger.Warn("登录态检查命中风控验证", "ret", strings.Join(res.Ret, ","), "verification_url", res.VerificationURL)
+		a.logger.Warn("登录态检查命中风控验证", "ret", strings.Join(res.Ret, ","), "verification_url", logsafe.URL(res.VerificationURL))
 		return loginStatusCheckResult{riskRequired: true, verificationURL: res.VerificationURL}
 	}
 	if res.Status == mtop.LoginStatusTokenRefreshed && len(cookierefresh.ChangedCookieNames(cookieStr, res.UpdatedCookies)) > 0 && a.adoptRecoveredCookie(ctx, res.UpdatedCookies, "登录态检查") {

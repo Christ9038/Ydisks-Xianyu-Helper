@@ -3,7 +3,7 @@
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
 
-.PHONY: build build-int build-browser-install build-tray test test-server test-server-race test-int vet lint architecture cover cover-browser cover-frontend tidy frontend fmt comments comments-baseline check
+.PHONY: build build-int build-browser-install build-tray test test-server test-server-race test-multidb test-int vet lint architecture cover cover-browser cover-frontend tidy frontend fmt comments comments-baseline check
 
 ## build: 编译 server（默认，跳过 integration build tag）
 build:
@@ -32,6 +32,12 @@ test-server:
 ## test-server-race: 跑已验证的 server 生命周期与凭证并发 race 子集
 test-server-race:
 	$(GO) test -race ./internal/server -run 'TestRun_|TestPublishWorkerTrackingWaitsForCompletion|TestPublishRecoveryLifecycleStopsBeforeWorkerWait|TestUpdateRunningCookieWakesCredentialBlockedAutomationWithoutManager|TestSetCookieStatusWaitsForCredentialTransition|TestDeleteCookieRechecksOwnershipInsideCredentialLock'
+
+## test-multidb: 严格执行 SQLite、MySQL、PostgreSQL 三方言回归；缺少任一外部 URL 时明确失败
+test-multidb:
+	@test -n "$${TEST_MYSQL_URL:-}" || (echo '缺少 TEST_MYSQL_URL，无法执行 MySQL 实测' >&2; exit 2)
+	@test -n "$${TEST_POSTGRES_URL:-}" || (echo '缺少 TEST_POSTGRES_URL，无法执行 PostgreSQL 实测' >&2; exit 2)
+	REQUIRE_MULTIDB=1 $(GO) test ./internal/db -run '^TestMultiDB_' -v -count=1
 
 ## test-int: 带 integration tag 跑测试（含 browser，需 Chromium）
 test-int:

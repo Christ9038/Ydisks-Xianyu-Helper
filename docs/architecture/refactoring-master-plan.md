@@ -93,7 +93,7 @@ app shell / routes
 | --- | --- | --- | --- |
 | 0. 治理文档与强约束 | 已完成 | 总计划、依赖规则、注释规范、AGENTS 门禁、注释检查器 | 文档、门禁规则、Go/TypeScript 检查器和历史基线已落盘 |
 | 1. PR CI 与测试基础 | 已完成 | 独立 CI、测试 DB 模板、可执行 race | CI、独立模板、server smoke race 和完整 race 均有验证 |
-| 2. 敏感数据访问边界 | 进行中 | 摘要、凭证、登录秘密和系统设置分离 | Cookie/平台运行视图、系统设置脱敏读写和敏感设置访问审计已收口；运维输出脱敏、凭证访问审计、外部 MySQL/Postgres 实测及其他秘密调用方仍待完成 |
+| 2. 敏感数据访问边界 | 进行中 | 摘要、凭证、登录秘密和系统设置分离 | Cookie/平台运行视图、系统设置脱敏读写、已知生产敏感设置调用方审计和运维诊断输出脱敏已收口；MySQL/Postgres 实测证据、外部凭证访问的更广泛审计和普通业务错误日志的全量脱敏策略仍待完成 |
 | 3. HTTP API 契约 | 已完成 | 统一错误、具名 DTO、版本化路径 | 统一错误 DTO、具名成功 DTO、所有前端业务调用方版本化、旧路径兼容和最终审计均已完成 |
 | 4. Server 应用服务 | 进行中 | 订单、发布、登录、聊天纵向抽取 | 订单业务服务已迁入 `internal/application/orders`，Server 仅保留订单 HTTP/基础设施适配器；商品发布、登录、聊天仍由 Server 持有，handler 的低层依赖与其他领域 Port 仍待收口 |
 | 5. 应用生命周期装配 | 进行中 | 消除必需依赖 setter 回填并统一关闭边界 | 已有 Server 自有 worker 等待；待完成 Context-aware Stop、账号 StopAll 超时、删除任务登记和统一生命周期清单 |
@@ -783,6 +783,7 @@ npm --prefix frontend run build
 | 2026-08-15 | P2 React CardList 动作协调器 feature 化 | 已完成本切片 | 新增 `frontend/app/features/cards/cardActions.ts` 和 `cardActions.test.tsx`，将卡密新增、编辑、删除、启停、筛选、复制和模板下载状态/动作从 `CardList` 根组件迁入 cards feature；新增 `CardList.test.tsx` 真实挂载页面，覆盖筛选计数、批量导入入口、新增/编辑字段映射、启停、复制和删除；补充行级按钮无障碍名称。Rules/ItemList 等其他大型页面行为覆盖、页面级 Provider 组合和阶段 7 总体验收仍未完成 |
 | 2026-08-15 | P2 React Rules 动作协调器 feature 化 | 已完成本切片 | 新增 `frontend/app/features/rules/ruleActions.ts` 和 `ruleActions.test.tsx`，将自动化规则、关键词回复、默认回复的草稿与动作状态从 `Rules` 根组件迁入 rules feature；保留商品页联动加载、触发/规格编辑、归一化保存、异常恢复与确认语义，更新路由静态契约测试以跟随实现边界；前端全量 366 个测试、类型检查、中文注释门禁和生产构建通过。ItemList 其他大型页面行为覆盖、页面级 Provider 组合和阶段 7 总体验收仍未完成 |
 | 2026-08-15 | P2 React ItemList 普通商品动作协调器 feature 化 | 已完成本切片 | 新增 `frontend/app/features/items/itemActions.ts` 和 `itemActions.test.tsx`，将商品同步、编辑、删除、手动添加、普通发布、图片预览、模板下载和发货地定位从 `ItemList` 根组件迁入 items feature；批量发布 Hook 保持独立，更新图片预览静态契约；前端全量 62 个测试文件/369 个用例、类型检查、中文注释门禁、生产构建和仓库 `make check` 通过。ItemList 真实页面组合覆盖、页面级 Provider 组合和阶段 7 总体验收仍未完成 |
+| 2026-08-15 | P0 敏感配置调用方与运维输出脱敏代码切片 | 已完成本子切片 | 新增 `Store.ReadSensitiveSetting`/`ReadSensitiveSettingForAccount`，AI API Key、远程验证码密钥、系统 SMTP 密码和 AI 模型查询均在解密前写入不含秘密值的访问审计；新增 `logsafe.Error/Text`，dbverify/dbseed/init-admin/server/spike 及关键 URL/错误日志不再直接输出凭证、查询参数或解密消息正文；三库矩阵新增严格 `REQUIRE_MULTIDB=1` 门禁和 `make test-multidb`，无外部 URL 时明确跳过/失败而不伪造证据。定向 Go 测试、`make check`、前端 369 测试/类型检查/构建和注释门禁通过；当前环境未配置 MySQL/Postgres，父 P0 仍保持“进行中”，受影响包全量 race 曾命中既有订单并发测试一次，聚焦重复验证通过 |
 
 ### 11.2 执行纠偏审计（2026-08-15）
 

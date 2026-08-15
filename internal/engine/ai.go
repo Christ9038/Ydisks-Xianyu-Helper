@@ -193,7 +193,7 @@ type globalAIConfig struct {
 // globalAIConfig 负责globalAI配置相关处理。
 func (a *AIReplierImpl) globalAIConfig(ctx context.Context) (*globalAIConfig, error) {
 	// apiKey、err 保存apiKey、err，供当前处理流程使用
-	apiKey, err := a.store.Settings.Get(ctx, "ai_api_key")
+	apiKey, err := a.store.ReadSensitiveSettingForAccount(ctx, a.cookieID, "ai_api_key", "settings.use", "ai_reply")
 	if err != nil {
 		return nil, err
 	}
