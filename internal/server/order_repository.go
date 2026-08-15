@@ -213,6 +213,41 @@ func (r storeOrderRepository) UpsertOrder(ctx context.Context, orderID string, o
 	})
 }
 
+// BatchUpsertOrders 委托订单详情分片的单条多值 UPSERT。
+func (r storeOrderRepository) BatchUpsertOrders(ctx context.Context, rows []orderapp.RefreshOrderWrite) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	// converted 保存数据库批量写入模型。
+	converted := make([]db.BatchOrderUpsert, 0, len(rows))
+	// row 是当前待转换的应用层批量订单记录。
+	for _, row := range rows {
+		converted = append(converted, db.BatchOrderUpsert{OrderID: row.OrderID, Options: db.OrderUpsertOpts{ItemID: row.Options.ItemID, BuyerID: row.Options.BuyerID, CookieID: row.Options.CookieID, OrderStatus: row.Options.OrderStatus, SpecName: row.Options.SpecName, SpecValue: row.Options.SpecValue, Quantity: row.Options.Quantity, Amount: row.Options.Amount, ReceiverName: row.Options.ReceiverName, ReceiverPhone: row.Options.ReceiverPhone, ReceiverAddr: row.Options.ReceiverAddress, ReceiverCity: row.Options.ReceiverCity, ChatID: row.Options.ChatID}})
+	}
+	// tx、err 保存详情分片事务及创建错误。
+	tx, err := r.store.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	// committed 表示详情分片事务是否已经提交。
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	// err 保存批量订单写入错误。
+	if err := r.store.Orders.UpsertManyTx(ctx, tx, converted); err != nil {
+		return err
+	}
+	// err 保存详情分片事务提交错误。
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
 // LockCredentials 委托账号凭证锁。
 func (r storeOrderRepository) LockCredentials(cookieID string) func() {
 	return r.store.LockAccountCredentials(cookieID)

@@ -22,6 +22,8 @@ type refreshRepositoryFake struct {
 	soldDeleteCount int
 	// upsertCount 保存订单写入次数。
 	upsertCount int
+	// batchUpsertCount 保存详情分片批量写入调用次数。
+	batchUpsertCount int
 	// transactionErr 保存事务错误。
 	transactionErr error
 	// loadErr 保存账号视图读取错误。
@@ -89,6 +91,19 @@ func (f *refreshRepositoryFake) UpsertOrder(_ context.Context, orderID string, o
 		f.orders[orderID] = order
 	}
 	order.CookieID, order.OrderStatus, order.Amount = options.CookieID, options.OrderStatus, options.Amount
+	return nil
+}
+
+// BatchUpsertOrders 记录测试详情分片批量写入。
+func (f *refreshRepositoryFake) BatchUpsertOrders(ctx context.Context, rows []RefreshOrderWrite) error {
+	f.batchUpsertCount++
+	// row 是当前测试批量写入的订单详情。
+	for _, row := range rows {
+		// err 保存测试订单写入错误。
+		if err := f.UpsertOrder(ctx, row.OrderID, row.Options); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -238,7 +253,7 @@ func TestRefreshBatchDiscoveryAndDetails(t *testing.T) {
 	}
 	// result、err 保存批量刷新结果和错误。
 	result, err := NewRefreshService(repository, runtime, 1).Refresh(context.Background(), 7, "", "all")
-	if err != nil || result.Summary.Discovered != 1 || result.Summary.SoftDeleted != 1 || result.Summary.DetailTotal == 0 || repository.upsertCount == 0 {
+	if err != nil || result.Summary.Discovered != 1 || result.Summary.SoftDeleted != 1 || result.Summary.DetailTotal == 0 || repository.upsertCount == 0 || repository.batchUpsertCount != 1 {
 		t.Fatalf("批量刷新结果异常: result=%+v err=%v repository=%+v", result, err, repository)
 	}
 }

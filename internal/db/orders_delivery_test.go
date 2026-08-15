@@ -139,6 +139,62 @@ func TestOrdersSoftDeleteMissingForCookie(t *testing.T) {
 	}
 }
 
+// TestOrdersUpsertMany 验证订单详情分片使用单条多值 UPSERT 且不会让状态倒退。
+func TestOrdersUpsertMany(t *testing.T) {
+	// store、cleanup 保存测试数据库及清理函数。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 保存批量订单测试上下文。
+	ctx := context.Background()
+	// cookieID 保存测试账号标识。
+	_, cookieID := seedAccount(t, store)
+	// err 表示初始订单写入错误。
+	if err := store.Orders.Upsert(ctx, "batch-existing", OrderUpsertOpts{CookieID: cookieID, OrderStatus: "shipped", Amount: "10"}); err != nil {
+		t.Fatalf("seed existing order: %v", err)
+	}
+	// before 保存批量写入前的订单版本。
+	before, err := store.Orders.Get(ctx, "batch-existing")
+	if err != nil {
+		t.Fatalf("read existing order: %v", err)
+	}
+	// rows 保存待一次性写入的订单详情。
+	rows := []BatchOrderUpsert{
+		{OrderID: "batch-existing", Options: OrderUpsertOpts{CookieID: cookieID, OrderStatus: "pending_ship", SpecName: "颜色", SpecValue: "蓝", Amount: "¥12.50"}},
+		{OrderID: "batch-new", Options: OrderUpsertOpts{CookieID: cookieID, OrderStatus: "pending_ship", Quantity: "2", Amount: "5.00"}},
+	}
+	// err 保存批量订单写入错误。
+	if err := store.Orders.UpsertMany(ctx, rows); err != nil {
+		t.Fatalf("batch upsert: %v", err)
+	}
+	// existing、newOrder 保存批量写入后的订单。
+	// existing、err 保存已有订单及读取错误。
+	existing, err := store.Orders.Get(ctx, "batch-existing")
+	if err != nil {
+		t.Fatalf("read batch existing order: %v", err)
+	}
+	// newOrder、err 保存新订单及读取错误。
+	newOrder, err := store.Orders.Get(ctx, "batch-new")
+	if err != nil {
+		t.Fatalf("read batch new order: %v", err)
+	}
+	if existing.OrderStatus != "shipped" || existing.SpecValue != "蓝" || existing.Amount != "12.50" || existing.Version <= before.Version {
+		t.Fatalf("batch existing order=%+v before=%+v", existing, before)
+	}
+	if newOrder.OrderStatus != "pending_ship" || newOrder.Quantity != "2" || newOrder.Amount != "5.00" {
+		t.Fatalf("batch new order=%+v", newOrder)
+	}
+	// forbiddenErr 保存跨账号订单写入错误。
+	forbiddenErr := store.Orders.UpsertMany(ctx, []BatchOrderUpsert{{OrderID: "batch-existing", Options: OrderUpsertOpts{CookieID: "other-cookie", OrderStatus: "completed"}}})
+	if !errors.Is(forbiddenErr, ErrForbidden) {
+		t.Fatalf("cross-cookie batch upsert error=%v", forbiddenErr)
+	}
+	// duplicateErr 保存重复订单标识错误。
+	duplicateErr := store.Orders.UpsertMany(ctx, []BatchOrderUpsert{{OrderID: "duplicate", Options: OrderUpsertOpts{CookieID: cookieID}}, {OrderID: "duplicate", Options: OrderUpsertOpts{CookieID: cookieID}}})
+	if duplicateErr == nil {
+		t.Fatal("duplicate order IDs must be rejected")
+	}
+}
+
 // seedAccount 在临时库里建好 admin 用户 + 一个账号（cookie），返回 (userID, cookieID)。
 // 多数订单/自动化/卡券测试都需要这两层外键先就位。
 // seedAccount 负责seed账号相关处理。

@@ -84,6 +84,14 @@ type RefreshCookieUpdate struct {
 	Handled bool
 }
 
+// RefreshOrderWrite 描述详情分片批量写入的一条订单记录。
+type RefreshOrderWrite struct {
+	// OrderID 是待写入订单标识。
+	OrderID string
+	// Options 是本次详情刷新需要更新的订单字段。
+	Options UpsertOptions
+}
+
 // RefreshOrderResult 描述订单刷新结果中的单条兼容结果。
 type RefreshOrderResult struct {
 	// CookieID 是账号刷新结果对应的账号标识。
@@ -170,12 +178,12 @@ type RefreshRepository interface {
 	UpdateRenewalCookie(ctx context.Context, cookieID, value, metadata string, at int64) error
 	// UpsertOrder 写入订单刷新结果。
 	UpsertOrder(ctx context.Context, orderID string, options UpsertOptions) error
+	// BatchUpsertOrders 使用单条多值 UPSERT 写入详情分片。
+	BatchUpsertOrders(ctx context.Context, rows []RefreshOrderWrite) error
 	// SoftDeleteMissingOrders 标记远端订单列表中缺失的本地订单。
 	SoftDeleteMissingOrders(ctx context.Context, cookieID string, activeIDs map[string]struct{}) (int, error)
 	// ListOrdersByCookieCursor 使用复合游标读取账号订单。
 	ListOrdersByCookieCursor(ctx context.Context, cookieID string, limit int, afterCreatedAt, afterOrderID string) ([]OrderRow, error)
-	// WithTransaction 在单个事务中提交详情分片。
-	WithTransaction(ctx context.Context, work func(Writer) error) error
 }
 
 // RefreshRuntime 定义订单刷新访问平台和运行时能力的最小 Port。
@@ -638,17 +646,14 @@ func (s *RefreshService) refreshDetailChunk(ctx context.Context, userID int64, c
 		}
 		pendingWrites = append(pendingWrites, refreshWrite{OrderID: target.OrderID, CurrentStatus: target.CurrentStatus, NewStatus: newStatus, Options: UpsertOptions{CookieID: cookieID, OrderStatus: newStatus, SpecName: fetchResult.Detail.SpecName, SpecValue: fetchResult.Detail.SpecValue, Quantity: fetchResult.Detail.Quantity, Amount: fetchResult.Detail.Amount}, CookieUpdate: fetchResult.CookieUpdate})
 	}
-	// batchWriteErr 保存详情分片事务写入错误。
-	batchWriteErr := s.repository.WithTransaction(ctx, func(writer Writer) error {
-		// write 是当前事务待写入的订单详情。
-		for _, write := range pendingWrites {
-			// err 保存当前事务订单写入错误。
-			if err := writer.UpsertOrder(ctx, write.OrderID, write.Options); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	// batchRows 保存详情分片等待一次性写入的订单记录。
+	batchRows := make([]RefreshOrderWrite, 0, len(pendingWrites))
+	// write 是当前详情分片待批量写入的订单详情。
+	for _, write := range pendingWrites {
+		batchRows = append(batchRows, RefreshOrderWrite{OrderID: write.OrderID, Options: write.Options})
+	}
+	// batchWriteErr 保存详情分片单条多值 UPSERT 错误。
+	batchWriteErr := s.repository.BatchUpsertOrders(ctx, batchRows)
 	// updated、noChange、failed 保存详情分片统计。
 	updated, noChange, failed := 0, 0, 0
 	// write 是当前统计对应的订单详情。

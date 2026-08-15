@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"math"
 	"regexp"
 	"strconv"
@@ -143,6 +144,140 @@ func (o *Orders) Upsert(ctx context.Context, orderID string, opts OrderUpsertOpt
 // UpsertTx 在调用方事务内插入或更新订单。
 func (o *Orders) UpsertTx(ctx context.Context, tx *sql.Tx, orderID string, opts OrderUpsertOpts) error {
 	return upsertOrder(ctx, tx, o.Dialect, orderID, opts)
+}
+
+// BatchOrderUpsert 描述订单刷新批量 UPSERT 的一行数据。
+type BatchOrderUpsert struct {
+	// OrderID 是订单业务标识。
+	OrderID string
+	// Options 是订单可选字段集合；空字符串字段不会覆盖已有值。
+	Options OrderUpsertOpts
+}
+
+// UpsertMany 使用单条多值 UPSERT 写入一批订单，避免详情分片逐订单往返数据库。
+func (o *Orders) UpsertMany(ctx context.Context, rows []BatchOrderUpsert) error {
+	return upsertManyOrders(ctx, o.DB, o.Dialect, rows)
+}
+
+// UpsertManyTx 在调用方事务内使用单条多值 UPSERT 写入一批订单。
+func (o *Orders) UpsertManyTx(ctx context.Context, tx *sql.Tx, rows []BatchOrderUpsert) error {
+	return upsertManyOrders(ctx, tx, o.Dialect, rows)
+}
+
+// upsertManyOrders 构造跨 SQLite/MySQL/Postgres 的多值订单 UPSERT。
+func upsertManyOrders(ctx context.Context, execer sqlQueryExecer, dialect Dialect, rows []BatchOrderUpsert) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	// seen 保存本批次已经出现的订单标识，避免 PostgreSQL 同一语句重复冲突。
+	seen := make(map[string]struct{}, len(rows))
+	// normalizedRows 保存金额和状态已归一化的批量订单。
+	normalizedRows := make([]BatchOrderUpsert, 0, len(rows))
+	// cookieIDs 保存需要执行归属冲突检查的账号集合。
+	cookieIDs := make(map[string][]string)
+	// row 是当前规范化处理的批量订单。
+	for _, row := range rows {
+		if strings.TrimSpace(row.OrderID) == "" {
+			return errors.New("order_id 不能为空")
+		}
+		// exists 表示当前订单标识是否已经出现在本批次。
+		if _, exists := seen[row.OrderID]; exists {
+			return fmt.Errorf("批量订单包含重复 order_id: %s", row.OrderID)
+		}
+		seen[row.OrderID] = struct{}{}
+		row.Options.ItemID = strings.TrimSpace(row.Options.ItemID)
+		if row.Options.Amount != "" {
+			// normalized、ok 保存当前订单金额归一化结果。
+			normalized, ok := NormalizeOrderAmount(row.Options.Amount)
+			if !ok {
+				return errors.New("订单金额必须是普通格式的非负有限数字")
+			}
+			row.Options.Amount = normalized
+		}
+		if row.Options.OrderStatus == "" {
+			row.Options.OrderStatus = "unknown"
+		}
+		normalizedRows = append(normalizedRows, row)
+		if row.Options.CookieID != "" {
+			cookieIDs[row.Options.CookieID] = append(cookieIDs[row.Options.CookieID], row.OrderID)
+		}
+	}
+	// cookieID、orderIDs 保存当前账号及其订单标识集合。
+	for cookieID, orderIDs := range cookieIDs {
+		// placeholders、args 保存当前账号归属冲突检查 SQL 参数。
+		placeholders := make([]string, len(orderIDs))
+		// args 保存归属冲突检查查询参数。
+		args := make([]any, 0, len(orderIDs)+1)
+		// index、orderID 保存当前账号订单的下标和业务标识。
+		for index, orderID := range orderIDs {
+			placeholders[index] = "?"
+			args = append(args, orderID)
+		}
+		args = append(args, cookieID)
+		// conflictCount、err 保存跨账号订单数量及查询错误。
+		var conflictCount int
+		// query 保存归属冲突检查 SQL。
+		query := `SELECT COUNT(*) FROM orders WHERE order_id IN (` + strings.Join(placeholders, ",") + `) AND cookie_id IS NOT NULL AND cookie_id<>?`
+		// err 保存归属冲突查询错误。
+		if err := execer.QueryRowContext(ctx, query, args...).Scan(&conflictCount); err != nil {
+			return err
+		}
+		if conflictCount > 0 {
+			return ErrForbidden
+		}
+	}
+
+	// columns 保存多值 INSERT 的公共列集合。
+	columns := []string{"order_id", "item_id", "buyer_id", "cookie_id", "order_status", "spec_name", "spec_value", "quantity", "amount", "receiver_name", "receiver_phone", "receiver_address", "receiver_city", "version"}
+	// values 保存多行占位符和参数。
+	values := make([]string, 0, len(normalizedRows))
+	// args 保存批量插入参数。
+	args := make([]any, 0, len(normalizedRows)*len(columns))
+	// row 是当前待插入的批量订单。
+	for _, row := range normalizedRows {
+		values = append(values, "("+strings.TrimRight(strings.Repeat("?,", len(columns)), ",")+")")
+		args = append(args, row.OrderID, row.Options.ItemID, row.Options.BuyerID, row.Options.CookieID, row.Options.OrderStatus, row.Options.SpecName, row.Options.SpecValue, row.Options.Quantity, row.Options.Amount, row.Options.ReceiverName, row.Options.ReceiverPhone, row.Options.ReceiverAddr, row.Options.ReceiverCity, 1)
+	}
+	// excludedValue 返回当前数据库方言读取插入候选值的表达式。
+	excludedValue := func(column string) string {
+		if dialect == DialectMySQL {
+			return "VALUES(" + column + ")"
+		}
+		return "EXCLUDED." + column
+	}
+	// mergeValue 生成仅在候选值非空时覆盖旧值的表达式。
+	mergeValue := func(column string) string {
+		// incoming 保存当前列候选值表达式。
+		incoming := excludedValue(column)
+		return "CASE WHEN " + incoming + " IS NOT NULL AND " + incoming + "<>'' THEN " + incoming + " ELSE " + column + " END"
+	}
+	// incomingStatus 保存候选订单状态表达式。
+	incomingStatus := excludedValue("order_status")
+	// statusAssignment 保存防止状态倒退的跨方言状态表达式。
+	statusAssignment := "CASE WHEN " + incomingStatus + " IS NULL OR " + incomingStatus + "='' THEN order_status WHEN order_status='unknown' OR order_status=" + incomingStatus + " THEN " + incomingStatus + " WHEN " + incomingStatus + " IN ('processing','pending_ship') AND order_status IN ('shipped','completed','refunding','cancelled') THEN order_status WHEN " + incomingStatus + "='shipped' AND order_status IN ('completed','cancelled') THEN order_status ELSE " + incomingStatus + " END"
+	// assignments 保存批量 UPSERT 的更新列表达式。
+	assignments := map[string]string{
+		"item_id":          mergeValue("item_id"),
+		"buyer_id":         mergeValue("buyer_id"),
+		"cookie_id":        mergeValue("cookie_id"),
+		"order_status":     statusAssignment,
+		"spec_name":        mergeValue("spec_name"),
+		"spec_value":       mergeValue("spec_value"),
+		"quantity":         mergeValue("quantity"),
+		"amount":           mergeValue("amount"),
+		"receiver_name":    mergeValue("receiver_name"),
+		"receiver_phone":   mergeValue("receiver_phone"),
+		"receiver_address": mergeValue("receiver_address"),
+		"receiver_city":    mergeValue("receiver_city"),
+		"deleted_at":       "NULL",
+		"version":          "version+1",
+		"updated_at":       "CURRENT_TIMESTAMP",
+	}
+	// query 保存多值 UPSERT SQL。
+	query := "INSERT INTO orders (" + strings.Join(columns, ",") + ") VALUES " + strings.Join(values, ",") + dialectUpsert(dialect, []string{"order_id"}, assignments)
+	// err 保存多值 UPSERT 执行错误。
+	_, err := execer.ExecContext(ctx, query, args...)
+	return err
 }
 
 // SoftDelete 将订单标记为逻辑删除，保留历史数据供审计和后续恢复。
