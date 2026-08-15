@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -125,6 +126,25 @@ func (s *Server) setSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if len(secrets) > 0 {
+		// sess 保存当前管理员会话，用于敏感设置写入审计。
+		sess := authSess(r)
+		if sess == nil {
+			writeErr(w, http.StatusInternalServerError, "审计失败")
+			return
+		}
+		// secretKeys 保存本次敏感设置写入涉及的键名。
+		secretKeys := make([]string, 0, len(secrets))
+		// key 是本次敏感设置写入涉及的键名。
+		for key := range secrets {
+			secretKeys = append(secretKeys, key)
+		}
+		// err 保存敏感设置写入审计错误。
+		if err := s.auditSensitiveSettingsAccess(r.Context(), sess.UserID, "settings.write", "system_settings", secretKeys); err != nil {
+			writeErr(w, http.StatusInternalServerError, "审计失败")
+			return
+		}
+	}
 	// err 是普通设置与敏感命令原子保存错误。
 	if err := s.Store.Settings.ApplyChanges(r.Context(), values, secrets); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
@@ -180,6 +200,35 @@ func validSecretSettingAction(action string) bool {
 	}
 }
 
+// auditSensitiveSettingsAccess 记录敏感设置访问动作，审计内容只包含键名而不包含秘密值。
+func (s *Server) auditSensitiveSettingsAccess(ctx context.Context, userID int64, action, resource string, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	if s == nil || s.Store == nil || s.Store.SecurityAudit == nil {
+		return errors.New("敏感访问审计未初始化")
+	}
+	// normalizedKeys 保存排序去重后的敏感设置键名。
+	normalizedKeys := make([]string, 0, len(keys))
+	// seenKeys 保存已经加入审计记录的键名。
+	seenKeys := make(map[string]struct{}, len(keys))
+	// key 是当前待写入审计记录的敏感设置键名。
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		// exists 表示敏感设置键名是否已经加入审计记录。
+		if _, exists := seenKeys[key]; exists {
+			continue
+		}
+		seenKeys[key] = struct{}{}
+		normalizedKeys = append(normalizedKeys, key)
+	}
+	sort.Strings(normalizedKeys)
+	return s.Store.SecurityAudit.Add(ctx, db.SecurityAuditLog{UserID: userID, Action: action, Resource: resource, Keys: normalizedKeys, Outcome: "accepted"})
+}
+
 // publicSettings 负责public设置相关处理。
 func (s *Server) publicSettings(w http.ResponseWriter, r *http.Request) {
 	// m、err 保存m、err，供当前处理流程使用
@@ -193,6 +242,17 @@ func (s *Server) publicSettings(w http.ResponseWriter, r *http.Request) {
 
 // allSettings 负责all设置相关处理。
 func (s *Server) allSettings(w http.ResponseWriter, r *http.Request) {
+	// sess 保存当前管理员会话，用于敏感配置读取审计。
+	sess := authSess(r)
+	if sess == nil {
+		writeErr(w, http.StatusInternalServerError, "审计失败")
+		return
+	}
+	// err 保存敏感配置读取审计错误。
+	if err := s.auditSensitiveSettingsAccess(r.Context(), sess.UserID, "settings.read", "system_settings", db.SensitiveSettingKeys()); err != nil {
+		writeErr(w, http.StatusInternalServerError, "审计失败")
+		return
+	}
 	// m、err 保存m、err，供当前处理流程使用
 	m, err := s.Store.Settings.Redacted(r.Context())
 	if err != nil {
@@ -223,6 +283,17 @@ func (s *Server) setSetting(w http.ResponseWriter, r *http.Request) {
 		action := req.Action
 		if !validSecretSettingAction(action) {
 			writeErr(w, http.StatusBadRequest, "敏感设置命令无效")
+			return
+		}
+		// sess 保存当前管理员会话，用于单项敏感设置写入审计。
+		sess := authSess(r)
+		if sess == nil {
+			writeErr(w, http.StatusInternalServerError, "审计失败")
+			return
+		}
+		// err 保存单项敏感设置写入审计错误。
+		if err := s.auditSensitiveSettingsAccess(r.Context(), sess.UserID, "settings.write", "system_settings", []string{key}); err != nil {
+			writeErr(w, http.StatusInternalServerError, "审计失败")
 			return
 		}
 		// err 是单项敏感设置原子保存错误。
@@ -371,6 +442,17 @@ func (s *Server) listAIModels(w http.ResponseWriter, r *http.Request) {
 	if // err 保存err，供当前处理流程使用
 	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	// sess 保存当前管理员会话，用于 AI 密钥使用审计。
+	sess := authSess(r)
+	if sess == nil {
+		writeErr(w, http.StatusInternalServerError, "审计失败")
+		return
+	}
+	// err 保存 AI 密钥使用审计错误。
+	if err := s.auditSensitiveSettingsAccess(r.Context(), sess.UserID, "settings.use", "ai_models", []string{"ai_api_key"}); err != nil {
+		writeErr(w, http.StatusInternalServerError, "审计失败")
 		return
 	}
 	// baseURL 保存baseURL，供当前处理流程使用

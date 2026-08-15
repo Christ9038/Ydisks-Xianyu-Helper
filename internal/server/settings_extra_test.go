@@ -551,6 +551,37 @@ func TestSystemSettingsEndpointRedactsSensitiveValues(t *testing.T) {
 			t.Fatalf("settings response misses configured marker %q: %#v", key, response)
 		}
 	}
+	// admin、adminErr 保存管理员用户及其查询错误。
+	admin, adminErr := store.Users.GetAdmin(ctx)
+	if adminErr != nil || admin == nil {
+		t.Fatalf("读取管理员失败: admin=%+v err=%v", admin, adminErr)
+	}
+	// auditRecords、auditErr 保存管理员读取敏感配置产生的审计记录。
+	auditRecords, auditErr := store.SecurityAudit.ListByUser(ctx, admin.ID, 10)
+	if auditErr != nil || len(auditRecords) == 0 || auditRecords[0].Action != "settings.read" {
+		t.Fatalf("敏感设置读取未生成审计记录: records=%+v err=%v", auditRecords, auditErr)
+	}
+}
+
+// TestSensitiveSettingsAccessRequiresAuditStorage 验证审计存储不可用时敏感读取会拒绝继续。
+func TestSensitiveSettingsAccessRequiresAuditStorage(t *testing.T) {
+	// srv、store、cleanup 是测试服务、数据库及其清理函数。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// h 是当前测试服务的 HTTP 路由器。
+	h := srv.Router()
+	// cookie 是管理员登录后得到的会话 Cookie。
+	cookie := loginHelper(t, h)
+	store.SecurityAudit = nil
+	// req 是在审计存储不可用时读取系统设置的请求。
+	req := httptest.NewRequest(http.MethodGet, "/system-settings", nil)
+	req.AddCookie(cookie)
+	// rec 是捕获拒绝响应的 HTTP 记录器。
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("审计存储不可用时应拒绝敏感读取，status=%d body=%s", rec.Code, rec.Body.String())
+	}
 }
 
 // TestSystemSettingsEndpointUsesExplicitSecretCommands 验证 HTTP 设置更新不会把秘密混入普通字段。
@@ -594,6 +625,16 @@ func TestSystemSettingsEndpointUsesExplicitSecretCommands(t *testing.T) {
 	// value、err 是清除后的秘密读取结果及错误。
 	if value, err := store.Settings.Get(ctx, "ai_api_key"); err != nil || value != "" {
 		t.Fatalf("clear value=%q err=%v", value, err)
+	}
+	// admin、adminErr 保存管理员用户及其查询错误。
+	admin, adminErr := store.Users.GetAdmin(ctx)
+	if adminErr != nil || admin == nil {
+		t.Fatalf("读取管理员失败: admin=%+v err=%v", admin, adminErr)
+	}
+	// auditRecords、auditErr 保存敏感设置替换和清除产生的审计记录。
+	auditRecords, auditErr := store.SecurityAudit.ListByUser(ctx, admin.ID, 10)
+	if auditErr != nil || len(auditRecords) < 2 {
+		t.Fatalf("敏感设置写入未生成足够审计记录: records=%+v err=%v", auditRecords, auditErr)
 	}
 	// forbiddenReq 是尝试把敏感值放进普通 values 的请求。
 	forbiddenReq := httptest.NewRequest(http.MethodPut, "/system-settings", strings.NewReader(`{"values":{"ai_api_key":"leak"}}`))

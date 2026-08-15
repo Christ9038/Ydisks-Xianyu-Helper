@@ -306,3 +306,8 @@ func isSensitiveSettingKey(key string) bool {
 func IsSensitiveSettingKey(key string) bool {
 	return isSensitiveSettingKey(key)
 }
+
+// SensitiveSettingKeys 返回全部敏感系统设置键名，调用方可用于访问审计且不包含秘密值。
+func SensitiveSettingKeys() []string {
+	return []string{"ai_api_key", "smtp_password", "qq_reply_secret_key", "captcha.remote_secret_key"}
+}

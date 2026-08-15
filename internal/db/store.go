@@ -31,10 +31,12 @@ type Store struct {
 	Renewal          *RenewalStore
 	LoginLogs        *AccountLoginLogs
 	RiskLogs         *RiskControlLogs
-	Chats            *ChatStore
-	AccountTasks     *AccountTaskStore
-	Admin            *AdminQueries
-	Analytics        *AnalyticsQueries
+	// SecurityAudit 保存敏感配置访问审计记录。
+	SecurityAudit *SecurityAuditLogs
+	Chats         *ChatStore
+	AccountTasks  *AccountTaskStore
+	Admin         *AdminQueries
+	Analytics     *AnalyticsQueries
 
 	credentialMu    sync.Mutex
 	credentialLocks map[string]*credentialLockEntry
@@ -77,6 +79,7 @@ func NewStore(db *sql.DB, dialect Dialect) *Store {
 		Renewal:          &RenewalStore{DB: db, Dialect: dialect},
 		LoginLogs:        &AccountLoginLogs{DB: db},
 		RiskLogs:         &RiskControlLogs{DB: db, Dialect: dialect},
+		SecurityAudit:    &SecurityAuditLogs{DB: db},
 		Chats:            &ChatStore{DB: db, Dialect: dialect},
 		AccountTasks:     &AccountTaskStore{DB: db, Dialect: dialect},
 		Admin:            &AdminQueries{DB: db},

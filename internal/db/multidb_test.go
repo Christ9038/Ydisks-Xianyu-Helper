@@ -546,6 +546,27 @@ func TestMultiDB_SettingsQuoteKey(t *testing.T) {
 	}
 }
 
+// TestMultiDB_SecurityAudit 验证敏感访问审计表和读写语义在各数据库方言可用。
+func TestMultiDB_SecurityAudit(t *testing.T) {
+	// tg 表示当前数据库方言测试目标。
+	for _, tg := range allTestTargets(t) {
+		t.Run(tg.name, func(t *testing.T) {
+			defer tg.cleanup()
+			// ctx 保存当前方言审计测试上下文。
+			ctx := context.Background()
+			// err 保存当前方言审计记录写入错误。
+			if err := tg.store.SecurityAudit.Add(ctx, SecurityAuditLog{UserID: 1, Action: "settings.read", Resource: "system_settings", Keys: []string{"ai_api_key"}, CreatedAt: 7}); err != nil {
+				t.Fatalf("SecurityAudit.Add: %v", err)
+			}
+			// records、err 保存当前方言读取到的审计记录及错误。
+			records, err := tg.store.SecurityAudit.ListByUser(ctx, 1, 10)
+			if err != nil || len(records) != 1 || records[0].Keys[0] != "ai_api_key" {
+				t.Fatalf("SecurityAudit.ListByUser records=%+v err=%v", records, err)
+			}
+		})
+	}
+}
+
 // TestMultiDB_OrdersUpsertNullScan 验证订单部分字段 Upsert 后 Get 能正确扫描 NULL 列。
 func TestMultiDB_OrdersUpsertNullScan(t *testing.T) {
 	// tg 表示当前遍历过程中的tg

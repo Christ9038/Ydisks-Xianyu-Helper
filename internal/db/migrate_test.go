@@ -64,6 +64,8 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 		{"risk_control_logs", "processing_status"},
 		{"risk_control_logs", "duration_ms"},
 		{"notification_outbox", "worker_token"},
+		{"security_audit_logs", "keys_json"},
+		{"security_audit_logs", "outcome"},
 	}
 	// c 表示当前遍历过程中的c
 	for _, c := range checks {
