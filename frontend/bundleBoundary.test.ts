@@ -6,6 +6,18 @@ import { describe, expect, test } from 'vitest';
 const staticRoot = resolve(__dirname, '../internal/webui/static');
 // indexHtml 是生产构建生成的入口 HTML。
 const indexHtml = readFileSync(resolve(staticRoot, 'index.html'), 'utf8');
+// PAGE_CHUNK_BUDGETS 定义每个业务页面动态分片允许的原始字节上限。
+const PAGE_CHUNK_BUDGETS: Record<string, number> = {
+  Dashboard: 30 * 1024,
+  AccountList: 70 * 1024,
+  OrderList: 40 * 1024,
+  CardList: 45 * 1024,
+  ItemList: 65 * 1024,
+  Settings: 30 * 1024,
+  Rules: 65 * 1024,
+  Notifications: 45 * 1024,
+  Chat: 50 * 1024,
+};
 
 describe('frontend production bundle boundary', /* 当前回调验证生产入口包体和页面分片。 */ () => {
   test('入口脚本保持轻量且业务页面不被预加载', /* 当前回调验证首屏入口不同步载入所有页面。 */ () => {
@@ -25,5 +37,22 @@ describe('frontend production bundle boundary', /* 当前回调验证生产入�
     // pageChunkNames 保存 Vite 输出的业务页面 chunk 文件名。
     const pageChunkNames = readdirSync(resolve(staticRoot, 'assets')).filter(/* 当前回调筛选业务页面分片文件。 */ fileName => /^(Dashboard|AccountList|OrderList|CardList|ItemList|Settings|Rules|Notifications|Chat)-.+\.js$/.test(fileName));
     expect(pageChunkNames).toHaveLength(9);
+  });
+
+  test('每个业务页面 chunk 都保持在独立预算内', /* 当前回调验证单个页面不会重新膨胀首屏后的按需下载。 */ () => {
+    // assetNames 保存当前生产构建输出的所有静态资源文件名。
+    const assetNames = readdirSync(resolve(staticRoot, 'assets'));
+    for (const budget /* budget 表示一个页面分片的预算条目。 */ of Object.entries(PAGE_CHUNK_BUDGETS)) {
+      // pageName 表示预算对应的页面名称。
+      const pageName = budget[0];
+      // maxBytes 表示该页面分片允许的最大原始字节数。
+      const maxBytes = budget[1];
+      // pageChunkNames 保存该页面匹配到的生产分片文件。
+      const pageChunkNames = assetNames.filter(/* 当前回调筛选当前页面的动态分片。 */ fileName => fileName.startsWith(`${pageName}-`) && fileName.endsWith('.js'));
+      expect(pageChunkNames, `${pageName} 应只有一个动态分片`).toHaveLength(1);
+      // actualBytes 保存当前页面分片的实际原始字节数。
+      const actualBytes = statSync(resolve(staticRoot, 'assets', pageChunkNames[0])).size;
+      expect(actualBytes, `${pageName} 分片超过 ${maxBytes} 字节预算`).toBeLessThanOrEqual(maxBytes);
+    }
   });
 });
