@@ -390,30 +390,26 @@ func parseMoneyCents(raw string) (int64, error) {
 func (s *Server) listItems(w http.ResponseWriter, r *http.Request) {
 	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
-	cookieIDs, err := s.Store.Cookies.ListOwnedIDs(r.Context(), sess.UserID) // cookieIDs 和 err 是账号 ID 列表及查询错误。
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
-		return
-	}
-	// cookieID 保存登录凭证ID，供当前处理流程使用
+	// cookieID 是可选的账号筛选条件。
 	cookieID := strings.TrimSpace(r.URL.Query().Get("cookie_id"))
+	// cookieID 保存登录凭证ID，供当前处理流程使用
 	if cookieID != "" {
 		if !s.cookieOwnedByUser(r.Context(), sess.UserID, cookieID) {
 			writeErr(w, http.StatusForbidden, "无权限操作该账号")
 			return
 		}
-		cookieIDs = []string{cookieID}
 	}
-	// result 保存结果，供当前处理流程使用
-	result := []itemListResponse{}
-	// cid 表示当前遍历过程中的cid
-	for _, cid := range cookieIDs {
-		// items 保存商品列表，供当前处理流程使用
-		items, _ := s.Store.Items.AllForCookie(r.Context(), cid)
-		// it 表示当前遍历过程中的it
-		for _, it := range items {
-			result = append(result, itemToMap(it))
-		}
+	// items、err 保存用户范围商品查询结果及错误。
+	items, err := s.Store.Items.ListForUser(r.Context(), sess.UserID, cookieID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询失败")
+		return
+	}
+	// result 保存结果，供当前处理流程使用。
+	result := make([]itemListResponse, 0, len(items))
+	// it 表示当前遍历过程中的商品行。
+	for _, it := range items {
+		result = append(result, itemToMap(it))
 	}
 	writeJSON(w, http.StatusOK, result)
 }

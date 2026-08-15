@@ -730,6 +730,28 @@ func (i *Items) AllForCookie(ctx context.Context, cookieID string) ([]ItemInfoRo
 		return nil, err
 	}
 	defer rows.Close()
+	return scanItemInfoRows(rows)
+}
+
+// ListForUser 一次查询用户范围内的全部商品，可选按账号 ID 过滤。
+func (i *Items) ListForUser(ctx context.Context, userID int64, cookieID string) ([]ItemInfoRow, error) {
+	// rows、err 保存用户范围商品查询结果及错误。
+	rows, err := i.DB.QueryContext(ctx,
+		`SELECT i.id, i.cookie_id, i.item_id, COALESCE(i.item_title,''), COALESCE(i.item_description,''),
+		        COALESCE(i.item_category,''), COALESCE(i.item_price,''), COALESCE(i.item_detail,''),
+		        i.is_multi_spec, COALESCE(i.multi_quantity_delivery,0)
+		 FROM item_info i JOIN cookies c ON c.id=i.cookie_id
+		 WHERE c.user_id=? AND (?='' OR i.cookie_id=?) AND i.deleted_at IS NULL
+		 ORDER BY i.id DESC`, userID, cookieID, cookieID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanItemInfoRows(rows)
+}
+
+// scanItemInfoRows 将商品查询游标转换为统一的商品行模型。
+func scanItemInfoRows(rows *sql.Rows) ([]ItemInfoRow, error) {
 	// out 保存out，供当前处理流程使用
 	var out []ItemInfoRow
 	for rows.Next() {
