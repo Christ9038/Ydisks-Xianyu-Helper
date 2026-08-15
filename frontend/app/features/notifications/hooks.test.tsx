@@ -262,4 +262,37 @@ describe('useNotifications', /* 当前回调处理通知渠道、SMTP 和动作�
       vi.useRealTimers();
     }
   });
+
+  test('渠道刷新时丢弃先发出的过期响应', /* 当前回调验证通知渠道请求代次隔离。 */ async () => {
+    // ChannelResponse 是旧渠道请求使用的最小成功响应。
+    type ChannelResponse = {
+      // success 表示请求成功。
+      success: true;
+      // data 保存渠道列表。
+      data: NotificationChannel[];
+    };
+    // resolveFirst 是旧渠道请求的完成控制器。
+    let resolveFirst: (value: ChannelResponse) => void = () => undefined;
+    // firstRequest 是保持未完成的旧渠道请求 Promise。
+    const firstRequest = new Promise<ChannelResponse>(/* firstExecutor 保存旧请求完成函数。 */ resolve => { resolveFirst = resolve; });
+    getChannelsMock.mockReset();
+    getChannelsMock.mockReturnValueOnce(firstRequest);
+    getChannelsMock.mockResolvedValueOnce({ success: true, data: [channelFixture] });
+    // hook 是通知渠道刷新竞态场景的 Hook 渲染结果。
+    const hook = renderHook(
+      // staleHookFactory 创建通知渠道旧响应场景的 Hook。
+      () => useNotifications(false),
+    );
+    await act(
+      // refreshAction 发起第二次渠道刷新并使首次请求过期。
+      async () => hook.result.current.loadChannels(),
+    );
+    resolveFirst({ success: true, data: [] });
+    await act(
+      // staleResolveAction 完成已过期的首次响应。
+      async () => { await firstRequest; },
+    );
+    expect(hook.result.current.channels).toEqual([channelFixture]);
+    hook.unmount();
+  });
 });

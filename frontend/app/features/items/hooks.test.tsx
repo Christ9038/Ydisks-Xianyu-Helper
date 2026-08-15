@@ -401,4 +401,44 @@ describe('useItemPublishBatch', /* 当前回调处理批量发布的表单、任
       vi.useRealTimers();
     }
   });
+
+  test('批量轮询避免并发请求并丢弃关闭弹窗后的旧响应', /* 当前回调验证批量轮询并发与代次隔离。 */ async () => {
+    vi.useFakeTimers();
+    // resolvePoll 是延迟轮询请求的完成控制器。
+    let resolvePoll: (value: ItemPublishBatchResponse) => void = () => undefined;
+    // pendingPoll 是保持轮询进行中的请求 Promise。
+    const pendingPoll = new Promise<ItemPublishBatchResponse>(/* pollExecutor 保存轮询完成函数。 */ resolve => { resolvePoll = resolve; });
+    getBatchMock.mockReset();
+    getBatchMock.mockReturnValueOnce(pendingPoll);
+    // hook 是批量轮询并发场景的 Hook 渲染结果。
+    const hook = renderHook(/* stalePollHookFactory 创建批量轮询并发场景的 Hook。 */ () => useItemPublishBatch({ selectedAccount: 'account-1', loadItems: vi.fn(), loadShippingRules: vi.fn() }));
+    await act(
+      // stateAction 打开弹窗并注入运行中的任务详情。
+      () => {
+        hook.result.current.setShowBatchModal(true);
+        hook.result.current.setBatchDetail(runningBatchFixture);
+      },
+    );
+    await act(
+      // firstTimerAction 推进首次轮询并保持请求未完成。
+      async () => { await vi.advanceTimersByTimeAsync(3_000); },
+    );
+    await act(
+      // secondTimerAction 推进下一次轮询但不允许并发请求。
+      async () => { await vi.advanceTimersByTimeAsync(3_000); },
+    );
+    expect(getBatchMock).toHaveBeenCalledOnce();
+    await act(
+      // closeAction 关闭弹窗并使未完成轮询响应过期。
+      async () => hook.result.current.closeBatchModal(),
+    );
+    resolvePoll(runningBatchFixture);
+    await act(
+      // staleResolveAction 完成已过期的轮询响应。
+      async () => { await pendingPoll; },
+    );
+    expect(hook.result.current.showBatchModal).toBe(false);
+    hook.unmount();
+    vi.useRealTimers();
+  });
 });

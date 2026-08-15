@@ -88,6 +88,13 @@ describe('request helpers', () => {
     await expect(get('/broken')).rejects.toThrow('请求失败: 500');
   } /* 回调函数负责当前业务流程。 */);
 
+  test('普通请求纯文本错误体读取失败时使用状态码兜底', /* 当前回调验证普通请求文本错误读取失败分支。 */ async () => {
+    // response 是文本读取失败的普通请求响应替身。
+    const response = { ok: false, status: 502, headers: { get: /* contentTypeGetter 返回纯文本类型。 */ () => 'text/plain' }, text: vi.fn().mockRejectedValue(new Error('读取失败')) } as unknown as Response;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
+    await expect(get('/broken-text')).rejects.toThrow('请求失败: 502');
+  } /* 回调函数负责当前业务流程。 */);
+
   test('网络层异常原样透传', async () => {
     // fetchMock 是抛出非取消网络异常的替身。
     const fetchMock = vi.fn().mockRejectedValue(new Error('网络断开'));

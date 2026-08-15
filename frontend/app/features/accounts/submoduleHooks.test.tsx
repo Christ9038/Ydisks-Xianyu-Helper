@@ -195,6 +195,15 @@ describe('useAccountSubmodules', /* 当前回调处理账号编辑、AI、通知
     expect(passwordLoginMock).toHaveBeenCalledWith(expect.objectContaining({ account_id: 'account-1', account: 'user@example.com' }), expect.anything());
     expect(hook.result.current.passwordLoginView.status).toBe('success');
     expect(loadAccounts).toHaveBeenCalled();
+    // passwordUpdater 是密码登录成功后清空密码字段的函数式更新器。
+    let passwordUpdater: ((current: AccountEditForm) => AccountEditForm) | undefined;
+    for (const call /* call 是密码表单状态替身记录的一次调用参数。 */ of setEditForm.mock.calls) {
+      if (typeof call[0] === 'function') {
+        passwordUpdater = call[0] as (current: AccountEditForm) => AccountEditForm;
+        break;
+      }
+    }
+    expect(passwordUpdater?.(editFormFixture)).toMatchObject({ login_password: '', showLoginPassword: false });
 
     await act(
       // cancelAction 取消当前密码登录会话并回到空闲状态。
@@ -339,6 +348,7 @@ describe('useAccountSubmodules', /* 当前回调处理账号编辑、AI、通知
       // secondProcessingAction 再次进入处理中状态以验证关闭时取消会话。
       async () => hook.result.current.handlePasswordLogin(),
     );
+    cancelPasswordMock.mockRejectedValueOnce(new Error('取消失败'));
     await act(
       // closeAction 关闭编辑弹窗并取消处理中会话。
       async () => hook.result.current.closeEditModal(),
