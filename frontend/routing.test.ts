@@ -161,10 +161,11 @@ describe('frontend navigation routing', () => {
 
   test('QR verification removes the external link and clearly requires in-app risk verification', () => {
     const accounts = readFrontendFile('components/AccountList.tsx'); /* accounts 表示账号集合。 */
+    const qrModal = readFrontendFile('app/features/accounts/components/AccountQRCodeModal.tsx'); /* qrModal 表示二维码登录弹窗。 */
 	const riskPanel = readFrontendFile('components/RiskVerificationPanel.tsx'); /* riskPanel 表示riskPanel。 */
     expect(accounts).not.toContain('href={verificationUrl}');
     expect(accounts).not.toContain('setVerificationUrl');
-	expect(accounts).toContain('RiskVerificationPanel');
+	expect(qrModal).toContain('RiskVerificationPanel');
 	expect(riskPanel).toContain('需要完成安全风控验证');
 	expect(riskPanel).toContain('请勿在浏览器中打开验证链接');
 		expect(riskPanel).toContain('系统会自动检测并刷新登录状态');
