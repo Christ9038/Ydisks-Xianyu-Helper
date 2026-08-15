@@ -168,4 +168,66 @@ describe('useOrderQuery 与 useOrderImport', /* 当前回调处理订单查询�
     expect(hook.result.current.showImportModal).toBe(false);
     expect(hook.result.current.importResult).toBeNull();
   });
+
+  test('订单查询失败时记录错误并结束加载状态', /* 当前回调验证订单列表请求错误收口。 */ async () => {
+    getOrdersMock.mockRejectedValueOnce(new Error('订单查询失败'));
+    // consoleError 是订单查询错误日志的可控替身。
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(/* errorLogger 忽略测试日志输出。 */ () => undefined);
+    // hook 是订单查询失败场景的 Hook 渲染结果。
+    const hook = renderHook(
+      // queryFailureHookFactory 创建订单查询失败场景的 Hook。
+      () => useOrderQuery({ pageSize: 20 }),
+    );
+    await waitFor(
+      // loadingAssertion 等待订单查询失败后的加载状态收口。
+      () => expect(hook.result.current.loading).toBe(false),
+    );
+    expect(consoleError).toHaveBeenCalledWith('加载订单失败:', expect.any(Error));
+    hook.unmount();
+    consoleError.mockRestore();
+  });
+
+  test('订单搜索输入经过防抖后以去空格文本重新查询', /* 当前回调验证订单搜索防抖和参数标准化。 */ async () => {
+    // hook 是订单搜索防抖场景的 Hook 渲染结果。
+    const hook = renderHook(
+      // searchHookFactory 创建订单搜索场景的 Hook。
+      () => useOrderQuery({ pageSize: 20 }),
+    );
+    await waitFor(
+      // loadingAssertion 等待订单初始查询完成。
+      () => expect(hook.result.current.loading).toBe(false),
+    );
+    await act(
+      // searchAction 写入带有首尾空格的搜索文本。
+      () => hook.result.current.setSearchText('  买家  '),
+    );
+    await waitFor(
+      // searchAssertion 等待防抖查询携带标准化搜索文本。
+      () => expect(getOrdersMock).toHaveBeenLastCalledWith(undefined, 'all', 1, 20, '买家', expect.objectContaining({ signal: expect.any(AbortSignal) })),
+      { timeout: 1_000 },
+    );
+    hook.unmount();
+  });
+
+  test('订单账号商品辅助数据失败时仅记录辅助数据错误', /* 当前回调验证订单展示辅助请求的独立失败分支。 */ async () => {
+    getAccountsMock.mockRejectedValueOnce(new Error('账号辅助数据失败'));
+    // consoleError 是辅助数据错误日志的可控替身。
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(/* errorLogger 忽略测试日志输出。 */ () => undefined);
+    // hook 是订单辅助数据失败场景的 Hook 渲染结果。
+    const hook = renderHook(
+      // auxiliaryFailureHookFactory 创建订单辅助数据失败场景的 Hook。
+      () => useOrderQuery({ pageSize: 20 }),
+    );
+    await waitFor(
+      // loadingAssertion 等待订单主查询完成。
+      () => expect(hook.result.current.loading).toBe(false),
+    );
+    await waitFor(
+      // auxiliaryErrorAssertion 等待辅助数据错误日志产生。
+      () => expect(consoleError).toHaveBeenCalledWith('加载订单辅助数据失败:', expect.any(Error)),
+    );
+    expect(hook.result.current.orders).toEqual([orderFixture]);
+    hook.unmount();
+    consoleError.mockRestore();
+  });
 });
