@@ -133,6 +133,16 @@ describe('useAccountSubmodules', /* 当前回调处理账号编辑、AI、通知
       async () => hook.result.current.handleRestartPause(),
     );
     expect(pauseMock).toHaveBeenCalledWith('account-1', 60);
+    // pauseUpdater 是暂停成功后写回编辑账号状态的函数式更新器。
+    let pauseUpdater: ((current: AccountDetail | null) => AccountDetail | null) | undefined;
+    for (const call /* call 是编辑账号状态替身记录的一次调用参数。 */ of setEditingAccount.mock.calls) {
+      if (typeof call[0] === 'function') {
+        pauseUpdater = call[0] as (current: AccountDetail | null) => AccountDetail | null;
+        break;
+      }
+    }
+    expect(pauseUpdater?.(accountFixture)).toMatchObject({ pause_duration: 60, paused: true, paused_until: 12345 });
+    expect(pauseUpdater?.(null)).toBeNull();
 
     setLongLoginMock.mockRejectedValueOnce(new Error('长登录保存失败'));
     await act(
@@ -298,6 +308,7 @@ describe('useAccountSubmodules', /* 当前回调处理账号编辑、AI、通知
   });
 
   test('密码登录处理中和失败状态都能关闭会话', /* 当前回调验证密码登录中间状态与关闭清理。 */ async () => {
+    vi.useFakeTimers();
     // setEditingAccount 是密码登录中间状态的账号状态替身。
     const setEditingAccount = vi.fn();
     // setActiveModal 是密码登录中间状态的弹窗状态替身。
@@ -318,11 +329,23 @@ describe('useAccountSubmodules', /* 当前回调处理账号编辑、AI、通知
     );
     expect(hook.result.current.passwordLoginView.status).toBe('processing');
     await act(
+      // pollTimerAction 推进密码登录状态轮询定时器。
+      async () => { await vi.advanceTimersByTimeAsync(1_500); },
+    );
+    expect(hook.result.current.passwordLoginView.status).toBe('success');
+    passwordLoginMock.mockResolvedValueOnce({ success: true, session_id: 'session-2', status: 'processing', message: '处理中' });
+    passwordStatusMock.mockResolvedValueOnce({ status: 'processing', message: '处理中' });
+    await act(
+      // secondProcessingAction 再次进入处理中状态以验证关闭时取消会话。
+      async () => hook.result.current.handlePasswordLogin(),
+    );
+    await act(
       // closeAction 关闭编辑弹窗并取消处理中会话。
       async () => hook.result.current.closeEditModal(),
     );
-    expect(cancelPasswordMock).toHaveBeenCalledWith('session-1');
+    expect(cancelPasswordMock).toHaveBeenCalledWith('session-2');
     hook.unmount();
+    vi.useRealTimers();
   });
 
   test('通知绑定可移除且 AI 默认值与密码登录终态可归一化', /* 当前回调验证账号子模块的派生默认值和终态分支。 */ async () => {
@@ -363,6 +386,48 @@ describe('useAccountSubmodules', /* 当前回调处理账号编辑、AI、通知
       async () => hook.result.current.handlePasswordLogin(),
     );
     expect(hook.result.current.passwordLoginView).toMatchObject({ status: 'failed', message: '密码登录失败' });
+    hook.unmount();
+  });
+
+  test('没有编辑账号时阻止编辑、AI、暂停和密码登录动作', /* 当前回调验证账号子模块空上下文守卫。 */ async () => {
+    // setEditingAccount 是空上下文守卫所需的编辑账号状态替身。
+    const setEditingAccount = vi.fn();
+    // setActiveModal 是空上下文守卫所需的弹窗状态替身。
+    const setActiveModal = vi.fn();
+    // setEditForm 是空上下文守卫所需的表单状态替身。
+    const setEditForm = vi.fn();
+    // loadAccounts 是空上下文守卫所需的账号刷新替身。
+    const loadAccounts = vi.fn().mockResolvedValue(undefined);
+    // hook 是空编辑账号场景的子模块 Hook 渲染结果。
+    const hook = renderHook(
+      // emptyAccountHookFactory 创建空编辑账号场景的子模块 Hook。
+      () => useAccountSubmodules({ editingAccount: null, setEditingAccount, setActiveModal, editForm: editFormFixture, setEditForm, loadAccounts }),
+    );
+    await act(
+      // longLoginGuardAction 阻止空账号长期登录操作。
+      async () => hook.result.current.handleLongLoginToggle(),
+    );
+    await act(
+      // aiGuardAction 阻止空账号 AI 保存操作。
+      async () => hook.result.current.handleSaveAISettings(),
+    );
+    await act(
+      // editGuardAction 阻止空账号编辑保存操作。
+      async () => hook.result.current.handleSaveEdit(),
+    );
+    await act(
+      // pauseGuardAction 阻止空账号暂停操作。
+      async () => hook.result.current.handleRestartPause(),
+    );
+    await act(
+      // passwordGuardAction 阻止空账号密码登录操作。
+      async () => hook.result.current.handlePasswordLogin(),
+    );
+    expect(setLongLoginMock).not.toHaveBeenCalled();
+    expect(updateAIMock).not.toHaveBeenCalled();
+    expect(updateAccountMock).not.toHaveBeenCalled();
+    expect(pauseMock).not.toHaveBeenCalled();
+    expect(passwordLoginMock).not.toHaveBeenCalled();
     hook.unmount();
   });
 });

@@ -11,7 +11,7 @@ import {
   getReplyRules,
   getShippingRulesPage,
 } from './api';
-import { useRulesData } from './hooks';
+import { useRulesData, useRulesDataWithPageChange } from './hooks';
 
 vi.mock('./api', /* rulesApiMockFactory 提供规则数据 Hook 的确定性 API 替身。 */ () => ({
   getAccountDetails: vi.fn(),
@@ -83,6 +83,10 @@ describe('useRulesData', /* 当前回调处理规则页参考数据、分页和�
     expect(hook.result.current.accounts).toEqual([accountFixture]);
     expect(hook.result.current.cards).toEqual([cardFixture]);
     expect(setSelectedAccountId).toHaveBeenCalled();
+    // selectedAccountUpdater 是规则 Hook 回填账号时交给 React 的函数式更新器。
+    const selectedAccountUpdater = setSelectedAccountId.mock.calls[0][0] as (current: string) => string;
+    expect(selectedAccountUpdater('')).toBe('account-1');
+    expect(selectedAccountUpdater('existing')).toBe('existing');
     await act(
       // automationAction 加载分页规则和异常。
       async () => hook.result.current.loadAutomationRules(),
@@ -161,6 +165,22 @@ describe('useRulesData', /* 当前回调处理规则页参考数据、分页和�
       async () => hook.result.current.loadReferenceData(),
     );
     expect(setSelectedAccountId).toHaveBeenCalledWith(expect.any(Function));
+    hook.unmount();
+  });
+
+  test('带分页回调的规则 Hook 入口保持数据契约', /* 当前回调验证分页兼容入口委托到统一规则 Hook。 */ async () => {
+    // setSelectedAccountId 是分页兼容入口所需的账号状态替身。
+    const setSelectedAccountId = vi.fn();
+    // hook 是分页兼容入口的规则数据 Hook 渲染结果。
+    const hook = renderHook(
+      // pageChangeHookFactory 创建带分页回调的规则 Hook。
+      () => useRulesDataWithPageChange({ activeTab: 'automation', selectedAccountId: 'account-1', automationTriggerFilter: '', automationStatusFilter: 'all', debouncedAutomationSearch: '', automationPage: 1, automationPageSize: 10, setSelectedAccountId }),
+    );
+    await act(
+      // refreshAction 通过兼容入口刷新规则数据。
+      async () => hook.result.current.refresh(),
+    );
+    expect(hook.result.current.automationRules).toEqual([shippingFixture]);
     hook.unmount();
   });
 });

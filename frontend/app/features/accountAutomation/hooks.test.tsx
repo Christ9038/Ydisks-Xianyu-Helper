@@ -83,6 +83,7 @@ describe('useAccountAutomation', /* 当前回调处理账号任务 Hook 的请�
     );
     expect(updateSettingsMock).toHaveBeenCalledTimes(2);
     expect(hook.result.current.error).toBe('');
+    hook.unmount();
   });
 
   test('禁用账号不会发起立即执行请求', /* 当前回调验证账号运行门禁。 */ async () => {
@@ -101,6 +102,7 @@ describe('useAccountAutomation', /* 当前回调处理账号任务 Hook 的请�
       async () => hook.result.current.run('auto_rate'),
     );
     expect(runTaskMock).not.toHaveBeenCalled();
+    hook.unmount();
   });
 
   test('加载设置失败时展示业务错误', /* 当前回调验证首次读取失败分支。 */ async () => {
@@ -112,6 +114,7 @@ describe('useAccountAutomation', /* 当前回调处理账号任务 Hook 的请�
       () => expect(hook.result.current.loading).toBe(false),
     );
     expect(hook.result.current.error).toBe('读取失败');
+    hook.unmount();
   });
 
   test('执行失败后可通过 retry 重试', /* 当前回调验证执行失败与重试动作。 */ async () => {
@@ -134,5 +137,37 @@ describe('useAccountAutomation', /* 当前回调处理账号任务 Hook 的请�
     );
     expect(runTaskMock).toHaveBeenCalledTimes(2);
     expect(hook.result.current.error).toBe('');
+    hook.unmount();
+  });
+
+  test('保存进行中时忽略重复保存动作', /* 当前回调验证账号任务保存的并发门禁。 */ async () => {
+    // resolveUpdate 是延迟保存请求的完成控制器。
+    let resolveUpdate: (value: AccountTaskSettingsResponse) => void = () => undefined;
+    // pendingUpdate 是保持 saving 状态的保存请求 Promise。
+    const pendingUpdate = new Promise<AccountTaskSettingsResponse>(/* updateExecutor 保存延迟 Promise 的完成函数。 */ resolve => { resolveUpdate = resolve; });
+    updateSettingsMock.mockReturnValueOnce(pendingUpdate);
+    // hook 是保存并发门禁场景的账号任务 Hook 渲染结果。
+    const hook = renderHook(renderAutomationHook);
+    await waitFor(
+      // loadingAssertion 等待任务设置初始加载完成。
+      () => expect(hook.result.current.loading).toBe(false),
+    );
+    // firstSave 是保持进行中的首次保存动作。
+    const firstSave = hook.result.current.save();
+    await waitFor(
+      // savingAssertion 等待保存状态打开。
+      () => expect(hook.result.current.saving).toBe(true),
+    );
+    await act(
+      // duplicateSaveAction 触发重复保存并验证门禁。
+      async () => hook.result.current.save(),
+    );
+    expect(updateSettingsMock).toHaveBeenCalledTimes(1);
+    resolveUpdate(settingsFixture);
+    await act(
+      // resolveAction 完成首次保存请求并收口状态。
+      async () => firstSave,
+    );
+    hook.unmount();
   });
 });

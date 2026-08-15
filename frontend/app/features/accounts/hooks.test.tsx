@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { renderHook, waitFor } from '@testing-library/react';
+import { act } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { AccountDetail } from '../../../types';
 import { getAccountDetails, getAccountRuntimeStatuses, getAllAISettings } from './api';
@@ -95,5 +96,28 @@ describe('useAccountsData', /* 当前回调处理账号详情、AI 配置和运�
     expect(hook.result.current.accounts).toHaveLength(1);
     expect(console.error).toHaveBeenCalledWith('加载账号运行状态失败:', expect.any(Error));
     hook.unmount();
+  });
+
+  test('运行状态轮询完成后按计划安排下一轮查询', /* 当前回调验证账号状态轮询定时器回调。 */ async () => {
+    vi.useFakeTimers();
+    try {
+      // hook 是账号轮询定时器场景的 Hook 渲染结果。
+      const hook = renderHook(
+        // timerHookFactory 创建账号轮询定时器场景的 Hook。
+        () => useAccountsData(),
+      );
+      await act(
+        // initialFlushAction 刷新初始账号和运行状态 Promise。
+        async () => { await Promise.resolve(); await Promise.resolve(); },
+      );
+      await act(
+        // timerAction 推进两秒轮询定时器。
+        async () => { await vi.advanceTimersByTimeAsync(2_000); },
+      );
+      expect(getRuntimeMock).toHaveBeenCalledTimes(2);
+      hook.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

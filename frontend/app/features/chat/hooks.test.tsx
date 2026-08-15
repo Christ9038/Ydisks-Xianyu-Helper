@@ -100,6 +100,11 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     expect(hook.result.current.activeChatID).toBe('chat-1');
     expect(hook.result.current.messages).toEqual([messageFixture]);
     expect(markReadMock).toHaveBeenCalledWith('account-1', 'chat-1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(hook.result.current.unreadForAccount('account-1')).toBe(0);
+    await act(
+      // emptySendAction 在没有草稿时阻止文字发送。
+      async () => hook.result.current.handleSend(),
+    );
 
     await act(
       // draftAction 写入文字消息草稿。
@@ -117,6 +122,24 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
       async () => hook.result.current.handleImage(new File(['image'], 'image.png', { type: 'image/png' })),
     );
     expect(sendImageMock).toHaveBeenCalledWith(expect.objectContaining({ chat_id: 'chat-1', image: expect.any(File) }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    // imageInput 是图片发送成功后需要清空的输入框替身。
+    const imageInput = { value: 'selected-file' } as HTMLInputElement;
+    hook.result.current.imageInputRef.current = imageInput;
+    await act(
+      // secondImageAction 再次发送图片以验证输入框清理。
+      async () => hook.result.current.handleImage(new File(['image'], 'second.png', { type: 'image/png' })),
+    );
+    expect(imageInput.value).toBe('');
+    await act(
+      // emptyImageAction 在没有图片文件时阻止发送。
+      async () => hook.result.current.handleImage(),
+    );
+    // emptyScrollAction 在没有滚动容器时保持滚动策略稳定。
+    hook.result.current.scrollRef.current = null;
+    await act(
+      // nullScrollAction 验证滚动容器缺失守卫。
+      () => hook.result.current.handleMessageScroll(),
+    );
     hook.unmount();
   });
 
@@ -169,6 +192,9 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
   });
 
   test('WebSocket 连接和消息事件更新聊天状态', /* 当前回调验证实时连接和消息回调边界。 */ async () => {
+    // secondSession 是用于覆盖实时会话排序比较器的第二条会话。
+    const secondSession = { ...sessionFixture, chat_id: 'chat-2', last_message_at: 2, unread_count: 0 };
+    getSessionPageMock.mockResolvedValue({ sessions: [sessionFixture, secondSession], has_more: true, next_cursor: 2 });
     // hook 是实时连接场景的聊天 Hook 渲染结果。
     const hook = renderHook(
       // socketHookFactory 创建实时连接场景的聊天 Hook。
@@ -311,8 +337,11 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     try {
       // initialStatus 是初始化请求返回的运行状态。
       const initialStatus = { 'account-1': { state: 'online' as const, connected: true, failures: 0, updated_at: '2026-08-15T00:00:00Z' } };
+      // refreshedStatus 是首次轮询返回的更新状态。
+      const refreshedStatus = { 'account-1': { state: 'reconnecting' as const, connected: false, failures: 1, updated_at: '2026-08-15T00:00:01Z' } };
       getRuntimeMock.mockReset();
       getRuntimeMock.mockResolvedValueOnce(initialStatus);
+      getRuntimeMock.mockResolvedValueOnce(refreshedStatus);
       getRuntimeMock.mockRejectedValueOnce(new Error('轮询失败'));
       // hook 是轮询失败场景的聊天 Hook 渲染结果。
       const hook = renderHook(
@@ -327,7 +356,12 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
         // pollingTimerAction 推进首次轮询定时器。
         async () => { await vi.advanceTimersByTimeAsync(3_000); },
       );
-      expect(getRuntimeMock).toHaveBeenCalledTimes(2);
+      expect(hook.result.current.accounts[0]?.runtime_state).toBe('reconnecting');
+      await act(
+        // retryPollingTimerAction 推进失败后的下一次轮询定时器。
+        async () => { await vi.advanceTimersByTimeAsync(3_000); },
+      );
+      expect(getRuntimeMock).toHaveBeenCalledTimes(3);
       hook.unmount();
     } finally {
       vi.useRealTimers();
@@ -367,6 +401,11 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     );
     expect(hook.result.current.messages).toEqual([olderMessage, messageFixture]);
     expect(container.scrollTop).toBe(80);
+    await act(
+      // noOlderAction 在没有更多历史消息时阻止重复分页请求。
+      async () => hook.result.current.loadOlderMessages(),
+    );
+    expect(getMessagePageMock).toHaveBeenCalledTimes(2);
 
     // unknownMessage 是不在当前联系人列表中的实时消息。
     const unknownMessage = { ...messageFixture, chat_id: 'chat-unknown', message_key: 'message-unknown', content: '未知会话消息' };
