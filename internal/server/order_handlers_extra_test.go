@@ -51,6 +51,87 @@ func waitOrderRefreshJob(t *testing.T, handler http.Handler, cookie *http.Cookie
 	return orderRefreshResponse{}
 }
 
+// TestCancelOrderRefreshJob 验证用户可取消排队任务且任务终态不会被旧 worker 覆盖。
+func TestCancelOrderRefreshJob(t *testing.T) {
+	// srv、store、cleanup 保存测试服务、数据库和清理函数。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 保存订单刷新路由处理器。
+	handler := srv.Router()
+	// cookie 保存管理员会话 Cookie。
+	cookie := loginHelper(t, handler)
+	// admin、err 保存任务所属用户及查询错误。
+	admin, err := store.Users.GetByUsername(context.Background(), "admin")
+	if err != nil {
+		t.Fatalf("get admin: %v", err)
+	}
+	// job 保存待取消的排队任务。
+	job := &db.OrderRefreshJob{ID: "cancel-http-job", UserID: admin.ID, Status: "queued"}
+	// err 保存任务创建错误。
+	if err := store.OrderRefreshJobs.Create(context.Background(), job); err != nil {
+		t.Fatalf("create refresh job: %v", err)
+	}
+	// req、rec 保存取消请求及响应记录器。
+	req := httptest.NewRequest(http.MethodDelete, "/api/orders/refresh/"+job.ID, nil)
+	req.AddCookie(cookie)
+	// rec 保存取消请求响应记录器。
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cancel status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	// cancelled、err 保存取消后任务及查询错误。
+	cancelled, err := store.OrderRefreshJobs.Get(context.Background(), admin.ID, job.ID)
+	if err != nil || cancelled.Status != "cancelled" {
+		t.Fatalf("cancelled job=%+v err=%v", cancelled, err)
+	}
+	// repeatRec 保存重复取消请求的响应记录器。
+	repeatReq := httptest.NewRequest(http.MethodDelete, "/api/orders/refresh/"+job.ID, nil)
+	repeatReq.AddCookie(cookie)
+	// repeatRec 保存重复取消响应记录器。
+	repeatRec := httptest.NewRecorder()
+	handler.ServeHTTP(repeatRec, repeatReq)
+	if repeatRec.Code != http.StatusOK {
+		t.Fatalf("repeat cancel status=%d body=%s", repeatRec.Code, repeatRec.Body.String())
+	}
+	// versionedJob 保存用于验证版本化路由的任务。
+	versionedJob := &db.OrderRefreshJob{ID: "cancel-versioned-job", UserID: admin.ID, Status: "queued"}
+	// err 保存版本化任务创建错误。
+	if err := store.OrderRefreshJobs.Create(context.Background(), versionedJob); err != nil {
+		t.Fatalf("create versioned cancel job: %v", err)
+	}
+	// versionedReq、versionedRec 保存版本化取消请求及响应记录器。
+	versionedReq := httptest.NewRequest(http.MethodDelete, "/api/v1/orders/refresh/"+versionedJob.ID, nil)
+	versionedReq.AddCookie(cookie)
+	// versionedRec 保存版本化取消响应记录器。
+	versionedRec := httptest.NewRecorder()
+	handler.ServeHTTP(versionedRec, versionedReq)
+	if versionedRec.Code != http.StatusOK {
+		t.Fatalf("versioned cancel status=%d body=%s", versionedRec.Code, versionedRec.Body.String())
+	}
+}
+
+// TestOrderRefreshWorkerCancellation 验证内存 worker 控制句柄可以被安全取消并清理。
+func TestOrderRefreshWorkerCancellation(t *testing.T) {
+	// srv 保存仅用于测试 worker 控制表的 Server。
+	srv := &Server{}
+	// ctx、cancel 保存可观察的 worker Context 及其取消函数。
+	ctx, cancel := context.WithCancel(context.Background())
+	srv.registerOrderRefreshWorker("job-1", "token-1", cancel)
+	if !srv.cancelOrderRefreshWorker("job-1") {
+		t.Fatal("expected active refresh worker to be cancelled")
+	}
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("worker context was not cancelled")
+	}
+	srv.unregisterOrderRefreshWorker("job-1", "token-1")
+	if srv.cancelOrderRefreshWorker("job-1") {
+		t.Fatal("unregistered refresh worker should not be cancellable")
+	}
+}
+
 // TestRefreshOrdersNoBrowser 浏览器未启用时仍应完成订单列表发现。
 func TestRefreshOrdersNoBrowser(t *testing.T) {
 	// srv、cleanup 保存srv、cleanup，供当前处理流程使用

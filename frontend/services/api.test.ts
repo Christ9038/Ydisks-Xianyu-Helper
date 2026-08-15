@@ -24,7 +24,7 @@ import {
   passwordLogin,
 	resolveAutomationRun,
 	resolveDeferredAutomationTask,
-	syncOrders, syncSingleOrder, manualShipOrder,
+	syncOrders, cancelOrderRefreshJob, syncSingleOrder, manualShipOrder,
   updateReplyRule,
   deleteReplyRule,
   updateAccountCookie,
@@ -195,15 +195,24 @@ test('syncOrders surfaces failed persisted job status', async () => {
 test('syncOrders aborts while waiting for persisted job status', async () => {
 	const fetchMock = vi.fn()
 		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-running', status: 'running' }))
-		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-running', status: 'running' })); /* fetchMock 表示fetchMock。 */
+		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-running', status: 'running' }))
+		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-running', status: 'cancelled' })); /* fetchMock 表示fetchMock。 */
 	vi.stubGlobal('fetch', fetchMock);
 	// controller 控制订单刷新轮询的取消信号。
 	const controller = new AbortController();
 	// pending 保存等待取消结果的订单刷新请求。
 	const pending = syncOrders(undefined, undefined, { signal: controller.signal });
-	await Promise.resolve();
+	await vi.waitFor(/* 等待创建和首次状态查询完成。 */ () => expect(fetchMock).toHaveBeenCalledTimes(2));
 	controller.abort();
 	await expect(pending).rejects.toThrow('请求已取消');
+	await vi.waitFor(/* 等待取消命令发出。 */ () => expect(fetchMock).toHaveBeenCalledWith('/api/v1/orders/refresh/job-running', expect.objectContaining({ method: 'DELETE', credentials: 'include' })));
+} /* 回调函数负责当前业务流程。 */);
+
+test('cancelOrderRefreshJob sends a user-scoped delete command', async () => {
+	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, job_id: 'job-cancel', status: 'cancelled' })); /* fetchMock 表示fetchMock。 */
+	vi.stubGlobal('fetch', fetchMock);
+	await expect(cancelOrderRefreshJob('job-cancel')).resolves.toEqual({ success: true, job_id: 'job-cancel', status: 'cancelled' });
+	expect(fetchMock).toHaveBeenCalledWith('/api/v1/orders/refresh/job-cancel', expect.objectContaining({ method: 'DELETE', credentials: 'include' }));
 } /* 回调函数负责当前业务流程。 */);
 
 test('legacy notification channel aliases are normalized for the editor', async () => {

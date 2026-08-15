@@ -91,6 +91,21 @@ func (j *OrderRefreshJobs) Claim(ctx context.Context, id, token string, leaseExp
 	return affected == 1, err
 }
 
+// Cancel 按用户归属原子取消 queued 或 running 任务，并清除旧 worker 租约。
+func (j *OrderRefreshJobs) Cancel(ctx context.Context, userID int64, id string) (bool, error) {
+	// result、err 保存取消更新结果及错误。
+	result, err := j.DB.ExecContext(ctx,
+		`UPDATE order_refresh_jobs
+		    SET status='cancelled',error_message='任务已取消',worker_token='',lease_expires_at=0,updated_at=CURRENT_TIMESTAMP
+		  WHERE id=? AND user_id=? AND status IN ('queued','running')`, id, userID)
+	if err != nil {
+		return false, err
+	}
+	// affected、rowsErr 保存取消更新影响行数及读取错误。
+	affected, rowsErr := result.RowsAffected()
+	return affected == 1, rowsErr
+}
+
 // Complete 在租约令牌匹配时写入任务终态，过期 worker 不能覆盖新执行者结果。
 func (j *OrderRefreshJobs) Complete(ctx context.Context, id, token, status, resultJSON, errorMessage string) (bool, error) {
 	// result、err 保存任务终态更新结果及错误。

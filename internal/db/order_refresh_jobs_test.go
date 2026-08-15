@@ -50,6 +50,52 @@ func TestOrderRefreshJobsLifecycle(t *testing.T) {
 		t.Fatalf("completed job=%+v err=%v", completedJob, err)
 	}
 
+	// cancelJob 保存用于验证用户隔离取消和重复取消的任务。
+	cancelJob := &OrderRefreshJob{ID: "refresh-job-cancel", UserID: userID, CookieID: cookieID}
+	// err 表示取消任务创建的数据库错误。
+	if err := store.OrderRefreshJobs.Create(ctx, cancelJob); err != nil {
+		t.Fatalf("create cancel job: %v", err)
+	}
+	// cancelled、err 保存排队任务的取消结果及错误。
+	cancelled, err := store.OrderRefreshJobs.Cancel(ctx, userID, cancelJob.ID)
+	if err != nil || !cancelled {
+		t.Fatalf("cancel queued job: cancelled=%v err=%v", cancelled, err)
+	}
+	// cancelled、err 保存重复取消已终止任务的结果及错误。
+	if cancelled, err = store.OrderRefreshJobs.Cancel(ctx, userID, cancelJob.ID); err != nil || cancelled {
+		t.Fatalf("repeat cancel should return false: cancelled=%v err=%v", cancelled, err)
+	}
+	// cancelled、err 保存跨用户取消任务的结果及错误。
+	if cancelled, err = store.OrderRefreshJobs.Cancel(ctx, userID+1, cancelJob.ID); err != nil || cancelled {
+		t.Fatalf("cross-user cancel must be rejected: cancelled=%v err=%v", cancelled, err)
+	}
+	// cancelledJob、err 保存取消后的任务及读取错误。
+	cancelledJob, err := store.OrderRefreshJobs.Get(ctx, userID, cancelJob.ID)
+	if err != nil || cancelledJob.Status != "cancelled" || cancelledJob.WorkerToken != "" {
+		t.Fatalf("cancelled job=%+v err=%v", cancelledJob, err)
+	}
+	// runningCancelJob 保存用于验证运行中 worker fencing 的任务。
+	runningCancelJob := &OrderRefreshJob{ID: "refresh-job-cancel-running", UserID: userID, CookieID: cookieID}
+	// err 表示运行中取消任务的创建错误。
+	if err := store.OrderRefreshJobs.Create(ctx, runningCancelJob); err != nil {
+		t.Fatalf("create running cancel job: %v", err)
+	}
+	// claimed、err 保存运行中任务的抢占结果及错误。
+	claimed, err = store.OrderRefreshJobs.Claim(ctx, runningCancelJob.ID, "worker-cancel", time.Now().Add(time.Minute).Unix())
+	if err != nil || !claimed {
+		t.Fatalf("claim running cancel job: claimed=%v err=%v", claimed, err)
+	}
+	// cancelled、err 保存运行中任务的取消结果及错误。
+	cancelled, err = store.OrderRefreshJobs.Cancel(ctx, userID, runningCancelJob.ID)
+	if err != nil || !cancelled {
+		t.Fatalf("cancel running job: cancelled=%v err=%v", cancelled, err)
+	}
+	// completed、err 保存旧 worker 终态写入结果及错误。
+	completed, err := store.OrderRefreshJobs.Complete(ctx, runningCancelJob.ID, "worker-cancel", "succeeded", `{}`, "")
+	if err != nil || completed {
+		t.Fatalf("cancelled worker must not complete: completed=%v err=%v", completed, err)
+	}
+
 	// expiredJob 保存用于验证租约过期恢复的任务。
 	expiredJob := &OrderRefreshJob{ID: "refresh-job-expired", UserID: userID, CookieID: cookieID}
 	// err 表示创建过期任务的数据库错误。

@@ -42,6 +42,8 @@ type RefreshJobRepository interface {
 	Get(ctx context.Context, userID int64, id string) (*RefreshJob, error)
 	// Claim 原子抢占 queued 任务并写入租约令牌。
 	Claim(ctx context.Context, id, token string, leaseExpiresAt int64) (bool, error)
+	// Cancel 按用户归属原子取消 queued 或 running 任务。
+	Cancel(ctx context.Context, userID int64, id string) (bool, error)
 	// Complete 在租约令牌匹配时写入任务终态。
 	Complete(ctx context.Context, id, token, status, resultJSON, errorMessage string) (bool, error)
 	// Recoverable 返回租约已过期的 running 任务。

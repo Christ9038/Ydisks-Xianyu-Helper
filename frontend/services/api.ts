@@ -4,7 +4,7 @@ import {
   AdminStats, DashboardStats, Card, SystemSettings, OrderAnalytics,
   Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
   NotificationChannel, NotificationEventType, AccountTaskSettings, ChatSession, ChatMessage, ItemListEnvelope, AutomationIssuesEnvelope,
-  CookieSettingsResponse, CookieProfileResponse, ItemDetailResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, OrderRefreshResponse, OrderRefreshJobStartResponse, OrderRefreshJobStatusResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope, AdminStatsResponse, DashboardStatsResponse, OrderAnalyticsResponse, QRLoginGenerateResponse, QRLoginStatusResponse, QRLoginVerificationResponse, ValidOrderResponse, ValidOrdersResponse
+  CookieSettingsResponse, CookieProfileResponse, ItemDetailResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, OrderRefreshResponse, OrderRefreshJobStartResponse, OrderRefreshJobStatusResponse, OrderRefreshJobCancelResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope, AdminStatsResponse, DashboardStatsResponse, OrderAnalyticsResponse, QRLoginGenerateResponse, QRLoginStatusResponse, QRLoginVerificationResponse, ValidOrderResponse, ValidOrdersResponse
 } from '../types';
 import { formatLocalDate } from '../dateRange';
 
@@ -431,11 +431,17 @@ export const syncOrders = async (cookieId?: string, status?: string, options?: R
 
 	// start 表示后台订单刷新任务创建响应。
 	const start = await postForm<OrderRefreshJobStartResponse>('/api/v1/orders/refresh', formData, options);
+	// cancelOnAbort 在调用方取消轮询时通知服务端停止同一后台任务。
+	const cancelOnAbort = () => {
+		void cancelOrderRefreshJob(start.job_id).catch(/* 取消请求失败时忽略网络错误，主请求仍按取消语义结束。 */ () => undefined);
+	};
+	options?.signal?.addEventListener('abort', cancelOnAbort, { once: true });
 	// pollLimit 限制前端等待后台任务的轮询次数。
 	const pollLimit = 180;
 	// pollIndex 表示当前订单刷新任务状态轮询次数。
 	let pollIndex = 0;
-	while (pollIndex < pollLimit) {
+	try {
+		while (pollIndex < pollLimit) {
 		// job 表示当前轮询得到的后台任务状态。
 		const job = await get<OrderRefreshJobStatusResponse>(`/api/v1/orders/refresh/${start.job_id}`, undefined, options);
 		if (job.status === 'succeeded' && job.result) {
@@ -462,8 +468,16 @@ export const syncOrders = async (cookieId?: string, status?: string, options?: R
 			else options.signal.addEventListener('abort', abort, { once: true });
 		});
 		pollIndex += 1;
+		}
+	} finally {
+		options?.signal?.removeEventListener('abort', cancelOnAbort);
 	}
 	throw new Error('订单刷新任务等待超时');
+};
+
+// cancelOrderRefreshJob 请求取消当前用户的订单刷新后台任务。
+export const cancelOrderRefreshJob = async (jobId: string): Promise<OrderRefreshJobCancelResponse> => {
+	return del(`/api/v1/orders/refresh/${jobId}`);
 };
 
 // syncSingleOrder 同步单个订单。

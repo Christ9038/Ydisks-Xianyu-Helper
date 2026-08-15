@@ -1585,6 +1585,16 @@ export interface OrderRefreshJobStatusResponse {
   result?: OrderRefreshResponse;
 }
 
+/** 取消订单刷新后台任务的响应。 */
+export interface OrderRefreshJobCancelResponse {
+  /** 取消命令是否成功应用。 */
+  success: boolean;
+  /** 被取消的任务标识。 */
+  job_id: string;
+  /** 取消后的任务状态。 */
+  status: 'cancelled';
+}
+
 // ItemListEnvelope 是商品列表接口的兼容分页响应。
 export interface ItemListEnvelope {
   /** items 是兼容分页响应中的商品列表。 */

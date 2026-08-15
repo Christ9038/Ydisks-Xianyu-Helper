@@ -43,10 +43,29 @@ type orderRefreshJobStatusResponse struct {
 	Result *orderRefreshResponse `json:"result,omitempty"`
 }
 
+// orderRefreshJobCancelResponse 是取消订单刷新任务后的响应 DTO。
+type orderRefreshJobCancelResponse struct {
+	// Success 表示取消命令是否成功应用。
+	Success bool `json:"success"`
+	// JobID 是被取消的任务标识。
+	JobID string `json:"job_id"`
+	// Status 是取消后的任务状态。
+	Status string `json:"status"`
+}
+
+// orderRefreshWorker 保存可被用户取消的订单刷新 worker 控制句柄。
+type orderRefreshWorker struct {
+	// token 是当前 worker 的租约令牌。
+	token string
+	// cancel 是取消当前 worker Context 的函数。
+	cancel context.CancelFunc
+}
+
 // mountOrderRefreshJobRoutes 挂载订单刷新后台任务端点。
 func (s *Server) mountOrderRefreshJobRoutes(r chi.Router, prefix string) {
 	r.Post(prefix+"/orders/refresh", s.startOrderRefreshJob)
 	r.Get(prefix+"/orders/refresh/{job_id}", s.getOrderRefreshJob)
+	r.Delete(prefix+"/orders/refresh/{job_id}", s.cancelOrderRefreshJob)
 }
 
 // startOrderRefreshJob 创建订单刷新任务并立即返回任务标识。
@@ -115,19 +134,97 @@ func (s *Server) getOrderRefreshJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+// cancelOrderRefreshJob 按当前用户归属取消订单刷新任务并通知运行中的 worker。
+func (s *Server) cancelOrderRefreshJob(w http.ResponseWriter, r *http.Request) {
+	// sess 保存当前认证会话。
+	sess := auth.SessionFromContext(r.Context())
+	// jobID 保存路径中的订单刷新任务标识。
+	jobID := chi.URLParam(r, "job_id")
+	// cancelled、err 保存数据库取消结果及错误。
+	cancelled, err := s.orders().refreshJobs.Cancel(r.Context(), sess.UserID, jobID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "取消订单刷新任务失败")
+		return
+	}
+	if cancelled {
+		s.cancelOrderRefreshWorker(jobID)
+		writeJSON(w, http.StatusOK, orderRefreshJobCancelResponse{Success: true, JobID: jobID, Status: "cancelled"})
+		return
+	}
+	// job、getErr 保存取消未生效时的当前任务状态及查询错误。
+	job, getErr := s.orders().refreshJobs.Get(r.Context(), sess.UserID, jobID)
+	if errors.Is(getErr, orderapp.ErrRefreshJobNotFound) {
+		writeErr(w, http.StatusNotFound, "订单刷新任务不存在")
+		return
+	}
+	if getErr != nil {
+		writeErr(w, http.StatusInternalServerError, "读取订单刷新任务失败")
+		return
+	}
+	if job.Status == "cancelled" {
+		writeJSON(w, http.StatusOK, orderRefreshJobCancelResponse{Success: true, JobID: jobID, Status: "cancelled"})
+		return
+	}
+	writeErr(w, http.StatusConflict, "订单刷新任务已结束，无法取消")
+}
+
 // startOrderRefreshWorker 启动受 Server 生命周期管理的订单刷新 worker。
 func (s *Server) startOrderRefreshWorker(job *orderapp.RefreshJob, token string) {
 	if job == nil {
 		return
 	}
+	// parent 保存 Server 生命周期上下文，避免 HTTP 请求结束取消后台任务。
+	parent := s.lifecycleContext()
+	if parent == nil {
+		parent = context.Background()
+	}
+	// jobCtx、cancel 限制后台任务执行时间并支持用户取消。
+	jobCtx, cancel := context.WithTimeout(parent, orderRefreshJobTimeout)
+	s.registerOrderRefreshWorker(job.ID, token, cancel)
 	s.startBackgroundTask("订单刷新任务", func() {
-		// parent 保存 Server 生命周期上下文，避免 HTTP 请求结束取消后台任务。
-		parent := s.lifecycleContext()
-		// jobCtx、cancel 限制后台任务执行时间。
-		jobCtx, cancel := context.WithTimeout(parent, orderRefreshJobTimeout)
 		defer cancel()
+		defer s.unregisterOrderRefreshWorker(job.ID, token)
 		s.runOrderRefreshJob(jobCtx, job, token)
 	})
+}
+
+// registerOrderRefreshWorker 登记可取消的订单刷新 worker。
+func (s *Server) registerOrderRefreshWorker(jobID, token string, cancel context.CancelFunc) {
+	s.orderRefreshMu.Lock()
+	defer s.orderRefreshMu.Unlock()
+	if s.orderRefreshCancels == nil {
+		s.orderRefreshCancels = make(map[string]orderRefreshWorker)
+	}
+	// previous 保存同一任务的旧 worker 控制句柄。
+	previous := s.orderRefreshCancels[jobID]
+	if previous.cancel != nil && previous.token != token {
+		previous.cancel()
+	}
+	s.orderRefreshCancels[jobID] = orderRefreshWorker{token: token, cancel: cancel}
+}
+
+// unregisterOrderRefreshWorker 在 worker 退出时清理控制句柄。
+func (s *Server) unregisterOrderRefreshWorker(jobID, token string) {
+	s.orderRefreshMu.Lock()
+	defer s.orderRefreshMu.Unlock()
+	// current 保存当前任务登记的 worker 控制句柄。
+	current := s.orderRefreshCancels[jobID]
+	if current.token == token {
+		delete(s.orderRefreshCancels, jobID)
+	}
+}
+
+// cancelOrderRefreshWorker 取消内存中的订单刷新 worker，不改变数据库终态。
+func (s *Server) cancelOrderRefreshWorker(jobID string) bool {
+	s.orderRefreshMu.Lock()
+	// worker 保存当前任务的取消控制句柄。
+	worker := s.orderRefreshCancels[jobID]
+	s.orderRefreshMu.Unlock()
+	if worker.cancel == nil {
+		return false
+	}
+	worker.cancel()
+	return true
 }
 
 // runOrderRefreshJob 执行订单刷新并以租约令牌写入成功或失败终态。

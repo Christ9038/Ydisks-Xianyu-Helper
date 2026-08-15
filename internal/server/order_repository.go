@@ -282,6 +282,11 @@ func (r storeOrderRepository) Claim(ctx context.Context, id, token string, lease
 	return r.store.OrderRefreshJobs.Claim(ctx, id, token, leaseExpiresAt)
 }
 
+// Cancel 按用户归属委托订单刷新任务取消。
+func (r storeOrderRepository) Cancel(ctx context.Context, userID int64, id string) (bool, error) {
+	return r.store.OrderRefreshJobs.Cancel(ctx, userID, id)
+}
+
 // Complete 以租约令牌安全写入订单刷新后台任务终态。
 func (r storeOrderRepository) Complete(ctx context.Context, id, token, status, resultJSON, errorMessage string) (bool, error) {
 	return r.store.OrderRefreshJobs.Complete(ctx, id, token, status, resultJSON, errorMessage)

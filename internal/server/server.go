@@ -90,20 +90,22 @@ type Server struct {
 	// itemSpecCache 保存短期商品多规格探测结果，减少重复远端请求。
 	itemSpecCache map[string]itemSpecCacheEntry
 
-	publishMu       sync.Mutex
-	publishCancels  map[string]publishBatchWorker
-	workerMu        sync.Mutex
-	workerCount     int
-	workersDone     chan struct{}
-	backgroundWG    sync.WaitGroup
-	lifecycleMu     sync.RWMutex
-	lifecycleCtx    context.Context
-	lifecycleCancel context.CancelFunc
-	httpServer      *http.Server
-	httpDone        chan struct{}
-	httpErr         error
-	started         bool
-	stopped         bool
+	publishMu           sync.Mutex
+	publishCancels      map[string]publishBatchWorker
+	orderRefreshMu      sync.Mutex
+	orderRefreshCancels map[string]orderRefreshWorker
+	workerMu            sync.Mutex
+	workerCount         int
+	workersDone         chan struct{}
+	backgroundWG        sync.WaitGroup
+	lifecycleMu         sync.RWMutex
+	lifecycleCtx        context.Context
+	lifecycleCancel     context.CancelFunc
+	httpServer          *http.Server
+	httpDone            chan struct{}
+	httpErr             error
+	started             bool
+	stopped             bool
 
 	qrMu        sync.Mutex
 	qrPersisted map[string]qrLoginPersistence
@@ -152,13 +154,14 @@ func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr st
 		WebDir:      webDir,
 		Addr:        addr,
 
-		publishCancels: make(map[string]publishBatchWorker),
-		workersDone:    closedSignal(),
-		lifecycleCtx:   context.Background(),
-		qrPersisted:    make(map[string]qrLoginPersistence),
-		qrOwners:       make(map[string]qrLoginOwner),
-		loginLimiter:   newLoginFailureLimiter(),
-		itemSpecCache:  make(map[string]itemSpecCacheEntry),
+		publishCancels:      make(map[string]publishBatchWorker),
+		orderRefreshCancels: make(map[string]orderRefreshWorker),
+		workersDone:         closedSignal(),
+		lifecycleCtx:        context.Background(),
+		qrPersisted:         make(map[string]qrLoginPersistence),
+		qrOwners:            make(map[string]qrLoginOwner),
+		loginLimiter:        newLoginFailureLimiter(),
+		itemSpecCache:       make(map[string]itemSpecCacheEntry),
 	}
 	// option 表示当前遍历过程中的option
 	for _, option := range options {
