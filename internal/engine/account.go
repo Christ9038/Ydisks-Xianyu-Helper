@@ -1351,10 +1351,17 @@ func (a *Account) refreshTokenWithMinGap(ctx context.Context, _ bool) (string, s
 	defer a.refreshMu.Unlock()
 	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
 	credentialUnlock := func() {}
+	// credentialLocked 标识当前调用是否持有账号凭证锁。
+	credentialLocked := false
 	if a.store != nil {
 		credentialUnlock = a.store.LockAccountCredentials(a.CookieID)
+		credentialLocked = true
 	}
-	defer credentialUnlock()
+	defer func() {
+		if credentialLocked {
+			credentialUnlock()
+		}
+	}()
 
 	// refreshMu serializes the complete token/Cookie update transaction for an
 	// account. A failed automatic verification also suppresses repeated token API
@@ -1370,6 +1377,8 @@ func (a *Account) refreshTokenWithMinGap(ctx context.Context, _ bool) (string, s
 	a.mu.Lock()
 	// cookieStr 保存登录凭证Str，供当前处理流程使用
 	cookieStr := a.CookieStr
+	// metadataJSON 保存当前凭证快照对应的 metadata。
+	metadataJSON := ""
 	a.lastTokenRefresh = time.Now()
 	a.lastTokenStatus = tokenRefreshStarted
 	a.mu.Unlock()
@@ -1384,6 +1393,20 @@ func (a *Account) refreshTokenWithMinGap(ctx context.Context, _ bool) (string, s
 			a.deviceID = deviceID
 			a.mu.Unlock()
 		}
+	}
+	if a.store != nil && a.store.Cookies != nil {
+		// runtimeData 保存 Token 请求开始前的最小凭证快照。
+		runtimeData, detailErr := a.store.Cookies.GetCookieRuntimeData(ctx, a.CookieID)
+		if detailErr != nil {
+			return "", "", detailErr
+		}
+		cookieStr = runtimeData.Value
+		metadataJSON = runtimeData.MetadataJSON
+	}
+	// Token 网络请求和风控恢复都必须在共享凭证锁外执行。
+	if credentialLocked {
+		credentialUnlock()
+		credentialLocked = false
 	}
 	for // captchaRetry 保存captcha重试，供当前处理流程使用
 	captchaRetry := 0; captchaRetry < 3; captchaRetry++ {
@@ -1404,6 +1427,26 @@ func (a *Account) refreshTokenWithMinGap(ctx context.Context, _ bool) (string, s
 		} else {
 			res, err = a.mtop.RefreshTokenWithDeviceIDContext(ctx, cookieStr, deviceID)
 		}
+		if a.store != nil && a.store.Cookies != nil {
+			// credentialUnlock 保存 Token 响应提交临界区的释放函数。
+			credentialUnlock = a.store.LockAccountCredentials(a.CookieID)
+			credentialLocked = true
+			// latestRuntimeData 和 reloadErr 保存网络请求完成后的最新凭证视图及重读错误。
+			latestRuntimeData, reloadErr := a.store.Cookies.GetCookieRuntimeData(ctx, a.CookieID)
+			if reloadErr != nil {
+				a.setLastTokenStatus(tokenRefreshFailedAPI)
+				a.clearCurrentToken()
+				return "", "", reloadErr
+			}
+			if latestRuntimeData.Value != cookieStr || latestRuntimeData.MetadataJSON != metadataJSON {
+				// 并发流程已经更新凭证，丢弃旧请求的 Token 和 Cookie 响应，下一轮使用最新快照重试。
+				cookieStr = latestRuntimeData.Value
+				metadataJSON = latestRuntimeData.MetadataJSON
+				credentialUnlock()
+				credentialLocked = false
+				continue
+			}
+		}
 		// 参考实现无论业务结果为何，都先合并响应 Set-Cookie。本地还必须先把
 		// 完整 Jar 持久化成功，避免当前 /reg 成功而下次重连回滚到旧凭证。
 		// persistErr 保存persistErr，供当前处理流程使用
@@ -1415,6 +1458,11 @@ func (a *Account) refreshTokenWithMinGap(ctx context.Context, _ bool) (string, s
 			return "", "", fmt.Errorf("保存 token 响应 Cookie: %w", persistErr)
 		}
 		if err != nil && mtop.IsRiskVerificationErr(err) {
+			// 风控恢复是外部调用，不能在共享凭证锁内执行。
+			if credentialLocked {
+				credentialUnlock()
+				credentialLocked = false
+			}
 			if // recovered、ok 保存recovered、ok，供当前处理流程使用
 			recovered, ok := a.tryTokenCaptchaRecovery(ctx, cookieStr, deviceID, err); ok {
 				cookieStr = recovered.UpdatedCookies
