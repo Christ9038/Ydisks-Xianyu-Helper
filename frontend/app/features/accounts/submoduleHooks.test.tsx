@@ -264,4 +264,64 @@ describe('useAccountSubmodules', /* 当前回调处理账号编辑、AI、通知
     expect(hook.result.current.saving).toBe(false);
     hook.unmount();
   });
+
+  test('通知渠道单独失败并可关闭 AI 弹窗', /* 当前回调验证通知渠道隔离和弹窗清理边界。 */ async () => {
+    // setEditingAccount 是通知渠道边界测试的账号状态替身。
+    const setEditingAccount = vi.fn();
+    // setActiveModal 是通知渠道边界测试的弹窗状态替身。
+    const setActiveModal = vi.fn();
+    // setEditForm 是通知渠道边界测试的表单状态替身。
+    const setEditForm = vi.fn();
+    // loadAccounts 是通知渠道边界测试的列表刷新替身。
+    const loadAccounts = vi.fn().mockResolvedValue(undefined);
+    channelsMock.mockRejectedValueOnce(new Error('渠道读取失败'));
+    // hook 是通知渠道单独失败场景的 Hook 渲染结果。
+    const hook = renderHook(
+      // bindingsErrorHookFactory 创建通知渠道单独失败场景的子模块 Hook。
+      () => useAccountSubmodules({ editingAccount: accountFixture, setEditingAccount, setActiveModal, editForm: editFormFixture, setEditForm, loadAccounts }),
+    );
+    await act(
+      // editAction 打开编辑弹窗并等待通知渠道请求完成。
+      async () => hook.result.current.openEditModal(accountFixture),
+    );
+    expect(hook.result.current.bindingsLoadError).toContain('通知渠道列表加载失败');
+    await act(
+      // aiAction 打开 AI 设置弹窗。
+      async () => hook.result.current.openAIModal(accountFixture),
+    );
+    await act(
+      // closeAIAction 关闭 AI 设置弹窗并清理请求代次。
+      () => hook.result.current.closeAIModal(),
+    );
+    expect(setActiveModal).toHaveBeenCalledWith(null);
+    hook.unmount();
+  });
+
+  test('密码登录处理中和失败状态都能关闭会话', /* 当前回调验证密码登录中间状态与关闭清理。 */ async () => {
+    // setEditingAccount 是密码登录中间状态的账号状态替身。
+    const setEditingAccount = vi.fn();
+    // setActiveModal 是密码登录中间状态的弹窗状态替身。
+    const setActiveModal = vi.fn() as unknown as Dispatch<SetStateAction<AccountModalType>>;
+    // setEditForm 是密码登录中间状态的表单状态替身。
+    const setEditForm = vi.fn();
+    // loadAccounts 是密码登录中间状态的列表刷新替身。
+    const loadAccounts = vi.fn().mockResolvedValue(undefined);
+    // hook 是密码登录中间状态场景的 Hook 渲染结果。
+    const hook = renderHook(
+      // processingHookFactory 创建密码登录中间状态场景的子模块 Hook。
+      () => useAccountSubmodules({ editingAccount: accountFixture, setEditingAccount, setActiveModal, editForm: editFormFixture, setEditForm, loadAccounts }),
+    );
+    passwordStatusMock.mockResolvedValueOnce({ status: 'processing', message: '处理中' });
+    await act(
+      // processingAction 启动并进入密码登录处理中状态。
+      async () => hook.result.current.handlePasswordLogin(),
+    );
+    expect(hook.result.current.passwordLoginView.status).toBe('processing');
+    await act(
+      // closeAction 关闭编辑弹窗并取消处理中会话。
+      async () => hook.result.current.closeEditModal(),
+    );
+    expect(cancelPasswordMock).toHaveBeenCalledWith('session-1');
+    hook.unmount();
+  });
 });
