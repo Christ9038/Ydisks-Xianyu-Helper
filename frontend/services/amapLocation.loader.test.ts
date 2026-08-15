@@ -48,7 +48,7 @@ describe('AMap 脚本加载边界', /* describeCallback 组织高德脚本加载
     const script = document.getElementById(SCRIPT_ID) as HTMLScriptElement;
     expect(script.src).toContain('webapi.amap.com/maps');
     // amapStub 是脚本加载完成后暴露的高德对象。
-    window.AMap = createAmapStub();
+    window.AMap = createAmapStub() as NonNullable<Window['AMap']>;
     window.__ydisksAmapLoaded?.();
     await expect(pending).resolves.toMatchObject([{ poi_id: 'poi-1' }]);
   });

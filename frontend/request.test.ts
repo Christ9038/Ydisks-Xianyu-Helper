@@ -77,6 +77,14 @@ describe('request helpers', () => {
     await expect(get('/broken')).rejects.toThrow('请求失败: 500');
   } /* 回调函数负责当前业务流程。 */);
 
+  test('网络层异常原样透传', async () => {
+    // fetchMock 是抛出非取消网络异常的替身。
+    const fetchMock = vi.fn().mockRejectedValue(new Error('网络断开'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(get('/network-error')).rejects.toThrow('网络断开');
+  } /* 回调函数负责当前业务流程。 */);
+
   test('notifies the app when an authenticated request returns 401', async () => {
     const events = new EventTarget(); /* events 表示events。 */
     const listener = vi.fn(); /* listener 表示listener。 */
@@ -163,5 +171,32 @@ describe('request helpers', () => {
     const pending = postForm('/upload', new FormData(), { signal: controller.signal });
     controller.abort();
     await expect(pending).rejects.toThrow('请求已取消');
+  } /* 回调函数负责当前业务流程。 */);
+
+  test('上传网络层异常原样透传', async () => {
+    // fetchMock 是抛出非取消上传异常的替身。
+    const fetchMock = vi.fn().mockRejectedValue(new Error('上传网络断开'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(postForm('/upload', new FormData())).rejects.toThrow('上传网络断开');
+  } /* 回调函数负责当前业务流程。 */);
+
+  test('上传失败保留原始错误载荷', async () => {
+    // payload 是服务端返回的上传错误详情。
+    const payload = { code: 'invalid_file', message: '文件格式不支持' };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), {
+      status: 422,
+      headers: { 'content-type': 'application/json' },
+    })));
+
+    try {
+      await postForm('/upload', new FormData());
+      throw new Error('应当抛出上传错误');
+    } catch (error /* error 表示上传异常。 */) {
+      // uploadError 是包含后端载荷的上传异常。
+      const uploadError = error as Error & { /* payload 表示原始错误载荷。 */ payload?: unknown };
+      expect(uploadError.message).toBe('文件格式不支持');
+      expect(uploadError.payload).toEqual(payload);
+    }
   } /* 回调函数负责当前业务流程。 */);
 } /* 回调函数负责当前业务流程。 */);
