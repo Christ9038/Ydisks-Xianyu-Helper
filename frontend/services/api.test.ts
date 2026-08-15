@@ -338,6 +338,15 @@ test('getOrderAnalytics 支持数字天数参数', /* 当前回调验证订单�
   expect(fetchMock.mock.calls[0][0]).toContain('end_date=');
 });
 
+test('getOrders 序列化账号和状态筛选参数', /* 当前回调验证订单查询筛选参数分支。 */ async () => {
+  // fetchMock 是订单筛选请求的网络替身。
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ data: [], total: 0 }));
+  vi.stubGlobal('fetch', fetchMock);
+  await getOrders('account-1', 'pending_ship');
+  expect(fetchMock.mock.calls[0][0]).toContain('cookie_id=account-1');
+  expect(fetchMock.mock.calls[0][0]).toContain('status=pending_ship');
+});
+
 test('paid orders are normalized to pending shipment', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ data: [{ order_id: 'o-paid', order_status: 'paid' }] })));
   const result = await getOrders(); /* result 表示处理结果。 */
@@ -688,6 +697,17 @@ test('getCards 解析 JSON 和损坏 JSON 的卡密接口配置', /* 当前回�
   expect(cards[1].api_config).toBeUndefined();
 });
 
+test('默认回复 API 补齐空字段默认值', /* 当前回调验证默认回复字段归一化和保存载荷。 */ async () => {
+  // fetchMock 是默认回复读取和保存接口的网络替身。
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(jsonResponse({ enabled: false }))
+    .mockResolvedValueOnce(jsonResponse({ success: true }));
+  vi.stubGlobal('fetch', fetchMock);
+  await expect(getDefaultReply('account-1')).resolves.toEqual({ cookie_id: 'account-1', enabled: false, reply_content: '', reply_once: false, reply_image_url: '' });
+  await updateDefaultReply('account-1', {});
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ enabled: false, reply_content: '', reply_once: false, reply_image_url: '' });
+});
+
 test('updateReplyRule preserves keyword image metadata when saving text edits', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
   vi.stubGlobal('fetch', fetchMock);
@@ -823,12 +843,14 @@ test('通知事件字段支持 JSON 数组和分隔符格式', /* 当前回调�
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse([
     { id: 1, name: 'JSON', type: 'bark', config: '{}', event_types: '["system_error", "order_paid"]', enabled: true },
     { id: 2, name: '分隔符', type: 'bark', config: '{}', event_types: 'system_error, order_paid; buyer_reviewed', enabled: true },
+    { id: 3, name: '数组', type: 'bark', config: '{}', event_types: ['system_error'], enabled: true },
   ]));
   vi.stubGlobal('fetch', fetchMock);
   // result 是通知事件字段解析后的渠道列表。
   const result = await getNotificationChannels();
   expect(result.data?.[0].event_types).toEqual(['system_error', 'order_paid']);
   expect(result.data?.[1].event_types).toEqual(['system_error', 'order_paid', 'buyer_reviewed']);
+  expect(result.data?.[2].event_types).toEqual(['system_error']);
 });
 
 test('updateShippingRule posts buyer reviewed gift payload to automation-rules', async () => {
