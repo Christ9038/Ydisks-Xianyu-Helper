@@ -303,4 +303,76 @@ describe('useItemPublishBatch', /* 当前回调处理批量发布的表单、任
     hook.unmount();
     vi.useRealTimers();
   });
+
+  test('批量结果和取消重试守卫阻止无效操作', /* 当前回调验证批量发布结果、取消和重试的前置条件。 */ async () => {
+    // hook 是批量操作守卫场景的 Hook 渲染结果。
+    const hook = renderHook(/* guardHookFactory 创建批量操作守卫场景的 Hook。 */ () => useItemPublishBatch({ selectedAccount: 'account-1', loadItems: vi.fn(), loadShippingRules: vi.fn() }));
+    await act(
+      // emptyRecentAction 在没有最近任务时保持状态稳定。
+      async () => hook.result.current.openRecentBatchResult(),
+    );
+    expect(getBatchMock).not.toHaveBeenCalled();
+    await act(
+      // emptyStartAction 在没有预检结果时阻止启动。
+      async () => hook.result.current.handleStartBatch(),
+    );
+    expect(startBatchMock).not.toHaveBeenCalled();
+    await act(
+      // invalidPreviewAction 注入没有有效行的预检结果。
+      () => hook.result.current.setBatchPreview({ ...previewFixture, valid: 0 }),
+    );
+    await act(
+      // invalidStartAction 阻止没有可发布行的任务启动。
+      async () => hook.result.current.handleStartBatch(),
+    );
+    expect(startBatchMock).not.toHaveBeenCalled();
+    expect(alert).toHaveBeenCalledWith('没有可发布的商品行');
+    await act(
+      // detailAction 注入可取消的任务详情。
+      () => hook.result.current.setBatchDetail(runningBatchFixture),
+    );
+    vi.mocked(window.confirm).mockReturnValue(false);
+    await act(
+      // rejectedCancelAction 验证用户拒绝危险取消操作。
+      async () => hook.result.current.handleCancelBatch(),
+    );
+    expect(cancelBatchMock).not.toHaveBeenCalled();
+    await act(
+      // completedDetailAction 注入不可重试的已完成任务。
+      () => hook.result.current.setBatchDetail({ ...runningBatchFixture, status: 'completed', retryable: 0 }),
+    );
+    await act(
+      // invalidRetryAction 阻止没有可重试失败行的任务重试。
+      async () => hook.result.current.handleRetryBatchFailed(),
+    );
+    expect(retryBatchMock).not.toHaveBeenCalled();
+    hook.unmount();
+  });
+
+  test('批量轮询失败时记录错误并保留任务状态', /* 当前回调验证批量任务轮询错误容错。 */ async () => {
+    vi.useFakeTimers();
+    // consoleError 是批量轮询错误日志的可控替身。
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(/* errorLogger 忽略测试日志输出。 */ () => undefined);
+    try {
+      // hook 是批量轮询失败场景的 Hook 渲染结果。
+      const hook = renderHook(/* pollErrorHookFactory 创建批量轮询失败场景的 Hook。 */ () => useItemPublishBatch({ selectedAccount: 'account-1', loadItems: vi.fn(), loadShippingRules: vi.fn() }));
+      getBatchMock.mockRejectedValueOnce(new Error('轮询失败'));
+      await act(
+        // stateAction 打开弹窗并注入运行中的任务。
+        () => {
+          hook.result.current.setShowBatchModal(true);
+          hook.result.current.setBatchDetail(runningBatchFixture);
+        },
+      );
+      await act(
+        // timerAction 推进轮询错误定时器。
+        async () => { await vi.advanceTimersByTimeAsync(3_000); },
+      );
+      expect(consoleError).toHaveBeenCalledWith('刷新批量铺货进度失败:', expect.any(Error));
+      hook.unmount();
+    } finally {
+      consoleError.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 });
