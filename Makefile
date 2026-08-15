@@ -3,7 +3,7 @@
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
 
-.PHONY: build build-int build-browser-install build-tray test test-server test-server-race test-int vet lint architecture cover tidy frontend fmt comments comments-baseline check
+.PHONY: build build-int build-browser-install build-tray test test-server test-server-race test-int vet lint architecture cover cover-browser cover-frontend tidy frontend fmt comments comments-baseline check
 
 ## build: 编译 server（默认，跳过 integration build tag）
 build:
@@ -52,6 +52,14 @@ architecture:
 ## cover: 生成覆盖率报告
 cover:
 	$(GO) test -coverprofile=cover.out ./... && $(GO) tool cover -func=cover.out | tail -1
+
+## cover-browser: 在本地 Chromium 可用时补齐浏览器页面与 CDP 集成覆盖率
+cover-browser:
+	RUN_BROWSER_INTEGRATION=1 $(GO) test -coverprofile=cover-browser.out ./internal/browser && $(GO) tool cover -func=cover-browser.out | tail -1
+
+## cover-frontend: 生成前端 V8 覆盖率报告（文本、JSON 摘要和 HTML）
+cover-frontend:
+	npm run test:coverage --prefix frontend
 
 ## fmt: 格式化所有 Go 源码
 fmt:

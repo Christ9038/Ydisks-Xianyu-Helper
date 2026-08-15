@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"io"
 	"os"
 	"path/filepath"
@@ -10,6 +11,36 @@ import (
 
 	"xianyu-go/internal/db"
 )
+
+// TestParseOptionsReadsAllOperationalFlags 验证服务入口的命令行参数完整映射。
+func TestParseOptionsReadsAllOperationalFlags(t *testing.T) {
+	// oldArgs、oldCommandLine 保存测试前的全局命令行状态。
+	oldArgs, oldCommandLine := os.Args, flag.CommandLine
+	t.Cleanup(func() {
+		os.Args = oldArgs
+		flag.CommandLine = oldCommandLine
+	})
+	os.Args = []string{"server", "-db", "custom.db", "-db-url", "sqlite://override.db", "-addr", "127.0.0.1:1", "-web", "web", "-workdir", "data", "-playwright-runtime-root", "runtime", "-playwright-driver-dir", "driver", "-playwright-browser-dir", "browsers", "-data-key-file", "key", "-secure", "-no-browser", "-v", "-log-level", "debug", "-log-format", "json", "-init-admin", "-ensure-admin", "-admin-email", "a@example.com", "-admin-password", "secret", "-service", "-version"}
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+	flag.CommandLine.SetOutput(io.Discard)
+	// opts 保存解析后的服务启动选项。
+	opts := parseOptions()
+	if opts.dbPath != "custom.db" || opts.dbURL != "sqlite://override.db" || opts.addr != "127.0.0.1:1" || opts.webDir != "web" || opts.workDir != "data" || opts.playwrightRuntimeRoot != "runtime" || opts.playwrightDriverDir != "driver" || opts.playwrightBrowserDir != "browsers" || opts.dataKeyFile != "key" {
+		t.Fatalf("路径参数解析错误：%+v", opts)
+	}
+	if !opts.secure || !opts.noBrowser || !opts.verbose || !opts.initAdmin || !opts.ensureAdmin || !opts.service || !opts.showVersion || opts.logLevel != "debug" || opts.logFormat != "json" || opts.adminEmail != "a@example.com" || opts.adminPassword != "secret" {
+		t.Fatalf("布尔或日志参数解析错误：%+v", opts)
+	}
+}
+
+// TestRunPlatformServiceReportsUnsupportedPlatform 验证非 Windows 服务入口给出明确错误。
+func TestRunPlatformServiceReportsUnsupportedPlatform(t *testing.T) {
+	// err 保存平台服务调用结果。
+	err := runPlatformService("test", func(context.Context) error { return nil })
+	if err == nil {
+		t.Fatal("当前平台应报告不支持服务模式")
+	}
+}
 
 // TestEnsureAdminIfMissingCreatesOnlyOnce 负责TestEnsureAdminIfMissingCreatesOnlyOnce相关处理。
 func TestEnsureAdminIfMissingCreatesOnlyOnce(t *testing.T) {

@@ -419,11 +419,9 @@ func checkLoginSuccess(page playwright.Page) bool {
 			const el = document.querySelector(sel);
 			return el ? el.children.length : 0;
 		}`, sel)
-		if err == nil {
-			if // n、ok 保存n、ok，供当前处理流程使用
-			n, ok := count.(float64); ok && n > 0 {
-				return true
-			}
+		if // countText 保存跨 Playwright 数值类型的子元素数量文本。
+		countText := fmt.Sprint(count); err == nil && count != nil && countText != "0" {
+			return true
 		}
 	}
 	return false

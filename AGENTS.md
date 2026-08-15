@@ -30,6 +30,9 @@ make test-server-race  # server 生命周期与凭证并发 smoke race
 make vet        # go vet ./...
 make lint       # golangci-lint run ./... (0 issues baseline)
 make check      # vet + lint + test
+make cover      # Go 全量覆盖率（默认不启动 Chromium）
+make cover-browser # 本地 Chromium 页面与 CDP 覆盖率
+make cover-frontend # 前端 V8 覆盖率（文本/JSON/HTML）
 make frontend   # build frontend into internal/webui/static
 ```
 
@@ -152,6 +155,22 @@ Run `make comments` (or `go run ./tools/commentlint -mode check -root . -baselin
 and `npm --prefix frontend run comments:check`) for the mandatory AST presence gate. Baseline regeneration is a
 reviewed maintenance operation only: use `make comments-baseline` after clearing the affected file's historical
 debt and record the scope in `docs/architecture/refactoring-master-plan.md`.
+
+## Mandatory coverage policy
+
+- Every new or modified deterministic function, branch and error path MUST have a focused test. Prefer injected
+  dependencies, local `httptest` servers, in-memory databases and local Playwright pages over real platform calls.
+- Run `make cover` for the ordinary Go baseline, `make cover-browser` when Chromium is available, and
+  `make cover-frontend` for the React/Vite V8 report. Coverage reports are verification artifacts and MUST NOT be
+  committed (`cover*.out` and `frontend/coverage/` remain generated files).
+- Do not exclude production files, lower thresholds, mark code as ignored, or weaken assertions merely to improve a
+  percentage. Any remaining uncovered code must be classified in the plan as deterministic work, environment-only
+  work, or real-account/external-platform work.
+- Tests may skip only behavior that genuinely requires a real account, private platform state, or an unavailable
+  external service. Local browser behavior, error handling, cancellation, lifecycle, parsing and UI state transitions
+  MUST use deterministic fixtures and remain covered.
+- A coverage claim MUST include the command, whether `RUN_BROWSER_INTEGRATION=1` was used, the Go and frontend
+  statement percentages, and the exact real-account/external-platform exceptions.
 
 ## Mandatory target dependency boundaries
 
