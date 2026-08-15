@@ -177,7 +177,7 @@ describe('frontend navigation routing', () => {
   } /* 回调函数负责当前业务流程。 */);
 
   test('item publish image previews revoke object urls', () => {
-    const itemList = readFrontendFile('components/ItemList.tsx'); /* itemList 表示当前商品List。 */
+    const itemList = readFrontendFile('app/features/items/itemActions.ts'); /* itemList 表示商品动作协调器源码。 */
 
     expect(itemList).toContain('setPublishImagePreviews');
     expect(itemList).toContain('URL.createObjectURL(file)');

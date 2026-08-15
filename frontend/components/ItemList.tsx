@@ -2,23 +2,15 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Item } from '../types';
 import {
-  syncItemsFromAccount,
-  createItem,
-  publishItem,
-  updateItem,
-  deleteItem,
-} from '../app/features/items/api';
-import type { PublishLocation } from '../app/features/items/api';
-import {
   getItems,
   getAccountDetails,
   getShippingRules,
   getItemPublishBatches,
-  getPublishLocations,
 } from '../app/features/items/api';
 import type { AccountDetail, ShippingRule } from '../types';
 import type { ItemListProps } from '../app/features/items/types';
 import { useItemPublishBatch } from '../app/features/items/hooks';
+import { useItemActions } from '../app/features/items/itemActions';
 import { batchStatusClass, batchStatusText } from '../app/features/items/batchState';
 import { BatchPhaseIndicator } from '../app/features/items/components/BatchPhaseIndicator';
 import { ArrowRight, Box, CheckCircle2, CircleDashed, Edit, Filter, Link2, LocateFixed, PackagePlus, Plus, RefreshCw, Save, Search, ShoppingBag, Trash2, UploadCloud, User, X } from 'lucide-react';
@@ -43,49 +35,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   const [selectedAccount, setSelectedAccount] = useState<string>('');
   // [accountFilter, 解构得到当前 Hook 返回的状态和操作函数。
   const [accountFilter, setAccountFilter] = useState<string>('');
-  // [loading, 解构得到当前 Hook 返回的状态和操作函数。
-  const [loading, setLoading] = useState(false);
-  // [publishing, 解构得到当前 Hook 返回的状态和操作函数。
-  const [publishing, setPublishing] = useState(false);
-  // [showEditModal, 解构得到当前 Hook 返回的状态和操作函数。
-  const [showEditModal, setShowEditModal] = useState(false);
-  // [showAddModal, 解构得到当前 Hook 返回的状态和操作函数。
-  const [showAddModal, setShowAddModal] = useState(false);
-  // [showPublishModal, 解构得到当前 Hook 返回的状态和操作函数。
-  const [showPublishModal, setShowPublishModal] = useState(false);
-	// [locationLoading, 解构得到当前 Hook 返回的状态和操作函数。
-	const [locationLoading, setLocationLoading] = useState(false);
-	// [publishLocations, 解构得到当前 Hook 返回的状态和操作函数。
-	const [publishLocations, setPublishLocations] = useState<PublishLocation[]>([]);
-	// [publishLocation, 解构得到当前 Hook 返回的状态和操作函数。
-	const [publishLocation, setPublishLocation] = useState<PublishLocation | null>(null);
-  // [selectedItem, 解构得到当前 Hook 返回的状态和操作函数。
-  const [selectedItem, setSelectedItem] = useState<Item | null>(null);
-  // [editForm, 解构得到当前 Hook 返回的状态和操作函数。
-  const [editForm, setEditForm] = useState<Partial<Item>>({});
-  // [addForm, 解构得到当前 Hook 返回的状态和操作函数。
-  const [addForm, setAddForm] = useState({
-    cookie_id: '',
-    item_id: '',
-    item_title: '',
-    item_price: '',
-    item_image: ''
-  });
-  // [publishForm, 解构得到当前 Hook 返回的状态和操作函数。
-  const [publishForm, setPublishForm] = useState({
-    cookie_id: '',
-    title: '',
-    description: '',
-    price: '',
-    original_price: '',
-    quantity: '1',
-    postage_mode: 'free',
-	postage: '',
-	images: [] as File[],
-  });
-  // [publishImagePreviews, 解构得到当前 Hook 返回的状态和操作函数。
-  const [publishImagePreviews, setPublishImagePreviews] = useState<{ /** key 表示key。 */ key: string; /** url 表示地址。 */ url: string }[]>([]);
-
   // loadItems 刷新商品列表，供普通操作和批量任务完成后复用。
   const loadItems = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async () => {
     // itemsList 商品列表列表，负责当前功能中的对应处理。
@@ -134,21 +83,51 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     handleRetryBatchFailed,
   } = batchState;
 
-  useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
-    if (!showPublishModal || publishForm.images.length === 0) {
-      setPublishImagePreviews([]);
-      return;
-    }
-    // previews previews，负责当前功能中的对应处理。
-    const previews = publishForm.images.map(/* 当前回调处理集合中的单个元素。 */ (file, index) => ({
-      key: file.name + index,
-      url: URL.createObjectURL(file),
-    }));
-    setPublishImagePreviews(previews);
-    return /* 当前回调处理用户交互或异步状态变化。 */ () => {
-      previews.forEach(/* 当前回调处理集合中的单个元素。 */ preview => URL.revokeObjectURL(preview.url));
-    };
-  }, [showPublishModal, publishForm.images]);
+  // itemActions 商品 feature 提供普通商品操作、发布表单和定位动作。
+  const itemActions = useItemActions({
+    selectedAccount,
+    setSelectedAccount,
+    setItems,
+    loadItems,
+    loadShippingRules,
+    onConfigureDelivery,
+    setBatchLocations,
+    setBatchLocation,
+  });
+  // 解构商品动作，保持页面 JSX 只负责布局和表单字段组合。
+  const {
+    loading,
+    publishing,
+    showEditModal,
+    setShowEditModal,
+    showAddModal,
+    setShowAddModal,
+    showPublishModal,
+    setShowPublishModal,
+    locationLoading,
+    publishLocations,
+    setPublishLocations,
+    publishLocation,
+    setPublishLocation,
+    selectedItem,
+    editForm,
+    setEditForm,
+    addForm,
+    setAddForm,
+    publishForm,
+    setPublishForm,
+    publishImagePreviews,
+    handleSync,
+    handleEdit,
+    handleSaveEdit,
+    handleDelete,
+    handleAddItem,
+    handlePublishItem,
+    downloadPublishTemplate,
+    openAddModal,
+    openPublishModal,
+    locateForPublish,
+  } = itemActions;
 
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
     Promise.all([getAccountDetails(), getItems(), getShippingRules(), getItemPublishBatches(20)])
@@ -163,216 +142,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
       })
       .catch(/* 当前回调处理异步操作结果。 */ (e) => console.error('加载商品配置失败:', e));
   }, []);
-
-  // handleSync 处理当前用户操作（Sync）。
-  const handleSync = async () => {
-      if (!selectedAccount) return alert('请先选择账号');
-      setLoading(true);
-      try {
-        // result 处理结果。
-        const result = await syncItemsFromAccount(selectedAccount);
-        await loadItems();
-        alert(result?.message || '商品同步完成');
-      } catch (/* error 表示错误。 */ error: any) {
-        console.error('同步商品失败:', error);
-        alert(error?.message || '同步失败，请重试');
-      } finally {
-        setLoading(false);
-      }
-  };
-
-  // handleEdit 处理当前用户操作（Edit）。
-  const handleEdit = (item: Item) => {
-    setSelectedItem(item);
-    setEditForm({ ...item });
-    setShowEditModal(true);
-  };
-
-  // handleSaveEdit 处理当前用户操作（SaveEdit）。
-  const handleSaveEdit = async () => {
-    if (!selectedItem) return;
-    try {
-      await updateItem(selectedItem.cookie_id, selectedItem.item_id, {
-        item_title: editForm.item_title || '',
-        item_description: editForm.item_description || '',
-        item_category: editForm.item_category || '',
-        item_price: editForm.item_price || '',
-        item_detail: editForm.item_detail || selectedItem.item_detail || '',
-      });
-      await loadItems();
-      await loadShippingRules();
-      setShowEditModal(false);
-      setSelectedItem(null);
-    } catch (/* error 表示错误。 */ error) {
-      console.error('更新商品失败:', error);
-      alert('更新失败，请重试');
-    }
-  };
-
-  // handleDelete 处理当前用户操作（Delete）。
-  const handleDelete = async (item: Item) => {
-    if (confirm(`确认删除商品"${item.item_title}"吗？`)) {
-      try {
-        await deleteItem(item.cookie_id, item.item_id);
-        setItems(/* 当前回调处理集合中的单个元素。 */ prev => prev.filter(/* 当前回调处理集合中的单个元素。 */ i => !(i.cookie_id === item.cookie_id && i.item_id === item.item_id)));
-      } catch (/* error 表示错误。 */ error) {
-        console.error('删除商品失败:', error);
-        alert('删除失败，请重试');
-      }
-    }
-  };
-
-  // handleAddItem 处理当前用户操作（Add商品）。
-  const handleAddItem = async () => {
-    try {
-      if (!addForm.cookie_id || !addForm.item_id) {
-        alert('请选择账号并填写商品ID');
-        return;
-      }
-      await createItem(addForm.cookie_id, {
-        item_id: addForm.item_id,
-        item_title: addForm.item_title,
-        item_price: addForm.item_price,
-        item_detail: addForm.item_image ? JSON.stringify({ item_image: addForm.item_image }) : '',
-      });
-      await loadItems();
-      setShowAddModal(false);
-      setAddForm({
-        cookie_id: '',
-        item_id: '',
-        item_title: '',
-        item_price: '',
-        item_image: ''
-      });
-    } catch (/* error 表示错误。 */ error) {
-      console.error('添加商品失败:', error);
-      alert('添加失败，请重试');
-    }
-  };
-
-  // handlePublishItem 处理当前用户操作（发布商品）。
-  const handlePublishItem = async () => {
-    if (!publishForm.cookie_id) return alert('请选择发布账号');
-    if (!publishForm.title.trim()) return alert('请填写商品标题');
-    if (!publishForm.price.trim()) return alert('请填写商品价格');
-    if (!publishForm.quantity || Number(publishForm.quantity) <= 0) return alert('库存数量必须大于 0');
-	if (publishForm.images.length === 0) return alert('至少上传 1 张商品图片');
-	if (publishForm.postage_mode === 'fixed' && !publishForm.postage.trim()) return alert('请填写一口价邮费');
-
-    setPublishing(true);
-    try {
-	  // result 处理结果。
-	  const result = await publishItem({ ...publishForm, location: publishLocation || undefined });
-      await loadItems();
-      setShowPublishModal(false);
-      setPublishForm({
-        cookie_id: selectedAccount || '',
-        title: '',
-        description: '',
-        price: '',
-        original_price: '',
-        quantity: '1',
-        postage_mode: 'free',
-        postage: '',
-		images: [],
-      });
-	  setPublishLocations([]);
-	  setPublishLocation(null);
-      if (result?.item_id) {
-        // publishedItem 已发布商品。
-        const publishedItem: Item = {
-          id: result.item_id,
-          cookie_id: publishForm.cookie_id,
-          item_id: result.item_id,
-          item_title: result.item_title || publishForm.title,
-          item_price: result.item_price || publishForm.price,
-          item_image: result.item_image,
-        };
-        onConfigureDelivery(publishedItem);
-        alert('商品发布成功，ID: ' + result.item_id + '，已为你打开发货规则配置');
-      } else {
-        alert('商品发布成功');
-      }
-    } catch (/* error 表示错误。 */ error: any) {
-      console.error('发布商品失败:', error);
-      // payload 请求载荷。
-      const payload = error?.payload as any;
-      if (payload?.code === 'stock_permission_missing') {
-        alert('发布失败：该账号没有库存发布权限，无法按库存数量发布商品。请换账号或先在闲鱼确认库存能力。');
-        return;
-      }
-      alert(error?.message || '发布失败，请重试');
-    } finally {
-      setPublishing(false);
-    }
-  };
-
-  // downloadPublishTemplate 下载发布模板函数。
-  const downloadPublishTemplate = () => {
-    // headers 请求头。
-    const headers = [
-      '账号ID', '标题', '描述', '价格', '原价', '库存', '邮费模式', '邮费', '图片',
-      '类目ID', '类目名称', '频道类目ID', '淘宝类目ID',
-      '付款发货启用', '付款发货内容', '评价赠品启用', '评价赠品内容',
-      '求评价启用', '求评价等待小时', '求评价文案', '求评价最多次数',
-    ];
-    // rows 行数据。
-    const rows = [
-      ['', '会员组合包自动发货', '下单后发送主卡和附赠卡。', '19.90', '29.90', '10', 'free', '', 'images/bundle-1.jpg;images/bundle-2.jpg', '', '', '', '', '是', '101:1;102:1', '是', '201:1;202:2', '是', '72', '亲，满意的话麻烦给个评价，谢谢～', '1'],
-      ['', '普通商品', '仅发布商品，不创建自动化规则。', '49.90', '', '10', 'fixed', '8.00', 'https://example.com/product.jpg', '', '', '', '', '否', '', '否', '', '否', '', '', ''],
-    ];
-    // csv csv，负责当前功能中的对应处理。
-    const csv = [headers, ...rows]
-      .map(/* 当前回调处理集合中的单个元素。 */ row => row.map(/* 当前回调处理集合中的单个元素。 */ cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-      .join('\n');
-    // blob blob，负责当前功能中的对应处理。
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
-    // url 地址。
-    const url = URL.createObjectURL(blob);
-    // link 链接。
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = '批量铺货模板.csv';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  };
-
-  // openAddModal 打开当前界面（AddModal）。
-  const openAddModal = () => {
-    setAddForm(/* 当前回调处理用户交互或异步状态变化。 */ prev => ({ ...prev, cookie_id: selectedAccount || prev.cookie_id }));
-    setShowAddModal(true);
-  };
-
-  // openPublishModal 打开当前界面（发布Modal）。
-  const openPublishModal = () => {
-    setPublishForm(/* 当前回调处理用户交互或异步状态变化。 */ prev => ({ ...prev, cookie_id: selectedAccount || prev.cookie_id }));
-    setShowPublishModal(true);
-  };
-
-	// locateForPublish 定位发布地址函数。
-	const locateForPublish = async (batch: boolean) => {
-		// cookieId 登录凭证标识，负责当前功能中的对应处理。
-		const cookieId = batch ? selectedAccount : publishForm.cookie_id;
-		if (!cookieId) return alert('请先选择发布账号');
-		if (!navigator.geolocation) return alert('当前浏览器不支持定位');
-		setLocationLoading(true);
-		navigator.geolocation.getCurrentPosition(/* 当前回调处理用户交互或异步状态变化。 */ async position => {
-			try {
-				// locations locations，负责当前功能中的对应处理。
-				const locations = await getPublishLocations(position.coords.longitude, position.coords.latitude);
-				if (!locations.length) throw new Error('当前位置附近没有可用的高德发货地，请稍后重试');
-				if (batch) { setBatchLocations(locations); setBatchLocation(locations[0]); }
-				else { setPublishLocations(locations); setPublishLocation(locations[0]); }
-			} catch (/* error 表示错误。 */ error: any) {
-				alert(error?.message || '获取发货地失败');
-			} finally { setLocationLoading(false); }
-		}, /* 当前回调处理用户交互或异步状态变化。 */ error => {
-			setLocationLoading(false);
-			alert(error.code === error.PERMISSION_DENIED ? '定位权限被拒绝，请在浏览器设置中允许定位' : '无法获取当前位置，请稍后重试');
-		}, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
-	};
 
   // rulesForItem 规则列表For商品，负责当前功能中的对应处理。
   const rulesForItem = (item: Item) => shippingRules.filter(/* 当前回调处理集合中的单个元素。 */ rule =>
