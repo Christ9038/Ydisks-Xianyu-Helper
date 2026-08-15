@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"xianyu-go/internal/xianyu/mtop"
 	apirenew "xianyu-go/internal/xianyu/renew"
 )
 
@@ -77,5 +78,71 @@ func TestAPICookieRenewReleasesCredentialLockDuringSlowIO(t *testing.T) {
 	}
 	if !strings.Contains(saved, "concurrent=kept") || !strings.Contains(saved, "sdkSilent=fresh") {
 		t.Fatalf("并发 Cookie 被旧续期响应覆盖: %q", saved)
+	}
+}
+
+// TestLoginRenewReleasesCredentialLockAndRejectsStaleResponse 验证登录态检查不占锁且不会覆盖并发 Cookie。
+func TestLoginRenewReleasesCredentialLockAndRejectsStaleResponse(t *testing.T) {
+	// store 是登录态检查协调器测试使用的账号数据库。
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	// account 是待检查的账号运行视图。
+	account := createSchedulerAccount(t, store, "cid-login-coordinator", "unb=1; havana_lgc_exp="+futureSchedulerMillis())
+	// started 表示 loginuser.get 外部请求已经开始执行。
+	started := make(chan struct{})
+	// release 允许测试结束 loginuser.get 外部请求阻塞。
+	release := make(chan struct{})
+	// server 是阻塞登录态检查请求的 HTTP 桩。
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(started)
+		<-release
+		http.SetCookie(w, &http.Cookie{Name: "loginFresh", Value: "stale", Path: "/"})
+		_, _ = w.Write([]byte(`{"ret":["SUCCESS::调用成功"],"data":{}}`))
+	}))
+	defer server.Close()
+	// scheduler 是待验证登录态协调行为的调度器。
+	scheduler := NewScheduler(store, &schedulerFakeStarter{}, nil, nil)
+	scheduler.mtop = &mtop.ClientImpl{HTTPClient: server.Client(), LoginUserURL: server.URL}
+	// finished 表示登录态检查调用已经返回。
+	finished := make(chan struct{})
+	go func() {
+		scheduler.loginRenewOne(context.Background(), "batch-login-coordinator", account)
+		close(finished)
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("登录态检查请求未开始")
+	}
+	// lockReleased 表示其他调用方已经成功取得并释放账号凭证锁。
+	lockReleased := make(chan struct{})
+	go func() {
+		// unlock 是探测调用方取得的账号凭证锁释放函数。
+		unlock := store.LockAccountCredentials(account.ID)
+		unlock()
+		close(lockReleased)
+	}()
+	select {
+	case <-lockReleased:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("慢速登录态检查仍持有共享凭证锁")
+	}
+	// updateErr 表示并发流程写入新 Cookie 失败的原因。
+	if updateErr := store.Cookies.UpdateRenewalCookie(context.Background(), account.ID, "unb=1; concurrent=kept; havana_lgc_exp="+futureSchedulerMillis(), `{}`, time.Now().Unix()); updateErr != nil {
+		t.Fatalf("写入并发 Cookie: %v", updateErr)
+	}
+	close(release)
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("登录态检查调用未完成")
+	}
+	// saved 是并发更新与旧登录态响应处理后的 Cookie 值。
+	saved, savedErr := store.Cookies.GetValue(context.Background(), account.ID)
+	if savedErr != nil {
+		t.Fatalf("读取登录态检查后的 Cookie: %v", savedErr)
+	}
+	if !strings.Contains(saved, "concurrent=kept") || strings.Contains(saved, "loginFresh=stale") {
+		t.Fatalf("旧登录态响应覆盖了并发 Cookie: %q", saved)
 	}
 }

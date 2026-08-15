@@ -207,12 +207,16 @@ func (s *Scheduler) executeLoginRenew(ctx context.Context) {
 func (s *Scheduler) loginRenewOne(ctx context.Context, batchID string, account db.RenewalRuntimeAccount) {
 	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
 	credentialUnlock := s.store.LockAccountCredentials(account.ID)
+	// credentialLocked 标识当前调用是否持有账号凭证锁。
+	credentialLocked := true
 	// credentialUpdated 保存credentialUpdated，供当前处理流程使用
 	credentialUpdated := false
 	// sessionExpired 保存会话Expired，供当前处理流程使用
 	sessionExpired := false
 	defer func() {
-		credentialUnlock()
+		if credentialLocked {
+			credentialUnlock()
+		}
 		if sessionExpired {
 			s.logger.Warn("loginuser.get 检测到 Session 过期，开始即时续期", "account", account.ID)
 			if s.refresher != nil && s.refresher.OnPasswordLoginRefresh(ctx, account.ID) {
@@ -251,8 +255,28 @@ func (s *Scheduler) loginRenewOne(ctx context.Context, batchID string, account d
 	} else {
 		mtopCtx, cookieSession = mtop.WithFlatCookieSession(runCtx, account.Value)
 	}
+	// 登录态检查只使用当前快照；慢速 loginuser.get 不得持有共享凭证锁。
+	credentialUnlock()
+	credentialLocked = false
 	// res、callErr 保存res、callErr，供当前处理流程使用
 	res, callErr := s.mtop.CheckLoginStatusContext(mtopCtx, account.Value)
+	// credentialUnlock 保存外部检查完成后重新进入提交临界区的释放函数。
+	credentialUnlock = s.store.LockAccountCredentials(account.ID)
+	credentialLocked = true
+	// latestAfterCheck 和 reloadErr 保存外部检查完成后的最新账号快照及重读错误。
+	latestAfterCheck, reloadErr := s.reloadRenewalAccount(ctx, account)
+	if reloadErr != nil {
+		s.addLoginLog(ctx, batchID, account.ID, "failed", "外部登录态检查后重读账号凭证失败: "+reloadErr.Error(), nil, time.Since(started))
+		s.logger.Warn("login_renew 检查完成后重读账号凭证失败", "account", account.ID, "err", reloadErr)
+		return
+	}
+	if !latestAfterCheck.Enabled {
+		s.addLoginLog(ctx, batchID, account.ID, "skipped", "账号在登录态检查期间已停用", nil, time.Since(started))
+		return
+	}
+	// credentialSnapshotChanged 表示登录态检查期间已有其他流程写入 Cookie 或 metadata。
+	credentialSnapshotChanged := latestAfterCheck.Value != account.Value || latestAfterCheck.MetadataJSON != account.MetadataJSON
+	account = latestAfterCheck
 
 	// 对齐浏览器在响应头到达时立即应用 Set-Cookie 的时序。权威 session
 	// 因此必须在处理请求或解析错误之前持久化，否则下次请求会
@@ -265,6 +289,14 @@ func (s *Scheduler) loginRenewOne(ctx context.Context, batchID string, account d
 	// 的顺序或尾分号不同回退写入并清掉快照。
 	// sessionHandled 保存会话Handled，供当前处理流程使用
 	sessionHandled := snapshot != nil
+	if credentialSnapshotChanged {
+		// 外部响应基于旧快照，本切片暂不具备可安全重放的 loginuser.get Cookie 集合，因此丢弃旧响应状态。
+		value, snapshot, changed = account.Value, nil, false
+		sessionHandled = false
+		if res != nil {
+			res.UpdatedCookies = account.Value
+		}
+	}
 	if changed {
 		updated = cookierefresh.ChangedCookieNames(account.Value, value)
 		// metadata 保存metadata，供当前处理流程使用
