@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -628,6 +629,59 @@ func TestSyncItemsFromAccountDetectsMultiSpecFromDetail(t *testing.T) {
 	item, err := store.Items.Get(context.Background(), "acc1", "multi-item")
 	if err != nil || !item.IsMultiSpec {
 		t.Fatalf("item=%+v err=%v", item, err)
+	}
+}
+
+// TestEnrichSyncedItemMultiSpecLimitsProbeConcurrency 验证商品多规格探测使用有界并发且覆盖全部候选商品。
+func TestEnrichSyncedItemMultiSpecLimitsProbeConcurrency(t *testing.T) {
+	// srv、store、cleanup 保存用于商品同步测试的服务、数据库和清理函数。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// stateMu 保护远端探测并发计数。
+	var stateMu sync.Mutex
+	// active、maxActive 保存当前及观测到的最大远端探测并发数。
+	active, maxActive := 0, 0
+	// client 是带并发计数的商品详情测试客户端。
+	client := withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if !strings.Contains(req.URL.String(), "mtop.taobao.idle.pc.detail") {
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`)), Request: req}, nil
+		}
+		stateMu.Lock()
+		active++
+		if active > maxActive {
+			maxActive = active
+		}
+		stateMu.Unlock()
+		time.Sleep(20 * time.Millisecond)
+		stateMu.Lock()
+		active--
+		stateMu.Unlock()
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ret":["SUCCESS::调用成功"],"data":{"multiSKU":true,"skuDO":{"skuList":[{"id":"a"}]}}}`)), Request: req}, nil
+	}))
+	// items 保存等待探测的商品列表。
+	items := make([]mtop.ItemListItem, 8)
+	// index 表示当前商品在测试列表中的下标。
+	for index := range items {
+		items[index].ID = fmt.Sprintf("probe-%d", index)
+	}
+	// err 表示批量多规格探测错误。
+	err := srv.enrichSyncedItemMultiSpec(context.Background(), client, "unb=1; _m_h5_tk=t_1;", "acc1", items)
+	if err != nil {
+		t.Fatalf("enrich multi spec: %v", err)
+	}
+	if maxActive > itemSpecProbeConcurrency {
+		t.Fatalf("probe concurrency=%d want <=%d", maxActive, itemSpecProbeConcurrency)
+	}
+	// index、item 分别表示商品下标和当前探测结果。
+	for index, item := range items {
+		if !item.IsMultiSpec {
+			t.Fatalf("item %d was not marked multi spec", index)
+		}
+	}
+	// flags、err 保存数据库批量标记查询结果及错误，确认本地查询未误报候选商品。
+	flags, err := store.Items.MultiSpecFlags(context.Background(), "acc1", []string{"probe-0"})
+	if err != nil || len(flags) != 0 {
+		t.Fatalf("unexpected local flags=%v err=%v", flags, err)
 	}
 }
 

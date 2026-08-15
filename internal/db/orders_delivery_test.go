@@ -612,6 +612,15 @@ func TestItems_GetAndFlags(t *testing.T) {
 	if !s.Items.MultiQuantityDelivery(ctx, cid, "i1") {
 		t.Fatal("MultiQuantityDelivery 应 true")
 	}
+	if // err 保存err，供当前处理流程使用
+	err := s.Items.Upsert(ctx, &ItemInfoRow{CookieID: cid, ItemID: "i2", ItemTitle: "普通商品"}); err != nil {
+		t.Fatal(err)
+	}
+	// flags、err 保存批量多规格标记及错误。
+	flags, err := s.Items.MultiSpecFlags(ctx, cid, []string{"i1", "i2", "missing", "i1"})
+	if err != nil || !flags["i1"] || flags["i2"] || len(flags) != 2 {
+		t.Fatalf("MultiSpecFlags=%v err=%v", flags, err)
+	}
 }
 
 // TestCards_ConsumeBatchData data 类型卡券按行消费。

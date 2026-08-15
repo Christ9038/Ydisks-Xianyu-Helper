@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -759,33 +760,88 @@ func (s *Server) syncSyncedItems(ctx context.Context, cookieID string, items []m
 	return s.Store.Items.SyncFromRemote(ctx, cookieID, rows)
 }
 
-// enrichSyncedItemMultiSpec 负责enrichSynced商品MultiSpec相关处理。
+// itemSpecProbeConcurrency 限制商品多规格远端探测的并发数，避免同步洪峰压垮平台接口。
+const itemSpecProbeConcurrency = 4
+
+// enrichSyncedItemMultiSpec 批量读取本地标记并受限并发探测剩余商品的多规格状态。
 func (s *Server) enrichSyncedItemMultiSpec(ctx context.Context, client mtop.Client, cookies, cookieID string, items []mtop.ItemListItem) error {
 	// fetcher、ok 保存fetcher、ok，供当前处理流程使用
 	fetcher, ok := client.(mtop.ItemDetailFetcher)
 	if !ok {
 		return nil
 	}
-	// index 表示当前遍历过程中的index
+	// itemIDs 保存待批量读取本地多规格标记的商品标识。
+	itemIDs := make([]string, 0, len(items))
+	// item 表示当前同步返回的商品。
+	for _, item := range items {
+		itemIDs = append(itemIDs, item.ID)
+	}
+	// localFlags、flagsErr 保存本地多规格标记及批量查询错误。
+	localFlags, flagsErr := s.Store.Items.MultiSpecFlags(ctx, cookieID, itemIDs)
+	if flagsErr != nil && s.Logger != nil {
+		s.Logger.Warn("批量读取商品多规格标记失败，将继续远端探测", "cookie_id", cookieID, "err", flagsErr)
+	}
+	// candidates 保存需要访问远端接口的商品下标。
+	candidates := make([]int, 0, len(items))
+	// index 表示当前商品在同步列表中的下标。
+	// index 表示当前商品在同步列表中的下标。
 	for index := range items {
-		if items[index].IsMultiSpec || s.Store.Items.IsMultiSpec(ctx, cookieID, items[index].ID) {
+		if items[index].IsMultiSpec || localFlags[items[index].ID] {
 			items[index].IsMultiSpec = true
 			continue
 		}
-		// isMultiSpec、err 保存isMultiSpec、err，供当前处理流程使用
-		isMultiSpec, err := fetcher.DetectItemMultiSpec(ctx, cookies, items[index].ID)
-		if err != nil {
-			if mtop.IsSessionExpiredErr(err) {
-				return err
-			}
-			if s.Logger != nil {
-				s.Logger.Warn("识别商品多规格状态失败", "cookie_id", cookieID, "item_id", items[index].ID, "err", err)
-			}
-			continue
-		}
-		items[index].IsMultiSpec = isMultiSpec
+		candidates = append(candidates, index)
 	}
-	return nil
+	if len(candidates) == 0 {
+		return nil
+	}
+	// probeCtx、cancel 让 Session 过期时的其他探测尽快停止。
+	probeCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	// semaphore 限制同时进行的远端商品详情请求数。
+	semaphore := make(chan struct{}, itemSpecProbeConcurrency)
+	// waitGroup 等待所有商品探测 goroutine 收束。
+	var waitGroup sync.WaitGroup
+	// errorMu 保护 sessionErr 的并发写入。
+	var errorMu sync.Mutex
+	// sessionErr 保存首个需要中断同步的 Session 过期错误。
+	var sessionErr error
+	// index 表示当前需要远端探测的商品下标。
+	for _, index := range candidates {
+		waitGroup.Add(1)
+		go func(index int) {
+			defer waitGroup.Done()
+			select {
+			case semaphore <- struct{}{}:
+			case <-probeCtx.Done():
+				return
+			}
+			defer func() { <-semaphore }()
+			// isMultiSpec、err 保存当前商品远端探测结果及错误。
+			isMultiSpec, err := fetcher.DetectItemMultiSpec(probeCtx, cookies, items[index].ID)
+			if err != nil {
+				if mtop.IsSessionExpiredErr(err) {
+					errorMu.Lock()
+					if sessionErr == nil {
+						sessionErr = err
+						cancel()
+					}
+					errorMu.Unlock()
+					return
+				}
+				if probeCtx.Err() != nil {
+					return
+				}
+				if s.Logger != nil {
+					s.Logger.Warn("识别商品多规格状态失败", "cookie_id", cookieID, "item_id", items[index].ID, "err", err)
+				}
+				return
+			}
+			items[index].IsMultiSpec = isMultiSpec
+		}(index)
+	}
+	waitGroup.Wait()
+	return sessionErr
 }
 
 // listItemsByCookie 负责list商品列表By登录凭证相关处理。

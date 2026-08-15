@@ -88,6 +88,65 @@ func (i *Items) IsMultiSpec(ctx context.Context, cookieID, itemID string) bool {
 	return v != 0
 }
 
+// MultiSpecFlags 批量读取账号商品的多规格标记，避免同步时逐商品查询数据库。
+func (i *Items) MultiSpecFlags(ctx context.Context, cookieID string, itemIDs []string) (map[string]bool, error) {
+	// uniqueIDs 保存去重后的商品标识，避免重复占用 SQL 参数。
+	uniqueIDs := make([]string, 0, len(itemIDs))
+	// seenIDs 保存已经加入查询的商品标识。
+	seenIDs := make(map[string]struct{}, len(itemIDs))
+	// itemID 表示当前待查询的商品标识。
+	for _, itemID := range itemIDs {
+		itemID = strings.TrimSpace(itemID)
+		if itemID == "" {
+			continue
+		}
+		// exists 表示当前商品标识是否已经加入查询集合。
+		if _, exists := seenIDs[itemID]; exists {
+			continue
+		}
+		seenIDs[itemID] = struct{}{}
+		uniqueIDs = append(uniqueIDs, itemID)
+	}
+	// flags 保存已存在商品的多规格标记；缺失商品不会出现在结果中。
+	flags := make(map[string]bool, len(uniqueIDs))
+	if len(uniqueIDs) == 0 {
+		return flags, nil
+	}
+	// placeholders 保存 IN 子句的参数占位符。
+	placeholders := make([]string, len(uniqueIDs))
+	// args 保存账号和商品查询参数。
+	args := make([]any, 0, len(uniqueIDs)+1)
+	args = append(args, cookieID)
+	// index、itemID 分别表示占位符下标和当前商品标识。
+	for index, itemID := range uniqueIDs {
+		placeholders[index] = "?"
+		args = append(args, itemID)
+	}
+	// rows、err 保存批量标记查询结果及错误。
+	rows, err := i.DB.QueryContext(ctx,
+		`SELECT item_id, is_multi_spec FROM item_info WHERE cookie_id=? AND deleted_at IS NULL AND item_id IN (`+strings.Join(placeholders, ",")+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		// itemID、isMultiSpec 保存当前商品标识及多规格值。
+		var itemID string
+		// isMultiSpec 保存数据库中的多规格整数标记。
+		var isMultiSpec int
+		// err 表示扫描当前商品标记时的数据库错误。
+		if err := rows.Scan(&itemID, &isMultiSpec); err != nil {
+			return nil, err
+		}
+		flags[itemID] = isMultiSpec != 0
+	}
+	// err 表示遍历批量标记结果时的数据库错误。
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return flags, nil
+}
+
 // MultiQuantityDelivery 是否开启多数量发货。
 func (i *Items) MultiQuantityDelivery(ctx context.Context, cookieID, itemID string) bool {
 	// v 保存v，供当前处理流程使用
