@@ -64,6 +64,35 @@ func TestOrdersByCookiePageScansBeyondLegacyLimit(t *testing.T) {
 	if len(cursorIDs) != 1001 {
 		t.Fatalf("cursor scan count=%d want 1001", len(cursorIDs))
 	}
+	// planRows 保存 SQLite 对复合游标查询生成的执行计划。
+	planRows, err := s.DB.QueryContext(ctx,
+		`EXPLAIN QUERY PLAN SELECT order_id FROM orders WHERE cookie_id=? AND deleted_at IS NULL ORDER BY created_at DESC,order_id DESC LIMIT ?`, cookieID, 500)
+	if err != nil {
+		t.Fatalf("cursor explain plan: %v", err)
+	}
+	defer planRows.Close()
+	// planUsesCursorIndex 表示执行计划是否使用订单复合游标索引。
+	planUsesCursorIndex := false
+	for planRows.Next() {
+		// detail 保存 SQLite 执行计划文本。
+		var id, parent, notUsed int
+		// detail 保存 SQLite 执行计划步骤说明。
+		var detail string
+		// err 表示读取执行计划步骤的错误。
+		if err := planRows.Scan(&id, &parent, &notUsed, &detail); err != nil {
+			t.Fatalf("scan cursor explain plan: %v", err)
+		}
+		if strings.Contains(detail, "idx_orders_cursor") {
+			planUsesCursorIndex = true
+		}
+	}
+	// err 表示遍历执行计划结果的错误。
+	if err := planRows.Err(); err != nil {
+		t.Fatalf("cursor explain rows: %v", err)
+	}
+	if !planUsesCursorIndex {
+		t.Fatal("cursor query did not use idx_orders_cursor")
+	}
 }
 
 // TestOrdersSoftDeleteMissingForCookie 负责Test订单列表SoftDeleteMissingFor登录凭证相关处理。
