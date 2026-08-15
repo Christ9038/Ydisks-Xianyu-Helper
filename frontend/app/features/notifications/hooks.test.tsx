@@ -145,4 +145,52 @@ describe('useNotifications', /* 当前回调处理通知渠道、SMTP 和动作�
     expect(hook.result.current.testingId).toBe('');
     expect(hook.result.current.toast).toEqual({ type: 'error', text: '通知服务失败' });
   });
+
+  test('渠道加载、保存、切换和 SMTP 保存失败时展示错误', /* 当前回调验证通知 Hook 的业务错误分支。 */ async () => {
+    // hook 是管理员通知错误场景的 Hook 渲染结果。
+    const hook = renderHook(
+      // errorHookFactory 创建管理员通知错误场景的 Hook。
+      () => useNotifications(true),
+    );
+    await waitFor(
+      // loadingAssertion 等待首次通知渠道加载完成。
+      () => expect(hook.result.current.loading).toBe(false),
+    );
+
+    getChannelsMock.mockRejectedValueOnce(new Error('渠道读取失败'));
+    await act(
+      // loadErrorAction 触发通知渠道读取错误。
+      async () => hook.result.current.loadChannels(),
+    );
+
+    await act(
+      // openEditAction 打开已有渠道编辑表单。
+      () => hook.result.current.openEdit(channelFixture),
+    );
+    await act(
+      // formAction 写入编辑渠道表单。
+      () => hook.result.current.setForm({ name: '修改渠道', type: 'bark', enabled: true, config: { server_url: 'https://api.day.app', device_key: 'key' }, event_types: [] }),
+    );
+    updateChannelMock.mockRejectedValueOnce(new Error('渠道保存失败'));
+    await act(
+      // saveErrorAction 触发渠道保存错误。
+      async () => hook.result.current.handleSave(),
+    );
+    expect(hook.result.current.toast).toEqual({ type: 'error', text: '渠道保存失败' });
+
+    updateChannelMock.mockRejectedValueOnce(new Error('切换失败'));
+    await act(
+      // toggleErrorAction 触发渠道状态切换错误。
+      async () => hook.result.current.handleToggleEnabled(channelFixture),
+    );
+    expect(hook.result.current.toast).toEqual({ type: 'error', text: '切换失败' });
+
+    updateSmtpMock.mockRejectedValueOnce(new Error('SMTP保存失败'));
+    await act(
+      // smtpErrorAction 触发系统 SMTP 保存错误。
+      async () => hook.result.current.handleSaveSmtp(),
+    );
+    expect(hook.result.current.toast).toEqual({ type: 'error', text: 'SMTP保存失败' });
+    hook.unmount();
+  });
 });
