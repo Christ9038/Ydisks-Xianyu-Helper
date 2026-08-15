@@ -22,7 +22,7 @@ type orderRuntimePort interface {
 	// AutomationReady 判断完整发货自动化依赖是否已装配。
 	AutomationReady() bool
 	// ManualFullDelivery 执行完整自动化发货。
-	ManualFullDelivery(ctx context.Context, order *db.Order) (int, error)
+	ManualFullDelivery(ctx context.Context, order *orderapp.Order) (int, error)
 	// MTopAvailable 判断平台客户端是否已注入。
 	MTopAvailable() bool
 	// MTopClient 返回平台客户端。
@@ -36,7 +36,7 @@ type orderRuntimePort interface {
 	// RecordOrderReconciliation 记录外部发货成功但本地状态未完成的补偿任务。
 	RecordOrderReconciliation(ctx context.Context, orderID, cookieID, kind, message string) (string, error)
 	// persistMTopCookieSessionLocked 持久化平台响应 Cookie Jar。
-	persistMTopCookieSessionLocked(ctx context.Context, detail *db.CookieDetail, session *mtop.CookieSession) (string, bool, bool, error)
+	persistMTopCookieSessionLocked(ctx context.Context, detail *orderapp.PlatformRuntimeData, session *mtop.CookieSession) (string, bool, bool, error)
 	// recoverExpiredMTOPSession 处理平台会话过期。
 	recoverExpiredMTOPSession(ctx context.Context, cookieID string, err error) bool
 	// discoverSoldOrders 拉取并同步账号已售订单索引。
@@ -73,11 +73,11 @@ func (a serverOrderRuntimeAdapter) AutomationReady() bool {
 }
 
 // ManualFullDelivery 执行完整自动化发货。
-func (a serverOrderRuntimeAdapter) ManualFullDelivery(ctx context.Context, order *db.Order) (int, error) {
+func (a serverOrderRuntimeAdapter) ManualFullDelivery(ctx context.Context, order *orderapp.Order) (int, error) {
 	if a.server == nil || a.server.automation == nil {
 		return 0, errors.New("自动化中心未初始化")
 	}
-	return a.server.automation.ManualFullDelivery(ctx, order)
+	return a.server.automation.ManualFullDelivery(ctx, orderForAutomation(order))
 }
 
 // MTopAvailable 判断平台客户端是否已注入。
@@ -117,8 +117,8 @@ func (a serverOrderRuntimeAdapter) RecordOrderReconciliation(ctx context.Context
 }
 
 // persistMTopCookieSessionLocked 持久化平台响应 Cookie Jar。
-func (a serverOrderRuntimeAdapter) persistMTopCookieSessionLocked(ctx context.Context, detail *db.CookieDetail, session *mtop.CookieSession) (string, bool, bool, error) {
-	return a.server.persistMTopCookieSessionLocked(ctx, detail, session)
+func (a serverOrderRuntimeAdapter) persistMTopCookieSessionLocked(ctx context.Context, detail *orderapp.PlatformRuntimeData, session *mtop.CookieSession) (string, bool, bool, error) {
+	return a.server.persistMTopCookieSessionLocked(ctx, cookieDetailForOrderPlatform(detail), session)
 }
 
 // recoverExpiredMTOPSession 处理平台会话过期。
@@ -681,7 +681,7 @@ func (a *orderApplicationService) manualFullDelivery(ctx context.Context, order 
 		return
 	}
 	// sent、err 保存sent、err，供当前处理流程使用
-	sent, err := a.server.ManualFullDelivery(ctx, orderForAutomation(order))
+	sent, err := a.server.ManualFullDelivery(ctx, order)
 	if err != nil {
 		a.appendManualFailure(result, orderID, err.Error())
 		a.server.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID, "手动完整发货失败: "+err.Error())
@@ -805,7 +805,7 @@ func (a *orderApplicationService) RefreshSingle(ctx context.Context, userID int6
 	// runtimeCookieChanged 保存runtime登录凭证Changed，供当前处理流程使用
 	runtimeCookieChanged := false
 	// value、valueChanged、handled、persistErr 保存value、valueChanged、handled、persistErr，供当前处理流程使用
-	value, valueChanged, handled, persistErr := a.server.persistMTopCookieSessionLocked(ctx, latestDetail, cookieSession)
+	value, valueChanged, handled, persistErr := a.server.persistMTopCookieSessionLocked(ctx, latest, cookieSession)
 	if persistErr != nil {
 		callErr = errors.Join(callErr, fmt.Errorf("保存订单详情响应 Cookie Jar: %w", persistErr))
 	} else if handled && valueChanged {
@@ -899,7 +899,7 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 			// value、valueChanged、persistErr 保存value、valueChanged、persistErr，供当前处理流程使用
 			value, valueChanged, _, persistErr := "", false, false, error(nil)
 			if reloadErr == nil && latestAfterDiscovery != nil && latestAfterDiscovery.UserID == userID && !credentialSnapshotChanged {
-				value, valueChanged, _, persistErr = a.server.persistMTopCookieSessionLocked(ctx, latestDetail, cookieSession)
+				value, valueChanged, _, persistErr = a.server.persistMTopCookieSessionLocked(ctx, latest, cookieSession)
 			}
 			if persistErr != nil {
 				discoveryErr = errors.Join(discoveryErr, fmt.Errorf("保存订单列表响应 Cookie Jar: %w", persistErr))
@@ -1132,7 +1132,7 @@ func (a *orderApplicationService) Refresh(ctx context.Context, userID int64, coo
 			// value、valueChanged、persistErr 保存value、valueChanged、persistErr，供当前处理流程使用
 			value, valueChanged, _, persistErr := "", false, false, error(nil)
 			if !credentialSnapshotChanged {
-				value, valueChanged, _, persistErr = a.server.persistMTopCookieSessionLocked(ctx, latestDetail, cookieSession)
+				value, valueChanged, _, persistErr = a.server.persistMTopCookieSessionLocked(ctx, latest, cookieSession)
 			}
 			credentialUnlock()
 			if detailsReloadErr != nil {
