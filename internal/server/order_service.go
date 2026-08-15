@@ -150,6 +150,8 @@ type orderApplicationService struct {
 	list *orderapp.ListService
 	// detail 负责订单详情读取、商品补全和账号所有权规则。
 	detail *orderapp.DetailService
+	// delete 负责订单删除的所有权校验和逻辑删除。
+	delete *orderapp.DeleteService
 	// update 负责订单更新字段校验和事务写入。
 	update *orderapp.UpdateService
 	// refreshJobs 提供订单刷新后台任务的持久化 Port。
@@ -382,12 +384,14 @@ func (a *orderApplicationService) GetView(ctx context.Context, userID int64, ord
 
 // Delete 逻辑删除订单，保留历史记录供审计使用。
 func (a *orderApplicationService) Delete(ctx context.Context, userID int64, orderID string) error {
-	if // err 保存err，供当前处理流程使用
-	_, err := a.Get(ctx, userID, orderID); err != nil {
-		return err
+	// err 保存应用层订单删除错误。
+	err := a.delete.Delete(ctx, userID, orderID)
+	if errors.Is(err, orderapp.ErrForbidden) {
+		return db.ErrForbidden
 	}
-	// err 保存err，供当前处理流程使用
-	_, err := a.repository.SoftDeleteOrder(ctx, orderID)
+	if errors.Is(err, orderapp.ErrNotFound) {
+		return db.ErrNotFound
+	}
 	return err
 }
 
