@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"go/parser"
+	"go/token"
+	"testing"
+)
 
 // TestNormalizeImportPath 验证架构检查器能够识别当前模块的内部包路径。
 func TestNormalizeImportPath(t *testing.T) {
@@ -38,5 +42,35 @@ func TestServerLowLevelTemporaryAllowlist(t *testing.T) {
 	}
 	if isForbiddenServerLowLevelImport("internal/server/new_service_test.go", "internal/db") {
 		t.Fatal("测试文件不应被生产依赖门禁阻断")
+	}
+}
+
+// TestApplicationTypeLeakBoundary 验证应用 Port 类型扫描会拒绝基础设施和 Server 类型。
+func TestApplicationTypeLeakBoundary(t *testing.T) {
+	// fset 是测试源代码的文件位置集合。
+	fset := token.NewFileSet()
+	// syntax、err 是包含违规字段的模拟应用文件及解析错误。
+	syntax, err := parser.ParseFile(fset, "port.go", []byte(`package orders
+type Bad struct { Tx *sql.Tx; Row db.Order; Runtime *Server }
+`), parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// violations 是应用 Port 类型扫描结果。
+	violations := checkApplicationTypeLeaks("internal/application/orders/port.go", syntax, fset)
+	if len(violations) != 3 {
+		t.Fatalf("violations=%+v", violations)
+	}
+	// cleanSyntax 是不泄露基础设施类型的模拟应用文件。
+	cleanSyntax, err := parser.ParseFile(fset, "clean.go", []byte(`package orders
+type Good struct { ID string }
+`), parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// cleanViolations 是干净应用文件的类型扫描结果。
+	cleanViolations := checkApplicationTypeLeaks("internal/application/orders/clean.go", cleanSyntax, fset)
+	if len(cleanViolations) != 0 {
+		t.Fatalf("clean violations=%+v", cleanViolations)
 	}
 }

@@ -3,6 +3,7 @@ package main
 
 import (
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -85,7 +86,7 @@ func checkGoFile(root, relativePath string, fset *token.FileSet) ([]violation, e
 		return nil, err
 	}
 	// syntax 是当前文件的 AST。
-	syntax, err := parser.ParseFile(fset, filePath, source, parser.ImportsOnly)
+	syntax, err := parser.ParseFile(fset, filePath, source, parser.ParseComments)
 	if err != nil {
 		return nil, err
 	}
@@ -130,6 +131,7 @@ func checkGoFile(root, relativePath string, fset *token.FileSet) ([]violation, e
 			})
 		}
 	}
+	violations = append(violations, checkApplicationTypeLeaks(relativePath, syntax, fset)...)
 	if strings.HasPrefix(filepath.ToSlash(relativePath), "internal/server/") && !strings.HasSuffix(relativePath, "_repository.go") {
 		// sourceLine 是裸 BeginTx 调用首次出现的源码行号。
 		sourceLine := firstLineContaining(string(source), ".DB.BeginTx(")
@@ -142,6 +144,44 @@ func checkGoFile(root, relativePath string, fset *token.FileSet) ([]violation, e
 		}
 	}
 	return violations, nil
+}
+
+// checkApplicationTypeLeaks 检查应用 Port 是否泄露数据库、事务或 Server 类型。
+func checkApplicationTypeLeaks(relativePath string, syntax *ast.File, fset *token.FileSet) []violation {
+	if !strings.HasPrefix(filepath.ToSlash(relativePath), "internal/application/") {
+		return nil
+	}
+	// violations 保存当前应用文件发现的类型泄露。
+	var violations []violation
+	ast.Inspect(syntax, func(node ast.Node) bool {
+		switch typedNode /* typedNode 是当前应用声明中的 AST 类型节点。 */ := node.(type) {
+		case *ast.SelectorExpr:
+			// packageName、typeName 保存选择器左侧包名和右侧类型名。
+			packageName, ok := typedNode.X.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			// typeName 是选择器右侧的类型或字段名称。
+			typeName := typedNode.Sel.Name
+			if (packageName.Name == "sql" && typeName == "Tx") || packageName.Name == "db" {
+				violations = append(violations, violation{
+					file: filepath.ToSlash(relativePath), line: fset.Position(typedNode.Pos()).Line,
+					message: fmt.Sprintf("应用 Port 禁止暴露基础设施类型 %s.%s", packageName.Name, typeName),
+				})
+			}
+		case *ast.StarExpr:
+			// ident 是指针类型的目标标识符。
+			ident, ok := typedNode.X.(*ast.Ident)
+			if ok && ident.Name == "Server" {
+				violations = append(violations, violation{
+					file: filepath.ToSlash(relativePath), line: fset.Position(typedNode.Pos()).Line,
+					message: "应用 Port 禁止暴露 *Server 类型",
+				})
+			}
+		}
+		return true
+	})
+	return violations
 }
 
 // normalizeImportPath 去除当前模块前缀，统一架构规则使用的内部包路径。
