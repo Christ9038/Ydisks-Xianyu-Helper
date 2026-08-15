@@ -1,6 +1,7 @@
 package server
 
 import (
+	chatapp "xianyu-go/internal/application/chat"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
@@ -149,6 +150,22 @@ func newChatMessageDTOs(messages []db.ChatMessage) []chatMessageDTO {
 	// message 是当前待转换的数据库聊天消息。
 	for _, message := range messages {
 		result = append(result, newChatMessageDTO(message))
+	}
+	return result
+}
+
+// newChatMessageDTOsFromApplication 将聊天应用层消息转换为 HTTP DTO，避免响应暴露数据库模型。
+func newChatMessageDTOsFromApplication(messages []chatapp.Message) []chatMessageDTO {
+	// result 是转换后的聊天消息 DTO 列表。
+	result := make([]chatMessageDTO, 0, len(messages))
+	// message 保存当前待转换的应用层消息。
+	for _, message := range messages {
+		result = append(result, chatMessageDTO{
+			ID: message.ID, AccountID: message.AccountID, ChatID: message.ChatID,
+			MessageKey: message.MessageKey, Direction: message.Direction, SenderID: message.SenderID,
+			SenderName: message.SenderName, MessageType: message.MessageType, Content: message.Content,
+			Status: message.Status, SentAt: message.SentAt,
+		})
 	}
 	return result
 }
@@ -770,6 +787,53 @@ type accountBindingsResponse struct {
 	CookieID string `json:"cookie_id"`
 	// ChannelIDs 是当前账号绑定的通知渠道标识列表。
 	ChannelIDs []int64 `json:"channel_ids"`
+}
+
+// notificationUncertainOutboxItem 是不确定通知的非敏感运维摘要。
+// 该 DTO 不包含通知正文、渠道配置、凭证或最后错误原文。
+type notificationUncertainOutboxItem struct {
+	// ID 是通知 outbox 记录的稳定标识。
+	ID int64 `json:"id"`
+	// ChannelID 是关联通知渠道标识。
+	ChannelID int64 `json:"channel_id"`
+	// OwnerUserID 是渠道所属用户标识，仅管理员查询时返回。
+	OwnerUserID int64 `json:"owner_user_id,omitempty"`
+	// EventType 是通知事件分类。
+	EventType string `json:"event_type"`
+	// AttemptCount 是进入不确定状态前的发送尝试次数。
+	AttemptCount int `json:"attempt_count"`
+	// UncertainAt 是进入不确定状态的 Unix 秒时间戳。
+	UncertainAt int64 `json:"uncertain_at"`
+	// HasError 表示是否存在本地确认错误，但不暴露错误原文。
+	HasError bool `json:"has_error"`
+}
+
+// notificationUncertainOutboxResponse 是用户或管理员查询不确定通知的具名响应。
+type notificationUncertainOutboxResponse struct {
+	// Total 是当前权限范围内的不确定通知总数。
+	Total int `json:"total"`
+	// Items 是按最近进入不确定状态排序的非敏感摘要列表。
+	Items []notificationUncertainOutboxItem `json:"items"`
+}
+
+// newNotificationUncertainOutboxResponse 将数据库不确定状态摘要转换为非敏感 HTTP DTO。
+// includeOwner 仅管理员列表使用，用于展示渠道所属用户但不改变正文脱敏边界。
+func newNotificationUncertainOutboxResponse(items []db.NotificationUncertainSummary, total int, includeOwner bool) notificationUncertainOutboxResponse {
+	// result 保存不确定通知查询的具名响应。
+	result := notificationUncertainOutboxResponse{Total: total, Items: make([]notificationUncertainOutboxItem, 0, len(items))}
+	// item 保存当前待转换的数据库摘要。
+	for _, item := range items {
+		// responseItem 保存当前摘要对应的非敏感 API 行。
+		responseItem := notificationUncertainOutboxItem{
+			ID: item.ID, ChannelID: item.ChannelID, EventType: item.EventType,
+			AttemptCount: item.AttemptCount, UncertainAt: item.UncertainAt, HasError: item.HasError,
+		}
+		if includeOwner {
+			responseItem.OwnerUserID = item.OwnerUserID
+		}
+		result.Items = append(result.Items, responseItem)
+	}
+	return result
 }
 
 // categoryRecommendationResponse 是商品类目推荐接口的具名响应 DTO。

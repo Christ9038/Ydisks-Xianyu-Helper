@@ -20,6 +20,7 @@ func (s *Server) mountVersionedSettingsCardNotificationRoutes(r chi.Router) {
 		r.Put("/api/v1/settings/system", s.setSettings)
 		r.Put("/api/v1/settings/system/{key}", s.setSetting)
 		r.Post("/api/v1/settings/ai-models", s.listAIModels)
+		r.Get("/api/v1/admin/notifications/outbox/uncertain", s.listAdminUncertainNotifications)
 	})
 
 	// 普通登录用户可访问账号 AI 设置、用户设置、卡券和通知资源。
@@ -49,6 +50,7 @@ func (s *Server) mountVersionedSettingsCardNotificationRoutes(r chi.Router) {
 		r.Delete("/api/v1/notifications/channels/{channel_id}", s.deleteChannel)
 		r.Post("/api/v1/notifications/channels/{channel_id}/test", s.testChannel)
 		r.Get("/api/v1/notifications/messages", s.listMessageNotifications)
+		r.Get("/api/v1/notifications/outbox/uncertain", s.listUncertainNotifications)
 		r.Delete("/api/v1/notifications/messages/account/{cid}", s.deleteAccountNotifications)
 		r.Delete("/api/v1/notifications/messages/{notification_id}", s.deleteMessageNotification)
 		r.Get("/api/v1/notifications/accounts/{cid}/bindings", s.getAccountBindings)

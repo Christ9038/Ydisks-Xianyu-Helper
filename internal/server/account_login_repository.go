@@ -102,6 +102,53 @@ func (r storeAccountLoginRepository) UpdateFlatCookieOwned(ctx context.Context, 
 	return r.store.Cookies.UpdateRenewalCookie(ctx, detail.ID, cookies, metadata, time.Now().Unix())
 }
 
+// FindAccount 只读取扫码登录所需的账号归属，不解密 Cookie、密码或 metadata。
+func (r storeAccountLoginRepository) FindAccount(ctx context.Context, accountID string) (accountapp.QRLoginAccount, error) {
+	// ownerID 保存数据库返回的账号所属用户标识。
+	ownerID, err := r.store.Cookies.GetOwnerID(ctx, accountID)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return accountapp.QRLoginAccount{}, accountapp.ErrNotFound
+		}
+		return accountapp.QRLoginAccount{}, err
+	}
+	return accountapp.QRLoginAccount{ID: accountID, UserID: ownerID}, nil
+}
+
+// UpdateQRCookieFlatOwned 更新扫码登录账号的扁平 Cookie，并清除旧的完整快照。
+func (r storeAccountLoginRepository) UpdateQRCookieFlatOwned(ctx context.Context, accountID, cookies string) error {
+	// detail 保存平台运行视图；该窄视图只在凭证适配器内部读取 metadata。
+	detail, err := r.store.Cookies.GetCookiePlatformRuntimeData(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	// metadata 保存移除旧快照后的加密 metadata 文本。
+	metadata := cookierefresh.MetadataWithoutSnapshot(detail.MetadataJSON)
+	return r.store.Cookies.UpdateRenewalCookie(ctx, accountID, cookies, metadata, time.Now().Unix())
+}
+
+// UpdateQRCookieSnapshotOwned 更新扫码 Cookie，并把完整快照合并进加密 metadata。
+func (r storeAccountLoginRepository) UpdateQRCookieSnapshotOwned(ctx context.Context, accountID, cookies string, snapshot []accountapp.CookieSnapshot) error {
+	// detail 保存平台运行视图；完整 metadata 不向应用服务层泄露。
+	detail, err := r.store.Cookies.GetCookiePlatformRuntimeData(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	// browserSnapshot 保存转换后的浏览器 Cookie 快照，仅在数据库适配器内使用。
+	browserSnapshot := make([]cookierefresh.BrowserCookie, 0, len(snapshot))
+	// snapshotEntry 表示当前待转换的应用层 Cookie 快照。
+	for _, snapshotEntry := range snapshot {
+		browserSnapshot = append(browserSnapshot, cookierefresh.BrowserCookie{
+			Name: snapshotEntry.Name, Value: snapshotEntry.Value, Domain: snapshotEntry.Domain,
+			Path: snapshotEntry.Path, Expires: snapshotEntry.Expires, HTTPOnly: snapshotEntry.HTTPOnly,
+			Secure: snapshotEntry.Secure, SameSite: snapshotEntry.SameSite, PartitionKey: snapshotEntry.PartitionKey,
+		})
+	}
+	// metadata 保存快照合并后的加密 metadata 文本。
+	metadata := cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, browserSnapshot)
+	return r.store.Cookies.UpdateRenewalCookie(ctx, accountID, cookies, metadata, time.Now().Unix())
+}
+
 // UpdateRenewalCookie 委托 Cookie 与 metadata 更新。
 func (r storeAccountLoginRepository) UpdateRenewalCookie(ctx context.Context, accountID, cookies, metadata string, at int64) error {
 	return r.store.Cookies.UpdateRenewalCookie(ctx, accountID, cookies, metadata, at)
@@ -151,5 +198,53 @@ func newStoreAccountLoginRepository(store *db.Store) accountLoginRepository {
 	return storeAccountLoginRepository{store: store}
 }
 
+// newStoreQRLoginRepository 从完整 Store 构造扫码登录应用服务所需的窄凭证端口。
+func newStoreQRLoginRepository(store *db.Store) accountapp.QRLoginRepository {
+	if store == nil || store.Cookies == nil {
+		return nil
+	}
+	return storeQRLoginRepository{store: store}
+}
+
+// storeQRLoginRepository 将 Store 的扫码凭证能力限制在应用服务定义的窄端口内。
+type storeQRLoginRepository struct {
+	// store 提供数据库凭证读写能力，仅在本适配器内部访问。
+	store *db.Store
+}
+
+// LockCredentials 串行化扫码登录对同一账号的凭证变更。
+func (r storeQRLoginRepository) LockCredentials(accountID string) func() {
+	return r.store.LockAccountCredentials(accountID)
+}
+
+// FindAccount 只返回账号存在性和归属，不读取 Cookie、密码或 metadata。
+func (r storeQRLoginRepository) FindAccount(ctx context.Context, accountID string) (accountapp.QRLoginAccount, error) {
+	return storeAccountLoginRepository(r).FindAccount(ctx, accountID)
+}
+
+// CreateCookieOwned 创建扫码登录得到的新账号 Cookie。
+func (r storeQRLoginRepository) CreateCookieOwned(ctx context.Context, accountID, cookies string, userID int64) error {
+	return r.store.Cookies.CreateOwned(ctx, accountID, cookies, userID)
+}
+
+// UpdateFlatCookieOwned 更新已有账号的扁平 Cookie，并清除完整快照。
+func (r storeQRLoginRepository) UpdateFlatCookieOwned(ctx context.Context, accountID, cookies string) error {
+	return storeAccountLoginRepository(r).UpdateQRCookieFlatOwned(ctx, accountID, cookies)
+}
+
+// UpdateCookieSnapshotOwned 更新 Cookie 并合并完整浏览器快照。
+func (r storeQRLoginRepository) UpdateCookieSnapshotOwned(ctx context.Context, accountID, cookies string, snapshot []accountapp.CookieSnapshot) error {
+	return storeAccountLoginRepository(r).UpdateQRCookieSnapshotOwned(ctx, accountID, cookies, snapshot)
+}
+
+// ClearTokens 清理扫码登录前遗留的旧连接 Token。
+func (r storeQRLoginRepository) ClearTokens(ctx context.Context, accountID string) error {
+	// clearErr 保存旧连接 Token 清理结果；凭证已成功写入时该错误不阻断扫码登录。
+	return storeAccountLoginRepository(r).ClearTokens(ctx, accountID)
+}
+
 // 确保 Store 适配器始终覆盖账号登录服务所需的全部能力。
 var _ accountLoginRepository = storeAccountLoginRepository{}
+
+// 确保扫码凭证适配器始终覆盖应用服务定义的最小端口。
+var _ accountapp.QRLoginRepository = storeQRLoginRepository{}

@@ -43,11 +43,119 @@ type NotificationOutboxInput struct {
 
 // NotificationOutboxMessage 保存通知Outbox消息，供当前处理流程使用
 type NotificationOutboxMessage struct {
-	ID           int64
-	ChannelID    int64
-	EventType    string
-	Body         string
+	// ID 是通知 outbox 记录的稳定标识，仅用于运维定位，不代表正文内容。
+	ID int64
+	// ChannelID 是通知渠道标识，用于按渠道归属执行权限过滤。
+	ChannelID int64
+	// EventType 是通知事件类型，不包含通知正文或渠道配置。
+	EventType string
+	// Body 是发送给渠道的正文；仅供内部 worker 使用，禁止进入运维查询响应。
+	Body string
+	// AttemptCount 是当前记录已经尝试发送的次数。
 	AttemptCount int
+}
+
+// NotificationUncertainSummary 是外部发送完成但本地确认失败的通知摘要。
+// 该模型刻意不携带正文、渠道配置和最后错误文本，避免运维接口泄露敏感信息。
+type NotificationUncertainSummary struct {
+	// ID 是通知 outbox 记录的稳定标识。
+	ID int64
+	// ChannelID 是关联通知渠道标识。
+	ChannelID int64
+	// OwnerUserID 是通知渠道所属用户；普通用户查询只返回自己的记录。
+	OwnerUserID int64
+	// EventType 是通知事件分类。
+	EventType string
+	// AttemptCount 是进入不确定状态前的发送尝试次数。
+	AttemptCount int
+	// UncertainAt 是进入不确定状态的 Unix 秒时间戳。
+	UncertainAt int64
+	// HasError 表示数据库是否记录了本地确认错误，但不暴露错误原文。
+	HasError bool
+}
+
+// ListUncertainOutboxForUser 查询指定用户拥有渠道的不确定通知摘要。
+// 查询只返回元数据，不读取正文、加密渠道配置或凭证；limit 会被限制在 1 到 100 之间。
+func (n *Notifications) ListUncertainOutboxForUser(ctx context.Context, userID int64, limit int) ([]NotificationUncertainSummary, error) {
+	return n.listUncertainOutbox(ctx, &userID, limit)
+}
+
+// ListUncertainOutboxForAdmin 查询所有用户的不确定通知摘要，供管理员运维核对使用。
+// 管理员结果包含渠道所属用户 ID，但仍不包含正文、错误原文或任何凭证。
+func (n *Notifications) ListUncertainOutboxForAdmin(ctx context.Context, limit int) ([]NotificationUncertainSummary, error) {
+	return n.listUncertainOutbox(ctx, nil, limit)
+}
+
+// listUncertainOutbox 按可选用户归属读取不确定通知元数据。
+// ownerUserID 非空时强制限制到该用户；为空时仅供管理员调用并返回全局结果。
+func (n *Notifications) listUncertainOutbox(ctx context.Context, ownerUserID *int64, limit int) ([]NotificationUncertainSummary, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	// query 保存按用户隔离的不确定通知元数据查询语句，不选择正文或错误原文。
+	query := `SELECT no.id, no.channel_id, COALESCE(nc.user_id,0), no.event_type,
+			no.attempt_count, no.uncertain_at, CASE WHEN no.last_error<>'' THEN 1 ELSE 0 END
+		FROM notification_outbox no
+		LEFT JOIN notification_channels nc ON nc.id=no.channel_id
+		WHERE no.status='uncertain'`
+	// args 保存 query 中用户归属与分页参数的绑定值。
+	args := make([]any, 0, 2)
+	if ownerUserID != nil {
+		query += ` AND nc.user_id=?`
+		args = append(args, *ownerUserID)
+	}
+	query += ` ORDER BY no.uncertain_at DESC, no.id DESC LIMIT ?`
+	args = append(args, limit)
+	// rows 保存按权限过滤后读取到的通知摘要行；err 保存查询失败原因。
+	rows, err := n.DB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	// summaries 保存当前用户或管理员可见的不确定通知摘要。
+	summaries := make([]NotificationUncertainSummary, 0)
+	for rows.Next() {
+		// summary 保存当前遍历到的通知不确定状态摘要；hasError 是内部错误存在标记。
+		var summary NotificationUncertainSummary
+		// hasError 保存数据库中是否存在本地确认错误的布尔整型值。
+		var hasError int
+		// scanErr 保存当前摘要行读取失败的数据库错误。
+		if scanErr := rows.Scan(&summary.ID, &summary.ChannelID, &summary.OwnerUserID, &summary.EventType, &summary.AttemptCount, &summary.UncertainAt, &hasError); scanErr != nil {
+			return nil, scanErr
+		}
+		summary.HasError = hasError != 0
+		summaries = append(summaries, summary)
+	}
+	return summaries, rows.Err()
+}
+
+// CountUncertainOutboxForUser 统计指定用户拥有渠道的不确定通知数量，不读取正文或错误原文。
+func (n *Notifications) CountUncertainOutboxForUser(ctx context.Context, userID int64) (int, error) {
+	return n.countUncertainOutbox(ctx, &userID)
+}
+
+// CountUncertainOutboxForAdmin 统计全局不确定通知数量，供管理员运维看板使用。
+func (n *Notifications) CountUncertainOutboxForAdmin(ctx context.Context) (int, error) {
+	return n.countUncertainOutbox(ctx, nil)
+}
+
+// countUncertainOutbox 按可选渠道所属用户统计不确定通知数量。
+func (n *Notifications) countUncertainOutbox(ctx context.Context, ownerUserID *int64) (int, error) {
+	// query 保存不确定通知数量统计语句，不读取正文或错误原文。
+	query := `SELECT COUNT(*) FROM notification_outbox no LEFT JOIN notification_channels nc ON nc.id=no.channel_id WHERE no.status='uncertain'`
+	// args 保存可选用户归属的绑定参数。
+	args := make([]any, 0, 1)
+	if ownerUserID != nil {
+		query += ` AND nc.user_id=?`
+		args = append(args, *ownerUserID)
+	}
+	// count 保存满足状态与归属过滤条件的通知数量。
+	var count int
+	// scanErr 保存读取统计结果时的数据库错误。
+	if scanErr := n.DB.QueryRowContext(ctx, query, args...).Scan(&count); scanErr != nil {
+		return 0, scanErr
+	}
+	return count, nil
 }
 
 // NotificationBindingRow 是用户账号与通知渠道的绑定摘要。

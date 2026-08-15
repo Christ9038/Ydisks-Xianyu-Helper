@@ -59,18 +59,6 @@ type chatImageInput struct {
 	Data []byte
 }
 
-// chatMessagePageResult 是聊天历史查询结果，不依赖 HTTP DTO。
-type chatMessagePageResult struct {
-	// Messages 是本地或远端保存的聊天消息。
-	Messages []db.ChatMessage
-	// Session 是当前聊天会话摘要。
-	Session db.ChatSession
-	// HasMore 表示是否还有更早消息。
-	HasMore bool
-	// NextCursor 是远端历史分页游标。
-	NextCursor int64
-}
-
 // notificationBindingRow 是通知绑定列表的一行业务数据。
 type notificationBindingRow struct {
 	// ID 是绑定记录标识。
@@ -312,26 +300,4 @@ func (svc *communicationService) SendChatImage(ctx context.Context, input chatIm
 // MarkChatRead 将指定聊天会话标记为已读。
 func (svc *communicationService) MarkChatRead(ctx context.Context, userID int64, accountID, chatID string) error {
 	return svc.repository.MarkChatRead(ctx, userID, accountID, chatID)
-}
-
-// ListStoredChatMessages 查询本地聊天历史并返回会话摘要。
-func (svc *communicationService) ListStoredChatMessages(ctx context.Context, userID int64, accountID, chatID string, beforeID int64, limit int) (chatMessagePageResult, error) {
-	// messages 和 err 保存本地聊天历史查询结果。
-	messages, err := svc.repository.ListChatMessages(ctx, userID, accountID, chatID, beforeID, limit)
-	if err != nil {
-		return chatMessagePageResult{}, err
-	}
-	// session 保存当前聊天会话摘要。
-	var session db.ChatSession
-	// sessions 和 sessionErr 保存当前用户的聊天会话列表及查询错误。
-	if sessions, sessionErr := svc.repository.ListChatSessions(ctx, userID, accountID, 500); sessionErr == nil {
-		// candidate 是当前遍历到的会话摘要。
-		for _, candidate := range sessions {
-			if candidate.ChatID == chatID {
-				session = svc.server.resolveSelectedChatIdentity(ctx, accountID, candidate)
-				break
-			}
-		}
-	}
-	return chatMessagePageResult{Messages: messages, Session: session, HasMore: len(messages) == limit}, nil
 }

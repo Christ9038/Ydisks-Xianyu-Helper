@@ -39,15 +39,15 @@ func TestCommunicationServiceRejectsInvalidAccountTask(t *testing.T) {
 	}
 }
 
-// TestCommunicationServiceListsStoredChatMessages 验证聊天历史查询服务返回稳定分页结果。
-func TestCommunicationServiceListsStoredChatMessages(t *testing.T) {
+// TestChatApplicationListsStoredMessages 验证聊天历史应用服务返回稳定分页结果。
+func TestChatApplicationListsStoredMessages(t *testing.T) {
 	// srv、store 和 cleanup 构造并释放测试服务。
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	// page 和 err 保存聊天历史查询结果。
-	page, err := srv.communicationApplication().ListStoredChatMessages(context.Background(), 1, "acc1", "chat-missing", 0, 20)
+	page, err := srv.chatApplication().ListStoredMessages(context.Background(), 1, "acc1", "chat-missing", 0, 20)
 	if err != nil {
-		t.Fatalf("ListStoredChatMessages error: %v", err)
+		t.Fatalf("ListStoredMessages error: %v", err)
 	}
 	if len(page.Messages) != 0 || page.Session.ChatID != "" {
 		t.Fatalf("unexpected empty chat page: %+v", page)

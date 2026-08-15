@@ -25,6 +25,46 @@ func (s *Server) mountNotificationsReal(r chi.Router) {
 	r.Post("/message-notifications/{cid}", s.setAccountBindings)
 }
 
+// listUncertainNotifications 返回当前用户渠道对应的不确定通知摘要，不暴露正文或凭证。
+func (s *Server) listUncertainNotifications(w http.ResponseWriter, r *http.Request) {
+	// sess 保存当前已认证用户，用于限制通知渠道归属范围。
+	sess := authSess(r)
+	// limit 保存运维列表页请求的最大条数，超出范围时使用数据库默认上限。
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 20)
+	// items 保存当前用户可见的不确定通知摘要。
+	items, err := s.Store.Notifications.ListUncertainOutboxForUser(r.Context(), sess.UserID, limit)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询通知状态失败")
+		return
+	}
+	// total 保存当前用户渠道的不确定通知总数。
+	total, err := s.Store.Notifications.CountUncertainOutboxForUser(r.Context(), sess.UserID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "统计通知状态失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, newNotificationUncertainOutboxResponse(items, total, false))
+}
+
+// listAdminUncertainNotifications 返回全局不确定通知摘要，仅管理员路由可访问。
+func (s *Server) listAdminUncertainNotifications(w http.ResponseWriter, r *http.Request) {
+	// limit 保存管理员运维查询的最大条数，超出范围时使用数据库默认上限。
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 50)
+	// items 保存所有用户渠道的不确定通知摘要，但不包含正文和错误原文。
+	items, err := s.Store.Notifications.ListUncertainOutboxForAdmin(r.Context(), limit)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "查询通知状态失败")
+		return
+	}
+	// total 保存全局不确定通知总数。
+	total, err := s.Store.Notifications.CountUncertainOutboxForAdmin(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "统计通知状态失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, newNotificationUncertainOutboxResponse(items, total, true))
+}
+
 // listChannels 负责list渠道列表相关处理。
 func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 	// sess 保存sess，供当前处理流程使用

@@ -10,7 +10,6 @@ import (
 
 	accountapp "xianyu-go/internal/application/account"
 	"xianyu-go/internal/db"
-	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/protocol"
 )
 
@@ -22,6 +21,8 @@ type accountLoginService struct {
 	repository accountLoginRepository
 	// createApplication 提供已迁移的手动 Cookie 登录应用用例。
 	createApplication *accountapp.LoginService
+	// qrApplication 提供扫码成功凭证持久化应用用例；会话幂等状态仍由 Server 适配器拥有。
+	qrApplication *accountapp.QRLoginService
 }
 
 // serverLoginLifecyclePort 将登录成功后的审计、资料刷新和运行时重启适配到应用层端口。
@@ -73,6 +74,11 @@ func (w serverCookieWriter) CreateOwnedCookie(ctx context.Context, accountID str
 // newAccountLoginCreateApplication 构造手动 Cookie 登录应用服务及其 Server 生命周期适配器。
 func newAccountLoginCreateApplication(server *Server) (*accountapp.LoginService, error) {
 	return accountapp.NewLoginService(serverLoginLifecyclePort{server: server})
+}
+
+// newAccountQRLoginApplication 构造扫码登录应用服务及其凭证、生命周期适配器。
+func newAccountQRLoginApplication(server *Server) (*accountapp.QRLoginService, error) {
+	return accountapp.NewQRLoginService(newStoreQRLoginRepository(server.Store), serverQRLoginLifecycle{server: server})
 }
 
 // serverAccountProfilePort 将平台资料刷新适配为账号应用层 Port。
@@ -185,13 +191,34 @@ func (svc *accountLoginService) UpdateCookie(ctx context.Context, input accountC
 	return nil
 }
 
-// PersistQRLoginSuccess 持久化扫码登录结果，复用会话级幂等锁和账号重启流程。
-func (svc *accountLoginService) PersistQRLoginSuccess(ctx context.Context, userID int64, sessionID string, result map[string]any, targetAccountID string) (qrLoginPersistence, error) {
-	return svc.persistQRLoginSuccessCore(ctx, userID, sessionID, result, targetAccountID)
+// serverQRLoginLifecycle 将扫码登录成功后的审计、资料刷新和运行时同步适配到应用端口。
+type serverQRLoginLifecycle struct {
+	// server 提供审计、资料刷新、自动化唤醒和账号运行时管理能力。
+	server *Server
 }
 
-// persistQRLoginSuccessCore 执行扫码结果校验、凭证合并、登录审计和账号重启。
-func (svc *accountLoginService) persistQRLoginSuccessCore(ctx context.Context, userID int64, sessionID string, result map[string]any, targetAccountID string) (qrLoginPersistence, error) {
+// AfterSuccessfulQRLogin 在凭证锁释放后执行扫码登录成功的后续编排。
+func (p serverQRLoginLifecycle) AfterSuccessfulQRLogin(ctx context.Context, userID int64, accountID string) {
+	if p.server == nil {
+		return
+	}
+	p.server.markSuccessfulLogin(ctx, accountID, userID, loginMethodQRScan, "扫码登录成功")
+	p.server.accountLoginApplication().refreshAndRestartAccount(ctx, userID, accountID)
+	p.server.wakeCredentialBlockedAutomation(ctx, accountID)
+}
+
+// ReportQRLoginCleanupFailure 记录扫码登录后旧 Token 清理失败，不暴露 Cookie 内容且不回滚已写入凭证。
+func (p serverQRLoginLifecycle) ReportQRLoginCleanupFailure(_ context.Context, accountID string, err error) {
+	if p.server != nil && p.server.Logger != nil {
+		p.server.Logger.Warn("扫码登录后清理旧连接凭证失败", "cookie_id", accountID, "err", err)
+	}
+}
+
+// PersistQRLoginSuccess 将 HTTP/平台 map 适配为纯应用 DTO，并复用会话级幂等锁。
+func (svc *accountLoginService) PersistQRLoginSuccess(ctx context.Context, userID int64, sessionID string, result map[string]any, targetAccountID string) (qrLoginPersistence, error) {
+	if svc == nil || svc.server == nil || svc.qrApplication == nil {
+		return qrLoginPersistence{}, errors.New("扫码登录应用服务未初始化")
+	}
 	// s 是当前账号登录应用服务依赖的 Server。
 	s := svc.server
 	// lockValue 和 persistMu 保证同一扫码会话只执行一次持久化。
@@ -214,103 +241,44 @@ func (svc *accountLoginService) persistQRLoginSuccessCore(ctx context.Context, u
 		return persisted, nil
 	}
 	s.qrMu.Unlock()
-	// cookies、cookieSnapshot 和 snapshotComplete 保存平台登录凭证及其完整 Cookie Jar。
+	// cookies 保存平台返回的登录 Cookie 明文，仅在 Server 到应用端口的调用边界短暂存在。
 	cookies := qrString(result, "cookies")
-	// cookieSnapshot 和 snapshotComplete 保存平台返回的完整 Cookie Jar。
+	// cookieSnapshot 和 snapshotComplete 保存平台返回的完整 Cookie 快照及其完整性。
 	cookieSnapshot, snapshotComplete := qrCookieSnapshot(result)
-	// scannedAccountID 是扫码结果中的平台账号标识。
+	// scannedAccountID 保存从结果字段或 Cookie 解析出的平台账号标识。
 	scannedAccountID := strings.TrimSpace(firstNonEmpty(qrString(result, "unb"), protocol.TransCookies(cookies)["unb"]))
-	if cookies == "" || scannedAccountID == "" {
-		return qrLoginPersistence{}, errors.New("扫码结果缺少 cookies 或 unb")
-	}
-	// accountID 是最终写入的账号标识。
-	accountID := strings.TrimSpace(targetAccountID)
-	if accountID == "" {
-		accountID = scannedAccountID
-	} else if accountID != scannedAccountID {
-		return qrLoginPersistence{}, errors.New("扫码账号与待重新授权账号不一致，已拒绝覆盖")
-	}
-
-	// isNew 标记本次扫码是否创建了新账号。
-	isNew := false
-	// credentialUnlock 保护账号凭证写入和登录审计。
-	credentialUnlock := svc.repository.LockCredentials(accountID)
-	// saveErr 保存账号凭证、Cookie Jar 和登录审计的事务错误。
-	saveErr := func() error {
-		defer credentialUnlock()
-		// detail 和 err 保存待更新账号的凭证详情。
-		detail, err := s.loadCookiePlatformDetail(ctx, accountID)
-		switch {
-		case errors.Is(err, db.ErrNotFound):
-			if targetAccountID != "" {
-				return errors.New("待重新授权账号不存在")
-			}
-			isNew = true
-			// err 表示创建扫码账号的错误。
-			if err := svc.repository.CreateCookieOwned(ctx, accountID, cookies, userID); err != nil {
-				return err
-			}
-			if snapshotComplete {
-				// metadata 是新账号的完整 Cookie Jar 元数据。
-				metadata := cookierefresh.MetadataWithSnapshot("", cookieSnapshot)
-				// err 表示保存新账号 Cookie Jar 的错误。
-				if err := svc.repository.UpdateRenewalCookie(ctx, accountID, cookies, metadata, time.Now().Unix()); err != nil {
-					return err
-				}
-			}
-		case err != nil:
-			return err
-		case detail == nil:
-			return db.ErrNotFound
-		case detail.UserID != userID:
-			if targetAccountID != "" {
-				return errors.New("待重新授权账号不属于当前用户")
-			}
-			return db.ErrForbidden
-		default:
-			if snapshotComplete {
-				// metadata 是已有账号合并后的 Cookie Jar 元数据。
-				metadata := cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, cookieSnapshot)
-				// err 表示保存已有账号 Cookie Jar 的错误。
-				if err := svc.repository.UpdateRenewalCookie(ctx, detail.ID, cookies, metadata, time.Now().Unix()); err != nil {
-					return err
-				}
-				// err 表示合并扁平 Cookie 的错误。
-			} else if err := svc.repository.UpdateFlatCookieOwned(ctx, detail, cookies); err != nil {
-				return err
-			}
+	// input 保存转换后的纯应用扫码登录输入；Cookie 只交给凭证端口消费。
+	input := accountapp.QRLoginInput{UserID: userID, ScannedAccountID: scannedAccountID, TargetAccountID: targetAccountID, Cookies: cookies}
+	if snapshotComplete {
+		input.Snapshot = make([]accountapp.CookieSnapshot, 0, len(cookieSnapshot))
+		// cookie 保存当前浏览器 Cookie 快照，转换后不再依赖平台 DTO。
+		for _, cookie := range cookieSnapshot {
+			input.Snapshot = append(input.Snapshot, accountapp.CookieSnapshot{
+				Name: cookie.Name, Value: cookie.Value, Domain: cookie.Domain, Path: cookie.Path,
+				Expires: cookie.Expires, HTTPOnly: cookie.HTTPOnly, Secure: cookie.Secure,
+				SameSite: cookie.SameSite, PartitionKey: cookie.PartitionKey,
+			})
 		}
-		s.markSuccessfulLogin(ctx, accountID, userID, loginMethodQRScan, "扫码登录成功")
-		{
-			// err 表示清理旧连接凭证的错误，仅记录不阻断扫码登录。
-			if err := svc.repository.ClearTokens(ctx, accountID); err != nil && s.Logger != nil {
-				s.Logger.Warn("扫码登录保存后清理旧连接凭证失败", "cookie_id", accountID, "err", err)
-			}
+	}
+	// resultValue 保存应用服务返回的非敏感持久化结果。
+	resultValue, persistErr := svc.qrApplication.PersistSuccess(ctx, input)
+	if persistErr != nil {
+		if errors.Is(persistErr, accountapp.ErrQRLoginIncomplete) {
+			return qrLoginPersistence{}, errors.New("扫码结果缺少 cookies 或 unb")
 		}
-		return nil
-	}()
-	if saveErr != nil {
-		if errors.Is(saveErr, db.ErrForbidden) {
+		if errors.Is(persistErr, accountapp.ErrQRLoginAccountMismatch) {
+			return qrLoginPersistence{}, errors.New("扫码账号与待重新授权账号不一致，已拒绝覆盖")
+		}
+		if errors.Is(persistErr, accountapp.ErrForbidden) {
 			return qrLoginPersistence{}, errors.New("该账号ID已存在且不属于当前用户")
 		}
-		if errors.Is(saveErr, db.ErrAlreadyExists) {
+		if errors.Is(persistErr, db.ErrAlreadyExists) {
 			return qrLoginPersistence{}, errors.New("该账号ID已被并发创建，请重新获取账号状态")
 		}
-		return qrLoginPersistence{}, saveErr
-	}
-	// detail 和 err 保存登录成功后的资料摘要查询结果。
-	if detail, err := s.loadCookieSummaryDetail(ctx, userID, accountID); err == nil {
-		s.refreshAccountProfile(ctx, detail)
-	}
-	s.wakeCredentialBlockedAutomation(ctx, accountID)
-	if s.Manager != nil && svc.repository.GetStatus(ctx, accountID) {
-		// err 表示扫码登录后的账号运行时重启错误。
-		if err := s.Manager.Restart(ctx, accountID); err != nil && s.Logger != nil {
-			s.Logger.Warn("扫码登录后重启账号失败", "cookie_id", accountID, "err", err)
-		}
+		return qrLoginPersistence{}, persistErr
 	}
 	// persisted 是扫码会话幂等返回值。
-	persisted := qrLoginPersistence{AccountID: accountID, IsNew: isNew, UserID: userID, CreatedAt: time.Now().UTC()}
+	persisted := qrLoginPersistence{AccountID: resultValue.AccountID, IsNew: resultValue.IsNew, UserID: userID, CreatedAt: time.Now().UTC()}
 	s.qrMu.Lock()
 	s.qrPersisted[sessionID] = persisted
 	s.qrMu.Unlock()

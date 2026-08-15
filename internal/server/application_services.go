@@ -2,6 +2,7 @@ package server
 
 import (
 	accountapp "xianyu-go/internal/application/account"
+	chatapp "xianyu-go/internal/application/chat"
 	itemapp "xianyu-go/internal/application/items"
 	orderapp "xianyu-go/internal/application/orders"
 )
@@ -22,6 +23,8 @@ type applicationServices struct {
 	accountProfile *accountapp.ProfileService
 	// communication 是聊天、通知和账号任务应用服务。
 	communication *communicationService
+	// chat 是聊天历史查询应用服务，负责用户归属和分页编排。
+	chat *chatapp.Service
 	// analytics 是订单分析应用服务。
 	analytics *analyticsService
 }
@@ -49,14 +52,25 @@ func newApplicationServices(server *Server) *applicationServices {
 	if accountLoginCreateErr != nil {
 		panic(accountLoginCreateErr)
 	}
+	// accountQRLogin 是扫码成功凭证持久化应用服务的构造结果；零值测试 Server 暂不装配数据库端口。
+	var accountQRLogin *accountapp.QRLoginService
+	if server.Store != nil {
+		// accountQRLoginErr 保存扫码应用服务装配失败原因。
+		var accountQRLoginErr error
+		accountQRLogin, accountQRLoginErr = newAccountQRLoginApplication(server)
+		if accountQRLoginErr != nil {
+			panic(accountQRLoginErr)
+		}
+	}
 	return &applicationServices{
 		orders:            &orderHTTPAdapter{services: orderServices, repository: orderRepository},
 		itemPublish:       &itemPublishService{server: server, repository: newStoreItemPublishRepository(server.Store)},
 		itemSinglePublish: newItemPublishApplication(server),
 		itemBatchRunner:   itemBatchRunner,
-		accountLogin:      &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store), createApplication: accountLoginCreate},
+		accountLogin:      &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store), createApplication: accountLoginCreate, qrApplication: accountQRLogin},
 		accountProfile:    accountProfile,
 		communication:     &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},
+		chat:              chatapp.New(newStoreChatApplicationRepository(server.Store)),
 		analytics:         &analyticsService{repository: newStoreAnalyticsRepository(server.Store)},
 	}
 }

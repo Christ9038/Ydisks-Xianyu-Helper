@@ -14,6 +14,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/go-chi/chi/v5"
 
+	chatapp "xianyu-go/internal/application/chat"
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
@@ -27,6 +28,79 @@ func (s *Server) mountChat(r chi.Router) {
 	r.Post("/api/chat/images", s.sendChatImage)
 	r.Post("/api/chat/read", s.markChatRead)
 	r.Get("/api/chat/ws", s.chatWebSocket)
+}
+
+// storeChatApplicationRepository 将数据库聊天查询适配为应用层聊天端口。
+type storeChatApplicationRepository struct {
+	// store 保存数据库聚合入口，仅在适配器内执行窄聊天查询。
+	store *db.Store
+}
+
+// ListMessages 查询带用户归属条件的聊天消息，并转换为应用层模型。
+func (r storeChatApplicationRepository) ListMessages(ctx context.Context, userID int64, accountID, chatID string, beforeID int64, limit int) ([]chatapp.Message, error) {
+	// rows 保存数据库返回的消息记录。
+	rows, err := r.store.Chats.ListMessages(ctx, userID, accountID, chatID, beforeID, limit)
+	if err != nil {
+		return nil, err
+	}
+	// messages 保存脱离数据库模型的应用层消息。
+	messages := make([]chatapp.Message, 0, len(rows))
+	// row 表示当前待转换的数据库聊天消息。
+	for _, row := range rows {
+		messages = append(messages, chatapp.Message{
+			ID: row.ID, AccountID: row.CookieID, ChatID: row.ChatID, MessageKey: row.MessageKey,
+			Direction: row.Direction, SenderID: row.SenderID, SenderName: row.SenderName,
+			MessageType: row.MessageType, Content: row.Content, Status: row.Status, SentAt: row.SentAt,
+		})
+	}
+	return messages, nil
+}
+
+// ListSessions 查询带用户归属条件的聊天会话，并转换为应用层模型。
+func (r storeChatApplicationRepository) ListSessions(ctx context.Context, userID int64, accountID string, limit int) ([]chatapp.Session, error) {
+	// rows 保存数据库返回的会话记录。
+	rows, err := r.store.Chats.ListSessions(ctx, userID, accountID, limit)
+	if err != nil {
+		return nil, err
+	}
+	// sessions 保存脱离数据库模型的应用层会话摘要。
+	sessions := make([]chatapp.Session, 0, len(rows))
+	// row 表示当前待转换的数据库聊天会话。
+	for _, row := range rows {
+		sessions = append(sessions, chatapp.Session{
+			AccountID: row.CookieID, ChatID: row.ChatID, BuyerID: row.BuyerID,
+			BuyerName: row.BuyerName, BuyerAvatar: row.BuyerAvatar, ItemID: row.ItemID,
+			ItemTitle: row.ItemTitle, LastMessage: row.LastMessage, LastMessageAt: row.LastMessageAt,
+			UnreadCount: row.UnreadCount,
+		})
+	}
+	return sessions, nil
+}
+
+// newStoreChatApplicationRepository 创建聊天历史应用服务使用的数据库适配器。
+func newStoreChatApplicationRepository(store *db.Store) chatapp.Repository {
+	if store == nil || store.Chats == nil {
+		return nil
+	}
+	return storeChatApplicationRepository{store: store}
+}
+
+// dbChatSessionFromApplication 将非敏感应用会话转换为平台身份适配器可消费的数据库形状。
+func dbChatSessionFromApplication(session chatapp.Session) db.ChatSession {
+	return db.ChatSession{
+		CookieID: session.AccountID, ChatID: session.ChatID, BuyerID: session.BuyerID,
+		BuyerName: session.BuyerName, BuyerAvatar: session.BuyerAvatar, ItemID: session.ItemID,
+		ItemTitle: session.ItemTitle, LastMessage: session.LastMessage, LastMessageAt: session.LastMessageAt,
+		UnreadCount: session.UnreadCount,
+	}
+}
+
+// 确保数据库适配器覆盖聊天历史应用端口的全部能力。
+var _ chatapp.Repository = storeChatApplicationRepository{}
+
+// chatApplication 返回当前 Server 绑定的聊天历史应用服务。
+func (s *Server) chatApplication() *chatapp.Service {
+	return s.applicationServiceSet().chat
 }
 
 // listChatSessions 负责list聊天Sessions相关处理。
@@ -290,12 +364,17 @@ func (s *Server) listChatMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// page、err 保存page、err，供当前处理流程使用
-	page, err := s.communicationApplication().ListStoredChatMessages(r.Context(), sess.UserID, accountID, chatID, beforeID, limit)
+	page, err := s.chatApplication().ListStoredMessages(r.Context(), sess.UserID, accountID, chatID, beforeID, limit)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取聊天消息失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, chatMessagePageResponse{Messages: newChatMessageDTOs(page.Messages), HasMore: page.HasMore, Session: newChatSessionDTO(page.Session)})
+	// session 是应用层返回的非敏感会话摘要，供平台身份适配器补齐展示名称。
+	session := dbChatSessionFromApplication(page.Session)
+	if session.ChatID != "" {
+		session = s.resolveSelectedChatIdentity(r.Context(), accountID, session)
+	}
+	writeJSON(w, http.StatusOK, chatMessagePageResponse{Messages: newChatMessageDTOsFromApplication(page.Messages), HasMore: page.HasMore, Session: newChatSessionDTO(session)})
 }
 
 // resolveSelectedChatIdentity 负责resolveSelected聊天Identity相关处理。

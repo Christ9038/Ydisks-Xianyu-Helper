@@ -44,10 +44,6 @@ type communicationRepository interface {
 	UpdateCookieValue(ctx context.Context, cookieID, value string) error
 	// MarkChatRead 将聊天会话标记为已读。
 	MarkChatRead(ctx context.Context, userID int64, accountID, chatID string) error
-	// ListChatMessages 查询聊天历史消息。
-	ListChatMessages(ctx context.Context, userID int64, accountID, chatID string, beforeID int64, limit int) ([]db.ChatMessage, error)
-	// ListChatSessions 查询账号聊天会话列表。
-	ListChatSessions(ctx context.Context, userID int64, accountID string, limit int) ([]db.ChatSession, error)
 }
 
 // storeCommunicationRepository 将完整 Store 适配为通信应用服务窄 repository。
@@ -144,16 +140,6 @@ func (r storeCommunicationRepository) UpdateCookieValue(ctx context.Context, coo
 // MarkChatRead 委托聊天已读状态更新。
 func (r storeCommunicationRepository) MarkChatRead(ctx context.Context, userID int64, accountID, chatID string) error {
 	return r.store.Chats.MarkRead(ctx, userID, accountID, chatID)
-}
-
-// ListChatMessages 委托聊天消息查询。
-func (r storeCommunicationRepository) ListChatMessages(ctx context.Context, userID int64, accountID, chatID string, beforeID int64, limit int) ([]db.ChatMessage, error) {
-	return r.store.Chats.ListMessages(ctx, userID, accountID, chatID, beforeID, limit)
-}
-
-// ListChatSessions 委托聊天会话查询。
-func (r storeCommunicationRepository) ListChatSessions(ctx context.Context, userID int64, accountID string, limit int) ([]db.ChatSession, error) {
-	return r.store.Chats.ListSessions(ctx, userID, accountID, limit)
 }
 
 // newStoreCommunicationRepository 从完整 Store 构造通信应用服务窄 repository。
