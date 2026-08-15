@@ -80,4 +80,20 @@ describe('useAccountsData', /* 当前回调处理账号详情、AI 配置和运�
     expect(console.error).toHaveBeenCalled();
     detailsHook.unmount();
   });
+
+  test('运行状态轮询失败时保留账号列表并记录错误', /* 当前回调验证运行状态轮询异常分支。 */ async () => {
+    getRuntimeMock.mockRejectedValueOnce(new Error('运行状态服务失败'));
+    // hook 是运行状态轮询失败场景的账号数据 Hook 渲染结果。
+    const hook = renderHook(
+      // runtimeErrorHookFactory 创建运行状态轮询失败场景的 Hook。
+      () => useAccountsData(),
+    );
+    await waitFor(
+      // loadingAssertion 等待账号详情加载完成。
+      () => expect(hook.result.current.loading).toBe(false),
+    );
+    expect(hook.result.current.accounts).toHaveLength(1);
+    expect(console.error).toHaveBeenCalledWith('加载账号运行状态失败:', expect.any(Error));
+    hook.unmount();
+  });
 });
