@@ -686,10 +686,17 @@ func (a *Account) handleMaxFailures(ctx context.Context) error {
 	}
 	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
 	credentialUnlock := func() {}
+	// credentialLocked 标识当前调用是否持有账号凭证锁。
+	credentialLocked := false
 	if a.store != nil {
 		credentialUnlock = a.store.LockAccountCredentials(a.CookieID)
+		credentialLocked = true
 	}
-	defer credentialUnlock()
+	defer func() {
+		if credentialLocked {
+			credentialUnlock()
+		}
+	}()
 	a.logger.Warn("连续失败达上限，触发 Go 协议续期", "failures", MaxConnectionFailures)
 	a.notifyRecoveringOffline(ctx, fmt.Sprintf("消息服务连续认证/连接失败 %d 次，开始自动恢复", MaxConnectionFailures))
 	if a.handler != nil && a.handler.OnPasswordLoginRefresh(ctx, a.CookieID) {
@@ -934,10 +941,17 @@ func (a *Account) tryAPIRenewUsing(ctx context.Context, call func(context.Contex
 	defer a.refreshMu.Unlock()
 	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
 	credentialUnlock := func() {}
+	// credentialLocked 标识当前调用是否持有账号凭证锁。
+	credentialLocked := false
 	if a.store != nil {
 		credentialUnlock = a.store.LockAccountCredentials(a.CookieID)
+		credentialLocked = true
 	}
-	defer credentialUnlock()
+	defer func() {
+		if credentialLocked {
+			credentialUnlock()
+		}
+	}()
 	if a.store != nil && a.store.Cookies != nil && !a.store.Cookies.GetStatus(ctx, a.CookieID) {
 		return false, nil
 	}
@@ -947,6 +961,8 @@ func (a *Account) tryAPIRenewUsing(ctx context.Context, call func(context.Contex
 	a.mu.Unlock()
 	// snapshot 保存snapshot，供当前处理流程使用
 	var snapshot []cookierefresh.BrowserCookie
+	// metadataJSON 保存用于续期请求和提交比较的 Cookie metadata。
+	metadataJSON := ""
 	if a.store != nil && a.store.Cookies != nil {
 		runtimeData, detailErr := a.store.Cookies.GetCookieRuntimeData(ctx, a.CookieID) // runtimeData 只包含接口续期所需的 Cookie 与 metadata。
 		if detailErr != nil {
@@ -959,13 +975,54 @@ func (a *Account) tryAPIRenewUsing(ctx context.Context, call func(context.Contex
 			a.clearCurrentToken()
 			a.clearTokenCache(ctx)
 		}
+		metadataJSON = runtimeData.MetadataJSON
 		snapshot = cookierefresh.SnapshotFromMetadata(runtimeData.MetadataJSON)
 		// runtimeData 的 Cookie 用于续期请求，metadata 用于恢复浏览器 Cookie 快照。
 		// 读取窄模型不会触碰登录用户名、密码等无关凭证字段。
 		// API 续期仍沿用原有锁、Cookie 比较和 token 清理顺序。
 	}
+	// API 续期只使用当前凭证快照；慢速外部续期回调不得持有共享账号锁。
+	if credentialLocked {
+		credentialUnlock()
+		credentialLocked = false
+	}
 	// res、err 保存res、err，供当前处理流程使用
 	res, err := call(ctx, cookieStr, snapshot)
+	// responseMetadataOverride 保存并发更新期间重放响应 Cookie 后的 metadata。
+	responseMetadataOverride := ""
+	// responseMetadataOverridden 表示本次响应已经基于最新凭证快照重放。
+	responseMetadataOverridden := false
+	if a.store != nil && a.store.Cookies != nil {
+		// credentialUnlock 保存外部续期完成后重新进入提交临界区的释放函数。
+		credentialUnlock = a.store.LockAccountCredentials(a.CookieID)
+		credentialLocked = true
+		// latestRuntimeData 和 reloadErr 保存外部续期完成后的最新凭证视图及重读错误。
+		latestRuntimeData, reloadErr := a.store.Cookies.GetCookieRuntimeData(ctx, a.CookieID)
+		if reloadErr != nil {
+			a.logger.Warn("接口续期完成后读取最新 Cookie 失败", "err", reloadErr)
+			return false, reloadErr
+		}
+		// credentialSnapshotChanged 表示外部续期期间已有其他流程更新 Cookie 或 metadata。
+		credentialSnapshotChanged := latestRuntimeData.Value != cookieStr || latestRuntimeData.MetadataJSON != metadataJSON
+		cookieStr = latestRuntimeData.Value
+		metadataJSON = latestRuntimeData.MetadataJSON
+		if res != nil && credentialSnapshotChanged {
+			if len(res.SetCookies) > 0 {
+				// rebasedCookies、rebasedMetadata 保存基于最新快照重放 Set-Cookie 的结果。
+				rebasedCookies, rebasedMetadata, _ := renew.RebaseResponseCookies(cookieStr, metadataJSON, res)
+				res.NewCookies = rebasedCookies
+				res.CookieSnapshot = nil
+				res.CookieSnapshotComplete = false
+				responseMetadataOverride = rebasedMetadata
+				responseMetadataOverridden = true
+			} else {
+				// 没有可重放的 Set-Cookie 时，拒绝把旧请求计算出的状态写回。
+				res.NewCookies = cookieStr
+				res.CookieSnapshot = nil
+				res.CookieSnapshotComplete = false
+			}
+		}
+	}
 	if res == nil {
 		if err != nil {
 			a.logger.Warn("接口续期失败", "err", err)
@@ -979,7 +1036,14 @@ func (a *Account) tryAPIRenewUsing(ctx context.Context, call func(context.Contex
 	updated := false
 	// persisted 保存persisted，供当前处理流程使用
 	persisted := false
-	if res.CookieSnapshotComplete && a.store != nil && a.store.Cookies != nil {
+	if responseMetadataOverridden && a.store != nil && a.store.Cookies != nil {
+		// err 保存并发重放结果写回错误。
+		if err := a.store.Cookies.UpdateRenewalCookie(ctx, a.CookieID, res.NewCookies, responseMetadataOverride, time.Now().Unix()); err != nil {
+			a.logger.Warn("保存并发重放后的续期 Cookie 失败", "err", err)
+			return false, err
+		}
+		persisted = true
+	} else if res.CookieSnapshotComplete && a.store != nil && a.store.Cookies != nil {
 		runtimeData, detailErr := a.store.Cookies.GetCookieRuntimeData(ctx, a.CookieID) // runtimeData 只包含续期快照持久化所需字段。
 		// 快照持久化只依赖 metadata，Cookie 明文由续期响应直接提供。
 		// 保留统一运行时查询模型，避免为相同凭证路径恢复完整账号详情。
