@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sort"
 	"strings"
 )
 
@@ -237,57 +238,39 @@ func (o *Orders) SoftDeleteMissingForCookie(ctx context.Context, cookieID string
 	if strings.TrimSpace(cookieID) == "" {
 		return 0, errors.New("cookie_id 不能为空")
 	}
-	// rows、err 保存rows、err，供当前处理流程使用
-	rows, err := o.DB.QueryContext(ctx,
-		`SELECT order_id FROM orders WHERE cookie_id=? AND deleted_at IS NULL`, cookieID)
+	// args 保存批量 UPDATE 的参数，首个参数是账号 ID。
+	args := []any{cookieID}
+	// query 保存批量逻辑删除 SQL。
+	query := `UPDATE orders SET deleted_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+		WHERE cookie_id=? AND deleted_at IS NULL`
+	if len(activeIDs) > 0 {
+		// activeOrderIDs 按稳定顺序保存线上仍存在的订单 ID，便于日志和测试复现。
+		activeOrderIDs := make([]string, 0, len(activeIDs))
+		// orderID 表示当前线上仍存在的订单标识。
+		for orderID := range activeIDs {
+			activeOrderIDs = append(activeOrderIDs, orderID)
+		}
+		sort.Strings(activeOrderIDs)
+		// placeholders 保存 NOT IN 子句所需的占位符。
+		placeholders := make([]string, len(activeOrderIDs))
+		// i、orderID 分别表示占位符序号和线上订单标识。
+		for i, orderID := range activeOrderIDs {
+			placeholders[i] = "?"
+			args = append(args, orderID)
+		}
+		query += ` AND order_id NOT IN (` + strings.Join(placeholders, ",") + `)`
+	}
+	// result、err 保存批量逻辑删除结果及错误。
+	result, err := o.DB.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, err
 	}
-	// orderIDs 保存订单IDs，供当前处理流程使用
-	orderIDs := make([]string, 0)
-	for rows.Next() {
-		// orderID 保存订单ID，供当前处理流程使用
-		var orderID string
-		if // err 保存err，供当前处理流程使用
-		err := rows.Scan(&orderID); err != nil {
-			_ = rows.Close()
-			return 0, err
-		}
-		orderIDs = append(orderIDs, orderID)
-	}
-	if // err 保存err，供当前处理流程使用
-	err := rows.Err(); err != nil {
-		_ = rows.Close()
+	// deleted 保存本次批量逻辑删除的订单数量。
+	deleted, err := result.RowsAffected()
+	if err != nil {
 		return 0, err
 	}
-	if // err 保存err，供当前处理流程使用
-	err := rows.Close(); err != nil {
-		return 0, err
-	}
-
-	// deleted 保存deleted，供当前处理流程使用
-	deleted := 0
-	// orderID 表示当前遍历过程中的订单ID
-	for _, orderID := range orderIDs {
-		if // ok 保存ok，供当前处理流程使用
-		_, ok := activeIDs[orderID]; ok {
-			continue
-		}
-		// result、err 保存result、err，供当前处理流程使用
-		result, err := o.DB.ExecContext(ctx, `UPDATE orders
-			SET deleted_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
-			WHERE cookie_id=? AND order_id=? AND deleted_at IS NULL`, cookieID, orderID)
-		if err != nil {
-			return deleted, err
-		}
-		// changed、err 保存changed、err，供当前处理流程使用
-		changed, err := result.RowsAffected()
-		if err != nil {
-			return deleted, err
-		}
-		deleted += int(changed)
-	}
-	return deleted, nil
+	return int(deleted), nil
 }
 
 // OrderStatusMap 将数字状态码转换为文本状态。

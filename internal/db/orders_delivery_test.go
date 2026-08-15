@@ -71,6 +71,15 @@ func TestOrdersSoftDeleteMissingForCookie(t *testing.T) {
 	_, err := s.Orders.Get(ctx, "buyer-order"); err != nil {
 		t.Fatalf("reappeared order should be restored, err=%v", err)
 	}
+	if // err 保存err，供当前处理流程使用
+	err := s.Orders.Upsert(ctx, "empty-active-order", OrderUpsertOpts{CookieID: cid, OrderStatus: "pending_ship"}); err != nil {
+		t.Fatal(err)
+	}
+	// deleted、err 保存线上空订单列表触发的批量删除结果及错误。
+	deleted, err = s.Orders.SoftDeleteMissingForCookie(ctx, cid, map[string]struct{}{})
+	if err != nil || deleted != 3 {
+		t.Fatalf("empty active IDs deleted=%d err=%v", deleted, err)
+	}
 }
 
 // seedAccount 在临时库里建好 admin 用户 + 一个账号（cookie），返回 (userID, cookieID)。
