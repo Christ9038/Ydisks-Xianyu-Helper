@@ -94,6 +94,24 @@ describe('useNotifications', /* 当前回调处理通知渠道、SMTP 和动作�
     expect(updateSmtpMock).toHaveBeenCalledWith(expect.objectContaining({ smtp_port: 587 }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 
+  // 脱敏 SMTP 配置保存测试验证缺省密码不会被意外清空。
+  test('脱敏 SMTP 配置保存时不会意外清空服务端密码', /* 当前回调验证敏感字段保留语义。 */ async () => {
+    getSmtpMock.mockResolvedValueOnce({
+      smtp_server: 'smtp.example.com', smtp_port: 587, smtp_user: 'sender@example.com', smtp_password_configured: true,
+    });
+    // hook 是脱敏 SMTP 配置场景下的通知 Hook 渲染结果。
+    const hook = renderHook(/* hookFactory 创建管理员通知 Hook。 */ () => useNotifications(true));
+    // loadingAssertion 等待脱敏 SMTP 配置加载完成。
+    await waitFor(/* loadingAssertion 检查异步加载状态。 */ () => expect(hook.result.current.loading).toBe(false));
+
+    // saveAction 提交未修改密码的 SMTP 配置。
+    await act(/* saveAction 执行 SMTP 保存动作。 */ async () => hook.result.current.handleSaveSmtp());
+    // payload 是发送给服务端的 SMTP 配置载荷。
+    const payload = updateSmtpMock.mock.calls.at(-1)?.[0] as SystemSettings;
+    expect(payload.smtp_password).toBeUndefined();
+    expect(payload.smtp_server).toBe('smtp.example.com');
+  });
+
   test('渠道校验失败和删除成功都保持明确状态', /* 当前回调验证通知 Hook 的校验与删除路径。 */ async () => {
     // hook 是渠道校验和删除场景下的通知 Hook 渲染结果。
     const hook = renderHook(

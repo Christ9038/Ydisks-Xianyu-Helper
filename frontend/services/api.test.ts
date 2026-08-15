@@ -442,6 +442,21 @@ test('getSystemSettings normalizes numeric renewal retention', async () => {
   expect(settings.renewal_log_retention_days).toBe(10);
 } /* 回调函数负责当前业务流程。 */);
 
+// getSystemSettings 脱敏响应测试验证客户端只接收敏感配置状态。
+test('getSystemSettings keeps only sensitive configuration markers', /* 当前回调验证脱敏设置归一化。 */ async () => {
+  // fetchMock 返回服务端的脱敏设置视图，不包含任何敏感明文。
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+    ai_api_key_configured: 'true',
+    smtp_password_configured: 'false',
+  })));
+
+  // settings 是客户端归一化后的脱敏设置对象。
+  const settings = await getSystemSettings();
+  expect(settings.ai_api_key).toBeUndefined();
+  expect(settings.ai_api_key_configured).toBe(true);
+  expect(settings.smtp_password_configured).toBe(false);
+});
+
 test('logout calls backend session invalidation route', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
   vi.stubGlobal('fetch', fetchMock);

@@ -14,6 +14,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -112,7 +113,9 @@ func main() {
 	}
 	// v 保存v，供当前处理流程使用
 	v, _ := store.Cookies.GetValue(ctx, accountID)
-	fmt.Printf("✅ cookie upsert 成功，value=%s\n", v)
+	// fingerprint 是 Cookie 的不可逆校验指纹，仅用于验证 upsert 结果。
+	fingerprint := sha256.Sum256([]byte(v))
+	fmt.Printf("✅ cookie upsert 成功，length=%d fingerprint=%x\n", len(v), fingerprint[:8])
 
 	// 3) 系统设置 upsert（dialectUpsert + key 保留字引用）
 	if err := store.Settings.Set(ctx, "theme_color", "blue"); err != nil {

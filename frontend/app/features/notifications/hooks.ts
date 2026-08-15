@@ -317,12 +317,17 @@ export const useNotifications = (isAdmin: boolean): NotificationState => {
     smtpAbort.current = controller;
     setSmtpSaving(true);
     try {
-      await updateSystemSettings({
+      const payload: SystemSettings = {
         smtp_server: smtp.smtp_server || '', smtp_port: smtp.smtp_port || 587, smtp_user: smtp.smtp_user || '',
-        smtp_password: smtp.smtp_password || '', smtp_from_name: smtp.smtp_from_name || '',
+        smtp_from_name: smtp.smtp_from_name || '',
         smtp_from_address: smtp.smtp_from_address || smtp.smtp_user || '', smtp_use_tls: smtp.smtp_use_tls !== false,
         smtp_use_ssl: smtp.smtp_use_ssl === true,
-      }, { signal: controller.signal });
+      };
+      // 仅在管理员主动编辑过密码字段时提交，避免加载配置后意外清空服务端秘密。
+      if (Object.prototype.hasOwnProperty.call(smtp, 'smtp_password')) {
+        payload.smtp_password = smtp.smtp_password;
+      }
+      await updateSystemSettings(payload, { signal: controller.signal });
       if (isCurrentNotificationRequest(generation, smtpGeneration.current)) showToast('success', 'SMTP 配置已保存');
     } catch (error: unknown /* SMTP 保存异常 */) {
       if (isCurrentNotificationRequest(generation, smtpGeneration.current) && !controller.signal.aborted) {

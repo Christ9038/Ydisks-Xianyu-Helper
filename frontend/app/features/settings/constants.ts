@@ -11,6 +11,10 @@ export const LOG_LEVELS = [
 
 /** 不应通过系统配置批量保存的兼容字段集合。 */
 export const SETTINGS_SAVE_OMIT_KEYS = new Set([
+	'ai_api_key_configured',
+	'smtp_password_configured',
+	'qq_reply_secret_key_configured',
+	'captcha.remote_secret_key_configured',
   'smtp_server',
   'smtp_port',
   'smtp_user',

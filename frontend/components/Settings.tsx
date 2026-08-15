@@ -151,7 +151,7 @@ const Settings: React.FC = () => {
                     value={settings.ai_api_key || ''}
                     onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setSettings({...settings, ai_api_key: e.target.value})}
                     className="w-full ios-input px-4 py-3 pr-12 rounded-xl font-mono text-sm"
-                    placeholder="sk-..."
+                    placeholder={settings.ai_api_key_configured ? '已配置，如需替换请输入新密钥' : 'sk-...'}
                   />
                   <button
                     type="button"
@@ -274,6 +274,7 @@ const Settings: React.FC = () => {
                     onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setSettings({...settings, 'captcha.remote_secret_key': event.target.value})}
                     className="w-full ios-input px-4 py-3 pr-12 rounded-xl font-mono text-sm"
                     autoComplete="off"
+                    placeholder={settings['captcha.remote_secret_key_configured'] ? '已配置，如需替换请输入新密钥' : '请输入服务秘钥'}
                   />
                   <button
                     type="button"

@@ -12,6 +12,15 @@ import { formatLocalDate } from '../dateRange';
 const normalizeSettings = (settings: Record<string, any>): SystemSettings => {
   // out 配置副本，用于当前 API 处理流程。
   const out: Record<string, any> = { ...settings };
+  // sensitiveKey 是后端只返回配置状态、不返回明文的敏感配置键。
+  const sensitiveKeys = ['ai_api_key', 'smtp_password', 'qq_reply_secret_key', 'captcha.remote_secret_key'];
+  for (const sensitiveKey /* sensitiveKey 表示当前处理的敏感配置键。 */ of sensitiveKeys) {
+    // configuredKey 是敏感配置是否已设置的状态字段。
+    const configuredKey = `${sensitiveKey}_configured`;
+    if (configuredKey in out) {
+      out[configuredKey] = out[configuredKey] === true || out[configuredKey] === 'true';
+    }
+  }
   if ('renewal_log_retention_days' in out) {
     // parsed 转换后的数值，用于当前 API 处理流程。
     const parsed = Number(out.renewal_log_retention_days);

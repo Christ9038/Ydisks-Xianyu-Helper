@@ -477,6 +477,8 @@ export interface SystemSettings {
   ai_model?: string;
   /** 全局 AI API 密钥。 */
   ai_api_key?: string;
+  /** 全局 AI API 密钥是否已在服务端配置。 */
+  ai_api_key_configured?: boolean;
   /** 全局 AI API 地址。 */
   ai_api_url?: string;
   /** 全局 AI 基础地址。 */
@@ -487,6 +489,8 @@ export interface SystemSettings {
   registration_enabled?: boolean;
   /** 系统 SMTP 服务器地址。 */
   smtp_server?: string;
+  /** 系统 SMTP 密码是否已在服务端配置。 */
+  smtp_password_configured?: boolean;
   /** 服务端日志级别。 */
   log_level?: 'debug' | 'info' | 'warn' | 'error' | string;
   /** 服务端日志格式。 */
@@ -497,6 +501,8 @@ export interface SystemSettings {
   'captcha.remote_service_url'?: string;
   /** 远程验证码服务密钥。 */
   'captcha.remote_secret_key'?: string;
+  /** 远程验证码服务密钥是否已在服务端配置。 */
+  'captcha.remote_secret_key_configured'?: boolean;
   /** 远程验证码服务 Cookie 配置。 */
   'captcha.remote_pass_cookies'?: boolean | string;
   /** 兼容未来配置键的扩展字段。 */

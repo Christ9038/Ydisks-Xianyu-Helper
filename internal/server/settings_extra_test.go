@@ -501,3 +501,54 @@ func TestFetchOpenAIModelsEmptyBaseURL(t *testing.T) {
 		t.Fatal("空地址应报错")
 	}
 }
+
+// TestSystemSettingsEndpointRedactsSensitiveValues 验证管理员设置接口不会返回敏感配置明文。
+func TestSystemSettingsEndpointRedactsSensitiveValues(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "server-redacted-test-key")
+	// srv、store、cleanup 是测试服务、数据库及其清理函数。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// ctx 是当前测试使用的请求上下文。
+	ctx := context.Background()
+	// err 是写入脱敏测试秘密时返回的错误。
+	if err := store.Settings.SetMany(ctx, map[string]string{
+		"ai_api_key":                "sk-server-secret",
+		"smtp_password":             "smtp-server-secret",
+		"captcha.remote_secret_key": "captcha-server-secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// h 是当前测试服务的 HTTP 路由器。
+	h := srv.Router()
+	// cookie 是管理员登录后得到的会话 Cookie。
+	cookie := loginHelper(t, h)
+	// req 是读取管理员系统设置的 HTTP 请求。
+	req := httptest.NewRequest(http.MethodGet, "/system-settings", nil)
+	req.AddCookie(cookie)
+	// rec 是捕获设置响应的 HTTP 记录器。
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("settings status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	// response 是管理员系统设置的脱敏响应。
+	var response map[string]string
+	// err 是解析设置响应时返回的 JSON 错误。
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"sk-server-secret", "smtp-server-secret", "captcha-server-secret"} { // secret 是不应出现在响应中的敏感明文。
+		if strings.Contains(rec.Body.String(), secret) {
+			t.Fatalf("settings response leaked secret %q: %s", secret, rec.Body.String())
+		}
+	}
+	for _, key := range []string{"ai_api_key", "smtp_password", "captcha.remote_secret_key"} { // key 是待验证的敏感配置键。
+		// ok 表示脱敏响应是否意外包含敏感键。
+		if _, ok := response[key]; ok {
+			t.Fatalf("settings response contains sensitive key %q: %#v", key, response)
+		}
+		if response[key+"_configured"] != "true" {
+			t.Fatalf("settings response misses configured marker %q: %#v", key, response)
+		}
+	}
+}

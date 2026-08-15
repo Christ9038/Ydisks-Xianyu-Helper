@@ -513,6 +513,13 @@ func (s *SystemSettings) All(ctx context.Context) (map[string]string, error) {
 // Set 设置单项。
 func (s *SystemSettings) Set(ctx context.Context, key, value string) error {
 	if isSensitiveSettingKey(key) {
+		if strings.TrimSpace(value) == "" {
+			// keyCol 是当前数据库方言下的设置键列名。
+			keyCol := dialectQuote(s.Dialect, "key")
+			// err 是删除敏感设置时返回的数据库错误。
+			_, err := s.DB.ExecContext(ctx, `DELETE FROM system_settings WHERE `+keyCol+`=?`, key)
+			return err
+		}
 		// encrypted、err 保存encrypted、err，供当前处理流程使用
 		encrypted, err := s.codec.encrypt("system-setting", key, value)
 		if err != nil {
@@ -551,6 +558,13 @@ func (s *SystemSettings) SetMany(ctx context.Context, values map[string]string) 
 	// key、value 表示当前遍历过程中的key、value
 	for key, value := range values {
 		if isSensitiveSettingKey(key) {
+			if strings.TrimSpace(value) == "" {
+				// err 保存敏感设置清除操作的数据库错误。
+				if _, err := tx.ExecContext(ctx, `DELETE FROM system_settings WHERE `+keyCol+`=?`, key); err != nil {
+					return err
+				}
+				continue
+			}
 			// encrypted、err 保存encrypted、err，供当前处理流程使用
 			encrypted, err := s.codec.encrypt("system-setting", key, value)
 			if err != nil {
@@ -566,6 +580,37 @@ func (s *SystemSettings) SetMany(ctx context.Context, values map[string]string) 
 	return tx.Commit()
 }
 
+// Redacted 返回可供管理端展示的系统设置，并以 *_configured 标记敏感值是否已配置。
+// 该方法只读取数据库中的原始值，不解密敏感配置，确保秘密不会进入 HTTP 响应或前端状态。
+func (s *SystemSettings) Redacted(ctx context.Context) (map[string]string, error) {
+	// keyCol 是当前数据库方言下的设置键列名。
+	keyCol := dialectQuote(s.Dialect, "key")
+	// rows 是系统设置原始值查询结果集。
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+keyCol+`, value FROM system_settings`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	// result 是不含敏感明文的管理端设置响应。
+	result := make(map[string]string)
+	for rows.Next() {
+		// key、value 是数据库返回的设置键和值。
+		var key, value string
+		// err 是扫描设置行时返回的数据库错误。
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, err
+		}
+		if isSensitiveSettingKey(key) {
+			if strings.TrimSpace(value) != "" {
+				result[key+"_configured"] = "true"
+			}
+			continue
+		}
+		result[key] = value
+	}
+	return result, rows.Err()
+}
+
 // PublicSystemKeys 是公开设置键白名单（前端登录页等无需登录可读）。
 var PublicSystemKeys = map[string]bool{
 	"theme_color": true,
@@ -574,7 +619,7 @@ var PublicSystemKeys = map[string]bool{
 // Public 取公开设置子集。
 func (s *SystemSettings) Public(ctx context.Context) (map[string]string, error) {
 	// all、err 保存all、err，供当前处理流程使用
-	all, err := s.All(ctx)
+	all, err := s.Redacted(ctx)
 	if err != nil {
 		return nil, err
 	}

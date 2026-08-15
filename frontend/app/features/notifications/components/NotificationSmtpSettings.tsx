@@ -78,7 +78,7 @@ export const NotificationSmtpSettings: React.FC<NotificationSmtpSettingsProps> =
       <div className="space-y-2">
         <label className="block text-sm font-bold text-gray-800">邮箱密码 / 授权码</label>
         <div className="relative">
-          <input type={showPassword ? 'text' : 'password'} value={smtp.smtp_password || ''} onChange={handlePasswordChange} placeholder="输入密码或授权码" className="w-full ios-input px-4 py-3 pr-12 rounded-xl text-sm" />
+          <input type={showPassword ? 'text' : 'password'} value={smtp.smtp_password || ''} onChange={handlePasswordChange} placeholder={smtp.smtp_password_configured ? '已配置，如需替换请输入新密码' : '输入密码或授权码'} className="w-full ios-input px-4 py-3 pr-12 rounded-xl text-sm" />
           <button type="button" onClick={handleTogglePassword} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-gray-600 transition-colors">{showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
         </div>
         <p className="text-xs text-gray-500">QQ 邮箱需使用授权码（QQ 邮箱设置 → 账号 → 开启 SMTP → 生成授权码）</p>

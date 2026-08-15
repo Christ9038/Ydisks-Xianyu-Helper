@@ -105,6 +105,77 @@ func TestSensitiveRepositoriesEncryptAtRestAndDecryptOnRead(t *testing.T) {
 	}
 }
 
+// TestSystemSettingsRedactedNeverReturnsSensitivePlaintext 验证管理端设置视图只返回敏感配置状态。
+func TestSystemSettingsRedactedNeverReturnsSensitivePlaintext(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "redacted-test-key")
+	// store、cleanup 是测试数据库及其清理函数。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 是当前测试使用的请求上下文。
+	ctx := context.Background()
+	// err 是批量保存设置时返回的错误。
+	if err := store.Settings.SetMany(ctx, map[string]string{
+		"theme_color":               "blue",
+		"ai_api_key":                "sk-never-return",
+		"smtp_password":             "smtp-never-return",
+		"captcha.remote_secret_key": "captcha-never-return",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// redacted、err 是脱敏设置视图及其读取错误。
+	redacted, err := store.Settings.Redacted(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if redacted["theme_color"] != "blue" {
+		t.Fatalf("普通配置未返回: %#v", redacted)
+	}
+	for _, secret := range []string{"ai_api_key", "smtp_password", "captcha.remote_secret_key"} { // secret 是待验证的敏感配置键。
+		// ok 表示脱敏响应是否意外包含敏感键。
+		if _, ok := redacted[secret]; ok {
+			t.Fatalf("敏感配置明文不应返回: key=%s value=%q", secret, redacted[secret])
+		}
+		if redacted[secret+"_configured"] != "true" {
+			t.Fatalf("敏感配置状态缺失: key=%s response=%#v", secret, redacted)
+		}
+	}
+}
+
+// TestSensitiveSettingEmptyValueClearsSecret 验证敏感设置显式提交空值时会删除密文。
+func TestSensitiveSettingEmptyValueClearsSecret(t *testing.T) {
+	t.Setenv("XIANYU_DATA_KEY", "clear-test-key")
+	// store、cleanup 是测试数据库及其清理函数。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 是当前测试使用的请求上下文。
+	ctx := context.Background()
+	// err 是首次写入敏感设置时返回的错误。
+	if err := store.Settings.Set(ctx, "ai_api_key", "sk-to-clear"); err != nil {
+		t.Fatal(err)
+	}
+	// err 是显式清除敏感设置时返回的错误。
+	if err := store.Settings.Set(ctx, "ai_api_key", ""); err != nil {
+		t.Fatal(err)
+	}
+	// value、err 是读取已清除敏感设置的结果。
+	value, err := store.Settings.Get(ctx, "ai_api_key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value != "" {
+		t.Fatalf("敏感设置未清除: %q", value)
+	}
+	// redacted、err 是清除后的脱敏视图及其读取错误。
+	redacted, err := store.Settings.Redacted(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if redacted["ai_api_key_configured"] != "" {
+		t.Fatalf("清除后仍报告已配置: %#v", redacted)
+	}
+}
+
 // TestSecretCodecReadsLegacyPlaintextAndRejectsWrongKey 负责TestSecretCodecReadsLegacyPlaintextAndRejectsWrongKey相关处理。
 func TestSecretCodecReadsLegacyPlaintextAndRejectsWrongKey(t *testing.T) {
 	// codec 保存codec，供当前处理流程使用

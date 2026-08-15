@@ -91,7 +91,7 @@ func (s *Server) publicSettings(w http.ResponseWriter, r *http.Request) {
 // allSettings 负责all设置相关处理。
 func (s *Server) allSettings(w http.ResponseWriter, r *http.Request) {
 	// m、err 保存m、err，供当前处理流程使用
-	m, err := s.Store.Settings.All(r.Context())
+	m, err := s.Store.Settings.Redacted(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
