@@ -290,4 +290,104 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     expect(sendImageMock).toHaveBeenCalledTimes(2);
     hook.unmount();
   });
+
+  test('初始聊天数据加载失败时结束加载状态并保留错误', /* 当前回调验证聊天初始化失败的状态收口。 */ async () => {
+    getDetailsMock.mockRejectedValueOnce(new Error('聊天初始化失败'));
+    // hook 是初始化失败场景的聊天 Hook 渲染结果。
+    const hook = renderHook(
+      // failedLoadHookFactory 创建初始化失败场景的 Hook。
+      () => useChat(),
+    );
+    await waitFor(
+      // loadingAssertion 等待初始化失败后的加载状态收口。
+      () => expect(hook.result.current.loading).toBe(false),
+    );
+    expect(hook.result.current.error).toBe('聊天初始化失败');
+    hook.unmount();
+  });
+
+  test('运行状态轮询失败后仍继续调度下一次轮询', /* 当前回调验证运行状态轮询失败的容错与重试。 */ async () => {
+    vi.useFakeTimers();
+    try {
+      // initialStatus 是初始化请求返回的运行状态。
+      const initialStatus = { 'account-1': { state: 'online' as const, connected: true, failures: 0, updated_at: '2026-08-15T00:00:00Z' } };
+      getRuntimeMock.mockReset();
+      getRuntimeMock.mockResolvedValueOnce(initialStatus);
+      getRuntimeMock.mockRejectedValueOnce(new Error('轮询失败'));
+      // hook 是轮询失败场景的聊天 Hook 渲染结果。
+      const hook = renderHook(
+        // pollingHookFactory 创建轮询失败场景的 Hook。
+        () => useChat(),
+      );
+      await act(
+        // initialFlushAction 刷新初始化 Promise 和 React 状态更新。
+        async () => { await Promise.resolve(); },
+      );
+      await act(
+        // pollingTimerAction 推进首次轮询定时器。
+        async () => { await vi.advanceTimersByTimeAsync(3_000); },
+      );
+      expect(getRuntimeMock).toHaveBeenCalledTimes(2);
+      hook.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('历史消息成功加载后调整滚动位置并处理未知实时会话', /* 当前回调验证历史分页滚动和实时未知会话刷新。 */ async () => {
+    // hook 是历史分页成功场景的聊天 Hook 渲染结果。
+    const hook = renderHook(
+      // olderHookFactory 创建历史分页场景的 Hook。
+      () => useChat(),
+    );
+    await waitFor(
+      // activeChatAssertion 等待默认会话被选中。
+      () => expect(hook.result.current.activeChatID).toBe('chat-1'),
+    );
+    await waitFor(
+      // messagesAssertion 等待当前会话消息加载完成。
+      () => expect(hook.result.current.messagesLoading).toBe(false),
+    );
+    // height 保存滚动容器当前高度，模拟历史消息插入后的高度变化。
+    let height = 100;
+    // container 是历史分页滚动位置测试使用的容器替身。
+    const container = { clientHeight: 50, scrollTop: 0, get scrollHeight() { return height; } } as HTMLDivElement;
+    hook.result.current.scrollRef.current = container;
+    // olderMessage 是历史分页返回的更早消息。
+    const olderMessage = { ...messageFixture, id: 0, message_key: 'message-0', sent_at: 0, content: '更早消息' };
+    getMessagePageMock.mockResolvedValueOnce({ messages: [olderMessage], has_more: false, next_cursor: undefined });
+    vi.stubGlobal('requestAnimationFrame', vi.fn(/* frameFactory 创建可控的滚动帧回调。 */ (callback: FrameRequestCallback) => {
+      height = 180;
+      callback(0);
+      return 1;
+    }));
+    await act(
+      // olderAction 请求更早的消息并恢复滚动位置。
+      async () => hook.result.current.loadOlderMessages(),
+    );
+    expect(hook.result.current.messages).toEqual([olderMessage, messageFixture]);
+    expect(container.scrollTop).toBe(80);
+
+    // unknownMessage 是不在当前联系人列表中的实时消息。
+    const unknownMessage = { ...messageFixture, chat_id: 'chat-unknown', message_key: 'message-unknown', content: '未知会话消息' };
+    getSessionPageMock.mockResolvedValueOnce({ sessions: [sessionFixture], has_more: false, next_cursor: undefined });
+    await act(
+      // unknownMessageAction 触发未知会话的联系人刷新。
+      () => latestSocket?.onmessage?.({ data: JSON.stringify({ message: unknownMessage }) }),
+    );
+    await waitFor(
+      // reloadAssertion 等待未知会话触发联系人刷新。
+      () => expect(getSessionPageMock).toHaveBeenCalledWith('account-1', undefined, expect.objectContaining({ signal: expect.any(AbortSignal) }), true),
+    );
+    await act(
+      // emptyMessageAction 触发无消息载荷并保持状态稳定。
+      () => latestSocket?.onmessage?.({ data: JSON.stringify({}) }),
+    );
+    await act(
+      // errorAction 触发 WebSocket 错误并关闭连接。
+      () => latestSocket?.onerror?.(),
+    );
+    expect(latestSocket?.close).toHaveBeenCalled();
+    hook.unmount();
+  });
 });
