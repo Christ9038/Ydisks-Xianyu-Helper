@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { AccountDetail } from '../../../types';
-import { mergeAccountRuntimeStatuses } from './runtime';
+import { accountRuntimePresentation, isOlderStatus, mergeAccountRuntimeStatuses } from './runtime';
 
 // account 创建运行状态测试使用的最小账号对象。
 const account = (overrides: Partial<AccountDetail> = {}): AccountDetail => ({
@@ -56,5 +56,27 @@ describe('Accounts runtime state', /* 当前回调处理用户交互或异步状
     // current 是没有新运行状态可合并的账号对象。
     const current = account();
     expect(mergeAccountRuntimeStatuses([current], {})[0]).toBe(current);
+  });
+
+  test('时间戳缺失或无效时不误判为旧状态', /* 当前回调处理用户交互或异步状态变化。 */ () => {
+    expect(isOlderStatus(undefined, '2026-01-01T00:00:00Z')).toBe(false);
+    expect(isOlderStatus('invalid', '2026-01-01T00:00:00Z')).toBe(false);
+    expect(isOlderStatus('2026-01-02T00:00:00Z', '2026-01-01T00:00:00Z')).toBe(true);
+    expect(isOlderStatus('2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z')).toBe(false);
+  });
+
+  test('所有运行状态都映射到稳定的中文展示', /* 当前回调处理用户交互或异步状态变化。 */ () => {
+    // states 是运行状态到中文标签的完整断言表。
+    const states = [
+      ['online', '在线'], ['starting', '连接中'], ['connecting', '连接中'], ['reconnecting', '重连中'],
+      ['auth_expired', '登录已失效'], ['verification_required', '需要验证'], ['error', '运行异常'], ['stopped', '运行异常'],
+    ] as const;
+    states.forEach(
+      // state 是需要验证展示文案的运行状态和预期标签。
+      ([state, label]) => expect(accountRuntimePresentation(account({ runtime_state: state })).label).toBe(label),
+    );
+    expect(accountRuntimePresentation(account({ enabled: false, runtime_state: 'online' })).label).toBe('已停用');
+    expect(accountRuntimePresentation(account({ runtime_state: 'disabled' })).label).toBe('已停用');
+    expect(accountRuntimePresentation(account()).label).toBe('状态检测中');
   });
 });

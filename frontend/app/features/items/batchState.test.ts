@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
   batchStatusText,
+  batchStatusClass,
   canRetryBatch,
   canStartBatch,
   isBatchInProgress,
@@ -54,5 +55,27 @@ describe('ItemList batch state',
     () => {
     expect(selectActivePublishBatch([{ id: 'done', status: 'completed' }])).toBeUndefined();
     expect(selectActivePublishBatch([{ id: 'done', status: 'completed' }, { id: 'active', status: 'running' }])?.id).toBe('active');
-    });
   });
+
+  test('covers all batch status labels and style groups',
+    // 状态展示场景回调验证后端状态到中文和样式的完整映射。
+    () => {
+    // labels 是批量状态到中文文案的完整断言表。
+    const labels: Record<string, string> = {
+      preview: '待确认', pending: '等待中', running: '发布中', canceling: '正在安全取消', success: '成功',
+      failed: '失败', completed: '已完成', partially_failed: '部分失败', canceled: '已取消', unknown: 'unknown',
+    };
+    Object.entries(labels).forEach(
+      // entry 是状态值和对应的中文文案。
+      ([status, label]) => expect(batchStatusText(status)).toBe(label),
+    );
+    expect(batchStatusText()).toBe('-');
+    expect(batchStatusClass('success')).toContain('bg-emerald-50');
+    expect(batchStatusClass('completed')).toContain('bg-emerald-50');
+    expect(batchStatusClass('partially_failed')).toContain('bg-red-50');
+    expect(batchStatusClass('failed')).toContain('bg-red-50');
+    expect(batchStatusClass('running')).toContain('bg-blue-50');
+    expect(batchStatusClass('canceled')).toContain('bg-gray-100');
+    expect(batchStatusClass('pending')).toContain('bg-amber-50');
+    });
+});
