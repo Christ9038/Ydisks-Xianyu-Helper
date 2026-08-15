@@ -154,6 +154,8 @@ type orderApplicationService struct {
 	delete *orderapp.DeleteService
 	// update 负责订单更新字段校验和事务写入。
 	update *orderapp.UpdateService
+	// importOrders 负责订单导入的归属校验和事务写入。
+	importOrders *orderapp.ImportService
 	// refreshJobs 提供订单刷新后台任务的持久化 Port。
 	refreshJobs orderapp.RefreshJobRepository
 }
@@ -468,101 +470,44 @@ type orderImportResult struct {
 
 // Import 按当前用户账号所有权逐单导入订单，并为订单关联商品补全基础信息。
 func (a *orderApplicationService) Import(ctx context.Context, userID int64, rawOrders []map[string]any) (orderImportResult, error) {
-	// ownedCookieIDs、err 保存owned登录凭证IDs、err，供当前处理流程使用
-	ownedCookieIDs, err := a.repository.ListOwnedIDs(ctx, userID)
+	// inputs 保存文件/HTTP 原始数据转换后的应用导入行。
+	inputs := make([]orderapp.ImportOrder, 0, len(rawOrders))
+	// raw 保存当前待转换的原始导入行。
+	for _, raw := range rawOrders {
+		inputs = append(inputs, importOrderFromRaw(raw))
+	}
+	// result、err 保存应用层导入结果和错误。
+	result, err := a.importOrders.Import(ctx, userID, inputs)
 	if err != nil {
 		return orderImportResult{}, err
 	}
-	// defaultCookieID 保存default登录凭证ID，供当前处理流程使用
-	defaultCookieID := ""
-	if len(ownedCookieIDs) == 1 {
-		defaultCookieID = ownedCookieIDs[0]
-	}
-	// result 保存结果，供当前处理流程使用
-	result := orderImportResult{Total: len(rawOrders), Results: make([]map[string]any, 0, len(rawOrders))}
-	// raw 表示当前遍历过程中的原始
-	for _, raw := range rawOrders {
-		if // err 保存err，供当前处理流程使用
-		err := a.importOne(ctx, ownedCookieIDs, defaultCookieID, raw, &result); err != nil {
-			result.FailedCount++
-			result.Results = append(result.Results, errResult(raw, err.Error()))
-			continue
-		}
-		result.SuccessCount++
-		result.Results = append(result.Results, map[string]any{"order_id": firstImportString(raw, "order_id"), "success": true, "message": "订单已导入"})
-	}
-	return result, nil
+	return orderImportResultFromApplication(result), nil
 }
 
-// importOne 在独立事务中写入一条订单及其商品信息。
-func (a *orderApplicationService) importOne(ctx context.Context, ownedCookieIDs []string, defaultCookieID string, raw map[string]any, result *orderImportResult) error {
-	// orderID 保存订单ID，供当前处理流程使用
-	orderID := firstImportString(raw, "order_id")
-	if orderID == "" {
-		return errors.New("缺少必需字段: order_id")
+// importOrderFromRaw 将文件/HTTP 适配层的动态字段转换为应用层订单导入命令。
+func importOrderFromRaw(raw map[string]any) orderapp.ImportOrder {
+	return orderapp.ImportOrder{
+		OrderID: firstImportString(raw, "order_id"), CookieID: firstImportString(raw, "cookie_id"),
+		ItemID: firstImportString(raw, "item_id"), ItemTitle: firstImportString(raw, "item_title"),
+		ItemPrice: firstImportString(raw, "item_price"), ItemDetail: firstImportString(raw, "item_detail", "item_description"),
+		BuyerID: firstImportString(raw, "buyer_id"), OrderStatus: firstImportString(raw, "order_status", "status", "status_text"),
+		SpecName: firstImportString(raw, "spec_name"), SpecValue: firstImportString(raw, "spec_value"),
+		Quantity: firstImportString(raw, "quantity"), Amount: firstImportString(raw, "amount"),
+		ReceiverName: firstImportString(raw, "receiver_name"), ReceiverPhone: firstImportString(raw, "receiver_phone"),
+		ReceiverAddress: firstImportString(raw, "receiver_address"), ReceiverCity: firstImportString(raw, "receiver_city"),
+		ChatID: firstImportString(raw, "chat_id"),
 	}
-	// cookieID 保存登录凭证ID，供当前处理流程使用
-	cookieID := firstImportString(raw, "cookie_id")
-	if cookieID == "" {
-		cookieID = defaultCookieID
-	}
-	if cookieID == "" {
-		return errors.New("缺少必需字段: cookie_id")
-	}
-	if !containsCookieID(ownedCookieIDs, cookieID) {
-		return errors.New("无权操作此账号的订单")
-	}
-	// status 保存状态，供当前处理流程使用
-	status := firstImportString(raw, "order_status", "status", "status_text")
-	if status != "" {
-		status = db.NormalizeOrderStatus(status)
-		if !validEditableOrderStatus(status) {
-			return errors.New("不支持的订单状态")
-		}
-	}
-	// amount、ok 保存amount、ok，供当前处理流程使用
-	amount, ok := normalizeOrderAmount(firstImportString(raw, "amount"))
-	if !ok {
-		return errors.New("订单金额必须是普通格式的非负有限数字")
-	}
-	if // err 保存err，供当前处理流程使用
-	err := a.repository.WithTransaction(ctx, func(writer orderapp.Writer) error {
-		if // err 保存err，供当前处理流程使用
-		err := writer.UpsertOrder(ctx, orderID, orderapp.UpsertOptions{
-			CookieID: cookieID, ItemID: firstImportString(raw, "item_id"), BuyerID: firstImportString(raw, "buyer_id"),
-			OrderStatus: status, SpecName: firstImportString(raw, "spec_name"), SpecValue: firstImportString(raw, "spec_value"),
-			Quantity: firstImportString(raw, "quantity"), Amount: amount, ReceiverName: firstImportString(raw, "receiver_name"),
-			ReceiverPhone: firstImportString(raw, "receiver_phone"), ReceiverAddress: firstImportString(raw, "receiver_address"),
-			ReceiverCity: firstImportString(raw, "receiver_city"), ChatID: firstImportString(raw, "chat_id"),
-		}); err != nil {
-			return err
-		}
-		// itemID 是导入订单中关联的商品标识。
-		itemID := firstImportString(raw, "item_id")
-		if itemID != "" {
-			if // err 保存err，供当前处理流程使用
-			err := writer.UpsertItemBasic(ctx, orderapp.ItemWrite{
-				CookieID: cookieID, ItemID: itemID, ItemTitle: firstImportString(raw, "item_title"),
-				ItemPrice: firstImportString(raw, "item_price"), ItemDetail: firstImportString(raw, "item_detail", "item_description"),
-			}); err != nil {
-				return fmt.Errorf("补全商品信息失败: %w", err)
-			}
-		}
-		return nil
-	}); err != nil {
-		return errors.New("订单导入事务失败: " + err.Error())
-	}
-	return nil
 }
 
-// errResult 生成导入失败的兼容结果行。
-func errResult(raw map[string]any, message string) map[string]any {
-	// orderID 保存订单ID，供当前处理流程使用
-	orderID := firstImportString(raw, "order_id")
-	if orderID == "" {
-		orderID = "unknown"
+// orderImportResultFromApplication 将应用层导入结果转换为旧 HTTP 响应兼容模型。
+func orderImportResultFromApplication(result orderapp.ImportResult) orderImportResult {
+	// results 保存兼容客户端使用的逐条动态结果。
+	results := make([]map[string]any, 0, len(result.Results))
+	// item 保存当前应用层导入结果行。
+	for _, item := range result.Results {
+		results = append(results, map[string]any{"order_id": item.OrderID, "success": item.Success, "message": item.Message})
 	}
-	return map[string]any{"order_id": orderID, "success": false, "message": message}
+	return orderImportResult{Total: result.Total, SuccessCount: result.SuccessCount, FailedCount: result.FailedCount, Results: results}
 }
 
 // manualShipRequest 描述批量手动发货请求。

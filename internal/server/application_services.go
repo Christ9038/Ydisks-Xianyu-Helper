@@ -21,7 +21,7 @@ func newApplicationServices(server *Server) *applicationServices {
 	// orderRepository 保存订单应用服务共享的基础设施适配器。
 	orderRepository := newStoreOrderRepository(server.Store)
 	return &applicationServices{
-		orders:        &orderApplicationService{server: newServerOrderRuntime(server), repository: orderRepository, list: orderapp.NewListService(orderRepository), detail: orderapp.NewDetailService(orderRepository), delete: orderapp.NewDeleteService(orderRepository), update: orderapp.NewUpdateService(orderRepository), refreshJobs: newStoreOrderRefreshJobRepository(server.Store)},
+		orders:        &orderApplicationService{server: newServerOrderRuntime(server), repository: orderRepository, list: orderapp.NewListService(orderRepository), detail: orderapp.NewDetailService(orderRepository), delete: orderapp.NewDeleteService(orderRepository), update: orderapp.NewUpdateService(orderRepository), importOrders: orderapp.NewImportService(orderRepository), refreshJobs: newStoreOrderRefreshJobRepository(server.Store)},
 		itemPublish:   &itemPublishService{server: server, repository: newStoreItemPublishRepository(server.Store)},
 		accountLogin:  &accountLoginService{server: server, repository: newStoreAccountLoginRepository(server.Store)},
 		communication: &communicationService{server: server, repository: newStoreCommunicationRepository(server.Store)},
