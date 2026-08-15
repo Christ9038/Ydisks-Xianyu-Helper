@@ -7,36 +7,6 @@ import (
 	"xianyu-go/internal/db"
 )
 
-// orderRepository 定义订单应用服务执行订单、商品、归属、事务和凭证锁操作所需的最小能力。
-type orderRepository interface {
-	// ExistsOwned 判断账号是否归属于用户。
-	ExistsOwned(ctx context.Context, userID int64, cookieID string) (bool, error)
-	// ListOwnedIDs 返回用户拥有的账号 ID。
-	ListOwnedIDs(ctx context.Context, userID int64) ([]string, error)
-	// ListOrdersForUser 查询用户范围内的订单列表。
-	ListOrdersForUser(ctx context.Context, filter orderapp.ListFilter) ([]orderapp.OrderRow, int, error)
-	// GetOrder 查询单个订单。
-	GetOrder(ctx context.Context, orderID string) (*orderapp.Order, error)
-	// GetItem 查询账号下的商品信息。
-	GetItem(ctx context.Context, cookieID, itemID string) (*orderapp.ItemInfo, error)
-	// SoftDeleteOrder 逻辑删除订单。
-	SoftDeleteOrder(ctx context.Context, orderID string) (bool, error)
-	// WithTransaction 在应用层 Writer 中执行订单持久化操作。
-	WithTransaction(ctx context.Context, work func(orderapp.Writer) error) error
-	// UpsertOrder 写入订单。
-	UpsertOrder(ctx context.Context, orderID string, opts orderapp.UpsertOptions) error
-	// LockCredentials 串行化账号凭证状态变更。
-	LockCredentials(cookieID string) func()
-	// LoadCookiePlatformDetail 读取账号平台凭证详情。
-	LoadCookiePlatformDetail(ctx context.Context, cookieID string) (*orderapp.PlatformRuntimeData, error)
-	// UpdateRenewalCookie 更新账号续期 Cookie 和 metadata。
-	UpdateRenewalCookie(ctx context.Context, cookieID, value, metadata string, at int64) error
-	// SoftDeleteMissingOrders 删除账号下远端已不存在的订单。
-	SoftDeleteMissingOrders(ctx context.Context, cookieID string, activeIDs map[string]struct{}) (int, error)
-	// ListOrdersByCookiePage 分页读取账号订单。
-	ListOrdersByCookiePage(ctx context.Context, cookieID string, limit, offset int) ([]orderapp.OrderRow, error)
-}
-
 // storeOrderRepository 将完整 Store 适配为订单应用服务窄 repository。
 type storeOrderRepository struct {
 	// store 保存数据库聚合入口，仅在适配器内部使用。
@@ -265,7 +235,7 @@ func (r storeOrderRepository) ListOrdersByCookiePage(ctx context.Context, cookie
 }
 
 // newStoreOrderRepository 从完整 Store 构造订单应用服务窄 repository。
-func newStoreOrderRepository(store *db.Store) orderRepository {
+func newStoreOrderRepository(store *db.Store) orderapp.Repository {
 	if store == nil || store.Cookies == nil || store.Orders == nil || store.Items == nil {
 		return nil
 	}
@@ -273,6 +243,6 @@ func newStoreOrderRepository(store *db.Store) orderRepository {
 }
 
 // 确保 Store 适配器始终覆盖订单应用服务所需的全部能力。
-var _ orderRepository = storeOrderRepository{}
+var _ orderapp.Repository = storeOrderRepository{}
 var _ orderapp.UnitOfWork = storeOrderRepository{}
 var _ orderapp.Writer = storeOrderWriter{}

@@ -134,8 +134,8 @@ func (a serverOrderRuntimeAdapter) logger() *slog.Logger {
 type orderApplicationService struct {
 	// server 是订单运行时 Port，名称保留以降低本次迁移的调用面。
 	server orderRuntimePort
-	// repository 提供订单用例所需的最小持久化与凭证锁能力。
-	repository orderRepository
+	// repository 提供订单用例所需的应用层持久化与凭证锁 Port。
+	repository orderapp.Repository
 }
 
 // errOrderDetailUnsupported 保存err订单DetailUnsupported，供当前处理流程使用
