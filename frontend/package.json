@@ -21,12 +21,14 @@
     "recharts": "^3.6.0"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^22.14.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.0.0",
     "@vitest/coverage-v8": "^4.1.6",
     "autoprefixer": "^10.4.23",
+    "jsdom": "^30.0.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.8.2",
