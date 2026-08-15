@@ -7,32 +7,33 @@ import (
 
 // Store 聚合各 repository，供上层（HTTP server、account supervisor 等）统一持有。
 type Store struct {
-	DB             *sql.DB
-	Dialect        Dialect
-	Users          *Users
-	Sessions       *Sessions
-	Cookies        *Cookies
-	Items          *Items
-	Cards          *Cards
-	Automation     *AutomationRules
-	Orders         *Orders
-	Keywords       *Keywords
-	DefaultReps    *DefaultReplies
-	ItemReps       *ItemReplies
-	AIReply        *AIReply
-	Notifications  *Notifications
-	Settings       *SystemSettings
-	UserSettings   *UserSettings
-	WSMessages     *WSMessageStore
-	PublishBatches *ItemPublishBatches
-	Tokens         *AccountTokens
-	Renewal        *RenewalStore
-	LoginLogs      *AccountLoginLogs
-	RiskLogs       *RiskControlLogs
-	Chats          *ChatStore
-	AccountTasks   *AccountTaskStore
-	Admin          *AdminQueries
-	Analytics      *AnalyticsQueries
+	DB              *sql.DB
+	Dialect         Dialect
+	Users           *Users
+	Sessions        *Sessions
+	Cookies         *Cookies
+	Items           *Items
+	Cards           *Cards
+	Automation      *AutomationRules
+	Orders          *Orders
+	Reconciliations *OrderReconciliations
+	Keywords        *Keywords
+	DefaultReps     *DefaultReplies
+	ItemReps        *ItemReplies
+	AIReply         *AIReply
+	Notifications   *Notifications
+	Settings        *SystemSettings
+	UserSettings    *UserSettings
+	WSMessages      *WSMessageStore
+	PublishBatches  *ItemPublishBatches
+	Tokens          *AccountTokens
+	Renewal         *RenewalStore
+	LoginLogs       *AccountLoginLogs
+	RiskLogs        *RiskControlLogs
+	Chats           *ChatStore
+	AccountTasks    *AccountTaskStore
+	Admin           *AdminQueries
+	Analytics       *AnalyticsQueries
 
 	credentialMu    sync.Mutex
 	credentialLocks map[string]*credentialLockEntry
@@ -60,6 +61,7 @@ func NewStore(db *sql.DB, dialect Dialect) *Store {
 		Cards:           &Cards{DB: db, Dialect: dialect},
 		Automation:      &AutomationRules{DB: db, Dialect: dialect},
 		Orders:          &Orders{DB: db, Dialect: dialect},
+		Reconciliations: &OrderReconciliations{DB: db},
 		Keywords:        &Keywords{DB: db, Dialect: dialect},
 		DefaultReps:     &DefaultReplies{DB: db, Dialect: dialect},
 		ItemReps:        &ItemReplies{DB: db, Dialect: dialect},

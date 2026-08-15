@@ -33,6 +33,8 @@ type orderRuntimePort interface {
 	updateRunningCookie(ctx context.Context, cookieID, value string)
 	// notifyDelivery 发送发货结果通知。
 	notifyDelivery(cookieID, buyerID, itemID, chatID, message string)
+	// RecordOrderReconciliation 记录外部发货成功但本地状态未完成的补偿任务。
+	RecordOrderReconciliation(ctx context.Context, orderID, cookieID, kind, message string) (string, error)
 	// persistMTopCookieSessionLocked 持久化平台响应 Cookie Jar。
 	persistMTopCookieSessionLocked(ctx context.Context, detail *db.CookieDetail, session *mtop.CookieSession) (string, bool, bool, error)
 	// recoverExpiredMTOPSession 处理平台会话过期。
@@ -104,6 +106,14 @@ func (a serverOrderRuntimeAdapter) updateRunningCookie(ctx context.Context, cook
 // notifyDelivery 发送发货结果通知。
 func (a serverOrderRuntimeAdapter) notifyDelivery(cookieID, buyerID, itemID, chatID, message string) {
 	a.server.notifyDelivery(cookieID, buyerID, itemID, chatID, message)
+}
+
+// RecordOrderReconciliation 将外部动作成功后的本地状态异常写入补偿记录。
+func (a serverOrderRuntimeAdapter) RecordOrderReconciliation(ctx context.Context, orderID, cookieID, kind, message string) (string, error) {
+	if a.server == nil || a.server.Store == nil || a.server.Store.Reconciliations == nil {
+		return "", errors.New("订单补偿存储未初始化")
+	}
+	return a.server.Store.Reconciliations.CreatePending(ctx, orderID, cookieID, kind, message)
 }
 
 // persistMTopCookieSessionLocked 持久化平台响应 Cookie Jar。
@@ -642,7 +652,7 @@ func (a *orderApplicationService) ManualShip(ctx context.Context, request manual
 // appendManualFailure 追加一条手动发货失败记录并更新失败计数。
 func (a *orderApplicationService) appendManualFailure(result *manualShipResult, orderID, message string) {
 	result.FailedCount++
-	result.Results = append(result.Results, map[string]any{"order_id": orderID, "success": false, "message": message})
+	result.Results = append(result.Results, map[string]any{"order_id": orderID, "status": "failed", "success": false, "message": message})
 }
 
 // manualFullDelivery 执行完整自动化发货分支。
@@ -664,7 +674,7 @@ func (a *orderApplicationService) manualFullDelivery(ctx context.Context, order 
 		return
 	}
 	result.SuccessCount++
-	result.Results = append(result.Results, map[string]any{"order_id": orderID, "success": true, "message": fmt.Sprintf("完整发货成功，已发送%d条卡券信息给买家", sent)})
+	result.Results = append(result.Results, map[string]any{"order_id": orderID, "status": "succeeded", "success": true, "message": fmt.Sprintf("完整发货成功，已发送%d条卡券信息给买家", sent)})
 	a.server.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID, fmt.Sprintf("手动完整发货成功（订单 %s，已发送 %d 条）", orderID, sent))
 }
 
@@ -707,15 +717,32 @@ func (a *orderApplicationService) manualStatusShip(ctx context.Context, userID i
 		a.server.logger().Error("更新订单为系统已发货失败", "order_id", orderID, "err", upsertErr)
 	}
 	result.SuccessCount++
-	// message 保存消息，供当前处理流程使用
+	// status 表示远端动作与本地状态同步的三态结果。
+	status := "succeeded"
+	// message 保存消息，供当前处理流程使用。
 	message := "已成功修改闲鱼发货状态"
-	// warning 保存warning，供当前处理流程使用
-	warning := ""
+	// reconciliationID 保存待补偿记录标识。
+	reconciliationID := ""
+	// reconciliationWarning 保存本地状态写入或补偿记录写入错误。
+	reconciliationWarning := ""
 	if upsertErr != nil {
-		message += "；但登录凭证更新保存失败，请尽快重新登录（请勿重复确认发货）"
-		warning = upsertErr.Error()
+		status = "reconciliation_required"
+		message = "闲鱼已确认发货；本地订单状态待补偿，请勿重复确认发货"
+		reconciliationWarning = upsertErr.Error()
+		// reconciliationID、recordErr 保存补偿记录标识及其写入错误。
+		var recordErr error
+		// recordCtx、recordCancel 确保请求取消后仍有短暂时间写入补偿记录。
+		recordCtx, recordCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		reconciliationID, recordErr = a.server.RecordOrderReconciliation(recordCtx, orderID, order.CookieID, "manual_status_ship", upsertErr.Error())
+		recordCancel()
+		if recordErr != nil {
+			reconciliationWarning = errors.Join(errors.New(reconciliationWarning), fmt.Errorf("写入补偿记录失败: %w", recordErr)).Error()
+		}
 	}
-	result.Results = append(result.Results, map[string]any{"order_id": orderID, "success": true, "message": message, "credential_warning": warning})
+	result.Results = append(result.Results, map[string]any{
+		"order_id": orderID, "status": status, "success": true, "message": message,
+		"reconciliation_id": reconciliationID, "reconciliation_warning": reconciliationWarning,
+	})
 	a.server.notifyDelivery(order.CookieID, order.BuyerID, order.ItemID, order.ChatID, fmt.Sprintf("手动确认发货成功（订单 %s）", orderID))
 }
 

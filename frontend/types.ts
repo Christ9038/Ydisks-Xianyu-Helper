@@ -912,12 +912,18 @@ export interface OrderBatchResponse {
 export interface OrderBatchResult {
   /** 订单平台标识。 */
   order_id?: string;
+  /** 订单动作状态：failed、succeeded 或 reconciliation_required。 */
+  status?: 'failed' | 'succeeded' | 'reconciliation_required';
   /** 表示该订单是否处理成功。 */
   success?: boolean;
   /** 该订单处理结果说明。 */
   message: string;
   /** 兼容接口可能返回的账号标识。 */
   cookie_id?: string;
+  /** 待补偿记录标识。 */
+  reconciliation_id?: string;
+  /** 本地状态或补偿记录写入警告。 */
+  reconciliation_warning?: string;
   /** 兼容接口可能返回的处理阶段。 */
   stage?: string;
   /** 允许后端保留尚未结构化的扩展字段。 */
