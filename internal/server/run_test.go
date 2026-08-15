@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"testing"
@@ -174,5 +175,38 @@ func TestServerStartStopIsIdempotentAndWaitsForWorkers(t *testing.T) {
 	// err 是重复 Stop 返回的关闭错误。
 	if err := srv.Stop(context.Background()); err != nil {
 		t.Fatalf("重复 Stop: %v", err)
+	}
+}
+
+// TestServerStopContextBoundsWorkerWait 验证关闭上下文到期时不会无限等待后台 worker。
+func TestServerStopContextBoundsWorkerWait(t *testing.T) {
+	// srv 是用于验证关闭超时的 HTTP 服务；cleanup 负责释放测试数据库。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.Addr = freeAddr(t)
+	// err 表示 HTTP 服务启动失败。
+	if err := srv.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// workerDone 保持 worker 未完成，模拟不响应关闭的后台任务。
+	workerDone := srv.beginWorker()
+	// stopCtx 是刻意很短的关闭上下文，用于验证 Stop 的等待边界。
+	stopCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	// started 记录停止开始时间，用于验证上下文确实限制等待时长。
+	started := time.Now()
+	// err 表示 worker 未完成时停止上下文到期返回的错误。
+	err := srv.Stop(stopCtx)
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Stop error=%v, want deadline exceeded", err)
+	}
+	// elapsed 表示停止调用实际耗时。
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("Stop waited too long: %s", elapsed)
+	}
+	workerDone()
+	// err 表示释放 worker 后第二次幂等停止的返回错误。
+	if err := srv.Stop(context.Background()); err != nil {
+		t.Fatalf("second Stop: %v", err)
 	}
 }

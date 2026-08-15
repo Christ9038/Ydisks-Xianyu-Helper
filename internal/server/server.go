@@ -545,11 +545,12 @@ func (s *Server) Stop(ctx context.Context) error {
 		// httpDone 是已进入停止流程的 HTTP 监听完成信号。
 		httpDone := s.httpDone
 		s.lifecycleMu.Unlock()
-		if httpDone != nil {
-			<-httpDone
+		if httpDone != nil && !waitForSignal(ctx, httpDone) {
+			return ctx.Err()
 		}
-		s.backgroundWG.Wait()
-		s.waitForWorkers(0)
+		if !waitForWaitGroup(ctx, &s.backgroundWG) || !s.waitForWorkersContext(ctx) {
+			return ctx.Err()
+		}
 		return nil
 	}
 	s.stopped = true
@@ -572,11 +573,12 @@ func (s *Server) Stop(ctx context.Context) error {
 	if httpServer != nil {
 		shutdownErr = httpServer.Shutdown(ctx)
 	}
-	if httpDone != nil {
-		<-httpDone
+	if httpDone != nil && !waitForSignal(ctx, httpDone) {
+		return ctx.Err()
 	}
-	s.backgroundWG.Wait()
-	s.waitForWorkers(0)
+	if !waitForWaitGroup(ctx, &s.backgroundWG) || !s.waitForWorkersContext(ctx) {
+		return ctx.Err()
+	}
 	return shutdownErr
 }
 
@@ -651,20 +653,51 @@ func (s *Server) beginWorker() func() {
 
 // waitForWorkers 负责waitForWorkers相关处理。
 func (s *Server) waitForWorkers(timeout time.Duration) {
+	if timeout <= 0 {
+		_ = s.waitForWorkersContext(context.Background())
+		return
+	}
+	// ctx、cancel 分别表示有限等待上下文和释放定时器的函数。
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	_ = s.waitForWorkersContext(ctx)
+}
+
+// waitForWorkersContext 等待批量 worker，并将等待限制在调用方的关闭上下文内。
+func (s *Server) waitForWorkersContext(ctx context.Context) bool {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.workerMu.Lock()
 	// done 保存done，供当前处理流程使用
 	done := s.workersDone
 	s.workerMu.Unlock()
-	if timeout <= 0 {
-		<-done
-		return
-	}
-	// timer 保存定时器，供当前处理流程使用
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
 	select {
 	case <-done:
-	case <-timer.C:
+		return true
+	case <-ctx.Done():
 		s.Logger.Warn("等待后台 worker 退出超时")
+		return false
 	}
+}
+
+// waitForSignal 在关闭上下文取消或目标信号到达时返回，避免无界阻塞。
+func waitForSignal(ctx context.Context, signal <-chan struct{}) bool {
+	select {
+	case <-signal:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// waitForWaitGroup 在关闭上下文取消或 WaitGroup 清空时返回，避免无界阻塞。
+func waitForWaitGroup(ctx context.Context, group *sync.WaitGroup) bool {
+	// done 是 WaitGroup 清空后的完成信号。
+	done := make(chan struct{})
+	go func() {
+		group.Wait()
+		close(done)
+	}()
+	return waitForSignal(ctx, done)
 }

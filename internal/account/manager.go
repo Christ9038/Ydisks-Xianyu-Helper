@@ -129,18 +129,33 @@ func (m *Manager) Start(ctx context.Context, cookieID, cookieValue string) error
 	return nil
 }
 
-// Stop 停止单个账号。
+// Stop 停止单个账号，并兼容不需要错误返回值的旧调用方。
 func (m *Manager) Stop(cookieID string) {
+	_ = m.StopContext(context.Background(), cookieID)
+}
+
+// StopContext 在 ctx 约束内停止单个账号；超时后保留运行实例记录，避免误报已清理。
+func (m *Manager) StopContext(ctx context.Context, cookieID string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	m.mu.Lock()
 	// ma、ok 保存ma、ok，供当前处理流程使用
 	ma, ok := m.accounts[cookieID]
 	m.mu.Unlock()
 	if !ok {
-		return
+		return nil
 	}
-	ma.acc.Stop()
+	// err 表示账号运行时停止失败或停止等待超时。
+	if err := ma.acc.StopContext(ctx); err != nil {
+		return fmt.Errorf("停止账号 %s 失败: %w", cookieID, err)
+	}
 	ma.cancel()
-	<-ma.done
+	select {
+	case <-ma.done:
+	case <-ctx.Done():
+		return fmt.Errorf("等待账号 %s 运行协程退出失败: %w", cookieID, ctx.Err())
+	}
 	m.mu.Lock()
 	if // current 保存current，供当前处理流程使用
 	current := m.accounts[cookieID]; current == ma {
@@ -148,6 +163,7 @@ func (m *Manager) Stop(cookieID string) {
 	}
 	m.mu.Unlock()
 	m.logger.Info("账号已停止", "account", cookieID)
+	return nil
 }
 
 // GetInstance 跨层获取账号运行时的消息发送句柄（供 HTTP 手动发货等操作）。
@@ -218,10 +234,18 @@ func (m *Manager) Restart(ctx context.Context, cookieID string) error {
 	return m.Start(ctx, cookieID, cookieValue)
 }
 
-// StopAll 停止所有运行中的账号，用于进程优雅退出。
+// StopAll 停止所有运行中的账号，用于进程优雅退出，并兼容旧调用方。
 // 先在锁内收集 cookieID 列表再解锁逐个停，避免持锁等待 goroutine 退出。
 // StopAll 停止All。
 func (m *Manager) StopAll() {
+	_ = m.StopAllContext(context.Background())
+}
+
+// StopAllContext 在同一个关闭上下文内停止所有账号，遇到超时立即返回并保留未完成实例。
+func (m *Manager) StopAllContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	m.mu.Lock()
 	// ids 保存ids，供当前处理流程使用
 	ids := make([]string, 0, len(m.accounts))
@@ -232,6 +256,10 @@ func (m *Manager) StopAll() {
 	m.mu.Unlock()
 	// id 表示当前遍历过程中的标识
 	for _, id := range ids {
-		m.Stop(id)
+		// err 表示当前账号停止失败或关闭上下文已到期。
+		if err := m.StopContext(ctx, id); err != nil {
+			return err
+		}
 	}
+	return nil
 }

@@ -351,7 +351,10 @@ func runServer(parent context.Context, opts serverOptions) error {
 	stopCancel()
 	automationScheduler.Wait()
 	renewalScheduler.Wait()
-	mgr.StopAll()
+	// err 表示账号运行时未能在关闭上下文内完整停止的错误。
+	if err := mgr.StopAllContext(stopCtx); err != nil {
+		logger.Warn("账号运行时关闭未完成", "err", err)
+	}
 	if bm != nil {
 		_ = bm.Close()
 	}

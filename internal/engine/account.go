@@ -644,12 +644,20 @@ func (a *Account) clearConnectionToken(ctx context.Context) {
 	a.clearTokenCache(ctx)
 }
 
-// Stop 优雅停止。
+// Stop 优雅停止并兼容不需要错误返回值的旧调用方。
 func (a *Account) Stop() {
+	_ = a.StopContext(context.Background())
+}
+
+// StopContext 在 ctx 约束内停止账号，并等待已登记任务完成。
+func (a *Account) StopContext(ctx context.Context) error {
 	// cancel 是当前 Run 上下文的取消函数；shouldStop 表示当前调用是否负责首次清理。
-	cancel, shouldStop := a.lifecycle.stop()
+	cancel, shouldStop, err := a.lifecycle.stopContext(ctx)
+	if err != nil {
+		return err
+	}
 	if !shouldStop {
-		return
+		return nil
 	}
 	defer a.lifecycle.finishStop()
 	a.setRuntimeState(RuntimeStopped, "账号服务已停止")
@@ -659,9 +667,14 @@ func (a *Account) Stop() {
 	// 取消所有防抖定时器；回调任务仍由 lifecycle 统一等待。
 	a.stop()
 
-	if !a.lifecycle.wait(10 * time.Second) {
+	if !a.lifecycle.waitContext(ctx) {
 		a.logger.Warn("等待账号业务任务退出超时")
+		if ctx == nil || ctx.Err() == nil {
+			return context.DeadlineExceeded
+		}
+		return ctx.Err()
 	}
+	return nil
 }
 
 // beginTask 负责begin任务相关处理。

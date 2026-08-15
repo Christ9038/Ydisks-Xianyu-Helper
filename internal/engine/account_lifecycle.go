@@ -39,15 +39,29 @@ func (l *accountLifecycle) start(ctx context.Context, cancel context.CancelFunc)
 
 // stop 原子地禁止新任务并取出运行上下文取消函数。
 func (l *accountLifecycle) stop() (context.CancelFunc, bool) {
+	// cancel、first 分别表示运行上下文取消函数和是否由本次调用负责首次停止。
+	cancel, first, _ := l.stopContext(context.Background())
+	return cancel, first
+}
+
+// stopContext 原子地禁止新任务并取出取消函数；并发停止调用会受 ctx 限制地等待首次清理完成。
+func (l *accountLifecycle) stopContext(ctx context.Context) (context.CancelFunc, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	l.mu.Lock()
 	if l.stopped {
 		// done 是第一次 Stop 完成全部清理后关闭的信号。
 		done := l.stopDone
 		l.mu.Unlock()
 		if done != nil {
-			<-done
+			select {
+			case <-done:
+			case <-ctx.Done():
+				return nil, false, ctx.Err()
+			}
 		}
-		return nil, false
+		return nil, false, nil
 	}
 	l.stopped = true
 	l.accepting = false
@@ -55,7 +69,7 @@ func (l *accountLifecycle) stop() (context.CancelFunc, bool) {
 	// cancel 是当前账号 Run 上下文的取消函数。
 	cancel := l.stopFn
 	l.mu.Unlock()
-	return cancel, true
+	return cancel, true, nil
 }
 
 // finishStop 标记第一次 Stop 的清理已完成，并唤醒并发 Stop 调用者。
@@ -94,23 +108,30 @@ func (l *accountLifecycle) finishTask() {
 
 // wait 等待所有已登记业务任务结束；timeout 小于等于零表示无限等待。
 func (l *accountLifecycle) wait(timeout time.Duration) bool {
+	if timeout <= 0 {
+		return l.waitContext(context.Background())
+	}
+	// ctx、cancel 分别表示有限等待上下文和释放定时器的函数。
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return l.waitContext(ctx)
+}
+
+// waitContext 等待已登记业务任务结束，并在 ctx 到期时及时返回。
+func (l *accountLifecycle) waitContext(ctx context.Context) bool {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	// done 是所有已登记任务完成后关闭的等待信号。
 	done := make(chan struct{})
 	go func() {
 		l.taskWG.Wait()
 		close(done)
 	}()
-	if timeout <= 0 {
-		<-done
-		return true
-	}
-	// timer 是有限等待模式使用的超时定时器。
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
 	select {
 	case <-done:
 		return true
-	case <-timer.C:
+	case <-ctx.Done():
 		return false
 	}
 }

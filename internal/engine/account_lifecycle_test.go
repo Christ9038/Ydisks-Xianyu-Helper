@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -54,4 +55,33 @@ func TestAccountStopWaitsForTaskAndConcurrentStop(t *testing.T) {
 	if stoppedOK || stoppedCtx != nil {
 		t.Fatal("Stop 后不应再接受业务任务")
 	}
+}
+
+// TestAccountStopContextBoundsTaskWait 验证停止上下文到期时不会无限等待业务任务。
+func TestAccountStopContextBoundsTaskWait(t *testing.T) {
+	// account 是用于验证停止超时的测试账号 facade。
+	account := New(Config{CookieID: "lifecycle-timeout", CookieStr: "unb=1"})
+	// runCtx 是测试账号运行上下文；cancel 负责释放运行上下文。
+	runCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	account.lifecycle.start(runCtx, cancel)
+	// ok 表示测试业务任务是否成功登记。
+	if _, ok := account.beginTask(); !ok {
+		t.Fatal("业务任务应成功登记")
+	}
+	// stopCtx 是刻意很短的停止上下文，用于验证有界等待。
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer stopCancel()
+	// started 记录停止开始时间，用于验证上下文确实限制等待时长。
+	started := time.Now()
+	// err 表示停止上下文到期后的返回错误。
+	err := account.StopContext(stopCtx)
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("StopContext error=%v, want deadline exceeded", err)
+	}
+	// elapsed 表示停止调用实际耗时。
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("StopContext waited too long: %s", elapsed)
+	}
+	account.lifecycle.finishTask()
 }
