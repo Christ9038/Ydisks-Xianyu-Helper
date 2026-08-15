@@ -150,6 +150,8 @@ type orderApplicationService struct {
 	list *orderapp.ListService
 	// detail 负责订单详情读取、商品补全和账号所有权规则。
 	detail *orderapp.DetailService
+	// update 负责订单更新字段校验和事务写入。
+	update *orderapp.UpdateService
 	// refreshJobs 提供订单刷新后台任务的持久化 Port。
 	refreshJobs orderapp.RefreshJobRepository
 }
@@ -423,62 +425,29 @@ type orderUpdateRequest struct {
 
 // Update 在单事务内更新订单及可选的商品标题。
 func (a *orderApplicationService) Update(ctx context.Context, userID int64, orderID string, request orderUpdateRequest) error {
-	// order、err 保存order、err，供当前处理流程使用
-	order, err := a.Get(ctx, userID, orderID)
-	if err != nil {
-		return err
-	}
-	if request.OrderStatus != nil {
-		// normalized 保存normalized，供当前处理流程使用
-		normalized := db.NormalizeOrderStatus(strings.TrimSpace(*request.OrderStatus))
-		if !validEditableOrderStatus(normalized) {
-			return newOrderBadRequest("不支持的订单状态")
-		}
-		request.OrderStatus = &normalized
-	}
-	if request.Amount != nil {
-		// normalized、ok 保存normalized、ok，供当前处理流程使用
-		normalized, ok := normalizeOrderAmount(*request.Amount)
-		if !ok {
-			return newOrderBadRequest("订单金额必须是普通格式的非负有限数字")
-		}
-		request.Amount = &normalized
-	}
-	// finalItemID 保存final商品ID，供当前处理流程使用
-	finalItemID := strings.TrimSpace(order.ItemID)
-	if request.ItemID != nil {
-		finalItemID = strings.TrimSpace(*request.ItemID)
-		request.ItemID = &finalItemID
-	}
-	// itemTitle 保存商品标题，供当前处理流程使用
-	itemTitle := ""
-	if request.ItemTitle != nil {
-		itemTitle = strings.TrimSpace(*request.ItemTitle)
-		if itemTitle == "" || finalItemID == "" {
-			return newOrderBadRequest("商品标题不能为空且订单必须关联商品")
-		}
-	}
-	return a.repository.WithTransaction(ctx, func(writer orderapp.Writer) error {
-		if // err 保存err，供当前处理流程使用
-		err := writer.PatchOrder(ctx, orderID, orderapp.OrderPatch{
-			OrderStatus: request.OrderStatus, ItemID: request.ItemID, BuyerID: request.BuyerID,
-			SpecName: request.SpecName, SpecValue: request.SpecValue, Quantity: request.Quantity,
-			Amount: request.Amount, ReceiverName: request.ReceiverName, ReceiverPhone: request.ReceiverPhone,
-			ReceiverAddress: request.ReceiverAddress, ReceiverCity: request.ReceiverCity, ChatID: request.ChatID,
-			SystemShipped: request.SystemShipped,
-		}); err != nil {
-			return err
-		}
-		if request.ItemTitle != nil {
-			if // err 保存err，供当前处理流程使用
-			err := writer.UpsertItemBasic(ctx, orderapp.ItemWrite{
-				CookieID: order.CookieID, ItemID: finalItemID, ItemTitle: itemTitle,
-			}); err != nil {
-				return fmt.Errorf("更新商品标题失败: %w", err)
-			}
-		}
-		return nil
+	// err 保存应用层订单更新错误。
+	err := a.update.Update(ctx, userID, orderID, orderapp.UpdateRequest{
+		OrderStatus: request.OrderStatus, ItemID: request.ItemID, BuyerID: request.BuyerID,
+		SpecName: request.SpecName, SpecValue: request.SpecValue, Quantity: request.Quantity,
+		Amount: request.Amount, ReceiverName: request.ReceiverName, ReceiverPhone: request.ReceiverPhone,
+		ReceiverAddress: request.ReceiverAddress, ReceiverCity: request.ReceiverCity, ChatID: request.ChatID,
+		SystemShipped: request.SystemShipped, ItemTitle: request.ItemTitle,
 	})
+	if err == nil {
+		return nil
+	}
+	// validationErr 保存应用层字段校验错误。
+	var validationErr *orderapp.ValidationError
+	if errors.As(err, &validationErr) {
+		return newOrderBadRequest(validationErr.Error())
+	}
+	if errors.Is(err, orderapp.ErrForbidden) {
+		return db.ErrForbidden
+	}
+	if errors.Is(err, orderapp.ErrNotFound) {
+		return db.ErrNotFound
+	}
+	return err
 }
 
 // orderImportResult 描述批量导入的逐单结果和统计。

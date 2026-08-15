@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 
+	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
@@ -290,19 +290,10 @@ func (s *Server) updateOrder(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	// status 保存状态，供当前处理流程使用
+	// status 保存兼容字段 order_status/status 合并后的状态值。
 	status := req.OrderStatus
 	if status == nil {
 		status = req.Status
-	}
-	if status != nil {
-		// normalized 保存normalized，供当前处理流程使用
-		normalized := db.NormalizeOrderStatus(strings.TrimSpace(*status))
-		if !validEditableOrderStatus(normalized) {
-			writeErr(w, http.StatusBadRequest, "不支持的订单状态")
-			return
-		}
-		status = &normalized
 	}
 	// stringPtrFromAny 保存stringPtrFromAny，供当前处理流程使用
 	stringPtrFromAny := func(value *any) *string {
@@ -313,17 +304,8 @@ func (s *Server) updateOrder(w http.ResponseWriter, r *http.Request) {
 		v := stringFromAny(*value)
 		return &v
 	}
-	// amount 保存amount，供当前处理流程使用
+	// amount 保存兼容 JSON 数值转换后的订单金额。
 	amount := stringPtrFromAny(req.Amount)
-	if amount != nil {
-		// normalized、ok 保存normalized、ok，供当前处理流程使用
-		normalized, ok := normalizeOrderAmount(*amount)
-		if !ok {
-			writeErr(w, http.StatusBadRequest, "订单金额必须是普通格式的非负有限数字")
-			return
-		}
-		amount = &normalized
-	}
 	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
 	if // err 保存err，供当前处理流程使用
@@ -357,17 +339,12 @@ func validOrderAmount(raw string) bool {
 
 // normalizeOrderAmount 负责normalize订单Amount相关处理。
 func normalizeOrderAmount(raw string) (string, bool) {
-	return db.NormalizeOrderAmount(raw)
+	return orderapp.NormalizeOrderAmount(raw)
 }
 
 // validEditableOrderStatus 负责有效Editable订单状态相关处理。
 func validEditableOrderStatus(status string) bool {
-	switch status {
-	case "processing", "pending_ship", "shipped", "completed", "cancelled", "refunding":
-		return true
-	default:
-		return false
-	}
+	return orderapp.ValidEditableOrderStatus(status)
 }
 
 // manualShipOrders 负责manualShip订单列表相关处理。
