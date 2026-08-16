@@ -450,7 +450,7 @@ const cardPayload = (data: Partial<Card>): Record<string, unknown> => ({
 
 export const getCards = async (): Promise<Card[]> => {
   const res = await get<any>('/cards');
-  const cards = Array.isArray(res) ? res : (res.cards || []);
+  const cards = Array.isArray(res) ? res : (res?.cards || []);
   return cards.map(normalizeCard);
 };
 

@@ -27,8 +27,13 @@ func (s *Server) listCards(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	cards, err := s.Store.Cards.AllForUser(r.Context(), sess.UserID)
 	if err != nil {
+		s.Logger.Error("查询卡密失败", "user_id", sess.UserID, "err", err)
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
+	}
+	if cards == nil {
+		s.Logger.Debug("用户没有卡密，返回空列表", "user_id", sess.UserID)
+		cards = []db.CardFull{}
 	}
 	writeJSON(w, http.StatusOK, cards)
 }

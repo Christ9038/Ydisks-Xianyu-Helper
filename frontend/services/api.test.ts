@@ -7,6 +7,7 @@ import {
   completeQRVerification,
   createNotificationChannel,
   getAccountDetails,
+	getCards,
 	getAutomationIssues,
   getItems,
 	getItemPublishBatches,
@@ -91,6 +92,11 @@ test('getItemPublishBatches unwraps persisted batch list', async () => {
 	vi.stubGlobal('fetch', fetchMock);
 	await expect(getItemPublishBatches(10)).resolves.toEqual([{ id: 'batch-1', status: 'running' }]);
 	expect(fetchMock).toHaveBeenCalledWith('/items/publish-batches?limit=10', expect.objectContaining({ credentials: 'include' }));
+});
+
+test('getCards treats an empty backend response as an empty list', async () => {
+	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(null)));
+	await expect(getCards()).resolves.toEqual([]);
 });
 
 test('automation issue APIs expose and resolve quarantined work', async () => {
