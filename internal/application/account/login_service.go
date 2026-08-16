@@ -80,7 +80,7 @@ func (s *LoginService) CreateCookie(ctx context.Context, input CreateCookieInput
 		return writeErr
 	}
 	// method 是归一化后的登录方式，供审计和运行时适配器保持统一语义。
-	method := normalizeLoginMethod(input.LoginMethod)
+	method := NormalizeLoginMethod(input.LoginMethod)
 	s.lifecycle.AfterSuccessfulLogin(ctx, input.UserID, input.AccountID, method)
 	return nil
 }
@@ -104,22 +104,8 @@ func (s *LoginService) UpdateCookie(ctx context.Context, input UpdateCookieInput
 	// method 是归一化后的登录方式；更新凭证未声明登录方式时必须保持普通替换，不写入登录审计。
 	method := ""
 	if strings.TrimSpace(input.LoginMethod) != "" {
-		method = normalizeLoginMethod(input.LoginMethod)
+		method = NormalizeLoginMethod(input.LoginMethod)
 	}
 	s.lifecycle.AfterSuccessfulLogin(ctx, input.UserID, input.AccountID, method)
 	return nil
-}
-
-// normalizeLoginMethod 将兼容的登录方式别名归一化为审计使用的稳定值。
-func normalizeLoginMethod(method string) string {
-	switch strings.ToLower(strings.TrimSpace(method)) {
-	case "", "manual", "cookie", "manual_cookie":
-		return "manual"
-	case "password", "password_login":
-		return "password"
-	case "qr", "qr_login", "qr_scan":
-		return "qr_scan"
-	default:
-		return strings.ToLower(strings.TrimSpace(method))
-	}
 }

@@ -1,11 +1,10 @@
 package server
 
 import (
+	cardsapp "xianyu-go/internal/application/cards"
 	chatapp "xianyu-go/internal/application/chat"
+	defaultreplyapp "xianyu-go/internal/application/defaultreply"
 	notificationsapp "xianyu-go/internal/application/notifications"
-	"xianyu-go/internal/automation"
-	"xianyu-go/internal/db"
-	"xianyu-go/internal/xianyu/mtop"
 )
 
 // operationResponse 是密码、会话和设置变更接口共用的操作结果 DTO。
@@ -16,6 +15,14 @@ type operationResponse struct {
 	Message string `json:"message,omitempty"`
 	// RequiresRelogin 表示操作完成后当前会话已被撤销，需要重新登录。
 	RequiresRelogin bool `json:"requires_relogin,omitempty"`
+}
+
+// longLoginResponse 是长登录设置接口的具名响应 DTO，不包含平台 Cookie。
+type longLoginResponse struct {
+	// CanOpenLongLogin 表示平台是否允许开启长登录。
+	CanOpenLongLogin bool `json:"can_open_long_login"`
+	// Enabled 表示平台当前是否已开启长登录。
+	Enabled bool `json:"enabled"`
 }
 
 // messageResponse 是只返回提示文本的简单成功响应 DTO。
@@ -78,23 +85,23 @@ type chatSessionDTO struct {
 	UnreadCount int `json:"unread_count"`
 }
 
-// newChatSessionDTO 将数据库聊天会话转换为 API DTO。
-func newChatSessionDTO(session db.ChatSession) chatSessionDTO {
+// newChatSessionDTOFromApplication 将应用层聊天会话转换为 HTTP DTO。
+func newChatSessionDTOFromApplication(session chatapp.Session) chatSessionDTO {
 	return chatSessionDTO{
-		AccountID: session.CookieID, ChatID: session.ChatID, BuyerID: session.BuyerID,
+		AccountID: session.AccountID, ChatID: session.ChatID, BuyerID: session.BuyerID,
 		BuyerName: session.BuyerName, BuyerAvatar: session.BuyerAvatar, ItemID: session.ItemID,
 		ItemTitle: session.ItemTitle, LastMessage: session.LastMessage,
 		LastMessageAt: session.LastMessageAt, UnreadCount: session.UnreadCount,
 	}
 }
 
-// newChatSessionDTOs 批量转换聊天会话，保持接口响应不直接暴露数据库模型。
-func newChatSessionDTOs(sessions []db.ChatSession) []chatSessionDTO {
+// newChatSessionDTOsFromApplication 批量转换应用层聊天会话，保持响应不暴露数据库模型。
+func newChatSessionDTOsFromApplication(sessions []chatapp.Session) []chatSessionDTO {
 	// result 是转换后的聊天会话 DTO 列表。
 	result := make([]chatSessionDTO, 0, len(sessions))
-	// session 是当前待转换的数据库聊天会话。
+	// session 表示当前待转换的应用层会话。
 	for _, session := range sessions {
-		result = append(result, newChatSessionDTO(session))
+		result = append(result, newChatSessionDTOFromApplication(session))
 	}
 	return result
 }
@@ -125,25 +132,6 @@ type chatMessageDTO struct {
 	SentAt int64 `json:"sent_at"`
 }
 
-// newChatMessageDTO 将数据库聊天消息转换为 API DTO。
-func newChatMessageDTO(message db.ChatMessage) chatMessageDTO {
-	return chatMessageDTO{
-		ID: message.ID, AccountID: message.CookieID, ChatID: message.ChatID,
-		MessageKey: message.MessageKey, Direction: message.Direction,
-		SenderID: message.SenderID, SenderName: message.SenderName,
-		MessageType: message.MessageType, Content: message.Content,
-		Status: message.Status, SentAt: message.SentAt,
-	}
-}
-
-// newChatMessageDTOFromPointer 转换可为空的聊天消息指针，避免成功响应因空值 panic。
-func newChatMessageDTOFromPointer(message *db.ChatMessage) chatMessageDTO {
-	if message == nil {
-		return chatMessageDTO{}
-	}
-	return newChatMessageDTO(*message)
-}
-
 // newChatMessageDTOFromApplication 将聊天应用层发送结果转换为 HTTP DTO，避免响应引用数据库模型。
 func newChatMessageDTOFromApplication(message *chatapp.Message) chatMessageDTO {
 	if message == nil {
@@ -156,17 +144,6 @@ func newChatMessageDTOFromApplication(message *chatapp.Message) chatMessageDTO {
 		MessageType: message.MessageType, Content: message.Content,
 		Status: message.Status, SentAt: message.SentAt,
 	}
-}
-
-// newChatMessageDTOs 批量转换聊天消息，保持接口响应与数据库模型解耦。
-func newChatMessageDTOs(messages []db.ChatMessage) []chatMessageDTO {
-	// result 是转换后的聊天消息 DTO 列表。
-	result := make([]chatMessageDTO, 0, len(messages))
-	// message 是当前待转换的数据库聊天消息。
-	for _, message := range messages {
-		result = append(result, newChatMessageDTO(message))
-	}
-	return result
 }
 
 // newChatMessageDTOsFromApplication 将聊天应用层消息转换为 HTTP DTO，避免响应暴露数据库模型。
@@ -537,12 +514,52 @@ type automationRulePageResponse struct {
 	TriggerCounts map[string]int `json:"trigger_counts"`
 }
 
+// automationRunIssueDTO 是自动化异常运行接口对外暴露的具名 DTO。
+type automationRunIssueDTO struct {
+	// ID 是自动化运行的稳定标识。
+	ID int64 `json:"id"`
+	// CookieID 是关联账号标识。
+	CookieID string `json:"cookie_id"`
+	// OrderID 是关联订单标识。
+	OrderID string `json:"order_id"`
+	// TriggerType 是触发运行的事件类型。
+	TriggerType string `json:"trigger_type"`
+	// ErrorMessage 是运行进入人工处理状态时记录的原因。
+	ErrorMessage string `json:"error_message"`
+	// IssueKind 是应用层归类的异常类型。
+	IssueKind string `json:"issue_kind"`
+	// AllowedResolutions 是当前异常允许的人工处理动作。
+	AllowedResolutions []string `json:"allowed_resolutions"`
+	// ActionCursor 是下一步动作在计划中的位置。
+	ActionCursor int `json:"action_cursor"`
+	// SentCount 是已经确认成功的外部动作数量。
+	SentCount int `json:"sent_count"`
+	// UpdatedAt 是运行状态最近更新的时间文本。
+	UpdatedAt string `json:"updated_at"`
+}
+
+// deferredAutomationIssueDTO 是延期任务接口对外暴露的具名 DTO。
+type deferredAutomationIssueDTO struct {
+	// ID 是延期任务的稳定标识。
+	ID int64 `json:"id"`
+	// CookieID 是关联账号标识。
+	CookieID string `json:"cookie_id"`
+	// TriggerType 是触发延期任务的事件类型。
+	TriggerType string `json:"trigger_type"`
+	// ErrorMessage 是任务进入死信状态时记录的原因。
+	ErrorMessage string `json:"error_message"`
+	// AttemptCount 是任务已经尝试执行的次数。
+	AttemptCount int `json:"attempt_count"`
+	// UpdatedAt 是任务状态最近更新的时间文本。
+	UpdatedAt string `json:"updated_at"`
+}
+
 // automationIssuesResponse 是自动化异常任务接口的具名响应 DTO。
 type automationIssuesResponse struct {
 	// Runs 是需要处理的自动化运行记录。
-	Runs []db.AutomationRunIssue `json:"runs"`
+	Runs []automationRunIssueDTO `json:"runs"`
 	// PendingTasks 是需要处理的延迟任务记录。
-	PendingTasks []db.DeferredAutomationIssue `json:"pending_tasks"`
+	PendingTasks []deferredAutomationIssueDTO `json:"pending_tasks"`
 }
 
 // orderDetailResponse 是订单详情接口的具名响应 DTO，同时保留旧版顶层字段兼容性。
@@ -701,8 +718,8 @@ type cardResponse struct {
 	UserID int64 `json:"user_id,omitempty"`
 }
 
-// newCardResponse 将数据库卡券模型转换为 HTTP DTO。
-func newCardResponse(card db.CardFull) cardResponse {
+// newCardResponse 将应用层卡券模型转换为 HTTP DTO。
+func newCardResponse(card cardsapp.Card) cardResponse {
 	return cardResponse{
 		ID: card.ID, Name: card.Name, Type: card.Type, APIConfig: card.APIConfig,
 		TextContent: card.TextContent, DataContent: card.DataContent, ImageURL: card.ImageURL,
@@ -711,11 +728,11 @@ func newCardResponse(card db.CardFull) cardResponse {
 	}
 }
 
-// newCardResponses 批量转换卡券列表，避免直接暴露数据库模型。
-func newCardResponses(cards []db.CardFull) []cardResponse {
+// newCardResponses 批量转换应用层卡券列表，避免 HTTP 层暴露数据库模型。
+func newCardResponses(cards []cardsapp.Card) []cardResponse {
 	// result 是转换后的卡券 DTO 列表。
 	result := make([]cardResponse, 0, len(cards))
-	// card 是当前待转换的卡券数据库模型。
+	// card 是当前待转换的卡券应用模型。
 	for _, card := range cards {
 		result = append(result, newCardResponse(card))
 	}
@@ -854,7 +871,63 @@ type categoryRecommendationResponse struct {
 	// Success 表示类目推荐是否成功。
 	Success bool `json:"success"`
 	// Category 是推荐的商品类目。
-	Category mtop.PublishCategory `json:"category"`
+	Category publishCategoryResponse `json:"category"`
+}
+
+// publishCategoryResponse 是商品类目 HTTP 响应的稳定 DTO，不泄露平台包类型。
+type publishCategoryResponse struct {
+	// CatID 是平台类目标识。
+	CatID string `json:"cat_id"`
+	// CatName 是平台类目名称。
+	CatName string `json:"cat_name"`
+	// ChannelCatID 是闲鱼频道类目标识。
+	ChannelCatID string `json:"channel_cat_id,omitempty"`
+	// TBCatID 是淘宝类目标识。
+	TBCatID string `json:"tb_cat_id,omitempty"`
+}
+
+// publishAutomationConfig 是批量发布预检与详情响应中的自动化配置 DTO。
+type publishAutomationConfig struct {
+	// PaidDelivery 保存付款后自动发货配置。
+	PaidDelivery publishCardAutomation `json:"paid_delivery"`
+	// ReviewGift 保存评价后赠品配置。
+	ReviewGift publishCardAutomation `json:"review_gift"`
+	// ReviewRequest 保存超时求评价配置。
+	ReviewRequest publishReviewRequestCfg `json:"review_request"`
+}
+
+// publishCardAutomation 是批量发布中的卡密自动化 DTO。
+type publishCardAutomation struct {
+	// Enabled 表示该自动化规则是否启用。
+	Enabled bool `json:"enabled"`
+	// Actions 保存按顺序执行的卡密动作。
+	Actions []publishCardAction `json:"actions"`
+	// ParseError 保存导入动作文本的解析错误。
+	ParseError string `json:"-"`
+}
+
+// publishCardAction 是单条批量卡密动作 DTO。
+type publishCardAction struct {
+	// CardID 是卡密组标识。
+	CardID int64 `json:"card_id"`
+	// DeliveryCount 是每件商品发送的卡密数量。
+	DeliveryCount int `json:"delivery_count"`
+	// DelaySeconds 是发送动作的延迟秒数。
+	DelaySeconds int `json:"delay_seconds"`
+}
+
+// publishReviewRequestCfg 是批量发布求评价配置 DTO。
+type publishReviewRequestCfg struct {
+	// Enabled 表示是否启用求评价。
+	Enabled bool `json:"enabled"`
+	// AfterShippedHours 是发货后的等待小时数。
+	AfterShippedHours int `json:"after_shipped_hours"`
+	// Message 是发送给买家的求评价文案。
+	Message string `json:"message"`
+	// MaxAttempts 是最多提醒次数。
+	MaxAttempts int `json:"max_attempts"`
+	// DelaySeconds 是提醒动作的延迟秒数。
+	DelaySeconds int `json:"delay_seconds"`
 }
 
 // itemPublishBatchPreviewResponse 是商品批量发布预检接口的具名响应 DTO。
@@ -906,7 +979,7 @@ type itemPublishBatchRowResponse struct {
 	// Images 是商品图片引用列表。
 	Images []string `json:"images"`
 	// Category 是商品发布类目。
-	Category mtop.PublishCategory `json:"category"`
+	Category publishCategoryResponse `json:"category"`
 	// Automation 是发布后自动化配置。
 	Automation publishAutomationConfig `json:"automation"`
 	// Status 是当前明细行状态。
@@ -1015,8 +1088,8 @@ type defaultReplyResponse struct {
 	ReplyOnce bool `json:"reply_once"`
 }
 
-// newDefaultReplyResponse 将数据库默认回复转换为 HTTP DTO。
-func newDefaultReplyResponse(cookieID string, reply db.DefaultReply) defaultReplyResponse {
+// newDefaultReplyResponse 将默认回复应用模型转换为 HTTP DTO。
+func newDefaultReplyResponse(cookieID string, reply defaultreplyapp.Reply) defaultReplyResponse {
 	return defaultReplyResponse{
 		CookieID: cookieID, Enabled: reply.Enabled, ReplyContent: reply.ReplyContent,
 		ReplyImageURL: reply.ReplyImageURL, ReplyOnce: reply.ReplyOnce,
@@ -1041,15 +1114,6 @@ type accountTaskSettingsResponse struct {
 	LastPolishDate string `json:"last_polish_date"`
 	// LastPolishAt 是最近一次擦亮时间。
 	LastPolishAt int64 `json:"last_polish_at"`
-}
-
-// newAccountTaskSettingsResponse 将账号任务数据库设置转换为 HTTP DTO。
-func newAccountTaskSettingsResponse(settings db.AccountTaskSettings) accountTaskSettingsResponse {
-	return accountTaskSettingsResponse{
-		AccountID: settings.CookieID, AutoRateEnabled: settings.AutoRateEnabled, RateContent: settings.RateContent,
-		AutoPolishEnabled: settings.AutoPolishEnabled, PolishTime: settings.PolishTime,
-		LastRateScanAt: settings.LastRateScanAt, LastPolishDate: settings.LastPolishDate, LastPolishAt: settings.LastPolishAt,
-	}
 }
 
 // accountTaskRunResponse 是账号任务执行记录的具名 DTO。
@@ -1082,27 +1146,6 @@ type accountTaskRunResponse struct {
 	FinishedAt int64 `json:"finished_at"`
 }
 
-// newAccountTaskRunResponse 将账号任务执行记录转换为 HTTP DTO。
-func newAccountTaskRunResponse(run db.AccountTaskRun) accountTaskRunResponse {
-	return accountTaskRunResponse{
-		ID: run.ID, RunKey: run.RunKey, AccountID: run.CookieID, TaskType: run.TaskType,
-		TargetID: run.TargetID, RunDate: run.RunDate, Status: run.Status, SuccessCount: run.SuccessCount,
-		FailedCount: run.FailedCount, ErrorMessage: run.ErrorMessage, NextRetryAt: run.NextRetryAt,
-		StartedAt: run.StartedAt, FinishedAt: run.FinishedAt,
-	}
-}
-
-// newAccountTaskRunResponses 批量转换账号任务执行记录。
-func newAccountTaskRunResponses(runs []db.AccountTaskRun) []accountTaskRunResponse {
-	// result 是账号任务执行记录 DTO 列表。
-	result := make([]accountTaskRunResponse, 0, len(runs))
-	// run 是当前待转换的账号任务执行记录。
-	for _, run := range runs {
-		result = append(result, newAccountTaskRunResponse(run))
-	}
-	return result
-}
-
 // accountTaskSummaryResponse 是手动执行账号任务的统计 DTO。
 type accountTaskSummaryResponse struct {
 	// TaskType 是任务类型。
@@ -1131,14 +1174,6 @@ type accountTaskRunResponseEnvelope struct {
 type accountTaskRunsResponse struct {
 	// Runs 是当前账号最近的任务执行记录。
 	Runs []accountTaskRunResponse `json:"runs"`
-}
-
-// newAccountTaskSummaryResponse 将自动化中心统计转换为 HTTP DTO。
-func newAccountTaskSummaryResponse(summary automation.AccountTaskSummary) accountTaskSummaryResponse {
-	return accountTaskSummaryResponse{
-		TaskType: summary.TaskType, Found: summary.Found, Success: summary.Success,
-		Failed: summary.Failed, Skipped: summary.Skipped, Message: summary.Message,
-	}
 }
 
 // adminUserResponse 是管理员用户列表项的具名响应 DTO。

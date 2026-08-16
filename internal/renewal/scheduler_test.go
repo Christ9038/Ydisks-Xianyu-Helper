@@ -373,6 +373,51 @@ func TestRenewalSchedulerStopContextCancelsRun(t *testing.T) {
 	}
 }
 
+// TestRenewalSchedulerStopBeforeRunIsIdempotent 验证尚未启动的调度器停止不会永久等待，且后续 Run 不会逃逸启动。
+func TestRenewalSchedulerStopBeforeRunIsIdempotent(t *testing.T) {
+	// store、cleanup 保存调度器所需的本地测试数据库及其清理函数。
+	store, cleanup := newSchedulerTestStore(t)
+	defer cleanup()
+	// scheduler 保存尚未启动、用于验证先停止后启动语义的续期调度器。
+	scheduler := NewScheduler(store, nil, nil, nil)
+	// stopCtx、cancel 限制停止等待时间，防止回归测试在错误实现下永久阻塞。
+	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	// err 表示尚未启动调度器首次停止的结果。
+	if err := scheduler.StopContext(stopCtx); err != nil {
+		t.Fatalf("先停止尚未启动调度器失败: %v", err)
+	}
+	// repeatCtx、repeatCancel 验证重复停止保持幂等。
+	repeatCtx, repeatCancel := context.WithTimeout(context.Background(), time.Second)
+	defer repeatCancel()
+	// err 表示尚未启动调度器重复停止的结果。
+	if err := scheduler.StopContext(repeatCtx); err != nil {
+		t.Fatalf("重复停止尚未启动调度器失败: %v", err)
+	}
+	// scheduler.Run 不应在显式停止后创建运行 worker。
+	scheduler.Run(context.Background())
+	// waitCtx、waitCancel 验证停止信号已经完成登记且可立即等待。
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), time.Second)
+	defer waitCancel()
+	// err 表示先停止后的调度器等待结果。
+	if err := scheduler.WaitContext(waitCtx); err != nil {
+		t.Fatalf("先停止后的 WaitContext 失败: %v", err)
+	}
+}
+
+// TestRenewalSchedulerStopZeroValueIsNoop 验证零值调度器停止不会因缺少完成通道而 panic。
+func TestRenewalSchedulerStopZeroValueIsNoop(t *testing.T) {
+	// scheduler 保存未通过构造函数初始化、用于验证零值兼容性的调度器。
+	scheduler := &Scheduler{}
+	// ctx、cancel 限制停止等待时间，防止回归测试在错误实现下永久阻塞。
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	// err 表示零值调度器的停止结果。
+	if err := scheduler.StopContext(ctx); err != nil {
+		t.Fatalf("零值调度器停止失败: %v", err)
+	}
+}
+
 // TestPendingAPIRenewRestartFailureIsFinalFailure 负责TestPendingAPIRenewRestartFailureIsFinalFailure相关处理。
 func TestPendingAPIRenewRestartFailureIsFinalFailure(t *testing.T) {
 	// store、cleanup 保存store、cleanup，供当前处理流程使用

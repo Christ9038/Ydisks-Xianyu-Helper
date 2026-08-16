@@ -3,6 +3,7 @@ package items
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -85,5 +86,26 @@ func TestNewServiceRejectsMissingPort(t *testing.T) {
 	// err 保存缺少仓储端口时的构造错误。
 	if _, err := NewService(fakePublisher{}, nil); err == nil {
 		t.Fatal("缺少仓储端口时应返回错误")
+	}
+}
+
+// TestPublishErrorFormatsStableMessages 验证应用发布错误覆盖平台描述、长响应截断和默认分类。
+func TestPublishErrorFormatsStableMessages(t *testing.T) {
+	// shortErr 是带平台业务描述片段的应用错误。
+	shortErr := &PublishError{Code: PublishErrorStockPermissionMissing, Ret: []string{"库存权限缺失"}}
+	if shortErr.Error() != "库存权限缺失" {
+		t.Fatalf("业务描述错误文本异常: %q", shortErr.Error())
+	}
+	// longBody 是超过 HTTP 错误摘要上限的平台响应文本。
+	longBody := strings.Repeat("x", 241)
+	// bodyErr 是仅携带响应正文的应用错误。
+	bodyErr := &PublishError{Body: longBody}
+	if len(bodyErr.Error()) != 243 || !strings.HasSuffix(bodyErr.Error(), "...") {
+		t.Fatalf("长响应未按边界截断: len=%d", len(bodyErr.Error()))
+	}
+	// plainErr 是未细分分类的应用错误。
+	plainErr := &PublishError{}
+	if plainErr.Error() != string(PublishErrorUnknown) {
+		t.Fatalf("默认发布错误分类异常: %q", plainErr.Error())
 	}
 }

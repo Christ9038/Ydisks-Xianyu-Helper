@@ -12,13 +12,13 @@ func TestNewServerAssemblesApplicationServices(t *testing.T) {
 	}
 	// services 是统一应用服务集合。
 	services := srv.applicationServiceSet()
-	if services.orders == nil || services.itemPublish == nil || services.itemSinglePublish == nil || services.accountLogin == nil || services.passwordLogin == nil || services.accountDelete == nil || services.communication == nil || services.analytics == nil {
+	if services.orders == nil || services.itemSinglePublish == nil || services.itemCatalog == nil || services.itemCatalogMutation == nil || services.accountLogin == nil || services.authentication == nil || services.loginAudit == nil || services.passwordLogin == nil || services.accountDelete == nil || services.accountSettings == nil || services.analytics == nil || services.publishAutomationRules == nil || services.defaultReplies == nil || services.keywords == nil {
 		t.Fatal("应用服务集合存在未装配的服务")
 	}
 	if services.orders.services == nil || services.orders.services.List == nil || services.orders.services.Detail == nil || services.orders.services.Refresh == nil || services.orders.services.RefreshJobs == nil {
 		t.Fatal("订单应用服务应由应用层 ServiceSet 完整装配")
 	}
-	if srv.orders() != services.orders || srv.itemPublishApplication() != services.itemPublish || srv.accountLoginApplication() != services.accountLogin || srv.communicationApplication() != services.communication || srv.analyticsApplication() != services.analytics {
+	if srv.orders() != services.orders || srv.itemCatalogApplication() != services.itemCatalog || srv.itemCatalogMutationApplication() != services.itemCatalogMutation || srv.accountLoginApplication() != services.accountLogin || srv.analyticsApplication() != services.analytics || srv.defaultReplyApplication() != services.defaultReplies || srv.keywordApplication() != services.keywords {
 		t.Fatal("应用服务访问器未返回统一装配实例")
 	}
 }

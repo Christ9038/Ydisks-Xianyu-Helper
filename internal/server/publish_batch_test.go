@@ -654,6 +654,90 @@ func TestDownloadItemPublishBatchResultNotFound(t *testing.T) {
 	}
 }
 
+// TestDownloadItemPublishBatchResultExportsRows 验证批次结果下载通过应用服务读取并保持 CSV 兼容格式。
+func TestDownloadItemPublishBatchResultExportsRows(t *testing.T) {
+	// srv、store、cleanup 保存 HTTP 测试服务器、数据库和清理函数。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// ctx 保存本测试共用的非取消上下文。
+	ctx := context.Background()
+	// admin 保存下载批次的当前用户。
+	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
+	if adminErr != nil {
+		t.Fatalf("读取测试管理员失败: %v", adminErr)
+	}
+	// batchID 保存本次结果下载批次标识。
+	batchID := "download-success"
+	// createErr 保存测试批次及明细写入结果。
+	createErr := store.PublishBatches.Create(ctx, &db.ItemPublishBatch{
+		ID: batchID, UserID: admin.ID, Filename: "items.csv", Status: "completed",
+	}, []db.ItemPublishBatchRow{{
+		RowNo: 2, CookieID: "acc1", Title: "商品A", Price: "12.50", Quantity: 3,
+		CategoryJSON: `{"cat_id":"5001","cat_name":"虚拟商品"}`, Status: "completed",
+		ItemID: "item-1", ItemURL: "https://example/item-1",
+	}})
+	if createErr != nil {
+		t.Fatalf("创建下载测试批次失败: %v", createErr)
+	}
+	// h 保存带应用服务装配的 HTTP 路由。
+	h := srv.Router()
+	// cookie 保存管理员登录会话。
+	cookie := loginHelper(t, h)
+	// req 保存结果下载请求。
+	req := httptest.NewRequest(http.MethodGet, "/items/publish-batches/"+batchID+"/result.csv", nil)
+	req.AddCookie(cookie)
+	// rec 保存结果下载响应。
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("下载结果状态=%d body=%s", rec.Code, rec.Body.String())
+	}
+	// body 保存导出的 CSV 内容，包含 UTF-8 BOM、表头和业务明细。
+	body := rec.Body.String()
+	if !strings.HasPrefix(body, "\xEF\xBB\xBF") || !strings.Contains(body, "行号") || !strings.Contains(body, "商品A") || !strings.Contains(body, "item-1") {
+		t.Fatalf("导出 CSV 内容异常: %q", body)
+	}
+}
+
+// TestDownloadItemPublishBatchResultHidesOtherUserBatch 验证结果下载不会泄露其他用户的批次存在性。
+func TestDownloadItemPublishBatchResultHidesOtherUserBatch(t *testing.T) {
+	// srv、store、cleanup 保存 HTTP 测试服务器、数据库和清理函数。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// ctx 保存本测试共用的非取消上下文。
+	ctx := context.Background()
+	// created 保存其他用户创建结果。
+	created, createUserErr := store.Users.Create(ctx, "download-other", "download-other@example.com", "pw")
+	if createUserErr != nil || !created {
+		t.Fatalf("创建其他用户失败: created=%v err=%v", created, createUserErr)
+	}
+	// other 保存其他用户的数据库身份。
+	other, otherErr := store.Users.GetByUsername(ctx, "download-other")
+	if otherErr != nil {
+		t.Fatalf("读取其他用户失败: %v", otherErr)
+	}
+	// createBatchErr 保存其他用户批次写入结果。
+	createBatchErr := store.PublishBatches.Create(ctx, &db.ItemPublishBatch{
+		ID: "download-other-batch", UserID: other.ID, Filename: "items.csv", Status: "completed",
+	}, []db.ItemPublishBatchRow{{RowNo: 2, Title: "不应泄露", Status: "completed"}})
+	if createBatchErr != nil {
+		t.Fatalf("创建其他用户批次失败: %v", createBatchErr)
+	}
+	// h 保存结果下载路由。
+	h := srv.Router()
+	// cookie 保存当前管理员的登录会话。
+	cookie := loginHelper(t, h)
+	// req 保存越权结果下载请求。
+	req := httptest.NewRequest(http.MethodGet, "/items/publish-batches/download-other-batch/result.csv", nil)
+	req.AddCookie(cookie)
+	// rec 保存越权响应。
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("越权下载应隐藏批次并返回 404，got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestSafeCSVCellPreventsSpreadsheetFormulaExecution 负责TestSafeCSVCellPreventsSpreadsheetFormulaExecution相关处理。
 func TestSafeCSVCellPreventsSpreadsheetFormulaExecution(t *testing.T) {
 	// input 表示当前遍历过程中的input

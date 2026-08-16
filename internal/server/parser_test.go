@@ -316,28 +316,10 @@ func TestPublishBatchHelpers(t *testing.T) {
 	}
 }
 
-// TestParsePublishCardActions 负责TestParse发布卡密动作列表相关处理。
-func TestParsePublishCardActions(t *testing.T) {
-	// actions、parseErr 保存actions、parseErr，供当前处理流程使用
-	actions, parseErr := parsePublishCardActions("101:1:0; 102:2:3")
-	if parseErr != "" {
-		t.Fatalf("parsePublishCardActions: %s", parseErr)
-	}
-	if len(actions) != 2 {
-		t.Fatalf("actions=%+v", actions)
-	}
-	if actions[0].CardID != 101 || actions[0].DeliveryCount != 1 || actions[0].DelaySeconds != 0 {
-		t.Fatalf("actions[0]=%+v", actions[0])
-	}
-	if actions[1].CardID != 102 || actions[1].DeliveryCount != 2 || actions[1].DelaySeconds != 3 {
-		t.Fatalf("actions[1]=%+v", actions[1])
-	}
-	if // parseErr 保存parseErr，供当前处理流程使用
-	_, parseErr := parsePublishCardActions("101:0"); parseErr == "" {
-		t.Fatal("每件份数为0时应返回格式错误")
-	}
-	if // got 保存got，供当前处理流程使用
-	got := normalizePublishHeader("付款后发送的卡密"); got != "paid_delivery_contents" {
+// TestNormalizePublishCardHeader 验证批量发布卡密字段的历史表头兼容映射。
+func TestNormalizePublishCardHeader(t *testing.T) {
+	// got 表示历史中文表头归一化后的字段名。
+	if got := normalizePublishHeader("付款后发送的卡密"); got != "paid_delivery_contents" {
 		t.Fatalf("normalizePublishHeader=%q", got)
 	}
 }
@@ -358,23 +340,6 @@ func TestNormalizePublishHeaderCategoryFallbackLabels(t *testing.T) {
 		got := normalizePublishHeader(input); got != want {
 			t.Fatalf("normalizePublishHeader(%q)=%q want %q", input, got, want)
 		}
-	}
-}
-
-// TestParsePublishAutomationSupportsMultipleCards 负责TestParse发布自动化SupportsMultiple卡密列表相关处理。
-func TestParsePublishAutomationSupportsMultipleCards(t *testing.T) {
-	// cfg 保存cfg，供当前处理流程使用
-	cfg := parsePublishAutomation(map[string]any{
-		"paid_delivery_enabled":  "是",
-		"paid_delivery_contents": "101:1:0;102:2:0",
-		"review_gift_enabled":    "true",
-		"review_gift_contents":   "201:1",
-	})
-	if !cfg.PaidDelivery.Enabled || len(cfg.PaidDelivery.Actions) != 2 {
-		t.Fatalf("paid delivery=%+v", cfg.PaidDelivery)
-	}
-	if !cfg.ReviewGift.Enabled || len(cfg.ReviewGift.Actions) != 1 {
-		t.Fatalf("review gift=%+v", cfg.ReviewGift)
 	}
 }
 

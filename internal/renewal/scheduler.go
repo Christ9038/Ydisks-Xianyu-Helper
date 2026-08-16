@@ -71,6 +71,10 @@ type Scheduler struct {
 	watchers  sync.WaitGroup
 	// runCancel 取消当前调度器派生的运行上下文；只有 Run 成功登记后才非空。
 	runCancel context.CancelFunc
+	// runStarted 标识 Run 是否已经登记并创建了调度器运行上下文。
+	runStarted bool
+	// stopRequested 标识尚未启动时是否已经收到停止请求，防止停止与启动并发时重新逃逸。
+	stopRequested bool
 }
 
 // RenewalNotifier 保存RenewalNotifier，供当前处理流程使用
@@ -113,6 +117,13 @@ func (s *Scheduler) Run(ctx context.Context) {
 		// runCtx、cancel 将父生命周期转换为调度器私有的可主动停止上下文。
 		runCtx, cancel := context.WithCancel(ctx)
 		s.mu.Lock()
+		if s.stopRequested {
+			s.mu.Unlock()
+			cancel()
+			return
+		}
+		// runStarted 标识调度器已进入可等待的运行状态。
+		s.runStarted = true
 		s.runCancel = cancel
 		s.mu.Unlock()
 		go func() {
@@ -149,7 +160,21 @@ func (s *Scheduler) StopContext(ctx context.Context) error {
 	s.mu.Lock()
 	// cancel 是调度器运行上下文的取消函数快照，避免持锁执行取消回调。
 	cancel := s.runCancel
+	// runStarted 区分尚未启动的调度器，避免等待永远不会关闭的 done 通道。
+	runStarted := s.runStarted
+	if !runStarted {
+		// stopRequested 将先停止与后续 Run 串行化，保证停止请求不会被并发启动绕过。
+		if !s.stopRequested {
+			s.stopRequested = true
+			if s.done != nil {
+				close(s.done)
+			}
+		}
+	}
 	s.mu.Unlock()
+	if !runStarted {
+		return nil
+	}
 	if cancel != nil {
 		cancel()
 	}

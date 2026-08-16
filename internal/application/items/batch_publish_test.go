@@ -45,7 +45,11 @@ func (r *batchRunnerRepository) BatchStatus(_ context.Context, _ string) (string
 }
 
 // MarkClaimedRowFailed 记录失败消息。
-func (r *batchRunnerRepository) MarkClaimedRowFailed(_ context.Context, rowID int64, _, message, _ string) (bool, error) {
+func (r *batchRunnerRepository) MarkClaimedRowFailed(ctx context.Context, rowID int64, _, message, _ string) (bool, error) {
+	// err 表示状态补偿 Context 已被取消的原因。
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	if r.failed == nil {
 		r.failed = make(map[int64]string)
 	}

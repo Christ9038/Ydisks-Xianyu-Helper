@@ -231,8 +231,11 @@ func (c *accountTaskCoordinator) finishAccountTaskRun(ctx context.Context, runKe
 	}
 	// quarantineMessage 说明外部动作结果已经产生但本地状态未能正常收口，禁止系统自动重放。
 	quarantineMessage := fmt.Sprintf("账号任务外部动作结果可能已执行，但运行状态保存失败，请人工核对，禁止自动重放: %v", finishErr)
-	// quarantineErr 表示把运行记录转为人工核对状态时的数据库错误。
-	quarantineErr := c.repository.FinishRun(ctx, runKey, "needs_review", success, failed, quarantineMessage, 0)
+	// quarantineCtx、cancel 确保人工核对状态写入不受已取消请求影响，并在函数返回时释放计时器。
+	quarantineCtx, cancel := newAccountTaskCompensationContext(ctx)
+	defer cancel()
+	// quarantineErr 表示补偿上下文下写入 needs_review 隔离状态的数据库错误；该错误必须与首次收口失败一并返回。
+	quarantineErr := c.repository.FinishRun(quarantineCtx, runKey, "needs_review", success, failed, quarantineMessage, 0)
 	if quarantineErr != nil {
 		return errors.Join(
 			errAutomationNeedsReview,
@@ -248,8 +251,11 @@ func (c *accountTaskCoordinator) finishAccountTaskRun(ctx context.Context, runKe
 func (c *accountTaskCoordinator) quarantineAccountTaskRun(ctx context.Context, runKey string, success, failed int, reason error) error {
 	// quarantineMessage 将本地持久化故障转换为运维可识别的人工核对原因。
 	quarantineMessage := fmt.Sprintf("账号任务外部动作结果未知，请人工核对，禁止自动重放: %v", reason)
-	// quarantineErr 表示写入人工核对状态时的数据库错误。
-	quarantineErr := c.repository.FinishRun(ctx, runKey, "needs_review", success, failed, quarantineMessage, 0)
+	// quarantineCtx、cancel 确保人工核对状态写入不受已取消请求影响，并在函数返回时释放计时器。
+	quarantineCtx, cancel := newAccountTaskCompensationContext(ctx)
+	defer cancel()
+	// quarantineErr 表示补偿上下文下再次写入 needs_review 状态的数据库错误；它决定是否需要同时报告两次持久化失败。
+	quarantineErr := c.repository.FinishRun(quarantineCtx, runKey, "needs_review", success, failed, quarantineMessage, 0)
 	if quarantineErr != nil {
 		return errors.Join(
 			errAutomationNeedsReview,
@@ -258,6 +264,11 @@ func (c *accountTaskCoordinator) quarantineAccountTaskRun(ctx context.Context, r
 		)
 	}
 	return errors.Join(errAutomationNeedsReview, fmt.Errorf("账号任务本地持久化失败: %w", reason))
+}
+
+// newAccountTaskCompensationContext 基于调用方值域创建不受其取消影响的短时补偿上下文；返回的取消函数由调用方负责释放计时器。
+func newAccountTaskCompensationContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
 }
 
 // runAutoRate 执行自动评价任务，并在明确的单值 Cookie 查询边界内调用平台 API。

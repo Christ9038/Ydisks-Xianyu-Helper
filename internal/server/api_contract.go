@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 
-	"xianyu-go/internal/db"
+	accountapp "xianyu-go/internal/application/account"
 	"xianyu-go/internal/httpapi"
 )
 
@@ -98,7 +98,7 @@ func writeErrDetails(w http.ResponseWriter, status int, code, msg, requestID str
 
 // writeCredentialVerificationError 将当前密码校验失败区分为认证失败或内部故障。
 func writeCredentialVerificationError(w http.ResponseWriter, err error) {
-	if errors.Is(err, db.ErrPasswordMismatch) {
+	if errors.Is(err, accountapp.ErrPasswordMismatch) {
 		writeErrCode(w, http.StatusUnauthorized, "authentication_failed", "当前密码错误", "")
 		return
 	}

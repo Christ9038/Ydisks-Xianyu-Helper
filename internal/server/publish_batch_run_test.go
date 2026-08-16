@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"xianyu-go/internal/adapter"
+	itemapp "xianyu-go/internal/application/items"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
@@ -28,12 +30,12 @@ func TestFinalPublishBatchStatus(t *testing.T) {
 	// cases 保存cases，供当前处理流程使用
 	cases := []struct {
 		name string
-		in   db.ItemPublishBatch
+		in   itemapp.BatchInfo
 		want string
 	}{
-		{name: "completed", in: db.ItemPublishBatch{SuccessCount: 2}, want: "completed"},
-		{name: "failed", in: db.ItemPublishBatch{FailedCount: 2}, want: "failed"},
-		{name: "partially failed", in: db.ItemPublishBatch{SuccessCount: 1, FailedCount: 1}, want: "partially_failed"},
+		{name: "completed", in: itemapp.BatchInfo{SuccessCount: 2}, want: "completed"},
+		{name: "failed", in: itemapp.BatchInfo{FailedCount: 2}, want: "failed"},
+		{name: "partially failed", in: itemapp.BatchInfo{SuccessCount: 1, FailedCount: 1}, want: "partially_failed"},
 	}
 	// tt 表示当前遍历过程中的tt
 	for _, tt := range cases {
@@ -180,7 +182,7 @@ func previewTwoRowPublishBatch(t *testing.T, h http.Handler, cookie *http.Cookie
 }
 
 // TestRunItemPublishBatch_FailureMarksRowFailed 启动批次后，mock mtop 对发布请求返回失败，
-// 验证 runItemPublishBatch/publishBatchRow 把行标记为 failed。
+// 验证应用层批量 worker 把远端发布失败的行标记为 failed。
 // TestRunItemPublishBatch_FailureMarksRowFailed 负责Test运行商品发布批次FailureMarksRow失败相关处理。
 func TestRunItemPublishBatch_FailureMarksRowFailed(t *testing.T) {
 	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
@@ -546,8 +548,20 @@ func TestPublishBatchRetryResumesSavedRemoteResultWithoutPublishingAgain(t *test
 		remoteCalls++
 		return nil, context.Canceled
 	}))
-	if // err 保存err，供当前处理流程使用
-	err := srv.publishBatchRow(ctx, admin.ID, client, rows[0], "worker-2"); err != nil {
+	// port 将测试平台客户端接入批量远端应用端口；已保存远端结果时不会再次发起平台请求。
+	port := adapter.NewItemBatchPublishPort(store, func() mtop.Client { return client }, srv.Logger, srv.updateRunningCookie, func(callCtx context.Context, cookieID string, callErr error) {
+		srv.recoverExpiredMTOPSession(callCtx, cookieID, callErr)
+	}, readBatchImageFile, downloadImageURL)
+	// localService 保存本地商品和批次成功检查点收口能力。
+	localService, serviceErr := srv.newBatchLocalPublishService()
+	if serviceErr != nil {
+		t.Fatal(serviceErr)
+	}
+	// applicationRow 保存恢复测试所需的非敏感批次明细模型。
+	applicationRow := itemapp.BatchRow{ID: rows[0].ID, BatchID: rows[0].BatchID, RowNo: rows[0].RowNo, CookieID: rows[0].CookieID, Title: rows[0].Title, Description: rows[0].Description, Price: rows[0].Price, OriginalPrice: rows[0].OriginalPrice, Quantity: rows[0].Quantity, PostageMode: rows[0].PostageMode, Postage: rows[0].Postage, ImagesJSON: rows[0].ImagesJSON, CategoryJSON: rows[0].CategoryJSON, AutomationJSON: rows[0].AutomationJSON, RawJSON: rows[0].RawJSON, ItemID: rows[0].ItemID, ItemURL: rows[0].ItemURL, Status: rows[0].Status, ErrorMessage: rows[0].ErrorMessage, FailureKind: rows[0].FailureKind, WorkerToken: rows[0].WorkerToken, CreatedAt: rows[0].CreatedAt, UpdatedAt: rows[0].UpdatedAt}
+	// err 保存应用层批量发布适配器的恢复结果。
+	err = (serverBatchPublisher{server: srv, remotePort: port, localService: localService}).PublishRow(ctx, admin.ID, applicationRow, "worker-2")
+	if err != nil {
 		t.Fatalf("resume local persistence: %v", err)
 	}
 	if remoteCalls != 0 {
@@ -622,9 +636,9 @@ func TestCreatePublishAutomationRules(t *testing.T) {
 	// automationJSON 保存自动化JSON，供当前处理流程使用
 	automationJSON := `{"paid_delivery":{"enabled":true,"actions":[{"card_id":` + itoa(cardID) + `,"delivery_count":1,"delay_seconds":23}]}}`
 	if // err 保存err，供当前处理流程使用
-	err := srv.createPublishAutomationRules(ctx, admin.ID, db.ItemPublishBatchRow{
+	err := srv.createPublishAutomationRules(ctx, admin.ID, itemapp.BatchRow{
 		CookieID: "acc1", Title: "商品A", AutomationJSON: automationJSON,
-	}, &mtop.PublishItemResult{ItemID: "published-delay-item", Title: "商品A"}); err != nil {
+	}, &itemapp.BatchPublishResult{ItemID: "published-delay-item", Title: "商品A"}); err != nil {
 		t.Fatal(err)
 	}
 	// rules、err 保存rules、err，供当前处理流程使用

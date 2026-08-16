@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -60,6 +61,18 @@ type orderRefreshWorker struct {
 	// cancel 是取消当前 worker Context 的函数。
 	cancel context.CancelFunc
 }
+
+// orderRefreshJobRefresh 执行订单刷新业务并返回兼容 HTTP 响应模型。
+type orderRefreshJobRefresh func(context.Context, int64, string, string) (orderRefreshResponse, error)
+
+// orderRefreshJobMarshal 将刷新结果序列化为可持久化的 JSON。
+type orderRefreshJobMarshal func(any) ([]byte, error)
+
+// orderRefreshJobComplete 以租约令牌写入订单刷新任务终态。
+type orderRefreshJobComplete func(context.Context, string, string, string, string, string) (bool, error)
+
+// errOrderRefreshJobCompletionNotApplied 表示终态写入未匹配到当前 worker 租约。
+var errOrderRefreshJobCompletionNotApplied = errors.New("订单刷新任务终态未写入")
 
 // mountOrderRefreshJobRoutes 挂载订单刷新后台任务端点。
 func (s *Server) mountOrderRefreshJobRoutes(r chi.Router, prefix string) {
@@ -176,15 +189,26 @@ func (s *Server) startOrderRefreshWorker(job *orderapp.RefreshJob, token string)
 	// parent 保存 Server 生命周期上下文，避免 HTTP 请求结束取消后台任务。
 	parent := s.lifecycleContext()
 	if parent == nil {
-		parent = context.Background()
+		if s.Logger != nil {
+			s.Logger.Error("订单刷新任务缺少 Server 生命周期上下文", "job_id", job.ID)
+		}
+		return
 	}
 	// jobCtx、cancel 限制后台任务执行时间并支持用户取消。
 	jobCtx, cancel := context.WithTimeout(parent, orderRefreshJobTimeout)
 	s.registerOrderRefreshWorker(job.ID, token, cancel)
-	s.startBackgroundTask("订单刷新任务", func() {
+	s.startBackgroundTaskResult("订单刷新任务", jobCtx, func() error {
 		defer cancel()
 		defer s.unregisterOrderRefreshWorker(job.ID, token)
-		s.runOrderRefreshJob(jobCtx, job, token)
+		// runErr 保存订单刷新业务或终态写入错误，供后台任务日志观测。
+		runErr := s.runOrderRefreshJob(jobCtx, job, token)
+		if runErr != nil && s.Logger != nil {
+			s.Logger.Warn("订单刷新后台任务结束", "job_id", job.ID, "err", runErr)
+		}
+		if jobCtx.Err() != nil {
+			return nil
+		}
+		return runErr
 	})
 }
 
@@ -228,26 +252,67 @@ func (s *Server) cancelOrderRefreshWorker(jobID string) bool {
 }
 
 // runOrderRefreshJob 执行订单刷新并以租约令牌写入成功或失败终态。
-func (s *Server) runOrderRefreshJob(ctx context.Context, job *orderapp.RefreshJob, token string) {
+func (s *Server) runOrderRefreshJob(ctx context.Context, job *orderapp.RefreshJob, token string) error {
+	// orders 保存当前 Server 绑定的订单应用适配器。
+	orders := s.orders()
+	if orders == nil || orders.services == nil || orders.services.Refresh == nil || orders.services.RefreshJobs == nil {
+		return errors.New("订单刷新任务依赖未初始化")
+	}
+	return runOrderRefreshJobWith(ctx, job, token, orders.Refresh, json.Marshal, orders.services.RefreshJobs.Complete)
+}
+
+// runOrderRefreshJobWith 执行可注入依赖的订单刷新 worker，便于确定性验证终态边界。
+func runOrderRefreshJobWith(ctx context.Context, job *orderapp.RefreshJob, token string, refresh orderRefreshJobRefresh, marshal orderRefreshJobMarshal, complete orderRefreshJobComplete) error {
+	if ctx == nil {
+		return errors.New("订单刷新任务 Context 不能为空")
+	}
+	if job == nil {
+		return errors.New("订单刷新任务不能为空")
+	}
+	if refresh == nil || marshal == nil || complete == nil {
+		return errors.New("订单刷新任务依赖未初始化")
+	}
 	// result、err 保存订单刷新业务结果及错误。
-	result, err := s.orders().Refresh(ctx, job.UserID, job.CookieID, job.FilterStatus)
+	result, err := refresh(ctx, job.UserID, job.CookieID, job.FilterStatus)
 	if err != nil {
-		// completeErr 表示失败终态写入错误。
-		if _, completeErr := s.orders().services.RefreshJobs.Complete(context.Background(), job.ID, token, "failed", "{}", err.Error()); completeErr != nil && s.Logger != nil {
-			s.Logger.Warn("写入订单刷新失败终态失败", "job_id", job.ID, "err", completeErr)
+		// completeErr 保存失败终态写入错误。
+		completeErr := completeOrderRefreshJob(ctx, complete, job.ID, token, "failed", "{}", err.Error())
+		if completeErr != nil {
+			return errors.Join(err, completeErr)
 		}
-		return
+		return err
 	}
 	// resultJSON、marshalErr 保存具名刷新结果 JSON 及序列化错误。
-	resultJSON, marshalErr := json.Marshal(result)
+	resultJSON, marshalErr := marshal(result)
 	if marshalErr != nil {
-		_, _ = s.orders().services.RefreshJobs.Complete(context.Background(), job.ID, token, "failed", "{}", marshalErr.Error())
-		return
+		// completeErr 保存序列化失败终态写入错误。
+		completeErr := completeOrderRefreshJob(ctx, complete, job.ID, token, "failed", "{}", marshalErr.Error())
+		if completeErr != nil {
+			return errors.Join(marshalErr, completeErr)
+		}
+		return marshalErr
 	}
-	// completeErr 表示成功终态写入错误。
-	if _, completeErr := s.orders().services.RefreshJobs.Complete(context.Background(), job.ID, token, "succeeded", string(resultJSON), ""); completeErr != nil && s.Logger != nil {
-		s.Logger.Warn("写入订单刷新成功终态失败", "job_id", job.ID, "err", completeErr)
+	// completeErr 保存成功终态写入错误。
+	return completeOrderRefreshJob(ctx, complete, job.ID, token, "succeeded", string(resultJSON), "")
+}
+
+// completeOrderRefreshJob 写入终态并把数据库错误或租约失配转换为可观测错误。
+func completeOrderRefreshJob(ctx context.Context, complete orderRefreshJobComplete, jobID, token, status, resultJSON, errorMessage string) error {
+	if ctx == nil {
+		return errors.New("订单刷新任务终态写入 Context 不能为空")
 	}
+	if complete == nil {
+		return errors.New("订单刷新任务终态写入依赖未初始化")
+	}
+	// applied、err 保存终态写入是否命中当前租约及数据库错误。
+	applied, err := complete(ctx, jobID, token, status, resultJSON, errorMessage)
+	if err != nil {
+		return fmt.Errorf("订单刷新任务终态写入失败: %w", err)
+	}
+	if !applied {
+		return fmt.Errorf("%w: job_id=%s", errOrderRefreshJobCompletionNotApplied, jobID)
+	}
+	return nil
 }
 
 // RunOrderRefreshRecovery 扫描并重新执行租约过期的订单刷新任务。
@@ -287,15 +352,34 @@ func (s *Server) recoverOrderRefreshJobsOnce(ctx context.Context) {
 	for _, job := range jobs {
 		// requeued、requeueErr 保存重新入队结果及错误。
 		requeued, requeueErr := s.orders().services.RefreshJobs.RequeueExpired(ctx, job.ID, time.Now().Unix())
-		if requeueErr != nil || !requeued {
+		if requeueErr != nil {
+			if s.Logger != nil {
+				s.Logger.Warn("重新入队订单刷新任务失败", "job_id", job.ID, "err", requeueErr)
+			}
+			continue
+		}
+		if !requeued {
+			if s.Logger != nil {
+				s.Logger.Warn("重新入队订单刷新任务未生效", "job_id", job.ID)
+			}
 			continue
 		}
 		// token 保存恢复 worker 的新租约令牌。
 		token := randomHex(16)
 		// claimed、claimErr 保存恢复任务抢占结果及错误。
 		claimed, claimErr := s.orders().services.RefreshJobs.Claim(ctx, job.ID, token, time.Now().Add(orderRefreshJobLease).Unix())
-		if claimErr == nil && claimed {
-			s.startOrderRefreshWorker(&job, token)
+		if claimErr != nil {
+			if s.Logger != nil {
+				s.Logger.Warn("抢占恢复订单刷新任务失败", "job_id", job.ID, "err", claimErr)
+			}
+			continue
 		}
+		if !claimed {
+			if s.Logger != nil {
+				s.Logger.Warn("抢占恢复订单刷新任务未生效", "job_id", job.ID)
+			}
+			continue
+		}
+		s.startOrderRefreshWorker(&job, token)
 	}
 }

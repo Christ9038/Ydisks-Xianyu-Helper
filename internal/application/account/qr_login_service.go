@@ -12,6 +12,9 @@ var ErrQRLoginIncomplete = errors.New("扫码结果缺少账号标识或 cookies
 // ErrQRLoginAccountMismatch 表示扫码得到的平台账号与待重新授权账号不一致。
 var ErrQRLoginAccountMismatch = errors.New("扫码账号与待重新授权账号不一致")
 
+// ErrAlreadyExists 表示扫码创建账号时目标标识已被并发请求占用。
+var ErrAlreadyExists = errors.New("账号已存在")
+
 // CookieSnapshot 是浏览器返回的单个 Cookie 快照；明文值只在当前凭证适配端口调用期间存在。
 type CookieSnapshot struct {
 	// Name 是浏览器 Cookie 名称。

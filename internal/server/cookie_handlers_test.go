@@ -12,11 +12,23 @@ import (
 	"testing"
 	"time"
 
+	accountapp "xianyu-go/internal/application/account"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	xrenew "xianyu-go/internal/xianyu/renew"
 )
+
+// cachedAccountNickname 保留测试对账号展示名兼容规则的独立验证，不参与生产 HTTP 路径。
+func cachedAccountNickname(d *db.CookieDetail) string {
+	if strings.TrimSpace(d.Remark) != "" {
+		return strings.TrimSpace(d.Remark)
+	}
+	if strings.TrimSpace(d.Nickname) != "" {
+		return strings.TrimSpace(d.Nickname)
+	}
+	return "账号 " + truncate(d.ID, 6)
+}
 
 // seedStaleCookieSnapshot 负责seedStale登录凭证Snapshot相关处理。
 func seedStaleCookieSnapshot(t *testing.T, store *db.Store, cookieID string) {
@@ -1171,6 +1183,11 @@ func TestCachedAccountNickname(t *testing.T) {
 		got := cachedAccountNickname(&db.CookieDetail{ID: c.id, Nickname: c.nickname, Remark: c.remark})
 		if got != c.want {
 			t.Errorf("cachedAccountNickname(remark=%q,nick=%q,id=%q)=%q want %q", c.remark, c.nickname, c.id, got, c.want)
+		}
+		// summaryGot 保存非敏感应用摘要生成的展示名，验证摘要边界与兼容模型保持同样的日志语义。
+		summaryGot := cachedAccountSummaryNickname(accountapp.AccountSummary{ID: c.id, Nickname: c.nickname, Remark: c.remark})
+		if summaryGot != c.want {
+			t.Errorf("cachedAccountSummaryNickname(remark=%q,nick=%q,id=%q)=%q want %q", c.remark, c.nickname, c.id, summaryGot, c.want)
 		}
 	}
 }

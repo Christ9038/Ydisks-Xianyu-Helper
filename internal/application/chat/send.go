@@ -77,13 +77,18 @@ type ImageUploader interface {
 }
 
 // NewWithSending 创建同时支持历史查询和实时发送的聊天应用服务。
-func NewWithSending(repository Repository, outgoing OutgoingRepository, senders SenderProvider, uploader ImageUploader) *Service {
-	return &Service{
+func NewWithSending(repository Repository, outgoing OutgoingRepository, senders SenderProvider, uploader ImageUploader, identity ...IdentityResolver) *Service {
+	// service 保存聊天历史、发送和平台身份能力的统一应用服务。
+	service := &Service{
 		repository: repository,
 		outgoing:   outgoing,
 		senders:    senders,
 		uploader:   uploader,
 	}
+	if len(identity) > 0 {
+		service.identityResolver = identity[0]
+	}
+	return service
 }
 
 // SendText 创建并发送一条文字消息，失败时尽力保留本地 failed 状态。

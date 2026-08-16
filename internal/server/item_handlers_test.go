@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -15,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	itemapp "xianyu-go/internal/application/items"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
 )
@@ -129,6 +129,44 @@ func buildPublishMultipart(t *testing.T, fields map[string]string) (*bytes.Buffe
 		t.Fatal(err)
 	}
 	return &buf, mw.FormDataContentType()
+}
+
+// TestReadPublishImagesReturnsApplicationModel 验证 HTTP 图片解析只输出应用层图片模型。
+func TestReadPublishImagesReturnsApplicationModel(t *testing.T) {
+	// body、contentType 保存带图片 multipart 请求体及其 MIME 类型。
+	body, contentType := buildPublishMultipart(t, nil)
+	// request 是待解析的商品发布 HTTP 请求。
+	request := httptest.NewRequest(http.MethodPost, "/items/publish", body)
+	request.Header.Set("Content-Type", contentType)
+	// parseErr 保存 multipart 解析错误。
+	parseErr := request.ParseMultipartForm(1 << 20)
+	if parseErr != nil {
+		t.Fatalf("解析 multipart 失败: %v", parseErr)
+	}
+	// images、readErr 保存图片解析结果及错误。
+	images, readErr := readPublishImages(request, 9)
+	if readErr != nil {
+		t.Fatalf("读取图片失败: %v", readErr)
+	}
+	if len(images) != 1 || images[0].Filename != "test.png" || images[0].ContentType != "image/png" || len(images[0].Data) == 0 {
+		t.Fatalf("图片应用模型异常: %+v", images)
+	}
+	// applicationImage 是显式检查返回值类型的应用层图片模型。
+	applicationImage := itemapp.Image(images[0])
+	if applicationImage.Filename != "test.png" {
+		t.Fatalf("图片未转换为应用模型: %+v", applicationImage)
+	}
+}
+
+// TestReadPublishImagesRejectsMissingMultipart 验证缺少图片时保持稳定输入错误。
+func TestReadPublishImagesRejectsMissingMultipart(t *testing.T) {
+	// request 是没有 multipart 文件的商品发布请求。
+	request := httptest.NewRequest(http.MethodPost, "/items/publish", strings.NewReader(""))
+	// images、readErr 保存缺少图片时的解析结果及错误。
+	images, readErr := readPublishImages(request, 9)
+	if images != nil || readErr == nil || readErr.Error() != "至少上传 1 张商品图片" {
+		t.Fatalf("缺少图片错误异常: images=%v err=%v", images, readErr)
+	}
 }
 
 // TestPublishItemMissingCookieID 缺 cookie_id 应 400。
@@ -632,93 +670,6 @@ func TestSyncItemsFromAccountDetectsMultiSpecFromDetail(t *testing.T) {
 	}
 }
 
-// TestEnrichSyncedItemMultiSpecLimitsProbeConcurrency 验证商品多规格探测使用有界并发且覆盖全部候选商品。
-func TestEnrichSyncedItemMultiSpecLimitsProbeConcurrency(t *testing.T) {
-	// srv、store、cleanup 保存用于商品同步测试的服务、数据库和清理函数。
-	srv, store, cleanup := newTestServer(t)
-	defer cleanup()
-	// stateMu 保护远端探测并发计数。
-	var stateMu sync.Mutex
-	// active、maxActive 保存当前及观测到的最大远端探测并发数。
-	active, maxActive := 0, 0
-	// probeCalls 统计测试客户端收到的商品详情探测请求数。
-	probeCalls := 0
-	// client 是带并发计数的商品详情测试客户端。
-	client := withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if !strings.Contains(req.URL.String(), "mtop.taobao.idle.pc.detail") {
-			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{}`)), Request: req}, nil
-		}
-		stateMu.Lock()
-		probeCalls++
-		active++
-		if active > maxActive {
-			maxActive = active
-		}
-		stateMu.Unlock()
-		time.Sleep(20 * time.Millisecond)
-		stateMu.Lock()
-		active--
-		stateMu.Unlock()
-		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"ret":["SUCCESS::调用成功"],"data":{"multiSKU":true,"skuDO":{"skuList":[{"id":"a"}]}}}`)), Request: req}, nil
-	}))
-	// items 保存等待探测的商品列表。
-	items := make([]mtop.ItemListItem, 8)
-	// index 表示当前商品在测试列表中的下标。
-	for index := range items {
-		items[index].ID = fmt.Sprintf("probe-%d", index)
-	}
-	// err 表示批量多规格探测错误。
-	err := srv.enrichSyncedItemMultiSpec(context.Background(), client, "unb=1; _m_h5_tk=t_1;", "acc1", items)
-	if err != nil {
-		t.Fatalf("enrich multi spec: %v", err)
-	}
-	if maxActive > itemSpecProbeConcurrency {
-		t.Fatalf("probe concurrency=%d want <=%d", maxActive, itemSpecProbeConcurrency)
-	}
-	// index、item 分别表示商品下标和当前探测结果。
-	for index, item := range items {
-		if !item.IsMultiSpec {
-			t.Fatalf("item %d was not marked multi spec", index)
-		}
-	}
-	// cachedItems 保存第二次调用使用的商品列表，验证命中跨请求缓存。
-	cachedItems := make([]mtop.ItemListItem, 8)
-	// index 表示缓存测试商品下标。
-	for index := range cachedItems {
-		cachedItems[index].ID = fmt.Sprintf("probe-%d", index)
-	}
-	// err 表示第二次商品多规格探测错误。
-	if err := srv.enrichSyncedItemMultiSpec(context.Background(), client, "unb=1; _m_h5_tk=t_1;", "acc1", cachedItems); err != nil {
-		t.Fatalf("cached enrich multi spec: %v", err)
-	}
-	if probeCalls != 8 {
-		t.Fatalf("cached probe calls=%d want 8", probeCalls)
-	}
-	// flags、err 保存数据库批量标记查询结果及错误，确认本地查询未误报候选商品。
-	flags, err := store.Items.MultiSpecFlags(context.Background(), "acc1", []string{"probe-0"})
-	if err != nil || len(flags) != 0 {
-		t.Fatalf("unexpected local flags=%v err=%v", flags, err)
-	}
-}
-
-// TestItemSpecCacheExpires 验证商品多规格缓存过期后不会继续返回旧值。
-func TestItemSpecCacheExpires(t *testing.T) {
-	// srv 是仅用于验证商品多规格缓存生命周期的服务实例。
-	srv := &Server{itemSpecCache: map[string]itemSpecCacheEntry{
-		itemSpecCacheKey("acc1", "item-1"): {isMultiSpec: true, expiresAt: time.Now().Add(-time.Second)},
-	}}
-	// value、ok 保存过期缓存的读取结果。
-	value, ok := srv.cachedItemSpec("acc1", "item-1")
-	if ok || value {
-		t.Fatalf("expired cache should miss: value=%v ok=%v", value, ok)
-	}
-	srv.cacheItemSpec("acc1", "item-1", false)
-	value, ok = srv.cachedItemSpec("acc1", "item-1")
-	if !ok || value {
-		t.Fatalf("fresh false cache mismatch: value=%v ok=%v", value, ok)
-	}
-}
-
 // TestSyncItemsFromAccountFail mtop 返回非成功 → 502。
 func TestSyncItemsFromAccountFail(t *testing.T) {
 	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
@@ -1000,6 +951,22 @@ func TestItemCRUD(t *testing.T) {
 	if rec4.Code != 200 {
 		t.Fatalf("multi-qty status=%d", rec4.Code)
 	}
+	// multiSpecBody 保存多规格开关请求，验证独立开关端点仍经商品写应用服务落库。
+	multiSpecBody := `{"is_multi_spec":false}`
+	// reqSpec 保存多规格开关请求。
+	reqSpec := httptest.NewRequest(http.MethodPut, "/items/acc1/it-crud/multi-spec", strings.NewReader(multiSpecBody))
+	reqSpec.AddCookie(cookie)
+	// recSpec 保存多规格开关响应。
+	recSpec := httptest.NewRecorder()
+	h.ServeHTTP(recSpec, reqSpec)
+	if recSpec.Code != http.StatusOK {
+		t.Fatalf("multi-spec status=%d body=%s", recSpec.Code, recSpec.Body.String())
+	}
+	// switched, switchErr 保存两个开关端点写入后的商品记录及读取错误。
+	switched, switchErr := store.Items.Get(ctx, "acc1", "it-crud")
+	if switchErr != nil || switched.IsMultiSpec || !switched.MultiQuantityDelivery {
+		t.Fatalf("开关更新未完整落库: item=%+v err=%v", switched, switchErr)
+	}
 
 	// 删除。
 	req5 := httptest.NewRequest(http.MethodDelete, "/items/acc1/it-crud", nil)
@@ -1009,6 +976,10 @@ func TestItemCRUD(t *testing.T) {
 	h.ServeHTTP(rec5, req5)
 	if rec5.Code != 200 {
 		t.Fatalf("delete status=%d", rec5.Code)
+	}
+	// deletedErr 保存删除后的详情读取结果，验证删除动作通过商品仓储的逻辑删除边界。
+	if _, deletedErr := store.Items.Get(ctx, "acc1", "it-crud"); deletedErr == nil {
+		t.Fatal("删除后的商品不应继续出现在商品详情查询中")
 	}
 }
 
@@ -1081,7 +1052,7 @@ func TestItemGetNotFound(t *testing.T) {
 // TestCreateItem 新建商品。
 func TestCreateItem(t *testing.T) {
 	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// h 保存h，供当前处理流程使用
 	h := srv.Router()
@@ -1089,7 +1060,7 @@ func TestCreateItem(t *testing.T) {
 	cookie := loginHelper(t, h)
 
 	// body 保存请求体，供当前处理流程使用
-	body := `{"item_id":"new-item","item_title":"新商品","item_price":"10.00"}`
+	body := `{"item_id":"new-item","item_title":"新商品","item_price":"10.00","is_multi_qty_ship":true}`
 	// req 保存req，供当前处理流程使用
 	req := httptest.NewRequest(http.MethodPost, "/items/acc1", strings.NewReader(body))
 	req.AddCookie(cookie)
@@ -1098,6 +1069,14 @@ func TestCreateItem(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("create status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	// created、createErr 保存应用服务创建后的商品记录及读取错误。
+	created, createErr := store.Items.Get(context.Background(), "acc1", "new-item")
+	if createErr != nil {
+		t.Fatalf("读取新建商品失败: %v", createErr)
+	}
+	if created.ItemTitle != "新商品" || created.ItemPrice != "10.00" || !created.MultiQuantityDelivery {
+		t.Fatalf("创建字段或历史别名归一化异常: %+v", created)
 	}
 }
 

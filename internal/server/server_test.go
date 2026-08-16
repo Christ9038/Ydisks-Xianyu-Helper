@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"xianyu-go/internal/account"
+	"xianyu-go/internal/adapter"
+	"xianyu-go/internal/auth"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/chat"
 	"xianyu-go/internal/db"
@@ -36,7 +38,15 @@ func newTestServer(t *testing.T) (*Server, *db.Store, func()) { // newTestServer
 	// mgr 是使用空处理器的测试账号管理器。
 	mgr := account.NewManager(store, noopHandler{}, nil)
 	// srv 是未启用聊天服务的基础测试 HTTP 服务。
-	srv, err := New(store, mgr, false, "", ":0", nil, nil, nil)
+	// dependencies 保存测试 Server 使用的基础设施工厂，避免 Server 直接持有 Store。
+	dependencies, dependencyErr := adapter.NewDependencies(store)
+	if dependencyErr != nil {
+		t.Fatalf("NewDependencies: %v", dependencyErr)
+	}
+	// authentication 保存测试 HTTP 会话中间件需要的认证服务。
+	authentication := &auth.Service{Store: store}
+	// srv、err 保存测试 HTTP 服务构造结果及失败原因。
+	srv, err := New(dependencies, authentication, mgr, "", ":0", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -85,7 +95,15 @@ func newUninitializedTestServer(t *testing.T) (*Server, *db.Store, func()) {
 	// mgr 是未初始化测试使用的空处理器账号管理器。
 	mgr := account.NewManager(store, noopHandler{}, nil)
 	// srv 是未初始化测试使用的 HTTP 服务实例。
-	srv, err := New(store, mgr, false, "", ":0", nil, nil, nil)
+	// dependencies 保存未初始化测试 Server 使用的基础设施工厂。
+	dependencies, dependencyErr := adapter.NewDependencies(store)
+	if dependencyErr != nil {
+		t.Fatalf("NewDependencies: %v", dependencyErr)
+	}
+	// authentication 保存未初始化数据库上的会话中间件依赖。
+	authentication := &auth.Service{Store: store}
+	// srv、err 保存未初始化测试服务构造结果及失败原因。
+	srv, err := New(dependencies, authentication, mgr, "", ":0", nil, nil, nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

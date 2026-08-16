@@ -761,6 +761,13 @@ test('getCards 解析 JSON 和损坏 JSON 的卡密接口配置', /* 当前回�
   expect(cards[1].api_config).toBeUndefined();
 });
 
+test('getCards 将后端空响应归一化为空列表', /* 当前回调防止空卡密响应阻断自动化规则账号加载。 */ async () => {
+  // fetchMock 模拟兼容后端返回 JSON null 的卡密列表响应。
+  const fetchMock = vi.fn().mockResolvedValue(jsonResponse(null));
+  vi.stubGlobal('fetch', fetchMock);
+  await expect(getCards()).resolves.toEqual([]);
+});
+
 test('默认回复 API 补齐空字段默认值', /* 当前回调验证默认回复字段归一化和保存载荷。 */ async () => {
   // fetchMock 是默认回复读取和保存接口的网络替身。
   const fetchMock = vi.fn()

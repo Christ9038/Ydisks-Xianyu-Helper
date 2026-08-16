@@ -296,9 +296,9 @@ func TestChangeAdminPasswordShortNewPassword(t *testing.T) {
 // TestChangeAdminPasswordNonAdmin 非 admin 403。
 func TestChangeAdminPasswordNonAdmin(t *testing.T) {
 	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.Store.Users.Create(context.Background(), "user2", "u2@e.com", "pw")
+	store.Users.Create(context.Background(), "user2", "u2@e.com", "pw")
 	// h 保存h，供当前处理流程使用
 	h := srv.Router()
 	// body 保存请求体，供当前处理流程使用

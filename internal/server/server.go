@@ -1,5 +1,5 @@
 // Package server 实现 HTTP API 服务（chi 路由）。
-// 复用 internal/auth 中间件、internal/db.Store、internal/account.Manager。
+// 复用 internal/auth 中间件、adapter 装配依赖和 internal/account.Manager。
 // 端点按分组组织在同一 package 的多个 handler 文件中。
 package server
 
@@ -20,26 +20,19 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"xianyu-go/internal/account"
+	"xianyu-go/internal/adapter"
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/chat"
-	"xianyu-go/internal/db"
 	"xianyu-go/internal/logging"
 	"xianyu-go/internal/notify"
 	"xianyu-go/internal/reconciliation"
 	appversion "xianyu-go/internal/version"
 	"xianyu-go/internal/webui"
-	"xianyu-go/internal/xianyu/mtop"
-	"xianyu-go/internal/xianyu/qrlogin"
-	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
 // qrLoginService 保存qr登录Service，供当前处理流程使用
-type qrLoginService interface {
-	GenerateQRCode(ctx context.Context) (sessionID string, qrCodeURL string, err error)
-	GetSessionStatus(sessionID string) map[string]any
-	CompleteVerification(ctx context.Context, sessionID string) (cookies string, unb string, err error)
-}
+type qrLoginService = adapter.QRLoginService
 
 // qrLoginPersistence 保存qr登录Persistence，供当前处理流程使用
 type qrLoginPersistence struct {
@@ -64,33 +57,37 @@ type publishBatchWorker struct {
 // ServerOption 是 Server 构造阶段应用可选依赖的配置函数。
 type ServerOption func(*Server)
 
+// databaseHealth 定义健康检查需要的最小数据库连通性能力。
+type databaseHealth interface {
+	// Ping 在调用方 Context 内探测数据库连接是否可用。
+	Ping(context.Context) error
+}
+
 // Server 聚合 HTTP 服务依赖。Automation 与 Notifier 由构造函数注入，
 // 不再允许外部直接改字段，避免运行时被替换成 nil。
 // Server 保存Server，供当前处理流程使用
 type Server struct {
-	Store       *db.Store
-	Auth        *auth.Service
-	Manager     *account.Manager
-	automation  *automation.Center
-	notifier    *notify.Notifier
-	chat        *chat.Service
-	MTop        mtop.Client
-	CookieRenew xrenew.Service
-	QRLogin     qrLoginService
-	Logger      *slog.Logger
-	WebDir      string // 前端静态资源目录（含 index.html）
-	Addr        string
+	// dependencies 提供数据库和平台适配器工厂；底层 Store 不进入 Server 业务字段。
+	dependencies *adapter.Dependencies
+	Auth         *auth.Service
+	Manager      *account.Manager
+	automation   *automation.Center
+	notifier     *notify.Notifier
+	chat         *chat.Service
+	MTop         adapter.MTOPClient
+	CookieRenew  adapter.LongLoginClient
+	QRLogin      qrLoginService
+	Logger       *slog.Logger
+	WebDir       string // 前端静态资源目录（含 index.html）
+	Addr         string
 	// applications 保存统一装配的应用服务实例。
 	applications *applicationServices
 	// reconciliation 负责恢复外部发货成功但本地订单状态未完成的记录。
 	reconciliation *reconciliation.Service
 	// transactionRepository 提供统一事务执行所需的最小持久化能力。
-	transactionRepository transactionRepository
-	// itemSpecCacheMu 保护商品多规格探测缓存。
-	itemSpecCacheMu sync.Mutex
-	// itemSpecCache 保存短期商品多规格探测结果，减少重复远端请求。
-	itemSpecCache map[string]itemSpecCacheEntry
-
+	transactionRepository *adapter.TransactionRepository
+	// databaseHealth 提供健康检查所需的数据库探测能力，避免 handler 直接触碰 SQL 连接。
+	databaseHealth      databaseHealth
 	publishMu           sync.Mutex
 	publishCancels      map[string]publishBatchWorker
 	orderRefreshMu      sync.Mutex
@@ -98,7 +95,10 @@ type Server struct {
 	workerMu            sync.Mutex
 	workerCount         int
 	workersDone         chan struct{}
-	backgroundWG        sync.WaitGroup
+	// backgroundMu 保护 Server 后台任务计数与完成信号，避免关闭等待创建不可取消的等待 goroutine。
+	backgroundMu    sync.Mutex
+	backgroundCount int
+	backgroundDone  chan struct{}
 	// taskRegistryMu 保护后台任务注册表的惰性初始化，避免测试构造的零值 Server 产生数据竞争。
 	taskRegistryMu sync.Mutex
 	// taskRegistry 保存 Server 自有后台任务的生命周期状态，不持久化业务数据或敏感凭证。
@@ -133,9 +133,12 @@ func WithChatService(service *chat.Service) ServerOption {
 // New 构造并校验 HTTP 服务所需依赖。autoCenter/notifier 由调用方完成创建后注入
 // （创建顺序：adapter → manager → automation → notifier → server）。
 // New 负责New相关处理。
-func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr string, logger *slog.Logger, autoCenter *automation.Center, notifier *notify.Notifier, options ...ServerOption) (*Server, error) {
-	if store == nil {
-		return nil, fmt.Errorf("server 依赖 db.Store 不能为空")
+func New(dependencies *adapter.Dependencies, authentication *auth.Service, manager *account.Manager, webDir, addr string, logger *slog.Logger, autoCenter *automation.Center, notifier *notify.Notifier, options ...ServerOption) (*Server, error) {
+	if dependencies == nil {
+		return nil, fmt.Errorf("server 依赖基础设施容器不能为空")
+	}
+	if authentication == nil {
+		return nil, fmt.Errorf("server 依赖认证服务不能为空")
 	}
 	if manager == nil {
 		return nil, fmt.Errorf("server 依赖 account.Manager 不能为空")
@@ -143,21 +146,19 @@ func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr st
 	if logger == nil {
 		logger = logging.NewLogger(os.Stdout, "text")
 	}
-	// qrMgr 是二维码登录流程使用的默认会话管理器。
-	qrMgr := qrlogin.NewManager(logger)
 	// server 是完成依赖装配、等待应用服务初始化后的 HTTP 服务实例。
 	server := &Server{
-		Store:       store,
-		Auth:        &auth.Service{Store: store, Logger: logger, Secure: secure},
-		Manager:     manager,
-		automation:  autoCenter,
-		notifier:    notifier,
-		MTop:        mtop.NewClient(),
-		CookieRenew: xrenew.Service{},
-		QRLogin:     qrMgr,
-		Logger:      logger,
-		WebDir:      webDir,
-		Addr:        addr,
+		dependencies: dependencies,
+		Auth:         authentication,
+		Manager:      manager,
+		automation:   autoCenter,
+		notifier:     notifier,
+		MTop:         adapter.NewMTOPClient(),
+		CookieRenew:  adapter.NewLongLoginClient(),
+		QRLogin:      adapter.NewQRLoginService(logger),
+		Logger:       logger,
+		WebDir:       webDir,
+		Addr:         addr,
 
 		publishCancels:      make(map[string]publishBatchWorker),
 		orderRefreshCancels: make(map[string]orderRefreshWorker),
@@ -166,8 +167,8 @@ func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr st
 		qrPersisted:         make(map[string]qrLoginPersistence),
 		qrOwners:            make(map[string]qrLoginOwner),
 		loginLimiter:        newLoginFailureLimiter(),
-		itemSpecCache:       make(map[string]itemSpecCacheEntry),
 		taskRegistry:        newTaskRegistry(),
+		backgroundDone:      closedSignal(),
 	}
 	// option 表示当前遍历过程中的option
 	for _, option := range options {
@@ -177,24 +178,25 @@ func New(store *db.Store, manager *account.Manager, secure bool, webDir, addr st
 		}
 	}
 	server.applications = newApplicationServices(server)
-	server.transactionRepository = newStoreTransactionRepository(store)
-	server.reconciliation = reconciliation.New(store, logger)
+	server.transactionRepository = dependencies.NewTransactionRepository()
+	server.databaseHealth = dependencies.NewDatabaseHealth()
+	server.reconciliation = dependencies.NewReconciliationService(logger)
 	return server, nil
 }
 
 // mtopClient 返回注入的 mtop 客户端；未注入时退回默认 HTTP 实现（保证零值可用）。
-func (s *Server) mtopClient() mtop.Client {
+func (s *Server) mtopClient() adapter.MTOPClient {
 	if s.MTop != nil {
 		return s.MTop
 	}
-	return mtop.NewClient()
+	return adapter.NewMTOPClient()
 }
 
 // recoverExpiredMTOPSession 是 HTTP/API 入口的统一 Session 失效出口。
 // 各调用点必须先保存响应 Cookie 并释放账号凭证锁，再进入续期，避免锁反转。
 // recoverExpiredMTOPSession 负责recoverExpiredMTOP会话相关处理。
 func (s *Server) recoverExpiredMTOPSession(ctx context.Context, cookieID string, err error) bool {
-	if !mtop.IsSessionExpiredErr(err) {
+	if !adapter.IsSessionExpiredError(err) {
 		return false
 	}
 	if s.Logger != nil {
@@ -442,7 +444,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	if s.Store == nil || s.Store.DB == nil || s.Store.DB.PingContext(ctx) != nil {
+	if s.databaseHealth == nil || s.databaseHealth.Ping(ctx) != nil {
 		writeJSON(w, http.StatusServiceUnavailable, healthResponse{Status: "degraded", Database: "unavailable"})
 		return
 	}
@@ -566,7 +568,7 @@ func (s *Server) Stop(ctx context.Context) error {
 		if httpDone != nil && !waitForSignal(ctx, httpDone) {
 			return ctx.Err()
 		}
-		if !waitForWaitGroup(ctx, &s.backgroundWG) || !s.waitForWorkersContext(ctx) {
+		if !s.waitForBackgroundContext(ctx) || !s.waitForWorkersContext(ctx) {
 			return ctx.Err()
 		}
 		return nil
@@ -594,7 +596,7 @@ func (s *Server) Stop(ctx context.Context) error {
 	if httpDone != nil && !waitForSignal(ctx, httpDone) {
 		return ctx.Err()
 	}
-	if !waitForWaitGroup(ctx, &s.backgroundWG) || !s.waitForWorkersContext(ctx) {
+	if !s.waitForBackgroundContext(ctx) || !s.waitForWorkersContext(ctx) {
 		return ctx.Err()
 	}
 	return shutdownErr
@@ -614,7 +616,7 @@ func (s *Server) WaitForBackground() {
 	if s == nil {
 		return
 	}
-	s.backgroundWG.Wait()
+	_ = s.waitForBackgroundContext(context.Background())
 	s.waitForWorkers(10 * time.Second)
 }
 
@@ -633,32 +635,86 @@ func (s *Server) lifecycleContext() context.Context {
 	return s.lifecycleCtx
 }
 
-// startBackgroundTask 登记并启动一个受 Server 生命周期管理的后台任务。
-// 调用方负责在任务函数内部响应上下文取消；WaitForBackground 会等待任务退出。
-// startBackgroundTask 负责开始Background任务相关处理。
-func (s *Server) startBackgroundTask(name string, task func()) string {
-	return s.startBackgroundTaskContext(name, s.lifecycleContext(), task)
-}
-
 // startBackgroundTaskContext 登记并启动带显式 Context 的 Server 后台任务。
 // 返回值是可供管理端查询的任务 ID；任务完成、取消或超时后会保留有限历史。
 func (s *Server) startBackgroundTaskContext(name string, ctx context.Context, task func()) string {
+	return s.startBackgroundTaskResult(name, ctx, func() error {
+		if task != nil {
+			task()
+		}
+		return nil
+	})
+}
+
+// startBackgroundTaskResult 登记并启动可返回错误的 Server 后台任务。
+// 任务错误会进入任务注册表；调用方仍需自行处理敏感错误日志和取消语义。
+func (s *Server) startBackgroundTaskResult(name string, ctx context.Context, task func() error) string {
 	// taskID、complete 记录任务状态并提供一次性收束回调。
 	taskID, complete := s.taskRegistryForServer().start(name, ctx)
-	s.backgroundWG.Add(1)
+	s.beginBackgroundTask()
 	// #nosec G118 -- 任务由调用方提供的 Server 生命周期控制。
 	go func() {
-		defer s.backgroundWG.Done()
-		defer complete(nil)
+		defer s.finishBackgroundTask()
+		// taskErr 保存后台任务函数返回的可观测错误。
+		var taskErr error
+		defer func() { complete(taskErr) }()
 		if task == nil {
 			if s.Logger != nil {
 				s.Logger.Warn("跳过空后台任务", "task", name)
 			}
 			return
 		}
-		task()
+		taskErr = task()
 	}()
 	return taskID
+}
+
+// beginBackgroundTask 登记一个由 Server 负责等待的后台任务，并刷新零到一任务转换信号。
+func (s *Server) beginBackgroundTask() {
+	if s == nil {
+		return
+	}
+	s.backgroundMu.Lock()
+	defer s.backgroundMu.Unlock()
+	if s.backgroundCount == 0 {
+		s.backgroundDone = make(chan struct{})
+	}
+	s.backgroundCount++
+}
+
+// finishBackgroundTask 标记一个后台任务退出，并在计数归零时关闭完成信号。
+func (s *Server) finishBackgroundTask() {
+	if s == nil {
+		return
+	}
+	s.backgroundMu.Lock()
+	defer s.backgroundMu.Unlock()
+	if s.backgroundCount <= 0 {
+		return
+	}
+	s.backgroundCount--
+	if s.backgroundCount == 0 && s.backgroundDone != nil {
+		close(s.backgroundDone)
+	}
+}
+
+// waitForBackgroundContext 等待已登记后台任务退出；超时只结束当前等待，不创建游离等待 goroutine。
+func (s *Server) waitForBackgroundContext(ctx context.Context) bool {
+	if s == nil {
+		return true
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.backgroundMu.Lock()
+	// done 是当前后台任务批次归零时关闭的完成信号。
+	done := s.backgroundDone
+	if done == nil {
+		done = closedSignal()
+		s.backgroundDone = done
+	}
+	s.backgroundMu.Unlock()
+	return waitForSignal(ctx, done)
 }
 
 // StartOrderReconciliationRecovery 启动受 Server 生命周期管理的订单补偿扫描器。
@@ -744,15 +800,4 @@ func waitForSignal(ctx context.Context, signal <-chan struct{}) bool {
 	case <-ctx.Done():
 		return false
 	}
-}
-
-// waitForWaitGroup 在关闭上下文取消或 WaitGroup 清空时返回，避免无界阻塞。
-func waitForWaitGroup(ctx context.Context, group *sync.WaitGroup) bool {
-	// done 是 WaitGroup 清空后的完成信号。
-	done := make(chan struct{})
-	go func() {
-		group.Wait()
-		close(done)
-	}()
-	return waitForSignal(ctx, done)
 }

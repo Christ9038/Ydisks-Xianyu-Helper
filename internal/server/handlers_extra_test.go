@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	itemapp "xianyu-go/internal/application/items"
 	"xianyu-go/internal/db"
 )
 
@@ -207,14 +208,14 @@ func TestPublicHTTPClient(t *testing.T) {
 // TestPublishBatchToMap 批次转具名 DTO 序列化并校验状态计数。
 func TestPublishBatchToMap(t *testing.T) {
 	// batch 保存批次，供当前处理流程使用
-	batch := &db.ItemPublishBatch{ID: "b1", Status: "running", Filename: "x.csv"}
+	batch := itemapp.BatchInfo{ID: "b1", Status: "running", Filename: "x.csv"}
 	// rows 保存rows，供当前处理流程使用
-	rows := []db.ItemPublishBatchRow{
+	rows := []itemapp.BatchRow{
 		{ID: 1, RowNo: 1, CookieID: "c1", Title: "t1", Status: "pending", ImagesJSON: `["a.png"]`},
 		{ID: 2, RowNo: 2, CookieID: "c1", Title: "t2", Status: "running"},
 	}
 	// m 保存m，供当前处理流程使用
-	m := publishBatchToMap(batch, rows)
+	m := publishBatchApplicationToResponse(batch, rows)
 	if m.ID != "b1" || m.Status != "running" {
 		t.Fatalf("batch 字段异常: %+v", m)
 	}

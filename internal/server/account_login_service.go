@@ -8,9 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"xianyu-go/internal/adapter"
 	accountapp "xianyu-go/internal/application/account"
-	"xianyu-go/internal/db"
-	"xianyu-go/internal/xianyu/protocol"
 )
 
 // accountLoginService 是账号登录相关应用服务，负责凭证写入、登录审计、资料刷新和运行时重启编排。
@@ -18,7 +17,9 @@ type accountLoginService struct {
 	// server 提供账号存储、运行时管理器和扫码会话持久化依赖。
 	server *Server
 	// repository 提供账号登录服务所需的最小凭证持久化能力。
-	repository accountLoginRepository
+	repository accountapp.CredentialRepository
+	// summaryRepository 提供不解密凭证的账号摘要和归属查询能力。
+	summaryRepository accountapp.AccountSummaryRepository
 	// createApplication 提供已迁移的手动 Cookie 登录应用用例。
 	createApplication *accountapp.LoginService
 	// qrApplication 提供扫码成功凭证持久化应用用例；会话幂等状态仍由 Server 适配器拥有。
@@ -45,7 +46,7 @@ func (p serverLoginLifecyclePort) AfterSuccessfulLogin(ctx context.Context, user
 // serverCookieWriter 将本次请求中的明文 Cookie 限制在 Server 基础设施适配器内。
 type serverCookieWriter struct {
 	// repository 提供凭证锁、写入和旧 Token 清理能力。
-	repository accountLoginRepository
+	repository accountapp.CredentialRepository
 	// cookies 保存当前请求明文 Cookie；仅在 CreateOwnedCookie 调用期间使用，不进入应用层模型。
 	cookies string
 	// logger 提供旧 Token 清理失败的脱敏日志能力。
@@ -87,7 +88,7 @@ func (w serverCookieWriter) UpdateOwnedCookie(ctx context.Context, accountID str
 		return loadErr
 	}
 	if detail == nil || detail.UserID != userID {
-		return db.ErrForbidden
+		return accountapp.ErrForbidden
 	}
 	if expectedRevision != 0 && detail.LastRefreshAt != expectedRevision {
 		return accountapp.ErrCredentialConflict
@@ -108,49 +109,13 @@ func newAccountLoginCreateApplication(server *Server) (*accountapp.LoginService,
 	return accountapp.NewLoginService(serverLoginLifecyclePort{server: server})
 }
 
-// newAccountQRLoginApplication 构造扫码登录应用服务及其凭证、生命周期适配器。
-func newAccountQRLoginApplication(server *Server) (*accountapp.QRLoginService, error) {
-	return accountapp.NewQRLoginService(newStoreQRLoginRepository(server.Store), serverQRLoginLifecycle{server: server})
-}
-
-// serverAccountProfilePort 将平台资料刷新适配为账号应用层 Port。
-type serverAccountProfilePort struct {
-	// server 提供平台会话、凭证锁、资料保存和运行时同步能力。
-	server *Server
-}
-
-// RefreshProfile 执行平台资料刷新，并把平台结果转换为应用层 DTO。
-func (p serverAccountProfilePort) RefreshProfile(ctx context.Context, input accountapp.ProfileInput) (accountapp.ProfileResult, error) {
-	// detail 是兼容 Server 资料刷新器所需的非敏感账号摘要模型。
-	detail := &db.CookieDetail{
-		ID: input.Summary.ID, UserID: input.Summary.UserID,
-		Remark: input.Summary.Remark, Nickname: input.Summary.Nickname,
-		AvatarURL: input.Summary.AvatarURL,
-	}
-	// nickname、avatarURL 和 profileErr 保存平台资料刷新后的展示结果。
-	nickname, avatarURL, profileErr := p.server.refreshAccountProfile(ctx, detail)
-	return accountapp.ProfileResult{
-		AccountID: input.AccountID, Nickname: nickname,
-		AvatarURL: avatarURL, ErrorMessage: profileErr,
-	}, nil
-}
-
-// newAccountProfileApplication 从 Server 的数据库和平台能力构造账号资料应用服务。
-func newAccountProfileApplication(server *Server) (*accountapp.ProfileService, error) {
-	// repository 是只返回非敏感摘要的数据库适配器。
-	repository := storeAccountProfileRepository{store: server.Store}
-	// profilePort 是负责平台请求和资料持久化的 Server 适配器。
-	profilePort := serverAccountProfilePort{server: server}
-	return accountapp.NewProfileService(repository, profilePort)
-}
-
 // accountLoginApplication 返回当前 Server 绑定的账号登录应用服务。
 func (s *Server) accountLoginApplication() *accountLoginService {
 	return s.applicationServiceSet().accountLogin
 }
 
 // accountLoginRepositoryForServer 返回当前 Server 装配的账号登录持久化边界。
-func (s *Server) accountLoginRepositoryForServer() accountLoginRepository {
+func (s *Server) accountLoginRepositoryForServer() accountapp.CredentialRepository {
 	return s.accountLoginApplication().repository
 }
 
@@ -253,21 +218,13 @@ func (svc *accountLoginService) PersistQRLoginSuccess(ctx context.Context, userI
 	// cookies 保存平台返回的登录 Cookie 明文，仅在 Server 到应用端口的调用边界短暂存在。
 	cookies := qrString(result, "cookies")
 	// cookieSnapshot 和 snapshotComplete 保存平台返回的完整 Cookie 快照及其完整性。
-	cookieSnapshot, snapshotComplete := qrCookieSnapshot(result)
+	cookieSnapshot, snapshotComplete := adapter.CookieSnapshotsFromResult(result)
 	// scannedAccountID 保存从结果字段或 Cookie 解析出的平台账号标识。
-	scannedAccountID := strings.TrimSpace(firstNonEmpty(qrString(result, "unb"), protocol.TransCookies(cookies)["unb"]))
+	scannedAccountID := strings.TrimSpace(firstNonEmpty(qrString(result, "unb"), adapter.AccountIDFromCookie(cookies)))
 	// input 保存转换后的纯应用扫码登录输入；Cookie 只交给凭证端口消费。
 	input := accountapp.QRLoginInput{UserID: userID, ScannedAccountID: scannedAccountID, TargetAccountID: targetAccountID, Cookies: cookies}
 	if snapshotComplete {
-		input.Snapshot = make([]accountapp.CookieSnapshot, 0, len(cookieSnapshot))
-		// cookie 保存当前浏览器 Cookie 快照，转换后不再依赖平台 DTO。
-		for _, cookie := range cookieSnapshot {
-			input.Snapshot = append(input.Snapshot, accountapp.CookieSnapshot{
-				Name: cookie.Name, Value: cookie.Value, Domain: cookie.Domain, Path: cookie.Path,
-				Expires: cookie.Expires, HTTPOnly: cookie.HTTPOnly, Secure: cookie.Secure,
-				SameSite: cookie.SameSite, PartitionKey: cookie.PartitionKey,
-			})
-		}
+		input.Snapshot = cookieSnapshot
 	}
 	// resultValue 保存应用服务返回的非敏感持久化结果。
 	resultValue, persistErr := svc.qrApplication.PersistSuccess(ctx, input)
@@ -281,7 +238,7 @@ func (svc *accountLoginService) PersistQRLoginSuccess(ctx context.Context, userI
 		if errors.Is(persistErr, accountapp.ErrForbidden) {
 			return qrLoginPersistence{}, errors.New("该账号ID已存在且不属于当前用户")
 		}
-		if errors.Is(persistErr, db.ErrAlreadyExists) {
+		if errors.Is(persistErr, accountapp.ErrAlreadyExists) {
 			return qrLoginPersistence{}, errors.New("该账号ID已被并发创建，请重新获取账号状态")
 		}
 		return qrLoginPersistence{}, persistErr
@@ -300,9 +257,15 @@ func (svc *accountLoginService) refreshAndRestartAccount(ctx context.Context, us
 	// s 是当前账号登录应用服务依赖的 Server。
 	s := svc.server
 	// detail 和 err 保存资料摘要查询结果。
-	detail, err := s.loadCookieSummaryDetail(ctx, userID, accountID)
+	_, err := svc.summaryRepository.GetOwnedSummary(ctx, userID, accountID)
 	if err == nil {
-		s.refreshAccountProfile(ctx, detail)
+		// profileResult、profileErr 保存登录成功后的资料刷新结果；失败仅记录，不阻断运行时重启。
+		profileResult, profileErr := s.accountProfileApplication().RefreshProfile(ctx, userID, accountID)
+		if profileErr != nil && s.Logger != nil {
+			s.Logger.Warn("登录后刷新账号资料失败", "cookie_id", accountID, "err", profileErr)
+		} else if profileResult.ErrorMessage != "" && s.Logger != nil {
+			s.Logger.Warn("登录后刷新账号资料返回业务错误", "cookie_id", accountID, "err", profileResult.ErrorMessage)
+		}
 	}
 	if s.Manager != nil && svc.repository.GetStatus(ctx, accountID) {
 		// err 表示账号运行时重启错误。

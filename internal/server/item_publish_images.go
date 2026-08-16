@@ -8,8 +8,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -21,9 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"xianyu-go/internal/db"
 	"xianyu-go/internal/netguard"
-	"xianyu-go/internal/xianyu/mtop"
 )
 
 // isPublicIP 保留给同包校验调用；实际策略统一由 netguard 维护。
@@ -110,43 +106,6 @@ func extractPublishImagesZip(raw []byte, dest string) error {
 		}
 	}
 	return nil
-}
-
-// loadBatchPublishImages 负责load批次发布Images相关处理。
-func loadBatchPublishImages(ctx context.Context, uploadDir string, row db.ItemPublishBatchRow) ([]mtop.PublishImage, error) {
-	// refs 保存refs，供当前处理流程使用
-	var refs []string
-	if // err 保存err，供当前处理流程使用
-	err := json.Unmarshal([]byte(row.ImagesJSON), &refs); err != nil {
-		return nil, fmt.Errorf("图片字段格式错误")
-	}
-	if len(refs) == 0 {
-		return nil, errors.New("至少上传 1 张商品图片")
-	}
-	// images 保存images，供当前处理流程使用
-	images := make([]mtop.PublishImage, 0, len(refs))
-	// ref 表示当前遍历过程中的ref
-	for _, ref := range refs {
-		// data 保存数据，供当前处理流程使用
-		var data []byte
-		// contentType 保存内容类型，供当前处理流程使用
-		var contentType string
-		// filename 保存filename，供当前处理流程使用
-		var filename string
-		// err 保存err，供当前处理流程使用
-		var err error
-		if isHTTPURL(ref) {
-			data, contentType, err = downloadImageURL(ctx, ref)
-			filename = pathBaseFromURL(ref)
-		} else {
-			data, contentType, filename, err = readBatchImageFile(uploadDir, ref)
-		}
-		if err != nil {
-			return nil, err
-		}
-		images = append(images, mtop.PublishImage{Filename: filename, ContentType: contentType, Data: data})
-	}
-	return images, nil
 }
 
 // readBatchImageFile 负责read批次图片文件相关处理。

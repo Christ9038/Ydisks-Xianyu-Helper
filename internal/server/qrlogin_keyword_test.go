@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"xianyu-go/internal/adapter"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/cookierefresh"
 )
@@ -285,7 +286,7 @@ func TestQRLoginStatusPersistsSuccessIdempotently(t *testing.T) {
 		},
 	}}
 	if // snapshot、ok 保存snapshot、ok，供当前处理流程使用
-	snapshot, ok := qrCookieSnapshot(srv.QRLogin.GetSessionStatus("s1")); !ok || len(snapshot) != 2 {
+	snapshot, ok := adapter.CookieSnapshotsFromResult(srv.QRLogin.GetSessionStatus("s1")); !ok || len(snapshot) != 2 {
 		t.Fatalf("测试扫码 Cookie 快照异常: ok=%v snapshot=%+v", ok, snapshot)
 	}
 	ownQRSession(t, srv, store, "s1")

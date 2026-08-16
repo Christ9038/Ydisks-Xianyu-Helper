@@ -32,10 +32,10 @@ func TestApplicationImportBoundary(t *testing.T) {
 	}
 }
 
-// TestServerLowLevelTemporaryAllowlist 验证旧 Server 低层依赖必须显式登记。
-func TestServerLowLevelTemporaryAllowlist(t *testing.T) {
-	if isForbiddenServerLowLevelImport("internal/server/order_service.go", "internal/db") {
-		t.Fatal("现有白名单文件不应被当前门禁阻断")
+// TestServerLowLevelBoundary 验证 Server 低层依赖不得通过临时白名单保留。
+func TestServerLowLevelBoundary(t *testing.T) {
+	if !isForbiddenServerLowLevelImport("internal/server/cookie_handlers.go", "internal/db") {
+		t.Fatal("Server 低层依赖应被门禁拒绝")
 	}
 	if !isForbiddenServerLowLevelImport("internal/server/new_service.go", "internal/db") {
 		t.Fatal("新增 Server 低层依赖必须被门禁拒绝")

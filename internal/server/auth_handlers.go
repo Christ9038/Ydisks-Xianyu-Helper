@@ -8,8 +8,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	accountapp "xianyu-go/internal/application/account"
 	"xianyu-go/internal/auth"
-	"xianyu-go/internal/db"
 )
 
 // loginRequest 是登录请求体。
@@ -53,7 +53,7 @@ func (s *Server) initialize(w http.ResponseWriter, r *http.Request) {
 	defer s.initializationMu.Unlock()
 
 	// initialized、err 保存initialized、err，供当前处理流程使用
-	initialized, err := s.Store.Users.IsSystemInitialized(r.Context())
+	initialized, err := s.authenticationApplication().IsSystemInitialized(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "检查系统初始化状态失败")
 		return
@@ -64,13 +64,13 @@ func (s *Server) initialize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if // err 保存err，供当前处理流程使用
-	_, err := auth.InitAdmin(r.Context(), s.Store, "admin@example.com", req.Password); err != nil {
+	_, err := s.authenticationApplication().InitializeAdmin(r.Context(), "admin@example.com", req.Password); err != nil {
 		writeErr(w, http.StatusInternalServerError, "初始化管理员失败")
 		return
 	}
 
 	// 初始化完成后立即建立会话，用户无需再手动输入一次 admin 账号和密码。
-	sid, user, err := s.Auth.Login(r.Context(), "admin", req.Password)
+	sid, user, err := s.authenticationApplication().Login(r.Context(), "admin", req.Password)
 	if err != nil || user == nil || sid == "" {
 		writeErr(w, http.StatusInternalServerError, "初始化完成，但自动登录失败，请使用 admin 账号登录")
 		return
@@ -108,7 +108,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case req.Username != "" && req.Password != "":
 		// sid、user、err 保存sid、user、err，供当前处理流程使用
-		sid, user, err := s.Auth.Login(r.Context(), req.Username, req.Password)
+		sid, user, err := s.authenticationApplication().Login(r.Context(), req.Username, req.Password)
 		if err != nil || user == nil || sid == "" {
 			s.loginLimiter.failure(clientIP, principal, time.Now())
 			writeErrCode(w, http.StatusUnauthorized, "authentication_failed",
@@ -125,16 +125,16 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, resp)
 		return
 	case req.Email != "" && req.Password != "":
-		// user、err 保存user、err，供当前处理流程使用
-		user, err := s.Store.Users.GetByEmail(r.Context(), req.Email)
-		if err != nil || user == nil {
+		// username、err 保存邮箱映射得到的登录用户名和查询错误，供当前处理流程使用
+		username, err := s.authenticationApplication().UsernameByEmail(r.Context(), req.Email)
+		if err != nil || username == "" {
 			s.loginLimiter.failure(clientIP, principal, time.Now())
 			writeErrCode(w, http.StatusUnauthorized, "authentication_failed",
 				"邮箱或密码错误", "")
 			return
 		}
 		// sid、loginUser、lerr 保存sid、loginUser、lerr，供当前处理流程使用
-		sid, loginUser, lerr := s.Auth.Login(r.Context(), user.Username, req.Password)
+		sid, loginUser, lerr := s.authenticationApplication().Login(r.Context(), username, req.Password)
 		if lerr != nil || loginUser == nil || sid == "" {
 			s.loginLimiter.failure(clientIP, principal, time.Now())
 			writeErrCode(w, http.StatusUnauthorized, "authentication_failed",
@@ -160,7 +160,7 @@ func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
 	// ctx 保存ctx，供当前处理流程使用
 	ctx := r.Context()
 	// initialized 保存initialized，供当前处理流程使用
-	initialized, _ := s.Store.Users.IsSystemInitialized(ctx)
+	initialized, _ := s.authenticationApplication().IsSystemInitialized(ctx)
 	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(ctx)
 	if sess != nil {
@@ -215,13 +215,13 @@ func (s *Server) changeAdminPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 校验当前密码。
-	user, ok, _ := s.Store.Users.VerifyAndUpgrade(ctx, sess.Username, req.CurrentPassword)
-	if !ok || user == nil {
+	_, ok, _ := s.authenticationApplication().VerifyPassword(ctx, sess.Username, req.CurrentPassword)
+	if !ok {
 		writeErrCode(w, http.StatusUnauthorized, "authentication_failed", "当前密码错误", "")
 		return
 	}
 	if // err 保存err，供当前处理流程使用
-	_, err := s.Store.Users.UpdatePassword(ctx, sess.Username, req.NewPassword); err != nil {
+	_, err := s.authenticationApplication().UpdatePassword(ctx, sess.Username, req.NewPassword); err != nil {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
@@ -253,14 +253,14 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "未授权访问")
 		return
 	}
-	// user 保存用户，供当前处理流程使用
-	user, _, _ := s.Store.Users.VerifyAndUpgrade(ctx, sess.Username, req.CurrentPassword)
-	if user == nil {
+	// ok 保存当前密码是否匹配，应用层不会向 HTTP 层暴露密码哈希。
+	_, ok, _ := s.authenticationApplication().VerifyPassword(ctx, sess.Username, req.CurrentPassword)
+	if !ok {
 		writeErrCode(w, http.StatusUnauthorized, "authentication_failed", "当前密码错误", "")
 		return
 	}
 	if // err 保存err，供当前处理流程使用
-	_, err := s.Store.Users.UpdatePassword(ctx, sess.Username, req.NewPassword); err != nil {
+	_, err := s.authenticationApplication().UpdatePassword(ctx, sess.Username, req.NewPassword); err != nil {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
@@ -308,18 +308,18 @@ func (s *Server) updateCredentials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// user、ok、err 保存user、ok、err，供当前处理流程使用
-	user, ok, err := s.Store.Users.VerifyAndUpgrade(r.Context(), sess.Username, req.CurrentPassword)
+	user, ok, err := s.authenticationApplication().VerifyPassword(r.Context(), sess.Username, req.CurrentPassword)
 	if err != nil {
 		writeCredentialVerificationError(w, err)
 		return
 	}
-	if !ok || user == nil || user.ID != sess.UserID {
+	if !ok || user.ID != sess.UserID {
 		writeErrCode(w, http.StatusUnauthorized, "authentication_failed", "当前密码错误", "")
 		return
 	}
 	if // err 保存err，供当前处理流程使用
-	err := s.Store.Users.UpdateCredentials(r.Context(), sess.UserID, username, req.NewPassword); err != nil {
-		if errors.Is(err, db.ErrUsernameTaken) {
+	err := s.authenticationApplication().UpdateCredentials(r.Context(), sess.UserID, username, req.NewPassword); err != nil {
+		if errors.Is(err, accountapp.ErrUsernameTaken) {
 			writeErrCode(w, http.StatusConflict, "username_taken", "用户名已被占用", "")
 			return
 		}

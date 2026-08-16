@@ -474,7 +474,7 @@ func TestOrderImportReportsPartialFailure(t *testing.T) {
 // TestAdminEndpoints 管理员统计 + 用户列表 + 非 admin 被拒。
 func TestAdminEndpoints(t *testing.T) {
 	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// h 保存h，供当前处理流程使用
 	h := srv.Router()
@@ -512,7 +512,7 @@ func TestAdminEndpoints(t *testing.T) {
 	}
 
 	// 创建普通用户验证 admin 隔离。
-	srv.Store.Users.Create(context.Background(), "user2", "u2@e.com", "pw")
+	store.Users.Create(context.Background(), "user2", "u2@e.com", "pw")
 	// 普通用户不应能访问 admin（需单独登录验证，此处仅验证 admin 能看到）。
 	req3 := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
 	req3.AddCookie(cookie)

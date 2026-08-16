@@ -96,7 +96,7 @@ func TestListAIModelsBadJSON(t *testing.T) {
 // TestListAIModelsEmptyBaseURL 空地址使用默认并失败（默认阿里云地址不可达或返回非 2xx）。
 func TestListAIModelsEmptyBaseURL(t *testing.T) {
 	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// 注入一个返回错误状态码的本地 server。
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -104,7 +104,7 @@ func TestListAIModelsEmptyBaseURL(t *testing.T) {
 	}))
 	defer ts.Close()
 	// 设置系统设置 ai_api_url 指向该 server。
-	srv.Store.Settings.Set(context.Background(), "ai_api_url", ts.URL)
+	store.Settings.Set(context.Background(), "ai_api_url", ts.URL)
 
 	// h 保存h，供当前处理流程使用
 	h := srv.Router()
@@ -150,7 +150,7 @@ func TestSetLogLevelValidatesAndAppliesRuntimeLevel(t *testing.T) {
 	defer logging.Level.Set(slog.LevelInfo)
 
 	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// h 保存h，供当前处理流程使用
 	h := srv.Router()
@@ -181,7 +181,7 @@ func TestSetLogLevelValidatesAndAppliesRuntimeLevel(t *testing.T) {
 		t.Fatalf("runtime log level=%v want debug", got)
 	}
 	// saved、err 保存saved、err，供当前处理流程使用
-	saved, err := srv.Store.Settings.Get(context.Background(), "log_level")
+	saved, err := store.Settings.Get(context.Background(), "log_level")
 	if err != nil || saved != "debug" {
 		t.Fatalf("saved log_level=%q err=%v", saved, err)
 	}
@@ -190,12 +190,12 @@ func TestSetLogLevelValidatesAndAppliesRuntimeLevel(t *testing.T) {
 // TestSystemSettingsRequireAdmin 负责Test系统设置RequireAdmin相关处理。
 func TestSystemSettingsRequireAdmin(t *testing.T) {
 	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// h 保存h，供当前处理流程使用
 	h := srv.Router()
 	if // err 保存err，供当前处理流程使用
-	_, err := srv.Store.Users.Create(context.Background(), "user-settings", "user-settings@example.com", "pw"); err != nil {
+	_, err := store.Users.Create(context.Background(), "user-settings", "user-settings@example.com", "pw"); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 
@@ -237,7 +237,7 @@ func TestSystemSettingsRequireAdmin(t *testing.T) {
 // TestBulkSystemSettingsAreAtomic 负责TestBulk系统设置AreAtomic相关处理。
 func TestBulkSystemSettingsAreAtomic(t *testing.T) {
 	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// h 保存h，供当前处理流程使用
 	h := srv.Router()
@@ -254,7 +254,7 @@ func TestBulkSystemSettingsAreAtomic(t *testing.T) {
 		t.Fatalf("status=%d body=%s", badRec.Code, badRec.Body.String())
 	}
 	if // value 保存值，供当前处理流程使用
-	value, _ := srv.Store.Settings.Get(context.Background(), "theme_color"); value == "red" {
+	value, _ := store.Settings.Get(context.Background(), "theme_color"); value == "red" {
 		t.Fatal("invalid bulk request partially saved theme_color")
 	}
 
@@ -268,11 +268,11 @@ func TestBulkSystemSettingsAreAtomic(t *testing.T) {
 		t.Fatalf("status=%d body=%s", goodRec.Code, goodRec.Body.String())
 	}
 	if // value 保存值，供当前处理流程使用
-	value, _ := srv.Store.Settings.Get(context.Background(), "theme_color"); value != "blue" {
+	value, _ := store.Settings.Get(context.Background(), "theme_color"); value != "blue" {
 		t.Fatalf("theme_color=%q", value)
 	}
 	if // value 保存值，供当前处理流程使用
-	value, _ := srv.Store.Settings.Get(context.Background(), "renewal_log_retention_days"); value != "15" {
+	value, _ := store.Settings.Get(context.Background(), "renewal_log_retention_days"); value != "15" {
 		t.Fatalf("retention=%q", value)
 	}
 }

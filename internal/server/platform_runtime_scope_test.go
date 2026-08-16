@@ -29,7 +29,7 @@ func TestServerPlatformRuntimeDetailSkipsLoginSecrets(t *testing.T) {
 	}
 	// summaryDetail 是 ownership 和资料刷新使用的非敏感摘要适配模型。
 	summaryDetail, summaryErr := srv.loadCookieSummaryDetail(ctx, ownerID, "acc1")
-	if summaryErr != nil || summaryDetail == nil || summaryDetail.ID != "acc1" || summaryDetail.UserID != ownerID {
+	if summaryErr != nil || summaryDetail.ID != "acc1" || summaryDetail.UserID != ownerID {
 		t.Fatalf("summary detail=%+v err=%v", summaryDetail, summaryErr)
 	}
 }

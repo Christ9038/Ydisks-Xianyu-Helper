@@ -10,12 +10,12 @@ import (
 // TestWithTransactionCommitAndRollback 验证统一事务入口能够提交成功操作并回滚失败操作。
 func TestWithTransactionCommitAndRollback(t *testing.T) {
 	// srv 是使用测试数据库的 Server。
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// ctx 是本测试使用的可取消上下文。
 	ctx := context.Background()
 	// createErr 是创建测试表失败时的错误。
-	if _, createErr := srv.Store.DB.ExecContext(ctx, `CREATE TABLE unit_of_work_probe (id INTEGER PRIMARY KEY, value TEXT NOT NULL)`); createErr != nil {
+	if _, createErr := store.DB.ExecContext(ctx, `CREATE TABLE unit_of_work_probe (id INTEGER PRIMARY KEY, value TEXT NOT NULL)`); createErr != nil {
 		t.Fatalf("创建事务测试表失败: %v", createErr)
 	}
 	// commitErr 是提交事务执行结果。
@@ -43,7 +43,7 @@ func TestWithTransactionCommitAndRollback(t *testing.T) {
 	// count 是事务提交后测试表中的记录数。
 	var count int
 	if // err 保存err，供当前处理流程使用
-	err := srv.Store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unit_of_work_probe`).Scan(&count); err != nil {
+	err := store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unit_of_work_probe`).Scan(&count); err != nil {
 		t.Fatalf("查询事务测试结果失败: %v", err)
 	}
 	if count != 1 {

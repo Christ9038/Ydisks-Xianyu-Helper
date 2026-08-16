@@ -9,8 +9,8 @@ import (
 // ErrDeleteConflict 表示账号运行时尚未收束，删除操作不会覆盖仍存活的实例。
 var ErrDeleteConflict = errors.New("账号正在停止，请稍后重试")
 
-// DeleteRepository 定义账号删除用例所需的最小非敏感持久化端口。
-type DeleteRepository interface {
+// DeleteSummaryRepository 定义账号删除用例所需的最小非敏感持久化端口。
+type DeleteSummaryRepository interface {
 	// GetOwnedSummary 按用户和账号联合查询非敏感摘要，用于删除前归属确认。
 	GetOwnedSummary(context.Context, int64, string) (Summary, error)
 	// DeleteOwned 在基础设施边界再次确认归属后删除账号及其关联数据。
@@ -30,13 +30,13 @@ type DeleteRuntime interface {
 // DeleteService 编排账号归属校验、运行时 fencing 和关联数据删除。
 type DeleteService struct {
 	// repository 提供非敏感账号查询和按归属删除能力。
-	repository DeleteRepository
+	repository DeleteSummaryRepository
 	// runtime 提供可选的账号运行时停止能力；为空时仅执行持久化删除。
 	runtime DeleteRuntime
 }
 
 // NewDeleteService 构造账号删除应用服务并校验必需的持久化端口。
-func NewDeleteService(repository DeleteRepository, runtime DeleteRuntime) (*DeleteService, error) {
+func NewDeleteService(repository DeleteSummaryRepository, runtime DeleteRuntime) (*DeleteService, error) {
 	if repository == nil {
 		return nil, errors.New("账号删除 repository 未初始化")
 	}

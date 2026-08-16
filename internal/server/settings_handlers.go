@@ -1,26 +1,18 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	settingsapp "xianyu-go/internal/application/settings"
 	"xianyu-go/internal/auth"
-	"xianyu-go/internal/db"
 	"xianyu-go/internal/logging"
-	"xianyu-go/internal/netguard"
 )
-
-// maxOpenAIModelsResponseBytes 保存maxOpenAI模型列表响应Bytes，供当前处理流程使用
-const maxOpenAIModelsResponseBytes = 4 << 20
 
 // systemSettingSecretChangeRequest 是 HTTP 层接收的敏感设置变更命令。
 type systemSettingSecretChangeRequest struct {
@@ -28,11 +20,6 @@ type systemSettingSecretChangeRequest struct {
 	Action string `json:"action"`
 	// Value 是 replace 操作要保存的新秘密。
 	Value string `json:"value,omitempty"`
-}
-
-// authSess 从上下文取会话。
-func authSess(r *http.Request) *db.Session {
-	return auth.SessionFromContext(r.Context())
 }
 
 // mountSettingsReal 系统设置端点（管理员专用）。public 单独挂载在顶层。
@@ -58,7 +45,7 @@ func (s *Server) setSettings(w http.ResponseWriter, r *http.Request) {
 	// values 保存普通设置值。
 	values := make(map[string]string, len(raw))
 	// secrets 保存敏感设置的显式变更命令。
-	secrets := make(map[string]db.SensitiveSettingChange)
+	secrets := make(map[string]settingsapp.SecretChange)
 	// valuesRaw 是普通设置对象的原始 JSON；ok 表示请求是否包含该对象。
 	if valuesRaw, ok := raw["values"]; ok {
 		// explicitValues 是显式请求中的普通设置字段。
@@ -70,13 +57,13 @@ func (s *Server) setSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		// key 是显式普通设置中的字段名。
 		for key := range explicitValues {
-			if db.IsSensitiveSettingKey(key) {
+			if s.settingsApplication().IsSensitiveSettingKey(key) {
 				writeErr(w, http.StatusBadRequest, "敏感设置必须放入 secrets 命令")
 				return
 			}
 		}
 		// err 是普通设置字段校验错误。
-		if err := collectSystemSettingValues(explicitValues, values); err != nil {
+		if err := collectSystemSettingValues(explicitValues, values, s.settingsApplication().IsSensitiveSettingKey); err != nil {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -93,11 +80,11 @@ func (s *Server) setSettings(w http.ResponseWriter, r *http.Request) {
 		// key 是敏感设置键；change 是对应的三态命令。
 		for key, change := range explicitSecrets {
 			key = strings.TrimSpace(key)
-			if !db.IsSensitiveSettingKey(key) || !validSecretSettingAction(change.Action) || change.Action == "replace" && strings.TrimSpace(change.Value) == "" {
+			if !s.settingsApplication().IsSensitiveSettingKey(key) || !validSecretSettingAction(change.Action) || change.Action == "replace" && strings.TrimSpace(change.Value) == "" {
 				writeErr(w, http.StatusBadRequest, "敏感设置命令无效")
 				return
 			}
-			secrets[key] = db.SensitiveSettingChange{Action: change.Action, Value: change.Value}
+			secrets[key] = settingsapp.SecretChange{Action: change.Action, Value: change.Value}
 		}
 	}
 	// legacy 保存旧版顶层普通设置字段，确保兼容接口可以渐进迁移。
@@ -105,7 +92,7 @@ func (s *Server) setSettings(w http.ResponseWriter, r *http.Request) {
 	// key 是兼容顶层字段名；value 是其原始 JSON 值。
 	for key, value := range raw {
 		if key != "values" && key != "secrets" {
-			if db.IsSensitiveSettingKey(key) {
+			if s.settingsApplication().IsSensitiveSettingKey(key) {
 				writeErr(w, http.StatusBadRequest, "敏感设置必须放入 secrets 命令")
 				return
 			}
@@ -113,7 +100,7 @@ func (s *Server) setSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// err 是兼容顶层字段校验错误。
-	if err := collectSystemSettingValues(legacy, values); err != nil {
+	if err := collectSystemSettingValues(legacy, values, s.settingsApplication().IsSensitiveSettingKey); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -126,27 +113,14 @@ func (s *Server) setSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if len(secrets) > 0 {
-		// sess 保存当前管理员会话，用于敏感设置写入审计。
-		sess := authSess(r)
-		if sess == nil {
-			writeErr(w, http.StatusInternalServerError, "审计失败")
-			return
-		}
-		// secretKeys 保存本次敏感设置写入涉及的键名。
-		secretKeys := make([]string, 0, len(secrets))
-		// key 是本次敏感设置写入涉及的键名。
-		for key := range secrets {
-			secretKeys = append(secretKeys, key)
-		}
-		// err 保存敏感设置写入审计错误。
-		if err := s.auditSensitiveSettingsAccess(r.Context(), sess.UserID, "settings.write", "system_settings", secretKeys); err != nil {
-			writeErr(w, http.StatusInternalServerError, "审计失败")
-			return
-		}
+	// sess 保存当前管理员会话，用于应用服务执行用户范围校验和敏感写入审计。
+	sess := authSess(r)
+	if sess == nil {
+		writeErr(w, http.StatusInternalServerError, "审计失败")
+		return
 	}
 	// err 是普通设置与敏感命令原子保存错误。
-	if err := s.Store.Settings.ApplyChanges(r.Context(), values, secrets); err != nil {
+	if err := s.settingsApplication().ApplySystemChanges(r.Context(), sess.UserID, values, secrets); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
 	}
@@ -158,14 +132,14 @@ func (s *Server) setSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // collectSystemSettingValues 解析普通设置字段并拒绝敏感明文。
-func collectSystemSettingValues(raw map[string]json.RawMessage, values map[string]string) error {
+func collectSystemSettingValues(raw map[string]json.RawMessage, values map[string]string, isSensitive func(string) bool) error {
 	// key 是当前设置键；rawValue 是尚未转换的 JSON 值。
 	for key, rawValue := range raw {
 		key = strings.TrimSpace(key)
 		if key == "" || len(key) > 100 {
 			return errors.New("设置键无效")
 		}
-		if db.IsSensitiveSettingKey(key) {
+		if isSensitive(key) {
 			return fmt.Errorf("敏感设置 %q 必须使用 secrets 命令", key)
 		}
 		// value 是普通设置转换后的任意 JSON 值。
@@ -200,39 +174,10 @@ func validSecretSettingAction(action string) bool {
 	}
 }
 
-// auditSensitiveSettingsAccess 记录敏感设置访问动作，审计内容只包含键名而不包含秘密值。
-func (s *Server) auditSensitiveSettingsAccess(ctx context.Context, userID int64, action, resource string, keys []string) error {
-	if len(keys) == 0 {
-		return nil
-	}
-	if s == nil || s.Store == nil || s.Store.SecurityAudit == nil {
-		return errors.New("敏感访问审计未初始化")
-	}
-	// normalizedKeys 保存排序去重后的敏感设置键名。
-	normalizedKeys := make([]string, 0, len(keys))
-	// seenKeys 保存已经加入审计记录的键名。
-	seenKeys := make(map[string]struct{}, len(keys))
-	// key 是当前待写入审计记录的敏感设置键名。
-	for _, key := range keys {
-		key = strings.TrimSpace(key)
-		if key == "" {
-			continue
-		}
-		// exists 表示敏感设置键名是否已经加入审计记录。
-		if _, exists := seenKeys[key]; exists {
-			continue
-		}
-		seenKeys[key] = struct{}{}
-		normalizedKeys = append(normalizedKeys, key)
-	}
-	sort.Strings(normalizedKeys)
-	return s.Store.SecurityAudit.Add(ctx, db.SecurityAuditLog{UserID: userID, Action: action, Resource: resource, Keys: normalizedKeys, Outcome: "accepted"})
-}
-
 // publicSettings 负责public设置相关处理。
 func (s *Server) publicSettings(w http.ResponseWriter, r *http.Request) {
 	// m、err 保存m、err，供当前处理流程使用
-	m, err := s.Store.Settings.Public(r.Context())
+	m, err := s.settingsApplication().PublicSystem(r.Context())
 	if err != nil {
 		writeErrRequest(w, r, http.StatusInternalServerError, "查询失败")
 		return
@@ -242,19 +187,14 @@ func (s *Server) publicSettings(w http.ResponseWriter, r *http.Request) {
 
 // allSettings 负责all设置相关处理。
 func (s *Server) allSettings(w http.ResponseWriter, r *http.Request) {
-	// sess 保存当前管理员会话，用于敏感配置读取审计。
+	// sess 保存当前管理员会话，用于应用服务执行敏感配置读取审计。
 	sess := authSess(r)
 	if sess == nil {
 		writeErr(w, http.StatusInternalServerError, "审计失败")
 		return
 	}
-	// err 保存敏感配置读取审计错误。
-	if err := s.auditSensitiveSettingsAccess(r.Context(), sess.UserID, "settings.read", "system_settings", db.SensitiveSettingKeys()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "审计失败")
-		return
-	}
-	// m、err 保存m、err，供当前处理流程使用
-	m, err := s.Store.Settings.Redacted(r.Context())
+	// m、err 保存脱敏设置及应用服务查询错误。
+	m, err := s.settingsApplication().GetSystem(r.Context(), sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
@@ -278,26 +218,21 @@ func (s *Server) setSetting(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	if db.IsSensitiveSettingKey(key) {
+	if s.settingsApplication().IsSensitiveSettingKey(key) {
 		// action 是最终采用的敏感设置命令。
 		action := req.Action
 		if !validSecretSettingAction(action) {
 			writeErr(w, http.StatusBadRequest, "敏感设置命令无效")
 			return
 		}
-		// sess 保存当前管理员会话，用于单项敏感设置写入审计。
+		// sess 保存当前管理员会话，用于应用服务执行单项敏感设置写入审计。
 		sess := authSess(r)
 		if sess == nil {
 			writeErr(w, http.StatusInternalServerError, "审计失败")
 			return
 		}
-		// err 保存单项敏感设置写入审计错误。
-		if err := s.auditSensitiveSettingsAccess(r.Context(), sess.UserID, "settings.write", "system_settings", []string{key}); err != nil {
-			writeErr(w, http.StatusInternalServerError, "审计失败")
-			return
-		}
-		// err 是单项敏感设置原子保存错误。
-		if err := s.Store.Settings.ApplyChanges(r.Context(), nil, map[string]db.SensitiveSettingChange{key: {Action: action, Value: req.Value}}); err != nil {
+		// err 是单项敏感设置原子保存或审计错误。
+		if err := s.settingsApplication().SetSystem(r.Context(), sess.UserID, key, req.Value, action); err != nil {
 			writeErr(w, http.StatusInternalServerError, "保存失败")
 			return
 		}
@@ -311,8 +246,14 @@ func (s *Server) setSetting(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if // err 保存err，供当前处理流程使用
-	err := s.Store.Settings.Set(r.Context(), key, req.Value); err != nil {
+	// sess 保存当前管理员会话，用于应用服务执行普通设置写入。
+	sess := authSess(r)
+	if sess == nil {
+		writeErr(w, http.StatusInternalServerError, "保存失败")
+		return
+	}
+	// err 表示普通设置保存或应用服务校验失败。
+	if err := s.settingsApplication().SetSystem(r.Context(), sess.UserID, key, req.Value, ""); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
 	}
@@ -330,10 +271,10 @@ func (s *Server) mountAIReplyReal(r chi.Router) {
 
 // listAIReply 负责listAI回复相关处理。
 func (s *Server) listAIReply(w http.ResponseWriter, r *http.Request) {
-	// sess 保存sess，供当前处理流程使用
+	// sess 保存当前认证会话，用于应用服务执行用户范围查询。
 	sess := authSess(r)
-	// rows、err 保存rows、err，供当前处理流程使用
-	rows, err := s.Store.AIReply.ListForUser(r.Context(), sess.UserID)
+	// rows、err 保存应用层 AI 设置摘要及查询错误。
+	rows, err := s.settingsApplication().ListAIReply(r.Context(), sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
@@ -358,23 +299,24 @@ func (s *Server) listAIReply(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getAIReply(w http.ResponseWriter, r *http.Request) {
 	// cid 保存cid，供当前处理流程使用
 	cid := chi.URLParam(r, "cookie_id")
-	if !s.requireCookieOwnership(w, r, cid) {
+	// sess 保存当前认证会话，用于应用服务执行账号归属校验。
+	sess := authSess(r)
+	if sess == nil {
+		writeErr(w, http.StatusUnauthorized, "未授权访问")
 		return
 	}
 	// cfg、err 保存cfg、err，供当前处理流程使用
-	cfg, err := s.Store.AIReply.Get(r.Context(), cid)
+	cfg, err := s.settingsApplication().GetAIReply(r.Context(), sess.UserID, cid)
 	if err != nil {
-		if !errors.Is(err, db.ErrNotFound) {
-			writeErr(w, http.StatusInternalServerError, "查询失败")
+		if errors.Is(err, settingsapp.ErrConfigNotFound) {
+			// 未保存配置使用与旧接口一致的默认值。
+			writeJSON(w, http.StatusOK, aiReplySettingsResponse{AIEnabled: false, MaxDiscountPercent: 10, MaxDiscountAmount: 100, MaxBargainRounds: 3, CustomPrompts: ""})
 			return
 		}
-		// 未保存配置使用与旧接口一致的默认值。
-		// 默认响应不携带 cookie_id，避免误认为已持久化账号配置。
-		// max_discount_percent 保持默认 10 的业务约束。
-		// max_discount_amount 保持默认 100 的业务约束。
-		// max_bargain_rounds 保持默认 3 的业务约束。
-		// custom_prompts 为空表示未配置自定义提示词。
-		writeJSON(w, http.StatusOK, aiReplySettingsResponse{AIEnabled: false, MaxDiscountPercent: 10, MaxDiscountAmount: 100, MaxBargainRounds: 3, CustomPrompts: ""})
+		if writeSettingsAccountError(w, err) {
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
 	// 已保存配置返回账号标识，客户端可据此区分账号级设置。
@@ -404,7 +346,18 @@ func (s *Server) setAIReply(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	if !s.requireCookieOwnership(w, r, cid) {
+	// sess 保存当前认证会话，用于在字段校验前复用旧接口的账号归属错误优先级。
+	sess := authSess(r)
+	if sess == nil {
+		writeErr(w, http.StatusUnauthorized, "未授权访问")
+		return
+	}
+	// ownershipErr 保存账号不存在、跨用户或数据库归属查询失败的结果；未配置 AI 设置不是账号错误。
+	if _, ownershipErr := s.settingsApplication().GetAIReply(r.Context(), sess.UserID, cid); ownershipErr != nil && !errors.Is(ownershipErr, settingsapp.ErrConfigNotFound) {
+		if writeSettingsAccountError(w, ownershipErr) {
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
 	if req.MaxDiscountPercent < 0 || req.MaxDiscountPercent > 100 {
@@ -420,21 +373,37 @@ func (s *Server) setAIReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// err 是 AI 回复配置写入错误。
-	err := s.Store.AIReply.UpsertSettings(r.Context(), cid, db.AIReplySettings{
-		AIEnabled: req.AIEnabled, MaxDiscountPercent: req.MaxDiscountPercent,
+	err := s.settingsApplication().UpsertAIReply(r.Context(), sess.UserID, cid, settingsapp.AIReplySettings{
+		CookieID: cid, AIEnabled: req.AIEnabled, MaxDiscountPercent: req.MaxDiscountPercent,
 		MaxDiscountAmount: req.MaxDiscountAmount, MaxBargainRounds: req.MaxBargainRounds,
 		CustomPrompts: req.CustomPrompts,
 	})
 	if err != nil {
+		if writeSettingsAccountError(w, err) {
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
+// writeSettingsAccountError 将应用层账号归属错误映射为旧接口兼容的 HTTP 状态。
+func writeSettingsAccountError(w http.ResponseWriter, err error) bool {
+	if errors.Is(err, settingsapp.ErrAccountNotFound) {
+		writeErr(w, http.StatusNotFound, "账号不存在")
+		return true
+	}
+	if errors.Is(err, settingsapp.ErrForbidden) {
+		writeErr(w, http.StatusForbidden, "无权限操作该账号")
+		return true
+	}
+	return false
+}
+
 // listAIModels 负责listAI模型列表相关处理。
 func (s *Server) listAIModels(w http.ResponseWriter, r *http.Request) {
-	// req 保存req，供当前处理流程使用
+	// req 保存 HTTP 层接收的模型目录查询参数。
 	var req struct {
 		BaseURL string `json:"base_url"`
 		APIKey  string `json:"api_key"`
@@ -444,172 +413,19 @@ func (s *Server) listAIModels(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	// sess 保存当前管理员会话，用于 AI 密钥使用审计。
+	// sess 保存当前管理员会话，用于应用服务执行 AI 密钥审计和读取。
 	sess := authSess(r)
 	if sess == nil {
 		writeErr(w, http.StatusInternalServerError, "审计失败")
 		return
 	}
-	// baseURL 保存baseURL，供当前处理流程使用
-	baseURL := strings.TrimSpace(req.BaseURL)
-	if baseURL == "" {
-		// v、err 保存v、err，供当前处理流程使用
-		v, err := s.Store.Settings.Get(r.Context(), "ai_api_url")
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "读取AI地址失败")
-			return
-		}
-		baseURL = v
-	}
-	if baseURL == "" {
-		baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-	}
-	// apiKey 保存apiKey，供当前处理流程使用
-	apiKey := strings.TrimSpace(req.APIKey)
-	if apiKey == "" {
-		// v、err 保存经访问审计后读取的 AI 密钥及错误。
-		v, err := s.Store.ReadSensitiveSetting(r.Context(), sess.UserID, "ai_api_key", "settings.use", "ai_models")
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "读取AI Key失败")
-			return
-		}
-		apiKey = v
-	} else if
-	// auditErr 表示审计外部传入 AI 密钥时返回的错误。
-	auditErr := s.auditSensitiveSettingsAccess(r.Context(), sess.UserID, "settings.use", "ai_models", []string{"ai_api_key"}); auditErr != nil {
-		// 外部传入的 AI 密钥也属于敏感使用，审计不可用时拒绝继续请求。
-		writeErr(w, http.StatusInternalServerError, "审计失败")
-		return
-	}
-
-	// models、err 保存models、err，供当前处理流程使用
-	models, err := fetchOpenAIModels(r.Context(), baseURL, apiKey)
+	// models、err 保存应用服务读取的模型名称及错误。
+	models, err := s.settingsApplication().ListAIModels(r.Context(), sess.UserID, req.BaseURL, req.APIKey)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, aiModelsResponse{Models: models})
-}
-
-// newSettingsOutboundHTTPClient 保存new设置OutboundHTTPClient，供当前处理流程使用
-var newSettingsOutboundHTTPClient = func(baseURL string) (*http.Client, error) {
-	return netguard.TrustedEndpointHTTPClient(baseURL, 20*time.Second)
-}
-
-// fetchOpenAIModels 负责fetchOpenAI模型列表相关处理。
-func fetchOpenAIModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
-	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	if baseURL == "" {
-		return nil, fmt.Errorf("AI API 地址为空")
-	}
-	// req、err 保存req、err，供当前处理流程使用
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/models", nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/json")
-	if strings.TrimSpace(apiKey) != "" {
-		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
-	}
-	// client、err 保存client、err，供当前处理流程使用
-	client, err := newSettingsOutboundHTTPClient(baseURL)
-	if err != nil {
-		return nil, fmt.Errorf("AI API 地址无效: %w", err)
-	}
-	// resp、err 保存resp、err，供当前处理流程使用
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("读取模型失败: %w", err)
-	}
-	defer resp.Body.Close()
-	// raw、err 保存raw、err，供当前处理流程使用
-	raw, err := readOpenAIModelsBody(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("读取模型失败: HTTP %d %s", resp.StatusCode, truncate(string(raw), 180))
-	}
-	// models、err 保存models、err，供当前处理流程使用
-	models, err := parseOpenAIModels(raw)
-	if err != nil {
-		return nil, err
-	}
-	if len(models) == 0 {
-		return nil, fmt.Errorf("模型列表为空")
-	}
-	return models, nil
-}
-
-// readOpenAIModelsBody 负责readOpenAI模型列表请求体相关处理。
-func readOpenAIModelsBody(r io.Reader) ([]byte, error) {
-	// raw、err 保存raw、err，供当前处理流程使用
-	raw, err := io.ReadAll(io.LimitReader(r, maxOpenAIModelsResponseBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(raw) > maxOpenAIModelsResponseBytes {
-		return nil, fmt.Errorf("模型列表响应超过 %d MiB", maxOpenAIModelsResponseBytes>>20)
-	}
-	return raw, nil
-}
-
-// parseOpenAIModels 负责parseOpenAI模型列表相关处理。
-func parseOpenAIModels(raw []byte) ([]string, error) {
-	// payload 保存请求载荷，供当前处理流程使用
-	var payload any
-	if // err 保存err，供当前处理流程使用
-	err := json.Unmarshal(raw, &payload); err != nil {
-		return nil, fmt.Errorf("解析模型列表失败: %w", err)
-	}
-	// seen 保存seen，供当前处理流程使用
-	seen := make(map[string]bool)
-	// out 保存out，供当前处理流程使用
-	var out []string
-	// add 保存add，供当前处理流程使用
-	add := func(v string) {
-		v = strings.TrimSpace(v)
-		if v == "" || seen[v] {
-			return
-		}
-		seen[v] = true
-		out = append(out, v)
-	}
-	// walk 保存walk，供当前处理流程使用
-	var walk func(any)
-	walk = func(v any) {
-		switch // x 保存x，供当前处理流程使用
-		x := v.(type) {
-		case []any:
-			// item 表示当前遍历过程中的商品
-			for _, item := range x {
-				walk(item)
-			}
-		case map[string]any:
-			if // id 保存标识，供当前处理流程使用
-			id, _ := x["id"].(string); id != "" {
-				add(id)
-			} else if // name 保存名称，供当前处理流程使用
-			name, _ := x["name"].(string); name != "" {
-				add(name)
-			}
-		case string:
-			add(x)
-		}
-	}
-	if // root、ok 保存root、ok，供当前处理流程使用
-	root, ok := payload.(map[string]any); ok {
-		if // data、ok 保存data、ok，供当前处理流程使用
-		data, ok := root["data"]; ok {
-			walk(data)
-		} else if // models、ok 保存models、ok，供当前处理流程使用
-		models, ok := root["models"]; ok {
-			walk(models)
-		}
-	} else {
-		walk(payload)
-	}
-	return out, nil
 }
 
 // ---- 用户设置 ----
@@ -623,10 +439,10 @@ func (s *Server) mountUserReal(r chi.Router) {
 
 // listUserSettings 负责list用户设置相关处理。
 func (s *Server) listUserSettings(w http.ResponseWriter, r *http.Request) {
-	// sess 保存sess，供当前处理流程使用
+	// sess 保存当前认证会话，用于应用服务执行用户范围查询。
 	sess := authSess(r)
-	// settings、err 保存settings、err，供当前处理流程使用
-	settings, err := s.Store.UserSettings.AllForUser(r.Context(), sess.UserID)
+	// settings、err 保存用户设置及查询错误。
+	settings, err := s.settingsApplication().ListUser(r.Context(), sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
@@ -636,12 +452,12 @@ func (s *Server) listUserSettings(w http.ResponseWriter, r *http.Request) {
 
 // getUserSetting 负责get用户设置相关处理。
 func (s *Server) getUserSetting(w http.ResponseWriter, r *http.Request) {
-	// sess 保存sess，供当前处理流程使用
+	// sess 保存当前认证会话，用于应用服务执行用户范围查询。
 	sess := authSess(r)
 	// key 保存key，供当前处理流程使用
 	key := chi.URLParam(r, "key")
-	// v、err 保存v、err，供当前处理流程使用
-	v, err := s.Store.UserSettings.GetForUser(r.Context(), sess.UserID, key)
+	// v、err 保存用户设置值及查询错误。
+	v, err := s.settingsApplication().GetUser(r.Context(), sess.UserID, key)
 	if err != nil {
 		writeJSON(w, http.StatusOK, userSettingResponse{Value: ""})
 		return
@@ -665,7 +481,7 @@ func (s *Server) setUserSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// err 是用户设置写入错误。
-	err := s.Store.UserSettings.SetForUser(r.Context(), sess.UserID, key, req.Value)
+	err := s.settingsApplication().SetUser(r.Context(), sess.UserID, key, req.Value)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存失败")
 		return

@@ -154,3 +154,32 @@ func TestStartBackgroundTaskContextWaitsForTaskExit(t *testing.T) {
 		t.Fatal("后台任务退出后等待未完成")
 	}
 }
+
+// TestWaitForBackgroundContextBoundsTimeout 验证后台任务等待超时不会阻塞后续生命周期收束。
+func TestWaitForBackgroundContextBoundsTimeout(t *testing.T) {
+	// srv 是使用零值字段验证后台完成信号惰性初始化的 Server。
+	srv := &Server{}
+	// taskStarted、releaseTask 分别表示任务已经登记和允许任务退出的信号。
+	taskStarted := make(chan struct{})
+	// releaseTask 是允许阻塞测试任务退出的信号。
+	releaseTask := make(chan struct{})
+	srv.startBackgroundTaskContext("超时等待任务", context.Background(), func() {
+		close(taskStarted)
+		<-releaseTask
+	})
+	<-taskStarted
+	// timeoutContext 是限制第一次等待时长的上下文。
+	timeoutContext, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if srv.waitForBackgroundContext(timeoutContext) {
+		t.Fatal("后台任务未退出时不应提前报告完成")
+	}
+	// releaseTask 允许后台任务退出，验证后续等待可以直接观察完成信号。
+	close(releaseTask)
+	// completedContext 是用于确认任务退出的有限等待上下文。
+	completedContext, completedCancel := context.WithTimeout(context.Background(), time.Second)
+	defer completedCancel()
+	if !srv.waitForBackgroundContext(completedContext) {
+		t.Fatalf("后台任务退出后等待失败: %v", completedContext.Err())
+	}
+}

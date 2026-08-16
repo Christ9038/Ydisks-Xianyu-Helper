@@ -3,81 +3,98 @@ package server
 import (
 	"context"
 	"errors"
-	"strings"
-	"time"
+	"log/slog"
 
+	"xianyu-go/internal/adapter"
 	orderapp "xianyu-go/internal/application/orders"
-	"xianyu-go/internal/db"
-	"xianyu-go/internal/xianyu/cookierefresh"
-	"xianyu-go/internal/xianyu/mtop"
 )
 
 // serverOrderRuntimeAdapter 将 Server 的运行时能力适配为订单应用 Port。
 // 适配器只存在于装配边界，订单应用服务本身不再依赖 *Server。
 type serverOrderRuntimeAdapter struct {
-	// server 保存需要被适配的 Server 聚合对象。
-	server *Server
+	// runtime 保存已下沉到 adapter 包的订单运行时端口。
+	runtime *adapter.OrderRuntime
 }
 
 // newServerOrderRuntime 创建订单运行时 Port 的 Server 适配器。
-func newServerOrderRuntime(server *Server) serverOrderRuntimeAdapter {
-	return serverOrderRuntimeAdapter{server: server}
+func newServerOrderRuntime(server *Server, reconciliation orderapp.ReconciliationRecorder) serverOrderRuntimeAdapter {
+	// hooks 保存 Server 运行时回调，避免适配器反向依赖 Server 包。
+	hooks := adapter.OrderRuntimeHooks{}
+	if server != nil {
+		hooks = adapter.OrderRuntimeHooks{
+			Client:          server.mtopClient,
+			ClientAvailable: func() bool { return server.MTop != nil },
+			AccountRunning: func(cookieID string) bool {
+				if server.Manager == nil {
+					return false
+				}
+				// _, running 保存账号运行实例是否存在。
+				_, running := server.Manager.GetInstance(cookieID)
+				return running
+			},
+			AutomationReady: func() bool { return server.Manager != nil && server.automation != nil },
+			ManualFullDelivery: func(ctx context.Context, order *orderapp.Order) (int, error) {
+				if server.automation == nil {
+					return 0, errors.New("自动化中心未初始化")
+				}
+				return server.automation.ManualFullDelivery(ctx, adapter.OrderForAutomation(order))
+			},
+			UpdateRunningCookie:   server.updateRunningCookie,
+			NotifyDelivery:        server.notifyDelivery,
+			RecoverExpiredSession: server.recoverExpiredMTOPSession,
+		}
+	}
+	// logger 保存 Server 使用的日志器；适配器会在缺失时使用默认日志器。
+	var logger = (*slog.Logger)(nil)
+	if server != nil {
+		logger = server.Logger
+	}
+	// runtime 保存已完成数据库与 Server 回调装配的订单运行时；零值 Server 只用于测试缺失依赖分支。
+	var runtime *adapter.OrderRuntime
+	if server == nil {
+		runtime = adapter.NewOrderRuntime(nil, hooks, reconciliation, logger)
+	} else {
+		runtime = server.dependencies.NewOrderRuntime(hooks, reconciliation, logger)
+	}
+	return serverOrderRuntimeAdapter{runtime: runtime}
 }
 
 // AccountRunning 判断指定账号是否在线运行。
 func (a serverOrderRuntimeAdapter) AccountRunning(cookieID string) bool {
-	if a.server == nil || a.server.Manager == nil {
-		return false
-	}
-	// running 表示账号是否已有运行中的实例。
-	_, running := a.server.Manager.GetInstance(cookieID)
-	return running
+	return a.runtime != nil && a.runtime.AccountRunning(cookieID)
 }
 
 // AutomationReady 判断完整发货自动化依赖是否已装配。
 func (a serverOrderRuntimeAdapter) AutomationReady() bool {
-	return a.server != nil && a.server.Manager != nil && a.server.automation != nil
+	return a.runtime != nil && a.runtime.AutomationReady()
 }
 
 // ManualFullDelivery 执行完整自动化发货。
 func (a serverOrderRuntimeAdapter) ManualFullDelivery(ctx context.Context, order *orderapp.Order) (int, error) {
-	if a.server == nil || a.server.automation == nil {
-		return 0, errors.New("自动化中心未初始化")
+	if a.runtime == nil {
+		return 0, errors.New("订单运行时未初始化")
 	}
-	return a.server.automation.ManualFullDelivery(ctx, orderForAutomation(order))
+	return a.runtime.ManualFullDelivery(ctx, order)
 }
 
 // MTopAvailable 判断平台客户端是否已注入。
 func (a serverOrderRuntimeAdapter) MTopAvailable() bool {
-	return a.server != nil && a.server.MTop != nil
-}
-
-// mtopClient 返回订单流程使用的平台客户端。
-func (a serverOrderRuntimeAdapter) mtopClient() mtop.Client {
-	if a.server == nil {
-		return nil
-	}
-	return a.server.mtopClient()
-}
-
-// consignWithCurrentCookie 使用当前账号凭证确认发货。
-func (a serverOrderRuntimeAdapter) consignWithCurrentCookie(ctx context.Context, cookieID, orderID string, userID int64) (bool, []string, string, bool, error) {
-	return a.server.consignWithCurrentCookie(ctx, cookieID, orderID, userID)
+	return a.runtime != nil && a.runtime.MTopAvailable()
 }
 
 // ConfirmShipment 将 Server 的确认发货能力适配为应用层结果模型。
 func (a serverOrderRuntimeAdapter) ConfirmShipment(ctx context.Context, cookieID, orderID string, userID int64) orderapp.ConsignResult {
-	// ok、messages、runtimeCookie、runtimeCookieChanged、err 保存确认发货结果及凭证变化。
-	ok, messages, runtimeCookie, runtimeCookieChanged, err := a.consignWithCurrentCookie(ctx, cookieID, orderID, userID)
-	return orderapp.ConsignResult{
-		Success: ok, Messages: messages, RuntimeCookie: runtimeCookie,
-		RuntimeCookieChanged: runtimeCookieChanged, Err: err,
+	if a.runtime == nil {
+		return orderapp.ConsignResult{Err: errors.New("订单运行时未初始化")}
 	}
+	return a.runtime.ConfirmShipment(ctx, cookieID, orderID, userID)
 }
 
 // updateRunningCookie 同步运行时账号 Cookie。
 func (a serverOrderRuntimeAdapter) updateRunningCookie(ctx context.Context, cookieID, value string) {
-	a.server.updateRunningCookie(ctx, cookieID, value)
+	if a.runtime != nil {
+		a.runtime.UpdateRunningCookie(ctx, cookieID, value)
+	}
 }
 
 // UpdateRunningCookie 将运行时账号 Cookie 能力暴露给手动发货应用 Port。
@@ -87,7 +104,9 @@ func (a serverOrderRuntimeAdapter) UpdateRunningCookie(ctx context.Context, cook
 
 // notifyDelivery 发送发货结果通知。
 func (a serverOrderRuntimeAdapter) notifyDelivery(cookieID, buyerID, itemID, chatID, message string) {
-	a.server.notifyDelivery(cookieID, buyerID, itemID, chatID, message)
+	if a.runtime != nil {
+		a.runtime.NotifyDelivery(cookieID, buyerID, itemID, chatID, message)
+	}
 }
 
 // NotifyDelivery 将发货通知能力暴露给手动发货应用 Port。
@@ -97,10 +116,10 @@ func (a serverOrderRuntimeAdapter) NotifyDelivery(cookieID, buyerID, itemID, cha
 
 // RecordOrderReconciliation 将外部动作成功后的本地状态异常写入补偿记录。
 func (a serverOrderRuntimeAdapter) RecordOrderReconciliation(ctx context.Context, orderID, cookieID, kind, message string) (string, error) {
-	if a.server == nil || a.server.Store == nil || a.server.Store.Reconciliations == nil {
-		return "", errors.New("订单补偿存储未初始化")
+	if a.runtime == nil {
+		return "", errors.New("订单运行时未初始化")
 	}
-	return a.server.Store.Reconciliations.CreatePending(ctx, orderID, cookieID, kind, message)
+	return a.runtime.RecordOrderReconciliation(ctx, orderID, cookieID, kind, message)
 }
 
 // RecordReconciliation 将补偿记录能力暴露给手动发货应用 Port。
@@ -110,127 +129,61 @@ func (a serverOrderRuntimeAdapter) RecordReconciliation(ctx context.Context, ord
 
 // ReportPersistenceFailure 记录手动发货本地订单状态持久化失败。
 func (a serverOrderRuntimeAdapter) ReportPersistenceFailure(orderID string, err error) {
-	if a.server == nil || a.server.Logger == nil || err == nil {
-		return
+	if a.runtime != nil {
+		a.runtime.ReportPersistenceFailure(orderID, err)
 	}
-	a.server.Logger.Error("更新订单为系统已发货失败", "order_id", orderID, "err", err)
 }
 
 // RecoverExpiredSession 处理订单刷新应用服务报告的平台会话过期。
 func (a serverOrderRuntimeAdapter) RecoverExpiredSession(ctx context.Context, cookieID string, err error) bool {
-	return a.server.recoverExpiredMTOPSession(ctx, cookieID, err)
+	return a.runtime != nil && a.runtime.RecoverExpiredSession(ctx, cookieID, err)
 }
 
 // DetailAvailable 判断订单详情接口是否可用。
 func (a serverOrderRuntimeAdapter) DetailAvailable() bool {
-	// ok 表示当前平台客户端是否实现详情接口。
-	_, ok := a.mtopClient().(orderDetailMTop)
-	return ok
+	return a.runtime != nil && a.runtime.DetailAvailable()
 }
 
 // SoldAvailable 判断已售订单列表接口是否可用。
 func (a serverOrderRuntimeAdapter) SoldAvailable() bool {
-	// ok 表示当前平台客户端是否实现订单列表接口。
-	_, ok := a.mtopClient().(mtop.SoldOrderFetcher)
-	return ok
+	return a.runtime != nil && a.runtime.SoldAvailable()
 }
 
 // CredentialAvailable 判断平台请求视图是否包含可用 Cookie。
 func (a serverOrderRuntimeAdapter) CredentialAvailable(detail *orderapp.PlatformRuntimeData) bool {
-	return detail != nil && strings.TrimSpace(detail.Value) != ""
+	return a.runtime != nil && a.runtime.CredentialAvailable(detail)
 }
 
 // FetchOrderDetail 调用平台详情接口并收集 Cookie 会话变化。
 func (a serverOrderRuntimeAdapter) FetchOrderDetail(ctx context.Context, detail *orderapp.PlatformRuntimeData, orderID string) (orderapp.RefreshDetailFetchResult, error) {
-	// fetcher、ok 保存详情接口适配器及其实现状态。
-	fetcher, ok := a.mtopClient().(orderDetailMTop)
-	if !ok {
-		return orderapp.RefreshDetailFetchResult{}, orderapp.ErrRefreshDetailUnsupported
+	if a.runtime == nil {
+		return orderapp.RefreshDetailFetchResult{}, errors.New("订单运行时未初始化")
 	}
-	if detail == nil {
-		return orderapp.RefreshDetailFetchResult{}, errors.New("订单详情请求缺少账号凭证")
-	}
-	// requestCtx、session 保存带 Cookie 快照的请求上下文和会话。
-	requestCtx, session := withMTopCookieSnapshot(ctx, cookieDetailForOrderPlatform(detail))
-	// result、err 保存平台详情响应及错误。
-	result, err := fetcher.FetchOrderDetail(requestCtx, detail.Value, orderID)
-	if err != nil {
-		return orderapp.RefreshDetailFetchResult{CookieUpdate: a.refreshCookieUpdate(detail, session)}, err
-	}
-	if result == nil {
-		return orderapp.RefreshDetailFetchResult{CookieUpdate: a.refreshCookieUpdate(detail, session)}, errors.New("订单详情接口未返回结果")
-	}
-	return orderapp.RefreshDetailFetchResult{Detail: &orderapp.RefreshDetail{Quantity: result.Quantity, SpecName: result.SpecName, SpecValue: result.SpecValue, OrderStatus: result.OrderStatus, Amount: result.Amount, UpdatedCookies: result.UpdatedCookies}, CookieUpdate: a.refreshCookieUpdate(detail, session)}, nil
+	return a.runtime.FetchOrderDetail(ctx, detail, orderID)
 }
 
 // FetchSoldOrders 调用平台已售订单接口并收集 Cookie 会话变化。
 func (a serverOrderRuntimeAdapter) FetchSoldOrders(ctx context.Context, detail *orderapp.PlatformRuntimeData) (orderapp.RefreshSoldFetchResult, error) {
-	// fetcher、ok 保存订单列表接口适配器及其实现状态。
-	fetcher, ok := a.mtopClient().(mtop.SoldOrderFetcher)
-	if !ok {
-		return orderapp.RefreshSoldFetchResult{}, errors.New("当前 MTop 客户端不支持订单列表发现")
+	if a.runtime == nil {
+		return orderapp.RefreshSoldFetchResult{}, errors.New("订单运行时未初始化")
 	}
-	if detail == nil {
-		return orderapp.RefreshSoldFetchResult{}, errors.New("订单列表请求缺少账号凭证")
-	}
-	// requestCtx、session 保存带 Cookie 快照的请求上下文和会话。
-	requestCtx, session := withMTopCookieSnapshot(ctx, cookieDetailForOrderPlatform(detail))
-	// orders 保存跨分页累积的平台订单。
-	orders := make([]orderapp.RefreshSoldOrder, 0)
-	// pageNumber 是当前请求的订单列表页码。
-	for pageNumber := 1; pageNumber <= maxSoldOrderPages; pageNumber++ {
-		// page、err 保存当前订单列表页及错误。
-		page, err := fetcher.FetchSoldOrdersPage(requestCtx, detail.Value, pageNumber, 30)
-		if err != nil {
-			return orderapp.RefreshSoldFetchResult{Orders: orders, CookieUpdate: a.refreshCookieUpdate(detail, session)}, err
-		}
-		// remote 是当前平台订单列表项。
-		for _, remote := range page.Items {
-			orders = append(orders, orderapp.RefreshSoldOrder{OrderID: remote.OrderID, ItemID: remote.ItemID, BuyerID: remote.BuyerID, OrderStatus: orderapp.NormalizeOrderStatus(remote.OrderStatus), Quantity: remote.Quantity, Amount: remote.Amount, ReceiverName: remote.ReceiverName, ReceiverPhone: remote.ReceiverPhone, ReceiverAddr: remote.ReceiverAddr, ReceiverCity: remote.ReceiverCity, IsBargain: remote.IsBargain})
-		}
-		if !page.NextPage || len(page.Items) == 0 {
-			break
-		}
-	}
-	return orderapp.RefreshSoldFetchResult{Orders: orders, CookieUpdate: a.refreshCookieUpdate(detail, session)}, nil
-}
-
-// refreshCookieUpdate 将平台 CookieSession 转换为应用层 Cookie 更新模型。
-func (a serverOrderRuntimeAdapter) refreshCookieUpdate(detail *orderapp.PlatformRuntimeData, session *mtop.CookieSession) orderapp.RefreshCookieUpdate {
-	if detail == nil || session == nil {
-		return orderapp.RefreshCookieUpdate{}
-	}
-	// value、snapshot、changed 保存会话当前 Cookie、快照和变化状态。
-	value, snapshot, changed := session.State()
-	if snapshot == nil {
-		return orderapp.RefreshCookieUpdate{Value: value, Changed: changed, Handled: false}
-	}
-	// metadata 保存包含完整 Cookie 快照的元数据。
-	metadata := cookierefresh.MetadataWithSnapshot(detail.MetadataJSON, snapshot)
-	return orderapp.RefreshCookieUpdate{Value: value, MetadataJSON: metadata, Changed: changed, Handled: true}
+	return a.runtime.FetchSoldOrders(ctx, detail)
 }
 
 // PersistCookieSession 在凭证锁内保存应用层 Cookie 更新。
 func (a serverOrderRuntimeAdapter) PersistCookieSession(ctx context.Context, detail *orderapp.PlatformRuntimeData, update orderapp.RefreshCookieUpdate) (string, bool, bool, error) {
-	if detail == nil || !update.Handled {
-		return "", false, false, nil
+	if a.runtime == nil {
+		if detail == nil {
+			return update.Value, false, update.Handled, errors.New("订单运行时未初始化")
+		}
+		return update.Value, update.Value != detail.Value, update.Handled, errors.New("订单运行时未初始化")
 	}
-	if !update.Changed {
-		return detail.Value, false, true, nil
-	}
-	if a.server == nil || a.server.Store == nil || a.server.Store.Cookies == nil {
-		return update.Value, update.Value != detail.Value, true, errors.New("账号 Cookie 存储未初始化")
-	}
-	// err 保存账号续期 Cookie 写入错误。
-	if err := a.server.Store.Cookies.UpdateRenewalCookie(ctx, detail.ID, update.Value, update.MetadataJSON, time.Now().Unix()); err != nil {
-		return update.Value, update.Value != detail.Value, true, err
-	}
-	return update.Value, update.Value != detail.Value, true, nil
+	return a.runtime.PersistCookieSession(ctx, detail, update)
 }
 
 // IsSessionExpired 判断平台错误是否为会话过期。
 func (a serverOrderRuntimeAdapter) IsSessionExpired(err error) bool {
-	return mtop.IsSessionExpiredErr(err)
+	return a.runtime != nil && a.runtime.IsSessionExpired(err)
 }
 
 // orderHTTPAdapter 将 HTTP 请求模型和兼容响应模型适配到应用层订单服务。
@@ -246,11 +199,12 @@ type orderHTTPAdapter struct {
 func (a *orderHTTPAdapter) RefreshSingle(ctx context.Context, userID int64, orderID string) (orderSingleRefreshResponse, error) {
 	// result、err 保存应用层单订单刷新结果和错误。
 	result, err := a.services.Refresh.RefreshSingle(ctx, userID, orderID)
+	err = adapter.NormalizeOrderError(err)
 	if errors.Is(err, orderapp.ErrNotFound) {
-		return orderSingleRefreshResponse{}, db.ErrNotFound
+		return orderSingleRefreshResponse{}, orderapp.ErrNotFound
 	}
 	if errors.Is(err, orderapp.ErrForbidden) {
-		return orderSingleRefreshResponse{}, db.ErrForbidden
+		return orderSingleRefreshResponse{}, orderapp.ErrForbidden
 	}
 	if errors.Is(err, orderapp.ErrRefreshDetailUnsupported) {
 		return orderSingleRefreshResponse{}, errOrderDetailUnsupported
@@ -268,8 +222,9 @@ func (a *orderHTTPAdapter) RefreshSingle(ctx context.Context, userID int64, orde
 func (a *orderHTTPAdapter) Refresh(ctx context.Context, userID int64, cookieID, status string) (orderRefreshResponse, error) {
 	// result、err 保存应用层批量刷新结果和错误。
 	result, err := a.services.Refresh.Refresh(ctx, userID, cookieID, status)
+	err = adapter.NormalizeOrderError(err)
 	if errors.Is(err, orderapp.ErrForbidden) {
-		return orderRefreshResponse{}, db.ErrForbidden
+		return orderRefreshResponse{}, orderapp.ErrForbidden
 	}
 	if err != nil {
 		return orderRefreshResponse{}, err
@@ -399,7 +354,7 @@ type orderListResult struct {
 // orderDTOFromRow 把数据库订单列表行转换为稳定的订单响应视图。
 func orderDTOFromRow(row orderapp.OrderRow) orderDTO {
 	// status 保存状态，供当前处理流程使用
-	status := db.NormalizeOrderStatus(row.OrderStatus)
+	status := orderapp.NormalizeOrderStatus(row.OrderStatus)
 	return orderDTO{
 		OrderID: row.OrderID, ItemID: row.ItemID, ItemTitle: row.ItemTitle,
 		ItemImage: itemImageFromDetail(row.ItemDetail), BuyerID: row.BuyerID,
@@ -421,7 +376,7 @@ func orderDTOFromOrder(order *orderapp.Order, item *orderapp.ItemInfo) orderDTO 
 		itemImage = itemImageFromDetail(item.ItemDetail)
 	}
 	// status 保存状态，供当前处理流程使用
-	status := db.NormalizeOrderStatus(order.OrderStatus)
+	status := orderapp.NormalizeOrderStatus(order.OrderStatus)
 	return orderDTO{
 		OrderID: order.OrderID, ItemID: order.ItemID, ItemTitle: itemTitle, ItemImage: itemImage,
 		BuyerID: order.BuyerID, SpecName: order.SpecName, SpecValue: order.SpecValue,
@@ -430,36 +385,6 @@ func orderDTOFromOrder(order *orderapp.Order, item *orderapp.ItemInfo) orderDTO 
 		ReceiverName: order.ReceiverName, ReceiverPhone: order.ReceiverPhone,
 		ReceiverAddress: order.ReceiverAddress, ReceiverCity: order.ReceiverCity,
 		CreatedAt: order.CreatedAt, UpdatedAt: order.UpdatedAt,
-	}
-}
-
-// orderForAutomation 将订单应用实体转换为尚未迁移完成的自动化中心数据库实体。
-func orderForAutomation(order *orderapp.Order) *db.Order {
-	if order == nil {
-		return nil
-	}
-	return &db.Order{
-		OrderID: order.OrderID, ItemID: order.ItemID, BuyerID: order.BuyerID,
-		SpecName: order.SpecName, SpecValue: order.SpecValue, Quantity: order.Quantity,
-		Amount: order.Amount, OrderStatus: order.OrderStatus, CookieID: order.CookieID,
-		IsBargain: order.IsBargain, ReceiverName: order.ReceiverName,
-		ReceiverPhone: order.ReceiverPhone, ReceiverAddr: order.ReceiverAddress,
-		ReceiverCity: order.ReceiverCity, Version: order.Version, ChatID: order.ChatID,
-		SystemShipped: order.SystemShipped, PaidAt: order.PaidAt, ShippedAt: order.ShippedAt,
-		CompletedAt: order.CompletedAt, BuyerReviewedAt: order.BuyerReviewedAt,
-		LastReviewRequestAt: order.LastReviewRequestAt, ReviewRequestCount: order.ReviewRequestCount,
-		CreatedAt: order.CreatedAt, UpdatedAt: order.UpdatedAt,
-	}
-}
-
-// cookieDetailForOrderPlatform 将订单应用层平台运行视图转换为共享 Server 会话辅助函数所需的兼容详情。
-func cookieDetailForOrderPlatform(data *orderapp.PlatformRuntimeData) *db.CookieDetail {
-	if data == nil {
-		return nil
-	}
-	return &db.CookieDetail{
-		ID: data.ID, UserID: data.UserID, Value: data.Value,
-		MetadataJSON: data.MetadataJSON, ShowBrowser: data.ShowBrowser,
 	}
 }
 
@@ -476,8 +401,9 @@ func (a *orderHTTPAdapter) List(ctx context.Context, query orderListQuery) (orde
 		UserID: query.UserID, CookieID: query.CookieID, Status: query.Status,
 		Search: query.Search, Page: query.Page, PageSize: query.PageSize,
 	})
+	err = adapter.NormalizeOrderError(err)
 	if errors.Is(err, orderapp.ErrForbidden) {
-		return orderListResult{}, db.ErrForbidden
+		return orderListResult{}, orderapp.ErrForbidden
 	}
 	if err != nil {
 		return orderListResult{}, err
@@ -498,11 +424,12 @@ func (a *orderHTTPAdapter) List(ctx context.Context, query orderListQuery) (orde
 func (a *orderHTTPAdapter) Get(ctx context.Context, userID int64, orderID string) (*orderapp.Order, error) {
 	// order、err 保存应用层订单详情结果及错误。
 	order, err := a.services.Detail.Get(ctx, userID, orderID)
+	err = adapter.NormalizeOrderError(err)
 	if errors.Is(err, orderapp.ErrNotFound) {
-		return nil, db.ErrNotFound
+		return nil, orderapp.ErrNotFound
 	}
 	if errors.Is(err, orderapp.ErrForbidden) {
-		return nil, db.ErrForbidden
+		return nil, orderapp.ErrForbidden
 	}
 	return order, err
 }
@@ -511,11 +438,12 @@ func (a *orderHTTPAdapter) Get(ctx context.Context, userID int64, orderID string
 func (a *orderHTTPAdapter) GetView(ctx context.Context, userID int64, orderID string) (orderDetailResult, error) {
 	// result、err 保存应用层详情结果及错误。
 	result, err := a.services.Detail.GetView(ctx, userID, orderID)
+	err = adapter.NormalizeOrderError(err)
 	if errors.Is(err, orderapp.ErrNotFound) {
-		return orderDetailResult{}, db.ErrNotFound
+		return orderDetailResult{}, orderapp.ErrNotFound
 	}
 	if errors.Is(err, orderapp.ErrForbidden) {
-		return orderDetailResult{}, db.ErrForbidden
+		return orderDetailResult{}, orderapp.ErrForbidden
 	}
 	if err != nil {
 		return orderDetailResult{}, err
@@ -527,11 +455,12 @@ func (a *orderHTTPAdapter) GetView(ctx context.Context, userID int64, orderID st
 func (a *orderHTTPAdapter) Delete(ctx context.Context, userID int64, orderID string) error {
 	// err 保存应用层订单删除错误。
 	err := a.services.Delete.Delete(ctx, userID, orderID)
+	err = adapter.NormalizeOrderError(err)
 	if errors.Is(err, orderapp.ErrForbidden) {
-		return db.ErrForbidden
+		return orderapp.ErrForbidden
 	}
 	if errors.Is(err, orderapp.ErrNotFound) {
-		return db.ErrNotFound
+		return orderapp.ErrNotFound
 	}
 	return err
 }
@@ -586,11 +515,12 @@ func (a *orderHTTPAdapter) Update(ctx context.Context, userID int64, orderID str
 	if errors.As(err, &validationErr) {
 		return newOrderBadRequest(validationErr.Error())
 	}
+	err = adapter.NormalizeOrderError(err)
 	if errors.Is(err, orderapp.ErrForbidden) {
-		return db.ErrForbidden
+		return orderapp.ErrForbidden
 	}
 	if errors.Is(err, orderapp.ErrNotFound) {
-		return db.ErrNotFound
+		return orderapp.ErrNotFound
 	}
 	return err
 }

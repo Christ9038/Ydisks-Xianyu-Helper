@@ -26,6 +26,21 @@ type fakeAccountTaskClient struct {
 	polishErr     error
 }
 
+// cancelingAccountTaskClient 在评价动作已经返回成功前取消调用方上下文，用于验证补偿收口不会依赖已取消请求。
+type cancelingAccountTaskClient struct {
+	// fakeAccountTaskClient 提供除取消场景外的账号任务平台响应。
+	*fakeAccountTaskClient
+	// cancel 负责模拟外部动作完成后请求生命周期结束。
+	cancel context.CancelFunc
+}
+
+// RateBuyer 在记录远端动作成功结果前取消调用方上下文。
+func (c *cancelingAccountTaskClient) RateBuyer(_ context.Context, cookiesStr, tradeID, feedback string) (*mtop.AccountTaskResult, error) {
+	c.rateCalls++
+	c.cancel()
+	return &mtop.AccountTaskResult{Success: true, Message: "ok"}, nil
+}
+
 // FetchPendingRateOrders 负责FetchPendingRate订单列表相关处理。
 func (f *fakeAccountTaskClient) FetchPendingRateOrders(context.Context, string, int, int) (*mtop.PendingRateResult, error) {
 	f.pendingCalls++
@@ -170,6 +185,57 @@ func TestAccountTaskRateFinishAndQuarantineFailureJoinsErrors(t *testing.T) {
 	}
 	if client.rateCalls != 1 {
 		t.Fatalf("外部评价动作应只执行一次，calls=%d", client.rateCalls)
+	}
+}
+
+// TestAccountTaskRateCancellationQuarantinesAndBlocksRetry 验证外部评价成功后请求取消仍能隔离运行并阻止重复重试。
+func TestAccountTaskRateCancellationQuarantinesAndBlocksRetry(t *testing.T) {
+	// store 是当前测试使用的 SQLite 自动化存储。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// setupCtx 是测试设置写入共用的数据库上下文。
+	setupCtx := context.Background()
+	// settingsErr 表示写入自动评价设置时的数据库错误。
+	if settingsErr := store.AccountTasks.Upsert(setupCtx, db.AccountTaskSettings{CookieID: "cid", AutoRateEnabled: true,
+		RateContent: "交易愉快", PolishTime: "03:00"}); settingsErr != nil {
+		t.Fatal(settingsErr)
+	}
+	// requestCtx、cancel 模拟外部动作完成后被上层请求取消的生命周期。
+	requestCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// client 在评价动作返回成功前取消 requestCtx，并保留调用次数用于重试断言。
+	client := &cancelingAccountTaskClient{
+		fakeAccountTaskClient: &fakeAccountTaskClient{pending: []mtop.PendingRateOrder{{TradeID: "order-cancelled"}}},
+		cancel:                cancel,
+	}
+	// center 是待验证取消后补偿收口逻辑的自动化中心。
+	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
+	center.SetAccountTaskClient(client)
+	// runErr 保存外部评价已完成但调用方取消后的人工核对错误。
+	_, runErr := center.RunAccountTask(requestCtx, "cid", TaskAutoRate)
+	if !errors.Is(runErr, errAutomationNeedsReview) || !strings.Contains(runErr.Error(), "保存账号任务运行结果失败") {
+		t.Fatalf("取消后的外部成功应隔离运行，err=%v", runErr)
+	}
+	if client.rateCalls != 1 {
+		t.Fatalf("首次外部评价调用次数=%d want 1", client.rateCalls)
+	}
+	// status、successCount 保存补偿收口后的任务状态和已确认成功数量。
+	var status string
+	// successCount 保存数据库记录的外部评价成功数，用于确认取消请求未抹掉已经完成的动作结果。
+	var successCount int
+	// queryErr 表示读取补偿状态时的数据库错误。
+	queryErr := store.DB.QueryRowContext(context.Background(), `SELECT status,success_count FROM account_task_runs WHERE run_key=?`,
+		"rate:cid:order-cancelled").Scan(&status, &successCount)
+	if queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	if status != "needs_review" || successCount != 1 {
+		t.Fatalf("取消后任务状态错误: status=%q success=%d", status, successCount)
+	}
+	// retrySummary、retryErr 保存新请求尝试重跑时的结果，确认人工核对状态不会被自动重放。
+	retrySummary, retryErr := center.RunAccountTask(context.Background(), "cid", TaskAutoRate)
+	if retryErr != nil || retrySummary.Skipped != 1 || client.rateCalls != 1 {
+		t.Fatalf("人工核对任务不应自动重试: summary=%+v calls=%d err=%v", retrySummary, client.rateCalls, retryErr)
 	}
 }
 

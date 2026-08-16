@@ -167,6 +167,43 @@ func TestChannelServiceRejectsOwnershipAndStorageFailures(t *testing.T) {
 	}
 }
 
+// TestChannelServiceOwnsChannelKeepsRepositoryBoundary 验证渠道归属查询只透传非敏感结论和存储错误。
+func TestChannelServiceOwnsChannelKeepsRepositoryBoundary(t *testing.T) {
+	// cases 描述成功、越权、存储失败和非法输入四类归属结果。
+	cases := []struct {
+		name       string
+		repository *channelRepositoryStub
+		userID     int64
+		channelID  int64
+		want       bool
+		wantErr    error
+	}{
+		{name: "owned", repository: &channelRepositoryStub{ownedChannel: true}, userID: 7, channelID: 1, want: true},
+		{name: "not owned", repository: &channelRepositoryStub{ownedChannel: false}, userID: 7, channelID: 1},
+		{name: "storage error", repository: &channelRepositoryStub{err: errors.New("storage failed")}, userID: 7, channelID: 1, wantErr: errors.New("storage failed")},
+		{name: "invalid user", repository: &channelRepositoryStub{ownedChannel: true}, userID: 0, channelID: 1, wantErr: ErrChannelInvalidInput},
+	}
+	// testCase 表示当前验证的渠道归属边界场景。
+	for _, testCase := range cases {
+		// service 是使用当前场景持久化替身的通知渠道服务。
+		service := NewChannelService(testCase.repository, nil)
+		// exists、ownershipErr 保存应用层归属结果。
+		exists, ownershipErr := service.OwnsChannel(context.Background(), testCase.userID, testCase.channelID)
+		if exists != testCase.want {
+			t.Fatalf("%s: 归属结果=%v，期望=%v", testCase.name, exists, testCase.want)
+		}
+		if testCase.wantErr != nil {
+			if ownershipErr == nil || ownershipErr.Error() != testCase.wantErr.Error() {
+				t.Fatalf("%s: 错误=%v，期望=%v", testCase.name, ownershipErr, testCase.wantErr)
+			}
+			continue
+		}
+		if ownershipErr != nil {
+			t.Fatalf("%s: 意外错误=%v", testCase.name, ownershipErr)
+		}
+	}
+}
+
 // TestChannelServiceTestSendUsesSafeBody 验证测试发送只生成固定正文，不携带渠道配置。
 func TestChannelServiceTestSendUsesSafeBody(t *testing.T) {
 	// repository 是允许渠道归属且不返回敏感配置的端口替身。

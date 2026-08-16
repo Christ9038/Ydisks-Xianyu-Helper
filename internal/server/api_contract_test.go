@@ -152,14 +152,14 @@ func assertUnifiedAPIError(t *testing.T, handler http.Handler, method, path, bod
 // TestAPIContractRemainingAuthenticationErrors 验证初始化和密码凭据错误统一使用非 2xx 响应。
 func TestAPIContractRemainingAuthenticationErrors(t *testing.T) {
 	// srv 是用于验证剩余认证错误边界的 HTTP 测试服务。
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// handler 是当前测试使用的完整路由树。
 	handler := srv.Router()
 	// sessionCookie 是管理员登录后得到的认证会话。
 	sessionCookie := loginHelper(t, handler)
 	// created 表示用于验证用户名冲突的占位用户是否成功创建。
-	created, createErr := srv.Store.Users.Create(context.Background(), "taken-user", "taken@example.com", "pw")
+	created, createErr := store.Users.Create(context.Background(), "taken-user", "taken@example.com", "pw")
 	if createErr != nil || !created {
 		t.Fatalf("create conflict user: created=%v err=%v", created, createErr)
 	}

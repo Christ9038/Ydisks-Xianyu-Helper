@@ -46,7 +46,7 @@ func TestNewProfileServiceRequiresPorts(t *testing.T) {
 		// name 是当前构造失败场景名称。
 		name string
 		// repository 是当前场景使用的摘要端口。
-		repository SummaryRepository
+		repository ProfileSummaryRepository
 		// profilePort 是当前场景使用的平台端口。
 		profilePort ProfilePort
 	}{

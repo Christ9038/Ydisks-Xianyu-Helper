@@ -24,6 +24,24 @@ type Summary struct {
 	Nickname string
 	// AvatarURL 是本地缓存的平台头像地址，用于资料刷新失败时的展示兜底。
 	AvatarURL string
+	// AutoConfirm 表示账号是否启用自动确认收货。
+	AutoConfirm bool
+	// PauseDuration 是账号暂停时长，单位为分钟。
+	PauseDuration int
+	// PausedUntil 是暂停结束时间的 Unix 秒；零值表示当前未暂停。
+	PausedUntil int64
+	// Username 是账号关联的登录用户名，不包含登录密码。
+	Username string
+	// ShowBrowser 表示密码登录流程是否允许显示浏览器。
+	ShowBrowser bool
+	// LastRefreshAt 是最近一次资料刷新时间，单位为 Unix 秒。
+	LastRefreshAt int64
+	// LoginMethod 是最近一次成功登录方式，不包含凭证内容。
+	LoginMethod string
+	// LastLoginAt 是最近一次成功登录时间，单位为 Unix 秒。
+	LastLoginAt int64
+	// CreatedAt 是账号记录创建时间的数据库字符串。
+	CreatedAt string
 }
 
 // ProfileInput 是平台资料刷新端口的输入，携带已通过归属校验的账号摘要。
@@ -48,8 +66,8 @@ type ProfileResult struct {
 	ErrorMessage string
 }
 
-// SummaryRepository 定义资料刷新用例读取账号归属和摘要所需的最小端口。
-type SummaryRepository interface {
+// ProfileSummaryRepository 定义资料刷新用例读取账号归属和摘要所需的最小端口。
+type ProfileSummaryRepository interface {
 	// GetOwnedSummary 按用户和账号联合查询非敏感摘要；不存在或越权时返回错误。
 	GetOwnedSummary(context.Context, int64, string) (Summary, error)
 }
@@ -63,13 +81,13 @@ type ProfilePort interface {
 // ProfileService 编排账号归属校验、平台资料刷新和可展示结果转换。
 type ProfileService struct {
 	// repository 提供不解密凭证的账号摘要查询能力。
-	repository SummaryRepository
+	repository ProfileSummaryRepository
 	// profilePort 承担平台调用、凭证会话更新和资料持久化适配。
 	profilePort ProfilePort
 }
 
 // NewProfileService 构造资料刷新应用服务并校验必需端口。
-func NewProfileService(repository SummaryRepository, profilePort ProfilePort) (*ProfileService, error) {
+func NewProfileService(repository ProfileSummaryRepository, profilePort ProfilePort) (*ProfileService, error) {
 	if repository == nil {
 		return nil, errors.New("账号资料摘要 repository 未初始化")
 	}

@@ -13,7 +13,7 @@ CREATE TABLE automation_pending_tasks (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_pending_automation_cookie FOREIGN KEY (cookie_id) REFERENCES cookies(id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 CREATE INDEX idx_automation_pending_due ON automation_pending_tasks(status, due_at, lease_expires_at);
 
 -- +goose Down

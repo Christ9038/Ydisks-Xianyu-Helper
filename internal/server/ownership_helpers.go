@@ -1,47 +1,37 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 
+	accountapp "xianyu-go/internal/application/account"
 	"xianyu-go/internal/auth"
-	"xianyu-go/internal/db"
 )
 
+// authSess 从请求上下文读取经过认证中间件注入的会话。
+func authSess(r *http.Request) *auth.SessionIdentity {
+	return auth.IdentityFromContext(r.Context())
+}
+
 // requireCookieOwner 负责require登录凭证所有者相关处理。
-func (s *Server) requireCookieOwner(w http.ResponseWriter, r *http.Request, cookieID string) (*db.CookieDetail, bool) {
+func (s *Server) requireCookieOwner(w http.ResponseWriter, r *http.Request, cookieID string) (accountapp.AccountSummary, bool) {
 	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
 	if sess == nil {
 		writeErr(w, http.StatusUnauthorized, "未授权访问")
-		return nil, false
+		return accountapp.AccountSummary{}, false
 	}
 	// d、err 保存d、err，供当前处理流程使用
 	d, err := s.loadCookieSummaryDetail(r.Context(), sess.UserID, cookieID)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "账号不存在")
-		return nil, false
+		return accountapp.AccountSummary{}, false
 	}
 	if d.UserID != sess.UserID {
 		writeErr(w, http.StatusForbidden, "无权限操作该账号")
-		return nil, false
+		return accountapp.AccountSummary{}, false
 	}
 	return d, true
-}
-
-// requireCookieSecretOwner 校验账号归属后读取登录设置所需的完整详情，仅供需要密码的管理流程使用。
-func (s *Server) requireCookieSecretOwner(w http.ResponseWriter, r *http.Request, cookieID string) (*db.CookieDetail, bool) {
-	// ownerOK 表示当前会话是否通过账号所有权校验。
-	_, ownerOK := s.requireCookieOwner(w, r, cookieID)
-	if !ownerOK {
-		return nil, false
-	}
-	// detail 是登录设置流程需要的用户名、密码和浏览器显示设置。
-	detail, err := s.Store.Cookies.GetDetails(r.Context(), cookieID)
-	if err != nil || detail == nil {
-		writeErr(w, http.StatusNotFound, "账号不存在")
-		return nil, false
-	}
-	return detail, true
 }
 
 // requireCookieOwnership 校验当前会话是否拥有账号，只读取账号所有权元数据，不解密凭证。
@@ -52,62 +42,19 @@ func (s *Server) requireCookieOwnership(w http.ResponseWriter, r *http.Request, 
 		writeErr(w, http.StatusUnauthorized, "未授权访问")
 		return false
 	}
-	// owned 表示当前用户是否直接拥有该账号。
-	owned, ownedErr := s.Store.Cookies.ExistsOwned(r.Context(), sess.UserID, cookieID)
-	if ownedErr != nil {
+	// service 提供按用户过滤的非敏感所有权判断，避免 Server 直接访问账号表。
+	service := s.accountSummaryApplication()
+	if service == nil {
 		writeErr(w, http.StatusNotFound, "账号不存在")
 		return false
 	}
-	if owned {
+	// ownershipErr 保存应用服务返回的账号归属结果。
+	if ownershipErr := service.RequireOwnership(r.Context(), sess.UserID, cookieID); ownershipErr == nil {
 		return true
-	}
-	// ownerID 用于区分账号不存在和账号属于其他用户，保持原有 404/403 响应语义。
-	ownerID, ownerErr := s.Store.Cookies.GetOwnerID(r.Context(), cookieID)
-	if ownerErr != nil {
-		writeErr(w, http.StatusNotFound, "账号不存在")
-		return false
-	}
-	if ownerID != sess.UserID {
+	} else if errors.Is(ownershipErr, accountapp.ErrForbidden) {
 		writeErr(w, http.StatusForbidden, "无权限操作该账号")
 		return false
 	}
-	return true
-}
-
-// requireCardOwner 校验当前会话是否拥有卡券组。
-func (s *Server) requireCardOwner(w http.ResponseWriter, r *http.Request, cardID int64) (*db.CardFull, bool) {
-	// sess 是当前请求经过认证中间件注入的会话。
-	sess := auth.SessionFromContext(r.Context())
-	if sess == nil {
-		writeErr(w, http.StatusUnauthorized, "未授权访问")
-		return nil, false
-	}
-	// card 和 err 分别表示卡券组记录及其查询错误。
-	card, err := s.Store.Cards.Get(r.Context(), cardID)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "卡券不存在")
-		return nil, false
-	}
-	if card.UserID != sess.UserID {
-		writeErr(w, http.StatusForbidden, "无权操作该卡密组")
-		return nil, false
-	}
-	return card, true
-}
-
-// requireChannelOwner 校验当前会话是否拥有通知渠道。
-func (s *Server) requireChannelOwner(w http.ResponseWriter, r *http.Request, channelID int64) bool {
-	// sess 是当前请求经过认证中间件注入的会话。
-	sess := auth.SessionFromContext(r.Context())
-	if sess == nil {
-		writeErr(w, http.StatusUnauthorized, "未授权访问")
-		return false
-	}
-	// exists 和 err 表示通知渠道归属查询结果及错误。
-	exists, err := s.Store.Notifications.OwnsChannel(r.Context(), channelID, sess.UserID)
-	if err != nil || !exists {
-		writeErr(w, http.StatusForbidden, "无权操作该通知渠道")
-		return false
-	}
-	return true
+	writeErr(w, http.StatusNotFound, "账号不存在")
+	return false
 }

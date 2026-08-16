@@ -5,10 +5,15 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
+	"time"
 )
 
 // ErrInvalidInput 表示聊天历史查询缺少必要的非敏感标识。
 var ErrInvalidInput = errors.New("聊天历史查询参数无效")
+
+// ErrSessionUnavailable 表示会话清理、归属或身份持久化端口未装配。
+var ErrSessionUnavailable = errors.New("聊天会话服务未启用")
 
 // Message 是聊天历史用例对外暴露的非敏感消息模型。
 type Message struct {
@@ -60,6 +65,21 @@ type Session struct {
 	UnreadCount int
 }
 
+// Identity 是平台身份查询返回的非敏感展示信息。
+type Identity struct {
+	// BuyerName 是平台返回的买家展示名称。
+	BuyerName string
+	// BuyerAvatar 是平台返回的买家头像地址。
+	BuyerAvatar string
+}
+
+// IdentityResolver 定义聊天应用获取平台会话展示身份的最小能力。
+// 凭证读取、平台请求和凭证刷新均由适配器内部完成，应用层只接收展示字段。
+type IdentityResolver interface {
+	// Resolve 根据账号和聊天会话查询非敏感的买家展示身份。
+	Resolve(ctx context.Context, accountID, chatID string) (Identity, error)
+}
+
 // Page 是聊天历史查询的分页结果。
 type Page struct {
 	// Messages 是按时间正序排列的当前页消息。
@@ -78,6 +98,20 @@ type Repository interface {
 	ListSessions(ctx context.Context, userID int64, accountID string, limit int) ([]Session, error)
 }
 
+// SessionRepository 定义会话列表之外的清理、身份写入和账号归属能力。
+type SessionRepository interface {
+	// Repository 提供聊天消息和会话列表查询能力。
+	Repository
+	// DeleteEmptySessions 删除指定账号中没有有效消息的空会话壳。
+	DeleteEmptySessions(ctx context.Context, accountID string) error
+	// UpdateSessionIdentity 更新会话的买家展示名称和头像。
+	UpdateSessionIdentity(ctx context.Context, accountID, chatID, buyerID, buyerName, buyerAvatar string) error
+	// ExistsOwned 判断账号是否归属于指定用户，只返回存在性，不返回敏感字段。
+	ExistsOwned(ctx context.Context, userID int64, accountID string) (bool, error)
+	// MarkRead 将指定用户拥有的会话未读数归零。
+	MarkRead(ctx context.Context, userID int64, accountID, chatID string) error
+}
+
 // Service 编排聊天历史查询，不持有 HTTP 请求或数据库连接。
 type Service struct {
 	// repository 保存由调用方注入的最小持久化端口。
@@ -88,11 +122,18 @@ type Service struct {
 	senders SenderProvider
 	// uploader 保存图片上传的平台适配端口。
 	uploader ImageUploader
+	// identityResolver 保存平台身份查询端口，凭证只在适配器内部短暂存在。
+	identityResolver IdentityResolver
 }
 
 // New 创建聊天历史应用服务；空端口会导致构造结果不可用。
 func New(repository Repository) *Service {
 	return &Service{repository: repository}
+}
+
+// NewWithIdentity 创建支持平台会话身份补全的聊天应用服务。
+func NewWithIdentity(repository Repository, resolver IdentityResolver) *Service {
+	return &Service{repository: repository, identityResolver: resolver}
 }
 
 // ListStoredMessages 查询当前用户有权访问的本地聊天历史。
@@ -122,4 +163,177 @@ func (s *Service) ListStoredMessages(ctx context.Context, userID int64, accountI
 		}
 	}
 	return Page{Messages: messages, Session: session, HasMore: len(messages) == limit}, nil
+}
+
+// ListSessions 查询当前用户有权访问的账号会话摘要。
+func (s *Service) ListSessions(ctx context.Context, userID int64, accountID string, limit int) ([]Session, error) {
+	accountID = strings.TrimSpace(accountID)
+	if s == nil || s.repository == nil || userID <= 0 || accountID == "" {
+		return nil, ErrInvalidInput
+	}
+	// sessions 和 err 保存带用户归属的会话摘要及查询错误。
+	sessions, err := s.repository.ListSessions(ctx, userID, accountID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return sessions, nil
+}
+
+// FindSession 查询指定账号下的单个会话；找不到时返回零值且不视为错误。
+func (s *Service) FindSession(ctx context.Context, userID int64, accountID, chatID string) (Session, error) {
+	chatID = strings.TrimSpace(chatID)
+	if chatID == "" {
+		return Session{}, ErrInvalidInput
+	}
+	// sessions 和 err 保存会话摘要列表及查询错误。
+	sessions, err := s.ListSessions(ctx, userID, accountID, 500)
+	if err != nil {
+		return Session{}, err
+	}
+	// session 保存匹配到的会话摘要。
+	var session Session
+	// candidate 表示当前遍历到的会话摘要。
+	for _, candidate := range sessions {
+		if candidate.ChatID == chatID {
+			session = candidate
+			break
+		}
+	}
+	return session, nil
+}
+
+// CleanupEmptySessions 清理平台分页产生的无效空会话壳。
+func (s *Service) CleanupEmptySessions(ctx context.Context, accountID string) error {
+	accountID = strings.TrimSpace(accountID)
+	if s == nil || s.repository == nil || accountID == "" {
+		return ErrInvalidInput
+	}
+	// repository 保存支持会话维护操作的窄端口。
+	repository, ok := s.repository.(SessionRepository)
+	if !ok {
+		return ErrSessionUnavailable
+	}
+	return repository.DeleteEmptySessions(ctx, accountID)
+}
+
+// OwnsAccount 查询当前用户是否拥有指定账号，不读取或解密账号凭证。
+func (s *Service) OwnsAccount(ctx context.Context, userID int64, accountID string) (bool, error) {
+	accountID = strings.TrimSpace(accountID)
+	if s == nil || s.repository == nil || userID <= 0 || accountID == "" {
+		return false, ErrInvalidInput
+	}
+	// repository 保存支持账号归属查询的窄端口。
+	repository, ok := s.repository.(SessionRepository)
+	if !ok {
+		return false, ErrSessionUnavailable
+	}
+	return repository.ExistsOwned(ctx, userID, accountID)
+}
+
+// MarkRead 将当前用户拥有的指定会话标记为已读；底层端口只接收非敏感标识。
+func (s *Service) MarkRead(ctx context.Context, userID int64, accountID, chatID string) error {
+	accountID = strings.TrimSpace(accountID)
+	chatID = strings.TrimSpace(chatID)
+	if s == nil || s.repository == nil || userID <= 0 || accountID == "" || chatID == "" {
+		return ErrInvalidInput
+	}
+	// repository 保存支持会话已读更新的窄端口。
+	repository, ok := s.repository.(SessionRepository)
+	if !ok {
+		return ErrSessionUnavailable
+	}
+	return repository.MarkRead(ctx, userID, accountID, chatID)
+}
+
+// ResolveSessionIdentity 补全单个会话展示身份并尽力保存到本地。
+// 平台查询错误会原样返回，但已获得的会话摘要仍会返回给调用方。
+func (s *Service) ResolveSessionIdentity(ctx context.Context, session Session) (Session, error) {
+	if s == nil || s.repository == nil || strings.TrimSpace(session.AccountID) == "" || strings.TrimSpace(session.ChatID) == "" {
+		return session, ErrInvalidInput
+	}
+	// resolveErr 保存平台身份查询失败，供 HTTP 层决定是否触发会话恢复。
+	var resolveErr error
+	if session.BuyerID != "1400" && s.identityResolver != nil {
+		// identity 和 err 保存平台适配器返回的非敏感身份及调用错误。
+		identity, err := s.identityResolver.Resolve(ctx, session.AccountID, session.ChatID)
+		if err != nil {
+			resolveErr = err
+		} else {
+			// name 是去除空白后的平台买家名称。
+			if name := strings.TrimSpace(identity.BuyerName); name != "" {
+				session.BuyerName = name
+			}
+			// avatar 是去除空白后的平台买家头像地址。
+			if avatar := strings.TrimSpace(identity.BuyerAvatar); avatar != "" {
+				session.BuyerAvatar = avatar
+			}
+		}
+	}
+	// repository 保存会话身份更新所需的窄端口。
+	if repository, ok := s.repository.(SessionRepository); ok {
+		// _ 表示身份缓存更新失败不应覆盖旧 handler 的展示容错语义。
+		_ = repository.UpdateSessionIdentity(ctx, session.AccountID, session.ChatID, session.BuyerID, session.BuyerName, session.BuyerAvatar)
+	}
+	return session, resolveErr
+}
+
+// RefreshSessionIdentities 并发补全会话列表身份，保留首个失败以供调用方处理过期会话。
+func (s *Service) RefreshSessionIdentities(ctx context.Context, accountID string, sessions []Session) ([]Session, error) {
+	accountID = strings.TrimSpace(accountID)
+	if s == nil || s.repository == nil || accountID == "" {
+		return sessions, ErrInvalidInput
+	}
+	if s.identityResolver == nil {
+		return sessions, nil
+	}
+	// result 复制输入列表，避免异步身份补全修改 handler 持有的外部切片。
+	result := append([]Session(nil), sessions...)
+	// jobs 保存待补全的会话下标。
+	jobs := make(chan int)
+	// workers 保存身份补全工作器的完成状态。
+	var workers sync.WaitGroup
+	// once 保证只记录第一个平台查询错误。
+	var once sync.Once
+	// firstErr 保存第一个平台查询错误。
+	var firstErr error
+	// workerCount 是固定的并发度，避免单个账号的联系人数量放大 goroutine 数量。
+	workerCount := 8
+	// worker 表示当前启动的身份补全工作器序号。
+	for worker := 0; worker < workerCount; worker++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			// index 表示当前待处理会话在结果切片中的下标。
+			for index := range jobs {
+				// identityCtx 和 cancel 限制单个联系人平台查询的最长时间。
+				identityCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+				// updated 和 err 保存身份补全后的会话及平台查询错误。
+				updated, err := s.ResolveSessionIdentity(identityCtx, result[index])
+				cancel()
+				result[index] = updated
+				if err != nil {
+					once.Do(func() { firstErr = err })
+				}
+			}
+		}()
+	}
+	// queueDone 表示是否因为父上下文取消而提前停止投递。
+	queueDone := false
+	// index 表示当前排队会话在结果切片中的下标。
+	for index := range result {
+		if result[index].BuyerID == "1400" {
+			continue
+		}
+		select {
+		case jobs <- index:
+		case <-ctx.Done():
+			queueDone = true
+		}
+		if queueDone {
+			break
+		}
+	}
+	close(jobs)
+	workers.Wait()
+	return result, firstErr
 }

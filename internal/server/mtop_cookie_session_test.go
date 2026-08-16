@@ -68,8 +68,13 @@ func TestRefreshAccountProfilePersistsCookieSessionOnResponseError(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// message 保存消息，供当前处理流程使用
-	_, _, message := srv.refreshAccountProfile(ctx, detail)
+	// profile、profileErr 保存资料应用服务返回的非敏感结果和用例错误。
+	profile, profileErr := srv.accountProfileApplication().RefreshProfile(ctx, detail.UserID, detail.ID)
+	// message 保存资料刷新失败时的可展示错误文本。
+	message := profile.ErrorMessage
+	if profileErr != nil {
+		message = profileErr.Error()
+	}
 	if message == "" {
 		t.Fatal("无效响应应返回解析错误")
 	}
@@ -116,7 +121,7 @@ func TestRefreshAccountProfileKeepsAuthoritativeSnapshotWithFlatMock(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.refreshAccountProfile(context.Background(), detail)
+	_, _ = srv.accountProfileApplication().RefreshProfile(context.Background(), detail.UserID, detail.ID)
 
 	// updated、err 保存updated、err，供当前处理流程使用
 	updated, err := store.Cookies.GetDetails(context.Background(), "acc1")
@@ -149,7 +154,7 @@ func TestRefreshAccountProfileKeepsFlatMockFallbackWithoutSnapshot(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.refreshAccountProfile(context.Background(), detail)
+	_, _ = srv.accountProfileApplication().RefreshProfile(context.Background(), detail.UserID, detail.ID)
 
 	// updated、err 保存updated、err，供当前处理流程使用
 	updated, err := store.Cookies.GetDetails(context.Background(), "acc1")

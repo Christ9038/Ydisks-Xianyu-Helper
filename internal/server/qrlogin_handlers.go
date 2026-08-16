@@ -10,7 +10,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"xianyu-go/internal/auth"
-	"xianyu-go/internal/xianyu/cookierefresh"
 )
 
 // qrLoginGenerateTimeout 保存qr登录GenerateTimeout，供当前处理流程使用
@@ -297,24 +296,4 @@ func qrString(result map[string]any, key string) string {
 	// value 保存值，供当前处理流程使用
 	value, _ := result[key].(string)
 	return strings.TrimSpace(value)
-}
-
-// qrCookieSnapshot 负责qr登录凭证Snapshot相关处理。
-func qrCookieSnapshot(result map[string]any) ([]cookierefresh.BrowserCookie, bool) {
-	// raw、ok 保存raw、ok，供当前处理流程使用
-	raw, ok := result["cookie_snapshot"]
-	if !ok {
-		return nil, false
-	}
-	// snapshot、ok 保存snapshot、ok，供当前处理流程使用
-	snapshot, ok := raw.([]cookierefresh.BrowserCookie)
-	if !ok || snapshot == nil {
-		return nil, false
-	}
-	// normalized 保存normalized，供当前处理流程使用
-	normalized := cookierefresh.NormalizeSnapshot(snapshot)
-	if normalized == nil {
-		normalized = []cookierefresh.BrowserCookie{}
-	}
-	return normalized, true
 }

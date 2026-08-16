@@ -4,15 +4,72 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 
+	"xianyu-go/internal/application/keywords"
 	"xianyu-go/internal/auth"
-	"xianyu-go/internal/db"
 )
 
-// mountKeywordsReal 关键字端点。
+// keywordRequest 是普通关键词接口使用的文字回复请求 DTO。
+type keywordRequest struct {
+	// Keyword 是触发匹配文本。
+	Keyword string `json:"keyword"`
+	// Reply 是文字回复正文。
+	Reply string `json:"reply"`
+}
+
+// keywordBatchItem 是带商品范围的关键词批量项 DTO。
+type keywordBatchItem struct {
+	// Keyword 是触发匹配文本。
+	Keyword string `json:"keyword"`
+	// Reply 是文字回复正文。
+	Reply string `json:"reply"`
+	// ItemID 是可选商品标识。
+	ItemID string `json:"item_id"`
+	// Type 是 text 或 image 回复类型。
+	Type string `json:"type"`
+	// ImageURL 是图片回复地址。
+	ImageURL string `json:"image_url"`
+}
+
+// keywordBatchRequest 是关键词批量替换或单项创建请求 DTO。
+type keywordBatchRequest struct {
+	// Keyword 是单项创建的触发匹配文本。
+	Keyword string `json:"keyword"`
+	// Reply 是单项创建的文字回复正文。
+	Reply string `json:"reply"`
+	// ItemID 是单项创建的可选商品标识。
+	ItemID string `json:"item_id"`
+	// Type 是单项创建的回复类型。
+	Type string `json:"type"`
+	// ImageURL 是单项创建的图片回复地址。
+	ImageURL string `json:"image_url"`
+	// Keywords 是批量替换项；为空指针表示请求使用单项模式。
+	Keywords *[]keywordBatchItem `json:"keywords"`
+}
+
+// keywordUpdateRequest 是按 ID 更新关键词的请求 DTO。
+type keywordUpdateRequest struct {
+	// Keyword 是触发匹配文本。
+	Keyword string `json:"keyword"`
+	// Reply 是文字回复正文。
+	Reply string `json:"reply"`
+	// ItemID 是可选商品标识。
+	ItemID string `json:"item_id"`
+	// Type 是 text 或 image 回复类型。
+	Type string `json:"type"`
+	// ImageURL 是图片回复地址。
+	ImageURL string `json:"image_url"`
+}
+
+// itemReplyRequest 是指定商品回复写入请求 DTO。
+type itemReplyRequest struct {
+	// ReplyContent 是商品命中后的回复正文。
+	ReplyContent string `json:"reply_content"`
+}
+
+// mountKeywordsReal 注册关键词回复兼容路由。
 func (s *Server) mountKeywordsReal(r chi.Router) {
 	r.Get("/keywords/{cid}", s.listKeywords)
 	r.Post("/keywords/{cid}", s.addKeyword)
@@ -24,313 +81,260 @@ func (s *Server) mountKeywordsReal(r chi.Router) {
 	r.Delete("/keywords/{cid}/{index}", s.deleteKeyword)
 }
 
-// listKeywords 负责listKeywords相关处理。
+// keywordApplication 返回关键词回复应用服务；具体依赖由 Server 统一装配。
+func (s *Server) keywordApplication() *keywords.Service {
+	return s.applicationServiceSet().keywords
+}
+
+// keywordUserID 从认证上下文读取当前用户，不读取任何账号凭证。
+func keywordUserID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	// session 是认证中间件注入的当前用户会话。
+	session := auth.SessionFromContext(r.Context())
+	if session == nil {
+		writeErr(w, http.StatusUnauthorized, "未授权访问")
+		return 0, false
+	}
+	return session.UserID, true
+}
+
+// writeKeywordError 将应用层错误映射为现有关键词接口的 HTTP 语义。
+func writeKeywordError(w http.ResponseWriter, err error, fallback string) {
+	if err == nil {
+		return
+	}
+	// validationErr 是可安全展示给调用方的参数校验提示。
+	var validationErr *keywords.ValidationError
+	if errors.As(err, &validationErr) {
+		writeErr(w, http.StatusBadRequest, validationErr.Error())
+		return
+	}
+	switch {
+	case errors.Is(err, keywords.ErrForbidden):
+		writeErr(w, http.StatusForbidden, "无权限操作该账号")
+	case errors.Is(err, keywords.ErrNotFound):
+		writeErr(w, http.StatusNotFound, "关键字不存在")
+	case errors.Is(err, keywords.ErrInvalidInput):
+		writeErr(w, http.StatusBadRequest, "请求参数无效")
+	default:
+		writeErr(w, http.StatusInternalServerError, fallback)
+	}
+}
+
+// listKeywords 返回兼容的基础关键词响应。
 func (s *Server) listKeywords(w http.ResponseWriter, r *http.Request) {
-	// cid 保存cid，供当前处理流程使用
-	cid := chi.URLParam(r, "cid")
-	if !s.requireCookieOwnership(w, r, cid) {
+	// cookieID 是路由中的账号标识。
+	cookieID := chi.URLParam(r, "cid")
+	// userID 是当前认证用户标识。
+	userID, ok := keywordUserID(w, r)
+	if !ok {
 		return
 	}
-	// rows、err 保存rows、err，供当前处理流程使用
-	rows, err := s.Store.Keywords.AllRows(r.Context(), cid)
+	// rows 保存应用层查询结果。
+	rows, err := s.keywordApplication().List(r.Context(), userID, cookieID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeKeywordError(w, err, "查询失败")
 		return
 	}
-	// out 保存out，供当前处理流程使用
-	out := make([]keywordBasicResponse, 0, len(rows))
-	// k 表示当前遍历过程中的k
-	for _, k := range rows {
-		out = append(out, keywordBasicResponse{Keyword: k.Keyword, Reply: k.Reply})
+	// result 保存 HTTP 基础响应，隐藏数据库模型和内部字段。
+	result := make([]keywordBasicResponse, 0, len(rows))
+	// row 是当前待映射的关键词规则。
+	for _, row := range rows {
+		result = append(result, keywordBasicResponse{Keyword: row.Keyword, Reply: row.Reply})
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, result)
 }
 
-// listKeywordsWithItemID 负责listKeywordsWith商品ID相关处理。
+// listKeywordsWithItemID 返回带商品范围的兼容关键词响应。
 func (s *Server) listKeywordsWithItemID(w http.ResponseWriter, r *http.Request) {
-	// cid 保存cid，供当前处理流程使用
-	cid := chi.URLParam(r, "cid")
-	if !s.requireCookieOwnership(w, r, cid) {
+	// cookieID 是路由中的账号标识。
+	cookieID := chi.URLParam(r, "cid")
+	// userID 是当前认证用户标识。
+	userID, ok := keywordUserID(w, r)
+	if !ok {
 		return
 	}
-	// rows、err 保存rows、err，供当前处理流程使用
-	rows, err := s.Store.Keywords.AllRows(r.Context(), cid)
+	// rows 保存应用层查询结果。
+	rows, err := s.keywordApplication().List(r.Context(), userID, cookieID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeKeywordError(w, err, "查询失败")
 		return
 	}
-	// out 保存out，供当前处理流程使用
-	out := make([]keywordItemResponse, 0, len(rows))
-	// k 表示当前遍历过程中的k
-	for _, k := range rows {
-		out = append(out, keywordItemResponse{Keyword: k.Keyword, Reply: k.Reply, ItemID: k.ItemID})
+	// result 保存带商品字段的 HTTP 响应。
+	result := make([]keywordItemResponse, 0, len(rows))
+	// row 是当前待映射的关键词规则。
+	for _, row := range rows {
+		result = append(result, keywordItemResponse{Keyword: row.Keyword, Reply: row.Reply, ItemID: row.ItemID})
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, result)
 }
 
-// listKeywordsWithType 负责listKeywordsWith类型相关处理。
+// listKeywordsWithType 返回支持 text/image 类型的兼容响应。
 func (s *Server) listKeywordsWithType(w http.ResponseWriter, r *http.Request) {
-	// cid 保存cid，供当前处理流程使用
-	cid := chi.URLParam(r, "cid")
-	if !s.requireCookieOwnership(w, r, cid) {
+	// cookieID 是路由中的账号标识。
+	cookieID := chi.URLParam(r, "cid")
+	// userID 是当前认证用户标识。
+	userID, ok := keywordUserID(w, r)
+	if !ok {
 		return
 	}
-	// rows、err 保存rows、err，供当前处理流程使用
-	rows, err := s.Store.Keywords.AllRows(r.Context(), cid)
+	// rows 保存应用层查询结果。
+	rows, err := s.keywordApplication().List(r.Context(), userID, cookieID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "查询失败")
+		writeKeywordError(w, err, "查询失败")
 		return
 	}
-	// out 保存out，供当前处理流程使用
-	out := make([]keywordTypedResponse, 0, len(rows))
-	// k 表示当前遍历过程中的k
-	for _, k := range rows {
-		out = append(out, keywordTypedResponse{
-			ID: k.ID, Keyword: k.Keyword, Reply: k.Reply, ItemID: k.ItemID,
-			Type: k.Type, ImageURL: k.ImageURL,
-		})
+	// result 保存带类型字段的 HTTP 响应。
+	result := make([]keywordTypedResponse, 0, len(rows))
+	// row 是当前待映射的关键词规则。
+	for _, row := range rows {
+		result = append(result, keywordTypedResponse{ID: row.ID, Keyword: row.Keyword, Reply: row.Reply, ItemID: row.ItemID, Type: row.Type, ImageURL: row.ImageURL})
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, result)
 }
 
-// addKeyword 负责add关键词相关处理。
+// addKeyword 创建一条普通文字关键词规则。
 func (s *Server) addKeyword(w http.ResponseWriter, r *http.Request) {
-	// cid 保存cid，供当前处理流程使用
-	cid := chi.URLParam(r, "cid")
-	if !s.requireCookieOwnership(w, r, cid) {
+	// cookieID 是路由中的账号标识。
+	cookieID := chi.URLParam(r, "cid")
+	// userID 是当前认证用户标识。
+	userID, ok := keywordUserID(w, r)
+	if !ok {
 		return
 	}
-	// req 保存req，供当前处理流程使用
-	var req struct {
-		Keyword string `json:"keyword"`
-		Reply   string `json:"reply"`
-	}
-	if // err 保存err，供当前处理流程使用
-	err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Keyword) == "" {
+	// request 是普通关键词请求 DTO。
+	var request keywordRequest
+	// err 表示请求 JSON 解码失败。
+	if err := decodeJSON(r, &request); err != nil {
 		writeErr(w, http.StatusBadRequest, "keyword 必填")
 		return
 	}
-	if strings.TrimSpace(req.Reply) == "" {
-		writeErr(w, http.StatusBadRequest, "文字回复内容不能为空")
-		return
-	}
-	if // err 保存err，供当前处理流程使用
-	_, err := s.Store.Keywords.Add(r.Context(), cid, req.Keyword, req.Reply, "", "text", ""); err != nil {
-		writeErr(w, http.StatusInternalServerError, "添加失败")
+	// _, err 表示创建操作的结果；ID 对兼容响应不向客户端暴露。
+	if _, err := s.keywordApplication().Add(r.Context(), userID, cookieID, keywords.Draft{Keyword: request.Keyword, Reply: request.Reply, Type: "text"}); err != nil {
+		writeKeywordError(w, err, "添加失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
-// addKeywordWithItemID 负责add关键词With商品ID相关处理。
+// addKeywordWithItemID 创建或批量替换带商品范围的关键词规则。
 func (s *Server) addKeywordWithItemID(w http.ResponseWriter, r *http.Request) {
-	// cid 保存cid，供当前处理流程使用
-	cid := chi.URLParam(r, "cid")
-	if !s.requireCookieOwnership(w, r, cid) {
+	// cookieID 是路由中的账号标识。
+	cookieID := chi.URLParam(r, "cid")
+	// userID 是当前认证用户标识。
+	userID, ok := keywordUserID(w, r)
+	if !ok {
 		return
 	}
-	// req 保存req，供当前处理流程使用
-	var req struct {
-		Keyword  string `json:"keyword"`
-		Reply    string `json:"reply"`
-		ItemID   string `json:"item_id"`
-		Type     string `json:"type"`
-		ImageURL string `json:"image_url"`
-		Keywords *[]struct {
-			Keyword  string `json:"keyword"`
-			Reply    string `json:"reply"`
-			ItemID   string `json:"item_id"`
-			Type     string `json:"type"`
-			ImageURL string `json:"image_url"`
-		} `json:"keywords"`
-	}
-	if // err 保存err，供当前处理流程使用
-	err := decodeJSON(r, &req); err != nil {
+	// request 是单项或批量关键词请求 DTO。
+	var request keywordBatchRequest
+	// err 表示请求 JSON 解码失败。
+	if err := decodeJSON(r, &request); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	if req.Keywords != nil {
-		// rows 保存rows，供当前处理流程使用
-		rows := make([]db.KeywordRow, 0, len(*req.Keywords))
-		// item 表示当前遍历过程中的商品
-		for _, item := range *req.Keywords {
-			if strings.TrimSpace(item.Keyword) == "" {
-				writeErr(w, http.StatusBadRequest, "keyword 必填")
-				return
-			}
-			item.Type = strings.ToLower(strings.TrimSpace(item.Type))
-			if item.Type == "" {
-				item.Type = "text"
-			}
-			switch item.Type {
-			case "text":
-				if strings.TrimSpace(item.Reply) == "" {
-					writeErr(w, http.StatusBadRequest, "文字回复内容不能为空")
-					return
-				}
-				item.ImageURL = ""
-			case "image":
-				if strings.TrimSpace(item.ImageURL) == "" {
-					writeErr(w, http.StatusBadRequest, "图片回复 URL 不能为空")
-					return
-				}
-				item.Reply = ""
-			default:
-				writeErr(w, http.StatusBadRequest, "回复类型必须是 text 或 image")
-				return
-			}
-			rows = append(rows, db.KeywordRow{
-				CookieID: cid,
-				Keyword:  item.Keyword,
-				Reply:    item.Reply,
-				ItemID:   item.ItemID,
-				Type:     item.Type,
-				ImageURL: item.ImageURL,
-			})
+	if request.Keywords != nil {
+		// drafts 保存经过应用服务校验的批量关键词输入。
+		drafts := make([]keywords.Draft, 0, len(*request.Keywords))
+		// item 是当前待转换的批量请求项。
+		for _, item := range *request.Keywords {
+			drafts = append(drafts, keywords.Draft{Keyword: item.Keyword, Reply: item.Reply, ItemID: item.ItemID, Type: item.Type, ImageURL: item.ImageURL})
 		}
-		if // err 保存err，供当前处理流程使用
-		err := s.Store.Keywords.ReplaceForCookie(r.Context(), cid, rows); err != nil {
-			writeErr(w, http.StatusInternalServerError, "保存失败")
+		// err 表示批量替换规则的应用服务错误。
+		if err := s.keywordApplication().Replace(r.Context(), userID, cookieID, drafts); err != nil {
+			writeKeywordError(w, err, "保存失败")
 			return
 		}
 		writeJSON(w, http.StatusOK, operationResponse{Success: true})
 		return
 	}
-	if strings.TrimSpace(req.Keyword) == "" {
-		writeErr(w, http.StatusBadRequest, "keyword 必填")
-		return
-	}
-	req.Type = strings.ToLower(strings.TrimSpace(req.Type))
-	if req.Type == "" {
-		req.Type = "text"
-	}
-	if req.Type == "text" && strings.TrimSpace(req.Reply) == "" {
-		writeErr(w, http.StatusBadRequest, "文字回复内容不能为空")
-		return
-	}
-	if req.Type == "image" && strings.TrimSpace(req.ImageURL) == "" {
-		writeErr(w, http.StatusBadRequest, "图片回复 URL 不能为空")
-		return
-	}
-	if req.Type != "text" && req.Type != "image" {
-		writeErr(w, http.StatusBadRequest, "回复类型必须是 text 或 image")
-		return
-	}
-	if req.Type == "image" {
-		req.Reply = ""
-	} else {
-		req.ImageURL = ""
-	}
-	// id、err 保存id、err，供当前处理流程使用
-	id, err := s.Store.Keywords.Add(r.Context(), cid, req.Keyword, req.Reply, req.ItemID, req.Type, req.ImageURL)
+	// id 是新建规则的持久化标识；兼容响应保留该字段。
+	id, err := s.keywordApplication().Add(r.Context(), userID, cookieID, keywords.Draft{Keyword: request.Keyword, Reply: request.Reply, ItemID: request.ItemID, Type: request.Type, ImageURL: request.ImageURL})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "添加失败")
+		writeKeywordError(w, err, "添加失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, mutationIDResponse{Success: true, ID: id})
 }
 
-// updateKeywordByID 负责update关键词ByID相关处理。
+// updateKeywordByID 按关键词 ID 更新 text/image 规则。
 func (s *Server) updateKeywordByID(w http.ResponseWriter, r *http.Request) {
-	// cid 保存cid，供当前处理流程使用
-	cid := chi.URLParam(r, "cid")
-	if !s.requireCookieOwnership(w, r, cid) {
+	// cookieID 是路由中的账号标识。
+	cookieID := chi.URLParam(r, "cid")
+	// userID 是当前认证用户标识。
+	userID, ok := keywordUserID(w, r)
+	if !ok {
 		return
 	}
-	// id、err 保存id、err，供当前处理流程使用
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil || id <= 0 {
+	// id 是路由中的关键词持久化标识。
+	id, parseErr := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if parseErr != nil || id <= 0 {
 		writeErr(w, http.StatusBadRequest, "无效关键词ID")
 		return
 	}
-	// req 保存req，供当前处理流程使用
-	var req struct {
-		Keyword  string `json:"keyword"`
-		Reply    string `json:"reply"`
-		ItemID   string `json:"item_id"`
-		Type     string `json:"type"`
-		ImageURL string `json:"image_url"`
-	}
-	if // err 保存err，供当前处理流程使用
-	err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.Keyword) == "" {
+	// request 是关键词更新请求 DTO。
+	var request keywordUpdateRequest
+	// err 表示请求 JSON 解码失败。
+	if err := decodeJSON(r, &request); err != nil {
 		writeErr(w, http.StatusBadRequest, "keyword 必填")
 		return
 	}
-	req.Type = strings.ToLower(strings.TrimSpace(req.Type))
-	if req.Type == "" {
-		req.Type = "text"
-	}
-	switch req.Type {
-	case "text":
-		if strings.TrimSpace(req.Reply) == "" {
-			writeErr(w, http.StatusBadRequest, "文字回复内容不能为空")
-			return
-		}
-		req.ImageURL = ""
-	case "image":
-		if strings.TrimSpace(req.ImageURL) == "" {
-			writeErr(w, http.StatusBadRequest, "图片回复 URL 不能为空")
-			return
-		}
-		req.Reply = ""
-	default:
-		writeErr(w, http.StatusBadRequest, "回复类型必须是 text 或 image")
-		return
-	}
-	err = s.Store.Keywords.UpdateByID(r.Context(), db.KeywordRow{
-		ID: id, CookieID: cid, Keyword: req.Keyword, Reply: req.Reply,
-		ItemID: req.ItemID, Type: req.Type, ImageURL: req.ImageURL,
-	})
-	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
-			writeErr(w, http.StatusNotFound, "关键字不存在")
-			return
-		}
-		writeErr(w, http.StatusInternalServerError, "保存失败")
+	// updateErr 表示应用层更新结果。
+	updateErr := s.keywordApplication().Update(r.Context(), userID, cookieID, id, keywords.Draft{Keyword: request.Keyword, Reply: request.Reply, ItemID: request.ItemID, Type: request.Type, ImageURL: request.ImageURL})
+	if updateErr != nil {
+		writeKeywordError(w, updateErr, "保存失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
-// deleteKeywordByID 负责delete关键词ByID相关处理。
+// deleteKeywordByID 按持久化 ID 删除关键词规则。
 func (s *Server) deleteKeywordByID(w http.ResponseWriter, r *http.Request) {
-	// cid 保存cid，供当前处理流程使用
-	cid := chi.URLParam(r, "cid")
-	if !s.requireCookieOwnership(w, r, cid) {
+	// cookieID 是路由中的账号标识。
+	cookieID := chi.URLParam(r, "cid")
+	// userID 是当前认证用户标识。
+	userID, ok := keywordUserID(w, r)
+	if !ok {
 		return
 	}
-	// id、err 保存id、err，供当前处理流程使用
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil || id <= 0 {
+	// id 是路由中的关键词持久化标识。
+	id, parseErr := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if parseErr != nil || id <= 0 {
 		writeErr(w, http.StatusBadRequest, "无效关键词ID")
 		return
 	}
-	if // err 保存err，供当前处理流程使用
-	err := s.Store.Keywords.DeleteByID(r.Context(), cid, id); err != nil {
-		writeErr(w, http.StatusNotFound, "关键字不存在")
+	// deleteErr 表示应用层删除结果。
+	deleteErr := s.keywordApplication().DeleteByID(r.Context(), userID, cookieID, id)
+	if deleteErr != nil {
+		writeKeywordError(w, deleteErr, "关键字不存在")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
-// deleteKeyword 负责delete关键词相关处理。
+// deleteKeyword 按兼容的零基索引删除关键词规则。
 func (s *Server) deleteKeyword(w http.ResponseWriter, r *http.Request) {
-	// cid 保存cid，供当前处理流程使用
-	cid := chi.URLParam(r, "cid")
-	if !s.requireCookieOwnership(w, r, cid) {
+	// cookieID 是路由中的账号标识。
+	cookieID := chi.URLParam(r, "cid")
+	// userID 是当前认证用户标识。
+	userID, ok := keywordUserID(w, r)
+	if !ok {
 		return
 	}
-	// index 保存index，供当前处理流程使用
-	index := atoiDefault(chi.URLParam(r, "index"), -1)
-	if // err 保存err，供当前处理流程使用
-	err := s.Store.Keywords.DeleteByIndex(r.Context(), cid, index); err != nil {
-		writeErr(w, http.StatusNotFound, "关键字不存在")
+	// index 是按关键词 ID 顺序解释的零基索引。
+	index, parseErr := strconv.Atoi(chi.URLParam(r, "index"))
+	if parseErr != nil {
+		index = -1
+	}
+	// deleteErr 表示应用层删除结果。
+	deleteErr := s.keywordApplication().DeleteByIndex(r.Context(), userID, cookieID, index)
+	if deleteErr != nil {
+		writeKeywordError(w, deleteErr, "关键字不存在")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
-// ---- 指定商品回复 ----
+// mountItemRepliesReal 注册指定商品回复兼容路由。
 func (s *Server) mountItemRepliesReal(r chi.Router) {
 	r.Get("/itemReplays", s.listItemReplies)
 	r.Get("/item-reply/{cookie_id}/{item_id}", s.getItemReply)
@@ -338,84 +342,93 @@ func (s *Server) mountItemRepliesReal(r chi.Router) {
 	r.Delete("/item-reply/{cookie_id}/{item_id}", s.deleteItemReply)
 }
 
-// listItemReplies 负责list商品回复列表相关处理。
+// listItemReplies 返回当前用户全部账号的指定商品回复。
 func (s *Server) listItemReplies(w http.ResponseWriter, r *http.Request) {
-	// sess 保存sess，供当前处理流程使用
-	sess := auth.SessionFromContext(r.Context())
-	cookieIDs, _ := s.Store.Cookies.ListOwnedIDs(r.Context(), sess.UserID) // cookieIDs 是当前用户拥有的账号 ID。
-	var result []itemReplyResponse
-	// cid 表示当前遍历过程中的cid
-	for _, cid := range cookieIDs {
-		// rows 保存rows，供当前处理流程使用
-		rows, _ := s.Store.ItemReps.AllForUser(r.Context(), cid)
-		// ir 表示当前遍历过程中的ir
-		for _, ir := range rows {
-			result = append(result, itemReplyResponse{
-				ItemID: ir.ItemID, CookieID: ir.CookieID, ReplyContent: ir.ReplyContent,
-			})
-		}
+	// userID 是当前认证用户标识。
+	userID, ok := keywordUserID(w, r)
+	if !ok {
+		return
+	}
+	// rows 保存应用层商品回复结果。
+	rows, err := s.keywordApplication().ListItemReplies(r.Context(), userID)
+	if err != nil {
+		// 兼容历史接口：列表查询失败仍返回空列表和 200。
+		writeJSON(w, http.StatusOK, []itemReplyResponse{})
+		return
+	}
+	// result 保存 HTTP 商品回复响应。
+	result := make([]itemReplyResponse, 0, len(rows))
+	// row 是当前待映射的商品回复。
+	for _, row := range rows {
+		result = append(result, itemReplyResponse{ItemID: row.ItemID, CookieID: row.CookieID, ReplyContent: row.ReplyContent})
 	}
 	writeJSON(w, http.StatusOK, result)
 }
 
-// getItemReply 负责get商品回复相关处理。
+// getItemReply 返回指定商品回复；缺失时保持历史空正文响应。
 func (s *Server) getItemReply(w http.ResponseWriter, r *http.Request) {
-	// cid 保存cid，供当前处理流程使用
-	cid := chi.URLParam(r, "cookie_id")
-	if !s.requireCookieOwnership(w, r, cid) {
+	// cookieID 是路由中的账号标识。
+	cookieID := chi.URLParam(r, "cookie_id")
+	// itemID 是路由中的商品标识。
+	itemID := chi.URLParam(r, "item_id")
+	// userID 是当前认证用户标识。
+	userID, ok := keywordUserID(w, r)
+	if !ok {
 		return
 	}
-	// itemID 保存商品ID，供当前处理流程使用
-	itemID := chi.URLParam(r, "item_id")
-	// ir、err 保存ir、err，供当前处理流程使用
-	ir, err := s.Store.ItemReps.Get(r.Context(), cid, itemID)
-	if err != nil {
+	// row 保存应用层商品回复结果。
+	row, err := s.keywordApplication().GetItemReply(r.Context(), userID, cookieID, itemID)
+	if errors.Is(err, keywords.ErrNotFound) {
 		writeJSON(w, http.StatusOK, itemReplyResponse{ReplyContent: ""})
 		return
 	}
-	writeJSON(w, http.StatusOK, itemReplyResponse{
-		ItemID: ir.ItemID, CookieID: ir.CookieID, ReplyContent: ir.ReplyContent,
-	})
-}
-
-// setItemReply 负责set商品回复相关处理。
-func (s *Server) setItemReply(w http.ResponseWriter, r *http.Request) {
-	// cid 保存cid，供当前处理流程使用
-	cid := chi.URLParam(r, "cookie_id")
-	if !s.requireCookieOwnership(w, r, cid) {
+	if err != nil {
+		writeKeywordError(w, err, "查询失败")
 		return
 	}
-	// itemID 保存商品ID，供当前处理流程使用
+	writeJSON(w, http.StatusOK, itemReplyResponse{ItemID: row.ItemID, CookieID: row.CookieID, ReplyContent: row.ReplyContent})
+}
+
+// setItemReply 覆盖指定商品回复。
+func (s *Server) setItemReply(w http.ResponseWriter, r *http.Request) {
+	// cookieID 是路由中的账号标识。
+	cookieID := chi.URLParam(r, "cookie_id")
+	// itemID 是路由中的商品标识。
 	itemID := chi.URLParam(r, "item_id")
-	// req 保存req，供当前处理流程使用
-	var req struct {
-		ReplyContent string `json:"reply_content"`
+	// userID 是当前认证用户标识。
+	userID, ok := keywordUserID(w, r)
+	if !ok {
+		return
 	}
-	if // err 保存err，供当前处理流程使用
-	err := decodeJSON(r, &req); err != nil {
+	// request 是指定商品回复请求 DTO。
+	var request itemReplyRequest
+	// err 表示请求 JSON 解码失败。
+	if err := decodeJSON(r, &request); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	if // err 保存err，供当前处理流程使用
-	err := s.Store.ItemReps.Set(r.Context(), cid, itemID, req.ReplyContent); err != nil {
-		writeErr(w, http.StatusInternalServerError, "保存失败")
+	// err 表示应用层写入结果。
+	if err := s.keywordApplication().SetItemReply(r.Context(), userID, cookieID, itemID, request.ReplyContent); err != nil {
+		writeKeywordError(w, err, "保存失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
-// deleteItemReply 负责delete商品回复相关处理。
+// deleteItemReply 删除指定商品回复。
 func (s *Server) deleteItemReply(w http.ResponseWriter, r *http.Request) {
-	// cid 保存cid，供当前处理流程使用
-	cid := chi.URLParam(r, "cookie_id")
-	if !s.requireCookieOwnership(w, r, cid) {
+	// cookieID 是路由中的账号标识。
+	cookieID := chi.URLParam(r, "cookie_id")
+	// itemID 是路由中的商品标识。
+	itemID := chi.URLParam(r, "item_id")
+	// userID 是当前认证用户标识。
+	userID, ok := keywordUserID(w, r)
+	if !ok {
 		return
 	}
-	// itemID 保存商品ID，供当前处理流程使用
-	itemID := chi.URLParam(r, "item_id")
-	if // err 保存err，供当前处理流程使用
-	err := s.Store.ItemReps.Delete(r.Context(), cid, itemID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "删除失败")
+	// err 表示应用层删除结果。
+	if err := s.keywordApplication().DeleteItemReply(r.Context(), userID, cookieID, itemID); err != nil {
+		writeKeywordError(w, err, "删除失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})

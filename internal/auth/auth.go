@@ -165,6 +165,22 @@ func SessionFromContext(ctx context.Context) *db.Session {
 	return v
 }
 
+// SessionIdentity 是 HTTP 应用层读取当前用户身份所需的最小会话视图，不暴露数据库会话字段。
+type SessionIdentity struct {
+	// UserID 是当前认证用户的稳定数据库标识，仅用于应用层归属和授权判断。
+	UserID int64
+}
+
+// IdentityFromContext 从请求上下文提取最小用户身份；未认证或上下文没有会话时返回 nil。
+func IdentityFromContext(ctx context.Context) *SessionIdentity {
+	// session 保存认证中间件注入的完整会话，仅在认证包内部读取并裁剪为最小身份视图。
+	session := SessionFromContext(ctx)
+	if session == nil {
+		return nil
+	}
+	return &SessionIdentity{UserID: session.UserID}
+}
+
 // InitAdmin 创建或重置 admin 管理员账号，是 cmd/server -init-admin 与
 // cmd/init-admin 共用的公共入口。返回 created=true 表示新建 admin，
 // false 表示重置已存在 admin 的密码。邮箱仅在新建时使用。

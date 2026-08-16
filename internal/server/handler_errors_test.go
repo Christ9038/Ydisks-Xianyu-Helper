@@ -145,13 +145,13 @@ func TestProtectedEndpointsRequireAuth(t *testing.T) {
 // TestAdminEndpointRejectsNonAdmin 非 admin 用户访问管理端点应 403。
 func TestAdminEndpointRejectsNonAdmin(t *testing.T) {
 	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// h 保存h，供当前处理流程使用
 	h := srv.Router()
 
 	// 创建普通用户并登录。
-	srv.Store.Users.Create(context.Background(), "user2", "u2@e.com", "pw")
+	store.Users.Create(context.Background(), "user2", "u2@e.com", "pw")
 	// body 保存请求体，供当前处理流程使用
 	body := `{"username":"user2","password":"pw"}`
 	// req 保存req，供当前处理流程使用

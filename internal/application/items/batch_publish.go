@@ -17,6 +17,8 @@ type BatchRow struct {
 	ID int64
 	// BatchID 是所属批次标识。
 	BatchID string
+	// RowNo 是导入文件中的稳定行号，用于保持发布顺序和导出结果对应关系。
+	RowNo int
 	// CookieID 是执行发布的账号标识。
 	CookieID string
 	// Title 是商品标题。
@@ -45,6 +47,18 @@ type BatchRow struct {
 	ItemID string
 	// ItemURL 是已知的平台商品地址。
 	ItemURL string
+	// Status 是明细当前状态，供管理查询和 worker 过滤使用。
+	Status string
+	// ErrorMessage 是最近一次失败的用户可见原因，不包含凭证内容。
+	ErrorMessage string
+	// FailureKind 是失败分类，用于区分可重试、校验失败和远端结果不确定。
+	FailureKind string
+	// WorkerToken 是当前处理租约令牌，仅用于适配器状态复核。
+	WorkerToken string
+	// CreatedAt 是明细创建时间文本，沿用数据库时间格式。
+	CreatedAt string
+	// UpdatedAt 是明细最近更新时间文本，沿用数据库时间格式。
+	UpdatedAt string
 }
 
 // BatchInfo 是批量发布状态收口所需的非敏感批次信息。
@@ -57,10 +71,26 @@ type BatchInfo struct {
 	Status string
 	// WorkerToken 是当前租约令牌。
 	WorkerToken string
+	// DefaultCookieID 是未指定账号行使用的默认发布账号。
+	DefaultCookieID string
+	// Filename 是用户上传的原始表格文件名。
+	Filename string
 	// UploadDir 是批次上传文件的受控目录。
 	UploadDir string
 	// LocationJSON 是批次统一发货地配置的 JSON。
 	LocationJSON string
+	// TotalCount 是批次明细总数。
+	TotalCount int
+	// SuccessCount 是已成功发布的明细数。
+	SuccessCount int
+	// FailedCount 是已失败的明细数。
+	FailedCount int
+	// LeaseExpiresAt 是当前 worker 租约的 Unix 秒时间戳。
+	LeaseExpiresAt int64
+	// CreatedAt 是批次创建时间文本，沿用数据库时间格式。
+	CreatedAt string
+	// UpdatedAt 是批次最近更新时间文本，沿用数据库时间格式。
+	UpdatedAt string
 }
 
 // BatchRepository 是批量发布 worker 所需的最小持久化端口。
@@ -93,6 +123,88 @@ type BatchRepository interface {
 type BatchPublisher interface {
 	// PublishRow 发布一条批量商品并完成本地结果落库。
 	PublishRow(context.Context, int64, BatchRow, string) error
+}
+
+// PostPublishError 表示平台发布成功后，响应 Cookie 或本地后置步骤未能完成。
+// 该错误会阻止当前行自动重试，避免重复创建远端商品。
+type PostPublishError struct {
+	// Err 保存不含凭证内容的后置处理错误。
+	Err error
+}
+
+// Error 返回后置处理错误文本。
+func (e *PostPublishError) Error() string {
+	if e == nil || e.Err == nil {
+		return "批量发布后置处理失败"
+	}
+	return e.Err.Error()
+}
+
+// Unwrap 暴露后置处理的原始错误供分类逻辑检查。
+func (e *PostPublishError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// UncertainRemotePublishError 表示远端请求结果未知且检查点未可靠保存。
+// 该错误禁止自动重试，必须由用户核对平台商品状态。
+type UncertainRemotePublishError struct {
+	// Err 保存远端结果不确定的原因，不得包含 Cookie 明文。
+	Err error
+}
+
+// Error 返回远端结果不确定的错误文本。
+func (e *UncertainRemotePublishError) Error() string {
+	if e == nil || e.Err == nil {
+		return "远端发布结果未知"
+	}
+	return e.Err.Error()
+}
+
+// Unwrap 暴露远端结果不确定的原始错误。
+func (e *UncertainRemotePublishError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// BatchPublishResult 是批量平台端口返回的非敏感商品结果。
+type BatchPublishResult struct {
+	// ItemID 是平台商品标识。
+	ItemID string
+	// ItemURL 是平台商品地址。
+	ItemURL string
+	// Title 是平台确认后的商品标题。
+	Title string
+	// PriceText 是平台确认后的价格文本。
+	PriceText string
+	// CategoryID 是平台确认后的类目标识。
+	CategoryID string
+	// CategoryName 是平台确认后的类目名称。
+	CategoryName string
+	// ImageURL 是平台返回的主图地址。
+	ImageURL string
+	// Quantity 是平台确认后的库存数量。
+	Quantity int
+	// RawData 是平台原始结果的结构化数据，仅用于受控本地持久化。
+	RawData map[string]any
+}
+
+// BatchPublishOutcome 是批量平台端口的结果及响应 Cookie 后置错误。
+type BatchPublishOutcome struct {
+	// Result 是平台商品结果；重试已保存远端结果的行也会提供该字段。
+	Result *BatchPublishResult
+	// ResponseCookieErr 是发布成功后 Cookie 会话写回失败，不包含 Cookie 内容。
+	ResponseCookieErr error
+}
+
+// BatchPublishPort 定义单行批量远端发布能力；凭证和平台 DTO 由适配器内部处理。
+type BatchPublishPort interface {
+	// PublishRemoteRow 执行远端发布并保存远端检查点，不负责商品自动化规则。
+	PublishRemoteRow(context.Context, int64, BatchRow, string) (BatchPublishOutcome, error)
 }
 
 // FailureClassifier 将发布错误转换为用户可见消息和稳定失败分类。
@@ -190,13 +302,17 @@ func (runner *BatchRunner) Run(ctx context.Context, userID int64, batchID, worke
 		}
 		// rowErr 保存当前商品发布及本地结果落库错误。
 		if rowErr := runner.publisher.PublishRow(ctx, userID, row, workerToken); rowErr != nil {
+			// statusCtx、statusCancel 让外部动作已返回后的失败事实写入不受请求取消影响，并限制补偿等待时间。
+			statusCtx, statusCancel := statusContext(ctx)
 			// status 保存失败分类所需的批次状态。
-			status, _ := runner.repository.BatchStatus(ctx, batchID)
+			status, _ := runner.repository.BatchStatus(statusCtx, batchID)
 			// message、failureKind 保存用户可见失败信息和稳定分类。
 			message, failureKind := runner.options.ClassifyFailure(rowErr, status)
 			// marked、markErr 保存失败状态是否成功写入及其错误。
-			marked, markErr := runner.repository.MarkClaimedRowFailed(ctx, row.ID, workerToken, message, failureKind)
+			marked, markErr := runner.repository.MarkClaimedRowFailed(statusCtx, row.ID, workerToken, message, failureKind)
+			statusCancel()
 			if markErr != nil || !marked {
+				runner.finishInterrupted(ctx, userID, batchID, workerToken)
 				return fmt.Errorf("保存批量发布失败状态失败: %w", firstNonNil(markErr, ErrBatchLeaseLost))
 			}
 			if runner.options.IsSessionExpired(rowErr) {
@@ -204,8 +320,15 @@ func (runner *BatchRunner) Run(ctx context.Context, userID int64, batchID, worke
 				return rowErr
 			}
 		}
+		// recountCtx、recountCancel 让失败明细或外部动作完成后的本地统计重算不受请求取消影响。
+		recountCtx, recountCancel := statusContext(ctx)
 		// recountErr 保存批次统计重算错误。
-		if recountErr := runner.repository.RecountBatch(ctx, batchID); recountErr != nil {
+		recountErr := runner.repository.RecountBatch(recountCtx, batchID)
+		recountCancel()
+		if recountErr != nil {
+			if ctx.Err() != nil {
+				runner.finishInterrupted(ctx, userID, batchID, workerToken)
+			}
 			return recountErr
 		}
 		if rowIndex < len(rows)-1 {

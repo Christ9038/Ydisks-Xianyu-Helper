@@ -210,6 +210,14 @@ func (s *ChannelService) DeleteChannel(ctx context.Context, userID, channelID in
 	return s.repository.DeleteChannel(ctx, channelID, userID)
 }
 
+// OwnsChannel 查询渠道是否属于指定用户；只返回归属结论，不读取渠道配置。
+func (s *ChannelService) OwnsChannel(ctx context.Context, userID, channelID int64) (bool, error) {
+	if s == nil || s.repository == nil || userID <= 0 || channelID <= 0 {
+		return false, ErrChannelInvalidInput
+	}
+	return s.repository.OwnsChannel(ctx, channelID, userID)
+}
+
 // TestChannel 校验渠道归属并发送固定格式测试通知；body 不包含渠道配置或凭证。
 func (s *ChannelService) TestChannel(ctx context.Context, userID, channelID int64, now time.Time) error {
 	if s == nil || s.repository == nil || userID <= 0 || channelID <= 0 {

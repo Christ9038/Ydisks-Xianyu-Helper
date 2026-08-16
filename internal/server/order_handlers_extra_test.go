@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/db"
 )
 
@@ -1101,9 +1102,10 @@ func stringPtrForOrderTest(value string) *string {
 // TestOrderResponseMappingAndErrorClassification 验证订单响应映射和业务错误分类不依赖 HTTP。
 func TestOrderResponseMappingAndErrorClassification(t *testing.T) {
 	// row 保存row，供当前处理流程使用
-	row := db.OrderRow{OrderID: "mapped-order", ItemID: "mapped-item", ItemTitle: "测试商品", ItemDetail: `{"pic_info":{"picUrl":"https://img.example/mapped.png"}}`, OrderStatus: "2"}
+	// row 保存应用层订单列表模型，模拟适配器已经完成数据库转换。
+	row := orderapp.OrderRow{OrderID: "mapped-order", ItemID: "mapped-item", ItemTitle: "测试商品", ItemDetail: `{"pic_info":{"picUrl":"https://img.example/mapped.png"}}`, OrderStatus: "2"}
 	// view 保存view，供当前处理流程使用
-	view := orderDTOFromRow(orderRowsFromDB([]db.OrderRow{row})[0])
+	view := orderDTOFromRow(row)
 	if view.OrderStatus != "pending_ship" || view.Status != "pending_ship" || view.ItemImage != "https://img.example/mapped.png" {
 		t.Fatalf("订单响应映射异常: %+v", view)
 	}

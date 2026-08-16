@@ -215,47 +215,7 @@ func isForbiddenServerLowLevelImport(filePath, importedPath string) bool {
 		importedPath != "internal/browser" && !strings.HasPrefix(importedPath, "internal/browser/") {
 		return false
 	}
-	return !temporaryServerLowLevelAllowlist[filePath]
-}
-
-// temporaryServerLowLevelAllowlist 是审计重开前已存在的 Server 低层依赖临时白名单。
-// 每迁移一个业务域，必须删除对应文件条目；新文件不得加入白名单代替迁移。
-var temporaryServerLowLevelAllowlist = map[string]bool{
-	"internal/server/account_login_repository.go":    true,
-	"internal/server/account_login_service.go":       true,
-	"internal/server/account_task_handlers.go":       true,
-	"internal/server/analytics_handlers.go":          true,
-	"internal/server/analytics_repository.go":        true,
-	"internal/server/analytics_service.go":           true,
-	"internal/server/api_contract.go":                true,
-	"internal/server/auth_handlers.go":               true,
-	"internal/server/automation_handlers.go":         true,
-	"internal/server/card_batch_handlers.go":         true,
-	"internal/server/card_handlers.go":               true,
-	"internal/server/chat_handlers.go":               true,
-	"internal/server/communication_repository.go":    true,
-	"internal/server/communication_service.go":       true,
-	"internal/server/cookie_handlers.go":             true,
-	"internal/server/default_reply_handlers.go":      true,
-	"internal/server/item_handlers.go":               true,
-	"internal/server/item_publish_batch_handlers.go": true,
-	"internal/server/item_publish_images.go":         true,
-	"internal/server/item_publish_repository.go":     true,
-	"internal/server/item_publish_service.go":        true,
-	"internal/server/keyword_handlers.go":            true,
-	"internal/server/login_audit.go":                 true,
-	"internal/server/mtop_cookie_session.go":         true,
-	"internal/server/notification_handlers.go":       true,
-	"internal/server/order_handlers.go":              true,
-	"internal/server/order_repository.go":            true,
-	"internal/server/order_service.go":               true,
-	"internal/server/ownership_helpers.go":           true,
-	"internal/server/platform_runtime.go":            true,
-	"internal/server/server.go":                      true,
-	"internal/server/settings_handlers.go":           true,
-	"internal/server/success_contract.go":            true,
-	"internal/server/transaction_repository.go":      true,
-	"internal/server/qrlogin_handlers.go":            true,
+	return true
 }
 
 // isForbiddenLowLevelImport 判断低层包是否依赖了上层应用包。

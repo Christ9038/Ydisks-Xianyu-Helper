@@ -70,6 +70,13 @@ type ManualShipRepository interface {
 	UpsertOrder(ctx context.Context, orderID string, options UpsertOptions) error
 }
 
+// ReconciliationRecorder 定义外部订单动作成功后创建补偿记录的最小应用 Port。
+// 该接口由订单应用层声明，由基础设施适配器实现，避免应用层暴露数据库模型。
+type ReconciliationRecorder interface {
+	// RecordReconciliation 创建外部成功、本地状态待补偿的记录。
+	RecordReconciliation(ctx context.Context, orderID, cookieID, kind, message string) (string, error)
+}
+
 // ManualShipRuntime 定义手动发货访问平台、自动化、运行时和补偿能力的最小 Port。
 type ManualShipRuntime interface {
 	// MTopAvailable 判断平台客户端是否已装配。
@@ -86,8 +93,8 @@ type ManualShipRuntime interface {
 	UpdateRunningCookie(ctx context.Context, cookieID, value string)
 	// NotifyDelivery 发送手动发货结果通知。
 	NotifyDelivery(cookieID, buyerID, itemID, chatID, message string)
-	// RecordReconciliation 创建外部成功、本地状态待补偿的记录。
-	RecordReconciliation(ctx context.Context, orderID, cookieID, kind, message string) (string, error)
+	// ReconciliationRecorder 嵌入外部动作成功后的补偿记录能力。
+	ReconciliationRecorder
 	// ReportPersistenceFailure 记录本地订单状态持久化失败。
 	ReportPersistenceFailure(orderID string, err error)
 }

@@ -1,10 +1,12 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	adminapp "xianyu-go/internal/application/admin"
 )
 
 // mountAdminReal 管理员端点。
@@ -18,7 +20,7 @@ func (s *Server) mountAdminReal(r chi.Router) {
 // adminListUsers 负责adminList用户列表相关处理。
 func (s *Server) adminListUsers(w http.ResponseWriter, r *http.Request) {
 	// rows、err 保存rows、err，供当前处理流程使用
-	rows, err := s.Store.Admin.ListUsers(r.Context())
+	rows, err := s.applicationServiceSet().admin.ListUsers(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
@@ -44,21 +46,23 @@ func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "无效用户ID")
 		return
 	}
-	// 不允许删除自己。
+	// 不允许删除自己；应用服务统一执行该业务规则。
 	sess := authSess(r)
-	if sess.UserID == uid {
-		writeErr(w, http.StatusBadRequest, "不能删除当前登录用户")
-		return
-	}
 	if s.Manager != nil {
-		if accountIDs, listErr := s.Store.Cookies.ListOwnedIDs(r.Context(), uid); listErr == nil { // accountIDs 是待停止的账号 ID。
+		// accountIDs、listErr 保存应用服务返回的待停止账号 ID 列表及查询错误。
+		if accountIDs, listErr := s.accountSummaryApplication().ListOwnedIDs(r.Context(), uid); listErr == nil {
+			// cookieID 表示待停止运行实例的账号标识。
 			for _, cookieID := range accountIDs {
 				s.Manager.Stop(cookieID)
 			}
 		}
 	}
-	if // err 保存err，供当前处理流程使用
-	err := s.Store.Users.Delete(r.Context(), uid); err != nil {
+	// err 保存管理员删除应用用例的执行结果。
+	if err := s.applicationServiceSet().admin.DeleteUser(r.Context(), sess.UserID, uid); err != nil {
+		if errors.Is(err, adminapp.ErrSelfDelete) {
+			writeErr(w, http.StatusBadRequest, "不能删除当前登录用户")
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
@@ -67,8 +71,8 @@ func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 
 // adminListCookies 负责adminListCookies相关处理。
 func (s *Server) adminListCookies(w http.ResponseWriter, r *http.Request) {
-	// rows、err 保存rows、err，供当前处理流程使用
-	rows, err := s.Store.Admin.ListCookies(r.Context())
+	// rows、err 保存应用服务返回的管理员账号摘要及查询错误。
+	rows, err := s.accountSummaryApplication().ListAdminSummaries(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
@@ -80,7 +84,7 @@ func (s *Server) adminListCookies(w http.ResponseWriter, r *http.Request) {
 		out = append(out, adminCookieResponse{
 			ID: row.ID, UserID: row.UserID, Remark: row.Remark,
 			CreatedAt: row.CreatedAt, Owner: row.Owner,
-			Enabled: s.Store.Cookies.GetStatus(r.Context(), row.ID),
+			Enabled: row.Enabled,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -89,7 +93,7 @@ func (s *Server) adminListCookies(w http.ResponseWriter, r *http.Request) {
 // adminStats 负责adminStats相关处理。
 func (s *Server) adminStats(w http.ResponseWriter, r *http.Request) {
 	// stats 是管理员仪表盘的数据库聚合结果。
-	stats, err := s.Store.Admin.Stats(r.Context())
+	stats, err := s.applicationServiceSet().admin.Stats(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "统计数据失败")
 		return

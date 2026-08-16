@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,25 +10,15 @@ import (
 
 	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/auth"
-	"xianyu-go/internal/db"
-	"xianyu-go/internal/xianyu/mtop"
 )
 
 // refreshOrderChunkSize 保存refresh订单Chunk数量，供当前处理流程使用
 const refreshOrderChunkSize = 100
 
-// maxSoldOrderPages 保存maxSold订单Pages，供当前处理流程使用
-const maxSoldOrderPages = 100
-
 // refreshTarget 保存refreshTarget，供当前处理流程使用
 type refreshTarget struct {
 	OrderID       string
 	CurrentStatus string
-}
-
-// orderDetailMTop 保存订单DetailMTop，供当前处理流程使用
-type orderDetailMTop interface {
-	FetchOrderDetail(ctx context.Context, cookiesStr, orderID string) (*mtop.OrderDetailResult, error)
 }
 
 // mountOrders 订单端点（真实实现）。
@@ -54,7 +43,7 @@ func (s *Server) listOrders(w http.ResponseWriter, r *http.Request) {
 		Status: r.URL.Query().Get("status"), Search: r.URL.Query().Get("search"),
 		Page: atoiDefault(r.URL.Query().Get("page"), 1), PageSize: atoiDefault(r.URL.Query().Get("page_size"), 20),
 	})
-	if errors.Is(err, db.ErrForbidden) {
+	if errors.Is(err, orderapp.ErrForbidden) {
 		writeErr(w, http.StatusForbidden, "无权限操作该账号")
 		return
 	}
@@ -81,7 +70,7 @@ func (s *Server) getOrder(w http.ResponseWriter, r *http.Request) {
 	// result、err 保存result、err，供当前处理流程使用
 	result, err := s.orders().GetView(r.Context(), sess.UserID, orderID)
 	if err != nil {
-		if errors.Is(err, db.ErrForbidden) {
+		if errors.Is(err, orderapp.ErrForbidden) {
 			writeErr(w, http.StatusForbidden, "无权操作此订单")
 		} else {
 			writeErr(w, http.StatusNotFound, "订单不存在")
@@ -132,11 +121,11 @@ func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) { //
 	sess := auth.SessionFromContext(r.Context())
 	// result、err 保存result、err，供当前处理流程使用
 	result, err := s.orders().RefreshSingle(r.Context(), sess.UserID, orderID)
-	if errors.Is(err, db.ErrNotFound) {
+	if errors.Is(err, orderapp.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "订单不存在")
 		return
 	}
-	if errors.Is(err, db.ErrForbidden) {
+	if errors.Is(err, orderapp.ErrForbidden) {
 		writeErr(w, http.StatusForbidden, "无权操作此订单")
 		return
 	}
@@ -167,7 +156,7 @@ func (s *Server) deleteOrder(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	if // err 保存err，供当前处理流程使用
 	err := s.orders().Delete(r.Context(), sess.UserID, orderID); err != nil {
-		if errors.Is(err, db.ErrForbidden) {
+		if errors.Is(err, orderapp.ErrForbidden) {
 			writeErr(w, http.StatusForbidden, "无权操作此订单")
 		} else {
 			writeErr(w, http.StatusNotFound, "订单不存在")
@@ -232,9 +221,9 @@ func (s *Server) updateOrder(w http.ResponseWriter, r *http.Request) {
 		if // kind、classified 保存kind、classified，供当前处理流程使用
 		kind, classified := orderErrorKindOf(err); classified && kind == orderErrorBadRequest {
 			writeErr(w, http.StatusBadRequest, err.Error())
-		} else if errors.Is(err, db.ErrForbidden) {
+		} else if errors.Is(err, orderapp.ErrForbidden) {
 			writeErr(w, http.StatusForbidden, "无权操作此订单")
-		} else if errors.Is(err, db.ErrNotFound) {
+		} else if errors.Is(err, orderapp.ErrNotFound) {
 			writeErr(w, http.StatusNotFound, "订单不存在")
 		} else {
 			writeErr(w, http.StatusInternalServerError, "更新失败")
@@ -295,56 +284,6 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 		// Results 保留逐订单兼容字段，便于旧客户端展示失败原因。
 		SuccessCount: result.SuccessCount, FailedCount: result.FailedCount, Results: result.Results,
 	})
-}
-
-// consignWithCurrentCookie 负责consignWithCurrent登录凭证相关处理。
-func (s *Server) consignWithCurrentCookie(ctx context.Context, cookieID, orderID string, userID int64) (bool, []string, string, bool, error) {
-	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
-	credentialUnlock := s.Store.LockAccountCredentials(cookieID)
-	defer credentialUnlock()
-	// detail、err 保存detail、err，供当前处理流程使用
-	detail, err := s.loadCookiePlatformDetail(ctx, cookieID)
-	if err != nil {
-		return false, nil, "", false, err
-	}
-	if detail == nil || detail.UserID != userID {
-		return false, nil, "", false, db.ErrForbidden
-	}
-	if !hasStoredCookieCredential(detail) {
-		return false, nil, "", false, errors.New("账号 Cookie 为空")
-	}
-	// mtopCtx、cookieSession 保存mtopCtx、cookie会话，供当前处理流程使用
-	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, detail)
-	// ok、ret、updatedCookies、callErr 保存ok、ret、updatedCookies、callErr，供当前处理流程使用
-	ok, ret, updatedCookies, callErr := s.MTop.ConsignContext(mtopCtx, detail.Value, orderID)
-	// value、valueChanged、handled、persistErr 保存value、valueChanged、handled、persistErr，供当前处理流程使用
-	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(ctx, detail, cookieSession)
-	if persistErr != nil {
-		persistErr = fmt.Errorf("保存发货响应 Cookie Jar: %w", persistErr)
-		if callErr != nil {
-			return ok, ret, "", false, errors.Join(callErr, persistErr)
-		}
-		return ok, ret, "", false, persistErr
-	}
-	if handled {
-		// runtimeCookie 保存runtime登录凭证，供当前处理流程使用
-		runtimeCookie := ""
-		if valueChanged {
-			runtimeCookie = value
-		}
-		return ok, ret, runtimeCookie, valueChanged, callErr
-	}
-	if callErr != nil {
-		return false, ret, "", false, callErr
-	}
-	if updatedCookies == "" || updatedCookies == detail.Value {
-		return ok, ret, "", false, nil
-	}
-	if // err 保存err，供当前处理流程使用
-	err := s.Store.Cookies.UpdateValueOwned(ctx, cookieID, updatedCookies, userID); err != nil {
-		return ok, ret, "", false, fmt.Errorf("保存发货响应 Cookie: %w", err)
-	}
-	return ok, ret, updatedCookies, true, nil
 }
 
 // importOrders 负责import订单列表相关处理。

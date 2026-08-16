@@ -592,7 +592,7 @@ export const getCards = async (options?: RequestControlOptions): Promise<Card[]>
   // res 接口响应结果，用于当前 API 处理流程。
   const res = await get<Card[] | CardListResponse>('/api/v1/cards', undefined, options);
   // cards 卡密列表，用于当前 API 处理流程。
-  const cards = Array.isArray(res) ? res : (res.cards || []);
+  const cards = Array.isArray(res) ? res : (res?.cards || []);
   return cards.map(normalizeCard);
 };
 

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -8,8 +9,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	cardsapp "xianyu-go/internal/application/cards"
 	"xianyu-go/internal/auth"
-	"xianyu-go/internal/db"
 )
 
 // maxCardBatchRows 保存max卡密批次Rows，供当前处理流程使用
@@ -31,8 +32,8 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 	sess := auth.SessionFromContext(r.Context())
 	// 表格最大 5 MiB（卡密组定义都很小）。
 	r.Body = http.MaxBytesReader(w, r.Body, maxCardBatchUploadBytes)
-	if // err 保存err，供当前处理流程使用
-	err := r.ParseMultipartForm(maxCardBatchUploadBytes); err != nil {
+	// err 表示解析 multipart 表单时遇到的格式或大小限制错误。
+	if err := r.ParseMultipartForm(maxCardBatchUploadBytes); err != nil {
 		writeErr(w, http.StatusBadRequest, "解析上传文件失败")
 		return
 	}
@@ -114,8 +115,8 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// cf 保存cf，供当前处理流程使用
-		cf := &db.CardFull{
+		// draft 保存当前表格行转换出的应用卡券草稿。
+		draft := cardsapp.Draft{
 			Name:         name,
 			Type:         cardType,
 			Description:  firstImportString(m, "description", "描述"),
@@ -124,23 +125,22 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 			IsMultiSpec:  parseLooseBool(firstImportString(m, "is_multi_spec", "多规格")),
 			SpecName:     firstImportString(m, "spec_name", "规格名"),
 			SpecValue:    firstImportString(m, "spec_value", "规格值"),
-			UserID:       sess.UserID,
 		}
-		if // v 保存v，供当前处理流程使用
-		v := firstImportString(m, "enabled", "启用"); v != "" {
-			cf.Enabled = parseLooseBool(v)
+		// v 保存表格行提供的可选启用状态文本。
+		if v := firstImportString(m, "enabled", "启用"); v != "" {
+			draft.Enabled = parseLooseBool(v)
 		}
 		switch cardType {
 		case "text":
-			cf.TextContent = content
+			draft.TextContent = content
 		case "data":
-			cf.DataContent = content
+			draft.DataContent = content
 		case "image":
-			cf.ImageURL = content
+			draft.ImageURL = content
 		}
 
-		// id、err 保存id、err，供当前处理流程使用
-		id, err := s.Store.Cards.Create(r.Context(), cf)
+		// id、err 保存应用服务创建的卡券标识及逐行错误。
+		id, err := s.cardsApplication().Create(r.Context(), sess.UserID, draft)
 		if err != nil {
 			results = append(results, cardBatchResultRow{RowNo: rowNo, Success: false, Name: name, Type: cardType, Error: "创建失败: " + err.Error()})
 			failed++
@@ -161,47 +161,42 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 
 // appendCardData 往 data 类型卡密组追加卡密号（按行）。
 func (s *Server) appendCardData(w http.ResponseWriter, r *http.Request) {
-	// sess 保存sess，供当前处理流程使用
+	// sess 保存认证中间件注入的当前用户会话。
 	sess := auth.SessionFromContext(r.Context())
-	// id、err 保存id、err，供当前处理流程使用
-	id, err := strconv.ParseInt(chi.URLParam(r, "card_id"), 10, 64)
-	if err != nil {
+	// id、parseErr 保存路径中的卡券标识及数字解析错误。
+	id, parseErr := strconv.ParseInt(chi.URLParam(r, "card_id"), 10, 64)
+	if parseErr != nil {
 		writeErr(w, http.StatusBadRequest, "无效卡券ID")
 		return
 	}
-	// req 保存req，供当前处理流程使用
-	var req struct {
-		Content string `json:"content"`
-	}
-	if // err 保存err，供当前处理流程使用
-	err := decodeJSON(r, &req); err != nil {
+	// req 保存具名 DTO 解码后的追加库存请求。
+	var req cardAppendRequest
+	// decodeErr 表示追加请求 JSON 的解码错误。
+	if decodeErr := decodeJSON(r, &req); decodeErr != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	// content 保存内容，供当前处理流程使用
+	// content 保存去除首尾空白后的待追加卡密内容。
 	content := strings.TrimSpace(req.Content)
 	if content == "" {
 		writeErr(w, http.StatusBadRequest, "内容为空")
 		return
 	}
-	// cf、err 保存cf、err，供当前处理流程使用
-	cf, err := s.Store.Cards.Get(r.Context(), id)
+	// added、err 保存应用服务追加的库存行数及业务或持久化错误。
+	added, err := s.cardsApplication().AppendData(r.Context(), sess.UserID, id, content)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "卡券不存在")
-		return
-	}
-	if cf.UserID != sess.UserID {
-		writeErr(w, http.StatusForbidden, "无权操作该卡密组")
-		return
-	}
-	if cf.Type != "data" {
-		writeErr(w, http.StatusBadRequest, "只有 data（批量卡密）类型支持追加卡密")
-		return
-	}
-	// added、err 保存added、err，供当前处理流程使用
-	added, err := s.Store.Cards.AppendBatchData(r.Context(), id, content)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "追加失败: "+err.Error())
+		// validationErr 用于识别可以直接返回客户端的稳定校验提示。
+		var validationErr *cardsapp.ValidationError
+		switch {
+		case errors.Is(err, cardsapp.ErrNotFound):
+			writeErr(w, http.StatusNotFound, "卡券不存在")
+		case errors.Is(err, cardsapp.ErrForbidden):
+			writeErr(w, http.StatusForbidden, "无权操作该卡密组")
+		case errors.Is(err, cardsapp.ErrNotDataType), errors.As(err, &validationErr):
+			writeErr(w, http.StatusBadRequest, err.Error())
+		default:
+			writeErr(w, http.StatusInternalServerError, "追加失败: "+err.Error())
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, cardAppendResponse{Success: true, Added: added})

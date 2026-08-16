@@ -1,835 +1,543 @@
-# Ydisks 闲鱼助手渐进式重构总计划
+# Ydisks 闲鱼助手重构总计划
 
-## 1. 文档目的
+## 1. 计划目标
 
-本文是仓库后续结构治理的唯一长期路线图。任何涉及 Go 包边界、HTTP API、数据库访问、
-账号凭证、React 页面结构、测试基础设施或依赖装配的修改，都必须先阅读本文、
-`docs/architecture/dependency-rules.md` 与 `docs/architecture/comment-standard.md`。
+本文是仓库重构的唯一阶段路线图，只记录目标架构、十个正式迭代、阶段验收条件和强制约束。
+本文不记录开发日期、提交列表、阶段内进度、完成日志、人员记录或临时工作说明。
 
-本计划采用小步、可回滚的纵向切片，不允许建立一个长期脱离主分支的大型重构分支，
-也不允许在一个变更中同时完成大规模移动、行为修改、数据库迁移和兼容清理。
+阶段 0 是执行重构前的治理前置条件，不计入正式迭代。阶段 1 至阶段 10 各自对应一个完整
+迭代和一个 PR，最多执行十轮。阶段内部可以连续完成多项实现和测试，但不得拆成额外轮次、
+额外 PR 或额外提交。
 
-滑块 CAPTCHA 逻辑继续受 `docs/slider-captcha-frozen-spec.md` 保护；本计划不构成修改授权。
+滑块 CAPTCHA 行为继续由 `docs/slider-captcha-frozen-spec.md` 保护。本文不是修改冻结行为的授权。
 
-## 2. 当前问题基线
+### 1.1 最终成功标准
 
-截至计划建立时，仓库具有良好的测试和工程化基础，但存在以下主要维护风险：
+1. `cmd` 只负责配置、依赖构造、信号和进程生命周期。
+2. `internal/server` 只负责 HTTP/WebSocket transport、鉴权、中间件、具名 DTO 和 SPA。
+3. 应用服务负责完整用例、所有权校验和事务边界，且不依赖 HTTP、数据库或平台实现类型。
+4. `internal/db` 独占 SQL、迁移、方言、加密持久化和 repository 实现。
+5. 账号摘要、平台凭证、密码登录秘密和运行配置使用不同模型和最小查询。
+6. Engine 与 Automation 的并发状态、凭证协调、外部动作和生命周期由明确组件拥有。
+7. React 遵守 `app -> features -> shared`，业务请求、状态和 DTO 转换归属对应 feature。
+8. SQLite、MySQL、PostgreSQL 的迁移、事务和核心业务行为一致。
+9. 旧 API 和兼容字段只在有调用方、遥测和删除条件时保留，最终按明确 Sunset 退场。
+10. 架构、注释、race、多数据库、前端类型和构建均成为自动门禁，无历史豁免。
 
-- `internal/server` 同时承担 HTTP、业务编排、MTOP 调用、事务、QR 会话和批量发布 worker 生命周期；
-- `internal/engine/account.go` 集中管理连接、凭证、重试、运行状态、去重、防抖和任务生命周期；
-- `internal/automation/center.go` 同时管理规则、运行、外部动作、卡密分配、凭证恢复和通知；
-- `internal/db.Store` 向上层暴露全部 repository 与裸 `*sql.DB`；
-- 账号列表和所有权检查会读取或解密超过实际需要的敏感字段；
-- HTTP 响应大量使用动态 map，错误结构和 API 路径不统一；
-- 前端存在多个 900 至 1800 行的页面组件，API 与类型集中在单文件；
-- 部分前端测试依赖源码字符串断言，难以保护真实交互；
-- CI 主要依附发布 workflow，尚未形成独立 PR 质量门禁；
-- server 测试重复执行全量 SQLite 迁移，使完整 race 测试耗时过高；
-- 历史代码尚未满足全函数、全变量准确中文注释要求。
-
-审计重开基线（2026-08-15）：此前将测试覆盖率收口误判为目标架构完成，现已撤销该判断。当前仍存在敏感设置明文进入前端、Server 持有基础设施编排、Port 泄露 `sql.Tx`/`db.*`、凭证锁覆盖慢速外部 I/O、外部成功后本地状态缺少统一补偿、N+1 同步、关闭游离 goroutine、大型页面同步加载和模板化注释假阴性等问题。覆盖率、lint、race 通过只能证明当前行为可验证，不能替代分层和状态正确性完成条件。
-
-## 3. 不变量与成功标准
-
-重构期间必须持续满足以下不变量：
-
-1. 每个合并点都能编译、启动并通过适用测试。
-2. 未经当前任务明确授权，不改变业务行为、API 兼容语义或冻结滑块行为。
-3. 敏感凭证不得扩大读取、传递、序列化或日志记录范围。
-4. SQLite、MySQL 和 PostgreSQL 的行为保持一致。
-5. 前端源码变化后必须重建并校验 `internal/webui/static`。
-6. 新增或修改的函数、变量、字段、参数和返回值必须符合中文注释规范。
-7. 每次完成一个计划步骤，都必须更新本文的状态、验证结果和后续入口。
-8. 不通过删除、跳过或放宽测试来完成重构。
-
-最终成功标准：
-
-- `internal/server` 只负责 HTTP、鉴权、中间件、DTO 映射和静态资源；
-- 应用服务负责业务用例和事务边界，不依赖 `net/http`；
-- handler 不直接访问 `Store.DB`、MTOP 或 browser；
-- 账号摘要、平台凭证、密码登录秘密和运行配置使用不同模型与查询；
-- HTTP API 使用具名 DTO、统一错误结构和统一版本前缀；
-- React 按 feature 组织，页面容器、数据 Hook、表单和视图组件职责分离；
-- `Account` 与 `Center` 成为 facade，内部状态由独立组件拥有；
-- PR CI、目标 race、多数据库和架构规则均为自动门禁；
-- Go 与 TypeScript/TSX 源码的中文注释基线清零。
-
-## 4. 目标依赖方向
+## 2. 目标架构
 
 ```text
-cmd/server
-  ├── application lifecycle
-  └── HTTP server
+cmd
+  -> application services / lifecycle
+       -> consumer-defined ports
+            <- adapter implementations
+                 -> db / xianyu / browser / notify
 
 HTTP server
-  └── application services
+  -> application services
 
-application services
-  ├── domain/runtime services
-  └── consumer-defined ports
-
-db / xianyu / browser / notify
-  └── implement consumer-defined ports
+React app shell
+  -> feature page
+       -> feature hooks / state / API adapter / UI model
+            -> shared HTTP client and shared UI
 ```
 
-前端目标方向：
-
-```text
-app shell / routes
-  └── feature pages
-        ├── feature hooks
-        ├── feature components
-        └── feature API adapters
-              └── shared HTTP client
-```
-
-详细的允许与禁止依赖见 `docs/architecture/dependency-rules.md`。
-
-## 5. 阶段状态总表
-
-状态只允许使用：`未开始`、`进行中`、`已完成`、`阻塞`。
-
-| 阶段 | 状态 | 目标 | 完成证据 |
-| --- | --- | --- | --- |
-| 0. 治理文档与强约束 | 已完成 | 总计划、依赖规则、注释规范、AGENTS 门禁、注释检查器 | 文档、门禁规则、Go/TypeScript 检查器和历史基线已落盘 |
-| 1. PR CI 与测试基础 | 已完成 | 独立 CI、测试 DB 模板、可执行 race | CI、独立模板、server smoke race 和完整 race 均有验证 |
-| 2. 敏感数据访问边界 | 已完成 | 摘要、凭证、登录秘密和系统设置分离 | Cookie/平台运行视图、系统设置脱敏读写、已知生产敏感设置调用方审计和运维诊断输出脱敏已收口；SQLite、MySQL 8.4、PostgreSQL 17 的真实多库迁移与 CRUD 回归均通过；高频运行时仅读取窄视图、不逐次写审计，管理/一次性敏感读取均有审计和 fail-closed 测试 |
-| 3. HTTP API 契约 | 已完成 | 统一错误、具名 DTO、版本化路径 | 统一错误 DTO、具名成功 DTO、所有前端业务调用方版本化、旧路径兼容和最终审计均已完成 |
-| 4. Server 应用服务 | 进行中 | 订单、发布、登录、聊天纵向抽取 | 订单、单/批量商品发布、账号资料刷新、手动/扫码登录、普通 Cookie 更新、账号删除、聊天历史/写入和通知渠道/绑定/uncertain 查询已通过应用 Port 接入；密码登录关闭策略已由应用 Port 统一承载，但浏览器密码登录仍明确禁用，其他账号操作、部分商品辅助流程和 handler 低层依赖仍待收口 |
-| 5. 应用生命周期装配 | 进行中 | 消除必需依赖 setter 回填并统一关闭边界 | Server、续期调度器、浏览器 Manager、Engine watcher、账号 Manager 的 Stop/Close 已具备 Context/fencing 与回归；账号删除已由应用服务统一执行 fencing、最多五秒停止等待和锁内二次归属复核；Server 后台/恢复任务已有进程内 ID、状态和 Context 超时查询，统一跨组件清单仍待补齐 |
-| 6. Engine 与 Automation | 已完成 | facade + 独立状态组件 | Engine/Automation 组件边界、race、生命周期与冻结规范测试均已通过 |
-| 7. React Feature 化 | 进行中 | 页面、Hook、API、类型按领域拆分 | Rules、Items、Accounts、Cards、Orders、Notifications、Dashboard、Settings、Chat 和 AccountAutomation 的 feature/API/Hook 已拆分，App 路由懒加载和入口包体预算已收口；Provider/路由壳、完整页面行为覆盖和剩余大型页面边界仍待完成 |
-| 8. DB 与事务治理 | 进行中 | 窄接口、事务执行器、方言门禁 | 订单/商品/通知应用 Port、非敏感通知渠道摘要查询、批量 worker、订单 reconciliation、通知渠道/绑定与 uncertain 状态和三库迁移证据已补齐；自动化准备阶段订单事实失败不再被吞；任务状态明确为非持久化进程内元数据；仍有 Server 低层适配集中、`sql.Tx`/`db.*` 旧边界、更多批量读写与补偿查询待收口 |
-| 9. 架构门禁与兼容清理 | 进行中 | 允许依赖图、临时例外、兼容路径退场 | `architecturecheck` 已覆盖应用 Port AST 类型和 Server 新增低层依赖；聊天写入、通知渠道/绑定、普通 Cookie 更新和账号删除已接入 Port，密码登录关闭策略也已接入应用层，但仍保留历史 Server 临时白名单，旧 API 遥测、Sunset 条件和其他领域迁移尚未完成 |
-| 10. 注释基线清零 | 进行中 | 全仓准确中文注释检查 | 已有字符级/AST 门禁；待完成模板短语黑名单、业务语义抽查、复杂度门禁和冻结文件精确例外 |
-
-### 当前执行入口
-
-- 当前阶段：审计重开后的过渡架构治理；不得使用“全部完成”表述。P0 敏感数据父切片已按完成条件关闭；当前按顺序推进 P1 应用 Port、生命周期和外部动作补偿父切片，之后才处理 P2 批量同步、HTTP 兼容退场和 React 页面边界；在 P1 父切片关闭前继续暂停新的 React 页面细粒度子切片；每个 PR 必须同时更新完成证据和剩余风险；
-- 已完成：总计划、依赖规则、中文注释规范、`AGENTS.md` 强约束，以及 Go/TypeScript AST 注释检查器和历史基线；
-- 阶段 1 已完成：server 测试模板预置管理员和账号 cookie，普通测试约 21.3 秒，完整 server race 约 194.3 秒通过；
-- 已完成阶段 2 逻辑切片一“Repository 敏感数据边界”：建立 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned`、`GetOwnerID`、`GetSummaryOwned` 和原子 `GetValueOwned`，覆盖跨用户、无效 user ID 及无效密文回归；
-- 已完成阶段 2 逻辑切片二“Server 非敏感消费方”：账号列表、运行状态、账号详情、聊天、商品、关键词回复、卡券关联和管理员账号停止流程均迁移到窄查询，纯所有权流程不再解密完整凭证；
-- 已完成阶段 2 逻辑切片三“订单消费方”：订单刷新、手动发货和订单导入使用账号 ID 列表与所有权判断，凭证流程按需读取单账号详情；
-- 已完成阶段 2 后续切片：`internal/chat/service.go` 的订阅账号集合已迁移到 `ListOwnedIDs`，聊天订阅不再批量解密账号 Cookie；
-- 已完成阶段 2 后续切片：`internal/account/manager.go` 已改用受控的 `ListEnabledRuntimeCredentials` 启动账号，只解密启用账号 Cookie，不再使用 `AllForUser(ctx, 0)` 加逐账号状态查询；
-- 已完成阶段 2 后续切片：`internal/renewal/scheduler.go` 已改用 `RenewalRuntimeAccount` 窄模型及按账号重读接口，只解密 Cookie、续期 metadata 和启用状态，不再把登录密码/用户名带入续期调度器；
-- 已完成阶段 2 后续切片：`internal/automation/account_tasks.go` 的 Session 阻断指纹已改用 `GetCookieRuntimeData`，只读取 Cookie 与 metadata，不再解密完整账号详情；
-- 已完成阶段 2 后续切片：`internal/automation/center.go` 的确认发货流程已改用 `GetCookieRuntimeData`，只读取 Cookie 与 metadata，保留凭证锁、Cookie Jar 和重试行为；
-- 已完成阶段 2 后续切片：`internal/automation/center.go` 的通用 `cookieValue` 回退读取已迁移到 `GetValue`，Automation 生产代码不再直接读取完整账号详情；
-- 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `tryLoginStatusCheck` 已改用 `GetCookieRuntimeData`，只读取 Cookie 与 metadata，保持重试、Cookie Jar 和锁语义；
-- 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `tryAPIRenewUsing` 已改用 `GetCookieRuntimeData`，只读取接口续期所需的 Cookie 与 metadata，保持续期、快照持久化、锁和 token 清理语义，并补充损坏登录密码回归测试；
-- 已完成阶段 2 后续切片：新增 `GetCookieMetadata` 单字段接口，并将 `internal/engine/account.go` 的 `persistRenewFlatCookie` 迁移到该接口，只读取 metadata，保持扁平 Cookie 更新和 metadata 快照清理行为；
-- 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `handleMaxFailures` 已改用 `GetValue`，只读取恢复回调所需的 Cookie 明文，保持失败计数和重连行为，并补充损坏登录密码回归测试；
-- 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `persistPendingRenewCookies` 已改用 `GetCookieRuntimeData`，只读取异步续期所需的 Cookie 与 metadata，保持迟到 Cookie 合并、凭证锁和通知行为，并补充损坏登录密码回归测试；
-- 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `refreshTokenWithMinGap` metadata 读取已迁移到 `GetCookieMetadata`，只读取 token 请求所需的 Cookie 快照信息，保持 Cookie 快照请求上下文和 token 刷新行为，并补充损坏登录密码回归测试；
-- 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `adoptTokenResponseCookies` metadata 读取已迁移到 `GetCookieMetadata`，只读取 token 响应 Cookie 合并所需的快照信息，保持响应合并、快照持久化和错误语义，并补充损坏登录密码回归测试；
-- 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `databaseCredentialFingerprint` 已改用 `GetCookieRuntimeData`，只读取 token 凭证一致性校验所需的 Cookie 与 metadata，保持空值、指纹不一致和错误语义，并补充损坏登录密码回归测试；
-- 已完成阶段 2 后续切片：`internal/engine/account.go` 的 `reloadCookieFromDB` 已改用 `GetCookieRuntimeData`，只读取外部 Cookie 更新检测所需的 Cookie 与 metadata，保持运行时替换、token 清理和错误行为，并补充损坏登录密码回归测试；
-- 已完成阶段 2 当前 PR 切片四“Engine/账号运行时凭证边界”：`cookieSnapshotMatchesDB`、`UpdateCookie` 和账号管理器 `Restart` 已分别改用 `GetCookieRuntimeData` 或 `GetValue`，只读取运行实例所需的 Cookie 数据；损坏登录密码回归测试覆盖 WS 注册前校验、运行时同步和重启路径，且三项修改合并为一个可回滚提交；
-- 已完成阶段 2 当前 PR 切片五“平台凭证流程统一窄查询”：新增不含用户名和登录密码的 `CookiePlatformRuntimeData`，并将 `internal/adapter` 的 token 风控、订单详情、协议续期以及 `internal/renewal` 的迟到 Cookie 合并统一迁移到该视图；损坏登录密码回归测试覆盖四条平台流程，且整批修改合并为一个可回滚提交；
-- 已完成阶段 2 当前 PR 切片六“Server 平台凭证流程审计”：Server 的订单、发布、商品同步、二维码登录、长登录、资料刷新和账号生命周期路径已改用平台运行视图或非敏感摘要；完整 `CookieDetail` 仅保留给账号设置和登录信息更新这两个确实需要登录秘密的流程，新增 Server 窄查询回归测试并通过全量门禁，整批修改合并为一个可回滚提交；
-- 已完成阶段 2 最终审计：生产代码中的 `GetDetails` 仅保留登录设置和登录信息更新两条完整详情白名单；平台流程统一使用 `GetCookiePlatformRuntimeData`，所有权流程统一使用摘要查询，凭证读取继续由 `LockAccountCredentials` 保护；新增 `TestMultiDB_CookieCredentialScope` 覆盖 SQLite，并在提供环境变量时覆盖 MySQL/Postgres，验证三种方言的 Cookie、metadata、平台视图和所有权摘要一致；阶段 2 全量门禁通过并合并为一个可回滚提交；
-- 已完成阶段 3 第一个 PR 切片“HTTP 错误结构盘点与第一批契约测试”：新增共享 `httpapi.ErrorResponse`，统一 `code`/`message`/`request_id` 错误边界；认证失败改用 401 和稳定 `authentication_failed`，健康检查和账号列表改用具名 DTO；React 请求层移除 `detail/msg` 错误依赖并为账号列表补充具名类型；新增健康检查、认证失败和账号列表契约测试，Go/React 全量门禁通过并合并为一个可回滚提交；
-- 已完成阶段 3 第二个 PR 切片“剩余认证与公共 API 错误迁移”：初始化冲突、管理员/用户密码修改、登录凭据校验、用户名冲突、公开设置故障和 SPA API 404 均返回统一错误 DTO 与正确状态码；新增状态码/错误码契约测试，Go 全量门禁通过并合并为一个可回滚提交；
-- 已完成阶段 3 第三个 PR 切片“订单与账号业务 API 错误响应迁移”：订单刷新、手动发货和订单导入不再返回顶层 HTTP 200 + `success:false`，批量结果改用 `partial_failure`，刷新明细错误统一使用 `message`；账号任务的 502 错误改用统一错误 DTO；新增订单/账号契约测试并通过全量门禁，逐项结果中的 `success` 仅保留为批处理行状态；
-- 已完成阶段 3 第四个 PR 切片“聊天、商品与自动化业务 API 错误响应迁移”：聊天发送失败和商品发布失败均改用统一 `code`/`message`/`request_id` 错误 DTO，商品远端已成功但本地保存失败的恢复信息迁移到可选 `details`；React 错误类型同步支持 `details`，新增 HTTP DTO、聊天/自动化/商品契约测试并通过前端门禁；
-- 已完成阶段 3 第五个 PR 切片“二维码登录、密码登录和剩余公共业务错误响应迁移”：二维码生成、扫码状态持久化、风控验证失败和账号不匹配均改用正确的非 2xx 状态码与统一错误 DTO；历史密码登录入口返回明确的 `password_login_disabled` 未实现错误；新增二维码/密码登录契约测试并通过全量门禁；
-- 已完成阶段 3 第六个 PR 切片“统一业务成功响应具名 DTO 与版本化路径准备”：认证会话、账号新增、订单列表、聊天会话/消息主链路已改用具名成功响应 DTO，新增响应契约测试，并记录 `/api/v1` 兼容迁移边界；未提前切换旧路径，保持可回滚；
-- 已完成阶段 3 第七个 PR 切片“剩余业务成功响应 DTO 与客户端契约收口”：账号详情/设置、商品核心发布与同步、自动化规则/异常、订单详情/刷新/批量外层响应改用具名 DTO；React 客户端同步使用具名契约类型；新增跨领域成功响应契约测试；旧字段、旧路径和批处理逐行兼容字段保留；全量门禁通过并合并为一个可回滚提交；
-- 已完成阶段 3 第八个 PR 切片“剩余商品批量操作与设置/卡券/通知成功响应收口”：商品类目推荐、批量发布预检/任务、系统与用户设置、账号 AI 设置、卡券 CRUD/批量、通知渠道与账号绑定均改用具名 DTO；React 客户端同步具名契约类型；补充跨领域契约测试；保留动态设置键、旧路径和批量逐行字段；全量门禁通过并合并为一个可回滚提交；
-- 已完成阶段 3 第九个 PR 切片“剩余关键词回复、默认回复与账号任务成功响应收口”：关键词基础/商品/类型规则、指定商品回复、默认回复、账号任务设置与运行记录均改用具名 DTO；React 客户端同步具名契约类型；新增跨领域契约测试；保留旧路径和兼容字段；全量门禁通过并合并为一个可回滚提交；
-- 已完成阶段 3 第十个 PR 切片“分析统计、管理员与剩余公共成功响应收口”：管理员用户/账号/统计、用户仪表盘、订单分析、有效订单分页和二维码生成均改用具名 DTO；React 客户端同步统计和二维码契约类型；新增跨领域契约测试；保留动态设置和二维码状态的兼容边界；全量门禁通过并合并为一个可回滚提交；
-- 已完成阶段 3 第十二个 PR 切片“HTTP API 版本化兼容入口与会话调用方迁移”：新增 `/api/v1/session/login`、`/api/v1/session/initialize`、`/api/v1/session` 与 `/api/v1/session/logout` 薄适配入口，复用旧 handler；React 登录、初始化、会话校验和登出已迁移，旧路径保留；新增 Go/React 契约测试并保持独立可回滚提交；
-- 已完成阶段 3 第十三个 PR 切片“账号 API 版本化兼容入口与调用方迁移”：新增 `/api/v1/accounts`、详情、运行状态、单账号详情和启停状态薄适配入口，复用旧 handler；React 账号摘要、详情、运行状态和启停状态调用已迁移，旧路径保留；新增 Go/React 契约测试并保持独立可回滚提交；
-- 已完成阶段 3 第十四个 PR 切片“账号设置与资料 API 版本化兼容入口迁移”：新增账号聚合设置、备注、暂停、自动确认、长登录和资料刷新 `/api/v1/accounts/{cid}/...` 薄适配入口，复用旧 handler；React 相关调用已迁移，旧路径保留；新增 Go/React 契约测试并保持独立可回滚提交；
-- 已完成阶段 3 第十五个 PR 切片“账号凭证与登录信息 API 版本化兼容入口迁移”：新增账号新增、Cookie 更新和登录信息设置 `/api/v1/accounts...` 薄适配入口，复用既有凭证锁与权限 handler；React 对应调用已迁移，旧路径保留；新增敏感字段边界契约测试并保持独立可回滚提交；
-- 已完成阶段 3 第十六个 PR 切片“订单 API 版本化兼容入口与调用方迁移”：新增订单列表、详情和更新 `/api/v1/orders...` 薄适配入口，复用既有订单归属校验与 handler；React 对应调用已迁移，旧路径保留；新增订单契约测试并保持独立可回滚提交；
-- 已完成阶段 3 第十七个 PR 切片“订单刷新与批量操作 API 版本化兼容入口迁移”：新增订单刷新、单订单刷新、手动发货和导入 `/api/v1/orders...` 薄适配入口，复用既有订单 handler；React 对应调用已迁移，旧路径保留；新增刷新/批量契约测试并保持独立可回滚提交；
-- 已完成阶段 3 第十八个 PR 切片“商品 API 版本化兼容入口与调用方迁移”：新增商品列表、详情、发布、更新和删除 `/api/v1/items...` 薄适配入口，复用既有商品所有权校验与 handler；React 对应调用已迁移，旧路径保留；新增商品契约测试并保持独立可回滚提交；
-- 已完成阶段 3 第十九个 PR 切片“商品同步与批量发布 API 版本化兼容入口迁移”：新增商品同步、类目推荐、批量发布预检、任务、详情、取消、重试和结果下载 `/api/v1/items...` 薄适配入口，复用既有商品 handler；React 对应同步/批量发布调用已迁移，旧路径保留；新增商品批量契约测试并保持独立可回滚提交；
-- 已完成阶段 3 第二十个 PR 切片“设置、卡券与通知 API 版本化兼容入口迁移”：新增系统/用户/AI 设置、卡券和通知渠道/消息/账号绑定 `/api/v1/settings`、`/api/v1/cards`、`/api/v1/notifications` 薄适配入口，复用既有权限边界与 handler；React 系统设置、AI 设置、卡券和通知调用已迁移，旧路径保留；新增三领域契约测试并保持独立可回滚提交；
-- 已完成阶段 3 第二十一个 PR 切片“聊天与账号任务 API 版本化兼容入口迁移”：新增聊天 REST/WebSocket 和账号任务设置/运行记录/执行 `/api/v1/chat...`、`/api/v1/account-tasks...` 薄适配入口，复用既有权限边界与 handler；React REST/WebSocket、账号任务设置和执行调用已迁移，旧路径保留；新增聊天/账号任务契约测试并保持独立可回滚提交；
-- 已完成阶段 3 第二十二个 PR 切片“关键词回复与默认回复 API 版本化兼容入口迁移”：新增关键词基础/商品/类型规则、指定商品回复和默认回复 `/api/v1/reply-rules...`、`/api/v1/default-replies...` 薄适配入口，复用既有权限校验与 handler；React 关键词类型规则、指定商品回复和默认回复调用已迁移，旧路径保留；新增回复规则契约测试并保持独立可回滚提交；
-- 已完成阶段 3 第二十三个 PR 切片“管理员、仪表盘与订单分析 API 版本化兼容入口迁移”：新增管理员用户/账号/统计、仪表盘统计、订单分析和有效订单 `/api/v1/admin...`、`/api/v1/analytics...` 薄适配入口，复用既有管理员权限与统计 handler；React 管理员统计、仪表盘和订单分析调用已迁移，旧路径保留；新增管理员/统计契约测试并保持独立可回滚提交；
-- 已完成阶段 3 第二十四个 PR 切片“二维码登录 API 版本化兼容入口迁移”：新增二维码生成、状态查询、状态持久化和验证完成 `/api/v1/qr-login...` 薄适配入口，复用既有认证、会话所有权和敏感字段过滤 handler；React 二维码生成、轮询和验证完成调用已迁移，旧路径保留；新增二维码新旧入口契约测试并保持独立可回滚提交；
-- 已完成阶段 3 第二十五个 PR 切片“密码登录及剩余公共调用方 API 版本化兼容入口迁移”：新增会话密码/凭证、账号删除、密码登录禁用、自动化规则/异常处理、订单删除和商品创建 `/api/v1/...` 薄适配入口，复用既有认证、权限和业务 handler；React 对应调用已迁移，旧路径保留；新增剩余公共调用方 Go/React 契约测试并保持独立可回滚提交；
-- 已完成阶段 3 第二十六个 PR 切片“版本化入口最终审计与旧调用方清零”：前端生产调用和批量结果下载已无业务旧路径；Vite 代理收敛为 `/api` 与健康检查；服务端剩余商品兼容入口已补齐；新增旧代理别名和商品遗漏入口审计证据，阶段 3 完成条件满足并保持独立可回滚提交；
-- 已完成阶段 4 第一个 PR 切片“订单应用服务边界提取”：订单列表、详情、更新、删除、批量导入、手动发货和批量刷新已由不依赖 `net/http` 的 `orderApplicationService` 编排；handler 仅保留 HTTP 解析、鉴权上下文和 DTO 编码；保留订单所有权、事务回滚、MTOP 凭证锁、Cookie Jar 持久化、Session 续期和逐单部分失败语义；新增服务层直接调用测试并通过 Go 全量门禁与 server race；
-- 已完成阶段 4 第二个 PR 切片“订单响应 DTO 映射收口”：订单列表状态/图片映射、详情商品补全、单订单刷新和批量刷新响应均由应用服务返回稳定视图；更新校验改用业务错误分类，HTTP 层不再依赖错误文本判断状态码；旧/版本化入口契约测试和全量门禁通过；
-- 已完成阶段 4 第三个 PR 切片“商品发布应用服务边界提取”：新增不依赖 `net/http` 的商品发布应用服务，覆盖单商品发布、类目推荐、批量预检持久化、批次启动/查询/取消/删除/失败重试；HTTP 层仅保留请求解析、鉴权和契约映射，保留 worker、锁、cancel map、租约和远端发布顺序；新增服务层直接调用测试并通过全量门禁，合并为一个可回滚提交；
-- 已完成阶段 4 第四个 PR 切片“账号登录应用服务边界提取”：新增不依赖 `net/http` 的账号登录应用服务，覆盖扫码结果幂等持久化、Cookie Jar/扁平 Cookie 合并、账号新增与更新、资料刷新、登录审计和运行时重启；HTTP handler 仅保留请求解析、所有权校验和契约映射，保留扫码会话锁与账号凭证锁不变量；新增服务层测试并通过全量门禁，合并为一个可回滚提交；
-- 已完成阶段 4 第五个 PR 切片“聊天与通知应用服务边界提取”：新增不依赖 `net/http` 的通信应用服务，覆盖账号任务设置/执行/记录、聊天文字与图片发送、聊天历史读取/已读、通知渠道 CRUD、账号绑定和删除；保留 WebSocket 订阅、聊天事件广播、通知 outbox 与失败状态语义；新增服务层测试并通过全量门禁，合并为一个可回滚提交；
-- 已完成阶段 4 第六个 PR 切片“Server 事务与生命周期边界收口”：新增 Server 统一 Unit of Work，订单更新与导入不再直接管理事务；新增后台任务生命周期登记入口，HTTP 优雅关闭与批量发布恢复扫描器统一纳入等待流程；修复服务不可用时 handler 先做资源归属校验导致状态码变化的问题；新增事务提交/回滚测试并通过全量门禁，合并为一个可回滚提交；
-- 已完成阶段 4 第七个 PR 切片“Server 直接依赖清理与应用服务装配收口”：统一装配订单、发布、登录、通信和分析应用服务；默认回复、账号设置、AI 设置、通知绑定、管理员查询及订单分析查询均迁移到 repository 或应用服务边界；handler 不再直接访问 `Store.DB`，新增装配一致性测试并通过全量门禁，合并为一个可回滚提交；
-- 已完成阶段 5 PR 切片“应用构造依赖验证与生命周期接口”：`Server.New` 在构造阶段校验 `Store/Manager`，聊天服务通过 option 注入并移除生产运行时 setter；新增幂等 `Start/Wait/Stop`，`Stop` 统一等待 HTTP、后台扫描器和批量 worker；`cmd/server` 迁移到显式生命周期入口；新增构造失败、重复启动/停止和 worker 等待测试，并通过全量门禁，合并为一个可回滚提交；
-- 已完成阶段 6 第一个 PR 切片“Engine 账号 facade 与运行状态边界”：将连接状态、失败计数、离线告警和业务任务生命周期分别提取为独立锁组件；`Account` 保留 facade，`Stop` 对并发调用保持幂等并等待已登记任务；新增生命周期并发回归测试，未改变 WebSocket、凭证、自动化和冻结风控逻辑；全量测试、Engine race、Server race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交；
-- 已完成阶段 6 第二个 PR 切片“Engine WebSocket 连接循环边界”：`registerConnection` 在凭证锁内统一快照复核与 WebSocket 注册，`runConnectionSession` 统一心跳、接收、Token 轮换 goroutine 的创建/取消/等待；`Account` 继续负责凭证错误、风控和重连结果解释；新增会话收束测试，未改变冻结风控行为；全量测试、Engine race、Server race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交；
-- 已完成阶段 6 第三个 PR 切片“Engine WebSocket 记录与消息分发边界”：将 WS 记录 worker、消息去重、防抖和并发信号量分别收口到独立组件；`Account` 保留兼容 facade，系统事件背压、聊天洪峰限流、消息顺序、自动化事件优先级和 Stop 等待语义保持不变；全量 Go 测试、Engine/Server race、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交；
-- 已完成阶段 6 第四个 PR 切片“Engine 凭证状态与 Token 生命周期边界”：将 Cookie 快照、Token 缓存、刷新锁、设备指纹和刷新诊断状态收口到独立 `credentialState`；运行状态锁改为显式 `runtimeMu`，避免匿名组件锁冲突；保留风控恢复、刷新锁、Cookie/Token 绑定和 WebSocket 注册前快照复核语义；Engine 全量测试、Engine/Server race、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交；
-- 已完成阶段 6 第五个 PR 切片“Automation 事件事实与规则匹配边界”：新增事件事实记录器、无动作副作用的规则匹配器和纯动作计划器；`Center` 与 `Scheduler` 统一通过组件查询规则和生成动作计划，规则匹配不执行外部动作，付款发货动作顺序、规格匹配、延迟快照和恢复语义保持不变；Automation/Server race、全量测试、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交；
-- 已完成阶段 6 第六个 PR 切片“Automation 运行协调与动作执行边界”：新增 `automationRunCoordinator`，统一运行创建/恢复、动作前后检查点、延迟任务续租、账号门禁和不确定结果隔离；`Center` 保留兼容调用入口，外部动作已执行/未执行/结果未知三态语义、人工核对状态机和恢复游标保持不变；Automation 测试、注释和 diff 门禁通过，整批修改合并为一个可回滚提交；
-- 已完成阶段 6 第七个 PR 切片“Automation 发货、卡密与通知动作边界”：新增 `automationActionExecutor` 与 `deliveryNotifier`，统一确认发货、Cookie/Jar 合并、卡券锁与库存消费、消息错误三态分类和结果通知；`Center` 保留兼容入口，凭证锁、卡券库存、恢复唤醒和通知文案语义保持不变；新增动作执行器回归测试，Automation 测试、注释和 diff 门禁通过，整批修改合并为一个可回滚提交；
-- 已完成阶段 6 第八个 PR 切片“Automation 账号任务与凭证门禁边界”：新增 `accountTaskCoordinator`，统一账号状态门禁、自动评价/商品擦亮调度、任务租约、Session 指纹阻断、凭证恢复和 Cookie 同步；`Center` 保留公开任务入口，Session 失效恢复、任务幂等、失败重试和账号暂停语义保持不变；Automation 测试、注释和 diff 门禁通过，整批修改合并为一个可回滚提交；阶段 6 完成；
-- 已完成阶段 7 第一个 PR 切片“React Rules feature 化与 API/行为测试边界”：按 `app/features/rules` 提取 Rules API 适配层、领域类型、数据 Hook、异常面板和交互状态模型；规则页通过 Hook 管理服务端数据与请求代次，保留旧组件入口和现有 API 路径；行为测试覆盖成功、失败、重复提交、过期响应和页签切换；前端类型检查、全量测试、注释检查和构建门禁通过，合并为一个可回滚提交；
-- 已完成阶段 7 第二个 PR 切片“React ItemList feature 化与批量发布行为边界”：按 `app/features/items` 提取商品/批量 API 适配层、批量任务类型、批量 Hook 和阶段指示器组件；批量预检、任务恢复、轮询取消、失败重试和过期响应均由 feature 状态边界负责；行为测试覆盖预检门禁、取消状态、失败重试、历史任务筛选和过期轮询响应；前端类型检查、全量测试、注释检查和构建门禁通过，合并为一个可回滚提交；
-- 已完成阶段 7 第三个 PR 切片“React AccountList feature 化与账号运行状态行为边界”：按 `app/features/accounts` 提取账号 API 适配层、账号数据与运行状态 Hook、运行状态展示模型、账号编辑弹窗和登录/暂停状态模型；账号加载与运行状态轮询支持取消和请求代次门禁，密码登录响应按账号与代次隔离，旧组件入口保留兼容转发；行为测试覆盖账号切换、暂停/恢复、凭证失败、风控验证和过期响应；前端类型检查、全量测试、注释检查和构建门禁通过，合并为一个可回滚提交；
-- 已完成阶段 7 第四个 PR 切片“React CardList feature 化与卡密库存/批量追加行为边界”：按 `app/features/cards` 提取卡密 API 适配层、库存数据 Hook、批量导入/追加状态 Hook 和弹窗组件；卡密筛选、追加预览、提交取消、失败重试与账号切换过期响应均由 feature 状态边界负责，保留旧组件入口和 API 路径；新增状态模型测试并通过前端类型检查、全量测试、注释检查和构建门禁，合并为一个可回滚提交；
-- 已完成阶段 7 第五个 PR 切片“React OrderList feature 化与订单导入/刷新行为边界”：按 `app/features/orders` 提取订单 API 适配层、查询/分页 Hook、导入 Hook、筛选栏和导入弹窗；订单查询与辅助数据支持并行加载、取消和代次门禁，导入支持文件预检、取消、失败重试和导入后刷新；新增筛选、导入归一化、API 取消信号和过期响应测试，保留旧组件入口和 API 路径；前端类型检查、全量测试、注释检查和构建门禁通过，合并为一个可回滚提交；
-- 已完成阶段 7 第六个 PR 切片“React Notifications feature 化与渠道/事件绑定行为边界”：按 `app/features/notifications` 提取通知渠道/SMTP API 适配层、静态渠道配置、数据与动作 Hook、渠道列表、事件绑定选择器、渠道编辑弹窗和 SMTP 面板；渠道与 SMTP 请求支持取消和代次门禁，表单支持渠道字段/独立 SMTP 校验、保存失败重试和过期响应保护；更新架构字符串测试并新增状态/API 取消信号测试，保留旧页面入口和 API 路径；前端类型检查、全量测试、注释检查和构建门禁通过，合并为一个可回滚提交；
-- 已完成阶段 7 第七个 PR 切片“React Dashboard feature 化与统计/趋势查询行为边界”：按 `app/features/dashboard` 提取 Dashboard API 适配层、统计数据 Hook、趋势/排行派生状态和请求边界；概览、趋势和有效订单支持并行加载、刷新取消、失败重试与过期响应保护；新增统计派生数据、API 取消信号和请求代次测试，保留旧页面入口和 API 路径；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交；
-- 已完成阶段 7 第八个 PR 切片“React Settings feature 化与系统配置校验边界”：按 `app/features/settings` 提取系统配置/模型/凭据 API 适配层、配置常量、表单状态和敏感字段校验；配置读取与保存支持并行加载、请求取消、失败重试和过期响应保护，登录凭据提交保留现有校验与重登录语义；新增配置裁剪、凭据校验、API 取消信号和请求代次测试，保留旧页面入口和 API 路径；
-- 已完成阶段 7 第九个 PR 切片“React Chat feature 化与会话消息行为边界”：按 `app/features/chat` 提取聊天 API、会话筛选/消息合并状态、账号/会话/消息分页 Hook；会话切换、联系人分页和消息加载支持取消与请求代次保护，文本/图片发送支持失败重试，WebSocket 和滚动语义保持不变；新增会话筛选、消息去重、分页过期响应、发送取消与 API 取消信号测试，保留旧页面入口和 API 路径；
-- 已完成阶段 7 第十个 PR 切片“React AccountAutomation feature 化与任务设置行为边界”：按 `app/features/accountAutomation` 提取账号任务 API、默认设置与重复执行状态模型、任务设置 Hook；账号切换支持取消和请求代次保护，保存/立即执行支持重复提交阻断、失败重试和结果刷新；新增默认值、动作门禁、API 取消信号测试，保留旧弹窗入口和 API 路径；
-- 已完成阶段 7 当前 PR 切片“React AccountList 子模块收口与页面组合边界”：账号卡片、删除确认、二维码授权和 AI 设置弹窗已迁入 `app/features/accounts/components`，根页面只负责列表状态、请求代次和子模块组合；新增展示/交互边界测试，前端 322 个测试、类型检查、注释门禁和生产构建通过。路由懒加载、Provider 边界、AccountList 完整页面行为测试和首屏包体预算仍待完成；
-- 已完成阶段 7 当前 PR 切片“React 路由懒加载与首屏入口包体边界”：认证根组件保留会话与导航状态，9 个业务页面在 `app/shell/AuthenticatedShell.tsx` 中按路由使用 `React.lazy` 加载，统一 `Suspense` 页面占位，保留权限回退、历史导航和页面参数语义；新增生产 bundle 边界测试，验证入口脚本小于 100KB、图表依赖不被首屏预加载且 9 个页面均有独立 chunk；前端 325 个测试、类型检查、注释门禁和生产构建通过。Provider/路由壳的更细粒度状态边界、完整页面行为覆盖、动态 chunk 独立预算和大型页面进一步拆分仍待完成；
-- 已完成阶段 7 当前 PR 切片“认证后路由壳与页面组合边界”：新增 `AuthenticatedShell` 与 `AppContent`，将侧边栏、主内容布局、权限回退、商品到规则页联动和动态页面组合从 `App.tsx` 移出；更新响应式布局与路由静态契约测试，前端 326 个测试、类型检查、注释门禁、生产构建和仓库 `make check` 通过。Provider 状态边界、完整页面行为覆盖、动态 chunk 独立预算和大型页面进一步拆分仍待完成；
-- 已完成阶段 7 当前 PR 切片“认证会话 Provider 状态边界”：新增 `SessionProvider`/`useSession`，集中会话校验、AbortController 生命周期、首次管理员初始化、登录、注销和 `auth:logout` 全局事件；`App.tsx` 只保留认证表单输入、导航状态和页面展示协调，不再直接调用会话 API 或维护全局认证状态；新增 Provider 行为测试覆盖已认证、未初始化、登录/初始化成功、全局注销及注销失败清理，前端 330 个测试、类型检查、注释门禁、生产构建和仓库 `make check` 通过。页面级 Provider 组合、完整页面行为覆盖、动态 chunk 独立预算和大型页面进一步拆分仍待完成；
-- 已完成阶段 7 当前 PR 切片“React 路由组合行为与动态 chunk 独立预算”：`bundleBoundary.test.ts` 新增九个业务页面的独立原始字节预算门禁；`AuthenticatedShell.test.tsx` 新增非管理员设置回退、管理员设置加载、商品→规则目标传递及规则目标消费行为测试；前端路由组合与生产资源边界均有运行时/产物证据，页面行为和动态分片治理继续保持可回归。完整页面行为覆盖、更多大型页面边界和全局 Provider 组合仍待完成；
-- 已完成阶段 7 当前 PR 切片“React AccountList 完整页面行为边界”：新增真实挂载 `AccountList` 的组合行为测试，覆盖搜索过滤与计数提示、删除确认后的 API/本地状态更新、启用状态切换、资料刷新、二维码生成与轮询成功、二维码关闭时停止轮询和取消请求；通过替身隔离真实账号、二维码和浏览器数据，不跳过页面协调逻辑。AccountList 内部 QR 协调器进一步 feature 化、其他大型页面完整行为覆盖和全局 Provider 组合仍待完成；
-- 已完成阶段 7 当前 PR 切片“React AccountList 二维码登录协调器 feature 化”：新增 `app/features/accounts/qrLogin.ts` 与 `qrPolling.ts`，将二维码生成、轮询、风控验证、持久化、延迟关闭和异步清理从根页面迁入账号 feature；旧 `components/qrPolling.ts` 仅保留兼容导出，AccountList 根组件不再持有二维码请求/轮询实现；新增 Hook 分支测试覆盖成功、风控、生成失败、持久化失败和取消，AccountList 组合测试同步验证 feature 轮询边界。其他大型页面完整行为覆盖、页面级 Provider 组合和全局架构收口仍待完成；
-- 已完成阶段 7 当前 PR 切片“React OrderList 完整页面行为边界”：新增真实挂载 `OrderList` 的组合测试，覆盖筛选栏状态转发、同步与导入入口、详情弹窗、编辑字段映射、状态发货、单笔同步、删除分页分支和上一页/下一页函数式更新；分页按钮补充稳定的无障碍名称，测试隔离订单查询 Hook、导入状态、API 和筛选子组件，不跳过页面协调逻辑。OrderList 动作协调器进一步 feature 化、Rules/ItemList/CardList 等其他大型页面行为覆盖、页面级 Provider 组合和阶段 7 总体验收仍待完成；
-- 已完成阶段 7 当前 PR 切片“React OrderList 动作协调器 feature 化”：新增 `app/features/orders/orderActions.ts` 与对应 Hook 测试，将订单同步、发货、详情、编辑草稿、单笔同步、删除分页回退和弹窗生命周期从 `OrderList` 根组件迁入 feature；根组件只保留查询、筛选、页面组合和展示字段更新，编辑字段通过函数式补丁进入协调器；成功、失败、取消和异常结果均有 Hook/页面回归证据。Rules/ItemList/CardList 等其他大型页面行为覆盖、页面级 Provider 组合和阶段 7 总体验收仍待完成；
-- 已完成阶段 7 当前 PR 切片“React CardList 动作协调器 feature 化”：新增 `app/features/cards/cardActions.ts`，将卡密新增、编辑、删除、启停、筛选、复制和模板下载从 `CardList` 根组件迁入 cards feature；批量导入仍复用既有批量 Hook，页面根组件只负责状态组合和表单展示；新增动作 Hook 与真实页面组合测试，覆盖筛选、批量入口、新增/编辑字段映射、启停、复制和删除。Rules/ItemList 等其他大型页面行为覆盖、页面级 Provider 组合和阶段 7 总体验收仍待完成；
-- 已完成阶段 7 当前 PR 切片“React Rules 动作协调器 feature 化”：新增 `app/features/rules/ruleActions.ts`，将自动化规则草稿、触发类型/规格编辑、保存删除、异常恢复、关键词回复和默认回复动作，以及商品页联动加载从 `Rules` 根组件迁入 rules feature；同步更新路由静态契约测试，新增 Hook 测试覆盖自动化规则归一化保存、三类回复保存、触发/规格编辑、删除和异常恢复；前端全量 366 个测试、类型检查、中文注释门禁和生产构建通过。ItemList 其他大型页面行为覆盖、页面级 Provider 组合和阶段 7 总体验收仍待完成；
-- 已完成阶段 7 当前 PR 切片“React ItemList 普通商品动作协调器 feature 化”：新增 `app/features/items/itemActions.ts`，将商品同步、编辑、删除、手动添加、普通发布、模板下载、图片预览和发货地定位从 `ItemList` 根组件迁入 items feature；批量发布仍复用既有 `useItemPublishBatch` 状态机，页面根组件只负责列表、批量流程和视图组合；新增 Hook 测试覆盖 CRUD、普通发布成功、定位成功/失败边界，并更新图片预览契约测试；前端全量 62 个测试文件/369 个用例、类型检查、中文注释门禁、生产构建和仓库 `make check` 通过。ItemList 真实页面组合覆盖、页面级 Provider 组合和阶段 7 总体验收仍待完成；
-- 禁止跳过当前入口直接开始 Engine、Automation 或 DB 的大规模拆分。
-
-## 6. 阶段 0：治理文档与强约束
-
-### 工作项
-
-- 创建本总计划；
-- 创建依赖边界规则；
-- 创建全函数、全变量中文注释规范；
-- 在 `AGENTS.md` 中加入必须阅读、必须更新和禁止绕过的规则；
-- 增加 Go AST 与 TypeScript AST 注释检查器和历史基线。
-
-### 完成条件
-
-- 所有长期约束均能从 `AGENTS.md` 链接到权威文档；
-- 后续任务可以明确指出所处阶段、工作项和适用验证；
-- 文档不与冻结滑块规范、打包规则或数据库规则冲突；
-- `make comments` 与 `npm --prefix frontend run comments:check` 能阻止不在历史基线中的新增声明缺少中文注释。
-
-### 6.1 注释检查器落地说明
-
-- `tools/commentlint` 使用 Go AST 检查函数、类型、常量、变量、结构体/接口字段、短变量和范围变量；
-- `frontend/scripts/check-comments.mjs` 使用 TypeScript Compiler API 检查变量、函数、方法、属性和函数表达式；
-- `.commentlint/go-baseline.json` 与 `.commentlint/frontend-baseline.json` 只记录当前历史债务，新增或修改声明不得通过追加基线绕过；
-- 基线使用文件、行号、类别和名称作为审查键。移动或重构文件时，必须清理对应文件的历史问题并重新生成基线；
-- 检查器只验证“邻近注释 + 至少一个汉字”，注释准确性、参数语义、并发和敏感数据说明仍由人工审查负责；
-- 注释债务按阶段逐文件清理，阶段 10 完成时删除两个基线文件并启用全仓零问题门禁。
-
-## 7. 阶段 1：PR CI 与测试基础
-
-### 1.1 独立 PR CI
-
-新增 `.github/workflows/ci.yml`，在 pull request 以及 `main`、`dev` push 时执行：
-
-- Go 格式只读检查；
-- `go vet ./...`；
-- `golangci-lint run ./...`；
-- `go test ./...`；
-- 中文注释检查；
-- `npm ci`、typecheck、test、build；
-- 嵌入式前端产物一致性检查。
-
-发布 workflow 保持发布职责，不再作为唯一质量门禁。
-
-### 1.2 Server 测试数据库模板
-
-- 在测试入口迁移一次 SQLite 模板；
-- 每个测试复制模板到独立临时目录；
-- 测试之间不得共享可写数据库连接；
-- 关闭无必要的 Goose 测试日志；
-- 记录优化前后的普通测试和 race 时间。
-
-当前实现：`internal/server/test_database_test.go` 在进程内只执行一次 Goose 迁移，并预置普通测试共同需要的
-管理员和账号 cookie，随后按测试复制 SQLite 文件并直接打开副本。普通 `internal/server` 测试从约 48.2 秒
-降至约 21.3 秒；完整 server race 从 267 秒未完成改善为约 194.3 秒通过。
-
-### 1.3 Race 分层
-
-普通 PR 先运行并发敏感包的目标 race；server fixture 优化后加入稳定的 server race 子集；
-全仓 race 可以进入 nightly。任何 race 报告都必须修复，不得加入忽略名单。
-
-当前 PR 门禁使用 `make test-server-race`，覆盖 server 启停、发布 worker、凭证状态转换和锁内所有权复核
-等已验证的并发场景，实测约 12.4 秒通过；完整 `go test -race ./internal/server` 已在预置测试夹具后约 194.3 秒通过，
-可作为 nightly 或手工发布前验证，不用 smoke race 代替完整覆盖。
-
-### 完成条件
-
-- PR 在合并前获得稳定、独立的质量结果；
-- `internal/server` race 不再因重复迁移和重复密码哈希触发长时间超时；
-- CI 不修改工作区后假装通过格式检查。
-
-## 8. 阶段 2：敏感数据访问边界
-
-### 2.1 模型拆分
-
-建立互不混用的账号摘要、平台凭证、密码登录秘密和运行设置模型。
-
-### 2.2 Repository 查询
-
-增加用途明确的查询：
-
-- `ListSummaries`；
-- `ListOwnedIDs`；
-- `ExistsOwned`；
-- `GetCredential`；
-- `GetLoginSecret`；
-- `GetRuntimeSettings`。
-
-当前实现先落地了 Cookie 领域的窄查询：`CookieSummary` 不包含 `Value`、`Password` 或 `MetadataJSON`；
-`ListOwnedIDs` 只返回账号 ID；`ExistsOwned` 只返回布尔存在性，并拒绝 `userID=0` 的隐式管理员查询。
-`GetOwnerID` 只返回所有者 ID；`GetSummaryOwned` 返回指定用户的单个非敏感摘要；`GetValueOwned` 在同一条带 user_id 过滤的查询中读取并解密单个 Cookie，避免
-所有权检查与凭证读取之间的竞态窗口。测试使用故意无效的密文值验证摘要查询和所有权检查不会触发解密，
-并使用正常加密值覆盖单值凭证读取。账号列表与详情 handler 已不再通过 `AllForUser` 或完整 `GetDetails` 读取敏感字段，
-目前 server 生产代码和聊天订阅服务已不再调用 `Cookies.AllForUser`。账号管理器还保留一处管理员视角的全账号凭证加载，
-该调用不能简单替换为 ID 列表，将通过受控的启用账号凭证接口单独治理。
-
-逐步替换使用 `AllForUser` 进行所有权检查以及使用 `GetDetails` 获取非敏感字段的调用。最终审计已确认生产代码的完整详情读取白名单仅为登录设置和登录信息更新；平台调用、账号生命周期、订单、发布、二维码登录和资料流程均不再需要解密登录秘密。
-
-### 2.3 安全不变量
-
-- 列表和所有权检查不解密 Cookie、密码或 metadata；
-- 只有平台调用流程读取平台凭证；
-- 只有密码登录或续期流程读取登录秘密；
-- 敏感模型不得用作 HTTP DTO；
-- 敏感值不得写入普通日志、错误体或测试失败信息。
-
-### 完成条件
-
-- 账号列表没有 N+1 敏感查询；
-- 用户 ID `0` 不再表示隐式管理员查询；
-- 三种数据库的查询和并发测试通过；
-- 完整详情读取白名单、所有权过滤和凭证锁不变量均有可复核证据。
-
-## 9. 阶段 3：HTTP API 契约
-
-### 3.1 统一错误结构
-
-所有失败响应逐步统一为 `code`、`message` 和可选 `request_id`，并使用正确 HTTP 状态码。
-禁止新增 HTTP 200 + `success:false`，禁止新增 `detail`、`msg`、`error` 等新的错误别名。
-
-### 3.2 具名 DTO
-
-- handler 不新增匿名请求结构或动态 map 响应；
-- DB model 不直接作为 HTTP 响应；
-- API DTO 与领域模型显式转换；
-- 前端不新增 `Promise<any>` 或无边界 `Record<string, any>`。
-
-### 3.3 版本化路径
-
-新接口使用 `/api/v1`。旧接口以兼容别名保留，必须记录调用方、迁移步骤和删除条件。
-只有在前端和外部调用方全部迁移、契约测试覆盖后才能删除兼容路由。
-
-### 3.4 类型生成
-
-账号和订单 DTO 稳定后再引入 OpenAPI。生成文件不得手工修改；历史兼容归一只存在于边界 adapter。
-
-## 10. 阶段 4：Server 应用服务
-
-按订单、发布、账号登录、聊天/通知顺序纵向提取应用服务。每次只处理一个业务切片。
-
-### 4.1 订单服务
-
-应用服务负责列表、详情、更新、导入、同步、手工发货、所有权和事务；handler 只负责 DTO。
-
-### 4.2 发布服务
-
-应用服务负责单商品发布、预检、批量任务、恢复、取消、重试和关联自动化规则。
-完成后发布 worker、锁和 cancel map 不再属于 HTTP Server。
-
-### 4.3 账号登录服务
-
-应用服务负责 QR 会话所有权、结果持久化、资料刷新、Cookie 合并、账号重启和登录审计。
-完成后 QR 状态和持久化锁不再属于 HTTP Server。
-
-### 4.4 聊天与通知
-
-继续收紧已有服务的接口，使 handler 不再直接查询 Store 或调用平台客户端。
-
-### 4.5 事务
-
-跨 repository 事务由应用服务通过明确的 Unit of Work 执行。禁止 handler 调用 `BeginTx`。
-
-### 完成条件
-
-- `internal/server` 不直接访问 `Store.DB`；
-- handler 不直接调用 MTOP 或 browser；
-- 应用服务不依赖 `net/http`；
-- 业务分支由应用服务单元测试保护，HTTP 测试集中验证契约与鉴权。
-
-## 11. 阶段 5：应用生命周期装配
-
-应用服务边界稳定后建立应用装配与生命周期层：
-
-- 构造所有服务并验证必需依赖；
-- 按明确顺序启动，按逆序关闭；
-- `Start` 前不得隐式启动 goroutine；
-- `Stop` 必须幂等并等待其拥有的 worker；
-- 必需依赖不得通过运行时 setter 回填；
-- 测试替换通过构造参数或 option 提供。
-
-`cmd/server` 最终只处理配置、环境、日志、信号和应用启动。
-
-## 12. 阶段 6：Engine 与 Automation
-
-### 6.1 Engine
-
-保留 `Account` facade，按纯策略、运行状态、WS 记录、去重、防抖、任务生命周期、凭证状态、
-连接循环的顺序提取。每个组件必须拥有自己的状态和锁，禁止只移动方法却继续共享整个 Account。
-
-每个并发组件必须在中文注释中写明：
-
-- 锁保护的字段；
-- 是否允许嵌套持锁；
-- 持锁时能否执行 I/O；
-- goroutine 的创建、取消和等待责任；
-- Stop 的幂等与等待语义。
-
-### 6.2 Automation
-
-逐步提取事件事实记录、规则匹配、运行协调、动作执行、发货、卡密分配、凭证门禁和结果通知。
-规则匹配不得隐式执行外部动作；外部动作必须区分未执行、已执行和结果不确定。
-
-### 6.3 冻结边界
-
-本阶段默认不修改任何冻结滑块文件，也不得通过调用方重构改变冻结行为。
-涉及凭证、连接或风控恢复时必须执行冻结规范规定的测试。
-
-## 13. 阶段 7：React Feature 化
-
-### 7.1 目标结构
-
-按 `app`、`features`、`shared` 和 `generated` 分层。每个 feature 自有 API、类型、Hook、组件、页面和测试。
-禁止使用会隐藏依赖来源的大型 barrel export。
-
-### 7.2 拆分顺序
-
-按 `Rules`、`ItemList`、`AccountList`、`CardList`、`OrderList`、`Notifications`、
-`Dashboard`、`Settings`、`Chat` 的顺序拆分。
-
-### 7.3 React 强约束
-
-- 可由 props/state 计算的值不得重复存入 state；
-- 用户操作副作用放在事件处理器中，不使用 state + effect 间接触发；
-- 依赖不同的副作用拆成不同 effect；
-- 基于旧值更新必须使用函数式 setState；
-- 异步请求必须支持取消或 generation gate；
-- 独立请求应并行启动；
-- memo 只用于实际昂贵计算或稳定子组件输入；
-- 不在组件内部声明子组件；
-- 服务端数据、表单状态和短暂 UI 状态必须分开；
-- 重页面和重依赖使用 `lazy`/`Suspense` 按页面加载；
-- 组件不得直接调用 `fetch` 或 `axios`。
-
-### 7.4 测试
-
-关键流程使用行为测试覆盖成功、失败、取消、切换、过期响应和重复提交。
-源码字符串测试只保留真正的静态架构规则。
-
-## 14. 阶段 8：DB 与事务治理
-
-- 上层逐步改为持有窄 repository 接口，而不是完整 Store；
-- 上层不得访问裸 `*sql.DB`；
-- SQL 行结构、持久化模型、领域模型和 HTTP DTO 分离；
-- 是否拆物理 package 由稳定后的事务与依赖方向决定，不以目录数量为目标；
-- 三套迁移编号和关键 schema 自动校验；
-- 新迁移必须在 SQLite、MySQL、Postgres 上验证；
-- Credential 锁最终迁移到职责明确的凭证协调组件。
-
-## 15. 阶段 9：架构门禁与兼容清理
-
-目标结构稳定后加入自动检查：
-
-- `internal/server` 禁止导入 `internal/db` 和 `internal/xianyu`；
-- `internal/db`、`internal/xianyu`、`internal/browser` 禁止导入上层应用包；
-- 前端 feature 禁止跨 feature 导入内部文件；
-- React 组件禁止直接调用网络客户端；
-- 到期兼容字段和路由必须先确认调用方为零，再删除；
-- 架构门禁只能约束目标结构，不得把过渡期错误依赖永久合法化。
-
-## 16. 阶段 10：注释基线清零
-
-注释治理贯穿所有阶段。最终阶段负责：
-
-- 清理所有历史基线豁免；
-- 检查 Go 与 TypeScript/TSX 生产和测试源码；
-- 抽样审查注释准确性；
-- 确认注释描述的是职责、语义、单位、敏感性和并发约束，而非复述语法；
-- 将全仓严格检查加入 PR CI。
-
-## 17. 推荐变更序列
-
-1. 治理文档、AGENTS 强约束和注释基线工具；
-2. 独立 PR CI；
-3. server SQLite 测试模板与 race 优化；
-4. 前端行为测试基础；
-5. AccountSummary 与所有权查询；
-6. AccountCredential 与 AccountLoginSecret；
-7. 统一 API 错误；
-8. 账号 DTO 与版本化接口；
-9. 订单 DTO 与版本化接口；
-10. 前端 shared client 与 feature API；
-11. Rules 页面；
-12. ItemList 页面；
-13. 订单应用服务；
-14. 发布应用服务与 worker；
-15. 账号登录与 QR 服务；
-16. 应用生命周期装配；
-17. Automation 内部组件；
-18. Engine 纯策略与状态组件；
-19. Engine 连接与凭证组件；
-20. DB Store 与事务边界；
-21. 旧 API 和旧字段清理；
-22. 架构门禁与注释基线清零。
-
-## 18. 每个变更的执行模板
-
-开始前：
-
-1. 在本文状态表中确认所属阶段；
-2. 写明本次改动的行为不变量；
-3. 列出涉及文件、风险、回滚方式和验证命令；
-4. 检查是否触及敏感凭证、多数据库、并发、前端产物或冻结滑块边界。
-
-实施时：
-
-1. 先补足或建立保护行为的测试；
-2. 一次只移动一个职责；
-3. 不顺手清理无关代码；
-4. 为所有新增或修改声明补准确中文注释；
-5. 保留兼容 adapter，直到调用方迁移完成。
-
-完成时：
-
-1. 执行适用验证矩阵；
-2. 检查工作区没有意外生成物；
-3. 更新本计划状态和完成证据；
-4. 记录下一步最小安全入口；
-5. 确认未放宽测试或安全边界。
-
-## 19. 验证矩阵
-
-所有 Go 修改至少执行：
-
-```bash
-go vet ./...
-golangci-lint run ./...
-go test ./...
-```
-
-并发和生命周期修改增加：
-
-```bash
-go test -race ./internal/engine ./internal/account ./internal/automation ./internal/renewal ./internal/notify
-```
-
-数据库修改增加：
-
-```bash
-go test ./internal/db
-go run ./cmd/dbverify "sqlite:///tmp/xianyu-verify.db"
-```
-
-并在可用环境执行 MySQL/Postgres 多数据库回归。
-
-前端修改执行：
-
-```bash
-npm --prefix frontend run typecheck
-npm --prefix frontend test
-npm --prefix frontend run build
-```
-
-涉及凭证、登录、engine、account、server 或 browser 调用关系时，额外执行
-`docs/slider-captcha-frozen-spec.md` 中规定的测试，即使未直接修改受保护文件。
-
-## 20. 计划更新记录
-
-| 日期 | 变更 | 结果 | 下一步 |
-| --- | --- | --- | --- |
-| 2026-08-14 | 建立长期重构计划、依赖规则和中文注释规范 | 阶段 0 开始 | 将强约束接入 AGENTS，随后实现注释基线工具与独立 CI |
-| 2026-08-14 | 将计划治理、注释、依赖、敏感数据、API、React、数据库和并发规则接入 AGENTS | 后续任务已有强制入口 | 实现注释检查器和历史基线 |
-| 2026-08-14 | 落地 Go/TypeScript AST 注释检查器、Make 目标、npm 脚本和历史基线 | 阶段 0 完成；`make comments`、前端注释检查和 typecheck 通过 | 阶段 1.1：新增独立 PR CI |
-| 2026-08-14 | 新增独立 Go/React PR CI，加入格式、注释、vet、lint、测试和嵌入产物一致性门禁 | 阶段 1 进行中；本地 Go/前端测试、构建和 YAML 解析通过 | 优化 server 测试数据库模板并记录 race 分层结果 |
-| 2026-08-14 | server 测试改为一次迁移模板 + 每测独立副本 | 普通 server 测试约 48.2s 降至约 36.5s；稳定 server race 子集约 12.4s 通过；完整 race 运行 267s 后仍未完成，未发现 race 报告 | 定位完整 race 慢点，再进入敏感数据访问边界 |
-| 2026-08-14 | 将稳定 server race 子集固化为 `make test-server-race` 并接入 PR CI | 启停、发布 worker、凭证状态转换和锁内所有权复核场景纳入合并前 smoke race | 定位完整 race 慢点 |
-| 2026-08-14 | 将管理员与账号 cookie 预置到 server 测试模板 | 普通 server 测试约 21.3s；完整 `go test -race ./internal/server` 约 194.3s 通过；阶段 1 完成 | 阶段 2：盘点敏感数据查询调用方 |
-| 2026-08-14 | 新增 `CookieSummary`、`ListOwnedIDs`、`ExistsOwned` 及跨用户/无效 user ID 回归测试 | 阶段 2 第一个数据边界切片完成；故意无效密文摘要查询通过 | 迁移 server ownership helper，移除 `AllForUser` 所有权读取 |
-| 2026-08-14 | Engine 登录态检查与接口续期改用 `GetCookieRuntimeData` | 只解密 Cookie 与 metadata；接口续期窄查询回归测试通过，未改变锁、token 清理和快照持久化语义 | 迁移 `persistRenewFlatCookie` 的 metadata 窄查询 |
-| 2026-08-14 | 新增 `GetCookieMetadata` 并收窄 `persistRenewFlatCookie` | 扁平 Cookie 写回不再读取旧 Cookie、用户名或登录密码；损坏旧凭证回归测试通过 | 迁移 `handleMaxFailures` 的单值 Cookie 读取 |
-| 2026-08-14 | `handleMaxFailures` 改用 `GetValue` | 恢复回调只读取 Cookie 明文；损坏登录密码回归测试通过，失败计数和重连行为保持不变 | 迁移 `persistPendingRenewCookies` 的异步续期读取 |
-| 2026-08-14 | `persistPendingRenewCookies` 改用 `GetCookieRuntimeData` | 迟到 Cookie 合并只解密 Cookie 与 metadata；锁、并发重放和通知行为保持不变，回归测试通过 | 迁移 `refreshTokenWithMinGap` 的 metadata 读取 |
-| 2026-08-14 | `refreshTokenWithMinGap` 改用 `GetCookieMetadata` | token 请求只解密 Cookie 快照 metadata；快照上下文和 token 刷新行为保持不变，回归测试通过 | 迁移 `adoptTokenResponseCookies` 的 metadata 读取 |
-| 2026-08-14 | `adoptTokenResponseCookies` 改用 `GetCookieMetadata` | token 响应合并只解密 metadata；快照持久化和错误语义保持不变，回归测试通过 | 迁移 `databaseCredentialFingerprint` 的运行时凭证读取 |
-| 2026-08-14 | `databaseCredentialFingerprint` 改用 `GetCookieRuntimeData` | token 凭证一致性校验只解密 Cookie 与 metadata；空值、指纹和错误语义保持不变，回归测试通过 | 迁移 `reloadCookieFromDB` 的运行时凭证读取 |
-| 2026-08-14 | 完成阶段 2 当前 PR 切片“Server 平台凭证流程审计” | Server 平台、订单、发布、二维码和资料流程均不再读取完整账号详情；完整详情仅保留给登录设置与登录信息更新；窄查询回归测试、全量测试、race、vet、lint 和注释门禁通过 | 进行敏感数据边界最终审计，确认阶段 2 完成证据后进入阶段 3 |
-| 2026-08-14 | 完成阶段 2 最终审计 PR 切片 | 生产 `GetDetails` 白名单仅保留登录设置与登录信息更新；新增跨数据库 Cookie/metadata/平台视图/所有权窄查询回归；全量测试、race、vet、lint、注释和 diff 门禁通过 | 阶段 3：HTTP 错误结构盘点与第一批契约测试 |
-| 2026-08-14 | 完成阶段 3 第一个 PR 切片“HTTP 错误结构盘点与第一批契约测试” | 共享错误 DTO、认证 401、健康检查和账号列表具名 DTO 已落地；React 请求层完成错误契约迁移；Go/React 全量测试、vet、lint、注释和前端构建通过 | 阶段 3：剩余认证与公共 API 错误迁移 |
-| 2026-08-14 | 完成阶段 3 第二个 PR 切片“剩余认证与公共 API 错误迁移” | 初始化、密码修改、凭据校验、用户名冲突、公开设置故障和 SPA API 404 的状态码/错误码契约已统一；契约测试、全量测试、vet、lint、注释和 diff 门禁通过 | 阶段 3：订单与账号业务 API 错误响应迁移 |
-| 2026-08-14 | 完成阶段 3 第三个 PR 切片“订单与账号业务 API 错误响应迁移” | 订单批量接口移除顶层 HTTP 200 + `success:false`，逐项失败保留行级状态并统一为 `message`；账号任务 502 改用统一错误 DTO；订单/账号契约测试、全量测试、race、vet、lint、注释和 diff 门禁通过 | 阶段 3：聊天、商品与自动化业务 API 错误响应迁移 |
-| 2026-08-14 | 完成阶段 3 第四个 PR 切片“聊天、商品与自动化业务 API 错误响应迁移” | 聊天发送和商品发布失败统一为 `code`/`message`/`request_id`，远端发布后的商品核对信息迁移到 `details`；React 错误类型、HTTP DTO 测试和业务契约测试已更新；前端类型检查、测试、构建及 Go 注释门禁通过 | 阶段 3：二维码登录、密码登录和剩余公共业务错误响应迁移 |
-| 2026-08-14 | 完成阶段 3 第五个 PR 切片“二维码登录、密码登录和剩余公共业务错误响应迁移” | 二维码与密码登录遗留 HTTP 200 + `success:false` 已迁移为非 2xx 错误；账号不匹配保留 `scanned_account_id` 到 `details`；二维码/密码登录契约测试、全量测试、race、vet、lint、注释和 diff 门禁通过 | 阶段 3：统一业务成功响应具名 DTO 与版本化路径准备 |
-| 2026-08-14 | 完成阶段 3 第六个 PR 切片“统一业务成功响应具名 DTO 与版本化路径准备” | 认证会话、账号新增、订单列表、聊天会话/消息主链路已改用具名成功响应 DTO；新增响应契约测试和 `/api/v1` 迁移边界文档；全量测试、race、vet、lint、注释和 diff 门禁通过 | 阶段 3：剩余业务成功响应 DTO 与客户端契约收口 |
-| 2026-08-14 | 完成阶段 3 第七个 PR 切片“剩余业务成功响应 DTO 与客户端契约收口” | 账号详情/设置、商品发布/同步、自动化规则/异常、订单详情/刷新/批量外层响应已具名化；React API 类型同步；跨领域契约测试、全量测试、race、vet、lint、注释、前端构建和 diff 门禁通过；所有修改合并为一个可回滚提交 | 阶段 3：剩余商品批量操作与设置/卡券/通知成功响应收口 |
-| 2026-08-14 | 完成阶段 3 第八个 PR 切片“剩余商品批量操作与设置/卡券/通知成功响应收口” | 商品类目推荐、批量发布预检/任务、系统与用户设置、账号 AI 设置、卡券 CRUD/批量、通知渠道与账号绑定已具名化；React API 类型同步；跨领域契约测试、全量测试、race、vet、lint、注释、前端构建和 diff 门禁通过；所有修改合并为一个可回滚提交 | 阶段 3：剩余关键词回复、默认回复与账号任务成功响应收口 |
-| 2026-08-14 | 完成阶段 3 第九个 PR 切片“剩余关键词回复、默认回复与账号任务成功响应收口” | 关键词基础/商品/类型规则、指定商品回复、默认回复、账号任务设置与运行记录已具名化；React API 类型同步；跨领域契约测试、全量测试、race、vet、lint、注释、前端构建和 diff 门禁通过；所有修改合并为一个可回滚提交 | 阶段 3：分析统计、管理员与剩余公共成功响应收口 |
-| 2026-08-14 | 完成阶段 3 第十个 PR 切片“分析统计、管理员与剩余公共成功响应收口” | 管理员用户/账号/统计、用户仪表盘、订单分析、有效订单分页和二维码生成已具名化；React API 类型同步；跨领域契约测试、全量测试、race、vet、lint、注释、前端构建和 diff 门禁通过；所有修改合并为一个可回滚提交 | 阶段 3：公共成功响应兼容收尾与版本化迁移入口审计 |
-| 2026-08-14 | 完成阶段 3 第十一个 PR 切片“公共成功响应兼容收尾与版本化迁移入口审计” | 系统、管理员和用户动态设置统一通过具名 map 边界类型；二维码状态保留非敏感扩展字段并过滤 Cookie，验证完成使用具名 DTO；React API 清理剩余 `Promise<any>`/`get<any>` 成功响应并补齐兼容类型；新增动态设置与二维码契约测试，明确旧路径仍保留、尚未宣称 `/api/v1` 可用；所有修改合并为一个可回滚提交 | 阶段 3：HTTP API 版本化兼容入口落地与调用方迁移 |
-| 2026-08-14 | 完成阶段 3 第十二个 PR 切片“HTTP API 版本化兼容入口与会话调用方迁移” | 新增 `/api/v1/session/login`、`/api/v1/session/initialize`、`/api/v1/session` 与 `/api/v1/session/logout` 薄适配入口，全部复用既有认证 handler；React 登录、初始化、会话校验和登出调用已迁移；Go/React 契约测试确认新旧路径兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：账号 API 版本化兼容入口与调用方迁移 |
-| 2026-08-14 | 完成阶段 3 第十三个 PR 切片“账号 API 版本化兼容入口与调用方迁移” | 新增 `/api/v1/accounts`、`/api/v1/accounts/details`、`/api/v1/accounts/runtime-status`、`/api/v1/accounts/{cid}` 与启停状态薄适配入口，全部复用既有账号 handler；React 账号摘要、详情、运行状态和启停状态调用已迁移；Go/React 契约测试确认新旧路径兼容且详情不泄露凭证；全量门禁通过并合并为一个可回滚提交 | 阶段 3：账号设置与资料 API 版本化兼容入口迁移 |
-| 2026-08-14 | 完成阶段 3 第十四个 PR 切片“账号设置与资料 API 版本化兼容入口迁移” | 新增 `/api/v1/accounts/{cid}/settings`、`remark`、`pause-duration`、`auto-confirm`、`long-login` 和 `refresh-profile` 薄适配入口，全部复用既有账号 handler；React 账号设置、备注、暂停、自动确认、长登录和资料刷新调用已迁移；Go/React 契约测试确认新旧路径兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：账号凭证与登录信息 API 版本化兼容入口迁移 |
-| 2026-08-14 | 完成阶段 3 第十五个 PR 切片“账号凭证与登录信息 API 版本化兼容入口迁移” | 新增 `/api/v1/accounts`、`/api/v1/accounts/{cid}`、`/api/v1/accounts/{cid}/login-info` 薄适配入口，复用既有 handler 和凭证锁；React 新增/更新 Cookie 与登录信息调用已迁移；Go/React 契约测试确认敏感字段不回传且旧路径兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：订单 API 版本化兼容入口与调用方迁移 |
-| 2026-08-14 | 完成阶段 3 第十六个 PR 切片“订单 API 版本化兼容入口与调用方迁移” | 新增 `/api/v1/orders`、`/api/v1/orders/{order_id}` 的列表、详情和更新薄适配入口，复用既有订单 handler 与归属校验；React 列表、详情和更新调用已迁移；Go/React 契约测试确认新旧路径兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：订单刷新与批量操作 API 版本化兼容入口迁移 |
-| 2026-08-14 | 完成阶段 3 第十七个 PR 切片“订单刷新与批量操作 API 版本化兼容入口迁移” | 新增订单刷新、单订单刷新、手动发货和导入 `/api/v1/orders...` 薄适配入口，复用既有订单 handler；React 刷新、单订单刷新、手动发货和导入调用已迁移；Go/React 契约测试确认新旧入口兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：商品 API 版本化兼容入口与调用方迁移 |
-| 2026-08-14 | 完成阶段 3 第十八个 PR 切片“商品 API 版本化兼容入口与调用方迁移” | 新增商品列表、详情、发布、更新和删除 `/api/v1/items...` 薄适配入口，复用既有商品 handler 与所有权校验；React 列表、详情、发布、更新和删除调用已迁移；Go/React 契约测试确认新旧入口兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：商品同步与批量发布 API 版本化兼容入口迁移 |
-| 2026-08-14 | 完成阶段 3 第十九个 PR 切片“商品同步与批量发布 API 版本化兼容入口迁移” | 新增商品同步、类目推荐、批量发布预检/任务/详情、取消、重试和结果下载 `/api/v1/items...` 薄适配入口，复用既有商品 handler；React 同步和批量发布调用已迁移；Go/React 契约测试确认新旧入口兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：设置、卡券与通知 API 版本化兼容入口迁移 |
-| 2026-08-14 | 完成阶段 3 第二十个 PR 切片“设置、卡券与通知 API 版本化兼容入口迁移” | 新增系统/用户/AI 设置、卡券和通知渠道/消息/账号绑定 `/api/v1/settings`、`/api/v1/cards`、`/api/v1/notifications` 薄适配入口，复用既有权限边界与 handler；React 设置、卡券和通知调用已迁移；Go/React 契约测试确认新旧入口兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：聊天与账号任务 API 版本化兼容入口迁移 |
-| 2026-08-14 | 完成阶段 3 第二十一个 PR 切片“聊天与账号任务 API 版本化兼容入口迁移” | 新增聊天 REST/WebSocket、账号任务设置/运行记录/执行 `/api/v1/chat...`、`/api/v1/account-tasks...` 薄适配入口，复用既有 handler 与权限校验；React 聊天 REST/WebSocket 和账号任务调用已迁移；Go/React 契约测试确认新旧入口兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：关键词回复与默认回复 API 版本化兼容入口迁移 |
-| 2026-08-14 | 完成阶段 3 第二十二个 PR 切片“关键词回复与默认回复 API 版本化兼容入口迁移” | 新增关键词基础/商品/类型规则、指定商品回复和默认回复 `/api/v1/reply-rules...`、`/api/v1/default-replies...` 薄适配入口，复用既有 handler 与权限校验；React 关键词、指定商品回复和默认回复调用已迁移；Go/React 契约测试确认新旧入口兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：管理员、仪表盘与订单分析 API 版本化兼容入口迁移 |
-| 2026-08-14 | 完成阶段 3 第二十三个 PR 切片“管理员、仪表盘与订单分析 API 版本化兼容入口迁移” | 新增管理员用户/账号/统计、仪表盘统计、订单分析和有效订单 `/api/v1/admin...`、`/api/v1/analytics...` 薄适配入口，复用既有权限边界与 handler；React 管理员统计、仪表盘和订单分析调用已迁移；Go/React 契约测试确认新旧入口兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：二维码登录 API 版本化兼容入口迁移 |
-| 2026-08-14 | 完成阶段 3 第二十四个 PR 切片“二维码登录 API 版本化兼容入口迁移” | 新增二维码生成、状态查询、状态持久化和验证完成 `/api/v1/qr-login...` 薄适配入口，复用既有认证、会话所有权和敏感字段过滤 handler；React 二维码生成、轮询和验证完成调用已迁移；Go/React 契约测试确认新旧入口兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：密码登录及剩余公共调用方 API 版本化兼容入口迁移 |
-| 2026-08-14 | 完成阶段 3 第二十五个 PR 切片“密码登录及剩余公共调用方 API 版本化兼容入口迁移” | 新增会话密码/凭证、账号删除、密码登录禁用、自动化规则/异常处理、订单删除和商品创建 `/api/v1/...` 薄适配入口，复用既有认证、权限和业务 handler；React 对应调用已迁移；Go/React 契约测试确认新旧入口兼容；全量门禁通过并合并为一个可回滚提交 | 阶段 3：版本化入口最终审计与旧调用方清零 |
-| 2026-08-14 | 完成阶段 3 第二十六个 PR 切片“版本化入口最终审计与旧调用方清零” | 前端生产调用和批量结果下载已无业务旧路径；Vite 代理收敛为 `/api` 与健康检查；服务端补齐商品按账号列表、多规格和多数量兼容入口；Go/React/Vite 审计测试、全量测试、race、vet、lint、注释和构建门禁通过并合并为一个可回滚提交 | 阶段 4：订单应用服务边界提取 |
-| 2026-08-14 | 完成阶段 4 第一个 PR 切片“订单应用服务边界提取” | 新增不依赖 `net/http` 的订单应用服务，覆盖列表、详情、更新、删除、导入、手动发货、批量刷新和单订单刷新；保留权限、事务、凭证锁、Cookie Jar 和 Session 续期语义；服务层测试、全量测试、race、vet、lint、注释门禁通过并合并为一个可回滚提交 | 阶段 4：订单响应 DTO 映射收口 |
-| 2026-08-14 | 完成阶段 4 第二个 PR 切片“订单响应 DTO 映射收口” | 列表/详情/刷新响应视图由应用服务统一生成；错误分类模型替代 HTTP handler 中的错误文本判断；旧/版本化订单契约、全量测试、race、vet、lint、注释和 diff 门禁通过，合并为一个可回滚提交 | 阶段 4：商品发布应用服务边界提取 |
-| 2026-08-14 | 完成阶段 4 第三个 PR 切片“商品发布应用服务边界提取” | 新增不依赖 `net/http` 的商品发布应用服务，覆盖单商品发布、类目推荐、批量预检持久化、批次启动/查询/取消/删除/失败重试；保留 worker、凭证锁、cancel map、租约、远端发布与自动化规则时序；新增服务层测试，Go 全量测试、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 4：账号登录应用服务边界提取 |
-| 2026-08-14 | 完成阶段 4 第四个 PR 切片“账号登录应用服务边界提取” | 新增不依赖 `net/http` 的账号登录应用服务，覆盖扫码结果幂等持久化、Cookie Jar/扁平 Cookie 合并、账号新增与更新、资料刷新、登录审计和运行时重启；保留扫码会话锁、账号凭证锁和旧/版本化 HTTP 契约；新增服务层测试，Go 全量测试、race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 4：聊天与通知应用服务边界提取 |
-| 2026-08-14 | 完成阶段 4 第五个 PR 切片“聊天与通知应用服务边界提取” | 新增不依赖 `net/http` 的通信应用服务，覆盖账号任务设置/执行/记录、聊天文字与图片发送、聊天历史读取/已读、通知渠道 CRUD、账号绑定和删除；保留 WebSocket 订阅、聊天事件广播、通知 outbox 与失败状态语义；新增服务层测试，Go 全量测试、race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 4：Server 事务与生命周期边界收口 |
-| 2026-08-14 | 完成阶段 4 第六个 PR 切片“Server 事务与生命周期边界收口” | 新增 Server 统一 Unit of Work，订单更新与导入不再直接管理事务；新增后台任务生命周期登记入口，HTTP 优雅关闭与批量发布恢复扫描器统一纳入等待流程；修复服务不可用时 handler 先做资源归属校验导致状态码变化的问题；事务测试、Go 全量测试、race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 4：Server 直接依赖清理与应用服务装配收口 |
-| 2026-08-14 | 完成阶段 4 第七个 PR 切片“Server 直接依赖清理与应用服务装配收口” | 统一装配订单、发布、登录、通信和分析应用服务；默认回复、账号设置、AI 设置、通知绑定、管理员查询及订单分析查询迁移到 repository 或应用服务边界；handler 不再直接访问 `Store.DB`；装配测试、Go 全量测试、race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 5：应用构造依赖验证与生命周期接口 |
-| 2026-08-14 | 完成阶段 5 PR 切片“应用构造依赖验证与生命周期接口” | `Server.New` 在构造阶段校验 `Store/Manager`，聊天服务改用 option 注入并移除生产运行时 setter；新增幂等 `Start/Wait/Stop`，`Stop` 统一等待 HTTP、后台扫描器和批量 worker；`cmd/server` 迁移到显式生命周期入口；构造失败、重复启动/停止和 worker 等待测试、全量测试、race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Engine 账号 facade 与运行状态边界 |
-| 2026-08-14 | 完成阶段 6 第一个 PR 切片“Engine 账号 facade 与运行状态边界” | 将连接状态、失败计数、离线告警和业务任务生命周期分别提取为独立锁组件；`Account` 保留 facade，`Stop` 对并发调用保持幂等并等待已登记任务；新增生命周期并发回归测试，未改变 WebSocket、凭证、自动化和冻结风控逻辑；全量测试、Engine race、Server race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Engine WebSocket 连接循环边界 |
-| 2026-08-14 | 完成阶段 6 第二个 PR 切片“Engine WebSocket 连接循环边界” | `registerConnection` 在凭证锁内统一快照复核与 WebSocket 注册，`runConnectionSession` 统一心跳、接收、Token 轮换 goroutine 的创建/取消/等待；`Account` 继续负责凭证错误、风控和重连结果解释；新增会话收束测试，未改变冻结风控行为；全量测试、Engine race、Server race、vet、lint、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Engine WebSocket 记录与消息分发边界 |
-| 2026-08-14 | 完成阶段 6 第三个 PR 切片“Engine WebSocket 记录与消息分发边界” | 新增 `messageDispatcher` 与 `wsRecorder`，分别管理消息去重/防抖/并发投递和 WebSocket 诊断记录队列/worker；`Account` 仅保留 facade 与生命周期接线，动态 Handler、系统事件背压、聊天洪峰限流和 Stop 等待语义保持兼容；Engine 全量回归与并发测试、后续门禁通过并合并为一个可回滚提交 | 阶段 6：Engine 凭证状态与 Token 生命周期边界 |
-| 2026-08-14 | 完成阶段 6 第四个 PR 切片“Engine 凭证状态与 Token 生命周期边界” | 新增 `credentialState`，集中 Cookie 快照、Token 缓存、刷新锁、设备指纹和刷新诊断状态；运行状态组件锁改名为 `runtimeMu`，保持 `Account` facade 字段访问兼容；Cookie 更新、Token 清理、风控恢复和 WS 注册前凭证快照复核语义保持不变；Engine 全量测试、Engine/Server race、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交 | 阶段 6：Automation 事件事实与规则匹配边界 |
-| 2026-08-14 | 完成阶段 6 第五个 PR 切片“Automation 事件事实与规则匹配边界” | 新增 `eventFactRecorder`、`ruleMatcher` 和 `actionPlanner`；事件事实写入、规则查询和动作计划生成职责分离，`Center`/`Scheduler` 不再直接散落调用规则匹配；动作计划保持付款发卡优先、规格过滤和延迟快照语义，新增纯计划与无订单事实回归测试；Automation/Server race、全量测试、vet、lint、注释和前端构建门禁通过并合并为一个可回滚提交 | 阶段 6：Automation 运行协调与动作执行边界 |
-| 2026-08-14 | 完成阶段 6 第六个 PR 切片“Automation 运行协调与动作执行边界” | 新增 `automationRunCoordinator`，统一运行创建/恢复、动作前后检查点、延迟任务续租、账号门禁和不确定结果隔离；`Center` 保留兼容调用入口，外部动作三态语义、人工核对状态机和恢复游标保持不变；Automation 测试、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Automation 发货、卡密与通知动作边界 |
-| 2026-08-14 | 完成阶段 6 第七个 PR 切片“Automation 发货、卡密与通知动作边界” | 新增 `automationActionExecutor` 与 `deliveryNotifier`，统一确认发货、Cookie/Jar 合并、卡券锁与库存消费、消息错误三态分类和结果通知；`Center` 保留兼容入口，凭证锁、卡券库存、恢复唤醒和通知文案语义保持不变；新增动作执行器回归测试；Automation 测试、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 6：Automation 账号任务与凭证门禁边界 |
-| 2026-08-14 | 完成阶段 6 第八个 PR 切片“Automation 账号任务与凭证门禁边界” | 新增 `accountTaskCoordinator`，统一账号状态门禁、自动评价/商品擦亮调度、任务租约、Session 指纹阻断、凭证恢复和 Cookie 同步；`Center` 保留公开任务入口，Session 失效恢复、任务幂等、失败重试和账号暂停语义保持不变；Automation 测试、注释和 diff 门禁通过并合并为一个可回滚提交 | 阶段 7：React Rules feature 化与 API/行为测试边界 |
-| 2026-08-14 | 完成阶段 7 第一个 PR 切片“React Rules feature 化与 API/行为测试边界” | 新增 `app/features/rules` 的 API 适配层、领域类型、数据 Hook、异常面板和交互状态模型；规则请求支持并行加载与请求代次门禁，保存动作阻断重复提交；行为测试覆盖成功、失败、重复提交、过期响应和页签切换；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交 | 阶段 7：React ItemList feature 化与批量发布行为边界 |
-| 2026-08-14 | 完成阶段 7 第二个 PR 切片“React ItemList feature 化与批量发布行为边界” | 新增 `app/features/items` 的 API 适配层、批量任务类型、批量 Hook、批量状态模型和阶段指示器组件；批量预检、任务恢复、轮询过期响应、安全取消和失败重试均有独立状态边界；行为测试覆盖预检门禁、取消状态、失败重试、历史任务筛选和过期轮询响应；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交 | 阶段 7：React AccountList feature 化与账号运行状态行为边界 |
-| 2026-08-15 | 完成阶段 7 第三个 PR 切片“React AccountList feature 化与账号运行状态行为边界” | 新增 `app/features/accounts` 的 API 适配层、账号数据与运行状态 Hook、账号编辑弹窗、登录/暂停状态模型；账号加载和运行状态轮询具备取消与代次门禁，密码登录响应按账号与代次隔离，兼容入口保留；行为测试覆盖账号切换、暂停/恢复、凭证失败、风控验证和过期响应；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交 | 阶段 7：React CardList feature 化与卡密库存/批量追加行为边界 |
-| 2026-08-15 | 完成阶段 7 第四个 PR 切片“React CardList feature 化与卡密库存/批量追加行为边界” | 按 `app/features/cards` 提取卡密 API 适配层、库存数据 Hook、批量导入/追加状态 Hook 和弹窗组件；卡密筛选、追加预览、提交取消、失败重试与账号切换过期响应均由 feature 状态边界负责，保留旧组件入口和 API 路径；新增状态模型测试并通过前端类型检查、全量测试、注释检查和构建门禁，合并为一个可回滚提交 | 阶段 7：React OrderList feature 化与订单导入/刷新行为边界 |
-| 2026-08-15 | 完成阶段 7 第五个 PR 切片“React OrderList feature 化与订单导入/刷新行为边界” | 按 `app/features/orders` 提取订单 API 适配层、查询/分页 Hook、导入 Hook、筛选栏和导入弹窗；订单查询与辅助数据支持并行加载、取消和代次门禁，导入支持文件预检、取消、失败重试和导入后刷新；新增筛选、导入归一化、API 取消信号和过期响应测试，保留旧组件入口和 API 路径；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交 | 阶段 7：React Notifications feature 化与渠道/事件绑定行为边界 |
-| 2026-08-15 | 完成阶段 7 第六个 PR 切片“React Notifications feature 化与渠道/事件绑定行为边界” | 按 `app/features/notifications` 提取通知渠道/SMTP API 适配层、静态渠道配置、数据与动作 Hook、渠道列表、事件绑定选择器、渠道编辑弹窗和 SMTP 面板；渠道与 SMTP 请求支持取消和代次门禁，表单支持渠道字段/独立 SMTP 校验、保存失败重试和过期响应保护；更新架构字符串测试并新增状态/API 取消信号测试，保留旧页面入口和 API 路径；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交 | 阶段 7：React Dashboard feature 化与统计/趋势查询行为边界 |
-| 2026-08-15 | 完成阶段 7 第七个 PR 切片“React Dashboard feature 化与统计/趋势查询行为边界” | 按 `app/features/dashboard` 提取 Dashboard API 适配层、统计数据 Hook、趋势/排行派生状态和请求边界；概览、趋势和有效订单支持并行加载、刷新取消、失败重试与过期响应保护；新增统计派生数据、API 取消信号和请求代次测试，保留旧页面入口和 API 路径；前端类型检查、全量测试、注释检查和构建门禁通过并合并为一个可回滚提交 | 阶段 7：React Settings feature 化与系统配置校验边界 |
-| 2026-08-15 | 完成阶段 7 第八个 PR 切片“React Settings feature 化与系统配置校验边界” | 按 `app/features/settings` 提取系统配置/模型/凭据 API 适配层、配置常量、表单状态和敏感字段校验；配置读取与保存支持并行加载、请求取消、失败重试和过期响应保护，登录凭据提交保留现有校验与重登录语义；新增配置裁剪、凭据校验、API 取消信号和请求代次测试，保留旧页面入口和 API 路径 | 阶段 7：React Chat feature 化与会话消息行为边界 |
-| 2026-08-15 | 完成阶段 7 第九个 PR 切片“React Chat feature 化与会话消息行为边界” | 按 `app/features/chat` 提取聊天 API、会话筛选/消息合并状态、账号/会话/消息分页 Hook；会话切换、联系人分页和消息加载支持取消与请求代次保护，文本/图片发送支持失败重试，WebSocket 和滚动语义保持不变；新增会话筛选、消息去重、分页过期响应、发送取消与 API 取消信号测试，保留旧页面入口和 API 路径 | 阶段 7：React AccountAutomation feature 化与任务设置行为边界 |
-| 2026-08-15 | 完成阶段 7 第十个 PR 切片“React AccountAutomation feature 化与任务设置行为边界” | 按 `app/features/accountAutomation` 提取账号任务 API、默认设置与重复执行状态模型、任务设置 Hook；账号切换支持取消和请求代次保护，保存/立即执行支持重复提交阻断、失败重试和结果刷新；新增默认值、动作门禁、API 取消信号测试，保留旧弹窗入口和 API 路径 | 阶段 7：React AccountList 子模块收口与页面组合边界 |
-| 2026-08-15 | 完成阶段 7 第十一个 PR 切片“React AccountList 子模块收口与页面组合边界” | 新增 `useAccountSubmodules`，集中管理账号编辑、长登录、通知绑定、AI 设置和密码登录状态；编辑弹窗仅保留页面组合与二维码/删除职责，子模块请求支持并行加载、取消和账号/代次隔离；新增跨子模块过期响应、密码登录取消信号和路由边界测试；前端类型检查、全量测试和构建门禁通过并合并为一个可回滚提交 | 阶段 7：React feature 依赖门禁与旧页面入口瘦身 |
-| 2026-08-15 | 完成阶段 7 第十二个 PR 切片“React feature 依赖门禁与旧页面入口瘦身” | 新增 feature 依赖架构测试，禁止生产页面绕过 API 适配层直接使用共享网络客户端或 `fetch`；会话与健康检查纳入 `session/system` feature API，Sidebar 和 App 不再直接访问共享网络层；账号、卡密、订单和规则的旧 `components/*State` 转发入口及其测试迁移/删除，状态测试归属各自 feature；前端类型检查、184 个测试、注释门禁和构建门禁通过 | 阶段 8：DB 与事务治理第一批窄 repository 边界 |
-| 2026-08-15 | 完成阶段 8 第一个 PR 切片“Chat 窄 repository 接口与服务依赖收口” | 新增 `chat.Repository`，聊天服务只持有会话、消息和账号归属所需的最小持久化接口；完整 `db.Store` 仅在构造适配器时出现，新增 `NewWithRepository` 和内存替身测试，保持聊天消息幂等、会话归属与订阅语义不变；Chat 全量测试、Go vet、lint、注释和全量门禁通过并合并为一个可回滚提交 | 阶段 8：通知与账号任务窄 repository 边界 |
-| 2026-08-15 | 完成阶段 8 第二个 PR 切片“账号任务窄 repository 与凭证门禁收口” | 新增 `automation.AccountTaskRepository`，账号任务协调器只持有账号启停/暂停、任务设置/租约、运行凭证和 Cookie 更新所需的最小接口；自动化中心保留 Store 装配适配器，Session 指纹阻断、续期恢复、任务幂等和 Cookie 同步语义保持不变；Automation 全量测试、Go vet、lint、注释和全量门禁通过并合并为一个可回滚提交 | 阶段 8：通知与应用服务 repository 边界 |
-| 2026-08-15 | 完成阶段 8 第三个 PR 切片“通知与通信应用服务 repository 边界” | 新增 `notify.Repository`，通知器仅持有渠道、SMTP 系统设置和 outbox 所需的最小接口，保留同步发送、异步租约、重试和测试发送语义；新增通信应用服务窄 repository，账号任务、通知渠道/绑定和聊天历史持久化不再直接访问完整 `db.Store`，实时账号、MTOP 和聊天服务仍由 Server 装配；通知/Server 定向测试、Go vet、lint、注释和全量门禁通过并合并为一个可回滚提交 | 阶段 8：剩余应用服务与事务 repository 边界 |
-| 2026-08-15 | 完成阶段 8 第四个 PR 切片“分析应用服务只读 repository 边界” | 新增分析服务窄 repository，统一封装 Dashboard 固定统计、订单分析聚合、有效订单分页、卡密库存读取和数据库方言；应用服务不再持有完整 `Server` 或直接访问 `Store.Analytics/Cards`，查询阶段错误、金额表达式和响应聚合语义保持不变；Server 全量测试、Go vet、lint、注释和全量门禁通过并合并为一个可回滚提交 | 阶段 8：订单与发布应用服务 repository 边界 |
-| 2026-08-15 | 完成阶段 8 第五个 PR 切片“订单应用服务 repository 与事务边界” | 新增 `orderRepository`，订单应用服务的订单/商品读写、用户归属、事务、凭证锁、续期 Cookie 和远端缺失清理均通过窄接口；平台 MTOP、运行时 Cookie 更新、自动化发货和通知编排仍由 Server 负责；订单列表、详情、导入、手动发货、单笔/批量刷新语义保持不变；Server 全量测试、Go vet、lint、注释和全量门禁通过并合并为一个可回滚提交 | 阶段 8：发布应用服务 repository 与 worker 事务边界 |
-| 2026-08-15 | 完成阶段 8 第六个 PR 切片“发布应用服务 repository 边界” | 新增 `itemPublishRepository`，单商品发布、类目推荐、预检批次创建、批次查询/取消/删除/失败重试及凭证 Cookie 持久化不再直接访问完整 `db.Store`；批量 worker 的租约状态机和后台生命周期暂保持原有 Server 接线，下一片整体迁移；单商品/批量发布测试、Go vet、lint、注释和全量门禁通过并合并为一个可回滚提交 | 阶段 8：发布 worker 租约状态机 repository 边界 |
-| 2026-08-15 | 完成阶段 8 第七个 PR 切片“发布 worker 租约状态机 repository 边界” | 发布恢复扫描、批次租约续期、明细抢占、远端发布检查点、结果落库、取消/中断收口和过期上传清理统一通过 `itemPublishRepository`；worker 不再直接访问 `PublishBatches`、Cookies 或 Items，平台 MTOP、自动化规则和生命周期等待语义保持不变；Server 全量测试、Server race、Go vet、lint、注释和全量门禁通过并合并为一个可回滚提交 | 阶段 8：账号登录应用服务 repository 边界 |
-| 2026-08-15 | 完成阶段 8 第八个 PR 切片“账号登录凭证与 Token repository 边界” | 新增 `accountLoginRepository`，账号登录服务的凭证创建/更新、Cookie Jar 元数据写回、凭证锁、Token 清理和运行状态读取统一通过窄接口；保留登录服务对资料刷新、登录审计和运行时重启的既有编排，未改变扫码幂等、Cookie 合并与凭证锁时序；Server 全量测试、Server race、Go vet、lint、注释和全量门禁通过并合并为一个可回滚提交 | 阶段 8：登录审计与资料刷新共享 repository 边界 |
-| 2026-08-15 | 完成阶段 8 第九个 PR 切片“登录审计与资料刷新共享 repository 边界” | 登录方式/状态、登录审计日志、账号资料更新、资料刷新凭证锁与平台视图读取统一通过 `accountLoginRepository`；运行时 Cookie 更新复用同一账号状态边界，移除无调用方的旧扁平 Cookie helper，保持 MTOP Cookie Jar 合并、资料刷新失败恢复和运行时唤醒语义不变；Server 全量测试、Server race、Go vet、lint、注释和全量门禁通过并合并为一个可回滚提交 | 阶段 8：数据库直连与事务边界最终审计 |
-| 2026-08-15 | 完成阶段 8 第十个 PR 切片“统一事务执行 repository 边界” | Server 统一事务入口不再直接持有 `Store.DB`，改由 `transactionRepository` 负责创建、提交和回滚事务；事务初始化失败、业务错误和提交失败均保持回滚语义，Server 依赖装配与事务回归测试已覆盖；Server 全量测试、Server race、Go vet、lint、注释和全量门禁通过并合并为一个可回滚提交 | 阶段 9：架构依赖门禁与数据库直连最终审计 |
-| 2026-08-15 | 完成阶段 9 第一个 PR 切片“Go/React 架构依赖门禁与数据库直连审计” | 新增 `tools/architecturecheck`，阻止 `internal/db`、`internal/xianyu`、`internal/browser` 反向依赖上层应用包，并阻止 Server 业务层直接创建事务；门禁接入 Makefile、CI 和 `make check`，同步更新阶段状态；架构检查、Go 全量测试、vet、lint、注释和前端注释门禁通过并合并为一个可回滚提交 | 阶段 9：兼容路由/字段调用方最终清理 |
-| 2026-08-15 | 完成阶段 9 第二个 PR 切片“前端泛化兼容响应类型清理” | 移除未被调用方使用的 `ApiResponse` 和含义不清的 `LoginResponse`，认证初始化/登录统一使用 `SessionResponse`，登出、密码修改、账号、聊天、订单等操作统一使用 `OperationResponse`；未改变 HTTP 路径和业务状态字段；前端类型检查、184 个测试、注释检查和构建门禁通过并合并为一个可回滚提交 | 阶段 9：账号 `cookie`/`note` 兼容字段调用方清理 |
-| 2026-08-15 | 完成阶段 9 第三个 PR 切片“账号 cookie/note 兼容字段调用方清理” | `AccountDetail` 移除历史 `cookie`/`note` 别名，账号详情归一化、搜索/展示、编辑回填和运行状态测试统一使用 `value`/`remark`；编辑表单的 `cookie` 保留为真实用户输入字段；前端类型检查、184 个测试、注释检查、仓库 `make check` 和生产构建通过，嵌入式 bundle 已同步并合并为一个可回滚提交 | 阶段 9：旧路由与剩余兼容字段最终审计 |
-| 2026-08-15 | 完成阶段 9 第四个 PR 切片“旧路由与剩余兼容字段最终审计” | 新增 API 兼容边界清单，明确旧服务端入口的保留条件、复用 handler 约束和删除证据要求；新增 React 架构测试，禁止生产 API 适配层重新调用未版本化 `/api/...` 路径；服务端新旧入口契约测试继续覆盖兼容行为，前端 185 个测试、类型检查和注释门禁通过并合并为一个可回滚提交 | 阶段 10：注释基线清零与严格门禁 |
-| 2026-08-15 | 完成阶段 10 第一个 PR 切片“前端共享 types.ts 注释基线清零” | 为分页、会话、账号、聊天、订单、卡券、商品、自动化规则、统计、设置、AI、默认回复和通知 DTO 的全部字段补齐准确中文注释，解释字段职责、敏感性、状态和时间/数量单位；`frontend/types.ts` 历史注释基线清零，前端注释门禁、类型检查、185 个测试和生产构建通过并合并为一个可回滚提交 | 阶段 10：前端 services/api.ts 注释基线清零 |
-| 2026-08-15 | 完成阶段 10 第二个 PR 切片“前端 services/api.ts 注释基线清零” | 为 API 适配层全部导出函数、局部变量、请求参数和内联响应字段补齐中文注释，明确认证、账号、聊天、订单、商品、卡密、自动化、设置和通知接口的数据职责；增强注释检查器对调用参数、类型字面量和循环变量内联注释的识别能力，`services/api.ts` 注释基线清零；前端注释门禁、类型检查和 185 个测试通过并合并为一个可回滚提交 | 阶段 10：前端 components/hooks 注释基线按领域清零 |
-| 2026-08-15 | 完成阶段 10 第三个 PR 切片“前端 components/hooks 注释基线按领域清零” | 为账号、聊天、仪表盘、设置、规则、商品、卡密、订单、通知和二维码等组件、Hook、状态模块及其测试补齐函数、变量、回调和字段中文注释；补强注释检查器对箭头函数主体内联注释的识别，保持路由源码断言和 JSX 行为不变；目标目录注释基线清零，前端注释门禁、类型检查、185 个测试和生产构建通过并合并为一个可回滚提交 | 阶段 10：Go 核心领域注释基线按领域清零 |
-| 2026-08-15 | 完成阶段 10 第四个 PR 切片“Go internal/server 注释基线按领域清零” | 为 HTTP handlers、应用服务、事务边界、批量发布、登录/二维码、请求解析、测试辅助和错误处理代码补齐函数、变量、字段及常量中文注释；增强 Go 注释检查器对多行文档块与分组 const/var 注释的识别；`internal/server` 注释基线清零，Server 定向测试和 Go 注释门禁通过，合并为一个可回滚提交 | 阶段 10：继续清理 Go internal/db 与 internal/xianyu 领域注释基线 |
-| 2026-08-15 | 完成阶段 10 第五个 PR 切片“Go internal/db 注释基线按领域清零” | 为数据库 Store、repository、迁移/方言、多数据库适配、凭证与订单数据访问及其测试补齐函数、变量、字段和常量中文注释；`internal/db` 注释基线清零；数据库定向测试、SQLite 迁移与 CRUD 验证、Go 注释门禁通过，合并为一个可回滚提交 | 阶段 10：继续清理 Go internal/xianyu 领域注释基线 |
-| 2026-08-15 | 完成阶段 10 第六个 PR 切片“Go internal/xianyu 注释基线按领域清零” | 为 MTOP 请求、协议编解码与签名、二维码登录、续期、WebSocket、Cookie 刷新和用户代理代码及其测试补齐函数、变量、字段和常量中文注释；`internal/xianyu` 及子包注释基线清零；平台协议定向测试和 Go 注释门禁通过，合并为一个可回滚提交 | 阶段 10：继续清理 Go internal/engine、internal/automation 与其他领域注释基线 |
-| 2026-08-15 | 完成阶段 10 第七个 PR 切片“Go internal/engine 注释基线按领域清零” | 为账号运行时、连接循环、凭证作用域、消息分发、回复策略、AI、令牌缓存和生命周期测试补齐函数、变量、字段及常量中文注释；`internal/engine` 注释基线清零；Engine 定向测试、`go test -race ./internal/engine`、全量 Go/React 门禁通过，合并为一个可回滚提交 | 阶段 10：继续清理 Go internal/automation、internal/account、internal/adapter、internal/renewal、internal/notify、internal/chat 等领域注释基线 |
-| 2026-08-15 | 完成阶段 10 第八个 PR 切片“Go internal/automation 注释基线按领域清零” | 为自动化中心、账号任务、动作执行器、事件流水线、运行协调器、调度器、通知器及其测试补齐函数、变量、字段和常量中文注释；`internal/automation` 注释基线清零；Automation 定向测试、`go test -race ./internal/automation`、全量 Go/React 门禁通过，合并为一个可回滚提交 | 阶段 10：继续清理 Go internal/account、internal/adapter、internal/renewal、internal/notify、internal/chat 等领域注释基线 |
-| 2026-08-15 | 完成阶段 10 第九个 PR 切片“Go internal/account 注释基线按领域清零” | 为账号管理器、凭证作用域、运行时启动/停止和生命周期测试补齐函数、变量、字段及常量中文注释；`internal/account` 注释基线清零；Account 定向测试、`go test -race ./internal/account`、全量 Go/React 门禁通过，合并为一个可回滚提交 | 阶段 10：继续清理 Go internal/adapter、internal/renewal、internal/notify、internal/chat 等领域注释基线 |
-| 2026-08-15 | 完成阶段 10 第十个 PR 切片“Go internal/adapter 注释基线按领域清零” | 为 adapter 装配、平台运行视图、远端 Token CAPTCHA 流程及其测试补齐函数、变量、字段和常量中文注释；`internal/adapter` 注释基线清零；Adapter 定向测试和全量 Go/React 门禁通过，合并为一个可回滚提交 | 阶段 10：继续清理 Go internal/renewal、internal/notify、internal/chat 等领域注释基线 |
-| 2026-08-15 | 完成阶段 10 第十一个 PR 切片“Go internal/renewal 注释基线按领域清零” | 为续期冷却、调度器、平台运行凭证范围和相关测试补齐函数、变量、字段及常量中文注释；`internal/renewal` 注释基线清零；Renewal 定向测试、`go test -race ./internal/renewal`、全量 Go/React 门禁通过，合并为一个可回滚提交 | 阶段 10：继续清理 Go internal/notify、internal/chat 等领域注释基线 |
-| 2026-08-15 | 完成阶段 10 第十二个 PR 切片“Go internal/notify 注释基线按领域清零” | 为通知器、渠道与账号绑定、通知 outbox、SMTP 守卫及其测试补齐函数、变量、字段和常量中文注释；`internal/notify` 注释基线清零；Notify 定向测试、`go test -race ./internal/notify`、全量 Go/React 门禁通过，合并为一个可回滚提交 | 阶段 10：继续清理 Go internal/chat 领域注释基线 |
-| 2026-08-15 | 完成阶段 10 第十三个 PR 切片“Go internal/chat 注释基线按领域清零” | 为聊天 repository、消息服务、账号订阅、已读状态、事件广播及其测试补齐函数、变量、字段和常量中文注释；`internal/chat` 注释基线清零；Chat 定向测试、`go test -race ./internal/chat`、全量 Go/React 门禁通过，合并为一个可回滚提交 | 阶段 10：进入非冻结 browser、cmd 与 tools 注释基线清理 |
-| 2026-08-15 | 完成阶段 10 第十四个 PR 切片“Go 非冻结 internal/browser 注释基线按领域清零” | 为 Cookie、订单、密码登录、二维码刷新、生命周期、用户数据目录和浏览器辅助测试补齐函数、变量、字段及常量中文注释；严格跳过冻结的 slider/CAPTCHA 实现与测试；非冻结 browser 注释基线清零，冻结文件保留 664 项原有基线；Browser 定向测试和全量 Go/React 门禁通过，合并为一个可回滚提交 | 阶段 10：继续清理 cmd 与 tools 注释基线，并保留冻结基线边界 |
-| 2026-08-15 | 完成阶段 10 第十五个 PR 切片“Go cmd 与 tools 注释基线按领域清零” | 为 server、tray、dbseed、dbverify、init-admin、browser-install、spike 命令及 iconconv 工具补齐函数、变量、字段和常量中文注释；`cmd` 与 `tools` 注释基线清零；命令/工具定向测试和全量 Go/React 门禁通过，合并为一个可回滚提交 | 阶段 10：继续清理剩余基础内部包并保留冻结 browser 基线 |
-| 2026-08-15 | 完成阶段 10 第十六个 PR 切片“Go 基础内部包注释基线按领域清零” | 为 `internal/auth`、`internal/netguard`、`internal/logging`、`internal/version`、`internal/logsafe` 和 `internal/webui` 补齐函数、变量、字段及常量中文注释；这些基础包注释基线清零；定向测试和全量 Go/React 门禁通过，合并为一个可回滚提交；当前 Go 基线仅保留冻结 browser CAPTCHA 文件 | 阶段 10：冻结基线边界审计、删除可清理基线并完成最终验收 |
-| 2026-08-15 | 完成阶段 10 最终 PR 切片“冻结边界固化与全仓零基线验收” | Go/前端注释检查器显式识别冻结 CAPTCHA 文件并支持无基线严格模式；前端剩余注释债务清零；删除 `.commentlint/go-baseline.json` 与 `.commentlint/frontend-baseline.json`；无基线 Go/React 注释门禁、全量测试、类型检查和生产构建通过，冻结实现保持原样 | 阶段 10 完成：进入全仓重构计划最终审计 |
-| 2026-08-15 | 完成测试覆盖率提升切片“确定性 Browser/命令入口覆盖与前端覆盖率采集” | 新增 Cookie 快照、浏览器池/持久化上下文、登录页、订单 DOM、滑块页面辅助、命令行入口测试；修复 Playwright 数值类型导致的登录成功误判；新增 Go `cover-browser`、前端 V8 `test:coverage` 与 Makefile 入口；普通 Go 全量覆盖率 70.9%，本地 Chromium 覆盖 Browser 约 60.0%，前端当前全源覆盖率为语句 19.22%；真实账号/外部平台流程仍明确不触网 | 下一步：按覆盖率报告继续补齐前端页面行为与 Browser 非账号错误分支，不降低门禁或伪造 100% |
-| 2026-08-15 | 完成测试覆盖率提升切片“前端规则与领域状态边界补测” | 新增规则工具、账号运行态、批量任务、仪表盘、通知和聊天状态的确定性边界测试，覆盖默认值、空值、状态映射、过期响应、错误消息、SMTP 校验和时间格式化；前端 196 个测试、类型检查、注释门禁通过，全源语句覆盖率提升至 22.02%；页面组件与真实平台账号流程仍按覆盖率报告列为后续切片，不降低门禁或伪造 100% | 下一步：补齐 React 页面/Hook 行为测试，并继续覆盖 Browser 非账号错误分支 |
-| 2026-08-15 | 完成测试覆盖率提升切片“React 纯展示组件静态渲染覆盖” | 新增无需浏览器环境的静态渲染测试，覆盖卡密图标类型、批量阶段高亮、通知事件选中状态和订单筛选栏结构；前端 200 个测试、类型检查、注释门禁通过，全源语句覆盖率提升至 22.53%；交互回调和页面 Hook 仍需后续使用可控测试替身继续补齐，不降低门禁或伪造 100% | 下一步：补齐 React 页面/Hook 行为测试，并继续覆盖 Browser 非账号错误分支 |
-| 2026-08-15 | 完成测试覆盖率提升切片“React 通知与自动化异常组件分支覆盖” | 扩展静态渲染测试覆盖通知渠道空状态/停用/测试中状态，以及自动化运行异常和延迟任务的人工处理按钮；前端 202 个测试、类型检查、注释门禁通过，全源语句覆盖率提升至 23.00%；复杂表单交互与页面 Hook 仍需后续使用可控测试替身继续补齐，不降低门禁或伪造 100% | 下一步：补齐 React 页面/Hook 行为测试，并继续覆盖 Browser 非账号错误分支 |
-| 2026-08-15 | 完成测试覆盖率提升切片“React SMTP 设置组件展示分支覆盖” | 新增 SMTP 设置面板静态渲染测试，覆盖密码显隐、保存中禁用状态、TLS/SSL 配置及发件人字段回填；前端 203 个测试、类型检查、注释门禁通过，全源语句覆盖率提升至 23.18%；表单事件回调和页面 Hook 仍需后续使用可控测试替身继续补齐，不降低门禁或伪造 100% | 下一步：补齐 React 页面/Hook 行为测试，并继续覆盖 Browser 非账号错误分支 |
-| 2026-08-15 | 完成测试覆盖率提升切片“React Hook 可控运行时与请求分支覆盖” | 引入 `@testing-library/react` 与 `jsdom` 测试运行时；新增账号任务 Hook 的加载、保存、执行、失败重试和禁用账号门禁测试；新增仪表盘 Hook 的并行加载、刷新、概览失败和非法日期范围测试；前端 209 个测试、类型检查、注释门禁通过，全源语句覆盖率提升至 26.45%；真实账号、外部平台和未注入的生产页面组合仍列为后续切片，不降低门禁或伪造 100% | 下一步：继续补齐 Accounts/Cards/Chat/Items/Notifications/Orders/Settings/Rules Hook 与页面行为测试 |
-| 2026-08-15 | 完成测试覆盖率提升切片“React Settings Hook 请求与凭据行为覆盖” | 新增系统设置 Hook 的成功加载/保存、模型发现失败、凭据前端校验、后端拒绝和初始读取失败测试；前端 213 个测试、类型检查、注释门禁通过，全源语句覆盖率提升至 28.96%；真实重新登录和浏览器页面重载仍只验证可控响应与调度，不伪造真实会话 | 下一步：继续补齐 Accounts/Cards/Chat/Items/Notifications/Orders/Rules Hook 与页面行为测试 |
-| 2026-08-15 | 完成测试覆盖率提升切片“React Orders Hook 查询与导入行为覆盖” | 新增订单查询 Hook 的分页加载、辅助数据映射、账号/商品名称解析测试；新增订单导入 Hook 的成功刷新关闭、文件格式校验和服务失败状态测试；前端 216 个测试、类型检查、注释门禁通过，全源语句覆盖率提升至 31.69%；真实订单平台数据仍不触网，仅验证可控接口契约与状态机 | 下一步：继续补齐 Accounts/Cards/Chat/Notifications/Rules Hook 与页面行为测试 |
-| 2026-08-15 | 完成测试覆盖率提升切片“React Notifications Hook 渠道与 SMTP 行为覆盖” | 新增通知 Hook 的管理员/普通用户加载、渠道新建、启用切换、测试通知、SMTP 保存、表单校验、删除和失败提示测试；前端 219 个测试、类型检查、注释门禁通过，全源语句覆盖率提升至 34.81%；真实推送服务和账号绑定数据仍不触网，仅验证可控接口契约与状态机 | 下一步：继续补齐 Accounts/Cards/Chat/Rules Hook 与页面行为测试 |
-| 2026-08-15 | 完成测试覆盖率提升切片“React Accounts Hook 账号与运行状态覆盖” | 新增账号数据 Hook 的账号详情/AI 配置并行加载、AI 失败隔离、账号详情失败和运行状态轮询测试；前端 221 个测试、类型检查、注释门禁通过，全源语句覆盖率提升至 36.02%；真实账号凭证、远端资料和平台运行状态仍不触网，仅验证可控接口契约与生命周期清理 | 下一步：继续补齐 Cards/Chat/Items/Rules Hook 与页面行为测试 |
-| 2026-08-15 | 完成测试覆盖率提升切片“React Cards Hook 库存与批量操作覆盖” | 新增卡密库存 Hook 的成功/失败加载测试；新增批量操作 Hook 的追加预览、追加成功、批量创建成功和追加失败测试；前端 223 个测试、类型检查、注释门禁通过，全源语句覆盖率提升至 38.19%；真实卡密库存和外部 API 卡密仍不触网，仅验证可控接口契约与状态机 | 下一步：继续补齐 Chat/Items/Rules Hook 与页面行为测试 |
-| 2026-08-15 | 完成测试覆盖率提升切片“React Chat Hook 加载、分页与发送覆盖” | 新增聊天 Hook 的账号/运行状态加载、会话与消息分页、已读标记、文字/图片发送、发送失败重试和 WebSocket 清理测试；前端 225 个测试、类型检查、注释门禁通过，全源语句覆盖率提升至 44.11%；真实聊天账号、外部平台消息和 WebSocket 服务仍不触网，仅验证可控接口契约与状态机 | 下一步：继续补齐 Items/Rules Hook、账号子模块 Hook 与页面行为测试 |
-| 2026-08-15 | 完成测试覆盖率提升切片“React Items 批量发布 Hook 行为覆盖” | 新增批量发布 Hook 的任务恢复、类目推荐、文件预检、任务启动、取消、最近结果、失败重试、关闭清理及表单守卫测试；修复批量状态变化后重试回调捕获旧状态的依赖问题；前端 227 个测试、类型检查、注释门禁通过，全源语句覆盖率提升至 46.88%；真实商品文件、账号凭证和外部发布平台仍不触网，仅验证可控接口契约与状态机 | 下一步：继续补齐 Rules Hook、账号子模块 Hook 与页面行为测试 |
-| 2026-08-15 | 完成测试覆盖率提升切片“React Rules 数据 Hook 页签与异常隔离覆盖” | 新增规则数据 Hook 的参考数据并行加载、自动化规则分页/筛选、服务端页码修正、异常列表失败隔离、关键词规则、默认回复和无账号守卫测试；前端 229 个测试、类型检查、注释门禁通过，全源语句覆盖率提升至 48.38%；真实账号规则和外部平台数据仍不触网，仅验证可控接口契约、请求代次和页签状态机 | 下一步：继续补齐账号子模块 Hook 与页面行为测试 |
-| 2026-08-15 | 完成测试覆盖率提升切片“React Accounts 子模块编辑、AI 与密码登录覆盖” | 新增账号子模块 Hook 的编辑弹窗初始化、通知渠道加载/切换、长期登录保存、AI 设置保存、暂停重启、密码登录成功/取消以及绑定/长登录/AI 请求失败隔离测试；前端 232 个测试、类型检查、注释门禁通过，全源语句覆盖率提升至 52.59%；真实账号凭证、密码和平台登录流程仍不触网，仅验证可控接口契约、请求取消和生命周期状态机 | 下一步：继续补齐页面组件行为与剩余非账号外部错误分支 |
-| 2026-08-15 | 调整测试覆盖率目标为业务代码边界 | 根据最新要求移除本轮新增的纯 UI 页面组件测试，不再把 Sidebar、页面空状态、页面结构和展示分支作为覆盖率目标；保留账号、聊天、商品批量、通知、订单、设置、规则等 Hook、状态机、请求编排和领域工具测试；后续覆盖率统计以业务模块为主，真实账号/外部平台流程仍仅在确实无法确定性模拟时跳过 | 下一步：继续补齐业务 Hook、请求编排与领域状态的未覆盖分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“AMap 地点查询适配边界” | 新增高德地点查询的无效坐标、无数据、失败响应、POI 字段校验和结果映射测试；仅使用浏览器全局与 PlaceSearch 可控替身，不触发真实地图网络请求；前端测试、类型和注释门禁通过，纯 UI 组件不纳入覆盖率目标 | 下一步：补齐请求层与业务 Hook 的未覆盖错误分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“AMap 脚本加载错误边界” | 新增高德脚本首次注入、已有脚本节点、加载完成但对象缺失、脚本错误和超时测试；通过 jsdom 与动态模块隔离验证加载器生命周期，不访问真实地图网络；前端测试、类型和注释门禁通过 | 下一步：补齐业务 Hook 的未覆盖错误分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“请求层方法与取消/错误边界” | 新增 PUT/DELETE 请求、纯文本错误、损坏 JSON 错误体、外部 AbortSignal 及上传取消测试；验证统一错误消息、认证失败通知和超时/取消区分；前端请求测试、类型和注释门禁通过，纯 UI 组件不纳入覆盖率目标 | 下一步：补齐业务 Hook 的未覆盖错误分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“请求层网络异常与上传载荷” | 补充普通请求/上传请求网络异常透传、上传失败响应和原始错误载荷保留测试；覆盖请求层非业务网络分支，不依赖真实服务；前端请求测试、类型和注释门禁通过 | 下一步：补齐业务 Hook 的未覆盖错误分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“账号自动化 Hook 失败与重试” | 补充任务设置读取失败、任务执行失败和失败重试测试，覆盖业务错误提示、重试动作和状态清理；不触发真实账号任务；前端 Hook 测试、类型和注释门禁通过 | 下一步：补齐 Accounts/Items/Notifications 等 Hook 的未覆盖错误分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“商品批量发布 Hook 异常与轮询” | 补充类目推荐、批量预检、启动、取消、重试、最近结果和预检清理失败测试，并覆盖轮询完成后刷新商品/发货规则列表；使用 API 替身验证状态机，不触发真实商品文件或外部平台；前端 Hook 测试、类型和注释门禁通过 | 下一步：补齐 Accounts 子模块与 Notifications Hook 的未覆盖错误分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“账号子模块保存与密码登录异常” | 补充长期登录、AI、账号编辑、暂停保存失败，以及密码登录启动失败和状态查询失败测试；覆盖错误提示、状态收口和重试前置条件，不触发真实账号凭证或平台登录；前端 Hook 测试、类型和注释门禁通过 | 下一步：补齐 Notifications/Chat/Settings 等 Hook 的未覆盖错误分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“Notifications Hook 渠道与 SMTP 错误” | 补充通知渠道加载、编辑保存、启用切换和系统 SMTP 保存失败测试；验证错误提示、请求状态收口和管理员边界，不触发真实推送服务或邮件服务器；前端 Hook 测试、类型和注释门禁通过 | 下一步：补齐 Chat/Settings/Orders 等 Hook 的未覆盖错误分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“Chat Hook 实时连接与请求错误” | 新增 WebSocket 开关/消息/非法帧处理、联系人刷新、消息加载、历史分页和图片发送失败重试测试；仅使用 WebSocket 与 API 替身验证聊天状态机，不触发真实账号会话或平台消息；前端 Hook 测试、类型和注释门禁通过 | 下一步：补齐 Settings/Orders/Cards 等 Hook 的未覆盖错误分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“Orders Hook 部分失败导入与查询边界” | 补充订单账号回退名称、部分失败导入结果、导入重试、弹窗关闭清理测试；验证导入状态机和分页查询派生逻辑，不依赖真实订单文件或平台数据；前端 Hook 测试、类型和注释门禁通过 | 下一步：补齐 Settings/Cards/Rules 等 Hook 的未覆盖错误分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“Settings Hook 保存与凭据异常” | 补充系统配置保存失败、登录凭据网络异常、成功提示和重载调度测试；验证错误状态、成功消息和表单请求边界，不触发真实会话或账号凭据；前端 Hook 测试、类型和注释门禁通过 | 下一步：补齐 Cards/Rules 与剩余可控业务分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“Cards Hook 批量创建与追加重试” | 补充批量创建失败、追加失败重试和切换目标后阻止旧任务重试测试；验证库存加载、批量状态和目标隔离，不依赖真实卡密库存或外部服务；前端 Hook 测试、类型和注释门禁通过 | 下一步：补齐 Rules 与剩余可控业务分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“Rules Hook 参考数据与异常筛选” | 补充空账号参考数据默认选择、异常面板空筛选和延迟任务账号过滤测试；验证规则页数据边界，不触发真实规则或账号数据；前端 Hook/领域状态测试、类型和注释门禁通过 | 下一步：继续补齐剩余可控业务分支并分类外部依赖分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“Cards/Chat Hook 关闭、重试与滚动边界” | 补充卡密批量创建重试/关闭、聊天联系人分页失败、滚动距离策略和实时发送边界测试；验证请求清理与交互状态机，不触发真实卡密、账号或消息服务；前端 Hook 测试、类型和注释门禁通过 | 下一步：继续补齐剩余可控业务分支并分类外部依赖分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“通知/日期/SMTP 领域工具边界” | 补充邮件通知自定义 SMTP 开关解析、默认字段回填、日期自定义/昨天范围和 SMTP 布尔值归一化测试；覆盖纯业务工具的默认与异常分支，不依赖外部服务或 UI；前端测试、类型和注释门禁通过 | 下一步：继续补齐剩余可控业务分支并分类外部依赖分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“Accounts Hook 运行状态轮询错误” | 补充账号运行状态轮询失败测试，验证账号列表保留、错误记录和轮询生命周期清理；不触发真实账号运行时；前端 Hook 测试、类型和注释门禁通过 | 下一步：继续补齐剩余可控业务分支并分类外部依赖分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“账号子模块通知与密码登录中间状态” | 补充通知渠道独立失败、AI 弹窗关闭、密码登录处理中和编辑弹窗关闭取消测试；覆盖子模块请求隔离与生命周期清理，不触发真实账号凭证或平台登录；前端 Hook 测试、类型和注释门禁通过 | 下一步：继续补齐剩余可控业务分支并分类外部依赖分支 |
-| 2026-08-15 | 完成阶段性业务覆盖率审计 | 前端全量测试 50 个文件、268 个用例通过；业务代码 V8 覆盖率达到语句 92.47%、分支 73.48%、函数 93.41%、行 96.46%；纯 UI 组件按用户要求排除，剩余未覆盖项集中在 API 适配器未调用接口、请求取消/过期保护和真实平台生命周期分支，下一轮继续按可控性补测并保留外部依赖跳过说明 | 下一步：继续补齐剩余可控业务分支，最终形成业务覆盖率验收清单 |
-| 2026-08-15 | 完成业务测试覆盖切片“通知 API 序列化与绑定响应” | 补充通知渠道更新配置/事件序列化和消息通知数组展开、非法绑定值忽略测试；覆盖 API 适配层确定性响应归一化，不触发推送服务；前端 API 测试、类型和注释门禁通过 | 下一步：继续补齐剩余 API 适配器与请求取消分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“商品发布与通知事件 API 归一化” | 补充商品发布 multipart 图片/地点字段序列化，以及通知事件 JSON/分隔符兼容解析测试；覆盖 API 适配层剩余确定性分支，不触发真实商品发布或推送服务；前端 API 测试、类型和注释门禁通过 | 下一步：继续补齐剩余 API 适配器与请求取消分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“AMap 地点映射与并发加载边界” | 补充 POI 缺失标识、成功空结果和并发查询共享脚本 Promise 测试；覆盖地图适配器剩余确定性分支，不访问真实地图网络；前端测试、类型和注释门禁通过 | 下一步：继续补齐剩余 API 适配器与请求取消分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“请求层成功文本响应” | 补充普通请求成功返回非 JSON 文本的确定性测试，覆盖共享请求层文本分支，不依赖真实服务；前端请求测试、类型和注释门禁通过 | 下一步：继续补齐剩余 API 适配器与请求取消分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“Dashboard Hook 经营数据错误” | 补充趋势/有效订单并行请求失败和范围错误状态测试；验证错误信息收口，不触发真实统计或订单数据；前端 Hook 测试、类型和注释门禁通过 | 下一步：继续补齐剩余 API 适配器与请求取消分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“API 头像、订单分析、批量预检与卡密归一化” | 补充头像 URL 缓存参数/非法地址、数字天数分析、批量预检可选字段、无账号规则守卫和卡密 JSON 配置归一化测试；覆盖 API 适配层确定性分支，不依赖真实账号或平台数据；前端 API 测试、类型和注释门禁通过 | 下一步：继续补齐剩余 API 适配器与请求取消分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“订单筛选、通知数组与默认回复归一化” | 补充订单账号/状态筛选参数、通知事件数组格式和默认回复空字段保存载荷测试；覆盖 API 适配层剩余确定性分支，不依赖真实订单或推送服务；前端 API 测试、类型和注释门禁通过 | 下一步：继续补齐剩余 API 适配器与请求取消分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“请求层认证并发与预取消边界” | 补充并发认证失败去重、上传认证失败、非 JSON 上传错误读取失败和请求开始前已取消测试；验证统一请求层的认证事件、状态码兜底和取消错误收口，不依赖真实服务；前端请求测试、类型和注释门禁通过 | 下一步：继续补齐 Chat/Notifications/Orders 等 Hook 的可控生命周期分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“Chat Hook 初始化、轮询与实时生命周期” | 补充聊天初始化失败、运行状态轮询失败重调度、历史消息成功滚动恢复、未知实时会话刷新、空消息帧和 WebSocket 错误关闭测试；仅使用 API、定时器、WebSocket 与 DOM 替身，不触发真实账号会话；前端 Chat Hook 测试、类型和注释门禁通过 | 下一步：继续补齐 Notifications/Orders/Items 等 Hook 的可控生命周期分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“Notifications Hook 定时器、SMTP 与删除边界” | 补充 SMTP 初始加载失败、提示自动消失、弹窗关闭、用户拒绝删除和删除请求失败测试；验证通知状态清理和错误收口，不触发真实推送或邮件服务；前端 Notifications Hook 测试、类型和注释门禁通过 | 下一步：继续补齐 Orders/Items/Settings 等 Hook 的可控生命周期分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“Orders Hook 查询防抖与辅助错误” | 补充订单主查询失败、搜索文本防抖标准化和账号/商品辅助数据失败测试；验证订单分页状态、请求参数和辅助数据隔离，不依赖真实订单文件或平台数据；前端 Orders Hook 测试、类型和注释门禁通过 | 下一步：继续补齐 Items/Settings 等 Hook 的可控生命周期分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“Items Hook 批量任务守卫与轮询错误” | 补充无最近任务、无预检、无有效行、用户拒绝取消、不可重试任务和轮询失败测试；验证批量发布状态机前置条件与错误收口，不触发真实商品文件或外部发布平台；前端 Items Hook 测试、类型和注释门禁通过 | 下一步：继续补齐 Settings/Accounts 等 Hook 的可控生命周期分支 |
-| 2026-08-15 | 完成阶段性业务覆盖收口切片“请求、账户、卡密、订单与设置边界” | 补充上传超时、批量发布空输入、卡密批量操作空守卫、订单无文件导入、设置外部点击与重载调度、账户绑定移除/AI 默认值/密码终态，以及仪表盘和聊天领域排序时间边界；前端全量 50 个文件、301 个用例通过，语句覆盖率提升至 96.58%、函数 97.25%、行 99.63%；纯 UI 和真实账号/平台流程仍按边界排除 | 下一步：继续处理剩余可控的过期响应、取消清理和领域分支，形成最终业务覆盖率验收清单 |
-| 2026-08-15 | 完成业务测试覆盖切片“账号任务、账号轮询与聊天实时边界” | 补充账号任务保存并发门禁、账号运行状态下一轮定时轮询、通知绑定移除/暂停状态更新、密码登录处理中轮询与关闭清理、聊天空发送/滚动守卫/未知会话排序，以及规则分页兼容入口测试；前端注释门禁、定向测试和类型检查通过，阶段覆盖率提升至语句 97.49%、函数 99.08%、行 99.86%；过期响应保护仍按真实取消时序分类保留 | 下一步：继续评估通知、卡密、设置与请求层过期响应是否能在不引入不稳定时序的前提下补测 |
-| 2026-08-15 | 完成业务测试覆盖切片“通知与批量任务过期响应并发” | 补充通知渠道刷新丢弃旧响应、批量轮询防并发和关闭后旧响应失效，以及普通请求纯文本错误读取失败测试；验证请求代次和轮询保护，不触发真实推送、商品或平台服务；前端注释门禁、定向测试和类型检查通过 | 下一步：执行全量回归、覆盖率终审并记录仍需真实取消时序或不可达代码分支 |
-| 2026-08-15 | 完成业务测试覆盖切片“卡密、仪表盘、设置与订单过期响应” | 补充卡密库存刷新、仪表盘经营数据、系统设置和订单查询的重复请求旧响应隔离测试；前端全量覆盖率达到语句 98.00%、函数 100%、行 99.86%，分支 79.82%；剩余未覆盖主要为取消/卸载时序保护、订单相似标题不可达分支和防御性条件组合 | 下一步：执行最终全量回归并形成业务覆盖率验收与跳过项清单 |
-| 2026-08-15 | 完成阶段性业务覆盖率终审 | 前端 50 个测试文件、312 个用例通过；业务代码覆盖率为语句 98.00%（2500/2551）、函数 100%（547/547）、行 99.86%（2178/2181）、分支 79.82%（1385/1735）；所有业务函数均有测试入口。剩余分支集中在请求取消/卸载后旧响应保护的极端时序、真实账号或外部平台会话生命周期，以及订单相似标题判断中被前置标题返回遮蔽的不可达路径；纯 UI 组件按约束排除 | 下一步：后续新增业务函数必须同步测试与中文注释，若改变取消时序或外部依赖契约需重新审计覆盖率 |
-
-## 11. 审计重开后的执行切片
-
-以下切片是当前唯一有效的后续入口。每个切片完成后必须：更新本表、补齐针对性测试、运行适用门禁，并创建一个中文提交；未满足“完成条件”不得标记为已完成。
-
-| 优先级 | PR 切片 | 主要范围 | 完成条件 |
-| --- | --- | --- | --- |
-| P0 | 敏感系统设置与运维输出脱敏 | `SystemSettings.Redacted`、敏感值 retain/replace/clear、管理端响应、dbverify 指纹输出、前端敏感字段状态 | HTTP 响应和 React 状态不出现秘密；空值显式清除、缺省值保留；Go/React 回归覆盖；三库迁移测试通过；显式 `values` 不得携带敏感键 |
-| P1 | 应用 Port 与架构允许边 | `internal/application/orders`、订单命令/结果 DTO、基础设施适配器、`architecturecheck` | Server 不再创建或持有订单应用实现；Port 不出现 `sql.Tx`、`db.*`、HTTP 类型；架构门禁能主动拒绝违规 |
-| P1 | 凭证快照与账号操作协调器 | 凭证版本、短锁快照、外部调用重试/合并、每账号有界协调、锁指标和锁 Map 回收 | 慢速外部调用不持有共享凭证锁；并发更新有版本冲突测试；锁等待和队列可观测 |
-| P1 | 生命周期与删除 fencing | `Server.Stop(ctx)`、`Manager.Stop(ctx)`、StopAll 并发收束、账号删除任务登记和状态 fencing | 所有等待受关闭 Context 限制；删除接口不会产生游离 Stop goroutine；超时有明确错误和可追踪任务 |
-| P1 | 外部动作补偿与 reconciliation | 手动发货、本地订单状态、自动化准备检查点、reconciliation/outbox 表和重试 worker | 外部成功/本地失败统一返回三态结果；不会重复执行不可逆动作；补偿记录可恢复、可审计 |
-| P2 | 商品/订单批量同步 | 用户范围 Join、游标分页、批量 Upsert、规格探测缓存和受限并发 | 消除逐账号/逐订单 N+1；错误不再被忽略；SQLite/MySQL/Postgres 查询计划和大数据量测试有证据 |
-| P2 | HTTP 契约与兼容退场 | 批量 DTO、错误字段统一、旧路由使用量、Deprecation/Sunset 和删除版本 | 新增接口不使用匿名动态结果；旧入口有遥测、期限和兼容测试 |
-| P2 | React 页面边界与初始包体 | 页面迁移到 feature、路由懒加载、Provider/路由壳、bundle budget | App 不同步加载全部页面；首屏预算门禁通过；遵循并行请求、动态导入和避免重复渲染规范 |
-| P2 | 复杂度与注释真实性 | 长函数拆分、复杂度门禁、模板注释黑名单、冻结文件精确例外 | 新增/修改函数和变量有准确中文语义注释；模板注释不得通过门禁；冻结 CAPTCHA 仅按文件例外 |
-
-### 11.1 当前切片完成记录
-
-| 日期 | 切片 | 状态 | 证据 |
-| --- | --- | --- | --- |
-| 2026-08-15 | 审计重开与完成条件纠偏 | 已完成 | 已将阶段 2、4、5、8、9、10 从“已完成”改为“进行中”，建立九个可回滚 PR 切片，并明确“测试通过不等于架构完成”的新验收规则 |
-| 2026-08-15 | P0 敏感系统设置与运维输出脱敏 | 已完成 | `SystemSettings.Redacted`、敏感值 retain/replace/clear、管理端脱敏、已知敏感调用方审计、集中式日志属性脱敏和 dbverify 指纹输出均已收口；真实执行 SQLite、MySQL 8.4、PostgreSQL 17 的 `make test-multidb` 全部 `TestMultiDB_*` 通过，Go/React 回归、类型/构建、架构和中文注释门禁通过；高频运行时窄视图不逐次写审计的边界已记录并有测试，不再把 SQLite 单库结果误判为三库证据 |
-| 2026-08-15 | P1 订单读模型 Port 与架构依赖门禁 | 已完成 | 新增 `internal/application/orders` 纯业务 `OrderRow`/`ListFilter`/`Reader`；订单列表适配器负责 `db.*` 到应用模型的转换；架构门禁统一模块路径、禁止应用层依赖 `db/server/xianyu/browser/sql/http`，并对 Server 新增低层依赖要求临时白名单；新增门禁测试，`make check` 通过。订单写入事务 Port、其他应用服务和既有白名单仍未完成，阶段 4/8/9 继续保持“进行中” |
-| 2026-08-15 | P1 订单事务 Writer Port | 已完成 | 新增 `orders.OrderPatch`、`ItemWrite`、`UpsertOptions`、`Writer` 和 `UnitOfWork`；订单更新、导入、手动发货和刷新统一通过应用 Writer，`*sql.Tx` 仅存在于 Server 基础设施适配器；保留现有提交/回滚语义并通过订单回归与 `make check`。订单实体读取、凭证 Port、其他应用服务和 Server 白名单仍未完成，阶段 4/8/9 继续保持“进行中” |
-| 2026-08-15 | P1 订单实体读取与平台运行视图 Port | 已完成 | 新增纯应用层 `Order`、`ItemInfo`、`PlatformRuntimeData`；订单详情、商品读取、订单分页和刷新凭证读取不再通过 repository 暴露 `db.Order`、`db.ItemInfo`、`db.OrderRow` 或 `db.CookieDetail`；Server 到现有自动化/会话辅助函数保留显式边界适配；新增字段完整性转换测试，`make check` 和注释门禁通过。该三切片仅收口订单 Port，凭证协调器、生命周期、补偿、批量同步和其他领域依赖仍未完成，阶段 4/8/9 继续保持“进行中” |
-| 2026-08-15 | P1 凭证快照与账号操作协调器（订单详情切片） | 已完成 | `Store.LockAccountCredentials` 增加引用计数和空闲 entry 回收，并保持同账号互斥与重复释放幂等；订单详情流程改为锁内读取、锁外执行慢速 MTOP、锁内重读提交，检测到期间凭证变化时丢弃旧响应；新增锁回收、并发互斥、慢速 I/O 不占锁和 race 回归测试，`make check`、注释门禁及聚焦 race 通过。其他凭证调用方仍待迁移，版本化持久化冲突控制和协调指标仍未完成，阶段 2/4/5/8/9 继续保持“进行中” |
-| 2026-08-15 | P1 凭证快照与账号操作协调器（API 续期切片） | 已完成 | `apiCookieRenewOne` 改为锁内读取、锁外执行 `renewAPI`、锁内重读提交；外部调用期间凭证变化时使用 `RebaseResponseCookies` 基于最新 Cookie/metadata 重放 `Set-Cookie`，无可重放数据则拒绝旧快照写回；新增慢 I/O 不占锁和并发更新保留测试，续期全量测试、聚焦 race 与注释门禁通过。登录续期、Engine、Automation 和版本化持久化冲突控制仍未完成，阶段 2/4/5/8/9 继续保持“进行中” |
-| 2026-08-15 | P1 凭证快照与账号操作协调器（登录态检查切片） | 已完成 | `loginRenewOne` 改为锁内读取、锁外执行 `loginuser.get`、锁内重读提交；检查期间凭证发生变化时丢弃基于旧快照的响应 Cookie，避免覆盖并发更新；保留完整 Cookie Jar 权威持久化、Session 过期恢复和禁用账号语义；新增慢 I/O 不占锁及旧响应拒绝测试，续期全量测试、聚焦 race、注释门禁通过。Engine、Automation、剩余 Server 调用方和版本化持久化冲突控制仍未完成，阶段 2/4/5/8/9 继续保持“进行中” |
-| 2026-08-15 | P1 凭证快照与账号操作协调器（Engine 登录态检查切片） | 已完成 | `Account.tryLoginStatusCheck` 改为锁内读取、锁外执行登录态检查、锁内重读提交；检查期间数据库 Cookie/metadata 发生变化时丢弃旧会话响应，避免更新运行时和数据库为过期状态；新增 Engine 慢 I/O 不占锁及并发旧响应拒绝测试，Engine 全量测试、聚焦 race 和注释门禁通过。Engine 其他 token/续期路径、Automation、Server 其他调用方和版本化持久化冲突控制仍未完成，阶段 2/4/5/8/9 继续保持“进行中” |
-| 2026-08-15 | P1 凭证快照与账号操作协调器（Engine API 续期切片） | 已完成 | `Account.tryAPIRenewUsing` 保留 `refreshMu` 的同账号刷新串行语义，但改为锁内读取、锁外执行续期回调、锁内重读提交；外部期间凭证变化时用 `RebaseResponseCookies` 基于最新状态合并 `Set-Cookie`，无可重放数据则拒绝旧状态；新增慢 I/O、并发锁获取和 Cookie 合并测试，Engine 全量测试、聚焦 race、注释门禁通过。Engine Token 刷新、Automation、Server 其他调用方和版本化持久化冲突控制仍未完成，阶段 2/4/5/8/9 继续保持“进行中” |
-| 2026-08-15 | P1 凭证快照与账号操作协调器（Engine Token 刷新切片） | 已完成 | `refreshTokenWithMinGap` 保留 `refreshMu` 的同账号 Token 刷新和风控重试串行语义，但网络请求、风控恢复均在共享凭证锁外执行；每次响应提交前重读最新 Cookie/metadata，检测到并发变化时丢弃旧 Token 响应并使用最新快照重试；新增慢 I/O、锁可获取和并发 Cookie 变化重试测试，Engine 全量测试、聚焦 race、注释门禁通过。Automation、Server 其他调用方和版本化持久化冲突控制仍未完成，阶段 2/4/5/8/9 继续保持“进行中” |
-| 2026-08-15 | P0 敏感系统设置命令语义切片 | 已完成 | 管理端系统设置更新新增 `values`/`secrets` 分离 DTO；敏感设置仅接受 `retain`、`replace`、`clear` 命令，普通 `values` 和旧版顶层字段均拒绝敏感键；数据库原子应用普通设置与敏感命令；补充 Go 数据库/HTTP 回归和 React API 请求体测试，定向 Go/React 测试与前端类型检查通过。P0 三库迁移回归、所有运维输出和敏感访问审计仍待完成 |
-| 2026-08-15 | P1 订单运行时 Port 边界切片 | 已完成 | 订单应用服务不再持有 `*Server`，改由 `orderRuntimePort` 接收平台、自动化、通知和运行时 Cookie 能力；`serverOrderRuntimeAdapter` 仅在 Server 装配边界桥接现有实现；订单行为、凭证锁和错误语义保持不变；Server 全量测试、架构门禁和中文注释门禁通过。订单 Port 仍位于 `internal/server`，repository 仍有基础设施适配职责，其他应用服务和 `sql.Tx`/`db.*` 全面隔离尚未完成 |
-| 2026-08-15 | P1 订单 Repository Port 迁移切片 | 已完成 | 将 `orderRepository` 从 `internal/server` 迁移为 `internal/application/orders.Repository`；应用 Port 只暴露领域模型、`Writer`/`UnitOfWork`、凭证协调和平台运行视图，不出现 `sql.Tx`、`db.*`、HTTP 或 Server 类型；Server 仅保留 `storeOrderRepository` 基础设施适配器；订单全量测试、架构门禁和中文注释门禁通过。订单运行时 Port 仍依赖 Server 适配边界，其他应用服务及事务/批量治理仍未完成 |
-| 2026-08-15 | P0 敏感设置跨方言回归补强 | 已完成 | `TestMultiDB_SettingsQuoteKey` 新增敏感设置 `replace/retain/clear`、脱敏读取和密文解密回归；SQLite 在当前环境执行通过，MySQL/Postgres 仅在 `TEST_MYSQL_URL`/`TEST_POSTGRES_URL` 提供时自动加入，当前环境未提供外部数据库，因此不宣称三库实测完成。P0 的运维输出和敏感访问审计仍待完成 |
-| 2026-08-15 | P1 应用 Port 类型架构门禁切片 | 已完成 | `architecturecheck` 改用完整 AST 扫描 `internal/application` 类型声明，主动拒绝 `db.*`、`sql.Tx` 和 `*Server` 泄露；新增正反例门禁测试；现有订单 Port 通过扫描，架构门禁与中文注释门禁通过。Server 允许边、订单平台 Port 和其他应用服务仍需继续迁移，不能据此宣称目标架构完成 |
-| 2026-08-15 | P1 生命周期上下文边界切片 | 已完成 | `Account.StopContext`、`Manager.StopContext/StopAllContext` 和 `Server.Stop` 的 HTTP、后台任务及 worker 等待均受调用方 Context 限制；超时后未完成账号仍保留在管理表，避免误报已清理；`cmd/server` 使用关闭上下文停止账号；新增账号与 Server 超时回归及聚焦 race 测试通过。账号删除游离 goroutine、调度器等待和删除 fencing 仍未完成，阶段 5 继续保持“进行中” |
-| 2026-08-15 | P1 账号删除停止任务登记切片 | 已完成 | 删除账号后的 `Manager.StopContext` 不再通过游离 goroutine 调用，而是登记到 Server `backgroundWG`；Server 关闭会等待或按 Context 收束该任务；新增删除 handler 等待后台任务回归。删除状态 fencing、任务 ID 和调度器 Context-aware 等待仍未完成，阶段 5 继续保持“进行中” |
-| 2026-08-15 | P1 手动发货补偿记录与三态结果切片 | 已完成 | 新增跨方言 `order_reconciliations` 表及 `OrderReconciliations` 存储；手动确认发货在远端成功、本地订单写入失败时记录 pending 补偿任务，响应状态改为 `reconciliation_required`，不再误报凭证保存失败；React 批量结果类型同步补偿字段，SQLite 补偿生命周期回归和全量门禁通过。补偿 worker、自动化准备阶段的所有忽略错误和其他外部动作仍待治理，阶段 8 继续保持“进行中” |
-| 2026-08-15 | P2 商品列表用户范围批量查询切片 | 已完成 | 新增 `Items.ListForUser`，通过 `cookies` JOIN 一次读取用户范围商品，按账号筛选仍保留归属校验；`listItems` 删除逐账号循环和被忽略的查询错误，数据库失败统一返回错误；新增跨用户/账号筛选回归，Go/前端门禁通过。商品规格远端 N+1、批量 Upsert 和订单同步仍待治理，阶段 8 继续保持“进行中” |
-| 2026-08-15 | P1 商品全量同步凭证锁边界切片 | 已完成 | 商品全量同步和规格探测改为锁外执行远端 I/O，返回后重读凭证快照；检测到并发凭证更新时跳过旧响应 Cookie 写回，避免覆盖新状态；新增远端阻塞期间同账号锁可获取回归；同时将迁移回滚测试改为按当前 Goose 版本动态回滚，避免新增迁移导致旧字段误判。Server/DB 定向测试、注释门禁和 `make check` 通过。商品分页同步、规格探测缓存和订单同步仍待治理，阶段 2/5/8 继续保持“进行中” |
-| 2026-08-15 | P1 订单刷新凭证锁边界切片 | 已完成 | 订单发现和详情 chunk 的远端 MTOP 请求改为锁外执行；完成后重读平台凭证快照，检测并发更新时跳过旧 Cookie 写回并保留明确结果；新增订单发现阻塞期间同账号锁可获取回归，订单/Server 定向测试和中文注释门禁通过。订单刷新仍需继续治理批量订单读取、批量 Upsert、游标分页和后台 Job 化，阶段 2/5/8 继续保持“进行中” |
-| 2026-08-15 | P2 订单缺失状态批量写入切片 | 已完成 | `SoftDeleteMissingForCookie` 改为单条 `NOT IN` 批量 UPDATE，消除逐订单读取与逐条写入；空线上订单集合和保留订单回归均覆盖，数据库注释门禁与定向测试通过。订单详情逐单 Upsert、刷新后台 Job、游标分页和三库大数据量查询计划仍待治理，阶段 8 继续保持“进行中” |
-| 2026-08-15 | P1 订单补偿恢复 worker 切片 | 已完成 | 新增 `internal/reconciliation` 服务和受 Server `backgroundWG` 管理的扫描器；pending 手动发货补偿会重试本地订单状态写入，成功后标记 resolved，失败保留 pending 并递增 attempts；新增成功恢复/失败重试测试，定向测试与中文注释门禁通过。更广泛自动化动作补偿、指数退避和运维查询接口仍待治理，阶段 5/8 继续保持“进行中” |
-| 2026-08-15 | P1 账号删除生命周期 fencing 切片 | 已完成 | 删除流程新增账号级 `BeginStopping/EndStopping` fencing，停止窗口内拒绝新的 runtime 启动；删除前停止 runtime 改为受 5 秒请求 Context 约束的同步收束，超时返回明确冲突，不再创建游离 Stop goroutine；重新取得凭证锁后复核账号归属再删除，避免停止窗口内误删被替换账号；新增 Manager fencing 回归测试，Go/Server 定向测试、`make check` 和 Go/React 注释门禁通过。调度器 Context-aware 等待、删除任务 ID/状态查询、其他生命周期任务统一清单仍待治理，阶段 5 继续保持“进行中” |
-| 2026-08-15 | P2 订单详情分片事务写入切片 | 已完成 | 订单详情远端请求仍在锁外执行；每个详情分片先收集成功结果，再通过订单应用 `UnitOfWork` 在单事务内提交，避免逐订单独立事务和分片内部分提交；事务失败时整片结果统一失败并保留远端会话收束逻辑；订单刷新定向测试、`make check`、架构和中文注释门禁通过。尚未实现真正单 SQL 多行 UPSERT、游标分页和后台 Job 化，P2 批量同步仍保持“进行中” |
-| 2026-08-15 | P2 订单刷新复合游标扫描切片 | 已完成 | 订单刷新应用 Port 移除 OFFSET 分页入口，数据库新增 `created_at + order_id` 复合游标查询并统一扫描模型；刷新流程按游标读取每个账号订单，加入游标不推进保护；1001 条订单无重复扫描、订单/Server 定向测试和中文注释门禁通过。用户订单列表 HTTP 分页仍是页码语义；真正单 SQL 多行 UPSERT、后台 Job 化、SQLite/MySQL/Postgres 查询计划证据仍待完成，P2 批量同步保持“进行中” |
-| 2026-08-15 | P2 商品多规格探测批量与并发边界切片 | 已完成 | 商品同步先用 `MultiSpecFlags` 一次读取本地多规格标记，消除逐商品数据库查询；剩余远端详情探测使用 4 路有界并发，Session 过期可取消同批次探测，普通单项失败保留告警并继续；新增批量标记和并发上限回归测试，定向测试与中文注释门禁通过。跨请求缓存、跨批次去重、平台限流指标和 MySQL/Postgres 查询计划仍待完成，P2 批量同步保持“进行中” |
-| 2026-08-15 | P2 商品多规格跨请求缓存切片 | 已完成 | Server 新增按账号/商品隔离的 10 分钟 TTL 多规格缓存；同步成功结果（含 false）均缓存，后续同步命中缓存时跳过远端探测，过期项自动清理；新增缓存命中、过期和并发探测回归测试，注释门禁通过。跨实例共享缓存、主动失效通知、平台限流指标和 MySQL/Postgres 查询计划仍待完成，P2 批量同步保持“进行中” |
-| 2026-08-15 | P2 订单复合游标索引与查询计划切片 | 已完成 | SQLite/MySQL/Postgres 新增 `idx_orders_cursor(cookie_id, deleted_at, created_at, order_id)` 复合索引；新增 SQLite `EXPLAIN QUERY PLAN` 回归，确认订单游标查询使用该索引；迁移、订单扫描和中文注释门禁通过。MySQL/Postgres 实际执行计划仍需外部数据库环境验证，P2 批量同步保持“进行中” |
-| 2026-08-15 | P1 订单刷新持久化后台任务切片 | 已完成 | 新增 SQLite/MySQL/Postgres `order_refresh_jobs` 迁移及应用层 `RefreshJobRepository` Port；订单刷新 HTTP 端点改为 202 + 用户隔离的状态查询，后台 worker 受 Server 生命周期管理，使用 worker token/lease fencing，并提供过期任务恢复扫描；React 客户端改为可取消的状态轮询；新增任务生命周期、跨用户隔离、旧 worker 拒绝写入、成功/失败/取消和 HTTP/前端契约回归；Go 全量测试、架构/中文注释门禁、前端 317 测试、类型检查和生产构建通过。仍待补充取消端点、进度事件、MySQL/Postgres 实际任务迁移回归与统一运维查询，阶段 4/5/8/9 继续保持“进行中” |
-| 2026-08-15 | P1 订单运行时 Port 基础设施类型收口切片 | 已完成 | `orderRuntimePort` 的完整自动化发货参数改为应用层 `orders.Order`，Cookie 会话持久化参数改为 `orders.PlatformRuntimeData`；`db.Order`/`db.CookieDetail` 转换下沉到 Server 装配适配器，业务服务不再通过运行时 Port 接触数据库模型；补充订单与平台视图边界转换回归，架构门禁、中文注释门禁和订单定向测试通过。订单应用服务实现仍位于 `internal/server`，Port 仍含平台协议接口，其他应用服务和基础设施适配器继续按后续切片迁移，阶段 4/8/9 保持“进行中” |
-| 2026-08-15 | P1 调度器与通知 worker 关闭上下文切片 | 已完成 | 自动化调度器、续期调度器和通知 outbox worker 新增 `WaitContext`；`cmd/server` 在同一个 10 秒关闭 Context 内等待 HTTP、后台 worker、调度器、账号和通知，并将 `stopCancel` 延后到全部等待结束，避免使用已取消 Context；补充三个 worker 超时/完成回归测试，相关包测试和中文注释门禁通过。Engine 内部任务等待、平台浏览器关闭和生命周期统一清单仍待继续治理，阶段 5 保持“进行中” |
-| 2026-08-15 | P1 订单列表应用服务迁移切片 | 已完成 | 新增 `internal/application/orders.ListService`、纯业务 `ListQuery/ListResult` 和窄 `ListRepository`；分页规范化、账号所有权校验和列表查询从 `internal/server/order_service.go` 迁入应用层，Server 仅负责 DTO 转换和兼容错误映射；新增应用层分页/跨用户/存储错误测试，Server 列表与订单服务回归、架构门禁和中文注释门禁通过。订单详情、更新、导入、手动发货、刷新等用例仍在 Server，阶段 4/8/9 保持“进行中” |
-| 2026-08-15 | P1 订单详情应用服务迁移切片 | 已完成 | 新增 `internal/application/orders.DetailService`、`DetailResult` 和窄 `DetailRepository`；订单详情读取、账号所有权校验和商品补全从 `internal/server/order_service.go` 迁入应用层，Server 仅负责兼容错误映射与 DTO 转换；新增跨用户、不存在订单、商品读取失败保留订单主体测试，订单/Server 回归、架构门禁和中文注释门禁通过。订单更新、导入、手动发货、刷新等用例仍在 Server，阶段 4/8/9 保持“进行中” |
-| 2026-08-15 | P1 订单更新应用服务迁移切片 | 已完成 | 新增 `internal/application/orders.UpdateService`、`UpdateRequest`、`UpdateRepository` 和 `ValidationError`；订单所有权、状态/金额归一化、商品标题约束及订单+商品事务写入从 `internal/server/order_service.go` 迁入纯应用层，Server 仅负责 HTTP DTO 转换和旧错误分类映射；新增更新成功、非法字段、无权/不存在/存储错误测试，订单/应用定向测试、架构门禁和中文注释门禁通过。订单删除、导入、手动发货、刷新以及其他领域应用服务仍未迁移，阶段 4/8/9 保持“进行中” |
-| 2026-08-15 | P1 订单删除应用服务迁移切片 | 已完成 | 新增 `internal/application/orders.DeleteService` 和窄 `DeleteRepository`；订单存在性、账号所有权和逻辑删除从 `internal/server/order_service.go` 迁入纯应用层，Server 仅负责兼容错误映射；新增成功删除、无权/不存在、读取/删除存储错误测试，订单/应用定向测试、架构门禁和中文注释门禁通过。订单导入、手动发货、刷新以及其他领域应用服务仍未迁移，阶段 4/8/9 保持“进行中” |
-| 2026-08-15 | P1 订单导入应用服务迁移切片 | 已完成 | 新增 `internal/application/orders.ImportService`、具名 `ImportOrder/ImportResult` 和窄 `ImportRepository`；动态文件/HTTP 行只在 Server 边界转换，账号归属、状态/金额校验、逐条结果和订单+商品事务写入迁入纯应用层；新增成功导入、混合失败、事务/商品写入失败测试，导入 HTTP 回归、全量 Go 测试、race、架构门禁和中文注释门禁通过。手动发货、刷新以及其他领域应用服务仍未迁移，阶段 4/8/9 保持“进行中” |
-| 2026-08-15 | P1 手动发货应用服务迁移切片 | 已完成 | 新增 `internal/application/orders.ManualShipService`、具名批量/逐单结果、`ManualShipRepository` 和 `ManualShipRuntime`；状态发货、完整自动化发货、凭证同步、通知及远端成功/本地失败补偿从 `internal/server/order_service.go` 迁入应用层，Server 仅负责 Port 适配和旧响应转换；手动发货应用服务文件覆盖率达到 100%，并覆盖平台异常、业务失败、离线/未装配、补偿写入失败等分支；手动发货 HTTP 回归、全量 Go 测试、race、架构门禁和中文注释门禁通过。订单刷新及其他领域应用服务仍未迁移，阶段 4/5/8/9 保持“进行中” |
-| 2026-08-15 | P1 订单刷新应用服务迁移切片 | 已完成本切片 | 新增 `internal/application/orders.RefreshService`、刷新 Port 和具名结果模型；单笔刷新、订单发现、缺失清理、复合游标筛选、详情分片事务写入、Cookie 会话收束和会话过期恢复从 `internal/server/order_service.go` 迁入应用层，Server 仅保留运行时/存储适配与兼容 DTO 转换；删除旧单笔/批量刷新实现，新增刷新应用层成功、拒绝和批量发现/详情测试；`go test ./...`、订单/Server race、`architecturecheck`、Go 中文注释门禁和 `git diff --check` 通过。刷新应用层当前定向语句覆盖约 60%–82%，订单应用包整体约 77.1%，仍需继续补齐凭证变化、平台错误、事务失败和多页边界测试；刷新取消/进度事件、三库任务回归、其他领域迁移和阶段 4/5/8/9 仍未完成，不能据此宣称目标架构完成 |
-| 2026-08-15 | P1 订单刷新任务取消与状态 fencing 切片 | 已完成本切片 | 新增按用户归属的 `Cancel` 持久化命令，仅允许 `queued/running` 任务转为 `cancelled` 并清理旧 worker 租约；Server 在 worker 启动前登记可取消 Context，取消端点同时收束内存 worker，旧 worker 的 `Complete` 无法覆盖取消终态；新增 legacy/versioned DELETE 路由、前端 `cancelOrderRefreshJob`，`syncOrders` 在轮询取消时通知后端；覆盖 SQLite 任务生命周期、跨用户隔离、旧 worker fencing、HTTP 和前端 API 回归；`make check`、Go/React 注释门禁、Go 全量测试、前端 318 测试、类型检查和生产构建通过。刷新进度事件、三库任务迁移实测、后台运维查询、批量 UPSERT 和其他领域迁移仍未完成，阶段 4/5/8/9 保持“进行中” |
-| 2026-08-15 | P2 订单详情分片单条多值 UPSERT 切片 | 已完成本切片 | 新增应用层 `RefreshOrderWrite` 与 `BatchUpsertOrders` Port；详情分片先收集成功结果，再由 Server 适配器在单事务内调用数据库 `UpsertManyTx`，数据库以一条多值 UPSERT 写入整片订单，保留状态防倒退、空字段不覆盖、软删除恢复和跨账号归属检查；新增批量订单 SQLite 回归（状态、版本、金额、跨账号、重复订单）及应用层“单次批量调用”断言；定向 Go 测试、`make check`、架构门禁、中文注释门禁和 `git diff --check` 通过。当前环境未提供 `TEST_MYSQL_URL`/`TEST_POSTGRES_URL`，因此未宣称外部数据库实测完成；订单发现仍为逐账号游标、商品批量同步和其他批量写入仍未完成，阶段 4/5/8/9 保持“进行中” |
-| 2026-08-15 | P2 订单发现批量读写切片 | 已完成本切片 | 订单发现不再对远端订单逐条 `FindOrder` + `UpsertOrder`；新增 `FindOrdersByIDs`（按 500 个标识分片，兼容 SQLite 参数上限），远端列表先去重/归一化，再一次批量读取和一次多值 UPSERT，补齐 `is_bargain` 写入且保留已有砍价标记；未知状态不会覆盖已有进阶状态，批量失败不返回虚假发现统计；新增去重、批量调用次数、未知状态防倒退、批量读写失败和 SQLite 回归；`make check`、订单/Server 聚焦 race、架构门禁、中文注释门禁、`git diff --check` 通过。当前未配置 MySQL/Postgres 外部实例，三库 SQL 仅完成代码路径兼容设计，后续仍需外部查询计划/大数据量实测；跨账号账号级平台请求、商品/其他领域批量同步和阶段 4/5/8/9 仍未完成 |
-| 2026-08-15 | P1 订单应用服务集合装配下沉切片 | 已完成本切片 | 新增 `internal/application/orders.ServiceSet` 与 `NewServiceSet`，统一构造订单列表、详情、删除、更新、导入、手动发货、刷新和刷新任务服务；`internal/server` 的订单对象重命名为 `orderHTTPAdapter`，只负责兼容 HTTP DTO/错误映射与归属适配，Server 不再分别创建订单业务服务；刷新任务 handler 改为通过应用层 ServiceSet 的任务 Port；新增应用集合构造测试与 Server 装配断言，订单/Server 定向测试和中文注释门禁通过。商品发布、登录、聊天等其他 Server 应用服务仍未迁移，低层 handler 依赖、生命周期统一清单、旧 API 兼容退场和整体阶段 4/5/8/9 仍保持“进行中” |
-| 2026-08-15 | P0 敏感设置访问审计切片 | 已完成本切片 | 新增 SQLite/MySQL/Postgres `security_audit_logs` 迁移、`SecurityAuditLogs` repository 和 Store 装配；系统设置读取、敏感设置写入及 AI 模型密钥使用均记录用户、动作、资源和键名，审计记录不保存秘密值；审计存储不可用时管理端敏感操作 fail closed；新增数据库防泄露、HTTP 访问审计、审计存储缺失和迁移字段回归，定向测试、`make check`、架构/中文注释门禁通过。该历史子切片当时仅有 SQLite 实测，外部三库证据、运维输出脱敏和其他秘密调用方治理在后续 P0 子切片补齐 |
-| 2026-08-15 | P2 React AccountList 子模块收口与页面组合边界 | 已完成本切片 | 新增 `AccountCard`、`AccountDeleteDialog`、`AccountQRCodeModal` 和 `AccountAISettingsModal`，将账号卡片与四类弹窗从 851 行根组件拆出；根组件保留请求取消、二维码轮询、账号列表刷新和编辑子模块协调，不改变现有业务行为；新增账号卡片操作转发、AI 草稿补丁、删除错误、二维码风控无外链测试；前端 322 个测试、类型检查、注释门禁和生产构建通过。React 路由懒加载、Provider/页面组合边界、完整页面行为覆盖和首屏包体预算仍未完成，阶段 7 保持“进行中” |
-| 2026-08-15 | P2 React 路由懒加载与首屏入口包体边界 | 已完成本切片 | 认证根组件保留会话与导航状态，9 个业务页面在 `app/shell/AuthenticatedShell.tsx` 中改为 `React.lazy`，统一由 `Suspense` 提供加载占位；新增 `bundleBoundary.test.ts`，对入口脚本设置 100KB 原始字节预算、禁止图表 vendor 首屏预加载并要求 9 个页面 chunk 均存在；生产构建实测入口约 41.5KB、页面 chunk 独立生成，前端 325 个测试、类型检查、注释门禁、构建和仓库 `make check` 通过。Provider/路由壳细粒度状态边界、动态 chunk 独立预算、完整页面行为覆盖和大型页面进一步拆分仍未完成，阶段 7 保持“进行中” |
-| 2026-08-15 | P2 React 认证后路由壳与页面组合边界 | 已完成本切片 | 新增 `frontend/app/shell/AuthenticatedShell.tsx`，由 `AuthenticatedShell` 统一组合 Sidebar、主内容布局和 `AppContent` 页面选择；`App.tsx` 只保留认证、导航状态及跨页面联动协调，权限回退和商品→规则页参数语义不变；更新 `routing.test.ts`、`rulesFeature.test.ts` 以验证新的壳边界，前端 326 个测试、类型检查、注释门禁、生产构建和 `make check` 通过。Provider 状态边界、动态 chunk 独立预算、完整页面行为覆盖和大型页面进一步拆分仍未完成，阶段 7 保持“进行中” |
-| 2026-08-15 | P2 React 认证会话 Provider 状态边界 | 已完成本切片 | 新增 `frontend/app/providers/SessionProvider.tsx`，集中会话校验、AbortController 取消、首次管理员初始化、登录、注销和 `auth:logout` 监听；`App.tsx` 通过 `useSession` 使用认证状态与动作，认证 API 不再直接耦合到页面根组件；新增 `SessionProvider.test.tsx` 覆盖已认证、未初始化、登录/初始化成功、全局注销和注销失败清理，前端 330 个测试、类型检查、注释门禁、生产构建和 `make check` 通过。更细粒度页面 Provider、完整页面行为覆盖、动态 chunk 独立预算和大型页面进一步拆分仍未完成，阶段 7 保持“进行中” |
-| 2026-08-15 | P2 React 路由组合行为与动态 chunk 独立预算 | 已完成本切片 | `bundleBoundary.test.ts` 为 Dashboard、AccountList、OrderList、CardList、ItemList、Settings、Rules、Notifications、Chat 分别设置原始字节预算并验证各自只有一个动态 chunk；新增 `AuthenticatedShell.test.tsx` 通过懒加载替身覆盖非管理员设置回退、管理员设置加载、商品→规则目标传递和规则目标消费回调；路由行为、生产构建、前端全量测试、类型检查和注释门禁通过。完整页面行为覆盖、更多大型页面边界和全局 Provider 组合仍未完成，阶段 7 保持“进行中” |
-| 2026-08-15 | P2 React AccountList 完整页面行为边界 | 已完成本切片 | 新增 `frontend/components/AccountList.test.tsx`，真实挂载页面并隔离 API、账号数据 Hook、二维码轮询器和弹窗子组件；覆盖搜索过滤/计数、删除确认与状态 Setter 过滤、账号启停、资料刷新、二维码生成→轮询→保存成功、关闭二维码停止轮询并取消请求；前端定向测试、注释门禁和类型检查通过。AccountList QR 协调器进一步 feature 化、其他大型页面完整行为覆盖和全局 Provider 组合仍未完成，阶段 7 保持“进行中” |
-| 2026-08-15 | P2 React AccountList 二维码登录协调器 feature 化 | 已完成本切片 | 新增 `frontend/app/features/accounts/qrLogin.ts` 和 `qrPolling.ts`，将二维码生成、轮询、风控验证、结果持久化、延迟关闭与取消清理从 `AccountList` 根组件迁入账号 feature；旧 `frontend/components/qrPolling.ts` 保留兼容导出，避免测试和外部组件路径突变；新增 Hook 测试覆盖成功、风控验证、生成错误、持久化错误和关闭取消，AccountList 组合测试验证 feature 轮询替身仍正确接线；前端全量测试、类型检查、注释门禁、生产构建和仓库 `make check` 通过后提交。其他大型页面完整行为覆盖、页面级 Provider 组合和阶段 7 总体验收仍未完成 |
-| 2026-08-15 | P2 React OrderList 完整页面行为边界 | 已完成本切片 | 新增 `frontend/components/OrderList.test.tsx`，真实挂载订单页面并隔离查询/导入 Hook、订单 API 和筛选/导入子组件；覆盖筛选转发、同步提示、导入入口、详情打开关闭、编辑字段转换、状态发货结果、单笔同步、删除时分页回退和分页函数式更新；分页按钮增加“上一页/下一页”无障碍名称。OrderList 动作协调器、Rules/ItemList/CardList 等其他大型页面、页面级 Provider 组合和阶段 7 总体验收仍未完成 |
-| 2026-08-15 | P2 React OrderList 动作协调器 feature 化 | 已完成本切片 | 新增 `frontend/app/features/orders/orderActions.ts` 与 `orderActions.test.tsx`，将同步、发货、详情、编辑、单笔同步、删除分页回退和弹窗关闭状态从 `OrderList` 根组件迁入订单 feature；编辑表单通过 `updateEditingOrder` 函数式补丁更新，保留原有 API、提示和结果语义；Hook 测试覆盖同步/发货/编辑/删除异常、确认取消和弹窗清理，页面组合测试继续覆盖成功流程。Rules/ItemList/CardList 等其他大型页面行为覆盖、页面级 Provider 组合和阶段 7 总体验收仍未完成 |
-| 2026-08-15 | P2 React CardList 动作协调器 feature 化 | 已完成本切片 | 新增 `frontend/app/features/cards/cardActions.ts` 和 `cardActions.test.tsx`，将卡密新增、编辑、删除、启停、筛选、复制和模板下载状态/动作从 `CardList` 根组件迁入 cards feature；新增 `CardList.test.tsx` 真实挂载页面，覆盖筛选计数、批量导入入口、新增/编辑字段映射、启停、复制和删除；补充行级按钮无障碍名称。Rules/ItemList 等其他大型页面行为覆盖、页面级 Provider 组合和阶段 7 总体验收仍未完成 |
-| 2026-08-15 | P2 React Rules 动作协调器 feature 化 | 已完成本切片 | 新增 `frontend/app/features/rules/ruleActions.ts` 和 `ruleActions.test.tsx`，将自动化规则、关键词回复、默认回复的草稿与动作状态从 `Rules` 根组件迁入 rules feature；保留商品页联动加载、触发/规格编辑、归一化保存、异常恢复与确认语义，更新路由静态契约测试以跟随实现边界；前端全量 366 个测试、类型检查、中文注释门禁和生产构建通过。ItemList 其他大型页面行为覆盖、页面级 Provider 组合和阶段 7 总体验收仍未完成 |
-| 2026-08-15 | P2 React ItemList 普通商品动作协调器 feature 化 | 已完成本切片 | 新增 `frontend/app/features/items/itemActions.ts` 和 `itemActions.test.tsx`，将商品同步、编辑、删除、手动添加、普通发布、图片预览、模板下载和发货地定位从 `ItemList` 根组件迁入 items feature；批量发布 Hook 保持独立，更新图片预览静态契约；前端全量 62 个测试文件/369 个用例、类型检查、中文注释门禁、生产构建和仓库 `make check` 通过。ItemList 真实页面组合覆盖、页面级 Provider 组合和阶段 7 总体验收仍未完成 |
-| 2026-08-15 | P0 敏感配置调用方与运维输出脱敏代码切片 | 已完成本子切片 | 新增 `Store.ReadSensitiveSetting`/`ReadSensitiveSettingForAccount`，AI API Key、远程验证码密钥、系统 SMTP 密码和 AI 模型查询均在解密前写入不含秘密值的访问审计；新增 `logsafe.Error/Text`，dbverify/dbseed/init-admin/server/spike 及关键 URL/错误日志不再直接输出凭证、查询参数或解密消息正文；三库矩阵新增严格 `REQUIRE_MULTIDB=1` 门禁和 `make test-multidb`，无外部 URL 时明确跳过/失败而不伪造证据。定向 Go 测试、`make check`、前端 369 测试/类型检查/构建和注释门禁通过；受影响包全量 race 曾命中既有订单并发测试一次，聚焦重复验证通过，外部三库证据在后续验收子切片补齐 |
-| 2026-08-15 | P0 父切片三库实测与集中式日志/凭证边界验收 | 已完成 | `.github/workflows/ci.yml` 新增 MySQL 8.4/PostgreSQL 17 service job，`docs/architecture/multidb-test-runbook.md` 提供本地复现方式；本机 Docker 实际执行 `make test-multidb`，SQLite/MySQL/PostgreSQL 全部多库测试通过并在结束后清理容器与数据卷；移除无人调用的批量解密 API，集中式 `slog` handler 递归清理敏感属性，Server/spike 的 logger fallback 也统一接入，审计边界与剩余 P1 风险已更新 |
-| 2026-08-15 | P1 单商品发布应用 Port 闭环切片 | 已完成本切片 | 新增纯应用层 `internal/application/items` 的发布输入、结果、平台 Port 和商品仓储 Port；`publishItem` 仅在 Server 边界完成 HTTP/MTOP/DB 模型转换，单商品平台发布与本地商品落库编排已移出 Server；新增应用服务构造、平台失败和成功落库测试，架构门禁、中文注释门禁、Server 回归及聚焦 race 通过。批量发布、商品同步及其他 Server 应用服务仍待迁移；现有商品发布凭证锁覆盖远端 I/O 的风险保留给后续凭证协调切片 |
-| 2026-08-15 | P1 续期调度器 Context-aware Stop 切片 | 已完成本切片 | `internal/renewal.Scheduler` 新增私有运行 Context、`StopContext` 和兼容 `Stop`，主动停止会取消登录续期/API 续期 worker 并在调用方 Context 内等待 watcher 收束；重复停止保持幂等；新增主动取消与超时回归，续期测试、全量门禁和聚焦 race 通过。浏览器、Engine 内部任务、账号删除任务登记和统一生命周期清单仍未完成 |
-| 2026-08-15 | P1 发货本地事实补偿闭环切片 | 已完成本切片 | 自动化发货远端成功但本地订单状态或事件时间写入失败时创建 `manual_status_ship` pending 补偿记录；补偿记录创建失败会并入 uncertain 错误，不再吞错；扩展远端成功/本地失败回归并实际运行 reconciliation worker 恢复订单状态、清理 pending。其他不可逆自动化动作、退避策略和统一运维查询仍待治理 |
-| 2026-08-15 | P1 账号资料刷新应用 Port 闭环切片 | 已完成本切片 | 新增纯应用层 `internal/application/account` 的非敏感账号摘要、资料刷新 Port 和结果模型；资料刷新 handler 通过用户+账号联合查询完成归属校验，Server 只在既有账号适配边界转换 `db.CookieDetail` 与平台调用；删除旧的 Server 资料刷新双实现，新增应用服务构造、归属失败和平台失败测试，架构门禁、中文注释门禁和 Server 回归通过。账号登录凭证写入、扫码和其他账号操作仍待迁移 |
-| 2026-08-15 | P1 浏览器实例生命周期 CloseContext 切片 | 已完成本切片 | Browser Manager 增加活动调用登记、关闭 fencing、幂等 `CloseContext(ctx)` 和 `ErrManagerClosed`；`newPage`、初始化、二维码刷新及持久化续期上下文均在创建/释放时登记，关闭超时返回明确错误且可用更长 Context 重试，不创建游离关闭 goroutine；新增等待、超时重试和空管理器测试，浏览器全量及聚焦 race 通过。Playwright 底层同步 Close 无法被 Context 中断，Engine/账号其他任务仍待统一清单治理 |
-| 2026-08-15 | P1 自动化外部成功结果 quarantine 切片 | 已完成本切片 | 统一 automation run 在外部消息已发送但 `FinishRun` 落库失败时立即写入 `needs_review` quarantine 结果并返回 `errAutomationNeedsReview`，避免租约自然重放造成重复外部动作；quarantine 写入失败与 FinishRun 失败使用 `errors.Join` 返回，通知只发送一次；新增双重失败回归，automation 全量和 race 通过。账号任务等旁路仍有忽略 FinishRun/Mark* 错误，后续需继续盘点 |
-| 2026-08-15 | P1 商品批量发布应用 Port 闭环切片 | 已完成本切片 | 新增纯应用层 `items.BatchRunner`、批次/明细模型、租约/取消/中断/收口 Port 和测试；批量 worker 的逐行 claim、失败分类、租约续期和上传清理从 Server 迁入应用层，Server 仅保留既有批量平台单行适配与数据库转换，未扩大新的临时低层白名单；批量 HTTP/应用回归、架构门禁和中文注释门禁通过。单行平台适配、商品同步及其他领域 Port 仍待治理 |
-| 2026-08-15 | P1 Engine 内部任务生命周期切片 | 已完成本切片 | Engine 迟到 API 续期 watcher 纳入账号生命周期 `beginTask/finishTask`，继承账号运行 Context，StopContext 会等待其退出；WS recorder 关闭等待改为 Context-aware，未启动 recorder 不误报超时，停止超时后可重试；新增任务超时/重试和迟到 watcher 回归，Engine 全量测试、聚焦 race 和中文注释门禁通过。其他 Engine 网络/浏览器任务仍需统一清单审计 |
-| 2026-08-15 | P1 账号自动化动作错误收口切片 | 已完成本切片 | 自动评价/擦亮任务不再吞 Cookie、FinishRun、MarkRateScan/MarkPolished 错误；外部动作成功但本地状态失败会写 `needs_review` 并返回 `errAutomationNeedsReview`，隔离写入失败使用 `errors.Join` 保留双重原因；新增单失败、双失败和日期写入失败回归，automation 全量测试通过。账号任务其他动作和通知旁路仍待盘点 |
-| 2026-08-15 | P1 手动登录凭证应用 Port 闭环切片 | 已完成本切片 | 新增纯应用层 `account.LoginService`，输入 DTO 不含 Cookie/密码；明文 Cookie 只由 Server request-scoped `CookieWriter` 在凭证锁内完成归属校验、写入和旧 Token 清理，登录后审计/资料刷新/运行时重启通过生命周期 Port；新增成功、归属失败、写入失败和缺失依赖测试，Server/应用回归及中文注释门禁通过。密码登录、扫码登录和更新凭证流程仍待统一协调 |
-| 2026-08-15 | P1 账号管理器全局 Stop fencing 切片 | 已完成本切片 | `Manager.StopAllContext` 在收集账号前建立全局 stopping fence，停止期间拒绝新的 Start；单账号 Stop 超时保留 stopping 标记，防止存活实例被重启替换；全量停止完成后解除 fence，补充并发启动/停止和已取消 Context 兼容回归，account/Server 测试及 race 通过。删除任务状态查询和统一生命周期清单仍待完善 |
-| 2026-08-15 | P1 通知 outbox 不确定状态隔离切片 | 已完成本切片 | 新增 SQLite/MySQL/Postgres `notification_outbox.uncertain_at` 迁移及 `MarkOutboxUncertain`；通知已发送但 `CompleteOutbox` 失败时原子转 `uncertain`、清除租约并禁止自动重发，隔离失败用 `errors.Join` 记录；无效渠道清理不再吞错；新增 SQLite、通知 worker 和三库矩阵回归，notify/db race、全量门禁通过。人工核对查询与运维展示仍待补充 |
-| 2026-08-16 | P1 自动化调度器结果收口切片 | 已完成本切片 | 恢复扫描、延迟任务和异常规则处理不再吞 `Claim/Finish/Postpone/Quarantine` 落库错误；外部动作或状态收口失败统一保留原始错误、`needs_review` 和隔离错误，新增隔离成功/失败与非法延迟状态回归。Automation 全量、架构和中文注释门禁通过；账号任务及其他旁路仍待继续盘点 |
-| 2026-08-16 | P1 通知 uncertain 查询应用 Port 切片 | 已完成本切片 | 新增纯应用层通知 uncertain DTO、归属隔离 Repository/Service；用户与管理员查询 handler 仅做 DB→应用→HTTP 适配，不再直接编排数据库查询；保留正文、错误原文、渠道配置和凭证不出边界，应用/Server 回归、架构和中文注释门禁通过 |
-| 2026-08-16 | P1 Server 后台任务生命周期登记切片 | 已完成本切片 | 新增进程内有限历史任务注册表、任务 ID、running/succeeded/failed/canceled/timed_out 状态和管理员 `/api/v1/admin/tasks` 查询；订单/商品/补偿恢复扫描器使用显式 Context 登记，关闭等待仍受 backgroundWG/Context 约束；不新增 DB 迁移，历史随进程重启清空，补充状态/超时/HTTP/WaitForBackground 回归 |
-| 2026-08-16 | P1 应用 Port 与凭证协调增量切片：聊天写入、通知渠道/绑定、普通 Cookie 更新 | 已完成本切片 | 新增聊天文字/图片发送、幂等状态收口和在线账号发送 Port；新增通知渠道 CRUD、测试发送、账号绑定及 uncertain 查询的应用服务与具名 DTO；新增普通 Cookie 更新 `LoginService.UpdateCookie`，由 request-scoped 凭证适配器在短锁内复核归属、执行兼容 `last_refresh_at` 冲突检查、写入 Cookie 和清理旧 Token，解锁后才执行审计/资料刷新/运行时同步；应用、Server 回归，`go test ./...`，Server race，架构/Go/前端注释门禁，前端 369 个测试、类型检查和生产构建均通过；随后使用 Docker Compose 启动 MySQL 8.4 与 PostgreSQL 17，严格执行 `make test-multidb`，SQLite/MySQL/PostgreSQL 全部 `TestMultiDB_*` 通过（约 90 秒），并清理容器、网络和数据卷。该记录只关闭三个子切片，P1 应用 Port、凭证协调、阶段 4/5/8/9 仍保持“进行中”；完整凭证协调及其他 Server 低层依赖待后续收口 |
-| 2026-08-16 | P1 应用 Port、生命周期与外部动作补偿增量切片：通知摘要、密码登录策略、账号删除和自动化结果收口 | 已完成本切片 | 通知渠道列表新增不解密 Config 的数据库摘要查询，并用损坏密文 SQLite 回归和三库 `TestMultiDB_Notifications` 覆盖；密码登录启动/查询/取消统一通过关闭策略应用 Port，保留旧/版本化 501 契约且不解析或传播密码；账号删除迁移到 `account.DeleteService`，统一归属校验、账号级 fencing、最多五秒 Context 停止等待、锁内二次复核和可观测错误映射；自动化完整发货 FinishRun 失败转 `needs_review`，准备阶段订单事实 Upsert 失败阻止外部动作，双重失败使用 `errors.Join`；Go 全量测试、完整受影响包 race、Server smoke race、架构/Go/前端注释门禁、前端 369 测试、类型检查和生产构建通过；Docker Compose 实测 MySQL 8.4/PostgreSQL 17，严格 `make test-multidb` 的 SQLite/MySQL/PostgreSQL 全部 `TestMultiDB_*` 通过（约 95 秒），并清理容器、网络和数据卷。该记录只关闭四个子切片，P1 应用 Port、凭证协调、生命周期、外部动作补偿及阶段 4/5/8/9 仍保持“进行中”；浏览器密码登录仍按产品策略禁用，其他自动化旁路和 Server 临时白名单待继续收口 |
-| 2026-08-15 | P1 扫码登录应用 Port 闭环切片 | 已完成本切片 | 新增纯应用层扫码登录 DTO、凭证 Repository 和生命周期 Port；Server 仅负责平台结果转换、会话幂等和基础设施适配，扫码新建/更新、归属校验、Cookie 快照合并及旧 Token 清理由应用服务编排；新增成功、跨用户、目标不一致、写入失败、清理失败和敏感结果不泄露测试，账号/Server 回归、架构门禁和中文注释门禁通过。更新凭证及其他账号操作仍待迁移 |
-| 2026-08-15 | P1 聊天历史应用 Port 闭环切片 | 已完成本切片 | 新增纯应用层聊天消息/会话分页 DTO、最小 Repository 和 Service；聊天历史 handler 完成实际接入，旧 communication service/repository 不再持有历史查询职责；新增用户归属、参数校验、未装配依赖、底层失败和会话摘要失败测试，Server、架构和中文注释门禁通过。聊天写入与实时会话编排仍待迁移 |
-| 2026-08-15 | P1 通知不确定态运维可见性切片 | 已完成本切片 | 新增按用户/管理员隔离的 uncertain outbox 元数据查询、计数和版本化 HTTP 接口；响应不返回通知正文、渠道配置、错误原文或凭证；补充 SQLite 隔离、管理员汇总、非管理员 403、脱敏和 limit 回归，DB/Server、架构和中文注释门禁通过。更多统一运维任务清单和旧入口退场仍待完成 |
-
-### 11.2 执行纠偏审计（2026-08-15）
-
-本次审计确认此前的提交节奏和计划顺序均出现偏差，后续以本节为执行闸门：
-
-- 当日 00:00 至审计时产生 159 个提交，15:00 后产生 39 个提交；其中多个提交只完成一个页面动作或一个 Hook 分支，不能等同于计划中的完整 PR 切片。
-- 阶段状态并非“全部打开”：阶段 0、1、2、3、6 已有完整完成证据；阶段 4、5、7、8、9、10 仍为“进行中”。阶段 2 的关闭不代表审计重开后的目标架构已经完成。
-- 11.1 中标记为“已完成”的记录均按“子切片”解释，不能自动关闭父 PR；P0 曾因外部数据库实测、运维输出脱敏、凭证访问审计和秘密调用方盘点未齐而保持“进行中”，现已由后续验收子切片补齐证据并关闭。其余父 PR 仍按下表状态执行。
-- P0 父切片已经关闭；在 P1 父切片关闭前继续暂停新的 React 页面细粒度提交；已完成的 React 子切片保留，不回滚，但不再继续扩展阶段 7。
-
-| 父 PR 切片 | 当前真实状态 | 关闭前必须补齐 |
+接口由消费者定义并保持最小。禁止全局 service locator、万能 repository、通过 `any`/反射隐藏
+依赖、或仅为绕过架构检查增加中转层。详细依赖规则以
+`docs/architecture/dependency-rules.md` 为准。
+
+## 3. 当前代码基线
+
+本节只描述制定后续迭代所需的当前事实，不保存重构历史。
+
+- 当前开发分支从本地 `main` 演进；本地 `main` 落后 `xianyu-go/main`，功能对照必须使用
+  `xianyu-go/main`，不能只对照本地分支。
+- 当前工作树包含大量未提交和未跟踪文件。后续迭代必须原地保护这些修改，禁止 reset、覆盖或
+  以重建分支代替审计。
+- 远端 `main` 的空卡密修复与当前前端 API 文件存在文本合并冲突。当前代码必须持续保证服务端
+  空列表编码为 `[]`，前端同时接受数组、包裹对象和 `null`；对应回归测试是强制契约。
+- 远端 `main` 的文档链接变更不影响运行功能。生成前端资产的文本冲突必须通过当前源码重新构建
+  解决，禁止手工合并压缩产物。
+- Server 生产代码已大幅迁移到应用 Port，架构检查当前可通过；但仍存在 Server 暴露
+  `*sql.Tx` 的遗留事务边界、Server 持有业务 worker/会话状态，以及集中式依赖工厂隐藏底层
+  `Store` 的风险，因此阶段 4 和阶段 5 尚未验收。
+- 账号敏感摘要与秘密访问已经分离，并已有审计和多数据库覆盖；阶段 2 可视为完成，但后续迭代
+  不得重新扩大读取、解密、序列化或日志范围。
+- HTTP 已有 `/api/v1` 路径和兼容契约测试，但 transport 仍使用动态 map、部分兼容响应别名和
+  未生成的集中类型，因此阶段 3 尚未验收。
+- Engine `Account`、Automation `Center`、集中前端 API/类型文件和若干大型 Hook 仍承担过多职责；
+  目录已经拆分不等于对应阶段完成。
+- 生命周期清单仍列有 Engine 子任务、实时连接、恢复任务和运维观测缺口；阶段 5 尚未验收。
+- 三方言迁移编号当前对齐，订单已有游标和批量写入能力；跨 repository 事务、查询计划、补偿和
+  大数据量行为仍需阶段 8 统一验收。
+- 注释历史基线文件当前为空，但源码仍存在“保存 X 供当前流程使用”等模板化注释。机械基线清零
+  不等于注释质量达标，阶段 10 尚未验收。
+- 与远端 `main` 相比，受冻结规范保护的 CAPTCHA 文件存在差异。其当前行为必须以仓库内冻结规范
+  和全部冻结测试为准；没有用户明确授权不得修改、回退或借重构重新合并这些文件。
+
+## 4. 迭代状态与唯一顺序
+
+阶段状态只允许使用 `前置完成`、`已完成`、`当前迭代`、`待执行`、`阻塞`。只有一个阶段可以是
+`当前迭代`；后续阶段已有的提前实现代码只作为该阶段未来验收的输入，不代表阶段已启动或完成。
+
+| 阶段 | 状态 | 迭代目标 |
 | --- | --- | --- |
-| P0 敏感系统设置与运维输出脱敏 | 已完成 | 运维日志/诊断输出集中脱敏；管理/一次性敏感读取审计且 fail closed；已知秘密调用方清单收口；SQLite/MySQL 8.4/PostgreSQL 17 实测迁移与 CRUD 证据；Go/React 回归 |
-| P1 应用 Port 与架构允许边 | 进行中 | 不只订单，其他应用服务和 Server 允许边全部收口；禁止 `sql.Tx`、`db.*`、HTTP/Server 类型泄露；移除临时白名单 |
-| P1 凭证快照与账号操作协调器 | 进行中 | 剩余 Server、Renewal、Engine、Automation 调用方统一协调；版本冲突/锁等待可观测；慢 I/O、重试和合并语义有完整回归 |
-| P1 生命周期与删除 fencing | 进行中 | 调度器、浏览器、Engine 内部任务纳入统一清单；所有 Stop 等待受 Context 限制；删除任务状态可追踪且无游离 goroutine |
-| P1 外部动作补偿与 reconciliation | 进行中 | 自动化准备阶段和其他不可逆外部动作纳入三态结果、补偿记录、重试和审计 |
-| P2 商品/订单批量同步 | 进行中 | 商品与订单剩余 N+1、批量写入、缓存失效、MySQL/Postgres 查询计划和大数据量证据 |
-| P2 HTTP 契约与兼容退场 | 进行中 | 旧入口遥测、Deprecation/Sunset 条件和删除版本；阶段 3 已关闭不等于阶段 9 已关闭 |
-| P2 React 页面边界与初始包体 | 进行中（暂停新子切片） | 其他大型页面真实组合覆盖、页面级 Provider 组合和最终包体/路由验收 |
-| P2 复杂度与注释真实性 | 进行中 | 模板短语黑名单、业务语义抽查、复杂度门禁和冻结文件精确例外 |
+| 0. 治理与强约束 | 前置完成 | 建立计划、依赖、注释、冻结规范和自动检查 |
+| 1. CI 与测试基础 | 已完成 | 建立独立 CI、分层 race 和三数据库门禁 |
+| 2. 敏感数据访问边界 | 已完成 | 分离摘要、平台凭证、登录秘密和敏感设置 |
+| 3. HTTP API 契约 | 当前迭代 | 完成版本化、具名 DTO、统一错误和前端契约 |
+| 4. Server 应用服务 | 待执行 | 把完整业务用例和事务边界移出 transport |
+| 5. 应用装配与生命周期 | 待执行 | 消除隐式装配、业务 worker 和游离后台任务 |
+| 6. Engine 与 Automation | 待执行 | 将大 facade 拆为有明确状态所有权的组件 |
+| 7. React Feature 化 | 待执行 | 完成 feature 边界、请求归属、状态和按路由加载 |
+| 8. DB 与事务治理 | 待执行 | 完成窄 repository、Unit of Work 和三方言验收 |
+| 9. 架构门禁与兼容退场 | 待执行 | 封死依赖旁路并按 Sunset 删除兼容层 |
+| 10. 注释与复杂度收口 | 待执行 | 清除模板注释和复杂度债务，形成最终质量门禁 |
 
-后续提交规则：
+执行顺序固定为 `0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10`。除阻塞性
+安全修复、构建修复或用户明确改序外，不得跳过当前阶段推进后续阶段。例外只解决阻塞问题，不能
+借机开启另一个重构阶段。
 
-1. 只按上表父 PR 的完成条件组织工作；不再为单个函数、文件或一个测试分支单独提交。
-2. 同一父 PR 的实现、测试、计划证据和风险说明放在同一个中文提交中；未满足父 PR 完成条件时，状态只能写“进行中”。
-3. 不改写已有提交历史，避免新的破坏性操作；从本审计之后开始恢复“一个完整 PR 切片、一个提交、可回退”的节奏。
-4. 阶段关闭必须同时具备代码、测试、架构门禁、中文注释门禁和外部依赖实测证据；覆盖率或单次 `make check` 通过不能单独作为关闭理由。
+## 5. 阶段 0：治理与强约束
+
+### 目标
+
+建立所有后续迭代共同遵守的边界、冻结行为和检查入口。阶段 0 是前置治理，不占十个正式迭代。
+
+### 范围
+
+- 维护本计划、`dependency-rules.md`、`comment-standard.md` 和 `AGENTS.md`。
+- 冻结滑块 CAPTCHA 实现、调用链和测试。
+- 提供架构检查、Go/TypeScript 注释检查和统一 Make 入口。
+
+### 完成条件
+
+- 文档规则互不矛盾，执行单位明确为一个阶段对应一个 PR/迭代。
+- 自动检查可在本地和 CI 运行，新增债务不能借历史基线通过。
+- 本计划不包含任何历史日志或阶段内完成记录。
+
+### 强制验证
+
+```bash
+go run ./tools/architecturecheck
+go run ./tools/commentlint -mode check -root . -baseline .commentlint/go-baseline.json
+npm --prefix frontend run comments:check
+```
+
+## 6. 阶段 1：CI 与测试基础
+
+### 目标
+
+让每个后续迭代都能在独立、稳定、耗时可控的门禁上验收。
+
+### 范围
+
+- PR CI：Go test/vet/lint、架构、注释、前端 test/typecheck/build。
+- 普通测试与生命周期/凭证并发 race 分层。
+- SQLite 快速回归和 Docker MySQL/PostgreSQL 严格回归。
+- 测试数据库模板、确定性 fixture 和覆盖率产物隔离。
+
+### 完成条件
+
+- CI 不依附发布 workflow，失败会阻止合并。
+- race 子集覆盖高风险并发路径，完整 race 可在需要时执行。
+- `make test-multidb` 缺少任一外部数据库 URL 时明确失败，而不是静默跳过。
+
+### 强制验证
+
+```bash
+make check
+make test-server-race
+TEST_MYSQL_URL=... TEST_POSTGRES_URL=... make test-multidb
+npm test --prefix frontend
+npm run build --prefix frontend
+```
+
+## 7. 阶段 2：敏感数据访问边界
+
+### 目标
+
+让每个用例只读取完成任务所需的最小数据，阻止秘密进入摘要、所有权查询、HTTP DTO 和前端状态。
+
+### 范围
+
+- 分离 `AccountSummary`、`AccountCredential`、`AccountLoginSecret` 和运行配置。
+- 所有权查询只返回存在性、所有者 ID 或非敏感身份。
+- 敏感读取使用目的明确的方法，管理/一次性读取有审计且失败时 fail closed。
+- 日志、通知、错误和测试输出集中脱敏。
+- SQLite、MySQL、PostgreSQL 验证加密、损坏密文、跨用户和迁移行为。
+
+### 完成条件
+
+- 账号列表、详情、状态、商品、订单、聊天和规则校验不读取 Cookie、Token 或密码。
+- 敏感持久化模型不被 HTTP 序列化，前端类型不包含可回填的明文秘密。
+- 高频运行时不会为普通摘要读取反复解密或写审计。
+- 三数据库的敏感字段 CRUD、迁移和失败语义一致。
+
+### 强制验证
+
+```bash
+go test ./internal/db ./internal/account ./internal/server -count=1
+go test -race ./internal/account ./internal/server -count=1
+TEST_MYSQL_URL=... TEST_POSTGRES_URL=... make test-multidb
+make comments
+```
+
+## 8. 阶段 3：HTTP API 契约
+
+### 目标
+
+在不破坏当前客户端的前提下完成统一 `/api/v1` 契约、具名 DTO、统一错误和可验证的前端类型边界。
+
+### 范围
+
+- 为全部业务入口提供 `/api/v1` 路径；旧路径只作为调用同一 handler 的兼容适配器。
+- 请求、成功响应、分页结果、批量行结果和错误详情全部使用具名 DTO。
+- 清除 QR、订单导入/批量结果、聊天和设置 transport 中作为响应契约的动态 map。
+- 统一错误 envelope、错误码和 HTTP 状态；禁止新增 `HTTP 200 + success:false`。
+- 建立单一契约来源和只读生成类型；feature adapter 将 transport DTO 转换为 UI model。
+- 固定空集合为 `[]`，并兼容当前发布链路可能返回的 `null` 或历史包裹对象。
+- 契约测试同时覆盖版本化路径和仍被支持的旧路径。
+
+### 完成条件
+
+- 生产 handler 不直接返回数据库模型、领域模型、匿名 struct 或动态 map 契约。
+- 前端业务 API 不再依靠 `any` 猜测响应形状；兼容归一只发生在 feature/transport 边界。
+- 所有新增失败使用统一错误结构和正确状态码。
+- 当前前端只调用 `/api/v1`；旧路径保留范围和删除条件可由测试清点。
+- 空卡密、空订单、空商品等集合不会因 `null` 阻断页面其他并行请求。
+
+### 强制验证
+
+```bash
+go test ./internal/server -count=1
+npm test --prefix frontend
+npm run typecheck --prefix frontend
+npm run build --prefix frontend
+go run ./tools/architecturecheck
+make comments
+```
+
+## 9. 阶段 4：Server 应用服务
+
+### 目标
+
+使 Server 成为纯 transport，把订单、商品、账号、登录、聊天、通知、自动化和管理员用例交给应用服务。
+
+### 范围
+
+- handler 只做鉴权上下文、参数解析、DTO 转换和应用错误到 HTTP 的映射。
+- 应用服务负责所有权、业务校验、跨步骤编排、事务选择和补偿决策。
+- Port 由应用消费者定义，不暴露 `db.*`、`*sql.Tx`、HTTP、Server、MTOP 或 browser 类型。
+- 删除 Server 中遗留的 `*sql.Tx` 执行器、无调用兼容服务和低层 helper。
+- 审查集中式 `adapter.Dependencies`；改为显式、类型化构造，不得成为隐藏 Store 的 service locator。
+- 把仍在 Server 内的账号登录持久化、平台会话和业务 worker 操作迁到应用边界。
+
+### 完成条件
+
+- Server 生产代码不导入 `database/sql`、`internal/db`、`internal/xianyu` 或 `internal/browser`。
+- Server 不持有 repository 聚合入口，不创建事务，不执行平台业务动作。
+- 应用包不依赖 HTTP、chi、DB、Server 或平台实现。
+- 每个完整用例的正常、越权、缺失、失败、取消和补偿分支有应用层测试。
+- 构造器缺失必需依赖时立即返回错误，不在请求期 panic 或延迟发现。
+
+### 强制验证
+
+```bash
+go test ./internal/application/... ./internal/adapter ./internal/server -count=1
+go test -race ./internal/application/... ./internal/adapter ./internal/server -count=1
+go vet ./...
+go run ./tools/architecturecheck
+make comments
+```
+
+## 10. 阶段 5：应用装配与生命周期
+
+### 目标
+
+明确所有组件、goroutine、连接、timer、channel 和 worker 的所有者、Context、停止与等待边界。
+
+### 范围
+
+- `cmd` 显式构造全部必需依赖并负责启动顺序和反向关闭顺序。
+- 消除必需依赖 setter、请求期懒装配和部分构造可见状态。
+- 把订单刷新、批量发布、恢复、reconciliation 和实时连接等业务 worker 移出 Server transport。
+- 每个后台任务提供 owner、Context 来源、Cancel、Wait/Join、超时和观测状态。
+- 账号删除先 fencing，受限等待运行时退出，再复核归属并删除。
+- Stop/Close 在契约允许时幂等；晚到写入由 generation、lease 或 token 拒绝。
+- 清空 `lifecycle-inventory.md` 中的剩余风险后，将其保留为静态组件清单而非进度日志。
+
+### 完成条件
+
+- Server 不保存业务 worker 的锁、cancel map、任务状态或平台会话状态。
+- 所有 goroutine 都能由拥有者取消并等待，不使用超时后遗留的等待 goroutine。
+- 重复 Start/Stop、先 Stop、启动失败回滚、超时和晚到写入有确定性测试。
+- 关闭顺序不持锁等待网络、浏览器或用户操作。
+
+### 强制验证
+
+```bash
+go test ./internal/server ./internal/account ./internal/engine ./internal/automation ./internal/renewal -count=1
+go test -race ./internal/server ./internal/account ./internal/engine ./internal/automation ./internal/renewal -count=1
+go test ./... -count=1
+go run ./tools/architecturecheck
+```
+
+## 11. 阶段 6：Engine 与 Automation
+
+### 目标
+
+将大型 facade 拆成状态所有权明确、可独立测试的组件，同时保持平台协议和冻结 CAPTCHA 行为不变。
+
+### 范围
+
+- Engine 分离连接会话、消息分发、去重、防抖、凭证协调、重试和运行状态。
+- Automation 分离规则解析、调度、运行协调、动作执行、库存分配、通知和补偿。
+- 建立统一账号凭证协调器：快照、版本校验、锁外外部 I/O、条件提交和冲突观测。
+- 外部动作使用幂等键和 `succeeded/failed/uncertain` 三态；不确定结果进入人工核对或补偿。
+- 明确凭证锁、自动化库存锁和 worker 锁的顺序。
+- `Account` 与 `Center` 只保留稳定 facade，不继续拥有全部内部可变状态。
+
+### 完成条件
+
+- facade 的体积和字段职责显著收敛，每个并发组件有独立生命周期和 race 测试。
+- 未在任何互斥锁或数据库事务内执行不可控平台、浏览器或用户等待 I/O。
+- 凭证冲突、取消、超时、旧响应、重复事件和重连均有确定性测试。
+- 发货、评价、求评价、卡密和通知的幂等及不确定态不发生自动重复动作。
+- 所有冻结 CAPTCHA 测试通过，受保护文件没有未经授权的行为变化。
+
+### 强制验证
+
+```bash
+go test ./internal/engine ./internal/automation ./internal/browser -count=1
+go test -race ./internal/engine ./internal/automation -count=1
+RUN_BROWSER_INTEGRATION=1 go test ./internal/browser -count=1
+go run ./tools/architecturecheck
+make comments
+```
+
+## 12. 阶段 7：React Feature 化
+
+### 目标
+
+完成 `app -> features -> shared` 的真实所有权拆分，而不是只移动页面文件或增加 barrel export。
+
+### 范围
+
+- `app` 只保留 Provider、认证壳、路由和错误边界。
+- 每个 feature 拥有 page、components、hooks/state、API adapter、UI model 和行为测试。
+- 拆除集中式 `frontend/services/api.ts` 和 `frontend/types.ts` 的业务职责。
+- shared HTTP client 只处理超时、取消、认证和统一错误，不包含领域归一。
+- 服务端数据、表单状态和短暂 UI 状态分离；派生值不重复存入 state。
+- 异步 effect 使用取消或 generation，独立请求并行启动，旧响应不得覆盖新状态。
+- 页面和重型可选依赖按路由/feature 懒加载，并设置初始包体预算。
+
+### 完成条件
+
+- feature 不导入其他 feature 内部文件，shared 不反向导入 feature。
+- React 组件不直接 `fetch`/`axios`，业务 DTO 转换只在本 feature API adapter。
+- 不再存在承担多个领域的集中 API/类型文件或超大 Hook。
+- 关键流程具有成功、失败、取消、切换、乱序响应和卸载测试。
+- 构建产物由当前源码生成并更新嵌入目录，初始包体满足预算。
+
+### 强制验证
+
+```bash
+npm test --prefix frontend
+npm run typecheck --prefix frontend
+npm run comments:check --prefix frontend
+npm run build --prefix frontend
+make cover-frontend
+git diff --check
+```
+
+## 13. 阶段 8：DB 与事务治理
+
+### 目标
+
+完成窄 repository、应用层 Unit of Work、批量查询写入、补偿持久化和三方言一致性。
+
+### 范围
+
+- SQL、方言、row model 和加密只留在 `internal/db` 与基础设施 adapter。
+- 跨 repository 原子操作通过消费者定义的 Unit of Work 执行。
+- 清除上层 `*sql.DB`、`*sql.Tx`、DB row 和完整 `Store` 暴露。
+- 商品/订单同步使用游标、批量读取、批量 UPSERT 和明确缓存失效，消除 N+1。
+- 不可逆外部动作的补偿记录、lease、幂等键和人工核对状态跨重启持久化。
+- 所有迁移在 SQLite、MySQL、PostgreSQL 使用相同编号和最终 schema。
+- 对高频查询提供三方言查询计划和大数据量回归。
+
+### 完成条件
+
+- handler、React 和领域组件不控制数据库事务。
+- 跨 repository 失败原子回滚；外部成功后的本地失败进入可恢复或不确定状态。
+- 三方言迁移、CRUD、事务、并发 claim、软删除、批量写入和补偿行为一致。
+- 大数据量测试证明没有逐账号、逐订单或逐商品的无界查询放大。
+
+### 强制验证
+
+```bash
+go test ./internal/db ./internal/application/... ./internal/adapter -count=1
+go test -race ./internal/db ./internal/application/... ./internal/adapter -count=1
+TEST_MYSQL_URL=... TEST_POSTGRES_URL=... make test-multidb
+go run ./cmd/dbverify "$TEST_MYSQL_URL"
+go run ./cmd/dbverify "$TEST_POSTGRES_URL"
+```
+
+## 14. 阶段 9：架构门禁与兼容退场
+
+### 目标
+
+把目标依赖图和兼容删除条件变为 fail-closed 门禁，删除所有临时例外和已到期兼容路径。
+
+### 范围
+
+- 检查 Server 的 `database/sql`、低层 import、业务 worker、裸 Store 和事务暴露。
+- 检查应用 Port 是否泄露 DB/HTTP/Server/平台实现类型。
+- 检查 service locator、运行时必需 setter、反射/动态 import 隐藏依赖。
+- 检查前端 app/features/shared 依赖方向、组件直接请求和集中式 barrel。
+- 为旧路径和兼容字段建立调用遥测、Deprecation、Sunset 版本和删除测试。
+- 删除调用方已迁移的旧路由、别名、适配器、白名单和死代码。
+
+### 完成条件
+
+- 架构检查覆盖完整目标图且无临时白名单。
+- 所有保留兼容入口都有已知调用方、遥测和明确删除版本。
+- 到期旧路径删除后，前端、契约测试、Vite 代理和嵌入资产同步更新。
+- `go list`、AST、TypeScript/ESLint 规则无法通过简单中转层绕过。
+
+### 强制验证
+
+```bash
+go run ./tools/architecturecheck
+go test ./... -count=1
+go test -race ./internal/server ./internal/engine ./internal/automation -count=1
+npm test --prefix frontend
+npm run typecheck --prefix frontend
+npm run build --prefix frontend
+```
+
+## 15. 阶段 10：注释与复杂度收口
+
+### 目标
+
+让中文注释准确描述业务、敏感性和并发约束，并把过长函数和高复杂度热点降到可维护范围。
+
+### 范围
+
+- 删除“保存 X”“负责 X”“表示错误”等模板化或复述语法的注释。
+- 为函数、参数、返回值、变量、字段、闭包和 React 状态补充准确中文语义。
+- 并发代码说明 owner、锁保护字段、锁顺序、Context、Cancel 和 Wait。
+- 敏感值说明明文作用域、日志/序列化禁令和清理责任。
+- 增加模板短语、复杂度和超大文件门禁；冻结文件只使用精确例外。
+- 删除全部注释历史基线机制和已无必要的例外。
+
+### 完成条件
+
+- Go、TypeScript、TSX 无历史注释豁免，无模板化占位注释。
+- 自动检查和人工抽查同时通过，注释与当前行为一致。
+- 高复杂度函数被按业务责任拆分，未用注释掩盖结构问题。
+- 全量测试、race、覆盖率、架构、lint、前端构建和三数据库门禁全部通过。
+
+### 强制验证
+
+```bash
+make comments
+make check
+make cover
+make cover-browser
+make cover-frontend
+TEST_MYSQL_URL=... TEST_POSTGRES_URL=... make test-multidb
+npm run build --prefix frontend
+```
+
+## 16. 迭代强制约束
+
+### 16.1 执行单位与提交
+
+1. 阶段 1 至阶段 10 各是一个完整迭代、一个 PR、最多一个最终提交。
+2. 不得把阶段内的函数、文件、测试或所谓纵向子切片计作独立轮次、PR 或提交。
+3. 当前阶段的实现、测试、文档和生成产物必须在同一迭代一次完成并统一验收。
+4. 阶段未满足全部完成条件时不得提交为“已完成”，也不得开始下一阶段。
+5. 每个编辑批次保持可编译；每个阶段合并点必须可运行、可回退并通过全部适用门禁。
+6. 不改写已有 Git 历史，不覆盖无关工作树修改，不以重建分支代替合并和冲突审计。
+7. 除用户明确要求外不创建提交；需要提交时只在阶段全部验收后创建一次。
+
+### 16.2 行为与兼容
+
+1. 重构默认不改变业务行为、HTTP 状态、JSON 字段、重试、超时、幂等或错误优先级。
+2. 与 `main` 比较必须使用最新远端目标；先分析文本冲突，再用契约测试判断功能冲突。
+3. 空集合统一输出 `[]`，前端兼容当前仍可能存在的 `null` 和历史包裹对象。
+4. 新 API 使用 `/api/v1` 和具名 DTO；禁止新增动态 map 响应或 `HTTP 200 + success:false`。
+5. 兼容适配器必须记录调用方、删除条件和 Sunset 版本；条件满足前不得删除。
+6. 前端源码变化后必须重新构建 `internal/webui/static`，禁止手改哈希资产。
+
+### 16.3 敏感数据
+
+1. 摘要和所有权检查不得读取或解密 Cookie、Token、密码或加密 metadata。
+2. 平台凭证和登录秘密使用不同模型及目的明确的 repository 方法。
+3. 敏感持久化模型不得进入 HTTP、前端状态、日志、通知、错误或测试失败输出。
+4. 管理/一次性敏感读取必须审计且 fail closed，高频运行时使用窄读取。
+5. 不得持凭证锁执行未受规范保护的慢速网络、浏览器或用户等待 I/O。
+
+### 16.4 数据库与事务
+
+1. 上层不得新增裸 `*sql.DB`、`*sql.Tx` 或完整 Store；跨 repository 原子操作使用应用 Unit of Work。
+2. SQL row、持久化模型、应用模型和 HTTP DTO 不得合并为同一便利类型。
+3. 数据库变化必须同时维护 SQLite、MySQL、PostgreSQL 编号和最终 schema。
+4. 迁移、方言 SQL、claim、锁、批量写入或补偿变化必须执行 Docker 三数据库回归。
+5. 禁止通过逐行查询、无界并发或扩大事务范围掩盖 repository 设计问题。
+
+### 16.5 生命周期与并发
+
+1. goroutine、timer、channel、WebSocket、browser 和 worker 必须有 owner、Context、Cancel、Wait/Join。
+2. 必需依赖由构造器输入并在 Start 前验证；禁止生产路径使用 setter 补齐必需依赖。
+3. Stop/Close 按契约幂等，超时不得制造新的游离等待 goroutine。
+4. channel 由约定发送方关闭；晚到响应由 generation、lease、版本或 token fencing 拒绝。
+5. 锁保护字段和锁顺序必须注释并测试；禁止持锁等待不可控外部 I/O。
+6. 外部动作必须有幂等键、成功/失败/不确定三态、补偿、重试和人工核对边界。
+
+### 16.6 React
+
+1. 依赖方向固定为 `app -> features -> shared`；feature 不导入其他 feature 内部文件。
+2. 组件不直接请求网络，shared HTTP client 不包含领域归一逻辑。
+3. 服务端数据、表单状态和短暂 UI 状态分离；可派生值不重复存 state。
+4. 异步 effect/request 必须可取消或有 latest-generation 保护；独立请求并行启动。
+5. 不因习惯增加 memo；重型页面和可选依赖按路由/feature 懒加载。
+6. 新或重大流程必须覆盖成功、失败、取消、切换、乱序和卸载，不用源码字符串测试替代行为测试。
+
+### 16.7 冻结 CAPTCHA
+
+1. 未经用户在当前任务明确授权，不得编辑、移动、格式化、回退或间接改变受保护文件和调用链。
+2. 不得改变选择器、258px 标准距离、轨迹、时序、fresh `x5sec`、重试、profile、Cookie 合并、
+   Playwright/CDP 顺序、启动参数或结果标签。
+3. 发现与基线差异时只做只读审计；任何行为调整必须同时更新实现、全部测试和冻结规范。
+4. 涉及 browser、登录、凭证、engine、account 或 server 调用路径时必须运行冻结规范要求的验证。
+
+### 16.8 注释、测试与覆盖率
+
+1. 所有新增或修改的 Go/TypeScript/TSX 函数和变量必须有准确中文注释。
+2. 禁止“err 表示错误”“变量 X 保存 X”等模板化注释，自动检查通过不能替代语义审查。
+3. 每个确定性函数、分支和错误路径必须有聚焦测试；禁止删除、跳过或放宽测试来通过重构。
+4. 测试可跳过的范围仅限真实账号、私有平台状态或不可用外部服务；本地浏览器和数据库不得假跳过。
+5. 覆盖率声明必须写明命令、浏览器开关、Go/前端百分比和真实外部例外，但不得写入本计划。
+
+## 17. 阶段统一验收矩阵
+
+| 变化范围 | 最低验证 |
+| --- | --- |
+| 任意 Go | 聚焦测试、`go test ./... -count=1`、`go vet ./...`、架构、Go 注释、`git diff --check` |
+| HTTP/应用服务 | Server 与应用契约测试、错误/越权/取消测试、Server race |
+| Engine/Automation/生命周期 | 聚焦 race、Stop/Close/超时/晚到写入、全量 Go test |
+| 数据库/事务/迁移 | SQLite 聚焦、Docker MySQL/PostgreSQL、`cmd/dbverify`、并发 claim/回滚 |
+| React/前端 API | Vitest、typecheck、前端注释、V8 coverage、生产构建、嵌入资产校验 |
+| Browser/登录/凭证 | 冻结测试、浏览器集成、凭证 race、日志脱敏检查 |
+| 阶段完成 | 该阶段全部强制验证 + `make check` + 适用覆盖率，不允许只凭单项门禁关闭 |
+
+## 18. 计划维护规则
+
+1. 本文只允许修改目标、阶段范围、状态、验收条件、固定顺序和强制约束。
+2. 禁止在本文新增任何历史流水、阶段内工作分类、时间线、提交清单或人员记录。
+3. 阶段内临时发现写入 PR 描述或 issue，不写入总计划；只有改变阶段范围或验收条件时才更新本文。
+4. 阶段完成时只把状态从 `当前迭代` 改为 `已完成`，并把下一个阶段改为 `当前迭代`。
+5. 若阶段被阻塞，只将状态改为 `阻塞`；阻塞原因和尝试过程留在任务报告，不写入本文。

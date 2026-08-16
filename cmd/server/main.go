@@ -329,7 +329,15 @@ func runServer(parent context.Context, opts serverOptions) error {
 	go renewalScheduler.Run(ctx)
 
 	// srv 是完成依赖校验并注入聊天服务后的 HTTP 应用实例。
-	srv, err := server.New(store, mgr, opts.secure, opts.webDir, opts.addr, logger, autoCenter, notifier, server.WithChatService(chatService))
+	// serverDependencies 封装 HTTP 服务需要的持久化适配器，避免 Server 直接持有 Store。
+	serverDependencies, dependencyErr := adapter.NewDependencies(store)
+	if dependencyErr != nil {
+		return fmt.Errorf("构造 HTTP 基础设施依赖失败: %w", dependencyErr)
+	}
+	// authentication 保存 HTTP 会话中间件所需的认证实现；会话 Cookie 的 Secure 策略由启动参数决定。
+	authentication := &auth.Service{Store: store, Logger: logger, Secure: opts.secure}
+	// srv、err 保存 HTTP 服务构造结果及失败原因。
+	srv, err := server.New(serverDependencies, authentication, mgr, opts.webDir, opts.addr, logger, autoCenter, notifier, server.WithChatService(chatService))
 	if err != nil {
 		return fmt.Errorf("构造 HTTP 服务失败: %w", err)
 	}

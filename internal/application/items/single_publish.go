@@ -8,6 +8,58 @@ import (
 	"strings"
 )
 
+// PublishErrorCode 表示平台发布失败的稳定业务分类。
+type PublishErrorCode string
+
+const (
+	// PublishErrorUnknown 表示平台返回了未细分的发布失败。
+	PublishErrorUnknown PublishErrorCode = "publish_failed"
+	// PublishErrorTokenExpired 表示平台会话已过期。
+	PublishErrorTokenExpired PublishErrorCode = "auth_expired"
+	// PublishErrorStockPermissionMissing 表示账号缺少库存发布权限。
+	PublishErrorStockPermissionMissing PublishErrorCode = "stock_permission_missing"
+)
+
+// PublishError 保存平台发布失败的稳定分类和脱敏文本，不暴露平台包类型。
+type PublishError struct {
+	// Code 是供 HTTP 层映射状态码的稳定业务分类。
+	Code PublishErrorCode
+	// Ret 是平台返回的脱敏错误文本片段。
+	Ret []string
+	// Body 是平台返回的脱敏响应摘要。
+	Body string
+	// Err 保留基础设施错误链，供适配器和恢复流程继续判断。
+	Err error
+}
+
+// Error 返回平台错误文本，优先使用平台返回的业务描述。
+func (e *PublishError) Error() string {
+	if e == nil {
+		return string(PublishErrorUnknown)
+	}
+	if len(e.Ret) > 0 {
+		return strings.Join(e.Ret, "; ")
+	}
+	if e.Body != "" {
+		if len(e.Body) > 240 {
+			return e.Body[:240] + "..."
+		}
+		return e.Body
+	}
+	if e.Code == "" {
+		return string(PublishErrorUnknown)
+	}
+	return string(e.Code)
+}
+
+// Unwrap 保留适配器底层错误链而不要求应用层依赖平台类型。
+func (e *PublishError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
 // Image 是商品发布所需的图片内容；图片字节只在当前用例生命周期内由端口消费。
 type Image struct {
 	// Filename 是上传到平台时使用的原始文件名。

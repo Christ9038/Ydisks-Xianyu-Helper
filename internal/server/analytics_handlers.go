@@ -2,83 +2,64 @@ package server
 
 import (
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	analyticsapp "xianyu-go/internal/application/analytics"
 	"xianyu-go/internal/auth"
-	"xianyu-go/internal/db"
 )
 
-// mountAnalyticsReal 订单分析端点（仪表盘 BI 报表用）。
+// analyticsApplication 返回当前 Server 绑定的订单分析应用服务。
+func (s *Server) analyticsApplication() *analyticsapp.Service {
+	return s.applicationServiceSet().analytics
+}
+
+// mountAnalyticsReal 挂载订单分析端点（仪表盘 BI 报表使用）。
 func (s *Server) mountAnalyticsReal(r chi.Router) {
 	r.Get("/dashboard/stats", s.dashboardStats)
 	r.Get("/analytics/orders", s.orderAnalytics)
 	r.Get("/analytics/orders/valid", s.validOrders)
 }
 
-// dashboardStats 返回当前登录用户的数据概览。管理员全局统计仍由 /admin/stats 提供，
-// 避免普通用户访问管理员接口，也避免把全局资源数和用户自己的订单收益混在一起。
-// dashboardStats 负责dashboardStats相关处理。
+// dashboardStats 返回当前登录用户的数据概览；管理员全局统计由 /admin/stats 提供。
 func (s *Server) dashboardStats(w http.ResponseWriter, r *http.Request) {
 	// sess 是当前请求的认证会话。
 	sess := auth.SessionFromContext(r.Context())
-	// result 和 err 是订单分析应用服务返回的仪表盘摘要。
+	// result 和 err 是订单分析应用服务返回的仪表盘摘要及错误。
 	result, err := s.analyticsApplication().DashboardStats(r.Context(), sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "统计数据失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, dashboardStatsResponseFromApplication(result))
 }
-
-// 有效订单状态只统计以下几种。
-var validOrderStatuses = []string{"pending_ship", "paid", "2", "shipped", "3", "completed", "4", "11"}
 
 // orderAnalytics 汇总指定日期范围内的收益以及按日、状态、城市和商品分布。
 func (s *Server) orderAnalytics(w http.ResponseWriter, r *http.Request) {
 	// sess 是当前请求的认证会话。
 	sess := auth.SessionFromContext(r.Context())
-	// startDate、endDate 和 location 是订单分析的日期范围及时区参数。
-	startDate := r.URL.Query().Get("start_date")
-	// endDate 保存结束日期，供当前处理流程使用
-	endDate := r.URL.Query().Get("end_date")
-	// location 保存地址，供当前处理流程使用
-	location := analyticsLocation(r.URL.Query().Get("timezone_offset_minutes"))
-	// where 和 params 是按用户、日期和状态归一化后的查询条件。
-	where, params := buildAnalyticsWhere(startDate, endDate, sess.UserID, validOrderStatuses, location)
-	// amountClean 和 amountFilter 是按数据库方言生成的金额过滤条件。
-	amountClean, amountFilter := analyticsQueryAmountFilter(s.Store, "amount")
-	// result 和 err 是订单分析应用服务返回的具名统计结果。
-	result, err := s.analyticsApplication().OrderAnalytics(r.Context(), analyticsQuery{
-		Where: where, Params: analyticsQueryParamsCopy(params), AmountClean: amountClean, AmountFilter: amountFilter, Location: location,
-	})
+	// query 是从 HTTP 查询参数映射出的订单分析用例请求。
+	query := analyticsapp.Query{
+		UserID: sess.UserID, StartDate: r.URL.Query().Get("start_date"), EndDate: r.URL.Query().Get("end_date"),
+		Location: analyticsapp.LocationFromOffset(r.URL.Query().Get("timezone_offset_minutes")),
+	}
+	// result 和 err 是订单分析应用服务返回的统计结果及错误。
+	result, err := s.analyticsApplication().OrderAnalytics(r.Context(), query)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, analyticsErrorMessage(err))
+		writeErr(w, http.StatusInternalServerError, analyticsapp.ErrorMessage(err))
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, orderAnalyticsResponseFromApplication(result))
 }
 
-// validOrders 有效订单明细列表（用于统计中的订单明细）。
+// validOrders 返回有效订单明细分页结果。
 func (s *Server) validOrders(w http.ResponseWriter, r *http.Request) {
 	// sess 是当前请求的认证会话。
 	sess := auth.SessionFromContext(r.Context())
-	// startDate、endDate 和 location 是有效订单的日期范围及时区参数。
-	startDate := r.URL.Query().Get("start_date")
-	// endDate 保存结束日期，供当前处理流程使用
-	endDate := r.URL.Query().Get("end_date")
-	// location 保存地址，供当前处理流程使用
-	location := analyticsLocation(r.URL.Query().Get("timezone_offset_minutes"))
-	// where 和 params 是按用户、日期和状态归一化后的查询条件。
-	where, params := buildAnalyticsWhere(startDate, endDate, sess.UserID, validOrderStatuses, location)
-	// amountClean 和 amountFilter 是按数据库方言生成的金额过滤条件。
-	amountClean, amountFilter := analyticsQueryAmountFilter(s.Store, "orders.amount")
 	// page 和 pageSize 是已经限制在安全范围内的分页参数。
 	page := atoiDefault(r.URL.Query().Get("page"), 1)
-	// pageSize 保存每页数量，供当前处理流程使用
+	// pageSize 是每页返回的最大订单数量。
 	pageSize := atoiDefault(r.URL.Query().Get("page_size"), 500)
 	if page < 1 {
 		page = 1
@@ -86,120 +67,79 @@ func (s *Server) validOrders(w http.ResponseWriter, r *http.Request) {
 	if pageSize < 1 || pageSize > 500 {
 		pageSize = 500
 	}
-	// result 和 err 是订单分析应用服务返回的分页结果。
-	result, err := s.analyticsApplication().ValidOrders(r.Context(), analyticsQuery{
-		Where: where, Params: analyticsQueryParamsCopy(params), AmountClean: amountClean, AmountFilter: amountFilter,
-	}, page, pageSize)
+	// query 是从 HTTP 查询参数映射出的有效订单用例请求。
+	query := analyticsapp.Query{
+		UserID: sess.UserID, StartDate: r.URL.Query().Get("start_date"), EndDate: r.URL.Query().Get("end_date"),
+		Location: analyticsapp.LocationFromOffset(r.URL.Query().Get("timezone_offset_minutes")),
+	}
+	// result 和 err 是订单分析应用服务返回的分页结果及错误。
+	result, err := s.analyticsApplication().ValidOrders(r.Context(), query, page, pageSize)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, analyticsErrorMessage(err))
+		writeErr(w, http.StatusInternalServerError, analyticsapp.ErrorMessage(err))
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	writeJSON(w, http.StatusOK, validOrdersResponseFromApplication(result))
 }
 
-// buildAnalyticsWhere 构建 WHERE 子句（user_id 经 cookies 关联过滤 + 日期 + 状态）。
-// 返回 (whereClause, params)，whereClause 已含 WHERE 前缀。
-// buildAnalyticsWhere 负责buildAnalyticsWhere相关处理。
-func buildAnalyticsWhere(startDate, endDate string, userID int64, statuses []string, location *time.Location) (string, []any) {
-	// conds 保存conds，供当前处理流程使用
-	conds := []string{"orders.deleted_at IS NULL"}
-	// params 保存params，供当前处理流程使用
-	params := []any{}
-	if startDate != "" {
-		conds = append(conds, "orders.created_at >= ?")
-		params = append(params, analyticsDateBoundary(startDate, false, location))
-	}
-	if endDate != "" {
-		conds = append(conds, "orders.created_at < ?")
-		params = append(params, analyticsDateBoundary(endDate, true, location))
-	}
-	if userID != 0 {
-		conds = append(conds, "EXISTS (SELECT 1 FROM cookies WHERE cookies.id = orders.cookie_id AND cookies.user_id = ?)")
-		params = append(params, userID)
-	}
-	if len(statuses) > 0 {
-		// ph 保存ph，供当前处理流程使用
-		ph := strings.Repeat("?,", len(statuses))
-		ph = strings.TrimSuffix(ph, ",")
-		conds = append(conds, "orders.order_status IN ("+ph+")")
-		// s 表示当前遍历过程中的s
-		for _, s := range statuses {
-			params = append(params, s)
-		}
-	}
-	// where 保存where，供当前处理流程使用
-	where := ""
-	if len(conds) > 0 {
-		where = "WHERE " + strings.Join(conds, " AND ")
-	}
-	// 后续 AND 需要前置空格。
-	if where != "" {
-		where += " "
-	}
-	return where, params
-}
-
-// analyticsDateBoundary 负责analytics日期Boundary相关处理。
+// analyticsDateBoundary 保留日期边界测试使用的应用层转换入口。
 func analyticsDateBoundary(raw string, endExclusive bool, location *time.Location) string {
-	if location == nil {
-		location = time.Local
-	}
-	// t、err 保存t、err，供当前处理流程使用
-	t, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(raw), location)
-	if err != nil {
-		return raw
-	}
-	if endExclusive {
-		t = t.AddDate(0, 0, 1)
-	}
-	return t.UTC().Format("2006-01-02 15:04:05")
+	return analyticsapp.DateBoundary(raw, endExclusive, location)
 }
 
-// analyticsLocation 负责analytics地址相关处理。
-func analyticsLocation(rawOffset string) *time.Location {
-	// offset、err 保存offset、err，供当前处理流程使用
-	offset, err := strconv.Atoi(strings.TrimSpace(rawOffset))
-	if err != nil || offset < -14*60 || offset > 14*60 {
-		return time.Local
-	}
-	return time.FixedZone("browser", offset*60)
-}
-
-// analyticsAmountExpression 负责analyticsAmountExpression相关处理。
-func analyticsAmountExpression(dialect db.Dialect, column string) string {
-	// clean 保存clean，供当前处理流程使用
-	clean := `TRIM(REPLACE(REPLACE(` + column + `, '¥', ''), ',', ''))`
-	switch dialect {
-	case db.DialectPostgres:
-		return `CASE WHEN ` + clean + ` ~ '^[0-9]+([.][0-9]+)?$' THEN CAST(` + clean + ` AS DOUBLE PRECISION) END`
-	case db.DialectMySQL:
-		return `CASE WHEN ` + clean + ` REGEXP '^[0-9]+([.][0-9]+)?$' THEN CAST(` + clean + ` AS DOUBLE) END`
-	default:
-		return `CASE WHEN ` + clean + ` GLOB '[0-9]*' AND ` + clean + ` NOT GLOB '*[^0-9.]*' AND ` + clean + ` NOT GLOB '*.*.*' AND ` + clean + ` NOT LIKE '%.' THEN CAST(` + clean + ` AS REAL) END`
+// dashboardStatsResponseFromApplication 将应用摘要映射为 HTTP DTO。
+func dashboardStatsResponseFromApplication(result analyticsapp.DashboardStats) dashboardStatsResponse {
+	return dashboardStatsResponse{
+		TotalCookies: result.TotalCookies, ActiveCookies: result.ActiveCookies, TotalCards: result.TotalCards,
+		AvailableCardStock: result.AvailableCardStock, TotalKeywords: result.TotalKeywords, TotalOrders: result.TotalOrders,
 	}
 }
 
-// parseAnalyticsDBTime 负责parseAnalyticsDB时间相关处理。
-func parseAnalyticsDBTime(raw string) time.Time {
-	// layout 表示当前遍历过程中的layout
-	for _, layout := range []string{"2006-01-02 15:04:05", time.RFC3339, "2006-01-02T15:04:05Z07:00"} {
-		if // t、err 保存t、err，供当前处理流程使用
-		t, err := time.ParseInLocation(layout, strings.TrimSpace(raw), time.UTC); err == nil {
-			return t
-		}
+// orderAnalyticsResponseFromApplication 将应用统计映射为 HTTP DTO。
+func orderAnalyticsResponseFromApplication(result analyticsapp.OrderAnalytics) orderAnalyticsResponse {
+	// dailyStats 是应用层按日结果对应的传输 DTO 列表。
+	dailyStats := make([]analyticsDailyStatsResponse, 0, len(result.DailyStats))
+	// item 是当前按日统计结果。
+	for _, item := range result.DailyStats {
+		dailyStats = append(dailyStats, analyticsDailyStatsResponse{Date: item.Date, OrderCount: item.OrderCount, Amount: item.Amount})
 	}
-	return time.Time{}
+	// statusStats 是应用层按状态结果对应的传输 DTO 列表。
+	statusStats := make([]analyticsStatusStatsResponse, 0, len(result.StatusStats))
+	// item 是当前按状态统计结果。
+	for _, item := range result.StatusStats {
+		statusStats = append(statusStats, analyticsStatusStatsResponse{Status: item.Status, Count: item.Count, Amount: item.Amount})
+	}
+	// cityStats 是应用层按城市结果对应的传输 DTO 列表。
+	cityStats := make([]analyticsCityStatsResponse, 0, len(result.CityStats))
+	// item 是当前按城市统计结果。
+	for _, item := range result.CityStats {
+		cityStats = append(cityStats, analyticsCityStatsResponse{City: item.City, OrderCount: item.OrderCount, TotalAmount: item.TotalAmount})
+	}
+	// itemStats 是应用层按商品结果对应的传输 DTO 列表。
+	itemStats := make([]analyticsItemStatsResponse, 0, len(result.ItemStats))
+	// item 是当前按商品统计结果。
+	for _, item := range result.ItemStats {
+		itemStats = append(itemStats, analyticsItemStatsResponse{ItemID: item.ItemID, OrderCount: item.OrderCount, TotalAmount: item.TotalAmount, AvgAmount: item.AvgAmount})
+	}
+	return orderAnalyticsResponse{
+		RevenueStats: analyticsRevenueStatsResponse{
+			TotalOrders: result.RevenueStats.TotalOrders, TotalAmount: result.RevenueStats.TotalAmount,
+			AvgAmount: result.RevenueStats.AvgAmount, UniqueBuyers: result.RevenueStats.UniqueBuyers, UniqueItems: result.RevenueStats.UniqueItems,
+		},
+		DailyStats: dailyStats, StatusStats: statusStats, CityStats: cityStats, ItemStats: itemStats,
+	}
 }
 
-// parseAnalyticsAmount 负责parseAnalyticsAmount相关处理。
-func parseAnalyticsAmount(raw string) float64 {
-	raw = strings.TrimSpace(strings.NewReplacer("¥", "", ",", "").Replace(raw))
-	// value 保存值，供当前处理流程使用
-	value, _ := strconv.ParseFloat(raw, 64)
-	return value
-}
-
-// round2 负责round2相关处理。
-func round2(f float64) float64 {
-	return float64(int(f*100+0.5)) / 100
+// validOrdersResponseFromApplication 将应用分页结果映射为 HTTP DTO。
+func validOrdersResponseFromApplication(result analyticsapp.ValidOrders) validOrdersResponse {
+	// orders 是应用层有效订单对应的传输 DTO 列表。
+	orders := make([]validOrderResponse, 0, len(result.Orders))
+	// item 是当前有效订单应用模型。
+	for _, item := range result.Orders {
+		orders = append(orders, validOrderResponse{
+			OrderID: item.OrderID, ItemID: item.ItemID, BuyerID: item.BuyerID, ItemTitle: item.ItemTitle,
+			ItemImage: item.ItemImage, Quantity: item.Quantity, Amount: item.Amount, OrderStatus: item.OrderStatus,
+			Status: item.Status, CookieID: item.CookieID, CreatedAt: item.CreatedAt,
+		})
+	}
+	return validOrdersResponse{Orders: orders, Total: result.Total, Page: result.Page, PageSize: result.PageSize, Truncated: result.Truncated}
 }

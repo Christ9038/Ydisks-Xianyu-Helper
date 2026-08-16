@@ -76,6 +76,26 @@ func TestLoginAndMiddleware(t *testing.T) {
 	}
 }
 
+// TestIdentityFromContextReturnsMinimalUserView 验证通用 HTTP 辅助只接收用户标识而不暴露完整数据库会话。
+func TestIdentityFromContextReturnsMinimalUserView(t *testing.T) {
+	// ctx 保存包含完整会话的测试上下文，模拟认证中间件已经完成会话解析。
+	ctx := WithSession(context.Background(), &db.Session{UserID: 42, Username: "admin", IsAdmin: true})
+	// identity 保存认证包裁剪后的最小用户身份视图。
+	identity := IdentityFromContext(ctx)
+	if identity == nil || identity.UserID != 42 {
+		t.Fatalf("身份视图异常: %+v", identity)
+	}
+}
+
+// TestIdentityFromContextReturnsNilWithoutSession 验证未认证请求不会伪造用户身份。
+func TestIdentityFromContextReturnsNilWithoutSession(t *testing.T) {
+	// identity 保存无会话上下文经过认证包裁剪后的结果，应保持为空。
+	identity := IdentityFromContext(context.Background())
+	if identity != nil {
+		t.Fatalf("无会话时应返回 nil，得到 %+v", identity)
+	}
+}
+
 // TestRequireAuthAndAdmin 负责TestRequireAuthAndAdmin相关处理。
 func TestRequireAuthAndAdmin(t *testing.T) {
 	// svc、cleanup 保存svc、cleanup，供当前处理流程使用

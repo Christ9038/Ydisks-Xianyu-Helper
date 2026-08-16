@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"xianyu-go/internal/adapter"
+	"xianyu-go/internal/auth"
 )
 
 // freeAddr 获取一个空闲 TCP 端口（立即释放，供测试绑定）。
@@ -122,18 +125,25 @@ func TestPublishRecoveryLifecycleStopsBeforeWorkerWait(t *testing.T) {
 
 // TestNewRejectsMissingRequiredDependencies 确保 HTTP 服务构造阶段拒绝缺失核心依赖。
 func TestNewRejectsMissingRequiredDependencies(t *testing.T) {
-	// err 是缺少 Store 时的构造校验错误。
-	if _, err := New(nil, nil, false, "", ":0", nil, nil, nil); err == nil {
-		t.Fatal("缺少 db.Store 时应返回构造错误")
+	// err 是缺少基础设施容器时的构造校验错误。
+	if _, err := New(nil, nil, nil, "", ":0", nil, nil, nil); err == nil {
+		t.Fatal("缺少基础设施容器时应返回构造错误")
 	}
 	// srv 是用于提供合法 Store 的测试服务；cleanup 负责释放测试数据库。
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	if srv == nil {
 		t.Fatal("测试服务不应为空")
 	}
+	// dependencies 保存缺少 Manager 校验时复用的基础设施容器。
+	dependencies, dependencyErr := adapter.NewDependencies(store)
+	if dependencyErr != nil {
+		t.Fatalf("NewDependencies: %v", dependencyErr)
+	}
+	// authentication 保存构造校验需要的会话中间件依赖。
+	authentication := &auth.Service{Store: store}
 	// err 是缺少 Manager 时的构造校验错误。
-	if _, err := New(srv.Store, nil, false, "", ":0", nil, nil, nil); err == nil {
+	if _, err := New(dependencies, authentication, nil, "", ":0", nil, nil, nil); err == nil {
 		t.Fatal("缺少 account.Manager 时应返回构造错误")
 	}
 }

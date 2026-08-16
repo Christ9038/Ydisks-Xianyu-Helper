@@ -2,50 +2,43 @@ package server
 
 import (
 	"context"
+	"errors"
 
-	"xianyu-go/internal/db"
+	accountapp "xianyu-go/internal/application/account"
 )
 
 // loadCookiePlatformDetail 读取平台请求所需的最小 Cookie 状态，并转换为 Server 内部已有的会话适配模型。
-func (s *Server) loadCookiePlatformDetail(ctx context.Context, cookieID string) (*db.CookieDetail, error) {
-	// platformData 是 repository 返回的不含登录密码的平台运行视图。
-	platformData, err := s.Store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID)
+func (s *Server) loadCookiePlatformDetail(ctx context.Context, cookieID string) (*accountapp.CredentialDetail, error) {
+	if s == nil {
+		return nil, errors.New("平台凭证读取服务未初始化")
+	}
+	// repository 提供不读取登录密码的平台凭证窄视图；SQL 和解密逻辑由 adapter 负责。
+	repository := s.accountLoginRepositoryForServer()
+	if repository == nil {
+		return nil, errors.New("平台凭证 repository 未初始化")
+	}
+	// platformData 是应用 Port 返回的不含登录密码的平台运行视图。
+	platformData, err := repository.LoadPlatformDetail(ctx, cookieID)
 	if err != nil {
 		return nil, err
 	}
-	// detail 是仅供 Cookie Session 适配器使用的浅层模型，不包含用户名、密码或账号设置。
-	detail := &db.CookieDetail{
-		ID:           platformData.ID,
-		UserID:       platformData.UserID,
-		Value:        platformData.Value,
-		MetadataJSON: platformData.MetadataJSON,
-	}
-	return detail, nil
+	return platformData, nil
 }
 
 // loadCookieSummaryDetail 读取账号非敏感摘要并转换为 Server 内部的兼容模型。
-func (s *Server) loadCookieSummaryDetail(ctx context.Context, userID int64, cookieID string) (*db.CookieDetail, error) {
-	// summary 是按当前用户与账号 ID 联合过滤得到的非敏感摘要。
-	summary, err := s.Store.Cookies.GetSummaryOwned(ctx, userID, cookieID)
-	if err != nil {
-		return nil, err
+func (s *Server) loadCookieSummaryDetail(ctx context.Context, userID int64, cookieID string) (accountapp.AccountSummary, error) {
+	if s == nil {
+		return accountapp.AccountSummary{}, errors.New("账号摘要读取服务未初始化")
 	}
-	// detail 是只包含摘要字段的兼容模型，不携带任何 Cookie、metadata 或登录密码。
-	detail := &db.CookieDetail{
-		ID:            summary.ID,
-		UserID:        summary.UserID,
-		AutoConfirm:   summary.AutoConfirm,
-		Remark:        summary.Remark,
-		PauseDuration: summary.PauseDuration,
-		PausedUntil:   summary.PausedUntil,
-		Username:      summary.Username,
-		ShowBrowser:   summary.ShowBrowser,
-		Nickname:      summary.Nickname,
-		AvatarURL:     summary.AvatarURL,
-		LastRefreshAt: summary.LastRefreshAt,
-		LoginMethod:   summary.LoginMethod,
-		LastLoginAt:   summary.LastLoginAt,
-		CreatedAt:     summary.CreatedAt,
+	// service 提供按用户和账号联合过滤的非敏感摘要；Server 不直接访问账号表。
+	service := s.accountSummaryApplication()
+	if service == nil {
+		return accountapp.AccountSummary{}, errors.New("账号摘要服务未初始化")
 	}
-	return detail, nil
+	// summary、queryErr 保存应用服务返回的非敏感摘要及查询错误。
+	summary, queryErr := service.GetOwnedSummary(ctx, userID, cookieID)
+	if queryErr != nil {
+		return accountapp.AccountSummary{}, queryErr
+	}
+	return summary, nil
 }
