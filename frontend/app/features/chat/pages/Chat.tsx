@@ -4,6 +4,7 @@ import {
   Search, Send, Smile, UserRound, Wifi, WifiOff,
 } from 'lucide-react';
 import { useChat } from '../hooks';
+import { unreadBadgeClassName, unreadBadgeLabel } from '../state';
 
 // Chat 展示实时会话、消息分页和消息发送界面。
 const Chat: React.FC = () => {
@@ -38,6 +39,8 @@ const Chat: React.FC = () => {
             const active = account.id === activeAccountID;
             // unread unread，负责当前功能中的对应处理。
             const unread = unreadForAccount(account.id);
+            // unreadLabel 保存账号未读徽标的展示文本。
+            const unreadLabel = unreadBadgeLabel(unread);
             // online 响应当前用户操作（line）。
             const online = account.runtime_state === 'online';
             return (
@@ -45,7 +48,7 @@ const Chat: React.FC = () => {
                 className={`relative flex h-11 shrink-0 items-center gap-2 border-b-2 px-3 text-sm font-extrabold transition-colors ${active ? 'border-sky-500 text-sky-700' : 'border-transparent text-slate-500 hover:text-slate-900'}`}>
                 <span className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                 <span className="max-w-36 truncate">{account.nickname || account.remark || account.id}</span>
-                {unread > 0 && <span className="min-w-5 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] text-white">{unread > 99 ? '99+' : unread}</span>}
+                {unread > 0 && <span aria-label={`未读消息 ${unreadLabel} 条`} className={unreadBadgeClassName(unread)}>{unreadLabel}</span>}
               </button>
             );
           })}
@@ -91,7 +94,7 @@ const Chat: React.FC = () => {
                     </div>
                     <div className="mt-1 flex items-center gap-2">
                       <span className="truncate text-xs text-slate-500">{session.last_message || '暂无消息'}</span>
-                      {session.unread_count > 0 && <span className="ml-auto min-w-5 shrink-0 rounded-full bg-red-500 px-1.5 py-0.5 text-center text-[10px] font-bold text-white">{session.unread_count}</span>}
+                      {session.unread_count > 0 && <span aria-label={`未读消息 ${unreadBadgeLabel(session.unread_count)} 条`} className={`ml-auto ${unreadBadgeClassName(session.unread_count)}`}>{unreadBadgeLabel(session.unread_count)}</span>}
                     </div>
                     {session.item_title && <div className="mt-1.5 truncate text-[10px] font-medium text-sky-700">商品 · {session.item_title}</div>}
                   </div>
@@ -160,7 +163,7 @@ const Chat: React.FC = () => {
                           )}
                           <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-400">
                             {messageTime(message.sent_at)}
-                            {outgoing && (message.status === 'failed' ? <AlertCircle className="h-3 w-3 text-red-500" /> : message.status === 'sent' ? <CheckCheck className="h-3 w-3 text-sky-500" /> : <Check className="h-3 w-3" />)}
+                            {outgoing && (message.status === 'failed' ? <AlertCircle className="h-3 w-3 text-red-500" aria-label="发送失败" /> : message.read_status === 2 ? <CheckCheck className="h-3 w-3 text-sky-500" aria-label="对方已读" /> : message.status === 'sent' ? <Check className="h-3 w-3 text-sky-500" aria-label="已发送未读" /> : <Check className="h-3 w-3" aria-label="发送中" />)}
                           </div>
                         </div>
                         {outgoing && <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-sky-100 ring-2 ring-white">

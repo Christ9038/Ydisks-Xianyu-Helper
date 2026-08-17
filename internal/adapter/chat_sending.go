@@ -88,7 +88,8 @@ func chatApplicationMessage(message *db.ChatMessage) chatapp.Message {
 	return chatapp.Message{
 		ID: message.ID, AccountID: message.CookieID, ChatID: message.ChatID, MessageKey: message.MessageKey,
 		Direction: message.Direction, SenderID: message.SenderID, SenderName: message.SenderName,
-		MessageType: message.MessageType, Content: message.Content, Status: message.Status, SentAt: message.SentAt,
+		MessageType: message.MessageType, Content: message.Content, Status: message.Status,
+		ReadStatus: message.ReadStatus, ReadAt: message.ReadAt, SentAt: message.SentAt,
 	}
 }
 

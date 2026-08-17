@@ -30,12 +30,19 @@ var sliderSuccessSelectors = []string{
 const (
 	sliderSuccessCheckAttempts = 4
 	sliderSuccessCheckInterval = 400 * time.Millisecond
+	// sliderContinuousEventMaxInterval 是主引擎按住期间相邻微移动事件的最大间隔，保证提速后仍呈连续轨迹。
+	sliderContinuousEventMaxInterval = 15 * time.Millisecond
+	// sliderMovementMinDuration、sliderMovementMaxDuration 是主引擎按下到释放的目标墙钟范围，较上一版提速一倍。
+	sliderMovementMinDuration = 550 * time.Millisecond
+	sliderMovementMaxDuration = 1050 * time.Millisecond
 )
 
 // trajectoryPoint 轨迹中的单个采样点。
 type trajectoryPoint struct {
-	x     float64
-	y     float64
+	// x、y 是相对滑块中心的曲线锚点偏移；x 保持单调前进并在末点落到受控超调终点。
+	x float64
+	y float64
+	// delay 是该锚点对应的相对时长权重；连续微移动会按该权重分配时间，不能形成锚点后的静止停顿。
 	delay time.Duration
 }
 
@@ -56,58 +63,155 @@ type sliderResetResult struct {
 	err      error
 }
 
-// generateTrajectory mirrors the reference Playwright engine's short
-// acceleration/constant/deceleration trajectory. Each point is a high-level
-// browser protocol call, so generating dozens of points makes the drag unlike
-// the reference implementation even when the wall-clock duration is similar.
-func generateTrajectory(distance float64) []trajectoryPoint {
-	requestedSteps := 5 + rng.Intn(2)
-	totalDuration := randomFloat(0.010, 0.020)
-	avgDelay := totalDuration / float64(requestedSteps)
-
-	accelRatio := 0.35 + randomFloat(-0.05, 0.05)
-	decelRatio := 0.30 + randomFloat(-0.05, 0.05)
+// generateTrajectory 根据 distance 和 verticalSpan 生成标准 NC 的单调三阶段曲线锚点。
+// distance 是按钮可用移动距离；verticalSpan 是 Y 轴峰峰值，锚点之间由连续微移动连接，末点会受控超出可用距离。
+func generateTrajectory(distance, verticalSpan float64) []trajectoryPoint {
+	// requestedSteps 是本次高层鼠标移动采样数，范围避免固定轨迹特征，同时保持在 Chromium CDP 的低开销区间。
+	requestedSteps := 8 + rng.Intn(5)
+	// averageDelay 是各采样点的基础等待秒数；实际总时长由 simulateSlide 的墙钟预算补偿。
+	averageDelay := randomFloat(0.045, 0.085)
+	// accelRatio、decelRatio 分别限定加速和减速阶段所占轨迹比例，余量构成中速前进阶段。
+	accelRatio := randomFloat(0.26, 0.34)
+	decelRatio := randomFloat(0.24, 0.32)
+	// accelSteps、decelSteps、constantSteps 是三段分别包含的采样点数，至少各保留两个点以避免变成直线移动。
 	accelSteps := max(2, int(math.Round(float64(requestedSteps)*accelRatio)))
 	decelSteps := max(2, int(math.Round(float64(requestedSteps)*decelRatio)))
 	constantSteps := max(2, requestedSteps-accelSteps-decelSteps)
 
-	accelDistance := distance * randomFloat(0.25, 0.35)
-	constantDistance := distance * randomFloat(0.50, 0.60)
-	decelDistance := distance - accelDistance - constantDistance
-	pts := make([]trajectoryPoint, 0, accelSteps+constantSteps+decelSteps)
+	// overshoot 是鼠标终点超出可用滑轨的像素量；页面控件自身会在轨道边界钳位，因此不会被拖出滑轨。
+	overshoot := randomFloat(4, 20)
+	// targetDistance 是鼠标实际行进的水平目标，包含受控超调；三段距离相加后在末点落到该目标。
+	targetDistance := distance + overshoot
+	// accelDistance、constantDistance、decelDistance 是三段覆盖的水平距离；三者相加始终等于带超调的鼠标目标距离。
+	accelDistance := targetDistance * randomFloat(0.24, 0.34)
+	constantDistance := targetDistance * randomFloat(0.46, 0.56)
+	decelDistance := targetDistance - accelDistance - constantDistance
+	// points 保存按加速、中速、减速依次生成的高层鼠标坐标。
+	points := make([]trajectoryPoint, 0, accelSteps+constantSteps+decelSteps)
 
-	for i := 1; i <= accelSteps; i++ {
-		progress := float64(i) / float64(accelSteps)
-		pts = append(pts, trajectoryPoint{
+	// step 表示当前加速段采样点序号。
+	for step := 1; step <= accelSteps; step++ {
+		// progress 是当前采样点在加速段中的归一化进度。
+		progress := float64(step) / float64(accelSteps)
+		points = append(points, trajectoryPoint{
 			x:     accelDistance * progress * progress,
-			y:     randomFloat(-1, 1),
-			delay: secondsDuration(avgDelay * randomFloat(1, 1.3)),
+			delay: secondsDuration(averageDelay * randomFloat(0.70, 1.20)),
 		})
 	}
-	for i := 1; i <= constantSteps; i++ {
-		progress := float64(i) / float64(constantSteps)
-		delay := avgDelay * randomFloat(0.85, 1.15)
-		if randomFloat(0, 1) < 0.03 {
-			delay *= randomFloat(1.1, 1.3)
-		}
-		pts = append(pts, trajectoryPoint{
+	// step 表示当前中速段采样点序号。
+	for step := 1; step <= constantSteps; step++ {
+		// progress 是当前采样点在中速段中的归一化进度。
+		progress := float64(step) / float64(constantSteps)
+		// delay 是中速段本点后的基础等待，刻意保留差异而非固定间隔。
+		delay := averageDelay * randomFloat(0.65, 1.25)
+		points = append(points, trajectoryPoint{
 			x:     accelDistance + constantDistance*progress,
-			y:     randomFloat(-1, 1) * 0.6,
 			delay: secondsDuration(delay),
 		})
 	}
-	for i := 1; i <= decelSteps; i++ {
-		progress := float64(i) / float64(decelSteps)
-		pts = append(pts, trajectoryPoint{
+	// step 表示当前减速段采样点序号。
+	for step := 1; step <= decelSteps; step++ {
+		// progress 是当前采样点在减速段中的归一化进度。
+		progress := float64(step) / float64(decelSteps)
+		points = append(points, trajectoryPoint{
 			x:     accelDistance + constantDistance + decelDistance*(1-math.Pow(1-progress, 2)),
-			y:     randomFloat(-1, 1) * 0.4,
-			delay: secondsDuration(avgDelay * randomFloat(1.1, 1.5)),
+			delay: secondsDuration(averageDelay * randomFloat(0.90, 1.55)),
 		})
 	}
-	if len(pts) > 0 {
-		pts[len(pts)-1].x = distance
+	applyContinuousVerticalDrift(points, verticalSpan)
+	if len(points) > 0 {
+		points[len(points)-1].x = targetDistance
 	}
-	return pts
+	return points
+}
+
+// expandContinuousTrajectory 把稀疏曲线锚点展开为连续事件流，避免鼠标在每个锚点后肉眼可见地停住。
+// points 是调用方生成的有序锚点；target 是按下到释放的目标总时长；返回点中的 delay 不超过连续事件允许的最大间隔。
+func expandContinuousTrajectory(points []trajectoryPoint, target time.Duration) []trajectoryPoint {
+	// totalWeight 汇总各锚点的相对时长权重，以便保持加速、中速、减速三段的时间比例。
+	var totalWeight time.Duration
+	for _, point := range points {
+		totalWeight += point.delay
+	}
+	if len(points) == 0 || target <= 0 || totalWeight <= 0 {
+		return nil
+	}
+	// expanded 保存连接每一对锚点后的连续微移动事件。
+	expanded := make([]trajectoryPoint, 0, len(points)*8)
+	// previous 是本段的起点；首次从按钮中心开始，后续从前一个锚点继续。
+	previous := trajectoryPoint{}
+	for _, point := range points {
+		// segmentDuration 是本段在总拖动窗口中所占时长，按生成轨迹的非均匀权重分配。
+		segmentDuration := time.Duration(int64(target) * int64(point.delay) / int64(totalWeight))
+		if segmentDuration <= 0 {
+			segmentDuration = time.Nanosecond
+		}
+		// eventCount 是本段需要发出的微移动数量，预留节奏变化空间且至少两个事件以避免跨锚点跳跃。
+		eventCount := max(2, int(math.Ceil(float64(segmentDuration)/float64(sliderContinuousEventMaxInterval)*1.34)))
+		// rhythmPhase、rhythmRate 为本段节奏曲线的随机相位和周期，产生平滑的快慢变化而不是逐点抖动。
+		rhythmPhase := randomFloat(0, 2*math.Pi)
+		rhythmRate := randomFloat(0.8, 1.6)
+		// eventWeights 保存每个微移动的相对时长，归一化后总和仍等于本段预算。
+		eventWeights := make([]float64, eventCount)
+		var weightTotal float64
+		for eventIndex := range eventWeights {
+			// progress 是本段节奏曲线的归一化位置；较低权重代表更快移动，较高权重代表更慢移动。
+			progress := float64(eventIndex) / float64(max(1, eventCount-1))
+			weight := 1 + 0.22*math.Sin(2*math.Pi*rhythmRate*progress+rhythmPhase)
+			eventWeights[eventIndex] = weight
+			weightTotal += weight
+		}
+		for eventIndex := 1; eventIndex <= eventCount; eventIndex++ {
+			// progress 是当前微移动在本段中的线性进度，使拖动一直前进而不在锚点处驻留。
+			progress := float64(eventIndex) / float64(eventCount)
+			// eventDelay 是归一化后的本次微移动间隔，确保节奏变化不突破连续事件上限。
+			eventDelay := time.Duration(float64(segmentDuration) * eventWeights[eventIndex-1] / weightTotal)
+			if eventDelay <= 0 {
+				eventDelay = time.Nanosecond
+			}
+			expanded = append(expanded, trajectoryPoint{
+				x:     previous.x + (point.x-previous.x)*progress,
+				y:     previous.y + (point.y-previous.y)*progress,
+				delay: eventDelay,
+			})
+		}
+		previous = point
+	}
+	return expanded
+}
+
+// applyContinuousVerticalDrift 把 Y 坐标改为连续的正弦形曲线。
+// points 由调用方拥有；verticalSpan 是轨迹实际达到的 Y 轴峰峰值，非正值或不足三个点时保留水平路径作为降级行为。
+func applyContinuousVerticalDrift(points []trajectoryPoint, verticalSpan float64) {
+	if len(points) < 3 || verticalSpan <= 0 {
+		return
+	}
+	// direction 决定本次先向上还是先向下偏移，避免每次都从相同方向开始。
+	direction := 1.0
+	if rng.Intn(2) == 0 {
+		direction = -1
+	}
+	// rawY 保存未缩放的完整正弦周期；minY、maxY 用于把离散采样后的实际峰峰值精确映射到滑轨高度的一半。
+	rawY := make([]float64, len(points))
+	minY, maxY := math.Inf(1), math.Inf(-1)
+	// pointIndex 是当前轨迹点下标；pointCount 是轨迹总点数减一，用于得到闭区间的归一化进度。
+	pointCount := len(points) - 1
+	for pointIndex := range points {
+		// progress 是从按下到释放的归一化进度，正弦曲线让纵向移动连续且不呈线性变化。
+		progress := float64(pointIndex) / float64(pointCount)
+		rawY[pointIndex] = math.Sin(2 * math.Pi * progress)
+		minY = min(minY, rawY[pointIndex])
+		maxY = max(maxY, rawY[pointIndex])
+	}
+	// scale 把当前离散采样的最大纵向范围精确缩放到请求的峰峰值。
+	scale := verticalSpan / (maxY - minY)
+	// centre 让曲线围绕滑块中心上下摆动，而不是单向贴近轨道边缘。
+	centre := (minY + maxY) / 2
+	for pointIndex := range points {
+		points[pointIndex].y = direction * (rawY[pointIndex] - centre) * scale
+	}
+	points[0].y = 0
+	points[len(points)-1].y = 0
 }
 
 func randomFloat(minValue, maxValue float64) float64 {
@@ -171,7 +275,7 @@ func solveSliderStrict(page playwright.Page, scratch bool, logger sliderLogger, 
 		}
 		logSliderAttemptStart(logger, page, frame, btn, track, attempt+1, dist)
 
-		motion, err := simulateSlide(page, btn, dist)
+		motion, err := simulateSlide(page, btn, track, dist)
 		if err != nil {
 			logger.Warn("模拟滑动失败", "err", err)
 			if attempt < 2 {
@@ -214,7 +318,8 @@ func solveSliderStrict(page playwright.Page, scratch bool, logger sliderLogger, 
 		}
 		logSliderFailureState(logger, page, attempt+1)
 		if attempt < 2 {
-			reset := resetSliderForRetry(context.Background(), page, deadline)
+			// reset 是已完成拖动后点击页面失败按钮得到的恢复结果；该路径禁止 reload，避免丢失平台重新生成的滑块状态。
+			reset := retrySliderAfterFailedDrag(context.Background(), page, deadline)
 			logSliderReset(logger, attempt+1, reset)
 			if reset.err != nil {
 				return fmt.Errorf("滑块第 %d 次失败后无法恢复: %w", attempt+1, reset.err)
@@ -347,7 +452,8 @@ func calculateSlideDistance(btn, track playwright.ElementHandle, scratch bool) (
 }
 
 // simulateSlide 模拟人类滑动，并返回协议调用后的真实墙钟耗时。
-func simulateSlide(page playwright.Page, btn playwright.ElementHandle, distance float64) (slideMotionMetrics, error) {
+// btn 和 track 必须来自同一 frame；distance 是精确水平距离，纵向范围优先使用 track 的实际高度。
+func simulateSlide(page playwright.Page, btn, track playwright.ElementHandle, distance float64) (slideMotionMetrics, error) {
 	metrics := slideMotionMetrics{}
 	totalStarted := time.Now()
 	time.Sleep(secondsDuration(randomFloat(0.1, 0.3)))
@@ -357,6 +463,13 @@ func simulateSlide(page playwright.Page, btn playwright.ElementHandle, distance 
 	}
 	startX := bb.X + bb.Width/2
 	startY := bb.Y + bb.Height/2
+	// verticalSpan 是拖动 Y 坐标的峰峰值，默认使用按钮高度的一半；track 可测量时改用实际滑轨高度的一半。
+	verticalSpan := bb.Height / 2
+	// trackBox、trackErr 保存同一滑轨的几何信息及其读取错误；读取失败时保持按钮高度的安全降级值。
+	trackBox, trackErr := track.BoundingBox()
+	if trackErr == nil && trackBox != nil && trackBox.Height > 0 {
+		verticalSpan = trackBox.Height / 2
+	}
 	mouse := page.Mouse()
 
 	// 第一阶段：从左侧附近自然接近滑块。
@@ -377,28 +490,36 @@ func simulateSlide(page playwright.Page, btn playwright.ElementHandle, distance 
 	}
 	time.Sleep(secondsDuration(randomFloat(0.05, 0.15)))
 
-	pts := generateTrajectory(distance)
+	pts := generateTrajectory(distance, verticalSpan)
 	metrics.points = len(pts)
-	for _, pt := range pts {
-		metrics.plannedDelay += pt.delay
+	// point 是当前曲线锚点；plannedDelay 汇总锚点相对时长权重，便于诊断曲线规划。
+	for _, point := range pts {
+		metrics.plannedDelay += point.delay
 	}
-	// The reference implementation gets roughly 80-150ms of CDP round-trip
-	// latency per high-level point. The Go driver is often much faster, so keep
-	// the same six-point shape while compensating to the observed 480-900ms
-	// movement window using wall-clock time.
-	metrics.targetMovement = secondsDuration(randomFloat(0.48, 0.90))
+	// targetMovement 是拖动阶段的目标墙钟时长，保持连续且非匀速的前提下按用户要求提速一倍。
+	metrics.targetMovement = secondsDuration(randomFloat(
+		float64(sliderMovementMinDuration)/float64(time.Second),
+		float64(sliderMovementMaxDuration)/float64(time.Second),
+	))
+	// continuousPoints 是在相邻曲线锚点间持续分发的微移动事件；按下后至释放前不允许插入独立的静止停顿。
+	continuousPoints := expandContinuousTrajectory(pts, metrics.targetMovement)
 	movementStarted := time.Now()
 	currentX, currentY := startX, startY
-	for index, pt := range pts {
+	// scheduledElapsed 是当前微移动完成后的目标累计时间；浏览器调用本身消耗的时间会从后续等待中扣除。
+	var scheduledElapsed time.Duration
+	for _, pt := range continuousPoints {
 		currentX, currentY = startX+pt.x, startY+pt.y
-		if err := mouse.Move(currentX, currentY, playwright.MouseMoveOptions{Steps: playwright.Int(1 + rng.Intn(3))}); err != nil {
+		if err := mouse.Move(currentX, currentY, playwright.MouseMoveOptions{Steps: playwright.Int(1)}); err != nil {
 			_ = mouse.Up()
 			return metrics, err
 		}
-		planned := time.Duration(float64(pt.delay) * randomFloat(0.9, 1.1))
-		remainingPoints := len(pts) - index
-		delay := compensatedTrajectoryDelay(planned, metrics.targetMovement, time.Since(movementStarted), remainingPoints)
-		time.Sleep(delay)
+		// scheduledElapsed 按平滑节奏曲线推进，保证整段的快慢变化不会被浏览器调用开销累积拉长。
+		scheduledElapsed += pt.delay
+		// delay 是到下一计划时间点的剩余等待；非正值表示浏览器调用已耗尽本次等待预算，应立即继续移动。
+		delay := scheduledElapsed - time.Since(movementStarted)
+		if delay > 0 {
+			time.Sleep(delay)
+		}
 	}
 	metrics.movementElapsed = time.Since(movementStarted)
 	if isScratchCaptchaFromPage(page) {
@@ -549,12 +670,21 @@ func sliderRetryText(text string) bool {
 	return false
 }
 
-func resetSliderForRetry(ctx context.Context, page playwright.Page, deadline time.Time) sliderResetResult {
+// retrySliderAfterFailedDrag 在一次拖动已经完成且页面明确失败后，点击平台提供的失败按钮重新生成滑块。
+// ctx 控制等待；page 是当前验证页；deadline 是浏览器总期限；该函数绝不 reload 页面，调用方应保留本次失败现场。
+func retrySliderAfterFailedDrag(ctx context.Context, page playwright.Page, deadline time.Time) sliderResetResult {
+	return clickSliderRetry(ctx, page, deadline)
+}
+
+// clickSliderRetry 等待并点击可见的失败重试控件，然后确认新滑块已回到轨道起点。
+// ctx 控制轮询；page 是当前验证页；deadline 限制等待；返回结果只描述点击恢复，绝不包含页面刷新。
+func clickSliderRetry(ctx context.Context, page playwright.Page, deadline time.Time) sliderResetResult {
+	// result 保存重试按钮点击与新滑块归位的观察结果，供调用方决定是否允许后续刷新恢复。
 	result := sliderResetResult{}
+	// selector、clickErr 分别保存命中的失败按钮选择器和首次点击结果。
 	selector, clickErr := clickRetry(page)
 	if clickErr != nil {
-		// AWSC can publish the failure control shortly after its verification
-		// request completes. Give it a brief chance before reloading the page.
+		// waitDeadline 给平台渲染失败按钮一个短暂窗口；轮询期间不刷新当前验证页。
 		waitDeadline := boundedDeadline(deadline, 800*time.Millisecond)
 		for time.Now().Before(waitDeadline) {
 			if err := sleepUntil(ctx, waitDeadline, 100*time.Millisecond); err != nil {
@@ -566,34 +696,46 @@ func resetSliderForRetry(ctx context.Context, page playwright.Page, deadline tim
 			}
 		}
 	}
-	if clickErr == nil {
-		result.method = "click"
-		result.selector = selector
-		result.ready = waitForSliderReady(ctx, page, boundedDeadline(deadline, 4*time.Second))
-		if result.ready {
-			return result
-		}
+	if clickErr != nil {
+		result.err = fmt.Errorf("未找到可点击的滑块失败重试控件: %w", clickErr)
+		return result
+	}
+	result.method = "click"
+	result.selector = selector
+	result.ready = waitForSliderReady(ctx, page, boundedDeadline(deadline, 4*time.Second))
+	if !result.ready {
+		result.err = fmt.Errorf("点击滑块失败重试控件后未重新归位")
+	}
+	return result
+}
+
+func resetSliderForRetry(ctx context.Context, page playwright.Page, deadline time.Time) sliderResetResult {
+	// result 保存先尝试点击恢复后的结果；只有非拖动失败的调用方才允许在其失败时回退到 reload。
+	result := clickSliderRetry(ctx, page, deadline)
+	if result.err == nil {
+		return result
 	}
 
-	result.method = "reload"
+	// reloadResult 清除点击失败的细节，记录初始页面恢复场景允许使用的页面重载结果。
+	reloadResult := sliderResetResult{method: "reload"}
 	reloadTimeout := boundedDuration(deadline, 8*time.Second)
 	if reloadTimeout <= 0 {
-		result.err = fmt.Errorf("滑块恢复前已超过总超时")
-		return result
+		reloadResult.err = fmt.Errorf("滑块恢复前已超过总超时")
+		return reloadResult
 	}
 	_, reloadErr := page.Reload(playwright.PageReloadOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
 		Timeout:   playwright.Float(float64(reloadTimeout.Milliseconds())),
 	})
 	if reloadErr != nil {
-		result.err = fmt.Errorf("重载滑块验证页: %w", reloadErr)
-		return result
+		reloadResult.err = fmt.Errorf("重载滑块验证页: %w", reloadErr)
+		return reloadResult
 	}
-	result.ready = waitForSliderReady(ctx, page, boundedDeadline(deadline, 5*time.Second))
-	if !result.ready {
-		result.err = fmt.Errorf("重载后滑块未重新出现")
+	reloadResult.ready = waitForSliderReady(ctx, page, boundedDeadline(deadline, 5*time.Second))
+	if !reloadResult.ready {
+		reloadResult.err = fmt.Errorf("重载后滑块未重新出现")
 	}
-	return result
+	return reloadResult
 }
 
 func waitForSliderReady(ctx context.Context, page playwright.Page, deadline time.Time) bool {

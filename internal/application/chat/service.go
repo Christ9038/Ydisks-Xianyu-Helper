@@ -48,6 +48,10 @@ type Message struct {
 	Content string
 	// Status 是消息投递状态。
 	Status string
+	// ReadStatus 是平台确认的读取状态；值为 2 表示对方已读，其他值表示尚未确认。
+	ReadStatus int
+	// ReadAt 是平台确认对方已读的 Unix 毫秒时间戳；零值表示尚未收到回执。
+	ReadAt int64
 	// SentAt 是消息发送时间的 Unix 秒时间戳。
 	SentAt int64
 }

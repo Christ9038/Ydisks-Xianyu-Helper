@@ -24,14 +24,14 @@ func TestChatSessionFromApplicationKeepsNonSensitiveFields(t *testing.T) {
 // TestChatMessagesFromDBKeepsMessageContract 验证数据库消息转换为应用消息时完整保留 API 所需字段。
 func TestChatMessagesFromDBKeepsMessageContract(t *testing.T) {
 	// messages 保存 legacy 聊天仓储返回的消息模型。
-	messages := []db.ChatMessage{{ID: 7, CookieID: "account-1", ChatID: "chat-1", MessageKey: "key-1", Direction: "incoming", SenderID: "buyer-1", SenderName: "买家", MessageType: "text", Content: "你好", Status: "received", SentAt: 99}}
+	messages := []db.ChatMessage{{ID: 7, CookieID: "account-1", ChatID: "chat-1", MessageKey: "key-1", Direction: "incoming", SenderID: "buyer-1", SenderName: "买家", MessageType: "text", Content: "你好", Status: "received", ReadStatus: 2, ReadAt: 88, SentAt: 99}}
 	// converted 保存不再暴露数据库模型的应用层消息。
 	converted := ChatMessagesFromDB(messages)
 	if len(converted) != 1 {
 		t.Fatalf("消息数量异常: got=%d", len(converted))
 	}
 	// expected 保存应用层消息字段。
-	expected := chatapp.Message{ID: 7, AccountID: "account-1", ChatID: "chat-1", MessageKey: "key-1", Direction: "incoming", SenderID: "buyer-1", SenderName: "买家", MessageType: "text", Content: "你好", Status: "received", SentAt: 99}
+	expected := chatapp.Message{ID: 7, AccountID: "account-1", ChatID: "chat-1", MessageKey: "key-1", Direction: "incoming", SenderID: "buyer-1", SenderName: "买家", MessageType: "text", Content: "你好", Status: "received", ReadStatus: 2, ReadAt: 88, SentAt: 99}
 	if !reflect.DeepEqual(converted[0], expected) {
 		t.Fatalf("聊天消息转换异常: got=%+v want=%+v", converted[0], expected)
 	}

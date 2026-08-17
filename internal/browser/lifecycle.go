@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -48,6 +49,10 @@ func chromiumLaunchArgs() []string {
 	if captchaIgnoreCertificateErrors() {
 		args = append(args, "--ignore-certificate-errors")
 	}
+	// proxy 是通过受限解析验证后的验证码浏览器代理，仅在部署显式配置时覆盖 Chromium 的系统代理选择。
+	if proxy := captchaBrowserProxy(); proxy != "" {
+		args = append(args, "--proxy-server="+proxy)
+	}
 	return args
 }
 
@@ -61,6 +66,28 @@ func captchaIgnoreCertificateErrors() bool {
 	// parsed 是环境开关的布尔解释；err 表示值不属于 Go 支持的布尔文本。
 	parsed, err := strconv.ParseBool(value)
 	return err == nil && parsed
+}
+
+// captchaBrowserProxy 返回仅供 token CAPTCHA Chromium 使用的显式代理地址；默认保留系统代理，非法、带凭证或带查询的值一律忽略，避免把敏感代理信息写入启动参数或日志。
+func captchaBrowserProxy() string {
+	// value 是环境变量中的代理地址，空值表示让 Chromium 沿用操作系统的正常网络配置。
+	value := strings.TrimSpace(os.Getenv("CAPTCHA_BROWSER_PROXY"))
+	if value == "" {
+		return ""
+	}
+	// parsed、parseErr 是受限代理地址的结构化解析结果；仅接受 Chromium 支持的无凭证 HTTP(S)/SOCKS 代理。
+	parsed, parseErr := url.Parse(value)
+	if parseErr != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return ""
+	}
+	// scheme 是统一小写后的代理协议，限制集合避免把任意 Chromium flag 拼入 Args。
+	scheme := strings.ToLower(parsed.Scheme)
+	switch scheme {
+	case "http", "https", "socks4", "socks5":
+		return value
+	default:
+		return ""
+	}
 }
 
 // chromiumExecutablePath 负责chromiumExecutable路径相关处理。

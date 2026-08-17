@@ -221,6 +221,9 @@ func fallbackChromiumArgs(profileDir string, headless bool, headlessUserAgent ..
 	if captchaIgnoreCertificateErrors() {
 		args = append(args, "--ignore-certificate-errors")
 	}
+	if proxy := captchaBrowserProxy(); proxy != "" {
+		args = append(args, "--proxy-server="+proxy)
+	}
 	if headless && len(headlessUserAgent) > 0 && headlessUserAgent[0] != nil {
 		if userAgent := normalizeHeadlessUserAgent(*headlessUserAgent[0]); userAgent != "" {
 			args = append(args, "--user-agent="+userAgent)

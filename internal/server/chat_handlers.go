@@ -434,7 +434,7 @@ func (s *Server) chatWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		case // event、ok 保存event、ok，供当前处理流程使用
 		event, ok := <-events:
-			if !ok || wsjson.Write(ctx, conn, event) != nil {
+			if !ok || wsjson.Write(ctx, conn, newChatEventDTOFromApplication(event)) != nil {
 				return
 			}
 		}

@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -32,12 +34,27 @@ const slider = document.querySelector('#nc_1_n1z');
 let pressed = false;
 let released = false;
 let startX = 0;
+let dragMoveCount = 0;
+let dragStartedAt = 0;
+let dragEndedAt = 0;
+let dragMinY = Infinity;
+let dragMaxY = -Infinity;
+let dragMaxX = -Infinity;
 slider.addEventListener('mousedown', event => {
   pressed = true;
   startX = event.clientX;
+  dragStartedAt = performance.now();
+});
+document.addEventListener('mousemove', event => {
+  if (!pressed) return;
+  dragMoveCount++;
+  dragMinY = Math.min(dragMinY, event.clientY);
+  dragMaxY = Math.max(dragMaxY, event.clientY);
+  dragMaxX = Math.max(dragMaxX, event.clientX);
 });
 window.addEventListener('mouseup', () => {
   released = pressed;
+  if (released) dragEndedAt = performance.now();
 });
 slider.addEventListener('click', event => {
   if (!released || event.clientX - startX < 300) return;
@@ -86,13 +103,37 @@ slider.addEventListener('click', event => {
 	if _, fresh := freshX5Cookies(cookies, nil); !fresh || isPunishURL(page.URL()) {
 		t.Fatalf("slider did not complete reference success flow: url=%s cookies=%v", page.URL(), cookies)
 	}
+	// motionState 记录页面实际观察到的按下后移动数和拖动耗时，用真实 Chromium 防止轨迹退回固定短促动作。
+	motionState, err := page.Evaluate(`() => ({ dragMoveCount, dragDuration: dragEndedAt - dragStartedAt, dragVerticalSpan: dragMaxY - dragMinY, dragOvershoot: dragMaxX - startX - 376 })`)
+	if err != nil {
+		t.Fatalf("读取真实滑动轨迹状态: %v", err)
+	}
+	// motionValues 是页面返回的可序列化状态，后续只读取非敏感的事件计数与耗时。
+	motionValues, ok := motionState.(map[string]any)
+	if !ok {
+		t.Fatalf("真实滑动状态类型=%T", motionState)
+	}
+	// moveCount、durationMS、verticalSpan、overshoot 分别是按下后事件数、墙钟毫秒数、实际纵向峰峰值和超出可用轨道的鼠标距离；Playwright 可能把 JS 数字解码为不同 Go 数字类型。
+	moveCount, moveCountErr := strconv.ParseFloat(fmt.Sprint(motionValues["dragMoveCount"]), 64)
+	durationMS, durationErr := strconv.ParseFloat(fmt.Sprint(motionValues["dragDuration"]), 64)
+	verticalSpan, verticalSpanErr := strconv.ParseFloat(fmt.Sprint(motionValues["dragVerticalSpan"]), 64)
+	overshoot, overshootErr := strconv.ParseFloat(fmt.Sprint(motionValues["dragOvershoot"]), 64)
+	if moveCountErr != nil || durationErr != nil || verticalSpanErr != nil || overshootErr != nil {
+		t.Fatalf("真实滑动状态字段无效: %#v", motionValues)
+	}
+	if moveCount < 8 || durationMS < 450 || durationMS > 1300 || verticalSpan < 20 || verticalSpan > 24 || overshoot < 4 || overshoot > 20 {
+		t.Fatalf("真实轨迹应包含连续多点、提速后的墙钟范围、半轨道高度纵向范围和受控超调: moves=%.0f duration_ms=%.0f vertical_span=%.0f overshoot=%.0f", moveCount, durationMS, verticalSpan, overshoot)
+	}
 }
 
 func TestPlaywrightSliderRecoversFromHiddenFailureState(t *testing.T) {
 	if os.Getenv("RUN_BROWSER_INTEGRATION") != "1" {
 		t.Skip("set RUN_BROWSER_INTEGRATION=1 to exercise slider failure recovery")
 	}
+	// requestCount 统计验证页文档请求次数，已滑动失败后的重试必须保持为一次请求，不能通过 reload 恢复。
+	var requestCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount.Add(1)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = io.WriteString(w, `<!doctype html><html><head><title>验证码拦截</title></head><body>
 <div id="nocaptcha" class="nc-container"><div id="nc_1_wrapper"></div></div>
@@ -167,6 +208,11 @@ document.addEventListener('click', event => {
 	values, ok := state.(map[string]any)
 	if !ok || fmt.Sprint(values["dragAttempts"]) != "2" || fmt.Sprint(values["retryClicks"]) != "1" {
 		t.Fatalf("unexpected retry state: %#v", state)
+	}
+	// requests 是测试期间导航验证页的文档请求数；第二次请求意味着恢复逻辑错误地刷新了页面。
+	requests := requestCount.Load()
+	if requests != 1 {
+		t.Fatalf("滑动失败后应点击失败按钮直接重试，验证页请求数=%d", requests)
 	}
 }
 

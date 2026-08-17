@@ -130,6 +130,10 @@ type chatMessageDTO struct {
 	Content string `json:"content"`
 	// Status 是消息投递状态。
 	Status string `json:"status"`
+	// ReadStatus 是平台已读回执状态；值为 2 时表示对方已读。
+	ReadStatus int `json:"read_status"`
+	// ReadAt 是平台确认已读的 Unix 毫秒时间戳；零值表示尚未确认。
+	ReadAt int64 `json:"read_at"`
 	// SentAt 是消息发送时间的 Unix 秒。
 	SentAt int64 `json:"sent_at"`
 }
@@ -144,7 +148,7 @@ func newChatMessageDTOFromApplication(message *chatapp.Message) chatMessageDTO {
 		MessageKey: message.MessageKey, Direction: message.Direction,
 		SenderID: message.SenderID, SenderName: message.SenderName,
 		MessageType: message.MessageType, Content: message.Content,
-		Status: message.Status, SentAt: message.SentAt,
+		Status: message.Status, ReadStatus: message.ReadStatus, ReadAt: message.ReadAt, SentAt: message.SentAt,
 	}
 }
 
@@ -158,8 +162,35 @@ func newChatMessageDTOsFromApplication(messages []chatapp.Message) []chatMessage
 			ID: message.ID, AccountID: message.AccountID, ChatID: message.ChatID,
 			MessageKey: message.MessageKey, Direction: message.Direction, SenderID: message.SenderID,
 			SenderName: message.SenderName, MessageType: message.MessageType, Content: message.Content,
-			Status: message.Status, SentAt: message.SentAt,
+			Status: message.Status, ReadStatus: message.ReadStatus, ReadAt: message.ReadAt, SentAt: message.SentAt,
 		})
+	}
+	return result
+}
+
+// chatEventDTO 是聊天实时推送的具名传输契约，确保 WebSocket 与 HTTP 使用相同的 snake_case 消息字段。
+type chatEventDTO struct {
+	// Type 是实时事件类别，例如 message.created。
+	Type string `json:"type"`
+	// Message 是本次事件关联的非敏感聊天消息；非消息事件可以为空。
+	Message *chatMessageDTO `json:"message,omitempty"`
+	// Session 是本次事件关联的非敏感会话摘要；无需更新会话时可以为空。
+	Session *chatSessionDTO `json:"session,omitempty"`
+}
+
+// newChatEventDTOFromApplication 将应用层实时事件转换为浏览器稳定使用的 WebSocket DTO。
+func newChatEventDTOFromApplication(event chatapp.Event) chatEventDTO {
+	// result 保存转换后的实时事件；指针字段只在应用事件提供对应实体时设置。
+	result := chatEventDTO{Type: event.Type}
+	if event.Message != nil {
+		// message 保存避免 WebSocket 直接序列化应用层 PascalCase 字段的消息 DTO。
+		message := newChatMessageDTOFromApplication(event.Message)
+		result.Message = &message
+	}
+	if event.Session != nil {
+		// session 保存与 HTTP 会话接口一致的 snake_case 会话 DTO。
+		session := newChatSessionDTOFromApplication(*event.Session)
+		result.Session = &session
 	}
 	return result
 }

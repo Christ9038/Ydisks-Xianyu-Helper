@@ -11,6 +11,9 @@ export default {
     "./index.html",
     "./*.{js,ts,jsx,tsx}",
     "./components/**/*.{js,ts,jsx,tsx}",
+    // 阶段七后的页面和共享 UI 位于 app/shared，必须参与生产 utility 扫描。
+    "./app/**/*.{js,ts,jsx,tsx}",
+    "./shared/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {

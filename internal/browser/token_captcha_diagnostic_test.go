@@ -35,6 +35,37 @@ func TestTokenCaptchaDiagnosticRedactsSensitiveValues(t *testing.T) {
 	}
 }
 
+// TestTokenCaptchaSlideBusinessResult 验证滑块响应诊断只保留受限顶层结果，并且不会将嵌套滑块数据或秘密值写入工件。
+func TestTokenCaptchaSlideBusinessResult(t *testing.T) {
+	// body 是包含业务结果、敏感嵌套数据和无关字段的模拟滑块响应，测试仅允许前者进入摘要。
+	body := []byte(`{"ret":["FAIL_SYS_USER_VALIDATE::x5secdata=secret-value","SECOND"],"code":403,"success":false,"data":{"slidedata":"secret-slide"}}`)
+	// got 是默认诊断模式下的业务摘要。
+	got := tokenCaptchaSlideBusinessResult(body)
+	if !strings.Contains(got, "ret=FAIL_SYS_USER_VALIDATE::x5secdata=<redacted>,SECOND") || !strings.Contains(got, "code=403") || !strings.Contains(got, "success=false") {
+		t.Fatalf("unexpected slide business result: %q", got)
+	}
+	if strings.Contains(got, "secret-value") || strings.Contains(got, "secret-slide") {
+		t.Fatalf("slide business result leaked sensitive data: %q", got)
+	}
+	// nonSlideURL 是普通 MTOP 地址，不得触发任何响应正文读取。
+	nonSlideURL := "https://h5api.m.goofish.com/h5/mtop.taobao.idlemessage.pc.login.token/1.0/report"
+	if isTokenCaptchaSlideResponse(nonSlideURL) {
+		t.Fatalf("ordinary response incorrectly treated as slide: %q", nonSlideURL)
+	}
+	// slideURL 是真实接口形状的滑块地址，尾部斜杠也必须被正确识别。
+	slideURL := "https://h5api.m.goofish.com/h5/mtop.taobao.idlemessage.pc.login.token/1.0/slide/"
+	if !isTokenCaptchaSlideResponse(slideURL) {
+		t.Fatalf("slide response was not recognized: %q", slideURL)
+	}
+	// malformedBody 不能被当作可诊断 JSON，必须返回空摘要而非回显原文。
+	malformedBody := []byte("secret malformed response")
+	// malformedResult 是无法解析的响应摘要，必须保持为空以避免泄漏原始文本。
+	malformedResult := tokenCaptchaSlideBusinessResult(malformedBody)
+	if malformedResult != "" {
+		t.Fatalf("malformed response should not be recorded: %q", malformedResult)
+	}
+}
+
 // TestTokenCaptchaDiagnosticBundleBrowserIntegration 在真实 Chromium 中验证诊断包包含必要现场且默认不泄漏验证码查询值；仅在显式浏览器集成模式运行。
 func TestTokenCaptchaDiagnosticBundleBrowserIntegration(t *testing.T) {
 	if os.Getenv("RUN_BROWSER_INTEGRATION") != "1" {

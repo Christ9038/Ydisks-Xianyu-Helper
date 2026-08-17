@@ -438,7 +438,9 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
 
     // unknownMessage 是不在当前联系人列表中的实时消息。
     const unknownMessage = { ...messageFixture, chat_id: 'chat-unknown', message_key: 'message-unknown', content: '未知会话消息' };
-    getSessionPageMock.mockResolvedValueOnce({ sessions: [sessionFixture], has_more: false, next_cursor: undefined });
+    // unknownSession 是刷新接口返回的新会话，必须自动出现在联系人列表中。
+    const unknownSession = { ...sessionFixture, chat_id: 'chat-unknown', buyer_id: 'buyer-unknown', last_message: '未知会话消息', last_message_at: 9 };
+    getSessionPageMock.mockResolvedValueOnce({ sessions: [unknownSession, sessionFixture], has_more: false, next_cursor: undefined });
     await act(
       // unknownMessageAction 触发未知会话的联系人刷新。
       () => latestSocket?.onmessage?.({ data: JSON.stringify({ message: unknownMessage }) }),
@@ -446,6 +448,10 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     await waitFor(
       // reloadAssertion 等待未知会话触发联系人刷新。
       () => expect(getSessionPageMock).toHaveBeenCalledWith('account-1', undefined, expect.objectContaining({ signal: expect.any(AbortSignal) }), true),
+    );
+    await waitFor(
+      // unknownSessionAssertion 等待实时事件关联的新会话写入联系人列表。
+      () => expect(hook.result.current.activeSessions).toContainEqual(unknownSession),
     );
     await act(
       // emptyMessageAction 触发无消息载荷并保持状态稳定。

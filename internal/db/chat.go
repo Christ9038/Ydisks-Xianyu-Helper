@@ -204,6 +204,29 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 	// inserted 保存inserted，供当前处理流程使用
 	inserted, _ := res.RowsAffected()
 	if inserted > 0 {
+		// inheritErr 保存买家后续消息确认此前出站消息已读时的失败；同一会话中的后续回复是已读历史的确定证据。
+		if message.Direction == "incoming" && message.MessageType != "system" {
+			_, inheritErr := tx.ExecContext(ctx, `UPDATE chat_messages SET read_status=2,
+				read_at=CASE WHEN read_status=2 AND read_at>0 THEN read_at ELSE ? END
+				WHERE cookie_id=? AND chat_id=? AND direction='outgoing' AND sent_at<=?`, message.SentAt, message.CookieID, message.ChatID, message.SentAt)
+			if inheritErr != nil {
+				return nil, false, fmt.Errorf("按后续消息确认聊天已读: %w", inheritErr)
+			}
+		}
+		// inheritErr 保存平台消息补入历史时继承本地临时消息已读回执的失败，避免同一消息因键不同长期显示未读。
+		if message.Direction == "outgoing" && strings.HasSuffix(message.MessageKey, ".PNM") {
+			_, inheritErr := tx.ExecContext(ctx, `UPDATE chat_messages AS platform SET read_status=2,read_at=(SELECT local.read_at FROM chat_messages AS local
+				WHERE local.cookie_id=platform.cookie_id AND local.chat_id=platform.chat_id AND local.direction='outgoing'
+				AND local.message_key NOT LIKE '%.PNM' AND local.content=platform.content AND local.read_status=2
+				AND ABS(local.sent_at-platform.sent_at)<=10000 ORDER BY local.read_at DESC LIMIT 1)
+				WHERE platform.cookie_id=? AND platform.message_key=? AND platform.read_status<>2 AND EXISTS (SELECT 1 FROM chat_messages AS local
+				WHERE local.cookie_id=platform.cookie_id AND local.chat_id=platform.chat_id AND local.direction='outgoing'
+				AND local.message_key NOT LIKE '%.PNM' AND local.content=platform.content AND local.read_status=2
+				AND ABS(local.sent_at-platform.sent_at)<=10000)`, message.CookieID, message.MessageKey)
+			if inheritErr != nil {
+				return nil, false, fmt.Errorf("继承聊天已读回执: %w", inheritErr)
+			}
+		}
 		// unreadDelta 保存unreadDelta，供当前处理流程使用
 		unreadDelta := 0
 		if unread {
@@ -363,14 +386,24 @@ func (s *ChatStore) UpdateMessageStatus(ctx context.Context, cookieID, key, stat
 	return s.GetMessageByKey(ctx, cookieID, key)
 }
 
-// MarkMessageRead 按平台回执把一条出站消息标记为已读，并返回更新后的消息。
+// MarkMessageRead 按平台回执把目标出站消息及同会话中更早的出站消息标记为已读，并返回目标消息。
 func (s *ChatStore) MarkMessageRead(ctx context.Context, cookieID, key string, readAt int64) (*ChatMessage, error) {
+	// message 保存平台回执对应的出站消息；其会话和发送时间界定本次批量确认范围。
+	message, err := s.GetMessageByKey(ctx, cookieID, key)
+	if err != nil {
+		return nil, err
+	}
+	if message.Direction != "outgoing" {
+		return nil, ErrNotFound
+	}
 	// readAt 保存平台已读时间；缺失时使用本机 UTC 时间作为展示回退。
 	if readAt <= 0 {
 		readAt = time.Now().UTC().UnixMilli()
 	}
-	// err 保存只更新出站消息的数据库错误，防止错误改写入站状态。
-	if _, err := s.DB.ExecContext(ctx, `UPDATE chat_messages SET read_status=2,read_at=? WHERE cookie_id=? AND message_key=? AND direction='outgoing'`, readAt, cookieID, key); err != nil {
+	// err 保存按回执水位更新同会话出站历史的错误；对方读到目标消息时更早消息也已被阅读。
+	if _, err = s.DB.ExecContext(ctx, `UPDATE chat_messages SET read_status=2,
+		read_at=CASE WHEN read_status=2 AND read_at>0 THEN read_at ELSE ? END
+		WHERE cookie_id=? AND chat_id=? AND direction='outgoing' AND sent_at<=?`, readAt, cookieID, message.ChatID, message.SentAt); err != nil {
 		return nil, err
 	}
 	return s.GetMessageByKey(ctx, cookieID, key)

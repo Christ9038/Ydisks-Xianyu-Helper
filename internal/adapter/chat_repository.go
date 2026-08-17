@@ -37,7 +37,8 @@ func (r chatRepository) ListMessages(ctx context.Context, userID int64, accountI
 		messages = append(messages, chatapp.Message{
 			ID: row.ID, AccountID: row.CookieID, ChatID: row.ChatID, MessageKey: row.MessageKey,
 			Direction: row.Direction, SenderID: row.SenderID, SenderName: row.SenderName,
-			MessageType: row.MessageType, Content: row.Content, Status: row.Status, SentAt: row.SentAt,
+			MessageType: row.MessageType, Content: row.Content, Status: row.Status,
+			ReadStatus: row.ReadStatus, ReadAt: row.ReadAt, SentAt: row.SentAt,
 		})
 	}
 	return messages, nil

@@ -75,6 +75,8 @@ type tokenCaptchaDiagnosticNetworkEvent struct {
 	Status       int    `json:"status,omitempty"`
 	ContentType  string `json:"content_type,omitempty"`
 	Failure      string `json:"failure,omitempty"`
+	// BusinessResult 仅保存滑块接口响应中的脱敏业务结果，帮助区分轨迹被拒绝与网络失败；绝不保存滑块参数、Cookie 或响应正文。
+	BusinessResult string `json:"business_result,omitempty"`
 }
 
 // tokenCaptchaDiagnosticConsoleEvent 保存页面控制台输出，默认先去除可能出现的凭证和验证参数。
@@ -238,27 +240,93 @@ func (d *tokenCaptchaDiagnostic) recordRequest(request playwright.Request) {
 	})
 }
 
-// recordResponse 在 d.mu 保护下记录一条脱敏响应元数据，不读取可能包含凭证的响应正文。
+// recordResponse 在 d.mu 保护下记录一条脱敏响应元数据；仅对 /slide 响应提取受限业务结果，不持久化响应正文。
 func (d *tokenCaptchaDiagnostic) recordResponse(response playwright.Response) {
+	// request 是与响应关联的请求，只用于记录方法、资源类型与是否为滑块提交。
+	request := response.Request()
+	// businessResult 是从滑块接口响应提炼出的有限状态，空值表示非滑块请求或响应不可安全解析。
+	businessResult := ""
+	if isTokenCaptchaSlideResponse(response.URL()) {
+		// body、bodyErr 是 Playwright 已接收的响应副本及读取错误；只交给脱敏摘要器，不能写入诊断包或普通日志。
+		body, bodyErr := response.Body()
+		if bodyErr == nil {
+			businessResult = tokenCaptchaSlideBusinessResult(body)
+		}
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if len(d.responses) >= tokenCaptchaDiagnosticMaxEvents {
 		return
 	}
-	// request 是与响应关联的请求，只用于记录方法和资源类型；contentType 只记录公开的响应媒体类型。
-	request := response.Request()
 	// contentType 记录响应的公开媒体类型，不读取可能携带账号数据的响应正文。
 	contentType := response.Headers()["content-type"]
 	d.responses = append(d.responses, tokenCaptchaDiagnosticNetworkEvent{
-		Kind:         "response",
-		At:           time.Now().UTC().Format(time.RFC3339Nano),
-		URL:          d.safeURL(response.URL()),
-		Method:       request.Method(),
-		ResourceType: request.ResourceType(),
-		Navigation:   request.IsNavigationRequest(),
-		Status:       response.Status(),
-		ContentType:  contentType,
+		Kind:           "response",
+		At:             time.Now().UTC().Format(time.RFC3339Nano),
+		URL:            d.safeURL(response.URL()),
+		Method:         request.Method(),
+		ResourceType:   request.ResourceType(),
+		Navigation:     request.IsNavigationRequest(),
+		Status:         response.Status(),
+		ContentType:    contentType,
+		BusinessResult: businessResult,
 	})
+}
+
+// isTokenCaptchaSlideResponse 判断 URL 是否为当前 token 风控的滑块提交接口；只匹配路径，避免读取其他账号接口的响应体。
+func isTokenCaptchaSlideResponse(rawURL string) bool {
+	// parsed 是结构化后的请求地址；err 表示地址无法解析，此时按非滑块接口处理以保持诊断最小化。
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	return err == nil && strings.HasSuffix(strings.TrimRight(parsed.Path, "/"), "/slide")
+}
+
+// tokenCaptchaSlideBusinessResult 从 /slide JSON 响应中提取顶层 ret、code 与 success 的脱敏摘要；body 只在函数栈内存在，返回值不含正文和验证参数。
+func tokenCaptchaSlideBusinessResult(body []byte) string {
+	// decoded 只声明平台响应中允许诊断的顶层状态字段，未知字段包括滑块数据与会话信息均不会被解码或输出。
+	decoded := struct {
+		// Ret 是 MTOP 风格的业务结果数组，通常说明风控验证接受或拒绝原因。
+		Ret []string `json:"ret"`
+		// Code 是部分响应使用的数值或字符串状态码；RawMessage 防止把嵌套业务数据展开。
+		Code json.RawMessage `json:"code"`
+		// Success 是部分响应使用的顶层布尔成功标志。
+		Success *bool `json:"success"`
+	}{}
+	// decodeErr 表示响应不是预期 JSON，诊断保持空而不把原文误写入工件。
+	if decodeErr := json.Unmarshal(body, &decoded); decodeErr != nil {
+		return ""
+	}
+	// parts 以固定、少量字段构成诊断摘要，禁止从 data 等嵌套字段拷贝内容。
+	parts := make([]string, 0, 3)
+	if len(decoded.Ret) > 0 {
+		// retValues 是逐项脱敏后的 MTOP 结果，最多记录前三项以限制诊断大小与信息范围。
+		retValues := make([]string, 0, min(3, len(decoded.Ret)))
+		// retIndex、retValue 分别表示当前结果位置和原始结果文本；只把脱敏后的文本写入摘要。
+		for retIndex, retValue := range decoded.Ret {
+			if retIndex >= 3 {
+				break
+			}
+			retValues = append(retValues, redactDiagnosticText(retValue))
+		}
+		parts = append(parts, "ret="+strings.Join(retValues, ","))
+	}
+	if len(decoded.Code) > 0 && string(decoded.Code) != "null" {
+		// code 是顶层原始 JSON 标量；先验证其为字符串或数字，避免嵌套对象进入诊断。
+		code := ""
+		if json.Unmarshal(decoded.Code, &code) == nil {
+			parts = append(parts, "code="+redactDiagnosticText(code))
+		} else {
+			// numericCode 是仅接受数字的备选状态码，其他 JSON 形状保持不记录。
+			var numericCode json.Number
+			if json.Unmarshal(decoded.Code, &numericCode) == nil {
+				parts = append(parts, "code="+numericCode.String())
+			}
+		}
+	}
+	if decoded.Success != nil {
+		// success 是明确的布尔结果，格式化后不携带平台任意文本。
+		parts = append(parts, fmt.Sprintf("success=%t", *decoded.Success))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // safeURL 在默认模式删除 URL 查询值与 fragment，仅保留排序后的参数名和查询摘要；敏感模式由显式环境授权才原样返回。

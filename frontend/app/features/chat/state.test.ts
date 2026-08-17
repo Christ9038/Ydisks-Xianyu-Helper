@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import type { ChatMessage, ChatSession } from '../../../shared/api-contract';
-import { collectChatReadReceipts, filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, mergeLiveMessage, mergeOlderMessages, messageTime } from './state';
+import { collectChatReadReceipts, filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, mergeLiveMessage, mergeOlderMessages, messageTime, unreadBadgeClassName, unreadBadgeLabel } from './state';
 
 // sessionFixture 是覆盖搜索、未读筛选和联系人隔离的最小会话数据。
 const sessionFixture: ChatSession[] = [
@@ -61,4 +61,16 @@ test('Chat 状态工具覆盖追加消息、搜索字段和时间格式化',
     expect(formatClock(Date.now())).toMatch(/^\d{2}:\d{2}$/);
     expect(formatClock(Date.now() - 86_400_000)).toMatch(/\d{2}\/\d{2}/);
     expect(messageTime(Date.now())).toMatch(/\d{2}\/\d{2}/);
+  });
+
+test('Chat 未读徽标为单数字保留正圆尺寸，多数字才横向扩展',
+  // 未读徽标测试验证账号页签和会话列表共享的形状边界。
+  () => {
+    expect(unreadBadgeLabel(1)).toBe('1');
+    expect(unreadBadgeLabel(99)).toBe('99');
+    expect(unreadBadgeLabel(100)).toBe('99+');
+    expect(unreadBadgeClassName(1)).toContain('w-5');
+    expect(unreadBadgeClassName(1)).not.toContain('min-w-5');
+    expect(unreadBadgeClassName(10)).toContain('min-w-5');
+    expect(unreadBadgeClassName(99)).toContain('min-w-5');
   });

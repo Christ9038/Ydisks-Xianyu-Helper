@@ -129,6 +129,48 @@ func TestCaptchaIgnoreCertificateErrors(t *testing.T) {
 	}
 }
 
+// TestCaptchaBrowserProxy 验证验证码浏览器只接受无凭证的受限代理地址，并在配置为空或非法时保留系统代理行为。
+func TestCaptchaBrowserProxy(t *testing.T) {
+	// testCases 是输入环境值与预期解析结果，覆盖默认、支持协议及敏感/危险输入。
+	testCases := []struct {
+		// name 是失败时定位具体输入的用例名。
+		name string
+		// value 是待解析的 CAPTCHA 浏览器代理配置。
+		value string
+		// want 是允许传给 Chromium 的预期代理地址，空串代表不追加覆盖参数。
+		want string
+	}{
+		{name: "empty", value: "", want: ""},
+		{name: "http", value: " http://127.0.0.1:1082 ", want: "http://127.0.0.1:1082"},
+		{name: "socks5", value: "socks5://127.0.0.1:1080", want: "socks5://127.0.0.1:1080"},
+		{name: "credentials", value: "http://user:secret@127.0.0.1:1082", want: ""},
+		{name: "query", value: "http://127.0.0.1:1082?secret=value", want: ""},
+		{name: "unsupported", value: "file:///tmp/proxy", want: ""},
+	}
+	// testCase 是当前要通过独立环境变量验证的代理配置用例。
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("CAPTCHA_BROWSER_PROXY", testCase.value)
+			// got 是解析后允许写入 Chromium 参数的代理地址。
+			got := captchaBrowserProxy()
+			if got != testCase.want {
+				t.Fatalf("captchaBrowserProxy()=%q, want %q", got, testCase.want)
+			}
+		})
+	}
+	t.Setenv("CAPTCHA_BROWSER_PROXY", "http://127.0.0.1:1082")
+	// proxyArgs 是显式代理启用时主 Chromium 引擎的启动参数集合。
+	proxyArgs := strings.Join(chromiumLaunchArgs(), " ")
+	if !strings.Contains(proxyArgs, "--proxy-server=http://127.0.0.1:1082") {
+		t.Fatalf("主引擎未写入显式代理参数: %s", proxyArgs)
+	}
+	// fallbackArgs 是备用直接 CDP 引擎的独立参数集合，必须使用相同代理而不是回退到 Fake-IP 直连。
+	fallbackArgs := strings.Join(fallbackChromiumArgs("/tmp/profile", true), " ")
+	if !strings.Contains(fallbackArgs, "--proxy-server=http://127.0.0.1:1082") {
+		t.Fatalf("备用引擎未写入显式代理参数: %s", fallbackArgs)
+	}
+}
+
 // TestNormalizeBrowserFingerprintRemovesOnlyHeadlessMarker 验证规范化不伪造 Chromium 的版本或平台身份。
 func TestNormalizeBrowserFingerprintRemovesOnlyHeadlessMarker(t *testing.T) {
 	// fingerprint 是含无头标记的实测身份经过规范化后的结果，用于断言只移除产品标记。
