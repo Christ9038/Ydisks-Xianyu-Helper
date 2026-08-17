@@ -317,6 +317,33 @@ func TestPublishItemReportsRemoteSuccessLocalSaveFailure(t *testing.T) {
 	}
 }
 
+func TestRetryPublishItemAfterRenewalUsesFreshCredential(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	admin, err := store.Users.GetByUsername(context.Background(), "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Cookies.UpdateValueExisting(context.Background(), "acc1", "unb=123; fresh=1"); err != nil {
+		t.Fatal(err)
+	}
+	var gotCookies string
+	srv.MTop = &stubPublishMTop{publish: func(_ context.Context, cookies string, _ mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
+		gotCookies = cookies
+		return &mtop.PublishItemResult{ItemID: "retry-item", Title: "重试商品"}, nil
+	}}
+	result, callErr, cookieErr, changed := srv.retryPublishItemAfterRenewal(
+		context.Background(), "acc1", admin.ID,
+		mtop.PublishItemRequest{Title: "重试商品", PriceCents: 100, Quantity: 1},
+	)
+	if changed || callErr != nil || cookieErr != nil || result == nil || result.ItemID != "retry-item" {
+		t.Fatalf("重试结果异常: result=%+v callErr=%v cookieErr=%v changed=%v", result, callErr, cookieErr, changed)
+	}
+	if !strings.Contains(gotCookies, "fresh=1") {
+		t.Fatalf("重试未读取续期后的 Cookie: %q", gotCookies)
+	}
+}
+
 // TestPublishItemStockPermissionMissing 库存权限缺失应 403。
 func TestPublishItemStockPermissionMissing(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)

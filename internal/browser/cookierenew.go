@@ -66,7 +66,7 @@ func (m *Manager) newPersistentPasswordContext(ctx context.Context, cookieID, us
 	var bctx playwright.BrowserContext
 	var lastErr error
 	for attempt := 1; attempt <= 2; attempt++ {
-		bctx, err = m.pw.Chromium.LaunchPersistentContext(userDataDir, passwordPersistentContextOptions(headless))
+		bctx, err = m.pw.Chromium.LaunchPersistentContext(userDataDir, passwordPersistentContextOptions(headless, m.headlessUserAgent()))
 		if err == nil {
 			break
 		}
@@ -87,8 +87,8 @@ func (m *Manager) newPersistentPasswordContext(ctx context.Context, cookieID, us
 	return bctx, release, nil
 }
 
-func passwordPersistentContextOptions(headless bool) playwright.BrowserTypeLaunchPersistentContextOptions {
-	return playwright.BrowserTypeLaunchPersistentContextOptions{
+func passwordPersistentContextOptions(headless bool, headlessUserAgent ...*string) playwright.BrowserTypeLaunchPersistentContextOptions {
+	options := playwright.BrowserTypeLaunchPersistentContextOptions{
 		Headless:          playwright.Bool(headless),
 		Args:              chromiumLaunchArgs(),
 		ExecutablePath:    chromiumExecutablePath(),
@@ -102,6 +102,10 @@ func passwordPersistentContextOptions(headless bool) playwright.BrowserTypeLaunc
 		},
 		Timeout: playwright.Float(quickRenewTimeoutMS),
 	}
+	if headless && len(headlessUserAgent) > 0 {
+		options.UserAgent = headlessUserAgent[0]
+	}
+	return options
 }
 
 // BrowserQuickRenew 使用持久化浏览器上下文执行“快速进入”Cookie 续期。
@@ -121,13 +125,14 @@ func (m *Manager) BrowserQuickRenewSnapshot(ctx context.Context, cookieID, cooki
 	// 解释，避免漏掉或错误映射 Path=/im 的连接凭证。
 	effectiveSnapshot := reconcileSnapshotWithCurrentCookie(snapshot, cookieStr, goofishIMURL)
 
-	bctx, release, err := m.newPersistentRenewContext(ctx, cookieID, cookieStr, effectiveSnapshot, quickRenewHeadless(headless))
+	headless = quickRenewHeadless(headless)
+	bctx, release, err := m.newPersistentRenewContext(ctx, cookieID, cookieStr, effectiveSnapshot, headless)
 	if err != nil {
 		return "", nil, err
 	}
 	defer release()
 
-	page, err := bctx.NewPage()
+	page, err := m.newBrowserPage(bctx, headless)
 	if err != nil {
 		return "", nil, fmt.Errorf("新建 page 失败: %w", err)
 	}
@@ -180,13 +185,14 @@ func (m *Manager) CookiesRefreshSnapshot(ctx context.Context, cookieID, cookieSt
 		return "", nil, false, fmt.Errorf("Cookie为空，且无完整Cookie快照，无法执行续期")
 	}
 	effectiveSnapshot := reconcileSnapshotWithCurrentCookie(snapshot, cookieStr, goofishIMURL)
-	bctx, release, err := m.newPersistentRenewContext(ctx, cookieID, cookieStr, effectiveSnapshot, cookiesRefreshHeadless(headless))
+	headless = cookiesRefreshHeadless(headless)
+	bctx, release, err := m.newPersistentRenewContext(ctx, cookieID, cookieStr, effectiveSnapshot, headless)
 	if err != nil {
 		return "", nil, false, err
 	}
 	defer release()
 
-	page, err := bctx.NewPage()
+	page, err := m.newBrowserPage(bctx, headless)
 	if err != nil {
 		return "", nil, false, fmt.Errorf("新建 page 失败: %w", err)
 	}
@@ -478,7 +484,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 	var bctx playwright.BrowserContext
 	var lastErr error
 	for attempt := 1; attempt <= 2; attempt++ {
-		bctx, err = m.pw.Chromium.LaunchPersistentContext(userDataDir, playwright.BrowserTypeLaunchPersistentContextOptions{
+		options := playwright.BrowserTypeLaunchPersistentContextOptions{
 			Headless:       playwright.Bool(headless),
 			Args:           chromiumLaunchArgs(),
 			ExecutablePath: chromiumExecutablePath(),
@@ -486,7 +492,11 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 			Locale:         playwright.String(defaultLang),
 			TimezoneId:     playwright.String(defaultTZ),
 			Timeout:        playwright.Float(quickRenewTimeoutMS),
-		})
+		}
+		if headless {
+			options.UserAgent = m.headlessUserAgent()
+		}
+		bctx, err = m.pw.Chromium.LaunchPersistentContext(userDataDir, options)
 		if err == nil {
 			break
 		}

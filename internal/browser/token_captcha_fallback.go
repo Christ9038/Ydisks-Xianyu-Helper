@@ -22,7 +22,7 @@ var fallbackTrackSelectors = []string{
 
 // tokenCaptchaCDPFallback 直接启动 Chromium 并通过 CDP 连接，复现参考项目的
 // DrissionPage 第二引擎：它不复用 Playwright launch 协议，使用同一持久化目录和另一套轨迹。
-func (m *Manager) tokenCaptchaCDPFallback(ctx context.Context, cookieID, cookieStr, verificationURL string, headless bool, _ TokenCaptchaURLProvider) (string, error) {
+func (m *Manager) tokenCaptchaCDPFallback(ctx context.Context, cookieID, cookieStr, verificationURL string, headless bool, _ TokenCaptchaURLProvider) (result string, resultErr error) {
 	if strings.TrimSpace(cookieStr) == "" || strings.TrimSpace(verificationURL) == "" {
 		return "", fmt.Errorf("备用滑块引擎参数不完整")
 	}
@@ -52,7 +52,7 @@ func (m *Manager) tokenCaptchaCDPFallback(ctx context.Context, cookieID, cookieS
 	if strings.TrimSpace(executable) == "" {
 		return "", fmt.Errorf("备用滑块引擎未找到 Chromium")
 	}
-	args := fallbackChromiumArgs(profileDir, headless)
+	args := fallbackChromiumArgs(profileDir, headless, m.headlessUserAgent())
 	cmd := exec.Command(executable, args...)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
@@ -96,11 +96,18 @@ func (m *Manager) tokenCaptchaCDPFallback(ctx context.Context, cookieID, cookieS
 		return "", fmt.Errorf("备用滑块引擎读取旧 Cookie: %w", err)
 	}
 	previousX5 := x5SecValues(before)
-	page, err := bctx.NewPage()
+	page, err := m.newBrowserPage(bctx, headless)
 	if err != nil {
 		return "", fmt.Errorf("备用滑块引擎创建页面: %w", err)
 	}
 	defer func() { _ = page.Close() }()
+	diagnostic := newTokenCaptchaDiagnostic(cookieID, "drissionpage", verificationURL, page, m.logger)
+	diagnosticSucceeded := false
+	defer func() {
+		if diagnostic != nil && !diagnosticSucceeded {
+			diagnostic.capture(page, "drissionpage_failed", resultErr)
+		}
+	}()
 
 	deadline := time.Now().Add(drissionFallbackTimeout())
 	if _, err := page.Goto(verificationURL, playwright.PageGotoOptions{
@@ -115,6 +122,9 @@ func (m *Manager) tokenCaptchaCDPFallback(ctx context.Context, cookieID, cookieS
 	if pageErr := tokenCaptchaDirectPageError(page); pageErr != nil {
 		m.logger.Warn("备用滑块引擎页面没有可验证滑块，停止自动验证", "cookieID", cookieID, "err", pageErr)
 		return "", pageErr
+	}
+	if diagnostic != nil {
+		diagnostic.snapshotInitial(page)
 	}
 
 	for attempt := 0; attempt < 3; attempt++ {
@@ -175,6 +185,7 @@ func (m *Manager) tokenCaptchaCDPFallback(ctx context.Context, cookieID, cookieS
 				merged[name] = value
 			}
 			m.logger.Info("备用滑块引擎验证成功", "cookieID", cookieID, "attempt", attempt+1)
+			diagnosticSucceeded = true
 			return cookieMarshal(merged), nil
 		}
 		logSliderFailureState(m.logger, page, attempt+1)
@@ -189,7 +200,7 @@ func (m *Manager) tokenCaptchaCDPFallback(ctx context.Context, cookieID, cookieS
 	return "", fmt.Errorf("备用滑块引擎 3 次均失败")
 }
 
-func fallbackChromiumArgs(profileDir string, headless bool) []string {
+func fallbackChromiumArgs(profileDir string, headless bool, headlessUserAgent ...*string) []string {
 	args := []string{
 		"--user-data-dir=" + profileDir,
 		"--remote-debugging-port=0",
@@ -200,8 +211,16 @@ func fallbackChromiumArgs(profileDir string, headless bool) []string {
 		"--no-first-run",
 		"--window-size=1920,1080",
 		"--lang=zh-CN",
-		"about:blank",
 	}
+	if captchaIgnoreCertificateErrors() {
+		args = append(args, "--ignore-certificate-errors")
+	}
+	if headless && len(headlessUserAgent) > 0 && headlessUserAgent[0] != nil {
+		if userAgent := normalizeHeadlessUserAgent(*headlessUserAgent[0]); userAgent != "" {
+			args = append(args, "--user-agent="+userAgent)
+		}
+	}
+	args = append(args, "about:blank")
 	if headless {
 		args = append([]string{"--headless=new"}, args...)
 	}

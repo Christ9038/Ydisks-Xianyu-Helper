@@ -121,3 +121,34 @@ func TestChatAndTaskEndpointsEnforceOwnershipAndValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestFindChatPlatformMessageID(t *testing.T) {
+	raw := map[string]any{
+		"1": map[string]any{
+			"2": "64725235816@goofish",
+			"3": "4263141580162.PNM",
+			"10": map[string]any{
+				"extJson": `{"messageId":"f87f8f6dabca4eff940863ef72a393f7"}`,
+			},
+		},
+	}
+	if got := findChatPlatformMessageID(raw, "64725235816", "f87f8f6dabca4eff940863ef72a393f7"); got != "4263141580162.PNM" {
+		t.Fatalf("platform message id=%q", got)
+	}
+	if got := findChatPlatformMessageID(raw, "other-chat", "f87f8f6dabca4eff940863ef72a393f7"); got != "" {
+		t.Fatalf("跨会话错误匹配: %q", got)
+	}
+}
+
+func TestResolveChatReadMessageIDsMigratesLegacyID(t *testing.T) {
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	raw := `{"1":{"2":"64725235816@goofish","3":"4263141580162.PNM","10":{"extJson":"{\"messageId\":\"f87f8f6dabca4eff940863ef72a393f7\"}"}}}`
+	if err := store.WSMessages.Add(context.Background(), db.WSMessage{CookieID: "acc1", Direction: "in", ParsedJSON: raw, ParseStatus: "decrypted"}); err != nil {
+		t.Fatal(err)
+	}
+	got := srv.resolveChatReadMessageIDs(context.Background(), "acc1", "64725235816", []map[string]any{{"messageId": "f87f8f6dabca4eff940863ef72a393f7"}})
+	if len(got) != 1 || got[0]["messageId"] != "4263141580162.PNM" {
+		t.Fatalf("resolved=%+v", got)
+	}
+}

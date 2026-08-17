@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,13 +36,30 @@ const (
 
 // chromiumLaunchArgs 统一 Chromium 启动参数。
 func chromiumLaunchArgs() []string {
-	return []string{
+	args := []string{
 		"--no-sandbox",
 		"--disable-setuid-sandbox",
 		"--disable-dev-shm-usage",
 		"--disable-blink-features=AutomationControlled",
 		"--lang=zh-CN",
 	}
+	if captchaIgnoreCertificateErrors() {
+		args = append(args, "--ignore-certificate-errors")
+	}
+	return args
+}
+
+// captchaIgnoreCertificateErrors is an explicit escape hatch for environments
+// whose TLS inspection proxy replaces Alibaba's certificate chain. It is off
+// by default; enabling it is limited to the browser process so the HTTP
+// clients and stored credentials keep their normal certificate validation.
+func captchaIgnoreCertificateErrors() bool {
+	value := strings.TrimSpace(os.Getenv("CAPTCHA_IGNORE_CERT_ERRORS"))
+	if value == "" {
+		return false
+	}
+	parsed, err := strconv.ParseBool(value)
+	return err == nil && parsed
 }
 
 func chromiumExecutablePath() *string {
@@ -106,6 +124,13 @@ func packagedPlaywrightRuntimeReady() bool {
 type Manager struct {
 	pw     *playwright.Playwright
 	logger *slog.Logger
+
+	// browserFingerprint is observed from the bundled Chromium once during
+	// initialization.  Headless contexts use the same identity with only the
+	// HeadlessChrome product token removed; headed contexts keep Chromium's
+	// native identity.
+	browserFingerprint xianyu.BrowserFingerprint
+	userAgentMetadata  map[string]any
 
 	once      sync.Once
 	initErr   error
@@ -264,13 +289,185 @@ func (m *Manager) detectBrowserFingerprint() error {
 	if strings.TrimSpace(headers.Get("User-Agent")) == "" {
 		return fmt.Errorf("Chromium 返回空 userAgent")
 	}
-	xianyu.SetBrowserFingerprint(xianyu.BrowserFingerprint{
+	metadata, err := readUserAgentMetadata(page)
+	if err != nil {
+		return fmt.Errorf("读取 Chromium User-Agent Client Hints 失败: %w", err)
+	}
+	fingerprint := normalizeBrowserFingerprint(xianyu.BrowserFingerprint{
 		UserAgent: headers.Get("User-Agent"),
 		SecChUA:   headers.Get("sec-ch-ua"),
 		Platform:  strings.Trim(headers.Get("sec-ch-ua-platform"), `"`),
 		Mobile:    headers.Get("sec-ch-ua-mobile"),
 	})
-	m.logger.Info("已读取 Playwright Chromium 原生指纹", "browser_version", b.Version(), "user_agent", headers.Get("User-Agent"))
+	m.browserFingerprint = fingerprint
+	m.userAgentMetadata = normalizeUserAgentMetadata(metadata)
+	xianyu.SetBrowserFingerprint(fingerprint)
+	m.logger.Info("已读取 Playwright Chromium 浏览器指纹", "browser_version", b.Version(), "user_agent", fingerprint.UserAgent, "headless_token_removed", fingerprint.UserAgent != headers.Get("User-Agent"))
+	return nil
+}
+
+// normalizeBrowserFingerprint removes the product marker that Chromium adds to
+// its legacy UA string in headless mode.  It intentionally preserves the
+// browser version and all Client Hints observed from the same runtime.
+func normalizeBrowserFingerprint(fingerprint xianyu.BrowserFingerprint) xianyu.BrowserFingerprint {
+	fingerprint.UserAgent = normalizeHeadlessUserAgent(fingerprint.UserAgent)
+	fingerprint.SecChUA = normalizeSecChUA(fingerprint.SecChUA)
+	return fingerprint
+}
+
+func normalizeHeadlessUserAgent(userAgent string) string {
+	return strings.ReplaceAll(strings.TrimSpace(userAgent), "HeadlessChrome/", "Chrome/")
+}
+
+func normalizeSecChUA(value string) string {
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.ReplaceAll(part, "HeadlessChrome", "Chromium"))
+		if part == "" {
+			continue
+		}
+		brand := part
+		if index := strings.IndexByte(brand, ';'); index >= 0 {
+			brand = strings.TrimSpace(brand[:index])
+		}
+		if _, exists := seen[brand]; exists {
+			continue
+		}
+		seen[brand] = struct{}{}
+		result = append(result, part)
+	}
+	return strings.Join(result, ", ")
+}
+
+func readUserAgentMetadata(page playwright.Page) (map[string]any, error) {
+	value, err := page.Evaluate(`async () => {
+		const data = navigator.userAgentData;
+		if (!data) return null;
+		const high = await data.getHighEntropyValues([
+			'architecture', 'bitness', 'fullVersionList', 'model', 'platformVersion', 'wow64'
+		]);
+		return {
+			brands: data.brands,
+			fullVersionList: high.fullVersionList,
+			platform: data.platform,
+			platformVersion: high.platformVersion,
+			architecture: high.architecture,
+			model: high.model,
+			mobile: data.mobile,
+			bitness: high.bitness,
+			wow64: high.wow64
+		};
+	}`)
+	if err != nil {
+		return nil, err
+	}
+	if value == nil {
+		return nil, fmt.Errorf("navigator.userAgentData 不可用")
+	}
+	metadata, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("navigator.userAgentData 类型异常: %T", value)
+	}
+	return metadata, nil
+}
+
+func normalizeUserAgentMetadata(metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return nil
+	}
+	result := make(map[string]any, len(metadata))
+	for key, value := range metadata {
+		switch key {
+		case "brands", "fullVersionList":
+			result[key] = normalizeUserAgentBrands(value)
+		default:
+			result[key] = value
+		}
+	}
+	return result
+}
+
+func normalizeUserAgentBrands(value any) []any {
+	brands, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]any, 0, len(brands))
+	seen := make(map[string]struct{}, len(brands))
+	for _, item := range brands {
+		brandEntry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		brand, _ := brandEntry["brand"].(string)
+		brand = strings.ReplaceAll(brand, "HeadlessChrome", "Chromium")
+		if brand == "" {
+			continue
+		}
+		if _, exists := seen[brand]; exists {
+			continue
+		}
+		seen[brand] = struct{}{}
+		entry := make(map[string]any, len(brandEntry))
+		for key, itemValue := range brandEntry {
+			entry[key] = itemValue
+		}
+		entry["brand"] = brand
+		result = append(result, entry)
+	}
+	return result
+}
+
+func (m *Manager) headlessUserAgent() *string {
+	userAgent := normalizeHeadlessUserAgent(m.browserFingerprint.UserAgent)
+	if userAgent == "" {
+		userAgent = normalizeHeadlessUserAgent(xianyu.CurrentBrowserFingerprint().UserAgent)
+	}
+	if userAgent == "" {
+		return nil
+	}
+	return playwright.String(userAgent)
+}
+
+func (m *Manager) newBrowserPage(bctx playwright.BrowserContext, headless bool) (playwright.Page, error) {
+	page, err := bctx.NewPage()
+	if err != nil {
+		return nil, err
+	}
+	if !headless {
+		return page, nil
+	}
+	if err := m.applyHeadlessFingerprint(page); err != nil {
+		_ = page.Close()
+		return nil, err
+	}
+	return page, nil
+}
+
+func (m *Manager) applyHeadlessFingerprint(page playwright.Page) error {
+	userAgent := m.headlessUserAgent()
+	if userAgent == nil {
+		return fmt.Errorf("无头 Chromium User-Agent 未初始化")
+	}
+	metadata := normalizeUserAgentMetadata(m.userAgentMetadata)
+	if len(metadata) == 0 {
+		return fmt.Errorf("无头 Chromium User-Agent Client Hints 未初始化")
+	}
+	session, err := page.Context().NewCDPSession(page)
+	if err != nil {
+		return fmt.Errorf("创建 Chromium 指纹 CDP 会话: %w", err)
+	}
+	if _, err := session.Send("Emulation.setUserAgentOverride", map[string]any{
+		"userAgent":         *userAgent,
+		"userAgentMetadata": metadata,
+	}); err != nil {
+		_ = session.Detach()
+		return fmt.Errorf("应用 Chromium 无头指纹: %w", err)
+	}
+	// Keep the session attached for the page lifetime. Chromium reverts
+	// navigator.userAgentData when this target-scoped emulation session detaches.
 	return nil
 }
 
@@ -303,7 +500,7 @@ func (m *Manager) newPage(ctx context.Context, cookieID, cookieStr string, headl
 	if err != nil {
 		return nil, nil, err
 	}
-	page, err := entry.context.NewPage()
+	page, err := m.newBrowserPage(entry.context, headless)
 	if err != nil {
 		// context 损坏，丢弃重建一次。
 		m.releaseEntry(cookieID, entry)
@@ -312,7 +509,7 @@ func (m *Manager) newPage(ctx context.Context, cookieID, cookieStr string, headl
 		if err != nil {
 			return nil, nil, err
 		}
-		page, err = entry.context.NewPage()
+		page, err = m.newBrowserPage(entry.context, headless)
 		if err != nil {
 			m.releaseEntry(cookieID, entry)
 			m.evict(cookieID)
@@ -394,11 +591,15 @@ func (m *Manager) createEntry(cookieID, cookieStr string, headless bool) (*poolE
 	if err != nil {
 		return nil, fmt.Errorf("启动 chromium 失败: %w", err)
 	}
-	context, err := browser.NewContext(playwright.BrowserNewContextOptions{
+	contextOptions := playwright.BrowserNewContextOptions{
 		Viewport:   &playwright.Size{Width: defaultW, Height: defaultH},
 		Locale:     playwright.String(defaultLang),
 		TimezoneId: playwright.String(defaultTZ),
-	})
+	}
+	if headless {
+		contextOptions.UserAgent = m.headlessUserAgent()
+	}
+	context, err := browser.NewContext(contextOptions)
 	if err != nil {
 		_ = browser.Close()
 		return nil, fmt.Errorf("创建 context 失败: %w", err)

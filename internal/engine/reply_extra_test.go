@@ -216,17 +216,18 @@ func TestParseMessageIDFromJSON(t *testing.T) {
 	}
 }
 
-// TestExtractMessageID 优先 bizTag，其次 extJson，无则空。
+// TestExtractMessageID 优先实时消息的 PNM ID，其次兼容 bizTag/extJson，无则空。
 func TestExtractMessageID(t *testing.T) {
 	if got := extractMessageID(map[string]any{
 		"1": map[string]any{
+			"3": "4263141580162.PNM",
 			"10": map[string]any{
 				"bizTag":  `{"messageId":"biz-id"}`,
 				"extJson": `{"messageId":"ext-id"}`,
 			},
 		},
-	}); got != "biz-id" {
-		t.Errorf("bizTag 优先: got %q", got)
+	}); got != "4263141580162.PNM" {
+		t.Errorf("PNM 优先: got %q", got)
 	}
 	if got := extractMessageID(map[string]any{
 		"1": map[string]any{

@@ -766,6 +766,27 @@ func (c *Conn) SendText(ctx context.Context, myID, cid, toID, text string) error
 	return c.sendChatContent(ctx, myID, cid, toID, content)
 }
 
+// MarkChatRead notifies the platform that the conversation was opened.
+func (c *Conn) MarkChatRead(ctx context.Context, cid string, messageIDs []map[string]any) error {
+	ids := make([]string, 0, len(messageIDs))
+	for _, item := range messageIDs {
+		if id := strings.TrimSpace(fmt.Sprint(item["messageId"])); id != "" && id != "<nil>" {
+			ids = append(ids, id)
+		}
+	}
+	c.logger.Info("准备上报闲鱼已读", "cid", cid, "message_count", len(ids), "message_ids", ids)
+	// MessageStatusService.read takes one argument: list<string> messageIds.
+	response, err := c.request(ctx, "/r/MessageStatus/read", map[string]any{}, []any{ids}, regResponseTimeout)
+	if err == nil {
+		if code, ok := responseCode(response["code"]); ok && code >= 400 {
+			c.logger.Warn("闲鱼已读上报被拒绝", "cid", cid, "message_count", len(ids), "code", code, "body", response["body"])
+		} else {
+			c.logger.Info("闲鱼已读上报成功", "cid", cid, "message_count", len(ids), "message_ids", ids, "code", response["code"])
+		}
+	}
+	return err
+}
+
 // SendImage 发送一条闲鱼聊天图片消息。imageURL 应为闲鱼可访问的 CDN/公网 URL。
 func (c *Conn) SendImage(ctx context.Context, myID, cid, toID, imageURL string, width, height int) error {
 	if width <= 0 {

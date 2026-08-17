@@ -111,6 +111,8 @@ export interface ChatMessage {
 	message_type: 'text' | 'image' | 'video' | 'system';
 	content: string;
 	status: 'received' | 'sending' | 'sent' | 'failed';
+	read_status?: number;
+	read_at?: number;
 	sent_at: number;
 }
 

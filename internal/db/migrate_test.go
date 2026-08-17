@@ -128,8 +128,9 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 		t.Fatalf("goose dialect: %v", err)
 	}
 	goose.SetBaseFS(migrationsFS)
-	// 依次回滚最新版本到 13，再整体升级。
-	for i := 0; i < 15; i++ {
+	// 依次回滚最新版本到 13，再整体升级。00029/00030 是聊天已读
+	// 状态迁移，因此需要额外回滚两次才能到达原有的 migration 14 检查点。
+	for i := 0; i < 17; i++ {
 		if err := goose.Down(d, "migrations/sqlite"); err != nil {
 			t.Fatalf("down migration #%d: %v", i+1, err)
 		}

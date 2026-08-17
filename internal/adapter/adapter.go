@@ -22,6 +22,7 @@ import (
 	"xianyu-go/internal/renewal"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
+	"xianyu-go/internal/xianyu/protocol"
 	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
@@ -73,6 +74,17 @@ type Adapter struct {
 
 	passwordMu         sync.Mutex
 	passwordProcessing map[string]struct{}
+	passwordInFlight   map[string]*passwordRenewal
+}
+
+// passwordRenewal represents the result shared by callers that observe the
+// same account while its protocol-level credential renewal is running.  A
+// caller must wait for this result instead of treating the in-flight request
+// as an immediate renewal failure; otherwise concurrent API requests turn one
+// recoverable expiry into a burst of 502 responses.
+type passwordRenewal struct {
+	done    chan struct{}
+	success bool
 }
 
 // notifyNotifier 是 *notify.Notifier 的最小接口，避免 adapter 直接依赖 notify 包
@@ -99,6 +111,7 @@ func New(store *db.Store, bm *browser.Manager, logger *slog.Logger) *Adapter {
 		captchaReq:         mtop.NewClient(),
 		orderMTop:          mtop.NewClient(),
 		passwordProcessing: make(map[string]struct{}),
+		passwordInFlight:   make(map[string]*passwordRenewal),
 	}
 }
 
@@ -140,13 +153,19 @@ func (a *Adapter) HandleChatMessage(ctx context.Context, message engine.ChatMess
 	// Xianyu echoes messages sent by this account back over the same WS. Those
 	// sends are already captured by HandleOutgoingChatMessage; recording the
 	// echo as incoming would put our own bubble on the buyer side and duplicate it.
-	if strings.TrimSuffix(message.SenderUserID, "@goofish") == strings.TrimSuffix(message.AccountID, "@goofish") {
+	if selfID := protocol.TransCookies(message.CookieStr)["unb"]; selfID != "" &&
+		strings.TrimSuffix(strings.TrimSpace(message.SenderUserID), "@goofish") == strings.TrimSuffix(strings.TrimSpace(selfID), "@goofish") {
+		a.logger.Info("忽略账号自身发送的聊天回显", "account", message.AccountID, "chat_id", message.ChatID, "sender_id", message.SenderUserID)
 		return nil
 	}
-	_, _, err := a.chat.RecordIncoming(ctx, chat.Incoming{
+	stored, inserted, err := a.chat.RecordIncoming(ctx, chat.Incoming{
 		AccountID: message.AccountID, ChatID: message.ChatID, BuyerID: message.SenderUserID,
-		BuyerName: message.SenderName, Text: message.Text, ItemID: message.ItemID, Raw: message.Raw,
+		BuyerName: message.SenderName, Text: message.Text, MessageID: message.MessageID, ItemID: message.ItemID, Raw: message.Raw,
 	})
+	if stored != nil {
+		a.logger.Info("实时聊天消息已入库", "account", message.AccountID, "chat_id", message.ChatID,
+			"message_key", stored.MessageKey, "message_type", stored.MessageType, "inserted", inserted)
+	}
 	return err
 }
 
@@ -158,6 +177,21 @@ func (a *Adapter) HandleOutgoingChatMessage(ctx context.Context, message engine.
 	}
 	_, err := a.chat.RecordOutgoingSent(ctx, db.ChatSession{CookieID: message.AccountID, ChatID: message.ChatID,
 		BuyerID: message.BuyerID}, message.MessageKey, message.Text)
+	return err
+}
+
+func (a *Adapter) HandleMessageRead(ctx context.Context, event engine.MessageReadEvent) error {
+	if a.chat == nil {
+		return nil
+	}
+	message, err := a.chat.MarkOutgoingRead(ctx, event.AccountID, event.MessageID, event.ReadAt)
+	if errors.Is(err, db.ErrNotFound) && event.ChatID != "" {
+		message, err = a.chat.MarkLatestOutgoingRead(ctx, event.AccountID, event.ChatID, event.ReadAt)
+	}
+	if err == nil && message != nil {
+		a.logger.Info("聊天出站消息已标记已读", "account", event.AccountID, "chat_id", event.ChatID,
+			"message_id", event.MessageID, "message_key", message.MessageKey, "read_status", message.ReadStatus)
+	}
 	return err
 }
 
@@ -498,10 +532,11 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 		return false
 	}
 	if !a.beginPasswordLogin(cookieID) {
-		a.logger.Warn("协议续期已在处理中", "account", cookieID)
-		return false
+		a.logger.Warn("协议续期已在处理中，等待当前结果", "account", cookieID)
+		return a.waitPasswordLogin(ctx, cookieID)
 	}
-	defer a.finishPasswordLogin(cookieID)
+	renewed := false
+	defer func() { a.finishPasswordLoginResult(cookieID, renewed) }()
 
 	d, err := a.store.Cookies.GetDetails(ctx, cookieID)
 	if err != nil {
@@ -551,13 +586,41 @@ func (a *Adapter) beginPasswordLogin(cookieID string) bool {
 		return false
 	}
 	a.passwordProcessing[cookieID] = struct{}{}
+	if a.passwordInFlight == nil {
+		a.passwordInFlight = make(map[string]*passwordRenewal)
+	}
+	a.passwordInFlight[cookieID] = &passwordRenewal{done: make(chan struct{})}
 	return true
 }
 
 func (a *Adapter) finishPasswordLogin(cookieID string) {
+	a.finishPasswordLoginResult(cookieID, false)
+}
+
+func (a *Adapter) finishPasswordLoginResult(cookieID string, success bool) {
 	a.passwordMu.Lock()
 	defer a.passwordMu.Unlock()
 	delete(a.passwordProcessing, cookieID)
+	if state := a.passwordInFlight[cookieID]; state != nil {
+		state.success = success
+		delete(a.passwordInFlight, cookieID)
+		close(state.done)
+	}
+}
+
+func (a *Adapter) waitPasswordLogin(ctx context.Context, cookieID string) bool {
+	a.passwordMu.Lock()
+	state := a.passwordInFlight[cookieID]
+	a.passwordMu.Unlock()
+	if state == nil {
+		return false
+	}
+	select {
+	case <-state.done:
+		return state.success
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (a *Adapter) recordPasswordLogin(ctx context.Context, cookieID string, userID int64, status, failureReason, message string) {
@@ -677,6 +740,16 @@ func (a *Adapter) tryProtocolCredentialRenew(ctx context.Context, d *db.CookieDe
 			a.logger.Info("Go 协议续期成功", "account", d.ID)
 			return true, nil
 		}
+		if err == nil {
+			message := strings.TrimSpace(res.Message)
+			if message == "" {
+				message = "协议续期未通过"
+			}
+			return false, errors.New(message)
+		}
+	}
+	if err == nil {
+		err = errors.New("协议续期未返回结果")
 	}
 	return false, err
 }

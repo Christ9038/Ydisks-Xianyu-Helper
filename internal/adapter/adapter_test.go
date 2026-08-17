@@ -505,6 +505,35 @@ func TestOnPasswordLoginRefreshWaitsForPendingFinalResult(t *testing.T) {
 	}
 }
 
+func TestOnPasswordLoginRefreshConcurrentCallersShareResult(t *testing.T) {
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	renewal.GlobalCooldown.Reset("cid")
+	if err := store.Cookies.UpdateValueExisting(context.Background(), "cid", "unb=1; havana_lgc_exp=9999999999999"); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	var once sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		once.Do(func() { close(started) })
+		time.Sleep(60 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+	}))
+	defer srv.Close()
+	a := New(store, nil, nil)
+	a.SetRenewService(xrenew.Service{
+		HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL,
+		RetryDelay: -1, PromiseTimeout: 5 * time.Millisecond,
+	})
+	first := make(chan bool, 1)
+	go func() { first <- a.OnPasswordLoginRefresh(context.Background(), "cid") }()
+	<-started
+	second := a.OnPasswordLoginRefresh(context.Background(), "cid")
+	if got := <-first; !got || !second {
+		t.Fatalf("并发续期调用应共享成功结果: first=%v second=%v", got, second)
+	}
+}
+
 // TestOnPasswordLoginRefresh_BrowserNilReturnsFalseAfterAPIFailure 接口轻量续期也失败后才因浏览器不可用失败。
 func TestOnPasswordLoginRefresh_BrowserNilReturnsFalseAfterAPIFailure(t *testing.T) {
 	store, cleanup := newAdapterTestStore(t)

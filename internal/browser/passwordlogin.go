@@ -64,7 +64,7 @@ func (m *Manager) passwordLogin(ctx context.Context, account, password, cookieID
 	}
 	defer release()
 
-	page, err := bctx.NewPage()
+	page, err := m.newBrowserPage(bctx, headless)
 	if err != nil {
 		return nil, fmt.Errorf("新建 page 失败: %w", err)
 	}

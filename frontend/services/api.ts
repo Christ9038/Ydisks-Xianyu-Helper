@@ -148,8 +148,8 @@ export const sendChatImage = async (input: {
 	return postForm('/api/chat/images', form, { timeoutMs: 120_000 });
 };
 
-export const markChatRead = async (accountId: string, chatId: string): Promise<ApiResponse> =>
-	post('/api/chat/read', { account_id: accountId, chat_id: chatId });
+export const markChatRead = async (accountId: string, chatId: string, messageIds: Array<{messageId: string; sessionId?: string; cid?: string; conversationType?: number}> = []): Promise<ApiResponse> =>
+	post('/api/chat/read', { account_id: accountId, chat_id: chatId, message_ids: messageIds });
 
 export interface AccountRuntimeStatus {
   state: NonNullable<AccountDetail['runtime_state']>;

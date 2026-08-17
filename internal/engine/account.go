@@ -83,6 +83,19 @@ type Handler interface {
 	OnAccountAlert(ctx context.Context, cookieID, level, title, body string)
 }
 
+// MessageReadHandler receives platform read receipts. It is optional so older
+// integrations and tests remain valid.
+type MessageReadHandler interface {
+	HandleMessageRead(context.Context, MessageReadEvent) error
+}
+
+type MessageReadEvent struct {
+	AccountID string
+	ChatID    string
+	MessageID string
+	ReadAt    int64
+}
+
 type accountEventHandler interface {
 	OnAccountEvent(ctx context.Context, cookieID, eventType, level, title, body string)
 }
@@ -121,6 +134,7 @@ type ChatMessage struct {
 	SenderUserID string
 	SenderName   string
 	Text         string
+	MessageID    string
 	ItemID       string
 	Raw          map[string]any // 解密后的完整消息
 }
@@ -1797,6 +1811,22 @@ func (a *Account) SendText(ctx context.Context, chatID, toUserID, text string) e
 		}
 	}
 	return nil
+}
+
+func (a *Account) MarkChatRead(ctx context.Context, chatID string, messageIDs []map[string]any) error {
+	conn, _, err := a.currentSenderState()
+	if err != nil {
+		return err
+	}
+	readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	reader, ok := conn.(interface {
+		MarkChatRead(context.Context, string, []map[string]any) error
+	})
+	if !ok {
+		return fmt.Errorf("当前 WebSocket 不支持已读上报")
+	}
+	return reader.MarkChatRead(readCtx, chatID, messageIDs)
 }
 
 // SendImage 通过当前 WebSocket 给买家发送图片消息。当前仅支持可直接访问的 CDN/公网 URL。

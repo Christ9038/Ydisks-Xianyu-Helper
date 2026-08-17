@@ -106,6 +106,24 @@ func TestRecordIncomingClassifiesXianxiaomiAndPlaceholder(t *testing.T) {
 	}
 }
 
+func TestRecordIncomingExtractsMessageIDFromEncodedExtension(t *testing.T) {
+	store, cleanup := chatTestStore(t)
+	defer cleanup()
+	service := New(store)
+	message, _, err := service.RecordIncoming(context.Background(), Incoming{
+		AccountID: "account-1", ChatID: "live", BuyerID: "peer", BuyerName: "对方", Text: "实时消息",
+		Raw: map[string]any{"1": map[string]any{"10": map[string]any{
+			"extJson": `{"messageId":"live-123"}`,
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.MessageKey != "live-123" {
+		t.Fatalf("实时消息未提取平台 messageId: %+v", message)
+	}
+}
+
 func TestRecordConversationPageImportsHistoricalContacts(t *testing.T) {
 	store, cleanup := chatTestStore(t)
 	defer cleanup()
@@ -157,6 +175,7 @@ func TestRecordConversationPageHandlesXianxiaomiAndRemovesInvisibleSessions(t *t
 		map[string]any{"singleChatUserConversation": map[string]any{"visible": float64(1), "singleChatConversation": map[string]any{"cid": "platform@goofish", "pairFirst": "self@goofish", "pairSecond": "0@goofish", "extension": map[string]any{"extUserId": "900"}}}},
 		map[string]any{"singleChatUserConversation": map[string]any{"visible": float64(1), "modifyTime": float64(123),
 			"singleChatConversation": map[string]any{"cid": "xiaomi@goofish", "pairFirst": "self@goofish", "pairSecond": "0@goofish", "extension": map[string]any{"extUserId": "1400"}},
+			"redPoint":               float64(3),
 			"lastMessage":            map[string]any{"message": map[string]any{"extension": map[string]any{"senderUserId": "1400@goofish", "reminderTitle": "闲小蜜发来一条新消息"}, "content": map[string]any{"custom": map[string]any{"summary": "邀您填写售后问卷"}}}}}},
 	}}
 	if _, err := service.RecordConversationPage(ctx, "account-1", "self", body); err != nil {
@@ -167,8 +186,58 @@ func TestRecordConversationPageHandlesXianxiaomiAndRemovesInvisibleSessions(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].BuyerID != "1400" || rows[0].BuyerName != "闲小蜜" || rows[0].BuyerAvatar != xianxiaomiAvatar {
+	if len(rows) != 1 || rows[0].BuyerID != "1400" || rows[0].BuyerName != "闲小蜜" || rows[0].BuyerAvatar != xianxiaomiAvatar || rows[0].UnreadCount != 0 {
 		t.Fatalf("unexpected sessions: %+v", rows)
+	}
+}
+
+func TestConversationUnreadCountUsesRedPointButFiltersSystemMessages(t *testing.T) {
+	store, cleanup := chatTestStore(t)
+	defer cleanup()
+	service := New(store)
+
+	systemCard := base64.StdEncoding.EncodeToString([]byte(`{"contentType":26}`))
+	systemLast := map[string]any{
+		"extension":   map[string]any{"senderUserId": "peer@goofish"},
+		"content":     map[string]any{"custom": map[string]any{"summary": "[交易通知]", "data": systemCard}},
+		"unreadCount": float64(1), "readStatus": float64(1),
+	}
+	if got := service.conversationUnreadCount(context.Background(), "account-1", "system-last", "peer", map[string]any{"redPoint": float64(3)}, systemLast, "[交易通知]"); got != 2 {
+		t.Fatalf("系统未读未从 redPoint 扣除: got=%d", got)
+	}
+	if got := service.conversationUnreadCount(context.Background(), "account-1", "xiaomi", "1400", map[string]any{"redPoint": float64(3)}, systemLast, "[交易通知]"); got != 0 {
+		t.Fatalf("闲小蜜全是系统消息时仍显示红点: got=%d", got)
+	}
+
+	if _, _, err := service.RecordIncoming(context.Background(), Incoming{
+		AccountID: "account-1", ChatID: "real", BuyerID: "peer", BuyerName: "真实用户", Text: "未读消息",
+		MessageID: "real-unread", Raw: map[string]any{"messageId": "real-unread"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	userLast := map[string]any{
+		"extension": map[string]any{"senderUserId": "peer@goofish"},
+		"content":   map[string]any{"custom": map[string]any{"summary": "未读消息"}},
+	}
+	if got := service.conversationUnreadCount(context.Background(), "account-1", "real", "peer", map[string]any{"redPoint": float64(3)}, userLast, "未读消息"); got != 1 {
+		t.Fatalf("未使用消息级真实未读数: got=%d", got)
+	}
+}
+
+func TestHistoryMessageIsSystem(t *testing.T) {
+	encoded := base64.StdEncoding.EncodeToString([]byte(`{"contentType":26,"dxCard":{}}`))
+	last := map[string]any{
+		"extension": map[string]any{"senderUserId": "peer@goofish"},
+		"content":   map[string]any{"custom": map[string]any{"data": encoded}},
+	}
+	if !historyMessageIsSystem(last, "[我已拍下，待付款]") {
+		t.Fatal("交易卡片应被识别为系统消息")
+	}
+	if historyMessageIsSystem(map[string]any{
+		"extension": map[string]any{"senderUserId": "peer@goofish"},
+		"content":   map[string]any{"custom": map[string]any{"summary": "你好"}},
+	}, "你好") {
+		t.Fatal("真实用户文本不应被识别为系统消息")
 	}
 }
 

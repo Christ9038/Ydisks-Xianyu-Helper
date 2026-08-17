@@ -113,9 +113,10 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 		if lastMessageAt <= 0 {
 			lastMessageAt = modifyTime
 		}
+		unreadCount := s.conversationUnreadCount(ctx, accountID, cid, peerID, conv, last, summary)
 		session := db.ChatSession{CookieID: accountID, ChatID: cid, BuyerID: peerID, BuyerName: peerName, BuyerAvatar: avatar,
 			ItemID: cleanNilString(ext["itemId"]), ItemTitle: cleanNilString(ext["itemTitle"]), LastMessage: summary,
-			LastMessageAt: lastMessageAt, UnreadCount: int(int64Value(conv["redPoint"]))}
+			LastMessageAt: lastMessageAt, UnreadCount: unreadCount}
 		if err := s.store.Chats.UpsertSession(ctx, session); err != nil {
 			return page, err
 		}
@@ -124,6 +125,69 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 		}
 	}
 	return page, nil
+}
+
+// conversationUnreadCount keeps redPoint as the platform's authoritative
+// signal, while using our message-level state for the number shown in the UI.
+// redPoint counts every unread item in a conversation, including trade cards
+// and official notices; only incoming non-system messages are user unread.
+func (s *Service) conversationUnreadCount(ctx context.Context, accountID, chatID, peerID string, conv, last map[string]any, summary string) int {
+	official := int(int64Value(conv["redPoint"]))
+	if official < 0 {
+		official = 0
+	}
+	if official == 0 {
+		return 0
+	}
+
+	if local, err := s.store.Chats.CountUnreadUserMessages(ctx, accountID, chatID); err == nil && local > 0 {
+		// A stale local event must not make the badge exceed the official
+		// conversation signal. In normal operation these values are equal.
+		if local > official {
+			return official
+		}
+		return local
+	}
+
+	if !historyMessageIsSystem(last, summary) {
+		// No message-level row exists yet (for example immediately after a
+		// fresh login), so retain the official count as a safe fallback.
+		return official
+	}
+
+	// 闲小蜜会话只包含平台消息，永远不能制造用户红点。
+	if strings.TrimSuffix(strings.TrimSpace(peerID), "@goofish") == "1400" {
+		return 0
+	}
+
+	// The official last-message envelope exposes unreadCount/readStatus for
+	// that item. Subtract that system portion from redPoint; when older server
+	// responses omit the fields, conservatively remove one system item.
+	systemUnread := int(int64Value(last["unreadCount"]))
+	readStatus := int64Value(last["readStatus"])
+	if systemUnread <= 0 && readStatus != 2 {
+		systemUnread = 1
+	}
+	if systemUnread > official {
+		systemUnread = official
+	}
+	return official - systemUnread
+}
+
+func historyMessageIsSystem(last map[string]any, summary string) bool {
+	extension := mapValue(last["extension"])
+	senderID := cleanNilString(extension["senderUserId"])
+	content := map[string]any{}
+	if contentMap, ok := last["content"].(map[string]any); ok {
+		if custom, ok := contentMap["custom"].(map[string]any); ok {
+			if encoded := cleanNilString(custom["data"]); encoded != "" {
+				if raw, err := base64.StdEncoding.DecodeString(encoded); err == nil {
+					_ = json.Unmarshal(raw, &content)
+				}
+			}
+		}
+	}
+	return isOfficialSystemMessage(content, senderID, summary)
 }
 
 var invalidNicknames = map[string]struct{}{
@@ -164,6 +228,7 @@ type Incoming struct {
 	BuyerID   string
 	BuyerName string
 	Text      string
+	MessageID string
 	ItemID    string
 	Raw       map[string]any
 }
@@ -243,7 +308,10 @@ func (s *Service) RecordIncoming(ctx context.Context, in Incoming) (*db.ChatMess
 	if sentAt == 0 {
 		sentAt = time.Now().UTC().UnixMilli()
 	}
-	key := extractString(in.Raw, "messageId", "message_id", "msgId", "mid", "uuid")
+	key := strings.TrimSpace(in.MessageID)
+	if key == "" {
+		key = extractString(in.Raw, "messageId", "message_id", "msgId", "uuid")
+	}
 	if key == "" {
 		raw, _ := json.Marshal(in.Raw)
 		digest := sha256.Sum256([]byte(in.AccountID + "\x00" + in.ChatID + "\x00" + in.BuyerID + "\x00" + in.Text + "\x00" + string(raw)))
@@ -263,7 +331,10 @@ func (s *Service) RecordIncoming(ctx context.Context, in Incoming) (*db.ChatMess
 	}
 	message := db.ChatMessage{MessageKey: key, Direction: "incoming", SenderID: in.BuyerID,
 		SenderName: in.BuyerName, MessageType: messageType, Content: content, Status: "received", SentAt: sentAt}
-	stored, inserted, err := s.store.Chats.SaveMessage(ctx, session, message, true)
+	// Official notices may still reach this side channel when protocol fields
+	// vary. They are rendered as system messages and must never create a user
+	// unread badge.
+	stored, inserted, err := s.store.Chats.SaveMessage(ctx, session, message, messageType != "system")
 	if err == nil && inserted {
 		s.Publish(in.AccountID, Event{Type: "message.created", Message: stored, Session: &session})
 	}
@@ -527,6 +598,23 @@ func (s *Service) SetOutgoingStatus(ctx context.Context, accountID, key, status 
 	return message, err
 }
 
+// MarkOutgoingRead records the platform's read receipt for an outgoing message.
+func (s *Service) MarkOutgoingRead(ctx context.Context, accountID, key string, readAt int64) (*db.ChatMessage, error) {
+	message, err := s.store.Chats.MarkMessageRead(ctx, accountID, key, readAt)
+	if err == nil {
+		s.Publish(accountID, Event{Type: "message.updated", Message: message})
+	}
+	return message, err
+}
+
+func (s *Service) MarkLatestOutgoingRead(ctx context.Context, accountID, chatID string, readAt int64) (*db.ChatMessage, error) {
+	message, err := s.store.Chats.MarkLatestOutgoingRead(ctx, accountID, chatID, readAt)
+	if err == nil {
+		s.Publish(accountID, Event{Type: "message.updated", Message: message})
+	}
+	return message, err
+}
+
 func randomID() string {
 	var value [16]byte
 	if _, err := rand.Read(value[:]); err == nil {
@@ -559,6 +647,16 @@ func extractString(value any, keys ...string) string {
 		case []any:
 			for _, child := range x {
 				if text := walk(child); text != "" {
+					return text
+				}
+			}
+		case string:
+			// Live WS envelopes often keep extJson/bizTag as an encoded JSON
+			// string. Decode it so messageId is preserved instead of falling
+			// back to a local in-* key.
+			var decoded any
+			if json.Unmarshal([]byte(x), &decoded) == nil {
+				if text := walk(decoded); text != "" {
 					return text
 				}
 			}

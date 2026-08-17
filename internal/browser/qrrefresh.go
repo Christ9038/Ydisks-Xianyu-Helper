@@ -39,6 +39,7 @@ func (m *Manager) QRCookieRefresh(ctx context.Context, tmpCookies, verificationU
 		Viewport:   &playwright.Size{Width: 1100, Height: 760},
 		Locale:     playwright.String(defaultLang),
 		TimezoneId: playwright.String(defaultTZ),
+		UserAgent:  m.headlessUserAgent(),
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("创建 context 失败: %w", err)
@@ -52,7 +53,7 @@ func (m *Manager) QRCookieRefresh(ctx context.Context, tmpCookies, verificationU
 		return "", "", fmt.Errorf("注入临时 cookie 失败: %w", err)
 	}
 
-	page, err := bctx.NewPage()
+	page, err := m.newBrowserPage(bctx, true)
 	if err != nil {
 		return "", "", fmt.Errorf("新建 page 失败: %w", err)
 	}

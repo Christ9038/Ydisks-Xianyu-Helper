@@ -70,7 +70,7 @@ test('chat APIs preserve account and conversation scope', async () => {
 	expect(fetchMock.mock.calls[0][0]).toBe('/api/chat/sessions?account_id=a1');
 	expect(fetchMock.mock.calls[1][0]).toBe('/api/chat/messages?account_id=a1&chat_id=c1&before_id=9');
 	expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toMatchObject({ account_id: 'a1', chat_id: 'c1', buyer_id: 'b1' });
-	expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({ account_id: 'a1', chat_id: 'c1' });
+	expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({ account_id: 'a1', chat_id: 'c1', message_ids: [] });
 });
 
 test('account task APIs keep rating and polish account-scoped', async () => {

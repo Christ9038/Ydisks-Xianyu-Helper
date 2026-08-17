@@ -14,6 +14,20 @@ type SessionsByAccount = Record<string, ChatSession[]>;
 
 const accountStorageKey = 'ydisks.chat.account.v1';
 
+const unreadLabel = (count: number): string => {
+  const normalized = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+  return normalized > 99 ? '99+' : String(normalized);
+};
+
+const UnreadBadge: React.FC<{ count: number; className?: string }> = ({ count, className = '' }) => {
+  if (!Number.isFinite(count) || count <= 0) return null;
+  return (
+    <span aria-label={`未读消息 ${unreadLabel(count)} 条`} className={`inline-flex h-5 min-w-5 shrink-0 items-center justify-center whitespace-nowrap rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-none text-white ${className}`}>
+      {unreadLabel(count)}
+    </span>
+  );
+};
+
 const formatClock = (value: number): string => {
   if (!value) return '';
   const date = new Date(value < 10_000_000_000 ? value * 1000 : value);
@@ -64,10 +78,17 @@ const Chat: React.FC = () => {
 
   const reloadSessions = async (accountID: string) => {
     const page = await getChatSessionPage(accountID, undefined, undefined, true);
-    setSessionsByAccount(current => ({ ...current, [accountID]: page.sessions }));
+    // The session list request can finish after markChatRead during a refresh.
+    // Keep the currently open conversation locally read so a stale response
+    // cannot resurrect its red badge.
+    const sessions = page.sessions.map(session =>
+      accountID === activeAccountRef.current && session.chat_id === activeChatRef.current
+        ? { ...session, unread_count: 0 }
+        : session);
+    setSessionsByAccount(current => ({ ...current, [accountID]: sessions }));
     setContactCursors(current => ({ ...current, [accountID]: page.next_cursor }));
     setHasMoreContacts(current => ({ ...current, [accountID]: page.has_more }));
-    return page.sessions;
+    return sessions;
   };
 
   useEffect(() => {
@@ -152,11 +173,18 @@ const Chat: React.FC = () => {
       return;
     }
     const controller = new AbortController();
+    setSessionsByAccount(current => ({
+      ...current,
+      [activeAccountID]: (current[activeAccountID] || []).map(session =>
+        session.chat_id === activeChatID ? { ...session, unread_count: 0 } : session),
+    }));
     setMessagesLoading(true);
-    void Promise.all([
-      getChatMessagePage(activeAccountID, activeChatID, undefined, undefined, { signal: controller.signal }),
-      markChatRead(activeAccountID, activeChatID),
-    ]).then(([page]) => {
+    void getChatMessagePage(activeAccountID, activeChatID, undefined, undefined, { signal: controller.signal }).then(page => {
+      const readMessages = page.messages
+        .filter(message => message.direction === 'incoming' && message.message_type !== 'system' && !message.message_key.startsWith('in-'))
+        .map(message => ({ messageId: message.message_key, sessionId: activeChatID, cid: `${activeChatID}@goofish`, conversationType: 1 } as any));
+      console.info('[聊天已读] 打开会话上报', { accountID: activeAccountID, chatID: activeChatID, messageCount: readMessages.length, messageIds: readMessages.map(item => item.messageId) });
+      void markChatRead(activeAccountID, activeChatID, readMessages);
       setMessages(page.messages);
       setHasOlder(page.has_more);
       setHistoryCursor(page.next_cursor);
@@ -233,7 +261,7 @@ const Chat: React.FC = () => {
                 ...row,
                 last_message: message.content,
                 last_message_at: message.sent_at,
-                unread_count: message.direction === 'incoming' && (activeAccountRef.current !== accountID || activeChatRef.current !== message.chat_id)
+                unread_count: message.direction === 'incoming' && message.message_type !== 'system' && (activeAccountRef.current !== accountID || activeChatRef.current !== message.chat_id)
                   ? row.unread_count + 1 : row.unread_count,
               } : row).sort((a, b) => b.last_message_at - a.last_message_at),
             };
@@ -244,7 +272,11 @@ const Chat: React.FC = () => {
               if (index >= 0) return current.map((item, i) => i === index ? message : item);
               return [...current, message];
             });
-            if (message.direction === 'incoming') void markChatRead(accountID, message.chat_id);
+            if (message.direction === 'incoming' && message.message_type !== 'system') {
+              const readMessage = [{ messageId: message.message_key, sessionId: message.chat_id, cid: `${message.chat_id}@goofish`, conversationType: 1 } as any];
+              console.info('[聊天已读] 收到实时消息上报', { accountID, chatID: message.chat_id, messageKey: message.message_key, messageType: message.message_type });
+              void markChatRead(accountID, message.chat_id, readMessage);
+            }
           }
         } catch {
           // Ignore malformed non-chat frames and recover from authoritative REST state.
@@ -388,7 +420,7 @@ const Chat: React.FC = () => {
                 className={`relative flex h-11 shrink-0 items-center gap-2 border-b-2 px-3 text-sm font-extrabold transition-colors ${active ? 'border-sky-500 text-sky-700' : 'border-transparent text-slate-500 hover:text-slate-900'}`}>
                 <span className={`h-2 w-2 rounded-full ${online ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                 <span className="max-w-36 truncate">{account.nickname || account.remark || account.id}</span>
-                {unread > 0 && <span className="min-w-5 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] text-white">{unread > 99 ? '99+' : unread}</span>}
+                <UnreadBadge count={unread} />
               </button>
             );
           })}
@@ -434,7 +466,7 @@ const Chat: React.FC = () => {
                     </div>
                     <div className="mt-1 flex items-center gap-2">
                       <span className="truncate text-xs text-slate-500">{session.last_message || '暂无消息'}</span>
-                      {session.unread_count > 0 && <span className="ml-auto min-w-5 shrink-0 rounded-full bg-red-500 px-1.5 py-0.5 text-center text-[10px] font-bold text-white">{session.unread_count}</span>}
+                      <UnreadBadge count={session.unread_count} className="ml-auto" />
                     </div>
                     {session.item_title && <div className="mt-1.5 truncate text-[10px] font-medium text-sky-700">商品 · {session.item_title}</div>}
                   </div>
@@ -501,7 +533,7 @@ const Chat: React.FC = () => {
                           )}
                           <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-400">
                             {messageTime(message.sent_at)}
-                            {outgoing && (message.status === 'failed' ? <AlertCircle className="h-3 w-3 text-red-500" /> : message.status === 'sent' ? <CheckCheck className="h-3 w-3 text-sky-500" /> : <Check className="h-3 w-3" />)}
+                            {outgoing && (message.status === 'failed' ? <AlertCircle className="h-3 w-3 text-red-500" /> : message.read_status === 2 ? <CheckCheck className="h-3 w-3 text-sky-500" /> : message.status === 'sent' ? <Check className="h-3 w-3 text-sky-500" /> : <Check className="h-3 w-3" />)}
                           </div>
                         </div>
                         {outgoing && <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-sky-100 ring-2 ring-white">

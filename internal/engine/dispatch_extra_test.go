@@ -135,6 +135,22 @@ func TestHandleMessage_DedupSkipsRepeat(t *testing.T) {
 	}
 }
 
+func TestHandleMessage_IgnoresOwnWebSocketEcho(t *testing.T) {
+	acc, h, _, cleanup := newAccountForTest(t)
+	defer cleanup()
+	defer acc.Stop()
+
+	// newAccountForTest 使用 unb=123；模拟同一账号在闲鱼官方客户端发出的
+	// 消息回显，不能进入自动回复或业务消息处理链。
+	acc.handleMessage(plainChatMessage(t, "官方客户端发送", "123", "chat-own"))
+	time.Sleep(MessageDebounceDelay + 200*time.Millisecond)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.chats) != 0 {
+		t.Fatalf("账号自身消息回显不应触发自动回复，got %d", len(h.chats))
+	}
+}
+
 // TestHandleMessage_NoReminderNoOp 无 reminderContent 的消息不进入回复链也不报错。
 func TestHandleMessage_NoReminderNoOp(t *testing.T) {
 	acc, h, _, cleanup := newAccountForTest(t)
@@ -521,4 +537,20 @@ func plainChatMessage(t *testing.T, text, senderUserID, chatID string) map[strin
 		t.Fatalf("unmarshal: %v", err)
 	}
 	return m
+}
+
+func TestExtractMessageReadEvent40103(t *testing.T) {
+	event, ok := extractMessageReadEvent(map[string]any{
+		"1": "4263141580162.PNM", "2": 2, "3": 0,
+		"4": "64725235816@goofish", "5": 1, "6": 1786945729928,
+	})
+	if !ok || event.MessageID != "4263141580162.PNM" || event.ChatID != "64725235816" || event.ReadAt <= 0 {
+		t.Fatalf("40103 event=%+v ok=%v", event, ok)
+	}
+	batch, ok := extractMessageReadEvent(map[string]any{
+		"1": []any{"4263107993838.PNM"}, "2": 2, "3": "64725235816@goofish", "4": 1,
+	})
+	if !ok || batch.MessageID != "4263107993838.PNM" || batch.ChatID != "64725235816" {
+		t.Fatalf("40103 batch event=%+v ok=%v", batch, ok)
+	}
 }

@@ -102,6 +102,16 @@ func TestExtractChatMessageUsesReminderTitleAsNickname(t *testing.T) {
 	}
 }
 
+func TestExtractChatMessageIgnoresOwnWebSocketEcho(t *testing.T) {
+	decrypted := map[string]any{"1": map[string]any{
+		"2":  "chat-1@goofish",
+		"10": map[string]any{"reminderContent": "我在官方客户端发送的消息", "senderUserId": "self-1", "senderNick": "我"},
+	}}
+	if chat := extractChatMessage(decrypted, "account-1", "unb=self-1;"); chat != nil {
+		t.Fatalf("账号自身发送的 WS 回显不应进入自动回复链: %+v", chat)
+	}
+}
+
 func TestExtractChatMessage_FiltersRefundTradeCard(t *testing.T) {
 	decrypted := mustRefundTradeCard(t)
 	if chat := extractChatMessage(decrypted, "cid", "cookie"); chat != nil {

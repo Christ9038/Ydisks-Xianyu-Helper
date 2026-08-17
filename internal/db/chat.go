@@ -33,6 +33,8 @@ type ChatMessage struct {
 	MessageType string `json:"message_type"`
 	Content     string `json:"content"`
 	Status      string `json:"status"`
+	ReadStatus  int    `json:"read_status"`
+	ReadAt      int64  `json:"read_at,omitempty"`
 	SentAt      int64  `json:"sent_at"`
 }
 
@@ -135,6 +137,13 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 	if message.SentAt <= 0 {
 		message.SentAt = time.Now().UTC().UnixMilli()
 	}
+	// read_status is also used for incoming messages: only a newly received
+	// real-user message starts unread. Imported history and official system
+	// notices must never contribute to the chat badge.
+	if message.Direction == "incoming" && (!unread || message.MessageType == "system") {
+		message.ReadStatus = 2
+		message.ReadAt = time.Now().UTC().UnixMilli()
+	}
 	message.CookieID, message.ChatID = session.CookieID, session.ChatID
 	now := time.Now().UTC().Unix()
 	tx, err := s.DB.BeginTx(ctx, nil)
@@ -155,11 +164,11 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 
 	prefix := dialectInsertIgnorePrefix(s.Dialect)
 	query := prefix + ` INTO chat_messages
-		(cookie_id,chat_id,message_key,direction,sender_id,sender_name,message_type,content,status,sent_at,created_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?)` + dialectInsertIgnore(s.Dialect, []string{"cookie_id", "message_key"})
+		(cookie_id,chat_id,message_key,direction,sender_id,sender_name,message_type,content,status,read_status,read_at,sent_at,created_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)` + dialectInsertIgnore(s.Dialect, []string{"cookie_id", "message_key"})
 	res, err := tx.ExecContext(ctx, query, message.CookieID, message.ChatID, message.MessageKey,
 		message.Direction, message.SenderID, message.SenderName, message.MessageType, message.Content,
-		message.Status, message.SentAt, now)
+		message.Status, message.ReadStatus, message.ReadAt, message.SentAt, now)
 	if err != nil {
 		return nil, false, fmt.Errorf("保存聊天消息: %w", err)
 	}
@@ -188,10 +197,10 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 
 func (s *ChatStore) GetMessageByKey(ctx context.Context, cookieID, key string) (*ChatMessage, error) {
 	var m ChatMessage
-	err := s.DB.QueryRowContext(ctx, `SELECT id,cookie_id,chat_id,message_key,direction,sender_id,sender_name,message_type,content,status,sent_at
+	err := s.DB.QueryRowContext(ctx, `SELECT id,cookie_id,chat_id,message_key,direction,sender_id,sender_name,message_type,content,status,read_status,read_at,sent_at
 		FROM chat_messages WHERE cookie_id=? AND message_key=?`, cookieID, key).Scan(
 		&m.ID, &m.CookieID, &m.ChatID, &m.MessageKey, &m.Direction, &m.SenderID, &m.SenderName,
-		&m.MessageType, &m.Content, &m.Status, &m.SentAt)
+		&m.MessageType, &m.Content, &m.Status, &m.ReadStatus, &m.ReadAt, &m.SentAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -234,7 +243,7 @@ func (s *ChatStore) ListMessages(ctx context.Context, userID int64, cookieID, ch
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	query := `SELECT m.id,m.cookie_id,m.chat_id,m.message_key,m.direction,m.sender_id,m.sender_name,m.message_type,m.content,m.status,m.sent_at
+	query := `SELECT m.id,m.cookie_id,m.chat_id,m.message_key,m.direction,m.sender_id,m.sender_name,m.message_type,m.content,m.status,m.read_status,m.read_at,m.sent_at
 		FROM chat_messages m JOIN cookies c ON c.id=m.cookie_id
 		WHERE c.user_id=? AND m.cookie_id=? AND m.chat_id=?`
 	args := []any{userID, cookieID, chatID}
@@ -254,7 +263,7 @@ func (s *ChatStore) ListMessages(ctx context.Context, userID int64, cookieID, ch
 	for rows.Next() {
 		var m ChatMessage
 		if err := rows.Scan(&m.ID, &m.CookieID, &m.ChatID, &m.MessageKey, &m.Direction, &m.SenderID,
-			&m.SenderName, &m.MessageType, &m.Content, &m.Status, &m.SentAt); err != nil {
+			&m.SenderName, &m.MessageType, &m.Content, &m.Status, &m.ReadStatus, &m.ReadAt, &m.SentAt); err != nil {
 			return nil, err
 		}
 		result = append(result, m)
@@ -267,10 +276,26 @@ func (s *ChatStore) ListMessages(ctx context.Context, userID int64, cookieID, ch
 }
 
 func (s *ChatStore) MarkRead(ctx context.Context, userID int64, cookieID, chatID string) error {
+	now := time.Now().UTC()
+	if _, err := s.DB.ExecContext(ctx, `UPDATE chat_messages SET read_status=2,read_at=?
+		WHERE cookie_id=? AND chat_id=? AND direction='incoming' AND message_type<>'system' AND read_status<>2`,
+		now.UnixMilli(), cookieID, chatID); err != nil {
+		return err
+	}
 	_, err := s.DB.ExecContext(ctx, `UPDATE chat_sessions SET unread_count=0,updated_at=?
 		WHERE cookie_id=? AND chat_id=? AND EXISTS(SELECT 1 FROM cookies c WHERE c.id=chat_sessions.cookie_id AND c.user_id=?)`,
-		time.Now().UTC().Unix(), cookieID, chatID, userID)
+		now.Unix(), cookieID, chatID, userID)
 	return err
+}
+
+// CountUnreadUserMessages returns the message-level unread count used by the
+// UI badge. It deliberately excludes official/system messages and relies on
+// read_status rather than the conversation summary counter.
+func (s *ChatStore) CountUnreadUserMessages(ctx context.Context, cookieID, chatID string) (int, error) {
+	var count int
+	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM chat_messages
+		WHERE cookie_id=? AND chat_id=? AND direction='incoming' AND message_type<>'system' AND read_status<>2`, cookieID, chatID).Scan(&count)
+	return count, err
 }
 
 func (s *ChatStore) UpdateMessageStatus(ctx context.Context, cookieID, key, status string) (*ChatMessage, error) {
@@ -278,4 +303,29 @@ func (s *ChatStore) UpdateMessageStatus(ctx context.Context, cookieID, key, stat
 		return nil, err
 	}
 	return s.GetMessageByKey(ctx, cookieID, key)
+}
+
+func (s *ChatStore) MarkMessageRead(ctx context.Context, cookieID, key string, readAt int64) (*ChatMessage, error) {
+	if readAt <= 0 {
+		readAt = time.Now().UTC().UnixMilli()
+	}
+	if _, err := s.DB.ExecContext(ctx, `UPDATE chat_messages SET read_status=2,read_at=? WHERE cookie_id=? AND message_key=? AND direction='outgoing'`, readAt, cookieID, key); err != nil {
+		return nil, err
+	}
+	return s.GetMessageByKey(ctx, cookieID, key)
+}
+
+func (s *ChatStore) MarkLatestOutgoingRead(ctx context.Context, cookieID, chatID string, readAt int64) (*ChatMessage, error) {
+	if readAt <= 0 {
+		readAt = time.Now().UTC().UnixMilli()
+	}
+	var key string
+	err := s.DB.QueryRowContext(ctx, `SELECT message_key FROM chat_messages WHERE cookie_id=? AND chat_id=? AND direction='outgoing' AND status='sent' AND read_status<>2 ORDER BY sent_at DESC,id DESC LIMIT 1`, cookieID, chatID).Scan(&key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.MarkMessageRead(ctx, cookieID, key, readAt)
 }

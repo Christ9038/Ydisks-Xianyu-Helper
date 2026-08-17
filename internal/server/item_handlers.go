@@ -110,7 +110,7 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	client := s.mtopClient()
 	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
-	res, callErr := client.PublishItem(mtopCtx, cookieValue, mtop.PublishItemRequest{
+	publishReq := mtop.PublishItemRequest{
 		Title:              title,
 		Description:        description,
 		PriceCents:         priceCents,
@@ -121,7 +121,8 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		Virtual:            true,
 		Location:           selectedLocation,
 		Images:             images,
-	})
+	}
+	res, callErr := client.PublishItem(mtopCtx, cookieValue, publishReq)
 	runtimeCookie := ""
 	runtimeCookieChanged := false
 	var responseCookieErr error
@@ -151,25 +152,47 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		if responseCookieErr != nil {
 			callErr = errors.Join(callErr, fmt.Errorf("保存发布响应 Cookie: %w", responseCookieErr))
 		}
-		s.recoverExpiredMTOPSession(r.Context(), cookieID, callErr)
-		var perr *mtop.PublishError
-		if errors.As(callErr, &perr) {
-			status := http.StatusBadGateway
-			msg := perr.Error()
-			if perr.Code == mtop.PublishErrorStockPermissionMissing {
-				status = http.StatusForbidden
-				msg = "该账号没有库存发布权限，无法按库存数量发布商品"
+		// Session 失效是账号级凭证问题。续期成功后，当前发布请求仍然
+		// 可以安全重试一次：平台已经明确拒绝了这次业务调用，不会把
+		// 同一商品重复发布。重试前重新读取 Cookie，避免继续使用旧会话。
+		if mtop.IsSessionExpiredErr(callErr) && s.recoverExpiredMTOPSession(r.Context(), cookieID, callErr) {
+			retryRes, retryErr, retryCookieErr, credentialChanged := s.retryPublishItemAfterRenewal(ctx, cookieID, userID, publishReq)
+			if credentialChanged {
+				writeErr(w, http.StatusConflict, "账号凭证已变化，请重试")
+				return
 			}
-			writeJSON(w, status, map[string]any{
-				"success": false,
-				"code":    perr.Code,
-				"message": msg,
-				"ret":     perr.Ret,
-			})
+			if retryErr == nil && retryRes != nil {
+				res = retryRes
+				callErr = nil
+				responseCookieErr = retryCookieErr
+			} else if retryErr != nil {
+				callErr = retryErr
+				responseCookieErr = retryCookieErr
+			}
+		}
+		if callErr == nil {
+			// The renewed attempt succeeded; continue through the normal local
+			// persistence and success response path below.
+		} else {
+			var perr *mtop.PublishError
+			if errors.As(callErr, &perr) {
+				status := http.StatusBadGateway
+				msg := perr.Error()
+				if perr.Code == mtop.PublishErrorStockPermissionMissing {
+					status = http.StatusForbidden
+					msg = "该账号没有库存发布权限，无法按库存数量发布商品"
+				}
+				writeJSON(w, status, map[string]any{
+					"success": false,
+					"code":    perr.Code,
+					"message": msg,
+					"ret":     perr.Ret,
+				})
+				return
+			}
+			writeErr(w, http.StatusBadGateway, callErr.Error())
 			return
 		}
-		writeErr(w, http.StatusBadGateway, callErr.Error())
-		return
 	}
 	if res == nil || strings.TrimSpace(res.ItemID) == "" {
 		writeJSON(w, http.StatusBadGateway, map[string]any{
@@ -231,6 +254,51 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		"category_id":   res.CategoryID,
 		"category_name": res.CategoryName,
 	})
+}
+
+// retryPublishItemAfterRenewal re-reads the account credential after a
+// successful Session renewal and repeats one rejected publish attempt. The
+// caller already owns the parsed images and request payload, so this method
+// deliberately does not re-parse the multipart body.
+func (s *Server) retryPublishItemAfterRenewal(
+	ctx context.Context,
+	cookieID string,
+	userID int64,
+	req mtop.PublishItemRequest,
+) (result *mtop.PublishItemResult, callErr, cookieErr error, credentialChanged bool) {
+	credentialUnlock := s.Store.LockAccountCredentials(cookieID)
+	defer credentialUnlock()
+	latest, err := s.Store.Cookies.GetDetails(ctx, cookieID)
+	if err != nil || latest == nil || latest.UserID != userID || !hasStoredCookieCredential(latest) {
+		return nil, nil, nil, true
+	}
+	cookieValue := latest.Value
+	mtopCtx, cookieSession := withMTopCookieSnapshot(ctx, latest)
+	result, callErr = s.mtopClient().PublishItem(mtopCtx, cookieValue, req)
+	value, valueChanged, handled, persistErr := s.persistMTopCookieSessionLocked(ctx, latest, cookieSession)
+	if persistErr != nil {
+		cookieErr = persistErr
+		if s.Logger != nil {
+			s.Logger.Error("保存重试发布响应 Cookie Jar 失败", "cookie_id", cookieID, "err", persistErr)
+		}
+	} else if handled {
+		if valueChanged {
+			s.updateRunningCookie(ctx, cookieID, value)
+		}
+	} else if callErr == nil && result != nil && result.UpdatedCookies != "" && result.UpdatedCookies != cookieValue {
+		if err := s.Store.Cookies.UpdateValueOwned(ctx, cookieID, result.UpdatedCookies, userID); err != nil {
+			cookieErr = err
+			if s.Logger != nil {
+				s.Logger.Error("保存重试发布响应 Cookie 失败", "cookie_id", cookieID, "err", err)
+			}
+		} else {
+			s.updateRunningCookie(ctx, cookieID, result.UpdatedCookies)
+		}
+	}
+	if cookieErr != nil && callErr != nil {
+		callErr = errors.Join(callErr, fmt.Errorf("保存发布响应 Cookie: %w", cookieErr))
+	}
+	return result, callErr, cookieErr, false
 }
 
 func readPublishImages(r *http.Request, maxImages int) ([]mtop.PublishImage, error) {

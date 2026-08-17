@@ -207,6 +207,17 @@ Playwright 主引擎
 - `CAPTCHA_REAL_MOUSE=true` 在当前 Go/Docker 实现中只记录物理鼠标不可用，并继续备用逻辑；不得假装已启用物理鼠标。
 - `CAPTCHA_DRISSIONPAGE_FALLBACK_ENABLED` 默认为启用。
 - 备用引擎成功返回的引擎标识保持为 `drissionpage`，虽然底层实现是直接 Chromium + CDP。
+- `CAPTCHA_IGNORE_CERT_ERRORS` 默认关闭。仅当运行环境存在 TLS 检查代理、且诊断明确记录
+  Alibaba 风控资源出现 `ERR_CERT_AUTHORITY_INVALID` 时，才允许显式设为 `true`；此时主引擎和
+  备用 Chromium 都追加 `--ignore-certificate-errors`，HTTP 客户端仍保持正常证书校验。该开关
+  必须记录在部署配置中，不能默认开启或静默改变。
+- 初始化时必须从随包 Chromium 实测 UA 和 Client Hints。无头上下文只允许把 legacy UA 中的
+  `HeadlessChrome/<实际版本>` 规范化为 `Chrome/<相同实际版本>`；不得伪造版本、操作系统或移动端
+  状态。有头上下文不覆盖 Chromium 原生 UA。Playwright 主引擎必须同时使用 context `userAgent`
+  和导航前保持连接的页面级 `Emulation.setUserAgentOverride`，后者携带从实际 Chromium 读取并去除
+  无头品牌、去重后的 `userAgentMetadata`；只设置 context `userAgent` 不合格，因为其默认
+  `Sec-CH-UA` 和 `navigator.userAgentData` 仍可能包含 `HeadlessChrome`。非浏览器 HTTP 请求使用同一份
+  规范化运行时指纹。
 
 ## 7. 备用引擎行为
 
@@ -217,6 +228,8 @@ Playwright 主引擎
 - 启动前清理现有 singleton 文件和 `DevToolsActivePort`，退出后再次清理 singleton 文件。
 - 保留 `--remote-debugging-port=0`、`--window-size=1920,1080`、`--lang=zh-CN`、`--disable-blink-features=AutomationControlled` 等现有启动参数。
 - headless 时使用 `--headless=new`。
+- headless 时必须在导航前通过 `--user-agent` 应用同版本、已去除 `HeadlessChrome` 标记的运行时 UA；
+  有头模式不得追加该覆盖。Chromium 原生 Client Hints 必须继续保留，且不得出现 `HeadlessChrome`。
 - 默认总超时为 `25s`，可由现有环境变量控制；导航超时为 `15s`。
 
 备用距离规则固定如下：
@@ -246,6 +259,8 @@ Playwright 主引擎
 - 最终 `left`、最终 class 或最终 X 偏移。
 - 失败时的按钮 style/class、轨道 class、可见重试选择器和重试文本。
 - 恢复方式是 `click` 还是 `reload`、所用选择器以及是否重新归位。
+- 诊断包的 `page_state` 必须保留页面实际看到的 `navigator.userAgent`、`navigator.webdriver`、
+  `navigator.userAgentData` 基础字段及可读取的 high-entropy values，用于识别 UA/Client Hints 矛盾。
 - 自动滑块最终失败时，错误文本和 `token 风控滑块处理失败` 日志的 `verification_url` 字段必须包含最后实际使用的完整验证地址（包括 query），供用户复制到本机浏览器手动验证。此字段是仅在最终失败时提供的人工接管信息；常规页面/frame 诊断日志仍必须去掉 query 与 fragment。
 
 页面可能被浏览器扩展注入大量无关 DOM。当前仅把下列注入作为诊断信息记录，不允许它们改变滑块定位、距离或成功判定：
@@ -276,6 +291,9 @@ go vet ./internal/browser ./internal/engine ./internal/account ./internal/server
 - 没有可见滑块、只显示直接错误提示的真实 Chromium 页面必须被识别，并且不得进入滑动或备用引擎。
 - 标准 `300px` 轨道与 `42px` 按钮得到精确 `258px`。
 - 旧 `x5sec` 不得判成功，新 `x5sec` 才能判成功。
+- 主 Playwright 无头上下文和直接 Chromium/CDP 无头上下文的 HTTP `User-Agent`、`Sec-CH-UA`、
+  `navigator.userAgent`、`navigator.userAgentData` 都不得出现 `HeadlessChrome`/`headless` 标记，UA 中
+  的 Chrome 完整版本必须与随包 Chromium 一致。
 
 不得删除、跳过、弱化或改写断言来让行为变化通过测试。
 
@@ -284,6 +302,13 @@ go vet ./internal/browser ./internal/engine ./internal/account ./internal/server
 ### 2026-08-13 当前授权变更
 
 用户明确要求改变“未找到滑块时仍执行失败恢复/备用引擎”和“最终失败日志只保留脱敏页面地址”的既有契约。原因是风控页有时只显示平台错误信息而没有可操作滑块，继续 reload、拖动或切换引擎没有验证意义且会增加风控；而真实滑块自动处理失败时，用户需要完整地址在本机浏览器中接管验证。本规范第 3.1、6、8、9 节已同步纳入新的页面分类、编排、日志和集成验证要求。
+
+### 2026-08-17 当前授权变更
+
+用户明确要求解决无头 Chromium 指纹暴露 `HeadlessChrome` 的问题。此前随包 Chromium 在服务端
+风控页中实测返回 `HeadlessChrome/149.0.7827.55`，会让 HTTP UA 与正常桌面 Chromium 身份不同。
+本规范第 6 至 9 节同步加入了只移除无头产品标记、保留实际版本与 Client Hints、覆盖主/备用引擎、
+并在诊断包及真实 Chromium 集成测试中核验页面实际指纹的契约。
 
 只有用户在当前任务中明确点名要求修改滑块认证时，才允许触碰冻结范围。获得授权后也必须在同一个变更中：
 

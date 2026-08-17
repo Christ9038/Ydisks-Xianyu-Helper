@@ -3,11 +3,14 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
 
 	"xianyu-go/internal/automation"
+	"xianyu-go/internal/xianyu/protocol"
 )
 
 // dispatch 是 ws.ReceiveLoop 的回调，对每条解密后的消息做：
@@ -59,6 +62,17 @@ func (a *Account) handleMessage(decrypted map[string]any) {
 }
 
 func (a *Account) handleMessageContext(ctx context.Context, decrypted map[string]any) {
+	if receipt, ok := extractMessageReadEvent(decrypted); ok {
+		receipt.AccountID = a.CookieID
+		if h, ok := a.handler.(MessageReadHandler); ok {
+			if err := h.HandleMessageRead(ctx, receipt); err != nil {
+				a.logger.Warn("处理聊天已读回执失败", "err", err, "message_id", receipt.MessageID)
+			}
+		} else {
+			a.logger.Debug("收到聊天已读回执，但未接入处理器", "message_id", receipt.MessageID)
+		}
+		return
+	}
 	// 第一优先级：系统卡片和平台通知进入自动化中心。
 	// 这里不判断具体业务，只做“平台事件”事实解析；系统消息永远不进入 AI 回复范围。
 	if task := automation.ExtractTaskFromWS(a.CookieID, a.currentCookieStr(), decrypted); task != nil {
@@ -67,6 +81,10 @@ func (a *Account) handleMessageContext(ctx context.Context, decrypted map[string
 				a.logger.Error("处理系统自动化事件失败", "err", err, "trigger", task.TriggerType)
 			}
 		}
+		return
+	}
+	if senderUserID := extractChatSenderUserID(decrypted); isSelfUserID(senderUserID, protocol.TransCookies(a.currentCookieStr())["unb"]) {
+		a.logger.Info("忽略账号自身发送的 WebSocket 聊天回显", "chat_id", extractChatID(decrypted), "sender_id", senderUserID)
 		return
 	}
 
@@ -80,6 +98,89 @@ func (a *Account) handleMessageContext(ctx context.Context, decrypted map[string
 		a.scheduleDebouncedReply(*chat)
 		return
 	}
+}
+
+func extractMessageReadEvent(v map[string]any) (MessageReadEvent, bool) {
+	// 40103 解密后不会保留外层 objectType，只剩下固定的紧凑字段：
+	// 1=PNM 消息 ID、2=状态(2=已读)、4=会话 ID、6=事件时间。
+	// 不能只在解密后的 map 里继续寻找 "bizType":40103，否则真实回执
+	// 会被当成普通消息静默丢弃。
+	messageID := strings.TrimSpace(toString(v["1"]))
+	if ids, ok := v["1"].([]any); ok && len(ids) > 0 {
+		messageID = strings.TrimSpace(toString(ids[0]))
+	}
+	if strings.HasSuffix(messageID, ".PNM") && toString(v["2"]) == "2" {
+		chatID := strings.TrimSpace(toString(v["4"]))
+		if !strings.Contains(chatID, "@goofish") {
+			chatID = strings.TrimSpace(toString(v["3"]))
+		}
+		chatID = strings.TrimSuffix(chatID, "@goofish")
+		return MessageReadEvent{ChatID: chatID, MessageID: messageID, ReadAt: time.Now().UTC().UnixMilli()}, true
+	}
+	var found bool
+	var ev MessageReadEvent
+	var walk func(any)
+	walk = func(x any) {
+		if found {
+			return
+		}
+		switch m := x.(type) {
+		case map[string]any:
+			for k, val := range m {
+				lk := strings.ToLower(k)
+				if lk == "biztype" || lk == "biz_type" || lk == "type" {
+					if toString(val) == "40103" {
+						found = true
+					}
+				}
+			}
+			if found {
+				ev.MessageID = extractNestedString(m, "messageid", "message_id")
+				ev.ChatID = extractNestedString(m, "cid", "chatid", "chat_id")
+				if ev.MessageID == "" {
+					ev.MessageID = extractNestedString(m, "id")
+				}
+				return
+			}
+			for _, child := range m {
+				walk(child)
+			}
+		case []any:
+			for _, child := range m {
+				walk(child)
+			}
+		case string:
+			// Some sync envelopes carry the event body as an escaped JSON
+			// string instead of an already-decoded object.
+			var decoded any
+			if json.Unmarshal([]byte(m), &decoded) == nil {
+				walk(decoded)
+			}
+		}
+	}
+	walk(v)
+	if !found || ev.MessageID == "" {
+		return MessageReadEvent{}, false
+	}
+	return ev, true
+}
+
+func extractNestedString(m map[string]any, keys ...string) string {
+	for k, v := range m {
+		for _, want := range keys {
+			if strings.EqualFold(k, want) && strings.TrimSpace(toString(v)) != "" {
+				return strings.TrimSpace(toString(v))
+			}
+		}
+	}
+	for _, v := range m {
+		if child, ok := v.(map[string]any); ok {
+			if s := extractNestedString(child, keys...); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
 }
 
 // markAndCheckDedup 提取消息 ID，检查 1 小时内是否已处理；未处理则标记。
@@ -183,12 +284,20 @@ func (a *Account) scheduleDebouncedReply(chat ChatMessage) {
 	})
 }
 
-// extractMessageID 从 message["1"]["10"]["bizTag"] 或 extJson 中提取 messageId。
-// 移植自 _extract_message_id。
+// extractMessageID 提取闲鱼消息状态接口使用的消息 ID。
+//
+// 实时 WS 聊天消息同时包含两种 ID：message["1"]["3"] 是消息在 IM
+// 服务中的 PNM ID，/r/MessageStatus/read 使用的正是这个 ID；10.bizTag、
+// extJson 和 reminderUrl 里的 messageId 是通知/推送侧的关联 ID，不能用来
+// 上报会话已读。历史消息接口也返回 PNM ID，因此优先使用字段 3，其他
+// 字段只作为兼容旧消息或缺失字段 3 的兜底。
 func extractMessageID(decrypted map[string]any) string {
 	m1, ok := decrypted["1"].(map[string]any)
 	if !ok {
 		return ""
+	}
+	if id := strings.TrimSpace(toString(m1["3"])); id != "" && id != "<nil>" {
+		return id
 	}
 	m10, ok := m1["10"].(map[string]any)
 	if !ok {
@@ -203,6 +312,43 @@ func extractMessageID(decrypted map[string]any) string {
 	if ext, _ := m10["extJson"].(string); ext != "" {
 		if id := parseMessageIDFromJSON(ext); id != "" {
 			return id
+		}
+	}
+	if reminderURL, _ := m10["reminderUrl"].(string); reminderURL != "" {
+		if parsed, err := url.Parse(reminderURL); err == nil {
+			if id := strings.TrimSpace(parsed.Query().Get("messageId")); id != "" {
+				return id
+			}
+		}
+	}
+	return findMessageID(decrypted)
+}
+
+func findMessageID(value any) string {
+	switch x := value.(type) {
+	case map[string]any:
+		for key, child := range x {
+			if strings.EqualFold(key, "messageId") || strings.EqualFold(key, "message_id") {
+				if id := strings.TrimSpace(fmt.Sprint(child)); id != "" && id != "<nil>" {
+					return id
+				}
+			}
+		}
+		for _, child := range x {
+			if id := findMessageID(child); id != "" {
+				return id
+			}
+		}
+	case []any:
+		for _, child := range x {
+			if id := findMessageID(child); id != "" {
+				return id
+			}
+		}
+	case string:
+		var decoded any
+		if json.Unmarshal([]byte(x), &decoded) == nil {
+			return findMessageID(decoded)
 		}
 	}
 	return ""
@@ -241,7 +387,13 @@ func extractChatMessage(decrypted map[string]any, accountID, cookieStr string) *
 	if i := strings.Index(chatID, "@"); i >= 0 {
 		chatID = chatID[:i]
 	}
-	senderUserID, _ := m10["senderUserId"].(string)
+	senderUserID := extractChatSenderUserIDFromMaps(m1, m10)
+	if isSelfUserID(senderUserID, protocol.TransCookies(cookieStr)["unb"]) {
+		// The official client echoes messages sent by this account over the
+		// same WebSocket. They are delivery observations, not new buyer input,
+		// and must never enter the automatic-reply pipeline.
+		return nil
+	}
 	senderName, _ := m10["senderNick"].(string)
 	if strings.TrimSpace(senderName) == "" {
 		senderName, _ = m10["reminderTitle"].(string)
@@ -255,9 +407,45 @@ func extractChatMessage(decrypted map[string]any, accountID, cookieStr string) *
 		SenderUserID: senderUserID,
 		SenderName:   senderName,
 		Text:         reminder,
+		MessageID:    extractMessageID(decrypted),
 		ItemID:       itemID,
 		Raw:          decrypted,
 	}
+}
+
+func extractChatSenderUserID(decrypted map[string]any) string {
+	m1, _ := decrypted["1"].(map[string]any)
+	if m1 == nil {
+		return ""
+	}
+	m10, _ := m1["10"].(map[string]any)
+	return extractChatSenderUserIDFromMaps(m1, m10)
+}
+
+func extractChatSenderUserIDFromMaps(m1, m10 map[string]any) string {
+	if m10 != nil {
+		if sender := strings.TrimSpace(toString(m10["senderUserId"])); sender != "" {
+			return sender
+		}
+	}
+	// Some echoed messages omit 10.senderUserId but retain the sender in the
+	// compact 1.1 envelope.
+	if sender, ok := m1["1"].(map[string]any); ok {
+		return strings.TrimSpace(toString(sender["1"]))
+	}
+	return ""
+}
+
+func extractChatID(decrypted map[string]any) string {
+	m1, _ := decrypted["1"].(map[string]any)
+	chatID := strings.TrimSpace(toString(m1["2"]))
+	return strings.TrimSuffix(chatID, "@goofish")
+}
+
+func isSelfUserID(senderUserID, selfUserID string) bool {
+	sender := strings.TrimSuffix(strings.TrimSpace(senderUserID), "@goofish")
+	self := strings.TrimSuffix(strings.TrimSpace(selfUserID), "@goofish")
+	return sender != "" && self != "" && sender == self
 }
 
 // isNonUserChatNotice 判断闲鱼 IM 中不应进入自动回复的系统提示或交易卡片。

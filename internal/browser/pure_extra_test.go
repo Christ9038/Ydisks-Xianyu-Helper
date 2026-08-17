@@ -1,6 +1,12 @@
 package browser
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"xianyu-go/internal/xianyu"
+)
 
 // TestSanitize 特殊字符替换为下划线（用于 userDataDir 命名）。
 func TestSanitize(t *testing.T) {
@@ -92,6 +98,77 @@ func TestChromiumExecutablePathFromEnv(t *testing.T) {
 	got := chromiumExecutablePath()
 	if got == nil || *got != "/usr/bin/chromium" {
 		t.Fatalf("chromiumExecutablePath=%v", got)
+	}
+}
+
+func TestCaptchaIgnoreCertificateErrors(t *testing.T) {
+	t.Setenv("CAPTCHA_IGNORE_CERT_ERRORS", "")
+	if captchaIgnoreCertificateErrors() {
+		t.Fatal("默认不应忽略证书错误")
+	}
+	t.Setenv("CAPTCHA_IGNORE_CERT_ERRORS", "true")
+	if !captchaIgnoreCertificateErrors() {
+		t.Fatal("true 应启用 CAPTCHA 证书错误忽略开关")
+	}
+	t.Setenv("CAPTCHA_IGNORE_CERT_ERRORS", "not-a-bool")
+	if captchaIgnoreCertificateErrors() {
+		t.Fatal("无效值不应启用证书错误忽略开关")
+	}
+}
+
+func TestNormalizeBrowserFingerprintRemovesOnlyHeadlessMarker(t *testing.T) {
+	fingerprint := normalizeBrowserFingerprint(xianyu.BrowserFingerprint{
+		UserAgent: " Mozilla/5.0 HeadlessChrome/149.0.7827.55 Safari/537.36 ",
+		SecChUA:   `"HeadlessChrome";v="149", "Chromium";v="149"`,
+		Platform:  "macOS",
+		Mobile:    "?0",
+	})
+	if strings.Contains(fingerprint.UserAgent, "HeadlessChrome") || strings.Contains(fingerprint.SecChUA, "HeadlessChrome") {
+		t.Fatalf("无头标记未清除: %+v", fingerprint)
+	}
+	if !strings.Contains(fingerprint.UserAgent, "Chrome/149.0.7827.55") {
+		t.Fatalf("Chromium 版本不应变化: %q", fingerprint.UserAgent)
+	}
+	if fingerprint.Platform != "macOS" || fingerprint.Mobile != "?0" {
+		t.Fatalf("非无头字段不应变化: %+v", fingerprint)
+	}
+	if strings.Count(fingerprint.SecChUA, `"Chromium"`) != 1 {
+		t.Fatalf("Client Hints 品牌应去重: %q", fingerprint.SecChUA)
+	}
+}
+
+func TestNormalizeUserAgentMetadataRemovesAndDeduplicatesHeadlessBrand(t *testing.T) {
+	metadata := normalizeUserAgentMetadata(map[string]any{
+		"brands": []any{
+			map[string]any{"brand": "HeadlessChrome", "version": "149"},
+			map[string]any{"brand": "Chromium", "version": "149"},
+			map[string]any{"brand": "Not)A;Brand", "version": "24"},
+		},
+		"fullVersionList": []any{
+			map[string]any{"brand": "HeadlessChrome", "version": "149.0.7827.55"},
+			map[string]any{"brand": "Chromium", "version": "149.0.7827.55"},
+		},
+		"platform": "macOS",
+		"mobile":   false,
+	})
+	if strings.Contains(strings.ToLower(fmt.Sprint(metadata)), "headless") {
+		t.Fatalf("User-Agent metadata 仍暴露 headless: %#v", metadata)
+	}
+	brands, ok := metadata["brands"].([]any)
+	if !ok || len(brands) != 2 {
+		t.Fatalf("brands 未正确去重: %#v", metadata["brands"])
+	}
+	fullVersions, ok := metadata["fullVersionList"].([]any)
+	if !ok || len(fullVersions) != 1 {
+		t.Fatalf("fullVersionList 未正确去重: %#v", metadata["fullVersionList"])
+	}
+}
+
+func TestManagerHeadlessUserAgentUsesDetectedRuntimeVersion(t *testing.T) {
+	m := &Manager{browserFingerprint: xianyu.BrowserFingerprint{UserAgent: "Mozilla/5.0 HeadlessChrome/149.0.7827.55 Safari/537.36"}}
+	userAgent := m.headlessUserAgent()
+	if userAgent == nil || *userAgent != "Mozilla/5.0 Chrome/149.0.7827.55 Safari/537.36" {
+		t.Fatalf("headlessUserAgent=%v", userAgent)
 	}
 }
 

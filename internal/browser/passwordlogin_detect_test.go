@@ -79,12 +79,13 @@ func TestPasswordLoginReferenceProfileAndTiming(t *testing.T) {
 
 func TestPasswordPersistentContextOptionsMatchReference(t *testing.T) {
 	t.Setenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "/opt/chromium")
-	opts := passwordPersistentContextOptions(true)
+	userAgent := "Mozilla/5.0 Chrome/149.0.7827.55 Safari/537.36"
+	opts := passwordPersistentContextOptions(true, &userAgent)
 	if opts.Headless == nil || !*opts.Headless {
 		t.Fatal("密码登录应按调用参数使用无头模式")
 	}
-	if opts.UserAgent != nil {
-		t.Fatalf("密码登录不应覆盖 Playwright Chromium 原生 UA: %v", *opts.UserAgent)
+	if opts.UserAgent == nil || *opts.UserAgent != userAgent {
+		t.Fatalf("无头密码登录应使用去除 HeadlessChrome 的运行时 UA: %v", opts.UserAgent)
 	}
 	if opts.Viewport == nil || opts.Viewport.Width != 1980 || opts.Viewport.Height != 1024 {
 		t.Fatalf("密码登录 viewport=%+v", opts.Viewport)
@@ -103,6 +104,10 @@ func TestPasswordPersistentContextOptionsMatchReference(t *testing.T) {
 	}
 	if opts.ExecutablePath == nil || *opts.ExecutablePath != "/opt/chromium" {
 		t.Fatalf("Chromium 路径=%v", opts.ExecutablePath)
+	}
+	headed := passwordPersistentContextOptions(false, &userAgent)
+	if headed.UserAgent != nil {
+		t.Fatalf("有头密码登录应保留 Chromium 原生 UA: %v", headed.UserAgent)
 	}
 }
 
