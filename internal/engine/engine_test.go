@@ -124,7 +124,20 @@ func TestExtractChatMessageUsesReminderTitleAsNickname(t *testing.T) {
 	}
 }
 
-// TestExtractChatMessage_FiltersRefundTradeCard 负责TestExtract聊天消息FiltersRefundTrade卡密相关处理。
+// TestExtractChatMessageIgnoresOwnWebSocketEcho 验证账号自身的 WebSocket 回显不会进入回复链。
+func TestExtractChatMessageIgnoresOwnWebSocketEcho(t *testing.T) {
+	// decrypted 模拟账号自身发送后由同一 WebSocket 回传的解密聊天信封。
+	decrypted := map[string]any{"1": map[string]any{
+		"2":  "chat-1@goofish",
+		"10": map[string]any{"reminderContent": "我在官方客户端发送的消息", "senderUserId": "self-1", "senderNick": "我"},
+	}}
+	// chat 是提取结果；账号自身的回显必须被过滤，因此应为 nil。
+	if chat := extractChatMessage(decrypted, "account-1", "unb=self-1;"); chat != nil {
+		t.Fatalf("账号自身发送的 WS 回显不应进入自动回复链: %+v", chat)
+	}
+}
+
+// TestExtractChatMessage_FiltersRefundTradeCard 验证退款交易卡不会被识别为用户聊天。
 func TestExtractChatMessage_FiltersRefundTradeCard(t *testing.T) {
 	// decrypted 保存decrypted，供当前处理流程使用
 	decrypted := mustRefundTradeCard(t)

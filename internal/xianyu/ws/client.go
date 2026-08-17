@@ -904,6 +904,33 @@ func (c *Conn) SendText(ctx context.Context, myID, cid, toID, text string) error
 	return c.sendChatContent(ctx, myID, cid, toID, content)
 }
 
+// MarkChatRead 将当前会话的 PNM 消息 ID 上报为已读。
+// ctx 控制远端请求生命周期；cid 仅用于本地可观测日志；messageIDs 为待上报消息对象。
+// 返回值仅报告远端调用失败，平台拒绝会被记录为告警以保留既有调用兼容性。
+func (c *Conn) MarkChatRead(ctx context.Context, cid string, messageIDs []map[string]any) error {
+	// ids 是剔除空值后的 PNM ID 列表，按平台 MessageStatusService 的参数格式发送。
+	ids := make([]string, 0, len(messageIDs))
+	// item 为调用方传入的一条待读消息对象，可能缺少平台消息 ID。
+	for _, item := range messageIDs {
+		// id 是当前对象中可上报的非空 PNM 消息 ID。
+		if id := strings.TrimSpace(fmt.Sprint(item["messageId"])); id != "" && id != "<nil>" {
+			ids = append(ids, id)
+		}
+	}
+	c.logger.Info("准备上报闲鱼已读", "cid", cid, "message_count", len(ids), "message_ids", ids)
+	// response 保存平台响应；err 表示请求或传输失败。服务只接受一个 string 列表参数。
+	response, err := c.request(ctx, "/r/MessageStatus/read", map[string]any{}, []any{ids}, regResponseTimeout)
+	if err == nil {
+		// code 是平台业务状态码；ok 表示响应中的状态码可被规范解析。
+		if code, ok := responseCode(response["code"]); ok && code >= 400 {
+			c.logger.Warn("闲鱼已读上报被拒绝", "cid", cid, "message_count", len(ids), "code", code, "body", response["body"])
+		} else {
+			c.logger.Info("闲鱼已读上报成功", "cid", cid, "message_count", len(ids), "message_ids", ids, "code", response["code"])
+		}
+	}
+	return err
+}
+
 // SendImage 发送一条闲鱼聊天图片消息。imageURL 应为闲鱼可访问的 CDN/公网 URL。
 func (c *Conn) SendImage(ctx context.Context, myID, cid, toID, imageURL string, width, height int) error {
 	if width <= 0 {

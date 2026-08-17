@@ -85,7 +85,25 @@ type Handler interface {
 	OnAccountAlert(ctx context.Context, cookieID, level, title, body string)
 }
 
-// accountEventHandler 保存账号EventHandler，供当前处理流程使用
+// MessageReadHandler 是可选的聊天已读回执端口，旧 Handler 实现不必承担该能力。
+type MessageReadHandler interface {
+	// HandleMessageRead 接收已解析且不包含凭证的平台已读事件。
+	HandleMessageRead(context.Context, MessageReadEvent) error
+}
+
+// MessageReadEvent 是平台出站消息已读状态的非敏感事件载体。
+type MessageReadEvent struct {
+	// AccountID 是当前运行时账号标识。
+	AccountID string
+	// ChatID 是平台会话标识。
+	ChatID string
+	// MessageID 是平台 PNM 消息标识。
+	MessageID string
+	// ReadAt 是平台或本机记录的 Unix 毫秒已读时间。
+	ReadAt int64
+}
+
+// accountEventHandler 保存账号事件扩展端口，供可选通知器识别类型化告警。
 type accountEventHandler interface {
 	OnAccountEvent(ctx context.Context, cookieID, eventType, level, title, body string)
 }
@@ -129,6 +147,7 @@ type ChatMessage struct {
 	SenderUserID string
 	SenderName   string
 	Text         string
+	MessageID    string
 	ItemID       string
 	Raw          map[string]any // 解密后的完整消息
 }
@@ -836,6 +855,26 @@ func (a *Account) setRuntimeError(ctx context.Context, err error) {
 // SendText 通过当前 WebSocket 给买家发送文本消息。
 func (a *Account) SendText(ctx context.Context, chatID, toUserID, text string) error {
 	return a.outgoing.sendText(ctx, chatID, toUserID, text)
+}
+
+// MarkChatRead 向已连接的 WebSocket 上报会话消息已读状态，调用方负责用户所有权校验。
+func (a *Account) MarkChatRead(ctx context.Context, chatID string, messageIDs []map[string]any) error {
+	// conn、err 保存当前连接快照及不可发送时的生命周期错误。
+	conn, _, err := a.outgoing.currentSenderState()
+	if err != nil {
+		return err
+	}
+	// readCtx、cancel 为平台上报设置固定超时，取消责任在本方法返回时释放。
+	readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	// reader、ok 保存连接是否支持可选的已读上报能力。
+	reader, ok := conn.(interface {
+		MarkChatRead(context.Context, string, []map[string]any) error
+	})
+	if !ok {
+		return fmt.Errorf("当前 WebSocket 不支持已读上报")
+	}
+	return reader.MarkChatRead(readCtx, chatID, messageIDs)
 }
 
 // SendImage 通过当前 WebSocket 给买家发送图片消息。当前仅支持可直接访问的 CDN/公网 URL。

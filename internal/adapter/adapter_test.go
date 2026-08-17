@@ -605,6 +605,45 @@ func TestOnPasswordLoginRefreshWaitsForPendingFinalResult(t *testing.T) {
 	}
 }
 
+// TestOnPasswordLoginRefreshConcurrentCallersShareResult 验证同账号并发续期只执行一次外部请求且共享成功结果。
+func TestOnPasswordLoginRefreshConcurrentCallersShareResult(t *testing.T) {
+	// store、cleanup 保存测试专用数据库及其资源释放函数，避免并发用例污染其他测试。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	renewal.GlobalCooldown.Reset("cid")
+	// err 保存写入可续期账号 Cookie 的错误；失败时无法建立本用例的续期前置状态。
+	if err := store.Cookies.UpdateValueExisting(context.Background(), "cid", "unb=1; havana_lgc_exp=9999999999999"); err != nil {
+		t.Fatal(err)
+	}
+	// started 用于确认首个调用已进入慢速续期请求，使第二个调用确实与其并发。
+	started := make(chan struct{})
+	// once 保证测试 HTTP 处理器只关闭一次开始信号。
+	var once sync.Once
+	// srv 模拟延迟完成的协议续期端点，暴露并发调用共享结果的时序。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		once.Do(func() { close(started) })
+		time.Sleep(60 * time.Millisecond)
+		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
+	}))
+	defer srv.Close()
+	// a 是注入测试续期服务的适配器，被两个调用方并发复用。
+	a := New(store, nil, nil)
+	a.SetRenewService(xrenew.Service{
+		HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL,
+		RetryDelay: -1, PromiseTimeout: 5 * time.Millisecond,
+	})
+	// first 接收首个续期调用的最终布尔结果，避免 goroutine 泄漏。
+	first := make(chan bool, 1)
+	go func() { first <- a.OnPasswordLoginRefresh(context.Background(), "cid") }()
+	<-started
+	// second 保存第二个并发调用收到的共享续期结果。
+	second := a.OnPasswordLoginRefresh(context.Background(), "cid")
+	// got 保存首个调用的最终结果，应与等待共享状态的第二个调用一致。
+	if got := <-first; !got || !second {
+		t.Fatalf("并发续期调用应共享成功结果: first=%v second=%v", got, second)
+	}
+}
+
 // TestOnPasswordLoginRefresh_BrowserNilReturnsFalseAfterAPIFailure 接口轻量续期也失败后才因浏览器不可用失败。
 func TestOnPasswordLoginRefresh_BrowserNilReturnsFalseAfterAPIFailure(t *testing.T) {
 	// store、cleanup 保存store、cleanup，供当前处理流程使用

@@ -147,3 +147,43 @@ func TestChatAndTaskEndpointsEnforceOwnershipAndValidation(t *testing.T) {
 		}
 	}
 }
+
+// TestFindChatPlatformMessageID 验证历史推送关联 ID 只在同一会话内映射为 PNM 已读 ID。
+func TestFindChatPlatformMessageID(t *testing.T) {
+	// raw 模拟持久化的解密 WS 消息，包含推送关联 ID 与平台 PNM ID。
+	raw := map[string]any{
+		"1": map[string]any{
+			"2": "64725235816@goofish",
+			"3": "4263141580162.PNM",
+			"10": map[string]any{
+				"extJson": `{"messageId":"f87f8f6dabca4eff940863ef72a393f7"}`,
+			},
+		},
+	}
+	// got 保存同会话匹配后可向平台上报的 PNM ID。
+	if got := findChatPlatformMessageID(raw, "64725235816", "f87f8f6dabca4eff940863ef72a393f7"); got != "4263141580162.PNM" {
+		t.Fatalf("platform message id=%q", got)
+	}
+	// got 保存跨会话查询结果，必须为空以禁止错误标记其他会话已读。
+	if got := findChatPlatformMessageID(raw, "other-chat", "f87f8f6dabca4eff940863ef72a393f7"); got != "" {
+		t.Fatalf("跨会话错误匹配: %q", got)
+	}
+}
+
+// TestResolveChatReadMessageIDsMigratesLegacyID 验证历史关联 ID 会转换为平台接受的 PNM ID。
+func TestResolveChatReadMessageIDsMigratesLegacyID(t *testing.T) {
+	// srv 提供待测解析路径；store 写入历史 WS 消息；cleanup 释放测试服务器和数据库。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// raw 是保存到数据库的解密信封 JSON，含旧关联 ID 及其对应的 PNM ID。
+	raw := `{"1":{"2":"64725235816@goofish","3":"4263141580162.PNM","10":{"extJson":"{\"messageId\":\"f87f8f6dabca4eff940863ef72a393f7\"}"}}}`
+	// err 保存写入历史 WS 消息失败的原因，写入失败会使后续解析夹具无效。
+	if err := store.WSMessages.Add(context.Background(), db.WSMessage{CookieID: "acc1", Direction: "in", ParsedJSON: raw, ParseStatus: "decrypted"}); err != nil {
+		t.Fatal(err)
+	}
+	// got 是兼容解析后的上报参数，旧关联 ID 必须被替换为 PNM ID。
+	got := srv.resolveChatReadMessageIDs(context.Background(), "acc1", "64725235816", []map[string]any{{"messageId": "f87f8f6dabca4eff940863ef72a393f7"}})
+	if len(got) != 1 || got[0]["messageId"] != "4263141580162.PNM" {
+		t.Fatalf("resolved=%+v", got)
+	}
+}

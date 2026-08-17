@@ -42,6 +42,21 @@ func (*fakeRepository) UpdateMessageStatus(_ context.Context, _ string, _ string
 	return &db.ChatMessage{Status: status}, nil
 }
 
+// CountUnreadUserMessages 为窄仓储测试提供空的真实用户未读统计结果。
+func (*fakeRepository) CountUnreadUserMessages(context.Context, string, string) (int, error) {
+	return 0, nil
+}
+
+// MarkMessageRead 为窄仓储测试模拟指定出站消息的已读更新。
+func (*fakeRepository) MarkMessageRead(_ context.Context, _ string, key string, readAt int64) (*db.ChatMessage, error) {
+	return &db.ChatMessage{MessageKey: key, ReadStatus: 2, ReadAt: readAt}, nil
+}
+
+// MarkLatestOutgoingRead 为窄仓储测试模拟缺失消息键时的会话级回退更新。
+func (*fakeRepository) MarkLatestOutgoingRead(_ context.Context, _ string, chatID string, readAt int64) (*db.ChatMessage, error) {
+	return &db.ChatMessage{ChatID: chatID, ReadStatus: 2, ReadAt: readAt}, nil
+}
+
 // TestServiceUsesNarrowRepository 验证聊天服务可以脱离完整 db.Store 运行。
 func TestServiceUsesNarrowRepository(t *testing.T) {
 	// repository 是只实现聊天所需方法的内存替身。

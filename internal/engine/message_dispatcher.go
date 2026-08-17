@@ -157,6 +157,21 @@ func (d *messageDispatcher) handleMessage(decrypted map[string]any) {
 
 // handleMessageContext 将系统事件和聊天消息分别交给对应业务链。
 func (d *messageDispatcher) handleMessageContext(ctx context.Context, decrypted map[string]any) {
+	// receipt、ok 保存解析出的平台已读回执及是否命中已读事件格式。
+	if receipt, ok := extractMessageReadEvent(decrypted); ok {
+		receipt.AccountID = d.cookieID
+		// handler 保存当前可选处理器；旧集成不实现回执端口时保持兼容。
+		if handler := d.currentHandler(); handler != nil {
+			// reader 是可消费已读回执的可选端口；supported 表示当前集成实现了该端口。
+			if reader, supported := handler.(MessageReadHandler); supported {
+				// err 保存回执持久化错误；失败不应中断 WebSocket 接收循环。
+				if err := reader.HandleMessageRead(ctx, receipt); err != nil {
+					d.logger.Warn("处理聊天已读回执失败", "err", err, "message_id", receipt.MessageID)
+				}
+			}
+		}
+		return
+	}
 	// 系统卡片和平台通知优先进入自动化中心，永远不进入 AI 回复范围。
 	if task := automation.ExtractTaskFromWS(d.cookieID, d.currentCookie(), decrypted); task != nil {
 		if // handler 保存handler，供当前处理流程使用

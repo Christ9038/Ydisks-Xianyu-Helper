@@ -7,6 +7,7 @@ import {
   CookieSettingsResponse, CookieProfileResponse, ItemDetailResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, OrderRefreshResponse, OrderRefreshJobStartResponse, OrderRefreshJobStatusResponse, OrderRefreshJobCancelResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope, AdminStatsResponse, DashboardStatsResponse, OrderAnalyticsResponse, QRLoginGenerateResponse, QRLoginStatusResponse, QRLoginVerificationResponse, ValidOrderResponse, ValidOrdersResponse
 } from '../../../shared/api-contract';
 import { collectionFrom, objectFrom } from '../../../shared/http/contract';
+import type { ChatReadReceipt } from './types';
 
 /** 聊天账号选择器读取非敏感账号摘要。 */
 export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => get('/api/v1/accounts/details', undefined, options);
@@ -68,6 +69,6 @@ export const sendChatImage = async (input: {
 	return postForm('/api/v1/chat/images', form, { timeoutMs: 120_000, ...options });
 };
 
-// markChatRead 标记聊天消息已读。
-export const markChatRead = async (accountId: string, chatId: string, options?: RequestControlOptions): Promise<OperationResponse> =>
-	post('/api/v1/chat/read', { account_id: accountId, chat_id: chatId }, options);
+/** 向平台确认指定会话中的入站消息已读。 */
+export const markChatRead = async (accountId: string, chatId: string, messageIDs: ChatReadReceipt[], options?: RequestControlOptions): Promise<OperationResponse> =>
+	post('/api/v1/chat/read', { account_id: accountId, chat_id: chatId, message_ids: messageIDs }, options);

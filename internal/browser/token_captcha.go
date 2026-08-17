@@ -174,7 +174,7 @@ func (m *Manager) TokenCaptchaRecoverWithEngine(ctx context.Context, cookieID, c
 	)
 }
 
-func (m *Manager) tokenCaptchaPlaywrightRecover(ctx context.Context, cookieID, cookieStr, verificationURL string, headless bool, _ TokenCaptchaURLProvider) (string, error) {
+func (m *Manager) tokenCaptchaPlaywrightRecover(ctx context.Context, cookieID, cookieStr, verificationURL string, headless bool, _ TokenCaptchaURLProvider) (result string, resultErr error) {
 	if strings.TrimSpace(cookieStr) == "" {
 		return "", fmt.Errorf("Cookie为空，无法处理 token 风控验证")
 	}
@@ -183,7 +183,8 @@ func (m *Manager) tokenCaptchaPlaywrightRecover(ctx context.Context, cookieID, c
 	}
 
 	currentCookies := cookieStr
-	bctx, release, err := m.newPersistentRenewContext(ctx, cookieID, currentCookies, nil, quickRenewHeadless(headless), true)
+	headless = quickRenewHeadless(headless)
+	bctx, release, err := m.newPersistentRenewContext(ctx, cookieID, currentCookies, nil, headless, true)
 	if err != nil {
 		return "", err
 	}
@@ -196,11 +197,18 @@ func (m *Manager) tokenCaptchaPlaywrightRecover(ctx context.Context, cookieID, c
 	}
 	previousX5SecValues := x5SecValues(beforeCookies)
 
-	page, err := bctx.NewPage()
+	page, err := m.newBrowserPage(bctx, headless)
 	if err != nil {
 		return "", fmt.Errorf("新建 page 失败: %w", err)
 	}
 	defer func() { _ = page.Close() }()
+	diagnostic := newTokenCaptchaDiagnostic(cookieID, "playwright", verificationURL, page, m.logger)
+	diagnosticSucceeded := false
+	defer func() {
+		if diagnostic != nil && !diagnosticSucceeded {
+			diagnostic.capture(page, "playwright_failed", resultErr)
+		}
+	}()
 
 	if time.Now().After(browserDeadline) {
 		return "", fmt.Errorf("token 风控浏览器验证超过 %s", tokenCaptchaBrowserTTL)
@@ -230,6 +238,9 @@ func (m *Manager) tokenCaptchaPlaywrightRecover(ctx context.Context, cookieID, c
 		m.logger.Warn("token 风控页面没有可验证滑块，停止自动验证", "cookieID", cookieID, "err", pageErr)
 		return "", pageErr
 	}
+	if diagnostic != nil {
+		diagnostic.snapshotInitial(page)
+	}
 
 	scratch := isScratchCaptcha(content)
 	if err := solveSliderStrict(page, scratch, m.logger, previousX5SecValues, browserDeadline); err != nil {
@@ -245,6 +256,7 @@ func (m *Manager) tokenCaptchaPlaywrightRecover(ctx context.Context, cookieID, c
 		merged[k] = v
 	}
 	m.logger.Info("token风控验证成功", "cookieID", cookieID, "x5_cookie_count", len(x5))
+	diagnosticSucceeded = true
 	return cookieMarshal(merged), nil
 }
 

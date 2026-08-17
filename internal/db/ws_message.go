@@ -68,3 +68,32 @@ func (w *WSMessageStore) DeleteBefore(ctx context.Context, cookieID string, cuto
 	}
 	return result.RowsAffected()
 }
+
+// FindInboundParsedJSONContaining 返回最近的已解密入站诊断帧，供旧版聊天消息标识迁移使用。
+func (w *WSMessageStore) FindInboundParsedJSONContaining(ctx context.Context, cookieID, fragment string, limit int) ([]string, error) {
+	// safeLimit 限制诊断查询行数，避免单次已读操作读取过多历史帧。
+	safeLimit := limit
+	if safeLimit <= 0 || safeLimit > 100 {
+		safeLimit = 20
+	}
+	// rows、err 保存匹配的诊断帧游标及数据库查询错误。
+	rows, err := w.DB.QueryContext(ctx, `SELECT parsed_json FROM ws_messages
+		WHERE cookie_id=? AND direction='in' AND parse_status='decrypted' AND parsed_json LIKE ?
+		ORDER BY id DESC LIMIT ?`, cookieID, "%"+fragment+"%", safeLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	// values 保存按时间倒序读取的已解密诊断 JSON。
+	values := make([]string, 0, safeLimit)
+	for rows.Next() {
+		// value 保存当前诊断帧的解析 JSON。
+		var value string
+		// scanErr 保存当前诊断帧字段扫描错误。
+		if scanErr := rows.Scan(&value); scanErr != nil {
+			return nil, scanErr
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}

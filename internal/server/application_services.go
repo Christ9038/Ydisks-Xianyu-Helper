@@ -366,10 +366,8 @@ func newApplicationServices(server *Server) *applicationServices {
 		panic(itemCatalogMutationErr)
 	}
 	// itemPublishPort 是单商品与批量发布共享的平台凭证适配器。
-	itemPublishPort := server.itemDependencies.NewItemPublishPort(server.mtopClient, server.Logger, server.updateRunningCookie, func(ctx context.Context, cookieID string, err error) {
-		if sessionRecovery != nil {
-			sessionRecovery(ctx, cookieID, err)
-		}
+	itemPublishPort := server.itemDependencies.NewItemPublishPort(server.mtopClient, server.Logger, server.updateRunningCookie, func(ctx context.Context, cookieID string, err error) bool {
+		return sessionRecovery != nil && sessionRecovery(ctx, cookieID, err)
 	})
 	// itemCategoryRecommendation 复用商品发布端口承载类目推荐和响应会话写回。
 	itemCategoryRecommendation, itemCategoryRecommendationErr := itemapp.NewCategoryRecommendationService(itemPublishPort)

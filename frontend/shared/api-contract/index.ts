@@ -199,6 +199,10 @@ export interface ChatMessage {
 	content: string;
 	/** 消息发送状态。 */
 	status: 'received' | 'sending' | 'sent' | 'failed';
+	/** 平台已读状态；旧消息可能没有该字段。 */
+	read_status?: number;
+	/** 平台确认已读的 Unix 秒时间戳；未确认时省略。 */
+	read_at?: number;
 	/** 消息发送时间的 Unix 秒。 */
 	sent_at: number;
 }

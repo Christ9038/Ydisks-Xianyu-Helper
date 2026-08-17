@@ -6,6 +6,18 @@ export type SessionsByAccount = Record<string, ChatSession[]>;
 /** Chat 实时连接状态。 */
 export type ChatLiveState = 'connecting' | 'online' | 'offline';
 
+/** 平台已读接口要求的单条消息回执。 */
+export interface ChatReadReceipt {
+  /** 平台消息去重键。 */
+  messageId: string;
+  /** 所属平台会话标识。 */
+  sessionId: string;
+  /** 平台会话复合标识。 */
+  cid: string;
+  /** 平台定义的单聊会话类型。 */
+  conversationType: number;
+}
+
 /** Chat Hook 的状态与交互能力。 */
 export type ChatFeatureState = {
   /** 当前启用账号列表。 */

@@ -1222,7 +1222,7 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 			}
 			// i 表示本次回滚操作序号。
 			for i := 0; version >= 14; i++ {
-				if // err 保存err，供当前处理流程使用
+				if // err 保存当前方言迁移回滚错误，失败时保留步骤号诊断。
 				err := goose.Down(tg.store.DB, "migrations/"+subdir); err != nil {
 					t.Fatalf("migration down #%d: %v", i+1, err)
 				}
@@ -1285,6 +1285,8 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				{"account_task_runs", "run_key"},
 				{"chat_sessions", "unread_count"},
 				{"chat_messages", "message_key"},
+				{"chat_messages", "read_status"},
+				{"chat_messages", "read_at"},
 			} {
 				if !columnExistsForDialect(t, tg.store.DB, tg.dialect, c.table, c.col) {
 					t.Fatalf("column missing after re-up: %s.%s", c.table, c.col)

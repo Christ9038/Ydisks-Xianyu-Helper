@@ -22,6 +22,12 @@ type Repository interface {
 	UpdateMessageType(ctx context.Context, cookieID, key, messageType string) error
 	// UpdateMessageStatus 更新外发消息状态并返回最新消息。
 	UpdateMessageStatus(ctx context.Context, cookieID, key, status string) (*db.ChatMessage, error)
+	// CountUnreadUserMessages 返回当前会话中非系统入站消息的未读数量。
+	CountUnreadUserMessages(ctx context.Context, cookieID, chatID string) (int, error)
+	// MarkMessageRead 根据平台回执标记指定出站消息已读。
+	MarkMessageRead(ctx context.Context, cookieID, key string, readAt int64) (*db.ChatMessage, error)
+	// MarkLatestOutgoingRead 在回执缺失消息键时标记会话最近一条未读出站消息。
+	MarkLatestOutgoingRead(ctx context.Context, cookieID, chatID string, readAt int64) (*db.ChatMessage, error)
 }
 
 // storeRepository 将聚合 Store 的聊天相关 repository 适配为窄接口。
@@ -63,6 +69,21 @@ func (r storeRepository) UpdateMessageType(ctx context.Context, cookieID, key, m
 // UpdateMessageStatus 委托外发消息状态更新。
 func (r storeRepository) UpdateMessageStatus(ctx context.Context, cookieID, key, status string) (*db.ChatMessage, error) {
 	return r.store.Chats.UpdateMessageStatus(ctx, cookieID, key, status)
+}
+
+// CountUnreadUserMessages 委托消息级真实用户未读数统计。
+func (r storeRepository) CountUnreadUserMessages(ctx context.Context, cookieID, chatID string) (int, error) {
+	return r.store.Chats.CountUnreadUserMessages(ctx, cookieID, chatID)
+}
+
+// MarkMessageRead 委托指定出站消息的已读回执写入。
+func (r storeRepository) MarkMessageRead(ctx context.Context, cookieID, key string, readAt int64) (*db.ChatMessage, error) {
+	return r.store.Chats.MarkMessageRead(ctx, cookieID, key, readAt)
+}
+
+// MarkLatestOutgoingRead 委托会话级出站消息已读回退写入。
+func (r storeRepository) MarkLatestOutgoingRead(ctx context.Context, cookieID, chatID string, readAt int64) (*db.ChatMessage, error) {
+	return r.store.Chats.MarkLatestOutgoingRead(ctx, cookieID, chatID, readAt)
 }
 
 // newStoreRepository 从完整 Store 构造聊天服务使用的窄 repository。

@@ -84,7 +84,7 @@ type itemDependencyFactory interface {
 	// NewItemBatchPublishPort 创建批量远端发布端口。
 	NewItemBatchPublishPort(func() adapter.MTOPClient, *slog.Logger, func(context.Context, string, string), func(context.Context, string, error), adapter.ReadPublishImageFile, adapter.DownloadPublishImageURL) *adapter.ItemBatchPublishPort
 	// NewItemPublishPort 创建单商品发布端口。
-	NewItemPublishPort(func() adapter.MTOPClient, *slog.Logger, func(context.Context, string, string), func(context.Context, string, error)) *adapter.ItemPublishPort
+	NewItemPublishPort(func() adapter.MTOPClient, *slog.Logger, func(context.Context, string, string), func(context.Context, string, error) bool) *adapter.ItemPublishPort
 	// NewItemPublishRepository 创建单商品发布结果仓储。
 	NewItemPublishRepository() *adapter.ItemPublishRepository
 	// NewItemCatalogRepository 创建商品目录仓储。

@@ -3,7 +3,9 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -166,6 +168,12 @@ type SessionRepository interface {
 	MarkRead(ctx context.Context, userID int64, accountID, chatID string) error
 }
 
+// ReadMessageIDResolver 定义旧版聊天关联标识解析需要的最小诊断查询能力。
+type ReadMessageIDResolver interface {
+	// FindInboundParsedJSONContaining 返回可能包含旧关联标识的有限已解密入站诊断帧。
+	FindInboundParsedJSONContaining(ctx context.Context, accountID, fragment string, limit int) ([]string, error)
+}
+
 // Service 编排聊天历史查询，不持有 HTTP 请求或数据库连接。
 type Service struct {
 	// repository 保存由调用方注入的最小持久化端口。
@@ -258,6 +266,116 @@ func (s *Service) FindSession(ctx context.Context, userID int64, accountID, chat
 		}
 	}
 	return session, nil
+}
+
+// ResolveReadMessageID 将旧版实时消息关联标识转换为闲鱼已读接口要求的 PNM 标识。
+func (s *Service) ResolveReadMessageID(ctx context.Context, accountID, chatID, messageID string) string {
+	// legacyID 保存去除空白后的待迁移消息关联标识。
+	legacyID := strings.TrimSpace(messageID)
+	if legacyID == "" || strings.HasSuffix(legacyID, ".PNM") || s == nil || s.repository == nil {
+		return legacyID
+	}
+	// resolver 保存仓储实现的可选诊断帧查询能力。
+	resolver, ok := s.repository.(ReadMessageIDResolver)
+	if !ok {
+		return ""
+	}
+	// values、err 保存可能匹配旧标识的诊断 JSON 及读取错误。
+	values, err := resolver.FindInboundParsedJSONContaining(ctx, accountID, legacyID, 20)
+	if err != nil {
+		return ""
+	}
+	// value 保存当前待解析的诊断 JSON。
+	for _, value := range values {
+		// decoded 保存当前诊断帧反序列化后的动态结构。
+		var decoded any
+		if json.Unmarshal([]byte(value), &decoded) != nil {
+			continue
+		}
+		// platformID 保存当前诊断帧中解析出的平台 PNM 标识。
+		if platformID := FindPlatformMessageID(decoded, chatID, legacyID); platformID != "" {
+			return platformID
+		}
+	}
+	return ""
+}
+
+// FindPlatformMessageID 在已解密的实时消息结构中定位与旧关联标识对应的 PNM 标识。
+func FindPlatformMessageID(value any, chatID, legacyID string) string {
+	// walk 递归检查嵌套 map、数组和嵌入 JSON 文本。
+	var walk func(any) string
+	walk = func(current any) string {
+		// typed 保存当前动态节点按容器类别断言后的值。
+		switch typed := current.(type) {
+		case map[string]any:
+			// payload、ok 保存协议第 10 段及其存在标识。
+			if payload, ok := typed["10"]; ok && readValueContainsID(payload, legacyID) {
+				// candidate 保存当前协议节点提供的平台消息标识。
+				candidate := strings.TrimSpace(fmt.Sprint(typed["3"]))
+				if strings.HasSuffix(candidate, ".PNM") {
+					// currentChatID 保存协议节点所属的聊天会话标识。
+					currentChatID := strings.TrimSuffix(strings.TrimSpace(fmt.Sprint(typed["2"])), "@goofish")
+					if currentChatID == "" || currentChatID == chatID {
+						return candidate
+					}
+				}
+			}
+			// child 保存当前 map 的嵌套协议节点。
+			for _, child := range typed {
+				// candidate 保存递归解析得到的候选 PNM 标识。
+				if candidate := walk(child); candidate != "" {
+					return candidate
+				}
+			}
+		case []any:
+			// child 保存当前数组中的嵌套协议节点。
+			for _, child := range typed {
+				// candidate 保存递归解析得到的候选 PNM 标识。
+				if candidate := walk(child); candidate != "" {
+					return candidate
+				}
+			}
+		case string:
+			// nested 保存嵌入 JSON 文本反序列化后的结构。
+			var nested any
+			if json.Unmarshal([]byte(typed), &nested) == nil {
+				return walk(nested)
+			}
+		}
+		return ""
+	}
+	return walk(value)
+}
+
+// readValueContainsID 判断嵌套诊断字段是否保存了指定旧关联标识。
+func readValueContainsID(value any, legacyID string) bool {
+	// typed 保存当前动态节点按容器类别断言后的值。
+	switch typed := value.(type) {
+	case map[string]any:
+		// key、child 保存当前字段名及其嵌套值。
+		for key, child := range typed {
+			if (strings.EqualFold(key, "messageId") || strings.EqualFold(key, "message_id")) && strings.TrimSpace(fmt.Sprint(child)) == legacyID {
+				return true
+			}
+			if readValueContainsID(child, legacyID) {
+				return true
+			}
+		}
+	case []any:
+		// child 保存当前数组中的嵌套值。
+		for _, child := range typed {
+			if readValueContainsID(child, legacyID) {
+				return true
+			}
+		}
+	case string:
+		// nested 保存嵌入 JSON 文本反序列化后的结构。
+		var nested any
+		if json.Unmarshal([]byte(typed), &nested) == nil {
+			return readValueContainsID(nested, legacyID)
+		}
+	}
+	return false
 }
 
 // CleanupEmptySessions 清理平台分页产生的无效空会话壳。

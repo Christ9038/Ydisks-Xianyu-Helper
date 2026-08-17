@@ -3,8 +3,12 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/url"
 	"strings"
 	"time"
+
+	"xianyu-go/internal/xianyu/protocol"
 )
 
 // dispatch 是 ws.ReceiveLoop 的回调，对每条解密后的消息做：
@@ -17,6 +21,107 @@ func (a *Account) dispatch(decrypted map[string]any) {
 // handleMessage 分类并投递消息。
 func (a *Account) handleMessage(decrypted map[string]any) {
 	a.messageDispatcher.handleMessage(decrypted)
+}
+
+// extractMessageReadEvent 从解密 WebSocket 事件中提取出站消息已读回执。
+func extractMessageReadEvent(v map[string]any) (MessageReadEvent, bool) {
+	// 40103 解密后不会保留外层 objectType，只剩下固定的紧凑字段：
+	// 1=PNM 消息 ID、2=状态(2=已读)、4=会话 ID、6=事件时间。
+	// 不能只在解密后的 map 里继续寻找 "bizType":40103，否则真实回执
+	// 会被当成普通消息静默丢弃。
+	// messageID 保存紧凑回执或嵌套事件中的平台 PNM 消息 ID。
+	messageID := strings.TrimSpace(toString(v["1"]))
+	// ids 保存批量回执携带的 PNM ID 列表；ok 表示字段 1 是否采用批量编码。
+	if ids, ok := v["1"].([]any); ok && len(ids) > 0 {
+		messageID = strings.TrimSpace(toString(ids[0]))
+	}
+	if strings.HasSuffix(messageID, ".PNM") && toString(v["2"]) == "2" {
+		// chatID 保存紧凑回执携带的会话 ID，旧信封缺失时回退字段 3。
+		chatID := strings.TrimSpace(toString(v["4"]))
+		if !strings.Contains(chatID, "@goofish") {
+			chatID = strings.TrimSpace(toString(v["3"]))
+		}
+		chatID = strings.TrimSuffix(chatID, "@goofish")
+		return MessageReadEvent{ChatID: chatID, MessageID: messageID, ReadAt: time.Now().UTC().UnixMilli()}, true
+	}
+	// found 标记已定位 40103 信封；ev 累积其会话和消息标识；walk 递归读取兼容嵌套结构。
+	var found bool
+	// ev 保存从嵌套兼容回执中提取的平台会话与消息标识。
+	var ev MessageReadEvent
+	// walk 解析对象、数组或 JSON 字符串形式的嵌套事件，命中后停止后续遍历。
+	var walk func(any)
+	walk = func(x any) {
+		if found {
+			return
+		}
+		// m 保存当前遍历节点被识别出的具体 JSON 数据类型。
+		switch m := x.(type) {
+		case map[string]any:
+			// k 为当前字段名；val 为其原始 JSON 值，用来定位回执事件类型。
+			for k, val := range m {
+				// lk 是小写化字段名，兼容平台信封的不同字段命名。
+				lk := strings.ToLower(k)
+				if lk == "biztype" || lk == "biz_type" || lk == "type" {
+					if toString(val) == "40103" {
+						found = true
+					}
+				}
+			}
+			if found {
+				ev.MessageID = extractNestedString(m, "messageid", "message_id")
+				ev.ChatID = extractNestedString(m, "cid", "chatid", "chat_id")
+				if ev.MessageID == "" {
+					ev.MessageID = extractNestedString(m, "id")
+				}
+				return
+			}
+			// child 为当前对象中的嵌套值，继续搜索未解包的回执信封。
+			for _, child := range m {
+				walk(child)
+			}
+		case []any:
+			// child 为当前批量信封中的一个候选事件。
+			for _, child := range m {
+				walk(child)
+			}
+		case string:
+			// 部分同步信封将事件体编码为转义 JSON 字符串，而非已解码对象。
+			// decoded 保存反序列化后的事件体，兼容字符串包装的同步消息。
+			var decoded any
+			if json.Unmarshal([]byte(m), &decoded) == nil {
+				walk(decoded)
+			}
+		}
+	}
+	walk(v)
+	if !found || ev.MessageID == "" {
+		return MessageReadEvent{}, false
+	}
+	return ev, true
+}
+
+// extractNestedString 在嵌套信封中按大小写无关键名查找第一个非空字符串。
+func extractNestedString(m map[string]any, keys ...string) string {
+	// k 是当前字段名；v 是字段原值，用于大小写无关地匹配候选键。
+	for k, v := range m {
+		// want 为调用方允许的目标字段名。
+		for _, want := range keys {
+			if strings.EqualFold(k, want) && strings.TrimSpace(toString(v)) != "" {
+				return strings.TrimSpace(toString(v))
+			}
+		}
+	}
+	// v 为当前对象中的嵌套值，继续查询其中的兼容子信封。
+	for _, v := range m {
+		// child 为可继续递归解析的对象；ok 表示当前值是否是对象结构。
+		if child, ok := v.(map[string]any); ok {
+			// s 保存子信封中找到的第一个非空目标字段值。
+			if s := extractNestedString(child, keys...); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
 }
 
 // markAndCheckDedup 提取消息 ID，检查 1 小时内是否已处理；未处理则标记。
@@ -38,16 +143,24 @@ func (a *Account) scheduleDebouncedReply(chat ChatMessage) {
 	a.messageDispatcher.scheduleDebouncedReply(chat)
 }
 
-// extractMessageID 从 message["1"]["10"]["bizTag"] 或 extJson 中提取 messageId。
-// 移植自 _extract_message_id。
-// extractMessageID 负责extract消息ID相关处理。
+// extractMessageID 提取闲鱼消息状态接口使用的消息 ID。
+//
+// 实时 WS 聊天消息同时包含两种 ID：message["1"]["3"] 是消息在 IM
+// 服务中的 PNM ID，/r/MessageStatus/read 使用的正是这个 ID；10.bizTag、
+// extJson 和 reminderUrl 里的 messageId 是通知/推送侧的关联 ID，不能用来
+// 上报会话已读。历史消息接口也返回 PNM ID，因此优先使用字段 3，其他
+// 字段只作为兼容旧消息或缺失字段 3 的兜底。
 func extractMessageID(decrypted map[string]any) string {
 	// m1、ok 保存m1、ok，供当前处理流程使用
 	m1, ok := decrypted["1"].(map[string]any)
 	if !ok {
 		return ""
 	}
-	// m10、ok 保存m10、ok，供当前处理流程使用
+	// id 保存实时消息最可靠的 PNM ID，存在时不可用推送关联 ID 覆盖。
+	if id := strings.TrimSpace(toString(m1["3"])); id != "" && id != "<nil>" {
+		return id
+	}
+	// m10、ok 保存消息展示扩展及其是否存在，用于兼容旧消息关联 ID。
 	m10, ok := m1["10"].(map[string]any)
 	if !ok {
 		return ""
@@ -64,6 +177,55 @@ func extractMessageID(decrypted map[string]any) string {
 		if // id 保存标识，供当前处理流程使用
 		id := parseMessageIDFromJSON(ext); id != "" {
 			return id
+		}
+	}
+	// reminderURL 保存提醒链接，旧消息会将推送关联 ID 编码在其查询参数中。
+	if reminderURL, _ := m10["reminderUrl"].(string); reminderURL != "" {
+		// parsed 保存已解析的提醒链接；err 表示 URL 格式不合法时的解析失败。
+		if parsed, err := url.Parse(reminderURL); err == nil {
+			// id 保存 reminderUrl 查询参数中的兼容消息关联 ID。
+			if id := strings.TrimSpace(parsed.Query().Get("messageId")); id != "" {
+				return id
+			}
+		}
+	}
+	return findMessageID(decrypted)
+}
+
+// findMessageID 递归解析兼容消息信封中可能存在的关联消息 ID。
+func findMessageID(value any) string {
+	// x 保存当前待搜索节点的具体值，按对象、数组和 JSON 字符串分别处理。
+	switch x := value.(type) {
+	case map[string]any:
+		// key 是对象字段名；child 是字段值，用于先检查本层关联 ID。
+		for key, child := range x {
+			if strings.EqualFold(key, "messageId") || strings.EqualFold(key, "message_id") {
+				// id 保存当前字段提供的非空关联消息 ID。
+				if id := strings.TrimSpace(fmt.Sprint(child)); id != "" && id != "<nil>" {
+					return id
+				}
+			}
+		}
+		// child 为本层嵌套字段值，递归兼容更深层信封。
+		for _, child := range x {
+			// id 保存子节点中首先发现的关联消息 ID。
+			if id := findMessageID(child); id != "" {
+				return id
+			}
+		}
+	case []any:
+		// child 为批量消息中的一个候选事件或子信封。
+		for _, child := range x {
+			// id 保存数组成员中首先发现的关联消息 ID。
+			if id := findMessageID(child); id != "" {
+				return id
+			}
+		}
+	case string:
+		// decoded 保存从 JSON 字符串解码后的兼容嵌套结构。
+		var decoded any
+		if json.Unmarshal([]byte(x), &decoded) == nil {
+			return findMessageID(decoded)
 		}
 	}
 	return ""
@@ -110,9 +272,14 @@ func extractChatMessage(decrypted map[string]any, accountID, cookieStr string) *
 	if i := strings.Index(chatID, "@"); i >= 0 {
 		chatID = chatID[:i]
 	}
-	// senderUserID 保存sender用户ID，供当前处理流程使用
-	senderUserID, _ := m10["senderUserId"].(string)
-	// senderName 保存sender名称，供当前处理流程使用
+	// senderUserID 保存经兼容字段归一后的发送者身份。
+	senderUserID := extractChatSenderUserIDFromMaps(m1, m10)
+	if isSelfUserID(senderUserID, protocol.TransCookies(cookieStr)["unb"]) {
+		// 官方客户端会通过同一 WebSocket 回显本账号发出的消息；它仅表示投递观察，
+		// 并非买家新输入，绝不能进入自动回复链。
+		return nil
+	}
+	// senderName 保存发送者展示名称，字段缺失时由提醒标题补齐。
 	senderName, _ := m10["senderNick"].(string)
 	if strings.TrimSpace(senderName) == "" {
 		senderName, _ = m10["reminderTitle"].(string)
@@ -128,9 +295,35 @@ func extractChatMessage(decrypted map[string]any, accountID, cookieStr string) *
 		SenderUserID: senderUserID,
 		SenderName:   senderName,
 		Text:         reminder,
+		MessageID:    extractMessageID(decrypted),
 		ItemID:       itemID,
 		Raw:          decrypted,
 	}
+}
+
+// extractChatSenderUserIDFromMaps 优先读取展示扩展，并兼容紧凑信封中的发送者账号 ID。
+func extractChatSenderUserIDFromMaps(m1, m10 map[string]any) string {
+	if m10 != nil {
+		// sender 保存标准 senderUserId 的去空白结果。
+		if sender := strings.TrimSpace(toString(m10["senderUserId"])); sender != "" {
+			return sender
+		}
+	}
+	// 部分回显消息缺少 10.senderUserId，但仍在紧凑 1.1 信封中保留发送者身份。
+	// sender 保存紧凑信封中的发送者对象；ok 表示该兼容字段是否存在。
+	if sender, ok := m1["1"].(map[string]any); ok {
+		return strings.TrimSpace(toString(sender["1"]))
+	}
+	return ""
+}
+
+// isSelfUserID 比较发送者与当前账号身份，忽略 IM 协议后缀以过滤官方客户端回显。
+func isSelfUserID(senderUserID, selfUserID string) bool {
+	// sender 是归一化后的消息发送者身份。
+	sender := strings.TrimSuffix(strings.TrimSpace(senderUserID), "@goofish")
+	// self 是归一化后的当前账号身份。
+	self := strings.TrimSuffix(strings.TrimSpace(selfUserID), "@goofish")
+	return sender != "" && self != "" && sender == self
 }
 
 // isNonUserChatNotice 判断闲鱼 IM 中不应进入自动回复的系统提示或交易卡片。

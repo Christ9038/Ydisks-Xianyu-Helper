@@ -105,6 +105,53 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 	db2.Close()
 }
 
+// TestMigrate_UpgradesDatabaseWithMainChatVersions 验证已发布 main 的 00029/00030
+// 聊天迁移可以原样升级到合并后的 dev 最终版本。
+func TestMigrate_UpgradesDatabaseWithMainChatVersions(t *testing.T) {
+	// tmpDir 保存隔离的已发布 main 数据库目录，测试结束后由 testing 清理。
+	tmpDir := t.TempDir()
+	// dbPath 指向模拟已运行至 main 00030 的 SQLite 文件。
+	dbPath := filepath.Join(tmpDir, "main-chat-v30.db")
+	// rawDB 在调用 Open 前控制 Goose 只执行已发布的 main 迁移。
+	rawDB, openErr := sql.Open("sqlite", sqliteDSN(dbPath))
+	if openErr != nil {
+		t.Fatalf("open legacy database: %v", openErr)
+	}
+	defer rawDB.Close()
+
+	// dialectErr 保存 Goose SQLite 方言设置失败，失败时不能构造已发布迁移基线。
+	if dialectErr := goose.SetDialect("sqlite3"); dialectErr != nil {
+		t.Fatalf("set goose dialect: %v", dialectErr)
+	}
+	goose.SetBaseFS(migrationsFS)
+	// upErr 将数据库推进到已发布 main 的 00030，验证之后的 dev 迁移连续接续。
+	upErr := goose.UpTo(rawDB, "migrations/sqlite", 30)
+	if upErr != nil {
+		t.Fatalf("apply released main migrations: %v", upErr)
+	}
+
+	// ctx 提供迁移 API 所需的调用上下文；升级本身不依赖请求生命周期。
+	ctx := context.Background()
+	// migrateErr 保存从 main 00030 接续 dev 00031 时的迁移失败。
+	if migrateErr := Migrate(ctx, rawDB, DialectSQLite); migrateErr != nil {
+		t.Fatalf("upgrade from main 00030: %v", migrateErr)
+	}
+	if !tableExists(t, rawDB, "order_reconciliations") {
+		t.Fatal("order_reconciliations should be created by the dev schema baseline migration")
+	}
+	if !columnExists(t, rawDB, "chat_messages", "read_status") || !columnExists(t, rawDB, "chat_messages", "read_at") {
+		t.Fatal("chat read tracking columns should remain after dev schema baseline upgrade")
+	}
+	// finalVersion 验证迁移账本已推进到合并后的单一 dev schema 基线版本。
+	finalVersion, versionErr := goose.GetDBVersion(rawDB)
+	if versionErr != nil {
+		t.Fatalf("read final migration version: %v", versionErr)
+	}
+	if finalVersion != 31 {
+		t.Fatalf("final migration version=%d, want 31", finalVersion)
+	}
+}
+
 // columnExists 负责columnExists相关处理。
 func columnExists(t *testing.T, db *sql.DB, table, col string) bool {
 	t.Helper()
@@ -156,7 +203,7 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 	}
 	// i 表示本次回滚操作序号。
 	for i := 0; version >= 14; i++ {
-		if // err 保存err，供当前处理流程使用
+		if // err 保存当前迁移回滚错误，任一方言步骤失败即终止验证。
 		err := goose.Down(d, "migrations/sqlite"); err != nil {
 			t.Fatalf("down migration #%d: %v", i+1, err)
 		}
@@ -220,6 +267,8 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 		{"account_task_runs", "run_key"},
 		{"chat_sessions", "unread_count"},
 		{"chat_messages", "message_key"},
+		{"chat_messages", "read_status"},
+		{"chat_messages", "read_at"},
 		{"notification_outbox", "uncertain_at"},
 	} {
 		if !columnExists(t, d, c.table, c.col) {

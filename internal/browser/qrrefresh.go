@@ -47,6 +47,7 @@ func (m *Manager) QRCookieRefresh(ctx context.Context, tmpCookies, verificationU
 		Viewport:   &playwright.Size{Width: 1100, Height: 760},
 		Locale:     playwright.String(defaultLang),
 		TimezoneId: playwright.String(defaultTZ),
+		UserAgent:  m.headlessUserAgent(),
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("创建 context 失败: %w", err)
@@ -62,8 +63,8 @@ func (m *Manager) QRCookieRefresh(ctx context.Context, tmpCookies, verificationU
 		return "", "", fmt.Errorf("注入临时 cookie 失败: %w", err)
 	}
 
-	// page、err 保存page、err，供当前处理流程使用
-	page, err := bctx.NewPage()
+	// page 在导航前应用无头运行时指纹，避免扫码换取 Cookie 时暴露 HeadlessChrome。
+	page, err := m.newBrowserPage(bctx, true)
 	if err != nil {
 		return "", "", fmt.Errorf("新建 page 失败: %w", err)
 	}

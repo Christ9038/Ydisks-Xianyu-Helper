@@ -25,6 +25,7 @@ import (
 	"xianyu-go/internal/renewal"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
+	"xianyu-go/internal/xianyu/protocol"
 	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
@@ -82,9 +83,20 @@ type Adapter struct {
 
 	orderFetchMu   sync.Mutex
 	lastOrderFetch time.Time
-
 	// passwordCoordinator 按账号协调协议凭证恢复，避免重复外部续期并允许不同账号并行执行。
 	passwordCoordinator *accountapp.CredentialRefreshCoordinator
+	// passwordResultMu 仅保护 passwordResults；持锁期间不执行凭证读取或平台 I/O。
+	passwordResultMu sync.Mutex
+	// passwordResults 保存正在执行的协议续期结果，后到调用方可等待同一账号的结果。
+	passwordResults map[string]*passwordRenewalResult
+}
+
+// passwordRenewalResult 是同账号并发续期调用共享的完成信号与最终成功状态。
+type passwordRenewalResult struct {
+	// done 由首次续期调用关闭，所有等待者只接收不关闭。
+	done chan struct{}
+	// renewed 在关闭 done 前写入，关闭 channel 建立等待者读取该字段的 happens-before 关系。
+	renewed bool
 }
 
 // notifyNotifier 是 *notify.Notifier 的最小接口，避免 adapter 直接依赖 notify 包
@@ -115,6 +127,7 @@ func New(store *db.Store, bm *browser.Manager, logger *slog.Logger) *Adapter {
 		captchaReq:          mtop.NewClient(),
 		orderMTop:           mtop.NewClient(),
 		passwordCoordinator: accountapp.NewCredentialRefreshCoordinator(),
+		passwordResults:     make(map[string]*passwordRenewalResult),
 	}
 }
 
@@ -175,14 +188,21 @@ func (a *Adapter) HandleChatMessage(ctx context.Context, message engine.ChatMess
 	// Xianyu echoes messages sent by this account back over the same WS. Those
 	// sends are already captured by HandleOutgoingChatMessage; recording the
 	// echo as incoming would put our own bubble on the buyer side and duplicate it.
-	if strings.TrimSuffix(message.SenderUserID, "@goofish") == strings.TrimSuffix(message.AccountID, "@goofish") {
+	// selfID 保存当前账号从 Cookie 解析出的平台用户标识，用于过滤同账号 WebSocket 回显。
+	if selfID := protocol.TransCookies(message.CookieStr)["unb"]; selfID != "" &&
+		strings.TrimSuffix(strings.TrimSpace(message.SenderUserID), "@goofish") == strings.TrimSuffix(strings.TrimSpace(selfID), "@goofish") {
+		a.logger.Info("忽略账号自身发送的聊天回显", "account", message.AccountID, "chat_id", message.ChatID, "sender_id", message.SenderUserID)
 		return nil
 	}
-	// err 保存err，供当前处理流程使用
-	_, _, err := a.chat.RecordIncoming(ctx, chat.Incoming{
+	// stored、inserted、err 保存落库消息、是否首次插入及持久化错误。
+	stored, inserted, err := a.chat.RecordIncoming(ctx, chat.Incoming{
 		AccountID: message.AccountID, ChatID: message.ChatID, BuyerID: message.SenderUserID,
-		BuyerName: message.SenderName, Text: message.Text, ItemID: message.ItemID, Raw: message.Raw,
+		BuyerName: message.SenderName, Text: message.Text, MessageID: message.MessageID, ItemID: message.ItemID, Raw: message.Raw,
 	})
+	if stored != nil {
+		a.logger.Info("实时聊天消息已入库", "account", message.AccountID, "chat_id", message.ChatID,
+			"message_key", stored.MessageKey, "message_type", stored.MessageType, "inserted", inserted)
+	}
 	return err
 }
 
@@ -196,6 +216,23 @@ func (a *Adapter) HandleOutgoingChatMessage(ctx context.Context, message engine.
 	// err 保存err，供当前处理流程使用
 	_, err := a.chat.RecordOutgoingSent(ctx, db.ChatSession{CookieID: message.AccountID, ChatID: message.ChatID,
 		BuyerID: message.BuyerID}, message.MessageKey, message.Text)
+	return err
+}
+
+// HandleMessageRead 接收平台出站消息已读回执，并把非敏感已读状态更新委托给聊天服务。
+func (a *Adapter) HandleMessageRead(ctx context.Context, event engine.MessageReadEvent) error {
+	if a.chat == nil {
+		return nil
+	}
+	// message、err 保存按平台消息键更新的出站消息及持久化错误，以便缺键时回退会话最近消息。
+	message, err := a.chat.MarkOutgoingRead(ctx, event.AccountID, event.MessageID, event.ReadAt)
+	if errors.Is(err, db.ErrNotFound) && event.ChatID != "" {
+		message, err = a.chat.MarkLatestOutgoingRead(ctx, event.AccountID, event.ChatID, event.ReadAt)
+	}
+	if err == nil && message != nil {
+		a.logger.Info("聊天出站消息已标记已读", "account", event.AccountID, "chat_id", event.ChatID,
+			"message_id", event.MessageID, "message_key", message.MessageKey, "read_status", message.ReadStatus)
+	}
 	return err
 }
 
@@ -611,6 +648,14 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 		a.recordPasswordLogin(ctx, cookieID, 0, "skipped_cooldown", reason, fmt.Sprintf("协议续期冷却中，还需等待 %s", remain.Round(time.Second)))
 		return false
 	}
+	// primary 标识当前调用是否负责执行协议续期；后到调用方只等待其结果。
+	if primary := a.beginPasswordRenewalResult(cookieID); !primary {
+		a.logger.Warn("协议续期已在处理中，等待当前结果", "account", cookieID)
+		return a.waitPasswordRenewalResult(ctx, cookieID)
+	}
+	// sharedRenewed 保存首次调用的最终恢复结果，并在所有返回路径唤醒等待者。
+	sharedRenewed := false
+	defer func() { a.finishPasswordRenewalResult(cookieID, sharedRenewed) }()
 	// platformData 保存成功或失败时用于审计的账号平台运行数据；明文凭证只在续期工作闭包内短暂使用。
 	var platformData db.CookiePlatformRuntimeData
 	// lookupFailed 标识是否在调用协议续期前读取账号数据失败，以保持历史审计原因。
@@ -626,6 +671,7 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 		platformData = loaded
 		return a.tryProtocolCredentialRenew(runCtx, &platformData)
 	})
+	sharedRenewed = renewed
 	if !accepted {
 		if errors.Is(renewErr, accountapp.ErrCredentialRefreshInFlight) {
 			a.logger.Warn("协议续期已在处理中", "account", cookieID)
@@ -687,6 +733,55 @@ func (a *Adapter) beginPasswordLogin(cookieID string) bool {
 func (a *Adapter) finishPasswordLogin(cookieID string) {
 	if a.passwordCoordinator != nil {
 		a.passwordCoordinator.Finish(cookieID)
+	}
+}
+
+// beginPasswordRenewalResult 为账号首次协议续期创建共享结果状态；返回 false 表示已有调用负责续期。
+func (a *Adapter) beginPasswordRenewalResult(cookieID string) bool {
+	// passwordResultMu 只保护账号到共享结果状态的映射，绝不跨越慢速外部 I/O。
+	a.passwordResultMu.Lock()
+	defer a.passwordResultMu.Unlock()
+	if a.passwordResults == nil {
+		a.passwordResults = make(map[string]*passwordRenewalResult)
+	}
+	// exists 表示该账号是否已有首个调用负责协议续期，存在时当前调用改为等待共享结果。
+	if _, exists := a.passwordResults[cookieID]; exists {
+		return false
+	}
+	a.passwordResults[cookieID] = &passwordRenewalResult{done: make(chan struct{})}
+	return true
+}
+
+// finishPasswordRenewalResult 写入首次协议续期结果并唤醒同账号等待者；重复收尾保持幂等。
+func (a *Adapter) finishPasswordRenewalResult(cookieID string, renewed bool) {
+	// passwordResultMu 只保护结果写入、映射删除和 channel 关闭的唯一性。
+	a.passwordResultMu.Lock()
+	defer a.passwordResultMu.Unlock()
+	// result 保存当前账号等待者共享的续期结果状态，负责承载最终结果并关闭通知通道。
+	result := a.passwordResults[cookieID]
+	if result == nil {
+		return
+	}
+	result.renewed = renewed
+	delete(a.passwordResults, cookieID)
+	close(result.done)
+}
+
+// waitPasswordRenewalResult 等待首次协议续期完成或调用上下文取消，返回其最终恢复结果。
+func (a *Adapter) waitPasswordRenewalResult(ctx context.Context, cookieID string) bool {
+	// passwordResultMu 只保护共享状态快照读取，等待发生在释放锁之后。
+	a.passwordResultMu.Lock()
+	// result 保存锁内取得的共享续期状态快照；释放锁后只等待其完成信号。
+	result := a.passwordResults[cookieID]
+	a.passwordResultMu.Unlock()
+	if result == nil {
+		return false
+	}
+	select {
+	case <-result.done:
+		return result.renewed
+	case <-ctx.Done():
+		return false
 	}
 }
 
@@ -827,6 +922,17 @@ func (a *Adapter) tryProtocolCredentialRenew(ctx context.Context, d *db.CookiePl
 			a.logger.Info("Go 协议续期成功", "account", d.ID)
 			return true, nil
 		}
+		if err == nil {
+			// message 保存平台续期失败原因；空原因使用稳定的非敏感默认提示。
+			message := strings.TrimSpace(res.Message)
+			if message == "" {
+				message = "协议续期未通过"
+			}
+			return false, errors.New(message)
+		}
+	}
+	if err == nil {
+		err = errors.New("协议续期未返回结果")
 	}
 	return false, err
 }

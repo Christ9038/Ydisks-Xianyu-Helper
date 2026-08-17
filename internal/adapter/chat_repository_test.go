@@ -46,6 +46,21 @@ func (subscriptionDomainRepository) UpdateMessageStatus(context.Context, string,
 	return &db.ChatMessage{}, nil
 }
 
+// CountUnreadUserMessages 为订阅测试提供没有本地未读消息的稳定结果。
+func (subscriptionDomainRepository) CountUnreadUserMessages(context.Context, string, string) (int, error) {
+	return 0, nil
+}
+
+// MarkMessageRead 为订阅测试模拟指定出站消息的已读回执写入。
+func (subscriptionDomainRepository) MarkMessageRead(_ context.Context, _ string, key string, readAt int64) (*db.ChatMessage, error) {
+	return &db.ChatMessage{MessageKey: key, ReadStatus: 2, ReadAt: readAt}, nil
+}
+
+// MarkLatestOutgoingRead 为订阅测试模拟缺失消息键时的会话级已读回退。
+func (subscriptionDomainRepository) MarkLatestOutgoingRead(_ context.Context, _ string, chatID string, readAt int64) (*db.ChatMessage, error) {
+	return &db.ChatMessage{ChatID: chatID, ReadStatus: 2, ReadAt: readAt}, nil
+}
+
 // TestChatSubscriptionProviderConvertsAndCleansEvents 验证领域事件转换和订阅取消可重复执行。
 func TestChatSubscriptionProviderConvertsAndCleansEvents(t *testing.T) {
 	// service 是使用内存仓储构造的领域聊天事件中心。

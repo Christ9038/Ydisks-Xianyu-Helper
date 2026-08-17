@@ -99,7 +99,9 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     expect(hook.result.current.accounts[0]).toMatchObject(accountFixture);
     expect(hook.result.current.activeChatID).toBe('chat-1');
     expect(hook.result.current.messages).toEqual([messageFixture]);
-    expect(markReadMock).toHaveBeenCalledWith('account-1', 'chat-1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(markReadMock).toHaveBeenCalledWith('account-1', 'chat-1', [
+      { messageId: 'message-1', sessionId: 'chat-1', cid: 'chat-1@goofish', conversationType: 1 },
+    ], expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(hook.result.current.unreadForAccount('account-1')).toBe(0);
     await act(
       // emptySendAction 在没有草稿时阻止文字发送。
@@ -191,6 +193,31 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     hook.unmount();
   });
 
+  test('会话刷新不会让当前打开会话重新显示未读', /* 当前回调验证已读状态与慢刷新响应的竞态边界。 */ async () => {
+    // hook 是当前会话已读后执行刷新的 Hook 渲染结果。
+    const hook = renderHook(
+      // refreshHookFactory 创建会话刷新竞态场景。
+      () => useChat(),
+    );
+    await waitFor(
+      // activeChatAssertion 等待默认会话完成消息读取。
+      () => expect(hook.result.current.activeChatID).toBe('chat-1'),
+    );
+    await waitFor(
+      // readAssertion 等待初始消息读取将本地未读数归零。
+      () => expect(hook.result.current.unreadForAccount('account-1')).toBe(0),
+    );
+    // staleSessionPage 模拟服务端延迟返回的旧未读计数。
+    const staleSessionPage = { ...sessionFixture, unread_count: 4 };
+    getSessionPageMock.mockResolvedValueOnce({ sessions: [staleSessionPage], has_more: false });
+    await act(
+      // refreshAction 执行返回旧未读数据的会话刷新。
+      async () => hook.result.current.reloadSessions('account-1'),
+    );
+    expect(hook.result.current.unreadForAccount('account-1')).toBe(0);
+    hook.unmount();
+  });
+
   test('WebSocket 连接和消息事件更新聊天状态', /* 当前回调验证实时连接和消息回调边界。 */ async () => {
     // secondSession 是用于覆盖实时会话排序比较器的第二条会话。
     const secondSession = { ...sessionFixture, chat_id: 'chat-2', last_message_at: 2, unread_count: 0 };
@@ -221,7 +248,9 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
       () => latestSocket?.onmessage?.({ data: JSON.stringify({ message: incomingMessage }) }),
     );
     expect(hook.result.current.messages).toContainEqual(incomingMessage);
-    expect(markReadMock).toHaveBeenCalledWith('account-1', 'chat-1');
+    expect(markReadMock).toHaveBeenCalledWith('account-1', 'chat-1', [
+      { messageId: 'message-3', sessionId: 'chat-1', cid: 'chat-1@goofish', conversationType: 1 },
+    ]);
     await act(
       // invalidMessageAction 触发非法消息帧并保持状态稳定。
       () => latestSocket?.onmessage?.({ data: '{broken' }),

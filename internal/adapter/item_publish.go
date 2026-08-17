@@ -24,12 +24,12 @@ type ItemPublishPort struct {
 	logger *slog.Logger
 	// updateRunningCookie 将平台返回的新 Cookie 同步到运行中的账号实例。
 	updateRunningCookie func(context.Context, string, string)
-	// recoverExpiredSession 在平台报告会话过期时触发账号恢复。
-	recoverExpiredSession func(context.Context, string, error)
+	// recoverExpiredSession 在平台报告会话过期时触发账号恢复并返回是否已获得可重试凭证。
+	recoverExpiredSession func(context.Context, string, error) bool
 }
 
 // NewItemPublishPort 构造单商品发布基础设施端口。
-func NewItemPublishPort(store *db.Store, client func() mtop.Client, logger *slog.Logger, updateRunningCookie func(context.Context, string, string), recoverExpiredSession func(context.Context, string, error)) *ItemPublishPort {
+func NewItemPublishPort(store *db.Store, client func() mtop.Client, logger *slog.Logger, updateRunningCookie func(context.Context, string, string), recoverExpiredSession func(context.Context, string, error) bool) *ItemPublishPort {
 	// resolvedLogger 保存可用于记录发布适配错误的日志器。
 	resolvedLogger := logger
 	if resolvedLogger == nil {
@@ -120,6 +120,11 @@ func (p *ItemPublishPort) persistCategorySession(ctx context.Context, userID int
 
 // Publish 执行单商品平台发布及响应 Cookie 持久化，不向应用层泄露 MTOP 类型。
 func (p *ItemPublishPort) Publish(ctx context.Context, input itemapp.PublishInput) (itemapp.PublishOutcome, error) {
+	return p.publish(ctx, input, true)
+}
+
+// publish 执行一次商品发布；会话恢复成功时最多用新凭证重试一次。
+func (p *ItemPublishPort) publish(ctx context.Context, input itemapp.PublishInput, allowRetry bool) (itemapp.PublishOutcome, error) {
 	if p == nil || p.store == nil || p.store.Cookies == nil {
 		return itemapp.PublishOutcome{}, errors.New("商品发布存储未初始化")
 	}
@@ -172,6 +177,9 @@ func (p *ItemPublishPort) Publish(ctx context.Context, input itemapp.PublishInpu
 	if callErr != nil {
 		if persistErr != nil {
 			callErr = errors.Join(callErr, fmt.Errorf("保存发布响应 Cookie: %w", persistErr))
+		}
+		if allowRetry && mtop.IsSessionExpiredErr(callErr) && p.recoverExpired(ctx, input.CookieID, callErr) {
+			return p.publish(ctx, input, false)
 		}
 		p.recoverExpired(ctx, input.CookieID, callErr)
 		return itemapp.PublishOutcome{ResponseCookieErr: persistErr}, callErr
@@ -289,10 +297,11 @@ func (p *ItemPublishPort) mtopClient() mtop.Client {
 }
 
 // recoverExpired 在平台会话过期时通知账号恢复协调器。
-func (p *ItemPublishPort) recoverExpired(ctx context.Context, cookieID string, err error) {
+func (p *ItemPublishPort) recoverExpired(ctx context.Context, cookieID string, err error) bool {
 	if p != nil && p.recoverExpiredSession != nil && err != nil {
-		p.recoverExpiredSession(ctx, cookieID, err)
+		return p.recoverExpiredSession(ctx, cookieID, err)
 	}
+	return false
 }
 
 // 确保发布端口和仓储实现覆盖应用层定义的最小接口。

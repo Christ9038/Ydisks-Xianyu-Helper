@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,13 +37,30 @@ const (
 
 // chromiumLaunchArgs 统一 Chromium 启动参数。
 func chromiumLaunchArgs() []string {
-	return []string{
+	// args 是所有 Chromium 启动路径共享的参数；证书绕过仅在环境明确授权时追加。
+	args := []string{
 		"--no-sandbox",
 		"--disable-setuid-sandbox",
 		"--disable-dev-shm-usage",
 		"--disable-blink-features=AutomationControlled",
 		"--lang=zh-CN",
 	}
+	if captchaIgnoreCertificateErrors() {
+		args = append(args, "--ignore-certificate-errors")
+	}
+	return args
+}
+
+// captchaIgnoreCertificateErrors 仅为 TLS 检查代理替换平台证书链的受控环境提供浏览器证书校验绕过；默认关闭，且不会影响 HTTP 客户端或已保存凭证的校验。
+func captchaIgnoreCertificateErrors() bool {
+	// value 是环境变量的去空白值，空值按安全默认值禁用证书绕过。
+	value := strings.TrimSpace(os.Getenv("CAPTCHA_IGNORE_CERT_ERRORS"))
+	if value == "" {
+		return false
+	}
+	// parsed 是环境开关的布尔解释；err 表示值不属于 Go 支持的布尔文本。
+	parsed, err := strconv.ParseBool(value)
+	return err == nil && parsed
 }
 
 // chromiumExecutablePath 负责chromiumExecutable路径相关处理。
@@ -138,6 +156,13 @@ type Manager struct {
 
 	pw     *playwright.Playwright
 	logger *slog.Logger
+
+	// browserFingerprint is observed from the bundled Chromium once during
+	// initialization.  Headless contexts use the same identity with only the
+	// HeadlessChrome product token removed; headed contexts keep Chromium's
+	// native identity.
+	browserFingerprint xianyu.BrowserFingerprint
+	userAgentMetadata  map[string]any
 
 	once      sync.Once
 	initErr   error
@@ -363,13 +388,219 @@ func (m *Manager) detectBrowserFingerprint() error {
 	if strings.TrimSpace(headers.Get("User-Agent")) == "" {
 		return fmt.Errorf("Chromium 返回空 userAgent")
 	}
-	xianyu.SetBrowserFingerprint(xianyu.BrowserFingerprint{
+	// metadata 是本次实测 Chromium 的高熵 Client Hints；err 表示页面未暴露或无法读取该浏览器信息。
+	metadata, err := readUserAgentMetadata(page)
+	if err != nil {
+		return fmt.Errorf("读取 Chromium User-Agent Client Hints 失败: %w", err)
+	}
+	// fingerprint 是去除无头产品标记后的运行时身份，供后续无头页面和协议请求一致使用。
+	fingerprint := normalizeBrowserFingerprint(xianyu.BrowserFingerprint{
 		UserAgent: headers.Get("User-Agent"),
 		SecChUA:   headers.Get("sec-ch-ua"),
 		Platform:  strings.Trim(headers.Get("sec-ch-ua-platform"), `"`),
 		Mobile:    headers.Get("sec-ch-ua-mobile"),
 	})
-	m.logger.Info("已读取 Playwright Chromium 原生指纹", "browser_version", b.Version(), "user_agent", headers.Get("User-Agent"))
+	m.browserFingerprint = fingerprint
+	m.userAgentMetadata = normalizeUserAgentMetadata(metadata)
+	xianyu.SetBrowserFingerprint(fingerprint)
+	m.logger.Info("已读取 Playwright Chromium 浏览器指纹", "browser_version", b.Version(), "user_agent", fingerprint.UserAgent, "headless_token_removed", fingerprint.UserAgent != headers.Get("User-Agent"))
+	return nil
+}
+
+// normalizeBrowserFingerprint 移除 Chromium 无头模式附加的产品标记，同时保留同一运行时实测的版本和 Client Hints。
+func normalizeBrowserFingerprint(fingerprint xianyu.BrowserFingerprint) xianyu.BrowserFingerprint {
+	fingerprint.UserAgent = normalizeHeadlessUserAgent(fingerprint.UserAgent)
+	fingerprint.SecChUA = normalizeSecChUA(fingerprint.SecChUA)
+	return fingerprint
+}
+
+// normalizeHeadlessUserAgent 只替换 UA 中的 HeadlessChrome 产品名，避免伪造浏览器版本、平台或其他身份字段。
+func normalizeHeadlessUserAgent(userAgent string) string {
+	return strings.ReplaceAll(strings.TrimSpace(userAgent), "HeadlessChrome/", "Chrome/")
+}
+
+// normalizeSecChUA 规范化 Sec-CH-UA 品牌并按品牌去重，保证无头标记不会通过 Client Hints 泄露。
+func normalizeSecChUA(value string) string {
+	// parts 是按逗号拆分的原始品牌条目，保留同一 Chromium 实测版本字段。
+	parts := strings.Split(value, ",")
+	// result 以原始顺序收集保留后的品牌条目；seen 防止替换 HeadlessChrome 后的重复品牌。
+	result := make([]string, 0, len(parts))
+	// seen 按规范化品牌名去重，避免同一产品经替换后重复出现在请求头。
+	seen := make(map[string]struct{}, len(parts))
+	// part 是当前待规范化的 Sec-CH-UA 品牌条目。
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.ReplaceAll(part, "HeadlessChrome", "Chromium"))
+		if part == "" {
+			continue
+		}
+		// brand 是用于去重的品牌名，不含版本参数。
+		brand := part
+		// index 是品牌名与版本参数分隔分号的位置，负值表示条目没有参数。
+		if index := strings.IndexByte(brand, ';'); index >= 0 {
+			brand = strings.TrimSpace(brand[:index])
+		}
+		// exists 表示同名品牌已被保留，避免 HeadlessChrome 归一化后出现重复条目。
+		if _, exists := seen[brand]; exists {
+			continue
+		}
+		seen[brand] = struct{}{}
+		result = append(result, part)
+	}
+	return strings.Join(result, ", ")
+}
+
+// readUserAgentMetadata 从页面读取 Chromium 公开的低、高熵 Client Hints，返回可传给 CDP 的对象或读取失败原因。
+func readUserAgentMetadata(page playwright.Page) (map[string]any, error) {
+	// value 是页面脚本返回的任意值；err 表示浏览器脚本执行或高熵字段读取失败。
+	value, err := page.Evaluate(`async () => {
+		const data = navigator.userAgentData;
+		if (!data) return null;
+		const high = await data.getHighEntropyValues([
+			'architecture', 'bitness', 'fullVersionList', 'model', 'platformVersion', 'wow64'
+		]);
+		return {
+			brands: data.brands,
+			fullVersionList: high.fullVersionList,
+			platform: data.platform,
+			platformVersion: high.platformVersion,
+			architecture: high.architecture,
+			model: high.model,
+			mobile: data.mobile,
+			bitness: high.bitness,
+			wow64: high.wow64
+		};
+	}`)
+	if err != nil {
+		return nil, err
+	}
+	if value == nil {
+		return nil, fmt.Errorf("navigator.userAgentData 不可用")
+	}
+	// metadata 是可作为 CDP userAgentMetadata 使用的对象；ok 证明脚本结果的结构正确。
+	metadata, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("navigator.userAgentData 类型异常: %T", value)
+	}
+	return metadata, nil
+}
+
+// normalizeUserAgentMetadata 复制 Client Hints 并仅规范化品牌列表，避免修改 Manager 持有的实测元数据。
+func normalizeUserAgentMetadata(metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return nil
+	}
+	// result 是供当前页面 CDP 覆盖使用的独立元数据副本。
+	result := make(map[string]any, len(metadata))
+	// key 是当前 Client Hints 字段名；value 是其待复制或规范化的值。
+	for key, value := range metadata {
+		switch key {
+		case "brands", "fullVersionList":
+			result[key] = normalizeUserAgentBrands(value)
+		default:
+			result[key] = value
+		}
+	}
+	return result
+}
+
+// normalizeUserAgentBrands 将品牌列表中的无头标记替换为 Chromium，并按品牌保留首个实测版本条目。
+func normalizeUserAgentBrands(value any) []any {
+	// brands 是页面返回的品牌数组；ok 表示该字段可以安全按数组处理。
+	brands, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	// result 收集归一化后的品牌对象；seen 防止别名替换后的品牌重复。
+	result := make([]any, 0, len(brands))
+	// seen 记录已经保留的规范化品牌名，保证 CDP metadata 与 Sec-CH-UA 一致。
+	seen := make(map[string]struct{}, len(brands))
+	// item 是当前页面返回的候选品牌对象。
+	for _, item := range brands {
+		// brandEntry 是转换后的品牌对象；ok 表示候选条目有可读取字段。
+		brandEntry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		// brand 是去重和覆盖写回使用的产品名，非字符串字段按空值丢弃。
+		brand, _ := brandEntry["brand"].(string)
+		brand = strings.ReplaceAll(brand, "HeadlessChrome", "Chromium")
+		if brand == "" {
+			continue
+		}
+		// exists 表示相同规范化品牌已经收录。
+		if _, exists := seen[brand]; exists {
+			continue
+		}
+		seen[brand] = struct{}{}
+		// entry 是独立拷贝，防止更改本次页面覆盖时改写原始实测对象。
+		entry := make(map[string]any, len(brandEntry))
+		// key 是当前品牌字段名；itemValue 是需原样保留的版本等字段。
+		for key, itemValue := range brandEntry {
+			entry[key] = itemValue
+		}
+		entry["brand"] = brand
+		result = append(result, entry)
+	}
+	return result
+}
+
+// headlessUserAgent 返回当前实测 Chromium 的规范化无头 UA；未完成指纹探测时回退全局实测值，仍不可用则返回 nil。
+func (m *Manager) headlessUserAgent() *string {
+	// userAgent 是移除 HeadlessChrome 标记后的 runtime UA，保持版本与协议侧指纹一致。
+	userAgent := normalizeHeadlessUserAgent(m.browserFingerprint.UserAgent)
+	if userAgent == "" {
+		userAgent = normalizeHeadlessUserAgent(xianyu.CurrentBrowserFingerprint().UserAgent)
+	}
+	if userAgent == "" {
+		return nil
+	}
+	return playwright.String(userAgent)
+}
+
+// newBrowserPage 从 bctx 创建页面；无头模式会在首次导航前应用 UA/Client Hints 覆盖，失败时关闭半成品页面并返回错误。
+func (m *Manager) newBrowserPage(bctx playwright.BrowserContext, headless bool) (playwright.Page, error) {
+	// page 是新建的浏览器页面；err 表示 context 不可用或页面创建失败。
+	page, err := bctx.NewPage()
+	if err != nil {
+		return nil, err
+	}
+	if !headless {
+		return page, nil
+	}
+	// err 表示页面级 CDP 指纹覆盖失败，不能继续导航以免暴露无头身份。
+	if err := m.applyHeadlessFingerprint(page); err != nil {
+		_ = page.Close()
+		return nil, err
+	}
+	return page, nil
+}
+
+// applyHeadlessFingerprint 通过页面级 CDP 在首次导航前覆盖 UA 与 Client Hints；成功后故意保持会话附着以维持页面身份。
+func (m *Manager) applyHeadlessFingerprint(page playwright.Page) error {
+	// userAgent 是当前运行时的规范化 UA，nil 表示未完成必须的初始化探测。
+	userAgent := m.headlessUserAgent()
+	if userAgent == nil {
+		return fmt.Errorf("无头 Chromium User-Agent 未初始化")
+	}
+	// metadata 是可安全传给当前页面的 Client Hints 拷贝，不能含 HeadlessChrome 品牌。
+	metadata := normalizeUserAgentMetadata(m.userAgentMetadata)
+	if len(metadata) == 0 {
+		return fmt.Errorf("无头 Chromium User-Agent Client Hints 未初始化")
+	}
+	// session 是页面生命周期内保持附着的 CDP 会话；err 表示 Chromium 拒绝创建目标会话。
+	session, err := page.Context().NewCDPSession(page)
+	if err != nil {
+		return fmt.Errorf("创建 Chromium 指纹 CDP 会话: %w", err)
+	}
+	// err 表示 Chromium 未接受身份覆盖；此时立即分离 session 防止资源泄漏。
+	if _, err := session.Send("Emulation.setUserAgentOverride", map[string]any{
+		"userAgent":         *userAgent,
+		"userAgentMetadata": metadata,
+	}); err != nil {
+		_ = session.Detach()
+		return fmt.Errorf("应用 Chromium 无头指纹: %w", err)
+	}
+	// session 在 page 生命周期内必须保持附着；目标级仿真会话分离后 Chromium 会还原 navigator.userAgentData。
 	return nil
 }
 
@@ -471,8 +702,8 @@ func (m *Manager) newPage(ctx context.Context, cookieID, cookieStr string, headl
 		finishOperation()
 		return nil, nil, err
 	}
-	// page、err 保存page、err，供当前处理流程使用
-	page, err := entry.context.NewPage()
+	// page 在无头模式下会在首次导航前收到运行时 UA 与 Client Hints 覆盖。
+	page, err := m.newBrowserPage(entry.context, headless)
 	if err != nil {
 		// context 损坏，丢弃重建一次。
 		m.releaseEntry(cookieID, entry)
@@ -482,7 +713,7 @@ func (m *Manager) newPage(ctx context.Context, cookieID, cookieStr string, headl
 			finishOperation()
 			return nil, nil, err
 		}
-		page, err = entry.context.NewPage()
+		page, err = m.newBrowserPage(entry.context, headless)
 		if err != nil {
 			m.releaseEntry(cookieID, entry)
 			m.evict(cookieID)
@@ -578,12 +809,17 @@ func (m *Manager) createEntry(cookieID, cookieStr string, headless bool) (*poolE
 	if err != nil {
 		return nil, fmt.Errorf("启动 chromium 失败: %w", err)
 	}
-	// context、err 保存context、err，供当前处理流程使用
-	context, err := browser.NewContext(playwright.BrowserNewContextOptions{
+	// contextOptions 保留 Chromium 原生上下文配置；无头 UA 仅使用本次实测 runtime 的规范化版本。
+	contextOptions := playwright.BrowserNewContextOptions{
 		Viewport:   &playwright.Size{Width: defaultW, Height: defaultH},
 		Locale:     playwright.String(defaultLang),
 		TimezoneId: playwright.String(defaultTZ),
-	})
+	}
+	if headless {
+		contextOptions.UserAgent = m.headlessUserAgent()
+	}
+	// context 是 browser 的新隔离上下文；err 表示 context 创建失败并触发已启动浏览器回收。
+	context, err := browser.NewContext(contextOptions)
 	if err != nil {
 		_ = browser.Close()
 		return nil, fmt.Errorf("创建 context 失败: %w", err)

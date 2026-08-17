@@ -84,6 +84,14 @@ func (r chatRepository) MarkRead(ctx context.Context, userID int64, accountID, c
 	return r.store.Chats.MarkRead(ctx, userID, accountID, chatID)
 }
 
+// FindInboundParsedJSONContaining 提供旧版聊天消息标识迁移所需的受限诊断帧查询。
+func (r chatRepository) FindInboundParsedJSONContaining(ctx context.Context, accountID, fragment string, limit int) ([]string, error) {
+	if r.store == nil || r.store.WSMessages == nil {
+		return nil, errors.New("聊天诊断存储未初始化")
+	}
+	return r.store.WSMessages.FindInboundParsedJSONContaining(ctx, accountID, fragment, limit)
+}
+
 // chatIdentityResolver 在适配器内读取 Cookie 并调用平台身份查询接口。
 type chatIdentityResolver struct {
 	// store 提供账号凭证读取能力，明文只在本次平台调用期间存在。

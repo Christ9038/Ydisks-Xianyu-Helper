@@ -64,6 +64,9 @@ func (s *Server) listCards(w http.ResponseWriter, r *http.Request) {
 	// cards、err 保存应用服务返回的用户卡券列表及查询错误。
 	cards, err := s.cardsApplication().List(r.Context(), session.UserID)
 	if err != nil {
+		if s.Logger != nil {
+			s.Logger.Error("查询卡密失败", "user_id", session.UserID, "err", err)
+		}
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}

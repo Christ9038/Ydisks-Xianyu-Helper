@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -284,8 +285,9 @@ func (s *Server) sendChatMessage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) markChatRead(w http.ResponseWriter, r *http.Request) {
 	// input 保存input，供当前处理流程使用
 	var input struct {
-		AccountID string `json:"account_id"`
-		ChatID    string `json:"chat_id"`
+		AccountID  string           `json:"account_id"`
+		ChatID     string           `json:"chat_id"`
+		MessageIDs []map[string]any `json:"message_ids"`
 	}
 	if decodeJSON(r, &input) != nil || input.ChatID == "" {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
@@ -295,17 +297,90 @@ func (s *Server) markChatRead(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "无权操作该账号")
 		return
 	}
-	// sess 保存当前认证用户，用于应用层归属隔离。
+	// sess 保存当前认证用户，用于本地未读状态归属隔离。
 	sess := auth.SessionFromContext(r.Context())
+	slog.Info("收到聊天已读请求", "account", input.AccountID, "chat_id", input.ChatID, "message_count", len(input.MessageIDs))
+	if len(input.MessageIDs) == 0 {
+		// page 保存应用层返回的本地消息页，只含非敏感字段。
+		page, listErr := s.chatApplication().ListStoredMessages(r.Context(), sess.UserID, input.AccountID, input.ChatID, 0, 200)
+		if listErr == nil {
+			// message 是当前用于补全平台已读消息标识的入站消息。
+			for _, message := range page.Messages {
+				if message.Direction == "incoming" && message.MessageType != "system" {
+					input.MessageIDs = append(input.MessageIDs, map[string]any{"messageId": message.MessageKey})
+				}
+			}
+		}
+	}
+	// 旧版本把实时 WS 通知里的 bizTag/extJson messageId 当成了平台消息
+	// ID，数据库里会留下 32 位关联 ID。闲鱼的 read 接口实际要求 1.3 的
+	// PNM ID；这里从已保存的解密 WS 诊断帧把旧 ID 转回 PNM，避免升级后
+	// 仍有历史实时消息无法被标记已读。
+	input.MessageIDs = s.resolveChatReadMessageIDs(r.Context(), input.AccountID, input.ChatID, input.MessageIDs)
 	if // err 保存应用层已读状态更新错误。
 	err := s.chatApplication().MarkRead(r.Context(), sess.UserID, input.AccountID, input.ChatID); err != nil {
 		writeErr(w, http.StatusInternalServerError, "更新已读状态失败")
 		return
 	}
+	if s.Manager != nil {
+		// sender、ok 保存当前账号运行时及其在线状态。
+		if sender, ok := s.Manager.GetInstance(input.AccountID); ok {
+			// reader、ok 保存运行时是否支持平台已读上报。
+			if reader, ok := sender.(interface {
+				MarkChatRead(context.Context, string, []map[string]any) error
+			}); ok {
+				// err 保存平台已读上报失败，失败不影响本地状态已落库。
+				if err := reader.MarkChatRead(r.Context(), input.ChatID, input.MessageIDs); err != nil {
+					slog.Warn("上报闲鱼已读状态失败", "account", input.AccountID, "chat_id", input.ChatID, "err", err)
+				}
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
-// chatWebSocket 负责聊天WebSocket相关处理。
+// resolveChatReadMessageIDs 将旧版关联标识交给应用服务解析，并移除无效或重复的已读项。
+func (s *Server) resolveChatReadMessageIDs(ctx context.Context, accountID, chatID string, messageIDs []map[string]any) []map[string]any {
+	// resolved 保存可安全提交给平台的去重消息标识列表。
+	resolved := make([]map[string]any, 0, len(messageIDs))
+	// seen 保存已加入结果的平台 PNM 标识，避免重复上报。
+	seen := make(map[string]struct{}, len(messageIDs))
+	// item 是当前待转换的已读消息参数。
+	for _, item := range messageIDs {
+		// rawID 保存请求携带的原始消息标识。
+		rawID, ok := item["messageId"].(string)
+		if !ok || strings.TrimSpace(rawID) == "" {
+			continue
+		}
+		// id 保存应用层解析后的平台消息标识。
+		id := s.chatApplication().ResolveReadMessageID(ctx, accountID, chatID, rawID)
+		if !strings.HasSuffix(id, ".PNM") {
+			slog.Warn("未找到旧聊天消息对应的 PNM，跳过已读上报", "account", accountID, "chat_id", chatID, "message_id", rawID)
+			continue
+		}
+		// exists 表示该平台消息标识是否已经加入本次上报请求。
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		// copyItem 保存保留其他平台参数、只替换消息标识的请求副本。
+		copyItem := make(map[string]any, len(item)+1)
+		// key、value 保存当前平台参数名及其原始值。
+		for key, value := range item {
+			copyItem[key] = value
+		}
+		copyItem["messageId"] = id
+		resolved = append(resolved, copyItem)
+	}
+	return resolved
+}
+
+// findChatPlatformMessageID 保留既有包内测试入口，实际解析由聊天应用服务拥有。
+func findChatPlatformMessageID(value any, chatID, legacyID string) string {
+	return chatapp.FindPlatformMessageID(value, chatID, legacyID)
+}
+
+// chatWebSocket 将应用层聊天事件转发到当前认证用户的 WebSocket 连接。
 func (s *Server) chatWebSocket(w http.ResponseWriter, r *http.Request) {
 	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())

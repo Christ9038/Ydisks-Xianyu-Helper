@@ -145,10 +145,12 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 		if lastMessageAt <= 0 {
 			lastMessageAt = modifyTime
 		}
-		// session 保存会话，供当前处理流程使用
+		// unreadCount 是平台红点与本地真实用户消息状态归一后的展示数量。
+		unreadCount := s.conversationUnreadCount(ctx, accountID, cid, peerID, conv, last, summary)
+		// session 保存待写入的非敏感会话摘要及归一后的未读数量。
 		session := db.ChatSession{CookieID: accountID, ChatID: cid, BuyerID: peerID, BuyerName: peerName, BuyerAvatar: avatar,
 			ItemID: cleanNilString(ext["itemId"]), ItemTitle: cleanNilString(ext["itemTitle"]), LastMessage: summary,
-			LastMessageAt: lastMessageAt, UnreadCount: int(int64Value(conv["redPoint"]))}
+			LastMessageAt: lastMessageAt, UnreadCount: unreadCount}
 		if // err 保存err，供当前处理流程使用
 		err := s.repository.UpsertSession(ctx, session); err != nil {
 			return page, err
@@ -161,7 +163,79 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 	return page, nil
 }
 
-// invalidNicknames 保存invalidNicknames，供当前处理流程使用
+// conversationUnreadCount 以平台红点为上限，并用本地真实用户消息已读状态排除系统卡片。
+func (s *Service) conversationUnreadCount(ctx context.Context, accountID, chatID, peerID string, conv, last map[string]any, summary string) int {
+	// official 保存平台会话红点；负数响应按零处理。
+	official := int(int64Value(conv["redPoint"]))
+	if official < 0 {
+		official = 0
+	}
+	if official == 0 {
+		return 0
+	}
+
+	// local、err 保存本地真实用户未读数及查询错误；查询失败时回退平台红点。
+	if local, err := s.repository.CountUnreadUserMessages(ctx, accountID, chatID); err == nil && local > 0 {
+		// A stale local event must not make the badge exceed the official
+		// conversation signal. In normal operation these values are equal.
+		if local > official {
+			return official
+		}
+		return local
+	}
+
+	if !historyMessageIsSystem(last, summary) {
+		// No message-level row exists yet (for example immediately after a
+		// fresh login), so retain the official count as a safe fallback.
+		return official
+	}
+
+	// 闲小蜜会话只包含平台消息，永远不能制造用户红点。
+	if strings.TrimSuffix(strings.TrimSpace(peerID), "@goofish") == "1400" {
+		return 0
+	}
+
+	// The official last-message envelope exposes unreadCount/readStatus for
+	// that item. Subtract that system portion from redPoint; when older server
+	// responses omit the fields, conservatively remove one system item.
+	// systemUnread 保存最后一条系统消息在官方会话红点中的未读份额。
+	systemUnread := int(int64Value(last["unreadCount"]))
+	// readStatus 保存最后一条系统消息的协议已读状态，缺少未读数时用于保守扣除。
+	readStatus := int64Value(last["readStatus"])
+	if systemUnread <= 0 && readStatus != 2 {
+		systemUnread = 1
+	}
+	if systemUnread > official {
+		systemUnread = official
+	}
+	return official - systemUnread
+}
+
+// historyMessageIsSystem 判断平台会话摘要是否代表系统消息，避免系统卡片制造用户未读。
+func historyMessageIsSystem(last map[string]any, summary string) bool {
+	// extension 保存会话末条消息的扩展字段，包含协议发送者身份。
+	extension := mapValue(last["extension"])
+	// senderID 保存协议发送者标识，供系统账号和系统卡片分类使用。
+	senderID := cleanNilString(extension["senderUserId"])
+	// content 保存解码后的系统卡片内容；解码失败时保留空对象供后续摘要规则判断。
+	content := map[string]any{}
+	// contentMap、ok 保存消息内容对象及其类型断言结果，非对象响应无需继续读取卡片字段。
+	if contentMap, ok := last["content"].(map[string]any); ok {
+		// custom、ok 保存自定义消息容器及其类型断言结果，卡片编码仅存在于该容器。
+		if custom, ok := contentMap["custom"].(map[string]any); ok {
+			// encoded 保存 Base64 卡片载荷，空载荷代表没有可解码的系统协议内容。
+			if encoded := cleanNilString(custom["data"]); encoded != "" {
+				// raw、err 保存解码后的卡片 JSON 与解码错误；错误时退回摘要分类，且不传播载荷。
+				if raw, err := base64.StdEncoding.DecodeString(encoded); err == nil {
+					_ = json.Unmarshal(raw, &content)
+				}
+			}
+		}
+	}
+	return isOfficialSystemMessage(content, senderID, summary)
+}
+
+// invalidNicknames 保存不能作为买家真实昵称持久化的系统展示文本。
 var invalidNicknames = map[string]struct{}{
 	"交易消息": {}, "系统消息": {}, "卡片消息": {}, "我完成了评价": {}, "对方完成了评价": {},
 	"快给ta一个评价吧～": {}, "卖家已发货": {}, "买家已付款": {}, "买家已确认收货": {},
@@ -207,6 +281,7 @@ type Incoming struct {
 	BuyerID   string
 	BuyerName string
 	Text      string
+	MessageID string
 	ItemID    string
 	Raw       map[string]any
 }
@@ -308,8 +383,11 @@ func (s *Service) RecordIncoming(ctx context.Context, in Incoming) (*db.ChatMess
 	if sentAt == 0 {
 		sentAt = time.Now().UTC().UnixMilli()
 	}
-	// key 保存key，供当前处理流程使用
-	key := extractString(in.Raw, "messageId", "message_id", "msgId", "mid", "uuid")
+	// key 优先使用引擎提供的稳定平台消息 ID，缺失时再从原始消息递归提取。
+	key := strings.TrimSpace(in.MessageID)
+	if key == "" {
+		key = extractString(in.Raw, "messageId", "message_id", "msgId", "mid", "uuid")
+	}
 	if key == "" {
 		// raw 保存原始，供当前处理流程使用
 		raw, _ := json.Marshal(in.Raw)
@@ -334,8 +412,8 @@ func (s *Service) RecordIncoming(ctx context.Context, in Incoming) (*db.ChatMess
 	// message 保存消息，供当前处理流程使用
 	message := db.ChatMessage{MessageKey: key, Direction: "incoming", SenderID: in.BuyerID,
 		SenderName: in.BuyerName, MessageType: messageType, Content: content, Status: "received", SentAt: sentAt}
-	// stored、inserted、err 保存stored、inserted、err，供当前处理流程使用
-	stored, inserted, err := s.repository.SaveMessage(ctx, session, message, true)
+	// stored、inserted、err 保存落库消息、首次插入标识及错误；系统消息永不增加用户红点。
+	stored, inserted, err := s.repository.SaveMessage(ctx, session, message, messageType != "system")
 	if err == nil && inserted {
 		s.Publish(in.AccountID, Event{Type: "message.created", Message: stored, Session: &session})
 	}
@@ -665,7 +743,27 @@ func (s *Service) SetOutgoingStatus(ctx context.Context, accountID, key, status 
 	return message, err
 }
 
-// randomID 负责randomID相关处理。
+// MarkOutgoingRead 根据平台回执把指定出站消息标记已读并广播增量事件。
+func (s *Service) MarkOutgoingRead(ctx context.Context, accountID, key string, readAt int64) (*db.ChatMessage, error) {
+	// message、err 保存已读更新后的消息及持久化错误。
+	message, err := s.repository.MarkMessageRead(ctx, accountID, key, readAt)
+	if err == nil {
+		s.Publish(accountID, Event{Type: "message.updated", Message: message})
+	}
+	return message, err
+}
+
+// MarkLatestOutgoingRead 在回执未带幂等键时回退标记会话最近待确认的出站消息。
+func (s *Service) MarkLatestOutgoingRead(ctx context.Context, accountID, chatID string, readAt int64) (*db.ChatMessage, error) {
+	// message、err 保存回退更新后的消息及持久化错误。
+	message, err := s.repository.MarkLatestOutgoingRead(ctx, accountID, chatID, readAt)
+	if err == nil {
+		s.Publish(accountID, Event{Type: "message.updated", Message: message})
+	}
+	return message, err
+}
+
+// randomID 生成本地出站消息幂等键的随机后缀；随机源失败时使用时间回退避免阻断发送。
 func randomID() string {
 	// value 保存值，供当前处理流程使用
 	var value [16]byte
@@ -712,6 +810,18 @@ func extractString(value any, keys ...string) string {
 			for _, child := range x {
 				if // text 保存文本，供当前处理流程使用
 				text := walk(child); text != "" {
+					return text
+				}
+			}
+		case string:
+			// Live WS envelopes often keep extJson/bizTag as an encoded JSON
+			// string. Decode it so messageId is preserved instead of falling
+			// back to a local in-* key.
+			// decoded 保存 extJson/bizTag 解码后的动态对象，供递归查找平台消息键。
+			var decoded any
+			if json.Unmarshal([]byte(x), &decoded) == nil {
+				// text 保存递归命中的非空消息键，命中后立即返回避免生成本地回退键。
+				if text := walk(decoded); text != "" {
 					return text
 				}
 			}

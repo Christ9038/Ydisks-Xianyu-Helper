@@ -1,4 +1,19 @@
 import type { ChatMessage, ChatSession } from '../../../shared/api-contract';
+import type { ChatReadReceipt } from './types';
+
+/** 将可确认的普通入站消息转换为平台已读回执。 */
+export const collectChatReadReceipts = (messages: ChatMessage[], chatID: string): ChatReadReceipt[] => messages
+  .filter(/* currentMessage 只保留平台可接受的普通入站消息。 */ currentMessage => (
+    currentMessage.direction === 'incoming'
+    && currentMessage.message_type !== 'system'
+    && !currentMessage.message_key.startsWith('in-')
+  ))
+  .map(/* currentMessage 为每条消息构造其所属会话的已读确认。 */ currentMessage => ({
+    messageId: currentMessage.message_key,
+    sessionId: chatID,
+    cid: `${chatID}@goofish`,
+    conversationType: 1,
+  }));
 
 /** 按搜索条件筛选会话列表。 */
 export const filterChatSessions = (sessions: ChatSession[], search: string, unreadOnly: boolean): ChatSession[] => {

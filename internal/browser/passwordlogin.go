@@ -74,8 +74,8 @@ func (m *Manager) passwordLogin(ctx context.Context, account, password, cookieID
 	}
 	defer release()
 
-	// page、err 保存page、err，供当前处理流程使用
-	page, err := bctx.NewPage()
+	// page 在无头密码登录时会在导航前覆盖 UA 和 Client Hints，避免暴露 HeadlessChrome。
+	page, err := m.newBrowserPage(bctx, headless)
 	if err != nil {
 		return nil, fmt.Errorf("新建 page 失败: %w", err)
 	}

@@ -3,7 +3,7 @@ import type React from 'react';
 import type { AccountDetail, ChatMessage, ChatSession } from '../../../shared/api-contract';
 import { emojiURL, renderXianyuText, xianyuEmojis } from '../../../chatEmojis';
 import { getAccountDetails, getAccountRuntimeStatuses, getChatMessagePage, getChatSessionPage, markChatRead, sendChatImage, sendChatMessage } from './api';
-import { filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, mergeLiveMessage, mergeOlderMessages, messageTime } from './state';
+import { collectChatReadReceipts, filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, mergeLiveMessage, mergeOlderMessages, messageTime } from './state';
 import type { ChatFeatureState, ChatLiveState, SessionsByAccount } from './types';
 
 /** Chat Hook 对外暴露的状态、引用和交互动作。 */
@@ -156,10 +156,16 @@ export const useChat = (): UseChatResult => {
       // page 页码。
       const page = await getChatSessionPage(accountID, undefined, { signal: controller.signal }, true);
       if (!isCurrentChatRequest(sessionSequence.current, sequence, controller.signal)) return [];
-      setSessionsByAccount(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, [accountID]: page.sessions }));
+      // sessions 保留当前打开会话的本地已读状态，避免刷新响应迟到后重新展示未读徽标。
+      const sessions = page.sessions.map(/* session 按当前活跃会话覆写已读计数。 */ session => (
+        accountID === activeAccountRef.current && session.chat_id === activeChatRef.current
+          ? { ...session, unread_count: 0 }
+          : session
+      ));
+      setSessionsByAccount(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, [accountID]: sessions }));
       setContactCursors(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, [accountID]: page.next_cursor }));
       setHasMoreContacts(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, [accountID]: page.has_more }));
-      return page.sessions;
+      return sessions;
     } catch (/* error 表示错误。 */ error) {
       if (isCurrentChatRequest(sessionSequence.current, sequence, controller.signal) && !isChatAbortError(error)) setError(error instanceof Error ? error.message : '同步会话失败');
       return [];
@@ -271,11 +277,11 @@ export const useChat = (): UseChatResult => {
     const controller = new AbortController();
     messageController.current = controller;
     setMessagesLoading(true);
-    void Promise.all([
-      getChatMessagePage(activeAccountID, activeChatID, undefined, undefined, { signal: controller.signal }),
-      markChatRead(activeAccountID, activeChatID, { signal: controller.signal }),
-    ]).then(/* 当前回调处理用户交互或异步状态变化。 */ ([page]) => {
+    void getChatMessagePage(activeAccountID, activeChatID, undefined, undefined, { signal: controller.signal }).then(/* 当前回调处理用户交互或异步状态变化。 */ page => {
       if (!isCurrentChatRequest(messageSequence.current, sequence, controller.signal)) return;
+      // readReceipts 只确认可被平台接受的普通入站消息。
+      const readReceipts = collectChatReadReceipts(page.messages, activeChatID);
+      void markChatRead(activeAccountID, activeChatID, readReceipts, { signal: controller.signal });
       setMessages(page.messages);
       setHasOlder(page.has_more);
       setHistoryCursor(page.next_cursor);
@@ -394,12 +400,16 @@ export const useChat = (): UseChatResult => {
               ...row,
               last_message: message.content,
               last_message_at: message.sent_at,
-              unread_count: message.direction === 'incoming' && (activeAccountRef.current !== accountID || activeChatRef.current !== message.chat_id) ? row.unread_count + 1 : row.unread_count,
+              unread_count: message.direction === 'incoming' && message.message_type !== 'system' && (activeAccountRef.current !== accountID || activeChatRef.current !== message.chat_id) ? row.unread_count + 1 : row.unread_count,
             } : row).sort(/* 当前回调处理集合中的单个元素。 */ (a, b) => b.last_message_at - a.last_message_at) };
           });
           if (activeAccountRef.current === accountID && activeChatRef.current === message.chat_id) {
             setMessages(/* 当前回调处理用户交互或异步状态变化。 */ current => mergeLiveMessage(current, message));
-            if (message.direction === 'incoming') void markChatRead(accountID, message.chat_id);
+            if (message.direction === 'incoming' && message.message_type !== 'system') {
+              // readReceipts 为当前实时消息生成平台要求的会话读取回执。
+              const readReceipts = collectChatReadReceipts([message], message.chat_id);
+              void markChatRead(accountID, message.chat_id, readReceipts);
+            }
           }
         } catch {
           // 忽略非聊天格式的 WebSocket 帧，后续 REST 查询会恢复权威状态。

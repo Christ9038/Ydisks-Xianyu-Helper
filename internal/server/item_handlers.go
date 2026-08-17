@@ -111,7 +111,6 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 		}
 		selectedLocation = &location
 	}
-	// outcome、callErr 保存outcome、callErr，供当前处理流程使用
 	// applicationLocation 是 HTTP DTO 转换后的应用发货地模型。
 	var applicationLocation *itemapp.Location
 	if selectedLocation != nil {
@@ -154,8 +153,6 @@ func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusConflict, callErr.Error())
 			return
 		}
-		writeErr(w, http.StatusBadGateway, callErr.Error())
-		return
 	}
 	if res == nil || strings.TrimSpace(res.ItemID) == "" {
 		writeErrCode(w, http.StatusBadGateway, "publish_result_missing_item_id", "平台返回发布成功，但缺少商品 ID，无法确认发布结果", "")

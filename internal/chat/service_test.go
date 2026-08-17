@@ -130,7 +130,29 @@ func TestRecordIncomingClassifiesXianxiaomiAndPlaceholder(t *testing.T) {
 	}
 }
 
-// TestRecordConversationPageImportsHistoricalContacts 负责TestRecordConversation页码ImportsHistoricalContacts相关处理。
+// TestRecordIncomingExtractsMessageIDFromEncodedExtension 验证嵌套扩展中的平台消息键优先进入实时落库。
+func TestRecordIncomingExtractsMessageIDFromEncodedExtension(t *testing.T) {
+	// store、cleanup 保存隔离聊天数据库及清理函数，确保消息键提取不依赖其他用例数据。
+	store, cleanup := chatTestStore(t)
+	defer cleanup()
+	// service 是待测聊天服务，使用上述存储验证实时消息落库。
+	service := New(store)
+	// message、err 保存落库后的消息和处理错误，消息键必须来自编码扩展字段。
+	message, _, err := service.RecordIncoming(context.Background(), Incoming{
+		AccountID: "account-1", ChatID: "live", BuyerID: "peer", BuyerName: "对方", Text: "实时消息",
+		Raw: map[string]any{"1": map[string]any{"10": map[string]any{
+			"extJson": `{"messageId":"live-123"}`,
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message.MessageKey != "live-123" {
+		t.Fatalf("实时消息未提取平台 messageId: %+v", message)
+	}
+}
+
+// TestRecordConversationPageImportsHistoricalContacts 验证联系人历史页不会覆盖较新的会话摘要。
 func TestRecordConversationPageImportsHistoricalContacts(t *testing.T) {
 	// store、cleanup 保存store、cleanup，供当前处理流程使用
 	store, cleanup := chatTestStore(t)
@@ -197,6 +219,7 @@ func TestRecordConversationPageHandlesXianxiaomiAndRemovesInvisibleSessions(t *t
 		map[string]any{"singleChatUserConversation": map[string]any{"visible": float64(1), "singleChatConversation": map[string]any{"cid": "platform@goofish", "pairFirst": "self@goofish", "pairSecond": "0@goofish", "extension": map[string]any{"extUserId": "900"}}}},
 		map[string]any{"singleChatUserConversation": map[string]any{"visible": float64(1), "modifyTime": float64(123),
 			"singleChatConversation": map[string]any{"cid": "xiaomi@goofish", "pairFirst": "self@goofish", "pairSecond": "0@goofish", "extension": map[string]any{"extUserId": "1400"}},
+			"redPoint":               float64(3),
 			"lastMessage":            map[string]any{"message": map[string]any{"extension": map[string]any{"senderUserId": "1400@goofish", "reminderTitle": "闲小蜜发来一条新消息"}, "content": map[string]any{"custom": map[string]any{"summary": "邀您填写售后问卷"}}}}}},
 	}}
 	if // err 保存err，供当前处理流程使用
@@ -210,12 +233,75 @@ func TestRecordConversationPageHandlesXianxiaomiAndRemovesInvisibleSessions(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].BuyerID != "1400" || rows[0].BuyerName != "闲小蜜" || rows[0].BuyerAvatar != xianxiaomiAvatar {
+	if len(rows) != 1 || rows[0].BuyerID != "1400" || rows[0].BuyerName != "闲小蜜" || rows[0].BuyerAvatar != xianxiaomiAvatar || rows[0].UnreadCount != 0 {
 		t.Fatalf("unexpected sessions: %+v", rows)
 	}
 }
 
-// TestRecordConversationPageSkipsEmptyConversationShells 负责TestRecordConversation页码SkipsEmptyConversationShells相关处理。
+// TestConversationUnreadCountUsesRedPointButFiltersSystemMessages 验证官方红点不会把系统卡片计为用户未读。
+func TestConversationUnreadCountUsesRedPointButFiltersSystemMessages(t *testing.T) {
+	// store、cleanup 保存隔离聊天数据库及清理函数，供红点与本地未读数交叉验证。
+	store, cleanup := chatTestStore(t)
+	defer cleanup()
+	// service 是待测聊天服务，负责按系统消息规则折算会话红点。
+	service := New(store)
+
+	// systemCard 保存模拟交易通知的 Base64 卡片载荷，使末条消息被归类为系统消息。
+	systemCard := base64.StdEncoding.EncodeToString([]byte(`{"contentType":26}`))
+	// systemLast 保存带官方红点和系统未读状态的末条消息协议对象。
+	systemLast := map[string]any{
+		"extension":   map[string]any{"senderUserId": "peer@goofish"},
+		"content":     map[string]any{"custom": map[string]any{"summary": "[交易通知]", "data": systemCard}},
+		"unreadCount": float64(1), "readStatus": float64(1),
+	}
+	// got 保存扣除系统消息后的用户未读数，系统部分不得显示为用户红点。
+	if got := service.conversationUnreadCount(context.Background(), "account-1", "system-last", "peer", map[string]any{"redPoint": float64(3)}, systemLast, "[交易通知]"); got != 2 {
+		t.Fatalf("系统未读未从 redPoint 扣除: got=%d", got)
+	}
+	// got 保存闲小蜜会话的折算未读数；该官方系统账号永远不产生用户红点。
+	if got := service.conversationUnreadCount(context.Background(), "account-1", "xiaomi", "1400", map[string]any{"redPoint": float64(3)}, systemLast, "[交易通知]"); got != 0 {
+		t.Fatalf("闲小蜜全是系统消息时仍显示红点: got=%d", got)
+	}
+
+	// err 保存真实用户消息持久化错误；成功后本地消息级未读数应优先于官方红点。
+	if _, _, err := service.RecordIncoming(context.Background(), Incoming{
+		AccountID: "account-1", ChatID: "real", BuyerID: "peer", BuyerName: "真实用户", Text: "未读消息",
+		MessageID: "real-unread", Raw: map[string]any{"messageId": "real-unread"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// userLast 保存真实用户末条消息协议对象，不含系统卡片字段。
+	userLast := map[string]any{
+		"extension": map[string]any{"senderUserId": "peer@goofish"},
+		"content":   map[string]any{"custom": map[string]any{"summary": "未读消息"}},
+	}
+	// got 保存本地记录的真实用户未读数，必须防止较慢官方刷新复活已读红点。
+	if got := service.conversationUnreadCount(context.Background(), "account-1", "real", "peer", map[string]any{"redPoint": float64(3)}, userLast, "未读消息"); got != 1 {
+		t.Fatalf("未使用消息级真实未读数: got=%d", got)
+	}
+}
+
+// TestHistoryMessageIsSystem 验证历史卡片载荷和普通用户文本被正确区分，避免误算未读。
+func TestHistoryMessageIsSystem(t *testing.T) {
+	// encoded 保存模拟交易卡片的 Base64 载荷，触发内容类型的系统消息识别。
+	encoded := base64.StdEncoding.EncodeToString([]byte(`{"contentType":26,"dxCard":{}}`))
+	// last 保存待识别的历史末条消息协议对象。
+	last := map[string]any{
+		"extension": map[string]any{"senderUserId": "peer@goofish"},
+		"content":   map[string]any{"custom": map[string]any{"data": encoded}},
+	}
+	if !historyMessageIsSystem(last, "[我已拍下，待付款]") {
+		t.Fatal("交易卡片应被识别为系统消息")
+	}
+	if historyMessageIsSystem(map[string]any{
+		"extension": map[string]any{"senderUserId": "peer@goofish"},
+		"content":   map[string]any{"custom": map[string]any{"summary": "你好"}},
+	}, "你好") {
+		t.Fatal("真实用户文本不应被识别为系统消息")
+	}
+}
+
+// TestRecordConversationPageSkipsEmptyConversationShells 验证空会话壳不会被错误展示为联系人。
 func TestRecordConversationPageSkipsEmptyConversationShells(t *testing.T) {
 	// store、cleanup 保存store、cleanup，供当前处理流程使用
 	store, cleanup := chatTestStore(t)

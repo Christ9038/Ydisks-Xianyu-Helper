@@ -1,6 +1,12 @@
 package browser
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"xianyu-go/internal/xianyu"
+)
 
 // TestSanitize 特殊字符替换为下划线（用于 userDataDir 命名）。
 func TestSanitize(t *testing.T) {
@@ -107,7 +113,88 @@ func TestChromiumExecutablePathFromEnv(t *testing.T) {
 	}
 }
 
-// TestSkipPlaywrightBrowserDownloadFromEnv 负责TestSkipPlaywright浏览器DownloadFromEnv相关处理。
+// TestCaptchaIgnoreCertificateErrors 验证证书例外仅在明确环境开关为真时进入浏览器启动参数。
+func TestCaptchaIgnoreCertificateErrors(t *testing.T) {
+	t.Setenv("CAPTCHA_IGNORE_CERT_ERRORS", "")
+	if captchaIgnoreCertificateErrors() {
+		t.Fatal("默认不应忽略证书错误")
+	}
+	t.Setenv("CAPTCHA_IGNORE_CERT_ERRORS", "true")
+	if !captchaIgnoreCertificateErrors() {
+		t.Fatal("true 应启用 CAPTCHA 证书错误忽略开关")
+	}
+	t.Setenv("CAPTCHA_IGNORE_CERT_ERRORS", "not-a-bool")
+	if captchaIgnoreCertificateErrors() {
+		t.Fatal("无效值不应启用证书错误忽略开关")
+	}
+}
+
+// TestNormalizeBrowserFingerprintRemovesOnlyHeadlessMarker 验证规范化不伪造 Chromium 的版本或平台身份。
+func TestNormalizeBrowserFingerprintRemovesOnlyHeadlessMarker(t *testing.T) {
+	// fingerprint 是含无头标记的实测身份经过规范化后的结果，用于断言只移除产品标记。
+	fingerprint := normalizeBrowserFingerprint(xianyu.BrowserFingerprint{
+		UserAgent: " Mozilla/5.0 HeadlessChrome/149.0.7827.55 Safari/537.36 ",
+		SecChUA:   `"HeadlessChrome";v="149", "Chromium";v="149"`,
+		Platform:  "macOS",
+		Mobile:    "?0",
+	})
+	if strings.Contains(fingerprint.UserAgent, "HeadlessChrome") || strings.Contains(fingerprint.SecChUA, "HeadlessChrome") {
+		t.Fatalf("无头标记未清除: %+v", fingerprint)
+	}
+	if !strings.Contains(fingerprint.UserAgent, "Chrome/149.0.7827.55") {
+		t.Fatalf("Chromium 版本不应变化: %q", fingerprint.UserAgent)
+	}
+	if fingerprint.Platform != "macOS" || fingerprint.Mobile != "?0" {
+		t.Fatalf("非无头字段不应变化: %+v", fingerprint)
+	}
+	if strings.Count(fingerprint.SecChUA, `"Chromium"`) != 1 {
+		t.Fatalf("Client Hints 品牌应去重: %q", fingerprint.SecChUA)
+	}
+}
+
+// TestNormalizeUserAgentMetadataRemovesAndDeduplicatesHeadlessBrand 验证导航前 CDP 覆盖不会泄露无头品牌。
+func TestNormalizeUserAgentMetadataRemovesAndDeduplicatesHeadlessBrand(t *testing.T) {
+	// metadata 是模拟页面返回的 Client Hints 经规范化后的副本，不应再暴露无头品牌。
+	metadata := normalizeUserAgentMetadata(map[string]any{
+		"brands": []any{
+			map[string]any{"brand": "HeadlessChrome", "version": "149"},
+			map[string]any{"brand": "Chromium", "version": "149"},
+			map[string]any{"brand": "Not)A;Brand", "version": "24"},
+		},
+		"fullVersionList": []any{
+			map[string]any{"brand": "HeadlessChrome", "version": "149.0.7827.55"},
+			map[string]any{"brand": "Chromium", "version": "149.0.7827.55"},
+		},
+		"platform": "macOS",
+		"mobile":   false,
+	})
+	if strings.Contains(strings.ToLower(fmt.Sprint(metadata)), "headless") {
+		t.Fatalf("User-Agent metadata 仍暴露 headless: %#v", metadata)
+	}
+	// brands 是规范化后的基础品牌列表；ok 表示 CDP 可接收数组结构。
+	brands, ok := metadata["brands"].([]any)
+	if !ok || len(brands) != 2 {
+		t.Fatalf("brands 未正确去重: %#v", metadata["brands"])
+	}
+	// fullVersions 是规范化后的完整版本品牌列表；ok 表示字段没有被意外改变类型。
+	fullVersions, ok := metadata["fullVersionList"].([]any)
+	if !ok || len(fullVersions) != 1 {
+		t.Fatalf("fullVersionList 未正确去重: %#v", metadata["fullVersionList"])
+	}
+}
+
+// TestManagerHeadlessUserAgentUsesDetectedRuntimeVersion 验证无头 UA 沿用实测 Chromium 版本而非静态伪造值。
+func TestManagerHeadlessUserAgentUsesDetectedRuntimeVersion(t *testing.T) {
+	// m 模拟已完成运行时指纹探测的管理器，不需要启动真实 Chromium。
+	m := &Manager{browserFingerprint: xianyu.BrowserFingerprint{UserAgent: "Mozilla/5.0 HeadlessChrome/149.0.7827.55 Safari/537.36"}}
+	// userAgent 是 m 基于实测版本生成的无头 UA，应只替换产品标记。
+	userAgent := m.headlessUserAgent()
+	if userAgent == nil || *userAgent != "Mozilla/5.0 Chrome/149.0.7827.55 Safari/537.36" {
+		t.Fatalf("headlessUserAgent=%v", userAgent)
+	}
+}
+
+// TestSkipPlaywrightBrowserDownloadFromEnv 验证打包运行时可显式禁止 Playwright 下载新的浏览器。
 func TestSkipPlaywrightBrowserDownloadFromEnv(t *testing.T) {
 	t.Setenv("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD", "")
 	if skipPlaywrightBrowserDownload() {

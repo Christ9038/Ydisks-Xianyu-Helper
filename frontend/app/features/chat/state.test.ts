@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import type { ChatMessage, ChatSession } from '../../../shared/api-contract';
-import { filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, mergeLiveMessage, mergeOlderMessages, messageTime } from './state';
+import { collectChatReadReceipts, filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, mergeLiveMessage, mergeOlderMessages, messageTime } from './state';
 
 // sessionFixture 是覆盖搜索、未读筛选和联系人隔离的最小会话数据。
 const sessionFixture: ChatSession[] = [
@@ -10,6 +10,21 @@ const sessionFixture: ChatSession[] = [
 
 // messageFixture 是覆盖消息去重和实时替换的最小消息数据。
 const messageFixture: ChatMessage = { id: 1, account_id: 'a1', chat_id: 'c1', message_key: 'm1', direction: 'incoming', sender_id: 'b1', sender_name: '张三', message_type: 'text', content: '旧消息', status: 'received', sent_at: 1 };
+
+test('Chat 已读回执排除系统消息和平台内部消息',
+  // 已读回执测试确保接口仅接收可确认的普通入站消息。
+  () => {
+    // messages 覆盖普通消息、系统通知、内部标记及出站消息。
+    const messages: ChatMessage[] = [
+      messageFixture,
+      { ...messageFixture, id: 2, message_key: 'in-local', message_type: 'text' },
+      { ...messageFixture, id: 3, message_key: 'system-1', message_type: 'system' },
+      { ...messageFixture, id: 4, message_key: 'outgoing-1', direction: 'outgoing' },
+    ];
+    expect(collectChatReadReceipts(messages, 'c1')).toEqual([
+      { messageId: 'm1', sessionId: 'c1', cid: 'c1@goofish', conversationType: 1 },
+    ]);
+  });
 
 test('Chat 会话筛选和历史消息合并保持账号内顺序',
   // 会话状态测试验证搜索、未读筛选和历史消息去重语义。

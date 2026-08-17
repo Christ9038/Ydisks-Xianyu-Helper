@@ -48,7 +48,7 @@ func (d *ItemDependencies) NewItemBatchPublishPort(client func() MTOPClient, log
 }
 
 // NewItemPublishPort 创建单商品发布与类目推荐共用的平台端口。
-func (d *ItemDependencies) NewItemPublishPort(client func() MTOPClient, logger *slog.Logger, update func(context.Context, string, string), recover func(context.Context, string, error)) *ItemPublishPort {
+func (d *ItemDependencies) NewItemPublishPort(client func() MTOPClient, logger *slog.Logger, update func(context.Context, string, string), recover func(context.Context, string, error) bool) *ItemPublishPort {
 	if d == nil {
 		return nil
 	}

@@ -259,11 +259,15 @@ func TestFallbackUsableDistanceMatchesStandardNCDOM(t *testing.T) {
 }
 
 func TestFallbackChromiumArgsUsePersistentCDPProfile(t *testing.T) {
-	args := strings.Join(fallbackChromiumArgs("/tmp/profile", true), " ")
-	for _, want := range []string{"--headless=new", "--user-data-dir=/tmp/profile", "--remote-debugging-port=0", "--window-size=1920,1080", "--disable-blink-features=AutomationControlled"} {
+	userAgent := "Mozilla/5.0 HeadlessChrome/149.0.7827.55 Safari/537.36"
+	args := strings.Join(fallbackChromiumArgs("/tmp/profile", true, &userAgent), " ")
+	for _, want := range []string{"--headless=new", "--user-data-dir=/tmp/profile", "--remote-debugging-port=0", "--window-size=1920,1080", "--disable-blink-features=AutomationControlled", "--user-agent=Mozilla/5.0 Chrome/149.0.7827.55 Safari/537.36"} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("args 缺少 %q: %s", want, args)
 		}
+	}
+	if strings.Contains(args, "HeadlessChrome") {
+		t.Fatalf("备用 Chromium 参数仍暴露 HeadlessChrome: %s", args)
 	}
 }
 

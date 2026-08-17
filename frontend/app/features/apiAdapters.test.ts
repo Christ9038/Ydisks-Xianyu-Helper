@@ -71,11 +71,11 @@ test('chat APIs preserve account and conversation scope', async () => {
 	await getChatSessions('a1');
 	await getChatMessages('a1', 'c1', 9);
 	await sendChatMessage({ account_id: 'a1', chat_id: 'c1', buyer_id: 'b1', text: 'hi' });
-	await markChatRead('a1', 'c1');
+	await markChatRead('a1', 'c1', [{ messageId: 'm1', sessionId: 'c1', cid: 'c1@goofish', conversationType: 1 }]);
 	expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/chat/sessions?account_id=a1');
 	expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/chat/messages?account_id=a1&chat_id=c1&before_id=9');
 	expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toMatchObject({ account_id: 'a1', chat_id: 'c1', buyer_id: 'b1' });
-	expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({ account_id: 'a1', chat_id: 'c1' });
+	expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({ account_id: 'a1', chat_id: 'c1', message_ids: [{ messageId: 'm1', sessionId: 'c1', cid: 'c1@goofish', conversationType: 1 }] });
 } /* 回调函数负责当前业务流程。 */);
 
 test('Chat 会话、消息和发送 API 转发外部取消信号', async () => {
@@ -93,7 +93,7 @@ test('Chat 会话、消息和发送 API 转发外部取消信号', async () => {
   await getChatMessagePage('a1', 'c1', undefined, undefined, { signal: controller.signal });
   await sendChatMessage({ account_id: 'a1', chat_id: 'c1', buyer_id: 'b1', text: 'hi' }, { signal: controller.signal });
   await sendChatImage({ account_id: 'a1', chat_id: 'c1', buyer_id: 'b1', image: new File(['image'], 'chat.png', { type: 'image/png' }) }, { signal: controller.signal });
-  await markChatRead('a1', 'c1', { signal: controller.signal });
+  await markChatRead('a1', 'c1', [], { signal: controller.signal });
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/chat/sessions?account_id=a1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/chat/messages?account_id=a1&chat_id=c1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/chat/messages', expect.objectContaining({ signal: expect.any(AbortSignal) }));
@@ -1369,7 +1369,7 @@ const runVersionedChatTaskAPITest = async () => {
   await getChatMessages('acc1', 'chat-1', 9);
   await sendChatMessage({ account_id: 'acc1', chat_id: 'chat-1', buyer_id: 'buyer-1', text: '你好' });
   await sendChatImage({ account_id: 'acc1', chat_id: 'chat-1', buyer_id: 'buyer-1', image: new File(['image'], 'chat.png', { type: 'image/png' }) });
-  await markChatRead('acc1', 'chat-1');
+  await markChatRead('acc1', 'chat-1', []);
   await getAccountTaskSettings('acc1');
   await updateAccountTaskSettings('acc1', { account_id: 'acc1', auto_rate_enabled: true, rate_content: '交易愉快', auto_polish_enabled: false, polish_time: '03:00' });
   await runAccountTask('acc1', 'auto_rate');

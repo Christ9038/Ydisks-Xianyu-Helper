@@ -90,9 +90,9 @@ func (m *Manager) newPersistentPasswordContext(ctx context.Context, cookieID, us
 	var bctx playwright.BrowserContext
 	// lastErr 保存lastErr，供当前处理流程使用
 	var lastErr error
-	for // attempt 保存尝试次数，供当前处理流程使用
-	attempt := 1; attempt <= 2; attempt++ {
-		bctx, err = m.pw.Chromium.LaunchPersistentContext(userDataDir, passwordPersistentContextOptions(headless))
+	// attempt 表示当前持久化 Chromium 的重试序号；启动失败时会先清理 profile 锁文件再重试一次。
+	for attempt := 1; attempt <= 2; attempt++ {
+		bctx, err = m.pw.Chromium.LaunchPersistentContext(userDataDir, passwordPersistentContextOptions(headless, m.headlessUserAgent()))
 		if err == nil {
 			break
 		}
@@ -116,9 +116,10 @@ func (m *Manager) newPersistentPasswordContext(ctx context.Context, cookieID, us
 	return bctx, release, nil
 }
 
-// passwordPersistentContextOptions 负责密码Persistent上下文Options相关处理。
-func passwordPersistentContextOptions(headless bool) playwright.BrowserTypeLaunchPersistentContextOptions {
-	return playwright.BrowserTypeLaunchPersistentContextOptions{
+// passwordPersistentContextOptions 为密码登录构造持久化上下文；无头模式仅使用实测运行时并去除 HeadlessChrome 标记的 UA。
+func passwordPersistentContextOptions(headless bool, headlessUserAgent ...*string) playwright.BrowserTypeLaunchPersistentContextOptions {
+	// options 是密码登录持久化 context 的完整启动配置，避免把 UA 覆盖泄漏到有头会话。
+	options := playwright.BrowserTypeLaunchPersistentContextOptions{
 		Headless:          playwright.Bool(headless),
 		Args:              chromiumLaunchArgs(),
 		ExecutablePath:    chromiumExecutablePath(),
@@ -132,6 +133,10 @@ func passwordPersistentContextOptions(headless bool) playwright.BrowserTypeLaunc
 		},
 		Timeout: playwright.Float(quickRenewTimeoutMS),
 	}
+	if headless && len(headlessUserAgent) > 0 {
+		options.UserAgent = headlessUserAgent[0]
+	}
+	return options
 }
 
 // BrowserQuickRenew 使用持久化浏览器上下文执行“快速进入”Cookie 续期。
@@ -154,15 +159,17 @@ func (m *Manager) BrowserQuickRenewSnapshot(ctx context.Context, cookieID, cooki
 	// effectiveSnapshot 保存effectiveSnapshot，供当前处理流程使用
 	effectiveSnapshot := reconcileSnapshotWithCurrentCookie(snapshot, cookieStr, goofishIMURL)
 
-	// bctx、release、err 保存bctx、release、err，供当前处理流程使用
-	bctx, release, err := m.newPersistentRenewContext(ctx, cookieID, cookieStr, effectiveSnapshot, quickRenewHeadless(headless))
+	// headless 是经环境覆盖后的本次续期浏览器可见性，并决定是否必须应用运行时指纹。
+	headless = quickRenewHeadless(headless)
+	// bctx 是持久化续期上下文；release 释放 profile 锁和并发槽位；err 仅表示上下文创建失败。
+	bctx, release, err := m.newPersistentRenewContext(ctx, cookieID, cookieStr, effectiveSnapshot, headless)
 	if err != nil {
 		return "", nil, err
 	}
 	defer release()
 
-	// page、err 保存page、err，供当前处理流程使用
-	page, err := bctx.NewPage()
+	// page 是已在导航前附加无头 UA 和 Client Hints 覆盖的续期页面。
+	page, err := m.newBrowserPage(bctx, headless)
 	if err != nil {
 		return "", nil, fmt.Errorf("新建 page 失败: %w", err)
 	}
@@ -222,15 +229,17 @@ func (m *Manager) CookiesRefreshSnapshot(ctx context.Context, cookieID, cookieSt
 	}
 	// effectiveSnapshot 保存effectiveSnapshot，供当前处理流程使用
 	effectiveSnapshot := reconcileSnapshotWithCurrentCookie(snapshot, cookieStr, goofishIMURL)
-	// bctx、release、err 保存bctx、release、err，供当前处理流程使用
-	bctx, release, err := m.newPersistentRenewContext(ctx, cookieID, cookieStr, effectiveSnapshot, cookiesRefreshHeadless(headless))
+	// headless 是经环境覆盖后的定时续期浏览器可见性，并决定页面级指纹覆盖。
+	headless = cookiesRefreshHeadless(headless)
+	// bctx 是定时续期使用的持久化上下文；release 归还 profile 资源；err 表示启动或注入 Cookie 失败。
+	bctx, release, err := m.newPersistentRenewContext(ctx, cookieID, cookieStr, effectiveSnapshot, headless)
 	if err != nil {
 		return "", nil, false, err
 	}
 	defer release()
 
-	// page、err 保存page、err，供当前处理流程使用
-	page, err := bctx.NewPage()
+	// page 是已在导航前附加无头 UA 和 Client Hints 覆盖的官方续期页。
+	page, err := m.newBrowserPage(bctx, headless)
 	if err != nil {
 		return "", nil, false, fmt.Errorf("新建 page 失败: %w", err)
 	}
@@ -588,9 +597,10 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 	var bctx playwright.BrowserContext
 	// lastErr 保存lastErr，供当前处理流程使用
 	var lastErr error
-	for // attempt 保存尝试次数，供当前处理流程使用
-	attempt := 1; attempt <= 2; attempt++ {
-		bctx, err = m.pw.Chromium.LaunchPersistentContext(userDataDir, playwright.BrowserTypeLaunchPersistentContextOptions{
+	// attempt 表示当前持久化 profile 的启动序号；失败后只进行一次清理后的重试。
+	for attempt := 1; attempt <= 2; attempt++ {
+		// options 保存本次启动的独立配置，避免重试时复用可能被 Playwright 修改的对象。
+		options := playwright.BrowserTypeLaunchPersistentContextOptions{
 			Headless:       playwright.Bool(headless),
 			Args:           chromiumLaunchArgs(),
 			ExecutablePath: chromiumExecutablePath(),
@@ -598,7 +608,11 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 			Locale:         playwright.String(defaultLang),
 			TimezoneId:     playwright.String(defaultTZ),
 			Timeout:        playwright.Float(quickRenewTimeoutMS),
-		})
+		}
+		if headless {
+			options.UserAgent = m.headlessUserAgent()
+		}
+		bctx, err = m.pw.Chromium.LaunchPersistentContext(userDataDir, options)
 		if err == nil {
 			break
 		}

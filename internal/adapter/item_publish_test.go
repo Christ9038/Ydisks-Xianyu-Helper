@@ -141,6 +141,47 @@ func TestItemPublishPortReleasesCredentialLockDuringRemoteCall(t *testing.T) {
 	}
 }
 
+// TestItemPublishPortRetriesAfterSessionRecovery 验证续期成功后发布端口使用重新读取的凭证重试一次。
+func TestItemPublishPortRetriesAfterSessionRecovery(t *testing.T) {
+	// store、cleanup 保存当前测试使用的 SQLite 存储及清理函数。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// calls 保存平台发布调用次数，用于确认最多执行一次恢复后的重试。
+	calls := 0
+	// secondCookies 保存第二次发布实际使用的凭证快照。
+	secondCookies := ""
+	// client 是首次返回会话失效、第二次成功的平台客户端替身。
+	client := itemPublishClientStub{publish: func(_ context.Context, cookies string, _ mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
+		calls++
+		if calls == 1 {
+			return nil, &mtop.SessionExpiredError{API: "publish"}
+		}
+		secondCookies = cookies
+		return &mtop.PublishItemResult{ItemID: "retry-item", Title: "重试商品"}, nil
+	}}
+	// recovered 保存恢复回调是否被调用，确保发布端口不会静默跳过会话恢复。
+	recovered := false
+	// recovery 保存测试用会话恢复回调，并模拟恢复逻辑写入的新凭证。
+	recovery := func(ctx context.Context, cookieID string, recoveryErr error) bool {
+		recovered = recoveryErr != nil
+		// updateErr 保存模拟续期凭证写入的持久化错误。
+		if updateErr := store.Cookies.UpdateValueExisting(ctx, cookieID, "unb=1; fresh=1"); updateErr != nil {
+			t.Fatalf("写入续期凭证失败: %v", updateErr)
+		}
+		return true
+	}
+	// port 是注入恢复回调后的发布适配器。
+	port := NewItemPublishPort(store, func() mtop.Client { return client }, nil, nil, recovery)
+	// outcome、publishErr 保存恢复重试后的发布结果及错误。
+	outcome, publishErr := port.Publish(context.Background(), itemapp.PublishInput{UserID: 1, CookieID: "cid", Title: "重试商品", PriceCents: 100, Quantity: 1})
+	if publishErr != nil || outcome.Result == nil || outcome.Result.ItemID != "retry-item" {
+		t.Fatalf("恢复后发布结果异常: outcome=%+v err=%v", outcome, publishErr)
+	}
+	if !recovered || calls != 2 || secondCookies != "unb=1; fresh=1" {
+		t.Fatalf("续期重试未使用新凭证: recovered=%v calls=%d cookies=%q", recovered, calls, secondCookies)
+	}
+}
+
 // TestItemPublishRepositoryUpsertMapsApplicationRecord 验证商品仓储适配器正确转换应用记录。
 func TestItemPublishRepositoryUpsertMapsApplicationRecord(t *testing.T) {
 	// store、cleanup 保存当前测试使用的 SQLite 存储及清理函数。
