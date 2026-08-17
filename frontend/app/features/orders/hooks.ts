@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import type { AccountDetail, Item, Order } from '../../../types';
+import type { AccountDetail, Item, Order } from '../../../shared/api-contract';
 import { getAccountDetails, getItems, getOrders, importOrders } from './api';
 import { canSubmitOrderImport, isCurrentOrderRequest, normalizeOrderImportResult, orderErrorMessage, validateOrderImportFile } from './state';
 import type { OrderImportState, OrderQueryState } from './types';
@@ -248,6 +248,18 @@ export const useOrderImport = (loadOrders: () => Promise<void>): OrderImportStat
   const importGeneration = useRef(0);
   // importAbort 保存当前导入请求的取消控制器。
   const importAbort = useRef<AbortController | null>(null);
+
+  useEffect(
+    // 导入生命周期副作用负责在弹窗组件卸载时取消上传并禁止旧结果继续更新 React 状态。
+    () => (
+      // importRequestCleanup 推进导入代次并中止尚未结束的 multipart 请求。
+      () => {
+        importGeneration.current += 1;
+        importAbort.current?.abort();
+      }
+    ),
+    [],
+  );
 
   // openImportModal 打开订单导入弹窗并重置上一次结果。
   const openImportModal = useCallback(

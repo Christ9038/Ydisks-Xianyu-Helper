@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import type { AccountDetail } from '../../../types';
+import type { AccountDetail } from '../../../shared/api-contract';
 import {
   buildAccountLoginInfoUpdate,
   isCurrentAccountRequest,

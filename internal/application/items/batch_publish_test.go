@@ -3,6 +3,7 @@ package items
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -17,6 +18,10 @@ type batchRunnerRepository struct {
 	failed map[int64]string
 	// finalized 保存最终状态收口次数。
 	finalized int
+	// workerToken 保存最近一次续租收到的令牌，允许协调器测试模拟租约切换。
+	workerToken string
+	// mu 保护协调器并发测试中的租约令牌和批次快照。
+	mu sync.Mutex
 }
 
 // PendingRows 返回预置的批量明细。
@@ -25,12 +30,20 @@ func (r *batchRunnerRepository) PendingRows(_ context.Context, _ string, _ bool)
 }
 
 // RenewBatchLease 保持内存批次租约有效。
-func (r *batchRunnerRepository) RenewBatchLease(_ context.Context, _, _ string, _ int64) (bool, error) {
+func (r *batchRunnerRepository) RenewBatchLease(_ context.Context, _, workerToken string, _ int64) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.workerToken = workerToken
 	return true, nil
 }
 
 // GetBatch 返回当前批次快照。
 func (r *batchRunnerRepository) GetBatch(_ context.Context, _ int64, _ string) (BatchInfo, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.workerToken != "" {
+		r.batch.WorkerToken = r.workerToken
+	}
 	return r.batch, nil
 }
 
@@ -41,6 +54,8 @@ func (r *batchRunnerRepository) ClaimRow(_ context.Context, _ int64, _ string) (
 
 // BatchStatus 返回当前批次状态。
 func (r *batchRunnerRepository) BatchStatus(_ context.Context, _ string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.batch.Status, nil
 }
 
@@ -50,6 +65,8 @@ func (r *batchRunnerRepository) MarkClaimedRowFailed(ctx context.Context, rowID 
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.failed == nil {
 		r.failed = make(map[int64]string)
 	}
@@ -62,18 +79,24 @@ func (r *batchRunnerRepository) RecountBatch(_ context.Context, _ string) error 
 
 // FinalizeBatch 记录正常收口并返回完成状态。
 func (r *batchRunnerRepository) FinalizeBatch(_ context.Context, _, _ string) (string, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.finalized++
 	return "completed", true, nil
 }
 
 // FinalizeCanceled 记录取消收口。
 func (r *batchRunnerRepository) FinalizeCanceled(_ context.Context, _, _ string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.finalized++
 	return true, nil
 }
 
 // FinalizeInterrupted 记录中断收口。
 func (r *batchRunnerRepository) FinalizeInterrupted(_ context.Context, _, _, _ string) (string, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.finalized++
 	return "failed", true, nil
 }

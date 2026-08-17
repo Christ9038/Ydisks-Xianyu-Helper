@@ -460,8 +460,9 @@ func TestReviewAutomationsDoNotRequireOrderDetail(t *testing.T) {
 	// sender 保存sender，供当前处理流程使用
 	sender := &testSender{}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.SetOrderDetailFetcher(testFetcher{err: errors.New("must not fetch"), calls: &calls})
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		OrderDetailFetcher: testFetcher{err: errors.New("must not fetch"), calls: &calls},
+	})
 	// i、trigger 表示当前遍历过程中的i、trigger
 	for i, trigger := range []string{TriggerBuyerReviewed, TriggerReviewMissingTimeout} {
 		// task 保存任务，供当前处理流程使用
@@ -497,8 +498,9 @@ func TestOrderPaidPreparationFailureIsPersistedAndRecovered(t *testing.T) {
 	// sender 保存sender，供当前处理流程使用
 	sender := &testSender{}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.SetOrderDetailFetcher(testFetcher{err: errors.New("temporary order API failure")})
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		OrderDetailFetcher: testFetcher{err: errors.New("temporary order API failure")},
+	})
 	// task 保存任务，供当前处理流程使用
 	task := Task{Source: "ws", AccountID: "cid", TriggerType: TriggerOrderPaid, OrderID: "pending-order", ItemID: "pending-item", ChatID: "chat", BuyerID: "buyer", Raw: map[string]any{"message_id": "paid-1"}}
 	if // err 保存err，供当前处理流程使用
@@ -512,9 +514,12 @@ func TestOrderPaidPreparationFailureIsPersistedAndRecovered(t *testing.T) {
 	if pending != 1 || runs != 0 {
 		t.Fatalf("pending=%d runs=%d", pending, runs)
 	}
-	center.SetOrderDetailFetcher(testFetcher{detail: &OrderDetail{SpecName: "套餐", SpecValue: "恢复版", Quantity: "1", Amount: "9.9"}})
+	// recoveredCenter 模拟进程重启后以可用详情查询器重新装配自动化中心。
+	recoveredCenter := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		OrderDetailFetcher: testFetcher{detail: &OrderDetail{SpecName: "套餐", SpecValue: "恢复版", Quantity: "1", Amount: "9.9"}},
+	})
 	_, _ = store.DB.ExecContext(ctx, `UPDATE automation_pending_tasks SET due_at=0`)
-	NewScheduler(center).runDeferredTasks(ctx)
+	NewScheduler(recoveredCenter).runDeferredTasks(ctx)
 	if len(sender.texts) != 1 || sender.texts[0] != "RECOVERED-CARD" {
 		t.Fatalf("recovered sends=%v", sender.texts)
 	}
@@ -1001,10 +1006,11 @@ func TestCenterOrderPaidFetchesOrderDetailMatchesSpecAndQuantity(t *testing.T) {
 	// sender 保存sender，供当前处理流程使用
 	sender := &testSender{}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.SetOrderDetailFetcher(testFetcher{detail: &OrderDetail{
-		SpecName: "套餐", SpecValue: "90天", Quantity: "2", Amount: "19.8", OrderStatus: "pending_ship",
-	}})
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		OrderDetailFetcher: testFetcher{detail: &OrderDetail{
+			SpecName: "套餐", SpecValue: "90天", Quantity: "2", Amount: "19.8", OrderStatus: "pending_ship",
+		}},
+	})
 
 	err = center.HandleTask(ctx, Task{
 		Source: "ws", AccountID: "cid", CookieStr: "unb=123; _m_h5_tk=tk_1;", TriggerType: TriggerOrderPaid,
@@ -1130,10 +1136,11 @@ func TestCenterOrderPaidSendsAllCardActionsForSameSpec(t *testing.T) {
 	// sender 保存sender，供当前处理流程使用
 	sender := &testSender{}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.SetOrderDetailFetcher(testFetcher{detail: &OrderDetail{
-		SpecName: "套餐", SpecValue: "组合版", Quantity: "1", Amount: "29.9",
-	}})
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		OrderDetailFetcher: testFetcher{detail: &OrderDetail{
+			SpecName: "套餐", SpecValue: "组合版", Quantity: "1", Amount: "29.9",
+		}},
+	})
 
 	if // err 保存err，供当前处理流程使用
 	err := center.HandleTask(ctx, Task{
@@ -1184,8 +1191,9 @@ func TestCenterOrderPaidDoesNotConfirmWhenNoCardSpecMatches(t *testing.T) {
 	// sender 保存sender，供当前处理流程使用
 	sender := &testSender{}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.SetOrderDetailFetcher(testFetcher{detail: &OrderDetail{SpecName: "套餐", SpecValue: "90天", Quantity: "1"}})
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		OrderDetailFetcher: testFetcher{detail: &OrderDetail{SpecName: "套餐", SpecValue: "90天", Quantity: "1"}},
+	})
 
 	err = center.HandleTask(ctx, Task{
 		Source: "ws", AccountID: "cid", CookieStr: "unb=123; _m_h5_tk=tk_1;", TriggerType: TriggerOrderPaid,
@@ -1245,9 +1253,10 @@ func TestCenterOrderPaidSendsCardBeforeConfirmShipment(t *testing.T) {
 	// sender 保存sender，供当前处理流程使用
 	sender := &testSender{events: &events}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.SetMTop(&mtop.ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/"})
-	center.SetOrderDetailFetcher(testFetcher{detail: &OrderDetail{Quantity: "1", Amount: "9.9"}})
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		MTop:               &mtop.ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/"},
+		OrderDetailFetcher: testFetcher{detail: &OrderDetail{Quantity: "1", Amount: "9.9"}},
+	})
 
 	if // err 保存err，供当前处理流程使用
 	err := center.HandleTask(ctx, Task{
@@ -1327,8 +1336,9 @@ func TestConfirmShipmentPersistsAuthoritativeSessionBeforeParseError(t *testing.
 		}
 	}}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.SetMTop(&mtop.ClientImpl{HTTPClient: client, ConsignURL: mtop.ConsignAPI})
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		MTop: &mtop.ClientImpl{HTTPClient: client, ConsignURL: mtop.ConsignAPI},
+	})
 	// err 保存err，供当前处理流程使用
 	err := center.confirmShipment(ctx, Task{
 		AccountID: "cid", OrderID: "session-parse-error", ForceConfirmShipment: true,
@@ -1419,8 +1429,9 @@ func TestConfirmShipmentPropagatesAuthoritativeEmptySession(t *testing.T) {
 	// sender 保存sender，供当前处理流程使用
 	sender := &testSender{}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.SetMTop(&mtop.ClientImpl{HTTPClient: client, ConsignURL: mtop.ConsignAPI})
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		MTop: &mtop.ClientImpl{HTTPClient: client, ConsignURL: mtop.ConsignAPI},
+	})
 	// err 保存err，供当前处理流程使用
 	err := center.confirmShipment(ctx, Task{
 		AccountID: "cid", OrderID: "authoritative-empty-session", ForceConfirmShipment: true,
@@ -1481,9 +1492,10 @@ func TestManualFullDeliveryIsImmediateIdempotentAndForcesConfirmation(t *testing
 	// mtopMock 保存mtopMock，供当前处理流程使用
 	mtopMock := &fakeMTop{consignOk: true}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.SetMTop(mtopMock)
-	center.SetOrderDetailFetcher(testFetcher{detail: &OrderDetail{Quantity: "1", OrderStatus: "pending_ship"}})
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		MTop:               mtopMock,
+		OrderDetailFetcher: testFetcher{detail: &OrderDetail{Quantity: "1", OrderStatus: "pending_ship"}},
+	})
 	// order 保存订单，供当前处理流程使用
 	order := &db.Order{OrderID: "manual-order", CookieID: "cid", ItemID: "manual-item", BuyerID: "buyer", ChatID: "chat"}
 
@@ -1543,9 +1555,10 @@ func newManualDeliveryFixture(t *testing.T, orderID string) (context.Context, *d
 	// mtopMock 记录远端确认发货调用。
 	mtopMock := &fakeMTop{consignOk: true}
 	// center 是待验证的自动化中心。
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.SetMTop(mtopMock)
-	center.SetOrderDetailFetcher(testFetcher{detail: &OrderDetail{Quantity: "1", OrderStatus: "pending_ship"}})
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		MTop:               mtopMock,
+		OrderDetailFetcher: testFetcher{detail: &OrderDetail{Quantity: "1", OrderStatus: "pending_ship"}},
+	})
 	// order 保存夹具使用的订单输入。
 	order := &db.Order{OrderID: orderID, CookieID: "cid", ItemID: "manual-item", BuyerID: "buyer", ChatID: "chat"}
 	return ctx, store, center, sender, mtopMock, order, cleanup
@@ -1635,21 +1648,27 @@ func TestPrepareTaskUpsertFailureStopsBeforeExternalAction(t *testing.T) {
 	}
 }
 
-// recordingNotifier 记录所有 NotifyDelivery 调用，用于断言 automation.Center 接线。
+// recordingNotifier 记录所有按自动化运行幂等的通知调用，用于断言 automation.Center 接线。
 type recordingNotifier struct {
 	mu    sync.Mutex
 	calls []struct {
-		accountID, buyerID, itemID, message, chatID string
+		runID                                               int64
+		contextCanceled                                     bool
+		accountID, buyerID, itemID, status, message, chatID string
 	}
 }
 
-// NotifyDelivery 负责Notify发货相关处理。
-func (r *recordingNotifier) NotifyDelivery(accountID, buyerName, buyerID, itemID, message, chatID string) {
+// NotifyAutomationRun 记录自动化运行终态通知；测试替身只记录参数，不模拟持久化 outbox。
+func (r *recordingNotifier) NotifyAutomationRun(ctx context.Context, runID int64, accountID, buyerID, itemID, status, message, chatID string) {
+	// contextCanceled 记录入队上下文是否已被取消；正常运行收口必须在取消前持久化通知。
+	contextCanceled := ctx.Err() != nil
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, struct {
-		accountID, buyerID, itemID, message, chatID string
-	}{accountID, buyerID, itemID, message, chatID})
+		runID                                               int64
+		contextCanceled                                     bool
+		accountID, buyerID, itemID, status, message, chatID string
+	}{runID, contextCanceled, accountID, buyerID, itemID, status, message, chatID})
 }
 
 // messages 负责消息列表相关处理。
@@ -1663,6 +1682,19 @@ func (r *recordingNotifier) messages() []string {
 		out[i] = c.message
 	}
 	return out
+}
+
+// hasCanceledContext 返回是否存在使用已取消上下文的自动化终态通知调用。
+func (r *recordingNotifier) hasCanceledContext() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// call 表示当前遍历到的终态通知调用记录。
+	for _, call := range r.calls {
+		if call.contextCanceled {
+			return true
+		}
+	}
+	return false
 }
 
 // TestCenterNotifiesOnDeliverySuccess 验证规则执行成功（实际发出卡券）时触发成功通知。
@@ -1694,11 +1726,12 @@ func TestCenterNotifiesOnDeliverySuccess(t *testing.T) {
 	// notifier 保存notifier，供当前处理流程使用
 	notifier := &recordingNotifier{}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.SetOrderDetailFetcher(testFetcher{detail: &OrderDetail{
-		SpecName: "套餐", SpecValue: "标准", Quantity: "1", Amount: "9.9", OrderStatus: "pending_ship",
-	}})
-	center.SetNotifier(notifier)
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		OrderDetailFetcher: testFetcher{detail: &OrderDetail{
+			SpecName: "套餐", SpecValue: "标准", Quantity: "1", Amount: "9.9", OrderStatus: "pending_ship",
+		}},
+		Notifier: notifier,
+	})
 
 	if // err 保存err，供当前处理流程使用
 	err := center.HandleTask(ctx, Task{
@@ -1715,6 +1748,9 @@ func TestCenterNotifiesOnDeliverySuccess(t *testing.T) {
 	}
 	if !strings.Contains(msgs[0], "成功") || !strings.Contains(msgs[0], "order-n") {
 		t.Fatalf("通知文案异常: %q", msgs[0])
+	}
+	if notifier.hasCanceledContext() {
+		t.Fatal("运行收口通知不应使用已取消上下文，否则 outbox 无法持久化")
 	}
 }
 
@@ -1748,11 +1784,12 @@ func TestCenterNotifiesOnDeliveryFailure(t *testing.T) {
 	// notifier 保存notifier，供当前处理流程使用
 	notifier := &recordingNotifier{}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.SetOrderDetailFetcher(testFetcher{detail: &OrderDetail{
-		SpecName: "套餐", SpecValue: "90天", Quantity: "1", Amount: "9.9", OrderStatus: "pending_ship",
-	}})
-	center.SetNotifier(notifier)
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		OrderDetailFetcher: testFetcher{detail: &OrderDetail{
+			SpecName: "套餐", SpecValue: "90天", Quantity: "1", Amount: "9.9", OrderStatus: "pending_ship",
+		}},
+		Notifier: notifier,
+	})
 
 	// HandleTask 对单条规则失败只记录日志不返回错误，但通知应已发出。
 	_ = center.HandleTask(ctx, Task{
@@ -1781,8 +1818,7 @@ func TestCenterNoNotifyWhenNoMatchingRule(t *testing.T) {
 	// notifier 保存notifier，供当前处理流程使用
 	notifier := &recordingNotifier{}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	center.SetNotifier(notifier)
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{Notifier: notifier})
 
 	_ = center.HandleTask(ctx, Task{
 		Source: "ws", AccountID: "cid", TriggerType: TriggerOrderPaid,

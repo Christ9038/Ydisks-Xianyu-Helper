@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
-import type { Card } from '../../../types';
+import type { Card } from '../../../shared/api-contract';
 import { createCard, deleteCard, updateCard } from './api';
 import { filterCards } from './batchState';
 import type { AddCardForm, EditCardForm } from './types';

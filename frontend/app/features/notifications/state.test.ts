@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import type { NotificationChannel } from '../../../types';
+import type { NotificationChannel } from '../../../shared/api-contract';
 import type { NotificationForm } from './types';
 import { buildNotificationPayload, emptyNotificationForm, isCurrentNotificationRequest, normalizeNotificationForm, notificationErrorMessage, notificationEventSummary, validateNotificationForm } from './state';
 

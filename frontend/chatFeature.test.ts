@@ -6,7 +6,7 @@ const source = (path: string) => readFileSync(resolve(__dirname, path), 'utf8');
 
 describe('online chat UI contract', () => {
 	test('uses account tabs above a two-column buyer/chat layout', () => {
-		const chat = source('components/Chat.tsx'); /* chat 表示chat。 */
+		const chat = source('app/features/chat/pages/Chat.tsx'); /* chat 表示chat。 */
 		expect(chat).toContain('role="tablist"');
 		expect(chat).toContain('grid-cols-[320px_minmax(0,1fr)]');
 		expect(chat).toContain('min-h-0 min-w-0 flex-col overflow-hidden');
@@ -16,7 +16,7 @@ describe('online chat UI contract', () => {
 	} /* 回调函数负责当前业务流程。 */);
 
 	test('uses neutral user labels instead of assuming buyer role', () => {
-		const chat = source('components/Chat.tsx'); /* chat 表示chat。 */
+		const chat = source('app/features/chat/pages/Chat.tsx'); /* chat 表示chat。 */
 		expect(chat).toContain('用户 ID：');
 		expect(chat).not.toContain('买家 ID：');
 		expect(chat).not.toContain('选择一个买家');
@@ -29,7 +29,7 @@ describe('online chat UI contract', () => {
 	} /* 回调函数负责当前业务流程。 */);
 
 	test('renders peer/self identity and verified media capabilities', () => {
-		const chat = source('components/Chat.tsx'); /* chat 表示chat。 */
+		const chat = source('app/features/chat/pages/Chat.tsx'); /* chat 表示chat。 */
 		const chatHook = source('app/features/chat/hooks.ts'); /* chatHook 表示chatHook。 */
 		expect(chat).toContain('selectedSession.buyer_avatar_url');
 		expect(chat).toContain('activeAccount?.avatar_url');
@@ -39,13 +39,13 @@ describe('online chat UI contract', () => {
 	} /* 回调函数负责当前业务流程。 */);
 
 	test('renders official notices as neutral system messages', () => {
-		const chat = source('components/Chat.tsx'); /* chat 表示chat。 */
+		const chat = source('app/features/chat/pages/Chat.tsx'); /* chat 表示chat。 */
 		expect(chat).toContain("message.message_type === 'system'");
 		expect(chat).toContain('justify-center py-1');
 	} /* 回调函数负责当前业务流程。 */);
 
 	test('keeps the active chat at the bottom when new messages arrive', () => {
-		const chat = source('components/Chat.tsx'); /* chat 表示chat。 */
+		const chat = source('app/features/chat/pages/Chat.tsx'); /* chat 表示chat。 */
 		const chatHook = source('app/features/chat/hooks.ts'); /* chatHook 表示chatHook。 */
 		expect(chatHook).toContain('shouldScrollToBottomRef');
 		expect(chatHook).toContain('skipNextMessageScrollRef');
@@ -55,7 +55,7 @@ describe('online chat UI contract', () => {
 	} /* 回调函数负责当前业务流程。 */);
 
 	test('sidebar exposes collapse control and chat primary navigation', () => {
-		const sidebar = source('components/Sidebar.tsx'); /* sidebar 表示sidebar。 */
+		const sidebar = source('shared/ui/Sidebar.tsx'); /* sidebar 表示sidebar。 */
 		expect(sidebar).toContain("id: 'chat'");
 		expect(sidebar).toContain('onToggleCollapsed');
 		expect(sidebar).toContain('collapsed ? \'w-16\' : \'w-64\'');

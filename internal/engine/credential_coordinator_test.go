@@ -12,6 +12,21 @@ import (
 	"xianyu-go/internal/xianyu/renew"
 )
 
+// blockingCredentialUpdateHandler 在凭证更新通知中阻塞，用于探测通知期间是否仍持有数据库凭证锁。
+type blockingCredentialUpdateHandler struct {
+	recordingHandler
+	// started 表示凭证通知已经进入可扩展 Handler。
+	started chan struct{}
+	// release 允许测试结束通知回调。
+	release chan struct{}
+}
+
+// OnCredentialUpdated 阻塞凭证通知，模拟真实通知器可能进行的慢速外部 I/O。
+func (h *blockingCredentialUpdateHandler) OnCredentialUpdated(context.Context, string) {
+	close(h.started)
+	<-h.release
+}
+
 // blockingTokenMtop 在 Token 请求期间阻塞，用于验证 Engine 不跨越网络 I/O 持有凭证锁。
 type blockingTokenMtop struct {
 	fakeRunMtop
@@ -21,6 +36,70 @@ type blockingTokenMtop struct {
 	release chan struct{}
 	// calls 记录 Token 请求次数，用于确认并发凭证变化会触发重试。
 	calls atomic.Int32
+}
+
+// TestRefreshGateAcquireHonorsContext 验证等待中的续期不会阻塞账号停止流程。
+func TestRefreshGateAcquireHonorsContext(t *testing.T) {
+	// state 是持有单令牌刷新通道的最小凭证状态。
+	state := credentialState{refreshGate: newRefreshGate()}
+	// release 是第一个续期所有者归还通道令牌的释放函数。
+	release, acquireErr := state.acquireRefreshGate(context.Background())
+	if acquireErr != nil {
+		t.Fatalf("取得初始刷新通道: %v", acquireErr)
+	}
+	defer release()
+	// ctx、cancel 表示等待第二次续期时由账号停止触发的取消信号。
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	// blockedRelease、blockedErr 保存已取消等待的返回结果。
+	blockedRelease, blockedErr := state.acquireRefreshGate(ctx)
+	if blockedRelease != nil || blockedErr != context.Canceled {
+		t.Fatalf("已取消的刷新通道等待结果 release=%v err=%v", blockedRelease != nil, blockedErr)
+	}
+}
+
+// TestPendingRenewNotificationRunsOutsideCredentialLock 验证迟到续期通知在锁外执行。
+func TestPendingRenewNotificationRunsOutsideCredentialLock(t *testing.T) {
+	// acc、store、cleanup 是待验证凭证通知锁边界的账号、数据库和清理函数。
+	acc, _, store, cleanup := newRunAccount(t, &fakeRunMtop{token: "token"})
+	defer cleanup()
+	// handler 是会阻塞通知的可扩展回调实现。
+	handler := &blockingCredentialUpdateHandler{started: make(chan struct{}), release: make(chan struct{})}
+	acc.handler = handler
+	// finished 表示迟到续期持久化及通知调用结束。
+	finished := make(chan struct{})
+	go func() {
+		// persistErr 是迟到续期写回失败原因。
+		persistErr := acc.persistPendingRenewCookies(context.Background(), &renew.Result{SetCookies: []string{"late=1; Path=/"}})
+		if persistErr != nil {
+			t.Errorf("迟到续期写回失败: %v", persistErr)
+		}
+		close(finished)
+	}()
+	select {
+	case <-handler.started:
+	case <-time.After(time.Second):
+		t.Fatal("凭证更新通知未开始")
+	}
+	// acquired 表示通知阻塞期间另一个流程取得并释放了同账号凭证锁。
+	acquired := make(chan struct{})
+	go func() {
+		// unlock 释放探测流程取得的凭证锁。
+		unlock := store.LockAccountCredentials(acc.CookieID)
+		unlock()
+		close(acquired)
+	}()
+	select {
+	case <-acquired:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("凭证更新通知仍持有数据库凭证锁")
+	}
+	close(handler.release)
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("迟到续期通知未结束")
+	}
 }
 
 // RefreshTokenWithDeviceIDContext 阻塞第一个请求并返回成功 Token。
@@ -47,6 +126,26 @@ type blockingStatusMtop struct {
 	release chan struct{}
 	// result 是检查完成后返回的登录态结果。
 	result *mtop.LoginStatusResult
+}
+
+// blockingRegisterConn 在 WebSocket 注册期间阻塞，用于验证注册网络 I/O 不持有凭证锁。
+type blockingRegisterConn struct {
+	fakeWSConn
+	// started 通知注册外部调用已经开始。
+	started chan struct{}
+	// release 允许注册外部调用返回。
+	release chan struct{}
+}
+
+// Register 阻塞到测试显式释放后完成注册。
+func (c *blockingRegisterConn) Register(ctx context.Context, _, _ string) error {
+	close(c.started)
+	select {
+	case <-c.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // CheckLoginStatusContext 阻塞到测试显式释放后返回登录态结果。
@@ -243,5 +342,52 @@ func TestRefreshTokenReleasesCredentialLockAndRetriesAfterConcurrentUpdate(t *te
 	saved, savedErr := store.Cookies.GetValue(context.Background(), acc.CookieID)
 	if savedErr != nil || !strings.Contains(saved, "concurrent=kept") {
 		t.Fatalf("并发 Cookie 未保留: value=%q err=%v", saved, savedErr)
+	}
+}
+
+// TestRegisterConnectionReleasesCredentialLockBeforeExternalIO 验证 WebSocket Register 在锁外执行。
+func TestRegisterConnectionReleasesCredentialLockBeforeExternalIO(t *testing.T) {
+	// acc、store、cleanup 是待验证 Engine 连接注册行为的账号、数据库和清理函数。
+	acc, _, store, cleanup := newRunAccount(t, &fakeRunMtop{token: "token"})
+	defer cleanup()
+	// runtimeData 保存注册前的权威凭证快照。
+	runtimeData, err := store.Cookies.GetCookieRuntimeData(context.Background(), acc.CookieID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// conn 保存可控阻塞的 WebSocket 连接。
+	conn := &blockingRegisterConn{started: make(chan struct{}), release: make(chan struct{})}
+	// result 保存注册边界的最终结果。
+	result := make(chan registerConnectionResult, 1)
+	go func() {
+		result <- acc.registerConnection(context.Background(), conn, acc.deviceID, "token", credentialStateFingerprint(runtimeData.Value, runtimeData.MetadataJSON))
+	}()
+	select {
+	case <-conn.started:
+	case <-time.After(time.Second):
+		t.Fatal("WebSocket Register 未开始")
+	}
+	// acquired 表示另一个流程已经成功获取并释放同账号凭证锁。
+	acquired := make(chan struct{})
+	go func() {
+		// unlock 释放探测流程取得的账号凭证锁。
+		unlock := store.LockAccountCredentials(acc.CookieID)
+		unlock()
+		close(acquired)
+	}()
+	select {
+	case <-acquired:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("WebSocket Register 外部调用仍持有账号凭证锁")
+	}
+	close(conn.release)
+	select {
+	// registered 保存 WebSocket 注册边界的结果快照。
+	case registered := <-result:
+		if !registered.Registered || registered.Err != nil {
+			t.Fatalf("注册结果异常: %+v", registered)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("注册边界未完成")
 	}
 }

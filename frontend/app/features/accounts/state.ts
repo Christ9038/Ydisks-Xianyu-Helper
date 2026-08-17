@@ -1,4 +1,4 @@
-import type { AccountDetail } from '../../../types';
+import type { AccountDetail } from '../../../shared/api-contract';
 import type { PasswordLoginStatusResponse } from './api';
 import type { AccountEditForm, PasswordLoginView } from './types';
 

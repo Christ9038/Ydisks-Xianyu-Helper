@@ -1,5 +1,5 @@
 import { Bell, Mail, MessageCircle, Send as Telegram, Webhook } from 'lucide-react';
-import type { NotificationChannel, NotificationChannelType, NotificationEventType, SystemSettings } from '../../../types';
+import type { NotificationChannel, NotificationChannelType, NotificationEventType, SystemSettings } from '../../../shared/api-contract';
 import { buildEmailChannelConfig, enableCustomSMTP, normalizeEmailChannelConfig } from '../../../notificationEmailConfig';
 import type { NotificationChannelMeta, NotificationEventMeta, NotificationForm, NotificationPayload } from './types';
 

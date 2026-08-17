@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { Card } from '../../../types';
+import type { Card } from '../../../shared/api-contract';
 import { appendCardData, batchCreateCards, getCards } from './api';
 import { useCardBatchActions, useCardsData } from './hooks';
 
@@ -211,5 +211,36 @@ describe('useCardsData 与 useCardBatchActions', /* 当前回调处理卡密库�
     );
     expect(hook.result.current.cards).toEqual([]);
     hook.unmount();
+  });
+
+  test('批量创建在卸载时取消未完成请求', /* 当前回调验证批量表单卸载后不再允许晚到上传响应更新状态。 */ async () => {
+    // uploadSignal 保存批量创建接口收到的取消信号。
+    let uploadSignal: AbortSignal | undefined;
+    batchCreateMock.mockImplementation(
+      // pendingCreate 保持上传请求未完成，以便验证 Hook 卸载时主动取消。
+      (_file, requestOptions) => {
+        uploadSignal = requestOptions?.signal;
+        return new Promise(/* pendingCreateExecutor 故意不完成上传 Promise，直到 Hook 卸载取消请求。 */ () => undefined);
+      },
+    );
+    // hook 是带有上传文件的批量创建 Hook。
+    const hook = renderHook(
+      // batchHookFactory 创建批量操作 Hook。
+      () => useCardBatchActions({ dataCards: [cardFixture], loadCards: loadCardsFixture }),
+    );
+    await act(
+      // fileAction 写入将要上传的卡密文件。
+      () => hook.result.current.setBatchFile(new File(['name'], 'cards.csv')),
+    );
+    await act(
+      // createAction 发起尚未完成的上传但不等待其结束。
+      () => { void hook.result.current.handleBatchCreate(); },
+    );
+    await waitFor(
+      // uploadStartedAssertion 等待上传请求拿到取消信号。
+      () => expect(uploadSignal).toBeDefined(),
+    );
+    hook.unmount();
+    expect(uploadSignal?.aborted).toBe(true);
   });
 });

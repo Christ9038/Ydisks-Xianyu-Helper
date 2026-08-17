@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type React from 'react';
-import type { SystemSettings } from '../../../types';
+import type { SystemSettings } from '../../../shared/api-contract';
 import { fetchAIModels, getSystemSettings, updateLoginCredentials, updateSystemSettings, verifySession } from './api';
 import { DEFAULT_AI_API_URL } from './constants';
 import { buildPersistableSettings, createCredentials, createCredentialsMessage, isCurrentSettingsRequest, isSettingsAbortError, settingsErrorMessage, validateCredentials } from './state';

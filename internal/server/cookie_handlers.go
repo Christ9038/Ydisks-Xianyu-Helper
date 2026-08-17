@@ -13,7 +13,6 @@ import (
 	accountapp "xianyu-go/internal/application/account"
 	automationapp "xianyu-go/internal/application/automation"
 	"xianyu-go/internal/auth"
-	"xianyu-go/internal/engine"
 )
 
 // mountCookies 账号 cookie 管理端点。
@@ -102,31 +101,14 @@ func (s *Server) writeLongLoginError(w http.ResponseWriter, err error) {
 
 // updateRunningCookie 负责updateRunning登录凭证相关处理。
 func (s *Server) updateRunningCookie(ctx context.Context, cookieID, value string) {
-	s.wakeCredentialBlockedAutomation(ctx, cookieID)
-	// repository 提供运行时更新前的账号启用状态读取。
-	repository := s.accountLoginRepositoryForServer()
-	if s.Manager == nil || repository == nil || !repository.GetStatus(ctx, cookieID) {
+	// runtimeService 负责唤醒凭证阻塞任务并将 Cookie 同步到账号运行实例。
+	runtimeService := s.accountRuntimeApplication()
+	if runtimeService == nil {
 		return
 	}
-	if // sender、ok 保存sender、ok，供当前处理流程使用
-	sender, ok := s.Manager.GetInstance(cookieID); ok {
-		sender.UpdateCookie(value)
-	}
-}
-
-// wakeCredentialBlockedAutomation 负责wakeCredentialBlocked自动化相关处理。
-func (s *Server) wakeCredentialBlockedAutomation(ctx context.Context, cookieID string) {
-	if s == nil {
-		return
-	}
-	// service 提供凭证恢复后的自动化任务唤醒能力。
-	service := s.credentialWakeApplication()
-	if service == nil {
-		return
-	}
-	if // err 保存err，供当前处理流程使用
-	err := service.WakeCredentialBlocked(ctx, cookieID); err != nil && s.Logger != nil {
-		s.Logger.Warn("Cookie 更新后唤醒自动化任务失败", "account", cookieID, "err", err)
+	// runtimeErr 保存账号运行时同步或自动化唤醒错误。
+	if runtimeErr := runtimeService.UpdateCookie(ctx, cookieID, value); runtimeErr != nil && s.Logger != nil {
+		s.Logger.Warn("Cookie 更新后同步账号运行时失败", "cookie_id", cookieID, "err", runtimeErr)
 	}
 }
 
@@ -223,22 +205,24 @@ func (s *Server) listCookieRuntimeStatus(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusInternalServerError, "获取账号失败")
 		return
 	}
-	runtime := map[string]engine.RuntimeStatus{} // runtime 保存当前账号引擎状态。
-	if s.Manager != nil {
-		runtime = s.Manager.RuntimeStatuses()
+	// runtime、runtimeErr 保存应用层返回的账号运行状态快照及读取错误。
+	runtime, runtimeErr := s.accountRuntimeApplication().RuntimeStatuses(r.Context())
+	if runtimeErr != nil {
+		writeErr(w, http.StatusInternalServerError, "获取账号运行状态失败")
+		return
 	}
-	result := make(map[string]engine.RuntimeStatus, len(cookieIDs)) // result 是返回给前端的状态映射。
-	for _, cid := range cookieIDs {                                 // cid 是当前账号 ID。
+	result := make(map[string]accountapp.RuntimeStatus, len(cookieIDs)) // result 是返回给前端的状态映射。
+	for _, cid := range cookieIDs {                                     // cid 是当前账号 ID。
 		enabled, statusErr := accountSummary.StatusOwned(r.Context(), sess.UserID, cid)
 		if statusErr != nil || !enabled {
-			result[cid] = engine.RuntimeStatus{State: "disabled", Message: "账号已停用", UpdatedAt: time.Now()}
+			result[cid] = accountapp.RuntimeStatus{State: "disabled", Message: "账号已停用", UpdatedAt: time.Now()}
 			continue
 		}
 		if status, ok := runtime[cid]; ok { // status 和 ok 表示已记录的运行状态及存在性。
 			result[cid] = status
 			continue
 		}
-		result[cid] = engine.RuntimeStatus{State: engine.RuntimeError, Message: "账号服务未运行", UpdatedAt: time.Now()}
+		result[cid] = accountapp.RuntimeStatus{State: "error", Message: "账号服务未运行", UpdatedAt: time.Now()}
 	}
 	writeJSON(w, http.StatusOK, result)
 }

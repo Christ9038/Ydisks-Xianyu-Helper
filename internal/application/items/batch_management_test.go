@@ -141,13 +141,16 @@ type batchManagementRuntimeFake struct {
 	started []string
 	// canceled 保存取消 worker 的参数。
 	canceled []string
+	// startErr 模拟生命周期协调器登记 worker 失败。
+	startErr error
 }
 
 // StartBatch 记录批次 worker 启动。
-func (runtime *batchManagementRuntimeFake) StartBatch(userID int64, batchID, workerToken string) {
+func (runtime *batchManagementRuntimeFake) StartBatch(userID int64, batchID, workerToken string) error {
 	// command 保存便于断言的 worker 启动参数。
 	command := batchID + ":" + workerToken
 	runtime.started = append(runtime.started, command)
+	return runtime.startErr
 }
 
 // CancelBatch 记录批次 worker 取消。
@@ -279,6 +282,40 @@ func TestBatchManagementRetryFailed(t *testing.T) {
 	batchID, retryErr := service.RetryFailedBatch(context.Background(), 7, "batch-retry", time.Minute)
 	if retryErr != nil || batchID != "batch-retry" || !repository.resetFailedCalled || !repository.recountCalled || len(runtime.started) != 1 {
 		t.Fatalf("retry result=%q err=%v repository=%+v runtime=%+v", batchID, retryErr, repository, runtime)
+	}
+}
+
+// TestBatchManagementStartFailureReleasesClaim 验证批次 worker 登记失败时会释放刚声明的租约。
+func TestBatchManagementStartFailureReleasesClaim(t *testing.T) {
+	// startErr 是生命周期协调器拒绝 worker 的原始错误。
+	startErr := errors.New("worker 启动失败")
+	// repository、runtime 和 service 保存批次启动失败测试依赖。
+	repository := &batchManagementRepositoryFake{batch: BatchInfo{ID: "batch-start-fail", Status: "preview"}, claimed: true, pending: []BatchRow{{ID: 1}}}
+	// runtime 模拟协调器在登记批次 worker 时返回错误。
+	runtime := &batchManagementRuntimeFake{startErr: startErr}
+	// service 使用测试端口执行租约声明和 worker 登记编排。
+	service := newBatchManagementServiceForTest(t, repository, runtime)
+	// batchID、err 保存 worker 登记失败后的批次启动结果。
+	batchID, err := service.StartBatch(context.Background(), 7, "batch-start-fail", time.Minute)
+	if batchID != "" || !errors.Is(err, startErr) || !repository.released {
+		t.Fatalf("start result=%q err=%v released=%v", batchID, err, repository.released)
+	}
+}
+
+// TestBatchManagementRetryStartFailureReleasesClaim 验证重试 worker 登记失败时也会释放新租约。
+func TestBatchManagementRetryStartFailureReleasesClaim(t *testing.T) {
+	// startErr 是重试 worker 生命周期登记失败的原始错误。
+	startErr := errors.New("重试 worker 启动失败")
+	// repository、runtime 和 service 保存批次重试失败测试依赖。
+	repository := &batchManagementRepositoryFake{batch: BatchInfo{ID: "batch-retry-fail", Status: "completed"}, claimed: true, pending: []BatchRow{{ID: 2}}}
+	// runtime 模拟协调器在登记重试 worker 时返回错误。
+	runtime := &batchManagementRuntimeFake{startErr: startErr}
+	// service 使用测试端口执行重试租约和 worker 登记编排。
+	service := newBatchManagementServiceForTest(t, repository, runtime)
+	// batchID、err 保存重试 worker 登记失败后的结果。
+	batchID, err := service.RetryFailedBatch(context.Background(), 7, "batch-retry-fail", time.Minute)
+	if batchID != "" || !errors.Is(err, startErr) || !repository.released {
+		t.Fatalf("retry result=%q err=%v released=%v", batchID, err, repository.released)
 	}
 }
 

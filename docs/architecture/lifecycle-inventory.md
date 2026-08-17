@@ -1,27 +1,37 @@
 # 生命周期与后台任务清单
 
-本文是重构计划阶段 5 的持续审计清单。它记录后台组件的所有者、Context 来源、停止和等待边界，
-用于逐项关闭“生命周期与删除 fencing”父切片；清单本身不代表对应组件已经满足完成条件。
+本文是重构计划阶段 5 收口后的静态审计清单。它记录后台组件的所有者、Context 来源、停止和等待边界，
+用于防止后续迭代重新引入游离 goroutine；阶段状态和验收证据只记录在重构进度文档中。
 
 ## 组件清单
 
 | 组件/入口 | 所有者 | Context 来源 | 停止/关闭 | 等待/观测 | 当前证据 | 剩余风险 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `server.Server` HTTP 与后台任务 | `cmd/server` | `Server.Start` 接收的进程 Context；后台任务继承生命周期 Context | `Server.Stop(ctx)`，关闭 HTTP、恢复任务和后台计数 | `Wait`、`WaitForBackground`、任务注册表状态查询 | Server 生命周期、超时等待和任务注册表测试 | 仍需把所有新后台入口统一登记并审计启动顺序 |
-| 订单刷新 worker/recovery | `server.Server` | Server 生命周期 Context；恢复扫描使用调用方 Context | worker 终止、租约 fencing、终态写入使用受控 Context | 任务注册表记录 running/succeeded/failed/canceled/timed_out | 订单刷新生命周期与租约测试 | 取消端点和统一运维查询仍待收口 |
-| 商品批量发布 worker/recovery | `server.Server` | Server 生命周期 Context；取消后的本地收口使用独立补偿 Context | worker cancel、租约 token、批次终态补偿写入 | 任务注册表与批次状态 | 批量取消 race、应用 BatchRunner 测试 | 单行平台适配仍在 Server，恢复指标和统一查询待补齐 |
-| 订单 reconciliation worker | `server.Server` | Server 生命周期 Context | 扫描器停止时取消当前扫描 | 后台任务注册表和补偿记录状态 | reconciliation 成功/失败重试测试 | 指数退避和更完整运维操作待补齐 |
-| `account.Manager` 账号运行时集合 | `cmd/server` | `StartAll`/`Start` 调用方 Context | `StopContext`、`StopAllContext`，全局 stopping fence | 等待单账号或全部账号结束 | Manager fencing、删除 fencing 和 race 测试 | 运行时内部任务仍需纳入统一清单 |
-| `engine.Account` 单账号运行时 | `account.Manager` | `Account.Run(parent)` | `StopContext` 取消运行 Context 并等待连接/任务退出 | `StopContext` 返回错误；运行状态可查询 | Engine lifecycle 与 credential coordinator 测试 | 消息发送、重连和 recorder 子任务需要逐一核对 Join 边界 |
-| 浏览器 `Manager` | `cmd/server`/账号流程 | 每次调用的 Context；关闭使用 `CloseContext` | 关闭 fencing，等待活动调用归零，再关闭 Playwright | `CloseContext` 返回超时并可重试 | Browser lifecycle 与 race 测试 | 底层同步 Playwright Close 无法被 Context 中断 |
-| 续期 `renewal.Scheduler` | `cmd/server` | `Run(ctx)` 调用方 Context | `StopContext` 幂等并阻止 Stop 后 Run | `WaitContext` | 先 Stop、重复 Stop、零值和 race 测试 | 迟到 Cookie 合并调用方仍需统一审计 |
-| 自动化 `automation.Scheduler` | `cmd/server` | `Run(ctx)` 调用方 Context | Context 取消后停止调度 | `WaitContext` | scheduler 与结果收口测试 | 自动化准备和外部动作旁路仍需完整盘点 |
-| 通知 outbox worker | `cmd/server` | `Start(ctx)` 调用方 Context | Context 取消后停止拉取与发送 | `WaitContext`、uncertain 状态查询 | notify worker、uncertain 状态和三库测试 | 运维重试与人工核对流程仍待补齐 |
-| WebSocket/聊天后台发送任务 | `server.Server`/`chat.Service` | 请求或服务生命周期 Context | 请求取消、连接关闭或服务停止；handler 清理阶段先取消并关闭连接 | handler 等待读取 goroutine 退出，发送结果和连接状态仍由连接生命周期观测 | WebSocket 事件流测试、Server race；`chatWebSocket` 已显式 Wait/Join 读取任务 | 其他实时连接的统一 owner/Join 证据仍待完善 |
+| `server.Server` HTTP 与请求后台任务 | `cmd/server`（HTTP）/`server.Server`（请求任务观测） | `Server.Start` 接收的进程 Context；请求任务使用调用方显式 Context | `Server.Stop(ctx)` 只关闭 HTTP 与请求任务等待；应用 worker 不由 Server 关闭 | `Wait`、`WaitForBackground`、任务注册表状态查询 | Server 生命周期、超时等待和任务注册表测试 | 业务 worker 已移出 Server；任务业务语义继续由应用服务维护 |
+| 订单刷新 worker/recovery | `lifecycle.Coordinator` → `orders.RefreshJobService` | 协调器共享应用生命周期 Context；请求只负责创建任务 | 协调器逆序 `Close(ctx)`，runner 通过租约 token 和 Context 收束 | 应用任务状态、租约终态和 runner `Wait/Close` | 订单刷新生命周期、租约、取消和晚到写入测试 | 统一运维查询属于后续观测迭代，不改变生命周期所有权 |
+| 商品批量发布 worker/recovery | `lifecycle.Coordinator` → `items.BatchWorkerCoordinator` | 协调器共享应用生命周期 Context；取消后的本地收口使用受控补偿 Context | 协调器逆序 `Close(ctx)`，worker cancel、租约 token 和终态补偿由应用协调器负责 | 批次状态、协调器 `Wait/Close` 与错误回调 | 批量取消 race、应用 BatchRunner 和协调器测试 | 恢复指标属于后续观测迭代，不改变生命周期所有权 |
+| 订单 reconciliation worker | `lifecycle.Coordinator` → `orders.ReconciliationRecoveryCoordinator` | 协调器共享应用生命周期 Context | 协调器逆序 `Close(ctx)` 取消当前扫描并等待退出 | 补偿记录状态与协调器 `Wait/Close` | reconciliation 成功/失败重试、取消和协调器测试 | 指数退避属于后续补偿策略迭代 |
+| `account.Manager` 账号运行时集合 | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 协调器共享应用生命周期 Context | 协调器逆序调用 `StopAllContext`，保留全局 stopping fence | 等待单账号或全部账号结束 | Manager fencing、删除 fencing、生命周期和 race 测试 | 运行时内部任务的细分归入阶段 6，不改变进程级 owner |
+| `engine.Account` 单账号运行时 | `account.Manager`；连接、出站、凭证和迟到续期分别由 `connectionCoordinator`、`outgoingMessageCoordinator`、`credentialCoordinator`、`pendingRenewalCoordinator` 负责 | `Account.Run(parent)` | `StopContext` 取消运行 Context；连接协调器以受限预算等待自有 worker | `StopContext` 返回错误；共享完成信号支持超时后的再次 Join；运行状态可查询 | Engine lifecycle、连接协调器、出站发送、credential coordinator、刷新取消与迟到续期测试 | recorder 子任务继续沿用账号运行 Context，不允许脱离 facade 生命周期 |
+| 浏览器 `Manager` | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 每次调用的独立 Context；初始化和关闭受协调器 Context/Close Context 约束 | 协调器逆序调用 `CloseContext`，关闭 fencing 并等待活动调用归零 | `CloseContext` 返回超时并可重试 | Browser lifecycle 与 race 测试 | 底层同步 Playwright Close 无法被 Context 中断，这是实现约束 |
+| 续期 `renewal.Scheduler` | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 协调器共享应用生命周期 Context | 协调器逆序调用 `StopContext`，幂等并阻止 Stop 后 Run | `WaitContext` | 先 Stop、重复 Stop、零值和 race 测试 | 迟到 Cookie 合并语义由续期组件自身 generation/锁测试保护 |
+| 自动化 `automation.Scheduler` | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 协调器共享应用生命周期 Context | 协调器逆序取消 Context 并调用 `WaitContext` | `WaitContext` | scheduler 与结果收口测试 | 自动化外部动作语义归入阶段 6，不改变调度器 owner |
+| 通知 outbox worker | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 协调器共享应用生命周期 Context | 协调器逆序调用 `WaitContext`，由共享 Context 停止拉取与发送 | `WaitContext`、uncertain 状态查询 | notify worker、uncertain 状态和三库测试 | 运维重试与人工核对流程属于通知业务迭代 |
+| WebSocket/聊天后台发送任务 | `chat.Service` 与请求级连接 owner | 请求 Context 和连接关闭信号；不继承 Server 业务 worker Context | 请求取消或连接关闭时先取消发送/读取任务，再由连接 owner 等待 Join | WebSocket handler 显式等待读取 goroutine，发送结果和连接状态保留可观测字段 | WebSocket 事件流测试、Server race；`chatWebSocket` 已显式 Wait/Join 读取任务 | 更细的消息分发状态拆分属于阶段 6，不新增 Server 生命周期入口 |
+
+## 阶段 6 并发与锁边界
+
+| 锁/协调状态 | 所有者与保护范围 | 明确禁止 | 锁顺序/验证 |
+| --- | --- | --- | --- |
+| `Store` 账号凭证锁 | 保护 Cookie、metadata、Token 绑定指纹的快照读取和条件写回 | 不得跨 MTOP、WebSocket、浏览器、通知或用户等待 I/O | `refreshGate → credential lock`；锁外 I/O、旧响应冲突和锁外 Handler 通知测试 |
+| Engine `refreshGate` | 用单令牌通道串行化同一账号 Token/续期状态机及迟到响应收口，不持有互斥锁等待外部 I/O | 不得反向取得其他 worker 锁；等待必须响应调用 Context 取消 | `refreshGate → credential lock`；Token、API 续期、迟到 Cookie、取消和 race 测试 |
+| Engine `outgoingMessageCoordinator` | 先短暂读取 `runtimeMu` 中的连接，再短暂读取凭证锁中的 `unb` 身份；发送与历史查询在两把锁外执行 | 不得同时持有 `runtimeMu` 与凭证锁，不得持锁执行 WebSocket I/O | `runtime snapshot → credential snapshot`，两段锁不重叠；出站发送与连接 race 测试 |
+| Automation `cardLocks` | 保护同一卡密组库存消费与确定未发送时恢复 | 不得覆盖 WebSocket 消息发送、图片发送或人工等待 | 每次库存操作独立加锁；并发卡密发送阻塞测试 |
+| Automation 运行租约/动作检查点 | 由数据库租约拥有跨进程 worker 的唯一执行权；结果通知以 `runID + status` 写入持久化 outbox | 不得在本地互斥锁内持有外部动作；不确定结果不得自动重放或重新入队 | `StartRunAction` 后执行外部动作；通知 outbox 的成功/失败/不确定隔离与重复恢复测试 |
 
 ## 使用规则
 
 1. 新增 goroutine 必须在本表增加一行，注明启动者、Context 来源、取消责任和等待方式。
-2. 每个组件完成生命周期迁移后，必须同时提供取消、超时、重复停止和晚到写入测试；测试通过不等于其他组件自动完成。
+2. 新组件必须同时提供取消、超时、重复停止和晚到写入测试；测试通过不等于其他组件自动继承其业务语义。
 3. 删除账号前必须先建立账号级 stopping fence，再在受限 Context 内停止运行时，最后重新校验归属并删除持久化记录。
-4. 本表中标记为“剩余风险”的项目未满足父切片关闭条件前，阶段 5 必须保持“进行中”。
+4. 本表只记录 owner 与边界；阶段 6 以后业务策略、运维观测和实时连接细分风险不得重新转化为 Server 生命周期入口。

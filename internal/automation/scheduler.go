@@ -250,7 +250,7 @@ func (s *Scheduler) runRecoveryTasks(ctx context.Context) error {
 func (s *Scheduler) quarantineRunForReview(ctx context.Context, run db.AutomationRun, reason string) error {
 	// quarantineErr 表示人工核对状态写入失败；失败时数据库中的原状态仍可能允许下一轮恢复。
 	quarantineErr := s.center.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, reason)
-	s.center.notifyRunNeedsReview(run, reason)
+	s.center.notifyRunNeedsReview(ctx, run, reason)
 	if quarantineErr == nil {
 		return nil
 	}

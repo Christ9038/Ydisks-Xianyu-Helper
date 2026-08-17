@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { appendCardData, batchCreateCards, getCards } from './api';
-import type { Card } from '../../../types';
+import type { Card } from '../../../shared/api-contract';
 import { canSubmitAppend, isCurrentCardRequest, previewAppendContent } from './batchState';
 import type { CardBatchState } from './types';
 
@@ -109,6 +109,18 @@ export const useCardBatchActions = (options: CardBatchOptions): CardBatchState =
   const requestAbort = useRef<AbortController | null>(null);
   // lastAppendTarget 保存最近一次提交追加的目标 ID，供失败重试使用。
   const lastAppendTarget = useRef('');
+
+  useEffect(
+    // 批量操作生命周期副作用在弹窗页面卸载时使未完成请求失效，防止晚到响应写入已销毁的表单状态。
+    () => (
+      // batchRequestCleanup 取消创建或追加请求，并推进代次屏蔽不响应 AbortSignal 的旧响应。
+      () => {
+        requestGeneration.current += 1;
+        requestAbort.current?.abort();
+      }
+    ),
+    [],
+  );
 
   // appendPreview 按行派生追加预览，不重复存储派生状态。
   const appendPreview = useMemo(

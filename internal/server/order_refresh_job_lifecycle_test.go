@@ -203,12 +203,9 @@ func TestOrderRefreshWorkerUsesCanceledServerLifecycle(t *testing.T) {
 	// srv、store、cleanup 保存测试服务、数据库和清理函数。
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// lifecycleCtx、cancel 是已取消的 Server 生命周期上下文。
+	// lifecycleCtx、cancel 是已取消的应用生命周期上下文。
 	lifecycleCtx, cancel := context.WithCancel(context.Background())
 	cancel()
-	srv.lifecycleMu.Lock()
-	srv.lifecycleCtx = lifecycleCtx
-	srv.lifecycleMu.Unlock()
 	// admin、err 保存任务所属用户及查询错误。
 	admin, err := store.Users.GetByUsername(context.Background(), "admin")
 	if err != nil {
@@ -229,8 +226,19 @@ func TestOrderRefreshWorkerUsesCanceledServerLifecycle(t *testing.T) {
 	}
 	// job 是传给后台 worker 的应用层任务模型。
 	job := &orderapp.RefreshJob{ID: dbJob.ID, UserID: dbJob.UserID}
-	srv.startOrderRefreshWorker(job, token)
-	srv.WaitForBackground()
+	// runner、runnerErr 保存直接由应用层拥有的订单刷新 worker。
+	runner, runnerErr := orderapp.NewRefreshJobRunner(srv.orders().services.RefreshJobs, srv.orders().services.Refresh, orderapp.RefreshJobRunnerOptions{})
+	if runnerErr != nil {
+		t.Fatalf("构造订单刷新运行器: %v", runnerErr)
+	}
+	// startErr 保存应用层 worker 启动错误。
+	if startErr := runner.StartJob(lifecycleCtx, job, token); startErr != nil {
+		t.Fatalf("启动订单刷新 worker: %v", startErr)
+	}
+	// closeErr 保存应用层 worker 关闭错误。
+	if closeErr := runner.Close(context.Background()); closeErr != nil {
+		t.Fatalf("关闭订单刷新 worker: %v", closeErr)
+	}
 	// persisted、err 保存 worker 结束后的任务状态及查询错误。
 	persisted, err := store.OrderRefreshJobs.Get(context.Background(), admin.ID, dbJob.ID)
 	if err != nil {

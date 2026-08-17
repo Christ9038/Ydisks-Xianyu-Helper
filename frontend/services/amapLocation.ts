@@ -1,4 +1,4 @@
-import type { PublishLocation } from './api';
+import type { PublishLocation } from '../shared/api-contract';
 
 const AMAP_SCRIPT_ID = 'ydisks-amap-js-api'; /* AMAP_SCRIPT_ID 表示AMAPSCRIPTID。 */
 // 高德 JS API 的 Key 是前端公开 Key；部署时可通过 VITE_AMAP_JS_KEY 覆盖。

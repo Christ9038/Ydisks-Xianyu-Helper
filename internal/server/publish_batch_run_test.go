@@ -62,35 +62,6 @@ func TestPublishBatchFailurePreservesUncertainRemoteWarningWhenCanceled(t *testi
 	}
 }
 
-// TestCancelPublishBatchRequiresMatchingWorkerToken 负责Test取消发布批次RequiresMatching工作器令牌相关处理。
-func TestCancelPublishBatchRequiresMatchingWorkerToken(t *testing.T) {
-	// srv 保存srv，供当前处理流程使用
-	srv := &Server{publishCancels: make(map[string]publishBatchWorker)}
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	srv.registerPublishBatchCancel("batch", "current", cancel)
-
-	if // canceled 保存canceled，供当前处理流程使用
-	canceled := srv.cancelPublishBatch("batch", "stale"); canceled {
-		t.Fatal("stale worker token must not cancel current worker")
-	}
-	select {
-	case <-ctx.Done():
-		t.Fatal("current worker was canceled by stale token")
-	default:
-	}
-	if // canceled 保存canceled，供当前处理流程使用
-	canceled := srv.cancelPublishBatch("batch", "current"); !canceled {
-		t.Fatal("matching token should cancel current worker")
-	}
-	select {
-	case <-ctx.Done():
-	default:
-		t.Fatal("matching token did not invoke cancel")
-	}
-}
-
 // buildImageZip 构造含一张图片的 zip 字节流。
 func buildImageZip(t *testing.T) []byte {
 	t.Helper()
@@ -560,7 +531,7 @@ func TestPublishBatchRetryResumesSavedRemoteResultWithoutPublishingAgain(t *test
 	// applicationRow 保存恢复测试所需的非敏感批次明细模型。
 	applicationRow := itemapp.BatchRow{ID: rows[0].ID, BatchID: rows[0].BatchID, RowNo: rows[0].RowNo, CookieID: rows[0].CookieID, Title: rows[0].Title, Description: rows[0].Description, Price: rows[0].Price, OriginalPrice: rows[0].OriginalPrice, Quantity: rows[0].Quantity, PostageMode: rows[0].PostageMode, Postage: rows[0].Postage, ImagesJSON: rows[0].ImagesJSON, CategoryJSON: rows[0].CategoryJSON, AutomationJSON: rows[0].AutomationJSON, RawJSON: rows[0].RawJSON, ItemID: rows[0].ItemID, ItemURL: rows[0].ItemURL, Status: rows[0].Status, ErrorMessage: rows[0].ErrorMessage, FailureKind: rows[0].FailureKind, WorkerToken: rows[0].WorkerToken, CreatedAt: rows[0].CreatedAt, UpdatedAt: rows[0].UpdatedAt}
 	// err 保存应用层批量发布适配器的恢复结果。
-	err = (serverBatchPublisher{server: srv, remotePort: port, localService: localService}).PublishRow(ctx, admin.ID, applicationRow, "worker-2")
+	err = (serverBatchPublisher{remotePort: port, localService: localService}).PublishRow(ctx, admin.ID, applicationRow, "worker-2")
 	if err != nil {
 		t.Fatalf("resume local persistence: %v", err)
 	}
@@ -594,7 +565,10 @@ func TestPublishBatchRecoveryAutomaticallyResumesInterruptedRow(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	srv.recoverPublishBatchesOnce(ctx)
+	// err 保存应用层批量恢复扫描的错误。
+	if err := srv.applications.itemBatchCoordinator.RunRecovery(ctx); err != nil {
+		t.Fatalf("批量恢复扫描: %v", err)
+	}
 	// deadline 保存deadline，供当前处理流程使用
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {

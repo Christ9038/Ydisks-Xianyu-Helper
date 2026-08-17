@@ -34,6 +34,11 @@ func TestAdminRepositoryMapsUsersStatsAndDelete(t *testing.T) {
 	if targetErr != nil || target == nil {
 		t.Fatalf("查询待删除用户失败 target=%v err=%v", target, targetErr)
 	}
+	// ownedIDs、ownedErr 保存管理员删除前读取的非敏感账号标识。
+	ownedIDs, ownedErr := repository.ListOwnedAccountIDs(ctx, target.ID)
+	if ownedErr != nil || ownedIDs == nil {
+		t.Fatalf("读取用户账号标识异常 ids=%v err=%v", ownedIDs, ownedErr)
+	}
 	// deleteErr 保存管理员删除操作的错误。
 	if deleteErr := repository.DeleteUser(ctx, target.ID); deleteErr != nil {
 		t.Fatalf("删除用户失败: %v", deleteErr)

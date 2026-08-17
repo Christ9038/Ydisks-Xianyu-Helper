@@ -10,5 +10,8 @@ func newChatSendingApplication(server *Server) *chatapp.Service {
 	if server == nil {
 		return adapter.NewChatSendingApplication(nil, nil, nil, nil)
 	}
-	return server.dependencies.NewChatSendingApplication(server.chat, server.Manager, server.mtopClient)
+	if server.chatDependencies == nil {
+		return adapter.NewChatSendingApplication(server.chat, nil, server.Manager, server.mtopClient)
+	}
+	return server.chatDependencies.NewChatSendingApplication(server.chat, server.Manager, server.mtopClient)
 }

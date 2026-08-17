@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { AccountDetail } from '../../../types';
+import type { AccountDetail } from '../../../shared/api-contract';
 import { checkQRLoginStatus, completeQRVerification, generateQRLogin } from './api';
 import { createLatestRequestGate, createQRLoginPoller } from './qrPolling';
 

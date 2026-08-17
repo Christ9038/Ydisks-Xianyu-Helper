@@ -1,6 +1,6 @@
 import React from 'react';
 import { Eye, EyeOff, Loader2, Mail, Save } from 'lucide-react';
-import type { SystemSettings } from '../../../../types';
+import type { SystemSettings } from '../../../../shared/api-contract';
 
 // NotificationSmtpSettingsProps 描述系统 SMTP 配置面板所需的状态和事件。
 export interface NotificationSmtpSettingsProps {

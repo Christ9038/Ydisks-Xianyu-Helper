@@ -182,7 +182,7 @@ func (s *Server) publicSettings(w http.ResponseWriter, r *http.Request) {
 		writeErrRequest(w, r, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, settingsResponse(m))
+	writeJSON(w, http.StatusOK, newSettingsResponse(m))
 }
 
 // allSettings 负责all设置相关处理。
@@ -199,7 +199,7 @@ func (s *Server) allSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, settingsResponse(m))
+	writeJSON(w, http.StatusOK, newSettingsResponse(m))
 }
 
 // setSetting 负责set设置相关处理。
@@ -447,7 +447,7 @@ func (s *Server) listUserSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, settingsResponse(settings))
+	writeJSON(w, http.StatusOK, newSettingsResponse(settings))
 }
 
 // getUserSetting 负责get用户设置相关处理。

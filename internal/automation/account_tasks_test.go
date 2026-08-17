@@ -85,8 +85,7 @@ func TestAccountTaskRateIsOrderIdempotent(t *testing.T) {
 	// client 保存client，供当前处理流程使用
 	client := &fakeAccountTaskClient{pending: []mtop.PendingRateOrder{{TradeID: "order-1"}, {TradeID: "order-2"}}}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	center.SetAccountTaskClient(client)
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{AccountTaskClient: client})
 	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
 	if // err 保存err，供当前处理流程使用
@@ -123,8 +122,7 @@ func TestAccountTaskRateFinishFailureQuarantinesExternalSuccess(t *testing.T) {
 	// client 记录远端评价调用次数，验证本地状态异常不会触发同一轮的重复外部动作。
 	client := &fakeAccountTaskClient{pending: []mtop.PendingRateOrder{{TradeID: "order-finish-failure"}}}
 	// center 是待验证账号任务结果隔离逻辑的自动化中心。
-	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	center.SetAccountTaskClient(client)
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{AccountTaskClient: client})
 	// settingsErr 表示写入自动评价设置时的数据库错误。
 	if settingsErr := store.AccountTasks.Upsert(ctx, db.AccountTaskSettings{CookieID: "cid", AutoRateEnabled: true,
 		RateContent: "交易愉快", PolishTime: "03:00"}); settingsErr != nil {
@@ -170,8 +168,7 @@ func TestAccountTaskRateFinishAndQuarantineFailureJoinsErrors(t *testing.T) {
 	// client 记录已经成功执行的远端评价动作。
 	client := &fakeAccountTaskClient{pending: []mtop.PendingRateOrder{{TradeID: "order-double-failure"}}}
 	// center 是待验证双重落库错误传播逻辑的自动化中心。
-	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	center.SetAccountTaskClient(client)
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{AccountTaskClient: client})
 	// settingsErr 表示写入自动评价设置时的数据库错误。
 	if settingsErr := store.AccountTasks.Upsert(ctx, db.AccountTaskSettings{CookieID: "cid", AutoRateEnabled: true,
 		RateContent: "交易愉快", PolishTime: "03:00"}); settingsErr != nil {
@@ -209,8 +206,7 @@ func TestAccountTaskRateCancellationQuarantinesAndBlocksRetry(t *testing.T) {
 		cancel:                cancel,
 	}
 	// center 是待验证取消后补偿收口逻辑的自动化中心。
-	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	center.SetAccountTaskClient(client)
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{AccountTaskClient: client})
 	// runErr 保存外部评价已完成但调用方取消后的人工核对错误。
 	_, runErr := center.RunAccountTask(requestCtx, "cid", TaskAutoRate)
 	if !errors.Is(runErr, errAutomationNeedsReview) || !strings.Contains(runErr.Error(), "保存账号任务运行结果失败") {
@@ -261,8 +257,7 @@ func TestAccountTaskPolishMarkFailureQuarantinesExternalSuccess(t *testing.T) {
 	// client 记录远端擦亮调用次数，验证本地状态异常不会导致同一轮重复执行。
 	client := &fakeAccountTaskClient{items: []mtop.ItemListItem{{ID: "item-mark-failure"}}}
 	// center 是待验证擦亮结果隔离逻辑的自动化中心。
-	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	center.SetAccountTaskClient(client)
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{AccountTaskClient: client})
 	// runErr 保存外部擦亮成功但日期索引收口失败后的人工核对错误。
 	_, runErr := center.RunAccountTask(ctx, "cid", TaskAutoPolish)
 	if !errors.Is(runErr, errAutomationNeedsReview) || !strings.Contains(runErr.Error(), "保存商品擦亮日期") {
@@ -297,9 +292,10 @@ func TestAccountTaskSessionExpiredRecoversOnceAndBlocksFurtherAPIRequests(t *tes
 	// recoverer 保存recoverer，供当前处理流程使用
 	recoverer := &fakeCredentialRecoverer{store: store, fail: true}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	center.SetAccountTaskClient(client)
-	center.SetOrderDetailFetcher(recoverer)
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{
+		AccountTaskClient:  client,
+		OrderDetailFetcher: recoverer,
+	})
 	if // err 保存err，供当前处理流程使用
 	err := store.AccountTasks.Upsert(ctx, db.AccountTaskSettings{CookieID: "cid", AutoRateEnabled: true,
 		RateContent: "交易愉快", PolishTime: "03:00"}); err != nil {
@@ -352,9 +348,10 @@ func TestAccountTaskStopsRemainingOrdersOnSessionExpired(t *testing.T) {
 	// recoverer 保存recoverer，供当前处理流程使用
 	recoverer := &fakeCredentialRecoverer{store: store, fail: true}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	center.SetAccountTaskClient(client)
-	center.SetOrderDetailFetcher(recoverer)
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{
+		AccountTaskClient:  client,
+		OrderDetailFetcher: recoverer,
+	})
 	if // err 保存err，供当前处理流程使用
 	err := store.AccountTasks.Upsert(ctx, db.AccountTaskSettings{CookieID: "cid", AutoRateEnabled: true,
 		RateContent: "交易愉快", PolishTime: "03:00"}); err != nil {
@@ -378,8 +375,7 @@ func TestAccountTaskPolishRunsOncePerBeijingDay(t *testing.T) {
 	// client 保存client，供当前处理流程使用
 	client := &fakeAccountTaskClient{items: []mtop.ItemListItem{{ID: "item-1"}, {ID: "item-2"}}}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	center.SetAccountTaskClient(client)
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{AccountTaskClient: client})
 	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
 	if // err 保存err，供当前处理流程使用
@@ -415,8 +411,7 @@ func TestManualPolishReportsItemFailures(t *testing.T) {
 	// client 保存client，供当前处理流程使用
 	client := &fakeAccountTaskClient{items: []mtop.ItemListItem{{ID: "item-1"}}, polishErr: errors.New("both polish APIs failed")}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	center.SetAccountTaskClient(client)
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{AccountTaskClient: client})
 	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
 	if // err 保存err，供当前处理流程使用
@@ -439,8 +434,7 @@ func TestManualPolishCanRetryImmediatelyAfterFailure(t *testing.T) {
 	// client 保存client，供当前处理流程使用
 	client := &fakeAccountTaskClient{items: []mtop.ItemListItem{{ID: "item-1"}}, fetchItemsErr: errors.New("upstream 502")}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	center.SetAccountTaskClient(client)
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{AccountTaskClient: client})
 	// ctx 保存ctx，供当前处理流程使用
 	ctx := context.Background()
 	if // err 保存err，供当前处理流程使用

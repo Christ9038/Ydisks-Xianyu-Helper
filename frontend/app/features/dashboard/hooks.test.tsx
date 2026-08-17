@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { DashboardStats, Item, OrderAnalyticsResponse } from '../../../types';
+import type { DashboardStats, Item, OrderAnalyticsResponse } from '../../../shared/api-contract';
 import { getDashboardStats, getItems, getOrderAnalytics, getValidOrders } from './api';
 import { useDashboard } from './hooks';
 import type { UseDashboardOptions } from './hooks';
@@ -140,6 +140,35 @@ describe('useDashboard', /* 当前回调处理仪表盘并行请求和派生数�
       async () => { await firstRequest; },
     );
     expect(hook.result.current.status.range).toBe('success');
+    hook.unmount();
+  });
+
+  test('刷新期间丢弃忽略取消信号的旧概览响应', /* 当前回调验证概览请求即使底层实现没有响应取消，也不能覆盖刷新后的统计数据。 */ async () => {
+    // resolveFirstStats 是首次概览统计请求的完成控制器。
+    let resolveFirstStats: (value: DashboardStats) => void = () => undefined;
+    // firstStatsRequest 是故意忽略 AbortSignal 的旧统计请求。
+    const firstStatsRequest = new Promise<DashboardStats>(/* firstStatsExecutor 保存旧统计请求的完成函数。 */ resolve => { resolveFirstStats = resolve; });
+    // refreshedStats 是刷新后应保留在页面中的权威概览数据。
+    const refreshedStats = { ...statsFixture, total_orders: 99 };
+    getStatsMock.mockReset();
+    getStatsMock.mockReturnValueOnce(firstStatsRequest);
+    getStatsMock.mockResolvedValueOnce(refreshedStats);
+    // hook 是概览刷新竞态场景的 Hook 渲染结果。
+    const hook = renderHook(renderDashboardHook);
+    await act(
+      // refreshAction 发起第二次概览加载并使首个请求过期。
+      () => hook.result.current.refresh(),
+    );
+    await waitFor(
+      // refreshedOverviewAssertion 等待新概览统计写入页面状态。
+      () => expect(hook.result.current.data?.stats).toEqual(refreshedStats),
+    );
+    resolveFirstStats(statsFixture);
+    await act(
+      // staleOverviewResolveAction 完成被取消但仍返回的旧统计请求。
+      async () => { await firstStatsRequest; },
+    );
+    expect(hook.result.current.data?.stats).toEqual(refreshedStats);
     hook.unmount();
   });
 });

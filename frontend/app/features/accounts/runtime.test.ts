@@ -1,11 +1,10 @@
 import { describe, expect, test } from 'vitest';
-import type { AccountDetail } from '../../../types';
+import type { AccountDetail } from '../../../shared/api-contract';
 import { accountRuntimePresentation, isOlderStatus, mergeAccountRuntimeStatuses } from './runtime';
 
 // account 创建运行状态测试使用的最小账号对象。
 const account = (overrides: Partial<AccountDetail> = {}): AccountDetail => ({
   id: 'account-1',
-  value: 'cookie',
   enabled: true,
   auto_confirm: false,
   ...overrides,

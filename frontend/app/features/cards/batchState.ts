@@ -1,4 +1,4 @@
-import type { Card } from '../../../types';
+import type { Card } from '../../../shared/api-contract';
 
 // filterCards 按类型和名称筛选卡密组，两个条件同时满足才保留。
 export const filterCards = (

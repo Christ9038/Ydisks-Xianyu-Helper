@@ -22,7 +22,7 @@ func (s *Server) persistMTopCookieSessionLocked(
 	if s == nil {
 		return "", false, true, errors.New("cookie 会话持久化服务未初始化")
 	}
-	// repository 负责在凭证适配器内保存 Cookie 与加密 metadata；Server 不直接访问 Store。
-	repository := s.accountLoginRepositoryForServer()
-	return adapter.PersistCookieSessionLocked(ctx, repository, detail, session)
+	// sessionPort 只负责在凭证适配器内保存 Cookie 与加密 metadata；Server 不直接访问 Store。
+	sessionPort := s.platformCredentialSessionPort()
+	return adapter.PersistCookieSessionLocked(ctx, sessionPort, detail, session)
 }

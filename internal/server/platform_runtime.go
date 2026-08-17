@@ -12,13 +12,13 @@ func (s *Server) loadCookiePlatformDetail(ctx context.Context, cookieID string) 
 	if s == nil {
 		return nil, errors.New("平台凭证读取服务未初始化")
 	}
-	// repository 提供不读取登录密码的平台凭证窄视图；SQL 和解密逻辑由 adapter 负责。
-	repository := s.accountLoginRepositoryForServer()
-	if repository == nil {
-		return nil, errors.New("平台凭证 repository 未初始化")
+	// service 提供消费者定义的平台凭证窄视图端口；SQL 和解密逻辑由 adapter 负责。
+	service := s.platformCredentialApplication()
+	if service == nil {
+		return nil, errors.New("平台凭证读取服务未初始化")
 	}
 	// platformData 是应用 Port 返回的不含登录密码的平台运行视图。
-	platformData, err := repository.LoadPlatformDetail(ctx, cookieID)
+	platformData, err := service.LoadPlatformDetail(ctx, cookieID)
 	if err != nil {
 		return nil, err
 	}

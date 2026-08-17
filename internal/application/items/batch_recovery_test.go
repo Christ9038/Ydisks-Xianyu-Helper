@@ -202,3 +202,29 @@ func TestBatchRecoveryReportsScanFailure(t *testing.T) {
 		t.Fatalf("恢复扫描错误=%v，期望=%v", runErr, scanErr)
 	}
 }
+
+// TestBatchRecoveryAllowsCoordinatorStarter 验证恢复服务可由外部协调器注入 worker 回调，而不必在构造时绑定 Server。
+func TestBatchRecoveryAllowsCoordinatorStarter(t *testing.T) {
+	// repository 保存一个待恢复批次及可处理明细。
+	repository := &batchRecoveryRepositoryFake{batches: []BatchInfo{{ID: "batch-coordinator", UserID: 7, Status: "running"}}, pending: map[string][]BatchRow{"batch-coordinator": {{ID: 1}}}}
+	// service、err 保存不绑定默认 worker 回调的恢复服务。
+	service, err := NewBatchRecoveryService(repository, BatchRecoveryOptions{})
+	if err != nil {
+		t.Fatalf("构造无回调恢复服务失败: %v", err)
+	}
+	// recoverErr 保存旧 Recover 入口在没有默认回调时返回的边界错误。
+	recoverErr := service.Recover(context.Background())
+	if recoverErr == nil {
+		t.Fatal("无默认回调时 Recover 应返回边界错误")
+	}
+	// started 保存外部协调器回调收到的批次启动次数。
+	started := 0
+	// err 保存外部回调驱动恢复扫描的错误。
+	err = service.RecoverWithStarter(context.Background(), func(context.Context, int64, string, string) error {
+		started++
+		return nil
+	})
+	if err != nil || started != 1 {
+		t.Fatalf("外部回调恢复异常: err=%v started=%d", err, started)
+	}
+}

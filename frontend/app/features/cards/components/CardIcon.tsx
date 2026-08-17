@@ -1,6 +1,6 @@
 import React from 'react';
 import { Code, CreditCard, FileText, Image as ImageIcon } from 'lucide-react';
-import type { Card } from '../../../../types';
+import type { Card } from '../../../../shared/api-contract';
 
 // CardIconProps 描述库存图标所需的卡密类型参数。
 interface CardIconProps {

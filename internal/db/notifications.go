@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -36,9 +37,14 @@ func (n *Notifications) OwnsChannel(ctx context.Context, channelID, userID int64
 
 // NotificationOutboxInput 保存通知OutboxInput，供当前处理流程使用
 type NotificationOutboxInput struct {
+	// ChannelID 是接收本次通知的渠道主键；幂等约束以渠道为粒度，避免一个渠道的重复入队影响其他渠道。
 	ChannelID int64
+	// EventType 是通知类别，仅用于渠道订阅过滤和运维分类，不携带业务正文。
 	EventType string
-	Body      string
+	// Body 是 worker 投递给外部渠道的格式化正文，只能留在 outbox 内部处理流程。
+	Body string
+	// IdempotencyKey 是可选的业务投递键；非空时同一渠道只保留一条该键对应的记录，包括 uncertain 隔离记录。
+	IdempotencyKey string
 }
 
 // NotificationOutboxMessage 保存通知Outbox消息，供当前处理流程使用
@@ -271,6 +277,8 @@ func (n *Notifications) AccountChannels(ctx context.Context, cookieID string) ([
 }
 
 // EnqueueOutbox 在一个事务中持久化同一事件的各渠道投递，避免进程退出造成部分丢失。
+// IdempotencyKey 非空时，(channel_id,idempotency_key) 唯一约束会忽略重复入队；这样 uncertain
+// 消息不会因业务运行恢复而重新变为 pending，外部投递成功但本地确认失败时不会自动重发。
 func (n *Notifications) EnqueueOutbox(ctx context.Context, messages []NotificationOutboxInput) error {
 	if len(messages) == 0 {
 		return nil
@@ -281,17 +289,31 @@ func (n *Notifications) EnqueueOutbox(ctx context.Context, messages []Notificati
 		return err
 	}
 	defer tx.Rollback()
-	// message 表示当前遍历过程中的消息
+	// insertSQL 使用方言一致的冲突忽略语义，只把同一渠道的相同业务投递键视为重复。
+	insertSQL := dialectInsertIgnorePrefix(n.Dialect) + ` INTO notification_outbox
+			(channel_id,event_type,body,idempotency_key,status,attempt_count,next_attempt_at,lease_expires_at,worker_token,last_error)
+			VALUES (?,?,?,?, 'pending',0,0,0,'','')` + dialectInsertIgnore(n.Dialect, []string{"channel_id", "idempotency_key"})
+	// message 表示当前事务中待写入的单渠道通知。
 	for _, message := range messages {
+		// idempotencyKey 将空字符串转换为 NULL，使未指定业务幂等键的历史通知保持可重复发送语义。
+		idempotencyKey := nullableOutboxIdempotencyKey(message.IdempotencyKey)
 		if // err 保存err，供当前处理流程使用
-		_, err := tx.ExecContext(ctx, `INSERT INTO notification_outbox
-			(channel_id,event_type,body,status,attempt_count,next_attempt_at,lease_expires_at,worker_token,last_error)
-			VALUES (?,?,?,'pending',0,0,0,'','')`,
-			message.ChannelID, message.EventType, message.Body); err != nil {
+		_, err := tx.ExecContext(ctx, insertSQL, message.ChannelID, message.EventType, message.Body, idempotencyKey); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
+}
+
+// nullableOutboxIdempotencyKey 将未声明幂等语义的空键写为 SQL NULL。
+// SQL 唯一索引允许多个 NULL，因此普通账号告警和手动通知不会被错误去重。
+func nullableOutboxIdempotencyKey(key string) any {
+	// trimmedKey 是移除无意义空白后的业务投递键；调用方只能用稳定键触发持久化去重。
+	trimmedKey := strings.TrimSpace(key)
+	if trimmedKey == "" {
+		return nil
+	}
+	return trimmedKey
 }
 
 // ClaimOutbox 原子领取到期投递。过期 running 任务可以被重新接管，worker token

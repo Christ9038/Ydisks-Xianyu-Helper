@@ -1,8 +1,8 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Bell, Check, Clock, Eye, EyeOff, Key, Loader2, X } from 'lucide-react';
-import { SquareQRCode } from '../../../../components/SquareQRCode';
-import type { NotificationChannel } from '../../../../types';
+import { SquareQRCode } from './SquareQRCode';
+import type { NotificationChannel } from '../../../../shared/api-contract';
 import type { AccountEditForm, AccountEditModalProps } from '../types';
 
 // AccountEditModal 负责账号备注、暂停、登录信息和通知绑定的编辑界面。

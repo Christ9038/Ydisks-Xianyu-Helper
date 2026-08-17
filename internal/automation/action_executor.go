@@ -2,6 +2,7 @@ package automation
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,13 +23,13 @@ type automationActionExecutor struct {
 	store *db.Store
 	// senders 提供账号当前在线的消息发送器。
 	senders SenderProvider
-	// mtop 返回当前生效的 MTOP 客户端，支持测试替换和运行时注入。
+	// mtop 返回构造期固定的 MTOP 客户端，外部调用期间不允许替换。
 	mtop func() mtop.Client
-	// recoverer 返回当前生效的凭证恢复器。
+	// recoverer 返回构造期固定的凭证恢复器。
 	recoverer func() CredentialRecoverer
 	// logger 记录确认发货和本地状态持久化异常。
 	logger *slog.Logger
-	// cookieSource 读取测试或运行时覆盖的账号 Cookie。
+	// cookieSource 读取构造期注入或仓储提供的账号 Cookie。
 	cookieSource func(context.Context, string) (string, error)
 	// wakeCredentialBlocked 在 Cookie 更新后唤醒凭证阻塞的自动化任务。
 	wakeCredentialBlocked func(context.Context, string)
@@ -80,22 +81,18 @@ func (e *automationActionExecutor) confirmShipment(ctx context.Context, task Tas
 	return e.confirmShipmentAttempt(ctx, task, true)
 }
 
-// confirmShipmentAttempt 在凭证锁内调用 Consign，处理 Cookie 合并、凭证恢复和本地状态收口；远端成功但订单事实落库失败时创建可重试补偿记录。
+// confirmShipmentAttempt 使用凭证快照调用 Consign，并以指纹条件写回 Cookie；远端成功但订单事实落库失败时创建可重试补偿记录。
 func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, task Task, allowCredentialRecovery bool) error {
-	// credentialUnlock 是账号凭证锁的释放函数。
+	// credentialUnlock 是账号凭证锁的释放函数；锁只保护快照读取。
 	credentialUnlock := e.store.LockAccountCredentials(task.AccountID)
-	// credentialLocked 标记当前调用是否仍持有凭证锁。
-	credentialLocked := true
-	defer func() {
-		if credentialLocked {
-			credentialUnlock()
-		}
-	}()
 	// runtimeData 是确认发货所需的最小 Cookie 与 metadata 运行视图，不包含登录密码和账号资料。
 	runtimeData, err := e.store.Cookies.GetCookieRuntimeData(ctx, task.AccountID)
+	credentialUnlock()
 	if err != nil {
 		return err
 	}
+	// runtimeFingerprint 是外部请求开始前的凭证指纹，用于阻止旧响应覆盖并发更新。
+	runtimeFingerprint := credentialRuntimeFingerprint(runtimeData)
 	// completeSnapshot 表示 metadata 中是否包含可恢复的完整 Cookie Jar。
 	_, completeSnapshot := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON)
 	if strings.TrimSpace(runtimeData.Value) == "" && !completeSnapshot {
@@ -140,33 +137,44 @@ func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, t
 	value, snapshot, changed := cookieSession.State()
 	// sessionHandled 表示本次请求是否由完整 Cookie Jar 接管。
 	sessionHandled := snapshot != nil
-	if changed {
-		// metadata 是准备写回数据库的 Cookie metadata。
-		metadata := cookierefresh.MetadataWithoutSnapshot(runtimeData.MetadataJSON)
-		if snapshot != nil {
-			metadata = cookierefresh.MetadataWithSnapshot(runtimeData.MetadataJSON, snapshot)
+	// responseChanged 表示外部响应合并出了新的 Cookie 状态。
+	responseChanged := changed || (!sessionHandled && callErr == nil && updated != "" && updated != cookieStr)
+	if responseChanged {
+		// persistUnlock 保护重新读取凭证和条件写回，外部 MTOP I/O 已经结束。
+		persistUnlock := e.store.LockAccountCredentials(task.AccountID)
+		// currentData 保存写回前的最新凭证快照。
+		currentData, currentErr := e.store.Cookies.GetCookieRuntimeData(ctx, task.AccountID)
+		if currentErr != nil {
+			persistenceErrs = append(persistenceErrs, fmt.Errorf("读取确认发货最新 Cookie: %w", currentErr))
+		} else if credentialRuntimeFingerprint(currentData) != runtimeFingerprint {
+			// 并发更新已经产生新凭证，旧 MTOP 响应不得覆盖新状态。
+			persistenceErrs = append(persistenceErrs, errors.New("确认发货响应 Cookie 与并发更新冲突，已跳过旧响应写回"))
+		} else if changed {
+			// metadata 是准备写回数据库的 Cookie metadata。
+			metadata := cookierefresh.MetadataWithoutSnapshot(currentData.MetadataJSON)
+			if snapshot != nil {
+				metadata = cookierefresh.MetadataWithSnapshot(currentData.MetadataJSON, snapshot)
+			}
+			// saveErr 保存 Cookie Jar 写回数据库时的错误。
+			if saveErr := e.store.Cookies.UpdateRenewalCookie(ctx, task.AccountID, value, metadata, time.Now().Unix()); saveErr != nil {
+				persistenceErrs = append(persistenceErrs, fmt.Errorf("保存确认发货响应 Cookie Jar: %w", saveErr))
+			} else if value != currentData.Value {
+				runtimeCookie = value
+				runtimeCookieChanged = true
+			}
+		} else if callErr == nil && updated != "" && updated != currentData.Value {
+			// 没有权威快照的历史账号保留扁平 Cookie 兼容路径，并清除可能过期的旧 Jar。
+			metadata := cookierefresh.MetadataWithoutSnapshot(currentData.MetadataJSON)
+			// saveErr 保存扁平 Cookie 写回数据库时的错误。
+			if saveErr := e.store.Cookies.UpdateRenewalCookie(ctx, task.AccountID, updated, metadata, time.Now().Unix()); saveErr != nil {
+				persistenceErrs = append(persistenceErrs, fmt.Errorf("保存刷新后的 Cookie: %w", saveErr))
+			} else {
+				runtimeCookie = updated
+				runtimeCookieChanged = true
+			}
 		}
-		// saveErr 保存 Cookie Jar 写回数据库时的错误。
-		if saveErr := e.store.Cookies.UpdateRenewalCookie(ctx, task.AccountID, value, metadata, time.Now().Unix()); saveErr != nil {
-			persistenceErrs = append(persistenceErrs, fmt.Errorf("保存确认发货响应 Cookie Jar: %w", saveErr))
-		} else if value != cookieStr {
-			runtimeCookie = value
-			runtimeCookieChanged = true
-		}
+		persistUnlock()
 	}
-	if !sessionHandled && callErr == nil && updated != "" && updated != cookieStr {
-		// 没有权威快照的历史账号保留扁平 Cookie 兼容路径，并清除可能过期的旧 Jar。
-		metadata := cookierefresh.MetadataWithoutSnapshot(runtimeData.MetadataJSON)
-		// saveErr 保存扁平 Cookie 写回数据库时的错误。
-		if saveErr := e.store.Cookies.UpdateRenewalCookie(ctx, task.AccountID, updated, metadata, time.Now().Unix()); saveErr != nil {
-			persistenceErrs = append(persistenceErrs, fmt.Errorf("保存刷新后的 Cookie: %w", saveErr))
-		} else {
-			runtimeCookie = updated
-			runtimeCookieChanged = true
-		}
-	}
-	credentialUnlock()
-	credentialLocked = false
 	if runtimeCookieChanged && e.senders != nil {
 		// sender 是当前账号的在线消息发送器。
 		// running 表示账号是否仍处于运行状态。
@@ -309,17 +317,17 @@ func (e *automationActionExecutor) sendCard(ctx context.Context, task Task, acti
 	return sent, nil
 }
 
-// sendDataCard 在卡券锁内原子消费数据卡密，并在确定未发送时恢复库存。
+// sendDataCard 只在卡券锁内完成库存预留与恢复，把外部消息发送放到锁外。
 func (e *automationActionExecutor) sendDataCard(ctx context.Context, task Task, card *db.CardFull, count int) (int, error) {
-	// unlock 释放当前卡密组的并发消费锁。
-	unlock := e.lockCard(card.ID)
-	defer unlock()
 	// sent 是已经成功发送的数据卡密数量。
 	sent := 0
 	// i 表示当前数据卡密消费序号。
 	for i := 0; i < count; i++ {
+		// unlock 释放当前卡密组的并发消费锁；锁只覆盖本地库存操作。
+		unlock := e.lockCard(card.ID)
 		// content 是从库存中原子消费出的数据卡密。
 		content, err := e.store.Cards.ConsumeBatchData(ctx, card.ID)
+		unlock()
 		if err != nil {
 			return sent, err
 		}
@@ -327,8 +335,12 @@ func (e *automationActionExecutor) sendDataCard(ctx context.Context, task Task, 
 			// sendErr 保存数据卡密消息发送错误。
 			if sendErr := e.sendText(ctx, task, renderTemplate(content, task)); sendErr != nil {
 				if errors.Is(sendErr, ErrMessageNotSent) {
+					// restoreUnlock 释放恢复库存所需的卡密组锁。
+					restoreUnlock := e.lockCard(card.ID)
 					// restoreErr 保存确定未发送时恢复库存的错误。
-					if restoreErr := e.store.Cards.RestoreBatchData(ctx, card.ID, content); restoreErr != nil {
+					restoreErr := e.store.Cards.RestoreBatchData(ctx, card.ID, content)
+					restoreUnlock()
+					if restoreErr != nil {
 						return sent, uncertainAction(errors.Join(sendErr, fmt.Errorf("恢复未发送卡密库存: %w", restoreErr)))
 					}
 					return sent, sendErr
@@ -413,6 +425,13 @@ func (e *automationActionExecutor) lockCard(cardID int64) func() {
 	mu := raw.(*sync.Mutex)
 	mu.Lock()
 	return mu.Unlock
+}
+
+// credentialRuntimeFingerprint 生成不暴露凭证内容的运行时指纹，用于条件写回冲突检测。
+func credentialRuntimeFingerprint(data db.CookieRuntimeData) string {
+	// sum 是 Cookie 与 metadata 拼接后的稳定摘要，不会被写入日志或响应。
+	sum := sha256.Sum256([]byte(data.Value + "\x00" + data.MetadataJSON))
+	return fmt.Sprintf("%x", sum[:])
 }
 
 // actionMatchesOrderSpec 判断动作配置的规格是否匹配订单。

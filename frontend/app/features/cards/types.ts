@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
-import type { Card, CardAppendResponse, CardBatchResponse } from '../../../types';
+import type { Card, CardAppendResponse, CardBatchResponse } from '../../../shared/api-contract';
 
 // AddCardForm 描述新增卡密组弹窗中的可编辑字段。
 export interface AddCardForm {

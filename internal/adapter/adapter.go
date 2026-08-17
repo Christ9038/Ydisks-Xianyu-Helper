@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	accountapp "xianyu-go/internal/application/account"
+	automationapp "xianyu-go/internal/application/automation"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/browser"
 	"xianyu-go/internal/chat"
@@ -70,17 +72,19 @@ type Adapter struct {
 	logger     *slog.Logger
 	automation *automation.Center
 	notifier   notifyNotifier
-	renewSvc   xrenew.Service
-	cooldown   *renewal.CooldownManager
-	captchaReq tokenCaptchaRequester
-	orderMTop  orderDetailClient
-	chat       *chat.Service
+	// credentialWake 负责凭证写回后的自动化任务唤醒；Adapter 只依赖应用端口，不直接决定任务状态。
+	credentialWake accountapp.CredentialWakePort
+	renewSvc       xrenew.Service
+	cooldown       *renewal.CooldownManager
+	captchaReq     tokenCaptchaRequester
+	orderMTop      orderDetailClient
+	chat           *chat.Service
 
 	orderFetchMu   sync.Mutex
 	lastOrderFetch time.Time
 
-	passwordMu         sync.Mutex
-	passwordProcessing map[string]struct{}
+	// passwordCoordinator 按账号协调协议凭证恢复，避免重复外部续期并允许不同账号并行执行。
+	passwordCoordinator *accountapp.CredentialRefreshCoordinator
 }
 
 // notifyNotifier 是 *notify.Notifier 的最小接口，避免 adapter 直接依赖 notify 包
@@ -103,14 +107,30 @@ func New(store *db.Store, bm *browser.Manager, logger *slog.Logger) *Adapter {
 		logger = slog.Default()
 	}
 	return &Adapter{
-		store:              store,
-		browser:            browserManagerOrNil(bm),
-		logger:             logger,
-		cooldown:           renewal.GlobalCooldown,
-		captchaReq:         mtop.NewClient(),
-		orderMTop:          mtop.NewClient(),
-		passwordProcessing: make(map[string]struct{}),
+		store:               store,
+		browser:             browserManagerOrNil(bm),
+		logger:              logger,
+		credentialWake:      newCredentialWakeService(store),
+		cooldown:            renewal.GlobalCooldown,
+		captchaReq:          mtop.NewClient(),
+		orderMTop:           mtop.NewClient(),
+		passwordCoordinator: accountapp.NewCredentialRefreshCoordinator(),
 	}
+}
+
+// newCredentialWakeService 构造凭证唤醒应用服务；数据库仓储仅在适配器边界内创建并隐藏。
+func newCredentialWakeService(store *db.Store) accountapp.CredentialWakePort {
+	if store == nil {
+		return nil
+	}
+	// repository 保存凭证唤醒所需的窄数据库适配器。
+	repository := NewAutomationCredentialWakeRepository(store)
+	// service、err 保存凭证唤醒应用服务及其装配错误。
+	service, err := automationapp.NewCredentialWakeService(repository)
+	if err != nil {
+		return nil
+	}
+	return service
 }
 
 // browserManagerOrNil 把 *browser.Manager 转为接口；nil 时返回 nil 接口。
@@ -121,27 +141,30 @@ func browserManagerOrNil(bm *browser.Manager) browserManager {
 	return bm
 }
 
-// SetAutomation 注入自动化中心（系统事件转发目标）。
+// SetAutomation 注入系统事件的自动化中心；该 setter 仅保留给构造环过渡和隔离测试，待生产装配改为构造注入且旧测试清零后删除。
 func (a *Adapter) SetAutomation(c *automation.Center) { a.automation = c }
 
-// SetNotifier 注入通知器（账号告警推送目标）。
+// SetNotifier 注入账号告警通知器；该 setter 仅保留给构造环过渡和隔离测试，待生产装配改为构造注入且旧测试清零后删除。
 func (a *Adapter) SetNotifier(n notifyNotifier) { a.notifier = n }
 
-// SetBrowser 覆盖浏览器实现，便于测试注入桩。
+// SetCredentialWakeService 注入凭证恢复后的自动化唤醒端口；仅供构造环过渡和隔离测试，待统一应用装配后删除。
+func (a *Adapter) SetCredentialWakeService(service accountapp.CredentialWakePort) {
+	a.credentialWake = service
+}
+
+// SetBrowser 覆盖浏览器实现；生产启动后不得替换必需依赖，待测试改用构造选项后删除此兼容入口。
 func (a *Adapter) SetBrowser(b browserManager) { a.browser = b }
 
-// SetRenewService 覆盖轻量续期服务，便于测试注入本地 HTTP 服务。
+// SetRenewService 覆盖轻量续期服务；该 setter 是测试替身覆盖点，待续期端口构造注入并迁移现有测试后删除。
 func (a *Adapter) SetRenewService(s xrenew.Service) { a.renewSvc = s }
 
-// SetTokenCaptchaRequester 覆盖 token 风控验证链接刷新器，便于测试隔离网络。
+// SetTokenCaptchaRequester 覆盖 token 风控验证链接刷新器；仅供测试隔离网络，冻结验证码生产路径不得运行时替换。
 func (a *Adapter) SetTokenCaptchaRequester(r tokenCaptchaRequester) { a.captchaReq = r }
 
-// SetOrderDetailClient 覆盖纯 Go 订单详情客户端，便于测试隔离网络。
+// SetOrderDetailClient 覆盖纯 Go 订单详情客户端；该 setter 是测试替身覆盖点，待订单端口构造注入并迁移测试后删除。
 func (a *Adapter) SetOrderDetailClient(c orderDetailClient) { a.orderMTop = c }
 
-// SetChatService installs the user-facing chat side channel. It persists and
-// broadcasts messages without changing the automatic reply path.
-// SetChatService 设置聊天Service。
+// SetChatService 注入用户聊天旁路服务；它只负责持久化和广播，不改变自动回复路径，待构造环拆除后删除兼容 setter。
 func (a *Adapter) SetChatService(service *chat.Service) { a.chat = service }
 
 // HandleChatMessage 用户聊天消息由 Account 内部 ReplyService 处理，此处空实现满足接口。
@@ -541,11 +564,11 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 
 // wakeCredentialBlockedAutomation 负责wakeCredentialBlocked自动化相关处理。
 func (a *Adapter) wakeCredentialBlockedAutomation(ctx context.Context, cookieID string) {
-	if a.store == nil || a.store.Automation == nil {
+	if a.credentialWake == nil {
 		return
 	}
 	if // err 保存err，供当前处理流程使用
-	err := a.store.Automation.WakeCredentialBlocked(ctx, cookieID); err != nil {
+	err := a.credentialWake.WakeCredentialBlocked(ctx, cookieID); err != nil {
 		a.logger.Warn("Cookie 更新后唤醒自动化任务失败", "account", cookieID, "err", err)
 	}
 }
@@ -588,21 +611,39 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 		a.recordPasswordLogin(ctx, cookieID, 0, "skipped_cooldown", reason, fmt.Sprintf("协议续期冷却中，还需等待 %s", remain.Round(time.Second)))
 		return false
 	}
-	if !a.beginPasswordLogin(cookieID) {
-		a.logger.Warn("协议续期已在处理中", "account", cookieID)
+	// platformData 保存成功或失败时用于审计的账号平台运行数据；明文凭证只在续期工作闭包内短暂使用。
+	var platformData db.CookiePlatformRuntimeData
+	// lookupFailed 标识是否在调用协议续期前读取账号数据失败，以保持历史审计原因。
+	lookupFailed := false
+	// accepted、renewed、renewErr 保存协调器登记结果、续期结果和底层错误。
+	accepted, renewed, renewErr := a.passwordCoordinator.Run(ctx, cookieID, func(runCtx context.Context) (bool, error) {
+		// loaded、loadErr 保存账号平台运行数据及其读取错误。
+		loaded, loadErr := a.store.Cookies.GetCookiePlatformRuntimeData(runCtx, cookieID)
+		if loadErr != nil {
+			lookupFailed = true
+			return false, loadErr
+		}
+		platformData = loaded
+		return a.tryProtocolCredentialRenew(runCtx, &platformData)
+	})
+	if !accepted {
+		if errors.Is(renewErr, accountapp.ErrCredentialRefreshInFlight) {
+			a.logger.Warn("协议续期已在处理中", "account", cookieID)
+			return false
+		}
+		a.logger.Warn("协议续期协调器不可用", "account", cookieID, "err", renewErr)
 		return false
 	}
-	defer a.finishPasswordLogin(cookieID)
-
-	platformData, err := a.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID) // platformData 是协议续期所需的 Cookie、metadata 和日志归属信息。
-	if err != nil {
-		a.logger.Warn("协议续期失败：读取账号详情失败", "account", cookieID, "err", err)
-		a.recordPasswordLogin(ctx, cookieID, 0, "failed", "account_lookup_failed", err.Error())
+	if lookupFailed {
+		a.logger.Warn("协议续期失败：读取账号详情失败", "account", cookieID, "err", renewErr)
+		// message 保存账号详情读取失败时写入登录审计的脱敏说明。
+		message := "读取账号详情失败"
+		if renewErr != nil {
+			message = renewErr.Error()
+		}
+		a.recordPasswordLogin(ctx, cookieID, 0, "failed", "account_lookup_failed", message)
 		return false
 	}
-
-	// renewed、renewErr 保存renewed、renewErr，供当前处理流程使用
-	renewed, renewErr := a.tryProtocolCredentialRenew(ctx, &platformData)
 	if renewed {
 		a.wakeCredentialBlockedAutomation(ctx, cookieID)
 		a.recordPasswordLogin(ctx, cookieID, platformData.UserID, "success", "", "Go 协议续期成功")
@@ -634,26 +675,19 @@ func (a *Adapter) OnTransportReady(ctx context.Context, cookieID string) {
 	a.wakeCredentialBlockedAutomation(ctx, cookieID)
 }
 
-// beginPasswordLogin 负责begin密码登录相关处理。
+// beginPasswordLogin 兼容旧测试对账号恢复登记的访问；生产路径统一使用 account.CredentialRefreshCoordinator.Run。
 func (a *Adapter) beginPasswordLogin(cookieID string) bool {
-	a.passwordMu.Lock()
-	defer a.passwordMu.Unlock()
-	if a.passwordProcessing == nil {
-		a.passwordProcessing = make(map[string]struct{})
-	}
-	if // ok 保存ok，供当前处理流程使用
-	_, ok := a.passwordProcessing[cookieID]; ok {
+	if a.passwordCoordinator == nil {
 		return false
 	}
-	a.passwordProcessing[cookieID] = struct{}{}
-	return true
+	return a.passwordCoordinator.TryBegin(cookieID)
 }
 
-// finishPasswordLogin 负责finish密码登录相关处理。
+// finishPasswordLogin 兼容旧测试对账号恢复收尾的访问；正式调用必须由协调器 Run 自动释放状态。
 func (a *Adapter) finishPasswordLogin(cookieID string) {
-	a.passwordMu.Lock()
-	defer a.passwordMu.Unlock()
-	delete(a.passwordProcessing, cookieID)
+	if a.passwordCoordinator != nil {
+		a.passwordCoordinator.Finish(cookieID)
+	}
 }
 
 // recordPasswordLogin 负责record密码登录相关处理。

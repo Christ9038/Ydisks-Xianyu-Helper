@@ -21,6 +21,7 @@ import (
 
 	"xianyu-go/internal/account"
 	"xianyu-go/internal/adapter"
+	lifecycleapp "xianyu-go/internal/application/lifecycle"
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/browser"
@@ -295,10 +296,6 @@ func runServer(parent context.Context, opts serverOptions) error {
 	var bm *browser.Manager
 	if !opts.noBrowser {
 		bm = browser.NewManager(logger)
-		if // err 保存err，供当前处理流程使用
-		err := bm.Initialize(); err != nil {
-			return fmt.Errorf("初始化 Playwright Chromium 指纹失败: %w", err)
-		}
 	}
 
 	// ap 保存ap，供当前处理流程使用
@@ -308,44 +305,130 @@ func runServer(parent context.Context, opts serverOptions) error {
 	ap.SetChatService(chatService)
 	// mgr 保存mgr，供当前处理流程使用
 	mgr := account.NewManager(store, ap, logger)
-	// autoCenter 保存autoCenter，供当前处理流程使用
-	autoCenter := automation.New(store, mgr, logger)
-	autoCenter.SetOrderDetailFetcher(ap)
 	// notifier 保存notifier，供当前处理流程使用
 	notifier := notify.New("", store, logger)
-	notifier.Start(ctx)
-	autoCenter.SetNotifier(notifier)
+	// autoCenter 保存依赖在启动前固定完成的自动化中心。
+	autoCenter := automation.NewWithDependencies(store, mgr, logger, automation.CenterDependencies{
+		OrderDetailFetcher: ap,
+		Notifier:           notifier,
+	})
 	ap.SetAutomation(autoCenter)
 	ap.SetNotifier(notifier)
-	if // err 保存err，供当前处理流程使用
-	err := mgr.StartAll(ctx); err != nil {
-		logger.Error("启动账号引擎失败", "err", err)
-	}
 	// automationScheduler 保存自动化Scheduler，供当前处理流程使用
 	automationScheduler := automation.NewScheduler(autoCenter)
-	go automationScheduler.Run(ctx)
 	// renewalScheduler 保存renewalScheduler，供当前处理流程使用
 	renewalScheduler := renewal.NewScheduler(store, mgr, ap, logger, notifier)
-	go renewalScheduler.Run(ctx)
+
+	// lifecycleCoordinator 统一拥有应用组件的启动顺序、取消 Context 和逆序关闭。
+	lifecycleCoordinator := lifecycleapp.NewCoordinator()
+	if bm != nil {
+		// err 表示浏览器基础设施组件登记失败。
+		if err := lifecycleCoordinator.Add(lifecycleapp.NamedComponent{Name: "browser", Component: lifecycleapp.FuncComponent{
+			StartFunc: func(context.Context) error { return bm.Initialize() },
+			CloseFunc: bm.CloseContext,
+		}}); err != nil {
+			return fmt.Errorf("登记浏览器生命周期组件失败: %w", err)
+		}
+	}
+	// err 表示通知 worker 生命周期组件登记失败。
+	if err := lifecycleCoordinator.Add(lifecycleapp.NamedComponent{Name: "notifier", Component: lifecycleapp.FuncComponent{
+		StartFunc: func(componentCtx context.Context) error { notifier.Start(componentCtx); return nil },
+		CloseFunc: notifier.WaitContext,
+	}}); err != nil {
+		return fmt.Errorf("登记通知生命周期组件失败: %w", err)
+	}
+	// err 表示账号运行时生命周期组件登记失败。
+	if err := lifecycleCoordinator.Add(lifecycleapp.NamedComponent{Name: "account-manager", Component: lifecycleapp.FuncComponent{
+		StartFunc: mgr.StartAll,
+		CloseFunc: mgr.StopAllContext,
+	}}); err != nil {
+		return fmt.Errorf("登记账号生命周期组件失败: %w", err)
+	}
+	// err 表示自动化调度器生命周期组件登记失败。
+	if err := lifecycleCoordinator.Add(lifecycleapp.NamedComponent{Name: "automation-scheduler", Component: lifecycleapp.FuncComponent{
+		StartFunc: func(componentCtx context.Context) error { go automationScheduler.Run(componentCtx); return nil },
+		CloseFunc: automationScheduler.WaitContext,
+	}}); err != nil {
+		return fmt.Errorf("登记自动化调度生命周期组件失败: %w", err)
+	}
+	// err 表示续期调度器生命周期组件登记失败。
+	if err := lifecycleCoordinator.Add(lifecycleapp.NamedComponent{Name: "renewal-scheduler", Component: lifecycleapp.FuncComponent{
+		StartFunc: func(componentCtx context.Context) error { go renewalScheduler.Run(componentCtx); return nil },
+		CloseFunc: renewalScheduler.StopContext,
+	}}); err != nil {
+		return fmt.Errorf("登记续期调度生命周期组件失败: %w", err)
+	}
 
 	// srv 是完成依赖校验并注入聊天服务后的 HTTP 应用实例。
-	// serverDependencies 封装 HTTP 服务需要的持久化适配器，避免 Server 直接持有 Store。
-	serverDependencies, dependencyErr := adapter.NewDependencies(store)
-	if dependencyErr != nil {
-		return fmt.Errorf("构造 HTTP 基础设施依赖失败: %w", dependencyErr)
+	// orderDependencies 保存订单应用服务专用的显式装配能力，避免订单路径读取通用设施容器。
+	orderDependencies, orderDependencyErr := adapter.NewOrderDependencies(store)
+	if orderDependencyErr != nil {
+		return fmt.Errorf("构造订单基础设施依赖失败: %w", orderDependencyErr)
+	}
+	// accountDependencies 保存账号应用服务专用的显式装配能力，避免账号路径读取通用设施容器。
+	accountDependencies, accountDependencyErr := adapter.NewAccountDependencies(store)
+	if accountDependencyErr != nil {
+		return fmt.Errorf("构造账号基础设施依赖失败: %w", accountDependencyErr)
+	}
+	// itemDependencies 保存商品应用服务专用的显式装配能力，避免商品路径读取通用设施容器。
+	itemDependencies, itemDependencyErr := adapter.NewItemDependencies(store)
+	if itemDependencyErr != nil {
+		return fmt.Errorf("构造商品基础设施依赖失败: %w", itemDependencyErr)
+	}
+	// automationDependencies 保存自动化、默认回复和关键词应用服务的显式装配能力。
+	automationDependencies, automationDependencyErr := adapter.NewAutomationDependencies(store)
+	if automationDependencyErr != nil {
+		return fmt.Errorf("构造自动化基础设施依赖失败: %w", automationDependencyErr)
+	}
+	// miscDependencies 保存通知、分析和卡券应用服务的显式装配能力。
+	miscDependencies, miscDependencyErr := adapter.NewMiscDependencies(store)
+	if miscDependencyErr != nil {
+		return fmt.Errorf("构造通知分析卡券基础设施依赖失败: %w", miscDependencyErr)
+	}
+	// adminSettingsDependencies 保存管理员与系统设置应用服务的显式装配能力。
+	adminSettingsDependencies := adapter.NewAdminSettingsDependencies(store)
+	if adminSettingsDependencies == nil {
+		return fmt.Errorf("构造管理员设置基础设施依赖失败")
+	}
+	// chatDependencies 保存聊天应用服务使用的显式运行时与平台适配器。
+	chatDependencies := adapter.NewChatDependencies(store)
+	if chatDependencies == nil {
+		return fmt.Errorf("构造聊天基础设施依赖失败")
+	}
+	// systemDependencies 保存健康检查和订单补偿扫描使用的显式数据库适配器。
+	systemDependencies := adapter.NewSystemDependencies(store)
+	if systemDependencies == nil {
+		return fmt.Errorf("构造系统基础设施依赖失败")
+	}
+	// platformDependencies 保存服务端显式注入的 MTOP、长登录和二维码平台能力。
+	platformDependencies, platformDependencyErr := adapter.NewDefaultPlatformDependencies(logger)
+	if platformDependencyErr != nil {
+		return fmt.Errorf("构造平台基础设施依赖失败: %w", platformDependencyErr)
 	}
 	// authentication 保存 HTTP 会话中间件所需的认证实现；会话 Cookie 的 Secure 策略由启动参数决定。
 	authentication := &auth.Service{Store: store, Logger: logger, Secure: opts.secure}
 	// srv、err 保存 HTTP 服务构造结果及失败原因。
-	srv, err := server.New(serverDependencies, authentication, mgr, opts.webDir, opts.addr, logger, autoCenter, notifier, server.WithChatService(chatService))
+	srv, err := server.New(authentication, mgr, opts.webDir, opts.addr, logger, autoCenter, notifier, server.WithChatService(chatService), server.WithChatDependencies(chatDependencies), server.WithSystemDependencies(systemDependencies), server.WithOrderDependencies(orderDependencies), server.WithAccountDependencies(accountDependencies), server.WithItemDependencies(itemDependencies), server.WithAutomationDependencies(automationDependencies), server.WithMiscDependencies(miscDependencies), server.WithAdminSettingsDependencies(adminSettingsDependencies), server.WithPlatformDependencies(platformDependencies), server.WithApplicationLifecycle(lifecycleCoordinator))
 	if err != nil {
 		return fmt.Errorf("构造 HTTP 服务失败: %w", err)
 	}
-	srv.StartPublishBatchRecovery(ctx)
-	srv.StartOrderReconciliationRecovery(ctx)
-	srv.StartOrderRefreshRecovery(ctx)
+	// component 表示 Server 暴露给进程装配层的一个应用 worker 生命周期组件。
+	for _, component := range srv.ApplicationLifecycleComponents() {
+		// err 表示应用 worker 生命周期组件登记失败。
+		if err := lifecycleCoordinator.Add(component); err != nil {
+			return fmt.Errorf("登记应用 worker 生命周期组件 %q 失败: %w", component.Name, err)
+		}
+	}
+	// err 表示应用组件按依赖顺序启动失败的原因。
+	if err := lifecycleCoordinator.Start(ctx); err != nil {
+		return fmt.Errorf("启动应用生命周期失败: %w", err)
+	}
 	// err 是 HTTP 服务显式启动失败的原因。
 	if err := srv.Start(ctx); err != nil {
+		// rollbackCtx、rollbackCancel 限制 HTTP 启动失败后的组件回滚时间并释放定时器。
+		rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer rollbackCancel()
+		_ = lifecycleCoordinator.Close(rollbackCtx)
 		return fmt.Errorf("启动 HTTP 服务失败: %w", err)
 	}
 	// runErr 是 HTTP 监听退出时返回的错误。
@@ -353,30 +436,17 @@ func runServer(parent context.Context, opts serverOptions) error {
 	if runErr != nil {
 		logger.Error("HTTP 服务退出", "err", runErr)
 	}
-	cancel()
-	// stopCtx 是关闭 HTTP 服务及其后台 worker 的有限等待上下文。
+	// stopCtx 是关闭 HTTP 服务及全部应用组件的有限等待上下文。
 	// stopCancel 释放 stopCtx 的定时器资源。
 	// stopCtx、stopCancel 保存stopCtx、stop取消，供当前处理流程使用
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	_ = srv.Stop(stopCtx)
-	// err 表示自动化调度器在关闭上下文内未完成退出的错误。
-	if err := automationScheduler.WaitContext(stopCtx); err != nil {
-		logger.Warn("自动化调度器关闭未完成", "err", err)
+	// err 表示 HTTP 优雅关闭的错误；即使失败也继续关闭应用组件。
+	if err := srv.Stop(stopCtx); err != nil {
+		logger.Warn("HTTP 服务关闭未完成", "err", err)
 	}
-	// err 表示续期调度器在关闭上下文内未完成退出的错误。
-	if err := renewalScheduler.WaitContext(stopCtx); err != nil {
-		logger.Warn("续期调度器关闭未完成", "err", err)
-	}
-	// err 表示账号运行时未能在关闭上下文内完整停止的错误。
-	if err := mgr.StopAllContext(stopCtx); err != nil {
-		logger.Warn("账号运行时关闭未完成", "err", err)
-	}
-	if bm != nil {
-		_ = bm.Close()
-	}
-	// err 表示通知 worker 在关闭上下文内未完成退出的错误。
-	if err := notifier.WaitContext(stopCtx); err != nil {
-		logger.Warn("通知 worker 关闭未完成", "err", err)
+	// err 表示应用组件逆序关闭时的聚合错误；协调器已保证每个组件都会尝试关闭。
+	if err := lifecycleCoordinator.Close(stopCtx); err != nil {
+		logger.Warn("应用组件关闭未完成", "err", err)
 	}
 	stopCancel()
 	return runErr

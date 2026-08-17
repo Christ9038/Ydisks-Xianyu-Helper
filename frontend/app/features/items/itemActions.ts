@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
-import type { Item } from '../../../types';
+import type { Item } from '../../../shared/api-contract';
 import { createItem, deleteItem, getPublishLocations, publishItem, syncItemsFromAccount, updateItem } from './api';
 import type { PublishLocation } from './api';
 

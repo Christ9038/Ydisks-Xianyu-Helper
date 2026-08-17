@@ -61,7 +61,7 @@ type BatchManagementRepository interface {
 // BatchManagementRuntime 定义批次管理服务控制后台 worker 的最小端口。
 type BatchManagementRuntime interface {
 	// StartBatch 启动指定批次的后台 worker。
-	StartBatch(int64, string, string)
+	StartBatch(int64, string, string) error
 	// CancelBatch 请求停止指定批次的后台 worker。
 	CancelBatch(string, string)
 }
@@ -137,7 +137,14 @@ func (s *BatchManagementService) StartBatch(ctx context.Context, userID int64, b
 	if s.runtime == nil {
 		return batch.ID, nil
 	}
-	s.runtime.StartBatch(userID, batch.ID, workerToken)
+	// startErr 保存生命周期协调器登记 worker 时的错误。
+	if startErr := s.runtime.StartBatch(userID, batch.ID, workerToken); startErr != nil {
+		// releaseErr 保存 worker 启动失败后的租约释放错误。
+		if releaseErr := s.releaseClaim(ctx, batch.ID, workerToken); releaseErr != nil {
+			return "", errors.Join(startErr, releaseErr)
+		}
+		return "", startErr
+	}
 	return batch.ID, nil
 }
 
@@ -304,7 +311,14 @@ func (s *BatchManagementService) RetryFailedBatch(ctx context.Context, userID in
 		return "", ErrBatchNoRows
 	}
 	if s.runtime != nil {
-		s.runtime.StartBatch(userID, batchID, workerToken)
+		// startErr 保存重试 worker 登记失败错误。
+		if startErr := s.runtime.StartBatch(userID, batchID, workerToken); startErr != nil {
+			// releaseErr 保存重试 worker 启动失败后的租约释放错误。
+			if releaseErr := s.releaseClaim(ctx, batchID, workerToken); releaseErr != nil {
+				return "", errors.Join(startErr, releaseErr)
+			}
+			return "", startErr
+		}
 	}
 	return batchID, nil
 }

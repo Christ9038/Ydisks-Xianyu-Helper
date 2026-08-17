@@ -13,6 +13,7 @@ import (
 	defaultreplyapp "xianyu-go/internal/application/defaultreply"
 	itemapp "xianyu-go/internal/application/items"
 	keywordsapp "xianyu-go/internal/application/keywords"
+	lifecycleapp "xianyu-go/internal/application/lifecycle"
 	notificationsapp "xianyu-go/internal/application/notifications"
 	orderapp "xianyu-go/internal/application/orders"
 	settingsapp "xianyu-go/internal/application/settings"
@@ -20,14 +21,18 @@ import (
 
 // applicationServices 聚合 Server 使用的应用服务实例，统一管理共享基础设施依赖。
 type applicationServices struct {
+	// platformCredentials 负责按需读取平台凭证窄视图并执行归属复核。
+	platformCredentials *accountapp.PlatformCredentialService
 	// orders 是订单 HTTP 适配器；业务服务集合由应用层统一构造。
 	orders *orderHTTPAdapter
+	// orderRefreshJobs 是订单刷新任务创建、取消、恢复和 worker 生命周期应用服务。
+	orderRefreshJobs *orderapp.RefreshJobService
+	// orderReconciliationRecovery 是订单补偿扫描器的应用层生命周期协调器。
+	orderReconciliationRecovery *orderapp.ReconciliationRecoveryCoordinator
 	// itemSinglePublish 是仅负责单商品发布用例的纯应用服务。
 	itemSinglePublish *itemapp.Service
-	// itemBatchRunner 是商品批量发布 worker 的应用层编排器。
-	itemBatchRunner *itemapp.BatchRunner
-	// itemBatchRecovery 是过期批量发布任务的租约接管应用服务。
-	itemBatchRecovery *itemapp.BatchRecoveryService
+	// itemBatchCoordinator 是商品批量发布 worker、恢复扫描和关闭等待的生命周期拥有者。
+	itemBatchCoordinator *itemapp.BatchWorkerCoordinator
 	// itemBatchPreview 是商品批量发布表格预检应用服务。
 	itemBatchPreview *itemapp.BatchPreviewService
 	// itemBatchManagement 是商品批次查询、取消和重试应用服务。
@@ -60,6 +65,8 @@ type applicationServices struct {
 	accountLongLogin *accountapp.LongLoginService
 	// accountSettings 是账号设置、登录信息、启停和暂停应用服务。
 	accountSettings *accountapp.SettingsService
+	// accountRuntime 是账号凭证写回后的运行时同步与状态快照应用服务。
+	accountRuntime *accountapp.RuntimeService
 	// accountSummaries 是账号摘要、所有权和管理员账号列表应用服务。
 	accountSummaries *accountapp.SummaryService
 	// accountTasks 是账号任务设置、历史和手动执行应用服务。
@@ -92,28 +99,122 @@ type applicationServices struct {
 	admin *adminapp.Service
 }
 
+// ApplicationLifecycleComponents 返回 Server 装配的应用 worker 生命周期组件。
+// 组件只暴露 Start/Close 端口，启动顺序与进程取消责任由 cmd 的协调器拥有。
+func (s *Server) ApplicationLifecycleComponents() []lifecycleapp.NamedComponent {
+	if s == nil || s.applications == nil {
+		return nil
+	}
+	// components 保存按应用依赖登记的 worker 生命周期组件。
+	components := make([]lifecycleapp.NamedComponent, 0, 3)
+	if s.applications.orderRefreshJobs != nil {
+		// service 保存订单刷新恢复与 worker 生命周期应用服务。
+		service := s.applications.orderRefreshJobs
+		components = append(components, lifecycleapp.NamedComponent{
+			Name: "order-refresh-recovery",
+			Component: lifecycleapp.FuncComponent{
+				StartFunc: service.StartRecovery,
+				CloseFunc: service.Close,
+			},
+		})
+	}
+	if s.applications.itemBatchCoordinator != nil {
+		// coordinator 保存批量发布 worker 与恢复扫描生命周期协调器。
+		coordinator := s.applications.itemBatchCoordinator
+		components = append(components, lifecycleapp.NamedComponent{
+			Name: "publish-batch-workers",
+			Component: lifecycleapp.FuncComponent{
+				StartFunc: coordinator.StartRecovery,
+				CloseFunc: coordinator.Close,
+			},
+		})
+	}
+	if s.applications.orderReconciliationRecovery != nil {
+		// coordinator 保存订单补偿扫描生命周期协调器。
+		coordinator := s.applications.orderReconciliationRecovery
+		components = append(components, lifecycleapp.NamedComponent{
+			Name: "order-reconciliation-recovery",
+			Component: lifecycleapp.FuncComponent{
+				StartFunc: coordinator.Start,
+				CloseFunc: coordinator.Close,
+			},
+		})
+	}
+	return components
+}
+
 // newApplicationServices 为指定 Server 装配全部应用服务实例。
 func newApplicationServices(server *Server) *applicationServices {
 	// orderRepository 保存订单应用服务共享的基础设施适配器。
-	orderRepository := server.dependencies.NewOrderRepository()
+	orderRepository := server.orderDependencies.NewOrderRepository()
 	// orderReconciliation 保存订单补偿写入应用 Port 的数据库适配器。
-	orderReconciliation := server.dependencies.NewOrderReconciliationRepository()
+	orderReconciliation := server.orderDependencies.NewOrderReconciliationRepository()
 	// orderRuntime 保存订单服务共享的运行时能力适配器。
 	orderRuntime := newServerOrderRuntime(server, orderReconciliation)
+	// orderReconciliationRecovery 将补偿扫描器的启动、取消和等待收口到订单应用边界。
+	orderReconciliationRecovery, orderReconciliationRecoveryErr := orderapp.NewReconciliationRecoveryCoordinator(server.systemDependencies.NewReconciliationService(server.Logger))
+	if orderReconciliationRecoveryErr != nil {
+		panic(orderReconciliationRecoveryErr)
+	}
 	// orderServices 保存应用层统一构造的订单业务服务集合。
-	orderServices := orderapp.NewServiceSet(orderRepository, orderRepository, orderRuntime, orderRuntime, server.dependencies.NewOrderRefreshJobRepository(), refreshOrderChunkSize)
+	orderServices := orderapp.NewServiceSet(orderRepository, orderRepository, orderRuntime, orderRuntime, server.orderDependencies.NewOrderRefreshJobRepository(), refreshOrderChunkSize)
+	// orderRefreshRunner 是订单刷新后台 worker 与恢复扫描的生命周期拥有者。
+	orderRefreshRunner, orderRefreshRunnerErr := orderapp.NewRefreshJobRunner(
+		orderServices.RefreshJobs,
+		orderServices.Refresh,
+		orderapp.RefreshJobRunnerOptions{
+			OnWorkerError: func(jobID string, err error) {
+				if server.Logger != nil {
+					server.Logger.Warn("订单刷新后台任务结束", "job_id", jobID, "err", err)
+				}
+			},
+			OnRecoveryError: func(err error) {
+				if server.Logger != nil {
+					server.Logger.Warn("扫描订单刷新恢复任务失败", "err", err)
+				}
+			},
+		},
+	)
+	if orderRefreshRunnerErr != nil {
+		panic(orderRefreshRunnerErr)
+	}
+	// orderRefreshJobs 是订单刷新任务应用 facade，封装归属、租约和 worker 启动编排。
+	orderRefreshJobs, orderRefreshJobsErr := orderapp.NewRefreshJobService(
+		orderServices.RefreshJobs,
+		orderServices.Refresh,
+		orderRefreshRunner,
+		orderapp.RefreshJobServiceOptions{},
+	)
+	if orderRefreshJobsErr != nil {
+		panic(orderRefreshJobsErr)
+	}
 	// accountProfile 保存账号资料刷新用例的构造结果。
 	// accountRepository 提供账号登录、资料摘要和删除共用的数据库适配器。
-	accountRepository := server.dependencies.NewAccountLoginRepository()
+	accountRepository := server.accountDependencies.NewAccountLoginRepository()
+	// platformCredentials 将账号凭证读取限制在消费者定义的只读应用端口。
+	platformCredentials, platformCredentialsErr := accountapp.NewPlatformCredentialService(accountRepository)
+	if platformCredentialsErr != nil {
+		panic(platformCredentialsErr)
+	}
+	// cookieWriterFactory 将明文 Cookie 封装在 adapter 的请求范围实例中，Server 不持有凭证仓储。
+	cookieWriterFactory := func(cookies string) accountapp.CookieWriter {
+		return adapter.NewAccountCookieWriter(accountRepository, platformCredentials, cookies, server.Logger)
+	}
+	// cookieUpdaterFactory 将既有账号的明文 Cookie 封装在 adapter 的请求范围实例中。
+	cookieUpdaterFactory := func(cookies string) accountapp.CookieUpdater {
+		return adapter.NewAccountCookieWriter(accountRepository, platformCredentials, cookies, server.Logger)
+	}
+	// sessionRecovery 统一适配平台 Session 失效分类、诊断日志和账号运行时恢复。
+	sessionRecovery := server.sessionRecoveryCallback()
 	// accountProfile 由应用层服务编排平台资料刷新与非敏感摘要持久化。
-	accountProfile, profileErr := accountapp.NewProfileService(accountRepository, adapter.NewAccountProfilePort(accountRepository, server.mtopClient, server.updateRunningCookie, server.recoverExpiredMTOPSession, server.Logger))
+	accountProfile, profileErr := accountapp.NewProfileService(accountRepository, adapter.NewAccountProfilePort(accountRepository, server.mtopClient, server.updateRunningCookie, sessionRecovery, server.Logger))
 	if profileErr != nil {
 		panic(profileErr)
 	}
 	// accountLongLogin 由适配器承载平台调用、Cookie 快照合并和凭证写回。
 	accountLongLogin, longLoginErr := accountapp.NewLongLoginService(
 		accountRepository,
-		adapter.NewLongLoginAdapter(accountRepository, func() adapter.LongLoginClient { return server.CookieRenew }, server.updateRunningCookie, server.Logger),
+		adapter.NewLongLoginAdapter(accountRepository, server.longLoginClient, server.updateRunningCookie, server.Logger),
 	)
 	if longLoginErr != nil {
 		panic(longLoginErr)
@@ -124,22 +225,40 @@ func newApplicationServices(server *Server) *applicationServices {
 		settingsRuntime = server.Manager
 	}
 	// accountSettings、accountSettingsErr 保存账号设置应用服务及其装配错误。
-	accountSettings, accountSettingsErr := accountapp.NewSettingsService(server.dependencies.NewAccountSettingsRepository(), settingsRuntime)
+	accountSettings, accountSettingsErr := accountapp.NewSettingsService(server.accountDependencies.NewAccountSettingsRepository(), settingsRuntime)
 	if accountSettingsErr != nil {
 		panic(accountSettingsErr)
 	}
 	// accountSummaryRepository 保存普通用户与管理员共用的摘要查询适配器。
-	accountSummaryRepository := server.dependencies.NewAccountSummaryRepository()
+	accountSummaryRepository := server.accountDependencies.NewAccountSummaryRepository()
 	// accountSummaries、accountSummariesErr 保存账号摘要应用服务及其装配错误。
 	accountSummaries, accountSummariesErr := accountapp.NewSummaryService(accountSummaryRepository, accountSummaryRepository)
 	if accountSummariesErr != nil {
 		panic(accountSummariesErr)
 	}
 	// credentialWake 负责将凭证恢复后的任务唤醒写入收口到适配器。
-	credentialWake, credentialWakeErr := automationapp.NewCredentialWakeService(server.dependencies.NewAutomationCredentialWakeRepository())
+	// automationDependencies 提供自动化、默认回复和关键词用例的显式适配器工厂。
+	automationDependencies := server.automationDependencies
+	if automationDependencies == nil {
+		panic("自动化专用依赖未装配")
+	}
+	// credentialWake、credentialWakeErr 保存凭证恢复后的自动化唤醒应用服务及装配错误。
+	credentialWake, credentialWakeErr := automationapp.NewCredentialWakeService(automationDependencies.NewAutomationCredentialWakeRepository())
 	if credentialWakeErr != nil {
 		panic(credentialWakeErr)
 	}
+	// accountRuntime 将 Manager 与凭证恢复后的自动化唤醒收口到账号应用端口。
+	accountRuntime := accountapp.NewRuntimeService(adapter.NewAccountRuntimePort(server.Manager), credentialWake)
+	// loginSuccess 负责登录成功后的资料刷新和启用账号运行时重启，避免 Server 持有业务编排。
+	loginSuccess := accountapp.NewLoginSuccessService(accountRepository, accountProfile, accountRepository, accountRuntime, func(message string, err error) {
+		if server.Logger != nil {
+			server.Logger.Warn(message, "err", err)
+		}
+	})
+	// loginAudit 负责登录方式、账号启用和审计日志写入，生命周期适配器只组合应用端口。
+	loginAudit := accountapp.NewLoginAuditService(server.accountDependencies.NewAccountLoginAuditRepository())
+	// loginLifecycle 将手动登录与扫码登录的成功后续动作收口到 adapter，不再反向持有 Server。
+	loginLifecycle := adapter.NewAccountLoginLifecycle(loginAudit, loginSuccess, server.Logger)
 	// deleteRuntime 是可选的账号运行时端口；显式保持 nil，避免把 nil *Manager 装入非空接口后触发 panic。
 	var deleteRuntime accountapp.DeleteRuntime
 	if server.Manager != nil {
@@ -151,14 +270,16 @@ func newApplicationServices(server *Server) *applicationServices {
 		panic(deleteErr)
 	}
 	// itemBatchPublish 是批量远端发布适配器，图片安全回调由 Server 装配时注入。
-	itemBatchPublish := server.dependencies.NewItemBatchPublishPort(server.mtopClient, server.Logger, server.updateRunningCookie, func(ctx context.Context, cookieID string, err error) {
-		server.recoverExpiredMTOPSession(ctx, cookieID, err)
+	itemBatchPublish := server.itemDependencies.NewItemBatchPublishPort(server.mtopClient, server.Logger, server.updateRunningCookie, func(ctx context.Context, cookieID string, err error) {
+		if sessionRecovery != nil {
+			sessionRecovery(ctx, cookieID, err)
+		}
 	}, readBatchImageFile, downloadImageURL)
 	// itemBatchLocalPublish 将远端发布成功后的本地商品、规则和检查点一次性装配。
 	itemBatchLocalPublish, itemBatchLocalPublishErr := itemapp.NewBatchLocalPublishService(
-		server.dependencies.NewItemBatchRepository(),
-		server.dependencies.NewItemCatalogRepository(),
-		server.dependencies.NewAutomationRepository(),
+		server.itemDependencies.NewItemBatchRepository(),
+		server.itemDependencies.NewItemCatalogRepository(),
+		automationDependencies.NewAutomationRepository(),
 	)
 	if itemBatchLocalPublishErr != nil {
 		panic(itemBatchLocalPublishErr)
@@ -168,54 +289,72 @@ func newApplicationServices(server *Server) *applicationServices {
 	if batchRunnerErr != nil {
 		panic(batchRunnerErr)
 	}
-	// itemBatchRecovery 负责恢复扫描的批次状态编排，worker 启动仍由 Server 生命周期边界提供。
+	// itemBatchRecovery 负责恢复扫描的批次状态编排；worker 生命周期由协调器拥有。
 	itemBatchRecovery, batchRecoveryErr := itemapp.NewBatchRecoveryService(
-		server.dependencies.NewItemBatchRepository(),
-		itemapp.BatchRecoveryOptions{
-			LeaseDuration: publishBatchLease,
-			StartWorker: func(ctx context.Context, userID int64, batchID, workerToken string) {
-				server.startPublishBatchWorker(ctx, userID, batchID, workerToken)
-			},
-		},
+		server.itemDependencies.NewItemBatchRepository(),
+		itemapp.BatchRecoveryOptions{LeaseDuration: publishBatchLease},
 	)
 	if batchRecoveryErr != nil {
 		panic(batchRecoveryErr)
 	}
+	// itemBatchCoordinator 负责批次 worker 的超时、恢复扫描和停止等待。
+	itemBatchCoordinator, batchCoordinatorErr := itemapp.NewBatchWorkerCoordinator(itemBatchRunner, itemBatchRecovery, itemapp.BatchWorkerCoordinatorOptions{
+		OnWorkerError: func(batchID string, err error) {
+			if server.Logger != nil {
+				server.Logger.Warn("批量发布 worker 结束", "batch", batchID, "err", err)
+			}
+		},
+		OnRecoveryError: func(err error) {
+			if server.Logger != nil {
+				server.Logger.Warn("扫描可恢复批量发布任务失败", "err", err)
+			}
+		},
+	})
+	if batchCoordinatorErr != nil {
+		panic(batchCoordinatorErr)
+	}
 	// itemBatchPreviewPort 提供批量预检所需的非敏感归属与本地图片校验能力。
-	itemBatchPreviewPort := server.dependencies.NewItemBatchPreviewPort()
+	itemBatchPreviewPort := server.itemDependencies.NewItemBatchPreviewPort()
 	// itemBatchPreview 是批量发布预检应用服务的构造结果。
 	itemBatchPreview, itemBatchPreviewErr := itemapp.NewBatchPreviewService(itemBatchPreviewPort, itemBatchPreviewPort)
 	if itemBatchPreviewErr != nil {
 		panic(itemBatchPreviewErr)
 	}
 	// itemBatchManagement 是批次管理应用服务的构造结果。
-	itemBatchManagement, itemBatchManagementErr := itemapp.NewBatchManagementService(server.dependencies.NewItemBatchRepository(), serverBatchManagementRuntime{server: server})
+	itemBatchManagement, itemBatchManagementErr := itemapp.NewBatchManagementService(server.itemDependencies.NewItemBatchRepository(), serverBatchManagementRuntime{server: server, coordinator: itemBatchCoordinator})
 	if itemBatchManagementErr != nil {
 		panic(itemBatchManagementErr)
 	}
 	// accountLoginCreate 是手动 Cookie 登录应用服务的构造结果。
-	accountLoginCreate, accountLoginCreateErr := newAccountLoginCreateApplication(server)
+	accountLoginCreate, accountLoginCreateErr := newAccountLoginCreateApplication(loginLifecycle)
 	if accountLoginCreateErr != nil {
 		panic(accountLoginCreateErr)
 	}
 	// accountQRLogin 是扫码成功凭证持久化应用服务的构造结果；零值测试 Server 暂不装配数据库端口。
 	var accountQRLogin *accountapp.QRLoginService
-	if server.dependencies != nil {
+	if server.accountDependencies != nil {
 		// accountQRLoginErr 保存扫码应用服务装配失败原因。
 		var accountQRLoginErr error
-		accountQRLogin, accountQRLoginErr = accountapp.NewQRLoginService(server.dependencies.NewQRLoginRepository(), serverQRLoginLifecycle{server: server})
+		accountQRLogin, accountQRLoginErr = accountapp.NewQRLoginService(server.accountDependencies.NewQRLoginRepository(), loginLifecycle)
 		if accountQRLoginErr != nil {
 			panic(accountQRLoginErr)
 		}
 	}
+	// qrSessionRegistry 将扫码会话所有权、过期回收和幂等结果放在应用边界内。
+	qrSessionRegistry := accountapp.NewQRLoginSessionRegistry()
 	// automationRepository 复用同一个数据库适配器，保持自动化异常与规则查询的基础设施边界一致。
-	automationRepository := server.dependencies.NewAutomationRepository()
+	automationRepository := automationDependencies.NewAutomationRepository()
 	// settingsService 统一装配设置数据库与远端模型目录适配器。
-	settingsService := settingsapp.NewService(server.dependencies.NewSettingsRepository(), adapter.NewAIModelClient())
-	// adminService 负责管理员用户与仪表盘查询，HTTP 层只做 DTO 映射。
-	adminService := adminapp.NewService(server.dependencies.NewAdminRepository())
+	settingsService := settingsapp.NewService(server.adminSettingsDependencies.NewSettingsRepository(), adapter.NewAIModelClient())
+	// adminRuntime 是管理员删除用户前收束账号运行实例的窄端口；无 Manager 的离线测试保持为空。
+	var adminRuntime adminapp.Runtime
+	if server.Manager != nil {
+		adminRuntime = server.Manager
+	}
+	// adminService 负责管理员用户与仪表盘查询及删除前的账号运行时收束，HTTP 层只做 DTO 映射。
+	adminService := adminapp.NewServiceWithRuntime(server.adminSettingsDependencies.NewAdminRepository(), adminRuntime)
 	// itemCatalogRepository 是商品读写用例共用的数据库适配器。
-	itemCatalogRepository := server.dependencies.NewItemCatalogRepository()
+	itemCatalogRepository := server.itemDependencies.NewItemCatalogRepository()
 	// itemCatalog 是商品列表和详情读取用例的应用服务。
 	itemCatalog, itemCatalogErr := itemapp.NewCatalogService(itemCatalogRepository)
 	if itemCatalogErr != nil {
@@ -227,8 +366,10 @@ func newApplicationServices(server *Server) *applicationServices {
 		panic(itemCatalogMutationErr)
 	}
 	// itemPublishPort 是单商品与批量发布共享的平台凭证适配器。
-	itemPublishPort := server.dependencies.NewItemPublishPort(server.mtopClient, server.Logger, server.updateRunningCookie, func(ctx context.Context, cookieID string, err error) {
-		server.recoverExpiredMTOPSession(ctx, cookieID, err)
+	itemPublishPort := server.itemDependencies.NewItemPublishPort(server.mtopClient, server.Logger, server.updateRunningCookie, func(ctx context.Context, cookieID string, err error) {
+		if sessionRecovery != nil {
+			sessionRecovery(ctx, cookieID, err)
+		}
 	})
 	// itemCategoryRecommendation 复用商品发布端口承载类目推荐和响应会话写回。
 	itemCategoryRecommendation, itemCategoryRecommendationErr := itemapp.NewCategoryRecommendationService(itemPublishPort)
@@ -236,67 +377,82 @@ func newApplicationServices(server *Server) *applicationServices {
 		panic(itemCategoryRecommendationErr)
 	}
 	// itemBatchPreviewPersistence 将预检结果持久化到批次仓储，隔离数据库模型转换。
-	itemBatchPreviewPersistence, itemBatchPreviewPersistenceErr := itemapp.NewBatchPreviewPersistenceService(server.dependencies.NewItemBatchRepository())
+	itemBatchPreviewPersistence, itemBatchPreviewPersistenceErr := itemapp.NewBatchPreviewPersistenceService(server.itemDependencies.NewItemBatchRepository())
 	if itemBatchPreviewPersistenceErr != nil {
 		panic(itemBatchPreviewPersistenceErr)
 	}
 	// itemSinglePublish 是单商品发布应用服务及其基础设施端口的构造结果。
 	itemSinglePublish, itemSinglePublishErr := itemapp.NewService(
 		itemPublishPort,
-		server.dependencies.NewItemPublishRepository(),
+		server.itemDependencies.NewItemPublishRepository(),
 	)
 	if itemSinglePublishErr != nil {
 		panic(itemSinglePublishErr)
 	}
 	return &applicationServices{
-		orders:                      &orderHTTPAdapter{services: orderServices, repository: orderRepository},
+		platformCredentials:         platformCredentials,
+		orders:                      &orderHTTPAdapter{services: orderServices},
+		orderRefreshJobs:            orderRefreshJobs,
+		orderReconciliationRecovery: orderReconciliationRecovery,
 		itemSinglePublish:           itemSinglePublish,
-		itemBatchRunner:             itemBatchRunner,
-		itemBatchRecovery:           itemBatchRecovery,
+		itemBatchCoordinator:        itemBatchCoordinator,
 		itemBatchPreview:            itemBatchPreview,
 		itemBatchManagement:         itemBatchManagement,
 		itemCategoryRecommendation:  itemCategoryRecommendation,
 		itemBatchPreviewPersistence: itemBatchPreviewPersistence,
 		itemBatchLocalPublish:       itemBatchLocalPublish,
-		itemSync: itemapp.NewSyncService(server.dependencies.NewItemSyncRepository(server.mtopClient, server.Logger, server.updateRunningCookie, func(ctx context.Context, cookieID string, err error) {
-			server.recoverExpiredMTOPSession(ctx, cookieID, err)
+		itemSync: itemapp.NewSyncService(server.itemDependencies.NewItemSyncRepository(server.mtopClient, server.Logger, server.updateRunningCookie, func(ctx context.Context, cookieID string, err error) {
+			if sessionRecovery != nil {
+				sessionRecovery(ctx, cookieID, err)
+			}
 		})),
 		itemCatalog:            itemCatalog,
 		itemCatalogMutation:    itemCatalogMutation,
-		accountLogin:           &accountLoginService{server: server, repository: accountRepository, summaryRepository: accountSummaryRepository, createApplication: accountLoginCreate, qrApplication: accountQRLogin},
+		accountLogin:           &accountLoginService{cookieWriterFactory: cookieWriterFactory, cookieUpdaterFactory: cookieUpdaterFactory, sessionPort: accountRepository, createApplication: accountLoginCreate, qrApplication: accountQRLogin, qrSessions: qrSessionRegistry},
 		authentication:         newAuthenticationApplication(server),
-		loginAudit:             accountapp.NewLoginAuditService(server.dependencies.NewAccountLoginAuditRepository()),
+		loginAudit:             loginAudit,
 		passwordLogin:          accountapp.NewPasswordLoginService(),
 		accountDelete:          accountDelete,
 		accountProfile:         accountProfile,
 		accountLongLogin:       accountLongLogin,
 		accountSettings:        accountSettings,
+		accountRuntime:         accountRuntime,
 		accountSummaries:       accountSummaries,
-		accountTasks:           automationapp.NewService(server.dependencies.NewAccountTaskRepository(), adapter.NewAccountTaskRunner(server.automation)),
+		accountTasks:           automationapp.NewService(automationDependencies.NewAccountTaskRepository(), adapter.NewAccountTaskRunner(server.automation)),
 		credentialWake:         credentialWake,
 		chat:                   newChatSendingApplication(server),
-		uncertainNotifications: notificationsapp.New(server.dependencies.NewNotificationUncertainRepository()),
-		notificationChannels:   notificationsapp.NewChannelService(server.dependencies.NewNotificationChannelRepository(), server.notifier),
-		analytics:              analyticsapp.NewService(server.dependencies.NewAnalyticsRepository()),
+		uncertainNotifications: notificationsapp.New(server.miscDependencies.NewNotificationUncertainRepository()),
+		notificationChannels:   notificationsapp.NewChannelService(server.miscDependencies.NewNotificationChannelRepository(), server.notifier),
+		analytics:              analyticsapp.NewService(server.miscDependencies.NewAnalyticsRepository()),
 		automationRules:        automationapp.NewRuleService(automationRepository, automationRepository),
-		cards:                  cardsapp.NewService(server.dependencies.NewCardsRepository()),
+		cards:                  cardsapp.NewService(server.miscDependencies.NewCardsRepository()),
 		publishAutomationRules: automationapp.NewPublishRuleService(automationRepository),
 		automationIssues:       automationapp.NewIssueService(automationRepository),
-		defaultReplies:         defaultreplyapp.NewService(server.dependencies.NewDefaultReplyRepository()),
-		keywords:               keywordsapp.NewService(server.dependencies.NewKeywordRepository()),
+		defaultReplies:         defaultreplyapp.NewService(automationDependencies.NewDefaultReplyRepository()),
+		keywords:               keywordsapp.NewService(automationDependencies.NewKeywordRepository()),
 		settings:               settingsService,
 		admin:                  adminService,
 	}
 }
 
+// accountRuntimeApplication 返回当前 Server 绑定的账号运行时应用服务。
+func (s *Server) accountRuntimeApplication() *accountapp.RuntimeService {
+	return s.applicationServiceSet().accountRuntime
+}
+
 // newAuthenticationApplication 构造用户认证应用服务及其数据库适配器。
 func newAuthenticationApplication(server *Server) *accountapp.AuthenticationService {
 	// authentication、authenticationErr 保存认证应用服务及其装配错误。
-	authentication, authenticationErr := accountapp.NewAuthenticationService(server.dependencies.NewAuthenticationRepository())
+	authentication, authenticationErr := accountapp.NewAuthenticationService(server.accountDependencies.NewAuthenticationRepository())
 	if authenticationErr != nil {
 		panic(authenticationErr)
 	}
 	return authentication
+}
+
+// orderRefreshJobsApplication 返回当前 Server 绑定的订单刷新任务应用服务。
+func (s *Server) orderRefreshJobsApplication() *orderapp.RefreshJobService {
+	return s.applicationServiceSet().orderRefreshJobs
 }
 
 // itemCatalogApplication 返回当前 Server 绑定的商品读取应用服务。
@@ -329,11 +485,6 @@ func (s *Server) accountTaskApplication() *automationapp.Service {
 	return s.applicationServiceSet().accountTasks
 }
 
-// credentialWakeApplication 返回当前 Server 绑定的凭证恢复唤醒应用服务。
-func (s *Server) credentialWakeApplication() *automationapp.CredentialWakeService {
-	return s.applicationServiceSet().credentialWake
-}
-
 // automationIssuesApplication 返回当前 Server 绑定的自动化异常应用服务。
 func (s *Server) automationIssuesApplication() *automationapp.IssueService {
 	return s.applicationServiceSet().automationIssues
@@ -342,16 +493,6 @@ func (s *Server) automationIssuesApplication() *automationapp.IssueService {
 // automationRulesApplication 返回当前 Server 绑定的自动化规则应用服务。
 func (s *Server) automationRulesApplication() *automationapp.RuleService {
 	return s.applicationServiceSet().automationRules
-}
-
-// itemBatchRunnerApplication 返回当前 Server 绑定的批量发布 worker 编排器。
-func (s *Server) itemBatchRunnerApplication() *itemapp.BatchRunner {
-	return s.applicationServiceSet().itemBatchRunner
-}
-
-// itemBatchRecoveryApplication 返回当前 Server 绑定的批量恢复应用服务。
-func (s *Server) itemBatchRecoveryApplication() *itemapp.BatchRecoveryService {
-	return s.applicationServiceSet().itemBatchRecovery
 }
 
 // itemBatchPreviewApplication 返回当前 Server 绑定的批量预检应用服务。
@@ -389,6 +530,14 @@ func (s *Server) accountSettingsApplication() *accountapp.SettingsService {
 	return s.applicationServiceSet().accountSettings
 }
 
+// platformCredentialApplication 返回当前 Server 绑定的平台凭证只读应用服务。
+func (s *Server) platformCredentialApplication() *accountapp.PlatformCredentialService {
+	if s == nil || s.applications == nil {
+		return nil
+	}
+	return s.applications.platformCredentials
+}
+
 // authenticationApplication 返回当前 Server 绑定的用户认证应用服务。
 func (s *Server) authenticationApplication() *accountapp.AuthenticationService {
 	return s.applicationServiceSet().authentication
@@ -422,9 +571,9 @@ func (s *Server) applicationServiceSet() *applicationServices {
 	if s.applications != nil {
 		return s.applications
 	}
-	if s.dependencies == nil {
+	if s.orderDependencies == nil || s.accountDependencies == nil || s.itemDependencies == nil || s.chatDependencies == nil || s.systemDependencies == nil || s.automationDependencies == nil || s.miscDependencies == nil || s.adminSettingsDependencies == nil {
 		// accountLogin 仅用于零值 Server 的输入校验测试，不触发任何持久化访问。
-		return &applicationServices{accountLogin: &accountLoginService{server: s}}
+		return &applicationServices{accountLogin: &accountLoginService{}}
 	}
 	return newApplicationServices(s)
 }

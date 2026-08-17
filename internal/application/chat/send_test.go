@@ -52,6 +52,20 @@ type sendProvider struct {
 	sender *sendSender
 }
 
+// TestServiceAvailabilityReportsRequiredPorts 验证发送和图片上传能力只由应用端口装配状态决定。
+func TestServiceAvailabilityReportsRequiredPorts(t *testing.T) {
+	// unavailable 是没有任何外发端口的聊天应用服务。
+	unavailable := NewWithSending(nil, nil, nil, nil)
+	if unavailable.SendingAvailable() || unavailable.ImageUploadAvailable() {
+		t.Fatal("缺少外发端口时不应报告聊天能力可用")
+	}
+	// available 是同时装配文字发送和图片上传端口的聊天应用服务。
+	available := NewWithSending(nil, &sendRepository{}, sendProvider{}, sendUploader{})
+	if !available.SendingAvailable() || !available.ImageUploadAvailable() {
+		t.Fatal("完整装配的聊天能力应报告可用")
+	}
+}
+
 // Sender 返回测试发送器或模拟离线。
 func (p sendProvider) Sender(string) (Sender, bool) {
 	return p.sender, p.sender != nil

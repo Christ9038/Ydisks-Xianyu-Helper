@@ -9,7 +9,7 @@ import type {
   ReplyRule,
   ShippingRule,
   ShippingVariant,
-} from '../../../types';
+} from '../../../shared/api-contract';
 import type { AutomationRunIssue, DeferredAutomationIssue } from './api';
 
 // Rules feature 通过此类型入口重导出共享领域模型，避免页面直接依赖全局类型文件。
@@ -23,7 +23,7 @@ export type {
   ReplyRule,
   ShippingRule,
   ShippingVariant,
-} from '../../../types';
+} from '../../../shared/api-contract';
 
 // RulesTab 表示规则页面的三个业务页签。
 export type RulesTab = 'automation' | 'reply' | 'default';

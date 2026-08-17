@@ -11,7 +11,7 @@ import (
 )
 
 // wsRecorder 负责 WebSocket 报文诊断记录的有界队列和后台写入生命周期。
-// once 保护单次启动，wg 等待写入 worker；组件锁不覆盖数据库 I/O。
+// once 保护单次启动；done 是写入 worker 的 Context-aware Join 信号，组件锁不覆盖数据库 I/O。
 // wsRecorder 保存wsRecorder，供当前处理流程使用
 type wsRecorder struct {
 	// store 提供 WebSocket 报文持久化 repository。
@@ -22,8 +22,6 @@ type wsRecorder struct {
 	logger *slog.Logger
 	// once 保证同一个账号运行时只启动一个 recorder worker。
 	once sync.Once
-	// wg 等待 recorder worker 退出。
-	wg sync.WaitGroup
 	// done 在 recorder worker 退出时关闭，供 Context-aware 等待直接选择而不创建旁路 goroutine。
 	done chan struct{}
 	// started 表示 recorder worker 是否实际启动；未启动的 recorder 无需等待。
@@ -80,9 +78,7 @@ func (r *wsRecorder) start(ctx context.Context) {
 	}
 	r.once.Do(func() {
 		r.started.Store(true)
-		r.wg.Add(1)
 		go func() {
-			defer r.wg.Done()
 			defer close(r.done)
 			// cleanupCtx 是清理历史报文时的有限时长上下文。
 			cleanupCtx, cleanupCancel := context.WithTimeout(ctx, WSRecordWriteTimeout)
@@ -131,13 +127,6 @@ func (r *wsRecorder) start(ctx context.Context) {
 			}
 		}()
 	})
-}
-
-// wait 等待 recorder worker 退出。
-func (r *wsRecorder) wait() {
-	if r != nil {
-		r.wg.Wait()
-	}
 }
 
 // waitContext 在 ctx 约束内等待 recorder worker 退出；数据库写入异常阻塞时及时把停止超时交给调用方。

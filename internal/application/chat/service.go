@@ -15,6 +15,15 @@ var ErrInvalidInput = errors.New("聊天历史查询参数无效")
 // ErrSessionUnavailable 表示会话清理、归属或身份持久化端口未装配。
 var ErrSessionUnavailable = errors.New("聊天会话服务未启用")
 
+// ErrSubscriptionUnavailable 表示实时聊天事件订阅端口尚未装配。
+var ErrSubscriptionUnavailable = errors.New("聊天实时订阅服务未启用")
+
+// ErrRefreshUnavailable 表示聊天平台刷新端口尚未装配。
+var ErrRefreshUnavailable = errors.New("聊天刷新服务未启用")
+
+// ErrRefreshPersist 表示平台刷新成功但本地聊天历史持久化失败。
+var ErrRefreshPersist = errors.New("聊天刷新结果保存失败")
+
 // Message 是聊天历史用例对外暴露的非敏感消息模型。
 type Message struct {
 	// ID 是本地消息主键。
@@ -80,6 +89,51 @@ type IdentityResolver interface {
 	Resolve(ctx context.Context, accountID, chatID string) (Identity, error)
 }
 
+// Event 是实时聊天推送使用的非敏感应用层事件模型。
+type Event struct {
+	// Type 表示事件类别，例如 message.created。
+	Type string `json:"type"`
+	// Message 保存事件关联的聊天消息；非消息事件可以为空。
+	Message *Message `json:"message,omitempty"`
+	// Session 保存事件关联的会话摘要；无会话信息时为空。
+	Session *Session `json:"session,omitempty"`
+}
+
+// SubscriptionProvider 定义实时聊天订阅所需的最小能力。
+type SubscriptionProvider interface {
+	// Subscribe 按用户归属订阅实时事件，并返回幂等取消函数。
+	Subscribe(ctx context.Context, userID int64) (<-chan Event, func(), error)
+}
+
+// ConversationPage 是平台联系人刷新后返回的非敏感分页结果。
+type ConversationPage struct {
+	// HasMore 表示平台是否还存在更早的联系人页。
+	HasMore bool
+	// NextCursor 保存下一次联系人刷新使用的平台游标。
+	NextCursor int64
+}
+
+// HistoryPage 是平台聊天历史刷新后返回的非敏感分页结果。
+type HistoryPage struct {
+	// Messages 保存已写入本地仓储的聊天消息。
+	Messages []Message
+	// Session 保存当前会话的非敏感摘要。
+	Session Session
+	// HasMore 表示平台是否还存在更早的消息页。
+	HasMore bool
+	// NextCursor 保存下一次历史刷新使用的平台游标。
+	NextCursor int64
+}
+
+// RefreshProvider 定义聊天平台刷新和本地落库所需的最小适配能力。
+// 原始平台响应、运行时实例和数据库模型均由适配器持有，不进入 Server。
+type RefreshProvider interface {
+	// RefreshConversations 拉取并保存指定账号的联系人页。
+	RefreshConversations(context.Context, string, int64, int) (ConversationPage, error)
+	// RefreshHistory 拉取并保存指定会话的消息页。
+	RefreshHistory(context.Context, string, string, int64, int, Session) (HistoryPage, error)
+}
+
 // Page 是聊天历史查询的分页结果。
 type Page struct {
 	// Messages 是按时间正序排列的当前页消息。
@@ -124,6 +178,10 @@ type Service struct {
 	uploader ImageUploader
 	// identityResolver 保存平台身份查询端口，凭证只在适配器内部短暂存在。
 	identityResolver IdentityResolver
+	// subscription 保存实时事件订阅端口；平台和领域实现不会泄露到 HTTP 层。
+	subscription SubscriptionProvider
+	// refresh 保存平台聊天刷新端口；原始响应只在适配器内部解析和持久化。
+	refresh RefreshProvider
 }
 
 // New 创建聊天历史应用服务；空端口会导致构造结果不可用。

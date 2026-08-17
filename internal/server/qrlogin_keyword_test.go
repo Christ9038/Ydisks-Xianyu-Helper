@@ -195,7 +195,7 @@ func TestQRLoginSessionExpiresWithoutAnotherGenerateRequest(t *testing.T) {
 	srv.QRLogin = &fakeQRLoginService{status: map[string]any{"status": "waiting"}}
 	// admin 保存admin，供当前处理流程使用
 	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
-	srv.qrOwners["expired-session"] = qrLoginOwner{UserID: admin.ID, CreatedAt: time.Now().UTC().Add(-31 * time.Minute)}
+	srv.accountLoginApplication().qrSessions.Register("expired-session", admin.ID, time.Now().UTC().Add(-31*time.Minute))
 	// h 保存h，供当前处理流程使用
 	h := srv.Router()
 	// cookie 保存登录凭证，供当前处理流程使用
@@ -265,9 +265,7 @@ func ownQRSession(t *testing.T, srv *Server, store *db.Store, sessionID string) 
 	if err != nil {
 		t.Fatalf("GetByUsername admin: %v", err)
 	}
-	srv.qrMu.Lock()
-	srv.qrOwners[sessionID] = qrLoginOwner{UserID: admin.ID, CreatedAt: time.Now().UTC()}
-	srv.qrMu.Unlock()
+	srv.accountLoginApplication().qrSessions.Register(sessionID, admin.ID, time.Now().UTC())
 }
 
 // TestQRLoginStatusPersistsSuccessIdempotently 负责TestQR登录状态PersistsSuccessIdempotently相关处理。

@@ -90,9 +90,10 @@ type CredentialRecoverer interface {
 	RecoverExpiredCredential(ctx context.Context, cookieID string) bool
 }
 
-// Notifier 发货结果通知器（多渠道）。可选依赖，未注入时跳过通知。
+// Notifier 发货结果通知器（多渠道）。可选依赖，未注入时跳过通知；实现必须按自动化运行和终态持久化去重。
 type Notifier interface {
-	NotifyDelivery(accountID, buyerName, buyerID, itemID, message, chatID string)
+	// NotifyAutomationRun 将自动化运行终态写入可持久化去重的通知链路；runID 和 status 共同标识同一次结果。
+	NotifyAutomationRun(ctx context.Context, runID int64, accountID, buyerID, itemID, status, message, chatID string)
 }
 
 // Center 是统一自动化处理中心。
@@ -112,49 +113,103 @@ type Center struct {
 	// notifications 负责把运行结果转换为可选的发货通知。
 	notifications deliveryNotifier
 	// taskRunner 协调账号任务执行、凭证阻断和账号状态门禁。
-	taskRunner        accountTaskCoordinator
-	store             *db.Store
-	senders           SenderProvider
-	fetcher           OrderDetailFetcher
-	recoverer         CredentialRecoverer
-	notifier          Notifier
-	mtop              mtop.Client
-	accountTaskClient AccountTaskClient
-	logger            *slog.Logger
-	cookieSrc         func(context.Context, string) (string, error)
+	taskRunner accountTaskCoordinator
+	store      *db.Store
+	senders    SenderProvider
+	logger     *slog.Logger
+	// dependencies 拥有生产构造时固定的外部依赖快照，运行期间不可替换。
+	dependencies centerDependencies
 }
 
-// New 构造自动化中心。
+// centerDependencies 集中拥有自动化中心构造后不可变的外部依赖。
+type centerDependencies struct {
+	// mtop 是确认发货使用的 MTOP 客户端。
+	mtop mtop.Client
+	// accountTaskClient 是账号任务使用的平台客户端。
+	accountTaskClient AccountTaskClient
+	// fetcher 是订单详情查询器。
+	fetcher OrderDetailFetcher
+	// recoverer 是凭证恢复器。
+	recoverer CredentialRecoverer
+	// notifier 是发货结果通知器。
+	notifier Notifier
+	// cookieSrc 是构造期注入的 Cookie 读取函数。
+	cookieSrc func(context.Context, string) (string, error)
+}
+
+// CenterDependencies 保存自动化中心启动时必须固定的外部协作依赖。
+type CenterDependencies struct {
+	// MTop 提供确认发货使用的 MTOP 协议客户端；为空时使用默认实现。
+	MTop mtop.Client
+	// AccountTaskClient 提供自动评价与商品擦亮的协议调用；使用默认 MTOP 时可自动复用其任务能力。
+	AccountTaskClient AccountTaskClient
+	// OrderDetailFetcher 提供自动发货前的订单详情查询能力。
+	OrderDetailFetcher OrderDetailFetcher
+	// Notifier 接收发货结果通知；为空时不发送通知。
+	Notifier Notifier
+	// CookieSource 提供自动发货读取 Cookie 的可替换边界；为空时读取仓储。
+	CookieSource func(context.Context, string) (string, error)
+}
+
+// New 构造使用默认协议实现的自动化中心。
 func New(store *db.Store, senders SenderProvider, logger *slog.Logger) *Center {
+	return NewWithDependencies(store, senders, logger, CenterDependencies{})
+}
+
+// NewWithDependencies 构造依赖固定的自动化中心，生产装配应通过该入口注入外部能力。
+func NewWithDependencies(store *db.Store, senders SenderProvider, logger *slog.Logger, dependencies CenterDependencies) *Center {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	// client 保存client，供当前处理流程使用
-	client := mtop.NewClient()
+	// client 保存确认发货使用的固定 MTOP 客户端。
+	client := dependencies.MTop
+	// defaultTaskClient 保存默认 MTOP 实现同时提供的账号任务能力。
+	var defaultTaskClient AccountTaskClient
+	if client == nil {
+		// defaultClient 保存默认协议客户端的具体实现，供两个消费者共享。
+		defaultClient := mtop.NewClient()
+		client = defaultClient
+		defaultTaskClient = defaultClient
+	}
+	// accountTaskClient 保存自动评价和商品擦亮使用的固定协议客户端。
+	accountTaskClient := dependencies.AccountTaskClient
+	if accountTaskClient == nil {
+		accountTaskClient = defaultTaskClient
+	}
 	// center 保存center，供当前处理流程使用
 	center := &Center{
-		facts:             newEventFactRecorder(store),
-		rules:             newRuleMatcher(store),
-		planner:           actionPlanner{},
-		store:             store,
-		senders:           senders,
-		mtop:              client,
-		accountTaskClient: client,
-		logger:            logger.With("subsys", "automation"),
+		facts:   newEventFactRecorder(store),
+		rules:   newRuleMatcher(store),
+		planner: actionPlanner{},
+		store:   store,
+		senders: senders,
+		dependencies: centerDependencies{
+			mtop:              client,
+			accountTaskClient: accountTaskClient,
+			fetcher:           dependencies.OrderDetailFetcher,
+			notifier:          dependencies.Notifier,
+			cookieSrc:         dependencies.CookieSource,
+		},
+		logger: logger.With("subsys", "automation"),
+	}
+	if // recoverer、ok 保存订单详情查询器提供的凭证恢复能力及类型判断结果
+	recoverer, ok := center.dependencies.fetcher.(CredentialRecoverer); ok {
+		center.dependencies.recoverer = recoverer
 	}
 	center.actions = automationActionExecutor{
 		store:   store,
 		senders: senders,
 		mtop: func() mtop.Client {
-			return center.mtop
+			return center.dependencies.mtop
 		},
 		recoverer: func() CredentialRecoverer {
-			return center.recoverer
+			return center.dependencies.recoverer
 		},
 		logger: center.logger,
 		cookieSource: func(ctx context.Context, cookieID string) (string, error) {
-			if center.cookieSrc != nil {
-				return center.cookieSrc(ctx, cookieID)
+			// source 是构造期固定的 Cookie 读取函数；为空时回退到仓储。
+			if source := center.dependencies.cookieSrc; source != nil {
+				return source(ctx, cookieID)
 			}
 			return center.store.Cookies.GetValue(ctx, cookieID)
 		},
@@ -162,15 +217,15 @@ func New(store *db.Store, senders SenderProvider, logger *slog.Logger) *Center {
 	}
 	center.notifications = deliveryNotifier{
 		current: func() Notifier {
-			return center.notifier
+			return center.dependencies.notifier
 		},
 	}
 	center.taskRunner = accountTaskCoordinator{
 		repository: newStoreAccountTaskRepository(store),
-		client:     func() AccountTaskClient { return center.accountTaskClient },
+		client:     func() AccountTaskClient { return center.dependencies.accountTaskClient },
 		senders:    senders,
 		recoverer: func() CredentialRecoverer {
-			return center.recoverer
+			return center.dependencies.recoverer
 		},
 		logger: center.logger,
 	}
@@ -183,19 +238,11 @@ func New(store *db.Store, senders SenderProvider, logger *slog.Logger) *Center {
 		accountAutomationAllowed: center.accountAutomationAllowed,
 		deferTask:                center.deferTask,
 		executeAction:            center.executeAction,
-		hasNotifier:              func() bool { return center.notifier != nil },
+		hasNotifier:              func() bool { return center.dependencies.notifier != nil },
 		notifyResult:             center.notifyResult,
 	}
 	return center
 }
-
-// SetMTop 注入 mtop 客户端（确认发货用）。未注入时使用默认 HTTP 实现。
-func (c *Center) SetMTop(m mtop.Client) { c.mtop = m }
-
-// SetAccountTaskClient overrides automatic rating/polish transport for tests.
-// SetAccountTaskClient 注入自动评价和商品擦亮的任务客户端。
-// SetAccountTaskClient 设置账号任务Client。
-func (c *Center) SetAccountTaskClient(client AccountTaskClient) { c.accountTaskClient = client }
 
 // RunAccountTask 执行指定账号任务，并保持 Center 的公开兼容入口。
 func (c *Center) RunAccountTask(ctx context.Context, accountID, taskType string) (AccountTaskSummary, error) {
@@ -205,25 +252,6 @@ func (c *Center) RunAccountTask(ctx context.Context, accountID, taskType string)
 // scanAccountTasks 扫描启用的账号任务，并委托给账号任务协调器。
 func (c *Center) scanAccountTasks(ctx context.Context) {
 	c.taskRunner.scanAccountTasks(ctx)
-}
-
-// SetOrderDetailFetcher 注入订单详情查询能力。
-func (c *Center) SetOrderDetailFetcher(fetcher OrderDetailFetcher) {
-	c.fetcher = fetcher
-	if // recoverer、ok 保存recoverer、ok，供当前处理流程使用
-	recoverer, ok := fetcher.(CredentialRecoverer); ok {
-		c.recoverer = recoverer
-	}
-}
-
-// SetNotifier 注入发货结果通知器。
-func (c *Center) SetNotifier(n Notifier) {
-	c.notifier = n
-}
-
-// SetCookieSource 覆盖 cookie 读取逻辑，便于测试。
-func (c *Center) SetCookieSource(fn func(context.Context, string) (string, error)) {
-	c.cookieSrc = fn
 }
 
 // HandleTask 处理一条自动化任务。无匹配规则时安全忽略。
@@ -534,18 +562,18 @@ func (c *Center) executeRunActions(ctx context.Context, task Task, ruleID int64,
 }
 
 // notifyResult 根据规则执行结果发送通知。成功且实际发出了内容才通知，
-// 避免无匹配动作的空跑刷屏；失败时发失败通知。
+// 避免无匹配动作的空跑刷屏；每次通知都以运行 ID 和终态持久化去重。
 // notifyResult 负责notify结果相关处理。
-func (c *Center) notifyResult(task Task, status string, sent int, errMsg string) {
-	c.notifications.notifyResult(task, status, sent, errMsg)
+func (c *Center) notifyResult(ctx context.Context, task Task, runID int64, status string, sent int, errMsg string) {
+	c.notifications.notifyResult(ctx, task, runID, status, sent, errMsg)
 }
 
 // notifyRunNeedsReview 负责notify运行NeedsReview相关处理。
-func (c *Center) notifyRunNeedsReview(run db.AutomationRun, reason string) {
+func (c *Center) notifyRunNeedsReview(ctx context.Context, run db.AutomationRun, reason string) {
 	if c == nil {
 		return
 	}
-	c.notifications.notifyRunNeedsReview(run, reason)
+	c.notifications.notifyRunNeedsReview(ctx, run, reason)
 }
 
 // actionDelaySeconds 统一卡密默认延时和动作覆盖语义。旧动作没有
@@ -602,7 +630,9 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 			needsDetail = true
 		}
 	}
-	if !needsDetail || c.fetcher == nil {
+	// fetcher 是构造期固定的订单详情查询器；执行过程中不允许替换依赖。
+	fetcher := c.dependencies.fetcher
+	if !needsDetail || fetcher == nil {
 		return task, nil
 	}
 	// cookieStr 保存登录凭证Str，供当前处理流程使用
@@ -616,7 +646,7 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 		}
 	}
 	// detail、err 保存detail、err，供当前处理流程使用
-	detail, err := c.fetcher.FetchOrderDetail(ctx, task.AccountID, task.OrderID, task.ItemID, task.BuyerID, cookieStr)
+	detail, err := fetcher.FetchOrderDetail(ctx, task.AccountID, task.OrderID, task.ItemID, task.BuyerID, cookieStr)
 	if err != nil {
 		return task, err
 	}

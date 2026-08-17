@@ -112,27 +112,6 @@ func TestCancelOrderRefreshJob(t *testing.T) {
 	}
 }
 
-// TestOrderRefreshWorkerCancellation 验证内存 worker 控制句柄可以被安全取消并清理。
-func TestOrderRefreshWorkerCancellation(t *testing.T) {
-	// srv 保存仅用于测试 worker 控制表的 Server。
-	srv := &Server{}
-	// ctx、cancel 保存可观察的 worker Context 及其取消函数。
-	ctx, cancel := context.WithCancel(context.Background())
-	srv.registerOrderRefreshWorker("job-1", "token-1", cancel)
-	if !srv.cancelOrderRefreshWorker("job-1") {
-		t.Fatal("expected active refresh worker to be cancelled")
-	}
-	select {
-	case <-ctx.Done():
-	default:
-		t.Fatal("worker context was not cancelled")
-	}
-	srv.unregisterOrderRefreshWorker("job-1", "token-1")
-	if srv.cancelOrderRefreshWorker("job-1") {
-		t.Fatal("unregistered refresh worker should not be cancellable")
-	}
-}
-
 // TestRefreshOrdersNoBrowser 浏览器未启用时仍应完成订单列表发现。
 func TestRefreshOrdersNoBrowser(t *testing.T) {
 	// srv、cleanup 保存srv、cleanup，供当前处理流程使用

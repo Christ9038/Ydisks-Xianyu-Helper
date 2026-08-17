@@ -149,6 +149,30 @@ func (n *Notifier) NotifyDelivery(accountID, buyerName, buyerID, itemID, message
 	})
 }
 
+// NotifyAutomationRun 将一个自动化运行的终态通知持久化到 outbox。
+// runID 与 status 共同构成稳定幂等键：同一次恢复重复报告同一终态时不会重复入队；
+// 状态改变时保留独立通知，便于人工核对后继续执行的运行报告最终结果。
+func (n *Notifier) NotifyAutomationRun(ctx context.Context, runID int64, accountID, buyerID, itemID, status, message, chatID string) {
+	if n == nil || runID <= 0 || strings.TrimSpace(status) == "" {
+		return
+	}
+	// idempotencyKey 绑定自动化运行主键与终态，避免恢复扫描或状态收口重试创建新 outbox 消息。
+	idempotencyKey := fmt.Sprintf("automation-run:%d:%s", runID, strings.TrimSpace(status))
+	n.notifyEvent(ctx, NotificationEvent{
+		AccountID: accountID,
+		Type:      EventDeliveryResult,
+		Level:     "info",
+		Title:     "自动化运行通知",
+		Body:      message,
+		Fields: map[string]string{
+			"买家":   fmt.Sprintf("(ID: %s)", buyerID),
+			"商品ID": itemID,
+			"聊天ID": fallback(chatID, "未知"),
+			"结果":   message,
+		},
+	}, idempotencyKey)
+}
+
 // NotifyAccountAlert 发送账号告警通知（token 失效/自动恢复失败/风控验证等）。
 // level 取 AlertLevel* 常量。向该账号所有已启用渠道发送。
 // NotifyAccountAlert 负责Notify账号Alert相关处理。
@@ -169,6 +193,11 @@ func (n *Notifier) NotifyAccountEvent(accountID, eventType, level, title, body s
 
 // NotifyEvent 根据事件类型筛选渠道并发送通知。
 func (n *Notifier) NotifyEvent(ctx context.Context, ev NotificationEvent) {
+	n.notifyEvent(ctx, ev, "")
+}
+
+// notifyEvent 根据事件类型筛选渠道并发送通知；idempotencyKey 只用于 outbox 持久化去重，不能为空时必须来自稳定业务事实。
+func (n *Notifier) notifyEvent(ctx context.Context, ev NotificationEvent, idempotencyKey string) {
 	if n == nil || n.repository == nil {
 		return
 	}
@@ -197,12 +226,14 @@ func (n *Notifier) NotifyEvent(ctx context.Context, ev NotificationEvent) {
 		}
 		eligible = append(eligible, ch)
 	}
-	if n.started.Load() {
-		// messages 保存消息列表，供当前处理流程使用
+	// 自动化运行终态必须先进入 outbox：即使 worker 尚未随应用生命周期启动，也不能回退到
+	// 同步网络发送，否则会绕过业务幂等键和发送成功后的 uncertain 隔离。
+	if n.started.Load() || strings.TrimSpace(idempotencyKey) != "" {
+		// messages 保存本事件每个允许渠道的一条 outbox 记录，并共享同一个业务投递键。
 		messages := make([]db.NotificationOutboxInput, 0, len(eligible))
 		// ch 表示当前遍历过程中的ch
 		for _, ch := range eligible {
-			messages = append(messages, db.NotificationOutboxInput{ChannelID: ch.ID, EventType: ev.Type, Body: full})
+			messages = append(messages, db.NotificationOutboxInput{ChannelID: ch.ID, EventType: ev.Type, Body: full, IdempotencyKey: idempotencyKey})
 		}
 		if // err 保存err，供当前处理流程使用
 		err := n.repository.EnqueueOutbox(ctx, messages); err != nil {

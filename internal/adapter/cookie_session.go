@@ -47,7 +47,7 @@ func HasStoredCookieCredential(detail *accountapp.CredentialDetail) bool {
 // PersistCookieSessionLocked 持久化平台响应后的 Cookie 会话；调用方必须已持有凭证锁。
 func PersistCookieSessionLocked(
 	ctx context.Context,
-	repository accountapp.CredentialRepository,
+	repository accountapp.CredentialSessionPort,
 	detail *accountapp.CredentialDetail,
 	session *CookieSession,
 ) (value string, valueChanged, handled bool, err error) {

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import type { ChatMessage, ChatSession } from '../../../types';
+import type { ChatMessage, ChatSession } from '../../../shared/api-contract';
 import { filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, mergeLiveMessage, mergeOlderMessages, messageTime } from './state';
 
 // sessionFixture 是覆盖搜索、未读筛选和联系人隔离的最小会话数据。

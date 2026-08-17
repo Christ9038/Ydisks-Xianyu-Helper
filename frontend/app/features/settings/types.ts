@@ -1,4 +1,4 @@
-import type { SystemSettings } from '../../../types';
+import type { SystemSettings } from '../../../shared/api-contract';
 
 /** 登录凭据编辑表单。 */
 export type CredentialsForm = {

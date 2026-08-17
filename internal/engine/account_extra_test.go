@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"xianyu-go/internal/automation"
+	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
@@ -816,6 +817,34 @@ type failingRefreshHandler struct {
 	events []string
 }
 
+// lockAwareRefreshHandler 在外部恢复回调内重新获取账号凭证锁，用于验证锁边界。
+type lockAwareRefreshHandler struct {
+	// store 提供测试账号凭证锁。
+	store *db.Store
+	// acquired 表示回调是否成功获取并释放凭证锁。
+	acquired bool
+}
+
+// HandleChatMessage 满足 Engine Handler 接口的聊天处理方法。
+func (h *lockAwareRefreshHandler) HandleChatMessage(context.Context, ChatMessage) error { return nil }
+
+// HandleSystemEvent 满足 Engine Handler 接口的系统事件处理方法。
+func (h *lockAwareRefreshHandler) HandleSystemEvent(context.Context, automation.Task) error {
+	return nil
+}
+
+// OnPasswordLoginRefresh 在恢复回调中获取凭证锁，证明调用方未跨外部 I/O 持锁。
+func (h *lockAwareRefreshHandler) OnPasswordLoginRefresh(context.Context, string) bool {
+	// unlock 释放恢复回调取得的账号凭证锁。
+	unlock := h.store.LockAccountCredentials("cid")
+	unlock()
+	h.acquired = true
+	return false
+}
+
+// OnAccountAlert 满足 Engine Handler 接口的告警处理方法。
+func (h *lockAwareRefreshHandler) OnAccountAlert(context.Context, string, string, string, string) {}
+
 // HandleChatMessage 处理聊天消息。
 func (f *failingRefreshHandler) HandleChatMessage(context.Context, ChatMessage) error { return nil }
 
@@ -836,6 +865,29 @@ func (f *failingRefreshHandler) OnAccountAlert(_ context.Context, _, level, _, _
 func (f *failingRefreshHandler) OnAccountEvent(_ context.Context, _, eventType, level, _, _ string) {
 	f.events = append(f.events, eventType)
 	f.alerts = append(f.alerts, level)
+}
+
+// TestHandleMaxFailuresReleasesCredentialLockBeforeExternalRecovery 验证外部凭证恢复回调执行时账号锁已释放。
+func TestHandleMaxFailuresReleasesCredentialLockBeforeExternalRecovery(t *testing.T) {
+	// acc、store、cleanup 保存账号运行时、凭证存储及清理函数。
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	// handler 保存会尝试重新获取账号锁的恢复回调。
+	handler := &lockAwareRefreshHandler{store: store}
+	acc.handler = handler
+	// ctx 保存本测试共用的上下文。
+	ctx := context.Background()
+	acc.mu.Lock()
+	acc.lastMsgReceived = time.Time{}
+	acc.connFailures = MaxConnectionFailures
+	acc.mu.Unlock()
+	// err 保存连续失败恢复流程返回的错误。
+	if err := acc.handleMaxFailures(ctx); err == nil || !strings.Contains(err.Error(), "自动恢复失败") {
+		t.Fatalf("恢复失败应返回终止错误: %v", err)
+	}
+	if !handler.acquired {
+		t.Fatal("外部恢复回调未成功获取账号凭证锁")
+	}
 }
 
 // TestHandleMaxFailures_PasswordLoginFailure 密码登录刷新失败后终止账号主循环。

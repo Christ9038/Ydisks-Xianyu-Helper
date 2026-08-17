@@ -24,6 +24,10 @@ type fakeMTop struct {
 	consignOrderIn  string
 	consignCookies  []string
 	consignResults  []fakeConsignResult
+	// consignStarted 通知测试外部 Consign 调用已经开始。
+	consignStarted chan struct{}
+	// consignRelease 控制测试外部 Consign 调用何时返回。
+	consignRelease chan struct{}
 }
 
 // fakeConsignResult 保存fakeConsign结果，供当前处理流程使用
@@ -41,6 +45,12 @@ func (f *fakeMTop) FetchUserProfile(context.Context, string) (*mtop.UserProfileR
 
 // ConsignContext 负责Consign上下文相关处理。
 func (f *fakeMTop) ConsignContext(_ context.Context, cookiesStr, orderID string) (bool, []string, string, error) {
+	if f.consignStarted != nil {
+		close(f.consignStarted)
+	}
+	if f.consignRelease != nil {
+		<-f.consignRelease
+	}
 	f.consignCalls++
 	f.consignCookieIn = cookiesStr
 	f.consignOrderIn = orderID
@@ -52,6 +62,107 @@ func (f *fakeMTop) ConsignContext(_ context.Context, cookiesStr, orderID string)
 		return result.ok, result.ret, result.updated, result.err
 	}
 	return f.consignOk, f.consignRet, f.consignUpdated, f.consignErr
+}
+
+// TestConfirmShipmentReleasesCredentialLockBeforeExternalIO 验证 MTOP 外部调用期间同账号凭证锁可以被其他流程获取。
+func TestConfirmShipmentReleasesCredentialLockBeforeExternalIO(t *testing.T) {
+	// store、cleanup 保存测试数据库及其清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 保存本测试共用的上下文。
+	ctx := context.Background()
+	// fake 保存带有可控阻塞点的 MTOP 客户端。
+	fake := &fakeMTop{
+		consignOk:      false,
+		consignRet:     []string{"blocked"},
+		consignStarted: make(chan struct{}),
+		consignRelease: make(chan struct{}),
+	}
+	// center 保存注入测试 MTOP 客户端的自动化中心。
+	center := NewWithDependencies(store, nil, nil, CenterDependencies{MTop: fake})
+	// result 保存确认发货流程的最终错误。
+	result := make(chan error, 1)
+	go func() {
+		// runErr 保存阻塞 MTOP 确认发货流程的错误。
+		result <- center.confirmShipment(ctx, Task{AccountID: "cid", OrderID: "lock-free-mtop", ForceConfirmShipment: true})
+	}()
+	select {
+	case <-fake.consignStarted:
+	case <-time.After(time.Second):
+		t.Fatal("MTOP 调用未开始")
+	}
+	// acquired 表示另一个流程已经成功获取并释放同账号凭证锁。
+	acquired := make(chan struct{})
+	go func() {
+		// unlock 释放探测流程取得的账号凭证锁。
+		unlock := store.LockAccountCredentials("cid")
+		unlock()
+		close(acquired)
+	}()
+	select {
+	case <-acquired:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("MTOP 外部调用仍持有账号凭证锁")
+	}
+	close(fake.consignRelease)
+	// runErr 保存确认发货业务失败流程的返回错误。
+	if runErr := <-result; runErr == nil {
+		t.Fatal("确认发货业务失败应返回错误")
+	}
+}
+
+// TestConfirmShipmentDoesNotOverwriteConcurrentCredentialUpdate 验证旧 MTOP 响应不会覆盖并发完成的新凭证。
+func TestConfirmShipmentDoesNotOverwriteConcurrentCredentialUpdate(t *testing.T) {
+	// store、cleanup 保存测试数据库及其清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 保存本测试共用的上下文。
+	ctx := context.Background()
+	// initial 保存外部请求开始前的旧 Cookie。
+	initial := "sid=old"
+	// err 保存写入外部请求初始凭证的错误。
+	if err := store.Cookies.UpdateRenewalCookie(ctx, "cid", initial, `{"origin":"old"}`, 1); err != nil {
+		t.Fatal(err)
+	}
+	// fake 保存返回旧请求结果但可控阻塞的 MTOP 客户端。
+	fake := &fakeMTop{
+		consignOk:      false,
+		consignRet:     []string{"business-failure"},
+		consignUpdated: "sid=stale-response",
+		consignStarted: make(chan struct{}),
+		consignRelease: make(chan struct{}),
+	}
+	// center 保存注入测试 MTOP 客户端的自动化中心。
+	center := NewWithDependencies(store, nil, nil, CenterDependencies{MTop: fake})
+	// result 保存确认发货流程的最终错误。
+	result := make(chan error, 1)
+	go func() {
+		result <- center.confirmShipment(ctx, Task{AccountID: "cid", OrderID: "credential-conflict", ForceConfirmShipment: true})
+	}()
+	select {
+	case <-fake.consignStarted:
+	case <-time.After(time.Second):
+		t.Fatal("MTOP 调用未开始")
+	}
+	// latest 保存并发凭证更新后的新 Cookie，旧响应不允许覆盖它。
+	latest := "sid=new-runtime"
+	// err 保存写入并发新凭证的错误。
+	if err := store.Cookies.UpdateRenewalCookie(ctx, "cid", latest, `{"origin":"new"}`, 2); err != nil {
+		t.Fatal(err)
+	}
+	close(fake.consignRelease)
+	// runErr 保存并发凭证冲突场景的确认发货错误。
+	if runErr := <-result; runErr == nil || !strings.Contains(runErr.Error(), "business-failure") {
+		t.Fatalf("确认发货应保留业务失败: %v", runErr)
+	}
+	// detail 保存最终凭证运行视图。
+	detail, err := store.Cookies.GetDetails(ctx, "cid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Value != latest {
+		t.Fatalf("并发新凭证被旧响应覆盖: got=%q want=%q", detail.Value, latest)
+	}
 }
 
 // FetchItemsPage 负责Fetch商品列表页码相关处理。
@@ -137,9 +248,10 @@ func TestConfirmShipmentRetriesFromCheckpointWithoutResendingCard(t *testing.T) 
 	// sender 保存sender，供当前处理流程使用
 	sender := &testSender{}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.SetMTop(mtopMock)
-	center.SetOrderDetailFetcher(recoverer)
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		MTop:               mtopMock,
+		OrderDetailFetcher: recoverer,
+	})
 	// task 保存任务，供当前处理流程使用
 	task := Task{AccountID: "cid", TriggerType: TriggerOrderPaid, OrderID: "checkpoint-order",
 		ItemID: "checkpoint-item", BuyerID: "buyer", ChatID: "chat", Quantity: "1", Amount: "9.9"}
@@ -188,9 +300,10 @@ func TestConfirmShipmentRecoversExpiredSessionAndRetriesOnlyConsign(t *testing.T
 	// recoverer 保存recoverer，供当前处理流程使用
 	recoverer := &fakeCredentialRecoverer{store: store}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	center.SetMTop(mtopMock)
-	center.SetOrderDetailFetcher(recoverer)
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{
+		MTop:               mtopMock,
+		OrderDetailFetcher: recoverer,
+	})
 	if // err 保存err，供当前处理流程使用
 	err := center.confirmShipment(ctx, Task{AccountID: "cid", OrderID: "session-order", ItemID: "item", BuyerID: "buyer", ChatID: "chat"}); err != nil {
 		t.Fatal(err)
@@ -236,9 +349,10 @@ func TestCenterConfirmShipment_MockMTopConsigError(t *testing.T) {
 	// ConsignContext 报错。
 	mtopMock := &fakeMTop{consignErr: errors.New("network down")}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	center.SetMTop(mtopMock)
-	center.SetOrderDetailFetcher(testFetcher{detail: &OrderDetail{Quantity: "1", Amount: "9.9"}})
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{
+		MTop:               mtopMock,
+		OrderDetailFetcher: testFetcher{detail: &OrderDetail{Quantity: "1", Amount: "9.9"}},
+	})
 
 	// HandleTask 内部记录 executeRule 失败到 automation_runs（不向上透传错误）。
 	_ = center.HandleTask(ctx, Task{
@@ -269,9 +383,10 @@ func TestCenterConfirmShipment_MockMTopConsigError(t *testing.T) {
 	// 第二轮：ConsignContext 返回 ok=false（业务失败），run 同样记 failed。
 	_ = store.Orders.Upsert(ctx, "order-mock2", db.OrderUpsertOpts{CookieID: "cid", ItemID: "item-1", BuyerID: "buyer-1"})
 	// center2 保存center2，供当前处理流程使用
-	center2 := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	center2.SetMTop(&fakeMTop{consignOk: false, consignRet: []string{"FAIL_SHIP"}})
-	center2.SetOrderDetailFetcher(testFetcher{detail: &OrderDetail{Quantity: "1", Amount: "9.9"}})
+	center2 := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{
+		MTop:               &fakeMTop{consignOk: false, consignRet: []string{"FAIL_SHIP"}},
+		OrderDetailFetcher: testFetcher{detail: &OrderDetail{Quantity: "1", Amount: "9.9"}},
+	})
 	_ = center2.HandleTask(ctx, Task{
 		Source: "ws", AccountID: "cid", CookieStr: "unb=1; _m_h5_tk=tk;", TriggerType: TriggerOrderPaid,
 		ChatID: "chat-2", OrderID: "order-mock2", ItemID: "item-1", BuyerID: "buyer-1",
@@ -303,8 +418,7 @@ func TestConfirmShipmentQuarantinesKnownRemoteSuccessWhenLocalPersistenceFails(t
 	// mtopMock 保存mtopMock，供当前处理流程使用
 	mtopMock := &fakeMTop{consignOk: true, consignUpdated: "unb=123; _m_h5_tk=updated_1;"}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: &testSender{}}, nil)
-	center.SetMTop(mtopMock)
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{MTop: mtopMock})
 	// err 保存err，供当前处理流程使用
 	err := center.confirmShipment(ctx, Task{
 		AccountID: "cid", OrderID: "persist-failure", ItemID: "item-1", BuyerID: "buyer", ChatID: "chat",
@@ -379,8 +493,9 @@ func TestConfirmShipmentKeepsAuthoritativeSnapshotWhenSessionUnchanged(t *testin
 	// sender 保存sender，供当前处理流程使用
 	sender := &testSender{}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.SetMTop(&fakeMTop{consignOk: false, consignRet: []string{"FAIL_SHIP"}, consignUpdated: updated})
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		MTop: &fakeMTop{consignOk: false, consignRet: []string{"FAIL_SHIP"}, consignUpdated: updated},
+	})
 	// err 保存err，供当前处理流程使用
 	err := center.confirmShipment(ctx, Task{
 		AccountID: "cid", OrderID: "flat-mock-fallback", ForceConfirmShipment: true,
@@ -426,8 +541,9 @@ func TestConfirmShipmentKeepsFlatMockFallbackWithoutSnapshot(t *testing.T) {
 	// sender 保存sender，供当前处理流程使用
 	sender := &testSender{}
 	// center 保存center，供当前处理流程使用
-	center := New(store, testSenderProvider{sender: sender}, nil)
-	center.SetMTop(&fakeMTop{consignOk: false, consignRet: []string{"FAIL_SHIP"}, consignUpdated: updated})
+	center := NewWithDependencies(store, testSenderProvider{sender: sender}, nil, CenterDependencies{
+		MTop: &fakeMTop{consignOk: false, consignRet: []string{"FAIL_SHIP"}, consignUpdated: updated},
+	})
 	// err 保存err，供当前处理流程使用
 	err := center.confirmShipment(ctx, Task{
 		AccountID: "cid", OrderID: "flat-mock-fallback", ForceConfirmShipment: true,

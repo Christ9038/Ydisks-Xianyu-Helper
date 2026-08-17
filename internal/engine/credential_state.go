@@ -1,20 +1,20 @@
 package engine
 
 import (
+	"context"
 	"sync"
 	"time"
 )
 
 // credentialState 保存账号 Cookie、Token、设备指纹和刷新诊断状态。
 // mu 保护本组件全部字段；持锁时不得执行数据库、网络或通知 I/O。
-// refreshMu 串行化完整的凭证刷新事务，允许在锁内执行必要的凭证 I/O，
-// 但调用方不得在持有它时再次获取同一锁。
+// refreshGate 通过带令牌的通道串行化完整刷新流程，等待外部 I/O 时不持有互斥锁。
 // credentialState 保存credential状态，供当前处理流程使用
 type credentialState struct {
 	// mu 保护 Cookie、Token、设备指纹和刷新诊断字段。
 	mu sync.Mutex
-	// refreshMu 串行化 Cookie 读取、Token 刷新和缓存清理事务。
-	refreshMu sync.Mutex
+	// refreshGate 串行化 Cookie 读取、Token 刷新和缓存清理事务；通道令牌代表刷新所有权。
+	refreshGate chan struct{}
 
 	// CookieStr 是当前运行时使用的扁平 Cookie 快照。
 	CookieStr string
@@ -44,4 +44,36 @@ type credentialState struct {
 	tokenRefreshAt time.Time
 	// tokenFingerprint 是 Token 的不可逆诊断指纹，不保存 Token 原文。
 	tokenFingerprint string
+}
+
+// newRefreshGate 创建带有初始令牌的账号刷新通道。
+func newRefreshGate() chan struct{} {
+	// gate 保存刷新流程的单令牌通道。
+	gate := make(chan struct{}, 1)
+	gate <- struct{}{}
+	return gate
+}
+
+// acquireRefreshGate 获取账号刷新流程的独占通道令牌。等待期间会响应 ctx 取消，
+// 因此停止账号不会被另一个尚未完成的续期流程无限阻塞。
+func (s *credentialState) acquireRefreshGate(ctx context.Context) (func(), error) {
+	if ctx == nil {
+		// ctx 使用 Background 保持历史未传取消信号调用方的可用性。
+		ctx = context.Background()
+	}
+	s.mu.Lock()
+	if s.refreshGate == nil {
+		s.refreshGate = make(chan struct{}, 1)
+		s.refreshGate <- struct{}{}
+	}
+	// gate 保存初始化后可在外部等待的刷新令牌通道。
+	gate := s.refreshGate
+	s.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-gate:
+		// release 把令牌归还给同一个固定通道；调用者必须在所有提交路径上执行它。
+		return func() { gate <- struct{}{} }, nil
+	}
 }

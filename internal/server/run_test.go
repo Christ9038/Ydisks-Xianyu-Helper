@@ -75,32 +75,6 @@ func TestRun_ServesHealthAndShutdowns(t *testing.T) {
 	}
 }
 
-// TestPublishWorkerTrackingWaitsForCompletion 负责Test发布工作器TrackingWaitsForCompletion相关处理。
-func TestPublishWorkerTrackingWaitsForCompletion(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
-	srv, _, cleanup := newTestServer(t)
-	defer cleanup()
-	// doneWorker 保存done工作器，供当前处理流程使用
-	doneWorker := srv.beginWorker()
-	// waited 保存waited，供当前处理流程使用
-	waited := make(chan struct{})
-	go func() {
-		srv.waitForWorkers(time.Second)
-		close(waited)
-	}()
-	select {
-	case <-waited:
-		t.Fatal("wait returned while worker was still active")
-	case <-time.After(20 * time.Millisecond):
-	}
-	doneWorker()
-	select {
-	case <-waited:
-	case <-time.After(time.Second):
-		t.Fatal("wait did not return after worker completed")
-	}
-}
-
 // TestPublishRecoveryLifecycleStopsBeforeWorkerWait 负责Test发布RecoveryLifecycleStopsBefore工作器Wait相关处理。
 func TestPublishRecoveryLifecycleStopsBeforeWorkerWait(t *testing.T) {
 	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
@@ -108,12 +82,15 @@ func TestPublishRecoveryLifecycleStopsBeforeWorkerWait(t *testing.T) {
 	defer cleanup()
 	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
 	ctx, cancel := context.WithCancel(context.Background())
-	srv.StartPublishBatchRecovery(ctx)
+	// err 表示测试批量恢复组件启动失败的原因。
+	if err := srv.applications.itemBatchCoordinator.StartRecovery(ctx); err != nil {
+		t.Fatalf("启动批量发布恢复扫描器: %v", err)
+	}
 	cancel()
 	// done 保存done，供当前处理流程使用
 	done := make(chan struct{})
 	go func() {
-		srv.WaitForBackground()
+		srv.applications.itemBatchCoordinator.Wait()
 		close(done)
 	}()
 	select {
@@ -126,7 +103,7 @@ func TestPublishRecoveryLifecycleStopsBeforeWorkerWait(t *testing.T) {
 // TestNewRejectsMissingRequiredDependencies 确保 HTTP 服务构造阶段拒绝缺失核心依赖。
 func TestNewRejectsMissingRequiredDependencies(t *testing.T) {
 	// err 是缺少基础设施容器时的构造校验错误。
-	if _, err := New(nil, nil, nil, "", ":0", nil, nil, nil); err == nil {
+	if _, err := New(nil, nil, "", ":0", nil, nil, nil); err == nil {
 		t.Fatal("缺少基础设施容器时应返回构造错误")
 	}
 	// srv 是用于提供合法 Store 的测试服务；cleanup 负责释放测试数据库。
@@ -135,16 +112,82 @@ func TestNewRejectsMissingRequiredDependencies(t *testing.T) {
 	if srv == nil {
 		t.Fatal("测试服务不应为空")
 	}
-	// dependencies 保存缺少 Manager 校验时复用的基础设施容器。
-	dependencies, dependencyErr := adapter.NewDependencies(store)
-	if dependencyErr != nil {
-		t.Fatalf("NewDependencies: %v", dependencyErr)
-	}
 	// authentication 保存构造校验需要的会话中间件依赖。
 	authentication := &auth.Service{Store: store}
 	// err 是缺少 Manager 时的构造校验错误。
-	if _, err := New(dependencies, authentication, nil, "", ":0", nil, nil, nil); err == nil {
+	if _, err := New(authentication, nil, "", ":0", nil, nil, nil); err == nil {
 		t.Fatal("缺少 account.Manager 时应返回构造错误")
+	}
+	// err 是缺少订单专用装配能力时的构造校验错误。
+	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil); err == nil {
+		t.Fatal("缺少订单专用依赖时应返回构造错误")
+	}
+	// orderDependencies 保存账号依赖缺失测试所需的合法订单装配能力。
+	orderDependencies, orderDependencyErr := adapter.NewOrderDependencies(store)
+	if orderDependencyErr != nil {
+		t.Fatalf("NewOrderDependencies: %v", orderDependencyErr)
+	}
+	// err 是缺少账号专用装配能力时的构造校验错误。
+	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithOrderDependencies(orderDependencies)); err == nil {
+		t.Fatal("缺少账号专用依赖时应返回构造错误")
+	}
+	// accountDependencies 保存账号与订单依赖均合法时的商品依赖缺失测试输入。
+	accountDependencies, accountDependencyErr := adapter.NewAccountDependencies(store)
+	if accountDependencyErr != nil {
+		t.Fatalf("NewAccountDependencies: %v", accountDependencyErr)
+	}
+	// err 是缺少商品专用装配能力时的构造校验错误。
+	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies)); err == nil {
+		t.Fatal("缺少商品专用依赖时应返回构造错误")
+	}
+	// err 是订单、账号和商品依赖齐全但平台客户端缺失时的构造校验错误。
+	itemDependencies, itemDependencyErr := adapter.NewItemDependencies(store)
+	if itemDependencyErr != nil {
+		t.Fatalf("NewItemDependencies: %v", itemDependencyErr)
+	}
+	// platformDependencies 保存依赖缺失分支测试使用的显式平台能力。
+	platformDependencies, platformDependencyErr := adapter.NewDefaultPlatformDependencies(nil)
+	if platformDependencyErr != nil {
+		t.Fatalf("NewPlatformDependencies: %v", platformDependencyErr)
+	}
+	// chatDependencies 保存平台缺失校验所需的聊天专用依赖。
+	chatDependencies := adapter.NewChatDependencies(store)
+	// systemDependencies 保存平台缺失校验所需的系统专用依赖。
+	systemDependencies := adapter.NewSystemDependencies(store)
+	// automationDependencies 保存平台缺失校验所需的自动化专用依赖及构造错误。
+	automationDependencies, automationDependencyErr := adapter.NewAutomationDependencies(store)
+	if automationDependencyErr != nil {
+		t.Fatalf("NewAutomationDependencies: %v", automationDependencyErr)
+	}
+	// miscDependencies 保存平台缺失校验所需的杂项专用依赖及构造错误。
+	miscDependencies, miscDependencyErr := adapter.NewMiscDependencies(store)
+	if miscDependencyErr != nil {
+		t.Fatalf("NewMiscDependencies: %v", miscDependencyErr)
+	}
+	// adminSettingsDependencies 保存平台缺失校验所需的管理员设置依赖。
+	adminSettingsDependencies := adapter.NewAdminSettingsDependencies(store)
+	if chatDependencies == nil || systemDependencies == nil || adminSettingsDependencies == nil {
+		t.Fatal("显式 Server 依赖构造失败")
+	}
+	// err 是聊天或系统等显式依赖缺失时的构造校验错误。
+	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies)); err == nil {
+		t.Fatal("缺少聊天或系统专用依赖时应返回构造错误")
+	}
+	// err 是缺少平台依赖注入时的构造校验错误。
+	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithSystemDependencies(systemDependencies), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithMiscDependencies(miscDependencies), WithAdminSettingsDependencies(adminSettingsDependencies)); err == nil {
+		t.Fatal("缺少平台依赖时应返回构造错误")
+	}
+	// err 是缺少自动化专用依赖时的构造校验错误。
+	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithSystemDependencies(systemDependencies), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithMiscDependencies(miscDependencies), WithAdminSettingsDependencies(adminSettingsDependencies), WithPlatformDependencies(platformDependencies)); err == nil {
+		t.Fatal("缺少自动化专用依赖时应返回构造错误")
+	}
+	// err 是缺少杂项专用依赖时的构造校验错误。
+	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithSystemDependencies(systemDependencies), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithAdminSettingsDependencies(adminSettingsDependencies), WithPlatformDependencies(platformDependencies)); err == nil {
+		t.Fatal("缺少杂项专用依赖时应返回构造错误")
+	}
+	// err 是缺少管理员设置专用依赖时的构造校验错误。
+	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithSystemDependencies(systemDependencies), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithMiscDependencies(miscDependencies), WithPlatformDependencies(platformDependencies)); err == nil {
+		t.Fatal("缺少管理员设置专用依赖时应返回构造错误")
 	}
 }
 

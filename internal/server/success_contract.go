@@ -1,6 +1,8 @@
 package server
 
 import (
+	"encoding/json"
+
 	cardsapp "xianyu-go/internal/application/cards"
 	chatapp "xianyu-go/internal/application/chat"
 	defaultreplyapp "xianyu-go/internal/application/defaultreply"
@@ -572,6 +574,54 @@ type orderDetailResponse struct {
 	Data orderDTO `json:"data"`
 }
 
+// orderUpdateRequestDTO 是订单更新接口的具名请求 DTO，保留旧客户端的状态字段别名。
+type orderUpdateRequestDTO struct {
+	// OrderStatus 是订单状态补丁。
+	OrderStatus *string `json:"order_status"`
+	// Status 是旧客户端使用的订单状态别名。
+	Status *string `json:"status"`
+	// ItemID 是商品标识补丁。
+	ItemID *string `json:"item_id"`
+	// BuyerID 是买家标识补丁。
+	BuyerID *string `json:"buyer_id"`
+	// SpecName 是规格名称补丁。
+	SpecName *string `json:"spec_name"`
+	// SpecValue 是规格值补丁。
+	SpecValue *string `json:"spec_value"`
+	// Quantity 是兼容字符串或数字格式的购买数量。
+	Quantity *any `json:"quantity"`
+	// Amount 是兼容字符串或数字格式的订单金额。
+	Amount *any `json:"amount"`
+	// ReceiverName 是收货人补丁。
+	ReceiverName *string `json:"receiver_name"`
+	// ReceiverPhone 是收货电话补丁。
+	ReceiverPhone *string `json:"receiver_phone"`
+	// ReceiverAddress 是收货地址补丁。
+	ReceiverAddress *string `json:"receiver_address"`
+	// ReceiverCity 是收货城市补丁。
+	ReceiverCity *string `json:"receiver_city"`
+	// ChatID 是聊天会话补丁。
+	ChatID *string `json:"chat_id"`
+	// SystemShipped 表示是否由系统完成发货。
+	SystemShipped *bool `json:"system_shipped"`
+	// ItemTitle 是关联商品标题补丁。
+	ItemTitle *string `json:"item_title"`
+}
+
+// manualShipRequestDTO 是批量手动发货接口的具名请求 DTO。
+type manualShipRequestDTO struct {
+	// OrderIDs 是待处理订单标识列表。
+	OrderIDs []string `json:"order_ids"`
+	// ShipMode 是发货模式。
+	ShipMode string `json:"ship_mode"`
+}
+
+// qrVerificationRequestDTO 是扫码风控验证完成接口的具名请求 DTO。
+type qrVerificationRequestDTO struct {
+	// TargetAccountID 是可选的待重新授权本地账号标识。
+	TargetAccountID string `json:"target_account_id"`
+}
+
 // orderRefreshDetailResponse 是订单刷新后返回的远端详情 DTO。
 type orderRefreshDetailResponse struct {
 	// Quantity 是订单购买数量。
@@ -595,7 +645,33 @@ type orderRefreshResponse struct {
 	// Summary 是刷新统计摘要。
 	Summary orderRefreshSummary `json:"summary"`
 	// Results 是逐账号或逐订单的兼容结果行。
-	Results []map[string]any `json:"results"`
+	Results []orderRefreshResultDTO `json:"results"`
+}
+
+// orderRefreshResultDTO 是订单刷新批次中单条结果的稳定响应 DTO；可选字段只在对应阶段产生时返回。
+type orderRefreshResultDTO struct {
+	// Success 表示当前账号或订单刷新是否成功。
+	Success bool `json:"success"`
+	// CookieID 是当前结果关联的账号标识。
+	CookieID string `json:"cookie_id,omitempty"`
+	// Discovered 是当前账号发现的新订单数量。
+	Discovered *int `json:"discovered,omitempty"`
+	// Updated 是当前账号更新的订单数量。
+	Updated *int `json:"updated,omitempty"`
+	// SoftDeleted 表示当前账号是否标记了失效订单。
+	SoftDeleted *bool `json:"soft_deleted,omitempty"`
+	// OrderID 是单订单刷新结果关联的平台订单标识。
+	OrderID string `json:"order_id,omitempty"`
+	// Stage 是刷新失败或完成所处的业务阶段。
+	Stage string `json:"stage,omitempty"`
+	// Message 是面向客户端的结果说明。
+	Message string `json:"message,omitempty"`
+	// Error 是当前结果的兼容错误文本。
+	Error string `json:"error,omitempty"`
+	// OldStatus 是刷新前的订单状态。
+	OldStatus string `json:"old_status,omitempty"`
+	// NewStatus 是刷新后的订单状态。
+	NewStatus string `json:"new_status,omitempty"`
 }
 
 // orderRefreshSummary 是订单列表刷新统计摘要 DTO。
@@ -639,7 +715,23 @@ type manualShipResponse struct {
 	// FailedCount 是失败发货数量。
 	FailedCount int `json:"failed_count"`
 	// Results 是逐订单的兼容结果行。
-	Results []map[string]any `json:"results"`
+	Results []orderMutationResultDTO `json:"results"`
+}
+
+// orderMutationResultDTO 是手动发货逐订单结果的稳定响应 DTO。
+type orderMutationResultDTO struct {
+	// OrderID 是当前结果关联的平台订单标识。
+	OrderID string `json:"order_id"`
+	// Status 是发货后订单状态或失败阶段。
+	Status string `json:"status"`
+	// Success 表示当前订单是否发货成功。
+	Success bool `json:"success"`
+	// Message 是当前订单的处理说明。
+	Message string `json:"message"`
+	// ReconciliationID 是可选的补偿记录标识。
+	ReconciliationID string `json:"reconciliation_id,omitempty"`
+	// ReconciliationWarning 是可选的补偿告警文本。
+	ReconciliationWarning string `json:"reconciliation_warning,omitempty"`
 }
 
 // importOrdersResponse 是订单导入接口的具名响应 DTO。
@@ -655,7 +747,17 @@ type importOrdersResponse struct {
 	// FailedCount 是失败导入数量。
 	FailedCount int `json:"failed_count"`
 	// Results 是逐订单的兼容结果行。
-	Results []map[string]any `json:"results"`
+	Results []orderImportResultDTO `json:"results"`
+}
+
+// orderImportResultDTO 是订单导入逐订单结果的稳定响应 DTO。
+type orderImportResultDTO struct {
+	// OrderID 是当前结果关联的平台订单标识。
+	OrderID string `json:"order_id"`
+	// Success 表示当前订单是否导入成功。
+	Success bool `json:"success"`
+	// Message 是当前订单的处理说明。
+	Message string `json:"message"`
 }
 
 // aiReplySettingsResponse 是账号 AI 回复设置接口的具名响应 DTO。
@@ -1364,11 +1466,69 @@ type qrLoginGenerateResponse struct {
 	Message string `json:"message,omitempty"`
 }
 
-// settingsResponse 是动态设置查询的具名边界类型，键和值仍由设置仓库定义。
-type settingsResponse map[string]string
+// settingsEntryDTO 是单条设置键值的具名 DTO；仅在 HTTP 边界内部用于稳定排序和校验。
+type settingsEntryDTO struct {
+	// Key 是设置项的稳定键名。
+	Key string `json:"key"`
+	// Value 是设置项的脱敏文本值。
+	Value string `json:"value"`
+}
 
-// qrLoginStatusResponse 是二维码状态的兼容响应类型，允许上游扩展非敏感字段。
-type qrLoginStatusResponse map[string]any
+// settingsResponse 是设置查询的具名响应 DTO；序列化时保持旧客户端的顶层键值对象形状。
+type settingsResponse struct {
+	// Entries 保存设置键值，避免 DTO 直接暴露动态 map 字段。
+	Entries []settingsEntryDTO `json:"-"`
+}
+
+// newSettingsResponse 将应用层动态设置键值转换为具名 HTTP 响应 DTO。
+func newSettingsResponse(values map[string]string) settingsResponse {
+	// entries 保存待编码的设置项；顺序不影响兼容 JSON 对象，但便于测试和日志稳定。
+	entries := make([]settingsEntryDTO, 0, len(values))
+	// key 是当前设置名称；value 是对应的非敏感配置值。
+	for key, value := range values {
+		entries = append(entries, settingsEntryDTO{Key: key, Value: value})
+	}
+	return settingsResponse{Entries: entries}
+}
+
+// MarshalJSON 保持设置接口原有的顶层键值对象契约，同时隐藏内部动态字段实现。
+func (response settingsResponse) MarshalJSON() ([]byte, error) {
+	// values 保存兼容旧客户端的顶层设置对象。
+	values := make(map[string]string, len(response.Entries))
+	// entry 是当前待恢复为顶层设置字段的具名条目。
+	for _, entry := range response.Entries {
+		values[entry.Key] = entry.Value
+	}
+	return json.Marshal(values)
+}
+
+// UnmarshalJSON 将旧客户端顶层设置对象解析为具名条目，供契约测试和边界适配使用。
+func (response *settingsResponse) UnmarshalJSON(data []byte) error {
+	// values 保存收到的顶层设置对象；设置值均按字符串处理以避免秘密类型扩散。
+	var values map[string]string
+	// err 表示旧版顶层设置对象反序列化失败的原因。
+	if err := json.Unmarshal(data, &values); err != nil {
+		return err
+	}
+	*response = newSettingsResponse(values)
+	return nil
+}
+
+// qrLoginStatusResponse 是二维码状态的稳定响应 DTO，仅暴露非敏感状态和持久化结果。
+type qrLoginStatusResponse struct {
+	// Success 表示当前扫码状态请求是否正常完成。
+	Success bool `json:"success,omitempty"`
+	// Status 是扫码会话当前状态。
+	Status string `json:"status"`
+	// Message 是可选的平台提示文本。
+	Message string `json:"message,omitempty"`
+	// SessionID 是可选的扫码会话标识。
+	SessionID string `json:"session_id,omitempty"`
+	// AccountID 是扫码成功后创建或更新的本地账号标识。
+	AccountID string `json:"account_id,omitempty"`
+	// IsNewAccount 表示扫码成功后是否新建本地账号。
+	IsNewAccount bool `json:"is_new_account,omitempty"`
+}
 
 // qrLoginVerificationResponse 是二维码风控验证完成的具名响应 DTO。
 type qrLoginVerificationResponse struct {

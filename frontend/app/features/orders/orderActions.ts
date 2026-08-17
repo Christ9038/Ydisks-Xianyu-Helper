@@ -1,5 +1,5 @@
 import { useCallback, useState, type Dispatch, type SetStateAction } from 'react';
-import type { Order, OrderStatus } from '../../../types';
+import type { Order, OrderStatus } from '../../../shared/api-contract';
 import { deleteOrder, manualShipOrder, syncOrders, syncSingleOrder, updateOrder } from './api';
 
 // OrderShipMode 表示订单发货操作的两种业务模式。

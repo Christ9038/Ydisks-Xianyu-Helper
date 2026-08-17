@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 var (
@@ -89,6 +90,67 @@ func NewWithSending(repository Repository, outgoing OutgoingRepository, senders 
 		service.identityResolver = identity[0]
 	}
 	return service
+}
+
+// NewWithSendingAndSubscription 创建同时支持发送和实时订阅的聊天应用服务。
+func NewWithSendingAndSubscription(repository Repository, outgoing OutgoingRepository, senders SenderProvider, uploader ImageUploader, subscription SubscriptionProvider, identity ...IdentityResolver) *Service {
+	// service 保存聊天历史、发送和实时订阅能力的统一应用服务。
+	service := NewWithSending(repository, outgoing, senders, uploader, identity...)
+	service.subscription = subscription
+	return service
+}
+
+// NewWithSendingSubscriptionAndRefresh 创建同时支持发送、订阅和平台刷新的聊天应用服务。
+func NewWithSendingSubscriptionAndRefresh(repository Repository, outgoing OutgoingRepository, senders SenderProvider, uploader ImageUploader, subscription SubscriptionProvider, refresh RefreshProvider, identity ...IdentityResolver) *Service {
+	// service 保存聊天用例所需的持久化、平台刷新、发送和订阅端口。
+	service := NewWithSendingAndSubscription(repository, outgoing, senders, uploader, subscription, identity...)
+	service.refresh = refresh
+	return service
+}
+
+// SendingAvailable 报告文字/媒体消息所需的应用端口是否已完成装配。
+// 该查询只反映依赖生命周期，不触碰账号凭证或外部平台。
+func (s *Service) SendingAvailable() bool {
+	return s != nil && s.outgoing != nil && s.senders != nil
+}
+
+// ImageUploadAvailable 报告图片上传所需的应用端口是否已完成装配。
+func (s *Service) ImageUploadAvailable() bool {
+	return s != nil && s.uploader != nil
+}
+
+// Subscribe 订阅当前用户有权接收的实时聊天事件；取消函数可安全重复调用。
+func (s *Service) Subscribe(ctx context.Context, userID int64) (<-chan Event, func(), error) {
+	if s == nil || s.subscription == nil || userID <= 0 {
+		return nil, nil, ErrSubscriptionUnavailable
+	}
+	// events、cancel、err 保存订阅事件流、幂等清理函数和底层错误。
+	events, cancel, err := s.subscription.Subscribe(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	// once 保证应用层向 HTTP 暴露的清理函数可安全重复调用。
+	var once sync.Once
+	return events, func() { once.Do(cancel) }, nil
+}
+
+// RefreshConversations 刷新并保存指定账号的联系人页；原始平台数据不会离开应用端口。
+func (s *Service) RefreshConversations(ctx context.Context, accountID string, cursor int64, limit int) (ConversationPage, error) {
+	accountID = strings.TrimSpace(accountID)
+	if s == nil || s.refresh == nil || accountID == "" || limit <= 0 {
+		return ConversationPage{}, ErrRefreshUnavailable
+	}
+	return s.refresh.RefreshConversations(ctx, accountID, cursor, limit)
+}
+
+// RefreshHistory 刷新并保存指定会话的消息页；session 只包含非敏感展示字段。
+func (s *Service) RefreshHistory(ctx context.Context, accountID, chatID string, cursor int64, limit int, session Session) (HistoryPage, error) {
+	accountID = strings.TrimSpace(accountID)
+	chatID = strings.TrimSpace(chatID)
+	if s == nil || s.refresh == nil || accountID == "" || chatID == "" || limit <= 0 {
+		return HistoryPage{}, ErrRefreshUnavailable
+	}
+	return s.refresh.RefreshHistory(ctx, accountID, chatID, cursor, limit, session)
 }
 
 // SendText 创建并发送一条文字消息，失败时尽力保留本地 failed 状态。

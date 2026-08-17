@@ -1,19 +1,21 @@
 package automation
 
 import (
+	"context"
 	"fmt"
 
 	"xianyu-go/internal/db"
 )
 
-// deliveryNotifier 将自动化运行状态转换为可选的多渠道发货结果通知，并通过回调读取运行时替换的通知器。
+// deliveryNotifier 将自动化运行状态转换为可选的多渠道发货结果通知，并通过回调读取构造期固定的通知器。
 type deliveryNotifier struct {
-	// current 返回当前生效的通知器实例。
+	// current 返回构造期固定的通知器实例；为空时不发送外部通知。
 	current func() Notifier
 }
 
 // notifyResult 根据规则执行结果发送通知，成功且实际发出内容时才发送成功通知。
-func (n deliveryNotifier) notifyResult(task Task, status string, sent int, errMsg string) {
+// runID 与 status 会传给持久化 outbox，防止恢复扫描对同一运行重复排队。
+func (n deliveryNotifier) notifyResult(ctx context.Context, task Task, runID int64, status string, sent int, errMsg string) {
 	// notifier 是当前可选的外部通知器。
 	notifier := n.current()
 	if notifier == nil {
@@ -34,16 +36,16 @@ func (n deliveryNotifier) notifyResult(task Task, status string, sent int, errMs
 		}
 		// message 是成功通知正文。
 		message := fmt.Sprintf("✅ %s成功（订单 %s，已发送 %d 条）", triggerName, task.OrderID, sent)
-		notifier.NotifyDelivery(task.AccountID, "", task.BuyerID, task.ItemID, message, task.ChatID)
+		notifier.NotifyAutomationRun(ctx, runID, task.AccountID, task.BuyerID, task.ItemID, status, message, task.ChatID)
 		return
 	}
 	// message 是失败或人工核对通知正文。
 	message := fmt.Sprintf("🚨 %s失败（订单 %s）：%s", triggerName, task.OrderID, errMsg)
-	notifier.NotifyDelivery(task.AccountID, "", task.BuyerID, task.ItemID, message, task.ChatID)
+	notifier.NotifyAutomationRun(ctx, runID, task.AccountID, task.BuyerID, task.ItemID, status, message, task.ChatID)
 }
 
 // notifyRunNeedsReview 通知运行需要人工核对，并复用统一结果通知格式。
-func (n deliveryNotifier) notifyRunNeedsReview(run db.AutomationRun, reason string) {
+func (n deliveryNotifier) notifyRunNeedsReview(ctx context.Context, run db.AutomationRun, reason string) {
 	if n.current() == nil {
 		return
 	}
@@ -56,5 +58,5 @@ func (n deliveryNotifier) notifyRunNeedsReview(run db.AutomationRun, reason stri
 		OrderID:     run.OrderID,
 		TriggerType: run.TriggerType,
 	}
-	n.notifyResult(task, "needs_review", run.SentCount, "需要人工核对："+reason)
+	n.notifyResult(ctx, task, run.ID, "needs_review", run.SentCount, "需要人工核对："+reason)
 }

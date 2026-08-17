@@ -9,6 +9,18 @@ import (
 	"xianyu-go/internal/xianyu/cookierefresh"
 )
 
+// minimalCredentialSessionPortFake 仅实现会话写回所需的方法，证明适配器不依赖完整账号仓储。
+type minimalCredentialSessionPortFake struct {
+	// calls 记录平台会话写回次数。
+	calls int
+}
+
+// UpdateRenewalCookie 记录一次脱敏 Cookie 写回请求，不保存明文内容。
+func (f *minimalCredentialSessionPortFake) UpdateRenewalCookie(context.Context, string, string, string, int64) error {
+	f.calls++
+	return nil
+}
+
 // TestCookieSessionAdapterPersistsAuthoritativeSnapshot 验证平台 Cookie 会话快照经凭证 Port 写回并保留作用域。
 func TestCookieSessionAdapterPersistsAuthoritativeSnapshot(t *testing.T) {
 	// store、cleanup 保存测试数据库及其资源清理函数。
@@ -54,6 +66,22 @@ func TestCookieSessionAdapterRejectsMissingRepository(t *testing.T) {
 	_, changed, handled, persistErr := PersistCookieSessionLocked(ctx, nil, detail, session)
 	if !changed || !handled || persistErr == nil || !strings.Contains(persistErr.Error(), "repository 未初始化") {
 		t.Fatalf("缺失 repository 错误阶段异常: changed=%v handled=%v err=%v", changed, handled, persistErr)
+	}
+}
+
+// TestCookieSessionAdapterAcceptsMinimalSessionPort 验证会话写回只要求最小凭证端口。
+func TestCookieSessionAdapterAcceptsMinimalSessionPort(t *testing.T) {
+	// detail 是不含登录密码的最小平台凭证视图。
+	detail := &accountapp.CredentialDetail{ID: "cid", Value: "sid=old", MetadataJSON: "{}"}
+	// ctx、session 保存发生权威快照变化的当前平台会话。
+	ctx, session := WithFlatCookieSession(context.Background(), detail.Value)
+	session.ReplaceSnapshot([]BrowserCookie{{Name: "sid", Value: "new", Domain: ".goofish.com", Path: "/"}})
+	// port 保存仅实现 Cookie 写回能力的最小端口替身。
+	port := &minimalCredentialSessionPortFake{}
+	// _, changed、handled、persistErr 保存使用最小端口写回后的结果。
+	_, changed, handled, persistErr := PersistCookieSessionLocked(ctx, port, detail, session)
+	if persistErr != nil || !changed || !handled || port.calls != 1 {
+		t.Fatalf("最小凭证端口写回异常: changed=%v handled=%v calls=%d err=%v", changed, handled, port.calls, persistErr)
 	}
 }
 

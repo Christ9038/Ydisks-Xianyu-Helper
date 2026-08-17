@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { OperationResponse, SystemSettings } from '../../../types';
+import type { OperationResponse, SystemSettings } from '../../../shared/api-contract';
 import { fetchAIModels, getSystemSettings, updateLoginCredentials, updateSystemSettings, verifySession } from './api';
 import { useSettings } from './hooks';
 

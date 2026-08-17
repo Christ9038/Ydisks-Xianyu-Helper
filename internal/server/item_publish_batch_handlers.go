@@ -24,9 +24,8 @@ import (
 
 // maxPublishBatchRows 保存max发布批次Rows，供当前处理流程使用
 const (
-	maxPublishBatchRows    = 50
-	publishBatchLease      = 5 * time.Minute
-	publishBatchJobTimeout = 2 * time.Hour
+	maxPublishBatchRows = 50
+	publishBatchLease   = 5 * time.Minute
 )
 
 // postPublishError 保存post发布错误，供当前处理流程使用
@@ -457,58 +456,6 @@ func (s *Server) retryFailedItemPublishBatch(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, batchIDResponse{Success: true, BatchID: startedID})
 }
 
-// startPublishBatchWorker 负责开始发布批次工作器相关处理。
-func (s *Server) startPublishBatchWorker(parent context.Context, userID int64, batchID, workerToken string) {
-	// workerDone 保存工作器Done，供当前处理流程使用
-	workerDone := s.beginWorker()
-	// #nosec G118 -- worker 由超时和 Server 根 context 共同约束。
-	go func() {
-		defer workerDone()
-		// jobCtx、cancel 保存jobCtx、cancel，供当前处理流程使用
-		jobCtx, cancel := context.WithTimeout(parent, publishBatchJobTimeout)
-		s.registerPublishBatchCancel(batchID, workerToken, cancel)
-		defer cancel()
-		defer s.unregisterPublishBatchCancel(batchID, workerToken)
-		// runner 负责批量发布的租约、逐行失败记录和最终状态收口。
-		if runErr := s.itemBatchRunnerApplication().Run(jobCtx, userID, batchID, workerToken, false); runErr != nil && s.Logger != nil {
-			s.Logger.Warn("批量发布 worker 结束", "batch", batchID, "err", runErr)
-		}
-	}()
-}
-
-// RunPublishBatchRecovery 定期接管租约过期或明确因进程中断失败的批次。
-func (s *Server) RunPublishBatchRecovery(ctx context.Context) {
-	s.recoverPublishBatchesOnce(ctx)
-	// ticker 保存ticker，供当前处理流程使用
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			s.recoverPublishBatchesOnce(ctx)
-		}
-	}
-}
-
-// StartPublishBatchRecovery 先登记生命周期，再启动恢复循环，避免关闭流程在
-// goroutine 尚未调度时误判扫描器已经退出。
-// StartPublishBatchRecovery 启动发布批次Recovery。
-func (s *Server) StartPublishBatchRecovery(ctx context.Context) string {
-	return s.startBackgroundTaskContext("批量发布恢复扫描器", ctx, func() {
-		s.RunPublishBatchRecovery(ctx)
-	})
-}
-
-// recoverPublishBatchesOnce 负责recover发布批次列表Once相关处理。
-func (s *Server) recoverPublishBatchesOnce(ctx context.Context) {
-	// err 保存恢复扫描应用服务返回的全局查询错误。
-	if err := s.itemBatchRecoveryApplication().Recover(ctx); err != nil && s.Logger != nil {
-		s.Logger.Warn("扫描可恢复批量发布任务失败", "err", err)
-	}
-}
-
 // downloadItemPublishBatchResult 负责download商品发布批次结果相关处理。
 func (s *Server) downloadItemPublishBatchResult(w http.ResponseWriter, r *http.Request) {
 	// sess 保存sess，供当前处理流程使用
@@ -599,57 +546,6 @@ func publishBatchFailure(err error, batchStatus string) (string, string) {
 	return message, failureKind
 }
 
-// registerPublishBatchCancel 负责register发布批次取消相关处理。
-func (s *Server) registerPublishBatchCancel(batchID, workerToken string, cancel context.CancelFunc) {
-	s.publishMu.Lock()
-	defer s.publishMu.Unlock()
-	if s.publishCancels == nil {
-		s.publishCancels = make(map[string]publishBatchWorker)
-	}
-	if // old 保存old，供当前处理流程使用
-	old := s.publishCancels[batchID]; old.cancel != nil {
-		old.cancel()
-	}
-	s.publishCancels[batchID] = publishBatchWorker{token: workerToken, cancel: cancel}
-}
-
-// unregisterPublishBatchCancel 负责unregister发布批次取消相关处理。
-func (s *Server) unregisterPublishBatchCancel(batchID, workerToken string) {
-	s.publishMu.Lock()
-	defer s.publishMu.Unlock()
-	if // current 保存current，供当前处理流程使用
-	current := s.publishCancels[batchID]; current.token == workerToken {
-		delete(s.publishCancels, batchID)
-	}
-}
-
-// cancelPublishBatch 负责取消发布批次相关处理。
-func (s *Server) cancelPublishBatch(batchID, workerToken string) bool {
-	s.publishMu.Lock()
-	// worker 保存工作器，供当前处理流程使用
-	worker := s.publishCancels[batchID]
-	s.publishMu.Unlock()
-	if worker.token != workerToken || worker.cancel == nil {
-		return false
-	}
-	worker.cancel()
-	return true
-}
-
-// completeBatchPublishOutcome 将远端结果交给应用服务完成本地状态收口。
-func (s *Server) completeBatchPublishOutcome(ctx context.Context, userID int64, localService *itemapp.BatchLocalPublishService, row itemapp.BatchRow, workerToken string, outcome itemapp.BatchPublishOutcome) error {
-	if localService == nil {
-		return errors.New("批量发布本地收口端口未装配")
-	}
-	if outcome.ResponseCookieErr != nil {
-		return &postPublishError{err: outcome.ResponseCookieErr}
-	}
-	if ctx.Err() != nil {
-		return &postPublishError{err: ctx.Err()}
-	}
-	return localService.Complete(ctx, userID, row, workerToken, outcome.Result)
-}
-
 // finalPublishBatchStatus 根据应用批次统计返回兼容的最终状态。
 func finalPublishBatchStatus(batch *itemapp.BatchInfo) string {
 	if batch == nil {
@@ -738,23 +634,23 @@ func (s *Server) cookieOwnedByUser(ctx context.Context, userID int64, cookieID s
 
 // cookieValueForUser 读取指定用户拥有的单个账号 Cookie 明文。
 func (s *Server) cookieValueForUser(ctx context.Context, userID int64, cookieID string) (string, error) {
-	// repository 提供按账号读取的平台窄凭证视图，解密和数据库访问均由 adapter 负责。
-	repository := s.accountLoginRepositoryForServer()
-	if repository == nil {
-		return "", errors.New("账号凭证 repository 未初始化")
+	// service 提供消费者定义的平台凭证读取端口，明文只在当前平台请求边界短暂存在。
+	service := s.platformCredentialApplication()
+	if service == nil {
+		return "", errors.New("平台凭证读取服务未初始化")
 	}
-	// detail 和 err 保存账号归属与 Cookie 明文读取结果；明文只在当前发布边界短暂存在。
-	detail, err := repository.LoadPlatformDetail(ctx, cookieID)
+	// value 和 err 保存已通过归属复核的 Cookie 明文及读取错误；value 不进入 HTTP 响应。
+	value, err := service.LoadOwnedValue(ctx, userID, cookieID)
 	if err != nil {
-		if errors.Is(err, accountapp.ErrCredentialNotFound) {
+		if errors.Is(err, accountapp.ErrCredentialNotFound) || errors.Is(err, accountapp.ErrForbidden) || errors.Is(err, accountapp.ErrCredentialEmpty) {
 			return "", errors.New("账号不存在或 Cookie 为空")
 		}
 		return "", err
 	}
-	if detail == nil || detail.UserID != userID || strings.TrimSpace(detail.Value) == "" {
+	if strings.TrimSpace(value) == "" {
 		return "", errors.New("账号不存在或 Cookie 为空")
 	}
-	return detail.Value, nil
+	return value, nil
 }
 
 // cardOwnedByUser 判断指定卡券组是否属于用户。
@@ -815,8 +711,6 @@ func firstNonEmpty(values ...string) string {
 
 // serverBatchPublisher 将 Server 的商品发布细节适配为应用层批量发布端口。
 type serverBatchPublisher struct {
-	// server 保存平台发布和本地商品结果适配所需的 Server 引用。
-	server *Server
 	// remotePort 保存已装配的平台与凭证端口，避免 worker 再进入 Server 远端逻辑。
 	remotePort itemapp.BatchPublishPort
 	// localService 保存已装配的本地商品、自动化规则和成功检查点收口服务。
@@ -825,7 +719,7 @@ type serverBatchPublisher struct {
 
 // PublishRow 调用批量远端端口并收口本地结果，应用层不接触数据库或 MTOP 类型。
 func (p serverBatchPublisher) PublishRow(ctx context.Context, userID int64, row itemapp.BatchRow, workerToken string) error {
-	if p.server == nil || p.remotePort == nil {
+	if p.remotePort == nil {
 		return errors.New("批量发布端口未装配")
 	}
 	if p.localService == nil {
@@ -844,7 +738,13 @@ func (p serverBatchPublisher) PublishRow(ctx context.Context, userID int64, row 
 	if outcome.Result == nil {
 		return errors.New("发布商品接口未返回结果")
 	}
-	return p.server.completeBatchPublishOutcome(ctx, userID, p.localService, row, workerToken, outcome)
+	if outcome.ResponseCookieErr != nil {
+		return &itemapp.PostPublishError{Err: outcome.ResponseCookieErr}
+	}
+	if ctx.Err() != nil {
+		return &itemapp.PostPublishError{Err: ctx.Err()}
+	}
+	return p.localService.Complete(ctx, userID, row, workerToken, outcome.Result)
 }
 
 // newItemBatchRunnerApplication 创建批量发布应用层 worker 编排器。
@@ -858,7 +758,7 @@ func newItemBatchRunnerApplication(server *Server, remotePort itemapp.BatchPubli
 		IsSessionExpired: adapter.IsSessionExpiredError,
 		ClassifyFailure:  publishBatchFailure,
 	}
-	return itemapp.NewBatchRunner(server.dependencies.NewItemBatchRepository(), serverBatchPublisher{server: server, remotePort: remotePort, localService: localService}, options)
+	return itemapp.NewBatchRunner(server.itemDependencies.NewItemBatchRepository(), serverBatchPublisher{remotePort: remotePort, localService: localService}, options)
 }
 
 // publishBatchLocation 保存批量发布请求中的发货地字段，不让平台 DTO 进入 HTTP 层。

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import type { AccountDetail, AIReplySettings, NotificationChannel } from '../../../types';
+import type { AccountDetail, AIReplySettings, NotificationChannel } from '../../../shared/api-contract';
 import { cancelPasswordLogin, checkPasswordLoginStatus, getAccountAISettings, getAccountBindings, getLongLoginSettings, getNotificationChannels, passwordLogin, setLongLoginSettings, updateAccountAISettings, updateAccountPauseDuration, updateAccountSettings } from './api';
 import { buildAccountLoginInfoUpdate, isCurrentAccountRequest, passwordLoginViewFromStatus, shouldUpdateAccountPause } from './state';
 import type { AccountEditForm, LongLoginState, PasswordLoginView } from './types';
-import { shouldSaveNotificationBindings } from '../../../components/accountBindings';
+import { shouldSaveNotificationBindings } from './accountBindings';
 
 /** AccountList 当前编辑弹窗类型。 */
 export type AccountModalType = 'edit' | 'ai-settings' | null;
@@ -124,7 +124,8 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
     clearPasswordTimer();
     setPasswordLoginView({ sessionId: '', status: 'idle', message: '', qrCodeUrl: '' });
     setEditingAccount(account);
-    setEditForm({ remark: account.remark || '', cookie: account.value || '', auto_confirm: account.auto_confirm || false, pause_duration: account.pause_duration || 0, username: account.username || '', login_password: account.login_password || '', show_browser: account.show_browser || false, showLoginPassword: false, clear_password: false });
+    // 摘要接口不会返回 Cookie 或密码明文；编辑表单只接收本次用户主动输入的秘密。
+    setEditForm({ remark: account.remark || '', cookie: '', auto_confirm: account.auto_confirm || false, pause_duration: account.pause_duration || 0, username: account.username || '', login_password: '', show_browser: account.show_browser || false, showLoginPassword: false, clear_password: false });
     setActiveModal('edit');
     setLongLogin({ loading: true, saving: false, canOpen: false, enabled: false, error: '' });
     // longLoginResult 保存长登录设置读取结果。
@@ -200,7 +201,8 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
       // payload 保存需要提交的账号编辑补丁。
       const payload: Parameters<typeof updateAccountSettings>[1] = {};
       if (editForm.remark !== (editingAccount.remark || '')) payload.remark = editForm.remark;
-      if (editForm.cookie && editForm.cookie !== (editingAccount.value || '')) payload.cookie = editForm.cookie;
+      // 编辑表单中的 Cookie 只有用户本次输入时才会提交，避免从账号摘要读取或回填明文。
+      if (editForm.cookie) payload.cookie = editForm.cookie;
       if (editForm.auto_confirm !== editingAccount.auto_confirm) payload.auto_confirm = editForm.auto_confirm;
       if (shouldUpdateAccountPause(editForm.pause_duration, editingAccount)) payload.pause_duration = editForm.pause_duration;
       // loginInfo 保存登录字段变更补丁。

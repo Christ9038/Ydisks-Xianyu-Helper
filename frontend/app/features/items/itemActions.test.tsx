@@ -2,7 +2,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type { Item } from '../../../types';
+import type { Item } from '../../../shared/api-contract';
 import { createItem, deleteItem, getPublishLocations, publishItem, syncItemsFromAccount, updateItem } from './api';
 import { useItemActions, type ItemActionsOptions } from './itemActions';
 

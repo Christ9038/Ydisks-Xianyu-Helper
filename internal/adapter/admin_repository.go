@@ -38,6 +38,14 @@ func (r *AdminRepository) ListUsers(ctx context.Context) ([]adminapp.UserSummary
 	return users, nil
 }
 
+// ListOwnedAccountIDs 返回用户拥有的账号标识；适配器不会读取或解密 Cookie 内容。
+func (r *AdminRepository) ListOwnedAccountIDs(ctx context.Context, userID int64) ([]string, error) {
+	if r == nil || r.store == nil || r.store.Cookies == nil {
+		return nil, errors.New("管理员账号查询适配器未初始化")
+	}
+	return r.store.Cookies.ListOwnedIDs(ctx, userID)
+}
+
 // DeleteUser 删除指定用户及其关联账号。
 func (r *AdminRepository) DeleteUser(ctx context.Context, userID int64) error {
 	if r == nil || r.store == nil || r.store.Users == nil {

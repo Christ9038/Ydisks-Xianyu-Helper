@@ -45,11 +45,11 @@ type AccountTaskSummary struct {
 type accountTaskCoordinator struct {
 	// repository 提供账号任务所需的最小持久化能力。
 	repository AccountTaskRepository
-	// client 返回当前生效的账号任务平台客户端。
+	// client 返回构造期固定的账号任务平台客户端。
 	client func() AccountTaskClient
 	// senders 用于把任务响应 Cookie 同步到在线账号运行时。
 	senders SenderProvider
-	// recoverer 返回当前生效的凭证恢复器。
+	// recoverer 返回构造期固定的凭证恢复器。
 	recoverer func() CredentialRecoverer
 	// logger 记录账号任务扫描、凭证恢复和 Cookie 持久化异常。
 	logger interface {

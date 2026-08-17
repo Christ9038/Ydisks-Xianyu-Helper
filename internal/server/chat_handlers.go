@@ -14,7 +14,6 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/go-chi/chi/v5"
 
-	"xianyu-go/internal/adapter"
 	chatapp "xianyu-go/internal/application/chat"
 	"xianyu-go/internal/auth"
 )
@@ -57,30 +56,19 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "清理无效聊天会话失败")
 		return
 	}
-	if refresh && s.chat != nil && s.Manager != nil {
-		if // sender、ok 保存sender、ok，供当前处理流程使用
-		sender, ok := s.Manager.GetInstance(accountID); ok {
-			if // fetcher、ok 保存fetcher、ok，供当前处理流程使用
-			fetcher, ok := sender.(interface {
-				FetchChatConversations(context.Context, int64, int) (map[string]any, string, error)
-			}); ok {
-				// fetchCtx、cancel 保存fetchCtx、cancel，供当前处理流程使用
-				fetchCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-				// body、myID、fetchErr 保存body、myID、fetchErr，供当前处理流程使用
-				body, myID, fetchErr := fetcher.FetchChatConversations(fetchCtx, cursor, 100)
-				cancel()
-				if fetchErr == nil {
-					// page、saveErr 保存page、saveErr，供当前处理流程使用
-					page, saveErr := s.chat.RecordConversationPage(r.Context(), accountID, myID, body)
-					if saveErr != nil {
-						writeErr(w, http.StatusInternalServerError, "保存历史联系人失败")
-						return
-					}
-					hasMore, nextCursor = page.HasMore, page.NextCursor
-				} else {
-					s.recoverExpiredMTOPSession(r.Context(), accountID, fetchErr)
-				}
-			}
+	if refresh {
+		// fetchCtx 和 cancel 限制平台联系人刷新请求的最长时间。
+		fetchCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		// page 和 fetchErr 保存应用层联系人分页结果及平台/持久化错误。
+		page, fetchErr := s.chatApplication().RefreshConversations(fetchCtx, accountID, cursor, 100)
+		cancel()
+		if fetchErr == nil {
+			hasMore, nextCursor = page.HasMore, page.NextCursor
+		} else if errors.Is(fetchErr, chatapp.ErrRefreshPersist) {
+			writeErr(w, http.StatusInternalServerError, "保存历史联系人失败")
+			return
+		} else if !errors.Is(fetchErr, chatapp.ErrRefreshUnavailable) && !errors.Is(fetchErr, chatapp.ErrOffline) {
+			s.recoverExpiredSession(r.Context(), accountID, fetchErr)
 		}
 	}
 	// rows、err 保存应用层会话摘要及查询错误。
@@ -97,7 +85,7 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request) {
 		resolveCancel()
 		rows = refreshedRows
 		if sessionErr != nil {
-			s.recoverExpiredMTOPSession(r.Context(), accountID, sessionErr)
+			s.recoverExpiredSession(r.Context(), accountID, sessionErr)
 		}
 	}
 	writeJSON(w, http.StatusOK, chatSessionPageResponse{Sessions: newChatSessionDTOsFromApplication(rows), HasMore: hasMore, NextCursor: nextCursor})
@@ -105,7 +93,7 @@ func (s *Server) listChatSessions(w http.ResponseWriter, r *http.Request) {
 
 // sendChatImage 负责send聊天图片相关处理。
 func (s *Server) sendChatImage(w http.ResponseWriter, r *http.Request) {
-	if s.chat == nil || s.Manager == nil {
+	if !s.chatApplication().ImageUploadAvailable() {
 		writeErr(w, http.StatusServiceUnavailable, "聊天服务未启用")
 		return
 	}
@@ -193,37 +181,28 @@ func (s *Server) listChatMessages(w http.ResponseWriter, r *http.Request) {
 	cursor, _ := strconv.ParseInt(r.URL.Query().Get("cursor"), 10, 64)
 	// limit 保存上限，供当前处理流程使用
 	limit := parsePositiveInt(r.URL.Query().Get("limit"), 50)
-	if s.chat != nil && s.Manager != nil {
-		if // sender、ok 保存sender、ok，供当前处理流程使用
-		sender, ok := s.Manager.GetInstance(accountID); ok {
-			if // fetcher、ok 保存fetcher、ok，供当前处理流程使用
-			fetcher, ok := sender.(interface {
-				FetchChatHistory(context.Context, string, int64, int) (map[string]any, string, error)
-			}); ok {
-				// fetchCtx、cancel 保存fetchCtx、cancel，供当前处理流程使用
-				fetchCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-				// body、myID、fetchErr 保存body、myID、fetchErr，供当前处理流程使用
-				body, myID, fetchErr := fetcher.FetchChatHistory(fetchCtx, chatID, cursor, limit)
-				cancel()
-				if fetchErr == nil {
-					// sessions 保存sessions，供当前处理流程使用
-					current, _ := s.chatApplication().FindSession(r.Context(), sess.UserID, accountID, chatID)
-					// page、saveErr 保存page、saveErr，供当前处理流程使用
-					page, saveErr := s.chat.RecordHistoryPage(r.Context(), accountID, chatID, myID, adapter.ChatSessionFromApplication(current), body)
-					if saveErr != nil {
-						writeErr(w, http.StatusInternalServerError, "保存聊天历史失败")
-						return
-					}
-					// current 和 identityErr 保存身份补全后的会话及平台查询错误。
-					current, identityErr := s.chatApplication().ResolveSessionIdentity(r.Context(), current)
-					if identityErr != nil {
-						s.recoverExpiredMTOPSession(r.Context(), accountID, identityErr)
-					}
-					writeJSON(w, http.StatusOK, chatMessagePageResponse{Messages: newChatMessageDTOsFromApplication(adapter.ChatMessagesFromDB(page.Messages)), HasMore: page.HasMore, NextCursor: page.NextCursor, Session: newChatSessionDTOFromApplication(current)})
-					return
-				}
-			}
+	// current 保存刷新前的本地会话摘要，供平台历史写入和响应展示使用。
+	current, _ := s.chatApplication().FindSession(r.Context(), sess.UserID, accountID, chatID)
+	// fetchCtx 和 cancel 限制平台历史刷新请求的最长时间。
+	fetchCtx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	// refreshed 和 fetchErr 保存应用层消息分页结果及平台/持久化错误。
+	refreshed, fetchErr := s.chatApplication().RefreshHistory(fetchCtx, accountID, chatID, cursor, limit, current)
+	cancel()
+	if fetchErr == nil {
+		// resolved 和 identityErr 保存身份补全后的会话及平台查询错误。
+		resolved, identityErr := s.chatApplication().ResolveSessionIdentity(r.Context(), refreshed.Session)
+		if identityErr != nil {
+			s.recoverExpiredSession(r.Context(), accountID, identityErr)
 		}
+		writeJSON(w, http.StatusOK, chatMessagePageResponse{Messages: newChatMessageDTOsFromApplication(refreshed.Messages), HasMore: refreshed.HasMore, NextCursor: refreshed.NextCursor, Session: newChatSessionDTOFromApplication(resolved)})
+		return
+	}
+	if errors.Is(fetchErr, chatapp.ErrRefreshPersist) {
+		writeErr(w, http.StatusInternalServerError, "保存聊天历史失败")
+		return
+	}
+	if !errors.Is(fetchErr, chatapp.ErrRefreshUnavailable) && !errors.Is(fetchErr, chatapp.ErrOffline) {
+		s.recoverExpiredSession(r.Context(), accountID, fetchErr)
 	}
 	// page、err 保存page、err，供当前处理流程使用
 	page, err := s.chatApplication().ListStoredMessages(r.Context(), sess.UserID, accountID, chatID, beforeID, limit)
@@ -237,7 +216,7 @@ func (s *Server) listChatMessages(w http.ResponseWriter, r *http.Request) {
 		// resolved 和 identityErr 保存身份补全后的会话及平台查询错误。
 		resolved, identityErr := s.chatApplication().ResolveSessionIdentity(r.Context(), session)
 		if identityErr != nil {
-			s.recoverExpiredMTOPSession(r.Context(), accountID, identityErr)
+			s.recoverExpiredSession(r.Context(), accountID, identityErr)
 		}
 		session = resolved
 	}
@@ -257,7 +236,7 @@ type sendChatMessageRequest struct {
 
 // sendChatMessage 负责send聊天消息相关处理。
 func (s *Server) sendChatMessage(w http.ResponseWriter, r *http.Request) {
-	if s.chat == nil || s.Manager == nil {
+	if !s.chatApplication().SendingAvailable() {
 		writeErr(w, http.StatusServiceUnavailable, "聊天服务未启用")
 		return
 	}
@@ -328,16 +307,16 @@ func (s *Server) markChatRead(w http.ResponseWriter, r *http.Request) {
 
 // chatWebSocket 负责聊天WebSocket相关处理。
 func (s *Server) chatWebSocket(w http.ResponseWriter, r *http.Request) {
-	if s.chat == nil {
-		writeErr(w, http.StatusServiceUnavailable, "聊天服务未启用")
-		return
-	}
 	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
-	// events、unsubscribe、err 保存events、unsubscribe、err，供当前处理流程使用
-	events, unsubscribe, err := s.chat.Subscribe(r.Context(), sess.UserID)
+	// events、unsubscribe、err 保存应用层实时事件、清理函数和订阅错误。
+	events, unsubscribe, err := s.chatApplication().Subscribe(r.Context(), sess.UserID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "订阅聊天消息失败")
+		if errors.Is(err, chatapp.ErrSubscriptionUnavailable) {
+			writeErr(w, http.StatusServiceUnavailable, "聊天服务未启用")
+		} else {
+			writeErr(w, http.StatusInternalServerError, "订阅聊天消息失败")
+		}
 		return
 	}
 	// conn、err 保存conn、err，供当前处理流程使用

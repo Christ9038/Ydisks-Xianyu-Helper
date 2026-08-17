@@ -2,13 +2,23 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
-const componentsDir = resolve(__dirname, 'components'); /* componentsDir 表示componentsDir。 */
+// featureRoot 是 feature 页面与专属组件所在的目录；根 components 已由阶段七迁移移除。
+const featureRoot = resolve(__dirname, 'app/features');
+// sharedUIRoot 是跨 feature 复用的纯展示组件目录。
+const sharedUIRoot = resolve(__dirname, 'shared/ui');
+// collectTSXSources 递归收集目标目录内非测试 TSX，供设计令牌契约审计使用。
+const collectTSXSources = (directory: string): string[] => readdirSync(directory, { withFileTypes: true }).flatMap(/* sourceEntryMapper 处理当前目录的一个文件或子目录。 */ entry => {
+  // entryPath 是当前文件系统条目的绝对路径。
+  const entryPath = resolve(directory, entry.name);
+  if (entry.isDirectory()) return collectTSXSources(entryPath);
+  return entry.name.endsWith('.tsx') && !entry.name.endsWith('.test.tsx') ? [entryPath] : [];
+});
+// pageSources 是根应用、feature 页面和共享 UI 的生产 TSX 源码集合。
 const pageSources = [
   resolve(__dirname, 'App.tsx'),
-  ...readdirSync(componentsDir)
-    .filter((fileName) => fileName.endsWith('.tsx') && !fileName.endsWith('.test.tsx') /* 回调函数负责当前业务流程。 */)
-    .map((fileName) => resolve(componentsDir, fileName) /* 回调函数负责当前业务流程。 */),
-]; /* pageSources 表示pageSources。 */
+  ...collectTSXSources(featureRoot),
+  ...collectTSXSources(sharedUIRoot),
+];
 
 // rgb(var(--color-*)), CSS classes and the central index.css are references.
 // Literal colors in page code would bypass the design-token system.

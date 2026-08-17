@@ -2,7 +2,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { Dispatch, SetStateAction } from 'react';
-import type { AccountDetail, AIReplySettings } from '../../../types';
+import type { AccountDetail, AIReplySettings } from '../../../shared/api-contract';
 import {
   cancelPasswordLogin,
   checkPasswordLoginStatus,
@@ -101,6 +101,7 @@ describe('useAccountSubmodules', /* 当前回调处理账号编辑、AI、通知
     expect(hook.result.current.longLogin.canOpen).toBe(true);
     expect(hook.result.current.notifChannels).toHaveLength(1);
     expect(hook.result.current.selectedChannelIds).toEqual([1]);
+    expect(setEditForm).toHaveBeenCalledWith(expect.objectContaining({ cookie: '', login_password: '' }));
     await act(
       // toggleAction 切换通知渠道绑定。
       () => hook.result.current.toggleNotificationChannel(2),

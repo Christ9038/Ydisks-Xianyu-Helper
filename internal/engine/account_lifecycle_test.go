@@ -104,3 +104,73 @@ func TestAccountStopContextBoundsTaskWait(t *testing.T) {
 		t.Fatal("第一次 Stop 超时后，重试未在任务完成后返回")
 	}
 }
+
+// TestAccountLifecycleWaitContextCanRetryAfterTimeout 验证超时等待不占用额外协程，且后续调用能继续等待同一任务收束信号。
+func TestAccountLifecycleWaitContextCanRetryAfterTimeout(t *testing.T) {
+	// lifecycle 是独立的账号业务任务生命周期组件。
+	lifecycle := accountLifecycle{}
+	// runCtx 是任务共享的运行上下文；cancel 用于测试结束时释放资源。
+	runCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if !lifecycle.start(runCtx, cancel) {
+		t.Fatal("生命周期应允许首次启动")
+	}
+	// taskCtx 是登记任务继承的运行上下文；accepted 表示任务已成功进入停止收束范围。
+	taskCtx, accepted := lifecycle.beginTask()
+	if !accepted || taskCtx == nil {
+		t.Fatal("业务任务应成功登记")
+	}
+	// shouldStop 表示本次调用创建了停止收束信号；stopErr 表示停止切换错误。
+	_, shouldStop, stopErr := lifecycle.stopContext(context.Background())
+	if stopErr != nil || !shouldStop {
+		t.Fatalf("停止生命周期失败：shouldStop=%v err=%v", shouldStop, stopErr)
+	}
+	// timeoutCtx 是短超时等待上下文；timeoutCancel 释放其计时器。
+	timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer timeoutCancel()
+	if lifecycle.waitContext(timeoutCtx) {
+		t.Fatal("未完成任务时 waitContext 应受上下文超时限制")
+	}
+	// waited 表示第二次等待是否在任务完成前返回，证明它继续订阅原停止信号。
+	waited := make(chan bool, 1)
+	go func() {
+		waited <- lifecycle.waitContext(context.Background())
+	}()
+	select {
+	case <-waited:
+		t.Fatal("任务未完成时，重试等待不应提前返回")
+	case <-time.After(20 * time.Millisecond):
+	}
+	lifecycle.finishTask()
+	select {
+	// completed 表示第二次等待在任务收束后得到正常完成结果。
+	case completed := <-waited:
+		if !completed {
+			t.Fatal("任务完成后 waitContext 应返回 true")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("任务完成后 waitContext 未返回")
+	}
+}
+
+// TestAccountLifecycleRejectsLateStart 验证 Stop 先于 Run 时不会重新开放已停止的生命周期。
+func TestAccountLifecycleRejectsLateStart(t *testing.T) {
+	// lifecycle 是尚未运行但允许被停止的账号生命周期组件。
+	lifecycle := accountLifecycle{accepting: true}
+	// stopErr 表示预先停止生命周期时的错误结果。
+	_, shouldStop, stopErr := lifecycle.stopContext(context.Background())
+	if stopErr != nil || !shouldStop {
+		t.Fatalf("预先停止生命周期失败：shouldStop=%v err=%v", shouldStop, stopErr)
+	}
+	// runCtx 是迟到 Run 尝试注册的运行上下文；cancel 负责释放该上下文。
+	runCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if lifecycle.start(runCtx, cancel) {
+		t.Fatal("Stop 先于 Run 时不应重新启动生命周期")
+	}
+	// taskCtx 是停止后尝试登记业务任务得到的上下文，必须被拒绝。
+	taskCtx, accepted := lifecycle.beginTask()
+	if accepted || taskCtx != nil {
+		t.Fatalf("停止后的生命周期不应接收任务：ctx=%v accepted=%v", taskCtx, accepted)
+	}
+}

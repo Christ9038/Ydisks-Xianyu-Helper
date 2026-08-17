@@ -2,22 +2,22 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import type { Item } from '../../types';
+import type { Item } from '../../shared/api-contract';
 import type { DeliveryRuleTarget } from './AuthenticatedShell';
 
-vi.mock('../../components/Dashboard', /* dashboardMockFactory 提供仪表盘页面的轻量替身。 */ () => {
+vi.mock('../features/dashboard/pages/Dashboard', /* dashboardMockFactory 提供仪表盘页面的轻量替身。 */ () => {
   // DashboardMock 渲染仪表盘页面标识，避免行为测试加载真实图表依赖。
   const DashboardMock: React.FC = () => <div data-testid="dashboard-page">仪表盘</div>;
   return { default: DashboardMock };
 });
 
-vi.mock('../../components/Settings', /* settingsMockFactory 提供设置页面的轻量替身。 */ () => {
+vi.mock('../features/settings/pages/Settings', /* settingsMockFactory 提供设置页面的轻量替身。 */ () => {
   // SettingsMock 渲染设置页面标识，验证管理员权限分支。
   const SettingsMock: React.FC = () => <div data-testid="settings-page">设置</div>;
   return { default: SettingsMock };
 });
 
-vi.mock('../../components/ItemList', /* itemListMockFactory 提供商品页面的联动替身。 */ () => {
+vi.mock('../features/items/pages/ItemList', /* itemListMockFactory 提供商品页面的联动替身。 */ () => {
   // MockItemListProps 描述商品页面替身接收的规则配置回调。
   interface MockItemListProps {
     // onConfigureDelivery 负责通知父级打开商品规则配置。
@@ -32,7 +32,7 @@ vi.mock('../../components/ItemList', /* itemListMockFactory 提供商品页面�
   return { default: ItemListMock };
 });
 
-vi.mock('../../components/Rules', /* rulesMockFactory 提供规则页面的轻量替身。 */ () => {
+vi.mock('../features/rules/pages/Rules', /* rulesMockFactory 提供规则页面的轻量替身。 */ () => {
   // MockRulesProps 描述规则页面替身接收的联动参数。
   interface MockRulesProps {
     // initialDeliveryTarget 保存商品页面传来的规则目标。

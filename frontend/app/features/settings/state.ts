@@ -1,4 +1,4 @@
-import type { SystemSettings } from '../../../types';
+import type { SystemSettings } from '../../../shared/api-contract';
 import { SETTINGS_SAVE_OMIT_KEYS } from './constants';
 import type { CredentialsForm, CredentialsMessage } from './types';
 

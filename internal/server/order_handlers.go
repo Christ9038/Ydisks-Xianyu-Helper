@@ -170,24 +170,8 @@ func (s *Server) deleteOrder(w http.ResponseWriter, r *http.Request) {
 func (s *Server) updateOrder(w http.ResponseWriter, r *http.Request) {
 	// orderID 保存订单ID，供当前处理流程使用
 	orderID := chi.URLParam(r, "order_id")
-	// req 保存req，供当前处理流程使用
-	var req struct {
-		OrderStatus     *string `json:"order_status"`
-		Status          *string `json:"status"`
-		ItemID          *string `json:"item_id"`
-		BuyerID         *string `json:"buyer_id"`
-		SpecName        *string `json:"spec_name"`
-		SpecValue       *string `json:"spec_value"`
-		Quantity        *any    `json:"quantity"`
-		Amount          *any    `json:"amount"`
-		ReceiverName    *string `json:"receiver_name"`
-		ReceiverPhone   *string `json:"receiver_phone"`
-		ReceiverAddress *string `json:"receiver_address"`
-		ReceiverCity    *string `json:"receiver_city"`
-		ChatID          *string `json:"chat_id"`
-		SystemShipped   *bool   `json:"system_shipped"`
-		ItemTitle       *string `json:"item_title"`
-	}
+	// req 保存具名订单更新请求，兼容旧客户端的状态别名和数值字段。
+	var req orderUpdateRequestDTO
 	if // err 保存err，供当前处理流程使用
 	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
@@ -247,11 +231,8 @@ func normalizeOrderAmount(raw string) (string, bool) {
 
 // manualShipOrders 负责manualShip订单列表相关处理。
 func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
-	// req 保存req，供当前处理流程使用
-	var req struct {
-		OrderIDs []string `json:"order_ids"`
-		ShipMode string   `json:"ship_mode"`
-	}
+	// req 保存具名批量发货请求。
+	var req manualShipRequestDTO
 	if // err 保存err，供当前处理流程使用
 	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
@@ -332,12 +313,4 @@ func isStableOrderStatus(status string) bool {
 	default:
 		return false
 	}
-}
-
-// notifyDelivery 在 Notifier 已注入时发送发货结果通知，未注入则跳过。
-func (s *Server) notifyDelivery(cookieID, buyerID, itemID, chatID, message string) {
-	if s.notifier == nil {
-		return
-	}
-	s.notifier.NotifyDelivery(cookieID, "", buyerID, itemID, message, chatID)
 }

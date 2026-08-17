@@ -6,8 +6,32 @@ import (
 	"testing"
 
 	orderapp "xianyu-go/internal/application/orders"
+	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
 )
+
+// orderRuntimeAutomationFake 是订单运行时测试使用的自动化能力替身。
+type orderRuntimeAutomationFake struct {
+	// calls 记录自动化完整发货调用次数。
+	calls int
+}
+
+// ManualFullDelivery 返回固定发送数量，验证 adapter 的订单模型转换回调。
+func (f *orderRuntimeAutomationFake) ManualFullDelivery(context.Context, *db.Order) (int, error) {
+	f.calls++
+	return 2, nil
+}
+
+// orderRuntimeNotifierFake 是订单运行时测试使用的通知能力替身。
+type orderRuntimeNotifierFake struct {
+	// calls 记录发货通知调用次数。
+	calls int
+}
+
+// NotifyDelivery 记录一次发货通知调用。
+func (f *orderRuntimeNotifierFake) NotifyDelivery(string, string, string, string, string, string) {
+	f.calls++
+}
 
 // orderRuntimeMTopFake 是订单运行时测试使用的平台客户端替身。
 type orderRuntimeMTopFake struct {
@@ -49,6 +73,38 @@ func (f *orderRuntimeMTopFake) PublishItem(context.Context, string, mtop.Publish
 // RefreshTokenWithDeviceIDContext 满足基础 MTOP 客户端接口但不参与订单测试。
 func (f *orderRuntimeMTopFake) RefreshTokenWithDeviceIDContext(context.Context, string, string) (*mtop.RefreshResult, error) {
 	return nil, errors.New("订单测试未预期令牌请求")
+}
+
+// TestNewOrderRuntimeHooksUsesTypedOptionalServices 验证订单运行时依赖由 adapter typed port 统一转换并安全处理空依赖。
+func TestNewOrderRuntimeHooksUsesTypedOptionalServices(t *testing.T) {
+	// emptyHooks 保存缺少可选服务时的回调集合。
+	emptyHooks := NewOrderRuntimeHooks(nil, nil, nil, nil, nil, nil)
+	if emptyHooks.AutomationReady() || emptyHooks.ClientAvailable() || emptyHooks.AccountRunning("missing") {
+		t.Fatal("空依赖不应报告订单运行时能力可用")
+	}
+	// err 保存空自动化能力执行完整发货时返回的初始化错误。
+	if _, err := emptyHooks.ManualFullDelivery(context.Background(), &orderapp.Order{}); err == nil {
+		t.Fatal("空自动化依赖应返回错误")
+	}
+	emptyHooks.NotifyDelivery("cookie", "buyer", "item", "chat", "message")
+
+	// automation、notifier 保存 typed port 测试替身。
+	automation := &orderRuntimeAutomationFake{}
+	// notifier 保存记录通知调用次数的 typed port 测试替身。
+	notifier := &orderRuntimeNotifierFake{}
+	// hooks 保存已装配可选服务的订单运行时回调集合。
+	hooks := NewOrderRuntimeHooks(nil, nil, automation, notifier, nil, nil)
+	if hooks.AutomationReady() {
+		t.Fatal("缺少账号 Manager 时不应报告完整自动化已就绪")
+	}
+	// sent、err 保存完整发货回调的发送数量和执行错误。
+	if sent, err := hooks.ManualFullDelivery(context.Background(), &orderapp.Order{OrderID: "order-1"}); err != nil || sent != 2 || automation.calls != 1 {
+		t.Fatalf("自动化回调未正确转发: sent=%d err=%v calls=%d", sent, err, automation.calls)
+	}
+	hooks.NotifyDelivery("cookie", "buyer", "item", "chat", "message")
+	if notifier.calls != 1 {
+		t.Fatalf("通知回调次数=%d，期望 1", notifier.calls)
+	}
 }
 
 // TestOrderRuntimeConfirmShipmentPersistsCookie 验证确认发货成功会写回平台返回的新 Cookie。

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Check } from 'lucide-react';
 import { notificationEvents } from '../state';
-import type { NotificationEventType } from '../../../../types';
+import type { NotificationEventType } from '../../../../shared/api-contract';
 
 // NotificationEventSelectorProps 描述通知事件绑定组件的输入状态。
 export interface NotificationEventSelectorProps {

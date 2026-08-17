@@ -6,9 +6,78 @@ import (
 	"testing"
 
 	chatapp "xianyu-go/internal/application/chat"
+	"xianyu-go/internal/automation"
+	domainchat "xianyu-go/internal/chat"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/mtop"
 )
+
+// subscriptionDomainRepository 是领域聊天订阅测试使用的最小内存仓储。
+type subscriptionDomainRepository struct{}
+
+// ListOwnedIDs 返回实时订阅测试账号归属。
+func (subscriptionDomainRepository) ListOwnedIDs(context.Context, int64) ([]string, error) {
+	return []string{"cid"}, nil
+}
+
+// DeleteSession 满足领域聊天仓储接口的删除能力。
+func (subscriptionDomainRepository) DeleteSession(context.Context, string, string) error { return nil }
+
+// UpsertSession 满足领域聊天仓储接口的会话写入能力。
+func (subscriptionDomainRepository) UpsertSession(context.Context, db.ChatSession) error { return nil }
+
+// SyncSessionSummary 满足领域聊天仓储接口的会话摘要同步能力。
+func (subscriptionDomainRepository) SyncSessionSummary(context.Context, string, string, string, int64, int64, int) error {
+	return nil
+}
+
+// SaveMessage 返回领域事件需要的消息副本，模拟幂等首次写入。
+func (subscriptionDomainRepository) SaveMessage(_ context.Context, _ db.ChatSession, message db.ChatMessage, _ bool) (*db.ChatMessage, bool, error) {
+	return &message, true, nil
+}
+
+// UpdateMessageType 满足领域聊天仓储接口的消息类型更新能力。
+func (subscriptionDomainRepository) UpdateMessageType(context.Context, string, string, string) error {
+	return nil
+}
+
+// UpdateMessageStatus 满足领域聊天仓储接口的消息状态更新能力。
+func (subscriptionDomainRepository) UpdateMessageStatus(context.Context, string, string, string) (*db.ChatMessage, error) {
+	return &db.ChatMessage{}, nil
+}
+
+// TestChatSubscriptionProviderConvertsAndCleansEvents 验证领域事件转换和订阅取消可重复执行。
+func TestChatSubscriptionProviderConvertsAndCleansEvents(t *testing.T) {
+	// service 是使用内存仓储构造的领域聊天事件中心。
+	service := domainchat.NewWithRepository(subscriptionDomainRepository{})
+	// provider 是隐藏领域模型并输出应用事件的适配器。
+	provider := NewChatSubscriptionProvider(service)
+	// events、cancel、err 保存适配器订阅结果。
+	events, cancel, err := provider.Subscribe(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("Subscribe() error=%v", err)
+	}
+	// _, _, recordErr 保存领域入站消息写入结果。
+	_, _, recordErr := service.RecordIncoming(context.Background(), domainchat.Incoming{
+		AccountID: "cid", ChatID: "chat-1", BuyerID: "buyer-1", BuyerName: "买家", Text: "你好",
+		Raw: map[string]any{"messageId": "msg-1"},
+	})
+	if recordErr != nil {
+		t.Fatalf("RecordIncoming() error=%v", recordErr)
+	}
+	// event 保存转换后的应用层事件。
+	event := <-events
+	if event.Type != "message.created" || event.Message == nil || event.Message.MessageKey != "msg-1" || event.Message.Content != "你好" {
+		t.Fatalf("event=%+v", event)
+	}
+	cancel()
+	cancel()
+	// closed 表示取消后转发通道已完成清理并关闭。
+	_, closed := <-events
+	if closed {
+		t.Fatal("取消订阅后事件通道仍保持开启")
+	}
+}
 
 // fakeChatUploadClient 只实现聊天图片上传能力，用于隔离平台网络请求。
 type fakeChatUploadClient struct {
@@ -31,6 +100,47 @@ type fakeChatIdentityClient struct {
 	mtop.Client
 	// info 保存模拟平台返回的买家展示身份。
 	info *mtop.ChatUserInfo
+}
+
+// fakeChatRefreshFetcher 提供联系人和历史分页的最小运行时能力，用于隔离账号管理器与平台连接。
+type fakeChatRefreshFetcher struct {
+	// MessageSender 占位实现聊天发送端口未涉及的其余运行时方法。
+	automation.MessageSender
+}
+
+// FetchChatConversations 返回空联系人页，验证刷新适配器调用边界。
+func (fakeChatRefreshFetcher) FetchChatConversations(context.Context, int64, int) (map[string]any, string, error) {
+	return map[string]any{"hasMore": true, "nextCursor": int64(8)}, "self", nil
+}
+
+// FetchChatHistory 返回空历史页，验证刷新适配器调用边界。
+func (fakeChatRefreshFetcher) FetchChatHistory(context.Context, string, int64, int) (map[string]any, string, error) {
+	return map[string]any{"hasMore": true, "nextCursor": int64(9)}, "self", nil
+}
+
+// TestChatRefreshProviderKeepsPlatformAndDomainInsideAdapter 验证平台分页与领域落库均停留在适配器内。
+func TestChatRefreshProviderKeepsPlatformAndDomainInsideAdapter(t *testing.T) {
+	// provider 保存使用内存领域仓储和测试运行时查找函数的刷新适配器。
+	provider := chatRefreshProvider{
+		service: domainchat.NewWithRepository(subscriptionDomainRepository{}),
+		lookup:  func(string) (automation.MessageSender, bool) { return fakeChatRefreshFetcher{}, true },
+	}
+	// conversations 和 conversationErr 保存联系人刷新结果及错误。
+	conversations, conversationErr := provider.RefreshConversations(context.Background(), "cid", 0, 10)
+	if conversationErr != nil || !conversations.HasMore || conversations.NextCursor != 8 {
+		t.Fatalf("conversations=%+v err=%v", conversations, conversationErr)
+	}
+	// history 和 historyErr 保存历史刷新结果及错误。
+	history, historyErr := provider.RefreshHistory(context.Background(), "cid", "chat", 0, 10, chatapp.Session{AccountID: "cid", ChatID: "chat"})
+	if historyErr != nil || !history.HasMore || history.NextCursor != 9 {
+		t.Fatalf("history=%+v err=%v", history, historyErr)
+	}
+	// unavailable 保存缺失运行实例查找函数时的应用端口错误。
+	unavailable := chatRefreshProvider{service: provider.service}
+	// unavailableErr 保存缺失运行时查找函数时的应用端口错误。
+	if _, unavailableErr := unavailable.RefreshConversations(context.Background(), "cid", 0, 10); !errors.Is(unavailableErr, chatapp.ErrRefreshUnavailable) {
+		t.Fatalf("unavailable error=%v", unavailableErr)
+	}
 }
 
 // FetchChatUserInfo 返回预设聊天身份，并记录适配器已能调用动态能力。

@@ -38,15 +38,49 @@ func newTestServer(t *testing.T) (*Server, *db.Store, func()) { // newTestServer
 	// mgr 是使用空处理器的测试账号管理器。
 	mgr := account.NewManager(store, noopHandler{}, nil)
 	// srv 是未启用聊天服务的基础测试 HTTP 服务。
-	// dependencies 保存测试 Server 使用的基础设施工厂，避免 Server 直接持有 Store。
-	dependencies, dependencyErr := adapter.NewDependencies(store)
-	if dependencyErr != nil {
-		t.Fatalf("NewDependencies: %v", dependencyErr)
+	// orderDependencies 保存订单应用服务专用的测试装配能力，确保 Server 不从通用容器回退读取订单依赖。
+	orderDependencies, orderDependencyErr := adapter.NewOrderDependencies(store)
+	if orderDependencyErr != nil {
+		t.Fatalf("NewOrderDependencies: %v", orderDependencyErr)
+	}
+	// accountDependencies 保存测试 Server 的账号专用装配能力，避免回退到通用容器。
+	accountDependencies, accountDependencyErr := adapter.NewAccountDependencies(store)
+	if accountDependencyErr != nil {
+		t.Fatalf("NewAccountDependencies: %v", accountDependencyErr)
+	}
+	// itemDependencies 保存测试 Server 的商品专用装配能力，避免回退到通用容器。
+	itemDependencies, itemDependencyErr := adapter.NewItemDependencies(store)
+	if itemDependencyErr != nil {
+		t.Fatalf("NewItemDependencies: %v", itemDependencyErr)
+	}
+	// chatDependencies 保存聊天测试使用的显式适配器工厂。
+	chatDependencies := adapter.NewChatDependencies(store)
+	// systemDependencies 保存健康检查与补偿扫描测试使用的显式适配器工厂。
+	systemDependencies := adapter.NewSystemDependencies(store)
+	// automationDependencies 保存自动化测试使用的显式适配器工厂及构造错误。
+	automationDependencies, automationDependencyErr := adapter.NewAutomationDependencies(store)
+	if automationDependencyErr != nil {
+		t.Fatalf("NewAutomationDependencies: %v", automationDependencyErr)
+	}
+	// miscDependencies 保存通知、分析和卡券测试使用的显式适配器工厂及构造错误。
+	miscDependencies, miscDependencyErr := adapter.NewMiscDependencies(store)
+	if miscDependencyErr != nil {
+		t.Fatalf("NewMiscDependencies: %v", miscDependencyErr)
+	}
+	// adminSettingsDependencies 保存管理员和系统设置测试使用的显式适配器工厂。
+	adminSettingsDependencies := adapter.NewAdminSettingsDependencies(store)
+	if chatDependencies == nil || systemDependencies == nil || adminSettingsDependencies == nil {
+		t.Fatal("显式 Server 依赖构造失败")
+	}
+	// platformDependencies 保存测试服务器显式注入的平台客户端集合。
+	platformDependencies, platformDependencyErr := adapter.NewDefaultPlatformDependencies(nil)
+	if platformDependencyErr != nil {
+		t.Fatalf("NewPlatformDependencies: %v", platformDependencyErr)
 	}
 	// authentication 保存测试 HTTP 会话中间件需要的认证服务。
 	authentication := &auth.Service{Store: store}
 	// srv、err 保存测试 HTTP 服务构造结果及失败原因。
-	srv, err := New(dependencies, authentication, mgr, "", ":0", nil, nil, nil)
+	srv, err := New(authentication, mgr, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithSystemDependencies(systemDependencies), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithMiscDependencies(miscDependencies), WithAdminSettingsDependencies(adminSettingsDependencies), WithPlatformDependencies(platformDependencies))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -77,6 +111,8 @@ func newTestServerWithChat(t *testing.T) (*Server, *db.Store, func()) {
 	chatService := chat.New(store)
 	// srv.chat 在测试构造阶段一次性注入通信服务，模拟构造 option 的效果。
 	srv.chat = chatService
+	// applications.chat 重新绑定测试聊天服务，确保实时订阅适配器与 srv.chat 使用同一事件中心。
+	srv.applications.chat = newChatSendingApplication(srv)
 	return srv, store, cleanup
 }
 
@@ -95,15 +131,49 @@ func newUninitializedTestServer(t *testing.T) (*Server, *db.Store, func()) {
 	// mgr 是未初始化测试使用的空处理器账号管理器。
 	mgr := account.NewManager(store, noopHandler{}, nil)
 	// srv 是未初始化测试使用的 HTTP 服务实例。
-	// dependencies 保存未初始化测试 Server 使用的基础设施工厂。
-	dependencies, dependencyErr := adapter.NewDependencies(store)
-	if dependencyErr != nil {
-		t.Fatalf("NewDependencies: %v", dependencyErr)
+	// orderDependencies 保存未初始化测试的订单专用装配能力。
+	orderDependencies, orderDependencyErr := adapter.NewOrderDependencies(store)
+	if orderDependencyErr != nil {
+		t.Fatalf("NewOrderDependencies: %v", orderDependencyErr)
+	}
+	// accountDependencies 保存未初始化测试的账号专用装配能力。
+	accountDependencies, accountDependencyErr := adapter.NewAccountDependencies(store)
+	if accountDependencyErr != nil {
+		t.Fatalf("NewAccountDependencies: %v", accountDependencyErr)
+	}
+	// itemDependencies 保存未初始化测试的商品专用装配能力。
+	itemDependencies, itemDependencyErr := adapter.NewItemDependencies(store)
+	if itemDependencyErr != nil {
+		t.Fatalf("NewItemDependencies: %v", itemDependencyErr)
+	}
+	// chatDependencies 保存未初始化测试使用的聊天适配器工厂。
+	chatDependencies := adapter.NewChatDependencies(store)
+	// systemDependencies 保存未初始化测试使用的系统适配器工厂。
+	systemDependencies := adapter.NewSystemDependencies(store)
+	// automationDependencies 保存未初始化测试使用的自动化适配器工厂及构造错误。
+	automationDependencies, automationDependencyErr := adapter.NewAutomationDependencies(store)
+	if automationDependencyErr != nil {
+		t.Fatalf("NewAutomationDependencies: %v", automationDependencyErr)
+	}
+	// miscDependencies 保存未初始化测试使用的杂项适配器工厂及构造错误。
+	miscDependencies, miscDependencyErr := adapter.NewMiscDependencies(store)
+	if miscDependencyErr != nil {
+		t.Fatalf("NewMiscDependencies: %v", miscDependencyErr)
+	}
+	// adminSettingsDependencies 保存未初始化测试使用的管理员设置适配器工厂。
+	adminSettingsDependencies := adapter.NewAdminSettingsDependencies(store)
+	if chatDependencies == nil || systemDependencies == nil || adminSettingsDependencies == nil {
+		t.Fatal("显式 Server 依赖构造失败")
+	}
+	// platformDependencies 保存未初始化测试服务器显式注入的平台客户端集合。
+	platformDependencies, platformDependencyErr := adapter.NewDefaultPlatformDependencies(nil)
+	if platformDependencyErr != nil {
+		t.Fatalf("NewPlatformDependencies: %v", platformDependencyErr)
 	}
 	// authentication 保存未初始化数据库上的会话中间件依赖。
 	authentication := &auth.Service{Store: store}
 	// srv、err 保存未初始化测试服务构造结果及失败原因。
-	srv, err := New(dependencies, authentication, mgr, "", ":0", nil, nil, nil)
+	srv, err := New(authentication, mgr, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithSystemDependencies(systemDependencies), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithMiscDependencies(miscDependencies), WithAdminSettingsDependencies(adminSettingsDependencies), WithPlatformDependencies(platformDependencies))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

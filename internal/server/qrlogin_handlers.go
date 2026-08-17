@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	accountapp "xianyu-go/internal/application/account"
 	"xianyu-go/internal/auth"
 )
 
@@ -37,8 +38,14 @@ func (s *Server) generateQRLogin(w http.ResponseWriter, r *http.Request) {
 	// generateCtx、cancel 保存generateCtx、cancel，供当前处理流程使用
 	generateCtx, cancel := context.WithTimeout(r.Context(), qrLoginGenerateTimeout)
 	defer cancel()
+	// qrService 是通过显式平台依赖边界取得的二维码服务；为空时拒绝执行平台调用。
+	qrService := s.qrLoginService()
+	if qrService == nil {
+		writeErr(w, http.StatusInternalServerError, "二维码服务未初始化")
+		return
+	}
 	// sessionID、qrCodeURL、err 保存会话ID、qrCodeURL、err，供当前处理流程使用
-	sessionID, qrCodeURL, err := s.QRLogin.GenerateQRCode(generateCtx)
+	sessionID, qrCodeURL, err := qrService.GenerateQRCode(generateCtx)
 	if err != nil {
 		// message 保存消息，供当前处理流程使用
 		message := "生成二维码失败: " + err.Error()
@@ -58,9 +65,13 @@ func (s *Server) generateQRLogin(w http.ResponseWriter, r *http.Request) {
 			message, "")
 		return
 	}
-	s.qrMu.Lock()
-	s.qrOwners[sessionID] = qrLoginOwner{UserID: sess.UserID, CreatedAt: time.Now().UTC()}
-	s.qrMu.Unlock()
+	// qrSessions 保存扫码会话所有权；平台二维码服务只负责平台会话本身。
+	qrSessions := s.accountLoginApplication().qrSessions
+	if qrSessions == nil {
+		writeErr(w, http.StatusInternalServerError, "扫码会话服务未初始化")
+		return
+	}
+	qrSessions.Register(sessionID, sess.UserID, time.Now().UTC())
 	writeJSON(w, http.StatusOK, qrLoginGenerateResponse{
 		Success: true, SessionID: sessionID, QRCodeURL: qrCodeURL,
 		// 生成成功响应只暴露会话标识和二维码地址。
@@ -79,8 +90,14 @@ func (s *Server) checkQRLoginStatus(w http.ResponseWriter, r *http.Request) {
 	if !s.requireQRSessionOwner(w, r, sessionID) {
 		return
 	}
+	// qrService 是已完成平台依赖校验的二维码服务。
+	qrService := s.qrLoginService()
+	if qrService == nil {
+		writeErr(w, http.StatusInternalServerError, "二维码服务未初始化")
+		return
+	}
 	// result 保存结果，供当前处理流程使用
-	result := publicQRStatus(s.QRLogin.GetSessionStatus(sessionID))
+	result := publicQRStatus(qrService.GetSessionStatus(sessionID))
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -95,8 +112,14 @@ func (s *Server) checkQRLoginStatusAndPersist(w http.ResponseWriter, r *http.Req
 	if !s.requireQRSessionOwner(w, r, sessionID) {
 		return
 	}
+	// qrService 是已完成平台依赖校验的二维码服务。
+	qrService := s.qrLoginService()
+	if qrService == nil {
+		writeErr(w, http.StatusInternalServerError, "二维码服务未初始化")
+		return
+	}
 	// result 保存结果，供当前处理流程使用
-	result := cloneQRStatus(s.QRLogin.GetSessionStatus(sessionID))
+	result := cloneQRStatus(qrService.GetSessionStatus(sessionID))
 	if qrStatus(result) != "success" {
 		writeJSON(w, http.StatusOK, publicQRStatus(result))
 		return
@@ -136,8 +159,14 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 	if !s.requireQRSessionOwner(w, r, sessionID) {
 		return
 	}
+	// qrService 是已完成平台依赖校验的二维码服务。
+	qrService := s.qrLoginService()
+	if qrService == nil {
+		writeErr(w, http.StatusInternalServerError, "二维码服务未初始化")
+		return
+	}
 	// cookies、unb、err 保存cookies、unb、err，供当前处理流程使用
-	cookies, unb, err := s.QRLogin.CompleteVerification(r.Context(), sessionID)
+	cookies, unb, err := qrService.CompleteVerification(r.Context(), sessionID)
 	if err != nil {
 		s.Logger.Error("验证完成处理失败", "err", err)
 		writeErrCode(
@@ -146,10 +175,8 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 			err.Error(), "")
 		return
 	}
-	// req 保存req，供当前处理流程使用
-	var req struct {
-		TargetAccountID string `json:"target_account_id"`
-	}
+	// req 保存具名扫码验证完成请求。
+	var req qrVerificationRequestDTO
 	if r.Body != nil && r.ContentLength != 0 {
 		if // err 保存err，供当前处理流程使用
 		err := decodeJSON(r, &req); err != nil {
@@ -181,7 +208,7 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 			"unb":     unb,
 		}
 		if // current 保存current，供当前处理流程使用
-		current := s.QRLogin.GetSessionStatus(sessionID); current != nil {
+		current := qrService.GetSessionStatus(sessionID); current != nil {
 			if // snapshot、ok 保存snapshot、ok，供当前处理流程使用
 			snapshot, ok := current["cookie_snapshot"]; ok {
 				result["cookie_snapshot"] = snapshot
@@ -212,24 +239,20 @@ func (s *Server) requireQRSessionOwner(w http.ResponseWriter, r *http.Request, s
 		writeErr(w, http.StatusUnauthorized, "未授权访问")
 		return false
 	}
-	s.qrMu.Lock()
-	// owner、ok 保存owner、ok，供当前处理流程使用
-	owner, ok := s.qrOwners[sessionID]
-	// expired 保存expired，供当前处理流程使用
-	expired := ok && owner.CreatedAt.Before(time.Now().UTC().Add(-30*time.Minute))
-	if expired {
-		delete(s.qrOwners, sessionID)
-		delete(s.qrPersisted, sessionID)
-		s.qrPersistLocks.Delete(sessionID)
+	// qrSessions 负责所有权、过期判断和幂等状态清理，HTTP 层不再持有可变会话表。
+	qrSessions := s.accountLoginApplication().qrSessions
+	if qrSessions == nil {
+		writeErr(w, http.StatusInternalServerError, "扫码会话服务未初始化")
+		return false
 	}
-	s.qrMu.Unlock()
-	if expired {
-		if // cleaner、cleanable 保存cleaner、cleanable，供当前处理流程使用
-		cleaner, cleanable := s.QRLogin.(interface{ DeleteSession(string) }); cleanable {
-			cleaner.DeleteSession(sessionID)
+	// err 保存扫码会话所有权校验结果。
+	if err := qrSessions.Authorize(sessionID, sess.UserID); err != nil {
+		if errors.Is(err, accountapp.ErrQRLoginSessionNotFound) {
+			// cleaner、cleanable 分别表示平台会话清理器及其接口是否可用。
+			if cleaner, cleanable := s.qrLoginService().(interface{ DeleteSession(string) }); cleanable {
+				cleaner.DeleteSession(sessionID)
+			}
 		}
-	}
-	if !ok || expired || owner.UserID != sess.UserID {
 		writeErr(w, http.StatusNotFound, "扫码会话不存在或已过期")
 		return false
 	}
@@ -238,23 +261,15 @@ func (s *Server) requireQRSessionOwner(w http.ResponseWriter, r *http.Request, s
 
 // cleanupQRLoginSessions 负责cleanupQR登录Sessions相关处理。
 func (s *Server) cleanupQRLoginSessions() {
-	// cutoff 保存cutoff，供当前处理流程使用
-	cutoff := time.Now().UTC().Add(-30 * time.Minute)
-	// expired 保存expired，供当前处理流程使用
-	expired := make([]string, 0)
-	s.qrMu.Lock()
-	// id、owner 表示当前遍历过程中的id、owner
-	for id, owner := range s.qrOwners {
-		if owner.CreatedAt.Before(cutoff) {
-			delete(s.qrOwners, id)
-			delete(s.qrPersisted, id)
-			s.qrPersistLocks.Delete(id)
-			expired = append(expired, id)
-		}
+	// qrSessions 提供应用层扫码会话过期清理能力。
+	qrSessions := s.accountLoginApplication().qrSessions
+	if qrSessions == nil {
+		return
 	}
-	s.qrMu.Unlock()
+	// expired 保存应用层报告的过期扫码会话标识。
+	expired := qrSessions.Cleanup(time.Now().UTC())
 	if // cleaner、ok 保存cleaner、ok，供当前处理流程使用
-	cleaner, ok := s.QRLogin.(interface{ DeleteSession(string) }); ok {
+	cleaner, ok := s.qrLoginService().(interface{ DeleteSession(string) }); ok {
 		// id 表示当前遍历过程中的标识
 		for _, id := range expired {
 			cleaner.DeleteSession(id)
@@ -277,11 +292,29 @@ func cloneQRStatus(src map[string]any) map[string]any {
 // 永远不进入前端、浏览器日志或代理响应。
 // publicQRStatus 负责publicQR状态相关处理。
 func publicQRStatus(src map[string]any) qrLoginStatusResponse {
-	// dst 保存dst，供当前处理流程使用
-	dst := qrLoginStatusResponse(cloneQRStatus(src))
-	delete(dst, "cookies")
-	delete(dst, "cookie_snapshot")
-	return dst
+	// status 保存允许传输到浏览器的扫码状态；Cookie 和快照字段刻意不映射。
+	status := qrLoginStatusResponse{Status: qrStatus(src)}
+	// success 表示上游是否报告扫码流程成功；ok 表示字段类型确实为布尔值。
+	if success, ok := src["success"].(bool); ok {
+		status.Success = success
+	}
+	// message 保存上游返回的用户提示文本；ok 表示字段类型确实为字符串。
+	if message, ok := src["message"].(string); ok {
+		status.Message = message
+	}
+	// sessionID 保存扫码会话标识；ok 表示字段类型确实为字符串。
+	if sessionID, ok := src["session_id"].(string); ok {
+		status.SessionID = sessionID
+	}
+	// accountID 保存扫码成功后关联的本地账号标识；ok 表示字段类型确实为字符串。
+	if accountID, ok := src["account_id"].(string); ok {
+		status.AccountID = accountID
+	}
+	// isNew 表示是否新建本地账号；ok 表示字段类型确实为布尔值。
+	if isNew, ok := src["is_new_account"].(bool); ok {
+		status.IsNewAccount = isNew
+	}
+	return status
 }
 
 // qrStatus 负责qr状态相关处理。

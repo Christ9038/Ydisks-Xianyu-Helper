@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { AccountDetail, Item } from '../../../types';
+import type { AccountDetail, Item } from '../../../shared/api-contract';
 import { getAccountDetails, getItems, getOrders, importOrders } from './api';
 import { useOrderImport, useOrderQuery } from './hooks';
 
@@ -286,5 +286,38 @@ describe('useOrderQuery 与 useOrderImport', /* 当前回调处理订单查询�
     );
     expect(hook.result.current.orders).toEqual([orderFixture]);
     hook.unmount();
+  });
+
+  test('订单导入在卸载时取消未完成上传', /* 当前回调验证导入弹窗离开页面后不会接受忽略取消信号的旧响应。 */ async () => {
+    // importSignal 保存导入接口收到的取消信号。
+    let importSignal: AbortSignal | undefined;
+    importOrdersMock.mockImplementation(
+      // pendingImport 保持文件上传未完成，以便观察 Hook 卸载时的取消行为。
+      (_formData, requestOptions) => {
+        importSignal = requestOptions?.signal;
+        return new Promise(/* pendingImportExecutor 故意不完成导入 Promise，直到 Hook 卸载取消请求。 */ () => undefined);
+      },
+    );
+    // refreshOrders 是导入成功后刷新订单列表的替身。
+    const refreshOrders = vi.fn().mockResolvedValue(undefined);
+    // hook 是订单导入 Hook 渲染结果。
+    const hook = renderHook(
+      // importHookFactory 使用稳定的列表刷新回调创建导入 Hook。
+      () => useOrderImport(refreshOrders),
+    );
+    await act(
+      // fileAction 写入符合格式要求的订单导入文件。
+      () => hook.result.current.setImportFile(new File(['order'], 'orders.csv')),
+    );
+    await act(
+      // importAction 启动上传但不等待未完成网络请求。
+      () => { void hook.result.current.handleImportOrders(); },
+    );
+    await waitFor(
+      // importStartedAssertion 等待导入请求建立取消信号。
+      () => expect(importSignal).toBeDefined(),
+    );
+    hook.unmount();
+    expect(importSignal?.aborted).toBe(true);
   });
 });

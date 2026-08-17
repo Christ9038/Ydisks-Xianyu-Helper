@@ -105,6 +105,83 @@ func TestNotificationOutboxLeaseFencesStaleWorker(t *testing.T) {
 	}
 }
 
+// TestNotificationOutboxIdempotencyKeepsUncertainMessage 验证同一业务投递键不会重复入队，
+// 且外部发送成功后本地确认失败形成 uncertain 时，恢复扫描也不能把它重新变为可发送状态。
+func TestNotificationOutboxIdempotencyKeepsUncertainMessage(t *testing.T) {
+	// store、cleanup 保存带完整迁移的 SQLite 存储与关闭责任。
+	store, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 限制本测试所有数据库操作的生命周期。
+	ctx := context.Background()
+	// created、createErr 保存测试用户创建结果和数据库错误。
+	created, createErr := store.Users.Create(ctx, "notify-idempotency", "notify-idempotency@example.com", "pw")
+	if createErr != nil || !created {
+		t.Fatalf("create owner: created=%v err=%v", created, createErr)
+	}
+	// owner、ownerErr 保存通知渠道所属用户和读取错误。
+	owner, ownerErr := store.Users.GetByUsername(ctx, "notify-idempotency")
+	if ownerErr != nil {
+		t.Fatal(ownerErr)
+	}
+	// channelResult、channelErr 保存测试通知渠道插入结果和数据库错误。
+	channelResult, channelErr := store.DB.ExecContext(ctx, `INSERT INTO notification_channels (name,type,config,enabled,user_id) VALUES (?,?,?,1,?)`, "idempotency", "webhook", `{}`, owner.ID)
+	if channelErr != nil {
+		t.Fatal(channelErr)
+	}
+	// channelID、channelIDErr 保存测试渠道主键和读取错误。
+	channelID, channelIDErr := channelResult.LastInsertId()
+	if channelIDErr != nil {
+		t.Fatal(channelIDErr)
+	}
+	// input 表示同一自动化运行成功终态对该渠道的稳定投递事实。
+	input := NotificationOutboxInput{ChannelID: channelID, EventType: "delivery_result", Body: "自动化结果", IdempotencyKey: "automation-run:42:success"}
+	// enqueueErr 保存首次持久化业务投递键时的数据库错误。
+	if enqueueErr := store.Notifications.EnqueueOutbox(ctx, []NotificationOutboxInput{input}); enqueueErr != nil {
+		t.Fatal(enqueueErr)
+	}
+	// enqueueErr 保存同一业务投递键重复入队时的数据库错误；冲突应被仓储忽略而非作为错误返回。
+	if enqueueErr := store.Notifications.EnqueueOutbox(ctx, []NotificationOutboxInput{input}); enqueueErr != nil {
+		t.Fatal(enqueueErr)
+	}
+	// queued 保存第一次重复入队后的记录数；同一渠道只能保留一条该业务键。
+	var queued int
+	// queryErr 保存读取去重后记录数时的数据库错误。
+	if queryErr := store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM notification_outbox WHERE channel_id=? AND idempotency_key=?`, channelID, input.IdempotencyKey).Scan(&queued); queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	if queued != 1 {
+		t.Fatalf("duplicate queue count=%d want 1", queued)
+	}
+	// claimed、claimErr 保存本次投递领取的记录和数据库错误。
+	claimed, claimErr := store.Notifications.ClaimOutbox(ctx, "idempotency-worker", time.Now(), 1)
+	if claimErr != nil || len(claimed) != 1 {
+		t.Fatalf("claim: messages=%+v err=%v", claimed, claimErr)
+	}
+	// isolated、isolateErr 保存外部投递成功但本地确认失败后的隔离结果和数据库错误。
+	isolated, isolateErr := store.Notifications.MarkOutboxUncertain(ctx, claimed[0].ID, "idempotency-worker", "local completion failed")
+	if isolateErr != nil || !isolated {
+		t.Fatalf("mark uncertain: isolated=%v err=%v", isolated, isolateErr)
+	}
+	// enqueueErr 保存 uncertain 运行被恢复流程再次报告时的数据库错误；同一键必须继续被忽略。
+	if enqueueErr := store.Notifications.EnqueueOutbox(ctx, []NotificationOutboxInput{input}); enqueueErr != nil {
+		t.Fatal(enqueueErr)
+	}
+	// status 保存恢复后仍应保留的 uncertain 状态，禁止重新变为 pending。
+	var status string
+	// queryErr 保存读取 uncertain 状态时的数据库错误。
+	if queryErr := store.DB.QueryRowContext(ctx, `SELECT status FROM notification_outbox WHERE channel_id=? AND idempotency_key=?`, channelID, input.IdempotencyKey).Scan(&status); queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	if status != "uncertain" {
+		t.Fatalf("status=%q want uncertain", status)
+	}
+	// recoveredClaim、recoveredErr 保存重复恢复后可领取消息和数据库错误；uncertain 消息必须不可领取。
+	recoveredClaim, recoveredErr := store.Notifications.ClaimOutbox(ctx, "recovery-worker", time.Now().Add(time.Hour), 10)
+	if recoveredErr != nil || len(recoveredClaim) != 0 {
+		t.Fatalf("uncertain message became claimable: messages=%+v err=%v", recoveredClaim, recoveredErr)
+	}
+}
+
 // TestNotificationOutboxPermanentRetry 将达到重试上限的发送失败消息标记为 dead 隔离。
 func TestNotificationOutboxPermanentRetry(t *testing.T) {
 	// store、cleanup 保存测试数据库及其关闭责任。

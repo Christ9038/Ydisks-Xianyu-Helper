@@ -18,31 +18,20 @@ type serverOrderRuntimeAdapter struct {
 
 // newServerOrderRuntime 创建订单运行时 Port 的 Server 适配器。
 func newServerOrderRuntime(server *Server, reconciliation orderapp.ReconciliationRecorder) serverOrderRuntimeAdapter {
-	// hooks 保存 Server 运行时回调，避免适配器反向依赖 Server 包。
+	// hooks 保存 adapter 内部构造的账号、自动化、通知和平台回调，Server 不再编排业务闭包。
 	hooks := adapter.OrderRuntimeHooks{}
 	if server != nil {
-		hooks = adapter.OrderRuntimeHooks{
-			Client:          server.mtopClient,
-			ClientAvailable: func() bool { return server.MTop != nil },
-			AccountRunning: func(cookieID string) bool {
-				if server.Manager == nil {
-					return false
-				}
-				// _, running 保存账号运行实例是否存在。
-				_, running := server.Manager.GetInstance(cookieID)
-				return running
-			},
-			AutomationReady: func() bool { return server.Manager != nil && server.automation != nil },
-			ManualFullDelivery: func(ctx context.Context, order *orderapp.Order) (int, error) {
-				if server.automation == nil {
-					return 0, errors.New("自动化中心未初始化")
-				}
-				return server.automation.ManualFullDelivery(ctx, adapter.OrderForAutomation(order))
-			},
-			UpdateRunningCookie:   server.updateRunningCookie,
-			NotifyDelivery:        server.notifyDelivery,
-			RecoverExpiredSession: server.recoverExpiredMTOPSession,
+		// automation、notifier 显式保持 nil 接口语义，避免把 nil 指针转换为非空接口后误报能力已装配。
+		var automation adapter.OrderAutomation
+		if server.automation != nil {
+			automation = server.automation
 		}
+		// notifier 只在真实通知器存在时转换为接口，避免 nil 指针伪装成已装配能力。
+		var notifier adapter.OrderNotifier
+		if server.notifier != nil {
+			notifier = server.notifier
+		}
+		hooks = adapter.NewOrderRuntimeHooks(server.mtopClient, server.Manager, automation, notifier, server.updateRunningCookie, server.sessionRecoveryCallback())
 	}
 	// logger 保存 Server 使用的日志器；适配器会在缺失时使用默认日志器。
 	var logger = (*slog.Logger)(nil)
@@ -54,7 +43,7 @@ func newServerOrderRuntime(server *Server, reconciliation orderapp.Reconciliatio
 	if server == nil {
 		runtime = adapter.NewOrderRuntime(nil, hooks, reconciliation, logger)
 	} else {
-		runtime = server.dependencies.NewOrderRuntime(hooks, reconciliation, logger)
+		runtime = server.orderDependencies.NewOrderRuntime(hooks, reconciliation, logger)
 	}
 	return serverOrderRuntimeAdapter{runtime: runtime}
 }
@@ -191,8 +180,6 @@ func (a serverOrderRuntimeAdapter) IsSessionExpired(err error) bool {
 type orderHTTPAdapter struct {
 	// services 保存应用层统一构造的订单业务服务集合。
 	services *orderapp.ServiceSet
-	// repository 保存 HTTP 适配器需要的账号归属查询 Port。
-	repository orderapp.Repository
 }
 
 // RefreshSingle 刷新单个订单详情并转换为兼容 HTTP 响应模型。
@@ -232,34 +219,48 @@ func (a *orderHTTPAdapter) Refresh(ctx context.Context, userID int64, cookieID, 
 	return orderRefreshResponse{PartialFailure: result.PartialFailure, Message: result.Message, Summary: orderRefreshSummary{Discovered: result.Summary.Discovered, ListUpdated: result.Summary.ListUpdated, SoftDeleted: result.Summary.SoftDeleted, DetailTotal: result.Summary.DetailTotal, Total: result.Summary.Total, Updated: result.Summary.Updated, NoChange: result.Summary.NoChange, Failed: result.Summary.Failed}, Results: refreshResultsFromApplication(result.Results)}, nil
 }
 
-// refreshResultsFromApplication 将应用层刷新结果转换为兼容动态结果行。
-func refreshResultsFromApplication(items []orderapp.RefreshOrderResult) []map[string]any {
-	// results 保存兼容客户端使用的结果行。
-	results := make([]map[string]any, 0, len(items))
+// intPointer 为结果 DTO 创建整数指针，使零值也能按兼容契约显式返回。
+func intPointer(value int) *int {
+	return &value
+}
+
+// boolPointer 为结果 DTO 创建布尔指针，使 false 也能按兼容契约显式返回。
+func boolPointer(value bool) *bool {
+	return &value
+}
+
+// refreshResultsFromApplication 将应用层刷新结果转换为具名结果行。
+func refreshResultsFromApplication(items []orderapp.RefreshOrderResult) []orderRefreshResultDTO {
+	// results 保存兼容客户端使用的具名结果行，避免响应契约依赖动态 map。
+	results := make([]orderRefreshResultDTO, 0, len(items))
 	// item 是当前应用层刷新结果。
 	for _, item := range items {
 		// row 保存当前兼容响应行。
-		row := map[string]any{"success": item.Success}
+		row := orderRefreshResultDTO{Success: item.Success}
 		if item.CookieID != "" {
-			row["cookie_id"], row["discovered"], row["updated"] = item.CookieID, item.Discovered, item.Updated
+			row.CookieID = item.CookieID
+			row.Discovered = intPointer(item.Discovered)
+			row.Updated = intPointer(item.Updated)
 			if item.Success {
-				row["soft_deleted"] = item.SoftDeleted
+				// softDeleted 表示本次账号刷新是否标记了失效订单。
+				softDeleted := item.SoftDeleted != 0
+				row.SoftDeleted = boolPointer(softDeleted)
 			}
 		}
 		if item.OrderID != "" {
-			row["order_id"] = item.OrderID
+			row.OrderID = item.OrderID
 		}
 		if item.Stage != "" {
-			row["stage"] = item.Stage
+			row.Stage = item.Stage
 		}
 		if item.Message != "" {
-			row["message"] = item.Message
+			row.Message = item.Message
 		}
 		if item.Error != "" {
-			row["error"] = item.Error
+			row.Error = item.Error
 		}
 		if item.OldStatus != "" || item.NewStatus != "" {
-			row["old_status"], row["new_status"] = item.OldStatus, item.NewStatus
+			row.OldStatus, row.NewStatus = item.OldStatus, item.NewStatus
 		}
 		results = append(results, row)
 	}
@@ -312,13 +313,6 @@ func orderErrorKindOf(err error) (orderErrorKind, bool) {
 // orders 返回当前 Server 绑定的订单应用服务。
 func (s *Server) orders() *orderHTTPAdapter {
 	return s.applicationServiceSet().orders
-}
-
-// orderOwnedByUser 判断订单服务使用的账号是否归属于当前用户。
-func (a *orderHTTPAdapter) orderOwnedByUser(ctx context.Context, userID int64, cookieID string) bool {
-	// owned 和 err 保存账号归属检查结果。
-	owned, err := a.repository.ExistsOwned(ctx, userID, cookieID)
-	return err == nil && owned
 }
 
 // orderListQuery 描述订单列表的业务查询条件。
@@ -533,8 +527,8 @@ type orderImportResult struct {
 	SuccessCount int
 	// FailedCount 是失败导入数。
 	FailedCount int
-	// Results 是逐单结果。
-	Results []map[string]any
+	// Results 是逐单具名结果。
+	Results []orderImportResultDTO
 }
 
 // Import 按当前用户账号所有权逐单导入订单，并为订单关联商品补全基础信息。
@@ -570,11 +564,11 @@ func importOrderFromRaw(raw map[string]any) orderapp.ImportOrder {
 
 // orderImportResultFromApplication 将应用层导入结果转换为旧 HTTP 响应兼容模型。
 func orderImportResultFromApplication(result orderapp.ImportResult) orderImportResult {
-	// results 保存兼容客户端使用的逐条动态结果。
-	results := make([]map[string]any, 0, len(result.Results))
+	// results 保存兼容客户端使用的逐条具名结果。
+	results := make([]orderImportResultDTO, 0, len(result.Results))
 	// item 保存当前应用层导入结果行。
 	for _, item := range result.Results {
-		results = append(results, map[string]any{"order_id": item.OrderID, "success": item.Success, "message": item.Message})
+		results = append(results, orderImportResultDTO{OrderID: item.OrderID, Success: item.Success, Message: item.Message})
 	}
 	return orderImportResult{Total: result.Total, SuccessCount: result.SuccessCount, FailedCount: result.FailedCount, Results: results}
 }
@@ -595,8 +589,8 @@ type manualShipResult struct {
 	SuccessCount int
 	// FailedCount 是失败发货数。
 	FailedCount int
-	// Results 是逐单结果。
-	Results []map[string]any
+	// Results 是逐单具名结果。
+	Results []orderMutationResultDTO
 }
 
 // ManualShip 执行状态确认或完整自动化发货，并集中处理逐单失败而不中断批次的规则。
@@ -611,15 +605,15 @@ func (a *orderHTTPAdapter) ManualShip(ctx context.Context, request manualShipReq
 
 // manualShipResultFromApplication 将应用层手动发货结果转换为旧 HTTP 响应兼容模型。
 func manualShipResultFromApplication(result orderapp.ManualShipResult) manualShipResult {
-	// results 保存兼容客户端使用的逐条动态结果。
-	results := make([]map[string]any, 0, len(result.Results))
+	// results 保存兼容客户端使用的逐条具名结果。
+	results := make([]orderMutationResultDTO, 0, len(result.Results))
 	// item 保存当前应用层手动发货结果行。
 	for _, item := range result.Results {
 		// row 保存兼容客户端使用的单条结果。
-		row := map[string]any{"order_id": item.OrderID, "status": item.Status, "success": item.Success, "message": item.Message}
+		row := orderMutationResultDTO{OrderID: item.OrderID, Status: item.Status, Success: item.Success, Message: item.Message}
 		if item.ReconciliationFieldsPresent {
-			row["reconciliation_id"] = item.ReconciliationID
-			row["reconciliation_warning"] = item.ReconciliationWarning
+			row.ReconciliationID = item.ReconciliationID
+			row.ReconciliationWarning = item.ReconciliationWarning
 		}
 		results = append(results, row)
 	}

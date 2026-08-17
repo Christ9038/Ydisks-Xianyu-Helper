@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatSession } from '../../../types';
+import type { ChatMessage, ChatSession } from '../../../shared/api-contract';
 
 /** 按搜索条件筛选会话列表。 */
 export const filterChatSessions = (sessions: ChatSession[], search: string, unreadOnly: boolean): ChatSession[] => {

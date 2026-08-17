@@ -404,6 +404,47 @@ func TestNotifyDelivery_EmptyChatID(t *testing.T) {
 	}
 }
 
+// TestNotifyAutomationRunQueuesEachTerminalStateOnce 验证自动化运行通知即使 worker 尚未启动也写入
+// 持久化 outbox，同一运行同一终态重复恢复只保留一次；不同终态保留各自独立的人工核对记录。
+func TestNotifyAutomationRunQueuesEachTerminalStateOnce(t *testing.T) {
+	// store、cleanup 保存本测试的 SQLite 通知存储与关闭责任。
+	store, cleanup := newNotifyStoreBare(t)
+	defer cleanup()
+	// channelID 保存绑定给自动化账号的 webhook 渠道主键。
+	channelID := addWebhookChannel(t, store, "cid", "自动化幂等渠道", "http://127.0.0.1:1")
+	// notifier 保存未启动 worker 的真实 outbox 通知器；自动化终态仍不得降级为同步网络发送。
+	notifier := New("cid", store, nil)
+	// notifyCtx 约束自动化结果入队操作，不携带网络或账号凭证。
+	notifyCtx := context.Background()
+	notifier.NotifyAutomationRun(notifyCtx, 73, "cid", "buyer", "item", "success", "付款发货成功", "chat")
+	notifier.NotifyAutomationRun(notifyCtx, 73, "cid", "buyer", "item", "success", "付款发货成功", "chat")
+	notifier.NotifyAutomationRun(notifyCtx, 73, "cid", "buyer", "item", "needs_review", "付款发货需要人工核对", "chat")
+	// rows 保存该渠道上同一自动化运行的 outbox 终态键和记录数量。
+	rows, queryErr := store.DB.QueryContext(notifyCtx, `SELECT idempotency_key FROM notification_outbox WHERE channel_id=? ORDER BY idempotency_key`, channelID)
+	if queryErr != nil {
+		t.Fatal(queryErr)
+	}
+	defer rows.Close()
+	// keys 保存已持久化的自动化运行终态键，用于断言重复 success 未产生第二条记录。
+	keys := make([]string, 0, 2)
+	for rows.Next() {
+		// key 保存当前 outbox 行绑定的稳定自动化通知键。
+		var key string
+		// scanErr 保存读取当前 outbox 幂等键时的数据库错误。
+		if scanErr := rows.Scan(&key); scanErr != nil {
+			t.Fatal(scanErr)
+		}
+		keys = append(keys, key)
+	}
+	// rowsErr 保存遍历 outbox 查询结果结束时的数据库错误。
+	if rowsErr := rows.Err(); rowsErr != nil {
+		t.Fatal(rowsErr)
+	}
+	if len(keys) != 2 || keys[0] != "automation-run:73:needs_review" || keys[1] != "automation-run:73:success" {
+		t.Fatalf("outbox keys=%v", keys)
+	}
+}
+
 // TestParseConfig_InvalidJSON 非法 JSON 走旧格式兼容分支。
 func TestParseConfig_InvalidJSON(t *testing.T) {
 	// m 保存m，供当前处理流程使用

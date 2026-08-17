@@ -12,6 +12,10 @@ type adminRepositoryStub struct {
 	listResult []UserSummary
 	// listErr 保存用户列表错误。
 	listErr error
+	// accountIDs 保存目标用户拥有的账号标识。
+	accountIDs []string
+	// accountIDsErr 保存账号标识查询错误。
+	accountIDsErr error
 	// deleteErr 保存用户删除错误。
 	deleteErr error
 	// statsResult 保存统计返回值。
@@ -27,6 +31,11 @@ func (r *adminRepositoryStub) ListUsers(context.Context) ([]UserSummary, error) 
 	return r.listResult, r.listErr
 }
 
+// ListOwnedAccountIDs 返回测试预置的用户账号标识及查询错误。
+func (r *adminRepositoryStub) ListOwnedAccountIDs(context.Context, int64) ([]string, error) {
+	return r.accountIDs, r.accountIDsErr
+}
+
 // DeleteUser 记录删除目标并返回测试预置错误。
 func (r *adminRepositoryStub) DeleteUser(_ context.Context, userID int64) error {
 	r.deletedUserID = userID
@@ -36,6 +45,27 @@ func (r *adminRepositoryStub) DeleteUser(_ context.Context, userID int64) error 
 // Stats 返回测试预置的仪表盘统计。
 func (r *adminRepositoryStub) Stats(context.Context) (Stats, error) {
 	return r.statsResult, r.statsErr
+}
+
+// adminRuntimeStub 保存管理员删除测试中的停止调用顺序及可控错误。
+type adminRuntimeStub struct {
+	// stoppedIDs 保存收到停止请求的账号标识。
+	stoppedIDs []string
+	// stopErrByID 保存指定账号停止失败的错误。
+	stopErrByID map[string]error
+}
+
+// StopContext 记录账号停止请求，并按账号返回预置错误。
+func (r *adminRuntimeStub) StopContext(ctx context.Context, accountID string) error {
+	// err 表示测试上下文是否已经取消；取消时模拟运行时立即拒绝停止。
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.stoppedIDs = append(r.stoppedIDs, accountID)
+	if r.stopErrByID == nil {
+		return nil
+	}
+	return r.stopErrByID[accountID]
 }
 
 // TestServiceListUsersAndStats 验证管理员摘要与统计成功、错误和空服务分支。
@@ -113,5 +143,58 @@ func TestServiceDeleteUser(t *testing.T) {
 	unavailableErr := (*Service)(nil).DeleteUser(context.Background(), 1, 2)
 	if unavailableErr == nil {
 		t.Fatal("空管理员服务应拒绝删除")
+	}
+}
+
+// TestServiceDeleteUserStopsAllAccounts 验证删除用户前会依次停止其全部账号且成功后才持久化删除。
+func TestServiceDeleteUserStopsAllAccounts(t *testing.T) {
+	// repository 保存目标用户账号及删除调用记录。
+	repository := &adminRepositoryStub{accountIDs: []string{"acc-a", "acc-b"}}
+	// runtime 保存账号停止调用记录。
+	runtime := &adminRuntimeStub{}
+	// service 保存注入运行时端口的管理员应用服务。
+	service := NewServiceWithRuntime(repository, runtime)
+	// err 表示所有账号停止并完成删除的结果。
+	if err := service.DeleteUser(context.Background(), 1, 2); err != nil {
+		t.Fatalf("删除用户失败: %v", err)
+	}
+	if len(runtime.stoppedIDs) != 2 || runtime.stoppedIDs[0] != "acc-a" || runtime.stoppedIDs[1] != "acc-b" {
+		t.Fatalf("停止账号顺序异常: %v", runtime.stoppedIDs)
+	}
+	if repository.deletedUserID != 2 {
+		t.Fatalf("停止全部账号后才应删除用户，deleted=%d", repository.deletedUserID)
+	}
+}
+
+// TestServiceDeleteUserStopsFailureAndCancellation 验证停止失败或请求取消时不会删除用户。
+func TestServiceDeleteUserStopsFailureAndCancellation(t *testing.T) {
+	// stopFailure 保存第二个账号停止失败的原因。
+	stopFailure := errors.New("runtime stop failed")
+	// repository 保存多个目标账号及删除调用记录。
+	repository := &adminRepositoryStub{accountIDs: []string{"acc-a", "acc-b"}}
+	// runtime 保存指定账号的失败行为。
+	runtime := &adminRuntimeStub{stopErrByID: map[string]error{"acc-b": stopFailure}}
+	// service 保存停止失败路径的应用服务。
+	service := NewServiceWithRuntime(repository, runtime)
+	// err 表示第二个账号停止失败后的应用错误。
+	if err := service.DeleteUser(context.Background(), 1, 2); !errors.Is(err, ErrRuntimeStop) {
+		t.Fatalf("停止失败应返回 ErrRuntimeStop，err=%v", err)
+	}
+	if repository.deletedUserID != 0 {
+		t.Fatal("停止失败时不应删除用户")
+	}
+	// canceledCtx 保存已取消的请求上下文。
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	// canceledRepository 保存取消路径的目标账号和删除记录。
+	canceledRepository := &adminRepositoryStub{accountIDs: []string{"acc-c"}}
+	// canceledRuntime 保存取消路径的运行时桩。
+	canceledRuntime := &adminRuntimeStub{}
+	// err 表示已取消请求阻止停止和持久化删除的错误。
+	if err := NewServiceWithRuntime(canceledRepository, canceledRuntime).DeleteUser(canceledCtx, 1, 2); !errors.Is(err, context.Canceled) {
+		t.Fatalf("请求取消应保留 context.Canceled，err=%v", err)
+	}
+	if canceledRepository.deletedUserID != 0 {
+		t.Fatal("请求取消时不应删除用户")
 	}
 }

@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
-import type { AccountDetail, AIReplySettings, NotificationChannel } from '../../../types';
+import type { AccountDetail, AIReplySettings, NotificationChannel } from '../../../shared/api-contract';
 
 // AccountEditForm 描述账号编辑弹窗中的可编辑字段。
 export interface AccountEditForm {

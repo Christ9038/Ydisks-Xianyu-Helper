@@ -1,6 +1,8 @@
-import React, { lazy, Suspense } from 'react';
-import Sidebar from '../../components/Sidebar';
-import type { Item } from '../../types';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
+import Sidebar from '../../shared/ui/Sidebar';
+import type { Item } from '../../shared/api-contract';
+import { getHealth } from '../features/system/api';
+import type { BuildInfo } from '../features/system/types';
 
 // DeliveryRuleTarget 描述商品页跳转到自动化规则页时需要携带的目标信息。
 export interface DeliveryRuleTarget {
@@ -35,23 +37,23 @@ export interface AuthenticatedShellProps {
 }
 
 // Dashboard 是按需加载的仪表盘页面，避免首屏同步载入图表依赖。
-const Dashboard = lazy(/* Dashboard 页面按路由激活时加载。 */ () => import('../../components/Dashboard'));
+const Dashboard = lazy(/* Dashboard 页面按路由激活时加载。 */ () => import('../features/dashboard/pages/Dashboard'));
 // AccountList 是按需加载的账号管理页面，避免未访问时载入账号弹窗和二维码代码。
-const AccountList = lazy(/* AccountList 页面按路由激活时加载。 */ () => import('../../components/AccountList'));
+const AccountList = lazy(/* AccountList 页面按路由激活时加载。 */ () => import('../features/accounts/pages/AccountList'));
 // OrderList 是按需加载的订单页面，避免首屏载入订单导入与刷新代码。
-const OrderList = lazy(/* OrderList 页面按路由激活时加载。 */ () => import('../../components/OrderList'));
+const OrderList = lazy(/* OrderList 页面按路由激活时加载。 */ () => import('../features/orders/pages/OrderList'));
 // CardList 是按需加载的卡密页面，避免首屏载入卡密批量处理代码。
-const CardList = lazy(/* CardList 页面按路由激活时加载。 */ () => import('../../components/CardList'));
+const CardList = lazy(/* CardList 页面按路由激活时加载。 */ () => import('../features/cards/pages/CardList'));
 // ItemList 是按需加载的商品页面，避免首屏载入商品发布编辑器代码。
-const ItemList = lazy(/* ItemList 页面按路由激活时加载。 */ () => import('../../components/ItemList'));
+const ItemList = lazy(/* ItemList 页面按路由激活时加载。 */ () => import('../features/items/pages/ItemList'));
 // Settings 是按需加载的系统设置页面，仅在管理员访问时加载。
-const Settings = lazy(/* Settings 页面按路由激活时加载。 */ () => import('../../components/Settings'));
+const Settings = lazy(/* Settings 页面按路由激活时加载。 */ () => import('../features/settings/pages/Settings'));
 // Rules 是按需加载的自动化规则页面，避免首屏载入规则编辑器代码。
-const Rules = lazy(/* Rules 页面按路由激活时加载。 */ () => import('../../components/Rules'));
+const Rules = lazy(/* Rules 页面按路由激活时加载。 */ () => import('../features/rules/pages/Rules'));
 // Notifications 是按需加载的通知页面，避免首屏载入通知配置代码。
-const Notifications = lazy(/* Notifications 页面按路由激活时加载。 */ () => import('../../components/Notifications'));
+const Notifications = lazy(/* Notifications 页面按路由激活时加载。 */ () => import('../features/notifications/pages/Notifications'));
 // Chat 是按需加载的聊天页面，避免未访问时载入聊天历史和 WebSocket 视图。
-const Chat = lazy(/* Chat 页面按路由激活时加载。 */ () => import('../../components/Chat'));
+const Chat = lazy(/* Chat 页面按路由激活时加载。 */ () => import('../features/chat/pages/Chat'));
 
 // PageLoading 展示路由页面代码加载期间的统一占位状态。
 const PageLoading: React.FC = () => (
@@ -128,8 +130,26 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
   onLogout,
   onConfigureDelivery,
   onDeliveryTargetHandled,
-}) => (
-  <div className="flex min-h-screen bg-canvas text-ink">
+}) => {
+  // buildInfo 保存壳层加载的公开构建版本，侧边栏保持为无请求的共享展示组件。
+  const [buildInfo, setBuildInfo] = useState<BuildInfo>({ version: 'dev', commit: 'unknown' });
+
+  useEffect(/* effect 在壳层挂载时读取版本信息，并在卸载时中止尚未完成的请求。 */ () => {
+    // controller 取消壳层卸载后不再需要的健康检查请求。
+    const controller = new AbortController();
+    getHealth({ signal: controller.signal })
+      .then(/* response 是健康接口返回的公开构建标识。 */ response => setBuildInfo({
+        version: String(response.version || 'dev'),
+        commit: String(response.commit || 'unknown'),
+      }))
+      .catch(/* error 是健康检查失败原因，取消请求不需要改变默认展示版本。 */ error => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+      });
+    return /* cleanup 在壳层卸载时释放健康检查请求。 */ () => controller.abort();
+  }, []);
+
+  return (
+    <div className="flex min-h-screen bg-canvas text-ink">
     <Sidebar
       activeTab={activeTab}
       isAdmin={isAdmin}
@@ -137,6 +157,7 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
       onToggleCollapsed={onToggleCollapsed}
       onNavigate={onNavigate}
       onLogout={onLogout}
+      buildInfo={buildInfo}
     />
 
     <main className={`h-screen min-w-0 flex-1 overflow-x-hidden overflow-y-auto scroll-smooth transition-[margin] duration-300 ${collapsed ? 'ml-16' : 'ml-64'} ${activeTab === 'chat' ? 'p-4 md:p-6' : 'p-8 md:p-12'}`}>
@@ -153,7 +174,8 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
         />
       </div>
     </main>
-  </div>
-);
+    </div>
+  );
+};
 
 export default AuthenticatedShell;

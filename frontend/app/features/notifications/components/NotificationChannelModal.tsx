@@ -4,7 +4,7 @@ import { Bell, Check, Eye, EyeOff, Loader2, X } from 'lucide-react';
 import { enableCustomSMTP } from '../../../../notificationEmailConfig';
 import { notificationChannelTypes } from '../state';
 import { NotificationEventSelector } from './NotificationEventSelector';
-import type { NotificationChannel, NotificationChannelType, NotificationEventType, SystemSettings } from '../../../../types';
+import type { NotificationChannel, NotificationChannelType, NotificationEventType, SystemSettings } from '../../../../shared/api-contract';
 import type { NotificationForm } from '../types';
 
 // NotificationChannelModalProps 描述渠道编辑弹窗所需的状态和回调。

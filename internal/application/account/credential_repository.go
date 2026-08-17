@@ -43,3 +43,10 @@ type CredentialRepository interface {
 	// UpdateProfile 保存不含凭证的账号展示资料。
 	UpdateProfile(context.Context, string, string, string) error
 }
+
+// CredentialSessionPort 定义平台响应 Cookie 会话写回所需的最小凭证端口。
+// 该端口不包含账号查询、锁管理或登录秘密方法，调用方必须在外层完成凭证锁和快照复核。
+type CredentialSessionPort interface {
+	// UpdateRenewalCookie 保存平台返回的 Cookie 与 metadata；明文仅在适配器内短暂存在。
+	UpdateRenewalCookie(context.Context, string, string, string, int64) error
+}

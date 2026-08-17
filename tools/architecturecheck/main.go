@@ -132,6 +132,7 @@ func checkGoFile(root, relativePath string, fset *token.FileSet) ([]violation, e
 		}
 	}
 	violations = append(violations, checkApplicationTypeLeaks(relativePath, syntax, fset)...)
+	violations = append(violations, checkHTTPResponseContracts(relativePath, syntax, fset)...)
 	if strings.HasPrefix(filepath.ToSlash(relativePath), "internal/server/") && !strings.HasSuffix(relativePath, "_repository.go") {
 		// sourceLine 是裸 BeginTx 调用首次出现的源码行号。
 		sourceLine := firstLineContaining(string(source), ".DB.BeginTx(")
@@ -144,6 +145,121 @@ func checkGoFile(root, relativePath string, fset *token.FileSet) ([]violation, e
 		}
 	}
 	return violations, nil
+}
+
+// checkHTTPResponseContracts 检查 Server 对外响应是否使用具名 DTO，并阻止动态 map 绕过契约边界。
+func checkHTTPResponseContracts(relativePath string, syntax *ast.File, fset *token.FileSet) []violation {
+	// normalizedPath 是统一使用斜杠的仓库相对路径。
+	normalizedPath := filepath.ToSlash(relativePath)
+	if !strings.HasPrefix(normalizedPath, "internal/server/") || strings.HasSuffix(normalizedPath, "_test.go") {
+		return nil
+	}
+	// violations 保存当前 Server 文件发现的 HTTP 契约问题。
+	var violations []violation
+	ast.Inspect(syntax, func(node ast.Node) bool {
+		// typedNode 是当前遍历到的 AST 节点，用于识别 HTTP 契约声明或调用。
+		switch typedNode := node.(type) {
+		case *ast.TypeSpec:
+			if !isHTTPContractTypeName(typedNode.Name.Name) {
+				return true
+			}
+			if (typedNode.Name.Name == "settingsResponse" || containsDynamicMapType(typedNode.Type)) &&
+				!isControlledDynamicResponseType(typedNode.Name.Name) {
+				violations = append(violations, violation{
+					file:    normalizedPath,
+					line:    fset.Position(typedNode.Pos()).Line,
+					message: fmt.Sprintf("HTTP 契约类型 %s 禁止使用动态 map，请定义具名 DTO 字段", typedNode.Name.Name),
+				})
+			}
+		case *ast.CallExpr:
+			if !isWriteJSONCall(typedNode) || len(typedNode.Args) < 3 {
+				return true
+			}
+			// responseArg 是 writeJSON 的响应值参数，必须是具名 DTO 或受控类型。
+			responseArg := typedNode.Args[2]
+			if isDynamicMapLiteral(responseArg) {
+				violations = append(violations, violation{
+					file:    normalizedPath,
+					line:    fset.Position(responseArg.Pos()).Line,
+					message: "HTTP 响应禁止直接写入动态 map，请使用具名 DTO",
+				})
+			}
+		}
+		return true
+	})
+	return violations
+}
+
+// isControlledDynamicResponseType 判断已登记的动态键兼容响应，避免本阶段改变旧客户端 JSON 形状。
+func isControlledDynamicResponseType(name string) bool {
+	// 这些类型的键来自账号 ID、触发类型或设置名称；只有完成外部调用方审计后才允许在后续阶段删除。
+	switch name {
+	case "settingsResponse", "notificationBindingListResponse", "automationRulePageResponse":
+		return true
+	default:
+		return false
+	}
+}
+
+// isHTTPContractTypeName 判断类型名称是否属于 Server 的 HTTP 响应契约。
+func isHTTPContractTypeName(name string) bool {
+	// lowerName 统一大小写，兼容 Response、DTO、Envelope 和 Result 的命名习惯。
+	lowerName := strings.ToLower(name)
+	return strings.HasSuffix(lowerName, "response") || strings.HasSuffix(lowerName, "dto") ||
+		strings.HasSuffix(lowerName, "envelope") || strings.HasSuffix(lowerName, "result")
+}
+
+// containsDynamicMapType 递归识别以 any/interface{} 为值的动态 map，保留已有键值兼容契约。
+func containsDynamicMapType(expr ast.Expr) bool {
+	// typedExpr 是当前递归检查的 AST 类型表达式。
+	switch typedExpr := expr.(type) {
+	case *ast.MapType:
+		return isAnyType(typedExpr.Value)
+	case *ast.ArrayType:
+		return containsDynamicMapType(typedExpr.Elt)
+	case *ast.StarExpr:
+		return containsDynamicMapType(typedExpr.X)
+	case *ast.StructType:
+		// field 是当前结构体字段，需继续检查其元素类型。
+		for _, field := range typedExpr.Fields.List {
+			if containsDynamicMapType(field.Type) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isAnyType 判断表达式是否为 Go 的 any 或空接口，用于识别无稳定字段边界的响应 map。
+func isAnyType(expr ast.Expr) bool {
+	// ident 是表达式的标识符形式；ok 表示断言成功。
+	if ident, ok := expr.(*ast.Ident); ok {
+		return ident.Name == "any" || ident.Name == "interface{}"
+	}
+	// interfaceType 是表达式的接口类型形式；ok 表示断言成功。
+	if interfaceType, ok := expr.(*ast.InterfaceType); ok {
+		return interfaceType.Methods != nil && len(interfaceType.Methods.List) == 0
+	}
+	return false
+}
+
+// isWriteJSONCall 判断调用是否为 Server 的统一 JSON 响应写入函数。
+func isWriteJSONCall(call *ast.CallExpr) bool {
+	// functionName 是调用目标的简单函数名。
+	functionName, ok := call.Fun.(*ast.Ident)
+	return ok && functionName.Name == "writeJSON"
+}
+
+// isDynamicMapLiteral 判断表达式是否直接构造 map 响应，避免匿名契约逃逸静态检查。
+func isDynamicMapLiteral(expr ast.Expr) bool {
+	// composite 是表达式的复合字面量；ok 表示断言成功。
+	composite, ok := expr.(*ast.CompositeLit)
+	if !ok {
+		return false
+	}
+	// isMap 表示复合字面量是否直接构造动态 map。
+	_, isMap := composite.Type.(*ast.MapType)
+	return isMap
 }
 
 // checkApplicationTypeLeaks 检查应用 Port 是否泄露数据库、事务或 Server 类型。
@@ -210,7 +326,7 @@ func isForbiddenServerLowLevelImport(filePath, importedPath string) bool {
 	if !strings.HasPrefix(filePath, "internal/server/") || strings.HasSuffix(filePath, "_test.go") {
 		return false
 	}
-	if importedPath != "internal/db" && !strings.HasPrefix(importedPath, "internal/db/") &&
+	if importedPath != "database/sql" && importedPath != "internal/db" && !strings.HasPrefix(importedPath, "internal/db/") &&
 		importedPath != "internal/xianyu" && !strings.HasPrefix(importedPath, "internal/xianyu/") &&
 		importedPath != "internal/browser" && !strings.HasPrefix(importedPath, "internal/browser/") {
 		return false

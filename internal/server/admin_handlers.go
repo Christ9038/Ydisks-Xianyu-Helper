@@ -48,15 +48,6 @@ func (s *Server) adminDeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	// 不允许删除自己；应用服务统一执行该业务规则。
 	sess := authSess(r)
-	if s.Manager != nil {
-		// accountIDs、listErr 保存应用服务返回的待停止账号 ID 列表及查询错误。
-		if accountIDs, listErr := s.accountSummaryApplication().ListOwnedIDs(r.Context(), uid); listErr == nil {
-			// cookieID 表示待停止运行实例的账号标识。
-			for _, cookieID := range accountIDs {
-				s.Manager.Stop(cookieID)
-			}
-		}
-	}
 	// err 保存管理员删除应用用例的执行结果。
 	if err := s.applicationServiceSet().admin.DeleteUser(r.Context(), sess.UserID, uid); err != nil {
 		if errors.Is(err, adminapp.ErrSelfDelete) {

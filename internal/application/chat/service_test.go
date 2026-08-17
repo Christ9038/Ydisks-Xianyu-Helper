@@ -3,8 +3,128 @@ package chat
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 )
+
+// fakeSubscriptionProvider 是实时订阅应用端口的内存替身，记录取消函数调用次数。
+type fakeSubscriptionProvider struct {
+	// events 保存测试用实时事件通道。
+	events chan Event
+	// mu 保护取消计数，允许清理回调和断言并发执行。
+	mu sync.Mutex
+	// cancelCalls 记录底层订阅清理次数，验证应用层不会重复释放。
+	cancelCalls int
+}
+
+// fakeRefreshProvider 记录刷新应用端口收到的请求参数，并返回预设分页结果。
+type fakeRefreshProvider struct {
+	// conversation 保存联系人刷新返回值。
+	conversation ConversationPage
+	// history 保存历史刷新返回值。
+	history HistoryPage
+	// calls 记录联系人与历史刷新调用次数。
+	calls int
+}
+
+// RefreshConversations 返回测试联系人页并记录调用次数。
+func (p *fakeRefreshProvider) RefreshConversations(context.Context, string, int64, int) (ConversationPage, error) {
+	p.calls++
+	return p.conversation, nil
+}
+
+// RefreshHistory 返回测试历史页并记录调用次数。
+func (p *fakeRefreshProvider) RefreshHistory(context.Context, string, string, int64, int, Session) (HistoryPage, error) {
+	p.calls++
+	return p.history, nil
+}
+
+// TestRefreshDelegatesOnlyValidRequests 验证刷新应用服务只向已装配端口转发有效请求。
+func TestRefreshDelegatesOnlyValidRequests(t *testing.T) {
+	// provider 保存刷新端口替身及其预设结果。
+	provider := &fakeRefreshProvider{
+		conversation: ConversationPage{HasMore: true, NextCursor: 7},
+		history:      HistoryPage{HasMore: true, NextCursor: 9, Messages: []Message{{MessageKey: "m1"}}},
+	}
+	// service 保存绑定刷新端口的聊天应用服务。
+	service := NewWithSendingSubscriptionAndRefresh(nil, nil, nil, nil, nil, provider)
+	// conversation 和 err 保存联系人刷新结果。
+	conversation, err := service.RefreshConversations(context.Background(), "account", 2, 10)
+	if err != nil || conversation.NextCursor != 7 || !conversation.HasMore {
+		t.Fatalf("conversation=%+v err=%v", conversation, err)
+	}
+	// history 和 err 保存历史刷新结果。
+	history, err := service.RefreshHistory(context.Background(), "account", "chat", 3, 10, Session{AccountID: "account", ChatID: "chat"})
+	if err != nil || history.NextCursor != 9 || len(history.Messages) != 1 {
+		t.Fatalf("history=%+v err=%v", history, err)
+	}
+	if provider.calls != 2 {
+		t.Fatalf("refresh calls=%d", provider.calls)
+	}
+	// _, err 保存无效账号请求的应用层错误。
+	_, err = service.RefreshConversations(context.Background(), "", 0, 10)
+	if !errors.Is(err, ErrRefreshUnavailable) {
+		t.Fatalf("invalid request error=%v", err)
+	}
+}
+
+// Subscribe 返回测试事件流，并提供可重复调用的清理函数。
+func (p *fakeSubscriptionProvider) Subscribe(context.Context, int64) (<-chan Event, func(), error) {
+	return p.events, func() {
+		p.mu.Lock()
+		p.cancelCalls++
+		p.mu.Unlock()
+	}, nil
+}
+
+// TestSubscribeRejectsUnavailableAndInvalidUser 验证实时订阅缺少端口或用户身份时快速失败。
+func TestSubscribeRejectsUnavailableAndInvalidUser(t *testing.T) {
+	// service 是未装配实时订阅端口的聊天应用服务。
+	service := New(nil)
+	// _, _, err 保存无效用户订阅请求的返回值。
+	_, _, err := service.Subscribe(context.Background(), 1)
+	if !errors.Is(err, ErrSubscriptionUnavailable) {
+		t.Fatalf("nil subscription error=%v", err)
+	}
+	// provider 是可用实时订阅端口的测试替身。
+	provider := &fakeSubscriptionProvider{events: make(chan Event)}
+	service = NewWithSendingAndSubscription(nil, nil, nil, nil, provider)
+	// _, _, err 保存缺少用户身份时的返回值。
+	_, _, err = service.Subscribe(context.Background(), 0)
+	if !errors.Is(err, ErrSubscriptionUnavailable) {
+		t.Fatalf("invalid user error=%v", err)
+	}
+}
+
+// TestSubscribeDelegatesAndAllowsIdempotentCleanup 验证事件订阅转发和重复清理语义。
+func TestSubscribeDelegatesAndAllowsIdempotentCleanup(t *testing.T) {
+	// provider 是记录清理次数的实时订阅端口替身。
+	provider := &fakeSubscriptionProvider{events: make(chan Event, 1)}
+	// service 是绑定实时订阅端口的聊天应用服务。
+	service := NewWithSendingAndSubscription(nil, nil, nil, nil, provider)
+	// events、cancel、err 保存应用层订阅结果。
+	events, cancel, err := service.Subscribe(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("Subscribe() error=%v", err)
+	}
+	// wantEvent 是发送到应用层事件流的测试事件。
+	wantEvent := Event{Type: "message.created", Message: &Message{MessageKey: "event-1"}}
+	provider.events <- wantEvent
+	// gotEvent 保存应用层接收到的实时事件。
+	gotEvent := <-events
+	if gotEvent.Type != wantEvent.Type || gotEvent.Message == nil || gotEvent.Message.MessageKey != "event-1" {
+		t.Fatalf("event=%+v", gotEvent)
+	}
+	cancel()
+	cancel()
+	provider.mu.Lock()
+	// cancelCalls 保存底层订阅清理次数快照。
+	cancelCalls := provider.cancelCalls
+	provider.mu.Unlock()
+	if cancelCalls != 1 {
+		t.Fatalf("application service must clean subscription once, calls=%d", cancelCalls)
+	}
+}
 
 // fakeRepository 保存测试聊天历史数据，并记录最近一次用户归属参数。
 type fakeRepository struct {

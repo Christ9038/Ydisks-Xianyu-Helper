@@ -404,31 +404,27 @@ func (s *Server) writeItemSyncError(w http.ResponseWriter, err error) {
 func (s *Server) cookieForCurrentUser(w http.ResponseWriter, r *http.Request, cookieID string) (string, int64, bool) {
 	// sess 保存sess，供当前处理流程使用
 	sess := auth.SessionFromContext(r.Context())
-	// repository 提供平台请求所需的窄凭证视图，数据库解密和所有权读取均封装在 adapter。
-	repository := s.accountLoginRepositoryForServer()
-	if repository == nil {
+	// service 提供消费者定义的平台凭证只读端口；本校验不会把 Cookie 明文带入 HTTP 层。
+	service := s.platformCredentialApplication()
+	if service == nil {
 		writeErr(w, http.StatusInternalServerError, "查询账号失败")
 		return "", 0, false
 	}
-	// detail 和 err 保存账号归属及 Cookie 可用性检查结果；明文仅在当前函数返回给已授权业务适配器。
-	detail, err := repository.LoadPlatformDetail(r.Context(), cookieID)
+	// value、err 保存已完成归属复核的平台 Cookie 及校验错误；明文只交给当前平台调用链。
+	value, err := service.LoadOwnedValue(r.Context(), sess.UserID, cookieID)
 	if err != nil {
-		if errors.Is(err, accountapp.ErrCredentialNotFound) {
+		if errors.Is(err, accountapp.ErrCredentialNotFound) || errors.Is(err, accountapp.ErrForbidden) {
 			writeErr(w, http.StatusForbidden, "无权限操作该账号")
+			return "", 0, false
+		}
+		if errors.Is(err, accountapp.ErrCredentialEmpty) {
+			writeErr(w, http.StatusBadRequest, "账号 cookie 为空")
 			return "", 0, false
 		}
 		writeErr(w, http.StatusInternalServerError, "查询账号失败")
 		return "", 0, false
 	}
-	if detail == nil || detail.UserID != sess.UserID {
-		writeErr(w, http.StatusForbidden, "无权限操作该账号")
-		return "", 0, false
-	}
-	if detail.Value == "" {
-		writeErr(w, http.StatusBadRequest, "账号 cookie 为空")
-		return "", 0, false
-	}
-	return detail.Value, sess.UserID, true
+	return value, sess.UserID, true
 }
 
 // listItemsByCookie 负责list商品列表By登录凭证相关处理。

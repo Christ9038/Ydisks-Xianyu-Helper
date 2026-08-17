@@ -1,4 +1,4 @@
-import type { Item, OrderAnalytics } from '../../../types';
+import type { Item, OrderAnalytics } from '../../../shared/api-contract';
 import type { DateRange, TimeRange } from '../../../dateRange';
 import type { DashboardRangeSelection } from './types';
 

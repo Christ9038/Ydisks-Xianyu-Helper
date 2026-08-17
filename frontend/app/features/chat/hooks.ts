@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
-import type { AccountDetail, ChatMessage, ChatSession } from '../../../types';
+import type { AccountDetail, ChatMessage, ChatSession } from '../../../shared/api-contract';
 import { emojiURL, renderXianyuText, xianyuEmojis } from '../../../chatEmojis';
 import { getAccountDetails, getAccountRuntimeStatuses, getChatMessagePage, getChatSessionPage, markChatRead, sendChatImage, sendChatMessage } from './api';
 import { filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, mergeLiveMessage, mergeOlderMessages, messageTime } from './state';
@@ -128,6 +128,10 @@ export const useChat = (): UseChatResult => {
   const messageSequence = useRef(0);
   // messageController 保存当前消息请求控制器。
   const messageController = useRef<AbortController | null>(null);
+  // olderSequence 隔离同一会话中被关闭、切换或替换的历史消息分页请求。
+  const olderSequence = useRef(0);
+  // olderController 保存当前历史消息分页请求，切换会话或卸载时必须由本 Hook 取消。
+  const olderController = useRef<AbortController | null>(null);
   // contactSequence 隔离联系人分页产生的旧响应。
   const contactSequence = useRef(0);
   // contactController 保存当前联系人分页控制器。
@@ -252,6 +256,11 @@ export const useChat = (): UseChatResult => {
 
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
     if (!activeAccountID || !activeChatID) {
+      // 无有效会话时也推进消息与历史分页代次，避免晚到响应恢复已清空的消息列表。
+      messageSequence.current += 1;
+      olderSequence.current += 1;
+      olderController.current?.abort();
+      skipNextMessageScrollRef.current = false;
       setMessages([]);
       return;
     }
@@ -290,9 +299,18 @@ export const useChat = (): UseChatResult => {
     sendSequence.current += 1;
   }, [activeAccountID, activeChatID]);
 
+  useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
+    // 会话切换时取消历史分页；新的消息加载拥有独立控制器，不能复用这个低优先级请求。
+    olderSequence.current += 1;
+    olderController.current?.abort();
+    skipNextMessageScrollRef.current = false;
+  }, [activeAccountID, activeChatID]);
+
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => /* 当前回调同步 React 副作用和资源生命周期。 */ () => {
     sessionController.current?.abort();
     messageController.current?.abort();
+    olderSequence.current += 1;
+    olderController.current?.abort();
     contactController.current?.abort();
     sendController.current?.abort();
   }, []);
@@ -306,8 +324,12 @@ export const useChat = (): UseChatResult => {
     const previousHeight = container?.scrollHeight || 0;
     // sequence 请求序号。
     const sequence = messageSequence.current;
-    // controller 请求取消控制器。
+    // olderRequestSequence 标识本次历史分页，连续翻页、切换会话或卸载后旧分页不能写入状态。
+    const olderRequestSequence = ++olderSequence.current;
+    olderController.current?.abort();
+    // controller 取消当前历史消息请求。
     const controller = new AbortController();
+    olderController.current = controller;
     skipNextMessageScrollRef.current = true;
     setOlderLoading(true);
     setError('');
@@ -316,18 +338,20 @@ export const useChat = (): UseChatResult => {
       const oldestID = messages[0]?.id;
       // page 页码。
       const page = await getChatMessagePage(activeAccountID, activeChatID, historyCursor, oldestID, { signal: controller.signal });
-      if (!isCurrentChatRequest(messageSequence.current, sequence, controller.signal)) return;
+      if (!isCurrentChatRequest(messageSequence.current, sequence, controller.signal) || olderRequestSequence !== olderSequence.current) return;
       setMessages(/* 当前回调处理用户交互或异步状态变化。 */ current => mergeOlderMessages(current, page.messages));
       setHasOlder(page.has_more);
       setHistoryCursor(page.next_cursor);
       requestAnimationFrame(/* 当前回调处理用户交互或异步状态变化。 */ () => {
-        if (container) container.scrollTop += container.scrollHeight - previousHeight;
+        if (olderRequestSequence === olderSequence.current && !controller.signal.aborted && container) {
+          container.scrollTop += container.scrollHeight - previousHeight;
+        }
       });
     } catch (/* loadError 表示加载错误。 */ loadError) {
       skipNextMessageScrollRef.current = false;
       if (!isChatAbortError(loadError)) setError(loadError instanceof Error ? loadError.message : '加载历史消息失败');
     } finally {
-      setOlderLoading(false);
+      if (olderRequestSequence === olderSequence.current) setOlderLoading(false);
     }
   }, [activeAccountID, activeChatID, hasOlder, historyCursor, messages, olderLoading]);
 

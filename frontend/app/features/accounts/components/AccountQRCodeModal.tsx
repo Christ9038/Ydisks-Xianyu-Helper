@@ -1,9 +1,9 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Loader2, X } from 'lucide-react';
-import type { AccountDetail } from '../../../../types';
-import { RiskVerificationPanel } from '../../../../components/RiskVerificationPanel';
-import { SquareQRCode } from '../../../../components/SquareQRCode';
+import type { AccountDetail } from '../../../../shared/api-contract';
+import { RiskVerificationPanel } from './RiskVerificationPanel';
+import { SquareQRCode } from './SquareQRCode';
 
 // AccountQRCodeModalProps 描述二维码登录弹窗的展示状态和关闭回调。
 export interface AccountQRCodeModalProps {

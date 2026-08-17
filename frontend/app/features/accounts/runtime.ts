@@ -1,5 +1,5 @@
 import type { AccountRuntimeStatus } from './api';
-import type { AccountDetail } from '../../../types';
+import type { AccountDetail } from '../../../shared/api-contract';
 import type { AccountRuntimePresentation } from './types';
 
 // isOlderStatus 判断传入的运行时快照是否早于账号当前已展示的快照。

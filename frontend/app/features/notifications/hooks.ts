@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { NotificationChannel, NotificationChannelType, SystemSettings } from '../../../types';
+import type { NotificationChannel, NotificationChannelType, SystemSettings } from '../../../shared/api-contract';
 import { createNotificationChannel, deleteNotificationChannel, getNotificationChannels, getSystemSettings, testNotificationChannel, updateNotificationChannel, updateSystemSettings } from './api';
 import { buildNotificationPayload, emptyNotificationForm, isCurrentNotificationRequest, notificationErrorMessage, normalizeNotificationForm, validateNotificationForm } from './state';
 import type { NotificationForm, NotificationState } from './types';

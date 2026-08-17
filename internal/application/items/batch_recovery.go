@@ -30,8 +30,12 @@ type BatchRecoveryRepository interface {
 }
 
 // BatchWorkerStarter 是恢复服务启动批量 worker 的生命周期回调。
-// 回调由 Server 提供，因此应用服务不持有 HTTP Server、锁或取消映射。
+// 回调由应用装配层提供，因此恢复服务不持有 HTTP Server、锁或取消映射。
 type BatchWorkerStarter func(context.Context, int64, string, string)
+
+// BatchWorkerStarterWithError 是可报告 worker 启动失败的恢复回调。
+// 恢复服务据此在租约已抢占但 worker 无法登记时执行租约释放补偿。
+type BatchWorkerStarterWithError func(context.Context, int64, string, string) error
 
 // BatchRecoveryOptions 配置恢复扫描器的租约、时钟、令牌和 worker 回调。
 type BatchRecoveryOptions struct {
@@ -58,9 +62,6 @@ func NewBatchRecoveryService(repository BatchRecoveryRepository, options BatchRe
 	if repository == nil {
 		return nil, errors.New("批量恢复仓储端口不能为空")
 	}
-	if options.StartWorker == nil {
-		return nil, errors.New("批量恢复 worker 回调不能为空")
-	}
 	if options.LeaseDuration <= 0 {
 		options.LeaseDuration = 5 * time.Minute
 	}
@@ -75,9 +76,37 @@ func NewBatchRecoveryService(repository BatchRecoveryRepository, options BatchRe
 
 // Recover 扫描并接管可恢复批次；单个批次失败时继续处理其他批次。
 func (service *BatchRecoveryService) Recover(ctx context.Context) error {
-	if service == nil || service.repository == nil || service.options.StartWorker == nil {
+	if service == nil || service.options.StartWorker == nil {
+		return errors.New("批量恢复 worker 回调未初始化")
+	}
+	if ctx == nil {
+		return errors.New("批量恢复 Context 不能为空")
+	}
+	// startWorker 将历史无错误回调适配为可报告启动错误的边界。
+	startWorker := func(startCtx context.Context, userID int64, batchID, workerToken string) error {
+		service.options.StartWorker(startCtx, userID, batchID, workerToken)
+		return nil
+	}
+	return service.RecoverWithStarter(ctx, startWorker)
+}
+
+// RecoverWithStarter 使用调用方提供的 worker 启动回调执行一轮恢复扫描。
+// 回调由生命周期协调器提供，避免恢复服务反向依赖 Server 或复制取消表。
+func (service *BatchRecoveryService) RecoverWithStarter(ctx context.Context, startWorker BatchWorkerStarterWithError) error {
+	if service == nil || service.repository == nil {
 		return errors.New("批量恢复服务未初始化")
 	}
+	if startWorker == nil {
+		return errors.New("批量恢复 worker 回调未初始化")
+	}
+	if ctx == nil {
+		return errors.New("批量恢复 Context 不能为空")
+	}
+	return service.recoverWithStarter(ctx, startWorker)
+}
+
+// recoverWithStarter 执行恢复扫描主体，允许不同生命周期协调器接管 worker 启动。
+func (service *BatchRecoveryService) recoverWithStarter(ctx context.Context, startWorker BatchWorkerStarterWithError) error {
 	// now 保存本轮扫描的当前 Unix 秒，确保查询和租约计算使用同一时间基准。
 	now := service.options.Now().UTC()
 	// batches 保存数据库返回的可恢复批次快照。
@@ -126,7 +155,10 @@ func (service *BatchRecoveryService) Recover(ctx context.Context) error {
 			_, _, _ = service.repository.FinalizeBatch(ctx, batch.ID, workerToken)
 			continue
 		}
-		service.options.StartWorker(ctx, batch.UserID, batch.ID, workerToken)
+		// startErr 保存生命周期协调器启动 worker 时的错误。
+		if startErr := startWorker(ctx, batch.UserID, batch.ID, workerToken); startErr != nil {
+			service.releaseClaimedBatch(ctx, batch.ID, workerToken)
+		}
 	}
 	return nil
 }

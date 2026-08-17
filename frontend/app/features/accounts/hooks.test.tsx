@@ -2,7 +2,7 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { AccountDetail } from '../../../types';
+import type { AccountDetail } from '../../../shared/api-contract';
 import { getAccountDetails, getAccountRuntimeStatuses, getAllAISettings } from './api';
 import { useAccountsData } from './hooks';
 

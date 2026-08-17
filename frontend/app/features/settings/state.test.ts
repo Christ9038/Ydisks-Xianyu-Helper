@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import type { SystemSettings } from '../../../types';
+import type { SystemSettings } from '../../../shared/api-contract';
 import { buildPersistableSettings, createCredentials, createCredentialsMessage, isCurrentSettingsRequest, validateCredentials } from './state';
 
 // settingsFixture 是覆盖敏感字段过滤和系统配置保留字段的最小草稿。

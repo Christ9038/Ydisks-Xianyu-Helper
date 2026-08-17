@@ -395,7 +395,7 @@ func TestDynamicCompatibilitySuccessContracts(t *testing.T) {
 	if publicSettingsDecodeErr := json.Unmarshal(publicSettingsRecorder.Body.Bytes(), &publicSettingsValue); publicSettingsDecodeErr != nil {
 		t.Fatalf("decode public settings response: %v", publicSettingsDecodeErr)
 	}
-	if publicSettingsValue == nil {
+	if publicSettingsValue.Entries == nil {
 		t.Fatal("public settings response must be an object")
 	}
 
@@ -414,7 +414,7 @@ func TestDynamicCompatibilitySuccessContracts(t *testing.T) {
 	if allSettingsDecodeErr := json.Unmarshal(allSettingsRecorder.Body.Bytes(), &allSettingsValue); allSettingsDecodeErr != nil {
 		t.Fatalf("decode all settings response: %v", allSettingsDecodeErr)
 	}
-	if allSettingsValue == nil {
+	if allSettingsValue.Entries == nil {
 		t.Fatal("all settings response must be an object")
 	}
 
@@ -433,7 +433,7 @@ func TestDynamicCompatibilitySuccessContracts(t *testing.T) {
 	if userSettingsDecodeErr := json.Unmarshal(userSettingsRecorder.Body.Bytes(), &userSettingsValue); userSettingsDecodeErr != nil {
 		t.Fatalf("decode user settings response: %v", userSettingsDecodeErr)
 	}
-	if userSettingsValue == nil {
+	if userSettingsValue.Entries == nil {
 		t.Fatal("user settings response must be an object")
 	}
 
@@ -462,12 +462,18 @@ func TestDynamicCompatibilitySuccessContracts(t *testing.T) {
 	if qrStatusDecodeErr := json.Unmarshal(qrStatusRecorder.Body.Bytes(), &qrStatusValue); qrStatusDecodeErr != nil {
 		t.Fatalf("decode qr status response: %v", qrStatusDecodeErr)
 	}
-	if qrStatusValue["status"] != "waiting" || qrStatusValue["custom_field"] != "kept" {
+	if qrStatusValue.Status != "waiting" || qrStatusValue.SessionID != "contract-qr" {
 		t.Fatalf("qr status response=%+v", qrStatusValue)
 	}
 	// leaked 表示二维码状态响应是否意外包含敏感 Cookie 字段。
-	if _, leaked := qrStatusValue["cookies"]; leaked {
-		t.Fatalf("qr status response leaked cookies: %+v", qrStatusValue)
+	var rawQR map[string]any
+	// decodeErr 表示原始二维码响应反序列化失败的原因。
+	if decodeErr := json.Unmarshal(qrStatusRecorder.Body.Bytes(), &rawQR); decodeErr != nil {
+		t.Fatalf("decode raw qr status response: %v", decodeErr)
+	}
+	// leaked 表示原始响应是否包含不应暴露的 Cookie 字段。
+	if _, leaked := rawQR["cookies"]; leaked {
+		t.Fatalf("qr status response leaked cookies: %+v", rawQR)
 	}
 
 	// srv.QRLogin 替换为完成验证场景的测试替身。

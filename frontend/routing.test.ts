@@ -17,7 +17,7 @@ const extractSingleQuotedValues = (source: string, pattern: RegExp) => {
 
 describe('frontend navigation routing', () => {
   test('sidebar entries and App activeTab routes stay in sync', () => {
-    const sidebar = readFrontendFile('components/Sidebar.tsx'); /* sidebar 表示sidebar。 */
+    const sidebar = readFrontendFile('shared/ui/Sidebar.tsx'); /* sidebar 表示sidebar。 */
     const app = readFrontendFile('app/shell/AuthenticatedShell.tsx'); /* app 表示认证后页面组合器源码。 */
 
     const sidebarIDs = extractSingleQuotedValues(sidebar, /id:\s*'([^']+)'/g); /* sidebarIDs 表示sidebarIDs。 */
@@ -27,7 +27,7 @@ describe('frontend navigation routing', () => {
   } /* 回调函数负责当前业务流程。 */);
 
   test('active navigation uses the primary action blue', () => {
-    const sidebar = readFrontendFile('components/Sidebar.tsx'); /* sidebar 表示sidebar。 */
+    const sidebar = readFrontendFile('shared/ui/Sidebar.tsx'); /* sidebar 表示sidebar。 */
 
     expect(sidebar).toContain("'bg-brand text-white shadow-brand-active'");
     expect(sidebar).not.toContain("'bg-sky-500 text-white'");
@@ -41,10 +41,11 @@ describe('frontend navigation routing', () => {
     expect(app).toContain('const PageLoading: React.FC');
     expect(app).toContain('<Suspense fallback={<PageLoading />}>');
     expect(app).not.toContain("import Dashboard from '../../components/Dashboard'");
+    expect(app).toContain("import('../features/dashboard/pages/Dashboard')");
   } /* 回调函数负责当前业务流程。 */);
 
   test('authenticated shell owns sidebar and page composition', () => {
-    const app = readFrontendFile('App.tsx'); /* app 表示认证状态根组件源码。 */
+    const app = readFrontendFile('app/router/AppRouter.tsx'); /* app 表示认证后的路由组合器源码。 */
     const shell = readFrontendFile('app/shell/AuthenticatedShell.tsx'); /* shell 表示认证后应用壳源码。 */
 
     expect(app).toContain("import AuthenticatedShell, { type DeliveryRuleTarget }");
@@ -55,17 +56,17 @@ describe('frontend navigation routing', () => {
   } /* 回调函数负责当前业务流程。 */);
 
   test('logout button invalidates the backend session before clearing UI state', () => {
-    const app = readFrontendFile('App.tsx'); /* app 表示app。 */
+    const app = readFrontendFile('app/router/AppRouter.tsx'); /* app 表示认证后路由组合器源码。 */
     const sessionProvider = readFrontendFile('app/providers/SessionProvider.tsx'); /* sessionProvider 表示认证 Provider 源码。 */
 
-    expect(app).toContain("import { SessionProvider, useSession }");
+    expect(app).toContain("import { useSession }");
     expect(sessionProvider).toContain('await logout();');
     expect(sessionProvider).toContain("window.addEventListener('auth:logout'");
     expect(app).toContain('onLogout={handleLogout}');
   } /* 回调函数负责当前业务流程。 */);
 
   test('settings page does not expose backend-inactive system controls', () => {
-    const settings = readFrontendFile('components/Settings.tsx'); /* settings 表示settings。 */
+    const settings = readFrontendFile('app/features/settings/pages/Settings.tsx'); /* settings 表示settings。 */
     const settingsConstants = readFrontendFile('app/features/settings/constants.ts'); /* settingsConstants 表示settingsConstants。 */
 
     expect(settings).not.toContain('允许用户注册');
@@ -78,15 +79,15 @@ describe('frontend navigation routing', () => {
   } /* 回调函数负责当前业务流程。 */);
 
   test('admin-only settings navigation is gated by session role', () => {
-    const app = readFrontendFile('App.tsx'); /* app 表示app。 */
+    const app = readFrontendFile('app/router/AppRouter.tsx'); /* app 表示认证后路由组合器源码。 */
     const sessionProvider = readFrontendFile('app/providers/SessionProvider.tsx'); /* sessionProvider 表示认证 Provider 源码。 */
     const shell = readFrontendFile('app/shell/AuthenticatedShell.tsx'); /* shell 表示认证后应用壳源码。 */
-    const sidebar = readFrontendFile('components/Sidebar.tsx'); /* sidebar 表示sidebar。 */
+    const sidebar = readFrontendFile('shared/ui/Sidebar.tsx'); /* sidebar 表示sidebar。 */
     const settingsHook = readFrontendFile('app/features/settings/hooks.ts'); /* settingsHook 表示settingsHook。 */
 
-    expect(app).toContain('const { checkingAuth, isLoggedIn, isAdmin, needsInit, signIn, initialize, signOut } = useSession();');
+    expect(app).toContain('const { isLoggedIn, isAdmin, signOut } = useSession();');
     expect(sessionProvider).toContain('setIsAdmin(response.is_admin === true)');
-    expect(app).toContain("activeTab === 'settings'");
+    expect(app).toContain("activeRoute === 'settings'");
     expect(shell).toContain('isAdmin ? <Settings /> : <Dashboard />');
     expect(sidebar).toContain('isAdmin = false');
     expect(sidebar).toContain("...(isAdmin ? [{ id: 'settings'");
@@ -94,7 +95,7 @@ describe('frontend navigation routing', () => {
   } /* 回调函数负责当前业务流程。 */);
 
   test('captcha remote settings expose the reference privacy and fallback semantics', () => {
-    const settings = readFrontendFile('components/Settings.tsx'); /* settings 表示settings。 */
+    const settings = readFrontendFile('app/features/settings/pages/Settings.tsx'); /* settings 表示settings。 */
 
     expect(settings).toContain('远程过滑块配置');
     expect(settings).toContain("'captcha.remote_service_url'");
@@ -105,7 +106,7 @@ describe('frontend navigation routing', () => {
   } /* 回调函数负责当前业务流程。 */);
 
   test('email notification config separates system and custom SMTP modes', () => {
-    const notifications = readFrontendFile('components/Notifications.tsx'); /* notifications 表示notifications。 */
+    const notifications = readFrontendFile('app/features/notifications/pages/Notifications.tsx'); /* notifications 表示notifications。 */
     const notificationState = readFrontendFile('app/features/notifications/state.ts'); /* notificationState 表示notificationState。 */
     const notificationModal = readFrontendFile('app/features/notifications/components/NotificationChannelModal.tsx'); /* notificationModal 表示notificationModal。 */
 
@@ -119,7 +120,7 @@ describe('frontend navigation routing', () => {
   } /* 回调函数负责当前业务流程。 */);
 
   test('keyword reply UI matches contains-based backend behavior', () => {
-    const rules = readFrontendFile('components/Rules.tsx'); /* rules 表示规则集合。 */
+    const rules = readFrontendFile('app/features/rules/pages/Rules.tsx'); /* rules 表示规则集合。 */
 
     expect(rules).toContain('包含匹配');
     expect(rules).not.toContain('精确匹配');
@@ -158,7 +159,7 @@ describe('frontend navigation routing', () => {
   } /* 回调函数负责当前业务流程。 */);
 
   test('automation editor keeps multiple delivery contents for normal products', () => {
-    const rules = readFrontendFile('components/Rules.tsx'); /* rules 表示规则集合。 */
+    const rules = readFrontendFile('app/features/rules/pages/Rules.tsx'); /* rules 表示规则集合。 */
     const actions = readFrontendFile('app/features/rules/ruleActions.ts'); /* actions 表示规则动作协调器源码。 */
 
     expect(rules).toContain('添加发货内容');
@@ -168,7 +169,7 @@ describe('frontend navigation routing', () => {
   } /* 回调函数负责当前业务流程。 */);
 
   test('batch publishing help explains card fields without required-field jargon', () => {
-    const itemList = readFrontendFile('components/ItemList.tsx'); /* itemList 表示当前商品List。 */
+    const itemList = readFrontendFile('app/features/items/pages/ItemList.tsx'); /* itemList 表示当前商品List。 */
 
     expect(itemList).not.toContain('条件必填');
     expect(itemList).toContain('“付款后发送的卡密”怎么填');
@@ -186,9 +187,9 @@ describe('frontend navigation routing', () => {
   } /* 回调函数负责当前业务流程。 */);
 
   test('QR verification removes the external link and clearly requires in-app risk verification', () => {
-    const accounts = readFrontendFile('components/AccountList.tsx'); /* accounts 表示账号集合。 */
+    const accounts = readFrontendFile('app/features/accounts/pages/AccountList.tsx'); /* accounts 表示账号集合。 */
     const qrModal = readFrontendFile('app/features/accounts/components/AccountQRCodeModal.tsx'); /* qrModal 表示二维码登录弹窗。 */
-	const riskPanel = readFrontendFile('components/RiskVerificationPanel.tsx'); /* riskPanel 表示riskPanel。 */
+	const riskPanel = readFrontendFile('app/features/accounts/components/RiskVerificationPanel.tsx'); /* riskPanel 表示riskPanel。 */
     expect(accounts).not.toContain('href={verificationUrl}');
     expect(accounts).not.toContain('setVerificationUrl');
 	expect(qrModal).toContain('RiskVerificationPanel');
@@ -202,7 +203,7 @@ describe('frontend navigation routing', () => {
 
   test('account editor exposes password-login refresh and never renders its verification URL', () => {
     const accounts = [
-      readFrontendFile('components/AccountList.tsx'),
+      readFrontendFile('app/features/accounts/pages/AccountList.tsx'),
       readFrontendFile('app/features/accounts/components/AccountEditModal.tsx'),
       readFrontendFile('app/features/accounts/submoduleHooks.ts'),
     ].join('\n'); /* accounts 表示账号集合。 */

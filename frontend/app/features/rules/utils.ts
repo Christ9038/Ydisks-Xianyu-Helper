@@ -5,7 +5,7 @@ import type {
   AutomationTriggerType,
   ShippingRule,
   ShippingVariant,
-} from '../../../types';
+} from '../../../shared/api-contract';
 import type { TriggerMeta } from './types';
 
 // triggerMeta 是自动化触发类型的统一展示元数据，供列表和编辑器复用。

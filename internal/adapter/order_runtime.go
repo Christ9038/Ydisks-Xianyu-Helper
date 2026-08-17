@@ -8,11 +8,24 @@ import (
 	"strings"
 	"time"
 
+	accountmanager "xianyu-go/internal/account"
 	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
 )
+
+// OrderAutomation 定义订单手动发货所需的最小自动化能力，避免订单适配器依赖具体 Center 类型。
+type OrderAutomation interface {
+	// ManualFullDelivery 执行一次订单完整发货并返回实际发送数量。
+	ManualFullDelivery(context.Context, *db.Order) (int, error)
+}
+
+// OrderNotifier 定义订单发货结果所需的最小通知能力，通知实现不进入订单应用层。
+type OrderNotifier interface {
+	// NotifyDelivery 发送订单发货结果通知。
+	NotifyDelivery(string, string, string, string, string, string)
+}
 
 // orderDetailMTop 是订单运行时需要的可选详情接口能力。
 type orderDetailMTop interface {
@@ -40,6 +53,29 @@ type OrderRuntimeHooks struct {
 	RecoverExpiredSession func(context.Context, string, error) bool
 	// ReportPersistenceFailure 记录本地订单状态写入失败。
 	ReportPersistenceFailure func(string, error)
+}
+
+// NewOrderRuntimeHooks 将账号、自动化和通知依赖转换为订单运行时回调；闭包只存在于 adapter 装配边界。
+func NewOrderRuntimeHooks(client func() mtop.Client, manager *accountmanager.Manager, automation OrderAutomation, notifier OrderNotifier, updateCookie func(context.Context, string, string), recoverSession func(context.Context, string, error) bool) OrderRuntimeHooks {
+	return OrderRuntimeHooks{
+		Client:          client,
+		ClientAvailable: func() bool { return client != nil && client() != nil },
+		AccountRunning:  AccountRunningLookup(manager),
+		AutomationReady: func() bool { return manager != nil && automation != nil },
+		ManualFullDelivery: func(ctx context.Context, order *orderapp.Order) (int, error) {
+			if automation == nil {
+				return 0, errors.New("自动化中心未初始化")
+			}
+			return automation.ManualFullDelivery(ctx, OrderForAutomation(order))
+		},
+		UpdateRunningCookie: updateCookie,
+		NotifyDelivery: func(cookieID, buyerID, itemID, chatID, message string) {
+			if notifier != nil {
+				notifier.NotifyDelivery(cookieID, "", buyerID, itemID, message, chatID)
+			}
+		},
+		RecoverExpiredSession: recoverSession,
+	}
 }
 
 // OrderRuntime 将订单应用 Port 适配到数据库凭证、MTOP 和账号运行时。

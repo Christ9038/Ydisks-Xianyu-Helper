@@ -42,6 +42,8 @@ export const useDashboard = (options: UseDashboardOptions): UseDashboardResult =
   const [refreshKey, setRefreshKey] = useState(0);
   // requestSequence 请求请求序号，负责当前功能中的对应处理。
   const requestSequence = useRef(0);
+  // overviewSequence 隔离刷新后仍然完成的旧概览响应，避免忽略取消信号的底层实现覆盖新数据。
+  const overviewSequence = useRef(0);
   // rangeSelection 范围选择，负责当前功能中的对应处理。
   const rangeSelection = useMemo(
     // selection 是当前时间范围的不可变快照。
@@ -57,6 +59,8 @@ export const useDashboard = (options: UseDashboardOptions): UseDashboardResult =
   );
 
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
+    // sequence 标识本轮概览请求，刷新或卸载后旧请求不得写入状态。
+    const sequence = ++overviewSequence.current;
     // controller 请求取消控制器。
     const controller = new AbortController();
     setStatus(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, overview: 'loading', error: '' }));
@@ -64,11 +68,11 @@ export const useDashboard = (options: UseDashboardOptions): UseDashboardResult =
       getDashboardStats({ signal: controller.signal }),
       getItems(undefined, { signal: controller.signal }),
     ]).then(/* 当前回调处理用户交互或异步状态变化。 */ ([stats, items]) => {
-      if (controller.signal.aborted) return;
+      if (!isCurrentDashboardRequest(overviewSequence.current, sequence, controller.signal)) return;
       setOverview({ stats, items, itemNames: buildItemNameMap(items) });
       setStatus(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, overview: 'success' }));
     }).catch(/* 当前回调处理用户交互或异步状态变化。 */ error => {
-      if (controller.signal.aborted || isAbortError(error)) return;
+      if (!isCurrentDashboardRequest(overviewSequence.current, sequence, controller.signal) || isAbortError(error)) return;
       setStatus(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, overview: 'error', error: errorMessage(error, '概览加载失败') }));
     });
     return /* 当前回调处理用户交互或异步状态变化。 */ () => controller.abort();

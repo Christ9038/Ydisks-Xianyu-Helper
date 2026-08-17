@@ -6,6 +6,81 @@ import (
 	"testing"
 )
 
+// TestHTTPResponseContractBoundary 验证 HTTP 契约扫描会拒绝动态 map 和直接 map 响应。
+func TestHTTPResponseContractBoundary(t *testing.T) {
+	// fset 是模拟 Server 源码的文件位置集合。
+	fset := token.NewFileSet()
+	// syntax、err 是同时包含 map 响应类型和直接 map 写入的模拟 Server 文件。
+	syntax, err := parser.ParseFile(fset, "response.go", []byte(`package server
+type badResponse struct { Rows []map[string]any }
+func handler(w any) { writeJSON(w, 200, map[string]any{"ok": true}) }
+`), parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// violations 是动态响应契约的扫描结果。
+	violations := checkHTTPResponseContracts("internal/server/response.go", syntax, fset)
+	if len(violations) != 2 {
+		t.Fatalf("violations=%+v", violations)
+	}
+	// cleanSyntax 是只使用具名字段的模拟 Server 文件。
+	cleanSyntax, err := parser.ParseFile(fset, "clean.go", []byte(`package server
+type goodResponse struct { Rows []goodRow }
+type goodRow struct { ID string }
+func handler(w any) { writeJSON(w, 200, goodResponse{}) }
+`), parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// cleanViolations 是合规响应契约的扫描结果。
+	cleanViolations := checkHTTPResponseContracts("internal/server/clean.go", cleanSyntax, fset)
+	if len(cleanViolations) != 0 {
+		t.Fatalf("clean violations=%+v", cleanViolations)
+	}
+}
+
+// TestControlledDynamicResponseTypes 验证已登记的兼容动态键不会被阶段三门禁误判。
+func TestControlledDynamicResponseTypes(t *testing.T) {
+	// fset 是兼容响应模拟源码的文件位置集合。
+	fset := token.NewFileSet()
+	// syntax、err 是包含既有动态键响应的模拟 Server 文件。
+	syntax, err := parser.ParseFile(fset, "compat.go", []byte(`package server
+type settingsResponse map[string]string
+type notificationBindingListResponse map[string][]bindingRow
+type automationRulePageResponse struct { TriggerCounts map[string]int }
+type bindingRow struct { ID string }
+`), parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// violations 是兼容响应扫描结果；现有键形状必须继续保留。
+	violations := checkHTTPResponseContracts("internal/server/compat.go", syntax, fset)
+	if len(violations) != 0 {
+		t.Fatalf("controlled response violations=%+v", violations)
+	}
+}
+
+// TestHTTPResponseContractScope 验证架构扫描不会误伤测试代码和非 Server 包。
+func TestHTTPResponseContractScope(t *testing.T) {
+	// fset 是模拟源代码的文件位置集合。
+	fset := token.NewFileSet()
+	// syntax、err 是包含动态 map 的模拟文件。
+	syntax, err := parser.ParseFile(fset, "response_test.go", []byte(`package server
+type testResponse map[string]any
+`), parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// got 是测试文件被扫描出的架构违规列表。
+	if got := checkHTTPResponseContracts("internal/server/response_test.go", syntax, fset); len(got) != 0 {
+		t.Fatalf("test-file violations=%+v", got)
+	}
+	// got 是非 Server 文件被扫描出的架构违规列表。
+	if got := checkHTTPResponseContracts("internal/application/response.go", syntax, fset); len(got) != 0 {
+		t.Fatalf("non-server violations=%+v", got)
+	}
+}
+
 // TestNormalizeImportPath 验证架构检查器能够识别当前模块的内部包路径。
 func TestNormalizeImportPath(t *testing.T) {
 	if got /* got 是规范化后的导入路径。 */ := normalizeImportPath("xianyu-go/internal/db"); got != "internal/db" {
@@ -39,6 +114,9 @@ func TestServerLowLevelBoundary(t *testing.T) {
 	}
 	if !isForbiddenServerLowLevelImport("internal/server/new_service.go", "internal/db") {
 		t.Fatal("新增 Server 低层依赖必须被门禁拒绝")
+	}
+	if !isForbiddenServerLowLevelImport("internal/server/unit_of_work.go", "database/sql") {
+		t.Fatal("Server 不得暴露 database/sql 事务类型")
 	}
 	if isForbiddenServerLowLevelImport("internal/server/new_service_test.go", "internal/db") {
 		t.Fatal("测试文件不应被生产依赖门禁阻断")

@@ -16,7 +16,7 @@ import type {
   Item,
   ReplyRule,
   ShippingRule,
-} from '../../../types';
+} from '../../../shared/api-contract';
 import type { AutomationIssueState, RulesDataOptions, RulesDataResult, RulesTab } from './types';
 import { isCurrentRequest, nextRequestGeneration } from './interactionState';
 

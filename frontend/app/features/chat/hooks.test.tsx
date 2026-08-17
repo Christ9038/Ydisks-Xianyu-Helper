@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { AccountDetail, ChatMessage, ChatSession } from '../../../types';
+import type { AccountDetail, ChatMessage, ChatSession } from '../../../shared/api-contract';
 import { getAccountDetails, getAccountRuntimeStatuses, getChatMessagePage, getChatSessionPage, markChatRead, sendChatImage, sendChatMessage } from './api';
 import { useChat } from './hooks';
 
@@ -427,6 +427,45 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
       () => latestSocket?.onerror?.(),
     );
     expect(latestSocket?.close).toHaveBeenCalled();
+    hook.unmount();
+  });
+
+  test('切换或清空会话时取消未完成的历史消息分页', /* 当前回调验证历史分页不会在会话上下文失效后写入新会话状态。 */ async () => {
+    // historySignal 保存历史分页接口收到的取消信号。
+    let historySignal: AbortSignal | undefined;
+    // hook 是已加载默认账号和会话的聊天 Hook。
+    const hook = renderHook(
+      // chatHookFactory 创建聊天 Hook。
+      () => useChat(),
+    );
+    await waitFor(
+      // activeChatAssertion 等待默认会话成为当前选择。
+      () => expect(hook.result.current.activeChatID).toBe('chat-1'),
+    );
+    await waitFor(
+      // messagesLoadedAssertion 等待首次消息分页完成并允许继续加载历史消息。
+      () => expect(hook.result.current.messagesLoading).toBe(false),
+    );
+    getMessagePageMock.mockImplementationOnce(
+      // pendingHistory 保持历史分页未完成，以便验证会话切换时主动取消。
+      (_accountID, _chatID, _cursor, _oldestID, requestOptions) => {
+        historySignal = requestOptions?.signal;
+        return new Promise(/* pendingHistoryExecutor 故意不完成历史分页 Promise，直到会话切换取消请求。 */ () => undefined);
+      },
+    );
+    await act(
+      // olderMessagesAction 触发需要保持未完成的历史消息分页。
+      () => { void hook.result.current.loadOlderMessages(); },
+    );
+    await waitFor(
+      // historyStartedAssertion 等待历史分页请求建立取消信号。
+      () => expect(historySignal).toBeDefined(),
+    );
+    await act(
+      // clearChatAction 清空当前会话，使历史分页上下文立即失效。
+      () => hook.result.current.setActiveChatID(''),
+    );
+    expect(historySignal?.aborted).toBe(true);
     hook.unmount();
   });
 });

@@ -1,4 +1,4 @@
-import type { Item, Order, OrderAnalytics, DashboardStats } from '../../../types';
+import type { Item, Order, OrderAnalytics, DashboardStats } from '../../../shared/api-contract';
 import type { DateRange, TimeRange } from '../../../dateRange';
 
 /** Dashboard 请求状态。 */

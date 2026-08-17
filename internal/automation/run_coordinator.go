@@ -31,8 +31,8 @@ type automationRunCoordinator struct {
 	executeAction func(context.Context, Task, db.AutomationAction) (int, error)
 	// hasNotifier 判断当前是否注入了结果通知器。
 	hasNotifier func() bool
-	// notifyResult 将运行结果转换为用户可见的通知。
-	notifyResult func(Task, string, int, string)
+	// notifyResult 将运行结果转换为用户可见的、按运行终态幂等的通知。
+	notifyResult func(context.Context, Task, int64, string, int, string)
 }
 
 // executeRule 创建或恢复一次自动化运行，并统一处理运行成功、失败、延期和人工核对结果；resultErr 返回动作执行或结果收口错误。
@@ -107,6 +107,8 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 		}
 		// finishCtx 限制运行收口不能被原始请求取消。
 		finishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// cancel 在结果通知已使用 finishCtx 持久化入队后释放收口上下文，避免取消导致通知静默丢失。
+		defer cancel()
 		// finishErr 保存运行结果写入失败，避免覆盖原始动作错误。
 		if finishErr := r.store.Automation.FinishRun(finishCtx, run.ID, run.AttemptCount, status, sent, errMsg); finishErr != nil {
 			// reason 说明结果落库失败后禁止自动重放的原因，并用于人工核对记录。
@@ -122,9 +124,8 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 				resultErr = errors.Join(resultErr, errAutomationNeedsReview, fmt.Errorf("保存自动化执行结果失败: %w", finishErr))
 			}
 		}
-		cancel()
 		if r.hasNotifier() {
-			r.notifyResult(task, status, sent, errMsg)
+			r.notifyResult(finishCtx, task, run.ID, status, sent, errMsg)
 		}
 	}()
 	// actions 是当前规则生成的完整动作计划。
@@ -143,7 +144,7 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 	if errors.Is(err, errAutomationNeedsReview) {
 		finish = false
 		if r.hasNotifier() && !errors.Is(err, errAutomationQuarantine) {
-			r.notifyResult(task, "needs_review", sent, err.Error())
+			r.notifyResult(ctx, task, run.ID, "needs_review", sent, err.Error())
 		}
 		return err
 	}
@@ -159,7 +160,7 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 			}
 			finish = false
 			if r.hasNotifier() {
-				r.notifyResult(task, "needs_review", sent, reason)
+				r.notifyResult(ctx, task, run.ID, "needs_review", sent, reason)
 			}
 			return fmt.Errorf("%w: %v", errAutomationNeedsReview, err)
 		}
@@ -182,7 +183,7 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 			}
 			finish = false
 			if r.hasNotifier() {
-				r.notifyResult(task, "needs_review", sent, reason)
+				r.notifyResult(ctx, task, run.ID, "needs_review", sent, reason)
 			}
 			return fmt.Errorf("%w: %v", errAutomationNeedsReview, incrementErr)
 		}

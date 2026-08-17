@@ -20,11 +20,17 @@ type chatOutgoingRepository struct {
 
 // NewChatSendingApplication 装配聊天历史、实时发送、图片上传和身份补全端口。
 func NewChatSendingApplication(domainService *domainchat.Service, store *db.Store, manager *account.Manager, clientProvider func() mtop.Client) *chatapp.Service {
-	return chatapp.NewWithSending(
+	if domainService == nil {
+		// service 保留历史查询应用对象，但不伪造未装配的发送、订阅和刷新端口。
+		return chatapp.NewWithSendingSubscriptionAndRefresh(NewChatRepository(store), nil, nil, nil, nil, nil, NewChatIdentityResolver(store, clientProvider))
+	}
+	return chatapp.NewWithSendingSubscriptionAndRefresh(
 		NewChatRepository(store),
 		NewChatOutgoingRepository(domainService),
 		NewChatSenderProvider(manager),
 		NewChatImageUploader(store, clientProvider, manager),
+		NewChatSubscriptionProvider(domainService),
+		NewChatRefreshProvider(domainService, manager),
 		NewChatIdentityResolver(store, clientProvider),
 	)
 }
