@@ -48,9 +48,15 @@ CREATE UNIQUE INDEX idx_notification_outbox_channel_idempotency
     ON notification_outbox(channel_id, idempotency_key);
 
 -- +goose Down
+-- InnoDB 会让 00021 的 channel_id 外键复用新增的复合索引；先移除外键，
+-- 否则删除幂等索引会失败。最后按 00021 的约束名称恢复原始关系。
+ALTER TABLE notification_outbox DROP FOREIGN KEY fk_notification_outbox_channel;
 DROP INDEX idx_notification_outbox_channel_idempotency ON notification_outbox;
 ALTER TABLE notification_outbox DROP COLUMN idempotency_key;
 ALTER TABLE notification_outbox DROP COLUMN uncertain_at;
+ALTER TABLE notification_outbox
+    ADD CONSTRAINT fk_notification_outbox_channel
+    FOREIGN KEY (channel_id) REFERENCES notification_channels(id) ON DELETE CASCADE;
 DROP TABLE IF EXISTS security_audit_logs;
 DROP TABLE IF EXISTS order_refresh_jobs;
 DROP INDEX idx_orders_cursor ON orders;
