@@ -3,7 +3,7 @@ import type React from 'react';
 import type { AccountDetail, ChatMessage, ChatSession } from '../../../shared/api-contract';
 import { emojiURL, renderXianyuText, xianyuEmojis } from '../../../chatEmojis';
 import { getAccountDetails, getAccountRuntimeStatuses, getChatMessagePage, getChatSessionPage, markChatRead, sendChatImage, sendChatMessage } from './api';
-import { collectChatReadReceipts, filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, mergeLiveMessage, mergeOlderMessages, messageTime } from './state';
+import { collectChatReadReceipts, filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, markOutgoingMessagesReadByIncoming, mergeLiveMessage, mergeOlderMessages, messageTime } from './state';
 import type { ChatFeatureState, ChatLiveState, SessionsByAccount } from './types';
 
 /** PendingImagePreview 描述等待用户确认的本地图片预览及其资源所有权。 */
@@ -435,7 +435,7 @@ export const useChat = (): UseChatResult => {
             } : row).sort(/* 当前回调处理集合中的单个元素。 */ (a, b) => b.last_message_at - a.last_message_at) };
           });
           if (activeAccountRef.current === accountID && activeChatRef.current === message.chat_id) {
-            setMessages(/* 当前回调处理用户交互或异步状态变化。 */ current => mergeLiveMessage(current, message));
+            setMessages(/* 当前回调合并实时消息并同步后续入站消息确认的出站已读状态。 */ current => markOutgoingMessagesReadByIncoming(mergeLiveMessage(current, message), message));
             if (message.direction === 'incoming' && message.message_type !== 'system') {
               // readReceipts 为当前实时消息生成平台要求的会话读取回执。
               const readReceipts = collectChatReadReceipts([message], message.chat_id);

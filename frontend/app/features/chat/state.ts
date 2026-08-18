@@ -58,6 +58,21 @@ export const mergeLiveMessage = (current: ChatMessage[], incoming: ChatMessage):
   return current.map(/* 当前回调处理集合中的单个元素。 */ (message, currentIndex) => currentIndex === index ? incoming : message);
 };
 
+/** 买家普通入站消息到达时，把此前同会话的已发送出站消息同步为已读。 */
+export const markOutgoingMessagesReadByIncoming = (current: ChatMessage[], incoming: ChatMessage): ChatMessage[] => {
+  if (incoming.direction !== 'incoming' || incoming.message_type === 'system') return current;
+  // readAt 保存平台入站消息时间，缺失时使用本机时间作为 UI 增量更新回退值。
+  const readAt = incoming.sent_at > 0 ? incoming.sent_at : Date.now();
+  return current.map(/* 当前回调把已被买家后续消息确认的出站消息更新为已读。 */ message => (
+    message.chat_id === incoming.chat_id
+    && message.direction === 'outgoing'
+    && message.status === 'sent'
+    && message.sent_at <= incoming.sent_at
+      ? { ...message, read_status: 2, read_at: readAt }
+      : message
+  ));
+};
+
 /** 判断 Chat 请求响应是否仍属于当前账号和会话。 */
 export const isCurrentChatRequest = (currentSequence: number, requestSequence: number, signal: AbortSignal): boolean => (
   currentSequence === requestSequence && !signal.aborted
