@@ -234,6 +234,9 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     // secondSession 是用于覆盖实时会话排序比较器的第二条会话。
     const secondSession = { ...sessionFixture, chat_id: 'chat-2', last_message_at: 2, unread_count: 0 };
     getSessionPageMock.mockResolvedValue({ sessions: [sessionFixture, secondSession], has_more: true, next_cursor: 2 });
+    // outgoingFixture 是当前会话中等待后续买家消息确认的出站消息。
+    const outgoingFixture = { ...messageFixture, id: 2, message_key: 'outgoing-1', direction: 'outgoing' as const, status: 'sent' as const, read_status: 0, read_at: 0, sent_at: 2, content: '我发出的消息' };
+    getMessagePageMock.mockResolvedValue({ messages: [outgoingFixture, messageFixture], has_more: true, next_cursor: 2, session: sessionFixture });
     // hook 是实时连接场景的聊天 Hook 渲染结果。
     const hook = renderHook(
       // socketHookFactory 创建实时连接场景的聊天 Hook。
@@ -260,6 +263,7 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
       () => latestSocket?.onmessage?.({ data: JSON.stringify({ message: incomingMessage }) }),
     );
     expect(hook.result.current.messages).toContainEqual(incomingMessage);
+    expect(hook.result.current.messages.find(/* 当前回调定位需要验证已读状态的出站消息。 */ message => message.message_key === 'outgoing-1')).toMatchObject({ read_status: 2, read_at: 3 });
     expect(markReadMock).toHaveBeenCalledWith('account-1', 'chat-1', [
       { messageId: 'message-3', sessionId: 'chat-1', cid: 'chat-1@goofish', conversationType: 1 },
     ]);

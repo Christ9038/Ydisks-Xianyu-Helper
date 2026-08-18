@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import type { ChatMessage, ChatSession } from '../../../shared/api-contract';
-import { collectChatReadReceipts, filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, mergeLiveMessage, mergeOlderMessages, messageTime, unreadBadgeClassName, unreadBadgeLabel } from './state';
+import { collectChatReadReceipts, filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, markOutgoingMessagesReadByIncoming, mergeLiveMessage, mergeOlderMessages, messageTime, unreadBadgeClassName, unreadBadgeLabel } from './state';
 
 // sessionFixture 是覆盖搜索、未读筛选和联系人隔离的最小会话数据。
 const sessionFixture: ChatSession[] = [
@@ -43,6 +43,18 @@ test('Chat 实时消息替换同键记录并拒绝过期请求',
     expect(isCurrentChatRequest(2, 3, controller.signal)).toBe(false);
     controller.abort();
     expect(isCurrentChatRequest(3, 3, controller.signal)).toBe(false);
+  });
+
+test('Chat 后续入站消息确认此前已发送出站消息为已读',
+  // 已读推导测试验证实时状态与数据库事务中的会话级确认语义一致。
+  () => {
+    // outgoing 是尚未收到已读回执的本地出站消息。
+    const outgoing: ChatMessage = { ...messageFixture, direction: 'outgoing', status: 'sent', read_status: 0, read_at: 0, sent_at: 10, message_key: 'outgoing-1' };
+    // incoming 是买家随后发来的普通消息。
+    const incoming: ChatMessage = { ...messageFixture, direction: 'incoming', sent_at: 20, message_key: 'incoming-1' };
+    // updated 保存后续入站消息确认后的出站消息状态。
+    const updated = markOutgoingMessagesReadByIncoming([outgoing], incoming);
+    expect(updated[0]).toMatchObject({ read_status: 2, read_at: 20 });
   });
 
 test('Chat 状态工具覆盖追加消息、搜索字段和时间格式化',
