@@ -17,6 +17,38 @@ import (
 	"xianyu-go/internal/db"
 )
 
+// TestParsePublishIntervalSeconds 验证批量发布间隔的默认值与边界校验。
+func TestParsePublishIntervalSeconds(t *testing.T) {
+	// cases 保存空值、有效值和越界值的确定性解析样例。
+	cases := []struct {
+		name string
+		raw  string
+		want int
+		bad  bool
+	}{
+		{name: "default", raw: "", want: 5},
+		{name: "custom", raw: "12", want: 12},
+		{name: "not-number", raw: "abc", bad: true},
+		{name: "zero", raw: "0", bad: true},
+		{name: "too-large", raw: "3601", bad: true},
+	}
+	for _, testCase := range cases { // testCase 表示当前发布间隔解析样例。
+		t.Run(testCase.name, func(t *testing.T) {
+			// got、err 保存当前样例的解析结果。
+			got, err := parsePublishIntervalSeconds(testCase.raw)
+			if testCase.bad {
+				if err == nil {
+					t.Fatalf("非法间隔应返回错误，got=%d", got)
+				}
+				return
+			}
+			if err != nil || got != testCase.want {
+				t.Fatalf("解析结果=%d err=%v want=%d", got, err, testCase.want)
+			}
+		})
+	}
+}
+
 // TestParsePublishSheetBytes 表格解析各格式。
 func TestParsePublishSheetBytes(t *testing.T) {
 	// CSV。
@@ -69,7 +101,7 @@ func TestParsePublishSheetBytesWithLimitRejectsTooManyRows(t *testing.T) {
 // TestPreviewItemPublishBatchCSV 预检 CSV 批量发布（含图片 zip）。
 func TestPreviewItemPublishBatchCSV(t *testing.T) {
 	// srv、cleanup 用于本次流程后续判断的srv、cleanup
-	srv, _, cleanup := newTestServer(t)
+	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
@@ -95,6 +127,7 @@ func TestPreviewItemPublishBatchCSV(t *testing.T) {
 	_ = mw.WriteField("fallback_category_id", "5001")
 	_ = mw.WriteField("fallback_category_name", "虚拟商品")
 	_ = mw.WriteField("fallback_channel_category_id", "6001")
+	_ = mw.WriteField("publish_interval_seconds", "12")
 	// csvField 用于本次流程后续判断的csv字段
 	csvField, _ := mw.CreateFormFile("file", "products.csv")
 	csvField.Write([]byte("账号ID,标题,价格,库存,图片\nacc1,商品A,12.50,5,img/a.png\n"))
@@ -125,6 +158,11 @@ func TestPreviewItemPublishBatchCSV(t *testing.T) {
 	category := previewRow["category"].(map[string]any)
 	if category["cat_id"] != "5001" || category["cat_name"] != "虚拟商品" {
 		t.Fatalf("预检未保存兜底类目: %+v", category)
+	}
+	// storedBatch 验证页面设置的发布间隔已经进入批次持久化模型。
+	storedBatch, storedErr := store.PublishBatches.Get(context.Background(), 1, res["preview_id"].(string))
+	if storedErr != nil || storedBatch.PublishIntervalSeconds != 12 {
+		t.Fatalf("批量发布间隔未持久化: batch=%+v err=%v", storedBatch, storedErr)
 	}
 }
 

@@ -109,6 +109,8 @@ export const previewItemPublishBatch = async (form: {
       /** tbCatId 表示淘宝分类标识。 */ tbCatId?: string;
     };
 	/** location 表示地址。 */ location?: PublishLocation;
+	/** publishIntervalSeconds 表示最终商品发布之间的最小间隔秒数。 */
+	publishIntervalSeconds?: number;
 }, options?: RequestControlOptions): Promise<ItemPublishBatchPreviewResponse> => {
     // body 请求体，用于当前 API 处理流程。
     const body = new FormData();
@@ -120,6 +122,7 @@ export const previewItemPublishBatch = async (form: {
     body.set('fallback_channel_category_id', form.fallbackCategory.channelCatId || '');
     body.set('fallback_tb_category_id', form.fallbackCategory.tbCatId || '');
 	if (form.location) body.set('location', JSON.stringify(form.location));
+	body.set('publish_interval_seconds', String(form.publishIntervalSeconds ?? 5));
 	return postForm('/api/v1/items/publish-batches/preview', body, options);
 }
 

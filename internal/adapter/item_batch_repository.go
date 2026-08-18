@@ -75,7 +75,7 @@ func (r *ItemBatchRepository) CreateBatch(ctx context.Context, batch itemapp.Bat
 			ErrorMessage: errorMessage, FailureKind: failureKind, RawJSON: string(rawJSON),
 		})
 	}
-	return r.store.PublishBatches.Create(ctx, &db.ItemPublishBatch{ID: batch.ID, UserID: batch.UserID, DefaultCookieID: batch.DefaultCookieID, Filename: batch.Filename, UploadDir: batch.UploadDir, LocationJSON: string(locationJSON), Status: status}, databaseRows)
+	return r.store.PublishBatches.Create(ctx, &db.ItemPublishBatch{ID: batch.ID, UserID: batch.UserID, DefaultCookieID: batch.DefaultCookieID, Filename: batch.Filename, UploadDir: batch.UploadDir, LocationJSON: string(locationJSON), PublishIntervalSeconds: batch.PublishIntervalSeconds, Status: status}, databaseRows)
 }
 
 // PendingRows 查询批次待处理明细并转换为应用模型。
@@ -105,6 +105,15 @@ func (r *ItemBatchRepository) RenewBatchLease(ctx context.Context, batchID, work
 		return false, err
 	}
 	return r.store.PublishBatches.RenewBatchLease(ctx, batchID, workerToken, leaseExpiresAt)
+}
+
+// ReservePublishSlot 原子预留一次符合批次间隔的最终商品发布时刻。
+func (r *ItemBatchRepository) ReservePublishSlot(ctx context.Context, batchID, workerToken string, minimumLastStartedAtMillis, startedAtMillis int64) (bool, error) {
+	// err 表示适配器依赖校验错误。
+	if err := r.validate(); err != nil {
+		return false, err
+	}
+	return r.store.PublishBatches.ReservePublishSlot(ctx, batchID, workerToken, minimumLastStartedAtMillis, startedAtMillis)
 }
 
 // GetBatch 查询批次并转换为应用状态模型。
@@ -398,7 +407,8 @@ func batchInfoApplicationModel(batch db.ItemPublishBatch) itemapp.BatchInfo {
 	return itemapp.BatchInfo{
 		ID: batch.ID, UserID: batch.UserID, Status: batch.Status, WorkerToken: batch.WorkerToken,
 		DefaultCookieID: batch.DefaultCookieID, Filename: batch.Filename, UploadDir: batch.UploadDir,
-		LocationJSON: batch.LocationJSON, TotalCount: batch.TotalCount, SuccessCount: batch.SuccessCount,
+		LocationJSON: batch.LocationJSON, PublishIntervalSeconds: batch.PublishIntervalSeconds, LastPublishStartedAtMillis: batch.LastPublishStartedAtMillis,
+		TotalCount: batch.TotalCount, SuccessCount: batch.SuccessCount,
 		FailedCount: batch.FailedCount, LeaseExpiresAt: batch.LeaseExpiresAt,
 		CreatedAt: batch.CreatedAt, UpdatedAt: batch.UpdatedAt,
 	}

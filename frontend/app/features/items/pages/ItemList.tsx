@@ -79,6 +79,8 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
     setRecentBatch,
     batchLocations,
     batchLocation,
+    batchPublishIntervalSeconds,
+    setBatchPublishIntervalSeconds,
     setBatchLocations,
     setBatchLocation,
     openBatchModal,
@@ -657,9 +659,16 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
 					{batchLocations.length > 0 && <select className="w-full ios-input rounded-xl bg-white px-4 py-3" value={String(Math.max(0, batchLocations.indexOf(batchLocation!)))} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setBatchLocation(batchLocations[Number(e.target.value)] || null)}>
 					  {batchLocations.map(/* 当前回调处理集合中的单个元素。 */ (item, index) => <option key={`${item.division_id}-${item.poi_id}-${index}`} value={String(index)}>{[item.province, item.city, item.area, item.poi_name].filter(Boolean).join(' ')}</option>)}
 					</select>}
-				  </div>
+					  </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+					  <div className="rounded-xl border border-violet-200 bg-violet-50 p-4 space-y-2">
+						<label className="flex items-center justify-between gap-4" htmlFor="batch-publish-interval">
+						  <span className="min-w-0"><span className="block text-sm font-extrabold text-gray-900">商品发布强制间隔</span><span className="mt-1 block text-xs text-violet-800">图片会提前上传，只有最终发布请求之间至少等待该时间。</span></span>
+						  <span className="flex shrink-0 items-center gap-2"><input id="batch-publish-interval" type="number" min={1} max={3600} step={1} inputMode="numeric" className="ios-input w-24 rounded-xl bg-white px-3 py-2 text-right" value={batchPublishIntervalSeconds} onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setBatchPublishIntervalSeconds(Math.min(3600, Math.max(1, Number(e.target.value) || 1)))} /><span className="text-sm font-bold text-violet-900">秒</span></span>
+						</label>
+					  </div>
+
+	                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <label className="flex min-h-[150px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center hover:border-blue-300 hover:bg-blue-50 transition-colors">
                       <UploadCloud className="w-9 h-9 text-blue-600 mb-3" />
                       <span className="text-sm font-extrabold text-gray-900">上传商品表格</span>

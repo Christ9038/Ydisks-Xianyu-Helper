@@ -95,6 +95,8 @@ export interface PublishBatchDetail {
   running: number;
   // retryable 是可重试失败行数。
   retryable: number;
+  // publish_interval_seconds 是相邻最终商品发布请求的最小间隔秒数。
+  publish_interval_seconds?: number;
   // rows 是逐行执行结果。
   rows: PublishBatchDetailRow[];
 }
@@ -175,6 +177,10 @@ export interface ItemPublishBatchState {
   setBatchLocations: Dispatch<SetStateAction<PublishLocation[]>>;
   // setBatchLocation 更新批量当前发货地。
   setBatchLocation: Dispatch<SetStateAction<PublishLocation | null>>;
+  // batchPublishIntervalSeconds 保存最终商品发布之间的最小间隔秒数。
+  batchPublishIntervalSeconds: number;
+  // setBatchPublishIntervalSeconds 更新用户设置的发布最小间隔。
+  setBatchPublishIntervalSeconds: Dispatch<SetStateAction<number>>;
   // openBatchModal 打开批量铺货流程并恢复可继续任务。
   openBatchModal: () => Promise<void>;
   // handleRecommendBatchCategory 请求默认类目推荐。

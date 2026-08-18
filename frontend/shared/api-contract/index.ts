@@ -1171,6 +1171,8 @@ export interface ItemPublishBatchResponse {
   rows: ItemPublishBatchRowResponse[];
   /** 批次统一发货地。 */
   location?: Record<string, unknown>;
+  /** 最终商品发布之间的最小间隔秒数。 */
+  publish_interval_seconds?: number;
   /** 创建时间。 */
   created_at: string;
   /** 更新时间。 */

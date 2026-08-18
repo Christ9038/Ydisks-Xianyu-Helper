@@ -50,6 +50,9 @@ func TestPublishBatches_CreateGetRows(t *testing.T) {
 	if got.TotalCount != 3 || got.SuccessCount != 0 || got.FailedCount != 0 || got.Status != "pending" {
 		t.Fatalf("batch 字段: %#v", got)
 	}
+	if got.PublishIntervalSeconds != 5 || got.LastPublishStartedAtMillis != 0 {
+		t.Fatalf("批量发布间隔默认值异常: interval=%d last=%d", got.PublishIntervalSeconds, got.LastPublishStartedAtMillis)
+	}
 	// Get 隔离校验：不同 user_id 应 ErrNotFound。
 	if _, err := s.PublishBatches.Get(ctx, uid+999, "b1"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("跨用户 Get 应 ErrNotFound, got %v", err)
@@ -79,6 +82,50 @@ func TestPublishBatches_CreateGetRows(t *testing.T) {
 	// 按 row_no 升序。
 	if gotRows[0].RowNo != 1 || gotRows[2].RowNo != 3 {
 		t.Fatalf("rows 顺序: %#v", gotRows)
+	}
+}
+
+// TestPublishBatches_ReservePublishSlot 验证批量最终发布时隙的原子预留和最小间隔条件。
+func TestPublishBatches_ReservePublishSlot(t *testing.T) {
+	// s、cleanup 保存本次测试使用的 SQLite 存储及清理函数。
+	s, cleanup := newTestDB(t)
+	defer cleanup()
+	// ctx 提供数据库操作的独立生命周期。
+	ctx := context.Background()
+	// uid 保存批次所属测试用户标识。
+	uid, _ := seedAccount(t, s)
+	// batch 保存配置了七秒最终发布间隔的测试批次。
+	batch := makePublishBatch(uid, "slot-batch")
+	batch.PublishIntervalSeconds = 7
+	// createErr 保存批次及明细写入错误。
+	if createErr := s.PublishBatches.Create(ctx, batch, []ItemPublishBatchRow{{RowNo: 1, Title: "A", Price: "1"}, {RowNo: 2, Title: "B", Price: "1"}}); createErr != nil {
+		t.Fatal(createErr)
+	}
+	// startedAt 保存首次最终发布请求的模拟开始时刻。
+	startedAt := int64(1_700_000_000_000)
+	// claimed、claimErr 保存批次租约抢占结果及错误。
+	if claimed, claimErr := s.PublishBatches.ClaimBatch(ctx, batch.ID, "slot-worker", time.Now().Add(time.Minute).Unix()); claimErr != nil || !claimed {
+		t.Fatalf("claim batch: claimed=%v err=%v", claimed, claimErr)
+	}
+	// reserved、err 保存首次时隙预留结果。
+	reserved, err := s.PublishBatches.ReservePublishSlot(ctx, batch.ID, "slot-worker", startedAt-7_000, startedAt)
+	if err != nil || !reserved {
+		t.Fatalf("首次预留失败: reserved=%v err=%v", reserved, err)
+	}
+	// blocked、err 保存未满足七秒间隔时的第二次预留结果。
+	blocked, err := s.PublishBatches.ReservePublishSlot(ctx, batch.ID, "slot-worker", startedAt+6_999-7_000, startedAt+6_999)
+	if err != nil || blocked {
+		t.Fatalf("间隔不足时不应预留: blocked=%v err=%v", blocked, err)
+	}
+	// allowed、err 保存达到七秒间隔后的预留结果。
+	allowed, err := s.PublishBatches.ReservePublishSlot(ctx, batch.ID, "slot-worker", startedAt, startedAt+7_000)
+	if err != nil || !allowed {
+		t.Fatalf("满足间隔后预留失败: allowed=%v err=%v", allowed, err)
+	}
+	// stored、err 保存数据库中最后一次预留时刻，用于确认重启恢复所需检查点已持久化。
+	stored, err := s.PublishBatches.Get(ctx, uid, batch.ID)
+	if err != nil || stored.LastPublishStartedAtMillis != startedAt+7_000 || stored.PublishIntervalSeconds != 7 {
+		t.Fatalf("时隙检查点异常: batch=%+v err=%v", stored, err)
 	}
 }
 

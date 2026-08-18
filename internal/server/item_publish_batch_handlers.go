@@ -192,6 +192,12 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 	}
 	// batchLocation 用于本次流程后续判断的批次地址
 	var batchLocation publishBatchLocation
+	// publishIntervalSeconds 保存用户为本批次设置的最终发布最小间隔，单位为秒。
+	publishIntervalSeconds, intervalErr := parsePublishIntervalSeconds(r.FormValue("publish_interval_seconds"))
+	if intervalErr != nil {
+		writeErr(w, http.StatusBadRequest, intervalErr.Error())
+		return
+	}
 	// locationJSON 用于本次流程后续判断的地址JSON
 	locationJSON := strings.TrimSpace(r.FormValue("location"))
 	if locationJSON != "" {
@@ -307,7 +313,8 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 	// preview、err 保存预检结果持久化服务返回的应用模型及错误。
 	preview, err := s.itemBatchPreviewPersistenceApplication().Persist(r.Context(), itemapp.BatchPreviewPersistenceBatch{
 		ID: batchID, UserID: sess.UserID, DefaultCookieID: defaultCookieID, Filename: sourceName,
-		UploadDir: uploadDir, Location: itemapp.Location{Area: batchLocation.Area, City: batchLocation.City, DivisionID: batchLocation.DivisionID, Longitude: batchLocation.Longitude, Latitude: batchLocation.Latitude, POIID: batchLocation.POIID, POIName: batchLocation.POIName, Province: batchLocation.Province},
+		UploadDir: uploadDir, PublishIntervalSeconds: publishIntervalSeconds,
+		Location: itemapp.Location{Area: batchLocation.Area, City: batchLocation.City, DivisionID: batchLocation.DivisionID, Longitude: batchLocation.Longitude, Latitude: batchLocation.Latitude, POIID: batchLocation.POIID, POIName: batchLocation.POIName, Province: batchLocation.Province},
 	}, previewRows)
 	if err != nil {
 		if errors.Is(err, itemapp.ErrBatchPreviewNoRows) {
@@ -618,7 +625,7 @@ func publishBatchApplicationToResponse(batch itemapp.BatchInfo, rows []itemapp.B
 		ID: batch.ID, Status: batch.Status, Filename: batch.Filename,
 		Total: batch.TotalCount, Success: batch.SuccessCount, Failed: batch.FailedCount,
 		Pending: pending, Running: running, Retryable: retryable, Rows: outRows,
-		Location: json.RawMessage(locationJSON), CreatedAt: batch.CreatedAt, UpdatedAt: batch.UpdatedAt,
+		Location: json.RawMessage(locationJSON), PublishIntervalSeconds: batch.PublishIntervalSeconds, CreatedAt: batch.CreatedAt, UpdatedAt: batch.UpdatedAt,
 	}
 }
 
@@ -708,6 +715,24 @@ func atoiPublishDefault(raw string, def int) int {
 	return def
 }
 
+// parsePublishIntervalSeconds 解析批量铺货的最终发布最小间隔，空值使用五秒默认值。
+func parsePublishIntervalSeconds(raw string) (int, error) {
+	// normalized 保存去除空白后的用户输入；空值保持兼容默认五秒。
+	normalized := strings.TrimSpace(raw)
+	if normalized == "" {
+		return 5, nil
+	}
+	// interval、err 保存严格解析后的秒数与输入错误。
+	interval, err := strconv.Atoi(normalized)
+	if err != nil {
+		return 0, errors.New("发布间隔必须是整数秒")
+	}
+	if interval < 1 || interval > 3600 {
+		return 0, errors.New("发布间隔必须是 1 到 3600 秒")
+	}
+	return interval, nil
+}
+
 // firstNonEmpty 返回参数中第一个非空白字符串。
 func firstNonEmpty(values ...string) string {
 	// v 是当前遍历到的候选字符串。
@@ -728,7 +753,7 @@ type serverBatchPublisher struct {
 }
 
 // PublishRow 调用批量远端端口并收口本地结果，应用层不接触数据库或 MTOP 类型。
-func (p serverBatchPublisher) PublishRow(ctx context.Context, userID int64, row itemapp.BatchRow, workerToken string) error {
+func (p serverBatchPublisher) PublishRow(ctx context.Context, userID int64, row itemapp.BatchRow, workerToken string, beforePublish func(context.Context) error) error {
 	if p.remotePort == nil {
 		return errors.New("批量发布端口未装配")
 	}
@@ -736,7 +761,7 @@ func (p serverBatchPublisher) PublishRow(ctx context.Context, userID int64, row 
 		return errors.New("批量发布本地收口端口未装配")
 	}
 	// outcome、err 保存远端发布结果及适配器错误。
-	outcome, err := p.remotePort.PublishRemoteRow(ctx, userID, row, workerToken)
+	outcome, err := p.remotePort.PublishRemoteRow(ctx, userID, row, workerToken, beforePublish)
 	if err != nil {
 		// uncertainErr 表示远端调用已经发生但结果无法可靠确认。
 		var uncertainErr *itemapp.UncertainRemotePublishError

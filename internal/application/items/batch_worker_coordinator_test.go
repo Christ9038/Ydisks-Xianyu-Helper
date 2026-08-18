@@ -14,7 +14,7 @@ type batchCoordinatorBlockingPublisher struct {
 }
 
 // PublishRow 等待 Context 取消并返回取消错误，模拟不可控外部发布调用。
-func (publisher *batchCoordinatorBlockingPublisher) PublishRow(ctx context.Context, _ int64, _ BatchRow, _ string) error {
+func (publisher *batchCoordinatorBlockingPublisher) PublishRow(ctx context.Context, _ int64, _ BatchRow, _ string, _ func(context.Context) error) error {
 	select {
 	case publisher.started <- struct{}{}:
 	default:
@@ -27,7 +27,7 @@ func (publisher *batchCoordinatorBlockingPublisher) PublishRow(ctx context.Conte
 type batchCoordinatorEmptyPublisher struct{}
 
 // PublishRow 返回成功，避免测试等待真实平台调用。
-func (batchCoordinatorEmptyPublisher) PublishRow(context.Context, int64, BatchRow, string) error {
+func (batchCoordinatorEmptyPublisher) PublishRow(context.Context, int64, BatchRow, string, func(context.Context) error) error {
 	return nil
 }
 
@@ -36,7 +36,7 @@ func newBatchWorkerCoordinatorFixture(t *testing.T, publisher BatchPublisher) (*
 	// repository 保存一个正在运行且包含一条待发布明细的批次。
 	repository := &batchRunnerRepository{rows: []BatchRow{{ID: 1, BatchID: "batch-1"}}, batch: BatchInfo{ID: "batch-1", UserID: 7, Status: "running", WorkerToken: "token-1"}}
 	// runner、err 保存应用层批次 worker。
-	runner, err := NewBatchRunner(repository, publisher, BatchRunOptions{Wait: func(context.Context, time.Duration) error { return nil }, JobDelay: func(int) time.Duration { return 0 }})
+	runner, err := NewBatchRunner(repository, publisher, BatchRunOptions{Wait: func(context.Context, time.Duration) error { return nil }})
 	if err != nil {
 		t.Fatalf("构造批次 runner: %v", err)
 	}

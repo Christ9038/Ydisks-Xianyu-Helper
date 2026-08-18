@@ -1151,6 +1151,8 @@ type itemPublishBatchResponse struct {
 	Rows []itemPublishBatchRowResponse `json:"rows"`
 	// Location 是批次统一发货地对象。
 	Location any `json:"location"`
+	// PublishIntervalSeconds 是相邻两次最终商品发布请求的最小间隔秒数。
+	PublishIntervalSeconds int `json:"publish_interval_seconds"`
 	// CreatedAt 是任务创建时间。
 	CreatedAt string `json:"created_at"`
 	// UpdatedAt 是任务更新时间。
