@@ -537,6 +537,101 @@ func TestAutomationSchedulerWaitsForShutdown(t *testing.T) {
 	}
 }
 
+// TestAutomationSchedulerUsesSecondLevelDeferredTicker 验证延迟动作不再被分钟级扫描额外阻塞，并可由原有关闭路径回收。
+func TestAutomationSchedulerUsesSecondLevelDeferredTicker(t *testing.T) {
+	// store、cleanup 分别提供隔离的 SQLite 存储和测试结束后的数据库释放函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是创建自动化规则及延迟任务时使用的非取消数据库上下文。
+	ctx := context.Background()
+	// admin 是创建当前测试规则所需的管理员身份。
+	admin, adminErr := store.Users.GetByUsername(ctx, "admin")
+	if adminErr != nil {
+		t.Fatal(adminErr)
+	}
+	// ruleID 是匹配延迟重放事件的规则主键，非零值证明规则创建成功。
+	ruleID, createErr := store.Automation.Create(ctx, db.AutomationRuleInput{
+		UserID: admin.ID, CookieID: "cid", Name: "second-level-deferred", TriggerType: TriggerBuyerReviewed, Enabled: true,
+		Actions: []db.AutomationActionInput{{ActionType: ActionSendText, MessageTemplate: "second-level-message", Enabled: true}},
+	})
+	if createErr != nil || ruleID == 0 {
+		t.Fatalf("create deferred rule: id=%d err=%v", ruleID, createErr)
+	}
+	// sender 保存实际发送内容，供调度器停止后确认到期动作只执行一次。
+	sender := &testSender{}
+	// center 负责以生产路径重放持久化的延迟自动化任务。
+	center := New(store, testSenderProvider{sender: sender}, nil)
+	// deferredTask 是需要在到期后重放的订单事件，包含规则匹配和消息投递所需的非敏感字段。
+	deferredTask := Task{Source: "scheduler-test", AccountID: "cid", TriggerType: TriggerBuyerReviewed, OrderID: "ticker-order", ChatID: "chat", BuyerID: "buyer"}
+	// deferErr 表示初始持久化延迟动作的失败原因，写入失败时无法继续验证调度频率。
+	deferErr := center.deferTask(ctx, deferredTask, time.Now().UTC().Unix())
+	if deferErr != nil {
+		t.Fatal(deferErr)
+	}
+	// scheduler 是待验证的调度器实例；通用扫描间隔稍后调大以排除分钟级扫描的影响。
+	scheduler := NewScheduler(center)
+	if scheduler.deferredInterval != defaultDeferredTaskScanInterval {
+		t.Fatalf("deferredInterval=%s want %s", scheduler.deferredInterval, defaultDeferredTaskScanInterval)
+	}
+	// 一次通用扫描不应领取已到期延迟动作，避免未来重构把秒级任务重新放回分钟级路径。
+	scheduler.scan(ctx)
+	// pendingAfterGeneralScan 保存通用扫描后的待执行任务数量，应仍为一条。
+	var pendingAfterGeneralScan int
+	if // countErr 是读取延迟任务数量时的数据库错误，出现错误时无法判断通用扫描是否越权领取任务。
+	countErr := store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM automation_pending_tasks`).Scan(&pendingAfterGeneralScan); countErr != nil {
+		t.Fatal(countErr)
+	}
+	if pendingAfterGeneralScan != 1 {
+		t.Fatalf("general scan consumed deferred tasks: pending=%d", pendingAfterGeneralScan)
+	}
+	// dueAt 把任务重新安排到至少一秒后，确保 Run 的启动扫描不能把本断言误判为定时器行为。
+	dueAt := time.Now().UTC().Unix() + 2
+	if // updateErr 是重设测试任务到期时间的数据库错误，失败时无法区分启动扫描和定时器行为。
+	_, updateErr := store.DB.ExecContext(ctx, `UPDATE automation_pending_tasks SET due_at=?`, dueAt); updateErr != nil {
+		t.Fatal(updateErr)
+	}
+	// interval 保持远大于测试窗口，证明任务不是被通用扫描执行。
+	scheduler.interval = time.Hour
+	// deferredInterval 缩短为测试周期以验证独立计时器，不改变生产的一秒默认值。
+	scheduler.deferredInterval = 10 * time.Millisecond
+	// runCtx、cancel 分别控制调度循环生命周期和触发关闭的函数。
+	runCtx, cancel := context.WithCancel(context.Background())
+	// shutdown 确保任一断言失败时也会取消并等待调度器，防止测试遗留访问已关闭数据库的 goroutine。
+	defer func() {
+		cancel()
+		scheduler.Wait()
+	}()
+	go scheduler.Run(runCtx)
+	// deadline 是允许秒级轮询和 SQLite 状态收口完成的最大等待时间。
+	deadline := time.Now().Add(4 * time.Second)
+	for {
+		// pending 保存当前尚未完成的延迟任务数量，任务成功时会被原子删除。
+		var pending int
+		if // countErr 是轮询延迟任务状态时的数据库错误，不能把存储故障误判成调度超时。
+		countErr := store.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM automation_pending_tasks`).Scan(&pending); countErr != nil {
+			t.Fatal(countErr)
+		}
+		if pending == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("deferred task was not executed by the second-level ticker")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	// waitCtx、waitCancel 限制关闭等待时间，确保双计时器仍遵循原有 Wait 生命周期。
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), time.Second)
+	defer waitCancel()
+	if // waitErr 是调度器在关闭预算内未完成收口时的错误。
+	waitErr := scheduler.WaitContext(waitCtx); waitErr != nil {
+		t.Fatalf("scheduler did not stop after cancellation: %v", waitErr)
+	}
+	if len(sender.texts) != 1 || sender.texts[0] != "second-level-message" {
+		t.Fatalf("deferred sends=%v", sender.texts)
+	}
+}
+
 // TestAutomationSchedulerWaitContextHonorsDeadline 验证自动化调度器等待受关闭上下文限制。
 func TestAutomationSchedulerWaitContextHonorsDeadline(t *testing.T) {
 	// scheduler 保存尚未完成的调度器，以验证等待超时不会永久阻塞。
@@ -559,7 +654,9 @@ func TestAutomationSchedulerWaitContextHonorsDeadline(t *testing.T) {
 func TestAutomationSchedulerRunRejectsNilContext(t *testing.T) {
 	// scheduler 保存具备最小存储占位的调度器测试替身，确保 nil 检查先于业务扫描。
 	scheduler := &Scheduler{center: &Center{store: &db.Store{}}, done: make(chan struct{})}
-	scheduler.Run(nil)
+	// nilCtx 是故意传入的空上下文，用于验证 Run 拒绝无法提供取消信号的调用。
+	var nilCtx context.Context
+	scheduler.Run(nilCtx)
 	select {
 	case <-scheduler.done:
 		t.Fatal("nil Context 不应启动并完成调度器 worker")

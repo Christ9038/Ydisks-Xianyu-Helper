@@ -372,7 +372,7 @@ const CardList: React.FC = () => {
                         className="w-full ios-input px-4 py-3 rounded-xl font-mono text-sm"
                         placeholder="https://example.com/image.png"
                       />
-                      <p className="text-xs text-gray-500 mt-2">输入图片卡密的 URL 地址</p>
+                      <p className="text-xs text-gray-500 mt-2">仅保存图片 URL；发货时会临时下载并上传到闲鱼</p>
                     </div>
                     {editForm.image_url && (
                       <div className="mt-3">
@@ -533,13 +533,16 @@ const CardList: React.FC = () => {
                       className="w-full ios-input px-4 py-3 rounded-xl"
                     />
                   ) : addForm.type === 'image' ? (
-                    <input
-                      type="url"
-                      value={addForm.content}
-                      onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setAddForm({ ...addForm, content: e.target.value })}
-                      className="w-full ios-input px-4 py-3 rounded-xl"
-                      placeholder="https://example.com/card.png"
-                    />
+                    <div className="space-y-2">
+                      <input
+                        type="url"
+                        value={addForm.content}
+                        onChange={/* 当前回调处理用户交互或异步状态变化。 */ (e) => setAddForm({ ...addForm, content: e.target.value })}
+                        className="w-full ios-input px-4 py-3 rounded-xl"
+                        placeholder="https://example.com/card.png"
+                      />
+                      <p className="text-xs text-gray-500">仅保存图片 URL；发货时会临时下载并上传到闲鱼</p>
+                    </div>
                   ) : (
                     <textarea
                       value={addForm.content}

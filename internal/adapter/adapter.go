@@ -162,8 +162,10 @@ func NewRuntimeBundle(store *db.Store, bm *browser.Manager, logger *slog.Logger)
 	manager := accountmanager.NewManager(store, runtimeAdapter, logger)
 	// notifier 是自动化与账号告警共用的通知出口，构造完成后不可替换。
 	notifier := notify.New("", store, logger)
+	// automationSenders 为自动化图片卡密注入“临时下载、平台上传、WebSocket 发送”链路，不在本地保存图片。
+	automationSenders := NewAutomationImageSenderProvider(store, manager, func() mtop.Client { return mtop.NewClient() })
 	// autoCenter 依赖已构造但尚未启动的 manager 与 adapter，避免运行期形成部分可用状态。
-	autoCenter := automation.NewWithDependencies(store, manager, logger, automation.CenterDependencies{
+	autoCenter := automation.NewWithDependencies(store, automationSenders, logger, automation.CenterDependencies{
 		OrderDetailFetcher: runtimeAdapter,
 		Notifier:           notifier,
 	})

@@ -47,7 +47,7 @@ On a new database, open the management page after starting the server. The first
 and confirms an administrator password, creates the `admin` user, and signs the user in automatically.
 The CLI bootstrap remains available for headless or operational environments.
 
-Disable browser automation when Chromium is unavailable:
+Disable browser automation only when the user explicitly requests it or explicitly confirms that Chromium is unavailable. Unless the user gives that direction, agents MUST NOT add `-no-browser` when starting the server:
 
 ```bash
 go run ./cmd/server -db data/xianyu_data.db -addr :59188 -no-browser

@@ -133,6 +133,8 @@ func TestServiceCreateValidation(t *testing.T) {
 		{name: "empty-text", draft: Draft{Name: "x", Type: "text", TextContent: "  "}, want: "文本卡密内容不能为空"},
 		{name: "empty-data", draft: Draft{Name: "x", Type: "data", DataContent: "\n"}, want: "数据卡密内容不能为空"},
 		{name: "empty-image", draft: Draft{Name: "x", Type: "image", ImageURL: ""}, want: "图片卡密 URL 不能为空"},
+		{name: "non-http-image", draft: Draft{Name: "x", Type: "image", ImageURL: "file:///tmp/card.png"}, want: "图片卡密 URL 必须是 HTTP(S) 地址"},
+		{name: "credential-image", draft: Draft{Name: "x", Type: "image", ImageURL: "https://user:pass@example.com/card.png"}, want: "图片卡密 URL 必须是 HTTP(S) 地址"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			// err 是当前非法输入返回的业务校验结果。

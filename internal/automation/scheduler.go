@@ -16,19 +16,33 @@ import (
 // defaultReviewRequestScanInterval 用于本次流程后续判断的defaultReview请求ScanInterval
 const defaultReviewRequestScanInterval = time.Minute
 
+// defaultDeferredTaskScanInterval 是持久化延迟动作的轮询周期，保证秒级动作不会被分钟级业务扫描额外延后。
+const defaultDeferredTaskScanInterval = time.Second
+
 // Scheduler 执行计划任务类自动化。
 // 计划任务只负责“发现应该触发的任务”，具体动作仍交给 Center，避免形成第二套执行链。
 // Scheduler 用于本次流程后续判断的Scheduler
 type Scheduler struct {
-	center   *Center
+	// center 是调度器唯一使用的自动化中心，负责实际执行延迟、恢复和求评价任务。
+	center *Center
+	// interval 是账号任务、恢复任务和求评价任务的分钟级扫描周期。
 	interval time.Duration
-	runOnce  sync.Once
-	done     chan struct{}
+	// deferredInterval 是已持久化延迟动作的秒级扫描周期，不影响其他计划任务的扫描频率。
+	deferredInterval time.Duration
+	// runOnce 保证一个调度器实例只启动一个由调用方 Context 管理的循环。
+	runOnce sync.Once
+	// done 在调度循环退出后关闭，供关闭流程等待全部调度工作停止。
+	done chan struct{}
 }
 
 // NewScheduler 构造计划任务调度器。
 func NewScheduler(center *Center) *Scheduler {
-	return &Scheduler{center: center, interval: defaultReviewRequestScanInterval, done: make(chan struct{})}
+	return &Scheduler{
+		center:           center,
+		interval:         defaultReviewRequestScanInterval,
+		deferredInterval: defaultDeferredTaskScanInterval,
+		done:             make(chan struct{}),
+	}
 }
 
 // Run 周期扫描计划任务。调用方应在 goroutine 中启动，并用 ctx 控制生命周期。
@@ -45,16 +59,22 @@ func (s *Scheduler) Run(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		// ticker 用于本次流程后续判断的ticker
-		ticker := time.NewTicker(s.interval)
-		defer ticker.Stop()
+		// generalTicker 驱动分钟级的账号、恢复与求评价扫描。
+		generalTicker := time.NewTicker(s.interval)
+		defer generalTicker.Stop()
+		// deferredTicker 只领取已到期的延迟动作，确保配置的秒数不会额外等待一分钟。
+		deferredTicker := time.NewTicker(s.deferredInterval)
+		defer deferredTicker.Stop()
+		s.scanDeferredTasks(ctx)
 		s.scan(ctx)
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
+			case <-generalTicker.C:
 				s.scan(ctx)
+			case <-deferredTicker.C:
+				s.scanDeferredTasks(ctx)
 			}
 		}
 	})
@@ -83,8 +103,6 @@ func (s *Scheduler) WaitContext(ctx context.Context) error {
 
 // scan 封装scan业务协调。
 func (s *Scheduler) scan(ctx context.Context) {
-	// deferredErr 汇总延迟任务状态收口失败，供本轮扫描结束时统一告警。
-	deferredErr := s.runDeferredTasks(ctx)
 	s.center.scanAccountTasks(ctx)
 	if // recovered、err 用于本次流程后续判断的recovered、err
 	recovered, err := s.center.store.Automation.RecoverDefinitelyUnsentReviewRuns(ctx); err != nil {
@@ -94,13 +112,13 @@ func (s *Scheduler) scan(ctx context.Context) {
 	}
 	// recoveryErr 汇总恢复运行状态收口失败，避免数据库写错误只记录日志后丢失。
 	recoveryErr := s.runRecoveryTasks(ctx)
-	if // scanErr 汇总两个自动化扫描阶段的状态收口错误，供统一告警使用。
-	scanErr := errors.Join(deferredErr, recoveryErr); scanErr != nil {
-		s.center.logger.Error("自动化计划任务状态收口失败", "err", scanErr)
+	if recoveryErr != nil {
+		// 单独记录恢复任务状态收口错误，延迟任务由秒级扫描函数独立记录。
+		s.center.logger.Error("自动化恢复任务状态收口失败", "err", recoveryErr)
 	}
 	// 逐页执行，避免把所有到期订单一次性装入内存。稳定 ID 游标确保本轮有界。
 	afterOrderID := ""
-	// waitingForWS 用于本次流程后续判断的waitingForWS
+	// waitingForWS 按账号累加本轮因实时连接未就绪而跳过的求评价订单数。
 	waitingForWS := map[string]int{}
 	for {
 		// orders、err 用于本次流程后续判断的orders、err
@@ -157,6 +175,15 @@ func (s *Scheduler) scan(ctx context.Context) {
 	// accountID、count 表示当前遍历过程中的账号ID、count
 	for accountID, count := range waitingForWS {
 		s.center.logger.Info("账号 WebSocket 尚未就绪，求评价任务等待下次扫描", "account", accountID, "orders", count)
+	}
+}
+
+// scanDeferredTasks 领取并重放已到期延迟动作；错误独立记录，避免影响分钟级扫描的调度节奏。
+func (s *Scheduler) scanDeferredTasks(ctx context.Context) {
+	// deferredErr 保存本轮延迟动作状态收口错误，必须记录以便管理员追踪人工核对任务。
+	deferredErr := s.runDeferredTasks(ctx)
+	if deferredErr != nil {
+		s.center.logger.Error("自动化延迟任务状态收口失败", "err", deferredErr)
 	}
 }
 

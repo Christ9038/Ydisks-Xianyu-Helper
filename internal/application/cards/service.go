@@ -5,6 +5,7 @@ package cards
 import (
 	"context"
 	"errors"
+	"net/url"
 	"strings"
 )
 
@@ -282,8 +283,13 @@ func validateDraft(draft Draft) error {
 			return &ValidationError{Message: "数据卡密内容不能为空"}
 		}
 	case "image":
+		// imageURL、err 分别保存规范化后的远程图片地址和 URL 解析错误。
+		imageURL, err := url.Parse(strings.TrimSpace(draft.ImageURL))
 		if strings.TrimSpace(draft.ImageURL) == "" {
 			return &ValidationError{Message: "图片卡密 URL 不能为空"}
+		}
+		if err != nil || imageURL.Hostname() == "" || imageURL.User != nil || (imageURL.Scheme != "http" && imageURL.Scheme != "https") {
+			return &ValidationError{Message: "图片卡密 URL 必须是 HTTP(S) 地址"}
 		}
 	}
 	return nil
