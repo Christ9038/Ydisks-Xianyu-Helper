@@ -42,8 +42,8 @@ shared，feature adapter 直接转换领域 DTO 为 feature-owned UI model。
 | 2. Server 组合根和应用服务迁移 | 已完成 | `internal/composition` 已成为唯一生产组合根；旧 Server 组合根与生命周期反转已删除。Server 仅接收经校验的消费者 Port，阶段二 AST 门禁和完整验收均已通过。最终提交绑定见 `refactoring-progress.md`。 |
 | 3. 生命周期、Engine 和 Automation 重新验收 | 已完成 | 已完成后台任务 owner/Context/Cancel/Wait 收口、同步凭证更新的调用 Context 传递、浏览器组合根生命周期接入和 AST 生命周期门禁；最终提交与完整证据见 `refactoring-progress.md`。 |
 | 4. React Feature 化和异步状态修复 | 已完成 | 已完成领域契约直接模块、feature API adapter 边界、统一 ApiError、items 地图迁移、定位取消/超时、批量轮询代次隔离、严格 TypeScript 检查和嵌入产物重建；最终证据见 `refactoring-progress.md`。 |
-| 5. DB 与事务治理重新验收 | 当前阶段 | 仅允许开展上层裸数据库、Unit of Work、claim/lease/补偿和多数据库验收；不得提前进入阶段六收口。 |
-| 6. 全量架构、兼容退场和注释收口 | 待执行 | 门禁规则已在基础验证层预建；本阶段只激活最终质量规则、清零违规并完成兼容和注释退场。 |
+| 5. DB 与事务治理重新验收 | 已完成 | 已以 AST 门禁收束上层裸 SQL、Store.DB 与事务入口，补齐订单/商品 UoW 的提交和回滚证据，并完成 SQLite、MySQL、PostgreSQL 与 dbverify 实测；最终提交绑定见 `refactoring-progress.md`。 |
+| 6. 全量架构、兼容退场和注释收口 | 当前阶段 | 门禁规则已在基础验证层预建；本阶段只激活最终质量规则、清零违规并完成兼容和注释退场。 |
 
 顺序固定为 1 -> 2 -> 3 -> 4 -> 5 -> 6。阶段一是治理建立前的既有基线例外；从阶段二开始，每阶段必须有唯一最终中文提交和完整原始命令输出。阶段四已完成，阶段五是唯一允许继续执行的阶段；阶段六不得提前执行。
 
@@ -140,7 +140,7 @@ go run ./tools/architecturecheck
 
 最终提交：阶段三：完成生命周期、Engine 和 Automation 重新验收。
 
-## 阶段四：React Feature 化和异步状态修复（当前阶段）
+## 阶段四：React Feature 化和异步状态修复（已完成）
 
 这是一个完整前端阶段，不拆 HTTP 错误、契约、地图、轮询或构建交付：
 - ApiError 保留 status、code、message、request_id、details、payload；JSON/FormData 共用错误解析。
@@ -160,7 +160,7 @@ git diff --check
 
 最终提交：阶段四：完成 React Feature 化和异步状态修复。
 
-## 阶段五：DB 与事务治理重新验收
+## 阶段五：DB 与事务治理重新验收（已完成）
 
 清除上层 Store.DB、sql.DB、sql.Tx 和 row model 泄露；跨 repository 原子操作使用 Unit of Work；验证
 claim、lease、取消、重试、不确定远程结果和本地补偿；补齐 SQLite 并发和事务测试，并运行 MySQL、
@@ -176,6 +176,11 @@ git diff --check
 ~~~
 
 最终提交：阶段五：完成数据库与事务治理重新验收。
+
+完成结论：数据库门禁已改为 AST/import fail-closed 扫描，阻断上层 `database/sql`、`Store.DB` 与
+`Begin`/`BeginTx` 裸事务旁路；订单与商品写入 UoW 已有 SQLite 原子提交和回滚测试。SQLite、MySQL、
+PostgreSQL 多方言回归及两个 `cmd/dbverify` 均已实际通过，完整命令输出和提交绑定记录在
+`refactoring-progress.md`。
 
 ## 阶段六：全量架构、兼容退场和注释收口
 

@@ -185,3 +185,35 @@ $ git diff --check
 ## 阶段五入口
 
 阶段五现在是唯一当前阶段。下一步只处理 DB 与事务治理重新验收：清除上层裸 `Store.DB`、`sql.DB`、`sql.Tx` 和 row model 泄露，核对 Unit of Work、claim/lease、取消、重试及补偿，并在可用时运行 SQLite、MySQL、PostgreSQL 和 `cmd/dbverify` 证据。不得在阶段五提前执行阶段六兼容退场、复杂度或全量注释收口。
+
+## 阶段五：DB 与事务治理重新验收
+
+- 最终提交绑定：`阶段五：完成数据库与事务治理重新验收`。
+- 交付范围：`architecturecheck` 使用 AST/import fail-closed 扫描上层 `database/sql`、`Store.DB` 和 `Begin`/`BeginTx` 裸事务入口；覆盖别名、语法损坏和合法 adapter 边界。订单/商品 `OrderWriteUnitOfWork` 增加同一事务内共同提交及共同回滚的 SQLite 证据。
+
+### 强制验收原始输出
+
+```text
+$ go test ./internal/db ./internal/application/... ./internal/adapter -count=1
+全部包通过。
+
+$ go test -race ./internal/db ./internal/application/... ./internal/adapter -count=1
+全部包通过。
+
+$ TEST_MYSQL_URL=... TEST_POSTGRES_URL=... make test-multidb
+PASS：SQLite、MySQL、PostgreSQL 目标均实际执行。
+
+$ go run ./cmd/dbverify "$TEST_MYSQL_URL"
+迁移至版本 33，CRUD、事务、批量与清理验证全部通过。
+
+$ go run ./cmd/dbverify "$TEST_POSTGRES_URL"
+迁移至版本 33，CRUD、事务、批量与清理验证全部通过。
+
+$ make comments && go vet ./... && make lint && go run ./tools/architecturecheck && git diff --check
+commentlint: 通过；golangci-lint: 0 issues；architecturecheck: 通过；其余命令退出码 0。
+```
+
+## 下一阶段入口
+
+阶段五已完成，阶段六：全量架构、兼容退场和注释收口为唯一当前阶段。开始前必须先运行
+`go run ./tools/architecturecheck`，使已完成阶段的一至五门禁和新激活的质量门禁同时 fail-closed；不得修改冻结 CAPTCHA，也不得把 `frontend/coverage/` 纳入提交。

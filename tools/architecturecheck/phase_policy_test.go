@@ -149,24 +149,45 @@ func TestReactArchitectureGate(t *testing.T) {
 	}
 }
 
-// TestDatabaseArchitectureGate 验证数据库阶段门禁会拒绝上层裸事务与 Store.DB 访问。
+// TestDatabaseArchitectureGate 验证数据库阶段门禁会拒绝别名 SQL、Store.DB、事务入口和语法绕过。
 func TestDatabaseArchitectureGate(t *testing.T) {
-	// root 是包含最小裸数据库违规样例的临时仓库。
+	// root 是包含上层裸 SQL 违规和合法 repository 样例的临时仓库。
 	root := t.TempDir()
-	// servicePath 是模拟上层应用服务源码位置。
-	servicePath := filepath.Join(root, "internal", "application", "orders", "service.go")
-	// mkdirErr 表示创建临时应用服务目录失败的文件系统原因。
-	if mkdirErr := os.MkdirAll(filepath.Dir(servicePath), 0o755); mkdirErr != nil {
-		t.Fatal(mkdirErr)
+	// samples 保存各类上层裸 SQL 泄露、合法 repository 与无法解析源码的最小样例。
+	samples := map[string]string{
+		"internal/application/orders/sql_alias.go":   "package orders\nimport storeSQL \"database/sql\"\nfunc run(database *storeSQL.DB) { _, _ = database.BeginTx(nil, nil) }\n",
+		"internal/server/store.go":                   "package server\nimport persistence \"xianyu-go/internal/db\"\nfunc run(store *persistence.Store) { _ = store.DB }\n",
+		"internal/application/orders/transaction.go": "package orders\ntype unit struct{}\nfunc (unit) BeginTx() {}\nfunc run(transaction unit) { transaction.BeginTx() }\n",
+		"internal/application/orders/broken.go":      "package orders\nfunc broken( {\n",
+		"internal/adapter/store.go":                  "package adapter\nimport persistence \"xianyu-go/internal/db\"\ntype repository struct { store *persistence.Store }\n",
 	}
-	// writeErr 表示写入裸数据库违规样例失败的文件系统原因。
-	if writeErr := os.WriteFile(servicePath, []byte("package orders\nimport \"database/sql\"\nfunc run(db *sql.DB) { db.BeginTx(nil, nil) }\n"), 0o600); writeErr != nil {
-		t.Fatal(writeErr)
+	// relativePath、source 分别是当前样例的仓库相对路径和源代码。
+	for relativePath, source := range samples {
+		// samplePath 是当前样例在临时仓库中的完整路径。
+		samplePath := filepath.Join(root, filepath.FromSlash(relativePath))
+		// mkdirErr 表示创建当前样例目录失败的文件系统原因。
+		if mkdirErr := os.MkdirAll(filepath.Dir(samplePath), 0o755); mkdirErr != nil {
+			t.Fatal(mkdirErr)
+		}
+		// writeErr 表示写入当前边界样例失败的文件系统原因。
+		if writeErr := os.WriteFile(samplePath, []byte(source), 0o600); writeErr != nil {
+			t.Fatal(writeErr)
+		}
 	}
-	// violations 是数据库阶段门禁发现的裸数据库访问结果。
+	// violations 是数据库阶段门禁发现的全部上层裸数据库泄露。
 	violations := checkDatabaseArchitecture(root)
-	if len(violations) != 1 || !strings.Contains(violations[0].message, "上层生产代码") {
+	// messages 保存违规文件到诊断文本的映射，便于同时断言覆盖范围与合法 adapter 例外边界。
+	messages := make(map[string]string, len(violations))
+	// finding 是当前待记录的数据库边界违规。
+	for _, finding := range violations {
+		messages[finding.file] = finding.message
+	}
+	if len(messages) != 4 || !strings.Contains(messages["internal/application/orders/sql_alias.go"], "上层生产代码") || !strings.Contains(messages["internal/server/store.go"], "Store.DB") || !strings.Contains(messages["internal/application/orders/transaction.go"], "事务") || !strings.Contains(messages["internal/application/orders/broken.go"], "无法解析") {
 		t.Fatalf("violations=%+v", violations)
+	}
+	// adapterViolation 表示合法 db adapter 是否被数据库门禁错误阻断。
+	if _, adapterViolation := messages["internal/adapter/store.go"]; adapterViolation {
+		t.Fatalf("合法 db adapter 被错误阻断: %+v", violations)
 	}
 }
 

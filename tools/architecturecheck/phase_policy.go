@@ -358,12 +358,11 @@ func featureName(path string) string {
 	return ""
 }
 
-// checkDatabaseArchitecture 禁止应用、Server 和业务运行时泄露裸 SQL 连接、事务或 Store.DB。
+// checkDatabaseArchitecture 禁止上层生产包泄露裸 SQL 连接、事务入口和 SQL 行对象。
+// 现有领域 repository 在阶段五继续由各消费者的窄方法使用；本规则不把它们误判成裸 SQL 迁移。
 func checkDatabaseArchitecture(root string) []violation {
 	// upperRoots 是阶段五不得操作裸数据库的上层生产包。
 	upperRoots := []string{"internal/account/", "internal/application/", "internal/automation/", "internal/chat/", "internal/engine/", "internal/notify/", "internal/server/"}
-	// rawDatabasePattern 匹配裸 SQL 类型、事务入口和 Store.DB 旁路。
-	rawDatabasePattern := regexp.MustCompile(`\*sql\.(?:DB|Tx|Row|Rows|Stmt)\b|\.BeginTx\s*\(|\.DB\b`)
 	return scanGoProductionFiles(root, func(relativePath string, source []byte) []violation {
 		// isUpperLayer 表示当前文件是否属于禁止裸数据库访问的生产层。
 		isUpperLayer := false
@@ -377,12 +376,46 @@ func checkDatabaseArchitecture(root string) []violation {
 		if !isUpperLayer {
 			return nil
 		}
-		// match 是当前文件首次命中的裸数据库访问位置。
-		match := rawDatabasePattern.FindIndex(source)
-		if match == nil {
-			return nil
+		// fset 是把 AST 位置转换为稳定行号的源码位置集合。
+		fset := token.NewFileSet()
+		// syntax、parseErr 分别是当前上层源码的语法树和解析错误；门禁无法解析时必须 fail-closed。
+		syntax, parseErr := parser.ParseFile(fset, relativePath, source, 0)
+		if parseErr != nil {
+			return []violation{{file: relativePath, line: 1, message: fmt.Sprintf("数据库边界门禁无法解析生产源码: %v", parseErr)}}
 		}
-		return []violation{{file: relativePath, line: sourceLineAt(source, match[0]), message: "上层生产代码禁止暴露 sql.DB/sql.Tx、BeginTx 或 Store.DB；必须使用窄 repository 或应用 Unit of Work"}}
+		// violations 保存当前源码全部裸 SQL 违规，避免只报告首个正则匹配而遗漏别名绕过路径。
+		var violations []violation
+		// imported 是当前源码声明的依赖；无论别名如何，直接导入标准 SQL 都会泄露连接、事务或 SQL 行模型。
+		for _, imported := range syntax.Imports {
+			// importPath、unquoteErr 分别是导入的规范路径和解引用错误。
+			importPath, unquoteErr := strconv.Unquote(imported.Path.Value)
+			if unquoteErr != nil {
+				return []violation{{file: relativePath, line: fset.Position(imported.Pos()).Line, message: fmt.Sprintf("数据库边界门禁无法解析导入路径: %v", unquoteErr)}}
+			}
+			if importPath == "database/sql" {
+				violations = append(violations, violation{file: relativePath, line: fset.Position(imported.Pos()).Line, message: "上层生产代码禁止直接依赖 database/sql；必须通过窄 repository 或应用 Unit of Work"})
+			}
+		}
+		// ast.Inspect 覆盖未显式导入 SQL 的事务方法伪装和 Store.DB 裸连接旁路。
+		ast.Inspect(syntax, func(node ast.Node) bool {
+			// expression 是当前遍历到的 AST 节点，用于按字段访问和函数调用分别识别裸数据库旁路。
+			switch expression := node.(type) {
+			case *ast.SelectorExpr:
+				// selectorName 是当前字段或方法选择器名称。
+				selectorName := expression.Sel.Name
+				if selectorName == "DB" {
+					violations = append(violations, violation{file: relativePath, line: fset.Position(expression.Pos()).Line, message: "上层生产代码禁止访问 Store.DB 裸连接；必须通过窄 repository 或应用 Unit of Work"})
+				}
+			case *ast.CallExpr:
+				// selector、isSelector 分别是调用目标是否为方法选择器。
+				selector, isSelector := expression.Fun.(*ast.SelectorExpr)
+				if isSelector && (selector.Sel.Name == "Begin" || selector.Sel.Name == "BeginTx") {
+					violations = append(violations, violation{file: relativePath, line: fset.Position(selector.Pos()).Line, message: "上层生产代码禁止直接创建数据库事务；必须通过应用 Unit of Work"})
+				}
+			}
+			return true
+		})
+		return violations
 	})
 }
 
