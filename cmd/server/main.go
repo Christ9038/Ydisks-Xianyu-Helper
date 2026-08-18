@@ -523,14 +523,14 @@ func buildServerRuntime(opts serverOptions, infrastructure serverInfrastructure)
 	// authentication 负责 HTTP 会话认证；Secure 策略由启动参数控制。
 	authentication := &auth.Service{Store: infrastructure.store, Logger: infrastructure.logger, Secure: opts.secure}
 	// compositionServer 仅在迁移期间复用旧应用服务装配逻辑；它不绑定端口、不启动 worker，也不作为 HTTP Server 运行。
-	compositionServer, compositionErr := server.New(authentication, mgr, opts.webDir, opts.addr, infrastructure.logger, autoCenter, notifier, server.WithChatService(chatService), server.WithChatDependencies(chatDependencies), server.WithDatabaseHealth(databaseHealth), server.WithOrderReconciliationRecovery(orderReconciliationRecovery), server.WithOrderDependencies(orderDependencies), server.WithAccountDependencies(accountDependencies), server.WithItemDependencies(itemDependencies), server.WithAutomationDependencies(automationDependencies), server.WithTransportApplicationServices(transportApplications), server.WithPlatformDependencies(platformDependencies), server.WithApplicationLifecycle(lifecycleCoordinator))
+	compositionServer, compositionErr := server.NewLegacyComposedServer(authentication, mgr, opts.webDir, opts.addr, infrastructure.logger, autoCenter, notifier, server.WithChatService(chatService), server.WithChatDependencies(chatDependencies), server.WithDatabaseHealth(databaseHealth), server.WithOrderReconciliationRecovery(orderReconciliationRecovery), server.WithOrderDependencies(orderDependencies), server.WithAccountDependencies(accountDependencies), server.WithItemDependencies(itemDependencies), server.WithAutomationDependencies(automationDependencies), server.WithTransportApplicationServices(transportApplications), server.WithPlatformDependencies(platformDependencies), server.WithApplicationLifecycle(lifecycleCoordinator))
 	if compositionErr != nil {
 		return serverRuntime{}, fmt.Errorf("构造应用服务集合失败: %w", compositionErr)
 	}
 	// applications 是组合期一次性构造的只读应用服务集合，HTTP Server 不得在自身构造期间补建业务服务。
 	applications := compositionServer.ApplicationServices()
 	// httpServer 是只接收完整依赖快照的 HTTP transport 实例。
-	httpServer, serverErr := server.NewWithDependencies(server.Dependencies{
+	httpServer, serverErr := server.New(server.Dependencies{
 		Auth: authentication, Manager: mgr, WebDir: opts.webDir, Addr: opts.addr, Logger: infrastructure.logger,
 		Automation: autoCenter, Notifier: notifier, Chat: chatService, OrderDependencies: orderDependencies,
 		AccountDependencies: accountDependencies, ItemDependencies: itemDependencies, ChatDependencies: chatDependencies,

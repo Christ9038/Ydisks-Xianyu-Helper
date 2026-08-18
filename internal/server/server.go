@@ -50,7 +50,7 @@ type qrLoginPersistence struct {
 type ServerOption func(*Server)
 
 // Dependencies 是 HTTP Server 的不可变组合依赖；应用服务和生命周期组件必须在进入 Server 前完成装配。
-// 旧的 ServerOption 构造器仅作为迁移期间兼容入口，生产代码应使用 NewWithDependencies。
+// 旧的 ServerOption 构造器仅作为迁移期间兼容入口，生产代码应使用 New。
 type Dependencies struct {
 	// Auth 是负责会话解析和认证中间件的应用认证服务。
 	Auth *auth.Service
@@ -311,8 +311,8 @@ func WithApplicationLifecycle(coordinator *lifecycleapp.Coordinator) ServerOptio
 	}
 }
 
-// NewWithDependencies 构造纯 HTTP transport Server；所有应用服务、平台客户端和生命周期组件必须已由组合根创建。
-func NewWithDependencies(dependencies Dependencies) (*Server, error) {
+// New 构造纯 HTTP transport Server；所有应用服务、平台客户端和生命周期组件必须已由组合根创建。
+func New(dependencies Dependencies) (*Server, error) {
 	if dependencies.Auth == nil {
 		return nil, fmt.Errorf("server 依赖认证服务不能为空")
 	}
@@ -378,9 +378,9 @@ func (s *Server) ApplicationServices() *ApplicationServices {
 	return &copiedApplications
 }
 
-// New 构造并校验 HTTP 服务所需依赖；订单、账号、商品、系统和平台能力必须由显式依赖边界注入。
-// autoCenter/notifier 由调用方完成创建后注入，构造顺序为 adapter → manager → automation → notifier → server。
-func New(authentication *auth.Service, manager *account.Manager, webDir, addr string, logger *slog.Logger, autoCenter *automation.Center, notifier *notify.Notifier, options ...ServerOption) (*Server, error) {
+// NewLegacyComposedServer 是迁移期兼容构造器，会在 Server 内构建应用服务。
+// 删除条件：cmd/server 和所有测试均改为由 adapter/组合根构造 ApplicationServices 后，删除本函数及 ServerOption。
+func NewLegacyComposedServer(authentication *auth.Service, manager *account.Manager, webDir, addr string, logger *slog.Logger, autoCenter *automation.Center, notifier *notify.Notifier, options ...ServerOption) (*Server, error) {
 	if authentication == nil {
 		return nil, fmt.Errorf("server 依赖认证服务不能为空")
 	}

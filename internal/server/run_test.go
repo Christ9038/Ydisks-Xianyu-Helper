@@ -104,7 +104,7 @@ func TestPublishRecoveryLifecycleStopsBeforeWorkerWait(t *testing.T) {
 // TestNewRejectsMissingRequiredDependencies 确保 HTTP 服务构造阶段拒绝缺失核心依赖。
 func TestNewRejectsMissingRequiredDependencies(t *testing.T) {
 	// err 是缺少基础设施容器时的构造校验错误。
-	if _, err := New(nil, nil, "", ":0", nil, nil, nil); err == nil {
+	if _, err := NewLegacyComposedServer(nil, nil, "", ":0", nil, nil, nil); err == nil {
 		t.Fatal("缺少基础设施容器时应返回构造错误")
 	}
 	// srv 是用于提供合法 Store 的测试服务；cleanup 负责释放测试数据库。
@@ -116,11 +116,11 @@ func TestNewRejectsMissingRequiredDependencies(t *testing.T) {
 	// authentication 保存构造校验需要的会话中间件依赖。
 	authentication := &auth.Service{Store: store}
 	// err 是缺少 Manager 时的构造校验错误。
-	if _, err := New(authentication, nil, "", ":0", nil, nil, nil); err == nil {
+	if _, err := NewLegacyComposedServer(authentication, nil, "", ":0", nil, nil, nil); err == nil {
 		t.Fatal("缺少 account.Manager 时应返回构造错误")
 	}
 	// err 是缺少订单专用装配能力时的构造校验错误。
-	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil); err == nil {
+	if _, err := NewLegacyComposedServer(authentication, srv.Manager, "", ":0", nil, nil, nil); err == nil {
 		t.Fatal("缺少订单专用依赖时应返回构造错误")
 	}
 	// orderDependencies 保存账号依赖缺失测试所需的合法订单装配能力。
@@ -129,7 +129,7 @@ func TestNewRejectsMissingRequiredDependencies(t *testing.T) {
 		t.Fatalf("NewOrderDependencies: %v", orderDependencyErr)
 	}
 	// err 是缺少账号专用装配能力时的构造校验错误。
-	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithOrderDependencies(orderDependencies)); err == nil {
+	if _, err := NewLegacyComposedServer(authentication, srv.Manager, "", ":0", nil, nil, nil, WithOrderDependencies(orderDependencies)); err == nil {
 		t.Fatal("缺少账号专用依赖时应返回构造错误")
 	}
 	// accountDependencies 保存账号与订单依赖均合法时的商品依赖缺失测试输入。
@@ -138,7 +138,7 @@ func TestNewRejectsMissingRequiredDependencies(t *testing.T) {
 		t.Fatalf("NewAccountDependencies: %v", accountDependencyErr)
 	}
 	// err 是缺少商品专用装配能力时的构造校验错误。
-	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies)); err == nil {
+	if _, err := NewLegacyComposedServer(authentication, srv.Manager, "", ":0", nil, nil, nil, WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies)); err == nil {
 		t.Fatal("缺少商品专用依赖时应返回构造错误")
 	}
 	// err 是订单、账号和商品依赖齐全但平台客户端缺失时的构造校验错误。
@@ -189,38 +189,38 @@ func TestNewRejectsMissingRequiredDependencies(t *testing.T) {
 		t.Fatalf("NewReconciliationRecoveryCoordinator: %v", reconciliationErr)
 	}
 	// err 是聊天或健康检查端口等显式依赖缺失时的构造校验错误。
-	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies)); err == nil {
+	if _, err := NewLegacyComposedServer(authentication, srv.Manager, "", ":0", nil, nil, nil, WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies)); err == nil {
 		t.Fatal("缺少聊天或健康检查端口时应返回构造错误")
 	}
 	// err 是全部业务依赖齐全但遗漏健康检查端口时的构造错误。
-	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies)); err == nil {
+	if _, err := NewLegacyComposedServer(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies)); err == nil {
 		t.Fatal("缺少数据库健康检查端口时应返回构造错误")
 	}
 	// err 是缺少平台依赖注入时的构造校验错误。
-	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications)); err == nil {
+	if _, err := NewLegacyComposedServer(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications)); err == nil {
 		t.Fatal("缺少平台依赖时应返回构造错误")
 	}
 	// err 是缺少自动化专用依赖时的构造校验错误。
-	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies)); err == nil {
+	if _, err := NewLegacyComposedServer(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies)); err == nil {
 		t.Fatal("缺少自动化专用依赖时应返回构造错误")
 	}
 	// err 是缺少 transport 应用服务集合时的构造校验错误。
-	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithPlatformDependencies(platformDependencies)); err == nil {
+	if _, err := NewLegacyComposedServer(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithPlatformDependencies(platformDependencies)); err == nil {
 		t.Fatal("缺少 transport 应用服务集合时应返回构造错误")
 	}
 	// err 是全部基础设施依赖齐全但遗漏进程装配应用服务时的构造错误。
-	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies)); err == nil {
+	if _, err := NewLegacyComposedServer(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies)); err == nil {
 		t.Fatal("缺少订单补偿扫描应用服务时应返回构造错误")
 	}
 	// fullyConstructedServer、constructErr 分别是完整注入后的 HTTP 服务及构造错误。
-	fullyConstructedServer, constructErr := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies))
+	fullyConstructedServer, constructErr := NewLegacyComposedServer(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies))
 	if constructErr != nil || fullyConstructedServer == nil {
 		t.Fatalf("完整依赖注入应构造成功: server=%v err=%v", fullyConstructedServer, constructErr)
 	}
 }
 
-// TestNewWithDependenciesAcceptsPrebuiltApplicationSet 验证新组合根入口只接收已经装配完成的应用服务集合。
-func TestNewWithDependenciesAcceptsPrebuiltApplicationSet(t *testing.T) {
+// TestNewAcceptsPrebuiltApplicationSet 验证新组合根入口只接收已经装配完成的应用服务集合。
+func TestNewAcceptsPrebuiltApplicationSet(t *testing.T) {
 	// source、cleanup 提供一个由兼容测试装配器构造完成的完整服务集合。
 	source, _, cleanup := newTestServer(t)
 	defer cleanup()
@@ -236,9 +236,9 @@ func TestNewWithDependenciesAcceptsPrebuiltApplicationSet(t *testing.T) {
 		ApplicationLifecycle: source.applicationLifecycle,
 	}
 	// serverInstance、constructErr 保存纯注入入口的构造结果。
-	serverInstance, constructErr := NewWithDependencies(dependencies)
+	serverInstance, constructErr := New(dependencies)
 	if constructErr != nil {
-		t.Fatalf("NewWithDependencies: %v", constructErr)
+		t.Fatalf("New: %v", constructErr)
 	}
 	if serverInstance == nil || serverInstance.applications == nil || serverInstance.applications.orders != source.applications.orders {
 		t.Fatal("新组合根入口未保留预构造应用服务集合")

@@ -96,7 +96,7 @@ func newTestServer(t *testing.T) (*Server, *db.Store, func()) { // newTestServer
 	// authentication 保存测试 HTTP 会话中间件需要的认证服务。
 	authentication := &auth.Service{Store: store}
 	// srv、err 保存测试 HTTP 服务构造结果及失败原因。
-	srv, err := New(authentication, mgr, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies))
+	srv, err := NewLegacyComposedServer(authentication, mgr, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -204,7 +204,7 @@ func newUninitializedTestServer(t *testing.T) (*Server, *db.Store, func()) {
 	// authentication 保存未初始化数据库上的会话中间件依赖。
 	authentication := &auth.Service{Store: store}
 	// srv、err 保存未初始化测试服务构造结果及失败原因。
-	srv, err := New(authentication, mgr, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies))
+	srv, err := NewLegacyComposedServer(authentication, mgr, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
