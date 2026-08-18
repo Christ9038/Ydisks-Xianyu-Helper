@@ -73,7 +73,7 @@ describe('useItemActions', /* 当前回调验证商品普通操作、发布和�
 
   test('同步、编辑、添加和删除商品均刷新或更新列表', /* 当前回调验证商品 CRUD 动作协调。 */ async () => {
     // hook 是商品动作 Hook 的真实 React 状态实例。
-    const hook = renderHook(() => useItemActionsHarness());
+    const hook = renderHook(/* delayedLocationHookFactory 创建可关闭普通发布弹窗的商品动作状态容器。 */ () => useItemActionsHarness());
     await act(/* 当前回调执行商品同步。 */ async () => hook.result.current.actions.handleSync());
     expect(syncItemsMock).toHaveBeenCalledWith('account-1');
 
@@ -94,7 +94,7 @@ describe('useItemActions', /* 当前回调验证商品普通操作、发布和�
 
   test('普通发布成功后清理表单并打开发货规则配置', /* 当前回调验证普通发布成功分支。 */ async () => {
     // hook 是商品动作 Hook 的真实 React 状态实例。
-    const hook = renderHook(() => useItemActionsHarness());
+    const hook = renderHook(/* delayedLocationHookFactory 创建可关闭普通发布弹窗的商品动作状态容器。 */ () => useItemActionsHarness());
     act(/* 当前回调写入普通发布商品表单。 */ () => hook.result.current.actions.setPublishForm({ cookie_id: 'account-1', title: '新商品', description: '描述', price: '20', original_price: '', quantity: '2', postage_mode: 'free', postage: '', images: [new File(['image'], 'image.jpg')] }));
     await act(/* 当前回调执行普通商品发布。 */ async () => hook.result.current.actions.handlePublishItem());
     expect(publishItemMock).toHaveBeenCalledWith(expect.objectContaining({ cookie_id: 'account-1', title: '新商品', quantity: '2', images: expect.any(Array) }));
@@ -111,9 +111,32 @@ describe('useItemActions', /* 当前回调验证商品普通操作、发布和�
     const hook = renderHook(() => useItemActionsHarness());
     act(/* 当前回调设置定位使用的普通发布账号。 */ () => hook.result.current.actions.setPublishForm(current => ({ ...current, cookie_id: 'account-1' })));
     await act(/* 当前回调加载普通发布发货地。 */ async () => hook.result.current.actions.locateForPublish(false));
-    expect(locationsMock).toHaveBeenCalledWith(120, 30);
+    expect(locationsMock).toHaveBeenCalledWith(120, 30, expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(hook.result.current.actions.publishLocation).toEqual(locationFixture);
     await act(/* 当前回调加载批量发布发货地。 */ async () => hook.result.current.actions.locateForPublish(true));
+    expect(hook.result.current.actions.locationLoading).toBe(false);
+    hook.unmount();
+  });
+
+  test('关闭普通发布弹窗后忽略晚到的浏览器定位与地点回调', /* 当前回调验证弹窗关闭会撤销定位请求的界面所有权。 */ async () => {
+    // resolvePosition 保存测试主动发送晚到浏览器定位结果的函数。
+    let resolvePosition: PositionCallback | undefined;
+    // getCurrentPositionMock 保存浏览器定位回调但不立即完成，模拟用户关闭弹窗后才返回。
+    const getCurrentPositionMock = vi.fn(/* delayedPositionAction 延迟交付浏览器定位结果。 */ (success: PositionCallback) => { resolvePosition = success; });
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition: getCurrentPositionMock } });
+    // hook 是包含普通发布表单状态的商品动作 Hook。
+    const hook = renderHook(() => useItemActionsHarness());
+    act(/* openPublishAction 打开普通发布弹窗并选择发布账号。 */ () => {
+      hook.result.current.actions.setPublishForm(/* accountFormAction 为晚到定位测试设置普通发布账号。 */ current => ({ ...current, cookie_id: 'account-1' }));
+      hook.result.current.actions.setShowPublishModal(true);
+    });
+    act(/* beginLocateAction 启动尚未返回的定位流程。 */ () => { void hook.result.current.actions.locateForPublish(false); });
+    act(/* closePublishAction 关闭弹窗并取消当前定位所有权。 */ () => hook.result.current.actions.setShowPublishModal(false));
+    await act(/* latePositionAction 交付已失效的浏览器定位结果。 */ async () => {
+      resolvePosition?.({ coords: { longitude: 120, latitude: 30 } } as GeolocationPosition);
+      await Promise.resolve();
+    });
+    expect(locationsMock).not.toHaveBeenCalled();
     expect(hook.result.current.actions.locationLoading).toBe(false);
     hook.unmount();
   });

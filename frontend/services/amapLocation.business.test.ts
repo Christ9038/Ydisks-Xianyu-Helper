@@ -82,6 +82,35 @@ describe('AMap 地点业务适配', /* 当前回调覆盖坐标校验和地点�
     await expect(getPublishLocations(120, 30)).resolves.toEqual([]);
   });
 
+  test('取消和超时会结束等待中的高德查询，晚到回调不会改写结果', /* 当前回调验证地点查询的取消、超时与晚到回调隔离。 */ async () => {
+    vi.useFakeTimers();
+    try {
+      // callback 保存模拟 SDK 晚到返回时使用的回调。
+      let callback: ((status: string, result: unknown) => void) | undefined;
+      // placeSearch 是永不主动完成的地点搜索构造器替身。
+      const placeSearch = vi.fn(/* placeSearchConstructor 创建不会主动回调的 SDK 搜索替身。 */ function placeSearchConstructor() {
+        return { searchNearBy: /* pendingSearchAction 只保存 SDK 回调，等待测试主动触发。 */ (_keyword: string, _center: [number, number], _radius: number, value: (status: string, result: unknown) => void) => { callback = value; } };
+      });
+      Object.defineProperty(window, 'AMap', { configurable: true, value: { PlaceSearch: placeSearch } });
+      // controller 是主动取消地点查询的调用方取消器。
+      const controller = new AbortController();
+      // cancelled 是等待主动取消结果的查询 Promise。
+      const cancelled = getPublishLocations(120, 30, { signal: controller.signal });
+      controller.abort();
+      await expect(cancelled).rejects.toMatchObject({ name: 'AbortError' });
+      callback?.('complete', { poiList: { pois: [{ id: 'poi-1', name: '晚到地点', adname: '区域', cityname: '城市', adcode: '100', pname: '省份', location: { lng: 120, lat: 30 } }] } });
+
+      // timedOut 是等待 SDK 永不回调时的时间预算收口。
+      const timedOut = getPublishLocations(120, 30, { timeoutMs: 10 });
+      // timeoutAssertion 是对时间预算触发后查询错误的异步断言。
+      const timeoutAssertion = expect(timedOut).rejects.toThrow('附近地址查询超时');
+      await vi.advanceTimersByTimeAsync(10);
+      await timeoutAssertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test('POI 映射拒绝越界坐标和缺失行政字段', /* 当前回调验证领域地点模型的完整性守卫。 */ () => {
     expect(amapPOIToPublishLocation({ id: 'poi', name: '地点', adcode: '1', pname: '省', cityname: '市', location: { lng: 181, lat: 30 } })).toBeNull();
     expect(amapPOIToPublishLocation({ id: 'poi', name: '地点', adcode: '1', pname: '省', cityname: '市', location: { lng: 120, lat: 30 } })).not.toBeNull();

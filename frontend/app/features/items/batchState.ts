@@ -6,15 +6,15 @@ export interface PublishBatchSummary {
   status?: string;
 }
 
-// selectActivePublishBatch 只选择仍可继续处理的运行中任务。
+// selectActivePublishBatch 只选择仍可继续处理或等待 worker 接管的活跃任务。
 export const selectActivePublishBatch = <T extends PublishBatchSummary>(batches: T[]): T | undefined =>
   batches.find(
     // 活跃任务筛选器排除已完成历史，避免覆盖新的上传流程。
-    batch => batch.status === 'running' || batch.status === 'canceling',
+    batch => batch.status === 'pending' || batch.status === 'running' || batch.status === 'canceling',
   );
 
 // isBatchInProgress 判断批量任务是否仍需要继续轮询。
-export const isBatchInProgress = (status?: string): boolean => status === 'running' || status === 'canceling';
+export const isBatchInProgress = (status?: string): boolean => status === 'pending' || status === 'running' || status === 'canceling';
 
 // BatchPreviewGate 是判断预检是否可以启动任务的最小模型。
 export interface BatchPreviewGate {

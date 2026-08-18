@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { Item } from '../../../shared/api-contract';
 import { createItem, deleteItem, getPublishLocations, publishItem, syncItemsFromAccount, updateItem } from './api';
 import type { PublishLocation } from './api';
@@ -171,6 +171,10 @@ export const useItemActions = ({ selectedAccount, setSelectedAccount, setItems, 
   const [publishForm, setPublishForm] = useState<PublishItemForm>(emptyPublishItemForm);
   // publishImagePreviews 保存发布图片预览地址。
   const [publishImagePreviews, setPublishImagePreviews] = useState<{ /** key 是图片文件和索引组合键。 */ key: string; /** url 是图片临时预览地址。 */ url: string }[]>([]);
+  // locationController 保存当前定位请求的取消器，新的定位和组件卸载必须终止旧请求。
+  const locationController = useRef<AbortController | null>(null);
+  // locationGeneration 丢弃已经失去当前界面所有权的定位响应。
+  const locationGeneration = useRef(0);
 
   // useEffect 管理普通发布图片对象地址的创建和释放。
   useEffect(/* 当前回调同步发布图片预览资源生命周期。 */ () => {
@@ -183,6 +187,22 @@ export const useItemActions = ({ selectedAccount, setSelectedAccount, setItems, 
     setPublishImagePreviews(previews);
     return /* 当前回调释放当前批次的图片预览地址。 */ () => previews.forEach(/* 当前回调释放单个图片预览。 */ preview => URL.revokeObjectURL(preview.url));
   }, [publishForm.images, showPublishModal]);
+
+  // cancelLocationLookup 结束当前定位状态并使高德、浏览器定位的晚到回调失效。
+  const cancelLocationLookup = useCallback(/* cancelLocationAction 中止当前拥有的定位会话并推进代次。 */ () => {
+    locationController.current?.abort();
+    locationController.current = null;
+    locationGeneration.current += 1;
+    setLocationLoading(false);
+  }, []);
+
+  // 定位请求由商品动作 Hook 拥有，组件卸载时必须释放浏览器和地图查询资源。
+  useEffect(/* locationUnmountCleanup 在组件卸载时取消由当前 Hook 拥有的定位请求。 */ () => cancelLocationLookup, [cancelLocationLookup]);
+
+  // 普通发布弹窗关闭时收回其专属定位请求，避免关闭后的浏览器或高德回调写入隐藏表单。
+  useEffect(/* publishModalLocationCleanup 监听普通发布弹窗可见性并取消失去界面所有权的定位请求。 */ () => {
+    if (!showPublishModal) cancelLocationLookup();
+  }, [cancelLocationLookup, showPublishModal]);
 
   // handleSync 同步当前账号商品并刷新列表。
   const handleSync = useCallback(/* syncAction 执行当前账号商品同步。 */ async () => {
@@ -337,29 +357,50 @@ export const useItemActions = ({ selectedAccount, setSelectedAccount, setItems, 
     const cookieId = batch ? selectedAccount : publishForm.cookie_id;
     if (!cookieId) return alert('请先选择发布账号');
     if (!navigator.geolocation) return alert('当前浏览器不支持定位');
+    cancelLocationLookup();
+    // controller 是本次定位及地点搜索共同使用的取消器。
+    const controller = new AbortController();
+    locationController.current = controller;
+    // generation 是本次定位请求的所有权版本，晚到响应只能写回同一版本。
+    const generation = ++locationGeneration.current;
     setLocationLoading(true);
-    navigator.geolocation.getCurrentPosition(/* 当前回调处理定位成功结果。 */ async position => {
-      try {
-        // locations 保存当前位置附近的发货地。
-        const locations = await getPublishLocations(position.coords.longitude, position.coords.latitude);
-        if (!locations.length) throw new Error('当前位置附近没有可用的高德发货地，请稍后重试');
-        if (batch) {
-          setBatchLocations(locations);
-          setBatchLocation(locations[0]);
-        } else {
-          setPublishLocations(locations);
-          setPublishLocation(locations[0]);
-        }
-      } catch (/* error 表示发货地查询异常。 */ error: unknown) {
+    try {
+      // position 是浏览器返回的当前定位结果；Promise 契约确保调用方会等待它完成。
+      const position = await new Promise<GeolocationPosition>(/* positionPromiseExecutor 将回调式浏览器定位转为可等待的 Promise。 */ (resolve, reject) => {
+        // successCallback 将浏览器定位成功结果交给当前请求。
+        const successCallback: PositionCallback = value => resolve(value);
+        // errorCallback 将浏览器定位失败转换为可统一处理的异常。
+        const errorCallback: PositionErrorCallback = error => reject(error);
+        navigator.geolocation.getCurrentPosition(successCallback, errorCallback, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+      });
+      if (controller.signal.aborted || generation !== locationGeneration.current) return;
+      // locations 保存当前位置附近的发货地。
+      const locations = await getPublishLocations(position.coords.longitude, position.coords.latitude, { signal: controller.signal });
+      if (controller.signal.aborted || generation !== locationGeneration.current) return;
+      if (!locations.length) throw new Error('当前位置附近没有可用的高德发货地，请稍后重试');
+      if (batch) {
+        setBatchLocations(locations);
+        setBatchLocation(locations[0]);
+      } else {
+        setPublishLocations(locations);
+        setPublishLocation(locations[0]);
+      }
+    } catch (/* error 表示发货地查询异常。 */ error: unknown) {
+      if (controller.signal.aborted || generation !== locationGeneration.current) return;
+      if (typeof error === 'object' && error !== null && 'code' in error) {
+        // positionError 是浏览器 Geolocation API 的失败对象，用于区分权限拒绝与其他定位错误。
+        const positionError = error as GeolocationPositionError;
+        alert(positionError.code === positionError.PERMISSION_DENIED ? '定位权限被拒绝，请在浏览器设置中允许定位' : '无法获取当前位置，请稍后重试');
+      } else {
         alert(itemErrorMessage(error, '获取发货地失败'));
-      } finally {
+      }
+    } finally {
+      if (generation === locationGeneration.current) {
+        locationController.current = null;
         setLocationLoading(false);
       }
-    }, /* error 表示浏览器定位异常。 */ error => {
-      setLocationLoading(false);
-      alert(error.code === error.PERMISSION_DENIED ? '定位权限被拒绝，请在浏览器设置中允许定位' : '无法获取当前位置，请稍后重试');
-    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
-  }, [publishForm.cookie_id, selectedAccount, setBatchLocation, setBatchLocations]);
+    }
+  }, [cancelLocationLookup, publishForm.cookie_id, selectedAccount, setBatchLocation, setBatchLocations]);
 
   return { selectedAccount, setSelectedAccount, loading, publishing, showEditModal, setShowEditModal, showAddModal, setShowAddModal, showPublishModal, setShowPublishModal, locationLoading, publishLocations, setPublishLocations, publishLocation, setPublishLocation, selectedItem, editForm, setEditForm, addForm, setAddForm, publishForm, setPublishForm, publishImagePreviews, handleSync, handleEdit, handleSaveEdit, handleDelete, handleAddItem, handlePublishItem, downloadPublishTemplate, openAddModal, openPublishModal, locateForPublish };
 };

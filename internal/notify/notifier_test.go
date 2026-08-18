@@ -37,7 +37,9 @@ func TestNotifierWaitContextHonorsDeadline(t *testing.T) {
 func TestNotifierStartRejectsNilContext(t *testing.T) {
 	// notifier 保存具备启动标记的最小通知器测试替身。
 	notifier := &Notifier{done: make(chan struct{})}
-	notifier.Start(nil)
+	// missingContext 模拟调用方遗漏生命周期 Context 的零值接口；Start 必须拒绝该输入。
+	var missingContext context.Context
+	notifier.Start(missingContext)
 	if notifier.started.Load() {
 		t.Fatal("nil Context 不应标记通知 worker 已启动")
 	}

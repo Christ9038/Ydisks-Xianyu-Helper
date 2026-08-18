@@ -21,7 +21,7 @@ import (
 )
 
 // applicationServices 聚合 Server 使用的应用服务实例，统一管理共享基础设施依赖。
-type applicationServices struct {
+type ApplicationServices struct {
 	// platformCredentials 负责按需读取平台凭证窄视图并执行归属复核。
 	platformCredentials *accountapp.PlatformCredentialService
 	// orders 是订单 HTTP 适配器；业务服务集合由应用层统一构造。
@@ -100,21 +100,24 @@ type applicationServices struct {
 	admin *adminapp.Service
 }
 
+// applicationServices 是旧测试和兼容访问器使用的内部别名；生产组合根应使用导出的集合类型注入。
+type applicationServices = ApplicationServices
+
 // emptyApplicationServices 是零值 Server 和隔离 handler 测试共享的只读空服务集合。
 // 它不包含任何生产依赖，禁止写入；生产 Server 必须在 New 阶段注入完整集合。
 var emptyApplicationServices = &applicationServices{accountLogin: &accountLoginService{}}
 
-// ApplicationLifecycleComponents 返回 Server 装配的应用 worker 生命周期组件。
+// LifecycleComponents 返回由组合根登记的应用 worker 生命周期组件。
 // 组件只暴露 Start/Close 端口，启动顺序与进程取消责任由 cmd 的协调器拥有。
-func (s *Server) ApplicationLifecycleComponents() []lifecycleapp.NamedComponent {
-	if s == nil || s.applications == nil {
+func (services *ApplicationServices) LifecycleComponents() []lifecycleapp.NamedComponent {
+	if services == nil {
 		return nil
 	}
 	// components 保存按应用依赖登记的 worker 生命周期组件。
 	components := make([]lifecycleapp.NamedComponent, 0, 3)
-	if s.applications.orderRefreshJobs != nil {
+	if services.orderRefreshJobs != nil {
 		// service 保存订单刷新恢复与 worker 生命周期应用服务。
-		service := s.applications.orderRefreshJobs
+		service := services.orderRefreshJobs
 		components = append(components, lifecycleapp.NamedComponent{
 			Name: "order-refresh-recovery",
 			Component: lifecycleapp.FuncComponent{
@@ -123,9 +126,9 @@ func (s *Server) ApplicationLifecycleComponents() []lifecycleapp.NamedComponent 
 			},
 		})
 	}
-	if s.applications.itemBatchCoordinator != nil {
+	if services.itemBatchCoordinator != nil {
 		// coordinator 保存批量发布 worker 与恢复扫描生命周期协调器。
-		coordinator := s.applications.itemBatchCoordinator
+		coordinator := services.itemBatchCoordinator
 		components = append(components, lifecycleapp.NamedComponent{
 			Name: "publish-batch-workers",
 			Component: lifecycleapp.FuncComponent{
@@ -134,9 +137,9 @@ func (s *Server) ApplicationLifecycleComponents() []lifecycleapp.NamedComponent 
 			},
 		})
 	}
-	if s.applications.orderReconciliationRecovery != nil {
+	if services.orderReconciliationRecovery != nil {
 		// coordinator 保存订单补偿扫描生命周期协调器。
-		coordinator := s.applications.orderReconciliationRecovery
+		coordinator := services.orderReconciliationRecovery
 		components = append(components, lifecycleapp.NamedComponent{
 			Name: "order-reconciliation-recovery",
 			Component: lifecycleapp.FuncComponent{

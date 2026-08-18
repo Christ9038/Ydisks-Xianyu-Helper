@@ -297,7 +297,7 @@ describe('useItemPublishBatch', /* 当前回调处理批量发布的表单、任
     await act(/* timerAction 推进批量轮询计时器。 */ async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
-    expect(getBatchMock).toHaveBeenCalledWith('batch-1');
+    expect(getBatchMock).toHaveBeenCalledWith('batch-1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(loadItems).toHaveBeenCalledOnce();
     expect(loadShippingRules).toHaveBeenCalledOnce();
     hook.unmount();

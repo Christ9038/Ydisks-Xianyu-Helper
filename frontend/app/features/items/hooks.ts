@@ -49,8 +49,6 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
   const [batchPublishIntervalSeconds, setBatchPublishIntervalSeconds] = useState(5);
   // batchLoading 表示批量任务请求是否正在执行。
   const [batchLoading, setBatchLoading] = useState(false);
-  // batchPollInFlight 防止同一批次的轮询请求重叠。
-  const batchPollInFlight = useRef(false);
   // batchRequestGeneration 用于丢弃弹窗关闭后返回的过期轮询响应。
   const batchRequestGeneration = useRef(0);
   // batchRequestController 保存当前用户触发请求的取消器；新动作或组件卸载时必须中止旧请求。
@@ -115,7 +113,7 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
         setRecentBatch(detail);
         setBatchDetail(detail);
         setBatchPublishIntervalSeconds(detail.publish_interval_seconds || 5);
-        setBatchPhase(['running', 'canceling'].includes(detail.status) ? 'running' : 'done');
+        setBatchPhase(isBatchInProgress(detail.status) ? 'running' : 'done');
       }
     } catch (error /* 恢复任务错误 */) {
       if (!isCurrentBatchOperation(request.requestGeneration, request.controller)) return;
@@ -182,7 +180,7 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
       if (!isCurrentBatchOperation(request.requestGeneration, request.controller)) return;
       setBatchDetail(detail);
       setBatchPublishIntervalSeconds(detail.publish_interval_seconds || 5);
-      setBatchPhase(['running', 'canceling'].includes(detail.status) ? 'running' : 'done');
+      setBatchPhase(isBatchInProgress(detail.status) ? 'running' : 'done');
     } catch (error /* 最近结果读取错误 */) {
       if (!isCurrentBatchOperation(request.requestGeneration, request.controller)) return;
       console.error('加载最近批量铺货结果失败:', error);
@@ -372,13 +370,17 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
       if (!showBatchModal || !batchDetail?.id || !isBatchInProgress(batchDetail.status)) return;
       // requestGeneration 标记本次轮询生命周期，弹窗关闭时会失效。
       const requestGeneration = ++batchRequestGeneration.current;
+      // controller 是本轮弹窗会话独占的轮询取消器；关闭、切换批次或卸载时必须中止未完成读取。
+      const controller = new AbortController();
+      // pollInFlight 只保护当前批次会话，旧请求不会阻塞重新打开后的新批次轮询。
+      let pollInFlight = false;
       // pollBatch 读取任务最新进度并在结束后刷新商品和规则列表。
       const pollBatch = async () => {
-        if (batchPollInFlight.current) return;
-        batchPollInFlight.current = true;
+        if (pollInFlight || controller.signal.aborted) return;
+        pollInFlight = true;
         try {
           // detail 是轮询返回的最新任务详情。
-          const detail = await getItemPublishBatch(batchDetail.id);
+          const detail = await getItemPublishBatch(batchDetail.id, { signal: controller.signal });
           if (!isCurrentBatchRequest(requestGeneration, batchRequestGeneration.current)) return;
           setBatchDetail(detail);
           setRecentBatch(detail);
@@ -387,9 +389,9 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
             await Promise.all([options.loadItems(), options.loadShippingRules()]);
           }
         } catch (error /* 轮询读取错误 */) {
-          console.error('刷新批量铺货进度失败:', error);
+          if (!controller.signal.aborted) console.error('刷新批量铺货进度失败:', error);
         } finally {
-          batchPollInFlight.current = false;
+          pollInFlight = false;
         }
       };
       // timer 是当前批次的轮询计时器。
@@ -402,6 +404,7 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
         // 轮询清理器停止计时器并使未完成响应失效。
         () => {
         window.clearInterval(timer);
+        controller.abort();
         batchRequestGeneration.current += 1;
         }
       );

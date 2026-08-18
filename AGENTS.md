@@ -110,14 +110,18 @@ agents MUST read all of:
 
 The following rules are mandatory:
 
-1. Identify the current plan stage and the smallest applicable work item before editing. Do not perform a
-   repository-wide rewrite or create a long-lived big-bang refactor.
-2. Preserve a compiling, runnable and tested state at every merge point. Add or strengthen characterization
-   tests before moving high-risk behavior.
-3. Keep each change to one reviewable vertical slice. Do not combine broad file moves, behavior changes,
-   schema migrations, compatibility deletion and mass comment backfill in the same change.
-4. Update the master plan status table, completion evidence, update log and next safe entry point whenever a
-   plan work item is completed or its scope materially changes.
+1. Identify the current plan stage before editing. A stage is the only delivery and review unit: one complete
+   phase-level PR/final merge may modify several Go packages, frontend features, tests, architecture gates and
+   documents together. Agents must not turn a stage into separately delivered vertical slices.
+2. A phase worktree may be temporarily non-compiling while its coordinated migration is in progress. The final
+   phase commit/merge must compile, start, pass every mandatory phase verification and include complete evidence.
+   Add or strengthen characterization tests before moving high-risk behavior.
+3. Do not use a large phase change to hide unfinished branches, error paths or unverified behavior. Unrelated
+   renames, repository-wide formatting, dependency upgrades, test weakening, coverage deletion, compatibility
+   whitelist expansion and frozen CAPTCHA changes remain prohibited.
+4. Update the master-plan status table, completion evidence, update log and next entry point once when a phase
+   is completed or its scope materially changes. Completion evidence is bound to the final phase commit and the
+   complete command output, not to intermediate local commits.
 5. Do not weaken, skip or delete tests to make a refactor pass. Existing test failures must be explained and
    resolved or reported as blockers.
 6. Preserve unrelated working-tree changes. Do not reformat or rename unrelated code as cleanup.
@@ -177,7 +181,7 @@ debt and record the scope in `docs/architecture/refactoring-master-plan.md`.
 ## Mandatory target dependency boundaries
 
 `docs/architecture/dependency-rules.md` is authoritative. During migration, existing violations may remain only
-until their recorded vertical slice is completed; agents MUST NOT add new violations.
+until their recorded phase is completed; agents MUST NOT add new violations.
 
 - `cmd` handles configuration, dependency construction, signals and lifecycle only; no new business rules, SQL,
   HTTP handlers or protocol parsing belong there.

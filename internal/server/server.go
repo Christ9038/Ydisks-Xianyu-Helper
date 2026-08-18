@@ -6,9 +6,11 @@ package server
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -46,6 +48,49 @@ type qrLoginPersistence struct {
 
 // ServerOption 是 Server 构造阶段应用可选依赖的配置函数。
 type ServerOption func(*Server)
+
+// Dependencies 是 HTTP Server 的不可变组合依赖；应用服务和生命周期组件必须在进入 Server 前完成装配。
+// 旧的 ServerOption 构造器仅作为迁移期间兼容入口，生产代码应使用 NewWithDependencies。
+type Dependencies struct {
+	// Auth 是负责会话解析和认证中间件的应用认证服务。
+	Auth *auth.Service
+	// Manager 是账号运行时的只读 transport 端口兼容依赖；新 handler 不应直接调用其业务方法。
+	Manager *account.Manager
+	// WebDir 是嵌入或外置前端静态资源目录。
+	WebDir string
+	// Addr 是 HTTP 监听地址，默认由 cmd/server 提供 :59188。
+	Addr string
+	// Logger 是 Server 使用的结构化日志器。
+	Logger *slog.Logger
+	// Automation 是历史兼容的自动化运行时引用，新服务应通过应用 Port 访问。
+	Automation *automation.Center
+	// Notifier 是历史兼容的通知运行时引用，新服务应通过通知应用 Port 访问。
+	Notifier *notify.Notifier
+	// Chat 是聊天 transport 使用的领域事件服务。
+	Chat *chat.Service
+	// OrderDependencies 是订单应用适配器集合，仅允许在组合根构造。
+	OrderDependencies *adapter.OrderDependencies
+	// AccountDependencies 是账号应用适配器集合，仅允许在组合根构造。
+	AccountDependencies *adapter.AccountDependencies
+	// ItemDependencies 是商品应用适配器集合，仅允许在组合根构造。
+	ItemDependencies *adapter.ItemDependencies
+	// ChatDependencies 是聊天应用适配器集合，仅允许在组合根构造。
+	ChatDependencies *adapter.ChatDependencies
+	// AutomationDependencies 是自动化应用适配器集合，仅允许在组合根构造。
+	AutomationDependencies *adapter.AutomationDependencies
+	// TransportApplications 是已构造的 transport-facing 应用服务集合。
+	TransportApplications *adapter.TransportApplicationServices
+	// PlatformDependencies 是平台客户端集合，Server 不负责创建其中的实现。
+	PlatformDependencies *adapter.PlatformDependencies
+	// DatabaseHealth 是数据库健康检查应用 Port。
+	DatabaseHealth DatabaseHealthPort
+	// OrderReconciliationRecovery 是订单补偿恢复生命周期组件。
+	OrderReconciliationRecovery *orderapp.ReconciliationRecoveryCoordinator
+	// Applications 是完整应用服务集合；缺失时构造必须失败。
+	Applications *ApplicationServices
+	// ApplicationLifecycle 是由 cmd 拥有的生命周期协调器，仅供请求 Context 读取。
+	ApplicationLifecycle *lifecycleapp.Coordinator
+}
 
 // orderDependencyFactory 是订单装配所需的最小能力集合；Server 不持有通用 Store 工厂。
 type orderDependencyFactory interface {
@@ -149,10 +194,12 @@ type Server struct {
 	taskRegistry *taskRegistry
 	lifecycleMu  sync.RWMutex
 	httpServer   *http.Server
-	httpDone     chan struct{}
-	httpErr      error
-	started      bool
-	stopped      bool
+	// listener 保存 Bind 成功后由 Server 独占的 TCP 监听器；只有 Stop 或 Serve 退出可以关闭它。
+	listener net.Listener
+	httpDone chan struct{}
+	httpErr  error
+	started  bool
+	stopped  bool
 
 	loginLimiter     *loginFailureLimiter
 	initializationMu sync.Mutex
@@ -262,6 +309,73 @@ func WithApplicationLifecycle(coordinator *lifecycleapp.Coordinator) ServerOptio
 		// server 是当前构造流程中需要读取应用生命周期 Context 的 HTTP 服务实例。
 		server.applicationLifecycle = coordinator
 	}
+}
+
+// NewWithDependencies 构造纯 HTTP transport Server；所有应用服务、平台客户端和生命周期组件必须已由组合根创建。
+func NewWithDependencies(dependencies Dependencies) (*Server, error) {
+	if dependencies.Auth == nil {
+		return nil, fmt.Errorf("server 依赖认证服务不能为空")
+	}
+	if dependencies.Manager == nil {
+		return nil, fmt.Errorf("server 依赖 account.Manager 不能为空")
+	}
+	if dependencies.OrderDependencies == nil || dependencies.AccountDependencies == nil || dependencies.ItemDependencies == nil || dependencies.ChatDependencies == nil || dependencies.AutomationDependencies == nil {
+		return nil, fmt.Errorf("server 领域适配器依赖不能为空")
+	}
+	if dependencies.DatabaseHealth == nil || dependencies.OrderReconciliationRecovery == nil || dependencies.PlatformDependencies == nil {
+		return nil, fmt.Errorf("server 基础设施应用端口不能为空")
+	}
+	if dependencies.TransportApplications == nil {
+		return nil, fmt.Errorf("server transport 应用服务集合不能为空")
+	}
+	// transportValidationErr 是组合根提供的 transport 应用服务集合校验错误。
+	if transportValidationErr := dependencies.TransportApplications.Validate(); transportValidationErr != nil {
+		return nil, fmt.Errorf("server transport 应用服务无效: %w", transportValidationErr)
+	}
+	if dependencies.Applications == nil {
+		return nil, fmt.Errorf("server 应用服务集合不能为空")
+	}
+	// copiedApplications 冻结应用服务集合容器，调用方不得在 Server 启动后替换服务引用。
+	copiedApplications := *dependencies.Applications
+	// logger 是缺省时用于 transport 诊断的标准文本日志器。
+	logger := dependencies.Logger
+	if logger == nil {
+		logger = logging.NewLogger(os.Stdout, "text")
+	}
+	return &Server{
+		orderDependencies:           dependencies.OrderDependencies,
+		accountDependencies:         dependencies.AccountDependencies,
+		itemDependencies:            dependencies.ItemDependencies,
+		chatDependencies:            dependencies.ChatDependencies,
+		orderReconciliationRecovery: dependencies.OrderReconciliationRecovery,
+		automationDependencies:      dependencies.AutomationDependencies,
+		transportApplications:       dependencies.TransportApplications,
+		Auth:                        dependencies.Auth,
+		Manager:                     dependencies.Manager,
+		automation:                  dependencies.Automation,
+		notifier:                    dependencies.Notifier,
+		chat:                        dependencies.Chat,
+		platformDependencies:        dependencies.PlatformDependencies,
+		Logger:                      logger,
+		WebDir:                      dependencies.WebDir,
+		Addr:                        dependencies.Addr,
+		applications:                &copiedApplications,
+		applicationLifecycle:        dependencies.ApplicationLifecycle,
+		databaseHealth:              dependencies.DatabaseHealth,
+		loginLimiter:                newLoginFailureLimiter(),
+		taskRegistry:                newTaskRegistry(),
+		backgroundDone:              closedSignal(),
+	}, nil
+}
+
+// ApplicationServices 返回构造期注入的应用服务集合快照，供 cmd 负责登记生命周期组件。
+func (s *Server) ApplicationServices() *ApplicationServices {
+	if s == nil || s.applications == nil {
+		return nil
+	}
+	// copiedApplications 将集合容器复制后返回，避免调用方替换 Server 内部容器指针。
+	copiedApplications := *s.applications
+	return &copiedApplications
 }
 
 // New 构造并校验 HTTP 服务所需依赖；订单、账号、商品、系统和平台能力必须由显式依赖边界注入。
@@ -713,19 +827,20 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 
 // 各分组 mount*Real 方法在 handlers 文件中实现；为避免单文件过大，按业务域分文件。
 
-// Start 启动 HTTP 服务及其生命周期监听。重复调用不会重复监听端口。
-func (s *Server) Start(ctx context.Context) error {
+// Bind 同步占用 HTTP 监听地址，但不接受请求。
+// 进程组合根必须先调用它，再启动可能产生外部副作用的应用 worker，避免端口冲突在 worker 启动后才暴露。
+func (s *Server) Bind() error {
 	if s == nil {
 		return fmt.Errorf("server 不能为空")
 	}
-	// ctx 是控制 HTTP 服务及其后台任务的进程级生命周期上下文。
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	s.lifecycleMu.Lock()
-	if s.started {
+	if s.listener != nil {
 		s.lifecycleMu.Unlock()
 		return nil
+	}
+	if s.stopped {
+		s.lifecycleMu.Unlock()
+		return fmt.Errorf("HTTP 服务已经停止，不能重新绑定")
 	}
 	// httpServer 是本次启动创建的标准库 HTTP 监听器。
 	httpServer := &http.Server{
@@ -737,13 +852,51 @@ func (s *Server) Start(ctx context.Context) error {
 		WriteTimeout: 2 * time.Minute,
 		IdleTimeout:  2 * time.Minute,
 	}
+	// listener 是在启动应用 worker 前同步绑定的 TCP 端口；失败时 Server 保持未启动状态。
+	listener, listenErr := net.Listen("tcp", s.Addr)
+	if listenErr != nil {
+		s.lifecycleMu.Unlock()
+		return fmt.Errorf("监听 HTTP 地址 %q 失败: %w", s.Addr, listenErr)
+	}
 	s.httpServer = httpServer
+	s.listener = listener
 	s.httpDone = make(chan struct{})
 	s.httpErr = nil
+	s.stopped = false
+	s.lifecycleMu.Unlock()
+	return nil
+}
+
+// Start 启动已经绑定的 HTTP 服务及其生命周期监听。重复调用不会重复接受连接。
+func (s *Server) Start(ctx context.Context) error {
+	if s == nil {
+		return fmt.Errorf("server 不能为空")
+	}
+	// ctx 是控制 HTTP 服务及其后台任务的进程级生命周期上下文。
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// bindErr 是同步占用监听地址失败时的启动前置错误。
+	if bindErr := s.Bind(); bindErr != nil {
+		return bindErr
+	}
+	s.lifecycleMu.Lock()
+	if s.started {
+		s.lifecycleMu.Unlock()
+		return nil
+	}
+	if s.stopped || s.httpServer == nil || s.listener == nil || s.httpDone == nil {
+		s.lifecycleMu.Unlock()
+		return fmt.Errorf("HTTP 服务未处于可启动的已绑定状态")
+	}
+	// httpServer 是本次 Serve goroutine 独占的 HTTP transport。
+	httpServer := s.httpServer
+	// listener 是已成功绑定并交由本次 Serve 独占接收连接的监听器。
+	listener := s.listener
+	// httpDone 在本次 Serve 退出后关闭，供 Wait 和 Stop 观察最终退出。
+	httpDone := s.httpDone
 	s.started = true
 	s.stopped = false
-	// httpDone 是 HTTP 监听 goroutine 结束时关闭的完成信号。
-	httpDone := s.httpDone
 	s.lifecycleMu.Unlock()
 
 	// 进程生命周期 Context 取消时触发 HTTP Stop；应用组件关闭由 cmd 统一协调。
@@ -762,7 +915,7 @@ func (s *Server) Start(ctx context.Context) error {
 	go func() {
 		s.Logger.Info("HTTP 服务启动", "addr", s.Addr)
 		// err 是 HTTP 监听器退出时返回的原始错误。
-		err := httpServer.ListenAndServe()
+		err := httpServer.Serve(listener)
 		if err == http.ErrServerClosed {
 			err = nil
 		}
@@ -805,7 +958,7 @@ func (s *Server) Stop(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	s.lifecycleMu.Lock()
-	if !s.started {
+	if !s.started && s.listener == nil {
 		s.lifecycleMu.Unlock()
 		return nil
 	}
@@ -823,16 +976,31 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 	s.stopped = true
 	// httpServer 是需要执行优雅关闭的标准库 HTTP 服务。
-	// httpDone 是监听 goroutine 退出的完成信号。
-	// httpServer 用于本次流程后续判断的httpServer
 	httpServer := s.httpServer
-	// httpDone 用于本次流程后续判断的httpDone
+	// listener 是已绑定但可能尚未进入 Serve 的监听器；绑定失败回滚由当前调用关闭它。
+	listener := s.listener
+	// httpDone 是监听 goroutine 退出或绑定回滚完成时关闭的完成信号。
 	httpDone := s.httpDone
+	// started 区分已进入 Serve 的服务和仅完成 Bind 的启动回滚路径。
+	started := s.started
 	s.lifecycleMu.Unlock()
 	// shutdownErr 是 HTTP 优雅关闭返回的错误；后台等待错误由 worker 自身记录。
 	var shutdownErr error
-	if httpServer != nil {
+	if started && httpServer != nil {
 		shutdownErr = httpServer.Shutdown(ctx)
+	} else if listener != nil {
+		shutdownErr = listener.Close()
+		if shutdownErr != nil && !errors.Is(shutdownErr, net.ErrClosed) {
+			return shutdownErr
+		}
+		s.lifecycleMu.Lock()
+		if s.listener == listener {
+			s.listener = nil
+		}
+		if httpDone != nil {
+			close(httpDone)
+		}
+		s.lifecycleMu.Unlock()
 	}
 	if httpDone != nil && !waitForSignal(ctx, httpDone) {
 		return ctx.Err()

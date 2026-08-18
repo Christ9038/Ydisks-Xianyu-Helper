@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -377,7 +378,11 @@ func openServerInfrastructure(ctx context.Context, startup serverStartupConfig, 
 	}
 	// initialized 表示系统是否已有管理员；查询失败按未初始化提示而不阻断启动。
 	if initialized, _ := store.Users.IsSystemInitialized(ctx); !initialized {
-		logger.Warn("系统尚未初始化，请先运行本二进制的 -init-admin 初始化管理员")
+		if isNonLoopbackListenAddress(opts.addr) {
+			logger.Warn("系统尚未初始化且 HTTP 监听可被远程访问；首个访问初始化页面的客户端可创建管理员，请由部署者通过网络隔离或 -init-admin 承担该风险", "addr", opts.addr)
+		} else {
+			logger.Warn("系统尚未初始化，请先运行本二进制的 -init-admin 初始化管理员")
+		}
 	}
 	return serverInfrastructure{database: database, store: store, logger: logger, logWriter: logWriter, closeLog: closeLog}, nil
 }
@@ -517,13 +522,28 @@ func buildServerRuntime(opts serverOptions, infrastructure serverInfrastructure)
 	}
 	// authentication 负责 HTTP 会话认证；Secure 策略由启动参数控制。
 	authentication := &auth.Service{Store: infrastructure.store, Logger: infrastructure.logger, Secure: opts.secure}
-	// httpServer 是完成所有窄依赖注入后的 HTTP 服务实例。
-	httpServer, serverErr := server.New(authentication, mgr, opts.webDir, opts.addr, infrastructure.logger, autoCenter, notifier, server.WithChatService(chatService), server.WithChatDependencies(chatDependencies), server.WithDatabaseHealth(databaseHealth), server.WithOrderReconciliationRecovery(orderReconciliationRecovery), server.WithOrderDependencies(orderDependencies), server.WithAccountDependencies(accountDependencies), server.WithItemDependencies(itemDependencies), server.WithAutomationDependencies(automationDependencies), server.WithTransportApplicationServices(transportApplications), server.WithPlatformDependencies(platformDependencies), server.WithApplicationLifecycle(lifecycleCoordinator))
+	// compositionServer 仅在迁移期间复用旧应用服务装配逻辑；它不绑定端口、不启动 worker，也不作为 HTTP Server 运行。
+	compositionServer, compositionErr := server.New(authentication, mgr, opts.webDir, opts.addr, infrastructure.logger, autoCenter, notifier, server.WithChatService(chatService), server.WithChatDependencies(chatDependencies), server.WithDatabaseHealth(databaseHealth), server.WithOrderReconciliationRecovery(orderReconciliationRecovery), server.WithOrderDependencies(orderDependencies), server.WithAccountDependencies(accountDependencies), server.WithItemDependencies(itemDependencies), server.WithAutomationDependencies(automationDependencies), server.WithTransportApplicationServices(transportApplications), server.WithPlatformDependencies(platformDependencies), server.WithApplicationLifecycle(lifecycleCoordinator))
+	if compositionErr != nil {
+		return serverRuntime{}, fmt.Errorf("构造应用服务集合失败: %w", compositionErr)
+	}
+	// applications 是组合期一次性构造的只读应用服务集合，HTTP Server 不得在自身构造期间补建业务服务。
+	applications := compositionServer.ApplicationServices()
+	// httpServer 是只接收完整依赖快照的 HTTP transport 实例。
+	httpServer, serverErr := server.NewWithDependencies(server.Dependencies{
+		Auth: authentication, Manager: mgr, WebDir: opts.webDir, Addr: opts.addr, Logger: infrastructure.logger,
+		Automation: autoCenter, Notifier: notifier, Chat: chatService, OrderDependencies: orderDependencies,
+		AccountDependencies: accountDependencies, ItemDependencies: itemDependencies, ChatDependencies: chatDependencies,
+		AutomationDependencies: automationDependencies, TransportApplications: transportApplications,
+		PlatformDependencies: platformDependencies, DatabaseHealth: databaseHealth,
+		OrderReconciliationRecovery: orderReconciliationRecovery, Applications: applications,
+		ApplicationLifecycle: lifecycleCoordinator,
+	})
 	if serverErr != nil {
 		return serverRuntime{}, fmt.Errorf("构造 HTTP 服务失败: %w", serverErr)
 	}
-	// component 表示 HTTP 服务暴露给进程装配层的应用 worker 生命周期组件。
-	for _, component := range httpServer.ApplicationLifecycleComponents() {
+	// component 表示应用服务集合交给进程组合根登记的 worker 生命周期组件。
+	for _, component := range applications.LifecycleComponents() {
 		// err 表示当前 HTTP 应用 worker 生命周期组件登记失败。
 		if err := lifecycleCoordinator.Add(component); err != nil {
 			return serverRuntime{}, fmt.Errorf("登记应用 worker 生命周期组件 %q 失败: %w", component.Name, err)
@@ -534,9 +554,16 @@ func buildServerRuntime(opts serverOptions, infrastructure serverInfrastructure)
 
 // runServerLifecycle 启动应用组件和 HTTP 监听，等待退出后执行有限时长的 HTTP 与组件逆序关闭。
 func runServerLifecycle(ctx context.Context, runtime serverRuntime, logger *slog.Logger) error {
+	// bindErr 是应用 worker 启动前同步占用 HTTP 端口的错误，端口冲突不得触发任何业务副作用。
+	if bindErr := runtime.httpServer.Bind(); bindErr != nil {
+		return fmt.Errorf("绑定 HTTP 服务失败: %w", bindErr)
+	}
 	// err 表示应用组件按依赖顺序启动失败。
 	if err := runtime.lifecycleCoordinator.Start(ctx); err != nil {
-		return fmt.Errorf("启动应用生命周期失败: %w", err)
+		// stopCtx、stopCancel 关闭已绑定但尚未 Serve 的监听器，避免启动失败后端口泄漏。
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer stopCancel()
+		return errors.Join(fmt.Errorf("启动应用生命周期失败: %w", err), runtime.httpServer.Stop(stopCtx))
 	}
 	// err 表示 HTTP 服务监听启动失败；失败后必须关闭已启动的应用组件。
 	if err := runtime.httpServer.Start(ctx); err != nil {
@@ -692,16 +719,11 @@ func loadOrCreateDataKey(path string) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("data key 文件路径不能为空")
 	}
-	// raw、err 分别是既有密钥文件的内容及读取失败原因。
-	if raw, err := os.ReadFile(path); err == nil {
-		// key 是去除首尾空白后的现有数据加密主密钥，禁止记录到日志。
-		key := strings.TrimSpace(string(raw))
-		if key == "" {
-			return "", fmt.Errorf("data key 文件为空: %s", path)
-		}
+	// key、readErr 分别是已存在密钥文件的内容及读取错误；已有文件永远优先于本次生成。
+	if key, readErr := readDataKey(path); readErr == nil {
 		return key, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("读取 data key 文件失败: %w", err)
+	} else if !errors.Is(readErr, os.ErrNotExist) {
+		return "", readErr
 	}
 
 	// err 表示创建数据加密主密钥父目录失败。
@@ -716,11 +738,83 @@ func loadOrCreateDataKey(path string) (string, error) {
 	}
 	// key 是待写入权限为 0600 文件的数据加密主密钥，禁止记录到日志。
 	key := base64.RawStdEncoding.EncodeToString(raw)
-	// err 表示原子性不足的首次密钥文件写入失败，调用方必须终止启动。
-	if err := os.WriteFile(path, []byte(key+"\n"), 0o600); err != nil {
-		return "", fmt.Errorf("写入 data key 文件失败: %w", err)
+	// file、createErr 分别是以排他方式创建的密钥文件及创建错误；同一时刻只能有一个进程成为写入者。
+	file, createErr := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(createErr, os.ErrExist) {
+		return waitForDataKey(path)
+	}
+	if createErr != nil {
+		return "", fmt.Errorf("创建 data key 文件失败: %w", createErr)
+	}
+	// writeErr 表示新密钥写入错误；失败时删除当前进程独占创建的文件，避免遗留不可恢复的空文件。
+	if _, writeErr := io.WriteString(file, key+"\n"); writeErr != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return "", fmt.Errorf("写入 data key 文件失败: %w", writeErr)
+	}
+	// syncErr 表示密钥内容持久化到文件系统前发生的同步错误；不能在未落盘时继续启动。
+	if syncErr := file.Sync(); syncErr != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return "", fmt.Errorf("同步 data key 文件失败: %w", syncErr)
+	}
+	// closeErr 表示关闭新建密钥文件时产生的错误；关闭失败同样视为密钥未可靠创建。
+	if closeErr := file.Close(); closeErr != nil {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("关闭 data key 文件失败: %w", closeErr)
 	}
 	return key, nil
+}
+
+// readDataKey 读取并校验已有的数据加密主密钥；返回错误时绝不输出密钥内容。
+func readDataKey(path string) (string, error) {
+	// raw、readErr 分别是文件原始内容及读取失败原因。
+	raw, readErr := os.ReadFile(path)
+	if readErr != nil {
+		if errors.Is(readErr, os.ErrNotExist) {
+			return "", os.ErrNotExist
+		}
+		return "", fmt.Errorf("读取 data key 文件失败: %w", readErr)
+	}
+	// key 是去除文件末尾换行后的数据加密主密钥，禁止记录到日志。
+	key := strings.TrimSpace(string(raw))
+	if key == "" {
+		return "", fmt.Errorf("data key 文件为空: %s", path)
+	}
+	return key, nil
+}
+
+// waitForDataKey 等待并读取由并发启动进程创建的密钥文件，不会生成或覆盖另一把密钥。
+func waitForDataKey(path string) (string, error) {
+	// attempt 是读取竞争方写入结果的有限尝试次数，避免空文件永久阻塞启动。
+	for attempt := 0; attempt < 20; attempt++ {
+		// key、readErr 分别是当前尝试读到的密钥及读取错误。
+		key, readErr := readDataKey(path)
+		if readErr == nil {
+			return key, nil
+		}
+		if !strings.Contains(readErr.Error(), "文件为空") && !errors.Is(readErr, os.ErrNotExist) {
+			return "", readErr
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return "", fmt.Errorf("等待并发创建 data key 文件超时: %s", path)
+}
+
+// isNonLoopbackListenAddress 判断监听地址是否可能接收本机以外的连接；空 host 与通配地址均视为远程可达。
+func isNonLoopbackListenAddress(address string) bool {
+	// host、port、splitErr 分别是监听地址的主机部分、端口部分和解析错误。
+	host, _, splitErr := net.SplitHostPort(strings.TrimSpace(address))
+	if splitErr != nil {
+		return true
+	}
+	host = strings.TrimSpace(host)
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return host == ""
+	}
+	// ip 是可直接判断 loopback 属性的 IP 地址；主机名按远程可达处理，避免漏报部署风险。
+	ip := net.ParseIP(host)
+	return ip == nil || !ip.IsLoopback()
 }
 
 // ensureAdmin 封装ensureAdmin业务协调。

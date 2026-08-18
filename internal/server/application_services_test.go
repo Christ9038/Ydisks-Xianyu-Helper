@@ -26,13 +26,13 @@ func TestNewServerAssemblesApplicationServices(t *testing.T) {
 	}
 }
 
-// TestApplicationLifecycleComponentsExposeWorkerOwnership 验证 Server 只暴露应用 worker 生命周期端口，不再提供启动入口。
-func TestApplicationLifecycleComponentsExposeWorkerOwnership(t *testing.T) {
+// TestApplicationServicesExposeWorkerOwnership 验证应用服务集合暴露只读 worker 生命周期端口，不让 Server 反向返还组件。
+func TestApplicationServicesExposeWorkerOwnership(t *testing.T) {
 	// srv、cleanup 保存带完整应用服务装配的测试 Server 及其资源清理函数。
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	// components 保存交给进程生命周期协调器登记的应用 worker 组件。
-	components := srv.ApplicationLifecycleComponents()
+	components := srv.ApplicationServices().LifecycleComponents()
 	if len(components) != 3 {
 		t.Fatalf("应用生命周期组件数量=%d，期望=3", len(components))
 	}

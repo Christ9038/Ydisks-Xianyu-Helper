@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -228,6 +229,113 @@ func TestLoadOrCreateDataKeyPersists(t *testing.T) {
 	if // raw、err 用于本次流程后续判断的raw、err
 	raw, err := os.ReadFile(path); err != nil || string(raw) == "" {
 		t.Fatalf("data key file was not written: err=%v", err)
+	}
+}
+
+// TestLoadOrCreateDataKeyConcurrentCreation 验证并发首次启动只能观测到同一把持久化主密钥。
+func TestLoadOrCreateDataKeyConcurrentCreation(t *testing.T) {
+	// path 是所有并发启动模拟共享的、尚不存在的数据密钥文件路径。
+	path := filepath.Join(t.TempDir(), "concurrent-data-key")
+	// workerCount 是并发调用数量，足以覆盖多个 goroutine 同时通过不存在检查的竞争窗口。
+	const workerCount = 32
+	// start 统一放行所有调用，避免调度器提前串行化创建过程。
+	start := make(chan struct{})
+	// keys 收集每个调用成功读取或创建到的密钥，禁止将密钥写入测试失败输出。
+	keys := make(chan string, workerCount)
+	// failures 收集并发创建过程中发生的错误，以便主 goroutine 统一断言。
+	failures := make(chan error, workerCount)
+	// workers 等待全部并发调用结束，避免测试提前读取未完成文件。
+	var workers sync.WaitGroup
+	// workerIndex 为每个并发调用分配稳定的启动序号，循环体本身不依赖其数值。
+	for workerIndex := 0; workerIndex < workerCount; workerIndex++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			// key、keyErr 分别是当前调用读取或创建到的主密钥及错误。
+			key, keyErr := loadOrCreateDataKey(path)
+			if keyErr != nil {
+				failures <- keyErr
+				return
+			}
+			keys <- key
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(keys)
+	close(failures)
+	// failure 是任一并发创建协程返回的错误，仅用于统一失败报告。
+	for failure := range failures {
+		t.Fatalf("并发创建 data key 失败: %v", failure)
+	}
+	// firstKey 是所有并发调用必须一致的首个密钥值，仅用于相等性比较。
+	var firstKey string
+	// key 是单个并发调用观测到的密钥，仅参与同值比较且不输出明文。
+	for key := range keys {
+		if firstKey == "" {
+			firstKey = key
+			continue
+		}
+		if key != firstKey {
+			t.Fatal("并发创建返回了不一致的数据密钥")
+		}
+	}
+	if firstKey == "" {
+		t.Fatal("并发创建没有返回数据密钥")
+	}
+	// persistedKey、readErr 分别是最终文件中的密钥及读取错误。
+	persistedKey, readErr := readDataKey(path)
+	if readErr != nil {
+		t.Fatalf("读取并发创建后的 data key 失败: %v", readErr)
+	}
+	if persistedKey != firstKey {
+		t.Fatal("持久化 data key 与并发调用返回值不一致")
+	}
+}
+
+// TestLoadOrCreateDataKeyRejectsEmptyExistingFile 验证遗留空密钥文件不会被静默覆盖或替换。
+func TestLoadOrCreateDataKeyRejectsEmptyExistingFile(t *testing.T) {
+	// path 是预先创建为空内容的密钥文件路径，模拟异常进程留下的不完整状态。
+	path := filepath.Join(t.TempDir(), "empty-data-key")
+	// writeErr 是构造异常空密钥文件时的写入错误。
+	if writeErr := os.WriteFile(path, nil, 0o600); writeErr != nil {
+		t.Fatalf("创建空 data key 文件失败: %v", writeErr)
+	}
+	// keyErr 是读取空密钥文件时必须返回的阻断错误。
+	_, keyErr := loadOrCreateDataKey(path)
+	if keyErr == nil {
+		t.Fatal("空 data key 文件不应被静默替换")
+	}
+}
+
+// TestIsNonLoopbackListenAddress 验证远程可达监听地址会触发未初始化部署风险告警。
+func TestIsNonLoopbackListenAddress(t *testing.T) {
+	// cases 覆盖 loopback、通配地址和主机名监听的风险分类。
+	cases := []struct {
+		// name 是当前地址分类场景的稳定测试名称。
+		name string
+		// address 是传给服务端监听器的地址字符串。
+		address string
+		// want 是该地址是否可能接收远程客户端连接。
+		want bool
+	}{
+		{name: "loopback IPv4", address: "127.0.0.1:59188", want: false},
+		{name: "loopback IPv6", address: "[::1]:59188", want: false},
+		{name: "all interfaces", address: ":59188", want: true},
+		{name: "public interface", address: "0.0.0.0:59188", want: true},
+		{name: "hostname", address: "host.example:59188", want: true},
+	}
+	// testCase 是当前待执行的监听地址分类。
+	for _, testCase := range cases {
+		// testCase 是当前待执行的监听地址分类。
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			// got 是地址是否可能接受远程连接的实际判断结果。
+			if got := isNonLoopbackListenAddress(testCase.address); got != testCase.want {
+				t.Fatalf("地址 %q 远程可达=%t，want %t", testCase.address, got, testCase.want)
+			}
+		})
 	}
 }
 

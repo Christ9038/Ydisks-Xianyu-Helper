@@ -219,6 +219,32 @@ func TestNewRejectsMissingRequiredDependencies(t *testing.T) {
 	}
 }
 
+// TestNewWithDependenciesAcceptsPrebuiltApplicationSet 验证新组合根入口只接收已经装配完成的应用服务集合。
+func TestNewWithDependenciesAcceptsPrebuiltApplicationSet(t *testing.T) {
+	// source、cleanup 提供一个由兼容测试装配器构造完成的完整服务集合。
+	source, _, cleanup := newTestServer(t)
+	defer cleanup()
+	// dependencies 将已有构造结果转换为不可变 Server 依赖快照。
+	dependencies := Dependencies{
+		Auth: source.Auth, Manager: source.Manager, WebDir: source.WebDir, Addr: source.Addr, Logger: source.Logger,
+		Automation: source.automation, Notifier: source.notifier, Chat: source.chat,
+		OrderDependencies: source.orderDependencies.(*adapter.OrderDependencies), AccountDependencies: source.accountDependencies.(*adapter.AccountDependencies),
+		ItemDependencies: source.itemDependencies.(*adapter.ItemDependencies), ChatDependencies: source.chatDependencies,
+		AutomationDependencies: source.automationDependencies, TransportApplications: source.transportApplications,
+		PlatformDependencies: source.platformDependencies, DatabaseHealth: source.databaseHealth,
+		OrderReconciliationRecovery: source.orderReconciliationRecovery, Applications: source.applications,
+		ApplicationLifecycle: source.applicationLifecycle,
+	}
+	// serverInstance、constructErr 保存纯注入入口的构造结果。
+	serverInstance, constructErr := NewWithDependencies(dependencies)
+	if constructErr != nil {
+		t.Fatalf("NewWithDependencies: %v", constructErr)
+	}
+	if serverInstance == nil || serverInstance.applications == nil || serverInstance.applications.orders != source.applications.orders {
+		t.Fatal("新组合根入口未保留预构造应用服务集合")
+	}
+}
+
 // TestServerStartStopIsIdempotentAndWaitsForWorkers 验证 Start/Stop 可重复调用且 Stop 等待 worker。
 func TestServerStartStopIsIdempotentAndWaitsForWorkers(t *testing.T) {
 	// srv 是待验证幂等生命周期的 HTTP 服务；cleanup 负责释放测试资源。
@@ -257,6 +283,50 @@ func TestServerStartStopIsIdempotentAndWaitsForWorkers(t *testing.T) {
 	if err := srv.Stop(context.Background()); err != nil {
 		t.Fatalf("重复 Stop: %v", err)
 	}
+}
+
+// TestServerBindReportsOccupiedPort 验证端口冲突在应用 worker 启动前由同步 Bind 返回。
+func TestServerBindReportsOccupiedPort(t *testing.T) {
+	// occupied、listenErr 分别是故意占用的本机监听器及创建错误。
+	occupied, listenErr := net.Listen("tcp", "127.0.0.1:0")
+	if listenErr != nil {
+		t.Fatalf("占用测试端口失败: %v", listenErr)
+	}
+	defer occupied.Close()
+	// srv、cleanup 分别是待绑定的 HTTP Server 及测试资源释放函数。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.Addr = occupied.Addr().String()
+	// bindErr 是与已占用端口冲突时必须同步返回的绑定错误。
+	bindErr := srv.Bind()
+	if bindErr == nil {
+		t.Fatal("已占用端口的 Bind 应同步返回错误")
+	}
+	if srv.started {
+		t.Fatal("绑定失败不能把 HTTP 服务标记为已启动")
+	}
+}
+
+// TestServerStopReleasesBoundListener 验证应用启动失败回滚可关闭已绑定但尚未 Serve 的端口。
+func TestServerStopReleasesBoundListener(t *testing.T) {
+	// srv、cleanup 分别是待测试的 HTTP Server 及测试资源释放函数。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	srv.Addr = freeAddr(t)
+	// bindErr 是为启动失败回滚预绑定监听器时的错误。
+	if bindErr := srv.Bind(); bindErr != nil {
+		t.Fatalf("Bind: %v", bindErr)
+	}
+	// stopErr 是关闭尚未进入 Serve 的监听器时的错误。
+	if stopErr := srv.Stop(context.Background()); stopErr != nil {
+		t.Fatalf("停止已绑定监听器失败: %v", stopErr)
+	}
+	// replacement、listenErr 分别验证同一地址已经由 Stop 释放的监听器及创建错误。
+	replacement, listenErr := net.Listen("tcp", srv.Addr)
+	if listenErr != nil {
+		t.Fatalf("停止后端口未释放: %v", listenErr)
+	}
+	defer replacement.Close()
 }
 
 // TestServerStopContextBoundsWorkerWait 验证关闭上下文到期时不会无限等待后台 worker。

@@ -1,3 +1,5 @@
+import type { ApiErrorResponse } from '../api-contract';
+
 type RequestMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
 type QueryParams = Record<string, string | number | boolean | undefined | null>;
@@ -24,6 +26,31 @@ const defaultRequestTimeoutMs = 30_000; /* defaultRequestTimeoutMs 表示default
 const uploadRequestTimeoutMs = 10 * 60_000; /* uploadRequestTimeoutMs 表示upload接口请求对象TimeoutMs。 */
 
 let authLogoutPending = false; /* authLogoutPending 表示authLogoutPending。 */
+
+// ApiError 保留服务端统一错误 envelope，调用方可按稳定错误码决定重试、冲突提示或人工核对流程。
+export class ApiError extends Error {
+  // status 是产生错误的 HTTP 状态码，供调用方区分授权、冲突和服务端失败。
+  readonly status: number;
+  // code 是服务端稳定机器错误码；非结构化响应退化为 http_<status>。
+  readonly code: string;
+  // requestId 是服务端请求追踪标识，用户反馈问题时可安全提供给运维。
+  readonly requestId?: string;
+  // details 是服务端提供的结构化恢复或审计信息，不包含客户端主动拼接的兼容字段。
+  readonly details?: Record<string, unknown>;
+  // payload 是保留给既有上传流程和诊断代码的原始响应载荷。
+  readonly payload: unknown;
+
+  // constructor 根据 HTTP 响应和统一错误载荷构造可被所有请求路径复用的异常实例。
+  constructor(status: number, payload: unknown) {
+    super(errorMessageFromPayload(payload, status));
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = isApiErrorResponse(payload) ? payload.code : `http_${status}`;
+    this.requestId = isApiErrorResponse(payload) ? payload.request_id : undefined;
+    this.details = isApiErrorResponse(payload) ? payload.details : undefined;
+    this.payload = payload;
+  }
+}
 
 const notifyAuthExpired = () => {
   if (authLogoutPending || typeof window === 'undefined') return;
@@ -76,9 +103,8 @@ const request = async <T>(method: RequestMethod, url: string, options: RequestOp
   if (!res.ok) {
     if (res.status === 401 && !options.skipAuthLogout) notifyAuthExpired();
     // payload 是后端统一错误 DTO 或非 JSON 错误文本。
-    const payload = isJson ? await res.json().catch(() => undefined /* 错误响应 JSON 无法解析时交由状态码兜底。 */) : await res.text().catch(() => undefined /* 错误响应文本无法读取时交由状态码兜底。 */);
-    const message = errorMessageFromPayload(payload, res.status); // message 是统一错误 DTO 提取出的用户可见说明。
-    throw new Error(message);
+    const payload = await readResponsePayload(res, isJson);
+    throw new ApiError(res.status, payload);
   }
 
   if (!isJson) {
@@ -115,14 +141,11 @@ export const postForm = async <T>(url: string, body: FormData, options: RequestC
 
   const contentType = res.headers.get('content-type') || ''; /* contentType 表示contentType。 */
   const isJson = contentType.includes('application/json'); /* isJson 表示isJson。 */
-  const payload = isJson ? await res.json().catch(() => undefined /* 上传错误 JSON 无法解析时交由状态码兜底。 */) : await res.text().catch(() => undefined /* 上传错误文本无法读取时交由状态码兜底。 */); /* payload 是上传接口返回的错误载荷，仅用于构造异常。 */
+  const payload = await readResponsePayload(res, isJson); /* payload 是上传接口返回的成功或错误载荷。 */
 
   if (!res.ok) {
     if (res.status === 401) notifyAuthExpired();
-    const message = errorMessageFromPayload(payload, res.status); // message 是上传失败时统一错误 DTO 提取出的说明。
-    const err = new Error(message) as Error & { /* payload 表示payload。 */ payload?: unknown }; /* err 表示当前操作返回的错误。 */
-    err.payload = payload;
-    throw err;
+    throw new ApiError(res.status, payload);
   }
 
   return payload as T;
@@ -143,6 +166,13 @@ const controlledSignal = (external: AbortSignal | undefined, timeoutMs: number) 
 	};
 }; /* controlledSignal 表示controlledSignal。 */
 
+// readResponsePayload 按响应类型读取一次响应体；解析失败返回 undefined，由 ApiError 生成稳定回退信息。
+const readResponsePayload = async (response: Response, isJson: boolean): Promise<unknown> => (
+  isJson
+    ? response.json().catch(() => undefined /* 错误响应 JSON 无法解析时交由状态码兜底。 */)
+    : response.text().catch(() => undefined /* 错误响应文本无法读取时交由状态码兜底。 */)
+);
+
 /** 判断响应体是否符合统一 HTTP 错误 DTO。 */
 const isApiErrorResponse = (payload: unknown): payload is ApiErrorResponse => {
   if (typeof payload !== 'object' || payload === null) return false;
@@ -157,5 +187,3 @@ const errorMessageFromPayload = (payload: unknown, status: number): string => {
   if (isApiErrorResponse(payload)) return payload.message;
   return `请求失败: ${status}`;
 };
-
-import type { ApiErrorResponse } from '../api-contract';

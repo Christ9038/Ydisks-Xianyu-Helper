@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { del, get, post, postForm, put } from './client';
+import { ApiError, del, get, post, postForm, put } from './client';
 
 afterEach(() => vi.unstubAllGlobals() /* 清理测试安装的全局网络替身，避免跨用例泄漏。 */);
 
@@ -48,11 +48,19 @@ describe('request helpers', () => {
   } /* 测试回调验证：支持 PUT 和 DELETE 请求及查询参数。 */);
 
   test('surfaces unified backend errors', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: 'bad_request', message: 'bad request' }), {
+    // payload 是服务端返回的统一错误 envelope，包含调用方恢复流程需要的追踪和细节字段。
+    const payload = { code: 'bad_request', message: 'bad request', request_id: 'req-1', details: { field: 'title' } };
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(/* responseFactory 为每次断言提供未被消费的独立错误响应。 */ () => Promise.resolve(new Response(JSON.stringify(payload), {
       status: 400,
       headers: { 'content-type': 'application/json' },
-    })));
+    }))));
     await expect(get('/bad')).rejects.toThrow('bad request');
+    try {
+      await get('/bad');
+    } catch (error /* error 是普通 JSON 请求必须保留结构化 envelope 的异常。 */) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({ status: 400, code: 'bad_request', requestId: 'req-1', details: { field: 'title' }, payload });
+    }
   } /* 测试回调验证：surfaces unified backend errors。 */);
 
   test('使用非 JSON 错误文本作为失败消息', async () => {

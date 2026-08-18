@@ -1,8 +1,36 @@
 # 重构阶段验收记录
 
-本文件只记录阶段整体的验收证据、更新日志和阶段边界。每个阶段对应一个 PR；阶段内并行实现不形成独立任务、独立验收或额外 PR。
+本文件只记录阶段整体的验收证据、更新日志和阶段边界。阶段是唯一交付和评审单位；同一阶段可以
+同时修改多个 Go 包、前端 feature、测试、架构门禁和文档。阶段中的本地工作区可暂时不可编译，只有
+最终阶段提交必须可编译、可启动、可测试，并附上完整命令输出和覆盖率证据。
 
-当前复核结论：阶段 5 已完成。账号重启取消语义、Server 构造错误、独立关闭预算、应用服务组合根迁移、外部调用取消/超时和最终 Join 均已有实现与验证证据。阶段 7 与阶段 9 的原完成声明暂不作为最终验收依据，按当前路线保持待执行。
+当前复核结论：阶段 0–3 保持完成，阶段 4 是当前迭代，阶段 5–10 均待执行。此前关于 Server
+组合根迁移、生命周期迁移、React Feature 化和 DB 治理的“已完成”证据已撤销为重新验收输入，不能
+关闭任何阶段。后续 agent 不得把阶段拆成多个独立交付任务；可使用临时本地提交，但最终只合并阶段级提交。
+
+## 阶段 4：治理与计划修正
+
+状态：当前迭代，尚未产生最终阶段提交。
+
+目标与执行指导：在同一阶段完成数据密钥原子创建、HTTP 同步 Bind/启动回滚、非 loopback 未初始化
+高等级无秘密告警、`notifier_test.go` 的 SA1012 修复、远程首次初始化风险文档，以及 Server 组合根迁移。
+组合根必须在 `cmd/server` 和 `internal/adapter` 构造全部应用服务、runner、coordinator 与生命周期组件；
+`internal/server` 只接收不可变的 `ApplicationServices` 和 `Dependencies`，保留 DTO/路由/错误映射，删除
+业务服务和 worker 工厂、`ApplicationLifecycleComponents()`、manager/notifier/automation/platform/DB 生产持有。
+
+完成证据：仅接受最终阶段提交绑定的完整命令输出；当前阶段仍在执行，以下命令是最终门禁：
+
+```text
+go test ./cmd/server ./internal/server ./internal/notify -count=1
+go test -race ./cmd/server ./internal/server ./internal/notify -count=1
+go test ./internal/application/... ./internal/adapter ./internal/server -count=1
+go test -race ./internal/application/... ./internal/adapter ./internal/server -count=1
+go vet ./...
+make lint
+make comments
+go run ./tools/architecturecheck
+git diff --check
+```
 
 ## 阶段 3：HTTP API 契约
 
@@ -12,7 +40,7 @@
 
 ## 阶段 4：Server 应用服务
 
-状态：已完成；对应一个阶段 4 PR 边界。
+状态：已撤销，内容仅作为当前阶段的历史输入，不构成完成证据。
 
 完成证据：
 
@@ -44,7 +72,7 @@ git diff --check
 
 ## 阶段 5：应用装配与生命周期
 
-状态：已完成；对应一个阶段 5 PR 边界。原阶段 5 验收声明已按组合根、关闭预算和 Join 复核结果重新确认。
+状态：待执行；原完成声明撤销，内容仅作为重新验收输入。
 
 当前切片证据（不代表阶段完成）：
 
@@ -86,7 +114,7 @@ git diff --check
 
 覆盖率证据：`make cover` 运行且 Go statements 为 66.0%；`make cover-frontend` 运行且 Frontend V8 statements 为 79.44%；`make cover-browser` 已以 `RUN_BROWSER_INTEGRATION=1` 运行，本地 Chromium Browser statements 为 63.5%。未使用真实账号或外部平台；覆盖率中的未覆盖 UI 页面和外部平台路径仍按既有分类保留，不以豁免替代业务 Hook、状态转换、取消或生命周期测试。
 
-下一安全入口：阶段 7「React Feature 化」。仅处理 `app -> features -> shared`、feature API adapter、状态归属与路由加载；不得回退阶段 5 的组合根、Context、关闭预算或可重试 Join 边界。
+下一安全入口：阶段 4 的组合根迁移完成并取得最终阶段级证据后，才进入阶段 5 生命周期、Engine 与 Automation 重新验收。
 
 ## 更新日志
 
@@ -96,11 +124,12 @@ git diff --check
 - 2026-08-18：将数据库健康检查端口迁至进程组合根，删除 Server 对系统依赖组的构造职责，并补充缺失端口与架构回流测试。
 - 2026-08-18：将设置、管理员、账号任务、通知、分析、自动化规则/异常、卡券、发布后规则、默认回复和关键词服务迁至显式 transport 应用服务集合，补充组合根构造与缺失依赖测试；阶段 5 仍保持当前迭代。
 - 2026-08-18：完成通知、SMTP、MTOP、QR 登录、续期、WebSocket 和浏览器外部调用取消/超时审计；记录浏览器同步 Playwright 停止的不可中断约束、通知/自动化 nil Context 防御缺口和最终 Join 验收入口，阶段 5 仍保持当前迭代。
-- 2026-08-18：完成最终 Join 收口；协调器关闭超时后保留未完成组件并支持更长 Context 重试，并发关闭返回本轮固定错误；通知与自动化 nil Context 拒绝启动。阶段 5 验收完成，下一安全入口转为阶段 7。
+- 2026-08-18：完成最终 Join 收口；协调器关闭超时后保留未完成组件并支持更长 Context 重试，并发关闭返回本轮固定错误；通知与自动化 nil Context 拒绝启动。该记录仅作为重新验收输入。
+- 2026-08-18：按阶段级交付规则重置状态：阶段 4 设为当前迭代，阶段 5–10 设为待执行；历史局部证据不再代替最终阶段提交和完整命令输出。
 
-## 阶段 6：Engine 与 Automation
+### 阶段 5 的 Engine 与 Automation 历史输入
 
-状态：已完成；对应一个阶段 6 PR 边界。阶段内并行实现不形成独立任务、独立验收或额外 PR。
+状态：待执行；原完成声明撤销，内容仅作为重新验收输入。
 
 完成证据：
 
@@ -113,7 +142,7 @@ git diff --check
 - 自动化外部动作在运行检查点后执行，保留成功、失败和 `needs_review` 三态。结果通知以 `runID + status` 作为持久化 outbox 幂等键，重复恢复不会重复入队；外部投递成功但本地确认失败的 `uncertain` 记录不会自动重放。SQLite、MySQL、PostgreSQL 的 `00034` 通知幂等迁移已对齐。
 - 冻结 CAPTCHA 受保护文件未改动；浏览器集成和全部冻结行为测试通过。
 
-下一安全入口：阶段 7「React Feature 化」。仅处理 `app -> features -> shared`、feature API adapter、状态归属与路由加载，不回退阶段 6 的 Engine、Automation、凭证、通知或并发边界。
+下一安全入口：阶段 5 完整重新验收后，再进入阶段 6 React Feature 化和异步状态修复。
 
 当前统一验证证据：
 
@@ -136,9 +165,9 @@ make cover-frontend                                                             
 
 - 2026-08-17：完成阶段 6 整体 Engine 与 Automation 改造，统一收束 facade、凭证和 worker 生命周期、锁外外部 I/O、运行检查点及通知幂等/不确定态，并通过阶段 6 全部门禁。
 
-## 阶段 7：React Feature 化
+## 阶段 6：React Feature 化与异步状态
 
-状态：当前迭代；原阶段 7 验收声明因商品批量流程的取消与旧响应隔离不完整而暂不关闭。
+状态：待执行；原完成声明撤销，内容仅作为重新验收输入。
 
 完成证据：
 
@@ -165,7 +194,7 @@ make check                                         # 通过
 
 覆盖率例外：纯 React 页面、展示组件与错误边界在本阶段的 V8 报告中存在未覆盖行；所有新改动的业务 API、Hook、状态、取消、切换和乱序行为均由确定性 Vitest 覆盖。无真实账号或外部平台调用。
 
-下一安全入口：阶段 8「DB 与事务治理」，仅处理窄 repository、应用层 Unit of Work、批量与三方言事务验收；不得回退阶段 7 的 feature 边界、共享 HTTP 或路由加载约束。
+下一安全入口：阶段 6 完成后进入阶段 7 DB 与事务治理；阶段 7 完成后依次进入阶段 8 架构门禁与兼容退场、阶段 9 注释与复杂度收口和阶段 10 最终全栈复验。
 
 更新日志：
 

@@ -22,10 +22,11 @@ describe('ItemList batch state',
     expect(canStartBatch(null)).toBe(false);
     });
 
-  // 运行中和安全取消中的任务都必须继续轮询远端结果。
-  test('keeps polling running and canceling tasks',
-    // 轮询场景回调验证运行和取消中的任务状态。
+  // 等待、运行中和安全取消中的任务都必须继续轮询远端结果。
+  test('keeps polling pending, running and canceling tasks',
+    // 轮询场景回调验证等待、运行和取消中的任务状态。
     () => {
+    expect(isBatchInProgress('pending')).toBe(true);
     expect(isBatchInProgress('running')).toBe(true);
     expect(isBatchInProgress('canceling')).toBe(true);
     expect(isBatchInProgress('completed')).toBe(false);
