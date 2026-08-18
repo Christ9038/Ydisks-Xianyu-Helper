@@ -49,7 +49,7 @@ func (s *blockingAutomationSender) SendText(context.Context, string, string, str
 }
 
 // SendImage 满足消息发送接口；数据卡测试不会调用图片发送。
-func (s *blockingAutomationSender) SendImage(context.Context, string, string, string, int64) error {
+func (s *blockingAutomationSender) SendImage(context.Context, string, string, string, int64, int, int) error {
 	return nil
 }
 

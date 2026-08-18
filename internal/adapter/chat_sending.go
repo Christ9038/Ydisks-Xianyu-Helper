@@ -132,11 +132,11 @@ func (s chatSender) SendText(ctx context.Context, chatID, toUserID, text, messag
 }
 
 // SendImage 发送图片并将应用层幂等键传递给运行时接口。
-func (s chatSender) SendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64, messageKey string) error {
+func (s chatSender) SendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64, width, height int, messageKey string) error {
 	if s.sender == nil {
 		return chatapp.ErrUnavailable
 	}
-	return s.sender.SendImage(engine.WithOutgoingMessageKey(ctx, messageKey), chatID, toUserID, imageURL, cardID)
+	return s.sender.SendImage(engine.WithOutgoingMessageKey(ctx, messageKey), chatID, toUserID, imageURL, cardID, width, height)
 }
 
 // chatCredentialRepository 将 Cookie 读取与写回限制在平台适配器内。
@@ -216,7 +216,7 @@ func (u chatImageUploader) UploadChatImage(ctx context.Context, accountID, filen
 			}
 		}
 	}
-	return chatapp.ImageUpload{URL: upload.URL}, nil
+	return chatapp.ImageUpload{URL: upload.URL, Width: upload.Width, Height: upload.Height}, nil
 }
 
 // 编译期确认聊天实时适配器覆盖应用层定义的全部能力。

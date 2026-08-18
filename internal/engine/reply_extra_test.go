@@ -63,7 +63,7 @@ func (r *recordingSender) SendText(_ context.Context, chatID, toUserID, text str
 }
 
 // SendImage 封装Send图片业务协调。
-func (r *recordingSender) SendImage(_ context.Context, chatID, toUserID, url string, cardID int64) error {
+func (r *recordingSender) SendImage(_ context.Context, chatID, toUserID, url string, cardID int64, _, _ int) error {
 	if r.imageErr != nil {
 		return r.imageErr
 	}

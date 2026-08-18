@@ -266,5 +266,19 @@ func TestChatImageUploaderRejectsUnsupportedAndEmptyPlatformResults(t *testing.T
 	}
 }
 
+// TestChatImageUploaderPreservesPlatformDimensions 验证图片尺寸从 MTOP 结果映射到应用端口且不被丢弃。
+func TestChatImageUploaderPreservesPlatformDimensions(t *testing.T) {
+	// store、cleanup 保存包含测试账号凭证的临时数据库及清理函数。
+	store, cleanup := newAdapterTestStore(t)
+	defer cleanup()
+	// client 返回带真实像素尺寸的平台上传结果。
+	client := fakeChatUploadClient{upload: &mtop.ChatImageUpload{URL: "https://cdn.example/image.jpg", Width: 1920, Height: 1080}}
+	// upload 保存应用适配器转换后的非敏感图片结果。
+	upload, err := NewChatImageUploader(store, func() mtop.Client { return client }, nil).UploadChatImage(context.Background(), "cid", "a.jpg", "image/jpeg", []byte("image"))
+	if err != nil || upload.URL == "" || upload.Width != 1920 || upload.Height != 1080 {
+		t.Fatalf("upload=%+v err=%v", upload, err)
+	}
+}
+
 var _ chatapp.SessionRepository = chatRepository{}
 var _ chatapp.IdentityResolver = chatIdentityResolver{}

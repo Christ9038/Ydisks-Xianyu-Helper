@@ -76,6 +76,9 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     vi.stubGlobal('WebSocket', websocketFactory);
     // localStorageStub 是聊天 Hook 记忆账号选择所需的浏览器存储替身。
     Object.defineProperty(window, 'localStorage', { configurable: true, value: { getItem: vi.fn().mockReturnValue(''), setItem: vi.fn(), removeItem: vi.fn() } });
+    // createObjectURLMock 和 revokeObjectURLMock 模拟浏览器图片预览地址的创建与释放。
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(/* 当前回调为测试图片生成稳定的临时地址。 */ (file: File) => `blob:${file.name}`) });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
   });
 
   test('加载账号、会话和消息后可以发送文字与图片', /* 当前回调验证聊天 Hook 成功加载和发送路径。 */ async () => {
@@ -123,6 +126,11 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
       // imageAction 提交图片消息。
       async () => hook.result.current.handleImage(new File(['image'], 'image.png', { type: 'image/png' })),
     );
+    expect(hook.result.current.pendingImage?.url).toBe('blob:image.png');
+    await act(
+      // confirmImageAction 确认预览后提交图片消息。
+      async () => hook.result.current.confirmSendImage(),
+    );
     expect(sendImageMock).toHaveBeenCalledWith(expect.objectContaining({ chat_id: 'chat-1', image: expect.any(File) }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
     // imageInput 是图片发送成功后需要清空的输入框替身。
     const imageInput = { value: 'selected-file' } as HTMLInputElement;
@@ -130,6 +138,10 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     await act(
       // secondImageAction 再次发送图片以验证输入框清理。
       async () => hook.result.current.handleImage(new File(['image'], 'second.png', { type: 'image/png' })),
+    );
+    await act(
+      // confirmSecondImageAction 确认第二张图片并验证发送后的输入清理。
+      async () => hook.result.current.confirmSendImage(),
     );
     expect(imageInput.value).toBe('');
     await act(
@@ -335,6 +347,10 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
       // imageErrorAction 触发图片发送错误。
       async () => hook.result.current.handleImage(new File(['image'], 'error.png', { type: 'image/png' })),
     );
+    await act(
+      // confirmImageErrorAction 确认预览并进入图片发送错误分支。
+      async () => hook.result.current.confirmSendImage(),
+    );
     expect(hook.result.current.error).toBe('图片发送失败');
     expect(hook.result.current.retryAvailable).toBe(true);
     sendImageMock.mockResolvedValueOnce({ message: sentMessageFixture });
@@ -358,6 +374,59 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
       () => expect(hook.result.current.loading).toBe(false),
     );
     expect(hook.result.current.error).toBe('聊天初始化失败');
+    hook.unmount();
+  });
+
+  test('图片预览取消和卸载都会释放临时对象地址', /* 当前回调验证图片预览资源不会跨会话泄漏。 */ async () => {
+    // hook 是图片预览资源生命周期测试使用的聊天 Hook。
+    const hook = renderHook(
+      // chatHookFactory 创建图片预览测试 Hook。
+      () => useChat(),
+    );
+    await waitFor(
+      // loadingAssertion 等待图片预览测试完成初始加载。
+      () => expect(hook.result.current.activeChatID).toBe('chat-1'),
+    );
+    await act(
+      // previewAction 创建第一张图片预览。
+      async () => hook.result.current.handleImage(new File(['image'], 'cancel.png', { type: 'image/png' })),
+    );
+    await act(
+      // closeAction 取消预览并释放第一张图片地址。
+      () => hook.result.current.closeImagePreview(),
+    );
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:cancel.png');
+    await act(
+      // secondPreviewAction 通过剪贴板入口创建第二张图片预览。
+      async () => hook.result.current.handlePastedImages([new File(['image'], 'unmount.png', { type: 'image/png' })]),
+    );
+    hook.unmount();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:unmount.png');
+  });
+
+  test('切换会话会使旧图片预览失效', /* 当前回调验证旧会话图片不能误发到新会话。 */ async () => {
+    // hook 是会话切换预览隔离测试使用的聊天 Hook。
+    const hook = renderHook(
+      // chatHookFactory 创建会话切换测试 Hook。
+      () => useChat(),
+    );
+    await waitFor(
+      // chatAssertion 等待默认会话准备完成。
+      () => expect(hook.result.current.activeChatID).toBe('chat-1'),
+    );
+    await act(
+      // previewAction 在原会话创建图片预览。
+      async () => hook.result.current.handleImage(new File(['image'], 'switch.png', { type: 'image/png' })),
+    );
+    await act(
+      // switchAction 切换到另一个会话，使原预览不可再发送。
+      () => hook.result.current.setActiveChatID('chat-2'),
+    );
+    await waitFor(
+      // previewAssertion 等待旧会话预览被清理。
+      () => expect(hook.result.current.pendingImage).toBeNull(),
+    );
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:switch.png');
     hook.unmount();
   });
 

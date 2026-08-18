@@ -37,7 +37,7 @@ type AIReplier interface {
 // MessageSender 是回复服务发送文本/图片所需的最小接口。
 type MessageSender interface {
 	SendText(ctx context.Context, chatID, toUserID, text string) error
-	SendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64) error
+	SendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64, width, height int) error
 }
 
 // ReplyService 单账号回复服务。
@@ -97,7 +97,7 @@ func (r *ReplyService) Handle(ctx context.Context, m ChatMessage) error {
 	}
 	if res.ImageURL != "" && !record.ImageSent {
 		if // err 用于本次流程后续判断的err
-		err := r.sender.SendImage(ctx, m.ChatID, m.SenderUserID, res.ImageURL, 0); err != nil {
+		err := r.sender.SendImage(ctx, m.ChatID, m.SenderUserID, res.ImageURL, 0, 0, 0); err != nil {
 			r.logger.Error("发送回复图片失败", "err", err)
 			r.markReplyFailure(ctx, res, m, err)
 			return err

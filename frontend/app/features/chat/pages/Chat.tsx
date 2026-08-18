@@ -1,8 +1,10 @@
 import React from 'react';
 import {
   AlertCircle, Check, CheckCheck, ImagePlus, Loader2, MessageCircleMore, RefreshCw,
-  Search, Send, Smile, UserRound, Wifi, WifiOff,
+  Search, Send, Smile, UserRound, Wifi, WifiOff, X,
 } from 'lucide-react';
+import Lightbox from 'yet-another-react-lightbox';
+import 'yet-another-react-lightbox/styles.css';
 import { useChat } from '../hooks';
 import { unreadBadgeClassName, unreadBadgeLabel } from '../state';
 
@@ -12,11 +14,22 @@ const Chat: React.FC = () => {
   const {
     accounts, activeAccountID, activeChatID, activeAccount, selectedSession, filteredSessions,
     messages, search, unreadOnly, draft, loading, messagesLoading, olderLoading, hasOlder, contactsLoading,
-    hasMoreContacts, emojiOpen, sending, error, liveState, scrollRef, imageInputRef, setActiveAccountID,
+    hasMoreContacts, emojiOpen, sending, error, liveState, pendingImage, scrollRef, imageInputRef, setActiveAccountID,
     setActiveChatID, setSearch, setUnreadOnly, setDraft, setEmojiOpen, reloadSessions, loadMoreContacts,
-    loadOlderMessages, handleMessageScroll, handleSend, handleImage, retrySend, retryAvailable,
+    loadOlderMessages, handleMessageScroll, handleSend, handleImage, handlePastedImages, confirmSendImage, closeImagePreview, retrySend, retryAvailable,
     unreadForAccount, emojiURL, xianyuEmojis, renderXianyuText, formatClock, messageTime,
   } = useChat();
+
+  // imageMessages 保存当前会话中的图片消息，供灯箱按消息顺序浏览。
+  const imageMessages = React.useMemo(/* 当前回调筛选当前会话中的图片消息。 */ () => messages.filter(/* 当前回调判断消息是否为图片类型。 */ message => message.message_type === 'image'), [messages]);
+  // imageSlides 将聊天图片转换为灯箱组件所需的展示模型。
+  const imageSlides = React.useMemo(/* 当前回调构造灯箱图片展示数据。 */ () => imageMessages.map(/* 当前回调转换单条图片消息。 */ message => ({ src: message.content, alt: '聊天图片' })), [imageMessages]);
+  // lightboxIndex 保存当前灯箱图片下标；负值表示灯箱关闭。
+  const [lightboxIndex, setLightboxIndex] = React.useState(-1);
+  // openLightbox 根据消息键打开对应的图片灯箱。
+  const openLightbox = React.useCallback(/* 当前回调定位并打开指定聊天图片。 */ (messageKey: string): void => {
+    setLightboxIndex(imageMessages.findIndex(/* 当前回调匹配图片消息键。 */ item => item.message_key === messageKey));
+  }, [imageMessages]);
 
   if (loading) return <div className="flex h-[calc(100vh-4rem)] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-sky-500" /></div>;
 
@@ -153,9 +166,9 @@ const Chat: React.FC = () => {
                         <div className={`max-w-[72%] ${outgoing ? 'items-end' : 'items-start'} flex flex-col`}>
                           <div className="mb-1 px-1 text-[10px] font-semibold text-slate-400">{outgoing ? (activeAccount?.nickname || activeAccount?.remark || '我') : (selectedSession.buyer_name || message.sender_name || selectedSession.buyer_id)}</div>
                           {message.message_type === 'image' ? (
-                            <a href={message.content} target="_blank" rel="noreferrer" className={`block overflow-hidden rounded-2xl border bg-white p-1 shadow-sm ${outgoing ? 'rounded-br-md border-sky-200' : 'rounded-bl-md border-slate-200'}`}>
+                            <button type="button" title="点击预览大图" onClick={openLightbox.bind(null, message.message_key)} className={`block cursor-zoom-in overflow-hidden rounded-2xl border bg-white p-1 text-left shadow-sm ${outgoing ? 'rounded-br-md border-sky-200' : 'rounded-bl-md border-slate-200'}`}>
                               <img src={message.content} alt="聊天图片" className="max-h-80 max-w-full rounded-xl object-contain" />
-                            </a>
+                            </button>
                           ) : message.message_type === 'video' ? (
                             <video src={message.content} controls preload="metadata" className="max-h-80 max-w-full rounded-2xl bg-black" />
                           ) : (
@@ -192,7 +205,17 @@ const Chat: React.FC = () => {
                   <div className="flex items-end gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-2 transition focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-100">
                     <textarea value={draft} onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setDraft(event.target.value)} rows={2} maxLength={2000}
                       onKeyDown={/* 当前回调处理用户交互或异步状态变化。 */ event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void handleSend(); } }}
-                      disabled={activeAccount?.runtime_state !== 'online'} placeholder={activeAccount?.runtime_state === 'online' ? '输入消息，Enter 发送，Shift + Enter 换行' : '账号离线，暂时无法发送'}
+                      onPaste={/* 当前回调识别剪贴板中的图片并进入预览流程。 */ event => {
+                        // files 保存剪贴板提供的文件候选列表。
+                        const files = Array.from(event.clipboardData?.files || []);
+                        // image 保存候选列表中的首张图片。
+                        const image = files.find(/* 当前回调判断剪贴板文件是否为图片。 */ file => file.type.startsWith('image/'));
+                        if (image) {
+                          event.preventDefault();
+                          void handlePastedImages(files);
+                        }
+                      }}
+                      disabled={activeAccount?.runtime_state !== 'online'} placeholder={activeAccount?.runtime_state === 'online' ? '输入消息，Enter 发送，Shift + Enter 换行，Ctrl + V 粘贴图片' : '账号离线，暂时无法发送'}
                       className="max-h-32 min-h-12 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-6 outline-none disabled:cursor-not-allowed" />
                     <button type="button" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => void handleSend()} disabled={!draft.trim() || sending || activeAccount?.runtime_state !== 'online'} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500 text-white shadow-md shadow-sky-100 transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none" aria-label="发送消息">
                       {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -210,6 +233,25 @@ const Chat: React.FC = () => {
           </main>
         </div>
       )}
+
+      {pendingImage && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" onClick={/* 当前回调点击遮罩取消图片预览。 */ closeImagePreview}>
+        <div className="flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={/* 当前回调阻止预览内容点击冒泡到遮罩。 */ event => event.stopPropagation()}>
+          <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
+            <div className="text-sm font-black text-slate-900">发送图片预览</div>
+            <button type="button" title="取消" onClick={/* 当前回调关闭图片预览。 */ closeImagePreview} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"><X className="h-5 w-5" /></button>
+          </div>
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-slate-100 p-4"><img src={pendingImage.url} alt="待发送图片预览" className="max-h-[55vh] max-w-full rounded-xl object-contain" /></div>
+          <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 px-5 py-3">
+            <div className="min-w-0 truncate text-xs text-slate-500">{pendingImage.file.name || '粘贴的图片'} · {(pendingImage.file.size / 1024).toFixed(0)} KB</div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button type="button" onClick={/* 当前回调取消图片发送。 */ closeImagePreview} className="rounded-xl px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100">取消</button>
+              <button type="button" onClick={/* 当前回调确认发送预览图片。 */ () => void confirmSendImage()} disabled={sending || activeAccount?.runtime_state !== 'online'} className="flex items-center gap-2 rounded-xl bg-sky-500 px-4 py-2 text-sm font-bold text-white shadow-md shadow-sky-100 transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}发送</button>
+            </div>
+          </div>
+        </div>
+      </div>}
+
+      <Lightbox open={lightboxIndex >= 0} index={Math.max(lightboxIndex, 0)} close={/* 当前回调关闭图片灯箱。 */ () => setLightboxIndex(-1)} slides={imageSlides} />
     </section>
   );
 };

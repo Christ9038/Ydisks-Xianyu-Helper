@@ -45,6 +45,10 @@ type ImageInput struct {
 type ImageUpload struct {
 	// URL 保存可供聊天发送的图片地址。
 	URL string
+	// Width 保存平台识别出的图片宽度，单位为像素；非正值表示使用协议默认尺寸。
+	Width int
+	// Height 保存平台识别出的图片高度，单位为像素；非正值表示使用协议默认尺寸。
+	Height int
 }
 
 // OutgoingRepository 定义发送用例需要的本地消息写入能力。
@@ -62,7 +66,7 @@ type Sender interface {
 	// SendText 发送文本；messageKey 用于将平台旁路事件与待发送消息关联。
 	SendText(ctx context.Context, chatID, toUserID, text, messageKey string) error
 	// SendImage 发送图片；messageKey 用于将平台旁路事件与待发送消息关联。
-	SendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64, messageKey string) error
+	SendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64, width, height int, messageKey string) error
 }
 
 // SenderProvider 按账号标识解析当前在线发送实例。
@@ -219,7 +223,7 @@ func (s *Service) SendImage(ctx context.Context, input ImageInput) (*Message, er
 		return nil, fmt.Errorf("保存待发送图片失败: %w", err)
 	}
 	// sendErr 表示平台图片发送失败；失败分支会补写本地 failed 状态。
-	if sendErr := sender.SendImage(ctx, session.ChatID, session.BuyerID, upload.URL, 0, message.MessageKey); sendErr != nil {
+	if sendErr := sender.SendImage(ctx, session.ChatID, session.BuyerID, upload.URL, 0, upload.Width, upload.Height, message.MessageKey); sendErr != nil {
 		// failed 保存图片发送失败后的本地状态。
 		failed, _ := s.outgoing.SetOutgoingStatus(context.Background(), session.AccountID, message.MessageKey, "failed")
 		return messagePointer(failed, message), fmt.Errorf("%w: %v", ErrSend, sendErr)

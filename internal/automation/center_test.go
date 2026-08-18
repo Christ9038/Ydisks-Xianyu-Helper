@@ -411,7 +411,9 @@ func TestImageCardMissingSenderIsDefinitelyNotSent(t *testing.T) {
 }
 
 // SendImage 封装Send图片业务协调。
-func (s *testSender) SendImage(context.Context, string, string, string, int64) error { return nil }
+func (s *testSender) SendImage(context.Context, string, string, string, int64, int, int) error {
+	return nil
+}
 
 // UpdateCookie 更新登录凭证。
 func (s *testSender) UpdateCookie(cookieStr string) {

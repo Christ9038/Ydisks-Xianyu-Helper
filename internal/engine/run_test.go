@@ -127,6 +127,8 @@ type fakeWSConn struct {
 	registeredTok string
 	sentTexts     []string
 	sentImages    []string
+	imageWidths   []int
+	imageHeights  []int
 	heartbeatDone chan struct{}
 	closeCh       chan struct{}
 	closeOnce     sync.Once
@@ -237,11 +239,34 @@ func (f *fakeWSConn) SendText(_ context.Context, _, _, _, text string) error {
 }
 
 // SendImage 封装Send图片业务协调。
-func (f *fakeWSConn) SendImage(_ context.Context, _, _, _, url string, _, _ int) error {
+func (f *fakeWSConn) SendImage(_ context.Context, _, _, _, url string, width, height int) error {
 	f.mu.Lock()
 	f.sentImages = append(f.sentImages, url)
+	f.imageWidths = append(f.imageWidths, width)
+	f.imageHeights = append(f.imageHeights, height)
 	f.mu.Unlock()
 	return nil
+}
+
+// TestAccountSendImagePreservesDimensions 验证账号运行时将调用方提供的真实图片尺寸交给 WebSocket。
+func TestAccountSendImagePreservesDimensions(t *testing.T) {
+	// account 是未启动但已具备账号身份的运行时对象。
+	account := New(Config{CookieID: "image-size-test", CookieStr: "unb=me"})
+	// conn 是记录图片 URL 和像素尺寸的 WebSocket 测试替身。
+	conn := &fakeWSConn{}
+	account.runtimeMu.Lock()
+	account.conn = conn
+	account.runtimeMu.Unlock()
+	// sendErr 表示账号运行时向 WebSocket 发送图片的结果。
+	sendErr := account.SendImage(context.Background(), "chat", "buyer", "https://cdn.example/image.jpg", 0, 1920, 1080)
+	if sendErr != nil {
+		t.Fatalf("SendImage() error=%v", sendErr)
+	}
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	if len(conn.imageWidths) != 1 || conn.imageWidths[0] != 1920 || len(conn.imageHeights) != 1 || conn.imageHeights[0] != 1080 {
+		t.Fatalf("图片尺寸未透传 widths=%v heights=%v", conn.imageWidths, conn.imageHeights)
+	}
 }
 
 // fakeDialer 按预设序列返回连接或错误，第 N 次（1-based）调用返回 dialResults[N-1]。

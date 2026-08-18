@@ -413,7 +413,7 @@ func (e *automationActionExecutor) sendImage(ctx context.Context, task Task, ima
 	if !senderOK {
 		return fmt.Errorf("%w: 账号未在线，无法发送自动化图片", ErrMessageNotSent)
 	}
-	return sender.SendImage(ctx, task.ChatID, task.BuyerID, imageURL, cardID)
+	return sender.SendImage(ctx, task.ChatID, task.BuyerID, imageURL, cardID, 0, 0)
 }
 
 // cardContent 读取卡密组内容并拒绝不支持的卡密类型。

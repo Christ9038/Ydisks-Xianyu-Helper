@@ -6,8 +6,18 @@ import { getAccountDetails, getAccountRuntimeStatuses, getChatMessagePage, getCh
 import { collectChatReadReceipts, filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, mergeLiveMessage, mergeOlderMessages, messageTime } from './state';
 import type { ChatFeatureState, ChatLiveState, SessionsByAccount } from './types';
 
+/** PendingImagePreview 描述等待用户确认的本地图片预览及其资源所有权。 */
+type PendingImagePreview = {
+  /** file 保存当前预览会话待发送的图片文件。 */
+  file: File;
+  /** url 保存由浏览器创建、仅在当前预览会话有效的临时地址。 */
+  url: string;
+};
+
 /** Chat Hook 对外暴露的状态、引用和交互动作。 */
 export type UseChatResult = ChatFeatureState & {
+  /** 待确认发送的图片预览；URL 仅在当前预览会话内有效。 */
+  pendingImage: PendingImagePreview | null;
   /** 当前选中的会话 ID。 */
   activeChatID: string;
   /** 当前账号过滤后的会话。 */
@@ -40,6 +50,12 @@ export type UseChatResult = ChatFeatureState & {
   handleSend: () => Promise<void>;
   /** 发送图片消息。 */
   handleImage: (file?: File) => Promise<void>;
+  /** 从剪贴板候选文件中选择首张图片进入预览。 */
+  handlePastedImages: (files: File[]) => Promise<void>;
+  /** 确认发送当前预览图片。 */
+  confirmSendImage: () => Promise<void>;
+  /** 取消当前图片预览并释放临时地址。 */
+  closeImagePreview: () => void;
   /** 重试最近一次失败发送。 */
   retrySend: () => Promise<void>;
   /** 是否存在可重试的发送动作。 */
@@ -76,6 +92,8 @@ export const useChat = (): UseChatResult => {
   const [unreadOnly, setUnreadOnly] = useState(false);
   // draft 保存待发送文本。
   const [draft, setDraft] = useState('');
+  // pendingImage 保存等待用户确认的本地图片和临时预览地址。
+  const [pendingImage, setPendingImage] = useState<PendingImagePreview | null>(null);
   // loading 表示聊天初始数据加载状态。
   const [loading, setLoading] = useState(true);
   // messagesLoading 表示当前会话消息加载状态。
@@ -305,6 +323,11 @@ export const useChat = (): UseChatResult => {
     sendSequence.current += 1;
   }, [activeAccountID, activeChatID]);
 
+  useEffect(/* 当前回调使会话切换前创建的图片预览失效。 */ () => {
+    // 会话或账号切换后不得把旧预览发送到新会话。
+    setPendingImage(null);
+  }, [activeAccountID, activeChatID]);
+
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
     // 会话切换时取消历史分页；新的消息加载拥有独立控制器，不能复用这个低优先级请求。
     olderSequence.current += 1;
@@ -320,6 +343,14 @@ export const useChat = (): UseChatResult => {
     contactController.current?.abort();
     sendController.current?.abort();
   }, []);
+
+  useEffect(/* 当前回调负责图片预览临时地址的生命周期清理。 */ () => {
+    // preview 保存本次渲染仍然拥有的图片预览；状态替换或组件卸载时释放地址。
+    const preview = pendingImage;
+    return /* 当前回调释放已不再使用的图片对象地址。 */ () => {
+      if (preview) URL.revokeObjectURL(preview.url);
+    };
+  }, [pendingImage]);
 
   /** 加载当前会话更早消息并保持滚动位置。 */
   const loadOlderMessages = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (): Promise<void> => {
@@ -561,11 +592,38 @@ export const useChat = (): UseChatResult => {
     await sendText(text, true);
   }, [activeAccountID, draft, selectedSession, sendText, sending]);
 
-  /** 处理图片选择并发送。 */
-  const handleImage = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (file?: File): Promise<void> => {
+  /** 处理图片选择并进入确认预览，不直接触发平台发送。 */
+  const handleImage = useCallback(/* 当前回调接收文件选择结果并创建图片预览。 */ async (file?: File): Promise<void> => {
     if (!file || !selectedSession || !activeAccountID || sending) return;
+    if (!file.type.startsWith('image/')) {
+      setError('仅支持粘贴/发送图片文件');
+      return;
+    }
+    setError('');
+    setPendingImage({ file, url: URL.createObjectURL(file) });
+  }, [activeAccountID, selectedSession, sending]);
+
+  /** 从剪贴板文件中选择首张图片，其余文件仍由原生文本粘贴流程处理。 */
+  const handlePastedImages = useCallback(/* 当前回调从剪贴板候选文件中筛选图片。 */ async (files: File[]): Promise<void> => {
+    // image 保存剪贴板中的首张图片，只有图片才会阻止原生文本粘贴。
+    const image = files.find(/* 当前回调判断文件是否为图片。 */ file => file.type.startsWith('image/'));
+    if (image) await handleImage(image);
+  }, [handleImage]);
+
+  /** 关闭图片预览并清空文件输入，使同一文件可以再次触发选择事件。 */
+  const closeImagePreview = useCallback(/* 当前回调关闭预览并清理文件输入。 */ (): void => {
+    setPendingImage(null);
+    if (imageInputRef.current) imageInputRef.current.value = '';
+  }, []);
+
+  /** 确认发送当前预览图片，发送流程沿用已有请求代次和失败重试保护。 */
+  const confirmSendImage = useCallback(/* 当前回调提交用户确认的图片预览。 */ async (): Promise<void> => {
+    if (!pendingImage || !selectedSession || !activeAccountID || sending) return;
+    // file 保存用户确认后要提交的平台图片文件。
+    const file = pendingImage.file;
+    setPendingImage(null);
     await sendImage(file, true);
-  }, [activeAccountID, selectedSession, sendImage, sending]);
+  }, [activeAccountID, pendingImage, selectedSession, sendImage, sending]);
 
   /** 重试最近一次失败的文本或图片发送。 */
   const retrySend = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (): Promise<void> => {
@@ -574,9 +632,9 @@ export const useChat = (): UseChatResult => {
   }, [retryImage, retryText, sendImage, sendText]);
 
   return {
-    accounts, activeAccountID, activeSessions, selectedSession, activeAccount, messages, search, unreadOnly, draft, loading, messagesLoading, olderLoading, hasOlder, contactsLoading, hasMoreContacts: hasMoreContacts[activeAccountID] === true, emojiOpen, sending, error, liveState,
+    accounts, activeAccountID, activeSessions, selectedSession, activeAccount, messages, search, unreadOnly, draft, loading, messagesLoading, olderLoading, hasOlder, contactsLoading, hasMoreContacts: hasMoreContacts[activeAccountID] === true, emojiOpen, sending, error, liveState, pendingImage,
     activeChatID, filteredSessions, scrollRef, imageInputRef, setActiveAccountID, setActiveChatID, setSearch, setUnreadOnly, setDraft, setEmojiOpen,
-    reloadSessions, loadMoreContacts, loadOlderMessages, handleMessageScroll, handleSend, handleImage, retrySend, retryAvailable: Boolean(retryText || retryImage), unreadForAccount,
+    reloadSessions, loadMoreContacts, loadOlderMessages, handleMessageScroll, handleSend, handleImage, handlePastedImages, confirmSendImage, closeImagePreview, retrySend, retryAvailable: Boolean(retryText || retryImage), unreadForAccount,
     emojiURL, xianyuEmojis, renderXianyuText, formatClock, messageTime,
   };
 };

@@ -79,6 +79,8 @@ type sendSender struct {
 	sentKey string
 	// updatedCookie 保存适配器同步的刷新凭证；测试只记录是否调用，不保存真实秘密。
 	updatedCookie bool
+	// imageWidth、imageHeight 保存图片发送收到的像素尺寸。
+	imageWidth, imageHeight int
 }
 
 // SendText 记录文本发送并返回预设错误。
@@ -88,7 +90,9 @@ func (s *sendSender) SendText(_ context.Context, _, _, _, messageKey string) err
 }
 
 // SendImage 记录图片发送并返回预设错误。
-func (s *sendSender) SendImage(_ context.Context, _, _, _ string, _ int64, messageKey string) error {
+func (s *sendSender) SendImage(_ context.Context, _, _, _ string, _ int64, width, height int, messageKey string) error {
+	// imageWidth、imageHeight 记录应用层透传的平台图片尺寸。
+	s.imageWidth, s.imageHeight = width, height
 	s.sentKey = messageKey
 	return s.sendErr
 }
@@ -192,12 +196,12 @@ func TestSendImageDoesNotExposeCredentials(t *testing.T) {
 	// repository、sender、uploader 保存图片发送的测试端口。
 	repository, sender := &sendRepository{}, &sendSender{}
 	// uploader 保存固定图片地址的测试上传端口。
-	uploader := sendUploader{result: ImageUpload{URL: "https://cdn.example/image.jpg"}}
+	uploader := sendUploader{result: ImageUpload{URL: "https://cdn.example/image.jpg", Width: 1280, Height: 720}}
 	// service 保存使用测试端口构造的聊天发送服务。
 	service := NewWithSending(nil, repository, sendProvider{sender: sender}, uploader)
 	// message 和 err 保存图片发送结果。
 	message, err := service.SendImage(context.Background(), ImageInput{Session: Session{AccountID: "acc-1", ChatID: "chat-1", BuyerID: "buyer-1"}, Filename: "a.jpg", ContentType: "image/jpeg", Data: []byte("image")})
-	if err != nil || message == nil || message.Content != "https://cdn.example/image.jpg" || sender.sentKey != "local-image" {
+	if err != nil || message == nil || message.Content != "https://cdn.example/image.jpg" || sender.sentKey != "local-image" || sender.imageWidth != 1280 || sender.imageHeight != 720 {
 		t.Fatalf("message=%+v err=%v key=%q", message, err, sender.sentKey)
 	}
 }

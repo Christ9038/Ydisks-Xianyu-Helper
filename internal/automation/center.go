@@ -67,7 +67,7 @@ type SenderProvider interface {
 // MessageSender 是自动化动作需要的最小发送接口。
 type MessageSender interface {
 	SendText(ctx context.Context, chatID, toUserID, text string) error
-	SendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64) error
+	SendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64, width, height int) error
 	UpdateCookie(cookieStr string)
 }
 

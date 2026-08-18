@@ -878,8 +878,9 @@ func (a *Account) MarkChatRead(ctx context.Context, chatID string, messageIDs []
 }
 
 // SendImage 通过当前 WebSocket 给买家发送图片消息。当前仅支持可直接访问的 CDN/公网 URL。
-func (a *Account) SendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64) error {
-	return a.outgoing.sendImage(ctx, chatID, toUserID, imageURL, cardID)
+// width/height 为图片真实尺寸，单位为像素；传入非正值时由 WebSocket 使用默认尺寸。
+func (a *Account) SendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64, width, height int) error {
+	return a.outgoing.sendImage(ctx, chatID, toUserID, imageURL, cardID, width, height)
 }
 
 // FetchChatHistory reuses the account's registered IM connection. Keeping this

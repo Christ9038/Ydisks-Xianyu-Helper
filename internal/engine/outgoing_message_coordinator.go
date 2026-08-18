@@ -57,8 +57,8 @@ func (c *outgoingMessageCoordinator) sendText(ctx context.Context, chatID, toUse
 }
 
 // sendImage 使用当前已注册 WebSocket 发送可直接访问的远程图片。
-// ctx 是调用方取消边界；cardID 仅用于兼容 MessageSender 契约，当前协议发送不直接使用它。
-func (c *outgoingMessageCoordinator) sendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64) error {
+// ctx 是调用方取消边界；cardID 仅用于兼容 MessageSender 契约，当前协议发送不直接使用它；width/height 为图片像素尺寸。
+func (c *outgoingMessageCoordinator) sendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64, width, height int) error {
 	// a 是当前协调器绑定的账号 facade；它用于维持与文本发送一致的初始化检查。
 	a := c.account
 	if a == nil {
@@ -80,7 +80,7 @@ func (c *outgoingMessageCoordinator) sendImage(ctx context.Context, chatID, toUs
 	sendCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	_ = cardID // cardID 由上层动作检查点持久化，协议图片发送本身不携带该字段。
-	return conn.SendImage(sendCtx, myID, chatID, toUserID, imageURL, 800, 600)
+	return conn.SendImage(sendCtx, myID, chatID, toUserID, imageURL, width, height)
 }
 
 // currentSenderState 返回可用 WebSocket 与账号 unb 身份快照；持锁范围只覆盖快照读取。
