@@ -3,6 +3,7 @@ import type React from 'react';
 import type { AccountDetail, ChatMessage, ChatSession } from '../../../shared/api-contract';
 import { emojiURL, renderXianyuText, xianyuEmojis } from '../../../chatEmojis';
 import { getAccountDetails, getAccountRuntimeStatuses, getChatMessagePage, getChatSessionPage, markChatRead, sendChatImage, sendChatMessage } from './api';
+import { publishChatUnreadStatus, subscribeToChatLiveEvents } from './liveEvents';
 import { collectChatReadReceipts, filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, markOutgoingMessagesReadByIncoming, mergeLiveMessage, mergeOlderMessages, messageTime } from './state';
 import type { ChatFeatureState, ChatLiveState, SessionsByAccount } from './types';
 
@@ -272,6 +273,15 @@ export const useChat = (): UseChatResult => {
     setActiveChatID(/* 当前回调处理集合中的单个元素。 */ current => sessions.some(/* 当前回调处理集合中的单个元素。 */ session => session.chat_id === current) ? current : sessions[0]?.chat_id || '');
   }, [activeAccountID, sessionsByAccount]);
 
+  useEffect(/* 当前副作用将所有已加载账号会话的未读聚合状态回传给应用壳，红点只能在没有任何未读时消失。 */ () => {
+    // loadedAccountCount 保存已成功写入会话列表状态的账号数量；初始请求尚未完成或失败时不得错误发布无未读。
+    const loadedAccountCount = Object.keys(sessionsByAccount).length;
+    if (loading || (accounts.length > 0 && loadedAccountCount === 0)) return;
+    // hasUnreadChatMessage 保存当前所有已加载会话是否至少存在一条未读消息。
+    const hasUnreadChatMessage = Object.values(sessionsByAccount).some(/* sessions 保存当前账号的会话列表。 */ sessions => sessions.some(/* session 保存当前参与未读聚合判断的会话。 */ session => session.unread_count > 0));
+    publishChatUnreadStatus(hasUnreadChatMessage);
+  }, [accounts.length, loading, sessionsByAccount]);
+
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
     if (!activeAccountID || refreshedAccountsRef.current.has(activeAccountID)) return;
     refreshedAccountsRef.current.add(activeAccountID);
@@ -392,76 +402,47 @@ export const useChat = (): UseChatResult => {
     }
   }, [activeAccountID, activeChatID, hasOlder, historyCursor, messages, olderLoading]);
 
-  useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
-    // disposed disposed，负责当前功能中的对应处理。
-    let disposed = false;
-    // reconnectTimer reconnect定时器，负责当前功能中的对应处理。
-    let reconnectTimer = 0;
-    // retry 重试当前操作。
-    let retry = 0;
-    // socket WebSocket 连接。
-    let socket: WebSocket | null = null;
-    // connect 连接。
-    const connect = (): void => {
-      if (disposed) return;
-      setLiveState('connecting');
-      // protocol 连接协议。
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      socket = new WebSocket(`${protocol}//${window.location.host}/api/v1/chat/ws`);
-      socket.onopen = /* 当前回调处理用户交互或异步状态变化。 */ () => { retry = 0; setLiveState('online'); };
-      socket.onmessage = /* 当前回调处理用户交互或异步状态变化。 */ event => {
-        try {
-          // payload 请求载荷。
-          const payload = JSON.parse(event.data);
-          // message 消息。
-          const message = payload.message as ChatMessage | undefined;
-          if (!message) return;
-          // accountID 账号标识。
-          const accountID = message.account_id;
-          setSessionsByAccount(/* 当前回调处理用户交互或异步状态变化。 */ current => {
-            // rows 行数据。
-            const rows = current[accountID] || [];
-            // found 匹配结果。
-            const found = rows.some(/* 当前回调处理集合中的单个元素。 */ row => row.chat_id === message.chat_id);
-            if (!found) {
-              void reloadSessions(accountID);
-              return current;
-            }
-            return { ...current, [accountID]: rows.map(/* 当前回调处理集合中的单个元素。 */ row => row.chat_id === message.chat_id ? {
-              ...row,
-              last_message: message.content,
-              last_message_at: message.sent_at,
-              unread_count: message.direction === 'incoming' && message.message_type !== 'system' && (activeAccountRef.current !== accountID || activeChatRef.current !== message.chat_id) ? row.unread_count + 1 : row.unread_count,
-            } : row).sort(/* 当前回调处理集合中的单个元素。 */ (a, b) => b.last_message_at - a.last_message_at) };
-          });
-          if (activeAccountRef.current === accountID && activeChatRef.current === message.chat_id) {
-            setMessages(/* 当前回调合并实时消息并同步后续入站消息确认的出站已读状态。 */ current => markOutgoingMessagesReadByIncoming(mergeLiveMessage(current, message), message));
-            if (message.direction === 'incoming' && message.message_type !== 'system') {
-              // readReceipts 为当前实时消息生成平台要求的会话读取回执。
-              const readReceipts = collectChatReadReceipts([message], message.chat_id);
-              void markChatRead(accountID, message.chat_id, readReceipts);
-            }
-          }
-        } catch {
-          // 忽略非聊天格式的 WebSocket 帧，后续 REST 查询会恢复权威状态。
-        }
-      };
-      socket.onclose = /* 当前回调处理用户交互或异步状态变化。 */ () => {
-        if (disposed) return;
-        setLiveState('offline');
-        // delay 延迟。
-        const delay = Math.min(15_000, 1_000 * 2 ** Math.min(retry++, 4));
-        reconnectTimer = window.setTimeout(connect, delay);
-      };
-      socket.onerror = /* 当前回调处理用户交互或异步状态变化。 */ () => socket?.close();
-    };
-    connect();
-    return /* 当前回调处理用户交互或异步状态变化。 */ () => {
-      disposed = true;
-      window.clearTimeout(reconnectTimer);
-      socket?.close();
-    };
+  /** handleLiveMessage 将应用壳唯一连接发布的消息同步到当前聊天页的会话、消息和已读状态。 */
+  const handleLiveMessage = useCallback(/* 当前回调只处理类型化聊天消息，不解析原始 WebSocket 帧。 */ (message: ChatMessage): void => {
+    // accountID 保存当前实时消息所属账号，用于隔离不同闲鱼账号的会话状态。
+    const accountID = message.account_id;
+    setSessionsByAccount(/* 当前回调在对应账号会话列表中合并最新消息与未读计数。 */ current => {
+      // rows 保存当前账号已有的会话行。
+      const rows = current[accountID] || [];
+      // found 表示推送消息是否能匹配当前已加载会话；缺失时异步刷新该账号会话。
+      const found = rows.some(/* row 保存当前参与会话匹配的联系人行。 */ row => row.chat_id === message.chat_id);
+      if (!found) {
+        void reloadSessions(accountID);
+        return current;
+      }
+      return { ...current, [accountID]: rows.map(/* row 保存当前待合并实时消息的联系人行。 */ row => row.chat_id === message.chat_id ? {
+        ...row,
+        last_message: message.content,
+        last_message_at: message.sent_at,
+        unread_count: message.direction === 'incoming' && message.message_type !== 'system' && (activeAccountRef.current !== accountID || activeChatRef.current !== message.chat_id) ? row.unread_count + 1 : row.unread_count,
+      } : row).sort(/* a、b 保存参与时间倒序比较的两条会话行。 */ (a, b) => b.last_message_at - a.last_message_at) };
+    });
+    if (activeAccountRef.current === accountID && activeChatRef.current === message.chat_id) {
+      setMessages(/* 当前回调合并实时消息并同步后续入站消息确认的出站已读状态。 */ current => markOutgoingMessagesReadByIncoming(mergeLiveMessage(current, message), message));
+      if (message.direction === 'incoming' && message.message_type !== 'system') {
+        // readReceipts 为当前实时消息生成平台要求的会话读取回执。
+        const readReceipts = collectChatReadReceipts([message], message.chat_id);
+        void markChatRead(accountID, message.chat_id, readReceipts);
+      }
+    }
   }, [reloadSessions]);
+
+  useEffect(/* 当前副作用订阅认证应用壳唯一连接发布的事件，聊天页卸载时取消订阅而不关闭全局连接。 */ () => {
+    /** handleLiveEvent 根据事件类型分别同步连接状态或消息内容。 */
+    const handleLiveEvent = (event: Parameters<Parameters<typeof subscribeToChatLiveEvents>[0]>[0]): void => {
+      if (event.type === 'connection') {
+        setLiveState(event.state);
+        return;
+      }
+      handleLiveMessage(event.message);
+    };
+    return subscribeToChatLiveEvents(handleLiveEvent);
+  }, [handleLiveMessage]);
 
   /** 根据滚动位置决定新消息是否自动滚到底部。 */
   const handleMessageScroll = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ () => {

@@ -22,11 +22,12 @@ interface SidebarProps {
   /** onNavigate 表示切换主导航页面的回调。 */ onNavigate: (tab: string) => void;
   /** onLogout 表示注销当前会话的回调。 */ onLogout: () => void;
   /** buildInfo 是由应用壳加载并传入的公开构建版本信息。 */ buildInfo: SidebarBuildInfo;
+  /** hasUnreadChatMessage 表示在线聊天入口是否仍有未读消息，需要展示红点。 */ hasUnreadChatMessage?: boolean;
 }
 
 // Sidebar 渲染侧边栏导航组件。
 const Sidebar: React.FC<SidebarProps> = ({
-  activeTab, isAdmin = false, collapsed, onToggleCollapsed, onNavigate, onLogout, buildInfo,
+  activeTab, isAdmin = false, collapsed, onToggleCollapsed, onNavigate, onLogout, buildInfo, hasUnreadChatMessage = false,
 }) => {
   // menuItems 侧边栏菜单项。
   const menuItems = [
@@ -77,7 +78,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                   : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
               }`}
             >
-              <Icon className={`h-[19px] w-[19px] shrink-0 ${active ? 'text-white' : 'text-slate-400 group-hover:text-slate-700'}`} />
+              <span className="relative flex h-[19px] w-[19px] shrink-0">
+                <Icon className={`h-[19px] w-[19px] ${active ? 'text-white' : 'text-slate-400 group-hover:text-slate-700'}`} />
+                {item.id === 'chat' && hasUnreadChatMessage && <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white bg-red-500" role="status" aria-label="在线聊天有未读消息" />}
+              </span>
               {!collapsed && <span className="truncate text-sm font-bold">{item.label}</span>}
               {active && !collapsed && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-white/90" />}
               </button>

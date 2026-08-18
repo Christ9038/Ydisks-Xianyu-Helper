@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import type { AccountDetail, ChatMessage, ChatSession } from '../../../shared/api-contract';
 import { getAccountDetails, getAccountRuntimeStatuses, getChatMessagePage, getChatSessionPage, markChatRead, sendChatImage, sendChatMessage } from './api';
 import { useChat } from './hooks';
+import { publishChatConnectionState, publishChatLiveMessage } from './liveEvents';
 
 vi.mock('./api', /* chatApiMockFactory 提供聊天 Hook 的确定性 API 替身。 */ () => ({
   getAccountDetails: vi.fn(),
@@ -39,22 +40,8 @@ const messageFixture = { id: 1, account_id: 'account-1', chat_id: 'chat-1', mess
 // sentMessageFixture 是文字发送成功后返回的消息。
 const sentMessageFixture = { ...messageFixture, id: 2, message_key: 'message-2', direction: 'outgoing', content: '回复内容' } as ChatMessage;
 
-// latestSocket 保存当前测试创建的 WebSocket 替身。
-let latestSocket: {
-  // close 是关闭 WebSocket 的替身方法。
-  close: ReturnType<typeof vi.fn>;
-  // onopen 是 WebSocket 建立连接回调。
-  onopen: (() => void) | null;
-  // onmessage 是 WebSocket 消息回调。
-  onmessage: ((event: { /* data 是 WebSocket 事件数据。 */ data: string }) => void) | null;
-  // onclose 是 WebSocket 断开回调。
-  onclose: (() => void) | null;
-  // onerror 是 WebSocket 错误回调。
-  onerror: (() => void) | null;
-} | null = null;
-
 describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时连接状态。 */ () => {
-  beforeEach(/* 当前回调重置聊天 API 替身和 WebSocket。 */ () => {
+  beforeEach(/* 当前回调重置聊天 API 替身和全局实时连接状态。 */ () => {
     vi.clearAllMocks();
     getDetailsMock.mockResolvedValue([accountFixture]);
     getRuntimeMock.mockResolvedValue({ 'account-1': { state: 'online', connected: true, failures: 0, updated_at: '2026-08-15T00:00:00Z' } });
@@ -63,17 +50,7 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     markReadMock.mockResolvedValue({ success: true });
     sendMessageMock.mockResolvedValue({ message: sentMessageFixture });
     sendImageMock.mockResolvedValue({ message: sentMessageFixture });
-    // websocketFactory 是不连接真实服务器的 WebSocket 构造替身。
-    const websocketFactory = vi.fn(
-      // websocketConstructor 创建不连接真实服务器的 WebSocket 实例。
-      function websocketConstructor() {
-      // socket 是当前 WebSocket 连接的可控替身。
-      const socket = { close: vi.fn(), onopen: null, onmessage: null, onclose: null, onerror: null };
-      latestSocket = socket;
-      return socket;
-      },
-    );
-    vi.stubGlobal('WebSocket', websocketFactory);
+    publishChatConnectionState('connecting');
     // localStorageStub 是聊天 Hook 记忆账号选择所需的浏览器存储替身。
     Object.defineProperty(window, 'localStorage', { configurable: true, value: { getItem: vi.fn().mockReturnValue(''), setItem: vi.fn(), removeItem: vi.fn() } });
     // createObjectURLMock 和 revokeObjectURLMock 模拟浏览器图片预览地址的创建与释放。
@@ -230,7 +207,7 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     hook.unmount();
   });
 
-  test('WebSocket 连接和消息事件更新聊天状态', /* 当前回调验证实时连接和消息回调边界。 */ async () => {
+  test('应用壳唯一实时连接发布的状态和消息会更新聊天状态', /* 当前回调验证 Chat 页面不再自行创建 WebSocket。 */ async () => {
     // secondSession 是用于覆盖实时会话排序比较器的第二条会话。
     const secondSession = { ...sessionFixture, chat_id: 'chat-2', last_message_at: 2, unread_count: 0 };
     getSessionPageMock.mockResolvedValue({ sessions: [sessionFixture, secondSession], has_more: true, next_cursor: 2 });
@@ -250,17 +227,16 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
       // activeChatAssertion 等待实时消息目标会话选中。
       () => expect(hook.result.current.activeChatID).toBe('chat-1'),
     );
-    expect(latestSocket).not.toBeNull();
     await act(
-      // openAction 触发 WebSocket 建立连接事件。
-      () => latestSocket?.onopen?.(),
+      // onlineAction 触发应用壳全局连接建立成功事件。
+      () => publishChatConnectionState('online'),
     );
     expect(hook.result.current.liveState).toBe('online');
     // incomingMessage 是实时 WebSocket 推送的入站消息。
     const incomingMessage = { ...messageFixture, id: 3, message_key: 'message-3', sent_at: 3, content: '实时消息' };
     await act(
-      // messageAction 触发合法的实时消息事件。
-      () => latestSocket?.onmessage?.({ data: JSON.stringify({ message: incomingMessage }) }),
+      // messageAction 触发应用壳发布的合法实时消息事件。
+      () => publishChatLiveMessage(incomingMessage),
     );
     expect(hook.result.current.messages).toContainEqual(incomingMessage);
     expect(hook.result.current.messages.find(/* 当前回调定位需要验证已读状态的出站消息。 */ message => message.message_key === 'outgoing-1')).toMatchObject({ read_status: 2, read_at: 3 });
@@ -268,12 +244,8 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
       { messageId: 'message-3', sessionId: 'chat-1', cid: 'chat-1@goofish', conversationType: 1 },
     ]);
     await act(
-      // invalidMessageAction 触发非法消息帧并保持状态稳定。
-      () => latestSocket?.onmessage?.({ data: '{broken' }),
-    );
-    await act(
-      // closeAction 触发 WebSocket 断开事件。
-      () => latestSocket?.onclose?.(),
+      // closeAction 触发应用壳全局连接断开事件。
+      () => publishChatConnectionState('offline'),
     );
     expect(hook.result.current.liveState).toBe('offline');
     hook.unmount();
@@ -516,7 +488,7 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     getSessionPageMock.mockResolvedValueOnce({ sessions: [unknownSession, sessionFixture], has_more: false, next_cursor: undefined });
     await act(
       // unknownMessageAction 触发未知会话的联系人刷新。
-      () => latestSocket?.onmessage?.({ data: JSON.stringify({ message: unknownMessage }) }),
+      () => publishChatLiveMessage(unknownMessage),
     );
     await waitFor(
       // reloadAssertion 等待未知会话触发联系人刷新。
@@ -527,14 +499,9 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
       () => expect(hook.result.current.activeSessions).toContainEqual(unknownSession),
     );
     await act(
-      // emptyMessageAction 触发无消息载荷并保持状态稳定。
-      () => latestSocket?.onmessage?.({ data: JSON.stringify({}) }),
+      // offlineAction 触发全局连接断开状态并保持消息列表稳定。
+      () => publishChatConnectionState('offline'),
     );
-    await act(
-      // errorAction 触发 WebSocket 错误并关闭连接。
-      () => latestSocket?.onerror?.(),
-    );
-    expect(latestSocket?.close).toHaveBeenCalled();
     hook.unmount();
   });
 

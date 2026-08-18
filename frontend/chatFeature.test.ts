@@ -22,11 +22,14 @@ describe('online chat UI contract', () => {
 		expect(chat).not.toContain('选择一个买家');
 	} /* 测试回调断言用户标签不误用买家角色。 */);
 
-	test('frontend connects only to the application chat websocket', () => {
-		const chatHook = source('app/features/chat/hooks.ts'); /* chatHook 表示chatHook。 */
-		expect(chatHook).toContain('/api/v1/chat/ws');
-		expect(chatHook).not.toContain('wss-goofish.dingtalk.com');
-	} /* 测试回调断言前端只连接应用层聊天 WebSocket。 */);
+	test('应用壳拥有唯一应用层聊天 WebSocket，聊天页仅订阅其事件', () => {
+		const chatHook = source('app/features/chat/hooks.ts'); /* chatHook 保存聊天页状态 Hook 源码。 */
+		const titleNotification = source('app/features/chat/titleNotification.ts'); /* titleNotification 保存认证应用壳实时连接 owner 源码。 */
+		expect(titleNotification).toContain('/api/v1/chat/ws');
+		expect(titleNotification).not.toContain('wss-goofish.dingtalk.com');
+		expect(chatHook).toContain('subscribeToChatLiveEvents');
+		expect(chatHook).not.toContain('new WebSocket(');
+	} /* 测试回调断言前端唯一连接归属应用壳，Chat 页面不会重复建连。 */);
 
 	test('renders peer/self identity and verified media capabilities', () => {
 		const chat = source('app/features/chat/pages/Chat.tsx'); /* chat 表示chat。 */

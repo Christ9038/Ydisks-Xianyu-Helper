@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import Sidebar from '../../shared/ui/Sidebar';
 import type { Item } from '../../shared/api-contract';
+import { useChatTitleNotification } from '../features/chat/titleNotification';
 import { getHealth } from '../features/system/api';
 import type { BuildInfo } from '../features/system/types';
 
@@ -133,6 +134,8 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
 }) => {
   // buildInfo 保存壳层加载的公开构建版本，侧边栏保持为无请求的共享展示组件。
   const [buildInfo, setBuildInfo] = useState<BuildInfo>({ version: 'dev', commit: 'unknown' });
+  // hasUnreadChatMessage 保存侧边栏在线聊天入口的服务端/实时聚合未读状态，不因导航动作改变。
+  const { hasUnreadChatMessage } = useChatTitleNotification();
 
   useEffect(/* effect 在壳层挂载时读取版本信息，并在卸载时中止尚未完成的请求。 */ () => {
     // controller 取消壳层卸载后不再需要的健康检查请求。
@@ -158,6 +161,7 @@ const AuthenticatedShell: React.FC<AuthenticatedShellProps> = ({
       onNavigate={onNavigate}
       onLogout={onLogout}
       buildInfo={buildInfo}
+      hasUnreadChatMessage={hasUnreadChatMessage}
     />
 
     <main className={`h-screen min-w-0 flex-1 overflow-x-hidden overflow-y-auto scroll-smooth transition-[margin] duration-300 ${collapsed ? 'ml-16' : 'ml-64'} ${activeTab === 'chat' ? 'p-4 md:p-6' : 'p-8 md:p-12'}`}>
