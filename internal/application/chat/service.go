@@ -140,6 +140,13 @@ type RefreshProvider interface {
 	RefreshHistory(context.Context, string, string, int64, int, Session) (HistoryPage, error)
 }
 
+// PlatformReadReporter 定义将本地已读动作尽力同步到平台运行时的最小能力。
+// 该端口不读取凭证，未装配时调用保持无副作用。
+type PlatformReadReporter interface {
+	// ReportRead 上报指定会话的已读消息标识；调用方可将失败记录为诊断但不得回滚本地状态。
+	ReportRead(context.Context, string, string, []map[string]any) error
+}
+
 // Page 是聊天历史查询的分页结果。
 type Page struct {
 	// Messages 是按时间正序排列的当前页消息。
@@ -194,6 +201,8 @@ type Service struct {
 	subscription SubscriptionProvider
 	// refresh 保存平台聊天刷新端口；原始响应只在适配器内部解析和持久化。
 	refresh RefreshProvider
+	// readReporter 保存可选的平台已读上报端口，本地已读持久化不依赖该外部动作。
+	readReporter PlatformReadReporter
 }
 
 // New 创建聊天历史应用服务；空端口会导致构造结果不可用。
@@ -423,6 +432,22 @@ func (s *Service) MarkRead(ctx context.Context, userID int64, accountID, chatID 
 		return ErrSessionUnavailable
 	}
 	return repository.MarkRead(ctx, userID, accountID, chatID)
+}
+
+// WithPlatformReadReporter 为已构造的聊天应用服务注入可选的平台已读上报端口。
+func WithPlatformReadReporter(service *Service, reporter PlatformReadReporter) *Service {
+	if service != nil {
+		service.readReporter = reporter
+	}
+	return service
+}
+
+// ReportPlatformRead 尽力上报平台已读状态；未装配运行时或空消息集合时保持无副作用。
+func (s *Service) ReportPlatformRead(ctx context.Context, accountID, chatID string, messageIDs []map[string]any) error {
+	if s == nil || s.readReporter == nil || len(messageIDs) == 0 {
+		return nil
+	}
+	return s.readReporter.ReportRead(ctx, strings.TrimSpace(accountID), strings.TrimSpace(chatID), messageIDs)
 }
 
 // ResolveSessionIdentity 补全单个会话展示身份并尽力保存到本地。

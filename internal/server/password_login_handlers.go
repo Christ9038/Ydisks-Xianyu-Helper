@@ -19,7 +19,7 @@ func (s *Server) mountPasswordLogin(r chi.Router) {
 }
 
 // passwordLoginApplication 返回当前 Server 绑定的密码登录应用服务。
-func (s *Server) passwordLoginApplication() *accountapp.PasswordLoginService {
+func (s *Server) passwordLoginApplication() PasswordLoginPort {
 	return s.applicationServiceSet().passwordLogin
 }
 

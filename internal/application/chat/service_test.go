@@ -156,6 +156,27 @@ type fakeRepository struct {
 	markReadCalls int
 }
 
+// fakePlatformReadReporter 记录平台已读上报调用并返回预设失败。
+type fakePlatformReadReporter struct {
+	// err 是平台已读上报需要返回的稳定错误。
+	err error
+	// calls 记录实际转发次数，确保空消息不会触发外部动作。
+	calls int
+	// accountID、chatID 和 messageIDs 保存最近一次上报输入，用于断言透传语义。
+	accountID  string
+	chatID     string
+	messageIDs []map[string]any
+}
+
+// ReportRead 记录已读上报请求并返回预设错误。
+func (reporter *fakePlatformReadReporter) ReportRead(_ context.Context, accountID, chatID string, messageIDs []map[string]any) error {
+	reporter.calls++
+	reporter.accountID = accountID
+	reporter.chatID = chatID
+	reporter.messageIDs = messageIDs
+	return reporter.err
+}
+
 // ListMessages 返回测试消息，并记录用户归属参数。
 func (r *fakeRepository) ListMessages(_ context.Context, userID int64, _ string, _ string, _ int64, _ int) ([]Message, error) {
 	r.userID = userID
@@ -400,5 +421,33 @@ func TestMarkReadValidatesAndPropagatesPortErrors(t *testing.T) {
 	// unavailableErr 保存仅实现历史读取端口时的能力缺失错误。
 	if unavailableErr := New(historyOnlyRepository{}).MarkRead(context.Background(), 7, "account-1", "chat-1"); !errors.Is(unavailableErr, ErrSessionUnavailable) {
 		t.Fatalf("unavailable MarkRead() error=%v", unavailableErr)
+	}
+}
+
+// TestReportPlatformReadIsOptionalAndPreservesReporterError 验证平台已读上报不影响本地写入且透传运行时失败。
+func TestReportPlatformReadIsOptionalAndPreservesReporterError(t *testing.T) {
+	// messageIDs 是需要上报的平台消息标识，内容保持测试数据且不含凭证。
+	messageIDs := []map[string]any{{"messageId": "message-1"}}
+	// idleService 是没有运行时上报端口的聊天应用服务，调用必须无副作用成功。
+	idleService := New(&fakeRepository{})
+	// idleErr 表示未装配平台上报端口时的调用结果，必须保持 nil。
+	if idleErr := idleService.ReportPlatformRead(context.Background(), "account-1", "chat-1", messageIDs); idleErr != nil {
+		t.Fatalf("未装配上报端口时不应失败: %v", idleErr)
+	}
+	// wantErr 是平台运行时返回的失败，本地已读持久化调用方只会记录该诊断。
+	wantErr := errors.New("platform read failed")
+	// reporter 是记录参数并返回预设失败的平台已读端口替身。
+	reporter := &fakePlatformReadReporter{err: wantErr}
+	// service 是注入上报端口后的聊天应用服务。
+	service := WithPlatformReadReporter(New(&fakeRepository{}), reporter)
+	// reportErr 保存应用服务原样返回的平台上报失败。
+	reportErr := service.ReportPlatformRead(context.Background(), " account-1 ", " chat-1 ", messageIDs)
+	if !errors.Is(reportErr, wantErr) || reporter.calls != 1 || reporter.accountID != "account-1" || reporter.chatID != "chat-1" || len(reporter.messageIDs) != 1 {
+		t.Fatalf("ReportPlatformRead() error=%v calls=%d account=%q chat=%q messages=%d", reportErr, reporter.calls, reporter.accountID, reporter.chatID, len(reporter.messageIDs))
+	}
+	// emptyErr 保存空消息集合的调用结果，不能再触发运行时端口。
+	emptyErr := service.ReportPlatformRead(context.Background(), "account-1", "chat-1", nil)
+	if emptyErr != nil || reporter.calls != 1 {
+		t.Fatalf("空消息不应触发上报: error=%v calls=%d", emptyErr, reporter.calls)
 	}
 }

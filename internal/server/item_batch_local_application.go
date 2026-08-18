@@ -7,7 +7,7 @@ import (
 )
 
 // newBatchLocalPublishService 返回构造阶段已完成依赖校验的批量本地收口应用服务。
-func (s *Server) newBatchLocalPublishService() (*itemapp.BatchLocalPublishService, error) {
+func (s *Server) newBatchLocalPublishService() (ItemBatchLocalPublishPort, error) {
 	if s == nil || s.applicationServiceSet() == nil || s.applicationServiceSet().itemBatchLocalPublish == nil {
 		return nil, itemapp.ErrBatchLocalPublishUnavailable
 	}

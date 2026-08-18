@@ -17,10 +17,10 @@ func TestAPIContractChatAutomationAndItemErrors(t *testing.T) {
 	// srv 是用于验证聊天、自动化和商品错误契约的 HTTP 测试服务。
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// srv.MTop 是返回缺少商品 ID 结果的测试平台客户端。
-	srv.MTop = &stubPublishMTop{publish: func(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
+	// 测试平台客户端返回缺少商品 ID 的发布结果。
+	setTestMTop(srv, &stubPublishMTop{publish: func(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
 		return &mtop.PublishItemResult{Title: "测试商品"}, nil
-	}}
+	}})
 	// handler 是当前测试使用的完整路由树。
 	handler := srv.Router()
 	// sessionCookie 是管理员登录后得到的认证会话。

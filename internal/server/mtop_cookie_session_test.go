@@ -62,7 +62,7 @@ func TestRefreshAccountProfilePersistsCookieSessionOnResponseError(t *testing.T)
 			Request:    req,
 		}, nil
 	})}
-	srv.MTop = client
+	setTestMTop(srv, client)
 
 	detail, err = store.Cookies.GetDetails(ctx, "acc1")
 	if err != nil {
@@ -110,12 +110,12 @@ func TestRefreshAccountProfileKeepsAuthoritativeSnapshotWithFlatMock(t *testing.
 	defer cleanup()
 	seedStaleCookieSnapshot(t, store, "acc1")
 
-	srv.MTop = &stubProfileMTop{profile: func(context.Context, string) (*mtop.UserProfileResult, error) {
+	setTestMTop(srv, &stubProfileMTop{profile: func(context.Context, string) (*mtop.UserProfileResult, error) {
 		return &mtop.UserProfileResult{
 			Nickname:       "mock-profile",
 			UpdatedCookies: "unb=123; _m_h5_tk=mockfresh_2",
 		}, nil
-	}}
+	}})
 	// detail、err 用于本次流程后续判断的detail、err
 	detail, err := store.Cookies.GetDetails(context.Background(), "acc1")
 	if err != nil {
@@ -143,12 +143,12 @@ func TestRefreshAccountProfileKeepsFlatMockFallbackWithoutSnapshot(t *testing.T)
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 
-	srv.MTop = &stubProfileMTop{profile: func(context.Context, string) (*mtop.UserProfileResult, error) {
+	setTestMTop(srv, &stubProfileMTop{profile: func(context.Context, string) (*mtop.UserProfileResult, error) {
 		return &mtop.UserProfileResult{
 			Nickname:       "mock-profile",
 			UpdatedCookies: "unb=123; _m_h5_tk=mockfresh_2",
 		}, nil
-	}}
+	}})
 	// detail、err 用于本次流程后续判断的detail、err
 	detail, err := store.Cookies.GetDetails(context.Background(), "acc1")
 	if err != nil {

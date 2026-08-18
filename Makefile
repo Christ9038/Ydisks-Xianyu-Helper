@@ -51,7 +51,7 @@ vet:
 lint:
 	$(GOLANGCI_LINT) run ./...
 
-## architecture: 检查 Go 低层依赖方向和 Server 事务边界
+## architecture: 按总计划当前阶段启用完整架构规则目录中的对应门禁
 architecture:
 	$(GO) run ./tools/architecturecheck
 

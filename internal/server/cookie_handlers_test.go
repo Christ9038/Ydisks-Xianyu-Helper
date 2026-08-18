@@ -95,11 +95,11 @@ func TestLongLoginSettingsProxyAndPersistCookieSnapshot(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.CookieRenew = xrenew.Service{
+	setTestCookieRenew(srv, xrenew.Service{
 		HTTPClient:            passport.Client(),
 		QueryLoginSettingsURL: passport.URL + "/queryLoginSettings.do",
 		SetLoginSettingsURL:   passport.URL + "/setLoginSettings.do",
-	}
+	})
 	// detail、err 用于本次流程后续判断的detail、err
 	detail, err := store.Cookies.GetDetails(context.Background(), "acc1")
 	if err != nil {
@@ -173,10 +173,10 @@ func TestLongLoginFailureStillPersistsResponseCookiesWithoutInventingSnapshot(t 
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.CookieRenew = xrenew.Service{
+	setTestCookieRenew(srv, xrenew.Service{
 		HTTPClient:            passport.Client(),
 		QueryLoginSettingsURL: passport.URL + "/queryLoginSettings.do",
-	}
+	})
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
 	// session 用于本次流程后续判断的会话
@@ -229,10 +229,10 @@ func TestLongLoginAuthoritativeSnapshotCanBeDeletedToEmpty(t *testing.T) {
 	err := store.Cookies.UpdateRenewalCookie(context.Background(), "acc1", "only_cookie=old", metadata, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
-	srv.CookieRenew = xrenew.Service{
+	setTestCookieRenew(srv, xrenew.Service{
 		HTTPClient:            passport.Client(),
 		QueryLoginSettingsURL: passport.URL + "/queryLoginSettings.do",
-	}
+	})
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
 	// session 用于本次流程后续判断的会话
@@ -612,7 +612,6 @@ func TestUpdateRunningCookieWakesCredentialBlockedAutomationWithoutManager(t *te
 	}); err != nil {
 		t.Fatal(err)
 	}
-	srv.Manager = nil
 	srv.updateRunningCookie(ctx, "acc1", "unb=123; _m_h5_tk=fresh_1;")
 	// got 用于本次流程后续判断的got
 	var got int64
@@ -710,7 +709,6 @@ func TestSetCookieStatusWaitsForCredentialTransition(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.Manager = nil
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
 	// cookie 用于本次流程后续判断的登录凭证
@@ -753,7 +751,6 @@ func TestDeleteCookieRechecksOwnershipInsideCredentialLock(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.Manager = nil
 	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	if // ok、err 用于本次流程后续判断的ok、err
@@ -1091,7 +1088,6 @@ func TestAddCookieDefaultsManualLoginAudit(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.Manager = nil
 	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	// h 用于本次流程后续判断的h

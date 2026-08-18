@@ -46,6 +46,12 @@ type BatchPublishedItemRepository interface {
 	UpsertPublishedItem(context.Context, BatchPublishedItem) error
 }
 
+// BatchLocalPublisher 定义远端商品发布成功后的本地收口能力。
+// adapter 只依赖该 Port，不应持有具体应用服务实现。
+type BatchLocalPublisher interface {
+	Complete(context.Context, int64, BatchRow, string, *BatchPublishResult) error
+}
+
 // BatchLocalPublishService 编排远端成功后的本地商品、自动化规则和批次成功收口。
 type BatchLocalPublishService struct {
 	// completionRepository 负责复核批次租约并保存明细成功检查点。

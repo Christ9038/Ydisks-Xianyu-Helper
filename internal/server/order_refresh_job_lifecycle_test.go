@@ -226,8 +226,13 @@ func TestOrderRefreshWorkerUsesCanceledServerLifecycle(t *testing.T) {
 	}
 	// job 是传给后台 worker 的应用层任务模型。
 	job := &orderapp.RefreshJob{ID: dbJob.ID, UserID: dbJob.UserID}
+	// services 是测试组合根拥有的订单服务集合，生产 Server 不暴露 worker 依赖。
+	services := testOrderServices(srv)
+	if services == nil {
+		t.Fatal("测试组合根未登记订单服务")
+	}
 	// runner、runnerErr 保存直接由应用层拥有的订单刷新 worker。
-	runner, runnerErr := orderapp.NewRefreshJobRunner(srv.orders().services.RefreshJobs, srv.orders().services.Refresh, orderapp.RefreshJobRunnerOptions{})
+	runner, runnerErr := orderapp.NewRefreshJobRunner(services.RefreshJobs, services.Refresh, orderapp.RefreshJobRunnerOptions{})
 	if runnerErr != nil {
 		t.Fatalf("构造订单刷新运行器: %v", runnerErr)
 	}

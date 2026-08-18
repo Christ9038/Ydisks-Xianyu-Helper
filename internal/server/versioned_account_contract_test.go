@@ -145,8 +145,7 @@ func TestVersionedAccountCredentialRoutesPreserveLegacyContracts(t *testing.T) {
 	// srv 是用于验证账号凭证版本化路由的 HTTP 测试服务。
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// srv.Manager 置空后，新增和更新请求不会启动后台运行时。
-	srv.Manager = nil
+	// HTTP transport 不直接持有账号运行时，新增和更新通过应用服务编排。
 	// handler 是当前测试使用的完整路由树。
 	handler := srv.Router()
 	// sessionCookie 是管理员登录后得到的认证会话。

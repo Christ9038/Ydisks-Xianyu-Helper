@@ -1,7 +1,7 @@
 # 生命周期与后台任务清单
 
-本文是重构计划阶段 5 收口后的静态审计清单。它记录后台组件的所有者、Context 来源、停止和等待边界，
-用于防止后续迭代重新引入游离 goroutine；阶段状态和验收证据只记录在重构进度文档中。
+本文是生命周期静态审计清单。它记录后台组件的所有者、Context 来源、停止和等待边界，
+用于防止后续迭代重新引入游离 goroutine；它不定义阶段编号、阶段状态或验收结论。
 
 ## 组件清单
 
@@ -12,13 +12,13 @@
 | 订单刷新 worker/recovery | `lifecycle.Coordinator` → `orders.RefreshJobService` | 协调器共享应用生命周期 Context；请求只负责创建任务 | 协调器逆序 `Close(ctx)`，runner 通过租约 token 和 Context 收束 | 应用任务状态、租约终态和 runner `Wait/Close` | 订单刷新生命周期、租约、取消和晚到写入测试 | 统一运维查询属于后续观测迭代，不改变生命周期所有权 |
 | 商品批量发布 worker/recovery | `lifecycle.Coordinator` → `items.BatchWorkerCoordinator` | 协调器共享应用生命周期 Context；取消后的本地收口使用受控补偿 Context | 协调器逆序 `Close(ctx)`，worker cancel、租约 token 和终态补偿由应用协调器负责 | 批次状态、协调器 `Wait/Close` 与错误回调 | 批量取消 race、应用 BatchRunner 和协调器测试 | 恢复指标属于后续观测迭代，不改变生命周期所有权 |
 | 订单 reconciliation worker | `lifecycle.Coordinator` → `orders.ReconciliationRecoveryCoordinator` | 协调器共享应用生命周期 Context | 协调器逆序 `Close(ctx)` 取消当前扫描并等待退出 | 补偿记录状态与协调器 `Wait/Close` | reconciliation 成功/失败重试、取消和协调器测试 | 指数退避属于后续补偿策略迭代 |
-| `account.Manager` 账号运行时集合 | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 协调器共享应用生命周期 Context | 协调器逆序调用 `StopAllContext`，保留全局 stopping fence | 等待单账号或全部账号结束 | Manager fencing、删除 fencing、生命周期和 race 测试 | 运行时内部任务的细分归入阶段 6，不改变进程级 owner |
+| `account.Manager` 账号运行时集合 | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 协调器共享应用生命周期 Context | 协调器逆序调用 `StopAllContext`，保留全局 stopping fence | 等待单账号或全部账号结束 | Manager fencing、删除 fencing、生命周期和 race 测试 | 运行时内部任务的细分由正式总计划决定，不改变进程级 owner |
 | `engine.Account` 单账号运行时 | `account.Manager`；连接、出站、凭证和迟到续期分别由 `connectionCoordinator`、`outgoingMessageCoordinator`、`credentialCoordinator`、`pendingRenewalCoordinator` 负责 | `Account.Run(parent)` | `StopContext` 取消运行 Context；连接协调器以受限预算等待自有 worker | `StopContext` 返回错误；共享完成信号支持超时后的再次 Join；运行状态可查询 | Engine lifecycle、连接协调器、出站发送、credential coordinator、刷新取消与迟到续期测试 | recorder 子任务继续沿用账号运行 Context，不允许脱离 facade 生命周期 |
 | 浏览器 `Manager` | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 每次调用的独立 Context；初始化和关闭受协调器 Context/Close Context 约束 | 协调器逆序调用 `CloseContext`，关闭 fencing 并等待活动调用归零 | `CloseContext` 返回超时并可重试 | Browser lifecycle 与 race 测试 | 底层同步 Playwright Close 无法被 Context 中断，这是实现约束 |
 | 续期 `renewal.Scheduler` | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 协调器共享应用生命周期 Context | 协调器逆序调用 `StopContext`，幂等并阻止 Stop 后 Run | `WaitContext` | 先 Stop、重复 Stop、零值和 race 测试 | 迟到 Cookie 合并语义由续期组件自身 generation/锁测试保护 |
-| 自动化 `automation.Scheduler` | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 协调器共享应用生命周期 Context；nil Context 明确拒绝启动 | 协调器逆序取消 Context 并调用 `WaitContext` | `WaitContext` | scheduler、nil 输入与结果收口测试 | 自动化外部动作语义归入阶段 6，不改变调度器 owner |
+| 自动化 `automation.Scheduler` | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 协调器共享应用生命周期 Context；nil Context 明确拒绝启动 | 协调器逆序取消 Context 并调用 `WaitContext` | `WaitContext` | scheduler、nil 输入与结果收口测试 | 自动化外部动作语义归属由正式总计划决定，不改变调度器 owner |
 | 通知 outbox worker | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 协调器共享应用生命周期 Context | 协调器逆序调用 `WaitContext`，由共享 Context 停止拉取与发送 | `WaitContext`、uncertain 状态查询 | notify worker、uncertain 状态和三库测试 | 运维重试与人工核对流程属于通知业务迭代 |
-| WebSocket/聊天后台发送任务 | `chat.Service` 与请求级连接 owner | 请求 Context 和连接关闭信号；不继承 Server 业务 worker Context | 请求取消或连接关闭时先取消发送/读取任务，再由连接 owner 等待 Join | WebSocket handler 显式等待读取 goroutine，发送结果和连接状态保留可观测字段 | WebSocket 事件流测试、Server race；`chatWebSocket` 已显式 Wait/Join 读取任务 | 更细的消息分发状态拆分属于阶段 6，不新增 Server 生命周期入口 |
+| WebSocket/聊天后台发送任务 | `chat.Service` 与请求级连接 owner | 请求 Context 和连接关闭信号；不继承 Server 业务 worker Context | 请求取消或连接关闭时先取消发送/读取任务，再由连接 owner 等待 Join | WebSocket handler 显式等待读取 goroutine，发送结果和连接状态保留可观测字段 | WebSocket 事件流测试、Server race；`chatWebSocket` 已显式 Wait/Join 读取任务 | 更细的消息分发状态由正式总计划安排，不新增 Server 生命周期入口 |
 
 ## 外部调用取消与超时审计
 
@@ -34,7 +34,7 @@
 
 审计结论：`notify.Notifier.Start(nil)` 和 `automation.Scheduler.Run(nil)` 已明确拒绝启动并有确定性测试；生产组合根始终传入非 nil Context。通知 HTTP helper 仍以 10 秒 client timeout 作为无法直接继承 worker Context 的边界，未形成无限等待。
 
-## 阶段 6 并发与锁边界
+## 并发与锁边界
 
 | 锁/协调状态 | 所有者与保护范围 | 明确禁止 | 锁顺序/验证 |
 | --- | --- | --- | --- |
@@ -49,4 +49,4 @@
 1. 新增 goroutine 必须在本表增加一行，注明启动者、Context 来源、取消责任和等待方式。
 2. 新组件必须同时提供取消、超时、重复停止和晚到写入测试；测试通过不等于其他组件自动继承其业务语义。
 3. 删除账号前必须先建立账号级 stopping fence，再在受限 Context 内停止运行时，最后重新校验归属并删除持久化记录。
-4. 本表只记录 owner 与边界；阶段 6 以后业务策略、运维观测和实时连接细分风险不得重新转化为 Server 生命周期入口。
+4. 本表只记录 owner 与边界；业务策略、运维观测和实时连接细分风险不得重新转化为 Server 生命周期入口。

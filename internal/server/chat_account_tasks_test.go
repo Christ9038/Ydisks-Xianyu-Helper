@@ -73,7 +73,7 @@ func TestChatWebSocketStreamsOnlyAuthenticatedAccountEvents(t *testing.T) {
 	srv, _, cleanup := newTestServerWithChat(t)
 	defer cleanup()
 	// service 用于本次流程后续判断的service
-	service := srv.chat
+	service := testChatDomain(srv)
 	// handler 用于本次流程后续判断的handler
 	handler := srv.Router()
 	// cookie 用于本次流程后续判断的登录凭证

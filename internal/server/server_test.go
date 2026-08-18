@@ -9,15 +9,19 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"xianyu-go/internal/account"
 	"xianyu-go/internal/adapter"
+	lifecycleapp "xianyu-go/internal/application/lifecycle"
 	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/chat"
+	"xianyu-go/internal/composition"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
+	"xianyu-go/internal/notify"
 	"xianyu-go/internal/xianyu/mtop"
 )
 
@@ -96,7 +100,7 @@ func newTestServer(t *testing.T) (*Server, *db.Store, func()) { // newTestServer
 	// authentication 保存测试 HTTP 会话中间件需要的认证服务。
 	authentication := &auth.Service{Store: store}
 	// srv、err 保存测试 HTTP 服务构造结果及失败原因。
-	srv, err := NewLegacyComposedServer(authentication, mgr, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies))
+	srv, err := newTestServerFromComposition(authentication, mgr, nil, nil, nil, orderDependencies, accountDependencies, itemDependencies, chatDependencies, automationDependencies, transportApplications, platformDependencies, databaseHealth, orderReconciliationRecovery)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -112,7 +116,7 @@ func newTestServer(t *testing.T) (*Server, *db.Store, func()) { // newTestServer
 			Request: req,
 		}, nil
 	})}
-	srv.MTop = mtopClient
+	setTestMTop(srv, mtopClient)
 	return srv, store, func() {
 		mgr.StopAll()
 		_ = d.Close()
@@ -125,10 +129,9 @@ func newTestServerWithChat(t *testing.T) (*Server, *db.Store, func()) {
 	srv, store, cleanup := newTestServer(t)
 	// chatService 是仅供聊天测试使用的通信应用服务实例。
 	chatService := chat.New(store)
-	// srv.chat 在测试构造阶段一次性注入通信服务，模拟构造 option 的效果。
-	srv.chat = chatService
-	// applications.chat 重新绑定测试聊天服务，确保实时订阅适配器与 srv.chat 使用同一事件中心。
-	srv.applications.chat = newChatSendingApplication(srv)
+	// applications.chat 重新绑定测试聊天服务，确保实时订阅适配器使用同一事件中心。
+	srv.applications.chat = adapter.NewChatSendingApplication(chatService, store, testAccountManager(srv), func() mtop.Client { return testMTop(srv) })
+	registerTestChatDomain(srv, chatService)
 	return srv, store, cleanup
 }
 
@@ -204,7 +207,7 @@ func newUninitializedTestServer(t *testing.T) (*Server, *db.Store, func()) {
 	// authentication 保存未初始化数据库上的会话中间件依赖。
 	authentication := &auth.Service{Store: store}
 	// srv、err 保存未初始化测试服务构造结果及失败原因。
-	srv, err := NewLegacyComposedServer(authentication, mgr, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies))
+	srv, err := newTestServerFromComposition(authentication, mgr, nil, nil, nil, orderDependencies, accountDependencies, itemDependencies, chatDependencies, automationDependencies, transportApplications, platformDependencies, databaseHealth, orderReconciliationRecovery)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -212,6 +215,164 @@ func newUninitializedTestServer(t *testing.T) (*Server, *db.Store, func()) {
 		mgr.StopAll()
 		_ = d.Close()
 	}
+}
+
+// newTestServerFromComposition 按生产组合根顺序构造测试 HTTP Server，禁止回退到已删除的 Server 内部装配器。
+func newTestServerFromComposition(authentication *auth.Service, manager *account.Manager, autoCenter *automation.Center, notifier *notify.Notifier, chatService *chat.Service, orderDependencies *adapter.OrderDependencies, accountDependencies *adapter.AccountDependencies, itemDependencies *adapter.ItemDependencies, chatDependencies *adapter.ChatDependencies, automationDependencies *adapter.AutomationDependencies, transportApplications *adapter.TransportApplicationServices, platformDependencies *adapter.PlatformDependencies, databaseHealth DatabaseHealthPort, orderReconciliationRecovery *orderapp.ReconciliationRecoveryCoordinator) (*Server, error) {
+	// testPlatform 将默认平台能力包装为每个 Server 独立可变的测试 Port。
+	testPlatform := newTestPlatformPort(platformDependencies)
+	// lifecycleCoordinator 保存测试应用 worker 的父 Context 所有者。
+	lifecycleCoordinator := lifecycleapp.NewCoordinator()
+	// applications 在平台回调触发时提供已完成装配的账号运行时服务。
+	var applications *composition.Services
+	// updateRunningCookie 把平台 Cookie 变化转交给应用服务，测试中忽略非敏感运行时同步错误。
+	updateRunningCookie := func(ctx context.Context, accountID, value string) {
+		if applications != nil {
+			_ = applications.UpdateRunningCookie(ctx, accountID, value)
+		}
+	}
+	// sessionRecovery 将确认过期的会话恢复请求委托给账号运行时应用服务。
+	sessionRecovery := adapter.NewSessionRecoveryHandler(nil, func(ctx context.Context, accountID string) bool {
+		return applications != nil && applications.RecoverExpiredCredential(ctx, accountID)
+	})
+	// applicationsErr 表示测试组合根装配应用服务失败的原因。
+	var applicationsErr error
+	applications, applicationsErr = composition.New(composition.Dependencies{
+		OrderDependencies:           orderDependencies,
+		AccountDependencies:         accountDependencies,
+		ItemDependencies:            itemDependencies,
+		ChatDependencies:            chatDependencies,
+		AutomationDependencies:      automationDependencies,
+		TransportApplications:       transportApplications,
+		OrderReconciliationRecovery: orderReconciliationRecovery,
+		Manager:                     manager,
+		Automation:                  autoCenter,
+		Notifier:                    notifier,
+		Chat:                        chatService,
+		MTopClient:                  testPlatform.MTOPClient,
+		LongLoginClient:             testPlatform.LongLoginClient,
+		QRLogin:                     testPlatform,
+		UpdateRunningCookie:         updateRunningCookie,
+		SessionRecovery:             sessionRecovery,
+		LifecycleContext:            lifecycleCoordinator.Context,
+	})
+	if applicationsErr != nil {
+		return nil, applicationsErr
+	}
+	// dependencies 保存测试组合层投影出的 HTTP transport 依赖。
+	dependencies := testServerDependencies(authentication, databaseHealth, applications, sessionRecovery)
+	// serverErr 保存 HTTP transport 注入完整 Port 快照时的构造失败。
+	server, serverErr := New(dependencies)
+	if serverErr != nil {
+		return nil, serverErr
+	}
+	registerTestAccountManager(server, manager)
+	registerTestPlatform(server, testPlatform)
+	registerTestBatchLifecycle(server, applications.LifecycleComponents())
+	registerTestOrderServices(server, applications.TransportPorts().Orders)
+	return server, nil
+}
+
+// testAccountLoginAdapter 将组合层账号登录 Port 适配为 Server 的测试 transport Port。
+type testAccountLoginAdapter struct {
+	// service 是测试组合根创建的账号登录能力。
+	service composition.AccountLogin
+}
+
+// CreateCookie 透传测试 Cookie 创建命令。
+func (adapter testAccountLoginAdapter) CreateCookie(ctx context.Context, accountID, cookies string, userID int64, loginMethod string) error {
+	return adapter.service.CreateCookie(ctx, accountID, cookies, userID, loginMethod)
+}
+
+// UpdateCookie 透传测试 Cookie 更新命令。
+func (adapter testAccountLoginAdapter) UpdateCookie(ctx context.Context, accountID, cookies string, userID int64, loginMethod string, expectedRevision int64) error {
+	return adapter.service.UpdateCookie(ctx, accountID, cookies, userID, loginMethod, expectedRevision)
+}
+
+// PersistQRLoginSuccess 将组合层二维码结果转换为 Server 可编码结果。
+func (adapter testAccountLoginAdapter) PersistQRLoginSuccess(ctx context.Context, userID int64, sessionID string, result map[string]any, targetAccountID string) (AccountLoginResult, error) {
+	// persisted、persistErr 分别是测试登录服务的脱敏持久化结果和失败。
+	persisted, persistErr := adapter.service.PersistQRLoginSuccess(ctx, userID, sessionID, result, targetAccountID)
+	if persistErr != nil {
+		return AccountLoginResult{}, persistErr
+	}
+	return AccountLoginResult{AccountID: persisted.AccountID, IsNew: persisted.IsNew}, nil
+}
+
+// RegisterQRSession 登记测试二维码会话归属。
+func (adapter testAccountLoginAdapter) RegisterQRSession(sessionID string, userID int64, createdAt time.Time) {
+	adapter.service.RegisterQRSession(sessionID, userID, createdAt)
+}
+
+// AuthorizeQRSession 验证测试二维码会话归属。
+func (adapter testAccountLoginAdapter) AuthorizeQRSession(sessionID string, userID int64) error {
+	return adapter.service.AuthorizeQRSession(sessionID, userID)
+}
+
+// CleanupQRSessions 清理测试二维码会话。
+func (adapter testAccountLoginAdapter) CleanupQRSessions(now time.Time) []string {
+	return adapter.service.CleanupQRSessions(now)
+}
+
+// testQRLoginAdapter 将 adapter 二维码服务适配为 Server 的测试 transport Port。
+type testQRLoginAdapter struct {
+	// service 是组合根创建的二维码服务。
+	service adapter.QRLoginService
+}
+
+// GenerateQRCode 创建测试二维码会话。
+func (adapter testQRLoginAdapter) GenerateQRCode(ctx context.Context) (string, string, error) {
+	return adapter.service.GenerateQRCode(ctx)
+}
+
+// GetSessionStatus 读取测试二维码状态。
+func (adapter testQRLoginAdapter) GetSessionStatus(sessionID string) map[string]any {
+	return adapter.service.GetSessionStatus(sessionID)
+}
+
+// CompleteVerification 完成测试二维码验证。
+func (adapter testQRLoginAdapter) CompleteVerification(ctx context.Context, sessionID string) (string, string, error) {
+	return adapter.service.CompleteVerification(ctx, sessionID)
+}
+
+// DeleteSession 尽力清理测试二维码平台会话。
+func (adapter testQRLoginAdapter) DeleteSession(sessionID string) {
+	// cleaner、ok 分别是测试二维码服务提供的可选会话清理能力及存在状态。
+	if cleaner, ok := adapter.service.(interface{ DeleteSession(string) }); ok {
+		cleaner.DeleteSession(sessionID)
+	}
+}
+
+// testSessionRecoveryAdapter 将 adapter 的会话错误分类函数适配为 Server Port。
+type testSessionRecoveryAdapter struct {
+	// handler 是测试组合根构造的会话恢复函数。
+	handler adapter.SessionRecoveryHandler
+}
+
+// Recover 处理确认失效的测试会话。
+func (adapter testSessionRecoveryAdapter) Recover(ctx context.Context, accountID string, err error) bool {
+	return adapter.handler != nil && adapter.handler(ctx, accountID, err)
+}
+
+// testServerDependencies 将组合层服务快照转换为 Server 测试构造所需的依赖。
+func testServerDependencies(authentication *auth.Service, databaseHealth DatabaseHealthPort, services *composition.Services, sessionRecovery adapter.SessionRecoveryHandler) Dependencies {
+	// ports 是测试组合根投影的完整 transport Port 集合。
+	ports := services.TransportPorts()
+	return Dependencies{Auth: authentication, Addr: ":0", DatabaseHealth: databaseHealth, Applications: NewApplicationPorts(ApplicationPortsInput{
+		Orders: testOrdersTransport{services: ports.Orders}, OrderRefreshJobs: ports.OrderRefreshJobs, ItemSinglePublish: ports.ItemSinglePublish,
+		ItemBatchPreview: ports.ItemBatchPreview, ItemBatchManagement: ports.ItemBatchManagement, ItemCategoryRecommendation: ports.ItemCategoryRecommendation,
+		ItemBatchPreviewPersistence: ports.ItemBatchPreviewPersistence, ItemBatchLocalPublish: ports.ItemBatchLocalPublish,
+		ItemSync: ports.ItemSync, ItemCatalog: ports.ItemCatalog, ItemCatalogMutation: ports.ItemCatalogMutation,
+		AccountLogin: testAccountLoginAdapter{service: ports.AccountLogin}, QRLogin: testQRLoginAdapter{service: ports.QRLogin},
+		SessionRecovery: testSessionRecoveryAdapter{handler: sessionRecovery}, PlatformCredentials: ports.PlatformCredentials,
+		Authentication: ports.Authentication, LoginAudit: ports.LoginAudit, PasswordLogin: ports.PasswordLogin, AccountDelete: ports.AccountDelete,
+		AccountProfile: ports.AccountProfile, AccountLongLogin: ports.AccountLongLogin, AccountSettings: ports.AccountSettings,
+		AccountRuntime: ports.AccountRuntime, AccountSummaries: ports.AccountSummaries, AccountTasks: ports.AccountTasks, Chat: ports.Chat,
+		UncertainNotifications: ports.UncertainNotifications, NotificationChannels: ports.NotificationChannels, Analytics: ports.Analytics,
+		AutomationIssues: ports.AutomationIssues, AutomationRules: ports.AutomationRules, Cards: ports.Cards,
+		PublishAutomationRules: ports.PublishAutomationRules, DefaultReplies: ports.DefaultReplies, Keywords: ports.Keywords,
+		Settings: ports.Settings, Admin: ports.Admin,
+	})}
 }
 
 // newTestOrderReconciliationRecovery 以与进程组合根一致的路径构造订单补偿扫描应用服务。

@@ -39,7 +39,7 @@ func (s *Server) generateQRLogin(w http.ResponseWriter, r *http.Request) {
 	generateCtx, cancel := context.WithTimeout(r.Context(), qrLoginGenerateTimeout)
 	defer cancel()
 	// qrService 是通过显式平台依赖边界取得的二维码服务；为空时拒绝执行平台调用。
-	qrService := s.qrLoginService()
+	qrService := s.qrLoginApplication()
 	if qrService == nil {
 		writeErr(w, http.StatusInternalServerError, "二维码服务未初始化")
 		return
@@ -66,12 +66,12 @@ func (s *Server) generateQRLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// qrSessions 保存扫码会话所有权；平台二维码服务只负责平台会话本身。
-	qrSessions := s.accountLoginApplication().qrSessions
-	if qrSessions == nil {
+	accountLogin := s.accountLoginApplication()
+	if accountLogin == nil {
 		writeErr(w, http.StatusInternalServerError, "扫码会话服务未初始化")
 		return
 	}
-	qrSessions.Register(sessionID, sess.UserID, time.Now().UTC())
+	accountLogin.RegisterQRSession(sessionID, sess.UserID, time.Now().UTC())
 	writeJSON(w, http.StatusOK, qrLoginGenerateResponse{
 		Success: true, SessionID: sessionID, QRCodeURL: qrCodeURL,
 		// 生成成功响应只暴露会话标识和二维码地址。
@@ -91,7 +91,7 @@ func (s *Server) checkQRLoginStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// qrService 是已完成平台依赖校验的二维码服务。
-	qrService := s.qrLoginService()
+	qrService := s.qrLoginApplication()
 	if qrService == nil {
 		writeErr(w, http.StatusInternalServerError, "二维码服务未初始化")
 		return
@@ -113,7 +113,7 @@ func (s *Server) checkQRLoginStatusAndPersist(w http.ResponseWriter, r *http.Req
 		return
 	}
 	// qrService 是已完成平台依赖校验的二维码服务。
-	qrService := s.qrLoginService()
+	qrService := s.qrLoginApplication()
 	if qrService == nil {
 		writeErr(w, http.StatusInternalServerError, "二维码服务未初始化")
 		return
@@ -160,7 +160,7 @@ func (s *Server) completeQRVerification(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	// qrService 是已完成平台依赖校验的二维码服务。
-	qrService := s.qrLoginService()
+	qrService := s.qrLoginApplication()
 	if qrService == nil {
 		writeErr(w, http.StatusInternalServerError, "二维码服务未初始化")
 		return
@@ -240,17 +240,17 @@ func (s *Server) requireQRSessionOwner(w http.ResponseWriter, r *http.Request, s
 		return false
 	}
 	// qrSessions 负责所有权、过期判断和幂等状态清理，HTTP 层不再持有可变会话表。
-	qrSessions := s.accountLoginApplication().qrSessions
-	if qrSessions == nil {
+	accountLogin := s.accountLoginApplication()
+	if accountLogin == nil {
 		writeErr(w, http.StatusInternalServerError, "扫码会话服务未初始化")
 		return false
 	}
 	// err 保存扫码会话所有权校验结果。
-	if err := qrSessions.Authorize(sessionID, sess.UserID); err != nil {
+	if err := accountLogin.AuthorizeQRSession(sessionID, sess.UserID); err != nil {
 		if errors.Is(err, accountapp.ErrQRLoginSessionNotFound) {
 			// cleaner、cleanable 分别表示平台会话清理器及其接口是否可用。
-			if cleaner, cleanable := s.qrLoginService().(interface{ DeleteSession(string) }); cleanable {
-				cleaner.DeleteSession(sessionID)
+			if qrService := s.qrLoginApplication(); qrService != nil {
+				qrService.DeleteSession(sessionID)
 			}
 		}
 		writeErr(w, http.StatusNotFound, "扫码会话不存在或已过期")
@@ -262,14 +262,14 @@ func (s *Server) requireQRSessionOwner(w http.ResponseWriter, r *http.Request, s
 // cleanupQRLoginSessions 封装cleanupQR登录Sessions业务协调。
 func (s *Server) cleanupQRLoginSessions() {
 	// qrSessions 提供应用层扫码会话过期清理能力。
-	qrSessions := s.accountLoginApplication().qrSessions
-	if qrSessions == nil {
+	accountLogin := s.accountLoginApplication()
+	if accountLogin == nil {
 		return
 	}
 	// expired 保存应用层报告的过期扫码会话标识。
-	expired := qrSessions.Cleanup(time.Now().UTC())
-	if // cleaner、ok 用于本次流程后续判断的cleaner、ok
-	cleaner, ok := s.qrLoginService().(interface{ DeleteSession(string) }); ok {
+	expired := accountLogin.CleanupQRSessions(time.Now().UTC())
+	// cleaner 是可选二维码平台会话清理 Port，仅用于释放已确认过期的远端会话。
+	if cleaner := s.qrLoginApplication(); cleaner != nil {
 		// id 表示当前遍历过程中的标识
 		for _, id := range expired {
 			cleaner.DeleteSession(id)
@@ -322,11 +322,4 @@ func qrStatus(result map[string]any) string {
 	// status 用于本次流程后续判断的状态
 	status, _ := result["status"].(string)
 	return status
-}
-
-// qrString 封装qrString业务协调。
-func qrString(result map[string]any, key string) string {
-	// value 用于本次流程后续判断的值
-	value, _ := result[key].(string)
-	return strings.TrimSpace(value)
 }

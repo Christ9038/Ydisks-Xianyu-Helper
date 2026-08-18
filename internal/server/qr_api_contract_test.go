@@ -15,7 +15,7 @@ func TestAPIContractQRLoginGenerationFailure(t *testing.T) {
 	// srv 是用于验证二维码生成错误契约的 HTTP 测试服务。
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.QRLogin = &fakeQRLoginService{generateErr: errors.New("二维码服务不可用")}
+	setTestQRLogin(srv, &fakeQRLoginService{generateErr: errors.New("二维码服务不可用")})
 	// handler 是当前测试使用的完整路由树。
 	handler := srv.Router()
 	// sessionCookie 是管理员登录后得到的认证会话。
@@ -45,8 +45,7 @@ func TestAPIContractQRLoginPersistFailure(t *testing.T) {
 	// srv 是用于验证扫码持久化错误契约的 HTTP 测试服务。
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.Manager = nil
-	srv.QRLogin = &fakeQRLoginService{status: map[string]any{"status": "success"}}
+	setTestQRLogin(srv, &fakeQRLoginService{status: map[string]any{"status": "success"}})
 	ownQRSession(t, srv, store, "persist-failure")
 	// handler 是当前测试使用的完整路由树。
 	handler := srv.Router()
@@ -77,7 +76,7 @@ func TestAPIContractQRVerificationFailure(t *testing.T) {
 	// srv 是用于验证扫码风控错误契约的 HTTP 测试服务。
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.QRLogin = &fakeQRLoginService{completeErr: errors.New("验证服务不可用")}
+	setTestQRLogin(srv, &fakeQRLoginService{completeErr: errors.New("验证服务不可用")})
 	ownQRSession(t, srv, store, "verification-failure")
 	// handler 是当前测试使用的完整路由树。
 	handler := srv.Router()

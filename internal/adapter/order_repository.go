@@ -100,7 +100,7 @@ func (r OrderRepository) GetOrder(ctx context.Context, orderID string) (*orderap
 	// order 和 err 保存数据库订单查询结果及其错误。
 	order, err := r.store.Orders.Get(ctx, orderID)
 	if err != nil {
-		return nil, err
+		return nil, NormalizeOrderError(err)
 	}
 	return orderFromDB(order), nil
 }

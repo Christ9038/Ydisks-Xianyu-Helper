@@ -20,11 +20,13 @@ type chatOutgoingRepository struct {
 
 // NewChatSendingApplication 装配聊天历史、实时发送、图片上传和身份补全端口。
 func NewChatSendingApplication(domainService *domainchat.Service, store *db.Store, manager *account.Manager, clientProvider func() mtop.Client) *chatapp.Service {
+	// readReporter 保存从账号运行时适配出的平台已读上报能力，未运行账号保持可选语义。
+	readReporter := NewChatReadReporter(manager)
 	if domainService == nil {
 		// service 保留历史查询应用对象，但不伪造未装配的发送、订阅和刷新端口。
-		return chatapp.NewWithSendingSubscriptionAndRefresh(NewChatRepository(store), nil, nil, nil, nil, nil, NewChatIdentityResolver(store, clientProvider))
+		return chatapp.WithPlatformReadReporter(chatapp.NewWithSendingSubscriptionAndRefresh(NewChatRepository(store), nil, nil, nil, nil, nil, NewChatIdentityResolver(store, clientProvider)), readReporter)
 	}
-	return chatapp.NewWithSendingSubscriptionAndRefresh(
+	return chatapp.WithPlatformReadReporter(chatapp.NewWithSendingSubscriptionAndRefresh(
 		NewChatRepository(store),
 		NewChatOutgoingRepository(domainService),
 		NewChatSenderProvider(manager),
@@ -32,7 +34,38 @@ func NewChatSendingApplication(domainService *domainchat.Service, store *db.Stor
 		NewChatSubscriptionProvider(domainService),
 		NewChatRefreshProvider(domainService, manager),
 		NewChatIdentityResolver(store, clientProvider),
-	)
+	), readReporter)
+}
+
+// chatReadReporter 将账号运行时的可选已读上报能力适配为聊天应用端口。
+type chatReadReporter struct {
+	// manager 保存当前进程的账号运行时查询入口。
+	manager *account.Manager
+}
+
+// NewChatReadReporter 创建聊天已读上报端口；nil Manager 表示当前进程不提供运行时上报能力。
+func NewChatReadReporter(manager *account.Manager) chatapp.PlatformReadReporter {
+	return chatReadReporter{manager: manager}
+}
+
+// ReportRead 向在线账号实例尽力上报平台已读状态；不支持该能力时保持无副作用。
+func (reporter chatReadReporter) ReportRead(ctx context.Context, accountID, chatID string, messageIDs []map[string]any) error {
+	if reporter.manager == nil {
+		return nil
+	}
+	// sender、ok 保存账号运行实例与其在线状态。
+	sender, ok := reporter.manager.GetInstance(accountID)
+	if !ok || sender == nil {
+		return nil
+	}
+	// reader、ok 保存运行时是否支持平台已读上报。
+	reader, ok := sender.(interface {
+		MarkChatRead(context.Context, string, []map[string]any) error
+	})
+	if !ok {
+		return nil
+	}
+	return reader.MarkChatRead(ctx, chatID, messageIDs)
 }
 
 // NewChatOutgoingRepository 创建聊天外发消息的领域适配器。

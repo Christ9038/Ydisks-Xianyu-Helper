@@ -11,7 +11,7 @@ import (
 )
 
 // analyticsApplication 返回当前 Server 绑定的订单分析应用服务。
-func (s *Server) analyticsApplication() *analyticsapp.Service {
+func (s *Server) analyticsApplication() AnalyticsPort {
 	return s.applicationServiceSet().analytics
 }
 

@@ -21,17 +21,11 @@ import (
 	"syscall"
 	"time"
 
-	"xianyu-go/internal/adapter"
-	lifecycleapp "xianyu-go/internal/application/lifecycle"
-	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/auth"
-	"xianyu-go/internal/automation"
-	"xianyu-go/internal/browser"
+	compositionruntime "xianyu-go/internal/composition/runtime"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/logging"
 	"xianyu-go/internal/logsafe"
-	"xianyu-go/internal/renewal"
-	"xianyu-go/internal/server"
 	appversion "xianyu-go/internal/version"
 )
 
@@ -69,6 +63,9 @@ const (
 	// applicationShutdownTimeout 限制应用 worker 收到取消后的独立收束和 Join 时长。
 	applicationShutdownTimeout = 10 * time.Second
 )
+
+// errDataKeyEmpty 表示已打开的数据密钥文件尚未包含有效内容；并发读取者可以有限等待写入者完成。
+var errDataKeyEmpty = errors.New("data key 文件为空")
 
 // serverStartupConfig 保存目录、数据库和日志策略准备阶段的派生配置。
 type serverStartupConfig struct {
@@ -113,9 +110,9 @@ func (i serverInfrastructure) close() {
 // serverRuntime 保存 HTTP 服务及应用生命周期协调器，二者必须由同一 Context 启动和关闭。
 type serverRuntime struct {
 	// httpServer 是已完成依赖注入、尚未启动监听的 HTTP 服务。
-	httpServer *server.Server
+	httpServer httpRuntime
 	// lifecycleCoordinator 按登记顺序启动组件并按逆序关闭后台 worker。
-	lifecycleCoordinator *lifecycleapp.Coordinator
+	lifecycleCoordinator applicationRuntimeCoordinator
 }
 
 // httpRuntimeStopper 定义进程关闭阶段需要的最小 HTTP 停止能力。
@@ -125,10 +122,27 @@ type httpRuntimeStopper interface {
 	Stop(context.Context) error
 }
 
+// httpRuntime 定义正常进程启动、等待和关闭 HTTP 服务所需的完整能力。
+type httpRuntime interface {
+	// Bind 在启动后台组件前同步占用 HTTP 监听端口。
+	Bind() error
+	// Start 开始接收 HTTP 请求。
+	Start(context.Context) error
+	// Wait 等待 HTTP 监听退出。
+	Wait() error
+	Stop(context.Context) error
+}
+
 // applicationRuntimeCloser 定义进程关闭阶段需要的最小应用组件收束能力。
 // Close 必须取消并等待全部已登记应用 worker，返回值保留未完成组件诊断。
 type applicationRuntimeCloser interface {
 	// Close 在调用方提供的独立应用关闭 Context 内取消并 Join worker。
+	Close(context.Context) error
+}
+
+// applicationRuntimeCoordinator 定义 cmd 对组合根生命周期对象执行启动和关闭所需的能力。
+type applicationRuntimeCoordinator interface {
+	Start(context.Context) error
 	Close(context.Context) error
 }
 
@@ -389,167 +403,14 @@ func openServerInfrastructure(ctx context.Context, startup serverStartupConfig, 
 
 // buildServerRuntime 构造浏览器、账号、自动化、通知、应用服务和 HTTP 服务依赖，并登记全部生命周期组件但不启动它们。
 func buildServerRuntime(opts serverOptions, infrastructure serverInfrastructure) (serverRuntime, error) {
-	// bm 是可选浏览器基础设施；禁用浏览器时保持 nil，使账号运行时走无浏览器路径。
-	var bm *browser.Manager
-	if !opts.noBrowser {
-		bm = browser.NewManager(infrastructure.logger)
+	// runtime、buildErr 分别是组合层返回的完整运行时快照及其装配失败原因。
+	runtime, buildErr := compositionruntime.BuildRuntime(compositionruntime.RuntimeOptions{
+		NoBrowser: opts.noBrowser, SecureCookie: opts.secure, WebDir: opts.webDir, Addr: opts.addr,
+	}, compositionruntime.RuntimeInfrastructure{Store: infrastructure.store, Logger: infrastructure.logger})
+	if buildErr != nil {
+		return serverRuntime{}, buildErr
 	}
-	// runtimeBundle 一次性闭合账号、自动化、通知和聊天依赖，避免生产路径通过 setter 补装必需依赖。
-	runtimeBundle, bundleErr := adapter.NewRuntimeBundle(infrastructure.store, bm, infrastructure.logger)
-	if bundleErr != nil {
-		return serverRuntime{}, fmt.Errorf("构造账号运行时依赖失败: %w", bundleErr)
-	}
-	// ap 是账号引擎事件和协议级订单详情的固定适配器。
-	ap := runtimeBundle.Adapter
-	// chatService 是 HTTP 与账号事件共享的聊天领域服务。
-	chatService := runtimeBundle.Chat
-	// mgr 是统一拥有已启用账号引擎生命周期的 supervisor。
-	mgr := runtimeBundle.Manager
-	// notifier 是账号告警与自动化结果共用的通知出口。
-	notifier := runtimeBundle.Notifier
-	// autoCenter 是接收账号事件和计划任务的自动化中心。
-	autoCenter := runtimeBundle.Automation
-	// automationScheduler 驱动自动化延迟任务、租约恢复和定时扫描。
-	automationScheduler := automation.NewScheduler(autoCenter)
-	// renewalScheduler 负责账号凭证续期调度，并通过固定适配器通知账号运行时。
-	renewalScheduler := renewal.NewScheduler(infrastructure.store, mgr, ap, infrastructure.logger, notifier)
-	// lifecycleCoordinator 统一拥有组件启动顺序、取消 Context 和逆序关闭。
-	lifecycleCoordinator := lifecycleapp.NewCoordinator()
-	if bm != nil {
-		// err 表示浏览器生命周期组件登记失败。
-		if err := lifecycleCoordinator.Add(lifecycleapp.NamedComponent{Name: "browser", Component: lifecycleapp.FuncComponent{
-			StartFunc: func(context.Context) error { return bm.Initialize() },
-			CloseFunc: bm.CloseContext,
-		}}); err != nil {
-			return serverRuntime{}, fmt.Errorf("登记浏览器生命周期组件失败: %w", err)
-		}
-	}
-	// err 表示通知 worker 生命周期组件登记失败。
-	if err := lifecycleCoordinator.Add(lifecycleapp.NamedComponent{Name: "notifier", Component: lifecycleapp.FuncComponent{
-		StartFunc: func(componentCtx context.Context) error { notifier.Start(componentCtx); return nil },
-		CloseFunc: notifier.WaitContext,
-	}}); err != nil {
-		return serverRuntime{}, fmt.Errorf("登记通知生命周期组件失败: %w", err)
-	}
-	// err 表示账号运行时生命周期组件登记失败。
-	if err := lifecycleCoordinator.Add(lifecycleapp.NamedComponent{Name: "account-manager", Component: lifecycleapp.FuncComponent{
-		StartFunc: mgr.StartAll,
-		CloseFunc: mgr.StopAllContext,
-	}}); err != nil {
-		return serverRuntime{}, fmt.Errorf("登记账号生命周期组件失败: %w", err)
-	}
-	// err 表示自动化调度器生命周期组件登记失败。
-	if err := lifecycleCoordinator.Add(lifecycleapp.NamedComponent{Name: "automation-scheduler", Component: lifecycleapp.FuncComponent{
-		StartFunc: func(componentCtx context.Context) error { go automationScheduler.Run(componentCtx); return nil },
-		CloseFunc: automationScheduler.WaitContext,
-	}}); err != nil {
-		return serverRuntime{}, fmt.Errorf("登记自动化调度生命周期组件失败: %w", err)
-	}
-	// err 表示凭证续期调度器生命周期组件登记失败。
-	if err := lifecycleCoordinator.Add(lifecycleapp.NamedComponent{Name: "renewal-scheduler", Component: lifecycleapp.FuncComponent{
-		StartFunc: func(componentCtx context.Context) error { go renewalScheduler.Run(componentCtx); return nil },
-		CloseFunc: renewalScheduler.StopContext,
-	}}); err != nil {
-		return serverRuntime{}, fmt.Errorf("登记续期调度生命周期组件失败: %w", err)
-	}
-	// orderDependencies、orderErr 分别是订单应用服务依赖及其构造失败。
-	orderDependencies, orderErr := adapter.NewOrderDependencies(infrastructure.store)
-	if orderErr != nil {
-		return serverRuntime{}, fmt.Errorf("构造订单基础设施依赖失败: %w", orderErr)
-	}
-	// accountDependencies、accountErr 分别是账号应用服务依赖及其构造失败。
-	accountDependencies, accountErr := adapter.NewAccountDependencies(infrastructure.store)
-	if accountErr != nil {
-		return serverRuntime{}, fmt.Errorf("构造账号基础设施依赖失败: %w", accountErr)
-	}
-	// itemDependencies、itemErr 分别是商品应用服务依赖及其构造失败。
-	itemDependencies, itemErr := adapter.NewItemDependencies(infrastructure.store)
-	if itemErr != nil {
-		return serverRuntime{}, fmt.Errorf("构造商品基础设施依赖失败: %w", itemErr)
-	}
-	// automationDependencies、automationErr 分别是自动化应用服务依赖及其构造失败。
-	automationDependencies, automationErr := adapter.NewAutomationDependencies(infrastructure.store)
-	if automationErr != nil {
-		return serverRuntime{}, fmt.Errorf("构造自动化基础设施依赖失败: %w", automationErr)
-	}
-	// miscDependencies、miscErr 分别是通知、分析和卡券应用服务依赖及其构造失败。
-	miscDependencies, miscErr := adapter.NewMiscDependencies(infrastructure.store)
-	if miscErr != nil {
-		return serverRuntime{}, fmt.Errorf("构造通知分析卡券基础设施依赖失败: %w", miscErr)
-	}
-	// adminSettingsDependencies 是管理员与系统设置应用服务的依赖，nil 代表装配失败。
-	adminSettingsDependencies := adapter.NewAdminSettingsDependencies(infrastructure.store)
-	if adminSettingsDependencies == nil {
-		return serverRuntime{}, fmt.Errorf("构造管理员设置基础设施依赖失败")
-	}
-	// chatDependencies 是聊天应用服务使用的运行时与平台适配器，nil 代表装配失败。
-	chatDependencies := adapter.NewChatDependencies(infrastructure.store)
-	if chatDependencies == nil {
-		return serverRuntime{}, fmt.Errorf("构造聊天基础设施依赖失败")
-	}
-	// systemDependencies 是健康检查和订单补偿扫描使用的数据库适配器，nil 代表装配失败。
-	systemDependencies := adapter.NewSystemDependencies(infrastructure.store)
-	if systemDependencies == nil {
-		return serverRuntime{}, fmt.Errorf("构造系统基础设施依赖失败")
-	}
-	// orderReconciliationRecovery 是由进程装配层拥有的订单补偿扫描应用服务，Server 仅接收其 transport-facing 端口。
-	orderReconciliationRecovery, orderReconciliationRecoveryErr := orderapp.NewReconciliationRecoveryCoordinator(systemDependencies.NewReconciliationService(infrastructure.logger))
-	if orderReconciliationRecoveryErr != nil {
-		return serverRuntime{}, fmt.Errorf("构造订单补偿恢复协调器失败: %w", orderReconciliationRecoveryErr)
-	}
-	// databaseHealth 是进程装配层创建的数据库健康检查端口，HTTP handler 只能通过该窄接口探测连通性。
-	databaseHealth := systemDependencies.NewDatabaseHealth()
-	if databaseHealth == nil {
-		return serverRuntime{}, fmt.Errorf("构造数据库健康检查端口失败")
-	}
-	// platformDependencies 提供 HTTP 层使用的 MTOP、长登录和二维码平台能力。
-	platformDependencies, platformErr := adapter.NewDefaultPlatformDependencies(infrastructure.logger)
-	if platformErr != nil {
-		return serverRuntime{}, fmt.Errorf("构造平台基础设施依赖失败: %w", platformErr)
-	}
-	// transportApplications 是进程组合根一次性构造的 transport-facing 应用服务集合。
-	transportApplications, transportApplicationsErr := adapter.NewTransportApplicationServices(adapter.TransportApplicationServiceOptions{
-		AutomationDependencies:    automationDependencies,
-		MiscDependencies:          miscDependencies,
-		AdminSettingsDependencies: adminSettingsDependencies,
-		AdminRuntime:              mgr,
-		AccountTaskRunner:         adapter.NewAccountTaskRunner(autoCenter),
-		ChannelSender:             notifier,
-		ModelClient:               adapter.NewAIModelClient(),
-	})
-	if transportApplicationsErr != nil {
-		return serverRuntime{}, fmt.Errorf("构造 transport 应用服务失败: %w", transportApplicationsErr)
-	}
-	// authentication 负责 HTTP 会话认证；Secure 策略由启动参数控制。
-	authentication := &auth.Service{Store: infrastructure.store, Logger: infrastructure.logger, Secure: opts.secure}
-	// compositionServer 仅在迁移期间复用旧应用服务装配逻辑；它不绑定端口、不启动 worker，也不作为 HTTP Server 运行。
-	compositionServer, compositionErr := server.NewLegacyComposedServer(authentication, mgr, opts.webDir, opts.addr, infrastructure.logger, autoCenter, notifier, server.WithChatService(chatService), server.WithChatDependencies(chatDependencies), server.WithDatabaseHealth(databaseHealth), server.WithOrderReconciliationRecovery(orderReconciliationRecovery), server.WithOrderDependencies(orderDependencies), server.WithAccountDependencies(accountDependencies), server.WithItemDependencies(itemDependencies), server.WithAutomationDependencies(automationDependencies), server.WithTransportApplicationServices(transportApplications), server.WithPlatformDependencies(platformDependencies), server.WithApplicationLifecycle(lifecycleCoordinator))
-	if compositionErr != nil {
-		return serverRuntime{}, fmt.Errorf("构造应用服务集合失败: %w", compositionErr)
-	}
-	// applications 是组合期一次性构造的只读应用服务集合，HTTP Server 不得在自身构造期间补建业务服务。
-	applications := compositionServer.ApplicationServices()
-	// httpServer 是只接收完整依赖快照的 HTTP transport 实例。
-	httpServer, serverErr := server.New(server.Dependencies{
-		Auth: authentication, Manager: mgr, WebDir: opts.webDir, Addr: opts.addr, Logger: infrastructure.logger,
-		Automation: autoCenter, Notifier: notifier, Chat: chatService, OrderDependencies: orderDependencies,
-		AccountDependencies: accountDependencies, ItemDependencies: itemDependencies, ChatDependencies: chatDependencies,
-		AutomationDependencies: automationDependencies, TransportApplications: transportApplications,
-		PlatformDependencies: platformDependencies, DatabaseHealth: databaseHealth,
-		OrderReconciliationRecovery: orderReconciliationRecovery, Applications: applications,
-		ApplicationLifecycle: lifecycleCoordinator,
-	})
-	if serverErr != nil {
-		return serverRuntime{}, fmt.Errorf("构造 HTTP 服务失败: %w", serverErr)
-	}
-	// component 表示应用服务集合交给进程组合根登记的 worker 生命周期组件。
-	for _, component := range applications.LifecycleComponents() {
-		// err 表示当前 HTTP 应用 worker 生命周期组件登记失败。
-		if err := lifecycleCoordinator.Add(component); err != nil {
-			return serverRuntime{}, fmt.Errorf("登记应用 worker 生命周期组件 %q 失败: %w", component.Name, err)
-		}
-	}
-	return serverRuntime{httpServer: httpServer, lifecycleCoordinator: lifecycleCoordinator}, nil
+	return serverRuntime{httpServer: runtime.HTTPServer, lifecycleCoordinator: runtime.Lifecycle}, nil
 }
 
 // runServerLifecycle 启动应用组件和 HTTP 监听，等待退出后执行有限时长的 HTTP 与组件逆序关闭。
@@ -722,6 +583,8 @@ func loadOrCreateDataKey(path string) (string, error) {
 	// key、readErr 分别是已存在密钥文件的内容及读取错误；已有文件永远优先于本次生成。
 	if key, readErr := readDataKey(path); readErr == nil {
 		return key, nil
+	} else if errors.Is(readErr, errDataKeyEmpty) {
+		return waitForDataKey(path)
 	} else if !errors.Is(readErr, os.ErrNotExist) {
 		return "", readErr
 	}
@@ -779,13 +642,15 @@ func readDataKey(path string) (string, error) {
 	// key 是去除文件末尾换行后的数据加密主密钥，禁止记录到日志。
 	key := strings.TrimSpace(string(raw))
 	if key == "" {
-		return "", fmt.Errorf("data key 文件为空: %s", path)
+		return "", fmt.Errorf("%w: %s", errDataKeyEmpty, path)
 	}
 	return key, nil
 }
 
 // waitForDataKey 等待并读取由并发启动进程创建的密钥文件，不会生成或覆盖另一把密钥。
 func waitForDataKey(path string) (string, error) {
+	// lastReadErr 保存最后一次未得到可用密钥的读取错误，用于保留遗留空文件诊断。
+	var lastReadErr error
 	// attempt 是读取竞争方写入结果的有限尝试次数，避免空文件永久阻塞启动。
 	for attempt := 0; attempt < 20; attempt++ {
 		// key、readErr 分别是当前尝试读到的密钥及读取错误。
@@ -793,10 +658,14 @@ func waitForDataKey(path string) (string, error) {
 		if readErr == nil {
 			return key, nil
 		}
-		if !strings.Contains(readErr.Error(), "文件为空") && !errors.Is(readErr, os.ErrNotExist) {
+		lastReadErr = readErr
+		if !errors.Is(readErr, errDataKeyEmpty) && !errors.Is(readErr, os.ErrNotExist) {
 			return "", readErr
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	if errors.Is(lastReadErr, errDataKeyEmpty) {
+		return "", lastReadErr
 	}
 	return "", fmt.Errorf("等待并发创建 data key 文件超时: %s", path)
 }

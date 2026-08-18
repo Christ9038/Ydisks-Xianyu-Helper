@@ -16,7 +16,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"xianyu-go/internal/adapter"
 	accountapp "xianyu-go/internal/application/account"
 	itemapp "xianyu-go/internal/application/items"
 	"xianyu-go/internal/auth"
@@ -742,58 +741,6 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-// serverBatchPublisher 将 Server 的商品发布细节适配为应用层批量发布端口。
-type serverBatchPublisher struct {
-	// remotePort 保存已装配的平台与凭证端口，避免 worker 再进入 Server 远端逻辑。
-	remotePort itemapp.BatchPublishPort
-	// localService 保存已装配的本地商品、自动化规则和成功检查点收口服务。
-	localService *itemapp.BatchLocalPublishService
-}
-
-// PublishRow 调用批量远端端口并收口本地结果，应用层不接触数据库或 MTOP 类型。
-func (p serverBatchPublisher) PublishRow(ctx context.Context, userID int64, row itemapp.BatchRow, workerToken string, beforePublish func(context.Context) error) error {
-	if p.remotePort == nil {
-		return errors.New("批量发布端口未装配")
-	}
-	if p.localService == nil {
-		return errors.New("批量发布本地收口端口未装配")
-	}
-	// outcome、err 保存远端发布结果及适配器错误。
-	outcome, err := p.remotePort.PublishRemoteRow(ctx, userID, row, workerToken, beforePublish)
-	if err != nil {
-		// uncertainErr 表示远端调用已经发生但结果无法可靠确认。
-		var uncertainErr *itemapp.UncertainRemotePublishError
-		if errors.As(err, &uncertainErr) {
-			return &uncertainRemotePublishError{err: err}
-		}
-		return err
-	}
-	if outcome.Result == nil {
-		return errors.New("发布商品接口未返回结果")
-	}
-	if outcome.ResponseCookieErr != nil {
-		return &itemapp.PostPublishError{Err: outcome.ResponseCookieErr}
-	}
-	if ctx.Err() != nil {
-		return &itemapp.PostPublishError{Err: ctx.Err()}
-	}
-	return p.localService.Complete(ctx, userID, row, workerToken, outcome.Result)
-}
-
-// newItemBatchRunnerApplication 创建批量发布应用层 worker 编排器。
-func newItemBatchRunnerApplication(server *Server, remotePort itemapp.BatchPublishPort, localService *itemapp.BatchLocalPublishService) (*itemapp.BatchRunner, error) {
-	if server == nil || remotePort == nil || localService == nil {
-		return nil, errors.New("批量发布端口未装配")
-	}
-	// options 配置批量 worker 的租约、间隔和平台错误语义。
-	options := itemapp.BatchRunOptions{
-		LeaseDuration:    publishBatchLease,
-		IsSessionExpired: adapter.IsSessionExpiredError,
-		ClassifyFailure:  publishBatchFailure,
-	}
-	return itemapp.NewBatchRunner(server.itemDependencies.NewItemBatchRepository(), serverBatchPublisher{remotePort: remotePort, localService: localService}, options)
 }
 
 // publishBatchLocation 保存批量发布请求中的发货地字段，不让平台 DTO 进入 HTTP 层。

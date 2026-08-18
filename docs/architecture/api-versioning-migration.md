@@ -1,6 +1,6 @@
 # HTTP API 版本化迁移边界
 
-本文记录阶段三当前切片完成后的 API 版本化边界。当前仓库尚未切换现有路径；新版本路由必须先完成前端调用方迁移和契约测试，再删除旧别名。
+本文记录 API 版本化边界。它不定义重构阶段编号、当前状态或完成结论；新版本路由必须先完成前端调用方迁移和契约测试，再删除旧别名。
 
 ## 当前兼容路径
 
@@ -32,7 +32,7 @@
 4. 删除旧路径前必须记录调用方、发布日期、迁移版本和回滚方案；发布说明要明确旧路径的移除版本。
 5. 错误响应始终使用 `code`、`message`、`request_id`，恢复信息只能放入 `details`；版本适配器不得重新引入 `detail`、`msg` 或 HTTP 200 + `success:false`。
 
-## 当前切片证据
+## API 版本化证据
 
 - 认证会话校验使用 `sessionVerificationResponse`。
 - 账号详情、设置、资料刷新和暂停查询使用 `cookieDetailResponse`、`cookieSettingsResponse`、`cookieProfileResponse` 与 `pauseDurationResponse`。

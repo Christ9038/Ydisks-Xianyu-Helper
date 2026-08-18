@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"xianyu-go/internal/adapter"
 	orderapp "xianyu-go/internal/application/orders"
 )
 
@@ -57,7 +58,7 @@ func TestServerOrderRuntimeAdapterReconciliationPort(t *testing.T) {
 				recorder = testCase.recorder
 			}
 			// runtime 保存当前场景构造的 Server 订单运行时适配器。
-			runtime := newServerOrderRuntime(nil, recorder)
+			runtime := adapter.NewOrderRuntimeAdapter(nil, nil, nil, nil, nil, nil, nil, nil, recorder)
 			// recordID、recordErr 保存适配器转发后的补偿写入结果。
 			recordID, recordErr := runtime.RecordOrderReconciliation(context.Background(), "order-1", "cookie-1", "manual_status_ship", "本地订单写入失败")
 			// errMatches 表示当前返回错误是否符合场景预期；缺失依赖场景只校验错误文本。

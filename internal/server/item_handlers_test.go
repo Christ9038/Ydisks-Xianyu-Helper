@@ -30,12 +30,17 @@ func TestRecommendItemPublishCategory(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// ctx、cancel 用于本次流程后续判断的ctx、cancel
+	// manager 是测试组合根登记的账号运行时，用于验证平台 Cookie 回调会同步活动实例。
+	manager := testAccountManager(srv)
+	if manager == nil {
+		t.Fatal("测试账号管理器未登记")
+	}
+	// ctx、cancel 用于创建已取消的测试运行实例，避免发起真实平台连接。
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if // err 用于本次流程后续判断的err
-	err := srv.Manager.Start(ctx, "acc1", "unb=123; _m_h5_tk=tk1_1;"); err != nil {
-		t.Fatal(err)
+	// startErr 表示已取消测试运行实例的启动结果；该调用不允许建立真实平台连接。
+	if startErr := manager.Start(ctx, "acc1", "unb=123; _m_h5_tk=tk1_1;"); startErr != nil {
+		t.Fatal(startErr)
 	}
 	if // err 用于本次流程后续判断的err
 	err := store.Tokens.Save(context.Background(), "acc1", "device", "stale-token", time.Now().Add(time.Hour).Unix()); err != nil {
@@ -58,7 +63,7 @@ func TestRecommendItemPublishCategory(t *testing.T) {
 			Request: req,
 		}, nil
 	})}
-	srv.MTop = client
+	setTestMTop(srv, client)
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
 	// cookie 用于本次流程后续判断的登录凭证
@@ -334,8 +339,8 @@ func TestPublishItemSuccess(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	// 替换为按 URL 分发的 mock。
-	prev := srv.MTop
-	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	prev := testMTop(srv)
+	setTestMTop(srv, withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		// u 用于本次流程后续判断的u
 		u := req.URL.String()
 		// respBody 用于本次流程后续判断的resp请求体
@@ -356,8 +361,8 @@ func TestPublishItemSuccess(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader(respBody)),
 			Request:    req,
 		}, nil
-	}))
-	defer func() { srv.MTop = prev }()
+	})))
+	defer func() { setTestMTop(srv, prev) }()
 
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
@@ -391,9 +396,9 @@ func TestPublishItemRejectsMissingRemoteItemID(t *testing.T) {
 	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.MTop = &stubPublishMTop{publish: func(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
+	setTestMTop(srv, &stubPublishMTop{publish: func(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
 		return &mtop.PublishItemResult{Title: "测试商品"}, nil
-	}}
+	}})
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
 	// cookie 用于本次流程后续判断的登录凭证
@@ -417,10 +422,10 @@ func TestPublishItemReportsRemoteSuccessLocalSaveFailure(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.MTop = &stubPublishMTop{publish: func(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
+	setTestMTop(srv, &stubPublishMTop{publish: func(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
 		_, _ = store.DB.ExecContext(context.Background(), `DELETE FROM cookies WHERE id='acc1'`)
 		return &mtop.PublishItemResult{ItemID: "remote-only", ItemURL: "https://example/item/remote-only", Title: "测试商品"}, nil
-	}}
+	}})
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
 	// cookie 用于本次流程后续判断的登录凭证
@@ -445,8 +450,8 @@ func TestPublishItemStockPermissionMissing(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	// prev 用于本次流程后续判断的prev
-	prev := srv.MTop
-	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	prev := testMTop(srv)
+	setTestMTop(srv, withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		// u 用于本次流程后续判断的u
 		u := req.URL.String()
 		// respBody 用于本次流程后续判断的resp请求体
@@ -468,8 +473,8 @@ func TestPublishItemStockPermissionMissing(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader(respBody)),
 			Request:    req,
 		}, nil
-	}))
-	defer func() { srv.MTop = prev }()
+	})))
+	defer func() { setTestMTop(srv, prev) }()
 
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
@@ -524,8 +529,8 @@ func TestSyncItemsFromAccountSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	// prev 用于本次流程后续判断的prev
-	prev := srv.MTop
-	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	prev := testMTop(srv)
+	setTestMTop(srv, withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		// body 用于本次流程后续判断的请求体
 		body := `{"ret":["SUCCESS::调用成功"],"data":{"cardList":[` +
 			`{"cardData":{"id":"it-sync-1","title":"同步商品A","priceInfo":{"price":"12.50","preText":"¥"},"picInfo":{"picUrl":"https://img.alicdn.com/a.png"},"categoryId":"9","detailParams":{"itemId":"it-sync-1"}}}]}}`
@@ -535,8 +540,8 @@ func TestSyncItemsFromAccountSuccess(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader(body)),
 			Request:    req,
 		}, nil
-	}))
-	defer func() { srv.MTop = prev }()
+	})))
+	defer func() { setTestMTop(srv, prev) }()
 
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
@@ -587,13 +592,13 @@ func TestSyncItemsFromAccountReleasesCredentialLockDuringRemoteCall(t *testing.T
 	release := make(chan struct{})
 	// once 保证 started 只关闭一次。
 	var once sync.Once
-	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	setTestMTop(srv, withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		once.Do(func() { close(started) })
 		<-release
 		// body 是空商品列表的成功响应。
 		body := `{"ret":["SUCCESS::调用成功"],"data":{"cardList":[]}}`
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
-	}))
+	})))
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
 	// cookie 用于本次流程后续判断的登录凭证
@@ -640,7 +645,7 @@ func TestSyncItemsFromAccountDetectsMultiSpecFromDetail(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	setTestMTop(srv, withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		// body 用于本次流程后续判断的请求体
 		body := `{"ret":["SUCCESS::调用成功"],"data":{}}`
 		if strings.Contains(req.URL.String(), "mtop.idle.web.xyh.item.list") {
@@ -649,7 +654,7 @@ func TestSyncItemsFromAccountDetectsMultiSpecFromDetail(t *testing.T) {
 			body = `{"ret":["SUCCESS::调用成功"],"data":{"multiSKU":true,"skuDO":{"skuList":[{"id":"a"},{"id":"b"}]}}}`
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
-	}))
+	})))
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
 	// cookie 用于本次流程后续判断的登录凭证
@@ -676,8 +681,8 @@ func TestSyncItemsFromAccountFail(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	// prev 用于本次流程后续判断的prev
-	prev := srv.MTop
-	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	prev := testMTop(srv)
+	setTestMTop(srv, withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		// body 用于本次流程后续判断的请求体
 		body := `{"ret":["FAIL_SYS_USER_VALIDATE::用户校验失败"]}`
 		return &http.Response{
@@ -686,8 +691,8 @@ func TestSyncItemsFromAccountFail(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader(body)),
 			Request:    req,
 		}, nil
-	}))
-	defer func() { srv.MTop = prev }()
+	})))
+	defer func() { setTestMTop(srv, prev) }()
 
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
@@ -757,8 +762,8 @@ func TestSyncItemsPageFromAccountSuccess(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	// prev 用于本次流程后续判断的prev
-	prev := srv.MTop
-	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	prev := testMTop(srv)
+	setTestMTop(srv, withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		// body 用于本次流程后续判断的请求体
 		body := `{"ret":["SUCCESS::调用成功"],"data":{"cardList":[` +
 			`{"cardData":{"id":"it-page-1","title":"分页商品","priceInfo":{"price":"9.90","preText":"¥"},"picInfo":{"picUrl":"https://img.alicdn.com/p.png"},"categoryId":"1","detailParams":{"itemId":"it-page-1"}}}]}}`
@@ -768,8 +773,8 @@ func TestSyncItemsPageFromAccountSuccess(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader(body)),
 			Request:    req,
 		}, nil
-	}))
-	defer func() { srv.MTop = prev }()
+	})))
+	defer func() { setTestMTop(srv, prev) }()
 
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
@@ -801,9 +806,9 @@ func TestSyncItemsPageFromAccountFail(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	// prev 用于本次流程后续判断的prev
-	prev := srv.MTop
-	srv.MTop = newMockMTop(t, mtopResp{ret: []string{"FAIL_SYS_USER_VALIDATE::失败"}})
-	defer func() { srv.MTop = prev }()
+	prev := testMTop(srv)
+	setTestMTop(srv, newMockMTop(t, mtopResp{ret: []string{"FAIL_SYS_USER_VALIDATE::失败"}}))
+	defer func() { setTestMTop(srv, prev) }()
 
 	// h 用于本次流程后续判断的h
 	h := srv.Router()

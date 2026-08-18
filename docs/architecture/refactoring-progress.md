@@ -1,201 +1,84 @@
 # 重构阶段验收记录
 
-本文件只记录阶段整体的验收证据、更新日志和阶段边界。阶段是唯一交付和评审单位；同一阶段可以
-同时修改多个 Go 包、前端 feature、测试、架构门禁和文档。阶段中的本地工作区可暂时不可编译，只有
-最终阶段提交必须可编译、可启动、可测试，并附上完整命令输出和覆盖率证据。
+本文件只记录已经完成阶段的最终提交与验收证据。唯一阶段状态和顺序由
+`refactoring-master-plan.md` 定义；阶段内工作、临时提交、切片和局部成功一律不记录。
 
-当前复核结论：阶段 0–3 保持完成，阶段 4 是当前迭代，阶段 5–10 均待执行。此前关于 Server
-组合根迁移、生命周期迁移、React Feature 化和 DB 治理的“已完成”证据已撤销为重新验收输入，不能
-关闭任何阶段。后续 agent 不得把阶段拆成多个独立交付任务；可使用临时本地提交，但最终只合并阶段级提交。
+## 阶段二：Server 组合根和应用服务迁移
 
-## 阶段 4：治理与计划修正
+- 最终提交绑定：本文件随最终提交 `阶段二：完成 Server 组合根和应用服务迁移` 一并进入 `HEAD`。
+- 交付范围：删除 `internal/server/application_services.go` 和 Server 生命周期反转；引入
+  `internal/composition` 生产组合根及其 runtime 投影层；Server 以校验后的消费者 Port 承接全部 HTTP
+  用例；真实源码 AST 门禁拒绝 Server/cmd 重新装配业务服务、平台实现或 worker。
+- 迁移回归修复：订单 repository 在 adapter 边界归一化不存在错误；测试平台 QR Port 保持动态替身代理，
+  不改变生产 Server 依赖的不可变性。
 
-状态：当前迭代，尚未产生最终阶段提交。
-
-目标与执行指导：在同一阶段完成数据密钥原子创建、HTTP 同步 Bind/启动回滚、非 loopback 未初始化
-高等级无秘密告警、`notifier_test.go` 的 SA1012 修复、远程首次初始化风险文档，以及 Server 组合根迁移。
-组合根必须在 `cmd/server` 和 `internal/adapter` 构造全部应用服务、runner、coordinator 与生命周期组件；
-`internal/server` 只接收不可变的 `ApplicationServices` 和 `Dependencies`，保留 DTO/路由/错误映射，删除
-业务服务和 worker 工厂、`ApplicationLifecycleComponents()`、manager/notifier/automation/platform/DB 生产持有。
-
-完成证据：仅接受最终阶段提交绑定的完整命令输出；当前阶段仍在执行，以下命令是最终门禁：
+### 强制验收原始输出
 
 ```text
-go test ./cmd/server ./internal/server ./internal/notify -count=1
-go test -race ./cmd/server ./internal/server ./internal/notify -count=1
-go test ./internal/application/... ./internal/adapter ./internal/server -count=1
-go test -race ./internal/application/... ./internal/adapter ./internal/server -count=1
-go vet ./...
-make lint
-make comments
-go run ./tools/architecturecheck
-git diff --check
-```
+$ go test ./internal/application/... ./internal/adapter ./internal/server -count=1
+ok   xianyu-go/internal/application/account
+ok   xianyu-go/internal/application/admin
+ok   xianyu-go/internal/application/analytics
+ok   xianyu-go/internal/application/automation
+ok   xianyu-go/internal/application/cards
+ok   xianyu-go/internal/application/chat
+ok   xianyu-go/internal/application/defaultreply
+ok   xianyu-go/internal/application/items
+ok   xianyu-go/internal/application/keywords
+ok   xianyu-go/internal/application/lifecycle
+ok   xianyu-go/internal/application/notifications
+ok   xianyu-go/internal/application/orders
+ok   xianyu-go/internal/application/settings
+ok   xianyu-go/internal/adapter
+ok   xianyu-go/internal/server
 
-## 阶段 3：HTTP API 契约
+$ go test -race ./internal/application/... ./internal/adapter ./internal/server -count=1
+ok   xianyu-go/internal/application/account
+ok   xianyu-go/internal/application/admin
+ok   xianyu-go/internal/application/analytics
+ok   xianyu-go/internal/application/automation
+ok   xianyu-go/internal/application/cards
+ok   xianyu-go/internal/application/chat
+ok   xianyu-go/internal/application/defaultreply
+ok   xianyu-go/internal/application/items
+ok   xianyu-go/internal/application/keywords
+ok   xianyu-go/internal/application/lifecycle
+ok   xianyu-go/internal/application/notifications
+ok   xianyu-go/internal/application/orders
+ok   xianyu-go/internal/application/settings
+ok   xianyu-go/internal/adapter  204.415s
+ok   xianyu-go/internal/server   242.734s
 
-状态：已完成。
+$ go run ./tools/architecturecheck
+architecturecheck: 通过
 
-主要证据：业务入口使用 `/api/v1` 版本化路径、具名 DTO、统一错误 envelope 和前端兼容归一；空集合兼容、契约测试、前端构建和嵌入资源均已验证。
+$ go vet ./...
+(无输出，退出码 0)
 
-## 阶段 4：Server 应用服务
+$ make lint
+golangci-lint run ./...
+0 issues.
 
-状态：已撤销，内容仅作为当前阶段的历史输入，不构成完成证据。
-
-完成证据：
-
-- Server 生产代码不再导入 `database/sql`、`internal/db`、`internal/xianyu` 或 `internal/browser`，不创建事务，也不持有通用 `adapter.Dependencies`。
-- 订单刷新、订单补偿扫描、批量发布、二维码会话、账号登录、Cookie 写入、资料刷新、聊天刷新/订阅、商品发布和管理员删除均通过应用服务与消费者定义的最小 Port 编排。
-- Session 失效恢复统一由 `adapter.SessionRecoveryHandler` 分类和记录脱敏诊断，再调用账号运行时应用端口；生产适配器不再把 `Server.recoverExpiredMTOPSession` 作为回调传入。
-- 订单运行时使用 `adapter.OrderAutomation`、`adapter.OrderNotifier` 等 typed port；Server 不再编排 Manager、Automation 和 Notifier 闭包。订单补偿扫描由 `orders.ReconciliationRecoveryCoordinator` 拥有启动、取消、等待和关闭生命周期。
-- 账号凭证恢复使用 `account.CredentialRefreshCoordinator` 按账号并发登记；慢速协议续期不在协调锁内执行，自动化唤醒经过 `CredentialWakePort`/`CredentialWakeService`。
-- 所有必需领域依赖由显式类型化依赖组构造并在 `Server.New` 阶段校验；缺失依赖、越权、失败、取消、重复启动/关闭、租约 fencing、补偿和晚到结果均有聚焦测试。
-- `MTop`、`CookieRenew`、`QRLogin` 以及少量 Adapter setter 仅作为测试/兼容入口保留。删除条件为已知生产与测试调用清零、契约测试证明新构造路径覆盖全部调用，并完成外部调用方审计；这些兼容入口不作为新增业务依赖。
-- 冻结滑块 CAPTCHA 实现及其测试未修改。
-
-统一验证证据：
-
-```text
-go test ./internal/application/... ./internal/adapter ./internal/server -count=1
-go test -race ./internal/application/... ./internal/adapter ./internal/server -count=1
-go vet ./...
-go run ./tools/architecturecheck
-go run ./tools/commentlint -mode check -root . -baseline .commentlint/go-baseline.json
-git diff --check
-```
-
-以上命令均通过；race 运行实际覆盖应用层、适配器和 Server 生命周期/凭证并发路径。
-
-## 更新日志
-
-- 2026-08-17：完成阶段 4 整体 Server 应用服务改造，统一完成应用 Port、显式装配、凭证边界、Session 恢复、订单补偿生命周期和并发协调，并通过阶段 4 全部门禁。
-
-## 阶段 5：应用装配与生命周期
-
-状态：待执行；原完成声明撤销，内容仅作为重新验收输入。
-
-当前切片证据（不代表阶段完成）：
-
-- 新增 `internal/application/lifecycle.Coordinator`，统一拥有共享 Context、登记顺序、启动失败逆序回滚、关闭逆序、并发 Close 等待、超时和错误聚合；组件回调始终在锁外执行。
-- `cmd/server` 统一登记浏览器、Notifier、账号 Manager、Automation Scheduler、Renewal Scheduler 以及订单刷新、批量发布、订单 reconciliation 三类应用 worker；HTTP Server 只负责 HTTP 启停，退出时先停 HTTP，再由协调器逆序关闭应用组件。
-- Server 删除业务 worker 的启动/关闭入口和应用 worker 等待逻辑；Server 仅通过只读生命周期 Context 为请求创建的应用 worker 提供父 Context，生命周期 owner 保持在协调器与应用服务。
-- 启动失败回滚、重复 Start/Close、并发 Close、启动与关闭竞争、批次/订单 worker 取消、租约 fencing、账号 stopping fence、浏览器关闭超时重试和实时连接 Join 已有聚焦测试；本轮新增 HTTP 与应用 worker 独立关闭预算、错误聚合、未完成组件诊断和 HTTP 启动失败回滚错误保留测试；冻结 CAPTCHA 文件未修改。
-- 订单补偿恢复协调器已从 `internal/server` 构造路径迁至 `cmd/server` 组合根，并以 `WithOrderReconciliationRecovery` 显式注入；Server 构造阶段拒绝缺失实例，architecturecheck 禁止该构造函数回流到 Server 生产代码。
-- 数据库健康检查端口已从 `Server.New` 迁至 `cmd/server` 组合根，以 `WithDatabaseHealth` 注入；Server 不再保存系统依赖组，缺失端口会在构造期失败，architecturecheck 同步禁止其构造逻辑回流。
-- 12 个不依赖 Server callback 的 transport-facing 应用服务已迁至 `internal/adapter` 的 `TransportApplicationServices` 装配集合，由 `cmd/server` 在启动期构造并以 `WithTransportApplicationServices` 注入；Server 不再在请求期或构造期创建这些服务，缺失集合和不完整集合均在 `New` 阶段失败。
-- `docs/architecture/lifecycle-inventory.md` 已转为静态 owner/Context/Stop/Wait 清单，并补充通知、SMTP、MTOP、QR 登录、续期、WebSocket 和浏览器外部调用的取消/超时审计；后续 Engine/Automation 内部状态拆分和运维观测风险归入阶段 6 及后续迭代，不得重新引入 Server 生命周期入口。
-- `lifecycle.Coordinator.Close` 按组件保留成功关闭进度；超时或组件错误时保持未完成状态、返回组件名称诊断并允许更长 Context 重试，`WaitContext` 在全部组件成功收束前不会伪造完成。并发 `Close` 等待本次尝试的固定结果，重复重试不会覆盖此前调用方的错误语义。
-- `Notifier.Start(nil)` 与 `automation.Scheduler.Run(nil)` 明确拒绝启动，避免错误调用创建无法取消的后台 worker；对应行为有确定性测试。
-
-本轮切片验证证据：
-
-```text
-go test ./cmd/server ./internal/server ./internal/adapter -count=1
-go test ./... -count=1
-go test -race ./internal/account ./internal/automation ./internal/engine ./internal/server ./internal/renewal -count=1
-go test -race ./internal/application/lifecycle ./internal/notify ./internal/automation -run 'TestCoordinatorClose(ContextBoundsConcurrentClose|RetainsIncompleteComponentsForRetry)|TestNotifierStartRejectsNilContext|TestAutomationSchedulerRunRejectsNilContext' -count=1
-go vet ./...
-go run ./tools/architecturecheck
+$ make comments
 go run ./tools/commentlint -mode check -root .
-git diff --check
+commentlint: 通过（无缺少中文注释或模板化注释）
+node frontend/scripts/check-comments.mjs --mode check --root frontend
+commentlint: 通过（无缺少中文注释或模板化注释）
+
+$ git diff --check
+(无输出，退出码 0)
 ```
 
-以上命令均通过。transport 应用服务集合的完整构造、缺失依赖、Server 构造失败、独立关闭预算、外部调用边界、未完成组件诊断和可重试 Join 均有测试证据；阶段 5 验收完成。
+### 验收边界
 
-此前切片验证证据：
+- 覆盖率：本阶段强制命令不包含覆盖率命令，未声明 Go 或前端覆盖率百分比。
+- 浏览器：未运行 `RUN_BROWSER_INTEGRATION=1`；阶段二不修改 browser 或冻结 CAPTCHA 调用链。
+- 外部服务：阶段二验收不需要 MySQL、PostgreSQL、真实账号或外部平台。
+- 冻结 CAPTCHA：受保护的七个实现与测试文件在最终差异中均未出现，冻结规范未修改。
+- 生成物：`frontend/coverage/` 是未跟踪的测试产物，不纳入提交。
 
-```text
-go test ./cmd/server ./internal/application/lifecycle ./internal/server -count=1
-go run ./tools/commentlint -mode check -root .
-git diff --check
-```
+## 下一阶段入口
 
-以上命令均通过。此前证据保留用于生命周期切片追溯，不能替代当前切片和完整阶段验收。
-
-覆盖率证据：`make cover` 运行且 Go statements 为 66.0%；`make cover-frontend` 运行且 Frontend V8 statements 为 79.44%；`make cover-browser` 已以 `RUN_BROWSER_INTEGRATION=1` 运行，本地 Chromium Browser statements 为 63.5%。未使用真实账号或外部平台；覆盖率中的未覆盖 UI 页面和外部平台路径仍按既有分类保留，不以豁免替代业务 Hook、状态转换、取消或生命周期测试。
-
-下一安全入口：阶段 4 的组合根迁移完成并取得最终阶段级证据后，才进入阶段 5 生命周期、Engine 与 Automation 重新验收。
-
-## 更新日志
-
-- 2026-08-17：阶段 5 原整体完成声明因组合根和关闭预算复核不完整而撤回，保留为当前迭代。
-- 2026-08-18：完成独立 HTTP/应用关闭预算和错误诊断切片；HTTP 启动失败回滚现在保留应用 worker 错误，阶段 5 继续等待组合根迁移与完整验收。
-- 2026-08-18：将订单补偿恢复协调器迁至进程组合根并以显式依赖注入 Server；补充构造失败与架构回流门禁测试。
-- 2026-08-18：将数据库健康检查端口迁至进程组合根，删除 Server 对系统依赖组的构造职责，并补充缺失端口与架构回流测试。
-- 2026-08-18：将设置、管理员、账号任务、通知、分析、自动化规则/异常、卡券、发布后规则、默认回复和关键词服务迁至显式 transport 应用服务集合，补充组合根构造与缺失依赖测试；阶段 5 仍保持当前迭代。
-- 2026-08-18：完成通知、SMTP、MTOP、QR 登录、续期、WebSocket 和浏览器外部调用取消/超时审计；记录浏览器同步 Playwright 停止的不可中断约束、通知/自动化 nil Context 防御缺口和最终 Join 验收入口，阶段 5 仍保持当前迭代。
-- 2026-08-18：完成最终 Join 收口；协调器关闭超时后保留未完成组件并支持更长 Context 重试，并发关闭返回本轮固定错误；通知与自动化 nil Context 拒绝启动。该记录仅作为重新验收输入。
-- 2026-08-18：按阶段级交付规则重置状态：阶段 4 设为当前迭代，阶段 5–10 设为待执行；历史局部证据不再代替最终阶段提交和完整命令输出。
-
-### 阶段 5 的 Engine 与 Automation 历史输入
-
-状态：待执行；原完成声明撤销，内容仅作为重新验收输入。
-
-完成证据：
-
-- `automationActionExecutor.sendDataCard` 的卡券锁仅覆盖库存预留与确定未发送时的恢复，外部 WebSocket 发送已移到锁外，并有并发阻塞测试证明第二个库存操作不会等待第一个外部发送。
-- `confirmShipmentAttempt` 在凭证锁内只读取最小运行时快照，MTOP 调用在锁外执行；响应写回重新获取凭证锁并进行指纹条件校验，冲突时跳过旧响应并记录人工核对所需错误。
-- 新增凭证锁锁外外部 I/O、并发新凭证不被旧响应覆盖的确定性测试；冻结 CAPTCHA 实现及测试未修改。
-- `automation.NewWithDependencies` 固定 MTOP、账号任务、订单详情、通知和 Cookie 读取依赖；所有 `Center` setter、运行时依赖覆盖和其锁已删除，延迟恢复通过同一构造依赖重建 Center。
-- `engine.Account` 已将连接、出站消息、凭证、消息分发、运行状态、生命周期和迟到续期收束到独立组件；凭证实现已物理迁入 `credentialCoordinator`，facade 仅保留稳定入口和必要兼容委托。
-- `refreshGate` 支持 Context 取消；凭证锁只覆盖快照和条件提交，MTOP、WebSocket、浏览器、通知及 Handler 回调均在锁外执行。`pendingRenewalCoordinator` 与连接协调器以共享完成信号和有限预算 Join，不创建超时后无法回收的等待 goroutine。
-- 自动化外部动作在运行检查点后执行，保留成功、失败和 `needs_review` 三态。结果通知以 `runID + status` 作为持久化 outbox 幂等键，重复恢复不会重复入队；外部投递成功但本地确认失败的 `uncertain` 记录不会自动重放。SQLite、MySQL、PostgreSQL 的 `00034` 通知幂等迁移已对齐。
-- 冻结 CAPTCHA 受保护文件未改动；浏览器集成和全部冻结行为测试通过。
-
-下一安全入口：阶段 5 完整重新验收后，再进入阶段 6 React Feature 化和异步状态修复。
-
-当前统一验证证据：
-
-```text
-make check                                                        # 通过
-go test ./internal/engine ./internal/automation ./internal/browser -count=1 # 通过
-go test -race ./internal/engine ./internal/automation -count=1              # 通过
-RUN_BROWSER_INTEGRATION=1 go test ./internal/browser -count=1                # 通过
-go run ./tools/architecturecheck                                                # 通过
-make comments                                                                     # 通过
-git diff --check                                                                  # 通过
-make cover                                                                        # Go statements 66.5%
-make cover-browser                                                                # Browser statements 60.9%（RUN_BROWSER_INTEGRATION=1）
-make cover-frontend                                                               # Frontend statements 93.01%
-```
-
-覆盖率例外：未跳过本地确定性 Engine、Automation 或浏览器行为；仅保留项目既有的真实账号/外部平台不可用场景分类。
-
-更新日志：
-
-- 2026-08-17：完成阶段 6 整体 Engine 与 Automation 改造，统一收束 facade、凭证和 worker 生命周期、锁外外部 I/O、运行检查点及通知幂等/不确定态，并通过阶段 6 全部门禁。
-
-## 阶段 6：React Feature 化与异步状态
-
-状态：待执行；原完成声明撤销，内容仅作为重新验收输入。
-
-完成证据：
-
-- 根 `App` 仅装配错误边界、会话 Provider 和路由；认证表单归属 session feature，认证后导航、权限回退、侧边栏偏好和一次性跨页面载荷由 app 路由壳管理。
-- 九个业务页面与其直属组件、Hook、状态、API adapter 和测试均归入各自 feature；账号自动任务归入 accounts，删除跨 feature 的 accountAutomation 目录。
-- 已删除集中式 `frontend/services/api.ts`、`frontend/types.ts`、`frontend/request.ts` 和 `frontend/services/contract.ts`；feature API adapter 直接依赖 `shared/http`，只读传输契约位于 `shared/api-contract`，DTO 归一保留在所属 feature 边界。
-- `shared` 只保留 HTTP transport、兼容 JSON contract、通用异步 gate、浏览器偏好和纯展示 UI；架构测试禁止 feature 相互导入、shared 反向依赖 feature、组件直连网络和根 components 回流。
-- 所有业务页面由 `React.lazy` 按路由加载；构建验证九个独立页面分片、首屏不预加载 charts 分片且每页原始大小满足既有预算。仪表盘乱序、卡密/订单卸载取消、聊天切换与旧分页响应均有确定性行为测试。
-- 冻结 CAPTCHA 实现、测试及调用语义均未修改。
-
-当前统一验证证据：
-
-```text
-npm test --prefix frontend                         # 63 files, 383 tests 通过
-npm run typecheck --prefix frontend                # 通过
-npm run comments:check --prefix frontend           # 通过
-npm run build --prefix frontend                    # 通过，已更新 internal/webui/static
-make cover-frontend                                # Frontend statements 79.84%，RUN_BROWSER_INTEGRATION 未使用
-git diff --check                                   # 通过
-go run ./tools/architecturecheck                   # 通过
-make comments                                      # 通过
-make check                                         # 通过
-```
-
-覆盖率例外：纯 React 页面、展示组件与错误边界在本阶段的 V8 报告中存在未覆盖行；所有新改动的业务 API、Hook、状态、取消、切换和乱序行为均由确定性 Vitest 覆盖。无真实账号或外部平台调用。
-
-下一安全入口：阶段 6 完成后进入阶段 7 DB 与事务治理；阶段 7 完成后依次进入阶段 8 架构门禁与兼容退场、阶段 9 注释与复杂度收口和阶段 10 最终全栈复验。
-
-更新日志：
-
-- 2026-08-17：完成阶段 7 React Feature 化整体改造，统一落地 app -> features -> shared、feature API adapter、路由懒加载、异步请求生命周期与前端架构门禁，并通过阶段全部验证。
+当前阶段为阶段三：生命周期、Engine 和 Automation 重新验收。先以 `lifecycle-inventory.md` 对照每个后台
+worker 的 owner、Context、Cancel、Wait/Join 和锁顺序；阶段三门禁已经随状态切换启用。不得提前进入 React、
+数据库或最终收口阶段，也不得修改冻结 CAPTCHA。

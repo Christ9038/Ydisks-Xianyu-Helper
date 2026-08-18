@@ -82,7 +82,7 @@ func (s *Server) mountKeywordsReal(r chi.Router) {
 }
 
 // keywordApplication 返回关键词回复应用服务；具体依赖由 Server 统一装配。
-func (s *Server) keywordApplication() *keywords.Service {
+func (s *Server) keywordApplication() KeywordsPort {
 	return s.applicationServiceSet().keywords
 }
 

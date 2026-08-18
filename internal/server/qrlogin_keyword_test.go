@@ -67,7 +67,7 @@ func TestGenerateQRLogin(t *testing.T) {
 	defer cleanup()
 	// qr 用于本次流程后续判断的qr
 	qr := &fakeQRLoginService{}
-	srv.QRLogin = qr
+	setTestQRLogin(srv, qr)
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
 	// cookie 用于本次流程后续判断的登录凭证
@@ -104,7 +104,7 @@ func TestQRLoginSessionCannotBeReadByAnotherUser(t *testing.T) {
 	ok, err := store.Users.Create(context.Background(), "member", "member@example.com", "memberpw"); err != nil || !ok {
 		t.Fatalf("create member: ok=%v err=%v", ok, err)
 	}
-	srv.QRLogin = &fakeQRLoginService{status: map[string]any{"status": "waiting"}}
+	setTestQRLogin(srv, &fakeQRLoginService{status: map[string]any{"status": "waiting"}})
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
 	// adminCookie 用于本次流程后续判断的admin登录凭证
@@ -148,11 +148,10 @@ func TestQRLoginStatusNeverExposesCookies(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.Manager = nil
-	srv.QRLogin = &fakeQRLoginService{status: map[string]any{
+	setTestQRLogin(srv, &fakeQRLoginService{status: map[string]any{
 		"status": "success", "cookies": "unb=acc1; secret=value", "unb": "acc1",
 		"cookie_snapshot": []cookierefresh.BrowserCookie{{Name: "secret", Value: "value", Domain: ".goofish.com", Path: "/"}},
-	}}
+	}})
 	ownQRSession(t, srv, store, "redacted")
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
@@ -192,10 +191,10 @@ func TestQRLoginSessionExpiresWithoutAnotherGenerateRequest(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.QRLogin = &fakeQRLoginService{status: map[string]any{"status": "waiting"}}
+	setTestQRLogin(srv, &fakeQRLoginService{status: map[string]any{"status": "waiting"}})
 	// admin 用于本次流程后续判断的admin
 	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
-	srv.accountLoginApplication().qrSessions.Register("expired-session", admin.ID, time.Now().UTC().Add(-31*time.Minute))
+	srv.accountLoginApplication().RegisterQRSession("expired-session", admin.ID, time.Now().UTC().Add(-31*time.Minute))
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
 	// cookie 用于本次流程后续判断的登录凭证
@@ -216,7 +215,7 @@ func TestCheckQRLoginStatusEmptySession(t *testing.T) {
 	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.QRLogin = &fakeQRLoginService{}
+	setTestQRLogin(srv, &fakeQRLoginService{})
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
 	// cookie 用于本次流程后续判断的登录凭证
@@ -240,7 +239,7 @@ func TestCompleteQRVerificationBadSession(t *testing.T) {
 	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.QRLogin = &fakeQRLoginService{completeErr: errors.New("会话不存在")}
+	setTestQRLogin(srv, &fakeQRLoginService{completeErr: errors.New("会话不存在")})
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
 	// cookie 用于本次流程后续判断的登录凭证
@@ -265,7 +264,7 @@ func ownQRSession(t *testing.T, srv *Server, store *db.Store, sessionID string) 
 	if err != nil {
 		t.Fatalf("GetByUsername admin: %v", err)
 	}
-	srv.accountLoginApplication().qrSessions.Register(sessionID, admin.ID, time.Now().UTC())
+	srv.accountLoginApplication().RegisterQRSession(sessionID, admin.ID, time.Now().UTC())
 }
 
 // TestQRLoginStatusPersistsSuccessIdempotently 封装TestQR登录状态PersistsSuccessIdempotently业务协调。
@@ -273,8 +272,7 @@ func TestQRLoginStatusPersistsSuccessIdempotently(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.Manager = nil
-	srv.QRLogin = &fakeQRLoginService{status: map[string]any{
+	setTestQRLogin(srv, &fakeQRLoginService{status: map[string]any{
 		"status":  "success",
 		"cookies": "unb=qr-new; _m_h5_tk=qr-token;",
 		"unb":     "qr-new",
@@ -282,9 +280,9 @@ func TestQRLoginStatusPersistsSuccessIdempotently(t *testing.T) {
 			{Name: "unb", Value: "qr-new", Domain: ".goofish.com", Path: "/", Secure: true},
 			{Name: "_m_h5_tk", Value: "qr-token", Domain: ".goofish.com", Path: "/", Secure: true, HTTPOnly: true},
 		},
-	}}
+	}})
 	if // snapshot、ok 用于本次流程后续判断的snapshot、ok
-	snapshot, ok := adapter.CookieSnapshotsFromResult(srv.QRLogin.GetSessionStatus("s1")); !ok || len(snapshot) != 2 {
+	snapshot, ok := adapter.CookieSnapshotsFromResult(testQRLogin(srv).GetSessionStatus("s1")); !ok || len(snapshot) != 2 {
 		t.Fatalf("测试扫码 Cookie 快照异常: ok=%v snapshot=%+v", ok, snapshot)
 	}
 	ownQRSession(t, srv, store, "s1")
@@ -341,11 +339,10 @@ func TestCompleteQRVerificationPersistsAndReenablesAccount(t *testing.T) {
 	defer cleanup()
 	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	srv.Manager = nil
-	srv.QRLogin = &fakeQRLoginService{
+	setTestQRLogin(srv, &fakeQRLoginService{
 		completeCookies: "unb=acc1; _m_h5_tk=qr-fresh;",
 		completeUNB:     "acc1",
-	}
+	})
 	ownQRSession(t, srv, store, "s1")
 	if // err 用于本次流程后续判断的err
 	err := store.Cookies.SetStatusWithReason(ctx, "acc1", false, "token 失效"); err != nil {
@@ -398,11 +395,10 @@ func TestCompleteQRVerificationRejectsDifferentTarget(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.Manager = nil
-	srv.QRLogin = &fakeQRLoginService{
+	setTestQRLogin(srv, &fakeQRLoginService{
 		completeCookies: "unb=scanned-other; _m_h5_tk=qr-fresh;",
 		completeUNB:     "scanned-other",
-	}
+	})
 	ownQRSession(t, srv, store, "s-mismatch")
 	// h 用于本次流程后续判断的h
 	h := srv.Router()

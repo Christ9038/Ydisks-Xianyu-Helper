@@ -160,14 +160,14 @@ func TestRunItemPublishBatch_FailureMarksRowFailed(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	// 注入 mock mtop：所有请求返回非成功 ret（触发 PublishError）。
-	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	setTestMTop(srv, withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     make(http.Header),
 			Body:       io.NopCloser(strings.NewReader(`{"ret":["FAIL_SYS_PERMISSION::无发布权限"],"data":{}}`)),
 			Request:    req,
 		}, nil
-	}))
+	})))
 
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
@@ -246,7 +246,7 @@ func TestCancelItemPublishBatchMarksUnfinishedRowsFailed(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	setTestMTop(srv, withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		select {
 		case <-req.Context().Done():
 			return nil, req.Context().Err()
@@ -258,7 +258,7 @@ func TestCancelItemPublishBatchMarksUnfinishedRowsFailed(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader(`{"ret":["SUCCESS::调用成功"],"data":{"itemId":"late-item"}}`)),
 			Request:    req,
 		}, nil
-	}))
+	})))
 
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
@@ -338,7 +338,7 @@ func TestRunItemPublishBatch_Success(t *testing.T) {
 	// publishedCategory 用于本次流程后续判断的published分类
 	var publishedCategory map[string]any
 	// 所有 mtop 调用返回 SUCCESS；发布调用返回 itemId。
-	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	setTestMTop(srv, withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		// u 用于本次流程后续判断的u
 		u := req.URL.String()
 		// body 用于本次流程后续判断的请求体
@@ -365,7 +365,7 @@ func TestRunItemPublishBatch_Success(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader(body)),
 			Request:    req,
 		}, nil
-	}))
+	})))
 
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
@@ -521,7 +521,7 @@ func TestPublishBatchRetryResumesSavedRemoteResultWithoutPublishingAgain(t *test
 	}))
 	// port 将测试平台客户端接入批量远端应用端口；已保存远端结果时不会再次发起平台请求。
 	port := adapter.NewItemBatchPublishPort(store, func() mtop.Client { return client }, srv.Logger, srv.updateRunningCookie, func(callCtx context.Context, cookieID string, callErr error) {
-		srv.recoverExpiredMTOPSession(callCtx, cookieID, callErr)
+		srv.recoverExpiredSession(callCtx, cookieID, callErr)
 	}, readBatchImageFile, downloadImageURL)
 	// localService 保存本地商品和批次成功检查点收口能力。
 	localService, serviceErr := srv.newBatchLocalPublishService()
@@ -530,8 +530,13 @@ func TestPublishBatchRetryResumesSavedRemoteResultWithoutPublishingAgain(t *test
 	}
 	// applicationRow 保存恢复测试所需的非敏感批次明细模型。
 	applicationRow := itemapp.BatchRow{ID: rows[0].ID, BatchID: rows[0].BatchID, RowNo: rows[0].RowNo, CookieID: rows[0].CookieID, Title: rows[0].Title, Description: rows[0].Description, Price: rows[0].Price, OriginalPrice: rows[0].OriginalPrice, Quantity: rows[0].Quantity, PostageMode: rows[0].PostageMode, Postage: rows[0].Postage, ImagesJSON: rows[0].ImagesJSON, CategoryJSON: rows[0].CategoryJSON, AutomationJSON: rows[0].AutomationJSON, RawJSON: rows[0].RawJSON, ItemID: rows[0].ItemID, ItemURL: rows[0].ItemURL, Status: rows[0].Status, ErrorMessage: rows[0].ErrorMessage, FailureKind: rows[0].FailureKind, WorkerToken: rows[0].WorkerToken, CreatedAt: rows[0].CreatedAt, UpdatedAt: rows[0].UpdatedAt}
+	// publisher、publisherErr 分别保存已装配的批量发布适配器及其组合错误。
+	publisher, publisherErr := adapter.NewItemBatchPublisher(port, localService)
+	if publisherErr != nil {
+		t.Fatalf("构造批量发布适配器: %v", publisherErr)
+	}
 	// err 保存应用层批量发布适配器的恢复结果。
-	err = (serverBatchPublisher{remotePort: port, localService: localService}).PublishRow(ctx, admin.ID, applicationRow, "worker-2", nil)
+	err = publisher.PublishRow(ctx, admin.ID, applicationRow, "worker-2", nil)
 	if err != nil {
 		t.Fatalf("resume local persistence: %v", err)
 	}
@@ -566,7 +571,7 @@ func TestPublishBatchRecoveryAutomaticallyResumesInterruptedRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	// err 保存应用层批量恢复扫描的错误。
-	if err := srv.applications.itemBatchCoordinator.RunRecovery(ctx); err != nil {
+	if err := startTestBatchRecovery(srv, ctx); err != nil {
 		t.Fatalf("批量恢复扫描: %v", err)
 	}
 	// deadline 用于本次流程后续判断的deadline

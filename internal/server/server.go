@@ -21,121 +21,26 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"xianyu-go/internal/account"
-	"xianyu-go/internal/adapter"
-	accountapp "xianyu-go/internal/application/account"
-	lifecycleapp "xianyu-go/internal/application/lifecycle"
-	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/auth"
-	"xianyu-go/internal/automation"
-	"xianyu-go/internal/chat"
 	"xianyu-go/internal/logging"
-	"xianyu-go/internal/notify"
 	appversion "xianyu-go/internal/version"
 	"xianyu-go/internal/webui"
 )
 
-// qrLoginService 用于本次流程后续判断的qr登录Service
-type qrLoginService = adapter.QRLoginService
-
-// qrLoginPersistence 用于本次流程后续判断的qr登录Persistence
-type qrLoginPersistence struct {
-	AccountID string
-	IsNew     bool
-	UserID    int64
-	CreatedAt time.Time
-}
-
-// ServerOption 是 Server 构造阶段应用可选依赖的配置函数。
-type ServerOption func(*Server)
-
 // Dependencies 是 HTTP Server 的不可变组合依赖；应用服务和生命周期组件必须在进入 Server 前完成装配。
-// 旧的 ServerOption 构造器仅作为迁移期间兼容入口，生产代码应使用 New。
 type Dependencies struct {
 	// Auth 是负责会话解析和认证中间件的应用认证服务。
 	Auth *auth.Service
-	// Manager 是账号运行时的只读 transport 端口兼容依赖；新 handler 不应直接调用其业务方法。
-	Manager *account.Manager
 	// WebDir 是嵌入或外置前端静态资源目录。
 	WebDir string
 	// Addr 是 HTTP 监听地址，默认由 cmd/server 提供 :59188。
 	Addr string
 	// Logger 是 Server 使用的结构化日志器。
 	Logger *slog.Logger
-	// Automation 是历史兼容的自动化运行时引用，新服务应通过应用 Port 访问。
-	Automation *automation.Center
-	// Notifier 是历史兼容的通知运行时引用，新服务应通过通知应用 Port 访问。
-	Notifier *notify.Notifier
-	// Chat 是聊天 transport 使用的领域事件服务。
-	Chat *chat.Service
-	// OrderDependencies 是订单应用适配器集合，仅允许在组合根构造。
-	OrderDependencies *adapter.OrderDependencies
-	// AccountDependencies 是账号应用适配器集合，仅允许在组合根构造。
-	AccountDependencies *adapter.AccountDependencies
-	// ItemDependencies 是商品应用适配器集合，仅允许在组合根构造。
-	ItemDependencies *adapter.ItemDependencies
-	// ChatDependencies 是聊天应用适配器集合，仅允许在组合根构造。
-	ChatDependencies *adapter.ChatDependencies
-	// AutomationDependencies 是自动化应用适配器集合，仅允许在组合根构造。
-	AutomationDependencies *adapter.AutomationDependencies
-	// TransportApplications 是已构造的 transport-facing 应用服务集合。
-	TransportApplications *adapter.TransportApplicationServices
-	// PlatformDependencies 是平台客户端集合，Server 不负责创建其中的实现。
-	PlatformDependencies *adapter.PlatformDependencies
 	// DatabaseHealth 是数据库健康检查应用 Port。
 	DatabaseHealth DatabaseHealthPort
-	// OrderReconciliationRecovery 是订单补偿恢复生命周期组件。
-	OrderReconciliationRecovery *orderapp.ReconciliationRecoveryCoordinator
-	// Applications 是完整应用服务集合；缺失时构造必须失败。
-	Applications *ApplicationServices
-	// ApplicationLifecycle 是由 cmd 拥有的生命周期协调器，仅供请求 Context 读取。
-	ApplicationLifecycle *lifecycleapp.Coordinator
-}
-
-// orderDependencyFactory 是订单装配所需的最小能力集合；Server 不持有通用 Store 工厂。
-type orderDependencyFactory interface {
-	// NewOrderRepository 创建订单读写仓储。
-	NewOrderRepository() *adapter.OrderRepository
-	// NewOrderReconciliationRepository 创建订单补偿记录仓储。
-	NewOrderReconciliationRepository() *adapter.OrderReconciliationRepository
-	// NewOrderRuntime 创建订单平台运行时适配器。
-	NewOrderRuntime(adapter.OrderRuntimeHooks, orderapp.ReconciliationRecorder, *slog.Logger) *adapter.OrderRuntime
-	// NewOrderRefreshJobRepository 创建订单刷新任务仓储。
-	NewOrderRefreshJobRepository() orderapp.RefreshJobRepository
-}
-
-// accountDependencyFactory 是账号应用装配所需的最小能力集合；Server 不持有通用 Store 工厂。
-type accountDependencyFactory interface {
-	// NewAccountLoginRepository 创建账号凭证与资料仓储。
-	NewAccountLoginRepository() *adapter.AccountLoginRepository
-	// NewAccountSettingsRepository 创建账号设置仓储。
-	NewAccountSettingsRepository() *adapter.AccountSettingsRepository
-	// NewAccountSummaryRepository 创建账号摘要仓储。
-	NewAccountSummaryRepository() *adapter.AccountSummaryRepository
-	// NewQRLoginRepository 创建扫码登录凭证端口。
-	NewQRLoginRepository() accountapp.QRLoginRepository
-	// NewAuthenticationRepository 创建用户认证仓储。
-	NewAuthenticationRepository() *adapter.AuthenticationRepository
-	// NewAccountLoginAuditRepository 创建账号登录审计仓储。
-	NewAccountLoginAuditRepository() *adapter.AccountLoginAuditRepository
-}
-
-// itemDependencyFactory 是商品应用装配所需的最小能力集合；Server 不持有通用 Store 工厂。
-type itemDependencyFactory interface {
-	// NewItemBatchRepository 创建批量发布状态仓储。
-	NewItemBatchRepository() *adapter.ItemBatchRepository
-	// NewItemBatchPreviewPort 创建批量预检端口。
-	NewItemBatchPreviewPort() *adapter.ItemBatchPreviewPort
-	// NewItemBatchPublishPort 创建批量远端发布端口。
-	NewItemBatchPublishPort(func() adapter.MTOPClient, *slog.Logger, func(context.Context, string, string), func(context.Context, string, error), adapter.ReadPublishImageFile, adapter.DownloadPublishImageURL) *adapter.ItemBatchPublishPort
-	// NewItemPublishPort 创建单商品发布端口。
-	NewItemPublishPort(func() adapter.MTOPClient, *slog.Logger, func(context.Context, string, string), func(context.Context, string, error) bool) *adapter.ItemPublishPort
-	// NewItemPublishRepository 创建单商品发布结果仓储。
-	NewItemPublishRepository() *adapter.ItemPublishRepository
-	// NewItemCatalogRepository 创建商品目录仓储。
-	NewItemCatalogRepository() *adapter.ItemCatalogRepository
-	// NewItemSyncRepository 创建商品同步端口。
-	NewItemSyncRepository(func() adapter.MTOPClient, *slog.Logger, func(context.Context, string, string), func(context.Context, string, error)) *adapter.ItemSyncRepository
+	// Applications 是完整的 transport 应用 Port 快照；缺失时构造必须失败。
+	Applications *ApplicationPorts
 }
 
 // DatabaseHealthPort 定义健康检查需要的最小数据库连通性能力。
@@ -144,44 +49,15 @@ type DatabaseHealthPort interface {
 	Ping(context.Context) error
 }
 
-// Server 聚合 HTTP 服务依赖。Automation 与 Notifier 由构造函数注入，
-// 不再允许外部直接改字段，避免运行时被替换成 nil。
-// Server 用于本次流程后续判断的Server
+// Server 聚合 HTTP transport 依赖，不持有账号运行时或业务 worker 实现。
 type Server struct {
-	// orderDependencies 保存订单应用服务专用的显式装配能力，不允许从通用设施容器回退获取。
-	orderDependencies orderDependencyFactory
-	// accountDependencies 保存账号应用服务专用的显式装配能力，不允许从通用设施容器回退获取。
-	accountDependencies accountDependencyFactory
-	// itemDependencies 保存商品应用服务专用的显式装配能力，不允许从通用设施容器回退获取。
-	itemDependencies itemDependencyFactory
-	// chatDependencies 保存聊天应用服务专用的显式装配能力，不允许从通用设施容器回退获取。
-	chatDependencies *adapter.ChatDependencies
-	// orderReconciliationRecovery 是进程装配层创建后注入的订单补偿扫描应用生命周期组件。
-	orderReconciliationRecovery *orderapp.ReconciliationRecoveryCoordinator
-	// automationDependencies 保存自动化、默认回复和关键词的显式装配能力。
-	automationDependencies *adapter.AutomationDependencies
-	// transportApplications 保存进程装配层创建的 transport-facing 应用服务集合。
-	transportApplications *adapter.TransportApplicationServices
-	Auth                  *auth.Service
-	Manager               *account.Manager
-	automation            *automation.Center
-	notifier              *notify.Notifier
-	chat                  *chat.Service
-	// platformDependencies 保存构造阶段校验通过的平台能力；生产调用必须通过下方访问器读取。
-	platformDependencies *adapter.PlatformDependencies
-	// MTop 是阶段性测试兼容别名；所有生产调用迁移完成后删除，删除前须清点字段写入测试并改用 WithPlatformDependencies。
-	MTop adapter.MTOPClient
-	// CookieRenew 是阶段性测试兼容别名；所有生产调用迁移完成后删除，删除前须清点字段写入测试并改用 WithPlatformDependencies。
-	CookieRenew adapter.LongLoginClient
-	// QRLogin 是阶段性测试兼容别名；所有生产调用迁移完成后删除，删除前须清点字段写入测试并改用 WithPlatformDependencies。
-	QRLogin qrLoginService
-	Logger  *slog.Logger
-	WebDir  string // 前端静态资源目录（含 index.html）
-	Addr    string
-	// applications 保存统一装配的应用服务实例。
-	applications *applicationServices
-	// applicationLifecycle 保存由 cmd 拥有的应用生命周期协调器；Server 只读取其共享 Context。
-	applicationLifecycle *lifecycleapp.Coordinator
+	// Auth 是 HTTP 会话认证中间件依赖。
+	Auth   *auth.Service
+	Logger *slog.Logger
+	WebDir string // 前端静态资源目录（含 index.html）
+	Addr   string
+	// applications 保存构造期注入的 transport 应用 Port 快照。
+	applications *ApplicationPorts
 	// databaseHealth 提供健康检查所需的数据库探测能力，避免 handler 直接触碰 SQL 连接。
 	databaseHealth DatabaseHealthPort
 	// backgroundMu 保护 Server 后台任务计数与完成信号，避免关闭等待创建不可取消的等待 goroutine。
@@ -205,135 +81,20 @@ type Server struct {
 	initializationMu sync.Mutex
 }
 
-// WithChatService 注入聊天持久化与实时事件中心。
-func WithChatService(service *chat.Service) ServerOption {
-	return func(server *Server) {
-		// server 是当前构造流程中待注入聊天服务的 HTTP 服务实例。
-		server.chat = service
-	}
-}
-
-// WithOrderDependencies 注入订单应用服务所需的专用适配器工厂。
-func WithOrderDependencies(dependencies *adapter.OrderDependencies) ServerOption {
-	return func(server *Server) {
-		// server 是当前构造流程中待注入订单专用依赖的 HTTP 服务实例。
-		if dependencies == nil {
-			server.orderDependencies = nil
-			return
-		}
-		server.orderDependencies = dependencies
-	}
-}
-
-// WithAccountDependencies 注入账号应用服务所需的专用适配器工厂。
-func WithAccountDependencies(dependencies *adapter.AccountDependencies) ServerOption {
-	return func(server *Server) {
-		// server 是当前构造流程中待注入账号专用依赖的 HTTP 服务实例。
-		if dependencies == nil {
-			server.accountDependencies = nil
-			return
-		}
-		server.accountDependencies = dependencies
-	}
-}
-
-// WithItemDependencies 注入商品应用服务所需的专用适配器工厂。
-func WithItemDependencies(dependencies *adapter.ItemDependencies) ServerOption {
-	return func(server *Server) {
-		// server 是当前构造流程中待注入商品专用依赖的 HTTP 服务实例。
-		if dependencies == nil {
-			server.itemDependencies = nil
-			return
-		}
-		server.itemDependencies = dependencies
-	}
-}
-
-// WithChatDependencies 注入聊天应用服务所需的专用适配器工厂。
-func WithChatDependencies(dependencies *adapter.ChatDependencies) ServerOption {
-	return func(server *Server) {
-		// server 是当前构造流程中待注入聊天专用依赖的 HTTP 服务实例。
-		server.chatDependencies = dependencies
-	}
-}
-
-// WithDatabaseHealth 注入由进程装配层构造的数据库健康检查端口。
-func WithDatabaseHealth(health DatabaseHealthPort) ServerOption {
-	return func(server *Server) {
-		// server 是当前构造流程中待注入健康检查端口的 HTTP 服务实例。
-		server.databaseHealth = health
-	}
-}
-
-// WithOrderReconciliationRecovery 注入由进程装配层拥有的订单补偿扫描应用服务。
-func WithOrderReconciliationRecovery(recovery *orderapp.ReconciliationRecoveryCoordinator) ServerOption {
-	return func(server *Server) {
-		// server 是当前构造流程中待注入订单补偿扫描服务的 HTTP 服务实例。
-		server.orderReconciliationRecovery = recovery
-	}
-}
-
-// WithAutomationDependencies 注入自动化领域所需的专用适配器工厂。
-func WithAutomationDependencies(dependencies *adapter.AutomationDependencies) ServerOption {
-	return func(server *Server) {
-		// server 是当前构造流程中待注入自动化专用依赖的 HTTP 服务实例。
-		server.automationDependencies = dependencies
-	}
-}
-
-// WithTransportApplicationServices 注入进程装配层构造完成的 transport-facing 应用服务集合。
-func WithTransportApplicationServices(services *adapter.TransportApplicationServices) ServerOption {
-	return func(server *Server) {
-		if services == nil {
-			// server 是当前构造流程中应清空 transport-facing 应用服务集合的 HTTP 服务实例。
-			server.transportApplications = nil
-			return
-		}
-		// copiedServices 是构造期冻结的浅拷贝，避免调用方替换集合容器影响 Server。
-		copiedServices := *services
-		server.transportApplications = &copiedServices
-	}
-}
-
-// WithPlatformDependencies 注入 MTOP、长登录和二维码服务组成的平台能力边界。
-func WithPlatformDependencies(dependencies *adapter.PlatformDependencies) ServerOption {
-	return func(server *Server) {
-		// server 是当前构造流程中待注入平台依赖的 HTTP 服务实例。
-		server.platformDependencies = dependencies
-	}
-}
-
-// WithApplicationLifecycle 注入由进程装配层拥有的应用生命周期协调器。
-func WithApplicationLifecycle(coordinator *lifecycleapp.Coordinator) ServerOption {
-	return func(server *Server) {
-		// server 是当前构造流程中需要读取应用生命周期 Context 的 HTTP 服务实例。
-		server.applicationLifecycle = coordinator
-	}
-}
-
 // New 构造纯 HTTP transport Server；所有应用服务、平台客户端和生命周期组件必须已由组合根创建。
 func New(dependencies Dependencies) (*Server, error) {
 	if dependencies.Auth == nil {
 		return nil, fmt.Errorf("server 依赖认证服务不能为空")
 	}
-	if dependencies.Manager == nil {
-		return nil, fmt.Errorf("server 依赖 account.Manager 不能为空")
-	}
-	if dependencies.OrderDependencies == nil || dependencies.AccountDependencies == nil || dependencies.ItemDependencies == nil || dependencies.ChatDependencies == nil || dependencies.AutomationDependencies == nil {
-		return nil, fmt.Errorf("server 领域适配器依赖不能为空")
-	}
-	if dependencies.DatabaseHealth == nil || dependencies.OrderReconciliationRecovery == nil || dependencies.PlatformDependencies == nil {
+	if dependencies.DatabaseHealth == nil {
 		return nil, fmt.Errorf("server 基础设施应用端口不能为空")
-	}
-	if dependencies.TransportApplications == nil {
-		return nil, fmt.Errorf("server transport 应用服务集合不能为空")
-	}
-	// transportValidationErr 是组合根提供的 transport 应用服务集合校验错误。
-	if transportValidationErr := dependencies.TransportApplications.Validate(); transportValidationErr != nil {
-		return nil, fmt.Errorf("server transport 应用服务无效: %w", transportValidationErr)
 	}
 	if dependencies.Applications == nil {
 		return nil, fmt.Errorf("server 应用服务集合不能为空")
+	}
+	// applicationPortsErr 表示组合根提供的 Port 容器仍有未装配的 HTTP 路由能力。
+	if applicationPortsErr := dependencies.Applications.validate(); applicationPortsErr != nil {
+		return nil, fmt.Errorf("server 应用 Port 未完成装配: %w", applicationPortsErr)
 	}
 	// copiedApplications 冻结应用服务集合容器，调用方不得在 Server 启动后替换服务引用。
 	copiedApplications := *dependencies.Applications
@@ -343,170 +104,25 @@ func New(dependencies Dependencies) (*Server, error) {
 		logger = logging.NewLogger(os.Stdout, "text")
 	}
 	return &Server{
-		orderDependencies:           dependencies.OrderDependencies,
-		accountDependencies:         dependencies.AccountDependencies,
-		itemDependencies:            dependencies.ItemDependencies,
-		chatDependencies:            dependencies.ChatDependencies,
-		orderReconciliationRecovery: dependencies.OrderReconciliationRecovery,
-		automationDependencies:      dependencies.AutomationDependencies,
-		transportApplications:       dependencies.TransportApplications,
-		Auth:                        dependencies.Auth,
-		Manager:                     dependencies.Manager,
-		automation:                  dependencies.Automation,
-		notifier:                    dependencies.Notifier,
-		chat:                        dependencies.Chat,
-		platformDependencies:        dependencies.PlatformDependencies,
-		Logger:                      logger,
-		WebDir:                      dependencies.WebDir,
-		Addr:                        dependencies.Addr,
-		applications:                &copiedApplications,
-		applicationLifecycle:        dependencies.ApplicationLifecycle,
-		databaseHealth:              dependencies.DatabaseHealth,
-		loginLimiter:                newLoginFailureLimiter(),
-		taskRegistry:                newTaskRegistry(),
-		backgroundDone:              closedSignal(),
-	}, nil
-}
-
-// ApplicationServices 返回构造期注入的应用服务集合快照，供 cmd 负责登记生命周期组件。
-func (s *Server) ApplicationServices() *ApplicationServices {
-	if s == nil || s.applications == nil {
-		return nil
-	}
-	// copiedApplications 将集合容器复制后返回，避免调用方替换 Server 内部容器指针。
-	copiedApplications := *s.applications
-	return &copiedApplications
-}
-
-// NewLegacyComposedServer 是迁移期兼容构造器，会在 Server 内构建应用服务。
-// 删除条件：cmd/server 和所有测试均改为由 adapter/组合根构造 ApplicationServices 后，删除本函数及 ServerOption。
-func NewLegacyComposedServer(authentication *auth.Service, manager *account.Manager, webDir, addr string, logger *slog.Logger, autoCenter *automation.Center, notifier *notify.Notifier, options ...ServerOption) (*Server, error) {
-	if authentication == nil {
-		return nil, fmt.Errorf("server 依赖认证服务不能为空")
-	}
-	if manager == nil {
-		return nil, fmt.Errorf("server 依赖 account.Manager 不能为空")
-	}
-	if logger == nil {
-		logger = logging.NewLogger(os.Stdout, "text")
-	}
-	// server 是完成依赖装配、等待应用服务初始化后的 HTTP 服务实例。
-	server := &Server{
-		Auth:           authentication,
-		Manager:        manager,
-		automation:     autoCenter,
-		notifier:       notifier,
+		Auth:           dependencies.Auth,
 		Logger:         logger,
-		WebDir:         webDir,
-		Addr:           addr,
+		WebDir:         dependencies.WebDir,
+		Addr:           dependencies.Addr,
+		applications:   &copiedApplications,
+		databaseHealth: dependencies.DatabaseHealth,
 		loginLimiter:   newLoginFailureLimiter(),
 		taskRegistry:   newTaskRegistry(),
 		backgroundDone: closedSignal(),
-	}
-	// option 表示当前遍历过程中的option
-	for _, option := range options {
-		// option 是当前构造调用提供的可选依赖配置。
-		if option != nil {
-			option(server)
-		}
-	}
-	if server.orderDependencies == nil {
-		return nil, fmt.Errorf("server 订单专用依赖不能为空")
-	}
-	if server.accountDependencies == nil {
-		return nil, fmt.Errorf("server 账号专用依赖不能为空")
-	}
-	if server.itemDependencies == nil {
-		return nil, fmt.Errorf("server 商品专用依赖不能为空")
-	}
-	if server.chatDependencies == nil {
-		return nil, fmt.Errorf("server 聊天专用依赖不能为空")
-	}
-	if server.databaseHealth == nil {
-		return nil, fmt.Errorf("server 数据库健康检查端口不能为空")
-	}
-	if server.orderReconciliationRecovery == nil {
-		return nil, fmt.Errorf("server 订单补偿扫描应用服务不能为空")
-	}
-	if server.platformDependencies == nil {
-		return nil, fmt.Errorf("server 平台依赖不能为空")
-	}
-	if server.automationDependencies == nil {
-		return nil, fmt.Errorf("server 自动化依赖不能为空")
-	}
-	// validationErr 表示进程组合根未提供完整 transport-facing 服务集合。
-	if validationErr := server.transportApplications.Validate(); validationErr != nil {
-		return nil, fmt.Errorf("server transport 应用服务无效: %w", validationErr)
-	}
-	// applications、applicationErr 分别是构造期应用服务集合及其装配错误。
-	applications, applicationErr := newApplicationServices(server)
-	if applicationErr != nil {
-		return nil, fmt.Errorf("server 应用服务装配失败: %w", applicationErr)
-	}
-	server.applications = applications
-	return server, nil
-}
-
-// mtopClient 返回构造阶段校验的平台 MTOP 客户端；零值 Server 返回 nil，避免隐式创建依赖。
-func (s *Server) mtopClient() adapter.MTOPClient {
-	if s.MTop != nil {
-		return s.MTop
-	}
-	if s.platformDependencies != nil && s.platformDependencies.MTOPClient() != nil {
-		return s.platformDependencies.MTOPClient()
-	}
-	return nil
-}
-
-// longLoginClient 返回构造阶段注入的长登录客户端；旧公开字段仅用于兼容现有测试替身。
-func (s *Server) longLoginClient() adapter.LongLoginClient {
-	if s.CookieRenew != nil {
-		return s.CookieRenew
-	}
-	if s.platformDependencies != nil && s.platformDependencies.LongLoginClient() != nil {
-		return s.platformDependencies.LongLoginClient()
-	}
-	return nil
-}
-
-// qrLoginService 返回构造阶段注入的二维码服务；旧公开字段仅用于兼容现有测试替身。
-func (s *Server) qrLoginService() qrLoginService {
-	if s.QRLogin != nil {
-		return s.QRLogin
-	}
-	if s.platformDependencies != nil && s.platformDependencies.QRLoginService() != nil {
-		return s.platformDependencies.QRLoginService()
-	}
-	return nil
-}
-
-// sessionRecoveryCallback 返回平台会话失效的统一适配回调。
-// 适配器负责错误分类和日志，账号运行时应用端口负责恢复；调用方不得跨凭证锁执行外部 I/O。
-func (s *Server) sessionRecoveryCallback() adapter.SessionRecoveryHandler {
-	if s == nil {
-		return nil
-	}
-	return adapter.NewSessionRecoveryHandler(s.Logger, func(ctx context.Context, cookieID string) bool {
-		// runtime 保存账号运行时应用服务；恢复由应用端口编排而非 HTTP 层直接调用 Manager。
-		runtime := s.accountRuntimeApplication()
-		return runtime != nil && runtime.RecoverExpiredCredential(ctx, cookieID)
-	})
-}
-
-// recoverExpiredMTOPSession 保留旧测试入口并委托统一 Session 恢复适配回调。
-// 新生产调用应直接注入 sessionRecoveryCallback，避免把 Server 方法传入基础设施适配器。
-func (s *Server) recoverExpiredMTOPSession(ctx context.Context, cookieID string, err error) bool {
-	// recovery 保存统一的错误分类、日志和运行时恢复回调。
-	recovery := s.sessionRecoveryCallback()
-	return recovery != nil && recovery(ctx, cookieID, err)
+	}, nil
 }
 
 // recoverExpiredSession 触发已注入的平台会话恢复回调，供 HTTP transport 处理应用层平台错误。
 // 该方法不读取凭证、不调用 Manager，也不在凭证锁内执行外部 I/O。
 func (s *Server) recoverExpiredSession(ctx context.Context, cookieID string, err error) bool {
-	// recovery 保存统一的错误分类、日志和运行时恢复回调。
-	recovery := s.sessionRecoveryCallback()
-	return recovery != nil && recovery(ctx, cookieID, err)
+	if s == nil || s.applications == nil || s.applications.sessionRecovery == nil {
+		return false
+	}
+	return s.applications.sessionRecovery.Recover(ctx, cookieID, err)
 }
 
 // Router 构建完整路由树。
@@ -1034,14 +650,6 @@ func closedSignal() chan struct{} {
 	done := make(chan struct{})
 	close(done)
 	return done
-}
-
-// lifecycleContext 封装lifecycle上下文业务协调。
-func (s *Server) lifecycleContext() context.Context {
-	if s == nil || s.applicationLifecycle == nil {
-		return context.Background()
-	}
-	return s.applicationLifecycle.Context()
 }
 
 // startBackgroundTaskContext 登记并启动带显式 Context 的 Server 后台任务。

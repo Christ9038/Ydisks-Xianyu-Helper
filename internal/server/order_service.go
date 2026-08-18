@@ -3,190 +3,21 @@ package server
 import (
 	"context"
 	"errors"
-	"log/slog"
 
-	"xianyu-go/internal/adapter"
 	orderapp "xianyu-go/internal/application/orders"
 )
-
-// serverOrderRuntimeAdapter 将 Server 的运行时能力适配为订单应用 Port。
-// 适配器只存在于装配边界，订单应用服务本身不再依赖 *Server。
-type serverOrderRuntimeAdapter struct {
-	// runtime 保存已下沉到 adapter 包的订单运行时端口。
-	runtime *adapter.OrderRuntime
-}
-
-// newServerOrderRuntime 创建订单运行时 Port 的 Server 适配器。
-func newServerOrderRuntime(server *Server, reconciliation orderapp.ReconciliationRecorder) serverOrderRuntimeAdapter {
-	// hooks 保存 adapter 内部构造的账号、自动化、通知和平台回调，Server 不再编排业务闭包。
-	hooks := adapter.OrderRuntimeHooks{}
-	if server != nil {
-		// automation、notifier 显式保持 nil 接口语义，避免把 nil 指针转换为非空接口后误报能力已装配。
-		var automation adapter.OrderAutomation
-		if server.automation != nil {
-			automation = server.automation
-		}
-		// notifier 只在真实通知器存在时转换为接口，避免 nil 指针伪装成已装配能力。
-		var notifier adapter.OrderNotifier
-		if server.notifier != nil {
-			notifier = server.notifier
-		}
-		hooks = adapter.NewOrderRuntimeHooks(server.mtopClient, server.Manager, automation, notifier, server.updateRunningCookie, server.sessionRecoveryCallback())
-	}
-	// logger 保存 Server 使用的日志器；适配器会在缺失时使用默认日志器。
-	var logger = (*slog.Logger)(nil)
-	if server != nil {
-		logger = server.Logger
-	}
-	// runtime 保存已完成数据库与 Server 回调装配的订单运行时；零值 Server 只用于测试缺失依赖分支。
-	var runtime *adapter.OrderRuntime
-	if server == nil {
-		runtime = adapter.NewOrderRuntime(nil, hooks, reconciliation, logger)
-	} else {
-		runtime = server.orderDependencies.NewOrderRuntime(hooks, reconciliation, logger)
-	}
-	return serverOrderRuntimeAdapter{runtime: runtime}
-}
-
-// AccountRunning 判断指定账号是否在线运行。
-func (a serverOrderRuntimeAdapter) AccountRunning(cookieID string) bool {
-	return a.runtime != nil && a.runtime.AccountRunning(cookieID)
-}
-
-// AutomationReady 判断完整发货自动化依赖是否已装配。
-func (a serverOrderRuntimeAdapter) AutomationReady() bool {
-	return a.runtime != nil && a.runtime.AutomationReady()
-}
-
-// ManualFullDelivery 执行完整自动化发货。
-func (a serverOrderRuntimeAdapter) ManualFullDelivery(ctx context.Context, order *orderapp.Order) (int, error) {
-	if a.runtime == nil {
-		return 0, errors.New("订单运行时未初始化")
-	}
-	return a.runtime.ManualFullDelivery(ctx, order)
-}
-
-// MTopAvailable 判断平台客户端是否已注入。
-func (a serverOrderRuntimeAdapter) MTopAvailable() bool {
-	return a.runtime != nil && a.runtime.MTopAvailable()
-}
-
-// ConfirmShipment 将 Server 的确认发货能力适配为应用层结果模型。
-func (a serverOrderRuntimeAdapter) ConfirmShipment(ctx context.Context, cookieID, orderID string, userID int64) orderapp.ConsignResult {
-	if a.runtime == nil {
-		return orderapp.ConsignResult{Err: errors.New("订单运行时未初始化")}
-	}
-	return a.runtime.ConfirmShipment(ctx, cookieID, orderID, userID)
-}
-
-// updateRunningCookie 同步运行时账号 Cookie。
-func (a serverOrderRuntimeAdapter) updateRunningCookie(ctx context.Context, cookieID, value string) {
-	if a.runtime != nil {
-		a.runtime.UpdateRunningCookie(ctx, cookieID, value)
-	}
-}
-
-// UpdateRunningCookie 将运行时账号 Cookie 能力暴露给手动发货应用 Port。
-func (a serverOrderRuntimeAdapter) UpdateRunningCookie(ctx context.Context, cookieID, value string) {
-	a.updateRunningCookie(ctx, cookieID, value)
-}
-
-// notifyDelivery 发送发货结果通知。
-func (a serverOrderRuntimeAdapter) notifyDelivery(cookieID, buyerID, itemID, chatID, message string) {
-	if a.runtime != nil {
-		a.runtime.NotifyDelivery(cookieID, buyerID, itemID, chatID, message)
-	}
-}
-
-// NotifyDelivery 将发货通知能力暴露给手动发货应用 Port。
-func (a serverOrderRuntimeAdapter) NotifyDelivery(cookieID, buyerID, itemID, chatID, message string) {
-	a.notifyDelivery(cookieID, buyerID, itemID, chatID, message)
-}
-
-// RecordOrderReconciliation 将外部动作成功后的本地状态异常写入补偿记录。
-func (a serverOrderRuntimeAdapter) RecordOrderReconciliation(ctx context.Context, orderID, cookieID, kind, message string) (string, error) {
-	if a.runtime == nil {
-		return "", errors.New("订单运行时未初始化")
-	}
-	return a.runtime.RecordOrderReconciliation(ctx, orderID, cookieID, kind, message)
-}
-
-// RecordReconciliation 将补偿记录能力暴露给手动发货应用 Port。
-func (a serverOrderRuntimeAdapter) RecordReconciliation(ctx context.Context, orderID, cookieID, kind, message string) (string, error) {
-	return a.RecordOrderReconciliation(ctx, orderID, cookieID, kind, message)
-}
-
-// ReportPersistenceFailure 记录手动发货本地订单状态持久化失败。
-func (a serverOrderRuntimeAdapter) ReportPersistenceFailure(orderID string, err error) {
-	if a.runtime != nil {
-		a.runtime.ReportPersistenceFailure(orderID, err)
-	}
-}
-
-// RecoverExpiredSession 处理订单刷新应用服务报告的平台会话过期。
-func (a serverOrderRuntimeAdapter) RecoverExpiredSession(ctx context.Context, cookieID string, err error) bool {
-	return a.runtime != nil && a.runtime.RecoverExpiredSession(ctx, cookieID, err)
-}
-
-// DetailAvailable 判断订单详情接口是否可用。
-func (a serverOrderRuntimeAdapter) DetailAvailable() bool {
-	return a.runtime != nil && a.runtime.DetailAvailable()
-}
-
-// SoldAvailable 判断已售订单列表接口是否可用。
-func (a serverOrderRuntimeAdapter) SoldAvailable() bool {
-	return a.runtime != nil && a.runtime.SoldAvailable()
-}
-
-// CredentialAvailable 判断平台请求视图是否包含可用 Cookie。
-func (a serverOrderRuntimeAdapter) CredentialAvailable(detail *orderapp.PlatformRuntimeData) bool {
-	return a.runtime != nil && a.runtime.CredentialAvailable(detail)
-}
-
-// FetchOrderDetail 调用平台详情接口并收集 Cookie 会话变化。
-func (a serverOrderRuntimeAdapter) FetchOrderDetail(ctx context.Context, detail *orderapp.PlatformRuntimeData, orderID string) (orderapp.RefreshDetailFetchResult, error) {
-	if a.runtime == nil {
-		return orderapp.RefreshDetailFetchResult{}, errors.New("订单运行时未初始化")
-	}
-	return a.runtime.FetchOrderDetail(ctx, detail, orderID)
-}
-
-// FetchSoldOrders 调用平台已售订单接口并收集 Cookie 会话变化。
-func (a serverOrderRuntimeAdapter) FetchSoldOrders(ctx context.Context, detail *orderapp.PlatformRuntimeData) (orderapp.RefreshSoldFetchResult, error) {
-	if a.runtime == nil {
-		return orderapp.RefreshSoldFetchResult{}, errors.New("订单运行时未初始化")
-	}
-	return a.runtime.FetchSoldOrders(ctx, detail)
-}
-
-// PersistCookieSession 在凭证锁内保存应用层 Cookie 更新。
-func (a serverOrderRuntimeAdapter) PersistCookieSession(ctx context.Context, detail *orderapp.PlatformRuntimeData, update orderapp.RefreshCookieUpdate) (string, bool, bool, error) {
-	if a.runtime == nil {
-		if detail == nil {
-			return update.Value, false, update.Handled, errors.New("订单运行时未初始化")
-		}
-		return update.Value, update.Value != detail.Value, update.Handled, errors.New("订单运行时未初始化")
-	}
-	return a.runtime.PersistCookieSession(ctx, detail, update)
-}
-
-// IsSessionExpired 判断平台错误是否为会话过期。
-func (a serverOrderRuntimeAdapter) IsSessionExpired(err error) bool {
-	return a.runtime != nil && a.runtime.IsSessionExpired(err)
-}
 
 // orderHTTPAdapter 将 HTTP 请求模型和兼容响应模型适配到应用层订单服务。
 // 订单业务编排由 internal/application/orders.ServiceSet 负责。
 type orderHTTPAdapter struct {
 	// services 保存应用层统一构造的订单业务服务集合。
-	services *orderapp.ServiceSet
+	services OrdersPort
 }
 
 // RefreshSingle 刷新单个订单详情并转换为兼容 HTTP 响应模型。
 func (a *orderHTTPAdapter) RefreshSingle(ctx context.Context, userID int64, orderID string) (orderSingleRefreshResponse, error) {
 	// result、err 保存应用层单订单刷新结果和错误。
-	result, err := a.services.Refresh.RefreshSingle(ctx, userID, orderID)
-	err = adapter.NormalizeOrderError(err)
+	result, err := a.services.RefreshSingle(ctx, userID, orderID)
 	if errors.Is(err, orderapp.ErrNotFound) {
 		return orderSingleRefreshResponse{}, orderapp.ErrNotFound
 	}
@@ -208,8 +39,7 @@ func (a *orderHTTPAdapter) RefreshSingle(ctx context.Context, userID int64, orde
 // Refresh 刷新当前用户订单并转换为兼容 HTTP 响应模型。
 func (a *orderHTTPAdapter) Refresh(ctx context.Context, userID int64, cookieID, status string) (orderRefreshResponse, error) {
 	// result、err 保存应用层批量刷新结果和错误。
-	result, err := a.services.Refresh.Refresh(ctx, userID, cookieID, status)
-	err = adapter.NormalizeOrderError(err)
+	result, err := a.services.Refresh(ctx, userID, cookieID, status)
 	if errors.Is(err, orderapp.ErrForbidden) {
 		return orderRefreshResponse{}, orderapp.ErrForbidden
 	}
@@ -312,7 +142,7 @@ func orderErrorKindOf(err error) (orderErrorKind, bool) {
 
 // orders 返回当前 Server 绑定的订单应用服务。
 func (s *Server) orders() *orderHTTPAdapter {
-	return s.applicationServiceSet().orders
+	return &orderHTTPAdapter{services: s.applicationServiceSet().orders}
 }
 
 // orderListQuery 描述订单列表的业务查询条件。
@@ -391,11 +221,10 @@ type orderDetailResult struct {
 // List 查询当前用户可见的订单，并集中处理分页和账号所有权规则。
 func (a *orderHTTPAdapter) List(ctx context.Context, query orderListQuery) (orderListResult, error) {
 	// result、err 保存应用层订单列表结果及错误。
-	result, err := a.services.List.List(ctx, orderapp.ListQuery{
+	result, err := a.services.List(ctx, orderapp.ListQuery{
 		UserID: query.UserID, CookieID: query.CookieID, Status: query.Status,
 		Search: query.Search, Page: query.Page, PageSize: query.PageSize,
 	})
-	err = adapter.NormalizeOrderError(err)
 	if errors.Is(err, orderapp.ErrForbidden) {
 		return orderListResult{}, orderapp.ErrForbidden
 	}
@@ -417,8 +246,7 @@ func (a *orderHTTPAdapter) List(ctx context.Context, query orderListQuery) (orde
 // Get 查询订单并校验订单绑定账号属于当前用户。
 func (a *orderHTTPAdapter) Get(ctx context.Context, userID int64, orderID string) (*orderapp.Order, error) {
 	// order、err 保存应用层订单详情结果及错误。
-	order, err := a.services.Detail.Get(ctx, userID, orderID)
-	err = adapter.NormalizeOrderError(err)
+	order, err := a.services.Get(ctx, userID, orderID)
 	if errors.Is(err, orderapp.ErrNotFound) {
 		return nil, orderapp.ErrNotFound
 	}
@@ -431,8 +259,7 @@ func (a *orderHTTPAdapter) Get(ctx context.Context, userID int64, orderID string
 // GetView 查询订单并补全商品标题和主图，供详情 handler 直接编码。
 func (a *orderHTTPAdapter) GetView(ctx context.Context, userID int64, orderID string) (orderDetailResult, error) {
 	// result、err 保存应用层详情结果及错误。
-	result, err := a.services.Detail.GetView(ctx, userID, orderID)
-	err = adapter.NormalizeOrderError(err)
+	result, err := a.services.GetView(ctx, userID, orderID)
 	if errors.Is(err, orderapp.ErrNotFound) {
 		return orderDetailResult{}, orderapp.ErrNotFound
 	}
@@ -448,8 +275,7 @@ func (a *orderHTTPAdapter) GetView(ctx context.Context, userID int64, orderID st
 // Delete 逻辑删除订单，保留历史记录供审计使用。
 func (a *orderHTTPAdapter) Delete(ctx context.Context, userID int64, orderID string) error {
 	// err 保存应用层订单删除错误。
-	err := a.services.Delete.Delete(ctx, userID, orderID)
-	err = adapter.NormalizeOrderError(err)
+	err := a.services.Delete(ctx, userID, orderID)
 	if errors.Is(err, orderapp.ErrForbidden) {
 		return orderapp.ErrForbidden
 	}
@@ -494,7 +320,7 @@ type orderUpdateRequest struct {
 // Update 在单事务内更新订单及可选的商品标题。
 func (a *orderHTTPAdapter) Update(ctx context.Context, userID int64, orderID string, request orderUpdateRequest) error {
 	// err 保存应用层订单更新错误。
-	err := a.services.Update.Update(ctx, userID, orderID, orderapp.UpdateRequest{
+	err := a.services.Update(ctx, userID, orderID, orderapp.UpdateRequest{
 		OrderStatus: request.OrderStatus, ItemID: request.ItemID, BuyerID: request.BuyerID,
 		SpecName: request.SpecName, SpecValue: request.SpecValue, Quantity: request.Quantity,
 		Amount: request.Amount, ReceiverName: request.ReceiverName, ReceiverPhone: request.ReceiverPhone,
@@ -509,7 +335,6 @@ func (a *orderHTTPAdapter) Update(ctx context.Context, userID int64, orderID str
 	if errors.As(err, &validationErr) {
 		return newOrderBadRequest(validationErr.Error())
 	}
-	err = adapter.NormalizeOrderError(err)
 	if errors.Is(err, orderapp.ErrForbidden) {
 		return orderapp.ErrForbidden
 	}
@@ -540,7 +365,7 @@ func (a *orderHTTPAdapter) Import(ctx context.Context, userID int64, rawOrders [
 		inputs = append(inputs, importOrderFromRaw(raw))
 	}
 	// result、err 保存应用层导入结果和错误。
-	result, err := a.services.Import.Import(ctx, userID, inputs)
+	result, err := a.services.Import(ctx, userID, inputs)
 	if err != nil {
 		return orderImportResult{}, err
 	}
@@ -596,7 +421,7 @@ type manualShipResult struct {
 // ManualShip 执行状态确认或完整自动化发货，并集中处理逐单失败而不中断批次的规则。
 func (a *orderHTTPAdapter) ManualShip(ctx context.Context, request manualShipRequest) (manualShipResult, error) {
 	// result 保存应用层手动发货结果。
-	result, err := a.services.ManualShip.ManualShip(ctx, orderapp.ManualShipRequest{UserID: request.UserID, OrderIDs: request.OrderIDs, ShipMode: request.ShipMode})
+	result, err := a.services.ManualShip(ctx, orderapp.ManualShipRequest{UserID: request.UserID, OrderIDs: request.OrderIDs, ShipMode: request.ShipMode})
 	if err != nil {
 		return manualShipResult{}, err
 	}

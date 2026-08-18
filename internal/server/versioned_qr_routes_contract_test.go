@@ -41,7 +41,7 @@ func TestVersionedQRLoginRoutesPreserveLegacyContracts(t *testing.T) {
 	// srv 是用于验证二维码登录版本化路由的 HTTP 测试服务。
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.QRLogin = &fakeQRLoginService{status: map[string]any{"status": "waiting"}}
+	setTestQRLogin(srv, &fakeQRLoginService{status: map[string]any{"status": "waiting"}})
 	// handler 是当前测试使用的完整路由树。
 	handler := srv.Router()
 	// sessionCookie 是管理员登录后得到的认证会话。

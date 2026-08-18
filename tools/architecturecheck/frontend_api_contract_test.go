@@ -110,9 +110,9 @@ func TestCompatibilityMatrixDocumentsSunsetConditions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// requiredPhrases 是阶段三调用方审计必须保留的证据和删除条件短语。
+	// requiredPhrases 是 API 调用方审计必须保留的证据和删除条件短语；正式阶段编号只由总计划定义。
 	requiredPhrases := []string{
-		"阶段 3 调用方审计",
+		"API 调用方审计",
 		"TestFrontendProductionRequestsUseVersionedAPI",
 		"外部调用方",
 		"Sunset",

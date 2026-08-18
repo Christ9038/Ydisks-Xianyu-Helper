@@ -442,7 +442,7 @@ func (s *Server) addCookie(w http.ResponseWriter, r *http.Request) {
 	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
 	if // err 用于本次流程后续判断的err
-	err := s.accountLoginApplication().CreateCookie(r.Context(), accountLoginInput{AccountID: req.ID, Cookies: req.Value, UserID: sess.UserID, LoginMethod: req.LoginMethod}); err != nil {
+	err := s.accountLoginApplication().CreateCookie(r.Context(), req.ID, req.Value, sess.UserID, req.LoginMethod); err != nil {
 		if errors.Is(err, accountapp.ErrForbidden) {
 			writeErr(w, http.StatusForbidden, "该账号ID已存在且不属于当前用户")
 			return
@@ -486,7 +486,7 @@ func (s *Server) updateCookie(w http.ResponseWriter, r *http.Request) {
 	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
 	if // err 用于本次流程后续判断的err
-	err := s.accountLoginApplication().UpdateCookie(r.Context(), accountCookieUpdateInput{AccountID: cid, Cookies: req.Value, UserID: sess.UserID, LoginMethod: req.LoginMethod, ExpectedRevision: req.LastRefreshAt}); err != nil {
+	err := s.accountLoginApplication().UpdateCookie(r.Context(), cid, req.Value, sess.UserID, req.LoginMethod, req.LastRefreshAt); err != nil {
 		if errors.Is(err, accountapp.ErrCredentialConflict) {
 			writeErr(w, http.StatusConflict, err.Error())
 			return

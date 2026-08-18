@@ -50,12 +50,12 @@ type notificationBindingRequest struct {
 }
 
 // notificationChannelsApplication 返回当前 Server 绑定的通知渠道应用服务。
-func (s *Server) notificationChannelsApplication() *notificationsapp.ChannelService {
+func (s *Server) notificationChannelsApplication() NotificationChannelsPort {
 	return s.applicationServiceSet().notificationChannels
 }
 
 // uncertainNotificationsApplication 返回当前 Server 绑定的通知不确定状态应用服务。
-func (s *Server) uncertainNotificationsApplication() *notificationsapp.Service {
+func (s *Server) uncertainNotificationsApplication() UncertainNotificationsPort {
 	return s.applicationServiceSet().uncertainNotifications
 }
 
@@ -199,11 +199,6 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "channel_id"), 10, 64)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "无效ID")
-		return
-	}
-	// notifier 表示当前 Server 是否装配了实际通知发送器；未装配时保持旧接口的 503 语义，避免先执行归属查询。
-	if s.notifier == nil {
-		writeErr(w, http.StatusServiceUnavailable, "通知器未启用")
 		return
 	}
 	// err 保存应用层测试发送结果。

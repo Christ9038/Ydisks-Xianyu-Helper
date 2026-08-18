@@ -108,28 +108,28 @@ agents MUST read all of:
 - `docs/architecture/comment-standard.md`
 - `docs/slider-captcha-frozen-spec.md` when credentials, login, engine, account, server or browser call paths are involved
 
-The following rules are mandatory:
+The authoritative schedule has exactly six formal phases and is defined only by
+`docs/architecture/refactoring-master-plan.md`. Before editing, read its state table. Do not infer a phase from
+old commits, a document heading, implementation that happened to land early, or a historical completion claim.
 
-1. Identify the current plan stage before editing. A stage is the only delivery and review unit: one complete
-   phase-level PR/final merge may modify several Go packages, frontend features, tests, architecture gates and
-   documents together. Agents must not turn a stage into separately delivered vertical slices.
-2. A phase worktree may be temporarily non-compiling while its coordinated migration is in progress. The final
-   phase commit/merge must compile, start, pass every mandatory phase verification and include complete evidence.
-   Add or strengthen characterization tests before moving high-risk behavior.
-3. Do not use a large phase change to hide unfinished branches, error paths or unverified behavior. Unrelated
-   renames, repository-wide formatting, dependency upgrades, test weakening, coverage deletion, compatibility
-   whitelist expansion and frozen CAPTCHA changes remain prohibited.
-4. Update the master-plan status table, completion evidence, update log and next entry point once when a phase
-   is completed or its scope materially changes. Completion evidence is bound to the final phase commit and the
-   complete command output, not to intermediate local commits.
-5. Do not weaken, skip or delete tests to make a refactor pass. Existing test failures must be explained and
-   resolved or reported as blockers.
-6. Preserve unrelated working-tree changes. Do not reformat or rename unrelated code as cleanup.
-7. Compatibility adapters remain until every known caller is migrated and contract tests prove the old path
-   can be removed. New compatibility aliases require an explicit removal condition in the plan.
+Each phase is one task, one review unit and one final Chinese commit. A phase may change every package, feature,
+test, gate and document required by its stated scope. Agents MUST NOT split it into vertical slices, milestones,
+separately delivered subtasks, independent PRs, or intermediate commits. The worktree may be temporarily
+non-compiling only while the single phase is in progress; its final commit must compile, start, pass every listed
+verification and have complete evidence recorded once in `refactoring-progress.md`.
 
-Emergency bug or security fixes may precede the planned sequence, but they must stay narrowly scoped, preserve
-the same architectural constraints, and add a note to the plan update log explaining why the sequence changed.
+The complete architecture-gate catalog is established before production migration. `tools/architecturecheck`
+reads the single current phase from the master plan, activates that phase and every earlier gate, and fails when
+the phase state is missing or ambiguous. After phase six is complete, every gate remains permanently active.
+Agents must not defer gate design to phase six, enable a future phase
+early, or bypass an active gate with a whitelist, baseline, ignored path or warning-only result.
+
+Do not use a large phase change to hide unfinished branches, error paths or unverified behavior. Do not weaken,
+skip or delete tests; reformat or rename unrelated code; upgrade unrelated dependencies; delete coverage; expand
+a compatibility whitelist; or change frozen CAPTCHA behavior. Preserve unrelated working-tree changes.
+
+Compatibility adapters remain until every known caller has migrated and contract tests prove removal. Emergency
+bug or security fixes may precede the plan only when narrowly scoped and recorded in the master plan.
 
 ## Mandatory Chinese comments for all functions and variables
 

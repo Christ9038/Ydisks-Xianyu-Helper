@@ -3,6 +3,8 @@ package main
 import (
 	"go/parser"
 	"go/token"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -138,7 +140,7 @@ func TestApplicationImportBoundary(t *testing.T) {
 	}
 }
 
-// TestServerLowLevelBoundary 验证 Server 低层依赖不得通过临时白名单保留。
+// TestServerLowLevelBoundary 验证 Server 低层依赖不得通过临时例外保留。
 func TestServerLowLevelBoundary(t *testing.T) {
 	if !isForbiddenServerLowLevelImport("internal/server/cookie_handlers.go", "internal/db") {
 		t.Fatal("Server 低层依赖应被门禁拒绝")
@@ -244,6 +246,36 @@ func handler(server any) { server.ApplicationLifecycleComponents() }
 	}
 }
 
+// TestServerInfrastructureFieldBoundary 验证生产 Server 不能重新保存业务运行时或具体平台客户端。
+func TestServerInfrastructureFieldBoundary(t *testing.T) {
+	// fset 是模拟 Server 源码的统一位置集合。
+	fset := token.NewFileSet()
+	// syntax、parseErr 分别是包含禁止字段的模拟 Server 文件及其解析错误。
+	syntax, parseErr := parser.ParseFile(fset, "server.go", []byte(`package server
+type Server struct { Manager *account.Manager; Client adapter.MTOPClient; Port PlatformPort }
+`), parser.ParseComments)
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	// violations 是禁止字段必须触发的架构违规。
+	violations := checkServerInfrastructureFields("internal/server/server.go", syntax, fset)
+	if len(violations) != 2 {
+		t.Fatalf("violations=%+v", violations)
+	}
+	// cleanSyntax、cleanErr 分别是只持有消费者定义 Port 的合规 Server 源码及其解析错误。
+	cleanSyntax, cleanErr := parser.ParseFile(fset, "clean.go", []byte(`package server
+type Server struct { Port PlatformPort }
+`), parser.ParseComments)
+	if cleanErr != nil {
+		t.Fatal(cleanErr)
+	}
+	// cleanViolations 是合规 Server 应保持为空的扫描结果。
+	cleanViolations := checkServerInfrastructureFields("internal/server/clean.go", cleanSyntax, fset)
+	if len(cleanViolations) != 0 {
+		t.Fatalf("clean violations=%+v", cleanViolations)
+	}
+}
+
 // TestApplicationTypeLeakBoundary 验证应用 Port 类型扫描会拒绝基础设施和 Server 类型。
 func TestApplicationTypeLeakBoundary(t *testing.T) {
 	// fset 是测试源代码的文件位置集合。
@@ -271,5 +303,183 @@ type Good struct { ID string }
 	cleanViolations := checkApplicationTypeLeaks("internal/application/orders/clean.go", cleanSyntax, fset)
 	if len(cleanViolations) != 0 {
 		t.Fatalf("clean violations=%+v", cleanViolations)
+	}
+}
+
+// TestStageTwoServerBoundary 验证阶段二会拒绝 Server 内残留的组合根、平台 Port 与基础设施导入。
+func TestStageTwoServerBoundary(t *testing.T) {
+	// fset 是模拟 Server 源码的统一位置集合。
+	fset := token.NewFileSet()
+	// syntax、parseErr 分别是包含阶段二禁止依赖和声明的模拟 Server 源码及解析失败原因。
+	syntax, parseErr := parser.ParseFile(fset, "server.go", []byte(`package server
+import "xianyu-go/internal/adapter"
+type ApplicationServices struct{}
+type PlatformPort interface{}
+func (s *Server) ApplicationServices() *ApplicationServices { return nil }
+func (s *Server) mtopClient() adapter.MTOPClient { return nil }
+`), parser.ParseComments)
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	// violations 是组合根和平台旁路必须产生的违规集合。
+	violations := checkStageTwoTransportBoundary("internal/server/server.go", syntax, fset)
+	if len(violations) != 5 {
+		t.Fatalf("violations=%+v", violations)
+	}
+}
+
+// TestStageTwoConstructionBoundary 验证构造门禁只拒绝应用/adapter 构造与 factory 链，不误伤标准库调用。
+func TestStageTwoConstructionBoundary(t *testing.T) {
+	// fset 是模拟 Server 源码的统一位置集合。
+	fset := token.NewFileSet()
+	// syntax、parseErr 分别是包含标准库、应用构造和 factory 链的模拟 Server 源码及解析失败原因。
+	syntax, parseErr := parser.ParseFile(fset, "composition.go", []byte(`package server
+import json "encoding/json"
+import orderapp "xianyu-go/internal/application/orders"
+func build() { json.NewEncoder(nil); orderapp.NewRefreshJobRunner(nil, nil, orderapp.RefreshJobRunnerOptions{}); dependencies.ItemDependencies.NewItemBatchRepository() }
+`), parser.ParseComments)
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	// violations 是应用构造与 factory 链必须产生的违规集合；json.NewEncoder 不应触发。
+	violations := checkStageTwoServerConstruction("internal/server/composition.go", syntax, fset)
+	if len(violations) != 2 {
+		t.Fatalf("violations=%+v", violations)
+	}
+}
+
+// TestStageTwoCmdBoundary 验证 cmd/server 不能通过 Server API 间接装配应用服务或反向取得生命周期组件。
+func TestStageTwoCmdBoundary(t *testing.T) {
+	// fset 是模拟 cmd/server 源码的统一位置集合。
+	fset := token.NewFileSet()
+	// syntax、parseErr 分别是包含旧组合根 API 的模拟入口源码及解析失败原因。
+	syntax, parseErr := parser.ParseFile(fset, "main.go", []byte(`package main
+func build() { server.NewApplicationServices(nil); applications.LifecycleComponents() }
+`), parser.ParseComments)
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	// violations 是旧 Server 组合根 API 必须产生的违规集合。
+	violations := checkStageTwoCmdCalls("cmd/server/main.go", syntax, fset)
+	if len(violations) != 2 {
+		t.Fatalf("violations=%+v", violations)
+	}
+}
+
+// TestStageTwoCompositionRootBoundary 验证空目录和未被 cmd/server 调用的伪组合层不能通过阶段二门禁。
+func TestStageTwoCompositionRootBoundary(t *testing.T) {
+	// root 是独立临时仓库根目录，避免真实工作树状态影响结构性单元测试。
+	root := t.TempDir()
+	// missingViolations 是缺少 composition 目录时应产生的违规集合。
+	missingViolations := checkStageTwoCompositionRoot(root)
+	if len(missingViolations) != 1 {
+		t.Fatalf("missing violations=%+v", missingViolations)
+	}
+	// compositionDir 是满足阶段二目录形态的最小独立组合层目录。
+	compositionDir := filepath.Join(root, "internal", "composition")
+	// mkdirErr 表示创建临时组合层目录失败的文件系统原因。
+	if mkdirErr := os.MkdirAll(compositionDir, 0o755); mkdirErr != nil {
+		t.Fatal(mkdirErr)
+	}
+	// compositionSource 是组合层最小生产文件；只有测试文件不能替代生产组合根。
+	compositionSource := []byte("package composition\n")
+	// writeErr 表示写入临时组合层生产文件失败的文件系统原因。
+	if writeErr := os.WriteFile(filepath.Join(compositionDir, "composition.go"), compositionSource, 0o600); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	// commandDir 是最小 cmd/server 入口目录。
+	commandDir := filepath.Join(root, "cmd", "server")
+	// mkdirErr 表示创建临时入口目录失败的文件系统原因。
+	if mkdirErr := os.MkdirAll(commandDir, 0o755); mkdirErr != nil {
+		t.Fatal(mkdirErr)
+	}
+	// commandSource 是显式引用组合层的最小入口源码。
+	commandSource := []byte("package main\nimport _ \"xianyu-go/internal/composition\"\n")
+	// writeErr 表示写入临时入口源码失败的文件系统原因。
+	if writeErr := os.WriteFile(filepath.Join(commandDir, "main.go"), commandSource, 0o600); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	// cleanViolations 是满足独立组合层和入口调用关系后的违规集合。
+	cleanViolations := checkStageTwoCompositionRoot(root)
+	if len(cleanViolations) != 0 {
+		t.Fatalf("clean violations=%+v", cleanViolations)
+	}
+}
+
+// TestStageTwoApplicationPortBoundary 验证 HTTP Port 容器不能以具体应用服务指针伪装最小依赖。
+func TestStageTwoApplicationPortBoundary(t *testing.T) {
+	// fset 是模拟 Server Port 源码的位置集合。
+	fset := token.NewFileSet()
+	// syntax、parseErr 分别是同时包含违规具体服务指针和合规消费者接口的模拟源码及解析错误。
+	syntax, parseErr := parser.ParseFile(fset, "application_ports.go", []byte(`package server
+import accountapp "xianyu-go/internal/application/account"
+type ApplicationPorts struct { Bad *accountapp.RuntimeService; Good AccountRuntimePort }
+type ApplicationPortsInput struct { Nested []*accountapp.ProfileService }
+type AccountRuntimePort interface{}
+`), parser.ParseComments)
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	// violations 是具体应用服务指针必须触发的违规集合。
+	violations := checkStageTwoApplicationPortDeclarations("internal/server/application_ports.go", syntax, fset)
+	if len(violations) != 2 {
+		t.Fatalf("violations=%+v", violations)
+	}
+	// cleanSyntax、cleanErr 分别是仅声明消费者接口的合规源码及解析错误。
+	cleanSyntax, cleanErr := parser.ParseFile(fset, "application_ports.go", []byte(`package server
+type ApplicationPorts struct { Runtime AccountRuntimePort }
+type ApplicationPortsInput struct { Runtime AccountRuntimePort }
+type AccountRuntimePort interface{}
+`), parser.ParseComments)
+	if cleanErr != nil {
+		t.Fatal(cleanErr)
+	}
+	// cleanViolations 是合规 Port 容器应保持为空的扫描结果。
+	cleanViolations := checkStageTwoApplicationPortDeclarations("internal/server/application_ports.go", cleanSyntax, fset)
+	if len(cleanViolations) != 0 {
+		t.Fatalf("clean violations=%+v", cleanViolations)
+	}
+}
+
+// TestStageTwoCompositionProjectionBoundary 验证 composition 核心不能反向导入 HTTP Server。
+func TestStageTwoCompositionProjectionBoundary(t *testing.T) {
+	// fset 是模拟 composition 源码的位置集合。
+	fset := token.NewFileSet()
+	// syntax、parseErr 分别是错误依赖 Server 的 composition 核心源码及解析错误。
+	syntax, parseErr := parser.ParseFile(fset, "services.go", []byte(`package composition
+import "xianyu-go/internal/server"
+var _ server.Dependencies
+`), parser.ParseComments)
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	// violations 是组合核心反向依赖必须触发的违规集合。
+	violations := checkStageTwoCompositionProjection("internal/composition/services.go", syntax, fset)
+	if len(violations) != 1 {
+		t.Fatalf("violations=%+v", violations)
+	}
+	// cleanViolations 是 runtime 投影层的合法依赖应保持为空的扫描结果。
+	if cleanViolations := checkStageTwoCompositionProjection("internal/composition/runtime/server_dependencies.go", syntax, fset); len(cleanViolations) != 0 {
+		t.Fatalf("runtime projection violations=%+v", cleanViolations)
+	}
+}
+
+// TestStageTwoRealSourceGate 验证完成迁移后的真实仓库源码必须通过阶段二门禁。
+func TestStageTwoRealSourceGate(t *testing.T) {
+	// root 是当前阶段二迁移后的真实仓库根目录。
+	root := repositoryRootForContractTest(t)
+	// violations、checkErr 分别是真实源码扫描结果和扫描失败原因。
+	violations, checkErr := checkRepository(root)
+	if checkErr != nil {
+		t.Fatal(checkErr)
+	}
+	if len(violations) != 0 {
+		// joined 是将全部违规位置拼接为便于定位的失败诊断文本。
+		joined := ""
+		// violation 是当前一条真实源码架构违规，按扫描顺序汇总。
+		for _, violation := range violations {
+			joined += violation.file + " " + violation.message + "\n"
+		}
+		t.Fatalf("完成迁移后的真实源码仍违反阶段二门禁:\n%s", joined)
 	}
 }

@@ -40,7 +40,7 @@ func (s *Server) mountChat(r chi.Router) {
 }
 
 // chatApplication 返回当前 Server 绑定的聊天历史应用服务。
-func (s *Server) chatApplication() *chatapp.Service {
+func (s *Server) chatApplication() ChatPort {
 	return s.applicationServiceSet().chat
 }
 
@@ -328,19 +328,9 @@ func (s *Server) markChatRead(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "更新已读状态失败")
 		return
 	}
-	if s.Manager != nil {
-		// sender、ok 保存当前账号运行时及其在线状态。
-		if sender, ok := s.Manager.GetInstance(input.AccountID); ok {
-			// reader、ok 保存运行时是否支持平台已读上报。
-			if reader, ok := sender.(interface {
-				MarkChatRead(context.Context, string, []map[string]any) error
-			}); ok {
-				// err 保存平台已读上报失败，失败不影响本地状态已落库。
-				if err := reader.MarkChatRead(r.Context(), input.ChatID, input.MessageIDs); err != nil {
-					slog.Warn("上报闲鱼已读状态失败", "account", input.AccountID, "chat_id", input.ChatID, "err", err)
-				}
-			}
-		}
+	// reportErr 表示平台已读上报失败；本地已读状态已成功保存，不能回滚。
+	if reportErr := s.chatApplication().ReportPlatformRead(r.Context(), input.AccountID, input.ChatID, input.MessageIDs); reportErr != nil {
+		slog.Warn("上报闲鱼已读状态失败", "account", input.AccountID, "chat_id", input.ChatID, "err", reportErr)
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }

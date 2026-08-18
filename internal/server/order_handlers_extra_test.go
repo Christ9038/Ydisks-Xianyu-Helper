@@ -149,7 +149,7 @@ func TestRefreshOrdersDiscoversNewOrdersWithoutBrowser(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	setTestMTop(srv, withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if strings.Contains(req.URL.Query().Get("api"), "order.detail") {
 			// body 用于本次流程后续判断的请求体
 			body := `{"ret":["SUCCESS::调用成功"],"data":{"utArgs":{"orderStatus":"待发货"},"components":[{"render":"orderInfoVO","data":{"itemInfo":{"buyAmount":"2"},"priceInfo":{"amount":{"value":"19.90"}}}}]}}`
@@ -162,7 +162,7 @@ func TestRefreshOrdersDiscoversNewOrdersWithoutBrowser(t *testing.T) {
 			`"priceVO":{"totalPrice":"19.90","buyNum":"2"},` +
 			`"rightVO":{"btnList":[{"tradeAction":"SKIP_PIN"}]}}]}}}`
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
-	}))
+	})))
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
 	// cookie 用于本次流程后续判断的登录凭证
@@ -209,13 +209,13 @@ func TestRefreshOrdersReleasesCredentialLockDuringDiscovery(t *testing.T) {
 	release := make(chan struct{})
 	// once 保证 started 只关闭一次。
 	var once sync.Once
-	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	setTestMTop(srv, withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		once.Do(func() { close(started) })
 		<-release
 		// body 是空订单列表的成功响应。
 		body := `{"ret":["SUCCESS::调用成功"],"data":{"module":{"nextPage":"false","totalCount":"0","items":[]}}}`
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
-	}))
+	})))
 	// h 保存 HTTP 路由处理器。
 	h := srv.Router()
 	// cookie 保存登录凭证。
@@ -265,7 +265,7 @@ func TestRefreshOrdersSoftDeletesOrdersMissingFromSellerList(t *testing.T) {
 	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,item_id,buyer_id,cookie_id,order_status) VALUES ('buyer-order','buy-item','seller-account','acc1','pending_ship')`)
-	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	setTestMTop(srv, withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if strings.Contains(req.URL.Query().Get("api"), "order.detail") {
 			// body 用于本次流程后续判断的请求体
 			body := `{"ret":["SUCCESS::调用成功"],"data":{"utArgs":{"orderStatus":"待发货"},"components":[{"render":"orderInfoVO","data":{"itemInfo":{"buyAmount":"1"},"priceInfo":{"amount":{"value":"10.00"}}}}]}}`
@@ -276,7 +276,7 @@ func TestRefreshOrdersSoftDeletesOrdersMissingFromSellerList(t *testing.T) {
 			`"commonData":{"orderId":"seller-order","itemId":"seller-item","orderStatus":"待发货"},` +
 			`"buyerInfoVO":{"buyerId":"buyer-1"},"priceVO":{"totalPrice":"10.00","buyNum":"1"}}]}}}`
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
-	}))
+	})))
 	// h 用于本次流程后续判断的h
 	h := srv.Router()
 	// cookie 用于本次流程后续判断的登录凭证
@@ -329,11 +329,11 @@ func TestRefreshSingleOrderUsesGoMTop(t *testing.T) {
 	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	srv.MTop = withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
+	setTestMTop(srv, withMTopTransport(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		// body 用于本次流程后续判断的请求体
 		body := `{"ret":["SUCCESS::调用成功"],"data":{"utArgs":{"orderStatus":"待发货"},"components":[{"render":"orderInfoVO","data":{"itemInfo":{"buyAmount":"2","specName":"套餐","specValue":"30天"},"priceInfo":{"amount":{"value":"19.90"}}}}]}}`
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
-	}))
+	})))
 	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	store.DB.ExecContext(ctx, `INSERT INTO orders (order_id, item_id, cookie_id, order_status) VALUES ('ord-x','item1','acc1','2')`)
@@ -846,9 +846,9 @@ func TestManualShipOrdersConsignFail(t *testing.T) {
 	store.DB.ExecContext(ctx, `INSERT INTO orders (order_id, item_id, buyer_id, order_status, cookie_id, chat_id) VALUES ('ord-f','item1','b1','2','acc1','chat1')`)
 
 	// 覆盖 mtop client：返回非 success ret。
-	prev := srv.MTop
-	srv.MTop = newMockMTop(t, mtopResp{ret: []string{"FAIL_BIZ_ORDER_NOT_FOUND::订单不存在"}})
-	defer func() { srv.MTop = prev }()
+	prev := testMTop(srv)
+	setTestMTop(srv, newMockMTop(t, mtopResp{ret: []string{"FAIL_BIZ_ORDER_NOT_FOUND::订单不存在"}}))
+	defer func() { setTestMTop(srv, prev) }()
 
 	// h 用于本次流程后续判断的h
 	h := srv.Router()

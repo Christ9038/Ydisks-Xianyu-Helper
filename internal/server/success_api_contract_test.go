@@ -437,13 +437,13 @@ func TestDynamicCompatibilitySuccessContracts(t *testing.T) {
 		t.Fatal("user settings response must be an object")
 	}
 
-	// srv.QRLogin 是二维码状态与验证的测试替身。
-	srv.QRLogin = &fakeQRLoginService{status: map[string]any{
+	// 二维码状态与验证使用测试专用平台替身。
+	setTestQRLogin(srv, &fakeQRLoginService{status: map[string]any{
 		"status":       "waiting",
 		"session_id":   "contract-qr",
 		"custom_field": "kept",
 		"cookies":      "must-not-leak",
-	}}
+	}})
 	// statusSessionID 是二维码状态测试会话标识。
 	statusSessionID := "contract-qr"
 	ownQRSession(t, srv, store, statusSessionID)
@@ -476,8 +476,8 @@ func TestDynamicCompatibilitySuccessContracts(t *testing.T) {
 		t.Fatalf("qr status response leaked cookies: %+v", rawQR)
 	}
 
-	// srv.QRLogin 替换为完成验证场景的测试替身。
-	srv.QRLogin = &fakeQRLoginService{completeCookies: "unb=contract-unb; _m_h5_tk=token;", completeUNB: "contract-unb"}
+	// 二维码验证完成场景替换测试专用平台替身。
+	setTestQRLogin(srv, &fakeQRLoginService{completeCookies: "unb=contract-unb; _m_h5_tk=token;", completeUNB: "contract-unb"})
 	// completeSessionID 是二维码验证完成测试会话标识。
 	completeSessionID := "contract-complete"
 	ownQRSession(t, srv, store, completeSessionID)
@@ -776,8 +776,8 @@ func TestAnalyticsAdminAndPublicSuccessResponseContracts(t *testing.T) {
 		t.Fatalf("valid orders response=%+v", validOrdersResponseValue)
 	}
 
-	// srv.QRLogin 是二维码生成测试替身。
-	srv.QRLogin = &fakeQRLoginService{}
+	// 二维码生成使用测试专用平台替身。
+	setTestQRLogin(srv, &fakeQRLoginService{})
 	// qrReq 是生成扫码登录二维码的请求。
 	qrReq := httptest.NewRequest(http.MethodPost, "/qr-login/generate", nil)
 	qrReq.AddCookie(sessionCookie)

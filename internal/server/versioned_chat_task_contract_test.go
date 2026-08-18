@@ -55,7 +55,7 @@ func TestVersionedChatTaskRoutesPreserveLegacyContracts(t *testing.T) {
 		{name: "account-task-settings-missing", method: http.MethodGet, versionedPath: "/api/v1/account-tasks/missing", legacyPath: "/api/account-tasks/missing", wantStatus: http.StatusForbidden},
 		{name: "account-task-settings-invalid", method: http.MethodPut, versionedPath: "/api/v1/account-tasks/acc1", legacyPath: "/api/account-tasks/acc1", body: `{"auto_rate_enabled":true,"rate_content":"","auto_polish_enabled":false,"polish_time":"03:00"}`, wantStatus: http.StatusBadRequest},
 		{name: "account-task-runs-missing", method: http.MethodGet, versionedPath: "/api/v1/account-tasks/missing/runs", legacyPath: "/api/account-tasks/missing/runs", wantStatus: http.StatusForbidden},
-		{name: "account-task-run-service-disabled", method: http.MethodPost, versionedPath: "/api/v1/account-tasks/acc1/run", legacyPath: "/api/account-tasks/acc1/run", body: `{}`, wantStatus: http.StatusServiceUnavailable},
+		{name: "account-task-run-service-disabled", method: http.MethodPost, versionedPath: "/api/v1/account-tasks/acc1/run", legacyPath: "/api/account-tasks/acc1/run", body: `{"task_type":"auto_rate"}`, wantStatus: http.StatusServiceUnavailable},
 	}
 	for _, routeCase := range cases { // routeCase 是当前正在执行的聊天或账号任务路由样例。
 		// versionedStatus 是版本化入口实际返回的状态码。
