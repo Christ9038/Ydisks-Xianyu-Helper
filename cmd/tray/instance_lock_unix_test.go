@@ -7,11 +7,11 @@ import (
 	"testing"
 )
 
-// TestAcquireTrayInstanceRejectsSecondInstance 负责TestAcquireTrayInstanceRejectsSecondInstance相关处理。
+// TestAcquireTrayInstanceRejectsSecondInstance 封装TestAcquireTrayInstanceRejectsSecondInstance业务协调。
 func TestAcquireTrayInstanceRejectsSecondInstance(t *testing.T) {
-	// lockPath 保存锁路径，供当前处理流程使用
+	// lockPath 用于本次流程后续判断的锁路径
 	lockPath := filepath.Join(t.TempDir(), "tray.lock")
-	// releaseFirst、acquired、err 保存releaseFirst、acquired、err，供当前处理流程使用
+	// releaseFirst、acquired、err 用于本次流程后续判断的releaseFirst、acquired、err
 	releaseFirst, acquired, err := acquireTrayFileLock(lockPath)
 	if err != nil {
 		t.Fatalf("acquire first tray instance: %v", err)
@@ -21,7 +21,7 @@ func TestAcquireTrayInstanceRejectsSecondInstance(t *testing.T) {
 	}
 	defer releaseFirst()
 
-	// releaseSecond、acquired、err 保存releaseSecond、acquired、err，供当前处理流程使用
+	// releaseSecond、acquired、err 用于本次流程后续判断的releaseSecond、acquired、err
 	releaseSecond, acquired, err := acquireTrayFileLock(lockPath)
 	if err != nil {
 		t.Fatalf("acquire second tray instance: %v", err)

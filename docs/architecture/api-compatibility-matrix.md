@@ -26,10 +26,16 @@
 
 ## 受控动态键响应
 
-`notificationBindingListResponse`（按账号 ID 分组的绑定列表）和
-`automationRulePageResponse.trigger_counts`（按触发类型统计）是已有客户端依赖的动态键 JSON
-形状，本阶段不改变字段形状。它们的值类型仍是具名 DTO 或明确标量；架构门禁只允许这类已登记的
-兼容结构，禁止新增 `map[string]any`、`[]map[string]any` 或未登记的动态响应类型。
+以下动态响应是已有客户端依赖的动态键 JSON 形状，本阶段不改变字段形状。它们的值类型仍是具名
+DTO 或明确标量；架构门禁只允许这类已登记的兼容结构，禁止新增 `map[string]any`、
+`[]map[string]any` 或未登记的动态响应类型。所有保留项统一通过历史 API 遥测观察，并计划在
+`v2.0` 评估退场：
+
+| 响应类型 | 动态键语义 | Sunset | 删除条件 |
+| --- | --- | --- | --- |
+| `settingsResponse` | 非敏感系统设置键 | `v2.0` | 连续两个发布周期外部调用为零，完成前端与桌面包回归 |
+| `notificationBindingListResponse` | 按账号 ID 分组的绑定列表 | `v2.0` | 连续两个发布周期外部调用为零，保留版本化回滚 |
+| `automationRulePageResponse` | `trigger_counts` 按触发类型统计 | `v2.0` | 连续两个发布周期外部调用为零，完成契约测试迁移 |
 
 ## 仍保留的旧入口
 

@@ -2,7 +2,6 @@ package adapter
 
 import (
 	"context"
-	"database/sql"
 	"strings"
 
 	analyticsapp "xianyu-go/internal/application/analytics"
@@ -70,37 +69,15 @@ func (r *AnalyticsRepository) DashboardStats(ctx context.Context, userID int64) 
 
 // AvailableCardStock 计算启用数据卡密组中的非空卡密行数，不向应用层传递卡密内容。
 func (r *AnalyticsRepository) AvailableCardStock(ctx context.Context, userID int64) (int64, error) {
-	// rows 是用户数据卡密组的最小查询结果。
-	// rows、err 是用户数据卡密组查询结果及错误。
-	rows, err := r.store.DB.QueryContext(ctx, `SELECT enabled, type, data_content FROM cards WHERE user_id=?`, userID)
-	if err != nil {
-		return 0, err
+	if r == nil || r.store == nil || r.store.Cards == nil {
+		return 0, db.ErrNotFound
 	}
-	defer rows.Close()
-	// stock 是可用卡密行数。
-	var stock int64
-	for rows.Next() {
-		// enabled 是当前卡密组是否启用的可空数据库字段。
-		var enabled sql.NullInt64
-		// cardType 是当前卡密组的业务类型。
-		var cardType sql.NullString
-		// dataContent 是当前数据卡密组的换行分隔内容。
-		var dataContent sql.NullString
-		if // err 是当前卡密组读取错误。
-		err := rows.Scan(&enabled, &cardType, &dataContent); err != nil {
-			return 0, err
-		}
-		if !enabled.Valid || enabled.Int64 == 0 || !cardType.Valid || cardType.String != "data" {
-			continue
-		}
-		// line 是数据卡密组中的单行卡密。
-		for _, line := range strings.Split(strings.ReplaceAll(dataContent.String, "\r\n", "\n"), "\n") {
-			if strings.TrimSpace(line) != "" {
-				stock++
-			}
-		}
+	// stock、stockErr 保存 db 层在不泄露卡密正文时计算出的可用库存数量及错误。
+	stock, stockErr := r.store.Cards.AvailableDataStock(ctx, userID)
+	if stockErr != nil {
+		return 0, stockErr
 	}
-	return stock, rows.Err()
+	return stock, nil
 }
 
 // QueryRevenue 返回订单收益汇总。
@@ -297,7 +274,7 @@ func (r *AnalyticsRepository) orderScope(filter analyticsapp.Filter, amountColum
 	// where 是带 WHERE 前缀和尾随空格的条件文本。
 	where := "WHERE " + strings.Join(conditions, " AND ") + " "
 	// clean 是当前数据库方言清洗金额文本的表达式。
-	clean := amountExpression(r.store.Dialect, amountColumn)
+	clean := amountExpression(r.store.Orders.Dialect, amountColumn)
 	return where, args, clean, " AND " + clean + " IS NOT NULL"
 }
 

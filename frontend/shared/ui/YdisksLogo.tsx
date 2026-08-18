@@ -5,7 +5,7 @@ interface YdisksLogoProps {
 }
 
 interface YdisksBrandIconProps {
-  /** sizeClass 表示数量Class。 */ sizeClass?: string;
+  /** sizeClass 指定品牌图标尺寸相关的 Tailwind 类名，而非业务数量。 */ sizeClass?: string;
   /** logoClassName 表示品牌图标的 CSS 类名。 */ logoClassName?: string;
 }
 

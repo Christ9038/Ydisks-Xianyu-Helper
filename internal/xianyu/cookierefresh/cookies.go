@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// metadataSnapshotKey 保存metadataSnapshotKey，供当前处理流程使用
+// metadataSnapshotKey 用于本次流程后续判断的metadataSnapshotKey
 const (
 	metadataSnapshotKey    = "cookies_refresh_snapshot"
 	legacyMetadataSnapshot = "cookie_refresh_snapshot"
@@ -31,7 +31,7 @@ type BrowserCookie struct {
 
 // ParseCookieString 把 Cookie 头解析为 name -> value。
 func ParseCookieString(s string) map[string]string {
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := make(map[string]string)
 	// part 表示当前遍历过程中的part
 	for _, part := range strings.Split(s, ";") {
@@ -39,7 +39,7 @@ func ParseCookieString(s string) map[string]string {
 		if part == "" {
 			continue
 		}
-		// eq 保存eq，供当前处理流程使用
+		// eq 用于本次流程后续判断的eq
 		eq := strings.Index(part, "=")
 		if eq <= 0 {
 			continue
@@ -54,7 +54,7 @@ func MarshalCookieString(m map[string]string) string {
 	if len(m) == 0 {
 		return ""
 	}
-	// keys 保存keys，供当前处理流程使用
+	// keys 用于本次流程后续判断的keys
 	keys := make([]string, 0, len(m))
 	// k 表示当前遍历过程中的k
 	for k := range m {
@@ -63,7 +63,7 @@ func MarshalCookieString(m map[string]string) string {
 		}
 	}
 	sort.Strings(keys)
-	// parts 保存parts，供当前处理流程使用
+	// parts 用于本次流程后续判断的parts
 	parts := make([]string, 0, len(keys))
 	// k 表示当前遍历过程中的k
 	for _, k := range keys {
@@ -74,18 +74,18 @@ func MarshalCookieString(m map[string]string) string {
 
 // MergeSetCookies 将 Set-Cookie 响应头合并进原 Cookie 字符串。
 func MergeSetCookies(original string, setCookies []string) string {
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	m := ParseCookieString(original)
 	// raw 表示当前遍历过程中的原始
 	for _, raw := range setCookies {
-		// first 保存first，供当前处理流程使用
+		// first 用于本次流程后续判断的first
 		first := strings.TrimSpace(strings.Split(raw, ";")[0])
-		// eq 保存eq，供当前处理流程使用
+		// eq 用于本次流程后续判断的eq
 		eq := strings.Index(first, "=")
 		if eq <= 0 {
 			continue
 		}
-		// name 保存名称，供当前处理流程使用
+		// name 用于本次流程后续判断的名称
 		name := strings.TrimSpace(first[:eq])
 		if name == "" {
 			continue
@@ -97,26 +97,26 @@ func MergeSetCookies(original string, setCookies []string) string {
 
 // SnapshotFromCookieString 为只有扁平 Cookie 的历史账号建立兼容快照。浏览器刷新后
 // 应使用真实快照覆盖它，避免长期依赖推断出的 Domain/Path。
-// SnapshotFromCookieString 负责SnapshotFrom登录凭证String相关处理。
+// SnapshotFromCookieString 封装SnapshotFrom登录凭证String业务协调。
 func SnapshotFromCookieString(cookieString, domain string) []BrowserCookie {
 	domain = strings.TrimSpace(domain)
 	if domain == "" {
 		domain = ".goofish.com"
 	}
-	// values 保存values，供当前处理流程使用
+	// values 用于本次流程后续判断的values
 	values := ParseCookieString(cookieString)
-	// names 保存names，供当前处理流程使用
+	// names 用于本次流程后续判断的names
 	names := make([]string, 0, len(values))
 	// name 表示当前遍历过程中的名称
 	for name := range values {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := make([]BrowserCookie, 0, len(names))
 	// name 表示当前遍历过程中的名称
 	for _, name := range names {
-		// value 保存值，供当前处理流程使用
+		// value 用于本次流程后续判断的值
 		value := values[name]
 		out = append(out, BrowserCookie{Name: name, Value: value, Domain: domain, Path: "/", Secure: true})
 	}
@@ -125,23 +125,23 @@ func SnapshotFromCookieString(cookieString, domain string) []BrowserCookie {
 
 // ReconcileSnapshotWithCookieString 在调用方暂时只能获得扁平 Cookie 结果时保留
 // 已知属性，并同步值与删除项。新增字段使用 .goofish.com 根路径作为兼容作用域。
-// ReconcileSnapshotWithCookieString 负责ReconcileSnapshotWith登录凭证String相关处理。
+// ReconcileSnapshotWithCookieString 封装ReconcileSnapshotWith登录凭证String业务协调。
 func ReconcileSnapshotWithCookieString(snapshot []BrowserCookie, cookieString string) []BrowserCookie {
-	// values 保存values，供当前处理流程使用
+	// values 用于本次流程后续判断的values
 	values := ParseCookieString(cookieString)
-	// counts 保存counts，供当前处理流程使用
+	// counts 用于本次流程后续判断的counts
 	counts := make(map[string]int, len(snapshot))
 	// cookie 表示当前遍历过程中的登录凭证
 	for _, cookie := range NormalizeSnapshot(snapshot) {
 		counts[cookie.Name]++
 	}
-	// seen 保存seen，供当前处理流程使用
+	// seen 用于本次流程后续判断的seen
 	seen := make(map[string]struct{})
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := make([]BrowserCookie, 0, len(snapshot)+len(values))
 	// cookie 表示当前遍历过程中的登录凭证
 	for _, cookie := range NormalizeSnapshot(snapshot) {
-		// value、exists 保存value、exists，供当前处理流程使用
+		// value、exists 用于本次流程后续判断的value、exists
 		value, exists := values[cookie.Name]
 		if !exists {
 			continue
@@ -155,7 +155,7 @@ func ReconcileSnapshotWithCookieString(snapshot []BrowserCookie, cookieString st
 		out = append(out, cookie)
 		seen[cookie.Name] = struct{}{}
 	}
-	// names 保存names，供当前处理流程使用
+	// names 用于本次流程后续判断的names
 	names := make([]string, 0, len(values))
 	// name 表示当前遍历过程中的名称
 	for name := range values {
@@ -164,11 +164,11 @@ func ReconcileSnapshotWithCookieString(snapshot []BrowserCookie, cookieString st
 	sort.Strings(names)
 	// name 表示当前遍历过程中的名称
 	for _, name := range names {
-		if // exists 保存exists，供当前处理流程使用
+		if // exists 用于本次流程后续判断的exists
 		_, exists := seen[name]; exists {
 			continue
 		}
-		// value 保存值，供当前处理流程使用
+		// value 用于本次流程后续判断的值
 		value := values[name]
 		out = append(out, BrowserCookie{Name: name, Value: value, Domain: ".goofish.com", Path: "/", Secure: true})
 	}
@@ -177,9 +177,9 @@ func ReconcileSnapshotWithCookieString(snapshot []BrowserCookie, cookieString st
 
 // CookieHeaderForURL 按浏览器 Domain/Path/Secure/Expires 规则生成指定 URL 的
 // Cookie header，并保留不同路径下的同名 Cookie。
-// CookieHeaderForURL 负责登录凭证HeaderForURL相关处理。
+// CookieHeaderForURL 封装登录凭证HeaderForURL业务协调。
 func CookieHeaderForURL(snapshot []BrowserCookie, rawURL string, now time.Time) string {
-	// header 保存header，供当前处理流程使用
+	// header 用于本次流程后续判断的header
 	header, _ := ScopedCookieHeaderForURL(snapshot, rawURL, now)
 	return header
 }
@@ -190,7 +190,7 @@ func CookieHeaderForURL(snapshot []BrowserCookie, rawURL string, now time.Time) 
 //
 // 此简化入口不具备顶级站点上下文，因此不会发送分区 Cookie。需要处理 CHIPS
 // 时应使用 ScopedCookieHeaderForRequest 并传入浏览器提供的 PartitionKey。
-// ScopedCookieHeaderForURL 负责Scoped登录凭证HeaderForURL相关处理。
+// ScopedCookieHeaderForURL 封装Scoped登录凭证HeaderForURL业务协调。
 func ScopedCookieHeaderForURL(snapshot []BrowserCookie, rawURL string, now time.Time) (string, bool) {
 	return ScopedCookieHeaderForRequest(snapshot, rawURL, "", now)
 }
@@ -200,17 +200,17 @@ func ScopedCookieHeaderForRequest(snapshot []BrowserCookie, rawURL, partitionKey
 	if snapshot == nil {
 		return "", false
 	}
-	// target、err 保存target、err，供当前处理流程使用
+	// target、err 用于本次流程后续判断的target、err
 	target, err := url.Parse(rawURL)
 	if err != nil || target.Hostname() == "" {
 		return "", false
 	}
-	// matchedCookie 保存matched登录凭证，供当前处理流程使用
+	// matchedCookie 用于本次流程后续判断的matched登录凭证
 	type matchedCookie struct {
 		cookie BrowserCookie
 		index  int
 	}
-	// matched 保存matched，供当前处理流程使用
+	// matched 用于本次流程后续判断的matched
 	matched := make([]matchedCookie, 0, len(snapshot))
 	// index、cookie 表示当前遍历过程中的index、cookie
 	for index, cookie := range NormalizeSnapshot(snapshot) {
@@ -236,7 +236,7 @@ func ScopedCookieHeaderForRequest(snapshot []BrowserCookie, rawURL, partitionKey
 		}
 		return matched[i].index < matched[j].index
 	})
-	// parts 保存parts，供当前处理流程使用
+	// parts 用于本次流程后续判断的parts
 	parts := make([]string, 0, len(matched))
 	// item 表示当前遍历过程中的商品
 	for _, item := range matched {
@@ -247,9 +247,9 @@ func ScopedCookieHeaderForRequest(snapshot []BrowserCookie, rawURL, partitionKey
 
 // ApplySetCookies 把某次请求响应的 Set-Cookie 应用到完整快照。删除操作只删除
 // 相同 name/domain/path 的 Cookie，不会误删其他作用域下的同名项。
-// ApplySetCookies 负责ApplySetCookies相关处理。
+// ApplySetCookies 封装ApplySetCookies业务协调。
 func ApplySetCookies(snapshot []BrowserCookie, requestURL string, setCookies []string, now time.Time, partitionKeys ...string) []BrowserCookie {
-	// target、err 保存target、err，供当前处理流程使用
+	// target、err 用于本次流程后续判断的target、err
 	target, err := url.Parse(requestURL)
 	if err != nil || target.Hostname() == "" {
 		return NormalizeSnapshot(snapshot)
@@ -258,15 +258,15 @@ func ApplySetCookies(snapshot []BrowserCookie, requestURL string, setCookies []s
 	// equal paths follows creation time. Keep the input position when replacing an
 	// existing cookie; if it is deleted and later recreated, append it as a new
 	// creation, just like Chromium's cookie store.
-	// state 保存状态，供当前处理流程使用
+	// state 用于本次流程后续判断的状态
 	state := make([]BrowserCookie, 0, len(snapshot)+len(setCookies))
-	// positions 保存positions，供当前处理流程使用
+	// positions 用于本次流程后续判断的positions
 	positions := make(map[string]int, len(snapshot)+len(setCookies))
 	// cookie 表示当前遍历过程中的登录凭证
 	for _, cookie := range NormalizeSnapshot(snapshot) {
-		// key 保存key，供当前处理流程使用
+		// key 用于本次流程后续判断的key
 		key := snapshotKey(cookie)
-		if // index、exists 保存index、exists，供当前处理流程使用
+		if // index、exists 用于本次流程后续判断的index、exists
 		index, exists := positions[key]; exists {
 			state[index] = cookie
 			continue
@@ -276,14 +276,14 @@ func ApplySetCookies(snapshot []BrowserCookie, requestURL string, setCookies []s
 	}
 	// raw 表示当前遍历过程中的原始
 	for _, raw := range setCookies {
-		// parsed、err 保存parsed、err，供当前处理流程使用
+		// parsed、err 用于本次流程后续判断的parsed、err
 		parsed, err := http.ParseSetCookie(raw)
 		if err != nil || strings.TrimSpace(parsed.Name) == "" {
 			continue
 		}
-		// rawDomain 保存原始Domain，供当前处理流程使用
+		// rawDomain 用于本次流程后续判断的原始Domain
 		rawDomain := strings.TrimSpace(parsed.Domain)
-		// domain 保存domain，供当前处理流程使用
+		// domain 用于本次流程后续判断的domain
 		domain := strings.ToLower(rawDomain)
 		if domain == "" {
 			domain = strings.ToLower(target.Hostname())
@@ -299,7 +299,7 @@ func ApplySetCookies(snapshot []BrowserCookie, requestURL string, setCookies []s
 				domain = "." + domain
 			}
 		}
-		// cookiePath 保存登录凭证路径，供当前处理流程使用
+		// cookiePath 用于本次流程后续判断的登录凭证路径
 		cookiePath := parsed.Path
 		if cookiePath == "" {
 			cookiePath = defaultCookiePath(target.Path)
@@ -315,7 +315,7 @@ func ApplySetCookies(snapshot []BrowserCookie, requestURL string, setCookies []s
 			// __Host- requires Secure, an explicit Path=/, and no Domain attribute.
 			continue
 		}
-		// partitionKey 保存partitionKey，供当前处理流程使用
+		// partitionKey 用于本次流程后续判断的partitionKey
 		partitionKey := ""
 		if parsed.Partitioned {
 			if !parsed.Secure || len(partitionKeys) == 0 || strings.TrimSpace(partitionKeys[0]) == "" {
@@ -325,7 +325,7 @@ func ApplySetCookies(snapshot []BrowserCookie, requestURL string, setCookies []s
 			}
 			partitionKey = strings.TrimSpace(partitionKeys[0])
 		}
-		// cookie 保存登录凭证，供当前处理流程使用
+		// cookie 用于本次流程后续判断的登录凭证
 		cookie := BrowserCookie{
 			Name: parsed.Name, Value: parsed.Value, Domain: domain, Path: cookiePath,
 			HTTPOnly: parsed.HttpOnly, Secure: parsed.Secure, SameSite: sameSiteLabel(parsed.SameSite), PartitionKey: partitionKey,
@@ -336,21 +336,21 @@ func ApplySetCookies(snapshot []BrowserCookie, requestURL string, setCookies []s
 		} else if !parsed.Expires.IsZero() {
 			cookie.Expires = float64(parsed.Expires.Unix())
 		}
-		// key 保存key，供当前处理流程使用
+		// key 用于本次流程后续判断的key
 		key := snapshotKey(cookie)
 		if parsed.MaxAge < 0 || (parsed.MaxAge == 0 && !parsed.Expires.IsZero() && !parsed.Expires.After(now)) {
-			if // index、exists 保存index、exists，供当前处理流程使用
+			if // index、exists 用于本次流程后续判断的index、exists
 			index, exists := positions[key]; exists {
 				state = append(state[:index], state[index+1:]...)
 				delete(positions, key)
-				for // i 保存i，供当前处理流程使用
+				for // i 用于本次流程后续判断的i
 				i := index; i < len(state); i++ {
 					positions[snapshotKey(state[i])] = i
 				}
 			}
 			continue
 		}
-		if // index、exists 保存index、exists，供当前处理流程使用
+		if // index、exists 用于本次流程后续判断的index、exists
 		index, exists := positions[key]; exists {
 			state[index] = cookie
 			continue
@@ -361,20 +361,20 @@ func ApplySetCookies(snapshot []BrowserCookie, requestURL string, setCookies []s
 	return NormalizeSnapshot(state)
 }
 
-// snapshotKey 负责snapshotKey相关处理。
+// snapshotKey 封装snapshotKey业务协调。
 func snapshotKey(cookie BrowserCookie) string {
 	return cookie.Name + "\x00" + strings.ToLower(cookie.Domain) + "\x00" + cookie.Path + "\x00" + cookie.PartitionKey
 }
 
-// cookieDomainAttributeMatches 负责登录凭证DomainAttributeMatches相关处理。
+// cookieDomainAttributeMatches 封装登录凭证DomainAttributeMatches业务协调。
 func cookieDomainAttributeMatches(host, domain string) bool {
 	host = strings.ToLower(strings.TrimSpace(host))
-	// base 保存base，供当前处理流程使用
+	// base 用于本次流程后续判断的base
 	base := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(domain)), ".")
 	return base != "" && (host == base || strings.HasSuffix(host, "."+base))
 }
 
-// cookieDomainMatches 负责登录凭证DomainMatches相关处理。
+// cookieDomainMatches 封装登录凭证DomainMatches业务协调。
 func cookieDomainMatches(host, domain string) bool {
 	host = strings.ToLower(strings.TrimSpace(host))
 	domain = strings.ToLower(strings.TrimSpace(domain))
@@ -382,14 +382,14 @@ func cookieDomainMatches(host, domain string) bool {
 		return false
 	}
 	if strings.HasPrefix(domain, ".") {
-		// base 保存base，供当前处理流程使用
+		// base 用于本次流程后续判断的base
 		base := strings.TrimPrefix(domain, ".")
 		return host == base || strings.HasSuffix(host, "."+base)
 	}
 	return host == domain
 }
 
-// cookiePathMatches 负责登录凭证路径Matches相关处理。
+// cookiePathMatches 封装登录凭证路径Matches业务协调。
 func cookiePathMatches(requestPath, cookiePath string) bool {
 	if requestPath == "" {
 		requestPath = "/"
@@ -406,12 +406,12 @@ func cookiePathMatches(requestPath, cookiePath string) bool {
 	return strings.HasSuffix(cookiePath, "/") || (len(requestPath) > len(cookiePath) && requestPath[len(cookiePath)] == '/')
 }
 
-// defaultCookiePath 负责default登录凭证路径相关处理。
+// defaultCookiePath 封装default登录凭证路径业务协调。
 func defaultCookiePath(requestPath string) string {
 	if requestPath == "" || requestPath[0] != '/' || requestPath == "/" {
 		return "/"
 	}
-	// dir 保存dir，供当前处理流程使用
+	// dir 用于本次流程后续判断的dir
 	dir := path.Dir(requestPath)
 	if dir == "." || dir == "/" {
 		return "/"
@@ -419,7 +419,7 @@ func defaultCookiePath(requestPath string) string {
 	return dir
 }
 
-// sameSiteLabel 负责sameSiteLabel相关处理。
+// sameSiteLabel 封装sameSiteLabel业务协调。
 func sameSiteLabel(value http.SameSite) string {
 	switch value {
 	case http.SameSiteStrictMode:
@@ -435,11 +435,11 @@ func sameSiteLabel(value http.SameSite) string {
 
 // ChangedCookieNames 返回两个 Cookie 字符串之间发生变化的字段名。
 func ChangedCookieNames(before, after string) []string {
-	// a 保存a，供当前处理流程使用
+	// a 用于本次流程后续判断的a
 	a := ParseCookieString(before)
-	// b 保存b，供当前处理流程使用
+	// b 用于本次流程后续判断的b
 	b := ParseCookieString(after)
-	// seen 保存seen，供当前处理流程使用
+	// seen 用于本次流程后续判断的seen
 	seen := make(map[string]struct{}, len(a)+len(b))
 	// k 表示当前遍历过程中的k
 	for k := range a {
@@ -449,7 +449,7 @@ func ChangedCookieNames(before, after string) []string {
 	for k := range b {
 		seen[k] = struct{}{}
 	}
-	// names 保存names，供当前处理流程使用
+	// names 用于本次流程后续判断的names
 	names := make([]string, 0, len(seen))
 	// k 表示当前遍历过程中的k
 	for k := range seen {
@@ -463,24 +463,24 @@ func ChangedCookieNames(before, after string) []string {
 
 // ChangedSnapshotLabels 返回完整浏览器 Cookie 快照变化标签，格式 name@domain/path。
 func ChangedSnapshotLabels(before, after []BrowserCookie) []string {
-	// key 保存key，供当前处理流程使用
+	// key 用于本次流程后续判断的key
 	key := func(c BrowserCookie) string {
-		// path 保存路径，供当前处理流程使用
+		// path 用于本次流程后续判断的路径
 		path := c.Path
 		if path == "" {
 			path = "/"
 		}
 		return c.Name + "|" + c.Domain + "|" + path + "|" + c.PartitionKey
 	}
-	// label 保存label，供当前处理流程使用
+	// label 用于本次流程后续判断的label
 	label := func(c BrowserCookie) string {
-		// path 保存路径，供当前处理流程使用
+		// path 用于本次流程后续判断的路径
 		path := c.Path
 		if path == "" {
 			path = "/"
 		}
 		if c.Domain != "" {
-			// out 保存out，供当前处理流程使用
+			// out 用于本次流程后续判断的out
 			out := c.Name + "@" + c.Domain + path
 			if c.PartitionKey != "" {
 				out += "#" + c.PartitionKey
@@ -489,9 +489,9 @@ func ChangedSnapshotLabels(before, after []BrowserCookie) []string {
 		}
 		return c.Name
 	}
-	// oldMap 保存oldMap，供当前处理流程使用
+	// oldMap 用于本次流程后续判断的oldMap
 	oldMap := make(map[string]BrowserCookie)
-	// newMap 保存newMap，供当前处理流程使用
+	// newMap 用于本次流程后续判断的newMap
 	newMap := make(map[string]BrowserCookie)
 	// c 表示当前遍历过程中的c
 	for _, c := range NormalizeSnapshot(before) {
@@ -501,7 +501,7 @@ func ChangedSnapshotLabels(before, after []BrowserCookie) []string {
 	for _, c := range NormalizeSnapshot(after) {
 		newMap[key(c)] = c
 	}
-	// seen 保存seen，供当前处理流程使用
+	// seen 用于本次流程后续判断的seen
 	seen := make(map[string]struct{}, len(oldMap)+len(newMap))
 	// k 表示当前遍历过程中的k
 	for k := range oldMap {
@@ -511,13 +511,13 @@ func ChangedSnapshotLabels(before, after []BrowserCookie) []string {
 	for k := range newMap {
 		seen[k] = struct{}{}
 	}
-	// labels 保存labels，供当前处理流程使用
+	// labels 用于本次流程后续判断的labels
 	labels := make([]string, 0, len(seen))
 	// k 表示当前遍历过程中的k
 	for k := range seen {
-		// old 保存old，供当前处理流程使用
+		// old 用于本次流程后续判断的old
 		old := oldMap[k]
-		// newCookie 保存new登录凭证，供当前处理流程使用
+		// newCookie 用于本次流程后续判断的new登录凭证
 		newCookie := newMap[k]
 		if old == newCookie {
 			continue
@@ -534,7 +534,7 @@ func ChangedSnapshotLabels(before, after []BrowserCookie) []string {
 
 // CookieStringFromSnapshot 将浏览器 Cookie 快照压成请求 Cookie 字符串。
 func CookieStringFromSnapshot(cookies []BrowserCookie) string {
-	// parts 保存parts，供当前处理流程使用
+	// parts 用于本次流程后续判断的parts
 	parts := make([]string, 0, len(cookies))
 	// c 表示当前遍历过程中的c
 	for _, c := range NormalizeSnapshot(cookies) {
@@ -548,7 +548,7 @@ func CookieStringFromSnapshot(cookies []BrowserCookie) string {
 
 // MergeOriginalFields 补回浏览器未返回但原 Cookie 中存在的字段。
 func MergeOriginalFields(original, browserCookieString string) string {
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	m := ParseCookieString(original)
 	// k、v 表示当前遍历过程中的k、v
 	for k, v := range ParseCookieString(browserCookieString) {
@@ -564,7 +564,7 @@ func NormalizeSnapshot(cookies []BrowserCookie) []BrowserCookie {
 	if cookies == nil {
 		return nil
 	}
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := make([]BrowserCookie, 0, len(cookies))
 	// c 表示当前遍历过程中的c
 	for _, c := range cookies {
@@ -581,7 +581,7 @@ func NormalizeSnapshot(cookies []BrowserCookie) []BrowserCookie {
 
 // SnapshotFromMetadata 从 cookies.metadata_json 中读取浏览器 Cookie 快照。
 func SnapshotFromMetadata(metadata string) []BrowserCookie {
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out, _ := SnapshotFromMetadataOK(metadata)
 	return out
 }
@@ -589,25 +589,25 @@ func SnapshotFromMetadata(metadata string) []BrowserCookie {
 // SnapshotFromMetadataOK 读取完整 Cookie 快照，并报告 metadata 中是否真的
 // 存在快照键。存在空数组时返回非 nil 空切片和 true，避免被误当成历史账号
 // 而回退到扁平 Cookie。
-// SnapshotFromMetadataOK 负责SnapshotFromMetadataOK相关处理。
+// SnapshotFromMetadataOK 封装SnapshotFromMetadataOK业务协调。
 func SnapshotFromMetadataOK(metadata string) ([]BrowserCookie, bool) {
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	var m map[string]json.RawMessage
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal([]byte(strings.TrimSpace(metadata)), &m); err != nil {
 		return nil, false
 	}
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	var out []BrowserCookie
-	if // raw 保存原始，供当前处理流程使用
+	if // raw 用于本次流程后续判断的原始
 	raw := m[metadataSnapshotKey]; len(raw) > 0 {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := json.Unmarshal(raw, &out); err != nil {
 			return nil, false
 		}
-	} else if // raw 保存原始，供当前处理流程使用
+	} else if // raw 用于本次流程后续判断的原始
 	raw := m[legacyMetadataSnapshot]; len(raw) > 0 {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := json.Unmarshal(raw, &out); err != nil {
 			return nil, false
 		}
@@ -622,14 +622,14 @@ func SnapshotFromMetadataOK(metadata string) ([]BrowserCookie, bool) {
 
 // MetadataWithSnapshot 写入浏览器 Cookie 快照，保留 metadata 中的其他键。
 func MetadataWithSnapshot(metadata string, cookies []BrowserCookie) string {
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	m := make(map[string]any)
 	if strings.TrimSpace(metadata) != "" {
 		_ = json.Unmarshal([]byte(metadata), &m)
 	}
 	delete(m, legacyMetadataSnapshot)
 	m[metadataSnapshotKey] = NormalizeSnapshot(cookies)
-	// b、err 保存b、err，供当前处理流程使用
+	// b、err 用于本次流程后续判断的b、err
 	b, err := json.Marshal(m)
 	if err != nil {
 		return metadata
@@ -642,15 +642,15 @@ func MetadataWithoutSnapshot(metadata string) string {
 	if strings.TrimSpace(metadata) == "" {
 		return ""
 	}
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	m := make(map[string]any)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal([]byte(metadata), &m); err != nil {
 		return metadata
 	}
 	delete(m, metadataSnapshotKey)
 	delete(m, legacyMetadataSnapshot)
-	// b、err 保存b、err，供当前处理流程使用
+	// b、err 用于本次流程后续判断的b、err
 	b, err := json.Marshal(m)
 	if err != nil {
 		return metadata

@@ -31,8 +31,8 @@ const notifyAuthExpired = () => {
   window.dispatchEvent(new Event('auth:logout'));
   queueMicrotask(() => {
     authLogoutPending = false;
-  } /* 回调函数负责当前业务流程。 */);
-}; /* notifyAuthExpired 表示notifyAuthExpired。 */
+  } /* 微任务结束后允许下一次未授权响应重新触发登出通知。 */);
+}; /* notifyAuthExpired 合并同一批 401 响应，避免重复触发会话清理。 */
 
 const buildQueryString = (params?: QueryParams): string => {
   if (!params) return '';
@@ -76,7 +76,7 @@ const request = async <T>(method: RequestMethod, url: string, options: RequestOp
   if (!res.ok) {
     if (res.status === 401 && !options.skipAuthLogout) notifyAuthExpired();
     // payload 是后端统一错误 DTO 或非 JSON 错误文本。
-    const payload = isJson ? await res.json().catch(() => undefined /* 回调函数负责当前业务流程。 */) : await res.text().catch(() => undefined /* 回调函数负责当前业务流程。 */);
+    const payload = isJson ? await res.json().catch(() => undefined /* 错误响应 JSON 无法解析时交由状态码兜底。 */) : await res.text().catch(() => undefined /* 错误响应文本无法读取时交由状态码兜底。 */);
     const message = errorMessageFromPayload(payload, res.status); // message 是统一错误 DTO 提取出的用户可见说明。
     throw new Error(message);
   }
@@ -115,7 +115,7 @@ export const postForm = async <T>(url: string, body: FormData, options: RequestC
 
   const contentType = res.headers.get('content-type') || ''; /* contentType 表示contentType。 */
   const isJson = contentType.includes('application/json'); /* isJson 表示isJson。 */
-  const payload = isJson ? await res.json().catch(() => undefined /* 回调函数负责当前业务流程。 */) : await res.text().catch(() => undefined /* 回调函数负责当前业务流程。 */); /* payload 表示payload。 */
+  const payload = isJson ? await res.json().catch(() => undefined /* 上传错误 JSON 无法解析时交由状态码兜底。 */) : await res.text().catch(() => undefined /* 上传错误文本无法读取时交由状态码兜底。 */); /* payload 是上传接口返回的错误载荷，仅用于构造异常。 */
 
   if (!res.ok) {
     if (res.status === 401) notifyAuthExpired();
@@ -133,13 +133,13 @@ const controlledSignal = (external: AbortSignal | undefined, timeoutMs: number) 
 	const abortFromExternal = () => controller.abort(external?.reason); /* abortFromExternal 表示abortFromExternal。 */
 	if (external?.aborted) abortFromExternal();
 	else external?.addEventListener('abort', abortFromExternal, { once: true });
-	const timer = globalThis.setTimeout(() => controller.abort(new DOMException('timeout', 'TimeoutError')) /* 回调函数负责当前业务流程。 */, Math.max(1, timeoutMs)); /* timer 表示timer。 */
+	const timer = globalThis.setTimeout(() => controller.abort(new DOMException('timeout', 'TimeoutError')) /* 到达请求时限后主动取消底层请求。 */, Math.max(1, timeoutMs)); /* timer 保存请求超时定时器，完成或取消时必须清理。 */
 	return {
 	  signal: controller.signal,
 	  cleanup: () => {
 		globalThis.clearTimeout(timer);
 		external?.removeEventListener('abort', abortFromExternal);
-	  } /* 回调函数负责当前业务流程。 */,
+	  } /* 外部取消或请求结束时移除监听并清理超时定时器。 */,
 	};
 }; /* controlledSignal 表示controlledSignal。 */
 

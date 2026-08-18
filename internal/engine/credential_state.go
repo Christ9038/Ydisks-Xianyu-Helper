@@ -9,7 +9,7 @@ import (
 // credentialState 保存账号 Cookie、Token、设备指纹和刷新诊断状态。
 // mu 保护本组件全部字段；持锁时不得执行数据库、网络或通知 I/O。
 // refreshGate 通过带令牌的通道串行化完整刷新流程，等待外部 I/O 时不持有互斥锁。
-// credentialState 保存credential状态，供当前处理流程使用
+// credentialState 用于本次流程后续判断的credential状态
 type credentialState struct {
 	// mu 保护 Cookie、Token、设备指纹和刷新诊断字段。
 	mu sync.Mutex

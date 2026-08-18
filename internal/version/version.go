@@ -3,7 +3,7 @@ package version
 
 import "strings"
 
-// Version 保存Version，供当前处理流程使用
+// Version 用于本次流程后续判断的Version
 var (
 	Version   = "dev"
 	Commit    = "unknown"
@@ -11,9 +11,9 @@ var (
 )
 
 // ShortCommit returns a compact commit identifier suitable for UI display.
-// ShortCommit 负责ShortCommit相关处理。
+// ShortCommit 封装ShortCommit业务协调。
 func ShortCommit() string {
-	// commit 保存commit，供当前处理流程使用
+	// commit 用于本次流程后续判断的commit
 	commit := strings.TrimSpace(Commit)
 	if len(commit) > 12 {
 		return commit[:12]

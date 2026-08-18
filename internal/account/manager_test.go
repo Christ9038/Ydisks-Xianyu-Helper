@@ -13,7 +13,7 @@ import (
 	"xianyu-go/internal/engine"
 )
 
-// noopHandler 保存noopHandler，供当前处理流程使用
+// noopHandler 用于本次流程后续判断的noopHandler
 type noopHandler struct{}
 
 // HandleChatMessage 处理聊天消息。
@@ -22,28 +22,28 @@ func (noopHandler) HandleChatMessage(context.Context, engine.ChatMessage) error 
 // HandleSystemEvent 处理系统Event。
 func (noopHandler) HandleSystemEvent(context.Context, automation.Task) error { return nil }
 
-// OnPasswordLoginRefresh 负责On密码登录Refresh相关处理。
+// OnPasswordLoginRefresh 封装On密码登录Refresh业务协调。
 func (noopHandler) OnPasswordLoginRefresh(context.Context, string) bool { return false }
 
-// OnAccountAlert 负责On账号Alert相关处理。
+// OnAccountAlert 封装On账号Alert业务协调。
 func (noopHandler) OnAccountAlert(context.Context, string, string, string, string) {}
 
 // TestManagerStartStop 验证从 DB 加载账号、启停和 GetInstance。
 // 用无效 cookie 让账号快速进入重连等待（不会真正连上），验证管理逻辑而非网络。
-// TestManagerStartStop 负责TestManager开始Stop相关处理。
+// TestManagerStartStop 封装TestManager开始Stop业务协调。
 func TestManagerStartStop(t *testing.T) {
-	// dbPath 保存db路径，供当前处理流程使用
+	// dbPath 用于本次流程后续判断的db路径
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	// d、err 保存d、err，供当前处理流程使用
+	// d、err 用于本次流程后续判断的d、err
 	d, _, err := db.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer d.Close()
-	// store 保存store，供当前处理流程使用
+	// store 用于本次流程后续判断的store
 	store := db.NewStore(d, db.DialectSQLite)
 	store.Users.Create(context.Background(), "admin", "a@e.com", "pw")
-	// admin 保存admin，供当前处理流程使用
+	// admin 用于本次流程后续判断的admin
 	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
 
 	// 两个启用 + 一个禁用的账号。
@@ -54,20 +54,20 @@ func TestManagerStartStop(t *testing.T) {
 	store.Cookies.Save(context.Background(), "acc3", "unb=3; _m_h5_tk=t3_1;", admin.ID)
 	store.Cookies.SetStatus(context.Background(), "acc3", false)
 
-	// mgr 保存mgr，供当前处理流程使用
+	// mgr 用于本次流程后续判断的mgr
 	mgr := NewManager(store, noopHandler{}, nil)
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := mgr.StartAll(ctx); err != nil {
 		t.Fatalf("StartAll: %v", err)
 	}
 
 	// acc1/acc2 应有运行实例，acc3 不应。
 	for _, id := range []string{"acc1", "acc2"} {
-		if // acc、ok 保存acc、ok，供当前处理流程使用
+		if // acc、ok 用于本次流程后续判断的acc、ok
 		acc, ok := mgr.GetInstance(id); !ok || acc == nil {
 			t.Fatalf("GetInstance(%s) 失败", id)
 		}
@@ -77,7 +77,7 @@ func TestManagerStartStop(t *testing.T) {
 	if acc, ok := mgr.GetInstance("acc1"); !ok || acc == nil {
 		t.Fatal("GetInstance(acc1) 失败")
 	}
-	if // ok 保存ok，供当前处理流程使用
+	if // ok 用于本次流程后续判断的ok
 	_, ok := mgr.GetInstance("acc3"); ok {
 		t.Fatal("acc3 不应有实例")
 	}
@@ -85,11 +85,11 @@ func TestManagerStartStop(t *testing.T) {
 	// Stop 应能干净停止。
 	mgr.Stop("acc1")
 	mgr.Stop("acc2")
-	if // ok 保存ok，供当前处理流程使用
+	if // ok 用于本次流程后续判断的ok
 	_, ok := mgr.GetInstance("acc1"); ok {
 		t.Fatal("Stop 后 acc1 仍存在")
 	}
-	if // ok 保存ok，供当前处理流程使用
+	if // ok 用于本次流程后续判断的ok
 	_, ok := mgr.GetInstance("acc2"); ok {
 		t.Fatal("Stop 后 acc2 仍存在")
 	}
@@ -136,36 +136,36 @@ func TestManagerGlobalStoppingFence(t *testing.T) {
 	}
 }
 
-// TestManagerConcurrentStartCreatesSingleManagedInstance 负责TestManagerConcurrent开始CreatesSingleManagedInstance相关处理。
+// TestManagerConcurrentStartCreatesSingleManagedInstance 封装TestManagerConcurrent开始CreatesSingleManagedInstance业务协调。
 func TestManagerConcurrentStartCreatesSingleManagedInstance(t *testing.T) {
-	// dbPath 保存db路径，供当前处理流程使用
+	// dbPath 用于本次流程后续判断的db路径
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	// database、err 保存database、err，供当前处理流程使用
+	// database、err 用于本次流程后续判断的database、err
 	database, _, err := db.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	// store 保存store，供当前处理流程使用
+	// store 用于本次流程后续判断的store
 	store := db.NewStore(database, db.DialectSQLite)
 	store.Users.Create(context.Background(), "admin", "a@e.com", "pw")
-	// admin 保存admin，供当前处理流程使用
+	// admin 用于本次流程后续判断的admin
 	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
 	store.Cookies.Save(context.Background(), "same", "unb=1; _m_h5_tk=t_1;", admin.ID)
 
-	// mgr 保存mgr，供当前处理流程使用
+	// mgr 用于本次流程后续判断的mgr
 	mgr := NewManager(store, noopHandler{}, nil)
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	// wg 保存wg，供当前处理流程使用
+	// wg 用于本次流程后续判断的wg
 	var wg sync.WaitGroup
-	for // i 保存i，供当前处理流程使用
+	for // i 用于本次流程后续判断的i
 	i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if // err 保存err，供当前处理流程使用
+			if // err 用于本次流程后续判断的err
 			err := mgr.Start(ctx, "same", "unb=1; _m_h5_tk=t_1;"); err != nil {
 				t.Errorf("Start: %v", err)
 			}
@@ -173,7 +173,7 @@ func TestManagerConcurrentStartCreatesSingleManagedInstance(t *testing.T) {
 	}
 	wg.Wait()
 	mgr.mu.Lock()
-	// count 保存数量，供当前处理流程使用
+	// count 用于本次流程后续判断的数量
 	count := len(mgr.accounts)
 	mgr.mu.Unlock()
 	if count != 1 {
@@ -184,18 +184,18 @@ func TestManagerConcurrentStartCreatesSingleManagedInstance(t *testing.T) {
 
 // TestManagerStopAll 验证 StopAll 停止所有运行中的账号，用于进程优雅退出。
 func TestManagerStopAll(t *testing.T) {
-	// dbPath 保存db路径，供当前处理流程使用
+	// dbPath 用于本次流程后续判断的db路径
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	// d、err 保存d、err，供当前处理流程使用
+	// d、err 用于本次流程后续判断的d、err
 	d, _, err := db.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer d.Close()
-	// store 保存store，供当前处理流程使用
+	// store 用于本次流程后续判断的store
 	store := db.NewStore(d, db.DialectSQLite)
 	store.Users.Create(context.Background(), "admin", "a@e.com", "pw")
-	// admin 保存admin，供当前处理流程使用
+	// admin 用于本次流程后续判断的admin
 	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
 	// 三个启用账号。
 	for _, id := range []string{"a1", "a2", "a3"} {
@@ -203,18 +203,18 @@ func TestManagerStopAll(t *testing.T) {
 		store.Cookies.SetStatus(context.Background(), id, true)
 	}
 
-	// mgr 保存mgr，供当前处理流程使用
+	// mgr 用于本次流程后续判断的mgr
 	mgr := NewManager(store, noopHandler{}, nil)
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := mgr.StartAll(ctx); err != nil {
 		t.Fatalf("StartAll: %v", err)
 	}
 	// id 表示当前遍历过程中的标识
 	for _, id := range []string{"a1", "a2", "a3"} {
-		if // ok 保存ok，供当前处理流程使用
+		if // ok 用于本次流程后续判断的ok
 		_, ok := mgr.GetInstance(id); !ok {
 			t.Fatalf("GetInstance(%s) 失败", id)
 		}
@@ -224,7 +224,7 @@ func TestManagerStopAll(t *testing.T) {
 	mgr.StopAll()
 	// id 表示当前遍历过程中的标识
 	for _, id := range []string{"a1", "a2", "a3"} {
-		if // ok 保存ok，供当前处理流程使用
+		if // ok 用于本次流程后续判断的ok
 		_, ok := mgr.GetInstance(id); ok {
 			t.Fatalf("StopAll 后 %s 仍存在", id)
 		}

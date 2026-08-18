@@ -112,7 +112,7 @@ export const useSettings = (): UseSettingsResult => {
       if (!current?.ai_model && models.length > 0) {
         setSettings(/* 当前回调处理用户交互或异步状态变化。 */ previous => previous ? { ...previous, ai_model: models[0] } : previous);
       }
-    } catch (/* error 表示错误。 */ error) {
+    } catch (/* error 保存模型发现请求的失败原因；取消请求不会进入页面错误状态。 */ error) {
       if (signal?.aborted || isSettingsAbortError(error)) return;
       setAiModels([]);
       setModelDropdownOpen(false);
@@ -174,7 +174,7 @@ export const useSettings = (): UseSettingsResult => {
       await updateSystemSettings(buildPersistableSettings(settings), { signal: controller.signal });
       if (!isCurrentSettingsRequest(requestSequence.current, sequence, controller.signal)) return;
       window.alert('系统配置已保存');
-    } catch (/* error 表示错误。 */ error) {
+    } catch (/* error 保存系统设置提交请求的失败原因；过期响应不会覆盖当前表单。 */ error) {
       if (!isCurrentSettingsRequest(requestSequence.current, sequence, controller.signal) || isSettingsAbortError(error)) return;
       setSaveError(settingsErrorMessage(error, '保存配置失败'));
     } finally {
@@ -210,7 +210,7 @@ export const useSettings = (): UseSettingsResult => {
       }
       setCredentialsMessage(createCredentialsMessage('success', result.message || '登录凭据已更新'));
       window.setTimeout(/* 当前回调处理用户交互或异步状态变化。 */ () => window.location.reload(), 1400);
-    } catch (/* error 表示错误。 */ error) {
+    } catch (/* error 保存登录凭据提交请求的失败原因；不写入日志或持久化状态。 */ error) {
       if (!isCurrentSettingsRequest(requestSequence.current, sequence, controller.signal) || isSettingsAbortError(error)) return;
       setCredentialsMessage(createCredentialsMessage('error', settingsErrorMessage(error, '登录凭据更新失败')));
     } finally {

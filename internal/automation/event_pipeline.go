@@ -10,7 +10,7 @@ import (
 
 // eventFactRecorder 只负责把已经解析出的事件事实写入持久化层。
 // 它不读取规则、不创建运行记录，也不执行任何外部动作。
-// eventFactRecorder 保存eventFactRecorder，供当前处理流程使用
+// eventFactRecorder 用于本次流程后续判断的eventFactRecorder
 type eventFactRecorder struct {
 	// store 提供订单事实和事件时间的持久化能力。
 	store *db.Store
@@ -26,7 +26,7 @@ func (r eventFactRecorder) record(ctx context.Context, task Task) error {
 	if r.store == nil || r.store.Orders == nil || r.store.Automation == nil || task.OrderID == "" {
 		return nil
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := r.store.Orders.Upsert(ctx, task.OrderID, db.OrderUpsertOpts{
 		CookieID:    task.AccountID,
 		ItemID:      task.ItemID,
@@ -42,12 +42,12 @@ func (r eventFactRecorder) record(ctx context.Context, task Task) error {
 	}
 	switch task.TriggerType {
 	case TriggerOrderPaid:
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := r.store.Automation.MarkOrderEventTime(ctx, task.OrderID, "paid_at"); err != nil {
 			return fmt.Errorf("记录订单付款时间: %w", err)
 		}
 	case TriggerBuyerReviewed:
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := r.store.Automation.MarkOrderEventTime(ctx, task.OrderID, "buyer_reviewed_at"); err != nil {
 			return fmt.Errorf("记录买家评价时间: %w", err)
 		}
@@ -71,9 +71,9 @@ func (m ruleMatcher) match(ctx context.Context, task Task) ([]db.AutomationRule,
 	if m.store == nil || m.store.Automation == nil {
 		return nil, nil
 	}
-	if // runID 保存运行ID，供当前处理流程使用
+	if // runID 用于本次流程后续判断的运行ID
 	runID := taskAutomationRunID(task); runID > 0 {
-		// run、err 保存run、err，供当前处理流程使用
+		// run、err 用于本次流程后续判断的run、err
 		run, err := m.store.Automation.GetRun(ctx, runID)
 		if err != nil {
 			return nil, err
@@ -81,7 +81,7 @@ func (m ruleMatcher) match(ctx context.Context, task Task) ([]db.AutomationRule,
 		if run.Status != "running" {
 			return nil, nil
 		}
-		// rule、err 保存rule、err，供当前处理流程使用
+		// rule、err 用于本次流程后续判断的rule、err
 		rule, err := m.store.Automation.Get(ctx, run.RuleID)
 		if err != nil {
 			return nil, err
@@ -96,12 +96,12 @@ func (m ruleMatcher) match(ctx context.Context, task Task) ([]db.AutomationRule,
 
 // actionPlanner 只根据任务事实和规则动作生成不可变的动作计划。
 // 计划过程不得访问数据库、发送网络请求或修改规则。
-// actionPlanner 保存动作Planner，供当前处理流程使用
+// actionPlanner 用于本次流程后续判断的动作Planner
 type actionPlanner struct{}
 
 // plan 根据触发类型筛选可执行动作，并保留付款事件的发卡优先顺序。
 func (actionPlanner) plan(task Task, actions []db.AutomationAction) []db.AutomationAction {
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := make([]db.AutomationAction, 0, len(actions))
 	if task.TriggerType == TriggerOrderPaid {
 		// action 表示当前遍历过程中的动作
@@ -140,7 +140,7 @@ func (actionPlanner) hasMatchingSendCard(task Task, actions []db.AutomationActio
 
 // immediateManualActions 复制动作并清除延迟，供明确的人工完整发货使用。
 func (actionPlanner) immediateManualActions(actions []db.AutomationAction) []db.AutomationAction {
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := make([]db.AutomationAction, len(actions))
 	copy(out, actions)
 	// i 表示当前遍历过程中的i
@@ -149,11 +149,11 @@ func (actionPlanner) immediateManualActions(actions []db.AutomationAction) []db.
 		if out[i].ActionType != ActionSendCard {
 			continue
 		}
-		// config 保存配置，供当前处理流程使用
+		// config 用于本次流程后续判断的配置
 		config := map[string]any{}
 		_ = json.Unmarshal([]byte(out[i].ConfigJSON), &config)
 		config["delay_override"] = true
-		// raw 保存原始，供当前处理流程使用
+		// raw 用于本次流程后续判断的原始
 		raw, _ := json.Marshal(config)
 		out[i].ConfigJSON = string(raw)
 	}

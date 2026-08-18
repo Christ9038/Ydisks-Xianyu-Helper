@@ -11,61 +11,61 @@ import (
 	"time"
 )
 
-// serviceAction 负责service动作相关处理。
+// serviceAction 封装service动作业务协调。
 func serviceAction(action string) error {
-	// label 保存label，供当前处理流程使用
+	// label 用于本次流程后续判断的label
 	label := envOr("XIANYU_SERVICE_NAME", "com.ydisks.xianyu-helper.server")
-	// uid 保存uid，供当前处理流程使用
+	// uid 用于本次流程后续判断的uid
 	uid := fmt.Sprint(os.Getuid())
-	// domain 保存domain，供当前处理流程使用
+	// domain 用于本次流程后续判断的domain
 	domain := "gui/" + uid
-	// target 保存target，供当前处理流程使用
+	// target 用于本次流程后续判断的target
 	target := domain + "/" + label
-	// home、err 保存home、err，供当前处理流程使用
+	// home、err 用于本次流程后续判断的home、err
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("获取用户目录失败: %w", err)
 	}
-	// plistPath 保存plist路径，供当前处理流程使用
+	// plistPath 用于本次流程后续判断的plist路径
 	plistPath := filepath.Join(home, "Library", "LaunchAgents", label+".plist")
 	switch action {
 	case "start":
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := launchctl("print", target); err == nil {
-			if // err 保存err，供当前处理流程使用
+			if // err 用于本次流程后续判断的err
 			err := launchctl("kickstart", target); err == nil {
 				return nil
 			}
 			// launchd 可能仍保留一个正在退出的旧 job；先完整卸载，
 			// 等它消失后再 bootstrap，避免第二次启动报 Input/output error。
 			_ = launchctl("bootout", target)
-			if // err 保存err，供当前处理流程使用
+			if // err 用于本次流程后续判断的err
 			err := waitForLaunchctlGone(target, 10*time.Second); err != nil {
 				return err
 			}
 		}
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := launchctl("bootstrap", domain, plistPath); err != nil {
 			return err
 		}
 		return launchctl("kickstart", target)
 	case "stop":
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := launchctl("print", target); err != nil {
 			return nil
 		}
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := launchctl("bootout", target); err != nil {
 			return err
 		}
 		return waitForLaunchctlGone(target, 10*time.Second)
 	case "restart":
 		_ = launchctl("bootout", target)
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := waitForLaunchctlGone(target, 10*time.Second); err != nil {
 			return err
 		}
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := launchctl("bootstrap", domain, plistPath); err != nil {
 			return err
 		}
@@ -75,12 +75,12 @@ func serviceAction(action string) error {
 	}
 }
 
-// waitForLaunchctlGone 负责waitForLaunchctlGone相关处理。
+// waitForLaunchctlGone 封装waitForLaunchctlGone业务协调。
 func waitForLaunchctlGone(target string, timeout time.Duration) error {
-	// deadline 保存deadline，供当前处理流程使用
+	// deadline 用于本次流程后续判断的deadline
 	deadline := time.Now().Add(timeout)
 	for {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := launchctl("print", target); err != nil {
 			return nil
 		}
@@ -91,9 +91,9 @@ func waitForLaunchctlGone(target string, timeout time.Duration) error {
 	}
 }
 
-// quitTray 负责quitTray相关处理。
+// quitTray 封装quitTray业务协调。
 func quitTray() error {
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := serviceAction("stop"); err != nil {
 		return fmt.Errorf("停止后台服务失败: %w", err)
 	}
@@ -103,9 +103,9 @@ func quitTray() error {
 	return nil
 }
 
-// logDirectoryPath 负责logDirectory路径相关处理。
+// logDirectoryPath 封装logDirectory路径业务协调。
 func logDirectoryPath() (string, error) {
-	// home、err 保存home、err，供当前处理流程使用
+	// home、err 用于本次流程后续判断的home、err
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("获取用户目录失败: %w", err)
@@ -113,14 +113,14 @@ func logDirectoryPath() (string, error) {
 	return filepath.Join(home, "Library", "Logs", "YdisksXianyuHelper"), nil
 }
 
-// launchctl 负责launchctl相关处理。
+// launchctl 封装launchctl业务协调。
 func launchctl(args ...string) error {
-	// cmd 保存cmd，供当前处理流程使用
+	// cmd 用于本次流程后续判断的cmd
 	cmd := exec.Command("launchctl", args...)
-	// output、err 保存output、err，供当前处理流程使用
+	// output、err 用于本次流程后续判断的output、err
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// message 保存消息，供当前处理流程使用
+		// message 用于本次流程后续判断的消息
 		message := strings.TrimSpace(string(output))
 		if message == "" {
 			return fmt.Errorf("launchctl %s 失败: %w", strings.Join(args, " "), err)

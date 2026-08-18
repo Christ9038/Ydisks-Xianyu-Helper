@@ -21,7 +21,7 @@ func (l *AccountLoginLogs) Add(ctx context.Context, log AccountLoginLog) error {
 	if log.ErrorMessage == "" {
 		log.ErrorMessage = log.Message
 	}
-	// err 保存err，供当前处理流程使用
+	// err 表示写入账号登录审计记录的数据库错误；记录内容不包含 Cookie 或密码明文。
 	_, err := l.DB.ExecContext(ctx,
 		`INSERT INTO account_login_logs (
 			cookie_id, user_id, owner_id, account_pk, account_identifier,
@@ -39,7 +39,7 @@ func (l *AccountLoginLogs) ListByCookie(ctx context.Context, cookieID string, li
 	if limit <= 0 {
 		limit = 20
 	}
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows 是按账号倒序读取的审计记录游标；err 表示查询启动失败。
 	rows, err := l.DB.QueryContext(ctx,
 		`SELECT id, cookie_id, user_id, COALESCE(owner_id,0), COALESCE(account_pk,0),
 		        COALESCE(account_identifier,''), COALESCE(username,''), method, status,
@@ -54,13 +54,13 @@ func (l *AccountLoginLogs) ListByCookie(ctx context.Context, cookieID string, li
 		return nil, err
 	}
 	defer rows.Close()
-	// out 保存out，供当前处理流程使用
+	// out 收集当前账号的登录审计记录，并按数据库返回顺序保持时间倒序。
 	var out []AccountLoginLog
 	for rows.Next() {
-		// log 保存log，供当前处理流程使用
+		// log 接收当前游标行的非敏感登录审计字段。
 		var log AccountLoginLog
-		if // err 保存err，供当前处理流程使用
-		err := rows.Scan(
+		// err 表示当前审计记录行的字段解码错误。
+		if err := rows.Scan(
 			&log.ID, &log.CookieID, &log.UserID, &log.OwnerID, &log.AccountPK,
 			&log.AccountIdentifier, &log.Username, &log.Method, &log.Status,
 			&log.Message, &log.TriggerReason, &log.FailureReason, &log.ErrorMessage,

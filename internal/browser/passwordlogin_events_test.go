@@ -5,25 +5,25 @@ import (
 	"testing"
 )
 
-// TestPasswordLoginEventFromErrorVerification 负责Test密码登录EventFrom错误Verification相关处理。
+// TestPasswordLoginEventFromErrorVerification 封装Test密码登录EventFrom错误Verification业务协调。
 func TestPasswordLoginEventFromErrorVerification(t *testing.T) {
-	// event 保存event，供当前处理流程使用
+	// event 用于本次流程后续判断的event
 	event := PasswordLoginEventFromError(errors.New("需要人脸验证"))
 	if event.Status != PasswordLoginStatusVerificationRequired {
 		t.Fatalf("status=%q want verification_required", event.Status)
 	}
 }
 
-// TestPasswordLoginEventFromErrorBaxia 负责Test密码登录EventFrom错误Baxia相关处理。
+// TestPasswordLoginEventFromErrorBaxia 封装Test密码登录EventFrom错误Baxia业务协调。
 func TestPasswordLoginEventFromErrorBaxia(t *testing.T) {
-	// event 保存event，供当前处理流程使用
+	// event 用于本次流程后续判断的event
 	event := PasswordLoginEventFromError(errors.New("baxia-punish verification 风控图形验证"))
 	if event.Status != PasswordLoginStatusFailed || event.Reason != "baxia_punish_captcha" || event.CooldownHours != 5 {
 		t.Fatalf("event=%+v", event)
 	}
 }
 
-// TestIsBaxiaPunishMessage 负责TestIsBaxiaPunish消息相关处理。
+// TestIsBaxiaPunishMessage 封装TestIsBaxiaPunish消息业务协调。
 func TestIsBaxiaPunishMessage(t *testing.T) {
 	// msg 表示当前遍历过程中的msg
 	for _, msg := range []string{"baxia-punish", "scratch-captcha-container", "找两个松鼠"} {

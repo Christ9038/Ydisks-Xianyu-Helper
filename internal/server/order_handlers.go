@@ -12,10 +12,10 @@ import (
 	"xianyu-go/internal/auth"
 )
 
-// refreshOrderChunkSize 保存refresh订单Chunk数量，供当前处理流程使用
+// refreshOrderChunkSize 用于本次流程后续判断的refresh订单Chunk数量
 const refreshOrderChunkSize = 100
 
-// refreshTarget 保存refreshTarget，供当前处理流程使用
+// refreshTarget 用于本次流程后续判断的refreshTarget
 type refreshTarget struct {
 	OrderID       string
 	CurrentStatus string
@@ -35,9 +35,9 @@ func (s *Server) mountOrdersReal(r chi.Router) {
 
 // listOrders 分页查询当前用户订单。
 func (s *Server) listOrders(w http.ResponseWriter, r *http.Request) {
-	// sess 保存sess，供当前处理流程使用
+	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := s.orders().List(r.Context(), orderListQuery{
 		UserID: sess.UserID, CookieID: r.URL.Query().Get("cookie_id"),
 		Status: r.URL.Query().Get("status"), Search: r.URL.Query().Get("search"),
@@ -63,11 +63,11 @@ func (s *Server) listOrders(w http.ResponseWriter, r *http.Request) {
 
 // getOrder 订单详情。
 func (s *Server) getOrder(w http.ResponseWriter, r *http.Request) {
-	// orderID 保存订单ID，供当前处理流程使用
+	// orderID 用于本次流程后续判断的订单ID
 	orderID := chi.URLParam(r, "order_id")
-	// sess 保存sess，供当前处理流程使用
+	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := s.orders().GetView(r.Context(), sess.UserID, orderID)
 	if err != nil {
 		if errors.Is(err, orderapp.ErrForbidden) {
@@ -82,16 +82,16 @@ func (s *Server) getOrder(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// chunkRefreshTargets 负责chunkRefreshTargets相关处理。
+// chunkRefreshTargets 封装chunkRefreshTargets业务协调。
 func chunkRefreshTargets(targets []refreshTarget, size int) [][]refreshTarget {
 	if size <= 0 {
 		size = refreshOrderChunkSize
 	}
-	// chunks 保存chunks，供当前处理流程使用
+	// chunks 用于本次流程后续判断的chunks
 	chunks := make([][]refreshTarget, 0, (len(targets)+size-1)/size)
-	for // start 保存开始，供当前处理流程使用
+	for // start 用于本次流程后续判断的开始
 	start := 0; start < len(targets); start += size {
-		// end 保存结束，供当前处理流程使用
+		// end 用于本次流程后续判断的结束
 		end := start + size
 		if end > len(targets) {
 			end = len(targets)
@@ -101,13 +101,13 @@ func chunkRefreshTargets(targets []refreshTarget, size int) [][]refreshTarget {
 	return chunks
 }
 
-// missingRefreshTargetIDs 负责missingRefreshTargetIDs相关处理。
+// missingRefreshTargetIDs 封装missingRefreshTargetIDs业务协调。
 func missingRefreshTargetIDs(targets []refreshTarget, seen map[string]struct{}) []string {
-	// missing 保存missing，供当前处理流程使用
+	// missing 用于本次流程后续判断的missing
 	missing := make([]string, 0)
 	// target 表示当前遍历过程中的target
 	for _, target := range targets {
-		if // ok 保存ok，供当前处理流程使用
+		if // ok 用于本次流程后续判断的ok
 		_, ok := seen[target.OrderID]; !ok {
 			missing = append(missing, target.OrderID)
 		}
@@ -117,9 +117,9 @@ func missingRefreshTargetIDs(targets []refreshTarget, seen map[string]struct{}) 
 
 func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) { // refreshSingleOrder 保持单订单刷新与批量刷新使用相同的详情 DTO。
 	orderID := chi.URLParam(r, "order_id")
-	// sess 保存sess，供当前处理流程使用
+	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := s.orders().RefreshSingle(r.Context(), sess.UserID, orderID)
 	if errors.Is(err, orderapp.ErrNotFound) {
 		writeErr(w, http.StatusNotFound, "订单不存在")
@@ -150,11 +150,11 @@ func (s *Server) refreshSingleOrder(w http.ResponseWriter, r *http.Request) { //
 
 // deleteOrder 逻辑删除订单，保留订单历史，避免破坏自动化审计数据。
 func (s *Server) deleteOrder(w http.ResponseWriter, r *http.Request) {
-	// orderID 保存订单ID，供当前处理流程使用
+	// orderID 用于本次流程后续判断的订单ID
 	orderID := chi.URLParam(r, "order_id")
-	// sess 保存sess，供当前处理流程使用
+	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.orders().Delete(r.Context(), sess.UserID, orderID); err != nil {
 		if errors.Is(err, orderapp.ErrForbidden) {
 			writeErr(w, http.StatusForbidden, "无权操作此订单")
@@ -168,11 +168,11 @@ func (s *Server) deleteOrder(w http.ResponseWriter, r *http.Request) {
 
 // updateOrder 更新订单（手动发货等）。
 func (s *Server) updateOrder(w http.ResponseWriter, r *http.Request) {
-	// orderID 保存订单ID，供当前处理流程使用
+	// orderID 用于本次流程后续判断的订单ID
 	orderID := chi.URLParam(r, "order_id")
 	// req 保存具名订单更新请求，兼容旧客户端的状态别名和数值字段。
 	var req orderUpdateRequestDTO
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
@@ -182,27 +182,27 @@ func (s *Server) updateOrder(w http.ResponseWriter, r *http.Request) {
 	if status == nil {
 		status = req.Status
 	}
-	// stringPtrFromAny 保存stringPtrFromAny，供当前处理流程使用
+	// stringPtrFromAny 用于本次流程后续判断的stringPtrFromAny
 	stringPtrFromAny := func(value *any) *string {
 		if value == nil {
 			return nil
 		}
-		// v 保存v，供当前处理流程使用
+		// v 用于本次流程后续判断的v
 		v := stringFromAny(*value)
 		return &v
 	}
 	// amount 保存兼容 JSON 数值转换后的订单金额。
 	amount := stringPtrFromAny(req.Amount)
-	// sess 保存sess，供当前处理流程使用
+	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.orders().Update(r.Context(), sess.UserID, orderID, orderUpdateRequest{
 		OrderStatus: status, ItemID: req.ItemID, BuyerID: req.BuyerID, SpecName: req.SpecName,
 		SpecValue: req.SpecValue, Quantity: stringPtrFromAny(req.Quantity), Amount: amount,
 		ReceiverName: req.ReceiverName, ReceiverPhone: req.ReceiverPhone, ReceiverAddress: req.ReceiverAddress,
 		ReceiverCity: req.ReceiverCity, ChatID: req.ChatID, SystemShipped: req.SystemShipped, ItemTitle: req.ItemTitle,
 	}); err != nil {
-		if // kind、classified 保存kind、classified，供当前处理流程使用
+		if // kind、classified 用于本次流程后续判断的kind、classified
 		kind, classified := orderErrorKindOf(err); classified && kind == orderErrorBadRequest {
 			writeErr(w, http.StatusBadRequest, err.Error())
 		} else if errors.Is(err, orderapp.ErrForbidden) {
@@ -217,23 +217,23 @@ func (s *Server) updateOrder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
-// validOrderAmount 负责有效订单Amount相关处理。
+// validOrderAmount 封装有效订单Amount业务协调。
 func validOrderAmount(raw string) bool {
-	// ok 保存ok，供当前处理流程使用
+	// ok 用于本次流程后续判断的ok
 	_, ok := normalizeOrderAmount(raw)
 	return ok
 }
 
-// normalizeOrderAmount 负责normalize订单Amount相关处理。
+// normalizeOrderAmount 封装normalize订单Amount业务协调。
 func normalizeOrderAmount(raw string) (string, bool) {
 	return orderapp.NormalizeOrderAmount(raw)
 }
 
-// manualShipOrders 负责manualShip订单列表相关处理。
+// manualShipOrders 封装manualShip订单列表业务协调。
 func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 	// req 保存具名批量发货请求。
 	var req manualShipRequestDTO
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
@@ -249,9 +249,9 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "发货模式必须是 status_only 或 full_delivery")
 		return
 	}
-	// sess 保存sess，供当前处理流程使用
+	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := s.orders().ManualShip(r.Context(), manualShipRequest{
 		UserID: sess.UserID, OrderIDs: req.OrderIDs, ShipMode: req.ShipMode,
 	})
@@ -267,17 +267,17 @@ func (s *Server) manualShipOrders(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// importOrders 负责import订单列表相关处理。
+// importOrders 封装import订单列表业务协调。
 func (s *Server) importOrders(w http.ResponseWriter, r *http.Request) {
-	// orders、err 保存orders、err，供当前处理流程使用
+	// orders、err 用于本次流程后续判断的orders、err
 	orders, err := parseImportedOrders(w, r)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// sess 保存sess，供当前处理流程使用
+	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := s.orders().Import(r.Context(), sess.UserID, orders)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询账号失败")
@@ -292,12 +292,12 @@ func (s *Server) importOrders(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// atoiDefault 负责atoiDefault相关处理。
+// atoiDefault 封装atoiDefault业务协调。
 func atoiDefault(s string, def int) int {
 	if s == "" {
 		return def
 	}
-	// n、err 保存n、err，供当前处理流程使用
+	// n、err 用于本次流程后续判断的n、err
 	n, err := strconv.Atoi(s)
 	if err != nil {
 		return def
@@ -305,7 +305,7 @@ func atoiDefault(s string, def int) int {
 	return n
 }
 
-// isStableOrderStatus 负责isStable订单状态相关处理。
+// isStableOrderStatus 封装isStable订单状态业务协调。
 func isStableOrderStatus(status string) bool {
 	switch status {
 	case "shipped", "completed", "cancelled":

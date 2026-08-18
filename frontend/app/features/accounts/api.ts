@@ -198,7 +198,7 @@ export interface PasswordLoginStatusResponse {
   /** verification_url 表示验证地址。 */ verification_url?: string;
   /** screenshot_path 表示验证截图路径。 */ screenshot_path?: string;
   /** qr_code_url 表示二维码地址。 */ qr_code_url?: string;
-  /** error 表示错误信息。 */ error?: string;
+  /** error 保存密码登录流程返回的失败说明；前端只用于界面提示，不应记录或序列化登录凭证。 */ error?: string;
   /** reason 表示失败原因。 */ reason?: string;
 }
 

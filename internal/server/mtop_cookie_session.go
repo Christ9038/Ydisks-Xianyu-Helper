@@ -13,7 +13,7 @@ import (
 // handled 表示本次请求由完整 Cookie Jar 接管，或 session 已产生可持久化更新；
 // 此时即使 Jar 未变化，也不得因扁平 Cookie 的顺序/尾分号差异退回
 // UpdatedCookies 写回，否则会把刚保存的完整 Jar 清掉。
-// persistMTopCookieSessionLocked 负责persistMTop登录凭证会话Locked相关处理。
+// persistMTopCookieSessionLocked 封装persistMTop登录凭证会话Locked业务协调。
 func (s *Server) persistMTopCookieSessionLocked(
 	ctx context.Context,
 	detail *accountapp.CredentialDetail,

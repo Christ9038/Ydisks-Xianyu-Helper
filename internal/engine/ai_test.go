@@ -14,7 +14,7 @@ import (
 
 // TestBuildSystemPrompt 自定义 prompt 替换变量，且始终追加价格与轮次安全约束。
 func TestBuildSystemPrompt(t *testing.T) {
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	got := buildSystemPrompt("你是卖{item_title}的客服，价格{item_price}", "iPhone", 100, "手机", 0, 0, 3, 1)
 	if !strings.Contains(got, "你是卖iPhone的客服，价格100.00") {
 		t.Fatalf("自定义 prompt 替换: got %q", got)
@@ -39,21 +39,21 @@ func TestBuildSystemPrompt(t *testing.T) {
 	}
 }
 
-// TestMinimumAllowedPriceAndUnsafeOffer 负责TestMinimumAllowedPriceAndUnsafeOffer相关处理。
+// TestMinimumAllowedPriceAndUnsafeOffer 封装TestMinimumAllowedPriceAndUnsafeOffer业务协调。
 func TestMinimumAllowedPriceAndUnsafeOffer(t *testing.T) {
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := minimumAllowedPrice(100, 10, 20, true); got != 90 {
 		t.Fatalf("minimum=%v want 90", got)
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := minimumAllowedPrice(100, 0, 20, true); got != 100 {
 		t.Fatalf("zero percent minimum=%v want 100", got)
 	}
-	if // unsafe 保存unsafe，供当前处理流程使用
+	if // unsafe 用于本次流程后续判断的unsafe
 	_, unsafe := unsafeOfferedPrice("最低可以 89 元", 90); !unsafe {
 		t.Fatal("低于最低价的报价应被拦截")
 	}
-	if // unsafe 保存unsafe，供当前处理流程使用
+	if // unsafe 用于本次流程后续判断的unsafe
 	_, unsafe := unsafeOfferedPrice("最低可以 90 元", 90); unsafe {
 		t.Fatal("边界报价应允许")
 	}
@@ -62,17 +62,17 @@ func TestMinimumAllowedPriceAndUnsafeOffer(t *testing.T) {
 // newAIStore 构造一个带 admin + cookie 的测试 store，供 AIReplier 使用。
 func newAIStore(t *testing.T) (*db.Store, func()) {
 	t.Helper()
-	// d、err 保存d、err，供当前处理流程使用
+	// d、err 用于本次流程后续判断的d、err
 	d, _, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "ai.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	// s 保存s，供当前处理流程使用
+	// s 用于本次流程后续判断的s
 	s := db.NewStore(d, db.DialectSQLite)
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	s.Users.Create(ctx, "admin", "a@e.com", "pw")
-	// admin 保存admin，供当前处理流程使用
+	// admin 用于本次流程后续判断的admin
 	admin, _ := s.Users.GetByUsername(ctx, "admin")
 	s.Cookies.Save(ctx, "cid", "unb=1; _m_h5_tk=tk;", admin.ID)
 	return s, func() { d.Close() }
@@ -80,12 +80,12 @@ func newAIStore(t *testing.T) (*db.Store, func()) {
 
 // TestAIReply_DisabledReturnsNil AI 未启用 / 无 APIKey 时应返回 nil,nil（降级到下一级）。
 func TestAIReply_DisabledReturnsNil(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newAIStore(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// a 保存a，供当前处理流程使用
+	// a 用于本次流程后续判断的a
 	a := NewAIReplier("cid", s, nil)
 
 	// 无配置记录 → 未启用 → nil。
@@ -104,16 +104,16 @@ func TestAIReply_DisabledReturnsNil(t *testing.T) {
 
 // TestAIReply_NoAPIKeyReturnsNil 启用 AI 但全局未配 APIKey → nil（不报错降级）。
 func TestAIReply_NoAPIKeyReturnsNil(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newAIStore(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	s.DB.ExecContext(ctx, `INSERT INTO ai_reply_settings (cookie_id, ai_enabled, custom_prompts) VALUES ('cid', 1, '')`)
-	// a 保存a，供当前处理流程使用
+	// a 用于本次流程后续判断的a
 	a := NewAIReplier("cid", s, nil)
 
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := a.Reply(ctx, chatMsg("能便宜点吗", "item1", "chat1"))
 	if err != nil || res != nil {
 		t.Fatalf("无 APIKey 应返回 nil,nil: res=%+v err=%v", res, err)
@@ -122,16 +122,16 @@ func TestAIReply_NoAPIKeyReturnsNil(t *testing.T) {
 
 // mockOpenAIServer 启动一个返回固定 chat completion 响应的 HTTP 服务。
 // status=0 表示返回成功响应；其余为 HTTP 状态码（用于失败降级测试）。
-// mockOpenAIServer 负责mockOpenAIServer相关处理。
+// mockOpenAIServer 封装mockOpenAIServer业务协调。
 func mockOpenAIServer(t *testing.T, status int, content string) *httptest.Server {
 	t.Helper()
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if status != 0 {
 			http.Error(w, "upstream error", status)
 			return
 		}
-		// resp 保存resp，供当前处理流程使用
+		// resp 用于本次流程后续判断的resp
 		resp := map[string]any{
 			"choices": []any{map[string]any{
 				"message": map[string]any{"role": "assistant", "content": content},
@@ -146,12 +146,12 @@ func mockOpenAIServer(t *testing.T, status int, content string) *httptest.Server
 
 // TestAIReply_HTTPErrorDegrades AI 调用 HTTP 500 → 返回错误（上层降级到默认回复）。
 func TestAIReply_HTTPErrorDegrades(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newAIStore(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := mockOpenAIServer(t, http.StatusInternalServerError, "")
 
 	// 启用 AI + 配 APIKey + 指向 mock 服务。
@@ -159,9 +159,9 @@ func TestAIReply_HTTPErrorDegrades(t *testing.T) {
 	s.Settings.Set(ctx, "ai_api_key", "sk-test")
 	s.Settings.Set(ctx, "ai_api_url", srv.URL)
 
-	// a 保存a，供当前处理流程使用
+	// a 用于本次流程后续判断的a
 	a := NewAIReplier("cid", s, nil)
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := a.Reply(ctx, chatMsg("还能优惠吗", "item1", "chat1"))
 	if err == nil {
 		t.Fatalf("HTTP 500 应返回错误，got res=%+v", res)
@@ -169,7 +169,7 @@ func TestAIReply_HTTPErrorDegrades(t *testing.T) {
 	if res != nil {
 		t.Fatalf("失败时不应返回结果: %+v", res)
 	}
-	// history、historyErr 保存history、historyErr，供当前处理流程使用
+	// history、historyErr 用于本次流程后续判断的history、historyErr
 	history, historyErr := s.AIReply.ConversationHistory(ctx, "cid", "chat1", "item1", 10)
 	if historyErr != nil || len(history) != 0 {
 		t.Fatalf("上游失败不应写入半轮历史: history=%+v err=%v", history, historyErr)
@@ -178,12 +178,12 @@ func TestAIReply_HTTPErrorDegrades(t *testing.T) {
 
 // TestAIReply_EmptyChoicesReturnsNil 成功响应但无 choices → nil（不报错）。
 func TestAIReply_EmptyChoicesReturnsNil(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newAIStore(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"choices": []any{}})
@@ -193,9 +193,9 @@ func TestAIReply_EmptyChoicesReturnsNil(t *testing.T) {
 	s.Settings.Set(ctx, "ai_api_key", "sk-test")
 	s.Settings.Set(ctx, "ai_api_url", srv.URL)
 
-	// a 保存a，供当前处理流程使用
+	// a 用于本次流程后续判断的a
 	a := NewAIReplier("cid", s, nil)
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := a.Reply(ctx, chatMsg("可以便宜一点吗", "item1", "chat1"))
 	if err != nil || res != nil {
 		t.Fatalf("空 choices 应返回 nil,nil: res=%+v err=%v", res, err)
@@ -204,20 +204,20 @@ func TestAIReply_EmptyChoicesReturnsNil(t *testing.T) {
 
 // TestAIReply_SuccessReturnsContent 正常调用返回 AI 文本。
 func TestAIReply_SuccessReturnsContent(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newAIStore(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := mockOpenAIServer(t, 0, "你好，在的哦")
 	s.DB.ExecContext(ctx, `INSERT INTO ai_reply_settings (cookie_id, ai_enabled, custom_prompts) VALUES ('cid', 1, '')`)
 	s.Settings.Set(ctx, "ai_api_key", "sk-test")
 	s.Settings.Set(ctx, "ai_api_url", srv.URL)
 
-	// a 保存a，供当前处理流程使用
+	// a 用于本次流程后续判断的a
 	a := NewAIReplier("cid", s, nil)
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := a.Reply(ctx, chatMsg("最低多少钱", "item1", "chat1"))
 	if err != nil {
 		t.Fatalf("成功调用不应报错: %v", err)
@@ -227,18 +227,18 @@ func TestAIReply_SuccessReturnsContent(t *testing.T) {
 	}
 }
 
-// TestAIReply_NonBargainMessageFallsThrough 负责TestAI回复NonBargain消息FallsThrough相关处理。
+// TestAIReply_NonBargainMessageFallsThrough 封装TestAI回复NonBargain消息FallsThrough业务协调。
 func TestAIReply_NonBargainMessageFallsThrough(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newAIStore(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	s.DB.ExecContext(ctx, `INSERT INTO ai_reply_settings (cookie_id, ai_enabled, custom_prompts) VALUES ('cid', 1, '')`)
 	s.Settings.Set(ctx, "ai_api_key", "sk-test")
 	s.Settings.Set(ctx, "ai_api_url", "http://127.0.0.1:1")
 
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := NewAIReplier("cid", s, nil).Reply(ctx, chatMsg("在吗，什么时候发货", "item1", "chat1"))
 	if err != nil || res != nil {
 		t.Fatalf("非砍价消息应交给默认回复: res=%+v err=%v", res, err)
@@ -247,12 +247,12 @@ func TestAIReply_NonBargainMessageFallsThrough(t *testing.T) {
 
 // TestGlobalAIConfig 默认值兜底 + 显式设置覆盖。
 func TestGlobalAIConfig(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newAIStore(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// a 保存a，供当前处理流程使用
+	// a 用于本次流程后续判断的a
 	a := NewAIReplier("cid", s, nil)
 
 	// 全空 → 默认 BaseURL + Model。
@@ -307,12 +307,12 @@ func TestGlobalAIConfigAuditsAPIKeyAccess(t *testing.T) {
 
 // TestAIReplierItemInfo 商品缺失时兜底占位；存在时取真实标题/价格/描述。
 func TestAIReplierItemInfo(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newAIStore(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// a 保存a，供当前处理流程使用
+	// a 用于本次流程后续判断的a
 	a := NewAIReplier("cid", s, nil)
 
 	// 商品不存在 → 占位。
@@ -329,14 +329,14 @@ func TestAIReplierItemInfo(t *testing.T) {
 	}
 }
 
-// TestAIReplyTracksBargainRoundsAndBlocksUnsafePrice 负责TestAI回复TracksBargainRoundsAndBlocksUnsafePrice相关处理。
+// TestAIReplyTracksBargainRoundsAndBlocksUnsafePrice 封装TestAI回复TracksBargainRoundsAndBlocksUnsafePrice业务协调。
 func TestAIReplyTracksBargainRoundsAndBlocksUnsafePrice(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newAIStore(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := mockOpenAIServer(t, 0, "可以，80 元成交")
 	s.DB.ExecContext(ctx, `INSERT INTO ai_reply_settings
 		(cookie_id,ai_enabled,max_discount_percent,max_discount_amount,max_bargain_rounds,custom_prompts)
@@ -346,9 +346,9 @@ func TestAIReplyTracksBargainRoundsAndBlocksUnsafePrice(t *testing.T) {
 	s.Settings.Set(ctx, "ai_api_key", "sk-test")
 	s.Settings.Set(ctx, "ai_api_url", srv.URL)
 
-	// a 保存a，供当前处理流程使用
+	// a 用于本次流程后续判断的a
 	a := NewAIReplier("cid", s, nil)
-	// first、err 保存first、err，供当前处理流程使用
+	// first、err 用于本次流程后续判断的first、err
 	first, err := a.Reply(ctx, chatMsg("能便宜点吗", "item1", "chat1"))
 	if err != nil {
 		t.Fatal(err)
@@ -356,7 +356,7 @@ func TestAIReplyTracksBargainRoundsAndBlocksUnsafePrice(t *testing.T) {
 	if first == nil || !strings.Contains(first.Text, "90.00 元") {
 		t.Fatalf("越界报价应替换成安全价格: %+v", first)
 	}
-	// second、err 保存second、err，供当前处理流程使用
+	// second、err 用于本次流程后续判断的second、err
 	second, err := a.Reply(ctx, chatMsg("再便宜一点", "item1", "chat1"))
 	if err != nil {
 		t.Fatal(err)
@@ -364,12 +364,12 @@ func TestAIReplyTracksBargainRoundsAndBlocksUnsafePrice(t *testing.T) {
 	if second == nil || !strings.Contains(second.Text, "已经是最低价") {
 		t.Fatalf("超过最大轮次应拒绝继续降价: %+v", second)
 	}
-	// count、err 保存count、err，供当前处理流程使用
+	// count、err 用于本次流程后续判断的count、err
 	count, err := s.AIReply.CurrentBargainCount(ctx, "cid", "chat1", "item1")
 	if err != nil || count != 2 {
 		t.Fatalf("bargain count=%d err=%v want 2", count, err)
 	}
-	// history、err 保存history、err，供当前处理流程使用
+	// history、err 用于本次流程后续判断的history、err
 	history, err := s.AIReply.ConversationHistory(ctx, "cid", "chat1", "item1", 10)
 	if err != nil || len(history) != 4 {
 		t.Fatalf("history len=%d err=%v", len(history), err)

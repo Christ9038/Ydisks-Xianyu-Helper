@@ -70,7 +70,7 @@ func NewReplyService(cookieID string, store *db.Store, sender MessageSender,
 // 由 Account 在防抖后调用。返回是否产生了回复。
 // Handle 处理当前值。
 func (r *ReplyService) Handle(ctx context.Context, m ChatMessage) error {
-	// res 保存响应，供当前处理流程使用
+	// res 用于本次流程后续判断的响应
 	res := r.resolve(ctx, m)
 	if res == nil || res.Skip {
 		return nil
@@ -80,12 +80,12 @@ func (r *ReplyService) Handle(ctx context.Context, m ChatMessage) error {
 	if r.sender == nil {
 		return nil
 	}
-	// record 保存record，供当前处理流程使用
+	// record 用于本次流程后续判断的record
 	record := db.DefaultReplyRecord{}
 	if res.ReplyOnce && m.ChatID != "" {
-		// claimed 保存claimed，供当前处理流程使用
+		// claimed 用于本次流程后续判断的claimed
 		var claimed bool
-		// err 保存err，供当前处理流程使用
+		// err 用于本次流程后续判断的err
 		var err error
 		record, claimed, err = r.store.DefaultReps.ClaimRecord(ctx, r.cookieID, m.ChatID, res.Text != "", res.ImageURL != "")
 		if err != nil {
@@ -96,14 +96,14 @@ func (r *ReplyService) Handle(ctx context.Context, m ChatMessage) error {
 		}
 	}
 	if res.ImageURL != "" && !record.ImageSent {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := r.sender.SendImage(ctx, m.ChatID, m.SenderUserID, res.ImageURL, 0); err != nil {
 			r.logger.Error("发送回复图片失败", "err", err)
 			r.markReplyFailure(ctx, res, m, err)
 			return err
 		}
 		if res.ReplyOnce && m.ChatID != "" {
-			if // err 保存err，供当前处理流程使用
+			if // err 用于本次流程后续判断的err
 			err := r.store.DefaultReps.MarkPartSent(ctx, r.cookieID, m.ChatID, "image"); err != nil {
 				r.markReplyFailure(ctx, res, m, err)
 				return err
@@ -111,14 +111,14 @@ func (r *ReplyService) Handle(ctx context.Context, m ChatMessage) error {
 		}
 	}
 	if res.Text != "" && !record.TextSent {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := r.sender.SendText(ctx, m.ChatID, m.SenderUserID, res.Text); err != nil {
 			r.logger.Error("发送回复文本失败", "err", err)
 			r.markReplyFailure(ctx, res, m, err)
 			return err
 		}
 		if res.ReplyOnce && m.ChatID != "" {
-			if // err 保存err，供当前处理流程使用
+			if // err 用于本次流程后续判断的err
 			err := r.store.DefaultReps.MarkPartSent(ctx, r.cookieID, m.ChatID, "text"); err != nil {
 				r.markReplyFailure(ctx, res, m, err)
 				return err
@@ -126,7 +126,7 @@ func (r *ReplyService) Handle(ctx context.Context, m ChatMessage) error {
 		}
 	}
 	if res.ReplyOnce && m.ChatID != "" {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := r.store.DefaultReps.MarkRecordSent(ctx, r.cookieID, m.ChatID); err != nil {
 			r.markReplyFailure(ctx, res, m, err)
 			return err
@@ -135,7 +135,7 @@ func (r *ReplyService) Handle(ctx context.Context, m ChatMessage) error {
 	return nil
 }
 
-// markReplyFailure 负责mark回复Failure相关处理。
+// markReplyFailure 封装mark回复Failure业务协调。
 func (r *ReplyService) markReplyFailure(ctx context.Context, res *ReplyResult, m ChatMessage, sendErr error) {
 	if res.ReplyOnce && m.ChatID != "" {
 		_ = r.store.DefaultReps.MarkRecordFailed(ctx, r.cookieID, m.ChatID, sendErr.Error())
@@ -146,7 +146,7 @@ func (r *ReplyService) markReplyFailure(ctx context.Context, res *ReplyResult, m
 func (r *ReplyService) resolve(ctx context.Context, m ChatMessage) *ReplyResult {
 	// 优先级1：API 回复。
 	if r.api != nil {
-		if // res、err 保存res、err，供当前处理流程使用
+		if // res、err 用于本次流程后续判断的res、err
 		res, err := r.api.Reply(ctx, m); err != nil {
 			r.logger.Error("API 回复失败", "err", err)
 		} else if res != nil {
@@ -162,7 +162,7 @@ func (r *ReplyService) resolve(ctx context.Context, m ChatMessage) *ReplyResult 
 
 	// 优先级3：AI 回复。
 	if r.ai != nil {
-		if // res、err 保存res、err，供当前处理流程使用
+		if // res、err 用于本次流程后续判断的res、err
 		res, err := r.ai.Reply(ctx, m); err != nil {
 			r.logger.Error("AI 回复失败", "err", err)
 		} else if res != nil {
@@ -178,14 +178,14 @@ func (r *ReplyService) resolve(ctx context.Context, m ChatMessage) *ReplyResult 
 // keywordReply 关键词匹配。返回 nil 表示无匹配；
 // 返回 Skip=true 表示匹配到空回复（不发送）。
 // 移植自 get_keyword_reply：商品ID关键词优先 → 通用关键词。
-// keywordReply 负责关键词回复相关处理。
+// keywordReply 封装关键词回复业务协调。
 func (r *ReplyService) keywordReply(ctx context.Context, m ChatMessage) *ReplyResult {
-	// kws、err 保存kws、err，供当前处理流程使用
+	// kws、err 用于本次流程后续判断的kws、err
 	kws, err := r.store.Keywords.AllWithType(ctx, r.cookieID)
 	if err != nil || len(kws) == 0 {
 		return nil
 	}
-	// msgLower 保存msgLower，供当前处理流程使用
+	// msgLower 用于本次流程后续判断的msgLower
 	msgLower := strings.ToLower(m.Text)
 
 	// 1. 商品ID关键词优先。
@@ -206,7 +206,7 @@ func (r *ReplyService) keywordReply(ctx context.Context, m ChatMessage) *ReplyRe
 	return nil
 }
 
-// keywordResult 负责关键词结果相关处理。
+// keywordResult 封装关键词结果业务协调。
 func (r *ReplyService) keywordResult(kw db.Keyword, m ChatMessage) *ReplyResult {
 	if kw.Type == "image" && kw.ImageURL != "" {
 		return &ReplyResult{ImageURL: kw.ImageURL, Source: "关键词"}
@@ -219,11 +219,11 @@ func (r *ReplyService) keywordResult(kw db.Keyword, m ChatMessage) *ReplyResult 
 
 // defaultReply 默认回复。移植自 get_default_reply：
 // 指定商品回复优先 → 账号默认回复（reply_once 防重复 + 变量替换）。
-// defaultReply 负责default回复相关处理。
+// defaultReply 封装default回复业务协调。
 func (r *ReplyService) defaultReply(ctx context.Context, m ChatMessage) *ReplyResult {
 	// 1. 指定商品回复。
 	if m.ItemID != "" {
-		if // ir、err 保存ir、err，供当前处理流程使用
+		if // ir、err 用于本次流程后续判断的ir、err
 		ir, err := r.store.ItemReps.Get(ctx, r.cookieID, m.ItemID); err == nil && ir != nil && strings.TrimSpace(ir.ReplyContent) != "" {
 			return &ReplyResult{Text: formatReplyWithItem(ir.ReplyContent, m), Source: "默认"}
 		}
@@ -237,7 +237,7 @@ func (r *ReplyService) defaultReply(ctx context.Context, m ChatMessage) *ReplyRe
 	if strings.TrimSpace(dr.ReplyContent) == "" && strings.TrimSpace(dr.ReplyImageURL) == "" {
 		return &ReplyResult{Skip: true, Source: "默认"}
 	}
-	// res 保存响应，供当前处理流程使用
+	// res 用于本次流程后续判断的响应
 	res := &ReplyResult{Source: "默认", ReplyOnce: dr.ReplyOnce}
 	if strings.TrimSpace(dr.ReplyContent) != "" {
 		res.Text = formatReply(dr.ReplyContent, m)
@@ -250,7 +250,7 @@ func (r *ReplyService) defaultReply(ctx context.Context, m ChatMessage) *ReplyRe
 
 // formatReply 变量替换：{send_user_name} {send_user_id} {send_message}。
 // 替换回复模板变量；若替换出错则返回原文。
-// formatReply 负责format回复相关处理。
+// formatReply 封装format回复业务协调。
 func formatReply(template string, m ChatMessage) string {
 	return safeFormat(template, map[string]string{
 		"send_user_name": m.SenderName,
@@ -271,7 +271,7 @@ func formatReplyWithItem(template string, m ChatMessage) string {
 
 // safeFormat 实现命名占位符替换。
 func safeFormat(template string, vars map[string]string) string {
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := template
 	// k、v 表示当前遍历过程中的k、v
 	for k, v := range vars {

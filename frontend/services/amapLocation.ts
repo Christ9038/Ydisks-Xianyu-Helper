@@ -102,7 +102,7 @@ const loadAMap = (): Promise<AMapAPI> => {
     const timeout = window.setTimeout(() => {
       cleanup();
       reject(new Error('高德地图 API 加载超时，请检查网络或 VITE_AMAP_JS_KEY 配置'));
-    } /* 回调函数负责当前业务流程。 */, 15_000); /* timeout 表示timeout。 */
+    } /* 定时器到期时终止脚本加载并返回网络配置错误。 */, 15_000); /* timeout 是高德脚本加载的毫秒上限。 */
 
     window.__ydisksAmapLoaded = finish;
     script.id = AMAP_SCRIPT_ID;
@@ -111,12 +111,12 @@ const loadAMap = (): Promise<AMapAPI> => {
     script.onerror = () => {
       cleanup();
       reject(new Error('高德地图 API 加载失败，请检查网络或 VITE_AMAP_JS_KEY 配置'));
-    } /* 回调函数负责当前业务流程。 */;
+    } /* 脚本节点触发 error 时释放监听并拒绝加载 Promise。 */;
     if (!existing) document.head.appendChild(script);
-  } /* 回调函数负责当前业务流程。 */).catch(error => {
+  } /* 单例加载过程只创建一次脚本节点并复用完成 Promise。 */).catch(error => {
     amapLoadPromise = null;
     throw error;
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 失败时清空单例 Promise，允许后续调用重新加载脚本。 */);
 
   return amapLoadPromise;
 }; /* loadAMap 表示loadAMap。 */
@@ -162,10 +162,11 @@ export const getPublishLocations = async (longitude: number, latitude: number): 
         reject(new Error('高德地图附近地址查询失败，请稍后重试'));
         return;
       }
+      // locations 是过滤无效坐标后的发布地点列表，供商品发布表单使用。
       const locations = (result?.poiList?.pois || [])
         .map(amapPOIToPublishLocation)
-        .filter((location): location is PublishLocation => location !== null /* 回调函数负责当前业务流程。 */); /* locations 表示locations。 */
+        .filter((location): location is PublishLocation => location !== null /* location 是转换后仍具备有效坐标的地点。 */);
       resolve(locations);
-    } /* 回调函数负责当前业务流程。 */);
-  } /* 回调函数负责当前业务流程。 */);
+    } /* 搜索完成后将地点结果交给调用方并结束本次高德回调。 */);
+  } /* 高德回调只处理当前请求，组件卸载后由 cleanup 移除监听。 */);
 }; /* getPublishLocations 表示getPublishLocations。 */

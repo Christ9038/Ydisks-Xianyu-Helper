@@ -37,6 +37,40 @@ type automationActionExecutor struct {
 	cardLocks sync.Map
 }
 
+// shipmentConsignSession 保存一次确认发货请求开始前固定的凭证视图和响应 Cookie 会话；Cookie 明文只在本次 MTOP 调用及条件写回期间存在，禁止记录到日志或任务快照。
+type shipmentConsignSession struct {
+	// requestContext 是携带完整 Cookie Jar 或扁平 Cookie 的 MTOP 请求上下文。
+	requestContext context.Context
+	// cookieSession 汇集 MTOP 响应的 Set-Cookie，供请求完成后条件写回。
+	cookieSession *mtop.CookieSession
+	// cookieStr 是本次 MTOP 调用使用的扁平 Cookie，禁止向任务持久化或日志传播。
+	cookieStr string
+	// credentialFingerprint 用于拒绝覆盖请求期间被并发更新的账号凭证。
+	credentialFingerprint string
+}
+
+// shipmentConsignResult 保存 Consign 的业务结果、响应 Cookie 和传输错误，供后续会话状态与订单事实分别收口。
+type shipmentConsignResult struct {
+	// succeeded 表示平台明确确认订单已发货。
+	succeeded bool
+	// returns 保存平台返回的业务错误文本。
+	returns []string
+	// updatedCookie 是无完整 Cookie Jar 时平台返回的扁平 Cookie 更新值。
+	updatedCookie string
+	// callErr 表示 MTOP 调用或响应解码失败，发生时不能假定远端未执行动作。
+	callErr error
+}
+
+// shipmentCookiePersistence 保存响应 Cookie 的条件写回结果；errors 中的失败需要与远端动作结果一并向调用方报告。
+type shipmentCookiePersistence struct {
+	// errors 收集读取、冲突检测或写回账号凭证时的本地持久化错误。
+	errors []error
+	// runtimeCookie 是已成功持久化、需要同步给在线发送器的最新扁平 Cookie。
+	runtimeCookie string
+	// changed 表示 runtimeCookie 已变化且可安全通知在线运行时。
+	changed bool
+}
+
 // executeAction 执行一个动作，并把消息发送错误分类为可安全重试或结果未知。
 func (e *automationActionExecutor) executeAction(ctx context.Context, task Task, action db.AutomationAction) (int, error) {
 	switch action.ActionType {
@@ -68,9 +102,7 @@ func (e *automationActionExecutor) confirmShipment(ctx context.Context, task Tas
 	if task.OrderID == "" {
 		return fmt.Errorf("确认发货缺少订单ID")
 	}
-	// enabled 表示账号是否打开自动确认发货设置。
-	// readErr 保存读取自动确认发货设置的错误。
-	// enabled、readErr 保存enabled、readErr，供当前处理流程使用
+	// enabled 表示账号是否打开自动确认发货设置；readErr 表示读取该账号设置时的数据库错误。
 	enabled, readErr := e.store.Cookies.GetAutoConfirm(ctx, task.AccountID)
 	if readErr != nil {
 		return fmt.Errorf("读取自动确认发货设置: %w", readErr)
@@ -83,113 +115,23 @@ func (e *automationActionExecutor) confirmShipment(ctx context.Context, task Tas
 
 // confirmShipmentAttempt 使用凭证快照调用 Consign，并以指纹条件写回 Cookie；远端成功但订单事实落库失败时创建可重试补偿记录。
 func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, task Task, allowCredentialRecovery bool) error {
-	// credentialUnlock 是账号凭证锁的释放函数；锁只保护快照读取。
-	credentialUnlock := e.store.LockAccountCredentials(task.AccountID)
-	// runtimeData 是确认发货所需的最小 Cookie 与 metadata 运行视图，不包含登录密码和账号资料。
-	runtimeData, err := e.store.Cookies.GetCookieRuntimeData(ctx, task.AccountID)
-	credentialUnlock()
+	// session 固定本次 MTOP 请求的最小凭证视图，外部调用期间不持有账号凭证锁。
+	session, err := e.openShipmentConsignSession(ctx, task.AccountID)
 	if err != nil {
 		return err
 	}
-	// runtimeFingerprint 是外部请求开始前的凭证指纹，用于阻止旧响应覆盖并发更新。
-	runtimeFingerprint := credentialRuntimeFingerprint(runtimeData)
-	// completeSnapshot 表示 metadata 中是否包含可恢复的完整 Cookie Jar。
-	_, completeSnapshot := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON)
-	if strings.TrimSpace(runtimeData.Value) == "" && !completeSnapshot {
-		return fmt.Errorf("账号 %s Cookie 为空", task.AccountID)
-	}
-	// cookieStr 是本次确认发货使用的扁平 Cookie。
-	cookieStr := runtimeData.Value
-	// mtopCtx 是携带 Cookie Jar 或扁平 Cookie 的 MTOP 请求上下文。
-	var mtopCtx context.Context
-	// cookieSession 记录 MTOP 响应中的 Cookie 合并结果。
-	var cookieSession *mtop.CookieSession
-	// snapshot 是 metadata 中恢复出的完整 Cookie Jar。
-	// snapshotOK 表示完整 Cookie Jar 是否存在。
-	if // snapshot、snapshotOK 保存snapshot、snapshotOK，供当前处理流程使用
-	snapshot, snapshotOK := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON); snapshotOK {
-		mtopCtx, cookieSession = mtop.WithCookieSnapshot(ctx, snapshot)
-	} else {
-		mtopCtx, cookieSession = mtop.WithFlatCookieSession(ctx, cookieStr)
-	}
-	// ok 表示远端确认发货是否成功。
-	// ret 保存远端返回的业务错误文本。
-	// updated 保存无权威 Cookie Jar 时的扁平 Cookie 更新结果。
-	// callErr 保存 MTOP 请求层错误。
-	// consignOK 表示远端确认发货是否成功。
-	// ret 保存远端返回的业务错误文本。
-	// updated 保存无权威 Cookie Jar 时的扁平 Cookie 更新结果。
-	// callErr 保存 MTOP 请求层错误。
-	// consignOK、ret、updated、callErr 保存consignOK、ret、updated、callErr，供当前处理流程使用
-	consignOK, ret, updated, callErr := e.mtop().ConsignContext(mtopCtx, cookieStr, task.OrderID)
-	// persistenceErrs 收集远端动作完成后本地状态写入失败。
-	var persistenceErrs []error
-	// shipmentStateNeedsReconciliation 标记订单发货事实是否需要异步补偿。
-	shipmentStateNeedsReconciliation := false
-	// runtimeCookie 保存需要同步到在线发送器的最新 Cookie。
-	runtimeCookie := ""
-	// runtimeCookieChanged 表示在线运行时是否需要替换 Cookie。
-	runtimeCookieChanged := false
-	// value 是 Cookie 会话合并后的扁平值。
-	// snapshot 是 Cookie 会话合并后的完整快照。
-	// changed 表示 Cookie 会话是否产生变化。
-	// value、snapshot、changed 保存value、snapshot、changed，供当前处理流程使用
-	value, snapshot, changed := cookieSession.State()
-	// sessionHandled 表示本次请求是否由完整 Cookie Jar 接管。
-	sessionHandled := snapshot != nil
-	// responseChanged 表示外部响应合并出了新的 Cookie 状态。
-	responseChanged := changed || (!sessionHandled && callErr == nil && updated != "" && updated != cookieStr)
-	if responseChanged {
-		// persistUnlock 保护重新读取凭证和条件写回，外部 MTOP I/O 已经结束。
-		persistUnlock := e.store.LockAccountCredentials(task.AccountID)
-		// currentData 保存写回前的最新凭证快照。
-		currentData, currentErr := e.store.Cookies.GetCookieRuntimeData(ctx, task.AccountID)
-		if currentErr != nil {
-			persistenceErrs = append(persistenceErrs, fmt.Errorf("读取确认发货最新 Cookie: %w", currentErr))
-		} else if credentialRuntimeFingerprint(currentData) != runtimeFingerprint {
-			// 并发更新已经产生新凭证，旧 MTOP 响应不得覆盖新状态。
-			persistenceErrs = append(persistenceErrs, errors.New("确认发货响应 Cookie 与并发更新冲突，已跳过旧响应写回"))
-		} else if changed {
-			// metadata 是准备写回数据库的 Cookie metadata。
-			metadata := cookierefresh.MetadataWithoutSnapshot(currentData.MetadataJSON)
-			if snapshot != nil {
-				metadata = cookierefresh.MetadataWithSnapshot(currentData.MetadataJSON, snapshot)
-			}
-			// saveErr 保存 Cookie Jar 写回数据库时的错误。
-			if saveErr := e.store.Cookies.UpdateRenewalCookie(ctx, task.AccountID, value, metadata, time.Now().Unix()); saveErr != nil {
-				persistenceErrs = append(persistenceErrs, fmt.Errorf("保存确认发货响应 Cookie Jar: %w", saveErr))
-			} else if value != currentData.Value {
-				runtimeCookie = value
-				runtimeCookieChanged = true
-			}
-		} else if callErr == nil && updated != "" && updated != currentData.Value {
-			// 没有权威快照的历史账号保留扁平 Cookie 兼容路径，并清除可能过期的旧 Jar。
-			metadata := cookierefresh.MetadataWithoutSnapshot(currentData.MetadataJSON)
-			// saveErr 保存扁平 Cookie 写回数据库时的错误。
-			if saveErr := e.store.Cookies.UpdateRenewalCookie(ctx, task.AccountID, updated, metadata, time.Now().Unix()); saveErr != nil {
-				persistenceErrs = append(persistenceErrs, fmt.Errorf("保存刷新后的 Cookie: %w", saveErr))
-			} else {
-				runtimeCookie = updated
-				runtimeCookieChanged = true
-			}
-		}
-		persistUnlock()
-	}
-	if runtimeCookieChanged && e.senders != nil {
-		// sender 是当前账号的在线消息发送器。
-		// running 表示账号是否仍处于运行状态。
-		if // sender、running 保存sender、running，供当前处理流程使用
-		sender, running := e.senders.Sender(task.AccountID); running {
-			sender.UpdateCookie(runtimeCookie)
-		}
-	}
-	if runtimeCookieChanged {
-		e.wakeCredentialBlocked(ctx, task.AccountID)
-	}
+	// succeeded、returns、updatedCookie、callErr 分别保存 MTOP 的业务成功标记、业务返回、扁平 Cookie 更新和调用错误。
+	succeeded, returns, updatedCookie, callErr := e.mtop().ConsignContext(session.requestContext, session.cookieStr, task.OrderID)
+	// result 归并 MTOP 远端结果，Cookie 写回与订单状态写入随后独立处理。
+	result := shipmentConsignResult{succeeded: succeeded, returns: returns, updatedCookie: updatedCookie, callErr: callErr}
+	// cookiePersistence 收集响应 Cookie 的条件写回结果，并在锁外同步在线运行时。
+	cookiePersistence := e.persistShipmentConsignCookies(ctx, task.AccountID, session, result)
+	// persistenceErrs 收集所有本地写入失败；远端动作成功时会用于决定是否进入人工核对。
+	persistenceErrs := cookiePersistence.errors
 	// sessionErr 将请求层错误和远端业务失败统一为凭证状态判断输入。
-	sessionErr := callErr
-	if sessionErr == nil && !consignOK {
-		sessionErr = errors.New(strings.Join(ret, "; "))
+	sessionErr := result.callErr
+	if sessionErr == nil && !result.succeeded {
+		sessionErr = errors.New(strings.Join(result.returns, "; "))
 	}
 	if mtop.IsSessionExpiredErr(sessionErr) {
 		if len(persistenceErrs) > 0 {
@@ -206,23 +148,121 @@ func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, t
 		}
 		return fmt.Errorf("%w: 确认发货 Session 已失效且凭证恢复失败: %v", errActionNotPerformed, sessionErr)
 	}
-	if callErr != nil {
+	if result.callErr != nil {
 		if len(persistenceErrs) > 0 {
-			callErr = errors.Join(callErr, errors.Join(persistenceErrs...))
+			result.callErr = errors.Join(result.callErr, errors.Join(persistenceErrs...))
 		}
-		return uncertainAction(callErr)
+		return uncertainAction(result.callErr)
 	}
-	if !consignOK {
+	if !result.succeeded {
 		// failure 是远端拒绝确认发货的业务错误。
-		failure := fmt.Errorf("确认发货失败: %s", strings.Join(ret, "; "))
+		failure := fmt.Errorf("确认发货失败: %s", strings.Join(result.returns, "; "))
 		if len(persistenceErrs) > 0 {
 			return errors.Join(failure, errors.Join(persistenceErrs...))
 		}
 		return failure
 	}
+	// orderPersistence 保存远端成功后本地订单状态和补偿记录的写入结果。
+	orderPersistence := e.persistConfirmedShipment(ctx, task)
+	persistenceErrs = append(persistenceErrs, orderPersistence...)
+	if len(persistenceErrs) > 0 {
+		return uncertainAction(fmt.Errorf("闲鱼已确认发货，但本地状态保存失败: %w", errors.Join(persistenceErrs...)))
+	}
+	return nil
+}
+
+// openShipmentConsignSession 在账号凭证锁内读取最小运行时视图，再在锁外构造 MTOP 会话；返回的 Cookie 只供当前确认发货请求使用。
+func (e *automationActionExecutor) openShipmentConsignSession(ctx context.Context, accountID string) (shipmentConsignSession, error) {
+	// unlock 释放账号凭证锁；锁仅保护运行时 Cookie 和 metadata 的读取。
+	unlock := e.store.LockAccountCredentials(accountID)
+	// runtimeData 是确认发货所需的最小 Cookie 与 metadata 运行视图，不包含登录密码和账号资料。
+	runtimeData, readErr := e.store.Cookies.GetCookieRuntimeData(ctx, accountID)
+	unlock()
+	if readErr != nil {
+		return shipmentConsignSession{}, readErr
+	}
+	// snapshot 与 snapshotOK 分别表示 metadata 中的完整 Cookie Jar 及其可用性。
+	snapshot, snapshotOK := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON)
+	if strings.TrimSpace(runtimeData.Value) == "" && !snapshotOK {
+		return shipmentConsignSession{}, fmt.Errorf("账号 %s Cookie 为空", accountID)
+	}
+	// session 固定请求上下文和响应 Cookie 会话，后续持久化通过指纹检测并发更新。
+	session := shipmentConsignSession{
+		cookieStr:             runtimeData.Value,
+		credentialFingerprint: credentialRuntimeFingerprint(runtimeData),
+	}
+	if snapshotOK {
+		session.requestContext, session.cookieSession = mtop.WithCookieSnapshot(ctx, snapshot)
+	} else {
+		session.requestContext, session.cookieSession = mtop.WithFlatCookieSession(ctx, session.cookieStr)
+	}
+	return session, nil
+}
+
+// persistShipmentConsignCookies 条件写入确认发货响应产生的 Cookie，并在账号凭证锁外同步在线发送器和等待中的自动化任务。
+func (e *automationActionExecutor) persistShipmentConsignCookies(ctx context.Context, accountID string, session shipmentConsignSession, result shipmentConsignResult) shipmentCookiePersistence {
+	// value、snapshot、changed 分别是响应会话合并后的扁平 Cookie、完整 Jar 和变更标记。
+	value, snapshot, changed := session.cookieSession.State()
+	// sessionHandled 表示当前请求由完整 Cookie Jar 处理，避免历史扁平值覆盖权威快照。
+	sessionHandled := snapshot != nil
+	// responseChanged 表示需要检查并持久化来自 MTOP 响应的 Cookie 状态。
+	responseChanged := changed || (!sessionHandled && result.callErr == nil && result.updatedCookie != "" && result.updatedCookie != session.cookieStr)
+	if !responseChanged {
+		return shipmentCookiePersistence{}
+	}
+	// unlock 保护重新读取凭证和条件写回；外部 MTOP I/O 已经结束。
+	unlock := e.store.LockAccountCredentials(accountID)
+	// currentData 是写回前重新读取的最新最小凭证视图。
+	currentData, currentErr := e.store.Cookies.GetCookieRuntimeData(ctx, accountID)
+	// persistence 保存锁内检查和写回的结果，锁释放后再同步运行时。
+	persistence := shipmentCookiePersistence{}
+	if currentErr != nil {
+		persistence.errors = append(persistence.errors, fmt.Errorf("读取确认发货最新 Cookie: %w", currentErr))
+	} else if credentialRuntimeFingerprint(currentData) != session.credentialFingerprint {
+		persistence.errors = append(persistence.errors, errors.New("确认发货响应 Cookie 与并发更新冲突，已跳过旧响应写回"))
+	} else if changed {
+		// metadata 保留非快照 metadata，仅在响应有权威 Jar 时写入新快照。
+		metadata := cookierefresh.MetadataWithoutSnapshot(currentData.MetadataJSON)
+		if snapshot != nil {
+			metadata = cookierefresh.MetadataWithSnapshot(currentData.MetadataJSON, snapshot)
+		}
+		// saveErr 表示权威 Cookie Jar 写入失败。
+		if saveErr := e.store.Cookies.UpdateRenewalCookie(ctx, accountID, value, metadata, time.Now().Unix()); saveErr != nil {
+			persistence.errors = append(persistence.errors, fmt.Errorf("保存确认发货响应 Cookie Jar: %w", saveErr))
+		} else if value != currentData.Value {
+			persistence.runtimeCookie, persistence.changed = value, true
+		}
+	} else if result.callErr == nil && result.updatedCookie != "" && result.updatedCookie != currentData.Value {
+		// 历史账号没有权威 Jar 时兼容扁平 Cookie 写回，并清除可能过期的旧 Jar。
+		metadata := cookierefresh.MetadataWithoutSnapshot(currentData.MetadataJSON)
+		// saveErr 表示扁平 Cookie 写入失败。
+		if saveErr := e.store.Cookies.UpdateRenewalCookie(ctx, accountID, result.updatedCookie, metadata, time.Now().Unix()); saveErr != nil {
+			persistence.errors = append(persistence.errors, fmt.Errorf("保存刷新后的 Cookie: %w", saveErr))
+		} else {
+			persistence.runtimeCookie, persistence.changed = result.updatedCookie, true
+		}
+	}
+	unlock()
+	if !persistence.changed {
+		return persistence
+	}
+	if e.senders != nil {
+		// sender 与 running 分别是当前账号在线发送器和其运行状态；同步发生在凭证锁外。
+		if sender, running := e.senders.Sender(accountID); running {
+			sender.UpdateCookie(persistence.runtimeCookie)
+		}
+	}
+	e.wakeCredentialBlocked(ctx, accountID)
+	return persistence
+}
+
+// persistConfirmedShipment 写入远端已确认发货的订单事实；任一事实写入失败时创建幂等补偿记录并把所有错误返回调用方。
+func (e *automationActionExecutor) persistConfirmedShipment(ctx context.Context, task Task) []error {
+	// persistenceErrs 收集订单状态、发货时间和补偿记录的本地写入错误。
+	var persistenceErrs []error
 	// sysShip 表示本地订单已由系统确认发货。
 	sysShip := true
-	// upsertErr 保存本地订单发货状态写入错误。
+	// upsertErr 表示本地订单发货状态写入失败。
 	if upsertErr := e.store.Orders.Upsert(ctx, task.OrderID, db.OrderUpsertOpts{
 		CookieID:      task.AccountID,
 		ItemID:        task.ItemID,
@@ -232,37 +272,29 @@ func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, t
 		SystemShipped: &sysShip,
 	}); upsertErr != nil {
 		persistenceErrs = append(persistenceErrs, fmt.Errorf("保存本地订单发货状态: %w", upsertErr))
-		shipmentStateNeedsReconciliation = true
 	}
-	// eventErr 保存订单发货事实写入错误。
+	// eventErr 表示订单发货事实时间写入失败。
 	if eventErr := e.store.Automation.MarkOrderEventTime(ctx, task.OrderID, "shipped_at"); eventErr != nil {
 		persistenceErrs = append(persistenceErrs, fmt.Errorf("保存订单发货时间: %w", eventErr))
-		shipmentStateNeedsReconciliation = true
 	}
-	if len(persistenceErrs) > 0 {
-		if shipmentStateNeedsReconciliation {
-			if e.store == nil || e.store.Reconciliations == nil {
-				persistenceErrs = append(persistenceErrs, errors.New("创建订单发货补偿记录: 补偿存储未初始化"))
-			} else {
-				// reconciliationID 保存本地订单状态补偿记录的幂等追踪标识；当前运行由 triggerKey 保证同一事件不会重复执行。
-				// reconciliationErr 保存补偿记录写入失败原因。
-				reconciliationID, reconciliationErr := e.store.Reconciliations.CreatePending(
-					ctx,
-					task.OrderID,
-					task.AccountID,
-					"manual_status_ship",
-					"闲鱼已确认发货，但本地订单状态写入失败: "+errors.Join(persistenceErrs...).Error(),
-				)
-				if reconciliationErr != nil {
-					persistenceErrs = append(persistenceErrs, fmt.Errorf("创建订单发货补偿记录: %w", reconciliationErr))
-				} else {
-					persistenceErrs = append(persistenceErrs, fmt.Errorf("订单发货补偿记录 %s 已创建", reconciliationID))
-				}
-			}
-		}
-		return uncertainAction(fmt.Errorf("闲鱼已确认发货，但本地状态保存失败: %w", errors.Join(persistenceErrs...)))
+	if len(persistenceErrs) == 0 {
+		return nil
 	}
-	return nil
+	if e.store == nil || e.store.Reconciliations == nil {
+		return append(persistenceErrs, errors.New("创建订单发货补偿记录: 补偿存储未初始化"))
+	}
+	// reconciliationID 是幂等补偿记录的追踪标识；reconciliationErr 表示创建记录时的数据库错误。
+	reconciliationID, reconciliationErr := e.store.Reconciliations.CreatePending(
+		ctx,
+		task.OrderID,
+		task.AccountID,
+		"manual_status_ship",
+		"闲鱼已确认发货，但本地订单状态写入失败: "+errors.Join(persistenceErrs...).Error(),
+	)
+	if reconciliationErr != nil {
+		return append(persistenceErrs, fmt.Errorf("创建订单发货补偿记录: %w", reconciliationErr))
+	}
+	return append(persistenceErrs, fmt.Errorf("订单发货补偿记录 %s 已创建", reconciliationID))
 }
 
 // sendCard 按规格和购买数量分配文本、图片或数据卡密。
@@ -290,9 +322,7 @@ func (e *automationActionExecutor) sendCard(ctx context.Context, task Task, acti
 	sent := 0
 	// i 表示当前卡密发送序号。
 	for i := 0; i < count; i++ {
-		// content 是当前卡密文本内容。
-		// imageURL 是当前卡密图片地址。
-		// content、imageURL、readErr 保存content、imageURL、readErr，供当前处理流程使用
+		// content、imageURL、readErr 分别是当前卡密组可发送的文本、图片地址和读取配置失败原因。
 		content, imageURL, readErr := e.cardContent(ctx, card)
 		if readErr != nil {
 			return sent, readErr
@@ -362,9 +392,7 @@ func (e *automationActionExecutor) sendText(ctx context.Context, task Task, text
 	if e.senders == nil {
 		return fmt.Errorf("%w: 账号发送器未初始化", ErrMessageNotSent)
 	}
-	// sender 是当前账号的在线消息发送器。
-	// senderOK 表示是否找到在线发送器。
-	// sender、senderOK 保存sender、senderOK，供当前处理流程使用
+	// sender、senderOK 分别是当前账号的在线消息发送器及其可用标记，账号离线时必须返回确定未发送错误。
 	sender, senderOK := e.senders.Sender(task.AccountID)
 	if !senderOK {
 		return fmt.Errorf("%w: 账号未在线，无法发送自动化消息", ErrMessageNotSent)
@@ -380,9 +408,7 @@ func (e *automationActionExecutor) sendImage(ctx context.Context, task Task, ima
 	if e.senders == nil {
 		return fmt.Errorf("%w: 账号发送器未初始化", ErrMessageNotSent)
 	}
-	// sender 是当前账号的在线图片发送器。
-	// senderOK 表示是否找到在线发送器。
-	// sender、senderOK 保存sender、senderOK，供当前处理流程使用
+	// sender、senderOK 分别是当前账号的在线图片发送器及其可用标记，账号离线时必须返回确定未发送错误。
 	sender, senderOK := e.senders.Sender(task.AccountID)
 	if !senderOK {
 		return fmt.Errorf("%w: 账号未在线，无法发送自动化图片", ErrMessageNotSent)
@@ -472,11 +498,7 @@ func parsePositiveInt(raw string) int {
 	if raw == "" {
 		return 0
 	}
-	// n 是解析后的数量值。
-	// err 是数量文本解析错误。
-	// n 是解析后的数量值。
-	// parseErr 是数量文本解析错误。
-	// n、parseErr 保存n、parseErr，供当前处理流程使用
+	// n 是解析后的数量值；parseErr 表示原始数量文本不符合十进制整数格式。
 	n, parseErr := strconv.Atoi(raw)
 	if parseErr != nil || n < 0 {
 		return 0

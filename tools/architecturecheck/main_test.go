@@ -81,6 +81,37 @@ type testResponse map[string]any
 	}
 }
 
+// TestHTTPRequestContractBoundary 验证 handler 请求体必须使用具名 DTO，避免匿名结构绕过版本化契约。
+func TestHTTPRequestContractBoundary(t *testing.T) {
+	// fset 是模拟 Server handler 文件的源码位置集合。
+	fset := token.NewFileSet()
+	// syntax、err 分别是包含匿名请求结构的模拟 handler AST 及解析错误。
+	syntax, err := parser.ParseFile(fset, "request_handlers.go", []byte(`package server
+func handler() { var req struct { Value string }; _ = req }
+`), parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// violations 是匿名请求 DTO 应产生的架构违规。
+	violations := checkHTTPRequestContracts("internal/server/request_handlers.go", syntax, fset)
+	if len(violations) != 1 {
+		t.Fatalf("violations=%+v", violations)
+	}
+	// cleanSyntax、cleanErr 分别是使用具名请求 DTO 的模拟 handler AST 及解析错误。
+	cleanSyntax, cleanErr := parser.ParseFile(fset, "clean_handlers.go", []byte(`package server
+type requestDTO struct { Value string }
+func handler() { var req requestDTO; _ = req }
+`), parser.ParseComments)
+	if cleanErr != nil {
+		t.Fatal(cleanErr)
+	}
+	// cleanViolations 是具名 DTO 应保持为零的架构违规集合。
+	cleanViolations := checkHTTPRequestContracts("internal/server/clean_handlers.go", cleanSyntax, fset)
+	if len(cleanViolations) != 0 {
+		t.Fatalf("clean violations=%+v", cleanViolations)
+	}
+}
+
 // TestNormalizeImportPath 验证架构检查器能够识别当前模块的内部包路径。
 func TestNormalizeImportPath(t *testing.T) {
 	if got /* got 是规范化后的导入路径。 */ := normalizeImportPath("xianyu-go/internal/db"); got != "internal/db" {
@@ -120,6 +151,78 @@ func TestServerLowLevelBoundary(t *testing.T) {
 	}
 	if isForbiddenServerLowLevelImport("internal/server/new_service_test.go", "internal/db") {
 		t.Fatal("测试文件不应被生产依赖门禁阻断")
+	}
+}
+
+// TestHiddenDependencyBoundary 验证生产应用与 Server 不得通过反射或插件隐藏必需依赖。
+func TestHiddenDependencyBoundary(t *testing.T) {
+	if !isForbiddenHiddenDependencyImport("internal/application/orders/service.go", "reflect") {
+		t.Fatal("应用层 reflect 依赖应被拒绝")
+	}
+	if !isForbiddenHiddenDependencyImport("internal/server/server.go", "plugin") {
+		t.Fatal("Server plugin 依赖应被拒绝")
+	}
+	if isForbiddenHiddenDependencyImport("internal/adapter/adapter_test.go", "reflect") {
+		t.Fatal("测试或适配层 reflect 依赖不应被本规则阻断")
+	}
+}
+
+// TestRuntimeSetterBoundary 验证生产调用不能通过 Adapter setter 延迟补齐必需依赖。
+func TestRuntimeSetterBoundary(t *testing.T) {
+	// fset 是模拟生产源码的文件位置集合。
+	fset := token.NewFileSet()
+	// syntax、err 是包含测试兼容 setter 调用的模拟生产文件。
+	syntax, err := parser.ParseFile(fset, "runtime.go", []byte(`package main
+func run(adapter any) { adapter.SetAutomation(nil) }
+`), parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// violations 是生产 setter 调用的扫描结果。
+	violations := checkRuntimeSetterCalls("cmd/server/runtime.go", syntax, fset)
+	if len(violations) != 1 {
+		t.Fatalf("violations=%+v", violations)
+	}
+	// testSyntax 是测试文件中的同一调用，测试替身可以继续使用兼容 setter。
+	testSyntax, err := parser.ParseFile(fset, "runtime_test.go", []byte(`package main
+func test(adapter any) { adapter.SetAutomation(nil) }
+`), parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// got 是测试文件中的 setter 调用扫描结果。
+	if got := checkRuntimeSetterCalls("cmd/server/runtime_test.go", testSyntax, fset); len(got) != 0 {
+		t.Fatalf("测试 setter 不应被阻断: %+v", got)
+	}
+}
+
+// TestServerCompositionBoundary 验证已迁出的应用 worker 不会回流到 Server transport 构造阶段。
+func TestServerCompositionBoundary(t *testing.T) {
+	// fset 是模拟 Server 源码的文件位置集合。
+	fset := token.NewFileSet()
+	// syntax、err 分别是包含禁止应用 worker 与健康端口构造的模拟 Server 文件及解析错误。
+	syntax, err := parser.ParseFile(fset, "composition.go", []byte(`package server
+func build() { orderapp.NewReconciliationRecoveryCoordinator(nil); adapter.NewDatabaseHealth(nil) }
+`), parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// violations 是迁移回流应产生的架构违规。
+	violations := checkServerCompositionCalls("internal/server/composition.go", syntax, fset)
+	if len(violations) != 2 {
+		t.Fatalf("violations=%+v", violations)
+	}
+	// cleanSyntax、cleanErr 分别是仅接收已构造服务的合规 Server 文件及解析错误。
+	cleanSyntax, cleanErr := parser.ParseFile(fset, "composition_clean.go", []byte(`package server
+func accept(service any) { _ = service }
+`), parser.ParseComments)
+	if cleanErr != nil {
+		t.Fatal(cleanErr)
+	}
+	// cleanViolations 是合规 Server 文件应保持为空的违规集合。
+	cleanViolations := checkServerCompositionCalls("internal/server/composition_clean.go", cleanSyntax, fset)
+	if len(cleanViolations) != 0 {
+		t.Fatalf("clean violations=%+v", cleanViolations)
 	}
 }
 

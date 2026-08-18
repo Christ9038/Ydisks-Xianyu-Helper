@@ -9,8 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "comments:check": "node scripts/check-comments.mjs --mode check --root . --baseline ../.commentlint/frontend-baseline.json",
-    "comments:baseline": "node scripts/check-comments.mjs --mode baseline --root . --baseline ../.commentlint/frontend-baseline.json",
+    "comments:check": "node scripts/check-comments.mjs --mode check --root .",
     "preview": "vite preview"
   },
   "dependencies": {

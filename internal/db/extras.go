@@ -24,12 +24,12 @@ type KeywordRow struct {
 
 // UpdateByID 更新ByID。
 func (k *Keywords) UpdateByID(ctx context.Context, row KeywordRow) error {
-	// kwType 保存kw类型，供当前处理流程使用
+	// kwType 用于本次流程后续判断的kw类型
 	kwType := row.Type
 	if kwType == "" {
 		kwType = "text"
 	}
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := k.DB.ExecContext(ctx, `UPDATE keywords
 		SET keyword=?,reply=?,item_id=?,type=?,image_url=?
 		WHERE id=? AND cookie_id=?`,
@@ -37,7 +37,7 @@ func (k *Keywords) UpdateByID(ctx context.Context, row KeywordRow) error {
 	if err != nil {
 		return err
 	}
-	if // affected、err 保存affected、err，供当前处理流程使用
+	if // affected、err 用于本次流程后续判断的affected、err
 	affected, err := res.RowsAffected(); err == nil && affected == 0 {
 		return ErrNotFound
 	}
@@ -46,12 +46,12 @@ func (k *Keywords) UpdateByID(ctx context.Context, row KeywordRow) error {
 
 // DeleteByID 删除ByID。
 func (k *Keywords) DeleteByID(ctx context.Context, cookieID string, id int64) error {
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := k.DB.ExecContext(ctx, `DELETE FROM keywords WHERE id=? AND cookie_id=?`, id, cookieID)
 	if err != nil {
 		return err
 	}
-	if // affected、err 保存affected、err，供当前处理流程使用
+	if // affected、err 用于本次流程后续判断的affected、err
 	affected, err := res.RowsAffected(); err == nil && affected == 0 {
 		return ErrNotFound
 	}
@@ -60,7 +60,7 @@ func (k *Keywords) DeleteByID(ctx context.Context, cookieID string, id int64) er
 
 // AllRows 取某账号所有关键字（含 id）。
 func (k *Keywords) AllRows(ctx context.Context, cookieID string) ([]KeywordRow, error) {
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := k.DB.QueryContext(ctx,
 		`SELECT id, keyword, reply, COALESCE(item_id,''), COALESCE(type,'text'), COALESCE(image_url,'')
 		 FROM keywords WHERE cookie_id=? ORDER BY id`, cookieID)
@@ -68,12 +68,12 @@ func (k *Keywords) AllRows(ctx context.Context, cookieID string) ([]KeywordRow, 
 		return nil, err
 	}
 	defer rows.Close()
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	var out []KeywordRow
 	for rows.Next() {
-		// r 保存r，供当前处理流程使用
+		// r 用于本次流程后续判断的r
 		var r KeywordRow
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&r.ID, &r.Keyword, &r.Reply, &r.ItemID, &r.Type, &r.ImageURL); err != nil {
 			return nil, err
 		}
@@ -95,24 +95,24 @@ func (k *Keywords) Add(ctx context.Context, cookieID, keyword, reply, itemID, kw
 
 // ReplaceForCookie 覆盖某账号的全部关键词。
 func (k *Keywords) ReplaceForCookie(ctx context.Context, cookieID string, rows []KeywordRow) error {
-	// tx、err 保存tx、err，供当前处理流程使用
+	// tx、err 用于本次流程后续判断的tx、err
 	tx, err := k.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := tx.ExecContext(ctx, `DELETE FROM keywords WHERE cookie_id=?`, cookieID); err != nil {
 		return err
 	}
 	// row 表示当前遍历过程中的row
 	for _, row := range rows {
-		// kwType 保存kw类型，供当前处理流程使用
+		// kwType 用于本次流程后续判断的kw类型
 		kwType := row.Type
 		if kwType == "" {
 			kwType = "text"
 		}
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		_, err := tx.ExecContext(ctx,
 			`INSERT INTO keywords (cookie_id, keyword, reply, item_id, type, image_url) VALUES (?,?,?,?,?,?)`,
 			cookieID, row.Keyword, row.Reply, nullable(row.ItemID), kwType, nullable(row.ImageURL)); err != nil {
@@ -124,19 +124,19 @@ func (k *Keywords) ReplaceForCookie(ctx context.Context, cookieID string, rows [
 
 // DeleteByIndex 按索引（0-based，按 id 顺序）删除某账号的一个关键字。
 func (k *Keywords) DeleteByIndex(ctx context.Context, cookieID string, index int) error {
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := k.DB.QueryContext(ctx,
 		`SELECT id FROM keywords WHERE cookie_id=? ORDER BY id`, cookieID)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-	// ids 保存ids，供当前处理流程使用
+	// ids 用于本次流程后续判断的ids
 	var ids []int64
 	for rows.Next() {
-		// id 保存标识，供当前处理流程使用
+		// id 用于本次流程后续判断的标识
 		var id int64
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&id); err != nil {
 			return err
 		}
@@ -155,7 +155,7 @@ func (k *Keywords) DeleteByIndex(ctx context.Context, cookieID string, index int
 
 // Set 设置指定商品回复。
 func (i *ItemReplies) Set(ctx context.Context, cookieID, itemID, content string) error {
-	// tx、err 保存tx、err，供当前处理流程使用
+	// tx、err 用于本次流程后续判断的tx、err
 	tx, err := i.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -165,7 +165,7 @@ func (i *ItemReplies) Set(ctx context.Context, cookieID, itemID, content string)
 	if _, err := tx.ExecContext(ctx, `DELETE FROM item_replay WHERE cookie_id=? AND item_id=?`, cookieID, itemID); err != nil {
 		return err
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := tx.ExecContext(ctx,
 		`INSERT INTO item_replay (item_id, cookie_id, reply_content, updated_at)
 		 VALUES (?,?,?,CURRENT_TIMESTAMP)`, itemID, cookieID, content); err != nil {
@@ -176,7 +176,7 @@ func (i *ItemReplies) Set(ctx context.Context, cookieID, itemID, content string)
 
 // Delete 删除指定商品回复。
 func (i *ItemReplies) Delete(ctx context.Context, cookieID, itemID string) error {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := i.DB.ExecContext(ctx,
 		`DELETE FROM item_replay WHERE cookie_id=? AND item_id=?`, cookieID, itemID)
 	return err
@@ -184,19 +184,19 @@ func (i *ItemReplies) Delete(ctx context.Context, cookieID, itemID string) error
 
 // AllForUser 取某账号所有指定商品回复。
 func (i *ItemReplies) AllForUser(ctx context.Context, cookieID string) ([]ItemReply, error) {
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := i.DB.QueryContext(ctx,
 		`SELECT item_id, cookie_id, reply_content FROM item_replay WHERE cookie_id=?`, cookieID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	var out []ItemReply
 	for rows.Next() {
-		// r 保存r，供当前处理流程使用
+		// r 用于本次流程后续判断的r
 		var r ItemReply
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&r.ItemID, &r.CookieID, &r.ReplyContent); err != nil {
 			return nil, err
 		}
@@ -236,7 +236,7 @@ type NotificationChannelSummaryRow struct {
 
 // AllChannelsForUser 取某用户全部通知渠道。
 func (n *Notifications) AllChannelsForUser(ctx context.Context, userID int64) ([]NotificationChannelRow, error) {
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := n.DB.QueryContext(ctx,
 		`SELECT id, name, type, config, COALESCE(event_types,''), enabled, COALESCE(user_id,1) FROM notification_channels
 		 WHERE user_id=? ORDER BY id DESC`, userID)
@@ -244,14 +244,14 @@ func (n *Notifications) AllChannelsForUser(ctx context.Context, userID int64) ([
 		return nil, err
 	}
 	defer rows.Close()
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	var out []NotificationChannelRow
 	for rows.Next() {
-		// c 保存c，供当前处理流程使用
+		// c 用于本次流程后续判断的c
 		var c NotificationChannelRow
-		// enabled 保存启用状态，供当前处理流程使用
+		// enabled 用于本次流程后续判断的启用状态
 		var enabled int
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &c.EventTypes, &enabled, &c.UserID); err != nil {
 			return nil, err
 		}
@@ -294,7 +294,7 @@ func (n *Notifications) ListChannelSummariesForUser(ctx context.Context, userID 
 
 // CreateChannel 创建通知渠道。
 func (n *Notifications) CreateChannel(ctx context.Context, c *NotificationChannelRow) (int64, error) {
-	// config、err 保存config、err，供当前处理流程使用
+	// config、err 用于本次流程后续判断的config、err
 	config, err := n.codec.encrypt("notification-config", strconv.FormatInt(c.UserID, 10), c.Config)
 	if err != nil {
 		return 0, err
@@ -307,12 +307,12 @@ func (n *Notifications) CreateChannel(ctx context.Context, c *NotificationChanne
 // UpdateChannel 更新通知渠道。
 func (n *Notifications) UpdateChannel(ctx context.Context, c *NotificationChannelRow) error {
 	if c.UserID == 0 {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := n.DB.QueryRowContext(ctx, `SELECT COALESCE(user_id,1) FROM notification_channels WHERE id=?`, c.ID).Scan(&c.UserID); err != nil {
 			return err
 		}
 	}
-	// config、err 保存config、err，供当前处理流程使用
+	// config、err 用于本次流程后续判断的config、err
 	config, err := n.codec.encrypt("notification-config", strconv.FormatInt(c.UserID, 10), c.Config)
 	if err != nil {
 		return err
@@ -325,15 +325,15 @@ func (n *Notifications) UpdateChannel(ctx context.Context, c *NotificationChanne
 
 // GetChannelRowForUser 按用户取单个通知渠道。未找到返回 nil。
 func (n *Notifications) GetChannelRowForUser(ctx context.Context, id, userID int64) (*NotificationChannelRow, error) {
-	// row 保存row，供当前处理流程使用
+	// row 用于本次流程后续判断的row
 	row := n.DB.QueryRowContext(ctx,
 		`SELECT id, name, type, config, COALESCE(event_types,''), enabled, COALESCE(user_id,1)
 		   FROM notification_channels WHERE id=? AND user_id=?`, id, userID)
-	// c 保存c，供当前处理流程使用
+	// c 用于本次流程后续判断的c
 	var c NotificationChannelRow
-	// enabled 保存启用状态，供当前处理流程使用
+	// enabled 用于本次流程后续判断的启用状态
 	var enabled int
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := row.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &c.EventTypes, &enabled, &c.UserID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -341,7 +341,7 @@ func (n *Notifications) GetChannelRowForUser(ctx context.Context, id, userID int
 		return nil, err
 	}
 	c.Enabled = enabled != 0
-	// config、err 保存config、err，供当前处理流程使用
+	// config、err 用于本次流程后续判断的config、err
 	config, err := n.codec.decrypt("notification-config", strconv.FormatInt(c.UserID, 10), c.Config)
 	if err != nil {
 		return nil, err
@@ -352,12 +352,12 @@ func (n *Notifications) GetChannelRowForUser(ctx context.Context, id, userID int
 
 // UpdateChannelForUser 更新指定用户拥有的通知渠道。
 func (n *Notifications) UpdateChannelForUser(ctx context.Context, c *NotificationChannelRow, userID int64) error {
-	// config、err 保存config、err，供当前处理流程使用
+	// config、err 用于本次流程后续判断的config、err
 	config, err := n.codec.encrypt("notification-config", strconv.FormatInt(userID, 10), c.Config)
 	if err != nil {
 		return err
 	}
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := n.DB.ExecContext(ctx,
 		`UPDATE notification_channels
 		    SET name=?, type=?, config=?, event_types=?, enabled=?, updated_at=CURRENT_TIMESTAMP
@@ -366,7 +366,7 @@ func (n *Notifications) UpdateChannelForUser(ctx context.Context, c *Notificatio
 	if err != nil {
 		return err
 	}
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := res.RowsAffected()
 	if err == nil && rows == 0 {
 		return ErrNotFound
@@ -376,19 +376,19 @@ func (n *Notifications) UpdateChannelForUser(ctx context.Context, c *Notificatio
 
 // DeleteChannel 删除通知渠道。
 func (n *Notifications) DeleteChannel(ctx context.Context, id int64) error {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := n.DB.ExecContext(ctx, `DELETE FROM notification_channels WHERE id=?`, id)
 	return err
 }
 
 // DeleteChannelForUser 删除指定用户拥有的通知渠道。
 func (n *Notifications) DeleteChannelForUser(ctx context.Context, id, userID int64) error {
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := n.DB.ExecContext(ctx, `DELETE FROM notification_channels WHERE id=? AND user_id=?`, id, userID)
 	if err != nil {
 		return err
 	}
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := res.RowsAffected()
 	if err == nil && rows == 0 {
 		return ErrNotFound
@@ -398,21 +398,21 @@ func (n *Notifications) DeleteChannelForUser(ctx context.Context, id, userID int
 
 // GetChannel 按 ID 取单个通知渠道（含 config）。未找到返回 nil。
 func (n *Notifications) GetChannel(ctx context.Context, id int64) (*NotificationChannel, error) {
-	// row 保存row，供当前处理流程使用
+	// row 用于本次流程后续判断的row
 	row := n.DB.QueryRowContext(ctx,
 		`SELECT id, name, type, config, COALESCE(event_types,''), COALESCE(user_id,1) FROM notification_channels WHERE id=?`, id)
-	// c 保存c，供当前处理流程使用
+	// c 用于本次流程后续判断的c
 	var c NotificationChannel
-	// userID 保存用户ID，供当前处理流程使用
+	// userID 用于本次流程后续判断的用户ID
 	var userID int64
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := row.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &c.EventTypes, &userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	// config、err 保存config、err，供当前处理流程使用
+	// config、err 用于本次流程后续判断的config、err
 	config, err := n.codec.decrypt("notification-config", strconv.FormatInt(userID, 10), c.Config)
 	if err != nil {
 		return nil, err
@@ -423,7 +423,7 @@ func (n *Notifications) GetChannel(ctx context.Context, id int64) (*Notification
 
 // AccountBindings 取某账号已绑定的通知渠道 ID 列表。
 func (n *Notifications) AccountBindings(ctx context.Context, cookieID string) ([]int64, error) {
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := n.DB.QueryContext(ctx,
 		`SELECT mn.channel_id
 		   FROM message_notifications mn
@@ -434,12 +434,12 @@ func (n *Notifications) AccountBindings(ctx context.Context, cookieID string) ([
 		return nil, err
 	}
 	defer rows.Close()
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	var out []int64
 	for rows.Next() {
-		// id 保存标识，供当前处理流程使用
+		// id 用于本次流程后续判断的标识
 		var id int64
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
@@ -450,15 +450,15 @@ func (n *Notifications) AccountBindings(ctx context.Context, cookieID string) ([
 
 // SetBindings 设置某账号的通知渠道绑定（覆盖式）。
 func (n *Notifications) SetBindings(ctx context.Context, cookieID string, channelIDs []int64) error {
-	// tx、err 保存tx、err，供当前处理流程使用
+	// tx、err 用于本次流程后续判断的tx、err
 	tx, err := n.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	// userID 保存用户ID，供当前处理流程使用
+	// userID 用于本次流程后续判断的用户ID
 	var userID int64
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := tx.QueryRowContext(ctx, `SELECT user_id FROM cookies WHERE id=?`, cookieID).Scan(&userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
@@ -467,9 +467,9 @@ func (n *Notifications) SetBindings(ctx context.Context, cookieID string, channe
 	}
 	// channelID 表示当前遍历过程中的渠道ID
 	for _, channelID := range channelIDs {
-		// exists 保存exists，供当前处理流程使用
+		// exists 用于本次流程后续判断的exists
 		var exists bool
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := tx.QueryRowContext(ctx,
 			`SELECT EXISTS(SELECT 1 FROM notification_channels WHERE id=? AND user_id=?)`,
 			channelID, userID).Scan(&exists); err != nil {
@@ -479,13 +479,13 @@ func (n *Notifications) SetBindings(ctx context.Context, cookieID string, channe
 			return ErrForbidden
 		}
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := tx.ExecContext(ctx, `DELETE FROM message_notifications WHERE cookie_id=?`, cookieID); err != nil {
 		return err
 	}
 	// cid 表示当前遍历过程中的cid
 	for _, cid := range channelIDs {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		_, err := tx.ExecContext(ctx,
 			`INSERT INTO message_notifications (cookie_id, channel_id, enabled) VALUES (?,?,1)`,
 			cookieID, cid); err != nil {
@@ -515,11 +515,11 @@ type SensitiveSettingChange struct {
 
 // Get 取单项设置。
 func (s *SystemSettings) Get(ctx context.Context, key string) (string, error) {
-	// v 保存v，供当前处理流程使用
+	// v 用于本次流程后续判断的v
 	var v string
-	// keyCol 保存keyCol，供当前处理流程使用
+	// keyCol 用于本次流程后续判断的keyCol
 	keyCol := dialectQuote(s.Dialect, "key")
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	err := s.DB.QueryRowContext(ctx, `SELECT value FROM system_settings WHERE `+keyCol+`=?`, key).Scan(&v)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -535,20 +535,20 @@ func (s *SystemSettings) Get(ctx context.Context, key string) (string, error) {
 
 // All 取全部设置（key→value）。
 func (s *SystemSettings) All(ctx context.Context) (map[string]string, error) {
-	// keyCol 保存keyCol，供当前处理流程使用
+	// keyCol 用于本次流程后续判断的keyCol
 	keyCol := dialectQuote(s.Dialect, "key")
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := s.DB.QueryContext(ctx, `SELECT `+keyCol+`, value FROM system_settings`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	m := make(map[string]string)
 	for rows.Next() {
-		// k、v 保存k、v，供当前处理流程使用
+		// k、v 用于本次流程后续判断的k、v
 		var k, v string
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&k, &v); err != nil {
 			return nil, err
 		}
@@ -573,16 +573,16 @@ func (s *SystemSettings) Set(ctx context.Context, key, value string) error {
 			_, err := s.DB.ExecContext(ctx, `DELETE FROM system_settings WHERE `+keyCol+`=?`, key)
 			return err
 		}
-		// encrypted、err 保存encrypted、err，供当前处理流程使用
+		// encrypted、err 用于本次流程后续判断的encrypted、err
 		encrypted, err := s.codec.encrypt("system-setting", key, value)
 		if err != nil {
 			return err
 		}
 		value = encrypted
 	}
-	// keyCol 保存keyCol，供当前处理流程使用
+	// keyCol 用于本次流程后续判断的keyCol
 	keyCol := dialectQuote(s.Dialect, "key")
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx,
 		`INSERT INTO system_settings (`+keyCol+`, value, updated_at) VALUES (?,?,CURRENT_TIMESTAMP)`+
 			dialectUpsert(s.Dialect, []string{keyCol}, map[string]string{
@@ -617,7 +617,7 @@ func (s *SystemSettings) SetMany(ctx context.Context, values map[string]string) 
 
 // ApplyChanges 原子保存普通设置和敏感设置命令，避免把敏感明文放入响应模型。
 func (s *SystemSettings) ApplyChanges(ctx context.Context, values map[string]string, secrets map[string]SensitiveSettingChange) error {
-	// tx、err 保存tx、err，供当前处理流程使用
+	// tx、err 用于本次流程后续判断的tx、err
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -628,7 +628,7 @@ func (s *SystemSettings) ApplyChanges(ctx context.Context, values map[string]str
 		if isSensitiveSettingKey(key) {
 			return fmt.Errorf("敏感设置 %q 必须通过显式变更命令提交", key)
 		}
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := upsertSystemSetting(ctx, tx, s.Dialect, key, value); err != nil {
 			return err
 		}
@@ -722,16 +722,16 @@ var PublicSystemKeys = map[string]bool{
 
 // Public 取公开设置子集。
 func (s *SystemSettings) Public(ctx context.Context) (map[string]string, error) {
-	// all、err 保存all、err，供当前处理流程使用
+	// all、err 用于本次流程后续判断的all、err
 	all, err := s.Redacted(ctx)
 	if err != nil {
 		return nil, err
 	}
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := make(map[string]string)
 	// k 表示当前遍历过程中的k
 	for k := range PublicSystemKeys {
-		if // v、ok 保存v、ok，供当前处理流程使用
+		if // v、ok 用于本次流程后续判断的v、ok
 		v, ok := all[k]; ok {
 			out[k] = v
 		}
@@ -763,7 +763,7 @@ type ItemSyncResult struct {
 
 // AllForCookie 取某账号全部商品。
 func (i *Items) AllForCookie(ctx context.Context, cookieID string) ([]ItemInfoRow, error) {
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := i.DB.QueryContext(ctx,
 		`SELECT id, cookie_id, item_id, COALESCE(item_title,''), COALESCE(item_description,''),
 		        COALESCE(item_category,''), COALESCE(item_price,''), COALESCE(item_detail,''),
@@ -795,14 +795,14 @@ func (i *Items) ListForUser(ctx context.Context, userID int64, cookieID string) 
 
 // scanItemInfoRows 将商品查询游标转换为统一的商品行模型。
 func scanItemInfoRows(rows *sql.Rows) ([]ItemInfoRow, error) {
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	var out []ItemInfoRow
 	for rows.Next() {
-		// r 保存r，供当前处理流程使用
+		// r 用于本次流程后续判断的r
 		var r ItemInfoRow
-		// isMulti、multiQty 保存isMulti、multiQty，供当前处理流程使用
+		// isMulti、multiQty 用于本次流程后续判断的isMulti、multiQty
 		var isMulti, multiQty int
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&r.ID, &r.CookieID, &r.ItemID, &r.ItemTitle, &r.ItemDescription,
 			&r.ItemCategory, &r.ItemPrice, &r.ItemDetail, &isMulti, &multiQty); err != nil {
 			return nil, err
@@ -816,7 +816,7 @@ func scanItemInfoRows(rows *sql.Rows) ([]ItemInfoRow, error) {
 
 // Upsert 插入或更新商品信息。
 func (i *Items) Upsert(ctx context.Context, r *ItemInfoRow) error {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := i.DB.ExecContext(ctx,
 		`INSERT INTO item_info (cookie_id, item_id, item_title, item_description,
 		    item_category, item_price, item_detail, is_multi_spec, multi_quantity_delivery, updated_at)
@@ -843,7 +843,7 @@ func (i *Items) UpsertBasic(ctx context.Context, r *ItemInfoRow) error {
 	return i.upsertBasic(ctx, i.DB, r)
 }
 
-// UpsertBasicTx 负责UpsertBasicTx相关处理。
+// UpsertBasicTx 封装UpsertBasicTx业务协调。
 func (i *Items) UpsertBasicTx(ctx context.Context, tx *sql.Tx, r *ItemInfoRow) error {
 	return i.upsertBasic(ctx, tx, r)
 }
@@ -860,9 +860,9 @@ func (i *Items) SyncFromRemote(ctx context.Context, cookieID string, rows []Item
 		return ItemSyncResult{}, errors.New("cookie_id 不能为空")
 	}
 
-	// remoteIDs 保存remoteIDs，供当前处理流程使用
+	// remoteIDs 用于本次流程后续判断的remoteIDs
 	remoteIDs := make(map[string]struct{}, len(rows))
-	// validRows 保存有效Rows，供当前处理流程使用
+	// validRows 用于本次流程后续判断的有效Rows
 	validRows := make([]ItemInfoRow, 0, len(rows))
 	// row 表示当前遍历过程中的row
 	for _, row := range rows {
@@ -871,7 +871,7 @@ func (i *Items) SyncFromRemote(ctx context.Context, cookieID string, rows []Item
 		if row.ItemID == "" {
 			continue
 		}
-		if // exists 保存exists，供当前处理流程使用
+		if // exists 用于本次流程后续判断的exists
 		_, exists := remoteIDs[row.ItemID]; exists {
 			continue
 		}
@@ -879,24 +879,24 @@ func (i *Items) SyncFromRemote(ctx context.Context, cookieID string, rows []Item
 		validRows = append(validRows, row)
 	}
 
-	// tx、err 保存tx、err，供当前处理流程使用
+	// tx、err 用于本次流程后续判断的tx、err
 	tx, err := i.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return ItemSyncResult{}, err
 	}
-	// rollback 保存rollback，供当前处理流程使用
+	// rollback 用于本次流程后续判断的rollback
 	rollback := func(err error) (ItemSyncResult, error) {
 		_ = tx.Rollback()
 		return ItemSyncResult{}, err
 	}
 	// index 表示当前遍历过程中的index
 	for index := range validRows {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := i.UpsertBasicTx(ctx, tx, &validRows[index]); err != nil {
 			return rollback(err)
 		}
 		if validRows[index].IsMultiSpec {
-			if // err 保存err，供当前处理流程使用
+			if // err 用于本次流程后续判断的err
 			_, err := tx.ExecContext(ctx,
 				`UPDATE item_info SET is_multi_spec=? WHERE cookie_id=? AND item_id=?`,
 				boolToInt(true), cookieID, validRows[index].ItemID); err != nil {
@@ -905,13 +905,13 @@ func (i *Items) SyncFromRemote(ctx context.Context, cookieID string, rows []Item
 		}
 	}
 
-	// args 保存args，供当前处理流程使用
+	// args 用于本次流程后续判断的args
 	args := make([]any, 0, len(remoteIDs)+1)
 	args = append(args, cookieID)
-	// deleteQuery 保存delete查询，供当前处理流程使用
+	// deleteQuery 用于本次流程后续判断的delete查询
 	deleteQuery := `UPDATE item_info SET deleted_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE cookie_id=? AND deleted_at IS NULL`
 	if len(remoteIDs) > 0 {
-		// placeholders 保存placeholders，供当前处理流程使用
+		// placeholders 用于本次流程后续判断的placeholders
 		placeholders := make([]string, 0, len(remoteIDs))
 		// itemID 表示当前遍历过程中的商品ID
 		for itemID := range remoteIDs {
@@ -920,26 +920,26 @@ func (i *Items) SyncFromRemote(ctx context.Context, cookieID string, rows []Item
 		}
 		deleteQuery += ` AND item_id NOT IN (` + strings.Join(placeholders, ",") + ")"
 	}
-	// deletedResult、err 保存deletedResult、err，供当前处理流程使用
+	// deletedResult、err 用于本次流程后续判断的deletedResult、err
 	deletedResult, err := tx.ExecContext(ctx, deleteQuery, args...)
 	if err != nil {
 		return rollback(err)
 	}
-	// deleted、err 保存deleted、err，供当前处理流程使用
+	// deleted、err 用于本次流程后续判断的deleted、err
 	deleted, err := deletedResult.RowsAffected()
 	if err != nil {
 		return rollback(err)
 	}
 
-	// ruleArgs 保存规则Args，供当前处理流程使用
+	// ruleArgs 用于本次流程后续判断的规则Args
 	ruleArgs := make([]any, 0, len(remoteIDs)+1)
 	ruleArgs = append(ruleArgs, cookieID)
-	// ruleQuery 保存规则查询，供当前处理流程使用
+	// ruleQuery 用于本次流程后续判断的规则查询
 	ruleQuery := `UPDATE automation_rules
 		SET deleted_at=CURRENT_TIMESTAMP, enabled=0, updated_at=CURRENT_TIMESTAMP
 		WHERE cookie_id=? AND item_id<>'' AND deleted_at IS NULL`
 	if len(remoteIDs) > 0 {
-		// placeholders 保存placeholders，供当前处理流程使用
+		// placeholders 用于本次流程后续判断的placeholders
 		placeholders := make([]string, 0, len(remoteIDs))
 		// itemID 表示当前遍历过程中的商品ID
 		for itemID := range remoteIDs {
@@ -948,22 +948,22 @@ func (i *Items) SyncFromRemote(ctx context.Context, cookieID string, rows []Item
 		}
 		ruleQuery += ` AND item_id NOT IN (` + strings.Join(placeholders, ",") + ")"
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := tx.ExecContext(ctx, ruleQuery, ruleArgs...); err != nil {
 		return rollback(err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := tx.Commit(); err != nil {
 		return ItemSyncResult{}, err
 	}
 	return ItemSyncResult{Saved: len(validRows), Deleted: int(deleted)}, nil
 }
 
-// upsertBasic 负责upsertBasic相关处理。
+// upsertBasic 封装upsertBasic业务协调。
 func (i *Items) upsertBasic(ctx context.Context, execer sqlExecer, r *ItemInfoRow) error {
 	// 三种数据库的条件 upsert：非空才覆盖，空值保留旧值。
 	// SQLite/Postgres 用 EXCLUDED.col 引用插入值；MySQL 用 VALUES(col)。
-	// conflictClause 保存conflictClause，供当前处理流程使用
+	// conflictClause 用于本次流程后续判断的conflictClause
 	var conflictClause string
 	switch i.Dialect {
 	case DialectMySQL:
@@ -985,7 +985,7 @@ func (i *Items) upsertBasic(ctx context.Context, execer sqlExecer, r *ItemInfoRo
 		   deleted_at=NULL,
 		   updated_at=CURRENT_TIMESTAMP`
 	}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := execer.ExecContext(ctx,
 		`INSERT INTO item_info (cookie_id, item_id, item_title, item_description,
 		    item_category, item_price, item_detail, updated_at)
@@ -997,19 +997,19 @@ func (i *Items) upsertBasic(ctx context.Context, execer sqlExecer, r *ItemInfoRo
 
 // Delete 逻辑删除商品及其商品级自动化规则，保留历史数据以便审计和恢复。
 func (i *Items) Delete(ctx context.Context, cookieID, itemID string) error {
-	// tx、err 保存tx、err，供当前处理流程使用
+	// tx、err 用于本次流程后续判断的tx、err
 	tx, err := i.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := tx.ExecContext(ctx, `UPDATE item_info
 		SET deleted_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
 		WHERE cookie_id=? AND item_id=? AND deleted_at IS NULL`, cookieID, itemID); err != nil {
 		return err
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := tx.ExecContext(ctx, `UPDATE automation_rules
 		SET deleted_at=CURRENT_TIMESTAMP, enabled=0, updated_at=CURRENT_TIMESTAMP
 		WHERE cookie_id=? AND item_id=? AND deleted_at IS NULL`, cookieID, itemID); err != nil {
@@ -1020,7 +1020,7 @@ func (i *Items) Delete(ctx context.Context, cookieID, itemID string) error {
 
 // SetMultiSpec 设置多规格开关。
 func (i *Items) SetMultiSpec(ctx context.Context, cookieID, itemID string, on bool) error {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := i.DB.ExecContext(ctx,
 		`UPDATE item_info SET is_multi_spec=?, updated_at=CURRENT_TIMESTAMP WHERE cookie_id=? AND item_id=? AND deleted_at IS NULL`,
 		boolToInt(on), cookieID, itemID)
@@ -1029,7 +1029,7 @@ func (i *Items) SetMultiSpec(ctx context.Context, cookieID, itemID string, on bo
 
 // SetMultiQuantity 设置多数量发货开关。
 func (i *Items) SetMultiQuantity(ctx context.Context, cookieID, itemID string, on bool) error {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := i.DB.ExecContext(ctx,
 		`UPDATE item_info SET multi_quantity_delivery=?, updated_at=CURRENT_TIMESTAMP WHERE cookie_id=? AND item_id=? AND deleted_at IS NULL`,
 		boolToInt(on), cookieID, itemID)

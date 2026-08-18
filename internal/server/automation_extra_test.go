@@ -14,51 +14,51 @@ import (
 
 // TestAutomationRulesCRUD 自动化规则增删查 + 校验分支。
 func TestAutomationRulesCRUD(t *testing.T) {
-	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
+	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	// 准备一个卡密组用于 send_card 动作。
 	cardID, _ := store.Cards.Create(ctx, &db.CardFull{Name: "卡密组1", Type: "text", TextContent: "卡密ABC", Enabled: true, UserID: 1})
 	// 准备一个商品。
 	store.DB.ExecContext(ctx, `INSERT INTO item_info (cookie_id, item_id, item_title) VALUES ('acc1','it-auto','商品A')`)
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
 	// 创建规则：付款后自动发货（send_card）。
 	body := `{"cookie_id":"acc1","item_id":"it-auto","trigger_type":"order_paid","enabled":true,` +
 		`"actions":[{"action_type":"send_card","card_id":` + itoa(cardID) + `,"delivery_count":1,"delay_seconds":0}]}`
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPost, "/automation-rules", strings.NewReader(body))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("create status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	// cr 保存cr，供当前处理流程使用
+	// cr 用于本次流程后续判断的cr
 	var cr map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &cr)
 	if cr["success"] != true {
 		t.Fatalf("创建失败: %+v", cr)
 	}
-	// ruleID 保存规则ID，供当前处理流程使用
+	// ruleID 用于本次流程后续判断的规则ID
 	ruleID := itoa(int64(cr["id"].(float64)))
 
 	// 列表。
 	req2 := httptest.NewRequest(http.MethodGet, "/automation-rules", nil)
 	req2.AddCookie(cookie)
-	// rec2 保存rec2，供当前处理流程使用
+	// rec2 用于本次流程后续判断的rec2
 	rec2 := httptest.NewRecorder()
 	h.ServeHTTP(rec2, req2)
 	if rec2.Code != 200 {
 		t.Fatalf("list status=%d", rec2.Code)
 	}
-	// arr 保存arr，供当前处理流程使用
+	// arr 用于本次流程后续判断的arr
 	var arr []map[string]any
 	json.Unmarshal(rec2.Body.Bytes(), &arr)
 	if len(arr) != 1 {
@@ -68,10 +68,10 @@ func TestAutomationRulesCRUD(t *testing.T) {
 	// 更新规则（改名为自定义）。
 	updBody := `{"cookie_id":"acc1","item_id":"it-auto","name":"自定义规则","trigger_type":"order_paid","enabled":false,` +
 		`"actions":[{"action_type":"send_card","card_id":` + itoa(cardID) + `,"delivery_count":2}]}`
-	// req3 保存req3，供当前处理流程使用
+	// req3 用于本次流程后续判断的req3
 	req3 := httptest.NewRequest(http.MethodPut, "/automation-rules/"+ruleID, strings.NewReader(updBody))
 	req3.AddCookie(cookie)
-	// rec3 保存rec3，供当前处理流程使用
+	// rec3 用于本次流程后续判断的rec3
 	rec3 := httptest.NewRecorder()
 	h.ServeHTTP(rec3, req3)
 	if rec3.Code != 200 {
@@ -81,7 +81,7 @@ func TestAutomationRulesCRUD(t *testing.T) {
 	// 删除。
 	req4 := httptest.NewRequest(http.MethodDelete, "/automation-rules/"+ruleID, nil)
 	req4.AddCookie(cookie)
-	// rec4 保存rec4，供当前处理流程使用
+	// rec4 用于本次流程后续判断的rec4
 	rec4 := httptest.NewRecorder()
 	h.ServeHTTP(rec4, req4)
 	if rec4.Code != 200 {
@@ -89,12 +89,12 @@ func TestAutomationRulesCRUD(t *testing.T) {
 	}
 }
 
-// TestAutomationRulesListFiltersAndPagination 负责Test自动化规则列表ListFiltersAndPagination相关处理。
+// TestAutomationRulesListFiltersAndPagination 封装Test自动化规则列表ListFiltersAndPagination业务协调。
 func TestAutomationRulesListFiltersAndPagination(t *testing.T) {
-	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
+	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	store.DB.ExecContext(ctx, `INSERT INTO item_info (cookie_id, item_id, item_title) VALUES ('acc1','item-blue','蓝色会员')`)
 	// input 表示当前遍历过程中的input
@@ -103,29 +103,29 @@ func TestAutomationRulesListFiltersAndPagination(t *testing.T) {
 		{UserID: 1, CookieID: "acc1", Name: "评价赠品", TriggerType: automation.TriggerBuyerReviewed, Enabled: false, Priority: 100, Actions: []db.AutomationActionInput{{ActionType: automation.ActionSendText, MessageTemplate: "gift", Enabled: true}}},
 		{UserID: 1, CookieID: "acc1", Name: "求评价", TriggerType: automation.TriggerReviewMissingTimeout, Enabled: true, Priority: 100, Actions: []db.AutomationActionInput{{ActionType: automation.ActionSendText, MessageTemplate: "review", Enabled: true}}},
 	} {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		_, err := store.Automation.Create(ctx, input); err != nil {
 			t.Fatalf("create rule: %v", err)
 		}
 	}
 
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
-	// request 保存请求，供当前处理流程使用
+	// request 用于本次流程后续判断的请求
 	request := func(path string) (int, map[string]any) {
 		t.Helper()
-		// req 保存req，供当前处理流程使用
+		// req 用于本次流程后续判断的req
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.AddCookie(cookie)
-		// rec 保存rec，供当前处理流程使用
+		// rec 用于本次流程后续判断的rec
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
-		// body 保存请求体，供当前处理流程使用
+		// body 用于本次流程后续判断的请求体
 		var body map[string]any
 		if rec.Code == http.StatusOK {
-			if // err 保存err，供当前处理流程使用
+			if // err 用于本次流程后续判断的err
 			err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 				t.Fatalf("decode response: %v", err)
 			}
@@ -133,32 +133,32 @@ func TestAutomationRulesListFiltersAndPagination(t *testing.T) {
 		return rec.Code, body
 	}
 
-	// status、filtered 保存status、filtered，供当前处理流程使用
+	// status、filtered 用于本次流程后续判断的status、filtered
 	status, filtered := request("/automation-rules?page=1&page_size=10&cookie_id=acc1&trigger_type=order_paid&enabled=true&search=%E8%93%9D%E8%89%B2")
 	if status != http.StatusOK || filtered["total"] != float64(1) || filtered["total_pages"] != float64(1) {
 		t.Fatalf("filtered status=%d body=%+v", status, filtered)
 	}
-	// filteredCounts、ok 保存filteredCounts、ok，供当前处理流程使用
+	// filteredCounts、ok 用于本次流程后续判断的filteredCounts、ok
 	filteredCounts, ok := filtered["trigger_counts"].(map[string]any)
 	if !ok || filteredCounts[automation.TriggerOrderPaid] != float64(1) || len(filteredCounts) != 1 {
 		t.Fatalf("filtered trigger counts=%+v", filtered["trigger_counts"])
 	}
-	// data、ok 保存data、ok，供当前处理流程使用
+	// data、ok 用于本次流程后续判断的data、ok
 	data, ok := filtered["data"].([]any)
 	if !ok || len(data) != 1 || data[0].(map[string]any)["name"] != "付款规则" {
 		t.Fatalf("filtered data=%+v", filtered["data"])
 	}
 
-	// status、lastPage 保存status、last页码，供当前处理流程使用
+	// status、lastPage 用于本次流程后续判断的status、last页码
 	status, lastPage := request("/automation-rules?page=99&page_size=1")
 	if status != http.StatusOK || lastPage["total"] != float64(3) || lastPage["page"] != float64(3) {
 		t.Fatalf("last page status=%d body=%+v", status, lastPage)
 	}
-	if // data、ok 保存data、ok，供当前处理流程使用
+	if // data、ok 用于本次流程后续判断的data、ok
 	data, ok := lastPage["data"].([]any); !ok || len(data) != 1 {
 		t.Fatalf("last page data=%+v", lastPage["data"])
 	}
-	// lastPageCounts、ok 保存last页码Counts、ok，供当前处理流程使用
+	// lastPageCounts、ok 用于本次流程后续判断的last页码Counts、ok
 	lastPageCounts, ok := lastPage["trigger_counts"].(map[string]any)
 	if !ok || lastPageCounts[automation.TriggerOrderPaid] != float64(1) ||
 		lastPageCounts[automation.TriggerBuyerReviewed] != float64(1) ||
@@ -174,20 +174,20 @@ func TestAutomationRulesListFiltersAndPagination(t *testing.T) {
 
 // TestAutomationRuleBadTriggerType 不支持的触发类型 400。
 func TestAutomationRuleBadTriggerType(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := `{"cookie_id":"acc1","trigger_type":"bogus","actions":[{"action_type":"confirm_shipment"}]}`
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPost, "/automation-rules", strings.NewReader(body))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -197,20 +197,20 @@ func TestAutomationRuleBadTriggerType(t *testing.T) {
 
 // TestAutomationRuleBadCookie 账号不属于当前用户 400。
 func TestAutomationRuleBadCookie(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := `{"cookie_id":"other-account","trigger_type":"order_paid","actions":[{"action_type":"confirm_shipment"}]}`
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPost, "/automation-rules", strings.NewReader(body))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -220,20 +220,20 @@ func TestAutomationRuleBadCookie(t *testing.T) {
 
 // TestAutomationRuleBadActionType 不支持的动作类型 400。
 func TestAutomationRuleBadActionType(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := `{"cookie_id":"acc1","trigger_type":"order_paid","actions":[{"action_type":"bogus"}]}`
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPost, "/automation-rules", strings.NewReader(body))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -241,28 +241,28 @@ func TestAutomationRuleBadActionType(t *testing.T) {
 	}
 }
 
-// TestAutomationRuleRejectsAPICard 负责Test自动化规则RejectsAPI卡密相关处理。
+// TestAutomationRuleRejectsAPICard 封装Test自动化规则RejectsAPI卡密业务协调。
 func TestAutomationRuleRejectsAPICard(t *testing.T) {
-	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
+	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// cardID、err 保存卡密ID、err，供当前处理流程使用
+	// cardID、err 用于本次流程后续判断的卡密ID、err
 	cardID, err := store.Cards.Create(context.Background(), &db.CardFull{
 		Name: "旧 API 卡密", Type: "api", APIConfig: `{"url":"https://example.com"}`, Enabled: true, UserID: 1,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := `{"cookie_id":"acc1","trigger_type":"order_paid","actions":[{"action_type":"send_card","card_id":` + itoa(cardID) + `}]}`
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPost, "/automation-rules", strings.NewReader(body))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "API 卡密暂不支持") {
@@ -272,20 +272,20 @@ func TestAutomationRuleRejectsAPICard(t *testing.T) {
 
 // TestAutomationRuleSendCardMissingCardID send_card 缺 card_id 400。
 func TestAutomationRuleSendCardMissingCardID(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := `{"cookie_id":"acc1","trigger_type":"order_paid","actions":[{"action_type":"send_card","card_id":0}]}`
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPost, "/automation-rules", strings.NewReader(body))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -295,20 +295,20 @@ func TestAutomationRuleSendCardMissingCardID(t *testing.T) {
 
 // TestAutomationRuleSendTextMissingTemplate send_text 缺文案 400。
 func TestAutomationRuleSendTextMissingTemplate(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := `{"cookie_id":"acc1","trigger_type":"order_paid","actions":[{"action_type":"send_text","message_template":""}]}`
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPost, "/automation-rules", strings.NewReader(body))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -316,56 +316,56 @@ func TestAutomationRuleSendTextMissingTemplate(t *testing.T) {
 	}
 }
 
-// TestAutomationIssueEndpointsAndActiveDeleteConflict 负责Test自动化问题EndpointsAndActiveDeleteConflict相关处理。
+// TestAutomationIssueEndpointsAndActiveDeleteConflict 封装Test自动化问题EndpointsAndActiveDeleteConflict业务协调。
 func TestAutomationIssueEndpointsAndActiveDeleteConflict(t *testing.T) {
-	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
+	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// admin 保存admin，供当前处理流程使用
+	// admin 用于本次流程后续判断的admin
 	admin, _ := store.Users.GetByUsername(ctx, "admin")
-	// ruleID、err 保存规则ID、err，供当前处理流程使用
+	// ruleID、err 用于本次流程后续判断的规则ID、err
 	ruleID, err := store.Automation.Create(ctx, db.AutomationRuleInput{UserID: admin.ID, CookieID: "acc1", Name: "issue",
 		TriggerType: automation.TriggerBuyerReviewed, Enabled: true,
 		Actions: []db.AutomationActionInput{{ActionType: automation.ActionSendText, MessageTemplate: "x", Enabled: true}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// runID 保存运行ID，供当前处理流程使用
+	// runID 用于本次流程后续判断的运行ID
 	runID, _, _ := store.Automation.TryStartRun(ctx, db.AutomationRun{RuleID: ruleID, CookieID: "acc1", OrderID: "o",
 		TriggerType: automation.TriggerBuyerReviewed, TriggerKey: "k", RawEventJSON: `{}`, LeaseExpiresAt: 1})
 	_, _ = store.Automation.StartRunAction(ctx, runID, 1, 0, 1)
 	_ = store.Automation.QuarantineRun(ctx, runID, 1, "unknown")
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// listReq 保存listReq，供当前处理流程使用
+	// listReq 用于本次流程后续判断的listReq
 	listReq := httptest.NewRequest(http.MethodGet, "/automation-issues", nil)
 	listReq.AddCookie(cookie)
-	// listRec 保存listRec，供当前处理流程使用
+	// listRec 用于本次流程后续判断的listRec
 	listRec := httptest.NewRecorder()
 	h.ServeHTTP(listRec, listReq)
 	if listRec.Code != http.StatusOK || !strings.Contains(listRec.Body.String(), "unknown") {
 		t.Fatalf("list status=%d body=%s", listRec.Code, listRec.Body.String())
 	}
 
-	// deleteReq 保存deleteReq，供当前处理流程使用
+	// deleteReq 用于本次流程后续判断的deleteReq
 	deleteReq := httptest.NewRequest(http.MethodDelete, "/automation-rules/"+itoa(ruleID), nil)
 	deleteReq.AddCookie(cookie)
-	// deleteRec 保存deleteRec，供当前处理流程使用
+	// deleteRec 用于本次流程后续判断的deleteRec
 	deleteRec := httptest.NewRecorder()
 	h.ServeHTTP(deleteRec, deleteReq)
 	if deleteRec.Code != http.StatusConflict {
 		t.Fatalf("active delete status=%d body=%s", deleteRec.Code, deleteRec.Body.String())
 	}
 
-	// resolveReq 保存resolveReq，供当前处理流程使用
+	// resolveReq 用于本次流程后续判断的resolveReq
 	resolveReq := httptest.NewRequest(http.MethodPost, "/automation-runs/"+itoa(runID)+"/resolve", strings.NewReader(`{"resolution":"cancel"}`))
 	resolveReq.AddCookie(cookie)
-	// resolveRec 保存resolveRec，供当前处理流程使用
+	// resolveRec 用于本次流程后续判断的resolveRec
 	resolveRec := httptest.NewRecorder()
 	h.ServeHTTP(resolveRec, resolveReq)
 	if resolveRec.Code != http.StatusOK {
@@ -375,20 +375,20 @@ func TestAutomationIssueEndpointsAndActiveDeleteConflict(t *testing.T) {
 
 // TestAutomationRuleNoActions 缺动作 400。
 func TestAutomationRuleNoActions(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := `{"cookie_id":"acc1","trigger_type":"order_paid","actions":[]}`
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPost, "/automation-rules", strings.NewReader(body))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -396,21 +396,21 @@ func TestAutomationRuleNoActions(t *testing.T) {
 	}
 }
 
-// TestAutomationRuleRejectsIncompatibleTriggerActions 负责Test自动化规则RejectsIncompatibleTrigger动作列表相关处理。
+// TestAutomationRuleRejectsIncompatibleTriggerActions 封装Test自动化规则RejectsIncompatibleTrigger动作列表业务协调。
 func TestAutomationRuleRejectsIncompatibleTriggerActions(t *testing.T) {
-	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
+	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// cardID、err 保存卡密ID、err，供当前处理流程使用
+	// cardID、err 用于本次流程后续判断的卡密ID、err
 	cardID, err := store.Cards.Create(context.Background(), &db.CardFull{Name: "card", Type: "text", TextContent: "x", Enabled: true, UserID: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
-	// tests 保存tests，供当前处理流程使用
+	// tests 用于本次流程后续判断的tests
 	tests := []string{
 		`{"cookie_id":"acc1","trigger_type":"order_paid","actions":[{"action_type":"send_text","message_template":"x"}]}`,
 		`{"cookie_id":"acc1","trigger_type":"buyer_reviewed","actions":[{"action_type":"confirm_shipment"}]}`,
@@ -418,10 +418,10 @@ func TestAutomationRuleRejectsIncompatibleTriggerActions(t *testing.T) {
 	}
 	// body 表示当前遍历过程中的请求体
 	for _, body := range tests {
-		// req 保存req，供当前处理流程使用
+		// req 用于本次流程后续判断的req
 		req := httptest.NewRequest(http.MethodPost, "/automation-rules", strings.NewReader(body))
 		req.AddCookie(cookie)
-		// rec 保存rec，供当前处理流程使用
+		// rec 用于本次流程后续判断的rec
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest {
@@ -432,18 +432,18 @@ func TestAutomationRuleRejectsIncompatibleTriggerActions(t *testing.T) {
 
 // TestAutomationRuleBadJSON 非法 JSON 400。
 func TestAutomationRuleBadJSON(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPost, "/automation-rules", strings.NewReader("not-json"))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -453,20 +453,20 @@ func TestAutomationRuleBadJSON(t *testing.T) {
 
 // TestAutomationRuleUpdateBadID 无效 ID 400。
 func TestAutomationRuleUpdateBadID(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := `{"cookie_id":"acc1","trigger_type":"order_paid","actions":[{"action_type":"confirm_shipment"}]}`
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPut, "/automation-rules/abc", strings.NewReader(body))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -476,18 +476,18 @@ func TestAutomationRuleUpdateBadID(t *testing.T) {
 
 // TestAutomationRuleDeleteBadID 无效 ID 400。
 func TestAutomationRuleDeleteBadID(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodDelete, "/automation-rules/abc", nil)
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -497,18 +497,18 @@ func TestAutomationRuleDeleteBadID(t *testing.T) {
 
 // TestAutomationRuleDeleteNotFound 不存在规则 404。
 func TestAutomationRuleDeleteNotFound(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodDelete, "/automation-rules/999999", nil)
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
@@ -518,7 +518,7 @@ func TestAutomationRuleDeleteNotFound(t *testing.T) {
 
 // TestDefaultAutomationRuleName 默认规则名。
 func TestDefaultAutomationRuleName(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := map[string]string{
 		automation.TriggerOrderPaid:            "付款后自动发货",
 		automation.TriggerBuyerReviewed:        "评价后发送赠品",
@@ -527,13 +527,13 @@ func TestDefaultAutomationRuleName(t *testing.T) {
 	}
 	// trigger、want 表示当前遍历过程中的trigger、want
 	for trigger, want := range cases {
-		// got 保存got，供当前处理流程使用
+		// got 用于本次流程后续判断的got
 		got := defaultAutomationRuleName(trigger, "")
 		if got != want {
 			t.Errorf("defaultAutomationRuleName(%q)=%q want %q", trigger, got, want)
 		}
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := defaultAutomationRuleName(automation.TriggerOrderPaid, "item-x"); got != "付款后自动发货 - item-x" {
 		t.Errorf("带 itemID 的默认名异常: %q", got)
 	}
@@ -541,7 +541,7 @@ func TestDefaultAutomationRuleName(t *testing.T) {
 
 // TestIsJSONObject isJSONObject 表驱动。
 func TestIsJSONObject(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := map[string]bool{
 		`{}`:      true,
 		`{"a":1}`: true,
@@ -553,7 +553,7 @@ func TestIsJSONObject(t *testing.T) {
 	}
 	// in、want 表示当前遍历过程中的in、want
 	for in, want := range cases {
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := isJSONObject(in); got != want {
 			t.Errorf("isJSONObject(%q)=%v want %v", in, got, want)
 		}
@@ -562,11 +562,11 @@ func TestIsJSONObject(t *testing.T) {
 
 // TestFirstNonZero firstNonZero 表驱动。
 func TestFirstNonZero(t *testing.T) {
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := firstNonZero(0, 5); got != 5 {
 		t.Fatalf("got %d", got)
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := firstNonZero(3, 5); got != 3 {
 		t.Fatalf("got %d", got)
 	}

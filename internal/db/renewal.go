@@ -52,17 +52,17 @@ func (c *Cookies) UpdateRenewalCookie(ctx context.Context, cookieID, cookieValue
 	if lastRefreshAt <= 0 {
 		lastRefreshAt = time.Now().Unix()
 	}
-	// encryptedCookie、err 保存encryptedCookie、err，供当前处理流程使用
+	// encryptedCookie、err 用于本次流程后续判断的encryptedCookie、err
 	encryptedCookie, err := c.codec.encrypt("cookie", cookieID, cookieValue)
 	if err != nil {
 		return fmt.Errorf("加密 Cookie: %w", err)
 	}
-	// encryptedMetadata、err 保存encryptedMetadata、err，供当前处理流程使用
+	// encryptedMetadata、err 用于本次流程后续判断的encryptedMetadata、err
 	encryptedMetadata, err := c.codec.encrypt(cookieMetadataScope, cookieID, metadataJSON)
 	if err != nil {
 		return fmt.Errorf("加密 Cookie metadata: %w", err)
 	}
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := c.DB.ExecContext(ctx,
 		`UPDATE cookies
 		 SET value=?, metadata_json=?, last_refresh_at=?, updated_at=CURRENT_TIMESTAMP
@@ -71,7 +71,7 @@ func (c *Cookies) UpdateRenewalCookie(ctx context.Context, cookieID, cookieValue
 	if err != nil {
 		return err
 	}
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := res.RowsAffected()
 	if err != nil {
 		return err
@@ -82,9 +82,9 @@ func (c *Cookies) UpdateRenewalCookie(ctx context.Context, cookieID, cookieValue
 	if rows == 0 {
 		// MySQL 默认报告“实际变更行数”，同值且同秒更新可能返回 0；
 		// 只有记录确实不存在时才应映射为 ErrNotFound。
-		// exists 保存exists，供当前处理流程使用
+		// exists 用于本次流程后续判断的exists
 		var exists bool
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := c.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM cookies WHERE id=?)`, cookieID).Scan(&exists); err != nil {
 			return err
 		}
@@ -97,11 +97,11 @@ func (c *Cookies) UpdateRenewalCookie(ctx context.Context, cookieID, cookieValue
 
 // GetCookieRefreshSchedule 读取浏览器 Cookie 续期计划。
 func (r *RenewalStore) GetCookieRefreshSchedule(ctx context.Context, cookieID string) (*CookieRefreshSchedule, error) {
-	// s 保存s，供当前处理流程使用
+	// s 用于本次流程后续判断的s
 	var s CookieRefreshSchedule
-	// disabled 保存disabled，供当前处理流程使用
+	// disabled 用于本次流程后续判断的disabled
 	var disabled int
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	err := r.DB.QueryRowContext(ctx,
 		`SELECT cookie_id, expire_at, disabled, consecutive_failures, COALESCE(last_error,''),
 		        COALESCE(last_status,''), COALESCE(last_error_message,''), COALESCE(last_refresh_at,0)
@@ -120,12 +120,12 @@ func (r *RenewalStore) GetCookieRefreshSchedule(ctx context.Context, cookieID st
 
 // UpsertCookieRefreshSchedule 写入浏览器 Cookie 续期计划。
 func (r *RenewalStore) UpsertCookieRefreshSchedule(ctx context.Context, s CookieRefreshSchedule) error {
-	// disabled 保存disabled，供当前处理流程使用
+	// disabled 用于本次流程后续判断的disabled
 	disabled := 0
 	if s.Disabled {
 		disabled = 1
 	}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := r.DB.ExecContext(ctx,
 		`INSERT INTO cookie_refresh_schedules
 		 (cookie_id, expire_at, disabled, consecutive_failures, last_error,
@@ -151,7 +151,7 @@ func (r *RenewalStore) AddBrowserCookieRenewLog(ctx context.Context, log Renewal
 	if log.UpdatedCookieCount == 0 {
 		log.UpdatedCookieCount = len(log.UpdatedCookieNames)
 	}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := r.DB.ExecContext(ctx,
 		`INSERT INTO scheduled_cookies_refresh_log
 		 (batch_id, cookie_id, status, message, error_message, updated_cookie_names,
@@ -169,7 +169,7 @@ func (r *RenewalStore) AddLoginRenewLog(ctx context.Context, log RenewalLog) err
 	if log.UpdatedCookieCount == 0 {
 		log.UpdatedCookieCount = len(log.UpdatedCookieNames)
 	}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := r.DB.ExecContext(ctx,
 		`INSERT INTO scheduled_login_renew_log
 		 (batch_id, cookie_id, status, message, error_message, updated_cookie_names,
@@ -187,7 +187,7 @@ func (r *RenewalStore) AddAPICookieRenewLog(ctx context.Context, log RenewalLog)
 	if log.UpdatedCookieCount == 0 {
 		log.UpdatedCookieCount = len(log.UpdatedCookieNames)
 	}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := r.DB.ExecContext(ctx,
 		`INSERT INTO scheduled_api_cookie_renew_log
 		 (batch_id, cookie_id, status, message, error_message, updated_cookie_names,
@@ -205,7 +205,7 @@ func (r *RenewalStore) RecentAPICookieRenewStatuses(ctx context.Context, cookieI
 	if limit <= 0 {
 		return nil, nil
 	}
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := r.DB.QueryContext(ctx,
 		`SELECT status FROM scheduled_api_cookie_renew_log
 		 WHERE cookie_id=? ORDER BY id DESC LIMIT ?`, cookieID, limit)
@@ -213,12 +213,12 @@ func (r *RenewalStore) RecentAPICookieRenewStatuses(ctx context.Context, cookieI
 		return nil, err
 	}
 	defer rows.Close()
-	// statuses 保存statuses，供当前处理流程使用
+	// statuses 用于本次流程后续判断的statuses
 	statuses := make([]string, 0, limit)
 	for rows.Next() {
-		// status 保存状态，供当前处理流程使用
+		// status 用于本次流程后续判断的状态
 		var status string
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&status); err != nil {
 			return nil, err
 		}
@@ -228,12 +228,12 @@ func (r *RenewalStore) RecentAPICookieRenewStatuses(ctx context.Context, cookieI
 }
 
 // CleanupLogs deletes renewal logs older than retentionDays. Non-positive values skip cleanup.
-// CleanupLogs 负责CleanupLogs相关处理。
+// CleanupLogs 封装CleanupLogs业务协调。
 func (r *RenewalStore) CleanupLogs(ctx context.Context, retentionDays int) error {
 	if retentionDays <= 0 {
 		return nil
 	}
-	// cutoff 保存cutoff，供当前处理流程使用
+	// cutoff 用于本次流程后续判断的cutoff
 	cutoff := time.Now().AddDate(0, 0, -retentionDays)
 	// table 表示当前遍历过程中的table
 	for _, table := range []string{
@@ -241,7 +241,7 @@ func (r *RenewalStore) CleanupLogs(ctx context.Context, retentionDays int) error
 		"scheduled_login_renew_log",
 		"scheduled_api_cookie_renew_log",
 	} {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		_, err := r.DB.ExecContext(ctx, `DELETE FROM `+table+` WHERE created_at < ?`, cutoff); err != nil {
 			return err
 		}
@@ -254,7 +254,7 @@ func (r *RenewalStore) RecentBrowserCookieRenewStatuses(ctx context.Context, coo
 	if limit <= 0 {
 		return nil, nil
 	}
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := r.DB.QueryContext(ctx,
 		`SELECT status FROM scheduled_cookies_refresh_log
 		 WHERE cookie_id=? ORDER BY id DESC LIMIT ?`, cookieID, limit)
@@ -262,12 +262,12 @@ func (r *RenewalStore) RecentBrowserCookieRenewStatuses(ctx context.Context, coo
 		return nil, err
 	}
 	defer rows.Close()
-	// statuses 保存statuses，供当前处理流程使用
+	// statuses 用于本次流程后续判断的statuses
 	var statuses []string
 	for rows.Next() {
-		// status 保存状态，供当前处理流程使用
+		// status 用于本次流程后续判断的状态
 		var status string
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&status); err != nil {
 			return nil, err
 		}
@@ -276,7 +276,7 @@ func (r *RenewalStore) RecentBrowserCookieRenewStatuses(ctx context.Context, coo
 	return statuses, rows.Err()
 }
 
-// firstNonEmpty 负责firstNonEmpty相关处理。
+// firstNonEmpty 封装firstNonEmpty业务协调。
 func firstNonEmpty(values ...string) string {
 	// v 表示当前遍历过程中的v
 	for _, v := range values {

@@ -18,23 +18,23 @@ import (
 	"xianyu-go/internal/xianyu/protocol"
 )
 
-// testCookiesWithUnb 保存testCookiesWithUnb，供当前处理流程使用
+// testCookiesWithUnb 用于本次流程后续判断的testCookiesWithUnb
 const testCookiesWithUnb = "unb=123; _m_h5_tk=oldtoken_1;"
 
-// TestRefreshTokenHTTPUsesCookieSessionScopes 负责TestRefresh令牌HTTPUses登录凭证会话Scopes相关处理。
+// TestRefreshTokenHTTPUsesCookieSessionScopes 封装TestRefresh令牌HTTPUses登录凭证会话Scopes业务协调。
 func TestRefreshTokenHTTPUsesCookieSessionScopes(t *testing.T) {
-	// initial 保存initial，供当前处理流程使用
+	// initial 用于本次流程后续判断的initial
 	initial := []cookierefresh.BrowserCookie{
 		{Name: "unb", Value: "123", Domain: ".goofish.com", Path: "/", Secure: true},
 		{Name: "_m_h5_tk", Value: "document-old_1", Domain: ".goofish.com", Path: "/", Secure: true},
 		{Name: "document_only", Value: "visible", Domain: "www.goofish.com", Path: "/im", Secure: true},
 		{Name: "api_http_only", Value: "secret", Domain: "h5api.m.goofish.com", Path: "/h5", Secure: true, HTTPOnly: true},
 	}
-	// ctx、session 保存ctx、session，供当前处理流程使用
+	// ctx、session 用于本次流程后续判断的ctx、session
 	ctx, session := WithCookieSnapshot(context.Background(), initial)
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: cookieSessionRoundTripFunc(func(req *http.Request) (*http.Response, error) {
-		// cookieHeader 保存登录凭证Header，供当前处理流程使用
+		// cookieHeader 用于本次流程后续判断的登录凭证Header
 		cookieHeader := req.Header.Get("Cookie")
 		// want 表示当前遍历过程中的want
 		for _, want := range []string{"unb=123", "_m_h5_tk=document-old_1", "api_http_only=secret"} {
@@ -48,13 +48,13 @@ func TestRefreshTokenHTTPUsesCookieSessionScopes(t *testing.T) {
 				t.Errorf("request Cookie %q unexpectedly contains %q", cookieHeader, unwanted)
 			}
 		}
-		// timestamp 保存timestamp，供当前处理流程使用
+		// timestamp 用于本次流程后续判断的timestamp
 		timestamp := req.URL.Query().Get("t")
-		// dataVal 保存数据Val，供当前处理流程使用
+		// dataVal 用于本次流程后续判断的数据Val
 		dataVal := `{"appKey":"` + RegAppKey + `","deviceId":"did"}`
-		// wantSign 保存wantSign，供当前处理流程使用
+		// wantSign 用于本次流程后续判断的wantSign
 		wantSign := protocol.GenerateSign(timestamp, "document-old", dataVal)
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := req.URL.Query().Get("sign"); got != wantSign {
 			t.Errorf("sign=%q want %q", got, wantSign)
 		}
@@ -67,12 +67,12 @@ func TestRefreshTokenHTTPUsesCookieSessionScopes(t *testing.T) {
 			Request: req,
 		}, nil
 	})}}
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := client.RefreshTokenWithDeviceIDContext(ctx, "unb=fallback; _m_h5_tk=fallback_1; fallback_only=leak", "did")
 	if err != nil || result.AccessToken != "direct-context" {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
-	// canonical、changed 保存canonical、changed，供当前处理流程使用
+	// canonical、changed 用于本次流程后续判断的canonical、changed
 	canonical, _, changed := session.State()
 	if !changed || !strings.Contains(canonical, "_m_h5_tk=document-new_9") || !strings.Contains(result.UpdatedCookies, "_m_h5_tk=document-new_9") {
 		t.Fatalf("canonical=%q result=%+v changed=%v", canonical, result, changed)
@@ -81,11 +81,11 @@ func TestRefreshTokenHTTPUsesCookieSessionScopes(t *testing.T) {
 
 // TestRefreshTokenWithDeviceIDSuccessOnRetry: 首次返回 token 过期 + Set-Cookie，二次成功。
 func TestRefreshTokenWithDeviceIDSuccessOnRetry(t *testing.T) {
-	// requests 保存请求列表，供当前处理流程使用
+	// requests 用于本次流程后续判断的请求列表
 	var requests atomic.Int32
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// attempt 保存尝试次数，供当前处理流程使用
+		// attempt 用于本次流程后续判断的尝试次数
 		attempt := requests.Add(1)
 		if attempt == 1 {
 			http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "newtoken_999", Path: "/"})
@@ -96,12 +96,12 @@ func TestRefreshTokenWithDeviceIDSuccessOnRetry(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := client.RefreshTokenWithDeviceIDContext(ctx, testCookiesWithUnb, "device-xyz")
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -116,15 +116,15 @@ func TestRefreshTokenWithDeviceIDSuccessOnRetry(t *testing.T) {
 
 // TestRefreshTokenMissingUnbCookie: cookie 缺 unb 报错。
 func TestRefreshTokenMissingUnbCookie(t *testing.T) {
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Errorf("不应发请求")
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := client.RefreshTokenContext(context.Background(), "_m_h5_tk=token_1;")
 	if err == nil || !strings.Contains(err.Error(), "cookie 缺少 unb") {
 		t.Fatalf("err=%v", err)
@@ -133,18 +133,18 @@ func TestRefreshTokenMissingUnbCookie(t *testing.T) {
 
 // TestRefreshTokenSuccessButAccessTokenEmpty: ret SUCCESS 但 accessToken 为空。
 func TestRefreshTokenSuccessButAccessTokenEmpty(t *testing.T) {
-	// requests 保存请求列表，供当前处理流程使用
+	// requests 用于本次流程后续判断的请求列表
 	var requests atomic.Int32
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{}}`)
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := client.RefreshTokenContext(context.Background(), testCookiesWithUnb)
 	if err == nil || !strings.Contains(err.Error(), "accessToken 为空") {
 		t.Fatalf("err=%v", err)
@@ -156,18 +156,18 @@ func TestRefreshTokenSuccessButAccessTokenEmpty(t *testing.T) {
 
 // TestRefreshTokenNonSuccessRet: 非 token 过期的失败 ret，不重试直接报错。
 func TestRefreshTokenNonSuccessRet(t *testing.T) {
-	// requests 保存请求列表，供当前处理流程使用
+	// requests 用于本次流程后续判断的请求列表
 	var requests atomic.Int32
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		fmt.Fprint(w, `{"ret":["FAIL_BIZ_VALIDATE_FAIL::参数错误"]}`)
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := client.RefreshTokenContext(context.Background(), testCookiesWithUnb)
 	if err == nil || !strings.Contains(err.Error(), "token API 返回非成功") {
 		t.Fatalf("err=%v", err)
@@ -179,7 +179,7 @@ func TestRefreshTokenNonSuccessRet(t *testing.T) {
 
 // TestRefreshTokenHTTPError: 5xx 视为请求失败，直接返回 err（不进入 ret 解析路径）。
 func TestRefreshTokenHTTPError(t *testing.T) {
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 5xx 但 body 是有效 JSON — refreshTokenOnce 只看业务 ret，不看 HTTP 状态码；
 		// 由于 ret 解析为非 token 过期失败，应走"返回非成功"分支。
@@ -188,9 +188,9 @@ func TestRefreshTokenHTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := client.RefreshTokenContext(context.Background(), testCookiesWithUnb)
 	if err == nil || !strings.Contains(err.Error(), "token API 返回非成功") {
 		t.Fatalf("err=%v", err)
@@ -199,15 +199,15 @@ func TestRefreshTokenHTTPError(t *testing.T) {
 
 // TestRefreshTokenParseFailure: 响应非 JSON 解析失败。
 func TestRefreshTokenParseFailure(t *testing.T) {
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `not-json{{{`)
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := client.RefreshTokenContext(context.Background(), testCookiesWithUnb)
 	if err == nil || !strings.Contains(err.Error(), "解析 token 响应失败") {
 		t.Fatalf("err=%v", err)
@@ -216,13 +216,13 @@ func TestRefreshTokenParseFailure(t *testing.T) {
 
 // TestRefreshTokenRequestError: 网络层错误（服务器关闭）。
 func TestRefreshTokenRequestError(t *testing.T) {
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	server.Close() // 立即关闭，使请求失败
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := client.RefreshTokenContext(context.Background(), testCookiesWithUnb)
 	if err == nil || !strings.Contains(err.Error(), "token API 请求失败") {
 		t.Fatalf("err=%v", err)
@@ -231,11 +231,11 @@ func TestRefreshTokenRequestError(t *testing.T) {
 
 // TestRefreshTokenExpiredRetNoCookieUsesOfficialAttemptLimit: 官网 lib-mtop 即使
 // 响应未下发新 Cookie，也会最多执行五次请求（含首次）。
-// TestRefreshTokenExpiredRetNoCookieUsesOfficialAttemptLimit 负责TestRefresh令牌ExpiredRetNo登录凭证UsesOfficial尝试次数上限相关处理。
+// TestRefreshTokenExpiredRetNoCookieUsesOfficialAttemptLimit 封装TestRefresh令牌ExpiredRetNo登录凭证UsesOfficial尝试次数上限业务协调。
 func TestRefreshTokenExpiredRetNoCookieUsesOfficialAttemptLimit(t *testing.T) {
-	// requests 保存请求列表，供当前处理流程使用
+	// requests 用于本次流程后续判断的请求列表
 	var requests atomic.Int32
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		// 不 Set-Cookie，ret 为 token 过期
@@ -243,9 +243,9 @@ func TestRefreshTokenExpiredRetNoCookieUsesOfficialAttemptLimit(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := client.RefreshTokenContext(context.Background(), testCookiesWithUnb)
 	if err == nil || !strings.Contains(err.Error(), "登录凭证已失效") {
 		t.Fatalf("err=%v", err)
@@ -255,9 +255,9 @@ func TestRefreshTokenExpiredRetNoCookieUsesOfficialAttemptLimit(t *testing.T) {
 	}
 }
 
-// TestRefreshTokenExhaustionClearsOfficialMTopCookies 负责TestRefresh令牌ExhaustionClearsOfficialMTopCookies相关处理。
+// TestRefreshTokenExhaustionClearsOfficialMTopCookies 封装TestRefresh令牌ExhaustionClearsOfficialMTopCookies业务协调。
 func TestRefreshTokenExhaustionClearsOfficialMTopCookies(t *testing.T) {
-	// snapshot 保存snapshot，供当前处理流程使用
+	// snapshot 用于本次流程后续判断的snapshot
 	snapshot := []cookierefresh.BrowserCookie{
 		{Name: "unb", Value: "123", Domain: ".goofish.com", Path: "/"},
 		{Name: "keep", Value: "yes", Domain: ".goofish.com", Path: "/"},
@@ -266,17 +266,17 @@ func TestRefreshTokenExhaustionClearsOfficialMTopCookies(t *testing.T) {
 		{Name: "_m_h5_tk_enc", Value: "enc", Domain: ".m.goofish.com", Path: "/"},
 		{Name: "_m_h5_tk", Value: "scoped", Domain: ".goofish.com", Path: "/im"},
 	}
-	// requests 保存请求列表，供当前处理流程使用
+	// requests 用于本次流程后续判断的请求列表
 	var requests atomic.Int32
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
 		fmt.Fprint(w, `{"ret":["FAIL_SYS_TOKEN_EXOIRED::令牌过期"]}`)
 	}))
 	defer server.Close()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx, _ := WithCookieSnapshot(context.Background(), snapshot)
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := (&ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}).RefreshTokenWithCredentialContext(
 		ctx, testCookiesWithUnb, "did", snapshot,
 	)
@@ -298,7 +298,7 @@ func TestRefreshTokenExhaustionClearsOfficialMTopCookies(t *testing.T) {
 	if !strings.Contains(result.UpdatedCookies, "keep=yes") {
 		t.Fatalf("无关 Cookie 被误删: %q", result.UpdatedCookies)
 	}
-	// keptScoped 保存keptScoped，供当前处理流程使用
+	// keptScoped 用于本次流程后续判断的keptScoped
 	var keptScoped bool
 	// cookie 表示当前遍历过程中的登录凭证
 	for _, cookie := range result.CookieSnapshot {
@@ -314,18 +314,18 @@ func TestRefreshTokenExhaustionClearsOfficialMTopCookies(t *testing.T) {
 	}
 }
 
-// TestRefreshTokenFlatSessionExhaustionPersistsOfficialCookieClear 负责TestRefresh令牌Flat会话ExhaustionPersistsOfficial登录凭证Clear相关处理。
+// TestRefreshTokenFlatSessionExhaustionPersistsOfficialCookieClear 封装TestRefresh令牌Flat会话ExhaustionPersistsOfficial登录凭证Clear业务协调。
 func TestRefreshTokenFlatSessionExhaustionPersistsOfficialCookieClear(t *testing.T) {
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, `{"ret":["FAIL_SYS_TOKEN_EXOIRED::令牌过期"],"data":{}}`)
 	}))
 	defer server.Close()
-	// initial 保存initial，供当前处理流程使用
+	// initial 用于本次流程后续判断的initial
 	initial := "unb=123; _m_h5_c=c; _m_h5_tk=oldtoken_1; _m_h5_tk_enc=enc; keep=yes"
-	// ctx、session 保存ctx、session，供当前处理流程使用
+	// ctx、session 用于本次流程后续判断的ctx、session
 	ctx, session := WithFlatCookieSession(context.Background(), initial)
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := (&ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}).RefreshTokenContext(ctx, initial)
 	if err == nil || !strings.Contains(err.Error(), "登录凭证已失效") {
 		t.Fatalf("result=%+v err=%v", result, err)
@@ -339,18 +339,18 @@ func TestRefreshTokenFlatSessionExhaustionPersistsOfficialCookieClear(t *testing
 	if !strings.Contains(result.UpdatedCookies, "unb=123") || !strings.Contains(result.UpdatedCookies, "keep=yes") || !result.CookieStateChanged {
 		t.Fatalf("result=%+v", result)
 	}
-	// value、snapshot、changed 保存value、snapshot、changed，供当前处理流程使用
+	// value、snapshot、changed 用于本次流程后续判断的value、snapshot、changed
 	value, snapshot, changed := session.State()
 	if !changed || snapshot != nil || value != result.UpdatedCookies {
 		t.Fatalf("session value=%q snapshot=%+v changed=%v result=%+v", value, snapshot, changed, result)
 	}
 }
 
-// TestRefreshTokenKeepsAccumulatedSnapshotWhenLaterAttemptFails 负责TestRefresh令牌KeepsAccumulatedSnapshotWhenLater尝试次数Fails相关处理。
+// TestRefreshTokenKeepsAccumulatedSnapshotWhenLaterAttemptFails 封装TestRefresh令牌KeepsAccumulatedSnapshotWhenLater尝试次数Fails业务协调。
 func TestRefreshTokenKeepsAccumulatedSnapshotWhenLaterAttemptFails(t *testing.T) {
-	// calls 保存calls，供当前处理流程使用
+	// calls 用于本次流程后续判断的calls
 	var calls atomic.Int32
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: &http.Client{Transport: cookieSessionRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		if calls.Add(1) == 1 {
 			return &http.Response{
@@ -364,12 +364,12 @@ func TestRefreshTokenKeepsAccumulatedSnapshotWhenLaterAttemptFails(t *testing.T)
 		}
 		return nil, fmt.Errorf("second attempt network failure")
 	})}}
-	// snapshot 保存snapshot，供当前处理流程使用
+	// snapshot 用于本次流程后续判断的snapshot
 	snapshot := []cookierefresh.BrowserCookie{
 		{Name: "unb", Value: "123", Domain: ".goofish.com", Path: "/", Secure: true},
 		{Name: "_m_h5_tk", Value: "oldtoken_1", Domain: ".goofish.com", Path: "/", Secure: true},
 	}
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := client.RefreshTokenWithCredentialContext(context.Background(), testCookiesWithUnb, "did", snapshot)
 	if err == nil || !strings.Contains(err.Error(), "network failure") {
 		t.Fatalf("result=%+v err=%v", result, err)
@@ -377,7 +377,7 @@ func TestRefreshTokenKeepsAccumulatedSnapshotWhenLaterAttemptFails(t *testing.T)
 	if !result.CookieSnapshotComplete || !result.CookieStateChanged {
 		t.Fatalf("累计 Jar 状态丢失: %+v", result)
 	}
-	// found 保存found，供当前处理流程使用
+	// found 用于本次流程后续判断的found
 	var found bool
 	// cookie 表示当前遍历过程中的登录凭证
 	for _, cookie := range result.CookieSnapshot {
@@ -390,16 +390,16 @@ func TestRefreshTokenKeepsAccumulatedSnapshotWhenLaterAttemptFails(t *testing.T)
 	}
 }
 
-// TestRefreshTokenPreservesExplicitFlatDeletionOnParseError 负责TestRefresh令牌PreservesExplicitFlatDeletionOnParse错误相关处理。
+// TestRefreshTokenPreservesExplicitFlatDeletionOnParseError 封装TestRefresh令牌PreservesExplicitFlatDeletionOnParse错误业务协调。
 func TestRefreshTokenPreservesExplicitFlatDeletionOnParseError(t *testing.T) {
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Add("Set-Cookie", "unb=; Path=/; Max-Age=0")
 		w.Header().Add("Set-Cookie", "_m_h5_tk=; Path=/; Max-Age=0")
 		_, _ = w.Write([]byte(`not-json`))
 	}))
 	defer server.Close()
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := (&ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}).RefreshTokenContext(context.Background(), testCookiesWithUnb)
 	if err == nil || !strings.Contains(err.Error(), "解析 token 响应失败") {
 		t.Fatalf("result=%+v err=%v", result, err)
@@ -409,26 +409,26 @@ func TestRefreshTokenPreservesExplicitFlatDeletionOnParseError(t *testing.T) {
 	}
 }
 
-// TestRefreshTokenSessionExpiredDoesNotUseTokenRetry 负责TestRefresh令牌会话ExpiredDoesNotUse令牌重试相关处理。
+// TestRefreshTokenSessionExpiredDoesNotUseTokenRetry 封装TestRefresh令牌会话ExpiredDoesNotUse令牌重试业务协调。
 func TestRefreshTokenSessionExpiredDoesNotUseTokenRetry(t *testing.T) {
-	// requests 保存请求列表，供当前处理流程使用
+	// requests 用于本次流程后续判断的请求列表
 	var requests atomic.Int32
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
 		fmt.Fprint(w, `{"ret":["FAIL_SYS_SESSION_EXPIRED::会话过期"]}`)
 	}))
 	defer server.Close()
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := (&ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}).RefreshTokenContext(context.Background(), testCookiesWithUnb)
 	if err == nil || requests.Load() != 1 {
 		t.Fatalf("err=%v requests=%d want 1", err, requests.Load())
 	}
 }
 
-// TestBuildTokenQueryMatchesCurrentMessagePageContext 负责TestBuild令牌查询MatchesCurrent消息页码上下文相关处理。
+// TestBuildTokenQueryMatchesCurrentMessagePageContext 封装TestBuild令牌查询MatchesCurrent消息页码上下文业务协调。
 func TestBuildTokenQueryMatchesCurrentMessagePageContext(t *testing.T) {
-	// query、err 保存query、err，供当前处理流程使用
+	// query、err 用于本次流程后续判断的query、err
 	query, err := url.ParseQuery(buildTokenQuery("123", "sig"))
 	if err != nil {
 		t.Fatal(err)
@@ -438,19 +438,19 @@ func TestBuildTokenQueryMatchesCurrentMessagePageContext(t *testing.T) {
 	}
 	// stale 表示当前遍历过程中的stale
 	for _, stale := range []string{"smToken", "queryToken", "sm"} {
-		if // ok 保存ok，供当前处理流程使用
+		if // ok 用于本次流程后续判断的ok
 		_, ok := query[stale]; ok {
 			t.Fatalf("官网当前 token 请求不应包含 %s: %v", stale, query)
 		}
 	}
 }
 
-// TestRefreshTokenUsesReferenceFingerprint 负责TestRefresh令牌UsesReferenceFingerprint相关处理。
+// TestRefreshTokenUsesReferenceFingerprint 封装TestRefresh令牌UsesReferenceFingerprint业务协调。
 func TestRefreshTokenUsesReferenceFingerprint(t *testing.T) {
 	xianyu.SetBrowserFingerprint(xianyu.BrowserFingerprint{UserAgent: "playwright-native-ua", SecChUA: `"Chromium";v="999"`})
-	// gotUA、gotSecChUA 保存gotUA、gotSecChUA，供当前处理流程使用
+	// gotUA、gotSecChUA 用于本次流程后续判断的gotUA、gotSecChUA
 	var gotUA, gotSecChUA string
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUA = r.Header.Get("User-Agent")
 		gotSecChUA = r.Header.Get("sec-ch-ua")
@@ -458,9 +458,9 @@ func TestRefreshTokenUsesReferenceFingerprint(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := client.RefreshTokenWithDeviceIDContext(context.Background(), testCookiesWithUnb, "did"); err != nil {
 		t.Fatal(err)
 	}
@@ -471,11 +471,11 @@ func TestRefreshTokenUsesReferenceFingerprint(t *testing.T) {
 
 // TestRefreshTokenContextCanceled: 连续重试期间仍遵守调用方 ctx。
 func TestRefreshTokenContextCanceled(t *testing.T) {
-	// requests 保存请求列表，供当前处理流程使用
+	// requests 用于本次流程后续判断的请求列表
 	var requests atomic.Int32
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// attempt 保存尝试次数，供当前处理流程使用
+		// attempt 用于本次流程后续判断的尝试次数
 		attempt := requests.Add(1)
 		if attempt == 1 {
 			http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "newtoken_999", Path: "/"})
@@ -489,9 +489,9 @@ func TestRefreshTokenContextCanceled(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	// 在第二次请求开始后取消，避免依赖固定重试延迟。
 	go func() {
@@ -500,7 +500,7 @@ func TestRefreshTokenContextCanceled(t *testing.T) {
 		}
 		cancel()
 	}()
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := client.RefreshTokenContext(ctx, testCookiesWithUnb)
 	if err == nil {
 		t.Fatalf("expected ctx cancel error, got nil")
@@ -513,15 +513,15 @@ func TestRefreshTokenContextCanceled(t *testing.T) {
 
 // TestRefreshTokenRefreshWrapper: RefreshToken（无 Context）调用等价于 RefreshTokenContext。
 func TestRefreshTokenRefreshWrapper(t *testing.T) {
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"accessToken":"wrapped"}}`)
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := client.RefreshToken(testCookiesWithUnb)
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -531,11 +531,11 @@ func TestRefreshTokenRefreshWrapper(t *testing.T) {
 	}
 }
 
-// TestParseAccessTokenExpireAtSupportsOfficialTimestampForms 负责TestParseAccess令牌ExpireAtSupportsOfficialTimestampForms相关处理。
+// TestParseAccessTokenExpireAtSupportsOfficialTimestampForms 封装TestParseAccess令牌ExpireAtSupportsOfficialTimestampForms业务协调。
 func TestParseAccessTokenExpireAtSupportsOfficialTimestampForms(t *testing.T) {
-	// now 保存now，供当前处理流程使用
+	// now 用于本次流程后续判断的now
 	now := time.Unix(1_700_000_000, 0)
-	// tests 保存tests，供当前处理流程使用
+	// tests 用于本次流程后续判断的tests
 	tests := []struct {
 		name string
 		raw  string
@@ -549,7 +549,7 @@ func TestParseAccessTokenExpireAtSupportsOfficialTimestampForms(t *testing.T) {
 	// tt 表示当前遍历过程中的tt
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if // got 保存got，供当前处理流程使用
+			if // got 用于本次流程后续判断的got
 			got := parseAccessTokenExpireAt(json.RawMessage(tt.raw), now); got != tt.want {
 				t.Fatalf("expireAt=%d want=%d", got, tt.want)
 			}
@@ -557,9 +557,9 @@ func TestParseAccessTokenExpireAtSupportsOfficialTimestampForms(t *testing.T) {
 	}
 }
 
-// TestParseAccessTokenExpireAtRejectsMissingValue 负责TestParseAccess令牌ExpireAtRejectsMissing值相关处理。
+// TestParseAccessTokenExpireAtRejectsMissingValue 封装TestParseAccess令牌ExpireAtRejectsMissing值业务协调。
 func TestParseAccessTokenExpireAtRejectsMissingValue(t *testing.T) {
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := parseAccessTokenExpireAt(nil, time.Now()); got != 0 {
 		t.Fatalf("expireAt=%d want=0", got)
 	}

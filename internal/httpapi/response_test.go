@@ -19,7 +19,7 @@ func TestWriteErrorDetails(t *testing.T) {
 	}
 	// response 是反序列化后的统一错误 DTO。
 	var response ErrorResponse
-	// decodeErr 表示错误响应 JSON 反序列化失败的原因。
+	// decodeErr 记录当前操作失败原因响应 JSON 反序列化失败的原因。
 	if decodeErr := json.Unmarshal(recorder.Body.Bytes(), &response); decodeErr != nil {
 		t.Fatalf("decode error response: %v", decodeErr)
 	}

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// ChatSession 保存聊天会话，供当前处理流程使用
+// ChatSession 用于本次流程后续判断的聊天会话
 type ChatSession struct {
 	CookieID      string `json:"account_id"`
 	ChatID        string `json:"chat_id"`
@@ -23,7 +23,7 @@ type ChatSession struct {
 	UnreadCount   int    `json:"unread_count"`
 }
 
-// ChatMessage 保存聊天消息，供当前处理流程使用
+// ChatMessage 用于本次流程后续判断的聊天消息
 type ChatMessage struct {
 	ID          int64  `json:"id"`
 	CookieID    string `json:"account_id"`
@@ -40,29 +40,29 @@ type ChatMessage struct {
 	SentAt      int64  `json:"sent_at"`
 }
 
-// ChatStore 保存聊天Store，供当前处理流程使用
+// ChatStore 用于本次流程后续判断的聊天Store
 type ChatStore struct {
 	DB      *sql.DB
 	Dialect Dialect
 }
 
-// UpsertSession 负责Upsert会话相关处理。
+// UpsertSession 封装Upsert会话业务协调。
 func (s *ChatStore) UpsertSession(ctx context.Context, session ChatSession) error {
-	// now 保存now，供当前处理流程使用
+	// now 用于本次流程后续判断的now
 	now := time.Now().UTC().Unix()
-	// prefix 保存prefix，供当前处理流程使用
+	// prefix 用于本次流程后续判断的prefix
 	prefix := dialectInsertIgnorePrefix(s.Dialect)
-	// query 保存查询，供当前处理流程使用
+	// query 用于本次流程后续判断的查询
 	query := prefix + ` INTO chat_sessions
 		(cookie_id,chat_id,buyer_id,buyer_name,buyer_avatar_url,item_id,item_title,last_message,last_message_at,unread_count,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)` + dialectInsertIgnore(s.Dialect, []string{"cookie_id", "chat_id"})
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx, query, session.CookieID, session.ChatID, session.BuyerID, session.BuyerName,
 		session.BuyerAvatar, session.ItemID, session.ItemTitle, session.LastMessage, session.LastMessageAt,
 		session.UnreadCount, now, now); err != nil {
 		return err
 	}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx, `UPDATE chat_sessions SET
 		buyer_id=CASE WHEN ?<>'' THEN ? ELSE buyer_id END,
 		buyer_name=CASE WHEN ?<>'' THEN ? ELSE buyer_name END,
@@ -81,7 +81,7 @@ func (s *ChatStore) UpsertSession(ctx context.Context, session ChatSession) erro
 
 // DeleteSession 删除会话。
 func (s *ChatStore) DeleteSession(ctx context.Context, cookieID, chatID string) error {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx, `DELETE FROM chat_sessions WHERE cookie_id=? AND chat_id=?`, cookieID, chatID)
 	return err
 }
@@ -91,7 +91,7 @@ func (s *ChatStore) DeleteSession(ctx context.Context, cookieID, chatID string) 
 // "暂无消息", although the official UI never renders them.
 // DeleteEmptySessions 删除EmptySessions。
 func (s *ChatStore) DeleteEmptySessions(ctx context.Context, cookieID string) error {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx, `DELETE FROM chat_sessions
 		WHERE cookie_id=? AND (last_message='' OR last_message='暂无消息')
 		AND NOT EXISTS (SELECT 1 FROM chat_messages m WHERE m.cookie_id=chat_sessions.cookie_id AND m.chat_id=chat_sessions.chat_id)`, cookieID)
@@ -103,7 +103,7 @@ func (s *ChatStore) DeleteEmptySessions(ctx context.Context, cookieID string) er
 // a genuinely newer live message that arrived after that response was built.
 // SyncSessionSummary 同步会话Summary。
 func (s *ChatStore) SyncSessionSummary(ctx context.Context, cookieID, chatID, summary string, sentAt, observedModifyAt int64, unread int) error {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx, `UPDATE chat_sessions SET last_message=?,last_message_at=?,unread_count=?,updated_at=?
 		WHERE cookie_id=? AND chat_id=? AND last_message_at<=?`, summary, sentAt, unread, time.Now().UTC().Unix(),
 		cookieID, chatID, observedModifyAt)
@@ -112,7 +112,7 @@ func (s *ChatStore) SyncSessionSummary(ctx context.Context, cookieID, chatID, su
 
 // UpdateSessionIdentity 更新会话Identity。
 func (s *ChatStore) UpdateSessionIdentity(ctx context.Context, cookieID, chatID, buyerID, buyerName, avatarURL string) error {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx, `UPDATE chat_sessions SET
 		buyer_id=CASE WHEN ?<>'' THEN ? ELSE buyer_id END,
 		buyer_name=CASE WHEN ?<>'' THEN ? ELSE buyer_name END,
@@ -125,11 +125,11 @@ func (s *ChatStore) UpdateSessionIdentity(ctx context.Context, cookieID, chatID,
 // LatestUnmaskedPeerName recovers the most recent real nickname observed in
 // message history. Conversation summaries and profile APIs may return masked
 // names such as x***3, while older message extensions still contain the nick.
-// LatestUnmaskedPeerName 负责LatestUnmaskedPeer名称相关处理。
+// LatestUnmaskedPeerName 封装LatestUnmaskedPeer名称业务协调。
 func (s *ChatStore) LatestUnmaskedPeerName(ctx context.Context, cookieID, chatID string) (string, error) {
-	// name 保存名称，供当前处理流程使用
+	// name 用于本次流程后续判断的名称
 	var name string
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	err := s.DB.QueryRowContext(ctx, `SELECT sender_name FROM chat_messages
 		WHERE cookie_id=? AND chat_id=? AND direction='incoming' AND sender_name<>'' AND sender_name NOT LIKE '%***%'
 			AND message_type<>'system'
@@ -166,9 +166,9 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 		message.ReadAt = time.Now().UTC().UnixMilli()
 	}
 	message.CookieID, message.ChatID = session.CookieID, session.ChatID
-	// now 保存now，供当前处理流程使用
+	// now 用于本次流程后续判断的now
 	now := time.Now().UTC().Unix()
-	// tx、err 保存tx、err，供当前处理流程使用
+	// tx、err 用于本次流程后续判断的tx、err
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, false, err
@@ -176,19 +176,19 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 	defer tx.Rollback()
 	// The composite foreign key on chat_messages requires the session to exist
 	// first. Insert an empty shell without touching an existing conversation.
-	// sessionPrefix 保存会话Prefix，供当前处理流程使用
+	// sessionPrefix 用于本次流程后续判断的会话Prefix
 	sessionPrefix := dialectInsertIgnorePrefix(s.Dialect)
-	// sessionInsert 保存会话Insert，供当前处理流程使用
+	// sessionInsert 用于本次流程后续判断的会话Insert
 	sessionInsert := sessionPrefix + ` INTO chat_sessions
 		(cookie_id,chat_id,buyer_id,buyer_name,buyer_avatar_url,item_id,item_title,last_message,last_message_at,unread_count,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)` + dialectInsertIgnore(s.Dialect, []string{"cookie_id", "chat_id"})
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := tx.ExecContext(ctx, sessionInsert, session.CookieID, session.ChatID, session.BuyerID,
 		session.BuyerName, session.BuyerAvatar, session.ItemID, session.ItemTitle, "", int64(0), 0, now, now); err != nil {
 		return nil, false, fmt.Errorf("建立聊天会话: %w", err)
 	}
 
-	// prefix 保存prefix，供当前处理流程使用
+	// prefix 用于本次流程后续判断的prefix
 	prefix := dialectInsertIgnorePrefix(s.Dialect)
 	// query 保存带已读字段的幂等插入 SQL，三方言冲突时保持同一列顺序。
 	query := prefix + ` INTO chat_messages
@@ -201,11 +201,12 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 	if err != nil {
 		return nil, false, fmt.Errorf("保存聊天消息: %w", err)
 	}
-	// inserted 保存inserted，供当前处理流程使用
+	// inserted 用于本次流程后续判断的inserted
 	inserted, _ := res.RowsAffected()
 	if inserted > 0 {
 		// inheritErr 保存买家后续消息确认此前出站消息已读时的失败；同一会话中的后续回复是已读历史的确定证据。
 		if message.Direction == "incoming" && message.MessageType != "system" {
+			// inheritErr 表示把后续买家消息作为已读证据回写到此前出站消息时的数据库错误。
 			_, inheritErr := tx.ExecContext(ctx, `UPDATE chat_messages SET read_status=2,
 				read_at=CASE WHEN read_status=2 AND read_at>0 THEN read_at ELSE ? END
 				WHERE cookie_id=? AND chat_id=? AND direction='outgoing' AND sent_at<=?`, message.SentAt, message.CookieID, message.ChatID, message.SentAt)
@@ -215,6 +216,7 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 		}
 		// inheritErr 保存平台消息补入历史时继承本地临时消息已读回执的失败，避免同一消息因键不同长期显示未读。
 		if message.Direction == "outgoing" && strings.HasSuffix(message.MessageKey, ".PNM") {
+			// inheritErr 表示把临时出站消息的已读回执继承到平台补入历史消息时的数据库错误。
 			_, inheritErr := tx.ExecContext(ctx, `UPDATE chat_messages AS platform SET read_status=2,read_at=(SELECT local.read_at FROM chat_messages AS local
 				WHERE local.cookie_id=platform.cookie_id AND local.chat_id=platform.chat_id AND local.direction='outgoing'
 				AND local.message_key NOT LIKE '%.PNM' AND local.content=platform.content AND local.read_status=2
@@ -227,12 +229,12 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 				return nil, false, fmt.Errorf("继承聊天已读回执: %w", inheritErr)
 			}
 		}
-		// unreadDelta 保存unreadDelta，供当前处理流程使用
+		// unreadDelta 用于本次流程后续判断的unreadDelta
 		unreadDelta := 0
 		if unread {
 			unreadDelta = 1
 		}
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		_, err := tx.ExecContext(ctx, `UPDATE chat_sessions SET buyer_id=?,buyer_name=?,buyer_avatar_url=?,
 			item_id=?,item_title=?,last_message=CASE WHEN last_message_at<=? THEN ? ELSE last_message END,
 			last_message_at=CASE WHEN last_message_at<=? THEN ? ELSE last_message_at END,
@@ -243,11 +245,11 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 			return nil, false, fmt.Errorf("更新聊天会话: %w", err)
 		}
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := tx.Commit(); err != nil {
 		return nil, false, err
 	}
-	// stored、err 保存stored、err，供当前处理流程使用
+	// stored、err 用于本次流程后续判断的stored、err
 	stored, err := s.GetMessageByKey(ctx, message.CookieID, message.MessageKey)
 	return stored, inserted > 0, err
 }
@@ -271,7 +273,7 @@ func (s *ChatStore) GetMessageByKey(ctx context.Context, cookieID, key string) (
 // message when a later history response exposes richer protocol metadata.
 // UpdateMessageType 更新消息类型。
 func (s *ChatStore) UpdateMessageType(ctx context.Context, cookieID, key, messageType string) error {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx, `UPDATE chat_messages SET message_type=?
 		WHERE cookie_id=? AND message_key=?`, messageType, cookieID, key)
 	return err
@@ -282,7 +284,7 @@ func (s *ChatStore) ListSessions(ctx context.Context, userID int64, cookieID str
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := s.DB.QueryContext(ctx, `SELECT cs.cookie_id,cs.chat_id,cs.buyer_id,cs.buyer_name,cs.buyer_avatar_url,
 		cs.item_id,cs.item_title,cs.last_message,cs.last_message_at,cs.unread_count
 		FROM chat_sessions cs JOIN cookies c ON c.id=cs.cookie_id
@@ -291,12 +293,12 @@ func (s *ChatStore) ListSessions(ctx context.Context, userID int64, cookieID str
 		return nil, err
 	}
 	defer rows.Close()
-	// result 保存结果，供当前处理流程使用
+	// result 用于本次流程后续判断的结果
 	var result []ChatSession
 	for rows.Next() {
-		// row 保存row，供当前处理流程使用
+		// row 用于本次流程后续判断的row
 		var row ChatSession
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&row.CookieID, &row.ChatID, &row.BuyerID, &row.BuyerName, &row.BuyerAvatar,
 			&row.ItemID, &row.ItemTitle, &row.LastMessage, &row.LastMessageAt, &row.UnreadCount); err != nil {
 			return nil, err
@@ -315,7 +317,7 @@ func (s *ChatStore) ListMessages(ctx context.Context, userID int64, cookieID, ch
 	query := `SELECT m.id,m.cookie_id,m.chat_id,m.message_key,m.direction,m.sender_id,m.sender_name,m.message_type,m.content,m.status,m.read_status,m.read_at,m.sent_at
 		FROM chat_messages m JOIN cookies c ON c.id=m.cookie_id
 		WHERE c.user_id=? AND m.cookie_id=? AND m.chat_id=?`
-	// args 保存args，供当前处理流程使用
+	// args 用于本次流程后续判断的args
 	args := []any{userID, cookieID, chatID}
 	if beforeID > 0 {
 		query += ` AND (m.sent_at < COALESCE((SELECT older.sent_at FROM chat_messages older WHERE older.id=? AND older.cookie_id=?), m.sent_at)
@@ -324,13 +326,13 @@ func (s *ChatStore) ListMessages(ctx context.Context, userID int64, cookieID, ch
 	}
 	query += ` ORDER BY m.sent_at DESC,m.id DESC LIMIT ?`
 	args = append(args, limit)
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := s.DB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	// result 保存结果，供当前处理流程使用
+	// result 用于本次流程后续判断的结果
 	var result []ChatMessage
 	for rows.Next() {
 		// m 保存当前扫描出的消息及其本地已读状态。
@@ -343,7 +345,7 @@ func (s *ChatStore) ListMessages(ctx context.Context, userID int64, cookieID, ch
 		result = append(result, m)
 	}
 	// API returns chronological order while the query remains index-friendly.
-	for // i、j 保存i、j，供当前处理流程使用
+	for // i、j 用于本次流程后续判断的i、j
 	i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
 		result[i], result[j] = result[j], result[i]
 	}
@@ -379,7 +381,7 @@ func (s *ChatStore) CountUnreadUserMessages(ctx context.Context, cookieID, chatI
 
 // UpdateMessageStatus 更新消息状态。
 func (s *ChatStore) UpdateMessageStatus(ctx context.Context, cookieID, key, status string) (*ChatMessage, error) {
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx, `UPDATE chat_messages SET status=? WHERE cookie_id=? AND message_key=?`, status, cookieID, key); err != nil {
 		return nil, err
 	}

@@ -11,12 +11,12 @@ import (
 
 // TestKeywords_AllWithType AllWithType 路径 + Add 默认 type。
 func TestKeywords_AllWithType(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
 
 	// Add 不指定 type → 默认 text。
@@ -28,11 +28,11 @@ func TestKeywords_AllWithType(t *testing.T) {
 	if _, err := s.Keywords.Add(ctx, cid, "图", "[img]", "item1", "image", "http://img"); err != nil {
 		t.Fatalf("Add image: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Keywords.Add(ctx, cid, "你好呀", "更精确", "", "text", ""); err != nil {
 		t.Fatal(err)
 	}
-	// kws、err 保存kws、err，供当前处理流程使用
+	// kws、err 用于本次流程后续判断的kws、err
 	kws, err := s.Keywords.AllWithType(ctx, cid)
 	if err != nil {
 		t.Fatalf("AllWithType: %v", err)
@@ -61,13 +61,13 @@ func TestKeywords_AllWithType(t *testing.T) {
 
 // TestKeywords_AllRowsEmptyCookie AllRows 对无关键字的账号返回 nil 不报错。
 func TestKeywords_AllRowsEmptyCookie(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	seedAccount(t, s)
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := s.Keywords.AllRows(ctx, "no-such-cookie")
 	if err != nil || len(rows) != 0 {
 		t.Fatalf("AllRows 空: %#v err=%v", rows, err)
@@ -75,14 +75,14 @@ func TestKeywords_AllRowsEmptyCookie(t *testing.T) {
 }
 
 // TestItemReplies_SetDelete ItemReplies.Set/Delete/AllForUser + Get。
-// TestItemReplies_SetDelete 负责Test商品回复列表SetDelete相关处理。
+// TestItemReplies_SetDelete 封装Test商品回复列表SetDelete业务协调。
 func TestItemReplies_SetDelete(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
 
 	// Get 不存在 → ErrNotFound。
@@ -93,7 +93,7 @@ func TestItemReplies_SetDelete(t *testing.T) {
 	if err := s.ItemReps.Set(ctx, cid, "i1", "回复A"); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
-	// got、err 保存got、err，供当前处理流程使用
+	// got、err 用于本次流程后续判断的got、err
 	got, err := s.ItemReps.Get(ctx, cid, "i1")
 	if err != nil || got.ReplyContent != "回复A" {
 		t.Fatalf("Get: %#v err=%v", got, err)
@@ -107,31 +107,31 @@ func TestItemReplies_SetDelete(t *testing.T) {
 		t.Fatalf("覆盖后=%q want 回复B", got.ReplyContent)
 	}
 	// AllForUser。
-	// all、err 保存all、err，供当前处理流程使用
+	// all、err 用于本次流程后续判断的all、err
 	all, err := s.ItemReps.AllForUser(ctx, cid)
 	if err != nil || len(all) != 1 {
 		t.Fatalf("AllForUser: %#v err=%v", all, err)
 	}
 	// Delete。
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.ItemReps.Delete(ctx, cid, "i1"); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.ItemReps.Get(ctx, cid, "i1"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Delete 后应 ErrNotFound, got %v", err)
 	}
 }
 
 // TestDefaultReplies_GetAndRecord DefaultReplies.Get/HasRecord/AddRecord。
-// TestDefaultReplies_GetAndRecord 负责TestDefault回复列表GetAndRecord相关处理。
+// TestDefaultReplies_GetAndRecord 封装TestDefault回复列表GetAndRecord业务协调。
 func TestDefaultReplies_GetAndRecord(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
 
 	// Get 不存在 → ErrNotFound。
@@ -142,7 +142,7 @@ func TestDefaultReplies_GetAndRecord(t *testing.T) {
 	_, _ = s.DB.ExecContext(ctx,
 		`INSERT INTO default_replies (cookie_id, enabled, reply_content, reply_image_url, reply_once) VALUES (?, 1, '你好', 'http://img', 1)`,
 		cid)
-	// dr、err 保存dr、err，供当前处理流程使用
+	// dr、err 用于本次流程后续判断的dr、err
 	dr, err := s.DefaultReps.Get(ctx, cid)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -168,14 +168,14 @@ func TestDefaultReplies_GetAndRecord(t *testing.T) {
 }
 
 // TestNotifications_GetChannelAndAccountChannels GetChannel + AccountChannels。
-// TestNotifications_GetChannelAndAccountChannels 负责Test通知列表Get渠道And账号渠道列表相关处理。
+// TestNotifications_GetChannelAndAccountChannels 封装Test通知列表Get渠道And账号渠道列表业务协调。
 func TestNotifications_GetChannelAndAccountChannels(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// uid、cid 保存uid、cid，供当前处理流程使用
+	// uid、cid 用于本次流程后续判断的uid、cid
 	uid, cid := seedAccount(t, s)
 
 	// GetChannel 不存在 → nil, nil。
@@ -183,7 +183,7 @@ func TestNotifications_GetChannelAndAccountChannels(t *testing.T) {
 	if err != nil || got != nil {
 		t.Fatalf("GetChannel 不存在应 nil, got %#v err=%v", got, err)
 	}
-	// chID 保存chID，供当前处理流程使用
+	// chID 用于本次流程后续判断的chID
 	chID, _ := s.Notifications.CreateChannel(ctx, &NotificationChannelRow{
 		Name: "wh", Type: "webhook", Config: `{"url":"x"}`, Enabled: true, UserID: uid,
 	})
@@ -194,7 +194,7 @@ func TestNotifications_GetChannelAndAccountChannels(t *testing.T) {
 
 	// AccountChannels：绑定渠道后查询。
 	s.Notifications.SetBindings(ctx, cid, []int64{chID})
-	// channels、err 保存channels、err，供当前处理流程使用
+	// channels、err 用于本次流程后续判断的channels、err
 	channels, err := s.Notifications.AccountChannels(ctx, cid)
 	if err != nil {
 		t.Fatalf("AccountChannels: %v", err)
@@ -212,41 +212,41 @@ func TestNotifications_GetChannelAndAccountChannels(t *testing.T) {
 	}
 }
 
-// TestNotificationsRejectCrossUserBindings 负责Test通知列表RejectCross用户Bindings相关处理。
+// TestNotificationsRejectCrossUserBindings 封装Test通知列表RejectCross用户Bindings业务协调。
 func TestNotificationsRejectCrossUserBindings(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// uid、cid 保存uid、cid，供当前处理流程使用
+	// uid、cid 用于本次流程后续判断的uid、cid
 	uid, cid := seedAccount(t, s)
-	if // ok、err 保存ok、err，供当前处理流程使用
+	if // ok、err 用于本次流程后续判断的ok、err
 	ok, err := s.Users.Create(ctx, "u2", "u2@example.com", "pw"); err != nil || !ok {
 		t.Fatalf("create second user: ok=%v err=%v", ok, err)
 	}
-	// u2 保存u2，供当前处理流程使用
+	// u2 用于本次流程后续判断的u2
 	u2, _ := s.Users.GetByUsername(ctx, "u2")
-	// ownCh 保存ownCh，供当前处理流程使用
+	// ownCh 用于本次流程后续判断的ownCh
 	ownCh, _ := s.Notifications.CreateChannel(ctx, &NotificationChannelRow{
 		Name: "own", Type: "webhook", Config: `{}`, Enabled: true, UserID: uid,
 	})
-	// otherCh 保存otherCh，供当前处理流程使用
+	// otherCh 用于本次流程后续判断的otherCh
 	otherCh, _ := s.Notifications.CreateChannel(ctx, &NotificationChannelRow{
 		Name: "other", Type: "webhook", Config: `{}`, Enabled: true, UserID: u2.ID,
 	})
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Notifications.SetBindings(ctx, cid, []int64{otherCh}); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("cross-user SetBindings should be forbidden, got %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Notifications.SetBindings(ctx, cid, []int64{ownCh}); err != nil {
 		t.Fatalf("own SetBindings: %v", err)
 	}
 	// 模拟历史脏数据：当前账号绑定到了其他用户渠道，读取侧也必须过滤掉。
 	_, _ = s.DB.ExecContext(ctx, `INSERT INTO message_notifications (cookie_id, channel_id, enabled) VALUES (?, ?, 1)`, cid, otherCh)
-	// bindings、err 保存bindings、err，供当前处理流程使用
+	// bindings、err 用于本次流程后续判断的bindings、err
 	bindings, err := s.Notifications.AccountBindings(ctx, cid)
 	if err != nil {
 		t.Fatalf("AccountBindings: %v", err)
@@ -254,7 +254,7 @@ func TestNotificationsRejectCrossUserBindings(t *testing.T) {
 	if len(bindings) != 1 || bindings[0] != ownCh {
 		t.Fatalf("bindings should only include own channel: %#v", bindings)
 	}
-	// channels、err 保存channels、err，供当前处理流程使用
+	// channels、err 用于本次流程后续判断的channels、err
 	channels, err := s.Notifications.AccountChannels(ctx, cid)
 	if err != nil {
 		t.Fatalf("AccountChannels: %v", err)
@@ -266,10 +266,10 @@ func TestNotificationsRejectCrossUserBindings(t *testing.T) {
 
 // TestSettings_GetAndAll Get 不存在返回空串 + All 全量。
 func TestSettings_GetAndAll(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 
 	// Get 不存在 → 空串不报错。
@@ -282,7 +282,7 @@ func TestSettings_GetAndAll(t *testing.T) {
 	s.Settings.Set(ctx, "k2", "v2")
 	// 二次 Set 同 key → 覆盖（UPSERT）。
 	s.Settings.Set(ctx, "k1", "v1-updated")
-	// all、err 保存all、err，供当前处理流程使用
+	// all、err 用于本次流程后续判断的all、err
 	all, err := s.Settings.All(ctx)
 	if err != nil {
 		t.Fatalf("All: %v", err)
@@ -290,7 +290,7 @@ func TestSettings_GetAndAll(t *testing.T) {
 	if all["k1"] != "v1-updated" || all["k2"] != "v2" {
 		t.Fatalf("All = %#v", all)
 	}
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	got, _ := s.Settings.Get(ctx, "k1")
 	if got != "v1-updated" {
 		t.Fatalf("Get k1=%q want v1-updated", got)
@@ -299,10 +299,10 @@ func TestSettings_GetAndAll(t *testing.T) {
 
 // TestSettings_Public Public 过滤：白名单 key 返回值，私有 key 不外露。
 func TestSettings_Public(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 
 	// 写入一个公开 key + 几个遗留/私有 key。
@@ -312,7 +312,7 @@ func TestSettings_Public(t *testing.T) {
 	s.Settings.Set(ctx, "private_secret", "topsecret")
 	s.Settings.Set(ctx, "qq_reply_secret_key", "should-not-leak")
 
-	// pub、err 保存pub、err，供当前处理流程使用
+	// pub、err 用于本次流程后续判断的pub、err
 	pub, err := s.Settings.Public(ctx)
 	if err != nil {
 		t.Fatalf("Public: %v", err)
@@ -324,19 +324,19 @@ func TestSettings_Public(t *testing.T) {
 	if _, ok := pub["private_secret"]; ok {
 		t.Fatal("private_secret 不应外露")
 	}
-	if // ok 保存ok，供当前处理流程使用
+	if // ok 用于本次流程后续判断的ok
 	_, ok := pub["qq_reply_secret_key"]; ok {
 		t.Fatal("qq_reply_secret_key 不应外露")
 	}
-	if // ok 保存ok，供当前处理流程使用
+	if // ok 用于本次流程后续判断的ok
 	_, ok := pub["login_captcha_enabled"]; ok {
 		t.Fatal("未实现的登录验证码开关不应公开")
 	}
-	if // ok 保存ok，供当前处理流程使用
+	if // ok 用于本次流程后续判断的ok
 	_, ok := pub["registration_enabled"]; ok {
 		t.Fatal("未实现的注册开关不应公开")
 	}
-	if // ok 保存ok，供当前处理流程使用
+	if // ok 用于本次流程后续判断的ok
 	_, ok := pub["show_default_login_info"]; ok {
 		t.Fatal("未使用的默认登录提示开关不应公开")
 	}
@@ -345,18 +345,18 @@ func TestSettings_Public(t *testing.T) {
 // --- cookies.go ---
 
 // TestCookies_DeleteAndStatuses Delete/GetValue/GetDetails/SetStatus/GetStatus/UpdateProfile。
-// TestCookies_DeleteAndStatuses 负责TestCookiesDeleteAndStatuses相关处理。
+// TestCookies_DeleteAndStatuses 封装TestCookiesDeleteAndStatuses业务协调。
 func TestCookies_DeleteAndStatuses(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
 
 	// GetValue。
-	// v、err 保存v、err，供当前处理流程使用
+	// v、err 用于本次流程后续判断的v、err
 	v, err := s.Cookies.GetValue(ctx, cid)
 	if err != nil || v != "cv=admin" {
 		t.Fatalf("GetValue: v=%q err=%v", v, err)
@@ -370,11 +370,11 @@ func TestCookies_DeleteAndStatuses(t *testing.T) {
 	if _, err := s.Cookies.GetDetails(ctx, "nope"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx, `UPDATE cookies SET remark=NULL, username=NULL, password=NULL WHERE id=?`, cid); err != nil {
 		t.Fatalf("set nullable text fields: %v", err)
 	}
-	// details、err 保存details、err，供当前处理流程使用
+	// details、err 用于本次流程后续判断的details、err
 	details, err := s.Cookies.GetDetails(ctx, cid)
 	if err != nil {
 		t.Fatalf("GetDetails should tolerate NULL text fields: %v", err)
@@ -393,7 +393,7 @@ func TestCookies_DeleteAndStatuses(t *testing.T) {
 	}
 
 	// SetStatus false → GetStatus false。
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Cookies.SetStatus(ctx, cid, false); err != nil {
 		t.Fatalf("SetStatus false: %v", err)
 	}
@@ -411,11 +411,11 @@ func TestCookies_DeleteAndStatuses(t *testing.T) {
 	}
 
 	// UpdateProfile。
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Cookies.UpdateProfile(ctx, cid, "昵称", "http://avatar"); err != nil {
 		t.Fatalf("UpdateProfile: %v", err)
 	}
-	// d 保存d，供当前处理流程使用
+	// d 用于本次流程后续判断的d
 	d, _ := s.Cookies.GetDetails(ctx, cid)
 	if d.Nickname != "昵称" || d.AvatarURL != "http://avatar" {
 		t.Fatalf("UpdateProfile 后: %#v", d)
@@ -427,7 +427,7 @@ func TestCookies_DeleteAndStatuses(t *testing.T) {
 		t.Fatalf("GetValue: %q err=%v", value, valueErr)
 	}
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx, `INSERT INTO item_replay (item_id,cookie_id,reply_content) VALUES ('item-stale',?,'不应残留')`, cid); err != nil {
 		t.Fatalf("seed item_replay: %v", err)
 	}
@@ -435,13 +435,13 @@ func TestCookies_DeleteAndStatuses(t *testing.T) {
 	if err := s.Cookies.Delete(ctx, cid); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Cookies.GetValue(ctx, cid); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Delete 后 GetValue 应 ErrNotFound, got %v", err)
 	}
-	// stale 保存stale，供当前处理流程使用
+	// stale 用于本次流程后续判断的stale
 	var stale int
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM item_replay WHERE cookie_id=?`, cid).Scan(&stale); err != nil || stale != 0 {
 		t.Fatalf("Delete 后 item_replay count=%d err=%v", stale, err)
 	}
@@ -449,19 +449,19 @@ func TestCookies_DeleteAndStatuses(t *testing.T) {
 
 // TestCookies_SaveReuseUserID Save 在 userID=0 且 cookie 已存在时复用 user_id。
 func TestCookies_SaveReuseUserID(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// uid、cid 保存uid、cid，供当前处理流程使用
+	// uid、cid 用于本次流程后续判断的uid、cid
 	uid, cid := seedAccount(t, s)
 
 	// cookie 已存在；用 userID=0 调 Save 应复用 existing user_id 并更新 value。
 	if err := s.Cookies.Save(ctx, cid, "new-value", 0); err != nil {
 		t.Fatalf("Save reuse: %v", err)
 	}
-	// v 保存v，供当前处理流程使用
+	// v 用于本次流程后续判断的v
 	v, _ := s.Cookies.GetValue(ctx, cid)
 	if v != "new-value" {
 		t.Fatalf("value=%q want new-value", v)
@@ -480,16 +480,16 @@ func TestCookies_SaveReuseUserID(t *testing.T) {
 
 // TestCookies_GetPauseDurationExplicit 显式 pause_duration=0 应返回 0（有效值）。
 func TestCookies_GetPauseDurationExplicit(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
 	// 显式置 0。
 	_, _ = s.DB.ExecContext(ctx, `UPDATE cookies SET pause_duration=0 WHERE id=?`, cid)
-	if // pd 保存pd，供当前处理流程使用
+	if // pd 用于本次流程后续判断的pd
 	pd := s.Cookies.GetPauseDuration(ctx, cid); pd != 0 {
 		t.Fatalf("GetPauseDuration=%d want 0", pd)
 	}
@@ -499,45 +499,45 @@ func TestCookies_GetPauseDurationExplicit(t *testing.T) {
 	}
 }
 
-// TestCookies_SetPauseAndAutomaticExpiry 负责TestCookiesSetPauseAndAutomaticExpiry相关处理。
+// TestCookies_SetPauseAndAutomaticExpiry 封装TestCookiesSetPauseAndAutomaticExpiry业务协调。
 func TestCookies_SetPauseAndAutomaticExpiry(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
 
-	// pausedUntil、err 保存pausedUntil、err，供当前处理流程使用
+	// pausedUntil、err 用于本次流程后续判断的pausedUntil、err
 	pausedUntil, err := s.Cookies.SetPause(ctx, cid, 15)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// paused、storedUntil、err 保存paused、storedUntil、err，供当前处理流程使用
+	// paused、storedUntil、err 用于本次流程后续判断的paused、storedUntil、err
 	paused, storedUntil, err := s.Cookies.IsPaused(ctx, cid)
 	if err != nil || !paused || storedUntil != pausedUntil || pausedUntil <= time.Now().UTC().Unix() {
 		t.Fatalf("pause state: paused=%v until=%d stored=%d err=%v", paused, pausedUntil, storedUntil, err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx, `UPDATE cookies SET paused_until=? WHERE id=?`, time.Now().UTC().Add(-time.Second).Unix(), cid); err != nil {
 		t.Fatal(err)
 	}
 	if paused, _, err = s.Cookies.IsPaused(ctx, cid); err != nil || paused {
 		t.Fatalf("expired pause must be inactive: paused=%v err=%v", paused, err)
 	}
-	if // until、err 保存until、err，供当前处理流程使用
+	if // until、err 用于本次流程后续判断的until、err
 	until, err := s.Cookies.SetPause(ctx, cid, 0); err != nil || until != 0 {
 		t.Fatalf("cancel pause: until=%d err=%v", until, err)
 	}
 }
 
-// TestCookiesGetStatusFailsClosedOnDatabaseError 负责TestCookiesGet状态FailsClosedOnDatabase错误相关处理。
+// TestCookiesGetStatusFailsClosedOnDatabaseError 封装TestCookiesGet状态FailsClosedOnDatabase错误业务协调。
 func TestCookiesGetStatusFailsClosedOnDatabaseError(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.DB.Close(); err != nil {
 		t.Fatal(err)
 	}

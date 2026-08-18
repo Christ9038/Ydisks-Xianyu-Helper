@@ -8,11 +8,11 @@ import (
 	"testing"
 )
 
-// TestParseLevelAndSetLevel 负责TestParseLevelAndSetLevel相关处理。
+// TestParseLevelAndSetLevel 封装TestParseLevelAndSetLevel业务协调。
 func TestParseLevelAndSetLevel(t *testing.T) {
 	defer Level.Set(slog.LevelInfo)
 
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := map[string]slog.Level{
 		"":        slog.LevelInfo,
 		"debug":   slog.LevelDebug,
@@ -22,7 +22,7 @@ func TestParseLevelAndSetLevel(t *testing.T) {
 	}
 	// in、want 表示当前遍历过程中的in、want
 	for in, want := range cases {
-		// got、err 保存got、err，供当前处理流程使用
+		// got、err 用于本次流程后续判断的got、err
 		got, err := ParseLevel(in)
 		if err != nil {
 			t.Fatalf("ParseLevel(%q): %v", in, err)
@@ -31,32 +31,32 @@ func TestParseLevelAndSetLevel(t *testing.T) {
 			t.Fatalf("ParseLevel(%q)=%v want %v", in, got, want)
 		}
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := ParseLevel("verbose"); err == nil {
 		t.Fatal("invalid level should fail")
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := SetLevel("debug"); err != nil {
 		t.Fatalf("SetLevel: %v", err)
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := Level.Level(); got != slog.LevelDebug {
 		t.Fatalf("global level=%v want debug", got)
 	}
 }
 
-// TestNewLoggerHonorsDynamicLevel 负责TestNewLoggerHonorsDynamicLevel相关处理。
+// TestNewLoggerHonorsDynamicLevel 封装TestNewLoggerHonorsDynamicLevel业务协调。
 func TestNewLoggerHonorsDynamicLevel(t *testing.T) {
 	defer Level.Set(slog.LevelInfo)
-	// buf 保存buf，供当前处理流程使用
+	// buf 用于本次流程后续判断的buf
 	var buf bytes.Buffer
-	// logger 保存logger，供当前处理流程使用
+	// logger 用于本次流程后续判断的logger
 	logger := NewLogger(&buf, "text")
 
 	Level.Set(slog.LevelWarn)
 	logger.Info("hidden")
 	logger.Warn("visible")
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := buf.String()
 	if strings.Contains(out, "hidden") {
 		t.Fatalf("info log should be filtered: %s", out)

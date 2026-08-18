@@ -9,7 +9,7 @@ import (
 
 // TestParseDBURL 覆盖各 scheme 与向后兼容路径。
 func TestParseDBURL(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := []struct {
 		name     string
 		url      string
@@ -35,7 +35,7 @@ func TestParseDBURL(t *testing.T) {
 	// c 表示当前遍历过程中的c
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			// driver、dialect、dsn、err 保存driver、dialect、dsn、err，供当前处理流程使用
+			// driver、dialect、dsn、err 用于本次流程后续判断的driver、dialect、dsn、err
 			driver, dialect, dsn, err := parseDBURL(c.url)
 			if c.wantErr {
 				if err == nil {
@@ -86,7 +86,7 @@ func TestMysqlDSN(t *testing.T) {
 
 // TestRewriteQuestionPlaceholders ? → $N，跳过引号内字面量。
 func TestRewriteQuestionPlaceholders(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := []struct {
 		name string
 		in   string
@@ -103,7 +103,7 @@ func TestRewriteQuestionPlaceholders(t *testing.T) {
 	// c 表示当前遍历过程中的c
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			// got 保存got，供当前处理流程使用
+			// got 用于本次流程后续判断的got
 			got := rewriteQuestionPlaceholders(c.in)
 			if got != c.want {
 				t.Errorf("rewriteQuestionPlaceholders(%q)=%q want %q", c.in, got, c.want)

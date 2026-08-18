@@ -23,6 +23,30 @@ type violation struct {
 	message string
 }
 
+// controlledDynamicResponse 描述一个暂时保留的动态响应及其外部兼容治理条件。
+type controlledDynamicResponse struct {
+	// matrixName 是兼容矩阵中必须出现的响应类型登记名。
+	matrixName string
+	// sunsetVersion 是该兼容响应计划移除的版本，必须与服务端遥测版本一致。
+	sunsetVersion string
+}
+
+// controlledDynamicResponses 是阶段 9 允许保留的最小动态响应登记表。
+var controlledDynamicResponses = map[string]controlledDynamicResponse{
+	"settingsResponse": {
+		matrixName:    "settingsResponse",
+		sunsetVersion: "v2.0",
+	},
+	"notificationBindingListResponse": {
+		matrixName:    "notificationBindingListResponse",
+		sunsetVersion: "v2.0",
+	},
+	"automationRulePageResponse": {
+		matrixName:    "automationRulePageResponse",
+		sunsetVersion: "v2.0",
+	},
+}
+
 // main 执行架构依赖检查并在发现违规时返回失败状态。
 func main() {
 	// root 是待检查的仓库根目录。
@@ -73,6 +97,7 @@ func checkRepository(root string) ([]violation, error) {
 		violations = append(violations, fileViolations...)
 		return nil
 	})
+	violations = append(violations, checkCompatibilityGovernance(root)...)
 	return violations, walkErr
 }
 
@@ -121,6 +146,15 @@ func checkGoFile(root, relativePath string, fset *token.FileSet) ([]violation, e
 				message: fmt.Sprintf("应用层禁止依赖基础设施或 HTTP 层 %q", importedPath),
 			})
 		}
+		if isForbiddenHiddenDependencyImport(importPath, normalizedImport) {
+			// line 是隐藏依赖导入所在的源码行号。
+			line := fset.Position(imp.Pos()).Line
+			violations = append(violations, violation{
+				file:    filepath.ToSlash(relativePath),
+				line:    line,
+				message: fmt.Sprintf("业务与传输层禁止使用反射、插件或动态依赖隐藏必需装配 %q", importedPath),
+			})
+		}
 		if isForbiddenServerLowLevelImport(importPath, normalizedImport) {
 			// line 是 Server 新增低层依赖所在的源码行号。
 			line := fset.Position(imp.Pos()).Line
@@ -133,6 +167,9 @@ func checkGoFile(root, relativePath string, fset *token.FileSet) ([]violation, e
 	}
 	violations = append(violations, checkApplicationTypeLeaks(relativePath, syntax, fset)...)
 	violations = append(violations, checkHTTPResponseContracts(relativePath, syntax, fset)...)
+	violations = append(violations, checkHTTPRequestContracts(relativePath, syntax, fset)...)
+	violations = append(violations, checkRuntimeSetterCalls(relativePath, syntax, fset)...)
+	violations = append(violations, checkServerCompositionCalls(relativePath, syntax, fset)...)
 	if strings.HasPrefix(filepath.ToSlash(relativePath), "internal/server/") && !strings.HasSuffix(relativePath, "_repository.go") {
 		// sourceLine 是裸 BeginTx 调用首次出现的源码行号。
 		sourceLine := firstLineContaining(string(source), ".DB.BeginTx(")
@@ -145,6 +182,134 @@ func checkGoFile(root, relativePath string, fset *token.FileSet) ([]violation, e
 		}
 	}
 	return violations, nil
+}
+
+// checkServerCompositionCalls 禁止已迁出的应用 worker 组合逻辑回流到 Server transport 包。
+func checkServerCompositionCalls(relativePath string, syntax *ast.File, fset *token.FileSet) []violation {
+	// normalizedPath 是统一使用斜杠的仓库相对路径。
+	normalizedPath := filepath.ToSlash(relativePath)
+	if !strings.HasPrefix(normalizedPath, "internal/server/") || strings.HasSuffix(normalizedPath, "_test.go") {
+		return nil
+	}
+	// forbiddenConstructors 记录必须由进程组合根创建的应用 worker 构造函数及修复提示。
+	forbiddenConstructors := map[string]string{
+		"NewReconciliationRecoveryCoordinator": "订单补偿恢复协调器必须由 cmd 组合根构造后注入 Server",
+		"NewDatabaseHealth":                    "数据库健康检查端口必须由 cmd 组合根构造后注入 Server",
+	}
+	// violations 保存当前 Server 文件中发现的组合根回流问题。
+	var violations []violation
+	ast.Inspect(syntax, func(node ast.Node) bool {
+		// call 是当前待检查的函数调用节点。
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		// selector 是包函数或对象方法调用；仅包级构造函数可能违反本规则。
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		// message 是命中构造函数后返回的组合根迁移提示。
+		message, forbidden := forbiddenConstructors[selector.Sel.Name]
+		if !forbidden {
+			return true
+		}
+		violations = append(violations, violation{
+			file:    normalizedPath,
+			line:    fset.Position(call.Pos()).Line,
+			message: message,
+		})
+		return true
+	})
+	return violations
+}
+
+// checkHTTPRequestContracts 禁止 Server handler 使用匿名请求结构，保证请求契约能够被复用、审计和版本化。
+func checkHTTPRequestContracts(relativePath string, syntax *ast.File, fset *token.FileSet) []violation {
+	// normalizedPath 是统一使用斜杠的仓库相对路径。
+	normalizedPath := filepath.ToSlash(relativePath)
+	if !strings.HasPrefix(normalizedPath, "internal/server/") || strings.HasSuffix(normalizedPath, "_test.go") || !strings.HasSuffix(normalizedPath, "_handlers.go") {
+		return nil
+	}
+	// violations 保存当前 handler 文件中发现的匿名请求结构。
+	var violations []violation
+	ast.Inspect(syntax, func(node ast.Node) bool {
+		// declaration 是函数体内可能包含请求变量的声明语句。
+		declaration, ok := node.(*ast.DeclStmt)
+		if !ok {
+			return true
+		}
+		// generalDeclaration 是具体的 var 声明；短变量声明不会承载匿名 struct 类型。
+		generalDeclaration, ok := declaration.Decl.(*ast.GenDecl)
+		if !ok || generalDeclaration.Tok != token.VAR {
+			return true
+		}
+		// specification 是当前 var 声明中的单个语法规格。
+		for _, specification := range generalDeclaration.Specs {
+			// valueSpecification 是当前 var 声明的名称、类型和初始值组合。
+			valueSpecification, ok := specification.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			// anonymousStruct 表示该变量是否直接声明为匿名 struct 类型。
+			_, anonymousStruct := valueSpecification.Type.(*ast.StructType)
+			if !anonymousStruct {
+				continue
+			}
+			// name 是当前匿名结构声明中的变量名。
+			for _, name := range valueSpecification.Names {
+				if name.Name != "req" && name.Name != "input" {
+					continue
+				}
+				violations = append(violations, violation{
+					file:    normalizedPath,
+					line:    fset.Position(valueSpecification.Pos()).Line,
+					message: fmt.Sprintf("HTTP 请求变量 %s 禁止使用匿名 struct，请定义具名 DTO", name.Name),
+				})
+			}
+		}
+		return true
+	})
+	return violations
+}
+
+// checkRuntimeSetterCalls 禁止生产代码调用仅为测试替身保留的 Adapter 运行时 setter。
+func checkRuntimeSetterCalls(relativePath string, syntax *ast.File, fset *token.FileSet) []violation {
+	// normalizedPath 是统一使用斜杠的仓库相对路径。
+	normalizedPath := filepath.ToSlash(relativePath)
+	if strings.HasSuffix(normalizedPath, "_test.go") {
+		return nil
+	}
+	// testOnlySetters 是已登记为测试隔离入口的 Adapter setter 名称。
+	testOnlySetters := map[string]struct{}{
+		"SetAutomation": {}, "SetNotifier": {}, "SetChatService": {}, "SetCredentialWakeService": {},
+		"SetBrowser": {}, "SetRenewService": {}, "SetTokenCaptchaRequester": {}, "SetOrderDetailClient": {},
+	}
+	// violations 保存生产代码绕过构造期依赖固定的调用位置。
+	var violations []violation
+	ast.Inspect(syntax, func(node ast.Node) bool {
+		// call 是当前待判断的函数调用节点。
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		// selector 是当前调用的选择器表达式，只有明确的 Adapter setter 名称才属于本规则。
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		// registered 表示当前调用是否属于明确登记的测试兼容 setter。
+		if _, registered := testOnlySetters[selector.Sel.Name]; !registered {
+			return true
+		}
+		violations = append(violations, violation{
+			file:    normalizedPath,
+			line:    fset.Position(call.Pos()).Line,
+			message: fmt.Sprintf("生产代码禁止调用测试兼容 setter %s，请通过构造期 RuntimeBundle 注入", selector.Sel.Name),
+		})
+		return true
+	})
+	return violations
 }
 
 // checkHTTPResponseContracts 检查 Server 对外响应是否使用具名 DTO，并阻止动态 map 绕过契约边界。
@@ -192,13 +357,64 @@ func checkHTTPResponseContracts(relativePath string, syntax *ast.File, fset *tok
 
 // isControlledDynamicResponseType 判断已登记的动态键兼容响应，避免本阶段改变旧客户端 JSON 形状。
 func isControlledDynamicResponseType(name string) bool {
-	// 这些类型的键来自账号 ID、触发类型或设置名称；只有完成外部调用方审计后才允许在后续阶段删除。
-	switch name {
-	case "settingsResponse", "notificationBindingListResponse", "automationRulePageResponse":
-		return true
-	default:
+	// ok 表示响应类型是否已在阶段 9 的兼容登记表中备案。
+	_, ok := controlledDynamicResponses[name]
+	return ok
+}
+
+// isForbiddenHiddenDependencyImport 禁止应用与 Server 通过反射、插件机制或动态加载隐藏必需依赖。
+func isForbiddenHiddenDependencyImport(filePath, importedPath string) bool {
+	// productionLayer 表示阶段 9 需要封死隐式装配旁路的生产层。
+	productionLayer := (strings.HasPrefix(filePath, "internal/application/") && !strings.HasSuffix(filePath, "_test.go")) ||
+		(strings.HasPrefix(filePath, "internal/server/") && !strings.HasSuffix(filePath, "_test.go"))
+	if !productionLayer {
 		return false
 	}
+	for _, forbidden /* forbidden 是禁止隐藏依赖实现的标准库或运行时包名。 */ := range []string{"reflect", "plugin", "unsafe"} {
+		if importedPath == forbidden || strings.HasPrefix(importedPath, forbidden+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// checkCompatibilityGovernance 校验动态响应白名单、Sunset 版本与运行时遥测保持同步。
+func checkCompatibilityGovernance(root string) []violation {
+	// matrixPath 是记录外部调用方、删除条件和 Sunset 版本的兼容矩阵路径。
+	matrixPath := filepath.Join(root, "docs", "architecture", "api-compatibility-matrix.md")
+	// matrixBytes 是兼容矩阵原文，用于避免白名单脱离文档治理。
+	matrixBytes, err := os.ReadFile(matrixPath)
+	if err != nil {
+		return []violation{{file: filepath.ToSlash(filepath.Join("docs", "architecture", "api-compatibility-matrix.md")), line: 1, message: fmt.Sprintf("无法读取兼容矩阵: %v", err)}}
+	}
+	// matrix 是兼容矩阵文本，统一使用字符串匹配保留文档格式独立性。
+	matrix := string(matrixBytes)
+	// serverPath 是定义历史 API 遥测版本的服务端文件路径。
+	serverPath := filepath.Join(root, "internal", "server", "server.go")
+	// serverBytes 是服务端源码，用于确认每个兼容响应共用实际遥测版本。
+	serverBytes, err := os.ReadFile(serverPath)
+	if err != nil {
+		return []violation{{file: filepath.ToSlash(filepath.Join("internal", "server", "server.go")), line: 1, message: fmt.Sprintf("无法读取历史 API 遥测实现: %v", err)}}
+	}
+	// serverSource 是服务端源码文本，供版本与弃用头检查使用。
+	serverSource := string(serverBytes)
+	// violations 保存兼容治理缺失或版本漂移问题。
+	var violations []violation
+	for name /* name 是当前受控动态响应的 Go 类型名。 */, registration /* registration 是该响应的矩阵登记与退场版本。 */ := range controlledDynamicResponses {
+		if !strings.Contains(matrix, "`"+registration.matrixName+"`") && !strings.Contains(matrix, registration.matrixName) {
+			violations = append(violations, violation{file: "docs/architecture/api-compatibility-matrix.md", line: 1, message: fmt.Sprintf("动态响应 %s 未登记在兼容矩阵", name)})
+		}
+		if !strings.Contains(matrix, registration.sunsetVersion) {
+			violations = append(violations, violation{file: "docs/architecture/api-compatibility-matrix.md", line: 1, message: fmt.Sprintf("动态响应 %s 缺少 Sunset 版本 %s", name, registration.sunsetVersion)})
+		}
+	}
+	if !strings.Contains(serverSource, `legacyAPISuccessorLink = "</api/v1>; rel=\"successor-version\"; title=\"v2.0\""`) {
+		violations = append(violations, violation{file: "internal/server/server.go", line: 1, message: "历史 API successor Link 必须声明与兼容矩阵一致的版本 v2.0"})
+	}
+	if !strings.Contains(serverSource, `legacyAPISunsetDate = `) || !strings.Contains(serverSource, `Header().Set("Deprecation", "true")`) || !strings.Contains(serverSource, `Header().Set("Sunset", legacyAPISunsetDate)`) {
+		violations = append(violations, violation{file: "internal/server/server.go", line: 1, message: "历史 API 必须写入 Deprecation 与 Sunset 遥测头"})
+	}
+	return violations
 }
 
 // isHTTPContractTypeName 判断类型名称是否属于 Server 的 HTTP 响应契约。

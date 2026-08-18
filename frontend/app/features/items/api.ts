@@ -14,7 +14,7 @@ import type { PublishLocation } from '../../../shared/api-contract';
 export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => get('/api/v1/accounts/details', undefined, options);
 
 /** 商品页面读取自动化发货规则的兼容列表。 */
-export const getShippingRules = async (): Promise<ShippingRule[]> => get('/api/v1/automation-rules');
+export const getShippingRules = async (options?: RequestControlOptions): Promise<ShippingRule[]> => get('/api/v1/automation-rules', undefined, options);
 
 export { getPublishLocations };
 export type { PublishLocation } from '../../../shared/api-contract';
@@ -60,7 +60,7 @@ export const publishItem = async (form: {
     /** description 表示描述。 */ description: string;
     /** price 表示售价。 */ price: string;
     /** original_price 表示原始售价。 */ original_price?: string;
-    /** quantity 表示数量。 */ quantity: string | number;
+    /** quantity 表示待发布商品的件数，提交前会转换为表单字符串。 */ quantity: string | number;
     /** postage_mode 表示运费模式。 */ postage_mode: string;
     /** postage 表示运费。 */ postage?: string;
     /** images 表示图片列表。 */ images: File[];
@@ -85,7 +85,7 @@ file of form.images) {
 }
 
 // recommendPublishCategory 推荐商品发布分类。
-export const recommendPublishCategory = async (cookieId: string, keyword: string): Promise<CategoryRecommendationResponse> => {
+export const recommendPublishCategory = async (cookieId: string, keyword: string, options?: RequestControlOptions): Promise<CategoryRecommendationResponse> => {
     // 类目推荐成功响应使用共享 CategoryRecommendationResponse。
     // category 字段保留平台类目 ID、名称和频道类目 ID。
     // tb_cat_id 继续保持可选，兼容电子资料类目。
@@ -94,7 +94,7 @@ export const recommendPublishCategory = async (cookieId: string, keyword: string
     // 该类型收口不改变凭证刷新和错误处理。
     // 前端批量发布流程可直接复用 category。
     // 旧路径继续由现有 Vite 代理转发。
-    return post('/api/v1/items/publish-categories/recommend', { cookie_id: cookieId, keyword });
+	return post('/api/v1/items/publish-categories/recommend', { cookie_id: cookieId, keyword }, options);
 };
 
 // previewItemPublishBatch 预览商品批量发布。
@@ -109,7 +109,7 @@ export const previewItemPublishBatch = async (form: {
       /** tbCatId 表示淘宝分类标识。 */ tbCatId?: string;
     };
 	/** location 表示地址。 */ location?: PublishLocation;
-}): Promise<ItemPublishBatchPreviewResponse> => {
+}, options?: RequestControlOptions): Promise<ItemPublishBatchPreviewResponse> => {
     // body 请求体，用于当前 API 处理流程。
     const body = new FormData();
     body.set('file', form.file);
@@ -120,39 +120,39 @@ export const previewItemPublishBatch = async (form: {
     body.set('fallback_channel_category_id', form.fallbackCategory.channelCatId || '');
     body.set('fallback_tb_category_id', form.fallbackCategory.tbCatId || '');
 	if (form.location) body.set('location', JSON.stringify(form.location));
-    return postForm('/api/v1/items/publish-batches/preview', body);
+	return postForm('/api/v1/items/publish-batches/preview', body, options);
 }
 
 // startItemPublishBatch 启动商品批量发布。
-export const startItemPublishBatch = async (previewId: string): Promise<BatchIDResponse> => {
-    return post('/api/v1/items/publish-batches', { preview_id: previewId });
+export const startItemPublishBatch = async (previewId: string, options?: RequestControlOptions): Promise<BatchIDResponse> => {
+	return post('/api/v1/items/publish-batches', { preview_id: previewId }, options);
 }
 
 // getItemPublishBatch 读取商品发布批次。
-export const getItemPublishBatch = async (batchId: string): Promise<ItemPublishBatchResponse> => {
-    return get(`/api/v1/items/publish-batches/${batchId}`);
+export const getItemPublishBatch = async (batchId: string, options?: RequestControlOptions): Promise<ItemPublishBatchResponse> => {
+	return get(`/api/v1/items/publish-batches/${batchId}`, undefined, options);
 }
 
 // getItemPublishBatches 读取商品发布批次列表。
-export const getItemPublishBatches = async (limit = 20): Promise<ItemPublishBatchResponse[]> => {
+export const getItemPublishBatches = async (limit = 20, options?: RequestControlOptions): Promise<ItemPublishBatchResponse[]> => {
     // res 接口响应结果，用于当前 API 处理流程。
-    const res = await get<unknown>('/api/v1/items/publish-batches', { limit });
+	const res = await get<unknown>('/api/v1/items/publish-batches', { limit }, options);
     return collectionFrom<ItemPublishBatchResponse>(res, ['batches', 'data', 'items']);
 }
 
 // deleteItemPublishBatch 删除商品发布批次。
-export const deleteItemPublishBatch = async (batchId: string): Promise<OperationResponse> => {
-    return del(`/api/v1/items/publish-batches/${batchId}`);
+export const deleteItemPublishBatch = async (batchId: string, options?: RequestControlOptions): Promise<OperationResponse> => {
+	return del(`/api/v1/items/publish-batches/${batchId}`, undefined, options);
 }
 
 // cancelItemPublishBatch 取消商品发布批次。
-export const cancelItemPublishBatch = async (batchId: string): Promise<BatchCancelResponse> => {
-    return post(`/api/v1/items/publish-batches/${batchId}/cancel`, {});
+export const cancelItemPublishBatch = async (batchId: string, options?: RequestControlOptions): Promise<BatchCancelResponse> => {
+	return post(`/api/v1/items/publish-batches/${batchId}/cancel`, {}, options);
 }
 
 // retryFailedItemPublishBatch 重试失败的商品发布任务。
-export const retryFailedItemPublishBatch = async (batchId: string): Promise<BatchIDResponse> => {
-    return post(`/api/v1/items/publish-batches/${batchId}/retry-failed`, {});
+export const retryFailedItemPublishBatch = async (batchId: string, options?: RequestControlOptions): Promise<BatchIDResponse> => {
+	return post(`/api/v1/items/publish-batches/${batchId}/retry-failed`, {}, options);
 }
 
 // updateItem 更新商品。

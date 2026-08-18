@@ -25,7 +25,7 @@ const CookieMaxAge = 24 * 60 * 60
 // ctxKey 上下文键类型，避免冲突。
 type ctxKey int
 
-// ctxKeyUser 保存ctxKey用户，供当前处理流程使用
+// ctxKeyUser 用于本次流程后续判断的ctxKey用户
 const (
 	ctxKeyUser ctxKey = iota
 )
@@ -46,7 +46,7 @@ type LoginResult struct {
 
 // Login 用户名密码登录。成功时返回会话 ID（由调用方写入 Cookie）。
 func (s *Service) Login(ctx context.Context, username, password string) (string, *db.User, error) {
-	// user、ok、err 保存user、ok、err，供当前处理流程使用
+	// user、ok、err 用于本次流程后续判断的user、ok、err
 	user, ok, err := s.Store.Users.VerifyAndUpgrade(ctx, username, password)
 	if err != nil {
 		return "", nil, err
@@ -54,7 +54,7 @@ func (s *Service) Login(ctx context.Context, username, password string) (string,
 	if !ok {
 		return "", nil, nil // 密码错误或用户不存在/未激活
 	}
-	// sid、err 保存sid、err，供当前处理流程使用
+	// sid、err 用于本次流程后续判断的sid、err
 	sid, err := s.Store.Sessions.Create(ctx, user)
 	if err != nil {
 		return "", nil, err
@@ -99,12 +99,12 @@ func (s *Service) ClearSessionCookie(w http.ResponseWriter) {
 
 // SessionFromRequest 从请求 Cookie 取会话。无效返回 nil。
 func (s *Service) SessionFromRequest(ctx context.Context, r *http.Request) (*db.Session, error) {
-	// c、err 保存c、err，供当前处理流程使用
+	// c、err 用于本次流程后续判断的c、err
 	c, err := r.Cookie(CookieName)
 	if err != nil || c.Value == "" {
 		return nil, nil
 	}
-	// sess、err 保存sess、err，供当前处理流程使用
+	// sess、err 用于本次流程后续判断的sess、err
 	sess, err := s.Store.Sessions.Get(ctx, c.Value)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
@@ -118,12 +118,12 @@ func (s *Service) SessionFromRequest(ctx context.Context, r *http.Request) (*db.
 // Middleware 解析会话并把 *db.Session 放入请求上下文。不强制登录（公开路由也可用）。
 func (s *Service) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// sess、err 保存sess、err，供当前处理流程使用
+		// sess、err 用于本次流程后续判断的sess、err
 		sess, err := s.SessionFromRequest(r.Context(), r)
 		if err != nil {
 			s.Logger.Warn("读取会话失败", "err", err)
 		}
-		// ctx 保存ctx，供当前处理流程使用
+		// ctx 用于本次流程后续判断的ctx
 		ctx := WithSession(r.Context(), sess)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -143,7 +143,7 @@ func RequireAuth(next http.Handler) http.Handler {
 // RequireAdmin 要求管理员，否则 403（须在 RequireAuth 之后）。
 func RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// sess 保存sess，供当前处理流程使用
+		// sess 用于本次流程后续判断的sess
 		sess := SessionFromContext(r.Context())
 		if sess == nil || !sess.IsAdmin {
 			writeAuthError(w, r, http.StatusForbidden, "forbidden", "需要管理员权限")
@@ -158,9 +158,9 @@ func WithSession(ctx context.Context, sess *db.Session) context.Context {
 	return context.WithValue(ctx, ctxKeyUser, sess)
 }
 
-// SessionFromContext 负责会话From上下文相关处理。
+// SessionFromContext 封装会话From上下文业务协调。
 func SessionFromContext(ctx context.Context) *db.Session {
-	// v 保存v，供当前处理流程使用
+	// v 用于本次流程后续判断的v
 	v, _ := ctx.Value(ctxKeyUser).(*db.Session)
 	return v
 }
@@ -184,15 +184,15 @@ func IdentityFromContext(ctx context.Context) *SessionIdentity {
 // InitAdmin 创建或重置 admin 管理员账号，是 cmd/server -init-admin 与
 // cmd/init-admin 共用的公共入口。返回 created=true 表示新建 admin，
 // false 表示重置已存在 admin 的密码。邮箱仅在新建时使用。
-// InitAdmin 负责InitAdmin相关处理。
+// InitAdmin 封装InitAdmin业务协调。
 func InitAdmin(ctx context.Context, store *db.Store, email, password string) (created bool, err error) {
-	// existing、err 保存existing、err，供当前处理流程使用
+	// existing、err 用于本次流程后续判断的existing、err
 	existing, err := store.Users.GetAdmin(ctx)
 	if err != nil && !errors.Is(err, db.ErrNotFound) {
 		return false, fmt.Errorf("查询 admin 失败: %w", err)
 	}
 	if existing != nil {
-		// ok、err 保存ok、err，供当前处理流程使用
+		// ok、err 用于本次流程后续判断的ok、err
 		ok, err := store.Users.UpdatePassword(ctx, existing.Username, password)
 		if err != nil {
 			return false, err
@@ -202,7 +202,7 @@ func InitAdmin(ctx context.Context, store *db.Store, email, password string) (cr
 		}
 		return false, store.Users.SetAdmin(ctx, existing.Username)
 	}
-	// ok、err 保存ok、err，供当前处理流程使用
+	// ok、err 用于本次流程后续判断的ok、err
 	ok, err := store.Users.Create(ctx, "admin", email, password)
 	if err != nil {
 		return false, err

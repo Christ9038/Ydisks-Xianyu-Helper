@@ -93,7 +93,7 @@ describe('useItemPublishBatch', /* 当前回调处理批量发布的表单、任
       // recommendAction 请求推荐类目。
       async () => hook.result.current.handleRecommendBatchCategory(),
     );
-    expect(recommendCategoryMock).toHaveBeenCalledWith('account-1', '服饰');
+    expect(recommendCategoryMock).toHaveBeenCalledWith('account-1', '服饰', expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(hook.result.current.batchFallbackCategory.catId).toBe('cat-1');
 
     await act(
@@ -112,14 +112,14 @@ describe('useItemPublishBatch', /* 当前回调处理批量发布的表单、任
       // startAction 启动预检通过的任务。
       async () => hook.result.current.handleStartBatch(),
     );
-    expect(startBatchMock).toHaveBeenCalledWith('preview-1');
+    expect(startBatchMock).toHaveBeenCalledWith('preview-1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(hook.result.current.batchDetail).toEqual(runningBatchFixture);
 
     await act(
       // cancelAction 请求安全取消任务。
       async () => hook.result.current.handleCancelBatch(),
     );
-    expect(cancelBatchMock).toHaveBeenCalledWith('batch-1');
+    expect(cancelBatchMock).toHaveBeenCalledWith('batch-1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
 
     getBatchMock.mockResolvedValueOnce(failedBatchFixture);
     await act(
@@ -135,7 +135,7 @@ describe('useItemPublishBatch', /* 当前回调处理批量发布的表单、任
       // retryAction 重试失败行。
       async () => hook.result.current.handleRetryBatchFailed(),
     );
-    expect(retryBatchMock).toHaveBeenCalledWith('batch-1');
+    expect(retryBatchMock).toHaveBeenCalledWith('batch-1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
 
     await act(
       // closeAction 关闭弹窗并清理临时预检。
@@ -440,5 +440,37 @@ describe('useItemPublishBatch', /* 当前回调处理批量发布的表单、任
     expect(hook.result.current.showBatchModal).toBe(false);
     hook.unmount();
     vi.useRealTimers();
+  });
+
+  test('快速重开弹窗时丢弃上一次恢复请求的晚到响应', /* 当前回调验证用户动作请求代次隔离。 */ async () => {
+    // resolveFirstOpen 是首次打开弹窗的延迟批次列表完成函数。
+    let resolveFirstOpen: (value: ItemPublishBatchResponse[]) => void = () => undefined;
+    // firstOpenBatches 是故意晚到的首次恢复请求。
+    const firstOpenBatches = new Promise<ItemPublishBatchResponse[]>(/* firstOpenExecutor 保存首次恢复响应完成函数。 */ resolve => { resolveFirstOpen = resolve; });
+    getBatchesMock.mockReset();
+    getBatchesMock.mockReturnValueOnce(firstOpenBatches).mockResolvedValueOnce([]);
+    // hook 是快速关闭并重新打开批量弹窗时的状态容器。
+    const hook = renderHook(/* reopenHookFactory 创建快速重开场景的批量 Hook。 */ () => useItemPublishBatch({ selectedAccount: 'account-1', loadItems: vi.fn(), loadShippingRules: vi.fn() }));
+    await act(
+      // firstOpenAction 启动会延迟返回的首次恢复请求。
+      async () => { void hook.result.current.openBatchModal(); },
+    );
+    await act(
+      // closeAction 关闭首次弹窗并使其请求代次失效。
+      async () => hook.result.current.closeBatchModal(),
+    );
+    await act(
+      // secondOpenAction 创建新的弹窗会话；该会话没有待恢复任务。
+      async () => hook.result.current.openBatchModal(),
+    );
+    resolveFirstOpen([runningBatchFixture]);
+    await act(
+      // staleResponseAction 交付首次弹窗的晚到响应。
+      async () => { await firstOpenBatches; },
+    );
+    expect(hook.result.current.showBatchModal).toBe(true);
+    expect(hook.result.current.batchDetail).toBeNull();
+    expect(hook.result.current.batchPhase).toBe('upload');
+    hook.unmount();
   });
 });

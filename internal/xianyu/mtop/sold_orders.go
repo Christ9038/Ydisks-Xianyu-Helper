@@ -14,7 +14,7 @@ import (
 	"xianyu-go/internal/xianyu/protocol"
 )
 
-// soldOrdersReferer 保存sold订单列表Referer，供当前处理流程使用
+// soldOrdersReferer 用于本次流程后续判断的sold订单列表Referer
 const soldOrdersReferer = "https://seller.goofish.com/?site=COMMONPRO#/seller-trade/order-manage"
 
 // SoldOrderFetcher 是订单同步使用的可选能力，不扩展基础 Client 接口，避免影响其他调用方的 mock。
@@ -49,7 +49,7 @@ var _ SoldOrderFetcher = (*ClientImpl)(nil)
 
 // FetchSoldOrdersPage 获取卖家已售订单。该调用不主动刷新 token；当 ctx
 // 携带 CookieSession 时会像浏览器一样吸收响应 Cookie。
-// FetchSoldOrdersPage 负责FetchSold订单列表页码相关处理。
+// FetchSoldOrdersPage 封装FetchSold订单列表页码业务协调。
 func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pageNumber, pageSize int) (*SoldOrdersPage, error) {
 	if pageNumber < 1 {
 		pageNumber = 1
@@ -57,19 +57,19 @@ func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pa
 	if pageSize < 1 || pageSize > 100 {
 		pageSize = 30
 	}
-	// endpoint 保存endpoint，供当前处理流程使用
+	// endpoint 用于本次流程后续判断的endpoint
 	endpoint := c.SoldOrdersURL
 	if endpoint == "" {
 		endpoint = SoldOrdersAPI
 	}
-	// signingCookies、requestCookies 保存signingCookies、requestCookies，供当前处理流程使用
+	// signingCookies、requestCookies 用于本次流程后续判断的signingCookies、requestCookies
 	signingCookies, requestCookies := mtopRequestCookies(ctx, cookies, soldOrdersReferer, endpoint)
-	// token 保存令牌，供当前处理流程使用
+	// token 用于本次流程后续判断的令牌
 	token := protocol.SignToken(signingCookies)
 	if token == "" {
 		return nil, fmt.Errorf("cookie 缺少 _m_h5_tk，无法获取订单列表")
 	}
-	// payload 保存请求载荷，供当前处理流程使用
+	// payload 用于本次流程后续判断的请求载荷
 	payload := map[string]any{
 		"pageNumber":       pageNumber,
 		"rowsPerPage":      pageSize,
@@ -77,18 +77,18 @@ func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pa
 		"queryCode":        "ALL",
 		"orderSearchParam": "{}",
 	}
-	// rawPayload、err 保存原始Payload、err，供当前处理流程使用
+	// rawPayload、err 用于本次流程后续判断的原始Payload、err
 	rawPayload, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
-	// dataVal 保存数据Val，供当前处理流程使用
+	// dataVal 用于本次流程后续判断的数据Val
 	dataVal := string(rawPayload)
-	// timestamp 保存timestamp，供当前处理流程使用
+	// timestamp 用于本次流程后续判断的timestamp
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
-	// sign 保存sign，供当前处理流程使用
+	// sign 用于本次流程后续判断的sign
 	sign := protocol.GenerateSign(timestamp, token, dataVal)
-	// req、err 保存req、err，供当前处理流程使用
+	// req、err 用于本次流程后续判断的req、err
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"?"+buildSoldOrdersQuery(timestamp, sign), strings.NewReader("data="+url.QueryEscape(dataVal)))
 	if err != nil {
 		return nil, err
@@ -99,28 +99,28 @@ func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pa
 	req.Header.Set("Referer", soldOrdersReferer)
 	req.Header.Set("idle_site_biz_code", "COMMONPRO")
 
-	// hc 保存hc，供当前处理流程使用
+	// hc 用于本次流程后续判断的hc
 	hc := c.httpClient()
-	// resp、err 保存resp、err，供当前处理流程使用
+	// resp、err 用于本次流程后续判断的resp、err
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("订单列表请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 	absorbMTopResponseCookies(ctx, cookies, resp)
-	// raw、err 保存raw、err，供当前处理流程使用
+	// raw、err 用于本次流程后续判断的raw、err
 	raw, err := readMTopBody(resp)
 	if err != nil {
 		return nil, err
 	}
-	// decoded 保存decoded，供当前处理流程使用
+	// decoded 用于本次流程后续判断的decoded
 	var decoded struct {
 		Ret  []string `json:"ret"`
 		Data struct {
 			Module map[string]any `json:"module"`
 		} `json:"data"`
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, fmt.Errorf("解析订单列表响应失败: %w (body=%s)", err, truncate(string(raw), 300))
 	}
@@ -130,15 +130,15 @@ func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pa
 	if !hasMTopSuccess(decoded.Ret) {
 		return nil, fmt.Errorf("订单列表接口返回非成功: ret=%v", decoded.Ret)
 	}
-	// module 保存module，供当前处理流程使用
+	// module 用于本次流程后续判断的module
 	module := decoded.Data.Module
-	// rawItems 保存原始商品列表，供当前处理流程使用
+	// rawItems 用于本次流程后续判断的原始商品列表
 	rawItems, _ := module["items"].([]any)
-	// items 保存商品列表，供当前处理流程使用
+	// items 用于本次流程后续判断的商品列表
 	items := make([]SoldOrder, 0, len(rawItems))
 	// rawItem 表示当前遍历过程中的原始商品
 	for _, rawItem := range rawItems {
-		// item、ok 保存item、ok，供当前处理流程使用
+		// item、ok 用于本次流程后续判断的item、ok
 		item, ok := parseSoldOrder(rawItem)
 		if ok {
 			items = append(items, item)
@@ -151,9 +151,9 @@ func (c *ClientImpl) FetchSoldOrdersPage(ctx context.Context, cookies string, pa
 	}, nil
 }
 
-// buildSoldOrdersQuery 负责buildSold订单列表查询相关处理。
+// buildSoldOrdersQuery 封装buildSold订单列表查询业务协调。
 func buildSoldOrdersQuery(timestamp, sign string) string {
-	// values 保存values，供当前处理流程使用
+	// values 用于本次流程后续判断的values
 	values := url.Values{
 		"jsv":           {"2.7.2"},
 		"appKey":        {protocol.SignAppKey},
@@ -172,44 +172,44 @@ func buildSoldOrdersQuery(timestamp, sign string) string {
 	return values.Encode()
 }
 
-// parseSoldOrder 负责parseSold订单相关处理。
+// parseSoldOrder 封装parseSold订单业务协调。
 func parseSoldOrder(raw any) (SoldOrder, bool) {
-	// item、ok 保存item、ok，供当前处理流程使用
+	// item、ok 用于本次流程后续判断的item、ok
 	item, ok := raw.(map[string]any)
 	if !ok {
 		return SoldOrder{}, false
 	}
-	// common 保存common，供当前处理流程使用
+	// common 用于本次流程后续判断的common
 	common, _ := item["commonData"].(map[string]any)
-	// buyer 保存买家，供当前处理流程使用
+	// buyer 用于本次流程后续判断的买家
 	buyer, _ := item["buyerInfoVO"].(map[string]any)
-	// price 保存price，供当前处理流程使用
+	// price 用于本次流程后续判断的price
 	price, _ := item["priceVO"].(map[string]any)
-	// rights 保存rights，供当前处理流程使用
+	// rights 用于本次流程后续判断的rights
 	rights, _ := item["rightVO"].(map[string]any)
-	// orderID 保存订单ID，供当前处理流程使用
+	// orderID 用于本次流程后续判断的订单ID
 	orderID := strings.TrimSpace(mtopString(common["orderId"]))
 	if orderID == "" {
 		return SoldOrder{}, false
 	}
-	// rawStatus 保存原始状态，供当前处理流程使用
+	// rawStatus 用于本次流程后续判断的原始状态
 	rawStatus := strings.TrimSpace(mtopString(common["orderStatus"]))
-	// status 保存状态，供当前处理流程使用
+	// status 用于本次流程后续判断的状态
 	status := normalizeSoldOrderStatus(rawStatus, mtopBool(common["inRefund"]))
-	// amount 保存amount，供当前处理流程使用
+	// amount 用于本次流程后续判断的amount
 	amount := firstMTopString(price, "totalPrice", "confirmFee", "auctionPrice")
-	// quantity 保存quantity，供当前处理流程使用
+	// quantity 用于本次流程后续判断的quantity
 	quantity := firstMTopString(price, "buyNum", "quantity")
 	if quantity == "" || quantity == "0" {
 		quantity = "1"
 	}
-	// isBargain 保存isBargain，供当前处理流程使用
+	// isBargain 用于本次流程后续判断的isBargain
 	isBargain := false
-	// buttons 保存buttons，供当前处理流程使用
+	// buttons 用于本次流程后续判断的buttons
 	buttons, _ := rights["btnList"].([]any)
 	// rawButton 表示当前遍历过程中的原始Button
 	for _, rawButton := range buttons {
-		// button 保存button，供当前处理流程使用
+		// button 用于本次流程后续判断的button
 		button, _ := rawButton.(map[string]any)
 		if strings.EqualFold(mtopString(button["tradeAction"]), "SKIP_PIN") {
 			isBargain = true
@@ -232,7 +232,7 @@ func parseSoldOrder(raw any) (SoldOrder, bool) {
 	}, true
 }
 
-// normalizeSoldOrderStatus 负责normalizeSold订单状态相关处理。
+// normalizeSoldOrderStatus 封装normalizeSold订单状态业务协调。
 func normalizeSoldOrderStatus(raw string, inRefund bool) string {
 	if inRefund {
 		return "refunding"
@@ -255,11 +255,11 @@ func normalizeSoldOrderStatus(raw string, inRefund bool) string {
 	}
 }
 
-// firstMTopString 负责firstMTopString相关处理。
+// firstMTopString 封装firstMTopString业务协调。
 func firstMTopString(values map[string]any, keys ...string) string {
 	// key 表示当前遍历过程中的key
 	for _, key := range keys {
-		if // value 保存值，供当前处理流程使用
+		if // value 用于本次流程后续判断的值
 		value := strings.TrimSpace(mtopString(values[key])); value != "" {
 			return value
 		}
@@ -267,9 +267,9 @@ func firstMTopString(values map[string]any, keys ...string) string {
 	return ""
 }
 
-// mtopBool 负责mtopBool相关处理。
+// mtopBool 封装mtopBool业务协调。
 func mtopBool(value any) bool {
-	switch // typed 保存typed，供当前处理流程使用
+	switch // typed 用于本次流程后续判断的typed
 	typed := value.(type) {
 	case bool:
 		return typed
@@ -278,7 +278,7 @@ func mtopBool(value any) bool {
 	case int:
 		return typed != 0
 	case string:
-		// normalized 保存normalized，供当前处理流程使用
+		// normalized 用于本次流程后续判断的normalized
 		normalized := strings.ToLower(strings.TrimSpace(typed))
 		return normalized == "true" || normalized == "1" || normalized == "yes"
 	default:

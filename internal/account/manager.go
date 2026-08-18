@@ -7,6 +7,7 @@ package account
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -16,6 +17,9 @@ import (
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
 )
+
+// ErrRestartIncomplete 表示账号重启在旧实例收束或新实例启动前被取消或失败，调用方可据此安排重试与状态展示。
+var ErrRestartIncomplete = errors.New("账号重启未完成")
 
 // Manager 管理所有账号运行时。
 type Manager struct {
@@ -32,7 +36,7 @@ type Manager struct {
 	runCtx      context.Context
 }
 
-// managedAccount 保存managed账号，供当前处理流程使用
+// managedAccount 用于本次流程后续判断的managed账号
 type managedAccount struct {
 	cookieID string
 	acc      *engine.Account
@@ -106,7 +110,7 @@ func (m *Manager) Start(ctx context.Context, cookieID, cookieValue string) error
 	if m.runCtx != nil {
 		ctx = m.runCtx
 	}
-	if // ma、ok 保存ma、ok，供当前处理流程使用
+	if // ma、ok 用于本次流程后续判断的ma、ok
 	ma, ok := m.accounts[cookieID]; ok {
 		if ma.stopping {
 			m.mu.Unlock()
@@ -122,7 +126,7 @@ func (m *Manager) Start(ctx context.Context, cookieID, cookieValue string) error
 			return nil
 		}
 	}
-	// acc 保存acc，供当前处理流程使用
+	// acc 用于本次流程后续判断的acc
 	acc := engine.New(engine.Config{
 		CookieID:  cookieID,
 		CookieStr: cookieValue,
@@ -130,9 +134,9 @@ func (m *Manager) Start(ctx context.Context, cookieID, cookieValue string) error
 		Handler:   m.handler,
 		Logger:    m.logger,
 	})
-	// accCtx、cancel 保存accCtx、cancel，供当前处理流程使用
+	// accCtx、cancel 用于本次流程后续判断的accCtx、cancel
 	accCtx, cancel := context.WithCancel(ctx)
-	// ma 保存ma，供当前处理流程使用
+	// ma 用于本次流程后续判断的ma
 	ma := &managedAccount{
 		cookieID: cookieID,
 		acc:      acc,
@@ -144,7 +148,7 @@ func (m *Manager) Start(ctx context.Context, cookieID, cookieValue string) error
 
 	m.logger.Info("启动账号", "account", cookieID)
 	go func() {
-		// err 保存err，供当前处理流程使用
+		// err 用于本次流程后续判断的err
 		err := acc.Run(accCtx)
 		m.mu.Lock()
 		ma.err = err
@@ -185,7 +189,7 @@ func (m *Manager) StopContext(ctx context.Context, cookieID string) error {
 		ctx = context.Background()
 	}
 	m.mu.Lock()
-	// ma、ok 保存ma、ok，供当前处理流程使用
+	// ma、ok 用于本次流程后续判断的ma、ok
 	ma, ok := m.accounts[cookieID]
 	if ok {
 		// stopping 标记会阻止 Start 在停止上下文超时后重新替换仍可能存活的运行实例。
@@ -206,7 +210,7 @@ func (m *Manager) StopContext(ctx context.Context, cookieID string) error {
 		return fmt.Errorf("等待账号 %s 运行协程退出失败: %w", cookieID, ctx.Err())
 	}
 	m.mu.Lock()
-	if // current 保存current，供当前处理流程使用
+	if // current 用于本次流程后续判断的current
 	current := m.accounts[cookieID]; current == ma {
 		delete(m.accounts, cookieID)
 	}
@@ -222,7 +226,7 @@ func (m *Manager) StopContext(ctx context.Context, cookieID string) error {
 func (m *Manager) GetInstance(cookieID string) (automation.MessageSender, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// ma、ok 保存ma、ok，供当前处理流程使用
+	// ma、ok 用于本次流程后续判断的ma、ok
 	ma, ok := m.accounts[cookieID]
 	if !ok {
 		return nil, false
@@ -237,7 +241,7 @@ func (m *Manager) Sender(cookieID string) (automation.MessageSender, bool) {
 
 // RecoverExpiredCredential 把任意上层 MTOP API 检测到的 Session 失效统一
 // 转交给账号 Handler 的协议续期流程。调用方必须先释放账号凭证锁。
-// RecoverExpiredCredential 负责RecoverExpiredCredential相关处理。
+// RecoverExpiredCredential 封装RecoverExpiredCredential业务协调。
 func (m *Manager) RecoverExpiredCredential(ctx context.Context, cookieID string) bool {
 	if m == nil || m.handler == nil {
 		return false
@@ -249,11 +253,11 @@ func (m *Manager) RecoverExpiredCredential(ctx context.Context, cookieID string)
 func (m *Manager) RuntimeStatuses() map[string]engine.RuntimeStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// statuses 保存statuses，供当前处理流程使用
+	// statuses 用于本次流程后续判断的statuses
 	statuses := make(map[string]engine.RuntimeStatus, len(m.accounts))
 	// id、ma 表示当前遍历过程中的id、ma
 	for id, ma := range m.accounts {
-		// status 保存状态，供当前处理流程使用
+		// status 用于本次流程后续判断的状态
 		status := ma.acc.RuntimeStatus()
 		select {
 		case <-ma.done:
@@ -273,14 +277,38 @@ func (m *Manager) RuntimeStatuses() map[string]engine.RuntimeStatus {
 	return statuses
 }
 
-// Restart 重启账号（停后用最新 DB cookie 重启）。
+// Restart 在同一个调用方 Context 内停止旧实例、读取最新 Cookie 并启动新实例。
+// 取消发生在停止前时不改变现有实例；停止后的取消会返回 ErrRestartIncomplete，调用方不得将其视为重启成功。
 func (m *Manager) Restart(ctx context.Context, cookieID string) error {
-	m.Stop(cookieID)
-	cookieValue, err := m.store.Cookies.GetValue(ctx, cookieID) // cookieValue 是重启运行实例所需的单值 Cookie 明文，不包含登录密码或账号资料。
-	if err != nil {
-		return fmt.Errorf("读取账号详情失败: %w", err)
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	return m.Start(ctx, cookieID, cookieValue)
+	// contextErr 是进入有副作用的停止阶段前检测到的取消或超时原因。
+	if contextErr := ctx.Err(); contextErr != nil {
+		return fmt.Errorf("%w: %w", ErrRestartIncomplete, contextErr)
+	}
+	// stopErr 是旧运行实例在调用方关闭预算内未能完整收束的原因。
+	if stopErr := m.StopContext(ctx, cookieID); stopErr != nil {
+		return fmt.Errorf("%w: 停止旧账号实例失败: %w", ErrRestartIncomplete, stopErr)
+	}
+	// contextErr 是旧实例已停止后、读取敏感 Cookie 前检测到的取消或超时原因。
+	if contextErr := ctx.Err(); contextErr != nil {
+		return fmt.Errorf("%w: %w", ErrRestartIncomplete, contextErr)
+	}
+	// cookieValue 是重启运行实例所需的单值 Cookie 明文，不包含登录密码或账号资料。
+	cookieValue, err := m.store.Cookies.GetValue(ctx, cookieID)
+	if err != nil {
+		return fmt.Errorf("%w: 读取账号详情失败: %w", ErrRestartIncomplete, err)
+	}
+	// contextErr 是启动新实例前检测到的取消或超时原因，避免把已取消调用转换为后台实例。
+	if contextErr := ctx.Err(); contextErr != nil {
+		return fmt.Errorf("%w: %w", ErrRestartIncomplete, contextErr)
+	}
+	// startErr 是读取最新 Cookie 后无法创建新运行实例的原因。
+	if startErr := m.Start(ctx, cookieID, cookieValue); startErr != nil {
+		return fmt.Errorf("%w: 启动新账号实例失败: %w", ErrRestartIncomplete, startErr)
+	}
+	return nil
 }
 
 // StopAll 停止所有运行中的账号，用于进程优雅退出，并兼容旧调用方。
@@ -298,7 +326,7 @@ func (m *Manager) StopAllContext(ctx context.Context) error {
 	m.mu.Lock()
 	// stoppingAll 在收集账号前建立全局 fencing，防止并发 Start 把新实例遗漏在本次关闭之外。
 	m.stoppingAll = true
-	// ids 保存ids，供当前处理流程使用
+	// ids 用于本次流程后续判断的ids
 	ids := make([]string, 0, len(m.accounts))
 	// id 表示当前遍历过程中的标识
 	for id := range m.accounts {

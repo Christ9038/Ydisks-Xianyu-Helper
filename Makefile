@@ -3,7 +3,7 @@
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
 
-.PHONY: build build-int build-browser-install build-tray test test-server test-server-race test-multidb test-int vet lint architecture cover cover-browser cover-frontend tidy frontend fmt comments comments-baseline check
+.PHONY: build build-int build-browser-install build-tray test test-server test-server-race test-multidb test-int vet lint architecture cover cover-browser cover-frontend tidy frontend fmt comments check
 
 ## build: 编译 server（默认，跳过 integration build tag）
 build:
@@ -79,16 +79,10 @@ tidy:
 frontend:
 	cd frontend && npm ci && npm run build
 
-## comments: 检查 Go 与 TypeScript/TSX 新增声明是否有中文注释
+## comments: 严格检查 Go 与 TypeScript/TSX 声明的中文语义注释和模板债务
 comments:
-	$(GO) run ./tools/commentlint -mode check -root . -baseline .commentlint/go-baseline.json
-	node frontend/scripts/check-comments.mjs --mode check --root frontend --baseline .commentlint/frontend-baseline.json
-
-## comments-baseline: 根据当前代码生成一次性历史问题基线（仅在审查后使用）
-comments-baseline:
-	mkdir -p .commentlint
-	$(GO) run ./tools/commentlint -mode baseline -root . -baseline .commentlint/go-baseline.json
-	node frontend/scripts/check-comments.mjs --mode baseline --root frontend --baseline .commentlint/frontend-baseline.json
+	$(GO) run ./tools/commentlint -mode check -root .
+	node frontend/scripts/check-comments.mjs --mode check --root frontend
 
 ## check: 本地提交前全套检查（fmt + vet + lint + test）
 check: fmt architecture vet lint test comments

@@ -13,15 +13,15 @@ import (
 
 // TestFetchOrderDetailSuccessWithSpecAndStatus: 完整解析 utArgs/components，含 spec。
 func TestFetchOrderDetailSuccessWithSpecAndStatus(t *testing.T) {
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"utArgs":{"orderStatus":"4"},"components":[{"render":"orderInfoVO","data":{"itemInfo":{"buyAmount":"3","specName":"颜色","specValue":"红色"},"priceInfo":{"amount":{"value":"88.00"}}}}]}}`)
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), OrderDetailURL: server.URL + "/"}
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := client.FetchOrderDetail(context.Background(), consignCookies, "order-1")
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -34,15 +34,15 @@ func TestFetchOrderDetailSuccessWithSpecAndStatus(t *testing.T) {
 
 // TestFetchOrderDetailMissingBuyAmountDefaultsTo1: components 无 buyAmount 时 Quantity 默认 "1"。
 func TestFetchOrderDetailMissingBuyAmountDefaultsTo1(t *testing.T) {
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"components":[{"render":"orderInfoVO","data":{"itemInfo":{}}}]}}`)
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), OrderDetailURL: server.URL + "/"}
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := client.FetchOrderDetail(context.Background(), consignCookies, "order-1")
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -54,18 +54,18 @@ func TestFetchOrderDetailMissingBuyAmountDefaultsTo1(t *testing.T) {
 
 // TestFetchOrderDetailNonSuccessRet: 非 token 过期的失败 ret。
 func TestFetchOrderDetailNonSuccessRet(t *testing.T) {
-	// requests 保存请求列表，供当前处理流程使用
+	// requests 用于本次流程后续判断的请求列表
 	var requests atomic.Int32
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		fmt.Fprint(w, `{"ret":["FAIL_BIZ_ORDER_NOT_FOUND::订单不存在"]}`)
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), OrderDetailURL: server.URL + "/"}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := client.FetchOrderDetail(context.Background(), consignCookies, "order-1")
 	if err == nil || !strings.Contains(err.Error(), "订单详情接口返回非成功") {
 		t.Fatalf("err=%v", err)
@@ -77,15 +77,15 @@ func TestFetchOrderDetailNonSuccessRet(t *testing.T) {
 
 // TestFetchOrderDetailParseFailure: 响应非 JSON。
 func TestFetchOrderDetailParseFailure(t *testing.T) {
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `broken{`)
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), OrderDetailURL: server.URL + "/"}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := client.FetchOrderDetail(context.Background(), consignCookies, "order-1")
 	if err == nil || !strings.Contains(err.Error(), "解析订单详情响应失败") {
 		t.Fatalf("err=%v", err)
@@ -94,13 +94,13 @@ func TestFetchOrderDetailParseFailure(t *testing.T) {
 
 // TestFetchOrderDetailRequestError: 网络层错误。
 func TestFetchOrderDetailRequestError(t *testing.T) {
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), OrderDetailURL: server.URL + "/"}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := client.FetchOrderDetail(context.Background(), consignCookies, "order-1")
 	if err == nil || !strings.Contains(err.Error(), "订单详情请求失败") {
 		t.Fatalf("err=%v", err)
@@ -109,11 +109,11 @@ func TestFetchOrderDetailRequestError(t *testing.T) {
 
 // TestFetchOrderDetailTokenExpiredRetriesWithSetCookie: token 过期 + Set-Cookie，二次成功。
 func TestFetchOrderDetailTokenExpiredRetriesWithSetCookie(t *testing.T) {
-	// requests 保存请求列表，供当前处理流程使用
+	// requests 用于本次流程后续判断的请求列表
 	var requests atomic.Int32
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// attempt 保存尝试次数，供当前处理流程使用
+		// attempt 用于本次流程后续判断的尝试次数
 		attempt := requests.Add(1)
 		if attempt == 1 {
 			http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "newtoken_5", Path: "/"})
@@ -124,12 +124,12 @@ func TestFetchOrderDetailTokenExpiredRetriesWithSetCookie(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), OrderDetailURL: server.URL + "/"}
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := client.FetchOrderDetail(ctx, consignCookies, "order-1")
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -147,18 +147,18 @@ func TestFetchOrderDetailTokenExpiredRetriesWithSetCookie(t *testing.T) {
 
 // TestFetchOrderDetailTokenExpiredNoCookieRefreshes: token 过期无 Set-Cookie，
 // 走 RefreshToken 刷新成功后重试成功。
-// TestFetchOrderDetailTokenExpiredNoCookieRefreshes 负责TestFetch订单Detail令牌ExpiredNo登录凭证Refreshes相关处理。
+// TestFetchOrderDetailTokenExpiredNoCookieRefreshes 封装TestFetch订单Detail令牌ExpiredNo登录凭证Refreshes业务协调。
 func TestFetchOrderDetailTokenExpiredNoCookieRefreshes(t *testing.T) {
-	// orderReqs 保存订单Reqs，供当前处理流程使用
+	// orderReqs 用于本次流程后续判断的订单Reqs
 	var orderReqs atomic.Int32
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("api") == "mtop.taobao.idlemessage.pc.login.token" {
 			http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "refreshed_7", Path: "/"})
 			fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"accessToken":"a"}}`)
 			return
 		}
-		// attempt 保存尝试次数，供当前处理流程使用
+		// attempt 用于本次流程后续判断的尝试次数
 		attempt := orderReqs.Add(1)
 		if attempt == 1 {
 			fmt.Fprint(w, `{"ret":["FAIL_SYS_TOKEN_EXOIRED::令牌过期"]}`)
@@ -168,12 +168,12 @@ func TestFetchOrderDetailTokenExpiredNoCookieRefreshes(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), OrderDetailURL: server.URL + "/o", TokenURL: server.URL + "/t"}
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := client.FetchOrderDetail(ctx, consignCookies, "order-1")
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -185,17 +185,17 @@ func TestFetchOrderDetailTokenExpiredNoCookieRefreshes(t *testing.T) {
 
 // TestFetchOrderDetailNoOrderInfoComponent: SUCCESS 但无 orderInfoVO component，
 // Quantity 默认 1，其他字段空。
-// TestFetchOrderDetailNoOrderInfoComponent 负责TestFetch订单DetailNo订单InfoComponent相关处理。
+// TestFetchOrderDetailNoOrderInfoComponent 封装TestFetch订单DetailNo订单InfoComponent业务协调。
 func TestFetchOrderDetailNoOrderInfoComponent(t *testing.T) {
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"components":[{"render":"otherVO","data":{}}]}}`)
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), OrderDetailURL: server.URL + "/"}
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := client.FetchOrderDetail(context.Background(), consignCookies, "order-1")
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -207,17 +207,17 @@ func TestFetchOrderDetailNoOrderInfoComponent(t *testing.T) {
 
 // TestFetchOrderDetailTruncateInParseError: 解析失败时 body 截断 300 字符。
 func TestFetchOrderDetailTruncateInParseError(t *testing.T) {
-	// longBody 保存long请求体，供当前处理流程使用
+	// longBody 用于本次流程后续判断的long请求体
 	longBody := strings.Repeat("a", 500)
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, longBody)
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), OrderDetailURL: server.URL + "/"}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := client.FetchOrderDetail(context.Background(), consignCookies, "order-1")
 	if err == nil {
 		t.Fatalf("expected err")
@@ -233,23 +233,23 @@ func TestFetchOrderDetailTruncateInParseError(t *testing.T) {
 
 // TestFetchOrderDetailRetryExhausted: token 过期但每次下发不同 Set-Cookie，4 次重试耗尽。
 func TestFetchOrderDetailRetryExhausted(t *testing.T) {
-	// requests 保存请求列表，供当前处理流程使用
+	// requests 用于本次流程后续判断的请求列表
 	var requests atomic.Int32
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// n 保存n，供当前处理流程使用
+		// n 用于本次流程后续判断的n
 		n := requests.Add(1)
 		http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: fmt.Sprintf("tok_%d", n), Path: "/"})
 		fmt.Fprint(w, `{"ret":["FAIL_SYS_TOKEN_EXOIRED::令牌过期"]}`)
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), OrderDetailURL: server.URL + "/"}
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := client.FetchOrderDetail(ctx, consignCookies, "order-1")
 	if err == nil || !strings.Contains(err.Error(), "订单详情 token 重试失败") {
 		t.Fatalf("err=%v", err)
@@ -261,7 +261,7 @@ func TestFetchOrderDetailRetryExhausted(t *testing.T) {
 
 // TestBuildOrderDetailQuery: 验证 query 拼接。
 func TestBuildOrderDetailQuery(t *testing.T) {
-	// q 保存q，供当前处理流程使用
+	// q 用于本次流程后续判断的q
 	q := buildOrderDetailQuery("T", "SIGN")
 	if !strings.Contains(q, "t=T") || !strings.Contains(q, "sign=SIGN") ||
 		!strings.Contains(q, "api=mtop.idle.web.trade.order.detail") ||

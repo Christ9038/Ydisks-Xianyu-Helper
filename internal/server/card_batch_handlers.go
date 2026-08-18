@@ -13,10 +13,10 @@ import (
 	"xianyu-go/internal/auth"
 )
 
-// maxCardBatchRows 保存max卡密批次Rows，供当前处理流程使用
+// maxCardBatchRows 用于本次流程后续判断的max卡密批次Rows
 const maxCardBatchRows = 200
 
-// cardBatchResultRow 保存卡密批次结果Row，供当前处理流程使用
+// cardBatchResultRow 用于本次流程后续判断的卡密批次结果Row
 type cardBatchResultRow struct {
 	RowNo   int    `json:"row_no"`
 	Success bool   `json:"success"`
@@ -28,7 +28,7 @@ type cardBatchResultRow struct {
 
 // batchCreateCards 上传表格批量创建卡密组。每行一个组定义。
 func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
-	// sess 保存sess，供当前处理流程使用
+	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
 	// 表格最大 5 MiB（卡密组定义都很小）。
 	r.Body = http.MaxBytesReader(w, r.Body, maxCardBatchUploadBytes)
@@ -37,14 +37,14 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "解析上传文件失败")
 		return
 	}
-	// source、sourceHeader、err 保存source、sourceHeader、err，供当前处理流程使用
+	// source、sourceHeader、err 用于本次流程后续判断的source、sourceHeader、err
 	source, sourceHeader, err := r.FormFile("file")
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "缺少卡密表格文件")
 		return
 	}
 	defer source.Close()
-	// sourceBytes、tooLarge、err 保存sourceBytes、tooLarge、err，供当前处理流程使用
+	// sourceBytes、tooLarge、err 用于本次流程后续判断的sourceBytes、tooLarge、err
 	sourceBytes, tooLarge, err := readLimitedBytes(source, 5<<20)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "读取卡密表格失败")
@@ -54,12 +54,12 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "卡密表格不能超过 5 MiB")
 		return
 	}
-	// sourceName 保存source名称，供当前处理流程使用
+	// sourceName 用于本次流程后续判断的source名称
 	sourceName := safeBaseName(sourceHeader.Filename)
 	if sourceName == "" {
 		sourceName = "cards.csv"
 	}
-	// maps、err 保存maps、err，供当前处理流程使用
+	// maps、err 用于本次流程后续判断的maps、err
 	maps, err := parsePublishSheetBytesWithLimit(sourceBytes, sourceName, maxCardBatchRows)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -70,19 +70,19 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// results 保存results，供当前处理流程使用
+	// results 用于本次流程后续判断的results
 	results := make([]cardBatchResultRow, 0, len(maps))
-	// created、failed 保存created、failed，供当前处理流程使用
+	// created、failed 用于本次流程后续判断的created、failed
 	created, failed := 0, 0
 	// i、m 表示当前遍历过程中的i、m
 	for i, m := range maps {
-		// rowNo 保存rowNo，供当前处理流程使用
+		// rowNo 用于本次流程后续判断的rowNo
 		rowNo := i + 2
-		// name 保存名称，供当前处理流程使用
+		// name 用于本次流程后续判断的名称
 		name := strings.TrimSpace(firstImportString(m, "name", "名称", "卡密组名称", "卡密名称"))
-		// cardType 保存卡密类型，供当前处理流程使用
+		// cardType 用于本次流程后续判断的卡密类型
 		cardType := strings.ToLower(strings.TrimSpace(firstImportString(m, "type", "类型", "卡密类型")))
-		// content 保存内容，供当前处理流程使用
+		// content 用于本次流程后续判断的内容
 		content := firstImportString(m, "content", "内容", "卡密内容")
 
 		// 校验
@@ -107,7 +107,7 @@ func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 			failed++
 			continue
 		}
-		// delaySeconds 保存延迟秒数，供当前处理流程使用
+		// delaySeconds 用于本次流程后续判断的延迟秒数
 		delaySeconds := atoiPublishDefault(firstImportString(m, "delay_seconds", "延迟秒"), 0)
 		if delaySeconds < 0 || delaySeconds > 3600 {
 			results = append(results, cardBatchResultRow{RowNo: rowNo, Success: false, Name: name, Type: cardType, Error: "延时发货必须在 0 到 3600 秒之间"})

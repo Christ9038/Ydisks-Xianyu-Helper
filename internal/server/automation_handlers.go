@@ -12,7 +12,13 @@ import (
 	"xianyu-go/internal/auth"
 )
 
-// mountAutomation 负责mount自动化相关处理。
+// automationIssueResolutionRequest 是处理自动化异常或延期任务的 HTTP 请求 DTO。
+type automationIssueResolutionRequest struct {
+	// Resolution 是 retry、dismiss 等由应用服务校验的处理动作。
+	Resolution string `json:"resolution"`
+}
+
+// mountAutomation 封装mount自动化业务协调。
 func (s *Server) mountAutomation(r chi.Router) {
 	r.Get("/automation-rules", s.listAutomationRules)
 	r.Post("/automation-rules", s.createAutomationRule)
@@ -23,11 +29,11 @@ func (s *Server) mountAutomation(r chi.Router) {
 	r.Post("/automation-pending-tasks/{task_id}/resolve", s.resolveDeferredAutomationTask)
 }
 
-// listAutomationIssues 负责list自动化问题列表相关处理。
+// listAutomationIssues 封装list自动化问题列表业务协调。
 func (s *Server) listAutomationIssues(w http.ResponseWriter, r *http.Request) {
-	// sess 保存sess，供当前处理流程使用
+	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
-	// runs、tasks、err 保存runs、tasks、err，供当前处理流程使用
+	// runs、tasks、err 用于本次流程后续判断的runs、tasks、err
 	runs, tasks, err := s.automationIssuesApplication().ListIssues(r.Context(), sess.UserID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "查询自动化异常任务失败")
@@ -69,26 +75,24 @@ func deferredAutomationIssueDTOs(issues []automationapp.DeferredIssue) []deferre
 	return result
 }
 
-// resolveAutomationRun 负责resolve自动化运行相关处理。
+// resolveAutomationRun 封装resolve自动化运行业务协调。
 func (s *Server) resolveAutomationRun(w http.ResponseWriter, r *http.Request) {
-	// runID、err 保存运行ID、err，供当前处理流程使用
+	// runID、err 用于本次流程后续判断的运行ID、err
 	runID, err := strconv.ParseInt(chi.URLParam(r, "run_id"), 10, 64)
 	if err != nil || runID <= 0 {
 		writeErr(w, http.StatusBadRequest, "无效运行ID")
 		return
 	}
-	// req 保存req，供当前处理流程使用
-	var req struct {
-		Resolution string `json:"resolution"`
-	}
-	if // err 保存err，供当前处理流程使用
+	// req 是自动化运行异常处理请求的具名传输 DTO。
+	var req automationIssueResolutionRequest
+	if // err 用于本次流程后续判断的err
 	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	// sess 保存sess，供当前处理流程使用
+	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.automationIssuesApplication().ResolveRunIssue(r.Context(), sess.UserID, runID, strings.TrimSpace(req.Resolution)); err != nil {
 		if errors.Is(err, automationapp.ErrNotFound) {
 			writeErr(w, http.StatusNotFound, "异常运行不存在或已处理")
@@ -100,26 +104,24 @@ func (s *Server) resolveAutomationRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
-// resolveDeferredAutomationTask 负责resolveDeferred自动化任务相关处理。
+// resolveDeferredAutomationTask 封装resolveDeferred自动化任务业务协调。
 func (s *Server) resolveDeferredAutomationTask(w http.ResponseWriter, r *http.Request) {
-	// taskID、err 保存任务ID、err，供当前处理流程使用
+	// taskID、err 用于本次流程后续判断的任务ID、err
 	taskID, err := strconv.ParseInt(chi.URLParam(r, "task_id"), 10, 64)
 	if err != nil || taskID <= 0 {
 		writeErr(w, http.StatusBadRequest, "无效任务ID")
 		return
 	}
-	// req 保存req，供当前处理流程使用
-	var req struct {
-		Resolution string `json:"resolution"`
-	}
-	if // err 保存err，供当前处理流程使用
+	// req 是延期自动化任务处理请求的具名传输 DTO。
+	var req automationIssueResolutionRequest
+	if // err 用于本次流程后续判断的err
 	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "处理方式必须是 retry 或 dismiss")
 		return
 	}
-	// sess 保存sess，供当前处理流程使用
+	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.automationIssuesApplication().ResolveDeferredIssue(r.Context(), sess.UserID, taskID, req.Resolution); err != nil {
 		if errors.Is(err, automationapp.ErrInvalidDeferredResolution) {
 			writeErr(w, http.StatusBadRequest, err.Error())

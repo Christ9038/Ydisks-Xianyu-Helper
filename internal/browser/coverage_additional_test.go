@@ -15,9 +15,9 @@ import (
 
 // TestSnapshotToOptionalCookiesPreservesBrowserAttributes 验证完整 Cookie 快照到 Playwright 参数的属性映射。
 func TestSnapshotToOptionalCookiesPreservesBrowserAttributes(t *testing.T) {
-	// expires 保存过期时间，供当前处理流程使用。
+	// expires 用于本次流程后续判断的过期时间。
 	expires := float64(1700000000)
-	// partitionKey 保存分区键，供当前处理流程使用。
+	// partitionKey 用于本次流程后续判断的分区键。
 	partitionKey := "https://shop.example"
 	// snapshot 保存待转换的浏览器 Cookie 快照。
 	snapshot := []cookierefresh.BrowserCookie{
@@ -53,9 +53,9 @@ func TestSnapshotToOptionalCookiesPreservesBrowserAttributes(t *testing.T) {
 
 // TestCookieSnapshotFromPlaywrightNormalizesFields 验证 Playwright Cookie 可逆转换并补齐默认路径。
 func TestCookieSnapshotFromPlaywrightNormalizesFields(t *testing.T) {
-	// sameSite 保存 SameSite 属性，供当前处理流程使用。
+	// sameSite 用于本次流程后续判断的 SameSite 属性。
 	sameSite := playwright.SameSiteAttributeLax
-	// partitionKey 保存分区键，供当前处理流程使用。
+	// partitionKey 用于本次流程后续判断的分区键。
 	partitionKey := "https://top.example"
 	// cookies 保存 Playwright 返回的 Cookie 列表。
 	cookies := []playwright.Cookie{

@@ -2,6 +2,8 @@
 
 本文件只记录阶段整体的验收证据、更新日志和阶段边界。每个阶段对应一个 PR；阶段内并行实现不形成独立任务、独立验收或额外 PR。
 
+当前复核结论：阶段 5 已完成。账号重启取消语义、Server 构造错误、独立关闭预算、应用服务组合根迁移、外部调用取消/超时和最终 Join 均已有实现与验证证据。阶段 7 与阶段 9 的原完成声明暂不作为最终验收依据，按当前路线保持待执行。
+
 ## 阶段 3：HTTP API 契约
 
 状态：已完成。
@@ -42,34 +44,59 @@ git diff --check
 
 ## 阶段 5：应用装配与生命周期
 
-状态：已完成；对应一个阶段 5 PR 边界。阶段内并行实现不形成独立任务、独立验收或额外 PR。
+状态：已完成；对应一个阶段 5 PR 边界。原阶段 5 验收声明已按组合根、关闭预算和 Join 复核结果重新确认。
 
-完成证据：
+当前切片证据（不代表阶段完成）：
 
 - 新增 `internal/application/lifecycle.Coordinator`，统一拥有共享 Context、登记顺序、启动失败逆序回滚、关闭逆序、并发 Close 等待、超时和错误聚合；组件回调始终在锁外执行。
 - `cmd/server` 统一登记浏览器、Notifier、账号 Manager、Automation Scheduler、Renewal Scheduler 以及订单刷新、批量发布、订单 reconciliation 三类应用 worker；HTTP Server 只负责 HTTP 启停，退出时先停 HTTP，再由协调器逆序关闭应用组件。
 - Server 删除业务 worker 的启动/关闭入口和应用 worker 等待逻辑；Server 仅通过只读生命周期 Context 为请求创建的应用 worker 提供父 Context，生命周期 owner 保持在协调器与应用服务。
-- 启动失败回滚、重复 Start/Close、并发 Close、启动与关闭竞争、批次/订单 worker 取消、租约 fencing、账号 stopping fence、浏览器关闭超时重试和实时连接 Join 均有聚焦测试；冻结 CAPTCHA 文件未修改。
-- `docs/architecture/lifecycle-inventory.md` 已转为静态 owner/Context/Stop/Wait 清单，后续 Engine/Automation 内部状态拆分和运维观测风险归入阶段 6 及后续迭代，不得重新引入 Server 生命周期入口。
+- 启动失败回滚、重复 Start/Close、并发 Close、启动与关闭竞争、批次/订单 worker 取消、租约 fencing、账号 stopping fence、浏览器关闭超时重试和实时连接 Join 已有聚焦测试；本轮新增 HTTP 与应用 worker 独立关闭预算、错误聚合、未完成组件诊断和 HTTP 启动失败回滚错误保留测试；冻结 CAPTCHA 文件未修改。
+- 订单补偿恢复协调器已从 `internal/server` 构造路径迁至 `cmd/server` 组合根，并以 `WithOrderReconciliationRecovery` 显式注入；Server 构造阶段拒绝缺失实例，architecturecheck 禁止该构造函数回流到 Server 生产代码。
+- 数据库健康检查端口已从 `Server.New` 迁至 `cmd/server` 组合根，以 `WithDatabaseHealth` 注入；Server 不再保存系统依赖组，缺失端口会在构造期失败，architecturecheck 同步禁止其构造逻辑回流。
+- 12 个不依赖 Server callback 的 transport-facing 应用服务已迁至 `internal/adapter` 的 `TransportApplicationServices` 装配集合，由 `cmd/server` 在启动期构造并以 `WithTransportApplicationServices` 注入；Server 不再在请求期或构造期创建这些服务，缺失集合和不完整集合均在 `New` 阶段失败。
+- `docs/architecture/lifecycle-inventory.md` 已转为静态 owner/Context/Stop/Wait 清单，并补充通知、SMTP、MTOP、QR 登录、续期、WebSocket 和浏览器外部调用的取消/超时审计；后续 Engine/Automation 内部状态拆分和运维观测风险归入阶段 6 及后续迭代，不得重新引入 Server 生命周期入口。
+- `lifecycle.Coordinator.Close` 按组件保留成功关闭进度；超时或组件错误时保持未完成状态、返回组件名称诊断并允许更长 Context 重试，`WaitContext` 在全部组件成功收束前不会伪造完成。并发 `Close` 等待本次尝试的固定结果，重复重试不会覆盖此前调用方的错误语义。
+- `Notifier.Start(nil)` 与 `automation.Scheduler.Run(nil)` 明确拒绝启动，避免错误调用创建无法取消的后台 worker；对应行为有确定性测试。
 
-统一验证证据：
+本轮切片验证证据：
 
 ```text
-make check
-go test -race ./internal/server ./internal/account ./internal/engine ./internal/automation ./internal/renewal -count=1
+go test ./cmd/server ./internal/server ./internal/adapter -count=1
 go test ./... -count=1
+go test -race ./internal/account ./internal/automation ./internal/engine ./internal/server ./internal/renewal -count=1
+go test -race ./internal/application/lifecycle ./internal/notify ./internal/automation -run 'TestCoordinatorClose(ContextBoundsConcurrentClose|RetainsIncompleteComponentsForRetry)|TestNotifierStartRejectsNilContext|TestAutomationSchedulerRunRejectsNilContext' -count=1
+go vet ./...
 go run ./tools/architecturecheck
-go run ./tools/commentlint -mode check -root . -baseline .commentlint/go-baseline.json
+go run ./tools/commentlint -mode check -root .
 git diff --check
 ```
 
-以上命令均通过；race 子集实际覆盖 Server、账号、Engine、Automation、续期和生命周期竞争路径。
+以上命令均通过。transport 应用服务集合的完整构造、缺失依赖、Server 构造失败、独立关闭预算、外部调用边界、未完成组件诊断和可重试 Join 均有测试证据；阶段 5 验收完成。
 
-下一安全入口：阶段 6「Engine 与 Automation」，只处理其内部状态所有权和动作语义拆分，不回退或扩大阶段 5 的进程生命周期边界。
+此前切片验证证据：
+
+```text
+go test ./cmd/server ./internal/application/lifecycle ./internal/server -count=1
+go run ./tools/commentlint -mode check -root .
+git diff --check
+```
+
+以上命令均通过。此前证据保留用于生命周期切片追溯，不能替代当前切片和完整阶段验收。
+
+覆盖率证据：`make cover` 运行且 Go statements 为 66.0%；`make cover-frontend` 运行且 Frontend V8 statements 为 79.44%；`make cover-browser` 已以 `RUN_BROWSER_INTEGRATION=1` 运行，本地 Chromium Browser statements 为 63.5%。未使用真实账号或外部平台；覆盖率中的未覆盖 UI 页面和外部平台路径仍按既有分类保留，不以豁免替代业务 Hook、状态转换、取消或生命周期测试。
+
+下一安全入口：阶段 7「React Feature 化」。仅处理 `app -> features -> shared`、feature API adapter、状态归属与路由加载；不得回退阶段 5 的组合根、Context、关闭预算或可重试 Join 边界。
 
 ## 更新日志
 
-- 2026-08-17：完成阶段 5 应用装配与生命周期整体改造，统一 cmd 生命周期协调、Server HTTP 边界、应用 worker owner、启动回滚与关闭等待，并通过阶段 5 全部门禁。
+- 2026-08-17：阶段 5 原整体完成声明因组合根和关闭预算复核不完整而撤回，保留为当前迭代。
+- 2026-08-18：完成独立 HTTP/应用关闭预算和错误诊断切片；HTTP 启动失败回滚现在保留应用 worker 错误，阶段 5 继续等待组合根迁移与完整验收。
+- 2026-08-18：将订单补偿恢复协调器迁至进程组合根并以显式依赖注入 Server；补充构造失败与架构回流门禁测试。
+- 2026-08-18：将数据库健康检查端口迁至进程组合根，删除 Server 对系统依赖组的构造职责，并补充缺失端口与架构回流测试。
+- 2026-08-18：将设置、管理员、账号任务、通知、分析、自动化规则/异常、卡券、发布后规则、默认回复和关键词服务迁至显式 transport 应用服务集合，补充组合根构造与缺失依赖测试；阶段 5 仍保持当前迭代。
+- 2026-08-18：完成通知、SMTP、MTOP、QR 登录、续期、WebSocket 和浏览器外部调用取消/超时审计；记录浏览器同步 Playwright 停止的不可中断约束、通知/自动化 nil Context 防御缺口和最终 Join 验收入口，阶段 5 仍保持当前迭代。
+- 2026-08-18：完成最终 Join 收口；协调器关闭超时后保留未完成组件并支持更长 Context 重试，并发关闭返回本轮固定错误；通知与自动化 nil Context 拒绝启动。阶段 5 验收完成，下一安全入口转为阶段 7。
 
 ## 阶段 6：Engine 与 Automation
 
@@ -111,7 +138,7 @@ make cover-frontend                                                             
 
 ## 阶段 7：React Feature 化
 
-状态：已完成；对应一个阶段 7 PR 边界。阶段内并行实现不形成独立任务、独立验收或额外 PR。
+状态：当前迭代；原阶段 7 验收声明因商品批量流程的取消与旧响应隔离不完整而暂不关闭。
 
 完成证据：
 

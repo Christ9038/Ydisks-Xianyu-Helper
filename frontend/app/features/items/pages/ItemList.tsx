@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Item } from '../../../../shared/api-contract';
 import {
@@ -35,16 +35,26 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   const [selectedAccount, setSelectedAccount] = useState<string>('');
   // [accountFilter, 解构得到当前 Hook 返回的状态和操作函数。
   const [accountFilter, setAccountFilter] = useState<string>('');
+  // itemsRequestGeneration 标识商品列表最新一次读取，旧响应不得覆盖较新的同步或刷新结果。
+  const itemsRequestGeneration = useRef(0);
+  // shippingRulesRequestGeneration 标识发货规则最新一次读取，旧响应不得覆盖较新的规则配置。
+  const shippingRulesRequestGeneration = useRef(0);
   // loadItems 刷新商品列表，供普通操作和批量任务完成后复用。
   const loadItems = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async () => {
+    // requestGeneration 是本次商品刷新请求的单调递增代次。
+    const requestGeneration = ++itemsRequestGeneration.current;
     // itemsList 商品列表列表，负责当前功能中的对应处理。
     const itemsList = await getItems();
-    setItems(itemsList);
+    if (requestGeneration === itemsRequestGeneration.current) setItems(itemsList);
   }, []);
 
   // loadShippingRules 刷新商品关联的自动化规则。
   const loadShippingRules = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async () => {
-    setShippingRules(await getShippingRules());
+    // requestGeneration 是本次规则刷新请求的单调递增代次。
+    const requestGeneration = ++shippingRulesRequestGeneration.current;
+    // rules 是当前规则读取返回的非敏感自动化规则集合。
+    const rules = await getShippingRules();
+    if (requestGeneration === shippingRulesRequestGeneration.current) setShippingRules(rules);
   }, []);
 
   // batchState 是 ItemList feature 提供的批量铺货状态和动作边界。
@@ -52,7 +62,6 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   // 解构数据 解构得到当前 Hook 返回的状态和操作函数。
   const {
     showBatchModal,
-    setShowBatchModal,
     batchLoading,
     batchPhase,
     batchFile,
@@ -130,8 +139,16 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
   } = itemActions;
 
   useEffect(/* 当前回调同步 React 副作用和资源生命周期。 */ () => {
-    Promise.all([getAccountDetails(), getItems(), getShippingRules(), getItemPublishBatches(20)])
+    // controller 取消组件卸载前仍在执行的首屏并行请求。
+    const controller = new AbortController();
+    // initialItemsGeneration、initialRulesGeneration 分别记录首屏请求对应的列表与规则代次。
+    const initialItemsGeneration = ++itemsRequestGeneration.current;
+    const initialRulesGeneration = ++shippingRulesRequestGeneration.current;
+    // active 标识当前组件实例是否仍接受首屏响应。
+    let active = true;
+    Promise.all([getAccountDetails({ signal: controller.signal }), getItems(undefined, { signal: controller.signal }), getShippingRules({ signal: controller.signal }), getItemPublishBatches(20, { signal: controller.signal })])
       .then(/* 当前回调处理异步操作结果。 */ ([accountList, itemList, ruleList, batches]) => {
+        if (!active || controller.signal.aborted || initialItemsGeneration !== itemsRequestGeneration.current || initialRulesGeneration !== shippingRulesRequestGeneration.current) return;
         setAccounts(accountList);
         setItems(itemList);
         setShippingRules(ruleList);
@@ -140,7 +157,13 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
           || batches.find(/* 当前回调处理集合中的单个元素。 */ batch => batch.status !== 'preview');
         setRecentBatch(recoverable || null);
       })
-      .catch(/* 当前回调处理异步操作结果。 */ (e) => console.error('加载商品配置失败:', e));
+      .catch(/* 当前回调处理异步操作结果。 */ (e) => {
+        if (!controller.signal.aborted) console.error('加载商品配置失败:', e);
+      });
+    return /* 首屏请求清理回调在卸载时取消请求并阻止状态回写。 */ () => {
+      active = false;
+      controller.abort();
+    };
   }, []);
 
   // rulesForItem 规则列表For商品，负责当前功能中的对应处理。
@@ -892,7 +915,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                     </button>
                   )}
                   {!['running', 'canceling'].includes(batchDetail.status) && (
-                    <button onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => { setShowBatchModal(false); loadItems(); loadShippingRules(); }} className="flex-1 px-6 py-3.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold">
+                    <button onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => { void closeBatchModal(); void loadItems(); void loadShippingRules(); }} className="flex-1 px-6 py-3.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold">
                       完成
                     </button>
                   )}

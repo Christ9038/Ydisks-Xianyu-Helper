@@ -25,7 +25,7 @@ import (
 )
 
 // 账号运行时参数。
-// PasswordLoginMinGap 保存密码登录MinGap，供当前处理流程使用
+// PasswordLoginMinGap 用于本次流程后续判断的密码登录MinGap
 const (
 	MaxConnectionFailures       = 5               // 仅保留给显式人工恢复入口和兼容测试
 	TokenFetchDisableThreshold  = 100             // 兼容常量；官网运行时不会按次数自动禁用账号
@@ -50,14 +50,14 @@ const (
 )
 
 // 告警级别（OnAccountAlert 的 level 参数）。
-// AlertLevelInfo 保存AlertLevelInfo，供当前处理流程使用
+// AlertLevelInfo 用于本次流程后续判断的AlertLevelInfo
 const (
 	AlertLevelInfo     = "info"
 	AlertLevelWarn     = "warn"
 	AlertLevelCritical = "critical"
 )
 
-// EventAccountOffline 保存Event账号Offline，供当前处理流程使用
+// EventAccountOffline 用于本次流程后续判断的Event账号Offline
 const (
 	EventAccountOffline       = "account_offline"
 	EventAccountRecovered     = "account_recovered"
@@ -71,7 +71,7 @@ const (
 // 收到一条防抖后的聊天消息时回调；返回错误仅记录日志、不影响主循环。
 // 注：生产 handlerAdapter.HandleChatMessage 当前为 no-op，留作未来注入聊天旁路处理
 // （如外部消息持久化）。回复链由 ReplyService.Handle 完成，不依赖本回调。
-// Handler 保存Handler，供当前处理流程使用
+// Handler 用于本次流程后续判断的Handler
 type Handler interface {
 	HandleChatMessage(ctx context.Context, m ChatMessage) error
 	// HandleSystemEvent 处理平台系统事件。系统卡片永远不进入 AI 回复链，
@@ -108,22 +108,22 @@ type accountEventHandler interface {
 	OnAccountEvent(ctx context.Context, cookieID, eventType, level, title, body string)
 }
 
-// credentialUpdateHandler 保存credentialUpdateHandler，供当前处理流程使用
+// credentialUpdateHandler 用于本次流程后续判断的credentialUpdateHandler
 type credentialUpdateHandler interface {
 	OnCredentialUpdated(ctx context.Context, cookieID string)
 }
 
-// transportReadyHandler 保存transportReadyHandler，供当前处理流程使用
+// transportReadyHandler 用于本次流程后续判断的transportReadyHandler
 type transportReadyHandler interface {
 	OnTransportReady(ctx context.Context, cookieID string)
 }
 
-// tokenCaptchaHandler 保存令牌CaptchaHandler，供当前处理流程使用
+// tokenCaptchaHandler 用于本次流程后续判断的令牌CaptchaHandler
 type tokenCaptchaHandler interface {
 	OnTokenCaptchaVerification(ctx context.Context, cookieID, cookieStr, verificationURL, deviceID string) (*mtop.RefreshResult, bool)
 }
 
-// tokenRefreshStarted 保存令牌RefreshStarted，供当前处理流程使用
+// tokenRefreshStarted 用于本次流程后续判断的令牌RefreshStarted
 const (
 	tokenRefreshStarted            = "started"
 	tokenRefreshSuccess            = "success"
@@ -136,7 +136,7 @@ const (
 	tokenRefreshSkippedCooldown    = "skipped_cooldown"
 )
 
-// errTokenCaptchaCooldown 保存err令牌CaptchaCooldown，供当前处理流程使用
+// errTokenCaptchaCooldown 用于本次流程后续判断的err令牌CaptchaCooldown
 var errTokenCaptchaCooldown = errors.New("token 风控验证冷却中")
 
 // ChatMessage 防抖后投递给业务层的一条聊天消息。
@@ -155,7 +155,7 @@ type ChatMessage struct {
 // OutgoingChatMessage is emitted after the existing account WebSocket has
 // accepted a text message. It is an observation hook only; persistence errors
 // never change the delivery result.
-// OutgoingChatMessage 保存Outgoing聊天消息，供当前处理流程使用
+// OutgoingChatMessage 用于本次流程后续判断的Outgoing聊天消息
 type OutgoingChatMessage struct {
 	AccountID  string
 	ChatID     string
@@ -164,17 +164,17 @@ type OutgoingChatMessage struct {
 	MessageKey string
 }
 
-// outgoingChatHandler 保存outgoing聊天Handler，供当前处理流程使用
+// outgoingChatHandler 用于本次流程后续判断的outgoing聊天Handler
 type outgoingChatHandler interface {
 	HandleOutgoingChatMessage(ctx context.Context, message OutgoingChatMessage) error
 }
 
-// outgoingMessageKeyContextKey 保存outgoing消息Key上下文Key，供当前处理流程使用
+// outgoingMessageKeyContextKey 用于本次流程后续判断的outgoing消息Key上下文Key
 type outgoingMessageKeyContextKey struct{}
 
 // WithOutgoingMessageKey correlates a UI-created pending message with the
 // post-send observer so the same text is not inserted twice.
-// WithOutgoingMessageKey 负责WithOutgoing消息Key相关处理。
+// WithOutgoingMessageKey 封装WithOutgoing消息Key业务协调。
 func WithOutgoingMessageKey(ctx context.Context, key string) context.Context {
 	return context.WithValue(ctx, outgoingMessageKeyContextKey{}, strings.TrimSpace(key))
 }
@@ -193,7 +193,7 @@ type RuntimeStatus struct {
 	TokenRefreshStatus    string    `json:"token_refresh_status,omitempty"`
 }
 
-// RuntimeStarting 保存RuntimeStarting，供当前处理流程使用
+// RuntimeStarting 用于本次流程后续判断的RuntimeStarting
 const (
 	RuntimeStarting             = "starting"
 	RuntimeConnecting           = "connecting"
@@ -216,7 +216,7 @@ type Account struct {
 	accountDependencies
 }
 
-// debounceEntry 保存debounceEntry，供当前处理流程使用
+// debounceEntry 用于本次流程后续判断的debounceEntry
 type debounceEntry struct {
 	timer    *time.Timer
 	lastMsg  ChatMessage
@@ -225,7 +225,7 @@ type debounceEntry struct {
 
 // WSConn 是 Account 对 ws 连接的最小契约。*ws.Conn 实现该接口；
 // 测试可注入 fakeWSConn 以隔离真实 WS 握手与网络。
-// WSConn 保存WSConn，供当前处理流程使用
+// WSConn 用于本次流程后续判断的WSConn
 type WSConn interface {
 	Register(ctx context.Context, deviceID, accessToken string) error
 	HeartbeatLoop(ctx context.Context, interval time.Duration) error
@@ -240,30 +240,30 @@ type WSDialer interface {
 	Dial(ctx context.Context, cfg ws.Config, logger *slog.Logger) (WSConn, error)
 }
 
-// defaultDialer 保存defaultDialer，供当前处理流程使用
+// defaultDialer 用于本次流程后续判断的defaultDialer
 type defaultDialer struct{}
 
-// Dial 负责Dial相关处理。
+// Dial 封装Dial业务协调。
 func (defaultDialer) Dial(ctx context.Context, cfg ws.Config, logger *slog.Logger) (WSConn, error) {
 	return ws.Open(ctx, cfg, logger)
 }
 
-// cookieRenewer 保存登录凭证Renewer，供当前处理流程使用
+// cookieRenewer 用于本次流程后续判断的登录凭证Renewer
 type cookieRenewer interface {
 	RenewAPIFirst(ctx context.Context, cookiesStr string, snapshots ...[]cookierefresh.BrowserCookie) (*renew.Result, error)
 }
 
-// loginStatusChecker 保存登录状态Checker，供当前处理流程使用
+// loginStatusChecker 用于本次流程后续判断的登录状态Checker
 type loginStatusChecker interface {
 	CheckLoginStatusContext(ctx context.Context, cookiesStr string) (*mtop.LoginStatusResult, error)
 }
 
-// scopedTokenClient 保存scoped令牌Client，供当前处理流程使用
+// scopedTokenClient 用于本次流程后续判断的scoped令牌Client
 type scopedTokenClient interface {
 	RefreshTokenWithCredentialContext(ctx context.Context, cookiesStr, deviceID string, snapshot []cookierefresh.BrowserCookie) (*mtop.RefreshResult, error)
 }
 
-// loginStatusCheckResult 保存登录状态Check结果，供当前处理流程使用
+// loginStatusCheckResult 用于本次流程后续判断的登录状态Check结果
 type loginStatusCheckResult struct {
 	recovered       bool
 	riskRequired    bool
@@ -287,28 +287,28 @@ type Config struct {
 
 // New 构造单账号运行时（未启动）。
 func New(cfg Config) *Account {
-	// logger 保存logger，供当前处理流程使用
+	// logger 用于本次流程后续判断的logger
 	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
-	// mtopWasNil 保存mtopWasNil，供当前处理流程使用
+	// mtopWasNil 用于本次流程后续判断的mtopWasNil
 	mtopWasNil := cfg.MTop == nil
-	// mtopClient 保存mtopClient，供当前处理流程使用
+	// mtopClient 用于本次流程后续判断的mtopClient
 	mtopClient := cfg.MTop
 	if mtopClient == nil {
 		mtopClient = mtop.NewClient()
 	}
-	// renewer 保存renewer，供当前处理流程使用
+	// renewer 用于本次流程后续判断的renewer
 	renewer := cfg.Renewer
 	if renewer == nil && mtopWasNil {
 		renewer = renew.Service{}
 	}
-	// cookies 保存cookies，供当前处理流程使用
+	// cookies 用于本次流程后续判断的cookies
 	cookies := protocol.TransCookies(cfg.CookieStr)
-	// myid 保存myid，供当前处理流程使用
+	// myid 用于本次流程后续判断的myid
 	myid := cookies["unb"]
-	// wsDialer 保存wsDialer，供当前处理流程使用
+	// wsDialer 用于本次流程后续判断的wsDialer
 	wsDialer := cfg.WSDialer
 	if wsDialer == nil {
 		wsDialer = defaultDialer{}
@@ -373,10 +373,10 @@ func (a *Account) startWSRecorder(ctx context.Context) {
 	a.recorder.start(ctx)
 }
 
-// handleWSConnectFailure 负责handleWSConnectFailure相关处理。
+// handleWSConnectFailure 封装handleWSConnectFailure业务协调。
 func (a *Account) handleWSConnectFailure(ctx context.Context, err error) error {
 	a.clearConnectionToken(ctx)
-	// reason 保存原因，供当前处理流程使用
+	// reason 用于本次流程后续判断的原因
 	reason := "消息凭证被拒绝，请重新登录"
 	if ws.IsConnectLimitError(err) {
 		reason = "消息会话已被服务端移除"
@@ -393,7 +393,7 @@ func (a *Account) handleWSConnectFailure(ctx context.Context, err error) error {
 // acquireFreshConnectionToken mirrors the official web message client:
 // authTokenCallback obtains a fresh login.token result before every WebSocket
 // loginV2/reConnect and the returned accessToken is used only for that /reg.
-// acquireFreshConnectionToken 负责acquireFreshConnection令牌相关处理。
+// acquireFreshConnectionToken 封装acquireFreshConnection令牌业务协调。
 func (a *Account) acquireFreshConnectionToken(ctx context.Context) (string, string, error) {
 	return a.refreshToken(ctx)
 }
@@ -401,7 +401,7 @@ func (a *Account) acquireFreshConnectionToken(ctx context.Context) (string, stri
 // clearConnectionToken ends the lifetime of the token used by the previous
 // WebSocket attempt. The page-runtime device ID remains stable until a Cookie
 // update maps to an official page reload.
-// clearConnectionToken 负责clearConnection令牌相关处理。
+// clearConnectionToken 封装clearConnection令牌业务协调。
 func (a *Account) clearConnectionToken(ctx context.Context) {
 	a.clearCurrentToken()
 	a.clearTokenCache(ctx)
@@ -449,7 +449,7 @@ func (a *Account) StopContext(ctx context.Context) error {
 	return nil
 }
 
-// beginTask 负责begin任务相关处理。
+// beginTask 封装begin任务业务协调。
 func (a *Account) beginTask() (context.Context, bool) {
 	return a.lifecycle.beginTask()
 }
@@ -458,7 +458,7 @@ func (a *Account) beginTask() (context.Context, bool) {
 func (a *Account) handleMaxFailures(ctx context.Context) error {
 	// 先执行低成本登录态检查。它可能仅凭 loginuser.get 响应头恢复签名
 	// Cookie，也能在进入静默续期前准确识别风控状态。
-	// loginStatus 保存登录状态，供当前处理流程使用
+	// loginStatus 用于本次流程后续判断的登录状态
 	loginStatus := a.tryLoginStatusCheck(ctx)
 	if loginStatus.riskRequired {
 		return fmt.Errorf("账号 %s 需要完成安全验证", a.CookieID)
@@ -495,7 +495,7 @@ func (a *Account) handleMaxFailures(ctx context.Context) error {
 
 // markAuthExpired 标记进入 auth_expired 状态。仅在首次（未告警过）返回 true，
 // 连接恢复后由 Run 的 online 分支复位 authExpiredAlerted，避免重复告警刷屏。
-// markAuthExpired 负责markAuthExpired相关处理。
+// markAuthExpired 封装markAuthExpired业务协调。
 func (a *Account) markAuthExpired() bool {
 	a.runtimeMu.Lock()
 	defer a.runtimeMu.Unlock()
@@ -506,7 +506,7 @@ func (a *Account) markAuthExpired() bool {
 	return true
 }
 
-// notifyOffline 负责notifyOffline相关处理。
+// notifyOffline 封装notifyOffline业务协调。
 func (a *Account) notifyOffline(ctx context.Context, reason string) {
 	if !a.markOfflineNotified(reason) {
 		return
@@ -515,7 +515,7 @@ func (a *Account) notifyOffline(ctx context.Context, reason string) {
 		fmt.Sprintf("账号 %s 的闲鱼消息连接已进入不可自动重连状态。原因：%s。请更新登录信息或重新登录后再启动账号。", a.CookieID, reason))
 }
 
-// notifyRecoveringOffline 负责notifyRecoveringOffline相关处理。
+// notifyRecoveringOffline 封装notifyRecoveringOffline业务协调。
 func (a *Account) notifyRecoveringOffline(ctx context.Context, reason string) {
 	if !a.markOfflineNotified(reason) {
 		return
@@ -524,7 +524,7 @@ func (a *Account) notifyRecoveringOffline(ctx context.Context, reason string) {
 		fmt.Sprintf("账号 %s 出现登录凭证过期或认证掉线。原因：%s。系统会先发送本通知，再继续尝试 Go 协议续期；如仍失败则需要重新扫码登录。", a.CookieID, reason))
 }
 
-// markOfflineNotified 负责markOfflineNotified相关处理。
+// markOfflineNotified 封装markOfflineNotified业务协调。
 func (a *Account) markOfflineNotified(reason string) bool {
 	a.runtimeMu.Lock()
 	if a.offlineNotified {
@@ -543,12 +543,12 @@ func (a *Account) alert(ctx context.Context, level, title, body string) {
 	a.alertEvent(ctx, EventTokenRenewal, level, title, body)
 }
 
-// alertEvent 负责alertEvent相关处理。
+// alertEvent 封装alertEvent业务协调。
 func (a *Account) alertEvent(ctx context.Context, eventType, level, title, body string) {
 	if a.handler == nil {
 		return
 	}
-	if // h、ok 保存h、ok，供当前处理流程使用
+	if // h、ok 用于本次流程后续判断的h、ok
 	h, ok := a.handler.(accountEventHandler); ok {
 		h.OnAccountEvent(ctx, a.CookieID, eventType, level, title, body)
 		return
@@ -556,14 +556,14 @@ func (a *Account) alertEvent(ctx context.Context, eventType, level, title, body 
 	a.handler.OnAccountAlert(ctx, a.CookieID, level, title, body)
 }
 
-// resetFailures 负责resetFailures相关处理。
+// resetFailures 封装resetFailures业务协调。
 func (a *Account) resetFailures() {
 	a.runtimeMu.Lock()
 	defer a.runtimeMu.Unlock()
 	a.connFailures = 0
 }
 
-// formatTimeOrUnknown 负责format时间OrUnknown相关处理。
+// formatTimeOrUnknown 封装format时间OrUnknown业务协调。
 func formatTimeOrUnknown(t time.Time) string {
 	if t.IsZero() {
 		return "未知"
@@ -573,18 +573,18 @@ func formatTimeOrUnknown(t time.Time) string {
 
 // retryDelay 按错误类型计算退避，并加入 0-30% 抖动。
 // 多账号同时断线时，纯固定退避会让所有账号在同一秒重连，容易形成重连风暴。
-// retryDelay 负责重试延迟相关处理。
+// retryDelay 封装重试延迟业务协调。
 func (a *Account) retryDelay(errMsg string) time.Duration {
 	a.runtimeMu.Lock()
-	// f 保存f，供当前处理流程使用
+	// f 用于本次流程后续判断的f
 	f := a.connFailures
 	a.runtimeMu.Unlock()
 	if f < 1 {
 		f = 1
 	}
-	// base 保存base，供当前处理流程使用
+	// base 用于本次流程后续判断的base
 	base := exponentialSeconds(f)
-	// secs 保存secs，供当前处理流程使用
+	// secs 用于本次流程后续判断的secs
 	secs := 0
 	switch {
 	case contains(errMsg, "no close frame received or sent"):
@@ -597,10 +597,10 @@ func (a *Account) retryDelay(errMsg string) time.Duration {
 	return withRetryJitter(time.Duration(secs) * time.Second)
 }
 
-// networkRetryDelay 负责network重试延迟相关处理。
+// networkRetryDelay 封装network重试延迟业务协调。
 func (a *Account) networkRetryDelay() time.Duration {
 	a.runtimeMu.Lock()
-	// f 保存f，供当前处理流程使用
+	// f 用于本次流程后续判断的f
 	f := a.networkFailures
 	a.runtimeMu.Unlock()
 	if f < 1 {
@@ -609,7 +609,7 @@ func (a *Account) networkRetryDelay() time.Duration {
 	return withRetryJitter(time.Duration(min(2+exponentialSeconds(f), 60)) * time.Second)
 }
 
-// exponentialSeconds 负责exponential秒数相关处理。
+// exponentialSeconds 封装exponential秒数业务协调。
 func exponentialSeconds(failures int) int {
 	if failures < 1 {
 		failures = 1
@@ -620,17 +620,17 @@ func exponentialSeconds(failures int) int {
 	return 1 << failures
 }
 
-// withRetryJitter 负责with重试Jitter相关处理。
+// withRetryJitter 封装with重试Jitter业务协调。
 func withRetryJitter(base time.Duration) time.Duration {
 	if base <= 0 {
 		return 0
 	}
-	// maxJitter 保存maxJitter，供当前处理流程使用
+	// maxJitter 用于本次流程后续判断的maxJitter
 	maxJitter := base * 3 / 10
 	if maxJitter <= 0 {
 		return base
 	}
-	// n、err 保存n、err，供当前处理流程使用
+	// n、err 用于本次流程后续判断的n、err
 	n, err := rand.Int(rand.Reader, big.NewInt(int64(maxJitter)))
 	if err != nil {
 		// 熵源异常时使用时间纳秒兜底；这里只影响退避抖动，不用于安全令牌。
@@ -639,12 +639,12 @@ func withRetryJitter(base time.Duration) time.Duration {
 	return base + time.Duration(n.Int64())
 }
 
-// isEstablishedNetworkError 负责isEstablishedNetwork错误相关处理。
+// isEstablishedNetworkError 封装isEstablishedNetwork错误业务协调。
 func isEstablishedNetworkError(err error) bool {
 	if err == nil {
 		return false
 	}
-	// msg 保存msg，供当前处理流程使用
+	// msg 用于本次流程后续判断的msg
 	msg := strings.ToLower(err.Error())
 	// marker 表示当前遍历过程中的marker
 	for _, marker := range []string{
@@ -659,7 +659,7 @@ func isEstablishedNetworkError(err error) bool {
 	return false
 }
 
-// recordShortDisconnect 负责recordShortDisconnect相关处理。
+// recordShortDisconnect 封装recordShortDisconnect业务协调。
 func (a *Account) recordShortDisconnect(connectedDuration time.Duration) bool {
 	a.runtimeMu.Lock()
 	defer a.runtimeMu.Unlock()
@@ -667,12 +667,12 @@ func (a *Account) recordShortDisconnect(connectedDuration time.Duration) bool {
 		a.shortDisconnects = nil
 		return false
 	}
-	// now 保存now，供当前处理流程使用
+	// now 用于本次流程后续判断的now
 	now := time.Now()
 	a.shortDisconnects = append(a.shortDisconnects, now)
-	// cutoff 保存cutoff，供当前处理流程使用
+	// cutoff 用于本次流程后续判断的cutoff
 	cutoff := now.Add(-FrequentDisconnectWindow)
-	// kept 保存kept，供当前处理流程使用
+	// kept 用于本次流程后续判断的kept
 	kept := a.shortDisconnects[:0]
 	// disconnectedAt 表示当前遍历过程中的disconnectedAt
 	for _, disconnectedAt := range a.shortDisconnects {
@@ -687,19 +687,19 @@ func (a *Account) recordShortDisconnect(connectedDuration time.Duration) bool {
 // acquireToken is kept for internal callers and tests, but intentionally does
 // not reuse the persisted accessToken. Official web reconnects always invoke
 // the login.token API before /reg.
-// acquireToken 负责acquire令牌相关处理。
+// acquireToken 封装acquire令牌业务协调。
 func (a *Account) acquireToken(ctx context.Context) (string, string, error) {
 	return a.acquireTokenWithMinGap(ctx, false)
 }
 
 // acquireRuntimeToken is retained as a compatibility wrapper for focused
 // tests and older internal callers. It follows the same fresh-token rule.
-// acquireRuntimeToken 负责acquireRuntime令牌相关处理。
+// acquireRuntimeToken 封装acquireRuntime令牌业务协调。
 func (a *Account) acquireRuntimeToken(ctx context.Context) (string, string, error) {
 	return a.acquireFreshConnectionToken(ctx)
 }
 
-// acquireTokenWithMinGap 负责acquire令牌WithMinGap相关处理。
+// acquireTokenWithMinGap 封装acquire令牌WithMinGap业务协调。
 func (a *Account) acquireTokenWithMinGap(ctx context.Context, _ bool) (string, string, error) {
 	// Invalidate any access token left by an older process/attempt before asking
 	// MTOP for the token that will be bound to this connection.
@@ -707,7 +707,7 @@ func (a *Account) acquireTokenWithMinGap(ctx context.Context, _ bool) (string, s
 	return a.refreshToken(ctx)
 }
 
-// setLastTokenStatus 负责setLast令牌状态相关处理。
+// setLastTokenStatus 封装setLast令牌状态业务协调。
 func (c *credentialCoordinator) setLastTokenStatus(status string) {
 	// a 是本凭证协调器绑定的账号 facade，持有刷新诊断状态。
 	a := c.account
@@ -716,7 +716,7 @@ func (c *credentialCoordinator) setLastTokenStatus(status string) {
 	a.mu.Unlock()
 }
 
-// classifyTokenFailure 负责classify令牌Failure相关处理。
+// classifyTokenFailure 封装classify令牌Failure业务协调。
 func classifyTokenFailure(err error) string {
 	if err == nil {
 		return tokenRefreshFailedAPI
@@ -727,7 +727,7 @@ func classifyTokenFailure(err error) string {
 	if errors.Is(err, context.DeadlineExceeded) || strings.Contains(strings.ToLower(err.Error()), "timeout") || strings.Contains(err.Error(), "超时") {
 		return tokenRefreshFailedTimeout
 	}
-	// msg 保存msg，供当前处理流程使用
+	// msg 用于本次流程后续判断的msg
 	msg := strings.ToLower(err.Error())
 	if strings.Contains(msg, "network") || strings.Contains(msg, "connection") || strings.Contains(msg, "请求失败") {
 		return tokenRefreshFailedNetwork
@@ -735,7 +735,7 @@ func classifyTokenFailure(err error) string {
 	return tokenRefreshFailedAPI
 }
 
-// tokenFailureIsNonCounted 负责令牌FailureIsNonCounted相关处理。
+// tokenFailureIsNonCounted 封装令牌FailureIsNonCounted业务协调。
 func tokenFailureIsNonCounted(status string) bool {
 	switch status {
 	case tokenRefreshFailedCaptcha, tokenRefreshFailedCaptchaError, tokenRefreshSkippedCooldown:
@@ -761,7 +761,7 @@ func (a *Account) RuntimeStatus() RuntimeStatus {
 	a.runtimeMu.Unlock()
 
 	a.mu.Lock()
-	// remaining 保存remaining，供当前处理流程使用
+	// remaining 用于本次流程后续判断的remaining
 	remaining := int64(0)
 	if !a.tokenExpiresAt.IsZero() {
 		remaining = int64(time.Until(a.tokenExpiresAt).Seconds())
@@ -769,7 +769,7 @@ func (a *Account) RuntimeStatus() RuntimeStatus {
 			remaining = 0
 		}
 	}
-	// status 保存状态，供当前处理流程使用
+	// status 用于本次流程后续判断的状态
 	status := RuntimeStatus{
 		State:                 state,
 		Message:               message,
@@ -793,15 +793,15 @@ func (a *Account) recordMessageReceived(receivedAt time.Time) {
 	a.runtimeMu.Unlock()
 }
 
-// tokenRetryDelay 负责令牌重试延迟相关处理。
+// tokenRetryDelay 封装令牌重试延迟业务协调。
 func (a *Account) tokenRetryDelay() time.Duration {
 	a.mu.Lock()
-	// expiresAt 保存expiresAt，供当前处理流程使用
+	// expiresAt 用于本次流程后续判断的expiresAt
 	expiresAt := a.tokenExpiresAt
-	// failures 保存failures，供当前处理流程使用
+	// failures 用于本次流程后续判断的failures
 	failures := a.tokenFetchFailures
 	a.mu.Unlock()
-	// delay 保存延迟，供当前处理流程使用
+	// delay 用于本次流程后续判断的延迟
 	delay := time.Minute
 	if failures > 1 {
 		delay = 2 * time.Minute
@@ -812,15 +812,15 @@ func (a *Account) tokenRetryDelay() time.Duration {
 	return delay
 }
 
-// notifyTransportReady 负责notifyTransportReady相关处理。
+// notifyTransportReady 封装notifyTransportReady业务协调。
 func (a *Account) notifyTransportReady(ctx context.Context) {
-	if // handler、ok 保存handler、ok，供当前处理流程使用
+	if // handler、ok 用于本次流程后续判断的handler、ok
 	handler, ok := a.handler.(transportReadyHandler); ok {
 		handler.OnTransportReady(ctx, a.CookieID)
 	}
 }
 
-// setRuntimeState 负责setRuntime状态相关处理。
+// setRuntimeState 封装setRuntime状态业务协调。
 func (a *Account) setRuntimeState(state, message string) {
 	a.runtimeMu.Lock()
 	defer a.runtimeMu.Unlock()
@@ -829,12 +829,12 @@ func (a *Account) setRuntimeState(state, message string) {
 	a.runtimeUpdatedAt = time.Now()
 }
 
-// setRuntimeError 负责setRuntime错误相关处理。
+// setRuntimeError 封装setRuntime错误业务协调。
 func (a *Account) setRuntimeError(ctx context.Context, err error) {
-	// msg 保存msg，供当前处理流程使用
+	// msg 用于本次流程后续判断的msg
 	msg := strings.ToLower(errString(err))
 	a.runtimeMu.Lock()
-	// prev 保存prev，供当前处理流程使用
+	// prev 用于本次流程后续判断的prev
 	prev := a.runtimeState
 	a.runtimeMu.Unlock()
 	switch {
@@ -885,12 +885,12 @@ func (a *Account) SendImage(ctx context.Context, chatID, toUserID, imageURL stri
 // FetchChatHistory reuses the account's registered IM connection. Keeping this
 // optional capability outside WSConn avoids forcing non-chat test transports to
 // implement history retrieval.
-// FetchChatHistory 负责Fetch聊天History相关处理。
+// FetchChatHistory 封装Fetch聊天History业务协调。
 func (a *Account) FetchChatHistory(ctx context.Context, chatID string, cursor int64, limit int) (map[string]any, string, error) {
 	return a.outgoing.fetchChatHistory(ctx, chatID, cursor, limit)
 }
 
-// FetchChatConversations 负责Fetch聊天Conversations相关处理。
+// FetchChatConversations 封装Fetch聊天Conversations业务协调。
 func (a *Account) FetchChatConversations(ctx context.Context, cursor int64, limit int) (map[string]any, string, error) {
 	return a.outgoing.fetchChatConversations(ctx, cursor, limit)
 }
@@ -902,10 +902,10 @@ func (a *Account) AutomationReady() bool {
 
 // rotatePageDeviceID 对应官网 auto-login 成功后的 location.reload()：
 // 新 FishEngine 使用新的 UUID-userID，普通 Set-Cookie 与自然重连不会调用它。
-// rotatePageDeviceID 负责rotate页码DeviceID相关处理。
+// rotatePageDeviceID 封装rotate页码DeviceID业务协调。
 func (a *Account) rotatePageDeviceID() {
 	a.mu.Lock()
-	// userID 保存用户ID，供当前处理流程使用
+	// userID 用于本次流程后续判断的用户ID
 	userID := a.UserID
 	if userID == "" {
 		userID = protocol.TransCookies(a.CookieStr)["unb"]

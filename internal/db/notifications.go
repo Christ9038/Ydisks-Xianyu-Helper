@@ -26,16 +26,16 @@ type Notifications struct {
 
 // OwnsChannel 判断通知渠道是否归属于指定用户。
 func (n *Notifications) OwnsChannel(ctx context.Context, channelID, userID int64) (bool, error) {
-	// exists 保存exists，供当前处理流程使用
+	// exists 用于本次流程后续判断的exists
 	var exists bool
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	err := n.DB.QueryRowContext(ctx,
 		`SELECT EXISTS(SELECT 1 FROM notification_channels WHERE id=? AND user_id=?)`,
 		channelID, userID).Scan(&exists)
 	return exists, err
 }
 
-// NotificationOutboxInput 保存通知OutboxInput，供当前处理流程使用
+// NotificationOutboxInput 用于本次流程后续判断的通知OutboxInput
 type NotificationOutboxInput struct {
 	// ChannelID 是接收本次通知的渠道主键；幂等约束以渠道为粒度，避免一个渠道的重复入队影响其他渠道。
 	ChannelID int64
@@ -47,7 +47,7 @@ type NotificationOutboxInput struct {
 	IdempotencyKey string
 }
 
-// NotificationOutboxMessage 保存通知Outbox消息，供当前处理流程使用
+// NotificationOutboxMessage 用于本次流程后续判断的通知Outbox消息
 type NotificationOutboxMessage struct {
 	// ID 是通知 outbox 记录的稳定标识，仅用于运维定位，不代表正文内容。
 	ID int64
@@ -180,7 +180,7 @@ type NotificationBindingRow struct {
 
 // ListBindingsForUser 查询用户所有账号的通知渠道绑定。
 func (n *Notifications) ListBindingsForUser(ctx context.Context, userID int64) ([]NotificationBindingRow, error) {
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := n.DB.QueryContext(ctx, `
 		SELECT mn.id, mn.cookie_id, mn.channel_id, COALESCE(nc.name, ''), mn.enabled
 		  FROM message_notifications mn
@@ -191,14 +191,14 @@ func (n *Notifications) ListBindingsForUser(ctx context.Context, userID int64) (
 		return nil, err
 	}
 	defer rows.Close()
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	var out []NotificationBindingRow
 	for rows.Next() {
-		// item 保存商品，供当前处理流程使用
+		// item 用于本次流程后续判断的商品
 		var item NotificationBindingRow
-		// enabled 保存启用状态，供当前处理流程使用
+		// enabled 用于本次流程后续判断的启用状态
 		var enabled int
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&item.ID, &item.CookieID, &item.ChannelID, &item.ChannelName, &enabled); err != nil {
 			return nil, err
 		}
@@ -211,11 +211,11 @@ func (n *Notifications) ListBindingsForUser(ctx context.Context, userID int64) (
 // SetSingleBinding 更新单个账号通知渠道的启用状态。
 func (n *Notifications) SetSingleBinding(ctx context.Context, cookieID string, channelID int64, enabled bool) error {
 	if !enabled {
-		// err 保存err，供当前处理流程使用
+		// err 用于本次流程后续判断的err
 		_, err := n.DB.ExecContext(ctx, `DELETE FROM message_notifications WHERE cookie_id=? AND channel_id=?`, cookieID, channelID)
 		return err
 	}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := n.DB.ExecContext(ctx,
 		`INSERT INTO message_notifications (cookie_id, channel_id, enabled) VALUES (?, ?, ?)`+
 			dialectUpsert(n.Dialect, []string{"cookie_id", "channel_id"}, map[string]string{"enabled": "EXCLUDED.enabled", "updated_at": "CURRENT_TIMESTAMP"}),
@@ -225,7 +225,7 @@ func (n *Notifications) SetSingleBinding(ctx context.Context, cookieID string, c
 
 // DeleteBinding 删除用户账号下的一条通知绑定。
 func (n *Notifications) DeleteBinding(ctx context.Context, userID, bindingID int64) error {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := n.DB.ExecContext(ctx, `
 		DELETE FROM message_notifications WHERE id=? AND cookie_id IN (SELECT id FROM cookies WHERE user_id=?)`, bindingID, userID)
 	return err
@@ -233,7 +233,7 @@ func (n *Notifications) DeleteBinding(ctx context.Context, userID, bindingID int
 
 // DeleteAccountBindings 删除用户账号下的全部通知绑定。
 func (n *Notifications) DeleteAccountBindings(ctx context.Context, userID int64, cookieID string) error {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := n.DB.ExecContext(ctx, `
 		DELETE FROM message_notifications WHERE cookie_id=? AND cookie_id IN (SELECT id FROM cookies WHERE user_id=?)`, cookieID, userID)
 	return err
@@ -241,9 +241,9 @@ func (n *Notifications) DeleteAccountBindings(ctx context.Context, userID int64,
 
 // AccountChannels 取某账号已启用的通知渠道（message_notifications JOIN notification_channels）。
 // 移植自 get_account_notifications。
-// AccountChannels 负责账号渠道列表相关处理。
+// AccountChannels 封装账号渠道列表业务协调。
 func (n *Notifications) AccountChannels(ctx context.Context, cookieID string) ([]NotificationChannel, error) {
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := n.DB.QueryContext(ctx,
 		`SELECT nc.id, nc.name, nc.type, nc.config, COALESCE(nc.user_id,1),
 		        COALESCE(NULLIF(mn.event_types,''), nc.event_types, '')
@@ -256,14 +256,14 @@ func (n *Notifications) AccountChannels(ctx context.Context, cookieID string) ([
 		return nil, err
 	}
 	defer rows.Close()
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	var out []NotificationChannel
 	for rows.Next() {
-		// c 保存c，供当前处理流程使用
+		// c 用于本次流程后续判断的c
 		var c NotificationChannel
-		// userID 保存用户ID，供当前处理流程使用
+		// userID 用于本次流程后续判断的用户ID
 		var userID int64
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &userID, &c.EventTypes); err != nil {
 			return nil, err
 		}
@@ -283,7 +283,7 @@ func (n *Notifications) EnqueueOutbox(ctx context.Context, messages []Notificati
 	if len(messages) == 0 {
 		return nil
 	}
-	// tx、err 保存tx、err，供当前处理流程使用
+	// tx、err 用于本次流程后续判断的tx、err
 	tx, err := n.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -297,7 +297,7 @@ func (n *Notifications) EnqueueOutbox(ctx context.Context, messages []Notificati
 	for _, message := range messages {
 		// idempotencyKey 将空字符串转换为 NULL，使未指定业务幂等键的历史通知保持可重复发送语义。
 		idempotencyKey := nullableOutboxIdempotencyKey(message.IdempotencyKey)
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		_, err := tx.ExecContext(ctx, insertSQL, message.ChannelID, message.EventType, message.Body, idempotencyKey); err != nil {
 			return err
 		}
@@ -318,14 +318,14 @@ func nullableOutboxIdempotencyKey(key string) any {
 
 // ClaimOutbox 原子领取到期投递。过期 running 任务可以被重新接管，worker token
 // 用于隔离迟到的旧 worker。
-// ClaimOutbox 负责ClaimOutbox相关处理。
+// ClaimOutbox 封装ClaimOutbox业务协调。
 func (n *Notifications) ClaimOutbox(ctx context.Context, workerToken string, now time.Time, limit int) ([]NotificationOutboxMessage, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	// nowUnix 保存nowUnix，供当前处理流程使用
+	// nowUnix 用于本次流程后续判断的nowUnix
 	nowUnix := now.Unix()
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := n.DB.QueryContext(ctx, `SELECT id,channel_id,event_type,body,attempt_count
 		FROM notification_outbox
 		WHERE (status='pending' AND next_attempt_at<=?) OR (status='running' AND lease_expires_at<?)
@@ -333,29 +333,29 @@ func (n *Notifications) ClaimOutbox(ctx context.Context, workerToken string, now
 	if err != nil {
 		return nil, err
 	}
-	// candidates 保存candidates，供当前处理流程使用
+	// candidates 用于本次流程后续判断的candidates
 	var candidates []NotificationOutboxMessage
 	for rows.Next() {
-		// message 保存消息，供当前处理流程使用
+		// message 用于本次流程后续判断的消息
 		var message NotificationOutboxMessage
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&message.ID, &message.ChannelID, &message.EventType, &message.Body, &message.AttemptCount); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		candidates = append(candidates, message)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := rows.Close(); err != nil {
 		return nil, err
 	}
-	// claimed 保存claimed，供当前处理流程使用
+	// claimed 用于本次流程后续判断的claimed
 	claimed := candidates[:0]
-	// leaseExpiresAt 保存leaseExpiresAt，供当前处理流程使用
+	// leaseExpiresAt 用于本次流程后续判断的leaseExpiresAt
 	leaseExpiresAt := now.Add(30 * time.Second).Unix()
 	// message 表示当前遍历过程中的消息
 	for _, message := range candidates {
-		// res、err 保存res、err，供当前处理流程使用
+		// res、err 用于本次流程后续判断的res、err
 		res, err := n.DB.ExecContext(ctx, `UPDATE notification_outbox
 			SET status='running',worker_token=?,lease_expires_at=?,attempt_count=attempt_count+1,updated_at=CURRENT_TIMESTAMP
 			WHERE id=? AND ((status='pending' AND next_attempt_at<=?) OR (status='running' AND lease_expires_at<?))`,
@@ -363,7 +363,7 @@ func (n *Notifications) ClaimOutbox(ctx context.Context, workerToken string, now
 		if err != nil {
 			return nil, err
 		}
-		// count、err 保存count、err，供当前处理流程使用
+		// count、err 用于本次流程后续判断的count、err
 		count, err := res.RowsAffected()
 		if err != nil {
 			return nil, err
@@ -376,14 +376,14 @@ func (n *Notifications) ClaimOutbox(ctx context.Context, workerToken string, now
 	return claimed, nil
 }
 
-// CompleteOutbox 负责CompleteOutbox相关处理。
+// CompleteOutbox 封装CompleteOutbox业务协调。
 func (n *Notifications) CompleteOutbox(ctx context.Context, id int64, workerToken string) (bool, error) {
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := n.DB.ExecContext(ctx, `DELETE FROM notification_outbox WHERE id=? AND status='running' AND worker_token=?`, id, workerToken)
 	if err != nil {
 		return false, err
 	}
-	// count、err 保存count、err，供当前处理流程使用
+	// count、err 用于本次流程后续判断的count、err
 	count, err := res.RowsAffected()
 	return err == nil && count == 1, err
 }
@@ -407,19 +407,19 @@ func (n *Notifications) MarkOutboxUncertain(ctx context.Context, id int64, worke
 
 // RetryOutbox 重试Outbox。
 func (n *Notifications) RetryOutbox(ctx context.Context, id int64, workerToken, message string, nextAttemptAt int64, permanent bool) (bool, error) {
-	// status 保存状态，供当前处理流程使用
+	// status 用于本次流程后续判断的状态
 	status := "pending"
 	if permanent {
 		status = "dead"
 	}
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := n.DB.ExecContext(ctx, `UPDATE notification_outbox
 		SET status=?,next_attempt_at=?,lease_expires_at=0,worker_token='',last_error=?,updated_at=CURRENT_TIMESTAMP
 		WHERE id=? AND status='running' AND worker_token=?`, status, nextAttemptAt, message, id, workerToken)
 	if err != nil {
 		return false, err
 	}
-	// count、err 保存count、err，供当前处理流程使用
+	// count、err 用于本次流程后续判断的count、err
 	count, err := res.RowsAffected()
 	return err == nil && count == 1, err
 }

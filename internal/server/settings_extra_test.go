@@ -14,7 +14,7 @@ import (
 
 // TestListAIModels 通过 mock OpenAI 端点返回模型列表。
 func TestListAIModels(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// 注入一个本地 HTTP server 作为 ai_api_url。
@@ -24,26 +24,26 @@ func TestListAIModels(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := `{"base_url":"` + ts.URL + `","api_key":"sk-test"}`
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPost, "/ai-models", strings.NewReader(body))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	// res 保存响应，供当前处理流程使用
+	// res 用于本次流程后续判断的响应
 	var res map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &res)
-	// models 保存模型列表，供当前处理流程使用
+	// models 用于本次流程后续判断的模型列表
 	models, _ := res["models"].([]any)
 	if len(models) != 2 {
 		t.Fatalf("应2个模型，got %+v", res)
@@ -63,9 +63,9 @@ func TestListAIModels(t *testing.T) {
 	}
 }
 
-// TestReadOpenAIModelsBodyRejectsOversizedResponse 负责TestReadOpenAI模型列表请求体RejectsOversized响应相关处理。
+// TestReadOpenAIModelsBodyRejectsOversizedResponse 封装TestReadOpenAI模型列表请求体RejectsOversized响应业务协调。
 func TestReadOpenAIModelsBodyRejectsOversizedResponse(t *testing.T) {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := readOpenAIModelsBody(strings.NewReader(strings.Repeat("x", maxOpenAIModelsResponseBytes+1)))
 	if err == nil {
 		t.Fatal("oversized models response should fail")
@@ -74,18 +74,18 @@ func TestReadOpenAIModelsBodyRejectsOversizedResponse(t *testing.T) {
 
 // TestListAIModelsBadJSON 非法 JSON 400。
 func TestListAIModelsBadJSON(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPost, "/ai-models", strings.NewReader("not-json"))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -95,7 +95,7 @@ func TestListAIModelsBadJSON(t *testing.T) {
 
 // TestListAIModelsEmptyBaseURL 空地址使用默认并失败（默认阿里云地址不可达或返回非 2xx）。
 func TestListAIModelsEmptyBaseURL(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// 注入一个返回错误状态码的本地 server。
@@ -106,17 +106,17 @@ func TestListAIModelsEmptyBaseURL(t *testing.T) {
 	// 设置系统设置 ai_api_url 指向该 server。
 	store.Settings.Set(context.Background(), "ai_api_url", ts.URL)
 
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := `{}`
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPost, "/ai-models", strings.NewReader(body))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadGateway {
@@ -126,18 +126,18 @@ func TestListAIModelsEmptyBaseURL(t *testing.T) {
 
 // TestSetSettingBadJSON 非法 JSON 400。
 func TestSetSettingBadJSON(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPut, "/system-settings/theme_color", strings.NewReader("not-json"))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -145,72 +145,72 @@ func TestSetSettingBadJSON(t *testing.T) {
 	}
 }
 
-// TestSetLogLevelValidatesAndAppliesRuntimeLevel 负责TestSetLogLevelValidatesAndAppliesRuntimeLevel相关处理。
+// TestSetLogLevelValidatesAndAppliesRuntimeLevel 封装TestSetLogLevelValidatesAndAppliesRuntimeLevel业务协调。
 func TestSetLogLevelValidatesAndAppliesRuntimeLevel(t *testing.T) {
 	defer logging.Level.Set(slog.LevelInfo)
 
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// badReq 保存badReq，供当前处理流程使用
+	// badReq 用于本次流程后续判断的badReq
 	badReq := httptest.NewRequest(http.MethodPut, "/system-settings/log_level", strings.NewReader(`{"value":"verbose"}`))
 	badReq.AddCookie(cookie)
-	// badRec 保存badRec，供当前处理流程使用
+	// badRec 用于本次流程后续判断的badRec
 	badRec := httptest.NewRecorder()
 	h.ServeHTTP(badRec, badReq)
 	if badRec.Code != http.StatusBadRequest {
 		t.Fatalf("invalid log level should be 400, got %d body=%s", badRec.Code, badRec.Body.String())
 	}
 
-	// goodReq 保存goodReq，供当前处理流程使用
+	// goodReq 用于本次流程后续判断的goodReq
 	goodReq := httptest.NewRequest(http.MethodPut, "/system-settings/log_level", strings.NewReader(`{"value":"debug"}`))
 	goodReq.AddCookie(cookie)
-	// goodRec 保存goodRec，供当前处理流程使用
+	// goodRec 用于本次流程后续判断的goodRec
 	goodRec := httptest.NewRecorder()
 	h.ServeHTTP(goodRec, goodReq)
 	if goodRec.Code != http.StatusOK {
 		t.Fatalf("valid log level should be 200, got %d body=%s", goodRec.Code, goodRec.Body.String())
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := logging.Level.Level(); got != slog.LevelDebug {
 		t.Fatalf("runtime log level=%v want debug", got)
 	}
-	// saved、err 保存saved、err，供当前处理流程使用
+	// saved、err 用于本次流程后续判断的saved、err
 	saved, err := store.Settings.Get(context.Background(), "log_level")
 	if err != nil || saved != "debug" {
 		t.Fatalf("saved log_level=%q err=%v", saved, err)
 	}
 }
 
-// TestSystemSettingsRequireAdmin 负责Test系统设置RequireAdmin相关处理。
+// TestSystemSettingsRequireAdmin 封装Test系统设置RequireAdmin业务协调。
 func TestSystemSettingsRequireAdmin(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := store.Users.Create(context.Background(), "user-settings", "user-settings@example.com", "pw"); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 
-	// loginReq 保存登录Req，供当前处理流程使用
+	// loginReq 用于本次流程后续判断的登录Req
 	loginReq := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"user-settings","password":"pw"}`))
-	// loginRec 保存登录Rec，供当前处理流程使用
+	// loginRec 用于本次流程后续判断的登录Rec
 	loginRec := httptest.NewRecorder()
 	h.ServeHTTP(loginRec, loginReq)
 	if loginRec.Code != http.StatusOK || len(loginRec.Result().Cookies()) == 0 {
 		t.Fatalf("login status=%d body=%s", loginRec.Code, loginRec.Body.String())
 	}
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginRec.Result().Cookies()[0]
 
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := []struct {
 		method string
 		path   string
@@ -222,10 +222,10 @@ func TestSystemSettingsRequireAdmin(t *testing.T) {
 	}
 	// tc 表示当前遍历过程中的tc
 	for _, tc := range cases {
-		// req 保存req，供当前处理流程使用
+		// req 用于本次流程后续判断的req
 		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
 		req.AddCookie(cookie)
-		// rec 保存rec，供当前处理流程使用
+		// rec 用于本次流程后续判断的rec
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusForbidden {
@@ -234,44 +234,44 @@ func TestSystemSettingsRequireAdmin(t *testing.T) {
 	}
 }
 
-// TestBulkSystemSettingsAreAtomic 负责TestBulk系统设置AreAtomic相关处理。
+// TestBulkSystemSettingsAreAtomic 封装TestBulk系统设置AreAtomic业务协调。
 func TestBulkSystemSettingsAreAtomic(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// badReq 保存badReq，供当前处理流程使用
+	// badReq 用于本次流程后续判断的badReq
 	badReq := httptest.NewRequest(http.MethodPut, "/system-settings", strings.NewReader(`{"theme_color":"red","log_level":"verbose"}`))
 	badReq.AddCookie(cookie)
-	// badRec 保存badRec，供当前处理流程使用
+	// badRec 用于本次流程后续判断的badRec
 	badRec := httptest.NewRecorder()
 	h.ServeHTTP(badRec, badReq)
 	if badRec.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", badRec.Code, badRec.Body.String())
 	}
-	if // value 保存值，供当前处理流程使用
+	if // value 用于本次流程后续判断的值
 	value, _ := store.Settings.Get(context.Background(), "theme_color"); value == "red" {
 		t.Fatal("invalid bulk request partially saved theme_color")
 	}
 
-	// goodReq 保存goodReq，供当前处理流程使用
+	// goodReq 用于本次流程后续判断的goodReq
 	goodReq := httptest.NewRequest(http.MethodPut, "/system-settings", strings.NewReader(`{"theme_color":"blue","renewal_log_retention_days":15}`))
 	goodReq.AddCookie(cookie)
-	// goodRec 保存goodRec，供当前处理流程使用
+	// goodRec 用于本次流程后续判断的goodRec
 	goodRec := httptest.NewRecorder()
 	h.ServeHTTP(goodRec, goodReq)
 	if goodRec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", goodRec.Code, goodRec.Body.String())
 	}
-	if // value 保存值，供当前处理流程使用
+	if // value 用于本次流程后续判断的值
 	value, _ := store.Settings.Get(context.Background(), "theme_color"); value != "blue" {
 		t.Fatalf("theme_color=%q", value)
 	}
-	if // value 保存值，供当前处理流程使用
+	if // value 用于本次流程后续判断的值
 	value, _ := store.Settings.Get(context.Background(), "renewal_log_retention_days"); value != "15" {
 		t.Fatalf("retention=%q", value)
 	}
@@ -279,20 +279,20 @@ func TestBulkSystemSettingsAreAtomic(t *testing.T) {
 
 // TestListUserSettings 用户设置增删查。
 func TestListUserSettings(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
 	// 设。
 	body := `{"value":"dark"}`
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPut, "/user-settings/theme", strings.NewReader(body))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 200 {
@@ -302,13 +302,13 @@ func TestListUserSettings(t *testing.T) {
 	// 查全部。
 	req2 := httptest.NewRequest(http.MethodGet, "/user-settings", nil)
 	req2.AddCookie(cookie)
-	// rec2 保存rec2，供当前处理流程使用
+	// rec2 用于本次流程后续判断的rec2
 	rec2 := httptest.NewRecorder()
 	h.ServeHTTP(rec2, req2)
 	if rec2.Code != 200 {
 		t.Fatalf("list status=%d", rec2.Code)
 	}
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	var m map[string]string
 	json.Unmarshal(rec2.Body.Bytes(), &m)
 	if m["theme"] != "dark" {
@@ -318,10 +318,10 @@ func TestListUserSettings(t *testing.T) {
 	// 查单。
 	req3 := httptest.NewRequest(http.MethodGet, "/user-settings/theme", nil)
 	req3.AddCookie(cookie)
-	// rec3 保存rec3，供当前处理流程使用
+	// rec3 用于本次流程后续判断的rec3
 	rec3 := httptest.NewRecorder()
 	h.ServeHTTP(rec3, req3)
-	// one 保存one，供当前处理流程使用
+	// one 用于本次流程后续判断的one
 	var one map[string]any
 	json.Unmarshal(rec3.Body.Bytes(), &one)
 	if one["value"] != "dark" {
@@ -331,10 +331,10 @@ func TestListUserSettings(t *testing.T) {
 	// 查不存在的 key。
 	req4 := httptest.NewRequest(http.MethodGet, "/user-settings/no-such-key", nil)
 	req4.AddCookie(cookie)
-	// rec4 保存rec4，供当前处理流程使用
+	// rec4 用于本次流程后续判断的rec4
 	rec4 := httptest.NewRecorder()
 	h.ServeHTTP(rec4, req4)
-	// miss 保存miss，供当前处理流程使用
+	// miss 用于本次流程后续判断的miss
 	var miss map[string]any
 	json.Unmarshal(rec4.Body.Bytes(), &miss)
 	if miss["value"] != "" {
@@ -344,18 +344,18 @@ func TestListUserSettings(t *testing.T) {
 
 // TestSetUserSettingBadJSON 非法 JSON 400。
 func TestSetUserSettingBadJSON(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPut, "/user-settings/theme", strings.NewReader("not-json"))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -365,18 +365,18 @@ func TestSetUserSettingBadJSON(t *testing.T) {
 
 // TestSetAIReplyBadJSON 非法 JSON 400。
 func TestSetAIReplyBadJSON(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPut, "/ai-reply-settings/acc1", strings.NewReader("not-json"))
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -384,20 +384,20 @@ func TestSetAIReplyBadJSON(t *testing.T) {
 	}
 }
 
-// TestGetAIReplyMissingAccountIsNotFound 负责TestGetAI回复Missing账号IsNotFound相关处理。
+// TestGetAIReplyMissingAccountIsNotFound 封装TestGetAI回复Missing账号IsNotFound业务协调。
 func TestGetAIReplyMissingAccountIsNotFound(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodGet, "/ai-reply-settings/no-such", nil)
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
@@ -405,26 +405,26 @@ func TestGetAIReplyMissingAccountIsNotFound(t *testing.T) {
 	}
 }
 
-// TestGetAIReplyExistingAccountWithoutConfigReturnsDefault 负责TestGetAI回复Existing账号Without配置ReturnsDefault相关处理。
+// TestGetAIReplyExistingAccountWithoutConfigReturnsDefault 封装TestGetAI回复Existing账号Without配置ReturnsDefault业务协调。
 func TestGetAIReplyExistingAccountWithoutConfigReturnsDefault(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodGet, "/ai-reply-settings/acc1", nil)
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	// res 保存响应，供当前处理流程使用
+	// res 用于本次流程后续判断的响应
 	var res map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &res)
 	if res["ai_enabled"] != false || res["max_discount_percent"] != float64(10) {
@@ -432,73 +432,73 @@ func TestGetAIReplyExistingAccountWithoutConfigReturnsDefault(t *testing.T) {
 	}
 }
 
-// TestAIReplySettingsAreUserScoped 负责TestAI回复设置Are用户Scoped相关处理。
+// TestAIReplySettingsAreUserScoped 封装TestAI回复设置Are用户Scoped业务协调。
 func TestAIReplySettingsAreUserScoped(t *testing.T) {
-	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
+	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := store.Users.Create(ctx, "user2", "u2@e.com", "pw"); err != nil {
 		t.Fatalf("create user2: %v", err)
 	}
-	// user2、err 保存user2、err，供当前处理流程使用
+	// user2、err 用于本次流程后续判断的user2、err
 	user2, err := store.Users.GetByUsername(ctx, "user2")
 	if err != nil {
 		t.Fatalf("get user2: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.Save(ctx, "other-acc", "unb=456; _m_h5_tk=tk2_1;", user2.ID); err != nil {
 		t.Fatalf("save other cookie: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := store.DB.ExecContext(ctx,
 		`INSERT INTO ai_reply_settings (cookie_id, ai_enabled, custom_prompts) VALUES ('other-acc', 1, 'secret')`); err != nil {
 		t.Fatalf("insert ai settings: %v", err)
 	}
 
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// listReq 保存listReq，供当前处理流程使用
+	// listReq 用于本次流程后续判断的listReq
 	listReq := httptest.NewRequest(http.MethodGet, "/ai-reply-settings", nil)
 	listReq.AddCookie(cookie)
-	// listRec 保存listRec，供当前处理流程使用
+	// listRec 用于本次流程后续判断的listRec
 	listRec := httptest.NewRecorder()
 	h.ServeHTTP(listRec, listReq)
 	if listRec.Code != http.StatusOK {
 		t.Fatalf("list status=%d body=%s", listRec.Code, listRec.Body.String())
 	}
-	// listed 保存listed，供当前处理流程使用
+	// listed 用于本次流程后续判断的listed
 	var listed map[string]any
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal(listRec.Body.Bytes(), &listed); err != nil {
 		t.Fatalf("decode list: %v", err)
 	}
-	if // ok 保存ok，供当前处理流程使用
+	if // ok 用于本次流程后续判断的ok
 	_, ok := listed["other-acc"]; ok {
 		t.Fatalf("list leaked other user's AI settings: %+v", listed)
 	}
 
-	// getReq 保存getReq，供当前处理流程使用
+	// getReq 用于本次流程后续判断的getReq
 	getReq := httptest.NewRequest(http.MethodGet, "/ai-reply-settings/other-acc", nil)
 	getReq.AddCookie(cookie)
-	// getRec 保存getRec，供当前处理流程使用
+	// getRec 用于本次流程后续判断的getRec
 	getRec := httptest.NewRecorder()
 	h.ServeHTTP(getRec, getReq)
 	if getRec.Code != http.StatusForbidden {
 		t.Fatalf("cross-user get should be 403, got %d body=%s", getRec.Code, getRec.Body.String())
 	}
 
-	// setReq 保存setReq，供当前处理流程使用
+	// setReq 用于本次流程后续判断的setReq
 	setReq := httptest.NewRequest(http.MethodPut, "/ai-reply-settings/other-acc", strings.NewReader(
 		`{"ai_enabled":true,"max_discount_percent":20,"max_discount_amount":200,"max_bargain_rounds":5,"custom_prompts":"override"}`,
 	))
 	setReq.AddCookie(cookie)
-	// setRec 保存setRec，供当前处理流程使用
+	// setRec 用于本次流程后续判断的setRec
 	setRec := httptest.NewRecorder()
 	h.ServeHTTP(setRec, setReq)
 	if setRec.Code != http.StatusForbidden {
@@ -508,7 +508,7 @@ func TestAIReplySettingsAreUserScoped(t *testing.T) {
 
 // TestFetchOpenAIModelsEmptyBaseURL 空地址错误。
 func TestFetchOpenAIModelsEmptyBaseURL(t *testing.T) {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := fetchOpenAIModels(context.Background(), "", "")
 	if err == nil {
 		t.Fatal("空地址应报错")

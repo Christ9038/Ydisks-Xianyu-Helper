@@ -13,15 +13,15 @@ func authSess(r *http.Request) *auth.SessionIdentity {
 	return auth.IdentityFromContext(r.Context())
 }
 
-// requireCookieOwner 负责require登录凭证所有者相关处理。
+// requireCookieOwner 封装require登录凭证所有者业务协调。
 func (s *Server) requireCookieOwner(w http.ResponseWriter, r *http.Request, cookieID string) (accountapp.AccountSummary, bool) {
-	// sess 保存sess，供当前处理流程使用
+	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
 	if sess == nil {
 		writeErr(w, http.StatusUnauthorized, "未授权访问")
 		return accountapp.AccountSummary{}, false
 	}
-	// d、err 保存d、err，供当前处理流程使用
+	// d、err 用于本次流程后续判断的d、err
 	d, err := s.loadCookieSummaryDetail(r.Context(), sess.UserID, cookieID)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "账号不存在")

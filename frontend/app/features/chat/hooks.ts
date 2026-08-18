@@ -166,7 +166,7 @@ export const useChat = (): UseChatResult => {
       setContactCursors(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, [accountID]: page.next_cursor }));
       setHasMoreContacts(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, [accountID]: page.has_more }));
       return sessions;
-    } catch (/* error 表示错误。 */ error) {
+    } catch (/* error 保存会话列表请求的失败原因；仅最新请求可以更新错误状态。 */ error) {
       if (isCurrentChatRequest(sessionSequence.current, sequence, controller.signal) && !isChatAbortError(error)) setError(error instanceof Error ? error.message : '同步会话失败');
       return [];
     }

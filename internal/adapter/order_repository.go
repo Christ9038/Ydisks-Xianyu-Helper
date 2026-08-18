@@ -2,7 +2,6 @@ package adapter
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/db"
@@ -152,43 +151,29 @@ func (r OrderRepository) SoftDeleteOrder(ctx context.Context, orderID string) (b
 
 // WithTransaction 创建、提交或回滚订单事务。
 func (r OrderRepository) WithTransaction(ctx context.Context, work func(orderapp.Writer) error) error {
-	// tx 和 err 保存事务创建结果。
-	tx, err := r.store.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return err
+	if r.store == nil || r.store.OrderWrites == nil {
+		return errors.New("订单写入 Unit of Work 未初始化")
 	}
-	// committed 标识事务是否已经提交成功。
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-	}()
-	// writer 是隐藏数据库事务细节的订单写入适配器。
-	writer := orderWriter{store: r.store, tx: tx}
-	// err 保存事务工作函数的执行错误。
-	if err := work(writer); err != nil {
-		return err
+	if work == nil {
+		return errors.New("订单写入事务工作函数不能为空")
 	}
-	// err 保存事务提交错误。
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	committed = true
-	return nil
+	// transaction 是 db 层创建的窄事务写入能力，适配器不会接触或暴露原始 SQL 事务。
+	return r.store.OrderWrites.WithTransaction(ctx, func(transaction *db.OrderWriteTransaction) error {
+		// writer 将应用订单模型转换为当前事务的 db 写入模型。
+		writer := orderWriter{transaction: transaction}
+		return work(writer)
+	})
 }
 
 // orderWriter 将订单应用写入模型适配为数据库事务操作。
 type orderWriter struct {
-	// store 保存数据库 repository 聚合入口。
-	store *db.Store
-	// tx 保存当前事务，仅在基础设施适配器内部可见。
-	tx *sql.Tx
+	// transaction 保存订单/商品窄事务写入能力，不包含可供上层执行任意 SQL 的接口。
+	transaction *db.OrderWriteTransaction
 }
 
 // PatchOrder 委托事务内订单更新。
 func (w orderWriter) PatchOrder(ctx context.Context, orderID string, patch orderapp.OrderPatch) error {
-	return w.store.Orders.PatchTx(ctx, w.tx, orderID, db.OrderPatch{
+	return w.transaction.PatchOrder(ctx, orderID, db.OrderPatch{
 		OrderStatus: patch.OrderStatus, ItemID: patch.ItemID, BuyerID: patch.BuyerID,
 		SpecName: patch.SpecName, SpecValue: patch.SpecValue, Quantity: patch.Quantity,
 		Amount: patch.Amount, ReceiverName: patch.ReceiverName, ReceiverPhone: patch.ReceiverPhone,
@@ -199,7 +184,7 @@ func (w orderWriter) PatchOrder(ctx context.Context, orderID string, patch order
 
 // UpsertItemBasic 委托事务内商品基础信息写入。
 func (w orderWriter) UpsertItemBasic(ctx context.Context, item orderapp.ItemWrite) error {
-	return w.store.Items.UpsertBasicTx(ctx, w.tx, &db.ItemInfoRow{
+	return w.transaction.UpsertItemBasic(ctx, &db.ItemInfoRow{
 		CookieID: item.CookieID, ItemID: item.ItemID, ItemTitle: item.ItemTitle,
 		ItemPrice: item.ItemPrice, ItemDetail: item.ItemDetail,
 	})
@@ -207,7 +192,7 @@ func (w orderWriter) UpsertItemBasic(ctx context.Context, item orderapp.ItemWrit
 
 // UpsertOrder 委托事务内订单写入。
 func (w orderWriter) UpsertOrder(ctx context.Context, orderID string, options orderapp.UpsertOptions) error {
-	return w.store.Orders.UpsertTx(ctx, w.tx, orderID, db.OrderUpsertOpts{
+	return w.transaction.UpsertOrder(ctx, orderID, db.OrderUpsertOpts{
 		ItemID: options.ItemID, BuyerID: options.BuyerID, CookieID: options.CookieID,
 		OrderStatus: options.OrderStatus, SpecName: options.SpecName, SpecValue: options.SpecValue,
 		Quantity: options.Quantity, Amount: options.Amount, ReceiverName: options.ReceiverName,
@@ -240,28 +225,13 @@ func (r OrderRepository) BatchUpsertOrders(ctx context.Context, rows []orderapp.
 	for _, row := range rows {
 		converted = append(converted, db.BatchOrderUpsert{OrderID: row.OrderID, Options: db.OrderUpsertOpts{ItemID: row.Options.ItemID, BuyerID: row.Options.BuyerID, CookieID: row.Options.CookieID, OrderStatus: row.Options.OrderStatus, SpecName: row.Options.SpecName, SpecValue: row.Options.SpecValue, Quantity: row.Options.Quantity, Amount: row.Options.Amount, ReceiverName: row.Options.ReceiverName, ReceiverPhone: row.Options.ReceiverPhone, ReceiverAddr: row.Options.ReceiverAddress, ReceiverCity: row.Options.ReceiverCity, ChatID: row.Options.ChatID, IsBargain: row.Options.IsBargain, SystemShipped: row.Options.SystemShipped}})
 	}
-	// tx、err 保存详情分片事务及创建错误。
-	tx, err := r.store.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return err
+	if r.store == nil || r.store.OrderWrites == nil {
+		return errors.New("订单写入 Unit of Work 未初始化")
 	}
-	// committed 表示详情分片事务是否已经提交。
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-	}()
-	// err 保存批量订单写入错误。
-	if err := r.store.Orders.UpsertManyTx(ctx, tx, converted); err != nil {
-		return err
-	}
-	// err 保存详情分片事务提交错误。
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	committed = true
-	return nil
+	// transaction 是 db 层管理的详情分片事务，批量写入失败时不会留下部分订单。
+	return r.store.OrderWrites.WithTransaction(ctx, func(transaction *db.OrderWriteTransaction) error {
+		return transaction.UpsertOrders(ctx, converted)
+	})
 }
 
 // LockCredentials 委托账号凭证锁。

@@ -15,6 +15,7 @@ linters:
     - staticcheck     # 综合静态分析（含原 gosimple 检查）
     - unused          # 检测未使用的代码
     - misspell        # 拼写检查
+    - gocyclo         # 检查函数分支复杂度，阶段 10 收口高风险热点
 
   settings:
     errcheck:
@@ -27,6 +28,9 @@ linters:
         - (*database/sql.DB).Close
         - (*database/sql.Tx).Rollback
         - (*bufio.Writer).Flush
+    gocyclo:
+      # 50 以上才视为需要结构拆分的生产热点；测试编排不以断言数量伪装业务复杂度债务。
+      min-complexity: 50
 
   exclusions:
     presets:
@@ -37,7 +41,7 @@ linters:
         linters: [errcheck, staticcheck, govet]
       # 测试代码允许在 setup 中忽略错误。
       - path: _test\.go
-        linters: [errcheck]
+        linters: [errcheck, gocyclo]
       # cmd/spike 是一次性诊断脚本，放宽要求。
       - path: cmd/spike/
         linters: [errcheck]

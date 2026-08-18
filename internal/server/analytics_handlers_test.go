@@ -11,12 +11,12 @@ import (
 	"time"
 )
 
-// TestValidOrdersMatchesAnalyticsScope 负责Test有效订单列表MatchesAnalyticsScope相关处理。
+// TestValidOrdersMatchesAnalyticsScope 封装Test有效订单列表MatchesAnalyticsScope业务协调。
 func TestValidOrdersMatchesAnalyticsScope(t *testing.T) {
-	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
+	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 
 	_, _ = store.DB.ExecContext(ctx, `
@@ -27,28 +27,28 @@ func TestValidOrdersMatchesAnalyticsScope(t *testing.T) {
 	`)
 	_, _ = store.DB.ExecContext(ctx, `INSERT INTO item_info (cookie_id, item_id, item_title, item_detail) VALUES ('acc1','item1','测试商品','{"pic_info":{"picUrl":"https://img.example/item.png"}}')`)
 
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
 
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodGet, "/analytics/orders?start_date=2026-06-28&end_date=2026-06-28", nil)
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("analytics status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	// analytics 保存analytics，供当前处理流程使用
+	// analytics 用于本次流程后续判断的analytics
 	var analytics struct {
 		RevenueStats struct {
 			TotalOrders int     `json:"total_orders"`
 			TotalAmount float64 `json:"total_amount"`
 		} `json:"revenue_stats"`
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal(rec.Body.Bytes(), &analytics); err != nil {
 		t.Fatal(err)
 	}
@@ -56,27 +56,27 @@ func TestValidOrdersMatchesAnalyticsScope(t *testing.T) {
 		t.Fatalf("统计口径异常: %+v", analytics.RevenueStats)
 	}
 
-	// req2 保存req2，供当前处理流程使用
+	// req2 用于本次流程后续判断的req2
 	req2 := httptest.NewRequest(http.MethodGet, "/analytics/orders/valid?start_date=2026-06-28&end_date=2026-06-28", nil)
 	req2.AddCookie(cookie)
-	// rec2 保存rec2，供当前处理流程使用
+	// rec2 用于本次流程后续判断的rec2
 	rec2 := httptest.NewRecorder()
 	h.ServeHTTP(rec2, req2)
 	if rec2.Code != http.StatusOK {
 		t.Fatalf("valid orders status=%d body=%s", rec2.Code, rec2.Body.String())
 	}
-	// valid 保存有效，供当前处理流程使用
+	// valid 用于本次流程后续判断的有效
 	var valid struct {
 		Orders []map[string]any `json:"orders"`
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal(rec2.Body.Bytes(), &valid); err != nil {
 		t.Fatal(err)
 	}
 	if len(valid.Orders) != 1 {
 		t.Fatalf("有效订单明细数量应与统计订单数一致，got %d body=%s", len(valid.Orders), rec2.Body.String())
 	}
-	// order 保存订单，供当前处理流程使用
+	// order 用于本次流程后续判断的订单
 	order := valid.Orders[0]
 	if order["order_id"] != "ord-valid" || order["item_title"] != "测试商品" || !strings.Contains(order["item_image"].(string), "img.example") {
 		t.Fatalf("有效订单明细字段异常: %+v", order)
@@ -86,36 +86,36 @@ func TestValidOrdersMatchesAnalyticsScope(t *testing.T) {
 	}
 }
 
-// TestValidOrdersIncludesPaidAndReportsPagination 负责Test有效订单列表IncludesPaidAndReportsPagination相关处理。
+// TestValidOrdersIncludesPaidAndReportsPagination 封装Test有效订单列表IncludesPaidAndReportsPagination业务协调。
 func TestValidOrdersIncludesPaidAndReportsPagination(t *testing.T) {
-	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
+	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,amount,order_status,cookie_id,created_at) VALUES
 		('paid-1','10','paid','acc1','2026-06-28 10:00:00'),
 		('paid-2','20','pending_ship','acc1','2026-06-28 11:00:00')`)
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodGet, "/analytics/orders/valid?start_date=2026-06-28&end_date=2026-06-28&page_size=1", nil)
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	// result 保存结果，供当前处理流程使用
+	// result 用于本次流程后续判断的结果
 	var result struct {
 		Orders    []map[string]any `json:"orders"`
 		Total     int              `json:"total"`
 		Truncated bool             `json:"truncated"`
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
@@ -124,24 +124,24 @@ func TestValidOrdersIncludesPaidAndReportsPagination(t *testing.T) {
 	}
 }
 
-// TestDashboardStatsAreAvailableAndScopedToCurrentUser 负责TestDashboardStatsAreAvailableAndScopedToCurrent用户相关处理。
+// TestDashboardStatsAreAvailableAndScopedToCurrentUser 封装TestDashboardStatsAreAvailableAndScopedToCurrent用户业务协调。
 func TestDashboardStatsAreAvailableAndScopedToCurrentUser(t *testing.T) {
-	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
+	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 
-	if // ok、err 保存ok、err，供当前处理流程使用
+	if // ok、err 用于本次流程后续判断的ok、err
 	ok, err := store.Users.Create(ctx, "member", "member@example.com", "pw"); err != nil || !ok {
 		t.Fatalf("create member: ok=%v err=%v", ok, err)
 	}
-	// member、err 保存member、err，供当前处理流程使用
+	// member、err 用于本次流程后续判断的member、err
 	member, err := store.Users.GetByUsername(ctx, "member")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.Save(ctx, "member-acc", "unb=456", member.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -153,29 +153,29 @@ func TestDashboardStatsAreAvailableAndScopedToCurrentUser(t *testing.T) {
 	_, _ = store.DB.ExecContext(ctx, `INSERT INTO cards (name,type,user_id) VALUES ('admin-card','text',1)`)
 	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,cookie_id,order_status) VALUES ('admin-order','acc1','completed')`)
 
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// loginReq 保存登录Req，供当前处理流程使用
+	// loginReq 用于本次流程后续判断的登录Req
 	loginReq := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"member","password":"pw"}`))
-	// loginRec 保存登录Rec，供当前处理流程使用
+	// loginRec 用于本次流程后续判断的登录Rec
 	loginRec := httptest.NewRecorder()
 	h.ServeHTTP(loginRec, loginReq)
 	if loginRec.Code != http.StatusOK || len(loginRec.Result().Cookies()) == 0 {
 		t.Fatalf("login status=%d body=%s", loginRec.Code, loginRec.Body.String())
 	}
 
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodGet, "/dashboard/stats", nil)
 	req.AddCookie(loginRec.Result().Cookies()[0])
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	// stats 保存stats，供当前处理流程使用
+	// stats 用于本次流程后续判断的stats
 	var stats map[string]int64
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil {
 		t.Fatal(err)
 	}
@@ -189,10 +189,10 @@ func TestDashboardStatsAreAvailableAndScopedToCurrentUser(t *testing.T) {
 		t.Fatalf("available_card_stock=%d want 2; stats=%+v", stats["available_card_stock"], stats)
 	}
 
-	// adminReq 保存adminReq，供当前处理流程使用
+	// adminReq 用于本次流程后续判断的adminReq
 	adminReq := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
 	adminReq.AddCookie(loginRec.Result().Cookies()[0])
-	// adminRec 保存adminRec，供当前处理流程使用
+	// adminRec 用于本次流程后续判断的adminRec
 	adminRec := httptest.NewRecorder()
 	h.ServeHTTP(adminRec, adminReq)
 	if adminRec.Code != http.StatusForbidden {
@@ -200,45 +200,45 @@ func TestDashboardStatsAreAvailableAndScopedToCurrentUser(t *testing.T) {
 	}
 }
 
-// TestAnalyticsIncludesLegacyNumericValidStatuses 负责TestAnalyticsIncludesLegacyNumeric有效Statuses相关处理。
+// TestAnalyticsIncludesLegacyNumericValidStatuses 封装TestAnalyticsIncludesLegacyNumeric有效Statuses业务协调。
 func TestAnalyticsIncludesLegacyNumericValidStatuses(t *testing.T) {
-	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
+	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,amount,order_status,cookie_id,created_at)
 		VALUES ('legacy-shipped','8.50','3','acc1','2026-06-28 12:00:00')`)
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodGet, "/analytics/orders?start_date=2026-06-28&end_date=2026-06-28", nil)
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	// response 保存响应，供当前处理流程使用
+	// response 用于本次流程后续判断的响应
 	var response struct {
 		RevenueStats struct {
 			TotalOrders int `json:"total_orders"`
 		} `json:"revenue_stats"`
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
 	if response.RevenueStats.TotalOrders != 1 {
 		t.Fatalf("legacy numeric valid status was excluded: %+v", response)
 	}
-	// validReq 保存有效Req，供当前处理流程使用
+	// validReq 用于本次流程后续判断的有效Req
 	validReq := httptest.NewRequest(http.MethodGet, "/analytics/orders/valid?start_date=2026-06-28&end_date=2026-06-28", nil)
 	validReq.AddCookie(cookie)
-	// validRec 保存有效Rec，供当前处理流程使用
+	// validRec 用于本次流程后续判断的有效Rec
 	validRec := httptest.NewRecorder()
 	h.ServeHTTP(validRec, validReq)
 	if !strings.Contains(validRec.Body.String(), `"order_status":"shipped"`) {
@@ -246,79 +246,79 @@ func TestAnalyticsIncludesLegacyNumericValidStatuses(t *testing.T) {
 	}
 }
 
-// TestAnalyticsCustomRangeDoesNotSilentlyDropDays 负责TestAnalyticsCustomRangeDoesNotSilentlyDropDays相关处理。
+// TestAnalyticsCustomRangeDoesNotSilentlyDropDays 封装TestAnalyticsCustomRangeDoesNotSilentlyDropDays业务协调。
 func TestAnalyticsCustomRangeDoesNotSilentlyDropDays(t *testing.T) {
-	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
+	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	for // day 保存day，供当前处理流程使用
+	for // day 用于本次流程后续判断的day
 	day := 1; day <= 31; day++ {
-		// date 保存日期，供当前处理流程使用
+		// date 用于本次流程后续判断的日期
 		date := time.Date(2026, 1, day, 12, 0, 0, 0, time.UTC).Format("2006-01-02 15:04:05")
 		_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,amount,order_status,cookie_id,created_at) VALUES (?,?,?,?,?)`, fmt.Sprintf("day-%02d", day), "1", "completed", "acc1", date)
 	}
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodGet, "/analytics/orders?start_date=2026-01-01&end_date=2026-01-31", nil)
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	// response 保存响应，供当前处理流程使用
+	// response 用于本次流程后续判断的响应
 	var response struct {
 		Daily []map[string]any `json:"daily_stats"`
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil || len(response.Daily) != 31 {
 		t.Fatalf("daily range len=%d err=%v body=%s", len(response.Daily), err, rec.Body.String())
 	}
 }
 
-// TestAnalyticsDateBoundaryConvertsLocalDayToUTC 负责TestAnalytics日期BoundaryConvertsLocalDayToUTC相关处理。
+// TestAnalyticsDateBoundaryConvertsLocalDayToUTC 封装TestAnalytics日期BoundaryConvertsLocalDayToUTC业务协调。
 func TestAnalyticsDateBoundaryConvertsLocalDayToUTC(t *testing.T) {
-	// previous 保存previous，供当前处理流程使用
+	// previous 用于本次流程后续判断的previous
 	previous := time.Local
 	time.Local = time.FixedZone("UTC+8", 8*60*60)
 	defer func() { time.Local = previous }()
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := analyticsDateBoundary("2026-06-28", false, time.Local); got != "2026-06-27 16:00:00" {
 		t.Fatalf("start boundary=%q", got)
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := analyticsDateBoundary("2026-06-28", true, time.Local); got != "2026-06-28 16:00:00" {
 		t.Fatalf("end boundary=%q", got)
 	}
 }
 
-// TestAnalyticsUsesBrowserTimezoneAndSkipsInvalidAmounts 负责TestAnalyticsUses浏览器TimezoneAndSkipsInvalidAmounts相关处理。
+// TestAnalyticsUsesBrowserTimezoneAndSkipsInvalidAmounts 封装TestAnalyticsUses浏览器TimezoneAndSkipsInvalidAmounts业务协调。
 func TestAnalyticsUsesBrowserTimezoneAndSkipsInvalidAmounts(t *testing.T) {
-	// srv、store、cleanup 保存srv、store、cleanup，供当前处理流程使用
+	// srv、store、cleanup 用于本次流程后续判断的srv、store、cleanup
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	_, _ = store.DB.ExecContext(ctx, `INSERT INTO orders (order_id,amount,order_status,cookie_id,created_at) VALUES
 		('tz-valid','10.50','completed','acc1','2026-06-27 16:30:00'),
 		('tz-invalid','abc','completed','acc1','2026-06-27 17:00:00')`)
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// cookie 保存登录凭证，供当前处理流程使用
+	// cookie 用于本次流程后续判断的登录凭证
 	cookie := loginHelper(t, h)
-	// req 保存req，供当前处理流程使用
+	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodGet, "/analytics/orders?start_date=2026-06-28&end_date=2026-06-28&timezone_offset_minutes=480", nil)
 	req.AddCookie(cookie)
-	// rec 保存rec，供当前处理流程使用
+	// rec 用于本次流程后续判断的rec
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	// response 保存响应，供当前处理流程使用
+	// response 用于本次流程后续判断的响应
 	var response struct {
 		Revenue struct {
 			TotalOrders int     `json:"total_orders"`
@@ -326,7 +326,7 @@ func TestAnalyticsUsesBrowserTimezoneAndSkipsInvalidAmounts(t *testing.T) {
 		} `json:"revenue_stats"`
 		Daily []map[string]any `json:"daily_stats"`
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}

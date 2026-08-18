@@ -5,16 +5,16 @@ import (
 	"testing"
 )
 
-// TestParseCookieStrRoundTrip 负责TestParse登录凭证StrRoundTrip相关处理。
+// TestParseCookieStrRoundTrip 封装TestParse登录凭证StrRoundTrip业务协调。
 func TestParseCookieStrRoundTrip(t *testing.T) {
-	// in 保存in，供当前处理流程使用
+	// in 用于本次流程后续判断的in
 	in := "unb=999; _m_h5_tk=abc_1; cookie2=xyz"
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	m := parseCookieStr(in)
 	if m["unb"] != "999" || m["_m_h5_tk"] != "abc_1" || m["cookie2"] != "xyz" {
 		t.Fatalf("解析异常: %+v", m)
 	}
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := cookieMarshal(m)
 	// 顺序不保证，逐项检查。
 	for _, kv := range []string{"unb=999", "_m_h5_tk=abc_1", "cookie2=xyz"} {
@@ -24,14 +24,14 @@ func TestParseCookieStrRoundTrip(t *testing.T) {
 	}
 }
 
-// TestParseCookieStrToPlaywright 负责TestParse登录凭证StrToPlaywright相关处理。
+// TestParseCookieStrToPlaywright 封装TestParse登录凭证StrToPlaywright业务协调。
 func TestParseCookieStrToPlaywright(t *testing.T) {
-	// cookies 保存cookies，供当前处理流程使用
+	// cookies 用于本次流程后续判断的cookies
 	cookies := parseCookieStrToPlaywright("a=1; b=2")
 	if len(cookies) != 2 {
 		t.Fatalf("每个 Cookie 只应注入一次，got %d", len(cookies))
 	}
-	// domains 保存domains，供当前处理流程使用
+	// domains 用于本次流程后续判断的domains
 	domains := make(map[string]bool)
 	// c 表示当前遍历过程中的c
 	for _, c := range cookies {
@@ -48,34 +48,34 @@ func TestParseCookieStrToPlaywright(t *testing.T) {
 	}
 }
 
-// TestParseCookieStrEmpty 负责TestParse登录凭证StrEmpty相关处理。
+// TestParseCookieStrEmpty 封装TestParse登录凭证StrEmpty业务协调。
 func TestParseCookieStrEmpty(t *testing.T) {
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := parseCookieStr(""); len(got) != 0 {
 		t.Fatalf("空串应返回空 map, got %+v", got)
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := parseCookieStrToPlaywright(",,, ;"); len(got) != 0 {
 		t.Fatalf("无效串应返回空, got %+v", got)
 	}
 }
 
-// TestCookiesToMapAndStr 负责TestCookiesToMapAndStr相关处理。
+// TestCookiesToMapAndStr 封装TestCookiesToMapAndStr业务协调。
 func TestCookiesToMapAndStr(t *testing.T) {
 	// 用 cookiesToMap/cookiesToStr 覆盖（构造 Cookie 不导出字段，借 parse 间接）。
 	m := map[string]string{"unb": "1", "cna": "xx"}
-	// s 保存s，供当前处理流程使用
+	// s 用于本次流程后续判断的s
 	s := cookieMarshal(m)
-	// m2 保存m2，供当前处理流程使用
+	// m2 用于本次流程后续判断的m2
 	m2 := parseCookieStr(s)
 	if m2["unb"] != "1" || m2["cna"] != "xx" {
 		t.Fatalf("往返异常: %+v", m2)
 	}
 }
 
-// TestStealthScriptKeepsNativeFingerprint 负责TestStealthScriptKeepsNativeFingerprint相关处理。
+// TestStealthScriptKeepsNativeFingerprint 封装TestStealthScriptKeepsNativeFingerprint业务协调。
 func TestStealthScriptKeepsNativeFingerprint(t *testing.T) {
-	// s 保存s，供当前处理流程使用
+	// s 用于本次流程后续判断的s
 	s := stealthScript()
 	if strings.Contains(s, "{{") {
 		t.Fatalf("stealth 脚本仍有未替换占位符: %q", s[:min(200, len(s))])
@@ -91,7 +91,7 @@ func TestStealthScriptKeepsNativeFingerprint(t *testing.T) {
 	}
 }
 
-// TestStealthScriptStable 负责TestStealthScriptStable相关处理。
+// TestStealthScriptStable 封装TestStealthScriptStable业务协调。
 func TestStealthScriptStable(t *testing.T) {
 	if stealthScript() != stealthScript() {
 		t.Fatal("同一浏览器配置不应产生漂移的指纹脚本")

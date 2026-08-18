@@ -33,10 +33,10 @@ import (
 	"xianyu-go/internal/webui"
 )
 
-// qrLoginService 保存qr登录Service，供当前处理流程使用
+// qrLoginService 用于本次流程后续判断的qr登录Service
 type qrLoginService = adapter.QRLoginService
 
-// qrLoginPersistence 保存qr登录Persistence，供当前处理流程使用
+// qrLoginPersistence 用于本次流程后续判断的qr登录Persistence
 type qrLoginPersistence struct {
 	AccountID string
 	IsNew     bool
@@ -93,15 +93,15 @@ type itemDependencyFactory interface {
 	NewItemSyncRepository(func() adapter.MTOPClient, *slog.Logger, func(context.Context, string, string), func(context.Context, string, error)) *adapter.ItemSyncRepository
 }
 
-// databaseHealth 定义健康检查需要的最小数据库连通性能力。
-type databaseHealth interface {
+// DatabaseHealthPort 定义健康检查需要的最小数据库连通性能力。
+type DatabaseHealthPort interface {
 	// Ping 在调用方 Context 内探测数据库连接是否可用。
 	Ping(context.Context) error
 }
 
 // Server 聚合 HTTP 服务依赖。Automation 与 Notifier 由构造函数注入，
 // 不再允许外部直接改字段，避免运行时被替换成 nil。
-// Server 保存Server，供当前处理流程使用
+// Server 用于本次流程后续判断的Server
 type Server struct {
 	// orderDependencies 保存订单应用服务专用的显式装配能力，不允许从通用设施容器回退获取。
 	orderDependencies orderDependencyFactory
@@ -111,19 +111,17 @@ type Server struct {
 	itemDependencies itemDependencyFactory
 	// chatDependencies 保存聊天应用服务专用的显式装配能力，不允许从通用设施容器回退获取。
 	chatDependencies *adapter.ChatDependencies
-	// systemDependencies 保存健康检查与补偿扫描的显式装配能力。
-	systemDependencies *adapter.SystemDependencies
+	// orderReconciliationRecovery 是进程装配层创建后注入的订单补偿扫描应用生命周期组件。
+	orderReconciliationRecovery *orderapp.ReconciliationRecoveryCoordinator
 	// automationDependencies 保存自动化、默认回复和关键词的显式装配能力。
 	automationDependencies *adapter.AutomationDependencies
-	// miscDependencies 保存通知、分析和卡券的显式装配能力。
-	miscDependencies *adapter.MiscDependencies
-	// adminSettingsDependencies 保存管理员与系统设置的显式装配能力。
-	adminSettingsDependencies *adapter.AdminSettingsDependencies
-	Auth                      *auth.Service
-	Manager                   *account.Manager
-	automation                *automation.Center
-	notifier                  *notify.Notifier
-	chat                      *chat.Service
+	// transportApplications 保存进程装配层创建的 transport-facing 应用服务集合。
+	transportApplications *adapter.TransportApplicationServices
+	Auth                  *auth.Service
+	Manager               *account.Manager
+	automation            *automation.Center
+	notifier              *notify.Notifier
+	chat                  *chat.Service
 	// platformDependencies 保存构造阶段校验通过的平台能力；生产调用必须通过下方访问器读取。
 	platformDependencies *adapter.PlatformDependencies
 	// MTop 是阶段性测试兼容别名；所有生产调用迁移完成后删除，删除前须清点字段写入测试并改用 WithPlatformDependencies。
@@ -140,7 +138,7 @@ type Server struct {
 	// applicationLifecycle 保存由 cmd 拥有的应用生命周期协调器；Server 只读取其共享 Context。
 	applicationLifecycle *lifecycleapp.Coordinator
 	// databaseHealth 提供健康检查所需的数据库探测能力，避免 handler 直接触碰 SQL 连接。
-	databaseHealth databaseHealth
+	databaseHealth DatabaseHealthPort
 	// backgroundMu 保护 Server 后台任务计数与完成信号，避免关闭等待创建不可取消的等待 goroutine。
 	backgroundMu    sync.Mutex
 	backgroundCount int
@@ -212,11 +210,19 @@ func WithChatDependencies(dependencies *adapter.ChatDependencies) ServerOption {
 	}
 }
 
-// WithSystemDependencies 注入健康检查与订单补偿扫描所需的专用适配器工厂。
-func WithSystemDependencies(dependencies *adapter.SystemDependencies) ServerOption {
+// WithDatabaseHealth 注入由进程装配层构造的数据库健康检查端口。
+func WithDatabaseHealth(health DatabaseHealthPort) ServerOption {
 	return func(server *Server) {
-		// server 是当前构造流程中待注入系统专用依赖的 HTTP 服务实例。
-		server.systemDependencies = dependencies
+		// server 是当前构造流程中待注入健康检查端口的 HTTP 服务实例。
+		server.databaseHealth = health
+	}
+}
+
+// WithOrderReconciliationRecovery 注入由进程装配层拥有的订单补偿扫描应用服务。
+func WithOrderReconciliationRecovery(recovery *orderapp.ReconciliationRecoveryCoordinator) ServerOption {
+	return func(server *Server) {
+		// server 是当前构造流程中待注入订单补偿扫描服务的 HTTP 服务实例。
+		server.orderReconciliationRecovery = recovery
 	}
 }
 
@@ -228,19 +234,17 @@ func WithAutomationDependencies(dependencies *adapter.AutomationDependencies) Se
 	}
 }
 
-// WithMiscDependencies 注入通知、分析和卡券领域所需的专用适配器工厂。
-func WithMiscDependencies(dependencies *adapter.MiscDependencies) ServerOption {
+// WithTransportApplicationServices 注入进程装配层构造完成的 transport-facing 应用服务集合。
+func WithTransportApplicationServices(services *adapter.TransportApplicationServices) ServerOption {
 	return func(server *Server) {
-		// server 是当前构造流程中待注入杂项领域依赖的 HTTP 服务实例。
-		server.miscDependencies = dependencies
-	}
-}
-
-// WithAdminSettingsDependencies 注入管理员与系统设置所需的专用适配器工厂。
-func WithAdminSettingsDependencies(dependencies *adapter.AdminSettingsDependencies) ServerOption {
-	return func(server *Server) {
-		// server 是当前构造流程中待注入管理员设置依赖的 HTTP 服务实例。
-		server.adminSettingsDependencies = dependencies
+		if services == nil {
+			// server 是当前构造流程中应清空 transport-facing 应用服务集合的 HTTP 服务实例。
+			server.transportApplications = nil
+			return
+		}
+		// copiedServices 是构造期冻结的浅拷贝，避免调用方替换集合容器影响 Server。
+		copiedServices := *services
+		server.transportApplications = &copiedServices
 	}
 }
 
@@ -304,8 +308,11 @@ func New(authentication *auth.Service, manager *account.Manager, webDir, addr st
 	if server.chatDependencies == nil {
 		return nil, fmt.Errorf("server 聊天专用依赖不能为空")
 	}
-	if server.systemDependencies == nil {
-		return nil, fmt.Errorf("server 系统专用依赖不能为空")
+	if server.databaseHealth == nil {
+		return nil, fmt.Errorf("server 数据库健康检查端口不能为空")
+	}
+	if server.orderReconciliationRecovery == nil {
+		return nil, fmt.Errorf("server 订单补偿扫描应用服务不能为空")
 	}
 	if server.platformDependencies == nil {
 		return nil, fmt.Errorf("server 平台依赖不能为空")
@@ -313,14 +320,16 @@ func New(authentication *auth.Service, manager *account.Manager, webDir, addr st
 	if server.automationDependencies == nil {
 		return nil, fmt.Errorf("server 自动化依赖不能为空")
 	}
-	if server.miscDependencies == nil {
-		return nil, fmt.Errorf("server 通知、分析和卡券依赖不能为空")
+	// validationErr 表示进程组合根未提供完整 transport-facing 服务集合。
+	if validationErr := server.transportApplications.Validate(); validationErr != nil {
+		return nil, fmt.Errorf("server transport 应用服务无效: %w", validationErr)
 	}
-	if server.adminSettingsDependencies == nil {
-		return nil, fmt.Errorf("server 管理员与设置依赖不能为空")
+	// applications、applicationErr 分别是构造期应用服务集合及其装配错误。
+	applications, applicationErr := newApplicationServices(server)
+	if applicationErr != nil {
+		return nil, fmt.Errorf("server 应用服务装配失败: %w", applicationErr)
 	}
-	server.applications = newApplicationServices(server)
-	server.databaseHealth = server.systemDependencies.NewDatabaseHealth()
+	server.applications = applications
 	return server, nil
 }
 
@@ -388,10 +397,12 @@ func (s *Server) recoverExpiredSession(ctx context.Context, cookieID string, err
 
 // Router 构建完整路由树。
 func (s *Server) Router() http.Handler {
-	// r 保存r，供当前处理流程使用
+	// r 用于本次流程后续判断的r
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
+	// legacyAPITelemetry 为保留的历史 API 写入弃用元数据并提供结构化观测，不参与版本化入口或 SPA 路由。
+	r.Use(s.legacyAPITelemetry)
 	// 请求日志（精简）。
 	r.Use(s.requestLogger)
 
@@ -476,18 +487,18 @@ func (s *Server) authMiddleware(h http.Handler) http.Handler {
 // requestLogger 记录请求完成状态、耗时和 chi request_id。
 func (s *Server) requestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// start 保存开始，供当前处理流程使用
+		// start 用于本次流程后续判断的开始
 		start := time.Now()
-		// ww 保存ww，供当前处理流程使用
+		// ww 用于本次流程后续判断的ww
 		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 		next.ServeHTTP(ww, r)
-		// status 保存状态，供当前处理流程使用
+		// status 用于本次流程后续判断的状态
 		status := ww.Status()
 		if status == 0 {
 			status = http.StatusOK
 		}
 
-		// level 保存level，供当前处理流程使用
+		// level 用于本次流程后续判断的level
 		level := slog.LevelDebug
 		if status >= 500 {
 			level = slog.LevelError
@@ -502,8 +513,73 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 			slog.Duration("duration", time.Since(start)),
 			slog.String("request_id", middleware.GetReqID(r.Context())),
 			slog.String("remote", r.RemoteAddr),
+			slog.Bool("legacy_api", isLegacyAPIRequest(r.Method, r.URL.Path)),
 		)
 	})
+}
+
+const (
+	// legacyAPISunsetDate 是历史 API 的标准 HTTP-date 退场时间；实际删除仍须满足兼容矩阵中的观测窗口。
+	legacyAPISunsetDate = "Thu, 31 Dec 2026 23:59:59 GMT"
+	// legacyAPISuccessorLink 是带计划版本标识的版本化后继 API 链接。
+	legacyAPISuccessorLink = "</api/v1>; rel=\"successor-version\"; title=\"v2.0\""
+)
+
+// legacyAPITelemetry 为历史 API 请求写入标准弃用响应头，供客户端、日志和发布观测统一识别。
+// next 保持原有 handler、鉴权及错误映射；只有 isLegacyAPIPath 判定为真时才附加元数据。
+func (s *Server) legacyAPITelemetry(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// legacyPath 表示当前请求是否命中仍受兼容矩阵保护的旧 API，而非 /api/v1 或公开页面。
+		legacyPath := isLegacyAPIRequest(r.Method, r.URL.Path)
+		if legacyPath {
+			w.Header().Set("Deprecation", "true")
+			w.Header().Set("Sunset", legacyAPISunsetDate)
+			w.Header().Set("Link", legacyAPISuccessorLink)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isLegacyAPIRequest 判断请求是否为需要遥测并保留到 Sunset 条件满足的历史 API。
+// method 用于区分 SPA 的 GET /login 与同路径的历史认证 POST；/api/v1、健康检查、版本信息和静态页面不属于旧 API。
+func isLegacyAPIRequest(method, path string) bool {
+	if isLegacyAPIPath(path) {
+		return true
+	}
+	// normalizedMethod 是标准化后的请求方法，避免空白输入意外匹配历史认证入口。
+	normalizedMethod := strings.ToUpper(strings.TrimSpace(method))
+	// normalizedPath 是标准化后的请求路径，用于与有限的历史认证入口精确比较。
+	normalizedPath := strings.TrimSpace(path)
+	switch normalizedPath {
+	case "/login", "/logout", "/initialize", "/change-admin-password", "/change-password":
+		return normalizedMethod == http.MethodPost
+	case "/verify":
+		return normalizedMethod == http.MethodGet
+	default:
+		return false
+	}
+}
+
+// isLegacyAPIPath 判断不与 SPA 客户端路由重名的历史业务路径是否需要遥测。
+// 调用方还必须通过 isLegacyAPIRequest 处理认证入口的 HTTP 方法语义。
+func isLegacyAPIPath(path string) bool {
+	// normalizedPath 保存去除首尾空白后的请求路径，路由路径本身不允许以空白构成兼容入口。
+	normalizedPath := strings.TrimSpace(path)
+	if strings.HasPrefix(normalizedPath, "/api/v1/") || normalizedPath == "/health" || normalizedPath == "/version" {
+		return false
+	}
+	return strings.HasPrefix(normalizedPath, "/api/") ||
+		strings.HasPrefix(normalizedPath, "/cookies") || strings.HasPrefix(normalizedPath, "/cookie/") ||
+		strings.HasPrefix(normalizedPath, "/items") || strings.HasPrefix(normalizedPath, "/orders") ||
+		strings.HasPrefix(normalizedPath, "/automation-") || strings.HasPrefix(normalizedPath, "/keywords") ||
+		strings.HasPrefix(normalizedPath, "/default-repl") || strings.HasPrefix(normalizedPath, "/item-reply") ||
+		strings.HasPrefix(normalizedPath, "/notification-") || strings.HasPrefix(normalizedPath, "/message-notifications") ||
+		strings.HasPrefix(normalizedPath, "/system-settings") || strings.HasPrefix(normalizedPath, "/user-settings") ||
+		strings.HasPrefix(normalizedPath, "/ai-") || strings.HasPrefix(normalizedPath, "/cards") ||
+		strings.HasPrefix(normalizedPath, "/admin/") || strings.HasPrefix(normalizedPath, "/qr-login") ||
+		strings.HasPrefix(normalizedPath, "/password-login") || strings.HasPrefix(normalizedPath, "/account/") ||
+		strings.HasPrefix(normalizedPath, "/dashboard/") || strings.HasPrefix(normalizedPath, "/analytics/") ||
+		strings.HasPrefix(normalizedPath, "/itemReplays")
 }
 
 // mountSPA 挂载前端静态资源与 SPA catch-all。
@@ -511,13 +587,13 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 // 前端 vite base 为 /static/，构建后 index.html 引用 /static/assets/...、/static/favicon.svg。
 // 故静态资源统一从 /static/ 前缀提供；非 API 的 GET 请求（/、/login 等客户端路由）
 // 返回 /static/index.html，交给 React Router 接管。
-// mountSPA 负责mountSPA相关处理。
+// mountSPA 封装mountSPA业务协调。
 func (s *Server) mountSPA(r chi.Router) {
 	if s.WebDir != "" {
 		s.mountDirSPA(r)
 		return
 	}
-	// embedded、err 保存embedded、err，供当前处理流程使用
+	// embedded、err 用于本次流程后续判断的embedded、err
 	embedded, err := webui.Static()
 	if err != nil {
 		return
@@ -525,13 +601,13 @@ func (s *Server) mountSPA(r chi.Router) {
 	s.mountFSSPA(r, embedded)
 }
 
-// mountDirSPA 负责mountDirSPA相关处理。
+// mountDirSPA 封装mountDirSPA业务协调。
 func (s *Server) mountDirSPA(r chi.Router) {
-	// indexFile 保存index文件，供当前处理流程使用
+	// indexFile 用于本次流程后续判断的index文件
 	indexFile := filepath.Join(s.WebDir, "index.html")
 	// /static/* 直接作为静态文件服务（assets/、favicon.svg 等）。
 	// StripPrefix("/static/") 后，URL /static/assets/x.js → WebDir/assets/x.js。
-	// staticFiles 保存static文件列表，供当前处理流程使用
+	// staticFiles 用于本次流程后续判断的static文件列表
 	staticFiles := http.StripPrefix("/static/", http.FileServer(http.Dir(s.WebDir)))
 	r.Handle("/static/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/static/" || r.URL.Path == "/static/index.html" {
@@ -546,7 +622,7 @@ func (s *Server) mountDirSPA(r chi.Router) {
 			writeErrRequest(w, r, http.StatusNotFound, "接口不存在")
 			return
 		}
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		_, err := os.Stat(indexFile); err != nil {
 			writeErrRequest(w, r, http.StatusNotFound, "前端未构建")
 			return
@@ -556,9 +632,9 @@ func (s *Server) mountDirSPA(r chi.Router) {
 	})
 }
 
-// mountFSSPA 负责mountFSSPA相关处理。
+// mountFSSPA 封装mountFSSPA业务协调。
 func (s *Server) mountFSSPA(r chi.Router, staticFS fs.FS) {
-	// staticFiles 保存static文件列表，供当前处理流程使用
+	// staticFiles 用于本次流程后续判断的static文件列表
 	staticFiles := http.StripPrefix("/static/", http.FileServer(http.FS(staticFS)))
 	r.Handle("/static/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/static/" || r.URL.Path == "/static/index.html" {
@@ -572,7 +648,7 @@ func (s *Server) mountFSSPA(r chi.Router, staticFS fs.FS) {
 			writeErrRequest(w, r, http.StatusNotFound, "接口不存在")
 			return
 		}
-		// index、err 保存index、err，供当前处理流程使用
+		// index、err 用于本次流程后续判断的index、err
 		index, err := fs.ReadFile(staticFS, "index.html")
 		if err != nil {
 			writeErrRequest(w, r, http.StatusNotFound, "前端未构建")
@@ -584,7 +660,7 @@ func (s *Server) mountFSSPA(r chi.Router, staticFS fs.FS) {
 	})
 }
 
-// setNoStore 负责setNoStore相关处理。
+// setNoStore 封装setNoStore业务协调。
 func setNoStore(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	w.Header().Set("Pragma", "no-cache")
@@ -593,9 +669,9 @@ func setNoStore(w http.ResponseWriter) {
 
 // isAPIPath 判断是否为 API 路径（不应被 SPA 拦截）。
 // 仅保留实际挂载的路由前缀，与 Router() 中的 mount* 一一对应。
-// isAPIPath 负责isAPI路径相关处理。
+// isAPIPath 封装isAPI路径业务协调。
 func isAPIPath(path string) bool {
-	// apiPrefixes 保存apiPrefixes，供当前处理流程使用
+	// apiPrefixes 用于本次流程后续判断的apiPrefixes
 	apiPrefixes := []string{
 		"/api/", "/admin/", "/health", "/login", "/initialize", "/logout", "/verify",
 		"/change-password", "/change-admin-password", "/account/",
@@ -619,7 +695,7 @@ func isAPIPath(path string) bool {
 
 // health 健康检查。
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	if s.databaseHealth == nil || s.databaseHealth.Ping(ctx) != nil {
@@ -675,10 +751,10 @@ func (s *Server) Start(ctx context.Context) error {
 		<-ctx.Done()
 		// stopCtx 是自动关闭 HTTP 服务时使用的有限时长上下文。
 		// cancel 释放 stopCtx 的定时器资源。
-		// stopCtx、cancel 保存stopCtx、cancel，供当前处理流程使用
+		// stopCtx、cancel 用于本次流程后续判断的stopCtx、cancel
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := s.Stop(stopCtx); err != nil && s.Logger != nil {
 			s.Logger.Warn("HTTP 服务关闭异常", "err", err)
 		}
@@ -718,7 +794,8 @@ func (s *Server) Wait() error {
 	return err
 }
 
-// Stop 幂等关闭 HTTP 服务，并等待 Server 自有后台任务和批量 worker 退出。
+// Stop 幂等关闭 HTTP 服务，并等待 Server 自有后台任务退出。
+// 应用 worker 由进程生命周期协调器在独立 Context 中取消和 Join，避免 HTTP 超时耗尽其关闭预算。
 func (s *Server) Stop(ctx context.Context) error {
 	if s == nil {
 		return nil
@@ -747,9 +824,9 @@ func (s *Server) Stop(ctx context.Context) error {
 	s.stopped = true
 	// httpServer 是需要执行优雅关闭的标准库 HTTP 服务。
 	// httpDone 是监听 goroutine 退出的完成信号。
-	// httpServer 保存httpServer，供当前处理流程使用
+	// httpServer 用于本次流程后续判断的httpServer
 	httpServer := s.httpServer
-	// httpDone 保存httpDone，供当前处理流程使用
+	// httpDone 用于本次流程后续判断的httpDone
 	httpDone := s.httpDone
 	s.lifecycleMu.Unlock()
 	// shutdownErr 是 HTTP 优雅关闭返回的错误；后台等待错误由 worker 自身记录。
@@ -783,15 +860,15 @@ func (s *Server) WaitForBackground() {
 	_ = s.waitForBackgroundContext(context.Background())
 }
 
-// closedSignal 负责closedSignal相关处理。
+// closedSignal 封装closedSignal业务协调。
 func closedSignal() chan struct{} {
-	// done 保存done，供当前处理流程使用
+	// done 用于本次流程后续判断的done
 	done := make(chan struct{})
 	close(done)
 	return done
 }
 
-// lifecycleContext 负责lifecycle上下文相关处理。
+// lifecycleContext 封装lifecycle上下文业务协调。
 func (s *Server) lifecycleContext() context.Context {
 	if s == nil || s.applicationLifecycle == nil {
 		return context.Background()

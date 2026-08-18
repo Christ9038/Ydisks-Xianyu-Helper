@@ -61,9 +61,9 @@ func (*fakeRepository) MarkLatestOutgoingRead(_ context.Context, _ string, chatI
 func TestServiceUsesNarrowRepository(t *testing.T) {
 	// repository 是只实现聊天所需方法的内存替身。
 	repository := &fakeRepository{accountIDs: []string{"account-1", "account-2"}}
-	// service 保存service，供当前处理流程使用
+	// service 用于本次流程后续判断的service
 	service := NewWithRepository(repository)
-	// cancel、err 保存cancel、err，供当前处理流程使用
+	// cancel、err 用于本次流程后续判断的cancel、err
 	_, cancel, err := service.Subscribe(context.Background(), 42)
 	if err != nil {
 		t.Fatalf("Subscribe() error = %v", err)

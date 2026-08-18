@@ -8,17 +8,17 @@ import (
 	"testing"
 )
 
-// TestPasswordLoginAPIsArePermanentlyDisabled 负责Test密码登录APIsArePermanentlyDisabled相关处理。
+// TestPasswordLoginAPIsArePermanentlyDisabled 封装Test密码登录APIsArePermanentlyDisabled业务协调。
 func TestPasswordLoginAPIsArePermanentlyDisabled(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := srv.Router()
-	// authCookie 保存auth登录凭证，供当前处理流程使用
+	// authCookie 用于本次流程后续判断的auth登录凭证
 	authCookie := loginHelper(t, h)
 
-	// requests 保存请求列表，供当前处理流程使用
+	// requests 用于本次流程后续判断的请求列表
 	requests := []*http.Request{
 		httptest.NewRequest(http.MethodPost, "/password-login", strings.NewReader(`{"account_id":"acc1","account":"u","password":"p"}`)),
 		httptest.NewRequest(http.MethodGet, "/password-login/check/legacy", nil),
@@ -27,15 +27,15 @@ func TestPasswordLoginAPIsArePermanentlyDisabled(t *testing.T) {
 	// req 表示当前遍历过程中的req
 	for _, req := range requests {
 		req.AddCookie(authCookie)
-		// rec 保存rec，供当前处理流程使用
+		// rec 用于本次流程后续判断的rec
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotImplemented {
 			t.Fatalf("%s %s status=%d body=%s", req.Method, req.URL.Path, rec.Code, rec.Body.String())
 		}
-		// result 保存结果，供当前处理流程使用
+		// result 用于本次流程后续判断的结果
 		var result map[string]any
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
 			t.Fatal(err)
 		}

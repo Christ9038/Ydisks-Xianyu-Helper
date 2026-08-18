@@ -15,4 +15,4 @@ test('development server proxies versioned API and health checks', () => {
   expect(proxy).not.toHaveProperty('/qr-login');
   expect(proxy).not.toHaveProperty('/items');
   expect(proxy).not.toHaveProperty('/cookies');
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调断言开发代理只转发版本化 API 和健康检查。 */);

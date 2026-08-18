@@ -2,14 +2,14 @@ package version
 
 import "testing"
 
-// TestShortCommit 负责TestShortCommit相关处理。
+// TestShortCommit 封装TestShortCommit业务协调。
 func TestShortCommit(t *testing.T) {
-	// original 保存original，供当前处理流程使用
+	// original 用于本次流程后续判断的original
 	original := Commit
 	t.Cleanup(func() { Commit = original })
 
 	Commit = "0123456789abcdef"
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := ShortCommit(); got != "0123456789ab" {
 		t.Fatalf("ShortCommit() = %q", got)
 	}

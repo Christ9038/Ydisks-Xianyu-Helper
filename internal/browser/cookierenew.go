@@ -16,7 +16,7 @@ import (
 	"xianyu-go/internal/xianyu/cookierefresh"
 )
 
-// quickRenewPageLoadWait 保存quickRenew页码LoadWait，供当前处理流程使用
+// quickRenewPageLoadWait 用于本次流程后续判断的quickRenew页码LoadWait
 const (
 	quickRenewPageLoadWait = 3 * time.Second
 	quickRenewAfterClick   = 5 * time.Second
@@ -26,7 +26,7 @@ const (
 	officialReloadWait     = 5 * time.Second
 )
 
-// ErrInteractiveLoginRequired 保存ErrInteractive登录Required，供当前处理流程使用
+// ErrInteractiveLoginRequired 用于本次流程后续判断的ErrInteractive登录Required
 var (
 	ErrInteractiveLoginRequired = errors.New("浏览器会话已退出登录，需要交互式登录")
 	ErrSecurityVerification     = errors.New("闲鱼要求安全验证，需要人工处理")
@@ -36,9 +36,9 @@ var (
 //
 // 这个方法位于密码登录之前：如果 Cookie 仍保留可续期的浏览器会话，页面通常会给出
 // 免输密码的快速进入入口。成功点击后提取完整 Cookie，可避免更重的账号密码登录。
-// CookieRenew 负责登录凭证Renew相关处理。
+// CookieRenew 封装登录凭证Renew业务协调。
 func (m *Manager) CookieRenew(ctx context.Context, cookieID, cookieStr string, headless bool) (map[string]string, error) {
-	// newCookies、err 保存newCookies、err，供当前处理流程使用
+	// newCookies、err 用于本次流程后续判断的newCookies、err
 	newCookies, err := m.BrowserQuickRenew(ctx, cookieID, cookieStr, headless)
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func (m *Manager) CookieRenew(ctx context.Context, cookieID, cookieStr string, h
 	return cookierefresh.ParseCookieString(newCookies), nil
 }
 
-// newPersistentPasswordContext 负责newPersistent密码上下文相关处理。
+// newPersistentPasswordContext 封装newPersistent密码上下文业务协调。
 func (m *Manager) newPersistentPasswordContext(ctx context.Context, cookieID, userDataDir string, headless bool) (playwright.BrowserContext, func(), error) {
 	// err 表示管理器拒绝新建持久化上下文的原因，并用于下面的短路返回。
 	if err := m.beginOperation(ctx); err != nil {
@@ -58,20 +58,20 @@ func (m *Manager) newPersistentPasswordContext(ctx context.Context, cookieID, us
 	finishOperation := func() {
 		operationOnce.Do(m.endOperation)
 	}
-	// lock 保存锁，供当前处理流程使用
+	// lock 用于本次流程后续判断的锁
 	lock := m.accountRenewLock(cookieID)
 	lock.Lock()
-	// unlock 保存unlock，供当前处理流程使用
+	// unlock 用于本次流程后续判断的unlock
 	unlock := func() { lock.Unlock() }
 
-	// releaseSlot、err 保存releaseSlot、err，供当前处理流程使用
+	// releaseSlot、err 用于本次流程后续判断的releaseSlot、err
 	releaseSlot, err := m.acquireRenewSlot(ctx)
 	if err != nil {
 		unlock()
 		finishOperation()
 		return nil, nil, err
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := m.init(); err != nil {
 		releaseSlot()
 		unlock()
@@ -86,9 +86,9 @@ func (m *Manager) newPersistentPasswordContext(ctx context.Context, cookieID, us
 		return nil, nil, err
 	}
 	cleanSingletonFiles(userDataDir)
-	// bctx 保存bctx，供当前处理流程使用
+	// bctx 用于本次流程后续判断的bctx
 	var bctx playwright.BrowserContext
-	// lastErr 保存lastErr，供当前处理流程使用
+	// lastErr 用于本次流程后续判断的lastErr
 	var lastErr error
 	// attempt 表示当前持久化 Chromium 的重试序号；启动失败时会先清理 profile 锁文件再重试一次。
 	for attempt := 1; attempt <= 2; attempt++ {
@@ -106,7 +106,7 @@ func (m *Manager) newPersistentPasswordContext(ctx context.Context, cookieID, us
 		finishOperation()
 		return nil, nil, fmt.Errorf("启动持久化浏览器失败: %w", lastErr)
 	}
-	// release 保存release，供当前处理流程使用
+	// release 用于本次流程后续判断的release
 	release := func() {
 		_ = bctx.Close()
 		releaseSlot()
@@ -141,7 +141,7 @@ func passwordPersistentContextOptions(headless bool, headlessUserAgent ...*strin
 
 // BrowserQuickRenew 使用持久化浏览器上下文执行“快速进入”Cookie 续期。
 func (m *Manager) BrowserQuickRenew(ctx context.Context, cookieID, cookieStr string, headless bool) (string, error) {
-	// newCookies、err 保存newCookies、err，供当前处理流程使用
+	// newCookies、err 用于本次流程后续判断的newCookies、err
 	newCookies, _, err := m.BrowserQuickRenewSnapshot(ctx, cookieID, cookieStr, nil, headless)
 	return newCookies, err
 }
@@ -149,14 +149,14 @@ func (m *Manager) BrowserQuickRenew(ctx context.Context, cookieID, cookieStr str
 // BrowserQuickRenewSnapshot is the full-fidelity variant of BrowserQuickRenew.
 // Callers that persist cookie metadata should use it directly: Chromium's final
 // jar is authoritative for both deletions and attributes such as expiry/path.
-// BrowserQuickRenewSnapshot 负责浏览器QuickRenewSnapshot相关处理。
+// BrowserQuickRenewSnapshot 封装浏览器QuickRenewSnapshot业务协调。
 func (m *Manager) BrowserQuickRenewSnapshot(ctx context.Context, cookieID, cookieStr string, snapshot []cookierefresh.BrowserCookie, headless bool) (string, []cookierefresh.BrowserCookie, error) {
 	if cookieStr == "" && snapshot == nil {
 		return "", nil, fmt.Errorf("Cookie为空，且无完整Cookie快照，无法浏览器续期")
 	}
 	// 持久化的扁平值始终以消息页为 canonical scope；这里也必须按 /im
 	// 解释，避免漏掉或错误映射 Path=/im 的连接凭证。
-	// effectiveSnapshot 保存effectiveSnapshot，供当前处理流程使用
+	// effectiveSnapshot 用于本次流程后续判断的effectiveSnapshot
 	effectiveSnapshot := reconcileSnapshotWithCurrentCookie(snapshot, cookieStr, goofishIMURL)
 
 	// headless 是经环境覆盖后的本次续期浏览器可见性，并决定是否必须应用运行时指纹。
@@ -175,7 +175,7 @@ func (m *Manager) BrowserQuickRenewSnapshot(ctx context.Context, cookieID, cooki
 	}
 	defer func() { _ = page.Close() }()
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := page.Goto(goofishHomeURL, playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
 		Timeout:   playwright.Float(quickRenewTimeoutMS),
@@ -184,11 +184,11 @@ func (m *Manager) BrowserQuickRenewSnapshot(ctx context.Context, cookieID, cooki
 	}
 	time.Sleep(quickRenewPageLoadWait)
 
-	// hasQuickEnter 保存hasQuickEnter，供当前处理流程使用
+	// hasQuickEnter 用于本次流程后续判断的hasQuickEnter
 	hasQuickEnter := false
-	// renewErr 保存renewErr，供当前处理流程使用
+	// renewErr 用于本次流程后续判断的renewErr
 	var renewErr error
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := verifyHomeLoginState(page); err != nil {
 		if errors.Is(err, ErrSecurityVerification) {
 			renewErr = err
@@ -203,7 +203,7 @@ func (m *Manager) BrowserQuickRenewSnapshot(ctx context.Context, cookieID, cooki
 		}
 	}
 
-	// newCookies、newSnapshot、err 保存newCookies、newSnapshot、err，供当前处理流程使用
+	// newCookies、newSnapshot、err 用于本次流程后续判断的newCookies、newSnapshot、err
 	newCookies, newSnapshot, err := readAuthoritativeCookieJar(bctx, goofishIMURL)
 	if err != nil {
 		return "", nil, errors.Join(renewErr, err)
@@ -222,12 +222,12 @@ func (m *Manager) BrowserQuickRenewSnapshot(ctx context.Context, cookieID, cooki
 // account's persistent profile. One ordinary page load is enough to run the
 // site's own auto-login plugin; repeated reloads create an avoidable risk
 // signal and are deliberately not used.
-// CookiesRefreshSnapshot 负责CookiesRefreshSnapshot相关处理。
+// CookiesRefreshSnapshot 封装CookiesRefreshSnapshot业务协调。
 func (m *Manager) CookiesRefreshSnapshot(ctx context.Context, cookieID, cookieStr string, snapshot []cookierefresh.BrowserCookie, headless bool) (string, []cookierefresh.BrowserCookie, bool, error) {
 	if cookieStr == "" && snapshot == nil {
 		return "", nil, false, fmt.Errorf("Cookie为空，且无完整Cookie快照，无法执行续期")
 	}
-	// effectiveSnapshot 保存effectiveSnapshot，供当前处理流程使用
+	// effectiveSnapshot 用于本次流程后续判断的effectiveSnapshot
 	effectiveSnapshot := reconcileSnapshotWithCurrentCookie(snapshot, cookieStr, goofishIMURL)
 	// headless 是经环境覆盖后的定时续期浏览器可见性，并决定页面级指纹覆盖。
 	headless = cookiesRefreshHeadless(headless)
@@ -245,13 +245,13 @@ func (m *Manager) CookiesRefreshSnapshot(ctx context.Context, cookieID, cookieSt
 	}
 	defer func() { _ = page.Close() }()
 
-	// reloaded、renewErr 保存reloaded、renewErr，供当前处理流程使用
+	// reloaded、renewErr 用于本次流程后续判断的reloaded、renewErr
 	reloaded, renewErr := navigateOfficialRenewPage(ctx, page)
 	if renewErr == nil {
 		renewErr = verifyHomeLoginState(page)
 	}
 
-	// newCookies、newSnapshot、err 保存newCookies、newSnapshot、err，供当前处理流程使用
+	// newCookies、newSnapshot、err 用于本次流程后续判断的newCookies、newSnapshot、err
 	newCookies, newSnapshot, err := readAuthoritativeCookieJar(bctx, goofishIMURL)
 	if err != nil {
 		return "", nil, reloaded, errors.Join(renewErr, err)
@@ -266,15 +266,15 @@ func (m *Manager) CookiesRefreshSnapshot(ctx context.Context, cookieID, cookieSt
 	return newCookies, newSnapshot, reloaded, nil
 }
 
-// navigateOfficialRenewPage 负责navigateOfficialRenew页码相关处理。
+// navigateOfficialRenewPage 封装navigateOfficialRenew页码业务协调。
 func navigateOfficialRenewPage(ctx context.Context, page playwright.Page) (bool, error) {
-	// silentStarted 保存silentStarted，供当前处理流程使用
+	// silentStarted 用于本次流程后续判断的silentStarted
 	silentStarted := make(chan struct{}, 1)
-	// silentSettled 保存silentSettled，供当前处理流程使用
+	// silentSettled 用于本次流程后续判断的silentSettled
 	silentSettled := make(chan bool, 1)
-	// reloadCommitted 保存reloadCommitted，供当前处理流程使用
+	// reloadCommitted 用于本次流程后续判断的reloadCommitted
 	reloadCommitted := make(chan struct{}, 1)
-	// navigationArmed 保存navigationArmed，供当前处理流程使用
+	// navigationArmed 用于本次流程后续判断的navigationArmed
 	var navigationArmed atomic.Bool
 	page.OnRequest(func(request playwright.Request) {
 		if isSilentHasLoginURL(request.URL()) {
@@ -309,7 +309,7 @@ func navigateOfficialRenewPage(ctx context.Context, page playwright.Page) (bool,
 		}
 	})
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := page.Goto(goofishIMURL, playwright.PageGotoOptions{
 		WaitUntil: playwright.WaitUntilStateDomcontentloaded,
 		Timeout:   playwright.Float(60000),
@@ -321,9 +321,9 @@ func navigateOfficialRenewPage(ctx context.Context, page playwright.Page) (bool,
 	// silentHasLogin. Observe the actual request instead of assuming hydration
 	// completed at DOMContentLoaded; navigation Set-Cookie may also change the
 	// sdkSilent/long-login branch.
-	// observeTimer 保存observe定时器，供当前处理流程使用
+	// observeTimer 用于本次流程后续判断的observe定时器
 	observeTimer := time.NewTimer(officialAutoLoginWait)
-	// requestStarted 保存请求Started，供当前处理流程使用
+	// requestStarted 用于本次流程后续判断的请求Started
 	requestStarted := false
 	select {
 	case <-ctx.Done():
@@ -338,9 +338,9 @@ func navigateOfficialRenewPage(ctx context.Context, page playwright.Page) (bool,
 		// The plugin's 2s Promise timeout does not abort fetch. Keep the page
 		// alive until Chromium finishes the response body (and applies Set-Cookie), while
 		// leaving reload/no-reload entirely to the official JavaScript.
-		// drainTimer 保存drain定时器，供当前处理流程使用
+		// drainTimer 用于本次流程后续判断的drain定时器
 		drainTimer := time.NewTimer(officialFetchDrainWait)
-		// requestFinished 保存请求Finished，供当前处理流程使用
+		// requestFinished 用于本次流程后续判断的请求Finished
 		requestFinished := false
 		select {
 		case requestFinished = <-silentSettled:
@@ -351,12 +351,12 @@ func navigateOfficialRenewPage(ctx context.Context, page playwright.Page) (bool,
 		case <-drainTimer.C:
 		}
 		if requestFinished {
-			// reloadTimer 保存reload定时器，供当前处理流程使用
+			// reloadTimer 用于本次流程后续判断的reload定时器
 			reloadTimer := time.NewTimer(officialReloadWait)
 			select {
 			case <-reloadCommitted:
 				reloadTimer.Stop()
-				if // err 保存err，供当前处理流程使用
+				if // err 用于本次流程后续判断的err
 				err := page.WaitForLoadState(playwright.PageWaitForLoadStateOptions{
 					State: playwright.LoadStateDomcontentloaded, Timeout: playwright.Float(10000),
 				}); err != nil {
@@ -375,14 +375,14 @@ func navigateOfficialRenewPage(ctx context.Context, page playwright.Page) (bool,
 	return false, nil
 }
 
-// readAuthoritativeCookieJar 负责readAuthoritative登录凭证Jar相关处理。
+// readAuthoritativeCookieJar 封装readAuthoritative登录凭证Jar业务协调。
 func readAuthoritativeCookieJar(bctx playwright.BrowserContext, rawURL string) (string, []cookierefresh.BrowserCookie, error) {
-	// all、err 保存all、err，供当前处理流程使用
+	// all、err 用于本次流程后续判断的all、err
 	all, err := bctx.Cookies()
 	if err != nil {
 		return "", nil, fmt.Errorf("提取浏览器 Cookie Jar: %w", err)
 	}
-	// snapshot 保存snapshot，供当前处理流程使用
+	// snapshot 用于本次流程后续判断的snapshot
 	snapshot := cookieSnapshotFromPlaywright(all)
 	if snapshot == nil {
 		snapshot = []cookierefresh.BrowserCookie{}
@@ -390,12 +390,12 @@ func readAuthoritativeCookieJar(bctx playwright.BrowserContext, rawURL string) (
 	return currentCookieHeader(snapshot, rawURL), snapshot, nil
 }
 
-// isSilentHasLoginURL 负责isSilentHas登录URL相关处理。
+// isSilentHasLoginURL 封装isSilentHas登录URL业务协调。
 func isSilentHasLoginURL(rawURL string) bool {
 	return strings.Contains(rawURL, "/newlogin/silentHasLogin.do")
 }
 
-// reconcileSnapshotWithCurrentCookie 负责reconcileSnapshotWithCurrent登录凭证相关处理。
+// reconcileSnapshotWithCurrentCookie 封装reconcileSnapshotWithCurrent登录凭证业务协调。
 func reconcileSnapshotWithCurrentCookie(snapshot []cookierefresh.BrowserCookie, cookieStr, rawURL string) []cookierefresh.BrowserCookie {
 	if snapshot == nil {
 		return nil
@@ -411,36 +411,36 @@ func reconcileSnapshotWithCurrentCookie(snapshot []cookierefresh.BrowserCookie, 
 
 // CookieRenewSnapshot 兼容旧调用，等价于定时 COOKIES 快照续期。
 func (m *Manager) CookieRenewSnapshot(ctx context.Context, cookieID, cookieStr string, snapshot []cookierefresh.BrowserCookie, headless bool) (string, []cookierefresh.BrowserCookie, error) {
-	// cookies、refreshed、err 保存cookies、refreshed、err，供当前处理流程使用
+	// cookies、refreshed、err 用于本次流程后续判断的cookies、refreshed、err
 	cookies, refreshed, _, err := m.CookiesRefreshSnapshot(ctx, cookieID, cookieStr, snapshot, headless)
 	return cookies, refreshed, err
 }
 
-// clickQuickEnter 负责clickQuickEnter相关处理。
+// clickQuickEnter 封装clickQuickEnter业务协调。
 func clickQuickEnter(page playwright.Page) bool {
-	// frames 保存frames，供当前处理流程使用
+	// frames 用于本次流程后续判断的frames
 	frames := append([]playwright.Frame{page.MainFrame()}, page.Frames()...)
 	// f 表示当前遍历过程中的f
 	for _, f := range frames {
 		// sel 表示当前遍历过程中的sel
 		for _, sel := range quickEnterSelectors {
-			// el、err 保存el、err，供当前处理流程使用
+			// el、err 用于本次流程后续判断的el、err
 			el, err := f.QuerySelector(sel)
 			if err == nil && el != nil && elementVisible(el) {
-				if // err 保存err，供当前处理流程使用
+				if // err 用于本次流程后续判断的err
 				err := el.Click(); err == nil {
 					return true
 				}
 			}
 		}
-		// buttons、err 保存buttons、err，供当前处理流程使用
+		// buttons、err 用于本次流程后续判断的buttons、err
 		buttons, err := f.QuerySelectorAll("button")
 		if err != nil {
 			continue
 		}
 		// btn 表示当前遍历过程中的btn
 		for _, btn := range buttons {
-			// text 保存文本，供当前处理流程使用
+			// text 用于本次流程后续判断的文本
 			text, _ := btn.TextContent()
 			if strings.Contains(strings.TrimSpace(text), "快速进入") && elementVisible(btn) {
 				_ = btn.Click()
@@ -451,7 +451,7 @@ func clickQuickEnter(page playwright.Page) bool {
 	return false
 }
 
-// quickEnterSelectors 保存quickEnterSelectors，供当前处理流程使用
+// quickEnterSelectors 用于本次流程后续判断的quickEnterSelectors
 var quickEnterSelectors = []string{
 	`button:has-text("快速进入")`,
 	`button[type="submit"]:has-text("快速进入")`,
@@ -459,12 +459,12 @@ var quickEnterSelectors = []string{
 	`.fn-button:has-text("快速进入")`,
 }
 
-// verifyHomeLoginState 负责verifyHome登录状态相关处理。
+// verifyHomeLoginState 封装verifyHome登录状态业务协调。
 func verifyHomeLoginState(page playwright.Page) error {
 	if pageHasSecurityVerification(page) {
 		return ErrSecurityVerification
 	}
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := page.Evaluate(`() => {
 		const visible = (el) => {
 			const rect = el.getBoundingClientRect();
@@ -485,14 +485,14 @@ func verifyHomeLoginState(page playwright.Page) error {
 	if err != nil {
 		return fmt.Errorf("读取浏览器登录状态失败: %w", err)
 	}
-	// signals、ok 保存signals、ok，供当前处理流程使用
+	// signals、ok 用于本次流程后续判断的signals、ok
 	signals, ok := result.(map[string]any)
 	if !ok {
 		return fmt.Errorf("浏览器登录状态返回格式异常")
 	}
-	// personal 保存personal，供当前处理流程使用
+	// personal 用于本次流程后续判断的personal
 	personal, _ := signals["personal"].(bool)
-	// login 保存登录，供当前处理流程使用
+	// login 用于本次流程后续判断的登录
 	login, _ := signals["login"].(bool)
 	if personal && !login {
 		return nil
@@ -503,11 +503,11 @@ func verifyHomeLoginState(page playwright.Page) error {
 	return fmt.Errorf("%w: 页面未出现个人主页入口", ErrInteractiveLoginRequired)
 }
 
-// pageHasSecurityVerification 负责页码HasSecurityVerification相关处理。
+// pageHasSecurityVerification 封装页码HasSecurityVerification业务协调。
 func pageHasSecurityVerification(page playwright.Page) bool {
 	// frame 表示当前遍历过程中的frame
 	for _, frame := range page.Frames() {
-		// lowerURL 保存lowerURL，供当前处理流程使用
+		// lowerURL 用于本次流程后续判断的lowerURL
 		lowerURL := strings.ToLower(frame.URL())
 		// marker 表示当前遍历过程中的marker
 		for _, marker := range []string{"photoverify", "normal_validate", "identity_verify", "baxia-punish", "/punish"} {
@@ -515,7 +515,7 @@ func pageHasSecurityVerification(page playwright.Page) bool {
 				return true
 			}
 		}
-		// content、err 保存content、err，供当前处理流程使用
+		// content、err 用于本次流程后续判断的content、err
 		content, err := frame.Content()
 		if err != nil {
 			continue
@@ -530,14 +530,14 @@ func pageHasSecurityVerification(page playwright.Page) bool {
 	return false
 }
 
-// elementVisible 负责elementVisible相关处理。
+// elementVisible 封装elementVisible业务协调。
 func elementVisible(el playwright.ElementHandle) bool {
-	// visible、err 保存visible、err，供当前处理流程使用
+	// visible、err 用于本次流程后续判断的visible、err
 	visible, err := el.IsVisible()
 	return err == nil && visible
 }
 
-// cleanSingletonFiles 负责cleanSingleton文件列表相关处理。
+// cleanSingletonFiles 封装cleanSingleton文件列表业务协调。
 func cleanSingletonFiles(userDataDir string) {
 	// name 表示当前遍历过程中的名称
 	for _, name := range []string{"SingletonLock", "SingletonSocket", "SingletonCookie"} {
@@ -545,7 +545,7 @@ func cleanSingletonFiles(userDataDir string) {
 	}
 }
 
-// newPersistentRenewContext 负责newPersistentRenew上下文相关处理。
+// newPersistentRenewContext 封装newPersistentRenew上下文业务协调。
 func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cookieStr string, snapshot []cookierefresh.BrowserCookie, headless bool, captchaProfile ...bool) (playwright.BrowserContext, func(), error) {
 	// err 表示管理器拒绝新建续期上下文的原因，并用于下面的短路返回。
 	if err := m.beginOperation(ctx); err != nil {
@@ -557,13 +557,13 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 	finishOperation := func() {
 		operationOnce.Do(m.endOperation)
 	}
-	// lock 保存锁，供当前处理流程使用
+	// lock 用于本次流程后续判断的锁
 	lock := m.accountRenewLock(cookieID)
 	lock.Lock()
-	// unlock 保存unlock，供当前处理流程使用
+	// unlock 用于本次流程后续判断的unlock
 	unlock := func() { lock.Unlock() }
 
-	// releaseSlot、err 保存releaseSlot、err，供当前处理流程使用
+	// releaseSlot、err 用于本次流程后续判断的releaseSlot、err
 	releaseSlot, err := m.acquireRenewSlot(ctx)
 	if err != nil {
 		unlock()
@@ -571,7 +571,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 		return nil, nil, err
 	}
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := m.init(); err != nil {
 		releaseSlot()
 		unlock()
@@ -579,7 +579,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 		return nil, nil, err
 	}
 
-	// userDataDir、err 保存用户数据Dir、err，供当前处理流程使用
+	// userDataDir、err 用于本次流程后续判断的用户数据Dir、err
 	userDataDir, err := resolvePersistentUserDataDir(filepath.Join("browser_data", "user_"+pureUserID(cookieID)))
 	if err != nil {
 		releaseSlot()
@@ -588,14 +588,14 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 		return nil, nil, err
 	}
 	cleanSingletonFiles(userDataDir)
-	// viewport 保存viewport，供当前处理流程使用
+	// viewport 用于本次流程后续判断的viewport
 	viewport := &playwright.Size{Width: 1280, Height: 720}
 	if len(captchaProfile) > 0 && captchaProfile[0] {
 		viewport = &playwright.Size{Width: 1980, Height: 1024}
 	}
-	// bctx 保存bctx，供当前处理流程使用
+	// bctx 用于本次流程后续判断的bctx
 	var bctx playwright.BrowserContext
-	// lastErr 保存lastErr，供当前处理流程使用
+	// lastErr 用于本次流程后续判断的lastErr
 	var lastErr error
 	// attempt 表示当前持久化 profile 的启动序号；失败后只进行一次清理后的重试。
 	for attempt := 1; attempt <= 2; attempt++ {
@@ -627,12 +627,12 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 		return nil, nil, fmt.Errorf("启动持久化浏览器失败: %w", lastErr)
 	}
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := bctx.AddInitScript(playwright.Script{Content: playwright.String(stealthScript())}); err != nil {
 		m.logger.Warn("注入 stealth 脚本失败", "err", err)
 	}
 	if snapshot != nil {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := bctx.ClearCookies(); err != nil {
 			_ = bctx.Close()
 			releaseSlot()
@@ -640,7 +640,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 			finishOperation()
 			return nil, nil, fmt.Errorf("浏览器续期清理旧 Cookie 失败: %w", err)
 		}
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := bctx.AddCookies(snapshotToOptionalCookies(snapshot)); err != nil {
 			_ = bctx.Close()
 			releaseSlot()
@@ -649,7 +649,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 			return nil, nil, fmt.Errorf("浏览器续期注入 Cookie 快照失败: %w", err)
 		}
 	} else if cookieStr != "" {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := addCookieStr(bctx, cookieStr); err != nil {
 			_ = bctx.Close()
 			releaseSlot()
@@ -659,7 +659,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 		}
 	}
 
-	// release 保存release，供当前处理流程使用
+	// release 用于本次流程后续判断的release
 	release := func() {
 		_ = bctx.Close()
 		releaseSlot()
@@ -669,7 +669,7 @@ func (m *Manager) newPersistentRenewContext(ctx context.Context, cookieID, cooki
 	return bctx, release, nil
 }
 
-// quickRenewHeadless 负责quickRenewHeadless相关处理。
+// quickRenewHeadless 封装quickRenewHeadless业务协调。
 func quickRenewHeadless(headless bool) bool {
 	return resolveHeadlessRequest(headless)
 }
@@ -682,7 +682,7 @@ func ResolveHeadless(showBrowser bool) bool {
 	return resolveHeadlessRequest(!showBrowser)
 }
 
-// resolveHeadlessRequest 负责resolveHeadless请求相关处理。
+// resolveHeadlessRequest 封装resolveHeadless请求业务协调。
 func resolveHeadlessRequest(headless bool) bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("BROWSER_HEADLESS"))) {
 	case "true", "1", "yes", "on":
@@ -694,18 +694,18 @@ func resolveHeadlessRequest(headless bool) bool {
 	}
 }
 
-// cookiesRefreshHeadless 负责cookiesRefreshHeadless相关处理。
+// cookiesRefreshHeadless 封装cookiesRefreshHeadless业务协调。
 func cookiesRefreshHeadless(headless bool) bool {
 	return quickRenewHeadless(headless)
 }
 
-// pureUserID 负责pure用户ID相关处理。
+// pureUserID 封装pure用户ID业务协调。
 func pureUserID(cookieID string) string {
 	cookieID = sanitize(cookieID)
-	// parts 保存parts，供当前处理流程使用
+	// parts 用于本次流程后续判断的parts
 	parts := strings.Split(cookieID, "_")
 	if len(parts) >= 2 {
-		// last 保存last，供当前处理流程使用
+		// last 用于本次流程后续判断的last
 		last := parts[len(parts)-1]
 		if len(last) >= 10 && allDigits(last) {
 			return strings.Join(parts[:len(parts)-1], "_")
@@ -717,7 +717,7 @@ func pureUserID(cookieID string) string {
 	return cookieID
 }
 
-// allDigits 负责allDigits相关处理。
+// allDigits 封装allDigits业务协调。
 func allDigits(s string) bool {
 	if s == "" {
 		return false

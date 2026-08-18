@@ -12,12 +12,12 @@ import (
 	"strings"
 )
 
-// parsePublishSheetBytes 负责parse发布SheetBytes相关处理。
+// parsePublishSheetBytes 封装parse发布SheetBytes业务协调。
 func parsePublishSheetBytes(raw []byte, filename string) ([]map[string]any, error) {
 	return parsePublishSheetBytesWithLimit(raw, filename, 0)
 }
 
-// parsePublishSheetBytesWithLimit 负责parse发布SheetBytesWith上限相关处理。
+// parsePublishSheetBytesWithLimit 封装parse发布SheetBytesWith上限业务协调。
 func parsePublishSheetBytesWithLimit(raw []byte, filename string, maxRows int) ([]map[string]any, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, fmt.Errorf("导入内容为空")
@@ -36,26 +36,26 @@ func parsePublishSheetBytesWithLimit(raw []byte, filename string, maxRows int) (
 	}
 }
 
-// parseDelimitedPublishSheet 负责parseDelimited发布Sheet相关处理。
+// parseDelimitedPublishSheet 封装parseDelimited发布Sheet业务协调。
 func parseDelimitedPublishSheet(raw []byte, comma rune, maxRows int) ([]map[string]any, error) {
-	// reader 保存reader，供当前处理流程使用
+	// reader 用于本次流程后续判断的reader
 	reader := csv.NewReader(bytes.NewReader(raw))
 	reader.Comma = comma
 	reader.FieldsPerRecord = -1
 	reader.LazyQuotes = true
-	// header、err 保存header、err，供当前处理流程使用
+	// header、err 用于本次流程后续判断的header、err
 	header, err := reader.Read()
 	if err != nil {
 		return nil, fmt.Errorf("解析表格失败: %w", err)
 	}
-	// keys 保存keys，供当前处理流程使用
+	// keys 用于本次流程后续判断的keys
 	keys := publishHeaderKeys(header)
-	// rows 保存rows，供当前处理流程使用
+	// rows 用于本次流程后续判断的rows
 	rows := make([]map[string]any, 0, 64)
-	// seenDataRow 保存seen数据Row，供当前处理流程使用
+	// seenDataRow 用于本次流程后续判断的seen数据Row
 	seenDataRow := false
 	for {
-		// record、err 保存record、err，供当前处理流程使用
+		// record、err 用于本次流程后续判断的record、err
 		record, err := reader.Read()
 		if err == io.EOF {
 			break
@@ -64,7 +64,7 @@ func parseDelimitedPublishSheet(raw []byte, comma rune, maxRows int) ([]map[stri
 			return nil, fmt.Errorf("解析表格失败: %w", err)
 		}
 		seenDataRow = true
-		// row、nonEmpty 保存row、nonEmpty，供当前处理流程使用
+		// row、nonEmpty 用于本次流程后续判断的row、nonEmpty
 		row, nonEmpty := publishRowToMap(keys, record)
 		if !nonEmpty {
 			continue
@@ -80,24 +80,24 @@ func parseDelimitedPublishSheet(raw []byte, comma rune, maxRows int) ([]map[stri
 	return rows, nil
 }
 
-// parseXLSXPublishSheet 负责parseXLSX发布Sheet相关处理。
+// parseXLSXPublishSheet 封装parseXLSX发布Sheet业务协调。
 func parseXLSXPublishSheet(raw []byte) ([]map[string]any, error) {
 	return parseXLSXPublishSheetWithLimit(raw, 0)
 }
 
-// parseXLSXPublishSheetWithLimit 负责parseXLSX发布SheetWith上限相关处理。
+// parseXLSXPublishSheetWithLimit 封装parseXLSX发布SheetWith上限业务协调。
 func parseXLSXPublishSheetWithLimit(raw []byte, maxRows int) ([]map[string]any, error) {
-	// zr、err 保存zr、err，供当前处理流程使用
+	// zr、err 用于本次流程后续判断的zr、err
 	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
 	if err != nil {
 		return nil, fmt.Errorf("解析 xlsx 失败: %w", err)
 	}
-	// shared、err 保存shared、err，供当前处理流程使用
+	// shared、err 用于本次流程后续判断的shared、err
 	shared, err := xlsxSharedStrings(zr)
 	if err != nil {
 		return nil, err
 	}
-	// sheet 保存sheet，供当前处理流程使用
+	// sheet 用于本次流程后续判断的sheet
 	var sheet *zip.File
 	// f 表示当前遍历过程中的f
 	for _, f := range zr.File {
@@ -109,26 +109,26 @@ func parseXLSXPublishSheetWithLimit(raw []byte, maxRows int) ([]map[string]any, 
 	if sheet == nil {
 		return nil, fmt.Errorf("xlsx 中未找到工作表")
 	}
-	// rawSheet、err 保存原始Sheet、err，供当前处理流程使用
+	// rawSheet、err 用于本次流程后续判断的原始Sheet、err
 	rawSheet, err := readXLSXPart(sheet)
 	if err != nil {
 		return nil, err
 	}
-	// ws 保存ws，供当前处理流程使用
+	// ws 用于本次流程后续判断的ws
 	var ws xlsxWorksheet
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := xmlUnmarshalXLSX(rawSheet, &ws); err != nil {
 		return nil, fmt.Errorf("解析工作表失败: %w", err)
 	}
-	// rows 保存rows，供当前处理流程使用
+	// rows 用于本次流程后续判断的rows
 	rows := make([][]string, 0, len(ws.SheetData.Rows))
 	// row 表示当前遍历过程中的row
 	for _, row := range ws.SheetData.Rows {
-		// values 保存values，供当前处理流程使用
+		// values 用于本次流程后续判断的values
 		values := []string{}
 		// cell 表示当前遍历过程中的cell
 		for _, cell := range row.Cells {
-			// idx 保存idx，供当前处理流程使用
+			// idx 用于本次流程后续判断的idx
 			idx := xlsxCellIndex(cell.Ref)
 			for len(values) <= idx {
 				values = append(values, "")
@@ -140,7 +140,7 @@ func parseXLSXPublishSheetWithLimit(raw []byte, maxRows int) ([]map[string]any, 
 	if len(rows) < 2 {
 		return nil, fmt.Errorf("xlsx 至少需要表头和一行数据")
 	}
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := rowsToPublishMaps(rows[0], rows[1:])
 	if maxRows > 0 && len(out) > maxRows {
 		return nil, fmt.Errorf("单次最多解析 %d 行数据", maxRows)
@@ -148,15 +148,15 @@ func parseXLSXPublishSheetWithLimit(raw []byte, maxRows int) ([]map[string]any, 
 	return out, nil
 }
 
-// rowsToPublishMaps 负责rowsTo发布Maps相关处理。
+// rowsToPublishMaps 封装rowsTo发布Maps业务协调。
 func rowsToPublishMaps(headers []string, rows [][]string) []map[string]any {
-	// keys 保存keys，供当前处理流程使用
+	// keys 用于本次流程后续判断的keys
 	keys := publishHeaderKeys(headers)
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := make([]map[string]any, 0, len(rows))
 	// row 表示当前遍历过程中的row
 	for _, row := range rows {
-		// m、nonEmpty 保存m、nonEmpty，供当前处理流程使用
+		// m、nonEmpty 用于本次流程后续判断的m、nonEmpty
 		m, nonEmpty := publishRowToMap(keys, row)
 		if nonEmpty {
 			out = append(out, m)
@@ -165,9 +165,9 @@ func rowsToPublishMaps(headers []string, rows [][]string) []map[string]any {
 	return out
 }
 
-// publishHeaderKeys 负责发布HeaderKeys相关处理。
+// publishHeaderKeys 封装发布HeaderKeys业务协调。
 func publishHeaderKeys(headers []string) []string {
-	// keys 保存keys，供当前处理流程使用
+	// keys 用于本次流程后续判断的keys
 	keys := make([]string, len(headers))
 	// i、h 表示当前遍历过程中的i、h
 	for i, h := range headers {
@@ -176,18 +176,18 @@ func publishHeaderKeys(headers []string) []string {
 	return keys
 }
 
-// publishRowToMap 负责发布RowToMap相关处理。
+// publishRowToMap 封装发布RowToMap业务协调。
 func publishRowToMap(keys []string, row []string) (map[string]any, bool) {
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	m := map[string]any{}
-	// nonEmpty 保存nonEmpty，供当前处理流程使用
+	// nonEmpty 用于本次流程后续判断的nonEmpty
 	nonEmpty := false
 	// i、key 表示当前遍历过程中的i、key
 	for i, key := range keys {
 		if key == "" || i >= len(row) {
 			continue
 		}
-		// value 保存值，供当前处理流程使用
+		// value 用于本次流程后续判断的值
 		value := strings.TrimSpace(row[i])
 		if value != "" {
 			nonEmpty = true
@@ -197,9 +197,9 @@ func publishRowToMap(keys []string, row []string) (map[string]any, bool) {
 	return m, nonEmpty
 }
 
-// normalizePublishHeader 负责normalize发布Header相关处理。
+// normalizePublishHeader 封装normalize发布Header业务协调。
 func normalizePublishHeader(header string) string {
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := strings.ToLower(strings.TrimSpace(header))
 	h = strings.NewReplacer(" ", "", "_", "", "-", "", "（", "(", "）", ")").Replace(h)
 	switch h {

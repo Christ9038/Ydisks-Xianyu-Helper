@@ -20,13 +20,13 @@ import (
 	"xianyu-go/internal/netguard"
 )
 
-// defaultAIBaseURL 保存defaultAIBaseURL，供当前处理流程使用
+// defaultAIBaseURL 用于本次流程后续判断的defaultAIBaseURL
 const (
 	defaultAIBaseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 	defaultAIModel   = "qwen-plus"
 )
 
-// newAIHTTPClient 保存newAIHTTPClient，供当前处理流程使用
+// newAIHTTPClient 用于本次流程后续判断的newAIHTTPClient
 var newAIHTTPClient = func(baseURL string) (*http.Client, error) {
 	return netguard.TrustedEndpointHTTPClient(baseURL, 30*time.Second)
 }
@@ -52,7 +52,7 @@ func NewAIReplier(cookieID string, store *db.Store, logger *slog.Logger) *AIRepl
 
 // Reply 实现 AIReplier 接口。
 func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult, error) {
-	// cfg、err 保存cfg、err，供当前处理流程使用
+	// cfg、err 用于本次流程后续判断的cfg、err
 	cfg, err := a.store.AIReply.Get(ctx, a.cookieID)
 	if err != nil || cfg == nil || !cfg.AIEnabled {
 		return nil, nil // 未启用 AI
@@ -62,7 +62,7 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 	if !bargainMessageRe.MatchString(strings.ToLower(m.Text)) {
 		return nil, nil
 	}
-	// aiCfg、err 保存人工智能Cfg、err，供当前处理流程使用
+	// aiCfg、err 用于本次流程后续判断的人工智能Cfg、err
 	aiCfg, err := a.globalAIConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("读取全局 AI 配置失败: %w", err)
@@ -74,7 +74,7 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 
 	// 取商品信息和当前会话状态构造 system prompt。
 	itemTitle, itemPrice, itemDesc := a.itemInfo(ctx, m.ItemID)
-	// history、bargainCount、isBargain、err 保存history、bargainCount、isBargain、err，供当前处理流程使用
+	// history、bargainCount、isBargain、err 用于本次流程后续判断的history、bargainCount、isBargain、err
 	history, bargainCount, isBargain, err := a.conversationContext(ctx, m)
 	if err != nil {
 		return nil, fmt.Errorf("读取 AI 对话历史失败: %w", err)
@@ -82,9 +82,9 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 	if isBargain {
 		bargainCount++
 	}
-	// withinBargainLimit 保存withinBargain上限，供当前处理流程使用
+	// withinBargainLimit 用于本次流程后续判断的withinBargain上限
 	withinBargainLimit := !isBargain || bargainCount <= cfg.MaxBargainRounds
-	// systemPrompt 保存系统Prompt，供当前处理流程使用
+	// systemPrompt 用于本次流程后续判断的系统Prompt
 	systemPrompt := buildSystemPrompt(
 		cfg.CustomPrompts, itemTitle, itemPrice, itemDesc,
 		cfg.MaxDiscountPercent, cfg.MaxDiscountAmount, cfg.MaxBargainRounds, bargainCount,
@@ -102,14 +102,14 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 	if err != nil {
 		return nil, fmt.Errorf("AI API 地址无效: %w", err)
 	}
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := openai.NewClientWithConfig(clientCfg)
 
-	// messages 保存消息列表，供当前处理流程使用
+	// messages 用于本次流程后续判断的消息列表
 	messages := []openai.ChatCompletionMessage{{Role: openai.ChatMessageRoleSystem, Content: systemPrompt}}
 	// message 表示当前遍历过程中的消息
 	for _, message := range history {
-		// role 保存role，供当前处理流程使用
+		// role 用于本次流程后续判断的role
 		role := openai.ChatMessageRoleUser
 		if message.Role == "assistant" {
 			role = openai.ChatMessageRoleAssistant
@@ -118,10 +118,10 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 	}
 	messages = append(messages, openai.ChatCompletionMessage{Role: openai.ChatMessageRoleUser, Content: m.Text})
 
-	// aiCtx、cancel 保存人工智能Ctx、cancel，供当前处理流程使用
+	// aiCtx、cancel 用于本次流程后续判断的人工智能Ctx、cancel
 	aiCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	// resp、err 保存resp、err，供当前处理流程使用
+	// resp、err 用于本次流程后续判断的resp、err
 	resp, err := client.CreateChatCompletion(aiCtx, openai.ChatCompletionRequest{
 		Model:       aiCfg.Model,
 		Messages:    messages,
@@ -133,14 +133,14 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 	if len(resp.Choices) == 0 {
 		return nil, nil
 	}
-	// reply 保存回复，供当前处理流程使用
+	// reply 用于本次流程后续判断的回复
 	reply := strings.TrimSpace(resp.Choices[0].Message.Content)
 	if reply == "" {
 		return nil, nil
 	}
-	// minimumPrice 保存minimumPrice，供当前处理流程使用
+	// minimumPrice 用于本次流程后续判断的minimumPrice
 	minimumPrice := minimumAllowedPrice(itemPrice, cfg.MaxDiscountPercent, cfg.MaxDiscountAmount, withinBargainLimit)
-	if // offered、unsafe 保存offered、unsafe，供当前处理流程使用
+	if // offered、unsafe 用于本次流程后续判断的offered、unsafe
 	offered, unsafe := unsafeOfferedPrice(reply, minimumPrice); unsafe {
 		a.logger.Warn("AI 报价超过折扣边界，使用安全回复", "offered", offered, "minimum", minimumPrice)
 		if minimumPrice >= itemPrice || !withinBargainLimit {
@@ -150,12 +150,12 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 		}
 	}
 	if m.ChatID != "" && m.ItemID != "" {
-		// intent 保存intent，供当前处理流程使用
+		// intent 用于本次流程后续判断的intent
 		intent := "chat"
 		if isBargain {
 			intent = "bargain"
 		}
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := a.store.AIReply.AddConversationExchange(ctx, a.cookieID, m.ChatID, m.SenderUserID, m.ItemID,
 			db.AIConversationMessage{Role: "user", Content: m.Text, Intent: intent, BargainCount: bargainCount},
 			db.AIConversationMessage{Role: "assistant", Content: reply, Intent: "reply", BargainCount: bargainCount},
@@ -166,38 +166,38 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 	return &ReplyResult{Text: reply}, nil
 }
 
-// conversationContext 负责conversation上下文相关处理。
+// conversationContext 封装conversation上下文业务协调。
 func (a *AIReplierImpl) conversationContext(ctx context.Context, m ChatMessage) ([]db.AIConversationMessage, int, bool, error) {
-	// isBargain 保存isBargain，供当前处理流程使用
+	// isBargain 用于本次流程后续判断的isBargain
 	isBargain := bargainMessageRe.MatchString(strings.ToLower(m.Text))
 	if m.ChatID == "" || m.ItemID == "" {
 		return nil, 0, isBargain, nil
 	}
-	// history、err 保存history、err，供当前处理流程使用
+	// history、err 用于本次流程后续判断的history、err
 	history, err := a.store.AIReply.ConversationHistory(ctx, a.cookieID, m.ChatID, m.ItemID, 10)
 	if err != nil {
 		return nil, 0, isBargain, err
 	}
-	// count、err 保存count、err，供当前处理流程使用
+	// count、err 用于本次流程后续判断的count、err
 	count, err := a.store.AIReply.CurrentBargainCount(ctx, a.cookieID, m.ChatID, m.ItemID)
 	return history, count, isBargain, err
 }
 
-// globalAIConfig 保存globalAI配置，供当前处理流程使用
+// globalAIConfig 用于本次流程后续判断的globalAI配置
 type globalAIConfig struct {
 	APIKey  string
 	BaseURL string
 	Model   string
 }
 
-// globalAIConfig 负责globalAI配置相关处理。
+// globalAIConfig 封装globalAI配置业务协调。
 func (a *AIReplierImpl) globalAIConfig(ctx context.Context) (*globalAIConfig, error) {
-	// apiKey、err 保存apiKey、err，供当前处理流程使用
+	// apiKey、err 用于本次流程后续判断的apiKey、err
 	apiKey, err := a.store.ReadSensitiveSettingForAccount(ctx, a.cookieID, "ai_api_key", "settings.use", "ai_reply")
 	if err != nil {
 		return nil, err
 	}
-	// baseURL、err 保存baseURL、err，供当前处理流程使用
+	// baseURL、err 用于本次流程后续判断的baseURL、err
 	baseURL, err := a.store.Settings.Get(ctx, "ai_api_url")
 	if err != nil {
 		return nil, err
@@ -208,7 +208,7 @@ func (a *AIReplierImpl) globalAIConfig(ctx context.Context) (*globalAIConfig, er
 			return nil, err
 		}
 	}
-	// model、err 保存model、err，供当前处理流程使用
+	// model、err 用于本次流程后续判断的model、err
 	model, err := a.store.Settings.Get(ctx, "ai_model")
 	if err != nil {
 		return nil, err
@@ -231,7 +231,7 @@ func (a *AIReplierImpl) globalAIConfig(ctx context.Context) (*globalAIConfig, er
 
 // itemInfo 取商品标题/价格/描述。
 func (a *AIReplierImpl) itemInfo(ctx context.Context, itemID string) (title string, price float64, desc string) {
-	// it、err 保存it、err，供当前处理流程使用
+	// it、err 用于本次流程后续判断的it、err
 	it, err := a.store.Items.Get(ctx, a.cookieID, itemID)
 	if err != nil || it == nil {
 		return "商品信息获取失败", 0, "暂无商品描述"
@@ -253,9 +253,9 @@ func (a *AIReplierImpl) itemInfo(ctx context.Context, itemID string) (title stri
 
 // buildSystemPrompt 构造 system 提示词。
 // 自定义 prompt 只替换业务文案，价格和轮次安全约束始终由后端追加。
-// buildSystemPrompt 负责build系统Prompt相关处理。
+// buildSystemPrompt 封装build系统Prompt业务协调。
 func buildSystemPrompt(customPrompts, itemTitle string, itemPrice float64, itemDesc string, maxDiscountPercent, maxDiscountAmount, maxBargainRounds, bargainCount int) string {
-	// base 保存base，供当前处理流程使用
+	// base 用于本次流程后续判断的base
 	var base string
 	if strings.TrimSpace(customPrompts) != "" {
 		base = strings.NewReplacer(
@@ -286,16 +286,16 @@ func buildSystemPrompt(customPrompts, itemTitle string, itemPrice float64, itemD
 - 回复报价必须带“元”，不得给出低于允许最低价的价格。`, itemPrice, maxDiscountPercent, maxDiscountAmount, bargainCount, maxBargainRounds)
 }
 
-// priceRe 保存priceRe，供当前处理流程使用
+// priceRe 用于本次流程后续判断的priceRe
 var priceRe = regexp.MustCompile(`[^\d.]`)
 
-// bargainMessageRe 保存bargain消息Re，供当前处理流程使用
+// bargainMessageRe 用于本次流程后续判断的bargain消息Re
 var bargainMessageRe = regexp.MustCompile(`(?i)(便宜|优惠|少点|最低|砍价|降价|打折|能不能.*(?:元|块)|\d+(?:\.\d+)?\s*(?:元|块).*(?:卖|行|可以))`)
 
-// offeredPriceRe 保存offeredPriceRe，供当前处理流程使用
+// offeredPriceRe 用于本次流程后续判断的offeredPriceRe
 var offeredPriceRe = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*(?:元|块)`)
 
-// minimumAllowedPrice 负责minimumAllowedPrice相关处理。
+// minimumAllowedPrice 封装minimumAllowedPrice业务协调。
 func minimumAllowedPrice(price float64, maxDiscountPercent, maxDiscountAmount int, allowDiscount bool) float64 {
 	if price <= 0 {
 		return 0
@@ -303,21 +303,21 @@ func minimumAllowedPrice(price float64, maxDiscountPercent, maxDiscountAmount in
 	if !allowDiscount || maxDiscountPercent <= 0 || maxDiscountAmount <= 0 {
 		return price
 	}
-	// byPercent 保存byPercent，供当前处理流程使用
+	// byPercent 用于本次流程后续判断的byPercent
 	byPercent := price * (1 - float64(maxDiscountPercent)/100)
-	// byAmount 保存byAmount，供当前处理流程使用
+	// byAmount 用于本次流程后续判断的byAmount
 	byAmount := price - float64(maxDiscountAmount)
 	return math.Max(0, math.Max(byPercent, byAmount))
 }
 
-// unsafeOfferedPrice 负责unsafeOfferedPrice相关处理。
+// unsafeOfferedPrice 封装unsafeOfferedPrice业务协调。
 func unsafeOfferedPrice(reply string, minimum float64) (float64, bool) {
 	if minimum <= 0 {
 		return 0, false
 	}
 	// match 表示当前遍历过程中的match
 	for _, match := range offeredPriceRe.FindAllStringSubmatch(reply, -1) {
-		// value、err 保存value、err，供当前处理流程使用
+		// value、err 用于本次流程后续判断的value、err
 		value, err := strconv.ParseFloat(match[1], 64)
 		if err == nil && value+0.0001 < minimum {
 			return value, true
@@ -326,11 +326,11 @@ func unsafeOfferedPrice(reply string, minimum float64) (float64, bool) {
 	return 0, false
 }
 
-// truncateAIContent 负责truncateAI内容相关处理。
+// truncateAIContent 封装truncateAI内容业务协调。
 func truncateAIContent(content string) string {
-	// maxRunes 保存maxRunes，供当前处理流程使用
+	// maxRunes 用于本次流程后续判断的maxRunes
 	const maxRunes = 2000
-	// runes 保存runes，供当前处理流程使用
+	// runes 用于本次流程后续判断的runes
 	runes := []rune(content)
 	if len(runes) <= maxRunes {
 		return content
@@ -340,12 +340,12 @@ func truncateAIContent(content string) string {
 
 // parsePrice 移除非数字字符后转换为 float。
 func parsePrice(s string) float64 {
-	// cleaned 保存cleaned，供当前处理流程使用
+	// cleaned 用于本次流程后续判断的cleaned
 	cleaned := priceRe.ReplaceAllString(s, "")
 	if cleaned == "" {
 		return 0
 	}
-	// f 保存f，供当前处理流程使用
+	// f 用于本次流程后续判断的f
 	f, _ := strconv.ParseFloat(cleaned, 64)
 	return f
 }

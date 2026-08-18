@@ -47,17 +47,17 @@ func (o *Orders) ListForUser(ctx context.Context, f OrderListFilter) ([]OrderRow
 	if f.Limit <= 0 {
 		f.Limit = 20
 	}
-	// where 保存where，供当前处理流程使用
+	// where 用于本次流程后续判断的where
 	where := []string{"c.user_id=?", "o.deleted_at IS NULL"}
-	// args 保存args，供当前处理流程使用
+	// args 用于本次流程后续判断的args
 	args := []any{f.UserID}
 	if f.CookieID != "" {
 		where = append(where, "o.cookie_id=?")
 		args = append(args, f.CookieID)
 	}
-	if // statuses 保存statuses，供当前处理流程使用
+	if // statuses 用于本次流程后续判断的statuses
 	statuses := normalizedStatusCandidates(f.Status); len(statuses) > 0 {
-		// placeholders 保存placeholders，供当前处理流程使用
+		// placeholders 用于本次流程后续判断的placeholders
 		placeholders := make([]string, 0, len(statuses))
 		// st 表示当前遍历过程中的st
 		for _, st := range statuses {
@@ -66,24 +66,24 @@ func (o *Orders) ListForUser(ctx context.Context, f OrderListFilter) ([]OrderRow
 		}
 		where = append(where, "o.order_status IN ("+strings.Join(placeholders, ",")+")")
 	}
-	if // search 保存搜索，供当前处理流程使用
+	if // search 用于本次流程后续判断的搜索
 	search := strings.ToLower(strings.TrimSpace(f.Search)); search != "" {
-		// pattern 保存pattern，供当前处理流程使用
+		// pattern 用于本次流程后续判断的pattern
 		pattern := "%" + search + "%"
 		where = append(where, `(LOWER(o.order_id) LIKE ? OR LOWER(COALESCE(o.item_id,'')) LIKE ?
 			OR LOWER(COALESCE(o.buyer_id,'')) LIKE ? OR LOWER(COALESCE(i.item_title,'')) LIKE ?
 			OR LOWER(COALESCE(o.receiver_name,'')) LIKE ? OR LOWER(COALESCE(o.receiver_phone,'')) LIKE ?)`)
-		for // i 保存i，供当前处理流程使用
+		for // i 用于本次流程后续判断的i
 		i := 0; i < 6; i++ {
 			args = append(args, pattern)
 		}
 	}
-	// whereSQL 保存whereSQL，供当前处理流程使用
+	// whereSQL 用于本次流程后续判断的whereSQL
 	whereSQL := strings.Join(where, " AND ")
 
-	// total 保存总数，供当前处理流程使用
+	// total 用于本次流程后续判断的总数
 	var total int
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := o.DB.QueryRowContext(ctx,
 		`SELECT COUNT(*)
 		   FROM orders o
@@ -93,10 +93,10 @@ func (o *Orders) ListForUser(ctx context.Context, f OrderListFilter) ([]OrderRow
 		return nil, 0, err
 	}
 
-	// queryArgs 保存查询Args，供当前处理流程使用
+	// queryArgs 用于本次流程后续判断的查询Args
 	queryArgs := append([]any{}, args...)
 	queryArgs = append(queryArgs, f.Limit, f.Offset)
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := o.DB.QueryContext(ctx,
 		`SELECT o.order_id, o.item_id, COALESCE(i.item_title,''), COALESCE(i.item_detail,''),
 		        o.buyer_id, o.spec_name, o.spec_value, o.quantity, o.amount,
@@ -113,16 +113,16 @@ func (o *Orders) ListForUser(ctx context.Context, f OrderListFilter) ([]OrderRow
 		return nil, 0, err
 	}
 	defer rows.Close()
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := []OrderRow{}
 	for rows.Next() {
-		// r 保存r，供当前处理流程使用
+		// r 用于本次流程后续判断的r
 		var r OrderRow
 		// itemID、itemTitle、itemDetail、buyerID、specName、specValue、qty、amount、receiverName、receiverPhone、receiverAddr、receiverCity 保存商品ID、itemTitle、itemDetail、buyerID、specName、specValue、qty、amount、receiverName、receiverPhone、receiverAddr、receiverCity，供当前处理流程使用
 		var itemID, itemTitle, itemDetail, buyerID, specName, specValue, qty, amount, receiverName, receiverPhone, receiverAddr, receiverCity sql.NullString
-		// isBargain、sysShipped 保存isBargain、sysShipped，供当前处理流程使用
+		// isBargain、sysShipped 用于本次流程后续判断的isBargain、sysShipped
 		var isBargain, sysShipped int
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&r.OrderID, &itemID, &itemTitle, &itemDetail, &buyerID, &specName, &specValue, &qty, &amount,
 			&r.OrderStatus, &r.CookieID, &isBargain, &sysShipped, &receiverName, &receiverPhone, &receiverAddr,
 			&receiverCity, &r.CreatedAt, &r.UpdatedAt); err != nil {
@@ -147,7 +147,7 @@ func (o *Orders) ListForUser(ctx context.Context, f OrderListFilter) ([]OrderRow
 	return out, total, rows.Err()
 }
 
-// normalizedStatusCandidates 负责normalized状态Candidates相关处理。
+// normalizedStatusCandidates 封装normalized状态Candidates业务协调。
 func normalizedStatusCandidates(status string) []string {
 	status = strings.TrimSpace(status)
 	if status == "" || status == "all" {
@@ -189,7 +189,7 @@ func (o *Orders) ByCookiePage(ctx context.Context, cookieID string, limit, offse
 	if offset < 0 {
 		offset = 0
 	}
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := o.DB.QueryContext(ctx,
 		`SELECT order_id, item_id, buyer_id, spec_name, spec_value, quantity, amount,
 		        order_status, is_bargain, system_shipped, receiver_name, receiver_phone,
@@ -243,16 +243,16 @@ func normalizeOrderCursorTime(value string) string {
 
 // scanOrderRows 将订单查询行转换为统一的订单列表模型。
 func scanOrderRows(rows *sql.Rows, cookieID string) ([]OrderRow, error) {
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	var out []OrderRow
 	for rows.Next() {
-		// r 保存r，供当前处理流程使用
+		// r 用于本次流程后续判断的r
 		var r OrderRow
 		// itemID、buyerID、specName、specValue、qty、amount、receiverName、receiverPhone、receiverAddr、receiverCity 保存商品ID、buyerID、specName、specValue、qty、amount、receiverName、receiverPhone、receiverAddr、receiverCity，供当前处理流程使用
 		var itemID, buyerID, specName, specValue, qty, amount, receiverName, receiverPhone, receiverAddr, receiverCity sql.NullString
-		// isBargain、sysShipped 保存isBargain、sysShipped，供当前处理流程使用
+		// isBargain、sysShipped 用于本次流程后续判断的isBargain、sysShipped
 		var isBargain, sysShipped int
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&r.OrderID, &itemID, &buyerID, &specName, &specValue, &qty, &amount,
 			&r.OrderStatus, &isBargain, &sysShipped, &receiverName, &receiverPhone, &receiverAddr,
 			&receiverCity, &r.CreatedAt, &r.UpdatedAt); err != nil {
@@ -278,7 +278,7 @@ func scanOrderRows(rows *sql.Rows, cookieID string) ([]OrderRow, error) {
 
 // SoftDeleteMissingForCookie 将本次完整卖家订单同步中未出现的本地订单逻辑删除。
 // activeIDs 为空表示线上已确认没有任何卖家订单；调用方必须确保同步完整成功后再调用。
-// SoftDeleteMissingForCookie 负责SoftDeleteMissingFor登录凭证相关处理。
+// SoftDeleteMissingForCookie 封装SoftDeleteMissingFor登录凭证业务协调。
 func (o *Orders) SoftDeleteMissingForCookie(ctx context.Context, cookieID string, activeIDs map[string]struct{}) (int, error) {
 	if strings.TrimSpace(cookieID) == "" {
 		return 0, errors.New("cookie_id 不能为空")
@@ -328,7 +328,7 @@ var OrderStatusMap = map[string]string{
 
 // NormalizeOrderStatus 数字码归一为文本。
 func NormalizeOrderStatus(s string) string {
-	if // t、ok 保存t、ok，供当前处理流程使用
+	if // t、ok 用于本次流程后续判断的t、ok
 	t, ok := OrderStatusMap[s]; ok {
 		return t
 	}
@@ -340,18 +340,18 @@ func NormalizeOrderStatus(s string) string {
 
 // AllTitles 取全部 item_id → item_title 映射（订单列表用）。
 func (i *Items) AllTitles(ctx context.Context) (map[string]string, error) {
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := i.DB.QueryContext(ctx, `SELECT item_id, item_title FROM item_info`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	m := make(map[string]string)
 	for rows.Next() {
-		// id、title 保存id、title，供当前处理流程使用
+		// id、title 用于本次流程后续判断的id、title
 		var id, title sql.NullString
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&id, &title); err != nil {
 			return nil, err
 		}
@@ -382,22 +382,22 @@ type CardFull struct {
 
 // ExistsOwned 判断卡密组是否属于指定用户。
 func (c *Cards) ExistsOwned(ctx context.Context, cardID, userID int64) (bool, error) {
-	// exists 保存exists，供当前处理流程使用
+	// exists 用于本次流程后续判断的exists
 	var exists bool
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	err := c.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM cards WHERE id=? AND user_id=?)`, cardID, userID).Scan(&exists)
 	return exists, err
 }
 
 // Get 取单个卡券。
 func (c *Cards) Get(ctx context.Context, cardID int64) (*CardFull, error) {
-	// cf 保存cf，供当前处理流程使用
+	// cf 用于本次流程后续判断的cf
 	var cf CardFull
-	// enabled、isMultiSpec 保存enabled、isMultiSpec，供当前处理流程使用
+	// enabled、isMultiSpec 用于本次流程后续判断的enabled、isMultiSpec
 	var enabled, isMultiSpec int
-	// apiCfg、textContent、dataContent、imageURL、specName、specValue、desc 保存apiCfg、textContent、dataContent、imageURL、specName、specValue、desc，供当前处理流程使用
+	// apiCfg、textContent、dataContent、imageURL、specName、specValue、desc 用于本次流程后续判断的apiCfg、textContent、dataContent、imageURL、specName、specValue、desc
 	var apiCfg, textContent, dataContent, imageURL, specName, specValue, desc sql.NullString
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	err := c.DB.QueryRowContext(ctx,
 		`SELECT id, name, type, api_config, text_content, data_content, image_url, description,
 		        enabled, delay_seconds, is_multi_spec, spec_name, spec_value, user_id
@@ -424,7 +424,7 @@ func (c *Cards) Get(ctx context.Context, cardID int64) (*CardFull, error) {
 
 // AllForUser 取某用户全部卡券。
 func (c *Cards) AllForUser(ctx context.Context, userID int64) ([]CardFull, error) {
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := c.DB.QueryContext(ctx,
 		`SELECT id, name, type, api_config, text_content, data_content, image_url, description,
 		        enabled, delay_seconds, is_multi_spec, spec_name, spec_value, user_id
@@ -433,16 +433,16 @@ func (c *Cards) AllForUser(ctx context.Context, userID int64) ([]CardFull, error
 		return nil, err
 	}
 	defer rows.Close()
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	var out []CardFull
 	for rows.Next() {
-		// cf 保存cf，供当前处理流程使用
+		// cf 用于本次流程后续判断的cf
 		var cf CardFull
-		// enabled、isMultiSpec 保存enabled、isMultiSpec，供当前处理流程使用
+		// enabled、isMultiSpec 用于本次流程后续判断的enabled、isMultiSpec
 		var enabled, isMultiSpec int
-		// apiCfg、textContent、dataContent、imageURL、specName、specValue、desc 保存apiCfg、textContent、dataContent、imageURL、specName、specValue、desc，供当前处理流程使用
+		// apiCfg、textContent、dataContent、imageURL、specName、specValue、desc 用于本次流程后续判断的apiCfg、textContent、dataContent、imageURL、specName、specValue、desc
 		var apiCfg, textContent, dataContent, imageURL, specName, specValue, desc sql.NullString
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&cf.ID, &cf.Name, &cf.Type, &apiCfg, &textContent, &dataContent, &imageURL, &desc,
 			&enabled, &cf.DelaySeconds, &isMultiSpec, &specName, &specValue, &cf.UserID); err != nil {
 			return nil, err
@@ -474,7 +474,7 @@ func (c *Cards) Create(ctx context.Context, cf *CardFull) (int64, error) {
 
 // Update 更新卡券。
 func (c *Cards) Update(ctx context.Context, cf *CardFull) error {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := c.DB.ExecContext(ctx,
 		`UPDATE cards SET name=?, type=?, api_config=?, text_content=?, data_content=?, image_url=?,
 		    description=?, enabled=?, delay_seconds=?, is_multi_spec=?, spec_name=?, spec_value=?, updated_at=CURRENT_TIMESTAMP
@@ -487,12 +487,12 @@ func (c *Cards) Update(ctx context.Context, cf *CardFull) error {
 
 // Delete 删除卡券。
 func (c *Cards) Delete(ctx context.Context, cardID int64) error {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := c.DB.ExecContext(ctx, `DELETE FROM cards WHERE id=?`, cardID)
 	return err
 }
 
-// nullable 负责nullable相关处理。
+// nullable 封装nullable业务协调。
 func nullable(s string) any {
 	if s == "" {
 		return nil

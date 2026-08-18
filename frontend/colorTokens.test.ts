@@ -28,11 +28,11 @@ describe('global color token contract', () => {
   test('page components do not contain hard-coded color values', () => {
     const violations = pageSources.flatMap((filePath) => {
       const source = readFileSync(filePath, 'utf8'); /* source 表示source。 */
-      return [...source.matchAll(hardCodedColorPattern)].map((match) => `${filePath}:${match[0]}` /* 回调函数负责当前业务流程。 */);
-    } /* 回调函数负责当前业务流程。 */); /* violations 表示violations。 */
+      return [...source.matchAll(hardCodedColorPattern)].map((match) => `${filePath}:${match[0]}` /* match 是命中的硬编码颜色及其源码位置。 */);
+    } /* flatMap 回调读取单个页面源码并收集其中的颜色令牌违规项。 */); /* violations 汇总每个页面绕过设计令牌的颜色值。 */
 
     expect(violations).toEqual([]);
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言页面源码不直接写入色值。 */);
 
   test('the primary brand and highlight colors are defined in the central stylesheet', () => {
     const globalStyles = readFileSync(resolve(__dirname, 'index.css'), 'utf8'); /* globalStyles 表示globalStyles。 */
@@ -42,5 +42,5 @@ describe('global color token contract', () => {
     expect(globalStyles).toContain('--color-success-500:');
     expect(globalStyles).toContain('--color-warning-500:');
     expect(globalStyles).toContain('--color-danger-500:');
-  } /* 回调函数负责当前业务流程。 */);
-} /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言全局样式提供全部核心色彩令牌。 */);
+} /* 测试套件回调汇总页面颜色令牌的静态契约。 */);

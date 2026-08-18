@@ -7,7 +7,7 @@ import (
 	"xianyu-go/internal/automation"
 )
 
-// outgoingObserverHandler 保存outgoingObserverHandler，供当前处理流程使用
+// outgoingObserverHandler 用于本次流程后续判断的outgoingObserverHandler
 type outgoingObserverHandler struct {
 	messages []OutgoingChatMessage
 }
@@ -20,10 +20,10 @@ func (h *outgoingObserverHandler) HandleSystemEvent(context.Context, automation.
 	return nil
 }
 
-// OnPasswordLoginRefresh 负责On密码登录Refresh相关处理。
+// OnPasswordLoginRefresh 封装On密码登录Refresh业务协调。
 func (h *outgoingObserverHandler) OnPasswordLoginRefresh(context.Context, string) bool { return false }
 
-// OnAccountAlert 负责On账号Alert相关处理。
+// OnAccountAlert 封装On账号Alert业务协调。
 func (h *outgoingObserverHandler) OnAccountAlert(context.Context, string, string, string, string) {}
 
 // HandleOutgoingChatMessage 处理Outgoing聊天消息。
@@ -32,27 +32,27 @@ func (h *outgoingObserverHandler) HandleOutgoingChatMessage(_ context.Context, m
 	return nil
 }
 
-// TestSendTextEmitsCorrelatedOutgoingObservation 负责TestSend文本EmitsCorrelatedOutgoingObservation相关处理。
+// TestSendTextEmitsCorrelatedOutgoingObservation 封装TestSend文本EmitsCorrelatedOutgoingObservation业务协调。
 func TestSendTextEmitsCorrelatedOutgoingObservation(t *testing.T) {
-	// handler 保存handler，供当前处理流程使用
+	// handler 用于本次流程后续判断的handler
 	handler := &outgoingObserverHandler{}
-	// account 保存账号，供当前处理流程使用
+	// account 用于本次流程后续判断的账号
 	account := New(Config{CookieID: "account-1", CookieStr: "unb=me", Handler: handler})
-	// conn 保存conn，供当前处理流程使用
+	// conn 用于本次流程后续判断的conn
 	conn := &fakeWSConn{}
 	account.mu.Lock()
 	account.conn = conn
 	account.mu.Unlock()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := WithOutgoingMessageKey(context.Background(), "local-1")
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := account.SendText(ctx, "chat-1", "buyer-1", "您好"); err != nil {
 		t.Fatal(err)
 	}
 	if len(handler.messages) != 1 {
 		t.Fatalf("messages=%+v", handler.messages)
 	}
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	got := handler.messages[0]
 	if got.AccountID != "account-1" || got.ChatID != "chat-1" || got.BuyerID != "buyer-1" || got.Text != "您好" || got.MessageKey != "local-1" {
 		t.Fatalf("observation=%+v", got)

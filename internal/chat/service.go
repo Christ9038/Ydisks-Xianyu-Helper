@@ -16,60 +16,60 @@ import (
 	"xianyu-go/internal/db"
 )
 
-// HistoryPage 保存History页码，供当前处理流程使用
+// HistoryPage 用于本次流程后续判断的History页码
 type HistoryPage struct {
 	Messages   []db.ChatMessage
 	HasMore    bool
 	NextCursor int64
 }
 
-// ConversationPage 保存Conversation页码，供当前处理流程使用
+// ConversationPage 用于本次流程后续判断的Conversation页码
 type ConversationPage struct {
 	HasMore    bool
 	NextCursor int64
 }
 
-// xianxiaomiAvatar 保存xianxiaomiAvatar，供当前处理流程使用
+// xianxiaomiAvatar 用于本次流程后续判断的xianxiaomiAvatar
 const xianxiaomiAvatar = "https://img.alicdn.com/imgextra/i2/O1CN01rxBFRr1II3BU0as29_!!6000000000869-2-tps-144-144.png_110x10000.jpg_.webp"
 
-// RecordConversationPage 负责RecordConversation页码相关处理。
+// RecordConversationPage 封装RecordConversation页码业务协调。
 func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID string, body map[string]any) (ConversationPage, error) {
-	// page 保存页码，供当前处理流程使用
+	// page 用于本次流程后续判断的页码
 	page := ConversationPage{HasMore: boolValue(body["hasMore"]), NextCursor: int64Value(body["nextCursor"])}
-	// items 保存商品列表，供当前处理流程使用
+	// items 用于本次流程后续判断的商品列表
 	items, _ := body["userConvs"].([]any)
 	// item 表示当前遍历过程中的商品
 	for _, item := range items {
-		// wrapper 保存wrapper，供当前处理流程使用
+		// wrapper 用于本次流程后续判断的wrapper
 		wrapper, _ := item.(map[string]any)
-		// conv 保存conv，供当前处理流程使用
+		// conv 用于本次流程后续判断的conv
 		conv := wrapper
-		if // nested、ok 保存nested、ok，供当前处理流程使用
+		if // nested、ok 用于本次流程后续判断的nested、ok
 		nested, ok := wrapper["singleChatUserConversation"].(map[string]any); ok {
 			conv = nested
 		}
-		// single 保存single，供当前处理流程使用
+		// single 用于本次流程后续判断的single
 		single, _ := conv["singleChatConversation"].(map[string]any)
-		// cid 保存cid，供当前处理流程使用
+		// cid 用于本次流程后续判断的cid
 		cid := strings.Split(strings.TrimSpace(fmt.Sprint(single["cid"])), "@")[0]
-		if // visible、exists 保存visible、exists，供当前处理流程使用
+		if // visible、exists 用于本次流程后续判断的visible、exists
 		visible, exists := conv["visible"]; exists && int64Value(visible) == 0 {
 			if cid != "" && cid != "<nil>" {
 				_ = s.repository.DeleteSession(ctx, accountID, cid)
 			}
 			continue
 		}
-		// first 保存first，供当前处理流程使用
+		// first 用于本次流程后续判断的first
 		first := strings.Split(strings.TrimSpace(fmt.Sprint(single["pairFirst"])), "@")[0]
-		// second 保存second，供当前处理流程使用
+		// second 用于本次流程后续判断的second
 		second := strings.Split(strings.TrimSpace(fmt.Sprint(single["pairSecond"])), "@")[0]
-		// ext 保存ext，供当前处理流程使用
+		// ext 用于本次流程后续判断的ext
 		ext := mapValue(single["extension"])
 		if second == "0" && cleanNilString(ext["extUserId"]) != "1400" {
 			_ = s.repository.DeleteSession(ctx, accountID, cid)
 			continue
 		}
-		// peerID 保存peerID，供当前处理流程使用
+		// peerID 用于本次流程后续判断的peerID
 		peerID := first
 		if first == myID {
 			peerID = second
@@ -80,9 +80,9 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 		if cid == "" || cid == "<nil>" || peerID == "" || peerID == "0" || peerID == "<nil>" {
 			continue
 		}
-		// lastWrap 保存lastWrap，供当前处理流程使用
+		// lastWrap 用于本次流程后续判断的lastWrap
 		lastWrap, _ := conv["lastMessage"].(map[string]any)
-		// last 保存last，供当前处理流程使用
+		// last 用于本次流程后续判断的last
 		last, _ := lastWrap["message"].(map[string]any)
 		// The conversation endpoint can return empty shells for notification
 		// recipients. The official web client does not render these as contacts;
@@ -95,17 +95,17 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 		// another card title. The official web client resolves conversation
 		// identity separately through pc.user.query, so never persist this field
 		// as the session nickname.
-		// peerName 保存peer名称，供当前处理流程使用
+		// peerName 用于本次流程后续判断的peer名称
 		peerName := ""
-		// custom 保存custom，供当前处理流程使用
+		// custom 用于本次流程后续判断的custom
 		custom := map[string]any{}
-		// extension 保存extension，供当前处理流程使用
+		// extension 用于本次流程后续判断的extension
 		extension := mapValue(last["extension"])
-		if // content、ok 保存content、ok，供当前处理流程使用
+		if // content、ok 用于本次流程后续判断的content、ok
 		content, ok := last["content"].(map[string]any); ok {
 			custom, _ = content["custom"].(map[string]any)
 		}
-		// summary 保存summary，供当前处理流程使用
+		// summary 用于本次流程后续判断的summary
 		summary := cleanNilString(custom["summary"])
 		if summary == "" {
 			summary = cleanNilString(extension["reminderContent"])
@@ -114,15 +114,15 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 			summary = cleanNilString(extension["detailNotice"])
 		}
 		if summary == "" {
-			if // encoded 保存encoded，供当前处理流程使用
+			if // encoded 用于本次流程后续判断的encoded
 			encoded := cleanNilString(custom["data"]); encoded != "" {
-				// decoded 保存decoded，供当前处理流程使用
+				// decoded 用于本次流程后续判断的decoded
 				var decoded map[string]any
-				if // raw、err 保存raw、err，供当前处理流程使用
+				if // raw、err 用于本次流程后续判断的raw、err
 				raw, err := base64.StdEncoding.DecodeString(encoded); err == nil && json.Unmarshal(raw, &decoded) == nil {
-					// fallback 保存fallback，供当前处理流程使用
+					// fallback 用于本次流程后续判断的fallback
 					fallback := ""
-					if // textBlock、ok 保存文本Block、ok，供当前处理流程使用
+					if // textBlock、ok 用于本次流程后续判断的文本Block、ok
 					textBlock, ok := decoded["text"].(map[string]any); ok {
 						fallback = cleanNilString(textBlock["text"])
 					}
@@ -133,14 +133,14 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 		if summary == "" {
 			summary = "暂无消息"
 		}
-		// avatar 保存avatar，供当前处理流程使用
+		// avatar 用于本次流程后续判断的avatar
 		avatar := ""
 		if peerID == "1400" {
 			peerName, avatar = "闲小蜜", xianxiaomiAvatar
 		}
-		// modifyTime 保存modify时间，供当前处理流程使用
+		// modifyTime 用于本次流程后续判断的modify时间
 		modifyTime := int64Value(conv["modifyTime"])
-		// lastMessageAt 保存last消息At，供当前处理流程使用
+		// lastMessageAt 用于本次流程后续判断的last消息At
 		lastMessageAt := int64Value(last["createAt"])
 		if lastMessageAt <= 0 {
 			lastMessageAt = modifyTime
@@ -151,11 +151,11 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 		session := db.ChatSession{CookieID: accountID, ChatID: cid, BuyerID: peerID, BuyerName: peerName, BuyerAvatar: avatar,
 			ItemID: cleanNilString(ext["itemId"]), ItemTitle: cleanNilString(ext["itemTitle"]), LastMessage: summary,
 			LastMessageAt: lastMessageAt, UnreadCount: unreadCount}
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := s.repository.UpsertSession(ctx, session); err != nil {
 			return page, err
 		}
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := s.repository.SyncSessionSummary(ctx, accountID, cid, summary, lastMessageAt, modifyTime, session.UnreadCount); err != nil {
 			return page, err
 		}
@@ -242,7 +242,7 @@ var invalidNicknames = map[string]struct{}{
 	"等待您发货": {}, "超时未付款，系统关闭了订单": {}, "邀您填写售后问卷": {},
 }
 
-// ValidNickname 负责有效Nickname相关处理。
+// ValidNickname 封装有效Nickname业务协调。
 func ValidNickname(value string) bool {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -251,22 +251,22 @@ func ValidNickname(value string) bool {
 	if strings.Contains(value, "***") {
 		return false
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := strconv.ParseUint(value, 10, 64); err == nil {
 		return false
 	}
-	// trimmed 保存trimmed，供当前处理流程使用
+	// trimmed 用于本次流程后续判断的trimmed
 	trimmed := strings.TrimSuffix(strings.TrimPrefix(value, "["), "]")
-	if // invalid 保存invalid，供当前处理流程使用
+	if // invalid 用于本次流程后续判断的invalid
 	_, invalid := invalidNicknames[trimmed]; invalid {
 		return false
 	}
 	return !strings.Contains(value, "发来一条新消息")
 }
 
-// cleanNilString 负责cleanNilString相关处理。
+// cleanNilString 封装cleanNilString业务协调。
 func cleanNilString(value any) string {
-	// text 保存文本，供当前处理流程使用
+	// text 用于本次流程后续判断的文本
 	text := strings.TrimSpace(fmt.Sprint(value))
 	if text == "<nil>" {
 		return ""
@@ -274,7 +274,7 @@ func cleanNilString(value any) string {
 	return text
 }
 
-// Incoming 保存Incoming，供当前处理流程使用
+// Incoming 用于本次流程后续判断的Incoming
 type Incoming struct {
 	AccountID string
 	ChatID    string
@@ -286,20 +286,20 @@ type Incoming struct {
 	Raw       map[string]any
 }
 
-// Event 保存Event，供当前处理流程使用
+// Event 用于本次流程后续判断的Event
 type Event struct {
 	Type    string          `json:"type"`
 	Message *db.ChatMessage `json:"message,omitempty"`
 	Session *db.ChatSession `json:"session,omitempty"`
 }
 
-// subscriber 保存subscriber，供当前处理流程使用
+// subscriber 用于本次流程后续判断的subscriber
 type subscriber struct {
 	accounts map[string]struct{}
 	ch       chan Event
 }
 
-// Service 保存Service，供当前处理流程使用
+// Service 用于本次流程后续判断的Service
 type Service struct {
 	// repository 提供聊天服务所需的最小持久化能力。
 	repository Repository
@@ -308,7 +308,7 @@ type Service struct {
 	subs       map[uint64]subscriber
 }
 
-// New 负责New相关处理。
+// New 封装New业务协调。
 func New(store *db.Store) *Service {
 	return NewWithRepository(newStoreRepository(store))
 }
@@ -318,32 +318,32 @@ func NewWithRepository(repository Repository) *Service {
 	return &Service{repository: repository, subs: make(map[uint64]subscriber)}
 }
 
-// Subscribe 负责Subscribe相关处理。
+// Subscribe 封装Subscribe业务协调。
 func (s *Service) Subscribe(ctx context.Context, userID int64) (<-chan Event, func(), error) {
 	accountIDs, err := s.repository.ListOwnedIDs(ctx, userID) // accountIDs 和 err 是用户账号 ID 列表及查询错误。
 	if err != nil {
 		return nil, nil, err
 	}
-	// allowed 保存allowed，供当前处理流程使用
+	// allowed 用于本次流程后续判断的allowed
 	allowed := make(map[string]struct{}, len(accountIDs))
 	for _, accountID := range accountIDs { // accountID 是当前订阅允许接收事件的账号。
 		allowed[accountID] = struct{}{}
 	}
 	s.mu.Lock()
 	s.next++
-	// id 保存标识，供当前处理流程使用
+	// id 用于本次流程后续判断的标识
 	id := s.next
-	// ch 保存ch，供当前处理流程使用
+	// ch 用于本次流程后续判断的ch
 	ch := make(chan Event, 128)
 	s.subs[id] = subscriber{accounts: allowed, ch: ch}
 	s.mu.Unlock()
-	// once 保存once，供当前处理流程使用
+	// once 用于本次流程后续判断的once
 	var once sync.Once
-	// cancel 保存取消，供当前处理流程使用
+	// cancel 用于本次流程后续判断的取消
 	cancel := func() {
 		once.Do(func() {
 			s.mu.Lock()
-			if // sub、ok 保存sub、ok，供当前处理流程使用
+			if // sub、ok 用于本次流程后续判断的sub、ok
 			sub, ok := s.subs[id]; ok {
 				delete(s.subs, id)
 				close(sub.ch)
@@ -354,13 +354,13 @@ func (s *Service) Subscribe(ctx context.Context, userID int64) (<-chan Event, fu
 	return ch, cancel, nil
 }
 
-// Publish 负责发布相关处理。
+// Publish 封装发布业务协调。
 func (s *Service) Publish(accountID string, event Event) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	// sub 表示当前遍历过程中的sub
 	for _, sub := range s.subs {
-		if // ok 保存ok，供当前处理流程使用
+		if // ok 用于本次流程后续判断的ok
 		_, ok := sub.accounts[accountID]; !ok {
 			continue
 		}
@@ -373,12 +373,12 @@ func (s *Service) Publish(accountID string, event Event) {
 	}
 }
 
-// RecordIncoming 负责RecordIncoming相关处理。
+// RecordIncoming 封装RecordIncoming业务协调。
 func (s *Service) RecordIncoming(ctx context.Context, in Incoming) (*db.ChatMessage, bool, error) {
 	if s == nil || s.repository == nil {
 		return nil, false, fmt.Errorf("聊天服务未初始化")
 	}
-	// sentAt 保存sentAt，供当前处理流程使用
+	// sentAt 用于本次流程后续判断的sentAt
 	sentAt := extractUnixMilli(in.Raw)
 	if sentAt == 0 {
 		sentAt = time.Now().UTC().UnixMilli()
@@ -389,17 +389,17 @@ func (s *Service) RecordIncoming(ctx context.Context, in Incoming) (*db.ChatMess
 		key = extractString(in.Raw, "messageId", "message_id", "msgId", "mid", "uuid")
 	}
 	if key == "" {
-		// raw 保存原始，供当前处理流程使用
+		// raw 用于本次流程后续判断的原始
 		raw, _ := json.Marshal(in.Raw)
-		// digest 保存digest，供当前处理流程使用
+		// digest 用于本次流程后续判断的digest
 		digest := sha256.Sum256([]byte(in.AccountID + "\x00" + in.ChatID + "\x00" + in.BuyerID + "\x00" + in.Text + "\x00" + string(raw)))
 		key = "in-" + hex.EncodeToString(digest[:16])
 	}
-	// session 保存会话，供当前处理流程使用
+	// session 用于本次流程后续判断的会话
 	session := db.ChatSession{CookieID: in.AccountID, ChatID: in.ChatID, BuyerID: in.BuyerID,
 		BuyerName: in.BuyerName, BuyerAvatar: extractString(in.Raw, "avatar", "avatarUrl", "senderAvatar"),
 		ItemID: in.ItemID, ItemTitle: extractString(in.Raw, "itemTitle", "title")}
-	// messageType、content 保存消息Type、content，供当前处理流程使用
+	// messageType、content 用于本次流程后续判断的消息Type、content
 	messageType, content := extractMessageContent(in.Raw, in.Text)
 	if isOfficialSystemMessage(in.Raw, in.BuyerID, in.Text) {
 		messageType = "system"
@@ -409,7 +409,7 @@ func (s *Service) RecordIncoming(ctx context.Context, in Incoming) (*db.ChatMess
 			session.BuyerAvatar = xianxiaomiAvatar
 		}
 	}
-	// message 保存消息，供当前处理流程使用
+	// message 用于本次流程后续判断的消息
 	message := db.ChatMessage{MessageKey: key, Direction: "incoming", SenderID: in.BuyerID,
 		SenderName: in.BuyerName, MessageType: messageType, Content: content, Status: "received", SentAt: sentAt}
 	// stored、inserted、err 保存落库消息、首次插入标识及错误；系统消息永不增加用户红点。
@@ -421,17 +421,17 @@ func (s *Service) RecordIncoming(ctx context.Context, in Incoming) (*db.ChatMess
 }
 
 // RecordHistoryPage normalizes official IM history and stores it idempotently.
-// RecordHistoryPage 负责RecordHistory页码相关处理。
+// RecordHistoryPage 封装RecordHistory页码业务协调。
 func (s *Service) RecordHistoryPage(ctx context.Context, accountID, chatID, myID string, session db.ChatSession, body map[string]any) (HistoryPage, error) {
-	// page 保存页码，供当前处理流程使用
+	// page 用于本次流程后续判断的页码
 	page := HistoryPage{HasMore: boolValue(body["hasMore"]), NextCursor: int64Value(body["nextCursor"])}
-	// models 保存模型列表，供当前处理流程使用
+	// models 用于本次流程后续判断的模型列表
 	models, _ := body["userMessageModels"].([]any)
-	for                                 // i 保存i，供当前处理流程使用
+	for                                 // i 用于本次流程后续判断的i
 	i := len(models) - 1; i >= 0; i-- { // official API returns newest first
-		// model 保存模型，供当前处理流程使用
+		// model 用于本次流程后续判断的模型
 		model, _ := models[i].(map[string]any)
-		// message、ok 保存message、ok，供当前处理流程使用
+		// message、ok 用于本次流程后续判断的message、ok
 		message, ok := parseHistoryMessage(accountID, chatID, myID, model)
 		if !ok {
 			continue
@@ -442,13 +442,13 @@ func (s *Service) RecordHistoryPage(ctx context.Context, accountID, chatID, myID
 				session.BuyerID = message.SenderID
 			}
 		}
-		// stored、err 保存stored、err，供当前处理流程使用
+		// stored、err 用于本次流程后续判断的stored、err
 		stored, _, err := s.repository.SaveMessage(ctx, session, message, false)
 		if err != nil {
 			return page, err
 		}
 		if message.MessageType == "system" {
-			if // err 保存err，供当前处理流程使用
+			if // err 用于本次流程后续判断的err
 			err := s.repository.UpdateMessageType(ctx, accountID, message.MessageKey, "system"); err != nil {
 				return page, err
 			}
@@ -459,53 +459,53 @@ func (s *Service) RecordHistoryPage(ctx context.Context, accountID, chatID, myID
 	return page, nil
 }
 
-// parseHistoryMessage 负责parseHistory消息相关处理。
+// parseHistoryMessage 封装parseHistory消息业务协调。
 func parseHistoryMessage(accountID, chatID, myID string, model map[string]any) (db.ChatMessage, bool) {
-	// message 保存消息，供当前处理流程使用
+	// message 用于本次流程后续判断的消息
 	message, _ := model["message"].(map[string]any)
 	if message == nil {
 		return db.ChatMessage{}, false
 	}
-	// extension 保存extension，供当前处理流程使用
+	// extension 用于本次流程后续判断的extension
 	extension := mapValue(message["extension"])
-	// senderID 保存senderID，供当前处理流程使用
+	// senderID 用于本次流程后续判断的senderID
 	senderID := strings.Split(strings.TrimSpace(fmt.Sprint(extension["senderUserId"])), "@")[0]
-	// senderName 保存sender名称，供当前处理流程使用
+	// senderName 用于本次流程后续判断的sender名称
 	senderName := strings.TrimSpace(fmt.Sprint(extension["reminderTitle"]))
 	if senderName == "<nil>" {
 		senderName = ""
 	}
-	// key 保存key，供当前处理流程使用
+	// key 用于本次流程后续判断的key
 	key := strings.TrimSpace(fmt.Sprint(message["messageId"]))
 	if key == "" || key == "<nil>" {
 		return db.ChatMessage{}, false
 	}
-	// contentMap 保存内容Map，供当前处理流程使用
+	// contentMap 用于本次流程后续判断的内容Map
 	contentMap, _ := message["content"].(map[string]any)
-	// custom 保存custom，供当前处理流程使用
+	// custom 用于本次流程后续判断的custom
 	custom, _ := contentMap["custom"].(map[string]any)
-	// rawContent 保存原始内容，供当前处理流程使用
+	// rawContent 用于本次流程后续判断的原始内容
 	rawContent := map[string]any{}
-	if // encoded 保存encoded，供当前处理流程使用
+	if // encoded 用于本次流程后续判断的encoded
 	encoded := strings.TrimSpace(fmt.Sprint(custom["data"])); encoded != "" && encoded != "<nil>" {
-		if // decoded、err 保存decoded、err，供当前处理流程使用
+		if // decoded、err 用于本次流程后续判断的decoded、err
 		decoded, err := base64.StdEncoding.DecodeString(encoded); err == nil {
 			_ = json.Unmarshal(decoded, &rawContent)
 		}
 	}
-	// fallback 保存fallback，供当前处理流程使用
+	// fallback 用于本次流程后续判断的fallback
 	fallback := strings.TrimSpace(fmt.Sprint(custom["summary"]))
 	if fallback == "<nil>" {
 		fallback = ""
 	}
-	if // textBlock、ok 保存文本Block、ok，供当前处理流程使用
+	if // textBlock、ok 用于本次流程后续判断的文本Block、ok
 	textBlock, ok := rawContent["text"].(map[string]any); ok {
-		if // text 保存文本，供当前处理流程使用
+		if // text 用于本次流程后续判断的文本
 		text := strings.TrimSpace(fmt.Sprint(textBlock["text"])); text != "" && text != "<nil>" {
 			fallback = text
 		}
 	}
-	// messageType、content 保存消息Type、content，供当前处理流程使用
+	// messageType、content 用于本次流程后续判断的消息Type、content
 	messageType, content := extractMessageContent(rawContent, fallback)
 	if isOfficialSystemMessage(rawContent, senderID, fallback) {
 		messageType = "system"
@@ -516,7 +516,7 @@ func parseHistoryMessage(accountID, chatID, myID string, model map[string]any) (
 	if content == "" {
 		content = "[系统消息]"
 	}
-	// direction、status 保存direction、status，供当前处理流程使用
+	// direction、status 用于本次流程后续判断的direction、status
 	direction, status := "incoming", "received"
 	if senderID != "" && senderID == strings.TrimSpace(myID) {
 		direction, status = "outgoing", "sent"
@@ -526,15 +526,15 @@ func parseHistoryMessage(accountID, chatID, myID string, model map[string]any) (
 		Status: status, SentAt: int64Value(message["createAt"])}, true
 }
 
-// mapValue 负责map值相关处理。
+// mapValue 封装map值业务协调。
 func mapValue(value any) map[string]any {
-	if // result、ok 保存result、ok，供当前处理流程使用
+	if // result、ok 用于本次流程后续判断的result、ok
 	result, ok := value.(map[string]any); ok {
 		return result
 	}
-	if // text、ok 保存text、ok，供当前处理流程使用
+	if // text、ok 用于本次流程后续判断的text、ok
 	text, ok := value.(string); ok {
-		// result 保存结果，供当前处理流程使用
+		// result 用于本次流程后续判断的结果
 		var result map[string]any
 		if json.Unmarshal([]byte(text), &result) == nil {
 			return result
@@ -543,9 +543,9 @@ func mapValue(value any) map[string]any {
 	return map[string]any{}
 }
 
-// int64Value 负责int64值相关处理。
+// int64Value 封装int64值业务协调。
 func int64Value(value any) int64 {
-	switch // typed 保存typed，供当前处理流程使用
+	switch // typed 用于本次流程后续判断的typed
 	typed := value.(type) {
 	case float64:
 		return int64(typed)
@@ -554,11 +554,11 @@ func int64Value(value any) int64 {
 	case int:
 		return int64(typed)
 	case json.Number:
-		// result 保存结果，供当前处理流程使用
+		// result 用于本次流程后续判断的结果
 		result, _ := typed.Int64()
 		return result
 	case string:
-		// result 保存结果，供当前处理流程使用
+		// result 用于本次流程后续判断的结果
 		var result int64
 		_, _ = fmt.Sscan(strings.TrimSpace(typed), &result)
 		return result
@@ -566,9 +566,9 @@ func int64Value(value any) int64 {
 	return 0
 }
 
-// boolValue 负责bool值相关处理。
+// boolValue 封装bool值业务协调。
 func boolValue(value any) bool {
-	switch // typed 保存typed，供当前处理流程使用
+	switch // typed 用于本次流程后续判断的typed
 	typed := value.(type) {
 	case bool:
 		return typed
@@ -582,37 +582,37 @@ func boolValue(value any) bool {
 	return false
 }
 
-// extractMessageContent 负责extract消息内容相关处理。
+// extractMessageContent 封装extract消息内容业务协调。
 func extractMessageContent(raw map[string]any, fallback string) (string, string) {
-	// inspect 保存inspect，供当前处理流程使用
+	// inspect 用于本次流程后续判断的inspect
 	var inspect func(any) (string, string)
 	inspect = func(value any) (string, string) {
-		switch // typed 保存typed，供当前处理流程使用
+		switch // typed 用于本次流程后续判断的typed
 		typed := value.(type) {
 		case string:
-			// nested 保存nested，供当前处理流程使用
+			// nested 用于本次流程后续判断的nested
 			var nested any
 			if json.Unmarshal([]byte(typed), &nested) == nil {
 				return inspect(nested)
 			}
 		case map[string]any:
-			// contentType 保存内容类型，供当前处理流程使用
+			// contentType 用于本次流程后续判断的内容类型
 			contentType := strings.TrimSpace(fmt.Sprint(typed["contentType"]))
 			if contentType == "2" {
-				if // mediaURL 保存mediaURL，供当前处理流程使用
+				if // mediaURL 用于本次流程后续判断的mediaURL
 				mediaURL := extractString(typed["image"], "url"); mediaURL != "" {
 					return "image", mediaURL
 				}
 			}
 			if contentType == "4" || typed["video"] != nil {
-				if // mediaURL 保存mediaURL，供当前处理流程使用
+				if // mediaURL 用于本次流程后续判断的mediaURL
 				mediaURL := extractString(typed["video"], "url", "videoUrl", "playUrl"); mediaURL != "" {
 					return "video", mediaURL
 				}
 			}
 			// child 表示当前遍历过程中的child
 			for _, child := range typed {
-				if // kind、mediaURL 保存kind、mediaURL，供当前处理流程使用
+				if // kind、mediaURL 用于本次流程后续判断的kind、mediaURL
 				kind, mediaURL := inspect(child); mediaURL != "" {
 					return kind, mediaURL
 				}
@@ -620,7 +620,7 @@ func extractMessageContent(raw map[string]any, fallback string) (string, string)
 		case []any:
 			// child 表示当前遍历过程中的child
 			for _, child := range typed {
-				if // kind、mediaURL 保存kind、mediaURL，供当前处理流程使用
+				if // kind、mediaURL 用于本次流程后续判断的kind、mediaURL
 				kind, mediaURL := inspect(child); mediaURL != "" {
 					return kind, mediaURL
 				}
@@ -628,7 +628,7 @@ func extractMessageContent(raw map[string]any, fallback string) (string, string)
 		}
 		return "", ""
 	}
-	if // kind、mediaURL 保存kind、mediaURL，供当前处理流程使用
+	if // kind、mediaURL 用于本次流程后续判断的kind、mediaURL
 	kind, mediaURL := inspect(raw); mediaURL != "" {
 		return kind, mediaURL
 	}
@@ -639,12 +639,12 @@ func extractMessageContent(raw map[string]any, fallback string) (string, string)
 // protocol metadata, rather than matching a growing list of Chinese prompts.
 // contentType=14 is a platform notice and contentType=26 is an official trade
 // card.  User 1400 is 闲小蜜, whose messages are also not peer chat.
-// isOfficialSystemMessage 负责isOfficial系统消息相关处理。
+// isOfficialSystemMessage 封装isOfficial系统消息业务协调。
 func isOfficialSystemMessage(raw map[string]any, senderID, fallback string) bool {
 	if strings.TrimSuffix(strings.TrimSpace(senderID), "@goofish") == "1400" {
 		return true
 	}
-	if // contentType 保存内容类型，供当前处理流程使用
+	if // contentType 用于本次流程后续判断的内容类型
 	contentType := findOfficialContentType(raw); contentType == "14" || contentType == "26" {
 		return true
 	}
@@ -654,26 +654,26 @@ func isOfficialSystemMessage(raw map[string]any, senderID, fallback string) bool
 // findOfficialContentType walks decoded history content as well as live WS
 // envelopes. History stores the inner content JSON under custom.data, while
 // live messages expose it under 1.6.3 or 1.10.extJson.
-// findOfficialContentType 负责findOfficial内容类型相关处理。
+// findOfficialContentType 封装findOfficial内容类型业务协调。
 func findOfficialContentType(value any) string {
-	// found 保存found，供当前处理流程使用
+	// found 用于本次流程后续判断的found
 	var found string
-	// walk 保存walk，供当前处理流程使用
+	// walk 用于本次流程后续判断的walk
 	var walk func(any)
 	walk = func(current any) {
 		if found != "" {
 			return
 		}
-		switch // typed 保存typed，供当前处理流程使用
+		switch // typed 用于本次流程后续判断的typed
 		typed := current.(type) {
 		case string:
-			// nested 保存nested，供当前处理流程使用
+			// nested 用于本次流程后续判断的nested
 			var nested any
 			if json.Unmarshal([]byte(typed), &nested) == nil {
 				walk(nested)
 			}
 		case map[string]any:
-			if // candidate 保存candidate，供当前处理流程使用
+			if // candidate 用于本次流程后续判断的candidate
 			candidate := strings.TrimSpace(fmt.Sprint(typed["contentType"])); candidate == "14" || candidate == "26" {
 				found = candidate
 				return
@@ -700,13 +700,13 @@ func (s *Service) CreateOutgoing(ctx context.Context, session db.ChatSession, te
 
 // CreateOutgoingMedia 创建OutgoingMedia。
 func (s *Service) CreateOutgoingMedia(ctx context.Context, session db.ChatSession, messageType, content string) (*db.ChatMessage, error) {
-	// key 保存key，供当前处理流程使用
+	// key 用于本次流程后续判断的key
 	key := "local-" + randomID()
-	// message 保存消息，供当前处理流程使用
+	// message 用于本次流程后续判断的消息
 	message := db.ChatMessage{MessageKey: key, Direction: "outgoing", SenderID: session.CookieID,
 		SenderName: "我", MessageType: messageType, Content: strings.TrimSpace(content), Status: "sending",
 		SentAt: time.Now().UTC().UnixMilli()}
-	// stored、err 保存stored、err，供当前处理流程使用
+	// stored、err 用于本次流程后续判断的stored、err
 	stored, _, err := s.repository.SaveMessage(ctx, session, message, false)
 	if err == nil {
 		s.Publish(session.CookieID, Event{Type: "message.created", Message: stored, Session: &session})
@@ -716,16 +716,16 @@ func (s *Service) CreateOutgoingMedia(ctx context.Context, session db.ChatSessio
 
 // RecordOutgoingSent captures automatic replies and automation messages. A
 // supplied key correlates a UI pending message and only updates its status.
-// RecordOutgoingSent 负责RecordOutgoingSent相关处理。
+// RecordOutgoingSent 封装RecordOutgoingSent业务协调。
 func (s *Service) RecordOutgoingSent(ctx context.Context, session db.ChatSession, key, text string) (*db.ChatMessage, error) {
 	if strings.TrimSpace(key) != "" {
 		return s.SetOutgoingStatus(ctx, session.CookieID, key, "sent")
 	}
-	// message 保存消息，供当前处理流程使用
+	// message 用于本次流程后续判断的消息
 	message := db.ChatMessage{MessageKey: "sent-" + randomID(), Direction: "outgoing", SenderID: session.CookieID,
 		SenderName: "我", MessageType: "text", Content: strings.TrimSpace(text), Status: "sent",
 		SentAt: time.Now().UTC().UnixMilli()}
-	// stored、err 保存stored、err，供当前处理流程使用
+	// stored、err 用于本次流程后续判断的stored、err
 	stored, _, err := s.repository.SaveMessage(ctx, session, message, false)
 	if err == nil {
 		s.Publish(session.CookieID, Event{Type: "message.created", Message: stored, Session: &session})
@@ -735,7 +735,7 @@ func (s *Service) RecordOutgoingSent(ctx context.Context, session db.ChatSession
 
 // SetOutgoingStatus 设置Outgoing状态。
 func (s *Service) SetOutgoingStatus(ctx context.Context, accountID, key, status string) (*db.ChatMessage, error) {
-	// message、err 保存message、err，供当前处理流程使用
+	// message、err 用于本次流程后续判断的message、err
 	message, err := s.repository.UpdateMessageStatus(ctx, accountID, key, status)
 	if err == nil {
 		s.Publish(accountID, Event{Type: "message.updated", Message: message})
@@ -765,34 +765,34 @@ func (s *Service) MarkLatestOutgoingRead(ctx context.Context, accountID, chatID 
 
 // randomID 生成本地出站消息幂等键的随机后缀；随机源失败时使用时间回退避免阻断发送。
 func randomID() string {
-	// value 保存值，供当前处理流程使用
+	// value 用于本次流程后续判断的值
 	var value [16]byte
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := rand.Read(value[:]); err == nil {
 		return hex.EncodeToString(value[:])
 	}
 	return fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 }
 
-// extractString 负责extractString相关处理。
+// extractString 封装extractString业务协调。
 func extractString(value any, keys ...string) string {
-	// wanted 保存wanted，供当前处理流程使用
+	// wanted 用于本次流程后续判断的wanted
 	wanted := make(map[string]struct{}, len(keys))
 	// key 表示当前遍历过程中的key
 	for _, key := range keys {
 		wanted[strings.ToLower(key)] = struct{}{}
 	}
-	// walk 保存walk，供当前处理流程使用
+	// walk 用于本次流程后续判断的walk
 	var walk func(any) string
 	walk = func(v any) string {
-		switch // x 保存x，供当前处理流程使用
+		switch // x 用于本次流程后续判断的x
 		x := v.(type) {
 		case map[string]any:
 			// key、child 表示当前遍历过程中的key、child
 			for key, child := range x {
-				if // ok 保存ok，供当前处理流程使用
+				if // ok 用于本次流程后续判断的ok
 				_, ok := wanted[strings.ToLower(key)]; ok {
-					if // text 保存文本，供当前处理流程使用
+					if // text 用于本次流程后续判断的文本
 					text := strings.TrimSpace(fmt.Sprint(child)); text != "" && text != "<nil>" {
 						return text
 					}
@@ -800,7 +800,7 @@ func extractString(value any, keys ...string) string {
 			}
 			// child 表示当前遍历过程中的child
 			for _, child := range x {
-				if // text 保存文本，供当前处理流程使用
+				if // text 用于本次流程后续判断的文本
 				text := walk(child); text != "" {
 					return text
 				}
@@ -808,7 +808,7 @@ func extractString(value any, keys ...string) string {
 		case []any:
 			// child 表示当前遍历过程中的child
 			for _, child := range x {
-				if // text 保存文本，供当前处理流程使用
+				if // text 用于本次流程后续判断的文本
 				text := walk(child); text != "" {
 					return text
 				}
@@ -831,11 +831,11 @@ func extractString(value any, keys ...string) string {
 	return walk(value)
 }
 
-// extractUnixMilli 负责extractUnixMilli相关处理。
+// extractUnixMilli 封装extractUnixMilli业务协调。
 func extractUnixMilli(raw map[string]any) int64 {
-	// text 保存文本，供当前处理流程使用
+	// text 用于本次流程后续判断的文本
 	text := extractString(raw, "sendTime", "timestamp", "time", "createdAt")
-	// value 保存值，供当前处理流程使用
+	// value 用于本次流程后续判断的值
 	var value int64
 	_, _ = fmt.Sscan(text, &value)
 	if value > 0 && value < 10_000_000_000 {

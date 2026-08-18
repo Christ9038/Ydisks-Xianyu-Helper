@@ -36,7 +36,7 @@ func TestOrderRefreshJobsLifecycle(t *testing.T) {
 	if claimed, err = store.OrderRefreshJobs.Claim(ctx, job.ID, "worker-2", time.Now().Add(time.Minute).Unix()); err != nil || claimed {
 		t.Fatalf("duplicate claim should fail: claimed=%v err=%v", claimed, err)
 	}
-	// completed、err 表示错误 worker 的终态写入结果及错误。
+	// completed、err 记录当前操作失败原因 worker 的终态写入结果及错误。
 	if completed, err := store.OrderRefreshJobs.Complete(ctx, job.ID, "worker-2", "succeeded", `{"message":"wrong worker"}`, ""); err != nil || completed {
 		t.Fatalf("wrong worker must not complete: completed=%v err=%v", completed, err)
 	}

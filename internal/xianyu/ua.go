@@ -8,7 +8,7 @@ import (
 
 // BrowserFingerprint is populated from Playwright's bundled Chromium at
 // runtime. It is the sole source for browser-identifying HTTP headers.
-// BrowserFingerprint 保存浏览器Fingerprint，供当前处理流程使用
+// BrowserFingerprint 用于本次流程后续判断的浏览器Fingerprint
 type BrowserFingerprint struct {
 	UserAgent string
 	SecChUA   string
@@ -16,7 +16,7 @@ type BrowserFingerprint struct {
 	Mobile    string
 }
 
-// browserFingerprint 保存浏览器Fingerprint，供当前处理流程使用
+// browserFingerprint 用于本次流程后续判断的浏览器Fingerprint
 var browserFingerprint struct {
 	sync.RWMutex
 	value BrowserFingerprint
@@ -33,7 +33,7 @@ func SetBrowserFingerprint(value BrowserFingerprint) {
 	browserFingerprint.Unlock()
 }
 
-// CurrentBrowserFingerprint 负责Current浏览器Fingerprint相关处理。
+// CurrentBrowserFingerprint 封装Current浏览器Fingerprint业务协调。
 func CurrentBrowserFingerprint() BrowserFingerprint {
 	browserFingerprint.RLock()
 	defer browserFingerprint.RUnlock()
@@ -42,9 +42,9 @@ func CurrentBrowserFingerprint() BrowserFingerprint {
 
 // ApplyBrowserFingerprint applies only headers observed from Chromium. Before
 // browser initialization it intentionally adds no synthetic browser identity.
-// ApplyBrowserFingerprint 负责Apply浏览器Fingerprint相关处理。
+// ApplyBrowserFingerprint 封装Apply浏览器Fingerprint业务协调。
 func ApplyBrowserFingerprint(h http.Header) {
-	// fp 保存fp，供当前处理流程使用
+	// fp 用于本次流程后续判断的fp
 	fp := CurrentBrowserFingerprint()
 	if fp.UserAgent != "" {
 		h.Set("user-agent", fp.UserAgent)

@@ -146,7 +146,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
       // result 保存长登录设置接口返回值。
       const result = await setLongLoginSettings(editingAccount.id, enabled);
       setLongLogin({ loading: false, saving: false, canOpen: result.can_open_long_login, enabled: result.enabled, error: '' });
-    } catch (/* error 表示错误。 */ error) {
+    } catch (/* error 保存长登录开关请求的失败原因，供弹窗展示且不泄露凭证。 */ error) {
       // error 保存长登录设置保存失败原因。
       setLongLogin(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, saving: false, error: error instanceof Error ? error.message : '保存登录信息设置失败' }));
     }
@@ -169,7 +169,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
       const settings = await getAccountAISettings(account.id, { signal: controller.signal });
       if (!isCurrentAccountRequest(sequence, aiSequence.current, account.id, account.id)) return;
       setAiSettings({ ai_enabled: settings.ai_enabled ?? false, max_discount_percent: settings.max_discount_percent ?? 10, max_discount_amount: settings.max_discount_amount ?? 100, max_bargain_rounds: settings.max_bargain_rounds ?? 3, custom_prompts: settings.custom_prompts ?? '' });
-    } catch (/* error 表示错误。 */ error) {
+    } catch (/* error 保存 AI 设置读取请求的失败原因，过期请求不会更新当前界面。 */ error) {
       // error 保存 AI 设置读取失败原因。
       if (isCurrentAccountRequest(sequence, aiSequence.current, account.id, account.id)) console.error('加载 AI 设置失败:', error);
     } finally {
@@ -186,7 +186,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
       await updateAccountAISettings(editingAccount.id, aiSettings);
       setActiveModal(null);
       await loadAccounts();
-    } catch (/* error 表示错误。 */ error) {
+    } catch (/* error 保存 AI 设置提交请求的失败原因，转换为通用错误提示。 */ error) {
       // error 保存 AI 设置保存失败原因。
       console.error('更新 AI 设置失败:', error);
     } finally { setSaving(false); }
@@ -212,7 +212,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
       if (Object.keys(payload).length > 0) await updateAccountSettings(editingAccount.id, payload);
       setActiveModal(null);
       await loadAccounts();
-    } catch (/* error 表示错误。 */ error) {
+    } catch (/* error 保存账号设置提交请求的失败原因，转换为通用错误提示。 */ error) {
       // error 保存账号编辑保存失败原因。
       console.error('更新账号失败:', error);
     } finally { setSaving(false); }
@@ -228,7 +228,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
       const result = await updateAccountPauseDuration(editingAccount.id, editForm.pause_duration);
       setEditingAccount(/* 当前回调处理用户交互或异步状态变化。 */ current => current ? { ...current, pause_duration: editForm.pause_duration, paused: result?.paused === true, paused_until: Number(result?.paused_until || 0) } : current);
       await loadAccounts();
-    } catch (/* error 表示错误。 */ error) { console.error('重新暂停失败:', error); }
+    } catch (/* error 保存重新暂停请求的失败原因，仅输出不含凭证的诊断信息。 */ error) { console.error('重新暂停失败:', error); }
     finally { setSaving(false); }
   }, [editForm.pause_duration, editingAccount, loadAccounts, saving, setEditingAccount]);
 
@@ -260,7 +260,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
       }
       clearPasswordTimer();
       setPasswordLoginView(nextView);
-    } catch (/* error 表示错误。 */ error) {
+    } catch (/* error 保存密码登录状态查询的失败原因，过期代次不会覆盖当前状态。 */ error) {
       // error 保存密码登录状态查询失败原因。
       if (!isCurrentAccountRequest(generation, passwordGeneration.current, accountId, passwordAccount.current)) return;
       clearPasswordTimer();
@@ -291,7 +291,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
       if (!result.success || !result.session_id) throw new Error(result.message || '无法启动密码登录');
       setPasswordLoginView({ sessionId: result.session_id, status: 'processing', message: result.message || '登录处理中', qrCodeUrl: '' });
       await pollPasswordLogin(result.session_id, generation, editingAccount.id);
-    } catch (/* error 表示错误。 */ error) {
+    } catch (/* error 保存密码登录启动请求的失败原因，转换为安全的登录提示。 */ error) {
       // error 保存密码登录启动失败原因。
       if (!isCurrentAccountRequest(generation, passwordGeneration.current, editingAccount.id, passwordAccount.current)) return;
       setPasswordLoginView({ sessionId: '', status: 'failed', message: error instanceof Error ? error.message : '启动密码登录失败', qrCodeUrl: '' });

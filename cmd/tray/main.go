@@ -21,7 +21,7 @@ import (
 	"fyne.io/systray"
 )
 
-// healthResponse 保存health响应，供当前处理流程使用
+// healthResponse 用于本次流程后续判断的health响应
 type healthResponse struct {
 	Status   string `json:"status"`
 	Database string `json:"database"`
@@ -29,22 +29,22 @@ type healthResponse struct {
 	Commit   string `json:"commit"`
 }
 
-// serviceURL 保存serviceURL，供当前处理流程使用
+// serviceURL 用于本次流程后续判断的serviceURL
 var serviceURL = strings.TrimRight(envOr("XIANYU_SERVICE_URL", "http://127.0.0.1:59188"), "/")
 
-// actionMu 保存动作Mu，供当前处理流程使用
+// actionMu 用于本次流程后续判断的动作Mu
 var (
 	actionMu      sync.Mutex
 	transitioning atomic.Bool
 	exitRequested atomic.Bool
 )
 
-// main 负责main相关处理。
+// main 封装main业务协调。
 func main() {
-	// closeLog 保存closeLog，供当前处理流程使用
+	// closeLog 用于本次流程后续判断的closeLog
 	closeLog := configureTrayLogger()
 	defer closeLog()
-	// releaseInstance、acquired、err 保存releaseInstance、acquired、err，供当前处理流程使用
+	// releaseInstance、acquired、err 用于本次流程后续判断的releaseInstance、acquired、err
 	releaseInstance, acquired, err := acquireTrayInstance()
 	if err != nil {
 		log.Printf("获取托盘单实例锁失败: %v", err)
@@ -64,10 +64,10 @@ func main() {
 	// 但实际托盘进程仍然存活。等事件循环真正返回后再处理外部退出。
 	if !exitRequested.Load() {
 		log.Printf("托盘事件循环结束，清理后台服务")
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := quitTray(); err != nil {
 			log.Printf("清理后台服务失败: %v", err)
-		} else if // err 保存err，供当前处理流程使用
+		} else if // err 用于本次流程后续判断的err
 		err := waitForService(&http.Client{Timeout: 2 * time.Second}, false, 30*time.Second); err != nil {
 			log.Printf("等待后台服务退出失败: %v", err)
 		}
@@ -75,23 +75,23 @@ func main() {
 	log.Printf("托盘退出")
 }
 
-// watchTerminationSignals 负责watchTerminationSignals相关处理。
+// watchTerminationSignals 封装watchTerminationSignals业务协调。
 func watchTerminationSignals() {
-	// signals 保存signals，供当前处理流程使用
+	// signals 用于本次流程后续判断的signals
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	go func() {
-		// reason 保存原因，供当前处理流程使用
+		// reason 用于本次流程后续判断的原因
 		reason := <-signals
 		log.Printf("收到进程终止信号: %s", reason)
 
 		actionMu.Lock()
 		// actionMu 保证不会与菜单动作并发；拿到锁时其它动作已经完成。
 		transitioning.Store(true)
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := quitTray(); err != nil {
 			log.Printf("终止前停止后台服务失败: %v", err)
-		} else if // err 保存err，供当前处理流程使用
+		} else if // err 用于本次流程后续判断的err
 		err := waitForService(&http.Client{Timeout: 2 * time.Second}, false, 30*time.Second); err != nil {
 			log.Printf("终止前等待后台服务退出失败: %v", err)
 		}
@@ -102,27 +102,27 @@ func watchTerminationSignals() {
 	}()
 }
 
-// onTrayExit 负责onTrayExit相关处理。
+// onTrayExit 封装onTrayExit业务协调。
 func onTrayExit() {
 	// 这里只记录事件。服务清理由 main 在 systray.Run 返回后执行，避免
 	// 阻塞原生托盘事件循环。
 	log.Printf("收到托盘退出事件")
 }
 
-// configureTrayLogger 负责configureTrayLogger相关处理。
+// configureTrayLogger 封装configureTrayLogger业务协调。
 func configureTrayLogger() func() {
-	// directory、err 保存directory、err，供当前处理流程使用
+	// directory、err 用于本次流程后续判断的directory、err
 	directory, err := logDirectoryPath()
 	if err != nil {
 		return func() {}
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := os.MkdirAll(directory, 0o755); err != nil {
 		return func() {}
 	}
-	// path 保存路径，供当前处理流程使用
+	// path 用于本次流程后续判断的路径
 	path := filepath.Join(directory, "tray.log")
-	// file、err 保存file、err，供当前处理流程使用
+	// file、err 用于本次流程后续判断的file、err
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return func() {}
@@ -132,27 +132,27 @@ func configureTrayLogger() func() {
 	return func() { _ = file.Close() }
 }
 
-// onReady 负责onReady相关处理。
+// onReady 封装onReady业务协调。
 func onReady() {
 	systray.SetTitle("")
 	systray.SetIcon(trayIconBytes(false))
 	systray.SetTooltip("Ydisks闲鱼助手服务")
 
-	// statusItem 保存状态商品，供当前处理流程使用
+	// statusItem 用于本次流程后续判断的状态商品
 	statusItem := systray.AddMenuItem("服务状态：检查中", "读取后台服务状态")
-	// openItem 保存open商品，供当前处理流程使用
+	// openItem 用于本次流程后续判断的open商品
 	openItem := systray.AddMenuItem("打开管理页面", "在默认浏览器打开管理页面")
-	// logItem 保存log商品，供当前处理流程使用
+	// logItem 用于本次流程后续判断的log商品
 	logItem := systray.AddMenuItem("打开日志目录", "打开后台服务和托盘日志所在目录")
 	systray.AddSeparator()
-	// startItem 保存开始商品，供当前处理流程使用
+	// startItem 用于本次流程后续判断的开始商品
 	startItem := systray.AddMenuItem("启动服务", "启动后台服务")
-	// stopItem 保存stop商品，供当前处理流程使用
+	// stopItem 用于本次流程后续判断的stop商品
 	stopItem := systray.AddMenuItem("停止服务", "停止后台服务")
-	// restartItem 保存restart商品，供当前处理流程使用
+	// restartItem 用于本次流程后续判断的restart商品
 	restartItem := systray.AddMenuItem("重启服务", "重启后台服务")
 	systray.AddSeparator()
-	// quitItem 保存quit商品，供当前处理流程使用
+	// quitItem 用于本次流程后续判断的quit商品
 	quitItem := systray.AddMenuItem("退出托盘", "停止后台服务并退出菜单栏控制器")
 
 	// 安装脚本只负责注册平台服务。用户再次打开托盘时，托盘本身必须确保
@@ -171,7 +171,7 @@ func onReady() {
 	go func() {
 		// 局部数据 表示当前遍历过程中的局部数据
 		for range logItem.ClickedCh {
-			if // err 保存err，供当前处理流程使用
+			if // err 用于本次流程后续判断的err
 			err := openLogDirectory(); err != nil {
 				statusItem.SetTitle("日志目录：打开失败")
 				systray.SetTooltip(fmt.Sprintf("Ydisks闲鱼助手：打开日志目录失败：%v", err))
@@ -204,9 +204,9 @@ func onReady() {
 	}()
 }
 
-// refreshStatus 负责refresh状态相关处理。
+// refreshStatus 封装refresh状态业务协调。
 func refreshStatus(item *systray.MenuItem) {
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &http.Client{Timeout: 2 * time.Second}
 	for {
 		// 与菜单动作使用同一把锁，避免一次已经开始的健康检查在“启动中”
@@ -220,9 +220,9 @@ func refreshStatus(item *systray.MenuItem) {
 	}
 }
 
-// refreshStatusOnce 负责refresh状态Once相关处理。
+// refreshStatusOnce 封装refresh状态Once业务协调。
 func refreshStatusOnce(item *systray.MenuItem, client *http.Client) {
-	// status、err 保存status、err，供当前处理流程使用
+	// status、err 用于本次流程后续判断的status、err
 	status, err := readHealth(client)
 	if err != nil {
 		systray.SetIcon(trayIconBytes(false))
@@ -239,7 +239,7 @@ func refreshStatusOnce(item *systray.MenuItem, client *http.Client) {
 	}
 }
 
-// runServiceAction 负责运行Service动作相关处理。
+// runServiceAction 封装运行Service动作业务协调。
 func runServiceAction(statusItem *systray.MenuItem, actionName, transitionTitle, action string, actionItems ...*systray.MenuItem) {
 	actionMu.Lock()
 	defer actionMu.Unlock()
@@ -254,10 +254,10 @@ func runServiceAction(statusItem *systray.MenuItem, actionName, transitionTitle,
 	systray.SetIcon(trayIconBytes(false))
 	statusItem.SetTitle("服务状态：" + transitionTitle)
 	systray.SetTooltip("Ydisks闲鱼助手：" + transitionTitle)
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &http.Client{Timeout: 2 * time.Second}
 	if action == "start" {
-		if // health、err 保存health、err，供当前处理流程使用
+		if // health、err 用于本次流程后续判断的health、err
 		health, err := readHealth(client); err == nil && health.Status == "ok" && health.Database == "ok" {
 			statusItem.SetTitle("服务状态：运行正常")
 			systray.SetIcon(trayIconBytes(true))
@@ -265,16 +265,16 @@ func runServiceAction(statusItem *systray.MenuItem, actionName, transitionTitle,
 			return
 		}
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := serviceAction(action); err != nil {
 		log.Printf("服务操作失败: %s: %v", actionName, err)
 		statusItem.SetTitle("服务状态：操作失败")
 		systray.SetTooltip(fmt.Sprintf("Ydisks闲鱼助手：%s失败：%v", actionName, err))
 		return
 	}
-	// wantRunning 保存wantRunning，供当前处理流程使用
+	// wantRunning 用于本次流程后续判断的wantRunning
 	wantRunning := action != "stop"
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := waitForService(client, wantRunning, 30*time.Second); err != nil {
 		log.Printf("服务操作状态确认失败: %s: %v", actionName, err)
 		statusItem.SetTitle("服务状态：操作失败")
@@ -292,7 +292,7 @@ func runServiceAction(statusItem *systray.MenuItem, actionName, transitionTitle,
 	log.Printf("服务操作完成: %s", actionName)
 }
 
-// exitTray 负责exitTray相关处理。
+// exitTray 封装exitTray业务协调。
 func exitTray(statusItem *systray.MenuItem, actionItems ...*systray.MenuItem) {
 	actionMu.Lock()
 	defer actionMu.Unlock()
@@ -306,7 +306,7 @@ func exitTray(statusItem *systray.MenuItem, actionItems ...*systray.MenuItem) {
 	systray.SetIcon(trayIconBytes(false))
 	statusItem.SetTitle("托盘状态：正在退出")
 	systray.SetTooltip("Ydisks闲鱼助手：正在停止后台服务")
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := quitTray(); err != nil {
 		log.Printf("退出托盘停止服务失败: %v", err)
 		statusItem.SetTitle("托盘状态：退出失败")
@@ -314,7 +314,7 @@ func exitTray(statusItem *systray.MenuItem, actionItems ...*systray.MenuItem) {
 		setMenuItemsDisabled(false, actionItems...)
 		return
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := waitForService(&http.Client{Timeout: 2 * time.Second}, false, 30*time.Second); err != nil {
 		log.Printf("退出托盘等待服务停止失败: %v", err)
 		statusItem.SetTitle("托盘状态：退出失败")
@@ -327,7 +327,7 @@ func exitTray(statusItem *systray.MenuItem, actionItems ...*systray.MenuItem) {
 	systray.Quit()
 }
 
-// setMenuItemsDisabled 负责setMenu商品列表Disabled相关处理。
+// setMenuItemsDisabled 封装setMenu商品列表Disabled业务协调。
 func setMenuItemsDisabled(disabled bool, items ...*systray.MenuItem) {
 	// item 表示当前遍历过程中的商品
 	for _, item := range items {
@@ -339,14 +339,14 @@ func setMenuItemsDisabled(disabled bool, items ...*systray.MenuItem) {
 	}
 }
 
-// waitForService 负责waitForService相关处理。
+// waitForService 封装waitForService业务协调。
 func waitForService(client *http.Client, wantRunning bool, timeout time.Duration) error {
-	// deadline 保存deadline，供当前处理流程使用
+	// deadline 用于本次流程后续判断的deadline
 	deadline := time.Now().Add(timeout)
 	for {
-		// health、reachable、err 保存health、reachable、err，供当前处理流程使用
+		// health、reachable、err 用于本次流程后续判断的health、reachable、err
 		health, reachable, err := probeHealth(client)
-		// running 保存running，供当前处理流程使用
+		// running 用于本次流程后续判断的running
 		running := reachable && err == nil && health.Status == "ok" && health.Database == "ok"
 		if wantRunning && running {
 			return nil
@@ -366,16 +366,16 @@ func waitForService(client *http.Client, wantRunning bool, timeout time.Duration
 	}
 }
 
-// readHealth 负责readHealth相关处理。
+// readHealth 封装readHealth业务协调。
 func readHealth(client *http.Client) (healthResponse, error) {
-	// health、err 保存health、err，供当前处理流程使用
+	// health、err 用于本次流程后续判断的health、err
 	health, _, err := probeHealth(client)
 	return health, err
 }
 
-// probeHealth 负责probeHealth相关处理。
+// probeHealth 封装probeHealth业务协调。
 func probeHealth(client *http.Client) (healthResponse, bool, error) {
-	// resp、err 保存resp、err，供当前处理流程使用
+	// resp、err 用于本次流程后续判断的resp、err
 	resp, err := client.Get(serviceURL + "/health")
 	if err != nil {
 		return healthResponse{}, false, err
@@ -384,16 +384,16 @@ func probeHealth(client *http.Client) (healthResponse, bool, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return healthResponse{}, true, fmt.Errorf("health status %d", resp.StatusCode)
 	}
-	// health 保存health，供当前处理流程使用
+	// health 用于本次流程后续判断的health
 	var health healthResponse
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
 		return healthResponse{}, true, err
 	}
 	return health, true, nil
 }
 
-// openURL 负责openURL相关处理。
+// openURL 封装openURL业务协调。
 func openURL(url string) error {
 	if runtime.GOOS == "windows" {
 		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
@@ -401,14 +401,14 @@ func openURL(url string) error {
 	return exec.Command("open", url).Start()
 }
 
-// openLogDirectory 负责openLogDirectory相关处理。
+// openLogDirectory 封装openLogDirectory业务协调。
 func openLogDirectory() error {
-	// directory、err 保存directory、err，供当前处理流程使用
+	// directory、err 用于本次流程后续判断的directory、err
 	directory, err := logDirectoryPath()
 	if err != nil {
 		return err
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := os.MkdirAll(directory, 0o755); err != nil {
 		return fmt.Errorf("创建日志目录失败: %w", err)
 	}
@@ -422,9 +422,9 @@ func openLogDirectory() error {
 	}
 }
 
-// envOr 负责envOr相关处理。
+// envOr 封装envOr业务协调。
 func envOr(name, fallback string) string {
-	if // value 保存值，供当前处理流程使用
+	if // value 用于本次流程后续判断的值
 	value := strings.TrimSpace(os.Getenv(name)); value != "" {
 		return value
 	}

@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// nonPublicPrefixes 保存nonPublicPrefixes，供当前处理流程使用
+// nonPublicPrefixes 用于本次流程后续判断的nonPublicPrefixes
 var nonPublicPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("0.0.0.0/8"), netip.MustParsePrefix("10.0.0.0/8"),
 	netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("127.0.0.0/8"),
@@ -29,7 +29,7 @@ var nonPublicPrefixes = []netip.Prefix{
 
 // PublicHTTPClient 返回只允许连接公网 IP 的客户端。DNS 与每次重定向都会重新校验。
 func PublicHTTPClient(timeout time.Duration) *http.Client {
-	// transport 保存transport，供当前处理流程使用
+	// transport 用于本次流程后续判断的transport
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 			return DialPublicContext(ctx, network, address, 10*time.Second)
@@ -53,9 +53,9 @@ func PublicHTTPClient(timeout time.Duration) *http.Client {
 
 // TrustedEndpointHTTPClient 用于管理员明确配置的集成端点。目标地址完全由管理员
 // 信任并负责，因此不限制 IP 类型、DNS 结果或 HTTP 重定向；仅校验 HTTP(S) URL。
-// TrustedEndpointHTTPClient 负责TrustedEndpointHTTPClient相关处理。
+// TrustedEndpointHTTPClient 封装TrustedEndpointHTTPClient业务协调。
 func TrustedEndpointHTTPClient(rawBaseURL string, timeout time.Duration) (*http.Client, error) {
-	// baseURL、err 保存baseURL、err，供当前处理流程使用
+	// baseURL、err 用于本次流程后续判断的baseURL、err
 	baseURL, err := url.Parse(strings.TrimSpace(rawBaseURL))
 	if err != nil || baseURL.Hostname() == "" {
 		return nil, fmt.Errorf("服务地址无效")
@@ -63,7 +63,7 @@ func TrustedEndpointHTTPClient(rawBaseURL string, timeout time.Duration) (*http.
 	if baseURL.Scheme != "http" && baseURL.Scheme != "https" {
 		return nil, fmt.Errorf("服务地址只支持 http 或 https")
 	}
-	// transport 保存transport，供当前处理流程使用
+	// transport 用于本次流程后续判断的transport
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	return &http.Client{
 		Transport: transport,
@@ -71,9 +71,9 @@ func TrustedEndpointHTTPClient(rawBaseURL string, timeout time.Duration) (*http.
 	}, nil
 }
 
-// IsPublicIP 负责IsPublicIP相关处理。
+// IsPublicIP 封装IsPublicIP业务协调。
 func IsPublicIP(ip net.IP) bool {
-	// addr、ok 保存addr、ok，供当前处理流程使用
+	// addr、ok 用于本次流程后续判断的addr、ok
 	addr, ok := netip.AddrFromSlice(ip)
 	if !ok {
 		return false
@@ -97,31 +97,31 @@ func DialPublicContext(ctx context.Context, network, address string, timeout tim
 		"拒绝访问非公网地址", "连接公网地址失败")
 }
 
-// dialContextWithPolicy 负责dial上下文WithPolicy相关处理。
+// dialContextWithPolicy 封装dial上下文WithPolicy业务协调。
 func dialContextWithPolicy(ctx context.Context, network, address string, timeout time.Duration,
 	allow func(net.IP) bool, deniedMessage, connectErrorMessage string,
 ) (net.Conn, error) {
-	// host、port、err 保存host、port、err，供当前处理流程使用
+	// host、port、err 用于本次流程后续判断的host、port、err
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return nil, err
 	}
-	// ips、err 保存ips、err，供当前处理流程使用
+	// ips、err 用于本次流程后续判断的ips、err
 	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
 		return nil, err
 	}
-	// dialer 保存dialer，供当前处理流程使用
+	// dialer 用于本次流程后续判断的dialer
 	dialer := &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}
-	// lastErr 保存lastErr，供当前处理流程使用
+	// lastErr 用于本次流程后续判断的lastErr
 	var lastErr error
-	// foundAllowed 保存foundAllowed，供当前处理流程使用
+	// foundAllowed 用于本次流程后续判断的foundAllowed
 	foundAllowed := false
 	// resolved 表示当前遍历过程中的resolved
 	for _, resolved := range ips {
 		if allow(resolved.IP) {
 			foundAllowed = true
-			// conn、dialErr 保存conn、dialErr，供当前处理流程使用
+			// conn、dialErr 用于本次流程后续判断的conn、dialErr
 			conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(resolved.IP.String(), port))
 			if dialErr == nil {
 				return conn, nil

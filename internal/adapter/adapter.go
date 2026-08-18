@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	accountmanager "xianyu-go/internal/account"
 	accountapp "xianyu-go/internal/application/account"
 	automationapp "xianyu-go/internal/application/automation"
 	"xianyu-go/internal/automation"
@@ -22,6 +23,7 @@ import (
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/engine"
 	"xianyu-go/internal/logsafe"
+	"xianyu-go/internal/notify"
 	"xianyu-go/internal/renewal"
 	"xianyu-go/internal/xianyu/cookierefresh"
 	"xianyu-go/internal/xianyu/mtop"
@@ -31,32 +33,32 @@ import (
 
 // browserManager 只暴露风控验证能力。普通 Token、Cookie 续期、订单和
 // WebSocket 流程不得通过 Chromium 实现。
-// browserManager 保存浏览器Manager，供当前处理流程使用
+// browserManager 用于本次流程后续判断的浏览器Manager
 type browserManager interface {
 	TokenCaptchaRecover(ctx context.Context, cookieID, cookieStr, verificationURL string, headless bool, provider browser.TokenCaptchaURLProvider) (string, error)
 }
 
-// browserTokenCaptchaRecoverer 保存浏览器令牌CaptchaRecoverer，供当前处理流程使用
+// browserTokenCaptchaRecoverer 用于本次流程后续判断的浏览器令牌CaptchaRecoverer
 type browserTokenCaptchaRecoverer interface {
 	TokenCaptchaRecover(ctx context.Context, cookieID, cookieStr, verificationURL string, headless bool, provider browser.TokenCaptchaURLProvider) (string, error)
 }
 
-// browserTokenCaptchaEngineRecoverer 保存浏览器令牌CaptchaEngineRecoverer，供当前处理流程使用
+// browserTokenCaptchaEngineRecoverer 用于本次流程后续判断的浏览器令牌CaptchaEngineRecoverer
 type browserTokenCaptchaEngineRecoverer interface {
 	TokenCaptchaRecoverWithEngine(ctx context.Context, cookieID, cookieStr, verificationURL string, headless bool, provider browser.TokenCaptchaURLProvider) (cookies, engine string, err error)
 }
 
-// browserTokenCaptchaSnapshotReader 保存浏览器令牌CaptchaSnapshotReader，供当前处理流程使用
+// browserTokenCaptchaSnapshotReader 用于本次流程后续判断的浏览器令牌CaptchaSnapshotReader
 type browserTokenCaptchaSnapshotReader interface {
 	TokenCaptchaCookieSnapshot(ctx context.Context, cookieID string, headless bool) (cookies string, snapshot []cookierefresh.BrowserCookie, err error)
 }
 
-// tokenCaptchaRequester 保存令牌CaptchaRequester，供当前处理流程使用
+// tokenCaptchaRequester 用于本次流程后续判断的令牌CaptchaRequester
 type tokenCaptchaRequester interface {
 	RequestFreshCaptchaURLContext(ctx context.Context, cookiesStr, deviceID string) (*mtop.FreshCaptchaResult, error)
 }
 
-// orderDetailClient 保存订单DetailClient，供当前处理流程使用
+// orderDetailClient 用于本次流程后续判断的订单DetailClient
 type orderDetailClient interface {
 	FetchOrderDetail(ctx context.Context, cookiesStr, orderID string) (*mtop.OrderDetailResult, error)
 }
@@ -66,7 +68,7 @@ type orderDetailClient interface {
 //
 // 自动发货只走 automation.Center；用户聊天消息由 Account 内部 ReplyService 处理，
 // 故 HandleChatMessage 为空实现。
-// Adapter 保存Adapter，供当前处理流程使用
+// Adapter 用于本次流程后续判断的Adapter
 type Adapter struct {
 	store      *db.Store
 	browser    browserManager
@@ -101,19 +103,17 @@ type passwordRenewalResult struct {
 
 // notifyNotifier 是 *notify.Notifier 的最小接口，避免 adapter 直接依赖 notify 包
 // （notify 包未来若反向引用 adapter 也不会形成循环）。
-// notifyNotifier 保存notifyNotifier，供当前处理流程使用
+// notifyNotifier 用于本次流程后续判断的notifyNotifier
 type notifyNotifier interface {
 	NotifyAccountAlert(cookieID, level, title, body string)
 }
 
-// notifyEventNotifier 保存notifyEventNotifier，供当前处理流程使用
+// notifyEventNotifier 用于本次流程后续判断的notifyEventNotifier
 type notifyEventNotifier interface {
 	NotifyAccountEvent(cookieID, eventType, level, title, body string)
 }
 
-// New 构造 Adapter。automation 与 notifier 通过 Set* 后期注入（因创建顺序存在循环：
-// mgr 依赖 adapter，automation 依赖 mgr，adapter 又依赖 automation）。
-// New 负责New相关处理。
+// New 构造可隔离测试的 Adapter；生产进程必须使用 NewRuntimeBundle 完成不可变运行时装配。
 func New(store *db.Store, bm *browser.Manager, logger *slog.Logger) *Adapter {
 	if logger == nil {
 		logger = slog.Default()
@@ -129,6 +129,54 @@ func New(store *db.Store, bm *browser.Manager, logger *slog.Logger) *Adapter {
 		passwordCoordinator: accountapp.NewCredentialRefreshCoordinator(),
 		passwordResults:     make(map[string]*passwordRenewalResult),
 	}
+}
+
+// RuntimeBundle 聚合账号运行时闭环所需的适配器、账号管理器、通知器、自动化中心和聊天服务。
+// 它只在构造期解决 Adapter、Manager 与 Automation 的有向环，组件启动前不向外暴露半成品。
+type RuntimeBundle struct {
+	// Adapter 是 engine.Handler 与订单详情抓取端口的实现。
+	Adapter *Adapter
+	// Manager 是拥有每个已启用账号运行实例的 supervisor。
+	Manager *accountmanager.Manager
+	// Notifier 是账号和自动化事件的通知实现。
+	Notifier *notify.Notifier
+	// Automation 是处理自动化任务和订单详情动作的统一中心。
+	Automation *automation.Center
+	// Chat 是处理聊天持久化与实时事件的领域服务。
+	Chat *chat.Service
+}
+
+// NewRuntimeBundle 在进程启动前一次性完成运行时闭环装配，禁止通过运行期 setter 补齐必需依赖。
+func NewRuntimeBundle(store *db.Store, bm *browser.Manager, logger *slog.Logger) (*RuntimeBundle, error) {
+	if store == nil {
+		return nil, fmt.Errorf("运行时装配需要数据库存储")
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	// runtimeAdapter 是尚未启动的事件与平台适配器，后续字段只在本构造函数内写入。
+	runtimeAdapter := New(store, bm, logger)
+	// chatService 是账号实时消息落库和广播服务，必须先于账号引擎启动完成注入。
+	chatService := chat.New(store)
+	// manager 是自动化中心的在线发送器来源，同时在启动期把 Adapter 固定为账号事件处理器。
+	manager := accountmanager.NewManager(store, runtimeAdapter, logger)
+	// notifier 是自动化与账号告警共用的通知出口，构造完成后不可替换。
+	notifier := notify.New("", store, logger)
+	// autoCenter 依赖已构造但尚未启动的 manager 与 adapter，避免运行期形成部分可用状态。
+	autoCenter := automation.NewWithDependencies(store, manager, logger, automation.CenterDependencies{
+		OrderDetailFetcher: runtimeAdapter,
+		Notifier:           notifier,
+	})
+	runtimeAdapter.chat = chatService
+	runtimeAdapter.automation = autoCenter
+	runtimeAdapter.notifier = notifier
+	return &RuntimeBundle{
+		Adapter:    runtimeAdapter,
+		Manager:    manager,
+		Notifier:   notifier,
+		Automation: autoCenter,
+		Chat:       chatService,
+	}, nil
 }
 
 // newCredentialWakeService 构造凭证唤醒应用服务；数据库仓储仅在适配器边界内创建并隐藏。
@@ -213,7 +261,7 @@ func (a *Adapter) HandleOutgoingChatMessage(ctx context.Context, message engine.
 	if a.chat == nil {
 		return nil
 	}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := a.chat.RecordOutgoingSent(ctx, db.ChatSession{CookieID: message.AccountID, ChatID: message.ChatID,
 		BuyerID: message.BuyerID}, message.MessageKey, message.Text)
 	return err
@@ -238,7 +286,7 @@ func (a *Adapter) HandleMessageRead(ctx context.Context, event engine.MessageRea
 
 // OnAccountAlert 把账号告警（token 失效/自动恢复失败/风控验证等）转发给通知器，
 // 推送到该账号已绑定的通知渠道。
-// OnAccountAlert 负责On账号Alert相关处理。
+// OnAccountAlert 封装On账号Alert业务协调。
 func (a *Adapter) OnAccountAlert(ctx context.Context, cookieID, level, title, body string) {
 	a.OnAccountEvent(ctx, cookieID, classifyAccountAlertEvent(title, body), level, title, body)
 }
@@ -249,7 +297,7 @@ func (a *Adapter) OnAccountEvent(_ context.Context, cookieID, eventType, level, 
 		a.logger.Warn("账号事件通知未发送：通知器未注入", "account", cookieID, "event_type", eventType, "level", level, "title", title)
 		return
 	}
-	if // n、ok 保存n、ok，供当前处理流程使用
+	if // n、ok 用于本次流程后续判断的n、ok
 	n, ok := a.notifier.(notifyEventNotifier); ok {
 		n.NotifyAccountEvent(cookieID, eventType, level, title, body)
 		return
@@ -257,9 +305,9 @@ func (a *Adapter) OnAccountEvent(_ context.Context, cookieID, eventType, level, 
 	a.notifier.NotifyAccountAlert(cookieID, level, title, body)
 }
 
-// classifyAccountAlertEvent 负责classify账号AlertEvent相关处理。
+// classifyAccountAlertEvent 封装classify账号AlertEvent业务协调。
 func classifyAccountAlertEvent(title, body string) string {
-	// msg 保存msg，供当前处理流程使用
+	// msg 用于本次流程后续判断的msg
 	msg := strings.ToLower(title + " " + body)
 	switch {
 	case strings.Contains(msg, "风控"), strings.Contains(msg, "验证"),
@@ -281,12 +329,12 @@ func classifyAccountAlertEvent(title, body string) string {
 
 // OnTokenCaptchaVerification 处理 token 刷新触发的闲鱼滑块风控。
 func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cookieStr, verificationURL, deviceID string) (*mtop.RefreshResult, bool) {
-	// start 保存开始，供当前处理流程使用
+	// start 用于本次流程后续判断的开始
 	start := time.Now()
-	// logID 保存logID，供当前处理流程使用
+	// logID 用于本次流程后续判断的logID
 	var logID int64
 	if a.store != nil && a.store.RiskLogs != nil {
-		if // id、err 保存id、err，供当前处理流程使用
+		if // id、err 用于本次流程后续判断的id、err
 		id, err := a.store.RiskLogs.Add(ctx, db.RiskControlLog{
 			CookieID:         cookieID,
 			EventType:        "slider_captcha",
@@ -299,9 +347,9 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 		}
 	}
 
-	// showBrowser 保存show浏览器，供当前处理流程使用
+	// showBrowser 用于本次流程后续判断的show浏览器
 	showBrowser := false
-	// metadataJSON 保存metadataJSON，供当前处理流程使用
+	// metadataJSON 用于本次流程后续判断的metadataJSON
 	metadataJSON := ""
 	if a.store == nil || a.store.Cookies == nil {
 		a.OnAccountEvent(ctx, cookieID, engine.EventSecurityVerification, engine.AlertLevelWarn,
@@ -309,18 +357,18 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 		return nil, false
 	}
 
-	if // d、err 保存d、err，供当前处理流程使用
+	if // d、err 用于本次流程后续判断的d、err
 	d, err := a.store.Cookies.GetCookiePlatformRuntimeData(ctx, cookieID); err == nil {
 		showBrowser = d.ShowBrowser
 		metadataJSON = d.MetadataJSON
 	}
 
-	// provider 保存provider，供当前处理流程使用
+	// provider 用于本次流程后续判断的provider
 	provider := func(runCtx context.Context, currentCookies string) (string, bool, string, error) {
 		if a.captchaReq == nil {
 			return "", false, "", nil
 		}
-		// res、err 保存res、err，供当前处理流程使用
+		// res、err 用于本次流程后续判断的res、err
 		res, err := a.captchaReq.RequestFreshCaptchaURLContext(runCtx, currentCookies, deviceID)
 		if err != nil || res == nil {
 			return "", false, "", err
@@ -328,17 +376,17 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 		return res.VerificationURL, res.TokenOK, res.UpdatedCookies, nil
 	}
 
-	// newCookies 保存newCookies，供当前处理流程使用
+	// newCookies 用于本次流程后续判断的newCookies
 	newCookies := ""
-	// captchaEngine 保存captchaEngine，供当前处理流程使用
+	// captchaEngine 用于本次流程后续判断的captchaEngine
 	captchaEngine := "playwright"
-	// remoteHandled 保存remoteHandled，供当前处理流程使用
+	// remoteHandled 用于本次流程后续判断的remoteHandled
 	remoteHandled := false
-	// captchaHeadless 保存captchaHeadless，供当前处理流程使用
+	// captchaHeadless 用于本次流程后续判断的captchaHeadless
 	captchaHeadless := browser.ResolveHeadless(showBrowser)
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	var err error
-	if // remoteConfig 保存remote配置，供当前处理流程使用
+	if // remoteConfig 用于本次流程后续判断的remote配置
 	remoteConfig := a.loadRemoteCaptchaConfig(ctx, cookieID); remoteConfig != nil {
 		newCookies, remoteHandled, err = solveRemoteCaptcha(
 			ctx, newRemoteCaptchaHTTPClient(), *remoteConfig,
@@ -352,14 +400,14 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 		}
 	}
 	if !remoteHandled {
-		// br、ok 保存br、ok，供当前处理流程使用
+		// br、ok 用于本次流程后续判断的br、ok
 		br, ok := a.browser.(browserTokenCaptchaRecoverer)
 		if a.browser == nil || !ok {
 			a.OnAccountEvent(ctx, cookieID, engine.EventSecurityVerification, engine.AlertLevelWarn,
 				"token 风控验证无法自动处理", "远程服务不可用且浏览器自动化未启用，无法自动完成 token 滑块验证。")
 			return nil, false
 		}
-		if // withEngine、ok 保存withEngine、ok，供当前处理流程使用
+		if // withEngine、ok 用于本次流程后续判断的withEngine、ok
 		withEngine, ok := a.browser.(browserTokenCaptchaEngineRecoverer); ok {
 			newCookies, captchaEngine, err = withEngine.TokenCaptchaRecoverWithEngine(
 				ctx, cookieID, cookieStr, verificationURL, captchaHeadless, provider,
@@ -371,7 +419,7 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 		}
 	}
 	if err != nil {
-		// manualURL 保存manualURL，供当前处理流程使用
+		// manualURL 用于本次流程后续判断的manualURL
 		manualURL := browser.TokenCaptchaManualVerificationURL(err)
 		if strings.TrimSpace(manualURL) == "" {
 			manualURL = verificationURL
@@ -393,14 +441,14 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 	if strings.TrimSpace(newCookies) == "" {
 		return nil, false
 	}
-	// cookieSnapshot 保存登录凭证Snapshot，供当前处理流程使用
+	// cookieSnapshot 用于本次流程后续判断的登录凭证Snapshot
 	var cookieSnapshot []cookierefresh.BrowserCookie
-	// snapshotComplete 保存snapshotComplete，供当前处理流程使用
+	// snapshotComplete 用于本次流程后续判断的snapshotComplete
 	snapshotComplete := false
 	if !remoteHandled {
-		if // reader、ok 保存reader、ok，供当前处理流程使用
+		if // reader、ok 用于本次流程后续判断的reader、ok
 		reader, ok := a.browser.(browserTokenCaptchaSnapshotReader); ok {
-			// profileCookies、profileSnapshot、readErr 保存profileCookies、profileSnapshot、readErr，供当前处理流程使用
+			// profileCookies、profileSnapshot、readErr 用于本次流程后续判断的profileCookies、profileSnapshot、readErr
 			profileCookies, profileSnapshot, readErr := reader.TokenCaptchaCookieSnapshot(ctx, cookieID, captchaHeadless)
 			if readErr != nil {
 				a.logger.Warn("读取滑块验证后完整 Cookie Jar 失败，回退 Go 快照合并", "account", cookieID, "err", readErr)
@@ -415,18 +463,18 @@ func (a *Adapter) OnTokenCaptchaVerification(ctx context.Context, cookieID, cook
 		}
 	}
 	if !snapshotComplete {
-		if // existing、complete 保存existing、complete，供当前处理流程使用
+		if // existing、complete 用于本次流程后续判断的existing、complete
 		existing, complete := cookierefresh.SnapshotFromMetadataOK(metadataJSON); complete {
 			cookieSnapshot = cookierefresh.ReconcileSnapshotWithCookieString(existing, newCookies)
 			snapshotComplete = true
 		}
 	}
-	// updatedMetadata 保存updatedMetadata，供当前处理流程使用
+	// updatedMetadata 用于本次流程后续判断的updatedMetadata
 	updatedMetadata := cookierefresh.MetadataWithoutSnapshot(metadataJSON)
 	if snapshotComplete {
 		updatedMetadata = cookierefresh.MetadataWithSnapshot(metadataJSON, cookieSnapshot)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := a.store.Cookies.UpdateRenewalCookie(ctx, cookieID, newCookies, updatedMetadata, time.Now().Unix()); err != nil {
 		a.logger.Warn("保存 token 风控恢复 Cookie 失败", "account", cookieID, "err", err)
 		if a.store != nil && a.store.RiskLogs != nil {
@@ -472,16 +520,16 @@ func (a *Adapter) HandleSystemEvent(ctx context.Context, task automation.Task) e
 
 // FetchOrderDetail 实现 automation.OrderDetailFetcher。只在本地订单缺少关键字段时
 // 调用纯 Go MTOP 客户端，并将详情请求串行化、至少间隔 3 秒，避免短时间高频访问闲鱼。
-// FetchOrderDetail 负责Fetch订单Detail相关处理。
+// FetchOrderDetail 封装Fetch订单Detail业务协调。
 func (a *Adapter) FetchOrderDetail(ctx context.Context, cookieID, orderID, itemID, buyerID, _ string) (*automation.OrderDetail, error) {
-	if // detail、ok 保存detail、ok，供当前处理流程使用
+	if // detail、ok 用于本次流程后续判断的detail、ok
 	detail, ok := a.localOrderDetail(ctx, orderID); ok {
 		return detail, nil
 	}
 	if a.orderMTop == nil {
 		return nil, fmt.Errorf("订单详情 MTOP 客户端未配置")
 	}
-	// detail、err 保存detail、err，供当前处理流程使用
+	// detail、err 用于本次流程后续判断的detail、err
 	detail, err := a.fetchOrderDetailAttempt(ctx, cookieID, orderID)
 	if err == nil || !mtop.IsSessionExpiredErr(err) {
 		return detail, err
@@ -494,7 +542,7 @@ func (a *Adapter) FetchOrderDetail(ctx context.Context, cookieID, orderID, itemI
 	return a.fetchOrderDetailAttempt(ctx, cookieID, orderID)
 }
 
-// fetchOrderDetailAttempt 负责fetch订单Detail尝试次数相关处理。
+// fetchOrderDetailAttempt 封装fetch订单Detail尝试次数业务协调。
 func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID string) (*automation.OrderDetail, error) {
 
 	a.orderFetchMu.Lock()
@@ -503,9 +551,9 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 	if detail, ok := a.localOrderDetail(ctx, orderID); ok {
 		return detail, nil
 	}
-	if // remain 保存remain，供当前处理流程使用
+	if // remain 用于本次流程后续判断的remain
 	remain := 3*time.Second - time.Since(a.lastOrderFetch); !a.lastOrderFetch.IsZero() && remain > 0 {
-		// timer 保存定时器，供当前处理流程使用
+		// timer 用于本次流程后续判断的定时器
 		timer := time.NewTimer(remain)
 		defer timer.Stop()
 		select {
@@ -515,7 +563,7 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 		}
 	}
 	a.lastOrderFetch = time.Now()
-	// credentialUnlock 保存credentialUnlock，供当前处理流程使用
+	// credentialUnlock 用于本次流程后续判断的credentialUnlock
 	credentialUnlock := a.store.LockAccountCredentials(cookieID)
 	// credentialLocked 标识当前调用是否持有账号凭证锁。
 	credentialLocked := true
@@ -531,13 +579,13 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 	if strings.TrimSpace(platformData.Value) == "" && !hasCompleteCookieSnapshot(platformData.MetadataJSON) {
 		return nil, fmt.Errorf("订单账号 %s Cookie 为空", cookieID)
 	}
-	// cookieStr 保存登录凭证Str，供当前处理流程使用
+	// cookieStr 用于本次流程后续判断的登录凭证Str
 	cookieStr := platformData.Value
-	// requestCtx 保存请求Ctx，供当前处理流程使用
+	// requestCtx 用于本次流程后续判断的请求Ctx
 	var requestCtx context.Context
-	// cookieSession 保存登录凭证会话，供当前处理流程使用
+	// cookieSession 用于本次流程后续判断的登录凭证会话
 	var cookieSession *mtop.CookieSession
-	if // snapshot、complete 保存snapshot、complete，供当前处理流程使用
+	if // snapshot、complete 用于本次流程后续判断的snapshot、complete
 	snapshot, complete := cookierefresh.SnapshotFromMetadataOK(platformData.MetadataJSON); complete {
 		requestCtx, cookieSession = mtop.WithCookieSnapshot(ctx, snapshot)
 	} else {
@@ -546,9 +594,9 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 	// 账号凭证快照已读取完成；慢速 MTOP 请求不得继续持有共享凭证锁。
 	credentialUnlock()
 	credentialLocked = false
-	// detail、fetchErr 保存detail、fetchErr，供当前处理流程使用
+	// detail、fetchErr 用于本次流程后续判断的detail、fetchErr
 	detail, fetchErr := a.orderMTop.FetchOrderDetail(requestCtx, cookieStr, orderID)
-	// authoritativeCookies、authoritativeSnapshot、sessionChanged 保存authoritativeCookies、authoritativeSnapshot、sessionChanged，供当前处理流程使用
+	// authoritativeCookies、authoritativeSnapshot、sessionChanged 用于本次流程后续判断的authoritativeCookies、authoritativeSnapshot、sessionChanged
 	authoritativeCookies, authoritativeSnapshot, sessionChanged := cookieSession.State()
 	// credentialUnlock 保存重新进入凭证提交临界区的释放函数。
 	credentialUnlock = a.store.LockAccountCredentials(cookieID)
@@ -562,12 +610,12 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 		sessionChanged = false
 		authoritativeSnapshot = nil
 	} else if sessionChanged {
-		// metadata 保存metadata，供当前处理流程使用
+		// metadata 用于本次流程后续判断的metadata
 		metadata := cookierefresh.MetadataWithoutSnapshot(latestPlatformData.MetadataJSON)
 		if authoritativeSnapshot != nil {
 			metadata = cookierefresh.MetadataWithSnapshot(latestPlatformData.MetadataJSON, authoritativeSnapshot)
 		}
-		if // persistErr 保存persistErr，供当前处理流程使用
+		if // persistErr 用于本次流程后续判断的persistErr
 		persistErr := a.store.Cookies.UpdateRenewalCookie(ctx, cookieID, authoritativeCookies, metadata, time.Now().Unix()); persistErr != nil {
 			fetchErr = errors.Join(fetchErr, fmt.Errorf("保存订单详情响应 Cookie: %w", persistErr))
 		} else {
@@ -582,9 +630,9 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 		return nil, errors.New("订单详情 MTOP 接口返回空结果")
 	}
 	if reloadErr == nil && latestPlatformData.Value == platformData.Value && latestPlatformData.MetadataJSON == platformData.MetadataJSON && !sessionChanged && authoritativeSnapshot == nil && detail.UpdatedCookies != "" && detail.UpdatedCookies != cookieStr {
-		// metadata 保存metadata，供当前处理流程使用
+		// metadata 用于本次流程后续判断的metadata
 		metadata := cookierefresh.MetadataWithoutSnapshot(latestPlatformData.MetadataJSON)
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := a.store.Cookies.UpdateRenewalCookie(ctx, cookieID, detail.UpdatedCookies, metadata, time.Now().Unix()); err != nil {
 			return nil, fmt.Errorf("保存订单详情响应 Cookie: %w", err)
 		}
@@ -599,27 +647,27 @@ func (a *Adapter) fetchOrderDetailAttempt(ctx context.Context, cookieID, orderID
 	}, nil
 }
 
-// wakeCredentialBlockedAutomation 负责wakeCredentialBlocked自动化相关处理。
+// wakeCredentialBlockedAutomation 封装wakeCredentialBlocked自动化业务协调。
 func (a *Adapter) wakeCredentialBlockedAutomation(ctx context.Context, cookieID string) {
 	if a.credentialWake == nil {
 		return
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := a.credentialWake.WakeCredentialBlocked(ctx, cookieID); err != nil {
 		a.logger.Warn("Cookie 更新后唤醒自动化任务失败", "account", cookieID, "err", err)
 	}
 }
 
-// hasCompleteCookieSnapshot 负责hasComplete登录凭证Snapshot相关处理。
+// hasCompleteCookieSnapshot 封装hasComplete登录凭证Snapshot业务协调。
 func hasCompleteCookieSnapshot(metadata string) bool {
-	// ok 保存ok，供当前处理流程使用
+	// ok 用于本次流程后续判断的ok
 	_, ok := cookierefresh.SnapshotFromMetadataOK(metadata)
 	return ok
 }
 
 // localOrderDetail 命中本地完整订单时直接返回，避免不必要的 MTOP 请求。
 func (a *Adapter) localOrderDetail(ctx context.Context, orderID string) (*automation.OrderDetail, bool) {
-	// order、err 保存order、err，供当前处理流程使用
+	// order、err 用于本次流程后续判断的order、err
 	order, err := a.store.Orders.Get(ctx, orderID)
 	if err != nil || order == nil {
 		return nil, false
@@ -635,14 +683,14 @@ func (a *Adapter) localOrderDetail(ctx context.Context, orderID string) (*automa
 
 // OnPasswordLoginRefresh 是 engine 的历史回调名。Go 客户端只执行协议级
 // auto-login 续期；失败后要求重新扫码，不得启动 Chromium 密码登录或页面校验。
-// OnPasswordLoginRefresh 负责On密码登录Refresh相关处理。
+// OnPasswordLoginRefresh 封装On密码登录Refresh业务协调。
 func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) bool {
-	// cooldown 保存cooldown，供当前处理流程使用
+	// cooldown 用于本次流程后续判断的cooldown
 	cooldown := a.cooldown
 	if cooldown == nil {
 		cooldown = renewal.GlobalCooldown
 	}
-	if // ok、remain、reason 保存ok、remain、reason，供当前处理流程使用
+	if // ok、remain、reason 用于本次流程后续判断的ok、remain、reason
 	ok, remain, reason := cooldown.PasswordLoginAllowed(cookieID, engine.PasswordLoginMinGap); !ok {
 		a.logger.Warn("协议续期冷却中", "account", cookieID, "remain", remain.Round(time.Second))
 		a.recordPasswordLogin(ctx, cookieID, 0, "skipped_cooldown", reason, fmt.Sprintf("协议续期冷却中，还需等待 %s", remain.Round(time.Second)))
@@ -695,7 +743,7 @@ func (a *Adapter) OnPasswordLoginRefresh(ctx context.Context, cookieID string) b
 		a.recordPasswordLogin(ctx, cookieID, platformData.UserID, "success", "", "Go 协议续期成功")
 		return true
 	}
-	// message 保存消息，供当前处理流程使用
+	// message 用于本次流程后续判断的消息
 	message := "Go 协议续期未恢复登录凭证，请重新扫码登录"
 	if renewErr != nil {
 		message += "：" + renewErr.Error()
@@ -785,12 +833,12 @@ func (a *Adapter) waitPasswordRenewalResult(ctx context.Context, cookieID string
 	}
 }
 
-// recordPasswordLogin 负责record密码登录相关处理。
+// recordPasswordLogin 封装record密码登录业务协调。
 func (a *Adapter) recordPasswordLogin(ctx context.Context, cookieID string, userID int64, status, failureReason, message string) {
 	if a.store == nil || a.store.LoginLogs == nil {
 		return
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := a.store.LoginLogs.Add(ctx, db.AccountLoginLog{
 		CookieID:          cookieID,
 		UserID:            userID,
@@ -808,7 +856,7 @@ func (a *Adapter) recordPasswordLogin(ctx context.Context, cookieID string, user
 	}
 }
 
-// truncateMessage 负责truncate消息相关处理。
+// truncateMessage 封装truncate消息业务协调。
 func truncateMessage(s string, n int) string {
 	if n <= 0 || len(s) <= n {
 		return s
@@ -816,39 +864,39 @@ func truncateMessage(s string, n int) string {
 	return s[:n]
 }
 
-// tryProtocolCredentialRenew 负责tryProtocolCredentialRenew相关处理。
+// tryProtocolCredentialRenew 封装tryProtocolCredentialRenew业务协调。
 func (a *Adapter) tryProtocolCredentialRenew(ctx context.Context, d *db.CookiePlatformRuntimeData) (bool, error) {
 	if d == nil {
 		return false, nil
 	}
-	// current 保存current，供当前处理流程使用
+	// current 用于本次流程后续判断的current
 	current := d.Value
-	// api 保存api，供当前处理流程使用
+	// api 用于本次流程后续判断的api
 	api := a.renewSvc
-	// save 保存save，供当前处理流程使用
+	// save 用于本次流程后续判断的save
 	save := func(cookieStr string, setCookies []string, completeSnapshot []cookierefresh.BrowserCookie) error {
 		if cookieStr == current && len(setCookies) == 0 && completeSnapshot == nil {
 			return nil
 		}
-		// metadata 保存metadata，供当前处理流程使用
+		// metadata 用于本次流程后续判断的metadata
 		metadata := cookierefresh.MetadataWithoutSnapshot(d.MetadataJSON)
 		if completeSnapshot != nil {
 			// API 在完整 Jar 基础上得到的快照是权威结果，包含
 			// 服务端删除和新的 Domain/Path/expiry 属性。
 			metadata = cookierefresh.MetadataWithSnapshot(d.MetadataJSON, completeSnapshot)
 		}
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := a.store.Cookies.UpdateRenewalCookie(ctx, d.ID, cookieStr, metadata, time.Now().Unix()); err != nil {
 			a.logger.Warn("轻量续期保存 Cookie 失败", "account", d.ID, "err", err)
 			return err
 		}
-		// valueChanged 保存值Changed，供当前处理流程使用
+		// valueChanged 用于本次流程后续判断的值Changed
 		valueChanged := cookieStr != current
 		current = cookieStr
 		d.Value = cookieStr
 		d.MetadataJSON = metadata
 		if valueChanged && a.store.Tokens != nil {
-			if // err 保存err，供当前处理流程使用
+			if // err 用于本次流程后续判断的err
 			err := a.store.Tokens.Clear(ctx, d.ID); err != nil {
 				// Token 仅是运行期缓存；Cookie 已原子提交后不能再把整次
 				// 续期报告成失败，否则调用方可能用旧凭证重试并覆盖新 Jar。
@@ -859,13 +907,13 @@ func (a *Adapter) tryProtocolCredentialRenew(ctx context.Context, d *db.CookiePl
 	}
 	// 官网始终先由 auto-login plugin 按 havana_lgc_exp/cookie3_bak_exp
 	// 决定是否调用 silentHasLogin。Go 客户端复刻该 HTTP 协议，不加载页面。
-	// runCtx、cancel 保存运行Ctx、cancel，供当前处理流程使用
+	// runCtx、cancel 用于本次流程后续判断的运行Ctx、cancel
 	runCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := api.RenewAfterSessionExpired(runCtx, current, cookierefresh.SnapshotFromMetadata(d.MetadataJSON))
 	if res != nil {
-		// completeSnapshot 保存completeSnapshot，供当前处理流程使用
+		// completeSnapshot 用于本次流程后续判断的completeSnapshot
 		var completeSnapshot []cookierefresh.BrowserCookie
 		if res.CookieSnapshotComplete {
 			completeSnapshot = res.CookieSnapshot
@@ -873,7 +921,7 @@ func (a *Adapter) tryProtocolCredentialRenew(ctx context.Context, d *db.CookiePl
 				completeSnapshot = []cookierefresh.BrowserCookie{}
 			}
 		}
-		if // saveErr 保存saveErr，供当前处理流程使用
+		if // saveErr 用于本次流程后续判断的saveErr
 		saveErr := save(res.NewCookies, res.SetCookies, completeSnapshot); saveErr != nil {
 			return false, saveErr
 		}
@@ -881,9 +929,9 @@ func (a *Adapter) tryProtocolCredentialRenew(ctx context.Context, d *db.CookiePl
 			// 恢复路径不能把“底层请求仍在进行”提前记为成功，否则上层会
 			// 重置失败计数并继续使用未确认的旧凭证。这里等待最终响应；定时
 			// 调度仍使用异步 watcher，不阻塞健康账号。
-			// waitCtx、waitCancel 保存waitCtx、wait取消，供当前处理流程使用
+			// waitCtx、waitCancel 用于本次流程后续判断的waitCtx、wait取消
 			waitCtx, waitCancel := context.WithTimeout(ctx, 35*time.Second)
-			// late、waitErr 保存late、waitErr，供当前处理流程使用
+			// late、waitErr 用于本次流程后续判断的late、waitErr
 			late, waitErr := res.AwaitPending(waitCtx)
 			waitCancel()
 			if late == nil {
@@ -892,7 +940,7 @@ func (a *Adapter) tryProtocolCredentialRenew(ctx context.Context, d *db.CookiePl
 				}
 				return false, errors.New("协议续期底层响应未返回结果")
 			}
-			// lateSnapshot 保存lateSnapshot，供当前处理流程使用
+			// lateSnapshot 用于本次流程后续判断的lateSnapshot
 			var lateSnapshot []cookierefresh.BrowserCookie
 			if late.CookieSnapshotComplete {
 				lateSnapshot = late.CookieSnapshot
@@ -900,7 +948,7 @@ func (a *Adapter) tryProtocolCredentialRenew(ctx context.Context, d *db.CookiePl
 					lateSnapshot = []cookierefresh.BrowserCookie{}
 				}
 			}
-			if // saveErr 保存saveErr，供当前处理流程使用
+			if // saveErr 用于本次流程后续判断的saveErr
 			saveErr := save(late.NewCookies, late.SetCookies, lateSnapshot); saveErr != nil {
 				return false, saveErr
 			}
@@ -911,7 +959,7 @@ func (a *Adapter) tryProtocolCredentialRenew(ctx context.Context, d *db.CookiePl
 				a.logger.Info("Go 协议续期迟到响应成功", "account", d.ID)
 				return true, nil
 			}
-			// message 保存消息，供当前处理流程使用
+			// message 用于本次流程后续判断的消息
 			message := strings.TrimSpace(late.Message)
 			if message == "" {
 				message = "协议续期未通过"

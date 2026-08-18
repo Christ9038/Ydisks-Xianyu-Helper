@@ -17,10 +17,10 @@ import (
 
 // redirectTransport 将所有请求重定向到指定 httptest.Server，保留原 path/query。
 // 用于测试 URL 硬编码（telegram）或 https-only 的渠道。
-// redirectTransport 保存redirectTransport，供当前处理流程使用
+// redirectTransport 用于本次流程后续判断的redirectTransport
 type redirectTransport struct{ target string }
 
-// RoundTrip 负责RoundTrip相关处理。
+// RoundTrip 封装RoundTrip业务协调。
 func (t *redirectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
 	req.URL.Scheme = "http"
@@ -31,7 +31,7 @@ func (t *redirectTransport) RoundTrip(req *http.Request) (*http.Response, error)
 
 // notifierWithRedirectClient 构造一个把所有 HTTP 请求重定向到 target 的 Notifier。
 func notifierWithRedirectClient(target string) *Notifier {
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
 	n.httpc = &http.Client{Timeout: 10 * time.Second, Transport: &redirectTransport{target: target}}
 	return n
@@ -40,9 +40,9 @@ func notifierWithRedirectClient(target string) *Notifier {
 // readJSONBody 读取并反序列化请求 body。
 func readJSONBody(t *testing.T, b []byte) map[string]any {
 	t.Helper()
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	var m map[string]any
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal(b, &m); err != nil {
 		t.Fatalf("unmarshal: %v body=%s", err, string(b))
 	}
@@ -53,27 +53,27 @@ func readJSONBody(t *testing.T, b []byte) map[string]any {
 
 // TestSendDingTalk_WithSecret 带签名时 URL 携带 timestamp/sign。
 // 注：生产代码用 "&" 拼接签名参数，需 webhook 已带查询串；此处补一个占位参数。
-// TestSendDingTalk_WithSecret 负责TestSendDingTalkWithSecret相关处理。
+// TestSendDingTalk_WithSecret 封装TestSendDingTalkWithSecret业务协调。
 func TestSendDingTalk_WithSecret(t *testing.T) {
-	// gotURL 保存gotURL，供当前处理流程使用
+	// gotURL 用于本次流程后续判断的gotURL
 	var gotURL string
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	var got map[string]any
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotURL = r.URL.String()
-		// b 保存b，供当前处理流程使用
+		// b 用于本次流程后续判断的b
 		b, _ := io.ReadAll(r.Body)
 		got = readJSONBody(t, b)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
 
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
 	// webhook 已带占位查询参数，使 "&timestamp=..." 拼接合法。
 	cfg := map[string]any{"webhook_url": srv.URL + "?token=x", "secret": "SECxxxx"}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendDingTalk(cfg, "内容"); err != nil {
 		t.Fatalf("sendDingTalk: %v", err)
 	}
@@ -87,9 +87,9 @@ func TestSendDingTalk_WithSecret(t *testing.T) {
 
 // TestSendDingTalk_EmptyWebhook webhook 缺失应报错。
 func TestSendDingTalk_EmptyWebhook(t *testing.T) {
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendDingTalk(map[string]any{}, "x"); err == nil {
 		t.Fatal("缺 webhook_url 应报错")
 	}
@@ -97,14 +97,14 @@ func TestSendDingTalk_EmptyWebhook(t *testing.T) {
 
 // TestSendDingTalk_HTTPError 服务端 4xx/5xx 应返回错误。
 func TestSendDingTalk_HTTPError(t *testing.T) {
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendDingTalk(map[string]any{"webhook_url": srv.URL}, "x"); err == nil {
 		t.Fatal("4xx 应报错")
 	}
@@ -112,11 +112,11 @@ func TestSendDingTalk_HTTPError(t *testing.T) {
 
 // TestSendDingTalk_NetworkError 连接失败应返回错误。
 func TestSendDingTalk_NetworkError(t *testing.T) {
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	srv.Close() // 立即关闭，制造连接失败
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendDingTalk(map[string]any{"webhook_url": srv.URL}, "x"); err == nil {
 		t.Fatal("网络错误应报错")
 	}
@@ -124,23 +124,23 @@ func TestSendDingTalk_NetworkError(t *testing.T) {
 
 // TestSendDingTalk_OldConfigFormat 旧格式 webhook 直接是 URL。
 func TestSendDingTalk_OldConfigFormat(t *testing.T) {
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	var got map[string]any
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// b 保存b，供当前处理流程使用
+		// b 用于本次流程后续判断的b
 		b, _ := io.ReadAll(r.Body)
 		got = readJSONBody(t, b)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
 	// config 字段存放旧 URL。
 	if err := n.sendDingTalk(map[string]any{"config": srv.URL}, "旧格式"); err != nil {
 		t.Fatalf("sendDingTalk 旧格式: %v", err)
 	}
-	// md 保存md，供当前处理流程使用
+	// md 用于本次流程后续判断的md
 	md, _ := got["markdown"].(map[string]any)
 	if md["text"] != "旧格式" {
 		t.Errorf("旧格式正文: %v", md["text"])
@@ -151,56 +151,56 @@ func TestSendDingTalk_OldConfigFormat(t *testing.T) {
 
 // TestSendFeishu 成功 + 带签名 + 空 webhook + HTTP 错误。
 func TestSendFeishu(t *testing.T) {
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	var got map[string]any
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// b 保存b，供当前处理流程使用
+		// b 用于本次流程后续判断的b
 		b, _ := io.ReadAll(r.Body)
 		got = readJSONBody(t, b)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendFeishu(map[string]any{"webhook_url": srv.URL, "secret": "SEC"}, "飞书消息"); err != nil {
 		t.Fatalf("sendFeishu: %v", err)
 	}
 	if got["msg_type"] != "text" {
 		t.Errorf("msg_type=%v", got["msg_type"])
 	}
-	if // ok 保存ok，供当前处理流程使用
+	if // ok 用于本次流程后续判断的ok
 	_, ok := got["sign"]; !ok {
 		t.Errorf("带 secret 应有 sign 字段: %v", got)
 	}
-	// content 保存内容，供当前处理流程使用
+	// content 用于本次流程后续判断的内容
 	content, _ := got["content"].(map[string]any)
 	if content["text"] != "飞书消息" {
 		t.Errorf("text=%v", content["text"])
 	}
 }
 
-// TestSendFeishu_EmptyWebhook 负责TestSendFeishuEmptyWebhook相关处理。
+// TestSendFeishu_EmptyWebhook 封装TestSendFeishuEmptyWebhook业务协调。
 func TestSendFeishu_EmptyWebhook(t *testing.T) {
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendFeishu(map[string]any{}, "x"); err == nil {
 		t.Fatal("缺 webhook_url 应报错")
 	}
 }
 
-// TestSendFeishu_HTTPError 负责TestSendFeishuHTTP错误相关处理。
+// TestSendFeishu_HTTPError 封装TestSendFeishuHTTP错误业务协调。
 func TestSendFeishu_HTTPError(t *testing.T) {
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendFeishu(map[string]any{"webhook_url": srv.URL}, "x"); err == nil {
 		t.Fatal("5xx 应报错")
 	}
@@ -210,22 +210,22 @@ func TestSendFeishu_HTTPError(t *testing.T) {
 
 // TestSendBark 成功 + 可选字段 + 空 device_key + HTTP 错误。
 func TestSendBark(t *testing.T) {
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	var got map[string]any
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/push" {
 			t.Errorf("path=%s want /push", r.URL.Path)
 		}
-		// b 保存b，供当前处理流程使用
+		// b 用于本次流程后续判断的b
 		b, _ := io.ReadAll(r.Body)
 		got = readJSONBody(t, b)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	// cfg 保存cfg，供当前处理流程使用
+	// cfg 用于本次流程后续判断的cfg
 	cfg := map[string]any{
 		"server_url": srv.URL,
 		"device_key": "KEY",
@@ -235,7 +235,7 @@ func TestSendBark(t *testing.T) {
 		"sound":      "bell",
 		"group":      "g1",
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendBark(cfg, "正文"); err != nil {
 		t.Fatalf("sendBark: %v", err)
 	}
@@ -252,19 +252,19 @@ func TestSendBark(t *testing.T) {
 
 // TestSendBark_DefaultServerURL 缺省 server_url 时使用默认 https://api.day.app。
 // 用 redirect client 拦截默认 host 的请求。
-// TestSendBark_DefaultServerURL 负责TestSendBarkDefaultServerURL相关处理。
+// TestSendBark_DefaultServerURL 封装TestSendBarkDefaultServerURL业务协调。
 func TestSendBark_DefaultServerURL(t *testing.T) {
-	// hitPath 保存hit路径，供当前处理流程使用
+	// hitPath 用于本次流程后续判断的hit路径
 	var hitPath string
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hitPath = r.URL.Path
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := notifierWithRedirectClient(srv.Listener.Addr().String())
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendBark(map[string]any{"device_key": "K"}, "x"); err != nil {
 		t.Fatalf("sendBark 默认 server: %v", err)
 	}
@@ -273,26 +273,26 @@ func TestSendBark_DefaultServerURL(t *testing.T) {
 	}
 }
 
-// TestSendBark_EmptyDeviceKey 负责TestSendBarkEmptyDeviceKey相关处理。
+// TestSendBark_EmptyDeviceKey 封装TestSendBarkEmptyDeviceKey业务协调。
 func TestSendBark_EmptyDeviceKey(t *testing.T) {
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendBark(map[string]any{"server_url": "https://api.day.app"}, "x"); err == nil {
 		t.Fatal("缺 device_key 应报错")
 	}
 }
 
-// TestSendBark_HTTPError 负责TestSendBarkHTTP错误相关处理。
+// TestSendBark_HTTPError 封装TestSendBarkHTTP错误业务协调。
 func TestSendBark_HTTPError(t *testing.T) {
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendBark(map[string]any{"server_url": srv.URL, "device_key": "K"}, "x"); err == nil {
 		t.Fatal("5xx 应报错")
 	}
@@ -300,54 +300,54 @@ func TestSendBark_HTTPError(t *testing.T) {
 
 // ---------------- 企业微信 ----------------
 
-// TestSendWeChat 负责TestSendWe聊天相关处理。
+// TestSendWeChat 封装TestSendWe聊天业务协调。
 func TestSendWeChat(t *testing.T) {
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	var got map[string]any
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// b 保存b，供当前处理流程使用
+		// b 用于本次流程后续判断的b
 		b, _ := io.ReadAll(r.Body)
 		got = readJSONBody(t, b)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendWeChat(map[string]any{"webhook_url": srv.URL}, "微信消息"); err != nil {
 		t.Fatalf("sendWeChat: %v", err)
 	}
 	if got["msgtype"] != "text" {
 		t.Errorf("msgtype=%v", got["msgtype"])
 	}
-	// text 保存文本，供当前处理流程使用
+	// text 用于本次流程后续判断的文本
 	text, _ := got["text"].(map[string]any)
 	if text["content"] != "微信消息" {
 		t.Errorf("content=%v", text["content"])
 	}
 }
 
-// TestSendWeChat_EmptyWebhook 负责TestSendWe聊天EmptyWebhook相关处理。
+// TestSendWeChat_EmptyWebhook 封装TestSendWe聊天EmptyWebhook业务协调。
 func TestSendWeChat_EmptyWebhook(t *testing.T) {
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendWeChat(map[string]any{}, "x"); err == nil {
 		t.Fatal("缺 webhook_url 应报错")
 	}
 }
 
-// TestSendWeChat_HTTPError 负责TestSendWe聊天HTTP错误相关处理。
+// TestSendWeChat_HTTPError 封装TestSendWe聊天HTTP错误业务协调。
 func TestSendWeChat_HTTPError(t *testing.T) {
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendWeChat(map[string]any{"webhook_url": srv.URL}, "x"); err == nil {
 		t.Fatal("4xx 应报错")
 	}
@@ -357,26 +357,26 @@ func TestSendWeChat_HTTPError(t *testing.T) {
 
 // TestSendTelegram_Success 通过 redirect transport 拦截 telegram API。
 func TestSendTelegram_Success(t *testing.T) {
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	var got map[string]any
-	// gotPath 保存got路径，供当前处理流程使用
+	// gotPath 用于本次流程后续判断的got路径
 	var gotPath string
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
-		// b 保存b，供当前处理流程使用
+		// b 用于本次流程后续判断的b
 		b, _ := io.ReadAll(r.Body)
 		got = readJSONBody(t, b)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := notifierWithRedirectClient(srv.Listener.Addr().String())
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendTelegram(map[string]any{"bot_token": "TOK", "chat_id": "123"}, "TG消息"); err != nil {
 		t.Fatalf("sendTelegram: %v", err)
 	}
-	// wantPath 保存want路径，供当前处理流程使用
+	// wantPath 用于本次流程后续判断的want路径
 	wantPath := "/botTOK/sendMessage"
 	if gotPath != wantPath {
 		t.Errorf("path=%s want %s", gotPath, wantPath)
@@ -384,52 +384,52 @@ func TestSendTelegram_Success(t *testing.T) {
 	if got["chat_id"] != "123" || got["text"] != "TG消息" {
 		t.Errorf("telegram payload: %v", got)
 	}
-	if // ok 保存ok，供当前处理流程使用
+	if // ok 用于本次流程后续判断的ok
 	_, ok := got["parse_mode"]; ok {
 		t.Errorf("动态文本不应启用未转义的 HTML 模式: %v", got)
 	}
 }
 
-// TestPostJSONRejectsBusinessErrors 负责TestPostJSONRejectsBusiness错误列表相关处理。
+// TestPostJSONRejectsBusinessErrors 封装TestPostJSONRejectsBusiness错误列表业务协调。
 func TestPostJSONRejectsBusinessErrors(t *testing.T) {
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"errcode":310000,"errmsg":"signature invalid"}`))
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendDingTalk(map[string]any{"webhook_url": srv.URL}, "x"); err == nil || !strings.Contains(err.Error(), "signature invalid") {
 		t.Fatalf("business error=%v", err)
 	}
 }
 
-// TestSendTelegram_MissingConfig 负责TestSendTelegramMissing配置相关处理。
+// TestSendTelegram_MissingConfig 封装TestSendTelegramMissing配置业务协调。
 func TestSendTelegram_MissingConfig(t *testing.T) {
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendTelegram(map[string]any{"bot_token": ""}, "x"); err == nil {
 		t.Fatal("缺 bot_token 应报错")
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendTelegram(map[string]any{"bot_token": "T", "chat_id": ""}, "x"); err == nil {
 		t.Fatal("缺 chat_id 应报错")
 	}
 }
 
-// TestSendTelegram_HTTPError 负责TestSendTelegramHTTP错误相关处理。
+// TestSendTelegram_HTTPError 封装TestSendTelegramHTTP错误业务协调。
 func TestSendTelegram_HTTPError(t *testing.T) {
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := notifierWithRedirectClient(srv.Listener.Addr().String())
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendTelegram(map[string]any{"bot_token": "T", "chat_id": "1"}, "x"); err == nil {
 		t.Fatal("4xx 应报错")
 	}
@@ -439,31 +439,31 @@ func TestSendTelegram_HTTPError(t *testing.T) {
 
 // TestSendWebhook_CustomHeadersAndMethod 自定义 headers + GET 方法。
 func TestSendWebhook_CustomHeadersAndMethod(t *testing.T) {
-	// gotMethod 保存got方法，供当前处理流程使用
+	// gotMethod 用于本次流程后续判断的got方法
 	var gotMethod string
-	// gotAuth 保存gotAuth，供当前处理流程使用
+	// gotAuth 用于本次流程后续判断的gotAuth
 	var gotAuth string
-	// gotBody 保存got请求体，供当前处理流程使用
+	// gotBody 用于本次流程后续判断的got请求体
 	var gotBody string
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotMethod = r.Method
 		gotAuth = r.Header.Get("Authorization")
-		// b 保存b，供当前处理流程使用
+		// b 用于本次流程后续判断的b
 		b, _ := io.ReadAll(r.Body)
 		gotBody = string(b)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	// cfg 保存cfg，供当前处理流程使用
+	// cfg 用于本次流程后续判断的cfg
 	cfg := map[string]any{
 		"webhook_url": srv.URL,
 		"http_method": "get",
 		"headers":     `{"Authorization":"Bearer abc","X-Custom":"v"}`,
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendWebhook(cfg, "消息"); err != nil {
 		t.Fatalf("sendWebhook: %v", err)
 	}
@@ -478,26 +478,26 @@ func TestSendWebhook_CustomHeadersAndMethod(t *testing.T) {
 	}
 }
 
-// TestSendWebhook_EmptyWebhook 负责TestSendWebhookEmptyWebhook相关处理。
+// TestSendWebhook_EmptyWebhook 封装TestSendWebhookEmptyWebhook业务协调。
 func TestSendWebhook_EmptyWebhook(t *testing.T) {
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendWebhook(map[string]any{}, "x"); err == nil {
 		t.Fatal("缺 webhook_url 应报错")
 	}
 }
 
-// TestSendWebhook_HTTPError 负责TestSendWebhookHTTP错误相关处理。
+// TestSendWebhook_HTTPError 封装TestSendWebhookHTTP错误业务协调。
 func TestSendWebhook_HTTPError(t *testing.T) {
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendWebhook(map[string]any{"webhook_url": srv.URL}, "x"); err == nil {
 		t.Fatal("5xx 应报错")
 	}
@@ -505,16 +505,16 @@ func TestSendWebhook_HTTPError(t *testing.T) {
 
 // TestSendWebhook_InvalidHeaders headers 非法 JSON 时静默忽略。
 func TestSendWebhook_InvalidHeaders(t *testing.T) {
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	// cfg 保存cfg，供当前处理流程使用
+	// cfg 用于本次流程后续判断的cfg
 	cfg := map[string]any{"webhook_url": srv.URL, "headers": "{bad json"}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendWebhook(cfg, "x"); err != nil {
 		t.Fatalf("非法 headers 不应报错: %v", err)
 	}
@@ -524,19 +524,19 @@ func TestSendWebhook_InvalidHeaders(t *testing.T) {
 
 // fakeSMTPServer 启动一个最小化 SMTP 服务器，响应 EHLO/MAIL/RCPT/DATA/QUIT。
 // 返回监听地址与接收到的 DATA 正文 builder。
-// fakeSMTPServer 负责fakeSMTPServer相关处理。
+// fakeSMTPServer 封装fakeSMTPServer业务协调。
 func fakeSMTPServer(t *testing.T) (string, *strings.Builder) {
 	t.Helper()
-	// ln、err 保存ln、err，供当前处理流程使用
+	// ln、err 用于本次流程后续判断的ln、err
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	// received 保存received，供当前处理流程使用
+	// received 用于本次流程后续判断的received
 	var received strings.Builder
 	go func() {
 		for {
-			// conn、err 保存conn、err，供当前处理流程使用
+			// conn、err 用于本次流程后续判断的conn、err
 			conn, err := ln.Accept()
 			if err != nil {
 				return
@@ -548,21 +548,21 @@ func fakeSMTPServer(t *testing.T) (string, *strings.Builder) {
 	return ln.Addr().String(), &received
 }
 
-// handleSMTP 负责handleSMTP相关处理。
+// handleSMTP 封装handleSMTP业务协调。
 func handleSMTP(conn net.Conn, received *strings.Builder) {
 	defer conn.Close()
-	// r 保存r，供当前处理流程使用
+	// r 用于本次流程后续判断的r
 	r := bufio.NewReader(conn)
-	// write 保存write，供当前处理流程使用
+	// write 用于本次流程后续判断的write
 	write := func(s string) { _, _ = conn.Write([]byte(s)) }
 	write("220 mock smtp\r\n")
 	for {
-		// line、err 保存line、err，供当前处理流程使用
+		// line、err 用于本次流程后续判断的line、err
 		line, err := r.ReadString('\n')
 		if err != nil {
 			return
 		}
-		// upper 保存upper，供当前处理流程使用
+		// upper 用于本次流程后续判断的upper
 		upper := strings.ToUpper(strings.TrimSpace(line))
 		switch {
 		case strings.HasPrefix(upper, "EHLO"), strings.HasPrefix(upper, "HELO"):
@@ -576,7 +576,7 @@ func handleSMTP(conn net.Conn, received *strings.Builder) {
 		case strings.HasPrefix(upper, "DATA"):
 			write("354 End data with <CR><LF>.<CR><LF>\r\n")
 			for {
-				// l、err 保存l、err，供当前处理流程使用
+				// l、err 用于本次流程后续判断的l、err
 				l, err := r.ReadString('\n')
 				if err != nil {
 					return
@@ -600,13 +600,13 @@ func handleSMTP(conn net.Conn, received *strings.Builder) {
 
 // TestSendEmail_Success 通过 mock SMTP 服务器验证邮件发送。
 func TestSendEmail_Success(t *testing.T) {
-	// addr、received 保存addr、received，供当前处理流程使用
+	// addr、received 用于本次流程后续判断的addr、received
 	addr, received := fakeSMTPServer(t)
-	// host、port 保存host、port，供当前处理流程使用
+	// host、port 用于本次流程后续判断的host、port
 	host, port, _ := strings.Cut(addr, ":")
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	// cfg 保存cfg，供当前处理流程使用
+	// cfg 用于本次流程后续判断的cfg
 	cfg := map[string]any{
 		"smtp_server":   host,
 		"smtp_port":     port,
@@ -615,11 +615,11 @@ func TestSendEmail_Success(t *testing.T) {
 		"smtp_use_tls":  false,
 		"to_email":      "to@e.com",
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendEmail(cfg, "邮件正文"); err != nil {
 		t.Fatalf("sendEmail: %v", err)
 	}
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := received.String()
 	if !strings.Contains(body, "Subject:") || !strings.Contains(body, "邮件正文") {
 		t.Errorf("邮件内容异常: %s", body)
@@ -628,13 +628,13 @@ func TestSendEmail_Success(t *testing.T) {
 
 // TestSendEmail_DefaultFrom 缺省 smtp_from 时回退为 smtp_user。
 func TestSendEmail_DefaultFrom(t *testing.T) {
-	// addr、received 保存addr、received，供当前处理流程使用
+	// addr、received 用于本次流程后续判断的addr、received
 	addr, received := fakeSMTPServer(t)
-	// host、port 保存host、port，供当前处理流程使用
+	// host、port 用于本次流程后续判断的host、port
 	host, port, _ := strings.Cut(addr, ":")
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	// cfg 保存cfg，供当前处理流程使用
+	// cfg 用于本次流程后续判断的cfg
 	cfg := map[string]any{
 		"smtp_server":   host,
 		"smtp_port":     port,
@@ -643,7 +643,7 @@ func TestSendEmail_DefaultFrom(t *testing.T) {
 		"smtp_use_tls":  false,
 		"to_email":      "to@e.com",
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendEmail(cfg, "x"); err != nil {
 		t.Fatalf("sendEmail: %v", err)
 	}
@@ -652,41 +652,41 @@ func TestSendEmail_DefaultFrom(t *testing.T) {
 	}
 }
 
-// TestSendEmail_SeparatesDisplayNameAndEnvelopeAddress 负责TestSend邮箱SeparatesDisplay名称AndEnvelopeAddress相关处理。
+// TestSendEmail_SeparatesDisplayNameAndEnvelopeAddress 封装TestSend邮箱SeparatesDisplay名称AndEnvelopeAddress业务协调。
 func TestSendEmail_SeparatesDisplayNameAndEnvelopeAddress(t *testing.T) {
-	// addr、received 保存addr、received，供当前处理流程使用
+	// addr、received 用于本次流程后续判断的addr、received
 	addr, received := fakeSMTPServer(t)
-	// host、port 保存host、port，供当前处理流程使用
+	// host、port 用于本次流程后续判断的host、port
 	host, port, _ := strings.Cut(addr, ":")
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	// cfg 保存cfg，供当前处理流程使用
+	// cfg 用于本次流程后续判断的cfg
 	cfg := map[string]any{
 		"smtp_server": host, "smtp_port": port, "smtp_user": "login@e.com", "smtp_password": "pw",
 		"smtp_use_tls":   false,
 		"smtp_from_name": "闲鱼自动回复系统", "smtp_from_address": "sender@e.com", "to_email": "to@e.com",
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendEmail(cfg, "x"); err != nil {
 		t.Fatal(err)
 	}
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := received.String()
 	if !strings.Contains(body, "sender@e.com") || !strings.Contains(body, "From: =?utf-8?") {
 		t.Fatalf("smtp envelope/header mismatch: %s", body)
 	}
 }
 
-// TestSendEmail_UsesSystemSMTPFallback 负责TestSend邮箱Uses系统SMTPFallback相关处理。
+// TestSendEmail_UsesSystemSMTPFallback 封装TestSend邮箱Uses系统SMTPFallback业务协调。
 func TestSendEmail_UsesSystemSMTPFallback(t *testing.T) {
-	// addr、received 保存addr、received，供当前处理流程使用
+	// addr、received 用于本次流程后续判断的addr、received
 	addr, received := fakeSMTPServer(t)
-	// host、port 保存host、port，供当前处理流程使用
+	// host、port 用于本次流程后续判断的host、port
 	host, port, _ := strings.Cut(addr, ":")
-	// store、cleanup 保存store、cleanup，供当前处理流程使用
+	// store、cleanup 用于本次流程后续判断的store、cleanup
 	store, cleanup := newNotifyStoreBare(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	// key、value 表示当前遍历过程中的key、value
 	for key, value := range map[string]string{
@@ -696,19 +696,19 @@ func TestSendEmail_UsesSystemSMTPFallback(t *testing.T) {
 		"smtp_password": "pw",
 		"smtp_use_tls":  "false",
 	} {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := store.Settings.Set(ctx, key, value); err != nil {
 			t.Fatalf("set %s: %v", key, err)
 		}
 	}
 
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", store, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendEmail(map[string]any{"to_email": "to@e.com"}, "系统SMTP正文"); err != nil {
 		t.Fatalf("sendEmail with system fallback: %v", err)
 	}
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := received.String()
 	if !strings.Contains(body, "From: system@e.com") || !strings.Contains(body, "系统SMTP正文") {
 		t.Fatalf("system SMTP fallback body mismatch: %s", body)
@@ -723,34 +723,34 @@ func TestSendEmail_UsesSystemSMTPFallback(t *testing.T) {
 	}
 }
 
-// TestSMTPConfigValueUsesExclusiveExplicitModes 负责TestSMTP配置值UsesExclusiveExplicitModes相关处理。
+// TestSMTPConfigValueUsesExclusiveExplicitModes 封装TestSMTP配置值UsesExclusiveExplicitModes业务协调。
 func TestSMTPConfigValueUsesExclusiveExplicitModes(t *testing.T) {
-	// store、cleanup 保存store、cleanup，供当前处理流程使用
+	// store、cleanup 用于本次流程后续判断的store、cleanup
 	store, cleanup := newNotifyStoreBare(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Settings.Set(ctx, "smtp_server", "system.example.com"); err != nil {
 		t.Fatal(err)
 	}
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", store, nil)
 
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := n.smtpConfigValue(ctx, map[string]any{
 		"use_custom_smtp": false,
 		"smtp_server":     "stale-channel.example.com",
 	}, "smtp_server", ""); got != "system.example.com" {
 		t.Fatalf("system mode mixed in channel override: %q", got)
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := n.smtpConfigValue(ctx, map[string]any{
 		"use_custom_smtp": true,
 	}, "smtp_server", ""); got != "" {
 		t.Fatalf("custom mode inherited system value: %q", got)
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := n.smtpConfigValue(ctx, map[string]any{
 		"smtp_server": "legacy-channel.example.com",
 	}, "smtp_server", ""); got != "legacy-channel.example.com" {
@@ -760,9 +760,9 @@ func TestSMTPConfigValueUsesExclusiveExplicitModes(t *testing.T) {
 
 // TestSendEmail_IncompleteConfig 配置不完整应报错。
 func TestSendEmail_IncompleteConfig(t *testing.T) {
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := []map[string]any{
 		{"smtp_user": "u", "to_email": "t@e.com"},   // 缺 server
 		{"smtp_server": "s", "to_email": "t@e.com"}, // 缺 user
@@ -770,14 +770,14 @@ func TestSendEmail_IncompleteConfig(t *testing.T) {
 	}
 	// cfg 表示当前遍历过程中的cfg
 	for _, cfg := range cases {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := n.sendEmail(cfg, "x"); err == nil {
 			t.Fatalf("配置不完整应报错: %v", cfg)
 		}
 	}
 }
 
-// TestParseSMTPTransportFlags 负责TestParseSMTPTransportFlags相关处理。
+// TestParseSMTPTransportFlags 封装TestParseSMTPTransportFlags业务协调。
 func TestParseSMTPTransportFlags(t *testing.T) {
 	if !parseConfigBool("true", false) || !parseConfigBool("1", false) || parseConfigBool("off", true) {
 		t.Fatal("SMTP boolean settings were not parsed consistently")
@@ -794,12 +794,12 @@ func TestSendEmail_ConnectionFailed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	// host、port 保存host、port，供当前处理流程使用
+	// host、port 用于本次流程后续判断的host、port
 	host, port, _ := strings.Cut(ln.Addr().String(), ":")
 	_ = ln.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	// cfg 保存cfg，供当前处理流程使用
+	// cfg 用于本次流程后续判断的cfg
 	cfg := map[string]any{
 		"smtp_server":   host,
 		"smtp_port":     port,
@@ -807,7 +807,7 @@ func TestSendEmail_ConnectionFailed(t *testing.T) {
 		"smtp_password": "p",
 		"to_email":      "t@e.com",
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendEmail(cfg, "x"); err == nil {
 		t.Fatal("连接失败应报错")
 	}
@@ -815,7 +815,7 @@ func TestSendEmail_ConnectionFailed(t *testing.T) {
 
 // TestPostJSON_NetworkError postJSON 网络错误路径。
 func TestPostJSON_NetworkError(t *testing.T) {
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
 	// 非法 URL（无 host）。
 	if err := n.postJSON("http://", map[string]any{"a": 1}); err == nil {
@@ -825,14 +825,14 @@ func TestPostJSON_NetworkError(t *testing.T) {
 
 // TestPostJSON_HTTPError 覆盖状态码 >=300 分支。
 func TestPostJSON_HTTPError(t *testing.T) {
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.postJSON(srv.URL, map[string]any{"a": 1}); err == nil {
 		t.Fatal("401 应报错")
 	}
@@ -840,11 +840,11 @@ func TestPostJSON_HTTPError(t *testing.T) {
 
 // TestPostJSON_MarshalError 传入无法序列化的值触发 json.Marshal 错误。
 func TestPostJSON_MarshalError(t *testing.T) {
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
 	// chan 无法被 json.Marshal 序列化。
 	bad := map[string]any{"ch": make(chan int)}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.postJSON("http://127.0.0.1:1", bad); err == nil {
 		t.Fatal("无法序列化的 payload 应报错")
 	}
@@ -852,22 +852,22 @@ func TestPostJSON_MarshalError(t *testing.T) {
 
 // TestPostJSON_BodyReadError 服务端声明 Content-Length 但提前断开，触发 io.Copy 错误。
 func TestPostJSON_BodyReadError(t *testing.T) {
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 声明 100 字节但只写 5 字节后立即关闭底层连接。
 		w.Header().Set("Content-Length", "100")
 		_, _ = w.Write([]byte("short"))
-		if // hj、ok 保存hj、ok，供当前处理流程使用
+		if // hj、ok 用于本次流程后续判断的hj、ok
 		hj, ok := w.(http.Hijacker); ok {
-			// conn 保存conn，供当前处理流程使用
+			// conn 用于本次流程后续判断的conn
 			conn, _, _ := hj.Hijack()
 			_ = conn.Close()
 		}
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.postJSON(srv.URL, map[string]any{"a": 1}); err == nil {
 		t.Fatal("body 读取错误应报错")
 	}
@@ -875,21 +875,21 @@ func TestPostJSON_BodyReadError(t *testing.T) {
 
 // TestSendWebhook_BodyReadError webhook 渠道触发 io.Copy 错误。
 func TestSendWebhook_BodyReadError(t *testing.T) {
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", "100")
 		_, _ = w.Write([]byte("x"))
-		if // hj、ok 保存hj、ok，供当前处理流程使用
+		if // hj、ok 用于本次流程后续判断的hj、ok
 		hj, ok := w.(http.Hijacker); ok {
-			// conn 保存conn，供当前处理流程使用
+			// conn 用于本次流程后续判断的conn
 			conn, _, _ := hj.Hijack()
 			_ = conn.Close()
 		}
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendWebhook(map[string]any{"webhook_url": srv.URL}, "x"); err == nil {
 		t.Fatal("body 读取错误应报错")
 	}
@@ -897,11 +897,11 @@ func TestSendWebhook_BodyReadError(t *testing.T) {
 
 // TestSendWebhook_NetworkError 服务端不可达触发 httpc.Do 错误。
 func TestSendWebhook_NetworkError(t *testing.T) {
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	srv.Close() // 关闭使连接失败
 	n := New("cid", nil, nil)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendWebhook(map[string]any{"webhook_url": srv.URL}, "x"); err == nil {
 		t.Fatal("网络错误应报错")
 	}
@@ -909,11 +909,11 @@ func TestSendWebhook_NetworkError(t *testing.T) {
 
 // TestSendWebhook_NewRequestError URL 含空格导致 http.NewRequest 失败。
 func TestSendWebhook_NewRequestError(t *testing.T) {
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	// cfg 保存cfg，供当前处理流程使用
+	// cfg 用于本次流程后续判断的cfg
 	cfg := map[string]any{"webhook_url": "http://in valid host/path"}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.sendWebhook(cfg, "x"); err == nil {
 		t.Fatal("非法 URL 应触发 NewRequest 错误")
 	}
@@ -922,26 +922,26 @@ func TestSendWebhook_NewRequestError(t *testing.T) {
 // TestSend_RouteAllTypes 通过 send 入口覆盖各渠道类型分发分支。
 // HTTP 渠道用 redirect client 拦截到本地 httptest server；email 走 SMTP 必然失败，
 // 但能覆盖 send 的 email case。
-// TestSend_RouteAllTypes 负责TestSendRouteAllTypes相关处理。
+// TestSend_RouteAllTypes 封装TestSendRouteAllTypes业务协调。
 func TestSend_RouteAllTypes(t *testing.T) {
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
 
-	// cfg 保存cfg，供当前处理流程使用
+	// cfg 用于本次流程后续判断的cfg
 	cfg := `{"webhook_url":"` + srv.URL + `","server_url":"` + srv.URL + `","device_key":"K","bot_token":"T","chat_id":"1"}`
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := notifierWithRedirectClient(srv.Listener.Addr().String())
-	// types 保存types，供当前处理流程使用
+	// types 用于本次流程后续判断的types
 	types := []string{"feishu", "lark", "bark", "webhook", "wechat", "telegram", "ding_talk"}
 	// typ 表示当前遍历过程中的typ
 	for _, typ := range types {
-		// ch 保存ch，供当前处理流程使用
+		// ch 用于本次流程后续判断的ch
 		ch := dbNotificationChannel(typ, cfg)
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := n.send(ch, "分发测试"); err != nil {
 			t.Errorf("send(%s): %v", typ, err)
 		}
@@ -960,25 +960,25 @@ func dbNotificationChannel(typ, cfg string) db.NotificationChannel {
 
 // TestSend_DingTalkAlias 钉钉别名 dingtalk 也能路由。
 func TestSend_DingTalkAlias(t *testing.T) {
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	var got map[string]any
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// b 保存b，供当前处理流程使用
+		// b 用于本次流程后续判断的b
 		b, _ := io.ReadAll(r.Body)
 		got = readJSONBody(t, b)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	n := New("cid", nil, nil)
-	// ch 保存ch，供当前处理流程使用
+	// ch 用于本次流程后续判断的ch
 	ch := dbNotificationChannel("dingtalk", `{"webhook_url":"`+srv.URL+`"}`)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := n.send(ch, "别名"); err != nil {
 		t.Fatalf("send(dingtalk): %v", err)
 	}
-	// md 保存md，供当前处理流程使用
+	// md 用于本次流程后续判断的md
 	md, _ := got["markdown"].(map[string]any)
 	if md["text"] != "别名" {
 		t.Errorf("别名路由正文: %v", md["text"])

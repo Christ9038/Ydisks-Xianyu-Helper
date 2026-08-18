@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -36,6 +37,33 @@ func (fake *lifecycleComponentFake) Close(context.Context) error {
 	*fake.events = append(*fake.events, "close:"+fake.name)
 	fake.mu.Unlock()
 	return fake.closeErr
+}
+
+// retryCloseComponent 首次关闭等待 Context 取消，后续关闭模拟外部任务最终收束。
+type retryCloseComponent struct {
+	// mu 保护 closeCalls，确保并发测试读取关闭次数时无数据竞争。
+	mu sync.Mutex
+	// closeCalls 记录协调器实际调用 Close 的次数。
+	closeCalls int
+}
+
+// Start 让可重试关闭组件立即进入运行状态。
+func (*retryCloseComponent) Start(context.Context) error {
+	return nil
+}
+
+// Close 首次等待调用方截止，第二次模拟使用更长 Context 成功收束。
+func (component *retryCloseComponent) Close(ctx context.Context) error {
+	component.mu.Lock()
+	component.closeCalls++
+	// callCount 保存本次关闭调用序号，用于区分首次超时和后续重试。
+	callCount := component.closeCalls
+	component.mu.Unlock()
+	if callCount == 1 {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return nil
 }
 
 // TestCoordinatorStartsAndClosesInDeterministicOrder 验证正常启动、重复调用和逆序关闭。
@@ -169,6 +197,56 @@ func TestCoordinatorCloseContextBoundsConcurrentClose(t *testing.T) {
 	// err 表示首个关闭调用在释放阻塞后返回的最终结果。
 	if err := <-firstDone; err != nil {
 		t.Fatalf("首个关闭失败: %v", err)
+	}
+}
+
+// TestCoordinatorCloseRetainsIncompleteComponentsForRetry 验证关闭超时后保留未完成组件并支持再次 Join。
+func TestCoordinatorCloseRetainsIncompleteComponentsForRetry(t *testing.T) {
+	// component 保存首次超时、第二次成功的生命周期组件。
+	component := &retryCloseComponent{}
+	// coordinator 保存待验证的关闭重试协调器。
+	coordinator := NewCoordinator()
+	// err 表示登记可重试组件时的参数校验错误。
+	if err := coordinator.Add(NamedComponent{Name: "retryable", Component: component}); err != nil {
+		t.Fatalf("登记可重试组件失败: %v", err)
+	}
+	// err 表示启动可重试组件协调器的失败原因。
+	if err := coordinator.Start(context.Background()); err != nil {
+		t.Fatalf("启动协调器失败: %v", err)
+	}
+	// timeoutCtx 限制首次关闭，模拟组件无法在本轮预算内完成。
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	// firstErr 保存首次关闭的组件诊断错误。
+	firstErr := coordinator.Close(timeoutCtx)
+	if !errors.Is(firstErr, context.DeadlineExceeded) {
+		t.Fatalf("首次关闭应返回截止错误: %v", firstErr)
+	}
+	// err 表示关闭诊断中是否包含未完成组件名称。
+	if !strings.Contains(firstErr.Error(), "retryable") {
+		t.Fatalf("关闭错误应包含未完成组件名称: %v", firstErr)
+	}
+	// waitCtx 确认首次失败不能伪造协调器已完成关闭。
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer waitCancel()
+	// err 表示未完成关闭在短等待 Context 下的结果。
+	if err := coordinator.WaitContext(waitCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("关闭未完成时 Wait 应返回截止错误: %v", err)
+	}
+	// err 表示使用更长 Context 重试关闭的结果。
+	if err := coordinator.Close(context.Background()); err != nil {
+		t.Fatalf("使用更长 Context 重试关闭失败: %v", err)
+	}
+	component.mu.Lock()
+	// closeCalls 保存组件被协调器调用的总次数，必须包含一次失败和一次重试。
+	closeCalls := component.closeCalls
+	component.mu.Unlock()
+	if closeCalls != 2 {
+		t.Fatalf("组件关闭调用次数=%d，期望=2", closeCalls)
+	}
+	// err 表示所有组件重试收束后等待协调器完成的结果。
+	if err := coordinator.WaitContext(context.Background()); err != nil {
+		t.Fatalf("重试成功后 Wait 应完成: %v", err)
 	}
 }
 

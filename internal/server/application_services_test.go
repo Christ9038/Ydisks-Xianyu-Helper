@@ -1,6 +1,9 @@
 package server
 
-import "testing"
+import (
+	"sync"
+	"testing"
+)
 
 // TestNewServerAssemblesApplicationServices 验证 Server 构造时统一装配全部应用服务。
 func TestNewServerAssemblesApplicationServices(t *testing.T) {
@@ -52,5 +55,39 @@ func TestApplicationLifecycleComponentsExposeWorkerOwnership(t *testing.T) {
 		if names[index] != want[index] {
 			t.Fatalf("组件名称[%d]=%q，期望=%q", index, names[index], want[index])
 		}
+	}
+}
+
+// TestApplicationServiceSetUsesStableZeroValueSet 验证零值 Server 不会在请求期创建服务集合，并支持并发防御性读取。
+func TestApplicationServiceSetUsesStableZeroValueSet(t *testing.T) {
+	// srv 是未注入依赖的零值 Server，仅用于验证防御性访问不触发隐式装配。
+	var srv Server
+	// first 是首次读取到的共享空服务集合。
+	first := srv.applicationServiceSet()
+	if first != emptyApplicationServices {
+		t.Fatal("零值 Server 应返回共享空服务集合")
+	}
+	// readers 是并发读取服务集合的工作数，用于覆盖请求期读路径的数据竞争风险。
+	const readers = 32
+	// group 等待全部并发读取完成后再检查结果。
+	var group sync.WaitGroup
+	// failures 记录任何一次读取没有返回同一只读集合的情况。
+	failures := make(chan *applicationServices, readers)
+	for range readers {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			// services 是当前 goroutine 读取到的应用服务集合。
+			services := srv.applicationServiceSet()
+			if services != first {
+				failures <- services
+			}
+		}()
+	}
+	group.Wait()
+	close(failures)
+	// services 是未满足稳定集合约束的错误读取结果，仅用于在失败时提供诊断。
+	for services := range failures {
+		t.Fatalf("并发读取返回了不同服务集合: %p", services)
 	}
 }

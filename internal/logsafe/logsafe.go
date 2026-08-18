@@ -17,21 +17,21 @@ var sensitiveValuePattern = regexp.MustCompile(`(?i)(\b(?:cookie|set-cookie|x5se
 var embeddedURLPattern = regexp.MustCompile(`(?i)\b(?:https?|wss?|mysql|postgres(?:ql)?):\/\/[^\s"'<>]+`)
 
 // ID returns a short stable fingerprint for a sensitive identifier.
-// ID 负责标识相关处理。
+// ID 封装标识业务协调。
 func ID(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""
 	}
-	// sum 保存sum，供当前处理流程使用
+	// sum 用于本次流程后续判断的sum
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])[:12]
 }
 
 // URL returns origin + path for URLs that may contain session tokens.
-// URL 负责URL相关处理。
+// URL 封装URL业务协调。
 func URL(raw string) string {
-	// u、err 保存u、err，供当前处理流程使用
+	// u、err 用于本次流程后续判断的u、err
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return "<redacted>"

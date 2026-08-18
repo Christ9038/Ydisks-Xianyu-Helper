@@ -12,8 +12,8 @@ describe('responsive rules layout', () => {
     expect(rules).toContain('min-w-0 space-y-8');
     expect(rules).toContain('xl:grid-cols-[minmax(270px,0.72fr)_minmax(0,1.28fr)]');
     expect(rules).not.toContain('2xl:grid-cols-[360px_1fr]');
-  } /* 回调函数负责当前业务流程。 */);
-} /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言规则列表中的卡密动作表单字段。 */);
+} /* 测试套件回调汇总自动化规则页面契约。 */);
 
 describe('rules summary counts', () => {
   test('uses server-side aggregate counts instead of the current page length', () => {
@@ -24,5 +24,5 @@ describe('rules summary counts', () => {
     expect(rules).toContain('筛选结果构成');
     expect(rules).not.toContain('rulesByTrigger[trigger].length');
     expect(api).toContain('trigger_counts');
-  } /* 回调函数负责当前业务流程。 */);
-} /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言规则页使用服务端聚合计数。 */);
+} /* 测试套件回调汇总规则统计和布局契约。 */);

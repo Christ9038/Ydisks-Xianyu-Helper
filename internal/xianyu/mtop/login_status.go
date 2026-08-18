@@ -12,10 +12,10 @@ import (
 	"xianyu-go/internal/xianyu/protocol"
 )
 
-// LoginUserAPI 保存登录用户API，供当前处理流程使用
+// LoginUserAPI 用于本次流程后续判断的登录用户API
 const LoginUserAPI = "https://h5api.m.goofish.com/h5/mtop.taobao.idlemessage.pc.loginuser.get/1.0/"
 
-// LoginStatusSuccess 保存登录状态Success，供当前处理流程使用
+// LoginStatusSuccess 用于本次流程后续判断的登录状态Success
 const (
 	LoginStatusSuccess        = "success"
 	LoginStatusTokenRefreshed = "token_refreshed"
@@ -38,27 +38,27 @@ type LoginStatusResult struct {
 // 它不会做浏览器动作；只负责分类响应和合并 Set-Cookie。
 // CheckLoginStatusContext 检查登录状态上下文。
 func (c *ClientImpl) CheckLoginStatusContext(ctx context.Context, cookiesStr string) (*LoginStatusResult, error) {
-	if // session 保存会话，供当前处理流程使用
+	if // session 用于本次流程后续判断的会话
 	session := cookieSessionFromContext(ctx); session != nil {
 		cookiesStr, _, _ = session.State()
 	}
-	// hc 保存hc，供当前处理流程使用
+	// hc 用于本次流程后续判断的hc
 	hc := c.httpClientWithTimeout(20 * time.Second)
-	// loginURL 保存登录URL，供当前处理流程使用
+	// loginURL 用于本次流程后续判断的登录URL
 	loginURL := c.LoginUserURL
 	if loginURL == "" {
 		loginURL = LoginUserAPI
 	}
-	// signingCookies、requestCookies 保存signingCookies、requestCookies，供当前处理流程使用
+	// signingCookies、requestCookies 用于本次流程后续判断的signingCookies、requestCookies
 	signingCookies, requestCookies := mtopRequestCookies(ctx, cookiesStr, mtopDocumentURL, loginURL)
-	// t 保存t，供当前处理流程使用
+	// t 用于本次流程后续判断的t
 	t := strconv.FormatInt(time.Now().UnixMilli(), 10)
-	// dataVal 保存数据Val，供当前处理流程使用
+	// dataVal 用于本次流程后续判断的数据Val
 	dataVal := `{}`
-	// query 保存查询，供当前处理流程使用
+	// query 用于本次流程后续判断的查询
 	query := buildLoginStatusQuery(t, protocol.GenerateSign(t, protocol.SignToken(signingCookies), dataVal))
 
-	// req、err 保存req、err，供当前处理流程使用
+	// req、err 用于本次流程后续判断的req、err
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, loginURL+"?"+query, strings.NewReader("data=%7B%7D"))
 	if err != nil {
 		return nil, err
@@ -66,32 +66,32 @@ func (c *ClientImpl) CheckLoginStatusContext(ctx context.Context, cookiesStr str
 	setCommonHeaders(req, requestCookies)
 	req.Header.Set("Referer", mtopDocumentURL)
 
-	// resp、err 保存resp、err，供当前处理流程使用
+	// resp、err 用于本次流程后续判断的resp、err
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("loginuser.get 请求失败: %w", err)
 	}
 	defer resp.Body.Close()
-	// updated 保存updated，供当前处理流程使用
+	// updated 用于本次流程后续判断的updated
 	updated := absorbMTopResponseCookies(ctx, cookiesStr, resp)
-	// raw、err 保存raw、err，供当前处理流程使用
+	// raw、err 用于本次流程后续判断的raw、err
 	raw, err := readMTopBody(resp)
 	if err != nil {
 		return nil, err
 	}
 
-	// payload 保存请求载荷，供当前处理流程使用
+	// payload 用于本次流程后续判断的请求载荷
 	var payload struct {
 		Ret  []string `json:"ret"`
 		Data struct {
 			URL string `json:"url"`
 		} `json:"data"`
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, fmt.Errorf("解析 loginuser.get 响应失败: %w (body=%s)", err, truncate(string(raw), 300))
 	}
-	// status、msg 保存status、msg，供当前处理流程使用
+	// status、msg 用于本次流程后续判断的status、msg
 	status, msg := classifyLoginStatus(payload.Ret, updated != cookiesStr)
 	return &LoginStatusResult{
 		Status:          status,
@@ -102,9 +102,9 @@ func (c *ClientImpl) CheckLoginStatusContext(ctx context.Context, cookiesStr str
 	}, nil
 }
 
-// buildLoginStatusQuery 负责build登录状态查询相关处理。
+// buildLoginStatusQuery 封装build登录状态查询业务协调。
 func buildLoginStatusQuery(t, sign string) string {
-	// parts 保存parts，供当前处理流程使用
+	// parts 用于本次流程后续判断的parts
 	parts := [][2]string{
 		{"jsv", "2.7.2"},
 		{"appKey", protocol.SignAppKey},
@@ -121,7 +121,7 @@ func buildLoginStatusQuery(t, sign string) string {
 		{"spm_pre", "a21ybx.item.want.1.12523da6waCtUp"},
 		{"log_id", "12523da6waCtUp"},
 	}
-	// b 保存b，供当前处理流程使用
+	// b 用于本次流程后续判断的b
 	var b strings.Builder
 	// i、p 表示当前遍历过程中的i、p
 	for i, p := range parts {
@@ -135,7 +135,7 @@ func buildLoginStatusQuery(t, sign string) string {
 	return b.String()
 }
 
-// classifyLoginStatus 负责classify登录状态相关处理。
+// classifyLoginStatus 封装classify登录状态业务协调。
 func classifyLoginStatus(ret []string, cookieUpdated bool) (string, string) {
 	if hasMTopSuccess(ret) {
 		return LoginStatusSuccess, "登录状态正常"
@@ -143,7 +143,7 @@ func classifyLoginStatus(ret []string, cookieUpdated bool) (string, string) {
 	if isRiskVerificationRet(ret) {
 		return LoginStatusRiskRequired, "闲鱼要求安全验证"
 	}
-	// retStr 保存retStr，供当前处理流程使用
+	// retStr 用于本次流程后续判断的retStr
 	retStr := strings.Join(ret, " ")
 	switch {
 	case strings.Contains(retStr, "TOKEN_EMPTY") || strings.Contains(retStr, "令牌为空"):

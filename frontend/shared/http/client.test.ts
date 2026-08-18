@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { del, get, post, postForm, put } from './client';
 
-afterEach(() => vi.unstubAllGlobals() /* 回调函数负责当前业务流程。 */);
+afterEach(() => vi.unstubAllGlobals() /* 清理测试安装的全局网络替身，避免跨用例泄漏。 */);
 
 describe('request helpers', () => {
   test('encodes query parameters and includes credentials', async () => {
@@ -16,7 +16,7 @@ describe('request helpers', () => {
       method: 'GET',
       credentials: 'include',
     }));
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：encodes query parameters and includes credentials。 */);
 
   test('serializes JSON bodies', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ success: true }), {
@@ -31,7 +31,7 @@ describe('request helpers', () => {
       body: JSON.stringify({ username: 'admin' }),
       headers: { 'Content-Type': 'application/json' },
     }));
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：serializes JSON bodies。 */);
 
   test('支持 PUT 和 DELETE 请求及查询参数', async () => {
     // fetchMock 是 PUT/DELETE 请求的网络替身。
@@ -45,7 +45,7 @@ describe('request helpers', () => {
     await expect(del('/items/1', { force: true })).resolves.toEqual({ ok: true });
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/items/1', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ enabled: true }) }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/items/1?force=true', expect.objectContaining({ method: 'DELETE' }));
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：支持 PUT 和 DELETE 请求及查询参数。 */);
 
   test('surfaces unified backend errors', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: 'bad_request', message: 'bad request' }), {
@@ -53,7 +53,7 @@ describe('request helpers', () => {
       headers: { 'content-type': 'application/json' },
     })));
     await expect(get('/bad')).rejects.toThrow('bad request');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：surfaces unified backend errors。 */);
 
   test('使用非 JSON 错误文本作为失败消息', async () => {
     // fetchMock 是返回纯文本错误的网络替身。
@@ -64,7 +64,7 @@ describe('request helpers', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(get('/gateway')).rejects.toThrow('网关暂时不可用');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：使用非 JSON 错误文本作为失败消息。 */);
 
   test('成功的非 JSON 响应直接返回文本', async () => {
     // fetchMock 是返回纯文本成功响应的网络替身。
@@ -75,7 +75,7 @@ describe('request helpers', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(get('/text')).resolves.toBe('ok');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：成功的非 JSON 响应直接返回文本。 */);
 
   test('JSON 错误体无法解析时使用 HTTP 状态兜底', async () => {
     // fetchMock 是返回损坏 JSON 错误体的网络替身。
@@ -86,14 +86,14 @@ describe('request helpers', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(get('/broken')).rejects.toThrow('请求失败: 500');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：JSON 错误体无法解析时使用 HTTP 状态兜底。 */);
 
   test('普通请求纯文本错误体读取失败时使用状态码兜底', /* 当前回调验证普通请求文本错误读取失败分支。 */ async () => {
     // response 是文本读取失败的普通请求响应替身。
     const response = { ok: false, status: 502, headers: { get: /* contentTypeGetter 返回纯文本类型。 */ () => 'text/plain' }, text: vi.fn().mockRejectedValue(new Error('读取失败')) } as unknown as Response;
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
     await expect(get('/broken-text')).rejects.toThrow('请求失败: 502');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：普通请求纯文本错误体读取失败时使用状态码兜底。 */);
 
   test('网络层异常原样透传', async () => {
     // fetchMock 是抛出非取消网络异常的替身。
@@ -101,7 +101,7 @@ describe('request helpers', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(get('/network-error')).rejects.toThrow('网络断开');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：网络层异常原样透传。 */);
 
   test('notifies the app when an authenticated request returns 401', async () => {
     const events = new EventTarget(); /* events 表示events。 */
@@ -115,7 +115,7 @@ describe('request helpers', () => {
 
     await expect(get('/private')).rejects.toThrow();
     expect(listener).toHaveBeenCalledOnce();
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：notifies the app when an authenticated request returns 401。 */);
 
   test('并发认证失败只触发一次登出事件', /* 当前回调验证认证失效通知的并发去重。 */ async () => {
     // events 是认证失效事件分发目标。
@@ -131,7 +131,7 @@ describe('request helpers', () => {
 
     await Promise.allSettled([get('/private-a'), get('/private-b')]);
     expect(listener).toHaveBeenCalledOnce();
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：并发认证失败只触发一次登出事件。 */);
 
   test('does not notify logout for a failed login request', async () => {
     const events = new EventTarget(); /* events 表示events。 */
@@ -145,7 +145,7 @@ describe('request helpers', () => {
 
     await expect(post('/login', {}, { skipAuthLogout: true })).rejects.toThrow();
     expect(listener).not.toHaveBeenCalled();
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：does not notify logout for a failed login request。 */);
 
   test('posts FormData without forcing a content type', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('ok', { status: 200 })); /* fetchMock 表示fetchMock。 */
@@ -158,20 +158,20 @@ describe('request helpers', () => {
 	  credentials: 'include',
 	  body: form,
 	}));
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：posts FormData without forcing a content type。 */);
 
   test('aborts requests at the configured timeout', async () => {
 	vi.useFakeTimers();
 	const fetchMock = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
-	  init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')) /* 回调函数负责当前业务流程。 */, { once: true });
-	} /* 回调函数负责当前业务流程。 */) /* 回调函数负责当前业务流程。 */); /* fetchMock 表示fetchMock。 */
+	  init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')) /* 请求被取消时拒绝网络替身 Promise。 */, { once: true });
+	} /* 网络替身只在测试显式取消前保持挂起。 */) /* mockImplementation 回调模拟永不完成的上传请求。 */); /* fetchMock 是用于观察上传请求取消的网络替身。 */
 	vi.stubGlobal('fetch', fetchMock);
 	const pending = get('/slow', undefined, { timeoutMs: 50 }); /* pending 表示pending。 */
 	const rejection = expect(pending).rejects.toThrow('请求超时'); /* rejection 表示rejection。 */
 	await vi.advanceTimersByTimeAsync(50);
 	await rejection;
 	vi.useRealTimers();
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：aborts requests at the configured timeout。 */);
 
   test('上传请求超时后返回上传专用错误', /* 当前回调验证上传请求的超时错误分支。 */ async () => {
     vi.useFakeTimers();
@@ -190,7 +190,7 @@ describe('request helpers', () => {
     } finally {
       vi.useRealTimers();
     }
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：上传请求超时后返回上传专用错误。 */);
 
   test('外部 AbortSignal 取消请求时返回取消错误', async () => {
     // controller 是调用方主动取消请求的控制器。
@@ -207,7 +207,7 @@ describe('request helpers', () => {
     const pending = get('/cancelled', undefined, { signal: controller.signal });
     controller.abort();
     await expect(pending).rejects.toThrow('请求已取消');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：外部 AbortSignal 取消请求时返回取消错误。 */);
 
   test('上传请求支持外部取消并返回取消错误', async () => {
     // controller 是上传调用方主动取消请求的控制器。
@@ -224,7 +224,7 @@ describe('request helpers', () => {
     const pending = postForm('/upload', new FormData(), { signal: controller.signal });
     controller.abort();
     await expect(pending).rejects.toThrow('请求已取消');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：上传请求支持外部取消并返回取消错误。 */);
 
   test('上传网络层异常原样透传', async () => {
     // fetchMock 是抛出非取消上传异常的替身。
@@ -232,7 +232,7 @@ describe('request helpers', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(postForm('/upload', new FormData())).rejects.toThrow('上传网络断开');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：上传网络层异常原样透传。 */);
 
   test('上传失败保留原始错误载荷', async () => {
     // payload 是服务端返回的上传错误详情。
@@ -251,14 +251,14 @@ describe('request helpers', () => {
       expect(uploadError.message).toBe('文件格式不支持');
       expect(uploadError.payload).toEqual(payload);
     }
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：上传失败保留原始错误载荷。 */);
 
   test('非 JSON 上传错误体读取失败时使用状态码兜底', /* 当前回调验证上传错误文本读取失败分支。 */ async () => {
     // response 是文本读取失败的上传响应替身。
     const response = { ok: false, status: 500, headers: { get: /* contentTypeGetter 返回纯文本类型。 */ () => 'text/plain' }, text: vi.fn().mockRejectedValue(new Error('读取失败')) } as unknown as Response;
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
     await expect(postForm('/upload', new FormData())).rejects.toThrow('请求失败: 500');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：非 JSON 上传错误体读取失败时使用状态码兜底。 */);
 
   test('上传认证失败也会触发登出事件', /* 当前回调验证上传请求的认证失效通知。 */ async () => {
     // events 是上传认证失效事件分发目标。
@@ -273,7 +273,7 @@ describe('request helpers', () => {
     })));
     await expect(postForm('/upload', new FormData())).rejects.toThrow();
     expect(listener).toHaveBeenCalledOnce();
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：上传认证失败也会触发登出事件。 */);
 
   test('请求开始前已取消的外部信号返回取消错误', /* 当前回调验证预取消信号分支。 */ async () => {
     // controller 是预先取消请求的外部控制器。
@@ -285,5 +285,5 @@ describe('request helpers', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
     await expect(get('/pre-cancelled', undefined, { signal: controller.signal })).rejects.toThrow('请求已取消');
-  } /* 回调函数负责当前业务流程。 */);
-} /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调验证：请求开始前已取消的外部信号返回取消错误。 */);
+} /* 测试套件回调汇总共享 HTTP 客户端的成功、失败与取消契约。 */);

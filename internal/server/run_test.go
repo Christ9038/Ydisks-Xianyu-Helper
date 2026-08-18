@@ -9,18 +9,19 @@ import (
 	"time"
 
 	"xianyu-go/internal/adapter"
+	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/auth"
 )
 
 // freeAddr 获取一个空闲 TCP 端口（立即释放，供测试绑定）。
 func freeAddr(t *testing.T) string {
 	t.Helper()
-	// l、err 保存l、err，供当前处理流程使用
+	// l、err 用于本次流程后续判断的l、err
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	// addr 保存addr，供当前处理流程使用
+	// addr 用于本次流程后续判断的addr
 	addr := l.Addr().String()
 	l.Close()
 	return addr
@@ -28,25 +29,25 @@ func freeAddr(t *testing.T) string {
 
 // TestRun_ServesHealthAndShutdowns 启动 HTTP 服务，/health 可访问，ctx 取消后优雅退出。
 func TestRun_ServesHealthAndShutdowns(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	srv.Addr = freeAddr(t)
 
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
-	// runDone 保存运行Done，供当前处理流程使用
+	// runDone 用于本次流程后续判断的运行Done
 	runDone := make(chan error, 1)
 	go func() { runDone <- srv.Run(ctx) }()
 
 	// 轮询 /health 直到可用（最多 3s）。
 	url := "http://" + srv.Addr + "/health"
-	// ok 保存ok，供当前处理流程使用
+	// ok 用于本次流程后续判断的ok
 	var ok bool
-	// deadline 保存deadline，供当前处理流程使用
+	// deadline 用于本次流程后续判断的deadline
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		// resp、err 保存resp、err，供当前处理流程使用
+		// resp、err 用于本次流程后续判断的resp、err
 		resp, err := http.Get(url)
 		if err == nil {
 			resp.Body.Close()
@@ -65,7 +66,7 @@ func TestRun_ServesHealthAndShutdowns(t *testing.T) {
 	// 取消 ctx → Run 应优雅退出。
 	cancel()
 	select {
-	case // err 保存err，供当前处理流程使用
+	case // err 用于本次流程后续判断的err
 	err := <-runDone:
 		if err != nil {
 			t.Fatalf("Run 应返回 nil，got %v", err)
@@ -75,19 +76,19 @@ func TestRun_ServesHealthAndShutdowns(t *testing.T) {
 	}
 }
 
-// TestPublishRecoveryLifecycleStopsBeforeWorkerWait 负责Test发布RecoveryLifecycleStopsBefore工作器Wait相关处理。
+// TestPublishRecoveryLifecycleStopsBeforeWorkerWait 封装Test发布RecoveryLifecycleStopsBefore工作器Wait业务协调。
 func TestPublishRecoveryLifecycleStopsBeforeWorkerWait(t *testing.T) {
-	// srv、cleanup 保存srv、cleanup，供当前处理流程使用
+	// srv、cleanup 用于本次流程后续判断的srv、cleanup
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	// err 表示测试批量恢复组件启动失败的原因。
 	if err := srv.applications.itemBatchCoordinator.StartRecovery(ctx); err != nil {
 		t.Fatalf("启动批量发布恢复扫描器: %v", err)
 	}
 	cancel()
-	// done 保存done，供当前处理流程使用
+	// done 用于本次流程后续判断的done
 	done := make(chan struct{})
 	go func() {
 		srv.applications.itemBatchCoordinator.Wait()
@@ -154,6 +155,8 @@ func TestNewRejectsMissingRequiredDependencies(t *testing.T) {
 	chatDependencies := adapter.NewChatDependencies(store)
 	// systemDependencies 保存平台缺失校验所需的系统专用依赖。
 	systemDependencies := adapter.NewSystemDependencies(store)
+	// databaseHealth 是进程组合根提供给 Server 的数据库健康检查端口。
+	databaseHealth := systemDependencies.NewDatabaseHealth()
 	// automationDependencies 保存平台缺失校验所需的自动化专用依赖及构造错误。
 	automationDependencies, automationDependencyErr := adapter.NewAutomationDependencies(store)
 	if automationDependencyErr != nil {
@@ -166,28 +169,53 @@ func TestNewRejectsMissingRequiredDependencies(t *testing.T) {
 	}
 	// adminSettingsDependencies 保存平台缺失校验所需的管理员设置依赖。
 	adminSettingsDependencies := adapter.NewAdminSettingsDependencies(store)
-	if chatDependencies == nil || systemDependencies == nil || adminSettingsDependencies == nil {
+	if chatDependencies == nil || systemDependencies == nil || databaseHealth == nil || adminSettingsDependencies == nil {
 		t.Fatal("显式 Server 依赖构造失败")
 	}
-	// err 是聊天或系统等显式依赖缺失时的构造校验错误。
+	// transportApplications 是构造失败测试使用的完整 transport-facing 服务集合。
+	transportApplications, transportApplicationsErr := adapter.NewTransportApplicationServices(adapter.TransportApplicationServiceOptions{
+		AutomationDependencies:    automationDependencies,
+		MiscDependencies:          miscDependencies,
+		AdminSettingsDependencies: adminSettingsDependencies,
+		AccountTaskRunner:         adapter.NewAccountTaskRunner(nil),
+		ModelClient:               adapter.NewAIModelClient(),
+	})
+	if transportApplicationsErr != nil {
+		t.Fatalf("NewTransportApplicationServices: %v", transportApplicationsErr)
+	}
+	// orderReconciliationRecovery 是完整构造路径需要的订单补偿扫描应用服务。
+	orderReconciliationRecovery, reconciliationErr := orderapp.NewReconciliationRecoveryCoordinator(systemDependencies.NewReconciliationService(nil))
+	if reconciliationErr != nil {
+		t.Fatalf("NewReconciliationRecoveryCoordinator: %v", reconciliationErr)
+	}
+	// err 是聊天或健康检查端口等显式依赖缺失时的构造校验错误。
 	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies)); err == nil {
-		t.Fatal("缺少聊天或系统专用依赖时应返回构造错误")
+		t.Fatal("缺少聊天或健康检查端口时应返回构造错误")
+	}
+	// err 是全部业务依赖齐全但遗漏健康检查端口时的构造错误。
+	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies)); err == nil {
+		t.Fatal("缺少数据库健康检查端口时应返回构造错误")
 	}
 	// err 是缺少平台依赖注入时的构造校验错误。
-	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithSystemDependencies(systemDependencies), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithMiscDependencies(miscDependencies), WithAdminSettingsDependencies(adminSettingsDependencies)); err == nil {
+	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications)); err == nil {
 		t.Fatal("缺少平台依赖时应返回构造错误")
 	}
 	// err 是缺少自动化专用依赖时的构造校验错误。
-	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithSystemDependencies(systemDependencies), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithMiscDependencies(miscDependencies), WithAdminSettingsDependencies(adminSettingsDependencies), WithPlatformDependencies(platformDependencies)); err == nil {
+	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies)); err == nil {
 		t.Fatal("缺少自动化专用依赖时应返回构造错误")
 	}
-	// err 是缺少杂项专用依赖时的构造校验错误。
-	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithSystemDependencies(systemDependencies), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithAdminSettingsDependencies(adminSettingsDependencies), WithPlatformDependencies(platformDependencies)); err == nil {
-		t.Fatal("缺少杂项专用依赖时应返回构造错误")
+	// err 是缺少 transport 应用服务集合时的构造校验错误。
+	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithPlatformDependencies(platformDependencies)); err == nil {
+		t.Fatal("缺少 transport 应用服务集合时应返回构造错误")
 	}
-	// err 是缺少管理员设置专用依赖时的构造校验错误。
-	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithSystemDependencies(systemDependencies), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithMiscDependencies(miscDependencies), WithPlatformDependencies(platformDependencies)); err == nil {
-		t.Fatal("缺少管理员设置专用依赖时应返回构造错误")
+	// err 是全部基础设施依赖齐全但遗漏进程装配应用服务时的构造错误。
+	if _, err := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies)); err == nil {
+		t.Fatal("缺少订单补偿扫描应用服务时应返回构造错误")
+	}
+	// fullyConstructedServer、constructErr 分别是完整注入后的 HTTP 服务及构造错误。
+	fullyConstructedServer, constructErr := New(authentication, srv.Manager, "", ":0", nil, nil, nil, WithChatDependencies(chatDependencies), WithDatabaseHealth(databaseHealth), WithOrderReconciliationRecovery(orderReconciliationRecovery), WithOrderDependencies(orderDependencies), WithAccountDependencies(accountDependencies), WithItemDependencies(itemDependencies), WithAutomationDependencies(automationDependencies), WithTransportApplicationServices(transportApplications), WithPlatformDependencies(platformDependencies))
+	if constructErr != nil || fullyConstructedServer == nil {
+		t.Fatalf("完整依赖注入应构造成功: server=%v err=%v", fullyConstructedServer, constructErr)
 	}
 }
 
@@ -197,11 +225,11 @@ func TestServerStartStopIsIdempotentAndWaitsForWorkers(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	srv.Addr = freeAddr(t)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := srv.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := srv.Start(context.Background()); err != nil {
 		t.Fatalf("重复 Start: %v", err)
 	}

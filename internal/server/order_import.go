@@ -22,9 +22,9 @@ import (
 // parseImportedOrders 从 HTTP 请求体解析导入的订单。
 // 支持两种入口：multipart/form-data 上传文件（按扩展名分流），或 raw body（按内容分流）。
 // 上限 maxOrderImportBytes（32 MiB），由调用方在更上层用 MaxBytesReader 强制。
-// parseImportedOrders 负责parseImported订单列表相关处理。
+// parseImportedOrders 封装parseImported订单列表业务协调。
 func parseImportedOrders(w http.ResponseWriter, r *http.Request) ([]map[string]any, error) {
-	// ct 保存ct，供当前处理流程使用
+	// ct 用于本次流程后续判断的ct
 	ct := r.Header.Get("Content-Type")
 	if strings.HasPrefix(ct, "multipart/form-data") {
 		// 订单文件上限 32 MiB；MaxBytesReader 必须在 ParseMultipartForm 前应用。
@@ -33,13 +33,13 @@ func parseImportedOrders(w http.ResponseWriter, r *http.Request) ([]map[string]a
 		if err := r.ParseMultipartForm(maxOrderImportBytes); err != nil {
 			return nil, fmt.Errorf("解析上传文件失败: %w", err)
 		}
-		// file、header、err 保存file、header、err，供当前处理流程使用
+		// file、header、err 用于本次流程后续判断的file、header、err
 		file, header, err := r.FormFile("file")
 		if err != nil {
 			return nil, fmt.Errorf("缺少上传文件")
 		}
 		defer file.Close()
-		// raw、err 保存raw、err，供当前处理流程使用
+		// raw、err 用于本次流程后续判断的raw、err
 		raw, err := io.ReadAll(io.LimitReader(file, int64(maxOrderImportBytes)+1))
 		if err != nil {
 			return nil, fmt.Errorf("读取上传文件失败: %w", err)
@@ -49,7 +49,7 @@ func parseImportedOrders(w http.ResponseWriter, r *http.Request) ([]map[string]a
 		}
 		return parseImportedOrderBytes(raw, header.Filename)
 	}
-	// raw、err 保存raw、err，供当前处理流程使用
+	// raw、err 用于本次流程后续判断的raw、err
 	raw, err := io.ReadAll(io.LimitReader(r.Body, int64(maxOrderImportBytes)+1))
 	if err != nil {
 		return nil, fmt.Errorf("读取请求失败: %w", err)
@@ -84,7 +84,7 @@ func parseImportedOrderBytes(raw []byte, filename string) ([]map[string]any, err
 
 // parseJSONOrders 解析 JSON 数组或单对象。
 func parseJSONOrders(raw []byte) ([]map[string]any, error) {
-	// trimmed 保存trimmed，供当前处理流程使用
+	// trimmed 用于本次流程后续判断的trimmed
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
 		return nil, fmt.Errorf("导入内容为空")
@@ -92,34 +92,34 @@ func parseJSONOrders(raw []byte) ([]map[string]any, error) {
 	if trimmed[0] == '[' {
 		return parseJSONOrderArray(trimmed)
 	}
-	// single 保存single，供当前处理流程使用
+	// single 用于本次流程后续判断的single
 	var single map[string]any
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal(trimmed, &single); err != nil {
 		return nil, fmt.Errorf("解析 JSON 失败: %w", err)
 	}
 	return normalizeImportOrderMaps([]map[string]any{single}), nil
 }
 
-// parseJSONOrderArray 负责parseJSON订单Array相关处理。
+// parseJSONOrderArray 封装parseJSON订单Array业务协调。
 func parseJSONOrderArray(raw []byte) ([]map[string]any, error) {
-	// dec 保存dec，供当前处理流程使用
+	// dec 用于本次流程后续判断的dec
 	dec := json.NewDecoder(bytes.NewReader(raw))
-	// tok、err 保存tok、err，供当前处理流程使用
+	// tok、err 用于本次流程后续判断的tok、err
 	tok, err := dec.Token()
 	if err != nil {
 		return nil, fmt.Errorf("解析 JSON 失败: %w", err)
 	}
-	if // delim、ok 保存delim、ok，供当前处理流程使用
+	if // delim、ok 用于本次流程后续判断的delim、ok
 	delim, ok := tok.(json.Delim); !ok || delim != '[' {
 		return nil, fmt.Errorf("解析 JSON 失败: 不是数组")
 	}
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := make([]map[string]any, 0, 256)
 	for dec.More() {
-		// row 保存row，供当前处理流程使用
+		// row 用于本次流程后续判断的row
 		var row map[string]any
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := dec.Decode(&row); err != nil {
 			return nil, fmt.Errorf("解析 JSON 失败: %w", err)
 		}
@@ -130,13 +130,13 @@ func parseJSONOrderArray(raw []byte) ([]map[string]any, error) {
 	}
 	if tok, err = dec.Token(); err != nil {
 		return nil, fmt.Errorf("解析 JSON 失败: %w", err)
-	} else if // delim、ok 保存delim、ok，供当前处理流程使用
+	} else if // delim、ok 用于本次流程后续判断的delim、ok
 	delim, ok := tok.(json.Delim); !ok || delim != ']' {
 		return nil, fmt.Errorf("解析 JSON 失败: 数组未闭合")
 	}
-	// extra 保存extra，供当前处理流程使用
+	// extra 用于本次流程后续判断的extra
 	var extra any
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := dec.Decode(&extra); err != io.EOF {
 		if err == nil {
 			return nil, fmt.Errorf("解析 JSON 失败: 存在额外内容")
@@ -148,24 +148,24 @@ func parseJSONOrderArray(raw []byte) ([]map[string]any, error) {
 
 // parseDelimitedOrders 解析 CSV/TSV（按 comma 分隔）。首行为表头，其余为数据行。
 // 全空行跳过。
-// parseDelimitedOrders 负责parseDelimited订单列表相关处理。
+// parseDelimitedOrders 封装parseDelimited订单列表业务协调。
 func parseDelimitedOrders(raw []byte, comma rune) ([]map[string]any, error) {
-	// reader 保存reader，供当前处理流程使用
+	// reader 用于本次流程后续判断的reader
 	reader := csv.NewReader(bytes.NewReader(raw))
 	reader.Comma = comma
 	reader.FieldsPerRecord = -1
 	reader.LazyQuotes = true
-	// headerRow、err 保存headerRow、err，供当前处理流程使用
+	// headerRow、err 用于本次流程后续判断的headerRow、err
 	headerRow, err := reader.Read()
 	if err != nil {
 		return nil, fmt.Errorf("解析表格失败: %w", err)
 	}
-	// headers 保存headers，供当前处理流程使用
+	// headers 用于本次流程后续判断的headers
 	headers := normalizeImportHeaders(headerRow)
-	// rows 保存rows，供当前处理流程使用
+	// rows 用于本次流程后续判断的rows
 	rows := make([][]string, 0, 256)
 	for {
-		// record、err 保存record、err，供当前处理流程使用
+		// record、err 用于本次流程后续判断的record、err
 		record, err := reader.Read()
 		if err == io.EOF {
 			break
@@ -186,19 +186,19 @@ func parseDelimitedOrders(raw []byte, comma rune) ([]map[string]any, error) {
 
 // parseXLSXOrders 解析 .xlsx（OOXML）：读取 sharedStrings + 第一个 worksheet，
 // 按 cell ref（如 "C3"）定位列索引，支持共享字符串、内联字符串、数字三种 cell 类型。
-// parseXLSXOrders 负责parseXLSX订单列表相关处理。
+// parseXLSXOrders 封装parseXLSX订单列表业务协调。
 func parseXLSXOrders(raw []byte) ([]map[string]any, error) {
-	// zr、err 保存zr、err，供当前处理流程使用
+	// zr、err 用于本次流程后续判断的zr、err
 	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
 	if err != nil {
 		return nil, fmt.Errorf("解析 xlsx 失败: %w", err)
 	}
-	// shared、err 保存shared、err，供当前处理流程使用
+	// shared、err 用于本次流程后续判断的shared、err
 	shared, err := xlsxSharedStrings(zr)
 	if err != nil {
 		return nil, err
 	}
-	// sheet 保存sheet，供当前处理流程使用
+	// sheet 用于本次流程后续判断的sheet
 	var sheet *zip.File
 	// f 表示当前遍历过程中的f
 	for _, f := range zr.File {
@@ -210,26 +210,26 @@ func parseXLSXOrders(raw []byte) ([]map[string]any, error) {
 	if sheet == nil {
 		return nil, fmt.Errorf("xlsx 中未找到工作表")
 	}
-	// rawSheet、err 保存原始Sheet、err，供当前处理流程使用
+	// rawSheet、err 用于本次流程后续判断的原始Sheet、err
 	rawSheet, err := readXLSXPart(sheet)
 	if err != nil {
 		return nil, err
 	}
-	// ws 保存ws，供当前处理流程使用
+	// ws 用于本次流程后续判断的ws
 	var ws xlsxWorksheet
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := xmlUnmarshalXLSX(rawSheet, &ws); err != nil {
 		return nil, fmt.Errorf("解析工作表失败: %w", err)
 	}
-	// rows 保存rows，供当前处理流程使用
+	// rows 用于本次流程后续判断的rows
 	rows := make([][]string, 0, len(ws.SheetData.Rows))
 	// row 表示当前遍历过程中的row
 	for _, row := range ws.SheetData.Rows {
-		// values 保存values，供当前处理流程使用
+		// values 用于本次流程后续判断的values
 		values := []string{}
 		// cell 表示当前遍历过程中的cell
 		for _, cell := range row.Cells {
-			// idx 保存idx，供当前处理流程使用
+			// idx 用于本次流程后续判断的idx
 			idx := xlsxCellIndex(cell.Ref)
 			for len(values) <= idx {
 				values = append(values, "")
@@ -241,9 +241,9 @@ func parseXLSXOrders(raw []byte) ([]map[string]any, error) {
 	if len(rows) < 2 {
 		return nil, fmt.Errorf("xlsx 至少需要表头和一行数据")
 	}
-	// headers 保存headers，供当前处理流程使用
+	// headers 用于本次流程后续判断的headers
 	headers := normalizeImportHeaders(rows[0])
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := rowsToMaps(headers, rows[1:])
 	if len(out) > maxOrderImportRows {
 		return nil, fmt.Errorf("单次最多导入 %d 条订单", maxOrderImportRows)
@@ -253,20 +253,20 @@ func parseXLSXOrders(raw []byte) ([]map[string]any, error) {
 
 // rowsToMaps 把表头 + 数据行转为 map 列表，全空行跳过。
 func rowsToMaps(headers []string, rows [][]string) []map[string]any {
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := make([]map[string]any, 0, len(rows))
 	// row 表示当前遍历过程中的row
 	for _, row := range rows {
-		// m 保存m，供当前处理流程使用
+		// m 用于本次流程后续判断的m
 		m := make(map[string]any)
-		// nonEmpty 保存nonEmpty，供当前处理流程使用
+		// nonEmpty 用于本次流程后续判断的nonEmpty
 		nonEmpty := false
 		// i、h 表示当前遍历过程中的i、h
 		for i, h := range headers {
 			if h == "" || i >= len(row) {
 				continue
 			}
-			// v 保存v，供当前处理流程使用
+			// v 用于本次流程后续判断的v
 			v := strings.TrimSpace(row[i])
 			if v != "" {
 				nonEmpty = true
@@ -282,19 +282,19 @@ func rowsToMaps(headers []string, rows [][]string) []map[string]any {
 
 // ---- XLSX OOXML 内部结构 ----
 
-// xlsxWorksheet 保存xlsxWorksheet，供当前处理流程使用
+// xlsxWorksheet 用于本次流程后续判断的xlsxWorksheet
 type xlsxWorksheet struct {
 	SheetData struct {
 		Rows []xlsxRow `xml:"row"`
 	} `xml:"sheetData"`
 }
 
-// xlsxRow 保存xlsxRow，供当前处理流程使用
+// xlsxRow 用于本次流程后续判断的xlsxRow
 type xlsxRow struct {
 	Cells []xlsxCell `xml:"c"`
 }
 
-// xlsxCell 保存xlsxCell，供当前处理流程使用
+// xlsxCell 用于本次流程后续判断的xlsxCell
 type xlsxCell struct {
 	Ref       string `xml:"r,attr"`
 	Type      string `xml:"t,attr"`
@@ -302,7 +302,7 @@ type xlsxCell struct {
 	InlineStr string `xml:"is>t"`
 }
 
-// xlsxSST 保存xlsxSST，供当前处理流程使用
+// xlsxSST 用于本次流程后续判断的xlsxSST
 type xlsxSST struct {
 	Items []struct {
 		Inner string `xml:",innerxml"`
@@ -316,18 +316,18 @@ func xlsxSharedStrings(zr *zip.Reader) ([]string, error) {
 		if f.Name != "xl/sharedStrings.xml" {
 			continue
 		}
-		// raw、err 保存raw、err，供当前处理流程使用
+		// raw、err 用于本次流程后续判断的raw、err
 		raw, err := readXLSXPart(f)
 		if err != nil {
 			return nil, err
 		}
-		// sst 保存sst，供当前处理流程使用
+		// sst 用于本次流程后续判断的sst
 		var sst xlsxSST
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := xmlUnmarshalXLSX(raw, &sst); err != nil {
 			return nil, err
 		}
-		// out 保存out，供当前处理流程使用
+		// out 用于本次流程后续判断的out
 		out := make([]string, 0, len(sst.Items))
 		// item 表示当前遍历过程中的商品
 		for _, item := range sst.Items {
@@ -338,9 +338,9 @@ func xlsxSharedStrings(zr *zip.Reader) ([]string, error) {
 	return nil, nil
 }
 
-// readXLSXPart 负责readXLSXPart相关处理。
+// readXLSXPart 封装readXLSXPart业务协调。
 func readXLSXPart(f *zip.File) ([]byte, error) {
-	// rc、err 保存rc、err，供当前处理流程使用
+	// rc、err 用于本次流程后续判断的rc、err
 	rc, err := f.Open()
 	if err != nil {
 		return nil, err
@@ -349,9 +349,9 @@ func readXLSXPart(f *zip.File) ([]byte, error) {
 	return readLimitedXLSXXML(rc)
 }
 
-// readLimitedXLSXXML 负责readLimitedXLSXXML相关处理。
+// readLimitedXLSXXML 封装readLimitedXLSXXML业务协调。
 func readLimitedXLSXXML(r io.Reader) ([]byte, error) {
-	// raw、err 保存raw、err，供当前处理流程使用
+	// raw、err 用于本次流程后续判断的raw、err
 	raw, err := io.ReadAll(io.LimitReader(r, maxXLSXXMLPartBytes+1))
 	if err != nil {
 		return nil, err
@@ -362,7 +362,7 @@ func readLimitedXLSXXML(r io.Reader) ([]byte, error) {
 	return raw, nil
 }
 
-// xmlUnmarshalXLSX 负责xmlUnmarshalXLSX相关处理。
+// xmlUnmarshalXLSX 封装xmlUnmarshalXLSX业务协调。
 func xmlUnmarshalXLSX(raw []byte, v any) error {
 	return xml.Unmarshal(raw, v)
 }
@@ -371,7 +371,7 @@ func xmlUnmarshalXLSX(raw []byte, v any) error {
 func xlsxCellValue(cell xlsxCell, shared []string) string {
 	switch cell.Type {
 	case "s":
-		// idx 保存idx，供当前处理流程使用
+		// idx 用于本次流程后续判断的idx
 		idx, _ := strconv.Atoi(strings.TrimSpace(cell.Value))
 		if idx >= 0 && idx < len(shared) {
 			return shared[idx]
@@ -384,7 +384,7 @@ func xlsxCellValue(cell xlsxCell, shared []string) string {
 
 // xlsxCellIndex 把 cell ref 的列部分（如 "C3" → "C"）转为 0-based 列索引。
 func xlsxCellIndex(ref string) int {
-	// idx 保存idx，供当前处理流程使用
+	// idx 用于本次流程后续判断的idx
 	idx := 0
 	// r 表示当前遍历过程中的r
 	for _, r := range ref {
@@ -401,17 +401,17 @@ func xlsxCellIndex(ref string) int {
 
 // xmlCharData 从 innerxml 片段中抽取所有字符数据（拼接富文本格式的单元格内容）。
 func xmlCharData(inner string) string {
-	// dec 保存dec，供当前处理流程使用
+	// dec 用于本次流程后续判断的dec
 	dec := xml.NewDecoder(strings.NewReader("<x>" + inner + "</x>"))
-	// parts 保存parts，供当前处理流程使用
+	// parts 用于本次流程后续判断的parts
 	var parts []string
 	for {
-		// tok、err 保存tok、err，供当前处理流程使用
+		// tok、err 用于本次流程后续判断的tok、err
 		tok, err := dec.Token()
 		if err != nil {
 			break
 		}
-		if // data、ok 保存data、ok，供当前处理流程使用
+		if // data、ok 用于本次流程后续判断的data、ok
 		data, ok := tok.(xml.CharData); ok {
 			parts = append(parts, string(data))
 		}
@@ -423,7 +423,7 @@ func xmlCharData(inner string) string {
 
 // normalizeImportOrderMaps 归一化 JSON 解析结果的 key（中文/英文别名 → 标准字段名）。
 func normalizeImportOrderMaps(in []map[string]any) []map[string]any {
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := make([]map[string]any, 0, len(in))
 	// raw 表示当前遍历过程中的原始
 	for _, raw := range in {
@@ -432,9 +432,9 @@ func normalizeImportOrderMaps(in []map[string]any) []map[string]any {
 	return out
 }
 
-// normalizeImportOrderMap 负责normalizeImport订单Map相关处理。
+// normalizeImportOrderMap 封装normalizeImport订单Map业务协调。
 func normalizeImportOrderMap(raw map[string]any) map[string]any {
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	m := make(map[string]any)
 	// k、v 表示当前遍历过程中的k、v
 	for k, v := range raw {
@@ -443,9 +443,9 @@ func normalizeImportOrderMap(raw map[string]any) map[string]any {
 	return m
 }
 
-// normalizeImportHeaders 负责normalizeImportHeaders相关处理。
+// normalizeImportHeaders 封装normalizeImportHeaders业务协调。
 func normalizeImportHeaders(headers []string) []string {
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := make([]string, len(headers))
 	// i、h 表示当前遍历过程中的i、h
 	for i, h := range headers {
@@ -456,9 +456,9 @@ func normalizeImportHeaders(headers []string) []string {
 
 // normalizeImportHeader 把表头归一为小写无分隔的标准字段名。
 // 支持中英文别名（如 "订单号"→"order_id"、"商品标题"→"item_title"）。
-// normalizeImportHeader 负责normalizeImportHeader相关处理。
+// normalizeImportHeader 封装normalizeImportHeader业务协调。
 func normalizeImportHeader(header string) string {
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := strings.ToLower(strings.TrimSpace(header))
 	h = strings.NewReplacer(" ", "", "_", "", "-", "", "（", "(", "）", ")").Replace(h)
 	switch h {
@@ -505,9 +505,9 @@ func normalizeImportHeader(header string) string {
 func firstImportString(m map[string]any, keys ...string) string {
 	// k 表示当前遍历过程中的k
 	for _, k := range keys {
-		if // v、ok 保存v、ok，供当前处理流程使用
+		if // v、ok 用于本次流程后续判断的v、ok
 		v, ok := m[k]; ok {
-			// s 保存s，供当前处理流程使用
+			// s 用于本次流程后续判断的s
 			s := strings.TrimSpace(stringFromAny(v))
 			if s != "" {
 				return s
@@ -519,7 +519,7 @@ func firstImportString(m map[string]any, keys ...string) string {
 
 // stringFromAny 把 any 安全转为字符串（nil→""，数字/布尔格式化）。
 func stringFromAny(v any) string {
-	switch // x 保存x，供当前处理流程使用
+	switch // x 用于本次流程后续判断的x
 	x := v.(type) {
 	case nil:
 		return ""

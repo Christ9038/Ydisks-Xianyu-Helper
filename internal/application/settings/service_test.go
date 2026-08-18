@@ -178,7 +178,7 @@ func TestServiceRejectsSensitivePlainValue(t *testing.T) {
 	repository := &settingsRepositoryFake{sensitiveKeys: []string{"ai_api_key"}}
 	// service 保存待测试的设置应用服务。
 	service := NewService(repository, nil)
-	// err 表示错误的普通敏感值写入结果。
+	// err 记录当前操作失败原因的普通敏感值写入结果。
 	err := service.ApplySystemChanges(context.Background(), 7, map[string]string{"ai_api_key": "secret"}, nil)
 	if err == nil || !strings.Contains(err.Error(), "敏感设置") {
 		t.Fatalf("sensitive plain value should fail: %v", err)

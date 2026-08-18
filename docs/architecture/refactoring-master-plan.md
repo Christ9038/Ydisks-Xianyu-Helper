@@ -58,11 +58,9 @@ React app shell
   空列表编码为 `[]`，前端同时接受数组、包裹对象和 `null`；对应回归测试是强制契约。
 - 远端 `main` 的文档链接变更不影响运行功能。生成前端资产的文本冲突必须通过当前源码重新构建
   解决，禁止手工合并压缩产物。
-- Server 生产代码已迁移到应用 Port，架构检查当前可通过；阶段 4 已移除 Server 暴露
-  `*sql.Tx` 的遗留事务边界，并将订单刷新任务、订单补偿扫描、批量发布 worker、扫码会话、账号登录、
-  商品、聊天、通知、分析、卡券、自动化和管理员设置装配下沉到应用服务与显式类型化依赖。Session 恢复、
-  订单运行时 typed port 和账号凭证恢复协调也已完成，已知调用方不再依赖集中式 `adapter.Dependencies`；
-  阶段 4 与阶段 5 已完成。
+- Server 业务用例主体已迁移到应用 Port，架构检查当前可通过；阶段 4 的事务边界和低层访问已收口。
+  transport-facing 应用服务集合、订单补偿恢复和数据库健康检查已经由 `cmd/server` 组合根显式构造并注入
+  Server；阶段 5 的外部调用取消/超时审计和最终 Join 已完成验收，后续不得重新引入 Server 组合业务服务或游离 worker。
 - 账号敏感摘要与秘密访问已经分离，并已有审计和多数据库覆盖；阶段 2 可视为完成，但后续迭代
   不得重新扩大读取、解密、序列化或日志范围。
 - HTTP `/api/v1` 版本化、具名 DTO、统一错误、前端兼容归一和调用方审计已完成阶段 3 验收；
@@ -71,7 +69,7 @@ React app shell
 - Engine `Account` 与 Automation `Center` 已收束为稳定 facade；连接、出站消息、凭证、运行检查点、
   动作执行、库存、通知和迟到续期分别由明确组件拥有。集中前端 API/类型文件和若干大型 Hook
   仍属于阶段 7 的后续范围。
-- 阶段 5 已完成进程级应用装配与生命周期收口；生命周期清单保留 Engine/Automation 内部状态拆分和运维观测等后续阶段风险，但不再允许回流为 Server 或 cmd 的隐式后台入口。
+- 阶段 5 的生命周期协调器、应用服务组合根、独立关闭预算和可重试 Join 已落地并完成验收；生命周期清单保留同步 Playwright 停止不可中断等实现约束，以及 Engine/Automation 内部状态拆分和运维观测等后续风险。
 - 三方言迁移编号当前对齐，订单已有游标和批量写入能力；跨 repository 事务、查询计划、补偿和
   大数据量行为仍需阶段 8 统一验收。
 - 注释历史基线文件当前为空，但源码仍存在“保存 X 供当前流程使用”等模板化注释。机械基线清零
@@ -93,8 +91,8 @@ React app shell
 | 4. Server 应用服务 | 已完成 | 把完整业务用例和事务边界移出 transport |
 | 5. 应用装配与生命周期 | 已完成 | 消除隐式装配、业务 worker 和游离后台任务 |
 | 6. Engine 与 Automation | 已完成 | 将大 facade 拆为有明确状态所有权的组件 |
-| 7. React Feature 化 | 已完成 | 完成 feature 边界、请求归属、状态和按路由加载 |
-| 8. DB 与事务治理 | 当前迭代 | 完成窄 repository、Unit of Work 和三方言验收 |
+| 7. React Feature 化 | 当前迭代 | 完成 feature 边界、请求归属、状态和按路由加载 |
+| 8. DB 与事务治理 | 已完成 | 完成窄 repository、Unit of Work 和三方言验收 |
 | 9. 架构门禁与兼容退场 | 待执行 | 封死依赖旁路并按 Sunset 删除兼容层 |
 | 10. 注释与复杂度收口 | 待执行 | 清除模板注释和复杂度债务，形成最终质量门禁 |
 
@@ -124,7 +122,7 @@ React app shell
 
 ```bash
 go run ./tools/architecturecheck
-go run ./tools/commentlint -mode check -root . -baseline .commentlint/go-baseline.json
+go run ./tools/commentlint -mode check -root .
 npm --prefix frontend run comments:check
 ```
 
@@ -267,6 +265,7 @@ make comments
 - 消除必需依赖 setter、请求期懒装配和部分构造可见状态。
 - 把订单刷新、批量发布、恢复、reconciliation 和实时连接等业务 worker 移出 Server transport。
 - 每个后台任务提供 owner、Context 来源、Cancel、Wait/Join、超时和观测状态。
+- 所有通知、平台、续期、二维码、WebSocket 和浏览器外部调用都必须响应所属 Context；无法中断的同步调用必须有明确硬超时并在清单中记录。
 - 账号删除先 fencing，受限等待运行时退出，再复核归属并删除。
 - Stop/Close 在契约允许时幂等；晚到写入由 generation、lease 或 token 拒绝。
 - 清空 `lifecycle-inventory.md` 中的剩余风险后，将其保留为静态组件清单而非进度日志。
@@ -277,6 +276,7 @@ make comments
 - 所有 goroutine 都能由拥有者取消并等待，不使用超时后遗留的等待 goroutine。
 - 重复 Start/Stop、先 Stop、启动失败回滚、超时和晚到写入有确定性测试。
 - 关闭顺序不持锁等待网络、浏览器或用户操作。
+- 生命周期审计清单记录每个外部调用的取消路径、硬超时、无法取消的实现约束和可重试 Join 入口。
 
 ### 强制验证
 

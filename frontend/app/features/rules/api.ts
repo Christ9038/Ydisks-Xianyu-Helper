@@ -207,7 +207,7 @@ export interface AutomationRunIssue {
   /** cookie_id 表示登录凭证标识。 */ cookie_id: string;
   /** order_id 表示订单标识。 */ order_id: string;
   /** trigger_type 表示触发条件类型。 */ trigger_type: string;
-  /** error_message 表示错误消息。 */ error_message: string;
+  /** error_message 保存自动化运行失败的可展示说明，不包含账号凭证。 */ error_message: string;
   /** issue_kind 表示问题类型。 */ issue_kind: 'external_result_unknown' | 'invalid_snapshot' | 'rule_unavailable' | 'partial_failure' | 'execution_failed';
   /** allowed_resolutions 表示允许的解决方式。 */ allowed_resolutions: Array<'continue' | 'retry' | 'cancel'>;
   /** action_cursor 表示动作游标。 */ action_cursor: number;
@@ -219,7 +219,7 @@ export interface DeferredAutomationIssue {
   /** id 表示标识。 */ id: number;
   /** cookie_id 表示登录凭证标识。 */ cookie_id: string;
   /** trigger_type 表示触发条件类型。 */ trigger_type: string;
-  /** error_message 表示错误消息。 */ error_message: string;
+  /** error_message 保存延迟自动化任务的失败说明，不包含账号凭证。 */ error_message: string;
   /** attempt_count 表示尝试次数。 */ attempt_count: number;
   /** updated_at 表示最后更新时间。 */ updated_at: string;
 }

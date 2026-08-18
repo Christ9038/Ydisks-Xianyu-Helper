@@ -17,15 +17,15 @@ import (
 	"xianyu-go/internal/xianyu/cookierefresh"
 )
 
-// roundTripFunc 保存roundTripFunc，供当前处理流程使用
+// roundTripFunc 用于本次流程后续判断的roundTripFunc
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
-// RoundTrip 负责RoundTrip相关处理。
+// RoundTrip 封装RoundTrip业务协调。
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
-// failingReadCloser 保存failingReadCloser，供当前处理流程使用
+// failingReadCloser 用于本次流程后续判断的failingReadCloser
 type failingReadCloser struct {
 	err error
 }
@@ -36,17 +36,17 @@ func (r failingReadCloser) Read([]byte) (int, error) { return 0, r.err }
 // Close 关闭当前值。
 func (failingReadCloser) Close() error { return nil }
 
-// futureMillis 负责futureMillis相关处理。
+// futureMillis 封装futureMillis业务协调。
 func futureMillis(d time.Duration) string {
 	return strconv.FormatInt(time.Now().Add(d).UnixMilli(), 10)
 }
 
-// useTestDesktopFingerprint 负责useTestDesktopFingerprint相关处理。
+// useTestDesktopFingerprint 封装useTestDesktopFingerprint业务协调。
 func useTestDesktopFingerprint(t *testing.T) xianyu.BrowserFingerprint {
 	t.Helper()
-	// old 保存old，供当前处理流程使用
+	// old 用于本次流程后续判断的old
 	old := xianyu.CurrentBrowserFingerprint()
-	// fingerprint 保存fingerprint，供当前处理流程使用
+	// fingerprint 用于本次流程后续判断的fingerprint
 	fingerprint := xianyu.BrowserFingerprint{
 		UserAgent: `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/999.0.0.0 Safari/537.36`,
 		SecChUA:   `"Chromium";v="999", "Google Chrome";v="999", "Not_A Brand";v="24"`,
@@ -58,12 +58,12 @@ func useTestDesktopFingerprint(t *testing.T) xianyu.BrowserFingerprint {
 	return fingerprint
 }
 
-// useTestLinuxFingerprint 负责useTestLinuxFingerprint相关处理。
+// useTestLinuxFingerprint 封装useTestLinuxFingerprint业务协调。
 func useTestLinuxFingerprint(t *testing.T) xianyu.BrowserFingerprint {
 	t.Helper()
-	// old 保存old，供当前处理流程使用
+	// old 用于本次流程后续判断的old
 	old := xianyu.CurrentBrowserFingerprint()
-	// fingerprint 保存fingerprint，供当前处理流程使用
+	// fingerprint 用于本次流程后续判断的fingerprint
 	fingerprint := xianyu.BrowserFingerprint{
 		UserAgent: `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36`,
 		SecChUA:   `"Chromium";v="138", "Not_A Brand";v="24"`,
@@ -75,11 +75,11 @@ func useTestLinuxFingerprint(t *testing.T) xianyu.BrowserFingerprint {
 	return fingerprint
 }
 
-// TestAutoLoginModeMatchesBrowserPlugin 负责TestAuto登录模式Matches浏览器Plugin相关处理。
+// TestAutoLoginModeMatchesBrowserPlugin 封装TestAuto登录模式Matches浏览器Plugin业务协调。
 func TestAutoLoginModeMatchesBrowserPlugin(t *testing.T) {
-	// now 保存now，供当前处理流程使用
+	// now 用于本次流程后续判断的now
 	now := time.Now()
-	// tests 保存tests，供当前处理流程使用
+	// tests 用于本次流程后续判断的tests
 	tests := []struct {
 		name       string
 		cookies    map[string]string
@@ -95,7 +95,7 @@ func TestAutoLoginModeMatchesBrowserPlugin(t *testing.T) {
 	// tt 表示当前遍历过程中的tt
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// mode、reason 保存mode、reason，供当前处理流程使用
+			// mode、reason 用于本次流程后续判断的mode、reason
 			mode, reason := autoLoginMode(tt.cookies, now)
 			if mode != tt.wantMode || reason != tt.wantReason {
 				t.Fatalf("mode=%q reason=%q, want mode=%q reason=%q", mode, reason, tt.wantMode, tt.wantReason)
@@ -104,29 +104,29 @@ func TestAutoLoginModeMatchesBrowserPlugin(t *testing.T) {
 	}
 }
 
-// TestAutoLoginDecisionUsesFirstCookieForDuplicatePaths 负责TestAuto登录DecisionUsesFirst登录凭证ForDuplicatePaths相关处理。
+// TestAutoLoginDecisionUsesFirstCookieForDuplicatePaths 封装TestAuto登录DecisionUsesFirst登录凭证ForDuplicatePaths业务协调。
 func TestAutoLoginDecisionUsesFirstCookieForDuplicatePaths(t *testing.T) {
-	// now 保存now，供当前处理流程使用
+	// now 用于本次流程后续判断的now
 	now := time.Now()
-	// cookies 保存cookies，供当前处理流程使用
+	// cookies 用于本次流程后续判断的cookies
 	cookies := strings.Join([]string{
 		"sdkSilent=" + strconv.FormatInt(now.Add(-time.Hour).UnixMilli(), 10),
 		"sdkSilent=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10),
 		"havana_lgc_exp=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10),
 		"havana_lgc_exp=" + strconv.FormatInt(now.Add(-time.Hour).UnixMilli(), 10),
 	}, "; ")
-	// mode、reason 保存mode、reason，供当前处理流程使用
+	// mode、reason 用于本次流程后续判断的mode、reason
 	mode, reason := autoLoginMode(firstCookieValues(cookies), now)
 	if mode != autoLoginModeHavana || reason != "" {
 		t.Fatalf("mode=%q reason=%q；应采用浏览器排序后的首个同名 Cookie", mode, reason)
 	}
 }
 
-// TestLongLoginSettingsMatchOfficialRequest 负责TestLong登录设置MatchOfficial请求相关处理。
+// TestLongLoginSettingsMatchOfficialRequest 封装TestLong登录设置MatchOfficial请求业务协调。
 func TestLongLoginSettingsMatchOfficialRequest(t *testing.T) {
-	// calls 保存calls，供当前处理流程使用
+	// calls 用于本次流程后续判断的calls
 	var calls atomic.Int32
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		if r.Method != http.MethodPost {
@@ -142,7 +142,7 @@ func TestLongLoginSettingsMatchOfficialRequest(t *testing.T) {
 			t.Fatalf("Cookie=%q", r.Header.Get("Cookie"))
 		}
 		if strings.Contains(r.URL.Path, "set") {
-			if // err 保存err，供当前处理流程使用
+			if // err 用于本次流程后续判断的err
 			err := r.ParseForm(); err != nil || r.Form.Get("status") != "0" {
 				t.Fatalf("set form=%v err=%v", r.Form, err)
 			}
@@ -156,19 +156,19 @@ func TestLongLoginSettingsMatchOfficialRequest(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// service 保存service，供当前处理流程使用
+	// service 用于本次流程后续判断的service
 	service := Service{
 		HTTPClient:            srv.Client(),
 		QueryLoginSettingsURL: srv.URL + "/queryLoginSettings.do",
 		SetLoginSettingsURL:   srv.URL + "/setLoginSettings.do",
 		DocumentReferer:       "https://www.goofish.com/im",
 	}
-	// queried、err 保存queried、err，供当前处理流程使用
+	// queried、err 用于本次流程后续判断的queried、err
 	queried, err := service.QueryLongLoginSettings(context.Background(), "unb=1")
 	if err != nil || !queried.CanOpenLongLogin || !queried.Enabled {
 		t.Fatalf("query result=%+v err=%v", queried, err)
 	}
-	// set、err 保存set、err，供当前处理流程使用
+	// set、err 用于本次流程后续判断的set、err
 	set, err := service.SetLongLoginSettings(context.Background(), queried.NewCookies, true)
 	if err != nil || !set.Enabled || len(set.SetCookies) != 2 || !strings.Contains(set.NewCookies, "havana_lgc_exp=") {
 		t.Fatalf("set result=%+v err=%v", set, err)
@@ -178,48 +178,48 @@ func TestLongLoginSettingsMatchOfficialRequest(t *testing.T) {
 	}
 }
 
-// TestRenewAfterSessionExpiredBypassesOnlyFatigue 负责TestRenewAfter会话ExpiredBypassesOnlyFatigue相关处理。
+// TestRenewAfterSessionExpiredBypassesOnlyFatigue 封装TestRenewAfter会话ExpiredBypassesOnlyFatigue业务协调。
 func TestRenewAfterSessionExpiredBypassesOnlyFatigue(t *testing.T) {
-	// calls 保存calls，供当前处理流程使用
+	// calls 用于本次流程后续判断的calls
 	var calls atomic.Int32
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		http.SetCookie(w, &http.Cookie{Name: "havana_lgc2_77", Value: "recovered"})
 		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
 	}))
 	defer srv.Close()
-	// now 保存now，供当前处理流程使用
+	// now 用于本次流程后续判断的now
 	now := time.Now()
-	// cookies 保存cookies，供当前处理流程使用
+	// cookies 用于本次流程后续判断的cookies
 	cookies := "unb=1; sdkSilent=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10) +
 		"; havana_lgc_exp=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10)
-	// service 保存service，供当前处理流程使用
+	// service 用于本次流程后续判断的service
 	service := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1}
-	// proactive、err 保存proactive、err，供当前处理流程使用
+	// proactive、err 用于本次流程后续判断的proactive、err
 	proactive, err := service.RenewAPIFirst(context.Background(), cookies)
 	if err != nil || !proactive.Skipped || proactive.SkipReason != "fatigue" || calls.Load() != 0 {
 		t.Fatalf("proactive=%+v calls=%d err=%v", proactive, calls.Load(), err)
 	}
-	// recovered、err 保存recovered、err，供当前处理流程使用
+	// recovered、err 用于本次流程后续判断的recovered、err
 	recovered, err := service.RenewAfterSessionExpired(context.Background(), cookies)
 	if err != nil || !recovered.Success || calls.Load() != 1 || !strings.Contains(recovered.NewCookies, "havana_lgc2_77=recovered") {
 		t.Fatalf("recovered=%+v calls=%d err=%v", recovered, calls.Load(), err)
 	}
 
-	// expiredLongLogin 保存expiredLong登录，供当前处理流程使用
+	// expiredLongLogin 用于本次流程后续判断的expiredLong登录
 	expiredLongLogin := "unb=1; sdkSilent=" + strconv.FormatInt(now.Add(time.Hour).UnixMilli(), 10) +
 		"; havana_lgc_exp=" + strconv.FormatInt(now.Add(-time.Hour).UnixMilli(), 10)
-	// blocked、err 保存blocked、err，供当前处理流程使用
+	// blocked、err 用于本次流程后续判断的blocked、err
 	blocked, err := service.RenewAfterSessionExpired(context.Background(), expiredLongLogin)
 	if err != nil || !blocked.Skipped || blocked.SkipReason != "long_login_expired" || calls.Load() != 1 {
 		t.Fatalf("blocked=%+v calls=%d err=%v", blocked, calls.Load(), err)
 	}
 }
 
-// TestLongLoginRequestKeepsResponseCookiesOnFailures 负责TestLong登录请求Keeps响应CookiesOnFailures相关处理。
+// TestLongLoginRequestKeepsResponseCookiesOnFailures 封装TestLong登录请求Keeps响应CookiesOnFailures业务协调。
 func TestLongLoginRequestKeepsResponseCookiesOnFailures(t *testing.T) {
-	// tests 保存tests，供当前处理流程使用
+	// tests 用于本次流程后续判断的tests
 	tests := []struct {
 		name       string
 		statusCode int
@@ -244,7 +244,7 @@ func TestLongLoginRequestKeepsResponseCookiesOnFailures(t *testing.T) {
 	// tt 表示当前遍历过程中的tt
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// client 保存client，供当前处理流程使用
+			// client 用于本次流程后续判断的client
 			client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 				return &http.Response{
 					StatusCode: tt.statusCode,
@@ -254,7 +254,7 @@ func TestLongLoginRequestKeepsResponseCookiesOnFailures(t *testing.T) {
 					Body: tt.body,
 				}, nil
 			})}
-			// settings、err 保存settings、err，供当前处理流程使用
+			// settings、err 用于本次流程后续判断的settings、err
 			settings, err := (Service{HTTPClient: client}).QueryLongLoginSettings(context.Background(), "unb=1")
 			if err == nil || settings == nil {
 				t.Fatalf("settings=%+v err=%v", settings, err)
@@ -266,11 +266,11 @@ func TestLongLoginRequestKeepsResponseCookiesOnFailures(t *testing.T) {
 	}
 }
 
-// TestSetLongLoginSettingsMergesSetAndFailedQueryCookies 负责TestSetLong登录设置MergesSetAnd失败查询Cookies相关处理。
+// TestSetLongLoginSettingsMergesSetAndFailedQueryCookies 封装TestSetLong登录设置MergesSetAnd失败查询Cookies业务协调。
 func TestSetLongLoginSettingsMergesSetAndFailedQueryCookies(t *testing.T) {
-	// calls 保存calls，供当前处理流程使用
+	// calls 用于本次流程后续判断的calls
 	var calls atomic.Int32
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		if strings.Contains(r.URL.Path, "set") {
@@ -287,13 +287,13 @@ func TestSetLongLoginSettingsMergesSetAndFailedQueryCookies(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// svc 保存svc，供当前处理流程使用
+	// svc 用于本次流程后续判断的svc
 	svc := Service{
 		HTTPClient:            srv.Client(),
 		SetLoginSettingsURL:   srv.URL + "/setLoginSettings.do",
 		QueryLoginSettingsURL: srv.URL + "/queryLoginSettings.do",
 	}
-	// settings、err 保存settings、err，供当前处理流程使用
+	// settings、err 用于本次流程后续判断的settings、err
 	settings, err := svc.SetLongLoginSettings(context.Background(), "unb=1", true)
 	if err == nil || settings == nil {
 		t.Fatalf("settings=%+v err=%v", settings, err)
@@ -306,11 +306,11 @@ func TestSetLongLoginSettingsMergesSetAndFailedQueryCookies(t *testing.T) {
 	}
 }
 
-// TestSetLongLoginSettingsScopesCompleteJarBetweenSetAndQuery 负责TestSetLong登录设置ScopesCompleteJarBetweenSetAnd查询相关处理。
+// TestSetLongLoginSettingsScopesCompleteJarBetweenSetAndQuery 封装TestSetLong登录设置ScopesCompleteJarBetweenSetAnd查询业务协调。
 func TestSetLongLoginSettingsScopesCompleteJarBetweenSetAndQuery(t *testing.T) {
-	// queryCookie 保存查询登录凭证，供当前处理流程使用
+	// queryCookie 用于本次流程后续判断的查询登录凭证
 	var queryCookie string
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "set") {
 			w.Header().Add("Set-Cookie", "set_only=hidden; Path=/ac/account/setLoginSettings.do; Secure")
@@ -322,18 +322,18 @@ func TestSetLongLoginSettingsScopesCompleteJarBetweenSetAndQuery(t *testing.T) {
 		_, _ = w.Write([]byte(`{"content":{"data":{"returnValue":{"canOpenLongLogin":true,"hasLongTokenLogin":true}}}}`))
 	}))
 	defer srv.Close()
-	// snapshot 保存snapshot，供当前处理流程使用
+	// snapshot 用于本次流程后续判断的snapshot
 	snapshot := []cookierefresh.BrowserCookie{
 		{Name: "shared", Value: "old", Domain: "passport.goofish.com", Path: "/ac/account", Secure: true},
 		{Name: "im_only", Value: "visible", Domain: "www.goofish.com", Path: "/im", Secure: true},
 	}
-	// svc 保存svc，供当前处理流程使用
+	// svc 用于本次流程后续判断的svc
 	svc := Service{
 		HTTPClient:            srv.Client(),
 		SetLoginSettingsURL:   srv.URL + "/setLoginSettings.do",
 		QueryLoginSettingsURL: srv.URL + "/queryLoginSettings.do",
 	}
-	// settings、err 保存settings、err，供当前处理流程使用
+	// settings、err 用于本次流程后续判断的settings、err
 	settings, err := svc.SetLongLoginSettings(context.Background(), "fallback=must-not-leak", true, snapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -349,13 +349,13 @@ func TestSetLongLoginSettingsScopesCompleteJarBetweenSetAndQuery(t *testing.T) {
 	}
 }
 
-// TestRenewAPIFirstHavanaSendsOneSilentRequest 负责TestRenewAPIFirstHavanaSendsOneSilent请求相关处理。
+// TestRenewAPIFirstHavanaSendsOneSilentRequest 封装TestRenewAPIFirstHavanaSendsOneSilent请求业务协调。
 func TestRenewAPIFirstHavanaSendsOneSilentRequest(t *testing.T) {
-	// fingerprint 保存fingerprint，供当前处理流程使用
+	// fingerprint 用于本次流程后续判断的fingerprint
 	fingerprint := useTestDesktopFingerprint(t)
-	// calls 保存calls，供当前处理流程使用
+	// calls 用于本次流程后续判断的calls
 	var calls atomic.Int32
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		if r.Method != http.MethodPost || r.URL.Query().Get("appEntrance") != "xianyu_sdkSilent" || r.URL.Query().Get("ltl") != "true" {
@@ -364,15 +364,15 @@ func TestRenewAPIFirstHavanaSendsOneSilentRequest(t *testing.T) {
 		if r.URL.Query().Get("skipSessionFilter") != "" || r.URL.Query().Get("c2r") != "" {
 			t.Fatalf("havana mode included cookie3 flags: %s", r.URL.RawQuery)
 		}
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := r.URL.Query().Get("documentReferer"); got != "https://www.goofish.com/im" {
 			t.Fatalf("documentReferer=%q", got)
 		}
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := r.Header.Get("User-Agent"); got != fingerprint.UserAgent {
 			t.Fatalf("User-Agent=%q", got)
 		}
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := r.Header.Get("Cookie"); !strings.Contains(got, "unb=1") {
 			t.Fatalf("Cookie=%q", got)
 		}
@@ -381,11 +381,11 @@ func TestRenewAPIFirstHavanaSendsOneSilentRequest(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// svc 保存svc，供当前处理流程使用
+	// svc 用于本次流程后续判断的svc
 	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, DocumentReferer: "https://www.goofish.com/im", RetryDelay: -1}
-	// input 保存input，供当前处理流程使用
+	// input 用于本次流程后续判断的input
 	input := "unb=1; havana_lgc_exp=" + futureMillis(time.Hour)
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := svc.RenewAPIFirst(context.Background(), input)
 	if err != nil {
 		t.Fatalf("RenewAPIFirst: %v", err)
@@ -398,30 +398,30 @@ func TestRenewAPIFirstHavanaSendsOneSilentRequest(t *testing.T) {
 	}
 }
 
-// TestRenewAPIFirstUsesBrowserCookieScopes 负责TestRenewAPIFirstUses浏览器登录凭证Scopes相关处理。
+// TestRenewAPIFirstUsesBrowserCookieScopes 封装TestRenewAPIFirstUses浏览器登录凭证Scopes业务协调。
 func TestRenewAPIFirstUsesBrowserCookieScopes(t *testing.T) {
 	useTestDesktopFingerprint(t)
-	// receivedCookie 保存received登录凭证，供当前处理流程使用
+	// receivedCookie 用于本次流程后续判断的received登录凭证
 	var receivedCookie string
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedCookie = r.Header.Get("Cookie")
 		_, _ = w.Write([]byte(`{"data":{"content":{"data":{"processFinished":true,"resultCode":100}}}}`))
 	}))
 	defer srv.Close()
-	// host 保存host，供当前处理流程使用
+	// host 用于本次流程后续判断的host
 	host := strings.TrimPrefix(srv.URL, "http://")
 	host = strings.Split(host, ":")[0]
-	// snapshot 保存snapshot，供当前处理流程使用
+	// snapshot 用于本次流程后续判断的snapshot
 	snapshot := []cookierefresh.BrowserCookie{
 		{Name: "havana_lgc_exp", Value: futureMillis(time.Hour), Domain: ".goofish.com", Path: "/", HTTPOnly: true},
 		{Name: "request_only", Value: "passport", Domain: host, Path: "/"},
 		{Name: "www_only", Value: "private", Domain: "www.goofish.com", Path: "/im"},
 		{Name: "http_only_document", Value: "hidden", Domain: ".goofish.com", Path: "/", HTTPOnly: true},
 	}
-	// svc 保存svc，供当前处理流程使用
+	// svc 用于本次流程后续判断的svc
 	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, DocumentReferer: "https://www.goofish.com/im", RetryDelay: -1}
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := svc.RenewAPIFirst(context.Background(), "havana_lgc_exp="+futureMillis(time.Hour)+"; request_only=passport; www_only=private", snapshot)
 	if err != nil || !res.Success {
 		t.Fatalf("result=%+v err=%v", res, err)
@@ -434,71 +434,71 @@ func TestRenewAPIFirstUsesBrowserCookieScopes(t *testing.T) {
 	}
 }
 
-// TestRenewAPIFirstUsesHTTPOnlyLongLoginCookieForDecision 负责TestRenewAPIFirstUsesHTTPOnlyLong登录登录凭证ForDecision相关处理。
+// TestRenewAPIFirstUsesHTTPOnlyLongLoginCookieForDecision 封装TestRenewAPIFirstUsesHTTPOnlyLong登录登录凭证ForDecision业务协调。
 func TestRenewAPIFirstUsesHTTPOnlyLongLoginCookieForDecision(t *testing.T) {
 	useTestDesktopFingerprint(t)
-	// calls 保存calls，供当前处理流程使用
+	// calls 用于本次流程后续判断的calls
 	var calls atomic.Int32
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		_, _ = w.Write([]byte(`{"data":{"content":{"data":{"processFinished":true,"resultCode":100}}}}`))
 	}))
 	defer srv.Close()
-	// snapshot 保存snapshot，供当前处理流程使用
+	// snapshot 用于本次流程后续判断的snapshot
 	snapshot := []cookierefresh.BrowserCookie{{
 		Name: "havana_lgc_exp", Value: futureMillis(time.Hour), Domain: ".goofish.com", Path: "/", HTTPOnly: true,
 	}}
-	// svc 保存svc，供当前处理流程使用
+	// svc 用于本次流程后续判断的svc
 	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1}
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := svc.RenewAPIFirst(context.Background(), "", snapshot)
 	if err != nil || res == nil || !res.Success || res.Skipped || res.RequestCount != 1 || calls.Load() != 1 {
 		t.Fatalf("result=%+v calls=%d err=%v", res, calls.Load(), err)
 	}
 }
 
-// TestRenewAPIFirstRunsWithLinuxChromiumFingerprint 负责TestRenewAPIFirst运行记录WithLinuxChromiumFingerprint相关处理。
+// TestRenewAPIFirstRunsWithLinuxChromiumFingerprint 封装TestRenewAPIFirst运行记录WithLinuxChromiumFingerprint业务协调。
 func TestRenewAPIFirstRunsWithLinuxChromiumFingerprint(t *testing.T) {
-	// fingerprint 保存fingerprint，供当前处理流程使用
+	// fingerprint 用于本次流程后续判断的fingerprint
 	fingerprint := useTestLinuxFingerprint(t)
-	// calls 保存calls，供当前处理流程使用
+	// calls 用于本次流程后续判断的calls
 	var calls atomic.Int32
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := r.Header.Get("User-Agent"); got != fingerprint.UserAgent {
 			t.Fatalf("User-Agent=%q", got)
 		}
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := r.Header.Get("sec-ch-ua-platform"); got != `"Linux"` {
 			t.Fatalf("sec-ch-ua-platform=%q", got)
 		}
 		_, _ = w.Write([]byte(`{"data":{"content":{"data":{"processFinished":true,"resultCode":100}}}}`))
 	}))
 	defer srv.Close()
-	// svc 保存svc，供当前处理流程使用
+	// svc 用于本次流程后续判断的svc
 	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1}
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := svc.RenewAPIFirst(context.Background(), "havana_lgc_exp="+futureMillis(time.Hour))
 	if err != nil || res == nil || !res.Success || res.Skipped || res.RequestCount != 1 || calls.Load() != 1 {
 		t.Fatalf("result=%+v calls=%d err=%v", res, calls.Load(), err)
 	}
 }
 
-// TestRenewAPIFirstUsesTopSiteAndAppliesPartitionedSetCookie 负责TestRenewAPIFirstUsesTopSiteAndAppliesPartitionedSet登录凭证相关处理。
+// TestRenewAPIFirstUsesTopSiteAndAppliesPartitionedSetCookie 封装TestRenewAPIFirstUsesTopSiteAndAppliesPartitionedSet登录凭证业务协调。
 func TestRenewAPIFirstUsesTopSiteAndAppliesPartitionedSetCookie(t *testing.T) {
 	useTestDesktopFingerprint(t)
-	// snapshot 保存snapshot，供当前处理流程使用
+	// snapshot 用于本次流程后续判断的snapshot
 	snapshot := []cookierefresh.BrowserCookie{
 		{Name: "havana_lgc_exp", Value: futureMillis(time.Hour), Domain: ".goofish.com", Path: "/", Secure: true, PartitionKey: goofishTopSite},
 		{Name: "passport_partitioned", Value: "right", Domain: "passport.goofish.com", Path: "/", Secure: true, PartitionKey: goofishTopSite},
 		{Name: "wrong_partition", Value: "hidden", Domain: "passport.goofish.com", Path: "/", Secure: true, PartitionKey: "https://example.com"},
 	}
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		// cookies 保存cookies，供当前处理流程使用
+		// cookies 用于本次流程后续判断的cookies
 		cookies := req.Header.Get("Cookie")
 		if !strings.Contains(cookies, "passport_partitioned=right") || strings.Contains(cookies, "wrong_partition=hidden") {
 			t.Fatalf("partitioned request Cookie=%q", cookies)
@@ -511,9 +511,9 @@ func TestRenewAPIFirstUsesTopSiteAndAppliesPartitionedSetCookie(t *testing.T) {
 			Body: io.NopCloser(strings.NewReader(`{"data":{"content":{"data":{"processFinished":true,"resultCode":100}}}}`)),
 		}, nil
 	})}
-	// svc 保存svc，供当前处理流程使用
+	// svc 用于本次流程后续判断的svc
 	svc := Service{HTTPClient: client, RetryDelay: -1}
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := svc.RenewAPIFirst(context.Background(), "", snapshot)
 	if err != nil || !res.Success {
 		t.Fatalf("result=%+v err=%v", res, err)
@@ -521,7 +521,7 @@ func TestRenewAPIFirstUsesTopSiteAndAppliesPartitionedSetCookie(t *testing.T) {
 	if !res.CookieSnapshotComplete || !strings.Contains(res.NewCookies, "rotated=fresh") {
 		t.Fatalf("authoritative renewal result=%+v", res)
 	}
-	// found 保存found，供当前处理流程使用
+	// found 用于本次流程后续判断的found
 	found := false
 	// cookie 表示当前遍历过程中的登录凭证
 	for _, cookie := range res.CookieSnapshot {
@@ -534,14 +534,14 @@ func TestRenewAPIFirstUsesTopSiteAndAppliesPartitionedSetCookie(t *testing.T) {
 	}
 }
 
-// TestRenewAPIFirstKeepsSetCookieWhenBodyReadFails 负责TestRenewAPIFirstKeepsSet登录凭证When请求体ReadFails相关处理。
+// TestRenewAPIFirstKeepsSetCookieWhenBodyReadFails 封装TestRenewAPIFirstKeepsSet登录凭证When请求体ReadFails业务协调。
 func TestRenewAPIFirstKeepsSetCookieWhenBodyReadFails(t *testing.T) {
 	useTestDesktopFingerprint(t)
-	// snapshot 保存snapshot，供当前处理流程使用
+	// snapshot 用于本次流程后续判断的snapshot
 	snapshot := []cookierefresh.BrowserCookie{
 		{Name: "havana_lgc_exp", Value: futureMillis(time.Hour), Domain: ".goofish.com", Path: "/", Secure: true},
 	}
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -551,9 +551,9 @@ func TestRenewAPIFirstKeepsSetCookieWhenBodyReadFails(t *testing.T) {
 			Body: failingReadCloser{err: errors.New("broken response body")},
 		}, nil
 	})}
-	// svc 保存svc，供当前处理流程使用
+	// svc 用于本次流程后续判断的svc
 	svc := Service{HTTPClient: client, RetryDelay: -1}
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := svc.RenewAPIFirst(context.Background(), "", snapshot)
 	if err == nil || res == nil {
 		t.Fatalf("result=%+v err=%v", res, err)
@@ -563,12 +563,12 @@ func TestRenewAPIFirstKeepsSetCookieWhenBodyReadFails(t *testing.T) {
 	}
 }
 
-// TestRenewAPIFirstTreatsNonNilEmptySnapshotAsAuthoritative 负责TestRenewAPIFirstTreatsNonNilEmptySnapshotAsAuthoritative相关处理。
+// TestRenewAPIFirstTreatsNonNilEmptySnapshotAsAuthoritative 封装TestRenewAPIFirstTreatsNonNilEmptySnapshotAsAuthoritative业务协调。
 func TestRenewAPIFirstTreatsNonNilEmptySnapshotAsAuthoritative(t *testing.T) {
 	useTestDesktopFingerprint(t)
-	// emptySnapshot 保存emptySnapshot，供当前处理流程使用
+	// emptySnapshot 用于本次流程后续判断的emptySnapshot
 	emptySnapshot := make([]cookierefresh.BrowserCookie, 0)
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := (Service{RetryDelay: -1}).RenewAPIFirst(context.Background(), "", emptySnapshot)
 	if err != nil || !res.Skipped || res.SkipReason != "long_login_expired" {
 		t.Fatalf("result=%+v err=%v", res, err)
@@ -578,10 +578,10 @@ func TestRenewAPIFirstTreatsNonNilEmptySnapshotAsAuthoritative(t *testing.T) {
 	}
 }
 
-// TestRenewAPIFirstCookie3UsesBackupFlags 负责TestRenewAPIFirstCookie3UsesBackupFlags相关处理。
+// TestRenewAPIFirstCookie3UsesBackupFlags 封装TestRenewAPIFirstCookie3UsesBackupFlags业务协调。
 func TestRenewAPIFirstCookie3UsesBackupFlags(t *testing.T) {
 	useTestDesktopFingerprint(t)
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("skipSessionFilter") != "true" || r.URL.Query().Get("c2r") != "true" || r.URL.Query().Get("ltl") != "" {
 			t.Fatalf("cookie3 query=%s", r.URL.RawQuery)
@@ -589,23 +589,23 @@ func TestRenewAPIFirstCookie3UsesBackupFlags(t *testing.T) {
 		_, _ = w.Write([]byte(`{"content":{"data":{"processFinished":true,"resultCode":100}}}`))
 	}))
 	defer srv.Close()
-	// svc 保存svc，供当前处理流程使用
+	// svc 用于本次流程后续判断的svc
 	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1}
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := svc.RenewAPIFirst(context.Background(), "cookie3_bak_exp="+futureMillis(time.Hour))
 	if err != nil || !res.Success || res.RequestCount != 1 {
 		t.Fatalf("result=%#v err=%v", res, err)
 	}
 }
 
-// TestRenewAPIFirstSkipsFatigueAndExpiredCookies 负责TestRenewAPIFirstSkipsFatigueAndExpiredCookies相关处理。
+// TestRenewAPIFirstSkipsFatigueAndExpiredCookies 封装TestRenewAPIFirstSkipsFatigueAndExpiredCookies业务协调。
 func TestRenewAPIFirstSkipsFatigueAndExpiredCookies(t *testing.T) {
-	// calls 保存calls，供当前处理流程使用
+	// calls 用于本次流程后续判断的calls
 	var calls atomic.Int32
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
 	defer srv.Close()
-	// svc 保存svc，供当前处理流程使用
+	// svc 用于本次流程后续判断的svc
 	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1}
 
 	// input 表示当前遍历过程中的input
@@ -613,7 +613,7 @@ func TestRenewAPIFirstSkipsFatigueAndExpiredCookies(t *testing.T) {
 		"sdkSilent=" + futureMillis(time.Hour) + "; havana_lgc_exp=" + futureMillis(2*time.Hour),
 		"havana_lgc_exp=1; cookie3_bak_exp=1",
 	} {
-		// res、err 保存res、err，供当前处理流程使用
+		// res、err 用于本次流程后续判断的res、err
 		res, err := svc.RenewAPIFirst(context.Background(), input)
 		if err != nil || !res.Skipped || res.Success || res.RequestCount != 0 {
 			t.Fatalf("input=%q result=%#v err=%v", input, res, err)
@@ -624,21 +624,21 @@ func TestRenewAPIFirstSkipsFatigueAndExpiredCookies(t *testing.T) {
 	}
 }
 
-// TestRenewAPIFirstDoesNotRetryOrEscalateFailure 负责TestRenewAPIFirstDoesNot重试OrEscalateFailure相关处理。
+// TestRenewAPIFirstDoesNotRetryOrEscalateFailure 封装TestRenewAPIFirstDoesNot重试OrEscalateFailure业务协调。
 func TestRenewAPIFirstDoesNotRetryOrEscalateFailure(t *testing.T) {
 	useTestDesktopFingerprint(t)
-	// calls 保存calls，供当前处理流程使用
+	// calls 用于本次流程后续判断的calls
 	var calls atomic.Int32
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls.Add(1)
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(`{"content":{"success":false}}`))
 	}))
 	defer srv.Close()
-	// svc 保存svc，供当前处理流程使用
+	// svc 用于本次流程后续判断的svc
 	svc := Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1}
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := svc.RenewAPIFirst(context.Background(), "havana_lgc_exp="+futureMillis(time.Hour))
 	if err != nil {
 		t.Fatalf("RenewAPIFirst: %v", err)
@@ -648,22 +648,22 @@ func TestRenewAPIFirstDoesNotRetryOrEscalateFailure(t *testing.T) {
 	}
 }
 
-// TestMergeSetCookies 负责TestMergeSetCookies相关处理。
+// TestMergeSetCookies 封装TestMergeSetCookies业务协调。
 func TestMergeSetCookies(t *testing.T) {
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	got := MergeSetCookies("unb=1; old=a", []string{"old=b; Path=/; HttpOnly", "new=c; Domain=.goofish.com; Path=/", "bad-cookie"})
 	if !strings.Contains(got, "old=b") || !strings.Contains(got, "new=c") || !strings.Contains(got, "unb=1") {
 		t.Fatalf("MergeSetCookies=%q", got)
 	}
-	if // changed 保存changed，供当前处理流程使用
+	if // changed 用于本次流程后续判断的changed
 	changed := strings.Join(ChangedCookieNames("unb=1; old=a", got), ","); changed != "new,old" {
 		t.Fatalf("ChangedCookieNames=%s", changed)
 	}
 }
 
-// TestMergeSetCookiesAppliesServerDeletion 负责TestMergeSetCookiesAppliesServerDeletion相关处理。
+// TestMergeSetCookiesAppliesServerDeletion 封装TestMergeSetCookiesAppliesServerDeletion业务协调。
 func TestMergeSetCookiesAppliesServerDeletion(t *testing.T) {
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	got := MergeSetCookies("unb=1; stale=a; expired=b", []string{
 		"stale=; Max-Age=0; Path=/",
 		"expired=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/",
@@ -671,15 +671,15 @@ func TestMergeSetCookiesAppliesServerDeletion(t *testing.T) {
 	if strings.Contains(got, "stale=") || strings.Contains(got, "expired=") {
 		t.Fatalf("deleted cookies survived: %q", got)
 	}
-	if // changed 保存changed，供当前处理流程使用
+	if // changed 用于本次流程后续判断的changed
 	changed := strings.Join(ChangedCookieNames("unb=1; stale=a; expired=b", got), ","); changed != "expired,stale" {
 		t.Fatalf("ChangedCookieNames=%s", changed)
 	}
 }
 
-// TestMergeSetCookiesMaxAgeOverridesPastExpires 负责TestMergeSetCookiesMaxAgeOverridesPastExpires相关处理。
+// TestMergeSetCookiesMaxAgeOverridesPastExpires 封装TestMergeSetCookiesMaxAgeOverridesPastExpires业务协调。
 func TestMergeSetCookiesMaxAgeOverridesPastExpires(t *testing.T) {
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	got := MergeSetCookies("session=old", []string{
 		"session=fresh; Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/",
 	})
@@ -688,7 +688,7 @@ func TestMergeSetCookiesMaxAgeOverridesPastExpires(t *testing.T) {
 	}
 }
 
-// TestRenewBusinessOKMatchesOfficialPlugin 负责TestRenewBusinessOKMatchesOfficialPlugin相关处理。
+// TestRenewBusinessOKMatchesOfficialPlugin 封装TestRenewBusinessOKMatchesOfficialPlugin业务协调。
 func TestRenewBusinessOKMatchesOfficialPlugin(t *testing.T) {
 	if renewBusinessOK([]byte(`{"content":{"success":true}}`)) {
 		t.Fatal("official plugin requires processFinished=true and resultCode=100")
@@ -698,12 +698,12 @@ func TestRenewBusinessOKMatchesOfficialPlugin(t *testing.T) {
 	}
 }
 
-// TestRenewAPIFirstReturnsAtPromiseTimeoutAndKeepsLateCookies 负责TestRenewAPIFirstReturnsAtPromiseTimeoutAndKeepsLateCookies相关处理。
+// TestRenewAPIFirstReturnsAtPromiseTimeoutAndKeepsLateCookies 封装TestRenewAPIFirstReturnsAtPromiseTimeoutAndKeepsLateCookies业务协调。
 func TestRenewAPIFirstReturnsAtPromiseTimeoutAndKeepsLateCookies(t *testing.T) {
 	useTestDesktopFingerprint(t)
-	// completed 保存completed，供当前处理流程使用
+	// completed 用于本次流程后续判断的completed
 	var completed atomic.Bool
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(80 * time.Millisecond)
 		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: futureMillis(time.Hour), Path: "/"})
@@ -711,29 +711,29 @@ func TestRenewAPIFirstReturnsAtPromiseTimeoutAndKeepsLateCookies(t *testing.T) {
 		completed.Store(true)
 	}))
 	defer srv.Close()
-	// svc 保存svc，供当前处理流程使用
+	// svc 用于本次流程后续判断的svc
 	svc := Service{
 		HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1,
 		PromiseTimeout: 20 * time.Millisecond,
 	}
-	// started 保存started，供当前处理流程使用
+	// started 用于本次流程后续判断的started
 	started := time.Now()
-	// res、err 保存res、err，供当前处理流程使用
+	// res、err 用于本次流程后续判断的res、err
 	res, err := svc.RenewAPIFirst(context.Background(), "havana_lgc_exp="+futureMillis(time.Hour))
 	if err != nil || res == nil || !res.HasPending() {
 		t.Fatalf("result=%+v err=%v", res, err)
 	}
-	if // elapsed 保存elapsed，供当前处理流程使用
+	if // elapsed 用于本次流程后续判断的elapsed
 	elapsed := time.Since(started); elapsed >= 70*time.Millisecond {
 		t.Fatalf("外层 Promise 没有按时返回: %s", elapsed)
 	}
 	if completed.Load() || len(res.SetCookies) != 0 || res.Success || res.NeedPasswordLogin {
 		t.Fatalf("超时瞬间不应伪造底层结果或要求重新登录: %+v completed=%v", res, completed.Load())
 	}
-	// waitCtx、cancel 保存waitCtx、cancel，供当前处理流程使用
+	// waitCtx、cancel 用于本次流程后续判断的waitCtx、cancel
 	waitCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	// late、lateErr 保存late、lateErr，供当前处理流程使用
+	// late、lateErr 用于本次流程后续判断的late、lateErr
 	late, lateErr := res.AwaitPending(waitCtx)
 	if lateErr != nil || late == nil || len(late.SetCookies) != 1 || !strings.Contains(late.NewCookies, "sdkSilent=") {
 		t.Fatalf("迟到响应 Cookie 丢失: result=%+v err=%v", late, lateErr)
@@ -743,31 +743,31 @@ func TestRenewAPIFirstReturnsAtPromiseTimeoutAndKeepsLateCookies(t *testing.T) {
 	}
 }
 
-// TestRebaseResponseCookiesUsesLatestAuthoritativeJar 负责TestRebase响应CookiesUsesLatestAuthoritativeJar相关处理。
+// TestRebaseResponseCookiesUsesLatestAuthoritativeJar 封装TestRebase响应CookiesUsesLatestAuthoritativeJar业务协调。
 func TestRebaseResponseCookiesUsesLatestAuthoritativeJar(t *testing.T) {
-	// current 保存current，供当前处理流程使用
+	// current 用于本次流程后续判断的current
 	current := []cookierefresh.BrowserCookie{
 		{Name: "unb", Value: "1", Domain: ".goofish.com", Path: "/", Secure: true},
 		{Name: "concurrent", Value: "kept", Domain: ".goofish.com", Path: "/", Secure: true},
 	}
-	// metadata 保存metadata，供当前处理流程使用
+	// metadata 用于本次流程后续判断的metadata
 	metadata := cookierefresh.MetadataWithSnapshot(`{"note":"keep"}`, current)
-	// late 保存late，供当前处理流程使用
+	// late 用于本次流程后续判断的late
 	late := &Result{
 		SetCookies:        []string{"sdkSilent=9999999999999; Domain=goofish.com; Path=/; Secure; HttpOnly"},
 		responseCookieURL: SilentHasLoginURL,
 	}
-	// value、updatedMetadata、changed 保存value、updatedMetadata、changed，供当前处理流程使用
+	// value、updatedMetadata、changed 用于本次流程后续判断的value、updatedMetadata、changed
 	value, updatedMetadata, changed := RebaseResponseCookies("unb=1; concurrent=kept", metadata, late)
 	if !changed || !strings.Contains(value, "concurrent=kept") || !strings.Contains(value, "sdkSilent=9999999999999") {
 		t.Fatalf("迟到响应覆盖了并发 Cookie: value=%q changed=%v", value, changed)
 	}
-	// snapshot、complete 保存snapshot、complete，供当前处理流程使用
+	// snapshot、complete 用于本次流程后续判断的snapshot、complete
 	snapshot, complete := cookierefresh.SnapshotFromMetadataOK(updatedMetadata)
 	if !complete {
 		t.Fatalf("权威快照被降级: %s", updatedMetadata)
 	}
-	// found 保存found，供当前处理流程使用
+	// found 用于本次流程后续判断的found
 	var found bool
 	// cookie 表示当前遍历过程中的登录凭证
 	for _, cookie := range snapshot {
@@ -780,9 +780,9 @@ func TestRebaseResponseCookiesUsesLatestAuthoritativeJar(t *testing.T) {
 	}
 }
 
-// TestRenewBodyLimit 负责TestRenew请求体上限相关处理。
+// TestRenewBodyLimit 封装TestRenew请求体上限业务协调。
 func TestRenewBodyLimit(t *testing.T) {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := readRenewBody(strings.NewReader(strings.Repeat("x", maxRenewBodyBytes+1)))
 	if err == nil || !strings.Contains(err.Error(), fmt.Sprint(maxRenewBodyBytes>>20)) {
 		t.Fatalf("err=%v", err)

@@ -24,14 +24,14 @@ describe('frontend navigation routing', () => {
     const appRouteIDs = extractSingleQuotedValues(app, /case\s+'([^']+)'/g); /* appRouteIDs 表示appRouteIDs。 */
 
     expect([...sidebarIDs].sort()).toEqual([...appRouteIDs].sort());
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('active navigation uses the primary action blue', () => {
     const sidebar = readFrontendFile('shared/ui/Sidebar.tsx'); /* sidebar 表示sidebar。 */
 
     expect(sidebar).toContain("'bg-brand text-white shadow-brand-active'");
     expect(sidebar).not.toContain("'bg-sky-500 text-white'");
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('route pages are lazy-loaded behind a shared Suspense boundary', () => {
     const app = readFrontendFile('app/shell/AuthenticatedShell.tsx'); /* app 表示认证后页面组合器源码。 */
@@ -42,7 +42,7 @@ describe('frontend navigation routing', () => {
     expect(app).toContain('<Suspense fallback={<PageLoading />}>');
     expect(app).not.toContain("import Dashboard from '../../components/Dashboard'");
     expect(app).toContain("import('../features/dashboard/pages/Dashboard')");
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('authenticated shell owns sidebar and page composition', () => {
     const app = readFrontendFile('app/router/AppRouter.tsx'); /* app 表示认证后的路由组合器源码。 */
@@ -53,7 +53,7 @@ describe('frontend navigation routing', () => {
     expect(shell).toContain('const AuthenticatedShell: React.FC<AuthenticatedShellProps>');
     expect(shell).toContain('<Sidebar');
     expect(shell).toContain('<AppContent');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('logout button invalidates the backend session before clearing UI state', () => {
     const app = readFrontendFile('app/router/AppRouter.tsx'); /* app 表示认证后路由组合器源码。 */
@@ -63,7 +63,7 @@ describe('frontend navigation routing', () => {
     expect(sessionProvider).toContain('await logout();');
     expect(sessionProvider).toContain("window.addEventListener('auth:logout'");
     expect(app).toContain('onLogout={handleLogout}');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('settings page does not expose backend-inactive system controls', () => {
     const settings = readFrontendFile('app/features/settings/pages/Settings.tsx'); /* settings 表示settings。 */
@@ -76,7 +76,7 @@ describe('frontend navigation routing', () => {
     expect(settings).not.toContain('默认自动回复内容');
     expect(settingsConstants).toContain('SETTINGS_SAVE_OMIT_KEYS');
     expect(settings).toContain('保存后需重启服务生效');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('admin-only settings navigation is gated by session role', () => {
     const app = readFrontendFile('app/router/AppRouter.tsx'); /* app 表示认证后路由组合器源码。 */
@@ -92,7 +92,7 @@ describe('frontend navigation routing', () => {
     expect(sidebar).toContain('isAdmin = false');
     expect(sidebar).toContain("...(isAdmin ? [{ id: 'settings'");
     expect(settingsHook).toContain('setLoadError');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('captcha remote settings expose the reference privacy and fallback semantics', () => {
     const settings = readFrontendFile('app/features/settings/pages/Settings.tsx'); /* settings 表示settings。 */
@@ -103,7 +103,7 @@ describe('frontend navigation routing', () => {
     expect(settings).toContain("'captcha.remote_pass_cookies'");
     expect(settings).toContain('默认关闭');
     expect(settings).toContain('只有网络不可用或超时才回退本机引擎');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('email notification config separates system and custom SMTP modes', () => {
     const notifications = readFrontendFile('app/features/notifications/pages/Notifications.tsx'); /* notifications 表示notifications。 */
@@ -117,7 +117,7 @@ describe('frontend navigation routing', () => {
     expect(notificationModal).toContain('use_custom_smtp');
     expect(notificationState).not.toContain("key: 'from'");
     expect(notifications).not.toContain('注册验证码');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('keyword reply UI matches contains-based backend behavior', () => {
     const rules = readFrontendFile('app/features/rules/pages/Rules.tsx'); /* rules 表示规则集合。 */
@@ -126,7 +126,7 @@ describe('frontend navigation routing', () => {
     expect(rules).not.toContain('精确匹配');
     expect(rules).not.toContain('模糊包含');
     expect(rules).not.toContain('匹配类型');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('vite proxy does not advertise removed backend routes', () => {
     const vite = readFrontendFile('vite.config.ts'); /* vite 表示vite。 */
@@ -142,21 +142,21 @@ describe('frontend navigation routing', () => {
     ]) {
       expect(vite).not.toContain(`'${staleRoute}'`);
     }
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('item delivery shortcut opens existing automation rule modal', () => {
     const actions = readFrontendFile('app/features/rules/ruleActions.ts'); /* actions 表示规则动作协调器源码。 */
     const existingRuleBranch = actions.match(/if \(rule\) \{([\s\S]*?)\} else \{/); /* existingRuleBranch 表示existing当前规则Branch。 */
 
     expect(existingRuleBranch?.[1]).toContain('openAutomationRule(rule)');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('item delivery shortcut is not marked handled before async open completes', () => {
     const actions = readFrontendFile('app/features/rules/ruleActions.ts'); /* actions 表示规则动作协调器源码。 */
 
     expect(actions).not.toContain('handledDeliveryTarget.current = initialDeliveryTarget.requestId');
     expect(actions).toContain('onDeliveryTargetHandled?.();');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('automation editor keeps multiple delivery contents for normal products', () => {
     const rules = readFrontendFile('app/features/rules/pages/Rules.tsx'); /* rules 表示规则集合。 */
@@ -166,7 +166,7 @@ describe('frontend navigation routing', () => {
     expect(rules).toContain('{displayVariants.map((variant, index) => (');
     expect(actions).toContain('variants.map(');
     expect(rules).not.toContain(': (isMultiSpecRule ? variants : [variants[0]]).map');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('batch publishing help explains card fields without required-field jargon', () => {
     const itemList = readFrontendFile('app/features/items/pages/ItemList.tsx'); /* itemList 表示当前商品List。 */
@@ -175,7 +175,7 @@ describe('frontend navigation routing', () => {
     expect(itemList).toContain('“付款后发送的卡密”怎么填');
     expect(itemList).toContain('101:1:0;102:2:3');
     expect(itemList).toContain('买家购买 3 件时会发送 6 份');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('item publish image previews revoke object urls', () => {
     const itemList = readFrontendFile('app/features/items/itemActions.ts'); /* itemList 表示商品动作协调器源码。 */
@@ -184,7 +184,7 @@ describe('frontend navigation routing', () => {
     expect(itemList).toContain('URL.createObjectURL(file)');
     expect(itemList).toContain('URL.revokeObjectURL(preview.url)');
     expect(itemList).not.toContain('src={URL.createObjectURL(file)}');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('QR verification removes the external link and clearly requires in-app risk verification', () => {
     const accounts = readFrontendFile('app/features/accounts/pages/AccountList.tsx'); /* accounts 表示账号集合。 */
@@ -199,7 +199,7 @@ describe('frontend navigation routing', () => {
 		expect(riskPanel).not.toContain('我已在闲鱼 App 完成验证');
 		expect(riskPanel).not.toContain('<button');
 	expect(riskPanel).not.toContain('重试');
-  } /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
 
   test('account editor exposes password-login refresh and never renders its verification URL', () => {
     const accounts = [
@@ -212,5 +212,5 @@ describe('frontend navigation routing', () => {
     expect(accounts).toContain('密码登录刷新授权');
     expect(accounts).toContain('账号已触发平台风控，需要完成人脸识别');
     expect(accounts).not.toContain('result.verification_url');
-  } /* 回调函数负责当前业务流程。 */);
-} /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言已登录应用的路由、访问控制或延迟加载契约。 */);
+} /* 测试套件回调汇总路由装配与访问边界契约。 */);

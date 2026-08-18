@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// htmlTagPattern 保存htmlTagPattern，供当前处理流程使用
+// htmlTagPattern 用于本次流程后续判断的htmlTagPattern
 var (
 	htmlTagPattern      = regexp.MustCompile(`(?is)<[^>]+>`)
 	scriptStylePattern  = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>|<style[^>]*>.*?</style>`)
@@ -15,12 +15,12 @@ var (
 	escapedSlashPattern = strings.NewReplacer(`\/`, `/`, `\u0026`, `&`)
 )
 
-// detectPasswordBaxiaPunishHTML 负责detect密码BaxiaPunishHTML相关处理。
+// detectPasswordBaxiaPunishHTML 封装detect密码BaxiaPunishHTML业务协调。
 func detectPasswordBaxiaPunishHTML(htmlText string) (PasswordLoginEvent, bool) {
 	if !IsBaxiaPunishMessage(htmlText) {
 		return PasswordLoginEvent{}, false
 	}
-	// msg 保存msg，供当前处理流程使用
+	// msg 用于本次流程后续判断的msg
 	msg := "触发闲鱼风控图形验证（baxia-punish），账号正常但暂时无法自动登录"
 	return PasswordLoginEvent{
 		Status:        PasswordLoginStatusFailed,
@@ -31,9 +31,9 @@ func detectPasswordBaxiaPunishHTML(htmlText string) (PasswordLoginEvent, bool) {
 	}, true
 }
 
-// detectPasswordLoginErrorHTML 负责detect密码登录错误HTML相关处理。
+// detectPasswordLoginErrorHTML 封装detect密码登录错误HTML业务协调。
 func detectPasswordLoginErrorHTML(htmlText string) string {
-	// text 保存文本，供当前处理流程使用
+	// text 用于本次流程后续判断的文本
 	text := normalizeHTMLText(htmlText)
 	// keyword 表示当前遍历过程中的关键词
 	for _, keyword := range []string{
@@ -48,11 +48,11 @@ func detectPasswordLoginErrorHTML(htmlText string) string {
 	return ""
 }
 
-// detectPasswordVerificationHTML 负责detect密码VerificationHTML相关处理。
+// detectPasswordVerificationHTML 封装detect密码VerificationHTML业务协调。
 func detectPasswordVerificationHTML(htmlText string) (PasswordLoginEvent, bool) {
-	// normalized 保存normalized，供当前处理流程使用
+	// normalized 用于本次流程后续判断的normalized
 	normalized := normalizeHTMLText(htmlText)
-	// lower 保存lower，供当前处理流程使用
+	// lower 用于本次流程后续判断的lower
 	lower := strings.ToLower(htmlText)
 	if !containsAny(normalized,
 		"人脸验证", "人脸识别", "身份验证", "安全验证", "扫码验证", "验证二维码",
@@ -63,9 +63,9 @@ func detectPasswordVerificationHTML(htmlText string) (PasswordLoginEvent, bool) 
 	) {
 		return PasswordLoginEvent{}, false
 	}
-	// msg 保存msg，供当前处理流程使用
+	// msg 用于本次流程后续判断的msg
 	msg := "密码登录需要人工验证，请在浏览器中完成验证后等待自动继续"
-	// event 保存event，供当前处理流程使用
+	// event 用于本次流程后续判断的event
 	event := PasswordLoginEvent{
 		Status:          PasswordLoginStatusVerificationRequired,
 		Message:         msg,
@@ -76,17 +76,17 @@ func detectPasswordVerificationHTML(htmlText string) (PasswordLoginEvent, bool) 
 	return event, true
 }
 
-// extractPasswordVerificationURL 负责extract密码VerificationURL相关处理。
+// extractPasswordVerificationURL 封装extract密码VerificationURL业务协调。
 func extractPasswordVerificationURL(htmlText string) string {
-	// cleaned 保存cleaned，供当前处理流程使用
+	// cleaned 用于本次流程后续判断的cleaned
 	cleaned := escapedSlashPattern.Replace(html.UnescapeString(htmlText))
-	// matches 保存matches，供当前处理流程使用
+	// matches 用于本次流程后续判断的matches
 	matches := verificationURLRe.FindAllString(cleaned, -1)
 	// raw 表示当前遍历过程中的原始
 	for _, raw := range matches {
-		// url 保存地址，供当前处理流程使用
+		// url 用于本次流程后续判断的地址
 		url := strings.TrimRight(raw, ".,);]")
-		// lower 保存lower，供当前处理流程使用
+		// lower 用于本次流程后续判断的lower
 		lower := strings.ToLower(url)
 		if containsAny(lower, "passport", "verify", "photo", "iv/", "identity", "login", "qrcode") {
 			return url
@@ -95,27 +95,27 @@ func extractPasswordVerificationURL(htmlText string) string {
 	return ""
 }
 
-// extractPasswordQRURL 负责extract密码QRURL相关处理。
+// extractPasswordQRURL 封装extract密码QRURL业务协调。
 func extractPasswordQRURL(htmlText string) string {
-	// cleaned 保存cleaned，供当前处理流程使用
+	// cleaned 用于本次流程后续判断的cleaned
 	cleaned := escapedSlashPattern.Replace(html.UnescapeString(htmlText))
-	if // match 保存match，供当前处理流程使用
+	if // match 用于本次流程后续判断的match
 	match := dataImageURLRe.FindString(cleaned); match != "" {
 		return match
 	}
 	return ""
 }
 
-// normalizeHTMLText 负责normalizeHTML文本相关处理。
+// normalizeHTMLText 封装normalizeHTML文本业务协调。
 func normalizeHTMLText(htmlText string) string {
-	// cleaned 保存cleaned，供当前处理流程使用
+	// cleaned 用于本次流程后续判断的cleaned
 	cleaned := scriptStylePattern.ReplaceAllString(htmlText, " ")
 	cleaned = htmlTagPattern.ReplaceAllString(cleaned, " ")
 	cleaned = escapedSlashPattern.Replace(html.UnescapeString(cleaned))
 	return strings.Join(strings.Fields(cleaned), " ")
 }
 
-// containsAny 负责containsAny相关处理。
+// containsAny 封装containsAny业务协调。
 func containsAny(s string, keywords ...string) bool {
 	// keyword 表示当前遍历过程中的关键词
 	for _, keyword := range keywords {

@@ -19,6 +19,8 @@ type OrderReconciliation struct {
 	CookieID string
 	// Kind 是外部动作类型，例如 manual_status_ship。
 	Kind string
+	// IdempotencyKey 将同一外部动作的重复本地失败收敛为同一条补偿记录。
+	IdempotencyKey string
 	// Status 是补偿状态：pending、resolved 或 failed。
 	Status string
 	// ErrorMessage 保存最近一次本地持久化失败原因。
@@ -35,9 +37,12 @@ type OrderReconciliation struct {
 type OrderReconciliations struct {
 	// DB 是补偿记录使用的数据库连接。
 	DB *sql.DB
+	// Dialect 决定重复补偿记录写入时使用的跨方言冲突忽略语法。
+	Dialect Dialect
 }
 
-// CreatePending 创建一条待补偿记录，并返回可用于审计和后续 worker 的记录 ID。
+// CreatePending 创建或复用一条待补偿记录，并返回可用于审计和后续 worker 的稳定记录 ID。
+// 同一订单、账号和外部动作的本地持久化重试必须复用同一记录，避免重启后重复人工核对。
 func (r *OrderReconciliations) CreatePending(ctx context.Context, orderID, cookieID, kind, message string) (string, error) {
 	if r == nil || r.DB == nil {
 		return "", errors.New("补偿记录存储未初始化")
@@ -45,18 +50,36 @@ func (r *OrderReconciliations) CreatePending(ctx context.Context, orderID, cooki
 	if strings.TrimSpace(orderID) == "" || strings.TrimSpace(cookieID) == "" || strings.TrimSpace(kind) == "" {
 		return "", errors.New("补偿记录缺少订单、账号或动作类型")
 	}
-	// id 是本次补偿记录的稳定唯一标识。
+	// idempotencyKey 将同一外部动作的重复本地失败映射到同一条补偿记录。
+	idempotencyKey := orderID + "\x1f" + cookieID + "\x1f" + kind
+	// id 是首次写入补偿记录时生成的稳定唯一标识。
 	id := uuid.NewString()
-	// err 表示补偿记录写入失败。
-	_, err := r.DB.ExecContext(ctx,
-		`INSERT INTO order_reconciliations
-			(id, order_id, cookie_id, kind, status, error_message, attempts)
-		 VALUES (?, ?, ?, ?, 'pending', ?, 0)`,
-		id, orderID, cookieID, kind, message)
+	// insertSQL 是跨方言忽略幂等键冲突的补偿记录写入语句。
+	insertSQL := dialectInsertIgnorePrefix(r.Dialect) + ` INTO order_reconciliations
+			(id, order_id, cookie_id, kind, idempotency_key, status, error_message, attempts)
+		 VALUES (?, ?, ?, ?, ?, 'pending', ?, 0)` + dialectInsertIgnore(r.Dialect, []string{"idempotency_key"})
+	// result、err 保存补偿记录幂等写入结果及数据库错误。
+	result, err := r.DB.ExecContext(ctx, insertSQL,
+		id, orderID, cookieID, kind, idempotencyKey, message)
 	if err != nil {
 		return "", err
 	}
-	return id, nil
+	// affected、err 保存本次写入实际新增的记录数及读取该结果的错误。
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return "", err
+	}
+	if affected == 1 {
+		return id, nil
+	}
+	// existingID、err 保存先前成功写入的幂等补偿记录及查询错误。
+	var existingID string
+	err = r.DB.QueryRowContext(ctx,
+		`SELECT id FROM order_reconciliations WHERE idempotency_key=?`, idempotencyKey).Scan(&existingID)
+	if err != nil {
+		return "", err
+	}
+	return existingID, nil
 }
 
 // ListPending 返回待补偿记录，供后续恢复 worker 扫描和审计使用。
@@ -69,7 +92,7 @@ func (r *OrderReconciliations) ListPending(ctx context.Context, limit int) ([]Or
 	}
 	// rows、err 保存待补偿查询结果及其错误。
 	rows, err := r.DB.QueryContext(ctx, `
-		SELECT id, order_id, cookie_id, kind, status, error_message, attempts, created_at, updated_at
+		SELECT id, order_id, cookie_id, kind, COALESCE(idempotency_key,''), status, error_message, attempts, created_at, updated_at
 		FROM order_reconciliations WHERE status='pending' ORDER BY created_at, id LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -81,7 +104,7 @@ func (r *OrderReconciliations) ListPending(ctx context.Context, limit int) ([]Or
 		// record 保存当前扫描到的补偿记录。
 		var record OrderReconciliation
 		// err 表示当前补偿记录扫描失败。
-		if err := rows.Scan(&record.ID, &record.OrderID, &record.CookieID, &record.Kind, &record.Status, &record.ErrorMessage, &record.Attempts, &record.CreatedAt, &record.UpdatedAt); err != nil {
+		if err := rows.Scan(&record.ID, &record.OrderID, &record.CookieID, &record.Kind, &record.IdempotencyKey, &record.Status, &record.ErrorMessage, &record.Attempts, &record.CreatedAt, &record.UpdatedAt); err != nil {
 			return nil, err
 		}
 		records = append(records, record)

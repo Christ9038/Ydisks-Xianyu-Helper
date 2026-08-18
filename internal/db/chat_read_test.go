@@ -14,11 +14,13 @@ func TestMarkMessageReadMarksPriorOutgoingHistory(t *testing.T) {
 	ctx := context.Background()
 	// userID 保存测试账号的数据库主键，用于建立会话所属账号。
 	var userID int64
+	// err 表示创建已读回执测试用户并读取其数据库主键时的错误。
 	if err := store.DB.QueryRowContext(ctx, `INSERT INTO users (username,email,password_hash) VALUES (?,?,?) RETURNING id`, "chat-read-owner", "chat-read-owner@example.com", "test-hash").Scan(&userID); err != nil {
 		t.Fatalf("创建测试用户: %v", err)
 	}
 	// cookieID 是测试聊天所属的非敏感账号标识。
 	const cookieID = "chat-read-account"
+	// err 表示创建已读回执测试账号时的数据库错误。
 	if err := store.Cookies.CreateOwned(ctx, cookieID, "test-cookie", userID); err != nil {
 		t.Fatalf("创建测试账号: %v", err)
 	}
@@ -30,6 +32,7 @@ func TestMarkMessageReadMarksPriorOutgoingHistory(t *testing.T) {
 		{MessageKey: "outgoing-2.PNM", Direction: "outgoing", MessageType: "text", Content: "第二条", Status: "sent", SentAt: 200},
 		{MessageKey: "outgoing-3.PNM", Direction: "outgoing", MessageType: "text", Content: "第三条", Status: "sent", SentAt: 300},
 	}
+	// message 表示当前待写入并验证已读状态的测试出站消息。
 	for _, message := range messages {
 		// inserted、saveErr 分别表示本条测试消息是否首次保存及保存失败原因。
 		if _, inserted, saveErr := store.Chats.SaveMessage(ctx, session, message, false); saveErr != nil || !inserted {
@@ -63,11 +66,13 @@ func TestSaveIncomingMessageMarksPriorOutgoingHistoryRead(t *testing.T) {
 	ctx := context.Background()
 	// userID 保存测试账号的数据库主键，用于建立会话所属账号。
 	var userID int64
+	// err 表示创建聊天历史测试用户并读取其数据库主键时的错误。
 	if err := store.DB.QueryRowContext(ctx, `INSERT INTO users (username,email,password_hash) VALUES (?,?,?) RETURNING id`, "chat-history-owner", "chat-history-owner@example.com", "test-hash").Scan(&userID); err != nil {
 		t.Fatalf("创建测试用户: %v", err)
 	}
 	// cookieID 是测试聊天所属的非敏感账号标识。
 	const cookieID = "chat-history-account"
+	// err 表示创建聊天历史测试账号时的数据库错误。
 	if err := store.Cookies.CreateOwned(ctx, cookieID, "test-cookie", userID); err != nil {
 		t.Fatalf("创建测试账号: %v", err)
 	}
@@ -75,16 +80,19 @@ func TestSaveIncomingMessageMarksPriorOutgoingHistoryRead(t *testing.T) {
 	session := ChatSession{CookieID: cookieID, ChatID: "chat-history-session", BuyerID: "buyer-1", BuyerName: "买家"}
 	// first 保存买家回复之前的出站消息，应被后续回复确认已读。
 	first := ChatMessage{MessageKey: "history-first.PNM", Direction: "outgoing", MessageType: "text", Content: "第一条", Status: "sent", SentAt: 100}
+	// inserted、saveErr 分别表示首条测试消息是否新增及保存失败原因。
 	if _, inserted, saveErr := store.Chats.SaveMessage(ctx, session, first, false); saveErr != nil || !inserted {
 		t.Fatalf("保存第一条出站消息 inserted=%v err=%v", inserted, saveErr)
 	}
 	// reply 保存买家后续消息，其到达表明此前出站内容已被阅读。
 	reply := ChatMessage{MessageKey: "history-reply.PNM", Direction: "incoming", MessageType: "text", Content: "收到", Status: "received", SentAt: 200}
+	// inserted、saveErr 分别表示买家回复是否新增及保存失败原因。
 	if _, inserted, saveErr := store.Chats.SaveMessage(ctx, session, reply, true); saveErr != nil || !inserted {
 		t.Fatalf("保存买家回复 inserted=%v err=%v", inserted, saveErr)
 	}
 	// last 保存买家回复之后的出站消息，不能被此前回复错误确认。
 	last := ChatMessage{MessageKey: "history-last.PNM", Direction: "outgoing", MessageType: "text", Content: "第三条", Status: "sent", SentAt: 300}
+	// inserted、saveErr 分别表示末条测试消息是否新增及保存失败原因。
 	if _, inserted, saveErr := store.Chats.SaveMessage(ctx, session, last, false); saveErr != nil || !inserted {
 		t.Fatalf("保存最后一条出站消息 inserted=%v err=%v", inserted, saveErr)
 	}

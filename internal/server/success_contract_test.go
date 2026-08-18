@@ -38,6 +38,7 @@ func TestChatEventDTOUsesFrontendContract(t *testing.T) {
 	}
 	// payload 保存浏览器实际接收的 JSON 对象。
 	var payload map[string]any
+	// unmarshalErr 表示将聊天事件 JSON 解码为契约断言对象时的错误。
 	if unmarshalErr := json.Unmarshal(encoded, &payload); unmarshalErr != nil {
 		t.Fatalf("解码聊天实时事件: %v", unmarshalErr)
 	}

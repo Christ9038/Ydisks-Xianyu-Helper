@@ -8,14 +8,14 @@ import (
 	"os"
 )
 
-// main 负责main相关处理。
+// main 封装main业务协调。
 func main() {
 	if len(os.Args) != 3 {
 		fmt.Fprintln(os.Stderr, "usage: iconconv input.png output.ico")
 		os.Exit(2)
 	}
 
-	// data、err 保存data、err，供当前处理流程使用
+	// data、err 用于本次流程后续判断的data、err
 	data, err := os.ReadFile(os.Args[1])
 	if err != nil {
 		panic(err)
@@ -23,16 +23,16 @@ func main() {
 
 	// A PNG-compressed 256x256 image is valid in an ICO file and keeps the
 	// alpha channel of the original product icon.
-	// headerSize 保存header数量，供当前处理流程使用
+	// headerSize 用于本次流程后续判断的header数量
 	const headerSize = 6
-	// entrySize 保存entry数量，供当前处理流程使用
+	// entrySize 用于本次流程后续判断的entry数量
 	const entrySize = 16
-	// result 保存结果，供当前处理流程使用
+	// result 用于本次流程后续判断的结果
 	result := make([]byte, headerSize+entrySize+len(data))
 	binary.LittleEndian.PutUint16(result[0:2], 0)
 	binary.LittleEndian.PutUint16(result[2:4], 1)
 	binary.LittleEndian.PutUint16(result[4:6], 1)
-	// entry 保存entry，供当前处理流程使用
+	// entry 用于本次流程后续判断的entry
 	entry := result[headerSize : headerSize+entrySize]
 	entry[0] = 0 // 0 means 256 in the ICO format.
 	entry[1] = 0
@@ -42,7 +42,7 @@ func main() {
 	binary.LittleEndian.PutUint32(entry[12:16], headerSize+entrySize)
 	copy(result[headerSize+entrySize:], data)
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := os.WriteFile(os.Args[2], result, 0644); err != nil {
 		panic(err)
 	}

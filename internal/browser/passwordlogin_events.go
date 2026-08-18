@@ -2,7 +2,7 @@ package browser
 
 import "strings"
 
-// PasswordLoginStatusProcessing 保存密码登录状态Processing，供当前处理流程使用
+// PasswordLoginStatusProcessing 用于本次流程后续判断的密码登录状态Processing
 const (
 	PasswordLoginStatusProcessing           = "processing"
 	PasswordLoginStatusVerificationRequired = "verification_required"
@@ -21,10 +21,10 @@ type PasswordLoginEvent struct {
 	CooldownHours   int
 }
 
-// PasswordLoginEventHandler 保存密码登录EventHandler，供当前处理流程使用
+// PasswordLoginEventHandler 用于本次流程后续判断的密码登录EventHandler
 type PasswordLoginEventHandler func(PasswordLoginEvent)
 
-// PasswordLoginEventFromError 负责密码登录EventFrom错误相关处理。
+// PasswordLoginEventFromError 封装密码登录EventFrom错误业务协调。
 func PasswordLoginEventFromError(err error) PasswordLoginEvent {
 	if err == nil {
 		return PasswordLoginEvent{}
@@ -32,11 +32,11 @@ func PasswordLoginEventFromError(err error) PasswordLoginEvent {
 	return PasswordLoginEventFromMessage(err.Error())
 }
 
-// PasswordLoginEventFromMessage 负责密码登录EventFrom消息相关处理。
+// PasswordLoginEventFromMessage 封装密码登录EventFrom消息业务协调。
 func PasswordLoginEventFromMessage(msg string) PasswordLoginEvent {
-	// lower 保存lower，供当前处理流程使用
+	// lower 用于本次流程后续判断的lower
 	lower := strings.ToLower(msg)
-	// event 保存event，供当前处理流程使用
+	// event 用于本次流程后续判断的event
 	event := PasswordLoginEvent{Status: PasswordLoginStatusFailed, Message: msg, Error: msg}
 	switch {
 	case IsBaxiaPunishMessage(msg) || (strings.Contains(msg, "风控") && strings.Contains(msg, "图形验证")):
@@ -48,9 +48,9 @@ func PasswordLoginEventFromMessage(msg string) PasswordLoginEvent {
 	return event
 }
 
-// IsBaxiaPunishMessage 负责IsBaxiaPunish消息相关处理。
+// IsBaxiaPunishMessage 封装IsBaxiaPunish消息业务协调。
 func IsBaxiaPunishMessage(msg string) bool {
-	// lower 保存lower，供当前处理流程使用
+	// lower 用于本次流程后续判断的lower
 	lower := strings.ToLower(msg)
 	return strings.Contains(lower, "baxia") ||
 		strings.Contains(lower, "punish") ||

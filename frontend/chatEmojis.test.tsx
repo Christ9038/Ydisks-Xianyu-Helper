@@ -7,8 +7,8 @@ describe('official Xianyu emoji mapping', () => {
     expect(xianyuEmojis).toHaveLength(126);
     expect(xianyuEmojis[0][0]).toBe('尊嘟假嘟');
     expect(xianyuEmojis.at(-1)?.[0]).toBe('爱心');
-    expect(new Set(xianyuEmojis.map(([name]) => name /* 回调函数负责当前业务流程。 */)).size).toBe(126);
-  } /* 回调函数负责当前业务流程。 */);
+    expect(new Set(xianyuEmojis.map(([name]) => name /* name 是官方表情面板中的显示名称。 */)).size).toBe(126);
+  } /* 测试回调断言官方表情目录的数量、顺序和名称唯一性。 */);
 
   test('uses official CDN assets and renders bracket codes inline', () => {
     for (const [, url] /* [, url] 表示请求地址。 */ of xianyuEmojis) {
@@ -18,5 +18,5 @@ describe('official Xianyu emoji mapping', () => {
     expect(html).toContain('你好');
     expect(html).toContain('alt="[捂脸哭]"');
     expect(html).toContain('alt="[送花]"');
-  } /* 回调函数负责当前业务流程。 */);
-} /* 回调函数负责当前业务流程。 */);
+  } /* 测试回调断言 CDN 地址及文本表情节点的渲染结果。 */);
+} /* 测试套件回调汇总表情目录和文本转换契约。 */);

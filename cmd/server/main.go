@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"flag"
@@ -19,23 +20,21 @@ import (
 	"syscall"
 	"time"
 
-	"xianyu-go/internal/account"
 	"xianyu-go/internal/adapter"
 	lifecycleapp "xianyu-go/internal/application/lifecycle"
+	orderapp "xianyu-go/internal/application/orders"
 	"xianyu-go/internal/auth"
 	"xianyu-go/internal/automation"
 	"xianyu-go/internal/browser"
-	"xianyu-go/internal/chat"
 	"xianyu-go/internal/db"
 	"xianyu-go/internal/logging"
 	"xianyu-go/internal/logsafe"
-	"xianyu-go/internal/notify"
 	"xianyu-go/internal/renewal"
 	"xianyu-go/internal/server"
 	appversion "xianyu-go/internal/version"
 )
 
-// serverOptions 保存serverOptions，供当前处理流程使用
+// serverOptions 保存命令行和环境变量解析后的进程启动选项。
 type serverOptions struct {
 	dbPath                string
 	dbURL                 string
@@ -59,53 +58,119 @@ type serverOptions struct {
 	showVersion           bool
 }
 
-// defaultDBPath 保存defaultDB路径，供当前处理流程使用
+// defaultDBPath 保存默认 SQLite 数据库的相对路径；桌面运行时会根据 dataDir 重定位。
 const (
 	defaultDBPath      = "data/xianyu_data.db"
 	userDataDirName    = "YdisksXianyuHelper"
 	defaultDataKeyName = "data-key"
+	// httpShutdownTimeout 限制 HTTP 请求排空和 Server 自有后台任务等待时长。
+	httpShutdownTimeout = 10 * time.Second
+	// applicationShutdownTimeout 限制应用 worker 收到取消后的独立收束和 Join 时长。
+	applicationShutdownTimeout = 10 * time.Second
 )
 
-// main 负责main相关处理。
+// serverStartupConfig 保存目录、数据库和日志策略准备阶段的派生配置。
+type serverStartupConfig struct {
+	// dataDir 是桌面服务或显式 workdir 使用的应用数据目录，空值表示沿用当前目录布局。
+	dataDir string
+	// resolvedDBURL 是按环境变量、命令行和默认路径优先级解析出的数据库地址。
+	resolvedDBURL string
+	// explicitLogLevel 表示日志等级是否由环境变量或命令行显式指定，显式值优先于数据库设置。
+	explicitLogLevel bool
+	// explicitLogFormat 表示日志格式是否由环境变量或命令行显式指定，显式值优先于数据库设置。
+	explicitLogFormat bool
+	// resolvedLogFormat 是启动时选择的初始日志输出格式。
+	resolvedLogFormat string
+}
+
+// serverInfrastructure 保存数据库、日志和加密设置已就绪的基础设施，并集中承担关闭责任。
+type serverInfrastructure struct {
+	// database 是已完成迁移并由本进程独占关闭的数据库连接池。
+	database *sql.DB
+	// store 提供应用服务使用的数据库仓储集合。
+	store *db.Store
+	// logger 是同时写入标准输出或服务日志文件的结构化日志器。
+	logger *slog.Logger
+	// logWriter 是 logger 使用的输出目标，关闭由 closeLog 负责。
+	logWriter io.Writer
+	// closeLog 释放服务日志文件；标准输出场景下该函数为空操作。
+	closeLog func()
+	// initializationOnly 表示本次调用仅完成 -init-admin 管理员初始化，调用方不得继续启动运行时。
+	initializationOnly bool
+}
+
+// close 逆序释放日志文件和数据库连接，允许基础设施初始化失败路径统一调用。
+func (i serverInfrastructure) close() {
+	if i.database != nil {
+		_ = i.database.Close()
+	}
+	if i.closeLog != nil {
+		i.closeLog()
+	}
+}
+
+// serverRuntime 保存 HTTP 服务及应用生命周期协调器，二者必须由同一 Context 启动和关闭。
+type serverRuntime struct {
+	// httpServer 是已完成依赖注入、尚未启动监听的 HTTP 服务。
+	httpServer *server.Server
+	// lifecycleCoordinator 按登记顺序启动组件并按逆序关闭后台 worker。
+	lifecycleCoordinator *lifecycleapp.Coordinator
+}
+
+// httpRuntimeStopper 定义进程关闭阶段需要的最小 HTTP 停止能力。
+// Stop 必须只收束 HTTP 请求和 Server 自有任务，不能等待应用 worker。
+type httpRuntimeStopper interface {
+	// Stop 在调用方提供的独立 HTTP 关闭 Context 内完成请求排空。
+	Stop(context.Context) error
+}
+
+// applicationRuntimeCloser 定义进程关闭阶段需要的最小应用组件收束能力。
+// Close 必须取消并等待全部已登记应用 worker，返回值保留未完成组件诊断。
+type applicationRuntimeCloser interface {
+	// Close 在调用方提供的独立应用关闭 Context 内取消并 Join worker。
+	Close(context.Context) error
+}
+
+// main 封装main业务协调。
 func main() {
-	// opts 保存opts，供当前处理流程使用
+	// opts 是命令行解析出的服务启动选项。
 	opts := parseOptions()
 	if opts.showVersion {
 		fmt.Printf("Ydisks Xianyu Helper %s (commit %s, built %s)\n", appversion.Version, appversion.ShortCommit(), appversion.BuildTime)
 		return
 	}
 	if opts.workDir != "" {
-		if // err 保存err，供当前处理流程使用
-		err := os.Chdir(opts.workDir); err != nil {
+		// err 表示切换到桌面服务指定工作目录失败。
+		if err := os.Chdir(opts.workDir); err != nil {
 			fmt.Fprintf(os.Stderr, "切换工作目录失败: %s\n", logsafe.Error(err))
 			os.Exit(2)
 		}
 	}
 
-	// run 保存运行，供当前处理流程使用
+	// run 统一封装平台服务和前台进程都会调用的启动函数。
 	run := func(ctx context.Context) error { return runServer(ctx, opts) }
 	if opts.service {
-		if // err 保存err，供当前处理流程使用
-		err := runPlatformService("YdisksXianyuHelper", run); err != nil {
+		// err 表示平台注册或运行服务失败。
+		if err := runPlatformService("YdisksXianyuHelper", run); err != nil {
 			fmt.Fprintf(os.Stderr, "服务运行失败: %s\n", logsafe.Error(err))
 			os.Exit(1)
 		}
 		return
 	}
 
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx 接收终端信号取消；cancel 在主进程退出时解除信号订阅。
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	if // err 保存err，供当前处理流程使用
-	err := run(ctx); err != nil {
+	// err 表示前台服务的启动、监听或关闭失败。
+	if err := run(ctx); err != nil {
 		slog.Error("服务退出", "err", logsafe.Error(err))
 		os.Exit(1)
 	}
 }
 
-// parseOptions 负责parseOptions相关处理。
+// parseOptions 封装parseOptions业务协调。
 func parseOptions() serverOptions {
-	// opts 保存opts，供当前处理流程使用
+	// opts 收集所有命令行标志的目标字段，并在 flag.Parse 后返回。
 	var opts serverOptions
 	flag.StringVar(&opts.dbPath, "db", defaultDBPath, "SQLite 数据库路径（兼容旧用法）")
 	flag.StringVar(&opts.dbURL, "db-url", "", "数据库连接 URL（sqlite:// mysql:// postgres://），优先级高于 -db；也可用 DATABASE_URL 环境变量")
@@ -131,32 +196,51 @@ func parseOptions() serverOptions {
 	return opts
 }
 
-// runServer 负责运行Server相关处理。
+// runServer 按准备、基础设施、运行时装配和生命周期四个阶段启动服务，并在退出时逆序释放资源。
 func runServer(parent context.Context, opts serverOptions) error {
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx 是本次服务实例的取消上下文；cancel 在所有启动路径结束时释放派生资源。
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-
-	// dataDir、err 保存数据Dir、err，供当前处理流程使用
-	dataDir, err := resolveDataDir(opts.workDir)
+	// startup 保存目录、数据库和日志策略的派生配置。
+	startup, err := prepareServerStartup(&opts)
 	if err != nil {
 		return err
 	}
-	// packagedPlaywrightRuntime 保存packagedPlaywrightRuntime，供当前处理流程使用
+	// infrastructure 负责数据库、日志和加密设置资源的生命周期。
+	infrastructure, err := openServerInfrastructure(ctx, startup, opts)
+	if err != nil {
+		return err
+	}
+	defer infrastructure.close()
+	if infrastructure.initializationOnly {
+		return nil
+	}
+	// runtime 保存已完成依赖注入但尚未启动的 HTTP 服务和生命周期协调器。
+	runtime, err := buildServerRuntime(opts, infrastructure)
+	if err != nil {
+		return err
+	}
+	return runServerLifecycle(ctx, runtime, infrastructure.logger)
+}
+
+// prepareServerStartup 解析数据目录、Playwright 路径、数据密钥、数据库地址和日志启动策略，并把必需环境变量写入当前进程。
+func prepareServerStartup(opts *serverOptions) (serverStartupConfig, error) {
+	// dataDir 是显式 workdir 或桌面平台默认用户数据目录。
+	dataDir, err := resolveDataDir(opts.workDir)
+	if err != nil {
+		return serverStartupConfig{}, err
+	}
+	// packagedPlaywrightRuntime 表示安装包是否显式提供浏览器 runtime；本地开发不应把空目录当作缓存。
 	packagedPlaywrightRuntime := strings.TrimSpace(opts.playwrightRuntimeRoot) != ""
-	applyPlaywrightRuntimeRoot(&opts)
+	applyPlaywrightRuntimeRoot(opts)
 	if dataDir != "" {
-		if // err 保存err，供当前处理流程使用
-		err := os.MkdirAll(dataDir, 0o700); err != nil {
-			return fmt.Errorf("创建应用数据目录失败: %w", err)
+		// err 表示创建受限权限应用数据目录时的文件系统错误。
+		if err := os.MkdirAll(dataDir, 0o700); err != nil {
+			return serverStartupConfig{}, fmt.Errorf("创建应用数据目录失败: %w", err)
 		}
 		if opts.dataKeyFile == "" {
 			opts.dataKeyFile = filepath.Join(dataDir, defaultDataKeyName)
 		}
-		// 只有安装包显式提供 runtime root 时，才把 Playwright runtime
-		// 放进应用数据目录。普通本地开发应沿用 Playwright 的用户缓存；
-		// 空的应用目录会让 playwright-go 误以为 driver 已配置，随后尝试
-		// 执行不存在的 <dataDir>/playwright-driver/node。
 		if packagedPlaywrightRuntime && opts.playwrightDriverDir == "" {
 			opts.playwrightDriverDir = filepath.Join(dataDir, "playwright-driver")
 		}
@@ -164,32 +248,30 @@ func runServer(parent context.Context, opts serverOptions) error {
 			opts.playwrightBrowserDir = filepath.Join(dataDir, "playwright-browsers")
 		}
 	}
-
 	if opts.playwrightDriverDir != "" {
-		if // err 保存err，供当前处理流程使用
-		err := os.Setenv("PLAYWRIGHT_DRIVER_PATH", opts.playwrightDriverDir); err != nil {
-			return fmt.Errorf("设置 Playwright driver 目录失败: %w", err)
+		// err 表示写入 Playwright driver 路径环境变量失败。
+		if err := os.Setenv("PLAYWRIGHT_DRIVER_PATH", opts.playwrightDriverDir); err != nil {
+			return serverStartupConfig{}, fmt.Errorf("设置 Playwright driver 目录失败: %w", err)
 		}
 	}
 	if opts.playwrightBrowserDir != "" {
-		if // err 保存err，供当前处理流程使用
-		err := os.Setenv("PLAYWRIGHT_BROWSERS_PATH", opts.playwrightBrowserDir); err != nil {
-			return fmt.Errorf("设置 Playwright 浏览器目录失败: %w", err)
+		// err 表示写入 Playwright browser 缓存路径环境变量失败。
+		if err := os.Setenv("PLAYWRIGHT_BROWSERS_PATH", opts.playwrightBrowserDir); err != nil {
+			return serverStartupConfig{}, fmt.Errorf("设置 Playwright 浏览器目录失败: %w", err)
 		}
 	}
 	if strings.TrimSpace(os.Getenv("XIANYU_DATA_KEY")) == "" && opts.dataKeyFile != "" {
-		// key、err 保存key、err，供当前处理流程使用
-		key, err := loadOrCreateDataKey(opts.dataKeyFile)
-		if err != nil {
-			return err
+		// key 是从磁盘读取或新生成的加密主密钥；不得写入日志。
+		key, keyErr := loadOrCreateDataKey(opts.dataKeyFile)
+		if keyErr != nil {
+			return serverStartupConfig{}, keyErr
 		}
-		if // err 保存err，供当前处理流程使用
-		err := os.Setenv("XIANYU_DATA_KEY", key); err != nil {
-			return fmt.Errorf("设置 XIANYU_DATA_KEY 失败: %w", err)
+		// err 表示把数据加密主密钥写入当前进程环境失败。
+		if err := os.Setenv("XIANYU_DATA_KEY", key); err != nil {
+			return serverStartupConfig{}, fmt.Errorf("设置 XIANYU_DATA_KEY 失败: %w", err)
 		}
 	}
-
-	// resolvedDBURL 保存resolvedDBURL，供当前处理流程使用
+	// resolvedDBURL 按 DATABASE_URL、-db-url、-db 默认优先级选择实际数据库地址。
 	resolvedDBURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
 	if resolvedDBURL == "" {
 		resolvedDBURL = strings.TrimSpace(opts.dbURL)
@@ -198,15 +280,14 @@ func runServer(parent context.Context, opts serverOptions) error {
 		resolvedDBURL = resolveDBPath(dataDir, opts.dbPath)
 	}
 	if dataDir != "" && resolvedDBURL == resolveDBPath(dataDir, defaultDBPath) {
-		if // err 保存err，供当前处理流程使用
-		err := os.MkdirAll(filepath.Dir(resolvedDBURL), 0o700); err != nil {
-			return fmt.Errorf("创建数据库目录失败: %w", err)
+		// err 表示创建默认 SQLite 数据库父目录失败。
+		if err := os.MkdirAll(filepath.Dir(resolvedDBURL), 0o700); err != nil {
+			return serverStartupConfig{}, fmt.Errorf("创建数据库目录失败: %w", err)
 		}
 	}
-
-	// resolvedLogLevel 保存resolvedLogLevel，供当前处理流程使用
+	// resolvedLogLevel 是环境变量、命令行和 verbose 共同决定的日志等级；explicit 标记是否禁止数据库覆盖。
 	resolvedLogLevel := strings.TrimSpace(os.Getenv("LOG_LEVEL"))
-	// explicitLogLevel 保存explicitLogLevel，供当前处理流程使用
+	// explicitLogLevel 表示日志等级来自进程配置，因此不允许数据库设置覆盖它。
 	explicitLogLevel := resolvedLogLevel != ""
 	if strings.TrimSpace(opts.logLevel) != "" {
 		resolvedLogLevel = strings.TrimSpace(opts.logLevel)
@@ -216,118 +297,126 @@ func runServer(parent context.Context, opts serverOptions) error {
 		resolvedLogLevel = "debug"
 		explicitLogLevel = true
 	}
-	if // err 保存err，供当前处理流程使用
-	err := logging.SetLevel(resolvedLogLevel); err != nil {
-		return fmt.Errorf("日志等级无效: %w", err)
+	// err 表示初始日志等级不被 logging 包支持。
+	if err := logging.SetLevel(resolvedLogLevel); err != nil {
+		return serverStartupConfig{}, fmt.Errorf("日志等级无效: %w", err)
 	}
-	// resolvedLogFormat 保存resolvedLogFormat，供当前处理流程使用
+	// resolvedLogFormat 是环境变量或命令行选择的初始日志格式；explicitLogFormat 控制数据库设置是否可覆盖。
 	resolvedLogFormat := strings.TrimSpace(os.Getenv("LOG_FORMAT"))
-	// explicitLogFormat 保存explicitLogFormat，供当前处理流程使用
+	// explicitLogFormat 表示日志格式来自进程配置，因此不允许数据库设置覆盖它。
 	explicitLogFormat := resolvedLogFormat != ""
 	if strings.TrimSpace(opts.logFormat) != "" {
 		resolvedLogFormat = strings.TrimSpace(opts.logFormat)
 		explicitLogFormat = true
 	}
-	// logWriter、closeLog、err 保存logWriter、closeLog、err，供当前处理流程使用
-	logWriter, closeLog, err := openServerLogWriter(dataDir)
-	if err != nil {
-		return err
-	}
-	defer closeLog()
-	// logger 保存logger，供当前处理流程使用
-	logger := logging.NewLogger(logWriter, resolvedLogFormat)
-	slog.SetDefault(logger)
+	return serverStartupConfig{dataDir: dataDir, resolvedDBURL: resolvedDBURL, explicitLogLevel: explicitLogLevel, explicitLogFormat: explicitLogFormat, resolvedLogFormat: resolvedLogFormat}, nil
+}
 
-	// database、dialect、err 保存database、dialect、err，供当前处理流程使用
-	database, dialect, err := db.Open(ctx, resolvedDBURL)
+// openServerInfrastructure 打开日志和数据库、升级敏感字段、应用数据库日志设置并处理管理员初始化选项。
+func openServerInfrastructure(ctx context.Context, startup serverStartupConfig, opts serverOptions) (serverInfrastructure, error) {
+	// logWriter 和 closeLog 共同管理服务日志输出目标。
+	logWriter, closeLog, err := openServerLogWriter(startup.dataDir)
 	if err != nil {
-		return fmt.Errorf("打开数据库失败: %w", err)
+		return serverInfrastructure{}, err
 	}
-	defer database.Close()
+	// logger 是当前进程的初始结构化日志器；后续数据库日志格式变更会替换默认 logger。
+	logger := logging.NewLogger(logWriter, startup.resolvedLogFormat)
+	slog.SetDefault(logger)
+	// database 和 dialect 表示已打开数据库及其 SQL 方言；database 的关闭责任转移给返回值。
+	database, dialect, err := db.Open(ctx, startup.resolvedDBURL)
+	if err != nil {
+		closeLog()
+		return serverInfrastructure{}, fmt.Errorf("打开数据库失败: %w", err)
+	}
 	logger.Info("数据库已就绪", "dialect", dialect)
-	// store 保存store，供当前处理流程使用
+	// store 是绑定数据库方言的仓储集合。
 	store := db.NewStore(database, dialect)
-	if // err 保存err，供当前处理流程使用
-	err := store.EncryptLegacySecrets(ctx); err != nil {
-		return fmt.Errorf("校验或升级数据库敏感字段失败: %w", err)
+	// err 表示历史敏感字段加密校验或升级失败，失败时不能继续运行。
+	if err := store.EncryptLegacySecrets(ctx); err != nil {
+		_ = database.Close()
+		closeLog()
+		return serverInfrastructure{}, fmt.Errorf("校验或升级数据库敏感字段失败: %w", err)
 	}
-	if !explicitLogLevel {
-		if // lv、err 保存lv、err，供当前处理流程使用
-		lv, err := store.Settings.Get(ctx, "log_level"); err == nil && strings.TrimSpace(lv) != "" {
-			if // err 保存err，供当前处理流程使用
-			err := logging.SetLevel(lv); err != nil {
-				logger.Warn("忽略无效的系统日志设置", "value", lv, "err", err)
+	if !startup.explicitLogLevel {
+		// level、levelErr 分别是数据库保存的日志等级及其读取错误；读取失败时保留进程默认值。
+		if level, levelErr := store.Settings.Get(ctx, "log_level"); levelErr == nil && strings.TrimSpace(level) != "" {
+			// setErr 表示数据库日志等级不合法，系统会记录警告并继续使用现有等级。
+			if setErr := logging.SetLevel(level); setErr != nil {
+				logger.Warn("忽略无效的系统日志设置", "value", level, "err", setErr)
 			}
 		}
 	}
-	if !explicitLogFormat {
-		if // format、err 保存format、err，供当前处理流程使用
-		format, err := store.Settings.Get(ctx, "log_format"); err == nil && strings.TrimSpace(format) != "" {
+	if !startup.explicitLogFormat {
+		// format、formatErr 分别是数据库保存的日志格式及其读取错误；读取失败时保留进程默认格式。
+		if format, formatErr := store.Settings.Get(ctx, "log_format"); formatErr == nil && strings.TrimSpace(format) != "" {
 			logger = logging.NewLogger(logWriter, format)
 			slog.SetDefault(logger)
 		}
 	}
-
 	if opts.initAdmin {
-		if // err 保存err，供当前处理流程使用
-		err := ensureAdmin(ctx, store, opts.adminEmail, opts.adminPassword); err != nil {
-			return fmt.Errorf("初始化管理员失败: %w", err)
+		// err 表示管理员密码初始化或重置失败，失败时不进入后续运行时装配。
+		if err := ensureAdmin(ctx, store, opts.adminEmail, opts.adminPassword); err != nil {
+			_ = database.Close()
+			closeLog()
+			return serverInfrastructure{}, fmt.Errorf("初始化管理员失败: %w", err)
 		}
 		logger.Info("管理员初始化完成", "username", "admin")
-		return nil
+		return serverInfrastructure{database: database, store: store, logger: logger, logWriter: logWriter, closeLog: closeLog, initializationOnly: true}, nil
 	}
 	if opts.ensureAdmin {
-		// created、err 保存created、err，供当前处理流程使用
-		created, err := ensureAdminIfMissing(ctx, store, opts.adminEmail, opts.adminPassword)
-		if err != nil {
-			return fmt.Errorf("检查或初始化管理员失败: %w", err)
+		// created、ensureErr 分别标记是否新建管理员以及查询或创建管理员时的失败。
+		created, ensureErr := ensureAdminIfMissing(ctx, store, opts.adminEmail, opts.adminPassword)
+		if ensureErr != nil {
+			_ = database.Close()
+			closeLog()
+			return serverInfrastructure{}, fmt.Errorf("检查或初始化管理员失败: %w", ensureErr)
 		}
 		if created {
 			logger.Info("管理员初始化完成", "username", "admin")
 		}
 	}
-
-	if // init 保存init，供当前处理流程使用
-	init, _ := store.Users.IsSystemInitialized(ctx); !init {
+	// initialized 表示系统是否已有管理员；查询失败按未初始化提示而不阻断启动。
+	if initialized, _ := store.Users.IsSystemInitialized(ctx); !initialized {
 		logger.Warn("系统尚未初始化，请先运行本二进制的 -init-admin 初始化管理员")
 	}
+	return serverInfrastructure{database: database, store: store, logger: logger, logWriter: logWriter, closeLog: closeLog}, nil
+}
 
-	// bm 保存bm，供当前处理流程使用
+// buildServerRuntime 构造浏览器、账号、自动化、通知、应用服务和 HTTP 服务依赖，并登记全部生命周期组件但不启动它们。
+func buildServerRuntime(opts serverOptions, infrastructure serverInfrastructure) (serverRuntime, error) {
+	// bm 是可选浏览器基础设施；禁用浏览器时保持 nil，使账号运行时走无浏览器路径。
 	var bm *browser.Manager
 	if !opts.noBrowser {
-		bm = browser.NewManager(logger)
+		bm = browser.NewManager(infrastructure.logger)
 	}
-
-	// ap 保存ap，供当前处理流程使用
-	ap := adapter.New(store, bm, logger)
-	// chatService 保存聊天Service，供当前处理流程使用
-	chatService := chat.New(store)
-	ap.SetChatService(chatService)
-	// mgr 保存mgr，供当前处理流程使用
-	mgr := account.NewManager(store, ap, logger)
-	// notifier 保存notifier，供当前处理流程使用
-	notifier := notify.New("", store, logger)
-	// autoCenter 保存依赖在启动前固定完成的自动化中心。
-	autoCenter := automation.NewWithDependencies(store, mgr, logger, automation.CenterDependencies{
-		OrderDetailFetcher: ap,
-		Notifier:           notifier,
-	})
-	ap.SetAutomation(autoCenter)
-	ap.SetNotifier(notifier)
-	// automationScheduler 保存自动化Scheduler，供当前处理流程使用
+	// runtimeBundle 一次性闭合账号、自动化、通知和聊天依赖，避免生产路径通过 setter 补装必需依赖。
+	runtimeBundle, bundleErr := adapter.NewRuntimeBundle(infrastructure.store, bm, infrastructure.logger)
+	if bundleErr != nil {
+		return serverRuntime{}, fmt.Errorf("构造账号运行时依赖失败: %w", bundleErr)
+	}
+	// ap 是账号引擎事件和协议级订单详情的固定适配器。
+	ap := runtimeBundle.Adapter
+	// chatService 是 HTTP 与账号事件共享的聊天领域服务。
+	chatService := runtimeBundle.Chat
+	// mgr 是统一拥有已启用账号引擎生命周期的 supervisor。
+	mgr := runtimeBundle.Manager
+	// notifier 是账号告警与自动化结果共用的通知出口。
+	notifier := runtimeBundle.Notifier
+	// autoCenter 是接收账号事件和计划任务的自动化中心。
+	autoCenter := runtimeBundle.Automation
+	// automationScheduler 驱动自动化延迟任务、租约恢复和定时扫描。
 	automationScheduler := automation.NewScheduler(autoCenter)
-	// renewalScheduler 保存renewalScheduler，供当前处理流程使用
-	renewalScheduler := renewal.NewScheduler(store, mgr, ap, logger, notifier)
-
-	// lifecycleCoordinator 统一拥有应用组件的启动顺序、取消 Context 和逆序关闭。
+	// renewalScheduler 负责账号凭证续期调度，并通过固定适配器通知账号运行时。
+	renewalScheduler := renewal.NewScheduler(infrastructure.store, mgr, ap, infrastructure.logger, notifier)
+	// lifecycleCoordinator 统一拥有组件启动顺序、取消 Context 和逆序关闭。
 	lifecycleCoordinator := lifecycleapp.NewCoordinator()
 	if bm != nil {
-		// err 表示浏览器基础设施组件登记失败。
+		// err 表示浏览器生命周期组件登记失败。
 		if err := lifecycleCoordinator.Add(lifecycleapp.NamedComponent{Name: "browser", Component: lifecycleapp.FuncComponent{
 			StartFunc: func(context.Context) error { return bm.Initialize() },
 			CloseFunc: bm.CloseContext,
 		}}); err != nil {
-			return fmt.Errorf("登记浏览器生命周期组件失败: %w", err)
+			return serverRuntime{}, fmt.Errorf("登记浏览器生命周期组件失败: %w", err)
 		}
 	}
 	// err 表示通知 worker 生命周期组件登记失败。
@@ -335,130 +424,200 @@ func runServer(parent context.Context, opts serverOptions) error {
 		StartFunc: func(componentCtx context.Context) error { notifier.Start(componentCtx); return nil },
 		CloseFunc: notifier.WaitContext,
 	}}); err != nil {
-		return fmt.Errorf("登记通知生命周期组件失败: %w", err)
+		return serverRuntime{}, fmt.Errorf("登记通知生命周期组件失败: %w", err)
 	}
 	// err 表示账号运行时生命周期组件登记失败。
 	if err := lifecycleCoordinator.Add(lifecycleapp.NamedComponent{Name: "account-manager", Component: lifecycleapp.FuncComponent{
 		StartFunc: mgr.StartAll,
 		CloseFunc: mgr.StopAllContext,
 	}}); err != nil {
-		return fmt.Errorf("登记账号生命周期组件失败: %w", err)
+		return serverRuntime{}, fmt.Errorf("登记账号生命周期组件失败: %w", err)
 	}
 	// err 表示自动化调度器生命周期组件登记失败。
 	if err := lifecycleCoordinator.Add(lifecycleapp.NamedComponent{Name: "automation-scheduler", Component: lifecycleapp.FuncComponent{
 		StartFunc: func(componentCtx context.Context) error { go automationScheduler.Run(componentCtx); return nil },
 		CloseFunc: automationScheduler.WaitContext,
 	}}); err != nil {
-		return fmt.Errorf("登记自动化调度生命周期组件失败: %w", err)
+		return serverRuntime{}, fmt.Errorf("登记自动化调度生命周期组件失败: %w", err)
 	}
-	// err 表示续期调度器生命周期组件登记失败。
+	// err 表示凭证续期调度器生命周期组件登记失败。
 	if err := lifecycleCoordinator.Add(lifecycleapp.NamedComponent{Name: "renewal-scheduler", Component: lifecycleapp.FuncComponent{
 		StartFunc: func(componentCtx context.Context) error { go renewalScheduler.Run(componentCtx); return nil },
 		CloseFunc: renewalScheduler.StopContext,
 	}}); err != nil {
-		return fmt.Errorf("登记续期调度生命周期组件失败: %w", err)
+		return serverRuntime{}, fmt.Errorf("登记续期调度生命周期组件失败: %w", err)
 	}
-
-	// srv 是完成依赖校验并注入聊天服务后的 HTTP 应用实例。
-	// orderDependencies 保存订单应用服务专用的显式装配能力，避免订单路径读取通用设施容器。
-	orderDependencies, orderDependencyErr := adapter.NewOrderDependencies(store)
-	if orderDependencyErr != nil {
-		return fmt.Errorf("构造订单基础设施依赖失败: %w", orderDependencyErr)
+	// orderDependencies、orderErr 分别是订单应用服务依赖及其构造失败。
+	orderDependencies, orderErr := adapter.NewOrderDependencies(infrastructure.store)
+	if orderErr != nil {
+		return serverRuntime{}, fmt.Errorf("构造订单基础设施依赖失败: %w", orderErr)
 	}
-	// accountDependencies 保存账号应用服务专用的显式装配能力，避免账号路径读取通用设施容器。
-	accountDependencies, accountDependencyErr := adapter.NewAccountDependencies(store)
-	if accountDependencyErr != nil {
-		return fmt.Errorf("构造账号基础设施依赖失败: %w", accountDependencyErr)
+	// accountDependencies、accountErr 分别是账号应用服务依赖及其构造失败。
+	accountDependencies, accountErr := adapter.NewAccountDependencies(infrastructure.store)
+	if accountErr != nil {
+		return serverRuntime{}, fmt.Errorf("构造账号基础设施依赖失败: %w", accountErr)
 	}
-	// itemDependencies 保存商品应用服务专用的显式装配能力，避免商品路径读取通用设施容器。
-	itemDependencies, itemDependencyErr := adapter.NewItemDependencies(store)
-	if itemDependencyErr != nil {
-		return fmt.Errorf("构造商品基础设施依赖失败: %w", itemDependencyErr)
+	// itemDependencies、itemErr 分别是商品应用服务依赖及其构造失败。
+	itemDependencies, itemErr := adapter.NewItemDependencies(infrastructure.store)
+	if itemErr != nil {
+		return serverRuntime{}, fmt.Errorf("构造商品基础设施依赖失败: %w", itemErr)
 	}
-	// automationDependencies 保存自动化、默认回复和关键词应用服务的显式装配能力。
-	automationDependencies, automationDependencyErr := adapter.NewAutomationDependencies(store)
-	if automationDependencyErr != nil {
-		return fmt.Errorf("构造自动化基础设施依赖失败: %w", automationDependencyErr)
+	// automationDependencies、automationErr 分别是自动化应用服务依赖及其构造失败。
+	automationDependencies, automationErr := adapter.NewAutomationDependencies(infrastructure.store)
+	if automationErr != nil {
+		return serverRuntime{}, fmt.Errorf("构造自动化基础设施依赖失败: %w", automationErr)
 	}
-	// miscDependencies 保存通知、分析和卡券应用服务的显式装配能力。
-	miscDependencies, miscDependencyErr := adapter.NewMiscDependencies(store)
-	if miscDependencyErr != nil {
-		return fmt.Errorf("构造通知分析卡券基础设施依赖失败: %w", miscDependencyErr)
+	// miscDependencies、miscErr 分别是通知、分析和卡券应用服务依赖及其构造失败。
+	miscDependencies, miscErr := adapter.NewMiscDependencies(infrastructure.store)
+	if miscErr != nil {
+		return serverRuntime{}, fmt.Errorf("构造通知分析卡券基础设施依赖失败: %w", miscErr)
 	}
-	// adminSettingsDependencies 保存管理员与系统设置应用服务的显式装配能力。
-	adminSettingsDependencies := adapter.NewAdminSettingsDependencies(store)
+	// adminSettingsDependencies 是管理员与系统设置应用服务的依赖，nil 代表装配失败。
+	adminSettingsDependencies := adapter.NewAdminSettingsDependencies(infrastructure.store)
 	if adminSettingsDependencies == nil {
-		return fmt.Errorf("构造管理员设置基础设施依赖失败")
+		return serverRuntime{}, fmt.Errorf("构造管理员设置基础设施依赖失败")
 	}
-	// chatDependencies 保存聊天应用服务使用的显式运行时与平台适配器。
-	chatDependencies := adapter.NewChatDependencies(store)
+	// chatDependencies 是聊天应用服务使用的运行时与平台适配器，nil 代表装配失败。
+	chatDependencies := adapter.NewChatDependencies(infrastructure.store)
 	if chatDependencies == nil {
-		return fmt.Errorf("构造聊天基础设施依赖失败")
+		return serverRuntime{}, fmt.Errorf("构造聊天基础设施依赖失败")
 	}
-	// systemDependencies 保存健康检查和订单补偿扫描使用的显式数据库适配器。
-	systemDependencies := adapter.NewSystemDependencies(store)
+	// systemDependencies 是健康检查和订单补偿扫描使用的数据库适配器，nil 代表装配失败。
+	systemDependencies := adapter.NewSystemDependencies(infrastructure.store)
 	if systemDependencies == nil {
-		return fmt.Errorf("构造系统基础设施依赖失败")
+		return serverRuntime{}, fmt.Errorf("构造系统基础设施依赖失败")
 	}
-	// platformDependencies 保存服务端显式注入的 MTOP、长登录和二维码平台能力。
-	platformDependencies, platformDependencyErr := adapter.NewDefaultPlatformDependencies(logger)
-	if platformDependencyErr != nil {
-		return fmt.Errorf("构造平台基础设施依赖失败: %w", platformDependencyErr)
+	// orderReconciliationRecovery 是由进程装配层拥有的订单补偿扫描应用服务，Server 仅接收其 transport-facing 端口。
+	orderReconciliationRecovery, orderReconciliationRecoveryErr := orderapp.NewReconciliationRecoveryCoordinator(systemDependencies.NewReconciliationService(infrastructure.logger))
+	if orderReconciliationRecoveryErr != nil {
+		return serverRuntime{}, fmt.Errorf("构造订单补偿恢复协调器失败: %w", orderReconciliationRecoveryErr)
 	}
-	// authentication 保存 HTTP 会话中间件所需的认证实现；会话 Cookie 的 Secure 策略由启动参数决定。
-	authentication := &auth.Service{Store: store, Logger: logger, Secure: opts.secure}
-	// srv、err 保存 HTTP 服务构造结果及失败原因。
-	srv, err := server.New(authentication, mgr, opts.webDir, opts.addr, logger, autoCenter, notifier, server.WithChatService(chatService), server.WithChatDependencies(chatDependencies), server.WithSystemDependencies(systemDependencies), server.WithOrderDependencies(orderDependencies), server.WithAccountDependencies(accountDependencies), server.WithItemDependencies(itemDependencies), server.WithAutomationDependencies(automationDependencies), server.WithMiscDependencies(miscDependencies), server.WithAdminSettingsDependencies(adminSettingsDependencies), server.WithPlatformDependencies(platformDependencies), server.WithApplicationLifecycle(lifecycleCoordinator))
-	if err != nil {
-		return fmt.Errorf("构造 HTTP 服务失败: %w", err)
+	// databaseHealth 是进程装配层创建的数据库健康检查端口，HTTP handler 只能通过该窄接口探测连通性。
+	databaseHealth := systemDependencies.NewDatabaseHealth()
+	if databaseHealth == nil {
+		return serverRuntime{}, fmt.Errorf("构造数据库健康检查端口失败")
 	}
-	// component 表示 Server 暴露给进程装配层的一个应用 worker 生命周期组件。
-	for _, component := range srv.ApplicationLifecycleComponents() {
-		// err 表示应用 worker 生命周期组件登记失败。
+	// platformDependencies 提供 HTTP 层使用的 MTOP、长登录和二维码平台能力。
+	platformDependencies, platformErr := adapter.NewDefaultPlatformDependencies(infrastructure.logger)
+	if platformErr != nil {
+		return serverRuntime{}, fmt.Errorf("构造平台基础设施依赖失败: %w", platformErr)
+	}
+	// transportApplications 是进程组合根一次性构造的 transport-facing 应用服务集合。
+	transportApplications, transportApplicationsErr := adapter.NewTransportApplicationServices(adapter.TransportApplicationServiceOptions{
+		AutomationDependencies:    automationDependencies,
+		MiscDependencies:          miscDependencies,
+		AdminSettingsDependencies: adminSettingsDependencies,
+		AdminRuntime:              mgr,
+		AccountTaskRunner:         adapter.NewAccountTaskRunner(autoCenter),
+		ChannelSender:             notifier,
+		ModelClient:               adapter.NewAIModelClient(),
+	})
+	if transportApplicationsErr != nil {
+		return serverRuntime{}, fmt.Errorf("构造 transport 应用服务失败: %w", transportApplicationsErr)
+	}
+	// authentication 负责 HTTP 会话认证；Secure 策略由启动参数控制。
+	authentication := &auth.Service{Store: infrastructure.store, Logger: infrastructure.logger, Secure: opts.secure}
+	// httpServer 是完成所有窄依赖注入后的 HTTP 服务实例。
+	httpServer, serverErr := server.New(authentication, mgr, opts.webDir, opts.addr, infrastructure.logger, autoCenter, notifier, server.WithChatService(chatService), server.WithChatDependencies(chatDependencies), server.WithDatabaseHealth(databaseHealth), server.WithOrderReconciliationRecovery(orderReconciliationRecovery), server.WithOrderDependencies(orderDependencies), server.WithAccountDependencies(accountDependencies), server.WithItemDependencies(itemDependencies), server.WithAutomationDependencies(automationDependencies), server.WithTransportApplicationServices(transportApplications), server.WithPlatformDependencies(platformDependencies), server.WithApplicationLifecycle(lifecycleCoordinator))
+	if serverErr != nil {
+		return serverRuntime{}, fmt.Errorf("构造 HTTP 服务失败: %w", serverErr)
+	}
+	// component 表示 HTTP 服务暴露给进程装配层的应用 worker 生命周期组件。
+	for _, component := range httpServer.ApplicationLifecycleComponents() {
+		// err 表示当前 HTTP 应用 worker 生命周期组件登记失败。
 		if err := lifecycleCoordinator.Add(component); err != nil {
-			return fmt.Errorf("登记应用 worker 生命周期组件 %q 失败: %w", component.Name, err)
+			return serverRuntime{}, fmt.Errorf("登记应用 worker 生命周期组件 %q 失败: %w", component.Name, err)
 		}
 	}
-	// err 表示应用组件按依赖顺序启动失败的原因。
-	if err := lifecycleCoordinator.Start(ctx); err != nil {
+	return serverRuntime{httpServer: httpServer, lifecycleCoordinator: lifecycleCoordinator}, nil
+}
+
+// runServerLifecycle 启动应用组件和 HTTP 监听，等待退出后执行有限时长的 HTTP 与组件逆序关闭。
+func runServerLifecycle(ctx context.Context, runtime serverRuntime, logger *slog.Logger) error {
+	// err 表示应用组件按依赖顺序启动失败。
+	if err := runtime.lifecycleCoordinator.Start(ctx); err != nil {
 		return fmt.Errorf("启动应用生命周期失败: %w", err)
 	}
-	// err 是 HTTP 服务显式启动失败的原因。
-	if err := srv.Start(ctx); err != nil {
-		// rollbackCtx、rollbackCancel 限制 HTTP 启动失败后的组件回滚时间并释放定时器。
-		rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer rollbackCancel()
-		_ = lifecycleCoordinator.Close(rollbackCtx)
-		return fmt.Errorf("启动 HTTP 服务失败: %w", err)
+	// err 表示 HTTP 服务监听启动失败；失败后必须关闭已启动的应用组件。
+	if err := runtime.httpServer.Start(ctx); err != nil {
+		return errors.Join(fmt.Errorf("启动 HTTP 服务失败: %w", err), rollbackApplicationRuntime(runtime.lifecycleCoordinator, 10*time.Second))
 	}
-	// runErr 是 HTTP 监听退出时返回的错误。
-	runErr := srv.Wait()
+	// runErr 是 HTTP 监听退出时返回的错误；退出后仍需关闭所有应用组件。
+	runErr := runtime.httpServer.Wait()
 	if runErr != nil {
 		logger.Error("HTTP 服务退出", "err", runErr)
 	}
-	// stopCtx 是关闭 HTTP 服务及全部应用组件的有限等待上下文。
-	// stopCancel 释放 stopCtx 的定时器资源。
-	// stopCtx、stopCancel 保存stopCtx、stop取消，供当前处理流程使用
-	stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	// err 表示 HTTP 优雅关闭的错误；即使失败也继续关闭应用组件。
-	if err := srv.Stop(stopCtx); err != nil {
-		logger.Warn("HTTP 服务关闭未完成", "err", err)
+	// shutdownErr 保存 HTTP 与应用组件关闭阶段的聚合结果；任一阶段超时都不能伪装为成功退出。
+	shutdownErr := closeServerRuntime(runtime.httpServer, runtime.lifecycleCoordinator, logger, httpShutdownTimeout, applicationShutdownTimeout)
+	return errors.Join(runErr, shutdownErr)
+}
+
+// rollbackApplicationRuntime 在 HTTP 启动失败后以独立预算回滚应用组件，并保留未完成 worker 的诊断。
+func rollbackApplicationRuntime(lifecycleCoordinator applicationRuntimeCloser, timeout time.Duration) error {
+	if lifecycleCoordinator == nil {
+		return nil
 	}
-	// err 表示应用组件逆序关闭时的聚合错误；协调器已保证每个组件都会尝试关闭。
-	if err := lifecycleCoordinator.Close(stopCtx); err != nil {
-		logger.Warn("应用组件关闭未完成", "err", err)
+	// rollbackCtx 限制 HTTP 启动失败后的组件回滚时间，避免后台 worker 泄漏。
+	rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), timeout)
+	defer rollbackCancel()
+	// rollbackErr 保存应用组件逆序回滚的底层错误。
+	rollbackErr := lifecycleCoordinator.Close(rollbackCtx)
+	return wrapShutdownError("HTTP 启动失败后的应用回滚", rollbackErr)
+}
+
+// closeServerRuntime 依次关闭 HTTP transport 和应用 worker，并为两者分配互不共享的关闭预算。
+// HTTP 关闭失败不会阻止应用 Context 取消和 worker Join；返回值保留每个失败阶段及其未完成组件诊断。
+func closeServerRuntime(httpServer httpRuntimeStopper, lifecycleCoordinator applicationRuntimeCloser, logger *slog.Logger, httpTimeout, applicationTimeout time.Duration) error {
+	// shutdownStartedAt 记录 HTTP 监听退出后开始收束各生命周期组件的时间，用于排查关闭预算耗尽。
+	shutdownStartedAt := time.Now()
+	// httpStopCtx、httpStopCancel 为 HTTP 请求排空和 Server 自有后台任务分配独立关闭预算。
+	httpStopCtx, httpStopCancel := context.WithTimeout(context.Background(), httpTimeout)
+	defer httpStopCancel()
+	// httpErr 保存 HTTP 优雅关闭错误；该错误不会阻断应用 worker 收束。
+	var httpErr error
+	if httpServer != nil {
+		httpErr = httpServer.Stop(httpStopCtx)
 	}
-	stopCancel()
-	return runErr
+	if httpErr != nil && logger != nil {
+		logger.Warn("HTTP 服务关闭未完成", "err", httpErr)
+	}
+	// applicationStopCtx、applicationStopCancel 为已取消的应用 worker 分配独立 Join 预算，避免 HTTP 超时吞掉 worker 收束机会。
+	applicationStopCtx, applicationStopCancel := context.WithTimeout(context.Background(), applicationTimeout)
+	defer applicationStopCancel()
+	// applicationErr 保存应用组件逆序关闭的聚合错误，其中包含未完成组件名称。
+	var applicationErr error
+	if lifecycleCoordinator != nil {
+		applicationErr = lifecycleCoordinator.Close(applicationStopCtx)
+	}
+	if applicationErr != nil && logger != nil {
+		logger.Warn("应用组件关闭未完成", "err", applicationErr)
+	}
+	// shutdownErr 为调用方保留阶段名称和底层错误，便于区分 HTTP 排空与 worker Join 失败。
+	shutdownErr := errors.Join(
+		wrapShutdownError("HTTP 服务关闭", httpErr),
+		wrapShutdownError("应用组件关闭", applicationErr),
+	)
+	if logger != nil {
+		logger.Info("服务生命周期关闭收束完成", "duration", time.Since(shutdownStartedAt), "http_completed", httpErr == nil, "application_completed", applicationErr == nil)
+	}
+	return shutdownErr
+}
+
+// wrapShutdownError 为非空关闭错误附加稳定阶段名称；空错误保持为 nil 以支持 errors.Join。
+func wrapShutdownError(stage string, shutdownErr error) error {
+	if shutdownErr == nil {
+		return nil
+	}
+	return fmt.Errorf("%s失败: %w", stage, shutdownErr)
 }
 
 // openServerLogWriter keeps container and interactive runs on stdout while
 // desktop/system-service installations persist logs in their platform log
 // directory. Windows services do not have a useful console, so they get a
 // default log file beside the service data directory.
-// openServerLogWriter 负责openServerLogWriter相关处理。
+// openServerLogWriter 封装openServerLogWriter业务协调。
 func openServerLogWriter(dataDir string) (io.Writer, func(), error) {
-	// logDir 保存logDir，供当前处理流程使用
+	// logDir 是环境变量或 Windows 服务数据目录指定的持久化日志目录。
 	logDir := strings.TrimSpace(os.Getenv("XIANYU_LOG_DIR"))
 	if logDir == "" && runtime.GOOS == "windows" && dataDir != "" {
 		logDir = filepath.Join(dataDir, "logs")
@@ -466,13 +625,13 @@ func openServerLogWriter(dataDir string) (io.Writer, func(), error) {
 	if logDir == "" {
 		return os.Stdout, func() {}, nil
 	}
-	if // err 保存err，供当前处理流程使用
-	err := os.MkdirAll(logDir, 0o700); err != nil {
+	// err 表示创建受限权限日志目录失败。
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
 		return nil, nil, fmt.Errorf("创建日志目录失败: %w", err)
 	}
-	// logPath 保存log路径，供当前处理流程使用
+	// logPath 是服务进程追加写入的单一日志文件路径。
 	logPath := filepath.Join(logDir, "server.log")
-	// file、err 保存file、err，供当前处理流程使用
+	// file、err 分别是已打开的日志文件与打开失败原因。
 	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, nil, fmt.Errorf("打开日志文件失败: %w", err)
@@ -480,17 +639,17 @@ func openServerLogWriter(dataDir string) (io.Writer, func(), error) {
 	return file, func() { _ = file.Close() }, nil
 }
 
-// applyPlaywrightRuntimeRoot 负责applyPlaywrightRuntimeRoot相关处理。
+// applyPlaywrightRuntimeRoot 封装applyPlaywrightRuntimeRoot业务协调。
 func applyPlaywrightRuntimeRoot(opts *serverOptions) {
 	if opts == nil {
 		return
 	}
-	// root 保存root，供当前处理流程使用
+	// root 是安装包提供的 Playwright runtime 根目录。
 	root := strings.TrimSpace(opts.playwrightRuntimeRoot)
 	if root == "" {
 		return
 	}
-	// archRoot 保存archRoot，供当前处理流程使用
+	// archRoot 是当前 Go 架构对应的驱动和浏览器资源目录。
 	archRoot := filepath.Join(root, runtime.GOARCH)
 	if opts.playwrightDriverDir == "" {
 		opts.playwrightDriverDir = filepath.Join(archRoot, "playwright-driver")
@@ -503,7 +662,7 @@ func applyPlaywrightRuntimeRoot(opts *serverOptions) {
 // resolveDataDir 返回桌面端的标准用户数据目录。
 // Linux/Docker 保留原有相对路径行为；macOS 和 Windows 在没有显式 -workdir
 // 时使用当前用户的系统配置目录，避免把具体用户路径写进安装包或代码。
-// resolveDataDir 负责resolve数据Dir相关处理。
+// resolveDataDir 封装resolve数据Dir业务协调。
 func resolveDataDir(workDir string) (string, error) {
 	if strings.TrimSpace(workDir) != "" {
 		return filepath.Clean(workDir), nil
@@ -511,7 +670,7 @@ func resolveDataDir(workDir string) (string, error) {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
 		return "", nil
 	}
-	// configDir、err 保存配置Dir、err，供当前处理流程使用
+	// configDir、err 分别是操作系统用户配置根目录及其读取失败原因。
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("读取用户配置目录失败: %w", err)
@@ -519,7 +678,7 @@ func resolveDataDir(workDir string) (string, error) {
 	return filepath.Join(configDir, userDataDirName), nil
 }
 
-// resolveDBPath 负责resolveDB路径相关处理。
+// resolveDBPath 封装resolveDB路径业务协调。
 func resolveDBPath(dataDir, configuredPath string) string {
 	if dataDir != "" && configuredPath == defaultDBPath {
 		return filepath.Join(dataDir, "data", "xianyu_data.db")
@@ -527,15 +686,15 @@ func resolveDBPath(dataDir, configuredPath string) string {
 	return configuredPath
 }
 
-// loadOrCreateDataKey 负责loadOrCreate数据Key相关处理。
+// loadOrCreateDataKey 封装loadOrCreate数据Key业务协调。
 func loadOrCreateDataKey(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return "", fmt.Errorf("data key 文件路径不能为空")
 	}
-	if // raw、err 保存raw、err，供当前处理流程使用
-	raw, err := os.ReadFile(path); err == nil {
-		// key 保存key，供当前处理流程使用
+	// raw、err 分别是既有密钥文件的内容及读取失败原因。
+	if raw, err := os.ReadFile(path); err == nil {
+		// key 是去除首尾空白后的现有数据加密主密钥，禁止记录到日志。
 		key := strings.TrimSpace(string(raw))
 		if key == "" {
 			return "", fmt.Errorf("data key 文件为空: %s", path)
@@ -545,26 +704,26 @@ func loadOrCreateDataKey(path string) (string, error) {
 		return "", fmt.Errorf("读取 data key 文件失败: %w", err)
 	}
 
-	if // err 保存err，供当前处理流程使用
-	err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	// err 表示创建数据加密主密钥父目录失败。
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", fmt.Errorf("创建 data key 目录失败: %w", err)
 	}
-	// raw 保存原始，供当前处理流程使用
+	// raw 保存高熵随机字节，编码后成为新的数据加密主密钥且不得日志输出。
 	raw := make([]byte, 48)
-	if // err 保存err，供当前处理流程使用
-	_, err := rand.Read(raw); err != nil {
+	// err 表示系统随机源无法生成新的数据加密主密钥。
+	if _, err := rand.Read(raw); err != nil {
 		return "", fmt.Errorf("生成 data key 失败: %w", err)
 	}
-	// key 保存key，供当前处理流程使用
+	// key 是待写入权限为 0600 文件的数据加密主密钥，禁止记录到日志。
 	key := base64.RawStdEncoding.EncodeToString(raw)
-	if // err 保存err，供当前处理流程使用
-	err := os.WriteFile(path, []byte(key+"\n"), 0o600); err != nil {
+	// err 表示原子性不足的首次密钥文件写入失败，调用方必须终止启动。
+	if err := os.WriteFile(path, []byte(key+"\n"), 0o600); err != nil {
 		return "", fmt.Errorf("写入 data key 文件失败: %w", err)
 	}
 	return key, nil
 }
 
-// ensureAdmin 负责ensureAdmin相关处理。
+// ensureAdmin 封装ensureAdmin业务协调。
 func ensureAdmin(ctx context.Context, store *db.Store, email, password string) error {
 	if password == "" {
 		password = os.Getenv("XIANYU_ADMIN_PASSWORD")
@@ -572,14 +731,14 @@ func ensureAdmin(ctx context.Context, store *db.Store, email, password string) e
 	if password == "" {
 		return fmt.Errorf("admin 密码不能为空，请传 -admin-password 或设置 XIANYU_ADMIN_PASSWORD")
 	}
-	// err 保存err，供当前处理流程使用
+	// err 表示管理员初始化或密码重置失败。
 	_, err := auth.InitAdmin(ctx, store, email, password)
 	return err
 }
 
-// ensureAdminIfMissing 负责ensureAdminIfMissing相关处理。
+// ensureAdminIfMissing 封装ensureAdminIfMissing业务协调。
 func ensureAdminIfMissing(ctx context.Context, store *db.Store, email, password string) (bool, error) {
-	// admin、err 保存admin、err，供当前处理流程使用
+	// admin、err 分别是现有管理员记录及其查询失败原因。
 	admin, err := store.Users.GetAdmin(ctx)
 	if err != nil && !errors.Is(err, db.ErrNotFound) {
 		return false, fmt.Errorf("查询 admin 失败: %w", err)
@@ -587,8 +746,8 @@ func ensureAdminIfMissing(ctx context.Context, store *db.Store, email, password 
 	if admin != nil {
 		return false, nil
 	}
-	if // err 保存err，供当前处理流程使用
-	err := ensureAdmin(ctx, store, email, password); err != nil {
+	// err 表示首次创建管理员失败。
+	if err := ensureAdmin(ctx, store, email, password); err != nil {
 		return false, err
 	}
 	return true, nil

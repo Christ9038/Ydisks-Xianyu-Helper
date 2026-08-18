@@ -83,7 +83,7 @@ export const useDashboard = (options: UseDashboardOptions): UseDashboardResult =
     let dateRange;
     try {
       dateRange = getDateRange(range, new Date(), customStartDate, customEndDate);
-    } catch (/* error 表示错误。 */ error) {
+    } catch (/* error 保存经营数据请求失败原因；取消请求和过期代次均被忽略。 */ error) {
       setStatus(/* 当前回调处理用户交互或异步状态变化。 */ current => ({ ...current, range: 'error', error: errorMessage(error, '日期范围无效') }));
       return;
     }

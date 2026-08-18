@@ -10,7 +10,7 @@ import (
 
 // TestSanitize 特殊字符替换为下划线（用于 userDataDir 命名）。
 func TestSanitize(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := map[string]string{
 		"acc_1":     "acc_1",
 		"acc/1:2 3": "acc_1_2_3",
@@ -19,16 +19,16 @@ func TestSanitize(t *testing.T) {
 	}
 	// in、want 表示当前遍历过程中的in、want
 	for in, want := range cases {
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := sanitize(in); got != want {
 			t.Errorf("sanitize(%q)=%q want %q", in, got, want)
 		}
 	}
 }
 
-// TestPureUserIDMatchesReferenceRule 负责TestPure用户IDMatchesReference规则相关处理。
+// TestPureUserIDMatchesReferenceRule 封装TestPure用户IDMatchesReference规则业务协调。
 func TestPureUserIDMatchesReferenceRule(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := map[string]string{
 		"foo_1234567890":     "foo",
 		"foo_bar_1234567890": "foo_bar",
@@ -39,14 +39,14 @@ func TestPureUserIDMatchesReferenceRule(t *testing.T) {
 	}
 	// in、want 表示当前遍历过程中的in、want
 	for in, want := range cases {
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := pureUserID(in); got != want {
 			t.Fatalf("pureUserID(%q)=%q want %q", in, got, want)
 		}
 	}
 }
 
-// TestQuickRenewHeadlessUsesArgumentUnlessEnvOverrides 负责TestQuickRenewHeadlessUsesArgumentUnlessEnvOverrides相关处理。
+// TestQuickRenewHeadlessUsesArgumentUnlessEnvOverrides 封装TestQuickRenewHeadlessUsesArgumentUnlessEnvOverrides业务协调。
 func TestQuickRenewHeadlessUsesArgumentUnlessEnvOverrides(t *testing.T) {
 	t.Setenv("BROWSER_HEADLESS", "")
 	if !quickRenewHeadless(true) {
@@ -65,7 +65,7 @@ func TestQuickRenewHeadlessUsesArgumentUnlessEnvOverrides(t *testing.T) {
 	}
 }
 
-// TestResolveHeadlessUsesShowBrowserConsistently 负责TestResolveHeadlessUsesShow浏览器Consistently相关处理。
+// TestResolveHeadlessUsesShowBrowserConsistently 封装TestResolveHeadlessUsesShow浏览器Consistently业务协调。
 func TestResolveHeadlessUsesShowBrowserConsistently(t *testing.T) {
 	t.Setenv("BROWSER_HEADLESS", "")
 	if !ResolveHeadless(false) {
@@ -84,7 +84,7 @@ func TestResolveHeadlessUsesShowBrowserConsistently(t *testing.T) {
 	}
 }
 
-// TestCookiesRefreshHeadlessUsesAccountPreference 负责TestCookiesRefreshHeadlessUses账号Preference相关处理。
+// TestCookiesRefreshHeadlessUsesAccountPreference 封装TestCookiesRefreshHeadlessUses账号Preference业务协调。
 func TestCookiesRefreshHeadlessUsesAccountPreference(t *testing.T) {
 	t.Setenv("BROWSER_HEADLESS", "")
 	if !cookiesRefreshHeadless(true) {
@@ -99,14 +99,14 @@ func TestCookiesRefreshHeadlessUsesAccountPreference(t *testing.T) {
 	}
 }
 
-// TestChromiumExecutablePathFromEnv 负责TestChromiumExecutable路径FromEnv相关处理。
+// TestChromiumExecutablePathFromEnv 封装TestChromiumExecutable路径FromEnv业务协调。
 func TestChromiumExecutablePathFromEnv(t *testing.T) {
 	t.Setenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "")
 	if chromiumExecutablePath() != nil {
 		t.Fatal("未设置 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH 时应返回 nil")
 	}
 	t.Setenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", " /usr/bin/chromium ")
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	got := chromiumExecutablePath()
 	if got == nil || *got != "/usr/bin/chromium" {
 		t.Fatalf("chromiumExecutablePath=%v", got)

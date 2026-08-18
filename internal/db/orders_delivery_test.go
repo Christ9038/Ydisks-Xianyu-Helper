@@ -9,29 +9,29 @@ import (
 	"time"
 )
 
-// TestOrdersByCookiePageScansBeyondLegacyLimit 负责Test订单列表By登录凭证页码ScansBeyondLegacy上限相关处理。
+// TestOrdersByCookiePageScansBeyondLegacyLimit 封装Test订单列表By登录凭证页码ScansBeyondLegacy上限业务协调。
 func TestOrdersByCookiePageScansBeyondLegacyLimit(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cookieID 保存登录凭证ID，供当前处理流程使用
+	// cookieID 用于本次流程后续判断的登录凭证ID
 	_, cookieID := seedAccount(t, s)
-	for // i 保存i，供当前处理流程使用
+	for // i 用于本次流程后续判断的i
 	i := 0; i < 1001; i++ {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		_, err := s.DB.ExecContext(ctx, `INSERT INTO orders (order_id,cookie_id,order_status,created_at) VALUES (?,?,?,?)`,
 			fmt.Sprintf("page-order-%04d", i), cookieID, "2", fmt.Sprintf("2026-01-%02d 00:00:00", i%28+1)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// first、err 保存first、err，供当前处理流程使用
+	// first、err 用于本次流程后续判断的first、err
 	first, err := s.Orders.ByCookiePage(ctx, cookieID, 500, 0)
 	if err != nil || len(first) != 500 {
 		t.Fatalf("first len=%d err=%v", len(first), err)
 	}
-	// third、err 保存third、err，供当前处理流程使用
+	// third、err 用于本次流程后续判断的third、err
 	third, err := s.Orders.ByCookiePage(ctx, cookieID, 500, 1000)
 	if err != nil || len(third) != 1 {
 		t.Fatalf("third len=%d err=%v", len(third), err)
@@ -95,40 +95,40 @@ func TestOrdersByCookiePageScansBeyondLegacyLimit(t *testing.T) {
 	}
 }
 
-// TestOrdersSoftDeleteMissingForCookie 负责Test订单列表SoftDeleteMissingFor登录凭证相关处理。
+// TestOrdersSoftDeleteMissingForCookie 封装Test订单列表SoftDeleteMissingFor登录凭证业务协调。
 func TestOrdersSoftDeleteMissingForCookie(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
 	// orderID 表示当前遍历过程中的订单ID
 	for _, orderID := range []string{"seller-order", "buyer-order"} {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := s.Orders.Upsert(ctx, orderID, OrderUpsertOpts{CookieID: cid, OrderStatus: "pending_ship"}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// deleted、err 保存deleted、err，供当前处理流程使用
+	// deleted、err 用于本次流程后续判断的deleted、err
 	deleted, err := s.Orders.SoftDeleteMissingForCookie(ctx, cid, map[string]struct{}{"seller-order": {}})
 	if err != nil || deleted != 1 {
 		t.Fatalf("deleted=%d err=%v", deleted, err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Orders.Get(ctx, "buyer-order"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing order should be hidden, err=%v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "buyer-order", OrderUpsertOpts{CookieID: cid, OrderStatus: "pending_ship"}); err != nil {
 		t.Fatal(err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Orders.Get(ctx, "buyer-order"); err != nil {
 		t.Fatalf("reappeared order should be restored, err=%v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "empty-active-order", OrderUpsertOpts{CookieID: cid, OrderStatus: "pending_ship"}); err != nil {
 		t.Fatal(err)
 	}
@@ -213,22 +213,22 @@ func TestOrdersUpsertMany(t *testing.T) {
 
 // seedAccount 在临时库里建好 admin 用户 + 一个账号（cookie），返回 (userID, cookieID)。
 // 多数订单/自动化/卡券测试都需要这两层外键先就位。
-// seedAccount 负责seed账号相关处理。
+// seedAccount 封装seed账号业务协调。
 func seedAccount(t *testing.T, s *Store) (int64, string) {
 	t.Helper()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	if // ok、err 保存ok、err，供当前处理流程使用
+	if // ok、err 用于本次流程后续判断的ok、err
 	ok, err := s.Users.Create(ctx, "admin", "admin@e.com", "pw"); err != nil || !ok {
 		t.Fatalf("create admin: ok=%v err=%v", ok, err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Users.SetAdmin(ctx, "admin"); err != nil {
 		t.Fatalf("set admin: %v", err)
 	}
-	// admin 保存admin，供当前处理流程使用
+	// admin 用于本次流程后续判断的admin
 	admin, _ := s.Users.GetByUsername(ctx, "admin")
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Cookies.Save(ctx, "acc1", "cv=admin", admin.ID); err != nil {
 		t.Fatalf("save cookie: %v", err)
 	}
@@ -239,12 +239,12 @@ func seedAccount(t *testing.T, s *Store) (int64, string) {
 
 // TestOrders_UpsertEmptyOrderID 空 order_id 应被拒绝。
 func TestOrders_UpsertEmptyOrderID(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "", OrderUpsertOpts{ItemID: "i1"}); err == nil {
 		t.Fatal("空 order_id 应报错")
 	}
@@ -252,15 +252,15 @@ func TestOrders_UpsertEmptyOrderID(t *testing.T) {
 
 // TestOrders_UpsertNoFields 二次 Upsert 不带任何更新字段应直接返回 nil（无 UPDATE）。
 func TestOrders_UpsertNoFields(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "o1", OrderUpsertOpts{ItemID: "i1", BuyerID: "b1", CookieID: cid, Amount: "9.9"}); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -268,32 +268,32 @@ func TestOrders_UpsertNoFields(t *testing.T) {
 	if err := s.Orders.Upsert(ctx, "o1", OrderUpsertOpts{}); err != nil {
 		t.Fatalf("no-field upsert: %v", err)
 	}
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	got, _ := s.Orders.Get(ctx, "o1")
 	if got.ItemID != "i1" || got.Amount != "9.9" {
 		t.Fatalf("字段被清空: %#v", got)
 	}
 }
 
-// TestOrdersUpsertNormalizesAndRejectsAmountsAtRepositoryBoundary 负责Test订单列表UpsertNormalizesAndRejectsAmountsAtRepositoryBoundary相关处理。
+// TestOrdersUpsertNormalizesAndRejectsAmountsAtRepositoryBoundary 封装Test订单列表UpsertNormalizesAndRejectsAmountsAtRepositoryBoundary业务协调。
 func TestOrdersUpsertNormalizesAndRejectsAmountsAtRepositoryBoundary(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "normalized-amount", OrderUpsertOpts{CookieID: cid, Amount: "¥1,200.50"}); err != nil {
 		t.Fatal(err)
 	}
-	// order 保存订单，供当前处理流程使用
+	// order 用于本次流程后续判断的订单
 	order, _ := s.Orders.Get(ctx, "normalized-amount")
 	if order.Amount != "1200.50" {
 		t.Fatalf("amount=%q", order.Amount)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "full-width-yen", OrderUpsertOpts{CookieID: cid, Amount: "￥12.50"}); err != nil {
 		t.Fatal(err)
 	}
@@ -301,47 +301,47 @@ func TestOrdersUpsertNormalizesAndRejectsAmountsAtRepositoryBoundary(t *testing.
 	if order.Amount != "12.50" {
 		t.Fatalf("full-width amount=%q", order.Amount)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "invalid-amount", OrderUpsertOpts{CookieID: cid, Amount: "1e3"}); err == nil {
 		t.Fatal("scientific notation must be rejected")
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Orders.Get(ctx, "invalid-amount"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("invalid amount left a partial order: %v", err)
 	}
 	// invalid 表示当前遍历过程中的invalid
 	for _, invalid := range []string{"1,2", "12,34", "1,,000", "¥¥1"} {
-		if // ok 保存ok，供当前处理流程使用
+		if // ok 用于本次流程后续判断的ok
 		_, ok := NormalizeOrderAmount(invalid); ok {
 			t.Fatalf("malformed grouped amount %q must be rejected", invalid)
 		}
 	}
 }
 
-// TestOrders_PatchCanExplicitlyClearFields 负责Test订单列表PatchCanExplicitlyClear字段列表相关处理。
+// TestOrders_PatchCanExplicitlyClearFields 封装Test订单列表PatchCanExplicitlyClear字段列表业务协调。
 func TestOrders_PatchCanExplicitlyClearFields(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "patch-order", OrderUpsertOpts{
 		CookieID: cid, ItemID: "item-1", BuyerID: "buyer-1", Amount: "19.9", ReceiverPhone: "13800000000",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// empty 保存empty，供当前处理流程使用
+	// empty 用于本次流程后续判断的empty
 	empty := ""
-	// shipped 保存shipped，供当前处理流程使用
+	// shipped 用于本次流程后续判断的shipped
 	shipped := true
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Patch(ctx, "patch-order", OrderPatch{Amount: &empty, ReceiverPhone: &empty, SystemShipped: &shipped}); err != nil {
 		t.Fatal(err)
 	}
-	// got、err 保存got、err，供当前处理流程使用
+	// got、err 用于本次流程后续判断的got、err
 	got, err := s.Orders.Get(ctx, "patch-order")
 	if err != nil {
 		t.Fatal(err)
@@ -351,26 +351,26 @@ func TestOrders_PatchCanExplicitlyClearFields(t *testing.T) {
 	}
 }
 
-// TestOrders_ListForUserSearchesAcrossJoinedFields 负责Test订单列表ListFor用户SearchesAcrossJoined字段列表相关处理。
+// TestOrders_ListForUserSearchesAcrossJoinedFields 封装Test订单列表ListFor用户SearchesAcrossJoined字段列表业务协调。
 func TestOrders_ListForUserSearchesAcrossJoinedFields(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// uid、cid 保存uid、cid，供当前处理流程使用
+	// uid、cid 用于本次流程后续判断的uid、cid
 	uid, cid := seedAccount(t, s)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "search-order", OrderUpsertOpts{CookieID: cid, ItemID: "item-1", BuyerID: "Buyer-ABC", ReceiverName: "张三"}); err != nil {
 		t.Fatal(err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Items.Upsert(ctx, &ItemInfoRow{CookieID: cid, ItemID: "item-1", ItemTitle: "Special Product"}); err != nil {
 		t.Fatal(err)
 	}
 	// search 表示当前遍历过程中的搜索
 	for _, search := range []string{"special", "buyer-abc", "张三", "search-order"} {
-		// rows、total、err 保存rows、total、err，供当前处理流程使用
+		// rows、total、err 用于本次流程后续判断的rows、total、err
 		rows, total, err := s.Orders.ListForUser(ctx, OrderListFilter{UserID: uid, Search: search, Limit: 20})
 		if err != nil || total != 1 || len(rows) != 1 || rows[0].OrderID != "search-order" {
 			t.Fatalf("search %q: rows=%+v total=%d err=%v", search, rows, total, err)
@@ -378,29 +378,29 @@ func TestOrders_ListForUserSearchesAcrossJoinedFields(t *testing.T) {
 	}
 }
 
-// TestOrders_UpsertRejectsCookieTakeover 负责Test订单列表UpsertRejects登录凭证Takeover相关处理。
+// TestOrders_UpsertRejectsCookieTakeover 封装Test订单列表UpsertRejects登录凭证Takeover业务协调。
 func TestOrders_UpsertRejectsCookieTakeover(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// userID、cid 保存用户ID、cid，供当前处理流程使用
+	// userID、cid 用于本次流程后续判断的用户ID、cid
 	userID, cid := seedAccount(t, s)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Cookies.Save(ctx, "acc2", "cv=other", userID); err != nil {
 		t.Fatalf("save second cookie: %v", err)
 	}
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "o1", OrderUpsertOpts{ItemID: "i1", BuyerID: "b1", CookieID: cid}); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "o1", OrderUpsertOpts{CookieID: "acc2", Amount: "99"}); !errors.Is(err, ErrForbidden) {
 		t.Fatalf("cookie takeover should be forbidden, got %v", err)
 	}
-	// got、err 保存got、err，供当前处理流程使用
+	// got、err 用于本次流程后续判断的got、err
 	got, err := s.Orders.Get(ctx, "o1")
 	if err != nil {
 		t.Fatalf("get: %v", err)
@@ -412,19 +412,19 @@ func TestOrders_UpsertRejectsCookieTakeover(t *testing.T) {
 
 // TestOrders_UpsertAllFields 覆盖 Upsert 全部可更新字段（spec/qty/receiver 等）。
 func TestOrders_UpsertAllFields(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "o1", OrderUpsertOpts{ItemID: "i1", BuyerID: "b1", CookieID: cid}); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "o1", OrderUpsertOpts{
 		SpecName: "红色", SpecValue: "L", Quantity: "2", Amount: "19.9",
 		ReceiverName: "张三", ReceiverPhone: "13800000000", ReceiverAddr: "某地", ReceiverCity: "杭州",
@@ -432,7 +432,7 @@ func TestOrders_UpsertAllFields(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	got, _ := s.Orders.Get(ctx, "o1")
 	if got.SpecName != "红色" || got.SpecValue != "L" || got.Quantity != "2" || got.Amount != "19.9" ||
 		got.ReceiverName != "张三" || got.ReceiverPhone != "13800000000" ||
@@ -449,7 +449,7 @@ func TestOrders_UpsertAllFields(t *testing.T) {
 	if !got.SystemShipped {
 		t.Fatal("system_shipped 应为 true")
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "o1", OrderUpsertOpts{SystemShipped: boolPtr(false)}); err != nil {
 		t.Fatalf("clear shipped: %v", err)
 	}
@@ -459,24 +459,24 @@ func TestOrders_UpsertAllFields(t *testing.T) {
 	}
 }
 
-// TestOrdersUpsertDoesNotRegressAdvancedStatus 负责Test订单列表UpsertDoesNotRegressAdvanced状态相关处理。
+// TestOrdersUpsertDoesNotRegressAdvancedStatus 封装Test订单列表UpsertDoesNotRegressAdvanced状态业务协调。
 func TestOrdersUpsertDoesNotRegressAdvancedStatus(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "status-order", OrderUpsertOpts{CookieID: cid, OrderStatus: "completed"}); err != nil {
 		t.Fatal(err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Orders.Upsert(ctx, "status-order", OrderUpsertOpts{CookieID: cid, OrderStatus: "pending_ship", Amount: "10"}); err != nil {
 		t.Fatal(err)
 	}
-	// got、err 保存got、err，供当前处理流程使用
+	// got、err 用于本次流程后续判断的got、err
 	got, err := s.Orders.Get(ctx, "status-order")
 	if err != nil {
 		t.Fatal(err)
@@ -491,29 +491,29 @@ func TestOrdersUpsertDoesNotRegressAdvancedStatus(t *testing.T) {
 
 // TestOrders_GetNotFound 未找到返回 ErrNotFound。
 func TestOrders_GetNotFound(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Orders.Get(context.Background(), "nope"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
 
 // TestOrders_ByCookie + NormalizeOrderStatus + AllTitles。
-// TestOrders_ByCookieAndTitles 负责Test订单列表By登录凭证AndTitles相关处理。
+// TestOrders_ByCookieAndTitles 封装Test订单列表By登录凭证AndTitles业务协调。
 func TestOrders_ByCookieAndTitles(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
 
 	// 三条订单，按 created_at 倒序。
 	for i, oid := range []string{"o1", "o2", "o3"} {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := s.Orders.Upsert(ctx, oid, OrderUpsertOpts{
 			ItemID: "item_" + oid, BuyerID: "b1", CookieID: cid, Amount: "1.0",
 			OrderStatus: NormalizeOrderStatus("2"), // pending_ship
@@ -566,7 +566,7 @@ func TestOrders_ByCookieAndTitles(t *testing.T) {
 
 // TestNormalizeOrderStatus 数字码与未知值。
 func TestNormalizeOrderStatus(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := map[string]string{
 		"1":    "processing",
 		"4":    "completed",
@@ -576,7 +576,7 @@ func TestNormalizeOrderStatus(t *testing.T) {
 	}
 	// in、want 表示当前遍历过程中的in、want
 	for in, want := range cases {
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := NormalizeOrderStatus(in); got != want {
 			t.Errorf("NormalizeOrderStatus(%q)=%q want %q", in, got, want)
 		}
@@ -585,21 +585,21 @@ func TestNormalizeOrderStatus(t *testing.T) {
 
 // TestCards_CRUD 卡券 Create/Update/Delete/AllForUser 全链路。
 func TestCards_CRUD(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// uid 保存uid，供当前处理流程使用
+	// uid 用于本次流程后续判断的uid
 	uid, _ := seedAccount(t, s)
 
-	// cf 保存cf，供当前处理流程使用
+	// cf 用于本次流程后续判断的cf
 	cf := &CardFull{
 		Name: "卡密A", Type: "text", TextContent: "AAA", Enabled: true,
 		UserID: uid, DelaySeconds: 5, IsMultiSpec: true, SpecName: "颜色", SpecValue: "红",
 		APIConfig: `{"k":"v"}`, ImageURL: "http://img", Description: "desc",
 	}
-	// id、err 保存id、err，供当前处理流程使用
+	// id、err 用于本次流程后续判断的id、err
 	id, err := s.Cards.Create(ctx, cf)
 	if err != nil || id == 0 {
 		t.Fatalf("Create: id=%d err=%v", id, err)
@@ -621,11 +621,11 @@ func TestCards_CRUD(t *testing.T) {
 	got.Enabled = false
 	got.IsMultiSpec = false
 	got.TextContent = "BBB"
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Cards.Update(ctx, got); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	// got2 保存got2，供当前处理流程使用
+	// got2 用于本次流程后续判断的got2
 	got2, _ := s.Cards.Get(ctx, id)
 	if got2.Name != "卡密B" || got2.Enabled || got2.IsMultiSpec || got2.TextContent != "BBB" {
 		t.Fatalf("Update 后字段不符: %#v", got2)
@@ -633,7 +633,7 @@ func TestCards_CRUD(t *testing.T) {
 
 	// AllForUser：先建第二张卡券。
 	id2, _ := s.Cards.Create(ctx, &CardFull{Name: "卡密C", Type: "data", DataContent: "x\ny", Enabled: true, UserID: uid})
-	// all、err 保存all、err，供当前处理流程使用
+	// all、err 用于本次流程后续判断的all、err
 	all, err := s.Cards.AllForUser(ctx, uid)
 	if err != nil {
 		t.Fatalf("AllForUser: %v", err)
@@ -647,11 +647,11 @@ func TestCards_CRUD(t *testing.T) {
 	}
 
 	// Delete。
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Cards.Delete(ctx, id); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Cards.Get(ctx, id); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Delete 后应 ErrNotFound, got %v", err)
 	}
@@ -659,10 +659,10 @@ func TestCards_CRUD(t *testing.T) {
 
 // TestCards_GetNotFound 不存在的卡券 ID 返回 ErrNotFound。
 func TestCards_GetNotFound(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Cards.Get(context.Background(), 99999); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
@@ -671,14 +671,14 @@ func TestCards_GetNotFound(t *testing.T) {
 // --- delivery.go ---
 
 // TestItems_Get_IsMultiSpec_Items.Get / IsMultiSpec / MultiQuantityDelivery。
-// TestItems_GetAndFlags 负责Test商品列表GetAndFlags相关处理。
+// TestItems_GetAndFlags 封装Test商品列表GetAndFlags业务协调。
 func TestItems_GetAndFlags(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
 
 	// 不存在 → ErrNotFound。
@@ -693,13 +693,13 @@ func TestItems_GetAndFlags(t *testing.T) {
 		t.Fatal("不存在商品 MultiQuantityDelivery 应 false")
 	}
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Items.Upsert(ctx, &ItemInfoRow{
 		CookieID: cid, ItemID: "i1", ItemTitle: "T", IsMultiSpec: true, MultiQuantityDelivery: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// got、err 保存got、err，供当前处理流程使用
+	// got、err 用于本次流程后续判断的got、err
 	got, err := s.Items.Get(ctx, cid, "i1")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -713,7 +713,7 @@ func TestItems_GetAndFlags(t *testing.T) {
 	if !s.Items.MultiQuantityDelivery(ctx, cid, "i1") {
 		t.Fatal("MultiQuantityDelivery 应 true")
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Items.Upsert(ctx, &ItemInfoRow{CookieID: cid, ItemID: "i2", ItemTitle: "普通商品"}); err != nil {
 		t.Fatal(err)
 	}
@@ -726,12 +726,12 @@ func TestItems_GetAndFlags(t *testing.T) {
 
 // TestCards_ConsumeBatchData data 类型卡券按行消费。
 func TestCards_ConsumeBatchData(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// uid 保存uid，供当前处理流程使用
+	// uid 用于本次流程后续判断的uid
 	uid, _ := seedAccount(t, s)
 
 	// 不存在的卡券 → ErrNotFound。
@@ -741,9 +741,9 @@ func TestCards_ConsumeBatchData(t *testing.T) {
 
 	// data_content 为空 → 报错“批量数据为空”。
 	cf := &CardFull{Name: "data", Type: "data", UserID: uid, Enabled: true}
-	// id 保存标识，供当前处理流程使用
+	// id 用于本次流程后续判断的标识
 	id, _ := s.Cards.Create(ctx, cf)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Cards.ConsumeBatchData(ctx, id); err == nil || !strings.Contains(err.Error(), "为空") {
 		t.Fatalf("空批量应报错, got %v", err)
 	}
@@ -760,12 +760,12 @@ func TestCards_ConsumeBatchData(t *testing.T) {
 	if err != nil || first != "line1" {
 		t.Fatalf("first=%q err=%v", first, err)
 	}
-	// second 保存second，供当前处理流程使用
+	// second 用于本次流程后续判断的second
 	second, _ := s.Cards.ConsumeBatchData(ctx, id)
 	if second != "line2" {
 		t.Fatalf("second=%q want line2", second)
 	}
-	// third 保存third，供当前处理流程使用
+	// third 用于本次流程后续判断的third
 	third, _ := s.Cards.ConsumeBatchData(ctx, id)
 	if third != "line3" {
 		t.Fatalf("third=%q want line3", third)
@@ -776,32 +776,32 @@ func TestCards_ConsumeBatchData(t *testing.T) {
 	}
 }
 
-// TestCards_RestoreBatchDataReturnsReservedValueToFront 负责Test卡密列表Restore批次数据ReturnsReserved值ToFront相关处理。
+// TestCards_RestoreBatchDataReturnsReservedValueToFront 封装Test卡密列表Restore批次数据ReturnsReserved值ToFront业务协调。
 func TestCards_RestoreBatchDataReturnsReservedValueToFront(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// uid 保存uid，供当前处理流程使用
+	// uid 用于本次流程后续判断的uid
 	uid, _ := seedAccount(t, s)
-	// id、err 保存id、err，供当前处理流程使用
+	// id、err 用于本次流程后续判断的id、err
 	id, err := s.Cards.Create(ctx, &CardFull{
 		Name: "restore", Type: "data", DataContent: "first\nsecond", Enabled: true, UserID: uid,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// reserved、err 保存reserved、err，供当前处理流程使用
+	// reserved、err 用于本次流程后续判断的reserved、err
 	reserved, err := s.Cards.ConsumeBatchData(ctx, id)
 	if err != nil || reserved != "first" {
 		t.Fatalf("reserve=%q err=%v", reserved, err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.Cards.RestoreBatchData(ctx, id, reserved); err != nil {
 		t.Fatal(err)
 	}
-	// again、err 保存again、err，供当前处理流程使用
+	// again、err 用于本次流程后续判断的again、err
 	again, err := s.Cards.ConsumeBatchData(ctx, id)
 	if err != nil || again != "first" {
 		t.Fatalf("restored value must be consumed first: got=%q err=%v", again, err)
@@ -810,12 +810,12 @@ func TestCards_RestoreBatchDataReturnsReservedValueToFront(t *testing.T) {
 
 // TestCards_AppendBatchData 追加卡密行 + 有效行计数。
 func TestCards_AppendBatchData(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// uid 保存uid，供当前处理流程使用
+	// uid 用于本次流程后续判断的uid
 	uid, _ := seedAccount(t, s)
 
 	// 不存在 → ErrNotFound。
@@ -823,9 +823,9 @@ func TestCards_AppendBatchData(t *testing.T) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 
-	// cf 保存cf，供当前处理流程使用
+	// cf 用于本次流程后续判断的cf
 	cf := &CardFull{Name: "data", Type: "data", UserID: uid, Enabled: true, DataContent: ""}
-	// id 保存标识，供当前处理流程使用
+	// id 用于本次流程后续判断的标识
 	id, _ := s.Cards.Create(ctx, cf)
 
 	// 全是空行 → 报错“无有效卡密行”。
@@ -838,7 +838,7 @@ func TestCards_AppendBatchData(t *testing.T) {
 	if err != nil || n != 2 {
 		t.Fatalf("Append 首次: n=%d err=%v", n, err)
 	}
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	got, _ := s.Cards.Get(ctx, id)
 	if got.DataContent != "a\nb" {
 		t.Fatalf("data_content=%q want a\\nb", got.DataContent)
@@ -856,7 +856,7 @@ func TestCards_AppendBatchData(t *testing.T) {
 
 // TestSplitJoinLines 覆盖 splitLines/joinLines 的 \r\n / 空行 / 末尾换行分支。
 func TestSplitJoinLines(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := []struct {
 		in   string
 		want []string
@@ -871,7 +871,7 @@ func TestSplitJoinLines(t *testing.T) {
 	}
 	// c 表示当前遍历过程中的c
 	for _, c := range cases {
-		// got 保存got，供当前处理流程使用
+		// got 用于本次流程后续判断的got
 		got := splitLines(c.in)
 		if len(got) != len(c.want) {
 			t.Errorf("splitLines(%q)=%v want %v", c.in, got, c.want)
@@ -898,12 +898,12 @@ func TestSplitJoinLines(t *testing.T) {
 
 // TestSession_GetEmpty 过期/空 sessionID 的处理。
 func TestSession_GetEmpty(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Sessions.Get(ctx, ""); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("空 sessionID 应 ErrNotFound, got %v", err)
 	}
@@ -911,25 +911,25 @@ func TestSession_GetEmpty(t *testing.T) {
 
 // TestSession_Expired 过期会话被 Get 视为不存在并清理。
 func TestSession_Expired(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	s.Users.Create(ctx, "u1", "u1@e.com", "pw")
-	// user 保存用户，供当前处理流程使用
+	// user 用于本次流程后续判断的用户
 	user, _ := s.Users.GetByUsername(ctx, "u1")
 
 	// 直接写入一条已过期的会话。
 	sid := "expired-session-id"
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx,
 		`INSERT INTO sessions (session_id, user_id, username, is_admin, expires_at, created_at) VALUES (?,?,?,?,?,?)`,
 		sid, user.ID, "u1", 0, time.Now().Unix()-1, time.Now().Unix())
 	if err != nil {
 		t.Fatalf("insert expired session: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Sessions.Get(ctx, sid); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("过期会话应 ErrNotFound, got %v", err)
 	}
@@ -943,20 +943,20 @@ func TestSession_Expired(t *testing.T) {
 
 // TestSession_DeleteExpired 批量清理过期会话。
 func TestSession_DeleteExpired(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	s.Users.Create(ctx, "u1", "u1@e.com", "pw")
-	// user 保存用户，供当前处理流程使用
+	// user 用于本次流程后续判断的用户
 	user, _ := s.Users.GetByUsername(ctx, "u1")
 
-	// now 保存now，供当前处理流程使用
+	// now 用于本次流程后续判断的now
 	now := time.Now().Unix()
 	// 两条过期 + 一条有效。
 	for i, sid := range []string{"exp1", "exp2", "valid1"} {
-		// exp 保存exp，供当前处理流程使用
+		// exp 用于本次流程后续判断的exp
 		exp := now - 1
 		if i == 2 {
 			exp = now + 3600
@@ -966,7 +966,7 @@ func TestSession_DeleteExpired(t *testing.T) {
 			sid, user.ID, "u1", 0, exp, now)
 	}
 
-	// n、err 保存n、err，供当前处理流程使用
+	// n、err 用于本次流程后续判断的n、err
 	n, err := s.Sessions.DeleteExpired(ctx)
 	if err != nil {
 		t.Fatalf("DeleteExpired: %v", err)
@@ -980,26 +980,26 @@ func TestSession_DeleteExpired(t *testing.T) {
 	}
 }
 
-// TestSession_GetRejectsInactiveUser 负责Test会话GetRejectsInactive用户相关处理。
+// TestSession_GetRejectsInactiveUser 封装Test会话GetRejectsInactive用户业务协调。
 func TestSession_GetRejectsInactiveUser(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	s.Users.Create(ctx, "u1", "u1@e.com", "pw")
-	// user 保存用户，供当前处理流程使用
+	// user 用于本次流程后续判断的用户
 	user, _ := s.Users.GetByUsername(ctx, "u1")
-	// sid、err 保存sid、err，供当前处理流程使用
+	// sid、err 用于本次流程后续判断的sid、err
 	sid, err := s.Sessions.Create(ctx, user)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx, `UPDATE users SET is_active=0 WHERE id=?`, user.ID); err != nil {
 		t.Fatalf("deactivate user: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Sessions.Get(ctx, sid); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("inactive user session should be ErrNotFound, got %v", err)
 	}
@@ -1009,25 +1009,25 @@ func TestSession_GetRejectsInactiveUser(t *testing.T) {
 
 // TestUsers_GetAdmin_GetByEmail_GetByID 各 Get 路径。
 func TestUsers_Gets(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	s.Users.Create(ctx, "admin", "admin@e.com", "pw")
 	s.Users.SetAdmin(ctx, "admin")
 
-	// admin、err 保存admin、err，供当前处理流程使用
+	// admin、err 用于本次流程后续判断的admin、err
 	admin, err := s.Users.GetAdmin(ctx)
 	if err != nil || admin == nil || admin.Username != "admin" || !admin.IsAdmin {
 		t.Fatalf("GetAdmin: %#v err=%v", admin, err)
 	}
-	// byEmail、err 保存byEmail、err，供当前处理流程使用
+	// byEmail、err 用于本次流程后续判断的byEmail、err
 	byEmail, err := s.Users.GetByEmail(ctx, "admin@e.com")
 	if err != nil || byEmail.ID != admin.ID {
 		t.Fatalf("GetByEmail: %#v err=%v", byEmail, err)
 	}
-	// byID、err 保存byID、err，供当前处理流程使用
+	// byID、err 用于本次流程后续判断的byID、err
 	byID, err := s.Users.GetByID(ctx, admin.ID)
 	if err != nil || byID.Username != "admin" {
 		t.Fatalf("GetByID: %#v err=%v", byID, err)
@@ -1036,24 +1036,24 @@ func TestUsers_Gets(t *testing.T) {
 
 // TestUsers_GetMissing 各 Get 不存在返回 ErrNotFound。
 func TestUsers_GetMissing(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Users.GetAdmin(ctx); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("空库 GetAdmin 应 ErrNotFound, got %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Users.GetByUsername(ctx, "nobody"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("GetByUsername 不存在应 ErrNotFound, got %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Users.GetByEmail(ctx, "nobody@e.com"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("GetByEmail 不存在应 ErrNotFound, got %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Users.GetByID(ctx, 99999); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("GetByID 不存在应 ErrNotFound, got %v", err)
 	}
@@ -1061,12 +1061,12 @@ func TestUsers_GetMissing(t *testing.T) {
 
 // TestUsers_CreateDuplicateEmail 重复邮箱应返回 false（不报错）。
 func TestUsers_CreateDuplicateEmail(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	if // ok、err 保存ok、err，供当前处理流程使用
+	if // ok、err 用于本次流程后续判断的ok、err
 	ok, err := s.Users.Create(ctx, "u1", "dup@e.com", "pw"); err != nil || !ok {
 		t.Fatalf("首次 Create: ok=%v err=%v", ok, err)
 	}
@@ -1076,16 +1076,16 @@ func TestUsers_CreateDuplicateEmail(t *testing.T) {
 	}
 }
 
-// TestUsersCreatePropagatesDatabaseErrors 负责Test用户列表CreatePropagatesDatabase错误列表相关处理。
+// TestUsersCreatePropagatesDatabaseErrors 封装Test用户列表CreatePropagatesDatabase错误列表业务协调。
 func TestUsersCreatePropagatesDatabaseErrors(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.DB.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if // ok、err 保存ok、err，供当前处理流程使用
+	if // ok、err 用于本次流程后续判断的ok、err
 	ok, err := s.Users.Create(context.Background(), "db-error", "db-error@example.com", "pw"); err == nil || ok {
 		t.Fatalf("database error was hidden: ok=%v err=%v", ok, err)
 	}
@@ -1093,10 +1093,10 @@ func TestUsersCreatePropagatesDatabaseErrors(t *testing.T) {
 
 // TestUsers_UpdatePasswordNotFound 不存在用户返回 false。
 func TestUsers_UpdatePasswordNotFound(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ok、err 保存ok、err，供当前处理流程使用
+	// ok、err 用于本次流程后续判断的ok、err
 	ok, err := s.Users.UpdatePassword(context.Background(), "ghost", "pw")
 	if err != nil || ok {
 		t.Fatalf("不存在用户 UpdatePassword 应 ok=false, got ok=%v err=%v", ok, err)
@@ -1105,15 +1105,15 @@ func TestUsers_UpdatePasswordNotFound(t *testing.T) {
 
 // TestUsers_VerifyAndUpgrade_Inactive 未激活用户验证失败。
 func TestUsers_VerifyAndUpgrade_Inactive(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	s.Users.Create(ctx, "u1", "u1@e.com", "pw")
 	// 手动置为未激活。
 	_, _ = s.DB.ExecContext(ctx, `UPDATE users SET is_active=0 WHERE username=?`, "u1")
-	// user、ok、err 保存user、ok、err，供当前处理流程使用
+	// user、ok、err 用于本次流程后续判断的user、ok、err
 	user, ok, err := s.Users.VerifyAndUpgrade(ctx, "u1", "pw")
 	if err != nil || ok || user != nil {
 		t.Fatalf("未激活用户应 ok=false, got ok=%v user=%v err=%v", ok, user, err)
@@ -1122,19 +1122,19 @@ func TestUsers_VerifyAndUpgrade_Inactive(t *testing.T) {
 
 // TestUsers_VerifyAndUpgrade_LegacyUpgrade 命中老 SHA-256 哈希应静默升级到 bcrypt。
 func TestUsers_VerifyAndUpgrade_LegacyUpgrade(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	s.Users.Create(ctx, "u1", "u1@e.com", "pw")
-	// user 保存用户，供当前处理流程使用
+	// user 用于本次流程后续判断的用户
 	user, _ := s.Users.GetByUsername(ctx, "u1")
 	// 篡改密码为老 SHA-256 哈希。
 	legacy := legacySHA256("oldpw")
 	_, _ = s.DB.ExecContext(ctx, `UPDATE users SET password_hash=? WHERE id=?`, legacy, user.ID)
 
-	// got、ok、err 保存got、ok、err，供当前处理流程使用
+	// got、ok、err 用于本次流程后续判断的got、ok、err
 	got, ok, err := s.Users.VerifyAndUpgrade(ctx, "u1", "oldpw")
 	if err != nil || !ok || got == nil {
 		t.Fatalf("老哈希验证应成功: ok=%v err=%v", ok, err)
@@ -1148,19 +1148,19 @@ func TestUsers_VerifyAndUpgrade_LegacyUpgrade(t *testing.T) {
 
 // TestUsers_UpdateCredentials 改用户名 + 撤销会话 + 用户名冲突。
 func TestUsers_UpdateCredentials(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 	s.Users.Create(ctx, "u1", "u1@e.com", "pw")
 	s.Users.Create(ctx, "u2", "u2@e.com", "pw")
-	// u1 保存u1，供当前处理流程使用
+	// u1 用于本次流程后续判断的u1
 	u1, _ := s.Users.GetByUsername(ctx, "u1")
 
 	// 给 u1 建一个会话。
 	sid, _ := s.Sessions.Create(ctx, u1)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Sessions.Get(ctx, sid); err != nil {
 		t.Fatalf("会话应存在: %v", err)
 	}
@@ -1169,7 +1169,7 @@ func TestUsers_UpdateCredentials(t *testing.T) {
 	if err := s.Users.UpdateCredentials(ctx, u1.ID, "u1renamed", ""); err != nil {
 		t.Fatalf("UpdateCredentials: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.Sessions.Get(ctx, sid); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("改凭据后会话应被撤销, got %v", err)
 	}
@@ -1177,7 +1177,7 @@ func TestUsers_UpdateCredentials(t *testing.T) {
 	if _, err := s.Users.GetByUsername(ctx, "u1"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("旧用户名应不存在: %v", err)
 	}
-	// renamed 保存renamed，供当前处理流程使用
+	// renamed 用于本次流程后续判断的renamed
 	renamed, _ := s.Users.GetByUsername(ctx, "u1renamed")
 	if renamed.ID != u1.ID {
 		t.Fatalf("renamed id 不匹配: %d vs %d", renamed.ID, u1.ID)
@@ -1192,7 +1192,7 @@ func TestUsers_UpdateCredentials(t *testing.T) {
 	if err := s.Users.UpdateCredentials(ctx, u1.ID, "u1renamed2", "newpw"); err != nil {
 		t.Fatalf("UpdateCredentials with pw: %v", err)
 	}
-	// ok2 保存ok2，供当前处理流程使用
+	// ok2 用于本次流程后续判断的ok2
 	_, ok2, _ := s.Users.VerifyAndUpgrade(ctx, "u1renamed2", "newpw")
 	if !ok2 {
 		t.Fatal("新密码应可用")
@@ -1208,10 +1208,10 @@ func TestUsers_UpdateCredentials(t *testing.T) {
 
 // TestAIReply_GetNotFound 不存在返回 ErrNotFound。
 func TestAIReply_GetNotFound(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.AIReply.Get(context.Background(), "nope"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
@@ -1219,12 +1219,12 @@ func TestAIReply_GetNotFound(t *testing.T) {
 
 // TestAIReply_GetDefaults 缺省值兜底（model_name/base_url 为空时填默认）。
 func TestAIReply_GetDefaults(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
 
 	// 直接插入一条 model_name/base_url 均为 NULL 的记录。
@@ -1233,7 +1233,7 @@ func TestAIReply_GetDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("insert ai_reply: %v", err)
 	}
-	// got、err 保存got、err，供当前处理流程使用
+	// got、err 用于本次流程后续判断的got、err
 	got, err := s.AIReply.Get(ctx, cid)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -1253,12 +1253,12 @@ func TestAIReply_GetDefaults(t *testing.T) {
 
 // TestWSMessages_Add 默认 direction/parse_status 兜底 + 写入成功。
 func TestWSMessages_Add(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
 
 	// 空字段走默认值。
@@ -1269,7 +1269,7 @@ func TestWSMessages_Add(t *testing.T) {
 	}
 	// 验证默认值写入。
 	var dir, status string
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	err := s.DB.QueryRowContext(ctx,
 		`SELECT direction, parse_status FROM ws_messages WHERE cookie_id=? ORDER BY id DESC LIMIT 1`, cid).Scan(&dir, &status)
 	if err != nil {
@@ -1286,7 +1286,7 @@ func TestWSMessages_Add(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Add explicit: %v", err)
 	}
-	// n 保存n，供当前处理流程使用
+	// n 用于本次流程后续判断的n
 	var n int
 	_ = s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM ws_messages WHERE cookie_id=?`, cid).Scan(&n)
 	if n != 2 {
@@ -1294,31 +1294,31 @@ func TestWSMessages_Add(t *testing.T) {
 	}
 }
 
-// TestWSMessages_AddBatchAndDeleteBefore 负责TestWS消息列表Add批次AndDeleteBefore相关处理。
+// TestWSMessages_AddBatchAndDeleteBefore 封装TestWS消息列表Add批次AndDeleteBefore业务协调。
 func TestWSMessages_AddBatchAndDeleteBefore(t *testing.T) {
-	// s、cleanup 保存s、cleanup，供当前处理流程使用
+	// s、cleanup 用于本次流程后续判断的s、cleanup
 	s, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// cid 保存cid，供当前处理流程使用
+	// cid 用于本次流程后续判断的cid
 	_, cid := seedAccount(t, s)
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.WSMessages.AddBatch(ctx, []WSMessage{
 		{CookieID: cid, RawText: "first"},
 		{CookieID: cid, Direction: "out", ParseStatus: "parsed", RawText: "second"},
 	}); err != nil {
 		t.Fatalf("AddBatch: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx,
 		`UPDATE ws_messages SET created_at=? WHERE cookie_id=? AND raw_text=?`,
 		time.Now().Add(-8*24*time.Hour), cid, "first"); err != nil {
 		t.Fatalf("设置历史时间: %v", err)
 	}
 
-	// deleted、err 保存deleted、err，供当前处理流程使用
+	// deleted、err 用于本次流程后续判断的deleted、err
 	deleted, err := s.WSMessages.DeleteBefore(ctx, cid, time.Now().Add(-7*24*time.Hour))
 	if err != nil {
 		t.Fatalf("DeleteBefore: %v", err)
@@ -1326,9 +1326,9 @@ func TestWSMessages_AddBatchAndDeleteBefore(t *testing.T) {
 	if deleted != 1 {
 		t.Fatalf("删除行数=%d want 1", deleted)
 	}
-	// rawText、direction、parseStatus 保存原始Text、direction、parse状态，供当前处理流程使用
+	// rawText、direction、parseStatus 用于本次流程后续判断的原始Text、direction、parse状态
 	var rawText, direction, parseStatus string
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := s.DB.QueryRowContext(ctx,
 		`SELECT raw_text, direction, parse_status FROM ws_messages WHERE cookie_id=?`, cid,
 	).Scan(&rawText, &direction, &parseStatus); err != nil {

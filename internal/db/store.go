@@ -11,15 +11,17 @@ import (
 
 // Store 聚合各 repository，供上层（HTTP server、account supervisor 等）统一持有。
 type Store struct {
-	DB               *sql.DB
-	Dialect          Dialect
-	Users            *Users
-	Sessions         *Sessions
-	Cookies          *Cookies
-	Items            *Items
-	Cards            *Cards
-	Automation       *AutomationRules
-	Orders           *Orders
+	DB         *sql.DB
+	Dialect    Dialect
+	Users      *Users
+	Sessions   *Sessions
+	Cookies    *Cookies
+	Items      *Items
+	Cards      *Cards
+	Automation *AutomationRules
+	Orders     *Orders
+	// OrderWrites 保存订单与商品基础信息跨仓储原子写入的窄 Unit of Work。
+	OrderWrites      *OrderWriteUnitOfWork
 	Reconciliations  *OrderReconciliations
 	OrderRefreshJobs *OrderRefreshJobs
 	Keywords         *Keywords
@@ -56,19 +58,22 @@ type credentialLockEntry struct {
 
 // NewStore 基于 *sql.DB 构造聚合 store。dialect 用于业务 SQL 方言分支。
 func NewStore(db *sql.DB, dialect Dialect) *Store {
-	// codec 保存codec，供当前处理流程使用
+	// codec 保存用于敏感字段静态加密的编解码器，只传给允许处理秘密的仓储。
 	codec := secretCodecFromEnvironment()
+	// items、orders 保存 Store 内共享的商品和订单仓储；Unit of Work 必须复用它们以保持方言与连接池一致。
+	items, orders := &Items{DB: db, Dialect: dialect}, &Orders{DB: db, Dialect: dialect}
 	return &Store{
 		DB:               db,
 		Dialect:          dialect,
 		Users:            &Users{DB: db},
 		Sessions:         &Sessions{DB: db},
 		Cookies:          &Cookies{DB: db, Dialect: dialect, codec: codec},
-		Items:            &Items{DB: db, Dialect: dialect},
+		Items:            items,
 		Cards:            &Cards{DB: db, Dialect: dialect},
 		Automation:       &AutomationRules{DB: db, Dialect: dialect},
-		Orders:           &Orders{DB: db, Dialect: dialect},
-		Reconciliations:  &OrderReconciliations{DB: db},
+		Orders:           orders,
+		OrderWrites:      newOrderWriteUnitOfWork(db, orders, items),
+		Reconciliations:  &OrderReconciliations{DB: db, Dialect: dialect},
 		OrderRefreshJobs: &OrderRefreshJobs{DB: db},
 		Keywords:         &Keywords{DB: db, Dialect: dialect},
 		DefaultReps:      &DefaultReplies{DB: db, Dialect: dialect},
@@ -145,7 +150,7 @@ func (s *Store) ReadSensitiveSettingForAccount(ctx context.Context, cookieID, ke
 // LockAccountCredentials serializes Cookie/token state transitions for one
 // account across the IM runtime and renewal scheduler. The returned function
 // must be called exactly once.
-// LockAccountCredentials 负责锁账号Credentials相关处理。
+// LockAccountCredentials 封装锁账号Credentials业务协调。
 func (s *Store) LockAccountCredentials(cookieID string) func() {
 	if s == nil {
 		return func() {}

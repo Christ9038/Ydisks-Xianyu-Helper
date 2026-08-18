@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// init 负责init相关处理。
+// init 封装init业务协调。
 func init() {
 	// AI 单测通过 httptest 模拟兼容端点；生产构造器仍使用 netguard。
 	newAIHTTPClient = func(string) (*http.Client, error) {

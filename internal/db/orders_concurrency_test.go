@@ -6,43 +6,43 @@ import (
 	"testing"
 )
 
-// TestOrderUpsertConcurrentStatusNeverRegresses 负责Test订单UpsertConcurrent状态NeverRegresses相关处理。
+// TestOrderUpsertConcurrentStatusNeverRegresses 封装Test订单UpsertConcurrent状态NeverRegresses业务协调。
 func TestOrderUpsertConcurrentStatusNeverRegresses(t *testing.T) {
-	// store、cleanup 保存store、cleanup，供当前处理流程使用
+	// store、cleanup 用于本次流程后续判断的store、cleanup
 	store, cleanup := newTestDB(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := store.Users.Create(ctx, "order-owner", "order-owner@example.com", "pw"); err != nil {
 		t.Fatal(err)
 	}
-	// owner 保存所有者，供当前处理流程使用
+	// owner 用于本次流程后续判断的所有者
 	owner, _ := store.Users.GetByUsername(ctx, "order-owner")
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.CreateOwned(ctx, "order-account", "cookie", owner.ID); err != nil {
 		t.Fatal(err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Orders.Upsert(ctx, "concurrent-order", OrderUpsertOpts{CookieID: "order-account", OrderStatus: "paid"}); err != nil {
 		t.Fatal(err)
 	}
 
-	// start 保存开始，供当前处理流程使用
+	// start 用于本次流程后续判断的开始
 	start := make(chan struct{})
-	// errCh 保存errCh，供当前处理流程使用
+	// errCh 用于本次流程后续判断的errCh
 	errCh := make(chan error, 200)
-	// wg 保存wg，供当前处理流程使用
+	// wg 用于本次流程后续判断的wg
 	var wg sync.WaitGroup
 	// status 表示当前遍历过程中的状态
 	for _, status := range []string{"paid", "shipped"} {
-		// status 保存状态，供当前处理流程使用
+		// status 用于本次流程后续判断的状态
 		status := status
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			<-start
-			for // i 保存i，供当前处理流程使用
+			for // i 用于本次流程后续判断的i
 			i := 0; i < 100; i++ {
 				errCh <- store.Orders.Upsert(ctx, "concurrent-order", OrderUpsertOpts{
 					CookieID: "order-account", OrderStatus: status,
@@ -59,12 +59,12 @@ func TestOrderUpsertConcurrentStatusNeverRegresses(t *testing.T) {
 			t.Fatalf("concurrent upsert: %v", err)
 		}
 	}
-	// order、err 保存order、err，供当前处理流程使用
+	// order、err 用于本次流程后续判断的order、err
 	order, err := store.Orders.Get(ctx, "concurrent-order")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := NormalizeOrderStatus(order.OrderStatus); got != "shipped" {
 		t.Fatalf("final status=%q want shipped", got)
 	}
@@ -72,16 +72,16 @@ func TestOrderUpsertConcurrentStatusNeverRegresses(t *testing.T) {
 		t.Fatalf("version=%d was not advanced", order.Version)
 	}
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Orders.Upsert(ctx, "concurrent-order", OrderUpsertOpts{CookieID: "order-account", OrderStatus: "completed"}); err != nil {
 		t.Fatal(err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Orders.Upsert(ctx, "concurrent-order", OrderUpsertOpts{CookieID: "order-account", OrderStatus: "shipped"}); err != nil {
 		t.Fatal(err)
 	}
 	order, _ = store.Orders.Get(ctx, "concurrent-order")
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := NormalizeOrderStatus(order.OrderStatus); got != "completed" {
 		t.Fatalf("completed order regressed to %q", got)
 	}

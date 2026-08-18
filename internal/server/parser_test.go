@@ -12,29 +12,29 @@ import (
 	"testing"
 )
 
-// TestParseMoneyCents 负责TestParseMoneyCents相关处理。
+// TestParseMoneyCents 封装TestParseMoneyCents业务协调。
 func TestParseMoneyCents(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := map[string]int64{"1": 100, "1.2": 120, "¥12.34": 1234, "￥0.01": 1, "-0.50": -50, "+2.05": 205, "": 0}
 	// raw、want 表示当前遍历过程中的raw、want
 	for raw, want := range cases {
-		// got、err 保存got、err，供当前处理流程使用
+		// got、err 用于本次流程后续判断的got、err
 		got, err := parseMoneyCents(raw)
 		if err != nil || got != want {
 			t.Errorf("parseMoneyCents(%q) = %d, %v; want %d", raw, got, err, want)
 		}
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := parseMoneyCents("1.2.3"); err == nil {
 		t.Fatal("invalid money should fail")
 	}
 }
 
-// TestOrderImportParsers 负责Test订单ImportParsers相关处理。
+// TestOrderImportParsers 封装Test订单ImportParsers业务协调。
 func TestOrderImportParsers(t *testing.T) {
-	// csvData 保存csv数据，供当前处理流程使用
+	// csvData 用于本次流程后续判断的csv数据
 	csvData := []byte("订单号,商品ID,买家ID,金额,状态\no1,i1,b1,12.50,已付款\n")
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := parseImportedOrderBytes(csvData, "orders.csv")
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("parse csv = %#v, %v", rows, err)
@@ -46,7 +46,7 @@ func TestOrderImportParsers(t *testing.T) {
 	if err != nil || len(rows) != 1 || rows[0]["order_id"] != "o2" {
 		t.Fatalf("parse json = %#v, %v", rows, err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := parseImportedOrderBytes(nil, "orders.csv"); err == nil {
 		t.Fatal("empty import should fail")
 	}
@@ -55,9 +55,9 @@ func TestOrderImportParsers(t *testing.T) {
 // TestOrderImportFormats 覆盖 TSV、单对象 JSON、.xls 拒绝、无扩展名默认 CSV。
 func TestOrderImportFormats(t *testing.T) {
 	// TSV
-	// tsv 保存tsv，供当前处理流程使用
+	// tsv 用于本次流程后续判断的tsv
 	tsv := []byte("order_id\tamount\no1\t1.5\n")
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := parseImportedOrderBytes(tsv, "orders.tsv")
 	if err != nil || len(rows) != 1 || rows[0]["order_id"] != "o1" {
 		t.Fatalf("parse tsv = %#v, %v", rows, err)
@@ -92,23 +92,23 @@ func TestOrderImportFormats(t *testing.T) {
 	}
 }
 
-// TestOrderImportRejectsTooManyRows 负责Test订单ImportRejectsTooManyRows相关处理。
+// TestOrderImportRejectsTooManyRows 封装Test订单ImportRejectsTooManyRows业务协调。
 func TestOrderImportRejectsTooManyRows(t *testing.T) {
-	// b 保存b，供当前处理流程使用
+	// b 用于本次流程后续判断的b
 	var b strings.Builder
 	b.WriteString("order_id\n")
-	for // i 保存i，供当前处理流程使用
+	for // i 用于本次流程后续判断的i
 	i := 0; i < maxOrderImportRows+1; i++ {
 		_, _ = fmt.Fprintf(&b, "o%d\n", i)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := parseImportedOrderBytes([]byte(b.String()), "orders.csv"); err == nil {
 		t.Fatal("too many import rows should fail")
 	}
 
 	b.Reset()
 	b.WriteString("[")
-	for // i 保存i，供当前处理流程使用
+	for // i 用于本次流程后续判断的i
 	i := 0; i < maxOrderImportRows+1; i++ {
 		if i > 0 {
 			b.WriteString(",")
@@ -116,7 +116,7 @@ func TestOrderImportRejectsTooManyRows(t *testing.T) {
 		_, _ = fmt.Fprintf(&b, `{"order_id":"o%d"}`, i)
 	}
 	b.WriteString("]")
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := parseImportedOrderBytes([]byte(b.String()), "orders.json"); err == nil {
 		t.Fatal("too many JSON import rows should fail")
 	}
@@ -124,9 +124,9 @@ func TestOrderImportRejectsTooManyRows(t *testing.T) {
 
 // TestParseXLSXOrders 构造一个最小 xlsx，验证 shared string + 数字 cell 解析。
 func TestParseXLSXOrders(t *testing.T) {
-	// xlsx 保存xlsx，供当前处理流程使用
+	// xlsx 用于本次流程后续判断的xlsx
 	xlsx := buildMinimalXLSX(t, [][]string{{"order_id", "amount"}, {"o1", "12.5"}})
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := parseXLSXOrders(xlsx)
 	if err != nil {
 		t.Fatalf("parseXLSX: %v", err)
@@ -136,16 +136,16 @@ func TestParseXLSXOrders(t *testing.T) {
 	}
 }
 
-// TestReadLimitedXLSXXMLRejectsOversizedPart 负责TestReadLimitedXLSXXMLRejectsOversizedPart相关处理。
+// TestReadLimitedXLSXXMLRejectsOversizedPart 封装TestReadLimitedXLSXXMLRejectsOversizedPart业务协调。
 func TestReadLimitedXLSXXMLRejectsOversizedPart(t *testing.T) {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := readLimitedXLSXXML(io.LimitReader(endlessByteReader{}, maxXLSXXMLPartBytes+1))
 	if err == nil {
 		t.Fatal("oversized xlsx XML should fail")
 	}
 }
 
-// endlessByteReader 保存endlessByteReader，供当前处理流程使用
+// endlessByteReader 用于本次流程后续判断的endlessByteReader
 type endlessByteReader struct{}
 
 // Read 读取当前值。
@@ -159,7 +159,7 @@ func (endlessByteReader) Read(p []byte) (int, error) {
 
 // TestNormalizeImportHeader 表驱动验证中英文别名归一。
 func TestNormalizeImportHeader(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := map[string]string{
 		"订单号":           "order_id",
 		"OrderID":       "order_id",
@@ -173,7 +173,7 @@ func TestNormalizeImportHeader(t *testing.T) {
 	}
 	// in、want 表示当前遍历过程中的in、want
 	for in, want := range cases {
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := normalizeImportHeader(in); got != want {
 			t.Errorf("normalizeImportHeader(%q) = %q; want %q", in, got, want)
 		}
@@ -182,20 +182,20 @@ func TestNormalizeImportHeader(t *testing.T) {
 
 // buildMinimalXLSX 构造一个仅含 sheet1 + sharedStrings 的最小 .xlsx 字节流。
 // cell 用 shared string（t="s"）引用，与 Excel 默认导出一致。
-// buildMinimalXLSX 负责buildMinimalXLSX相关处理。
+// buildMinimalXLSX 封装buildMinimalXLSX业务协调。
 func buildMinimalXLSX(t *testing.T, grid [][]string) []byte {
 	t.Helper()
-	// shared 保存shared，供当前处理流程使用
+	// shared 用于本次流程后续判断的shared
 	var shared []string
-	// sharedIdx 保存sharedIdx，供当前处理流程使用
+	// sharedIdx 用于本次流程后续判断的sharedIdx
 	sharedIdx := map[string]int{}
-	// addShared 保存addShared，供当前处理流程使用
+	// addShared 用于本次流程后续判断的addShared
 	addShared := func(s string) int {
-		if // i、ok 保存i、ok，供当前处理流程使用
+		if // i、ok 用于本次流程后续判断的i、ok
 		i, ok := sharedIdx[s]; ok {
 			return i
 		}
-		// i 保存i，供当前处理流程使用
+		// i 用于本次流程后续判断的i
 		i := len(shared)
 		shared = append(shared, s)
 		sharedIdx[s] = i
@@ -210,9 +210,9 @@ func buildMinimalXLSX(t *testing.T, grid [][]string) []byte {
 		fmt.Fprintf(&rowsXML, `<row r="%d">`, r+1)
 		// c、val 表示当前遍历过程中的c、val
 		for c, val := range row {
-			// ref 保存ref，供当前处理流程使用
+			// ref 用于本次流程后续判断的ref
 			ref := fmt.Sprintf("%c%d", 'A'+c, r+1)
-			// idx 保存idx，供当前处理流程使用
+			// idx 用于本次流程后续判断的idx
 			idx := addShared(val)
 			fmt.Fprintf(&rowsXML, `<c r="%s" t="s"><v>%d</v></c>`, ref, idx)
 		}
@@ -220,7 +220,7 @@ func buildMinimalXLSX(t *testing.T, grid [][]string) []byte {
 	}
 	rowsXML.WriteString(`</sheetData></worksheet>`)
 
-	// sstXML 保存sstXML，供当前处理流程使用
+	// sstXML 用于本次流程后续判断的sstXML
 	var sstXML strings.Builder
 	sstXML.WriteString(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`)
 	// s 表示当前遍历过程中的s
@@ -229,18 +229,18 @@ func buildMinimalXLSX(t *testing.T, grid [][]string) []byte {
 	}
 	sstXML.WriteString(`</sst>`)
 
-	// buf 保存buf，供当前处理流程使用
+	// buf 用于本次流程后续判断的buf
 	var buf bytes.Buffer
-	// zw 保存zw，供当前处理流程使用
+	// zw 用于本次流程后续判断的zw
 	zw := zip.NewWriter(&buf)
-	// must 保存must，供当前处理流程使用
+	// must 用于本次流程后续判断的must
 	must := func(name, content string) {
-		// f、err 保存f、err，供当前处理流程使用
+		// f、err 用于本次流程后续判断的f、err
 		f, err := zw.Create(name)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		_, err := f.Write([]byte(content)); err != nil {
 			t.Fatal(err)
 		}
@@ -254,35 +254,35 @@ func buildMinimalXLSX(t *testing.T, grid [][]string) []byte {
 	return buf.Bytes()
 }
 
-// TestPublishBatchPathAndZipSafety 负责Test发布批次路径AndZipSafety相关处理。
+// TestPublishBatchPathAndZipSafety 封装Test发布批次路径AndZipSafety业务协调。
 func TestPublishBatchPathAndZipSafety(t *testing.T) {
 	// raw 表示当前遍历过程中的原始
 	for _, raw := range []string{"../secret.png", "/etc/passwd", `..\\secret.png`, ""} {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		_, err := safeZipPath(raw); err == nil {
 			t.Errorf("safeZipPath(%q) should fail", raw)
 		}
 	}
-	if // got、err 保存got、err，供当前处理流程使用
+	if // got、err 用于本次流程后续判断的got、err
 	got, err := safeZipPath("images/a.png"); err != nil || got != filepath.Join("images", "a.png") {
 		t.Fatalf("safe path = %q, %v", got, err)
 	}
 
-	// dest 保存dest，供当前处理流程使用
+	// dest 用于本次流程后续判断的dest
 	dest := t.TempDir()
-	// buf 保存buf，供当前处理流程使用
+	// buf 用于本次流程后续判断的buf
 	var buf bytes.Buffer
-	// zw 保存zw，供当前处理流程使用
+	// zw 用于本次流程后续判断的zw
 	zw := zip.NewWriter(&buf)
-	// f 保存f，供当前处理流程使用
+	// f 用于本次流程后续判断的f
 	f, _ := zw.Create("images/a.png")
 	_, _ = f.Write([]byte("not-an-image"))
 	_ = zw.Close()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := extractPublishImagesZip(buf.Bytes(), dest); err != nil {
 		t.Fatalf("extract non-image: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := os.Stat(filepath.Join(dest, "images", "a.png")); !os.IsNotExist(err) {
 		t.Fatal("non-image must not be extracted")
 	}
@@ -292,15 +292,15 @@ func TestPublishBatchPathAndZipSafety(t *testing.T) {
 	f, _ = zw.Create("../escape.png")
 	_, _ = f.Write([]byte("x"))
 	_ = zw.Close()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := extractPublishImagesZip(buf.Bytes(), dest); err == nil {
 		t.Fatal("zip traversal should fail")
 	}
 }
 
-// TestPublishBatchHelpers 负责Test发布批次Helpers相关处理。
+// TestPublishBatchHelpers 封装Test发布批次Helpers业务协调。
 func TestPublishBatchHelpers(t *testing.T) {
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := splitImageRefs("a.png； b.png\nc.png"); len(got) != 3 {
 		t.Fatalf("splitImageRefs = %#v", got)
 	}
@@ -310,7 +310,7 @@ func TestPublishBatchHelpers(t *testing.T) {
 			t.Errorf("parseLooseBool(%q) = false", value)
 		}
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := atoiPublishDefault("2.9", 1); got != 2 {
 		t.Fatalf("atoiPublishDefault = %d", got)
 	}
@@ -324,9 +324,9 @@ func TestNormalizePublishCardHeader(t *testing.T) {
 	}
 }
 
-// TestNormalizePublishHeaderCategoryFallbackLabels 负责TestNormalize发布Header分类FallbackLabels相关处理。
+// TestNormalizePublishHeaderCategoryFallbackLabels 封装TestNormalize发布Header分类FallbackLabels业务协调。
 func TestNormalizePublishHeaderCategoryFallbackLabels(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := map[string]string{
 		"类目ID":        "category_id",
 		"类目名称":        "category_name",
@@ -336,14 +336,14 @@ func TestNormalizePublishHeaderCategoryFallbackLabels(t *testing.T) {
 	}
 	// input、want 表示当前遍历过程中的input、want
 	for input, want := range cases {
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := normalizePublishHeader(input); got != want {
 			t.Fatalf("normalizePublishHeader(%q)=%q want %q", input, got, want)
 		}
 	}
 }
 
-// TestPublicIPValidation 负责TestPublicIPValidation相关处理。
+// TestPublicIPValidation 封装TestPublicIPValidation业务协调。
 func TestPublicIPValidation(t *testing.T) {
 	// raw 表示当前遍历过程中的原始
 	for _, raw := range []string{"127.0.0.1", "10.0.0.1", "169.254.1.1", "::1"} {

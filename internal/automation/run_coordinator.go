@@ -37,62 +37,15 @@ type automationRunCoordinator struct {
 
 // executeRule 创建或恢复一次自动化运行，并统一处理运行成功、失败、延期和人工核对结果；resultErr 返回动作执行或结果收口错误。
 func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, rule db.AutomationRule) (resultErr error) {
-	// err 保存任务准备、运行创建或动作执行阶段的错误。
-	var err error
-	if len(task.ActionPlan) == 0 && task.TriggerType != TriggerOrderPaid {
-		task.ActionPlan = r.planner.plan(task, rule.Actions)
-	}
-	// preparedTask 保存补全订单事实和凭证上下文后的任务。
-	preparedTask, prepareErr := r.prepareTask(ctx, task)
+	// preparedTask 是补全订单事实和凭证上下文后的任务；run 是本次独占或恢复的运行状态。
+	preparedTask, run, skipped, prepareErr := r.prepareRuleRun(ctx, task, rule)
 	if prepareErr != nil {
-		return &preparationError{err: prepareErr}
+		return prepareErr
 	}
-	task = preparedTask
-	// triggerKey 是用于幂等创建运行的稳定事件键。
-	triggerKey := buildTriggerKey(task)
-	if triggerKey == "" {
+	if skipped {
 		return nil
 	}
-	if len(task.ActionPlan) == 0 {
-		task.ActionPlan = r.planner.plan(task, rule.Actions)
-	}
-	// retryTask 是去除敏感 Cookie 后写入运行快照的任务副本。
-	retryTask := task
-	retryTask.CookieStr = ""
-	// rawJSON 是用于恢复运行的无敏感任务快照。
-	rawJSON, _ := json.Marshal(retryTask)
-	// run 保存当前自动化运行及其动作检查点。
-	var run *db.AutomationRun
-	// resumeID 是延迟任务或恢复任务携带的既有运行 ID。
-	if resumeID := taskAutomationRunID(task); resumeID > 0 {
-		run, err = r.store.Automation.GetRun(ctx, resumeID)
-		if err != nil {
-			return err
-		}
-		if run.Status != "running" || run.RuleID != rule.ID {
-			return nil
-		}
-	} else {
-		// runID 是新建运行的数据库主键。
-		var runID int64
-		// started 表示当前事件是否成功抢到幂等运行的执行权。
-		var started bool
-		runID, started, err = r.store.Automation.TryStartRun(ctx, db.AutomationRun{
-			RuleID: rule.ID, CookieID: task.AccountID, ItemID: task.ItemID, OrderID: task.OrderID,
-			BuyerID: task.BuyerID, ChatID: task.ChatID, TriggerType: task.TriggerType,
-			TriggerKey: triggerKey, RawEventJSON: string(rawJSON),
-			LeaseExpiresAt: time.Now().UTC().Add(5 * time.Minute).Unix(),
-		})
-		if err != nil || !started {
-			return err
-		}
-		// loadedRun 是创建后重新读取的完整运行状态。
-		loadedRun, getErr := r.store.Automation.GetRun(ctx, runID)
-		if getErr != nil {
-			return getErr
-		}
-		run = loadedRun
-	}
+	task = preparedTask
 	// status 是运行完成时写入数据库的结果状态。
 	status := "success"
 	// errMsg 是运行完成时记录的可重试或人工核对原因。
@@ -134,46 +87,48 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 		status, errMsg = "failed", "未匹配到订单规格对应的卡密动作"
 		return errors.New(errMsg)
 	}
-	// deferred 表示动作已保存到延迟队列，当前运行不能被标记为完成。
+	// deferred 表示动作已写入延迟队列；actionErr 表示动作执行或检查点失败。
 	var deferred bool
-	sent, deferred, err = r.executeRunActions(ctx, task, rule.ID, run, actions, false)
+	// actionErr 表示动作执行或检查点持久化失败，成功时为 nil。
+	var actionErr error
+	sent, deferred, actionErr = r.executeRunActions(ctx, task, rule.ID, run, actions, false)
 	if deferred {
 		finish = false
 		return errAutomationDeferred
 	}
-	if errors.Is(err, errAutomationNeedsReview) {
+	if errors.Is(actionErr, errAutomationNeedsReview) {
 		finish = false
-		if r.hasNotifier() && !errors.Is(err, errAutomationQuarantine) {
-			r.notifyResult(ctx, task, run.ID, "needs_review", sent, err.Error())
+		if r.hasNotifier() && !errors.Is(actionErr, errAutomationQuarantine) {
+			r.notifyResult(ctx, task, run.ID, "needs_review", sent, actionErr.Error())
 		}
-		return err
+		return actionErr
 	}
-	if err != nil {
-		if sent > 0 && !errors.Is(err, ErrMessageNotSent) && !errors.Is(err, errActionNotPerformed) {
+	if actionErr != nil {
+		if sent > 0 && !errors.Is(actionErr, ErrMessageNotSent) && !errors.Is(actionErr, errActionNotPerformed) {
 			// reason 说明部分动作成功后为何必须人工核对。
-			reason := "运行已完成部分动作，后续动作失败，已禁止从头自动重放: " + err.Error()
+			reason := "运行已完成部分动作，后续动作失败，已禁止从头自动重放: " + actionErr.Error()
 			// quarantineErr 保存部分成功运行的人工核对状态。
 			if quarantineErr := r.store.Automation.QuarantineRunResult(ctx, run.ID, run.AttemptCount, sent, reason); quarantineErr != nil {
 				finish = false
 				r.logger.Error("保存自动化人工核对状态失败", "run_id", run.ID, "err", quarantineErr)
-				return errors.Join(errAutomationNeedsReview, errAutomationQuarantine, err, quarantineErr)
+				return errors.Join(errAutomationNeedsReview, errAutomationQuarantine, actionErr, quarantineErr)
 			}
 			finish = false
 			if r.hasNotifier() {
 				r.notifyResult(ctx, task, run.ID, "needs_review", sent, reason)
 			}
-			return fmt.Errorf("%w: %v", errAutomationNeedsReview, err)
+			return fmt.Errorf("%w: %v", errAutomationNeedsReview, actionErr)
 		}
-		status, errMsg = "failed", err.Error()
-		if errors.Is(err, ErrMessageNotSent) || errors.Is(err, errActionNotPerformed) {
+		status, errMsg = "failed", actionErr.Error()
+		if errors.Is(actionErr, ErrMessageNotSent) || errors.Is(actionErr, errActionNotPerformed) {
 			errMsg = db.SafeRetryErrorPrefix + errMsg
 		}
-		return err
+		return actionErr
 	}
 	if task.TriggerType == TriggerReviewMissingTimeout && task.OrderID != "" {
 		// incrementErr 保存求评价消息成功后的提醒次数。
 		if incrementErr := r.store.Automation.IncrementReviewRequest(ctx, task.OrderID); incrementErr != nil {
-			// reason 保存原因，供当前处理流程使用
+			// reason 记录外部求评价消息已发送而本地计数未落库的原因，用于隔离运行并通知人工核对。
 			reason := "求评价消息已发送，但保存提醒次数失败，已停止自动重放: " + incrementErr.Error()
 			// quarantineErr 保存提醒次数写入失败的人工核对状态。
 			if quarantineErr := r.store.Automation.QuarantineRunResult(ctx, run.ID, run.AttemptCount, sent, reason); quarantineErr != nil {
@@ -189,6 +144,61 @@ func (r automationRunCoordinator) executeRule(ctx context.Context, task Task, ru
 		}
 	}
 	return nil
+}
+
+// prepareRuleRun 先补全任务事实和动作计划，再恢复既有运行或原子创建新的幂等运行；skipped 为 true 表示重复事件或已失效恢复任务无需执行。
+func (r automationRunCoordinator) prepareRuleRun(ctx context.Context, task Task, rule db.AutomationRule) (preparedTask Task, run *db.AutomationRun, skipped bool, err error) {
+	if len(task.ActionPlan) == 0 && task.TriggerType != TriggerOrderPaid {
+		task.ActionPlan = r.planner.plan(task, rule.Actions)
+	}
+	// preparedTask 是订单事实和凭证上下文补全后的任务；prepareErr 表示准备阶段的可见失败。
+	preparedTask, prepareErr := r.prepareTask(ctx, task)
+	if prepareErr != nil {
+		return Task{}, nil, false, &preparationError{err: prepareErr}
+	}
+	// triggerKey 是用于幂等创建运行的稳定事件键，缺失时安全跳过外部动作。
+	triggerKey := buildTriggerKey(preparedTask)
+	if triggerKey == "" {
+		return preparedTask, nil, true, nil
+	}
+	if len(preparedTask.ActionPlan) == 0 {
+		preparedTask.ActionPlan = r.planner.plan(preparedTask, rule.Actions)
+	}
+	// resumeID 是延迟任务或恢复任务携带的既有运行 ID。
+	if resumeID := taskAutomationRunID(preparedTask); resumeID > 0 {
+		// existingRun 是由延迟或恢复任务请求继续执行的运行记录。
+		existingRun, getErr := r.store.Automation.GetRun(ctx, resumeID)
+		if getErr != nil {
+			return Task{}, nil, false, getErr
+		}
+		if existingRun.Status != "running" || existingRun.RuleID != rule.ID {
+			return preparedTask, nil, true, nil
+		}
+		return preparedTask, existingRun, false, nil
+	}
+	// retryTask 是去除敏感 Cookie 后写入运行快照的任务副本。
+	retryTask := preparedTask
+	retryTask.CookieStr = ""
+	// rawJSON 是用于恢复运行的无敏感任务快照；当前 Task 字段均可 JSON 编码，因此保持原有忽略编码错误行为。
+	rawJSON, _ := json.Marshal(retryTask)
+	// newRun 是传给原子创建操作的运行初值，租约限制异常 worker 不能永久占用事件。
+	newRun := db.AutomationRun{
+		RuleID: rule.ID, CookieID: preparedTask.AccountID, ItemID: preparedTask.ItemID, OrderID: preparedTask.OrderID,
+		BuyerID: preparedTask.BuyerID, ChatID: preparedTask.ChatID, TriggerType: preparedTask.TriggerType,
+		TriggerKey: triggerKey, RawEventJSON: string(rawJSON),
+		LeaseExpiresAt: time.Now().UTC().Add(5 * time.Minute).Unix(),
+	}
+	// runID 是新建运行的数据库主键；started 表示当前事件是否抢到唯一执行权。
+	runID, started, startErr := r.store.Automation.TryStartRun(ctx, newRun)
+	if startErr != nil || !started {
+		return Task{}, nil, false, startErr
+	}
+	// createdRun 是重新读取的完整运行状态，包含动作游标和累计发送数。
+	createdRun, getErr := r.store.Automation.GetRun(ctx, runID)
+	if getErr != nil {
+		return Task{}, nil, false, getErr
+	}
+	return preparedTask, createdRun, false, nil
 }
 
 // executeRunActions 按动作游标执行计划，并在每个外部动作前后保存检查点。
@@ -212,9 +222,7 @@ func (r automationRunCoordinator) executeRunActions(ctx context.Context, task Ta
 				task.Raw["automation_run_id"] = run.ID
 				task.Raw["automation_rule_id"] = ruleID
 				task.Raw["automation_delay_cursor"] = cursor
-				// dueAt 是动作重新进入可执行状态的时间点。
-				// dueAt 是动作重新进入可执行状态的时间点。
-				// dueAt 保存dueAt，供当前处理流程使用
+				// dueAt 是延迟动作重新进入可执行状态的 UTC 时间点，同时用于续租当前运行。
 				dueAt := time.Now().UTC().Add(time.Duration(delaySeconds) * time.Second)
 				// leaseErr 保存延期运行续租失败的原因。
 				if leaseErr := r.store.Automation.RenewRunLease(ctx, run.ID, run.AttemptCount, dueAt.Add(5*time.Minute).Unix()); leaseErr != nil {
@@ -252,7 +260,7 @@ func (r automationRunCoordinator) executeRunActions(ctx context.Context, task Ta
 			}
 			// abortErr 清理明确未执行动作的占用检查点。
 			if abortErr := r.store.Automation.AbortRunAction(ctx, run.ID, run.AttemptCount, cursor); abortErr != nil {
-				// reason 保存原因，供当前处理流程使用
+				// reason 记录动作明确未执行但检查点无法释放的原因，用于隔离该运行以阻止自动重放。
 				reason := "外部动作明确未执行，但清除动作占用状态失败，已停止自动重放: " + abortErr.Error()
 				// quarantineErr 保存动作检查点无法清理时的隔离结果。
 				if quarantineErr := r.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, reason); quarantineErr != nil {
@@ -262,8 +270,8 @@ func (r automationRunCoordinator) executeRunActions(ctx context.Context, task Ta
 			}
 			return sent, false, actionErr
 		}
-		if // err 保存err，供当前处理流程使用
-		err := r.store.Automation.AdvanceRunAction(ctx, run.ID, run.AttemptCount, cursor, n); err != nil {
+		// err 表示外部动作完成后推进检查点的数据库错误；失败时必须隔离运行避免重复执行。
+		if err := r.store.Automation.AdvanceRunAction(ctx, run.ID, run.AttemptCount, cursor, n); err != nil {
 			// quarantineErr 保存检查点失败后的人工核对状态。
 			if quarantineErr := r.store.Automation.QuarantineRun(ctx, run.ID, run.AttemptCount, "动作已执行但检查点保存失败，请人工核对，禁止自动重放: "+err.Error()); quarantineErr != nil {
 				r.logger.Error("保存检查点异常的人工核对状态失败", "run_id", run.ID, "err", quarantineErr)

@@ -33,7 +33,7 @@ func (r *RiskControlLogs) Update(ctx context.Context, id int64, log RiskControlL
 	if id == 0 {
 		return nil
 	}
-	// err 保存err，供当前处理流程使用
+	// err 表示更新风控处理状态的数据库错误；调用方据此决定是否重试日志写入。
 	_, err := r.DB.ExecContext(ctx,
 		`UPDATE risk_control_logs
 		    SET processing_result=?, processing_status=?, captcha_engine=?,

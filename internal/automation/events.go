@@ -15,7 +15,7 @@ import (
 	"xianyu-go/internal/db"
 )
 
-// TriggerOrderPaid 保存Trigger订单Paid，供当前处理流程使用
+// TriggerOrderPaid 用于本次流程后续判断的Trigger订单Paid
 const (
 	TriggerOrderPaid            = "order_paid"
 	TriggerBuyerReviewed        = "buyer_reviewed"
@@ -53,7 +53,7 @@ type Task struct {
 
 // OrderDetail 是自动化中心执行交易类任务前需要补齐的订单事实。
 // 规格和数量来自闲鱼订单，不由自动化规则修改商品属性。
-// OrderDetail 保存订单Detail，供当前处理流程使用
+// OrderDetail 用于本次流程后续判断的订单Detail
 type OrderDetail struct {
 	Quantity    string
 	SpecName    string
@@ -64,17 +64,17 @@ type OrderDetail struct {
 
 // ExtractTaskFromWS 从一条解密后的 WS 消息中提取系统事件。
 // 这里只做事实解析：识别平台告诉了我们什么；是否执行自动化由 Center 根据规则决定。
-// ExtractTaskFromWS 负责Extract任务FromWS相关处理。
+// ExtractTaskFromWS 封装Extract任务FromWS业务协调。
 func ExtractTaskFromWS(accountID, cookieStr string, raw map[string]any) *Task {
 	if raw == nil {
 		return nil
 	}
-	// f 保存f，供当前处理流程使用
+	// f 用于本次流程后续判断的f
 	f := fieldsFromRaw(raw)
 	if f.text == "" && f.redReminder == "" && f.updateKey == "" {
 		return nil
 	}
-	// task 保存任务，供当前处理流程使用
+	// task 用于本次流程后续判断的任务
 	task := &Task{
 		Source:    "ws",
 		AccountID: accountID,
@@ -98,7 +98,7 @@ func ExtractTaskFromWS(accountID, cookieStr string, raw map[string]any) *Task {
 	return task
 }
 
-// rawFields 保存原始字段列表，供当前处理流程使用
+// rawFields 用于本次流程后续判断的原始字段列表
 type rawFields struct {
 	text        string
 	redReminder string
@@ -114,17 +114,17 @@ type rawFields struct {
 	reminderURL string
 }
 
-// fieldsFromRaw 负责字段列表From原始相关处理。
+// fieldsFromRaw 封装字段列表From原始业务协调。
 func fieldsFromRaw(raw map[string]any) rawFields {
-	// f 保存f，供当前处理流程使用
+	// f 用于本次流程后续判断的f
 	var f rawFields
-	if // m1 保存m1，供当前处理流程使用
+	if // m1 用于本次流程后续判断的m1
 	m1 := mapAt(raw, "1"); m1 != nil {
-		if // s 保存s，供当前处理流程使用
+		if // s 用于本次流程后续判断的s
 		s := strAny(m1["2"]); s != "" {
 			f.chatID = trimGoofishSID(s)
 		}
-		if // m10 保存m10，供当前处理流程使用
+		if // m10 用于本次流程后续判断的m10
 		m10 := mapAt(m1, "10"); m10 != nil {
 			f.text = strAny(m10["reminderContent"])
 			f.redReminder = strAny(m10["redReminder"])
@@ -135,25 +135,25 @@ func fieldsFromRaw(raw map[string]any) rawFields {
 			f.updateKey, f.contentType = extFields(strAny(m10["extJson"]))
 			f.orderRole = orderRoleFromTaskName(bizTaskName(strAny(m10["bizTag"])))
 		}
-		if // contentJSON 保存内容JSON，供当前处理流程使用
+		if // contentJSON 用于本次流程后续判断的内容JSON
 		contentJSON := nestedString(raw, "1", "6", "3", "5"); contentJSON != "" {
-			if // role 保存role，供当前处理流程使用
+			if // role 用于本次流程后续判断的role
 			role := extractOrderRoleFromContent(contentJSON); role != "" {
 				f.orderRole = role
 			}
-			if // id 保存标识，供当前处理流程使用
+			if // id 用于本次流程后续判断的标识
 			id := extractOrderIDFromContent(contentJSON); id != "" {
 				f.orderID = id
 			}
 		}
 	}
-	if // m3 保存m3，供当前处理流程使用
+	if // m3 用于本次流程后续判断的m3
 	m3 := mapAt(raw, "3"); m3 != nil {
 		if f.redReminder == "" {
 			f.redReminder = strAny(m3["redReminder"])
 		}
 	}
-	if // m4 保存m4，供当前处理流程使用
+	if // m4 用于本次流程后续判断的m4
 	m4 := mapAt(raw, "4"); m4 != nil {
 		if f.text == "" {
 			f.text = strAny(m4["reminderContent"])
@@ -175,7 +175,7 @@ func fieldsFromRaw(raw map[string]any) rawFields {
 		}
 	}
 	if f.updateKey != "" {
-		// chatID、orderID 保存聊天ID、orderID，供当前处理流程使用
+		// chatID、orderID 用于本次流程后续判断的聊天ID、orderID
 		chatID, orderID := parseUpdateKey(f.updateKey)
 		if f.chatID == "" {
 			f.chatID = chatID
@@ -201,7 +201,7 @@ func fieldsFromRaw(raw map[string]any) rawFields {
 	return f
 }
 
-// isOrderPaidEvent 负责is订单PaidEvent相关处理。
+// isOrderPaidEvent 封装is订单PaidEvent业务协调。
 func isOrderPaidEvent(f rawFields) bool {
 	if f.orderRole == "buyer" {
 		return false
@@ -212,7 +212,7 @@ func isOrderPaidEvent(f rawFields) bool {
 		strings.Contains(f.redReminder, "等待卖家发货")
 }
 
-// isBuyerReviewedEvent 负责is买家ReviewedEvent相关处理。
+// isBuyerReviewedEvent 封装is买家ReviewedEvent业务协调。
 func isBuyerReviewedEvent(f rawFields) bool {
 	// 闲鱼评价样本：
 	//   redReminder=有新交易评价
@@ -224,12 +224,12 @@ func isBuyerReviewedEvent(f rawFields) bool {
 	return strings.Contains(strings.ToUpper(f.updateKey), "BUYER_RATE_SELLER")
 }
 
-// extFields 负责ext字段列表相关处理。
+// extFields 封装ext字段列表业务协调。
 func extFields(ext string) (updateKey, contentType string) {
 	if strings.TrimSpace(ext) == "" {
 		return "", ""
 	}
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	var m map[string]any
 	if json.Unmarshal([]byte(ext), &m) != nil {
 		return "", ""
@@ -237,9 +237,9 @@ func extFields(ext string) (updateKey, contentType string) {
 	return strAny(m["updateKey"]), strAny(m["contentType"])
 }
 
-// parseUpdateKey 负责parseUpdateKey相关处理。
+// parseUpdateKey 封装parseUpdateKey业务协调。
 func parseUpdateKey(updateKey string) (chatID, orderID string) {
-	// parts 保存parts，供当前处理流程使用
+	// parts 用于本次流程后续判断的parts
 	parts := strings.Split(updateKey, ":")
 	if len(parts) >= 2 {
 		return parts[0], parts[1]
@@ -247,12 +247,12 @@ func parseUpdateKey(updateKey string) (chatID, orderID string) {
 	return "", ""
 }
 
-// queryValue 负责查询值相关处理。
+// queryValue 封装查询值业务协调。
 func queryValue(rawURL, key string) string {
 	if strings.HasPrefix(rawURL, "fleamarket://") {
 		rawURL = "https://local.invalid/" + strings.TrimPrefix(rawURL, "fleamarket://")
 	}
-	// u、err 保存u、err，供当前处理流程使用
+	// u、err 用于本次流程后续判断的u、err
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return ""
@@ -260,20 +260,20 @@ func queryValue(rawURL, key string) string {
 	return u.Query().Get(key)
 }
 
-// mapAt 负责mapAt相关处理。
+// mapAt 封装mapAt业务协调。
 func mapAt(m map[string]any, key string) map[string]any {
-	// v 保存v，供当前处理流程使用
+	// v 用于本次流程后续判断的v
 	v, _ := m[key].(map[string]any)
 	return v
 }
 
-// nestedString 负责nestedString相关处理。
+// nestedString 封装nestedString业务协调。
 func nestedString(m map[string]any, path ...string) string {
-	// cur 保存cur，供当前处理流程使用
+	// cur 用于本次流程后续判断的cur
 	var cur any = m
 	// p 表示当前遍历过程中的p
 	for _, p := range path {
-		// cm、ok 保存cm、ok，供当前处理流程使用
+		// cm、ok 用于本次流程后续判断的cm、ok
 		cm, ok := cur.(map[string]any)
 		if !ok {
 			return ""
@@ -283,22 +283,22 @@ func nestedString(m map[string]any, path ...string) string {
 	return strAny(cur)
 }
 
-// strAny 负责strAny相关处理。
+// strAny 封装strAny业务协调。
 func strAny(v any) string {
-	switch // x 保存x，供当前处理流程使用
+	switch // x 用于本次流程后续判断的x
 	x := v.(type) {
 	case string:
 		return x
 	case nil:
 		return ""
 	default:
-		// b 保存b，供当前处理流程使用
+		// b 用于本次流程后续判断的b
 		b, _ := json.Marshal(x)
 		return string(b)
 	}
 }
 
-// firstNonEmpty 负责firstNonEmpty相关处理。
+// firstNonEmpty 封装firstNonEmpty业务协调。
 func firstNonEmpty(values ...string) string {
 	// v 表示当前遍历过程中的v
 	for _, v := range values {
@@ -309,16 +309,16 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// trimGoofishSID 负责trimGoofishSID相关处理。
+// trimGoofishSID 封装trimGoofishSID业务协调。
 func trimGoofishSID(s string) string {
-	if // i 保存i，供当前处理流程使用
+	if // i 用于本次流程后续判断的i
 	i := strings.Index(s, "@"); i >= 0 {
 		return s[:i]
 	}
 	return s
 }
 
-// orderIDPatterns 保存订单IDPatterns，供当前处理流程使用
+// orderIDPatterns 用于本次流程后续判断的订单IDPatterns
 var orderIDPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`orderId[=:](\d{10,})`),
 	regexp.MustCompile(`order_detail\?id=(\d{10,})`),
@@ -326,9 +326,9 @@ var orderIDPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`id=(\d{10,})`),
 }
 
-// extractOrderRoleFromContent 负责extract订单RoleFrom内容相关处理。
+// extractOrderRoleFromContent 封装extract订单RoleFrom内容业务协调。
 func extractOrderRoleFromContent(contentJSON string) string {
-	// c 保存c，供当前处理流程使用
+	// c 用于本次流程后续判断的c
 	var c map[string]any
 	if json.Unmarshal([]byte(contentJSON), &c) != nil {
 		return ""
@@ -339,7 +339,7 @@ func extractOrderRoleFromContent(contentJSON string) string {
 		{"dxCard", "item", "main", "targetUrl"},
 		{"dynamicOperation", "changeContent", "dxCard", "item", "main", "exContent", "button", "targetUrl"},
 	} {
-		if // role 保存role，供当前处理流程使用
+		if // role 用于本次流程后续判断的role
 		role := orderRoleFromURL(nestedString(c, path...)); role != "" {
 			return role
 		}
@@ -347,7 +347,7 @@ func extractOrderRoleFromContent(contentJSON string) string {
 	return ""
 }
 
-// orderRoleFromURL 负责订单RoleFromURL相关处理。
+// orderRoleFromURL 封装订单RoleFromURL业务协调。
 func orderRoleFromURL(rawURL string) string {
 	if strings.TrimSpace(rawURL) == "" {
 		return ""
@@ -355,7 +355,7 @@ func orderRoleFromURL(rawURL string) string {
 	if strings.HasPrefix(rawURL, "fleamarket://") {
 		rawURL = "https://local.invalid/" + strings.TrimPrefix(rawURL, "fleamarket://")
 	}
-	// u、err 保存u、err，供当前处理流程使用
+	// u、err 用于本次流程后续判断的u、err
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return ""
@@ -368,9 +368,9 @@ func orderRoleFromURL(rawURL string) string {
 	}
 }
 
-// bizTaskName 负责biz任务名称相关处理。
+// bizTaskName 封装biz任务名称业务协调。
 func bizTaskName(raw string) string {
-	// tag 保存tag，供当前处理流程使用
+	// tag 用于本次流程后续判断的tag
 	var tag map[string]any
 	if json.Unmarshal([]byte(raw), &tag) != nil {
 		return ""
@@ -378,7 +378,7 @@ func bizTaskName(raw string) string {
 	return strAny(tag["taskName"])
 }
 
-// orderRoleFromTaskName 负责订单RoleFrom任务名称相关处理。
+// orderRoleFromTaskName 封装订单RoleFrom任务名称业务协调。
 func orderRoleFromTaskName(taskName string) string {
 	switch {
 	case strings.Contains(taskName, "买家"):
@@ -390,11 +390,11 @@ func orderRoleFromTaskName(taskName string) string {
 	}
 }
 
-// matchOrderID 负责match订单ID相关处理。
+// matchOrderID 封装match订单ID业务协调。
 func matchOrderID(s string) string {
 	// re 表示当前遍历过程中的re
 	for _, re := range orderIDPatterns {
-		if // m 保存m，供当前处理流程使用
+		if // m 用于本次流程后续判断的m
 		m := re.FindStringSubmatch(s); len(m) == 2 {
 			return m[1]
 		}
@@ -402,9 +402,9 @@ func matchOrderID(s string) string {
 	return ""
 }
 
-// extractOrderIDFromContent 负责extract订单IDFrom内容相关处理。
+// extractOrderIDFromContent 封装extract订单IDFrom内容业务协调。
 func extractOrderIDFromContent(contentJSON string) string {
-	// c 保存c，供当前处理流程使用
+	// c 用于本次流程后续判断的c
 	var c map[string]any
 	if json.Unmarshal([]byte(contentJSON), &c) != nil {
 		return ""
@@ -415,7 +415,7 @@ func extractOrderIDFromContent(contentJSON string) string {
 		{"dxCard", "item", "main", "targetUrl"},
 		{"dynamicOperation", "changeContent", "dxCard", "item", "main", "exContent", "button", "targetUrl"},
 	} {
-		if // id 保存标识，供当前处理流程使用
+		if // id 用于本次流程后续判断的标识
 		id := matchOrderID(nestedString(c, path...)); id != "" {
 			return id
 		}

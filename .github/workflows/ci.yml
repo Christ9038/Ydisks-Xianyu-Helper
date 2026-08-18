@@ -39,7 +39,7 @@ jobs:
           fi
 
       - name: 检查中文注释
-        run: go run ./tools/commentlint -mode check -root . -baseline .commentlint/go-baseline.json
+        run: go run ./tools/commentlint -mode check -root .
 
       - name: 检查架构依赖
         run: go run ./tools/architecturecheck

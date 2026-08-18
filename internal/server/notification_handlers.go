@@ -101,7 +101,7 @@ func (s *Server) listAdminUncertainNotifications(w http.ResponseWriter, r *http.
 	writeJSON(w, http.StatusOK, newNotificationUncertainOutboxResponse(items, total, true))
 }
 
-// listChannels 负责list渠道列表相关处理。
+// listChannels 封装list渠道列表业务协调。
 func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 	// sess 保存当前认证用户，用于应用层归属隔离。
 	sess := authSess(r)
@@ -114,7 +114,7 @@ func (s *Server) listChannels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newNotificationChannelResponses(chs))
 }
 
-// createChannel 负责create渠道相关处理。
+// createChannel 封装create渠道业务协调。
 func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 	// sess 保存当前认证用户，用于应用层归属隔离。
 	sess := authSess(r)
@@ -136,7 +136,7 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, mutationIDResponse{Success: true, ID: id})
 }
 
-// updateChannel 负责update渠道相关处理。
+// updateChannel 封装update渠道业务协调。
 func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 	// id、err 保存路径中的渠道 ID 及解析错误。
 	id, err := strconv.ParseInt(chi.URLParam(r, "channel_id"), 10, 64)
@@ -171,7 +171,7 @@ func (s *Server) updateChannel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
-// deleteChannel 负责delete渠道相关处理。
+// deleteChannel 封装delete渠道业务协调。
 func (s *Server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 	// id、err 保存路径中的渠道 ID 及解析错误。
 	id, err := strconv.ParseInt(chi.URLParam(r, "channel_id"), 10, 64)
@@ -222,7 +222,7 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
-// getAccountBindings 负责get账号Bindings相关处理。
+// getAccountBindings 封装get账号Bindings业务协调。
 func (s *Server) getAccountBindings(w http.ResponseWriter, r *http.Request) {
 	// cid 保存路径中的账号标识。
 	cid := chi.URLParam(r, "cid")
@@ -241,7 +241,7 @@ func (s *Server) getAccountBindings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, accountBindingsResponse{CookieID: cid, ChannelIDs: ids})
 }
 
-// listMessageNotifications 负责list消息通知列表相关处理。
+// listMessageNotifications 封装list消息通知列表业务协调。
 func (s *Server) listMessageNotifications(w http.ResponseWriter, r *http.Request) {
 	// sess 保存当前认证用户，用于应用层归属隔离。
 	sess := authSess(r)
@@ -251,7 +251,7 @@ func (s *Server) listMessageNotifications(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusInternalServerError, "查询失败")
 		return
 	}
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := make(notificationBindingListResponse, len(rows))
 	// cookieID、bindings 表示当前遍历过程中的登录凭证ID、bindings
 	// binding 表示当前遍历到的通知绑定摘要。
@@ -261,19 +261,19 @@ func (s *Server) listMessageNotifications(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, out)
 }
 
-// setAccountBindings 负责set账号Bindings相关处理。
+// setAccountBindings 封装set账号Bindings业务协调。
 func (s *Server) setAccountBindings(w http.ResponseWriter, r *http.Request) {
 	// cid 保存路径中的账号标识。
 	cid := chi.URLParam(r, "cid")
 	// req 保存具名账号通知绑定请求。
 	var req notificationBindingRequest
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
 	if req.ChannelID != 0 {
-		// enabled 保存启用状态，供当前处理流程使用
+		// enabled 用于本次流程后续判断的启用状态
 		enabled := true
 		if req.Enabled != nil {
 			enabled = *req.Enabled
@@ -311,7 +311,7 @@ func (s *Server) setAccountBindings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
-// deleteMessageNotification 负责delete消息通知相关处理。
+// deleteMessageNotification 封装delete消息通知业务协调。
 func (s *Server) deleteMessageNotification(w http.ResponseWriter, r *http.Request) {
 	// sess 保存当前认证用户，用于应用层归属隔离。
 	sess := authSess(r)
@@ -330,7 +330,7 @@ func (s *Server) deleteMessageNotification(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }
 
-// deleteAccountNotifications 负责delete账号通知列表相关处理。
+// deleteAccountNotifications 封装delete账号通知列表业务协调。
 func (s *Server) deleteAccountNotifications(w http.ResponseWriter, r *http.Request) {
 	// sess 保存当前认证用户，用于应用层归属隔离。
 	sess := authSess(r)

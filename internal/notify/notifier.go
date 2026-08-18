@@ -33,7 +33,7 @@ import (
 	"xianyu-go/internal/netguard"
 )
 
-// EventAccountOffline 保存Event账号Offline，供当前处理流程使用
+// EventAccountOffline 用于本次流程后续判断的Event账号Offline
 const (
 	EventAccountOffline       = "account_offline"
 	EventAccountRecovered     = "account_recovered"
@@ -66,10 +66,10 @@ type Notifier struct {
 	done       chan struct{}
 }
 
-// newOutboundHTTPClient 保存newOutboundHTTPClient，供当前处理流程使用
+// newOutboundHTTPClient 用于本次流程后续判断的newOutboundHTTPClient
 var newOutboundHTTPClient = func() *http.Client { return netguard.PublicHTTPClient(10 * time.Second) }
 
-// dialPublicSMTP 保存dialPublicSMTP，供当前处理流程使用
+// dialPublicSMTP 用于本次流程后续判断的dialPublicSMTP
 var dialPublicSMTP = netguard.DialPublicContext
 
 // New 构造。
@@ -95,6 +95,10 @@ func NewWithRepository(cookieID string, repository Repository, logger *slog.Logg
 // 通知只写数据库，不在订单/账号处理调用栈中等待外部网络。
 // Start 启动当前值。
 func (n *Notifier) Start(ctx context.Context) {
+	// nil Context 无法提供取消边界，拒绝启动以免创建无法回收的后台 worker。
+	if ctx == nil {
+		return
+	}
 	if n == nil || n.repository == nil || !n.started.CompareAndSwap(false, true) {
 		return
 	}
@@ -132,7 +136,7 @@ func (n *Notifier) WaitContext(ctx context.Context) error {
 
 // NotifyDelivery 发送发货结果通知。
 // accountID 为 cookie_id。向该账号所有已启用渠道发送发货通知。
-// NotifyDelivery 负责Notify发货相关处理。
+// NotifyDelivery 封装Notify发货业务协调。
 func (n *Notifier) NotifyDelivery(accountID, buyerName, buyerID, itemID, message, chatID string) {
 	n.NotifyEvent(context.Background(), NotificationEvent{
 		AccountID: accountID,
@@ -175,7 +179,7 @@ func (n *Notifier) NotifyAutomationRun(ctx context.Context, runID int64, account
 
 // NotifyAccountAlert 发送账号告警通知（token 失效/自动恢复失败/风控验证等）。
 // level 取 AlertLevel* 常量。向该账号所有已启用渠道发送。
-// NotifyAccountAlert 负责Notify账号Alert相关处理。
+// NotifyAccountAlert 封装Notify账号Alert业务协调。
 func (n *Notifier) NotifyAccountAlert(accountID, level, title, body string) {
 	n.NotifyAccountEvent(accountID, classifyAccountAlertEvent(title, body), level, title, body)
 }
@@ -204,18 +208,18 @@ func (n *Notifier) notifyEvent(ctx context.Context, ev NotificationEvent, idempo
 	if ev.Time.IsZero() {
 		ev.Time = time.Now()
 	}
-	// channels、err 保存channels、err，供当前处理流程使用
+	// channels、err 用于本次流程后续判断的channels、err
 	channels, err := n.repository.AccountChannels(ctx, ev.AccountID)
 	if err != nil || len(channels) == 0 {
 		return
 	}
-	// full 保存full，供当前处理流程使用
+	// full 用于本次流程后续判断的full
 	full := formatEvent(ev)
-	// eligible 保存eligible，供当前处理流程使用
+	// eligible 用于本次流程后续判断的eligible
 	eligible := make([]db.NotificationChannel, 0, len(channels))
 	// ch 表示当前遍历过程中的ch
 	for _, ch := range channels {
-		// allowed、err 保存allowed、err，供当前处理流程使用
+		// allowed、err 用于本次流程后续判断的allowed、err
 		allowed, err := eventAllowed(ch.EventTypes, ev.Type)
 		if err != nil {
 			n.logger.Warn("通知事件订阅配置无效，跳过渠道", "channel", ch.ID, "event_types", ch.EventTypes, "err", err)
@@ -235,7 +239,7 @@ func (n *Notifier) notifyEvent(ctx context.Context, ev NotificationEvent, idempo
 		for _, ch := range eligible {
 			messages = append(messages, db.NotificationOutboxInput{ChannelID: ch.ID, EventType: ev.Type, Body: full, IdempotencyKey: idempotencyKey})
 		}
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := n.repository.EnqueueOutbox(ctx, messages); err != nil {
 			n.logger.Error("持久化通知失败", "event_type", ev.Type, "err", err)
 		}
@@ -243,17 +247,17 @@ func (n *Notifier) notifyEvent(ctx context.Context, ev NotificationEvent, idempo
 	}
 	// 未启动 worker 的独立使用场景保持同步行为，便于 CLI 和单元测试显式使用。
 	for _, ch := range eligible {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := n.send(ch, full); err != nil {
 			n.logger.Error("发送通知失败", "channel", ch.Type, "event_type", ev.Type, "err", logsafe.Error(err))
 		}
 	}
 }
 
-// runOutbox 负责运行Outbox相关处理。
+// runOutbox 封装运行Outbox业务协调。
 func (n *Notifier) runOutbox(ctx context.Context) {
 	n.drainOutbox(ctx)
-	// ticker 保存ticker，供当前处理流程使用
+	// ticker 用于本次流程后续判断的ticker
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -266,15 +270,15 @@ func (n *Notifier) runOutbox(ctx context.Context) {
 	}
 }
 
-// drainOutbox 负责drainOutbox相关处理。
+// drainOutbox 封装drainOutbox业务协调。
 func (n *Notifier) drainOutbox(ctx context.Context) {
-	// workerToken、err 保存工作器Token、err，供当前处理流程使用
+	// workerToken、err 用于本次流程后续判断的工作器Token、err
 	workerToken, err := notificationWorkerToken()
 	if err != nil {
 		n.logger.Error("生成通知 worker token 失败", "err", err)
 		return
 	}
-	// messages、err 保存messages、err，供当前处理流程使用
+	// messages、err 用于本次流程后续判断的messages、err
 	messages, err := n.repository.ClaimOutbox(ctx, workerToken, time.Now(), 20)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -284,7 +288,7 @@ func (n *Notifier) drainOutbox(ctx context.Context) {
 	}
 	// message 表示当前遍历过程中的消息
 	for _, message := range messages {
-		// channel、getErr 保存channel、getErr，供当前处理流程使用
+		// channel、getErr 用于本次流程后续判断的channel、getErr
 		channel, getErr := n.repository.GetChannel(ctx, message.ChannelID)
 		if getErr != nil {
 			n.retryOutbox(ctx, message, workerToken, getErr)
@@ -300,13 +304,13 @@ func (n *Notifier) drainOutbox(ctx context.Context) {
 			}
 			continue
 		}
-		if // sendErr 保存sendErr，供当前处理流程使用
+		if // sendErr 用于本次流程后续判断的sendErr
 		sendErr := n.send(*channel, message.Body); sendErr != nil {
 			n.logger.Error("发送通知失败", "channel", channel.Type, "event_type", message.EventType, "attempt", message.AttemptCount, "err", logsafe.Error(sendErr))
 			n.retryOutbox(ctx, message, workerToken, sendErr)
 			continue
 		}
-		if // completed、completeErr 保存completed、completeErr，供当前处理流程使用
+		if // completed、completeErr 用于本次流程后续判断的completed、completeErr
 		completed, completeErr := n.repository.CompleteOutbox(ctx, message.ID, workerToken); completeErr != nil {
 			// uncertain、uncertainErr 保存发送成功后的隔离结果和隔离失败错误。
 			uncertain, uncertainErr := n.repository.MarkOutboxUncertain(ctx, message.ID, workerToken, completeErr.Error())
@@ -323,15 +327,15 @@ func (n *Notifier) drainOutbox(ctx context.Context) {
 	}
 }
 
-// retryOutbox 负责重试Outbox相关处理。
+// retryOutbox 封装重试Outbox业务协调。
 func (n *Notifier) retryOutbox(ctx context.Context, message db.NotificationOutboxMessage, workerToken string, cause error) {
-	// permanent 保存permanent，供当前处理流程使用
+	// permanent 用于本次流程后续判断的permanent
 	permanent := message.AttemptCount >= 10
-	// shift 保存shift，供当前处理流程使用
+	// shift 用于本次流程后续判断的shift
 	shift := min(max(message.AttemptCount-1, 0), 7)
-	// delay 保存延迟，供当前处理流程使用
+	// delay 用于本次流程后续判断的延迟
 	delay := 5 * time.Second * time.Duration(1<<shift)
-	// updated、err 保存updated、err，供当前处理流程使用
+	// updated、err 用于本次流程后续判断的updated、err
 	updated, err := n.repository.RetryOutbox(ctx, message.ID, workerToken, cause.Error(), time.Now().Add(delay).Unix(), permanent)
 	if err != nil {
 		n.logger.Warn("更新通知重试状态失败", "outbox_id", message.ID, "err", err)
@@ -340,11 +344,11 @@ func (n *Notifier) retryOutbox(ctx context.Context, message db.NotificationOutbo
 	}
 }
 
-// notificationWorkerToken 负责通知工作器令牌相关处理。
+// notificationWorkerToken 封装通知工作器令牌业务协调。
 func notificationWorkerToken() (string, error) {
-	// raw 保存原始，供当前处理流程使用
+	// raw 用于本次流程后续判断的原始
 	raw := make([]byte, 16)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := rand.Read(raw); err != nil {
 		return "", err
 	}
@@ -356,7 +360,7 @@ func (n *Notifier) SendToChannel(channelID int64, body string) error {
 	if n == nil || n.repository == nil {
 		return fmt.Errorf("通知器未初始化")
 	}
-	// ch、err 保存ch、err，供当前处理流程使用
+	// ch、err 用于本次流程后续判断的ch、err
 	ch, err := n.repository.GetChannel(context.Background(), channelID)
 	if err != nil {
 		return fmt.Errorf("查询渠道失败: %w", err)
@@ -367,7 +371,7 @@ func (n *Notifier) SendToChannel(channelID int64, body string) error {
 	return n.send(*ch, body)
 }
 
-// levelLabel 负责levelLabel相关处理。
+// levelLabel 封装levelLabel业务协调。
 func levelLabel(level string) string {
 	switch level {
 	case "critical":
@@ -381,7 +385,7 @@ func levelLabel(level string) string {
 	}
 }
 
-// eventLabel 负责eventLabel相关处理。
+// eventLabel 封装eventLabel业务协调。
 func eventLabel(eventType string) string {
 	switch eventType {
 	case EventAccountOffline:
@@ -406,9 +410,9 @@ func eventLabel(eventType string) string {
 	}
 }
 
-// classifyAccountAlertEvent 负责classify账号AlertEvent相关处理。
+// classifyAccountAlertEvent 封装classify账号AlertEvent业务协调。
 func classifyAccountAlertEvent(title, body string) string {
-	// msg 保存msg，供当前处理流程使用
+	// msg 用于本次流程后续判断的msg
 	msg := strings.ToLower(title + " " + body)
 	switch {
 	case strings.Contains(msg, "风控"), strings.Contains(msg, "验证"),
@@ -428,18 +432,18 @@ func classifyAccountAlertEvent(title, body string) string {
 	}
 }
 
-// formatEvent 负责formatEvent相关处理。
+// formatEvent 封装formatEvent业务协调。
 func formatEvent(ev NotificationEvent) string {
-	// b 保存b，供当前处理流程使用
+	// b 用于本次流程后续判断的b
 	var b strings.Builder
-	// label 保存label，供当前处理流程使用
+	// label 用于本次流程后续判断的label
 	label := eventLabel(ev.Type)
-	// level 保存level，供当前处理流程使用
+	// level 用于本次流程后续判断的level
 	level := levelLabel(ev.Level)
 	if level == "" {
 		level = "提示"
 	}
-	// title 保存标题，供当前处理流程使用
+	// title 用于本次流程后续判断的标题
 	title := strings.TrimSpace(ev.Title)
 	if title == "" {
 		title = label
@@ -457,7 +461,7 @@ func formatEvent(ev NotificationEvent) string {
 	b.WriteString("\n时间: ")
 	b.WriteString(ev.Time.Format("2006-01-02 15:04:05"))
 	if len(ev.Fields) > 0 {
-		// keys 保存keys，供当前处理流程使用
+		// keys 用于本次流程后续判断的keys
 		keys := make([]string, 0, len(ev.Fields))
 		// k 表示当前遍历过程中的k
 		for k := range ev.Fields {
@@ -466,7 +470,7 @@ func formatEvent(ev NotificationEvent) string {
 		sortStrings(keys)
 		// k 表示当前遍历过程中的k
 		for _, k := range keys {
-			// v 保存v，供当前处理流程使用
+			// v 用于本次流程后续判断的v
 			v := strings.TrimSpace(ev.Fields[k])
 			if v == "" {
 				continue
@@ -477,7 +481,7 @@ func formatEvent(ev NotificationEvent) string {
 			b.WriteString(v)
 		}
 	}
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := strings.TrimSpace(ev.Body)
 	if body != "" {
 		b.WriteString("\n\n")
@@ -486,13 +490,13 @@ func formatEvent(ev NotificationEvent) string {
 	return b.String()
 }
 
-// eventAllowed 负责eventAllowed相关处理。
+// eventAllowed 封装eventAllowed业务协调。
 func eventAllowed(raw, eventType string) (bool, error) {
 	eventType = strings.TrimSpace(eventType)
 	if eventType == "" {
 		return true, nil
 	}
-	// events、err 保存events、err，供当前处理流程使用
+	// events、err 用于本次流程后续判断的events、err
 	events, err := parseEventTypes(raw)
 	if err != nil {
 		return false, err
@@ -503,16 +507,16 @@ func eventAllowed(raw, eventType string) (bool, error) {
 	return events[eventType], nil
 }
 
-// parseEventTypes 负责parseEventTypes相关处理。
+// parseEventTypes 封装parseEventTypes业务协调。
 func parseEventTypes(raw string) (map[string]bool, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, nil
 	}
-	// arr 保存arr，供当前处理流程使用
+	// arr 用于本次流程后续判断的arr
 	var arr []string
 	if strings.HasPrefix(raw, "[") {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := json.Unmarshal([]byte(raw), &arr); err != nil {
 			return nil, err
 		}
@@ -524,7 +528,7 @@ func parseEventTypes(raw string) (map[string]bool, error) {
 	if len(arr) == 0 {
 		return nil, nil
 	}
-	// out 保存out，供当前处理流程使用
+	// out 用于本次流程后续判断的out
 	out := make(map[string]bool, len(arr))
 	// v 表示当前遍历过程中的v
 	for _, v := range arr {
@@ -536,20 +540,20 @@ func parseEventTypes(raw string) (map[string]bool, error) {
 	return out, nil
 }
 
-// sortStrings 负责sortStrings相关处理。
+// sortStrings 封装sortStrings业务协调。
 func sortStrings(values []string) {
-	for // i 保存i，供当前处理流程使用
+	for // i 用于本次流程后续判断的i
 	i := 1; i < len(values); i++ {
-		for // j 保存j，供当前处理流程使用
+		for // j 用于本次流程后续判断的j
 		j := i; j > 0 && values[j-1] > values[j]; j-- {
 			values[j-1], values[j] = values[j], values[j-1]
 		}
 	}
 }
 
-// send 负责send相关处理。
+// send 封装send业务协调。
 func (n *Notifier) send(ch db.NotificationChannel, message string) error {
-	// cfg 保存cfg，供当前处理流程使用
+	// cfg 用于本次流程后续判断的cfg
 	cfg := parseConfig(ch.Config)
 	switch ch.Type {
 	case "ding_talk", "dingtalk":
@@ -579,9 +583,9 @@ func parseConfig(config string) map[string]any {
 	if config == "" {
 		return map[string]any{}
 	}
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	var m map[string]any
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal([]byte(config), &m); err != nil {
 		return map[string]any{"config": config}
 	}
@@ -590,36 +594,36 @@ func parseConfig(config string) map[string]any {
 
 // ---- 钉钉 ----
 func (n *Notifier) sendDingTalk(cfg map[string]any, message string) error {
-	// webhook 保存webhook，供当前处理流程使用
+	// webhook 用于本次流程后续判断的webhook
 	webhook := strOr(cfg, "webhook_url", strOr(cfg, "config", ""))
-	// secret 保存secret，供当前处理流程使用
+	// secret 用于本次流程后续判断的secret
 	secret := strOr(cfg, "secret", "")
 	if webhook == "" {
 		return fmt.Errorf("钉钉 webhook_url 为空")
 	}
 	if secret != "" {
-		// ts 保存ts，供当前处理流程使用
+		// ts 用于本次流程后续判断的ts
 		ts := strconv.FormatInt(time.Now().UnixMilli(), 10)
-		// stringToSign 保存stringToSign，供当前处理流程使用
+		// stringToSign 用于本次流程后续判断的stringToSign
 		stringToSign := ts + "\n" + secret
-		// h 保存h，供当前处理流程使用
+		// h 用于本次流程后续判断的h
 		h := hmac.New(sha256.New, []byte(secret))
 		h.Write([]byte(stringToSign))
-		// sign 保存sign，供当前处理流程使用
+		// sign 用于本次流程后续判断的sign
 		sign := base64.StdEncoding.EncodeToString(h.Sum(nil))
-		// parsed、err 保存parsed、err，供当前处理流程使用
+		// parsed、err 用于本次流程后续判断的parsed、err
 		parsed, err := url.Parse(webhook)
 		if err != nil {
 			return fmt.Errorf("钉钉 webhook 地址无效: %w", err)
 		}
-		// query 保存查询，供当前处理流程使用
+		// query 用于本次流程后续判断的查询
 		query := parsed.Query()
 		query.Set("timestamp", ts)
 		query.Set("sign", sign)
 		parsed.RawQuery = query.Encode()
 		webhook = parsed.String()
 	}
-	// payload 保存请求载荷，供当前处理流程使用
+	// payload 用于本次流程后续判断的请求载荷
 	payload := map[string]any{
 		"msgtype": "markdown",
 		"markdown": map[string]any{
@@ -632,25 +636,25 @@ func (n *Notifier) sendDingTalk(cfg map[string]any, message string) error {
 
 // ---- 飞书 ----
 func (n *Notifier) sendFeishu(cfg map[string]any, message string) error {
-	// webhook 保存webhook，供当前处理流程使用
+	// webhook 用于本次流程后续判断的webhook
 	webhook := strOr(cfg, "webhook_url", "")
-	// secret 保存secret，供当前处理流程使用
+	// secret 用于本次流程后续判断的secret
 	secret := strOr(cfg, "secret", "")
 	if webhook == "" {
 		return fmt.Errorf("飞书 webhook_url 为空")
 	}
-	// ts 保存ts，供当前处理流程使用
+	// ts 用于本次流程后续判断的ts
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	// data 保存数据，供当前处理流程使用
+	// data 用于本次流程后续判断的数据
 	data := map[string]any{
 		"msg_type":  "text",
 		"content":   map[string]any{"text": message},
 		"timestamp": ts,
 	}
 	if secret != "" {
-		// stringToSign 保存stringToSign，供当前处理流程使用
+		// stringToSign 用于本次流程后续判断的stringToSign
 		stringToSign := ts + "\n" + secret
-		// h 保存h，供当前处理流程使用
+		// h 用于本次流程后续判断的h
 		h := hmac.New(sha256.New, []byte(stringToSign))
 		h.Write([]byte(""))
 		data["sign"] = base64.StdEncoding.EncodeToString(h.Sum(nil))
@@ -659,16 +663,16 @@ func (n *Notifier) sendFeishu(cfg map[string]any, message string) error {
 }
 
 // ---- Bark ----
-// sendBark 负责sendBark相关处理。
+// sendBark 封装sendBark业务协调。
 func (n *Notifier) sendBark(cfg map[string]any, message string) error {
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := strings.TrimRight(strOr(cfg, "server_url", "https://api.day.app"), "/")
-	// deviceKey 保存deviceKey，供当前处理流程使用
+	// deviceKey 用于本次流程后续判断的deviceKey
 	deviceKey := strOr(cfg, "device_key", "")
 	if deviceKey == "" {
 		return fmt.Errorf("bark device_key 为空")
 	}
-	// data 保存数据，供当前处理流程使用
+	// data 用于本次流程后续判断的数据
 	data := map[string]any{
 		"device_key": deviceKey,
 		"title":      strOr(cfg, "title", "闲鱼自动回复通知"),
@@ -676,11 +680,11 @@ func (n *Notifier) sendBark(cfg map[string]any, message string) error {
 		"sound":      strOr(cfg, "sound", "default"),
 		"group":      strOr(cfg, "group", "xianyu"),
 	}
-	if // icon 保存icon，供当前处理流程使用
+	if // icon 用于本次流程后续判断的icon
 	icon := strOr(cfg, "icon", ""); icon != "" {
 		data["icon"] = icon
 	}
-	if // u 保存u，供当前处理流程使用
+	if // u 用于本次流程后续判断的u
 	u := strOr(cfg, "url", ""); u != "" {
 		data["url"] = u
 	}
@@ -688,30 +692,30 @@ func (n *Notifier) sendBark(cfg map[string]any, message string) error {
 }
 
 // ---- Webhook ----
-// sendWebhook 负责sendWebhook相关处理。
+// sendWebhook 封装sendWebhook业务协调。
 func (n *Notifier) sendWebhook(cfg map[string]any, message string) error {
-	// webhook 保存webhook，供当前处理流程使用
+	// webhook 用于本次流程后续判断的webhook
 	webhook := strOr(cfg, "webhook_url", "")
 	if webhook == "" {
 		return fmt.Errorf("webhook_url 为空")
 	}
-	// method 保存方法，供当前处理流程使用
+	// method 用于本次流程后续判断的方法
 	method := strings.ToUpper(strOr(cfg, "http_method", "POST"))
-	// headers 保存headers，供当前处理流程使用
+	// headers 用于本次流程后续判断的headers
 	headers := map[string]any{}
-	if // h 保存h，供当前处理流程使用
+	if // h 用于本次流程后续判断的h
 	h := strOr(cfg, "headers", ""); h != "" {
 		_ = json.Unmarshal([]byte(h), &headers)
 	}
-	// data 保存数据，供当前处理流程使用
+	// data 用于本次流程后续判断的数据
 	data := map[string]any{
 		"message":   message,
 		"timestamp": time.Now().Format("2006-01-02 15:04:05"),
 		"source":    "xianyu-auto-reply",
 	}
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body, _ := json.Marshal(data)
-	// req、err 保存req、err，供当前处理流程使用
+	// req、err 用于本次流程后续判断的req、err
 	req, err := http.NewRequest(method, webhook, bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -721,13 +725,13 @@ func (n *Notifier) sendWebhook(cfg map[string]any, message string) error {
 	for k, v := range headers {
 		req.Header.Set(k, fmt.Sprintf("%v", v))
 	}
-	// resp、err 保存resp、err，供当前处理流程使用
+	// resp、err 用于本次流程后续判断的resp、err
 	resp, err := n.httpc.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := io.Copy(io.Discard, resp.Body); err != nil {
 		return err
 	}
@@ -739,7 +743,7 @@ func (n *Notifier) sendWebhook(cfg map[string]any, message string) error {
 
 // ---- 企业微信 ----
 func (n *Notifier) sendWeChat(cfg map[string]any, message string) error {
-	// webhook 保存webhook，供当前处理流程使用
+	// webhook 用于本次流程后续判断的webhook
 	webhook := strOr(cfg, "webhook_url", "")
 	if webhook == "" {
 		return fmt.Errorf("微信 webhook_url 为空")
@@ -751,16 +755,16 @@ func (n *Notifier) sendWeChat(cfg map[string]any, message string) error {
 }
 
 // ---- Telegram ----
-// sendTelegram 负责sendTelegram相关处理。
+// sendTelegram 封装sendTelegram业务协调。
 func (n *Notifier) sendTelegram(cfg map[string]any, message string) error {
-	// botToken 保存bot令牌，供当前处理流程使用
+	// botToken 用于本次流程后续判断的bot令牌
 	botToken := strOr(cfg, "bot_token", "")
-	// chatID 保存聊天ID，供当前处理流程使用
+	// chatID 用于本次流程后续判断的聊天ID
 	chatID := strOr(cfg, "chat_id", "")
 	if botToken == "" || chatID == "" {
 		return fmt.Errorf("telegram bot_token/chat_id 不完整")
 	}
-	// endpoint 保存endpoint，供当前处理流程使用
+	// endpoint 用于本次流程后续判断的endpoint
 	endpoint := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
 	return n.postJSON(endpoint, map[string]any{
 		"chat_id": chatID,
@@ -770,34 +774,34 @@ func (n *Notifier) sendTelegram(cfg map[string]any, message string) error {
 
 // ---- 邮件 ----
 func (n *Notifier) sendEmail(cfg map[string]any, message string) error {
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := n.smtpConfigValue(ctx, cfg, "smtp_server", "")
-	// port 保存port，供当前处理流程使用
+	// port 用于本次流程后续判断的port
 	port := n.smtpConfigValue(ctx, cfg, "smtp_port", "587")
-	// user 保存用户，供当前处理流程使用
+	// user 用于本次流程后续判断的用户
 	user := n.smtpConfigValue(ctx, cfg, "smtp_user", "")
-	// pass 保存pass，供当前处理流程使用
+	// pass 用于本次流程后续判断的pass
 	pass := n.smtpConfigValue(ctx, cfg, "smtp_password", "")
-	// useTLS 保存useTLS，供当前处理流程使用
+	// useTLS 用于本次流程后续判断的useTLS
 	useTLS := parseConfigBool(n.smtpConfigValue(ctx, cfg, "smtp_use_tls", "true"), true)
-	// useSSL 保存useSSL，供当前处理流程使用
+	// useSSL 用于本次流程后续判断的useSSL
 	useSSL := parseConfigBool(n.smtpConfigValue(ctx, cfg, "smtp_use_ssl", "false"), false)
-	// fromAddress 保存fromAddress，供当前处理流程使用
+	// fromAddress 用于本次流程后续判断的fromAddress
 	fromAddress := n.smtpConfigValue(ctx, cfg, "smtp_from_address", "")
-	// fromName 保存from名称，供当前处理流程使用
+	// fromName 用于本次流程后续判断的from名称
 	fromName := n.smtpConfigValue(ctx, cfg, "smtp_from_name", "")
-	// legacyFrom 保存legacyFrom，供当前处理流程使用
+	// legacyFrom 用于本次流程后续判断的legacyFrom
 	legacyFrom := n.smtpConfigValue(ctx, cfg, "smtp_from", "")
-	// to 保存to，供当前处理流程使用
+	// to 用于本次流程后续判断的to
 	to := strOr(cfg, "to_email", strOr(cfg, "email", ""))
 	if server == "" || user == "" || to == "" {
 		return fmt.Errorf("邮件配置不完整：请配置系统 SMTP 或在邮件渠道中覆盖 SMTP，并填写收件邮箱")
 	}
 	if legacyFrom != "" {
-		if // parsed、err 保存parsed、err，供当前处理流程使用
+		if // parsed、err 用于本次流程后续判断的parsed、err
 		parsed, err := mail.ParseAddress(legacyFrom); err == nil && strings.Contains(parsed.Address, "@") {
 			if fromAddress == "" {
 				fromAddress = parsed.Address
@@ -812,32 +816,32 @@ func (n *Notifier) sendEmail(cfg map[string]any, message string) error {
 	if fromAddress == "" {
 		fromAddress = user
 	}
-	// from、err 保存from、err，供当前处理流程使用
+	// from、err 用于本次流程后续判断的from、err
 	from, err := mail.ParseAddress(fromAddress)
 	if err != nil || !strings.Contains(from.Address, "@") {
 		return fmt.Errorf("发件邮箱地址无效")
 	}
-	// recipient、err 保存recipient、err，供当前处理流程使用
+	// recipient、err 用于本次流程后续判断的recipient、err
 	recipient, err := mail.ParseAddress(to)
 	if err != nil || !strings.Contains(recipient.Address, "@") {
 		return fmt.Errorf("收件邮箱地址无效")
 	}
 	from.Name = fromName
-	// fromHeader 保存fromHeader，供当前处理流程使用
+	// fromHeader 用于本次流程后续判断的fromHeader
 	fromHeader := from.Address
 	if from.Name != "" {
 		fromHeader = from.String()
 	}
-	// toHeader 保存toHeader，供当前处理流程使用
+	// toHeader 用于本次流程后续判断的toHeader
 	toHeader := recipient.Address
 	if recipient.Name != "" {
 		toHeader = recipient.String()
 	}
-	// addr 保存addr，供当前处理流程使用
+	// addr 用于本次流程后续判断的addr
 	addr := server + ":" + port
-	// auth 保存auth，供当前处理流程使用
+	// auth 用于本次流程后续判断的auth
 	auth := smtp.PlainAuth("", user, pass, server)
-	// msg 保存msg，供当前处理流程使用
+	// msg 用于本次流程后续判断的msg
 	msg := strings.Join([]string{
 		"From: " + fromHeader,
 		"To: " + toHeader,
@@ -853,93 +857,93 @@ func (n *Notifier) sendEmail(cfg map[string]any, message string) error {
 	})
 }
 
-// smtpTransportOptions 保存smtpTransportOptions，供当前处理流程使用
+// smtpTransportOptions 用于本次流程后续判断的smtpTransportOptions
 type smtpTransportOptions struct {
 	UseSTARTTLS    bool
 	UseImplicitTLS bool
 }
 
-// sendPublicSMTP 负责sendPublicSMTP相关处理。
+// sendPublicSMTP 封装sendPublicSMTP业务协调。
 func sendPublicSMTP(ctx context.Context, addr, server string, auth smtp.Auth, from, to string, message []byte, options ...smtpTransportOptions) error {
-	// rawPort、err 保存原始Port、err，供当前处理流程使用
+	// rawPort、err 用于本次流程后续判断的原始Port、err
 	_, rawPort, err := net.SplitHostPort(addr)
 	if err != nil {
 		return fmt.Errorf("SMTP 地址无效")
 	}
-	// port、err 保存port、err，供当前处理流程使用
+	// port、err 用于本次流程后续判断的port、err
 	port, err := strconv.Atoi(strings.TrimSpace(rawPort))
 	if err != nil || port < 1 || port > 65535 {
 		return fmt.Errorf("SMTP 端口无效")
 	}
-	// conn、err 保存conn、err，供当前处理流程使用
+	// conn、err 用于本次流程后续判断的conn、err
 	conn, err := dialPublicSMTP(ctx, "tcp", addr, 10*time.Second)
 	if err != nil {
 		return fmt.Errorf("连接 SMTP 服务器失败: %w", err)
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(20 * time.Second))
-	// transport 保存transport，供当前处理流程使用
+	// transport 用于本次流程后续判断的transport
 	transport := smtpTransportOptions{UseSTARTTLS: true}
 	if len(options) > 0 {
 		transport = options[0]
 	}
 	if transport.UseImplicitTLS {
-		// tlsConn 保存tlsConn，供当前处理流程使用
+		// tlsConn 用于本次流程后续判断的tlsConn
 		tlsConn := tls.Client(conn, &tls.Config{MinVersion: tls.VersionTLS12, ServerName: server})
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := tlsConn.HandshakeContext(ctx); err != nil {
 			return fmt.Errorf("SMTP SSL 握手失败: %w", err)
 		}
 		conn = tlsConn
 	}
-	// client、err 保存client、err，供当前处理流程使用
+	// client、err 用于本次流程后续判断的client、err
 	client, err := smtp.NewClient(conn, server)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = client.Close() }()
 	if transport.UseSTARTTLS {
-		if // ok 保存ok，供当前处理流程使用
+		if // ok 用于本次流程后续判断的ok
 		ok, _ := client.Extension("STARTTLS"); !ok {
 			return fmt.Errorf("SMTP 服务器不支持要求的 STARTTLS")
 		}
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := client.StartTLS(&tls.Config{MinVersion: tls.VersionTLS12, ServerName: server}); err != nil {
 			return err
 		}
 	}
 	if auth != nil {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := client.Auth(auth); err != nil {
 			return err
 		}
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := client.Mail(from); err != nil {
 		return err
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := client.Rcpt(to); err != nil {
 		return err
 	}
-	// w、err 保存w、err，供当前处理流程使用
+	// w、err 用于本次流程后续判断的w、err
 	w, err := client.Data()
 	if err != nil {
 		return err
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := w.Write(message); err != nil {
 		_ = w.Close()
 		return err
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := w.Close(); err != nil {
 		return err
 	}
 	return client.Quit()
 }
 
-// parseConfigBool 负责parse配置Bool相关处理。
+// parseConfigBool 封装parse配置Bool业务协调。
 func parseConfigBool(raw string, fallback bool) bool {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "1", "true", "yes", "on":
@@ -951,14 +955,14 @@ func parseConfigBool(raw string, fallback bool) bool {
 	}
 }
 
-// configOrSetting 负责配置Or设置相关处理。
+// configOrSetting 封装配置Or设置业务协调。
 func (n *Notifier) configOrSetting(ctx context.Context, cfg map[string]any, key, fallbackValue string) string {
-	if // v 保存v，供当前处理流程使用
+	if // v 用于本次流程后续判断的v
 	v := strings.TrimSpace(strOr(cfg, key, "")); v != "" {
 		return v
 	}
 	if n.repository != nil {
-		if // v、err 保存v、err，供当前处理流程使用
+		if // v、err 用于本次流程后续判断的v、err
 		v, err := n.repository.GetSetting(ctx, key); err == nil && strings.TrimSpace(v) != "" {
 			return strings.TrimSpace(v)
 		}
@@ -968,22 +972,22 @@ func (n *Notifier) configOrSetting(ctx context.Context, cfg map[string]any, key,
 
 // smtpConfigValue keeps legacy per-field fallback behavior for existing rows,
 // while new rows use an explicit all-system or all-channel SMTP mode.
-// smtpConfigValue 负责smtp配置值相关处理。
+// smtpConfigValue 封装smtp配置值业务协调。
 func (n *Notifier) smtpConfigValue(ctx context.Context, cfg map[string]any, key, fallbackValue string) string {
-	// modeValue、hasExplicitMode 保存模式Value、hasExplicit模式，供当前处理流程使用
+	// modeValue、hasExplicitMode 用于本次流程后续判断的模式Value、hasExplicit模式
 	modeValue, hasExplicitMode := cfg["use_custom_smtp"]
 	if !hasExplicitMode {
 		return n.configOrSetting(ctx, cfg, key, fallbackValue)
 	}
 	if parseConfigBool(fmt.Sprintf("%v", modeValue), false) {
-		if // value 保存值，供当前处理流程使用
+		if // value 用于本次流程后续判断的值
 		value := strings.TrimSpace(strOr(cfg, key, "")); value != "" {
 			return value
 		}
 		return fallbackValue
 	}
 	if n.repository != nil {
-		if // value、err 保存value、err，供当前处理流程使用
+		if // value、err 用于本次流程后续判断的value、err
 		value, err := n.repository.GetSetting(ctx, key); err == nil && strings.TrimSpace(value) != "" {
 			return strings.TrimSpace(value)
 		}
@@ -993,24 +997,24 @@ func (n *Notifier) smtpConfigValue(ctx context.Context, cfg map[string]any, key,
 
 // postJSON 通用 JSON POST。
 func (n *Notifier) postJSON(url string, payload any) error {
-	// body、err 保存body、err，供当前处理流程使用
+	// body、err 用于本次流程后续判断的body、err
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	// req、err 保存req、err，供当前处理流程使用
+	// req、err 用于本次流程后续判断的req、err
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// resp、err 保存resp、err，供当前处理流程使用
+	// resp、err 用于本次流程后续判断的resp、err
 	resp, err := n.httpc.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	// responseBody、err 保存响应Body、err，供当前处理流程使用
+	// responseBody、err 用于本次流程后续判断的响应Body、err
 	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return err
@@ -1018,57 +1022,57 @@ func (n *Notifier) postJSON(url string, payload any) error {
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("状态码 %d", resp.StatusCode)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := notificationBusinessError(responseBody); err != nil {
 		return err
 	}
 	return nil
 }
 
-// notificationBusinessError 负责通知Business错误相关处理。
+// notificationBusinessError 封装通知Business错误业务协调。
 func notificationBusinessError(body []byte) error {
 	if len(bytes.TrimSpace(body)) == 0 {
 		return nil
 	}
-	// payload 保存请求载荷，供当前处理流程使用
+	// payload 用于本次流程后续判断的请求载荷
 	var payload map[string]any
 	if json.Unmarshal(body, &payload) != nil {
 		return nil
 	}
-	// message 保存消息，供当前处理流程使用
+	// message 用于本次流程后续判断的消息
 	message := strings.TrimSpace(firstMapString(payload, "errmsg", "msg", "message", "description"))
-	if // code、ok 保存code、ok，供当前处理流程使用
+	if // code、ok 用于本次流程后续判断的code、ok
 	code, ok := mapNumber(payload, "errcode"); ok && code != 0 {
 		return fmt.Errorf("通知渠道返回错误 %.0f: %s", code, message)
 	}
-	if // code、ok 保存code、ok，供当前处理流程使用
+	if // code、ok 用于本次流程后续判断的code、ok
 	code, ok := mapNumber(payload, "StatusCode"); ok && code != 0 {
 		return fmt.Errorf("通知渠道返回错误 %.0f: %s", code, message)
 	}
-	if // code、ok 保存code、ok，供当前处理流程使用
+	if // code、ok 用于本次流程后续判断的code、ok
 	code, ok := mapNumber(payload, "code"); ok && code != 0 && code != 200 {
 		return fmt.Errorf("通知渠道返回错误 %.0f: %s", code, message)
 	}
-	if // okValue、exists 保存okValue、exists，供当前处理流程使用
+	if // okValue、exists 用于本次流程后续判断的okValue、exists
 	okValue, exists := payload["ok"].(bool); exists && !okValue {
 		return fmt.Errorf("通知渠道返回失败: %s", message)
 	}
 	return nil
 }
 
-// mapNumber 负责mapNumber相关处理。
+// mapNumber 封装mapNumber业务协调。
 func mapNumber(payload map[string]any, key string) (float64, bool) {
-	// value、ok 保存value、ok，供当前处理流程使用
+	// value、ok 用于本次流程后续判断的value、ok
 	value, ok := payload[key]
 	if !ok {
 		return 0, false
 	}
-	switch // typed 保存typed，供当前处理流程使用
+	switch // typed 用于本次流程后续判断的typed
 	typed := value.(type) {
 	case float64:
 		return typed, true
 	case string:
-		// number、err 保存number、err，供当前处理流程使用
+		// number、err 用于本次流程后续判断的number、err
 		number, err := strconv.ParseFloat(typed, 64)
 		return number, err == nil
 	default:
@@ -1076,11 +1080,11 @@ func mapNumber(payload map[string]any, key string) (float64, bool) {
 	}
 }
 
-// firstMapString 负责firstMapString相关处理。
+// firstMapString 封装firstMapString业务协调。
 func firstMapString(payload map[string]any, keys ...string) string {
 	// key 表示当前遍历过程中的key
 	for _, key := range keys {
-		if // value、ok 保存value、ok，供当前处理流程使用
+		if // value、ok 用于本次流程后续判断的value、ok
 		value, ok := payload[key].(string); ok && value != "" {
 			return value
 		}
@@ -1090,9 +1094,9 @@ func firstMapString(payload map[string]any, keys ...string) string {
 
 // strOr 从 map 取字符串，缺失返回 fallback。
 func strOr(m map[string]any, key, fallback string) string {
-	if // v、ok 保存v、ok，供当前处理流程使用
+	if // v、ok 用于本次流程后续判断的v、ok
 	v, ok := m[key]; ok {
-		switch // x 保存x，供当前处理流程使用
+		switch // x 用于本次流程后续判断的x
 		x := v.(type) {
 		case string:
 			return x
@@ -1103,7 +1107,7 @@ func strOr(m map[string]any, key, fallback string) string {
 	return fallback
 }
 
-// fallback 负责fallback相关处理。
+// fallback 封装fallback业务协调。
 func fallback(s, def string) string {
 	if s == "" {
 		return def

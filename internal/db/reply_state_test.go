@@ -7,35 +7,35 @@ import (
 	"time"
 )
 
-// TestDefaultReplyClaimReclaimsExpiredPendingLease 负责TestDefault回复ClaimReclaimsExpiredPendingLease相关处理。
+// TestDefaultReplyClaimReclaimsExpiredPendingLease 封装TestDefault回复ClaimReclaimsExpiredPendingLease业务协调。
 func TestDefaultReplyClaimReclaimsExpiredPendingLease(t *testing.T) {
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// database、dialect、err 保存database、dialect、err，供当前处理流程使用
+	// database、dialect、err 用于本次流程后续判断的database、dialect、err
 	database, dialect, err := Open(ctx, filepath.Join(t.TempDir(), "reply-state.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
 	defer database.Close()
-	// store 保存store，供当前处理流程使用
+	// store 用于本次流程后续判断的store
 	store := NewStore(database, dialect)
 
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := database.ExecContext(ctx, `INSERT INTO users (username,email,password_hash) VALUES (?,?,?)`, "reply-test", "reply-test@example.com", "hash")
 	if err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
-	// userID、err 保存用户ID、err，供当前处理流程使用
+	// userID、err 用于本次流程后续判断的用户ID、err
 	userID, err := result.LastInsertId()
 	if err != nil {
 		t.Fatalf("LastInsertId: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.Save(ctx, "cookie-1", "unb=1", userID); err != nil {
 		t.Fatalf("save cookie: %v", err)
 	}
 
-	// initial、claimed、err 保存initial、claimed、err，供当前处理流程使用
+	// initial、claimed、err 用于本次流程后续判断的initial、claimed、err
 	initial, claimed, err := store.DefaultReps.ClaimRecord(ctx, "cookie-1", "chat-1", true, true)
 	if err != nil || !claimed || initial.Status != "pending" {
 		t.Fatalf("initial claim: record=%+v claimed=%v err=%v", initial, claimed, err)
@@ -48,7 +48,7 @@ func TestDefaultReplyClaimReclaimsExpiredPendingLease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expire lease: %v", err)
 	}
-	// reclaimed、claimed、err 保存reclaimed、claimed、err，供当前处理流程使用
+	// reclaimed、claimed、err 用于本次流程后续判断的reclaimed、claimed、err
 	reclaimed, claimed, err := store.DefaultReps.ClaimRecord(ctx, "cookie-1", "chat-1", true, true)
 	if err != nil || !claimed || reclaimed.Status != "pending" {
 		t.Fatalf("expired pending lease should be reclaimed: record=%+v claimed=%v err=%v", reclaimed, claimed, err)

@@ -13,9 +13,9 @@ import (
 // TokenCaptchaCookieSnapshot 在滑块引擎退出并释放持久化 Profile 后，重新打开
 // 同一 Profile 读取最终 Cookie Jar。它不访问任何业务页面，只用于把滑块验证
 // 已经产生的精确 Domain/Path/HttpOnly/Expires 属性交回 Go 凭证层。
-// TokenCaptchaCookieSnapshot 负责令牌Captcha登录凭证Snapshot相关处理。
+// TokenCaptchaCookieSnapshot 封装令牌Captcha登录凭证Snapshot业务协调。
 func (m *Manager) TokenCaptchaCookieSnapshot(ctx context.Context, cookieID string, headless bool) (string, []cookierefresh.BrowserCookie, error) {
-	// bctx、release、err 保存bctx、release、err，供当前处理流程使用
+	// bctx、release、err 用于本次流程后续判断的bctx、release、err
 	bctx, release, err := m.newPersistentRenewContext(ctx, cookieID, "", nil, quickRenewHeadless(headless), true)
 	if err != nil {
 		return "", nil, err
@@ -26,12 +26,12 @@ func (m *Manager) TokenCaptchaCookieSnapshot(ctx context.Context, cookieID strin
 
 // syncCredentialCookies 为 token 滑块上下文同步 Cookie。普通登录、
 // 续期、MTOP、Token 和 WebSocket 生产流程不得调用 Chromium。
-// syncCredentialCookies 负责syncCredentialCookies相关处理。
+// syncCredentialCookies 封装syncCredentialCookies业务协调。
 func syncCredentialCookies(bctx playwright.BrowserContext, cookieStr string, snapshots ...[]cookierefresh.BrowserCookie) error {
 	if len(snapshots) > 0 && snapshots[0] != nil {
-		// preserved 保存preserved，供当前处理流程使用
+		// preserved 用于本次流程后续判断的preserved
 		preserved := cookierefresh.NormalizeSnapshot(snapshots[0])
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := bctx.ClearCookies(); err != nil {
 			return err
 		}
@@ -40,37 +40,37 @@ func syncCredentialCookies(bctx playwright.BrowserContext, cookieStr string, sna
 		}
 		return bctx.AddCookies(snapshotToOptionalCookies(preserved))
 	}
-	// incoming 保存incoming，供当前处理流程使用
+	// incoming 用于本次流程后续判断的incoming
 	incoming := parseCookieStr(cookieStr)
 	if len(incoming) == 0 {
 		return fmt.Errorf("Cookie为空或格式错误")
 	}
-	// existing、err 保存existing、err，供当前处理流程使用
+	// existing、err 用于本次流程后续判断的existing、err
 	existing, err := bctx.Cookies()
 	if err != nil {
 		return err
 	}
-	// preserved 保存preserved，供当前处理流程使用
+	// preserved 用于本次流程后续判断的preserved
 	preserved := credentialCookieSnapshotForURL(cookieSnapshotFromPlaywright(existing), incoming, goofishIMURL)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := bctx.ClearCookies(); err != nil {
 		return err
 	}
 	return bctx.AddCookies(snapshotToOptionalCookies(preserved))
 }
 
-// credentialCookieSnapshot 负责credential登录凭证Snapshot相关处理。
+// credentialCookieSnapshot 封装credential登录凭证Snapshot业务协调。
 func credentialCookieSnapshot(existing []cookierefresh.BrowserCookie, incoming map[string]string) []cookierefresh.BrowserCookie {
 	return credentialCookieSnapshotForURL(existing, incoming, goofishIMURL)
 }
 
-// credentialCookieSnapshotForURL 负责credential登录凭证SnapshotForURL相关处理。
+// credentialCookieSnapshotForURL 封装credential登录凭证SnapshotForURL业务协调。
 func credentialCookieSnapshotForURL(existing []cookierefresh.BrowserCookie, incoming map[string]string, rawURL string) []cookierefresh.BrowserCookie {
-	// preserved 保存preserved，供当前处理流程使用
+	// preserved 用于本次流程后续判断的preserved
 	preserved := make([]cookierefresh.BrowserCookie, 0, len(existing)+len(incoming))
-	// matched 保存matched，供当前处理流程使用
+	// matched 用于本次流程后续判断的matched
 	matched := make(map[string]bool, len(incoming))
-	// counts 保存counts，供当前处理流程使用
+	// counts 用于本次流程后续判断的counts
 	counts := make(map[string]int, len(existing))
 	// cookie 表示当前遍历过程中的登录凭证
 	for _, cookie := range cookierefresh.NormalizeSnapshot(existing) {
@@ -79,7 +79,7 @@ func credentialCookieSnapshotForURL(existing []cookierefresh.BrowserCookie, inco
 	// cookie 表示当前遍历过程中的登录凭证
 	for _, cookie := range existing {
 		if !cookieScopeMatches(cookie, rawURL) {
-			if // value、ok 保存value、ok，供当前处理流程使用
+			if // value、ok 用于本次流程后续判断的value、ok
 			value, ok := incoming[cookie.Name]; ok {
 				if counts[cookie.Name] == 1 && cookie.PartitionKey == "" {
 					cookie.Value = value
@@ -89,7 +89,7 @@ func credentialCookieSnapshotForURL(existing []cookierefresh.BrowserCookie, inco
 			preserved = append(preserved, cookie)
 			continue
 		}
-		// value、ok 保存value、ok，供当前处理流程使用
+		// value、ok 用于本次流程后续判断的value、ok
 		value, ok := incoming[cookie.Name]
 		if !ok {
 			continue
@@ -112,16 +112,16 @@ func credentialCookieSnapshotForURL(existing []cookierefresh.BrowserCookie, inco
 	return cookierefresh.NormalizeSnapshot(preserved)
 }
 
-// cookieScopeMatches 负责登录凭证ScopeMatches相关处理。
+// cookieScopeMatches 封装登录凭证ScopeMatches业务协调。
 func cookieScopeMatches(cookie cookierefresh.BrowserCookie, rawURL string) bool {
-	// header 保存header，供当前处理流程使用
+	// header 用于本次流程后续判断的header
 	header, _ := cookierefresh.ScopedCookieHeaderForRequest([]cookierefresh.BrowserCookie{cookie}, rawURL, "https://goofish.com", time.Unix(0, 0))
 	return header != ""
 }
 
-// currentCookieHeader 负责current登录凭证Header相关处理。
+// currentCookieHeader 封装current登录凭证Header业务协调。
 func currentCookieHeader(snapshot []cookierefresh.BrowserCookie, rawURL string) string {
-	// header 保存header，供当前处理流程使用
+	// header 用于本次流程后续判断的header
 	header, _ := cookierefresh.ScopedCookieHeaderForRequest(snapshot, rawURL, "https://goofish.com", time.Now())
 	return header
 }

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestApplyBrowserFingerprintUsesRuntimeValues 负责TestApply浏览器FingerprintUsesRuntimeValues相关处理。
+// TestApplyBrowserFingerprintUsesRuntimeValues 封装TestApply浏览器FingerprintUsesRuntimeValues业务协调。
 func TestApplyBrowserFingerprintUsesRuntimeValues(t *testing.T) {
 	SetBrowserFingerprint(BrowserFingerprint{
 		UserAgent: "runtime-chromium-ua",
@@ -13,7 +13,7 @@ func TestApplyBrowserFingerprintUsesRuntimeValues(t *testing.T) {
 		Platform:  "macOS",
 		Mobile:    "?0",
 	})
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := http.Header{}
 	ApplyBrowserFingerprint(h)
 	if h.Get("User-Agent") != "runtime-chromium-ua" ||

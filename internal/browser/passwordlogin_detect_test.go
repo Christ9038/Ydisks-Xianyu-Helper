@@ -7,11 +7,11 @@ import (
 	"time"
 )
 
-// TestDetectPasswordBaxiaPunishHTML 负责TestDetect密码BaxiaPunishHTML相关处理。
+// TestDetectPasswordBaxiaPunishHTML 封装TestDetect密码BaxiaPunishHTML业务协调。
 func TestDetectPasswordBaxiaPunishHTML(t *testing.T) {
-	// html 保存html，供当前处理流程使用
+	// html 用于本次流程后续判断的html
 	html := `<div id="baxia-punish"><div class="captcha-question">请找两个松鼠</div></div>`
-	// event、ok 保存event、ok，供当前处理流程使用
+	// event、ok 用于本次流程后续判断的event、ok
 	event, ok := detectPasswordBaxiaPunishHTML(html)
 	if !ok {
 		t.Fatal("应识别 baxia 图形验证")
@@ -21,9 +21,9 @@ func TestDetectPasswordBaxiaPunishHTML(t *testing.T) {
 	}
 }
 
-// TestPasswordEventFromMessageDoesNotTreatFaceRiskAsBaxia 负责Test密码EventFrom消息DoesNotTreatFaceRiskAsBaxia相关处理。
+// TestPasswordEventFromMessageDoesNotTreatFaceRiskAsBaxia 封装Test密码EventFrom消息DoesNotTreatFaceRiskAsBaxia业务协调。
 func TestPasswordEventFromMessageDoesNotTreatFaceRiskAsBaxia(t *testing.T) {
-	// event 保存event，供当前处理流程使用
+	// event 用于本次流程后续判断的event
 	event := PasswordLoginEventFromMessage("账号触发风控，需要人脸验证")
 	if event.Reason == "baxia_punish_captcha" {
 		t.Fatalf("普通人脸验证不应按 baxia 冷却: %+v", event)
@@ -33,9 +33,9 @@ func TestPasswordEventFromMessageDoesNotTreatFaceRiskAsBaxia(t *testing.T) {
 	}
 }
 
-// TestDetectPasswordLoginErrorHTML 负责TestDetect密码登录错误HTML相关处理。
+// TestDetectPasswordLoginErrorHTML 封装TestDetect密码登录错误HTML业务协调。
 func TestDetectPasswordLoginErrorHTML(t *testing.T) {
-	// msg 保存msg，供当前处理流程使用
+	// msg 用于本次流程后续判断的msg
 	msg := detectPasswordLoginErrorHTML(`<div class="login-error-msg">账号或密码错误</div>`)
 	if msg != "账号或密码错误" {
 		t.Fatalf("登录错误识别=%q", msg)
@@ -46,11 +46,11 @@ func TestDetectPasswordLoginErrorHTML(t *testing.T) {
 	}
 }
 
-// TestDetectPasswordVerificationHTML 负责TestDetect密码VerificationHTML相关处理。
+// TestDetectPasswordVerificationHTML 封装TestDetect密码VerificationHTML业务协调。
 func TestDetectPasswordVerificationHTML(t *testing.T) {
-	// html 保存html，供当前处理流程使用
+	// html 用于本次流程后续判断的html
 	html := `<iframe id="alibaba-login-box" src="https:\/\/passport.goofish.com\/iv\/photoVerify\/index.htm?token=abc"></iframe><div>需要人脸验证，请使用手机扫码</div>`
-	// event、ok 保存event、ok，供当前处理流程使用
+	// event、ok 用于本次流程后续判断的event、ok
 	event, ok := detectPasswordVerificationHTML(html)
 	if !ok {
 		t.Fatal("应识别人脸验证")
@@ -63,7 +63,7 @@ func TestDetectPasswordVerificationHTML(t *testing.T) {
 	}
 }
 
-// TestQuickEnterCookiesUsableRequiresUNB 负责TestQuickEnterCookiesUsableRequiresUNB相关处理。
+// TestQuickEnterCookiesUsableRequiresUNB 封装TestQuickEnterCookiesUsableRequiresUNB业务协调。
 func TestQuickEnterCookiesUsableRequiresUNB(t *testing.T) {
 	if quickEnterCookiesUsable(map[string]string{"_m_h5_tk": "tk"}) {
 		t.Fatal("快速进入未拿到 unb 不应视为成功")
@@ -76,7 +76,7 @@ func TestQuickEnterCookiesUsableRequiresUNB(t *testing.T) {
 	}
 }
 
-// TestPasswordLoginReferenceProfileAndTiming 负责Test密码登录ReferenceProfileAndTiming相关处理。
+// TestPasswordLoginReferenceProfileAndTiming 封装Test密码登录ReferenceProfileAndTiming业务协调。
 func TestPasswordLoginReferenceProfileAndTiming(t *testing.T) {
 	if passwordLoginPageLoadWait != 2*time.Second || passwordLoginTabWait != 1500*time.Millisecond ||
 		passwordLoginAfterSubmitWait != 3*time.Second || passwordLoginCompletionWait != 5*time.Second {
@@ -89,7 +89,7 @@ func TestPasswordLoginReferenceProfileAndTiming(t *testing.T) {
 	}
 }
 
-// TestPasswordPersistentContextOptionsMatchReference 负责Test密码Persistent上下文OptionsMatchReference相关处理。
+// TestPasswordPersistentContextOptionsMatchReference 封装Test密码Persistent上下文OptionsMatchReference业务协调。
 func TestPasswordPersistentContextOptionsMatchReference(t *testing.T) {
 	t.Setenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "/opt/chromium")
 	// userAgent 模拟从同版本 Chromium 实测后规范化出的无头身份。
@@ -127,9 +127,9 @@ func TestPasswordPersistentContextOptionsMatchReference(t *testing.T) {
 	}
 }
 
-// TestPasswordLoginRejectsBlankCredentialsBeforeBrowserInit 负责Test密码登录RejectsBlankCredentialsBefore浏览器Init相关处理。
+// TestPasswordLoginRejectsBlankCredentialsBeforeBrowserInit 封装Test密码登录RejectsBlankCredentialsBefore浏览器Init业务协调。
 func TestPasswordLoginRejectsBlankCredentialsBeforeBrowserInit(t *testing.T) {
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	m := &Manager{}
 	// tc 表示当前遍历过程中的tc
 	for _, tc := range []struct {
@@ -140,7 +140,7 @@ func TestPasswordLoginRejectsBlankCredentialsBeforeBrowserInit(t *testing.T) {
 		{account: "account", password: ""},
 		{account: "  ", password: "secret"},
 	} {
-		// err 保存err，供当前处理流程使用
+		// err 用于本次流程后续判断的err
 		_, err := m.PasswordLogin(context.Background(), tc.account, tc.password, "cookie-id", "", true)
 		if err == nil || !strings.Contains(err.Error(), "账号或密码不能为空") {
 			t.Fatalf("account=%q password=%q: err=%v", tc.account, tc.password, err)

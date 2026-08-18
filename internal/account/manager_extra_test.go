@@ -16,27 +16,27 @@ import (
 	"xianyu-go/internal/xianyu/ws"
 )
 
-// fakeWSDialer 保存fakeWSDialer，供当前处理流程使用
+// fakeWSDialer 用于本次流程后续判断的fakeWSDialer
 type fakeWSDialer struct{}
 
-// Dial 负责Dial相关处理。
+// Dial 封装Dial业务协调。
 func (fakeWSDialer) Dial(context.Context, ws.Config, *slog.Logger) (engine.WSConn, error) {
 	return fakeWSConn{}, nil
 }
 
-// fakeWSConn 保存fakeWSConn，供当前处理流程使用
+// fakeWSConn 用于本次流程后续判断的fakeWSConn
 type fakeWSConn struct{}
 
-// Register 负责Register相关处理。
+// Register 封装Register业务协调。
 func (fakeWSConn) Register(context.Context, string, string) error { return nil }
 
-// HeartbeatLoop 负责HeartbeatLoop相关处理。
+// HeartbeatLoop 封装HeartbeatLoop业务协调。
 func (fakeWSConn) HeartbeatLoop(ctx context.Context, _ time.Duration) error {
 	<-ctx.Done()
 	return ctx.Err()
 }
 
-// ReceiveLoop 负责ReceiveLoop相关处理。
+// ReceiveLoop 封装ReceiveLoop业务协调。
 func (fakeWSConn) ReceiveLoop(ctx context.Context, _ func(map[string]any)) error {
 	<-ctx.Done()
 	return ctx.Err()
@@ -45,12 +45,12 @@ func (fakeWSConn) ReceiveLoop(ctx context.Context, _ func(map[string]any)) error
 // Close 关闭当前值。
 func (fakeWSConn) Close() error { return nil }
 
-// SendText 负责Send文本相关处理。
+// SendText 封装Send文本业务协调。
 func (fakeWSConn) SendText(context.Context, string, string, string, string) error {
 	return nil
 }
 
-// SendImage 负责Send图片相关处理。
+// SendImage 封装Send图片业务协调。
 func (fakeWSConn) SendImage(context.Context, string, string, string, string, int, int) error {
 	return nil
 }
@@ -58,7 +58,7 @@ func (fakeWSConn) SendImage(context.Context, string, string, string, string, int
 // fakeMtop 是注入 engine.Account 的可控 mtop 客户端，避免真实网络。
 // refreshErr 非空时 RefreshToken 返回该错误；block 非空时阻塞到该 chan
 // 关闭或 ctx 取消（用于让 Run 挂起、模拟"账号在线运行中"）。
-// fakeMtop 保存fakeMtop，供当前处理流程使用
+// fakeMtop 用于本次流程后续判断的fakeMtop
 type fakeMtop struct {
 	refreshErr error
 	block      chan struct{}
@@ -84,27 +84,27 @@ func (f *fakeMtop) RefreshTokenWithDeviceIDContext(ctx context.Context, _, _ str
 	return &mtop.RefreshResult{AccessToken: "fake-token"}, nil
 }
 
-// FetchUserProfile 负责Fetch用户Profile相关处理。
+// FetchUserProfile 封装Fetch用户Profile业务协调。
 func (f *fakeMtop) FetchUserProfile(context.Context, string) (*mtop.UserProfileResult, error) {
 	return nil, nil
 }
 
-// ConsignContext 负责Consign上下文相关处理。
+// ConsignContext 封装Consign上下文业务协调。
 func (f *fakeMtop) ConsignContext(context.Context, string, string) (bool, []string, string, error) {
 	return false, nil, "", nil
 }
 
-// FetchItemsPage 负责Fetch商品列表页码相关处理。
+// FetchItemsPage 封装Fetch商品列表页码业务协调。
 func (f *fakeMtop) FetchItemsPage(context.Context, string, int, int) (*mtop.ItemListResult, error) {
 	return nil, nil
 }
 
-// FetchAllItems 负责FetchAll商品列表相关处理。
+// FetchAllItems 封装FetchAll商品列表业务协调。
 func (f *fakeMtop) FetchAllItems(context.Context, string, int, int) (*mtop.ItemListResult, error) {
 	return nil, nil
 }
 
-// PublishItem 负责发布商品相关处理。
+// PublishItem 封装发布商品业务协调。
 func (f *fakeMtop) PublishItem(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
 	return nil, nil
 }
@@ -112,14 +112,14 @@ func (f *fakeMtop) PublishItem(context.Context, string, mtop.PublishItemRequest)
 // newTestStore 构造临时 SQLite + 已初始化的 admin，返回 store 与 cleanup。
 func newTestStore(t *testing.T) (*db.Store, func()) {
 	t.Helper()
-	// dbPath 保存db路径，供当前处理流程使用
+	// dbPath 用于本次流程后续判断的db路径
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	// d、err 保存d、err，供当前处理流程使用
+	// d、err 用于本次流程后续判断的d、err
 	d, _, err := db.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	// store 保存store，供当前处理流程使用
+	// store 用于本次流程后续判断的store
 	store := db.NewStore(d, db.DialectSQLite)
 	store.Users.Create(context.Background(), "admin", "a@e.com", "pw")
 	return store, func() { d.Close() }
@@ -128,16 +128,16 @@ func newTestStore(t *testing.T) (*db.Store, func()) {
 // newManagerWithAccount 构造 Manager 并向 DB 写入一个启用的账号。
 func newManagerWithAccount(t *testing.T, cookieID, cookieValue string) (*Manager, *db.Store, func()) {
 	t.Helper()
-	// store、cleanup 保存store、cleanup，供当前处理流程使用
+	// store、cleanup 用于本次流程后续判断的store、cleanup
 	store, cleanup := newTestStore(t)
-	// admin 保存admin，供当前处理流程使用
+	// admin 用于本次流程后续判断的admin
 	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.Save(context.Background(), cookieID, cookieValue, admin.ID); err != nil {
 		cleanup()
 		t.Fatalf("Save cookie: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.SetStatus(context.Background(), cookieID, true); err != nil {
 		cleanup()
 		t.Fatalf("SetStatus: %v", err)
@@ -147,12 +147,12 @@ func newManagerWithAccount(t *testing.T, cookieID, cookieValue string) (*Manager
 
 // startAccountWithMtop 用自定义 mtop 客户端启动账号，返回 runCtx 的 cancel。
 // runCtx 在测试结束 / Stop 时取消以回收 Run goroutine。
-// startAccountWithMtop 负责开始账号WithMtop相关处理。
+// startAccountWithMtop 封装开始账号WithMtop业务协调。
 func startAccountWithMtop(t *testing.T, mgr *Manager, cookieID, cookieValue string, mtopClient mtop.Client) context.CancelFunc {
 	t.Helper()
-	// runCtx、cancel 保存运行Ctx、cancel，供当前处理流程使用
+	// runCtx、cancel 用于本次流程后续判断的运行Ctx、cancel
 	runCtx, cancel := context.WithCancel(context.Background())
-	// acc 保存acc，供当前处理流程使用
+	// acc 用于本次流程后续判断的acc
 	acc := engine.New(engine.Config{
 		CookieID:  cookieID,
 		CookieStr: cookieValue,
@@ -162,9 +162,9 @@ func startAccountWithMtop(t *testing.T, mgr *Manager, cookieID, cookieValue stri
 		MTop:      mtopClient,
 		WSDialer:  fakeWSDialer{},
 	})
-	// accCtx、accCancel 保存accCtx、acc取消，供当前处理流程使用
+	// accCtx、accCancel 用于本次流程后续判断的accCtx、acc取消
 	accCtx, accCancel := context.WithCancel(runCtx)
-	// ma 保存ma，供当前处理流程使用
+	// ma 用于本次流程后续判断的ma
 	ma := &managedAccount{
 		cookieID: cookieID,
 		acc:      acc,
@@ -184,7 +184,7 @@ func startAccountWithMtop(t *testing.T, mgr *Manager, cookieID, cookieValue stri
 
 // TestSender 验证 Sender 在账号在线时返回 MessageSender，离线时返回 false。
 func TestSender(t *testing.T) {
-	// mgr、cleanup 保存mgr、cleanup，供当前处理流程使用
+	// mgr、cleanup 用于本次流程后续判断的mgr、cleanup
 	mgr, _, cleanup := newManagerWithAccount(t, "acc-on", "unb=1; _m_h5_tk=t1_1;")
 	defer cleanup()
 
@@ -192,20 +192,20 @@ func TestSender(t *testing.T) {
 	if s, ok := mgr.Sender("acc-on"); ok || s != nil {
 		t.Fatalf("未启动账号 Sender 应返回 (nil,false)，got (%v,%v)", s, ok)
 	}
-	if // s、ok 保存s、ok，供当前处理流程使用
+	if // s、ok 用于本次流程后续判断的s、ok
 	s, ok := mgr.Sender("acc-missing"); ok || s != nil {
 		t.Fatalf("不存在账号 Sender 应返回 (nil,false)，got (%v,%v)", s, ok)
 	}
 
 	// 用阻塞型 mtop 启动，让 Run 一直挂起，账号保持"运行中"。
 	mtopClient := &fakeMtop{block: make(chan struct{})}
-	// cancel 保存取消，供当前处理流程使用
+	// cancel 用于本次流程后续判断的取消
 	cancel := startAccountWithMtop(t, mgr, "acc-on", "unb=1; _m_h5_tk=t1_1;", mtopClient)
 	defer cancel()
 	// 给 Run 一点时间进入 refreshToken 阻塞。
 	time.Sleep(50 * time.Millisecond)
 
-	// s、ok 保存s、ok，供当前处理流程使用
+	// s、ok 用于本次流程后续判断的s、ok
 	s, ok := mgr.Sender("acc-on")
 	if !ok || s == nil {
 		t.Fatalf("在线账号 Sender 应返回 (sender,true)")
@@ -214,7 +214,7 @@ func TestSender(t *testing.T) {
 	// 停止后应回到 (nil,false)。Stop 会取消 accCtx，refreshToken 在阻塞 select
 	// 上收到 ctx.Done() 返回，Run 退出，不会进入真实 WS dial。
 	mgr.Stop("acc-on")
-	if // s、ok 保存s、ok，供当前处理流程使用
+	if // s、ok 用于本次流程后续判断的s、ok
 	s, ok := mgr.Sender("acc-on"); ok || s != nil {
 		t.Fatalf("停止后 Sender 应返回 (nil,false)，got (%v,%v)", s, ok)
 	}
@@ -228,17 +228,17 @@ func TestSender(t *testing.T) {
 //   - done 已关 + 状态=RuntimeAuthExpired：保持原状态（通过 session-expired 走 handleMaxFailures）
 //   - done 已关 + 状态=RuntimeVerificationRequired：保持原状态（通过验证类错误 + 取消）
 //
-// TestRuntimeStatuses 负责TestRuntimeStatuses相关处理。
+// TestRuntimeStatuses 封装TestRuntimeStatuses业务协调。
 func TestRuntimeStatuses(t *testing.T) {
-	// mgr、store、cleanup 保存mgr、store、cleanup，供当前处理流程使用
+	// mgr、store、cleanup 用于本次流程后续判断的mgr、store、cleanup
 	mgr, store, cleanup := newManagerWithAccount(t, "seed", "unb=1; _m_h5_tk=t1_1;")
 	defer cleanup()
-	// admin 保存admin，供当前处理流程使用
+	// admin 用于本次流程后续判断的admin
 	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
 
 	// 1) 运行中账号：阻塞型 mtop 让 Run 挂起。
 	runMtop := &fakeMtop{block: make(chan struct{})}
-	// runCancel 保存运行取消，供当前处理流程使用
+	// runCancel 用于本次流程后续判断的运行取消
 	runCancel := startAccountWithMtop(t, mgr, "running", "unb=10; _m_h5_tk=t_1;", runMtop)
 	defer runCancel()
 	time.Sleep(50 * time.Millisecond)
@@ -248,7 +248,7 @@ func TestRuntimeStatuses(t *testing.T) {
 		CookieID: "nil-done", CookieStr: "unb=2; _m_h5_tk=t_1;",
 		Store: store, Handler: noopHandler{}, MTop: &fakeMtop{},
 	})
-	// nilDoneMA 保存nilDoneMA，供当前处理流程使用
+	// nilDoneMA 用于本次流程后续判断的nilDoneMA
 	nilDoneMA := &managedAccount{cookieID: "nil-done", acc: nilDoneAcc, done: make(chan struct{})}
 	close(nilDoneMA.done) // err 为 nil
 	mgr.mu.Lock()
@@ -260,7 +260,7 @@ func TestRuntimeStatuses(t *testing.T) {
 		CookieID: "err-done", CookieStr: "unb=3; _m_h5_tk=t_1;",
 		Store: store, Handler: noopHandler{}, MTop: &fakeMtop{},
 	})
-	// errDoneMA 保存errDoneMA，供当前处理流程使用
+	// errDoneMA 用于本次流程后续判断的errDoneMA
 	errDoneMA := &managedAccount{cookieID: "err-done", acc: errDoneAcc, done: make(chan struct{}), err: errors.New("boom-failure")}
 	close(errDoneMA.done)
 	mgr.mu.Lock()
@@ -272,7 +272,7 @@ func TestRuntimeStatuses(t *testing.T) {
 		CookieID: "canceled", CookieStr: "unb=4; _m_h5_tk=t_1;",
 		Store: store, Handler: noopHandler{}, MTop: &fakeMtop{},
 	})
-	// canceledMA 保存canceledMA，供当前处理流程使用
+	// canceledMA 用于本次流程后续判断的canceledMA
 	canceledMA := &managedAccount{cookieID: "canceled", acc: canceledAcc, done: make(chan struct{}), err: context.Canceled}
 	close(canceledMA.done)
 	mgr.mu.Lock()
@@ -282,9 +282,9 @@ func TestRuntimeStatuses(t *testing.T) {
 	// 5) 状态=RuntimeAuthExpired（session-expired 错误让 Run 走到 handleMaxFailures 慢重试）。
 	//    新行为：账号不再硬退出，而是保持 goroutine 存活、慢重试，状态停在 RuntimeAuthExpired。
 	store.Cookies.Save(context.Background(), "auth-exp", "unb=5; _m_h5_tk=t_1;", admin.ID)
-	// authMgr 保存authMgr，供当前处理流程使用
+	// authMgr 用于本次流程后续判断的authMgr
 	authMgr := mgr
-	// authCancel 保存auth取消，供当前处理流程使用
+	// authCancel 用于本次流程后续判断的auth取消
 	authCancel := startAccountWithMtop(t, authMgr, "auth-exp", "unb=5; _m_h5_tk=t_1;",
 		&fakeMtop{refreshErr: errors.New("token API 登录凭证已失效: ret=[FAIL_SYS_SESSION_EXPIRED] status=403")})
 	defer authCancel()
@@ -295,9 +295,9 @@ func TestRuntimeStatuses(t *testing.T) {
 
 	// 6) done 已关 + 状态=RuntimeVerificationRequired（验证类错误 + 立即取消 ctx）。
 	store.Cookies.Save(context.Background(), "verify", "unb=6; _m_h5_tk=t_1;", admin.ID)
-	// verifyMtop 保存verifyMtop，供当前处理流程使用
+	// verifyMtop 用于本次流程后续判断的verifyMtop
 	verifyMtop := &fakeMtop{refreshErr: errors.New("FAIL_SYS_USER_VALIDATE: captcha required")}
-	// verifyCancel 保存verify取消，供当前处理流程使用
+	// verifyCancel 用于本次流程后续判断的verify取消
 	verifyCancel := startAccountWithMtop(t, mgr, "verify", "unb=6; _m_h5_tk=t_1;", verifyMtop)
 	// 让 Run 进入一次 refreshToken → setRuntimeError(RuntimeVerificationRequired) → sleepCtx。
 	time.Sleep(80 * time.Millisecond)
@@ -306,7 +306,7 @@ func TestRuntimeStatuses(t *testing.T) {
 		t.Fatal("verify 账号未在超时内退出")
 	}
 
-	// statuses 保存statuses，供当前处理流程使用
+	// statuses 用于本次流程后续判断的statuses
 	statuses := mgr.RuntimeStatuses()
 
 	// 运行中：应有该 key，状态非空。
@@ -347,11 +347,11 @@ func TestRuntimeStatuses(t *testing.T) {
 
 // waitForDone 轮询等待某账号 done 关闭。
 func waitForDone(mgr *Manager, cookieID string, timeout time.Duration) bool {
-	// deadline 保存deadline，供当前处理流程使用
+	// deadline 用于本次流程后续判断的deadline
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		mgr.mu.Lock()
-		// ma、ok 保存ma、ok，供当前处理流程使用
+		// ma、ok 用于本次流程后续判断的ma、ok
 		ma, ok := mgr.accounts[cookieID]
 		mgr.mu.Unlock()
 		if !ok {
@@ -369,11 +369,11 @@ func waitForDone(mgr *Manager, cookieID string, timeout time.Duration) bool {
 
 // waitForState 轮询等待某账号进入指定运行时状态。
 func waitForState(mgr *Manager, cookieID, want string, timeout time.Duration) bool {
-	// deadline 保存deadline，供当前处理流程使用
+	// deadline 用于本次流程后续判断的deadline
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		mgr.mu.Lock()
-		// ma、ok 保存ma、ok，供当前处理流程使用
+		// ma、ok 用于本次流程后续判断的ma、ok
 		ma, ok := mgr.accounts[cookieID]
 		mgr.mu.Unlock()
 		if ok && ma.acc != nil && ma.acc.RuntimeStatus().State == want {
@@ -386,20 +386,20 @@ func waitForState(mgr *Manager, cookieID, want string, timeout time.Duration) bo
 
 // TestRestart 验证重启账号：停止旧实例→读取最新 DB cookie→启动新实例。
 func TestRestart(t *testing.T) {
-	// mgr、store、cleanup 保存mgr、store、cleanup，供当前处理流程使用
+	// mgr、store、cleanup 用于本次流程后续判断的mgr、store、cleanup
 	mgr, store, cleanup := newManagerWithAccount(t, "restart-acc", "unb=1; _m_h5_tk=old;")
 	defer cleanup()
-	// admin 保存admin，供当前处理流程使用
+	// admin 用于本次流程后续判断的admin
 	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
 
 	// 用阻塞 mtop 启动旧实例，使其保持运行。
 	oldMtop := &fakeMtop{block: make(chan struct{})}
-	// cancel 保存取消，供当前处理流程使用
+	// cancel 用于本次流程后续判断的取消
 	cancel := startAccountWithMtop(t, mgr, "restart-acc", "unb=1; _m_h5_tk=old;", oldMtop)
 	defer cancel()
 	time.Sleep(50 * time.Millisecond)
 
-	// oldMA 保存oldMA，供当前处理流程使用
+	// oldMA 用于本次流程后续判断的oldMA
 	oldMA, _ := mgr.getInstanceInternal("restart-acc")
 	if oldMA == nil {
 		t.Fatal("旧实例应存在")
@@ -408,10 +408,10 @@ func TestRestart(t *testing.T) {
 	// 更新 DB cookie 为新值，模拟外部刷新。
 	store.Cookies.Save(context.Background(), "restart-acc", "unb=1; _m_h5_tk=new-refreshed;", admin.ID)
 
-	// ctx、ctxCancel 保存ctx、ctx取消，供当前处理流程使用
+	// ctx、ctxCancel 用于本次流程后续判断的ctx、ctx取消
 	ctx, ctxCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer ctxCancel()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := mgr.Restart(ctx, "restart-acc"); err != nil {
 		t.Fatalf("Restart: %v", err)
 	}
@@ -442,14 +442,14 @@ func TestRestart(t *testing.T) {
 
 // TestRestart_GetDetailsError 验证 Restart 读不存在的账号详情应返回包装错误。
 func TestRestart_GetDetailsError(t *testing.T) {
-	// mgr、cleanup 保存mgr、cleanup，供当前处理流程使用
+	// mgr、cleanup 用于本次流程后续判断的mgr、cleanup
 	mgr, _, cleanup := newManagerWithAccount(t, "seed", "unb=1; _m_h5_tk=t;")
 	defer cleanup()
 
-	// ctx、ctxCancel 保存ctx、ctx取消，供当前处理流程使用
+	// ctx、ctxCancel 用于本次流程后续判断的ctx、ctx取消
 	ctx, ctxCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer ctxCancel()
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	err := mgr.Restart(ctx, "no-such-account")
 	if err == nil {
 		t.Fatal("Restart 不存在账号应返回错误")
@@ -459,26 +459,65 @@ func TestRestart_GetDetailsError(t *testing.T) {
 	}
 }
 
+// TestRestartCanceledBeforeStopKeepsRunningAccount 验证已取消的重启请求不会停止仍在线的旧实例。
+func TestRestartCanceledBeforeStopKeepsRunningAccount(t *testing.T) {
+	// mgr、cleanup 分别是带运行中账号的测试管理器及其资源清理函数。
+	mgr, _, cleanup := newManagerWithAccount(t, "restart-canceled", "unb=1; _m_h5_tk=old;")
+	defer cleanup()
+	// oldMtop 让旧实例保持运行，便于验证取消重启没有触发停止。
+	oldMtop := &fakeMtop{block: make(chan struct{})}
+	// runCancel 在测试结束时释放旧实例使用的进程生命周期 Context。
+	runCancel := startAccountWithMtop(t, mgr, "restart-canceled", "unb=1; _m_h5_tk=old;", oldMtop)
+	defer runCancel()
+	// oldManaged 是取消重启前的权威运行实例。
+	oldManaged, ok := mgr.getInstanceInternal("restart-canceled")
+	if !ok || oldManaged == nil {
+		t.Fatal("取消前应存在运行中的账号实例")
+	}
+	// restartCtx、cancel 分别是已取消的重启请求 Context 及其释放函数。
+	restartCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	// restartErr 是取消重启返回的可分类错误。
+	restartErr := mgr.Restart(restartCtx, "restart-canceled")
+	if !errors.Is(restartErr, ErrRestartIncomplete) || !errors.Is(restartErr, context.Canceled) {
+		t.Fatalf("Restart 取消错误=%v，期望同时包含 ErrRestartIncomplete 和 context.Canceled", restartErr)
+	}
+	// current、stillRunning 分别是取消后的运行实例及其存在性标记。
+	current, stillRunning := mgr.getInstanceInternal("restart-canceled")
+	if !stillRunning || current != oldManaged {
+		t.Fatal("已取消的重启不应替换或删除旧账号实例")
+	}
+	select {
+	case <-oldManaged.done:
+		t.Fatal("已取消的重启不应停止旧账号实例")
+	default:
+	}
+	// stopErr 是测试结束前停止旧实例的结果。
+	if stopErr := mgr.StopContext(context.Background(), "restart-canceled"); stopErr != nil {
+		t.Fatalf("停止测试账号: %v", stopErr)
+	}
+}
+
 // TestStart_SkipsRunning 验证对运行中账号调用 Start 跳过启动。
 func TestStart_SkipsRunning(t *testing.T) {
-	// mgr、cleanup 保存mgr、cleanup，供当前处理流程使用
+	// mgr、cleanup 用于本次流程后续判断的mgr、cleanup
 	mgr, _, cleanup := newManagerWithAccount(t, "running-acc", "unb=1; _m_h5_tk=t;")
 	defer cleanup()
 
-	// runMtop 保存运行Mtop，供当前处理流程使用
+	// runMtop 用于本次流程后续判断的运行Mtop
 	runMtop := &fakeMtop{block: make(chan struct{})}
-	// cancel 保存取消，供当前处理流程使用
+	// cancel 用于本次流程后续判断的取消
 	cancel := startAccountWithMtop(t, mgr, "running-acc", "unb=1; _m_h5_tk=t;", runMtop)
 	defer cancel()
 	time.Sleep(50 * time.Millisecond)
 
-	// original 保存original，供当前处理流程使用
+	// original 用于本次流程后续判断的original
 	original, _ := mgr.getInstanceInternal("running-acc")
 
-	// ctx、ctxCancel 保存ctx、ctx取消，供当前处理流程使用
+	// ctx、ctxCancel 用于本次流程后续判断的ctx、ctx取消
 	ctx, ctxCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer ctxCancel()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := mgr.Start(ctx, "running-acc", "unb=1; _m_h5_tk=different;"); err != nil {
 		t.Fatalf("Start 运行中账号应返回 nil，got %v", err)
 	}
@@ -488,7 +527,7 @@ func TestStart_SkipsRunning(t *testing.T) {
 	if after != original {
 		t.Fatal("Start 运行中账号不应替换实例")
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := after.acc.CurrentCookieStr(); got != "unb=1; _m_h5_tk=t;" {
 		t.Fatalf("实例 CookieStr 不应变，got %q", got)
 	}
@@ -499,9 +538,9 @@ func TestStart_SkipsRunning(t *testing.T) {
 // TestStart_RestartsExited 验证 Manager.Start 在"账号已存在且 done 已关"路径上
 // 清理旧实例并重启新实例。该路径曾是双重解锁 bug（分支内 Unlock 后函数末尾再次
 // Unlock），已修复：现在持锁 delete 后由函数末尾单次 Unlock。
-// TestStart_RestartsExited 负责Test开始RestartsExited相关处理。
+// TestStart_RestartsExited 封装Test开始RestartsExited业务协调。
 func TestStart_RestartsExited(t *testing.T) {
-	// mgr、cleanup 保存mgr、cleanup，供当前处理流程使用
+	// mgr、cleanup 用于本次流程后续判断的mgr、cleanup
 	mgr, _, cleanup := newManagerWithAccount(t, "exited-acc", "unb=1; _m_h5_tk=t;")
 	defer cleanup()
 
@@ -510,30 +549,30 @@ func TestStart_RestartsExited(t *testing.T) {
 		CookieID: "exited-acc", CookieStr: "unb=1; _m_h5_tk=old;",
 		Store: mgr.store, Handler: noopHandler{}, MTop: &fakeMtop{},
 	})
-	// exitedMA 保存exitedMA，供当前处理流程使用
+	// exitedMA 用于本次流程后续判断的exitedMA
 	exitedMA := &managedAccount{cookieID: "exited-acc", acc: exitedAcc, done: make(chan struct{}), err: context.Canceled}
 	close(exitedMA.done)
 	mgr.mu.Lock()
 	mgr.accounts["exited-acc"] = exitedMA
 	mgr.mu.Unlock()
 
-	// ctx、ctxCancel 保存ctx、ctx取消，供当前处理流程使用
+	// ctx、ctxCancel 用于本次流程后续判断的ctx、ctx取消
 	ctx, ctxCancel := context.WithCancel(context.Background())
 	defer ctxCancel()
 	mgr.mu.Lock()
 	mgr.runCtx = ctx
 	mgr.mu.Unlock()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := mgr.store.Cookies.Save(ctx, "exited-acc", "unb=1; _m_h5_tk=brand-new;", 0); err != nil {
 		t.Fatal(err)
 	}
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := mgr.Start(ctx, "exited-acc", "unb=1; _m_h5_tk=brand-new;"); err != nil {
 		t.Fatalf("Start 已退出账号应成功，got %v", err)
 	}
 
-	// newMA、ok 保存newMA、ok，供当前处理流程使用
+	// newMA、ok 用于本次流程后续判断的newMA、ok
 	newMA, ok := mgr.getInstanceInternal("exited-acc")
 	if !ok {
 		t.Fatal("Start 后应存在新实例")
@@ -541,7 +580,7 @@ func TestStart_RestartsExited(t *testing.T) {
 	if newMA == exitedMA {
 		t.Fatal("应替换为全新实例")
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := newMA.acc.CurrentCookieStr(); got != "unb=1; _m_h5_tk=brand-new;" {
 		t.Fatalf("新实例 CookieStr=%q want brand-new", got)
 	}
@@ -557,12 +596,12 @@ func TestStart_RestartsExited(t *testing.T) {
 
 // TestStartAll_LoadError 验证 StartAll 在 DB 加载失败时返回包装错误。
 // 通过提前关闭底层 sql.DB 触发运行时凭证查询错误。
-// TestStartAll_LoadError 负责Test开始AllLoad错误相关处理。
+// TestStartAll_LoadError 封装Test开始AllLoad错误业务协调。
 func TestStartAll_LoadError(t *testing.T) {
-	// store、cleanup 保存store、cleanup，供当前处理流程使用
+	// store、cleanup 用于本次流程后续判断的store、cleanup
 	store, cleanup := newTestStore(t)
 	defer cleanup()
-	// mgr 保存mgr，供当前处理流程使用
+	// mgr 用于本次流程后续判断的mgr
 	mgr := NewManager(store, noopHandler{}, nil)
 
 	// 提前关闭 DB 让 ListEnabledRuntimeCredentials 失败。
@@ -570,10 +609,10 @@ func TestStartAll_LoadError(t *testing.T) {
 		t.Fatalf("关闭 DB: %v", err)
 	}
 
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	err := mgr.StartAll(ctx)
 	if err == nil {
 		t.Fatal("StartAll 在 DB 加载失败时应返回错误")
@@ -585,10 +624,10 @@ func TestStartAll_LoadError(t *testing.T) {
 
 // TestStartAll_DisabledNotStarted 验证 DB 中禁用的账号不被启动。
 func TestStartAll_DisabledNotStarted(t *testing.T) {
-	// store、cleanup 保存store、cleanup，供当前处理流程使用
+	// store、cleanup 用于本次流程后续判断的store、cleanup
 	store, cleanup := newTestStore(t)
 	defer cleanup()
-	// admin 保存admin，供当前处理流程使用
+	// admin 用于本次流程后续判断的admin
 	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
 	// 启用 + 禁用 + 启用。
 	store.Cookies.Save(context.Background(), "on1", "unb=1; _m_h5_tk=t;", admin.ID)
@@ -600,11 +639,11 @@ func TestStartAll_DisabledNotStarted(t *testing.T) {
 
 	// 用阻塞 mtop 的 Manager：直接构造，使所有启动账号都挂起、不触发真实网络。
 	mgr := NewManager(store, noopHandler{}, nil)
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := mgr.StartAll(ctx); err != nil {
 		t.Fatalf("StartAll: %v", err)
 	}
@@ -613,11 +652,11 @@ func TestStartAll_DisabledNotStarted(t *testing.T) {
 	if _, ok := mgr.GetInstance("on1"); !ok {
 		t.Fatal("on1 应被启动")
 	}
-	if // ok 保存ok，供当前处理流程使用
+	if // ok 用于本次流程后续判断的ok
 	_, ok := mgr.GetInstance("on2"); !ok {
 		t.Fatal("on2 应被启动")
 	}
-	if // ok 保存ok，供当前处理流程使用
+	if // ok 用于本次流程后续判断的ok
 	_, ok := mgr.GetInstance("off1"); ok {
 		t.Fatal("off1 已禁用不应被启动")
 	}
@@ -626,7 +665,7 @@ func TestStartAll_DisabledNotStarted(t *testing.T) {
 	mgr.StopAll()
 	// id 表示当前遍历过程中的标识
 	for _, id := range []string{"on1", "on2", "off1"} {
-		if // ok 保存ok，供当前处理流程使用
+		if // ok 用于本次流程后续判断的ok
 		_, ok := mgr.GetInstance(id); ok {
 			t.Fatalf("StopAll 后 %s 仍存在", id)
 		}
@@ -635,7 +674,7 @@ func TestStartAll_DisabledNotStarted(t *testing.T) {
 
 // TestStop_Nonexistent 验证停止不存在的账号是 no-op，不 panic。
 func TestStop_Nonexistent(t *testing.T) {
-	// mgr、cleanup 保存mgr、cleanup，供当前处理流程使用
+	// mgr、cleanup 用于本次流程后续判断的mgr、cleanup
 	mgr, _, cleanup := newManagerWithAccount(t, "seed", "unb=1; _m_h5_tk=t;")
 	defer cleanup()
 	// 不应 panic。
@@ -644,10 +683,10 @@ func TestStop_Nonexistent(t *testing.T) {
 
 // TestConcurrency 用 -race 验证多 goroutine 并发访问 GetInstance/Sender/RuntimeStatuses 不 race。
 func TestConcurrency(t *testing.T) {
-	// mgr、store、cleanup 保存mgr、store、cleanup，供当前处理流程使用
+	// mgr、store、cleanup 用于本次流程后续判断的mgr、store、cleanup
 	mgr, store, cleanup := newManagerWithAccount(t, "conc-acc", "unb=1; _m_h5_tk=t;")
 	defer cleanup()
-	// admin 保存admin，供当前处理流程使用
+	// admin 用于本次流程后续判断的admin
 	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
 	// 多个启用账号。
 	for _, id := range []string{"conc-2", "conc-3"} {
@@ -657,36 +696,36 @@ func TestConcurrency(t *testing.T) {
 
 	// 用阻塞 mtop 让账号保持运行，避免 Run 退出引入噪声。
 	for _, id := range []string{"conc-acc", "conc-2", "conc-3"} {
-		// mtopClient 保存mtopClient，供当前处理流程使用
+		// mtopClient 用于本次流程后续判断的mtopClient
 		mtopClient := &fakeMtop{block: make(chan struct{})}
-		// c 保存c，供当前处理流程使用
+		// c 用于本次流程后续判断的c
 		c := startAccountWithMtop(t, mgr, id, "unb=1; _m_h5_tk=t;", mtopClient)
 		defer c()
 	}
 	time.Sleep(60 * time.Millisecond)
 
-	// wg 保存wg，供当前处理流程使用
+	// wg 用于本次流程后续判断的wg
 	var wg sync.WaitGroup
-	for // i 保存i，供当前处理流程使用
+	for // i 用于本次流程后续判断的i
 	i := 0; i < 20; i++ {
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			for // j 保存j，供当前处理流程使用
+			for // j 用于本次流程后续判断的j
 			j := 0; j < 100; j++ {
 				_, _ = mgr.GetInstance("conc-acc")
 			}
 		}()
 		go func() {
 			defer wg.Done()
-			for // j 保存j，供当前处理流程使用
+			for // j 用于本次流程后续判断的j
 			j := 0; j < 100; j++ {
 				_, _ = mgr.Sender("conc-2")
 			}
 		}()
 		go func() {
 			defer wg.Done()
-			for // j 保存j，供当前处理流程使用
+			for // j 用于本次流程后续判断的j
 			j := 0; j < 100; j++ {
 				_ = mgr.RuntimeStatuses()
 			}
@@ -700,7 +739,7 @@ func TestConcurrency(t *testing.T) {
 func (m *Manager) getInstanceInternal(cookieID string) (*managedAccount, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// ma、ok 保存ma、ok，供当前处理流程使用
+	// ma、ok 用于本次流程后续判断的ma、ok
 	ma, ok := m.accounts[cookieID]
 	return ma, ok
 }

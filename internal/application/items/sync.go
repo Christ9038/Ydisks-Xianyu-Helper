@@ -29,7 +29,7 @@ var (
 
 // SyncError 保留同步失败阶段，同时隐藏底层数据库和平台实现类型。
 type SyncError struct {
-	// Kind 表示错误发生的平台、凭证或持久化阶段。
+	// Kind 记录当前操作失败原因发生的平台、凭证或持久化阶段。
 	Kind SyncErrorKind
 	// Err 保存供日志和错误链判断的底层原因。
 	Err error

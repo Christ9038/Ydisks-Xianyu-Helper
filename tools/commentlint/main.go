@@ -2,7 +2,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -10,6 +9,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -27,14 +27,29 @@ type Finding struct {
 	Name string `json:"name"`
 }
 
-// main 根据命令行模式生成历史基线或检查当前源码。
+// templateCommentPattern 描述一种没有解释实际语义的机械注释模式。
+type templateCommentPattern struct {
+	// name 是输出给维护者的模板类别。
+	name string
+	// expression 匹配整条注释中的占位句式。
+	expression *regexp.Regexp
+}
+
+// templateCommentPatterns 是阶段 10 必须清除的历史占位注释集合。
+var templateCommentPatterns = []templateCommentPattern{
+	{name: "保存当前处理流程", expression: regexp.MustCompile(`保存.{0,80}供当前处理流程使用`)},
+	{name: "负责相关处理", expression: regexp.MustCompile(`负责.{0,80}相关处理`)},
+	{name: "泛化回调职责", expression: regexp.MustCompile(`回调函数负责当前业务流程`)},
+	{name: "泛化错误说明", expression: regexp.MustCompile(`表示错误`)},
+	{name: "泛化数量说明", expression: regexp.MustCompile(`表示数量`)},
+}
+
+// main 运行严格注释门禁或输出模板注释审计结果。
 func main() {
-	// modeFlag 表示本次运行是生成基线还是执行门禁检查。
-	modeFlag := flag.String("mode", "check", "运行模式：check 或 baseline")
+	// modeFlag 表示本次运行是执行严格门禁或仅输出模板审计结果。
+	modeFlag := flag.String("mode", "check", "运行模式：check 或 template-audit")
 	// rootFlag 指定需要递归扫描的仓库根目录。
 	rootFlag := flag.String("root", ".", "源码扫描根目录")
-	// baselineFlag 指定保存或读取历史问题基线的 JSON 文件。
-	baselineFlag := flag.String("baseline", ".commentlint/go-baseline.json", "历史问题基线文件")
 	flag.Parse()
 
 	// findings 保存本次扫描发现的全部缺少中文注释项。
@@ -43,40 +58,45 @@ func main() {
 		fmt.Fprintf(os.Stderr, "commentlint: %v\n", err)
 		os.Exit(1)
 	}
-
-	// sortFindings 保证基线内容和门禁输出在不同机器上保持稳定顺序。
-	sortFindings(findings)
-	if *modeFlag == "baseline" {
-		// writeErr 保存写入历史基线时的文件系统错误。
-		if err := writeBaseline(*baselineFlag, findings); err != nil {
-			fmt.Fprintf(os.Stderr, "commentlint: 写入基线失败：%v\n", err)
+	if *modeFlag == "template-audit" {
+		// templateFindings 保存按路径和行号排序的模板化注释位置。
+		templateFindings, auditErr := collectTemplateCommentFindings(*rootFlag)
+		if auditErr != nil {
+			fmt.Fprintf(os.Stderr, "commentlint: %v\n", auditErr)
 			os.Exit(1)
 		}
-		fmt.Printf("commentlint: 已记录 %d 个历史问题到 %s\n", len(findings), *baselineFlag)
+		for _, finding /* finding 是当前需要输出给维护者的模板化注释记录。 */ := range templateFindings {
+			fmt.Printf("%s:%d: [%s] 模板化注释\n", finding.File, finding.Line, finding.Kind)
+		}
+		fmt.Printf("commentlint: 发现 %d 条模板化注释\n", len(templateFindings))
 		return
 	}
+
+	// sortFindings 保证门禁输出在不同机器上保持稳定顺序。
+	sortFindings(findings)
 	if *modeFlag != "check" {
 		fmt.Fprintf(os.Stderr, "commentlint: 不支持的模式 %q\n", *modeFlag)
 		os.Exit(2)
 	}
-
-	// baseline 保存允许继续存在的历史问题，不允许新增问题混入主干。
-	baseline, err := readBaseline(*baselineFlag)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "commentlint: 读取基线失败：%v\n", err)
-		os.Exit(1)
-	}
-	// newFindings 只保留不在历史基线中的新增问题。
-	newFindings := filterNewFindings(findings, baseline)
 	// finding 表示当前待输出的一条新增注释问题。
-	for _, finding := range newFindings {
+	for _, finding := range findings {
 		fmt.Printf("%s:%d: [%s] %s 缺少中文注释\n", finding.File, finding.Line, finding.Kind, finding.Name)
 	}
-	if len(newFindings) > 0 {
-		fmt.Fprintf(os.Stderr, "commentlint: 发现 %d 个新增问题\n", len(newFindings))
+	// templateFindings 是所有非冻结源码中仍需替换的机械注释。
+	templateFindings, auditErr := collectTemplateCommentFindings(*rootFlag)
+	if auditErr != nil {
+		fmt.Fprintf(os.Stderr, "commentlint: %v\n", auditErr)
 		os.Exit(1)
 	}
-	fmt.Printf("commentlint: 通过（扫描 %d 个历史问题）\n", len(findings))
+	// finding 是当前需要输出给维护者的模板化注释记录。
+	for _, finding := range templateFindings {
+		fmt.Printf("%s:%d: [%s] 模板化注释\n", finding.File, finding.Line, finding.Kind)
+	}
+	if len(findings) > 0 || len(templateFindings) > 0 {
+		fmt.Fprintf(os.Stderr, "commentlint: 发现 %d 个缺少中文注释项和 %d 条模板化注释\n", len(findings), len(templateFindings))
+		os.Exit(1)
+	}
+	fmt.Println("commentlint: 通过（无缺少中文注释或模板化注释）")
 }
 
 // collectFindings 递归解析根目录下所有 Go 文件并收集缺少中文注释的声明。
@@ -112,6 +132,79 @@ func collectFindings(root string) ([]Finding, error) {
 	})
 	if walkErr != nil {
 		return nil, walkErr
+	}
+	return findings, nil
+}
+
+// collectTemplateCommentFindings 扫描 Go 源码中的模板化注释，供阶段 10 逐项替换为业务语义。
+func collectTemplateCommentFindings(root string) ([]Finding, error) {
+	// findings 汇总所有模板化注释的位置与类别。
+	findings := make([]Finding, 0)
+	// walkErr 保存遍历源码树时遇到的文件系统错误。
+	walkErr := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			if shouldSkipDirectory(path, root) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, ".gen.go") {
+			return nil
+		}
+		// relativePath 用于排除冻结 CAPTCHA 文件，避免审计器要求修改受保护实现。
+		relativePath, relativeErr := filepath.Rel(root, path)
+		if relativeErr != nil {
+			return relativeErr
+		}
+		if isFrozenGoFile(filepath.ToSlash(relativePath)) {
+			return nil
+		}
+		// fileFindings 是当前 Go 文件中命中的模板化注释。
+		fileFindings, scanErr := templateFindingsInGoFile(root, path)
+		if scanErr != nil {
+			return scanErr
+		}
+		findings = append(findings, fileFindings...)
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
+	}
+	sortFindings(findings)
+	return findings, nil
+}
+
+// templateFindingsInGoFile 只匹配单个 Go 文件的真实注释组，避免把字符串和测试夹具误判为注释。
+func templateFindingsInGoFile(root, path string) ([]Finding, error) {
+	// fileSet 保存 AST 注释位置到源码行号的映射。
+	fileSet := token.NewFileSet()
+	// fileNode 是保留注释组的待审计 Go 语法树。
+	fileNode, err := parser.ParseFile(fileSet, path, nil, parser.ParseComments)
+	if err != nil {
+		return nil, fmt.Errorf("解析 %s 失败：%w", path, err)
+	}
+	// relativePath 是输出给维护者的仓库相对路径。
+	relativePath, err := filepath.Rel(root, path)
+	if err != nil {
+		return nil, err
+	}
+	// findings 保存当前文件命中的模板化注释。
+	findings := make([]Finding, 0)
+	// commentGroup 是当前 AST 中可被业务代码实际读取到的注释组。
+	for _, commentGroup := range fileNode.Comments {
+		// commentText 是当前注释组的纯文本，排除了字符串字面量和测试夹具。
+		commentText := commentGroup.Text()
+		// line 是当前注释组在原文件中的首行，供维护者定位。
+		line := fileSet.Position(commentGroup.Pos()).Line
+		// pattern 是当前待匹配的历史模板规则。
+		for _, pattern := range templateCommentPatterns {
+			if pattern.expression.MatchString(commentText) {
+				findings = append(findings, Finding{File: filepath.ToSlash(relativePath), Line: line, Kind: pattern.name, Name: "template-comment"})
+			}
+		}
 	}
 	return findings, nil
 }
@@ -337,67 +430,4 @@ func sortFindings(findings []Finding) {
 		}
 		return findings[left].Name < findings[right].Name
 	})
-}
-
-// findingKey 生成基线记录的稳定键。
-func findingKey(finding Finding) string {
-	return fmt.Sprintf("%s:%d:%s:%s", finding.File, finding.Line, finding.Kind, finding.Name)
-}
-
-// writeBaseline 将当前发现写成可审查、可版本控制的 JSON 文件。
-func writeBaseline(path string, findings []Finding) error {
-	// mkdirErr 表示创建基线目录时的文件系统错误。
-	if mkdirErr := os.MkdirAll(filepath.Dir(path), 0o755); mkdirErr != nil {
-		return mkdirErr
-	}
-	// file 是基线输出文件，使用缩进格式方便代码审查。
-	file, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	// encoder 负责以稳定缩进格式输出基线 JSON。
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(findings)
-}
-
-// readBaseline 读取历史基线并转换为快速查询集合。
-func readBaseline(path string) (map[string]struct{}, error) {
-	// data 是基线文件的 JSON 内容。
-	data, err := os.ReadFile(path)
-	if err != nil {
-		// baselineMissing 表示严格门禁已删除历史基线文件，按空集合继续检查。
-		if os.IsNotExist(err) {
-			return map[string]struct{}{}, nil
-		}
-		return nil, err
-	}
-	// findings 是反序列化后的历史问题列表。
-	var findings []Finding
-	// unmarshalErr 表示基线 JSON 无法解析的原因。
-	if unmarshalErr := json.Unmarshal(data, &findings); unmarshalErr != nil {
-		return nil, unmarshalErr
-	}
-	// baseline 是稳定键集合，避免检查阶段重复遍历历史列表。
-	baseline := make(map[string]struct{}, len(findings))
-	// finding 表示历史基线中的一条问题记录。
-	for _, finding := range findings {
-		baseline[findingKey(finding)] = struct{}{}
-	}
-	return baseline, nil
-}
-
-// filterNewFindings 过滤掉已记录在历史基线中的问题。
-func filterNewFindings(findings []Finding, baseline map[string]struct{}) []Finding {
-	// newFindings 保存真正需要开发者处理的新增问题。
-	newFindings := make([]Finding, 0)
-	// finding 表示本次扫描发现的一条问题记录。
-	for _, finding := range findings {
-		// exists 表示该问题是否已经被历史基线允许。
-		if _, exists := baseline[findingKey(finding)]; !exists {
-			newFindings = append(newFindings, finding)
-		}
-	}
-	return newFindings
 }

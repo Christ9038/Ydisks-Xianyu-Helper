@@ -27,7 +27,7 @@ import { getHealth } from './system/api';
 afterEach(() => {
 	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：全局 API 适配器测试环境清理。 */);
 
 test('updateSystemSettings uses one atomic bulk request', async () => {
 	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
@@ -36,7 +36,7 @@ test('updateSystemSettings uses one atomic bulk request', async () => {
 	expect(fetchMock).toHaveBeenCalledTimes(1);
 	expect(fetchMock).toHaveBeenCalledWith('/api/v1/settings/system', expect.objectContaining({ method: 'PUT', credentials: 'include' }));
 	expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ theme_color: 'blue', renewal_log_retention_days: 15 });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：updateSystemSettings uses one atomic bulk request。 */);
 
 test('updateSystemSettings separates sensitive values into explicit commands', /* 当前回调验证敏感设置三态命令请求体。 */ async () => {
   // fetchMock 是系统设置更新请求的 HTTP 替身。
@@ -60,13 +60,13 @@ test('health API exposes build metadata through the request boundary', async () 
 
   await expect(getHealth({ signal: controller.signal })).resolves.toEqual({ version: '1.2.3', commit: 'abc123' });
   expect(fetchMock).toHaveBeenCalledWith('/health', expect.objectContaining({ method: 'GET', signal: expect.any(AbortSignal) }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：health API exposes build metadata through the request boundary。 */);
 
 test('chat APIs preserve account and conversation scope', async () => {
 	const fetchMock = vi.fn()
 		.mockResolvedValueOnce(jsonResponse({ sessions: [{ account_id: 'a1', chat_id: 'c1' }] }))
 		.mockResolvedValueOnce(jsonResponse({ messages: [{ account_id: 'a1', chat_id: 'c1', id: 1 }] }))
-		.mockImplementation(() => Promise.resolve(jsonResponse({ success: true, message: { id: 2 } })) /* 回调函数负责当前业务流程。 */); /* fetchMock 表示fetchMock。 */
+		.mockImplementation(() => Promise.resolve(jsonResponse({ success: true, message: { id: 2 } })) /* 模拟新增动作接口返回包含标识的成功响应。 */); /* fetchMock 是本测试替代浏览器网络层的请求桩。 */
 	vi.stubGlobal('fetch', fetchMock);
 	await getChatSessions('a1');
 	await getChatMessages('a1', 'c1', 9);
@@ -76,7 +76,7 @@ test('chat APIs preserve account and conversation scope', async () => {
 	expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/chat/messages?account_id=a1&chat_id=c1&before_id=9');
 	expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toMatchObject({ account_id: 'a1', chat_id: 'c1', buyer_id: 'b1' });
 	expect(JSON.parse(fetchMock.mock.calls[3][1].body)).toEqual({ account_id: 'a1', chat_id: 'c1', message_ids: [{ messageId: 'm1', sessionId: 'c1', cid: 'c1@goofish', conversationType: 1 }] });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：chat APIs preserve account and conversation scope。 */);
 
 test('Chat 会话、消息和发送 API 转发外部取消信号', async () => {
   // fetchMock 验证会话切换、消息分页和文本/图片发送共享取消控制能力。
@@ -99,10 +99,10 @@ test('Chat 会话、消息和发送 API 转发外部取消信号', async () => {
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/chat/messages', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/chat/images', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/chat/read', expect.objectContaining({ signal: expect.any(AbortSignal) }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：Chat 会话、消息和发送 API 转发外部取消信号。 */);
 
 test('account task APIs keep rating and polish account-scoped', async () => {
-	const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ success: true, summary: { task_type: 'auto_rate' } })) /* 回调函数负责当前业务流程。 */); /* fetchMock 表示fetchMock。 */
+	const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ success: true, summary: { task_type: 'auto_rate' } })) /* 模拟账号任务执行后返回任务摘要。 */); /* fetchMock 是本测试替代浏览器网络层的请求桩。 */
 	vi.stubGlobal('fetch', fetchMock);
 	await updateAccountTaskSettings('a1', {
 		account_id: 'a1', auto_rate_enabled: true, rate_content: '交易愉快',
@@ -113,7 +113,7 @@ test('account task APIs keep rating and polish account-scoped', async () => {
 	expect(fetchMock.mock.calls[0][1].method).toBe('PUT');
 	expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/account-tasks/a1/run');
 	expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ task_type: 'auto_rate' });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：account task APIs keep rating and polish account-scoped。 */);
 
 test('账号自动任务 API 转发外部取消信号', async () => {
   // fetchMock 验证读取、保存和执行账号任务都支持请求取消。
@@ -131,19 +131,19 @@ test('账号自动任务 API 转发外部取消信号', async () => {
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/account-tasks/a1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/account-tasks/a1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/account-tasks/a1/run', expect.objectContaining({ signal: expect.any(AbortSignal) }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：账号自动任务 API 转发外部取消信号。 */);
 
 test('getItemPublishBatches unwraps persisted batch list', async () => {
 	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ batches: [{ id: 'batch-1', status: 'running' }] })); /* fetchMock 表示fetchMock。 */
 	vi.stubGlobal('fetch', fetchMock);
 	await expect(getItemPublishBatches(10)).resolves.toEqual([{ id: 'batch-1', status: 'running' }]);
 	expect(fetchMock).toHaveBeenCalledWith('/api/v1/items/publish-batches?limit=10', expect.objectContaining({ credentials: 'include' }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：getItemPublishBatches unwraps persisted batch list。 */);
 
 test('automation issue APIs expose and resolve quarantined work', async () => {
 	const fetchMock = vi.fn()
 		.mockResolvedValueOnce(jsonResponse({ runs: [{ id: 1 }], pending_tasks: [{ id: 2 }] }))
-		.mockImplementation(() => Promise.resolve(jsonResponse({ success: true })) /* 回调函数负责当前业务流程。 */); /* fetchMock 表示fetchMock。 */
+		.mockImplementation(() => Promise.resolve(jsonResponse({ success: true })) /* 模拟无消息体的成功操作响应。 */); /* fetchMock 是本测试替代浏览器网络层的请求桩。 */
 	vi.stubGlobal('fetch', fetchMock);
 	await expect(getAutomationIssues()).resolves.toEqual({ runs: [{ id: 1 }], pending_tasks: [{ id: 2 }] });
 	await resolveAutomationRun(1, 'continue');
@@ -151,7 +151,7 @@ test('automation issue APIs expose and resolve quarantined work', async () => {
 	expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/automation-runs/1/resolve');
 	expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ resolution: 'continue' });
 	expect(fetchMock.mock.calls[2][0]).toBe('/api/v1/automation-pending-tasks/2/resolve');
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：automation issue APIs expose and resolve quarantined work。 */);
 
 test('order multipart requests use the shared authenticated form request path', async () => {
 	const fetchMock = vi.fn()
@@ -164,7 +164,7 @@ test('order multipart requests use the shared authenticated form request path', 
 	expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/orders/refresh', expect.objectContaining({ method: 'POST', credentials: 'include', body: expect.any(FormData) }));
 	expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/orders/refresh/job-1', expect.objectContaining({ method: 'GET', credentials: 'include' }));
 	expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/orders/import', expect.objectContaining({ method: 'POST', credentials: 'include', body: expect.any(FormData) }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：order multipart requests use the shared authenticated form request path。 */);
 
 test('syncOrders surfaces failed persisted job status', async () => {
 	const fetchMock = vi.fn()
@@ -172,7 +172,7 @@ test('syncOrders surfaces failed persisted job status', async () => {
 		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-failed', status: 'failed', error_message: '平台会话已过期' })); /* fetchMock 表示fetchMock。 */
 	vi.stubGlobal('fetch', fetchMock);
 	await expect(syncOrders()).rejects.toThrow('平台会话已过期');
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：syncOrders surfaces failed persisted job status。 */);
 
 test('syncOrders aborts while waiting for persisted job status', async () => {
 	const fetchMock = vi.fn()
@@ -188,20 +188,20 @@ test('syncOrders aborts while waiting for persisted job status', async () => {
 	controller.abort();
 	await expect(pending).rejects.toThrow('请求已取消');
 	await vi.waitFor(/* 等待取消命令发出。 */ () => expect(fetchMock).toHaveBeenCalledWith('/api/v1/orders/refresh/job-running', expect.objectContaining({ method: 'DELETE', credentials: 'include' })));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：syncOrders aborts while waiting for persisted job status。 */);
 
 test('cancelOrderRefreshJob sends a user-scoped delete command', async () => {
 	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, job_id: 'job-cancel', status: 'cancelled' })); /* fetchMock 表示fetchMock。 */
 	vi.stubGlobal('fetch', fetchMock);
 	await expect(cancelOrderRefreshJob('job-cancel')).resolves.toEqual({ success: true, job_id: 'job-cancel', status: 'cancelled' });
 	expect(fetchMock).toHaveBeenCalledWith('/api/v1/orders/refresh/job-cancel', expect.objectContaining({ method: 'DELETE', credentials: 'include' }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：cancelOrderRefreshJob sends a user-scoped delete command。 */);
 
 test('legacy notification channel aliases are normalized for the editor', async () => {
 	vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([{ id: 1, name: '旧飞书', type: 'lark', config: 'not-json', enabled: true }])));
 	const result = await getNotificationChannels(); /* result 表示处理结果。 */
 	expect(result.data?.[0]).toMatchObject({ type: 'feishu', config: {} });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：legacy notification channel aliases are normalized for the editor。 */);
 
 const jsonResponse = (body: unknown) => new Response(JSON.stringify(body), {
   status: 200,
@@ -218,7 +218,7 @@ test('getOrders normalizes backend order fields', async () => {
   expect(result.data[0]).toMatchObject({ id: 'o1', status: 'shipped', quantity: 2 });
   expect(result.total).toBe(1);
   expect(fetchMock).toHaveBeenCalledWith('/api/v1/orders?page=1&page_size=20&search=buyer', expect.objectContaining({ method: 'GET' }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：getOrders normalizes backend order fields。 */);
 
 test('getOrders maps unsupported backend statuses to unknown', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
@@ -226,7 +226,7 @@ test('getOrders maps unsupported backend statuses to unknown', async () => {
   })));
   const result = await getOrders(); /* result 表示处理结果。 */
   expect(result.data[0].status).toBe('unknown');
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：getOrders maps unsupported backend statuses to unknown。 */);
 
 test('订单查询和导入 API 转发外部取消信号', async () => {
   // fetchMock 是同时验证订单查询和文件上传请求控制参数的替身。
@@ -240,7 +240,7 @@ test('订单查询和导入 API 转发外部取消信号', async () => {
   await importOrders(new FormData(), { signal: controller.signal });
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/orders?page=1&page_size=20', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/orders/import', expect.objectContaining({ signal: expect.any(AbortSignal) }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：订单查询和导入 API 转发外部取消信号。 */);
 
 test('Dashboard 统计 API 转发外部取消信号', async () => {
   // fetchMock 验证 Dashboard 的概览、趋势和订单明细共用同一个取消信号。
@@ -260,7 +260,7 @@ test('Dashboard 统计 API 转发外部取消信号', async () => {
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/analytics/dashboard', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(fetchMock).toHaveBeenNthCalledWith(3, expect.stringContaining('/api/v1/analytics/orders?'), expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(fetchMock).toHaveBeenNthCalledWith(4, expect.stringContaining('/api/v1/analytics/orders/valid?'), expect.objectContaining({ signal: expect.any(AbortSignal) }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：Dashboard 统计 API 转发外部取消信号。 */);
 
 test('Settings 配置、模型和凭据 API 转发外部取消信号', async () => {
   // fetchMock 验证 Settings 的读取、模型发现和凭据保存共享取消控制能力。
@@ -280,7 +280,7 @@ test('Settings 配置、模型和凭据 API 转发外部取消信号', async () 
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/settings/ai-models', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/session', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/session/credentials', expect.objectContaining({ signal: expect.any(AbortSignal) }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：Settings 配置、模型和凭据 API 转发外部取消信号。 */);
 
 test('通知渠道和 SMTP API 转发外部取消信号', async () => {
   // fetchMock 验证渠道读取、保存和 SMTP 读写都支持取消控制。
@@ -300,7 +300,7 @@ test('通知渠道和 SMTP API 转发外部取消信号', async () => {
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/notifications/channels/channel-1', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/settings/system', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/settings/system', expect.objectContaining({ signal: expect.any(AbortSignal) }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：通知渠道和 SMTP API 转发外部取消信号。 */);
 
 test('getShippingRulesPage sends filters and preserves pagination metadata', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
@@ -334,7 +334,7 @@ test('getShippingRulesPage sends filters and preserves pagination metadata', asy
 	    '/api/v1/automation-rules?page=2&page_size=20&cookie_id=acc1&trigger_type=order_paid&enabled=false&search=%E5%95%86%E5%93%81',
     expect.objectContaining({ method: 'GET', credentials: 'include' }),
   );
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：getShippingRulesPage sends filters and preserves pagination metadata。 */);
 
 test('getValidOrders accepts wrapped responses', async () => {
 	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
@@ -349,7 +349,7 @@ test('getValidOrders accepts wrapped responses', async () => {
     truncated: false,
   });
 	expect(fetchMock.mock.calls[0][0]).toContain('timezone_offset_minutes=480');
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：getValidOrders accepts wrapped responses。 */);
 
 test('getOrderAnalytics sends the browser timezone offset', async () => {
 	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ revenue_stats: {}, daily_stats: [], status_stats: [], city_stats: [] })); /* fetchMock 表示fetchMock。 */
@@ -357,7 +357,7 @@ test('getOrderAnalytics sends the browser timezone offset', async () => {
 	vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(-330);
 	await getOrderAnalytics({ start_date: '2026-01-01', end_date: '2026-01-02' });
 	expect(fetchMock.mock.calls[0][0]).toContain('timezone_offset_minutes=330');
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：getOrderAnalytics sends the browser timezone offset。 */);
 
 test('getOrderAnalytics 支持数字天数参数', /* 当前回调验证订单分析默认日期范围构造。 */ async () => {
   // fetchMock 是数字天数分析请求的网络替身。
@@ -382,7 +382,7 @@ test('paid orders are normalized to pending shipment', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ data: [{ order_id: 'o-paid', order_status: 'paid' }] })));
   const result = await getOrders(); /* result 表示处理结果。 */
   expect(result.data[0].status).toBe('pending_ship');
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：paid orders are normalized to pending shipment。 */);
 
 test('completeQRVerification sends only the immutable target account', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, account_id: 'acc1' })); /* fetchMock 表示fetchMock。 */
@@ -392,7 +392,7 @@ test('completeQRVerification sends only the immutable target account', async () 
     method: 'POST',
     body: JSON.stringify({ target_account_id: 'acc1' }),
   }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：completeQRVerification sends only the immutable target account。 */);
 
 test('deleteItemPublishBatch removes an abandoned preview', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
@@ -402,7 +402,7 @@ test('deleteItemPublishBatch removes an abandoned preview', async () => {
     method: 'DELETE',
     credentials: 'include',
   }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：deleteItemPublishBatch removes an abandoned preview。 */);
 
 test('publishItem allows virtual publishing without an optional location', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
@@ -418,7 +418,7 @@ test('publishItem allows virtual publishing without an optional location', async
   });
   const body = fetchMock.mock.calls[0][1].body as FormData; /* body 表示请求体。 */
   expect(body.get('location')).toBeNull();
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：publishItem allows virtual publishing without an optional location。 */);
 
 test('getItems normalizes multi-spec flags from backend values', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([{
@@ -448,7 +448,7 @@ test('getItems normalizes multi-spec flags from backend values', async () => {
     is_multi_qty_ship: true,
     multi_quantity_delivery: true,
   });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：getItems normalizes multi-spec flags from backend values。 */);
 
 test('getItems forwards the selected account filter', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse([])); /* fetchMock 表示fetchMock。 */
@@ -460,7 +460,7 @@ test('getItems forwards the selected account filter', async () => {
     method: 'GET',
     credentials: 'include',
   }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：getItems forwards the selected account filter。 */);
 
 test('getSystemSettings normalizes numeric renewal retention', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
@@ -471,7 +471,7 @@ test('getSystemSettings normalizes numeric renewal retention', async () => {
   const settings = await getSystemSettings(); /* settings 表示settings。 */
   expect(settings.ai_model).toBe('qwen-plus');
   expect(settings.renewal_log_retention_days).toBe(10);
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：getSystemSettings normalizes numeric renewal retention。 */);
 
 // getSystemSettings 脱敏响应测试验证客户端只接收敏感配置状态。
 test('getSystemSettings keeps only sensitive configuration markers', /* 当前回调验证脱敏设置归一化。 */ async () => {
@@ -498,10 +498,10 @@ test('logout calls backend session invalidation route', async () => {
     credentials: 'include',
   }));
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({});
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：logout calls backend session invalidation route。 */);
 
 test('account cookie APIs include login_method when provided', async () => {
-  const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ success: true })) /* 回调函数负责当前业务流程。 */); /* fetchMock 表示fetchMock。 */
+  const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({ success: true })) /* 模拟取消操作的成功响应。 */); /* fetchMock 是本测试替代浏览器网络层的请求桩。 */
   vi.stubGlobal('fetch', fetchMock);
 
   await addAccount('acc1', 'unb=acc1', 'qr_scan');
@@ -525,7 +525,7 @@ test('account cookie APIs include login_method when provided', async () => {
     value: 'unb=acc1; x=1',
     login_method: 'qr_scan',
   });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：account cookie APIs include login_method when provided。 */);
 
 test('account editor settings use one aggregate request', async () => {
 	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
@@ -540,7 +540,7 @@ test('account editor settings use one aggregate request', async () => {
 	  remark: 'main', auto_confirm: false, pause_duration: 5,
 	  username: 'user', show_browser: true, channel_ids: [1, 2],
 	});
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：account editor settings use one aggregate request。 */);
 
 test('getAccountDetails normalizes show_browser and never exposes password', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([{
@@ -566,7 +566,7 @@ test('getAccountDetails normalizes show_browser and never exposes password', asy
   });
   expect(accounts[0]).not.toHaveProperty('login_password');
   expect(accounts[0]).not.toHaveProperty('value');
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：getAccountDetails normalizes show_browser and never exposes password。 */);
 
 test('列表 API 将 null 和历史 data 包裹统一为空数组', async () => {
   // fetchMock 依次模拟账号、商品、订单和规则接口的历史空响应。
@@ -626,7 +626,7 @@ test('updateAccountLoginInfo sends exactly provided fields', async () => {
     username: 'login-user',
     show_browser: false,
   });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：updateAccountLoginInfo sends exactly provided fields。 */);
 
 test('updateAccountLoginInfo can request explicit password clearing', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
@@ -638,7 +638,7 @@ test('updateAccountLoginInfo can request explicit password clearing', async () =
     clear_password: true,
     show_browser: false,
   });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：updateAccountLoginInfo can request explicit password clearing。 */);
 
 test('updateItem sends only the fields selected by the editor', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
@@ -652,7 +652,7 @@ test('updateItem sends only the fields selected by the editor', async () => {
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
     item_title: '改名商品',
   });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：updateItem sends only the fields selected by the editor。 */);
 
 test('password login service uses upstream-compatible routes', async () => {
   const fetchMock = vi.fn()
@@ -678,7 +678,7 @@ test('password login service uses upstream-compatible routes', async () => {
 
   await cancelPasswordLogin('sid');
 	  expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/password-login/cancel/sid', expect.objectContaining({ method: 'DELETE' }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：password login service uses upstream-compatible routes。 */);
 
 test('账号编辑子模块请求支持取消过期响应', async () => {
   // fetchMock 是验证请求取消信号透传的测试替身。
@@ -696,7 +696,7 @@ test('账号编辑子模块请求支持取消过期响应', async () => {
   expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
   expect(fetchMock.mock.calls[1][1].signal).toBeInstanceOf(AbortSignal);
   expect(fetchMock.mock.calls[2][1].signal).toBeInstanceOf(AbortSignal);
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：账号编辑子模块请求支持取消过期响应。 */);
 
 test('getShippingRules exposes buyer reviewed gift rules as automation rules', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([{
@@ -733,7 +733,7 @@ test('getShippingRules exposes buyer reviewed gift rules as automation rules', a
     spec_value: '赠品',
     card_id: 7,
   });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：getShippingRules exposes buyer reviewed gift rules as automation rules。 */);
 
 test('getReplyRules labels keyword matching according to engine contains behavior', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse([{
@@ -755,7 +755,7 @@ test('getReplyRules labels keyword matching according to engine contains behavio
     type: 'image',
     image_url: 'https://img.example/reply.png',
   });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：getReplyRules labels keyword matching according to engine contains behavior。 */);
 
 test('getReplyRules 没有账号时直接返回空列表', /* 当前回调验证关键词规则的账号守卫。 */ async () => {
   await expect(getReplyRules()).resolves.toEqual([]);
@@ -806,7 +806,7 @@ test('updateReplyRule preserves keyword image metadata when saving text edits', 
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
     keyword: '发货', reply: '稍后安排', item_id: 'item-1', type: 'text', image_url: '',
   });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：updateReplyRule preserves keyword image metadata when saving text edits。 */);
 
 test('updateReplyRule clears stale content when switching reply type', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
@@ -816,7 +816,7 @@ test('updateReplyRule clears stale content when switching reply type', async () 
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
     keyword: '发货', reply: '', item_id: '', type: 'image', image_url: 'https://img.example/new.png',
   });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：updateReplyRule clears stale content when switching reply type。 */);
 
 test('deleteReplyRule deletes one stable keyword row instead of replacing the list', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
@@ -828,7 +828,7 @@ test('deleteReplyRule deletes one stable keyword row instead of replacing the li
     method: 'DELETE',
     credentials: 'include',
   }));
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：deleteReplyRule deletes one stable keyword row instead of replacing the list。 */);
 
 test('createNotificationChannel persists email recipient as to_email config', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
@@ -852,7 +852,7 @@ test('createNotificationChannel persists email recipient as to_email config', as
     to_email: 'to@example.com',
   });
   expect(JSON.parse(body.config)).not.toHaveProperty('from');
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：createNotificationChannel persists email recipient as to_email config。 */);
 
 test('createNotificationChannel allows email channel to rely on system SMTP settings', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
@@ -871,7 +871,7 @@ test('createNotificationChannel allows email channel to rely on system SMTP sett
   expect(JSON.parse(body.config)).toEqual({
     to_email: 'to@example.com',
   });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：createNotificationChannel allows email channel to rely on system SMTP settings。 */);
 
 test('updateNotificationChannel supports partial enabled updates', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true })); /* fetchMock 表示fetchMock。 */
@@ -886,7 +886,7 @@ test('updateNotificationChannel supports partial enabled updates', async () => {
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
     enabled: false,
   });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：updateNotificationChannel supports partial enabled updates。 */);
 
 test('updateNotificationChannel serializes config and event types', /* 当前回调验证通知渠道请求体序列化。 */ async () => {
   // fetchMock 是通知渠道更新接口的网络替身。
@@ -973,7 +973,7 @@ test('updateShippingRule posts buyer reviewed gift payload to automation-rules',
       sort_order: 1,
     }),
   ]);
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：updateShippingRule posts buyer reviewed gift payload to automation-rules。 */);
 
 test('updateShippingRule posts every matching card action before confirm shipment', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, id: 3 })); /* fetchMock 表示fetchMock。 */
@@ -1026,7 +1026,7 @@ test('updateShippingRule posts every matching card action before confirm shipmen
   expect(JSON.parse(body.actions[0].config_json)).toEqual({ spec_name: '套餐', spec_value: '30天', delay_override: false });
   expect(JSON.parse(body.actions[1].config_json)).toEqual({ spec_name: '套餐', spec_value: '30天', delay_override: true });
   expect(body.actions[1].delay_seconds).toBe(0);
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：updateShippingRule posts every matching card action before confirm shipment。 */);
 
 test('updateShippingRule preserves text actions while editing card variants', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, id: 4 })); /* fetchMock 表示fetchMock。 */
@@ -1042,13 +1042,13 @@ test('updateShippingRule preserves text actions while editing card variants', as
   });
 
   const body = JSON.parse(fetchMock.mock.calls[0][1].body); /* body 表示请求体。 */
-  expect(body.actions.map((action: { /* action_type 表示actiontype。 */ action_type: string }) => action.action_type /* 回调函数负责当前业务流程。 */)).toEqual([
+  expect(body.actions.map((action: { /* action_type 表示自动化动作类型。 */ action_type: string }) => action.action_type /* action 是当前待断言排序的自动化动作。 */)).toEqual([
     'send_card',
     'send_text',
     'confirm_shipment',
   ]);
   expect(body.actions[1].message_template).toBe('发货提示');
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：updateShippingRule preserves text actions while editing card variants。 */);
 
 test('updateShippingRule posts review request text action without card requirement', async () => {
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, id: 2 })); /* fetchMock 表示fetchMock。 */
@@ -1077,7 +1077,7 @@ test('updateShippingRule posts review request text action without card requireme
       message_template: '亲，方便的话麻烦给个评价～',
     }),
   ]);
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调验证：updateShippingRule posts review request text action without card requirement。 */);
 
 // 会话 API 使用版本化兼容入口。
 const runVersionedSessionAPITest = async () => {

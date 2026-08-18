@@ -37,6 +37,14 @@ type FuncComponent struct {
 	CloseFunc func(context.Context) error
 }
 
+// closeAttempt 保存一次关闭尝试的完成信号和聚合错误；等待者读取固定结果，不受后续重试覆盖。
+type closeAttempt struct {
+	// done 在本次关闭尝试结束后关闭，供并发 Close 等待。
+	done chan struct{}
+	// err 保存本次关闭尝试的聚合错误，写入完成后不再修改。
+	err error
+}
+
 // Start 启动函数适配组件。
 func (component FuncComponent) Start(ctx context.Context) error {
 	if component.StartFunc == nil {
@@ -78,7 +86,11 @@ type Coordinator struct {
 	closed bool
 	// done 在关闭完成后关闭，供并发 Close/Wait 调用等待。
 	done chan struct{}
-	// closeErr 保存首次关闭或启动回滚的聚合错误。
+	// componentClosed 记录每个已启动组件是否成功关闭；失败组件保留以便后续重试。
+	componentClosed []bool
+	// closeAttempt 保存当前或最近一次关闭尝试，保证并发等待者取得对应尝试的固定结果。
+	closeAttempt *closeAttempt
+	// closeErr 保存最近一次关闭或启动回滚的聚合错误。
 	closeErr error
 }
 
@@ -143,9 +155,10 @@ func (coordinator *Coordinator) Start(parent context.Context) error {
 	lifecycleCtx, cancel := context.WithCancel(parent)
 	coordinator.lifecycleCtx = lifecycleCtx
 	coordinator.parentCancel = cancel
-	coordinator.started = true
 	// components 是启动阶段的组件快照，避免组件回调期间持有协调器锁。
 	components := append([]NamedComponent(nil), coordinator.components...)
+	coordinator.componentClosed = make([]bool, len(components))
+	coordinator.started = true
 	coordinator.mu.Unlock()
 
 	// index、component 分别表示当前启动组件在登记快照中的序号和定义。
@@ -227,21 +240,20 @@ func (coordinator *Coordinator) Close(ctx context.Context) error {
 		return err
 	}
 	if coordinator.closing {
-		// done 是首个关闭调用完成时关闭的信号。
-		done := coordinator.done
+		// attempt 保存当前关闭尝试；等待者只接收本轮结果，不会被下一轮重试覆盖。
+		attempt := coordinator.closeAttempt
 		coordinator.mu.Unlock()
 		select {
-		case <-done:
-			coordinator.mu.Lock()
-			// err 保存首个关闭调用的聚合结果。
-			err := coordinator.closeErr
-			coordinator.mu.Unlock()
-			return err
+		case <-attempt.done:
+			return attempt.err
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
 	coordinator.closing = true
+	// attempt 表示本次关闭尝试；失败后仍可创建新的尝试继续 Join。
+	attempt := &closeAttempt{done: make(chan struct{})}
+	coordinator.closeAttempt = attempt
 	// components 保存已经成功启动的组件快照，关闭时按其登记顺序逆序处理。
 	components := append([]NamedComponent(nil), coordinator.components[:coordinator.startedCount]...)
 	// cancel 是协调器共享 Context 的取消函数；组件关闭前先广播取消。
@@ -255,16 +267,40 @@ func (coordinator *Coordinator) Close(ctx context.Context) error {
 	var closeErr error
 	// index 表示当前逆序关闭的组件下标。
 	for index := len(components) - 1; index >= 0; index-- {
+		coordinator.mu.Lock()
+		// alreadyClosed 表示该组件是否已在之前的关闭尝试中成功收束。
+		alreadyClosed := coordinator.componentClosed[index]
+		coordinator.mu.Unlock()
+		if alreadyClosed {
+			continue
+		}
 		// err 表示当前组件关闭失败。
 		if err := components[index].Component.Close(ctx); err != nil {
 			closeErr = errors.Join(closeErr, fmt.Errorf("关闭生命周期组件 %q 失败: %w", components[index].Name, err))
+			continue
 		}
+		coordinator.mu.Lock()
+		coordinator.componentClosed[index] = true
+		coordinator.mu.Unlock()
 	}
 	coordinator.mu.Lock()
-	coordinator.closed = true
+	// allClosed 表示所有已启动组件都已成功关闭；只有此时才允许 Wait 返回完成。
+	allClosed := true
+	// index 表示已启动组件快照中的下标，用于确认每个组件均已收束。
+	for index := range components {
+		if !coordinator.componentClosed[index] {
+			allClosed = false
+			break
+		}
+	}
+	if allClosed {
+		coordinator.closed = true
+		close(coordinator.done)
+	}
 	coordinator.closing = false
 	coordinator.closeErr = closeErr
-	close(coordinator.done)
+	attempt.err = closeErr
+	close(attempt.done)
 	coordinator.mu.Unlock()
 	return closeErr
 }

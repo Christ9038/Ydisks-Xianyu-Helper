@@ -10,18 +10,18 @@ import (
 	"xianyu-go/internal/db"
 )
 
-// TestRecordHistoryPageParsesDirectionMediaAndDeduplicates 负责TestRecordHistory页码ParsesDirectionMediaAndDeduplicates相关处理。
+// TestRecordHistoryPageParsesDirectionMediaAndDeduplicates 封装TestRecordHistory页码ParsesDirectionMediaAndDeduplicates业务协调。
 func TestRecordHistoryPageParsesDirectionMediaAndDeduplicates(t *testing.T) {
-	// store、cleanup 保存store、cleanup，供当前处理流程使用
+	// store、cleanup 用于本次流程后续判断的store、cleanup
 	store, cleanup := chatTestStore(t)
 	defer cleanup()
-	// service 保存service，供当前处理流程使用
+	// service 用于本次流程后续判断的service
 	service := New(store)
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// encoded 保存encoded，供当前处理流程使用
+	// encoded 用于本次流程后续判断的encoded
 	encoded := func(value string) string { return base64.StdEncoding.EncodeToString([]byte(value)) }
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := map[string]any{
 		"hasMore": float64(1), "nextCursor": float64(12345),
 		"userMessageModels": []any{
@@ -29,9 +29,9 @@ func TestRecordHistoryPageParsesDirectionMediaAndDeduplicates(t *testing.T) {
 			map[string]any{"message": map[string]any{"messageId": "m1", "createAt": float64(1000), "extension": map[string]any{"senderUserId": "peer@goofish", "reminderTitle": "对方"}, "content": map[string]any{"custom": map[string]any{"data": encoded(`{"contentType":1,"text":{"text":"较早的消息"}}`)}}}},
 		},
 	}
-	// session 保存会话，供当前处理流程使用
+	// session 用于本次流程后续判断的会话
 	session := db.ChatSession{CookieID: "account-1", ChatID: "cid", BuyerID: "peer", BuyerName: "对方"}
-	// page、err 保存page、err，供当前处理流程使用
+	// page、err 用于本次流程后续判断的page、err
 	page, err := service.RecordHistoryPage(ctx, "account-1", "cid", "self", session, body)
 	if err != nil {
 		t.Fatal(err)
@@ -45,13 +45,13 @@ func TestRecordHistoryPageParsesDirectionMediaAndDeduplicates(t *testing.T) {
 	if page.Messages[1].Direction != "outgoing" || page.Messages[1].MessageType != "image" || page.Messages[1].Content != "https://img.example/2.jpg" {
 		t.Fatalf("unexpected outgoing image: %+v", page.Messages[1])
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := service.RecordHistoryPage(ctx, "account-1", "cid", "self", session, body); err != nil {
 		t.Fatal(err)
 	}
-	// owner 保存所有者，供当前处理流程使用
+	// owner 用于本次流程后续判断的所有者
 	owner, _ := store.Users.GetByUsername(ctx, "owner")
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := store.Chats.ListMessages(ctx, owner.ID, "account-1", "cid", 0, 20)
 	if err != nil {
 		t.Fatal(err)
@@ -63,23 +63,23 @@ func TestRecordHistoryPageParsesDirectionMediaAndDeduplicates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// name、err 保存name、err，供当前处理流程使用
+	// name、err 用于本次流程后续判断的name、err
 	name, err := store.Chats.LatestUnmaskedPeerName(ctx, "account-1", "cid")
 	if err != nil || name != "对方" {
 		t.Fatalf("historical nickname=%q err=%v", name, err)
 	}
 }
 
-// TestRecordHistoryPageClassifiesOfficialCardsAsSystem 负责TestRecordHistory页码ClassifiesOfficial卡密列表As系统相关处理。
+// TestRecordHistoryPageClassifiesOfficialCardsAsSystem 封装TestRecordHistory页码ClassifiesOfficial卡密列表As系统业务协调。
 func TestRecordHistoryPageClassifiesOfficialCardsAsSystem(t *testing.T) {
-	// store、cleanup 保存store、cleanup，供当前处理流程使用
+	// store、cleanup 用于本次流程后续判断的store、cleanup
 	store, cleanup := chatTestStore(t)
 	defer cleanup()
-	// service 保存service，供当前处理流程使用
+	// service 用于本次流程后续判断的service
 	service := New(store)
-	// encoded 保存encoded，供当前处理流程使用
+	// encoded 用于本次流程后续判断的encoded
 	encoded := base64.StdEncoding.EncodeToString([]byte(`{"contentType":26,"dxCard":{"item":{"main":{"exContent":{"title":"我已拍下，待付款"}}}}}`))
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := map[string]any{"userMessageModels": []any{
 		map[string]any{"message": map[string]any{
 			"messageId": "official-card", "createAt": float64(3000),
@@ -87,16 +87,16 @@ func TestRecordHistoryPageClassifiesOfficialCardsAsSystem(t *testing.T) {
 			"content":   map[string]any{"custom": map[string]any{"data": encoded, "summary": "[我已拍下，待付款]"}},
 		}},
 	}}
-	// session 保存会话，供当前处理流程使用
+	// session 用于本次流程后续判断的会话
 	session := db.ChatSession{CookieID: "account-1", ChatID: "official", BuyerID: "peer", BuyerName: "真实昵称"}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, _, err := store.Chats.SaveMessage(context.Background(), session, db.ChatMessage{
 		MessageKey: "official-card", Direction: "incoming", SenderID: "peer", SenderName: "真实昵称",
 		MessageType: "text", Content: "[我已拍下，待付款]", Status: "received", SentAt: 3000,
 	}, false); err != nil {
 		t.Fatal(err)
 	}
-	// page、err 保存page、err，供当前处理流程使用
+	// page、err 用于本次流程后续判断的page、err
 	page, err := service.RecordHistoryPage(context.Background(), "account-1", "official", "self", session, body)
 	if err != nil {
 		t.Fatal(err)
@@ -109,14 +109,14 @@ func TestRecordHistoryPageClassifiesOfficialCardsAsSystem(t *testing.T) {
 	}
 }
 
-// TestRecordIncomingClassifiesXianxiaomiAndPlaceholder 负责TestRecordIncomingClassifiesXianxiaomiAndPlaceholder相关处理。
+// TestRecordIncomingClassifiesXianxiaomiAndPlaceholder 封装TestRecordIncomingClassifiesXianxiaomiAndPlaceholder业务协调。
 func TestRecordIncomingClassifiesXianxiaomiAndPlaceholder(t *testing.T) {
-	// store、cleanup 保存store、cleanup，供当前处理流程使用
+	// store、cleanup 用于本次流程后续判断的store、cleanup
 	store, cleanup := chatTestStore(t)
 	defer cleanup()
-	// service 保存service，供当前处理流程使用
+	// service 用于本次流程后续判断的service
 	service := New(store)
-	// message、inserted、err 保存message、inserted、err，供当前处理流程使用
+	// message、inserted、err 用于本次流程后续判断的message、inserted、err
 	message, inserted, err := service.RecordIncoming(context.Background(), Incoming{
 		AccountID: "account-1", ChatID: "xiaomi", BuyerID: "1400@goofish",
 		BuyerName: "闲小蜜发来一条新消息", Text: "邀您填写售后问卷",
@@ -154,18 +154,18 @@ func TestRecordIncomingExtractsMessageIDFromEncodedExtension(t *testing.T) {
 
 // TestRecordConversationPageImportsHistoricalContacts 验证联系人历史页不会覆盖较新的会话摘要。
 func TestRecordConversationPageImportsHistoricalContacts(t *testing.T) {
-	// store、cleanup 保存store、cleanup，供当前处理流程使用
+	// store、cleanup 用于本次流程后续判断的store、cleanup
 	store, cleanup := chatTestStore(t)
 	defer cleanup()
-	// service 保存service，供当前处理流程使用
+	// service 用于本次流程后续判断的service
 	service := New(store)
-	// encoded 保存encoded，供当前处理流程使用
+	// encoded 用于本次流程后续判断的encoded
 	encoded := base64.StdEncoding.EncodeToString([]byte(`{"contentType":1,"text":{"text":"历史消息"}}`))
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Chats.UpsertSession(context.Background(), db.ChatSession{CookieID: "account-1", ChatID: "history-cid", BuyerID: "peer-9", LastMessage: "错误的新摘要", LastMessageAt: 987654}); err != nil {
 		t.Fatal(err)
 	}
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := map[string]any{"hasMore": true, "nextCursor": float64(888), "userConvs": []any{
 		map[string]any{"singleChatUserConversation": map[string]any{
 			"singleChatConversation": map[string]any{"cid": "history-cid@goofish", "pairFirst": "self@goofish", "pairSecond": "peer-9@goofish", "extension": `{"itemTitle":"旧商品"}`},
@@ -173,7 +173,7 @@ func TestRecordConversationPageImportsHistoricalContacts(t *testing.T) {
 			"modifyTime":             float64(987654), "redPoint": float64(2),
 		}},
 	}}
-	// page、err 保存page、err，供当前处理流程使用
+	// page、err 用于本次流程后续判断的page、err
 	page, err := service.RecordConversationPage(context.Background(), "account-1", "self", body)
 	if err != nil {
 		t.Fatal(err)
@@ -181,9 +181,9 @@ func TestRecordConversationPageImportsHistoricalContacts(t *testing.T) {
 	if !page.HasMore || page.NextCursor != 888 {
 		t.Fatalf("unexpected page: %+v", page)
 	}
-	// owner 保存所有者，供当前处理流程使用
+	// owner 用于本次流程后续判断的所有者
 	owner, _ := store.Users.GetByUsername(context.Background(), "owner")
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := store.Chats.ListSessions(context.Background(), owner.ID, "account-1", 20)
 	if err != nil {
 		t.Fatal(err)
@@ -196,24 +196,24 @@ func TestRecordConversationPageImportsHistoricalContacts(t *testing.T) {
 	}
 }
 
-// TestRecordConversationPageHandlesXianxiaomiAndRemovesInvisibleSessions 负责TestRecordConversation页码HandlesXianxiaomiAndRemovesInvisibleSessions相关处理。
+// TestRecordConversationPageHandlesXianxiaomiAndRemovesInvisibleSessions 封装TestRecordConversation页码HandlesXianxiaomiAndRemovesInvisibleSessions业务协调。
 func TestRecordConversationPageHandlesXianxiaomiAndRemovesInvisibleSessions(t *testing.T) {
-	// store、cleanup 保存store、cleanup，供当前处理流程使用
+	// store、cleanup 用于本次流程后续判断的store、cleanup
 	store, cleanup := chatTestStore(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// service 保存service，供当前处理流程使用
+	// service 用于本次流程后续判断的service
 	service := New(store)
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Chats.UpsertSession(ctx, db.ChatSession{CookieID: "account-1", ChatID: "hidden", BuyerID: "peer", LastMessage: "暂无消息"}); err != nil {
 		t.Fatal(err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Chats.UpsertSession(ctx, db.ChatSession{CookieID: "account-1", ChatID: "platform", BuyerID: "900", LastMessage: "暂无消息"}); err != nil {
 		t.Fatal(err)
 	}
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := map[string]any{"userConvs": []any{
 		map[string]any{"singleChatUserConversation": map[string]any{"visible": float64(0), "singleChatConversation": map[string]any{"cid": "hidden@goofish"}}},
 		map[string]any{"singleChatUserConversation": map[string]any{"visible": float64(1), "singleChatConversation": map[string]any{"cid": "platform@goofish", "pairFirst": "self@goofish", "pairSecond": "0@goofish", "extension": map[string]any{"extUserId": "900"}}}},
@@ -222,13 +222,13 @@ func TestRecordConversationPageHandlesXianxiaomiAndRemovesInvisibleSessions(t *t
 			"redPoint":               float64(3),
 			"lastMessage":            map[string]any{"message": map[string]any{"extension": map[string]any{"senderUserId": "1400@goofish", "reminderTitle": "闲小蜜发来一条新消息"}, "content": map[string]any{"custom": map[string]any{"summary": "邀您填写售后问卷"}}}}}},
 	}}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := service.RecordConversationPage(ctx, "account-1", "self", body); err != nil {
 		t.Fatal(err)
 	}
-	// owner 保存所有者，供当前处理流程使用
+	// owner 用于本次流程后续判断的所有者
 	owner, _ := store.Users.GetByUsername(ctx, "owner")
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := store.Chats.ListSessions(ctx, owner.ID, "account-1", 20)
 	if err != nil {
 		t.Fatal(err)
@@ -303,12 +303,12 @@ func TestHistoryMessageIsSystem(t *testing.T) {
 
 // TestRecordConversationPageSkipsEmptyConversationShells 验证空会话壳不会被错误展示为联系人。
 func TestRecordConversationPageSkipsEmptyConversationShells(t *testing.T) {
-	// store、cleanup 保存store、cleanup，供当前处理流程使用
+	// store、cleanup 用于本次流程后续判断的store、cleanup
 	store, cleanup := chatTestStore(t)
 	defer cleanup()
-	// service 保存service，供当前处理流程使用
+	// service 用于本次流程后续判断的service
 	service := New(store)
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := map[string]any{"userConvs": []any{
 		map[string]any{"singleChatUserConversation": map[string]any{
 			"singleChatConversation": map[string]any{"cid": "empty@goofish", "pairFirst": "self@goofish", "pairSecond": "69@goofish"},
@@ -320,13 +320,13 @@ func TestRecordConversationPageSkipsEmptyConversationShells(t *testing.T) {
 			}},
 		}},
 	}}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := service.RecordConversationPage(context.Background(), "account-1", "self", body); err != nil {
 		t.Fatal(err)
 	}
-	// owner 保存所有者，供当前处理流程使用
+	// owner 用于本次流程后续判断的所有者
 	owner, _ := store.Users.GetByUsername(context.Background(), "owner")
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := store.Chats.ListSessions(context.Background(), owner.ID, "account-1", 20)
 	if err != nil {
 		t.Fatal(err)
@@ -336,32 +336,32 @@ func TestRecordConversationPageSkipsEmptyConversationShells(t *testing.T) {
 	}
 }
 
-// TestDeleteEmptySessionsRemovesGhostsButKeepsRealConversation 负责TestDeleteEmptySessionsRemovesGhostsButKeepsRealConversation相关处理。
+// TestDeleteEmptySessionsRemovesGhostsButKeepsRealConversation 封装TestDeleteEmptySessionsRemovesGhostsButKeepsRealConversation业务协调。
 func TestDeleteEmptySessionsRemovesGhostsButKeepsRealConversation(t *testing.T) {
-	// store、cleanup 保存store、cleanup，供当前处理流程使用
+	// store、cleanup 用于本次流程后续判断的store、cleanup
 	store, cleanup := chatTestStore(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// ghost 保存ghost，供当前处理流程使用
+	// ghost 用于本次流程后续判断的ghost
 	ghost := db.ChatSession{CookieID: "account-1", ChatID: "ghost", BuyerID: "peer-ghost", LastMessage: "暂无消息", LastMessageAt: 100}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Chats.UpsertSession(ctx, ghost); err != nil {
 		t.Fatal(err)
 	}
-	// real 保存real，供当前处理流程使用
+	// real 用于本次流程后续判断的real
 	real := db.ChatSession{CookieID: "account-1", ChatID: "real", BuyerID: "peer-real", LastMessage: "暂无消息", LastMessageAt: 200}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, _, err := store.Chats.SaveMessage(ctx, real, db.ChatMessage{MessageKey: "real-1", Direction: "incoming", SenderID: "peer-real", SenderName: "真实用户", MessageType: "text", Content: "真实消息", Status: "received", SentAt: 200}, false); err != nil {
 		t.Fatal(err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Chats.DeleteEmptySessions(ctx, "account-1"); err != nil {
 		t.Fatal(err)
 	}
-	// owner 保存所有者，供当前处理流程使用
+	// owner 用于本次流程后续判断的所有者
 	owner, _ := store.Users.GetByUsername(ctx, "owner")
-	// rows、err 保存rows、err，供当前处理流程使用
+	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := store.Chats.ListSessions(ctx, owner.ID, "account-1", 20)
 	if err != nil {
 		t.Fatal(err)
@@ -371,7 +371,7 @@ func TestDeleteEmptySessionsRemovesGhostsButKeepsRealConversation(t *testing.T) 
 	}
 }
 
-// TestValidNicknameRejectsSystemReminderTitles 负责Test有效NicknameRejects系统ReminderTitles相关处理。
+// TestValidNicknameRejectsSystemReminderTitles 封装Test有效NicknameRejects系统ReminderTitles业务协调。
 func TestValidNicknameRejectsSystemReminderTitles(t *testing.T) {
 	// value 表示当前遍历过程中的值
 	for _, value := range []string{"", "203591535", "x***3", "快给ta一个评价吧～", "[卖家已发货]", "闲小蜜发来一条新消息"} {
@@ -384,46 +384,46 @@ func TestValidNicknameRejectsSystemReminderTitles(t *testing.T) {
 	}
 }
 
-// TestIncomingMessagePersistsDeduplicatesAndPublishesByOwner 负责TestIncoming消息PersistsDeduplicatesAndPublishesBy所有者相关处理。
+// TestIncomingMessagePersistsDeduplicatesAndPublishesByOwner 封装TestIncoming消息PersistsDeduplicatesAndPublishesBy所有者业务协调。
 func TestIncomingMessagePersistsDeduplicatesAndPublishesByOwner(t *testing.T) {
-	// store、cleanup 保存store、cleanup，供当前处理流程使用
+	// store、cleanup 用于本次流程后续判断的store、cleanup
 	store, cleanup := chatTestStore(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// owner 保存所有者，供当前处理流程使用
+	// owner 用于本次流程后续判断的所有者
 	owner, _ := store.Users.GetByUsername(ctx, "owner")
-	// other 保存other，供当前处理流程使用
+	// other 用于本次流程后续判断的other
 	other, _ := store.Users.GetByUsername(ctx, "other")
-	// service 保存service，供当前处理流程使用
+	// service 用于本次流程后续判断的service
 	service := New(store)
-	// ownerEvents、cancelOwner、err 保存所有者Events、cancelOwner、err，供当前处理流程使用
+	// ownerEvents、cancelOwner、err 用于本次流程后续判断的所有者Events、cancelOwner、err
 	ownerEvents, cancelOwner, err := service.Subscribe(ctx, owner.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cancelOwner()
-	// otherEvents、cancelOther、err 保存otherEvents、cancelOther、err，供当前处理流程使用
+	// otherEvents、cancelOther、err 用于本次流程后续判断的otherEvents、cancelOther、err
 	otherEvents, cancelOther, err := service.Subscribe(ctx, other.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cancelOther()
 
-	// incoming 保存incoming，供当前处理流程使用
+	// incoming 用于本次流程后续判断的incoming
 	incoming := Incoming{AccountID: "account-1", ChatID: "chat-1", BuyerID: "buyer-1", BuyerName: "买家甲",
 		Text: "你好", ItemID: "item-1", Raw: map[string]any{"messageId": "platform-1", "sendTime": int64(1234567890000)}}
-	// message、inserted、err 保存message、inserted、err，供当前处理流程使用
+	// message、inserted、err 用于本次流程后续判断的message、inserted、err
 	message, inserted, err := service.RecordIncoming(ctx, incoming)
 	if err != nil || !inserted || message.MessageKey != "platform-1" {
 		t.Fatalf("message=%+v inserted=%v err=%v", message, inserted, err)
 	}
-	if // inserted、err 保存inserted、err，供当前处理流程使用
+	if // inserted、err 用于本次流程后续判断的inserted、err
 	_, inserted, err := service.RecordIncoming(ctx, incoming); err != nil || inserted {
 		t.Fatalf("duplicate inserted=%v err=%v", inserted, err)
 	}
 	select {
-	case // event 保存event，供当前处理流程使用
+	case // event 用于本次流程后续判断的event
 	event := <-ownerEvents:
 		if event.Type != "message.created" || event.Message.MessageKey != "platform-1" {
 			t.Fatalf("event=%+v", event)
@@ -432,60 +432,60 @@ func TestIncomingMessagePersistsDeduplicatesAndPublishesByOwner(t *testing.T) {
 		t.Fatal("owner did not receive event")
 	}
 	select {
-	case // event 保存event，供当前处理流程使用
+	case // event 用于本次流程后续判断的event
 	event := <-otherEvents:
 		t.Fatalf("other owner leaked event: %+v", event)
 	case <-time.After(30 * time.Millisecond):
 	}
 }
 
-// TestExtractMessageContentSupportsImageAndVideo 负责TestExtract消息内容Supports图片AndVideo相关处理。
+// TestExtractMessageContentSupportsImageAndVideo 封装TestExtract消息内容Supports图片AndVideo业务协调。
 func TestExtractMessageContentSupportsImageAndVideo(t *testing.T) {
-	// imageRaw 保存图片原始，供当前处理流程使用
+	// imageRaw 用于本次流程后续判断的图片原始
 	imageRaw := map[string]any{"payload": `{"contentType":2,"image":{"pics":[{"url":"https://cdn/image.jpg"}]}}`}
-	if // kind、content 保存kind、content，供当前处理流程使用
+	if // kind、content 用于本次流程后续判断的kind、content
 	kind, content := extractMessageContent(imageRaw, "[图片]"); kind != "image" || content != "https://cdn/image.jpg" {
 		t.Fatalf("image kind=%q content=%q", kind, content)
 	}
-	// videoRaw 保存video原始，供当前处理流程使用
+	// videoRaw 用于本次流程后续判断的video原始
 	videoRaw := map[string]any{"content": map[string]any{"video": map[string]any{"playUrl": "https://cdn/video.mp4"}}}
-	if // kind、content 保存kind、content，供当前处理流程使用
+	if // kind、content 用于本次流程后续判断的kind、content
 	kind, content := extractMessageContent(videoRaw, "[视频]"); kind != "video" || content != "https://cdn/video.mp4" {
 		t.Fatalf("video kind=%q content=%q", kind, content)
 	}
-	if // kind、content 保存kind、content，供当前处理流程使用
+	if // kind、content 用于本次流程后续判断的kind、content
 	kind, content := extractMessageContent(nil, " 你好 "); kind != "text" || content != "你好" {
 		t.Fatalf("text kind=%q content=%q", kind, content)
 	}
 }
 
-// chatTestStore 负责聊天TestStore相关处理。
+// chatTestStore 封装聊天TestStore业务协调。
 func chatTestStore(t *testing.T) (*db.Store, func()) {
 	t.Helper()
-	// database、dialect、err 保存database、dialect、err，供当前处理流程使用
+	// database、dialect、err 用于本次流程后续判断的database、dialect、err
 	database, dialect, err := db.Open(context.Background(), filepath.Join(t.TempDir(), "chat.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// store 保存store，供当前处理流程使用
+	// store 用于本次流程后续判断的store
 	store := db.NewStore(database, dialect)
-	if // ok、err 保存ok、err，供当前处理流程使用
+	if // ok、err 用于本次流程后续判断的ok、err
 	ok, err := store.Users.Create(context.Background(), "owner", "owner@example.com", "pw"); err != nil || !ok {
 		t.Fatal(err)
 	}
-	if // ok、err 保存ok、err，供当前处理流程使用
+	if // ok、err 用于本次流程后续判断的ok、err
 	ok, err := store.Users.Create(context.Background(), "other", "other@example.com", "pw"); err != nil || !ok {
 		t.Fatal(err)
 	}
-	// owner 保存所有者，供当前处理流程使用
+	// owner 用于本次流程后续判断的所有者
 	owner, _ := store.Users.GetByUsername(context.Background(), "owner")
-	// other 保存other，供当前处理流程使用
+	// other 用于本次流程后续判断的other
 	other, _ := store.Users.GetByUsername(context.Background(), "other")
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.Save(context.Background(), "account-1", "unb=1", owner.ID); err != nil {
 		t.Fatal(err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.Save(context.Background(), "account-2", "unb=2", other.ID); err != nil {
 		t.Fatal(err)
 	}

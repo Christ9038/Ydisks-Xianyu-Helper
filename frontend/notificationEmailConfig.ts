@@ -20,7 +20,8 @@ const parseBoolean = (value: unknown, fallback: boolean): boolean => {
 
 export const normalizeEmailChannelConfig = (config: Record<string, unknown>): Record<string, unknown> => {
   const hasExplicitMode = Object.prototype.hasOwnProperty.call(config, 'use_custom_smtp'); /* hasExplicitMode 表示hasExplicitMode。 */
-  const hasLegacyOverrides = smtpOverrideKeys.some(key => String(config[key] ?? '').trim() !== '' /* 回调函数负责当前业务流程。 */); /* hasLegacyOverrides 表示hasLegacyOverrides。 */
+  // hasLegacyOverrides 表示旧 SMTP 字段中是否仍有非空值，以便兼容层推断配置模式。
+  const hasLegacyOverrides = smtpOverrideKeys.some(key => String(config[key] ?? '').trim() !== '' /* key 是当前检查的旧 SMTP 字段名。 */);
   return {
     ...config,
     use_custom_smtp: hasExplicitMode

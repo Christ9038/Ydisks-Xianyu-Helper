@@ -13,21 +13,21 @@ import (
 	"time"
 )
 
-// TestNewClientUsesGoHTTPByDefault 负责TestNewClientUsesGoHTTPByDefault相关处理。
+// TestNewClientUsesGoHTTPByDefault 封装TestNewClientUsesGoHTTPByDefault业务协调。
 func TestNewClientUsesGoHTTPByDefault(t *testing.T) {
-	if // client 保存client，供当前处理流程使用
+	if // client 用于本次流程后续判断的client
 	client := NewClient(); client == nil {
 		t.Fatal("默认 MTOP 客户端为空")
 	}
 }
 
-// TestRefreshTokenRetriesOnceWithUpdatedCookie 负责TestRefresh令牌RetriesOnceWithUpdated登录凭证相关处理。
+// TestRefreshTokenRetriesOnceWithUpdatedCookie 封装TestRefresh令牌RetriesOnceWithUpdated登录凭证业务协调。
 func TestRefreshTokenRetriesOnceWithUpdatedCookie(t *testing.T) {
-	// requests 保存请求列表，供当前处理流程使用
+	// requests 用于本次流程后续判断的请求列表
 	var requests atomic.Int32
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// attempt 保存尝试次数，供当前处理流程使用
+		// attempt 用于本次流程后续判断的尝试次数
 		attempt := requests.Add(1)
 		if attempt == 1 {
 			http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "newtoken_999", Path: "/"})
@@ -41,12 +41,12 @@ func TestRefreshTokenRetriesOnceWithUpdatedCookie(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := client.RefreshTokenContext(ctx, "unb=123; _m_h5_tk=oldtoken_1;")
 	if err != nil {
 		t.Fatalf("RefreshTokenContext: %v", err)
@@ -59,31 +59,31 @@ func TestRefreshTokenRetriesOnceWithUpdatedCookie(t *testing.T) {
 	}
 }
 
-// TestReadMTopBodyRejectsOversizedResponse 负责TestReadMTop请求体RejectsOversized响应相关处理。
+// TestReadMTopBodyRejectsOversizedResponse 封装TestReadMTop请求体RejectsOversized响应业务协调。
 func TestReadMTopBodyRejectsOversizedResponse(t *testing.T) {
-	// resp 保存resp，供当前处理流程使用
+	// resp 用于本次流程后续判断的resp
 	resp := &http.Response{Body: io.NopCloser(strings.NewReader(strings.Repeat("x", maxMTopResponseBytes+1)))}
 	defer resp.Body.Close()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, err := readMTopBody(resp); err == nil {
 		t.Fatal("oversized mtop response should fail")
 	}
 }
 
-// TestRefreshTokenUsesOfficialAttemptLimitWithoutUpdatedCookie 负责TestRefresh令牌UsesOfficial尝试次数上限WithoutUpdated登录凭证相关处理。
+// TestRefreshTokenUsesOfficialAttemptLimitWithoutUpdatedCookie 封装TestRefresh令牌UsesOfficial尝试次数上限WithoutUpdated登录凭证业务协调。
 func TestRefreshTokenUsesOfficialAttemptLimitWithoutUpdatedCookie(t *testing.T) {
-	// requests 保存请求列表，供当前处理流程使用
+	// requests 用于本次流程后续判断的请求列表
 	var requests atomic.Int32
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		fmt.Fprint(w, `{"ret":["FAIL_SYS_TOKEN_EXOIRED::令牌过期"],"data":{}}`)
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), TokenURL: server.URL + "/"}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := client.RefreshTokenContext(context.Background(), "unb=123; _m_h5_tk=oldtoken_1;")
 	if err == nil || !strings.Contains(err.Error(), "登录凭证已失效") {
 		t.Fatalf("err=%v", err)
@@ -93,13 +93,13 @@ func TestRefreshTokenUsesOfficialAttemptLimitWithoutUpdatedCookie(t *testing.T) 
 	}
 }
 
-// TestConsignRetriesWithUpdatedTokenCookie 负责TestConsignRetriesWithUpdated令牌登录凭证相关处理。
+// TestConsignRetriesWithUpdatedTokenCookie 封装TestConsignRetriesWithUpdated令牌登录凭证业务协调。
 func TestConsignRetriesWithUpdatedTokenCookie(t *testing.T) {
-	// requests 保存请求列表，供当前处理流程使用
+	// requests 用于本次流程后续判断的请求列表
 	var requests atomic.Int32
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// attempt 保存尝试次数，供当前处理流程使用
+		// attempt 用于本次流程后续判断的尝试次数
 		attempt := requests.Add(1)
 		if attempt == 1 {
 			http.SetCookie(w, &http.Cookie{Name: "_m_h5_tk", Value: "newtoken_999", Path: "/"})
@@ -113,12 +113,12 @@ func TestConsignRetriesWithUpdatedTokenCookie(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/"}
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	// ok、ret、updated、err 保存ok、ret、updated、err，供当前处理流程使用
+	// ok、ret、updated、err 用于本次流程后续判断的ok、ret、updated、err
 	ok, ret, updated, err := client.ConsignContext(ctx, "unb=123; _m_h5_tk=oldtoken_1;", "order-1")
 	if err != nil {
 		t.Fatalf("ConsignContext: %v", err)
@@ -134,20 +134,20 @@ func TestConsignRetriesWithUpdatedTokenCookie(t *testing.T) {
 	}
 }
 
-// TestConsignDoesNotRetryNonTokenFailure 负责TestConsignDoesNot重试Non令牌Failure相关处理。
+// TestConsignDoesNotRetryNonTokenFailure 封装TestConsignDoesNot重试Non令牌Failure业务协调。
 func TestConsignDoesNotRetryNonTokenFailure(t *testing.T) {
-	// requests 保存请求列表，供当前处理流程使用
+	// requests 用于本次流程后续判断的请求列表
 	var requests atomic.Int32
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		fmt.Fprint(w, `{"ret":["FAIL_BIZ_ORDER_STATUS_ERROR::订单状态错误"]}`)
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), ConsignURL: server.URL + "/"}
-	// ok、ret、err 保存ok、ret、err，供当前处理流程使用
+	// ok、ret、err 用于本次流程后续判断的ok、ret、err
 	ok, ret, _, err := client.ConsignContext(context.Background(), "unb=123; _m_h5_tk=token_1;", "order-1")
 	if err != nil || ok || len(ret) == 0 {
 		t.Fatalf("ok=%v ret=%v err=%v", ok, ret, err)
@@ -157,17 +157,17 @@ func TestConsignDoesNotRetryNonTokenFailure(t *testing.T) {
 	}
 }
 
-// TestFetchOrderDetailParsesPaidAmountAndQuantity 负责TestFetch订单DetailParsesPaidAmountAndQuantity相关处理。
+// TestFetchOrderDetailParsesPaidAmountAndQuantity 封装TestFetch订单DetailParsesPaidAmountAndQuantity业务协调。
 func TestFetchOrderDetailParsesPaidAmountAndQuantity(t *testing.T) {
-	// server 保存server，供当前处理流程使用
+	// server 用于本次流程后续判断的server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"ret":["SUCCESS::调用成功"],"data":{"utArgs":{"orderStatus":"3"},"components":[{"render":"orderInfoVO","data":{"itemInfo":{"buyAmount":"2"},"priceInfo":{"amount":{"value":"12.50"}}}}]}}`)
 	}))
 	defer server.Close()
 
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &ClientImpl{HTTPClient: server.Client(), OrderDetailURL: server.URL + "/"}
-	// result、err 保存result、err，供当前处理流程使用
+	// result、err 用于本次流程后续判断的result、err
 	result, err := client.FetchOrderDetail(context.Background(), "unb=123; _m_h5_tk=token_1;", "order-1")
 	if err != nil {
 		t.Fatalf("FetchOrderDetail: %v", err)
@@ -177,9 +177,9 @@ func TestFetchOrderDetailParsesPaidAmountAndQuantity(t *testing.T) {
 	}
 }
 
-// TestHasMTopSuccess 负责TestHasMTopSuccess相关处理。
+// TestHasMTopSuccess 封装TestHasMTopSuccess业务协调。
 func TestHasMTopSuccess(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := []struct {
 		ret  []string
 		want bool
@@ -193,16 +193,16 @@ func TestHasMTopSuccess(t *testing.T) {
 	}
 	// i、c 表示当前遍历过程中的i、c
 	for i, c := range cases {
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := hasMTopSuccess(c.ret); got != c.want {
 			t.Errorf("case %d: got %v want %v", i, got, c.want)
 		}
 	}
 }
 
-// TestIsTokenExpiredRet 负责TestIs令牌ExpiredRet相关处理。
+// TestIsTokenExpiredRet 封装TestIs令牌ExpiredRet业务协调。
 func TestIsTokenExpiredRet(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := []struct {
 		ret  []string
 		want bool
@@ -218,16 +218,16 @@ func TestIsTokenExpiredRet(t *testing.T) {
 	}
 	// i、c 表示当前遍历过程中的i、c
 	for i, c := range cases {
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := isTokenExpiredRet(c.ret); got != c.want {
 			t.Errorf("case %d: got %v want %v (ret=%v)", i, got, c.want, c.ret)
 		}
 	}
 }
 
-// TestSessionExpiredRetIsSeparateFromTokenExpiry 负责Test会话ExpiredRetIsSeparateFrom令牌Expiry相关处理。
+// TestSessionExpiredRetIsSeparateFromTokenExpiry 封装Test会话ExpiredRetIsSeparateFrom令牌Expiry业务协调。
 func TestSessionExpiredRetIsSeparateFromTokenExpiry(t *testing.T) {
-	// ret 保存ret，供当前处理流程使用
+	// ret 用于本次流程后续判断的ret
 	ret := []string{"FAIL_SYS_SESSION_EXPIRED::会话过期"}
 	if !isSessionExpiredRet(ret) {
 		t.Fatal("session expiry must be recognized")
@@ -235,16 +235,16 @@ func TestSessionExpiredRetIsSeparateFromTokenExpiry(t *testing.T) {
 	if isTokenExpiredRet(ret) {
 		t.Fatal("session expiry must not enter token retry path")
 	}
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	err := sessionExpiredError("test API", ret)
 	if !IsSessionExpiredErr(fmt.Errorf("wrapped: %w", err)) {
 		t.Fatalf("typed wrapped error not recognized: %v", err)
 	}
 }
 
-// TestIsSessionExpiredErr 负责TestIs会话ExpiredErr相关处理。
+// TestIsSessionExpiredErr 封装TestIs会话ExpiredErr业务协调。
 func TestIsSessionExpiredErr(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := []struct {
 		err  error
 		want bool
@@ -258,16 +258,16 @@ func TestIsSessionExpiredErr(t *testing.T) {
 	}
 	// i、c 表示当前遍历过程中的i、c
 	for i, c := range cases {
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := IsSessionExpiredErr(c.err); got != c.want {
 			t.Errorf("case %d: got %v want %v (err=%v)", i, got, c.want, c.err)
 		}
 	}
 }
 
-// TestMtopString 负责TestMtopString相关处理。
+// TestMtopString 封装TestMtopString业务协调。
 func TestMtopString(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := []struct {
 		in   any
 		want string
@@ -283,16 +283,16 @@ func TestMtopString(t *testing.T) {
 	}
 	// i、c 表示当前遍历过程中的i、c
 	for i, c := range cases {
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := mtopString(c.in); got != c.want {
 			t.Errorf("case %d: got %q want %q", i, got, c.want)
 		}
 	}
 }
 
-// TestMtopInt 负责TestMtopInt相关处理。
+// TestMtopInt 封装TestMtopInt业务协调。
 func TestMtopInt(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := []struct {
 		in   any
 		want int
@@ -308,16 +308,16 @@ func TestMtopInt(t *testing.T) {
 	}
 	// i、c 表示当前遍历过程中的i、c
 	for i, c := range cases {
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := mtopInt(c.in); got != c.want {
 			t.Errorf("case %d: got %d want %d", i, got, c.want)
 		}
 	}
 }
 
-// TestTruncate 负责TestTruncate相关处理。
+// TestTruncate 封装TestTruncate业务协调。
 func TestTruncate(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := []struct {
 		s    string
 		n    int
@@ -331,31 +331,31 @@ func TestTruncate(t *testing.T) {
 	}
 	// i、c 表示当前遍历过程中的i、c
 	for i, c := range cases {
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := truncate(c.s, c.n); got != c.want {
 			t.Errorf("case %d: got %q want %q", i, got, c.want)
 		}
 	}
 }
 
-// TestMergeSetCookieMultiple 负责TestMergeSet登录凭证Multiple相关处理。
+// TestMergeSetCookieMultiple 封装TestMergeSet登录凭证Multiple业务协调。
 func TestMergeSetCookieMultiple(t *testing.T) {
-	// orig 保存orig，供当前处理流程使用
+	// orig 用于本次流程后续判断的orig
 	orig := "unb=123; _m_h5_tk=oldtoken_1; foo=bar"
-	// current 保存current，供当前处理流程使用
+	// current 用于本次流程后续判断的current
 	current := map[string]string{
 		"unb":      "123",
 		"_m_h5_tk": "oldtoken_1",
 		"foo":      "bar",
 	}
-	// resp 保存resp，供当前处理流程使用
+	// resp 用于本次流程后续判断的resp
 	resp := &http.Response{Header: http.Header{}}
 	resp.Header["Set-Cookie"] = []string{
 		"_m_h5_tk=newtoken_999; Path=/; Domain=.goofish.com",
 		"newkey=newval; Path=/",
 		"empty=; Path=/",
 	}
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	got := mergeSetCookie(orig, current, resp)
 	// 必须含更新后的两个已知字段与新增字段
 	if !strings.Contains(got, "_m_h5_tk=newtoken_999") {
@@ -372,27 +372,27 @@ func TestMergeSetCookieMultiple(t *testing.T) {
 	}
 }
 
-// TestMergeSetCookieNoSetCookie 负责TestMergeSet登录凭证NoSet登录凭证相关处理。
+// TestMergeSetCookieNoSetCookie 封装TestMergeSet登录凭证NoSet登录凭证业务协调。
 func TestMergeSetCookieNoSetCookie(t *testing.T) {
-	// orig 保存orig，供当前处理流程使用
+	// orig 用于本次流程后续判断的orig
 	orig := "unb=123; _m_h5_tk=token_1"
-	// current 保存current，供当前处理流程使用
+	// current 用于本次流程后续判断的current
 	current := map[string]string{"unb": "123", "_m_h5_tk": "token_1"}
-	// resp 保存resp，供当前处理流程使用
+	// resp 用于本次流程后续判断的resp
 	resp := &http.Response{Header: http.Header{}}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := mergeSetCookie(orig, current, resp); got != orig {
 		t.Errorf("no Set-Cookie should return orig, got %q", got)
 	}
 }
 
-// TestMergeSetCookieMalformedIgnored 负责TestMergeSet登录凭证MalformedIgnored相关处理。
+// TestMergeSetCookieMalformedIgnored 封装TestMergeSet登录凭证MalformedIgnored业务协调。
 func TestMergeSetCookieMalformedIgnored(t *testing.T) {
-	// orig 保存orig，供当前处理流程使用
+	// orig 用于本次流程后续判断的orig
 	orig := "unb=123"
-	// current 保存current，供当前处理流程使用
+	// current 用于本次流程后续判断的current
 	current := map[string]string{"unb": "123"}
-	// resp 保存resp，供当前处理流程使用
+	// resp 用于本次流程后续判断的resp
 	resp := &http.Response{Header: http.Header{}}
 	resp.Header["Set-Cookie"] = []string{
 		"; Path=/",       // 无 name=value
@@ -404,29 +404,29 @@ func TestMergeSetCookieMalformedIgnored(t *testing.T) {
 	}
 }
 
-// TestMergeSetCookieMaxAgeOverridesPastExpires 负责TestMergeSet登录凭证MaxAgeOverridesPastExpires相关处理。
+// TestMergeSetCookieMaxAgeOverridesPastExpires 封装TestMergeSet登录凭证MaxAgeOverridesPastExpires业务协调。
 func TestMergeSetCookieMaxAgeOverridesPastExpires(t *testing.T) {
-	// orig 保存orig，供当前处理流程使用
+	// orig 用于本次流程后续判断的orig
 	orig := "session=old"
-	// current 保存current，供当前处理流程使用
+	// current 用于本次流程后续判断的current
 	current := map[string]string{"session": "old"}
-	// resp 保存resp，供当前处理流程使用
+	// resp 用于本次流程后续判断的resp
 	resp := &http.Response{Header: http.Header{
 		"Set-Cookie": {"session=fresh; Max-Age=3600; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/"},
 	}}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := mergeSetCookie(orig, current, resp); !strings.Contains(got, "session=fresh") {
 		t.Fatalf("positive Max-Age must override past Expires: %q", got)
 	}
 }
 
-// TestSleepCtx 负责TestSleepCtx相关处理。
+// TestSleepCtx 封装TestSleepCtx业务协调。
 func TestSleepCtx(t *testing.T) {
 	// d <= 0 直接返回
 	if err := sleepCtx(context.Background(), 0); err != nil {
 		t.Errorf("sleepCtx(0)=%v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := sleepCtx(context.Background(), -1); err != nil {
 		t.Errorf("sleepCtx(-1)=%v", err)
 	}
@@ -437,15 +437,15 @@ func TestSleepCtx(t *testing.T) {
 	// ctx 已取消立即返回 ctx.Err()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := sleepCtx(ctx, time.Second); err != context.Canceled {
 		t.Errorf("sleepCtx(canceled)=%v want %v", err, context.Canceled)
 	}
 }
 
-// TestNewClient 负责TestNewClient相关处理。
+// TestNewClient 封装TestNewClient业务协调。
 func TestNewClient(t *testing.T) {
-	// c 保存c，供当前处理流程使用
+	// c 用于本次流程后续判断的c
 	c := NewClient()
 	if c == nil {
 		t.Fatal("NewClient returned nil")

@@ -135,7 +135,7 @@ const AccountList: React.FC = () => {
       await deleteAccount(account.id);
       setAccounts(/* 当前回调处理集合中的单个元素。 */ current => current.filter(/* 当前回调处理集合中的单个元素。 */ item => item.id !== account.id));
       setDeleteDialogAccount(null);
-    } catch (/* error 表示错误。 */ error: any) {
+    } catch (/* error 保存账号删除请求的失败原因，仅转换为界面提示。 */ error: any) {
       console.error('删除账号失败:', error);
       setDeleteError(error?.message || '删除账号失败，请稍后重试');
     } finally {
@@ -153,7 +153,7 @@ const AccountList: React.FC = () => {
         alert('资料刷新失败：' + res.profile_error);
       }
       await loadAccounts();
-    } catch (/* error 表示错误。 */ error: any) {
+    } catch (/* error 保存资料刷新请求的失败原因，仅转换为界面提示。 */ error: any) {
       console.error('刷新账号资料失败:', error);
       alert(error?.message || '刷新账号资料失败，请先重新授权该账号');
     } finally {

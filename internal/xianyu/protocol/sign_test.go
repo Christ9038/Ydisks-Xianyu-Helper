@@ -9,9 +9,9 @@ import (
 
 // TestGenerateSign 表驱动覆盖 GenerateSign 的边界输入。
 // GenerateSign 是纯函数（MD5(token+"&"+t+"&"+SignAppKey+"&"+data)），结果应稳定可复现。
-// TestGenerateSign 负责TestGenerateSign相关处理。
+// TestGenerateSign 封装TestGenerateSign业务协调。
 func TestGenerateSign(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := []struct {
 		name  string
 		t     string
@@ -28,16 +28,16 @@ func TestGenerateSign(t *testing.T) {
 	// tc 表示当前遍历过程中的tc
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			// got 保存got，供当前处理流程使用
+			// got 用于本次流程后续判断的got
 			got := GenerateSign(tc.t, tc.token, tc.data)
 			if len(got) != 32 {
 				t.Fatalf("GenerateSign length = %d, want 32 (md5 hex)", len(got))
 			}
 			// 与独立计算的期望值比对，锁定拼接顺序与算法。
 			msg := tc.token + "&" + tc.t + "&" + SignAppKey + "&" + tc.data
-			// sum 保存sum，供当前处理流程使用
+			// sum 用于本次流程后续判断的sum
 			sum := md5.Sum([]byte(msg))
-			// want 保存want，供当前处理流程使用
+			// want 用于本次流程后续判断的want
 			want := hex.EncodeToString(sum[:])
 			if got != want {
 				t.Fatalf("GenerateSign = %q, want %q", got, want)
@@ -54,9 +54,9 @@ func TestGenerateSign(t *testing.T) {
 
 // TestGenerateSign_Deterministic 相同输入两次调用结果一致。
 func TestGenerateSign_Deterministic(t *testing.T) {
-	// a 保存a，供当前处理流程使用
+	// a 用于本次流程后续判断的a
 	a := GenerateSign("1", "2", "3")
-	// b 保存b，供当前处理流程使用
+	// b 用于本次流程后续判断的b
 	b := GenerateSign("1", "2", "3")
 	if a != b {
 		t.Fatalf("GenerateSign not deterministic: %s != %s", a, b)
@@ -65,12 +65,12 @@ func TestGenerateSign_Deterministic(t *testing.T) {
 
 // TestGenerateMid_Format 校验 Mid 的格式与字符集。
 func TestGenerateMid_Format(t *testing.T) {
-	// mid 保存mid，供当前处理流程使用
+	// mid 用于本次流程后续判断的mid
 	mid := GenerateMid()
 	if !strings.HasSuffix(mid, " 0") {
 		t.Fatalf("mid should end with \" 0\", got %q", mid)
 	}
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := strings.TrimSuffix(mid, " 0")
 	// body = "<0-999 随机数><毫秒时间戳>"，全部应为十进制数字。
 	for _, r := range body {
@@ -86,9 +86,9 @@ func TestGenerateMid_Format(t *testing.T) {
 
 // TestGenerateMid_Uniqueness 多次调用应产生不同输出（时间戳/随机量不同）。
 func TestGenerateMid_Uniqueness(t *testing.T) {
-	// seen 保存seen，供当前处理流程使用
+	// seen 用于本次流程后续判断的seen
 	seen := make(map[string]struct{}, 100)
-	for // i 保存i，供当前处理流程使用
+	for // i 用于本次流程后续判断的i
 	i := 0; i < 100; i++ {
 		seen[GenerateMid()] = struct{}{}
 	}
@@ -100,12 +100,12 @@ func TestGenerateMid_Uniqueness(t *testing.T) {
 
 // TestGenerateUUID_Format 校验 UUID 形如 "-<毫秒>1"。
 func TestGenerateUUID_Format(t *testing.T) {
-	// u 保存u，供当前处理流程使用
+	// u 用于本次流程后续判断的u
 	u := GenerateUUID()
 	if !strings.HasPrefix(u, "-") || !strings.HasSuffix(u, "1") {
 		t.Fatalf("invalid uuid: %q", u)
 	}
-	// body 保存请求体，供当前处理流程使用
+	// body 用于本次流程后续判断的请求体
 	body := strings.TrimSuffix(strings.TrimPrefix(u, "-"), "1")
 	// r 表示当前遍历过程中的r
 	for _, r := range body {
@@ -117,12 +117,12 @@ func TestGenerateUUID_Format(t *testing.T) {
 
 // TestGenerateDeviceID_Format 校验设备 ID 的固定位置约束。
 func TestGenerateDeviceID_Format(t *testing.T) {
-	// cases 保存cases，供当前处理流程使用
+	// cases 用于本次流程后续判断的cases
 	cases := []string{"123", "", "user-with-dash", "中文用户", strings.Repeat("u", 100)}
 	// userID 表示当前遍历过程中的用户ID
 	for _, userID := range cases {
 		t.Run(userID, func(t *testing.T) {
-			// id 保存标识，供当前处理流程使用
+			// id 用于本次流程后续判断的标识
 			id := GenerateDeviceID(userID)
 			// 36 字符 UUID + "-" + userID。
 			wantLen := 36 + 1 + len(userID)
@@ -132,7 +132,7 @@ func TestGenerateDeviceID_Format(t *testing.T) {
 			if !strings.HasSuffix(id, "-"+userID) {
 				t.Fatalf("device ID should end with -userID, got %q", id)
 			}
-			// uuid 保存uuid，供当前处理流程使用
+			// uuid 用于本次流程后续判断的uuid
 			uuid := id[:36]
 			// 固定分隔符位置。
 			for _, pos := range []int{8, 13, 18, 23} {
@@ -164,9 +164,9 @@ func TestGenerateDeviceID_Format(t *testing.T) {
 
 // TestGenerateDeviceID_Uniqueness 不同调用产生不同设备 ID（随机位差异）。
 func TestGenerateDeviceID_Uniqueness(t *testing.T) {
-	// seen 保存seen，供当前处理流程使用
+	// seen 用于本次流程后续判断的seen
 	seen := make(map[string]struct{}, 50)
-	for // i 保存i，供当前处理流程使用
+	for // i 用于本次流程后续判断的i
 	i := 0; i < 50; i++ {
 		seen[GenerateDeviceID("u")] = struct{}{}
 	}
@@ -177,9 +177,9 @@ func TestGenerateDeviceID_Uniqueness(t *testing.T) {
 
 // TestGenerateDeviceID_DifferentUsers 不同 userID 产生不同后缀。
 func TestGenerateDeviceID_DifferentUsers(t *testing.T) {
-	// a 保存a，供当前处理流程使用
+	// a 用于本次流程后续判断的a
 	a := GenerateDeviceID("alice")
-	// b 保存b，供当前处理流程使用
+	// b 用于本次流程后续判断的b
 	b := GenerateDeviceID("bob")
 	if strings.HasSuffix(a, "-bob") || strings.HasSuffix(b, "-alice") {
 		t.Fatalf("device ID suffix mismatched: a=%q b=%q", a, b)
@@ -190,14 +190,14 @@ func TestGenerateDeviceID_DifferentUsers(t *testing.T) {
 func TestRandomInt_Bounds(t *testing.T) {
 	// max 表示当前遍历过程中的max
 	for _, max := range []int{0, 1, -5} {
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := randomInt(max); got != 0 {
 			t.Fatalf("randomInt(%d) = %d, want 0", max, got)
 		}
 	}
-	for // i 保存i，供当前处理流程使用
+	for // i 用于本次流程后续判断的i
 	i := 0; i < 1000; i++ {
-		// got 保存got，供当前处理流程使用
+		// got 用于本次流程后续判断的got
 		got := randomInt(16)
 		if got < 0 || got >= 16 {
 			t.Fatalf("randomInt(16) = %d, out of [0,16)", got)

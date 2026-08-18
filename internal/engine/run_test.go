@@ -20,12 +20,12 @@ import (
 // fakeRunMtop 返回成功 token，不触网。
 type fakeRunMtop struct{ token string }
 
-// FetchUserProfile 负责Fetch用户Profile相关处理。
+// FetchUserProfile 封装Fetch用户Profile业务协调。
 func (f *fakeRunMtop) FetchUserProfile(context.Context, string) (*mtop.UserProfileResult, error) {
 	return nil, nil
 }
 
-// shortTokenMtop 保存short令牌Mtop，供当前处理流程使用
+// shortTokenMtop 用于本次流程后续判断的short令牌Mtop
 type shortTokenMtop struct {
 	fakeRunMtop
 	calls atomic.Int32
@@ -33,27 +33,27 @@ type shortTokenMtop struct {
 
 // RefreshTokenWithDeviceIDContext 刷新令牌WithDeviceID上下文。
 func (s *shortTokenMtop) RefreshTokenWithDeviceIDContext(context.Context, string, string) (*mtop.RefreshResult, error) {
-	// call 保存call，供当前处理流程使用
+	// call 用于本次流程后续判断的call
 	call := s.calls.Add(1)
 	return &mtop.RefreshResult{AccessToken: fmt.Sprintf("short-%d", call), AccessTokenExpireAt: time.Now().Add(2 * time.Second).Unix()}, nil
 }
 
-// ConsignContext 负责Consign上下文相关处理。
+// ConsignContext 封装Consign上下文业务协调。
 func (f *fakeRunMtop) ConsignContext(context.Context, string, string) (bool, []string, string, error) {
 	return true, nil, "", nil
 }
 
-// FetchItemsPage 负责Fetch商品列表页码相关处理。
+// FetchItemsPage 封装Fetch商品列表页码业务协调。
 func (f *fakeRunMtop) FetchItemsPage(context.Context, string, int, int) (*mtop.ItemListResult, error) {
 	return nil, nil
 }
 
-// FetchAllItems 负责FetchAll商品列表相关处理。
+// FetchAllItems 封装FetchAll商品列表业务协调。
 func (f *fakeRunMtop) FetchAllItems(context.Context, string, int, int) (*mtop.ItemListResult, error) {
 	return nil, nil
 }
 
-// PublishItem 负责发布商品相关处理。
+// PublishItem 封装发布商品业务协调。
 func (f *fakeRunMtop) PublishItem(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
 	return nil, nil
 }
@@ -63,30 +63,30 @@ func (f *fakeRunMtop) RefreshTokenWithDeviceIDContext(_ context.Context, _ strin
 	return &mtop.RefreshResult{AccessToken: f.token, AccessTokenExpireAt: time.Now().Add(time.Hour).Unix()}, nil
 }
 
-// fakeFailTokenMtop 保存fakeFail令牌Mtop，供当前处理流程使用
+// fakeFailTokenMtop 用于本次流程后续判断的fakeFail令牌Mtop
 type fakeFailTokenMtop struct{ err error }
 
-// FetchUserProfile 负责Fetch用户Profile相关处理。
+// FetchUserProfile 封装Fetch用户Profile业务协调。
 func (f *fakeFailTokenMtop) FetchUserProfile(context.Context, string) (*mtop.UserProfileResult, error) {
 	return nil, nil
 }
 
-// ConsignContext 负责Consign上下文相关处理。
+// ConsignContext 封装Consign上下文业务协调。
 func (f *fakeFailTokenMtop) ConsignContext(context.Context, string, string) (bool, []string, string, error) {
 	return true, nil, "", nil
 }
 
-// FetchItemsPage 负责Fetch商品列表页码相关处理。
+// FetchItemsPage 封装Fetch商品列表页码业务协调。
 func (f *fakeFailTokenMtop) FetchItemsPage(context.Context, string, int, int) (*mtop.ItemListResult, error) {
 	return nil, nil
 }
 
-// FetchAllItems 负责FetchAll商品列表相关处理。
+// FetchAllItems 封装FetchAll商品列表业务协调。
 func (f *fakeFailTokenMtop) FetchAllItems(context.Context, string, int, int) (*mtop.ItemListResult, error) {
 	return nil, nil
 }
 
-// PublishItem 负责发布商品相关处理。
+// PublishItem 封装发布商品业务协调。
 func (f *fakeFailTokenMtop) PublishItem(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
 	return nil, nil
 }
@@ -96,7 +96,7 @@ func (f *fakeFailTokenMtop) RefreshTokenWithDeviceIDContext(context.Context, str
 	return nil, f.err
 }
 
-// sequencedTokenMtop 保存sequenced令牌Mtop，供当前处理流程使用
+// sequencedTokenMtop 用于本次流程后续判断的sequenced令牌Mtop
 type sequencedTokenMtop struct {
 	fakeRunMtop
 	mu      sync.Mutex
@@ -137,18 +137,18 @@ type fakeWSConn struct {
 	recvErr   error
 }
 
-// Register 负责Register相关处理。
+// Register 封装Register业务协调。
 func (f *fakeWSConn) Register(_ context.Context, deviceID, accessToken string) error {
 	f.mu.Lock()
 	f.registeredDID = deviceID
 	f.registeredTok = accessToken
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	err := f.registerErr
 	f.mu.Unlock()
 	return err
 }
 
-// HeartbeatLoop 负责HeartbeatLoop相关处理。
+// HeartbeatLoop 封装HeartbeatLoop业务协调。
 func (f *fakeWSConn) HeartbeatLoop(ctx context.Context, _ time.Duration) error {
 	<-ctx.Done()
 	if f.heartbeatDone != nil {
@@ -157,7 +157,7 @@ func (f *fakeWSConn) HeartbeatLoop(ctx context.Context, _ time.Duration) error {
 	return ctx.Err()
 }
 
-// ReceiveLoop 负责ReceiveLoop相关处理。
+// ReceiveLoop 封装ReceiveLoop业务协调。
 func (f *fakeWSConn) ReceiveLoop(ctx context.Context, onMessage func(map[string]any)) error {
 	if f.onReceive != nil {
 		f.onReceive(onMessage)
@@ -188,34 +188,34 @@ func (f *fakeWSConn) Close() error {
 	return nil
 }
 
-// TestRunRotatesTokenBeforeExpiry 负责Test运行Rotates令牌BeforeExpiry相关处理。
+// TestRunRotatesTokenBeforeExpiry 封装Test运行Rotates令牌BeforeExpiry业务协调。
 func TestRunRotatesTokenBeforeExpiry(t *testing.T) {
-	// tokenClient 保存令牌Client，供当前处理流程使用
+	// tokenClient 用于本次流程后续判断的令牌Client
 	tokenClient := &shortTokenMtop{}
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newRunAccount(t, tokenClient)
 	defer cleanup()
-	// first 保存first，供当前处理流程使用
+	// first 用于本次流程后续判断的first
 	first := &fakeWSConn{recvBlock: true, closeCh: make(chan struct{})}
-	// second 保存second，供当前处理流程使用
+	// second 用于本次流程后续判断的second
 	second := &fakeWSConn{recvBlock: true, closeCh: make(chan struct{})}
 	acc.wsDialer = &fakeDialer{results: []dialResult{{conn: first}, {conn: second}}}
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
-	// done 保存done，供当前处理流程使用
+	// done 用于本次流程后续判断的done
 	done := make(chan error, 1)
 	go func() { done <- acc.Run(ctx) }()
-	// deadline 保存deadline，供当前处理流程使用
+	// deadline 用于本次流程后续判断的deadline
 	deadline := time.Now().Add(4 * time.Second)
 	for tokenClient.calls.Load() < 2 && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := tokenClient.calls.Load(); got < 2 {
 		cancel()
 		t.Fatalf("Token 到期前未主动轮换，calls=%d status=%+v", got, acc.RuntimeStatus())
 	}
-	// status 保存状态，供当前处理流程使用
+	// status 用于本次流程后续判断的状态
 	status := acc.RuntimeStatus()
 	if status.TokenExpiresAt.IsZero() || status.TokenRefreshAt.IsZero() || !status.TokenRefreshAt.Before(status.TokenExpiresAt) {
 		t.Fatalf("Token 有效期状态异常: %+v", status)
@@ -228,7 +228,7 @@ func TestRunRotatesTokenBeforeExpiry(t *testing.T) {
 	}
 }
 
-// SendText 负责Send文本相关处理。
+// SendText 封装Send文本业务协调。
 func (f *fakeWSConn) SendText(_ context.Context, _, _, _, text string) error {
 	f.mu.Lock()
 	f.sentTexts = append(f.sentTexts, text)
@@ -236,7 +236,7 @@ func (f *fakeWSConn) SendText(_ context.Context, _, _, _, text string) error {
 	return nil
 }
 
-// SendImage 负责Send图片相关处理。
+// SendImage 封装Send图片业务协调。
 func (f *fakeWSConn) SendImage(_ context.Context, _, _, _, url string, _, _ int) error {
 	f.mu.Lock()
 	f.sentImages = append(f.sentImages, url)
@@ -254,31 +254,31 @@ type fakeDialer struct {
 	lastCfg ws.Config // 记录最后一次 Dial 的配置（含 AccessToken）
 }
 
-// dialResult 保存dial结果，供当前处理流程使用
+// dialResult 用于本次流程后续判断的dial结果
 type dialResult struct {
 	conn *fakeWSConn
 	err  error
 }
 
-// Dial 负责Dial相关处理。
+// Dial 封装Dial业务协调。
 func (d *fakeDialer) Dial(_ context.Context, cfg ws.Config, _ *slog.Logger) (WSConn, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.lastCfg = cfg
 	d.configs = append(d.configs, cfg)
-	// idx 保存idx，供当前处理流程使用
+	// idx 用于本次流程后续判断的idx
 	idx := d.calls
 	d.calls++
 	if idx >= len(d.results) {
 		// 超出预设：返回最后一个 conn，避免无限重连耗尽测试。
 		if len(d.results) > 0 {
-			// last 保存last，供当前处理流程使用
+			// last 用于本次流程后续判断的last
 			last := d.results[len(d.results)-1]
 			return last.conn, last.err
 		}
 		return nil, nil
 	}
-	// r 保存r，供当前处理流程使用
+	// r 用于本次流程后续判断的r
 	r := d.results[idx]
 	if r.conn != nil {
 		d.conns = append(d.conns, r.conn)
@@ -289,24 +289,24 @@ func (d *fakeDialer) Dial(_ context.Context, cfg ws.Config, _ *slog.Logger) (WSC
 // newRunAccount 构造一个用 fakeMtop + fakeDialer 的 Account，不触网。
 func newRunAccount(t *testing.T, mtopClient mtop.Client) (*Account, *recordingHandler, *db.Store, func()) {
 	t.Helper()
-	// dbPath 保存db路径，供当前处理流程使用
+	// dbPath 用于本次流程后续判断的db路径
 	dbPath := filepath.Join(t.TempDir(), "run.db")
-	// d、err 保存d、err，供当前处理流程使用
+	// d、err 用于本次流程后续判断的d、err
 	d, _, err := db.Open(context.Background(), dbPath)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	// store 保存store，供当前处理流程使用
+	// store 用于本次流程后续判断的store
 	store := db.NewStore(d, db.DialectSQLite)
 	store.Users.Create(context.Background(), "admin", "a@e.com", "pw")
-	// admin 保存admin，供当前处理流程使用
+	// admin 用于本次流程后续判断的admin
 	admin, _ := store.Users.GetByUsername(context.Background(), "admin")
 	store.Cookies.Save(context.Background(), "cid", "unb=123; _m_h5_tk=tk_1;", admin.ID)
 	store.Cookies.SetStatus(context.Background(), "cid", true)
 
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := &recordingHandler{}
-	// acc 保存acc，供当前处理流程使用
+	// acc 用于本次流程后续判断的acc
 	acc := New(Config{
 		CookieID:  "cid",
 		CookieStr: "unb=123; _m_h5_tk=tk_1;",
@@ -319,13 +319,13 @@ func newRunAccount(t *testing.T, mtopClient mtop.Client) (*Account, *recordingHa
 
 // TestRun_ConnectsAndDispatchesMessage 验证 Run 主循环：
 // 刷新 token → 拨号 WS → ReceiveLoop 投递消息 → dispatch 进 handler 防抖链 → ctx 取消后优雅退出。
-// TestRun_ConnectsAndDispatchesMessage 负责Test运行ConnectsAndDispatches消息相关处理。
+// TestRun_ConnectsAndDispatchesMessage 封装Test运行ConnectsAndDispatches消息业务协调。
 func TestRun_ConnectsAndDispatchesMessage(t *testing.T) {
-	// acc、h、cleanup 保存acc、h、cleanup，供当前处理流程使用
+	// acc、h、cleanup 用于本次流程后续判断的acc、h、cleanup
 	acc, h, _, cleanup := newRunAccount(t, &fakeRunMtop{token: "tok-1"})
 	defer cleanup()
 
-	// conn 保存conn，供当前处理流程使用
+	// conn 用于本次流程后续判断的conn
 	conn := &fakeWSConn{
 		recvBlock: true,
 		onReceive: func(onMessage func(map[string]any)) {
@@ -345,9 +345,9 @@ func TestRun_ConnectsAndDispatchesMessage(t *testing.T) {
 	}
 	acc.wsDialer = &fakeDialer{results: []dialResult{{conn: conn}}}
 
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
-	// runDone 保存运行Done，供当前处理流程使用
+	// runDone 用于本次流程后续判断的运行Done
 	runDone := make(chan error, 1)
 	go func() { runDone <- acc.Run(ctx) }()
 
@@ -355,7 +355,7 @@ func TestRun_ConnectsAndDispatchesMessage(t *testing.T) {
 	deadline := time.After(3 * time.Second)
 	for {
 		h.mu.Lock()
-		// n 保存n，供当前处理流程使用
+		// n 用于本次流程后续判断的n
 		n := len(h.chats)
 		h.mu.Unlock()
 		if n >= 1 {
@@ -372,7 +372,7 @@ func TestRun_ConnectsAndDispatchesMessage(t *testing.T) {
 
 	// token 必须在握手成功后通过 Register 发送，而不是在 Dial 前获得。
 	conn.mu.Lock()
-	// gotToken 保存got令牌，供当前处理流程使用
+	// gotToken 用于本次流程后续判断的got令牌
 	gotToken := conn.registeredTok == "tok-1"
 	conn.mu.Unlock()
 	if !gotToken {
@@ -382,7 +382,7 @@ func TestRun_ConnectsAndDispatchesMessage(t *testing.T) {
 	// 取消 ctx → Run 应退出。
 	cancel()
 	select {
-	case // err 保存err，供当前处理流程使用
+	case // err 用于本次流程后续判断的err
 	err := <-runDone:
 		if err != nil && err != context.Canceled {
 			t.Fatalf("Run 退出 err=%v", err)
@@ -394,20 +394,20 @@ func TestRun_ConnectsAndDispatchesMessage(t *testing.T) {
 
 // TestRun_DialFailureRequiresRelogin mirrors the web page: native
 // CONNECT_FAILED enters CONN_ERROR and does not auto-reconnect.
-// TestRun_DialFailureRequiresRelogin 负责Test运行DialFailureRequiresRelogin相关处理。
+// TestRun_DialFailureRequiresRelogin 封装Test运行DialFailureRequiresRelogin业务协调。
 func TestRun_DialFailureRequiresRelogin(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newRunAccount(t, &fakeRunMtop{token: "tok-1"})
 	defer cleanup()
 
 	// 拨号始终失败。
 	acc.wsDialer = &fakeDialer{results: []dialResult{{err: errFakeDial}}}
 
-	// runDone 保存运行Done，供当前处理流程使用
+	// runDone 用于本次流程后续判断的运行Done
 	runDone := make(chan error, 1)
 	go func() { runDone <- acc.Run(context.Background()) }()
 	select {
-	case // err 保存err，供当前处理流程使用
+	case // err 用于本次流程后续判断的err
 	err := <-runDone:
 		if !errors.Is(err, errFakeDial) {
 			t.Fatalf("Run error=%v，期望拨号错误", err)
@@ -415,7 +415,7 @@ func TestRun_DialFailureRequiresRelogin(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("拨号失败后 Run 未退出")
 	}
-	if // status 保存状态，供当前处理流程使用
+	if // status 用于本次流程后续判断的状态
 	status := acc.RuntimeStatus(); status.State != RuntimeAuthExpired {
 		t.Fatalf("runtime state=%q，期望 %q", status.State, RuntimeAuthExpired)
 	}
@@ -423,9 +423,9 @@ func TestRun_DialFailureRequiresRelogin(t *testing.T) {
 
 // TestRun_ReceiveLoopEndsTriggersReconnect 正常结束后直接重连，并重新获取 token。
 func TestRun_ReceiveLoopEndsTriggersReconnect(t *testing.T) {
-	// mtopClient 保存mtopClient，供当前处理流程使用
+	// mtopClient 用于本次流程后续判断的mtopClient
 	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "tok-1"}}
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newRunAccount(t, mtopClient)
 	defer cleanup()
 
@@ -434,10 +434,10 @@ func TestRun_ReceiveLoopEndsTriggersReconnect(t *testing.T) {
 	d := &fakeDialer{results: []dialResult{{conn: conn1}, {conn: conn2}}}
 	acc.wsDialer = d
 
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	// runDone 保存运行Done，供当前处理流程使用
+	// runDone 用于本次流程后续判断的运行Done
 	runDone := make(chan error, 1)
 	go func() { runDone <- acc.Run(ctx) }()
 
@@ -445,7 +445,7 @@ func TestRun_ReceiveLoopEndsTriggersReconnect(t *testing.T) {
 	deadline := time.After(2 * time.Second)
 	for {
 		d.mu.Lock()
-		// calls 保存calls，供当前处理流程使用
+		// calls 用于本次流程后续判断的calls
 		calls := d.calls
 		d.mu.Unlock()
 		if calls >= 2 {
@@ -465,33 +465,33 @@ func TestRun_ReceiveLoopEndsTriggersReconnect(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("重连后 ctx 取消 Run 未退出")
 	}
-	if // calls 保存calls，供当前处理流程使用
+	if // calls 用于本次流程后续判断的calls
 	calls := atomic.LoadInt32(&mtopClient.calls); calls != 2 {
 		t.Fatalf("正常重连应重新请求 mtop: calls=%d", calls)
 	}
 }
 
-// TestRun_ReconnectUsesFreshTokenAndStableDeviceID 负责Test运行ReconnectUsesFresh令牌AndStableDeviceID相关处理。
+// TestRun_ReconnectUsesFreshTokenAndStableDeviceID 封装Test运行ReconnectUsesFresh令牌AndStableDeviceID业务协调。
 func TestRun_ReconnectUsesFreshTokenAndStableDeviceID(t *testing.T) {
-	// mtopClient 保存mtopClient，供当前处理流程使用
+	// mtopClient 用于本次流程后续判断的mtopClient
 	mtopClient := &sequencedTokenMtop{fakeRunMtop: fakeRunMtop{token: "unused"}}
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newRunAccount(t, mtopClient)
 	defer cleanup()
-	// first 保存first，供当前处理流程使用
+	// first 用于本次流程后续判断的first
 	first := &fakeWSConn{recvBlock: false}
-	// second 保存second，供当前处理流程使用
+	// second 用于本次流程后续判断的second
 	second := &fakeWSConn{recvBlock: true}
-	// dialer 保存dialer，供当前处理流程使用
+	// dialer 用于本次流程后续判断的dialer
 	dialer := &fakeDialer{results: []dialResult{
 		{conn: first},
 		{conn: second},
 	}}
 	acc.wsDialer = dialer
 
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
-	// done 保存done，供当前处理流程使用
+	// done 用于本次流程后续判断的done
 	done := make(chan error, 1)
 	go func() { done <- acc.Run(ctx) }()
 	waitForDialCalls(t, dialer, 2)
@@ -500,25 +500,25 @@ func TestRun_ReconnectUsesFreshTokenAndStableDeviceID(t *testing.T) {
 	<-done
 
 	dialer.mu.Lock()
-	// conns 保存conns，供当前处理流程使用
+	// conns 用于本次流程后续判断的conns
 	conns := append([]*fakeWSConn(nil), dialer.conns...)
 	dialer.mu.Unlock()
 	if len(conns) < 2 {
 		t.Fatalf("dial conns=%d want>=2", len(conns))
 	}
 	conns[0].mu.Lock()
-	// firstToken 保存first令牌，供当前处理流程使用
+	// firstToken 用于本次流程后续判断的first令牌
 	firstToken := conns[0].registeredTok
 	conns[0].mu.Unlock()
 	conns[1].mu.Lock()
-	// secondToken 保存second令牌，供当前处理流程使用
+	// secondToken 用于本次流程后续判断的second令牌
 	secondToken := conns[1].registeredTok
 	conns[1].mu.Unlock()
 	if firstToken != "fresh-1" || secondToken != "fresh-2" {
 		t.Fatalf("reconnect tokens=%v", []string{firstToken, secondToken})
 	}
 	mtopClient.mu.Lock()
-	// devices 保存devices，供当前处理流程使用
+	// devices 用于本次流程后续判断的devices
 	devices := append([]string(nil), mtopClient.devices...)
 	mtopClient.mu.Unlock()
 	if len(devices) != 2 || devices[0] == "" || devices[0] != devices[1] {
@@ -526,32 +526,32 @@ func TestRun_ReconnectUsesFreshTokenAndStableDeviceID(t *testing.T) {
 	}
 }
 
-// TestRun_EstablishedNetworkErrorReconnectsWithFreshToken 负责Test运行EstablishedNetwork错误ReconnectsWithFresh令牌相关处理。
+// TestRun_EstablishedNetworkErrorReconnectsWithFreshToken 封装Test运行EstablishedNetwork错误ReconnectsWithFresh令牌业务协调。
 func TestRun_EstablishedNetworkErrorReconnectsWithFreshToken(t *testing.T) {
-	// mtopClient 保存mtopClient，供当前处理流程使用
+	// mtopClient 用于本次流程后续判断的mtopClient
 	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "tok-1"}}
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newRunAccount(t, mtopClient)
 	defer cleanup()
-	// first 保存first，供当前处理流程使用
+	// first 用于本次流程后续判断的first
 	first := &fakeWSConn{recvErr: errors.New("connection reset by peer")}
-	// second 保存second，供当前处理流程使用
+	// second 用于本次流程后续判断的second
 	second := &fakeWSConn{recvBlock: true}
-	// dialer 保存dialer，供当前处理流程使用
+	// dialer 用于本次流程后续判断的dialer
 	dialer := &fakeDialer{results: []dialResult{{conn: first}, {conn: second}}}
 	acc.wsDialer = dialer
 
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
-	// done 保存done，供当前处理流程使用
+	// done 用于本次流程后续判断的done
 	done := make(chan error, 1)
 	go func() { done <- acc.Run(ctx) }()
 	waitForDialCalls(t, dialer, 2)
 	waitForRegisteredToken(t, second, "tok-1")
 	acc.mu.Lock()
-	// currentToken 保存current令牌，供当前处理流程使用
+	// currentToken 用于本次流程后续判断的current令牌
 	currentToken := acc.currentToken
-	// networkFailures 保存networkFailures，供当前处理流程使用
+	// networkFailures 用于本次流程后续判断的networkFailures
 	networkFailures := acc.networkFailures
 	acc.mu.Unlock()
 	if networkFailures != 0 || currentToken != "tok-1" {
@@ -559,7 +559,7 @@ func TestRun_EstablishedNetworkErrorReconnectsWithFreshToken(t *testing.T) {
 		<-done
 		t.Fatalf("网络断线后应立即用新凭证恢复连接: failures=%d token=%q", networkFailures, currentToken)
 	}
-	if // cached、err 保存cached、err，供当前处理流程使用
+	if // cached、err 用于本次流程后续判断的cached、err
 	cached, err := store.Tokens.Get(context.Background(), "cid"); err != nil || cached.AccessToken != "tok-1" {
 		cancel()
 		<-done
@@ -571,30 +571,30 @@ func TestRun_EstablishedNetworkErrorReconnectsWithFreshToken(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("取消后 Run 未退出")
 	}
-	if // calls 保存calls，供当前处理流程使用
+	if // calls 用于本次流程后续判断的calls
 	calls := atomic.LoadInt32(&mtopClient.calls); calls != 2 {
 		t.Fatalf("官网重连会重新获取连接凭证: calls=%d", calls)
 	}
 }
 
-// TestRun_InvalidRegTokenRequiresRelogin 负责Test运行InvalidReg令牌RequiresRelogin相关处理。
+// TestRun_InvalidRegTokenRequiresRelogin 封装Test运行InvalidReg令牌RequiresRelogin业务协调。
 func TestRun_InvalidRegTokenRequiresRelogin(t *testing.T) {
-	// mtopClient 保存mtopClient，供当前处理流程使用
+	// mtopClient 用于本次流程后续判断的mtopClient
 	mtopClient := &countingMtop{fakeRunMtop: fakeRunMtop{token: "fresh-token"}}
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newRunAccount(t, mtopClient)
 	defer cleanup()
-	// dialer 保存dialer，供当前处理流程使用
+	// dialer 用于本次流程后续判断的dialer
 	dialer := &fakeDialer{results: []dialResult{
 		{conn: &fakeWSConn{registerErr: &ws.RegError{Kind: ws.RegErrorInvalidToken, Code: 401, Reason: "invalid token"}}},
 	}}
 	acc.wsDialer = dialer
 
-	// done 保存done，供当前处理流程使用
+	// done 用于本次流程后续判断的done
 	done := make(chan error, 1)
 	go func() { done <- acc.Run(context.Background()) }()
 	select {
-	case // err 保存err，供当前处理流程使用
+	case // err 用于本次流程后续判断的err
 	err := <-done:
 		if !ws.IsInvalidTokenError(err) {
 			t.Fatalf("Run error=%v", err)
@@ -603,45 +603,45 @@ func TestRun_InvalidRegTokenRequiresRelogin(t *testing.T) {
 		t.Fatal("invalid /reg 后 Run 未退出")
 	}
 
-	if // calls 保存calls，供当前处理流程使用
+	if // calls 用于本次流程后续判断的calls
 	calls := atomic.LoadInt32(&mtopClient.calls); calls != 1 {
 		t.Fatalf("invalid /reg 不应在页面要求重新登录时静默重试: calls=%d", calls)
 	}
 	if dialer.calls != 1 {
 		t.Fatalf("invalid /reg dial calls=%d want 1", dialer.calls)
 	}
-	if // status 保存状态，供当前处理流程使用
+	if // status 用于本次流程后续判断的状态
 	status := acc.RuntimeStatus(); status.State != RuntimeAuthExpired {
 		t.Fatalf("runtime state=%q want %q", status.State, RuntimeAuthExpired)
 	}
 }
 
-// TestRun_ReloadsDatabaseCookieBeforeNaturalReconnect 负责Test运行ReloadsDatabase登录凭证BeforeNaturalReconnect相关处理。
+// TestRun_ReloadsDatabaseCookieBeforeNaturalReconnect 封装Test运行ReloadsDatabase登录凭证BeforeNaturalReconnect业务协调。
 func TestRun_ReloadsDatabaseCookieBeforeNaturalReconnect(t *testing.T) {
-	// mtopClient 保存mtopClient，供当前处理流程使用
+	// mtopClient 用于本次流程后续判断的mtopClient
 	mtopClient := &sequencedTokenMtop{fakeRunMtop: fakeRunMtop{token: "token"}}
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newRunAccount(t, mtopClient)
 	defer cleanup()
-	// newCookie 保存new登录凭证，供当前处理流程使用
+	// newCookie 用于本次流程后续判断的new登录凭证
 	newCookie := "unb=123; _m_h5_tk=db-renewed_2; cookie2=new"
-	// first 保存first，供当前处理流程使用
+	// first 用于本次流程后续判断的first
 	first := &fakeWSConn{recvBlock: false, onReceive: func(func(map[string]any)) {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := store.Cookies.UpdateValueExisting(context.Background(), "cid", newCookie); err != nil {
 			t.Errorf("update Cookie: %v", err)
 		}
 	}}
-	// dialer 保存dialer，供当前处理流程使用
+	// dialer 用于本次流程后续判断的dialer
 	dialer := &fakeDialer{results: []dialResult{
 		{conn: first},
 		{conn: &fakeWSConn{recvBlock: true}},
 	}}
 	acc.wsDialer = dialer
 
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
-	// done 保存done，供当前处理流程使用
+	// done 用于本次流程后续判断的done
 	done := make(chan error, 1)
 	go func() { done <- acc.Run(ctx) }()
 	waitForDialCalls(t, dialer, 2)
@@ -649,26 +649,26 @@ func TestRun_ReloadsDatabaseCookieBeforeNaturalReconnect(t *testing.T) {
 	<-done
 
 	mtopClient.mu.Lock()
-	// cookies 保存cookies，供当前处理流程使用
+	// cookies 用于本次流程后续判断的cookies
 	cookies := append([]string(nil), mtopClient.cookies...)
 	mtopClient.mu.Unlock()
 	if len(cookies) < 2 || cookies[1] != newCookie {
 		t.Fatalf("second token Cookie=%v want=%q", cookies, newCookie)
 	}
-	if // calls 保存calls，供当前处理流程使用
+	if // calls 用于本次流程后续判断的calls
 	calls := mtopClient.calls; calls != 2 {
 		t.Fatalf("Cookie change should invalidate token for reconnect, calls=%d", calls)
 	}
 }
 
-// waitForDialCalls 负责waitForDialCalls相关处理。
+// waitForDialCalls 封装waitForDialCalls业务协调。
 func waitForDialCalls(t *testing.T, dialer *fakeDialer, want int) {
 	t.Helper()
-	// deadline 保存deadline，供当前处理流程使用
+	// deadline 用于本次流程后续判断的deadline
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		dialer.mu.Lock()
-		// calls 保存calls，供当前处理流程使用
+		// calls 用于本次流程后续判断的calls
 		calls := dialer.calls
 		dialer.mu.Unlock()
 		if calls >= want {
@@ -677,20 +677,20 @@ func waitForDialCalls(t *testing.T, dialer *fakeDialer, want int) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	dialer.mu.Lock()
-	// calls 保存calls，供当前处理流程使用
+	// calls 用于本次流程后续判断的calls
 	calls := dialer.calls
 	dialer.mu.Unlock()
 	t.Fatalf("dial calls=%d want>=%d", calls, want)
 }
 
-// waitForRegisteredToken 负责waitForRegistered令牌相关处理。
+// waitForRegisteredToken 封装waitForRegistered令牌业务协调。
 func waitForRegisteredToken(t *testing.T, conn *fakeWSConn, want string) {
 	t.Helper()
-	// deadline 保存deadline，供当前处理流程使用
+	// deadline 用于本次流程后续判断的deadline
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		conn.mu.Lock()
-		// token 保存令牌，供当前处理流程使用
+		// token 用于本次流程后续判断的令牌
 		token := conn.registeredTok
 		conn.mu.Unlock()
 		if token == want {
@@ -699,7 +699,7 @@ func waitForRegisteredToken(t *testing.T, conn *fakeWSConn, want string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	conn.mu.Lock()
-	// token 保存令牌，供当前处理流程使用
+	// token 用于本次流程后续判断的令牌
 	token := conn.registeredTok
 	conn.mu.Unlock()
 	t.Fatalf("registered token=%q want=%q", token, want)
@@ -707,20 +707,20 @@ func waitForRegisteredToken(t *testing.T, conn *fakeWSConn, want string) {
 
 // TestRun_DisabledAccountExits 账号被禁用时 Run 立即退出。
 func TestRun_DisabledAccountExits(t *testing.T) {
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newRunAccount(t, &fakeRunMtop{token: "tok-1"})
 	defer cleanup()
 	// 禁用账号。
 	store.Cookies.SetStatus(context.Background(), "cid", false)
 
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	// done 保存done，供当前处理流程使用
+	// done 用于本次流程后续判断的done
 	done := make(chan error, 1)
 	go func() { done <- acc.Run(ctx) }()
 	select {
-	case // err 保存err，供当前处理流程使用
+	case // err 用于本次流程后续判断的err
 	err := <-done:
 		if err != nil {
 			t.Fatalf("禁用账号 Run 应返回 nil，got %v", err)
@@ -730,22 +730,22 @@ func TestRun_DisabledAccountExits(t *testing.T) {
 	}
 }
 
-// TestRun_APIRenewFailureDoesNotBlockTokenAndWebSocket 负责Test运行APIRenewFailureDoesNotBlock令牌AndWebSocket相关处理。
+// TestRun_APIRenewFailureDoesNotBlockTokenAndWebSocket 封装Test运行APIRenewFailureDoesNotBlock令牌AndWebSocket业务协调。
 func TestRun_APIRenewFailureDoesNotBlockTokenAndWebSocket(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newRunAccount(t, &fakeRunMtop{token: "tok-after-renew-error"})
 	defer cleanup()
 
-	// renewer 保存renewer，供当前处理流程使用
+	// renewer 用于本次流程后续判断的renewer
 	renewer := &stubCookieRenewer{err: errors.New("startup API renewal failed")}
 	acc.renewer = renewer
-	// conn 保存conn，供当前处理流程使用
+	// conn 用于本次流程后续判断的conn
 	conn := &fakeWSConn{recvBlock: true}
 	acc.wsDialer = &fakeDialer{results: []dialResult{{conn: conn}}}
 
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
-	// done 保存done，供当前处理流程使用
+	// done 用于本次流程后续判断的done
 	done := make(chan error, 1)
 	go func() { done <- acc.Run(ctx) }()
 
@@ -755,7 +755,7 @@ func TestRun_APIRenewFailureDoesNotBlockTokenAndWebSocket(t *testing.T) {
 	}
 	cancel()
 	select {
-	case // err 保存err，供当前处理流程使用
+	case // err 用于本次流程后续判断的err
 	err := <-done:
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("Run error=%v want context canceled", err)
@@ -765,16 +765,16 @@ func TestRun_APIRenewFailureDoesNotBlockTokenAndWebSocket(t *testing.T) {
 	}
 }
 
-// TestRun_APIRenewSuccessRebuildsOfficialPageDeviceID 负责Test运行APIRenewSuccessRebuildsOfficial页码DeviceID相关处理。
+// TestRun_APIRenewSuccessRebuildsOfficialPageDeviceID 封装Test运行APIRenewSuccessRebuildsOfficial页码DeviceID业务协调。
 func TestRun_APIRenewSuccessRebuildsOfficialPageDeviceID(t *testing.T) {
-	// tokenClient 保存令牌Client，供当前处理流程使用
+	// tokenClient 用于本次流程后续判断的令牌Client
 	tokenClient := &sequencedTokenMtop{}
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newRunAccount(t, tokenClient)
 	defer cleanup()
 
 	acc.mu.Lock()
-	// initialDeviceID 保存initialDeviceID，供当前处理流程使用
+	// initialDeviceID 用于本次流程后续判断的initialDeviceID
 	initialDeviceID := acc.deviceID
 	acc.mu.Unlock()
 	acc.renewer = &stubCookieRenewer{result: &xrenew.Result{
@@ -782,19 +782,19 @@ func TestRun_APIRenewSuccessRebuildsOfficialPageDeviceID(t *testing.T) {
 		RenewMethod: "auto_login_plugin",
 		NewCookies:  "unb=123; _m_h5_tk=tk_1;",
 	}}
-	// conn 保存conn，供当前处理流程使用
+	// conn 用于本次流程后续判断的conn
 	conn := &fakeWSConn{recvBlock: true}
 	acc.wsDialer = &fakeDialer{results: []dialResult{{conn: conn}}}
 
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
-	// done 保存done，供当前处理流程使用
+	// done 用于本次流程后续判断的done
 	done := make(chan error, 1)
 	go func() { done <- acc.Run(ctx) }()
 
 	waitForRegisteredToken(t, conn, "fresh-1")
 	conn.mu.Lock()
-	// registeredDeviceID 保存registeredDeviceID，供当前处理流程使用
+	// registeredDeviceID 用于本次流程后续判断的registeredDeviceID
 	registeredDeviceID := conn.registeredDID
 	conn.mu.Unlock()
 	if registeredDeviceID == initialDeviceID {
@@ -808,7 +808,7 @@ func TestRun_APIRenewSuccessRebuildsOfficialPageDeviceID(t *testing.T) {
 
 	cancel()
 	select {
-	case // err 保存err，供当前处理流程使用
+	case // err 用于本次流程后续判断的err
 	err := <-done:
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("Run error=%v want context canceled", err)
@@ -818,30 +818,30 @@ func TestRun_APIRenewSuccessRebuildsOfficialPageDeviceID(t *testing.T) {
 	}
 }
 
-// TestRun_TokenFetchFailureRetriesWithoutDisablingAccount 负责Test运行令牌FetchFailureRetriesWithoutDisabling账号相关处理。
+// TestRun_TokenFetchFailureRetriesWithoutDisablingAccount 封装Test运行令牌FetchFailureRetriesWithoutDisabling账号业务协调。
 func TestRun_TokenFetchFailureRetriesWithoutDisablingAccount(t *testing.T) {
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newRunAccount(t, &fakeFailTokenMtop{err: errFakeDial})
 	defer cleanup()
 	acc.wsDialer = &fakeDialer{results: []dialResult{{conn: &fakeWSConn{recvBlock: true}}}}
-	// h 保存h，供当前处理流程使用
+	// h 用于本次流程后续判断的h
 	h := &failingRefreshHandler{}
 	acc.handler = h
 	acc.mu.Lock()
 	acc.tokenFetchFailures = TokenFetchDisableThreshold - 1
 	acc.mu.Unlock()
 
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
-	// done 保存done，供当前处理流程使用
+	// done 用于本次流程后续判断的done
 	done := make(chan error, 1)
 	go func() { done <- acc.Run(ctx) }()
-	// deadline 保存deadline，供当前处理流程使用
+	// deadline 用于本次流程后续判断的deadline
 	deadline := time.Now().Add(2 * time.Second)
 	for acc.RuntimeStatus().State != RuntimeReconnecting && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if // status 保存状态，供当前处理流程使用
+	if // status 用于本次流程后续判断的状态
 	status := acc.RuntimeStatus(); status.State != RuntimeReconnecting {
 		t.Fatalf("runtime state=%q want %q", status.State, RuntimeReconnecting)
 	}
@@ -856,7 +856,7 @@ func TestRun_TokenFetchFailureRetriesWithoutDisablingAccount(t *testing.T) {
 	}
 	cancel()
 	select {
-	case // err 保存err，供当前处理流程使用
+	case // err 用于本次流程后续判断的err
 	err := <-done:
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("Run error=%v want context canceled", err)
@@ -866,11 +866,11 @@ func TestRun_TokenFetchFailureRetriesWithoutDisablingAccount(t *testing.T) {
 	}
 }
 
-// errFakeDial 保存errFakeDial，供当前处理流程使用
+// errFakeDial 用于本次流程后续判断的errFakeDial
 var errFakeDial = fakeDialErr{}
 
-// fakeDialErr 保存fakeDialErr，供当前处理流程使用
+// fakeDialErr 用于本次流程后续判断的fakeDialErr
 type fakeDialErr struct{}
 
-// Error 负责错误相关处理。
+// Error 封装错误业务协调。
 func (fakeDialErr) Error() string { return "fake dial failure" }

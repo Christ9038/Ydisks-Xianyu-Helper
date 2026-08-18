@@ -14,42 +14,42 @@ import (
 	"xianyu-go/internal/xianyu/mtop"
 )
 
-// errAutomationDeferred 保存err自动化Deferred，供当前处理流程使用
+// errAutomationDeferred 用于本次流程后续判断的err自动化Deferred
 var (
 	errAutomationDeferred    = errors.New("自动化动作已持久化等待执行")
 	errAutomationNeedsReview = errors.New("自动化动作结果需要人工核对")
 	errAutomationQuarantine  = errors.New("自动化人工核对状态保存失败")
 	errActionNotPerformed    = errors.New("自动化外部动作明确未执行")
-	// ErrMessageNotSent 表示错误发生在调用 WebSocket 发送之前，可以安全重试。
+	// ErrMessageNotSent 记录当前操作失败原因发生在调用 WebSocket 发送之前，可以安全重试。
 	// engine 通过 errors.Is 标记“连接尚未就绪”等运行时状态，避免被误判为
 	// 远端可能已经收到消息。
 	ErrMessageNotSent = errors.New("自动化消息确定未发送")
 )
 
-// preparationError 保存preparation错误，供当前处理流程使用
+// preparationError 用于本次流程后续判断的preparation错误
 type preparationError struct{ err error }
 
-// Error 负责错误相关处理。
+// Error 封装错误业务协调。
 func (e *preparationError) Error() string { return e.err.Error() }
 
-// Unwrap 负责Unwrap相关处理。
+// Unwrap 封装Unwrap业务协调。
 func (e *preparationError) Unwrap() error { return e.err }
 
-// uncertainActionError 保存uncertain动作错误，供当前处理流程使用
+// uncertainActionError 用于本次流程后续判断的uncertain动作错误
 type uncertainActionError struct{ err error }
 
-// Error 负责错误相关处理。
+// Error 封装错误业务协调。
 func (e *uncertainActionError) Error() string { return e.err.Error() }
 
-// Unwrap 负责Unwrap相关处理。
+// Unwrap 封装Unwrap业务协调。
 func (e *uncertainActionError) Unwrap() error { return e.err }
 
-// uncertainAction 负责uncertain动作相关处理。
+// uncertainAction 封装uncertain动作业务协调。
 func uncertainAction(err error) error {
 	if err == nil {
 		return nil
 	}
-	// existing 保存existing，供当前处理流程使用
+	// existing 用于本次流程后续判断的existing
 	var existing *uncertainActionError
 	if errors.As(err, &existing) {
 		return err
@@ -59,7 +59,7 @@ func uncertainAction(err error) error {
 
 // SenderProvider 根据账号 ID 提供当前在线账号的发送能力。
 // 计划任务和 WS 事件都复用这个抽象，避免自动化中心直接依赖 account.Manager。
-// SenderProvider 保存SenderProvider，供当前处理流程使用
+// SenderProvider 用于本次流程后续判断的SenderProvider
 type SenderProvider interface {
 	Sender(cookieID string) (MessageSender, bool)
 }
@@ -73,14 +73,14 @@ type MessageSender interface {
 
 // automationReadySender 由能够报告实时连接状态的发送器选择性实现。
 // 未实现的测试或外部发送器保持向后兼容，视为已经就绪。
-// automationReadySender 保存自动化ReadySender，供当前处理流程使用
+// automationReadySender 用于本次流程后续判断的自动化ReadySender
 type automationReadySender interface {
 	AutomationReady() bool
 }
 
 // OrderDetailFetcher 查询闲鱼订单详情。自动发货必须先拿到订单规格和购买数量，
 // 再按规则里的规格映射发货。
-// OrderDetailFetcher 保存订单DetailFetcher，供当前处理流程使用
+// OrderDetailFetcher 用于本次流程后续判断的订单DetailFetcher
 type OrderDetailFetcher interface {
 	FetchOrderDetail(ctx context.Context, cookieID, orderID, itemID, buyerID, cookieStr string) (*OrderDetail, error)
 }
@@ -98,7 +98,7 @@ type Notifier interface {
 
 // Center 是统一自动化处理中心。
 // 它只接收已经分类好的系统事件或计划任务，不处理用户消息；用户消息由 engine 的回复链处理。
-// Center 保存Center，供当前处理流程使用
+// Center 用于本次流程后续判断的Center
 type Center struct {
 	// facts 记录已解析的自动化事件事实，不执行规则动作。
 	facts eventFactRecorder
@@ -176,7 +176,7 @@ func NewWithDependencies(store *db.Store, senders SenderProvider, logger *slog.L
 	if accountTaskClient == nil {
 		accountTaskClient = defaultTaskClient
 	}
-	// center 保存center，供当前处理流程使用
+	// center 用于本次流程后续判断的center
 	center := &Center{
 		facts:   newEventFactRecorder(store),
 		rules:   newRuleMatcher(store),
@@ -256,12 +256,12 @@ func (c *Center) scanAccountTasks(ctx context.Context) {
 
 // HandleTask 处理一条自动化任务。无匹配规则时安全忽略。
 func (c *Center) HandleTask(ctx context.Context, task Task) error {
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	_, err := c.handleTask(ctx, task)
 	return err
 }
 
-// handleTask 负责handle任务相关处理。
+// handleTask 封装handle任务业务协调。
 func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 	if c == nil || c.store == nil || c.store.Automation == nil {
 		return false, nil
@@ -270,32 +270,32 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 	if task.TriggerType == "" || task.AccountID == "" {
 		return false, nil
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := c.facts.record(ctx, task); err != nil {
 		return false, err
 	}
 	if task.OrderID != "" {
-		if // order、orderErr 保存order、orderErr，供当前处理流程使用
+		if // order、orderErr 用于本次流程后续判断的order、orderErr
 		order, orderErr := c.store.Orders.Get(ctx, task.OrderID); orderErr == nil && order != nil {
 			task = mergeOrderIntoTask(task, order)
 		} else if orderErr != nil && !errors.Is(orderErr, db.ErrNotFound) {
 			return false, fmt.Errorf("读取自动化事件订单事实: %w", orderErr)
 		}
 	}
-	// paused、until、err 保存paused、until、err，供当前处理流程使用
+	// paused、until、err 用于本次流程后续判断的paused、until、err
 	paused, until, err := c.store.Cookies.IsPaused(ctx, task.AccountID)
 	if err != nil {
 		return false, err
 	}
 	if paused {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := c.deferTask(ctx, task, until); err != nil {
 			return false, err
 		}
 		c.logger.Info("账号已暂停，自动化事件已持久化等待恢复", "account", task.AccountID, "trigger", task.TriggerType, "due_at", until)
 		return true, nil
 	}
-	// enabled、err 保存enabled、err，供当前处理流程使用
+	// enabled、err 用于本次流程后续判断的enabled、err
 	enabled, err := c.store.Cookies.Status(ctx, task.AccountID)
 	if err != nil {
 		return false, err
@@ -304,7 +304,7 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 		c.logger.Info("账号已停用，记录事件事实但不执行自动化", "account", task.AccountID, "trigger", task.TriggerType)
 		return false, nil
 	}
-	// rules、err 保存rules、err，供当前处理流程使用
+	// rules、err 用于本次流程后续判断的rules、err
 	rules, err := c.rules.match(ctx, task)
 	if err != nil {
 		return false, err
@@ -313,18 +313,18 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 		c.logger.Info("无匹配自动化规则，忽略事件", "trigger", task.TriggerType, "order_id", task.OrderID, "item_id", task.ItemID)
 		return false, nil
 	}
-	// firstErr 保存firstErr，供当前处理流程使用
+	// firstErr 用于本次流程后续判断的firstErr
 	var firstErr error
 	// rule 表示当前遍历过程中的规则
 	for _, rule := range rules {
-		if // err 保存err，供当前处理流程使用
+		if // err 用于本次流程后续判断的err
 		err := c.executeRule(ctx, task, rule); err != nil {
-			// prepErr 保存prepErr，供当前处理流程使用
+			// prepErr 用于本次流程后续判断的prepErr
 			var prepErr *preparationError
 			if errors.As(err, &prepErr) && !isDeferredReplay(task) {
-				// dueAt 保存dueAt，供当前处理流程使用
+				// dueAt 用于本次流程后续判断的dueAt
 				dueAt := time.Now().UTC().Add(time.Minute).Unix()
-				if // deferErr 保存deferErr，供当前处理流程使用
+				if // deferErr 用于本次流程后续判断的deferErr
 				deferErr := c.deferTaskWithError(ctx, task, dueAt, prepErr.Error()); deferErr != nil {
 					return false, errors.Join(err, fmt.Errorf("持久化前置失败任务: %w", deferErr))
 				}
@@ -344,26 +344,26 @@ func (c *Center) handleTask(ctx context.Context, task Task) (bool, error) {
 	return false, firstErr
 }
 
-// taskAutomationRunID 负责任务自动化运行ID相关处理。
+// taskAutomationRunID 封装任务自动化运行ID业务协调。
 func taskAutomationRunID(task Task) int64 {
 	if task.Raw == nil {
 		return 0
 	}
-	// value 保存值，供当前处理流程使用
+	// value 用于本次流程后续判断的值
 	value := fmt.Sprint(task.Raw["automation_run_id"])
-	// id 保存标识，供当前处理流程使用
+	// id 用于本次流程后续判断的标识
 	id, _ := strconv.ParseInt(value, 10, 64)
 	return id
 }
 
-// taskDelayCursor 负责任务延迟游标相关处理。
+// taskDelayCursor 封装任务延迟游标业务协调。
 func taskDelayCursor(task Task) int {
 	if task.Raw == nil {
 		return -1
 	}
-	// value 保存值，供当前处理流程使用
+	// value 用于本次流程后续判断的值
 	value := fmt.Sprint(task.Raw["automation_delay_cursor"])
-	// cursor、err 保存cursor、err，供当前处理流程使用
+	// cursor、err 用于本次流程后续判断的cursor、err
 	cursor, err := strconv.Atoi(value)
 	if err != nil {
 		return -1
@@ -371,25 +371,25 @@ func taskDelayCursor(task Task) int {
 	return cursor
 }
 
-// isDeferredReplay 负责isDeferredReplay相关处理。
+// isDeferredReplay 封装isDeferredReplay业务协调。
 func isDeferredReplay(task Task) bool {
 	return task.Raw != nil && task.Raw["automation_deferred_replay"] == true
 }
 
-// deferTask 负责defer任务相关处理。
+// deferTask 封装defer任务业务协调。
 func (c *Center) deferTask(ctx context.Context, task Task, dueAt int64) error {
 	return c.deferTaskWithError(ctx, task, dueAt, "")
 }
 
-// deferTaskWithError 负责defer任务With错误相关处理。
+// deferTaskWithError 封装defer任务With错误业务协调。
 func (c *Center) deferTaskWithError(ctx context.Context, task Task, dueAt int64, errMsg string) error {
-	// key 保存key，供当前处理流程使用
+	// key 用于本次流程后续判断的key
 	key := buildTriggerKey(task)
 	if key == "" {
 		return fmt.Errorf("暂停期间的自动化事件缺少可持久化防重键")
 	}
 	task.CookieStr = ""
-	// raw、err 保存raw、err，供当前处理流程使用
+	// raw、err 用于本次流程后续判断的raw、err
 	raw, err := json.Marshal(task)
 	if err != nil {
 		return err
@@ -402,7 +402,7 @@ func (c *Center) deferTaskWithError(ctx context.Context, task Task, dueAt int64,
 
 // ManualFullDelivery 对已存在订单执行完整发货，和付款系统事件共用同一套
 // 订单详情补全、规格匹配、按购买数量发卡、确认发货逻辑。
-// ManualFullDelivery 负责ManualFull发货相关处理。
+// ManualFullDelivery 封装ManualFull发货业务协调。
 func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, error) {
 	if c == nil || c.store == nil || order == nil {
 		return 0, fmt.Errorf("自动化中心未初始化或订单为空")
@@ -410,7 +410,7 @@ func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, 
 	if strings.TrimSpace(order.OrderID) == "" {
 		return 0, fmt.Errorf("订单缺少订单ID")
 	}
-	// paused、until、err 保存paused、until、err，供当前处理流程使用
+	// paused、until、err 用于本次流程后续判断的paused、until、err
 	paused, until, err := c.store.Cookies.IsPaused(ctx, order.CookieID)
 	if err != nil {
 		return 0, fmt.Errorf("读取账号暂停状态: %w", err)
@@ -418,7 +418,7 @@ func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, 
 	if paused {
 		return 0, fmt.Errorf("账号暂停处理中，恢复时间 %d", until)
 	}
-	// enabled、err 保存enabled、err，供当前处理流程使用
+	// enabled、err 用于本次流程后续判断的enabled、err
 	enabled, err := c.store.Cookies.Status(ctx, order.CookieID)
 	if err != nil {
 		return 0, fmt.Errorf("读取账号启用状态: %w", err)
@@ -435,7 +435,7 @@ func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, 
 	if strings.TrimSpace(order.ChatID) == "" || strings.TrimSpace(order.BuyerID) == "" {
 		return 0, fmt.Errorf("订单缺少 chat_id 或 buyer_id，无法发送卡券")
 	}
-	// task 保存任务，供当前处理流程使用
+	// task 用于本次流程后续判断的任务
 	task := Task{
 		Source:               "manual",
 		AccountID:            order.CookieID,
@@ -456,7 +456,7 @@ func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, 
 	if err != nil {
 		return 0, err
 	}
-	// rules、err 保存rules、err，供当前处理流程使用
+	// rules、err 用于本次流程后续判断的rules、err
 	rules, err := c.rules.match(ctx, task)
 	if err != nil {
 		return 0, err
@@ -464,7 +464,7 @@ func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, 
 	if len(rules) == 0 {
 		return 0, fmt.Errorf("未匹配到付款后自动发货规则")
 	}
-	// sent 保存sent，供当前处理流程使用
+	// sent 用于本次流程后续判断的sent
 	sent := 0
 	// rule 表示当前遍历过程中的规则
 	for _, rule := range rules {
@@ -472,7 +472,7 @@ func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, 
 			continue
 		}
 		task.ActionPlan = c.planner.plan(task, c.planner.immediateManualActions(rule.Actions))
-		// rawTask 保存原始任务，供当前处理流程使用
+		// rawTask 用于本次流程后续判断的原始任务
 		rawTask := task
 		rawTask.CookieStr = ""
 		// rawJSON 保存原始JSON，供恢复运行读取；marshalErr 表示快照序列化失败，失败时不能继续执行不可逆动作。
@@ -480,7 +480,7 @@ func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, 
 		if marshalErr != nil {
 			return 0, fmt.Errorf("保存完整发货运行快照: %w", marshalErr)
 		}
-		// runID、started、startErr 保存运行ID、started、startErr，供当前处理流程使用
+		// runID、started、startErr 用于本次流程后续判断的运行ID、started、startErr
 		runID, started, startErr := c.store.Automation.TryStartRun(ctx, db.AutomationRun{
 			RuleID:         rule.ID,
 			CookieID:       task.AccountID,
@@ -499,12 +499,12 @@ func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, 
 		if !started {
 			return 0, fmt.Errorf("该订单已自动或手动执行过完整发货；如仅需补记状态，请选择仅修改发货状态")
 		}
-		// run、getErr 保存run、getErr，供当前处理流程使用
+		// run、getErr 用于本次流程后续判断的run、getErr
 		run, getErr := c.store.Automation.GetRun(ctx, runID)
 		if getErr != nil {
 			return 0, getErr
 		}
-		// n、deferred、err 保存n、deferred、err，供当前处理流程使用
+		// n、deferred、err 用于本次流程后续判断的n、deferred、err
 		n, deferred, err := c.executeRunActions(ctx, task, rule.ID, run, task.ActionPlan, true)
 		if deferred {
 			return n, errors.New("手动完整发货不应进入延迟队列")
@@ -513,14 +513,14 @@ func (c *Center) ManualFullDelivery(ctx context.Context, order *db.Order) (int, 
 		if errors.Is(err, errAutomationNeedsReview) {
 			return sent, err
 		}
-		// status、errMsg 保存status、errMsg，供当前处理流程使用
+		// status、errMsg 用于本次流程后续判断的status、errMsg
 		status, errMsg := "success", ""
 		if err != nil {
 			status, errMsg = "failed", err.Error()
 		}
-		// finishCtx、cancel 保存finishCtx、cancel，供当前处理流程使用
+		// finishCtx、cancel 用于本次流程后续判断的finishCtx、cancel
 		finishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		// finishErr 保存finishErr，供当前处理流程使用
+		// finishErr 用于本次流程后续判断的finishErr
 		finishErr := c.store.Automation.FinishRun(finishCtx, runID, run.AttemptCount, status, sent, errMsg)
 		if finishErr != nil {
 			// reason 说明外部动作已经可能执行，但运行结果未能收口，必须禁止自动重放并转人工核对。
@@ -563,12 +563,12 @@ func (c *Center) executeRunActions(ctx context.Context, task Task, ruleID int64,
 
 // notifyResult 根据规则执行结果发送通知。成功且实际发出了内容才通知，
 // 避免无匹配动作的空跑刷屏；每次通知都以运行 ID 和终态持久化去重。
-// notifyResult 负责notify结果相关处理。
+// notifyResult 封装notify结果业务协调。
 func (c *Center) notifyResult(ctx context.Context, task Task, runID int64, status string, sent int, errMsg string) {
 	c.notifications.notifyResult(ctx, task, runID, status, sent, errMsg)
 }
 
-// notifyRunNeedsReview 负责notify运行NeedsReview相关处理。
+// notifyRunNeedsReview 封装notify运行NeedsReview业务协调。
 func (c *Center) notifyRunNeedsReview(ctx context.Context, run db.AutomationRun, reason string) {
 	if c == nil {
 		return
@@ -578,17 +578,17 @@ func (c *Center) notifyRunNeedsReview(ctx context.Context, run db.AutomationRun,
 
 // actionDelaySeconds 统一卡密默认延时和动作覆盖语义。旧动作没有
 // delay_override 字段时自动使用卡密上的默认延时。
-// actionDelaySeconds 负责动作延迟秒数相关处理。
+// actionDelaySeconds 封装动作延迟秒数业务协调。
 func (c *Center) actionDelaySeconds(ctx context.Context, action db.AutomationAction) (int, error) {
 	if action.ActionType != ActionSendCard || action.CardID <= 0 {
 		return action.DelaySeconds, nil
 	}
-	// cfg 保存cfg，供当前处理流程使用
+	// cfg 用于本次流程后续判断的cfg
 	var cfg struct {
 		DelayOverride bool `json:"delay_override"`
 	}
 	_ = json.Unmarshal([]byte(action.ConfigJSON), &cfg)
-	// card、err 保存card、err，供当前处理流程使用
+	// card、err 用于本次流程后续判断的card、err
 	card, err := c.store.Cards.Get(ctx, action.CardID)
 	if err != nil {
 		return 0, err
@@ -602,7 +602,7 @@ func (c *Center) actionDelaySeconds(ctx context.Context, action db.AutomationAct
 	return card.DelaySeconds, nil
 }
 
-// prepareTask 负责prepare任务相关处理。
+// prepareTask 封装prepare任务业务协调。
 func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 	if task.OrderID == "" {
 		return task, nil
@@ -616,9 +616,9 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 	}); err != nil {
 		return task, fmt.Errorf("保存自动化准备阶段订单事实: %w", err)
 	}
-	// needsDetail 保存needsDetail，供当前处理流程使用
+	// needsDetail 用于本次流程后续判断的needsDetail
 	needsDetail := task.TriggerType == TriggerOrderPaid
-	if // existing、err 保存existing、err，供当前处理流程使用
+	if // existing、err 用于本次流程后续判断的existing、err
 	existing, err := c.store.Orders.Get(ctx, task.OrderID); err == nil && existing != nil {
 		task = mergeOrderIntoTask(task, existing)
 		if needsDetail && (existing.Quantity == "" || existing.Amount == "") {
@@ -635,17 +635,17 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 	if !needsDetail || fetcher == nil {
 		return task, nil
 	}
-	// cookieStr 保存登录凭证Str，供当前处理流程使用
+	// cookieStr 用于本次流程后续判断的登录凭证Str
 	cookieStr := task.CookieStr
 	if strings.TrimSpace(cookieStr) == "" {
-		// err 保存err，供当前处理流程使用
+		// err 用于本次流程后续判断的err
 		var err error
 		cookieStr, err = c.cookieValue(ctx, task.AccountID)
 		if err != nil {
 			return task, err
 		}
 	}
-	// detail、err 保存detail、err，供当前处理流程使用
+	// detail、err 用于本次流程后续判断的detail、err
 	detail, err := fetcher.FetchOrderDetail(ctx, task.AccountID, task.OrderID, task.ItemID, task.BuyerID, cookieStr)
 	if err != nil {
 		return task, err
@@ -685,7 +685,7 @@ func (c *Center) prepareTask(ctx context.Context, task Task) (Task, error) {
 	return task, nil
 }
 
-// mergeOrderIntoTask 负责merge订单Into任务相关处理。
+// mergeOrderIntoTask 封装merge订单Into任务业务协调。
 func mergeOrderIntoTask(task Task, order *db.Order) Task {
 	if task.ItemID == "" {
 		task.ItemID = order.ItemID
@@ -729,7 +729,7 @@ func (c *Center) wakeCredentialBlockedAutomation(ctx context.Context, accountID 
 	if c == nil || c.store == nil || c.store.Automation == nil {
 		return
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := c.store.Automation.WakeCredentialBlocked(ctx, accountID); err != nil {
 		c.logger.Warn("Cookie 更新后唤醒自动化任务失败", "account", accountID, "err", err)
 	}
@@ -750,12 +750,12 @@ func (c *Center) accountSenderReady(accountID string) bool {
 	if c == nil || c.senders == nil {
 		return false
 	}
-	// sender、ok 保存sender、ok，供当前处理流程使用
+	// sender、ok 用于本次流程后续判断的sender、ok
 	sender, ok := c.senders.Sender(accountID)
 	if !ok {
 		return false
 	}
-	if // ready、ok 保存ready、ok，供当前处理流程使用
+	if // ready、ok 用于本次流程后续判断的ready、ok
 	ready, ok := sender.(automationReadySender); ok {
 		return ready.AutomationReady()
 	}
@@ -777,10 +777,10 @@ func (c *Center) cookieValue(ctx context.Context, cookieID string) (string, erro
 	return c.actions.cookieValue(ctx, cookieID)
 }
 
-// buildTriggerKey 负责buildTriggerKey相关处理。
+// buildTriggerKey 封装buildTriggerKey业务协调。
 func buildTriggerKey(task Task) string {
 	if task.TriggerType == TriggerReviewMissingTimeout && task.OrderID != "" {
-		if // attempt、ok 保存attempt、ok，供当前处理流程使用
+		if // attempt、ok 用于本次流程后续判断的attempt、ok
 		attempt, ok := task.Raw["attempt"]; ok {
 			return fmt.Sprintf("%s:%s:%v", task.TriggerType, task.OrderID, attempt)
 		}

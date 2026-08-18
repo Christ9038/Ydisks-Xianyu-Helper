@@ -24,9 +24,14 @@ func TestOrderReconciliationsLifecycle(t *testing.T) {
 	if err != nil || id == "" {
 		t.Fatalf("CreatePending id=%q err=%v", id, err)
 	}
+	// repeatedID、err 保存同一外部动作重试后复用的补偿记录标识及错误。
+	repeatedID, err := store.Reconciliations.CreatePending(ctx, "order-1", "cookie-1", "manual_status_ship", "重复本地写入失败")
+	if err != nil || repeatedID != id {
+		t.Fatalf("幂等 CreatePending id=%q want=%q err=%v", repeatedID, id, err)
+	}
 	// records、err 保存待补偿扫描结果及错误。
 	records, err := store.Reconciliations.ListPending(ctx, 10)
-	if err != nil || len(records) != 1 || records[0].ID != id || records[0].Status != "pending" {
+	if err != nil || len(records) != 1 || records[0].ID != id || records[0].Status != "pending" || records[0].IdempotencyKey == "" {
 		t.Fatalf("ListPending records=%+v err=%v", records, err)
 	}
 	// err 表示补偿记录首次完成失败。

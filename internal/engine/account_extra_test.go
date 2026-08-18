@@ -19,7 +19,7 @@ import (
 	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
-// riskCountingMTop 保存riskCountingMTop，供当前处理流程使用
+// riskCountingMTop 用于本次流程后续判断的riskCountingMTop
 type riskCountingMTop struct {
 	fakeRunMtop
 	calls int
@@ -34,64 +34,64 @@ func (m *riskCountingMTop) RefreshTokenWithDeviceIDContext(context.Context, stri
 	return nil, &mtop.RiskVerificationError{Ret: []string{"FAIL_SYS_USER_VALIDATE"}, VerificationURL: "https://verify.example"}
 }
 
-// tokenRecoveredHandler 保存令牌RecoveredHandler，供当前处理流程使用
+// tokenRecoveredHandler 用于本次流程后续判断的令牌RecoveredHandler
 type tokenRecoveredHandler struct{ recordingHandler }
 
-// OnTokenCaptchaVerification 负责On令牌CaptchaVerification相关处理。
+// OnTokenCaptchaVerification 封装On令牌CaptchaVerification业务协调。
 func (h *tokenRecoveredHandler) OnTokenCaptchaVerification(context.Context, string, string, string, string) (*mtop.RefreshResult, bool) {
 	return &mtop.RefreshResult{AccessToken: "recovered-token", UpdatedCookies: "unb=123; _m_h5_tk=recovered;"}, true
 }
 
-// rejectingTokenCaptchaHandler 保存rejecting令牌CaptchaHandler，供当前处理流程使用
+// rejectingTokenCaptchaHandler 用于本次流程后续判断的rejecting令牌CaptchaHandler
 type rejectingTokenCaptchaHandler struct {
 	recordingHandler
 	calls int
 }
 
-// OnTokenCaptchaVerification 负责On令牌CaptchaVerification相关处理。
+// OnTokenCaptchaVerification 封装On令牌CaptchaVerification业务协调。
 func (h *rejectingTokenCaptchaHandler) OnTokenCaptchaVerification(context.Context, string, string, string, string) (*mtop.RefreshResult, bool) {
 	h.calls++
 	return nil, false
 }
 
-// capturingCaptchaHandler 保存capturingCaptchaHandler，供当前处理流程使用
+// capturingCaptchaHandler 用于本次流程后续判断的capturingCaptchaHandler
 type capturingCaptchaHandler struct {
 	recordingHandler
 	cookieStr string
 	deviceID  string
 }
 
-// OnTokenCaptchaVerification 负责On令牌CaptchaVerification相关处理。
+// OnTokenCaptchaVerification 封装On令牌CaptchaVerification业务协调。
 func (h *capturingCaptchaHandler) OnTokenCaptchaVerification(_ context.Context, _, cookieStr, _, deviceID string) (*mtop.RefreshResult, bool) {
 	h.cookieStr = cookieStr
 	h.deviceID = deviceID
 	return &mtop.RefreshResult{UpdatedCookies: cookieStr + "; x5sec=fresh"}, true
 }
 
-// responseCookieRiskMTop 保存响应登录凭证RiskMTop，供当前处理流程使用
+// responseCookieRiskMTop 用于本次流程后续判断的响应登录凭证RiskMTop
 type responseCookieRiskMTop struct{ calls int }
 
-// FetchUserProfile 负责Fetch用户Profile相关处理。
+// FetchUserProfile 封装Fetch用户Profile业务协调。
 func (m *responseCookieRiskMTop) FetchUserProfile(context.Context, string) (*mtop.UserProfileResult, error) {
 	return nil, nil
 }
 
-// ConsignContext 负责Consign上下文相关处理。
+// ConsignContext 封装Consign上下文业务协调。
 func (m *responseCookieRiskMTop) ConsignContext(context.Context, string, string) (bool, []string, string, error) {
 	return true, nil, "", nil
 }
 
-// FetchItemsPage 负责Fetch商品列表页码相关处理。
+// FetchItemsPage 封装Fetch商品列表页码业务协调。
 func (m *responseCookieRiskMTop) FetchItemsPage(context.Context, string, int, int) (*mtop.ItemListResult, error) {
 	return nil, nil
 }
 
-// FetchAllItems 负责FetchAll商品列表相关处理。
+// FetchAllItems 封装FetchAll商品列表业务协调。
 func (m *responseCookieRiskMTop) FetchAllItems(context.Context, string, int, int) (*mtop.ItemListResult, error) {
 	return nil, nil
 }
 
-// PublishItem 负责发布商品相关处理。
+// PublishItem 封装发布商品业务协调。
 func (m *responseCookieRiskMTop) PublishItem(context.Context, string, mtop.PublishItemRequest) (*mtop.PublishItemResult, error) {
 	return nil, nil
 }
@@ -100,7 +100,7 @@ func (m *responseCookieRiskMTop) PublishItem(context.Context, string, mtop.Publi
 func (m *responseCookieRiskMTop) RefreshTokenWithDeviceIDContext(_ context.Context, cookieStr, _ string) (*mtop.RefreshResult, error) {
 	m.calls++
 	if m.calls == 1 {
-		// updated 保存updated，供当前处理流程使用
+		// updated 用于本次流程后续判断的updated
 		updated := strings.Replace(cookieStr, "_m_h5_tk=tk_1", "_m_h5_tk=server_1", 1)
 		return &mtop.RefreshResult{UpdatedCookies: updated}, &mtop.RiskVerificationError{
 			Ret: []string{"FAIL_SYS_USER_VALIDATE"}, VerificationURL: "https://verify.example/punish",
@@ -109,18 +109,18 @@ func (m *responseCookieRiskMTop) RefreshTokenWithDeviceIDContext(_ context.Conte
 	return &mtop.RefreshResult{AccessToken: "standard-after-captcha", AccessTokenExpireAt: time.Now().Add(time.Hour).Unix(), UpdatedCookies: cookieStr}, nil
 }
 
-// TestRefreshTokenRetriesStandardRequestAfterCaptchaRecovery 负责TestRefresh令牌RetriesStandard请求AfterCaptchaRecovery相关处理。
+// TestRefreshTokenRetriesStandardRequestAfterCaptchaRecovery 封装TestRefresh令牌RetriesStandard请求AfterCaptchaRecovery业务协调。
 func TestRefreshTokenRetriesStandardRequestAfterCaptchaRecovery(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	defer acc.Stop()
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &riskCountingMTop{}
 	acc.mtop = client
 	acc.handler = &tokenRecoveredHandler{}
 
-	// token、cookies、err 保存token、cookies、err，供当前处理流程使用
+	// token、cookies、err 用于本次流程后续判断的token、cookies、err
 	token, cookies, err := acc.refreshToken(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -133,23 +133,23 @@ func TestRefreshTokenRetriesStandardRequestAfterCaptchaRecovery(t *testing.T) {
 	}
 }
 
-// TestRefreshTokenCaptchaFailureEntersCallerCooldown 负责TestRefresh令牌CaptchaFailureEntersCallerCooldown相关处理。
+// TestRefreshTokenCaptchaFailureEntersCallerCooldown 封装TestRefresh令牌CaptchaFailureEntersCallerCooldown业务协调。
 func TestRefreshTokenCaptchaFailureEntersCallerCooldown(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
-	// client 保存client，供当前处理流程使用
+	// client 用于本次流程后续判断的client
 	client := &riskCountingMTop{}
-	// handler 保存handler，供当前处理流程使用
+	// handler 用于本次流程后续判断的handler
 	handler := &rejectingTokenCaptchaHandler{}
 	acc.mtop = client
 	acc.handler = handler
 
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, _, err := acc.refreshToken(context.Background()); !mtop.IsRiskVerificationErr(err) {
 		t.Fatalf("first refresh error=%v want risk verification", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	_, _, err := acc.refreshToken(context.Background()); !errors.Is(err, errTokenCaptchaCooldown) {
 		t.Fatalf("second refresh error=%v want cooldown", err)
 	}
@@ -158,16 +158,16 @@ func TestRefreshTokenCaptchaFailureEntersCallerCooldown(t *testing.T) {
 	}
 }
 
-// TestRefreshTokenPersistsResponseCookiesBeforeCaptchaRecovery 负责TestRefresh令牌Persists响应CookiesBeforeCaptchaRecovery相关处理。
+// TestRefreshTokenPersistsResponseCookiesBeforeCaptchaRecovery 封装TestRefresh令牌Persists响应CookiesBeforeCaptchaRecovery业务协调。
 func TestRefreshTokenPersistsResponseCookiesBeforeCaptchaRecovery(t *testing.T) {
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newRunAccount(t, &responseCookieRiskMTop{})
 	defer cleanup()
-	// handler 保存handler，供当前处理流程使用
+	// handler 用于本次流程后续判断的handler
 	handler := &capturingCaptchaHandler{}
 	acc.handler = handler
 
-	// token、err 保存token、err，供当前处理流程使用
+	// token、err 用于本次流程后续判断的token、err
 	token, _, err := acc.refreshToken(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -181,7 +181,7 @@ func TestRefreshTokenPersistsResponseCookiesBeforeCaptchaRecovery(t *testing.T) 
 	if handler.deviceID != acc.deviceID {
 		t.Fatalf("captcha deviceID=%q want %q", handler.deviceID, acc.deviceID)
 	}
-	// saved、err 保存saved、err，供当前处理流程使用
+	// saved、err 用于本次流程后续判断的saved、err
 	saved, err := store.Cookies.GetValue(context.Background(), "cid")
 	if err != nil || !strings.Contains(saved, "_m_h5_tk=server_1") || !strings.Contains(saved, "x5sec=fresh") {
 		t.Fatalf("响应/验证 Cookie 未完整持久化: saved=%q err=%v", saved, err)
@@ -190,7 +190,7 @@ func TestRefreshTokenPersistsResponseCookiesBeforeCaptchaRecovery(t *testing.T) 
 
 // TestStop_IdempotentAndClearsTimers Stop 重复调用幂等；调用后防抖定时器被清空。
 func TestStop_IdempotentAndClearsTimers(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 
@@ -204,13 +204,13 @@ func TestStop_IdempotentAndClearsTimers(t *testing.T) {
 	acc.debounceMu.Unlock()
 
 	acc.Stop()
-	// status 保存状态，供当前处理流程使用
+	// status 用于本次流程后续判断的状态
 	status := acc.RuntimeStatus()
 	if status.State != RuntimeStopped {
 		t.Errorf("state=%q want %q", status.State, RuntimeStopped)
 	}
 	acc.debounceMu.Lock()
-	// timers 保存timers，供当前处理流程使用
+	// timers 用于本次流程后续判断的timers
 	timers := len(acc.debounceTimers)
 	acc.debounceMu.Unlock()
 	if timers != 0 {
@@ -227,7 +227,7 @@ func TestStop_IdempotentAndClearsTimers(t *testing.T) {
 
 // TestStop_CancelFunc_WhenNil stopFn 为 nil 时不 panic（未启动 Run 的账号也能 Stop）。
 func TestStop_CancelFunc_WhenNil(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	if acc.lifecycle.stopFn != nil {
@@ -239,7 +239,7 @@ func TestStop_CancelFunc_WhenNil(t *testing.T) {
 
 // TestRuntimeStatus_ConnectedRequiresOnlineAndConn conn 为 nil 或状态非 online 时 Connected=false。
 func TestRuntimeStatus_ConnectedRequiresOnlineAndConn(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 
@@ -274,14 +274,14 @@ type alertCountingHandler struct {
 	alerts int32
 }
 
-// OnAccountAlert 负责On账号Alert相关处理。
+// OnAccountAlert 封装On账号Alert业务协调。
 func (a *alertCountingHandler) OnAccountAlert(_ context.Context, _, level, _, _ string) {
 	if level == AlertLevelWarn {
 		atomic.AddInt32(&a.alerts, 1)
 	}
 }
 
-// stubCookieRenewer 保存stub登录凭证Renewer，供当前处理流程使用
+// stubCookieRenewer 用于本次流程后续判断的stub登录凭证Renewer
 type stubCookieRenewer struct {
 	result *xrenew.Result
 	err    error
@@ -289,25 +289,25 @@ type stubCookieRenewer struct {
 	got    string
 }
 
-// RenewAPIFirst 负责RenewAPIFirst相关处理。
+// RenewAPIFirst 封装RenewAPIFirst业务协调。
 func (s *stubCookieRenewer) RenewAPIFirst(_ context.Context, cookiesStr string, _ ...[]cookierefresh.BrowserCookie) (*xrenew.Result, error) {
 	s.calls++
 	s.got = cookiesStr
 	return s.result, s.err
 }
 
-// TestTryAPIRenewSuccessShortCircuitsRecovery 负责TestTryAPIRenewSuccessShortCircuitsRecovery相关处理。
+// TestTryAPIRenewSuccessShortCircuitsRecovery 封装TestTryAPIRenewSuccessShortCircuitsRecovery业务协调。
 func TestTryAPIRenewSuccessShortCircuitsRecovery(t *testing.T) {
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Tokens.Save(ctx, "cid", "did-old", "tok-old", time.Now().Add(time.Hour).Unix()); err != nil {
 		t.Fatalf("save token: %v", err)
 	}
-	// renewer 保存renewer，供当前处理流程使用
+	// renewer 用于本次流程后续判断的renewer
 	renewer := &stubCookieRenewer{result: &xrenew.Result{
 		Success:            true,
 		RenewMethod:        "api",
@@ -322,33 +322,33 @@ func TestTryAPIRenewSuccessShortCircuitsRecovery(t *testing.T) {
 	if renewer.calls != 1 || renewer.got != "unb=123; _m_h5_tk=tk_1;" {
 		t.Fatalf("renewer 调用异常: calls=%d got=%q", renewer.calls, renewer.got)
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := acc.currentCookieStr(); got != "unb=123; _m_h5_tk=tk_2;" {
 		t.Fatalf("内存 cookie 未更新: %q", got)
 	}
-	// saved 保存saved，供当前处理流程使用
+	// saved 用于本次流程后续判断的saved
 	saved, _ := store.Cookies.GetValue(ctx, "cid")
 	if saved != "unb=123; _m_h5_tk=tk_2;" {
 		t.Fatalf("DB cookie 未更新: %q", saved)
 	}
-	if // tk、err 保存tk、err，供当前处理流程使用
+	if // tk、err 用于本次流程后续判断的tk、err
 	tk, err := store.Tokens.Get(ctx, "cid"); err != nil || tk.AccessToken != "" {
 		t.Fatalf("接口续期后应清 token；数据库中的旧 device ID 不再参与运行时身份: tk=%+v err=%v", tk, err)
 	}
 }
 
-// TestTryAPIRenewPartialCookiesContinueRecovery 负责TestTryAPIRenewPartialCookiesContinueRecovery相关处理。
+// TestTryAPIRenewPartialCookiesContinueRecovery 封装TestTryAPIRenewPartialCookiesContinueRecovery业务协调。
 func TestTryAPIRenewPartialCookiesContinueRecovery(t *testing.T) {
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Tokens.Save(ctx, "cid", "did-old", "tok-old", time.Now().Add(time.Hour).Unix()); err != nil {
 		t.Fatalf("save token: %v", err)
 	}
-	// renewer 保存renewer，供当前处理流程使用
+	// renewer 用于本次流程后续判断的renewer
 	renewer := &stubCookieRenewer{result: &xrenew.Result{
 		Success:            false,
 		RenewMethod:        "none",
@@ -362,38 +362,38 @@ func TestTryAPIRenewPartialCookiesContinueRecovery(t *testing.T) {
 	if acc.tryAPIRenew(ctx) {
 		t.Fatal("仅有部分 Cookie 更新时不应短路后续浏览器/密码恢复")
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := acc.currentCookieStr(); got != "unb=123; _m_h5_tk=partial;" {
 		t.Fatalf("部分 cookie 应先保存到内存: %q", got)
 	}
-	// saved 保存saved，供当前处理流程使用
+	// saved 用于本次流程后续判断的saved
 	saved, _ := store.Cookies.GetValue(ctx, "cid")
 	if saved != "unb=123; _m_h5_tk=partial;" {
 		t.Fatalf("部分 cookie 应先保存到 DB: %q", saved)
 	}
-	if // tk、err 保存tk、err，供当前处理流程使用
+	if // tk、err 用于本次流程后续判断的tk、err
 	tk, err := store.Tokens.Get(ctx, "cid"); err != nil || tk.AccessToken != "" {
 		t.Fatalf("部分 cookie 更新后应清 token: tk=%+v err=%v", tk, err)
 	}
-	// detail、err 保存detail、err，供当前处理流程使用
+	// detail、err 用于本次流程后续判断的detail、err
 	detail, err := store.Cookies.GetDetails(ctx, "cid")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if // complete 保存complete，供当前处理流程使用
+	if // complete 用于本次流程后续判断的complete
 	_, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
 		t.Fatal("接口扁平 Cookie 更新不得伪造成完整浏览器 Jar")
 	}
 }
 
-// TestTryAPIRenewPersistsExplicitFlatCookieDeletionOnError 负责TestTryAPIRenewPersistsExplicitFlat登录凭证DeletionOn错误相关处理。
+// TestTryAPIRenewPersistsExplicitFlatCookieDeletionOnError 封装TestTryAPIRenewPersistsExplicitFlat登录凭证DeletionOn错误业务协调。
 func TestTryAPIRenewPersistsExplicitFlatCookieDeletionOnError(t *testing.T) {
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Tokens.Save(ctx, "cid", "did-old", "tok-old", time.Now().Add(time.Hour).Unix()); err != nil {
 		t.Fatalf("save token: %v", err)
 	}
@@ -411,11 +411,11 @@ func TestTryAPIRenewPersistsExplicitFlatCookieDeletionOnError(t *testing.T) {
 	if acc.tryAPIRenew(ctx) {
 		t.Fatal("失败响应即使带 Cookie 删除也不应视为续期成功")
 	}
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := acc.currentCookieStr(); got != "" {
 		t.Fatalf("运行时应采用服务端明确删除后的空 Cookie，got %q", got)
 	}
-	// detail、err 保存detail、err，供当前处理流程使用
+	// detail、err 用于本次流程后续判断的detail、err
 	detail, err := store.Cookies.GetDetails(ctx, "cid")
 	if err != nil {
 		t.Fatal(err)
@@ -423,35 +423,35 @@ func TestTryAPIRenewPersistsExplicitFlatCookieDeletionOnError(t *testing.T) {
 	if detail.Value != "" {
 		t.Fatalf("数据库应保存明确删除后的空 Cookie，got %q", detail.Value)
 	}
-	if // complete 保存complete，供当前处理流程使用
+	if // complete 用于本次流程后续判断的complete
 	_, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
 		t.Fatal("扁平删除结果不得伪造成完整浏览器 Jar")
 	}
-	if // token、err 保存token、err，供当前处理流程使用
+	if // token、err 用于本次流程后续判断的token、err
 	token, err := store.Tokens.Get(ctx, "cid"); err != nil || token.AccessToken != "" {
 		t.Fatalf("Cookie 删除后应清理旧 token: token=%+v err=%v", token, err)
 	}
 }
 
-// TestTryAPIRenewPersistsLatePromiseCookieWithoutRestart 负责TestTryAPIRenewPersistsLatePromise登录凭证WithoutRestart相关处理。
+// TestTryAPIRenewPersistsLatePromiseCookieWithoutRestart 封装TestTryAPIRenewPersistsLatePromise登录凭证WithoutRestart业务协调。
 func TestTryAPIRenewPersistsLatePromiseCookieWithoutRestart(t *testing.T) {
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// oldFingerprint 保存oldFingerprint，供当前处理流程使用
+	// oldFingerprint 用于本次流程后续判断的oldFingerprint
 	oldFingerprint := xianyu.CurrentBrowserFingerprint()
 	xianyu.SetBrowserFingerprint(xianyu.BrowserFingerprint{UserAgent: "Mozilla/5.0 (Macintosh) Chrome/999.0.0.0 Safari/537.36"})
 	t.Cleanup(func() { xianyu.SetBrowserFingerprint(oldFingerprint) })
-	// initial 保存initial，供当前处理流程使用
+	// initial 用于本次流程后续判断的initial
 	initial := "unb=123; havana_lgc_exp=" + fmt.Sprint(time.Now().Add(time.Hour).UnixMilli())
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.UpdateValueExisting(ctx, "cid", initial); err != nil {
 		t.Fatal(err)
 	}
 	acc.replaceCookieStr(initial)
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(60 * time.Millisecond)
 		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: fmt.Sprint(time.Now().Add(time.Hour).UnixMilli()), Path: "/"})
@@ -465,10 +465,10 @@ func TestTryAPIRenewPersistsLatePromiseCookieWithoutRestart(t *testing.T) {
 	if acc.tryAPIRenew(ctx) {
 		t.Fatal("Promise 超时不得伪装成同步续期成功")
 	}
-	// deadline 保存deadline，供当前处理流程使用
+	// deadline 用于本次流程后续判断的deadline
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		// detail、err 保存detail、err，供当前处理流程使用
+		// detail、err 用于本次流程后续判断的detail、err
 		detail, err := store.Cookies.GetDetails(ctx, "cid")
 		if err == nil && detail != nil && strings.Contains(detail.Value, "sdkSilent=") {
 			if !strings.Contains(acc.currentCookieStr(), "sdkSilent=") {
@@ -481,19 +481,19 @@ func TestTryAPIRenewPersistsLatePromiseCookieWithoutRestart(t *testing.T) {
 	t.Fatal("迟到的 silentHasLogin Set-Cookie 未写回账号")
 }
 
-// TestTryAPIRenewPendingWatcherStopsWithAccountContext 负责TestTryAPIRenewPendingWatcherStopsWith账号上下文相关处理。
+// TestTryAPIRenewPendingWatcherStopsWithAccountContext 封装TestTryAPIRenewPendingWatcherStopsWith账号上下文业务协调。
 func TestTryAPIRenewPendingWatcherStopsWithAccountContext(t *testing.T) {
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
-	// initial 保存initial，供当前处理流程使用
+	// initial 用于本次流程后续判断的initial
 	initial := "unb=123; havana_lgc_exp=" + fmt.Sprint(time.Now().Add(time.Hour).UnixMilli())
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.UpdateValueExisting(context.Background(), "cid", initial); err != nil {
 		t.Fatal(err)
 	}
 	acc.replaceCookieStr(initial)
-	// srv 保存srv，供当前处理流程使用
+	// srv 用于本次流程后续判断的srv
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(80 * time.Millisecond)
 		http.SetCookie(w, &http.Cookie{Name: "sdkSilent", Value: fmt.Sprint(time.Now().Add(time.Hour).UnixMilli()), Path: "/"})
@@ -501,7 +501,7 @@ func TestTryAPIRenewPendingWatcherStopsWithAccountContext(t *testing.T) {
 	}))
 	defer srv.Close()
 	acc.renewer = xrenew.Service{HTTPClient: srv.Client(), SilentHasLoginURL: srv.URL, RetryDelay: -1, PromiseTimeout: 5 * time.Millisecond}
-	// ctx、cancel 保存ctx、cancel，供当前处理流程使用
+	// ctx、cancel 用于本次流程后续判断的ctx、cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	acc.lifecycle.start(ctx, cancel)
 	if acc.tryAPIRenew(ctx) {
@@ -515,7 +515,7 @@ func TestTryAPIRenewPendingWatcherStopsWithAccountContext(t *testing.T) {
 	if stopErr := acc.StopContext(stopCtx); stopErr != nil {
 		t.Fatalf("StopContext 未等待迟到续期 worker: %v", stopErr)
 	}
-	// detail、err 保存detail、err，供当前处理流程使用
+	// detail、err 用于本次流程后续判断的detail、err
 	detail, err := store.Cookies.GetDetails(context.Background(), "cid")
 	if err != nil {
 		t.Fatal(err)
@@ -527,31 +527,31 @@ func TestTryAPIRenewPendingWatcherStopsWithAccountContext(t *testing.T) {
 
 // TestSetRuntimeError_AllBranches 覆盖验证/captcha、token 失效、默认重连三分支
 // 及告警去重逻辑（仅从非验证态进入验证态时告警一次）。
-// TestSetRuntimeError_AllBranches 负责TestSetRuntime错误AllBranches相关处理。
+// TestSetRuntimeError_AllBranches 封装TestSetRuntime错误AllBranches业务协调。
 func TestSetRuntimeError_AllBranches(t *testing.T) {
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 
 	// 1) captcha/risk 关键词 → VerificationRequired，且从非验证态进入时告警一次。
 	t.Run("captcha", func(t *testing.T) {
-		// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+		// acc、cleanup 用于本次流程后续判断的acc、cleanup
 		acc, _, _, cleanup := newAccountForTest(t)
 		defer cleanup()
-		// h 保存h，供当前处理流程使用
+		// h 用于本次流程后续判断的h
 		h := &alertCountingHandler{}
 		acc.handler = h
 		acc.setRuntimeError(ctx, fmt.Errorf("FAIL_SYS_USER_VALIDATE: captcha required"))
-		if // s 保存s，供当前处理流程使用
+		if // s 用于本次流程后续判断的s
 		s := acc.RuntimeStatus(); s.State != RuntimeVerificationRequired {
 			t.Fatalf("state=%q", s.State)
 		}
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := atomic.LoadInt32(&h.alerts); got != 1 {
 			t.Errorf("首次进入验证态应告警一次，got %d want 1", got)
 		}
 		// 再次以验证错误进入：不应重复告警（prev 已是 verification）。
 		acc.setRuntimeError(ctx, fmt.Errorf("rgv587 风控"))
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := atomic.LoadInt32(&h.alerts); got != 1 {
 			t.Errorf("验证态重复进入不应重复告警，got %d want 1", got)
 		}
@@ -559,10 +559,10 @@ func TestSetRuntimeError_AllBranches(t *testing.T) {
 
 	// 2) token expired 关键词 → AuthExpired（不告警）。
 	t.Run("token_expired", func(t *testing.T) {
-		// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+		// acc、cleanup 用于本次流程后续判断的acc、cleanup
 		acc, _, _, cleanup := newAccountForTest(t)
 		defer cleanup()
-		// h 保存h，供当前处理流程使用
+		// h 用于本次流程后续判断的h
 		h := &alertCountingHandler{}
 		acc.handler = h
 		// msg 表示当前遍历过程中的msg
@@ -573,12 +573,12 @@ func TestSetRuntimeError_AllBranches(t *testing.T) {
 			"cookie 缺少 unb",
 		} {
 			acc.setRuntimeError(ctx, errors.New(msg))
-			if // s 保存s，供当前处理流程使用
+			if // s 用于本次流程后续判断的s
 			s := acc.RuntimeStatus(); s.State != RuntimeAuthExpired {
 				t.Fatalf("msg=%q state=%q want %q", msg, s.State, RuntimeAuthExpired)
 			}
 		}
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := atomic.LoadInt32(&h.alerts); got != 0 {
 			t.Errorf("token 失效分支不应触发 warn 告警，got %d", got)
 		}
@@ -586,18 +586,18 @@ func TestSetRuntimeError_AllBranches(t *testing.T) {
 
 	// 3) 其他错误 → Reconnecting（不告警）。
 	t.Run("other", func(t *testing.T) {
-		// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+		// acc、cleanup 用于本次流程后续判断的acc、cleanup
 		acc, _, _, cleanup := newAccountForTest(t)
 		defer cleanup()
-		// h 保存h，供当前处理流程使用
+		// h 用于本次流程后续判断的h
 		h := &alertCountingHandler{}
 		acc.handler = h
 		acc.setRuntimeError(ctx, errors.New("connection refused"))
-		if // s 保存s，供当前处理流程使用
+		if // s 用于本次流程后续判断的s
 		s := acc.RuntimeStatus(); s.State != RuntimeReconnecting {
 			t.Fatalf("state=%q want %q", s.State, RuntimeReconnecting)
 		}
-		if // got 保存got，供当前处理流程使用
+		if // got 用于本次流程后续判断的got
 		got := atomic.LoadInt32(&h.alerts); got != 0 {
 			t.Errorf("默认分支不应告警，got %d", got)
 		}
@@ -606,7 +606,7 @@ func TestSetRuntimeError_AllBranches(t *testing.T) {
 
 // TestAlert_NilHandler handler 为 nil 时静默跳过，不 panic。
 func TestAlert_NilHandler(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	acc.handler = nil
@@ -616,7 +616,7 @@ func TestAlert_NilHandler(t *testing.T) {
 
 // TestResetFailures 重置失败计数。
 func TestResetFailures(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	acc.connFailures = 7
@@ -626,15 +626,15 @@ func TestResetFailures(t *testing.T) {
 	}
 }
 
-// TestRefreshTokenSuccessResetsTokenFetchFailures 负责TestRefresh令牌SuccessResets令牌FetchFailures相关处理。
+// TestRefreshTokenSuccessResetsTokenFetchFailures 封装TestRefresh令牌SuccessResets令牌FetchFailures业务协调。
 func TestRefreshTokenSuccessResetsTokenFetchFailures(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	acc.mtop = &fakeRunMtop{token: "tok-reset"}
 	acc.tokenFetchFailures = 19
 
-	// token、err 保存token、err，供当前处理流程使用
+	// token、err 用于本次流程后续判断的token、err
 	token, _, err := acc.refreshToken(context.Background())
 	if err != nil {
 		t.Fatalf("refreshToken: %v", err)
@@ -649,7 +649,7 @@ func TestRefreshTokenSuccessResetsTokenFetchFailures(t *testing.T) {
 
 // TestRetryDelay_FailureClampsAtOne connFailures=0 时按 1 计算。
 func TestRetryDelay_FailureClampsAtOne(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	acc.connFailures = 0
@@ -663,7 +663,7 @@ func TestRetryDelay_FailureClampsAtOne(t *testing.T) {
 
 // TestRetryDelay_TimeoutVariant "timeout" 关键词分支。
 func TestRetryDelay_TimeoutVariant(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	acc.connFailures = 3
@@ -673,9 +673,9 @@ func TestRetryDelay_TimeoutVariant(t *testing.T) {
 	expectDelayRange(t, acc.retryDelay("timeout"), 90*time.Second)
 }
 
-// TestNetworkRetryDelayMatchesReferenceBackoff 负责TestNetwork重试延迟MatchesReferenceBackoff相关处理。
+// TestNetworkRetryDelayMatchesReferenceBackoff 封装TestNetwork重试延迟MatchesReferenceBackoff业务协调。
 func TestNetworkRetryDelayMatchesReferenceBackoff(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	acc.networkFailures = 1
@@ -684,7 +684,7 @@ func TestNetworkRetryDelayMatchesReferenceBackoff(t *testing.T) {
 	expectDelayRange(t, acc.networkRetryDelay(), 60*time.Second)
 }
 
-// TestEstablishedNetworkErrorClassification 负责TestEstablishedNetwork错误Classification相关处理。
+// TestEstablishedNetworkErrorClassification 封装TestEstablishedNetwork错误Classification业务协调。
 func TestEstablishedNetworkErrorClassification(t *testing.T) {
 	// err 表示当前遍历过程中的err
 	for _, err := range []error{
@@ -700,12 +700,12 @@ func TestEstablishedNetworkErrorClassification(t *testing.T) {
 	}
 }
 
-// TestRecordShortDisconnectDisablesAtFiveWithinWindow 负责TestRecordShortDisconnectDisablesAtFiveWithinWindow相关处理。
+// TestRecordShortDisconnectDisablesAtFiveWithinWindow 封装TestRecordShortDisconnectDisablesAtFiveWithinWindow业务协调。
 func TestRecordShortDisconnectDisablesAtFiveWithinWindow(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
-	for // i 保存i，供当前处理流程使用
+	for // i 用于本次流程后续判断的i
 	i := 1; i < FrequentDisconnectLimit; i++ {
 		if acc.recordShortDisconnect(time.Second) {
 			t.Fatalf("第 %d 次短连接不应达到阈值", i)
@@ -724,12 +724,12 @@ func TestRecordShortDisconnectDisablesAtFiveWithinWindow(t *testing.T) {
 
 // TestHandleMaxFailures_RecentMessageStillRunsRecovery 消息冷却只约束 Token/Cookie
 // 刷新，不约束达到认证失败阈值后的恢复链。
-// TestHandleMaxFailures_RecentMessageStillRunsRecovery 负责TestHandleMaxFailuresRecent消息Still运行记录Recovery相关处理。
+// TestHandleMaxFailures_RecentMessageStillRunsRecovery 封装TestHandleMaxFailuresRecent消息Still运行记录Recovery业务协调。
 func TestHandleMaxFailures_RecentMessageStillRunsRecovery(t *testing.T) {
-	// acc、h、cleanup 保存acc、h、cleanup，供当前处理流程使用
+	// acc、h、cleanup 用于本次流程后续判断的acc、h、cleanup
 	acc, h, _, cleanup := newAccountForTest(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 
 	// 设最近收到消息（在 MessageCooldown 内）。
@@ -738,10 +738,10 @@ func TestHandleMaxFailures_RecentMessageStillRunsRecovery(t *testing.T) {
 	acc.connFailures = MaxConnectionFailures
 	acc.mu.Unlock()
 
-	// cctx、cancel 保存cctx、cancel，供当前处理流程使用
+	// cctx、cancel 用于本次流程后续判断的cctx、cancel
 	cctx, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
 	defer cancel()
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	err := acc.handleMaxFailures(cctx)
 	if err != cctx.Err() {
 		t.Fatalf("成功恢复后的等待应响应 ctx 取消，got %v want %v", err, cctx.Err())
@@ -756,10 +756,10 @@ func TestHandleMaxFailures_RecentMessageStillRunsRecovery(t *testing.T) {
 
 // TestHandleMaxFailures_PasswordLoginSuccess 密码登录刷新成功：重置失败计数、状态置 connecting、cookie 更新。
 func TestHandleMaxFailures_PasswordLoginSuccess(t *testing.T) {
-	// acc、h、store、cleanup 保存acc、h、store、cleanup，供当前处理流程使用
+	// acc、h、store、cleanup 用于本次流程后续判断的acc、h、store、cleanup
 	acc, h, store, cleanup := newAccountForTest(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
 
 	// 无最近消息、未在密码登录冷却中。
@@ -770,14 +770,14 @@ func TestHandleMaxFailures_PasswordLoginSuccess(t *testing.T) {
 
 	// handler.OnPasswordLoginRefresh 返回 true → 成功路径。
 	// store.Cookies.GetDetails 返回新 cookie，应触发 replaceCookieStr。
-	// newCookie 保存new登录凭证，供当前处理流程使用
+	// newCookie 用于本次流程后续判断的new登录凭证
 	newCookie := "unb=999; _m_h5_tk=tk_new;"
-	// admin、err 保存admin、err，供当前处理流程使用
+	// admin、err 用于本次流程后续判断的admin、err
 	admin, err := store.Users.GetByUsername(ctx, "admin")
 	if err != nil {
 		t.Fatalf("GetByUsername: %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.Save(ctx, "cid", newCookie, admin.ID); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -801,7 +801,7 @@ func TestHandleMaxFailures_PasswordLoginSuccess(t *testing.T) {
 	if acc.connFailures != 0 {
 		t.Errorf("应重置失败计数，got %d", acc.connFailures)
 	}
-	if // s 保存s，供当前处理流程使用
+	if // s 用于本次流程后续判断的s
 	s := acc.RuntimeStatus(); s.State != RuntimeConnecting {
 		t.Errorf("状态应为 connecting，got %q", s.State)
 	}
@@ -853,15 +853,15 @@ func (f *failingRefreshHandler) HandleSystemEvent(context.Context, automation.Ta
 	return nil
 }
 
-// OnPasswordLoginRefresh 负责On密码登录Refresh相关处理。
+// OnPasswordLoginRefresh 封装On密码登录Refresh业务协调。
 func (f *failingRefreshHandler) OnPasswordLoginRefresh(context.Context, string) bool { return false }
 
-// OnAccountAlert 负责On账号Alert相关处理。
+// OnAccountAlert 封装On账号Alert业务协调。
 func (f *failingRefreshHandler) OnAccountAlert(_ context.Context, _, level, _, _ string) {
 	f.alerts = append(f.alerts, level)
 }
 
-// OnAccountEvent 负责On账号Event相关处理。
+// OnAccountEvent 封装On账号Event业务协调。
 func (f *failingRefreshHandler) OnAccountEvent(_ context.Context, _, eventType, level, _, _ string) {
 	f.events = append(f.events, eventType)
 	f.alerts = append(f.alerts, level)
@@ -892,7 +892,7 @@ func TestHandleMaxFailuresReleasesCredentialLockBeforeExternalRecovery(t *testin
 
 // TestHandleMaxFailures_PasswordLoginFailure 密码登录刷新失败后终止账号主循环。
 func TestHandleMaxFailures_PasswordLoginFailure(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 
@@ -905,12 +905,12 @@ func TestHandleMaxFailures_PasswordLoginFailure(t *testing.T) {
 	h := &failingRefreshHandler{}
 	acc.handler = h
 
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	err := acc.handleMaxFailures(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "自动恢复失败") {
 		t.Fatalf("刷新失败应返回终止主循环的错误，got %v", err)
 	}
-	if // s 保存s，供当前处理流程使用
+	if // s 用于本次流程后续判断的s
 	s := acc.RuntimeStatus(); s.State != RuntimeAuthExpired {
 		t.Errorf("状态应为 auth_expired，got %q", s.State)
 	}
@@ -924,15 +924,15 @@ func TestHandleMaxFailures_PasswordLoginFailure(t *testing.T) {
 
 // TestReplaceCookieStr_UpdateUserIDAndDeviceID 更新 cookie 不得改变永久 deviceID。
 func TestReplaceCookieStr_UpdateUserIDAndDeviceID(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 
 	// 初始：UserID=123，deviceID 已由 New 生成。
 	acc.mu.Lock()
-	// oldDevice 保存oldDevice，供当前处理流程使用
+	// oldDevice 用于本次流程后续判断的oldDevice
 	oldDevice := acc.deviceID
-	// oldUser 保存old用户，供当前处理流程使用
+	// oldUser 用于本次流程后续判断的old用户
 	oldUser := acc.UserID
 	acc.mu.Unlock()
 	if oldUser != "123" {
@@ -945,11 +945,11 @@ func TestReplaceCookieStr_UpdateUserIDAndDeviceID(t *testing.T) {
 	// 更新为新 unb。
 	acc.replaceCookieStr("unb=456; _m_h5_tk=tk2;")
 	acc.mu.Lock()
-	// newDevice 保存newDevice，供当前处理流程使用
+	// newDevice 用于本次流程后续判断的newDevice
 	newDevice := acc.deviceID
-	// newUser 保存new用户，供当前处理流程使用
+	// newUser 用于本次流程后续判断的new用户
 	newUser := acc.UserID
-	// newCookie 保存new登录凭证，供当前处理流程使用
+	// newCookie 用于本次流程后续判断的new登录凭证
 	newCookie := acc.CookieStr
 	acc.mu.Unlock()
 	if newUser != "456" {
@@ -968,9 +968,9 @@ func TestReplaceCookieStr_UpdateUserIDAndDeviceID(t *testing.T) {
 
 // TestReplaceCookieStrDoesNotGenerateDeviceID ensures cookie mutation cannot
 // silently replace the identity established during account construction.
-// TestReplaceCookieStrDoesNotGenerateDeviceID 负责TestReplace登录凭证StrDoesNotGenerateDeviceID相关处理。
+// TestReplaceCookieStrDoesNotGenerateDeviceID 封装TestReplace登录凭证StrDoesNotGenerateDeviceID业务协调。
 func TestReplaceCookieStrDoesNotGenerateDeviceID(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	// 清空 deviceID 与 UserID，模拟异常状态。
@@ -981,9 +981,9 @@ func TestReplaceCookieStrDoesNotGenerateDeviceID(t *testing.T) {
 
 	acc.replaceCookieStr("unb=789; _m_h5_tk=tk3;")
 	acc.mu.Lock()
-	// d 保存d，供当前处理流程使用
+	// d 用于本次流程后续判断的d
 	d := acc.deviceID
-	// u 保存u，供当前处理流程使用
+	// u 用于本次流程后续判断的u
 	u := acc.UserID
 	acc.mu.Unlock()
 	if u != "789" {
@@ -996,23 +996,23 @@ func TestReplaceCookieStrDoesNotGenerateDeviceID(t *testing.T) {
 
 // TestReplaceCookieStr_NoUnbNoChange cookie 无 unb 时只更新 CookieStr。
 func TestReplaceCookieStr_NoUnbNoChange(t *testing.T) {
-	// acc、cleanup 保存acc、cleanup，供当前处理流程使用
+	// acc、cleanup 用于本次流程后续判断的acc、cleanup
 	acc, _, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	acc.mu.Lock()
-	// oldDevice 保存oldDevice，供当前处理流程使用
+	// oldDevice 用于本次流程后续判断的oldDevice
 	oldDevice := acc.deviceID
-	// oldUser 保存old用户，供当前处理流程使用
+	// oldUser 用于本次流程后续判断的old用户
 	oldUser := acc.UserID
 	acc.mu.Unlock()
 
 	acc.replaceCookieStr("foo=bar; baz=qux;")
 	acc.mu.Lock()
-	// d 保存d，供当前处理流程使用
+	// d 用于本次流程后续判断的d
 	d := acc.deviceID
-	// u 保存u，供当前处理流程使用
+	// u 用于本次流程后续判断的u
 	u := acc.UserID
-	// c 保存c，供当前处理流程使用
+	// c 用于本次流程后续判断的c
 	c := acc.CookieStr
 	acc.mu.Unlock()
 	if u != oldUser {
@@ -1028,46 +1028,46 @@ func TestReplaceCookieStr_NoUnbNoChange(t *testing.T) {
 
 // TestUpdateCookie_IgnoresEmpty 纯空白/空字符串被忽略，不覆盖现有 cookie。
 func TestUpdateCookie_IgnoresEmpty(t *testing.T) {
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
-	// orig 保存orig，供当前处理流程使用
+	// orig 用于本次流程后续判断的orig
 	orig := acc.currentCookieStr()
 
 	// 空字符串与纯空白（TrimSpace 后为空）应被忽略。
 	acc.UpdateCookie("")
 	acc.UpdateCookie("   ")
 	acc.UpdateCookie("\t\n")
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := acc.currentCookieStr(); got != orig {
 		t.Errorf("空白 cookie 不应更新: got %q want %q", got, orig)
 	}
 
 	acc.mu.Lock()
-	// originalDevice 保存originalDevice，供当前处理流程使用
+	// originalDevice 用于本次流程后续判断的originalDevice
 	originalDevice := acc.deviceID
-	// healthyConn 保存healthyConn，供当前处理流程使用
+	// healthyConn 用于本次流程后续判断的healthyConn
 	healthyConn := &fakeWSConn{}
 	acc.conn = healthyConn
 	acc.mu.Unlock()
 
 	// 非空（即使含首尾空白）应原样存储，但不能模拟页面 reload 去打断健康 WS。
 	updated := "unb=123; _m_h5_tk=tk_new;"
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.UpdateValueExisting(context.Background(), acc.CookieID, updated); err != nil {
 		t.Fatal(err)
 	}
 	acc.UpdateCookie(updated)
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := acc.currentCookieStr(); got != updated {
 		t.Errorf("非空 cookie 应更新: got %q", got)
 	}
 	acc.mu.Lock()
-	// currentDevice 保存currentDevice，供当前处理流程使用
+	// currentDevice 用于本次流程后续判断的currentDevice
 	currentDevice := acc.deviceID
 	acc.mu.Unlock()
 	healthyConn.mu.Lock()
-	// closed 保存closed，供当前处理流程使用
+	// closed 用于本次流程后续判断的closed
 	closed := healthyConn.closed
 	healthyConn.mu.Unlock()
 	if currentDevice != originalDevice || closed {
@@ -1075,38 +1075,38 @@ func TestUpdateCookie_IgnoresEmpty(t *testing.T) {
 	}
 }
 
-// TestUpdateCookie_AcceptsAuthoritativeEmptySnapshot 负责TestUpdate登录凭证AcceptsAuthoritativeEmptySnapshot相关处理。
+// TestUpdateCookie_AcceptsAuthoritativeEmptySnapshot 封装TestUpdate登录凭证AcceptsAuthoritativeEmptySnapshot业务协调。
 func TestUpdateCookie_AcceptsAuthoritativeEmptySnapshot(t *testing.T) {
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
-	// metadata 保存metadata，供当前处理流程使用
+	// metadata 用于本次流程后续判断的metadata
 	metadata := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{})
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.UpdateRenewalCookie(context.Background(), acc.CookieID, "", metadata, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
 	acc.UpdateCookie("")
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := acc.currentCookieStr(); got != "" {
 		t.Fatalf("权威空 Jar 应清空运行时 Cookie，got %q", got)
 	}
 }
 
-// TestReloadCookieFromDBDetectsMetadataOnlyCredentialRotation 负责TestReload登录凭证FromDBDetectsMetadataOnlyCredentialRotation相关处理。
+// TestReloadCookieFromDBDetectsMetadataOnlyCredentialRotation 封装TestReload登录凭证FromDBDetectsMetadataOnlyCredentialRotation业务协调。
 func TestReloadCookieFromDBDetectsMetadataOnlyCredentialRotation(t *testing.T) {
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// flat 保存flat，供当前处理流程使用
+	// flat 用于本次流程后续判断的flat
 	flat := acc.currentCookieStr()
-	// metadataA 保存metadataA，供当前处理流程使用
+	// metadataA 用于本次流程后续判断的metadataA
 	metadataA := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{
 		{Name: "_m_h5_tk", Value: "path-a", Domain: ".goofish.com", Path: "/im"},
 	})
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.UpdateRenewalCookie(ctx, acc.CookieID, flat, metadataA, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
@@ -1114,21 +1114,21 @@ func TestReloadCookieFromDBDetectsMetadataOnlyCredentialRotation(t *testing.T) {
 		t.Fatal("首次权威 Jar 应同步到运行时")
 	}
 	acc.mu.Lock()
-	// boundFP 保存boundFP，供当前处理流程使用
+	// boundFP 用于本次流程后续判断的boundFP
 	boundFP := acc.credentialFP
 	acc.currentToken = "old-token"
 	acc.tokenCredentialFP = boundFP
 	acc.mu.Unlock()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Tokens.SaveBound(ctx, acc.CookieID, acc.deviceID, "old-token", time.Now().Add(time.Hour).Unix(), boundFP); err != nil {
 		t.Fatal(err)
 	}
 
-	// metadataB 保存metadataB，供当前处理流程使用
+	// metadataB 用于本次流程后续判断的metadataB
 	metadataB := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{
 		{Name: "_m_h5_tk", Value: "path-b", Domain: ".goofish.com", Path: "/im"},
 	})
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.UpdateRenewalCookie(ctx, acc.CookieID, flat, metadataB, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
@@ -1136,9 +1136,9 @@ func TestReloadCookieFromDBDetectsMetadataOnlyCredentialRotation(t *testing.T) {
 		t.Fatal("扁平 Cookie 未变但权威 Jar 已变化时必须重新加载")
 	}
 	acc.mu.Lock()
-	// currentToken 保存current令牌，供当前处理流程使用
+	// currentToken 用于本次流程后续判断的current令牌
 	currentToken := acc.currentToken
-	// currentFP 保存currentFP，供当前处理流程使用
+	// currentFP 用于本次流程后续判断的currentFP
 	currentFP := acc.credentialFP
 	acc.mu.Unlock()
 	if currentToken != "" {
@@ -1147,48 +1147,48 @@ func TestReloadCookieFromDBDetectsMetadataOnlyCredentialRotation(t *testing.T) {
 	if currentFP != credentialStateFingerprint(flat, metadataB) {
 		t.Fatal("运行时未绑定到最新完整凭证状态")
 	}
-	if // cached、err 保存cached、err，供当前处理流程使用
+	if // cached、err 用于本次流程后续判断的cached、err
 	cached, err := store.Tokens.Get(ctx, acc.CookieID); err != nil || cached.AccessToken != "" {
 		t.Fatalf("Jar 变化后应清数据库 token: cached=%+v err=%v", cached, err)
 	}
 }
 
-// TestCookieSnapshotMatchesDBUsesCompleteCredentialState 负责Test登录凭证SnapshotMatchesDBUsesCompleteCredential状态相关处理。
+// TestCookieSnapshotMatchesDBUsesCompleteCredentialState 封装Test登录凭证SnapshotMatchesDBUsesCompleteCredential状态业务协调。
 func TestCookieSnapshotMatchesDBUsesCompleteCredentialState(t *testing.T) {
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// flat 保存flat，供当前处理流程使用
+	// flat 用于本次流程后续判断的flat
 	flat := acc.currentCookieStr()
-	// metadataA 保存metadataA，供当前处理流程使用
+	// metadataA 用于本次流程后续判断的metadataA
 	metadataA := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{
 		{Name: "sgcookie", Value: "a", Domain: ".goofish.com", Path: "/"},
 	})
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.UpdateRenewalCookie(ctx, acc.CookieID, flat, metadataA, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
-	// expected 保存expected，供当前处理流程使用
+	// expected 用于本次流程后续判断的expected
 	expected := credentialStateFingerprint(flat, metadataA)
 	if !acc.cookieSnapshotMatchesDB(ctx, expected) {
 		t.Fatal("相同扁平 Cookie 与权威 Jar 应允许 /reg")
 	}
-	// metadataB 保存metadataB，供当前处理流程使用
+	// metadataB 用于本次流程后续判断的metadataB
 	metadataB := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{
 		{Name: "sgcookie", Value: "b", Domain: ".goofish.com", Path: "/"},
 	})
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.UpdateRenewalCookie(ctx, acc.CookieID, flat, metadataB, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
 	if acc.cookieSnapshotMatchesDB(ctx, expected) {
 		t.Fatal("token 获取后 Jar 变化时必须拒绝 /reg")
 	}
-	// emptyMetadata 保存emptyMetadata，供当前处理流程使用
+	// emptyMetadata 用于本次流程后续判断的emptyMetadata
 	emptyMetadata := cookierefresh.MetadataWithSnapshot("", []cookierefresh.BrowserCookie{})
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.UpdateRenewalCookie(ctx, acc.CookieID, "", emptyMetadata, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
@@ -1197,16 +1197,16 @@ func TestCookieSnapshotMatchesDBUsesCompleteCredentialState(t *testing.T) {
 	}
 }
 
-// TestAdoptIncompleteTokenCookiesDoesNotInventCompleteSnapshot 负责TestAdoptIncomplete令牌CookiesDoesNotInventCompleteSnapshot相关处理。
+// TestAdoptIncompleteTokenCookiesDoesNotInventCompleteSnapshot 封装TestAdoptIncomplete令牌CookiesDoesNotInventCompleteSnapshot业务协调。
 func TestAdoptIncompleteTokenCookiesDoesNotInventCompleteSnapshot(t *testing.T) {
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// updated 保存updated，供当前处理流程使用
+	// updated 用于本次流程后续判断的updated
 	updated := "unb=123; _m_h5_tk=flat-only; cookie2=next"
-	// got、err 保存got、err，供当前处理流程使用
+	// got、err 用于本次流程后续判断的got、err
 	got, err := acc.adoptTokenResponseCookies(ctx, acc.currentCookieStr(), &mtop.RefreshResult{
 		UpdatedCookies: updated,
 	})
@@ -1216,25 +1216,25 @@ func TestAdoptIncompleteTokenCookiesDoesNotInventCompleteSnapshot(t *testing.T) 
 	if got != updated {
 		t.Fatalf("adopted Cookie=%q want %q", got, updated)
 	}
-	// detail、err 保存detail、err，供当前处理流程使用
+	// detail、err 用于本次流程后续判断的detail、err
 	detail, err := store.Cookies.GetDetails(ctx, acc.CookieID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if // complete 保存complete，供当前处理流程使用
+	if // complete 用于本次流程后续判断的complete
 	_, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
 		t.Fatal("仅有扁平 token 响应时不得伪造成完整浏览器 Jar")
 	}
 }
 
-// TestAdoptTokenResponseCookiesPersistsExplicitDeletionToEmpty 负责TestAdopt令牌响应CookiesPersistsExplicitDeletionToEmpty相关处理。
+// TestAdoptTokenResponseCookiesPersistsExplicitDeletionToEmpty 封装TestAdopt令牌响应CookiesPersistsExplicitDeletionToEmpty业务协调。
 func TestAdoptTokenResponseCookiesPersistsExplicitDeletionToEmpty(t *testing.T) {
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
-	// ctx 保存ctx，供当前处理流程使用
+	// ctx 用于本次流程后续判断的ctx
 	ctx := context.Background()
-	// got、err 保存got、err，供当前处理流程使用
+	// got、err 用于本次流程后续判断的got、err
 	got, err := acc.adoptTokenResponseCookies(ctx, acc.currentCookieStr(), &mtop.RefreshResult{
 		UpdatedCookies:     "",
 		CookieStateChanged: true,
@@ -1245,7 +1245,7 @@ func TestAdoptTokenResponseCookiesPersistsExplicitDeletionToEmpty(t *testing.T) 
 	if got != "" || acc.currentCookieStr() != "" {
 		t.Fatalf("明确删除后的 Cookie 未同步: got=%q runtime=%q", got, acc.currentCookieStr())
 	}
-	// detail、err 保存detail、err，供当前处理流程使用
+	// detail、err 用于本次流程后续判断的detail、err
 	detail, err := store.Cookies.GetDetails(ctx, acc.CookieID)
 	if err != nil {
 		t.Fatal(err)
@@ -1253,7 +1253,7 @@ func TestAdoptTokenResponseCookiesPersistsExplicitDeletionToEmpty(t *testing.T) 
 	if detail.Value != "" {
 		t.Fatalf("数据库 Cookie=%q want empty", detail.Value)
 	}
-	if // complete 保存complete，供当前处理流程使用
+	if // complete 用于本次流程后续判断的complete
 	_, complete := cookierefresh.SnapshotFromMetadataOK(detail.MetadataJSON); complete {
 		t.Fatal("扁平 token 删除不得伪造成完整浏览器 Jar")
 	}
@@ -1261,21 +1261,21 @@ func TestAdoptTokenResponseCookiesPersistsExplicitDeletionToEmpty(t *testing.T) 
 
 // TestCurrentCookieStr 线程安全返回当前 CookieStr。
 func TestCurrentCookieStr(t *testing.T) {
-	// acc、store、cleanup 保存acc、store、cleanup，供当前处理流程使用
+	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup
 	acc, _, store, cleanup := newAccountForTest(t)
 	defer cleanup()
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := acc.currentCookieStr(); got != "unb=123; _m_h5_tk=tk_1;" {
 		t.Errorf("currentCookieStr=%q", got)
 	}
-	// updated 保存updated，供当前处理流程使用
+	// updated 用于本次流程后续判断的updated
 	updated := "unb=1; x=2;"
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := store.Cookies.UpdateValueExisting(context.Background(), acc.CookieID, updated); err != nil {
 		t.Fatal(err)
 	}
 	acc.UpdateCookie(updated)
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := acc.currentCookieStr(); got != updated {
 		t.Errorf("更新后 currentCookieStr=%q", got)
 	}
@@ -1287,18 +1287,18 @@ func TestSleepCtx(t *testing.T) {
 	if err := sleepCtx(context.Background(), 0); err != nil {
 		t.Errorf("d=0 应返回 nil，got %v", err)
 	}
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := sleepCtx(context.Background(), -time.Second); err != nil {
 		t.Errorf("d<0 应返回 nil，got %v", err)
 	}
 
 	// 正常短睡眠。
 	start := time.Now()
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := sleepCtx(context.Background(), 50*time.Millisecond); err != nil {
 		t.Errorf("正常睡眠应返回 nil，got %v", err)
 	}
-	if // elapsed 保存elapsed，供当前处理流程使用
+	if // elapsed 用于本次流程后续判断的elapsed
 	elapsed := time.Since(start); elapsed < 40*time.Millisecond {
 		t.Errorf("睡眠时间过短: %v", elapsed)
 	}
@@ -1310,12 +1310,12 @@ func TestSleepCtx(t *testing.T) {
 		cancel()
 	}()
 	start = time.Now()
-	// err 保存err，供当前处理流程使用
+	// err 用于本次流程后续判断的err
 	err := sleepCtx(cctx, 5*time.Second)
 	if err != cctx.Err() {
 		t.Errorf("sleepCtx 取消应返回 ctx.Err(): got %v want %v", err, cctx.Err())
 	}
-	if // elapsed 保存elapsed，供当前处理流程使用
+	if // elapsed 用于本次流程后续判断的elapsed
 	elapsed := time.Since(start); elapsed > time.Second {
 		t.Errorf("ctx 取消应立即返回，耗时 %v", elapsed)
 	}
@@ -1323,13 +1323,13 @@ func TestSleepCtx(t *testing.T) {
 
 // TestErrString errString 处理 nil 与非 nil。
 func TestErrString(t *testing.T) {
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := errString(nil); got != "" {
 		t.Errorf("errString(nil)=%q want empty", got)
 	}
-	// e 保存e，供当前处理流程使用
+	// e 用于本次流程后续判断的e
 	e := errors.New("boom")
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := errString(e); got != "boom" {
 		t.Errorf("errString=%q want boom", got)
 	}
@@ -1337,19 +1337,19 @@ func TestErrString(t *testing.T) {
 
 // TestTruncID 长串截断、短串原样。
 func TestTruncID(t *testing.T) {
-	// short 保存short，供当前处理流程使用
+	// short 用于本次流程后续判断的short
 	short := "abc123"
-	if // got 保存got，供当前处理流程使用
+	if // got 用于本次流程后续判断的got
 	got := truncID(short); got != short {
 		t.Errorf("短串应原样返回: got %q", got)
 	}
-	// long 保存long，供当前处理流程使用
+	// long 用于本次流程后续判断的long
 	long := ""
-	for // i 保存i，供当前处理流程使用
+	for // i 用于本次流程后续判断的i
 	i := 0; i < 80; i++ {
 		long += "x"
 	}
-	// got 保存got，供当前处理流程使用
+	// got 用于本次流程后续判断的got
 	got := truncID(long)
 	if len(got) != 53 || got[50:] != "..." {
 		t.Errorf("长串应截断到 53 字符并加 ...: got %q (len=%d)", got, len(got))

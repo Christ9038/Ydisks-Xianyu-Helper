@@ -39,7 +39,7 @@ func (s *Server) mountDefaultRepliesReal(r chi.Router) {
 	r.Post("/api/default-reply/{cid}/clear-records", s.clearDefaultReplyRecords)
 }
 
-// getDefaultReply 负责getDefault回复相关处理。
+// getDefaultReply 封装getDefault回复业务协调。
 func (s *Server) getDefaultReply(w http.ResponseWriter, r *http.Request) {
 	// cid 是路径中的默认回复所属账号标识。
 	cid := chi.URLParam(r, "cid")

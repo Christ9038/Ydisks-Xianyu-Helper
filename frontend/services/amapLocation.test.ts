@@ -21,7 +21,7 @@ test('maps AMap POI fields to the publish location shape', () => {
     poi_name: '人民广场',
     province: '上海市',
   });
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调断言高德 POI 字段能够转换为发布地点 DTO。 */);
 
 test('drops incomplete or invalid AMap POIs', () => {
   expect(amapPOIToPublishLocation({
@@ -32,4 +32,4 @@ test('drops incomplete or invalid AMap POIs', () => {
     cityname: '上海市',
     location: { lng: 0, lat: 31.2 },
   })).toBeNull();
-} /* 回调函数负责当前业务流程。 */);
+} /* 测试回调断言缺少或非法坐标的 POI 会被丢弃。 */);

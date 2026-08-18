@@ -13,7 +13,7 @@ import (
 
 // dispatch 是 ws.ReceiveLoop 的回调，对每条解密后的消息做：
 // 标记消息接收时间 → 提取消息 ID 去重 → 信号量限并发 → 分类（聊天/系统）→ 防抖投递。
-// dispatch 负责dispatch相关处理。
+// dispatch 封装dispatch业务协调。
 func (a *Account) dispatch(decrypted map[string]any) {
 	a.messageDispatcher.dispatch(decrypted)
 }
@@ -126,19 +126,19 @@ func extractNestedString(m map[string]any, keys ...string) string {
 
 // markAndCheckDedup 提取消息 ID，检查 1 小时内是否已处理；未处理则标记。
 // 返回 true 表示应继续处理。移植自 _schedule_debounced_reply 的去重段。
-// markAndCheckDedup 负责markAndCheckDedup相关处理。
+// markAndCheckDedup 封装markAndCheckDedup业务协调。
 func (a *Account) markAndCheckDedup(decrypted map[string]any, chat *ChatMessage) bool {
 	return a.messageDispatcher.markAndCheckDedup(decrypted, chat)
 }
 
-// cleanupDedupLocked 负责cleanupDedupLocked相关处理。
+// cleanupDedupLocked 封装cleanupDedupLocked业务协调。
 func (a *Account) cleanupDedupLocked(now time.Time) {
 	a.messageDispatcher.cleanupDedupLocked(now)
 }
 
 // scheduleDebouncedReply 为 chat_id 调度防抖回复：
 // 同一 chat_id 连续来消息时取消旧定时器、用最新消息重新计时，1s 后投递最后一条。
-// scheduleDebouncedReply 负责scheduleDebounced回复相关处理。
+// scheduleDebouncedReply 封装scheduleDebounced回复业务协调。
 func (a *Account) scheduleDebouncedReply(chat ChatMessage) {
 	a.messageDispatcher.scheduleDebouncedReply(chat)
 }
@@ -151,7 +151,7 @@ func (a *Account) scheduleDebouncedReply(chat ChatMessage) {
 // 上报会话已读。历史消息接口也返回 PNM ID，因此优先使用字段 3，其他
 // 字段只作为兼容旧消息或缺失字段 3 的兜底。
 func extractMessageID(decrypted map[string]any) string {
-	// m1、ok 保存m1、ok，供当前处理流程使用
+	// m1、ok 用于本次流程后续判断的m1、ok
 	m1, ok := decrypted["1"].(map[string]any)
 	if !ok {
 		return ""
@@ -167,14 +167,14 @@ func extractMessageID(decrypted map[string]any) string {
 	}
 	// bizTag 是 JSON 字符串：{"sourceId":"...","messageId":"..."}
 	if biz, _ := m10["bizTag"].(string); biz != "" {
-		if // id 保存标识，供当前处理流程使用
+		if // id 用于本次流程后续判断的标识
 		id := parseMessageIDFromJSON(biz); id != "" {
 			return id
 		}
 	}
-	if // ext 保存ext，供当前处理流程使用
+	if // ext 用于本次流程后续判断的ext
 	ext, _ := m10["extJson"].(string); ext != "" {
-		if // id 保存标识，供当前处理流程使用
+		if // id 用于本次流程后续判断的标识
 		id := parseMessageIDFromJSON(ext); id != "" {
 			return id
 		}
@@ -231,15 +231,15 @@ func findMessageID(value any) string {
 	return ""
 }
 
-// parseMessageIDFromJSON 负责parse消息IDFromJSON相关处理。
+// parseMessageIDFromJSON 封装parse消息IDFromJSON业务协调。
 func parseMessageIDFromJSON(s string) string {
-	// m 保存m，供当前处理流程使用
+	// m 用于本次流程后续判断的m
 	var m map[string]any
-	if // err 保存err，供当前处理流程使用
+	if // err 用于本次流程后续判断的err
 	err := json.Unmarshal([]byte(s), &m); err != nil {
 		return ""
 	}
-	if // id、ok 保存id、ok，供当前处理流程使用
+	if // id、ok 用于本次流程后续判断的id、ok
 	id, ok := m["messageId"].(string); ok {
 		return id
 	}
@@ -248,17 +248,17 @@ func parseMessageIDFromJSON(s string) string {
 
 // extractChatMessage 从解密消息中提取聊天消息字段。
 func extractChatMessage(decrypted map[string]any, accountID, cookieStr string) *ChatMessage {
-	// m1、ok 保存m1、ok，供当前处理流程使用
+	// m1、ok 用于本次流程后续判断的m1、ok
 	m1, ok := decrypted["1"].(map[string]any)
 	if !ok {
 		return nil
 	}
-	// m10 保存m10，供当前处理流程使用
+	// m10 用于本次流程后续判断的m10
 	m10, _ := m1["10"].(map[string]any)
 	if m10 == nil {
 		return nil
 	}
-	// reminder 保存reminder，供当前处理流程使用
+	// reminder 用于本次流程后续判断的reminder
 	reminder, _ := m10["reminderContent"].(string)
 	if reminder == "" {
 		return nil
@@ -266,7 +266,7 @@ func extractChatMessage(decrypted map[string]any, accountID, cookieStr string) *
 	if isNonUserChatNotice(m1, m10, reminder) {
 		return nil
 	}
-	// chatID 保存聊天ID，供当前处理流程使用
+	// chatID 用于本次流程后续判断的聊天ID
 	chatID := toString(m1["2"])
 	// chat_id 形如 "47983389096@goofish"，去掉后缀。
 	if i := strings.Index(chatID, "@"); i >= 0 {
@@ -284,9 +284,9 @@ func extractChatMessage(decrypted map[string]any, accountID, cookieStr string) *
 	if strings.TrimSpace(senderName) == "" {
 		senderName, _ = m10["reminderTitle"].(string)
 	}
-	// reminderURL 保存reminderURL，供当前处理流程使用
+	// reminderURL 用于本次流程后续判断的reminderURL
 	reminderURL, _ := m10["reminderUrl"].(string)
-	// itemID 保存商品ID，供当前处理流程使用
+	// itemID 用于本次流程后续判断的商品ID
 	itemID := extractItemID(reminderURL)
 	return &ChatMessage{
 		AccountID:    accountID,
@@ -331,7 +331,7 @@ func isSelfUserID(senderUserID, selfUserID string) bool {
 // - contentType=14：“有蚂蚁森林能量可领”“不想宝贝被砍价?设置不砍价回复”“退款成功”
 // - contentType=26：交易卡片，如“我已拍下，待付款”“我发起了退款申请”
 // 付款待发货卡片已经在 handleMessage 前半段进入 automation.Center，这里不能再进入聊天回复链。
-// isNonUserChatNotice 负责isNon用户聊天Notice相关处理。
+// isNonUserChatNotice 封装isNon用户聊天Notice业务协调。
 func isNonUserChatNotice(m1, m10 map[string]any, reminder string) bool {
 	if strings.TrimSuffix(strings.TrimSpace(toString(m10["senderUserId"])), "@goofish") == "1400" {
 		return true
@@ -339,11 +339,11 @@ func isNonUserChatNotice(m1, m10 map[string]any, reminder string) bool {
 	if strings.TrimSpace(reminder) == "发来一条新消息" {
 		return true
 	}
-	if // sessionType 保存会话类型，供当前处理流程使用
+	if // sessionType 用于本次流程后续判断的会话类型
 	sessionType := strings.TrimSpace(toString(m10["sessionType"])); sessionType != "" && sessionType != "1" {
 		return true
 	}
-	// contentType 保存内容类型，供当前处理流程使用
+	// contentType 用于本次流程后续判断的内容类型
 	contentType := messageContentType(m1, m10)
 	switch contentType {
 	case "14":
@@ -354,36 +354,36 @@ func isNonUserChatNotice(m1, m10 map[string]any, reminder string) bool {
 	return false
 }
 
-// messageContentType 负责消息内容类型相关处理。
+// messageContentType 封装消息内容类型业务协调。
 func messageContentType(m1, m10 map[string]any) string {
-	if // ext 保存ext，供当前处理流程使用
+	if // ext 用于本次流程后续判断的ext
 	ext, _ := m10["extJson"].(string); ext != "" {
-		// extJSON 保存extJSON，供当前处理流程使用
+		// extJSON 用于本次流程后续判断的extJSON
 		var extJSON map[string]any
 		if json.Unmarshal([]byte(ext), &extJSON) == nil {
-			if // v 保存v，供当前处理流程使用
+			if // v 用于本次流程后续判断的v
 			v := toString(extJSON["contentType"]); v != "" {
 				return v
 			}
 		}
 	}
-	// m6 保存m6，供当前处理流程使用
+	// m6 用于本次流程后续判断的m6
 	m6, _ := m1["6"].(map[string]any)
 	if m6 == nil {
 		return ""
 	}
-	// m63 保存m63，供当前处理流程使用
+	// m63 用于本次流程后续判断的m63
 	m63, _ := m6["3"].(map[string]any)
 	if m63 == nil {
 		return ""
 	}
-	if // v 保存v，供当前处理流程使用
+	if // v 用于本次流程后续判断的v
 	v := toString(m63["4"]); v != "" {
 		return v
 	}
-	if // contentJSON 保存内容JSON，供当前处理流程使用
+	if // contentJSON 用于本次流程后续判断的内容JSON
 	contentJSON, _ := m63["5"].(string); contentJSON != "" {
-		// content 保存内容，供当前处理流程使用
+		// content 用于本次流程后续判断的内容
 		var content map[string]any
 		if json.Unmarshal([]byte(contentJSON), &content) == nil {
 			return toString(content["contentType"])
@@ -394,23 +394,23 @@ func messageContentType(m1, m10 map[string]any) string {
 
 // extractItemID 从 reminderUrl 中正则提取 itemId=xxx。
 func extractItemID(url string) string {
-	// key 保存key，供当前处理流程使用
+	// key 用于本次流程后续判断的key
 	const key = "itemId="
-	// i 保存i，供当前处理流程使用
+	// i 用于本次流程后续判断的i
 	i := strings.Index(url, key)
 	if i < 0 {
 		return ""
 	}
-	// s 保存s，供当前处理流程使用
+	// s 用于本次流程后续判断的s
 	s := url[i+len(key):]
-	if // j 保存j，供当前处理流程使用
+	if // j 用于本次流程后续判断的j
 	j := strings.IndexAny(s, "&\n\r"); j >= 0 {
 		s = s[:j]
 	}
 	return s
 }
 
-// currentCookieStr 负责current登录凭证Str相关处理。
+// currentCookieStr 封装current登录凭证Str业务协调。
 func (a *Account) currentCookieStr() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -424,12 +424,12 @@ func (a *Account) CurrentCookieStr() string {
 
 // ---- 小工具 ----
 
-// contains 负责contains相关处理。
+// contains 封装contains业务协调。
 func contains(s, sub string) bool { return strings.Contains(strings.ToLower(s), strings.ToLower(sub)) }
 
-// toString 负责toString相关处理。
+// toString 封装toString业务协调。
 func toString(v any) string {
-	switch // x 保存x，供当前处理流程使用
+	switch // x 用于本次流程后续判断的x
 	x := v.(type) {
 	case nil:
 		return ""
@@ -439,13 +439,13 @@ func toString(v any) string {
 		// JSON 数字 → 整数字符串。
 		return trimFloatInt(x)
 	default:
-		// b 保存b，供当前处理流程使用
+		// b 用于本次流程后续判断的b
 		b, _ := json.Marshal(v)
 		return string(b)
 	}
 }
 
-// trimFloatInt 负责trimFloatInt相关处理。
+// trimFloatInt 封装trimFloatInt业务协调。
 func trimFloatInt(f float64) string {
 	if f == float64(int64(f)) {
 		return int64ToString(int64(f))
@@ -453,19 +453,19 @@ func trimFloatInt(f float64) string {
 	return ftoa(f)
 }
 
-// int64ToString 负责int64ToString相关处理。
+// int64ToString 封装int64ToString业务协调。
 func int64ToString(n int64) string {
 	if n == 0 {
 		return "0"
 	}
-	// neg 保存neg，供当前处理流程使用
+	// neg 用于本次流程后续判断的neg
 	neg := n < 0
 	if neg {
 		n = -n
 	}
-	// b 保存b，供当前处理流程使用
+	// b 用于本次流程后续判断的b
 	var b [20]byte
-	// i 保存i，供当前处理流程使用
+	// i 用于本次流程后续判断的i
 	i := len(b)
 	for n > 0 {
 		i--
@@ -479,17 +479,17 @@ func int64ToString(n int64) string {
 	return string(b[i:])
 }
 
-// ftoa 负责ftoa相关处理。
+// ftoa 封装ftoa业务协调。
 func ftoa(f float64) string { return jsonNumber(f) }
 
-// jsonNumber 负责jsonNumber相关处理。
+// jsonNumber 封装jsonNumber业务协调。
 func jsonNumber(f float64) string {
-	// b 保存b，供当前处理流程使用
+	// b 用于本次流程后续判断的b
 	b, _ := json.Marshal(f)
 	return string(b)
 }
 
-// truncID 负责truncID相关处理。
+// truncID 封装truncID业务协调。
 func truncID(id string) string {
 	if len(id) > 50 {
 		return id[:50] + "..."
@@ -497,7 +497,7 @@ func truncID(id string) string {
 	return id
 }
 
-// errString 负责errString相关处理。
+// errString 封装errString业务协调。
 func errString(err error) string {
 	if err == nil {
 		return ""
@@ -505,12 +505,12 @@ func errString(err error) string {
 	return err.Error()
 }
 
-// sleepCtx 负责sleepCtx相关处理。
+// sleepCtx 封装sleepCtx业务协调。
 func sleepCtx(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
 		return nil
 	}
-	// t 保存t，供当前处理流程使用
+	// t 用于本次流程后续判断的t
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {
