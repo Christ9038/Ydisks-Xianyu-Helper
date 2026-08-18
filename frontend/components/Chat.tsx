@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle, Check, CheckCheck, ImagePlus, Loader2, MessageCircleMore, RefreshCw,
-  Search, Send, Smile, UserRound, Wifi, WifiOff,
+  Search, Send, Smile, UserRound, Wifi, WifiOff, X,
 } from 'lucide-react';
 import { AccountDetail, ChatMessage, ChatSession } from '../types';
 import {
@@ -9,6 +9,8 @@ import {
   markChatRead, sendChatImage, sendChatMessage,
 } from '../services/api';
 import { emojiURL, renderXianyuText, xianyuEmojis } from '../chatEmojis';
+import Lightbox from 'yet-another-react-lightbox';
+import 'yet-another-react-lightbox/styles.css';
 
 type SessionsByAccount = Record<string, ChatSession[]>;
 
@@ -63,6 +65,8 @@ const Chat: React.FC = () => {
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const [pendingImage, setPendingImage] = useState<{ file: File; url: string } | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState(-1);
   const [liveState, setLiveState] = useState<'connecting' | 'online' | 'offline'>('connecting');
   const activeAccountRef = useRef('');
   const activeChatRef = useRef('');
@@ -324,6 +328,12 @@ const Chat: React.FC = () => {
   const activeAccount = accounts.find(account => account.id === activeAccountID);
   const activeSessions = sessionsByAccount[activeAccountID] || [];
   const selectedSession = activeSessions.find(session => session.chat_id === activeChatID);
+  const imageMessages = useMemo(() =>
+    messages.filter(message => message.message_type === 'image'),
+    [messages]);
+  const imageSlides = useMemo(() =>
+    imageMessages.map(message => ({ src: message.content, alt: '聊天图片' })),
+    [imageMessages]);
   const filteredSessions = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     return activeSessions.filter(session => {
@@ -351,6 +361,11 @@ const Chat: React.FC = () => {
     } finally { setContactsLoading(false); }
   };
 
+  useEffect(() => {
+    const preview = pendingImage;
+    return () => { if (preview) URL.revokeObjectURL(preview.url); };
+  }, [pendingImage]);
+
   const handleSend = async () => {
     const text = draft.trim();
     if (!text || !selectedSession || !activeAccountID || sending) return;
@@ -374,8 +389,27 @@ const Chat: React.FC = () => {
     }
   };
 
-  const handleImage = async (file?: File) => {
+  // 选择/粘贴图片后先弹窗预览，确认后才真正发送。
+  const previewImage = (file?: File) => {
     if (!file || !selectedSession || !activeAccountID || sending) return;
+    if (!file.type.startsWith('image/')) {
+      setError('仅支持粘贴/发送图片文件');
+      return;
+    }
+    setError('');
+    setPendingImage({ file, url: URL.createObjectURL(file) });
+  };
+
+  // 关闭预览：取消后清空文件输入框，保证同一文件可再次触发 onChange 重新预览。
+  const closePreview = () => {
+    setPendingImage(null);
+    if (imageInputRef.current) imageInputRef.current.value = '';
+  };
+
+  const confirmSendImage = async () => {
+    if (!pendingImage || !selectedSession || !activeAccountID || sending) return;
+    const file = pendingImage.file;
+    setPendingImage(null);
     setSending(true);
     setError('');
     try {
@@ -523,9 +557,10 @@ const Chat: React.FC = () => {
                         <div className={`max-w-[72%] ${outgoing ? 'items-end' : 'items-start'} flex flex-col`}>
                           <div className={`mb-1 px-1 text-[10px] font-semibold text-slate-400`}>{outgoing ? (activeAccount?.nickname || activeAccount?.remark || '我') : (selectedSession.buyer_name || message.sender_name || selectedSession.buyer_id)}</div>
                           {message.message_type === 'image' ? (
-                            <a href={message.content} target="_blank" rel="noreferrer" className={`block overflow-hidden rounded-2xl border bg-white p-1 shadow-sm ${outgoing ? 'rounded-br-md border-sky-200' : 'rounded-bl-md border-slate-200'}`}>
+                            <button type="button" onClick={() => setLightboxIndex(imageMessages.findIndex(item => item.message_key === message.message_key))} title="点击预览大图"
+                              className={`block cursor-zoom-in overflow-hidden rounded-2xl border bg-white p-1 text-left shadow-sm ${outgoing ? 'rounded-br-md border-sky-200' : 'rounded-bl-md border-slate-200'}`}>
                               <img src={message.content} alt="聊天图片" className="max-h-80 max-w-full rounded-xl object-contain" />
-                            </a>
+                            </button>
                           ) : message.message_type === 'video' ? (
                             <video src={message.content} controls preload="metadata" className="max-h-80 max-w-full rounded-2xl bg-black" />
                           ) : (
@@ -556,14 +591,22 @@ const Chat: React.FC = () => {
                         </div>
                       </div>}
                     </div>
-                    <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={event => void handleImage(event.target.files?.[0])} />
+                    <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={event => previewImage(event.target.files?.[0])} />
                     <button type="button" onClick={() => imageInputRef.current?.click()} disabled={sending || activeAccount?.runtime_state !== 'online'}
                       className="rounded-lg p-2 text-slate-500 transition hover:bg-sky-50 hover:text-sky-600 disabled:opacity-40" title="发送图片（最大 10MB）"><ImagePlus className="h-5 w-5" /></button>
                   </div>
                   <div className="flex items-end gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-2 transition focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-100">
                     <textarea value={draft} onChange={event => setDraft(event.target.value)} rows={2} maxLength={2000}
                       onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void handleSend(); } }}
-                      disabled={activeAccount?.runtime_state !== 'online'} placeholder={activeAccount?.runtime_state === 'online' ? '输入消息，Enter 发送，Shift + Enter 换行' : '账号离线，暂时无法发送'}
+                      onPaste={event => {
+                        const files = Array.from(event.clipboardData?.files || []);
+                        const image = files.find(file => file.type.startsWith('image/'));
+                        if (image) {
+                          event.preventDefault();
+                          previewImage(image);
+                        }
+                      }}
+                      disabled={activeAccount?.runtime_state !== 'online'} placeholder={activeAccount?.runtime_state === 'online' ? '输入消息，Enter 发送，Shift + Enter 换行，Ctrl + V 粘贴图片' : '账号离线，暂时无法发送'}
                       className="max-h-32 min-h-12 flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-6 outline-none disabled:cursor-not-allowed" />
                     <button type="button" onClick={() => void handleSend()} disabled={!draft.trim() || sending || activeAccount?.runtime_state !== 'online'}
                       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500 text-white shadow-md shadow-sky-100 transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none" aria-label="发送消息">
@@ -582,6 +625,39 @@ const Chat: React.FC = () => {
           </main>
         </div>
       )}
+
+      {pendingImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" onClick={closePreview}>
+          <div className="flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={event => event.stopPropagation()}>
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
+              <div className="text-sm font-black text-slate-900">发送图片预览</div>
+              <button type="button" onClick={closePreview} className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700" title="取消">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-slate-100 p-4">
+              <img src={pendingImage.url} alt="待发送图片预览" className="max-h-[55vh] max-w-full rounded-xl object-contain" />
+            </div>
+            <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 px-5 py-3">
+              <div className="min-w-0 truncate text-xs text-slate-500">{pendingImage.file.name || '粘贴的图片'} · {(pendingImage.file.size / 1024).toFixed(0)} KB</div>
+              <div className="flex shrink-0 items-center gap-2">
+                <button type="button" onClick={closePreview} className="rounded-xl px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-100">取消</button>
+                <button type="button" onClick={() => void confirmSendImage()} disabled={sending || activeAccount?.runtime_state !== 'online'}
+                  className="flex items-center gap-2 rounded-xl bg-sky-500 px-4 py-2 text-sm font-bold text-white shadow-md shadow-sky-100 transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-50">
+                  {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}发送
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <Lightbox
+        open={lightboxIndex >= 0}
+        index={Math.max(lightboxIndex, 0)}
+        close={() => setLightboxIndex(-1)}
+        slides={imageSlides}
+      />
     </section>
   );
 };

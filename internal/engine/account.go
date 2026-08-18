@@ -1830,7 +1830,9 @@ func (a *Account) MarkChatRead(ctx context.Context, chatID string, messageIDs []
 }
 
 // SendImage 通过当前 WebSocket 给买家发送图片消息。当前仅支持可直接访问的 CDN/公网 URL。
-func (a *Account) SendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64) error {
+// width/height 为图片真实尺寸，闲鱼客户端按消息中声明的尺寸渲染图片；
+// 传入 0 时由底层 WebSocket 使用默认值 800x600。
+func (a *Account) SendImage(ctx context.Context, chatID, toUserID, imageURL string, cardID int64, width, height int) error {
 	imageURL = strings.TrimSpace(imageURL)
 	if imageURL == "" {
 		return nil
@@ -1844,7 +1846,7 @@ func (a *Account) SendImage(ctx context.Context, chatID, toUserID, imageURL stri
 	}
 	sendCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	return conn.SendImage(sendCtx, myID, chatID, toUserID, imageURL, 800, 600)
+	return conn.SendImage(sendCtx, myID, chatID, toUserID, imageURL, width, height)
 }
 
 func (a *Account) currentSenderState() (WSConn, string, error) {

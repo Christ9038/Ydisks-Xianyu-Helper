@@ -208,7 +208,7 @@ func (s *Server) sendChatImage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "保存待发送图片失败")
 		return
 	}
-	if err := sender.SendImage(engine.WithOutgoingMessageKey(r.Context(), message.MessageKey), chatID, buyerID, upload.URL, 0); err != nil {
+	if err := sender.SendImage(engine.WithOutgoingMessageKey(r.Context(), message.MessageKey), chatID, buyerID, upload.URL, 0, upload.Width, upload.Height); err != nil {
 		failed, _ := s.chat.SetOutgoingStatus(context.Background(), accountID, message.MessageKey, "failed")
 		writeJSON(w, http.StatusBadGateway, map[string]any{"message": failed, "error": "图片发送失败，请重试"})
 		return

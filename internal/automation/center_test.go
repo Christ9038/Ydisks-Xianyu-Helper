@@ -248,7 +248,7 @@ func TestImageCardMissingSenderIsDefinitelyNotSent(t *testing.T) {
 	}
 }
 
-func (s *testSender) SendImage(context.Context, string, string, string, int64) error { return nil }
+func (s *testSender) SendImage(context.Context, string, string, string, int64, int, int) error { return nil }
 func (s *testSender) UpdateCookie(cookieStr string) {
 	s.cookieUpdates = append(s.cookieUpdates, cookieStr)
 	if s.onCookieUpdate != nil {

@@ -57,7 +57,7 @@ func (r *recordingSender) SendText(_ context.Context, chatID, toUserID, text str
 	return nil
 }
 
-func (r *recordingSender) SendImage(_ context.Context, chatID, toUserID, url string, cardID int64) error {
+func (r *recordingSender) SendImage(_ context.Context, chatID, toUserID, url string, cardID int64, _, _ int) error {
 	if r.imageErr != nil {
 		return r.imageErr
 	}
