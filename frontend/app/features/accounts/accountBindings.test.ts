@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe,expect,test } from 'vitest';
 import { shouldSaveNotificationBindings } from './accountBindings';
 
 describe('notification binding save guard', /* 当前回调处理用户交互或异步状态变化。 */ () => {

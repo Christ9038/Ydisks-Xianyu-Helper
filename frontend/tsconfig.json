@@ -19,6 +19,8 @@
     "moduleDetection": "force",
     "allowJs": false,
     "jsx": "react-jsx",
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "paths": {
       "@/*": [
         "./*"

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { act, renderHook } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type { AccountDetail } from '../../../shared/api-contract';
+import { act,renderHook } from '@testing-library/react';
+import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
+import type { AccountDetail } from '../../../shared/api-contract/accounts';
 
 // qrLoginMocks 保存二维码登录协调器测试使用的接口替身。
 const qrLoginMocks = vi.hoisted(/* qrLoginMockFactory 创建二维码登录 API 替身。 */ () => ({

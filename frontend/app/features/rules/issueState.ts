@@ -1,4 +1,4 @@
-import type { AutomationRunIssue, DeferredAutomationIssue } from './api';
+import type { AutomationRunIssue,DeferredAutomationIssue } from './api';
 
 // AutomationResolution 表示自动化运行异常可执行的人工处理动作。
 export type AutomationResolution = 'continue' | 'retry' | 'cancel';

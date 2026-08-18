@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { AccountDetail, Item } from '../../../shared/api-contract';
-import { getAccountDetails, getItems, getOrders, importOrders } from './api';
-import { useOrderImport, useOrderQuery } from './hooks';
+import { act,renderHook,waitFor } from '@testing-library/react';
+import { beforeEach,describe,expect,test,vi } from 'vitest';
+import type { AccountDetail,Item } from '../../../shared/api-contract/orders';
+import { getAccountDetails,getItems,getOrders,importOrders } from './api';
+import { useOrderImport,useOrderQuery } from './hooks';
 
 vi.mock('./api', /* ordersApiMockFactory 提供订单 Hook 的确定性 API 替身。 */ () => ({
   getAccountDetails: vi.fn(),

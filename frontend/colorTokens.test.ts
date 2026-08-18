@@ -1,6 +1,6 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync,readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { describe,expect,test } from 'vitest';
 
 // featureRoot 是 feature 页面与专属组件所在的目录；根 components 已由阶段七迁移移除。
 const featureRoot = resolve(__dirname, 'app/features');

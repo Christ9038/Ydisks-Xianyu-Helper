@@ -1,8 +1,7 @@
-import React from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, test } from 'vitest';
+import { describe,expect,test } from 'vitest';
 import { StatusBadge } from './Dashboard';
 
 // dashboardSource 仪表盘测试数据源。

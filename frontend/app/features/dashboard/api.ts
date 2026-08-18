@@ -1,7 +1,8 @@
-import { get, type RequestControlOptions } from '../../../shared/http/client';
-import { collectionFrom, objectFrom } from '../../../shared/http/contract';
-import type { DashboardStatsResponse, Item, ItemListEnvelope, Order, OrderAnalyticsResponse, OrderStatus, ValidOrderResponse, ValidOrdersResponse } from '../../../shared/api-contract';
 import { formatLocalDate } from '../../../dateRange';
+import type { DashboardStatsResponse,Item,ItemListEnvelope,Order,OrderAnalyticsResponse,OrderStatus,ValidOrderResponse,ValidOrdersResponse } from '../../../shared/api-contract/admin';
+import { get,type RequestControlOptions } from '../../../shared/http/client';
+import { collectionFrom,objectFrom } from '../../../shared/http/contract';
+export type * from '../../../shared/api-contract/admin';
 
 /** 仪表盘订单明细接口转换后的分页结果。 */
 export interface ValidOrdersResult {

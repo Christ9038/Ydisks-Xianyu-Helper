@@ -1,5 +1,5 @@
-import type { Dispatch, SetStateAction } from 'react';
-import type { Item, AccountDetail, ShippingRule } from '../../../shared/api-contract';
+import type { Dispatch,SetStateAction } from 'react';
+import type { AccountDetail,Item,ShippingRule } from './api';
 import type { PublishLocation } from './api';
 
 // ItemListProps 描述商品页面从父级接收的规则配置回调。

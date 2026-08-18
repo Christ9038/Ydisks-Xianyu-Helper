@@ -1,6 +1,6 @@
-import { expect, test } from 'vitest';
+import { expect,test } from 'vitest';
 import type { AutomationRunIssue } from './api';
-import { canResolveAutomationIssue, filterAutomationIssues, loadAutomationPageData } from './issueState';
+import { canResolveAutomationIssue,filterAutomationIssues,loadAutomationPageData } from './issueState';
 
 // issue 创建规则异常测试使用的最小异常对象。
 const issue = (cookieID: string, allowed: AutomationRunIssue['allowed_resolutions']): AutomationRunIssue => ({

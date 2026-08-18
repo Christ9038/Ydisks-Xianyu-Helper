@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest';
-import { getDateRange, getPreviousDateRange } from './dateRange';
+import { describe,expect,test } from 'vitest';
+import { getDateRange,getPreviousDateRange } from './dateRange';
 
 describe('date ranges', () => {
   const now = new Date('2026-07-10T12:00:00'); /* now 表示now。 */

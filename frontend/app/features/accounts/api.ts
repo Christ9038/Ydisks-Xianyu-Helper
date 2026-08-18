@@ -1,12 +1,22 @@
-import { get, post, put, del, postForm, type RequestControlOptions } from '../../../shared/http/client';
 import {
-  SessionResponse, AccountDetail, AccountSummaryResponse, Order, PaginatedResponse,
-  AdminStats, DashboardStats, Card, SystemSettings, OrderAnalytics,
-  Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
-  NotificationChannel, NotificationEventType, AccountTaskSettings, ChatSession, ChatMessage, ItemListEnvelope, AutomationIssuesEnvelope,
-  CookieSettingsResponse, CookieProfileResponse, ItemDetailResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, OrderRefreshResponse, OrderRefreshJobStartResponse, OrderRefreshJobStatusResponse, OrderRefreshJobCancelResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope, AdminStatsResponse, DashboardStatsResponse, OrderAnalyticsResponse, QRLoginGenerateResponse, QRLoginStatusResponse, QRLoginVerificationResponse, ValidOrderResponse, ValidOrdersResponse
-} from '../../../shared/api-contract';
-import { collectionFrom, objectFrom } from '../../../shared/http/contract';
+AIReplySettings,
+AIReplySettingsResponse,
+AccountBindingsResponse,
+AccountDetail,AccountSummaryResponse,
+AccountTaskRunResponseEnvelope,
+AccountTaskSettings,
+AccountTaskSettingsResponse,
+CookieProfileResponse,
+CookieSettingsResponse,
+NotificationChannel,
+NotificationChannelResponse,
+NotificationEventType,
+OperationResponse,
+QRLoginGenerateResponse,QRLoginStatusResponse,QRLoginVerificationResponse
+} from '../../../shared/api-contract/accounts';
+import { del,get,post,put,type RequestControlOptions } from '../../../shared/http/client';
+import { collectionFrom,objectFrom } from '../../../shared/http/contract';
+export type * from '../../../shared/api-contract/accounts';
 // Accounts
 // addAccount 新增账号。
 export const addAccount = async (id: string, value: string, loginMethod?: string): Promise<OperationResponse> => {
@@ -276,13 +286,6 @@ const parseNotificationEventTypes = (raw: unknown): NotificationEventType[] => {
     // fall back to legacy comma/semicolon separated values
   }
   return raw.split(/[,\s;]+/).map(/* 当前回调用于处理集合元素或接口响应。 */ v => v.trim()).filter(Boolean) as NotificationEventType[];
-};
-
-// stringifyNotificationEventTypes 序列化通知事件类型。
-const stringifyNotificationEventTypes = (events?: NotificationEventType[]): string => {
-  // clean 清理后的事件类型列表，用于当前 API 处理流程。
-  const clean = Array.from(new Set((events || []).filter(Boolean)));
-  return clean.length > 0 ? JSON.stringify(clean) : '';
 };
 
 // getNotificationChannels 读取通知渠道。

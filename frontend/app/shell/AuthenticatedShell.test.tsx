@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
+import { cleanup,fireEvent,render,screen,waitFor } from '@testing-library/react';
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, test, vi } from 'vitest';
-import type { Item } from '../../shared/api-contract';
+import { afterEach,describe,expect,test,vi } from 'vitest';
+import type { Item } from '../../shared/api-contract/common';
 import type { DeliveryRuleTarget } from './AuthenticatedShell';
 
 vi.mock('../features/dashboard/pages/Dashboard', /* dashboardMockFactory 提供仪表盘页面的轻量替身。 */ () => {

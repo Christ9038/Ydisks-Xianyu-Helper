@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { act, renderHook } from '@testing-library/react';
+import { act,renderHook } from '@testing-library/react';
 import { useState } from 'react';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type { Card, DefaultReply, Item, ShippingRule } from './types';
-import { clearDefaultReplyRecords, deleteDefaultReply, deleteReplyRule, deleteShippingRule, getDefaultReply, resolveAutomationRun, resolveDeferredAutomationTask, updateDefaultReply, updateReplyRule, updateShippingRule } from './api';
-import { useRuleActions, type RuleActionsOptions } from './ruleActions';
+import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
+import { clearDefaultReplyRecords,deleteDefaultReply,deleteReplyRule,deleteShippingRule,getDefaultReply,resolveAutomationRun,resolveDeferredAutomationTask,updateDefaultReply,updateReplyRule,updateShippingRule } from './api';
+import { useRuleActions,type RuleActionsOptions } from './ruleActions';
+import type { Card,DefaultReply,Item,ShippingRule } from './types';
 
 vi.mock('./api', /* ruleActionsApiMockFactory 提供规则动作 Hook 的确定性 API 替身。 */ () => ({
   clearDefaultReplyRecords: vi.fn(),

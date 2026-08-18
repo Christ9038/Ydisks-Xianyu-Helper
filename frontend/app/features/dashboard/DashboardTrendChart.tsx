@@ -1,6 +1,6 @@
-import React from 'react';
 import { ShoppingCart } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
+import React from 'react';
+import { Area,AreaChart,Bar,BarChart,CartesianGrid,Cell,ResponsiveContainer,Tooltip,XAxis,YAxis } from 'recharts';
 import type { DashboardChartPoint } from './state';
 
 /** 趋势图组件的输入参数。 */

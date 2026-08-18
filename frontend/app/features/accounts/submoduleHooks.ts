@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import type { AccountDetail, AIReplySettings, NotificationChannel } from '../../../shared/api-contract';
-import { cancelPasswordLogin, checkPasswordLoginStatus, getAccountAISettings, getAccountBindings, getLongLoginSettings, getNotificationChannels, passwordLogin, setLongLoginSettings, updateAccountAISettings, updateAccountPauseDuration, updateAccountSettings } from './api';
-import { buildAccountLoginInfoUpdate, isCurrentAccountRequest, passwordLoginViewFromStatus, shouldUpdateAccountPause } from './state';
-import type { AccountEditForm, LongLoginState, PasswordLoginView } from './types';
+import { useCallback,useEffect,useRef,useState,type Dispatch,type SetStateAction } from 'react';
+import type { AccountDetail,AIReplySettings,NotificationChannel } from './api';
 import { shouldSaveNotificationBindings } from './accountBindings';
+import { cancelPasswordLogin,checkPasswordLoginStatus,getAccountAISettings,getAccountBindings,getLongLoginSettings,getNotificationChannels,passwordLogin,setLongLoginSettings,updateAccountAISettings,updateAccountPauseDuration,updateAccountSettings } from './api';
+import { buildAccountLoginInfoUpdate,isCurrentAccountRequest,passwordLoginViewFromStatus,shouldUpdateAccountPause } from './state';
+import type { AccountEditForm,LongLoginState,PasswordLoginView } from './types';
 
 /** AccountList 当前编辑弹窗类型。 */
 export type AccountModalType = 'edit' | 'ai-settings' | null;

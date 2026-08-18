@@ -1,6 +1,6 @@
-import type { SystemSettings } from '../../../shared/api-contract';
+import type { SystemSettings } from './api';
 import { SETTINGS_SAVE_OMIT_KEYS } from './constants';
-import type { CredentialsForm, CredentialsMessage } from './types';
+import type { CredentialsForm,CredentialsMessage } from './types';
 
 /** 将配置草稿裁剪为可以保存到后端的字段。 */
 export const buildPersistableSettings = (settings: SystemSettings): Partial<SystemSettings> => (

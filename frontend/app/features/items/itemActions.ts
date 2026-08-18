@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import type { Item } from '../../../shared/api-contract';
-import { createItem, deleteItem, getPublishLocations, publishItem, syncItemsFromAccount, updateItem } from './api';
+import { useCallback,useEffect,useRef,useState,type Dispatch,type SetStateAction } from 'react';
+import type { Item } from './api';
 import type { PublishLocation } from './api';
+import { createItem,deleteItem,getPublishLocations,itemErrorMessage,publishItem,syncItemsFromAccount,updateItem } from './api';
 
 // AddItemForm 描述手动添加商品弹窗的表单字段。
 export interface AddItemForm {
@@ -134,14 +134,6 @@ export const emptyAddItemForm = (): AddItemForm => ({ cookie_id: '', item_id: ''
 
 // emptyPublishItemForm 创建普通发布商品表单的初始值。
 export const emptyPublishItemForm = (cookieID = ''): PublishItemForm => ({ cookie_id: cookieID, title: '', description: '', price: '', original_price: '', quantity: '1', postage_mode: 'free', postage: '', images: [] });
-
-// itemErrorMessage 将未知异常转换为稳定的商品操作提示。
-const itemErrorMessage = (error: unknown, fallback: string): string => {
-  if (error instanceof Error) return error.message;
-  // message 保存兼容 API 错误对象中的文本说明。
-  const message = typeof error === 'object' && error !== null && 'message' in error ? (error as { /** message 是兼容错误对象中的文本说明。 */ message?: unknown }).message : undefined;
-  return typeof message === 'string' ? message : fallback;
-};
 
 // useItemActions 集中管理商品同步、编辑、删除、添加、普通发布和定位动作。
 export const useItemActions = ({ selectedAccount, setSelectedAccount, setItems, loadItems, loadShippingRules, onConfigureDelivery, setBatchLocations, setBatchLocation }: ItemActionsOptions): ItemActionsState => {
@@ -302,12 +294,6 @@ export const useItemActions = ({ selectedAccount, setSelectedAccount, setItems, 
       }
     } catch (/* error 表示商品发布请求异常。 */ error: unknown) {
       console.error('发布商品失败:', error);
-      // payload 保存服务端返回的结构化错误载荷。
-      const payload = (error as { /** payload 是服务端结构化错误载荷。 */ payload?: { /** code 是服务端错误码。 */ code?: unknown } })?.payload;
-      if (payload?.code === 'stock_permission_missing') {
-        alert('发布失败：该账号没有库存发布权限，无法按库存数量发布商品。请换账号或先在闲鱼确认库存能力。');
-        return;
-      }
       alert(itemErrorMessage(error, '发布失败，请重试'));
     } finally {
       setPublishing(false);

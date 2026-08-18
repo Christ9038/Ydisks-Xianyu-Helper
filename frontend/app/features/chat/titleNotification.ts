@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChatMessage } from '../../../shared/api-contract';
-import { getAccountDetails, getChatSessionPage } from './api';
-import { publishChatConnectionState, publishChatLiveMessage, subscribeToChatUnreadStatus } from './liveEvents';
+import { useCallback,useEffect,useRef,useState } from 'react';
+import type { ChatMessage } from './api';
+import { getAccountDetails,getChatSessionPage } from './api';
+import { publishChatConnectionState,publishChatLiveMessage,subscribeToChatUnreadStatus } from './liveEvents';
 
 /** titleFlashIntervalMs 定义浏览器标题在提示文本与原始标题间切换的周期，单位为毫秒。 */
 const titleFlashIntervalMs = 1_000;

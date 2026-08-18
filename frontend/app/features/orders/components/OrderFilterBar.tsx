@@ -1,6 +1,6 @@
+import { Search,User as UserIcon } from 'lucide-react';
 import React from 'react';
-import { Search, User as UserIcon } from 'lucide-react';
-import type { AccountDetail } from '../../../../shared/api-contract';
+import type { AccountDetail } from '../api';
 import { orderStatusOptions } from '../state';
 
 // OrderFilterBarProps 描述订单状态、账号和文本筛选所需的页面状态。

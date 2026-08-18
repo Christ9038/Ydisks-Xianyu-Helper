@@ -1,15 +1,16 @@
 // @vitest-environment jsdom
-import { act, renderHook } from '@testing-library/react';
+import { act,renderHook } from '@testing-library/react';
 import { useState } from 'react';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type { Item } from '../../../shared/api-contract';
-import { createItem, deleteItem, getPublishLocations, publishItem, syncItemsFromAccount, updateItem } from './api';
-import { useItemActions, type ItemActionsOptions } from './itemActions';
+import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
+import type { Item } from '../../../shared/api-contract/items';
+import { createItem,deleteItem,getPublishLocations,publishItem,syncItemsFromAccount,updateItem } from './api';
+import { useItemActions,type ItemActionsOptions } from './itemActions';
 
 vi.mock('./api', /* itemActionsApiMockFactory 提供商品动作 Hook 的确定性 API 替身。 */ () => ({
   createItem: vi.fn(),
   deleteItem: vi.fn(),
   getPublishLocations: vi.fn(),
+  itemErrorMessage: /* errorMessageMock 将测试动作中的异常转换为稳定回退文本。 */ (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback,
   publishItem: vi.fn(),
   syncItemsFromAccount: vi.fn(),
   updateItem: vi.fn(),

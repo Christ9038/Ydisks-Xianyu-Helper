@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { describe,expect,test } from 'vitest';
 
 const itemList = readFileSync(resolve(__dirname, 'app/features/items/pages/ItemList.tsx'), 'utf8'); /* itemList 表示当前商品List。 */
 

@@ -1,24 +1,24 @@
-import { useCallback, useRef, useState } from 'react';
-import {
-  getAccountDetails,
-  getAutomationIssues,
-  getCards,
-  getDefaultReplies,
-  getItems,
-  getReplyRules,
-  getShippingRulesPage,
-} from './api';
+import { useCallback,useRef,useState } from 'react';
 import type {
-  AccountDetail,
-  AutomationTriggerType,
-  Card,
-  DefaultReply,
-  Item,
-  ReplyRule,
-  ShippingRule,
-} from '../../../shared/api-contract';
-import type { AutomationIssueState, RulesDataOptions, RulesDataResult, RulesTab } from './types';
-import { isCurrentRequest, nextRequestGeneration } from './interactionState';
+AccountDetail,
+AutomationTriggerType,
+Card,
+DefaultReply,
+Item,
+ReplyRule,
+ShippingRule,
+} from './api';
+import {
+getAccountDetails,
+getAutomationIssues,
+getCards,
+getDefaultReplies,
+getItems,
+getReplyRules,
+getShippingRulesPage,
+} from './api';
+import { isCurrentRequest,nextRequestGeneration } from './interactionState';
+import type { AutomationIssueState,RulesDataOptions,RulesDataResult,RulesTab } from './types';
 
 // useRulesData 集中管理 Rules 页的服务端数据、请求代次和刷新动作。
 export const useRulesData = (options: RulesDataOptions): RulesDataResult => {

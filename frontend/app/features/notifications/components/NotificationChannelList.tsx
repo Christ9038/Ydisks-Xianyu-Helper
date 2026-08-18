@@ -1,7 +1,7 @@
+import { Bell,Edit2,Loader2,Send,Trash2 } from 'lucide-react';
 import React from 'react';
-import { Bell, Edit2, Loader2, Send, Trash2 } from 'lucide-react';
-import type { NotificationChannel } from '../../../../shared/api-contract';
-import { notificationChannelTypes, notificationEventSummary } from '../state';
+import type { NotificationChannel } from '../api';
+import { notificationChannelTypes,notificationEventSummary } from '../state';
 
 // NotificationChannelListProps 描述通知渠道列表的操作边界。
 export interface NotificationChannelListProps {

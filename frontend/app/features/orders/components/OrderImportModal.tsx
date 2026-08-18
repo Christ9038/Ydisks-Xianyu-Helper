@@ -1,6 +1,6 @@
+import { Upload,X } from 'lucide-react';
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Upload, X } from 'lucide-react';
 import { failedOrderImportRows } from '../state';
 import type { OrderImportState } from '../types';
 

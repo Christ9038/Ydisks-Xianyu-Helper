@@ -1,6 +1,6 @@
+import { AlertCircle,Bot,CalendarClock,Check,Clock,Edit2,Loader2,MessageCircle,Power,QrCode,RefreshCw,Sparkles,Trash2,User } from 'lucide-react';
 import React from 'react';
-import { AlertCircle, Bot, CalendarClock, Check, Clock, Loader2, MessageCircle, Power, QrCode, RefreshCw, Sparkles, Trash2, User, Edit2 } from 'lucide-react';
-import type { AccountDetail } from '../../../../shared/api-contract';
+import type { AccountDetail } from '../api';
 import { accountRuntimePresentation } from '../runtime';
 
 // AccountCardProps 描述账号卡片展示所需的数据和动作。

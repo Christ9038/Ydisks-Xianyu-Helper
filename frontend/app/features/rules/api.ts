@@ -1,12 +1,23 @@
-import { get, post, put, del, postForm, type RequestControlOptions } from '../../../shared/http/client';
 import {
-  SessionResponse, AccountDetail, AccountSummaryResponse, Order, PaginatedResponse,
-  AdminStats, DashboardStats, Card, SystemSettings, OrderAnalytics,
-  Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
-  NotificationChannel, NotificationEventType, AccountTaskSettings, ChatSession, ChatMessage, ItemListEnvelope, AutomationIssuesEnvelope,
-  CookieSettingsResponse, CookieProfileResponse, ItemDetailResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, OrderRefreshResponse, OrderRefreshJobStartResponse, OrderRefreshJobStatusResponse, OrderRefreshJobCancelResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope, AdminStatsResponse, DashboardStatsResponse, OrderAnalyticsResponse, QRLoginGenerateResponse, QRLoginStatusResponse, QRLoginVerificationResponse, ValidOrderResponse, ValidOrdersResponse
-} from '../../../shared/api-contract';
-import { collectionFrom, objectFrom } from '../../../shared/http/contract';
+AccountDetail,
+AutomationAction,
+AutomationIssuesEnvelope,
+AutomationRulePageResponse,
+AutomationRuleResponse,
+AutomationTriggerType,
+Card,
+DefaultReply,
+DefaultReplyResponse,
+Item,
+KeywordTypedResponse,
+MutationIDResponse,OperationResponse,
+PaginatedResponse,
+ReplyRule,
+ShippingRule
+} from '../../../shared/api-contract/automation';
+import { del,get,post,put,type RequestControlOptions } from '../../../shared/http/client';
+import { collectionFrom,objectFrom } from '../../../shared/http/contract';
+export type * from '../../../shared/api-contract/automation';
 
 /** 自动化规则筛选器读取非敏感账号摘要。 */
 export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => get('/api/v1/accounts/details', undefined, options);

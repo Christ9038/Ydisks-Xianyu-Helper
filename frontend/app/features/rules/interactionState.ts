@@ -15,6 +15,7 @@ export const startRuleSubmission = (state: RuleSubmitState): RuleSubmitState =>
 
 // finishRuleSubmission 将保存请求收口为成功或失败结果。
 export const finishRuleSubmission = (state: RuleSubmitState, succeeded: boolean): RuleSubmitState => ({
+  ...state,
   submitting: false,
   result: succeeded ? 'success' : 'failure',
 });

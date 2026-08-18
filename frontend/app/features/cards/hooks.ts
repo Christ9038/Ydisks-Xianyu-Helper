@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { appendCardData, batchCreateCards, getCards } from './api';
-import type { Card } from '../../../shared/api-contract';
-import { canSubmitAppend, isCurrentCardRequest, previewAppendContent } from './batchState';
+import { useCallback,useEffect,useMemo,useRef,useState,type Dispatch,type SetStateAction } from 'react';
+import type { Card } from './api';
+import { appendCardData,batchCreateCards,getCards } from './api';
+import { canSubmitAppend,isCurrentCardRequest,previewAppendContent } from './batchState';
 import type { CardBatchState } from './types';
 
 // CardsDataResult 暴露卡密库存、加载状态和可复用刷新动作。

@@ -1,6 +1,6 @@
-import { expect, test } from 'vitest';
-import type { ChatMessage, ChatSession } from '../../../shared/api-contract';
-import { collectChatReadReceipts, filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, markOutgoingMessagesReadByIncoming, mergeLiveMessage, mergeOlderMessages, messageTime, unreadBadgeClassName, unreadBadgeLabel } from './state';
+import { expect,test } from 'vitest';
+import type { ChatMessage,ChatSession } from '../../../shared/api-contract/chat';
+import { collectChatReadReceipts,filterChatSessions,formatClock,isChatAbortError,isCurrentChatRequest,markOutgoingMessagesReadByIncoming,mergeLiveMessage,mergeOlderMessages,messageTime,unreadBadgeClassName,unreadBadgeLabel } from './state';
 
 // sessionFixture 是覆盖搜索、未读筛选和联系人隔离的最小会话数据。
 const sessionFixture: ChatSession[] = [

@@ -1,4 +1,4 @@
-import type { AccountDetail, AccountTaskSettings, AccountTaskSummary } from '../../../shared/api-contract';
+import type { AccountDetail,AccountTaskSettings,AccountTaskSummary } from './api';
 
 /** 账号任务类型。 */
 export type AccountTaskType = 'auto_rate' | 'auto_polish';

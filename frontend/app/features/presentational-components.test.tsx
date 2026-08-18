@@ -1,15 +1,14 @@
 import ReactDOMServer from 'react-dom/server';
-import { describe, expect, test } from 'vitest';
-import type { NotificationChannel } from '../../shared/api-contract';
-import type { SystemSettings } from '../../shared/api-contract';
+import { describe,expect,test } from 'vitest';
+import type { NotificationChannel,SystemSettings } from '../../shared/api-contract/common';
 import { CardIcon } from './cards/components/CardIcon';
 import { BatchPhaseIndicator } from './items/components/BatchPhaseIndicator';
 import { NotificationChannelList } from './notifications/components/NotificationChannelList';
 import { NotificationEventSelector } from './notifications/components/NotificationEventSelector';
 import { NotificationSmtpSettings } from './notifications/components/NotificationSmtpSettings';
 import { OrderFilterBar } from './orders/components/OrderFilterBar';
+import type { AutomationRunIssue,DeferredAutomationIssue } from './rules/api';
 import { AutomationIssuePanel } from './rules/components/AutomationIssuePanel';
-import type { AutomationRunIssue, DeferredAutomationIssue } from './rules/api';
 
 // render 将 React 展示组件转换为静态 HTML，验证不依赖浏览器 DOM 的渲染分支。
 const render = (element: React.ReactElement): string => ReactDOMServer.renderToStaticMarkup(element);

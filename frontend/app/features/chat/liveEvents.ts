@@ -1,4 +1,4 @@
-import type { ChatMessage } from '../../../shared/api-contract';
+import type { ChatMessage } from './api';
 import type { ChatLiveState } from './types';
 
 /** ChatLiveEvent 描述全局聊天连接向已挂载聊天页面发布的最小实时事件集合。 */

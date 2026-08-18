@@ -1,8 +1,8 @@
-import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
-import type { Card } from '../../../shared/api-contract';
-import { createCard, deleteCard, updateCard } from './api';
+import { useCallback,useMemo,useState,type Dispatch,type SetStateAction } from 'react';
+import type { Card } from './api';
+import { createCard,deleteCard,updateCard } from './api';
 import { filterCards } from './batchState';
-import type { AddCardForm, EditCardForm } from './types';
+import type { AddCardForm,EditCardForm } from './types';
 
 // emptyAddForm 创建新增卡密组表单的初始值。
 export const emptyAddForm = (): AddCardForm => ({

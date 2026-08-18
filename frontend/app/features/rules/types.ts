@@ -1,29 +1,29 @@
-import type { Dispatch, ElementType, SetStateAction } from 'react';
+import type { Dispatch,ElementType,SetStateAction } from 'react';
 import type {
-  AccountDetail,
-  AutomationAction,
-  AutomationTriggerType,
-  Card,
-  DefaultReply,
-  Item,
-  ReplyRule,
-  ShippingRule,
-  ShippingVariant,
-} from '../../../shared/api-contract';
-import type { AutomationRunIssue, DeferredAutomationIssue } from './api';
+AccountDetail,
+AutomationAction,
+AutomationTriggerType,
+Card,
+DefaultReply,
+Item,
+ReplyRule,
+ShippingRule,
+ShippingVariant,
+} from './api';
+import type { AutomationRunIssue,DeferredAutomationIssue } from './api';
 
 // Rules feature 通过此类型入口重导出共享领域模型，避免页面直接依赖全局类型文件。
 export type {
-  AccountDetail,
-  AutomationAction,
-  AutomationTriggerType,
-  Card,
-  DefaultReply,
-  Item,
-  ReplyRule,
-  ShippingRule,
-  ShippingVariant,
-} from '../../../shared/api-contract';
+AccountDetail,
+AutomationAction,
+AutomationTriggerType,
+Card,
+DefaultReply,
+Item,
+ReplyRule,
+ShippingRule,
+ShippingVariant
+} from './api';
 
 // RulesTab 表示规则页面的三个业务页签。
 export type RulesTab = 'automation' | 'reply' | 'default';

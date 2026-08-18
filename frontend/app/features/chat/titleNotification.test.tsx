@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { act, renderHook } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type { ChatMessage } from '../../../shared/api-contract';
-import { getAccountDetails, getChatSessionPage } from './api';
+import { act,renderHook } from '@testing-library/react';
+import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
+import type { ChatMessage } from '../../../shared/api-contract/chat';
+import { getAccountDetails,getChatSessionPage } from './api';
 import { publishChatUnreadStatus } from './liveEvents';
-import { formatChatNewMessageTitle, useChatTitleNotification, useChatTitleNotifier } from './titleNotification';
+import { formatChatNewMessageTitle,useChatTitleNotification,useChatTitleNotifier } from './titleNotification';
 
 vi.mock('./api', /* chatApiMockFactory 提供标题通知初始化未读状态读取的确定性 API 替身。 */ () => ({
   getAccountDetails: vi.fn(),

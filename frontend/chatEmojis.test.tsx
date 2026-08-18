@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, test } from 'vitest';
-import { renderXianyuText, xianyuEmojis } from './chatEmojis';
+import { describe,expect,test } from 'vitest';
+import { renderXianyuText,xianyuEmojis } from './chatEmojis';
 
 describe('official Xianyu emoji mapping', () => {
   test('contains the complete official panel in official order', () => {

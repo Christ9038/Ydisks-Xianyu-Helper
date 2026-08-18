@@ -1,5 +1,5 @@
-import type { Item, OrderAnalytics } from '../../../shared/api-contract';
-import type { DateRange, TimeRange } from '../../../dateRange';
+import type { TimeRange } from '../../../dateRange';
+import type { Item,OrderAnalytics } from './api';
 import type { DashboardRangeSelection } from './types';
 
 /** 趋势图中的单个日期数据点。 */

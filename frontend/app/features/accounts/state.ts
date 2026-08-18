@@ -1,6 +1,6 @@
-import type { AccountDetail } from '../../../shared/api-contract';
+import type { AccountDetail } from './api';
 import type { PasswordLoginStatusResponse } from './api';
-import type { AccountEditForm, PasswordLoginView } from './types';
+import type { AccountEditForm,PasswordLoginView } from './types';
 
 // AccountLoginEditFields 描述账号编辑表单中参与登录信息比较的字段。
 export type AccountLoginEditFields = Pick<AccountEditForm, 'username' | 'login_password' | 'show_browser'> & Pick<Partial<AccountEditForm>, 'clear_password'>;

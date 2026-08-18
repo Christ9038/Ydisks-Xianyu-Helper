@@ -1,5 +1,5 @@
-import type { Item, Order, OrderAnalytics, DashboardStats } from '../../../shared/api-contract';
-import type { DateRange, TimeRange } from '../../../dateRange';
+import type { DateRange,TimeRange } from '../../../dateRange';
+import type { DashboardStats,Item,Order,OrderAnalytics } from './api';
 
 /** Dashboard 请求状态。 */
 export type DashboardRequestState = 'idle' | 'loading' | 'success' | 'error';

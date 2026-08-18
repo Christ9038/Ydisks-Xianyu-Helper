@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { describe,expect,test } from 'vitest';
 
 const repoRoot = resolve(__dirname); /* repoRoot 表示repoRoot。 */
 

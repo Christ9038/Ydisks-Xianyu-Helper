@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
-import type { AccountDetail } from '../../../shared/api-contract';
-import { checkQRLoginStatus, completeQRVerification, generateQRLogin } from './api';
-import { createLatestRequestGate, createQRLoginPoller } from './qrPolling';
+import { useEffect,useRef,useState } from 'react';
+import type { AccountDetail } from './api';
+import { checkQRLoginStatus,completeQRVerification,generateQRLogin } from './api';
+import { createLatestRequestGate,createQRLoginPoller } from './qrPolling';
 
 // AccountQRCodeLoginOptions 描述二维码登录协调器需要的页面刷新回调。
 export interface AccountQRCodeLoginOptions {

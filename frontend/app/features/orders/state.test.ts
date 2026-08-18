@@ -1,11 +1,11 @@
-import { expect, test } from 'vitest';
+import { expect,test } from 'vitest';
 import {
-  canSubmitOrderImport,
-  failedOrderImportRows,
-  isCurrentOrderRequest,
-  normalizeOrderImportResult,
-  orderStatusOptions,
-  validateOrderImportFile,
+canSubmitOrderImport,
+failedOrderImportRows,
+isCurrentOrderRequest,
+normalizeOrderImportResult,
+orderStatusOptions,
+validateOrderImportFile,
 } from './state';
 
 // createFile 创建订单导入预检使用的最小浏览器文件对象。

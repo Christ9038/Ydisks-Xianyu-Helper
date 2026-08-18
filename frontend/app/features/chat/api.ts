@@ -1,12 +1,12 @@
-import { get, post, put, del, postForm, type RequestControlOptions } from '../../../shared/http/client';
 import {
-  SessionResponse, AccountDetail, AccountSummaryResponse, Order, PaginatedResponse,
-  AdminStats, DashboardStats, Card, SystemSettings, OrderAnalytics,
-  Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
-  NotificationChannel, NotificationEventType, AccountTaskSettings, ChatSession, ChatMessage, ItemListEnvelope, AutomationIssuesEnvelope,
-  CookieSettingsResponse, CookieProfileResponse, ItemDetailResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, OrderRefreshResponse, OrderRefreshJobStartResponse, OrderRefreshJobStatusResponse, OrderRefreshJobCancelResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope, AdminStatsResponse, DashboardStatsResponse, OrderAnalyticsResponse, QRLoginGenerateResponse, QRLoginStatusResponse, QRLoginVerificationResponse, ValidOrderResponse, ValidOrdersResponse
-} from '../../../shared/api-contract';
-import { collectionFrom, objectFrom } from '../../../shared/http/contract';
+AccountDetail,
+ChatMessage,
+ChatSession,
+OperationResponse
+} from '../../../shared/api-contract/chat';
+import { get,post,postForm,type RequestControlOptions } from '../../../shared/http/client';
+import { objectFrom } from '../../../shared/http/contract';
+export type * from '../../../shared/api-contract/chat';
 import type { ChatReadReceipt } from './types';
 
 /** 聊天账号选择器读取非敏感账号摘要。 */

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { describe,expect,test } from 'vitest';
 
 const source = (path: string) => readFileSync(resolve(__dirname, path), 'utf8'); /* source 表示source。 */
 

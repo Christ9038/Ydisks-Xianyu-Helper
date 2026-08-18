@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { Card } from '../../../shared/api-contract';
-import { appendCardData, batchCreateCards, getCards } from './api';
-import { useCardBatchActions, useCardsData } from './hooks';
+import { act,renderHook,waitFor } from '@testing-library/react';
+import { beforeEach,describe,expect,test,vi } from 'vitest';
+import type { Card } from '../../../shared/api-contract/cards';
+import { appendCardData,batchCreateCards,getCards } from './api';
+import { useCardBatchActions,useCardsData } from './hooks';
 
 vi.mock('./api', /* cardsApiMockFactory 提供卡密 Hook 的确定性 API 替身。 */ () => ({
   appendCardData: vi.fn(),

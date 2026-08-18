@@ -1,5 +1,6 @@
-import { get, post, type RequestControlOptions } from '../../../shared/http/client';
-import type { OperationResponse, SessionResponse } from '../../../shared/api-contract';
+import type { OperationResponse,SessionResponse } from '../../../shared/api-contract/session';
+import { get,post,type RequestControlOptions } from '../../../shared/http/client';
+export type * from '../../../shared/api-contract/session';
 
 /** 会话状态接口返回的只读传输契约。 */
 export interface SessionStatusResponse {

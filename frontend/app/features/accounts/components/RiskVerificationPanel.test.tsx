@@ -1,6 +1,5 @@
-import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { expect, test } from 'vitest';
+import { expect,test } from 'vitest';
 import { RiskVerificationPanel } from './RiskVerificationPanel';
 
 test('risk verification panel explains automatic refresh without manual controls', /* 当前回调处理用户交互或异步状态变化。 */ () => {

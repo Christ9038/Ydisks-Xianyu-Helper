@@ -1,32 +1,31 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
-import type { AutomationTriggerType } from '../types';
 import {
-  AlertCircle,
-  Bot,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
-  Edit,
-  Layers3,
-  MessageCircle,
-  Plus,
-  RefreshCw,
-  Save,
-  Search,
-  Send,
-  SlidersHorizontal,
-  Trash2,
-  X,
-  Zap,
+AlertCircle,
+Bot,
+CheckCircle2,
+ChevronLeft,
+ChevronRight,
+Clock3,
+Edit,
+Layers3,
+MessageCircle,
+Plus,
+RefreshCw,
+Save,
+Search,
+Send,
+SlidersHorizontal,
+Trash2,
+X,
+Zap,
 } from 'lucide-react';
+import React,{ useEffect,useMemo,useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AutomationIssuePanel } from '../components/AutomationIssuePanel';
 import { useRulesData } from '../hooks';
 import { filterAutomationIssues } from '../issueState';
-import { triggerMeta, triggerOrder, actionSummary, accentClasses, statusPill, accountLabel, buildReviewConfig, cardActionsForTrigger } from '../utils';
-import type { RulesProps, RulesTab } from '../types';
 import { useRuleActions } from '../ruleActions';
+import type { AutomationTriggerType,RulesProps,RulesTab } from '../types';
+import { accentClasses,accountLabel,actionSummary,buildReviewConfig,cardActionsForTrigger,statusPill,triggerMeta,triggerOrder } from '../utils';
 
 // Rules 是规则 feature 在旧页面目录下保留的兼容入口组件。
 const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHandled }) => {
@@ -103,7 +102,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
   // 解构规则动作，保持旧页面 JSX 的字段名称和行为不变。
   const {
     showAutomationModal, setShowAutomationModal, showReplyModal, setShowReplyModal, showDefaultModal, setShowDefaultModal,
-    automationSubmitState, replySubmitState, defaultReplySubmitState, editingAutomationRule, setEditingAutomationRule,
+    editingAutomationRule, setEditingAutomationRule,
     editingReplyRule, setEditingReplyRule, defaultForm, setDefaultForm, selectedRuleItem, isMultiSpecRule, currentTrigger,
     currentMeta, reviewConfig, displayVariants, openAutomationRule, openNewAutomationRule, handleTriggerChange,
     handleAutomationItemChange, updateVariant, appendDeliveryContent, handleSaveAutomationRule, handleDeleteAutomation,

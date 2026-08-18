@@ -1,4 +1,4 @@
-import type { AccountDetail, ChatMessage, ChatSession } from '../../../shared/api-contract';
+import type { AccountDetail,ChatMessage,ChatSession } from './api';
 
 /** 按账号保存会话列表。 */
 export type SessionsByAccount = Record<string, ChatSession[]>;

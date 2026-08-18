@@ -1,23 +1,22 @@
-import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
-import type { AutomationTriggerType, Card, Item, ReplyRule, ShippingRule, ShippingVariant } from './types';
+import { useCallback,useEffect,useMemo,useState,type Dispatch,type SetStateAction } from 'react';
 import {
-  clearDefaultReplyRecords,
-  deleteDefaultReply,
-  deleteReplyRule,
-  deleteShippingRule,
-  getCards,
-  getDefaultReply,
-  getItems,
-  getShippingRules,
-  resolveAutomationRun,
-  resolveDeferredAutomationTask,
-  updateDefaultReply,
-  updateReplyRule,
-  updateShippingRule,
+clearDefaultReplyRecords,
+deleteDefaultReply,
+deleteReplyRule,
+deleteShippingRule,
+getCards,
+getDefaultReply,
+getItems,
+getShippingRules,
+resolveAutomationRun,
+resolveDeferredAutomationTask,
+updateDefaultReply,
+updateReplyRule,
+updateShippingRule,
 } from './api';
-import { boolFlag, buildReviewConfig, cardActionsForTrigger, defaultRuleName, emptyVariant, parseJSONObject, shouldReplaceGeneratedName, triggerMeta } from './utils';
-import type { DefaultReplyForm, RulesProps, RulesTab } from './types';
-import { finishRuleSubmission, idleRuleSubmitState, startRuleSubmission, type RuleSubmitState } from './interactionState';
+import { finishRuleSubmission,idleRuleSubmitState,startRuleSubmission,type RuleSubmitState } from './interactionState';
+import type { AutomationTriggerType,Card,DefaultReplyForm,Item,ReplyRule,RulesProps,RulesTab,ShippingRule,ShippingVariant } from './types';
+import { boolFlag,buildReviewConfig,cardActionsForTrigger,defaultRuleName,emptyVariant,parseJSONObject,shouldReplaceGeneratedName,triggerMeta } from './utils';
 
 // RuleActionsOptions 描述规则动作协调器依赖的页面数据、刷新函数和外部联动目标。
 export interface RuleActionsOptions {

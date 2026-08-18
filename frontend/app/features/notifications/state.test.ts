@@ -1,7 +1,7 @@
-import { expect, test } from 'vitest';
-import type { NotificationChannel } from '../../../shared/api-contract';
+import { expect,test } from 'vitest';
+import type { NotificationChannel } from '../../../shared/api-contract/notifications';
+import { buildNotificationPayload,emptyNotificationForm,isCurrentNotificationRequest,normalizeNotificationForm,notificationErrorMessage,notificationEventSummary,validateNotificationForm } from './state';
 import type { NotificationForm } from './types';
-import { buildNotificationPayload, emptyNotificationForm, isCurrentNotificationRequest, normalizeNotificationForm, notificationErrorMessage, notificationEventSummary, validateNotificationForm } from './state';
 
 // createForm 创建通知渠道校验使用的最小表单对象。
 const createForm = (overrides: Partial<NotificationForm> = {}): NotificationForm => ({

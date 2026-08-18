@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
+import { act,renderHook,waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { initializeAdmin, login, logout, verifySession } from '../features/session/api';
-import { SessionProvider, useSession } from './SessionProvider';
+import { beforeEach,describe,expect,test,vi } from 'vitest';
+import { initializeAdmin,login,logout,verifySession } from '../features/session/api';
+import { SessionProvider,useSession } from './SessionProvider';
 
 vi.mock('../features/session/api', /* sessionApiMockFactory 提供会话 Provider 的确定性 API 替身。 */ () => ({
   initializeAdmin: vi.fn(),

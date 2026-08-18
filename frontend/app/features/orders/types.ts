@@ -1,5 +1,5 @@
-import type { Dispatch, SetStateAction } from 'react';
-import type { AccountDetail, Item, Order, OrderStatus } from '../../../shared/api-contract';
+import type { Dispatch,SetStateAction } from 'react';
+import type { AccountDetail,Item,Order,OrderStatus } from './api';
 
 // OrderImportRowResult 描述订单导入接口返回的单行处理结果。
 export interface OrderImportRowResult {

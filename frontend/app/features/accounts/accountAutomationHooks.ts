@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AccountTaskSettings, AccountTaskSummary } from '../../../shared/api-contract';
-import { getAccountTaskSettings, runAccountTask, updateAccountTaskSettings } from './accountAutomationApi';
-import { accountTaskErrorMessage, buildAccountTaskDefaults, canStartAccountTask, isAccountTaskAbortError, isCurrentAccountTaskRequest } from './accountAutomationState';
-import type { AccountAutomationOptions, AccountAutomationState, AccountTaskType } from './accountAutomationTypes';
+import { useCallback,useEffect,useRef,useState } from 'react';
+import type { AccountTaskSettings,AccountTaskSummary } from './api';
+import { getAccountTaskSettings,runAccountTask,updateAccountTaskSettings } from './accountAutomationApi';
+import { accountTaskErrorMessage,buildAccountTaskDefaults,canStartAccountTask,isAccountTaskAbortError,isCurrentAccountTaskRequest } from './accountAutomationState';
+import type { AccountAutomationOptions,AccountAutomationState,AccountTaskType } from './accountAutomationTypes';
 
 /** AccountAutomation Hook 的完整返回值。 */
 export type UseAccountAutomationResult = AccountAutomationState & {

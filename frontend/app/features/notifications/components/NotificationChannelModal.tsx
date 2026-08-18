@@ -1,11 +1,11 @@
+import { Bell,Check,Eye,EyeOff,Loader2,X } from 'lucide-react';
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Bell, Check, Eye, EyeOff, Loader2, X } from 'lucide-react';
 import { enableCustomSMTP } from '../../../../notificationEmailConfig';
+import type { NotificationChannel,NotificationChannelType,NotificationEventType,SystemSettings } from '../api';
 import { notificationChannelTypes } from '../state';
-import { NotificationEventSelector } from './NotificationEventSelector';
-import type { NotificationChannel, NotificationChannelType, NotificationEventType, SystemSettings } from '../../../../shared/api-contract';
 import type { NotificationForm } from '../types';
+import { NotificationEventSelector } from './NotificationEventSelector';
 
 // NotificationChannelModalProps 描述渠道编辑弹窗所需的状态和回调。
 export interface NotificationChannelModalProps {

@@ -1,14 +1,21 @@
-import { get, post, put, del, postForm, type RequestControlOptions } from '../../../shared/http/client';
+import type { PublishLocation } from '../../../shared/api-contract/items';
 import {
-  SessionResponse, AccountDetail, AccountSummaryResponse, Order, PaginatedResponse,
-  AdminStats, DashboardStats, Card, SystemSettings, OrderAnalytics,
-  Item, AIReplySettings, ShippingRule, ReplyRule, DefaultReply, AutomationAction, AutomationTriggerType,
-  NotificationChannel, NotificationEventType, AccountTaskSettings, ChatSession, ChatMessage, ItemListEnvelope, AutomationIssuesEnvelope,
-  CookieSettingsResponse, CookieProfileResponse, ItemDetailResponse, ItemPublishResponse, ItemSyncResponse, OrderDTOResponse, OrderDetailResponse, OrderSingleRefreshResponse, OrderBatchResponse, OrderRefreshResponse, OrderRefreshJobStartResponse, OrderRefreshJobStatusResponse, OrderRefreshJobCancelResponse, AutomationRuleResponse, AutomationRulePageResponse, AIReplySettingsResponse, AIModelsResponse, UserSettingResponse, CardBatchResponse, CardAppendResponse, CategoryRecommendationResponse, ItemPublishBatchPreviewResponse, ItemPublishBatchListResponse, BatchIDResponse, ItemPublishBatchResponse, BatchCancelResponse, MutationIDResponse, OperationResponse, NotificationChannelResponse, NotificationBinding, AccountBindingsResponse, CardListResponse, KeywordTypedResponse, DefaultReplyResponse, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope, AdminStatsResponse, DashboardStatsResponse, OrderAnalyticsResponse, QRLoginGenerateResponse, QRLoginStatusResponse, QRLoginVerificationResponse, ValidOrderResponse, ValidOrdersResponse
-} from '../../../shared/api-contract';
-import { collectionFrom, objectFrom } from '../../../shared/http/contract';
-import { getPublishLocations as queryPublishLocations, type PublishLocationRequestOptions } from '../../../services/amapLocation';
-import type { PublishLocation } from '../../../shared/api-contract';
+AccountDetail,
+BatchCancelResponse,
+BatchIDResponse,
+CategoryRecommendationResponse,
+Item,
+ItemDetailResponse,
+ItemPublishBatchPreviewResponse,
+ItemPublishBatchResponse,
+ItemPublishResponse,ItemSyncResponse,
+OperationResponse,
+ShippingRule
+} from '../../../shared/api-contract/items';
+import { ApiError,del,get,post,postForm,put,type RequestControlOptions } from '../../../shared/http/client';
+import { collectionFrom } from '../../../shared/http/contract';
+export type * from '../../../shared/api-contract/items';
+import { getPublishLocations as queryPublishLocations,type PublishLocationRequestOptions } from './amapLocation';
 
 /** 商品账号筛选器读取非敏感账号摘要。 */
 export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => get('/api/v1/accounts/details', undefined, options);
@@ -18,7 +25,32 @@ export const getShippingRules = async (options?: RequestControlOptions): Promise
 
 // getPublishLocations 通过 feature API 边界读取地点，并把取消/超时控制传入地图服务。
 export const getPublishLocations = (longitude: number, latitude: number, options?: PublishLocationRequestOptions): Promise<PublishLocation[]> => queryPublishLocations(longitude, latitude, options);
-export type { PublishLocation } from '../../../shared/api-contract';
+export type { PublishLocation } from '../../../shared/api-contract/items';
+
+// itemErrorMessage 将统一 HTTP 错误码归一为商品 feature 可执行的用户提示。
+export const itemErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof ApiError) {
+    switch (error.code) {
+      case 'stock_permission_missing':
+        return '发布失败：该账号没有库存发布权限，无法按库存数量发布商品。请换账号或先在闲鱼确认库存能力。';
+      case 'conflict':
+      case 'item_conflict':
+        return '商品状态已发生变化，请刷新后重试。';
+      case 'external_result_unknown':
+      case 'manual_review_required':
+        return '平台结果暂时无法确认，请先人工核对闲鱼状态，再决定是否重试。';
+      case 'retryable':
+      case 'temporarily_unavailable':
+        return '平台暂时不可用，请稍后重试。';
+      default:
+        return error.message || fallback;
+    }
+  }
+  if (error instanceof Error) return error.message;
+  // message 保存兼容 API 错误对象中的文本说明。
+  const message = typeof error === 'object' && error !== null && 'message' in error ? (error as { /** message 是兼容错误对象中的文本说明。 */ message?: unknown }).message : undefined;
+  return typeof message === 'string' ? message : fallback;
+};
 // Items
 // normalizeBooleanFlag 归一化布尔标记。
 const normalizeBooleanFlag = (value: unknown): boolean =>

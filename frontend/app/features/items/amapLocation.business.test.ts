@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { getPublishLocations, amapPOIToPublishLocation } from './amapLocation';
+import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
+import { amapPOIToPublishLocation,getPublishLocations } from './amapLocation';
 
 // placeSearchFactory 创建不访问高德网络的地点搜索替身。
 const placeSearchFactory = (status: string, pois: unknown[] = []) => vi.fn(function placeSearchConstructor() {

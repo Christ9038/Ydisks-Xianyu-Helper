@@ -1,6 +1,5 @@
-import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { expect, test } from 'vitest';
+import { expect,test } from 'vitest';
 import { SquareQRCode } from './SquareQRCode';
 
 test('login QR code preserves a square aspect ratio without stretching', /* 当前回调处理用户交互或异步状态变化。 */ () => {

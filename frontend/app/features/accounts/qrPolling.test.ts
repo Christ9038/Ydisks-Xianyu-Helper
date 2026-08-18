@@ -1,5 +1,5 @@
-import { afterEach, expect, test, vi } from 'vitest';
-import { createLatestRequestGate, createQRLoginPoller } from './qrPolling';
+import { afterEach,expect,test,vi } from 'vitest';
+import { createLatestRequestGate,createQRLoginPoller } from './qrPolling';
 
 afterEach(/* 当前回调处理用户交互或异步状态变化。 */ () => {
   vi.useRealTimers();

@@ -134,6 +134,10 @@ func TestReactArchitectureGate(t *testing.T) {
 	if writeErr := os.WriteFile(filepath.Join(frontendRoot, "app", "features", "items", "bad.ts"), []byte("import { x } from '../../../shared/api-contract';\nvoid fetch('/x');\n"), 0o600); writeErr != nil {
 		t.Fatal(writeErr)
 	}
+	// writeErr 表示写入绕过 feature API adapter 的契约依赖样例失败的文件系统原因。
+	if writeErr := os.WriteFile(filepath.Join(frontendRoot, "app", "features", "items", "ui.ts"), []byte("import type { Item } from '../../../shared/api-contract/items';\nexport type Row = Item;\n"), 0o600); writeErr != nil {
+		t.Fatal(writeErr)
+	}
 	// writeErr 表示写入缺少严格选项的 TypeScript 配置失败的文件系统原因。
 	if writeErr := os.WriteFile(filepath.Join(frontendRoot, "tsconfig.json"), []byte("{\"compilerOptions\":{}}\n"), 0o600); writeErr != nil {
 		t.Fatal(writeErr)

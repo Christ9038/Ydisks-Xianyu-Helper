@@ -1,6 +1,6 @@
 import { AlertCircle } from 'lucide-react';
-import type { AutomationRunIssue, DeferredAutomationIssue } from '../api';
-import { automationIssueKindLabel, canResolveAutomationIssue, type AutomationResolution } from '../issueState';
+import type { AutomationRunIssue,DeferredAutomationIssue } from '../api';
+import { automationIssueKindLabel,canResolveAutomationIssue,type AutomationResolution } from '../issueState';
 
 // AutomationIssuePanelProps 描述人工处理异常面板的输入和动作回调。
 export interface AutomationIssuePanelProps {

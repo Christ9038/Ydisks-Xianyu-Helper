@@ -1,5 +1,5 @@
+import { AlertTriangle,Loader2 } from 'lucide-react';
 import React from 'react';
-import { AlertTriangle, Loader2 } from 'lucide-react';
 
 interface RiskVerificationPanelProps {
   /** faceQrUrl 表示人脸验证二维码地址。 */ faceQrUrl?: string;

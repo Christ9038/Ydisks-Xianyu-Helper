@@ -59,7 +59,7 @@ describe('request helpers', () => {
       await get('/bad');
     } catch (error /* error 是普通 JSON 请求必须保留结构化 envelope 的异常。 */) {
       expect(error).toBeInstanceOf(ApiError);
-      expect(error).toMatchObject({ status: 400, code: 'bad_request', requestId: 'req-1', details: { field: 'title' }, payload });
+      expect(error).toMatchObject({ status: 400, code: 'bad_request', requestId: 'req-1', request_id: 'req-1', details: { field: 'title' }, payload });
     }
   } /* 测试回调验证：surfaces unified backend errors。 */);
 

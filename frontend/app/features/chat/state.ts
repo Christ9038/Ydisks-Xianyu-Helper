@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatSession } from '../../../shared/api-contract';
+import type { ChatMessage,ChatSession } from './api';
 import type { ChatReadReceipt } from './types';
 
 /** 将未读数规范为徽标可展示的文本，超过两位数时统一显示 99+。 */

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, cleanup } from '@testing-library/react';
-import { afterEach, describe, expect, test, vi } from 'vitest';
-import type { AccountDetail, AIReplySettings } from '../../../../shared/api-contract';
+import { cleanup,fireEvent,render,screen } from '@testing-library/react';
+import { afterEach,describe,expect,test,vi } from 'vitest';
+import type { AccountDetail,AIReplySettings } from '../../../../shared/api-contract/accounts';
 import { AccountAISettingsModal } from './AccountAISettingsModal';
 import { AccountCard } from './AccountCard';
 import { AccountDeleteDialog } from './AccountDeleteDialog';

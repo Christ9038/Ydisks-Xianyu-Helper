@@ -1,4 +1,4 @@
-import type { ApiErrorResponse } from '../api-contract';
+import type { ApiErrorResponse } from '../api-contract/common';
 
 type RequestMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
@@ -35,6 +35,8 @@ export class ApiError extends Error {
   readonly code: string;
   // requestId 是服务端请求追踪标识，用户反馈问题时可安全提供给运维。
   readonly requestId?: string;
+  // request_id 保持服务端错误契约的原始字段名，供需要透传原始 HTTP 语义的 feature adapter 使用。
+  readonly request_id?: string;
   // details 是服务端提供的结构化恢复或审计信息，不包含客户端主动拼接的兼容字段。
   readonly details?: Record<string, unknown>;
   // payload 是保留给既有上传流程和诊断代码的原始响应载荷。
@@ -47,6 +49,7 @@ export class ApiError extends Error {
     this.status = status;
     this.code = isApiErrorResponse(payload) ? payload.code : `http_${status}`;
     this.requestId = isApiErrorResponse(payload) ? payload.request_id : undefined;
+    this.request_id = this.requestId;
     this.details = isApiErrorResponse(payload) ? payload.details : undefined;
     this.payload = payload;
   }

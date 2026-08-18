@@ -1,6 +1,6 @@
+import { CalendarClock,Loader2,MessageSquareQuote,Play,Save,Sparkles,X } from 'lucide-react';
 import React from 'react';
-import { CalendarClock, Loader2, MessageSquareQuote, Play, Save, Sparkles, X } from 'lucide-react';
-import { AccountDetail, AccountTaskSettings } from '../../../../shared/api-contract';
+import { AccountDetail,AccountTaskSettings } from '../api';
 import { useAccountAutomation } from '../accountAutomationHooks';
 
 interface Props {

@@ -1,6 +1,6 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react';
+import React,{ lazy,Suspense,useEffect,useState } from 'react';
+import type { Item } from '../features/items/api';
 import Sidebar from '../../shared/ui/Sidebar';
-import type { Item } from '../../shared/api-contract';
 import { useChatTitleNotification } from '../features/chat/titleNotification';
 import { getHealth } from '../features/system/api';
 import type { BuildInfo } from '../features/system/types';

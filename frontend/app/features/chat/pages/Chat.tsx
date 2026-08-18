@@ -1,12 +1,12 @@
-import React from 'react';
 import {
-  AlertCircle, Check, CheckCheck, ImagePlus, Loader2, MessageCircleMore, RefreshCw,
-  Search, Send, Smile, UserRound, Wifi, WifiOff, X,
+AlertCircle,Check,CheckCheck,ImagePlus,Loader2,MessageCircleMore,RefreshCw,
+Search,Send,Smile,UserRound,Wifi,WifiOff,X,
 } from 'lucide-react';
+import React from 'react';
 import Lightbox from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
 import { useChat } from '../hooks';
-import { unreadBadgeClassName, unreadBadgeLabel } from '../state';
+import { unreadBadgeClassName,unreadBadgeLabel } from '../state';
 
 // Chat 展示实时会话、消息分页和消息发送界面。
 const Chat: React.FC = () => {

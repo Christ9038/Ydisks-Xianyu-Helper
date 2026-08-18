@@ -1,5 +1,6 @@
-import { del, get, post, put, type RequestControlOptions } from '../../../shared/http/client';
-import type { MutationIDResponse, NotificationBinding, NotificationChannel, NotificationChannelResponse, NotificationEventType, OperationResponse, SystemSettings } from '../../../shared/api-contract';
+import type { MutationIDResponse,NotificationBinding,NotificationChannel,NotificationChannelResponse,NotificationEventType,OperationResponse,SystemSettings } from '../../../shared/api-contract/notifications';
+import { del,get,post,put,type RequestControlOptions } from '../../../shared/http/client';
+export type * from '../../../shared/api-contract/notifications';
 
 /** 通知渠道写入时使用的具名请求 DTO。 */
 export interface NotificationChannelRequest {

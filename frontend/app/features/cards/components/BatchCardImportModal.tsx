@@ -1,7 +1,7 @@
+import { FileDown,ListPlus,Loader2,Plus,Upload,X } from 'lucide-react';
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { FileDown, ListPlus, Loader2, Plus, Upload, X } from 'lucide-react';
-import type { Card } from '../../../../shared/api-contract';
+import type { Card } from '../api';
 import type { CardBatchModalProps } from '../types';
 
 // BatchCardImportModal 负责卡密批量创建和单组库存追加的交互界面。

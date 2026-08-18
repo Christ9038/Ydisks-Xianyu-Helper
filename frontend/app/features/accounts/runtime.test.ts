@@ -1,6 +1,6 @@
-import { describe, expect, test } from 'vitest';
-import type { AccountDetail } from '../../../shared/api-contract';
-import { accountRuntimePresentation, isOlderStatus, mergeAccountRuntimeStatuses } from './runtime';
+import { describe,expect,test } from 'vitest';
+import type { AccountDetail } from '../../../shared/api-contract/accounts';
+import { accountRuntimePresentation,isOlderStatus,mergeAccountRuntimeStatuses } from './runtime';
 
 // account 创建运行状态测试使用的最小账号对象。
 const account = (overrides: Partial<AccountDetail> = {}): AccountDetail => ({

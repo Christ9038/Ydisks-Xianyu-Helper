@@ -1,11 +1,11 @@
-import { Clock3, Gift, PackageCheck } from 'lucide-react';
+import { Clock3,Gift,PackageCheck } from 'lucide-react';
 import type {
-  AccountDetail,
-  AutomationAction,
-  AutomationTriggerType,
-  ShippingRule,
-  ShippingVariant,
-} from '../../../shared/api-contract';
+AccountDetail,
+AutomationAction,
+AutomationTriggerType,
+ShippingRule,
+ShippingVariant,
+} from './api';
 import type { TriggerMeta } from './types';
 
 // triggerMeta 是自动化触发类型的统一展示元数据，供列表和编辑器复用。

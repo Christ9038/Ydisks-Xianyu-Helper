@@ -1,27 +1,39 @@
-import { afterEach, expect, test, vi } from 'vitest';
+import { afterEach,expect,test,vi } from 'vitest';
 import {
-  addAccount,
-  cancelPasswordLogin,
-  checkPasswordLoginStatus,
-  checkQRLoginStatus, completeQRVerification, generateQRLogin,
-	getAllAISettings, getAccountAISettings, updateAccountAISettings,
-  getAccountDetails, getAccountRuntimeStatuses, updateAccountStatus, deleteAccount,
-  passwordLogin,
-  updateAccountCookie,
-  updateAccountLoginInfo,
-	updateAccountSettings, updateAccountRemark, updateAccountAutoConfirm, updateAccountPauseDuration, getLongLoginSettings, setLongLoginSettings, refreshAccountProfile,
-	getAccountTaskSettings, updateAccountTaskSettings,
-	runAccountTask,
+addAccount,
+cancelPasswordLogin,
+checkPasswordLoginStatus,
+checkQRLoginStatus,completeQRVerification,
+deleteAccount,
+generateQRLogin,
+getAccountAISettings,
+getAccountDetails,getAccountRuntimeStatuses,
+getAccountTaskSettings,
+getAllAISettings,
+getLongLoginSettings,
+passwordLogin,
+refreshAccountProfile,
+runAccountTask,
+setLongLoginSettings,
+updateAccountAISettings,
+updateAccountAutoConfirm,
+updateAccountCookie,
+updateAccountLoginInfo,
+updateAccountPauseDuration,
+updateAccountRemark,
+updateAccountSettings,
+updateAccountStatus,
+updateAccountTaskSettings,
 } from './accounts/api';
-import { appendCardData, batchCreateCards, createCard, deleteCard, getCardDetails, getCards, updateCard } from './cards/api';
-import { getChatMessagePage, getChatMessages, getChatSessionPage, getChatSessions, markChatRead, sendChatImage, sendChatMessage } from './chat/api';
-import { getDashboardStats, getOrderAnalytics, getValidOrders } from './dashboard/api';
-import { createItem, deleteItem, deleteItemPublishBatch, cancelItemPublishBatch, getItemDetail, getItemPublishBatch, getItemPublishBatches, getItems, previewItemPublishBatch, publishItem, recommendPublishCategory, retryFailedItemPublishBatch, startItemPublishBatch, syncItemsFromAccount, updateItem } from './items/api';
-import { createNotificationChannel, deleteAccountNotifications, deleteMessageNotification, deleteNotificationChannel, getAccountBindings, getMessageNotifications, getNotificationChannels, setAccountBindings, setMessageNotification, testNotificationChannel, updateNotificationChannel } from './notifications/api';
-import { cancelOrderRefreshJob, deleteOrder, getAdminStats, getOrderDetail, getOrders, importOrders, manualShipOrder, syncOrders, syncSingleOrder, updateOrder } from './orders/api';
-import { clearDefaultReplyRecords, deleteDefaultReply, deleteReplyRule, deleteShippingRule, getAutomationIssues, getDefaultReplies, getDefaultReply, getReplyRules, getShippingRules, getShippingRulesPage, resolveAutomationRun, resolveDeferredAutomationTask, updateDefaultReply, updateReplyRule, updateShippingRule } from './rules/api';
-import { initializeAdmin, login, logout, verifySession } from './session/api';
-import { changePassword, fetchAIModels, getSystemSettings, updateLoginCredentials, updateSystemSettings } from './settings/api';
+import { appendCardData,batchCreateCards,createCard,deleteCard,getCardDetails,getCards,updateCard } from './cards/api';
+import { getChatMessagePage,getChatMessages,getChatSessionPage,getChatSessions,markChatRead,sendChatImage,sendChatMessage } from './chat/api';
+import { getDashboardStats,getOrderAnalytics,getValidOrders } from './dashboard/api';
+import { cancelItemPublishBatch,createItem,deleteItem,deleteItemPublishBatch,getItemDetail,getItemPublishBatch,getItemPublishBatches,getItems,previewItemPublishBatch,publishItem,recommendPublishCategory,retryFailedItemPublishBatch,startItemPublishBatch,syncItemsFromAccount,updateItem } from './items/api';
+import { createNotificationChannel,deleteAccountNotifications,deleteMessageNotification,deleteNotificationChannel,getAccountBindings,getMessageNotifications,getNotificationChannels,setAccountBindings,setMessageNotification,testNotificationChannel,updateNotificationChannel } from './notifications/api';
+import { cancelOrderRefreshJob,deleteOrder,getAdminStats,getOrderDetail,getOrders,importOrders,manualShipOrder,syncOrders,syncSingleOrder,updateOrder } from './orders/api';
+import { clearDefaultReplyRecords,deleteDefaultReply,deleteReplyRule,deleteShippingRule,getAutomationIssues,getDefaultReplies,getDefaultReply,getReplyRules,getShippingRules,getShippingRulesPage,resolveAutomationRun,resolveDeferredAutomationTask,updateDefaultReply,updateReplyRule,updateShippingRule } from './rules/api';
+import { initializeAdmin,login,logout,verifySession } from './session/api';
+import { changePassword,fetchAIModels,getSystemSettings,updateLoginCredentials,updateSystemSettings } from './settings/api';
 import { getHealth } from './system/api';
 
 afterEach(() => {

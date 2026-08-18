@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
 import type React from 'react';
-import type { SystemSettings } from '../../../shared/api-contract';
-import { fetchAIModels, getSystemSettings, updateLoginCredentials, updateSystemSettings, verifySession } from './api';
+import { useCallback,useEffect,useRef,useState } from 'react';
+import type { SystemSettings } from './api';
+import { fetchAIModels,getSystemSettings,updateLoginCredentials,updateSystemSettings,verifySession } from './api';
 import { DEFAULT_AI_API_URL } from './constants';
-import { buildPersistableSettings, createCredentials, createCredentialsMessage, isCurrentSettingsRequest, isSettingsAbortError, settingsErrorMessage, validateCredentials } from './state';
-import type { CredentialsForm, CredentialsMessage, SettingsFeatureState, SettingsRequestStatus } from './types';
+import { buildPersistableSettings,createCredentials,createCredentialsMessage,isCurrentSettingsRequest,isSettingsAbortError,settingsErrorMessage,validateCredentials } from './state';
+import type { CredentialsForm,CredentialsMessage,SettingsFeatureState,SettingsRequestStatus } from './types';
 
 /** Settings feature 的 Hook 返回值。 */
 export type UseSettingsResult = SettingsFeatureState & {

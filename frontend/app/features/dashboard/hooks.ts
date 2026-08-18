@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { getDateRange, getPreviousDateRange } from '../../../dateRange';
-import type { TimeRange } from '../../../dateRange';
-import { buildCategoryData, buildChartData, buildItemNameMap, buildProductSalesData, buildSourceData, getMaxProductSales, getRangeLabel, getTrendPercent, isCurrentDashboardRequest } from './state';
-import { getDashboardStats, getItems, getOrderAnalytics, getValidOrders } from './api';
-import type { DashboardData, DashboardRangeSelection, DashboardStatus } from './types';
+import { useCallback,useEffect,useMemo,useRef,useState } from 'react';
+import { getDateRange,getPreviousDateRange } from '../../../dateRange';
+import { getDashboardStats,getItems,getOrderAnalytics,getValidOrders } from './api';
+import { buildCategoryData,buildChartData,buildItemNameMap,buildProductSalesData,buildSourceData,getMaxProductSales,getRangeLabel,getTrendPercent,isCurrentDashboardRequest } from './state';
+import type { DashboardData,DashboardRangeSelection,DashboardStatus } from './types';
 
 /** Dashboard Hook 的输入参数。 */
 export type UseDashboardOptions = DashboardRangeSelection & { /** customRangeVersion 表示自定义范围版本。 */ customRangeVersion: number };

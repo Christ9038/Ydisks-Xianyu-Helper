@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
+import { cleanup,fireEvent,render,screen,waitFor } from '@testing-library/react';
 import React from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import type { AccountDetail } from '../../../../shared/api-contract';
+import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
+import type { AccountDetail } from '../../../../shared/api-contract/accounts';
 
 // accountListMocks 保存 AccountList 页面测试使用的 API、Hook 和轮询替身。
 const accountListMocks = vi.hoisted(/* accountListMockFactory 创建页面测试共享替身。 */ () => ({

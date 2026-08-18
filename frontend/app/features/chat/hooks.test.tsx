@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { AccountDetail, ChatMessage, ChatSession } from '../../../shared/api-contract';
-import { getAccountDetails, getAccountRuntimeStatuses, getChatMessagePage, getChatSessionPage, markChatRead, sendChatImage, sendChatMessage } from './api';
+import { act,renderHook,waitFor } from '@testing-library/react';
+import { beforeEach,describe,expect,test,vi } from 'vitest';
+import type { AccountDetail,ChatMessage,ChatSession } from '../../../shared/api-contract/chat';
+import { getAccountDetails,getAccountRuntimeStatuses,getChatMessagePage,getChatSessionPage,markChatRead,sendChatImage,sendChatMessage } from './api';
 import { useChat } from './hooks';
-import { publishChatConnectionState, publishChatLiveMessage } from './liveEvents';
+import { publishChatConnectionState,publishChatLiveMessage } from './liveEvents';
 
 vi.mock('./api', /* chatApiMockFactory 提供聊天 Hook 的确定性 API 替身。 */ () => ({
   getAccountDetails: vi.fn(),

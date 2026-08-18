@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest';
-import { buildEmailChannelConfig, enableCustomSMTP, normalizeEmailChannelConfig } from './notificationEmailConfig';
+import { describe,expect,test } from 'vitest';
+import { buildEmailChannelConfig,enableCustomSMTP,normalizeEmailChannelConfig } from './notificationEmailConfig';
 
 describe('email notification SMTP modes', () => {
   test('recognizes legacy channel overrides as custom SMTP', () => {

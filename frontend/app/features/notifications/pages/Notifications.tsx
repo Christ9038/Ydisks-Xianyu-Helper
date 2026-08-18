@@ -1,5 +1,5 @@
+import { Bell,Check,Loader2,Plus,RefreshCw,X } from 'lucide-react';
 import React from 'react';
-import { Bell, Check, Loader2, Plus, RefreshCw, X } from 'lucide-react';
 import { NotificationChannelList } from '../components/NotificationChannelList';
 import { NotificationChannelModal } from '../components/NotificationChannelModal';
 import { NotificationSmtpSettings } from '../components/NotificationSmtpSettings';

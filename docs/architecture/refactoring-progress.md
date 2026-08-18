@@ -134,7 +134,54 @@ $ git diff --check
 
 ## 下一阶段入口
 
-当前阶段为阶段四：React Feature 化和异步状态修复。阶段四开始前先运行 architecturecheck，激活已有 React
-feature、传输契约、网络旁路、动态 import 和严格 TypeScript 门禁；在同一阶段完成 ApiError、领域契约拆分、
-items 地图迁移、定位取消/超时、批量轮询与嵌入产物重建。不得提前进入数据库或最终收口阶段，也不得修改冻结
-CAPTCHA。
+阶段四已完成，阶段五：DB 与事务治理重新验收为唯一当前阶段。开始阶段五前先运行 architecturecheck，确认
+前序 React feature、传输契约、网络旁路和严格 TypeScript 门禁继续 fail-closed；不得提前进入阶段六最终收口，
+也不得修改冻结 CAPTCHA。
+
+## 阶段四：React Feature 化和异步状态修复
+
+- 最终提交绑定：`HEAD` 的唯一中文提交 `阶段四：完成 React Feature 化和异步状态修复`。
+- 交付范围：公开 `ApiError` 保留 `status/code/message/request_id/details/payload`；JSON、FormData、非 JSON 和损坏 JSON 错误统一解析并覆盖 401 会话失效通知。`shared/api-contract/index.ts` 已删除，契约按 session、accounts、items、orders、automation、notifications、settings、chat、cards、admin、common 直接模块拆分；生产 UI、Hook、状态和组件只能通过 feature `api.ts` adapter 读取 DTO。地图服务及其测试已迁入 `app/features/items`，定位使用 AbortController、generation 和 AMap timeout；批量任务将 pending/running/canceling 统一轮询，关闭、重开、卸载和晚到响应均由独立取消器与代次隔离。
+- 门禁收口：阶段四 React 门禁增加真实源码扫描，禁止 feature UI/Hook/状态绕过 API adapter 直接导入 transport DTO；`noUnusedLocals` 与 `noUnusedParameters` 已开启并清零。
+
+### 强制验收原始输出
+
+```text
+$ npm test --prefix frontend
+Test Files  67 passed (67)
+Tests       402 passed (402)
+
+$ npm run typecheck --prefix frontend
+(无输出，退出码 0)
+
+$ npm run comments:check --prefix frontend
+commentlint: 通过（无缺少中文注释或模板化注释）
+
+$ npm run build --prefix frontend
+vite v6.4.3 building for production...
+✓ built in 2.76s
+
+$ make cover-frontend
+Test Files  67 passed (67)
+Tests       402 passed (402)
+Statements  : 79.82% (3704/4640)
+Lines       : 82.17% (3236/3938)
+
+$ go run ./tools/architecturecheck
+architecturecheck: 通过
+
+$ git diff --check
+(无输出，退出码 0)
+```
+
+### 验收边界
+
+- 覆盖率：V8 statements 79.82%、lines 82.17%；覆盖率报告位于未跟踪 `frontend/coverage/`，不纳入提交。
+- 浏览器：未运行真实账号浏览器集成；本阶段使用 jsdom 和确定性 AMap loader/search 替身覆盖定位取消、超时和晚到回调。
+- 外部服务：未运行 MySQL/PostgreSQL、`cmd/dbverify` 或真实平台调用；这些属于阶段五或真实外部环境例外。
+- 冻结 CAPTCHA：`internal/browser/slider.go`、`token_captcha*.go` 及其测试和规范未修改。
+- 生成物：已由 `npm run build --prefix frontend` 重建 `internal/webui/static`，未手工修改嵌入文件。
+
+## 阶段五入口
+
+阶段五现在是唯一当前阶段。下一步只处理 DB 与事务治理重新验收：清除上层裸 `Store.DB`、`sql.DB`、`sql.Tx` 和 row model 泄露，核对 Unit of Work、claim/lease、取消、重试及补偿，并在可用时运行 SQLite、MySQL、PostgreSQL 和 `cmd/dbverify` 证据。不得在阶段五提前执行阶段六兼容退场、复杂度或全量注释收口。

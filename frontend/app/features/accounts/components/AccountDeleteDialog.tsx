@@ -1,7 +1,7 @@
+import { AlertCircle,Loader2,Trash2,X } from 'lucide-react';
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { AlertCircle, Loader2, Trash2, X } from 'lucide-react';
-import type { AccountDetail } from '../../../../shared/api-contract';
+import type { AccountDetail } from '../api';
 
 // AccountDeleteDialogProps 描述账号删除确认框需要的状态和回调。
 export interface AccountDeleteDialogProps {

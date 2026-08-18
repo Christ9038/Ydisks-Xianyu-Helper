@@ -1,4 +1,4 @@
-import type { AccountDetail, AccountTaskSettings } from '../../../shared/api-contract';
+import type { AccountDetail,AccountTaskSettings } from './api';
 import type { AccountTaskType } from './accountAutomationTypes';
 
 /** 根据账号详情创建任务设置初始草稿。 */

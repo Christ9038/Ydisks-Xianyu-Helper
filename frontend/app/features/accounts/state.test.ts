@@ -1,10 +1,10 @@
-import { expect, test } from 'vitest';
-import type { AccountDetail } from '../../../shared/api-contract';
+import { expect,test } from 'vitest';
+import type { AccountDetail } from '../../../shared/api-contract/accounts';
 import {
-  buildAccountLoginInfoUpdate,
-  isCurrentAccountRequest,
-  passwordLoginViewFromStatus,
-  shouldUpdateAccountPause,
+buildAccountLoginInfoUpdate,
+isCurrentAccountRequest,
+passwordLoginViewFromStatus,
+shouldUpdateAccountPause,
 } from './state';
 
 // account 是账号编辑状态测试使用的最小领域对象。

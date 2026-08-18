@@ -1,5 +1,5 @@
-import { get, post, put, type RequestControlOptions } from '../../../shared/http/client';
-import type { AccountTaskSettings, AccountTaskSettingsResponse, AccountTaskRunResponseEnvelope } from '../../../shared/api-contract';
+import type { AccountTaskRunResponseEnvelope,AccountTaskSettings,AccountTaskSettingsResponse } from './api';
+import { get,post,put,type RequestControlOptions } from '../../../shared/http/client';
 
 /** 获取指定账号的自动评价与自动擦亮设置。 */
 export const getAccountTaskSettings = async (accountID: string, options?: RequestControlOptions): Promise<AccountTaskSettingsResponse> => get(`/api/v1/account-tasks/${accountID}`, undefined, options);

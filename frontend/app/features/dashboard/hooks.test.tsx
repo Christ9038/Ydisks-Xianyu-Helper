@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { DashboardStats, Item, OrderAnalyticsResponse } from '../../../shared/api-contract';
-import { getDashboardStats, getItems, getOrderAnalytics, getValidOrders } from './api';
-import { useDashboard } from './hooks';
+import { act,renderHook,waitFor } from '@testing-library/react';
+import { beforeEach,describe,expect,test,vi } from 'vitest';
+import type { DashboardStats,Item,OrderAnalyticsResponse } from '../../../shared/api-contract/admin';
+import { getDashboardStats,getItems,getOrderAnalytics,getValidOrders } from './api';
 import type { UseDashboardOptions } from './hooks';
+import { useDashboard } from './hooks';
 
 vi.mock('./api', /* dashboardApiMockFactory 提供仪表盘 Hook 的确定性 API 替身。 */ () => ({
   getDashboardStats: vi.fn(),

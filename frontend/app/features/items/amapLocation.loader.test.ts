@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
 
 // SCRIPT_ID 是高德脚本加载器使用的固定 DOM 标识。
 const SCRIPT_ID = 'ydisks-amap-js-api';

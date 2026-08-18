@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { getAccountDetails, getAccountRuntimeStatuses, getAllAISettings } from './api';
-import type { AccountDetail } from '../../../shared/api-contract';
+import { useCallback,useEffect,useRef,useState,type Dispatch,type SetStateAction } from 'react';
+import type { AccountDetail } from './api';
+import { getAccountDetails,getAccountRuntimeStatuses,getAllAISettings } from './api';
 import { mergeAccountRuntimeStatuses } from './runtime';
 import type { AccountAISettingsState } from './types';
 

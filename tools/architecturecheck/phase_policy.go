@@ -285,6 +285,9 @@ func checkReactArchitecture(root string) []violation {
 			if strings.HasSuffix(specifier, "shared/api-contract") {
 				violations = append(violations, violation{file: "frontend/" + relativePath, line: sourceLineAt(source, strings.Index(sourceText, match[0])), message: "feature 必须直接导入领域契约模块，禁止依赖 shared/api-contract barrel"})
 			}
+			if strings.Contains(specifier, "shared/api-contract/") && isFeatureTransportBypass(relativePath) {
+				violations = append(violations, violation{file: "frontend/" + relativePath, line: sourceLineAt(source, strings.Index(sourceText, match[0])), message: "feature UI、Hook、状态和组件不得直接依赖 transport DTO；只能通过本 feature 的 api adapter"})
+			}
 			violations = append(violations, checkCrossFeatureImport(relativePath, specifier)...)
 		}
 		return nil
@@ -315,6 +318,17 @@ func checkReactArchitecture(root string) []violation {
 		}
 	}
 	return violations
+}
+
+// isFeatureTransportBypass 判断 feature 内的生产文件是否绕过 api adapter 直接读取 HTTP DTO。
+func isFeatureTransportBypass(relativePath string) bool {
+	// featureRoot 表示只有 feature 根 api.ts 可以承担传输契约读取和 UI model 转换职责。
+	featureRoot := regexp.MustCompile(`^app/features/[^/]+/api\.ts$`)
+	if featureRoot.MatchString(relativePath) {
+		return false
+	}
+	// itemLocationAdapter 是 items feature 的外部地图协议 adapter；它不属于 UI、Hook 或页面层。
+	return relativePath != "app/features/items/amapLocation.ts"
 }
 
 // checkCrossFeatureImport 拒绝 feature 直接导入另一个 feature 的内部实现。

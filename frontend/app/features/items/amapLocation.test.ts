@@ -1,4 +1,4 @@
-import { expect, test } from 'vitest';
+import { expect,test } from 'vitest';
 import { amapPOIToPublishLocation } from './amapLocation';
 
 test('maps AMap POI fields to the publish location shape', () => {

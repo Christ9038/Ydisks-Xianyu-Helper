@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { NotificationChannel, NotificationChannelType, SystemSettings } from '../../../shared/api-contract';
-import { createNotificationChannel, deleteNotificationChannel, getNotificationChannels, getSystemSettings, testNotificationChannel, updateNotificationChannel, updateSystemSettings } from './api';
-import { buildNotificationPayload, emptyNotificationForm, isCurrentNotificationRequest, notificationErrorMessage, normalizeNotificationForm, validateNotificationForm } from './state';
-import type { NotificationForm, NotificationState } from './types';
+import { useCallback,useEffect,useRef,useState } from 'react';
+import type { NotificationChannel,SystemSettings } from './api';
+import { createNotificationChannel,deleteNotificationChannel,getNotificationChannels,getSystemSettings,testNotificationChannel,updateNotificationChannel,updateSystemSettings } from './api';
+import { buildNotificationPayload,emptyNotificationForm,isCurrentNotificationRequest,normalizeNotificationForm,notificationErrorMessage,validateNotificationForm } from './state';
+import type { NotificationForm,NotificationState } from './types';
 
 // useNotifications 统一管理通知渠道、事件订阅和系统 SMTP 的异步状态。
 export const useNotifications = (isAdmin: boolean): NotificationState => {

@@ -1,17 +1,17 @@
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { AccountDetail, Card, DefaultReply, Item, ReplyRule, ShippingRule } from '../../../shared/api-contract';
+import { act,renderHook } from '@testing-library/react';
+import { beforeEach,describe,expect,test,vi } from 'vitest';
+import type { AccountDetail,Card,DefaultReply,Item,ReplyRule,ShippingRule } from '../../../shared/api-contract/automation';
 import {
-  getAccountDetails,
-  getAutomationIssues,
-  getCards,
-  getDefaultReplies,
-  getItems,
-  getReplyRules,
-  getShippingRulesPage,
+getAccountDetails,
+getAutomationIssues,
+getCards,
+getDefaultReplies,
+getItems,
+getReplyRules,
+getShippingRulesPage,
 } from './api';
-import { useRulesData, useRulesDataWithPageChange } from './hooks';
+import { useRulesData,useRulesDataWithPageChange } from './hooks';
 
 vi.mock('./api', /* rulesApiMockFactory 提供规则数据 Hook 的确定性 API 替身。 */ () => ({
   getAccountDetails: vi.fn(),

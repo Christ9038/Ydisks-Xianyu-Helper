@@ -1,6 +1,6 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { dirname, resolve, relative } from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { existsSync,readdirSync,readFileSync } from 'node:fs';
+import { dirname,relative,resolve } from 'node:path';
+import { describe,expect,test } from 'vitest';
 
 // sourceRoot 是前端源码根目录，所有架构规则都基于生产源码扫描。
 const sourceRoot = resolve(__dirname);

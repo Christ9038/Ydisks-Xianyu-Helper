@@ -1,21 +1,21 @@
-import React, { useState } from 'react';
+import { Loader2,QrCode,User } from 'lucide-react';
+import React,{ useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AccountDetail } from '../../../../shared/api-contract';
+import { AccountDetail } from '../api';
 import {
-  updateAccountStatus,
-  deleteAccount,
-  refreshAccountProfile,
+deleteAccount,
+refreshAccountProfile,
+updateAccountStatus,
 } from '../api';
-import { Loader2, QrCode, User } from 'lucide-react';
-import AccountAutomationModal from '../components/AccountAutomationModal';
-import { AccountEditModal } from '../components/AccountEditModal';
 import { AccountAISettingsModal } from '../components/AccountAISettingsModal';
+import AccountAutomationModal from '../components/AccountAutomationModal';
 import { AccountCard } from '../components/AccountCard';
 import { AccountDeleteDialog } from '../components/AccountDeleteDialog';
+import { AccountEditModal } from '../components/AccountEditModal';
 import { AccountQRCodeModal } from '../components/AccountQRCodeModal';
 import { useAccountsData } from '../hooks';
 import { useAccountQRCodeLogin } from '../qrLogin';
-import { useAccountSubmodules, type AccountModalType } from '../submoduleHooks';
+import { useAccountSubmodules,type AccountModalType } from '../submoduleHooks';
 import type { AccountEditForm } from '../types';
 
 // AccountList 渲染账号列表组件。

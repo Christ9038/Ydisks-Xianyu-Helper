@@ -1,10 +1,18 @@
-import React from 'react';
 import {
-  Save, Sparkles, Settings as SettingsIcon,
-  Eye, EyeOff, RefreshCw, Database, ChevronDown, Check,
-  LockKeyhole, UserRound, ShieldCheck
+Check,
+ChevronDown,
+Database,
+Eye,EyeOff,
+LockKeyhole,
+RefreshCw,
+Save,
+Settings as SettingsIcon,
+ShieldCheck,
+Sparkles,
+UserRound
 } from 'lucide-react';
-import { DEFAULT_AI_API_URL, LOG_LEVELS } from '../constants';
+import React from 'react';
+import { DEFAULT_AI_API_URL,LOG_LEVELS } from '../constants';
 import { useSettings } from '../hooks';
 
 // Settings 展示系统配置、AI 模型和登录凭据编辑页面。

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
-import type { AccountDetail, ChatMessage, ChatSession } from '../../../shared/api-contract';
-import { emojiURL, renderXianyuText, xianyuEmojis } from '../../../chatEmojis';
-import { getAccountDetails, getAccountRuntimeStatuses, getChatMessagePage, getChatSessionPage, markChatRead, sendChatImage, sendChatMessage } from './api';
-import { publishChatUnreadStatus, subscribeToChatLiveEvents } from './liveEvents';
-import { collectChatReadReceipts, filterChatSessions, formatClock, isChatAbortError, isCurrentChatRequest, markOutgoingMessagesReadByIncoming, mergeLiveMessage, mergeOlderMessages, messageTime } from './state';
-import type { ChatFeatureState, ChatLiveState, SessionsByAccount } from './types';
+import { useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState } from 'react';
+import { emojiURL,renderXianyuText,xianyuEmojis } from '../../../chatEmojis';
+import type { AccountDetail,ChatMessage,ChatSession } from './api';
+import { getAccountDetails,getAccountRuntimeStatuses,getChatMessagePage,getChatSessionPage,markChatRead,sendChatImage,sendChatMessage } from './api';
+import { publishChatUnreadStatus,subscribeToChatLiveEvents } from './liveEvents';
+import { collectChatReadReceipts,filterChatSessions,formatClock,isChatAbortError,isCurrentChatRequest,markOutgoingMessagesReadByIncoming,mergeLiveMessage,mergeOlderMessages,messageTime } from './state';
+import type { ChatFeatureState,ChatLiveState,SessionsByAccount } from './types';
 
 /** PendingImagePreview 描述等待用户确认的本地图片预览及其资源所有权。 */
 type PendingImagePreview = {

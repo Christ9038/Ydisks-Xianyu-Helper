@@ -1,22 +1,22 @@
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { Dispatch, SetStateAction } from 'react';
-import type { AccountDetail, AIReplySettings } from '../../../shared/api-contract';
+import { act,renderHook } from '@testing-library/react';
+import type { Dispatch,SetStateAction } from 'react';
+import { beforeEach,describe,expect,test,vi } from 'vitest';
+import type { AccountDetail,AIReplySettings } from '../../../shared/api-contract/accounts';
 import {
-  cancelPasswordLogin,
-  checkPasswordLoginStatus,
-  getAccountAISettings,
-  getAccountBindings,
-  getLongLoginSettings,
-  getNotificationChannels,
-  passwordLogin,
-  setLongLoginSettings,
-  updateAccountAISettings,
-  updateAccountPauseDuration,
-  updateAccountSettings,
+cancelPasswordLogin,
+checkPasswordLoginStatus,
+getAccountAISettings,
+getAccountBindings,
+getLongLoginSettings,
+getNotificationChannels,
+passwordLogin,
+setLongLoginSettings,
+updateAccountAISettings,
+updateAccountPauseDuration,
+updateAccountSettings,
 } from './api';
-import { useAccountSubmodules, type AccountModalType } from './submoduleHooks';
+import { useAccountSubmodules,type AccountModalType } from './submoduleHooks';
 import type { AccountEditForm } from './types';
 
 vi.mock('./api', /* accountsSubmoduleApiMockFactory 提供账号子模块 Hook 的确定性 API 替身。 */ () => ({

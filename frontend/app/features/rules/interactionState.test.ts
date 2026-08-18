@@ -1,11 +1,11 @@
-import { describe, expect, test } from 'vitest';
+import { describe,expect,test } from 'vitest';
 import {
-  finishRuleSubmission,
-  idleRuleSubmitState,
-  isCurrentRequest,
-  nextRequestGeneration,
-  selectRulesTab,
-  startRuleSubmission,
+finishRuleSubmission,
+idleRuleSubmitState,
+isCurrentRequest,
+nextRequestGeneration,
+selectRulesTab,
+startRuleSubmission,
 } from './interactionState';
 
 // 规则交互行为测试覆盖保存、失败恢复、取消旧请求和页签切换。

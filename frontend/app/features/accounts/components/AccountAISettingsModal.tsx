@@ -1,7 +1,7 @@
+import { Bot,Loader2,Save,Settings,X } from 'lucide-react';
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Bot, Loader2, Save, Settings, X } from 'lucide-react';
-import type { AccountDetail, AIReplySettings } from '../../../../shared/api-contract';
+import type { AccountDetail,AIReplySettings } from '../api';
 
 // AccountAISettingsModalProps 描述账号 AI 设置弹窗需要的状态和回调。
 export interface AccountAISettingsModalProps {

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
-import type { AccountDetail, AccountTaskSettingsResponse } from '../../../shared/api-contract';
-import { getAccountTaskSettings, runAccountTask, updateAccountTaskSettings } from './accountAutomationApi';
+import { act,renderHook,waitFor } from '@testing-library/react';
+import { beforeEach,describe,expect,test,vi } from 'vitest';
+import type { AccountDetail,AccountTaskSettingsResponse } from '../../../shared/api-contract/accounts';
+import { getAccountTaskSettings,runAccountTask,updateAccountTaskSettings } from './accountAutomationApi';
 import { useAccountAutomation } from './accountAutomationHooks';
 
 vi.mock('./accountAutomationApi', /* apiMockFactory 提供账号任务 Hook 的确定性 API 替身。 */ () => ({

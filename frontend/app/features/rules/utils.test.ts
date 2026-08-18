@@ -1,17 +1,17 @@
-import { describe, expect, test } from 'vitest';
-import type { AccountDetail, ShippingRule } from '../../../shared/api-contract';
+import { describe,expect,test } from 'vitest';
+import type { AccountDetail,ShippingRule } from '../../../shared/api-contract/automation';
 import {
-  accentClasses,
-  accountLabel,
-  actionSummary,
-  boolFlag,
-  buildReviewConfig,
-  cardActionsForTrigger,
-  defaultRuleName,
-  emptyVariant,
-  parseJSONObject,
-  shouldReplaceGeneratedName,
-  statusPill,
+accentClasses,
+accountLabel,
+actionSummary,
+boolFlag,
+buildReviewConfig,
+cardActionsForTrigger,
+defaultRuleName,
+emptyVariant,
+parseJSONObject,
+shouldReplaceGeneratedName,
+statusPill,
 } from './utils';
 
 // rule 是规则工具测试使用的最小规则对象。

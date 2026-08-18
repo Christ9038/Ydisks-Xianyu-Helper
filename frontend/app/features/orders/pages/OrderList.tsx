@@ -1,12 +1,12 @@
+import { ChevronLeft,ChevronRight,Edit,ExternalLink,Eye,PackageCheck,Plus,RefreshCw,Save,Trash2,Truck,User as UserIcon,X } from 'lucide-react';
 import React from 'react';
 import { createPortal } from 'react-dom';
-import type { OrderStatus } from '../../../../shared/api-contract';
+import { formatLocalDateTime } from '../../../../dateTime';
+import type { OrderStatus } from '../api';
 import { OrderFilterBar } from '../components/OrderFilterBar';
 import { OrderImportModal } from '../components/OrderImportModal';
-import { useOrderImport, useOrderQuery } from '../hooks';
+import { useOrderImport,useOrderQuery } from '../hooks';
 import { useOrderActions } from '../orderActions';
-import { Truck, RefreshCw, ChevronLeft, ChevronRight, PackageCheck, Edit, Eye, Plus, Save, X, User as UserIcon, ExternalLink, Trash2 } from 'lucide-react';
-import { formatLocalDateTime } from '../../../../dateTime';
 
 // StatusBadge 渲染订单状态徽标。
 const StatusBadge: React.FC<{ /** status 表示状态。 */ status: OrderStatus }> = ({ status }) => {
@@ -56,7 +56,6 @@ const OrderList: React.FC = () => {
     showEditModal,
     editingOrder,
     showShipModal,
-    shipOrderId,
     shipLoading,
     shipResult,
     syncingOrderId,

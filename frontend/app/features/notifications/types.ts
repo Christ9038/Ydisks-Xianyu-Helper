@@ -1,5 +1,5 @@
-import type { Dispatch, ElementType, SetStateAction } from 'react';
-import type { NotificationChannel, NotificationChannelType, NotificationEventType, SystemSettings } from '../../../shared/api-contract';
+import type { Dispatch,ElementType,SetStateAction } from 'react';
+import type { NotificationChannel,NotificationChannelType,NotificationEventType,SystemSettings } from './api';
 
 // NotificationField 描述通知渠道表单中的一个配置字段。
 export interface NotificationField {

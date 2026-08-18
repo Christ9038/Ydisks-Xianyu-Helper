@@ -1,6 +1,6 @@
-import { expect, test } from 'vitest';
-import type { OrderAnalytics } from '../../../shared/api-contract';
-import { buildCategoryData, buildChartData, buildItemNameMap, buildProductSalesData, buildSourceData, getMaxProductSales, getRangeLabel, getTrendPercent, isCurrentDashboardRequest } from './state';
+import { expect,test } from 'vitest';
+import type { OrderAnalytics } from '../../../shared/api-contract/admin';
+import { buildCategoryData,buildChartData,buildItemNameMap,buildProductSalesData,buildSourceData,getMaxProductSales,getRangeLabel,getTrendPercent,isCurrentDashboardRequest } from './state';
 
 // analyticsFixture 是覆盖趋势、商品排行和零值边界的最小分析数据。
 const analyticsFixture: OrderAnalytics = {

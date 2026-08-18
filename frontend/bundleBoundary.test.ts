@@ -1,6 +1,6 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync,readFileSync,statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, test } from 'vitest';
+import { describe,expect,test } from 'vitest';
 
 // staticRoot 是 Go 服务嵌入的前端生产资源目录。
 const staticRoot = resolve(__dirname, '../internal/webui/static');

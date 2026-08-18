@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
-import { OrderStatus } from '../../../../shared/api-contract';
-import { getDateRange, TimeRange } from '../../../../dateRange';
+import { Activity,AlertCircle,DollarSign,ExternalLink,Package,PackageCheck,ShoppingCart,TrendingUp,Users } from 'lucide-react';
+import React,{ useState } from 'react';
+import { Cell,Legend,Pie,PieChart,ResponsiveContainer,Tooltip } from 'recharts';
+import { getDateRange,TimeRange } from '../../../../dateRange';
 import { formatLocalDateTime } from '../../../../dateTime';
-import { TrendingUp, Users, ShoppingCart, AlertCircle, DollarSign, Activity, Package, ArrowUpRight, Calendar, X, BarChart3, PackageCheck, ExternalLink, Eye, Edit } from 'lucide-react';
-import { Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { useDashboard } from '../hooks';
+import { OrderStatus } from '../api';
 import { DashboardTrendChart } from '../DashboardTrendChart';
+import { useDashboard } from '../hooks';
 
 // cssColor 状态颜色样式。
 const cssColor = (token: string, alpha?: number) => (
@@ -84,8 +84,6 @@ const Dashboard: React.FC = () => {
   const stats = data?.stats || null;
   // analytics 统计分析数据。
   const analytics = data?.analytics || null;
-  // previousAnalytics 上一份统计数据。
-  const previousAnalytics = data?.previousAnalytics || null;
   // validOrders 有效订单列表。
   const validOrders = data?.validOrders.orders || [];
   // validOrdersTotal 有效数据订单列表总数，负责当前功能中的对应处理。
