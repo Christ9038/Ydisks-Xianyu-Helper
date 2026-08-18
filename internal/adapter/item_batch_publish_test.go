@@ -77,7 +77,7 @@ func TestItemBatchPublishPortPersistsRemoteCheckpoint(t *testing.T) {
 		},
 		func(context.Context, string) ([]byte, string, error) { return nil, "", nil })
 	// outcome、publishErr 保存远端端口结果及错误。
-	outcome, publishErr := port.PublishRemoteRow(ctx, admin.ID, batchRowApplicationModel(storedRows[0]), "worker-remote")
+	outcome, publishErr := port.PublishRemoteRow(ctx, admin.ID, batchRowApplicationModel(storedRows[0]), "worker-remote", nil)
 	if publishErr != nil || outcome.Result == nil || outcome.Result.ItemID != "remote-item" {
 		t.Fatalf("远端端口结果异常: outcome=%+v err=%v", outcome, publishErr)
 	}
@@ -95,7 +95,7 @@ func TestItemBatchPublishPortPersistsRemoteCheckpoint(t *testing.T) {
 	checkpointPort := NewItemBatchPublishPort(store, func() mtop.Client { return client }, nil, nil, nil, nil, nil)
 	// checkpointOutcome 保存从远端检查点恢复出的应用结果。
 	// checkpointErr 保存检查点恢复阶段的错误。
-	checkpointOutcome, checkpointErr := checkpointPort.PublishRemoteRow(ctx, admin.ID, batchRowApplicationModel(savedRows[0]), "worker-remote")
+	checkpointOutcome, checkpointErr := checkpointPort.PublishRemoteRow(ctx, admin.ID, batchRowApplicationModel(savedRows[0]), "worker-remote", nil)
 	if checkpointErr != nil || checkpointOutcome.Result == nil || checkpointOutcome.Result.ItemID != "remote-item" {
 		t.Fatalf("远端检查点重试异常: outcome=%+v err=%v", checkpointOutcome, checkpointErr)
 	}
@@ -109,7 +109,7 @@ func TestItemBatchPublishPortRejectsMissingDependencies(t *testing.T) {
 	// port 是未配置数据库的批量远端适配器。
 	port := NewItemBatchPublishPort(nil, nil, nil, nil, nil, func(string, string) ([]byte, string, string, error) { return nil, "", "", nil }, func(context.Context, string) ([]byte, string, error) { return nil, "", nil })
 	// _, publishErr 保存依赖校验错误。
-	_, publishErr := port.PublishRemoteRow(context.Background(), 1, itemapp.BatchRow{BatchID: "batch"}, "worker")
+	_, publishErr := port.PublishRemoteRow(context.Background(), 1, itemapp.BatchRow{BatchID: "batch"}, "worker", nil)
 	if publishErr == nil {
 		t.Fatal("缺少数据库时不应伪装批量远端发布成功")
 	}

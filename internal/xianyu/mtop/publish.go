@@ -117,6 +117,8 @@ type PublishItemRequest struct {
 	PreferredCategory *PublishCategory
 	Location          *PublishLocation
 	Images            []PublishImage
+	// BeforePublish 在图片上传和类目准备完成后、最终商品发布请求发出前执行，可响应批次节流取消。
+	BeforePublish func(context.Context) error
 }
 
 // PublishItemResult 用于本次流程后续判断的发布商品结果
@@ -202,6 +204,12 @@ func (c *ClientImpl) PublishItem(ctx context.Context, cookiesStr string, req Pub
 			} else {
 				return nil, err
 			}
+		}
+	}
+	if req.BeforePublish != nil {
+		// err 保存发布前闸门等待或取消错误。
+		if err := req.BeforePublish(ctx); err != nil {
+			return nil, err
 		}
 	}
 	return c.publishItemOnce(ctx, currentCookies, req, uploaded, category)

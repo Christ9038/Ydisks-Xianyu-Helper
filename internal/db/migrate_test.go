@@ -107,7 +107,7 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 }
 
 // TestMigrate_UpgradesDatabaseWithMainChatVersions 验证已发布 main 的 00029/00030
-// 聊天迁移可以原样升级到包含订单补偿幂等键的 00032 最终版本。
+// 聊天迁移可以原样升级到包含批量发布间隔字段的 00033 最终版本。
 func TestMigrate_UpgradesDatabaseWithMainChatVersions(t *testing.T) {
 	// tmpDir 保存隔离的已发布 main 数据库目录，测试结束后由 testing 清理。
 	tmpDir := t.TempDir()
@@ -133,7 +133,7 @@ func TestMigrate_UpgradesDatabaseWithMainChatVersions(t *testing.T) {
 
 	// ctx 提供迁移 API 所需的调用上下文；升级本身不依赖请求生命周期。
 	ctx := context.Background()
-	// migrateErr 保存从 main 00030 接续 dev 00031/00032 时的迁移失败。
+	// migrateErr 保存从 main 00030 接续 dev 00031/00032/00033 时的迁移失败。
 	if migrateErr := Migrate(ctx, rawDB, DialectSQLite); migrateErr != nil {
 		t.Fatalf("upgrade from main 00030: %v", migrateErr)
 	}
@@ -143,13 +143,13 @@ func TestMigrate_UpgradesDatabaseWithMainChatVersions(t *testing.T) {
 	if !columnExists(t, rawDB, "chat_messages", "read_status") || !columnExists(t, rawDB, "chat_messages", "read_at") {
 		t.Fatal("chat read tracking columns should remain after dev schema baseline upgrade")
 	}
-	// finalVersion 验证迁移账本已推进到包含补偿幂等键的最新 dev schema 版本。
+	// finalVersion 验证迁移账本已推进到包含批量发布间隔的最新 dev schema 版本。
 	finalVersion, versionErr := goose.GetDBVersion(rawDB)
 	if versionErr != nil {
 		t.Fatalf("read final migration version: %v", versionErr)
 	}
-	if finalVersion != 32 {
-		t.Fatalf("final migration version=%d, want 32", finalVersion)
+	if finalVersion != 33 {
+		t.Fatalf("final migration version=%d, want 33", finalVersion)
 	}
 }
 

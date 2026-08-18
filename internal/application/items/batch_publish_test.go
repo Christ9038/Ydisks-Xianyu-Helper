@@ -104,6 +104,14 @@ func (r *batchRunnerRepository) FinalizeInterrupted(_ context.Context, _, _, _ s
 // DeleteUpload 记录上传目录清理调用。
 func (r *batchRunnerRepository) DeleteUpload(_ context.Context, _, _ string) error { return nil }
 
+// ReservePublishSlot 测试仓储始终允许当前 worker 预留发布时隙。
+func (r *batchRunnerRepository) ReservePublishSlot(_ context.Context, _, _ string, _, startedAtMillis int64) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.batch.LastPublishStartedAtMillis = startedAtMillis
+	return true, nil
+}
+
 // batchRunnerPublisher 是可控的单行发布替身。
 type batchRunnerPublisher struct {
 	// err 保存发布失败错误。
@@ -113,7 +121,7 @@ type batchRunnerPublisher struct {
 }
 
 // PublishRow 返回预置错误并统计调用次数。
-func (p *batchRunnerPublisher) PublishRow(_ context.Context, _ int64, _ BatchRow, _ string) error {
+func (p *batchRunnerPublisher) PublishRow(_ context.Context, _ int64, _ BatchRow, _ string, _ func(context.Context) error) error {
 	p.calls++
 	return p.err
 }

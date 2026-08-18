@@ -27,14 +27,18 @@ type ItemPublishBatch struct {
 	Filename        string // 原始上传文件名
 	UploadDir       string // 图片资源目录（发布时读取商品图片的根目录）
 	LocationJSON    string // 批次统一使用的发货地 JSON
-	Status          string // 批次状态：pending/running/completed/partially_failed/failed
-	TotalCount      int    // 明细行总数（Recount 维护）
-	SuccessCount    int    // 成功数（Recount 维护）
-	FailedCount     int    // 失败数（Recount 维护）
-	WorkerToken     string
-	LeaseExpiresAt  int64
-	CreatedAt       string
-	UpdatedAt       string
+	// PublishIntervalSeconds 是相邻两次最终商品发布请求的最小间隔秒数。
+	PublishIntervalSeconds int
+	// LastPublishStartedAtMillis 是最近一次最终商品发布请求开始的 Unix 毫秒时间戳。
+	LastPublishStartedAtMillis int64
+	Status                     string // 批次状态：pending/running/completed/partially_failed/failed
+	TotalCount                 int    // 明细行总数（Recount 维护）
+	SuccessCount               int    // 成功数（Recount 维护）
+	FailedCount                int    // 失败数（Recount 维护）
+	WorkerToken                string
+	LeaseExpiresAt             int64
+	CreatedAt                  string
+	UpdatedAt                  string
 }
 
 // ItemPublishBatchRow 是一条待发布的商品明细。
@@ -72,6 +76,9 @@ func (b *ItemPublishBatches) Create(ctx context.Context, batch *ItemPublishBatch
 	if strings.TrimSpace(batch.LocationJSON) == "" {
 		batch.LocationJSON = "{}"
 	}
+	if batch.PublishIntervalSeconds <= 0 {
+		batch.PublishIntervalSeconds = 5
+	}
 	// tx、err 用于本次流程后续判断的tx、err
 	tx, err := b.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -81,10 +88,10 @@ func (b *ItemPublishBatches) Create(ctx context.Context, batch *ItemPublishBatch
 	if // err 用于本次流程后续判断的err
 	_, err := tx.ExecContext(ctx,
 		`INSERT INTO item_publish_batches
-		 (id,user_id,default_cookie_id,filename,upload_dir,location_json,status,total_count,success_count,failed_count)
-		 VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		 (id,user_id,default_cookie_id,filename,upload_dir,location_json,publish_interval_seconds,status,total_count,success_count,failed_count)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		batch.ID, batch.UserID, batch.DefaultCookieID, batch.Filename, batch.UploadDir,
-		batch.LocationJSON, batch.Status, len(rows), 0, 0); err != nil {
+		batch.LocationJSON, batch.PublishIntervalSeconds, batch.Status, len(rows), 0, 0); err != nil {
 		return err
 	}
 	// row 表示当前遍历过程中的row
@@ -131,11 +138,11 @@ func (b *ItemPublishBatches) Get(ctx context.Context, userID int64, id string) (
 	var out ItemPublishBatch
 	// err 用于本次流程后续判断的err
 	err := b.DB.QueryRowContext(ctx,
-		`SELECT id,user_id,default_cookie_id,filename,upload_dir,COALESCE(location_json,'{}'),status,total_count,success_count,failed_count,
+		`SELECT id,user_id,default_cookie_id,filename,upload_dir,COALESCE(location_json,'{}'),COALESCE(publish_interval_seconds,5),COALESCE(last_publish_started_at_millis,0),status,total_count,success_count,failed_count,
 		        COALESCE(worker_token,''),COALESCE(lease_expires_at,0),
 		        created_at,updated_at
 		   FROM item_publish_batches WHERE id=? AND user_id=?`, id, userID).Scan(
-		&out.ID, &out.UserID, &out.DefaultCookieID, &out.Filename, &out.UploadDir, &out.LocationJSON, &out.Status,
+		&out.ID, &out.UserID, &out.DefaultCookieID, &out.Filename, &out.UploadDir, &out.LocationJSON, &out.PublishIntervalSeconds, &out.LastPublishStartedAtMillis, &out.Status,
 		&out.TotalCount, &out.SuccessCount, &out.FailedCount, &out.WorkerToken, &out.LeaseExpiresAt,
 		&out.CreatedAt, &out.UpdatedAt)
 	if err != nil {
@@ -153,7 +160,7 @@ func (b *ItemPublishBatches) ListForUser(ctx context.Context, userID int64, limi
 		limit = 20
 	}
 	// rows、err 用于本次流程后续判断的rows、err
-	rows, err := b.DB.QueryContext(ctx, `SELECT id,user_id,default_cookie_id,filename,upload_dir,COALESCE(location_json,'{}'),status,
+	rows, err := b.DB.QueryContext(ctx, `SELECT id,user_id,default_cookie_id,filename,upload_dir,COALESCE(location_json,'{}'),COALESCE(publish_interval_seconds,5),COALESCE(last_publish_started_at_millis,0),status,
 		total_count,success_count,failed_count,COALESCE(worker_token,''),COALESCE(lease_expires_at,0),created_at,updated_at
 		FROM item_publish_batches WHERE user_id=? ORDER BY created_at DESC,id DESC LIMIT ?`, userID, limit)
 	if err != nil {
@@ -166,7 +173,7 @@ func (b *ItemPublishBatches) ListForUser(ctx context.Context, userID int64, limi
 		// batch 用于本次流程后续判断的批次
 		var batch ItemPublishBatch
 		if // err 用于本次流程后续判断的err
-		err := rows.Scan(&batch.ID, &batch.UserID, &batch.DefaultCookieID, &batch.Filename, &batch.UploadDir, &batch.LocationJSON,
+		err := rows.Scan(&batch.ID, &batch.UserID, &batch.DefaultCookieID, &batch.Filename, &batch.UploadDir, &batch.LocationJSON, &batch.PublishIntervalSeconds, &batch.LastPublishStartedAtMillis,
 			&batch.Status, &batch.TotalCount, &batch.SuccessCount, &batch.FailedCount, &batch.WorkerToken,
 			&batch.LeaseExpiresAt, &batch.CreatedAt, &batch.UpdatedAt); err != nil {
 			return nil, err
@@ -182,7 +189,7 @@ func (b *ItemPublishBatches) Recoverable(ctx context.Context, now int64, limit i
 		limit = 20
 	}
 	// rows、err 用于本次流程后续判断的rows、err
-	rows, err := b.DB.QueryContext(ctx, `SELECT id,user_id,default_cookie_id,filename,upload_dir,COALESCE(location_json,'{}'),status,
+	rows, err := b.DB.QueryContext(ctx, `SELECT id,user_id,default_cookie_id,filename,upload_dir,COALESCE(location_json,'{}'),COALESCE(publish_interval_seconds,5),COALESCE(last_publish_started_at_millis,0),status,
 		total_count,success_count,failed_count,COALESCE(worker_token,''),COALESCE(lease_expires_at,0),created_at,updated_at
 		FROM item_publish_batches b
 		WHERE (b.status IN ('running','canceling') AND (b.lease_expires_at=0 OR b.lease_expires_at<?))
@@ -199,7 +206,7 @@ func (b *ItemPublishBatches) Recoverable(ctx context.Context, now int64, limit i
 		// batch 用于本次流程后续判断的批次
 		var batch ItemPublishBatch
 		if // err 用于本次流程后续判断的err
-		err := rows.Scan(&batch.ID, &batch.UserID, &batch.DefaultCookieID, &batch.Filename, &batch.UploadDir, &batch.LocationJSON,
+		err := rows.Scan(&batch.ID, &batch.UserID, &batch.DefaultCookieID, &batch.Filename, &batch.UploadDir, &batch.LocationJSON, &batch.PublishIntervalSeconds, &batch.LastPublishStartedAtMillis,
 			&batch.Status, &batch.TotalCount, &batch.SuccessCount, &batch.FailedCount, &batch.WorkerToken,
 			&batch.LeaseExpiresAt, &batch.CreatedAt, &batch.UpdatedAt); err != nil {
 			return nil, err
@@ -650,6 +657,21 @@ func (b *ItemPublishBatches) RenewBatchLease(ctx context.Context, batchID, worke
 	// n、err 用于本次流程后续判断的n、err
 	n, err := res.RowsAffected()
 	return err == nil && n == 1, err
+}
+
+// ReservePublishSlot 仅在当前 worker 仍持有运行中批次且上一时隙已满足间隔时原子记录新的发布开始时刻。
+func (b *ItemPublishBatches) ReservePublishSlot(ctx context.Context, batchID, workerToken string, minimumLastStartedAtMillis, startedAtMillis int64) (bool, error) {
+	// res、err 保存原子时隙更新结果。
+	res, err := b.DB.ExecContext(ctx, `UPDATE item_publish_batches
+		SET last_publish_started_at_millis=?,updated_at=CURRENT_TIMESTAMP
+		WHERE id=? AND status='running' AND worker_token=? AND COALESCE(last_publish_started_at_millis,0)<=?`,
+		startedAtMillis, batchID, workerToken, minimumLastStartedAtMillis)
+	if err != nil {
+		return false, err
+	}
+	// n、rowsErr 保存本次时隙更新影响的行数及读取错误。
+	n, rowsErr := res.RowsAffected()
+	return rowsErr == nil && n == 1, rowsErr
 }
 
 // FailClaimedBatch 释放初始化阶段失败的批次租约。worker token 防止旧 worker

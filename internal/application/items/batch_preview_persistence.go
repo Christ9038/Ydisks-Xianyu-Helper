@@ -19,6 +19,8 @@ type BatchPreviewPersistenceBatch struct {
 	UploadDir string
 	// Location 是批次统一使用的发货地。
 	Location Location
+	// PublishIntervalSeconds 是相邻两次最终商品发布请求的最小间隔秒数。
+	PublishIntervalSeconds int
 	// Status 是创建时的批次状态。
 	Status string
 }

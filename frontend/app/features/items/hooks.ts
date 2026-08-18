@@ -45,6 +45,8 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
   const [batchLocations, setBatchLocations] = useState<NonNullable<ItemPublishBatchState['batchLocations']>>([]);
   // batchLocation 保存批量任务当前选中的发货地。
   const [batchLocation, setBatchLocation] = useState<ItemPublishBatchState['batchLocation']>(null);
+  // batchPublishIntervalSeconds 保存当前批量任务的最终发布最小间隔，默认五秒。
+  const [batchPublishIntervalSeconds, setBatchPublishIntervalSeconds] = useState(5);
   // batchLoading 表示批量任务请求是否正在执行。
   const [batchLoading, setBatchLoading] = useState(false);
   // batchPollInFlight 防止同一批次的轮询请求重叠。
@@ -97,6 +99,7 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
     setBatchFallbackCategory({ catId: '', catName: '', channelCatId: '', tbCatId: '' });
     setBatchLocations([]);
     setBatchLocation(null);
+    setBatchPublishIntervalSeconds(5);
     setShowBatchModal(true);
     setBatchLoading(true);
     try {
@@ -111,6 +114,7 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
         if (!isCurrentBatchOperation(request.requestGeneration, request.controller)) return;
         setRecentBatch(detail);
         setBatchDetail(detail);
+        setBatchPublishIntervalSeconds(detail.publish_interval_seconds || 5);
         setBatchPhase(['running', 'canceling'].includes(detail.status) ? 'running' : 'done');
       }
     } catch (error /* 恢复任务错误 */) {
@@ -177,6 +181,7 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
       const detail = await getItemPublishBatch(recentBatch.id, { signal: request.controller.signal });
       if (!isCurrentBatchOperation(request.requestGeneration, request.controller)) return;
       setBatchDetail(detail);
+      setBatchPublishIntervalSeconds(detail.publish_interval_seconds || 5);
       setBatchPhase(['running', 'canceling'].includes(detail.status) ? 'running' : 'done');
     } catch (error /* 最近结果读取错误 */) {
       if (!isCurrentBatchOperation(request.requestGeneration, request.controller)) return;
@@ -211,6 +216,7 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
         defaultCookieId: options.selectedAccount,
         fallbackCategory: batchFallbackCategory,
         location: batchLocation || undefined,
+        publishIntervalSeconds: batchPublishIntervalSeconds,
       }, { signal: request.controller.signal });
       if (!isCurrentBatchOperation(request.requestGeneration, request.controller)) return;
       setBatchPreview(result);
@@ -224,7 +230,7 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
       if (isCurrentBatchOperation(request.requestGeneration, request.controller)) setBatchLoading(false);
     }
     },
-    [batchFallbackCategory, batchFile, batchImagesZip, batchLocation, beginBatchRequest, isCurrentBatchOperation, options.selectedAccount],
+    [batchFallbackCategory, batchFile, batchImagesZip, batchLocation, batchPublishIntervalSeconds, beginBatchRequest, isCurrentBatchOperation, options.selectedAccount],
   );
 
   // handleStartBatch 启动预检通过的批量任务并读取首个详情。
@@ -429,6 +435,8 @@ export const useItemPublishBatch = (options: ItemPublishBatchOptions): ItemPubli
     batchLocation,
     setBatchLocations,
     setBatchLocation,
+    batchPublishIntervalSeconds,
+    setBatchPublishIntervalSeconds,
     openBatchModal,
     handleRecommendBatchCategory,
     openRecentBatchResult,

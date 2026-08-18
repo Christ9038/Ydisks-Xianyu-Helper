@@ -45,7 +45,7 @@ func NewItemBatchPublishPort(store *db.Store, client func() mtop.Client, logger 
 }
 
 // PublishRemoteRow 执行单行商品远端发布并保存远端结果检查点，不写入本地商品或自动化规则。
-func (p *ItemBatchPublishPort) PublishRemoteRow(ctx context.Context, userID int64, row itemapp.BatchRow, workerToken string) (itemapp.BatchPublishOutcome, error) {
+func (p *ItemBatchPublishPort) PublishRemoteRow(ctx context.Context, userID int64, row itemapp.BatchRow, workerToken string, beforePublish func(context.Context) error) (itemapp.BatchPublishOutcome, error) {
 	// validateErr 保存适配器依赖校验错误。
 	if validateErr := p.validate(); validateErr != nil {
 		return itemapp.BatchPublishOutcome{}, validateErr
@@ -116,6 +116,7 @@ func (p *ItemBatchPublishPort) PublishRemoteRow(ctx context.Context, userID int6
 		Title: row.Title, Description: firstBatchNonEmpty(row.Description, row.Title), PriceCents: priceCents,
 		OriginalPriceCents: originalPriceCents, Quantity: row.Quantity, PostageMode: row.PostageMode,
 		PostageCents: postageCents, Virtual: true, Location: location, PreferredCategory: preferredCategory, Images: images,
+		BeforePublish: beforePublish,
 	})
 	cancel()
 	// runtimeCookie、persistErr 保存会话写回后的运行时 Cookie 和错误。

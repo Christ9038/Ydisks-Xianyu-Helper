@@ -531,7 +531,7 @@ func TestPublishBatchRetryResumesSavedRemoteResultWithoutPublishingAgain(t *test
 	// applicationRow 保存恢复测试所需的非敏感批次明细模型。
 	applicationRow := itemapp.BatchRow{ID: rows[0].ID, BatchID: rows[0].BatchID, RowNo: rows[0].RowNo, CookieID: rows[0].CookieID, Title: rows[0].Title, Description: rows[0].Description, Price: rows[0].Price, OriginalPrice: rows[0].OriginalPrice, Quantity: rows[0].Quantity, PostageMode: rows[0].PostageMode, Postage: rows[0].Postage, ImagesJSON: rows[0].ImagesJSON, CategoryJSON: rows[0].CategoryJSON, AutomationJSON: rows[0].AutomationJSON, RawJSON: rows[0].RawJSON, ItemID: rows[0].ItemID, ItemURL: rows[0].ItemURL, Status: rows[0].Status, ErrorMessage: rows[0].ErrorMessage, FailureKind: rows[0].FailureKind, WorkerToken: rows[0].WorkerToken, CreatedAt: rows[0].CreatedAt, UpdatedAt: rows[0].UpdatedAt}
 	// err 保存应用层批量发布适配器的恢复结果。
-	err = (serverBatchPublisher{remotePort: port, localService: localService}).PublishRow(ctx, admin.ID, applicationRow, "worker-2")
+	err = (serverBatchPublisher{remotePort: port, localService: localService}).PublishRow(ctx, admin.ID, applicationRow, "worker-2", nil)
 	if err != nil {
 		t.Fatalf("resume local persistence: %v", err)
 	}

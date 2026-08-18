@@ -79,6 +79,10 @@ type BatchInfo struct {
 	UploadDir string
 	// LocationJSON 是批次统一发货地配置的 JSON。
 	LocationJSON string
+	// PublishIntervalSeconds 是相邻两次最终商品发布请求的最小间隔秒数。
+	PublishIntervalSeconds int
+	// LastPublishStartedAtMillis 是最近一次最终商品发布请求开始的 Unix 毫秒时间戳。
+	LastPublishStartedAtMillis int64
 	// TotalCount 是批次明细总数。
 	TotalCount int
 	// SuccessCount 是已成功发布的明细数。
@@ -117,12 +121,14 @@ type BatchRepository interface {
 	FinalizeInterrupted(context.Context, string, string, string) (string, bool, error)
 	// DeleteUpload 清理已完成批次的上传文件及其数据库记录。
 	DeleteUpload(context.Context, string, string) error
+	// ReservePublishSlot 原子预留一次最终商品发布时刻。
+	ReservePublishSlot(context.Context, string, string, int64, int64) (bool, error)
 }
 
 // BatchPublisher 执行单条商品发布；平台、凭证和自动化细节由适配器负责。
 type BatchPublisher interface {
-	// PublishRow 发布一条批量商品并完成本地结果落库。
-	PublishRow(context.Context, int64, BatchRow, string) error
+	// PublishRow 在图片上传和类目准备完成后调用 beforePublish，再发布一条商品并完成本地结果落库。
+	PublishRow(context.Context, int64, BatchRow, string, func(context.Context) error) error
 }
 
 // PostPublishError 表示平台发布成功后，响应 Cookie 或本地后置步骤未能完成。
@@ -203,8 +209,8 @@ type BatchPublishOutcome struct {
 
 // BatchPublishPort 定义单行批量远端发布能力；凭证和平台 DTO 由适配器内部处理。
 type BatchPublishPort interface {
-	// PublishRemoteRow 执行远端发布并保存远端检查点，不负责商品自动化规则。
-	PublishRemoteRow(context.Context, int64, BatchRow, string) (BatchPublishOutcome, error)
+	// PublishRemoteRow 在图片准备完成后调用 beforePublish，再执行远端发布并保存检查点。
+	PublishRemoteRow(context.Context, int64, BatchRow, string, func(context.Context) error) (BatchPublishOutcome, error)
 }
 
 // FailureClassifier 将发布错误转换为用户可见消息和稳定失败分类。
@@ -214,10 +220,10 @@ type FailureClassifier func(error, string) (string, string)
 type BatchRunOptions struct {
 	// LeaseDuration 是每次续租所使用的租约时长。
 	LeaseDuration time.Duration
-	// JobDelay 根据已处理行下标返回下一行前的等待时长。
-	JobDelay func(int) time.Duration
 	// Wait 在等待行间隔期间响应 Context 取消。
 	Wait func(context.Context, time.Duration) error
+	// Now 提供当前时间，用于计算并持久化最终发布请求的强制间隔。
+	Now func() time.Time
 	// IsSessionExpired 判断错误是否要求立即中断剩余明细。
 	IsSessionExpired func(error) bool
 	// ClassifyFailure 生成失败明细的消息和分类。
@@ -245,11 +251,11 @@ func NewBatchRunner(repository BatchRepository, publisher BatchPublisher, option
 	if options.LeaseDuration <= 0 {
 		options.LeaseDuration = 5 * time.Minute
 	}
-	if options.JobDelay == nil {
-		options.JobDelay = func(index int) time.Duration { return time.Duration(10+index%21) * time.Second }
-	}
 	if options.Wait == nil {
 		options.Wait = waitWithContext
+	}
+	if options.Now == nil {
+		options.Now = time.Now
 	}
 	if options.IsSessionExpired == nil {
 		options.IsSessionExpired = func(error) bool { return false }
@@ -270,8 +276,8 @@ func (runner *BatchRunner) Run(ctx context.Context, userID int64, batchID, worke
 		}
 		return err
 	}
-	// rowIndex 表示当前明细在 worker 队列中的下标；row 保存待发布商品明细。
-	for rowIndex, row := range rows {
+	// row 表示当前待发布商品明细。
+	for _, row := range rows {
 		if ctx.Err() != nil {
 			runner.finishInterrupted(ctx, userID, batchID, workerToken)
 			return ctx.Err()
@@ -300,8 +306,12 @@ func (runner *BatchRunner) Run(ctx context.Context, userID int64, batchID, worke
 		if !claimed {
 			continue
 		}
+		// beforePublish 在图片上传和类目准备完成后，原子预留符合强制间隔的最终发布时刻。
+		beforePublish := func(publishCtx context.Context) error {
+			return runner.reservePublishSlot(publishCtx, userID, batchID, workerToken, batch.PublishIntervalSeconds)
+		}
 		// rowErr 保存当前商品发布及本地结果落库错误。
-		if rowErr := runner.publisher.PublishRow(ctx, userID, row, workerToken); rowErr != nil {
+		if rowErr := runner.publisher.PublishRow(ctx, userID, row, workerToken, beforePublish); rowErr != nil {
 			// statusCtx、statusCancel 让外部动作已返回后的失败事实写入不受请求取消影响，并限制补偿等待时间。
 			statusCtx, statusCancel := statusContext(ctx)
 			// status 保存失败分类所需的批次状态。
@@ -331,16 +341,50 @@ func (runner *BatchRunner) Run(ctx context.Context, userID int64, batchID, worke
 			}
 			return recountErr
 		}
-		if rowIndex < len(rows)-1 {
-			// waitErr 保存行间隔等待期间的取消错误。
-			if waitErr := runner.options.Wait(ctx, runner.options.JobDelay(rowIndex)); waitErr != nil {
-				runner.finishInterrupted(ctx, userID, batchID, workerToken)
-				return waitErr
-			}
-		}
 	}
 	runner.finish(ctx, userID, batchID, workerToken)
 	return nil
+}
+
+// reservePublishSlot 在最终商品发布请求前预留批次级时隙；图片上传和类目准备不受该等待影响。
+func (runner *BatchRunner) reservePublishSlot(ctx context.Context, userID int64, batchID, workerToken string, intervalSeconds int) error {
+	// interval 保存归一化后的最小发布间隔；历史批次缺失配置时保持五秒默认值。
+	interval := time.Duration(intervalSeconds) * time.Second
+	if intervalSeconds <= 0 {
+		interval = 5 * time.Second
+	}
+	for {
+		// now 保存本次预留尝试使用的时间，统一换算为 Unix 毫秒避免秒级截断缩短间隔。
+		now := runner.options.Now().UTC()
+		// startedAtMillis 保存本次候选最终发布请求的开始毫秒值。
+		startedAtMillis := now.UnixMilli()
+		// minimumLastStartedAtMillis 保存允许替换旧时隙的最晚毫秒值。
+		minimumLastStartedAtMillis := now.Add(-interval).UnixMilli()
+		// reserved、reserveErr 保存原子时隙预留结果及持久化错误。
+		reserved, reserveErr := runner.repository.ReservePublishSlot(ctx, batchID, workerToken, minimumLastStartedAtMillis, startedAtMillis)
+		if reserveErr != nil {
+			return reserveErr
+		}
+		if reserved {
+			return nil
+		}
+		// batch、batchErr 保存用于判断租约和下次可发布时刻的最新批次快照。
+		batch, batchErr := runner.repository.GetBatch(ctx, userID, batchID)
+		if batchErr != nil || batch.Status != "running" || batch.WorkerToken != workerToken {
+			return ErrBatchLeaseLost
+		}
+		// lastStartedAt 保存最近一次最终发布请求开始时间。
+		lastStartedAt := time.UnixMilli(batch.LastPublishStartedAtMillis)
+		// waitFor 保存距可用发布时隙还需等待的时间。
+		waitFor := lastStartedAt.Add(interval).Sub(runner.options.Now().UTC())
+		if waitFor <= 0 {
+			waitFor = time.Millisecond
+		}
+		// waitErr 保存等待下一个可用最终发布时隙期间的取消错误。
+		if waitErr := runner.options.Wait(ctx, waitFor); waitErr != nil {
+			return waitErr
+		}
+	}
 }
 
 // renewLease 续租批次并将失去租约转换为统一应用错误。

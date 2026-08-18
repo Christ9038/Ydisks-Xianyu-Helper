@@ -1243,6 +1243,7 @@ const runVersionedItemBatchAPITest = async () => {
     defaultCookieId: 'acc1',
     fallbackCategory: { catId: 'cat-1', catName: '资料', channelCatId: 'channel-1', tbCatId: 'tb-1' },
     location: { area: '区域', city: '城市', division_id: '1', longitude: 120, latitude: 30, poi_id: 'poi-1', poi_name: '地点', province: '省' },
+    publishIntervalSeconds: 12,
   });
   await startItemPublishBatch('preview-1');
   await getItemPublishBatches(10);
@@ -1254,6 +1255,9 @@ const runVersionedItemBatchAPITest = async () => {
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/items/get-all-from-account', expect.objectContaining({ method: 'POST' }));
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/items/publish-categories/recommend', expect.objectContaining({ method: 'POST' }));
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/items/publish-batches/preview', expect.objectContaining({ method: 'POST', body: expect.any(FormData) }));
+  // previewBody 保存批量预检表单，确保用户设置的间隔进入后端持久化边界。
+  const previewBody = fetchMock.mock.calls[2][1].body as FormData;
+  expect(previewBody.get('publish_interval_seconds')).toBe('12');
   expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/items/publish-batches', expect.objectContaining({ method: 'POST' }));
   expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/v1/items/publish-batches?limit=10', expect.objectContaining({ method: 'GET' }));
   expect(fetchMock).toHaveBeenNthCalledWith(6, '/api/v1/items/publish-batches/batch-1', expect.objectContaining({ method: 'GET' }));

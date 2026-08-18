@@ -89,11 +89,16 @@ func TestPublishItemDescriptionDefaultsToTitle(t *testing.T) {
 	png1 := tinyPNG(t)
 	// gotDesc 用于本次流程后续判断的gotDesc
 	var gotDesc string
+	// uploadFinished 记录图片上传是否已经完成，确保发布前闸门不会提前执行。
+	uploadFinished := false
+	// beforePublishCalled 记录最终发布前回调是否被调用。
+	beforePublishCalled := false
 	// publishedData 用于本次流程后续判断的published数据
 	var publishedData map[string]any
 	// dt 用于本次流程后续判断的dt
 	dt := &dispatchTransport{handlers: map[string]http.HandlerFunc{
 		"_upload": func(w http.ResponseWriter, r *http.Request) {
+			uploadFinished = true
 			fmt.Fprint(w, `{"object":{"url":"https://cdn/a.jpg","pix":"800x600"}}`)
 		},
 		"mtop.taobao.idle.kgraph.property.recommend": func(w http.ResponseWriter, r *http.Request) {
@@ -128,6 +133,13 @@ func TestPublishItemDescriptionDefaultsToTitle(t *testing.T) {
 		PostageCents: 500,
 		Location:     &PublishLocation{Area: "X", City: "Y", DivisionID: "1", Longitude: 118.7, Latitude: 31.9, POIID: "p1", POIName: "P", Province: "Z"},
 		Images:       []PublishImage{{Filename: "a.png", ContentType: "image/png", Data: png1}},
+		BeforePublish: func(context.Context) error {
+			if !uploadFinished {
+				t.Fatal("最终发布前图片尚未上传完成")
+			}
+			beforePublishCalled = true
+			return nil
+		},
 	}
 	// res、err 用于本次流程后续判断的res、err
 	res, err := client.PublishItem(context.Background(), consignCookies, req)
@@ -145,6 +157,9 @@ func TestPublishItemDescriptionDefaultsToTitle(t *testing.T) {
 	}
 	if res.ImageURL != "https://cdn/a.jpg" {
 		t.Fatalf("ImageURL=%q", res.ImageURL)
+	}
+	if !beforePublishCalled {
+		t.Fatal("最终发布前闸门未执行")
 	}
 	// addr、ok 用于本次流程后续判断的addr、ok
 	addr, ok := publishedData["itemAddrDTO"].(map[string]any)
