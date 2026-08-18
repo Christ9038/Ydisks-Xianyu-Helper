@@ -87,145 +87,112 @@ func (d *msgpackDecoder) decodeTypedValue(fb byte) (any, error) {
 		return false, nil
 	case 0xc3:
 		return true, nil
-	case 0xc4: // bin 8
-		// n、err 用于本次流程后续判断的n、err
-		n, err := d.readByte()
-		if err != nil {
-			return nil, err
-		}
-		return d.readBytes(int(n))
-	case 0xc5: // bin 16
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(2)
-		if err != nil {
-			return nil, err
-		}
-		return d.readBytes(int(binary.BigEndian.Uint16(b)))
-	case 0xc6: // bin 32
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(4)
-		if err != nil {
-			return nil, err
-		}
-		return d.readBytes(int(binary.BigEndian.Uint32(b)))
-	case 0xca: // float 32
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(4)
-		if err != nil {
-			return nil, err
-		}
-		// bits 用于本次流程后续判断的bits
-		bits := binary.BigEndian.Uint32(b)
-		return float64(math.Float32frombits(bits)), nil
-	case 0xcb: // float 64
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(8)
-		if err != nil {
-			return nil, err
-		}
-		return math.Float64frombits(binary.BigEndian.Uint64(b)), nil
-	case 0xcc: // uint 8
-		// n、err 用于本次流程后续判断的n、err
-		n, err := d.readByte()
-		return uint64(n), err
-	case 0xcd: // uint 16
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(2)
-		if err != nil {
-			return nil, err
-		}
-		return uint64(binary.BigEndian.Uint16(b)), nil
-	case 0xce: // uint 32
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(4)
-		if err != nil {
-			return nil, err
-		}
-		return uint64(binary.BigEndian.Uint32(b)), nil
-	case 0xcf: // uint 64
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(8)
-		if err != nil {
-			return nil, err
-		}
-		return binary.BigEndian.Uint64(b), nil
-	case 0xd0: // int 8
-		// n、err 用于本次流程后续判断的n、err
-		n, err := d.readByte()
-		// #nosec G115 -- MessagePack 有符号整数使用二进制补码编码，此转换用于符号扩展。
-		return int64(int8(n)), err
-	case 0xd1: // int 16
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(2)
-		if err != nil {
-			return nil, err
-		}
-		return int64(int16(binary.BigEndian.Uint16(b))), nil // #nosec G115 -- 协议要求的符号扩展
-	case 0xd2: // int 32
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(4)
-		if err != nil {
-			return nil, err
-		}
-		return int64(int32(binary.BigEndian.Uint32(b))), nil // #nosec G115 -- 协议要求的符号扩展
-	case 0xd3: // int 64
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(8)
-		if err != nil {
-			return nil, err
-		}
-		return int64(binary.BigEndian.Uint64(b)), nil // #nosec G115 -- 协议要求的符号扩展
-	case 0xd9: // str 8
-		// n、err 用于本次流程后续判断的n、err
-		n, err := d.readByte()
-		if err != nil {
-			return nil, err
-		}
-		return d.readString(int(n))
-	case 0xda: // str 16
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(2)
-		if err != nil {
-			return nil, err
-		}
-		return d.readString(int(binary.BigEndian.Uint16(b)))
-	case 0xdb: // str 32
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(4)
-		if err != nil {
-			return nil, err
-		}
-		return d.readString(int(binary.BigEndian.Uint32(b)))
-	case 0xdc: // array 16
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(2)
-		if err != nil {
-			return nil, err
-		}
-		return d.decodeArray(int(binary.BigEndian.Uint16(b)))
-	case 0xdd: // array 32
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(4)
-		if err != nil {
-			return nil, err
-		}
-		return d.decodeArray(int(binary.BigEndian.Uint32(b)))
-	case 0xde: // map 16
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(2)
-		if err != nil {
-			return nil, err
-		}
-		return d.decodeMap(int(binary.BigEndian.Uint16(b)))
-	case 0xdf: // map 32
-		// b、err 用于本次流程后续判断的b、err
-		b, err := d.readBytes(4)
-		if err != nil {
-			return nil, err
-		}
-		return d.decodeMap(int(binary.BigEndian.Uint32(b)))
+	case 0xc4, 0xc5, 0xc6:
+		return d.decodeBinary(fb)
+	case 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, 0xd0, 0xd1, 0xd2, 0xd3:
+		return d.decodeNumber(fb)
+	case 0xd9, 0xda, 0xdb:
+		return d.decodeLongString(fb)
+	case 0xdc, 0xdd, 0xde, 0xdf:
+		return d.decodeCollection(fb)
 	}
 	return nil, fmt.Errorf("msgpack: unknown format byte 0x%02x", fb)
+}
+
+// decodeBinary 解码带长度前缀的二进制值。
+func (d *msgpackDecoder) decodeBinary(fb byte) (any, error) {
+	// width 是当前二进制长度字段的字节数。
+	width := map[byte]int{0xc4: 1, 0xc5: 2, 0xc6: 4}[fb]
+	// length、err 保存二进制载荷长度及读取错误。
+	length, err := d.readLength(width)
+	if err != nil {
+		return nil, err
+	}
+	return d.readBytes(length)
+}
+
+// decodeNumber 解码浮点数、无符号整数和有符号整数。
+func (d *msgpackDecoder) decodeNumber(fb byte) (any, error) {
+	// width 是当前数值载荷的字节数。
+	width := map[byte]int{0xca: 4, 0xcb: 8, 0xcc: 1, 0xcd: 2, 0xce: 4, 0xcf: 8, 0xd0: 1, 0xd1: 2, 0xd2: 4, 0xd3: 8}[fb]
+	// data、err 保存原始数值载荷及读取错误。
+	data, err := d.readBytes(width)
+	if err != nil {
+		return nil, err
+	}
+	switch fb {
+	case 0xca:
+		return float64(math.Float32frombits(binary.BigEndian.Uint32(data))), nil
+	case 0xcb:
+		return math.Float64frombits(binary.BigEndian.Uint64(data)), nil
+	case 0xcc:
+		return uint64(data[0]), nil
+	case 0xcd:
+		return uint64(binary.BigEndian.Uint16(data)), nil
+	case 0xce:
+		return uint64(binary.BigEndian.Uint32(data)), nil
+	case 0xcf:
+		return binary.BigEndian.Uint64(data), nil
+	case 0xd0:
+		return int64(int8(data[0])), nil // #nosec G115 -- MessagePack 二进制补码符号扩展。
+	case 0xd1:
+		return int64(int16(binary.BigEndian.Uint16(data))), nil // #nosec G115 -- MessagePack 二进制补码符号扩展。
+	case 0xd2:
+		return int64(int32(binary.BigEndian.Uint32(data))), nil // #nosec G115 -- MessagePack 二进制补码符号扩展。
+	default:
+		return int64(binary.BigEndian.Uint64(data)), nil // #nosec G115 -- MessagePack 二进制补码符号扩展。
+	}
+}
+
+// decodeLongString 解码带长度前缀的字符串。
+func (d *msgpackDecoder) decodeLongString(fb byte) (any, error) {
+	return d.decodeSized(fb, func(length int) (any, error) {
+		return d.readString(length)
+	})
+}
+
+// decodeCollection 解码带长度前缀的数组或 map。
+func (d *msgpackDecoder) decodeCollection(fb byte) (any, error) {
+	return d.decodeSized(fb, func(length int) (any, error) {
+		if fb == 0xdc || fb == 0xdd {
+			return d.decodeArray(length)
+		}
+		return d.decodeMap(length)
+	})
+}
+
+// decodeSized 按格式码读取长度并交给对应的载荷解码函数。
+func (d *msgpackDecoder) decodeSized(fb byte, decode func(int) (any, error)) (any, error) {
+	// width 是当前格式码对应的长度前缀字节数。
+	width := 1
+	if fb == 0xda || fb == 0xdc || fb == 0xde {
+		width = 2
+	} else if fb != 0xd9 {
+		width = 4
+	}
+	// length、err 分别是读取出的载荷长度与底层字节读取错误。
+	length, err := d.readLength(width)
+	if err != nil {
+		return nil, err
+	}
+	return decode(length)
+}
+
+// readLength 读取指定宽度的无符号大端长度。
+func (d *msgpackDecoder) readLength(width int) (int, error) {
+	// data、err 分别是长度前缀的原始字节与读取错误。
+	data, err := d.readBytes(width)
+	if err != nil {
+		return 0, err
+	}
+	switch width {
+	case 1:
+		return int(data[0]), nil
+	case 2:
+		return int(binary.BigEndian.Uint16(data)), nil
+	default:
+		return int(binary.BigEndian.Uint32(data)), nil
+	}
 }
 
 // readString 封装readString业务协调。

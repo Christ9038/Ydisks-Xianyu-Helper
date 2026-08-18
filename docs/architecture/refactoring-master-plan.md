@@ -43,9 +43,9 @@ shared，feature adapter 直接转换领域 DTO 为 feature-owned UI model。
 | 3. 生命周期、Engine 和 Automation 重新验收 | 已完成 | 已完成后台任务 owner/Context/Cancel/Wait 收口、同步凭证更新的调用 Context 传递、浏览器组合根生命周期接入和 AST 生命周期门禁；最终提交与完整证据见 `refactoring-progress.md`。 |
 | 4. React Feature 化和异步状态修复 | 已完成 | 已完成领域契约直接模块、feature API adapter 边界、统一 ApiError、items 地图迁移、定位取消/超时、批量轮询代次隔离、严格 TypeScript 检查和嵌入产物重建；最终证据见 `refactoring-progress.md`。 |
 | 5. DB 与事务治理重新验收 | 已完成 | 已以 AST 门禁收束上层裸 SQL、Store.DB 与事务入口，补齐订单/商品 UoW 的提交和回滚证据，并完成 SQLite、MySQL、PostgreSQL 与 dbverify 实测；最终提交绑定见 `refactoring-progress.md`。 |
-| 6. 全量架构、兼容退场和注释收口 | 当前阶段 | 门禁规则已在基础验证层预建；本阶段只激活最终质量规则、清零违规并完成兼容和注释退场。 |
+| 6. 全量架构、兼容退场和注释收口 | 已完成 | 最终质量门禁已清零；超大文件和过长函数按业务职责拆分，兼容、依赖方向、注释与复杂度门禁保持 fail-closed。最终提交与完整证据见 `refactoring-progress.md`。 |
 
-顺序固定为 1 -> 2 -> 3 -> 4 -> 5 -> 6。阶段一是治理建立前的既有基线例外；从阶段二开始，每阶段必须有唯一最终中文提交和完整原始命令输出。阶段四已完成，阶段五是唯一允许继续执行的阶段；阶段六不得提前执行。
+顺序固定为 1 -> 2 -> 3 -> 4 -> 5 -> 6。阶段一是治理建立前的既有基线例外；从阶段二开始，每阶段必须有唯一最终中文提交和完整原始命令输出。六个正式阶段均已完成，阶段二至阶段六的全部门禁永久保持 fail-closed。
 
 ## 阶段一：稳定性、安全和启动生命周期
 
@@ -182,7 +182,7 @@ git diff --check
 PostgreSQL 多方言回归及两个 `cmd/dbverify` 均已实际通过，完整命令输出和提交绑定记录在
 `refactoring-progress.md`。
 
-## 阶段六：全量架构、兼容退场和注释收口
+## 阶段六：全量架构、兼容退场和注释收口（已完成）
 
 门禁框架和全部阶段规则已经前置建立，本阶段不得重新发明或补写基础规则。本阶段激活最终质量门禁，
 处理此前各阶段持续开启的全部边界，并清零 service locator、动态 import、前端依赖方向、根级 services
@@ -207,6 +207,11 @@ git diff --check
 
 适用时还运行浏览器集成、MySQL/PostgreSQL 和两个 cmd/dbverify 命令。最终提交：阶段六：完成全量架构、
 兼容退场和注释收口。
+
+完成结论：质量门禁已在不新增白名单、baseline 或忽略目录的前提下清零。组合根、adapter、browser
+生命周期、DB repository、Engine、通知、续期、Server DTO、二维码、协议和门禁源码均按业务职责拆分；
+受保护的 CAPTCHA 文件和规范未改动。完整原始验收输出、覆盖率、浏览器集成与多数据库环境例外记录在
+`refactoring-progress.md`。
 
 ## 执行纪律
 

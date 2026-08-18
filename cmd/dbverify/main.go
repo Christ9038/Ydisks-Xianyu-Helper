@@ -25,7 +25,7 @@ import (
 	"xianyu-go/internal/logsafe"
 )
 
-// main 封装main业务协调。
+// main 是验证 CLI 的进程入口；参数与运行错误统一由 run 返回退出码。
 func main() {
 	// cleanup 用于本次流程后续判断的cleanup
 	var cleanup func() error
@@ -100,33 +100,10 @@ func main() {
 	userID := adminUser.ID
 	fmt.Printf("✅ 创建验证用户 %s (id=%d)\n", username, userID)
 
-	// 2) 保存 cookie（dialectUpsert: ON CONFLICT/ON DUPLICATE KEY）
-	if err := store.Cookies.Save(ctx, accountID, "unb=123; _m_h5_tk=tk_1;", userID); err != nil {
-		fail("❌ 保存 cookie 失败: %v\n", err)
+	// verifyCookieAndSettings 校验跨方言 Cookie 与设置的 upsert 语义，失败时由 CLI 统一清理临时数据。
+	if err := verifyCookieAndSettings(ctx, store, accountID, userID); err != nil {
+		fail("❌ %v\n", err)
 	}
-	if // err 用于本次流程后续判断的err
-	err := store.Cookies.SetStatus(ctx, accountID, false); err != nil {
-		fail("❌ 禁用验证账号失败: %v\n", err)
-	}
-	// 再 Save 一次验证 upsert
-	if err := store.Cookies.Save(ctx, accountID, "unb=123; _m_h5_tk=tk_2;", userID); err != nil {
-		fail("❌ 二次保存 cookie 失败: %v\n", err)
-	}
-	// v 用于本次流程后续判断的v
-	v, _ := store.Cookies.GetValue(ctx, accountID)
-	// fingerprint 是 Cookie 的不可逆校验指纹，仅用于验证 upsert 结果。
-	fingerprint := sha256.Sum256([]byte(v))
-	fmt.Printf("✅ cookie upsert 成功，length=%d fingerprint=%x\n", len(v), fingerprint[:8])
-
-	// 3) 系统设置 upsert（dialectUpsert + key 保留字引用）
-	if err := store.Settings.Set(ctx, "theme_color", "blue"); err != nil {
-		fail("❌ 系统设置 Set 失败: %v\n", err)
-	}
-	if // err 用于本次流程后续判断的err
-	err := store.Settings.Set(ctx, "theme_color", "green"); err != nil {
-		fail("❌ 系统设置二次 Set 失败: %v\n", err)
-	}
-	fmt.Println("✅ 系统设置 upsert 成功（key 保留字处理 OK）")
 
 	// 4) 订单 upsert（INSERT IGNORE + 动态 UPDATE）
 	if err := store.Orders.Upsert(ctx, orderID, db.OrderUpsertOpts{
@@ -220,6 +197,41 @@ func main() {
 	cleanup = nil
 	fmt.Println("✅ 验证数据已清理")
 	fmt.Println("\n🎉 全部验证通过")
+}
+
+// verifyCookieAndSettings 验证 Cookie 状态写入、重复 upsert 和保留字设置项的跨方言行为。
+func verifyCookieAndSettings(ctx context.Context, store *db.Store, accountID string, userID int64) error {
+	// firstCookie 是首次保存的非敏感测试 Cookie；secondCookie 用于确认重复保存会覆盖同一账号记录。
+	const firstCookie = "unb=123; _m_h5_tk=tk_1;"
+	// secondCookie 是第二次 upsert 使用的测试凭证，用于验证已存在账号记录会被安全覆盖。
+	const secondCookie = "unb=123; _m_h5_tk=tk_2;"
+	// err 保存首次 Cookie 写入失败原因，调用方据此输出脱敏诊断并执行清理。
+	if err := store.Cookies.Save(ctx, accountID, firstCookie, userID); err != nil {
+		return fmt.Errorf("保存 cookie 失败: %w", err)
+	}
+	// err 保存账号状态写入失败原因，状态记录必须与 Cookie 记录一并跨方言验证。
+	if err := store.Cookies.SetStatus(ctx, accountID, false); err != nil {
+		return fmt.Errorf("禁用验证账号失败: %w", err)
+	}
+	// err 保存覆盖式 Cookie 写入失败原因，失败表示方言 upsert 语义不满足验证要求。
+	if err := store.Cookies.Save(ctx, accountID, secondCookie, userID); err != nil {
+		return fmt.Errorf("二次保存 cookie 失败: %w", err)
+	}
+	// savedCookie 是读取回来的值；fingerprint 仅输出不可逆摘要，避免验证日志泄露完整 Cookie。
+	savedCookie, _ := store.Cookies.GetValue(ctx, accountID)
+	// fingerprint 是读取结果的不可逆摘要，只用于确认更新结果且不得输出完整 Cookie。
+	fingerprint := sha256.Sum256([]byte(savedCookie))
+	fmt.Printf("✅ cookie upsert 成功，length=%d fingerprint=%x\n", len(savedCookie), fingerprint[:8])
+	// err 保存首次设置写入失败原因，数据库方言必须正确处理 key 保留字。
+	if err := store.Settings.Set(ctx, "theme_color", "blue"); err != nil {
+		return fmt.Errorf("系统设置 Set 失败: %w", err)
+	}
+	// err 保存第二次设置写入失败原因，用于确认相同键会执行更新而非重复插入。
+	if err := store.Settings.Set(ctx, "theme_color", "green"); err != nil {
+		return fmt.Errorf("系统设置二次 Set 失败: %w", err)
+	}
+	fmt.Println("✅ 系统设置 upsert 成功（key 保留字处理 OK）")
+	return nil
 }
 
 // safeDiagnosticArgs 将错误参数转换为脱敏文本，避免验证工具把连接凭证写到终端。

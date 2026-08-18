@@ -698,77 +698,6 @@ func postageDTO(req PublishItemRequest) map[string]any {
 	return out
 }
 
-// publishLabels 封装发布Labels业务协调。
-func publishLabels(category map[string]any) []any {
-	// cards 用于本次流程后续判断的卡密列表
-	cards, _ := category["cardList"].([]any)
-	// out 用于本次流程后续判断的out
-	out := []any{}
-	// rawCard 表示当前遍历过程中的原始卡密
-	for _, rawCard := range cards {
-		// card 用于本次流程后续判断的卡密
-		card := mapFromAny(rawCard)
-		// cardData 用于本次流程后续判断的卡密数据
-		cardData := mapFromAny(card["cardData"])
-		if cardData == nil {
-			continue
-		}
-		// values 用于本次流程后续判断的values
-		values, _ := cardData["valuesList"].([]any)
-		// rawValue 表示当前遍历过程中的原始值
-		for _, rawValue := range values {
-			// value 用于本次流程后续判断的值
-			value := mapFromAny(rawValue)
-			if !publishLabelSelected(value["isClicked"]) {
-				continue
-			}
-			// propertyID 用于本次流程后续判断的propertyID
-			propertyID := mtopString(cardData["propertyId"])
-			// propertyName 用于本次流程后续判断的property名称
-			propertyName := mtopString(cardData["propertyName"])
-			// channelCatID 用于本次流程后续判断的渠道CatID
-			channelCatID := mtopString(value["channelCatId"])
-			// catName 用于本次流程后续判断的cat名称
-			catName := mtopString(value["catName"])
-			out = append(out, map[string]any{
-				"channelCateName": catName,
-				"valueId":         nil,
-				"channelCateId":   channelCatID,
-				"valueName":       nil,
-				"tbCatId":         mtopString(value["tbCatId"]),
-				"subPropertyId":   nil,
-				"labelType":       "common",
-				"subValueId":      nil,
-				"labelId":         nil,
-				"propertyName":    propertyName,
-				"isUserClick":     "1",
-				"isUserCancel":    nil,
-				"from":            "newPublishChoice",
-				"propertyId":      propertyID,
-				"labelFrom":       "newPublish",
-				"text":            catName,
-				"properties":      propertyID + "##" + propertyName + ":" + channelCatID + "##" + catName,
-			})
-			break
-		}
-	}
-	return out
-}
-
-// publishLabelSelected 封装发布LabelSelected业务协调。
-func publishLabelSelected(value any) bool {
-	if // selected、ok 用于本次流程后续判断的selected、ok
-	selected, ok := value.(bool); ok {
-		return selected
-	}
-	switch strings.ToLower(strings.TrimSpace(mtopString(value))) {
-	case "1", "true":
-		return true
-	default:
-		return false
-	}
-}
-
 // classifyPublishError 封装classify发布错误业务协调。
 func classifyPublishError(ret []string, decoded map[string]any) error {
 	// bodyBytes 用于本次流程后续判断的请求体Bytes
@@ -835,51 +764,6 @@ func parsePix(pix string) (int, int) {
 	// h 用于本次流程后续判断的h
 	h, _ := strconv.Atoi(parts[1])
 	return w, h
-}
-
-// findStringDeep 封装findStringDeep业务协调。
-func findStringDeep(v any, keys ...string) string {
-	// keySet 用于本次流程后续判断的keySet
-	keySet := map[string]struct{}{}
-	// k 表示当前遍历过程中的k
-	for _, k := range keys {
-		keySet[k] = struct{}{}
-	}
-	// walk 用于本次流程后续判断的walk
-	var walk func(any) string
-	walk = func(cur any) string {
-		switch // x 用于本次流程后续判断的x
-		x := cur.(type) {
-		case map[string]any:
-			// k、v 表示当前遍历过程中的k、v
-			for k, v := range x {
-				if // ok 用于本次流程后续判断的ok
-				_, ok := keySet[k]; ok {
-					if // s 用于本次流程后续判断的s
-					s := mtopString(v); s != "" {
-						return s
-					}
-				}
-			}
-			// v 表示当前遍历过程中的v
-			for _, v := range x {
-				if // s 用于本次流程后续判断的s
-				s := walk(v); s != "" {
-					return s
-				}
-			}
-		case []any:
-			// v 表示当前遍历过程中的v
-			for _, v := range x {
-				if // s 用于本次流程后续判断的s
-				s := walk(v); s != "" {
-					return s
-				}
-			}
-		}
-		return ""
-	}
-	return walk(v)
 }
 
 // centsText 封装cents文本业务协调。

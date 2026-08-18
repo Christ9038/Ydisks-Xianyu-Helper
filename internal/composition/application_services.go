@@ -389,66 +389,10 @@ func New(dependencies Dependencies) (*Services, error) {
 	if deleteErr != nil {
 		return nil, fmt.Errorf("构造账号删除服务失败: %w", deleteErr)
 	}
-	// itemBatchPublish 是批量远端发布适配器，图片安全回调由 Server 装配时注入。
-	itemBatchPublish := dependencies.ItemDependencies.NewItemBatchPublishPort(dependencies.MTopClient, dependencies.Logger, dependencies.UpdateRunningCookie, func(ctx context.Context, cookieID string, err error) {
-		if sessionRecovery != nil {
-			sessionRecovery(ctx, cookieID, err)
-		}
-	}, readBatchImageFile, downloadImageURL)
-	// itemBatchLocalPublish 将远端发布成功后的本地商品、规则和检查点一次性装配。
-	itemBatchLocalPublish, itemBatchLocalPublishErr := itemapp.NewBatchLocalPublishService(
-		dependencies.ItemDependencies.NewItemBatchRepository(),
-		dependencies.ItemDependencies.NewItemCatalogRepository(),
-		automationDependencies.NewAutomationRepository(),
-	)
-	if itemBatchLocalPublishErr != nil {
-		return nil, fmt.Errorf("构造批量发布本地收口服务失败: %w", itemBatchLocalPublishErr)
-	}
-	// itemBatchPublisher、itemBatchPublisherErr 分别保存批量发布端口适配器及其组合期错误。
-	itemBatchPublisher, itemBatchPublisherErr := adapter.NewItemBatchPublisher(itemBatchPublish, itemBatchLocalPublish)
-	if itemBatchPublisherErr != nil {
-		return nil, fmt.Errorf("构造批量发布 publisher 失败: %w", itemBatchPublisherErr)
-	}
-	// itemBatchRunner、batchRunnerErr 分别保存批量发布 worker 及其必需端口装配错误。
-	itemBatchRunner, batchRunnerErr := adapter.NewItemBatchRunnerApplication(dependencies.ItemDependencies.NewItemBatchRepository(), itemBatchPublisher, publishBatchLease, publishBatchFailure)
-	if batchRunnerErr != nil {
-		return nil, fmt.Errorf("构造批量发布运行器失败: %w", batchRunnerErr)
-	}
-	// itemBatchRecovery 负责恢复扫描的批次状态编排；worker 生命周期由协调器拥有。
-	itemBatchRecovery, batchRecoveryErr := itemapp.NewBatchRecoveryService(
-		dependencies.ItemDependencies.NewItemBatchRepository(),
-		itemapp.BatchRecoveryOptions{LeaseDuration: publishBatchLease},
-	)
-	if batchRecoveryErr != nil {
-		return nil, fmt.Errorf("构造批量发布恢复服务失败: %w", batchRecoveryErr)
-	}
-	// itemBatchCoordinator 负责批次 worker 的超时、恢复扫描和停止等待。
-	itemBatchCoordinator, batchCoordinatorErr := itemapp.NewBatchWorkerCoordinator(itemBatchRunner, itemBatchRecovery, itemapp.BatchWorkerCoordinatorOptions{
-		OnWorkerError: func(batchID string, err error) {
-			if dependencies.Logger != nil {
-				dependencies.Logger.Warn("批量发布 worker 结束", "batch", batchID, "err", err)
-			}
-		},
-		OnRecoveryError: func(err error) {
-			if dependencies.Logger != nil {
-				dependencies.Logger.Warn("扫描可恢复批量发布任务失败", "err", err)
-			}
-		},
-	})
-	if batchCoordinatorErr != nil {
-		return nil, fmt.Errorf("构造批量发布协调器失败: %w", batchCoordinatorErr)
-	}
-	// itemBatchPreviewPort 提供批量预检所需的非敏感归属与本地图片校验能力。
-	itemBatchPreviewPort := dependencies.ItemDependencies.NewItemBatchPreviewPort()
-	// itemBatchPreview 是批量发布预检应用服务的构造结果。
-	itemBatchPreview, itemBatchPreviewErr := itemapp.NewBatchPreviewService(itemBatchPreviewPort, itemBatchPreviewPort)
-	if itemBatchPreviewErr != nil {
-		return nil, fmt.Errorf("构造批量发布预检服务失败: %w", itemBatchPreviewErr)
-	}
-	// itemBatchManagement 是批次管理应用服务的构造结果。
-	itemBatchManagement, itemBatchManagementErr := itemapp.NewBatchManagementService(dependencies.ItemDependencies.NewItemBatchRepository(), adapter.NewBatchManagementRuntime(dependencies.LifecycleContext, itemBatchCoordinator))
-	if itemBatchManagementErr != nil {
-		return nil, fmt.Errorf("构造批量发布管理服务失败: %w", itemBatchManagementErr)
+	// batchServices、batchServicesErr 分别是批量发布服务集合及其组合期错误。
+	batchServices, batchServicesErr := buildItemBatchServices(dependencies, sessionRecovery, automationDependencies)
+	if batchServicesErr != nil {
+		return nil, batchServicesErr
 	}
 	// accountLoginCreate 是手动 Cookie 登录应用服务的构造结果。
 	accountLoginCreate, accountLoginCreateErr := accountapp.NewLoginService(loginLifecycle)
@@ -467,39 +411,10 @@ func New(dependencies Dependencies) (*Services, error) {
 	}
 	// qrSessionRegistry 将扫码会话所有权、过期回收和幂等结果放在应用边界内。
 	qrSessionRegistry := accountapp.NewQRLoginSessionRegistry()
-	// itemCatalogRepository 是商品读写用例共用的数据库适配器。
-	itemCatalogRepository := dependencies.ItemDependencies.NewItemCatalogRepository()
-	// itemCatalog 是商品列表和详情读取用例的应用服务。
-	itemCatalog, itemCatalogErr := itemapp.NewCatalogService(itemCatalogRepository)
-	if itemCatalogErr != nil {
-		return nil, fmt.Errorf("构造商品目录服务失败: %w", itemCatalogErr)
-	}
-	// itemCatalogMutation 是商品写入用例的应用服务。
-	itemCatalogMutation, itemCatalogMutationErr := itemapp.NewCatalogMutationService(itemCatalogRepository)
-	if itemCatalogMutationErr != nil {
-		return nil, fmt.Errorf("构造商品目录写入服务失败: %w", itemCatalogMutationErr)
-	}
-	// itemPublishPort 是单商品与批量发布共享的平台凭证适配器。
-	itemPublishPort := dependencies.ItemDependencies.NewItemPublishPort(dependencies.MTopClient, dependencies.Logger, dependencies.UpdateRunningCookie, func(ctx context.Context, cookieID string, err error) bool {
-		return sessionRecovery != nil && sessionRecovery(ctx, cookieID, err)
-	})
-	// itemCategoryRecommendation 复用商品发布端口承载类目推荐和响应会话写回。
-	itemCategoryRecommendation, itemCategoryRecommendationErr := itemapp.NewCategoryRecommendationService(itemPublishPort)
-	if itemCategoryRecommendationErr != nil {
-		return nil, fmt.Errorf("构造商品类目推荐服务失败: %w", itemCategoryRecommendationErr)
-	}
-	// itemBatchPreviewPersistence 将预检结果持久化到批次仓储，隔离数据库模型转换。
-	itemBatchPreviewPersistence, itemBatchPreviewPersistenceErr := itemapp.NewBatchPreviewPersistenceService(dependencies.ItemDependencies.NewItemBatchRepository())
-	if itemBatchPreviewPersistenceErr != nil {
-		return nil, fmt.Errorf("构造批量预检持久化服务失败: %w", itemBatchPreviewPersistenceErr)
-	}
-	// itemSinglePublish 是单商品发布应用服务及其基础设施端口的构造结果。
-	itemSinglePublish, itemSinglePublishErr := itemapp.NewService(
-		itemPublishPort,
-		dependencies.ItemDependencies.NewItemPublishRepository(),
-	)
-	if itemSinglePublishErr != nil {
-		return nil, fmt.Errorf("构造单商品发布服务失败: %w", itemSinglePublishErr)
+	// catalogServices、catalogServicesErr 分别是商品目录服务集合及其组合期错误。
+	catalogServices, catalogServicesErr := buildItemCatalogServices(dependencies, sessionRecovery)
+	if catalogServicesErr != nil {
+		return nil, catalogServicesErr
 	}
 	// services 是完成构造后只读注入 Server 的应用服务集合。
 	services := &Services{
@@ -508,20 +423,20 @@ func New(dependencies Dependencies) (*Services, error) {
 		orders:                      orderServices,
 		orderRefreshJobs:            orderRefreshJobs,
 		orderReconciliationRecovery: dependencies.OrderReconciliationRecovery,
-		itemSinglePublish:           itemSinglePublish,
-		itemBatchCoordinator:        itemBatchCoordinator,
-		itemBatchPreview:            itemBatchPreview,
-		itemBatchManagement:         itemBatchManagement,
-		itemCategoryRecommendation:  itemCategoryRecommendation,
-		itemBatchPreviewPersistence: itemBatchPreviewPersistence,
-		itemBatchLocalPublish:       itemBatchLocalPublish,
+		itemSinglePublish:           catalogServices.singlePublish,
+		itemBatchCoordinator:        batchServices.coordinator,
+		itemBatchPreview:            batchServices.preview,
+		itemBatchManagement:         batchServices.management,
+		itemCategoryRecommendation:  catalogServices.categoryRecommendation,
+		itemBatchPreviewPersistence: catalogServices.previewPersistence,
+		itemBatchLocalPublish:       batchServices.localPublish,
 		itemSync: itemapp.NewSyncService(dependencies.ItemDependencies.NewItemSyncRepository(dependencies.MTopClient, dependencies.Logger, dependencies.UpdateRunningCookie, func(ctx context.Context, cookieID string, err error) {
 			if sessionRecovery != nil {
 				sessionRecovery(ctx, cookieID, err)
 			}
 		})),
-		itemCatalog:            itemCatalog,
-		itemCatalogMutation:    itemCatalogMutation,
+		itemCatalog:            catalogServices.catalog,
+		itemCatalogMutation:    catalogServices.mutation,
 		accountLogin:           &accountLoginService{cookieWriterFactory: cookieWriterFactory, cookieUpdaterFactory: cookieUpdaterFactory, sessionPort: accountRepository, createApplication: accountLoginCreate, qrApplication: accountQRLogin, qrSessions: qrSessionRegistry},
 		authentication:         nil,
 		loginAudit:             loginAudit,

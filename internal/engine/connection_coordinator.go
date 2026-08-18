@@ -40,27 +40,13 @@ func (c *connectionCoordinator) run(parent context.Context) error {
 		defer shutdownCancel()
 		c.waitForOwnedWorkers(shutdownCtx)
 	}()
-	// lifecycleStarted 表示 Stop 是否已经在 Run 建立生命周期前完成；false 时必须放弃迟到启动。
-	lifecycleStarted := a.lifecycle.start(ctx, cancel)
-	if !lifecycleStarted {
-		return context.Canceled
+	// shouldConnect、setupErr 分别表示账号是否仍可启动连接循环及启动准备失败原因。
+	shouldConnect, setupErr := c.prepareRun(ctx, cancel)
+	if setupErr != nil {
+		return setupErr
 	}
-	if a.store != nil && a.store.Cookies != nil && !a.store.Cookies.GetStatus(ctx, a.CookieID) {
-		a.logger.Info("账号在启动续期前已禁用")
+	if !shouldConnect {
 		return nil
-	}
-	a.startWSRecorder(ctx)
-	// 官网 /im 启动时执行 auto-login plugin；成功后 location.reload() 会重建
-	// FishEngine 和页面级 device ID。Go 客户端用 HTTP 复刻续期，并在成功时
-	// 只重建这一本地运行时身份。续期失败不能用网页 DOM 阻断 token + WS；
-	// Chromium 仅用于读取本机指纹和处理 token 滑块。
-	if a.renewer != nil {
-		if a.tryAPIRenew(ctx) {
-			a.rotatePageDeviceID()
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
 	}
 	for {
 		if ctx.Err() != nil {
@@ -98,58 +84,15 @@ func (c *connectionCoordinator) run(parent context.Context) error {
 		// token、cookieStr、err 保存本次连接专用 Token、其绑定 Cookie 快照与获取错误。
 		token, cookieStr, err := a.acquireFreshConnectionToken(ctx)
 		if err != nil {
-			_ = conn.Close()
-			if ctx.Err() != nil {
-				return ctx.Err()
+			// retry、failureErr 分别表示本轮应否重试及必须终止账号循环的错误。
+			retry, failureErr := c.handleTokenAcquisitionFailure(ctx, conn, err)
+			if failureErr != nil {
+				return failureErr
 			}
-			a.logger.Error("获取 token 失败", "err", err)
-			a.mu.Lock()
-			// status 是刷新失败分类快照，用于决定是否累加失败计数。
-			status := a.lastTokenStatus
-			// nonCounted 表示验证码与冷却失败不计入连接 Token 获取失败次数。
-			nonCounted := tokenFailureIsNonCounted(status)
-			if !nonCounted {
-				a.tokenFetchFailures++
+			if retry {
+				continue
 			}
-			// tokenFailures 是当前失败次数快照，只用于保留原有诊断路径。
-			tokenFailures := a.tokenFetchFailures
-			a.mu.Unlock()
-			a.setRuntimeError(ctx, err)
-			_ = tokenFailures // 仅用于诊断；官网不会按次数永久禁用账号。
-			if mtop.IsRiskVerificationErr(err) {
-				a.logger.Warn("闲鱼要求安全验证，停止本次消息登录", "err", err)
-				a.alertEvent(ctx, EventSecurityVerification, AlertLevelWarn, "闲鱼要求安全验证",
-					"账号触发闲鱼风控验证（滑块/人脸等），需要重新登录或完成人工验证。")
-				return err
-			}
-			if mtop.IsSessionExpiredErr(err) {
-				// reason 是当前凭证失效或恢复失败时展示给运行状态与通知的原因。
-				reason := "登录凭证已失效，正在立即续期"
-				a.logger.Warn("token API 检测到 Session 过期，停止重试并开始即时续期", "err", err)
-				a.clearTokenCache(ctx)
-				a.setRuntimeState(RuntimeReconnecting, reason)
-				a.notifyOffline(ctx, reason+"："+errString(err))
-				if a.handler != nil && a.handler.OnPasswordLoginRefresh(ctx, a.CookieID) {
-					a.reloadCookieFromDB(ctx)
-					a.clearCurrentToken()
-					a.resetFailures()
-					a.setRuntimeState(RuntimeConnecting, "Session 续期成功，正在重新连接")
-					continue
-				}
-				reason = "登录凭证已失效，自动续期失败，请重新扫码登录"
-				a.setRuntimeState(RuntimeAuthExpired, reason)
-				a.notifyOffline(ctx, reason+"："+errString(err))
-				return err
-			}
-			// 网络或服务端瞬时错误不能让账号运行时永久退出。只要登录 Session
-			// 没有明确失效，就持续重试获取连接级 Token。
-			a.setRuntimeState(RuntimeReconnecting, "获取消息凭证失败，正在重试")
-			a.notifyOffline(ctx, "获取消息凭证失败，正在自动重试："+errString(err))
-			// sleepErr 是本次重试退避等待被取消或到期时返回的错误。
-			if sleepErr := sleepCtx(ctx, a.tokenRetryDelay()); sleepErr != nil {
-				return sleepErr
-			}
-			continue
+			return nil
 		}
 		a.mu.Lock()
 		a.currentToken = token
@@ -186,26 +129,7 @@ func (c *connectionCoordinator) run(parent context.Context) error {
 			}
 			continue
 		}
-		a.runtimeMu.Lock()
-		a.conn = conn
-		a.connStartedAt = time.Now()
-		a.connFailures = 0
-		a.networkFailures = 0
-		a.authExpiredAlerted = false // 连接成功，复位 auth_expired 告警标记
-		// shouldRecovered 表示本次连接是否结束了一个已告警的离线周期。
-		shouldRecovered := a.offlineNotified
-		// offlineSince 是本次恢复前离线周期的起始时间快照。
-		offlineSince := a.offlineSince
-		a.offlineNotified = false
-		a.offlineSince = time.Time{}
-		a.lastOfflineReason = ""
-		a.runtimeMu.Unlock()
-		a.setRuntimeState(RuntimeOnline, "消息服务连接正常")
-		a.notifyTransportReady(ctx)
-		if shouldRecovered {
-			a.alertEvent(ctx, EventAccountRecovered, AlertLevelInfo, "账号已恢复在线",
-				fmt.Sprintf("账号 %s 已重新连接闲鱼消息服务。掉线开始时间：%s。", a.CookieID, formatTimeOrUnknown(offlineSince)))
-		}
+		c.markConnectionOnline(ctx, conn)
 
 		// 3) 健康连接维持心跳和收包，并在服务端 Token 过期前主动关闭，
 		// 进入下一轮连接以重新调用 Token API 和 /reg。
@@ -276,6 +200,106 @@ func (c *connectionCoordinator) run(parent context.Context) error {
 		a.setRuntimeState(RuntimeReconnecting, "消息连接已断开，正在重新连接")
 		a.logger.Warn("WS 连接结束", "err", receiveErr, "heartbeat_err", session.HeartbeatErr)
 	}
+}
+
+// prepareRun 建立账号生命周期、记录 worker 并执行首次 API 续期；返回 false 表示账号已禁用。
+func (c *connectionCoordinator) prepareRun(ctx context.Context, cancel context.CancelFunc) (bool, error) {
+	// a 是当前连接协调器绑定的账号 facade；生命周期只能在它完整构造后开始。
+	a := c.account
+	if !a.lifecycle.start(ctx, cancel) {
+		return false, context.Canceled
+	}
+	if a.store != nil && a.store.Cookies != nil && !a.store.Cookies.GetStatus(ctx, a.CookieID) {
+		a.logger.Info("账号在启动续期前已禁用")
+		return false, nil
+	}
+	a.startWSRecorder(ctx)
+	if a.renewer != nil {
+		if a.tryAPIRenew(ctx) {
+			a.rotatePageDeviceID()
+		}
+		if ctx.Err() != nil {
+			return false, ctx.Err()
+		}
+	}
+	return true, nil
+}
+
+// markConnectionOnline 原子记录新连接并发布恢复事件，避免连接循环混入状态收口细节。
+func (c *connectionCoordinator) markConnectionOnline(ctx context.Context, conn WSConn) {
+	// a 是当前连接协调器绑定的账号 facade；shouldRecovered 和 offlineSince 是锁内采集的离线周期快照。
+	a := c.account
+	a.runtimeMu.Lock()
+	a.conn = conn
+	a.connStartedAt = time.Now()
+	a.connFailures = 0
+	a.networkFailures = 0
+	a.authExpiredAlerted = false
+	// shouldRecovered 表示本次连接是否结束了一个已经通知用户的离线周期。
+	shouldRecovered := a.offlineNotified
+	// offlineSince 保存该离线周期起始时间，用于恢复通知中的持续时长诊断。
+	offlineSince := a.offlineSince
+	a.offlineNotified = false
+	a.offlineSince = time.Time{}
+	a.lastOfflineReason = ""
+	a.runtimeMu.Unlock()
+	a.setRuntimeState(RuntimeOnline, "消息服务连接正常")
+	a.notifyTransportReady(ctx)
+	if shouldRecovered {
+		a.alertEvent(ctx, EventAccountRecovered, AlertLevelInfo, "账号已恢复在线", fmt.Sprintf("账号 %s 已重新连接闲鱼消息服务。掉线开始时间：%s。", a.CookieID, formatTimeOrUnknown(offlineSince)))
+	}
+}
+
+// handleTokenAcquisitionFailure 关闭本轮连接并按风控、Session 失效或可重试网络错误决定后续动作。
+func (c *connectionCoordinator) handleTokenAcquisitionFailure(ctx context.Context, conn WSConn, tokenErr error) (bool, error) {
+	// a 是协调器拥有的账号 facade；retry 为 true 时调用方必须重新执行一轮完整连接流程。
+	a := c.account
+	_ = conn.Close()
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	a.logger.Error("获取 token 失败", "err", tokenErr)
+	a.mu.Lock()
+	// status 是本次失败的分类快照；nonCounted 表示验证码和冷却不会污染网络失败计数。
+	status := a.lastTokenStatus
+	// nonCounted 表示本次失败是否应排除在连接 Token 的失败计数之外。
+	nonCounted := tokenFailureIsNonCounted(status)
+	if !nonCounted {
+		a.tokenFetchFailures++
+	}
+	a.mu.Unlock()
+	a.setRuntimeError(ctx, tokenErr)
+	if mtop.IsRiskVerificationErr(tokenErr) {
+		a.logger.Warn("闲鱼要求安全验证，停止本次消息登录", "err", tokenErr)
+		a.alertEvent(ctx, EventSecurityVerification, AlertLevelWarn, "闲鱼要求安全验证", "账号触发闲鱼风控验证（滑块/人脸等），需要重新登录或完成人工验证。")
+		return false, tokenErr
+	}
+	if mtop.IsSessionExpiredErr(tokenErr) {
+		// reason 是登录态恢复期间写入运行状态与通知的用户可见原因。
+		reason := "登录凭证已失效，正在立即续期"
+		a.logger.Warn("token API 检测到 Session 过期，停止重试并开始即时续期", "err", tokenErr)
+		a.clearTokenCache(ctx)
+		a.setRuntimeState(RuntimeReconnecting, reason)
+		a.notifyOffline(ctx, reason+"："+errString(tokenErr))
+		if a.handler != nil && a.handler.OnPasswordLoginRefresh(ctx, a.CookieID) {
+			a.reloadCookieFromDB(ctx)
+			a.clearCurrentToken()
+			a.resetFailures()
+			a.setRuntimeState(RuntimeConnecting, "Session 续期成功，正在重新连接")
+			return true, nil
+		}
+		reason = "登录凭证已失效，自动续期失败，请重新扫码登录"
+		a.setRuntimeState(RuntimeAuthExpired, reason)
+		a.notifyOffline(ctx, reason+"："+errString(tokenErr))
+		return false, tokenErr
+	}
+	a.setRuntimeState(RuntimeReconnecting, "获取消息凭证失败，正在重试")
+	a.notifyOffline(ctx, "获取消息凭证失败，正在自动重试："+errString(tokenErr))
+	// sleepErr 保存退避等待被取消或超时的原因；该错误必须终止当前账号运行循环。
+	if sleepErr := sleepCtx(ctx, a.tokenRetryDelay()); sleepErr != nil {
+		return false, sleepErr
+	}
+	return true, nil
 }
 
 // waitForOwnedWorkers 在 shutdownCtx 的总预算内等待连接协调器启动的 recorder 与迟到续期任务。

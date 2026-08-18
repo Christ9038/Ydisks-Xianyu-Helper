@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -85,18 +86,15 @@ func (c *secretCodec) encrypt(scope, owner, value string) (string, error) {
 // 已加密行同时用于校验当前密钥，错误密钥会在启动业务 worker 前失败。
 // EncryptLegacySecrets 封装EncryptLegacySecrets业务协调。
 func (s *Store) EncryptLegacySecrets(ctx context.Context) error {
-	if s == nil || s.DB == nil {
-		return nil
-	}
-	// codec 用于本次流程后续判断的codec
-	codec := s.Cookies.codec
-	// tx、err 用于本次流程后续判断的tx、err
-	tx, err := s.DB.BeginTx(ctx, nil)
+	// codec、tx、err 是本次迁移使用的加密器、唯一事务边界及其打开错误。
+	codec, tx, err := s.beginSecretMigration(ctx)
 	if err != nil {
 		return err
 	}
+	if tx == nil {
+		return nil
+	}
 	defer tx.Rollback()
-
 	// cookieSecret 用于本次流程后续判断的登录凭证Secret
 	type cookieSecret struct{ id, value, password, metadata string }
 	// rows、err 用于本次流程后续判断的rows、err
@@ -144,7 +142,6 @@ func (s *Store) EncryptLegacySecrets(ctx context.Context) error {
 			}
 		}
 	}
-
 	// tokenSecret 用于本次流程后续判断的令牌Secret
 	type tokenSecret struct{ cookieID, deviceID, accessToken string }
 	rows, err = tx.QueryContext(ctx, `SELECT cookie_id,device_id,access_token FROM account_tokens`)
@@ -267,6 +264,21 @@ func (s *Store) EncryptLegacySecrets(ctx context.Context) error {
 	}
 
 	return tx.Commit()
+}
+
+// beginSecretMigration 在不暴露部分可见状态前创建敏感字段升级所需的单一数据库事务。
+func (s *Store) beginSecretMigration(ctx context.Context) (*secretCodec, *sql.Tx, error) {
+	if s == nil || s.DB == nil {
+		return nil, nil, nil
+	}
+	// codec 是 Store 已配置的数据密钥编解码器；tx 是覆盖所有旧凭证升级的原子事务。
+	codec := s.Cookies.codec
+	// tx 是覆盖全部旧秘密字段的原子事务；err 保存事务创建失败原因。
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	return codec, tx, nil
 }
 
 // decrypt 封装decrypt业务协调。

@@ -213,7 +213,73 @@ $ make comments && go vet ./... && make lint && go run ./tools/architecturecheck
 commentlint: 通过；golangci-lint: 0 issues；architecturecheck: 通过；其余命令退出码 0。
 ```
 
-## 下一阶段入口
+## 阶段六：全量架构、兼容退场和注释收口
 
-阶段五已完成，阶段六：全量架构、兼容退场和注释收口为唯一当前阶段。开始前必须先运行
-`go run ./tools/architecturecheck`，使已完成阶段的一至五门禁和新激活的质量门禁同时 fail-closed；不得修改冻结 CAPTCHA，也不得把 `frontend/coverage/` 纳入提交。
+- 最终提交绑定：本文件随唯一最终中文提交 `阶段六：完成全量架构、兼容退场和注释收口` 一并进入 `HEAD`。
+- 交付范围：质量门禁保持 800 行生产文件、180 行函数和分支复杂度阈值，不新增白名单、baseline、忽略目录或告警降级。组合根、adapter、browser 生命周期、数据库 repository、Engine、通知、续期、二维码、WebSocket、Server DTO 与 architecturecheck 均按业务职责拆分到同包文件；兼容、动态依赖、前端边界和低层依赖扫描继续 fail-closed。
+- 冻结边界：未修改 `internal/browser/slider.go`、`token_captcha*.go`、其测试或冻结规范；二维码确认逻辑仅作同包职责搬移，未改变验证码调用顺序、参数、超时或结果语义。
+
+### 强制验收原始输出
+
+```text
+$ go test ./... -count=1
+所有测试包通过；其中 internal/engine 38.065s、internal/server 26.716s、internal/xianyu/mtop 28.841s。
+
+$ go vet ./...
+(无输出，退出码 0)
+
+$ make lint
+golangci-lint run ./...
+0 issues.
+
+$ make comments
+Go 与前端 commentlint 均通过，无缺少中文注释或模板化注释。
+
+$ go run ./tools/architecturecheck
+architecturecheck: 通过
+
+$ go test -race ./internal/server ./internal/engine ./internal/automation
+ok   xianyu-go/internal/server      256.282s
+ok   xianyu-go/internal/engine      308.756s
+ok   xianyu-go/internal/automation  168.737s
+
+$ RUN_BROWSER_INTEGRATION=1 go test ./internal/browser -count=1
+ok   xianyu-go/internal/browser     52.866s
+
+$ npm test --prefix frontend
+Test Files  67 passed (67)
+Tests       402 passed (402)
+
+$ npm run typecheck --prefix frontend
+(无输出，退出码 0)
+
+$ npm run comments:check --prefix frontend
+commentlint: 通过（无缺少中文注释或模板化注释）
+
+$ npm run build --prefix frontend
+vite v6.4.3 building for production...
+✓ built in 5.13s
+
+$ make cover
+total: (statements) 65.9%
+
+$ make cover-frontend
+Statements  : 79.82% (3704/4640)
+Lines       : 82.17% (3236/3938)
+
+$ make build && git diff --check
+go build ./cmd/server
+(无输出，退出码 0)
+```
+
+### 验收边界
+
+- 覆盖率：Go statements 65.9%；前端 V8 statements 79.82%、lines 82.17%。`cover.out` 与 `frontend/coverage/` 均为生成验证产物，未纳入提交。
+- 浏览器：已使用 `RUN_BROWSER_INTEGRATION=1` 运行本地 Chromium 集成测试；未调用真实账号或外部平台。
+- 多数据库：本次环境未配置 `TEST_MYSQL_URL` 和/或 `TEST_POSTGRES_URL`，因此 `make test-multidb` 与两个 `cmd/dbverify` 未执行；阶段五既有 MySQL/PostgreSQL 实测证据保持有效，当前不伪造外部连接结果。
+- 冻结 CAPTCHA：直接受保护实现、测试和规范均未出现在最终差异中。
+- 生成物：`npm run build --prefix frontend` 已执行；当前构建输入未导致 `internal/webui/static` 内容变化，未手工修改嵌入产物。
+
+## 后续维护
+
+六个正式阶段均已完成。之后的功能变更必须保持全部架构门禁永久 fail-closed，不得恢复阶段状态、扩大兼容白名单、修改注释 baseline 或将覆盖率生成物纳入提交。

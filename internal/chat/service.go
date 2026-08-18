@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -761,85 +760,4 @@ func (s *Service) MarkLatestOutgoingRead(ctx context.Context, accountID, chatID 
 		s.Publish(accountID, Event{Type: "message.updated", Message: message})
 	}
 	return message, err
-}
-
-// randomID 生成本地出站消息幂等键的随机后缀；随机源失败时使用时间回退避免阻断发送。
-func randomID() string {
-	// value 用于本次流程后续判断的值
-	var value [16]byte
-	if // err 用于本次流程后续判断的err
-	_, err := rand.Read(value[:]); err == nil {
-		return hex.EncodeToString(value[:])
-	}
-	return fmt.Sprintf("%d", time.Now().UTC().UnixNano())
-}
-
-// extractString 封装extractString业务协调。
-func extractString(value any, keys ...string) string {
-	// wanted 用于本次流程后续判断的wanted
-	wanted := make(map[string]struct{}, len(keys))
-	// key 表示当前遍历过程中的key
-	for _, key := range keys {
-		wanted[strings.ToLower(key)] = struct{}{}
-	}
-	// walk 用于本次流程后续判断的walk
-	var walk func(any) string
-	walk = func(v any) string {
-		switch // x 用于本次流程后续判断的x
-		x := v.(type) {
-		case map[string]any:
-			// key、child 表示当前遍历过程中的key、child
-			for key, child := range x {
-				if // ok 用于本次流程后续判断的ok
-				_, ok := wanted[strings.ToLower(key)]; ok {
-					if // text 用于本次流程后续判断的文本
-					text := strings.TrimSpace(fmt.Sprint(child)); text != "" && text != "<nil>" {
-						return text
-					}
-				}
-			}
-			// child 表示当前遍历过程中的child
-			for _, child := range x {
-				if // text 用于本次流程后续判断的文本
-				text := walk(child); text != "" {
-					return text
-				}
-			}
-		case []any:
-			// child 表示当前遍历过程中的child
-			for _, child := range x {
-				if // text 用于本次流程后续判断的文本
-				text := walk(child); text != "" {
-					return text
-				}
-			}
-		case string:
-			// Live WS envelopes often keep extJson/bizTag as an encoded JSON
-			// string. Decode it so messageId is preserved instead of falling
-			// back to a local in-* key.
-			// decoded 保存 extJson/bizTag 解码后的动态对象，供递归查找平台消息键。
-			var decoded any
-			if json.Unmarshal([]byte(x), &decoded) == nil {
-				// text 保存递归命中的非空消息键，命中后立即返回避免生成本地回退键。
-				if text := walk(decoded); text != "" {
-					return text
-				}
-			}
-		}
-		return ""
-	}
-	return walk(value)
-}
-
-// extractUnixMilli 封装extractUnixMilli业务协调。
-func extractUnixMilli(raw map[string]any) int64 {
-	// text 用于本次流程后续判断的文本
-	text := extractString(raw, "sendTime", "timestamp", "time", "createdAt")
-	// value 用于本次流程后续判断的值
-	var value int64
-	_, _ = fmt.Sscan(text, &value)
-	if value > 0 && value < 10_000_000_000 {
-		value *= 1000
-	}
-	return value
 }
