@@ -196,6 +196,10 @@ func checkServerCompositionCalls(relativePath string, syntax *ast.File, fset *to
 		"NewReconciliationRecoveryCoordinator": "订单补偿恢复协调器必须由 cmd 组合根构造后注入 Server",
 		"NewDatabaseHealth":                    "数据库健康检查端口必须由 cmd 组合根构造后注入 Server",
 	}
+	// forbiddenMethods 记录 Server 不得再作为应用 worker 生命周期反向提供者的遗留方法。
+	forbiddenMethods := map[string]string{
+		"ApplicationLifecycleComponents": "应用 worker 生命周期组件必须由组合根的应用服务集合登记，Server 不得反向返还组件",
+	}
 	// violations 保存当前 Server 文件中发现的组合根回流问题。
 	var violations []violation
 	ast.Inspect(syntax, func(node ast.Node) bool {
@@ -209,16 +213,18 @@ func checkServerCompositionCalls(relativePath string, syntax *ast.File, fset *to
 		if !ok {
 			return true
 		}
-		// message 是命中构造函数后返回的组合根迁移提示。
+		// message 是命中构造函数或遗留生命周期方法后返回的组合根迁移提示。
 		message, forbidden := forbiddenConstructors[selector.Sel.Name]
 		if !forbidden {
-			return true
+			message, forbidden = forbiddenMethods[selector.Sel.Name]
 		}
-		violations = append(violations, violation{
-			file:    normalizedPath,
-			line:    fset.Position(call.Pos()).Line,
-			message: message,
-		})
+		if forbidden {
+			violations = append(violations, violation{
+				file:    normalizedPath,
+				line:    fset.Position(call.Pos()).Line,
+				message: message,
+			})
+		}
 		return true
 	})
 	return violations

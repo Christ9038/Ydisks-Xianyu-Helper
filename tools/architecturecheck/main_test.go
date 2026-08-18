@@ -226,6 +226,24 @@ func accept(service any) { _ = service }
 	}
 }
 
+// TestServerLifecycleComponentBoundary 验证 Server 不能重新成为应用 worker 生命周期组件的反向提供者。
+func TestServerLifecycleComponentBoundary(t *testing.T) {
+	// fset 是组合根迁移源码片段的统一位置集合。
+	fset := token.NewFileSet()
+	// syntax、parseErr 分别是错误调用遗留生命周期方法的模拟 Server 源码及解析错误。
+	syntax, parseErr := parser.ParseFile(fset, "lifecycle.go", []byte(`package server
+func handler(server any) { server.ApplicationLifecycleComponents() }
+`), parser.ParseComments)
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	// violations 是遗留生命周期反转必须触发的架构违规。
+	violations := checkServerCompositionCalls("internal/server/lifecycle.go", syntax, fset)
+	if len(violations) != 1 {
+		t.Fatalf("violations=%+v", violations)
+	}
+}
+
 // TestApplicationTypeLeakBoundary 验证应用 Port 类型扫描会拒绝基础设施和 Server 类型。
 func TestApplicationTypeLeakBoundary(t *testing.T) {
 	// fset 是测试源代码的文件位置集合。
