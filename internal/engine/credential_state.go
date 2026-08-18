@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
@@ -58,8 +59,7 @@ func newRefreshGate() chan struct{} {
 // 因此停止账号不会被另一个尚未完成的续期流程无限阻塞。
 func (s *credentialState) acquireRefreshGate(ctx context.Context) (func(), error) {
 	if ctx == nil {
-		// ctx 使用 Background 保持历史未传取消信号调用方的可用性。
-		ctx = context.Background()
+		return nil, errors.New("获取账号刷新门需要生命周期 Context")
 	}
 	s.mu.Lock()
 	if s.refreshGate == nil {

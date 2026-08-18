@@ -82,7 +82,7 @@ func TestLifecycleArchitectureGate(t *testing.T) {
 		t.Fatal(mkdirErr)
 	}
 	// writeErr 表示写入根 Context 违规样例失败的文件系统原因。
-	if writeErr := os.WriteFile(workerPath, []byte("package engine\nimport \"context\"\nvar _ = context.Background()\n"), 0o600); writeErr != nil {
+	if writeErr := os.WriteFile(workerPath, []byte("package engine\nimport (\"context\"; \"time\")\nvar _ = context.Background()\nvar _ = context.WithTimeout(context.Background(), time.Second)\n"), 0o600); writeErr != nil {
 		t.Fatal(writeErr)
 	}
 	// inventoryPath 是模拟生命周期清单位置。

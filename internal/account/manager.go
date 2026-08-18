@@ -21,6 +21,9 @@ import (
 // ErrRestartIncomplete 表示账号重启在旧实例收束或新实例启动前被取消或失败，调用方可据此安排重试与状态展示。
 var ErrRestartIncomplete = errors.New("账号重启未完成")
 
+// legacyManagerShutdownTimeout 是兼容无 Context 停止入口时允许等待账号 worker 收束的最长预算。
+const legacyManagerShutdownTimeout = 10 * time.Second
+
 // Manager 管理所有账号运行时。
 type Manager struct {
 	store   *db.Store
@@ -66,7 +69,7 @@ func NewManager(store *db.Store, handler engine.Handler, logger *slog.Logger) *M
 // StartAll 启动All。
 func (m *Manager) StartAll(ctx context.Context) error {
 	if ctx == nil {
-		ctx = context.Background()
+		return errors.New("启动全部账号需要生命周期 Context")
 	}
 	m.mu.Lock()
 	m.runCtx = ctx
@@ -95,7 +98,7 @@ StartAll 只把启用账号交给运行时 supervisor。
 // Start 启动单个账号（若已在运行则跳过；若上次实例已退出则清理后重启）。
 func (m *Manager) Start(ctx context.Context, cookieID, cookieValue string) error {
 	if ctx == nil {
-		ctx = context.Background()
+		return errors.New("启动账号需要生命周期 Context")
 	}
 	m.mu.Lock()
 	if m.stoppingAll {
@@ -180,13 +183,16 @@ func (m *Manager) EndStopping(cookieID string) {
 
 // Stop 停止单个账号，并兼容不需要错误返回值的旧调用方。
 func (m *Manager) Stop(cookieID string) {
-	_ = m.StopContext(context.Background(), cookieID)
+	// stopCtx、stopCancel 为兼容入口创建受限关闭预算，避免无 Context 调用无限等待账号 goroutine。
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), legacyManagerShutdownTimeout)
+	defer stopCancel()
+	_ = m.StopContext(stopCtx, cookieID)
 }
 
 // StopContext 在 ctx 约束内停止单个账号；超时后保留运行实例记录，避免误报已清理。
 func (m *Manager) StopContext(ctx context.Context, cookieID string) error {
 	if ctx == nil {
-		ctx = context.Background()
+		return errors.New("停止账号需要关闭 Context")
 	}
 	m.mu.Lock()
 	// ma、ok 用于本次流程后续判断的ma、ok
@@ -281,7 +287,7 @@ func (m *Manager) RuntimeStatuses() map[string]engine.RuntimeStatus {
 // 取消发生在停止前时不改变现有实例；停止后的取消会返回 ErrRestartIncomplete，调用方不得将其视为重启成功。
 func (m *Manager) Restart(ctx context.Context, cookieID string) error {
 	if ctx == nil {
-		ctx = context.Background()
+		return fmt.Errorf("%w: 重启账号需要生命周期 Context", ErrRestartIncomplete)
 	}
 	// contextErr 是进入有副作用的停止阶段前检测到的取消或超时原因。
 	if contextErr := ctx.Err(); contextErr != nil {
@@ -315,13 +321,16 @@ func (m *Manager) Restart(ctx context.Context, cookieID string) error {
 // 先在锁内收集 cookieID 列表再解锁逐个停，避免持锁等待 goroutine 退出。
 // StopAll 停止All。
 func (m *Manager) StopAll() {
-	_ = m.StopAllContext(context.Background())
+	// stopCtx、stopCancel 为兼容入口创建受限关闭预算，避免进程退出时无限等待账号 worker。
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), legacyManagerShutdownTimeout)
+	defer stopCancel()
+	_ = m.StopAllContext(stopCtx)
 }
 
 // StopAllContext 在同一个关闭上下文内停止所有账号，遇到超时立即返回并保留未完成实例。
 func (m *Manager) StopAllContext(ctx context.Context) error {
 	if ctx == nil {
-		ctx = context.Background()
+		return errors.New("停止全部账号需要关闭 Context")
 	}
 	m.mu.Lock()
 	// stoppingAll 在收集账号前建立全局 fencing，防止并发 Start 把新实例遗漏在本次关闭之外。

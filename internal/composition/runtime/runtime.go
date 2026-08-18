@@ -64,7 +64,7 @@ func BuildRuntime(options RuntimeOptions, infrastructure RuntimeInfrastructure) 
 	lifecycleCoordinator := lifecycle.NewCoordinator()
 	if browserManager != nil {
 		// addErr 是浏览器组件登记失败原因，失败时运行时不得继续暴露。
-		if addErr := lifecycleCoordinator.Add(lifecycle.NamedComponent{Name: "browser", Component: lifecycle.FuncComponent{StartFunc: func(context.Context) error { return browserManager.Initialize() }, CloseFunc: browserManager.CloseContext}}); addErr != nil {
+		if addErr := lifecycleCoordinator.Add(lifecycle.NamedComponent{Name: "browser", Component: lifecycle.FuncComponent{StartFunc: browserManager.InitializeContext, CloseFunc: browserManager.CloseContext}}); addErr != nil {
 			return Runtime{}, fmt.Errorf("登记浏览器生命周期组件失败: %w", addErr)
 		}
 	}

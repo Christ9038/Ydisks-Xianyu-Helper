@@ -42,6 +42,8 @@ const (
 	EventTokenRenewal         = "token_renewal"
 	EventDeliveryResult       = "delivery_result"
 	EventSystemError          = "system_error"
+	// legacyNotifierOperationTimeout 是兼容无 Context 通知与等待入口的最长数据库或网络预算。
+	legacyNotifierOperationTimeout = 10 * time.Second
 )
 
 // NotificationEvent 是一条可被渠道订阅过滤的通知事件。
@@ -112,7 +114,10 @@ func (n *Notifier) Start(ctx context.Context) {
 
 // Wait 等待 outbox worker 随生命周期 context 退出，并兼容旧调用方。
 func (n *Notifier) Wait() {
-	_ = n.WaitContext(context.Background())
+	// waitCtx、waitCancel 为兼容入口提供受限等待预算，避免异常 outbox worker 永久阻塞调用方。
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), legacyNotifierOperationTimeout)
+	defer waitCancel()
+	_ = n.WaitContext(waitCtx)
 }
 
 // WaitContext 在 ctx 约束内等待 outbox worker 退出。
@@ -124,7 +129,7 @@ func (n *Notifier) WaitContext(ctx context.Context) error {
 		return nil
 	}
 	if ctx == nil {
-		ctx = context.Background()
+		return errors.New("等待通知 worker 需要关闭 Context")
 	}
 	select {
 	case <-n.done:
@@ -138,7 +143,10 @@ func (n *Notifier) WaitContext(ctx context.Context) error {
 // accountID 为 cookie_id。向该账号所有已启用渠道发送发货通知。
 // NotifyDelivery 封装Notify发货业务协调。
 func (n *Notifier) NotifyDelivery(accountID, buyerName, buyerID, itemID, message, chatID string) {
-	n.NotifyEvent(context.Background(), NotificationEvent{
+	// notificationCtx、notificationCancel 为兼容入口限制 outbox 入队预算，避免订单链路产生无主数据库操作。
+	notificationCtx, notificationCancel := context.WithTimeout(context.Background(), legacyNotifierOperationTimeout)
+	defer notificationCancel()
+	n.NotifyEvent(notificationCtx, NotificationEvent{
 		AccountID: accountID,
 		Type:      EventDeliveryResult,
 		Level:     "info",
@@ -186,7 +194,10 @@ func (n *Notifier) NotifyAccountAlert(accountID, level, title, body string) {
 
 // NotifyAccountEvent 发送指定类型的账号通知。
 func (n *Notifier) NotifyAccountEvent(accountID, eventType, level, title, body string) {
-	n.NotifyEvent(context.Background(), NotificationEvent{
+	// notificationCtx、notificationCancel 为兼容入口限制 outbox 入队预算，避免账号告警脱离调用生命周期。
+	notificationCtx, notificationCancel := context.WithTimeout(context.Background(), legacyNotifierOperationTimeout)
+	defer notificationCancel()
+	n.NotifyEvent(notificationCtx, NotificationEvent{
 		AccountID: accountID,
 		Type:      eventType,
 		Level:     level,
@@ -203,6 +214,10 @@ func (n *Notifier) NotifyEvent(ctx context.Context, ev NotificationEvent) {
 // notifyEvent 根据事件类型筛选渠道并发送通知；idempotencyKey 只用于 outbox 持久化去重，不能为空时必须来自稳定业务事实。
 func (n *Notifier) notifyEvent(ctx context.Context, ev NotificationEvent, idempotencyKey string) {
 	if n == nil || n.repository == nil {
+		return
+	}
+	if ctx == nil {
+		n.logger.Warn("忽略缺少生命周期 Context 的通知入队请求")
 		return
 	}
 	if ev.Time.IsZero() {
@@ -360,8 +375,11 @@ func (n *Notifier) SendToChannel(channelID int64, body string) error {
 	if n == nil || n.repository == nil {
 		return fmt.Errorf("通知器未初始化")
 	}
-	// ch、err 用于本次流程后续判断的ch、err
-	ch, err := n.repository.GetChannel(context.Background(), channelID)
+	// queryCtx、queryCancel 为手动测试发送创建有界渠道查询预算，避免 HTTP 请求取消后继续无界访问数据库。
+	queryCtx, queryCancel := context.WithTimeout(context.Background(), legacyNotifierOperationTimeout)
+	defer queryCancel()
+	// ch、err 分别是渠道配置及其查询错误。
+	ch, err := n.repository.GetChannel(queryCtx, channelID)
 	if err != nil {
 		return fmt.Errorf("查询渠道失败: %w", err)
 	}
@@ -1002,8 +1020,11 @@ func (n *Notifier) postJSON(url string, payload any) error {
 	if err != nil {
 		return err
 	}
-	// req、err 用于本次流程后续判断的req、err
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(body))
+	// requestCtx、requestCancel 为单次渠道 HTTP 请求创建有界取消路径。
+	requestCtx, requestCancel := context.WithTimeout(context.Background(), legacyNotifierOperationTimeout)
+	defer requestCancel()
+	// req、err 分别是携带取消语义的渠道 HTTP 请求及其构造错误。
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

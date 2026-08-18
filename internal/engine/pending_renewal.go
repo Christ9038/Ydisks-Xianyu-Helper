@@ -59,7 +59,7 @@ func (c *pendingRenewalCoordinator) waitContext(ctx context.Context) bool {
 		return true
 	}
 	if ctx == nil {
-		ctx = context.Background()
+		return false
 	}
 	c.mu.Lock()
 	// done 保存当前任务轮次的共享完成信号；nil 表示没有任何待收束的迟到续期任务。
@@ -79,8 +79,7 @@ func (c *pendingRenewalCoordinator) waitContext(ctx context.Context) bool {
 // watch 登记并异步等待一条迟到续期响应，所有持久化工作继承账号生命周期 Context。
 func (c *pendingRenewalCoordinator) watch(
 	parent context.Context,
-	beginTask func() (context.Context, bool),
-	finishTask func(),
+	beginTask func() (context.Context, func(), bool),
 	result *renew.Result,
 	persist func(context.Context, *renew.Result) error,
 	logger *slog.Logger,
@@ -88,8 +87,8 @@ func (c *pendingRenewalCoordinator) watch(
 	if c == nil || result == nil || !result.HasPending() {
 		return
 	}
-	// taskCtx 是账号生命周期任务上下文，Stop 会先取消它再等待 Join。
-	taskCtx, accepted := beginTask()
+	// taskCtx、finish、accepted 分别是账号生命周期任务上下文、释放函数与接纳结果。
+	taskCtx, finish, accepted := beginTask()
 	if !accepted {
 		return
 	}
@@ -102,7 +101,7 @@ func (c *pendingRenewalCoordinator) watch(
 	c.beginTask()
 	go func() {
 		defer c.finishTask()
-		defer finishTask()
+		defer finish()
 		// ctx、cancel 保存迟到响应等待的限时上下文及其取消函数。
 		ctx, cancel := context.WithTimeout(taskCtx, 35*time.Second)
 		defer cancel()

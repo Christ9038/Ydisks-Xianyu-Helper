@@ -15,8 +15,8 @@ func TestAccountStopWaitsForTaskAndConcurrentStop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	account.lifecycle.start(ctx, cancel)
-	// taskCtx 是已登记任务拿到的上下文；ok 表示任务成功进入生命周期。
-	taskCtx, ok := account.beginTask()
+	// taskCtx、finish、ok 分别是已登记任务的上下文、释放函数与生命周期接纳结果。
+	taskCtx, finish, ok := account.beginTask()
 	if !ok || taskCtx == nil {
 		t.Fatal("业务任务应在 Stop 前成功登记")
 	}
@@ -39,7 +39,7 @@ func TestAccountStopWaitsForTaskAndConcurrentStop(t *testing.T) {
 		t.Fatal("并发 Stop 在已登记任务完成前提前返回")
 	case <-time.After(50 * time.Millisecond):
 	}
-	account.lifecycle.finishTask()
+	finish()
 	select {
 	case <-firstDone:
 	case <-time.After(time.Second):
@@ -50,9 +50,9 @@ func TestAccountStopWaitsForTaskAndConcurrentStop(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("并发 Stop 未等待第一次 Stop 完成")
 	}
-	// stoppedCtx 是 Stop 后尝试登记任务得到的上下文；stoppedOK 必须为 false。
-	stoppedCtx, stoppedOK := account.beginTask()
-	if stoppedOK || stoppedCtx != nil {
+	// stoppedCtx、stoppedFinish、stoppedOK 分别是停止后任务的上下文、释放函数与接纳结果。
+	stoppedCtx, stoppedFinish, stoppedOK := account.beginTask()
+	if stoppedOK || stoppedCtx != nil || stoppedFinish != nil {
 		t.Fatal("Stop 后不应再接受业务任务")
 	}
 }
@@ -65,8 +65,9 @@ func TestAccountStopContextBoundsTaskWait(t *testing.T) {
 	runCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	account.lifecycle.start(runCtx, cancel)
-	// ok 表示测试业务任务是否成功登记。
-	if _, ok := account.beginTask(); !ok {
+	// taskCtx、finish、ok 分别是测试业务任务的上下文、释放函数与接纳结果。
+	taskCtx, finish, ok := account.beginTask()
+	if !ok || taskCtx == nil || finish == nil {
 		t.Fatal("业务任务应成功登记")
 	}
 	// stopCtx 是刻意很短的停止上下文，用于验证有界等待。
@@ -93,7 +94,7 @@ func TestAccountStopContextBoundsTaskWait(t *testing.T) {
 		t.Fatal("第一次 Stop 超时后，重试不应在任务完成前返回")
 	case <-time.After(20 * time.Millisecond):
 	}
-	account.lifecycle.finishTask()
+	finish()
 	select {
 	// retryErr 表示第一次超时后再次停止账号的等待结果。
 	case retryErr := <-retryDone:
@@ -115,9 +116,9 @@ func TestAccountLifecycleWaitContextCanRetryAfterTimeout(t *testing.T) {
 	if !lifecycle.start(runCtx, cancel) {
 		t.Fatal("生命周期应允许首次启动")
 	}
-	// taskCtx 是登记任务继承的运行上下文；accepted 表示任务已成功进入停止收束范围。
-	taskCtx, accepted := lifecycle.beginTask()
-	if !accepted || taskCtx == nil {
+	// taskCtx、finish、accepted 分别是登记任务的上下文、释放函数与停止收束接纳结果。
+	taskCtx, finish, accepted := lifecycle.beginTask()
+	if !accepted || taskCtx == nil || finish == nil {
 		t.Fatal("业务任务应成功登记")
 	}
 	// shouldStop 表示本次调用创建了停止收束信号；stopErr 表示停止切换错误。
@@ -141,7 +142,7 @@ func TestAccountLifecycleWaitContextCanRetryAfterTimeout(t *testing.T) {
 		t.Fatal("任务未完成时，重试等待不应提前返回")
 	case <-time.After(20 * time.Millisecond):
 	}
-	lifecycle.finishTask()
+	finish()
 	select {
 	// completed 表示第二次等待在任务收束后得到正常完成结果。
 	case completed := <-waited:
@@ -168,9 +169,9 @@ func TestAccountLifecycleRejectsLateStart(t *testing.T) {
 	if lifecycle.start(runCtx, cancel) {
 		t.Fatal("Stop 先于 Run 时不应重新启动生命周期")
 	}
-	// taskCtx 是停止后尝试登记业务任务得到的上下文，必须被拒绝。
-	taskCtx, accepted := lifecycle.beginTask()
-	if accepted || taskCtx != nil {
+	// taskCtx、finish、accepted 分别是停止后任务的上下文、释放函数与接纳结果。
+	taskCtx, finish, accepted := lifecycle.beginTask()
+	if accepted || taskCtx != nil || finish != nil {
 		t.Fatalf("停止后的生命周期不应接收任务：ctx=%v accepted=%v", taskCtx, accepted)
 	}
 }

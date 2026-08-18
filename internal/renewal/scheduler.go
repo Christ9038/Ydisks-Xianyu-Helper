@@ -27,6 +27,8 @@ const (
 	sessionExpiredCooldown = 300 * time.Second
 	passwordLoginCooldown  = 300 * time.Second
 	passwordErrorCooldown  = 5 * time.Hour
+	// legacySchedulerWaitTimeout 是兼容无 Context 停止与等待入口的最长收束预算。
+	legacySchedulerWaitTimeout = 10 * time.Second
 )
 
 // loginRenewEnabledSetting 用于本次流程后续判断的登录Renew启用状态设置
@@ -111,7 +113,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 		return
 	}
 	if ctx == nil {
-		ctx = context.Background()
+		return
 	}
 	s.runOnce.Do(func() {
 		// runCtx、cancel 将父生命周期转换为调度器私有的可主动停止上下文。
@@ -155,7 +157,7 @@ func (s *Scheduler) StopContext(ctx context.Context) error {
 		return nil
 	}
 	if ctx == nil {
-		ctx = context.Background()
+		return errors.New("停止续期调度器需要关闭 Context")
 	}
 	s.mu.Lock()
 	// cancel 是调度器运行上下文的取消函数快照，避免持锁执行取消回调。
@@ -183,12 +185,18 @@ func (s *Scheduler) StopContext(ctx context.Context) error {
 
 // Stop 主动停止调度器并无限期等待，兼容旧调用方的无错误返回签名。
 func (s *Scheduler) Stop() {
-	_ = s.StopContext(context.Background())
+	// stopCtx、stopCancel 为兼容入口提供受限停止预算，避免迟到 watcher 无限阻塞调用方。
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), legacySchedulerWaitTimeout)
+	defer stopCancel()
+	_ = s.StopContext(stopCtx)
 }
 
 // Wait 等待定时循环和迟到响应 watcher 完成。
 func (s *Scheduler) Wait() {
-	_ = s.WaitContext(context.Background())
+	// waitCtx、waitCancel 为兼容入口提供受限等待预算，避免后台续期任务失联后永久阻塞。
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), legacySchedulerWaitTimeout)
+	defer waitCancel()
+	_ = s.WaitContext(waitCtx)
 }
 
 // WaitContext 在 ctx 约束内等待定时循环和 watcher 完成。
@@ -197,7 +205,7 @@ func (s *Scheduler) WaitContext(ctx context.Context) error {
 		return nil
 	}
 	if ctx == nil {
-		ctx = context.Background()
+		return errors.New("等待续期调度器需要关闭 Context")
 	}
 	select {
 	case <-s.done:

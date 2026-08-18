@@ -139,9 +139,28 @@ func (a *Account) replaceCredentialState(cookieStr, credentialFP string) {
 	a.credentials.replaceCredentialState(cookieStr, credentialFP)
 }
 
-// UpdateCookie 是外部刷新 Cookie 同步的稳定导出入口，并委托给凭证协调器。
+// runtimeCookieUpdateTimeout 是旧无 Context Cookie 同步入口的最长数据库与刷新门等待预算。
+const runtimeCookieUpdateTimeout = 10 * time.Second
+
+// UpdateCookie 是外部刷新 Cookie 同步的兼容入口。新调用方应使用 UpdateCookieContext
+// 传入请求或应用任务的 Context；该入口只为尚未迁移的内部回调提供受限预算。
 func (a *Account) UpdateCookie(cookieStr string) {
-	a.credentials.updateCookie(cookieStr)
+	// updateCtx、updateCancel 为历史无 Context 调用创建有限同步预算，避免等待刷新门时无限阻塞。
+	updateCtx, updateCancel := context.WithTimeout(context.Background(), runtimeCookieUpdateTimeout)
+	defer updateCancel()
+	// updateErr 保存受限兼容同步在取消、数据库读取或刷新门等待时的失败原因。
+	if updateErr := a.UpdateCookieContext(updateCtx, cookieStr); updateErr != nil {
+		a.logger.Warn("同步运行时 Cookie 失败", "err", updateErr)
+	}
+}
+
+// UpdateCookieContext 用调用方 Context 同步已持久化的 Cookie、内存凭证快照与 Token 缓存。
+// 它不创建后台 worker；调用返回前完成全部状态收口，因此不受账号 Run 停止 fencing 影响。
+func (a *Account) UpdateCookieContext(ctx context.Context, cookieStr string) error {
+	if ctx == nil {
+		return errors.New("同步运行时 Cookie 需要调用 Context")
+	}
+	return a.credentials.updateCookie(ctx, cookieStr)
 }
 
 // tryLoginStatusCheck 调用 mtop.taobao.idlemessage.pc.loginuser.get 做轻量登录态确认。
@@ -499,7 +518,7 @@ func (c *credentialCoordinator) persistRenewFlatCookie(ctx context.Context, newC
 func (c *credentialCoordinator) watchPendingAPIRenew(parent context.Context, result *renew.Result) {
 	// a 是本凭证协调器绑定的账号 facade，提供生命周期任务登记。
 	a := c.account
-	a.pendingRenewal.watch(parent, a.beginTask, a.lifecycle.finishTask, result, a.persistPendingRenewCookies, a.logger)
+	a.pendingRenewal.watch(parent, a.beginTask, result, a.persistPendingRenewCookies, a.logger)
 }
 
 // persistPendingRenewCookies 封装persistPendingRenewCookies业务协调。
@@ -1099,18 +1118,17 @@ func (c *credentialCoordinator) replaceCredentialState(cookieStr, credentialFP s
 	}
 }
 
-// UpdateCookie 用外部刷新得到的新 cookie 更新运行时状态。
-func (c *credentialCoordinator) updateCookie(cookieStr string) {
+// updateCookie 用外部刷新得到的新 Cookie 更新运行时状态，并在调用方 Context 到期时停止等待。
+func (c *credentialCoordinator) updateCookie(ctx context.Context, cookieStr string) error {
 	// a 是本凭证协调器绑定的账号 facade，提供权威 Cookie repository 与刷新门。
 	a := c.account
 	if strings.TrimSpace(cookieStr) == "" && (a.store == nil || a.store.Cookies == nil) {
-		return
+		return nil
 	}
 	// releaseRefreshGate 释放运行时 Cookie 同步占用的通道令牌。
-	releaseRefreshGate, gateErr := a.acquireRefreshGate(context.Background())
+	releaseRefreshGate, gateErr := a.acquireRefreshGate(ctx)
 	if gateErr != nil {
-		a.logger.Warn("同步运行时 Cookie 时刷新通道被取消", "err", gateErr)
-		return
+		return fmt.Errorf("获取运行时 Cookie 同步门: %w", gateErr)
 	}
 	defer releaseRefreshGate()
 	// credentialUnlock 用于本次流程后续判断的credentialUnlock
@@ -1125,16 +1143,15 @@ func (c *credentialCoordinator) updateCookie(cookieStr string) {
 	// metadataJSON 用于本次流程后续判断的metadataJSON
 	metadataJSON := ""
 	if a.store != nil && a.store.Cookies != nil {
-		runtimeData, err := a.store.Cookies.GetCookieRuntimeData(context.Background(), a.CookieID) // runtimeData 只包含同步运行时 Cookie 所需的 Cookie 与 metadata。
+		// runtimeData、err 分别是账号运行时的权威 Cookie 快照及读取失败；查询继承调用方取消。
+		runtimeData, err := a.store.Cookies.GetCookieRuntimeData(ctx, a.CookieID)
 		if err != nil {
-			a.logger.Warn("同步运行时 Cookie 前读取数据库失败", "err", err)
-			return
+			return fmt.Errorf("读取运行时 Cookie: %w", err)
 		}
 		if strings.TrimSpace(runtimeData.Value) == "" {
 			if // complete 用于本次流程后续判断的complete
 			_, complete := cookierefresh.SnapshotFromMetadataOK(runtimeData.MetadataJSON); !complete {
-				a.logger.Warn("同步运行时 Cookie 时数据库值为空且无权威 Jar")
-				return
+				return errors.New("同步运行时 Cookie 时数据库值为空且无权威 Jar")
 			}
 		}
 		cookieStr = runtimeData.Value
@@ -1147,10 +1164,11 @@ func (c *credentialCoordinator) updateCookie(cookieStr string) {
 	changed := credentialFP != a.credentialFP
 	a.mu.Unlock()
 	if !changed {
-		return
+		return nil
 	}
 	a.replaceCredentialState(cookieStr, credentialFP)
 	// Cookie Jar 的普通更新不会打断已经认证的 IMPaaS 连接。新 Cookie
 	// 会在下一次自然重连前被重新读取并用于获取新的 accessToken。
-	a.clearTokenCache(context.Background())
+	a.clearTokenCache(ctx)
+	return nil
 }

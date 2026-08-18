@@ -40,12 +40,12 @@ shared，feature adapter 直接转换领域 DTO 为 feature-owned UI model。
 | --- | --- | --- |
 | 1. 稳定性、安全和启动生命周期 | 已完成（既有基线） | 已按当前工作树复核原子 data key、同步 Bind、启动回滚、无秘密告警及该阶段命令。六阶段治理建立时这些改动已经存在；禁止为纠正历史提交名重新提交或改写历史。 |
 | 2. Server 组合根和应用服务迁移 | 已完成 | `internal/composition` 已成为唯一生产组合根；旧 Server 组合根与生命周期反转已删除。Server 仅接收经校验的消费者 Port，阶段二 AST 门禁和完整验收均已通过。最终提交绑定见 `refactoring-progress.md`。 |
-| 3. 生命周期、Engine 和 Automation 重新验收 | 当前阶段 | 阶段二组合根已稳定；现在必须重新验收 worker owner、Context、取消、等待和关闭顺序，已有实现只作为输入。 |
-| 4. React Feature 化和异步状态修复 | 待执行 | ApiError、定位和批量状态代码是输入；DTO barrel、根级地图服务和 DTO 直连仍未收口。 |
+| 3. 生命周期、Engine 和 Automation 重新验收 | 已完成 | 已完成后台任务 owner/Context/Cancel/Wait 收口、同步凭证更新的调用 Context 传递、浏览器组合根生命周期接入和 AST 生命周期门禁；最终提交与完整证据见 `refactoring-progress.md`。 |
+| 4. React Feature 化和异步状态修复 | 当前阶段 | ApiError、定位和批量状态代码是输入；DTO barrel、根级地图服务和 DTO 直连仍未收口。 |
 | 5. DB 与事务治理重新验收 | 待执行 | 不得提前。 |
 | 6. 全量架构、兼容退场和注释收口 | 待执行 | 门禁规则已在基础验证层预建；本阶段只激活最终质量规则、清零违规并完成兼容和注释退场。 |
 
-顺序固定为 1 -> 2 -> 3 -> 4 -> 5 -> 6。阶段一是治理建立前的既有基线例外；从阶段二开始，每阶段必须有唯一最终中文提交和完整原始命令输出。阶段二已完成，阶段三是唯一允许继续执行的阶段；阶段四及之后不得提前执行。
+顺序固定为 1 -> 2 -> 3 -> 4 -> 5 -> 6。阶段一是治理建立前的既有基线例外；从阶段二开始，每阶段必须有唯一最终中文提交和完整原始命令输出。阶段三已完成，阶段四是唯一允许继续执行的阶段；阶段五及之后不得提前执行。
 
 ## 阶段一：稳定性、安全和启动生命周期
 
@@ -124,7 +124,7 @@ git diff --check
 Server 的应用依赖由消费者定义的不可变 Port 容器承载，构造期缺失任一必需 Port 即失败。完整原始验收输出、
 冻结 CAPTCHA 差异检查和最终提交绑定只记录在 `refactoring-progress.md`。
 
-## 阶段三：生命周期、Engine 和 Automation 重新验收（当前阶段）
+## 阶段三：生命周期、Engine 和 Automation 重新验收（已完成）
 
 明确每个 worker 的 owner、Context、Cancel、Wait/Join；cmd 独占协调器；Server Stop 只收束 HTTP；
 覆盖启动失败、取消、超时、重复关闭、晚到结果和关闭顺序；可在本阶段修复 Engine/Automation 状态问题，
@@ -140,7 +140,7 @@ go run ./tools/architecturecheck
 
 最终提交：阶段三：完成生命周期、Engine 和 Automation 重新验收。
 
-## 阶段四：React Feature 化和异步状态修复
+## 阶段四：React Feature 化和异步状态修复（当前阶段）
 
 这是一个完整前端阶段，不拆 HTTP 错误、契约、地图、轮询或构建交付：
 - ApiError 保留 status、code、message、request_id、details、payload；JSON/FormData 共用错误解析。

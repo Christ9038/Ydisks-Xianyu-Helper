@@ -138,7 +138,7 @@ func (r *wsRecorder) waitContext(ctx context.Context) bool {
 		return true
 	}
 	if ctx == nil {
-		ctx = context.Background()
+		return false
 	}
 	// done 表示 recorder worker 已经退出，供当前等待调用选择上下文超时或正常完成。
 	done := r.done

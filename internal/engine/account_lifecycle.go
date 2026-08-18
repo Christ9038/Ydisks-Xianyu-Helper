@@ -2,8 +2,13 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"sync"
+	"time"
 )
+
+// bootstrapTaskTimeout 是账号尚未 Run 时同步初始化任务的最大存活时间；它不能替代正式运行生命周期。
+const bootstrapTaskTimeout = time.Minute
 
 // accountLifecycle 管理单账号运行上下文和业务任务生命周期。
 // mu 保护 stopFn、stopped、runtimeCtx、accepting、任务计数和停止完成信号；
@@ -50,7 +55,7 @@ func (l *accountLifecycle) start(ctx context.Context, cancel context.CancelFunc)
 // stopContext 原子地禁止新任务并取出取消函数；并发停止调用会受 ctx 限制地等待首次清理完成。
 func (l *accountLifecycle) stopContext(ctx context.Context) (context.CancelFunc, bool, error) {
 	if ctx == nil {
-		ctx = context.Background()
+		return nil, false, errors.New("停止账号需要关闭 Context")
 	}
 	l.mu.Lock()
 	if l.stopped {
@@ -80,22 +85,40 @@ func (l *accountLifecycle) stopContext(ctx context.Context) (context.CancelFunc,
 }
 
 // beginTask 在生命周期锁内登记业务任务，避免 Stop 与 WaitGroup.Add 竞争。
-func (l *accountLifecycle) beginTask() (context.Context, bool) {
+// 返回的 finish 必须由获准任务恰好调用一次；它同时释放 bootstrap Context 的计时器。
+func (l *accountLifecycle) beginTask() (context.Context, func(), bool) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	if !l.accepting {
-		return nil, false
+		l.mu.Unlock()
+		return nil, nil, false
 	}
 	// ctx 是新业务任务继承的账号运行上下文。
 	ctx := l.runtimeCtx
+	// cancel 是仅在尚未进入 Run 的兼容任务中停止有限 Context 定时器的函数。
+	cancel := func() {}
 	if ctx == nil {
-		ctx = context.Background()
+		// bootstrapCtx 是仅供尚未进入 Run 的同步初始化与确定性测试使用的有限任务 Context。
+		bootstrapCtx, bootstrapCancel := context.WithTimeout(context.Background(), bootstrapTaskTimeout)
+		ctx = bootstrapCtx
+		cancel = bootstrapCancel
 	}
 	if ctx.Err() != nil {
-		return nil, false
+		l.mu.Unlock()
+		cancel()
+		return nil, nil, false
 	}
 	l.activeTasks++
-	return ctx, true
+	l.mu.Unlock()
+	// once 保证重复 defer 或错误路径不会重复递减任务计数或关闭 stopDone。
+	var once sync.Once
+	// finish 结束当前任务的生命周期登记，并释放仅供该任务使用的 bootstrap 计时器。
+	finish := func() {
+		once.Do(func() {
+			cancel()
+			l.finishTask()
+		})
+	}
+	return ctx, finish, true
 }
 
 // finishTask 标记一个已登记的业务任务退出。
@@ -115,7 +138,7 @@ func (l *accountLifecycle) finishTask() {
 // stopDone 由最后一个任务关闭，因而超时返回不遗留等待协程；调用方可用新的上下文再次等待同一信号。
 func (l *accountLifecycle) waitContext(ctx context.Context) bool {
 	if ctx == nil {
-		ctx = context.Background()
+		return false
 	}
 	l.mu.Lock()
 	// done 是 Stop 为当前收束周期创建、由最后一个已登记任务关闭的共享信号。

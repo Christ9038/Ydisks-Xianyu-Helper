@@ -34,6 +34,8 @@ const (
 	goofishDot     = ".goofish.com"
 	goofishHomeURL = "https://www.goofish.com/"
 	goofishIMURL   = "https://www.goofish.com/im"
+	// legacyLifecycleOperationTimeout 为旧的无 Context 浏览器入口提供有界初始化与关闭预算。
+	legacyLifecycleOperationTimeout = 45 * time.Second
 )
 
 // chromiumLaunchArgs 统一 Chromium 启动参数。
@@ -263,7 +265,7 @@ func NewManager(logger *slog.Logger) *Manager {
 // ctx 仅用于在进入状态机前传播调用方取消语义，不会启动无法回收的等待 goroutine。
 func (m *Manager) beginOperation(ctx context.Context) error {
 	if ctx == nil {
-		ctx = context.Background()
+		return errors.New("浏览器操作需要调用方 Context")
 	}
 	// err 表示调用方 Context 已取消，管理器不会为已取消调用登记活动任务。
 	if err := ctx.Err(); err != nil {
@@ -356,12 +358,18 @@ func (m *Manager) init() error {
 	return m.initErr
 }
 
-// Initialize starts Playwright and publishes the bundled Chromium's native
-// browser identity before any non-browser client sends requests.
-// Initialize 封装Initialize业务协调。
+// Initialize 为兼容旧调用方在受限 Context 内启动 Playwright。
 func (m *Manager) Initialize() error {
-	// err 表示管理器已进入关闭流程，不能继续初始化 Playwright。
-	if err := m.beginOperation(context.Background()); err != nil {
+	// initializeCtx、initializeCancel 为旧入口提供有限初始化预算，避免浏览器初始化脱离进程关闭链。
+	initializeCtx, initializeCancel := context.WithTimeout(context.Background(), legacyLifecycleOperationTimeout)
+	defer initializeCancel()
+	return m.InitializeContext(initializeCtx)
+}
+
+// InitializeContext 在调用方生命周期 Context 内启动 Playwright 并发布浏览器运行时指纹。
+func (m *Manager) InitializeContext(ctx context.Context) error {
+	// err 表示管理器已进入关闭流程、Context 无效或不能继续初始化 Playwright。
+	if err := m.beginOperation(ctx); err != nil {
 		return err
 	}
 	defer m.endOperation()
@@ -633,7 +641,10 @@ func (m *Manager) applyHeadlessFingerprint(page playwright.Page) error {
 
 // Close 释放所有浏览器与 Playwright；它会等待活动实例退出且不会遗留关闭 goroutine。
 func (m *Manager) Close() error {
-	return m.CloseContext(context.Background())
+	// closeCtx、closeCancel 为兼容入口提供有限关闭预算，避免同步 Playwright 释放永久阻塞调用方。
+	closeCtx, closeCancel := context.WithTimeout(context.Background(), legacyLifecycleOperationTimeout)
+	defer closeCancel()
+	return m.CloseContext(closeCtx)
 }
 
 // CloseContext 拒绝新调用并等待已有浏览器调用结束后同步释放资源。
@@ -641,7 +652,7 @@ func (m *Manager) Close() error {
 // 实现不通过后台 goroutine 包装 Close，因此超时不会留下无法观察的关闭任务。
 func (m *Manager) CloseContext(ctx context.Context) error {
 	if ctx == nil {
-		ctx = context.Background()
+		return errors.New("关闭浏览器需要调用方 Context")
 	}
 	// err 表示调用方在关闭开始前已经取消等待，管理器保持可重试状态。
 	if err := ctx.Err(); err != nil {

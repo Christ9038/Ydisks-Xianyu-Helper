@@ -1093,6 +1093,38 @@ func TestUpdateCookie_AcceptsAuthoritativeEmptySnapshot(t *testing.T) {
 	}
 }
 
+// TestUpdateCookieContextRejectsCanceledCall 验证请求取消后不会继续收口运行时 Cookie 或清理 Token。
+func TestUpdateCookieContextRejectsCanceledCall(t *testing.T) {
+	// acc、store、cleanup 用于本次流程后续判断的账号、数据库和资源释放函数。
+	acc, _, store, cleanup := newAccountForTest(t)
+	defer cleanup()
+	// original 保存取消前的运行时 Cookie，作为拒绝副作用的基线。
+	original := acc.currentCookieStr()
+	// saveErr 保存预置旧 Token 缓存失败的原因；取消同步不得清理此缓存。
+	saveErr := store.Tokens.Save(context.Background(), acc.CookieID, "device", "old-token", time.Now().Add(time.Hour).Unix())
+	if saveErr != nil {
+		t.Fatal(saveErr)
+	}
+	// ctx、cancel 保存已取消的调用上下文，模拟 HTTP 请求或应用任务提前结束。
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	// err 保存凭证协调器响应取消后的同步错误。
+	err := acc.UpdateCookieContext(ctx, "unb=123; _m_h5_tk=late-update;")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("取消的 Cookie 同步错误=%v，期望 context.Canceled", err)
+	}
+	// got 保存取消后的运行时 Cookie，必须保持为同步前的快照。
+	got := acc.currentCookieStr()
+	if got != original {
+		t.Fatalf("取消的 Cookie 同步不应改写内存凭证: got %q want %q", got, original)
+	}
+	// token、tokenErr 保存取消后读取的 Token 缓存及其查询错误。
+	token, tokenErr := store.Tokens.Get(context.Background(), acc.CookieID)
+	if tokenErr != nil || token.AccessToken != "old-token" {
+		t.Fatalf("取消的 Cookie 同步不应触碰 Token 缓存: token=%+v err=%v", token, tokenErr)
+	}
+}
+
 // TestReloadCookieFromDBDetectsMetadataOnlyCredentialRotation 封装TestReload登录凭证FromDBDetectsMetadataOnlyCredentialRotation业务协调。
 func TestReloadCookieFromDBDetectsMetadataOnlyCredentialRotation(t *testing.T) {
 	// acc、store、cleanup 用于本次流程后续判断的acc、store、cleanup

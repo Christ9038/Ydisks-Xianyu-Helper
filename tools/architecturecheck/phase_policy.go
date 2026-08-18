@@ -111,6 +111,11 @@ func checkLifecycleArchitecture(root string) []violation {
 	// lifecycleRoots 是拥有后台 worker 或慢外部调用的生产包前缀。
 	lifecycleRoots := []string{"internal/account/", "internal/automation/", "internal/browser/", "internal/engine/", "internal/notify/", "internal/renewal/"}
 	violations = append(violations, scanGoProductionFiles(root, func(relativePath string, source []byte) []violation {
+		// frozen 表示受冻结 CAPTCHA 规范保护的实现；阶段三不得以生命周期迁移修改其调用链。
+		// frozen 表示当前文件是否受冻结 CAPTCHA 规范保护，阶段三不允许修改其调用链。
+		if frozen := isFrozenCaptchaLifecyclePath(relativePath); frozen {
+			return nil
+		}
 		// inLifecyclePackage 表示当前文件是否属于需要显式继承所有者 Context 的生产包。
 		inLifecyclePackage := false
 		// lifecycleRoot 是当前待匹配的后台组件包前缀。
@@ -123,17 +128,14 @@ func checkLifecycleArchitecture(root string) []violation {
 		if !inLifecyclePackage {
 			return nil
 		}
-		// findings 保存当前文件中会脱离所有者取消链的根 Context 调用。
-		var findings []violation
-		// tokenText 是当前禁止在后台组件中出现的根 Context 构造文本。
-		for _, tokenText := range []string{"context.Background()", "context.TODO()"} {
-			// offset 是当前根 Context 调用在源码中的字节位置。
-			offset := strings.Index(string(source), tokenText)
-			if offset >= 0 {
-				findings = append(findings, violation{file: relativePath, line: sourceLineAt(source, offset), message: "后台组件禁止使用根 Context；必须继承 owner Context 或使用有界关闭 Context"})
-			}
+		// fset 是将 AST 位置转换为稳定源码行号的文件集合。
+		fset := token.NewFileSet()
+		// syntax、parseErr 分别是当前后台源码 AST 及其解析错误。
+		syntax, parseErr := parser.ParseFile(fset, relativePath, source, 0)
+		if parseErr != nil {
+			return []violation{{file: relativePath, line: 1, message: fmt.Sprintf("生命周期门禁无法解析生产源码: %v", parseErr)}}
 		}
-		return findings
+		return checkUnboundedRootContexts(relativePath, syntax, fset)
 	})...)
 	// inventoryPath 是必须描述 owner、Context、Cancel 与 Wait/Join 的生命周期清单。
 	inventoryPath := filepath.Join(root, "docs", "architecture", "lifecycle-inventory.md")
@@ -149,6 +151,79 @@ func checkLifecycleArchitecture(root string) []violation {
 		}
 	}
 	return violations
+}
+
+// isFrozenCaptchaLifecyclePath 判断文件是否属于冻结 CAPTCHA 实现；它们只能由冻结规范授权修改。
+func isFrozenCaptchaLifecyclePath(relativePath string) bool {
+	// frozenPaths 是规范直接保护的生产实现文件，不包含可自由重构的 browser 生命周期组件。
+	frozenPaths := map[string]struct{}{
+		"internal/browser/slider.go":                 {},
+		"internal/browser/token_captcha.go":          {},
+		"internal/browser/token_captcha_fallback.go": {},
+	}
+	// frozen 表示当前路径是否命中冻结 CAPTCHA 的直接保护范围。
+	_, frozen := frozenPaths[relativePath]
+	return frozen
+}
+
+// checkUnboundedRootContexts 拒绝后台源码把 Background 或 TODO 直接传入异步、I/O 或关闭链。
+// 唯一允许的根 Context 形态是 context.WithTimeout/WithDeadline 创建的显式有限收口预算。
+func checkUnboundedRootContexts(relativePath string, syntax *ast.File, fset *token.FileSet) []violation {
+	// boundedRoots 保存已经作为有限超时或截止时间父 Context 的根 Context 调用位置。
+	boundedRoots := make(map[token.Pos]struct{})
+	ast.Inspect(syntax, func(node ast.Node) bool {
+		// call、ok 分别是当前节点是否为函数调用及其断言结果。
+		call, ok := node.(*ast.CallExpr)
+		if !ok || !isBoundedContextConstructor(call) || len(call.Args) == 0 {
+			return true
+		}
+		// rootCall、rootContext 分别是有限 Context 构造函数的父 Context 调用及其是否为根 Context。
+		rootCall, rootContext := call.Args[0].(*ast.CallExpr)
+		if rootContext && isRootContextCall(rootCall) {
+			boundedRoots[rootCall.Pos()] = struct{}{}
+		}
+		return true
+	})
+	// violations 保存未继承 owner 且未声明有限预算的根 Context 位置。
+	var violations []violation
+	ast.Inspect(syntax, func(node ast.Node) bool {
+		// call、ok 分别是当前节点是否为函数调用及其断言结果。
+		call, ok := node.(*ast.CallExpr)
+		if !ok || !isRootContextCall(call) {
+			return true
+		}
+		// bounded 表示当前根 Context 已作为 WithTimeout 或 WithDeadline 的有限父 Context。
+		if _, bounded := boundedRoots[call.Pos()]; bounded {
+			return true
+		}
+		violations = append(violations, violation{file: relativePath, line: fset.Position(call.Pos()).Line, message: "后台组件根 Context 必须继承 owner；仅显式 WithTimeout/WithDeadline 的有限收口预算可使用 Background"})
+		return true
+	})
+	return violations
+}
+
+// isRootContextCall 判断调用是否为标准库的 Background 或 TODO 根 Context 构造。
+func isRootContextCall(call *ast.CallExpr) bool {
+	// selector、ok 分别是调用函数的包选择器及其断言结果。
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	// packageName、ok 分别是选择器所属包标识符及其断言结果。
+	packageName, ok := selector.X.(*ast.Ident)
+	return ok && packageName.Name == "context" && (selector.Sel.Name == "Background" || selector.Sel.Name == "TODO")
+}
+
+// isBoundedContextConstructor 判断调用是否显式创建可证明带截止时间的 Context。
+func isBoundedContextConstructor(call *ast.CallExpr) bool {
+	// selector、ok 分别是调用函数的包选择器及其断言结果。
+	selector, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	// packageName、ok 分别是选择器所属包标识符及其断言结果。
+	packageName, ok := selector.X.(*ast.Ident)
+	return ok && packageName.Name == "context" && (selector.Sel.Name == "WithTimeout" || selector.Sel.Name == "WithDeadline")
 }
 
 // checkReactArchitecture 检查 feature 物理边界、契约直连、网络旁路、动态导入和严格类型选项。

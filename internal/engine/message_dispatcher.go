@@ -34,10 +34,8 @@ type messageDispatcher struct {
 	reply *ReplyService
 	// logger 记录消息分发和防抖错误。
 	logger *slog.Logger
-	// beginTask 登记账号生命周期任务。
-	beginTask func() (context.Context, bool)
-	// finishTask 完成账号生命周期任务登记。
-	finishTask func()
+	// beginTask 登记账号生命周期任务，并返回该任务唯一的释放函数。
+	beginTask func() (context.Context, func(), bool)
 	// recordMessage 更新账号最近收消息时间。
 	recordMessage func(time.Time)
 }
@@ -54,10 +52,8 @@ type messageDispatcherConfig struct {
 	Reply *ReplyService
 	// Logger 记录分发过程中的错误和诊断信息。
 	Logger *slog.Logger
-	// BeginTask 登记账号生命周期任务。
-	BeginTask func() (context.Context, bool)
-	// FinishTask 完成账号生命周期任务登记。
-	FinishTask func()
+	// BeginTask 登记账号生命周期任务，并返回该任务唯一的释放函数。
+	BeginTask func() (context.Context, func(), bool)
 	// RecordMessage 更新最近收到消息时间。
 	RecordMessage func(time.Time)
 }
@@ -77,12 +73,12 @@ func newMessageDispatcher(config messageDispatcherConfig) messageDispatcher {
 	// beginTask 用于本次流程后续判断的begin任务
 	beginTask := config.BeginTask
 	if beginTask == nil {
-		beginTask = func() (context.Context, bool) { return context.Background(), true }
-	}
-	// finishTask 用于本次流程后续判断的finish任务
-	finishTask := config.FinishTask
-	if finishTask == nil {
-		finishTask = func() {}
+		// 缺少生命周期登记器时使用受限同步兼容预算，测试构造不能产生长期游离任务。
+		beginTask = func() (context.Context, func(), bool) {
+			// fallbackCtx 是没有账号 owner 时仅供一次消息分发使用的有限 Context。
+			fallbackCtx, fallbackCancel := context.WithTimeout(context.Background(), bootstrapTaskTimeout)
+			return fallbackCtx, fallbackCancel, true
+		}
 	}
 	// recordMessage 用于本次流程后续判断的record消息
 	recordMessage := config.RecordMessage
@@ -104,15 +100,14 @@ func newMessageDispatcher(config messageDispatcherConfig) messageDispatcher {
 		reply:          config.Reply,
 		logger:         logger,
 		beginTask:      beginTask,
-		finishTask:     finishTask,
 		recordMessage:  recordMessage,
 	}
 }
 
 // dispatch 接收一条解密消息并安排系统事件或聊天消息处理。
 func (d *messageDispatcher) dispatch(decrypted map[string]any) {
-	// ctx、ok 用于本次流程后续判断的ctx、ok
-	ctx, ok := d.beginTask()
+	// ctx、finish、ok 分别是当前消息任务的上下文、释放函数与生命周期接纳结果。
+	ctx, finish, ok := d.beginTask()
 	if !ok {
 		return
 	}
@@ -125,11 +120,11 @@ func (d *messageDispatcher) dispatch(decrypted map[string]any) {
 		select {
 		case d.sem <- struct{}{}:
 		case <-ctx.Done():
-			d.finishTask()
+			finish()
 			return
 		}
 		go func() {
-			defer d.finishTask()
+			defer finish()
 			defer func() { <-d.sem }()
 			d.handleMessageContext(ctx, decrypted)
 		}()
@@ -139,12 +134,12 @@ func (d *messageDispatcher) dispatch(decrypted map[string]any) {
 	select {
 	case d.sem <- struct{}{}:
 	default:
-		d.finishTask()
+		finish()
 		d.logger.Warn("消息处理并发达上限，丢弃消息", "limit", MessageSemaphoreSize)
 		return
 	}
 	go func() {
-		defer d.finishTask()
+		defer finish()
 		defer func() { <-d.sem }()
 		d.handleMessageContext(ctx, decrypted)
 	}()
@@ -152,7 +147,13 @@ func (d *messageDispatcher) dispatch(decrypted map[string]any) {
 
 // handleMessage 分类并投递消息，供 Account facade 和测试调用。
 func (d *messageDispatcher) handleMessage(decrypted map[string]any) {
-	d.handleMessageContext(context.Background(), decrypted)
+	// ctx、finish、accepted 分别是同步分发任务的上下文、释放函数及生命周期接纳结果。
+	ctx, finish, accepted := d.beginTask()
+	if !accepted {
+		return
+	}
+	defer finish()
+	d.handleMessageContext(ctx, decrypted)
 }
 
 // handleMessageContext 将系统事件和聊天消息分别交给对应业务链。
@@ -285,12 +286,12 @@ func (d *messageDispatcher) scheduleDebouncedReply(chat ChatMessage) {
 		// lastMessage 用于本次流程后续判断的last消息
 		lastMessage := current.lastMsg
 		d.debounceMu.Unlock()
-		// ctx、ok 用于本次流程后续判断的ctx、ok
-		ctx, ok := d.beginTask()
+		// ctx、finish、ok 分别是防抖回复任务的上下文、释放函数及生命周期接纳结果。
+		ctx, finish, ok := d.beginTask()
 		if !ok {
 			return
 		}
-		defer d.finishTask()
+		defer finish()
 		if d.reply != nil {
 			if // err 用于本次流程后续判断的err
 			err := d.reply.Handle(ctx, lastMessage); err != nil {

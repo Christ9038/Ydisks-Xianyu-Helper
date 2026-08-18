@@ -13,6 +13,13 @@ type AccountRuntimePort struct {
 	manager *accountmanager.Manager
 }
 
+// contextualCookieUpdater 表示可将调用方 Context 贯穿到运行时 Cookie 收口的最小可选能力。
+// 它由 adapter 消费，避免为所有自动化发送器扩大公共 MessageSender 契约。
+type contextualCookieUpdater interface {
+	// UpdateCookieContext 在调用方取消或超时时停止等待凭证刷新门和数据库操作。
+	UpdateCookieContext(context.Context, string) error
+}
+
 // NewAccountRuntimePort 创建账号运行时适配器；nil Manager 表示当前进程未启用账号运行实例。
 func NewAccountRuntimePort(manager *accountmanager.Manager) accountapp.RuntimePort {
 	if manager == nil {
@@ -48,6 +55,11 @@ func (p AccountRuntimePort) UpdateCookie(ctx context.Context, accountID, value s
 	if !ok || sender == nil {
 		return nil
 	}
+	// updater、supportsContext 保存运行时是否支持调用方取消的同步 Cookie 收口能力。
+	if updater, supportsContext := sender.(contextualCookieUpdater); supportsContext {
+		return updater.UpdateCookieContext(ctx, value)
+	}
+	// 旧发送器尚未暴露 Context 入口时保留其受限兼容实现；该调用不会创建后台任务。
 	sender.UpdateCookie(value)
 	return nil
 }

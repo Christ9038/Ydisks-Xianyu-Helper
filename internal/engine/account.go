@@ -344,7 +344,6 @@ func New(cfg Config) *Account {
 		Reply:          a.reply,
 		Logger:         logger,
 		BeginTask:      a.lifecycle.beginTask,
-		FinishTask:     a.lifecycle.finishTask,
 		RecordMessage:  a.recordMessageReceived,
 	})
 	// connection 保存绑定当前账号 facade 的连接编排组件；它只在构造完成后才可被 Run 调用。
@@ -449,8 +448,8 @@ func (a *Account) StopContext(ctx context.Context) error {
 	return nil
 }
 
-// beginTask 封装begin任务业务协调。
-func (a *Account) beginTask() (context.Context, bool) {
+// beginTask 封装账户所属任务的 Context、释放函数和生命周期接纳结果。
+func (a *Account) beginTask() (context.Context, func(), bool) {
 	return a.lifecycle.beginTask()
 }
 

@@ -19,6 +19,9 @@ const defaultReviewRequestScanInterval = time.Minute
 // defaultDeferredTaskScanInterval 是持久化延迟动作的轮询周期，保证秒级动作不会被分钟级业务扫描额外延后。
 const defaultDeferredTaskScanInterval = time.Second
 
+// legacySchedulerWaitTimeout 是兼容无 Context 等待入口的最长收束预算。
+const legacySchedulerWaitTimeout = 10 * time.Second
+
 // Scheduler 执行计划任务类自动化。
 // 计划任务只负责“发现应该触发的任务”，具体动作仍交给 Center，避免形成第二套执行链。
 // Scheduler 用于本次流程后续判断的Scheduler
@@ -82,14 +85,17 @@ func (s *Scheduler) Run(ctx context.Context) {
 
 // Wait 等待调度器完成，并兼容不需要超时的旧调用方。
 func (s *Scheduler) Wait() {
-	_ = s.WaitContext(context.Background())
+	// waitCtx、waitCancel 为兼容入口提供受限等待预算，避免调度器异常时永久阻塞调用方。
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), legacySchedulerWaitTimeout)
+	defer waitCancel()
+	_ = s.WaitContext(waitCtx)
 }
 
 // WaitContext 在 ctx 约束内等待调度器完成，避免关闭流程无限阻塞。
 func (s *Scheduler) WaitContext(ctx context.Context) error {
 	if s != nil && s.done != nil {
 		if ctx == nil {
-			ctx = context.Background()
+			return errors.New("等待自动化调度器需要关闭 Context")
 		}
 		select {
 		case <-s.done:
