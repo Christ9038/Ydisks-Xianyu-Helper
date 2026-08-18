@@ -49,6 +49,8 @@ export const accountRuntimePresentation = (account: AccountDetail): AccountRunti
       return { label: '登录已失效', badge: 'bg-red-100 text-red-700', dot: 'bg-red-500' };
     case 'verification_required':
       return { label: '需要验证', badge: 'bg-orange-100 text-orange-700', dot: 'bg-orange-500' };
+    case 'runtime_conflict':
+      return { label: '运行状态冲突', badge: 'bg-red-100 text-red-700', dot: 'bg-red-500' };
     case 'error':
     case 'stopped':
       return { label: '运行异常', badge: 'bg-red-100 text-red-700', dot: 'bg-red-500' };

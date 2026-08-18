@@ -133,6 +133,17 @@ func BuildRuntime(options RuntimeOptions, infrastructure RuntimeInfrastructure) 
 	if platformErr != nil {
 		return Runtime{}, fmt.Errorf("构造平台基础设施依赖失败: %w", platformErr)
 	}
+	// qrLifecycle 是二维码平台管理器可选的进程生命周期能力；HTTP Port 仍只暴露二维码用例。
+	qrLifecycle, qrLifecycleEnabled := platformDependencies.QRLoginService().(interface {
+		Start(context.Context) error
+		CloseContext(context.Context) error
+	})
+	if qrLifecycleEnabled {
+		// addErr 是二维码后台会话管理器登记失败原因；其关闭发生在 HTTP 停止之后，由协调器统一等待任务退出。
+		if addErr := lifecycleCoordinator.Add(lifecycle.NamedComponent{Name: "qr-login-manager", Component: lifecycle.FuncComponent{StartFunc: qrLifecycle.Start, CloseFunc: qrLifecycle.CloseContext}}); addErr != nil {
+			return Runtime{}, fmt.Errorf("登记二维码生命周期组件失败: %w", addErr)
+		}
+	}
 	// transportApplications、transportErr 分别是通知等共享应用服务集合及其构造错误。
 	transportApplications, transportErr := adapter.NewTransportApplicationServices(adapter.TransportApplicationServiceOptions{
 		AutomationDependencies: automationDependencies, MiscDependencies: miscDependencies, AdminSettingsDependencies: adminSettingsDependencies,

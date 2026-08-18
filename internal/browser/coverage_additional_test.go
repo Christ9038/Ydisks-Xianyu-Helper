@@ -218,7 +218,7 @@ func TestPasswordDetectorHandlesHTMLAndURLs(t *testing.T) {
 	}
 	// failedManager 保存初始化函数失败的浏览器管理器。
 	failedManager := NewManager(nil)
-	failedManager.installFn = func() error { return errors.New("测试安装失败") }
+	failedManager.installFn = func(context.Context) error { return errors.New("测试安装失败") }
 	if // err 保存初始化失败错误。
 	err := failedManager.Initialize(); err == nil {
 		t.Fatal("初始化失败应向调用方返回错误")

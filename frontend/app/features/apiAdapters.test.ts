@@ -202,6 +202,35 @@ test('syncOrders aborts while waiting for persisted job status', async () => {
 	await vi.waitFor(/* 等待取消命令发出。 */ () => expect(fetchMock).toHaveBeenCalledWith('/api/v1/orders/refresh/job-running', expect.objectContaining({ method: 'DELETE', credentials: 'include' })));
 } /* 测试回调验证：syncOrders aborts while waiting for persisted job status。 */);
 
+test('syncOrders reaches the front-end budget, cancels, and returns a concurrent success terminal result', async () => {
+	// fetchMock 模拟轮询仍运行、取消命令返回冲突且复查已拿到成功终态的时间竞争。
+	const fetchMock = vi.fn()
+		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-timeout', status: 'running' }))
+		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-timeout', status: 'running' }))
+		.mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: 'conflict', message: '任务已结束' } }), { status: 409, headers: { 'content-type': 'application/json' } }))
+		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-timeout', status: 'succeeded', result: { partial_failure: false, message: '终态成功', summary: { discovered: 0, list_updated: 0, soft_deleted: 0, detail_total: 0, total: 0, updated: 0, no_change: 0, failed: 0 }, results: [] } }));
+	vi.stubGlobal('fetch', fetchMock);
+
+	// result 保存达到本地等待预算后由终态复查返回的成功订单刷新结果。
+	const result = await syncOrders(undefined, undefined, { pollLimit: 1, pollIntervalMs: 0 });
+	expect(result.message).toBe('终态成功');
+	expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/orders/refresh/job-timeout', expect.objectContaining({ method: 'DELETE', credentials: 'include' }));
+	expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/v1/orders/refresh/job-timeout', expect.objectContaining({ method: 'GET', credentials: 'include' }));
+} /* 测试回调验证：syncOrders reaches the front-end budget, cancels, and returns a concurrent success terminal result。 */);
+
+test('syncOrders reports a timeout only after cancellation and final terminal read remain non-terminal', async () => {
+	// fetchMock 模拟后台任务未在取消请求后及时进入成功或失败终态的场景。
+	const fetchMock = vi.fn()
+		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-still-running', status: 'running' }))
+		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-still-running', status: 'running' }))
+		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-still-running', status: 'cancelled' }))
+		.mockResolvedValueOnce(jsonResponse({ success: true, job_id: 'job-still-running', status: 'cancelled' }));
+	vi.stubGlobal('fetch', fetchMock);
+
+	await expect(syncOrders(undefined, undefined, { pollLimit: 1, pollIntervalMs: 0 })).rejects.toThrow('订单刷新任务等待超时，已请求取消');
+	expect(fetchMock).toHaveBeenCalledWith('/api/v1/orders/refresh/job-still-running', expect.objectContaining({ method: 'DELETE', credentials: 'include' }));
+} /* 测试回调验证：syncOrders reports a timeout only after cancellation and final terminal read remain non-terminal。 */);
+
 test('cancelOrderRefreshJob sends a user-scoped delete command', async () => {
 	const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true, job_id: 'job-cancel', status: 'cancelled' })); /* fetchMock 表示fetchMock。 */
 	vi.stubGlobal('fetch', fetchMock);

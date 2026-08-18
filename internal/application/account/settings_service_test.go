@@ -3,7 +3,9 @@ package account
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 )
 
 // fakeSettingsRepository 记录账号设置应用服务对持久化端口的调用。
@@ -74,6 +76,66 @@ type fakeSettingsRuntime struct {
 	stopCalls int
 	// restartErr 是预置的重启错误。
 	restartErr error
+	// stopErr 是预置的运行实例停止错误。
+	stopErr error
+	// stopping 表示测试替身是否已建立停止 fencing。
+	stopping bool
+}
+
+// credentialInterleavingRepository 用真实互斥锁模拟 Cookie 替换和平台新 Token 保存的竞争时序。
+type credentialInterleavingRepository struct {
+	// mu 串行化同一账号 Cookie、metadata 与 Token 的敏感持久化转换。
+	mu sync.Mutex
+	// token 保存测试观察到的当前连接 Token，不包含真实凭证。
+	token string
+	// clearStarted 通知旧 Token 清理已经持有凭证锁。
+	clearStarted chan struct{}
+	// allowClear 控制旧 Token 清理何时完成，用于确认并发新 Token 写入会被锁阻塞。
+	allowClear chan struct{}
+}
+
+// LockCredentials 获取测试账号唯一的敏感凭证锁。
+func (repository *credentialInterleavingRepository) LockCredentials(string) func() {
+	repository.mu.Lock()
+	return repository.mu.Unlock
+}
+
+// UpdateSettings 模拟 Cookie 主写入成功，不改变测试中的新 Token。
+func (repository *credentialInterleavingRepository) UpdateSettings(context.Context, SettingsUpdateInput) (int64, error) {
+	return 0, nil
+}
+
+// UpdateLoginInfo 满足设置仓储接口；本竞争用例不写入登录资料。
+func (repository *credentialInterleavingRepository) UpdateLoginInfo(context.Context, LoginInfoUpdateInput) error {
+	return nil
+}
+
+// SetStatusOwned 满足设置仓储接口；本竞争用例不改变账号状态。
+func (repository *credentialInterleavingRepository) SetStatusOwned(context.Context, int64, string, bool, string) error {
+	return nil
+}
+
+// StatusOwned 返回停用，避免本凭证锁测试触发运行时重启。
+func (repository *credentialInterleavingRepository) StatusOwned(context.Context, int64, string) (bool, error) {
+	return false, nil
+}
+
+// SetPauseOwned 满足设置仓储接口；本竞争用例不涉及暂停状态。
+func (repository *credentialInterleavingRepository) SetPauseOwned(context.Context, int64, string, int) (int64, error) {
+	return 0, nil
+}
+
+// GetPauseOwned 满足设置仓储接口；本竞争用例不读取暂停状态。
+func (repository *credentialInterleavingRepository) GetPauseOwned(context.Context, int64, string) (PauseState, error) {
+	return PauseState{}, nil
+}
+
+// ClearTokens 在持有凭证锁时等待测试放行，然后清除 Cookie 变更前的旧 Token。
+func (repository *credentialInterleavingRepository) ClearTokens(context.Context, string) error {
+	close(repository.clearStarted)
+	<-repository.allowClear
+	repository.token = ""
+	return nil
 }
 
 // Restart 记录重启并返回预置错误。
@@ -82,8 +144,75 @@ func (f *fakeSettingsRuntime) Restart(context.Context, string) error {
 	return f.restartErr
 }
 
-// Stop 记录运行实例停止。
-func (f *fakeSettingsRuntime) Stop(string) { f.stopCalls++ }
+// BeginStopping 记录当前测试账号的停止 fencing；重复进入时返回 false。
+func (f *fakeSettingsRuntime) BeginStopping(string) bool {
+	if f.stopping {
+		return false
+	}
+	f.stopping = true
+	return true
+}
+
+// EndStopping 释放当前测试账号的停止 fencing。
+func (f *fakeSettingsRuntime) EndStopping(string) { f.stopping = false }
+
+// StopContext 记录带关闭预算的停止调用并返回预置错误。
+func (f *fakeSettingsRuntime) StopContext(context.Context, string) error {
+	f.stopCalls++
+	return f.stopErr
+}
+
+// TestSettingsServiceKeepsCredentialLockUntilOldTokenCleared 验证并发保存的新 Token 不会被旧 Token 清理覆盖。
+func TestSettingsServiceKeepsCredentialLockUntilOldTokenCleared(t *testing.T) {
+	// repository 保存带真实互斥锁的敏感凭证替身。
+	repository := &credentialInterleavingRepository{token: "old-token", clearStarted: make(chan struct{}), allowClear: make(chan struct{})}
+	// service 保存待验证 Cookie 更新顺序的账号设置服务。
+	service, serviceErr := NewSettingsService(repository, nil)
+	if serviceErr != nil {
+		t.Fatalf("构造设置服务失败: %v", serviceErr)
+	}
+	// cookie 保存本次替换的 Cookie 明文，仅在测试输入范围存在。
+	cookie := "updated-cookie"
+	// updateDone 保存 Cookie 更新和旧 Token 清理完成后的结果。
+	updateDone := make(chan error, 1)
+	go func() {
+		// _, updateErr 保存设置写入结果与错误；当前测试只关注凭证锁释放时机。
+		_, updateErr := service.UpdateSettings(context.Background(), SettingsUpdateInput{UserID: 7, AccountID: "acc-1", Cookie: &cookie})
+		updateDone <- updateErr
+	}()
+	select {
+	case <-repository.clearStarted:
+	case <-time.After(time.Second):
+		t.Fatal("旧 Token 清理未开始")
+	}
+	// newTokenWritten 通知并发平台流程何时真正拿到凭证锁并写入新 Token。
+	newTokenWritten := make(chan struct{})
+	go func() {
+		// unlock 是并发平台流程持有的同账号凭证锁释放函数。
+		unlock := repository.LockCredentials("acc-1")
+		repository.token = "new-token"
+		unlock()
+		close(newTokenWritten)
+	}()
+	select {
+	case <-newTokenWritten:
+		t.Fatal("旧 Token 清理完成前不应写入新 Token")
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(repository.allowClear)
+	// updateErr 保存 Cookie 更新协程完成后返回的错误。
+	if updateErr := <-updateDone; updateErr != nil {
+		t.Fatalf("Cookie 更新失败: %v", updateErr)
+	}
+	select {
+	case <-newTokenWritten:
+	case <-time.After(time.Second):
+		t.Fatal("凭证锁释放后未写入新 Token")
+	}
+	if repository.token != "new-token" {
+		t.Fatalf("旧 Token 清理覆盖了新 Token: %q", repository.token)
+	}
+}
 
 // TestSettingsServiceRestartsAfterCookieWrite 验证 Cookie 写入释放凭证锁后才重启运行实例。
 func TestSettingsServiceRestartsAfterCookieWrite(t *testing.T) {

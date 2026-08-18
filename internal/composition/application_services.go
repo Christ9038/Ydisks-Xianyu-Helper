@@ -44,6 +44,8 @@ const (
 // Services 聚合组合根已完成构造的应用服务与后台组件。
 // 它只由 composition 创建，随后通过 server.Dependencies 的最小 Port 交给 HTTP transport。
 type Services struct {
+	// lifecycleContext 返回进程协调器拥有的 worker 根 Context；HTTP transport 只能通过组合层适配器使用它。
+	lifecycleContext func() context.Context
 	// qrLogin 是二维码平台协议的组合层私有实例，只通过 HTTP 用例 Port 暴露。
 	qrLogin adapter.QRLoginService
 	// platformCredentials 负责按需读取平台凭证窄视图并执行归属复核。
@@ -124,6 +126,14 @@ type Services struct {
 	admin *adminapp.Service
 }
 
+// LifecycleContext 返回已启动协调器拥有的进程生命周期 Context，供组合层 transport adapter 注册后台 worker。
+func (services *Services) LifecycleContext() context.Context {
+	if services == nil || services.lifecycleContext == nil {
+		return nil
+	}
+	return services.lifecycleContext()
+}
+
 // Dependencies 是进程组合根构造应用服务所需的不可变依赖集合。
 // 它不包含 HTTP Server；服务只能使用窄仓储工厂、运行时端口和受控回调。
 type Dependencies struct {
@@ -163,6 +173,42 @@ type Dependencies struct {
 	SessionRecovery adapter.SessionRecoveryHandler
 	// LifecycleContext 返回进程协调器拥有的应用生命周期 Context。
 	LifecycleContext func() context.Context
+}
+
+// settingsRuntimeTransport 将账号运行时控制投影给设置用例，并确保启用或 Cookie 重启永远使用进程生命周期 Context。
+type settingsRuntimeTransport struct {
+	// manager 是账号运行实例和停止 fencing 的唯一拥有者。
+	manager *account.Manager
+	// lifecycleContext 返回协调器已启动后的进程根 Context，不能由 HTTP 请求提供。
+	lifecycleContext func() context.Context
+}
+
+// Restart 使用进程生命周期 Context 重新创建账号实例，避免请求断开后留下半完成转换。
+func (transport settingsRuntimeTransport) Restart(_ context.Context, accountID string) error {
+	// lifecycleCtx 是当前进程拥有的运行实例 Context；nil 表示组合根未正确启动。
+	lifecycleCtx := context.Context(nil)
+	if transport.lifecycleContext != nil {
+		lifecycleCtx = transport.lifecycleContext()
+	}
+	if lifecycleCtx == nil {
+		return errors.New("账号运行时生命周期 Context 未初始化")
+	}
+	return transport.manager.Restart(lifecycleCtx, accountID)
+}
+
+// BeginStopping 建立账号停止 fencing，阻止其他运行时入口在停用转换中重新启动实例。
+func (transport settingsRuntimeTransport) BeginStopping(accountID string) bool {
+	return transport.manager.BeginStopping(accountID)
+}
+
+// EndStopping 释放本次设置转换建立的账号停止 fencing。
+func (transport settingsRuntimeTransport) EndStopping(accountID string) {
+	transport.manager.EndStopping(accountID)
+}
+
+// StopContext 在 HTTP 关闭预算内停止账号实例，并将错误回传给设置用例映射为可重试冲突。
+func (transport settingsRuntimeTransport) StopContext(ctx context.Context, accountID string) error {
+	return transport.manager.StopContext(ctx, accountID)
 }
 
 // LifecycleComponents 返回由组合根登记的应用 worker 生命周期组件。
@@ -339,11 +385,8 @@ func New(dependencies Dependencies) (*Services, error) {
 	if longLoginErr != nil {
 		return nil, fmt.Errorf("构造账号长登录服务失败: %w", longLoginErr)
 	}
-	// accountSettings 由独立适配器承载账号设置写入与敏感登录信息更新。
-	var settingsRuntime accountapp.SettingsRuntime
-	if dependencies.Manager != nil {
-		settingsRuntime = dependencies.Manager
-	}
+	// settingsRuntime 将运行时启停绑定到协调器 Context，避免把请求 Context 错误当成账号实例生命周期。
+	settingsRuntime := accountapp.SettingsRuntime(settingsRuntimeTransport{manager: dependencies.Manager, lifecycleContext: dependencies.LifecycleContext})
 	// accountSettings、accountSettingsErr 保存账号设置应用服务及其装配错误。
 	accountSettings, accountSettingsErr := accountapp.NewSettingsService(dependencies.AccountDependencies.NewAccountSettingsRepository(), settingsRuntime)
 	if accountSettingsErr != nil {
@@ -418,6 +461,7 @@ func New(dependencies Dependencies) (*Services, error) {
 	}
 	// services 是完成构造后只读注入 Server 的应用服务集合。
 	services := &Services{
+		lifecycleContext:            dependencies.LifecycleContext,
 		qrLogin:                     dependencies.QRLogin,
 		platformCredentials:         platformCredentials,
 		orders:                      orderServices,

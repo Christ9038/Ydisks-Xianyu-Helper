@@ -1,4 +1,4 @@
-import { useCallback,useState,type Dispatch,type SetStateAction } from 'react';
+import { useCallback,useRef,useState,type Dispatch,type SetStateAction } from 'react';
 import type { Order } from './api';
 import { deleteOrder,manualShipOrder,syncOrders,syncSingleOrder,updateOrder } from './api';
 
@@ -102,15 +102,22 @@ export const useOrderActions = ({ orders, page, accountFilter, filter, setPage, 
   const [syncingOrderId, setSyncingOrderId] = useState<string | null>(null);
   // deletingOrderId 保存当前正在删除的订单号。
   const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
+  // syncGeneration 区分连续发起的批量刷新，旧任务完成后不得覆盖最新一次用户操作的列表和提示。
+  const syncGeneration = useRef(0);
 
   // handleSync 同步当前筛选条件下的订单并刷新列表。
   const handleSync = useCallback(/* syncAction 执行当前筛选条件下的订单同步。 */ async () => {
+		// generation 是本次批量同步的代次；仅仍为最新代次的结果允许更新界面。
+		const generation = ++syncGeneration.current;
     try {
       // result 保存订单同步接口返回的结果说明。
       const result = await syncOrders(accountFilter || undefined, filter);
+			if (generation !== syncGeneration.current) return;
       await loadOrders();
+			if (generation !== syncGeneration.current) return;
       if (result.message) alert(result.message);
     } catch (/* error 表示订单同步请求异常。 */ error: unknown) {
+			if (generation !== syncGeneration.current) return;
       console.error('同步订单失败:', error);
       alert(orderErrorMessage(error, '同步失败，请重试'));
     }

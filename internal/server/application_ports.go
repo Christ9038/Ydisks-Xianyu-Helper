@@ -65,7 +65,7 @@ type OrdersPort interface {
 
 // OrderRefreshJobsPort 定义订单刷新任务 HTTP 接口所需的最小能力。
 type OrderRefreshJobsPort interface {
-	CreateAndStart(context.Context, context.Context, int64, string, string) (orderapp.RefreshJobStartResult, error)
+	CreateAndStart(context.Context, int64, string, string) (orderapp.RefreshJobStartResult, error)
 	GetJob(context.Context, int64, string) (*orderapp.RefreshJob, error)
 	CancelForUser(context.Context, int64, string) (orderapp.RefreshJobCancelResult, error)
 }

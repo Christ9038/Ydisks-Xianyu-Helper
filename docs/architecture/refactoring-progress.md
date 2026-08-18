@@ -132,12 +132,6 @@ $ git diff --check
 - 冻结 CAPTCHA：受保护的 slider、token CAPTCHA 实现和测试文件均未出现在最终差异；冻结规范未修改。
 - 生成物：`frontend/coverage/` 是未跟踪的测试产物，不纳入提交。
 
-## 下一阶段入口
-
-阶段四已完成，阶段五：DB 与事务治理重新验收为唯一当前阶段。开始阶段五前先运行 architecturecheck，确认
-前序 React feature、传输契约、网络旁路和严格 TypeScript 门禁继续 fail-closed；不得提前进入阶段六最终收口，
-也不得修改冻结 CAPTCHA。
-
 ## 阶段四：React Feature 化和异步状态修复
 
 - 最终提交绑定：`HEAD` 的唯一中文提交 `阶段四：完成 React Feature 化和异步状态修复`。
@@ -181,10 +175,6 @@ $ git diff --check
 - 外部服务：未运行 MySQL/PostgreSQL、`cmd/dbverify` 或真实平台调用；这些属于阶段五或真实外部环境例外。
 - 冻结 CAPTCHA：`internal/browser/slider.go`、`token_captcha*.go` 及其测试和规范未修改。
 - 生成物：已由 `npm run build --prefix frontend` 重建 `internal/webui/static`，未手工修改嵌入文件。
-
-## 阶段五入口
-
-阶段五现在是唯一当前阶段。下一步只处理 DB 与事务治理重新验收：清除上层裸 `Store.DB`、`sql.DB`、`sql.Tx` 和 row model 泄露，核对 Unit of Work、claim/lease、取消、重试及补偿，并在可用时运行 SQLite、MySQL、PostgreSQL 和 `cmd/dbverify` 证据。不得在阶段五提前执行阶段六兼容退场、复杂度或全量注释收口。
 
 ## 阶段五：DB 与事务治理重新验收
 
@@ -274,12 +264,73 @@ go build ./cmd/server
 
 ### 验收边界
 
-- 覆盖率：Go statements 65.9%；前端 V8 statements 79.82%、lines 82.17%。`cover.out` 与 `frontend/coverage/` 均为生成验证产物，未纳入提交。
-- 浏览器：已使用 `RUN_BROWSER_INTEGRATION=1` 运行本地 Chromium 集成测试；未调用真实账号或外部平台。
-- 多数据库：本次环境未配置 `TEST_MYSQL_URL` 和/或 `TEST_POSTGRES_URL`，因此 `make test-multidb` 与两个 `cmd/dbverify` 未执行；阶段五既有 MySQL/PostgreSQL 实测证据保持有效，当前不伪造外部连接结果。
+- 覆盖率：Go statements 65.9%；真实 Chromium 浏览器包 statements 64.0%；前端 V8 statements 79.96%、lines 82.33%。`cover.out`、`cover-browser.out` 与 `frontend/coverage/` 均为生成验证产物，未纳入提交。
+- 浏览器：已直接使用 `RUN_BROWSER_INTEGRATION=1 go test ./internal/browser -count=1` 运行本地 Chromium 集成测试并通过；未调用真实账号或外部平台。
+- 多数据库：已使用 Docker 临时启动 MySQL 8 与 PostgreSQL 17，实际执行 `make test-multidb` 及两个 `cmd/dbverify`，三方言回归和核心 CRUD 均通过。
 - 冻结 CAPTCHA：直接受保护实现、测试和规范均未出现在最终差异中。
-- 生成物：`npm run build --prefix frontend` 已执行；当前构建输入未导致 `internal/webui/static` 内容变化，未手工修改嵌入产物。
+- 生成物：`npm run build --prefix frontend` 已执行并更新 `internal/webui/static` 哈希资源；生成覆盖率目录未纳入提交。
 
 ## 后续维护
 
 六个正式阶段均已完成。之后的功能变更必须保持全部架构门禁永久 fail-closed，不得恢复阶段状态、扩大兼容白名单、修改注释 baseline 或将覆盖率生成物纳入提交。
+
+### 2026-08-19 阶段六生命周期与运行状态一致性维护修复
+
+- 交付范围：订单刷新 HTTP Port 仅接收请求 Context，组合层适配器注入协调器生命周期 Context；账号 Cookie/Token 替换在同一凭证锁内完成，启停与重启按账号串行并在运行时失败时补偿状态；QR 会话轮询和验证由 Manager 根 Context、会话取消函数与 WaitGroup 拥有；浏览器初始化在安装、启动和指纹探测阶段传播取消并释放半成品资源；前端订单刷新超时会使用独立短预算取消并复查终态。
+- HTTP 语义：无法停止运行实例返回 `409 Conflict`，启用或 Cookie 重启后运行实例未就绪返回 `503 Service Unavailable`；正常成功路径和既有 API 路径保持兼容。
+- 治理修正：删除本文件历史“当前阶段/下一阶段入口”表述，主计划明确只有状态表可定义阶段状态，避免阶段五旧指令与已完成的阶段六状态冲突。
+- 冻结边界：未修改 `internal/browser/slider.go`、`token_captcha*.go`、其测试或冻结规范。
+
+### 本次验收
+
+```text
+$ go test ./... -count=1
+通过。
+
+$ go test -race ./internal/server ./internal/application/account ./internal/application/orders ./internal/account ./internal/xianyu/qrlogin ./internal/browser -count=1
+通过。
+
+$ go vet ./...
+(无输出，退出码 0)
+
+$ make lint && make comments && go run ./tools/architecturecheck
+golangci-lint: 0 issues；Go/前端 commentlint: 通过；architecturecheck: 通过。
+
+$ npm test --prefix frontend -- --run
+Test Files  67 passed (67)
+Tests       405 passed (405)
+
+$ npm run typecheck --prefix frontend && npm run comments:check --prefix frontend
+通过。
+
+$ npm run build --prefix frontend
+✓ built in 5.45s；已重建 internal/webui/static。
+
+$ make cover
+total: (statements) 65.9%
+
+$ make cover-frontend
+Statements: 79.96% (3727/4661)
+Lines: 82.33% (3257/3956)
+
+$ RUN_BROWSER_INTEGRATION=1 go test ./internal/browser -count=1
+ok  \txianyu-go/internal/browser\t34.179s
+
+$ TEST_MYSQL_URL='mysql://***@tcp(127.0.0.1:3306)/xianyu?...' TEST_POSTGRES_URL='postgres://***@127.0.0.1:5432/xianyu?...' make test-multidb
+REQUIRE_MULTIDB=1 go test ./internal/db -run '^TestMultiDB_' -v -count=1
+PASS
+ok  \txianyu-go/internal/db\t169.859s
+已实际覆盖 SQLite、MySQL、PostgreSQL 的凭证隔离、布尔 UPSERT、可靠性状态、订单协调幂等、
+自动化重试、通知、迁移上下行、聊天与账号任务、卡密与订单事件时间。
+
+$ go run ./cmd/dbverify "$TEST_MYSQL_URL"
+迁移成功，方言=mysql，数据库版本=33；核心 CRUD、自动化防重与验证数据清理全部通过。
+
+$ go run ./cmd/dbverify "$TEST_POSTGRES_URL"
+迁移成功，方言=postgres，数据库版本=33；核心 CRUD、自动化防重与验证数据清理全部通过。
+
+$ git diff --check
+(无输出，退出码 0)
+```
+
+- 外部环境：2026-08-19 使用 Docker 29.4.0 临时启动 `mysql:8` 与 `postgres:17`，均绑定到本机回环地址并通过就绪检查；真实 Chromium 集成、MySQL/PostgreSQL 多方言回归和两个 `cmd/dbverify` 均已执行且通过。多数据库测试创建并清理独立 `xytest_*` 数据库，验收结束后已删除两个临时容器。未执行真实账号登录或外部平台调用。`cover.out`、`cover-browser.out` 和 `frontend/coverage/` 是生成验证产物，未纳入提交。

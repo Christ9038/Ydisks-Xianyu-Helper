@@ -59,16 +59,18 @@ var qrHeaders = map[string]string{
 
 // Session 一个扫码登录会话。
 type Session struct {
-	mu                     sync.RWMutex
-	SessionID              string `json:"session_id"`
-	Status                 string `json:"status"` // waiting/scanned/success/expired/cancelled/error/verification_required
-	QRCodeURL              string `json:"qr_code_url"`
-	qrContent              string
-	cookies                map[string]string
-	cookieSnapshot         []cookierefresh.BrowserCookie
-	unb                    string
-	createdTime            time.Time
-	expireTime             time.Duration
+	mu             sync.RWMutex
+	SessionID      string `json:"session_id"`
+	Status         string `json:"status"` // waiting/scanned/success/expired/cancelled/error/verification_required
+	QRCodeURL      string `json:"qr_code_url"`
+	qrContent      string
+	cookies        map[string]string
+	cookieSnapshot []cookierefresh.BrowserCookie
+	unb            string
+	createdTime    time.Time
+	expireTime     time.Duration
+	// lifecycleCtx 是当前会话全部后台任务共享的可取消根 Context，禁止进入 HTTP 返回值或日志。
+	lifecycleCtx           context.Context
 	params                 map[string]string
 	verificationURL        string
 	verificationScreenshot string // 历史兼容字段；纯 Go 人脸流程直接返回二维码
@@ -112,10 +114,24 @@ func (s *Session) snapshot() sessionSnapshot {
 
 // Manager 扫码登录管理器。
 type Manager struct {
-	mu       sync.Mutex
+	// mu 保护会话表、会话取消函数、根 Context 与 closing；不在持锁时执行网络或等待操作。
+	mu sync.Mutex
+	// sessions 保存当前可查询的二维码会话。
 	sessions map[string]*Session
-	httpc    *http.Client
-	logger   *slog.Logger
+	// sessionCancels 保存每个会话的根取消函数；删除或关闭会取消其监控和验证子任务。
+	sessionCancels map[string]context.CancelFunc
+	// lifecycleCtx 是二维码任务的进程根 Context，由 Start 注入并在 CloseContext 取消。
+	lifecycleCtx context.Context
+	// lifecycleCancel 取消当前二维码管理器拥有的根 Context。
+	lifecycleCancel context.CancelFunc
+	// closing 表示管理器已拒绝新会话，但仍等待已有任务收束。
+	closing bool
+	// tasks 记录所有由 Manager 启动的会话任务；CloseContext 负责等待其结束。
+	tasks sync.WaitGroup
+	// closeMu 串行化 CloseContext，避免多个调用重复取消和并发等待。
+	closeMu sync.Mutex
+	httpc   *http.Client
+	logger  *slog.Logger
 }
 
 // NewManager 构造。
@@ -123,15 +139,99 @@ func NewManager(logger *slog.Logger) *Manager {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Manager{
-		sessions: make(map[string]*Session),
-		httpc:    &http.Client{Timeout: 60 * time.Second},
-		logger:   logger,
+	// lifecycleCtx、lifecycleCancel 为未装配进程协调器的测试和兼容调用提供可关闭的默认根 Context。
+	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
+	return &Manager{sessions: make(map[string]*Session), sessionCancels: make(map[string]context.CancelFunc), lifecycleCtx: lifecycleCtx, lifecycleCancel: lifecycleCancel, httpc: &http.Client{Timeout: 60 * time.Second}, logger: logger}
+}
+
+// Start 注入进程协调器拥有的根 Context；启动后新会话的后台任务都从该 Context 派生。
+func (m *Manager) Start(ctx context.Context) error {
+	if m == nil || ctx == nil {
+		return errors.New("二维码管理器启动需要生命周期 Context")
 	}
+	// err 保存启动前调用方已经取消的生命周期 Context 错误。
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closing {
+		return errors.New("二维码管理器已关闭")
+	}
+	// previousCancel 取消构造期默认根 Context；正常运行时尚未创建会话，避免遗留无主根 Context。
+	previousCancel := m.lifecycleCancel
+	// lifecycleCtx、lifecycleCancel 将进程根包装为 Manager 自己可取消的子 Context。
+	lifecycleCtx, lifecycleCancel := context.WithCancel(ctx)
+	m.lifecycleCtx = lifecycleCtx
+	m.lifecycleCancel = lifecycleCancel
+	if previousCancel != nil {
+		previousCancel()
+	}
+	return nil
+}
+
+// startSessionTask 在会话根 Context 下登记可等待后台任务；关闭后不再创建新的 goroutine。
+func (m *Manager) startSessionTask(sessionID string, timeout time.Duration, task func(context.Context)) bool {
+	m.mu.Lock()
+	if m.closing {
+		m.mu.Unlock()
+		return false
+	}
+	// sessionCtx、exists 保存当前会话根 Context 及其是否仍在会话表中。
+	sessionCtx, exists := m.sessionContextLocked(sessionID)
+	if !exists {
+		m.mu.Unlock()
+		return false
+	}
+	m.tasks.Add(1)
+	m.mu.Unlock()
+	go func() {
+		// taskCtx、cancel 将会话取消和独立有效期合并，任务退出时必须释放定时器。
+		taskCtx, cancel := context.WithTimeout(sessionCtx, timeout)
+		defer cancel()
+		defer m.tasks.Done()
+		task(taskCtx)
+	}()
+	return true
+}
+
+// sessionContextLocked 返回会话根 Context；调用方必须已持有 m.mu。
+func (m *Manager) sessionContextLocked(sessionID string) (context.Context, bool) {
+	// sess 保存已登记会话；不存在、未初始化 Context 或已删除的会话都不得再启动后台任务。
+	sess, exists := m.sessions[sessionID]
+	if !exists || sess == nil {
+		return nil, false
+	}
+	if sess.lifecycleCtx == nil {
+		// rootCtx 为历史测试或兼容直接注入的会话补齐可取消根 Context；生产路径会在创建会话时预先登记。
+		rootCtx := m.lifecycleCtx
+		if rootCtx == nil {
+			rootCtx = context.Background()
+		}
+		// sessionCtx、sessionCancel 将补齐会话纳入 Manager 的统一取消表。
+		sessionCtx, sessionCancel := context.WithCancel(rootCtx)
+		sess.lifecycleCtx = sessionCtx
+		if m.sessionCancels == nil {
+			m.sessionCancels = make(map[string]context.CancelFunc)
+		}
+		m.sessionCancels[sessionID] = sessionCancel
+	}
+	// sessionCancel 表示会话是否仍由 Manager 持有取消权。
+	if sessionCancel := m.sessionCancels[sessionID]; sessionCancel == nil {
+		return nil, false
+	}
+	return sess.lifecycleCtx, true
 }
 
 // GenerateQRCode 生成扫码登录二维码。返回 session_id + qr_code_url（base64 data URL）。
 func (m *Manager) GenerateQRCode(ctx context.Context) (sessionID string, qrCodeURL string, err error) {
+	m.mu.Lock()
+	// closing 表示 Manager 已经进入关闭阶段，不能在执行任何平台请求前接受新二维码会话。
+	closing := m.closing
+	m.mu.Unlock()
+	if closing {
+		return "", "", errors.New("二维码管理器已关闭")
+	}
 	sessionID, err = randomUUID()
 	if err != nil {
 		return "", "", fmt.Errorf("生成扫码会话 ID: %w", err)
@@ -235,17 +335,24 @@ func (m *Manager) GenerateQRCode(ctx context.Context) (sessionID string, qrCodeU
 	sess.QRCodeURL = qrCodeURL
 
 	m.mu.Lock()
+	if m.closing {
+		m.mu.Unlock()
+		return "", "", errors.New("二维码管理器已关闭")
+	}
+	// sessionCtx、sessionCancel 将该会话绑定到进程根 Context；DeleteSession 和 CloseContext 都拥有取消权。
+	sessionCtx, sessionCancel := context.WithCancel(m.lifecycleCtx)
+	sess.lifecycleCtx = sessionCtx
 	m.sessions[sessionID] = sess
+	m.sessionCancels[sessionID] = sessionCancel
 	m.mu.Unlock()
 
-	// 5. 扫码会话独立于生成二维码的 HTTP 请求，但受会话有效期约束。
-	// #nosec G118 -- 后台任务必须跨越原请求，且由超时上下文保证退出。
-	go func() {
-		// monitorCtx、cancel 用于本次流程后续判断的monitorCtx、cancel
-		monitorCtx, cancel := context.WithTimeout(context.Background(), sess.snapshot().expireTime)
-		defer cancel()
+	// 5. 扫码会话独立于生成二维码的 HTTP 请求，但受会话和进程生命周期共同约束。
+	if !m.startSessionTask(sessionID, sess.snapshot().expireTime, func(monitorCtx context.Context) {
 		m.monitorQRStatus(monitorCtx, sessionID)
-	}()
+	}) {
+		m.DeleteSession(sessionID)
+		return "", "", errors.New("二维码会话后台任务未启动")
+	}
 
 	m.logger.Info("二维码生成成功", "session_id", sessionID)
 	return sessionID, qrCodeURL, nil
@@ -304,8 +411,60 @@ func (m *Manager) GetSessionStatus(sessionID string) map[string]any {
 // DeleteSession 主动释放终态/过期扫码会话中的二维码、Cookie 和验证截图。
 func (m *Manager) DeleteSession(sessionID string) {
 	m.mu.Lock()
+	// sessionCancel 是当前会话全部后台任务的唯一取消入口；先从表中移除再锁外取消，避免新任务重新登记。
+	sessionCancel := m.sessionCancels[sessionID]
 	delete(m.sessions, sessionID)
+	delete(m.sessionCancels, sessionID)
 	m.mu.Unlock()
+	if sessionCancel != nil {
+		sessionCancel()
+	}
+}
+
+// CloseContext 拒绝新会话、取消全部已有任务并等待其退出；超时时可使用新的 Context 重试等待。
+func (m *Manager) CloseContext(ctx context.Context) error {
+	if m == nil {
+		return nil
+	}
+	if ctx == nil {
+		return errors.New("关闭二维码管理器需要 Context")
+	}
+	// err 保存关闭等待开始前调用方已经取消的关闭 Context 错误。
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.closeMu.Lock()
+	defer m.closeMu.Unlock()
+	m.mu.Lock()
+	m.closing = true
+	// lifecycleCancel 取消由 Start 或构造期创建的根 Context；sessionCancels 额外确保会话可立即停止。
+	lifecycleCancel := m.lifecycleCancel
+	// sessionCancels 保存待锁外触发的每个会话取消函数。
+	sessionCancels := make([]context.CancelFunc, 0, len(m.sessionCancels))
+	// _, sessionCancel 分别表示会话标识和对应的根取消函数，后者在锁外取消全部会话任务。
+	for _, sessionCancel := range m.sessionCancels {
+		sessionCancels = append(sessionCancels, sessionCancel)
+	}
+	m.mu.Unlock()
+	if lifecycleCancel != nil {
+		lifecycleCancel()
+	}
+	// _, sessionCancel 分别表示待取消列表下标和当前会话根取消函数。
+	for _, sessionCancel := range sessionCancels {
+		sessionCancel()
+	}
+	// done 仅观察 Manager 自己拥有的 WaitGroup；任务已被取消，waiter 结束后不会留下后台生命周期。
+	done := make(chan struct{})
+	go func() {
+		m.tasks.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // monitorQRStatus 后台轮询扫码状态。

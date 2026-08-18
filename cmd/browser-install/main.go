@@ -20,6 +20,8 @@ func main() {
 	withDeps := flag.Bool("with-deps", false, "also install Linux system dependencies")
 	// depsOnly 用于本次流程后续判断的depsOnly
 	depsOnly := flag.Bool("deps-only", false, "only install Linux system dependencies; do not download Chromium")
+	// driverOnly 表示只准备 Playwright driver，供服务初始化的可取消安装子进程使用。
+	driverOnly := flag.Bool("driver-only", false, "only install the Playwright driver")
 	flag.Parse()
 	if *depsOnly && !*withDeps {
 		*withDeps = true
@@ -54,6 +56,9 @@ func main() {
 	if // err 用于本次流程后续判断的err
 	err := driver.DownloadDriver(); err != nil {
 		fatal("下载 Playwright driver 失败", err)
+	}
+	if *driverOnly {
+		return
 	}
 
 	// args 用于本次流程后续判断的args

@@ -243,40 +243,13 @@ func (s *Server) updateCookieSettings(w http.ResponseWriter, r *http.Request) {
 	if settingsResult.RuntimeError != nil && s.Logger != nil {
 		s.Logger.Error("账号设置保存后重启失败", "cookie_id", cid, "err", settingsResult.RuntimeError)
 	}
+	if settingsResult.RuntimeError != nil {
+		writeErr(w, http.StatusServiceUnavailable, "账号设置已保存，但运行实例重启失败，请重试启用账号")
+		return
+	}
 	writeJSON(w, http.StatusOK, cookieSettingsResponse{
 		Success: true, PausedUntil: settingsResult.PausedUntil, Paused: settingsResult.PausedUntil > time.Now().UTC().Unix(),
 	})
-}
-
-// listCookieRuntimeStatus 返回本地账号引擎状态，不请求闲鱼 API，可安全用于前端轮询。
-func (s *Server) listCookieRuntimeStatus(w http.ResponseWriter, r *http.Request) {
-	sess := auth.SessionFromContext(r.Context()) // sess 是当前认证会话。
-	accountSummary := s.accountSummaryApplication()
-	cookieIDs, err := accountSummary.ListOwnedIDs(r.Context(), sess.UserID) // cookieIDs 和 err 是账号 ID 列表及查询错误。
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "获取账号失败")
-		return
-	}
-	// runtime、runtimeErr 保存应用层返回的账号运行状态快照及读取错误。
-	runtime, runtimeErr := s.accountRuntimeApplication().RuntimeStatuses(r.Context())
-	if runtimeErr != nil {
-		writeErr(w, http.StatusInternalServerError, "获取账号运行状态失败")
-		return
-	}
-	result := make(map[string]accountapp.RuntimeStatus, len(cookieIDs)) // result 是返回给前端的状态映射。
-	for _, cid := range cookieIDs {                                     // cid 是当前账号 ID。
-		enabled, statusErr := accountSummary.StatusOwned(r.Context(), sess.UserID, cid)
-		if statusErr != nil || !enabled {
-			result[cid] = accountapp.RuntimeStatus{State: "disabled", Message: "账号已停用", UpdatedAt: time.Now()}
-			continue
-		}
-		if status, ok := runtime[cid]; ok { // status 和 ok 表示已记录的运行状态及存在性。
-			result[cid] = status
-			continue
-		}
-		result[cid] = accountapp.RuntimeStatus{State: "error", Message: "账号服务未运行", UpdatedAt: time.Now()}
-	}
-	writeJSON(w, http.StatusOK, result)
 }
 
 // listCookies 列出当前用户的 cookie_id。
@@ -567,8 +540,16 @@ func (s *Server) setCookieStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "更新失败")
 		return
 	}
-	if result.RuntimeError != nil && s.Logger != nil {
-		s.Logger.Error("启停账号运行实例失败", "cookie_id", cid, "err", result.RuntimeError)
+	if result.RuntimeError != nil {
+		if s.Logger != nil {
+			s.Logger.Error("启停账号运行实例失败", "cookie_id", cid, "err", result.RuntimeError)
+		}
+		if errors.Is(result.RuntimeError, accountapp.ErrRuntimeStopConflict) {
+			writeErr(w, http.StatusConflict, "账号运行实例尚未停止，请稍后重试")
+			return
+		}
+		writeErr(w, http.StatusServiceUnavailable, "账号运行实例启动失败，请重试")
+		return
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }

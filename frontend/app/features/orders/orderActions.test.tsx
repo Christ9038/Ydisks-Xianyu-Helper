@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act,renderHook } from '@testing-library/react';
 import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
-import type { Order } from '../../../shared/api-contract/orders';
+import type { Order,OrderRefreshResponse } from '../../../shared/api-contract/orders';
 import { useOrderActions } from './orderActions';
 
 // orderActionMocks 保存订单动作 Hook 测试使用的 API 替身。
@@ -79,6 +79,30 @@ describe('useOrderActions 订单动作协调器', /* 当前回调验证订单动
     await act(/* singleSyncAction 执行失败的单笔同步。 */ async () => hook.result.current.handleSyncSingle('order-1'));
     expect(window.alert).toHaveBeenCalledWith('单笔同步失败');
     expect(hook.result.current.syncingOrderId).toBeNull();
+  });
+
+  test('晚到的旧批量同步结果不会覆盖最新请求的列表刷新和提示', /* 当前回调验证重复点击同步时旧任务响应的代次隔离。 */ async () => {
+    // resolveFirst 保存首次同步 API 适配器的延迟结果完成函数。
+    let resolveFirst: ((value: OrderRefreshResponse) => void) | undefined;
+    // firstCompletion 保存首次同步尚未完成的 API 适配器 Promise。
+    const firstCompletion = new Promise<OrderRefreshResponse>(/* resolve 保存首次同步的结果完成器。 */ resolve => { resolveFirst = resolve; });
+    orderActionMocks.syncOrders.mockImplementationOnce(/* firstSync 模拟较早请求尚未返回。 */ () => firstCompletion)
+      .mockResolvedValueOnce({ message: '最新同步完成' });
+    // actionContext 保存待验证代次隔离的订单动作 Hook。
+    const { hook, loadOrders } = createActionHook();
+
+    // firstTask 启动旧同步但不等待它完成。
+    const firstTask = hook.result.current.handleSync();
+    // secondTask 启动并完成后发起的最新同步。
+    const secondTask = hook.result.current.handleSync();
+    await act(/* completeSecond 完成最新同步并等待它刷新列表。 */ async () => { await secondTask; });
+    expect(loadOrders).toHaveBeenCalledTimes(1);
+    expect(window.alert).toHaveBeenCalledWith('最新同步完成');
+
+    resolveFirst?.({ partial_failure: false, message: '旧同步完成', summary: { discovered: 0, list_updated: 0, soft_deleted: 0, detail_total: 0, total: 0, updated: 0, no_change: 0, failed: 0 }, results: [] });
+    await act(/* completeFirst 放行旧任务；它不能再刷新列表或展示提示。 */ async () => { await firstTask; });
+    expect(loadOrders).toHaveBeenCalledTimes(1);
+    expect(window.alert).not.toHaveBeenCalledWith('旧同步完成');
   });
 
   test('发货结果失败和异常均保留错误结果', /* 当前回调验证订单发货异常分支。 */ async () => {

@@ -53,6 +53,27 @@ type testOrdersTransport struct {
 	services *orderapp.ServiceSet
 }
 
+// testOrderRefreshJobsTransport 将测试组合根订单刷新服务投影为 HTTP Port，并隔离请求 Context 与 worker 生命周期。
+type testOrderRefreshJobsTransport struct {
+	// service 是测试组合根构造的订单刷新任务应用服务。
+	service *orderapp.RefreshJobService
+}
+
+// CreateAndStart 使用请求 Context 完成创建，并使用测试进程 Context 驱动后台 worker。
+func (transport testOrderRefreshJobsTransport) CreateAndStart(requestCtx context.Context, userID int64, cookieID, status string) (orderapp.RefreshJobStartResult, error) {
+	return transport.service.CreateAndStart(requestCtx, context.Background(), userID, cookieID, status)
+}
+
+// GetJob 返回当前用户拥有的订单刷新任务状态。
+func (transport testOrderRefreshJobsTransport) GetJob(ctx context.Context, userID int64, jobID string) (*orderapp.RefreshJob, error) {
+	return transport.service.GetJob(ctx, userID, jobID)
+}
+
+// CancelForUser 取消当前用户拥有的订单刷新任务。
+func (transport testOrderRefreshJobsTransport) CancelForUser(ctx context.Context, userID int64, jobID string) (orderapp.RefreshJobCancelResult, error) {
+	return transport.service.CancelForUser(ctx, userID, jobID)
+}
+
 // RefreshSingle 转发测试的单订单刷新用例。
 func (transport testOrdersTransport) RefreshSingle(ctx context.Context, userID int64, orderID string) (orderapp.SingleRefreshResult, error) {
 	return transport.services.Refresh.RefreshSingle(ctx, userID, orderID)

@@ -96,6 +96,35 @@ type ordersTransport struct {
 	services *orderapp.ServiceSet
 }
 
+// orderRefreshJobsTransport 将订单刷新后台任务的请求边界与进程生命周期边界分离。
+// requestCtx 只用于本次 HTTP 归属校验和任务持久化；lifecycleContext 始终由协调器拥有，确保 worker 不会随请求结束取消。
+type orderRefreshJobsTransport struct {
+	// service 是组合根已经完成构造的订单刷新任务应用服务。
+	service *orderapp.RefreshJobService
+	// lifecycleContext 返回协调器启动后拥有的进程生命周期 Context。
+	lifecycleContext func() context.Context
+}
+
+// CreateAndStart 使用请求 Context 完成同步数据库操作，并使用进程 Context 注册后台 worker。
+func (transport orderRefreshJobsTransport) CreateAndStart(requestCtx context.Context, userID int64, cookieID, status string) (orderapp.RefreshJobStartResult, error) {
+	// lifecycleCtx 是当前进程拥有的后台 worker 生命周期；空函数属于构造错误而非 HTTP 请求错误。
+	lifecycleCtx := context.Context(nil)
+	if transport.lifecycleContext != nil {
+		lifecycleCtx = transport.lifecycleContext()
+	}
+	return transport.service.CreateAndStart(requestCtx, lifecycleCtx, userID, cookieID, status)
+}
+
+// GetJob 读取当前用户拥有的订单刷新任务快照。
+func (transport orderRefreshJobsTransport) GetJob(ctx context.Context, userID int64, jobID string) (*orderapp.RefreshJob, error) {
+	return transport.service.GetJob(ctx, userID, jobID)
+}
+
+// CancelForUser 取消当前用户尚未结束的订单刷新任务。
+func (transport orderRefreshJobsTransport) CancelForUser(ctx context.Context, userID int64, jobID string) (orderapp.RefreshJobCancelResult, error) {
+	return transport.service.CancelForUser(ctx, userID, jobID)
+}
+
 // RefreshSingle 转发单订单刷新用例。
 func (transport ordersTransport) RefreshSingle(ctx context.Context, userID int64, orderID string) (orderapp.SingleRefreshResult, error) {
 	return transport.services.Refresh.RefreshSingle(ctx, userID, orderID)
@@ -173,7 +202,7 @@ func ServerDependencies(services *composition.Services, base HTTPDependencies, s
 	return server.Dependencies{
 		Auth: base.Auth, WebDir: base.WebDir, Addr: base.Addr, Logger: base.Logger, DatabaseHealth: base.DatabaseHealth,
 		Applications: server.NewApplicationPorts(server.ApplicationPortsInput{
-			Orders: ordersTransport{services: ports.Orders}, OrderRefreshJobs: ports.OrderRefreshJobs,
+			Orders: ordersTransport{services: ports.Orders}, OrderRefreshJobs: orderRefreshJobsTransport{service: ports.OrderRefreshJobs, lifecycleContext: services.LifecycleContext},
 			ItemSinglePublish: ports.ItemSinglePublish, ItemBatchPreview: ports.ItemBatchPreview,
 			ItemBatchManagement: ports.ItemBatchManagement, ItemCategoryRecommendation: ports.ItemCategoryRecommendation,
 			ItemBatchPreviewPersistence: ports.ItemBatchPreviewPersistence, ItemBatchLocalPublish: ports.ItemBatchLocalPublish,

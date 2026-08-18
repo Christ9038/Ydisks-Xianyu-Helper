@@ -16,6 +16,19 @@ import { del,get,post,postForm,put,type RequestControlOptions } from '../../../s
 import { collectionFrom,objectFrom } from '../../../shared/http/contract';
 export type * from '../../../shared/api-contract/orders';
 
+/** 订单刷新前端最多轮询约 90 秒，超过该预算必须请求取消后端 worker。 */
+const orderRefreshPollLimit = 180;
+/** 订单刷新取消和终态复查使用独立五秒网络预算，不能复用已超时或已 Abort 的主信号。 */
+const orderRefreshCancelTimeoutMs = 5_000;
+
+/** 订单刷新轮询选项仅控制前端等待行为；不改变后端任务、HTTP 路径或请求体契约。 */
+export interface OrderRefreshPollOptions extends RequestControlOptions {
+  /** pollLimit 是本次前端最多读取任务状态的次数；省略时保持九十秒默认预算。 */
+  pollLimit?: number;
+  /** pollIntervalMs 是两次状态读取之间的等待毫秒数；默认五百毫秒。 */
+  pollIntervalMs?: number;
+}
+
 /** 订单筛选器读取非敏感账号摘要。 */
 export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => get('/api/v1/accounts/details', undefined, options);
 
@@ -96,7 +109,7 @@ export const deleteOrder = async (orderId: string): Promise<OperationResponse> =
 };
 
 // syncOrders 同步订单。
-export const syncOrders = async (cookieId?: string, status?: string, options?: RequestControlOptions): Promise<OrderRefreshResponse> => {
+export const syncOrders = async (cookieId?: string, status?: string, options?: OrderRefreshPollOptions): Promise<OrderRefreshResponse> => {
   // formData 表单数据，用于当前 API 处理流程。
   const formData = new FormData();
   if (cookieId) formData.append('cookie_id', cookieId);
@@ -104,13 +117,15 @@ export const syncOrders = async (cookieId?: string, status?: string, options?: R
 
 	// start 表示后台订单刷新任务创建响应。
 	const start = await postForm<OrderRefreshJobStartResponse>('/api/v1/orders/refresh', formData, options);
-	// cancelOnAbort 在调用方取消轮询时通知服务端停止同一后台任务。
+	// cancelOnAbort 在调用方取消轮询时通知服务端停止同一后台任务；取消命令使用独立信号，主请求已取消也能发出。
 	const cancelOnAbort = () => {
-		void cancelOrderRefreshJob(start.job_id).catch(/* 取消请求失败时忽略网络错误，主请求仍按取消语义结束。 */ () => undefined);
+		void cancelOrderRefreshJob(start.job_id, { timeoutMs: orderRefreshCancelTimeoutMs }).catch(/* 取消请求失败时忽略网络错误，主请求仍按取消语义结束。 */ () => undefined);
 	};
 	options?.signal?.addEventListener('abort', cancelOnAbort, { once: true });
 	// pollLimit 限制前端等待后台任务的轮询次数。
-	const pollLimit = 180;
+	const pollLimit = options?.pollLimit ?? orderRefreshPollLimit;
+	// pollIntervalMs 是本次状态查询之间的等待时长，测试可缩短它验证超时取消而不改变默认产品体验。
+	const pollIntervalMs = options?.pollIntervalMs ?? 500;
 	// pollIndex 表示当前订单刷新任务状态轮询次数。
 	let pollIndex = 0;
 	try {
@@ -124,7 +139,7 @@ export const syncOrders = async (cookieId?: string, status?: string, options?: R
 			throw new Error(job.error_message || '订单刷新任务失败');
 		}
 		// waitMs 是下一次任务状态轮询前的等待时间。
-		const waitMs = 500;
+			const waitMs = pollIntervalMs;
 		await new Promise<void>(/* 轮询等待器负责等待下一次任务状态查询。 */ (resolve, reject) => {
 			// abort 负责响应调用方取消轮询。
 			const abort = () => {
@@ -145,12 +160,30 @@ export const syncOrders = async (cookieId?: string, status?: string, options?: R
 	} finally {
 		options?.signal?.removeEventListener('abort', cancelOnAbort);
 	}
-	throw new Error('订单刷新任务等待超时');
+	// finalJob 保存取消命令与终态竞争后的最终任务状态；成功或失败终态优先于“等待超时”展示。
+	const finalJob = await cancelAndReadOrderRefreshJob(start.job_id);
+	if (finalJob.status === 'succeeded' && finalJob.result) {
+		return finalJob.result;
+	}
+	if (finalJob.status === 'failed') {
+		throw new Error(finalJob.error_message || '订单刷新任务失败');
+	}
+	throw new Error('订单刷新任务等待超时，已请求取消');
+};
+
+/** 取消订单刷新任务后读取一次独立终态，解决取消响应和 worker 完成响应同时到达的竞态。 */
+const cancelAndReadOrderRefreshJob = async (jobId: string): Promise<OrderRefreshJobStatusResponse> => {
+	try {
+		await cancelOrderRefreshJob(jobId, { timeoutMs: orderRefreshCancelTimeoutMs });
+	} catch {
+		// 取消返回冲突或网络错误时仍读取终态：任务可能已经在取消命令到达前结束。
+	}
+	return get<OrderRefreshJobStatusResponse>(`/api/v1/orders/refresh/${jobId}`, undefined, { timeoutMs: orderRefreshCancelTimeoutMs });
 };
 
 // cancelOrderRefreshJob 请求取消当前用户的订单刷新后台任务。
-export const cancelOrderRefreshJob = async (jobId: string): Promise<OrderRefreshJobCancelResponse> => {
-	return del(`/api/v1/orders/refresh/${jobId}`);
+export const cancelOrderRefreshJob = async (jobId: string, options?: RequestControlOptions): Promise<OrderRefreshJobCancelResponse> => {
+	return del(`/api/v1/orders/refresh/${jobId}`, undefined, options);
 };
 
 // syncSingleOrder 同步单个订单。

@@ -86,7 +86,7 @@ export interface AccountDetail {
   /** 资料刷新失败时的说明。 */
   profile_error?: string;
   /** 当前账号运行状态。 */
-  runtime_state?: 'starting' | 'connecting' | 'online' | 'reconnecting' | 'auth_expired' | 'verification_required' | 'error' | 'stopped' | 'disabled';
+  runtime_state?: 'starting' | 'connecting' | 'online' | 'reconnecting' | 'auth_expired' | 'verification_required' | 'runtime_conflict' | 'error' | 'stopped' | 'disabled';
   /** 当前运行状态的用户可见说明。 */
   runtime_message?: string;
   /** 当前运行实例是否已连接。 */

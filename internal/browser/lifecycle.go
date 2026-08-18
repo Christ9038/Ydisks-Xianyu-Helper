@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -191,8 +192,11 @@ type Manager struct {
 	browserFingerprint xianyu.BrowserFingerprint
 	userAgentMetadata  map[string]any
 
-	once      sync.Once
-	initErr   error
+	// initMu 串行化 Playwright 安装、启动和指纹探测；初始化阶段不与 Close 并发发布半成品资源。
+	initMu sync.Mutex
+	// initErr 保存不可恢复的安装或启动错误；调用方取消不会写入该字段，以便后续重试。
+	initErr error
+	// installed 表示 Playwright 与运行时指纹均已完整发布。
 	installed bool
 
 	mu      sync.Mutex
@@ -206,8 +210,12 @@ type Manager struct {
 	renewSlots chan struct{}
 
 	// 允许测试注入自定义 playwright / 安装函数。
-	installFn func() error
-	runFn     func() (*playwright.Playwright, error)
+	// installFn 执行可观察的 runtime 安装阶段；实现必须在开始和返回前尊重 Context。
+	installFn func(context.Context) error
+	// runFn 执行可观察的 Playwright 启动阶段；实现必须在开始和返回前尊重 Context。
+	runFn func(context.Context) (*playwright.Playwright, error)
+	// fingerprintFn 读取已启动 Chromium 的指纹；测试可注入失败，验证半成品资源不会发布。
+	fingerprintFn func() error
 
 	// 仅用于隔离 token 风控引擎编排测试；生产环境为 nil，调用真实实现。
 	tokenCaptchaPrimaryFn  tokenCaptchaEngineFunc
@@ -237,11 +245,15 @@ func NewManager(logger *slog.Logger) *Manager {
 		idleTTL:    5 * time.Minute,
 		renewLocks: make(map[string]*sync.Mutex),
 		renewSlots: make(chan struct{}, 3),
-		installFn: func() error {
+		installFn: func(ctx context.Context) error {
+			// err 保存安装阶段开始前已取消的调用方 Context 错误。
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if packagedPlaywrightRuntimeReady() {
 				return nil
 			}
-			// opts 用于本次流程后续判断的opts
+			// opts 保存开发环境安装 driver 和 Chromium 所需的固定运行参数。
 			opts := &playwright.RunOptions{
 				Browsers: []string{"chromium"},
 				Verbose:  false,
@@ -249,14 +261,110 @@ func NewManager(logger *slog.Logger) *Manager {
 			if skipPlaywrightBrowserDownload() {
 				opts.SkipInstallBrowsers = true
 			}
-			return playwright.Install(opts)
+			// installErr 保存可取消安装流程的错误；浏览器 CLI 必须由 Context 控制，不能包装为不可观察后台 goroutine。
+			installErr := installPlaywrightRuntime(ctx, opts)
+			// contextErr 保存安装完成后才观察到的取消错误，禁止发布已无主的安装结果。
+			if contextErr := ctx.Err(); contextErr != nil {
+				return contextErr
+			}
+			return installErr
 		},
-		runFn: func() (*playwright.Playwright, error) {
-			return playwright.Run()
+		runFn: func(ctx context.Context) (*playwright.Playwright, error) {
+			// err 保存启动阶段开始前已取消的调用方 Context 错误。
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			// pw、runErr 保存同步启动的 Playwright 进程及启动错误；已取消时调用方负责停止新进程。
+			pw, runErr := playwright.Run()
+			// contextErr 保存启动完成后才观察到的取消错误，必须同步停止半成品进程。
+			if contextErr := ctx.Err(); contextErr != nil {
+				if pw != nil {
+					_ = pw.Stop()
+				}
+				return nil, contextErr
+			}
+			return pw, runErr
 		},
+		fingerprintFn: nil,
 	}
+	manager.fingerprintFn = manager.detectBrowserFingerprint
 	manager.lifecycleCond = sync.NewCond(&manager.lifecycleMu)
 	return manager
+}
+
+// installPlaywrightRuntime 下载缺失 driver，并用 Context 控制 Node CLI 安装 Chromium；包内 runtime 已就绪时调用方不会进入此路径。
+func installPlaywrightRuntime(ctx context.Context, options *playwright.RunOptions) error {
+	if ctx == nil {
+		return errors.New("安装 Playwright runtime 需要 Context")
+	}
+	// err 保存安装前调用方已经取消的 Context 错误。
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// installer、args 保存可被 Context 终止的 browser-install 子进程及其参数。
+	installer, args, installerErr := browserInstallerCommand(options)
+	if installerErr != nil {
+		return installerErr
+	}
+	// controlledCommand 是由初始化 Context 取消的完整 runtime 安装子进程，覆盖 driver、Node 和 Chromium 下载。
+	controlledCommand := exec.CommandContext(ctx, installer, args...)
+	// installErr 保存独立安装器及其子进程树的退出错误；Context 取消时由 os/exec 终止安装器。
+	installErr := controlledCommand.Run()
+	// contextErr 保存 CLI 返回后观察到的取消错误，取消语义优先于子进程退出错误。
+	if contextErr := ctx.Err(); contextErr != nil {
+		return contextErr
+	}
+	return installErr
+}
+
+// browserInstallerCommand 查找可取消的 browser-install 命令；优先使用部署提供的可执行文件和同目录打包助手，开发源码树最后通过 go run 调用同一入口。
+func browserInstallerCommand(options *playwright.RunOptions) (string, []string, error) {
+	if options == nil {
+		return "", nil, errors.New("安装 Playwright runtime 缺少运行参数")
+	}
+	// driverOnly 控制是否只准备 driver；跳过浏览器下载时不能让子进程误下载 Chromium。
+	args := []string{"-driver-dir", options.DriverDirectory}
+	if options.SkipInstallBrowsers {
+		args = append(args, "-driver-only")
+	}
+	// configured 是部署显式指定的独立安装器路径，必须是可被 Context 直接终止的单一进程入口。
+	if configured := strings.TrimSpace(os.Getenv("PLAYWRIGHT_BROWSER_INSTALLER")); configured != "" {
+		return configured, args, nil
+	}
+	// executable 保存当前服务可执行文件路径；打包目录约定 browser-install 与服务二进制同目录。
+	if executable, err := os.Executable(); err == nil {
+		// candidate 是与服务二进制同目录的打包安装器路径。
+		candidate := filepath.Join(filepath.Dir(executable), "browser-install")
+		if runtime.GOOS == "windows" {
+			candidate += ".exe"
+		}
+		// statErr 表示候选安装器不存在或不可访问时的文件检查错误。
+		if _, statErr := os.Stat(candidate); statErr == nil {
+			return candidate, args, nil
+		}
+	}
+	// sourceFile 保存当前编译单元的源码路径；开发模式依赖它定位模块内唯一的安装器入口。
+	_, sourceFile, _, callerOK := runtime.Caller(0)
+	if callerOK {
+		// moduleRoot 是从 internal/browser/lifecycle.go 回退两级得到的 Go 模块根目录。
+		moduleRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
+		// installerSource 是开发源码树中的安装器 main 包，必须与运行中库版本一致。
+		installerSource := filepath.Join(moduleRoot, "cmd", "browser-install")
+		// moduleFileErr、installerErr 分别验证模块声明和安装器源码存在，避免把任意工作目录交给 go run。
+		_, moduleFileErr := os.Stat(filepath.Join(moduleRoot, "go.mod"))
+		// installerErr 表示源码安装器入口是否存在；缺失时继续尝试其他部署方式并返回可诊断错误。
+		_, installerErr := os.Stat(filepath.Join(installerSource, "main.go"))
+		if moduleFileErr == nil && installerErr == nil {
+			// goCommand 是当前开发工具链的绝对路径；找不到时保留清晰的部署错误，而不是启动无法管理的下载 goroutine。
+			goCommand, goErr := exec.LookPath("go")
+			if goErr == nil {
+				// sourceArgs 强制 Go 工具链在模块根解析依赖，测试或调用方切换工作目录时仍把双横线后的参数交给安装器。
+				sourceArgs := append([]string{"-C", moduleRoot, "run", installerSource, "--"}, args...)
+				return goCommand, sourceArgs, nil
+			}
+		}
+	}
+	return "", nil, errors.New("找不到可取消的 browser-install 安装器，请配置 PLAYWRIGHT_BROWSER_INSTALLER、同目录安装器或在源码开发环境中提供 Go 工具链")
 }
 
 // beginOperation 登记一个可能持有 Chromium 实例的调用；关闭开始后拒绝新调用。
@@ -266,6 +374,7 @@ func (m *Manager) beginOperation(ctx context.Context) error {
 		return errors.New("浏览器操作需要调用方 Context")
 	}
 	// err 表示调用方 Context 已取消，管理器不会为已取消调用登记活动任务。
+	// err 保存进入初始化前已取消的 Context 错误。
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -328,32 +437,94 @@ func (m *Manager) acquireRenewSlot(ctx context.Context) (func(), error) {
 	}
 }
 
-// init 懒加载 playwright（首次调用时下载 driver + chromium）。
+// init 为未传递 Context 的既有浏览器调用提供有限预算；冻结验证码调用链继续使用该兼容入口。
 func (m *Manager) init() error {
-	m.once.Do(func() {
-		if // err 用于本次流程后续判断的err
-		err := m.installFn(); err != nil {
-			m.initErr = fmt.Errorf("安装 playwright/chromium 失败（缺系统依赖时需手动执行 playwright install --with-deps）: %w", err)
-			return
+	// initCtx、initCancel 为兼容调用提供有限初始化预算；新生命周期入口必须使用 initContext。
+	initCtx, initCancel := context.WithTimeout(context.Background(), legacyLifecycleOperationTimeout)
+	defer initCancel()
+	return m.initContext(initCtx)
+}
+
+// initContext 串行完成安装、启动和指纹探测；取消或探测失败会释放已经启动的 Playwright，允许后续重试。
+func (m *Manager) initContext(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("初始化浏览器需要 Context")
+	}
+	// err 保存获得初始化互斥锁后观察到的取消错误。
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.initMu.Lock()
+	defer m.initMu.Unlock()
+	if m.installed {
+		return nil
+	}
+	if m.initErr != nil {
+		return m.initErr
+	}
+	// err 保存获得初始化互斥锁后观察到的取消错误。
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// err 保存可观察安装阶段的错误。
+	if err := m.installFn(ctx); err != nil {
+		// contextErr 保存安装返回后观察到的取消错误，取消不应污染可重试初始化状态。
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
 		}
-		// pw、err 用于本次流程后续判断的pw、err
-		pw, err := m.runFn()
-		if err != nil {
-			m.initErr = fmt.Errorf("启动 playwright 失败: %w", err)
-			return
+		m.initErr = fmt.Errorf("安装 playwright/chromium 失败（缺系统依赖时需手动执行 playwright install --with-deps）: %w", err)
+		return m.initErr
+	}
+	// err 保存安装完成后、启动 Playwright 前观察到的取消错误。
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// pw、runErr 保存 Playwright 启动结果；任何后续失败都必须同步停止该进程。
+	pw, runErr := m.runFn(ctx)
+	if runErr != nil {
+		// contextErr 保存启动阶段返回时的取消错误，优先于基础设施启动错误返回。
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
 		}
-		m.pw = pw
-		if // err 用于本次流程后续判断的err
-		err := m.detectBrowserFingerprint(); err != nil {
-			m.initErr = fmt.Errorf("读取 Playwright Chromium 原生指纹失败: %w", err)
+		m.initErr = fmt.Errorf("启动 playwright 失败: %w", runErr)
+		return m.initErr
+	}
+	// err 保存 Playwright 启动后、发布实例前观察到的取消错误。
+	if err := ctx.Err(); err != nil {
+		if pw != nil {
 			_ = pw.Stop()
-			m.pw = nil
-			return
 		}
-		m.installed = true
-		m.logger.Info("playwright chromium 就绪")
-	})
-	return m.initErr
+		return err
+	}
+	m.pw = pw
+	// err 保存 Chromium 指纹探测错误；失败时必须释放刚启动的 Playwright。
+	// fingerprintFn 保存生产探测函数；零值测试 Manager 没有注入时回退到真实实现。
+	fingerprintFn := m.fingerprintFn
+	if fingerprintFn == nil {
+		fingerprintFn = m.detectBrowserFingerprint
+	}
+	// err 保存 Chromium 指纹探测失败原因，失败时必须释放尚未发布的 Playwright。
+	if err := fingerprintFn(); err != nil {
+		if pw != nil {
+			_ = pw.Stop()
+		}
+		m.pw = nil
+		// contextErr 保存探测失败同时观察到的取消错误，取消语义优先于探测诊断。
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
+		}
+		m.initErr = fmt.Errorf("读取 Playwright Chromium 原生指纹失败: %w", err)
+		return m.initErr
+	}
+	// err 保存指纹探测后、最终发布前观察到的取消错误。
+	if err := ctx.Err(); err != nil {
+		_ = pw.Stop()
+		m.pw = nil
+		return err
+	}
+	m.installed = true
+	m.logger.Info("playwright chromium 就绪")
+	return nil
 }
 
 // Initialize 为兼容旧调用方在受限 Context 内启动 Playwright。
@@ -371,7 +542,7 @@ func (m *Manager) InitializeContext(ctx context.Context) error {
 		return err
 	}
 	defer m.endOperation()
-	return m.init()
+	return m.initContext(ctx)
 }
 
 // detectBrowserFingerprint 封装detect浏览器Fingerprint业务协调。

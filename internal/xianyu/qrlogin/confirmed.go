@@ -34,13 +34,10 @@ func (m *Manager) handleConfirmedQRStatus(ctx context.Context, sess *Session, se
 			cookieCount := len(sess.cookies)
 			sess.mu.Unlock()
 			m.logger.Warn("扫码登录需要风控验证，使用 Go HTTP 保持原登录会话", "session_id", sessionID, "verification_url", logsafe.URL(verURL), "tmp_cookie_count", cookieCount)
-			// #nosec G118 -- 验证必须跨越轮询请求，且由独立五分钟上下文保证退出。
-			go func() {
-				// verifyCtx、cancel 用于本次流程后续判断的verifyCtx、cancel
-				verifyCtx, cancel := context.WithTimeout(context.Background(), expireTime)
-				defer cancel()
+			// 人脸验证任务沿用会话根 Context，由 Manager 统一取消和等待，不能脱离进程生命周期。
+			_ = m.startSessionTask(sessionID, expireTime, func(verifyCtx context.Context) {
 				m.runGoVerification(verifyCtx, sessionID, verURL)
-			}()
+			})
 		} else {
 			sess.mu.Unlock()
 		}

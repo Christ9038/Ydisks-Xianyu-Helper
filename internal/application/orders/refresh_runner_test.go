@@ -368,6 +368,71 @@ func TestRefreshJobRunnerRecovery(t *testing.T) {
 	}
 }
 
+// TestRefreshJobRunnerRecoversAfterLifecycleCancellation 验证进程取消导致终态无法写入后，过期租约会在后续恢复扫描中重新接管。
+func TestRefreshJobRunnerRecoversAfterLifecycleCancellation(t *testing.T) {
+	// fixedNow 是首次取消和后续恢复扫描共享的确定性时钟。
+	fixedNow := time.Date(2026, 8, 19, 9, 0, 0, 0, time.UTC)
+	// repository 保存终态写入失败及后续恢复队列的测试配置。
+	repository := completeAppliedRepository()
+	repository.completeErr = context.Canceled
+	repository.jobs = []RefreshJob{{ID: "job-recover-after-cancel", UserID: 7, CookieID: "cookie-7"}}
+	// refresher 等待进程 Context 取消后返回，使失败终态沿用已取消 Context。
+	refresher := &refreshRunnerTestRefresher{waitForCancel: true}
+	// runner、runnerErr 保存具有固定租约和令牌的任务运行器。
+	runner, runnerErr := NewRefreshJobRunner(repository, refresher, RefreshJobRunnerOptions{Now: func() time.Time { return fixedNow }, NewToken: func() string { return "recovered-token" }})
+	if runnerErr != nil {
+		t.Fatalf("构造运行器失败: %v", runnerErr)
+	}
+	// lifecycleCtx、cancelLifecycle 模拟进程关闭取消。
+	lifecycleCtx, cancelLifecycle := context.WithCancel(context.Background())
+	// startErr 保存初始 worker 启动结果。
+	startErr := runner.StartJob(lifecycleCtx, &RefreshJob{ID: "job-recover-after-cancel", UserID: 7, CookieID: "cookie-7"}, "cancelled-token")
+	if startErr != nil {
+		t.Fatalf("启动取消 worker 失败: %v", startErr)
+	}
+	cancelLifecycle()
+	// workerDone 等待取消 worker 清理内存登记；不能调用 Close，否则运行器会拒绝后续恢复 worker。
+	workerDone := make(chan struct{})
+	go func() {
+		runner.Wait()
+		close(workerDone)
+	}()
+	select {
+	case <-workerDone:
+	case <-time.After(time.Second):
+		t.Fatal("取消 worker 未退出")
+	}
+	repository.mu.Lock()
+	// completionCalls 保存进程取消时失败的终态写入记录。
+	completionCalls := append([]refreshRunnerCompleteCall(nil), repository.completeCalls...)
+	repository.completeErr = nil
+	repository.mu.Unlock()
+	if len(completionCalls) == 0 || completionCalls[0].jobID != "job-recover-after-cancel" {
+		t.Fatalf("取消后未尝试终态写入: %+v", completionCalls)
+	}
+	// recoveryErr 保存新的可用生命周期下恢复扫描的结果。
+	recoveryErr := runner.RunRecovery(context.Background())
+	if recoveryErr != nil {
+		t.Fatalf("恢复扫描失败: %v", recoveryErr)
+	}
+	// recoveryCloseCtx、cancelRecoveryClose 等待恢复 worker 完成。
+	recoveryCloseCtx, cancelRecoveryClose := context.WithTimeout(context.Background(), time.Second)
+	defer cancelRecoveryClose()
+	// closeErr 保存恢复 worker 结束后的关闭结果。
+	if closeErr := runner.Close(recoveryCloseCtx); closeErr != nil {
+		t.Fatalf("关闭恢复 worker 失败: %v", closeErr)
+	}
+	repository.mu.Lock()
+	// requeues 保存恢复扫描对过期任务的重新入队记录；claims 保存恢复 worker 获得的新租约记录。
+	requeues := append([]string(nil), repository.requeueCalls...)
+	// claims 是断言恢复 worker 使用新令牌的租约快照。
+	claims := append([]refreshRunnerClaimCall(nil), repository.claimCalls...)
+	repository.mu.Unlock()
+	if len(requeues) != 1 || requeues[0] != "job-recover-after-cancel" || len(claims) != 1 || claims[0].token != "recovered-token" {
+		t.Fatalf("取消后的恢复接管不正确: requeues=%v claims=%+v", requeues, claims)
+	}
+}
+
 // TestRefreshJobRunnerRecoveryError 验证恢复仓储错误直接返回，便于生命周期层观测并决定下一轮重试。
 func TestRefreshJobRunnerRecoveryError(t *testing.T) {
 	// scanErr 是恢复扫描仓储返回的错误。

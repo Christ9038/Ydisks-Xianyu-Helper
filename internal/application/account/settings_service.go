@@ -3,6 +3,15 @@ package account
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
+)
+
+var (
+	// ErrRuntimeStopConflict 表示账号实例未能在关闭预算内完全停止，持久化状态保持可重试。
+	ErrRuntimeStopConflict = errors.New("账号运行实例尚未停止")
+	// ErrRuntimeStartUnavailable 表示账号已写入启用或新 Cookie，但运行实例未能达到可运行状态。
+	ErrRuntimeStartUnavailable = errors.New("账号运行实例未能启动")
 )
 
 // SettingsUpdateInput 是账号编辑用例的输入；Password 为 nil 时保留数据库中的既有密码。
@@ -93,8 +102,12 @@ type SettingsRepository interface {
 type SettingsRuntime interface {
 	// Restart 在账号启用且 Cookie 变化后重新加载运行实例。
 	Restart(context.Context, string) error
-	// Stop 在账号停用后停止运行实例。
-	Stop(string)
+	// BeginStopping 建立账号停止 fencing，阻止其他运行时入口在停用转换期间启动实例。
+	BeginStopping(string) bool
+	// EndStopping 在状态转换结束后释放账号停止 fencing。
+	EndStopping(string)
+	// StopContext 在调用方关闭预算内停止账号实例，并等待其完全退出。
+	StopContext(context.Context, string) error
 }
 
 // SettingsService 编排账号设置、登录信息、状态和暂停用例，不依赖 HTTP 或数据库模型。
@@ -103,6 +116,10 @@ type SettingsService struct {
 	repository SettingsRepository
 	// runtime 提供可选的账号运行实例控制能力。
 	runtime SettingsRuntime
+	// transitionMu 保护 transitionLocks 映射；每把锁串行化一个账号的启用、停用和重启状态转换。
+	transitionMu sync.Mutex
+	// transitionLocks 保存按账号分配的状态转换锁；锁不跨账号共享，也不在持锁时持有凭证锁。
+	transitionLocks map[string]*sync.Mutex
 }
 
 // NewSettingsService 构造账号设置应用服务并校验必需的持久化端口。
@@ -110,10 +127,23 @@ func NewSettingsService(repository SettingsRepository, runtime SettingsRuntime) 
 	if repository == nil {
 		return nil, errors.New("账号设置 repository 未初始化")
 	}
-	return &SettingsService{repository: repository, runtime: runtime}, nil
+	return &SettingsService{repository: repository, runtime: runtime, transitionLocks: make(map[string]*sync.Mutex)}, nil
 }
 
-// UpdateSettings 原子保存账号设置；Cookie 变化后的运行时重启在释放凭证锁后执行。
+// transitionLock 返回指定账号唯一的状态转换锁，用于避免启用、停用和 Cookie 重启相互覆盖。
+func (s *SettingsService) transitionLock(accountID string) *sync.Mutex {
+	s.transitionMu.Lock()
+	defer s.transitionMu.Unlock()
+	// lock 保存当前账号的转换锁；首次使用时创建，之后在服务生命周期内复用。
+	lock := s.transitionLocks[accountID]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		s.transitionLocks[accountID] = lock
+	}
+	return lock
+}
+
+// UpdateSettings 原子保存账号设置；Cookie、metadata 和旧 Token 在同一凭证锁内完成，运行时重启在锁外串行执行。
 func (s *SettingsService) UpdateSettings(ctx context.Context, input SettingsUpdateInput) (SettingsResult, error) {
 	if s == nil || s.repository == nil {
 		return SettingsResult{}, errors.New("账号设置服务未初始化")
@@ -121,12 +151,12 @@ func (s *SettingsService) UpdateSettings(ctx context.Context, input SettingsUpda
 	if input.AccountID == "" {
 		return SettingsResult{}, errors.New("缺少账号 ID")
 	}
-	// unlock 负责释放本次账号设置写入的凭证锁。
+	// unlock 负责释放本次账号设置写入的凭证锁，锁覆盖 Cookie、metadata 和旧 Token 的完整替换。
 	unlock := s.repository.LockCredentials(input.AccountID)
 	// pausedUntil、updateErr 保存设置事务返回的暂停截止时间和错误。
 	pausedUntil, updateErr := s.repository.UpdateSettings(ctx, input)
-	unlock()
 	if updateErr != nil {
+		unlock()
 		return SettingsResult{}, updateErr
 	}
 	// result 保存设置写入及后续运行时处理结果。
@@ -136,14 +166,34 @@ func (s *SettingsService) UpdateSettings(ctx context.Context, input SettingsUpda
 		tokenErr := s.repository.ClearTokens(ctx, input.AccountID)
 		result.TokenCleanupError = tokenErr
 	}
+	// Cookie、metadata 与旧 Token 都已完成转换后才释放锁；后续运行时 I/O 不得占用该锁。
+	unlock()
 	if input.Cookie != nil && s.runtime != nil {
 		// enabled 表示写入成功后账号的最新启用状态；状态读取失败不覆盖已成功的设置写入。
 		enabled, statusErr := s.repository.StatusOwned(ctx, input.UserID, input.AccountID)
 		if statusErr == nil && enabled {
-			result.RuntimeError = s.runtime.Restart(ctx, input.AccountID)
+			// lock 串行化 Cookie 重启与同账号启停，避免已更新 Cookie 的实例被并发停用或替换。
+			lock := s.transitionLock(input.AccountID)
+			lock.Lock()
+			// restartErr 保存锁外运行时重启错误；Cookie 主写入仍保留，但数据库必须补偿为停用避免状态失真。
+			restartErr := s.runtime.Restart(ctx, input.AccountID)
+			if restartErr != nil {
+				// compensationErr 保存重启失败后写回停用状态的错误；两个错误共同决定调用方是否需要人工恢复。
+				compensationErr := s.setStatusLocked(ctx, input.UserID, input.AccountID, false, "runtime_restart_failed")
+				result.RuntimeError = fmt.Errorf("%w: %v", ErrRuntimeStartUnavailable, errors.Join(restartErr, compensationErr))
+			}
+			lock.Unlock()
 		}
 	}
 	return result, nil
+}
+
+// setStatusLocked 在短凭证锁内写入账号启用状态；调用方不得在持有该锁时执行运行时或平台 I/O。
+func (s *SettingsService) setStatusLocked(ctx context.Context, userID int64, accountID string, enabled bool, reason string) error {
+	// unlock 仅保护持久化状态更新与相关敏感元数据一致性，不跨越运行时关闭或启动。
+	unlock := s.repository.LockCredentials(accountID)
+	defer unlock()
+	return s.repository.SetStatusOwned(ctx, userID, accountID, enabled, reason)
 }
 
 // UpdateLoginInfo 保存账号用户名、密码和浏览器显示设置；既有密码不会被应用层读取。
@@ -160,7 +210,7 @@ func (s *SettingsService) UpdateLoginInfo(ctx context.Context, input LoginInfoUp
 	return s.repository.UpdateLoginInfo(ctx, input)
 }
 
-// SetStatus 更新账号启用状态并在持久化成功后控制运行实例。
+// SetStatus 同步完成账号持久化状态与运行实例转换；失败会保留可重试状态而不是伪造成功。
 func (s *SettingsService) SetStatus(ctx context.Context, userID int64, accountID string, enabled bool) (StatusResult, error) {
 	if s == nil || s.repository == nil {
 		return StatusResult{}, errors.New("账号设置服务未初始化")
@@ -168,27 +218,43 @@ func (s *SettingsService) SetStatus(ctx context.Context, userID int64, accountID
 	if accountID == "" {
 		return StatusResult{}, errors.New("缺少账号 ID")
 	}
-	// reason 由应用层统一产生，避免 HTTP 层决定持久化状态原因。
-	reason := ""
+	// lock 串行化同一账号的启用、停用和 Cookie 重启，锁顺序始终先转换锁、后短凭证锁。
+	lock := s.transitionLock(accountID)
+	lock.Lock()
+	defer lock.Unlock()
+	// result 保存持久化状态完成后运行时收束或启动失败的显式结果。
+	result := StatusResult{}
 	if !enabled {
-		reason = "manual"
+		if s.runtime != nil {
+			if !s.runtime.BeginStopping(accountID) {
+				result.RuntimeError = ErrRuntimeStopConflict
+				return result, nil
+			}
+			defer s.runtime.EndStopping(accountID)
+			// stopErr 保存关闭预算内无法完全停止旧实例的原因；此时禁止写数据库停用状态。
+			if stopErr := s.runtime.StopContext(ctx, accountID); stopErr != nil {
+				result.RuntimeError = fmt.Errorf("%w: %v", ErrRuntimeStopConflict, stopErr)
+				return result, nil
+			}
+		}
+		// statusErr 保存停止完成后写入数据库停用状态的错误。
+		if statusErr := s.setStatusLocked(ctx, userID, accountID, false, "manual"); statusErr != nil {
+			return StatusResult{}, statusErr
+		}
+		return result, nil
 	}
-	// unlock 负责释放账号状态写入期间持有的凭证锁。
-	unlock := s.repository.LockCredentials(accountID)
-	// statusErr 保存账号状态持久化错误。
-	statusErr := s.repository.SetStatusOwned(ctx, userID, accountID, enabled, reason)
-	unlock()
-	if statusErr != nil {
+	// statusErr 保存写入数据库启用状态的错误；写入失败时不得启动运行实例。
+	if statusErr := s.setStatusLocked(ctx, userID, accountID, true, ""); statusErr != nil {
 		return StatusResult{}, statusErr
 	}
-	// result 保存状态写入后运行时启停的结果。
-	result := StatusResult{}
-	if s.runtime != nil {
-		if enabled {
-			result.RuntimeError = s.runtime.Restart(ctx, accountID)
-		} else {
-			s.runtime.Stop(accountID)
-		}
+	if s.runtime == nil {
+		return result, nil
+	}
+	// restartErr 保存启用后实例未能启动的原因；补偿为停用使持久化与运行时状态不再矛盾。
+	if restartErr := s.runtime.Restart(ctx, accountID); restartErr != nil {
+		// compensationErr 保存补偿写入失败；错误仍返回给 HTTP 层，避免伪造启用成功。
+		compensationErr := s.setStatusLocked(ctx, userID, accountID, false, "runtime_start_failed")
+		result.RuntimeError = fmt.Errorf("%w: %v", ErrRuntimeStartUnavailable, errors.Join(restartErr, compensationErr))
 	}
 	return result, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -88,6 +89,166 @@ func TestManagerCloseContextWithoutOperations(t *testing.T) {
 	// err 表示已关闭管理器重复调用 Close 的结果。
 	if err := manager.Close(); err != nil {
 		t.Fatalf("Close 重复调用失败: %v", err)
+	}
+}
+
+// TestInitializeContextRejectsCancelledContext 验证初始化在启动安装阶段前就会传播调用方取消。
+func TestInitializeContextRejectsCancelledContext(t *testing.T) {
+	// manager 保存尚未启动 Chromium 的浏览器管理器。
+	manager := NewManager(nil)
+	// initializeCtx、cancel 分别是已取消的初始化 Context 及其取消函数。
+	initializeCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	// initErr 保存已取消初始化返回的错误；不得触发 Playwright 安装或启动。
+	initErr := manager.InitializeContext(initializeCtx)
+	if !errors.Is(initErr, context.Canceled) {
+		t.Fatalf("已取消初始化应返回 Context 错误: %v", initErr)
+	}
+}
+
+// TestInitializeContextCancelsAfterInstall 验证安装阶段结束时收到取消会阻止 Playwright 启动并允许后续关闭。
+func TestInitializeContextCancelsAfterInstall(t *testing.T) {
+	// manager 保存可注入安装回调的浏览器管理器。
+	manager := NewManager(nil)
+	// initializeCtx、cancel 分别控制安装阶段完成后的初始化取消。
+	initializeCtx, cancel := context.WithCancel(context.Background())
+	// installCalled 记录测试安装回调是否已执行。
+	installCalled := false
+	manager.installFn = func(context.Context) error {
+		installCalled = true
+		cancel()
+		return nil
+	}
+	manager.runFn = func(context.Context) (*playwright.Playwright, error) {
+		t.Fatal("安装后取消不应启动 Playwright")
+		return nil, nil
+	}
+	// initErr 保存安装阶段取消传播的结果。
+	initErr := manager.InitializeContext(initializeCtx)
+	if !installCalled || !errors.Is(initErr, context.Canceled) {
+		t.Fatalf("安装阶段取消未传播: called=%v err=%v", installCalled, initErr)
+	}
+	// closeErr 验证初始化取消后 CloseContext 仍可幂等完成。
+	closeErr := manager.CloseContext(context.Background())
+	if closeErr != nil {
+		t.Fatalf("初始化取消后关闭失败: %v", closeErr)
+	}
+}
+
+// TestInstallPlaywrightRuntimeCancelsInstaller 验证完整 runtime 安装由 Context 控制的独立进程执行，取消后不会继续后台下载。
+func TestInstallPlaywrightRuntimeCancelsInstaller(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows 使用不同的脚本启动语义，本机 Unix 受控子进程已覆盖")
+	}
+	// installer 保存模拟长期下载的独立安装器；exec 取代 shell 后只保留一个可终止 sleep 进程。
+	installer := filepath.Join(t.TempDir(), "browser-install")
+	// writeErr 保存写入模拟安装器脚本时的文件系统错误。
+	if writeErr := os.WriteFile(installer, []byte("#!/bin/sh\nexec sleep 60\n"), 0o755); writeErr != nil {
+		t.Fatalf("写入测试安装器失败: %v", writeErr)
+	}
+	t.Setenv("PLAYWRIGHT_BROWSER_INSTALLER", installer)
+	// installCtx、cancel 为安装子进程提供很短的关闭预算。
+	installCtx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	// installErr 保存安装器被 Context 终止后的错误；必须是取消而不是等待六十秒。
+	installErr := installPlaywrightRuntime(installCtx, &playwright.RunOptions{DriverDirectory: t.TempDir()})
+	if !errors.Is(installErr, context.DeadlineExceeded) {
+		t.Fatalf("安装器取消错误=%v，want DeadlineExceeded", installErr)
+	}
+}
+
+// TestBrowserInstallerCommandUsesControlledSourceFallback 验证源码开发环境未部署二进制安装器时，仍会选择可被 Context 终止的同一安装入口。
+func TestBrowserInstallerCommandUsesControlledSourceFallback(t *testing.T) {
+	// 无显式安装器时测试二进制同目录不存在 browser-install，解析器必须退回源码入口。
+	t.Setenv("PLAYWRIGHT_BROWSER_INSTALLER", "")
+	// driverDir 保存测试专用 Playwright driver 目录，用于验证参数会无损传入独立安装器。
+	driverDir := t.TempDir()
+	// command、args、resolveErr 分别保存解析后的 Go 工具链、安装器参数和解析错误。
+	command, args, resolveErr := browserInstallerCommand(&playwright.RunOptions{DriverDirectory: driverDir})
+	if resolveErr != nil {
+		t.Fatalf("源码安装器解析失败: %v", resolveErr)
+	}
+	// expectedCommand 是当前测试工具链的绝对 Go 命令路径，源码 fallback 不应依赖调用方 PATH 的后续变化。
+	expectedCommand, lookErr := exec.LookPath("go")
+	if lookErr != nil {
+		t.Fatalf("测试环境找不到 Go 工具链: %v", lookErr)
+	}
+	if command != expectedCommand {
+		t.Fatalf("源码 fallback 命令=%q，want %q", command, expectedCommand)
+	}
+	// sourcePath 是从当前测试源码反推的模块安装器目录，必须和生产安装器共用同一 main 包。
+	_, sourcePath, _, callerOK := runtime.Caller(0)
+	if !callerOK {
+		t.Fatal("无法读取测试源码路径")
+	}
+	// moduleRoot 是源码 fallback 传给 Go -C 的模块根，避免调用方切换目录后丢失 go.mod。
+	moduleRoot := filepath.Join(filepath.Dir(sourcePath), "..", "..")
+	// wantInstaller 是模块根下的唯一安装器源码目录。
+	wantInstaller := filepath.Join(filepath.Dir(sourcePath), "..", "..", "cmd", "browser-install")
+	if len(args) != 7 || args[0] != "-C" || args[1] != moduleRoot || args[2] != "run" || args[3] != wantInstaller || args[4] != "--" || args[5] != "-driver-dir" || args[6] != driverDir {
+		t.Fatalf("源码 fallback 参数=%q，不符合受控安装器契约", args)
+	}
+}
+
+// TestInitializeContextFingerprintFailureReleasesPartialState 验证指纹探测失败不会把尚未完整初始化的 Playwright 发布为可用实例。
+func TestInitializeContextFingerprintFailureReleasesPartialState(t *testing.T) {
+	// manager 使用确定性替身隔离安装和启动，测试只验证发布与关闭语义。
+	manager := NewManager(nil)
+	manager.installFn = func(context.Context) error { return nil }
+	manager.runFn = func(context.Context) (*playwright.Playwright, error) { return nil, nil }
+	// fingerprintErr 是指纹探测的确定性失败原因。
+	fingerprintErr := errors.New("fingerprint failed")
+	manager.fingerprintFn = func() error { return fingerprintErr }
+
+	// initErr 保存探测失败的初始化错误，并确认 Manager 未发布半成品实例。
+	initErr := manager.InitializeContext(context.Background())
+	if !errors.Is(initErr, fingerprintErr) || manager.pw != nil || manager.installed {
+		t.Fatalf("指纹失败后发布了半成品: err=%v pw=%p installed=%v", initErr, manager.pw, manager.installed)
+	}
+	// closeErr 是半成品资源释放后的关闭结果，验证 CloseContext 仍可幂等收束。
+	if closeErr := manager.CloseContext(context.Background()); closeErr != nil {
+		t.Fatalf("指纹失败后关闭失败: %v", closeErr)
+	}
+}
+
+// TestInitializeAndCloseContextShareCancellation 验证初始化与关闭并发时，生命周期取消会让安装退出并让 CloseContext 等待收束。
+func TestInitializeAndCloseContextShareCancellation(t *testing.T) {
+	// manager 保存阻塞安装阶段的浏览器管理器。
+	manager := NewManager(nil)
+	// entered 通知安装替身已开始等待生命周期取消。
+	entered := make(chan struct{})
+	manager.installFn = func(ctx context.Context) error {
+		close(entered)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	// lifecycleCtx、cancelLifecycle 模拟协调器拥有的进程生命周期。
+	lifecycleCtx, cancelLifecycle := context.WithCancel(context.Background())
+	defer cancelLifecycle()
+	// initDone 保存初始化调用的取消结果。
+	initDone := make(chan error, 1)
+	go func() { initDone <- manager.InitializeContext(lifecycleCtx) }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("初始化未进入安装阶段")
+	}
+	// closeDone 保存关闭等待结果；关闭应先拒绝新操作并等待正在初始化的调用结束。
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- manager.CloseContext(context.Background()) }()
+	cancelLifecycle()
+	// initErr 保存生命周期取消后初始化 goroutine 的最终错误。
+	if initErr := <-initDone; !errors.Is(initErr, context.Canceled) {
+		t.Fatalf("初始化取消错误=%v", initErr)
+	}
+	select {
+	// closeErr 保存初始化已退出后并发关闭操作的最终结果。
+	case closeErr := <-closeDone:
+		if closeErr != nil {
+			t.Fatalf("并发关闭失败: %v", closeErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("并发关闭未等待初始化收束")
 	}
 }
 

@@ -59,7 +59,7 @@ func (s *Server) startOrderRefreshJob(w http.ResponseWriter, r *http.Request) {
 	// cookieID、filterStatus 保存订单刷新筛选条件。
 	cookieID, filterStatus := r.FormValue("cookie_id"), r.FormValue("status")
 	// started、err 保存应用服务创建并启动任务的结果。
-	started, err := s.orderRefreshJobsApplication().CreateAndStart(r.Context(), r.Context(), sess.UserID, cookieID, filterStatus)
+	started, err := s.orderRefreshJobsApplication().CreateAndStart(r.Context(), sess.UserID, cookieID, filterStatus)
 	if errors.Is(err, orderapp.ErrForbidden) {
 		writeErr(w, http.StatusForbidden, "Cookie不存在或无权访问")
 		return

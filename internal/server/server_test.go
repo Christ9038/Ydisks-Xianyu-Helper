@@ -359,7 +359,7 @@ func testServerDependencies(authentication *auth.Service, databaseHealth Databas
 	// ports 是测试组合根投影的完整 transport Port 集合。
 	ports := services.TransportPorts()
 	return Dependencies{Auth: authentication, Addr: ":0", DatabaseHealth: databaseHealth, Applications: NewApplicationPorts(ApplicationPortsInput{
-		Orders: testOrdersTransport{services: ports.Orders}, OrderRefreshJobs: ports.OrderRefreshJobs, ItemSinglePublish: ports.ItemSinglePublish,
+		Orders: testOrdersTransport{services: ports.Orders}, OrderRefreshJobs: testOrderRefreshJobsTransport{service: ports.OrderRefreshJobs}, ItemSinglePublish: ports.ItemSinglePublish,
 		ItemBatchPreview: ports.ItemBatchPreview, ItemBatchManagement: ports.ItemBatchManagement, ItemCategoryRecommendation: ports.ItemCategoryRecommendation,
 		ItemBatchPreviewPersistence: ports.ItemBatchPreviewPersistence, ItemBatchLocalPublish: ports.ItemBatchLocalPublish,
 		ItemSync: ports.ItemSync, ItemCatalog: ports.ItemCatalog, ItemCatalogMutation: ports.ItemCatalogMutation,

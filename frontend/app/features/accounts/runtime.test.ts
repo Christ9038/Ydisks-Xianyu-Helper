@@ -68,7 +68,7 @@ describe('Accounts runtime state', /* 当前回调处理用户交互或异步状
     // states 是运行状态到中文标签的完整断言表。
     const states = [
       ['online', '在线'], ['starting', '连接中'], ['connecting', '连接中'], ['reconnecting', '重连中'],
-      ['auth_expired', '登录已失效'], ['verification_required', '需要验证'], ['error', '运行异常'], ['stopped', '运行异常'],
+      ['auth_expired', '登录已失效'], ['verification_required', '需要验证'], ['runtime_conflict', '运行状态冲突'], ['error', '运行异常'], ['stopped', '运行异常'],
     ] as const;
     states.forEach(
       // state 是需要验证展示文案的运行状态和预期标签。

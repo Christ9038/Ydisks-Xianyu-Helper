@@ -74,6 +74,74 @@ func TestRefreshJobServiceCreateAndStart(t *testing.T) {
 	}
 }
 
+// TestRefreshJobServiceWorkerOutlivesRequestContext 验证任务创建成功后 HTTP 请求结束不会取消进程生命周期拥有的刷新 worker。
+func TestRefreshJobServiceWorkerOutlivesRequestContext(t *testing.T) {
+	// repository 保存可完成终态写入的测试任务仓储。
+	repository := completeAppliedRepository()
+	// owner 允许当前用户操作测试账号。
+	owner := &refreshJobOwnerTestDouble{owned: true}
+	// started 通知后台刷新已取得进程生命周期 Context。
+	started := make(chan context.Context, 1)
+	// release 控制后台刷新何时正常结束。
+	release := make(chan struct{})
+	// refresher 保存会等待 release 的刷新端口，便于在 HTTP Context 取消后检查 worker 是否仍活跃。
+	refresher := refreshJobServiceBlockingRefresher{started: started, release: release}
+	// runner、runnerErr 保存应用层 worker 运行器及其构造错误。
+	runner, runnerErr := NewRefreshJobRunner(repository, refresher, RefreshJobRunnerOptions{})
+	if runnerErr != nil {
+		t.Fatalf("构造运行器失败: %v", runnerErr)
+	}
+	// service、serviceErr 保存创建和启动任务的应用服务。
+	service, serviceErr := NewRefreshJobService(repository, owner, runner, RefreshJobServiceOptions{})
+	if serviceErr != nil {
+		t.Fatalf("构造刷新任务服务失败: %v", serviceErr)
+	}
+	// requestCtx、cancelRequest 模拟在 HTTP 响应返回后立即结束的请求 Context。
+	requestCtx, cancelRequest := context.WithCancel(context.Background())
+	defer cancelRequest()
+	// lifecycleCtx、cancelLifecycle 是独立于请求的进程生命周期 Context。
+	lifecycleCtx, cancelLifecycle := context.WithCancel(context.Background())
+	defer cancelLifecycle()
+	// _, startErr 保存创建并启动后台任务的结果。
+	_, startErr := service.CreateAndStart(requestCtx, lifecycleCtx, 7, "cookie-1", "")
+	if startErr != nil {
+		t.Fatalf("创建并启动刷新任务失败: %v", startErr)
+	}
+	// workerCtx 保存后台刷新收到的 Context；必须不是 requestCtx。
+	workerCtx := <-started
+	cancelRequest()
+	if workerCtx == requestCtx || workerCtx.Err() != nil {
+		t.Fatalf("请求结束后 worker 被误取消: worker=%p request=%p err=%v", workerCtx, requestCtx, workerCtx.Err())
+	}
+	close(release)
+	// closeCtx、cancelClose 限制异步任务正常退出的等待时间。
+	closeCtx, cancelClose := context.WithTimeout(context.Background(), time.Second)
+	defer cancelClose()
+	// closeErr 保存正常完成后运行器关闭与等待的结果。
+	if closeErr := runner.Close(closeCtx); closeErr != nil {
+		t.Fatalf("关闭后台刷新 worker 失败: %v", closeErr)
+	}
+}
+
+// refreshJobServiceBlockingRefresher 是请求与后台生命周期分离测试使用的阻塞刷新端口。
+type refreshJobServiceBlockingRefresher struct {
+	// started 返回 worker 实际收到的生命周期 Context。
+	started chan<- context.Context
+	// release 控制测试中的刷新业务何时结束。
+	release <-chan struct{}
+}
+
+// Refresh 等待测试放行，并在调用方生命周期取消时提前退出。
+func (refresher refreshJobServiceBlockingRefresher) Refresh(ctx context.Context, _ int64, _, _ string) (RefreshResult, error) {
+	refresher.started <- ctx
+	select {
+	case <-refresher.release:
+		return RefreshResult{Message: "完成"}, nil
+	case <-ctx.Done():
+		return RefreshResult{}, ctx.Err()
+	}
+}
+
 // TestRefreshJobServiceCreateRejectsUnownedAccount 验证账号不属于用户时不会创建或抢占任务。
 func TestRefreshJobServiceCreateRejectsUnownedAccount(t *testing.T) {
 	// repository 记录不应发生的创建和抢占调用。

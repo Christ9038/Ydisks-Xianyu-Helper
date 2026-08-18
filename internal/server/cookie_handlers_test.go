@@ -19,6 +19,92 @@ import (
 	xrenew "xianyu-go/internal/xianyu/renew"
 )
 
+// runtimeStatusPortStub 是运行状态 HTTP 契约测试的最小应用 Port，不持有真实账号实例或凭证。
+type runtimeStatusPortStub struct {
+	// statuses 保存按账号标识返回的非敏感运行时快照。
+	statuses map[string]accountapp.RuntimeStatus
+}
+
+// UpdateCookie 满足运行状态 Port；本测试不触发 Cookie 同步。
+func (stub runtimeStatusPortStub) UpdateCookie(context.Context, string, string) error { return nil }
+
+// RuntimeStatuses 返回预置快照，模拟数据库状态与运行实例状态暂时不一致。
+func (stub runtimeStatusPortStub) RuntimeStatuses(context.Context) (map[string]accountapp.RuntimeStatus, error) {
+	return stub.statuses, nil
+}
+
+// Restart 满足运行状态 Port；本测试不触发运行实例重启。
+func (stub runtimeStatusPortStub) Restart(context.Context, string) error { return nil }
+
+// RecoverExpiredCredential 满足运行状态 Port；本测试不触发平台凭证恢复。
+func (stub runtimeStatusPortStub) RecoverExpiredCredential(context.Context, string) bool {
+	return false
+}
+
+// TestRuntimeStatusIsActive 保证已停用账号的存活运行实例不会被状态查询掩盖为普通 disabled。
+func TestRuntimeStatusIsActive(t *testing.T) {
+	// cases 保存运行状态与是否仍需暴露冲突诊断的对应关系。
+	cases := []struct {
+		name      string
+		status    accountapp.RuntimeStatus
+		wantAlive bool
+	}{
+		{name: "connected", status: accountapp.RuntimeStatus{Connected: true}, wantAlive: true},
+		{name: "connecting", status: accountapp.RuntimeStatus{State: "connecting"}, wantAlive: true},
+		{name: "exited", status: accountapp.RuntimeStatus{State: "error", Message: "账号服务已退出"}, wantAlive: false},
+		{name: "stopped", status: accountapp.RuntimeStatus{State: "stopped"}, wantAlive: false},
+	}
+	// testCase 是当前验证的运行状态样本。
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// got 是当前样本是否必须向管理页面暴露运行时冲突的判断结果。
+			if got := runtimeStatusIsActive(testCase.status); got != testCase.wantAlive {
+				t.Fatalf("runtimeStatusIsActive(%+v)=%v, want %v", testCase.status, got, testCase.wantAlive)
+			}
+		})
+	}
+}
+
+// TestCookieRuntimeStatusPreservesDisabledActiveConflict 验证数据库已停用但实例仍连接时 HTTP 查询返回冲突诊断而非掩盖为 disabled。
+func TestCookieRuntimeStatusPreservesDisabledActiveConflict(t *testing.T) {
+	// srv、store、cleanup 保存已认证 HTTP 夹具、持久化状态和资源清理函数。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// statusErr 保存将测试账号持久化状态切换为停用的错误。
+	statusErr := store.Cookies.SetStatus(context.Background(), "acc1", false)
+	if statusErr != nil {
+		t.Fatalf("停用测试账号失败: %v", statusErr)
+	}
+	// runtimePort 模拟旧运行实例尚未退出时返回的连接中快照。
+	runtimePort := runtimeStatusPortStub{statuses: map[string]accountapp.RuntimeStatus{
+		"acc1": {State: "connecting", Message: "旧实例仍在关闭", Connected: true, UpdatedAt: time.Now().UTC()},
+	}}
+	srv.applications.accountRuntime = runtimePort
+	// handler 是含认证中间件的 HTTP 路由。
+	handler := srv.Router()
+	// sessionCookie 保存管理员认证会话 Cookie。
+	sessionCookie := loginHelper(t, handler)
+	// request 是读取版本化运行状态的 HTTP 请求。
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/runtime-status", nil)
+	request.AddCookie(sessionCookie)
+	// recorder 捕获运行状态响应。
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("运行状态 HTTP status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	// statuses 保存解码后的按账号运行状态映射。
+	statuses := map[string]accountapp.RuntimeStatus{}
+	// decodeErr 保存 HTTP 响应不符合非敏感运行状态 DTO 时的 JSON 解码错误。
+	if decodeErr := json.Unmarshal(recorder.Body.Bytes(), &statuses); decodeErr != nil {
+		t.Fatalf("解析运行状态响应失败: %v", decodeErr)
+	}
+	// status 是冲突账号返回的运行时快照，必须保留实际连接状态。
+	if status := statuses["acc1"]; status.State != "runtime_conflict" || !status.Connected {
+		t.Fatalf("停用但存活的实例被掩盖: %+v", status)
+	}
+}
+
 // cachedAccountNickname 保留测试对账号展示名兼容规则的独立验证，不参与生产 HTTP 路径。
 func cachedAccountNickname(d *db.CookieDetail) string {
 	if strings.TrimSpace(d.Remark) != "" {
