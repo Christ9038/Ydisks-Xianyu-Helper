@@ -1,32 +1,45 @@
 # Ydisks闲鱼助手前端
 
-React + Vite + TypeScript 单页应用，作为 Ydisks闲鱼助手 Go 后端的管理面板。
+React 19、Vite 6 与 TypeScript 单页应用，是 Go 后端提供的管理界面。
 
 ## 目录结构
 
 ```text
 frontend/
-  index.html           入口 HTML
-  index.tsx            应用入口（挂载 React、登录态判断、tab 路由）
-  App.tsx              主壳：侧边栏 + 内容区 + 登录/首次初始化
-  components/           业务组件（Dashboard / OrderList / CardList / Rules / Settings ...）
-  services/             后端 API 封装（fetch 调用）
-  request.ts            统一请求工具（带 session cookie、错误处理）
-  types.ts              共享类型定义
-  vite.config.ts        Vite 配置（base=/static/，代理 /api 到 :59188）
+  index.html                 Vite 入口 HTML
+  index.tsx                  React 挂载入口
+  App.tsx                    根组件，仅装配 Provider、路由与错误边界
+  app/
+    providers/               会话状态与初始化流程
+    router/                  浏览器历史路由与访问控制
+    shell/                   已登录应用壳与导航
+    features/                按业务领域组织的页面、状态、Hook 和 API 适配器
+  shared/
+    api-contract/            版本化 HTTP DTO 定义
+    http/                    统一 HTTP 客户端、错误解析与契约校验
+    async/                   取消和最新请求代次工具
+    browser/                 浏览器侧轻量持久化工具
+    ui/                      跨领域复用的展示组件
+  vite.config.ts             `base=/static/` 与 `/api`、`/health` 开发代理
 ```
+
+生产组件、Hook 和状态只能通过所属 feature 的 API adapter 使用 transport DTO；feature 之间不得导入彼此的内部文件。所有生产业务请求均使用 `/api/v1/...`，并由 `frontend/featureArchitecture.test.ts` 的架构测试约束。
 
 ## 开发
 
 ```bash
 cd /Users/christ/Workspace/git/xianyu/Ydisks-Xianyu-Helper/frontend
-npm install
-npm run dev      # http://localhost:3000，API 代理到 localhost:59188
+npm ci
+npm run dev
 ```
 
-开发时先启动后端（默认端口为 `59188`；桌面安装包绑定 `127.0.0.1`，源码运行可按需指定监听地址），
-例如 `go run ./cmd/server -addr :59188`，再启动前端 dev server。
-这里的 `localhost:3000` 仅是 Vite 开发服务器地址，不是应用服务端口。
+Vite 开发服务器运行在 `http://localhost:3000`，将 `/api` 和 `/health` 代理到 `http://localhost:59188`。先启动后端，例如：
+
+```bash
+go run ./cmd/server -addr :59188
+```
+
+`-addr :59188` 会监听全部网络接口；本机开发以外应显式使用回环地址或配置网络访问控制。桌面安装包固定绑定 `127.0.0.1:59188`。
 
 ## 构建产物
 
@@ -34,34 +47,19 @@ npm run dev      # http://localhost:3000，API 代理到 localhost:59188
 npm run build
 ```
 
-产物写入 `../internal/webui/static/`，由 Go 服务通过 `//go:embed` 内嵌并服务于 `/static/*`。
-生产部署无需单独分发前端。若 Go 服务已经运行，构建完成后必须重启 Go 服务，
-因为嵌入资源在 Go 编译时写入服务二进制；仅刷新浏览器不会更新已运行进程中的前端版本。
+产物写入 `../internal/webui/static/`，随后在构建 Go 服务时由 `//go:embed` 嵌入并服务于 `/static/*`。生产部署无需单独分发前端。若服务二进制已运行，必须重新构建并重启服务，浏览器刷新不会替换已嵌入的资源。
 
-侧边栏底部的运行版本和短提交号来自后端 `/health` 接口。源码运行通常显示 `dev`/`unknown`；CI
-构建的安装包和 Docker 镜像由构建参数注入对应版本信息。
-
-## Dashboard 图表约定
-
-Dashboard 的营收趋势柱状图使用统一的品牌蓝 `#0094f7` 表示同一指标序列，日期之间
-只通过柱高区分营收，不使用不同颜色表达不同类别。饼图使用中心汇总值、图例和悬浮提示
-展示明细；悬停扇区会轻微放大。图表是展示型组件，点击或键盘焦点不会显示浏览器默认
-的粗蓝色 SVG 焦点框，避免被误解为业务选中状态。
+侧边栏的运行版本和短提交号来自后端 `/health`。源码运行通常显示 `dev`/`unknown`；CI 构建的安装包和 Docker 镜像会注入版本信息。
 
 ## 路由
 
-应用使用 `window.history.pushState` 做 tab 导航，路径包括 `/app/dashboard`、`/app/accounts`、
-`/app/chat`、`/app/cards`、`/app/items`、`/app/orders`、`/app/rules`、
-`/app/notifications` 和管理员可见的 `/app/settings`。
-未登录时显示登录表单（客户端状态，非独立路由）。当后端 `/verify` 返回
-`initialized: false` 时，显示首次初始化表单；用户确认不少于 8 个字符的管理员密码后，
-前端调用 `/initialize` 创建 `admin` 并使用返回的会话自动进入系统。后端 SPA catch-all
-对非 API 的 GET 请求返回 `index.html`，支持深链刷新。
+路由使用 `window.history.pushState`，包括 `/app/dashboard`、`/app/accounts`、`/app/chat`、`/app/cards`、`/app/items`、`/app/orders`、`/app/rules`、`/app/notifications` 与管理员可见的 `/app/settings`。未登录时显示会话表单；当 `/api/v1/session` 表示系统未初始化时，显示首次初始化表单。后端对非 API 的 GET 请求回退到 `index.html`，支持深链刷新。
 
 ## 测试
 
 ```bash
-npm test             # 前端单元测试
-npm run typecheck    # TypeScript 类型检查
-npm run build        # 构建并更新 Go 嵌入资源
+npm test -- --run
+npm run typecheck
+npm run comments:check
+npm run build
 ```

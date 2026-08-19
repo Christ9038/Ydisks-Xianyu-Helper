@@ -15,6 +15,7 @@
 | `account.Manager` 账号运行时集合 | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 协调器共享应用生命周期 Context | 协调器逆序调用 `StopAllContext`，保留全局 stopping fence | 等待单账号或全部账号结束 | Manager fencing、删除 fencing、生命周期和 race 测试 | 运行时内部任务的细分由正式总计划决定，不改变进程级 owner |
 | `engine.Account` 单账号运行时 | `account.Manager`；连接、出站、凭证和迟到续期分别由 `connectionCoordinator`、`outgoingMessageCoordinator`、`credentialCoordinator`、`pendingRenewalCoordinator` 负责 | `Account.Run(parent)` | `StopContext` 取消运行 Context；连接协调器以受限预算等待自有 worker | `StopContext` 返回错误；共享完成信号支持超时后的再次 Join；运行状态可查询 | Engine lifecycle、连接协调器、出站发送、credential coordinator、刷新取消与迟到续期测试 | recorder 子任务继续沿用账号运行 Context，不允许脱离 facade 生命周期 |
 | 浏览器 `Manager` | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 每次调用的独立 Context；初始化和关闭受协调器 Context/Close Context 约束 | 协调器逆序调用 `CloseContext`，关闭 fencing 并等待活动调用归零 | `CloseContext` 返回超时并可重试 | Browser lifecycle 与 race 测试 | 底层同步 Playwright Close 无法被 Context 中断，这是实现约束 |
+| 二维码 `qrlogin.Manager` | `lifecycle.Coordinator`（由组合层装配） | `Start` 从进程生命周期 Context 建立可取消根 Context；每个扫码会话从该根派生 Context | `DeleteSession` 取消该会话；`CloseContext` 拒绝新会话、取消根与全部会话任务 | Manager 用 `WaitGroup` 等待扫码轮询和人脸验证任务退出；关闭超时可用更长 Context 重试等待 | QR Manager 关闭、删除会话、重复关闭和关闭后拒绝新会话测试 | 平台 HTTP 请求本身仍受各会话调用超时约束 |
 | 续期 `renewal.Scheduler` | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 协调器共享应用生命周期 Context | 协调器逆序调用 `StopContext`，幂等并阻止 Stop 后 Run | `WaitContext` | 先 Stop、重复 Stop、零值和 race 测试 | 迟到 Cookie 合并语义由续期组件自身 generation/锁测试保护 |
 | 自动化 `automation.Scheduler` | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 协调器共享应用生命周期 Context；nil Context 明确拒绝启动 | 协调器逆序取消 Context 并调用 `WaitContext` | `WaitContext` | scheduler、nil 输入与结果收口测试 | 自动化外部动作语义归属由正式总计划决定，不改变调度器 owner |
 | 通知 outbox worker | `lifecycle.Coordinator`（由 `cmd/server` 装配） | 协调器共享应用生命周期 Context | 协调器逆序调用 `WaitContext`，由共享 Context 停止拉取与发送 | `WaitContext`、uncertain 状态查询 | notify worker、uncertain 状态和三库测试 | 运维重试与人工核对流程属于通知业务迭代 |
@@ -31,6 +32,7 @@
 | Cookie/静默续期 | 续期请求绑定调用 Context；后台 Promise 窗口结束后仍由私有 Context 管理 | 普通请求 30 秒；后台 fetch 30 秒硬上限，Promise 窗口仅控制调用方返回时机 | `WithoutCancel` 是保持平台 Cookie 收口的明确例外，仍受硬超时约束并由续期 scheduler Join |
 | WebSocket | 建连、注册、请求、心跳和 ACK 均由连接/请求 Context 控制 | 建连、注册、心跳默认 30 秒；ACK 2 秒 | 连接关闭会取消读取与等待，已有连接 Join 测试覆盖 |
 | 浏览器/Playwright | `CloseContext` 拒绝新调用并以 Context 轮询等待活动调用归零 | 活动调用等待服从调用 Context；底层同步 `pw.Stop` 本身无法被 Context 中断 | 不启动关闭 goroutine；超时返回后保持 closing 状态，可用更长 Context 重试，避免伪造完成状态 |
+| 二维码登录 | 扫码轮询和人脸验证从 Manager 根 Context 派生，单个会话另有可取消 Context | 删除会话或进程关闭都会取消会话任务；关闭时等待 Manager 的任务组退出 | HTTP 生成二维码请求仍服从调用方请求 Context；创建成功后的后台轮询不继承该请求 Context |
 
 审计结论：`notify.Notifier.Start(nil)` 和 `automation.Scheduler.Run(nil)` 已明确拒绝启动并有确定性测试；生产组合根始终传入非 nil Context。通知 HTTP helper 仍以 10 秒 client timeout 作为无法直接继承 worker Context 的边界，未形成无限等待。
 

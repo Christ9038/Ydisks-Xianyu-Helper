@@ -209,7 +209,7 @@ git diff --check
 适用时还运行浏览器集成、MySQL/PostgreSQL 和两个 cmd/dbverify 命令。最终提交：阶段六：完成全量架构、
 兼容退场和注释收口。
 
-完成结论：质量门禁已在不新增白名单、baseline 或忽略目录的前提下清零。组合根、adapter、browser
+完成结论：质量门禁已在不新增 architecturecheck/source 架构白名单、baseline 或忽略源目录的前提下清零。生成覆盖率产物的 Git 忽略规则不属于架构门禁豁免。组合根、adapter、browser
 生命周期、DB repository、Engine、通知、续期、Server DTO、二维码、协议和门禁源码均按业务职责拆分；
 受保护的 CAPTCHA 文件和规范未改动。完整原始验收输出、覆盖率、浏览器集成与多数据库环境例外记录在
 `refactoring-progress.md`。

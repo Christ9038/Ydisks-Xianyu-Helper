@@ -89,12 +89,14 @@ flowchart LR
 
 核心职责划分：
 
+- `internal/composition`：唯一生产组合根，装配应用服务与生命周期组件
+- `internal/application`：用例编排、所有权校验、事务边界与补偿
 - `internal/xianyu`：登录协议、Cookie、MTOP、WebSocket 和消息协议
 - `internal/engine`：单账号生命周期、消息处理、回复与交付行为
 - `internal/automation`：发货、评价赠品、求评价和任务调度
 - `internal/browser`：Chromium 指纹读取与滑块验证
 - `internal/db`：多数据库访问、敏感字段加密和嵌入式迁移
-- `internal/server`：HTTP API、管理端鉴权和前端静态资源
+- `internal/server`：HTTP/SPA transport、管理端鉴权和前端静态资源
 
 ## 页面预览
 
@@ -222,16 +224,23 @@ Linux 安装包的 `install.sh` 必须在与安装包相同架构的 Linux 主�
 包含对应架构的 Playwright driver、Chromium 和 headless shell；安装时只安装 Chromium 所需
 系统库，不会从 Debian 仓库重新安装 Chromium。
 
-本地 macOS 打包可直接执行：
+本地 macOS 打包必须先构建嵌入式前端和三个随包分发的可执行文件；`build-pkg.sh` 在 runtime 缺失时会自动调用
+`prepare-runtime.sh`，不需要手工复制 Chromium、driver 或 headless shell：
 
 ```bash
-./packaging/macos/prepare-runtime.sh arm64 ./dist/macos/playwright-runtime/arm64
-./packaging/macos/build-pkg.sh 0.0.0-local ./dist/macos arm64
+npm ci --prefix frontend
+npm run build --prefix frontend
+mkdir -p dist/macos/arm64
+go build -trimpath -ldflags='-s -w' -o dist/macos/arm64/xianyu-server ./cmd/server
+go build -trimpath -ldflags='-s -w' -o dist/macos/arm64/browser-install ./cmd/browser-install
+go build -trimpath -ldflags='-s -w' -o dist/macos/arm64/xianyu-tray ./cmd/tray
+packaging/macos/build-pkg.sh 0.0.0-local "$PWD/dist/macos" arm64
 ```
 
 `build-pkg.sh` 会自动复用 `~/Library/Caches/ms-playwright-go` 和
 `~/Library/Caches/ms-playwright` 中与当前 Playwright driver 匹配的 Chromium；缓存不完整时会明确报错，
 不会生成安装后无法启动服务的残缺安装包。Intel macOS 使用 `amd64` 参数，并需要本机已有对应 x64 runtime。
+本机没有签名身份时生成的是未签名 pkg，不可作为已签名分发包使用。
 
 桌面端首次启动：
 
@@ -248,9 +257,10 @@ sudo ./install.sh
 
 然后访问 `http://127.0.0.1:59188` 完成首次初始化。
 
-Linux、Windows、macOS 和源码运行默认都使用网页初始化：启动服务后打开
+Linux、Windows 和 macOS 桌面安装包固定使用网页初始化：启动服务后打开
 `http://127.0.0.1:59188`，在“首次设置管理员密码”页面输入并确认不少于 8 个字符的密码，
-系统会创建 `admin` 并自动登录。只有 Docker Compose 使用 `.env` 中的
+系统会创建 `admin` 并自动登录。源码运行的默认地址是 `:59188`，访问地址取决于传入的 `-addr`；
+例如本文的 `-addr :59188` 示例可通过本机地址访问，但也会监听全部接口。只有 Docker Compose 使用 `.env` 中的
 `XIANYU_ADMIN_PASSWORD` 做非交互初始化；CLI 方式仅用于无浏览器、自动化部署或重置密码。
 
 对于无浏览器环境、自动化部署或需要重置管理员密码的运维场景，仍可使用 CLI 初始化：
@@ -320,9 +330,14 @@ DATABASE_URL > -db-url > -db
 | `LOG_LEVEL` | 系统设置或 `info` | `debug`、`info`、`warn`、`error` |
 | `LOG_FORMAT` | 系统设置或 `text` | `text` 或 `json` |
 | `BROWSER_HEADLESS` | 按账号设置；Docker 为 `true` | 强制启用或关闭无头 Chromium |
+| `PLAYWRIGHT_DRIVER_PATH` | 自动发现 | Playwright driver 目录；可与安装包内 runtime 对应 |
 | `PLAYWRIGHT_BROWSERS_PATH` | 自动发现；Docker 为 `/ms-playwright` | Playwright Chromium runtime 目录 |
+| `PLAYWRIGHT_NODEJS_PATH` | 自动发现 | Playwright driver 使用的 Node.js 可执行文件 |
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` | 自动发现 | 仅在需要强制使用外部 Chromium 时指定 |
 | `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` | 源码 `false` / Docker `true` | 跳过下载 |
+| `PLAYWRIGHT_BROWSER_INSTALLER` | 自动发现 | runtime 缺失时使用的可取消 `browser-install` 入口；优先环境变量，其次服务同目录安装器，源码环境最后回退到模块内 `cmd/browser-install` |
+| `CAPTCHA_BROWSER_PROXY` | 空 | 仅 token CAPTCHA Chromium 使用的无凭证 `http(s)`、`socks4` 或 `socks5` 代理地址；非法或含凭证的值会被忽略 |
+| `CAPTCHA_IGNORE_CERT_ERRORS` | `false` | 仅受控 TLS 检查代理环境可设为 `true`；默认保持 Chromium 证书校验 |
 | `TZ` | 系统时区；Docker 为 `Asia/Shanghai` | 容器和日志时区 |
 
 前端构建还支持 `VITE_AMAP_JS_KEY`，用于覆盖发布页高德 JS API 的公开 Key；未设置时使用内置的公开 Key。修改后需重新执行 `make frontend` 才会写入嵌入式前端资源。
@@ -358,6 +373,11 @@ Docker Compose 还支持：
 | `-db-url` | 空 | `sqlite://`、`mysql://` 或 `postgres://` 连接 URL |
 | `-addr` | `:59188` | HTTP 监听地址 |
 | `-web` | 内嵌前端 | 外部前端静态资源目录，目录内需包含 `index.html` |
+| `-workdir` | 空 | 服务工作目录；桌面服务用它固定数据和浏览器目录 |
+| `-playwright-runtime-root` | 空 | 安装包随附的 Playwright runtime 根目录 |
+| `-playwright-driver-dir` | 空 | Playwright driver 目录，会设置为当前进程的 driver 路径 |
+| `-playwright-browser-dir` | 空 | Playwright 浏览器缓存目录，会设置为当前进程的 browser 路径 |
+| `-data-key-file` | 空 | `XIANYU_DATA_KEY` 持久化文件；文件不存在时自动生成 |
 | `-secure` | `false` | 为管理端 Cookie 添加 `Secure` 属性，HTTPS 部署应启用 |
 | `-no-browser` | `false` | 禁用 Chromium 指纹读取和滑块处理 |
 | `-log-level` | 环境变量或系统设置 | 覆盖日志等级 |
@@ -367,6 +387,8 @@ Docker Compose 还支持：
 | `-ensure-admin` | `false` | 仅在 `admin` 不存在时初始化；已存在时不重置密码 |
 | `-admin-email` | `admin@example.com` | 初始化管理员邮箱 |
 | `-admin-password` | 空 | 初始化管理员密码 |
+| `-service` | `false` | Windows Service 模式运行 |
+| `-version` | `false` | 显示版本和构建信息后退出 |
 
 ### 数据库连接示例
 
@@ -567,9 +589,11 @@ services:
 │   └── dbseed/           # Docker 功能测试数据种子
 ├── internal/
 │   ├── account/          # 多账号监督与生命周期
+│   ├── application/      # 用例编排、事务与补偿
 │   ├── adapter/          # 业务模块接线层
 │   ├── automation/       # 自动化中心与调度器
 │   ├── browser/          # Chromium 指纹和滑块验证
+│   ├── composition/      # 唯一生产组合根
 │   ├── db/               # 数据访问、加密与迁移
 │   ├── engine/           # 单账号消息和交付运行时
 │   ├── notify/           # 通知渠道

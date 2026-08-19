@@ -205,8 +205,8 @@ commentlint: 通过；golangci-lint: 0 issues；architecturecheck: 通过；其�
 
 ## 阶段六：全量架构、兼容退场和注释收口
 
-- 最终提交绑定：本文件随唯一最终中文提交 `阶段六：完成全量架构、兼容退场和注释收口` 一并进入 `HEAD`。
-- 交付范围：质量门禁保持 800 行生产文件、180 行函数和分支复杂度阈值，不新增白名单、baseline、忽略目录或告警降级。组合根、adapter、browser 生命周期、数据库 repository、Engine、通知、续期、二维码、WebSocket、Server DTO 与 architecturecheck 均按业务职责拆分到同包文件；兼容、动态依赖、前端边界和低层依赖扫描继续 fail-closed。
+- 最终提交绑定：`5f8d999 阶段六：完成全量架构、兼容退场和注释收口`。
+- 交付范围：质量门禁保持 800 行生产文件、180 行函数和分支复杂度阈值，不新增 architecturecheck/source 架构白名单、baseline、忽略源目录或告警降级。组合根、adapter、browser 生命周期、数据库 repository、Engine、通知、续期、二维码、WebSocket、Server DTO 与 architecturecheck 均按业务职责拆分到同包文件；兼容、动态依赖、前端边界和低层依赖扫描继续 fail-closed。生成覆盖率产物的 Git 忽略规则不属于架构门禁豁免。
 - 冻结边界：未修改 `internal/browser/slider.go`、`token_captcha*.go`、其测试或冻结规范；二维码确认逻辑仅作同包职责搬移，未改变验证码调用顺序、参数、超时或结果语义。
 
 ### 强制验收原始输出
@@ -280,6 +280,12 @@ go build ./cmd/server
 - HTTP 语义：无法停止运行实例返回 `409 Conflict`，启用或 Cookie 重启后运行实例未就绪返回 `503 Service Unavailable`；正常成功路径和既有 API 路径保持兼容。
 - 治理修正：删除本文件历史“当前阶段/下一阶段入口”表述，主计划明确只有状态表可定义阶段状态，避免阶段五旧指令与已完成的阶段六状态冲突。
 - 冻结边界：未修改 `internal/browser/slider.go`、`token_captcha*.go`、其测试或冻结规范。
+
+### 2026-08-19 文档与实现一致性校准
+
+- 审核范围：根 README、前端 README、架构治理与生命周期文档、Wiki、登录续期记录和批量铺货资料规格；不把依赖包、构建产物或冻结 CAPTCHA 规范之外的第三方文档计入维护范围。
+- 已校准：React `app -> features -> shared` 结构与 API adapter 边界、版本化聊天 WebSocket、后续兼容入口退场条件、二维码 Manager 根 Context/会话取消/等待语义、账号 `runtime_conflict` 诊断、四级回复顺序、浏览器可取消安装器、完整 macOS 本地打包前置条件、源码/容器/桌面监听地址、实际服务参数和生成覆盖率目录的 Git 忽略边界。
+- 冻结边界：未修改滑块 CAPTCHA 实现、测试或规范；未变更 HTTP 路径、数据库迁移、前端生产代码或嵌入式构建产物。
 
 ### 本次验收
 
