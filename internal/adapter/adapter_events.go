@@ -40,7 +40,7 @@ func (a *Adapter) HandleChatMessage(ctx context.Context, message engine.ChatMess
 		BuyerName: message.SenderName, Text: message.Text, MessageID: message.MessageID, ItemID: message.ItemID, Raw: message.Raw,
 	})
 	if stored != nil {
-		a.logger.Info("实时聊天消息已入库", "account", message.AccountID, "chat_id", message.ChatID,
+		a.logger.Debug("实时聊天消息已入库", "account", message.AccountID, "chat_id", message.ChatID,
 			"message_key", stored.MessageKey, "message_type", stored.MessageType, "inserted", inserted)
 	}
 	return err

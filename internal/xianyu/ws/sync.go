@@ -164,7 +164,7 @@ func (c *Conn) MarkChatRead(ctx context.Context, cid string, messageIDs []map[st
 			ids = append(ids, id)
 		}
 	}
-	c.logger.Info("准备上报闲鱼已读", "cid", cid, "message_count", len(ids), "message_ids", ids)
+	c.logger.Debug("准备上报闲鱼已读", "cid", cid, "message_count", len(ids), "message_ids", ids)
 	// response 保存平台响应；err 表示请求或传输失败。服务只接受一个 string 列表参数。
 	response, err := c.request(ctx, "/r/MessageStatus/read", map[string]any{}, []any{ids}, regResponseTimeout)
 	if err == nil {
@@ -172,7 +172,7 @@ func (c *Conn) MarkChatRead(ctx context.Context, cid string, messageIDs []map[st
 		if code, ok := responseCode(response["code"]); ok && code >= 400 {
 			c.logger.Warn("闲鱼已读上报被拒绝", "cid", cid, "message_count", len(ids), "code", code, "body", response["body"])
 		} else {
-			c.logger.Info("闲鱼已读上报成功", "cid", cid, "message_count", len(ids), "message_ids", ids, "code", response["code"])
+			c.logger.Debug("闲鱼已读上报成功", "cid", cid, "message_count", len(ids), "message_ids", ids, "code", response["code"])
 		}
 	}
 	return err

@@ -305,7 +305,7 @@ func (s *Server) markChatRead(w http.ResponseWriter, r *http.Request) {
 	}
 	// sess 保存当前认证用户，用于本地未读状态归属隔离。
 	sess := auth.SessionFromContext(r.Context())
-	slog.Info("收到聊天已读请求", "account", input.AccountID, "chat_id", input.ChatID, "message_count", len(input.MessageIDs))
+	slog.Debug("收到聊天已读请求", "account", input.AccountID, "chat_id", input.ChatID, "message_count", len(input.MessageIDs))
 	if len(input.MessageIDs) == 0 {
 		// page 保存应用层返回的本地消息页，只含非敏感字段。
 		page, listErr := s.chatApplication().ListStoredMessages(r.Context(), sess.UserID, input.AccountID, input.ChatID, 0, 200)
