@@ -14,7 +14,8 @@ NotificationEventType,
 OperationResponse,
 QRLoginGenerateResponse,QRLoginStatusResponse,QRLoginVerificationResponse
 } from '../../../shared/api-contract/accounts';
-import { del,get,post,put,type RequestControlOptions } from '../../../shared/http/client';
+import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
+import { get,post,put,type RequestControlOptions } from '../../../shared/http/client';
 import { collectionFrom,objectFrom } from '../../../shared/http/contract';
 export type * from '../../../shared/api-contract/accounts';
 
@@ -27,7 +28,10 @@ export type QRLoginStatusResult = Pick<
 // Accounts
 // addAccount 新增账号。
 export const addAccount = async (id: string, value: string, loginMethod?: string): Promise<OperationResponse> => {
-  return post('/api/v1/accounts', { id, value, login_method: loginMethod });
+  return runContractRequest(/* signal 是本次账号创建请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/accounts', {
+    body: { id, value, login_method: loginMethod },
+    signal,
+  }));
 };
 
 // accountAvatarURL 生成账号头像地址。
@@ -51,7 +55,7 @@ const accountAvatarURL = (item: AccountSummaryResponse, version: string): string
 // getAccountDetails 读取账号详情。
 export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => {
   // data 数据，用于当前 API 处理流程。
-  const response = await get<unknown>('/api/v1/accounts/details', undefined, options);
+  const response = await runContractRequest(/* signal 是本次账号详情读取请求的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/accounts/details', { signal }), options);
   // data 是兼容数组、null 和历史 data 包裹后的账号摘要列表。
   const data = collectionFrom<AccountSummaryResponse>(response, ['data', 'accounts', 'details']);
   // avatarVersion 头像缓存版本，用于当前 API 处理流程。
@@ -105,21 +109,29 @@ export interface AccountRuntimeStatus {
 
 // getAccountRuntimeStatuses 读取账号运行状态。
 export const getAccountRuntimeStatuses = async (options?: RequestControlOptions): Promise<Record<string, AccountRuntimeStatus>> => {
-  const response = await get<unknown>('/api/v1/accounts/runtime-status', undefined, options);
-  // statuses 是兼容直接映射、statuses 包裹和 null 的运行状态索引。
-  const statuses = objectFrom<Record<string, AccountRuntimeStatus>>(response, ['statuses', 'data', 'result']);
-  return statuses || {};
+  // response 是按账号 ID 索引的非敏感运行状态快照。
+  const response = await runContractRequest(
+    /* signal 是本次账号运行状态读取请求的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/accounts/runtime-status', { signal }),
+    options,
+  );
+  return response;
 };
 
 // generateQRLogin 生成二维码登录会话。
 export const generateQRLogin = async (options?: RequestControlOptions): Promise<QRLoginGenerateResponse> => {
   // 风控后匿名 token 接口可能超过通用的 30 秒请求窗口；后端总生成窗口为 2 分钟。
-  return post('/api/v1/qr-login/generate', undefined, { ...options, timeoutMs: options?.timeoutMs ?? 130_000 });
+  return runContractRequest(
+    /* signal 是本次二维码生成请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/qr-login/generate', { signal }),
+    { ...options, timeoutMs: options?.timeoutMs ?? 130_000 },
+  );
 };
 
 // checkQRLoginStatus 查询二维码登录状态。
 export const checkQRLoginStatus = async (sessionId: string, signal?: AbortSignal): Promise<QRLoginStatusResponse> => {
-  return get(`/api/v1/qr-login/check/${sessionId}`, undefined, { signal, timeoutMs: 10_000 });
+  return runContractRequest(
+    /* requestSignal 是本次二维码轮询请求的超时与取消控制信号。 */ requestSignal => contractClient.GET('/api/v1/qr-login/check/{session_id}', { params: { path: { session_id: sessionId } }, signal: requestSignal }),
+    { signal, timeoutMs: 10_000 },
+  );
 };
 
 // completeQRVerification 完成二维码登录验证。
@@ -127,9 +139,11 @@ export const completeQRVerification = async (
   sessionId: string,
   targetAccountId?: string,
 ): Promise<QRLoginVerificationResponse> => {
-  return post(`/api/v1/qr-login/complete-verification/${sessionId}`, {
-    target_account_id: targetAccountId || '',
-  });
+  return runContractRequest(/* requestSignal 是本次风控完成请求的超时与取消控制信号。 */ requestSignal => contractClient.POST('/api/v1/qr-login/complete-verification/{session_id}', {
+    params: { path: { session_id: sessionId } },
+    body: { target_account_id: targetAccountId || '' },
+    signal: requestSignal,
+  }));
 };
 
 
@@ -139,32 +153,55 @@ export const completeQRVerification = async (
 
 // updateAccountStatus 更新账号状态。
 export const updateAccountStatus = async (id: string, enabled: boolean): Promise<OperationResponse> => {
-  return put(`/api/v1/accounts/${id}/status`, { enabled });
+  return runContractRequest(/* signal 是本次账号状态更新请求的超时与取消控制信号。 */ signal => contractClient.PUT('/api/v1/accounts/{cid}/status', {
+    params: { path: { cid: id } },
+    body: { enabled },
+    signal,
+  }));
 };
 
 // deleteAccount 删除账号。
 export const deleteAccount = async (id: string): Promise<OperationResponse> => {
-  return del(`/api/v1/accounts/${id}`);
+  return runContractRequest(/* signal 是本次账号删除请求的超时与取消控制信号。 */ signal => contractClient.DELETE('/api/v1/accounts/{cid}', {
+    params: { path: { cid: id } },
+    signal,
+  }));
 };
 
 // updateAccountRemark 更新账号备注。
 export const updateAccountRemark = async (id: string, remark: string): Promise<OperationResponse> => {
-  return put(`/api/v1/accounts/${id}/remark`, { remark });
+  return runContractRequest(/* signal 是本次账号备注更新请求的超时与取消控制信号。 */ signal => contractClient.PUT('/api/v1/accounts/{cid}/remark', {
+    params: { path: { cid: id } },
+    body: { remark },
+    signal,
+  }));
 };
 
 // updateAccountAutoConfirm 更新账号自动确认设置。
 export const updateAccountAutoConfirm = async (id: string, autoConfirm: boolean): Promise<OperationResponse> => {
-  return put(`/api/v1/accounts/${id}/auto-confirm`, { auto_confirm: autoConfirm });
+  return runContractRequest(/* signal 是本次账号自动确认更新请求的超时与取消控制信号。 */ signal => contractClient.PUT('/api/v1/accounts/{cid}/auto-confirm', {
+    params: { path: { cid: id } },
+    body: { auto_confirm: autoConfirm },
+    signal,
+  }));
 };
 
 // updateAccountPauseDuration 更新账号暂停时长。
 export const updateAccountPauseDuration = async (id: string, pauseDuration: number, options?: RequestControlOptions): Promise<CookieSettingsResponse> => {
-  return put(`/api/v1/accounts/${id}/pause-duration`, { pause_duration: pauseDuration }, options);
+  return runContractRequest(/* signal 是本次账号暂停时长更新请求的超时与取消控制信号。 */ signal => contractClient.PUT('/api/v1/accounts/{cid}/pause-duration', {
+    params: { path: { cid: id } },
+    body: { pause_duration: pauseDuration },
+    signal,
+  }), options);
 };
 
 // updateAccountCookie 更新账号登录凭证。
 export const updateAccountCookie = async (id: string, value: string, loginMethod?: string): Promise<OperationResponse> => {
-  return put(`/api/v1/accounts/${id}`, { id, value, login_method: loginMethod });
+  return runContractRequest(/* signal 是本次账号凭据更新请求的超时与取消控制信号。 */ signal => contractClient.PUT('/api/v1/accounts/{cid}', {
+    params: { path: { cid: id } },
+    body: { id, value, login_method: loginMethod },
+    signal,
+  }));
 };
 
 export interface AccountSettingsUpdate {
@@ -181,7 +218,11 @@ export interface AccountSettingsUpdate {
 
 // updateAccountSettings 更新账号设置。
 export const updateAccountSettings = async (id: string, data: AccountSettingsUpdate, options?: RequestControlOptions): Promise<CookieSettingsResponse> => {
-  return put(`/api/v1/accounts/${id}/settings`, data, options);
+  return runContractRequest(/* signal 是本次账号聚合设置更新请求的超时与取消控制信号。 */ signal => contractClient.PUT('/api/v1/accounts/{cid}/settings', {
+    params: { path: { cid: id } },
+    body: data,
+    signal,
+  }), options);
 };
 
 export interface LongLoginSettings {
@@ -191,12 +232,19 @@ export interface LongLoginSettings {
 
 // getLongLoginSettings 读取长期登录设置。
 export const getLongLoginSettings = async (id: string, options?: RequestControlOptions): Promise<LongLoginSettings> => {
-  return get(`/api/v1/accounts/${id}/long-login`, undefined, options);
+  return runContractRequest(/* signal 是本次长期登录设置读取请求的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/accounts/{cid}/long-login', {
+    params: { path: { cid: id } },
+    signal,
+  }), options);
 };
 
 // setLongLoginSettings 设置长期登录开关。
 export const setLongLoginSettings = async (id: string, enabled: boolean, options?: RequestControlOptions): Promise<LongLoginSettings> => {
-  return put(`/api/v1/accounts/${id}/long-login`, { enabled }, options);
+  return runContractRequest(/* signal 是本次长期登录设置更新请求的超时与取消控制信号。 */ signal => contractClient.PUT('/api/v1/accounts/{cid}/long-login', {
+    params: { path: { cid: id } },
+    body: { enabled },
+    signal,
+  }), options);
 };
 
 export interface PasswordLoginStartResponse {
@@ -226,22 +274,36 @@ export const passwordLogin = async (data: {
   /** password 表示密码。 */ password: string;
   /** show_browser 表示是否显示浏览器。 */ show_browser?: boolean;
 }, options?: RequestControlOptions): Promise<PasswordLoginStartResponse> => {
-  return post('/api/v1/password-login', data, options);
+  return runContractRequest(/* signal 是永久关闭的密码登录请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/password-login', {
+    body: data,
+    signal,
+  }), options);
 };
 
 // checkPasswordLoginStatus 查询密码登录状态。
 export const checkPasswordLoginStatus = async (sessionId: string, signal?: AbortSignal): Promise<PasswordLoginStatusResponse> => {
-  return get(`/api/v1/password-login/check/${sessionId}`, undefined, { signal, timeoutMs: 10_000 });
+  // result 是永久关闭 operation 的理论成功类型；真实服务端恒定返回 password_login_disabled 错误。
+  const result = runContractRequest(/* requestSignal 是永久关闭的密码登录查询请求的超时与取消控制信号。 */ requestSignal => contractClient.GET('/api/v1/password-login/check/{session_id}', {
+    params: { path: { session_id: sessionId } },
+    signal: requestSignal,
+  }), { signal, timeoutMs: 10_000 });
+  return result as unknown as Promise<PasswordLoginStatusResponse>;
 };
 
 // cancelPasswordLogin 取消密码登录。
 export const cancelPasswordLogin = async (sessionId: string, options?: RequestControlOptions): Promise<OperationResponse> => {
-  return del(`/api/v1/password-login/cancel/${sessionId}`, undefined, options);
+  return runContractRequest(/* signal 是永久关闭的密码登录取消请求的超时与取消控制信号。 */ signal => contractClient.DELETE('/api/v1/password-login/cancel/{session_id}', {
+    params: { path: { session_id: sessionId } },
+    signal,
+  }), options);
 };
 
 // refreshAccountProfile 刷新账号资料。
 export const refreshAccountProfile = async (id: string): Promise<CookieProfileResponse> => {
-  return post(`/api/v1/accounts/${id}/refresh-profile`, {});
+  return runContractRequest(/* signal 是本次账号资料刷新请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/accounts/{cid}/refresh-profile', {
+    params: { path: { cid: id } },
+    signal,
+  }));
 };
 
 // updateAccountLoginInfo 更新账号登录信息。
@@ -251,7 +313,11 @@ export const updateAccountLoginInfo = async (id: string, data: {
   /** clear_password 表示是否清理登录密码。 */ clear_password?: boolean;
   /** show_browser 表示是否显示浏览器。 */ show_browser?: boolean;
 }): Promise<OperationResponse> => {
-  return put(`/api/v1/accounts/${id}/login-info`, data);
+  return runContractRequest(/* signal 是本次账号登录信息更新请求的超时与取消控制信号。 */ signal => contractClient.PUT('/api/v1/accounts/{cid}/login-info', {
+    params: { path: { cid: id } },
+    body: data,
+    signal,
+  }));
 };
 
 // getAllAISettings 读取全部人工智能设置。

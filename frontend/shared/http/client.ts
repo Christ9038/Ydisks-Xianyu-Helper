@@ -55,14 +55,15 @@ export class ApiError extends Error {
   }
 }
 
-const notifyAuthExpired = () => {
+// notifyAuthExpired 合并同一批未授权响应，避免多个并发请求反复触发会话清理。
+export const notifyAuthExpired = () => {
   if (authLogoutPending || typeof window === 'undefined') return;
   authLogoutPending = true;
   window.dispatchEvent(new Event('auth:logout'));
   queueMicrotask(() => {
     authLogoutPending = false;
   } /* 微任务结束后允许下一次未授权响应重新触发登出通知。 */);
-}; /* notifyAuthExpired 合并同一批 401 响应，避免重复触发会话清理。 */
+};
 
 const buildQueryString = (params?: QueryParams): string => {
   if (!params) return '';
@@ -154,7 +155,8 @@ export const postForm = async <T>(url: string, body: FormData, options: RequestC
   return payload as T;
 }; /* postForm 表示postForm。 */
 
-const controlledSignal = (external: AbortSignal | undefined, timeoutMs: number) => {
+// controlledSignal 组合外部取消与内部超时，调用方必须在请求结束后执行 cleanup。
+export const controlledSignal = (external: AbortSignal | undefined, timeoutMs: number) => {
 	const controller = new AbortController(); /* controller 表示controller。 */
 	const abortFromExternal = () => controller.abort(external?.reason); /* abortFromExternal 表示abortFromExternal。 */
 	if (external?.aborted) abortFromExternal();

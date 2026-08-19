@@ -102,7 +102,7 @@ describe('React feature dependency boundaries', () => {
   test('production React code does not call fetch or axios outside the request boundary', () => {
     // violations 保存页面或组件中直接发起网络请求的源码路径。
     const violations = productionSources()
-      .filter(file => file.relativePath !== 'shared/http/client.ts' && /\bfetch\s*\(|\baxios\b/.test(file.source) /* file 是当前待审计直接网络调用的生产模块。 */)
+      .filter(file => !['shared/http/client.ts', 'shared/api-contract/client.ts'].includes(file.relativePath) && /\bfetch\s*\(|\baxios\b/.test(file.source) /* file 是当前待审计直接网络调用的生产模块。 */)
       .map(file => file.relativePath /* 输出越过 HTTP 客户端的模块路径。 */);
 
     expect(violations).toEqual([]);

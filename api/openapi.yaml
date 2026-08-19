@@ -451,7 +451,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/AutoConfirmResponse'
         '400':
           description: 统一错误响应
           content:
@@ -492,13 +492,19 @@ paths:
             schema:
               type: string
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AutoConfirmRequest'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OperationResponse'
         '400':
           description: 统一错误响应
           content:
@@ -540,13 +546,19 @@ paths:
             schema:
               type: string
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountLoginInfoRequest'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OperationResponse'
         '400':
           description: 统一错误响应
           content:
@@ -594,7 +606,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/LongLoginResponse'
         '400':
           description: 统一错误响应
           content:
@@ -635,13 +647,19 @@ paths:
             schema:
               type: string
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LongLoginSettingsRequest'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/LongLoginResponse'
         '400':
           description: 统一错误响应
           content:
@@ -689,7 +707,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/PauseDurationResponse'
         '400':
           description: 统一错误响应
           content:
@@ -730,13 +748,19 @@ paths:
             schema:
               type: string
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PauseDurationRequest'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/CookieSettingsResponse'
         '400':
           description: 统一错误响应
           content:
@@ -784,7 +808,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/CookieProfileResponse'
         '400':
           description: 统一错误响应
           content:
@@ -826,13 +850,19 @@ paths:
             schema:
               type: string
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountRemarkRequest'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OperationResponse'
         '400':
           description: 统一错误响应
           content:
@@ -874,13 +904,19 @@ paths:
             schema:
               type: string
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountSettingsUpdateRequest'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/CookieSettingsResponse'
         '400':
           description: 统一错误响应
           content:
@@ -1018,7 +1054,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/RuntimeStatusMap'
         '400':
           description: 统一错误响应
           content:
@@ -5799,13 +5835,19 @@ paths:
       operationId: postApiV1SettingsAiModels
       summary: postApiV1SettingsAiModels
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIModelsRequest'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/AIModelsResponse'
         '400':
           description: 统一错误响应
           content:
@@ -5984,7 +6026,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/SystemSettingsResponse'
         '400':
           description: 统一错误响应
           content:
@@ -6019,13 +6061,19 @@ paths:
       operationId: putApiV1SettingsSystem
       summary: putApiV1SettingsSystem
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SystemSettingsUpdateRequest'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OperationResponse'
         '400':
           description: 统一错误响应
           content:
@@ -6501,6 +6549,185 @@ components:
       properties:
         enabled:
           type: boolean
+    AccountSettingsUpdateRequest:
+      type: object
+      properties:
+        cookie:
+          type: string
+        remark:
+          type: string
+        auto_confirm:
+          type: boolean
+        pause_duration:
+          type: integer
+          minimum: 0
+          maximum: 1440
+        username:
+          type: string
+        login_password:
+          type: string
+        clear_password:
+          type: boolean
+        show_browser:
+          type: boolean
+        channel_ids:
+          type: array
+          items:
+            type: integer
+    AccountLoginInfoRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        login_password:
+          type: string
+        clear_password:
+          type: boolean
+        show_browser:
+          type: boolean
+    LongLoginSettingsRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+    LongLoginResponse:
+      type: object
+      required: [can_open_long_login, enabled]
+      properties:
+        can_open_long_login:
+          type: boolean
+        enabled:
+          type: boolean
+    AutoConfirmRequest:
+      type: object
+      required: [auto_confirm]
+      properties:
+        auto_confirm:
+          type: boolean
+    AutoConfirmResponse:
+      type: object
+      required: [auto_confirm]
+      properties:
+        auto_confirm:
+          type: boolean
+    AccountRemarkRequest:
+      type: object
+      required: [remark]
+      properties:
+        remark:
+          type: string
+          maxLength: 500
+    PauseDurationRequest:
+      type: object
+      required: [pause_duration]
+      properties:
+        pause_duration:
+          type: integer
+          minimum: 0
+          maximum: 1440
+    PauseDurationResponse:
+      type: object
+      required: [pause_duration, paused_until, paused]
+      properties:
+        pause_duration:
+          type: integer
+        paused_until:
+          type: integer
+        paused:
+          type: boolean
+    CookieSettingsResponse:
+      type: object
+      required: [success, paused_until, paused]
+      properties:
+        success:
+          type: boolean
+        paused_until:
+          type: integer
+        paused:
+          type: boolean
+    CookieProfileResponse:
+      type: object
+      required: [success, id, nickname, avatar_url, profile_error]
+      properties:
+        success:
+          type: boolean
+        id:
+          type: string
+        nickname:
+          type: string
+        avatar_url:
+          type: string
+        profile_error:
+          type: string
+    RuntimeStatus:
+      type: object
+      required: [state, connected, failures, updated_at]
+      properties:
+        state:
+          type: string
+          enum: [starting, connecting, online, reconnecting, auth_expired, verification_required, runtime_conflict, error, stopped, disabled]
+        message:
+          type: string
+        connected:
+          type: boolean
+        failures:
+          type: integer
+        updated_at:
+          type: string
+          format: date-time
+    RuntimeStatusMap:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/RuntimeStatus'
+    AIModelsRequest:
+      type: object
+      required: [base_url]
+      properties:
+        base_url:
+          type: string
+        api_key:
+          type: string
+    AIModelsResponse:
+      type: object
+      required: [models]
+      properties:
+        models:
+          type: array
+          items:
+            type: string
+    SecretSettingChange:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [retain, replace, clear]
+        value:
+          type: string
+    SystemSettingValueMap:
+      type: object
+      additionalProperties:
+        oneOf:
+          - type: string
+          - type: number
+          - type: boolean
+    SystemSettingsUpdateRequest:
+      type: object
+      properties:
+        values:
+          $ref: '#/components/schemas/SystemSettingValueMap'
+        secrets:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/SecretSettingChange'
+    SystemSettingsResponse:
+      type: object
+      additionalProperties:
+        oneOf:
+          - type: string
+          - type: number
+          - type: boolean
     SessionStatusResponse:
       type: object
       required: [authenticated, initialized, is_admin]

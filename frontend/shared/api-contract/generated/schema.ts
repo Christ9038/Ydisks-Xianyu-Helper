@@ -1893,6 +1893,95 @@ export interface components {
         AccountStatusRequest: {
             enabled: boolean;
         };
+        AccountSettingsUpdateRequest: {
+            cookie?: string;
+            remark?: string;
+            auto_confirm?: boolean;
+            pause_duration?: number;
+            username?: string;
+            login_password?: string;
+            clear_password?: boolean;
+            show_browser?: boolean;
+            channel_ids?: number[];
+        };
+        AccountLoginInfoRequest: {
+            username?: string;
+            login_password?: string;
+            clear_password?: boolean;
+            show_browser?: boolean;
+        };
+        LongLoginSettingsRequest: {
+            enabled: boolean;
+        };
+        LongLoginResponse: {
+            can_open_long_login: boolean;
+            enabled: boolean;
+        };
+        AutoConfirmRequest: {
+            auto_confirm: boolean;
+        };
+        AutoConfirmResponse: {
+            auto_confirm: boolean;
+        };
+        AccountRemarkRequest: {
+            remark: string;
+        };
+        PauseDurationRequest: {
+            pause_duration: number;
+        };
+        PauseDurationResponse: {
+            pause_duration: number;
+            paused_until: number;
+            paused: boolean;
+        };
+        CookieSettingsResponse: {
+            success: boolean;
+            paused_until: number;
+            paused: boolean;
+        };
+        CookieProfileResponse: {
+            success: boolean;
+            id: string;
+            nickname: string;
+            avatar_url: string;
+            profile_error: string;
+        };
+        RuntimeStatus: {
+            /** @enum {string} */
+            state: "starting" | "connecting" | "online" | "reconnecting" | "auth_expired" | "verification_required" | "runtime_conflict" | "error" | "stopped" | "disabled";
+            message?: string;
+            connected: boolean;
+            failures: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        RuntimeStatusMap: {
+            [key: string]: components["schemas"]["RuntimeStatus"];
+        };
+        AIModelsRequest: {
+            base_url: string;
+            api_key?: string;
+        };
+        AIModelsResponse: {
+            models: string[];
+        };
+        SecretSettingChange: {
+            /** @enum {string} */
+            action: "retain" | "replace" | "clear";
+            value?: string;
+        };
+        SystemSettingValueMap: {
+            [key: string]: string | number | boolean;
+        };
+        SystemSettingsUpdateRequest: {
+            values?: components["schemas"]["SystemSettingValueMap"];
+            secrets?: {
+                [key: string]: components["schemas"]["SecretSettingChange"];
+            };
+        };
+        SystemSettingsResponse: {
+            [key: string]: string | number | boolean;
+        };
         SessionStatusResponse: {
             authenticated: boolean;
             initialized: boolean;
@@ -2571,7 +2660,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AutoConfirmResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -2630,7 +2719,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoConfirmRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -2638,7 +2731,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OperationResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -2697,7 +2790,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountLoginInfoRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -2705,7 +2802,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OperationResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -2772,7 +2869,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["LongLoginResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -2831,7 +2928,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LongLoginSettingsRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -2839,7 +2940,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["LongLoginResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -2906,7 +3007,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["PauseDurationResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -2965,7 +3066,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PauseDurationRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -2973,7 +3078,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["CookieSettingsResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -3040,7 +3145,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["CookieProfileResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -3099,7 +3204,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountRemarkRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -3107,7 +3216,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OperationResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -3166,7 +3275,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountSettingsUpdateRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -3174,7 +3287,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["CookieSettingsResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -3375,7 +3488,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["RuntimeStatusMap"];
                 };
             };
             /** @description 统一错误响应 */
@@ -10301,7 +10414,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AIModelsRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -10309,7 +10426,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AIModelsResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -10573,7 +10690,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["SystemSettingsResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -10630,7 +10747,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SystemSettingsUpdateRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -10638,7 +10759,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OperationResponse"];
                 };
             };
             /** @description 统一错误响应 */

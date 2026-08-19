@@ -1,5 +1,6 @@
-import type { AIModelsResponse,OperationResponse,SystemSettings } from '../../../shared/api-contract/settings';
-import { get,post,put,type RequestControlOptions } from '../../../shared/http/client';
+import type { OperationResponse,SystemSettings } from '../../../shared/api-contract/settings';
+import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
+import { type RequestControlOptions } from '../../../shared/http/client';
 export type * from '../../../shared/api-contract/settings';
 
 /** 设置页面使用的会话状态传输契约，避免跨 feature 依赖。 */
@@ -27,7 +28,7 @@ export type SensitiveSettingChange = {
 /** 系统设置更新请求，将普通配置与敏感命令分开传输。 */
 export type SystemSettingsUpdate = {
   /** 非敏感配置字段。 */
-  values?: Record<string, unknown>;
+  values?: Record<string, string | number | boolean>;
   /** 由服务端解释的敏感值变更命令。 */
   secrets?: Record<string, SensitiveSettingChange>;
 };
@@ -36,10 +37,10 @@ export type SystemSettingsUpdate = {
 const SENSITIVE_SYSTEM_SETTING_KEYS = new Set(['ai_api_key', 'smtp_password', 'qq_reply_secret_key', 'captcha.remote_secret_key']);
 
 /** 将历史设置草稿转换为服务端要求的普通值与敏感命令结构。 */
-const normalizeSystemSettingsUpdate = (settings: Partial<SystemSettings> | SystemSettingsUpdate): Record<string, unknown> => {
-  if ('values' in settings || 'secrets' in settings) return settings;
+const normalizeSystemSettingsUpdate = (settings: Partial<SystemSettings> | SystemSettingsUpdate): SystemSettingsUpdate => {
+  if ('values' in settings || 'secrets' in settings) return settings as SystemSettingsUpdate;
   // values 保存普通设置，永不容纳秘密文本。
-  const values: Record<string, unknown> = {};
+  const values: Record<string, string | number | boolean> = {};
   // secrets 保存服务端需要独立处理的敏感设置命令。
   const secrets: Record<string, SensitiveSettingChange> = {};
   for (const /* key、value 是当前待分流的设置键和值。 */ [key, value] of Object.entries(settings)) {
@@ -48,7 +49,7 @@ const normalizeSystemSettingsUpdate = (settings: Partial<SystemSettings> | Syste
       secrets[key] = value === '' ? { action: 'clear' } : { action: 'replace', value: String(value) };
       continue;
     }
-    values[key] = value;
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') values[key] = value;
   }
   return Object.keys(secrets).length > 0 ? { values, secrets } : values;
 };
@@ -72,29 +73,37 @@ const normalizeSettings = (settings: Record<string, unknown>): SystemSettings =>
 };
 
 /** 修改当前管理员的密码。 */
-export const changePassword = async (currentPassword: string, newPassword: string): Promise<OperationResponse> => post('/api/v1/session/password', { current_password: currentPassword, new_password: newPassword });
+export const changePassword = async (currentPassword: string, newPassword: string): Promise<OperationResponse> =>
+  runContractRequest(/* signal 是本次管理员密码更新请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/session/password', { body: { current_password: currentPassword, new_password: newPassword }, signal }));
 
 /** 修改当前管理员的登录名称与可选密码。 */
-export const updateLoginCredentials = async (data: { /** 当前密码用于服务端重新验证身份。 */ current_password: string; /** 新的管理员名称。 */ new_username: string; /** 可选的新密码。 */ new_password?: string }, options?: RequestControlOptions): Promise<OperationResponse> => put('/api/v1/session/credentials', data, options);
+export const updateLoginCredentials = async (data: { /** 当前密码用于服务端重新验证身份。 */ current_password: string; /** 新的管理员名称。 */ new_username: string; /** 可选的新密码。 */ new_password?: string }, options?: RequestControlOptions): Promise<OperationResponse> =>
+  runContractRequest(/* signal 是本次管理员凭据更新请求的超时与取消控制信号。 */ signal => contractClient.PUT('/api/v1/session/credentials', { body: data, signal }), options);
 
 /** 获取系统设置；仅保留敏感值是否已配置的状态，不接收敏感明文。 */
 export const getSystemSettings = async (options?: RequestControlOptions): Promise<SystemSettings> => {
-  // response 是服务端可能包裹在 data 中的设置响应。
-  const response = await get<{ /** settings 是当前系统配置对象。 */ data?: Record<string, unknown>; /** settings 是未包裹的兼容设置对象。 */ settings?: Record<string, unknown> } & Record<string, unknown>>('/api/v1/settings/system', undefined, options);
-  // settings 是去除 transport 包裹后的配置对象。
-  const settings = response.data || response.settings || response;
-  return normalizeSettings(settings);
+  // response 是 OpenAPI 约束的脱敏系统设置键值对象。
+  const response = await runContractRequest(/* signal 是本次系统设置读取请求的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/settings/system', { signal }), options);
+  return normalizeSettings(response);
 };
 
 /** 保存普通系统配置和敏感设置命令。 */
-export const updateSystemSettings = async (settings: Partial<SystemSettings> | SystemSettingsUpdate, options?: RequestControlOptions): Promise<OperationResponse> => put('/api/v1/settings/system', normalizeSystemSettingsUpdate(settings), options);
+export const updateSystemSettings = async (settings: Partial<SystemSettings> | SystemSettingsUpdate, options?: RequestControlOptions): Promise<OperationResponse> =>
+  runContractRequest(/* signal 是本次系统设置更新请求的超时与取消控制信号。 */ signal => contractClient.PUT('/api/v1/settings/system', {
+    body: normalizeSystemSettingsUpdate(settings),
+    signal,
+  }), options);
 
 /** 向服务端请求指定人工智能服务的可用模型列表。 */
 export const fetchAIModels = async (baseURL: string, apiKey = '', options?: RequestControlOptions): Promise<string[]> => {
   // response 是模型发现接口的具名响应。
-  const response = await post<AIModelsResponse>('/api/v1/settings/ai-models', { base_url: baseURL, api_key: apiKey }, options);
+  const response = await runContractRequest(/* signal 是本次模型发现请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/settings/ai-models', {
+    body: { base_url: baseURL, api_key: apiKey },
+    signal,
+  }), options);
   return Array.isArray(response.models) ? response.models : [];
 };
 
 /** 在保存登录凭据前读取当前会话状态。 */
-export const verifySession = async (options?: RequestControlOptions): Promise<SettingsSessionStatusResponse> => get('/api/v1/session', undefined, options);
+export const verifySession = async (options?: RequestControlOptions): Promise<SettingsSessionStatusResponse> =>
+  runContractRequest(/* signal 是本次设置页会话校验请求的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/session', { signal }), options);

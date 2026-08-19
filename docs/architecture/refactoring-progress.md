@@ -3,6 +3,65 @@
 本文件只记录已经完成阶段的最终提交与验收证据。唯一阶段状态和顺序由
 `refactoring-master-plan.md` 定义；阶段内工作、临时提交、切片和局部成功一律不记录。
 
+## OpenAPI 阶段二：类型化客户端与登录账号主链路
+
+- 最终提交绑定：`阶段二：迁移登录账号与风控接口到生成契约`。
+- 交付范围：以 `openapi-fetch` 和生成 `paths/types` 为唯一新增请求运行时，保留 Cookie、默认超时、外部
+  AbortSignal、取消/超时错误、401 合并登出、ApiError 和 JSON/FormData 兼容行为。session、accounts、QR
+  风控、system 设置与 AI 模型探测已迁移；账户 adapter 仍输出既有 UI model，生成 transport 类型未进入
+  React state 或组件 props。密码登录的三个永久关闭 operation 保留 501 错误契约，未触碰冻结 CAPTCHA 调用链。
+- OpenAPI 收紧：账户运行状态、聚合设置、长期登录、自动确认、备注、暂停时长、资料刷新、登录资料和系统
+  设置均使用具名请求/响应 schema；动态系统键限制为字符串、数值或布尔值，敏感设置使用 retain/replace/clear
+  三态命令。后端额外非敏感字段仍按非对称规则允许，账号与系统响应测试独立阻断 Cookie、密码、SMTP 密码
+  和 AI 密钥泄漏。
+
+### 强制验收原始输出
+
+```text
+$ make api-check
+api-check: 通过；OpenAPI 生成漂移检查和 chi 路由双向覆盖通过。
+
+$ go run ./tools/architecturecheck
+architecturecheck: 通过
+
+$ go test ./internal/server -run '^TestOpenAPI(AccountAndSystem|SessionAndQR)Responses$' -count=1
+PASS
+
+$ go test ./... -count=1
+所有 Go 测试包通过。
+
+$ go vet ./...
+(无输出，退出码 0)
+
+$ make lint
+golangci-lint run ./...
+0 issues.
+
+$ npm test --prefix frontend
+Test Files  67 passed (67)
+Tests       405 passed (405)
+
+$ npm run typecheck --prefix frontend
+(无输出，退出码 0)
+
+$ npm run build --prefix frontend
+vite 构建成功，嵌入前端产物已重建。
+
+$ make comments
+commentlint: 通过（Go 与 TypeScript/TSX 均无缺少中文注释或模板化注释）
+
+$ git diff --check
+(无输出，退出码 0)
+```
+
+### 验收边界
+
+- 覆盖率：本阶段未修改覆盖率目标，未运行覆盖率命令。
+- 浏览器：未使用 `RUN_BROWSER_INTEGRATION=1`；未修改 `internal/browser` 或冻结 CAPTCHA 文件。
+- 外部服务：长期登录成功响应依赖真实平台 `returnValue`，本地契约测试验证其 502 统一错误 envelope；未运行真实账号、
+  MySQL 或 PostgreSQL。
+- 生成物：生成的 `frontend/shared/api-contract/generated/schema.ts` 与新的嵌入前端构建产物随阶段提交，未手工修改生成文件。
+
 ## 阶段二：Server 组合根和应用服务迁移
 
 - 最终提交绑定：本文件随最终提交 `阶段二：完成 Server 组合根和应用服务迁移` 一并进入 `HEAD`。
