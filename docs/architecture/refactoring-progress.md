@@ -437,3 +437,10 @@ architecturecheck: 通过；git diff --check 无输出。
 - 解析边界：门禁会展开 TypeScript `extends` 字段和 Go 匿名嵌入 DTO 字段，避免订单详情等兼容顶层字段产生误报；嵌套对象字段单独属于其行 DTO，不被错误归入外层响应。动态键、feature 归一化和脱敏模型必须逐项写明理由，不能静默跳过。
 - 修复结果：二维码风控状态已补齐 `verification_screenshot` 和 `face_qr_url`；删除卡券时间字段、账号 AI 模型/密钥字段、通知渠道配置与时间字段等服务端从未提供且前端不消费的历史契约。通知渠道列表继续不返回配置，避免 SMTP 等秘密穿透摘要 DTO；编辑器用空配置初始化。
 - 回归保护：新增真实临时仓库夹具测试，确认遗漏后端字段会触发门禁；新增匿名嵌入解析测试。冻结滑块验证码实现及其调用语义未修改。
+
+### 2026-08-20 OpenAPI 契约阶段三：查询、聊天与订单主链路
+
+- 交付范围：dashboard、订单分析、有效订单、订单分页/详情/更新/删除、异步刷新任务、聊天会话/消息/已读/图片/文本与管理员用户、账号、任务摘要均通过生成的 `/api/v1` operation 调用；UI 继续只消费 feature adapter 输出的派生模型。
+- WebSocket：`/api/v1/chat/ws` 以 `x-websocket-message-schema` 引用 `ChatWebSocketEvent`。服务端实际 `ready` 和聊天事件 DTO 由同一 OpenAPI component 校验；原生 WebSocket 仍只由聊天通知 owner 使用。
+- 契约修正：订单刷新项的 `soft_deleted` 由历史错误的整数收紧为真实 handler 输出的布尔值；管理员账号摘要 schema 不包含 Cookie、密码或其他凭证字段。
+- 验收：`make api-check`、`go run ./tools/architecturecheck`、`go test ./internal/server -count=1`、`npm run typecheck --prefix frontend`、`npm test --prefix frontend`、`make comments` 与 `git diff --check` 均通过。未修改冻结 CAPTCHA 实现，未执行真实账号或外部平台调用。

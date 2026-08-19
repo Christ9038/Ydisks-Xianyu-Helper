@@ -1532,7 +1532,8 @@ export interface OrderRefreshResultResponse {
   /** 更新的订单数量。 */
   updated?: number;
   /** 标记删除的订单数量。 */
-  soft_deleted?: number;
+  /** soft_deleted 表示该订单是否已被本次刷新标记为软删除。 */
+  soft_deleted?: boolean;
   /** 订单平台标识。 */
   order_id?: string;
   /** 结果错误说明。 */

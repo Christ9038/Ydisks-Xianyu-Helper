@@ -59,6 +59,15 @@ func assertOpenAPISuccessResponse(t *testing.T, request *http.Request, recorder 
 	assertOpenAPIResponse(t, request, recorder)
 }
 
+// assertOpenAPIExpectedStatusResponse 验证非 200 成功状态的真实响应仍符合 operation 契约。
+func assertOpenAPIExpectedStatusResponse(t *testing.T, request *http.Request, recorder *httptest.ResponseRecorder, wantStatus int) {
+	t.Helper()
+	if recorder.Code != wantStatus {
+		t.Fatalf("成功响应状态错误: %s %s status=%d want=%d body=%s", request.Method, request.URL.Path, recorder.Code, wantStatus, recorder.Body.String())
+	}
+	assertOpenAPIResponse(t, request, recorder)
+}
+
 // TestOpenAPISessionAndQRResponses 验证阶段二会话与二维码主链路的成功、未认证和风控响应均满足真实契约。
 func TestOpenAPISessionAndQRResponses(t *testing.T) {
 	// srv、store、cleanup 分别是测试 Server、持久化夹具和资源释放函数。
@@ -205,4 +214,89 @@ func TestOpenAPIAccountAndSystemResponses(t *testing.T) {
 	updateSystemRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(updateSystemRecorder, updateSystemRequest)
 	assertOpenAPISuccessResponse(t, updateSystemRequest, updateSystemRecorder)
+}
+
+// TestOpenAPIQueryChatAndOrderResponses 验证阶段三仪表盘、聊天、订单查询和异步刷新任务符合真实 OpenAPI 响应契约。
+func TestOpenAPIQueryChatAndOrderResponses(t *testing.T) {
+	// srv、_、cleanup 分别是测试 Server、无需直接访问的存储和测试资源释放函数。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是包含阶段三版本化路由的真实 chi Router。
+	handler := srv.Router()
+	// sessionCookie 是管理员会话 Cookie，用于受保护查询成功场景。
+	sessionCookie := loginHelper(t, handler)
+	// unauthenticatedRequest 是缺少会话的订单查询，必须保持统一错误 envelope。
+	unauthenticatedRequest := httptest.NewRequest(http.MethodGet, "/api/v1/orders", nil)
+	// unauthenticatedRecorder 是捕获未认证订单查询响应的记录器。
+	unauthenticatedRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(unauthenticatedRecorder, unauthenticatedRequest)
+	assertOpenAPIResponse(t, unauthenticatedRequest, unauthenticatedRecorder)
+
+	// dashboardRequest 是读取当前用户仪表盘统计的成功请求。
+	dashboardRequest := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/dashboard", nil)
+	dashboardRequest.AddCookie(sessionCookie)
+	// dashboardRecorder 是捕获仪表盘统计响应的记录器。
+	dashboardRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(dashboardRecorder, dashboardRequest)
+	assertOpenAPISuccessResponse(t, dashboardRequest, dashboardRecorder)
+
+	// analyticsRequest 是带日期和时区参数的订单分析成功请求。
+	analyticsRequest := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/orders?start_date=2026-01-01&end_date=2026-01-31&timezone_offset_minutes=480", nil)
+	analyticsRequest.AddCookie(sessionCookie)
+	// analyticsRecorder 是捕获订单分析响应的记录器。
+	analyticsRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(analyticsRecorder, analyticsRequest)
+	assertOpenAPISuccessResponse(t, analyticsRequest, analyticsRecorder)
+
+	// orderListRequest 是带稳定分页参数的订单查询成功请求。
+	orderListRequest := httptest.NewRequest(http.MethodGet, "/api/v1/orders?page=1&page_size=20", nil)
+	orderListRequest.AddCookie(sessionCookie)
+	// orderListRecorder 是捕获订单分页响应的记录器。
+	orderListRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(orderListRecorder, orderListRequest)
+	assertOpenAPISuccessResponse(t, orderListRequest, orderListRecorder)
+
+	// chatSessionsRequest 是带账号和游标参数的聊天会话分页成功请求。
+	chatSessionsRequest := httptest.NewRequest(http.MethodGet, "/api/v1/chat/sessions?account_id=acc1&cursor=0", nil)
+	chatSessionsRequest.AddCookie(sessionCookie)
+	// chatSessionsRecorder 是捕获聊天会话分页响应的记录器。
+	chatSessionsRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(chatSessionsRecorder, chatSessionsRequest)
+	assertOpenAPISuccessResponse(t, chatSessionsRequest, chatSessionsRecorder)
+
+	// refreshRequest 是创建订单刷新后台任务的 multipart 成功请求。
+	refreshRequest := httptest.NewRequest(http.MethodPost, "/api/v1/orders/refresh", strings.NewReader("--openapi\r\nContent-Disposition: form-data; name=\"cookie_id\"\r\n\r\nacc1\r\n--openapi--\r\n"))
+	refreshRequest.Header.Set("Content-Type", "multipart/form-data; boundary=openapi")
+	refreshRequest.AddCookie(sessionCookie)
+	// refreshRecorder 是捕获异步刷新任务创建响应的记录器。
+	refreshRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(refreshRecorder, refreshRequest)
+	assertOpenAPIExpectedStatusResponse(t, refreshRequest, refreshRecorder, http.StatusAccepted)
+
+	// adminUsersRequest 是管理员读取用户摘要的成功请求。
+	adminUsersRequest := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users", nil)
+	adminUsersRequest.AddCookie(sessionCookie)
+	// adminUsersRecorder 捕获管理员用户摘要响应。
+	adminUsersRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(adminUsersRecorder, adminUsersRequest)
+	assertOpenAPISuccessResponse(t, adminUsersRequest, adminUsersRecorder)
+
+	// adminCookiesRequest 是管理员读取账号非敏感摘要的成功请求。
+	adminCookiesRequest := httptest.NewRequest(http.MethodGet, "/api/v1/admin/cookies", nil)
+	adminCookiesRequest.AddCookie(sessionCookie)
+	// adminCookiesRecorder 捕获管理员账号摘要响应。
+	adminCookiesRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(adminCookiesRecorder, adminCookiesRequest)
+	assertOpenAPISuccessResponse(t, adminCookiesRequest, adminCookiesRecorder)
+	if strings.Contains(adminCookiesRecorder.Body.String(), "cookie_value") || strings.Contains(adminCookiesRecorder.Body.String(), "password") {
+		t.Fatalf("管理员账号摘要泄漏敏感字段: %s", adminCookiesRecorder.Body.String())
+	}
+
+	// adminTasksRequest 是管理员读取后台任务状态的成功请求。
+	adminTasksRequest := httptest.NewRequest(http.MethodGet, "/api/v1/admin/tasks?limit=1", nil)
+	adminTasksRequest.AddCookie(sessionCookie)
+	// adminTasksRecorder 捕获后台任务状态响应。
+	adminTasksRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(adminTasksRecorder, adminTasksRequest)
+	assertOpenAPISuccessResponse(t, adminTasksRequest, adminTasksRecorder)
 }

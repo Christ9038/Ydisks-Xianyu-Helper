@@ -5,21 +5,60 @@ Item,
 OperationResponse,
 Order,
 OrderBatchResponse,
-OrderDTOResponse,OrderDetailResponse,
-OrderRefreshJobCancelResponse,
-OrderRefreshJobStartResponse,OrderRefreshJobStatusResponse,
+OrderDTOResponse,
+OrderRefreshJobCancelResponse,OrderRefreshJobStatusResponse,
 OrderRefreshResponse,
 OrderSingleRefreshResponse,
 PaginatedResponse
 } from '../../../shared/api-contract/orders';
-import { del,get,post,postForm,put,type RequestControlOptions } from '../../../shared/http/client';
-import { collectionFrom,objectFrom } from '../../../shared/http/contract';
+import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
+import { type RequestControlOptions } from '../../../shared/http/client';
+import { collectionFrom, objectFrom } from '../../../shared/http/contract';
 export type * from '../../../shared/api-contract/orders';
 
 /** 订单刷新前端最多轮询约 90 秒，超过该预算必须请求取消后端 worker。 */
 const orderRefreshPollLimit = 180;
 /** 订单刷新取消和终态复查使用独立五秒网络预算，不能复用已超时或已 Abort 的主信号。 */
 const orderRefreshCancelTimeoutMs = 5_000;
+
+/** OrderListQuery 描述订单列表 operation 可传递的筛选和分页参数。 */
+type OrderListQuery = {
+  /** 账号筛选标识。 */ cookie_id?: string;
+  /** 订单状态筛选值。 */ status?: string;
+  /** 用户输入的文本搜索条件。 */ search?: string;
+  /** 页码，从一开始。 */ page: number;
+  /** 每页最大行数。 */ page_size: number;
+};
+
+/** OrderImportFormContract 描述订单文件导入 operation 的 multipart 字段。 */
+type OrderImportFormContract = {
+  /** 二进制导入文件字段。 */ file?: string;
+};
+
+/** OrderRefreshFormContract 描述订单刷新 operation 的 multipart 筛选字段。 */
+type OrderRefreshFormContract = {
+  /** 可选的账号筛选标识。 */ cookie_id?: string;
+  /** 可选的订单状态筛选值。 */ status?: string;
+};
+
+/** OrderBatchTransportResponse 描述生成 operation 返回、尚未归一化状态枚举的批量订单结果。 */
+type OrderBatchTransportResponse = {
+  /** 批次是否包含失败项。 */ partial_failure: boolean;
+  /** 可展示的批次执行说明。 */ message: string;
+  /** 可选的输入订单总数。 */ total?: number;
+  /** 已成功处理的订单数量。 */ success_count: number;
+  /** 已失败处理的订单数量。 */ failed_count: number;
+  /** 每个订单的 transport 结果。 */ results: Array<{
+    /** 平台订单标识。 */ order_id?: string;
+    /** 服务端返回的处理状态。 */ status?: string;
+    /** 单项是否成功。 */ success?: boolean;
+    /** 单项处理说明。 */ message: string;
+    /** 所属账号标识。 */ cookie_id?: string;
+    /** 不确定远端结果的补偿记录标识。 */ reconciliation_id?: string;
+    /** 本地补偿警告。 */ reconciliation_warning?: string;
+    /** 当前业务处理阶段。 */ stage?: string;
+  }>;
+};
 
 /** 订单刷新轮询选项仅控制前端等待行为；不改变后端任务、HTTP 路径或请求体契约。 */
 export interface OrderRefreshPollOptions extends RequestControlOptions {
@@ -30,13 +69,31 @@ export interface OrderRefreshPollOptions extends RequestControlOptions {
 }
 
 /** 订单筛选器读取非敏感账号摘要。 */
-export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => get('/api/v1/accounts/details', undefined, options);
+export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => {
+  // response 是账号摘要 transport DTO 集合，转换后只向订单 UI 暴露非敏感字段。
+  const response = await runContractRequest(/* signal 是本次订单账号摘要请求的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/accounts/details', { signal }), options);
+  return response.map(/* item 是当前待转换的账号摘要 DTO。 */ item => ({
+    id: item.id,
+    enabled: item.enabled,
+    auto_confirm: item.auto_confirm,
+    remark: item.remark,
+    pause_duration: item.pause_duration,
+    paused_until: item.paused_until,
+    paused: item.paused,
+    username: item.username,
+    show_browser: item.show_browser,
+    nickname: item.nickname,
+    avatar_url: item.avatar_url,
+    profile_error: item.profile_error,
+  }));
+};
 
 /** 订单关联商品展示读取当前商品索引。 */
-export const getItems = async (accountID?: string, options?: RequestControlOptions): Promise<Item[]> => get('/api/v1/items', accountID ? { cookie_id: accountID } : undefined, options);
+export const getItems = async (accountID?: string, options?: RequestControlOptions): Promise<Item[]> => runContractRequest(/* signal 控制订单页商品读取的取消和超时。 */ signal => contractClient.GET('/api/v1/items', { params: { query: { cookie_id: accountID } }, signal }), options) as unknown as Promise<Item[]>;
 
 /** 管理员统计仍由订单域兼容 API 提供给历史管理页面。 */
-export const getAdminStats = async (): Promise<AdminStatsResponse> => get('/api/v1/admin/stats');
+export const getAdminStats = async (): Promise<AdminStatsResponse> =>
+  runContractRequest(/* signal 是本次管理员统计请求的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/admin/stats', { signal }));
 // Orders
 // normalizeOrderStatus 归一化订单状态。
 const normalizeOrderStatus = (value: unknown): Order['status'] => {
@@ -58,40 +115,48 @@ export const getOrders = async (
   options?: RequestControlOptions,
 ): Promise<PaginatedResponse<Order>> => {
   // params 请求参数，用于当前 API 处理流程。
-  const params: any = { page, page_size: pageSize };
+  // params 是生成契约约束的订单筛选与分页查询参数。
+  const params: OrderListQuery = { page, page_size: pageSize };
   if (cookieId) params.cookie_id = cookieId;
   if (status && status !== 'all') params.status = status;
   if (search?.trim()) params.search = search.trim();
 
-  // res 接口响应结果，用于当前 API 处理流程。
-  const response = await get<unknown>('/api/v1/orders', params, options);
-  // res 是兼容直接分页对象、orders 别名和 data 包裹后的订单响应。
-  const res = objectFrom<Partial<PaginatedResponse<Order>> & { /** orders 是历史订单列表字段别名。 */ orders?: Order[] }>(response, ['data', 'result']) || {};
-
-  // Handle backend response variations
-  // rawOrders 原始订单列表，用于当前 API 处理流程。
-  const rawOrders = Array.isArray(res.orders) ? res.orders : collectionFrom<Order>(res.data, ['data', 'orders', 'items']);
+  // response 是生成契约约束的订单分页 transport DTO。
+  const response = await runContractRequest(/* signal 是本次订单分页请求的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/orders', {
+    params: { query: params },
+    signal,
+  }), options);
+  // legacyResponse 是保留给旧 handler 包装和测试夹具的适配视图，不扩散到 UI model。
+  const legacyResponse = response as unknown;
+  // pageResponse 是直接分页对象或 data/result 包装后的页面元数据。
+  const pageResponse = objectFrom<Partial<PaginatedResponse<Order>> & { /** orders 是历史订单列表字段别名。 */ orders?: Order[] }>(legacyResponse, ['data', 'result']) || {};
+  // rawOrders 是当前分页中的订单 transport DTO；兼容归一只在 adapter 内完成。
+  const rawOrders = Array.isArray(pageResponse.orders) ? pageResponse.orders : collectionFrom<Order>(pageResponse.data, ['data', 'orders', 'items']);
   // orders 订单列表，用于当前 API 处理流程。
-  const orders = rawOrders.map(/* 当前回调用于处理集合元素或接口响应。 */ (item: any) => ({
+  const orders = rawOrders.map(/* item 是当前需要归一化状态与数量的订单 DTO。 */ item => ({
     ...item,
-    id: item.id || item.order_id,
+    id: item.order_id,
+    order_status: normalizeOrderStatus(item.order_status),
     status: normalizeOrderStatus(item.status || item.order_status),
     quantity: Number(item.quantity || 1),
   }));
   return {
     success: true,
     data: orders,
-    total: res.total || orders.length,
-    page: res.page || page,
-    page_size: res.page_size || pageSize,
-    total_pages: res.total_pages || 1
+    total: pageResponse.total || orders.length,
+    page: pageResponse.page || page,
+    page_size: pageResponse.page_size || pageSize,
+    total_pages: pageResponse.total_pages || 1
   };
 };
 
 // getOrderDetail 读取订单详情。
 export const getOrderDetail = async (orderId: string): Promise<{ /** success 表示是否成功。 */ success: boolean; /** data 表示数据。 */ data?: OrderDTOResponse }> => {
   // result 接口响应结果，用于当前 API 处理流程。
-  const result = await get<OrderDetailResponse>(`/api/v1/orders/${orderId}`);
+  const result = await runContractRequest(/* signal 是本次订单详情请求的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/orders/{order_id}', {
+    params: { path: { order_id: orderId } },
+    signal,
+  }));
   return {
     success: true,
     data: result.data
@@ -100,12 +165,19 @@ export const getOrderDetail = async (orderId: string): Promise<{ /** success 表
 
 // updateOrder 更新订单。
 export const updateOrder = async (orderId: string, data: Partial<Order>): Promise<OperationResponse> => {
-  return put(`/api/v1/orders/${orderId}`, data);
+  return runContractRequest(/* signal 是本次订单更新请求的超时与取消控制信号。 */ signal => contractClient.PUT('/api/v1/orders/{order_id}', {
+    params: { path: { order_id: orderId } },
+    body: data,
+    signal,
+  }));
 };
 
 // deleteOrder 删除订单。
 export const deleteOrder = async (orderId: string): Promise<OperationResponse> => {
-  return del(`/api/v1/orders/${orderId}`);
+  return runContractRequest(/* signal 是本次订单删除请求的超时与取消控制信号。 */ signal => contractClient.DELETE('/api/v1/orders/{order_id}', {
+    params: { path: { order_id: orderId } },
+    signal,
+  }));
 };
 
 // syncOrders 同步订单。
@@ -116,7 +188,10 @@ export const syncOrders = async (cookieId?: string, status?: string, options?: O
   if (status) formData.append('status', status);
 
 	// start 表示后台订单刷新任务创建响应。
-	const start = await postForm<OrderRefreshJobStartResponse>('/api/v1/orders/refresh', formData, options);
+	const start = await runContractRequest(/* signal 是本次订单刷新任务创建请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/orders/refresh', {
+    body: formData as unknown as OrderRefreshFormContract,
+    signal,
+  }), options);
 	// cancelOnAbort 在调用方取消轮询时通知服务端停止同一后台任务；取消命令使用独立信号，主请求已取消也能发出。
 	const cancelOnAbort = () => {
 		void cancelOrderRefreshJob(start.job_id, { timeoutMs: orderRefreshCancelTimeoutMs }).catch(/* 取消请求失败时忽略网络错误，主请求仍按取消语义结束。 */ () => undefined);
@@ -131,7 +206,10 @@ export const syncOrders = async (cookieId?: string, status?: string, options?: O
 	try {
 		while (pollIndex < pollLimit) {
 		// job 表示当前轮询得到的后台任务状态。
-		const job = await get<OrderRefreshJobStatusResponse>(`/api/v1/orders/refresh/${start.job_id}`, undefined, options);
+		const job = await runContractRequest(/* signal 是本次订单刷新状态轮询请求的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/orders/refresh/{job_id}', {
+      params: { path: { job_id: start.job_id } },
+      signal,
+    }), options);
 		if (job.status === 'succeeded' && job.result) {
 			return job.result;
 		}
@@ -178,30 +256,70 @@ const cancelAndReadOrderRefreshJob = async (jobId: string): Promise<OrderRefresh
 	} catch {
 		// 取消返回冲突或网络错误时仍读取终态：任务可能已经在取消命令到达前结束。
 	}
-	return get<OrderRefreshJobStatusResponse>(`/api/v1/orders/refresh/${jobId}`, undefined, { timeoutMs: orderRefreshCancelTimeoutMs });
+	return runContractRequest(/* signal 是本次订单刷新终态查询请求的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/orders/refresh/{job_id}', {
+    params: { path: { job_id: jobId } },
+    signal,
+  }), { timeoutMs: orderRefreshCancelTimeoutMs });
 };
 
 // cancelOrderRefreshJob 请求取消当前用户的订单刷新后台任务。
 export const cancelOrderRefreshJob = async (jobId: string, options?: RequestControlOptions): Promise<OrderRefreshJobCancelResponse> => {
-	return del(`/api/v1/orders/refresh/${jobId}`, undefined, options);
+	return runContractRequest(/* signal 是本次订单刷新取消请求的超时与取消控制信号。 */ signal => contractClient.DELETE('/api/v1/orders/refresh/{job_id}', {
+    params: { path: { job_id: jobId } },
+    signal,
+  }), options);
 };
 
 // syncSingleOrder 同步单个订单。
 export const syncSingleOrder = async (orderId: string): Promise<OrderSingleRefreshResponse> => {
-  return post(`/api/v1/orders/${orderId}/refresh`);
+  return runContractRequest(/* signal 是本次单订单刷新请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/orders/{order_id}/refresh', {
+    params: { path: { order_id: orderId } },
+    signal,
+  }));
 };
 
 // manualShipOrder 手动发货订单。
 export const manualShipOrder = async (orderIds: string[], shipMode: 'status_only' | 'full_delivery'): Promise<OrderBatchResponse> => {
-    return post('/api/v1/orders/manual-ship', {
+    // response 是生成契约约束的批量发货 transport DTO，随后归一化为旧 UI 模型。
+    const response = await runContractRequest(/* signal 是本次批量发货请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/orders/manual-ship', {
+      body: {
         order_ids: orderIds,
         ship_mode: shipMode,
-    });
+      },
+      signal,
+    }));
+    return normalizeOrderBatchResponse(response);
 }
 
 // importOrders 导入订单。
 export const importOrders = async (data: Partial<Order>[] | FormData, options?: RequestControlOptions): Promise<OrderBatchResponse> => {
 	// isFormData 是否为表单请求，用于当前 API 处理流程。
 	const isFormData = data instanceof FormData;
-	return isFormData ? postForm('/api/v1/orders/import', data, options) : post('/api/v1/orders/import', data, options);
+	if (isFormData) {
+		// response 是生成契约约束的文件导入 transport DTO。
+		const response = await runContractRequest(/* signal 是本次订单表格导入请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/orders/import', {
+			body: data as unknown as OrderImportFormContract,
+			signal,
+		}), options);
+		return normalizeOrderBatchResponse(response);
+	}
+	// response 是生成契约约束的 JSON 导入 transport DTO。
+	const response = await runContractRequest(/* signal 是本次订单 JSON 导入请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/orders/import', {
+		body: data,
+		signal,
+	}), options);
+	return normalizeOrderBatchResponse(response);
 }
+
+// normalizeOrderBatchResponse 将生成 transport DTO 转为兼容历史订单页面的受限结果状态。
+const normalizeOrderBatchResponse = (response: OrderBatchTransportResponse): OrderBatchResponse => ({
+  partial_failure: response.partial_failure,
+  message: response.message,
+  total: response.total,
+  success_count: response.success_count,
+  failed_count: response.failed_count,
+  results: (response.results || []).map(/* item 是当前待归一化的批量订单结果 DTO。 */ item => ({
+    ...item,
+    status: item.status === 'failed' || item.status === 'succeeded' || item.status === 'reconciliation_required' ? item.status : undefined,
+  })),
+});

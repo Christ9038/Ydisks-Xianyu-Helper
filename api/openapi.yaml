@@ -1096,7 +1096,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminCookie'
         '400':
           description: 统一错误响应
           content:
@@ -1222,7 +1224,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/AdminStatsResponse'
         '400':
           description: 统一错误响应
           content:
@@ -1258,13 +1260,20 @@ paths:
       operationId: getApiV1AdminTasks
       summary: getApiV1AdminTasks
       security: [{cookieAuth: []}]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 128}
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminTask'
         '400':
           description: 统一错误响应
           content:
@@ -1306,7 +1315,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminUser'
         '400':
           description: 统一错误响应
           content:
@@ -1346,7 +1357,7 @@ paths:
             in: path
             required: true
             schema:
-              type: string
+              type: integer
       security: [{cookieAuth: []}]
       responses:
         '200':
@@ -1354,7 +1365,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OperationResponse'
         '400':
           description: 统一错误响应
           content:
@@ -1396,7 +1407,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/DashboardStatsResponse'
         '400':
           description: 统一错误响应
           content:
@@ -1432,13 +1443,26 @@ paths:
       operationId: getApiV1AnalyticsOrders
       summary: getApiV1AnalyticsOrders
       security: [{cookieAuth: []}]
+      parameters:
+        - name: start_date
+          in: query
+          required: true
+          schema: {type: string, format: date}
+        - name: end_date
+          in: query
+          required: true
+          schema: {type: string, format: date}
+        - name: timezone_offset_minutes
+          in: query
+          required: false
+          schema: {type: integer}
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/AnalyticsResponse'
         '400':
           description: 统一错误响应
           content:
@@ -1474,13 +1498,34 @@ paths:
       operationId: getApiV1AnalyticsOrdersValid
       summary: getApiV1AnalyticsOrdersValid
       security: [{cookieAuth: []}]
+      parameters:
+        - name: start_date
+          in: query
+          required: true
+          schema: {type: string, format: date}
+        - name: end_date
+          in: query
+          required: true
+          schema: {type: string, format: date}
+        - name: timezone_offset_minutes
+          in: query
+          required: false
+          schema: {type: integer}
+        - name: page
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1}
+        - name: page_size
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 500}
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/ValidOrdersResponse'
         '400':
           description: 统一错误响应
           content:
@@ -1606,6 +1651,31 @@ paths:
       operationId: getApiV1AutomationRules
       summary: getApiV1AutomationRules
       security: [{cookieAuth: []}]
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1}
+        - name: page_size
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 100}
+        - name: cookie_id
+          in: query
+          required: false
+          schema: {type: string}
+        - name: trigger_type
+          in: query
+          required: false
+          schema: {type: string}
+        - name: enabled
+          in: query
+          required: false
+          schema: {type: boolean}
+        - name: search
+          in: query
+          required: false
+          schema: {type: string}
       responses:
         '200':
           description: 成功
@@ -2195,13 +2265,29 @@ paths:
       operationId: postApiV1ChatImages
       summary: postApiV1ChatImages
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [account_id, chat_id, buyer_id, image]
+              properties:
+                account_id: {type: string}
+                chat_id: {type: string}
+                buyer_id: {type: string}
+                buyer_name: {type: string}
+                buyer_avatar_url: {type: string}
+                item_id: {type: string}
+                item_title: {type: string}
+                image: {type: string, format: binary}
       responses:
-        '200':
+        '201':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/ChatMessageEnvelope'
         '400':
           description: 统一错误响应
           content:
@@ -2237,13 +2323,34 @@ paths:
       operationId: getApiV1ChatMessages
       summary: getApiV1ChatMessages
       security: [{cookieAuth: []}]
+      parameters:
+        - name: account_id
+          in: query
+          required: true
+          schema: {type: string}
+        - name: chat_id
+          in: query
+          required: true
+          schema: {type: string}
+        - name: cursor
+          in: query
+          required: false
+          schema: {type: integer}
+        - name: before_id
+          in: query
+          required: false
+          schema: {type: integer}
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 200}
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/ChatMessagePage'
         '400':
           description: 统一错误响应
           content:
@@ -2278,13 +2385,19 @@ paths:
       operationId: postApiV1ChatMessages
       summary: postApiV1ChatMessages
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatMessageRequest'
       responses:
-        '200':
+        '201':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/ChatMessageEnvelope'
         '400':
           description: 统一错误响应
           content:
@@ -2320,13 +2433,19 @@ paths:
       operationId: postApiV1ChatRead
       summary: postApiV1ChatRead
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatReadRequest'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OperationResponse'
         '400':
           description: 统一错误响应
           content:
@@ -2362,13 +2481,30 @@ paths:
       operationId: getApiV1ChatSessions
       summary: getApiV1ChatSessions
       security: [{cookieAuth: []}]
+      parameters:
+        - name: account_id
+          in: query
+          required: true
+          schema: {type: string}
+        - name: cursor
+          in: query
+          required: false
+          schema: {type: integer}
+        - name: refresh
+          in: query
+          required: false
+          schema: {type: integer, enum: [0, 1]}
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 200}
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/ChatSessionPage'
         '400':
           description: 统一错误响应
           content:
@@ -2404,6 +2540,8 @@ paths:
       operationId: getApiV1ChatWs
       summary: getApiV1ChatWs
       security: [{cookieAuth: []}]
+      x-websocket-message-schema:
+        $ref: '#/components/schemas/ChatWebSocketEvent'
       responses:
         '101':
           description: WebSocket 握手成功
@@ -2716,6 +2854,11 @@ paths:
       operationId: getApiV1Items
       summary: getApiV1Items
       security: [{cookieAuth: []}]
+      parameters:
+        - name: cookie_id
+          in: query
+          required: false
+          schema: {type: string}
       responses:
         '200':
           description: 成功
@@ -3243,6 +3386,11 @@ paths:
       operationId: getApiV1ItemsPublishBatches
       summary: getApiV1ItemsPublishBatches
       security: [{cookieAuth: []}]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 100}
       responses:
         '200':
           description: 成功
@@ -4151,13 +4299,34 @@ paths:
       operationId: getApiV1Orders
       summary: getApiV1Orders
       security: [{cookieAuth: []}]
+      parameters:
+        - name: cookie_id
+          in: query
+          required: false
+          schema: {type: string}
+        - name: status
+          in: query
+          required: false
+          schema: {type: string}
+        - name: search
+          in: query
+          required: false
+          schema: {type: string}
+        - name: page
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1}
+        - name: page_size
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, maximum: 500}
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OrderListResponse'
         '400':
           description: 统一错误响应
           content:
@@ -4252,7 +4421,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OrderDetailResponse'
         '400':
           description: 统一错误响应
           content:
@@ -4293,13 +4462,19 @@ paths:
             schema:
               type: string
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderUpdateRequest'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OperationResponse'
         '400':
           description: 统一错误响应
           content:
@@ -4347,7 +4522,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OrderSingleRefreshResponse'
         '400':
           description: 统一错误响应
           content:
@@ -4383,13 +4558,26 @@ paths:
       operationId: postApiV1OrdersImport
       summary: postApiV1OrdersImport
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: {type: string, format: binary}
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/OrderUpdateRequest'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OrderBatchResponse'
         '400':
           description: 统一错误响应
           content:
@@ -4425,13 +4613,19 @@ paths:
       operationId: postApiV1OrdersManualShip
       summary: postApiV1OrdersManualShip
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualShipRequest'
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OrderBatchResponse'
         '400':
           description: 统一错误响应
           content:
@@ -4467,13 +4661,22 @@ paths:
       operationId: postApiV1OrdersRefresh
       summary: postApiV1OrdersRefresh
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                cookie_id: {type: string}
+                status: {type: string}
       responses:
-        '200':
+        '202':
           description: 成功
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OrderRefreshJobStartResponse'
         '400':
           description: 统一错误响应
           content:
@@ -4521,7 +4724,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OrderRefreshJobCancelResponse'
         '400':
           description: 统一错误响应
           content:
@@ -4568,7 +4771,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/OrderRefreshJobStatusResponse'
         '400':
           description: 统一错误响应
           content:
@@ -6342,7 +6545,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/HealthResponse'
         '400':
           description: 统一错误响应
           content:
@@ -6373,6 +6576,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: 数据库不可用
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthDegradedResponse'
 components:
   securitySchemes:
     cookieAuth:
@@ -6387,6 +6596,21 @@ components:
         success:
           type: boolean
       description: 统一响应的稳定字段；业务成功字段由各阶段 operation schema 收紧。
+    HealthResponse:
+      type: object
+      required: [status, database, version, commit]
+      properties:
+        status: {type: string, enum: [ok]}
+        database: {type: string, enum: [ok]}
+        version: {type: string}
+        commit: {type: string}
+        build_time: {type: string}
+    HealthDegradedResponse:
+      type: object
+      required: [status, database]
+      properties:
+        status: {type: string, enum: [degraded]}
+        database: {type: string, enum: [unavailable]}
     SessionResponse:
       type: object
       required: [success, message, is_admin]
@@ -6728,6 +6952,323 @@ components:
           - type: string
           - type: number
           - type: boolean
+    ChatSession:
+      type: object
+      required: [account_id, chat_id, buyer_id, buyer_name, last_message, last_message_at, unread_count]
+      properties:
+        account_id: {type: string}
+        chat_id: {type: string}
+        buyer_id: {type: string}
+        buyer_name: {type: string}
+        buyer_avatar_url: {type: string}
+        item_id: {type: string}
+        item_title: {type: string}
+        last_message: {type: string}
+        last_message_at: {type: integer}
+        unread_count: {type: integer}
+    ChatMessage:
+      type: object
+      required: [id, account_id, chat_id, message_key, direction, sender_id, sender_name, message_type, content, status, sent_at]
+      properties:
+        id: {type: integer}
+        account_id: {type: string}
+        chat_id: {type: string}
+        message_key: {type: string}
+        direction: {type: string, enum: [incoming, outgoing]}
+        sender_id: {type: string}
+        sender_name: {type: string}
+        message_type: {type: string, enum: [text, image, video, system]}
+        content: {type: string}
+        status: {type: string, enum: [received, sending, sent, failed]}
+        read_status: {type: integer}
+        read_at: {type: integer}
+        sent_at: {type: integer}
+    ChatSessionPage:
+      type: object
+      required: [sessions, has_more]
+      properties:
+        sessions: {type: array, items: {$ref: '#/components/schemas/ChatSession'}}
+        has_more: {type: boolean}
+        next_cursor: {type: integer}
+    ChatMessagePage:
+      type: object
+      required: [messages, has_more]
+      properties:
+        messages: {type: array, items: {$ref: '#/components/schemas/ChatMessage'}}
+        has_more: {type: boolean}
+        next_cursor: {type: integer}
+        session: {$ref: '#/components/schemas/ChatSession'}
+    ChatMessageEnvelope:
+      type: object
+      required: [message]
+      properties:
+        message: {$ref: '#/components/schemas/ChatMessage'}
+    ChatReadyEvent:
+      type: object
+      required: [type, at]
+      properties:
+        type: {type: string, enum: [ready]}
+        at: {type: integer}
+    ChatEvent:
+      type: object
+      required: [type]
+      properties:
+        type: {type: string, enum: [message.created, message.updated]}
+        message: {$ref: '#/components/schemas/ChatMessage'}
+        session: {$ref: '#/components/schemas/ChatSession'}
+    ChatWebSocketEvent:
+      anyOf:
+        - $ref: '#/components/schemas/ChatReadyEvent'
+        - $ref: '#/components/schemas/ChatEvent'
+    ChatMessageRequest:
+      type: object
+      required: [account_id, chat_id, buyer_id, text]
+      properties:
+        account_id: {type: string}
+        chat_id: {type: string}
+        buyer_id: {type: string}
+        buyer_name: {type: string}
+        item_id: {type: string}
+        item_title: {type: string}
+        text: {type: string, maxLength: 2000}
+    ChatReadRequest:
+      type: object
+      required: [account_id, chat_id]
+      properties:
+        account_id: {type: string}
+        chat_id: {type: string}
+        message_ids: {type: array, items: {type: object, additionalProperties: {oneOf: [{type: string}, {type: number}]}}}
+    OrderDTO:
+      type: object
+      required: [order_id, item_id, item_title, item_image, buyer_id, spec_name, spec_value, quantity, amount, order_status, status, cookie_id, is_bargain, system_shipped, receiver_name, receiver_phone, receiver_address, receiver_city, created_at, updated_at]
+      properties:
+        order_id: {type: string}
+        item_id: {type: string}
+        item_title: {type: string}
+        item_image: {type: string}
+        buyer_id: {type: string}
+        spec_name: {type: string}
+        spec_value: {type: string}
+        quantity: {type: string}
+        amount: {type: string}
+        order_status: {type: string}
+        status: {type: string}
+        cookie_id: {type: string}
+        is_bargain: {type: integer}
+        system_shipped: {type: boolean}
+        receiver_name: {type: string}
+        receiver_phone: {type: string}
+        receiver_address: {type: string}
+        receiver_city: {type: string}
+        created_at: {type: string}
+        updated_at: {type: string}
+    OrderListResponse:
+      type: object
+      required: [success, data, total, page, page_size, total_pages]
+      properties:
+        success: {type: boolean}
+        data: {type: array, items: {$ref: '#/components/schemas/OrderDTO'}}
+        total: {type: integer}
+        page: {type: integer}
+        page_size: {type: integer}
+        total_pages: {type: integer}
+    OrderDetailResponse:
+      allOf:
+        - {$ref: '#/components/schemas/OrderDTO'}
+        - type: object
+          required: [success, data]
+          properties:
+            success: {type: boolean}
+            data: {$ref: '#/components/schemas/OrderDTO'}
+    OrderUpdateRequest:
+      type: object
+      properties:
+        order_status: {type: string}
+        status: {type: string}
+        item_id: {type: string}
+        buyer_id: {type: string}
+        spec_name: {type: string}
+        spec_value: {type: string}
+        quantity: {oneOf: [{type: string}, {type: number}]}
+        amount: {oneOf: [{type: string}, {type: number}]}
+        receiver_name: {type: string}
+        receiver_phone: {type: string}
+        receiver_address: {type: string}
+        receiver_city: {type: string}
+        chat_id: {type: string}
+        system_shipped: {type: boolean}
+        item_title: {type: string}
+    OrderRefreshDetail:
+      type: object
+      required: [quantity, spec_name, spec_value, order_status, amount]
+      properties:
+        quantity: {type: string}
+        spec_name: {type: string}
+        spec_value: {type: string}
+        order_status: {type: string}
+        amount: {type: string}
+    OrderSingleRefreshResponse:
+      type: object
+      required: [success, message, order]
+      properties:
+        success: {type: boolean}
+        message: {type: string}
+        order: {$ref: '#/components/schemas/OrderRefreshDetail'}
+    OrderRefreshResult:
+      type: object
+      required: [success]
+      properties:
+        success: {type: boolean}
+        cookie_id: {type: string}
+        stage: {type: string}
+        message: {type: string}
+        error: {type: string}
+        discovered: {type: integer}
+        updated: {type: integer}
+        soft_deleted: {type: boolean}
+        order_id: {type: string}
+        old_status: {type: string}
+        new_status: {type: string}
+    OrderRefreshSummary:
+      type: object
+      required: [discovered, list_updated, soft_deleted, detail_total, total, updated, no_change, failed]
+      properties:
+        discovered: {type: integer}
+        list_updated: {type: integer}
+        soft_deleted: {type: integer}
+        detail_total: {type: integer}
+        total: {type: integer}
+        updated: {type: integer}
+        no_change: {type: integer}
+        failed: {type: integer}
+    OrderRefreshResponse:
+      type: object
+      required: [partial_failure, message, summary, results]
+      properties:
+        partial_failure: {type: boolean}
+        message: {type: string}
+        summary: {$ref: '#/components/schemas/OrderRefreshSummary'}
+        results: {type: array, items: {$ref: '#/components/schemas/OrderRefreshResult'}}
+    OrderRefreshJobStartResponse:
+      type: object
+      required: [success, job_id, status]
+      properties:
+        success: {type: boolean}
+        job_id: {type: string}
+        status: {type: string, enum: [queued, running]}
+    OrderRefreshJobStatusResponse:
+      type: object
+      required: [success, job_id, status]
+      properties:
+        success: {type: boolean}
+        job_id: {type: string}
+        status: {type: string, enum: [queued, running, succeeded, failed, cancelled]}
+        error_message: {type: string}
+        result: {$ref: '#/components/schemas/OrderRefreshResponse'}
+    OrderRefreshJobCancelResponse:
+      type: object
+      required: [success, job_id, status]
+      properties:
+        success: {type: boolean}
+        job_id: {type: string}
+        status: {type: string, enum: [cancelled]}
+    ManualShipRequest:
+      type: object
+      required: [order_ids, ship_mode]
+      properties:
+        order_ids: {type: array, items: {type: string}}
+        ship_mode: {type: string, enum: [status_only, full_delivery]}
+    OrderBatchResult:
+      type: object
+      required: [message]
+      properties:
+        order_id: {type: string}
+        status: {type: string}
+        success: {type: boolean}
+        message: {type: string}
+        cookie_id: {type: string}
+        reconciliation_id: {type: string}
+        reconciliation_warning: {type: string}
+        stage: {type: string}
+    OrderBatchResponse:
+      type: object
+      required: [partial_failure, message, success_count, failed_count, results]
+      properties:
+        partial_failure: {type: boolean}
+        message: {type: string}
+        total: {type: integer}
+        success_count: {type: integer}
+        failed_count: {type: integer}
+        results: {type: array, items: {$ref: '#/components/schemas/OrderBatchResult'}}
+    AdminStatsResponse:
+      type: object
+      required: [total_users, total_cookies, active_cookies, total_cards, total_keywords, total_orders]
+      properties:
+        total_users: {type: integer}
+        total_cookies: {type: integer}
+        active_cookies: {type: integer}
+        total_cards: {type: integer}
+        total_keywords: {type: integer}
+        total_orders: {type: integer}
+    AdminUser:
+      type: object
+      required: [id, username, email, is_active, is_admin, created_at, cookie_count]
+      properties:
+        id: {type: integer}
+        username: {type: string}
+        email: {type: string}
+        is_active: {type: boolean}
+        is_admin: {type: boolean}
+        created_at: {type: string}
+        cookie_count: {type: integer}
+    AdminCookie:
+      type: object
+      required: [id, user_id, remark, created_at, owner, enabled]
+      properties:
+        id: {type: string}
+        user_id: {type: integer}
+        remark: {type: string}
+        created_at: {type: string}
+        owner: {type: string}
+        enabled: {type: boolean}
+    AdminTask:
+      type: object
+      required: [id, name, state, started_at]
+      properties:
+        id: {type: string}
+        name: {type: string}
+        state: {type: string, enum: [running, succeeded, failed, canceled, timed_out]}
+        started_at: {type: string, format: date-time}
+        finished_at: {type: string, format: date-time}
+        deadline_at: {type: string, format: date-time}
+    DashboardStatsResponse:
+      type: object
+      required: [total_cookies, active_cookies, total_cards, available_card_stock, total_keywords, total_orders]
+      properties:
+        total_cookies: {type: integer}
+        active_cookies: {type: integer}
+        total_cards: {type: integer}
+        available_card_stock: {type: integer}
+        total_keywords: {type: integer}
+        total_orders: {type: integer}
+    AnalyticsResponse:
+      type: object
+      required: [revenue_stats, daily_stats, status_stats, city_stats, item_stats]
+      properties:
+        revenue_stats: {type: object, required: [total_orders, total_amount, avg_amount, unique_buyers, unique_items], properties: {total_orders: {type: integer}, total_amount: {type: number}, avg_amount: {type: number}, unique_buyers: {type: integer}, unique_items: {type: integer}}}
+        daily_stats: {type: array, items: {type: object, required: [date, order_count, amount], properties: {date: {type: string}, order_count: {type: integer}, amount: {type: number}}}}
+        status_stats: {type: array, items: {type: object, required: [status, count, amount], properties: {status: {type: string}, count: {type: integer}, amount: {type: number}}}}
+        city_stats: {type: array, items: {type: object, required: [city, order_count, total_amount], properties: {city: {type: string}, order_count: {type: integer}, total_amount: {type: number}}}}
+        item_stats: {type: array, items: {type: object, required: [item_id, order_count, total_amount, avg_amount], properties: {item_id: {type: string}, order_count: {type: integer}, total_amount: {type: number}, avg_amount: {type: number}}}}
+    ValidOrdersResponse:
+      type: object
+      required: [orders, total, page, page_size, truncated]
+      properties:
+        orders: {type: array, items: {$ref: '#/components/schemas/OrderDTO'}}
+        total: {type: integer}
+        page: {type: integer}
+        page_size: {type: integer}
+        truncated: {type: boolean}
     SessionStatusResponse:
       type: object
       required: [authenticated, initialized, is_admin]

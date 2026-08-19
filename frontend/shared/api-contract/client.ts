@@ -30,8 +30,13 @@ const contractFetch: typeof fetch = async (input, init) => {
   const requestURL = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url);
   // request 是合并 openapi-fetch 已构造请求与可选 init 后的完整请求对象。
   const request = input instanceof Request ? input : new Request(input, init);
-  // body 是恢复为文本的 JSON 请求载荷；GET/HEAD 不能携带请求体。
-  const body = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.clone().text();
+  // body 是按内容类型恢复的请求载荷；GET/HEAD 无请求体，multipart 必须保留原始 FormData 边界。
+  const contentType = request.headers.get('content-type') || '';
+  const body: BodyInit | undefined = request.method === 'GET' || request.method === 'HEAD'
+    ? undefined
+    : contentType.includes('multipart/form-data')
+      ? await request.clone().formData()
+      : await request.clone().text();
   // fetchInput 是测试环境还原后的相对 API 地址，浏览器环境继续保留绝对 origin。
   const fetchInput = requestURL.origin === 'http://localhost' ? `${requestURL.pathname}${requestURL.search}` : input;
   // response 是使用旧 client 等价方法、请求体、取消信号和 Cookie 策略发出的 HTTP 响应。

@@ -66,7 +66,7 @@ func check(root string) ([]string, error) {
 			if operation.OperationID == "" {
 				violations = append(violations, fmt.Sprintf("%s %s 缺少 operationId", strings.ToUpper(method), path))
 			}
-			if operation.Responses == nil || operation.Responses.Value("200") == nil && operation.Responses.Value("101") == nil {
+			if operation.Responses == nil || !hasSuccessResponse(operation.Responses) {
 				violations = append(violations, fmt.Sprintf("%s %s 缺少成功响应", strings.ToUpper(method), path))
 			}
 			if operation.Responses == nil || operation.Responses.Value("400") == nil || operation.Responses.Value("401") == nil {
@@ -103,6 +103,20 @@ func check(root string) ([]string, error) {
 	}
 	sort.Strings(violations)
 	return violations, nil
+}
+
+// hasSuccessResponse 判断 operation 是否声明了至少一个合法成功或协议升级状态。
+func hasSuccessResponse(responses *openapi3.Responses) bool {
+	if responses == nil {
+		return false
+	}
+	// status 是当前允许声明为操作成功的 HTTP 或协议升级状态码。
+	for _, status := range []string{"200", "201", "202", "204", "101"} {
+		if responses.Value(status) != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // sourceRoutes 从版本化 route 文件和动态订单刷新挂载点收集真实路由。

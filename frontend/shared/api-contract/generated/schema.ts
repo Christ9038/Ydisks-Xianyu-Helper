@@ -1813,6 +1813,21 @@ export interface components {
         ApiResponse: {
             success: boolean;
         };
+        HealthResponse: {
+            /** @enum {string} */
+            status: "ok";
+            /** @enum {string} */
+            database: "ok";
+            version: string;
+            commit: string;
+            build_time?: string;
+        };
+        HealthDegradedResponse: {
+            /** @enum {string} */
+            status: "degraded";
+            /** @enum {string} */
+            database: "unavailable";
+        };
         SessionResponse: {
             success: boolean;
             token?: string | null;
@@ -1981,6 +1996,295 @@ export interface components {
         };
         SystemSettingsResponse: {
             [key: string]: string | number | boolean;
+        };
+        ChatSession: {
+            account_id: string;
+            chat_id: string;
+            buyer_id: string;
+            buyer_name: string;
+            buyer_avatar_url?: string;
+            item_id?: string;
+            item_title?: string;
+            last_message: string;
+            last_message_at: number;
+            unread_count: number;
+        };
+        ChatMessage: {
+            id: number;
+            account_id: string;
+            chat_id: string;
+            message_key: string;
+            /** @enum {string} */
+            direction: "incoming" | "outgoing";
+            sender_id: string;
+            sender_name: string;
+            /** @enum {string} */
+            message_type: "text" | "image" | "video" | "system";
+            content: string;
+            /** @enum {string} */
+            status: "received" | "sending" | "sent" | "failed";
+            read_status?: number;
+            read_at?: number;
+            sent_at: number;
+        };
+        ChatSessionPage: {
+            sessions: components["schemas"]["ChatSession"][];
+            has_more: boolean;
+            next_cursor?: number;
+        };
+        ChatMessagePage: {
+            messages: components["schemas"]["ChatMessage"][];
+            has_more: boolean;
+            next_cursor?: number;
+            session?: components["schemas"]["ChatSession"];
+        };
+        ChatMessageEnvelope: {
+            message: components["schemas"]["ChatMessage"];
+        };
+        ChatReadyEvent: {
+            /** @enum {string} */
+            type: "ready";
+            at: number;
+        };
+        ChatEvent: {
+            /** @enum {string} */
+            type: "message.created" | "message.updated";
+            message?: components["schemas"]["ChatMessage"];
+            session?: components["schemas"]["ChatSession"];
+        };
+        ChatWebSocketEvent: components["schemas"]["ChatReadyEvent"] | components["schemas"]["ChatEvent"];
+        ChatMessageRequest: {
+            account_id: string;
+            chat_id: string;
+            buyer_id: string;
+            buyer_name?: string;
+            item_id?: string;
+            item_title?: string;
+            text: string;
+        };
+        ChatReadRequest: {
+            account_id: string;
+            chat_id: string;
+            message_ids?: {
+                [key: string]: string | number;
+            }[];
+        };
+        OrderDTO: {
+            order_id: string;
+            item_id: string;
+            item_title: string;
+            item_image: string;
+            buyer_id: string;
+            spec_name: string;
+            spec_value: string;
+            quantity: string;
+            amount: string;
+            order_status: string;
+            status: string;
+            cookie_id: string;
+            is_bargain: number;
+            system_shipped: boolean;
+            receiver_name: string;
+            receiver_phone: string;
+            receiver_address: string;
+            receiver_city: string;
+            created_at: string;
+            updated_at: string;
+        };
+        OrderListResponse: {
+            success: boolean;
+            data: components["schemas"]["OrderDTO"][];
+            total: number;
+            page: number;
+            page_size: number;
+            total_pages: number;
+        };
+        OrderDetailResponse: components["schemas"]["OrderDTO"] & {
+            success: boolean;
+            data: components["schemas"]["OrderDTO"];
+        };
+        OrderUpdateRequest: {
+            order_status?: string;
+            status?: string;
+            item_id?: string;
+            buyer_id?: string;
+            spec_name?: string;
+            spec_value?: string;
+            quantity?: string | number;
+            amount?: string | number;
+            receiver_name?: string;
+            receiver_phone?: string;
+            receiver_address?: string;
+            receiver_city?: string;
+            chat_id?: string;
+            system_shipped?: boolean;
+            item_title?: string;
+        };
+        OrderRefreshDetail: {
+            quantity: string;
+            spec_name: string;
+            spec_value: string;
+            order_status: string;
+            amount: string;
+        };
+        OrderSingleRefreshResponse: {
+            success: boolean;
+            message: string;
+            order: components["schemas"]["OrderRefreshDetail"];
+        };
+        OrderRefreshResult: {
+            success: boolean;
+            cookie_id?: string;
+            stage?: string;
+            message?: string;
+            error?: string;
+            discovered?: number;
+            updated?: number;
+            soft_deleted?: boolean;
+            order_id?: string;
+            old_status?: string;
+            new_status?: string;
+        };
+        OrderRefreshSummary: {
+            discovered: number;
+            list_updated: number;
+            soft_deleted: number;
+            detail_total: number;
+            total: number;
+            updated: number;
+            no_change: number;
+            failed: number;
+        };
+        OrderRefreshResponse: {
+            partial_failure: boolean;
+            message: string;
+            summary: components["schemas"]["OrderRefreshSummary"];
+            results: components["schemas"]["OrderRefreshResult"][];
+        };
+        OrderRefreshJobStartResponse: {
+            success: boolean;
+            job_id: string;
+            /** @enum {string} */
+            status: "queued" | "running";
+        };
+        OrderRefreshJobStatusResponse: {
+            success: boolean;
+            job_id: string;
+            /** @enum {string} */
+            status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+            error_message?: string;
+            result?: components["schemas"]["OrderRefreshResponse"];
+        };
+        OrderRefreshJobCancelResponse: {
+            success: boolean;
+            job_id: string;
+            /** @enum {string} */
+            status: "cancelled";
+        };
+        ManualShipRequest: {
+            order_ids: string[];
+            /** @enum {string} */
+            ship_mode: "status_only" | "full_delivery";
+        };
+        OrderBatchResult: {
+            order_id?: string;
+            status?: string;
+            success?: boolean;
+            message: string;
+            cookie_id?: string;
+            reconciliation_id?: string;
+            reconciliation_warning?: string;
+            stage?: string;
+        };
+        OrderBatchResponse: {
+            partial_failure: boolean;
+            message: string;
+            total?: number;
+            success_count: number;
+            failed_count: number;
+            results: components["schemas"]["OrderBatchResult"][];
+        };
+        AdminStatsResponse: {
+            total_users: number;
+            total_cookies: number;
+            active_cookies: number;
+            total_cards: number;
+            total_keywords: number;
+            total_orders: number;
+        };
+        AdminUser: {
+            id: number;
+            username: string;
+            email: string;
+            is_active: boolean;
+            is_admin: boolean;
+            created_at: string;
+            cookie_count: number;
+        };
+        AdminCookie: {
+            id: string;
+            user_id: number;
+            remark: string;
+            created_at: string;
+            owner: string;
+            enabled: boolean;
+        };
+        AdminTask: {
+            id: string;
+            name: string;
+            /** @enum {string} */
+            state: "running" | "succeeded" | "failed" | "canceled" | "timed_out";
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            finished_at?: string;
+            /** Format: date-time */
+            deadline_at?: string;
+        };
+        DashboardStatsResponse: {
+            total_cookies: number;
+            active_cookies: number;
+            total_cards: number;
+            available_card_stock: number;
+            total_keywords: number;
+            total_orders: number;
+        };
+        AnalyticsResponse: {
+            revenue_stats: {
+                total_orders: number;
+                total_amount: number;
+                avg_amount: number;
+                unique_buyers: number;
+                unique_items: number;
+            };
+            daily_stats: {
+                date: string;
+                order_count: number;
+                amount: number;
+            }[];
+            status_stats: {
+                status: string;
+                count: number;
+                amount: number;
+            }[];
+            city_stats: {
+                city: string;
+                order_count: number;
+                total_amount: number;
+            }[];
+            item_stats: {
+                item_id: string;
+                order_count: number;
+                total_amount: number;
+                avg_amount: number;
+            }[];
+        };
+        ValidOrdersResponse: {
+            orders: components["schemas"]["OrderDTO"][];
+            total: number;
+            page: number;
+            page_size: number;
+            truncated: boolean;
         };
         SessionStatusResponse: {
             authenticated: boolean;
@@ -3553,7 +3857,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AdminCookie"][];
                 };
             };
             /** @description 统一错误响应 */
@@ -3748,7 +4052,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AdminStatsResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -3800,7 +4104,9 @@ export interface operations {
     };
     getApiV1AdminTasks: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3813,7 +4119,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AdminTask"][];
                 };
             };
             /** @description 统一错误响应 */
@@ -3878,7 +4184,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AdminUser"][];
                 };
             };
             /** @description 统一错误响应 */
@@ -3933,7 +4239,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                user_id: string;
+                user_id: number;
             };
             cookie?: never;
         };
@@ -3945,7 +4251,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OperationResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -4010,7 +4316,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["DashboardStatsResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -4062,7 +4368,11 @@ export interface operations {
     };
     getApiV1AnalyticsOrders: {
         parameters: {
-            query?: never;
+            query: {
+                start_date: string;
+                end_date: string;
+                timezone_offset_minutes?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4075,7 +4385,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AnalyticsResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -4127,7 +4437,13 @@ export interface operations {
     };
     getApiV1AnalyticsOrdersValid: {
         parameters: {
-            query?: never;
+            query: {
+                start_date: string;
+                end_date: string;
+                timezone_offset_minutes?: number;
+                page?: number;
+                page_size?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4140,7 +4456,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["ValidOrdersResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -4324,7 +4640,14 @@ export interface operations {
     };
     getApiV1AutomationRules: {
         parameters: {
-            query?: never;
+            query?: {
+                page?: number;
+                page_size?: number;
+                cookie_id?: string;
+                trigger_type?: string;
+                enabled?: boolean;
+                search?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -5190,15 +5513,29 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    account_id: string;
+                    chat_id: string;
+                    buyer_id: string;
+                    buyer_name?: string;
+                    buyer_avatar_url?: string;
+                    item_id?: string;
+                    item_title?: string;
+                    /** Format: binary */
+                    image: string;
+                };
+            };
+        };
         responses: {
             /** @description 成功 */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["ChatMessageEnvelope"];
                 };
             };
             /** @description 统一错误响应 */
@@ -5250,7 +5587,13 @@ export interface operations {
     };
     getApiV1ChatMessages: {
         parameters: {
-            query?: never;
+            query: {
+                account_id: string;
+                chat_id: string;
+                cursor?: number;
+                before_id?: number;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -5263,7 +5606,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["ChatMessagePage"];
                 };
             };
             /** @description 统一错误响应 */
@@ -5320,15 +5663,19 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatMessageRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
-            200: {
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["ChatMessageEnvelope"];
                 };
             };
             /** @description 统一错误响应 */
@@ -5385,7 +5732,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatReadRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -5393,7 +5744,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OperationResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -5445,7 +5796,12 @@ export interface operations {
     };
     getApiV1ChatSessions: {
         parameters: {
-            query?: never;
+            query: {
+                account_id: string;
+                cursor?: number;
+                refresh?: 0 | 1;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -5458,7 +5814,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["ChatSessionPage"];
                 };
             };
             /** @description 统一错误响应 */
@@ -5971,7 +6327,9 @@ export interface operations {
     };
     getApiV1Items: {
         parameters: {
-            query?: never;
+            query?: {
+                cookie_id?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -6705,7 +7063,9 @@ export interface operations {
     };
     getApiV1ItemsPublishBatches: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -8029,7 +8389,13 @@ export interface operations {
     };
     getApiV1Orders: {
         parameters: {
-            query?: never;
+            query?: {
+                cookie_id?: string;
+                status?: string;
+                search?: string;
+                page?: number;
+                page_size?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -8042,7 +8408,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OrderListResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -8109,7 +8475,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OrderDetailResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -8168,7 +8534,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrderUpdateRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -8176,7 +8546,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OperationResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -8310,7 +8680,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OrderSingleRefreshResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -8367,7 +8737,15 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file?: string;
+                };
+                "application/json": components["schemas"]["OrderUpdateRequest"][];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -8375,7 +8753,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OrderBatchResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -8432,7 +8810,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualShipRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -8440,7 +8822,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OrderBatchResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -8497,15 +8879,22 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    cookie_id?: string;
+                    status?: string;
+                };
+            };
+        };
         responses: {
             /** @description 成功 */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OrderRefreshJobStartResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -8572,7 +8961,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OrderRefreshJobStatusResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -8639,7 +9028,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OrderRefreshJobCancelResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -11155,7 +11544,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["HealthResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -11201,6 +11590,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description 数据库不可用 */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthDegradedResponse"];
                 };
             };
         };
