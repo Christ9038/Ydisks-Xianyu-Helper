@@ -1908,7 +1908,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                type: array
+                items:
+                  $ref: '#/components/schemas/CardResponse'
         '400':
           description: 统一错误响应
           content:
@@ -2865,7 +2867,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                type: array
+                items:
+                  $ref: '#/components/schemas/ItemListResponse'
         '400':
           description: 统一错误响应
           content:
@@ -6611,6 +6615,40 @@ components:
       properties:
         status: {type: string, enum: [degraded]}
         database: {type: string, enum: [unavailable]}
+    CardResponse:
+      type: object
+      required: [id, name, type, api_config, text_content, data_content, image_url, description, enabled, delay_seconds, is_multi_spec, spec_name, spec_value]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        type: {type: string, enum: [api, text, data, image]}
+        api_config: {type: string}
+        text_content: {type: string}
+        data_content: {type: string}
+        image_url: {type: string}
+        description: {type: string}
+        enabled: {type: boolean}
+        delay_seconds: {type: integer}
+        is_multi_spec: {type: boolean}
+        spec_name: {type: string}
+        spec_value: {type: string}
+        user_id: {type: integer}
+    ItemListResponse:
+      type: object
+      required: [id, cookie_id, item_id, item_title, item_description, item_category, item_price, item_detail, item_image, is_multi_spec, multi_quantity_delivery, is_multi_qty_ship]
+      properties:
+        id: {type: integer}
+        cookie_id: {type: string}
+        item_id: {type: string}
+        item_title: {type: string}
+        item_description: {type: string}
+        item_category: {type: string}
+        item_price: {type: string}
+        item_detail: {type: string}
+        item_image: {type: string}
+        is_multi_spec: {type: boolean}
+        multi_quantity_delivery: {type: boolean}
+        is_multi_qty_ship: {type: boolean}
     SessionResponse:
       type: object
       required: [success, message, is_admin]

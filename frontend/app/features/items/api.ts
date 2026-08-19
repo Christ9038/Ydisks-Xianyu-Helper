@@ -12,16 +12,17 @@ ItemPublishResponse,ItemSyncResponse,
 OperationResponse,
 ShippingRule
 } from '../../../shared/api-contract/items';
-import { ApiError,del,get,post,postForm,put,type RequestControlOptions } from '../../../shared/http/client';
+import { ApiError, type RequestControlOptions } from '../../../shared/http/client';
+import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
 import { collectionFrom } from '../../../shared/http/contract';
 export type * from '../../../shared/api-contract/items';
 import { getPublishLocations as queryPublishLocations,type PublishLocationRequestOptions } from './amapLocation';
 
 /** 商品账号筛选器读取非敏感账号摘要。 */
-export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => get('/api/v1/accounts/details', undefined, options);
+export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => runContractRequest(/* signal 控制商品页账号摘要请求的取消和超时。 */ signal => contractClient.GET('/api/v1/accounts/details', { signal }), options);
 
 /** 商品页面读取自动化发货规则的兼容列表。 */
-export const getShippingRules = async (options?: RequestControlOptions): Promise<ShippingRule[]> => get('/api/v1/automation-rules', undefined, options);
+export const getShippingRules = async (options?: RequestControlOptions): Promise<ShippingRule[]> => runContractRequest(/* signal 控制商品页规则读取请求的取消和超时。 */ signal => contractClient.GET('/api/v1/automation-rules', { signal }), options) as unknown as Promise<ShippingRule[]>;
 
 // getPublishLocations 通过 feature API 边界读取地点，并把取消/超时控制传入地图服务。
 export const getPublishLocations = (longitude: number, latitude: number, options?: PublishLocationRequestOptions): Promise<PublishLocation[]> => queryPublishLocations(longitude, latitude, options);
@@ -59,7 +60,7 @@ const normalizeBooleanFlag = (value: unknown): boolean =>
 // getItems 读取商品列表。
 export const getItems = async (cookieId?: string, options?: RequestControlOptions): Promise<Item[]> => {
     // res 接口响应结果，用于当前 API 处理流程。
-    const res = await get<unknown>('/api/v1/items', cookieId ? { cookie_id: cookieId } : undefined, options);
+    const res = await runContractRequest(/* signal 控制商品列表请求的取消和超时。 */ signal => contractClient.GET('/api/v1/items', { params: { query: { cookie_id: cookieId } }, signal }), options) as unknown;
     // items 商品列表，用于当前 API 处理流程。
     const items = collectionFrom<Item>(res, ['items', 'data', 'results']);
     return items.map(/* 当前回调用于处理集合元素或接口响应。 */ (item: any) => ({
@@ -73,17 +74,17 @@ export const getItems = async (cookieId?: string, options?: RequestControlOption
 
 // syncItemsFromAccount 从账号同步商品。
 export const syncItemsFromAccount = async (cookieId: string): Promise<ItemSyncResponse> => {
-    return post('/api/v1/items/get-all-from-account', { cookie_id: cookieId });
+    return runContractRequest(/* signal 控制商品同步请求的取消和超时。 */ signal => contractClient.POST('/api/v1/items/get-all-from-account', { body: { cookie_id: cookieId } as never, signal })) as unknown as Promise<ItemSyncResponse>;
 }
 
 // deleteItem 删除商品。
 export const deleteItem = async (cookieId: string, itemId: string): Promise<OperationResponse> => {
-    return del(`/api/v1/items/${cookieId}/${itemId}`);
+    return runContractRequest(/* signal 控制商品删除请求的取消和超时。 */ signal => contractClient.DELETE('/api/v1/items/{cookie_id}/{item_id}', { params: { path: { cookie_id: cookieId, item_id: itemId } }, signal }));
 }
 
 // createItem 创建商品。
 export const createItem = async (cookieId: string, data: Partial<Item>): Promise<OperationResponse> => {
-    return post(`/api/v1/items/${cookieId}`, data);
+    return runContractRequest(/* signal 控制商品创建请求的取消和超时。 */ signal => contractClient.POST('/api/v1/items/{cookie_id}', { params: { path: { cookie_id: cookieId } }, body: data as never, signal }));
 }
 
 // publishItem 发布商品。
@@ -114,7 +115,7 @@ export const publishItem = async (form: {
 file of form.images) {
       body.append('images', file);
     }
-    return postForm('/api/v1/items/publish', body);
+    return runContractRequest(/* signal 控制商品发布上传请求的取消和超时。 */ signal => contractClient.POST('/api/v1/items/publish', { body: body as never, signal })) as unknown as Promise<ItemPublishResponse>;
 }
 
 // recommendPublishCategory 推荐商品发布分类。
@@ -127,7 +128,7 @@ export const recommendPublishCategory = async (cookieId: string, keyword: string
     // 该类型收口不改变凭证刷新和错误处理。
     // 前端批量发布流程可直接复用 category。
     // 旧路径继续由现有 Vite 代理转发。
-	return post('/api/v1/items/publish-categories/recommend', { cookie_id: cookieId, keyword }, options);
+	return runContractRequest(/* signal 控制商品类目推荐请求的取消和超时。 */ signal => contractClient.POST('/api/v1/items/publish-categories/recommend', { body: { cookie_id: cookieId, keyword } as never, signal }), options) as unknown as Promise<CategoryRecommendationResponse>;
 };
 
 // previewItemPublishBatch 预览商品批量发布。
@@ -156,45 +157,45 @@ export const previewItemPublishBatch = async (form: {
     body.set('fallback_tb_category_id', form.fallbackCategory.tbCatId || '');
 	if (form.location) body.set('location', JSON.stringify(form.location));
 	body.set('publish_interval_seconds', String(form.publishIntervalSeconds ?? 5));
-	return postForm('/api/v1/items/publish-batches/preview', body, options);
+	return runContractRequest(/* signal 控制批量发布预览上传的取消和超时。 */ signal => contractClient.POST('/api/v1/items/publish-batches/preview', { body: body as never, signal }), options) as unknown as Promise<ItemPublishBatchPreviewResponse>;
 }
 
 // startItemPublishBatch 启动商品批量发布。
 export const startItemPublishBatch = async (previewId: string, options?: RequestControlOptions): Promise<BatchIDResponse> => {
-	return post('/api/v1/items/publish-batches', { preview_id: previewId }, options);
+	return runContractRequest(/* signal 控制批量发布启动请求的取消和超时。 */ signal => contractClient.POST('/api/v1/items/publish-batches', { body: { preview_id: previewId } as never, signal }), options) as unknown as Promise<BatchIDResponse>;
 }
 
 // getItemPublishBatch 读取商品发布批次。
 export const getItemPublishBatch = async (batchId: string, options?: RequestControlOptions): Promise<ItemPublishBatchResponse> => {
-	return get(`/api/v1/items/publish-batches/${batchId}`, undefined, options);
+	return runContractRequest(/* signal 控制批量发布状态读取的取消和超时。 */ signal => contractClient.GET('/api/v1/items/publish-batches/{batch_id}', { params: { path: { batch_id: batchId } }, signal }), options) as unknown as Promise<ItemPublishBatchResponse>;
 }
 
 // getItemPublishBatches 读取商品发布批次列表。
 export const getItemPublishBatches = async (limit = 20, options?: RequestControlOptions): Promise<ItemPublishBatchResponse[]> => {
     // res 接口响应结果，用于当前 API 处理流程。
-	const res = await get<unknown>('/api/v1/items/publish-batches', { limit }, options);
+    const res = await runContractRequest(/* signal 控制批量发布列表读取的取消和超时。 */ signal => contractClient.GET('/api/v1/items/publish-batches', { params: { query: { limit } }, signal }), options) as unknown;
     return collectionFrom<ItemPublishBatchResponse>(res, ['batches', 'data', 'items']);
 }
 
 // deleteItemPublishBatch 删除商品发布批次。
 export const deleteItemPublishBatch = async (batchId: string, options?: RequestControlOptions): Promise<OperationResponse> => {
-	return del(`/api/v1/items/publish-batches/${batchId}`, undefined, options);
+	return runContractRequest(/* signal 控制批量发布删除请求的取消和超时。 */ signal => contractClient.DELETE('/api/v1/items/publish-batches/{batch_id}', { params: { path: { batch_id: batchId } }, signal }), options);
 }
 
 // cancelItemPublishBatch 取消商品发布批次。
 export const cancelItemPublishBatch = async (batchId: string, options?: RequestControlOptions): Promise<BatchCancelResponse> => {
-	return post(`/api/v1/items/publish-batches/${batchId}/cancel`, {}, options);
+	return runContractRequest(/* signal 控制批量发布取消请求的取消和超时。 */ signal => contractClient.POST('/api/v1/items/publish-batches/{batch_id}/cancel', { params: { path: { batch_id: batchId } }, body: {} as never, signal }), options) as unknown as Promise<BatchCancelResponse>;
 }
 
 // retryFailedItemPublishBatch 重试失败的商品发布任务。
 export const retryFailedItemPublishBatch = async (batchId: string, options?: RequestControlOptions): Promise<BatchIDResponse> => {
-	return post(`/api/v1/items/publish-batches/${batchId}/retry-failed`, {}, options);
+	return runContractRequest(/* signal 控制批量发布重试请求的取消和超时。 */ signal => contractClient.POST('/api/v1/items/publish-batches/{batch_id}/retry-failed', { params: { path: { batch_id: batchId } }, body: {} as never, signal }), options) as unknown as Promise<BatchIDResponse>;
 }
 
 // updateItem 更新商品。
 export const updateItem = async (cookieId: string, itemId: string, data: Partial<Item>): Promise<OperationResponse> => {
-    return put(`/api/v1/items/${cookieId}/${itemId}`, data);
+    return runContractRequest(/* signal 控制商品更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/items/{cookie_id}/{item_id}', { params: { path: { cookie_id: cookieId, item_id: itemId } }, body: data as never, signal }));
 }
 
 /** 读取指定账号与商品的详情，用于编辑器恢复表单。 */
-export const getItemDetail = async (accountID: string, itemID: string): Promise<ItemDetailResponse> => get(`/api/v1/items/${accountID}/${itemID}`);
+export const getItemDetail = async (accountID: string, itemID: string): Promise<ItemDetailResponse> => runContractRequest(/* signal 控制商品详情请求的取消和超时。 */ signal => contractClient.GET('/api/v1/items/{cookie_id}/{item_id}', { params: { path: { cookie_id: accountID, item_id: itemID } }, signal })) as unknown as Promise<ItemDetailResponse>;

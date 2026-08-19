@@ -1828,6 +1828,37 @@ export interface components {
             /** @enum {string} */
             database: "unavailable";
         };
+        CardResponse: {
+            id: number;
+            name: string;
+            /** @enum {string} */
+            type: "api" | "text" | "data" | "image";
+            api_config: string;
+            text_content: string;
+            data_content: string;
+            image_url: string;
+            description: string;
+            enabled: boolean;
+            delay_seconds: number;
+            is_multi_spec: boolean;
+            spec_name: string;
+            spec_value: string;
+            user_id?: number;
+        };
+        ItemListResponse: {
+            id: number;
+            cookie_id: string;
+            item_id: string;
+            item_title: string;
+            item_description: string;
+            item_category: string;
+            item_price: string;
+            item_detail: string;
+            item_image: string;
+            is_multi_spec: boolean;
+            multi_quantity_delivery: boolean;
+            is_multi_qty_ship: boolean;
+        };
         SessionResponse: {
             success: boolean;
             token?: string | null;
@@ -4991,7 +5022,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["CardResponse"][];
                 };
             };
             /** @description 统一错误响应 */
@@ -6342,7 +6373,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["ItemListResponse"][];
                 };
             };
             /** @description 统一错误响应 */

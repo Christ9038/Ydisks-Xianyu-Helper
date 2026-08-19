@@ -22,8 +22,8 @@
 | 1. 契约基础设施与全路由登记 | 已完成 | OpenAPI、生成漂移和真实 Router 双向门禁已建立，未改变业务运行时形状。 |
 | 2. 类型化客户端与登录账号主链路 | 已完成 | session、system、accounts、QR 风控和永久关闭的 password-login 已迁移并完成真实响应校验。 |
 | 3. 查询、聊天与订单主链路 | 已完成 | dashboard、实际消费的 admin 摘要、chat、orders、刷新任务和 WebSocket 消息均已迁移并完成真实契约校验。 |
-| 4. 商品、卡券和文件传输 | 当前阶段 | 迁移 items、批量发布、cards、上传与 CSV。 |
-| 5. 自动化、设置和通知动态契约 | 待执行 | 迁移 rules、automation、settings、notifications 和账号绑定。 |
+| 4. 商品、卡券和文件传输 | 已完成 | items、批量发布、cards 和上传 adapter 已迁移；原生 FormData、取消、重试和批次隔离均保留。 |
+| 5. 自动化、设置和通知动态契约 | 当前阶段 | 迁移 rules、automation、settings、notifications 和账号绑定。 |
 | 6. 全量封闭与旧手写契约退场 | 待执行 | 关闭原始 HTTP client 旁路，删除手写 transport DTO 和名单式门禁。 |
 
 ## 阶段一：契约基础设施与全路由登记

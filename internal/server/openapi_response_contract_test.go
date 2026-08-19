@@ -300,3 +300,45 @@ func TestOpenAPIQueryChatAndOrderResponses(t *testing.T) {
 	handler.ServeHTTP(adminTasksRecorder, adminTasksRequest)
 	assertOpenAPISuccessResponse(t, adminTasksRequest, adminTasksRecorder)
 }
+
+// TestOpenAPIItemAndCardResponses 验证阶段四商品与卡券查询的真实成功、未认证和文件错误响应符合 OpenAPI。
+func TestOpenAPIItemAndCardResponses(t *testing.T) {
+	// srv、_、cleanup 分别是测试 Server、无需直接访问的存储和资源释放函数。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是包含商品和卡券版本化路由的真实 chi Router。
+	handler := srv.Router()
+	// sessionCookie 是管理员会话 Cookie，用于受保护资源的成功场景。
+	sessionCookie := loginHelper(t, handler)
+	// unauthenticatedRequest 是缺少会话的商品请求，必须使用统一错误 envelope。
+	unauthenticatedRequest := httptest.NewRequest(http.MethodGet, "/api/v1/items", nil)
+	// unauthenticatedRecorder 捕获未认证商品响应。
+	unauthenticatedRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(unauthenticatedRecorder, unauthenticatedRequest)
+	assertOpenAPIResponse(t, unauthenticatedRequest, unauthenticatedRecorder)
+
+	// itemsRequest 是带账号筛选的商品列表成功请求。
+	itemsRequest := httptest.NewRequest(http.MethodGet, "/api/v1/items?cookie_id=acc1", nil)
+	itemsRequest.AddCookie(sessionCookie)
+	// itemsRecorder 捕获商品列表响应。
+	itemsRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(itemsRecorder, itemsRequest)
+	assertOpenAPISuccessResponse(t, itemsRequest, itemsRecorder)
+
+	// cardsRequest 是卡券列表成功请求。
+	cardsRequest := httptest.NewRequest(http.MethodGet, "/api/v1/cards", nil)
+	cardsRequest.AddCookie(sessionCookie)
+	// cardsRecorder 捕获卡券列表响应。
+	cardsRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(cardsRecorder, cardsRequest)
+	assertOpenAPISuccessResponse(t, cardsRequest, cardsRecorder)
+
+	// invalidUploadRequest 是缺失文件的卡券上传请求，必须返回统一错误 envelope。
+	invalidUploadRequest := httptest.NewRequest(http.MethodPost, "/api/v1/cards/batch", strings.NewReader("--openapi--\r\n"))
+	invalidUploadRequest.Header.Set("Content-Type", "multipart/form-data; boundary=openapi")
+	invalidUploadRequest.AddCookie(sessionCookie)
+	// invalidUploadRecorder 捕获卡券上传格式错误响应。
+	invalidUploadRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(invalidUploadRecorder, invalidUploadRequest)
+	assertOpenAPIResponse(t, invalidUploadRequest, invalidUploadRecorder)
+}

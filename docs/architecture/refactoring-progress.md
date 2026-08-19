@@ -444,3 +444,8 @@ architecturecheck: 通过；git diff --check 无输出。
 - WebSocket：`/api/v1/chat/ws` 以 `x-websocket-message-schema` 引用 `ChatWebSocketEvent`。服务端实际 `ready` 和聊天事件 DTO 由同一 OpenAPI component 校验；原生 WebSocket 仍只由聊天通知 owner 使用。
 - 契约修正：订单刷新项的 `soft_deleted` 由历史错误的整数收紧为真实 handler 输出的布尔值；管理员账号摘要 schema 不包含 Cookie、密码或其他凭证字段。
 - 验收：`make api-check`、`go run ./tools/architecturecheck`、`go test ./internal/server -count=1`、`npm run typecheck --prefix frontend`、`npm test --prefix frontend`、`make comments` 与 `git diff --check` 均通过。未修改冻结 CAPTCHA 实现，未执行真实账号或外部平台调用。
+
+### 2026-08-20 OpenAPI 契约阶段四：商品、卡券和文件传输
+
+- 交付范围：items、发布批次、卡券和表格上传全部改由 feature adapter 通过生成 operation 发起；FormData 在共享运行时按 multipart Content-Type 原样重建，未引入 Base64。
+- 回归保护：真实 Router 测试覆盖商品、卡券列表的成功和未认证响应，以及卡券文件上传的格式错误 envelope；原有批次取消、重试、代次隔离和 CSV 下载行为保持不变。
