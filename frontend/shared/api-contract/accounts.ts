@@ -1,10 +1,7 @@
-// accounts 公开账号摘要、登录信息和账号任务相关传输契约。
-/** 账号 feature 使用的 HTTP 传输 DTO；业务页面必须经 feature adapter 转为 UI model。 */
-export type {
-  AIReplySettings, AIReplySettingsResponse, AccountBindingsResponse, AccountDetail,
-  AccountSummaryResponse, AccountTaskRunResponseEnvelope, AccountTaskSettings,
-  AccountTaskSettingsResponse, AccountTaskSummary, CookieProfileResponse,
-  CookieSettingsResponse, NotificationChannel, NotificationChannelResponse,
-  NotificationEventType, OperationResponse, QRLoginGenerateResponse,
-  QRLoginStatusResponse, QRLoginVerificationResponse,
-} from './transport';
+// accounts 只公开 OpenAPI 生成的账号传输类型；UI 模型属于 accounts feature。
+import type { components } from './generated/schema';
+
+/** AccountTransport 表示生成的非敏感账号响应，adapter 负责转换为页面模型。 */
+export type AccountTransport = components['schemas']['AccountDetailResponse'];
+/** QRLoginStatusTransport 表示生成的二维码风控状态响应。 */
+export type QRLoginStatusTransport = components['schemas']['QRLoginStatusResponse'];

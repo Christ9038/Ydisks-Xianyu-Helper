@@ -455,3 +455,26 @@ architecturecheck: 通过；git diff --check 无输出。
 - 交付范围：自动化规则、回复规则、默认回复、账号计划任务、账号 AI 设置、系统设置与通知渠道/绑定均通过生成 operation 访问；UI 归一化和秘密表单状态仍留在 feature adapter。
 - 动态值：`NotificationBindingsByAccount` 使用 `additionalProperties` 限定每个账号键对应 `NotificationBinding[]`；通知渠道摘要不返回 SMTP 密码、Token 或完整秘密配置。
 - 回归保护：真实 Router 响应测试验证渠道列表与动态账号绑定映射；`make api-check`、architecturecheck、前端 typecheck/tests 与注释门禁通过。
+
+### 2026-08-20 OpenAPI 契约阶段六：全量封闭与旧手写契约退场
+
+- 最终提交绑定：`阶段六：完成生成契约迁移并永久关闭旁路`。
+- 交付范围：删除 `frontend/shared/api-contract/transport.ts`；原有 UI 派生模型、表单模型与兼容归一模型按 accounts、cards、chat、dashboard、items、notifications、orders、rules、session、settings 迁入各自 feature。共享领域契约模块只透明别名导出 `api/openapi.yaml` 生成 schema，feature adapter 保持唯一响应归一化边界。
+- 永久门禁：architecturecheck 阶段六会拒绝恢复 `transport.ts`、任何 production import/re-export 的 `transport` 路径，以及 feature、组件或 Hook 绕过 shared 契约层直接导入生成 schema；阶段四门禁继续拒绝旧 `get/post/put/del/postForm`。此规则不使用 DTO 名单、路径白名单、baseline 或 warning-only 例外。
+- 兼容与安全：旧路由继续复用已登记的版本化 handler，不在 OpenAPI 重复登记；允许未声明的非敏感额外响应字段不改变生成类型，Cookie、Token、密码、SMTP 密钥和加密 metadata 仍由既有安全响应测试独立阻断。未修改冻结 CAPTCHA 实现、选择器、时序或浏览器调用顺序，也未执行真实账号调用。
+- 验收：`make api-check`、`go test ./tools/architecturecheck -count=1`、`go run ./tools/architecturecheck`、`npm run typecheck --prefix frontend`、`npm test --prefix frontend`（67 files、405 tests）、`make comments`、前端嵌入构建、`make check`、`go test ./... -count=1`、`make test-server-race`、`make cover`（Go statements 65.8%）、`make cover-frontend`（V8 statements 80.21%、lines 82.43%）和 `make cover-browser`（`RUN_BROWSER_INTEGRATION=1`，browser statements 64.1%）均通过。冻结浏览器普通单元测试也已通过；未执行真实账号或外部平台调用。覆盖率产物不纳入提交。
+
+### 2026-08-20 阶段六 operation 自动覆盖门禁补强
+
+- 门禁实现：新增 `internal/server/openapi_operation_coverage_test.go`，从 `api/openapi.yaml` 自动枚举全部 operationId、路径、方法、必需参数和请求体，直接调用真实 `chi` Router，并用 `kin-openapi` 校验响应状态、Content-Type 和 JSON schema；不维护 DTO、路径或 operation 名单。
+- 契约修正：补齐通知不确定 outbox、自动化问题与规则、默认回复、商品回复、AI 设置、用户设置以及批量发布响应的具名 schema；动态对象使用受约束 `additionalProperties`，批量发布请求与成功响应同步登记。
+- 门禁接入：`make api-check` 现在同时执行路由双向覆盖和 operation 自动响应覆盖。生成 schema 仍由临时目录逐字节比较，后端额外非敏感字段不改变生成类型，敏感字段继续由独立安全测试阻断。
+- 验收：自动 operation 场景覆盖 137 个 operation；`make api-check`、`go test ./internal/server -run '^TestOpenAPIOperationsHaveContractScenarios$' -count=1` 和 `go test ./internal/server -count=1` 通过。未修改冻结 CAPTCHA 实现或真实账号调用。
+
+### 2026-08-20 阶段六 operation 成功覆盖最终收口
+
+- 完成范围：新增真实 Router 成功场景覆盖初始化、长登录、AI 模型、卡券上传、聊天读写/图片、商品同步/发布、批次、自动化、通知和账号任务等此前未触达的 operation；覆盖由 OpenAPI operationId 自动发现，不维护 DTO、路径或场景名单。
+- 契约语义：`kin-openapi` 对真实响应执行状态码、Content-Type 和 JSON schema 校验；必需字段缺失或类型错误、声明字段类型错误、错误状态码和媒体类型都会失败；未声明的非敏感额外字段允许且不会进入生成 TypeScript 类型。敏感字段仍由独立响应安全测试阻断。
+- 门禁结果：`make api-check`、`go run ./tools/architecturecheck`、`make comments`、`git diff --check`、前端 typecheck、前端 405 项测试和生产构建全部通过；`make check` 与 `go test ./... -count=1` 全部通过，Server race 通过。
+- 覆盖率：`make cover` Go statements 66.2%；`make cover-frontend` V8 statements 80.2%、lines 82.43%。覆盖率文件和前端覆盖率目录均为生成产物，未纳入提交。
+- 浏览器与外部环境：冻结 CAPTCHA 普通单元测试随全量 Go 测试通过；本次未执行真实账号或外部平台调用，未修改冻结浏览器实现。浏览器真实集成和多数据库证据继续沿用本文件此前已记录的通过结果。

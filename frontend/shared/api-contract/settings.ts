@@ -1,3 +1,7 @@
-// settings 公开系统、AI 和默认回复设置相关传输契约。
-/** 系统设置 feature 使用的 HTTP 传输 DTO。 */
-export type { AIModelsResponse, OperationResponse, SystemSettings } from './transport';
+// settings 只公开 OpenAPI 生成的设置传输类型；表单状态属于 settings feature。
+import type { components } from './generated/schema';
+
+/** SystemSettingsTransport 表示受约束动态键的设置响应。 */
+export type SystemSettingsTransport = components['schemas']['SystemSettingsResponse'];
+/** AIModelsTransport 表示生成的模型发现响应。 */
+export type AIModelsTransport = components['schemas']['AIModelsResponse'];

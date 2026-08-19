@@ -1813,6 +1813,320 @@ export interface components {
         ApiResponse: {
             success: boolean;
         };
+        NotificationUncertainOutboxItem: {
+            id: number;
+            channel_id: number;
+            owner_user_id?: number;
+            event_type: string;
+            attempt_count: number;
+            uncertain_at: number;
+            has_error: boolean;
+        };
+        NotificationUncertainOutboxResponse: {
+            total: number;
+            items: components["schemas"]["NotificationUncertainOutboxItem"][];
+        };
+        AutomationRunIssue: {
+            id: number;
+            cookie_id: string;
+            order_id: string;
+            trigger_type: string;
+            error_message: string;
+            issue_kind: string;
+            allowed_resolutions: string[];
+            action_cursor: number;
+            sent_count: number;
+            updated_at: string;
+        };
+        DeferredAutomationIssue: {
+            id: number;
+            cookie_id: string;
+            trigger_type: string;
+            error_message: string;
+            attempt_count: number;
+            updated_at: string;
+        };
+        AutomationIssuesResponse: {
+            runs: components["schemas"]["AutomationRunIssue"][];
+            pending_tasks: components["schemas"]["DeferredAutomationIssue"][];
+        };
+        AutomationActionResponse: {
+            id: number;
+            action_type: string;
+            card_id: number;
+            card_name: string;
+            delivery_count: number;
+            message_template: string;
+            delay_seconds: number;
+            config_json: string;
+            enabled: boolean;
+            sort_order: number;
+        };
+        AutomationRuleResponse: {
+            id: number;
+            cookie_id: string;
+            item_id: string;
+            item_title: string;
+            name: string;
+            trigger_type: string;
+            enabled: boolean;
+            priority: number;
+            config_json: string;
+            actions: components["schemas"]["AutomationActionResponse"][];
+            created_at: string;
+            updated_at: string;
+        };
+        AutomationRuleListResponse: components["schemas"]["AutomationRuleResponse"][];
+        AutomationRulePageResponse: {
+            success: boolean;
+            data: components["schemas"]["AutomationRuleResponse"][];
+            total: number;
+            page: number;
+            page_size: number;
+            total_pages: number;
+            trigger_counts: {
+                [key: string]: number;
+            };
+        };
+        AutomationRulesResponse: components["schemas"]["AutomationRuleListResponse"] | components["schemas"]["AutomationRulePageResponse"];
+        DefaultReplyResponse: {
+            cookie_id?: string;
+            enabled: boolean;
+            reply_content: string;
+            reply_image_url?: string;
+            reply_once: boolean;
+        };
+        AccountTaskSettingsResponse: {
+            account_id: string;
+            auto_rate_enabled: boolean;
+            rate_content: string;
+            auto_polish_enabled: boolean;
+            polish_time: string;
+            last_rate_scan_at: number;
+            last_polish_date: string;
+            last_polish_at: number;
+        };
+        AccountTaskSettingsUpdateRequest: {
+            account_id?: string;
+            auto_rate_enabled: boolean;
+            rate_content: string;
+            auto_polish_enabled: boolean;
+            polish_time: string;
+            last_rate_scan_at?: number;
+            last_polish_date?: string;
+            last_polish_at?: number;
+        };
+        AccountTaskRunRequest: {
+            /** @enum {string} */
+            task_type: "auto_rate" | "auto_polish";
+        };
+        AccountTaskRunResponse: {
+            id: number;
+            run_key: string;
+            account_id: string;
+            task_type: string;
+            target_id: string;
+            run_date: string;
+            status: string;
+            success_count: number;
+            failed_count: number;
+            error_message: string;
+            next_retry_at: number;
+            started_at: number;
+            finished_at: number;
+        };
+        AccountTaskRunsResponse: {
+            runs: components["schemas"]["AccountTaskRunResponse"][];
+        };
+        AccountTaskSummaryResponse: {
+            /** @enum {string} */
+            task_type: "auto_rate" | "auto_polish";
+            found: number;
+            success: number;
+            failed: number;
+            skipped: number;
+            message?: string;
+        };
+        AccountTaskRunResponseEnvelope: {
+            success: boolean;
+            summary: components["schemas"]["AccountTaskSummaryResponse"];
+        };
+        AccountBindingsResponse: {
+            cookie_id: string;
+            channel_ids: number[] | null;
+        };
+        KeywordBasicResponse: {
+            keyword: string;
+            reply: string;
+        };
+        KeywordBasicListResponse: components["schemas"]["KeywordBasicResponse"][];
+        KeywordItemResponse: {
+            keyword: string;
+            reply: string;
+            item_id: string;
+        };
+        KeywordItemListResponse: components["schemas"]["KeywordItemResponse"][];
+        KeywordTypedResponse: {
+            id: number;
+            keyword: string;
+            reply: string;
+            item_id: string;
+            type: string;
+            image_url: string;
+        };
+        KeywordTypedListResponse: components["schemas"]["KeywordTypedResponse"][];
+        DefaultReplyMapResponse: {
+            [key: string]: components["schemas"]["DefaultReplyResponse"];
+        };
+        DefaultReplyListResponse: components["schemas"]["DefaultReplyResponse"][] | null;
+        ItemReplyResponse: {
+            item_id?: string;
+            cookie_id?: string;
+            reply_content: string;
+        };
+        ItemReplyListResponse: components["schemas"]["ItemReplyResponse"][];
+        AIReplySettingsResponse: {
+            cookie_id?: string;
+            ai_enabled: boolean;
+            max_discount_percent: number;
+            max_discount_amount: number;
+            max_bargain_rounds: number;
+            custom_prompts: string;
+        };
+        AIReplySettingsMapResponse: {
+            [key: string]: components["schemas"]["AIReplySettingsResponse"];
+        };
+        SettingsResponse: {
+            [key: string]: string;
+        };
+        UserSettingResponse: {
+            value: string;
+        };
+        PublishCategoryResponse: {
+            cat_id: string;
+            cat_name: string;
+            channel_cat_id?: string;
+            tb_cat_id?: string;
+        };
+        PublishCardAction: {
+            card_id: number;
+            delivery_count: number;
+            delay_seconds: number;
+        };
+        PublishCardAutomation: {
+            enabled: boolean;
+            actions: components["schemas"]["PublishCardAction"][] | null;
+        };
+        PublishReviewRequestConfig: {
+            enabled: boolean;
+            after_shipped_hours: number;
+            message: string;
+            max_attempts: number;
+            delay_seconds: number;
+        };
+        PublishAutomationConfig: {
+            paid_delivery: components["schemas"]["PublishCardAutomation"];
+            review_gift: components["schemas"]["PublishCardAutomation"];
+            review_request: components["schemas"]["PublishReviewRequestConfig"];
+        };
+        PublishLocation: {
+            area?: string;
+            city?: string;
+            division_id?: string;
+            longitude?: number;
+            latitude?: number;
+            poi_id?: string;
+            poi_name?: string;
+            province?: string;
+        };
+        ItemPublishBatchPreviewRow: {
+            row_no: number;
+            valid: boolean;
+            errors?: string[];
+            cookie_id: string;
+            title: string;
+            price: string;
+            quantity: number;
+            images: string[];
+            category: components["schemas"]["PublishCategoryResponse"];
+            automation: components["schemas"]["PublishAutomationConfig"];
+        };
+        ItemPublishBatchPreviewResponse: {
+            success: boolean;
+            preview_id: string;
+            total: number;
+            valid: number;
+            invalid: number;
+            rows: components["schemas"]["ItemPublishBatchPreviewRow"][];
+        };
+        ItemPublishBatchRowResponse: {
+            id: number;
+            row_no: number;
+            cookie_id: string;
+            title: string;
+            price: string;
+            quantity: number;
+            images: string[];
+            category: components["schemas"]["PublishCategoryResponse"];
+            automation: components["schemas"]["PublishAutomationConfig"];
+            status: string;
+            item_id: string;
+            item_url: string;
+            error_message: string;
+            failure_kind: string;
+        };
+        ItemPublishBatchResponse: {
+            id: string;
+            status: string;
+            filename: string;
+            total: number;
+            success: number;
+            failed: number;
+            pending: number;
+            running: number;
+            retryable: number;
+            rows: components["schemas"]["ItemPublishBatchRowResponse"][];
+            location: components["schemas"]["PublishLocation"];
+            publish_interval_seconds: number;
+            created_at: string;
+            updated_at: string;
+        };
+        ItemPublishBatchListResponse: {
+            batches: components["schemas"]["ItemPublishBatchResponse"][];
+        };
+        BatchIDResponse: {
+            success: boolean;
+            batch_id: string;
+        };
+        BatchCancelResponse: {
+            success: boolean;
+            status: string;
+        };
+        CategoryRecommendationResponse: {
+            success: boolean;
+            category: components["schemas"]["PublishCategoryResponse"];
+        };
+        CategoryRecommendationRequest: {
+            cookie_id: string;
+            keyword: string;
+        };
+        ItemPublishBatchStartRequest: {
+            preview_id?: string;
+            batch_id?: string;
+        };
+        ItemPublishBatchPreviewRequest: {
+            default_cookie_id: string;
+            /** Format: binary */
+            file: string;
+            /** Format: binary */
+            images_zip?: string;
+            fallback_category_id?: string;
+            fallback_category_name?: string;
+            fallback_channel_category_id?: string;
+            fallback_tb_category_id?: string;
+            location?: string;
+            publish_interval_seconds?: number;
+        };
         HealthResponse: {
             /** @enum {string} */
             status: "ok";
@@ -1827,6 +2141,47 @@ export interface components {
             status: "degraded";
             /** @enum {string} */
             database: "unavailable";
+        };
+        CardMutationRequest: {
+            name?: string;
+            /** @enum {string} */
+            type?: "api" | "text" | "data" | "image";
+            api_config?: string;
+            text_content?: string;
+            data_content?: string;
+            image_url?: string;
+            description?: string;
+            enabled?: boolean;
+            delay_seconds?: number;
+            is_multi_spec?: boolean;
+            spec_name?: string;
+            spec_value?: string;
+        };
+        CardAppendRequest: {
+            content: string;
+        };
+        CardBatchResultResponse: {
+            row_no: number;
+            success: boolean;
+            id?: number;
+            name: string;
+            type?: string;
+            error?: string;
+        };
+        CardBatchResponse: {
+            success: boolean;
+            total: number;
+            created: number;
+            failed: number;
+            rows: components["schemas"]["CardBatchResultResponse"][];
+        };
+        CardAppendResponse: {
+            success: boolean;
+            added: number;
+        };
+        MutationIDResponse: {
+            success: boolean;
+            id: number;
         };
         CardResponse: {
             id: number;
@@ -1859,6 +2214,18 @@ export interface components {
             multi_quantity_delivery: boolean;
             is_multi_qty_ship: boolean;
         };
+        ItemListArrayResponse: components["schemas"]["ItemListResponse"][];
+        ItemDetailResponse: {
+            cookie_id: string;
+            item_id: string;
+            item_title: string;
+            item_description: string;
+            item_category: string;
+            item_price: string;
+            item_detail: string;
+            is_multi_spec: boolean;
+            multi_quantity_delivery: boolean;
+        };
         NotificationChannelResponse: {
             id: number;
             name: string;
@@ -1866,6 +2233,25 @@ export interface components {
             event_types?: string;
             enabled: boolean;
             user_id?: number;
+        };
+        NotificationChannelCreateRequest: {
+            name: string;
+            type: string;
+            config?: string;
+            event_types?: string;
+            enabled?: boolean;
+        };
+        NotificationChannelPatchRequest: {
+            name?: string;
+            type?: string;
+            config?: string;
+            event_types?: string;
+            enabled?: boolean;
+        };
+        NotificationBindingRequest: {
+            channel_ids?: number[];
+            channel_id?: number;
+            enabled?: boolean;
         };
         NotificationBinding: {
             id: number;
@@ -2123,21 +2509,21 @@ export interface components {
             item_title: string;
             item_image: string;
             buyer_id: string;
-            spec_name: string;
-            spec_value: string;
+            spec_name?: string;
+            spec_value?: string;
             quantity: string;
             amount: string;
             order_status: string;
             status: string;
             cookie_id: string;
-            is_bargain: number;
-            system_shipped: boolean;
-            receiver_name: string;
-            receiver_phone: string;
-            receiver_address: string;
-            receiver_city: string;
+            is_bargain?: number;
+            system_shipped?: boolean;
+            receiver_name?: string;
+            receiver_phone?: string;
+            receiver_address?: string;
+            receiver_city?: string;
             created_at: string;
-            updated_at: string;
+            updated_at?: string;
         };
         OrderListResponse: {
             success: boolean;
@@ -2405,7 +2791,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AccountTaskSettingsResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -2464,7 +2850,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountTaskSettingsUpdateRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -2472,7 +2862,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AccountTaskSettingsResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -2531,7 +2921,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountTaskRunRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -2539,7 +2933,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AccountTaskRunResponseEnvelope"];
                 };
             };
             /** @description 统一错误响应 */
@@ -2606,7 +3000,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AccountTaskRunsResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -3905,7 +4299,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AdminCookie"][];
+                    "application/json": components["schemas"]["AdminCookie"][] | null;
                 };
             };
             /** @description 统一错误响应 */
@@ -3970,7 +4364,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["NotificationUncertainOutboxResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -4569,7 +4963,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AutomationIssuesResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -4708,7 +5102,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AutomationRulesResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -5096,7 +5490,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardMutationRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -5104,7 +5502,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["MutationIDResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -5171,7 +5569,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["CardResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -5230,7 +5628,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardMutationRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -5364,7 +5766,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CardAppendRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -5372,7 +5778,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["CardAppendResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -5439,7 +5845,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["CardResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -5496,7 +5902,14 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -5504,7 +5917,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["CardBatchResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -5990,7 +6403,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["DefaultReplyMapResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -6057,7 +6470,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["DefaultReplyResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -6323,7 +6736,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["DefaultReplyListResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -6525,7 +6938,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["ItemDetailResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -6864,7 +7277,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["ItemListArrayResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -7126,7 +7539,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["ItemPublishBatchListResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -7183,7 +7596,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemPublishBatchStartRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -7191,7 +7608,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["BatchIDResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -7258,7 +7675,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["ItemPublishBatchResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -7325,7 +7742,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OperationResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -7392,7 +7809,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["BatchCancelResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -7526,7 +7943,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["BatchIDResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -7583,7 +8000,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["ItemPublishBatchPreviewRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -7591,7 +8012,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["ItemPublishBatchPreviewResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -7648,7 +8069,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CategoryRecommendationRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -7656,7 +8081,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["CategoryRecommendationResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -7723,7 +8148,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AccountBindingsResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -7782,7 +8207,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationBindingRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -7912,7 +8341,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationChannelCreateRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -7920,7 +8353,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["MutationIDResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -7979,7 +8412,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationChannelPatchRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -8385,7 +8822,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["NotificationUncertainOutboxResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -9139,15 +9576,6 @@ export interface operations {
             };
         };
         responses: {
-            /** @description 成功 */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiResponse"];
-                };
-            };
             /** @description 统一错误响应 */
             400: {
                 headers: {
@@ -9215,15 +9643,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description 成功 */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiResponse"];
-                };
-            };
             /** @description 统一错误响应 */
             400: {
                 headers: {
@@ -9291,15 +9710,6 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description 成功 */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiResponse"];
-                };
-            };
             /** @description 统一错误响应 */
             400: {
                 headers: {
@@ -9643,7 +10053,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["KeywordBasicListResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -9845,7 +10255,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["KeywordItemListResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -9979,7 +10389,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["KeywordTypedListResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -10180,7 +10590,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["ItemReplyListResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -10248,7 +10658,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["ItemReplyResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -10384,7 +10794,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["OperationResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -10928,7 +11338,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AIReplySettingsMapResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -10995,7 +11405,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["AIReplySettingsResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -11328,7 +11738,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["SettingsResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -11393,7 +11803,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["SettingsResponse"];
                 };
             };
             /** @description 统一错误响应 */
@@ -11460,7 +11870,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["UserSettingResponse"];
                 };
             };
             /** @description 统一错误响应 */

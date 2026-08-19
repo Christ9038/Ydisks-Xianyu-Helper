@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act,renderHook,waitFor } from '@testing-library/react';
 import { beforeEach,describe,expect,test,vi } from 'vitest';
-import type { AccountDetail,ChatMessage,ChatSession } from '../../../shared/api-contract/chat';
+import type { AccountDetail,ChatMessage,ChatSession } from './api';
 import { getAccountDetails,getAccountRuntimeStatuses,getChatMessagePage,getChatSessionPage,markChatRead,sendChatImage,sendChatMessage } from './api';
 import { useChat } from './hooks';
 import { publishChatConnectionState,publishChatLiveMessage } from './liveEvents';

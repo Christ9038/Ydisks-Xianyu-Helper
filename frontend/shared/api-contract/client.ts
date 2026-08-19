@@ -56,6 +56,12 @@ const contractBaseUrl = typeof location === 'undefined' ? 'http://localhost' : l
 
 export const contractClient = createClient<paths>({ baseUrl: contractBaseUrl, fetch: contractFetch });
 
+// contractMultipartBody 将原生 FormData 作为对应 OpenAPI multipart operation 的运行时载荷交给客户端。
+// OpenAPI 3.1 的 binary 字段会生成 string 类型，而浏览器必须保留 FormData 边界和 File 对象；泛型仅由调用位置的生成 operation 请求体推导。
+export function contractMultipartBody<T>(form: FormData): NonNullable<T> {
+  return form as unknown as NonNullable<T>;
+}
+
 // runContractRequest 执行类型化 operation，并恢复旧 client 的超时、取消和 ApiError 行为。
 export async function runContractRequest<T>(
   execute: (signal: AbortSignal) => Promise<ContractResult<T>>,

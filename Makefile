@@ -64,6 +64,9 @@ api-check:
 	npm run api:check --prefix frontend
 	$(GO) run ./tools/apicheck
 	$(GO) test ./internal/server -run '^TestOpenAPIRoutesMatchRouter$$' -count=1
+	$(GO) test ./internal/server -run '^TestOpenAPIOperationsHaveContractScenarios$$' -count=1
+	$(GO) test ./internal/server -run '^TestOpenAPISuccessContractCoverage$$' -count=1
+	$(GO) test ./internal/server -run '^(TestOpenAPIPasswordLoginDisabledOperations|TestDownloadItemPublishBatchResultExportsRows|TestChatEventDTOUsesFrontendContract|TestChatWebSocketStreamsOnlyAuthenticatedAccountEvents)$$' -count=1
 
 ## cover: 生成覆盖率报告
 cover:

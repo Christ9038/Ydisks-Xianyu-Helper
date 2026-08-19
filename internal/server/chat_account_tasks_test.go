@@ -89,7 +89,7 @@ func TestChatWebSocketStreamsOnlyAuthenticatedAccountEvents(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	// conn、err 用于本次流程后续判断的conn、err
-	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(httpServer.URL, "http")+"/api/chat/ws", &websocket.DialOptions{HTTPHeader: header})
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(httpServer.URL, "http")+"/api/v1/chat/ws", &websocket.DialOptions{HTTPHeader: header})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -137,6 +137,8 @@ refactoring-master-plan.md 定义，本文不声明当前阶段或完成状态�
 - 禁止新增 `value/cookie`、`remark/note` 一类双重字段；
 - 兼容字段只能在边界 adapter 中归一；
 - 删除兼容层必须有调用方迁移和契约测试证据。
+- `/api/v1/**` 与 `/health` 的唯一 HTTP 契约源是 `api/openapi.yaml`；新增 operation 必须同步更新规范、生成
+  TypeScript schema 和真实 handler 响应校验，禁止恢复手写 `transport.ts` 或 DTO 名单门禁。
 
 ## 6. React 边界
 
@@ -150,6 +152,8 @@ refactoring-master-plan.md 定义，本文不声明当前阶段或完成状态�
 - 组件不得直接调用 `fetch` 或 `axios`；
 - 通用 HTTP client 不包含订单、账号等领域归一逻辑；
 - 生成 API 类型只读，UI model 由 feature adapter 创建；
+- 生成 schema 只能由 shared 契约层导入，feature、组件和 Hook 不得直接读取；
+- 原始 `get/post/put/del/postForm` 只能留在旧客户端兼容实现，feature 不得导入或调用；
 - 禁止通过大型 barrel 文件隐藏实际依赖。
 
 ## 7. 事务与生命周期边界

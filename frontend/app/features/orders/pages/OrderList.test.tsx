@@ -2,7 +2,7 @@
 import { cleanup,fireEvent,render,screen,waitFor } from '@testing-library/react';
 import React from 'react';
 import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
-import type { Order } from '../../../../shared/api-contract/orders';
+import type { Order } from '../api';
 
 // orderListMocks 保存订单页面测试使用的 Hook、API 和子组件替身。
 const orderListMocks = vi.hoisted(/* orderListMockFactory 创建订单页面共享替身。 */ () => ({

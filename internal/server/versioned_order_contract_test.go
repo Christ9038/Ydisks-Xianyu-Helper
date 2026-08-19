@@ -34,9 +34,7 @@ func TestVersionedOrderRoutesPreserveLegacyContracts(t *testing.T) {
 	// listRecorder 是捕获版本化订单列表响应的记录器。
 	listRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(listRecorder, listReq)
-	if listRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned order list status=%d body=%s", listRecorder.Code, listRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, listReq, listRecorder)
 	// listValue 是版本化订单列表响应 DTO。
 	var listValue orderListResponse
 	// listDecodeErr 是订单列表响应反序列化失败的原因。
@@ -53,9 +51,7 @@ func TestVersionedOrderRoutesPreserveLegacyContracts(t *testing.T) {
 	// detailRecorder 是捕获版本化订单详情响应的记录器。
 	detailRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(detailRecorder, detailReq)
-	if detailRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned order detail status=%d body=%s", detailRecorder.Code, detailRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, detailReq, detailRecorder)
 	// detailValue 是版本化订单详情响应 DTO。
 	var detailValue orderDetailResponse
 	// detailDecodeErr 是订单详情响应反序列化失败的原因。
@@ -72,9 +68,7 @@ func TestVersionedOrderRoutesPreserveLegacyContracts(t *testing.T) {
 	// updateRecorder 是捕获版本化订单更新响应的记录器。
 	updateRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(updateRecorder, updateReq)
-	if updateRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned order update status=%d body=%s", updateRecorder.Code, updateRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, updateReq, updateRecorder)
 	// updateValue 是版本化订单更新响应 DTO。
 	var updateValue operationResponse
 	// updateDecodeErr 是订单更新响应反序列化失败的原因。
@@ -124,20 +118,38 @@ func TestVersionedOrderRefreshAndBatchRoutesPreserveLegacyContracts(t *testing.T
 	// refreshRecorder 是捕获版本化刷新响应的记录器。
 	refreshRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(refreshRecorder, refreshReq)
-	if refreshRecorder.Code != http.StatusAccepted {
-		t.Fatalf("versioned order refresh status=%d body=%s", refreshRecorder.Code, refreshRecorder.Body.String())
-	}
+	assertOpenAPIExpectedStatusResponse(t, refreshReq, refreshRecorder, http.StatusAccepted)
 	// refreshStart 是版本化刷新任务创建响应 DTO。
 	var refreshStart orderRefreshJobStartResponse
 	// refreshDecodeErr 是刷新任务创建响应反序列化失败的原因。
 	if refreshDecodeErr := json.Unmarshal(refreshRecorder.Body.Bytes(), &refreshStart); refreshDecodeErr != nil {
 		t.Fatalf("decode versioned order refresh: %v", refreshDecodeErr)
 	}
+	// versionedStatusReq 查询刚创建的版本化刷新任务，覆盖真实 200 状态响应。
+	versionedStatusReq := httptest.NewRequest(http.MethodGet, "/api/v1/orders/refresh/"+refreshStart.JobID, nil)
+	versionedStatusReq.AddCookie(sessionCookie)
+	// versionedStatusRecorder 保存版本化刷新任务查询响应。
+	versionedStatusRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(versionedStatusRecorder, versionedStatusReq)
+	assertOpenAPIRecordedSuccessResponse(t, versionedStatusReq, versionedStatusRecorder)
 	// refreshValue 是版本化刷新任务完成后的具名结果。
 	refreshValue := waitOrderRefreshJob(t, handler, sessionCookie, refreshStart.JobID)
 	if refreshValue.Message == "" {
 		t.Fatalf("versioned order refresh should preserve a named success response: %+v", refreshValue)
 	}
+	// queuedJob 是专门用于版本化取消 operation 的排队任务夹具。
+	queuedJob := &db.OrderRefreshJob{ID: "versioned-cancel-job", UserID: 1, Status: "queued"}
+	// createErr 表示写入版本化取消任务夹具失败。
+	if createErr := store.OrderRefreshJobs.Create(ctx, queuedJob); createErr != nil {
+		t.Fatalf("create versioned cancel job: %v", createErr)
+	}
+	// versionedCancelReq 请求取消该排队任务。
+	versionedCancelReq := httptest.NewRequest(http.MethodDelete, "/api/v1/orders/refresh/"+queuedJob.ID, nil)
+	versionedCancelReq.AddCookie(sessionCookie)
+	// versionedCancelRecorder 保存版本化取消响应。
+	versionedCancelRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(versionedCancelRecorder, versionedCancelReq)
+	assertOpenAPIRecordedSuccessResponse(t, versionedCancelReq, versionedCancelRecorder)
 
 	// legacyRefreshReq 是验证旧订单列表刷新入口仍可用的请求。
 	legacyRefreshReq := httptest.NewRequest(http.MethodPost, "/api/orders/refresh", nil)
@@ -167,10 +179,7 @@ func TestVersionedOrderRefreshAndBatchRoutesPreserveLegacyContracts(t *testing.T
 	// singleRecorder 是捕获版本化单订单刷新响应的记录器。
 	singleRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(singleRecorder, singleReq)
-	// 夹具客户端提供订单详情响应，新旧入口都应返回成功刷新结果。
-	if singleRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned single order refresh status=%d body=%s", singleRecorder.Code, singleRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, singleReq, singleRecorder)
 
 	// legacySingleReq 是验证旧单订单刷新入口仍可用的请求。
 	legacySingleReq := httptest.NewRequest(http.MethodPost, "/api/orders/order-single-v1/refresh", nil)
@@ -208,9 +217,7 @@ func TestVersionedOrderRefreshAndBatchRoutesPreserveLegacyContracts(t *testing.T
 	// importRecorder 是捕获版本化导入响应的记录器。
 	importRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(importRecorder, importReq)
-	if importRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned order import status=%d body=%s", importRecorder.Code, importRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, importReq, importRecorder)
 
 	// legacyImportReq 是验证旧导入入口仍可用的请求。
 	legacyImportReq := httptest.NewRequest(http.MethodPost, "/api/orders/import", strings.NewReader(`[]`))

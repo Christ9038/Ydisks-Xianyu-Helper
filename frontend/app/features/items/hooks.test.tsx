@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act,renderHook } from '@testing-library/react';
 import { beforeEach,describe,expect,test,vi } from 'vitest';
-import type { BatchCancelResponse,BatchIDResponse,CategoryRecommendationResponse,ItemPublishBatchPreviewResponse,ItemPublishBatchResponse } from '../../../shared/api-contract/items';
+import type { BatchCancelResponse,BatchIDResponse,CategoryRecommendationResponse,ItemPublishBatchPreviewResponse,ItemPublishBatchResponse } from './api';
 import {
 cancelItemPublishBatch,
 deleteItemPublishBatch,

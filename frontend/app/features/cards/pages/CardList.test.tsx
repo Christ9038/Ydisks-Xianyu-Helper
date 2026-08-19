@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup,fireEvent,render,screen,waitFor } from '@testing-library/react';
 import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
-import type { Card } from '../../../../shared/api-contract/cards';
+import type { Card } from '../api';
 
 // cardListMocks 保存卡密页面测试使用的 Hook、API 和批量弹窗替身。
 const cardListMocks = vi.hoisted(/* cardListMockFactory 创建卡密页面共享替身。 */ () => ({

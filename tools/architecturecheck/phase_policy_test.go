@@ -213,3 +213,34 @@ func TestQualityArchitectureGate(t *testing.T) {
 		t.Fatalf("violations=%+v", violations)
 	}
 }
+
+// TestOpenAPIContractClosureGate 验证阶段六拒绝手写 DTO 汇总和 feature 直接读取生成 schema。
+func TestOpenAPIContractClosureGate(t *testing.T) {
+	// root 是承载阶段六违规样例的独立临时仓库。
+	root := t.TempDir()
+	// transportPath 是模拟被错误恢复的旧手写 DTO 汇总文件。
+	transportPath := filepath.Join(root, "frontend", "shared", "api-contract", "transport.ts")
+	// mkdirErr 表示创建旧 DTO 样例目录失败的原因。
+	if mkdirErr := os.MkdirAll(filepath.Dir(transportPath), 0o755); mkdirErr != nil {
+		t.Fatal(mkdirErr)
+	}
+	// writeErr 表示写入旧 DTO 样例失败的原因。
+	if writeErr := os.WriteFile(transportPath, []byte("export interface Legacy {}\n"), 0o600); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	// featurePath 是绕过 adapter 直接导入生成 schema 的 feature UI 样例。
+	featurePath := filepath.Join(root, "frontend", "app", "features", "items", "page.tsx")
+	// mkdirErr 表示创建 feature 样例目录失败的原因。
+	if mkdirErr := os.MkdirAll(filepath.Dir(featurePath), 0o755); mkdirErr != nil {
+		t.Fatal(mkdirErr)
+	}
+	// writeErr 表示写入 feature 旁路样例失败的原因。
+	if writeErr := os.WriteFile(featurePath, []byte("import type { components } from '../../../shared/api-contract/generated/schema';\ntype Row = components['schemas']['ItemListResponse'];\n"), 0o600); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	// violations 是闭环门禁必须同时报告的两类绕过。
+	violations := checkOpenAPIContractClosure(root)
+	if len(violations) != 2 {
+		t.Fatalf("violations=%+v", violations)
+	}
+}

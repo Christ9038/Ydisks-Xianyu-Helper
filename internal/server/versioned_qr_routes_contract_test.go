@@ -33,6 +33,9 @@ func requestQRLoginRoute(t *testing.T, handler http.Handler, sessionCookie *http
 	// recorder 是捕获二维码响应的测试记录器。
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
+	if strings.HasPrefix(path, "/api/v1/") && recorder.Code >= http.StatusOK && recorder.Code < http.StatusMultipleChoices {
+		assertOpenAPIRecordedSuccessResponse(t, request, recorder)
+	}
 	return recorder.Code
 }
 

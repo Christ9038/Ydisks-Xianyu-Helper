@@ -21,6 +21,8 @@ var (
 	serverTestTemplatePath string
 	// serverTestTemplateErr 保存创建共享模板时遇到的错误。
 	serverTestTemplateErr error
+	// openAPISuccessOperations 收集当前 Go 测试进程中经真实 Router 成功响应校验的 operationId。
+	openAPISuccessOperations sync.Map
 )
 
 // TestMain 在所有 server 测试结束后删除共享数据库模板目录。

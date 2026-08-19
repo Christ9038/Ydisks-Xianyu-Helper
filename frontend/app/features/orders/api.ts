@@ -10,11 +10,11 @@ OrderRefreshJobCancelResponse,OrderRefreshJobStatusResponse,
 OrderRefreshResponse,
 OrderSingleRefreshResponse,
 PaginatedResponse
-} from '../../../shared/api-contract/orders';
+} from './models';
 import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
 import { type RequestControlOptions } from '../../../shared/http/client';
 import { collectionFrom, objectFrom } from '../../../shared/http/contract';
-export type * from '../../../shared/api-contract/orders';
+export type * from './models';
 
 /** 订单刷新前端最多轮询约 90 秒，超过该预算必须请求取消后端 worker。 */
 const orderRefreshPollLimit = 180;
@@ -157,9 +157,22 @@ export const getOrderDetail = async (orderId: string): Promise<{ /** success 表
     params: { path: { order_id: orderId } },
     signal,
   }));
+  // data 是将可选 transport 字段归一为 UI 模型稳定字符串/布尔值后的订单详情。
+  const data: OrderDTOResponse = {
+    ...result.data,
+    spec_name: result.data.spec_name ?? '',
+    spec_value: result.data.spec_value ?? '',
+    is_bargain: result.data.is_bargain ?? 0,
+    system_shipped: result.data.system_shipped ?? false,
+    receiver_name: result.data.receiver_name ?? '',
+    receiver_phone: result.data.receiver_phone ?? '',
+    receiver_address: result.data.receiver_address ?? '',
+    receiver_city: result.data.receiver_city ?? '',
+    updated_at: result.data.updated_at ?? result.data.created_at,
+  };
   return {
     success: true,
-    data: result.data
+    data
   };
 };
 

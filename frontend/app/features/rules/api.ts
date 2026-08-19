@@ -14,11 +14,11 @@ MutationIDResponse,OperationResponse,
 PaginatedResponse,
 ReplyRule,
 ShippingRule
-} from '../../../shared/api-contract/automation';
+} from './models';
 import { type RequestControlOptions } from '../../../shared/http/client';
 import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
 import { collectionFrom,objectFrom } from '../../../shared/http/contract';
-export type * from '../../../shared/api-contract/automation';
+export type * from './models';
 
 /** 自动化规则筛选器读取非敏感账号摘要。 */
 export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => runContractRequest(/* signal 控制规则页账号摘要读取的取消和超时。 */ signal => contractClient.GET('/api/v1/accounts/details', { signal }), options);

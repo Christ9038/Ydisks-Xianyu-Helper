@@ -3,10 +3,13 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -14,6 +17,74 @@ import (
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers/legacy"
 )
+
+// TestOpenAPISuccessContractCoverage 从唯一 OpenAPI 文档自动枚举普通 operation，确认每个 operation 都有真实成功响应断言记录。
+func TestOpenAPISuccessContractCoverage(t *testing.T) {
+	// scenarios 是按领域组织的真实 Router 成功场景；覆盖集合由每次成功断言的 operationId 自动产生。
+	scenarios := []struct {
+		// name 是失败输出使用的稳定领域名称。
+		name string
+		// run 会执行该领域完整的真实 HTTP 成功场景。
+		run func(*testing.T)
+	}{
+		{name: "session-and-qr", run: TestOpenAPISessionAndQRResponses},
+		{name: "accounts-and-system", run: TestOpenAPIAccountAndSystemResponses},
+		{name: "query-chat-orders", run: TestOpenAPIQueryChatAndOrderResponses},
+		{name: "items-and-cards", run: TestOpenAPIItemAndCardResponses},
+		{name: "notifications", run: TestOpenAPINotificationResponses},
+		{name: "versioned-session", run: TestVersionedSessionRoutesPreserveLegacyContracts},
+		{name: "versioned-account", run: TestVersionedAccountRoutesPreserveLegacyContracts},
+		{name: "versioned-account-credentials", run: TestVersionedAccountCredentialRoutesPreserveLegacyContracts},
+		{name: "versioned-account-settings", run: TestVersionedAccountSettingsRoutesPreserveLegacyContracts},
+		{name: "versioned-items", run: TestVersionedItemRoutesPreserveLegacyContracts},
+		{name: "versioned-orders", run: TestVersionedOrderRoutesPreserveLegacyContracts},
+		{name: "versioned-order-refresh", run: TestVersionedOrderRefreshAndBatchRoutesPreserveLegacyContracts},
+		{name: "versioned-qr", run: TestVersionedQRLoginRoutesPreserveLegacyContracts},
+		{name: "versioned-admin-analytics", run: TestVersionedAdminAnalyticsRoutesPreserveLegacyContracts},
+		{name: "versioned-settings-cards-notifications", run: TestVersionedSettingsCardNotificationRoutesPreserveLegacyContracts},
+		{name: "versioned-item-batches", run: TestVersionedItemBatchRoutesPreserveLegacyContracts},
+		{name: "versioned-chat-tasks", run: TestVersionedChatTaskRoutesPreserveLegacyContracts},
+		{name: "versioned-replies", run: TestVersionedReplyRoutesPreserveLegacyContracts},
+		{name: "versioned-remaining", run: TestVersionedRemainingRoutesPreserveLegacyContracts},
+		{name: "named-success", run: TestNamedSuccessResponseContracts},
+		{name: "remaining-success", run: TestRemainingSuccessResponseContracts},
+		{name: "settings-cards-notifications-batch", run: TestSettingsCardsNotificationsBatchContracts},
+		{name: "dynamic-success", run: TestDynamicCompatibilitySuccessContracts},
+		{name: "reply-and-account-task-success", run: TestReplyAndAccountTaskSuccessResponseContracts},
+		{name: "analytics-admin-public-success", run: TestAnalyticsAdminAndPublicSuccessResponseContracts},
+		{name: "local-resource-mutations", run: TestOpenAPILocalResourceMutationResponses},
+		{name: "remaining-versioned-success", run: TestOpenAPIRemainingVersionedSuccessResponses},
+	}
+	// scenario 是当前执行的领域真实响应场景。
+	for _, scenario := range scenarios {
+		// scenario 保存当前领域成功场景，子测试名称和执行函数必须保持同一实例。
+		scenario := scenario
+		t.Run(scenario.name, func(t *testing.T) {
+			scenario.run(t)
+		})
+	}
+	// document 是包含全部 operation 的唯一 OpenAPI 契约。
+	document := loadOpenAPIContractForCoverage(t)
+	// missing 保存未被成功断言记录、且没有显式特殊校验的 operationId。
+	missing := make([]string, 0)
+	for _, path := range document.Paths.Keys() { // path 是当前 OpenAPI 路径模板。
+		// pathItem 保存该模板下声明的全部 HTTP operation。
+		pathItem := document.Paths.Find(path)
+		for _, operation := range pathItem.Operations() { // operation 是当前待检查的 OpenAPI operation。
+			if openAPIContractSuccessExceptionKind(operation) != "" {
+				continue
+			}
+			// exists 表示该 operation 是否已由真实成功响应记录。
+			if _, exists := openAPISuccessOperations.Load(operation.OperationID); !exists {
+				missing = append(missing, operation.OperationID)
+			}
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Fatalf("缺少真实成功响应契约场景: %s", strings.Join(missing, ", "))
+	}
+}
 
 // assertOpenAPIResponse 验证真实 HTTP 响应的状态码、Content-Type 和 JSON 形状符合对应 OpenAPI operation。
 func assertOpenAPIResponse(t *testing.T, request *http.Request, recorder *httptest.ResponseRecorder) {
@@ -57,6 +128,9 @@ func assertOpenAPISuccessResponse(t *testing.T, request *http.Request, recorder 
 		t.Fatalf("成功响应状态错误: %s %s status=%d body=%s", request.Method, request.URL.Path, recorder.Code, recorder.Body.String())
 	}
 	assertOpenAPIResponse(t, request, recorder)
+	// operationID 是从请求匹配的 OpenAPI operation 读取的稳定成功覆盖键。
+	operationID := openAPIOperationIDForRequest(t, request)
+	openAPISuccessOperations.Store(operationID, struct{}{})
 }
 
 // assertOpenAPIExpectedStatusResponse 验证非 200 成功状态的真实响应仍符合 operation 契约。
@@ -66,6 +140,127 @@ func assertOpenAPIExpectedStatusResponse(t *testing.T, request *http.Request, re
 		t.Fatalf("成功响应状态错误: %s %s status=%d want=%d body=%s", request.Method, request.URL.Path, recorder.Code, wantStatus, recorder.Body.String())
 	}
 	assertOpenAPIResponse(t, request, recorder)
+	// operationID 是从请求匹配的 OpenAPI operation 读取的稳定成功覆盖键。
+	operationID := openAPIOperationIDForRequest(t, request)
+	openAPISuccessOperations.Store(operationID, struct{}{})
+}
+
+// assertOpenAPIRecordedSuccessResponse 验证任意 2xx 的真实响应并记录其 operationId，供已存在的兼容路由成功场景复用。
+func assertOpenAPIRecordedSuccessResponse(t *testing.T, request *http.Request, recorder *httptest.ResponseRecorder) {
+	t.Helper()
+	if recorder.Code < http.StatusOK || recorder.Code >= http.StatusMultipleChoices {
+		t.Fatalf("成功响应状态错误: %s %s status=%d body=%s", request.Method, request.URL.Path, recorder.Code, recorder.Body.String())
+	}
+	assertOpenAPIResponse(t, request, recorder)
+	// operationID 是从成功请求匹配出的稳定 OpenAPI operation 标识。
+	operationID := openAPIOperationIDForRequest(t, request)
+	openAPISuccessOperations.Store(operationID, struct{}{})
+}
+
+// contractRecordingHandler 在契约覆盖场景中捕获版本化成功响应，避免手写 operation 名单或遗漏断言点。
+func contractRecordingHandler(t *testing.T, next http.Handler) http.Handler {
+	t.Helper()
+	return http.HandlerFunc(func(responseWriter http.ResponseWriter, request *http.Request) {
+		// recorder 暂存真实 handler 的完整响应，便于校验后再复制到调用方记录器。
+		recorder := httptest.NewRecorder()
+		next.ServeHTTP(recorder, request)
+		// headerValue 表示真实 handler 写出的响应头值集合。
+		for headerName, headerValues := range recorder.Header() {
+			responseWriter.Header()[headerName] = append([]string(nil), headerValues...)
+		}
+		responseWriter.WriteHeader(recorder.Code)
+		_, _ = responseWriter.Write(recorder.Body.Bytes())
+		if (strings.HasPrefix(request.URL.Path, "/api/v1/") || request.URL.Path == "/health") && recorder.Code >= http.StatusOK && recorder.Code < http.StatusMultipleChoices {
+			assertOpenAPIRecordedSuccessResponse(t, request, recorder)
+		}
+	})
+}
+
+// serveOpenAPISuccess 以真实 Router 执行一个本地可确定的版本化成功请求，并记录 operationId 作为覆盖证据。
+func serveOpenAPISuccess(t *testing.T, handler http.Handler, sessionCookie *http.Cookie, method string, path string, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	// request 是本次本地资源生命周期操作使用的版本化 HTTP 请求。
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	if body != "" {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	if sessionCookie != nil {
+		request.AddCookie(sessionCookie)
+	}
+	// recorder 保存真实 handler 的完整成功响应，供 OpenAPI 校验和调用方业务断言复用。
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	assertOpenAPIRecordedSuccessResponse(t, request, recorder)
+	return recorder
+}
+
+// openAPIOperationIDForRequest 使用唯一 OpenAPI 文档匹配真实请求并返回稳定 operationId。
+func openAPIOperationIDForRequest(t *testing.T, request *http.Request) string {
+	t.Helper()
+	// specPath 是从 Server 测试目录定位到唯一 OpenAPI 契约文件的路径。
+	specPath := filepath.Join("..", "..", "api", "openapi.yaml")
+	// document、loadErr 分别是解析后的 OpenAPI 文档及其加载失败原因。
+	document, loadErr := openapi3.NewLoader().LoadFromFile(specPath)
+	if loadErr != nil {
+		t.Fatalf("加载 OpenAPI 契约失败: %v", loadErr)
+	}
+	// router、routerErr 分别是请求与 operation 匹配使用的 OpenAPI 路由器及其构建错误。
+	router, routerErr := legacy.NewRouter(document)
+	if routerErr != nil {
+		t.Fatalf("构建 OpenAPI 路由器失败: %v", routerErr)
+	}
+	// route、_、findErr 分别是匹配结果、无需读取的路径参数和路由匹配失败原因。
+	route, _, findErr := router.FindRoute(request)
+	if findErr != nil || route.Operation == nil || route.Operation.OperationID == "" {
+		t.Fatalf("读取成功响应 operationId 失败: %s %s err=%v", request.Method, request.URL.Path, findErr)
+	}
+	return route.Operation.OperationID
+}
+
+// openAPIContractSuccessExceptionKind 返回 operation 显式登记的特殊成功校验类别；普通 HTTP operation 返回空字符串。
+func openAPIContractSuccessExceptionKind(operation *openapi3.Operation) string {
+	if operation == nil || operation.Extensions == nil {
+		return ""
+	}
+	// exception、valid 分别是 YAML 扩展对象及其是否符合受限结构。
+	exception, valid := operation.Extensions["x-contract-success-exception"].(map[string]any)
+	if !valid {
+		return ""
+	}
+	// kind、valid 分别是特殊校验类别及其是否为稳定字符串。
+	kind, valid := exception["kind"].(string)
+	if !valid {
+		return ""
+	}
+	return kind
+}
+
+// TestOpenAPIPasswordLoginDisabledOperations 验证永久关闭的密码登录 operation 真实返回 501 统一错误，而非伪造 2xx 成功响应。
+func TestOpenAPIPasswordLoginDisabledOperations(t *testing.T) {
+	// srv、_、cleanup 分别是独立测试 Server、无需直接读取的存储和资源释放函数。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是承载版本化密码登录关闭策略的真实 chi Router。
+	handler := srv.Router()
+	// sessionCookie 是访问受保护密码登录 operation 所需的管理员认证会话。
+	sessionCookie := loginHelper(t, handler)
+	// requests 保存三个永久关闭 operation 的最小版本化请求。
+	requests := []*http.Request{
+		httptest.NewRequest(http.MethodPost, "/api/v1/password-login", strings.NewReader(`{"account_id":"acc1","account":"contract-user","password":"not-a-real-secret"}`)),
+		httptest.NewRequest(http.MethodGet, "/api/v1/password-login/check/contract-session", nil),
+		httptest.NewRequest(http.MethodDelete, "/api/v1/password-login/cancel/contract-session", nil),
+	}
+	// request 是当前待验证的永久关闭版本化 operation 请求。
+	for _, request := range requests {
+		request.AddCookie(sessionCookie)
+		// recorder 捕获关闭策略的实际 HTTP 状态、Content-Type 和统一错误响应体。
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusNotImplemented {
+			t.Fatalf("永久关闭 operation 状态错误: %s %s status=%d body=%s", request.Method, request.URL.Path, recorder.Code, recorder.Body.String())
+		}
+		assertOpenAPIResponse(t, request, recorder)
+	}
 }
 
 // TestOpenAPISessionAndQRResponses 验证阶段二会话与二维码主链路的成功、未认证和风控响应均满足真实契约。
@@ -333,6 +528,53 @@ func TestOpenAPIItemAndCardResponses(t *testing.T) {
 	handler.ServeHTTP(cardsRecorder, cardsRequest)
 	assertOpenAPISuccessResponse(t, cardsRequest, cardsRecorder)
 
+	// createCardRequest 是创建 data 卡券的版本化请求，供后续资源生命周期操作复用。
+	createCardRequest := httptest.NewRequest(http.MethodPost, "/api/v1/cards", strings.NewReader(`{"name":"OpenAPI 数据卡","type":"data","data_content":"K1","enabled":true}`))
+	createCardRequest.AddCookie(sessionCookie)
+	// createCardRecorder 捕获创建操作的具名数值主键响应。
+	createCardRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(createCardRecorder, createCardRequest)
+	assertOpenAPISuccessResponse(t, createCardRequest, createCardRecorder)
+	// createdCard 保存创建操作返回的数值主键，后续请求必须使用真实归属资源。
+	var createdCard struct {
+		// ID 是本次生命周期中由服务端分配的卡券标识。
+		ID int64 `json:"id"`
+	}
+	// decodeErr 表示无法从已校验响应中读取资源标识的失败原因。
+	if decodeErr := json.Unmarshal(createCardRecorder.Body.Bytes(), &createdCard); decodeErr != nil || createdCard.ID <= 0 {
+		t.Fatalf("读取创建卡券标识失败: id=%d err=%v", createdCard.ID, decodeErr)
+	}
+	// cardID 是 URL 路径使用的真实卡券标识字符串。
+	cardID := strconv.FormatInt(createdCard.ID, 10)
+	// getCardRequest 是读取刚创建资源详情的成功请求。
+	getCardRequest := httptest.NewRequest(http.MethodGet, "/api/v1/cards/"+cardID, nil)
+	getCardRequest.AddCookie(sessionCookie)
+	// getCardRecorder 捕获详情 DTO，验证不再错误使用通用成功 envelope。
+	getCardRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(getCardRecorder, getCardRequest)
+	assertOpenAPISuccessResponse(t, getCardRequest, getCardRecorder)
+	// updateCardRequest 是更新同一 data 卡券的成功请求。
+	updateCardRequest := httptest.NewRequest(http.MethodPut, "/api/v1/cards/"+cardID, strings.NewReader(`{"name":"OpenAPI 数据卡更新","type":"data","data_content":"K1","enabled":true}`))
+	updateCardRequest.AddCookie(sessionCookie)
+	// updateCardRecorder 捕获更新成功响应。
+	updateCardRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(updateCardRecorder, updateCardRequest)
+	assertOpenAPISuccessResponse(t, updateCardRequest, updateCardRecorder)
+	// appendCardRequest 是为 data 卡券追加库存的成功请求。
+	appendCardRequest := httptest.NewRequest(http.MethodPost, "/api/v1/cards/"+cardID+"/append-data", strings.NewReader(`{"content":"K2\nK3"}`))
+	appendCardRequest.AddCookie(sessionCookie)
+	// appendCardRecorder 捕获追加数量响应。
+	appendCardRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(appendCardRecorder, appendCardRequest)
+	assertOpenAPISuccessResponse(t, appendCardRequest, appendCardRecorder)
+	// deleteCardRequest 是删除同一资源的成功请求，保证测试不依赖虚构路径参数。
+	deleteCardRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/cards/"+cardID, nil)
+	deleteCardRequest.AddCookie(sessionCookie)
+	// deleteCardRecorder 捕获删除成功响应。
+	deleteCardRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(deleteCardRecorder, deleteCardRequest)
+	assertOpenAPISuccessResponse(t, deleteCardRequest, deleteCardRecorder)
+
 	// invalidUploadRequest 是缺失文件的卡券上传请求，必须返回统一错误 envelope。
 	invalidUploadRequest := httptest.NewRequest(http.MethodPost, "/api/v1/cards/batch", strings.NewReader("--openapi--\r\n"))
 	invalidUploadRequest.Header.Set("Content-Type", "multipart/form-data; boundary=openapi")
@@ -370,4 +612,37 @@ func TestOpenAPINotificationResponses(t *testing.T) {
 	bindingsRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(bindingsRecorder, bindingsRequest)
 	assertOpenAPISuccessResponse(t, bindingsRequest, bindingsRecorder)
+
+	// createChannelRequest 是创建通知渠道的版本化成功请求，配置字段只使用测试占位值。
+	createChannelRequest := httptest.NewRequest(http.MethodPost, "/api/v1/notifications/channels", strings.NewReader(`{"name":"OpenAPI 渠道","type":"webhook","config":"{}","event_types":"[]","enabled":true}`))
+	createChannelRequest.AddCookie(sessionCookie)
+	// createChannelRecorder 捕获渠道创建返回的数值主键。
+	createChannelRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(createChannelRecorder, createChannelRequest)
+	assertOpenAPISuccessResponse(t, createChannelRequest, createChannelRecorder)
+	// createdChannel 保存创建响应中的渠道标识。
+	var createdChannel struct {
+		// ID 是服务端分配的通知渠道主键。
+		ID int64 `json:"id"`
+	}
+	// channelDecodeErr 表示创建响应无法解析为具名主键 DTO 的失败原因。
+	if channelDecodeErr := json.Unmarshal(createChannelRecorder.Body.Bytes(), &createdChannel); channelDecodeErr != nil || createdChannel.ID <= 0 {
+		t.Fatalf("读取通知渠道标识失败: id=%d err=%v", createdChannel.ID, channelDecodeErr)
+	}
+	// channelID 是通知渠道路径参数的稳定字符串形式。
+	channelID := strconv.FormatInt(createdChannel.ID, 10)
+	// updateChannelRequest 是仅切换启用状态的部分更新成功请求。
+	updateChannelRequest := httptest.NewRequest(http.MethodPut, "/api/v1/notifications/channels/"+channelID, strings.NewReader(`{"enabled":false}`))
+	updateChannelRequest.AddCookie(sessionCookie)
+	// updateChannelRecorder 捕获渠道更新成功响应。
+	updateChannelRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(updateChannelRecorder, updateChannelRequest)
+	assertOpenAPISuccessResponse(t, updateChannelRequest, updateChannelRecorder)
+	// deleteChannelRequest 是删除已归属通知渠道的成功请求。
+	deleteChannelRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/notifications/channels/"+channelID, nil)
+	deleteChannelRequest.AddCookie(sessionCookie)
+	// deleteChannelRecorder 捕获渠道删除成功响应。
+	deleteChannelRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(deleteChannelRecorder, deleteChannelRequest)
+	assertOpenAPISuccessResponse(t, deleteChannelRequest, deleteChannelRecorder)
 }

@@ -2,7 +2,7 @@
 import { act,renderHook } from '@testing-library/react';
 import type { Dispatch,SetStateAction } from 'react';
 import { beforeEach,describe,expect,test,vi } from 'vitest';
-import type { AccountDetail,AIReplySettings } from '../../../shared/api-contract/accounts';
+import type { AccountDetail,AIReplySettings } from './api';
 import {
 cancelPasswordLogin,
 checkPasswordLoginStatus,

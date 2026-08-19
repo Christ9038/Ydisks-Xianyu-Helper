@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act,renderHook,waitFor } from '@testing-library/react';
 import { beforeEach,describe,expect,test,vi } from 'vitest';
-import type { NotificationChannel,SystemSettings } from '../../../shared/api-contract/notifications';
+import type { NotificationChannel,SystemSettings } from './api';
 import { createNotificationChannel,deleteNotificationChannel,getNotificationChannels,getSystemSettings,testNotificationChannel,updateNotificationChannel,updateSystemSettings } from './api';
 import { useNotifications } from './hooks';
 

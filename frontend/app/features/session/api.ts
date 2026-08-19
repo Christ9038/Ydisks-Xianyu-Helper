@@ -1,6 +1,6 @@
-import type { OperationResponse,SessionResponse } from '../../../shared/api-contract/session';
+import type { OperationResponse,SessionResponse } from './models';
 import { contractClient, runContractRequest, type ContractRequestOptions } from '../../../shared/api-contract/client';
-export type * from '../../../shared/api-contract/session';
+export type * from './models';
 
 /** 会话状态接口返回的只读传输契约。 */
 export interface SessionStatusResponse {

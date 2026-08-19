@@ -1,5 +1,5 @@
 import { expect,test } from 'vitest';
-import type { Card } from '../../../shared/api-contract/cards';
+import type { Card } from './api';
 import { canSubmitAppend,filterCards,isCurrentCardRequest,previewAppendContent } from './batchState';
 
 // cards 是卡密筛选测试使用的最小卡密组列表。

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"xianyu-go/internal/db"
 )
 
 // TestNamedSuccessResponseContracts 验证认证、订单和聊天主链路使用具名成功响应 DTO。
@@ -16,7 +18,7 @@ func TestNamedSuccessResponseContracts(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	// handler 是当前测试使用的完整路由树。
-	handler := srv.Router()
+	handler := contractRecordingHandler(t, srv.Router())
 	// sessionCookie 是管理员登录后得到的认证会话。
 	sessionCookie := loginHelper(t, handler)
 
@@ -84,7 +86,7 @@ func TestRemainingSuccessResponseContracts(t *testing.T) {
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// handler 是当前测试使用的完整路由树。
-	handler := srv.Router()
+	handler := contractRecordingHandler(t, srv.Router())
 	// sessionCookie 是管理员登录后得到的认证会话。
 	sessionCookie := loginHelper(t, handler)
 	// seedErr 是测试商品写入模板数据库失败的原因。
@@ -195,12 +197,12 @@ func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	// handler 是当前测试使用的完整路由树。
-	handler := srv.Router()
+	handler := contractRecordingHandler(t, srv.Router())
 	// sessionCookie 是管理员登录后得到的认证会话。
 	sessionCookie := loginHelper(t, handler)
 
 	// settingReq 是更新单个系统设置的请求。
-	settingReq := httptest.NewRequest(http.MethodPut, "/system-settings/theme_color", strings.NewReader(`{"value":"contract-blue"}`))
+	settingReq := httptest.NewRequest(http.MethodPut, "/api/v1/settings/system/theme_color", strings.NewReader(`{"value":"contract-blue"}`))
 	settingReq.AddCookie(sessionCookie)
 	// settingRecorder 是捕获系统设置响应的记录器。
 	settingRecorder := httptest.NewRecorder()
@@ -219,7 +221,7 @@ func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
 	}
 
 	// aiReq 是更新账号 AI 回复设置的请求。
-	aiReq := httptest.NewRequest(http.MethodPut, "/ai-reply-settings/acc1", strings.NewReader(`{"ai_enabled":true,"max_discount_percent":12,"max_discount_amount":88,"max_bargain_rounds":4,"custom_prompts":"契约测试"}`))
+	aiReq := httptest.NewRequest(http.MethodPut, "/api/v1/settings/ai-reply/acc1", strings.NewReader(`{"ai_enabled":true,"max_discount_percent":12,"max_discount_amount":88,"max_bargain_rounds":4,"custom_prompts":"契约测试"}`))
 	aiReq.AddCookie(sessionCookie)
 	// aiRecorder 是捕获账号 AI 设置响应的记录器。
 	aiRecorder := httptest.NewRecorder()
@@ -238,7 +240,7 @@ func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
 	}
 
 	// aiGetReq 是读取账号 AI 设置的请求。
-	aiGetReq := httptest.NewRequest(http.MethodGet, "/ai-reply-settings/acc1", nil)
+	aiGetReq := httptest.NewRequest(http.MethodGet, "/api/v1/settings/ai-reply/acc1", nil)
 	aiGetReq.AddCookie(sessionCookie)
 	// aiGetRecorder 是捕获账号 AI 设置查询响应的记录器。
 	aiGetRecorder := httptest.NewRecorder()
@@ -257,7 +259,7 @@ func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
 	}
 
 	// cardReq 是创建文本卡券组的请求。
-	cardReq := httptest.NewRequest(http.MethodPost, "/cards", strings.NewReader(`{"name":"契约卡","type":"text","text_content":"CARD","enabled":true}`))
+	cardReq := httptest.NewRequest(http.MethodPost, "/api/v1/cards", strings.NewReader(`{"name":"契约卡","type":"text","text_content":"CARD","enabled":true}`))
 	cardReq.AddCookie(sessionCookie)
 	// cardRecorder 是捕获卡券创建响应的记录器。
 	cardRecorder := httptest.NewRecorder()
@@ -276,7 +278,7 @@ func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
 	}
 
 	// cardGetReq 是读取卡券详情的请求。
-	cardGetReq := httptest.NewRequest(http.MethodGet, "/cards/"+strconv.FormatInt(cardCreateResponse.ID, 10), nil)
+	cardGetReq := httptest.NewRequest(http.MethodGet, "/api/v1/cards/"+strconv.FormatInt(cardCreateResponse.ID, 10), nil)
 	cardGetReq.AddCookie(sessionCookie)
 	// cardGetRecorder 是捕获卡券详情响应的记录器。
 	cardGetRecorder := httptest.NewRecorder()
@@ -295,7 +297,7 @@ func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
 	}
 
 	// channelReq 是创建通知渠道的请求。
-	channelReq := httptest.NewRequest(http.MethodPost, "/notification-channels", strings.NewReader(`{"name":"契约通知","type":"bark","config":"{}","enabled":true}`))
+	channelReq := httptest.NewRequest(http.MethodPost, "/api/v1/notifications/channels", strings.NewReader(`{"name":"契约通知","type":"bark","config":"{}","enabled":true}`))
 	channelReq.AddCookie(sessionCookie)
 	// channelRecorder 是捕获通知渠道创建响应的记录器。
 	channelRecorder := httptest.NewRecorder()
@@ -314,7 +316,7 @@ func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
 	}
 
 	// bindingReq 是将通知渠道绑定到测试账号的请求。
-	bindingReq := httptest.NewRequest(http.MethodPost, "/message-notifications/acc1", strings.NewReader(`{"channel_ids":[`+strconv.FormatInt(channelResponse.ID, 10)+`]}`))
+	bindingReq := httptest.NewRequest(http.MethodPost, "/api/v1/notifications/accounts/acc1/bindings", strings.NewReader(`{"channel_ids":[`+strconv.FormatInt(channelResponse.ID, 10)+`]}`))
 	bindingReq.AddCookie(sessionCookie)
 	// bindingRecorder 是捕获通知绑定响应的记录器。
 	bindingRecorder := httptest.NewRecorder()
@@ -333,7 +335,7 @@ func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
 	}
 
 	// bindingGetReq 是读取账号通知绑定的请求。
-	bindingGetReq := httptest.NewRequest(http.MethodGet, "/message-notifications/acc1", nil)
+	bindingGetReq := httptest.NewRequest(http.MethodGet, "/api/v1/notifications/accounts/acc1/bindings", nil)
 	bindingGetReq.AddCookie(sessionCookie)
 	// bindingGetRecorder 是捕获账号通知绑定响应的记录器。
 	bindingGetRecorder := httptest.NewRecorder()
@@ -352,7 +354,7 @@ func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
 	}
 
 	// batchReq 是读取商品批量任务列表的请求。
-	batchReq := httptest.NewRequest(http.MethodGet, "/items/publish-batches?limit=10", nil)
+	batchReq := httptest.NewRequest(http.MethodGet, "/api/v1/items/publish-batches?limit=10", nil)
 	batchReq.AddCookie(sessionCookie)
 	// batchRecorder 是捕获商品批量任务列表响应的记录器。
 	batchRecorder := httptest.NewRecorder()
@@ -377,12 +379,12 @@ func TestDynamicCompatibilitySuccessContracts(t *testing.T) {
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// handler 是当前测试使用的完整路由树。
-	handler := srv.Router()
+	handler := contractRecordingHandler(t, srv.Router())
 	// sessionCookie 是管理员登录后得到的认证会话。
 	sessionCookie := loginHelper(t, handler)
 
 	// publicSettingsReq 是读取公开系统设置的请求。
-	publicSettingsReq := httptest.NewRequest(http.MethodGet, "/system-settings/public", nil)
+	publicSettingsReq := httptest.NewRequest(http.MethodGet, "/api/v1/settings/system/public", nil)
 	// publicSettingsRecorder 是捕获公开设置响应的记录器。
 	publicSettingsRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(publicSettingsRecorder, publicSettingsReq)
@@ -400,7 +402,7 @@ func TestDynamicCompatibilitySuccessContracts(t *testing.T) {
 	}
 
 	// allSettingsReq 是读取管理员系统设置的请求。
-	allSettingsReq := httptest.NewRequest(http.MethodGet, "/system-settings", nil)
+	allSettingsReq := httptest.NewRequest(http.MethodGet, "/api/v1/settings/system", nil)
 	allSettingsReq.AddCookie(sessionCookie)
 	// allSettingsRecorder 是捕获管理员设置响应的记录器。
 	allSettingsRecorder := httptest.NewRecorder()
@@ -419,7 +421,7 @@ func TestDynamicCompatibilitySuccessContracts(t *testing.T) {
 	}
 
 	// userSettingsReq 是读取当前用户设置的请求。
-	userSettingsReq := httptest.NewRequest(http.MethodGet, "/user-settings", nil)
+	userSettingsReq := httptest.NewRequest(http.MethodGet, "/api/v1/settings/user", nil)
 	userSettingsReq.AddCookie(sessionCookie)
 	// userSettingsRecorder 是捕获用户设置响应的记录器。
 	userSettingsRecorder := httptest.NewRecorder()
@@ -450,7 +452,7 @@ func TestDynamicCompatibilitySuccessContracts(t *testing.T) {
 	statusSessionID := "contract-qr"
 	ownQRSession(t, srv, store, statusSessionID)
 	// qrStatusReq 是读取二维码状态的请求。
-	qrStatusReq := httptest.NewRequest(http.MethodGet, "/qr-login/check/"+statusSessionID, nil)
+	qrStatusReq := httptest.NewRequest(http.MethodGet, "/api/v1/qr-login/check/"+statusSessionID, nil)
 	qrStatusReq.AddCookie(sessionCookie)
 	// qrStatusRecorder 是捕获二维码状态响应的记录器。
 	qrStatusRecorder := httptest.NewRecorder()
@@ -488,7 +490,7 @@ func TestDynamicCompatibilitySuccessContracts(t *testing.T) {
 	completeSessionID := "contract-complete"
 	ownQRSession(t, srv, store, completeSessionID)
 	// completeReq 是提交二维码风控验证完成的请求。
-	completeReq := httptest.NewRequest(http.MethodPost, "/qr-login/complete-verification/"+completeSessionID, nil)
+	completeReq := httptest.NewRequest(http.MethodPost, "/api/v1/qr-login/complete-verification/"+completeSessionID, nil)
 	completeReq.AddCookie(sessionCookie)
 	// completeRecorder 是捕获验证完成响应的记录器。
 	completeRecorder := httptest.NewRecorder()
@@ -513,12 +515,12 @@ func TestReplyAndAccountTaskSuccessResponseContracts(t *testing.T) {
 	srv, _, cleanup := newTestServer(t)
 	defer cleanup()
 	// handler 是当前测试使用的完整路由树。
-	handler := srv.Router()
+	handler := contractRecordingHandler(t, srv.Router())
 	// sessionCookie 是管理员登录后得到的认证会话。
 	sessionCookie := loginHelper(t, handler)
 
 	// keywordReq 是创建带商品范围关键词的请求。
-	keywordReq := httptest.NewRequest(http.MethodPost, "/keywords-with-item-id/acc1", strings.NewReader(`{"keyword":"契约关键词","reply":"契约回复","item_id":"contract-item"}`))
+	keywordReq := httptest.NewRequest(http.MethodPost, "/api/v1/reply-rules/acc1/items", strings.NewReader(`{"keyword":"契约关键词","reply":"契约回复","item_id":"contract-item"}`))
 	keywordReq.Header.Set("Content-Type", "application/json")
 	keywordReq.AddCookie(sessionCookie)
 	// keywordRecorder 是捕获关键词创建响应的记录器。
@@ -538,7 +540,7 @@ func TestReplyAndAccountTaskSuccessResponseContracts(t *testing.T) {
 	}
 
 	// keywordListReq 是读取带类型关键词列表的请求。
-	keywordListReq := httptest.NewRequest(http.MethodGet, "/keywords-with-type/acc1", nil)
+	keywordListReq := httptest.NewRequest(http.MethodGet, "/api/v1/reply-rules/acc1/typed", nil)
 	keywordListReq.AddCookie(sessionCookie)
 	// keywordListRecorder 是捕获关键词列表响应的记录器。
 	keywordListRecorder := httptest.NewRecorder()
@@ -557,7 +559,7 @@ func TestReplyAndAccountTaskSuccessResponseContracts(t *testing.T) {
 	}
 
 	// itemReplyReq 是保存指定商品回复的请求。
-	itemReplyReq := httptest.NewRequest(http.MethodPut, "/item-reply/acc1/contract-item", strings.NewReader(`{"reply_content":"商品契约回复"}`))
+	itemReplyReq := httptest.NewRequest(http.MethodPut, "/api/v1/reply-rules/items/acc1/contract-item", strings.NewReader(`{"reply_content":"商品契约回复"}`))
 	itemReplyReq.Header.Set("Content-Type", "application/json")
 	itemReplyReq.AddCookie(sessionCookie)
 	// itemReplyRecorder 是捕获指定商品回复响应的记录器。
@@ -577,7 +579,7 @@ func TestReplyAndAccountTaskSuccessResponseContracts(t *testing.T) {
 	}
 
 	// defaultReplyReq 是保存默认回复的请求。
-	defaultReplyReq := httptest.NewRequest(http.MethodPut, "/api/default-reply/acc1", strings.NewReader(`{"enabled":true,"reply_content":"默认契约回复","reply_once":true,"reply_image_url":""}`))
+	defaultReplyReq := httptest.NewRequest(http.MethodPut, "/api/v1/default-replies/acc1", strings.NewReader(`{"enabled":true,"reply_content":"默认契约回复","reply_once":true,"reply_image_url":""}`))
 	defaultReplyReq.Header.Set("Content-Type", "application/json")
 	defaultReplyReq.AddCookie(sessionCookie)
 	// defaultReplyRecorder 是捕获默认回复响应的记录器。
@@ -597,7 +599,7 @@ func TestReplyAndAccountTaskSuccessResponseContracts(t *testing.T) {
 	}
 
 	// defaultReplyGetReq 是读取默认回复的请求。
-	defaultReplyGetReq := httptest.NewRequest(http.MethodGet, "/api/default-reply/acc1", nil)
+	defaultReplyGetReq := httptest.NewRequest(http.MethodGet, "/api/v1/default-replies/acc1", nil)
 	defaultReplyGetReq.AddCookie(sessionCookie)
 	// defaultReplyGetRecorder 是捕获默认回复查询响应的记录器。
 	defaultReplyGetRecorder := httptest.NewRecorder()
@@ -616,7 +618,7 @@ func TestReplyAndAccountTaskSuccessResponseContracts(t *testing.T) {
 	}
 
 	// taskSettingsReq 是读取账号任务设置的请求。
-	taskSettingsReq := httptest.NewRequest(http.MethodGet, "/api/account-tasks/acc1", nil)
+	taskSettingsReq := httptest.NewRequest(http.MethodGet, "/api/v1/account-tasks/acc1", nil)
 	taskSettingsReq.AddCookie(sessionCookie)
 	// taskSettingsRecorder 是捕获账号任务设置响应的记录器。
 	taskSettingsRecorder := httptest.NewRecorder()
@@ -635,7 +637,7 @@ func TestReplyAndAccountTaskSuccessResponseContracts(t *testing.T) {
 	}
 
 	// taskRunsReq 是读取账号任务执行记录的请求。
-	taskRunsReq := httptest.NewRequest(http.MethodGet, "/api/account-tasks/acc1/runs", nil)
+	taskRunsReq := httptest.NewRequest(http.MethodGet, "/api/v1/account-tasks/acc1/runs", nil)
 	taskRunsReq.AddCookie(sessionCookie)
 	// taskRunsRecorder 是捕获账号任务执行记录响应的记录器。
 	taskRunsRecorder := httptest.NewRecorder()
@@ -660,7 +662,7 @@ func TestAnalyticsAdminAndPublicSuccessResponseContracts(t *testing.T) {
 	srv, store, cleanup := newTestServer(t)
 	defer cleanup()
 	// handler 是当前测试使用的完整路由树。
-	handler := srv.Router()
+	handler := contractRecordingHandler(t, srv.Router())
 	// sessionCookie 是管理员登录后得到的认证会话。
 	sessionCookie := loginHelper(t, handler)
 	// seedErr 是统计测试订单写入失败的原因。
@@ -669,7 +671,7 @@ func TestAnalyticsAdminAndPublicSuccessResponseContracts(t *testing.T) {
 	}
 
 	// adminStatsReq 是读取管理员全局统计的请求。
-	adminStatsReq := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
+	adminStatsReq := httptest.NewRequest(http.MethodGet, "/api/v1/admin/stats", nil)
 	adminStatsReq.AddCookie(sessionCookie)
 	// adminStatsRecorder 是捕获管理员统计响应的记录器。
 	adminStatsRecorder := httptest.NewRecorder()
@@ -688,7 +690,7 @@ func TestAnalyticsAdminAndPublicSuccessResponseContracts(t *testing.T) {
 	}
 
 	// adminUsersReq 是读取管理员用户列表的请求。
-	adminUsersReq := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	adminUsersReq := httptest.NewRequest(http.MethodGet, "/api/v1/admin/users", nil)
 	adminUsersReq.AddCookie(sessionCookie)
 	// adminUsersRecorder 是捕获管理员用户列表响应的记录器。
 	adminUsersRecorder := httptest.NewRecorder()
@@ -707,7 +709,7 @@ func TestAnalyticsAdminAndPublicSuccessResponseContracts(t *testing.T) {
 	}
 
 	// adminCookiesReq 是读取管理员账号列表的请求。
-	adminCookiesReq := httptest.NewRequest(http.MethodGet, "/admin/cookies", nil)
+	adminCookiesReq := httptest.NewRequest(http.MethodGet, "/api/v1/admin/cookies", nil)
 	adminCookiesReq.AddCookie(sessionCookie)
 	// adminCookiesRecorder 是捕获管理员账号列表响应的记录器。
 	adminCookiesRecorder := httptest.NewRecorder()
@@ -726,7 +728,7 @@ func TestAnalyticsAdminAndPublicSuccessResponseContracts(t *testing.T) {
 	}
 
 	// dashboardReq 是读取当前用户概览统计的请求。
-	dashboardReq := httptest.NewRequest(http.MethodGet, "/dashboard/stats", nil)
+	dashboardReq := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/dashboard", nil)
 	dashboardReq.AddCookie(sessionCookie)
 	// dashboardRecorder 是捕获概览统计响应的记录器。
 	dashboardRecorder := httptest.NewRecorder()
@@ -745,7 +747,7 @@ func TestAnalyticsAdminAndPublicSuccessResponseContracts(t *testing.T) {
 	}
 
 	// analyticsReq 是读取订单分析统计的请求。
-	analyticsReq := httptest.NewRequest(http.MethodGet, "/analytics/orders?start_date=2026-08-14&end_date=2026-08-14", nil)
+	analyticsReq := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/orders?start_date=2026-08-14&end_date=2026-08-14", nil)
 	analyticsReq.AddCookie(sessionCookie)
 	// analyticsRecorder 是捕获订单分析响应的记录器。
 	analyticsRecorder := httptest.NewRecorder()
@@ -764,7 +766,7 @@ func TestAnalyticsAdminAndPublicSuccessResponseContracts(t *testing.T) {
 	}
 
 	// validOrdersReq 是读取有效订单分页的请求。
-	validOrdersReq := httptest.NewRequest(http.MethodGet, "/analytics/orders/valid?start_date=2026-08-14&end_date=2026-08-14", nil)
+	validOrdersReq := httptest.NewRequest(http.MethodGet, "/api/v1/analytics/orders/valid?start_date=2026-08-14&end_date=2026-08-14", nil)
 	validOrdersReq.AddCookie(sessionCookie)
 	// validOrdersRecorder 是捕获有效订单响应的记录器。
 	validOrdersRecorder := httptest.NewRecorder()
@@ -785,7 +787,7 @@ func TestAnalyticsAdminAndPublicSuccessResponseContracts(t *testing.T) {
 	// 二维码生成使用测试专用平台替身。
 	setTestQRLogin(srv, &fakeQRLoginService{})
 	// qrReq 是生成扫码登录二维码的请求。
-	qrReq := httptest.NewRequest(http.MethodPost, "/qr-login/generate", nil)
+	qrReq := httptest.NewRequest(http.MethodPost, "/api/v1/qr-login/generate", nil)
 	qrReq.AddCookie(sessionCookie)
 	// qrRecorder 是捕获二维码生成响应的记录器。
 	qrRecorder := httptest.NewRecorder()
@@ -802,4 +804,128 @@ func TestAnalyticsAdminAndPublicSuccessResponseContracts(t *testing.T) {
 	if !qrResponse.Success || qrResponse.SessionID == "" || qrResponse.QRCodeURL == "" {
 		t.Fatalf("qr response=%+v", qrResponse)
 	}
+}
+
+// TestOpenAPILocalResourceMutationResponses 验证会话、账号和管理员本地资源变更均有真实版本化成功响应。
+func TestOpenAPILocalResourceMutationResponses(t *testing.T) {
+	// srv、store、cleanup 分别提供独立 HTTP 服务、测试数据库和资源释放责任。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是全量 chi Router，所有请求均通过正式版本化路由执行。
+	handler := srv.Router()
+	// healthRecorder 保存无需认证的健康检查成功响应。
+	healthRecorder := serveOpenAPISuccess(t, handler, nil, http.MethodGet, "/health", "")
+	if healthRecorder.Code != http.StatusOK {
+		t.Fatalf("health status=%d body=%s", healthRecorder.Code, healthRecorder.Body.String())
+	}
+	// sessionCookie 是初始管理员会话，用于验证当前密码并执行账号管理操作。
+	sessionCookie := loginHelper(t, handler)
+	// passwordRecorder 保存当前用户修改密码后的成功响应；该操作会废弃旧会话。
+	passwordRecorder := serveOpenAPISuccess(t, handler, sessionCookie, http.MethodPost, "/api/v1/session/password", `{"current_password":"pw","new_password":"new-password"}`)
+	if passwordRecorder.Code != http.StatusOK {
+		t.Fatalf("change password status=%d body=%s", passwordRecorder.Code, passwordRecorder.Body.String())
+	}
+	// refreshedCookie 是使用新密码重新登录后的会话，后续操作不依赖已撤销的旧会话。
+	refreshedCookie := loginAsHelper(t, handler, "admin", "new-password")
+	// credentialsRecorder 保存管理员用户名更新成功响应；当前密码保持新密码以验证敏感输入仅在服务端处理。
+	credentialsRecorder := serveOpenAPISuccess(t, handler, refreshedCookie, http.MethodPut, "/api/v1/session/credentials", `{"current_password":"new-password","new_username":"admin-contract"}`)
+	if credentialsRecorder.Code != http.StatusOK {
+		t.Fatalf("update credentials status=%d body=%s", credentialsRecorder.Code, credentialsRecorder.Body.String())
+	}
+	// renamedCookie 是用户名变更后重新登录得到的会话，确保后续管理员操作使用当前身份。
+	renamedCookie := loginAsHelper(t, handler, "admin-contract", "new-password")
+	// adminPasswordRecorder 保存管理员密码变更成功响应，覆盖管理员专属密码 operation。
+	adminPasswordRecorder := serveOpenAPISuccess(t, handler, renamedCookie, http.MethodPost, "/api/v1/admin/password", `{"current_password":"new-password","new_password":"final-password"}`)
+	if adminPasswordRecorder.Code != http.StatusOK {
+		t.Fatalf("change admin password status=%d body=%s", adminPasswordRecorder.Code, adminPasswordRecorder.Body.String())
+	}
+	// finalCookie 是最终密码对应的管理员会话，供账号和用户删除生命周期使用。
+	finalCookie := loginAsHelper(t, handler, "admin-contract", "final-password")
+	// accountRecorder 保存新建可删除账号的成功响应；请求内 Cookie 只用于测试输入，响应不得返回该明文。
+	accountRecorder := serveOpenAPISuccess(t, handler, finalCookie, http.MethodPost, "/api/v1/accounts", `{"id":"delete-contract","value":"unb=delete-contract","login_method":"manual"}`)
+	if accountRecorder.Code != http.StatusOK || strings.Contains(accountRecorder.Body.String(), "unb=delete-contract") {
+		t.Fatalf("create account response invalid: status=%d body=%s", accountRecorder.Code, accountRecorder.Body.String())
+	}
+	// deleteAccountRecorder 保存同一账号的删除成功响应，形成真实账号资源生命周期闭环。
+	deleteAccountRecorder := serveOpenAPISuccess(t, handler, finalCookie, http.MethodDelete, "/api/v1/accounts/delete-contract", "")
+	if deleteAccountRecorder.Code != http.StatusOK {
+		t.Fatalf("delete account status=%d body=%s", deleteAccountRecorder.Code, deleteAccountRecorder.Body.String())
+	}
+	// created、createUserErr 分别表示普通用户是否已写入和创建失败原因。
+	created, createUserErr := store.Users.Create(context.Background(), "delete-user", "delete-user@example.com", "pw")
+	if createUserErr != nil {
+		t.Fatalf("create deletable user: %v", createUserErr)
+	}
+	if !created {
+		t.Fatal("create deletable user returned false")
+	}
+	// deletableUser、getUserErr 分别保存待删除普通用户的稳定数据库 ID 和重新读取失败原因。
+	deletableUser, getUserErr := store.Users.GetByUsername(context.Background(), "delete-user")
+	if getUserErr != nil || deletableUser == nil {
+		t.Fatalf("load deletable user: user=%+v err=%v", deletableUser, getUserErr)
+	}
+	// deleteUserRecorder 保存管理员删除普通用户的成功响应，避免把不存在用户的 4xx 当作成功证据。
+	deleteUserRecorder := serveOpenAPISuccess(t, handler, finalCookie, http.MethodDelete, "/api/v1/admin/users/"+strconv.FormatInt(deletableUser.ID, 10), "")
+	if deleteUserRecorder.Code != http.StatusOK {
+		t.Fatalf("delete user status=%d body=%s", deleteUserRecorder.Code, deleteUserRecorder.Body.String())
+	}
+	// automationCardID、automationCreateRecorder 分别保存自动化规则所需卡券 ID 和创建响应。
+	automationCardID, cardErr := store.Cards.Create(context.Background(), &db.CardFull{Name: "契约自动化卡", Type: "text", TextContent: "CARD", Enabled: true, UserID: 1})
+	if cardErr != nil {
+		t.Fatalf("create automation card: %v", cardErr)
+	}
+	// itemErr 表示自动化规则关联商品夹具写入失败。
+	if _, itemErr := store.DB.ExecContext(context.Background(), `INSERT INTO item_info (cookie_id, item_id, item_title) VALUES ('acc1','contract-automation-item','自动化商品')`); itemErr != nil {
+		t.Fatalf("create automation item: %v", itemErr)
+	}
+	// automationCreateRecorder 保存自动化规则创建成功响应。
+	automationCreateRecorder := serveOpenAPISuccess(t, handler, finalCookie, http.MethodPost, "/api/v1/automation-rules", `{"cookie_id":"acc1","item_id":"contract-automation-item","trigger_type":"order_paid","enabled":true,"actions":[{"action_type":"send_card","card_id":`+strconv.FormatInt(automationCardID, 10)+`,"delivery_count":1}]}`)
+	// automationCreateResponse 保存自动化规则创建返回的数值主键。
+	var automationCreateResponse mutationIDResponse
+	// decodeErr 表示解析自动化规则创建响应失败。
+	if decodeErr := json.Unmarshal(automationCreateRecorder.Body.Bytes(), &automationCreateResponse); decodeErr != nil || automationCreateResponse.ID == 0 {
+		t.Fatalf("decode automation create: id=%d err=%v body=%s", automationCreateResponse.ID, decodeErr, automationCreateRecorder.Body.String())
+	}
+	// automationRuleID 是后续更新和删除操作使用的规则路径标识。
+	automationRuleID := strconv.FormatInt(automationCreateResponse.ID, 10)
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodPut, "/api/v1/automation-rules/"+automationRuleID, `{"cookie_id":"acc1","item_id":"contract-automation-item","trigger_type":"order_paid","enabled":false,"actions":[{"action_type":"send_card","card_id":`+strconv.FormatInt(automationCardID, 10)+`,"delivery_count":1}]}`)
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodDelete, "/api/v1/automation-rules/"+automationRuleID, "")
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodPut, "/api/v1/default-replies/acc1", `{"enabled":true,"reply_content":"契约默认回复","reply_once":true}`)
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodGet, "/api/v1/default-replies/acc1", "")
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodGet, "/api/v1/default-replies", "")
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodGet, "/api/v1/default-replies/list", "")
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodPost, "/api/v1/default-replies/acc1/clear-records", "{}")
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodDelete, "/api/v1/default-replies/acc1", "")
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodGet, "/api/v1/items/cookie/acc1", "")
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodGet, "/api/v1/items/publish-batches", "")
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodGet, "/api/v1/cards/1/details", "")
+	// orderID 是用于删除订单成功场景的本地订单标识。
+	orderID := "contract-delete-order"
+	// orderErr 表示订单删除成功场景夹具写入失败。
+	if _, orderErr := store.DB.ExecContext(context.Background(), `INSERT INTO orders (order_id,item_id,buyer_id,order_status,cookie_id) VALUES ('contract-delete-order','contract-automation-item','buyer','pending_ship','acc1')`); orderErr != nil {
+		t.Fatalf("create delete order: %v", orderErr)
+	}
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodDelete, "/api/v1/orders/"+orderID, "")
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodPut, "/api/v1/items/acc1/contract-automation-item/multi-spec", `{"enabled":true}`)
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodPut, "/api/v1/items/acc1/contract-automation-item/multi-quantity-delivery", `{"enabled":true}`)
+	// keywordRecorder 保存普通关键词规则创建成功响应，后续通过带类型列表获取稳定 ID。
+	keywordRecorder := serveOpenAPISuccess(t, handler, finalCookie, http.MethodPost, "/api/v1/reply-rules/acc1", `{"keyword":"契约关键字","reply":"契约回复"}`)
+	if keywordRecorder.Code != http.StatusOK {
+		t.Fatalf("create keyword status=%d body=%s", keywordRecorder.Code, keywordRecorder.Body.String())
+	}
+	// keywordListRecorder 保存带类型关键词列表成功响应。
+	keywordListRecorder := serveOpenAPISuccess(t, handler, finalCookie, http.MethodGet, "/api/v1/reply-rules/acc1/typed", "")
+	// keywordRows 保存带稳定数值主键的关键词规则集合。
+	var keywordRows []keywordTypedResponse
+	// keywordListErr 表示解析带类型关键词列表失败。
+	if keywordListErr := json.Unmarshal(keywordListRecorder.Body.Bytes(), &keywordRows); keywordListErr != nil || len(keywordRows) == 0 {
+		t.Fatalf("load typed keywords: rows=%+v err=%v", keywordRows, keywordListErr)
+	}
+	// keywordID 是当前创建规则的稳定主键，用于更新、按 ID 删除与按索引删除的成功场景。
+	keywordID := strconv.FormatInt(keywordRows[0].ID, 10)
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodPut, "/api/v1/reply-rules/acc1/typed/"+keywordID, `{"keyword":"契约关键字","reply":"已更新回复","type":"text"}`)
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodDelete, "/api/v1/reply-rules/acc1/typed/"+keywordID, "")
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodPost, "/api/v1/reply-rules/acc1", `{"keyword":"索引关键字","reply":"索引回复"}`)
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodDelete, "/api/v1/reply-rules/acc1/index/0", "")
+	serveOpenAPISuccess(t, handler, finalCookie, http.MethodPut, "/api/v1/account-tasks/acc1", `{"auto_rate_enabled":true,"rate_content":"服务很好","auto_polish_enabled":false,"polish_time":"03:00"}`)
 }

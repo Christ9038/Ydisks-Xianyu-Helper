@@ -32,6 +32,9 @@ func requestReplyRoute(t *testing.T, handler http.Handler, sessionCookie *http.C
 	// recorder 是捕获兼容入口响应的记录器。
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
+	if strings.HasPrefix(path, "/api/v1/") && recorder.Code >= http.StatusOK && recorder.Code < http.StatusMultipleChoices {
+		assertOpenAPIRecordedSuccessResponse(t, request, recorder)
+	}
 	return recorder.Code
 }
 

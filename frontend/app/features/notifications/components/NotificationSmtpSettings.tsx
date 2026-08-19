@@ -71,21 +71,21 @@ export const NotificationSmtpSettings: React.FC<NotificationSmtpSettingsProps> =
         <div className="p-2 rounded-xl bg-blue-50 text-blue-600"><Mail className="w-5 h-5" /></div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="space-y-2"><label className="block text-sm font-bold text-gray-800">SMTP 服务器</label><input data-field="smtp_server" type="text" value={smtp.smtp_server || ''} onChange={handleTextChange} placeholder="smtp.qq.com" className="w-full ios-input px-4 py-3 rounded-xl text-sm" /></div>
-        <div className="space-y-2"><label className="block text-sm font-bold text-gray-800">SMTP 端口</label><input type="number" value={smtp.smtp_port || 587} onChange={handlePortChange} placeholder="587" className="w-full ios-input px-4 py-3 rounded-xl text-sm" /></div>
+        <div className="space-y-2"><label className="block text-sm font-bold text-gray-800">SMTP 服务器</label><input data-field="smtp_server" type="text" value={typeof smtp.smtp_server === 'string' ? smtp.smtp_server : ''} onChange={handleTextChange} placeholder="smtp.qq.com" className="w-full ios-input px-4 py-3 rounded-xl text-sm" /></div>
+        <div className="space-y-2"><label className="block text-sm font-bold text-gray-800">SMTP 端口</label><input type="number" value={typeof smtp.smtp_port === 'number' ? smtp.smtp_port : 587} onChange={handlePortChange} placeholder="587" className="w-full ios-input px-4 py-3 rounded-xl text-sm" /></div>
       </div>
-      <div className="space-y-2"><label className="block text-sm font-bold text-gray-800">发件邮箱</label><input data-field="smtp_user" type="email" value={smtp.smtp_user || ''} onChange={handleTextChange} placeholder="your-email@qq.com" className="w-full ios-input px-4 py-3 rounded-xl text-sm" /></div>
+      <div className="space-y-2"><label className="block text-sm font-bold text-gray-800">发件邮箱</label><input data-field="smtp_user" type="email" value={typeof smtp.smtp_user === 'string' ? smtp.smtp_user : ''} onChange={handleTextChange} placeholder="your-email@qq.com" className="w-full ios-input px-4 py-3 rounded-xl text-sm" /></div>
       <div className="space-y-2">
         <label className="block text-sm font-bold text-gray-800">邮箱密码 / 授权码</label>
         <div className="relative">
-          <input type={showPassword ? 'text' : 'password'} value={smtp.smtp_password || ''} onChange={handlePasswordChange} placeholder={smtp.smtp_password_configured ? '已配置，如需替换请输入新密码' : '输入密码或授权码'} className="w-full ios-input px-4 py-3 pr-12 rounded-xl text-sm" />
+          <input type={showPassword ? 'text' : 'password'} value={typeof smtp.smtp_password === 'string' ? smtp.smtp_password : ''} onChange={handlePasswordChange} placeholder={smtp.smtp_password_configured ? '已配置，如需替换请输入新密码' : '输入密码或授权码'} className="w-full ios-input px-4 py-3 pr-12 rounded-xl text-sm" />
           <button type="button" onClick={handleTogglePassword} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-gray-600 transition-colors">{showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
         </div>
         <p className="text-xs text-gray-500">QQ 邮箱需使用授权码（QQ 邮箱设置 → 账号 → 开启 SMTP → 生成授权码）</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="space-y-2"><label className="block text-sm font-bold text-gray-800">发件人显示名（可选）</label><input data-field="smtp_from_name" type="text" value={smtp.smtp_from_name || ''} onChange={handleTextChange} placeholder="闲鱼自动回复系统" className="w-full ios-input px-4 py-3 rounded-xl text-sm" /></div>
-        <div className="space-y-2"><label className="block text-sm font-bold text-gray-800">发件邮箱地址</label><input data-field="smtp_from_address" type="email" value={smtp.smtp_from_address || smtp.smtp_user || ''} onChange={handleTextChange} placeholder="your-email@qq.com" className="w-full ios-input px-4 py-3 rounded-xl text-sm" /></div>
+        <div className="space-y-2"><label className="block text-sm font-bold text-gray-800">发件人显示名（可选）</label><input data-field="smtp_from_name" type="text" value={typeof smtp.smtp_from_name === 'string' ? smtp.smtp_from_name : ''} onChange={handleTextChange} placeholder="闲鱼自动回复系统" className="w-full ios-input px-4 py-3 rounded-xl text-sm" /></div>
+        <div className="space-y-2"><label className="block text-sm font-bold text-gray-800">发件邮箱地址</label><input data-field="smtp_from_address" type="email" value={typeof smtp.smtp_from_address === 'string' ? smtp.smtp_from_address : (typeof smtp.smtp_user === 'string' ? smtp.smtp_user : '')} onChange={handleTextChange} placeholder="your-email@qq.com" className="w-full ios-input px-4 py-3 rounded-xl text-sm" /></div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <label className="flex items-center gap-3 rounded-xl border border-gray-200 p-4 text-sm font-semibold text-gray-700"><input type="checkbox" checked={smtp.smtp_use_tls !== false} onChange={handleTlsChange} />STARTTLS（常用于 587 端口）</label>

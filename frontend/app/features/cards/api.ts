@@ -3,11 +3,11 @@ Card,
 CardAppendResponse,
 CardBatchResponse,
 MutationIDResponse,OperationResponse
-} from '../../../shared/api-contract/cards';
+} from './models';
 import { type RequestControlOptions } from '../../../shared/http/client';
-import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
+import { contractClient, contractMultipartBody, runContractRequest } from '../../../shared/api-contract/client';
 import { collectionFrom } from '../../../shared/http/contract';
-export type * from '../../../shared/api-contract/cards';
+export type * from './models';
 // Cards
 // normalizeCard 归一化卡密数据。
 const normalizeCard = (item: any): Card => {
@@ -24,9 +24,19 @@ const normalizeCard = (item: any): Card => {
 };
 
 // cardPayload 卡密请求载荷，用于当前 API 处理流程。
-const cardPayload = (data: Partial<Card>): Record<string, unknown> => ({
-  ...data,
+const cardPayload = (data: Partial<Card>) => ({
+  name: data.name,
+  type: data.type,
   api_config: data.api_config ? JSON.stringify(data.api_config) : '',
+  text_content: data.text_content,
+  data_content: data.data_content,
+  image_url: data.image_url,
+  description: data.description,
+  enabled: data.enabled,
+  delay_seconds: data.delay_seconds,
+  is_multi_spec: data.is_multi_spec,
+  spec_name: data.spec_name,
+  spec_value: data.spec_value,
 });
 
 // getCards 读取卡密列表。
@@ -40,12 +50,12 @@ export const getCards = async (options?: RequestControlOptions): Promise<Card[]>
 
 // createCard 创建卡密组。
 export const createCard = async (data: Partial<Card>): Promise<MutationIDResponse> => {
-  return runContractRequest(/* signal 控制卡券创建请求的取消和超时。 */ signal => contractClient.POST('/api/v1/cards', { body: cardPayload(data) as never, signal })) as unknown as Promise<MutationIDResponse>;
+  return runContractRequest(/* signal 控制卡券创建请求的取消和超时。 */ signal => contractClient.POST('/api/v1/cards', { body: cardPayload(data), signal }));
 };
 
 // updateCard 更新卡密组。
 export const updateCard = async (cardId: string | number, data: Partial<Card>): Promise<OperationResponse> => {
-  return runContractRequest(/* signal 控制卡券更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/cards/{card_id}', { params: { path: { card_id: String(cardId) } }, body: cardPayload(data) as never, signal }));
+  return runContractRequest(/* signal 控制卡券更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/cards/{card_id}', { params: { path: { card_id: String(cardId) } }, body: cardPayload(data), signal }));
 };
 
 // deleteCard 删除卡密组。
@@ -56,7 +66,7 @@ export const deleteCard = async (cardId: string | number): Promise<OperationResp
 // getCardDetails 读取卡密组详情。
 export const getCardDetails = async (cardId: string | number): Promise<Card> => {
   // card 卡密详情，用于当前 API 处理流程。
-  const card = await runContractRequest(/* signal 控制卡券详情请求的取消和超时。 */ signal => contractClient.GET('/api/v1/cards/{card_id}/details', { params: { path: { card_id: String(cardId) } }, signal })) as unknown as Card;
+  const card = await runContractRequest(/* signal 控制卡券详情请求的取消和超时。 */ signal => contractClient.GET('/api/v1/cards/{card_id}/details', { params: { path: { card_id: String(cardId) } }, signal }));
   return normalizeCard(card);
 };
 
@@ -70,10 +80,10 @@ export const batchCreateCards = async (file: File, options?: RequestControlOptio
   // 此处只收紧 TypeScript 响应契约。
   const body = new FormData();
   body.append('file', file);
-  return runContractRequest(/* signal 控制卡券批量上传的取消和超时。 */ signal => contractClient.POST('/api/v1/cards/batch', { body: body as never, signal }), options) as Promise<CardBatchResponse>;
+  return runContractRequest(/* signal 控制卡券批量上传的取消和超时。 */ signal => contractClient.POST('/api/v1/cards/batch', { body: contractMultipartBody(body), signal }), options);
 };
 
 // 往 data 类型卡密组批量追加卡密号
 export const appendCardData = async (cardId: string | number, content: string, options?: RequestControlOptions): Promise<CardAppendResponse> => {
-  return runContractRequest(/* signal 控制卡券追加数据请求的取消和超时。 */ signal => contractClient.POST('/api/v1/cards/{card_id}/append-data', { params: { path: { card_id: String(cardId) } }, body: { content } as never, signal }), options) as Promise<CardAppendResponse>;
+  return runContractRequest(/* signal 控制卡券追加数据请求的取消和超时。 */ signal => contractClient.POST('/api/v1/cards/{card_id}/append-data', { params: { path: { card_id: String(cardId) } }, body: { content }, signal }), options);
 };

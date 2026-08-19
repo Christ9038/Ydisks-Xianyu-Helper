@@ -1,5 +1,5 @@
 import { expect,test } from 'vitest';
-import type { AccountDetail } from '../../../shared/api-contract/accounts';
+import type { AccountDetail } from './api';
 import { buildAccountTaskDefaults,canStartAccountTask,isCurrentAccountTaskRequest } from './accountAutomationState';
 
 // accountFixture 是覆盖任务默认值和账号禁用边界的最小账号数据。

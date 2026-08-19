@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act,renderHook } from '@testing-library/react';
 import { beforeEach,describe,expect,test,vi } from 'vitest';
-import type { AccountDetail,Card,DefaultReply,Item,ReplyRule,ShippingRule } from '../../../shared/api-contract/automation';
+import type { AccountDetail,Card,DefaultReply,Item,ReplyRule,ShippingRule } from './api';
 import {
 getAccountDetails,
 getAutomationIssues,

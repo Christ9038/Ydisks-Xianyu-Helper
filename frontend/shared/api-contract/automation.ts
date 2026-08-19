@@ -1,9 +1,5 @@
-// automation 公开自动化规则、动作和异常相关传输契约。
-/** 自动化规则 feature 使用的 HTTP 传输 DTO。 */
-export type {
-  AccountDetail, AutomationAction, AutomationIssuesEnvelope,
-  AutomationRulePageResponse, AutomationRuleResponse, AutomationTriggerType,
-  Card, DefaultReply, DefaultReplyResponse, Item, KeywordTypedResponse,
-  MutationIDResponse, OperationResponse, PaginatedResponse, ReplyRule,
-  ShippingRule, ShippingVariant,
-} from './transport';
+// automation 只公开 OpenAPI 生成的自动化传输类型；规则编辑模型属于 rules feature。
+import type { components } from './generated/schema';
+
+/** OperationTransport 表示生成的通用成功响应。 */
+export type OperationTransport = components['schemas']['OperationResponse'];

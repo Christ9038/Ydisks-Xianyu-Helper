@@ -221,6 +221,10 @@ until their recorded phase is completed; agents MUST NOT add new violations.
   transport adapter boundary.
 - Route-prefix changes require `frontend/vite.config.ts`, frontend API callers, contract tests and embedded assets
   to be updated together.
+- `api/openapi.yaml` is the only contract source for `/api/v1/**` and `/health`; every new versioned operation must
+  update the specification, regenerate `frontend/shared/api-contract/generated/schema.ts`, and add a real handler
+  contract test before a feature can call it. Generated types are read-only, and feature UI models must remain behind
+  their own API adapters.
 
 ## Mandatory React constraints
 
@@ -239,6 +243,8 @@ until their recorded phase is completed; agents MUST NOT add new violations.
 - New or materially changed user flows require behavior tests for success, failure, cancellation, switching and
   stale responses. Source-string tests are reserved for static architecture rules.
 - Generated API types are read-only; feature adapters convert transport DTOs to UI models.
+- Feature code must not import the generated schema directly, restore `transport.ts`, or import legacy
+  `get/post/put/del/postForm`; only the shared contract runtime may call `fetch`.
 
 ## Mandatory database, transaction and multi-dialect constraints
 

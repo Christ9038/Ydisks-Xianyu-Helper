@@ -1,5 +1,5 @@
 import { describe,expect,test } from 'vitest';
-import type { AccountDetail,ShippingRule } from '../../../shared/api-contract/automation';
+import type { AccountDetail,ShippingRule } from './api';
 import {
 accentClasses,
 accountLabel,

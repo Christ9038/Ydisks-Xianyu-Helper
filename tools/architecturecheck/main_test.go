@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-
 // TestHTTPResponseContractBoundary 验证 HTTP 契约扫描会拒绝动态 map 和直接 map 响应。
 func TestHTTPResponseContractBoundary(t *testing.T) {
 	// fset 是模拟 Server 源码的文件位置集合。

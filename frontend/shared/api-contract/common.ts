@@ -1,3 +1,5 @@
-// common 公开分页、错误和跨领域基础传输契约；具体 feature 应优先导入自己的领域模块。
-/** 跨 feature 的最小 HTTP 传输 DTO，不得承载领域专有类型。 */
-export type { ApiErrorResponse, Item, NotificationChannel, PaginatedResponse, SystemSettings } from './transport';
+// common 只公开跨 feature 的 OpenAPI 生成传输类型。
+import type { components } from './generated/schema';
+
+/** ApiErrorResponse 表示统一错误 envelope，供共享 HTTP 运行时识别错误。 */
+export type ApiErrorResponse = components['schemas']['ErrorResponse'];

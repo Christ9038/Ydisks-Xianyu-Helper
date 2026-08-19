@@ -22,9 +22,7 @@ func TestVersionedSessionRoutesPreserveLegacyContracts(t *testing.T) {
 	// loginRecorder 是捕获版本化登录响应的记录器。
 	loginRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(loginRecorder, loginReq)
-	if loginRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned login status=%d body=%s", loginRecorder.Code, loginRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, loginReq, loginRecorder)
 	// loginResponseValue 是版本化登录响应 DTO。
 	var loginResponseValue loginResponse
 	// loginDecodeErr 是版本化登录响应反序列化失败的原因。
@@ -43,9 +41,7 @@ func TestVersionedSessionRoutesPreserveLegacyContracts(t *testing.T) {
 	// verifyRecorder 是捕获版本化会话校验响应的记录器。
 	verifyRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(verifyRecorder, verifyReq)
-	if verifyRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned verify status=%d body=%s", verifyRecorder.Code, verifyRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, verifyReq, verifyRecorder)
 	// verifyResponseValue 是版本化会话校验响应 DTO。
 	var verifyResponseValue sessionVerificationResponse
 	// verifyDecodeErr 是版本化会话校验响应反序列化失败的原因。
@@ -72,9 +68,7 @@ func TestVersionedSessionRoutesPreserveLegacyContracts(t *testing.T) {
 	// logoutRecorder 是捕获版本化注销响应的记录器。
 	logoutRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(logoutRecorder, logoutReq)
-	if logoutRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned logout status=%d body=%s", logoutRecorder.Code, logoutRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, logoutReq, logoutRecorder)
 
 	// legacyLoginReq 是验证旧登录入口仍可用的请求。
 	legacyLoginReq := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(loginBody))

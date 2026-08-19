@@ -1,8 +1,5 @@
-// items 公开商品、发布地点和批量发布相关传输契约。
-/** 商品 feature 使用的 HTTP 传输 DTO。 */
-export type {
-  AccountDetail, BatchCancelResponse, BatchIDResponse, CategoryRecommendationResponse,
-  Item, ItemDetailResponse, ItemPublishBatchPreviewResponse,
-  ItemPublishBatchResponse, ItemPublishResponse, ItemSyncResponse,
-  OperationResponse, PublishLocation, ShippingRule,
-} from './transport';
+// items 只公开 OpenAPI 生成的商品传输类型；发布和兼容模型属于 items feature。
+import type { components } from './generated/schema';
+
+/** ItemTransport 表示生成的商品列表行。 */
+export type ItemTransport = components['schemas']['ItemListResponse'];

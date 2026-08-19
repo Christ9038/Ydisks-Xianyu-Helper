@@ -13,11 +13,11 @@ NotificationChannelResponse,
 NotificationEventType,
 OperationResponse,
 QRLoginGenerateResponse,QRLoginStatusResponse,QRLoginVerificationResponse
-} from '../../../shared/api-contract/accounts';
+} from './models';
 import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
 import { type RequestControlOptions } from '../../../shared/http/client';
 import { collectionFrom,objectFrom } from '../../../shared/http/contract';
-export type * from '../../../shared/api-contract/accounts';
+export type * from './models';
 
 // QRLoginStatusResult 描述账号 feature 消费的非敏感二维码状态字段。
 export type QRLoginStatusResult = Pick<
@@ -88,15 +88,15 @@ export const getAccountDetails = async (options?: RequestControlOptions): Promis
 
 // getAccountTaskSettings 读取账号计划任务设置。
 export const getAccountTaskSettings = async (id: string, options?: RequestControlOptions): Promise<AccountTaskSettingsResponse> =>
-	runContractRequest(/* signal 控制账号计划任务读取的取消和超时。 */ signal => contractClient.GET('/api/v1/account-tasks/{cid}', { params: { path: { cid: id } }, signal }), options) as unknown as Promise<AccountTaskSettingsResponse>;
+	runContractRequest(/* signal 控制账号计划任务读取的取消和超时。 */ signal => contractClient.GET('/api/v1/account-tasks/{cid}', { params: { path: { cid: id } }, signal }), options);
 
 // updateAccountTaskSettings 更新账号计划任务设置。
 export const updateAccountTaskSettings = async (id: string, settings: AccountTaskSettings, options?: RequestControlOptions): Promise<AccountTaskSettingsResponse> =>
-	runContractRequest(/* signal 控制账号计划任务更新的取消和超时。 */ signal => contractClient.PUT('/api/v1/account-tasks/{cid}', { params: { path: { cid: id } }, body: settings as never, signal }), options) as unknown as Promise<AccountTaskSettingsResponse>;
+	runContractRequest(/* signal 控制账号计划任务更新的取消和超时。 */ signal => contractClient.PUT('/api/v1/account-tasks/{cid}', { params: { path: { cid: id } }, body: settings, signal }), options);
 
 // runAccountTask 立即执行账号计划任务。
 export const runAccountTask = async (id: string, taskType: 'auto_rate' | 'auto_polish', options?: RequestControlOptions): Promise<AccountTaskRunResponseEnvelope> =>
-	runContractRequest(/* signal 控制账号计划任务立即执行的取消和长超时。 */ signal => contractClient.POST('/api/v1/account-tasks/{cid}/run', { params: { path: { cid: id } }, body: { task_type: taskType } as never, signal }), { timeoutMs: 120_000, ...options }) as unknown as Promise<AccountTaskRunResponseEnvelope>;
+	runContractRequest(/* signal 控制账号计划任务立即执行的取消和长超时。 */ signal => contractClient.POST('/api/v1/account-tasks/{cid}/run', { params: { path: { cid: id } }, body: { task_type: taskType }, signal }), { timeoutMs: 120_000, ...options });
 
 
 export interface AccountRuntimeStatus {

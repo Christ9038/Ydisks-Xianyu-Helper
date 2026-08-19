@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act,renderHook,waitFor } from '@testing-library/react';
 import { beforeEach,describe,expect,test,vi } from 'vitest';
-import type { DashboardStats,Item,OrderAnalyticsResponse } from '../../../shared/api-contract/admin';
+import type { DashboardStats,Item,OrderAnalyticsResponse } from './api';
 import { getDashboardStats,getItems,getOrderAnalytics,getValidOrders } from './api';
 import type { UseDashboardOptions } from './hooks';
 import { useDashboard } from './hooks';

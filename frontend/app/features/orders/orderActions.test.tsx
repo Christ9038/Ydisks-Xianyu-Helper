@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act,renderHook } from '@testing-library/react';
 import { afterEach,beforeEach,describe,expect,test,vi } from 'vitest';
-import type { Order,OrderRefreshResponse } from '../../../shared/api-contract/orders';
+import type { Order,OrderRefreshResponse } from './api';
 import { useOrderActions } from './orderActions';
 
 // orderActionMocks 保存订单动作 Hook 测试使用的 API 替身。

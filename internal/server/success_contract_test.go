@@ -62,6 +62,16 @@ func TestChatEventDTOUsesFrontendContract(t *testing.T) {
 	if loadErr != nil {
 		t.Fatalf("加载 OpenAPI WebSocket 契约: %v", loadErr)
 	}
+	// webSocketPath 是版本化聊天 WebSocket operation 的 OpenAPI 路径定义。
+	webSocketPath := document.Paths.Find("/api/v1/chat/ws")
+	if webSocketPath == nil || webSocketPath.Get == nil || webSocketPath.Get.Responses == nil || webSocketPath.Get.Responses.Value("101") == nil {
+		t.Fatal("OpenAPI 缺少聊天 WebSocket 101 升级响应")
+	}
+	// rawException、exceptionOK 分别是成功响应特殊校验扩展原值及其对象结构是否有效。
+	rawException, exceptionOK := webSocketPath.Get.Extensions["x-contract-success-exception"].(map[string]any)
+	if !exceptionOK || rawException["kind"] != "websocket" {
+		t.Fatalf("聊天 WebSocket 未登记 websocket 特殊校验: %#v", webSocketPath.Get.Extensions["x-contract-success-exception"])
+	}
 	// eventSchemaRef 保存 WebSocket 推送帧的具名 schema 引用。
 	eventSchemaRef := document.Components.Schemas["ChatWebSocketEvent"]
 	if eventSchemaRef == nil || eventSchemaRef.Value == nil {

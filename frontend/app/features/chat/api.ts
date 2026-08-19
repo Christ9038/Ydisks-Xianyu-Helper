@@ -3,10 +3,10 @@ AccountDetail,
 ChatMessage,
 ChatSession,
 OperationResponse
-} from '../../../shared/api-contract/chat';
+} from './models';
 import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
 import { type RequestControlOptions } from '../../../shared/http/client';
-export type * from '../../../shared/api-contract/chat';
+export type * from './models';
 import type { ChatReadReceipt } from './types';
 
 /** ChatImageFormContract 描述图片发送 operation 的 multipart 字段，仅用于将原生 FormData 交给生成客户端。 */

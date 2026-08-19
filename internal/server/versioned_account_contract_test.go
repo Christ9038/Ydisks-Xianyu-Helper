@@ -27,9 +27,7 @@ func TestVersionedAccountRoutesPreserveLegacyContracts(t *testing.T) {
 	// listRecorder 是捕获账号摘要响应的记录器。
 	listRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(listRecorder, listReq)
-	if listRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned account list status=%d body=%s", listRecorder.Code, listRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, listReq, listRecorder)
 	// accountIDs 是版本化账号摘要 ID 列表。
 	var accountIDs []string
 	// listDecodeErr 是账号摘要响应反序列化失败的原因。
@@ -46,9 +44,7 @@ func TestVersionedAccountRoutesPreserveLegacyContracts(t *testing.T) {
 	// detailsRecorder 是捕获账号详情响应的记录器。
 	detailsRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(detailsRecorder, detailsReq)
-	if detailsRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned account details status=%d body=%s", detailsRecorder.Code, detailsRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, detailsReq, detailsRecorder)
 	// detailsValue 是版本化账号详情 DTO 集合。
 	var detailsValue []cookieSummaryResponse
 	// detailsDecodeErr 是账号详情响应反序列化失败的原因。
@@ -68,9 +64,7 @@ func TestVersionedAccountRoutesPreserveLegacyContracts(t *testing.T) {
 	// runtimeRecorder 是捕获账号运行状态响应的记录器。
 	runtimeRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(runtimeRecorder, runtimeReq)
-	if runtimeRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned runtime status=%d body=%s", runtimeRecorder.Code, runtimeRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, runtimeReq, runtimeRecorder)
 	// runtimeValue 是版本化账号运行状态映射。
 	var runtimeValue map[string]engine.RuntimeStatus
 	// runtimeDecodeErr 是运行状态响应反序列化失败的原因。
@@ -87,9 +81,7 @@ func TestVersionedAccountRoutesPreserveLegacyContracts(t *testing.T) {
 	// detailRecorder 是捕获单账号详情响应的记录器。
 	detailRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(detailRecorder, detailReq)
-	if detailRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned account detail status=%d body=%s", detailRecorder.Code, detailRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, detailReq, detailRecorder)
 	// detailValue 是版本化单账号详情 DTO。
 	var detailValue cookieDetailResponse
 	// detailDecodeErr 是单账号详情响应反序列化失败的原因。
@@ -106,9 +98,7 @@ func TestVersionedAccountRoutesPreserveLegacyContracts(t *testing.T) {
 	// statusRecorder 是捕获账号状态变更响应的记录器。
 	statusRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(statusRecorder, statusReq)
-	if statusRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned account status=%d body=%s", statusRecorder.Code, statusRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, statusReq, statusRecorder)
 	// statusValue 是账号状态变更具名响应 DTO。
 	var statusValue operationResponse
 	// statusDecodeErr 是状态变更响应反序列化失败的原因。
@@ -157,9 +147,7 @@ func TestVersionedAccountCredentialRoutesPreserveLegacyContracts(t *testing.T) {
 	// addRecorder 是捕获新增账号响应的记录器。
 	addRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(addRecorder, addReq)
-	if addRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned add account status=%d body=%s", addRecorder.Code, addRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, addReq, addRecorder)
 	// addValue 是新增账号响应中的具名结果 DTO。
 	var addValue accountMutationResponse
 	// addDecodeErr 是新增账号响应反序列化失败的原因。
@@ -179,9 +167,7 @@ func TestVersionedAccountCredentialRoutesPreserveLegacyContracts(t *testing.T) {
 	// updateRecorder 是捕获 Cookie 更新响应的记录器。
 	updateRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(updateRecorder, updateReq)
-	if updateRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned update account status=%d body=%s", updateRecorder.Code, updateRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, updateReq, updateRecorder)
 	// updateValue 是 Cookie 更新响应中的具名结果 DTO。
 	var updateValue operationResponse
 	// updateDecodeErr 是 Cookie 更新响应反序列化失败的原因。
@@ -201,9 +187,7 @@ func TestVersionedAccountCredentialRoutesPreserveLegacyContracts(t *testing.T) {
 	// loginInfoRecorder 是捕获登录信息更新响应的记录器。
 	loginInfoRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(loginInfoRecorder, loginInfoReq)
-	if loginInfoRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned login info status=%d body=%s", loginInfoRecorder.Code, loginInfoRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, loginInfoReq, loginInfoRecorder)
 	// loginInfoValue 是登录信息更新响应中的具名结果 DTO。
 	var loginInfoValue operationResponse
 	// loginInfoDecodeErr 是登录信息响应反序列化失败的原因。
@@ -250,9 +234,7 @@ func TestVersionedAccountSettingsRoutesPreserveLegacyContracts(t *testing.T) {
 	// settingsRecorder 是捕获聚合设置响应的记录器。
 	settingsRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(settingsRecorder, settingsReq)
-	if settingsRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned settings status=%d body=%s", settingsRecorder.Code, settingsRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, settingsReq, settingsRecorder)
 	// settingsValue 是聚合账号设置具名响应 DTO。
 	var settingsValue cookieSettingsResponse
 	// settingsDecodeErr 是聚合设置响应反序列化失败的原因。
@@ -269,9 +251,7 @@ func TestVersionedAccountSettingsRoutesPreserveLegacyContracts(t *testing.T) {
 	// remarkRecorder 是捕获备注响应的记录器。
 	remarkRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(remarkRecorder, remarkReq)
-	if remarkRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned remark status=%d body=%s", remarkRecorder.Code, remarkRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, remarkReq, remarkRecorder)
 	// remarkValue 是备注变更具名响应 DTO。
 	var remarkValue operationResponse
 	// remarkDecodeErr 是备注响应反序列化失败的原因。
@@ -288,9 +268,7 @@ func TestVersionedAccountSettingsRoutesPreserveLegacyContracts(t *testing.T) {
 	// autoConfirmRecorder 是捕获自动确认响应的记录器。
 	autoConfirmRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(autoConfirmRecorder, autoConfirmReq)
-	if autoConfirmRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned auto-confirm status=%d body=%s", autoConfirmRecorder.Code, autoConfirmRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, autoConfirmReq, autoConfirmRecorder)
 
 	// pauseReq 是更新版本化暂停时长的请求。
 	pauseReq := httptest.NewRequest(http.MethodPut, "/api/v1/accounts/acc1/pause-duration", strings.NewReader(`{"pause_duration":15}`))
@@ -298,9 +276,7 @@ func TestVersionedAccountSettingsRoutesPreserveLegacyContracts(t *testing.T) {
 	// pauseRecorder 是捕获暂停时长响应的记录器。
 	pauseRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(pauseRecorder, pauseReq)
-	if pauseRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned pause status=%d body=%s", pauseRecorder.Code, pauseRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, pauseReq, pauseRecorder)
 	// pauseValue 是暂停时长具名响应 DTO。
 	var pauseValue cookieSettingsResponse
 	// pauseDecodeErr 是暂停响应反序列化失败的原因。
@@ -317,9 +293,7 @@ func TestVersionedAccountSettingsRoutesPreserveLegacyContracts(t *testing.T) {
 	// autoConfirmGetRecorder 是捕获自动确认查询响应的记录器。
 	autoConfirmGetRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(autoConfirmGetRecorder, autoConfirmGetReq)
-	if autoConfirmGetRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned auto-confirm get status=%d body=%s", autoConfirmGetRecorder.Code, autoConfirmGetRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, autoConfirmGetReq, autoConfirmGetRecorder)
 	// autoConfirmValue 是自动确认查询具名响应 DTO。
 	var autoConfirmValue autoConfirmResponse
 	// autoConfirmDecodeErr 是自动确认查询响应反序列化失败的原因。
@@ -336,9 +310,7 @@ func TestVersionedAccountSettingsRoutesPreserveLegacyContracts(t *testing.T) {
 	// pauseGetRecorder 是捕获暂停查询响应的记录器。
 	pauseGetRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(pauseGetRecorder, pauseGetReq)
-	if pauseGetRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned pause get status=%d body=%s", pauseGetRecorder.Code, pauseGetRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, pauseGetReq, pauseGetRecorder)
 	// pauseGetValue 是暂停查询具名响应 DTO。
 	var pauseGetValue pauseDurationResponse
 	// pauseGetDecodeErr 是暂停查询响应反序列化失败的原因。
@@ -355,9 +327,7 @@ func TestVersionedAccountSettingsRoutesPreserveLegacyContracts(t *testing.T) {
 	// profileRecorder 是捕获资料刷新响应的记录器。
 	profileRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(profileRecorder, profileReq)
-	if profileRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned profile status=%d body=%s", profileRecorder.Code, profileRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, profileReq, profileRecorder)
 	// profileValue 是资料刷新具名响应 DTO。
 	var profileValue cookieProfileResponse
 	// profileDecodeErr 是资料刷新响应反序列化失败的原因。

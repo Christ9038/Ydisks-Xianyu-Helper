@@ -1,6 +1,7 @@
 import ReactDOMServer from 'react-dom/server';
 import { describe,expect,test } from 'vitest';
-import type { NotificationChannel,SystemSettings } from '../../shared/api-contract/common';
+import type { NotificationChannel } from './notifications/api';
+import type { SystemSettings } from './settings/api';
 import { CardIcon } from './cards/components/CardIcon';
 import { BatchPhaseIndicator } from './items/components/BatchPhaseIndicator';
 import { NotificationChannelList } from './notifications/components/NotificationChannelList';

@@ -735,6 +735,16 @@ func TestDownloadItemPublishBatchResultExportsRows(t *testing.T) {
 	if !strings.HasPrefix(body, "\xEF\xBB\xBF") || !strings.Contains(body, "行号") || !strings.Contains(body, "商品A") || !strings.Contains(body, "item-1") {
 		t.Fatalf("导出 CSV 内容异常: %q", body)
 	}
+	// versionedRequest 使用与旧入口相同的已完成批次，验证二进制特殊 operation 的真实成功响应。
+	versionedRequest := httptest.NewRequest(http.MethodGet, "/api/v1/items/publish-batches/"+batchID+"/result.csv", nil)
+	versionedRequest.AddCookie(cookie)
+	// versionedRecorder 捕获版本化 CSV 下载响应，供 OpenAPI 校验状态、Content-Type 与二进制 schema。
+	versionedRecorder := httptest.NewRecorder()
+	h.ServeHTTP(versionedRecorder, versionedRequest)
+	assertOpenAPISuccessResponse(t, versionedRequest, versionedRecorder)
+	if !strings.HasPrefix(versionedRecorder.Header().Get("Content-Type"), "text/csv") {
+		t.Fatalf("版本化 CSV Content-Type=%q", versionedRecorder.Header().Get("Content-Type"))
+	}
 }
 
 // TestDownloadItemPublishBatchResultHidesOtherUserBatch 验证结果下载不会泄露其他用户的批次存在性。

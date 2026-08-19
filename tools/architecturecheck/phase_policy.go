@@ -100,6 +100,68 @@ func checkActivatedRepositoryGates(root string, activeStage int) []violation {
 	}
 	if architectureStageEnabled(activeStage, architectureStageClosure) {
 		violations = append(violations, checkQualityArchitecture(root)...)
+		violations = append(violations, checkOpenAPIContractClosure(root)...)
+	}
+	return violations
+}
+
+// checkOpenAPIContractClosure 永久禁止手写 transport 汇总、生成类型越过契约层和旧 HTTP 请求旁路回流。
+func checkOpenAPIContractClosure(root string) []violation {
+	// violations 保存 OpenAPI 契约闭环的物理文件和依赖方向违规。
+	var violations []violation
+	// frontendRoot 是前端源码根目录，用于定位只读生成类型和 feature adapter。
+	frontendRoot := filepath.Join(root, "frontend")
+	// legacyTransportPath 是阶段六必须永久删除的手写 DTO 汇总文件。
+	legacyTransportPath := filepath.Join(frontendRoot, "shared", "api-contract", "transport.ts")
+	// statErr 表示旧手写 DTO 汇总文件是否仍然存在。
+	if _, statErr := os.Stat(legacyTransportPath); statErr == nil {
+		violations = append(violations, violation{file: "frontend/shared/api-contract/transport.ts", line: 1, message: "阶段六禁止重新引入手写 transport DTO 汇总；必须使用生成类型或所属 feature UI 模型"})
+	}
+	// importPattern 提取静态 import 和 export-from 的模块路径，避免通过 re-export 隐藏旁路。
+	importPattern := regexp.MustCompile(`(?m)(?:from\s+)["']([^"']+)["']`)
+	// walkErr 是扫描前端生产源码时的文件系统错误。
+	walkErr := filepath.WalkDir(frontendRoot, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if entry.Name() == "node_modules" || entry.Name() == "coverage" || entry.Name() == "dist" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !isFrontendProductionPath(path) {
+			return nil
+		}
+		// relativePath 是当前源码相对于 frontend 的稳定路径。
+		relativePath, relativeErr := filepath.Rel(frontendRoot, path)
+		if relativeErr != nil {
+			return relativeErr
+		}
+		relativePath = filepath.ToSlash(relativePath)
+		// source、readErr 分别保存源码文本及读取失败原因。
+		source, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		// sourceText 是当前文件的字符串视图，供稳定依赖检查使用。
+		sourceText := string(source)
+		// match 是当前静态导入或再导出的完整正则匹配结果。
+		for _, match := range importPattern.FindAllStringSubmatch(sourceText, -1) {
+			// specifier 是当前静态导入或再导出的模块路径。
+			specifier := match[1]
+			if strings.HasSuffix(specifier, "/transport") || strings.HasSuffix(specifier, "/transport.ts") {
+				violations = append(violations, violation{file: "frontend/" + relativePath, line: sourceLineAt(source, strings.Index(sourceText, match[0])), message: "阶段六禁止引用手写 transport DTO；请改用生成契约或 feature UI 模型"})
+			}
+			// shared/api-contract 是生成类型的唯一宿主；feature 只能经自己的 api adapter 使用类型。
+			if strings.Contains(specifier, "generated/schema") && !strings.HasPrefix(relativePath, "shared/api-contract/") {
+				violations = append(violations, violation{file: "frontend/" + relativePath, line: sourceLineAt(source, strings.Index(sourceText, match[0])), message: "生成 OpenAPI 类型不得越过 shared 契约层直接进入 feature、组件或 Hook"})
+			}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		violations = append(violations, violation{file: "frontend", line: 1, message: fmt.Sprintf("扫描 OpenAPI 契约闭环失败: %v", walkErr)})
 	}
 	return violations
 }
@@ -243,6 +305,8 @@ func checkReactArchitecture(root string) []violation {
 	}
 	// modulePattern 提取静态 import、re-export 和动态 import 的模块路径。
 	modulePattern := regexp.MustCompile(`(?m)(?:from\s+|import\s*\()\s*["']([^"']+)["']`)
+	// legacyHTTPImportPattern 仅匹配旧 HTTP client 的具名导入，用于永久禁止 feature 恢复未类型化请求旁路。
+	legacyHTTPImportPattern := regexp.MustCompile(`(?s)import\s*\{([^}]*)\}\s*from\s*["'][^"']*shared/http/client["']`)
 	// walkErr 是遍历前端生产源码时的文件系统错误。
 	walkErr := filepath.WalkDir(frontendRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -270,6 +334,19 @@ func checkReactArchitecture(root string) []violation {
 		}
 		// sourceText 是用于模块和网络边界匹配的源码文本。
 		sourceText := string(source)
+		// legacyMatch 是当前 feature 对旧 HTTP client 的具名导入；只允许错误类型和请求控制类型继续复用。
+		for _, legacyMatch := range legacyHTTPImportPattern.FindAllStringSubmatch(sourceText, -1) {
+			// importedNames 保存去除 type 与别名后的本地导入名称。
+			importedNames := strings.Split(legacyMatch[1], ",")
+			// importedName 是当前待核验的旧 client 导入名称。
+			for _, importedName := range importedNames {
+				// normalizedName 是去除 TypeScript type 前缀与别名后的源导出名称。
+				normalizedName := strings.TrimSpace(strings.Split(strings.TrimPrefix(strings.TrimSpace(importedName), "type "), " as ")[0])
+				if normalizedName == "get" || normalizedName == "post" || normalizedName == "put" || normalizedName == "del" || normalizedName == "postForm" {
+					violations = append(violations, violation{file: "frontend/" + relativePath, line: sourceLineAt(source, strings.Index(sourceText, legacyMatch[0])), message: "feature 禁止导入旧 HTTP get/post/put/del/postForm；必须使用生成契约客户端"})
+				}
+			}
+		}
 		if relativePath != "shared/http/client.ts" && relativePath != "shared/api-contract/client.ts" && (strings.Contains(sourceText, "fetch(") || regexp.MustCompile(`\baxios\b`).MatchString(sourceText)) {
 			violations = append(violations, violation{file: "frontend/" + relativePath, line: 1, message: "前端生产代码不得绕过共享 HTTP 契约客户端直接请求网络"})
 		}

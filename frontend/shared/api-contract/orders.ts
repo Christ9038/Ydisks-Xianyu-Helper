@@ -1,9 +1,7 @@
-// orders 公开订单、发货和订单刷新相关传输契约。
-/** 订单 feature 使用的 HTTP 传输 DTO。 */
-export type {
-  AccountDetail, AdminStatsResponse, Item, OperationResponse, Order,
-  OrderBatchResponse, OrderDTOResponse, OrderDetailResponse,
-  OrderRefreshJobCancelResponse, OrderRefreshJobStartResponse,
-  OrderRefreshJobStatusResponse, OrderRefreshResponse, OrderSingleRefreshResponse,
-  OrderStatus, PaginatedResponse,
-} from './transport';
+// orders 只公开 OpenAPI 生成的订单传输类型；订单 UI 模型属于 orders feature。
+import type { components } from './generated/schema';
+
+/** OrderTransport 表示生成的订单行。 */
+export type OrderTransport = components['schemas']['OrderDTO'];
+/** OrderRefreshTransport 表示生成的订单刷新结果。 */
+export type OrderRefreshTransport = components['schemas']['OrderRefreshResponse'];

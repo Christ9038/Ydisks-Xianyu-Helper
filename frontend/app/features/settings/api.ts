@@ -1,7 +1,7 @@
-import type { OperationResponse,SystemSettings } from '../../../shared/api-contract/settings';
+import type { OperationResponse,SystemSettings } from './models';
 import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
 import { type RequestControlOptions } from '../../../shared/http/client';
-export type * from '../../../shared/api-contract/settings';
+export type * from './models';
 
 /** 设置页面使用的会话状态传输契约，避免跨 feature 依赖。 */
 export interface SettingsSessionStatusResponse {

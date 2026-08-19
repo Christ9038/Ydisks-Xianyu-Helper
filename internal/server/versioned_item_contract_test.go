@@ -32,9 +32,7 @@ func TestVersionedItemRoutesPreserveLegacyContracts(t *testing.T) {
 	// listRecorder 是捕获版本化商品列表响应的记录器。
 	listRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(listRecorder, listReq)
-	if listRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned item list status=%d body=%s", listRecorder.Code, listRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, listReq, listRecorder)
 	// listValue 是版本化商品列表响应 DTO 集合。
 	var listValue []itemListResponse
 	// listDecodeErr 是商品列表响应反序列化失败的原因。
@@ -51,9 +49,7 @@ func TestVersionedItemRoutesPreserveLegacyContracts(t *testing.T) {
 	// detailRecorder 是捕获版本化商品详情响应的记录器。
 	detailRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(detailRecorder, detailReq)
-	if detailRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned item detail status=%d body=%s", detailRecorder.Code, detailRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, detailReq, detailRecorder)
 	// detailValue 是版本化商品详情响应 DTO。
 	var detailValue itemDetailResponse
 	// detailDecodeErr 是商品详情响应反序列化失败的原因。
@@ -70,9 +66,7 @@ func TestVersionedItemRoutesPreserveLegacyContracts(t *testing.T) {
 	// updateRecorder 是捕获版本化商品更新响应的记录器。
 	updateRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(updateRecorder, updateReq)
-	if updateRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned item update status=%d body=%s", updateRecorder.Code, updateRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, updateReq, updateRecorder)
 	// updatedItem 是数据库中用于确认版本化更新结果的商品记录。
 	updatedItem, updatedErr := store.Items.Get(ctx, "acc1", "item-v1")
 	if updatedErr != nil || updatedItem == nil || updatedItem.ItemTitle != "版本化新商品名" {
@@ -95,9 +89,7 @@ func TestVersionedItemRoutesPreserveLegacyContracts(t *testing.T) {
 	// deleteRecorder 是捕获版本化商品删除响应的记录器。
 	deleteRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(deleteRecorder, deleteReq)
-	if deleteRecorder.Code != http.StatusOK {
-		t.Fatalf("versioned item delete status=%d body=%s", deleteRecorder.Code, deleteRecorder.Body.String())
-	}
+	assertOpenAPISuccessResponse(t, deleteReq, deleteRecorder)
 
 	// legacyDeleteReq 是验证旧商品删除入口仍可用的请求。
 	legacyDeleteReq := httptest.NewRequest(http.MethodDelete, "/items/acc1/item-legacy", nil)

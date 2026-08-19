@@ -1,4 +1,4 @@
-import type { PublishLocation } from '../../../shared/api-contract/items';
+import type { PublishLocation } from './models';
 import {
 AccountDetail,
 BatchCancelResponse,
@@ -11,11 +11,11 @@ ItemPublishBatchResponse,
 ItemPublishResponse,ItemSyncResponse,
 OperationResponse,
 ShippingRule
-} from '../../../shared/api-contract/items';
+} from './models';
 import { ApiError, type RequestControlOptions } from '../../../shared/http/client';
 import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
 import { collectionFrom } from '../../../shared/http/contract';
-export type * from '../../../shared/api-contract/items';
+export type * from './models';
 import { getPublishLocations as queryPublishLocations,type PublishLocationRequestOptions } from './amapLocation';
 
 /** 商品账号筛选器读取非敏感账号摘要。 */
@@ -26,7 +26,7 @@ export const getShippingRules = async (options?: RequestControlOptions): Promise
 
 // getPublishLocations 通过 feature API 边界读取地点，并把取消/超时控制传入地图服务。
 export const getPublishLocations = (longitude: number, latitude: number, options?: PublishLocationRequestOptions): Promise<PublishLocation[]> => queryPublishLocations(longitude, latitude, options);
-export type { PublishLocation } from '../../../shared/api-contract/items';
+export type { PublishLocation } from './models';
 
 // itemErrorMessage 将统一 HTTP 错误码归一为商品 feature 可执行的用户提示。
 export const itemErrorMessage = (error: unknown, fallback: string): string => {
@@ -197,5 +197,9 @@ export const updateItem = async (cookieId: string, itemId: string, data: Partial
     return runContractRequest(/* signal 控制商品更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/items/{cookie_id}/{item_id}', { params: { path: { cookie_id: cookieId, item_id: itemId } }, body: data as never, signal }));
 }
 
-/** 读取指定账号与商品的详情，用于编辑器恢复表单。 */
-export const getItemDetail = async (accountID: string, itemID: string): Promise<ItemDetailResponse> => runContractRequest(/* signal 控制商品详情请求的取消和超时。 */ signal => contractClient.GET('/api/v1/items/{cookie_id}/{item_id}', { params: { path: { cookie_id: accountID, item_id: itemID } }, signal })) as unknown as Promise<ItemDetailResponse>;
+/** 读取指定账号与商品的详情，用于编辑器恢复表单，并将生成传输 DTO 保持在 feature adapter 边界。 */
+export const getItemDetail = async (accountID: string, itemID: string): Promise<ItemDetailResponse> => {
+  // response 保存已由 OpenAPI 路径类型约束的商品详情传输响应。
+  const response = await runContractRequest(/* signal 控制商品详情请求的取消和超时。 */ signal => contractClient.GET('/api/v1/items/{cookie_id}/{item_id}', { params: { path: { cookie_id: accountID, item_id: itemID } }, signal }));
+  return response;
+};
