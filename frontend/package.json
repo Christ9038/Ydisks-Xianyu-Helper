@@ -9,12 +9,15 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "api:generate": "openapi-typescript ../api/openapi.yaml -o shared/api-contract/generated/schema.ts",
+    "api:check": "node scripts/check-api-contract.mjs",
     "comments:check": "node scripts/check-comments.mjs --mode check --root .",
     "preview": "vite preview"
   },
   "dependencies": {
     "axios": "^1.13.2",
     "lucide-react": "^0.562.0",
+    "openapi-fetch": "^0.14.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "recharts": "^3.6.0",
@@ -29,6 +32,7 @@
     "@vitest/coverage-v8": "^4.1.6",
     "autoprefixer": "^10.4.23",
     "jsdom": "^30.0.1",
+    "openapi-typescript": "^7.9.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.8.2",

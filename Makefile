@@ -3,7 +3,7 @@
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
 
-.PHONY: build build-int build-browser-install build-tray test test-server test-server-race test-multidb test-int vet lint architecture cover cover-browser cover-frontend tidy frontend fmt comments check
+.PHONY: build build-int build-browser-install build-tray test test-server test-server-race test-multidb test-int vet lint architecture api-generate api-check cover cover-browser cover-frontend tidy frontend fmt comments check
 
 ## build: 编译 server（默认，跳过 integration build tag）
 build:
@@ -55,6 +55,16 @@ lint:
 architecture:
 	$(GO) run ./tools/architecturecheck
 
+## api-generate: 从 OpenAPI 唯一契约源生成只读 TypeScript transport 类型
+api-generate:
+	npm run api:generate --prefix frontend
+
+## api-check: 校验 OpenAPI 规范、版本化路由登记和生成 TypeScript 产物漂移
+api-check:
+	npm run api:check --prefix frontend
+	$(GO) run ./tools/apicheck
+	$(GO) test ./internal/server -run '^TestOpenAPIRoutesMatchRouter$$' -count=1
+
 ## cover: 生成覆盖率报告
 cover:
 	$(GO) test -coverprofile=cover.out ./... && $(GO) tool cover -func=cover.out | tail -1
@@ -85,4 +95,4 @@ comments:
 	node frontend/scripts/check-comments.mjs --mode check --root frontend
 
 ## check: 本地提交前全套检查（fmt + vet + lint + test）
-check: fmt architecture vet lint test comments
+check: fmt architecture api-check vet lint test comments

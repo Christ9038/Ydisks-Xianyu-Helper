@@ -100,7 +100,6 @@ func checkActivatedRepositoryGates(root string, activeStage int) []violation {
 	}
 	if architectureStageEnabled(activeStage, architectureStageClosure) {
 		violations = append(violations, checkQualityArchitecture(root)...)
-		violations = append(violations, checkFrontendDTOFieldContracts(root)...)
 	}
 	return violations
 }
@@ -271,8 +270,8 @@ func checkReactArchitecture(root string) []violation {
 		}
 		// sourceText 是用于模块和网络边界匹配的源码文本。
 		sourceText := string(source)
-		if relativePath != "shared/http/client.ts" && (strings.Contains(sourceText, "fetch(") || regexp.MustCompile(`\baxios\b`).MatchString(sourceText)) {
-			violations = append(violations, violation{file: "frontend/" + relativePath, line: 1, message: "前端生产代码不得绕过 shared/http/client 直接请求网络"})
+		if relativePath != "shared/http/client.ts" && relativePath != "shared/api-contract/client.ts" && (strings.Contains(sourceText, "fetch(") || regexp.MustCompile(`\baxios\b`).MatchString(sourceText)) {
+			violations = append(violations, violation{file: "frontend/" + relativePath, line: 1, message: "前端生产代码不得绕过共享 HTTP 契约客户端直接请求网络"})
 		}
 		if relativePath != "app/shell/AuthenticatedShell.tsx" && strings.Contains(sourceText, "import(") {
 			violations = append(violations, violation{file: "frontend/" + relativePath, line: 1, message: "动态 import 只能用于路由级页面加载，禁止隐藏 feature 依赖"})

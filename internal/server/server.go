@@ -126,7 +126,7 @@ func (s *Server) recoverExpiredSession(ctx context.Context, cookieID string, err
 }
 
 // Router 构建完整路由树。
-func (s *Server) Router() http.Handler {
+func (s *Server) Router() chi.Router {
 	// r 用于本次流程后续判断的r
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)

@@ -44,6 +44,9 @@ jobs:
       - name: 检查架构依赖
         run: go run ./tools/architecturecheck
 
+      - name: 检查 OpenAPI 路由与规范
+        run: go run ./tools/apicheck
+
       - name: 运行 go vet
         run: go vet ./...
 
@@ -81,6 +84,9 @@ jobs:
 
       - name: 检查 TypeScript 类型
         run: npm run typecheck --prefix frontend
+
+      - name: 检查 OpenAPI 生成产物
+        run: npm run api:check --prefix frontend
 
       - name: 运行前端测试
         run: npm test --prefix frontend
