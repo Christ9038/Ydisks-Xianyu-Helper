@@ -439,10 +439,12 @@ func TestDynamicCompatibilitySuccessContracts(t *testing.T) {
 
 	// 二维码状态与验证使用测试专用平台替身。
 	setTestQRLogin(srv, &fakeQRLoginService{status: map[string]any{
-		"status":       "waiting",
-		"session_id":   "contract-qr",
-		"custom_field": "kept",
-		"cookies":      "must-not-leak",
+		"status":                  "verification_required",
+		"session_id":              "contract-qr",
+		"verification_screenshot": "data:image/png;base64,screenshot",
+		"face_qr_url":             "data:image/png;base64,face-qr",
+		"custom_field":            "kept",
+		"cookies":                 "must-not-leak",
 	}})
 	// statusSessionID 是二维码状态测试会话标识。
 	statusSessionID := "contract-qr"
@@ -462,8 +464,12 @@ func TestDynamicCompatibilitySuccessContracts(t *testing.T) {
 	if qrStatusDecodeErr := json.Unmarshal(qrStatusRecorder.Body.Bytes(), &qrStatusValue); qrStatusDecodeErr != nil {
 		t.Fatalf("decode qr status response: %v", qrStatusDecodeErr)
 	}
-	if qrStatusValue.Status != "waiting" || qrStatusValue.SessionID != "contract-qr" {
+	if qrStatusValue.Status != "verification_required" || qrStatusValue.SessionID != "contract-qr" {
 		t.Fatalf("qr status response=%+v", qrStatusValue)
+	}
+	if qrStatusValue.VerificationScreenshot != "data:image/png;base64,screenshot" ||
+		qrStatusValue.FaceQRURL != "data:image/png;base64,face-qr" {
+		t.Fatalf("qr verification fields=%+v", qrStatusValue)
 	}
 	// leaked 表示二维码状态响应是否意外包含敏感 Cookie 字段。
 	var rawQR map[string]any

@@ -100,6 +100,7 @@ func checkActivatedRepositoryGates(root string, activeStage int) []violation {
 	}
 	if architectureStageEnabled(activeStage, architectureStageClosure) {
 		violations = append(violations, checkQualityArchitecture(root)...)
+		violations = append(violations, checkFrontendDTOFieldContracts(root)...)
 	}
 	return violations
 }

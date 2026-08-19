@@ -1,18 +1,4 @@
-// QRLoginStatusResult 描述二维码登录状态接口返回的可选字段。
-export interface QRLoginStatusResult {
-  // status 表示当前二维码登录状态。
-  status?: string;
-  // cookies 表示登录成功后返回的凭证字符串。
-  cookies?: string;
-  // unb 表示闲鱼账号的用户标识。
-  unb?: string;
-  // verification_url 表示风控验证地址。
-  verification_url?: string;
-  // verification_screenshot 表示风控验证截图地址。
-  verification_screenshot?: string;
-  // face_qr_url 表示人脸验证二维码地址。
-  face_qr_url?: string;
-}
+import type { QRLoginStatusResult } from './api';
 
 // QRLoginPollerTimers 描述轮询器使用的定时器依赖，便于测试替换时间源。
 interface QRLoginPollerTimers {

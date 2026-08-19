@@ -111,7 +111,7 @@ export const useAccountQRCodeLogin = ({ onLoginSuccess }: AccountQRCodeLoginOpti
     // response 保存风控验证完成接口返回值。
     const response = await completeQRVerification(sessionId, target?.id);
     if (!response.success || !response.account_id) {
-      throw new Error(response.message || '保存扫码授权失败');
+		throw new Error('保存扫码授权失败');
     }
     return response.account_id;
   };

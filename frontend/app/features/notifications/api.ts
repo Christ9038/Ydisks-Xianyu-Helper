@@ -39,18 +39,11 @@ const stringifyNotificationEventTypes = (eventTypes?: NotificationEventType[]): 
 
 /** 把后端渠道 DTO 转换为通知编辑器使用的 UI 模型。 */
 const toNotificationChannel = (channel: NotificationChannelResponse): NotificationChannel => {
-  // config 是解析失败时降级为空对象的渠道配置。
-  let config: Record<string, unknown> = {};
-  try {
-    // parsed 是配置文本解析后的未知 JSON 值。
-    const parsed: unknown = typeof channel.config === 'string' ? JSON.parse(channel.config) : channel.config;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) config = parsed as Record<string, unknown>;
-  } catch {
-    // 历史损坏配置不阻止用户继续编辑渠道。
-  }
+	// config 是列表摘要不返回 SMTP 等秘密时使用的空编辑初始值。
+	const config: Record<string, unknown> = {};
   // type 是处理 ding_talk/lark 历史别名后的渠道类型。
   const type = (channel.type === 'ding_talk' ? 'dingtalk' : channel.type === 'lark' ? 'feishu' : channel.type) as NotificationChannel['type'];
-  return { id: String(channel.id), name: channel.name, type, config, event_types: parseNotificationEventTypes(channel.event_types), enabled: channel.enabled, created_at: channel.created_at, updated_at: channel.updated_at };
+	return { id: String(channel.id), name: channel.name, type, config, event_types: parseNotificationEventTypes(channel.event_types), enabled: channel.enabled };
 };
 
 /** 获取全部通知渠道并转换为编辑器模型。 */

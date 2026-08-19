@@ -36,7 +36,7 @@ test('QR poller stops on success and terminal errors', /* 当前回调处理用�
   vi.useFakeTimers();
   // checkStatus check状态，负责当前功能中的对应处理。
   const checkStatus = vi.fn()
-    .mockResolvedValueOnce({ status: 'success', cookies: 'a=b', unb: 'acc1' })
+    .mockResolvedValueOnce({ status: 'success' })
     .mockResolvedValueOnce({ status: 'expired' });
   // onSuccess 响应当前用户操作（Success）。
   const onSuccess = vi.fn();
@@ -53,7 +53,7 @@ test('QR poller stops on success and terminal errors', /* 当前回调处理用�
   await vi.advanceTimersByTimeAsync(2000);
   await flushMicrotasks();
 
-  expect(onSuccess).toHaveBeenCalledWith({ status: 'success', cookies: 'a=b', unb: 'acc1' });
+  expect(onSuccess).toHaveBeenCalledWith({ status: 'success' });
   expect(poller.isActive()).toBe(false);
   await vi.advanceTimersByTimeAsync(4000);
   expect(checkStatus).toHaveBeenCalledTimes(1);
@@ -76,7 +76,6 @@ test('QR poller keeps polling during verification and stops on thrown errors', /
   const checkStatus = vi.fn()
     .mockResolvedValueOnce({
       status: 'verification_required',
-      verification_url: 'https://verify.example',
       face_qr_url: 'https://face.example',
     })
     .mockRejectedValueOnce(new Error('network down'));

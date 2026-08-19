@@ -9,6 +9,7 @@ import (
 
 	itemapp "xianyu-go/internal/application/items"
 	"xianyu-go/internal/db"
+	"xianyu-go/internal/xianyu/mtop"
 )
 
 // TestItemBatchRepositoryCreatesPreviewFromApplicationModels 验证预检应用模型到数据库字段的转换。
@@ -27,8 +28,10 @@ func TestItemBatchRepositoryCreatesPreviewFromApplicationModels(t *testing.T) {
 		{RowNo: 2, CookieID: "cid", Title: "应用模型商品", Price: "10", Quantity: 2, Raw: expectedRaw, Category: itemapp.BatchPreviewCategory{CatID: "cat-1"}},
 		{RowNo: 3, CookieID: "cid", Title: "失败商品", Errors: []string{"标题错误"}},
 	}
+	// location 保存批次持久化后必须仍可还原为平台请求的完整发货地。
+	location := itemapp.Location{Area: "西湖区", City: "杭州市", DivisionID: "330106", Longitude: 120.118, Latitude: 30.259, POIID: "B0FFG7", POIName: "西湖文化广场", Province: "浙江省"}
 	// batch 保存应用层批次元数据。
-	batch := itemapp.BatchPreviewPersistenceBatch{ID: "preview-adapter", UserID: 1, DefaultCookieID: "cid", Filename: "items.csv", UploadDir: t.TempDir(), Location: itemapp.Location{DivisionID: "3301"}}
+	batch := itemapp.BatchPreviewPersistenceBatch{ID: "preview-adapter", UserID: 1, DefaultCookieID: "cid", Filename: "items.csv", UploadDir: t.TempDir(), Location: location}
 	// err 保存应用模型落库错误。
 	if err := repository.CreateBatch(ctx, batch, rows); err != nil {
 		t.Fatalf("创建预检批次失败: %v", err)
@@ -37,6 +40,12 @@ func TestItemBatchRepositoryCreatesPreviewFromApplicationModels(t *testing.T) {
 	storedBatch, batchErr := store.PublishBatches.Get(ctx, 1, batch.ID)
 	if batchErr != nil || storedBatch.Status != "preview" || storedBatch.LocationJSON == "{}" {
 		t.Fatalf("批次字段映射异常: batch=%+v err=%v", storedBatch, batchErr)
+	}
+	// restoredLocation 保存从批次 JSON 还原的平台发货地，用于防止 snake_case 字段在持久化边界丢失。
+	var restoredLocation mtop.PublishLocation
+	// locationErr 保存批次位置 JSON 解码错误。
+	if locationErr := json.Unmarshal([]byte(storedBatch.LocationJSON), &restoredLocation); locationErr != nil || restoredLocation.Area != location.Area || restoredLocation.City != location.City || restoredLocation.DivisionID != location.DivisionID || restoredLocation.Longitude != location.Longitude || restoredLocation.Latitude != location.Latitude || restoredLocation.POIID != location.POIID || restoredLocation.POIName != location.POIName || restoredLocation.Province != location.Province {
+		t.Fatalf("批次发货地序列化异常: stored=%s restored=%+v err=%v", storedBatch.LocationJSON, restoredLocation, locationErr)
 	}
 	// storedRows、rowsErr 保存数据库明细读取结果。
 	storedRows, rowsErr := store.PublishBatches.Rows(ctx, batch.ID)

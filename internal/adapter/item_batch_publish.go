@@ -278,9 +278,45 @@ func batchPublishLocation(raw string) (*mtop.PublishLocation, error) {
 		return nil, errors.New("批量任务发货地配置损坏，请重新创建任务")
 	}
 	if strings.TrimSpace(location.DivisionID) == "" {
+		// legacyLocation 保存 v1.0.2 曾持久化的 PascalCase 发货地格式，仅用于恢复和重试已有批次。
+		var legacyLocation legacyBatchPublishLocation
+		// legacyDecodeErr 保存历史格式 JSON 的解码错误；当前格式已成功解码时才尝试此兼容分支。
+		if legacyDecodeErr := json.Unmarshal([]byte(raw), &legacyLocation); legacyDecodeErr != nil {
+			return nil, errors.New("批量任务发货地配置损坏，请重新创建任务")
+		}
+		if strings.TrimSpace(legacyLocation.DivisionID) != "" {
+			location = mtop.PublishLocation{
+				Area: legacyLocation.Area, City: legacyLocation.City, DivisionID: legacyLocation.DivisionID,
+				Longitude: legacyLocation.Longitude, Latitude: legacyLocation.Latitude, POIID: legacyLocation.POIID,
+				POIName: legacyLocation.POIName, Province: legacyLocation.Province,
+			}
+		}
+	}
+	if strings.TrimSpace(location.DivisionID) == "" {
 		return nil, nil
 	}
 	return &location, nil
+}
+
+// legacyBatchPublishLocation 保存 v1.0.2 因应用模型缺少 JSON 标签而写入数据库的历史发货地格式。
+// 该类型只用于读取旧批次；新批次始终使用 snake_case 字段，避免再次扩大持久化兼容面。
+type legacyBatchPublishLocation struct {
+	// Area 保存历史批次的区县名称。
+	Area string `json:"Area"`
+	// City 保存历史批次的城市名称。
+	City string `json:"City"`
+	// DivisionID 保存历史批次的平台行政区划标识。
+	DivisionID string `json:"DivisionID"`
+	// Longitude 保存历史批次的经度。
+	Longitude float64 `json:"Longitude"`
+	// Latitude 保存历史批次的纬度。
+	Latitude float64 `json:"Latitude"`
+	// POIID 保存历史批次的地图兴趣点标识。
+	POIID string `json:"POIID"`
+	// POIName 保存历史批次的地图兴趣点名称。
+	POIName string `json:"POIName"`
+	// Province 保存历史批次的省份名称。
+	Province string `json:"Province"`
 }
 
 // batchPublishCategory 解析批次默认类目并校验平台必需字段。

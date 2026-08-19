@@ -302,6 +302,14 @@ func publicQRStatus(src map[string]any) qrLoginStatusResponse {
 	if message, ok := src["message"].(string); ok {
 		status.Message = message
 	}
+	// verificationScreenshot 保存风控页面截图兜底地址；ok 表示字段类型确实为字符串。
+	if verificationScreenshot, ok := src["verification_screenshot"].(string); ok {
+		status.VerificationScreenshot = verificationScreenshot
+	}
+	// faceQRURL 保存人脸风控二维码地址；ok 表示字段类型确实为字符串。
+	if faceQRURL, ok := src["face_qr_url"].(string); ok {
+		status.FaceQRURL = faceQRURL
+	}
 	// sessionID 保存扫码会话标识；ok 表示字段类型确实为字符串。
 	if sessionID, ok := src["session_id"].(string); ok {
 		status.SessionID = sessionID

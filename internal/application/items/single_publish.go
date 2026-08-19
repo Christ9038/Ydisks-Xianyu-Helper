@@ -73,21 +73,21 @@ type Image struct {
 // Location 是平台发布所需的发货地信息，不依赖外部平台包的 DTO。
 type Location struct {
 	// Area 是发货地的区县名称。
-	Area string
+	Area string `json:"area"`
 	// City 是发货地的城市名称。
-	City string
+	City string `json:"city"`
 	// DivisionID 是平台行政区划标识。
-	DivisionID string
+	DivisionID string `json:"division_id"`
 	// Longitude 是发货地经度。
-	Longitude float64
+	Longitude float64 `json:"longitude"`
 	// Latitude 是发货地纬度。
-	Latitude float64
+	Latitude float64 `json:"latitude"`
 	// POIID 是地图服务返回的兴趣点标识。
-	POIID string
+	POIID string `json:"poi_id"`
 	// POIName 是地图服务返回的兴趣点名称。
-	POIName string
+	POIName string `json:"poi_name"`
 	// Province 是发货地的省份名称。
-	Province string
+	Province string `json:"province"`
 }
 
 // PublishInput 是单商品发布用例输入，携带已由 HTTP 层验证的业务字段。

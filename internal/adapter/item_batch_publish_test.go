@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -35,8 +36,15 @@ func TestItemBatchPublishPortPersistsRemoteCheckpoint(t *testing.T) {
 	if adminErr != nil {
 		t.Fatalf("读取测试用户失败: %v", adminErr)
 	}
+	// location 保存实物商品最终 MTOP 请求必须携带的批次发货地。
+	location := mtop.PublishLocation{Area: "西湖区", City: "杭州市", DivisionID: "330106", Longitude: 120.118, Latitude: 30.259, POIID: "B0FFG7", POIName: "西湖文化广场", Province: "浙江省"}
+	// locationJSON 保存 worker 重启后还原发货地使用的批次 JSON。
+	locationJSON, locationErr := json.Marshal(location)
+	if locationErr != nil {
+		t.Fatalf("序列化测试发货地失败: %v", locationErr)
+	}
 	// batch 保存待发布的批次配置。
-	batch := &db.ItemPublishBatch{ID: "batch-remote-port", UserID: admin.ID, DefaultCookieID: "cid", UploadDir: t.TempDir(), LocationJSON: `{"division_id":"330100"}`, Status: "pending"}
+	batch := &db.ItemPublishBatch{ID: "batch-remote-port", UserID: admin.ID, DefaultCookieID: "cid", UploadDir: t.TempDir(), LocationJSON: string(locationJSON), Status: "pending"}
 	// rows 保存待发布的单条明细。
 	rows := []db.ItemPublishBatchRow{{RowNo: 1, CookieID: "cid", Title: "批量商品", Description: "批量描述", Price: "12.50", Quantity: 2, PostageMode: "free", ImagesJSON: `["a.png"]`, CategoryJSON: `{"cat_id":"1","cat_name":"类目","channel_cat_id":"2"}`, Status: "pending"}}
 	// createErr 保存批次写入错误。
@@ -67,6 +75,9 @@ func TestItemBatchPublishPortPersistsRemoteCheckpoint(t *testing.T) {
 		publishCalls++
 		if cookies == "" || request.PriceCents != 1250 || request.Quantity != 2 || len(request.Images) != 1 {
 			t.Fatalf("平台请求字段异常: cookies=%q price=%d quantity=%d images=%d", cookies, request.PriceCents, request.Quantity, len(request.Images))
+		}
+		if request.Location == nil || *request.Location != location {
+			t.Fatalf("平台请求未携带完整发货地: location=%+v want=%+v", request.Location, location)
 		}
 		return &mtop.PublishItemResult{ItemID: "remote-item", ItemURL: "https://example.test/item/remote-item", Title: "批量商品", PriceText: "12.50", Quantity: 2, UpdatedCookies: "unb=2; _m_h5_tk=next"}, nil
 	}}
@@ -112,5 +123,16 @@ func TestItemBatchPublishPortRejectsMissingDependencies(t *testing.T) {
 	_, publishErr := port.PublishRemoteRow(context.Background(), 1, itemapp.BatchRow{BatchID: "batch"}, "worker", nil)
 	if publishErr == nil {
 		t.Fatal("缺少数据库时不应伪装批量远端发布成功")
+	}
+}
+
+// TestBatchPublishLocationSupportsV102JSON 验证 v1.0.2 已持久化批次在重试时仍会恢复完整发货地。
+func TestBatchPublishLocationSupportsV102JSON(t *testing.T) {
+	// raw 保存 v1.0.2 缺少 JSON 标签时由编码器生成的 PascalCase 发货地 JSON。
+	raw := `{"Area":"西湖区","City":"杭州市","DivisionID":"330106","Longitude":120.118,"Latitude":30.259,"POIID":"B0FFG7","POIName":"西湖文化广场","Province":"浙江省"}`
+	// location、locationErr 保存历史 JSON 解码后的平台发货地及错误。
+	location, locationErr := batchPublishLocation(raw)
+	if locationErr != nil || location == nil || location.Area != "西湖区" || location.City != "杭州市" || location.DivisionID != "330106" || location.Longitude != 120.118 || location.Latitude != 30.259 || location.POIID != "B0FFG7" || location.POIName != "西湖文化广场" || location.Province != "浙江省" {
+		t.Fatalf("v1.0.2 历史发货地恢复异常: location=%+v err=%v", location, locationErr)
 	}
 }

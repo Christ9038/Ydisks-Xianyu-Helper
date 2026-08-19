@@ -772,6 +772,10 @@ type qrLoginStatusResponse struct {
 	Status string `json:"status"`
 	// Message 是可选的平台提示文本。
 	Message string `json:"message,omitempty"`
+	// VerificationScreenshot 是平台风控验证页面的非敏感截图兜底地址。
+	VerificationScreenshot string `json:"verification_screenshot,omitempty"`
+	// FaceQRURL 是人脸风控验证二维码的图片地址，前端优先使用它引导用户扫码。
+	FaceQRURL string `json:"face_qr_url,omitempty"`
 	// SessionID 是可选的扫码会话标识。
 	SessionID string `json:"session_id,omitempty"`
 	// AccountID 是扫码成功后创建或更新的本地账号标识。

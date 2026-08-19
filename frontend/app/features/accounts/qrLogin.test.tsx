@@ -59,7 +59,7 @@ describe('useAccountQRCodeLogin 二维码登录协调器', /* 当前回调验证
     expect(hook.result.current.qrStatus).toBe('waiting');
     expect(hook.result.current.qrCodeUrl).toBe('qr-url');
 
-    qrLoginMocks.checkQRLoginStatus.mockResolvedValueOnce({ status: 'success', cookies: 'a=b', unb: 'user-1' });
+    qrLoginMocks.checkQRLoginStatus.mockResolvedValueOnce({ status: 'success' });
     await act(/* pollAction 触发二维码状态轮询。 */ async () => {
       await vi.advanceTimersByTimeAsync(2000);
       await flushMicrotasks();

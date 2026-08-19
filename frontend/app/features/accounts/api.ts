@@ -17,6 +17,13 @@ QRLoginGenerateResponse,QRLoginStatusResponse,QRLoginVerificationResponse
 import { del,get,post,put,type RequestControlOptions } from '../../../shared/http/client';
 import { collectionFrom,objectFrom } from '../../../shared/http/contract';
 export type * from '../../../shared/api-contract/accounts';
+
+// QRLoginStatusResult 描述账号 feature 消费的非敏感二维码状态字段。
+export type QRLoginStatusResult = Pick<
+  QRLoginStatusResponse,
+  'status' | 'message' | 'session_id' | 'account_id' | 'is_new_account' | 'verification_screenshot' | 'face_qr_url'
+>;
+
 // Accounts
 // addAccount 新增账号。
 export const addAccount = async (id: string, value: string, loginMethod?: string): Promise<OperationResponse> => {
@@ -294,13 +301,8 @@ export const getNotificationChannels = async (options?: RequestControlOptions): 
   const result = await get<unknown>('/api/v1/notifications/channels', undefined, options);
   // channels 通知渠道列表，用于当前 API 处理流程。
   const channels = collectionFrom<NotificationChannelResponse>(result, ['data', 'channels', 'items']).map(/* 当前回调用于处理集合元素或接口响应。 */ (item: NotificationChannelResponse) => {
-    // parsedConfig 解析后的通知配置，用于当前 API 处理流程。
-    let parsedConfig;
-    try {
-      parsedConfig = typeof item.config === 'string' ? JSON.parse(item.config) : item.config;
-    } catch {
-		parsedConfig = {};
-    }
+		// parsedConfig 是列表摘要刻意不返回渠道秘密时使用的空编辑初始值。
+		const parsedConfig: Record<string, unknown> = {};
     // normalizedType 是兼容旧渠道别名后的前端渠道类型。
     const normalizedType = (item.type === 'ding_talk' ? 'dingtalk' : (item.type === 'lark' ? 'feishu' : item.type)) as NotificationChannel['type'];
     return {
@@ -310,8 +312,6 @@ export const getNotificationChannels = async (options?: RequestControlOptions): 
       config: parsedConfig,
       event_types: parseNotificationEventTypes(item.event_types),
       enabled: item.enabled,
-      created_at: item.created_at,
-      updated_at: item.updated_at,
     };
   });
   return { success: true, data: channels };

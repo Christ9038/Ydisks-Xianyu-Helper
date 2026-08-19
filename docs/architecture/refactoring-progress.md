@@ -340,3 +340,41 @@ $ git diff --check
 ```
 
 - 外部环境：2026-08-19 使用 Docker 29.4.0 临时启动 `mysql:8` 与 `postgres:17`，均绑定到本机回环地址并通过就绪检查；真实 Chromium 集成、MySQL/PostgreSQL 多方言回归和两个 `cmd/dbverify` 均已执行且通过。多数据库测试创建并清理独立 `xytest_*` 数据库，验收结束后已删除两个临时容器。未执行真实账号登录或外部平台调用。`cover.out`、`cover-browser.out` 和 `frontend/coverage/` 是生成验证产物，未纳入提交。
+
+### 2026-08-19 阶段六二维码风控状态 DTO 完整性修复
+
+- 交付范围：`publicQRStatus` 将底层二维码会话已生成的 `face_qr_url` 和 `verification_screenshot` 显式映射到具名 HTTP DTO；前端共享二维码状态契约同步声明这两个展示字段，账号 feature 的轮询类型经自身 API adapter 派生，避免共享 transport DTO 与 feature 类型漂移。
+- 敏感数据边界：未重新暴露 `cookies`、`cookie_snapshot`、`unb` 或 `verification_url`。其中验证链接不属于 UI 消费字段，且既有前端契约明确禁止渲染；人脸二维码优先展示，截图只作为兜底。
+- 回归保护：服务端契约测试同时断言二维码和截图透传、Cookie 脱敏；前端轮询与 Hook 测试仅使用当前公开状态字段；版本化与兼容路由继续复用同一 handler。
+- 冻结边界：未修改 `internal/browser/slider.go`、`token_captcha*.go`、其测试或冻结规范。
+
+### 本次验收
+
+```text
+$ go test ./internal/server ./internal/xianyu/qrlogin -count=1
+ok   xianyu-go/internal/server
+ok   xianyu-go/internal/xianyu/qrlogin
+
+$ npm test --prefix frontend -- --run
+Test Files  67 passed (67)
+Tests       405 passed (405)
+
+$ npm run typecheck --prefix frontend
+(无输出，退出码 0)
+
+$ npm run comments:check --prefix frontend && make comments
+Go/前端 commentlint 均通过。
+
+$ npm run build --prefix frontend
+✓ built in 2.76s；已重建 internal/webui/static。
+
+$ go run ./tools/architecturecheck && git diff --check
+architecturecheck: 通过；git diff --check 无输出。
+```
+
+### 2026-08-19 阶段六前后端 DTO 字段完整性门禁
+
+- 审计范围：共享 `frontend/shared/api-contract/transport.ts` 的全部导出对象 DTO，以及每个 `frontend/app/features/*/api.ts` 中的响应形态 DTO；健康检查 `BuildInfo` 也显式登记。门禁要求每个 DTO 都在 `frontendDTOContractSpecs` 登记，直接 HTTP DTO 的每个顶层字段必须在 `internal/server` 对应具名结构体中以 JSON 标签提供。
+- 解析边界：门禁会展开 TypeScript `extends` 字段和 Go 匿名嵌入 DTO 字段，避免订单详情等兼容顶层字段产生误报；嵌套对象字段单独属于其行 DTO，不被错误归入外层响应。动态键、feature 归一化和脱敏模型必须逐项写明理由，不能静默跳过。
+- 修复结果：二维码风控状态已补齐 `verification_screenshot` 和 `face_qr_url`；删除卡券时间字段、账号 AI 模型/密钥字段、通知渠道配置与时间字段等服务端从未提供且前端不消费的历史契约。通知渠道列表继续不返回配置，避免 SMTP 等秘密穿透摘要 DTO；编辑器用空配置初始化。
+- 回归保护：新增真实临时仓库夹具测试，确认遗漏后端字段会触发门禁；新增匿名嵌入解析测试。冻结滑块验证码实现及其调用语义未修改。

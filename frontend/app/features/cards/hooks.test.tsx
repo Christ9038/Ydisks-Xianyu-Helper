@@ -19,7 +19,7 @@ const batchCreateMock = vi.mocked(batchCreateCards);
 const getCardsMock = vi.mocked(getCards);
 
 // cardFixture 是 data 类型卡密组的完整测试对象。
-const cardFixture: Card = { id: 1, name: '库存一', type: 'data', enabled: true, data_content: 'old', created_at: '2026-01-01', updated_at: '2026-01-01' };
+const cardFixture: Card = { id: 1, name: '库存一', type: 'data', enabled: true, data_content: 'old' };
 // loadCardsFixture 是批量操作完成后的库存刷新替身。
 const loadCardsFixture = vi.fn().mockResolvedValue(undefined);
 

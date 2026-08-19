@@ -296,10 +296,6 @@ export interface Card {
   spec_name?: string;
   /** 规格值。 */
   spec_value?: string;
-  /** 卡券组创建时间。 */
-  created_at: string;
-  /** 卡券组更新时间。 */
-  updated_at: string;
 }
 
 // Items
@@ -328,8 +324,6 @@ export interface Item {
   multi_quantity_delivery?: number | boolean;
   /** 是否启用多数量发货兼容字段。 */
   is_multi_qty_ship?: number | boolean;
-  /** 商品创建时间。 */
-  created_at?: string;
 }
 
 export type AutomationTriggerType = 'order_paid' | 'buyer_reviewed' | 'review_missing_timeout';
@@ -536,12 +530,6 @@ export interface SystemSettings {
 export interface AIReplySettings {
   /** 是否启用账号 AI 回复。 */
   ai_enabled: boolean;
-  /** 账号使用的模型名称。 */
-  model_name?: string;
-  /** 账号 AI API 密钥。 */
-  api_key?: string;
-  /** 账号 AI 基础地址。 */
-  base_url?: string;
   /** 最大折扣比例。 */
   max_discount_percent: number;
   /** 最大折扣金额。 */
@@ -1211,18 +1199,12 @@ export interface NotificationChannelResponse {
   name: string;
   /** 通知渠道类型。 */
   type: string;
-  /** 通知渠道配置 JSON。 */
-  config: string;
-  /** 订阅事件类型 JSON 或兼容文本。 */
-  event_types?: string;
+	/** 订阅事件类型 JSON 或兼容文本。 */
+	event_types?: string;
   /** 通知渠道是否启用。 */
   enabled: boolean;
   /** 所属用户主键。 */
   user_id?: number;
-  /** 创建时间；旧接口可能省略。 */
-  created_at?: string;
-  /** 更新时间；旧接口可能省略。 */
-  updated_at?: string;
 }
 
 /** 卡券列表接口的兼容包装响应。 */
@@ -1507,11 +1489,13 @@ export interface QRLoginGenerateResponse {
 export interface QRLoginStatusResponse {
   /** 当前二维码会话状态。 */
   status: string;
+  /** 风控验证页面截图地址，在人脸二维码不可用时作为展示兜底。 */
+  verification_screenshot?: string;
+  /** 闲鱼人脸风控验证二维码地址，验证页面优先展示。 */
+  face_qr_url?: string;
   /** 扫码登录会话标识。 */
   session_id?: string;
-  /** 平台账号标识。 */
-  unb?: string;
-  /** 持久化后的本地账号标识。 */
+	/** 持久化后的本地账号标识。 */
   account_id?: string;
   /** 是否新建了本地账号。 */
   is_new_account?: boolean;
@@ -1531,10 +1515,6 @@ export interface QRLoginVerificationResponse {
   account_id?: string;
   /** 是否新建了本地账号。 */
   is_new_account?: boolean;
-  /** 扫码账号与目标账号不一致时的提示标识。 */
-  scanned_account_id?: string;
-  /** 验证结果提示文本。 */
-  message?: string;
 }
 
 /** 订单列表刷新逐项结果。 */

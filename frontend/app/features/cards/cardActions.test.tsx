@@ -26,8 +26,6 @@ const cardFixture: Card = {
   description: '测试库存',
   enabled: true,
   delay_seconds: 0,
-  created_at: '2026-08-15T00:00:00Z',
-  updated_at: '2026-08-15T00:00:00Z',
 };
 
 // textCardFixture 表示用于筛选和新增测试的文本类型卡密组。
