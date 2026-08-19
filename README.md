@@ -220,6 +220,10 @@ Linux 上传 amd64/arm64 tar 包，Windows 上传安装器，macOS 分别上传 
 步骤会失败，不会生成可分发的安装包。当前仓库未配置正式签名证书时，Windows/macOS 正式发布
 会停在签名步骤；Linux 安装包不依赖桌面端签名证书。
 
+GitHub Release 正文使用正式标签所指向提交的短 SHA 和完整 Git commit message（主题和正文），不会展开
+标签之间的全部历史提交。重跑同名标签时会同步更新正文并覆盖发布附件，不会使用 GitHub 自动生成的
+PR 分类说明。
+
 Linux 安装包的 `install.sh` 必须在与安装包相同架构的 Linux 主机上以 root 执行。安装包已经
 包含对应架构的 Playwright driver、Chromium 和 headless shell；安装时只安装 Chromium 所需
 系统库，不会从 Debian 仓库重新安装 Chromium。

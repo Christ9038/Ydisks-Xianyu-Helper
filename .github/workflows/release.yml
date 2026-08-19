@@ -74,6 +74,8 @@ jobs:
     steps:
       - name: 检出正式版本代码
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: 下载全部构建产物
         uses: actions/download-artifact@v8
@@ -167,12 +169,20 @@ jobs:
           APP_VERSION: ${{ needs.prepare.outputs.app_version }}
         run: |
           set -Eeuo pipefail
+          release_notes_file="dist/release-notes.md"
+          git log -1 --format='提交：%h%n%n%B' "$GITHUB_REF_NAME" > "$release_notes_file"
+          if [ ! -s "$release_notes_file" ]; then
+            printf '%s\n' '本版本提交未提供 release notes。' > "$release_notes_file"
+          fi
           mapfile -t release_files < <(find dist/release -maxdepth 1 -type f -print | sort)
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" \
+              --title "Ydisks 闲鱼助手 $APP_VERSION" \
+              --notes-file "$release_notes_file"
             gh release upload "$GITHUB_REF_NAME" "${release_files[@]}" --clobber
           else
             gh release create "$GITHUB_REF_NAME" "${release_files[@]}" \
               --verify-tag \
-              --generate-notes \
+              --notes-file "$release_notes_file" \
               --title "Ydisks 闲鱼助手 $APP_VERSION"
           fi
