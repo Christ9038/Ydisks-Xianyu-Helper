@@ -342,3 +342,32 @@ func TestOpenAPIItemAndCardResponses(t *testing.T) {
 	handler.ServeHTTP(invalidUploadRecorder, invalidUploadRequest)
 	assertOpenAPIResponse(t, invalidUploadRequest, invalidUploadRecorder)
 }
+
+// TestOpenAPINotificationResponses 验证阶段五通知摘要和动态账号绑定键符合 OpenAPI 约束。
+func TestOpenAPINotificationResponses(t *testing.T) {
+	// srv、_、cleanup 分别是测试 Server、无需直接访问的存储和资源释放函数。
+	srv, _, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 是包含通知版本化路由的真实 chi Router。
+	handler := srv.Router()
+	// sessionCookie 是管理员会话 Cookie，用于读取当前用户通知资源。
+	sessionCookie := loginHelper(t, handler)
+	// channelsRequest 是读取非敏感通知渠道摘要的成功请求。
+	channelsRequest := httptest.NewRequest(http.MethodGet, "/api/v1/notifications/channels", nil)
+	channelsRequest.AddCookie(sessionCookie)
+	// channelsRecorder 捕获通知渠道摘要响应。
+	channelsRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(channelsRecorder, channelsRequest)
+	assertOpenAPISuccessResponse(t, channelsRequest, channelsRecorder)
+	if strings.Contains(channelsRecorder.Body.String(), "smtp_password") || strings.Contains(channelsRecorder.Body.String(), "token") {
+		t.Fatalf("通知渠道摘要泄漏秘密配置: %s", channelsRecorder.Body.String())
+	}
+
+	// bindingsRequest 是读取按账号动态键组织的通知绑定成功请求。
+	bindingsRequest := httptest.NewRequest(http.MethodGet, "/api/v1/notifications/messages", nil)
+	bindingsRequest.AddCookie(sessionCookie)
+	// bindingsRecorder 捕获动态账号键通知绑定响应。
+	bindingsRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(bindingsRecorder, bindingsRequest)
+	assertOpenAPISuccessResponse(t, bindingsRequest, bindingsRecorder)
+}

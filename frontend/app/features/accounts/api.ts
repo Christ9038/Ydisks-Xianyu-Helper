@@ -15,7 +15,7 @@ OperationResponse,
 QRLoginGenerateResponse,QRLoginStatusResponse,QRLoginVerificationResponse
 } from '../../../shared/api-contract/accounts';
 import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
-import { get,post,put,type RequestControlOptions } from '../../../shared/http/client';
+import { type RequestControlOptions } from '../../../shared/http/client';
 import { collectionFrom,objectFrom } from '../../../shared/http/contract';
 export type * from '../../../shared/api-contract/accounts';
 
@@ -88,15 +88,15 @@ export const getAccountDetails = async (options?: RequestControlOptions): Promis
 
 // getAccountTaskSettings 读取账号计划任务设置。
 export const getAccountTaskSettings = async (id: string, options?: RequestControlOptions): Promise<AccountTaskSettingsResponse> =>
-	get(`/api/v1/account-tasks/${id}`, undefined, options);
+	runContractRequest(/* signal 控制账号计划任务读取的取消和超时。 */ signal => contractClient.GET('/api/v1/account-tasks/{cid}', { params: { path: { cid: id } }, signal }), options) as unknown as Promise<AccountTaskSettingsResponse>;
 
 // updateAccountTaskSettings 更新账号计划任务设置。
 export const updateAccountTaskSettings = async (id: string, settings: AccountTaskSettings, options?: RequestControlOptions): Promise<AccountTaskSettingsResponse> =>
-	put(`/api/v1/account-tasks/${id}`, settings, options);
+	runContractRequest(/* signal 控制账号计划任务更新的取消和超时。 */ signal => contractClient.PUT('/api/v1/account-tasks/{cid}', { params: { path: { cid: id } }, body: settings as never, signal }), options) as unknown as Promise<AccountTaskSettingsResponse>;
 
 // runAccountTask 立即执行账号计划任务。
 export const runAccountTask = async (id: string, taskType: 'auto_rate' | 'auto_polish', options?: RequestControlOptions): Promise<AccountTaskRunResponseEnvelope> =>
-	post(`/api/v1/account-tasks/${id}/run`, { task_type: taskType }, { timeoutMs: 120_000, ...options });
+	runContractRequest(/* signal 控制账号计划任务立即执行的取消和长超时。 */ signal => contractClient.POST('/api/v1/account-tasks/{cid}/run', { params: { path: { cid: id } }, body: { task_type: taskType } as never, signal }), { timeoutMs: 120_000, ...options }) as unknown as Promise<AccountTaskRunResponseEnvelope>;
 
 
 export interface AccountRuntimeStatus {
@@ -322,7 +322,7 @@ export const updateAccountLoginInfo = async (id: string, data: {
 
 // getAllAISettings 读取全部人工智能设置。
 export const getAllAISettings = async (options?: RequestControlOptions): Promise<Record<string, AIReplySettings>> => {
-  const response = await get<unknown>('/api/v1/settings/ai-reply', undefined, options);
+  const response = await runContractRequest(/* signal 控制全部账号 AI 设置读取的取消和超时。 */ signal => contractClient.GET('/api/v1/settings/ai-reply', { signal }), options) as unknown;
   // settings 是兼容直接映射、data 包裹和 null 的账号 AI 设置索引。
   return objectFrom<Record<string, AIReplySettings>>(response, ['settings', 'data', 'result']) || {};
 };
@@ -330,7 +330,7 @@ export const getAllAISettings = async (options?: RequestControlOptions): Promise
 
 // getAccountAISettings 读取账号人工智能设置。
 export const getAccountAISettings = async (cookieId: string, options?: RequestControlOptions): Promise<AIReplySettingsResponse> => {
-    return get(`/api/v1/settings/ai-reply/${cookieId}`, undefined, options);
+    return runContractRequest(/* signal 控制账号 AI 设置读取的取消和超时。 */ signal => contractClient.GET('/api/v1/settings/ai-reply/{cookie_id}', { params: { path: { cookie_id: cookieId } }, signal }), options) as unknown as Promise<AIReplySettingsResponse>;
 }
 
 // updateAccountAISettings 更新账号人工智能设置。
@@ -343,7 +343,7 @@ export const updateAccountAISettings = async (cookieId: string, settings: Partia
     max_bargain_rounds: settings.max_bargain_rounds ?? 3,
     custom_prompts: settings.custom_prompts ?? ''
   };
-  return put(`/api/v1/settings/ai-reply/${cookieId}`, payload, options);
+  return runContractRequest(/* signal 控制账号 AI 设置更新的取消和超时。 */ signal => contractClient.PUT('/api/v1/settings/ai-reply/{cookie_id}', { params: { path: { cookie_id: cookieId } }, body: payload as never, signal }), options);
 }
 
 
@@ -364,7 +364,7 @@ const parseNotificationEventTypes = (raw: unknown): NotificationEventType[] => {
 // getNotificationChannels 读取通知渠道。
 export const getNotificationChannels = async (options?: RequestControlOptions): Promise<{ /** success 表示是否成功。 */ success: boolean; /** data 表示数据。 */ data?: NotificationChannel[] }> => {
   // result 接口响应结果，用于当前 API 处理流程。
-  const result = await get<unknown>('/api/v1/notifications/channels', undefined, options);
+  const result = await runContractRequest(/* signal 控制账号页通知渠道读取的取消和超时。 */ signal => contractClient.GET('/api/v1/notifications/channels', { signal }), options) as unknown;
   // channels 通知渠道列表，用于当前 API 处理流程。
   const channels = collectionFrom<NotificationChannelResponse>(result, ['data', 'channels', 'items']).map(/* 当前回调用于处理集合元素或接口响应。 */ (item: NotificationChannelResponse) => {
 		// parsedConfig 是列表摘要刻意不返回渠道秘密时使用的空编辑初始值。
@@ -387,7 +387,7 @@ export const getNotificationChannels = async (options?: RequestControlOptions): 
 // 账号 ↔ 渠道 绑定（覆盖式）
 export const getAccountBindings = async (cookieId: string, options?: RequestControlOptions): Promise<number[]> => {
   // response 是兼容直接绑定对象、data 包裹和 null 的通知绑定响应。
-  const response = await get<unknown>(`/api/v1/notifications/accounts/${cookieId}/bindings`, undefined, options);
+  const response = await runContractRequest(/* signal 控制账号页通知绑定读取的取消和超时。 */ signal => contractClient.GET('/api/v1/notifications/accounts/{cid}/bindings', { params: { path: { cid: cookieId } }, signal }), options) as unknown;
   // result 是去除历史包裹后的账号通知绑定对象。
   const result = objectFrom<Partial<AccountBindingsResponse>>(response, ['data', 'result']) || {};
   return Array.isArray(result.channel_ids) ? result.channel_ids : [];

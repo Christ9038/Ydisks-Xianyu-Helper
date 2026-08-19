@@ -1859,6 +1859,23 @@ export interface components {
             multi_quantity_delivery: boolean;
             is_multi_qty_ship: boolean;
         };
+        NotificationChannelResponse: {
+            id: number;
+            name: string;
+            type: string;
+            event_types?: string;
+            enabled: boolean;
+            user_id?: number;
+        };
+        NotificationBinding: {
+            id: number;
+            channel_id: number;
+            channel_name: string;
+            enabled: boolean;
+        };
+        NotificationBindingsByAccount: {
+            [key: string]: components["schemas"]["NotificationBinding"][];
+        };
         SessionResponse: {
             success: boolean;
             token?: string | null;
@@ -7838,7 +7855,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["NotificationChannelResponse"][];
                 };
             };
             /** @description 统一错误响应 */
@@ -8169,7 +8186,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse"];
+                    "application/json": components["schemas"]["NotificationBindingsByAccount"];
                 };
             };
             /** @description 统一错误响应 */

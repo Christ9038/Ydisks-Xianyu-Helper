@@ -3903,7 +3903,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                type: array
+                items:
+                  $ref: '#/components/schemas/NotificationChannelResponse'
         '400':
           description: 统一错误响应
           content:
@@ -4129,7 +4131,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/NotificationBindingsByAccount'
         '400':
           description: 统一错误响应
           content:
@@ -6649,6 +6651,30 @@ components:
         is_multi_spec: {type: boolean}
         multi_quantity_delivery: {type: boolean}
         is_multi_qty_ship: {type: boolean}
+    NotificationChannelResponse:
+      type: object
+      required: [id, name, type, enabled]
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        type: {type: string}
+        event_types: {type: string}
+        enabled: {type: boolean}
+        user_id: {type: integer}
+    NotificationBinding:
+      type: object
+      required: [id, channel_id, channel_name, enabled]
+      properties:
+        id: {type: integer}
+        channel_id: {type: integer}
+        channel_name: {type: string}
+        enabled: {type: boolean}
+    NotificationBindingsByAccount:
+      type: object
+      additionalProperties:
+        type: array
+        items:
+          $ref: '#/components/schemas/NotificationBinding'
     SessionResponse:
       type: object
       required: [success, message, is_admin]

@@ -449,3 +449,9 @@ architecturecheck: 通过；git diff --check 无输出。
 
 - 交付范围：items、发布批次、卡券和表格上传全部改由 feature adapter 通过生成 operation 发起；FormData 在共享运行时按 multipart Content-Type 原样重建，未引入 Base64。
 - 回归保护：真实 Router 测试覆盖商品、卡券列表的成功和未认证响应，以及卡券文件上传的格式错误 envelope；原有批次取消、重试、代次隔离和 CSV 下载行为保持不变。
+
+### 2026-08-20 OpenAPI 契约阶段五：自动化、设置和通知动态契约
+
+- 交付范围：自动化规则、回复规则、默认回复、账号计划任务、账号 AI 设置、系统设置与通知渠道/绑定均通过生成 operation 访问；UI 归一化和秘密表单状态仍留在 feature adapter。
+- 动态值：`NotificationBindingsByAccount` 使用 `additionalProperties` 限定每个账号键对应 `NotificationBinding[]`；通知渠道摘要不返回 SMTP 密码、Token 或完整秘密配置。
+- 回归保护：真实 Router 响应测试验证渠道列表与动态账号绑定映射；`make api-check`、architecturecheck、前端 typecheck/tests 与注释门禁通过。

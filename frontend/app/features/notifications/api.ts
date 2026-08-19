@@ -1,5 +1,6 @@
 import type { MutationIDResponse,NotificationBinding,NotificationChannel,NotificationChannelResponse,NotificationEventType,OperationResponse,SystemSettings } from '../../../shared/api-contract/notifications';
-import { del,get,post,put,type RequestControlOptions } from '../../../shared/http/client';
+import { type RequestControlOptions } from '../../../shared/http/client';
+import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
 export type * from '../../../shared/api-contract/notifications';
 
 /** 通知渠道写入时使用的具名请求 DTO。 */
@@ -49,14 +50,14 @@ const toNotificationChannel = (channel: NotificationChannelResponse): Notificati
 /** 获取全部通知渠道并转换为编辑器模型。 */
 export const getNotificationChannels = async (options?: RequestControlOptions): Promise<{ /** 操作是否完成。 */ success: boolean; /** 渠道列表。 */ data: NotificationChannel[] }> => {
   // response 是渠道列表的原始传输响应。
-  const response = await get<NotificationChannelResponse[] | { /** channels 是后端包装的渠道列表。 */ data?: NotificationChannelResponse[]; /** channels 是兼容字段。 */ channels?: NotificationChannelResponse[] }>('/api/v1/notifications/channels', undefined, options);
+  const response = await runContractRequest(/* signal 控制通知渠道列表读取的取消和超时。 */ signal => contractClient.GET('/api/v1/notifications/channels', { signal }), options) as unknown as NotificationChannelResponse[] | { /** channels 是后端包装的渠道列表。 */ data?: NotificationChannelResponse[]; /** channels 是兼容字段。 */ channels?: NotificationChannelResponse[] };
   // channels 是兼容直接数组与包装数组后的原始渠道列表。
   const channels = Array.isArray(response) ? response : response.data || response.channels || [];
   return { success: true, data: channels.map(toNotificationChannel) };
 };
 
 /** 创建通知渠道，并在传输边界序列化配置与事件。 */
-export const createNotificationChannel = async (data: Required<Pick<NotificationChannelRequest, 'name' | 'type' | 'config'>> & NotificationChannelRequest, options?: RequestControlOptions): Promise<MutationIDResponse> => post('/api/v1/notifications/channels', { ...data, config: JSON.stringify(data.config), event_types: stringifyNotificationEventTypes(data.event_types) }, options);
+export const createNotificationChannel = async (data: Required<Pick<NotificationChannelRequest, 'name' | 'type' | 'config'>> & NotificationChannelRequest, options?: RequestControlOptions): Promise<MutationIDResponse> => runContractRequest(/* signal 控制通知渠道创建请求的取消和超时。 */ signal => contractClient.POST('/api/v1/notifications/channels', { body: { ...data, config: JSON.stringify(data.config), event_types: stringifyNotificationEventTypes(data.event_types) } as never, signal }), options) as unknown as Promise<MutationIDResponse>;
 
 /** 更新通知渠道的可编辑字段。 */
 export const updateNotificationChannel = async (channelID: string, data: NotificationChannelRequest, options?: RequestControlOptions): Promise<OperationResponse> => {
@@ -64,16 +65,16 @@ export const updateNotificationChannel = async (channelID: string, data: Notific
   const payload: Record<string, unknown> = { ...data };
   if ('config' in data) payload.config = JSON.stringify(data.config);
   if ('event_types' in data) payload.event_types = stringifyNotificationEventTypes(data.event_types);
-  return put(`/api/v1/notifications/channels/${channelID}`, payload, options);
+  return runContractRequest(/* signal 控制通知渠道更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/notifications/channels/{channel_id}', { params: { path: { channel_id: channelID } }, body: payload as never, signal }), options) as unknown as Promise<OperationResponse>;
 };
 
 /** 删除指定通知渠道。 */
-export const deleteNotificationChannel = async (channelID: string, options?: RequestControlOptions): Promise<OperationResponse> => del(`/api/v1/notifications/channels/${channelID}`, undefined, options);
+export const deleteNotificationChannel = async (channelID: string, options?: RequestControlOptions): Promise<OperationResponse> => runContractRequest(/* signal 控制通知渠道删除请求的取消和超时。 */ signal => contractClient.DELETE('/api/v1/notifications/channels/{channel_id}', { params: { path: { channel_id: channelID } }, signal }), options);
 
 /** 获取并展平按账号分组存储的消息通知绑定。 */
 export const getMessageNotifications = async (): Promise<{ /** 操作是否完成。 */ success: boolean; /** 展平后的绑定列表。 */ data: NotificationBinding[] }> => {
   // response 是按账号 ID 分组的通知绑定响应。
-  const response = await get<Record<string, NotificationBinding[]>>('/api/v1/notifications/messages');
+  const response = await runContractRequest(/* signal 控制消息通知列表读取的取消和超时。 */ signal => contractClient.GET('/api/v1/notifications/messages', { signal })) as unknown as Record<string, NotificationBinding[]>;
   // bindings 是供页面直接渲染的扁平绑定集合。
   const bindings: NotificationBinding[] = [];
   for (const /* accountID、channelBindings 是当前账号及其原始渠道绑定列表。 */ [accountID, channelBindings] of Object.entries(response || {})) {
@@ -84,26 +85,26 @@ export const getMessageNotifications = async (): Promise<{ /** 操作是否完�
 };
 
 /** 设置单个账号与渠道之间的启用状态。 */
-export const setMessageNotification = async (accountID: string, channelID: number, enabled: boolean): Promise<OperationResponse> => post(`/api/v1/notifications/accounts/${accountID}/bindings`, { channel_id: channelID, enabled });
+export const setMessageNotification = async (accountID: string, channelID: number, enabled: boolean): Promise<OperationResponse> => runContractRequest(/* signal 控制单账号通知开关更新请求的取消和超时。 */ signal => contractClient.POST('/api/v1/notifications/accounts/{cid}/bindings', { params: { path: { cid: accountID } }, body: { channel_id: channelID, enabled } as never, signal }));
 
 /** 删除单个消息通知绑定。 */
-export const deleteMessageNotification = async (notificationID: string): Promise<OperationResponse> => del(`/api/v1/notifications/messages/${notificationID}`);
+export const deleteMessageNotification = async (notificationID: string): Promise<OperationResponse> => runContractRequest(/* signal 控制单条通知删除请求的取消和超时。 */ signal => contractClient.DELETE('/api/v1/notifications/messages/{notification_id}', { params: { path: { notification_id: notificationID } }, signal }));
 
 /** 删除指定账号的全部消息通知绑定。 */
-export const deleteAccountNotifications = async (accountID: string): Promise<OperationResponse> => del(`/api/v1/notifications/messages/account/${accountID}`);
+export const deleteAccountNotifications = async (accountID: string): Promise<OperationResponse> => runContractRequest(/* signal 控制账号通知清理请求的取消和超时。 */ signal => contractClient.DELETE('/api/v1/notifications/messages/account/{cid}', { params: { path: { cid: accountID } }, signal }));
 
 /** 读取指定账号已绑定的通知渠道主键。 */
 export const getAccountBindings = async (accountID: string, options?: RequestControlOptions): Promise<number[]> => {
   // response 是账号渠道绑定的具名响应。
-  const response = await get<{ /** channelIDs 是绑定渠道主键集合。 */ channel_ids?: number[]; /** data 是兼容包装。 */ data?: { /** channelIDs 是绑定渠道主键集合。 */ channel_ids?: number[] } }>(`/api/v1/notifications/accounts/${accountID}/bindings`, undefined, options);
+  const response = await runContractRequest(/* signal 控制账号通知绑定读取的取消和超时。 */ signal => contractClient.GET('/api/v1/notifications/accounts/{cid}/bindings', { params: { path: { cid: accountID } }, signal }), options) as unknown as { /** channelIDs 是绑定渠道主键集合。 */ channel_ids?: number[]; /** data 是兼容包装。 */ data?: { /** channelIDs 是绑定渠道主键集合。 */ channel_ids?: number[] } };
   return Array.isArray(response.channel_ids) ? response.channel_ids : Array.isArray(response.data?.channel_ids) ? response.data.channel_ids : [];
 };
 
 /** 覆盖保存指定账号的通知渠道绑定。 */
-export const setAccountBindings = async (accountID: string, channelIDs: number[]): Promise<OperationResponse> => post(`/api/v1/notifications/accounts/${accountID}/bindings`, { channel_ids: channelIDs });
+export const setAccountBindings = async (accountID: string, channelIDs: number[]): Promise<OperationResponse> => runContractRequest(/* signal 控制账号通知绑定覆盖请求的取消和超时。 */ signal => contractClient.POST('/api/v1/notifications/accounts/{cid}/bindings', { params: { path: { cid: accountID } }, body: { channel_ids: channelIDs } as never, signal }));
 
 /** 向单一通知渠道发送测试投递。 */
-export const testNotificationChannel = async (channelID: string, options?: RequestControlOptions): Promise<OperationResponse> => post(`/api/v1/notifications/channels/${channelID}/test`, {}, options);
+export const testNotificationChannel = async (channelID: string, options?: RequestControlOptions): Promise<OperationResponse> => runContractRequest(/* signal 控制通知渠道测试投递的取消和超时。 */ signal => contractClient.POST('/api/v1/notifications/channels/{channel_id}/test', { params: { path: { channel_id: channelID } }, body: {} as never, signal }), options);
 
 /** 将系统配置响应转换为通知 SMTP 表单使用的状态模型。 */
 const normalizeSystemSettings = (settings: Record<string, unknown>): SystemSettings => {
@@ -120,9 +121,9 @@ const normalizeSystemSettings = (settings: Record<string, unknown>): SystemSetti
 /** 获取通知 SMTP 编辑器需要的系统设置。 */
 export const getSystemSettings = async (options?: RequestControlOptions): Promise<SystemSettings> => {
   // response 是服务端可能以 data 包装的系统设置响应。
-  const response = await get<{ /** data 是当前服务端系统设置。 */ data?: Record<string, unknown>; /** settings 是兼容字段。 */ settings?: Record<string, unknown> } & Record<string, unknown>>('/api/v1/settings/system', undefined, options);
+  const response = await runContractRequest(/* signal 控制系统设置读取的取消和超时。 */ signal => contractClient.GET('/api/v1/settings/system', { signal }), options) as unknown as { /** data 是当前服务端系统设置。 */ data?: Record<string, unknown>; /** settings 是兼容字段。 */ settings?: Record<string, unknown> } & Record<string, unknown>;
   return normalizeSystemSettings(response.data || response.settings || response);
 };
 
 /** 保存通知 SMTP 编辑器提交的系统设置。 */
-export const updateSystemSettings = async (settings: Partial<SystemSettings>, options?: RequestControlOptions): Promise<OperationResponse> => put('/api/v1/settings/system', settings, options);
+export const updateSystemSettings = async (settings: Partial<SystemSettings>, options?: RequestControlOptions): Promise<OperationResponse> => runContractRequest(/* signal 控制系统设置更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/settings/system', { body: settings as never, signal }), options);

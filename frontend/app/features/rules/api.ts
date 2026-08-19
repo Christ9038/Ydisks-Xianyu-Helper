@@ -15,18 +15,19 @@ PaginatedResponse,
 ReplyRule,
 ShippingRule
 } from '../../../shared/api-contract/automation';
-import { del,get,post,put,type RequestControlOptions } from '../../../shared/http/client';
+import { type RequestControlOptions } from '../../../shared/http/client';
+import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
 import { collectionFrom,objectFrom } from '../../../shared/http/contract';
 export type * from '../../../shared/api-contract/automation';
 
 /** 自动化规则筛选器读取非敏感账号摘要。 */
-export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => get('/api/v1/accounts/details', undefined, options);
+export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => runContractRequest(/* signal 控制规则页账号摘要读取的取消和超时。 */ signal => contractClient.GET('/api/v1/accounts/details', { signal }), options);
 
 /** 自动化动作编辑器读取可选卡券组。 */
-export const getCards = async (options?: RequestControlOptions): Promise<Card[]> => get('/api/v1/cards', undefined, options);
+export const getCards = async (options?: RequestControlOptions): Promise<Card[]> => runContractRequest(/* signal 控制规则页卡券读取的取消和超时。 */ signal => contractClient.GET('/api/v1/cards', { signal }), options) as unknown as Promise<Card[]>;
 
 /** 自动化规则商品选择器读取商品索引。 */
-export const getItems = async (accountID?: string, options?: RequestControlOptions): Promise<Item[]> => get('/api/v1/items', accountID ? { cookie_id: accountID } : undefined, options);
+export const getItems = async (accountID?: string, options?: RequestControlOptions): Promise<Item[]> => runContractRequest(/* signal 控制规则页商品读取的取消和超时。 */ signal => contractClient.GET('/api/v1/items', { params: { query: { cookie_id: accountID } }, signal }), options) as unknown as Promise<Item[]>;
 // Rules - 自动化规则
 const normalizeShippingRules = (rules: any[]): ShippingRule[] => rules.map(/* 当前回调用于处理集合元素或接口响应。 */ (item: any) => ({
         id: String(item.id),
@@ -77,7 +78,7 @@ const normalizeShippingRules = (rules: any[]): ShippingRule[] => rules.map(/* �
 // getShippingRules 读取发货规则列表。
 export const getShippingRules = async (): Promise<ShippingRule[]> => {
     // res 接口响应结果，用于当前 API 处理流程。
-    const res = await get<unknown>('/api/v1/automation-rules');
+    const res = await runContractRequest(/* signal 控制自动化规则列表读取的取消和超时。 */ signal => contractClient.GET('/api/v1/automation-rules', { signal })) as unknown;
     // rules 规则列表，用于当前 API 处理流程。
     const rules = collectionFrom<AutomationRuleResponse>(res, ['data', 'rules', 'items']);
     return normalizeShippingRules(rules);
@@ -102,14 +103,7 @@ export const getShippingRulesPage = async ({
   pageSize = 10,
 }: ShippingRuleListParams = {}): Promise<PaginatedResponse<ShippingRule>> => {
   // res 接口响应结果，用于当前 API 处理流程。
-  const response = await get<unknown>('/api/v1/automation-rules', {
-    page: requestedPage,
-    page_size: pageSize,
-    cookie_id: cookieId || undefined,
-    trigger_type: triggerType || undefined,
-    enabled,
-    search: search?.trim() || undefined,
-  });
+  const response = await runContractRequest(/* signal 控制自动化规则分页读取的取消和超时。 */ signal => contractClient.GET('/api/v1/automation-rules', { params: { query: { page: requestedPage, page_size: pageSize, cookie_id: cookieId, trigger_type: triggerType, enabled, search: search?.trim() } }, signal })) as unknown;
   // rules 规则列表，用于当前 API 处理流程。
   // page 是兼容直接分页对象和 data 包裹后的分页元数据。
   const pageMeta = objectFrom<Partial<AutomationRulePageResponse>>(response, ['data', 'result']) || {};
@@ -207,11 +201,13 @@ export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<O
           sort_order: action.sort_order || index + 1,
         })),
     };
-    return rule.id ? put(`/api/v1/automation-rules/${rule.id}`, payload) : post('/api/v1/automation-rules', payload);
+    return rule.id
+      ? runContractRequest(/* signal 控制自动化规则更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/automation-rules/{rule_id}', { params: { path: { rule_id: String(rule.id) } }, body: payload as never, signal }))
+      : runContractRequest(/* signal 控制自动化规则创建请求的取消和超时。 */ signal => contractClient.POST('/api/v1/automation-rules', { body: payload as never, signal }));
 }
 
 // deleteShippingRule 删除发货规则。
-export const deleteShippingRule = async (id: string): Promise<OperationResponse> => del(`/api/v1/automation-rules/${id}`);
+export const deleteShippingRule = async (id: string): Promise<OperationResponse> => runContractRequest(/* signal 控制自动化规则删除请求的取消和超时。 */ signal => contractClient.DELETE('/api/v1/automation-rules/{rule_id}', { params: { path: { rule_id: id } }, signal }));
 
 export interface AutomationRunIssue {
   /** id 表示标识。 */ id: number;
@@ -238,7 +234,7 @@ export interface DeferredAutomationIssue {
 // getAutomationIssues 读取自动化问题列表。
 export const getAutomationIssues = async (): Promise<{ /** runs 表示运行记录。 */ runs: AutomationRunIssue[]; /** pending_tasks 表示待处理任务列表。 */ pending_tasks: DeferredAutomationIssue[] }> => {
   // response 是兼容直接问题对象、data 包裹和 null 的自动化问题响应。
-  const response = await get<unknown>('/api/v1/automation-issues');
+  const response = await runContractRequest(/* signal 控制自动化问题读取的取消和超时。 */ signal => contractClient.GET('/api/v1/automation-issues', { signal })) as unknown;
   // result 是去除历史包裹后的自动化问题对象。
   const result = objectFrom<Partial<AutomationIssuesEnvelope>>(response, ['data', 'result']) || {};
   return {
@@ -249,11 +245,11 @@ export const getAutomationIssues = async (): Promise<{ /** runs 表示运行记�
 
 // resolveAutomationRun 处理自动化运行记录。
 export const resolveAutomationRun = async (id: number, resolution: 'continue' | 'retry' | 'cancel'): Promise<OperationResponse> =>
-  post(`/api/v1/automation-runs/${id}/resolve`, { resolution });
+  runContractRequest(/* signal 控制自动化运行处理请求的取消和超时。 */ signal => contractClient.POST('/api/v1/automation-runs/{run_id}/resolve', { params: { path: { run_id: String(id) } }, body: { resolution } as never, signal }));
 
 // resolveDeferredAutomationTask 处理延迟自动化任务。
 export const resolveDeferredAutomationTask = async (id: number, resolution: 'retry' | 'dismiss'): Promise<OperationResponse> =>
-  post(`/api/v1/automation-pending-tasks/${id}/resolve`, { resolution });
+  runContractRequest(/* signal 控制待处理自动化任务请求的取消和超时。 */ signal => contractClient.POST('/api/v1/automation-pending-tasks/{task_id}/resolve', { params: { path: { task_id: String(id) } }, body: { resolution } as never, signal }));
 
 // Rules - 关键词回复规则 (使用关键词API)
 type KeywordRowPayload = {
@@ -278,7 +274,7 @@ const normalizeKeywordRow = (item: any): KeywordRowPayload => ({
 // getKeywordRowsWithType 读取带类型的关键词规则。
 const getKeywordRowsWithType = async (cookieId: string): Promise<KeywordRowPayload[]> => {
     // existing 已有规则，用于当前 API 处理流程。
-    const existing = await get<unknown>(`/api/v1/reply-rules/${cookieId}/typed`);
+    const existing = await runContractRequest(/* signal 控制关键词规则读取的取消和超时。 */ signal => contractClient.GET('/api/v1/reply-rules/{cid}/typed', { params: { path: { cid: cookieId } }, signal })) as unknown;
     return collectionFrom<KeywordTypedResponse>(existing, ['data', 'items', 'rules']).map(normalizeKeywordRow);
 };
 
@@ -312,20 +308,20 @@ export const updateReplyRule = async (rule: Partial<ReplyRule>, cookieId: string
 		image_url: type === 'image' ? (rule.image_url || '') : '',
 	};
 	return rule.id
-		? put(`/api/v1/reply-rules/${cookieId}/typed/${rule.id}`, payload)
-		: post(`/api/v1/reply-rules/${cookieId}/items`, payload);
+		? runContractRequest(/* signal 控制关键词规则更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/reply-rules/{cid}/typed/{id}', { params: { path: { cid: cookieId, id: String(rule.id) } }, body: payload as never, signal }))
+		: runContractRequest(/* signal 控制关键词规则创建请求的取消和超时。 */ signal => contractClient.POST('/api/v1/reply-rules/{cid}/items', { params: { path: { cid: cookieId } }, body: payload as never, signal }));
 }
 
 // deleteReplyRule 删除回复规则。
 export const deleteReplyRule = async (id: string, cookieId: string): Promise<OperationResponse> => {
-	return del(`/api/v1/reply-rules/${cookieId}/typed/${id}`);
+	return runContractRequest(/* signal 控制关键词规则删除请求的取消和超时。 */ signal => contractClient.DELETE('/api/v1/reply-rules/{cid}/typed/{id}', { params: { path: { cid: cookieId, id } }, signal }));
 }
 
 
 // Default Reply
 // getDefaultReplies 读取默认回复列表。
 export const getDefaultReplies = async (): Promise<Record<string, DefaultReplyResponse>> => {
-	const response = await get<unknown>('/api/v1/default-replies');
+	const response = await runContractRequest(/* signal 控制默认回复列表读取的取消和超时。 */ signal => contractClient.GET('/api/v1/default-replies', { signal })) as unknown;
 	// replies 是兼容直接映射、data 包裹和 null 的默认回复索引。
 	return objectFrom<Record<string, DefaultReplyResponse>>(response, ['data', 'replies', 'items']) || {};
 };
@@ -333,7 +329,7 @@ export const getDefaultReplies = async (): Promise<Record<string, DefaultReplyRe
 // getDefaultReply 读取默认回复。
 export const getDefaultReply = async (cookieId: string): Promise<DefaultReply> => {
 	// result 接口响应结果，用于当前 API 处理流程。
-	const response = await get<unknown>(`/api/v1/default-replies/${cookieId}`);
+  const response = await runContractRequest(/* signal 控制默认回复读取的取消和超时。 */ signal => contractClient.GET('/api/v1/default-replies/{cid}', { params: { path: { cid: cookieId } }, signal })) as unknown;
   // result 是兼容直接默认回复和 data 包裹后的对象。
   const result = objectFrom<Partial<DefaultReplyResponse>>(response, ['data', 'result']) || {};
   return {
@@ -347,20 +343,20 @@ export const getDefaultReply = async (cookieId: string): Promise<DefaultReply> =
 
 // updateDefaultReply 更新默认回复。
 export const updateDefaultReply = async (cookieId: string, data: Partial<DefaultReply>): Promise<OperationResponse> => {
-  return put(`/api/v1/default-replies/${cookieId}`, {
+  return runContractRequest(/* signal 控制默认回复更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/default-replies/{cid}', { params: { path: { cid: cookieId }, }, body: {
     enabled: data.enabled ?? false,
     reply_content: data.reply_content || '',
     reply_once: data.reply_once ?? false,
     reply_image_url: data.reply_image_url || ''
-  });
+  } as never, signal }));
 };
 
 // deleteDefaultReply 删除默认回复。
 export const deleteDefaultReply = async (cookieId: string): Promise<OperationResponse> => {
-	return del(`/api/v1/default-replies/${cookieId}`);
+	return runContractRequest(/* signal 控制默认回复删除请求的取消和超时。 */ signal => contractClient.DELETE('/api/v1/default-replies/{cid}', { params: { path: { cid: cookieId } }, signal }));
 };
 
 // clearDefaultReplyRecords 清理默认回复记录。
 export const clearDefaultReplyRecords = async (cookieId: string): Promise<OperationResponse> => {
-	return post(`/api/v1/default-replies/${cookieId}/clear-records`, {});
+	return runContractRequest(/* signal 控制默认回复记录清理请求的取消和超时。 */ signal => contractClient.POST('/api/v1/default-replies/{cid}/clear-records', { params: { path: { cid: cookieId } }, body: {} as never, signal }));
 };
