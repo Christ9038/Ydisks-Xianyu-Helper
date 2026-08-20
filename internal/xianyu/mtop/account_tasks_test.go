@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -171,5 +172,12 @@ func TestPolishItemSendsItemPageSpmContext(t *testing.T) {
 	}
 	if gotQuery.Get("spm_cnt") != "a21ybx.item.0.0" || gotQuery.Get("spm_pre") == "" || gotQuery.Get("log_id") == "" {
 		t.Fatalf("擦亮请求缺少商品页埋点上下文: %v", gotQuery)
+	}
+}
+
+// TestPolishItemDefaultEndpointUsesVersionTwoPath 验证擦亮主端点 URL 路径与接口版本 2.0 保持一致。
+func TestPolishItemDefaultEndpointUsesVersionTwoPath(t *testing.T) {
+	if !strings.Contains(PolishItemAPI, "/mtop.taobao.idle.item.polish/2.0/") {
+		t.Fatalf("擦亮主端点必须使用 2.0 路径: %s", PolishItemAPI)
 	}
 }

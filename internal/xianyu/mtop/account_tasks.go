@@ -18,7 +18,9 @@ import (
 const (
 	RateCreateAPI       = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.rate.create/4.0/"
 	PendingRateListAPI  = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.merchant.rate.list/1.0/"
-	PolishItemAPI       = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.item.polish/1.0/"
+	// PolishItemAPI 是商品擦亮主端点；该接口实际版本为 2.0，URL 路径必须与 query 的 v=2.0 一致，
+	// 使用 1.0 路径时平台会记录擦亮状态但实际曝光效果不生效。
+	PolishItemAPI       = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.item.polish/2.0/"
 	PolishItemBackupAPI = "https://h5api.m.goofish.com/h5/mtop.idle.item.polish/1.0/"
 )
 
