@@ -166,6 +166,93 @@ func TestPreviewItemPublishBatchCSV(t *testing.T) {
 	}
 }
 
+// TestPreviewItemPublishBatchRejectsMultipleXLSXWorksheets 验证预检会拒绝含隐藏历史表的 XLSX，且不会留下可启动批次或上传目录。
+func TestPreviewItemPublishBatchRejectsMultipleXLSXWorksheets(t *testing.T) {
+	// uploadRoot 保存本测试独占的上传根目录，便于断言错误请求的临时文件已清理。
+	uploadRoot := t.TempDir()
+	t.Setenv("XIANYU_UPLOAD_DIR", uploadRoot)
+	// srv、store、cleanup 分别保存测试 HTTP 服务、批次仓储和关闭函数。
+	srv, store, cleanup := newTestServer(t)
+	defer cleanup()
+	// handler 保存已配置路由与鉴权的测试入口。
+	handler := srv.Router()
+	// sessionCookie 保存管理员身份的 HTTP 会话。
+	sessionCookie := loginHelper(t, handler)
+	// xlsx 保存包含当前数据页和隐藏历史页的上传内容。
+	xlsx := buildMultipleWorksheetPublishXLSX(t)
+	// body 保存 multipart 请求的完整字节。
+	var body bytes.Buffer
+	// writer 负责编码预检接口要求的表单字段和 XLSX 文件。
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("default_cookie_id", "acc1")
+	// spreadsheet 和 createErr 分别保存 XLSX 字段写入器及其创建错误。
+	spreadsheet, createErr := writer.CreateFormFile("file", "products.xlsx")
+	if createErr != nil {
+		t.Fatalf("创建 XLSX 请求字段失败: %v", createErr)
+	}
+	// writeErr 保存将多工作表 XLSX 写入 multipart 字段时的错误。
+	if _, writeErr := spreadsheet.Write(xlsx); writeErr != nil {
+		t.Fatalf("写入 XLSX 请求字段失败: %v", writeErr)
+	}
+	// closeErr 保存完成 multipart 编码时写出尾部边界的错误。
+	if closeErr := writer.Close(); closeErr != nil {
+		t.Fatalf("关闭 multipart 请求失败: %v", closeErr)
+	}
+	// request 保存携带登录会话的预检 HTTP 请求。
+	request := httptest.NewRequest(http.MethodPost, "/items/publish-batches/preview", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.AddCookie(sessionCookie)
+	// recorder 保存处理器返回的状态和统一错误 envelope。
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "仅支持一个工作表") {
+		t.Fatalf("多工作表预检应返回明确 400: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	// batches 和 listErr 分别保存错误请求后的持久化批次列表及查询错误。
+	batches, listErr := store.PublishBatches.ListForUser(context.Background(), 1, 10)
+	if listErr != nil || len(batches) != 0 {
+		t.Fatalf("错误预检不应创建批次: batches=%+v err=%v", batches, listErr)
+	}
+	// entries 和 readErr 分别保存批次上传目录的剩余条目及读取错误。
+	entries, readErr := os.ReadDir(filepath.Join(uploadRoot, "publish_batches"))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatalf("读取上传目录失败: %v", readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("错误预检不应保留上传目录: %+v", entries)
+	}
+}
+
+// buildMultipleWorksheetPublishXLSX 创建一个物理条目顺序包含旧表、且 workbook 声明两个表的最小 XLSX。
+func buildMultipleWorksheetPublishXLSX(t *testing.T) []byte {
+	t.Helper()
+	// buffer 保存最终 XLSX ZIP 字节。
+	var buffer bytes.Buffer
+	// writer 负责写入 XLSX 的各 XML 分区。
+	writer := zip.NewWriter(&buffer)
+	// writePart 把给定 XML 写入 ZIP；测试夹具写入失败必须立即终止。
+	writePart := func(name, content string) {
+		// part 和 createErr 分别保存 ZIP 分区写入器及其创建错误。
+		part, createErr := writer.Create(name)
+		if createErr != nil {
+			t.Fatalf("创建 XLSX 分区失败: %v", createErr)
+		}
+		// writeErr 保存将当前 XML 字符串写入 ZIP 分区时的错误。
+		if _, writeErr := part.Write([]byte(content)); writeErr != nil {
+			t.Fatalf("写入 XLSX 分区失败: %v", writeErr)
+		}
+	}
+	writePart("xl/worksheets/sheet1.xml", `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>标题</t></is></c><c r="B1" t="inlineStr"><is><t>价格</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>旧商品</t></is></c><c r="B2" t="inlineStr"><is><t>1.0</t></is></c></row></sheetData></worksheet>`)
+	writePart("xl/worksheets/sheet2.xml", `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>标题</t></is></c><c r="B1" t="inlineStr"><is><t>价格</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>新商品</t></is></c><c r="B2" t="inlineStr"><is><t>9.9</t></is></c></row></sheetData></worksheet>`)
+	writePart("xl/workbook.xml", `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="当前数据" sheetId="1" r:id="rId1"/><sheet name="历史数据" sheetId="2" state="hidden" r:id="rId2"/></sheets></workbook>`)
+	writePart("xl/_rels/workbook.xml.rels", `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>`)
+	// closeErr 保存写出 XLSX ZIP 尾部目录时的错误。
+	if closeErr := writer.Close(); closeErr != nil {
+		t.Fatalf("关闭 XLSX 写入器失败: %v", closeErr)
+	}
+	return buffer.Bytes()
+}
+
 // TestPreviewItemPublishBatchAllowsEmptyDefaultCategory 封装TestPreview商品发布批次AllowsEmptyDefault分类业务协调。
 func TestPreviewItemPublishBatchAllowsEmptyDefaultCategory(t *testing.T) {
 	// srv、cleanup 用于本次流程后续判断的srv、cleanup

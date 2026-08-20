@@ -1,8 +1,11 @@
 package items
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -75,6 +78,138 @@ func TestParseSheetRejectsEmptyAndUnsupportedInput(t *testing.T) {
 			t.Errorf("ParseSheet(%s) expected error", testCase.name)
 		}
 	}
+}
+
+// TestParseSheetUsesWorkbookRelationship 验证解析器按 workbook 关系读取唯一表，而不是误取 ZIP 内先出现的旧表。
+func TestParseSheetUsesWorkbookRelationship(t *testing.T) {
+	// xlsx 保存含旧 sheet1 与当前 sheet9 的单工作表 XLSX；workbook 只声明 sheet9。
+	xlsx := buildBatchPreviewXLSX(t, []batchPreviewSheetFixture{{Name: "当前数据", RelationshipID: "rId9", Target: "worksheets/sheet9.xml", Rows: [][]string{{"标题", "价格"}, {"新商品", "9.9"}}}}, map[string][][]string{
+		"xl/worksheets/sheet1.xml": {{"标题", "价格"}, {"旧商品", "1.0"}},
+	})
+	// rows 和 err 分别保存解析结果及异常。
+	rows, err := ParseSheet(xlsx, "products.xlsx", 2)
+	if err != nil {
+		t.Fatalf("ParseSheet() error = %v", err)
+	}
+	if len(rows) != 1 || rows[0]["title"] != "新商品" {
+		t.Fatalf("解析结果误读旧工作表: %#v", rows)
+	}
+}
+
+// TestParseSheetRejectsMultipleXLSXWorksheets 验证隐藏历史表与可见表并存时会被拒绝，避免预检读取非用户修改内容。
+func TestParseSheetRejectsMultipleXLSXWorksheets(t *testing.T) {
+	// xlsx 保存两个 workbook 声明的工作表；第二个表代表复制文件遗留的隐藏历史表。
+	xlsx := buildBatchPreviewXLSX(t, []batchPreviewSheetFixture{
+		{Name: "当前数据", RelationshipID: "rId1", Target: "worksheets/sheet1.xml", Rows: [][]string{{"标题", "价格"}, {"新商品", "9.9"}}},
+		{Name: "历史数据", RelationshipID: "rId2", Target: "worksheets/sheet2.xml", State: "hidden", Rows: [][]string{{"标题", "价格"}, {"旧商品", "1.0"}}},
+	}, nil)
+	// err 保存多工作表输入的预期拒绝错误。
+	_, err := ParseSheet(xlsx, "products.xlsx", 2)
+	if err == nil || !strings.Contains(err.Error(), "仅支持一个工作表") {
+		t.Fatalf("多工作表应被拒绝，err=%v", err)
+	}
+}
+
+// TestParseSheetRejectsInvalidXLSXWorkbookRelationship 验证 sheet 引用缺少关系目标时不会回退到 ZIP 内任意工作表。
+func TestParseSheetRejectsInvalidXLSXWorkbookRelationship(t *testing.T) {
+	// xlsx 保存唯一 sheet 声明指向不存在关系的损坏工作簿。
+	xlsx := buildBatchPreviewXLSX(t, []batchPreviewSheetFixture{{Name: "当前数据", RelationshipID: "missing", Target: "worksheets/sheet1.xml", Rows: [][]string{{"标题", "价格"}, {"商品", "9.9"}}}}, nil)
+	// err 保存损坏关系的预期结构错误。
+	_, err := ParseSheet(xlsx, "products.xlsx", 2)
+	if err == nil || !strings.Contains(err.Error(), "工作表结构无效") {
+		t.Fatalf("无效关系应报结构错误，err=%v", err)
+	}
+}
+
+// batchPreviewSheetFixture 描述测试 XLSX 中一个 workbook 声明及其对应的单元格文本。
+type batchPreviewSheetFixture struct {
+	// Name 是 workbook 中显示的工作表名称。
+	Name string
+	// RelationshipID 是 workbook sheet 节点引用的关系标识。
+	RelationshipID string
+	// Target 是关系文件中指向 worksheet XML 的相对路径。
+	Target string
+	// State 是可选的 Excel 工作表可见性状态，用于覆盖隐藏历史表。
+	State string
+	// Rows 是按行列写入 worksheet 的内联字符串文本。
+	Rows [][]string
+}
+
+// buildBatchPreviewXLSX 创建带 workbook 关系的最小 XLSX，用于覆盖工作表选择和结构错误场景。
+func buildBatchPreviewXLSX(t *testing.T, sheets []batchPreviewSheetFixture, extraParts map[string][][]string) []byte {
+	t.Helper()
+	// buffer 保存最终 ZIP 格式 XLSX 字节。
+	var buffer bytes.Buffer
+	// writer 负责写入 XLSX 的 workbook、关系和工作表 XML 分区。
+	writer := zip.NewWriter(&buffer)
+	// workbookBuilder 保存 workbook.xml 的 sheet 声明。
+	var workbookBuilder strings.Builder
+	workbookBuilder.WriteString(`<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>`)
+	// relationshipsBuilder 保存 workbook.xml.rels 的关系记录。
+	var relationshipsBuilder strings.Builder
+	relationshipsBuilder.WriteString(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`)
+	// partName 和 rows 分别表示先写入 ZIP 的历史工作表分区及其旧内容，用于验证不能按物理条目顺序读取。
+	for partName, rows := range extraParts {
+		writeBatchPreviewXLSXPart(t, writer, partName, batchPreviewWorksheetXML(rows))
+	}
+	// sheetIndex 和 sheet 分别表示当前 sheet 序号与对应的测试定义。
+	for sheetIndex, sheet := range sheets {
+		// stateAttribute 保存有隐藏状态时写入 sheet XML 属性的片段。
+		stateAttribute := ""
+		if sheet.State != "" {
+			stateAttribute = fmt.Sprintf(` state=%q`, sheet.State)
+		}
+		_, _ = fmt.Fprintf(&workbookBuilder, `<sheet name=%q sheetId="%d" r:id=%q%s/>`, sheet.Name, sheetIndex+1, sheet.RelationshipID, stateAttribute)
+		if sheet.RelationshipID != "missing" {
+			_, _ = fmt.Fprintf(&relationshipsBuilder, `<Relationship Id=%q Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target=%q/>`, sheet.RelationshipID, sheet.Target)
+		}
+		// partName 保存当前工作表在 ZIP 内的完整分区路径。
+		partName := "xl/" + sheet.Target
+		writeBatchPreviewXLSXPart(t, writer, partName, batchPreviewWorksheetXML(sheet.Rows))
+	}
+	workbookBuilder.WriteString(`</sheets></workbook>`)
+	relationshipsBuilder.WriteString(`</Relationships>`)
+	writeBatchPreviewXLSXPart(t, writer, "xl/workbook.xml", workbookBuilder.String())
+	writeBatchPreviewXLSXPart(t, writer, "xl/_rels/workbook.xml.rels", relationshipsBuilder.String())
+	// err 保存关闭 ZIP 写入器并写出末尾目录时的错误。
+	if err := writer.Close(); err != nil {
+		t.Fatalf("关闭 XLSX 写入器失败: %v", err)
+	}
+	return buffer.Bytes()
+}
+
+// writeBatchPreviewXLSXPart 在测试 XLSX 中写入一个 XML 分区，任一写入失败都立即终止测试。
+func writeBatchPreviewXLSXPart(t *testing.T, writer *zip.Writer, name, content string) {
+	t.Helper()
+	// part 和 err 分别保存新建 ZIP 分区的写入器及创建错误。
+	part, err := writer.Create(name)
+	if err != nil {
+		t.Fatalf("创建 XLSX 分区失败: %v", err)
+	}
+	// err 保存将 XML 内容写入当前 ZIP 分区时的错误。
+	if _, err := part.Write([]byte(content)); err != nil {
+		t.Fatalf("写入 XLSX 分区失败: %v", err)
+	}
+}
+
+// batchPreviewWorksheetXML 把二维单元格文本编码为解析器可读取的内联字符串工作表 XML。
+func batchPreviewWorksheetXML(rows [][]string) string {
+	// builder 保存逐行拼接的 worksheet XML。
+	var builder strings.Builder
+	builder.WriteString(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>`)
+	// rowIndex 和 row 分别表示当前行的零基下标及单元格集合。
+	for rowIndex, row := range rows {
+		_, _ = fmt.Fprintf(&builder, `<row r="%d">`, rowIndex+1)
+		// columnIndex 和 value 分别表示当前列的零基下标及其可见文本。
+		for columnIndex, value := range row {
+			// reference 保存 A1 形式的单元格坐标；测试列数很小，仅覆盖单字母列。
+			reference := fmt.Sprintf("%c%d", 'A'+rune(columnIndex), rowIndex+1)
+			_, _ = fmt.Fprintf(&builder, `<c r=%q t="inlineStr"><is><t>%s</t></is></c>`, reference, value)
+		}
+		builder.WriteString(`</row>`)
+	}
+	builder.WriteString(`</sheetData></worksheet>`)
+	return builder.String()
 }
 
 // TestBatchPreviewValidatesBusinessRules 验证预检服务的归属、金额、类目、图片和自动化规则。

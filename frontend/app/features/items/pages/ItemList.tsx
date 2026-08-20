@@ -10,6 +10,7 @@ getShippingRules,
 } from '../api';
 import { batchStatusClass,batchStatusText } from '../batchState';
 import { BatchPhaseIndicator } from '../components/BatchPhaseIndicator';
+import { consumeSelectedFile } from '../fileInput';
 import { useItemPublishBatch } from '../hooks';
 import { useItemActions } from '../itemActions';
 import type { ItemListProps } from '../types';
@@ -676,7 +677,7 @@ const ItemList: React.FC<ItemListProps> = ({ onConfigureDelivery }) => {
                         className="hidden"
                         type="file"
                         accept=".xlsx,.csv,.tsv"
-                        onChange={/* 当前回调处理用户交互或异步状态变化。 */ e => setBatchFile(e.target.files?.[0] || null)}
+                        onChange={/* 当前回调读取本次文件快照并重置原生控件，以便同一路径文件修改后可再次选择。 */ event => setBatchFile(consumeSelectedFile(event.currentTarget))}
                       />
                     </label>
                     <label className="flex min-h-[150px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center hover:border-emerald-300 hover:bg-emerald-50 transition-colors">

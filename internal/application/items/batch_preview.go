@@ -374,7 +374,7 @@ func parseDelimitedSheet(raw []byte, delimiter rune, maxRows int) ([]map[string]
 	return rows, nil
 }
 
-// parseXLSXSheet 解析 XLSX 第一张工作表中的单元格文本。
+// parseXLSXSheet 解析 XLSX 唯一工作表中的单元格文本；多工作表文件会被拒绝以避免误读历史数据。
 func parseXLSXSheet(raw []byte, maxRows int) ([]map[string]any, error) {
 	// archive 和 err 表示 XLSX 压缩包及打开错误。
 	archive, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
@@ -386,17 +386,10 @@ func parseXLSXSheet(raw []byte, maxRows int) ([]map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	// sheet 保存第一张工作表的压缩文件。
-	var sheet *zip.File
-	// file 表示当前遍历到的压缩包条目。
-	for _, file := range archive.File {
-		if strings.HasPrefix(file.Name, "xl/worksheets/sheet") && strings.HasSuffix(file.Name, ".xml") {
-			sheet = file
-			break
-		}
-	}
-	if sheet == nil {
-		return nil, errors.New("xlsx 中未找到工作表")
+	// sheet 保存由 workbook 关系明确定位的唯一工作表，不能按 ZIP 条目顺序猜测用户编辑的数据页。
+	sheet, err := xlsxSingleWorksheet(archive)
+	if err != nil {
+		return nil, err
 	}
 	// part 和 err 表示工作表 XML 内容及读取错误。
 	part, err := readXLSXPart(sheet)
