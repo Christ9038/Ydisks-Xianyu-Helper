@@ -150,3 +150,26 @@ func TestPolishItemSessionExpiredDoesNotCallBackupOrTokenAPI(t *testing.T) {
 		t.Fatalf("session expiry must stop all fallback/retry requests, calls=%d", calls)
 	}
 }
+
+// TestPolishItemSendsItemPageSpmContext 验证擦亮请求携带商品页埋点上下文，与已验证可用的调用形态一致。
+func TestPolishItemSendsItemPageSpmContext(t *testing.T) {
+	// gotQuery 保存服务端收到的擦亮请求查询参数。
+	var gotQuery url.Values
+	// server 是记录查询参数并返回成功的本地擦亮端点。
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ret":["SUCCESS::调用成功"],"data":{}}`))
+	}))
+	defer server.Close()
+	// client 是指向本地服务的 MTOP 客户端。
+	client := &ClientImpl{HTTPClient: server.Client(), PolishItemURL: server.URL}
+	// result、err 分别是擦亮结果和调用错误。
+	result, err := client.PolishItem(context.Background(), "unb=123; _m_h5_tk=token_1", "item-1")
+	if err != nil || !result.Success {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if gotQuery.Get("spm_cnt") != "a21ybx.item.0.0" || gotQuery.Get("spm_pre") == "" || gotQuery.Get("log_id") == "" {
+		t.Fatalf("擦亮请求缺少商品页埋点上下文: %v", gotQuery)
+	}
+}
