@@ -88,7 +88,7 @@ func (r *wsRecorder) start(ctx context.Context) {
 			if cleanupErr != nil && ctx.Err() == nil {
 				r.logger.Warn("清理过期 WS 报文失败", "cookie_id", r.cookieID, "err", cleanupErr)
 			} else if deleted > 0 {
-				r.logger.Info("已清理过期 WS 报文", "cookie_id", r.cookieID, "deleted", deleted)
+				r.logger.Debug("已清理过期 WS 报文", "cookie_id", r.cookieID, "deleted", deleted)
 			}
 
 			// ticker 定期触发队列刷盘。

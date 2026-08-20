@@ -7657,6 +7657,7 @@ components:
         buyer_avatar_url: {type: string}
         item_id: {type: string}
         item_title: {type: string}
+        item_image_url: {type: string}
         last_message: {type: string}
         last_message_at: {type: integer}
         unread_count: {type: integer}
@@ -7671,8 +7672,9 @@ components:
         direction: {type: string, enum: [incoming, outgoing]}
         sender_id: {type: string}
         sender_name: {type: string}
-        message_type: {type: string, enum: [text, image, video, system]}
+        message_type: {type: string, enum: [text, image, video, audio, system]}
         content: {type: string}
+        media_duration: {type: integer}
         status: {type: string, enum: [received, sending, sent, failed]}
         read_status: {type: integer}
         read_at: {type: integer}

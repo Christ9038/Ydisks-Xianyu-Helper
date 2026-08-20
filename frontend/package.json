@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "axios": "^1.13.2",
+    "benz-amr-recorder": "^1.1.5",
     "lucide-react": "^0.562.0",
     "openapi-fetch": "^0.14.0",
     "react": "^19.2.3",

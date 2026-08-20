@@ -70,6 +70,49 @@ func TestRecordHistoryPageParsesDirectionMediaAndDeduplicates(t *testing.T) {
 	}
 }
 
+// TestRecordHistoryPageRepairsStoredAudioPlaceholder 验证历史刷新能把旧版已落库的“[语音]”占位行升级为可播放 AMR 地址。
+func TestRecordHistoryPageRepairsStoredAudioPlaceholder(t *testing.T) {
+	// store 和 cleanup 分别是 SQLite 测试存储及资源释放函数。
+	store, cleanup := chatTestStore(t)
+	defer cleanup()
+	// ctx 是本次占位消息写入和历史修复共享的测试上下文。
+	ctx := context.Background()
+	// service 是执行历史消息归一和富媒体纠正的聊天服务。
+	service := New(store)
+	// session 保存语音消息所属的非敏感会话信息。
+	session := db.ChatSession{CookieID: "account-1", ChatID: "audio-chat", BuyerID: "peer", BuyerName: "对方"}
+	if // saveErr 表示模拟旧版保存语音占位行时的数据库错误。
+	_, _, saveErr := store.Chats.SaveMessage(ctx, session, db.ChatMessage{
+		MessageKey: "audio-message", Direction: "incoming", SenderID: "peer", SenderName: "对方",
+		MessageType: "text", Content: "[语音]", Status: "received", SentAt: 3000,
+	}, false); saveErr != nil {
+		t.Fatal(saveErr)
+	}
+	// encodedAudio 是历史接口 custom.data 中 Base64 编码的真实语音载荷。
+	encodedAudio := base64.StdEncoding.EncodeToString([]byte(`{"contentType":3,"audio":{"duration":3,"url":"https://media.example/voice.amr"}}`))
+	// body 模拟同一平台消息稍后从历史接口返回完整 AMR 地址。
+	body := map[string]any{"userMessageModels": []any{
+		map[string]any{"message": map[string]any{
+			"messageId": "audio-message", "createAt": float64(3000),
+			"extension": map[string]any{"senderUserId": "peer@goofish", "reminderTitle": "对方"},
+			"content":   map[string]any{"custom": map[string]any{"data": encodedAudio, "summary": "[语音]"}},
+		}},
+	}}
+	// page 和 historyErr 分别是修复后的历史页及处理错误。
+	page, historyErr := service.RecordHistoryPage(ctx, "account-1", "audio-chat", "self", session, body)
+	if historyErr != nil {
+		t.Fatal(historyErr)
+	}
+	if len(page.Messages) != 1 || page.Messages[0].MessageType != "audio" || page.Messages[0].Content != "https://media.example/voice.amr" || page.Messages[0].MediaDuration != 3 {
+		t.Fatalf("history audio was not repaired: %+v", page.Messages)
+	}
+	// stored 和 readErr 分别是数据库中修复后的消息及读取错误。
+	stored, readErr := store.Chats.GetMessageByKey(ctx, "account-1", "audio-message")
+	if readErr != nil || stored.MessageType != "audio" || stored.Content != "https://media.example/voice.amr" || stored.MediaDuration != 3 {
+		t.Fatalf("stored audio placeholder was not repaired: message=%+v err=%v", stored, readErr)
+	}
+}
+
 // TestRecordHistoryPageClassifiesOfficialCardsAsSystem 封装TestRecordHistory页码ClassifiesOfficial卡密列表As系统业务协调。
 func TestRecordHistoryPageClassifiesOfficialCardsAsSystem(t *testing.T) {
 	// store、cleanup 用于本次流程后续判断的store、cleanup
@@ -168,7 +211,7 @@ func TestRecordConversationPageImportsHistoricalContacts(t *testing.T) {
 	// body 用于本次流程后续判断的请求体
 	body := map[string]any{"hasMore": true, "nextCursor": float64(888), "userConvs": []any{
 		map[string]any{"singleChatUserConversation": map[string]any{
-			"singleChatConversation": map[string]any{"cid": "history-cid@goofish", "pairFirst": "self@goofish", "pairSecond": "peer-9@goofish", "extension": `{"itemTitle":"旧商品"}`},
+			"singleChatConversation": map[string]any{"cid": "history-cid@goofish", "pairFirst": "self@goofish", "pairSecond": "peer-9@goofish", "extension": `{"itemTitle":"旧商品","itemMainPic":"https://img.example/history-item.jpg"}`},
 			"lastMessage":            map[string]any{"message": map[string]any{"createAt": float64(123456), "extension": map[string]any{"senderUserId": "peer-9@goofish", "reminderTitle": "历史用户"}, "content": map[string]any{"custom": map[string]any{"data": encoded}}}},
 			"modifyTime":             float64(987654), "redPoint": float64(2),
 		}},
@@ -193,6 +236,9 @@ func TestRecordConversationPageImportsHistoricalContacts(t *testing.T) {
 	}
 	if rows[0].LastMessageAt != 123456 {
 		t.Fatalf("used conversation modifyTime instead of last message createAt: %d", rows[0].LastMessageAt)
+	}
+	if rows[0].ItemImageURL != "https://img.example/history-item.jpg" {
+		t.Fatalf("conversation item image=%q", rows[0].ItemImageURL)
 	}
 }
 
@@ -439,8 +485,8 @@ func TestIncomingMessagePersistsDeduplicatesAndPublishesByOwner(t *testing.T) {
 	}
 }
 
-// TestExtractMessageContentSupportsImageAndVideo 封装TestExtract消息内容Supports图片AndVideo业务协调。
-func TestExtractMessageContentSupportsImageAndVideo(t *testing.T) {
+// TestExtractMessageContentSupportsMedia 验证图片、视频和 AMR 语音载荷均归一为可展示的媒体地址。
+func TestExtractMessageContentSupportsMedia(t *testing.T) {
 	// imageRaw 用于本次流程后续判断的图片原始
 	imageRaw := map[string]any{"payload": `{"contentType":2,"image":{"pics":[{"url":"https://cdn/image.jpg"}]}}`}
 	if // kind、content 用于本次流程后续判断的kind、content
@@ -452,6 +498,22 @@ func TestExtractMessageContentSupportsImageAndVideo(t *testing.T) {
 	if // kind、content 用于本次流程后续判断的kind、content
 	kind, content := extractMessageContent(videoRaw, "[视频]"); kind != "video" || content != "https://cdn/video.mp4" {
 		t.Fatalf("video kind=%q content=%q", kind, content)
+	}
+	// audioRaw 模拟实时 WebSocket 中 1.6.3.5 携带的语音 JSON 字符串。
+	audioRaw := map[string]any{"1": map[string]any{"6": map[string]any{"3": map[string]any{"5": `{"contentType":3,"audio":{"duration":3,"url":"http://cdn.example/voice.amr"}}`}}}}
+	if // kind、content 分别是语音分类结果和供前端解码的 AMR 地址。
+	kind, content := extractMessageContent(audioRaw, "[语音]"); kind != "audio" || content != "http://cdn.example/voice.amr" {
+		t.Fatalf("audio kind=%q content=%q", kind, content)
+	}
+	// duration 保存从同一嵌套语音载荷提取出的秒级长度，必须在播放前就可供 UI 使用。
+	duration := extractMediaDuration(audioRaw, "audio")
+	if duration != 3 {
+		t.Fatalf("audio duration=%d, want 3", duration)
+	}
+	// nonAudioDuration 验证视频等媒体的 duration 不会误写入语音展示字段。
+	nonAudioDuration := extractMediaDuration(videoRaw, "video")
+	if nonAudioDuration != 0 {
+		t.Fatalf("non-audio duration=%d, want 0", nonAudioDuration)
 	}
 	if // kind、content 用于本次流程后续判断的kind、content
 	kind, content := extractMessageContent(nil, " 你好 "); kind != "text" || content != "你好" {

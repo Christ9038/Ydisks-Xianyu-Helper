@@ -11,13 +11,15 @@ import (
 
 // ChatSession 用于本次流程后续判断的聊天会话
 type ChatSession struct {
-	CookieID      string `json:"account_id"`
-	ChatID        string `json:"chat_id"`
-	BuyerID       string `json:"buyer_id"`
-	BuyerName     string `json:"buyer_name"`
-	BuyerAvatar   string `json:"buyer_avatar_url"`
-	ItemID        string `json:"item_id"`
-	ItemTitle     string `json:"item_title"`
+	CookieID    string `json:"account_id"`
+	ChatID      string `json:"chat_id"`
+	BuyerID     string `json:"buyer_id"`
+	BuyerName   string `json:"buyer_name"`
+	BuyerAvatar string `json:"buyer_avatar_url"`
+	ItemID      string `json:"item_id"`
+	ItemTitle   string `json:"item_title"`
+	// ItemImageURL 是会话商品主图的公开地址，仅用于聊天列表展示。
+	ItemImageURL  string `json:"item_image_url"`
 	LastMessage   string `json:"last_message"`
 	LastMessageAt int64  `json:"last_message_at"`
 	UnreadCount   int    `json:"unread_count"`
@@ -34,10 +36,12 @@ type ChatMessage struct {
 	SenderName  string `json:"sender_name"`
 	MessageType string `json:"message_type"`
 	Content     string `json:"content"`
-	Status      string `json:"status"`
-	ReadStatus  int    `json:"read_status"`
-	ReadAt      int64  `json:"read_at,omitempty"`
-	SentAt      int64  `json:"sent_at"`
+	// MediaDuration 是平台语音消息提供的秒级时长，非语音或缺失时为零。
+	MediaDuration int64  `json:"media_duration"`
+	Status        string `json:"status"`
+	ReadStatus    int    `json:"read_status"`
+	ReadAt        int64  `json:"read_at,omitempty"`
+	SentAt        int64  `json:"sent_at"`
 }
 
 // ChatStore 用于本次流程后续判断的聊天Store
@@ -54,11 +58,11 @@ func (s *ChatStore) UpsertSession(ctx context.Context, session ChatSession) erro
 	prefix := dialectInsertIgnorePrefix(s.Dialect)
 	// query 用于本次流程后续判断的查询
 	query := prefix + ` INTO chat_sessions
-		(cookie_id,chat_id,buyer_id,buyer_name,buyer_avatar_url,item_id,item_title,last_message,last_message_at,unread_count,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)` + dialectInsertIgnore(s.Dialect, []string{"cookie_id", "chat_id"})
+		(cookie_id,chat_id,buyer_id,buyer_name,buyer_avatar_url,item_id,item_title,item_image_url,last_message,last_message_at,unread_count,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)` + dialectInsertIgnore(s.Dialect, []string{"cookie_id", "chat_id"})
 	if // err 用于本次流程后续判断的err
 	_, err := s.DB.ExecContext(ctx, query, session.CookieID, session.ChatID, session.BuyerID, session.BuyerName,
-		session.BuyerAvatar, session.ItemID, session.ItemTitle, session.LastMessage, session.LastMessageAt,
+		session.BuyerAvatar, session.ItemID, session.ItemTitle, session.ItemImageURL, session.LastMessage, session.LastMessageAt,
 		session.UnreadCount, now, now); err != nil {
 		return err
 	}
@@ -69,11 +73,12 @@ func (s *ChatStore) UpsertSession(ctx context.Context, session ChatSession) erro
 		buyer_avatar_url=CASE WHEN ?<>'' THEN ? ELSE buyer_avatar_url END,
 		item_id=CASE WHEN ?<>'' THEN ? ELSE item_id END,
 		item_title=CASE WHEN ?<>'' THEN ? ELSE item_title END,
+		item_image_url=CASE WHEN ?<>'' THEN ? ELSE item_image_url END,
 		last_message=CASE WHEN last_message_at<=? THEN ? ELSE last_message END,
 		last_message_at=CASE WHEN last_message_at<=? THEN ? ELSE last_message_at END,
 		unread_count=CASE WHEN ?>unread_count THEN ? ELSE unread_count END,updated_at=?
 		WHERE cookie_id=? AND chat_id=?`, session.BuyerID, session.BuyerID, session.BuyerName, session.BuyerName,
-		session.BuyerAvatar, session.BuyerAvatar, session.ItemID, session.ItemID, session.ItemTitle, session.ItemTitle,
+		session.BuyerAvatar, session.BuyerAvatar, session.ItemID, session.ItemID, session.ItemTitle, session.ItemTitle, session.ItemImageURL, session.ItemImageURL,
 		session.LastMessageAt, session.LastMessage, session.LastMessageAt, session.LastMessageAt,
 		session.UnreadCount, session.UnreadCount, now, session.CookieID, session.ChatID)
 	return err
@@ -180,11 +185,11 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 	sessionPrefix := dialectInsertIgnorePrefix(s.Dialect)
 	// sessionInsert 用于本次流程后续判断的会话Insert
 	sessionInsert := sessionPrefix + ` INTO chat_sessions
-		(cookie_id,chat_id,buyer_id,buyer_name,buyer_avatar_url,item_id,item_title,last_message,last_message_at,unread_count,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)` + dialectInsertIgnore(s.Dialect, []string{"cookie_id", "chat_id"})
+		(cookie_id,chat_id,buyer_id,buyer_name,buyer_avatar_url,item_id,item_title,item_image_url,last_message,last_message_at,unread_count,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)` + dialectInsertIgnore(s.Dialect, []string{"cookie_id", "chat_id"})
 	if // err 用于本次流程后续判断的err
 	_, err := tx.ExecContext(ctx, sessionInsert, session.CookieID, session.ChatID, session.BuyerID,
-		session.BuyerName, session.BuyerAvatar, session.ItemID, session.ItemTitle, "", int64(0), 0, now, now); err != nil {
+		session.BuyerName, session.BuyerAvatar, session.ItemID, session.ItemTitle, session.ItemImageURL, "", int64(0), 0, now, now); err != nil {
 		return nil, false, fmt.Errorf("建立聊天会话: %w", err)
 	}
 
@@ -192,11 +197,11 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 	prefix := dialectInsertIgnorePrefix(s.Dialect)
 	// query 保存带已读字段的幂等插入 SQL，三方言冲突时保持同一列顺序。
 	query := prefix + ` INTO chat_messages
-		(cookie_id,chat_id,message_key,direction,sender_id,sender_name,message_type,content,status,read_status,read_at,sent_at,created_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)` + dialectInsertIgnore(s.Dialect, []string{"cookie_id", "message_key"})
+		(cookie_id,chat_id,message_key,direction,sender_id,sender_name,message_type,content,media_duration,status,read_status,read_at,sent_at,created_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)` + dialectInsertIgnore(s.Dialect, []string{"cookie_id", "message_key"})
 	// res、err 保存插入结果及执行错误，用于判断是否更新会话摘要。
 	res, err := tx.ExecContext(ctx, query, message.CookieID, message.ChatID, message.MessageKey,
-		message.Direction, message.SenderID, message.SenderName, message.MessageType, message.Content,
+		message.Direction, message.SenderID, message.SenderName, message.MessageType, message.Content, message.MediaDuration,
 		message.Status, message.ReadStatus, message.ReadAt, message.SentAt, now)
 	if err != nil {
 		return nil, false, fmt.Errorf("保存聊天消息: %w", err)
@@ -236,11 +241,11 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 		}
 		if // err 用于本次流程后续判断的err
 		_, err := tx.ExecContext(ctx, `UPDATE chat_sessions SET buyer_id=?,buyer_name=?,buyer_avatar_url=?,
-			item_id=?,item_title=?,last_message=CASE WHEN last_message_at<=? THEN ? ELSE last_message END,
+			item_id=?,item_title=?,item_image_url=CASE WHEN ?<>'' THEN ? ELSE item_image_url END,last_message=CASE WHEN last_message_at<=? THEN ? ELSE last_message END,
 			last_message_at=CASE WHEN last_message_at<=? THEN ? ELSE last_message_at END,
 			unread_count=unread_count+?,updated_at=?
 			WHERE cookie_id=? AND chat_id=?`, session.BuyerID, session.BuyerName, session.BuyerAvatar,
-			session.ItemID, session.ItemTitle, message.SentAt, message.Content, message.SentAt, message.SentAt, unreadDelta, now,
+			session.ItemID, session.ItemTitle, session.ItemImageURL, session.ItemImageURL, message.SentAt, message.Content, message.SentAt, message.SentAt, unreadDelta, now,
 			session.CookieID, session.ChatID); err != nil {
 			return nil, false, fmt.Errorf("更新聊天会话: %w", err)
 		}
@@ -259,23 +264,31 @@ func (s *ChatStore) GetMessageByKey(ctx context.Context, cookieID, key string) (
 	// m 保存按账号和幂等键读取的完整聊天消息。
 	var m ChatMessage
 	// err 保存查询错误；不存在时转换为仓储统一的 ErrNotFound。
-	err := s.DB.QueryRowContext(ctx, `SELECT id,cookie_id,chat_id,message_key,direction,sender_id,sender_name,message_type,content,status,read_status,read_at,sent_at
+	err := s.DB.QueryRowContext(ctx, `SELECT id,cookie_id,chat_id,message_key,direction,sender_id,sender_name,message_type,content,media_duration,status,read_status,read_at,sent_at
 		FROM chat_messages WHERE cookie_id=? AND message_key=?`, cookieID, key).Scan(
 		&m.ID, &m.CookieID, &m.ChatID, &m.MessageKey, &m.Direction, &m.SenderID, &m.SenderName,
-		&m.MessageType, &m.Content, &m.Status, &m.ReadStatus, &m.ReadAt, &m.SentAt)
+		&m.MessageType, &m.Content, &m.MediaDuration, &m.Status, &m.ReadStatus, &m.ReadAt, &m.SentAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	return &m, err
 }
 
-// UpdateMessageType refreshes the classification of an already persisted
-// message when a later history response exposes richer protocol metadata.
-// UpdateMessageType 更新消息类型。
-func (s *ChatStore) UpdateMessageType(ctx context.Context, cookieID, key, messageType string) error {
-	// err 用于本次流程后续判断的err
-	_, err := s.DB.ExecContext(ctx, `UPDATE chat_messages SET message_type=?
-		WHERE cookie_id=? AND message_key=?`, messageType, cookieID, key)
+// UpdateMessageContent 用历史接口暴露的富媒体分类与地址纠正已持久化占位消息。
+// ctx 控制数据库更新生命周期；cookieID 和 key 定位消息；messageType 和 content 是新的非敏感展示内容。
+func (s *ChatStore) UpdateMessageContent(ctx context.Context, cookieID, key, messageType, content string) error {
+	// err 保存更新消息展示分类与内容地址时的数据库错误。
+	_, err := s.DB.ExecContext(ctx, `UPDATE chat_messages SET message_type=?,content=?
+		WHERE cookie_id=? AND message_key=?`, messageType, content, cookieID, key)
+	return err
+}
+
+// UpdateMessageMediaDuration 用历史载荷中的秒级时长补齐已持久化语音消息。
+// ctx 控制数据库更新生命周期；cookieID 和 key 定位消息；duration 以秒为单位，零值代表平台未提供。
+func (s *ChatStore) UpdateMessageMediaDuration(ctx context.Context, cookieID, key string, duration int64) error {
+	// err 保存更新富媒体时长时的数据库错误，调用方据此决定是否返回历史刷新失败。
+	_, err := s.DB.ExecContext(ctx, `UPDATE chat_messages SET media_duration=?
+		WHERE cookie_id=? AND message_key=?`, duration, cookieID, key)
 	return err
 }
 
@@ -286,7 +299,7 @@ func (s *ChatStore) ListSessions(ctx context.Context, userID int64, cookieID str
 	}
 	// rows、err 用于本次流程后续判断的rows、err
 	rows, err := s.DB.QueryContext(ctx, `SELECT cs.cookie_id,cs.chat_id,cs.buyer_id,cs.buyer_name,cs.buyer_avatar_url,
-		cs.item_id,cs.item_title,cs.last_message,cs.last_message_at,cs.unread_count
+		cs.item_id,cs.item_title,cs.item_image_url,cs.last_message,cs.last_message_at,cs.unread_count
 		FROM chat_sessions cs JOIN cookies c ON c.id=cs.cookie_id
 		WHERE c.user_id=? AND cs.cookie_id=? ORDER BY cs.last_message_at DESC LIMIT ?`, userID, cookieID, limit)
 	if err != nil {
@@ -300,7 +313,7 @@ func (s *ChatStore) ListSessions(ctx context.Context, userID int64, cookieID str
 		var row ChatSession
 		if // err 用于本次流程后续判断的err
 		err := rows.Scan(&row.CookieID, &row.ChatID, &row.BuyerID, &row.BuyerName, &row.BuyerAvatar,
-			&row.ItemID, &row.ItemTitle, &row.LastMessage, &row.LastMessageAt, &row.UnreadCount); err != nil {
+			&row.ItemID, &row.ItemTitle, &row.ItemImageURL, &row.LastMessage, &row.LastMessageAt, &row.UnreadCount); err != nil {
 			return nil, err
 		}
 		result = append(result, row)
@@ -314,7 +327,7 @@ func (s *ChatStore) ListMessages(ctx context.Context, userID int64, cookieID, ch
 		limit = 50
 	}
 	// query 保存按时间倒序读取再反转为时间正序的分页 SQL。
-	query := `SELECT m.id,m.cookie_id,m.chat_id,m.message_key,m.direction,m.sender_id,m.sender_name,m.message_type,m.content,m.status,m.read_status,m.read_at,m.sent_at
+	query := `SELECT m.id,m.cookie_id,m.chat_id,m.message_key,m.direction,m.sender_id,m.sender_name,m.message_type,m.content,m.media_duration,m.status,m.read_status,m.read_at,m.sent_at
 		FROM chat_messages m JOIN cookies c ON c.id=m.cookie_id
 		WHERE c.user_id=? AND m.cookie_id=? AND m.chat_id=?`
 	// args 用于本次流程后续判断的args
@@ -339,7 +352,7 @@ func (s *ChatStore) ListMessages(ctx context.Context, userID int64, cookieID, ch
 		var m ChatMessage
 		// err 保存当前行字段映射错误，避免返回缺少已读字段的不完整消息。
 		if err := rows.Scan(&m.ID, &m.CookieID, &m.ChatID, &m.MessageKey, &m.Direction, &m.SenderID,
-			&m.SenderName, &m.MessageType, &m.Content, &m.Status, &m.ReadStatus, &m.ReadAt, &m.SentAt); err != nil {
+			&m.SenderName, &m.MessageType, &m.Content, &m.MediaDuration, &m.Status, &m.ReadStatus, &m.ReadAt, &m.SentAt); err != nil {
 			return nil, err
 		}
 		result = append(result, m)

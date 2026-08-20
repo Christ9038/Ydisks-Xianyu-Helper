@@ -219,7 +219,7 @@ func (d *messageDispatcher) markAndCheckDedup(decrypted map[string]any, chat *Ch
 	if // last、ok 用于本次流程后续判断的last、ok
 	last, ok := d.processed[msgID]; ok {
 		if now.Sub(last) < MessageExpireTime {
-			d.logger.Info("消息已处理过，跳过", "msg_id", truncID(msgID))
+			d.logger.Debug("消息已处理过，跳过", "msg_id", truncID(msgID))
 			return false
 		}
 	}

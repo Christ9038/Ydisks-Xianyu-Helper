@@ -1367,9 +1367,11 @@ func TestMultiDB_LatestMigrationsDownUp(t *testing.T) {
 				{"account_task_settings", "auto_rate_enabled"},
 				{"account_task_runs", "run_key"},
 				{"chat_sessions", "unread_count"},
+				{"chat_sessions", "item_image_url"},
 				{"chat_messages", "message_key"},
 				{"chat_messages", "read_status"},
 				{"chat_messages", "read_at"},
+				{"chat_messages", "media_duration"},
 			} {
 				if !columnExistsForDialect(t, tg.store.DB, tg.dialect, c.table, c.col) {
 					t.Fatalf("column missing after re-up: %s.%s", c.table, c.col)

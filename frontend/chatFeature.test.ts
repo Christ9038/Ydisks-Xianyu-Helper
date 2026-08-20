@@ -38,8 +38,13 @@ describe('online chat UI contract', () => {
 		expect(chat).toContain('activeAccount?.avatar_url');
 		expect(chat).toContain("message.message_type === 'image'");
 		expect(chat).toContain("message.message_type === 'video'");
+		expect(chat).toContain("message.message_type === 'audio'");
+		expect(chat).toContain('initialDuration={message.media_duration}');
+		expect(chat).toContain('session.item_image_url');
+		expect(chat).toContain('rounded-[4px]');
+		expect(chat).toContain('<AudioMessage');
 		expect(chatHook).toContain('sendChatImage');
-	} /* 测试回调断言头像、媒体类型及发送 API 的渲染能力。 */);
+	} /* 测试回调断言头像、图片、视频、语音及发送 API 的渲染能力。 */);
 
 	test('renders official notices as neutral system messages', () => {
 		const chat = source('app/features/chat/pages/Chat.tsx'); /* chat 表示chat。 */

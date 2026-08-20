@@ -46,6 +46,8 @@ type Message struct {
 	MessageType string
 	// Content 是文本或媒体地址，不包含平台凭证。
 	Content string
+	// MediaDuration 是语音消息的秒级时长；非语音或平台未提供时为零。
+	MediaDuration int64
 	// Status 是消息投递状态。
 	Status string
 	// ReadStatus 是平台确认的读取状态；值为 2 表示对方已读，其他值表示尚未确认。
@@ -72,6 +74,8 @@ type Session struct {
 	ItemID string
 	// ItemTitle 是会话关联商品标题。
 	ItemTitle string
+	// ItemImageURL 是会话关联商品主图的公开地址。
+	ItemImageURL string
 	// LastMessage 是最近消息摘要。
 	LastMessage string
 	// LastMessageAt 是最近消息时间的 Unix 秒时间戳。

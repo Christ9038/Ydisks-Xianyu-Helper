@@ -18,8 +18,10 @@ type Repository interface {
 	SyncSessionSummary(ctx context.Context, cookieID, chatID, summary string, sentAt, observedModifyAt int64, unread int) error
 	// SaveMessage 幂等保存聊天消息并返回落库结果。
 	SaveMessage(ctx context.Context, session db.ChatSession, message db.ChatMessage, unread bool) (*db.ChatMessage, bool, error)
-	// UpdateMessageType 更新历史消息的展示类型。
-	UpdateMessageType(ctx context.Context, cookieID, key, messageType string) error
+	// UpdateMessageContent 用历史接口返回的富媒体分类和地址纠正已有占位消息。
+	UpdateMessageContent(ctx context.Context, cookieID, key, messageType, content string) error
+	// UpdateMessageMediaDuration 用历史接口返回的秒级时长补齐已有富媒体消息。
+	UpdateMessageMediaDuration(ctx context.Context, cookieID, key string, duration int64) error
 	// UpdateMessageStatus 更新外发消息状态并返回最新消息。
 	UpdateMessageStatus(ctx context.Context, cookieID, key, status string) (*db.ChatMessage, error)
 	// CountUnreadUserMessages 返回当前会话中非系统入站消息的未读数量。
@@ -61,9 +63,14 @@ func (r storeRepository) SaveMessage(ctx context.Context, session db.ChatSession
 	return r.store.Chats.SaveMessage(ctx, session, message, unread)
 }
 
-// UpdateMessageType 委托历史消息类型更新。
-func (r storeRepository) UpdateMessageType(ctx context.Context, cookieID, key, messageType string) error {
-	return r.store.Chats.UpdateMessageType(ctx, cookieID, key, messageType)
+// UpdateMessageContent 委托历史消息富媒体分类与内容更新。
+func (r storeRepository) UpdateMessageContent(ctx context.Context, cookieID, key, messageType, content string) error {
+	return r.store.Chats.UpdateMessageContent(ctx, cookieID, key, messageType, content)
+}
+
+// UpdateMessageMediaDuration 委托历史消息秒级时长更新。
+func (r storeRepository) UpdateMessageMediaDuration(ctx context.Context, cookieID, key string, duration int64) error {
+	return r.store.Chats.UpdateMessageMediaDuration(ctx, cookieID, key, duration)
 }
 
 // UpdateMessageStatus 委托外发消息状态更新。

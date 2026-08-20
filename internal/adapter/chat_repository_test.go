@@ -36,8 +36,13 @@ func (subscriptionDomainRepository) SaveMessage(_ context.Context, _ db.ChatSess
 	return &message, true, nil
 }
 
-// UpdateMessageType 满足领域聊天仓储接口的消息类型更新能力。
-func (subscriptionDomainRepository) UpdateMessageType(context.Context, string, string, string) error {
+// UpdateMessageContent 满足领域聊天仓储接口的富媒体分类与地址更新能力。
+func (subscriptionDomainRepository) UpdateMessageContent(context.Context, string, string, string, string) error {
+	return nil
+}
+
+// UpdateMessageMediaDuration 满足领域聊天仓储接口的富媒体时长更新能力。
+func (subscriptionDomainRepository) UpdateMessageMediaDuration(context.Context, string, string, int64) error {
 	return nil
 }
 

@@ -108,7 +108,7 @@ func dbChatSession(session chatapp.Session) db.ChatSession {
 	return db.ChatSession{
 		CookieID: session.AccountID, ChatID: session.ChatID, BuyerID: session.BuyerID,
 		BuyerName: session.BuyerName, BuyerAvatar: session.BuyerAvatar, ItemID: session.ItemID,
-		ItemTitle: session.ItemTitle, LastMessage: session.LastMessage, LastMessageAt: session.LastMessageAt,
+		ItemTitle: session.ItemTitle, ItemImageURL: session.ItemImageURL, LastMessage: session.LastMessage, LastMessageAt: session.LastMessageAt,
 		UnreadCount: session.UnreadCount,
 	}
 }
@@ -121,7 +121,7 @@ func chatApplicationMessage(message *db.ChatMessage) chatapp.Message {
 	return chatapp.Message{
 		ID: message.ID, AccountID: message.CookieID, ChatID: message.ChatID, MessageKey: message.MessageKey,
 		Direction: message.Direction, SenderID: message.SenderID, SenderName: message.SenderName,
-		MessageType: message.MessageType, Content: message.Content, Status: message.Status,
+		MessageType: message.MessageType, Content: message.Content, MediaDuration: message.MediaDuration, Status: message.Status,
 		ReadStatus: message.ReadStatus, ReadAt: message.ReadAt, SentAt: message.SentAt,
 	}
 }

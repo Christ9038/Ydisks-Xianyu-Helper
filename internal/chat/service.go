@@ -148,7 +148,7 @@ func (s *Service) RecordConversationPage(ctx context.Context, accountID, myID st
 		unreadCount := s.conversationUnreadCount(ctx, accountID, cid, peerID, conv, last, summary)
 		// session 保存待写入的非敏感会话摘要及归一后的未读数量。
 		session := db.ChatSession{CookieID: accountID, ChatID: cid, BuyerID: peerID, BuyerName: peerName, BuyerAvatar: avatar,
-			ItemID: cleanNilString(ext["itemId"]), ItemTitle: cleanNilString(ext["itemTitle"]), LastMessage: summary,
+			ItemID: cleanNilString(ext["itemId"]), ItemTitle: cleanNilString(ext["itemTitle"]), ItemImageURL: cleanNilString(ext["itemMainPic"]), LastMessage: summary,
 			LastMessageAt: lastMessageAt, UnreadCount: unreadCount}
 		if // err 用于本次流程后续判断的err
 		err := s.repository.UpsertSession(ctx, session); err != nil {
@@ -397,9 +397,11 @@ func (s *Service) RecordIncoming(ctx context.Context, in Incoming) (*db.ChatMess
 	// session 用于本次流程后续判断的会话
 	session := db.ChatSession{CookieID: in.AccountID, ChatID: in.ChatID, BuyerID: in.BuyerID,
 		BuyerName: in.BuyerName, BuyerAvatar: extractString(in.Raw, "avatar", "avatarUrl", "senderAvatar"),
-		ItemID: in.ItemID, ItemTitle: extractString(in.Raw, "itemTitle", "title")}
+		ItemID: in.ItemID, ItemTitle: extractString(in.Raw, "itemTitle", "title"), ItemImageURL: extractString(in.Raw, "itemMainPic", "itemImage", "itemImageUrl")}
 	// messageType、content 用于本次流程后续判断的消息Type、content
 	messageType, content := extractMessageContent(in.Raw, in.Text)
+	// mediaDuration 保存平台语音载荷的秒级时长；非语音或缺失时保持零值。
+	mediaDuration := extractMediaDuration(in.Raw, messageType)
 	if isOfficialSystemMessage(in.Raw, in.BuyerID, in.Text) {
 		messageType = "system"
 		if strings.TrimSuffix(strings.TrimSpace(in.BuyerID), "@goofish") == "1400" {
@@ -410,7 +412,7 @@ func (s *Service) RecordIncoming(ctx context.Context, in Incoming) (*db.ChatMess
 	}
 	// message 用于本次流程后续判断的消息
 	message := db.ChatMessage{MessageKey: key, Direction: "incoming", SenderID: in.BuyerID,
-		SenderName: in.BuyerName, MessageType: messageType, Content: content, Status: "received", SentAt: sentAt}
+		SenderName: in.BuyerName, MessageType: messageType, Content: content, MediaDuration: mediaDuration, Status: "received", SentAt: sentAt}
 	// stored、inserted、err 保存落库消息、首次插入标识及错误；系统消息永不增加用户红点。
 	stored, inserted, err := s.repository.SaveMessage(ctx, session, message, messageType != "system")
 	if err == nil && inserted {
@@ -446,12 +448,20 @@ func (s *Service) RecordHistoryPage(ctx context.Context, accountID, chatID, myID
 		if err != nil {
 			return page, err
 		}
-		if message.MessageType == "system" {
-			if // err 用于本次流程后续判断的err
-			err := s.repository.UpdateMessageType(ctx, accountID, message.MessageKey, "system"); err != nil {
-				return page, err
+		if message.MessageType != "text" && (stored.MessageType != message.MessageType || stored.Content != message.Content) {
+			// updateErr 保存历史接口用真实媒体地址纠正已有占位消息时的持久化错误。
+			if updateErr := s.repository.UpdateMessageContent(ctx, accountID, message.MessageKey, message.MessageType, message.Content); updateErr != nil {
+				return page, updateErr
 			}
-			stored.MessageType = "system"
+			stored.MessageType = message.MessageType
+			stored.Content = message.Content
+		}
+		if message.MediaDuration > 0 && stored.MediaDuration != message.MediaDuration {
+			// durationErr 保存把历史语音时长补齐到既有消息行时的持久化错误。
+			if durationErr := s.repository.UpdateMessageMediaDuration(ctx, accountID, message.MessageKey, message.MediaDuration); durationErr != nil {
+				return page, durationErr
+			}
+			stored.MediaDuration = message.MediaDuration
 		}
 		page.Messages = append(page.Messages, *stored)
 	}
@@ -506,6 +516,8 @@ func parseHistoryMessage(accountID, chatID, myID string, model map[string]any) (
 	}
 	// messageType、content 用于本次流程后续判断的消息Type、content
 	messageType, content := extractMessageContent(rawContent, fallback)
+	// mediaDuration 保存历史自定义载荷提供的语音时长，单位为秒。
+	mediaDuration := extractMediaDuration(rawContent, messageType)
 	if isOfficialSystemMessage(rawContent, senderID, fallback) {
 		messageType = "system"
 		if senderID == "1400" {
@@ -522,7 +534,7 @@ func parseHistoryMessage(accountID, chatID, myID string, model map[string]any) (
 	}
 	return db.ChatMessage{CookieID: accountID, ChatID: chatID, MessageKey: key, Direction: direction,
 		SenderID: senderID, SenderName: senderName, MessageType: messageType, Content: content,
-		Status: status, SentAt: int64Value(message["createAt"])}, true
+		MediaDuration: mediaDuration, Status: status, SentAt: int64Value(message["createAt"])}, true
 }
 
 // mapValue 封装map值业务协调。
@@ -607,6 +619,12 @@ func extractMessageContent(raw map[string]any, fallback string) (string, string)
 				if // mediaURL 用于本次流程后续判断的mediaURL
 				mediaURL := extractString(typed["video"], "url", "videoUrl", "playUrl"); mediaURL != "" {
 					return "video", mediaURL
+				}
+			}
+			if contentType == "3" || typed["audio"] != nil {
+				// mediaURL 保存闲鱼语音载荷中的 AMR 地址；同一载荷的秒级时长由独立解析器持久化。
+				if mediaURL := extractString(typed["audio"], "url", "audioUrl", "playUrl"); mediaURL != "" {
+					return "audio", mediaURL
 				}
 			}
 			// child 表示当前遍历过程中的child

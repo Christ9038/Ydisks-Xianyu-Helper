@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"xianyu-go/internal/db"
 )
 
 // handleAIPricingMode 在订单创建事件中优先执行 AI 报价，并阻止互斥的固定价格规则继续运行。
@@ -30,11 +32,15 @@ func (c *Center) handleAIPricingMode(ctx context.Context, task Task) (bool, erro
 	}
 	// quote 是与账号、买家、商品、会话和有效期匹配后原子领取的最新报价；claimErr 是领取错误。
 	quote, claimErr := c.store.AIReply.ClaimPendingQuote(ctx, task.AccountID, task.ChatID, task.BuyerID, task.ItemID, task.OrderID, time.Now().UTC().Unix())
+	if errors.Is(claimErr, db.ErrAIBargainQuoteAlreadyClaimed) {
+		c.logger.Debug("订单已领取 AI 报价，忽略重复订单事件", "account", task.AccountID, "order_id", task.OrderID)
+		return true, nil
+	}
 	if claimErr != nil {
 		return true, fmt.Errorf("领取 AI 自动改价报价: %w", claimErr)
 	}
 	if quote == nil {
-		c.logger.Info("订单没有可用的 AI 有效报价，不执行改价", "account", task.AccountID, "order_id", task.OrderID, "item_id", task.ItemID)
+		c.logger.Debug("订单没有可用的 AI 有效报价，不执行改价", "account", task.AccountID, "order_id", task.OrderID, "item_id", task.ItemID)
 		return true, nil
 	}
 	// targetPriceCents 是 AI 单件报价按已知购买数量折算后的订单目标总价。

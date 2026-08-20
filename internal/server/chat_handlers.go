@@ -349,7 +349,7 @@ func (s *Server) resolveChatReadMessageIDs(ctx context.Context, accountID, chatI
 		// id 保存应用层解析后的平台消息标识。
 		id := s.chatApplication().ResolveReadMessageID(ctx, accountID, chatID, rawID)
 		if !strings.HasSuffix(id, ".PNM") {
-			slog.Warn("未找到旧聊天消息对应的 PNM，跳过已读上报", "account", accountID, "chat_id", chatID, "message_id", rawID)
+			slog.Debug("未找到旧聊天消息对应的 PNM，跳过已读上报", "account", accountID, "chat_id", chatID, "message_id", rawID)
 			continue
 		}
 		// exists 表示该平台消息标识是否已经加入本次上报请求。

@@ -177,7 +177,7 @@ func testOpenAPIChatHistoryAndReadSuccess(t *testing.T) {
 	srv, store, cleanup := newTestServerWithChat(t)
 	defer cleanup()
 	// saveErr 表示写入可查询聊天消息失败。
-	_, _, saveErr := store.Chats.SaveMessage(context.Background(), db.ChatSession{CookieID: "acc1", ChatID: "chat-contract", BuyerID: "buyer-contract", BuyerName: "契约买家"}, db.ChatMessage{MessageKey: "message-contract", Direction: "incoming", SenderID: "buyer-contract", SenderName: "契约买家", MessageType: "text", Content: "契约消息", Status: "received", SentAt: 1}, true)
+	_, _, saveErr := store.Chats.SaveMessage(context.Background(), db.ChatSession{CookieID: "acc1", ChatID: "chat-contract", BuyerID: "buyer-contract", BuyerName: "契约买家", ItemImageURL: "https://img.example/item.jpg"}, db.ChatMessage{MessageKey: "message-contract", Direction: "incoming", SenderID: "buyer-contract", SenderName: "契约买家", MessageType: "audio", Content: "https://media.example/voice.amr", MediaDuration: 3, Status: "received", SentAt: 1}, true)
 	if saveErr != nil {
 		t.Fatalf("写入聊天夹具失败: %v", saveErr)
 	}

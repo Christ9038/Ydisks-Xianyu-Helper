@@ -10,19 +10,19 @@ import (
 	chatapp "xianyu-go/internal/application/chat"
 )
 
-// TestChatMessageDTOKeepsReadReceipt 验证聊天传输 DTO 不会丢弃平台出站已读回执。
+// TestChatMessageDTOKeepsReadReceipt 验证聊天传输 DTO 不会丢弃平台已读回执和语音长度。
 func TestChatMessageDTOKeepsReadReceipt(t *testing.T) {
 	// message 保存带已读确认的应用层出站消息。
-	message := chatapp.Message{ID: 7, AccountID: "account-1", ChatID: "chat-1", MessageKey: "message-1", Direction: "outgoing", Status: "sent", ReadStatus: 2, ReadAt: 88, SentAt: 99}
+	message := chatapp.Message{ID: 7, AccountID: "account-1", ChatID: "chat-1", MessageKey: "message-1", Direction: "outgoing", MessageType: "audio", MediaDuration: 3, Status: "sent", ReadStatus: 2, ReadAt: 88, SentAt: 99}
 	// single 保存单消息接口使用的传输 DTO。
 	single := newChatMessageDTOFromApplication(&message)
-	if single.ReadStatus != 2 || single.ReadAt != 88 {
-		t.Fatalf("单消息响应丢失已读回执: got=%+v", single)
+	if single.ReadStatus != 2 || single.ReadAt != 88 || single.MediaDuration != 3 {
+		t.Fatalf("单消息响应丢失已读回执或语音时长: got=%+v", single)
 	}
 	// page 保存历史消息接口使用的传输 DTO 列表。
 	page := newChatMessageDTOsFromApplication([]chatapp.Message{message})
-	if len(page) != 1 || page[0].ReadStatus != 2 || page[0].ReadAt != 88 {
-		t.Fatalf("消息分页响应丢失已读回执: got=%+v", page)
+	if len(page) != 1 || page[0].ReadStatus != 2 || page[0].ReadAt != 88 || page[0].MediaDuration != 3 {
+		t.Fatalf("消息分页响应丢失已读回执或语音时长: got=%+v", page)
 	}
 }
 
@@ -32,7 +32,7 @@ func TestChatEventDTOUsesFrontendContract(t *testing.T) {
 	event := chatapp.Event{
 		Type:    "message.created",
 		Message: &chatapp.Message{AccountID: "account-1", ChatID: "chat-1", MessageKey: "message-1", Direction: "incoming", SenderID: "buyer-1", SenderName: "买家", MessageType: "text", Status: "received", SentAt: 9},
-		Session: &chatapp.Session{AccountID: "account-1", ChatID: "chat-1", BuyerID: "buyer-1", BuyerName: "买家"},
+		Session: &chatapp.Session{AccountID: "account-1", ChatID: "chat-1", BuyerID: "buyer-1", BuyerName: "买家", ItemImageURL: "https://img.example/item.jpg"},
 	}
 	// encoded、marshalErr 分别保存 DTO 编码结果和编码错误。
 	encoded, marshalErr := json.Marshal(newChatEventDTOFromApplication(event))
@@ -52,7 +52,7 @@ func TestChatEventDTOUsesFrontendContract(t *testing.T) {
 	}
 	// session 保存事件中的会话对象，也必须使用同一命名约定。
 	session, sessionOK := payload["session"].(map[string]any)
-	if !sessionOK || session["account_id"] != "account-1" || session["chat_id"] != "chat-1" || session["AccountID"] != nil {
+	if !sessionOK || session["account_id"] != "account-1" || session["chat_id"] != "chat-1" || session["item_image_url"] != "https://img.example/item.jpg" || session["AccountID"] != nil {
 		t.Fatalf("会话 WebSocket 契约错误: %#v", payload["session"])
 	}
 	// specPath 是测试包相对仓库根目录的唯一 OpenAPI 契约位置。

@@ -83,6 +83,8 @@ export interface ChatSession {
 	item_id?: string;
 	/** 会话关联商品标题。 */
 	item_title?: string;
+	/** 会话关联商品主图的公开地址。 */
+	item_image_url?: string;
 	/** 最近一条消息内容。 */
 	last_message: string;
 	/** 最近一条消息的 Unix 秒时间戳。 */
@@ -107,10 +109,12 @@ export interface ChatMessage {
 	sender_id: string;
 	/** 发送者名称。 */
 	sender_name: string;
-  /** 消息类型，system 表示平台通知或交易卡片。 */
-	message_type: 'text' | 'image' | 'video' | 'system';
+  /** 消息类型；audio 表示需在浏览器解码的语音，system 表示平台通知或交易卡片。 */
+	message_type: 'text' | 'image' | 'video' | 'audio' | 'system';
 	/** 消息正文或媒体地址。 */
 	content: string;
+	/** 语音消息的秒级时长；非语音或平台未提供时省略。 */
+	media_duration?: number;
 	/** 消息发送状态。 */
 	status: 'received' | 'sending' | 'sent' | 'failed';
 	/** 平台已读状态；旧消息可能没有该字段。 */

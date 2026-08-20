@@ -78,6 +78,10 @@ export default defineConfig({
           if (modulePath.includes('/lucide-react/')) {
             return 'icons-vendor';
           }
+          // AMR 解码器体积较大，随聊天懒加载路由使用独立块，避免拖慢应用首屏并保持依赖可审计。
+          if (modulePath.includes('/benz-amr-recorder/')) {
+            return 'audio-codec';
+          }
           return 'vendor';
         },
       },

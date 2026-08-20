@@ -34,8 +34,15 @@ func (*fakeRepository) SaveMessage(_ context.Context, _ db.ChatSession, message 
 	return &message, true, nil
 }
 
-// UpdateMessageType 模拟更新历史消息类型。
-func (*fakeRepository) UpdateMessageType(context.Context, string, string, string) error { return nil }
+// UpdateMessageContent 模拟更新历史消息的富媒体分类和地址。
+func (*fakeRepository) UpdateMessageContent(context.Context, string, string, string, string) error {
+	return nil
+}
+
+// UpdateMessageMediaDuration 模拟更新历史语音的秒级时长。
+func (*fakeRepository) UpdateMessageMediaDuration(context.Context, string, string, int64) error {
+	return nil
+}
 
 // UpdateMessageStatus 模拟更新外发消息状态。
 func (*fakeRepository) UpdateMessageStatus(_ context.Context, _ string, _ string, status string) (*db.ChatMessage, error) {

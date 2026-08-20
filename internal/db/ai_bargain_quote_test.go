@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -44,10 +45,10 @@ func TestAIBargainQuoteLifecycle(t *testing.T) {
 	if err != nil || claimed == nil || claimed.PriceCents != 9000 {
 		t.Fatalf("领取最新报价失败: quote=%+v err=%v", claimed, err)
 	}
-	// duplicate 是同一订单重复事件的领取结果，必须幂等为空。
-	duplicate, err := store.AIReply.ClaimPendingQuote(ctx, "quote-account", "chat-1", "buyer-1", "item-1", "order-1", 1000)
-	if err != nil || duplicate != nil {
-		t.Fatalf("重复订单不应再次领取: quote=%+v err=%v", duplicate, err)
+	// duplicate、duplicateErr 分别是同一订单重复事件的领取结果和幂等标识错误。
+	duplicate, duplicateErr := store.AIReply.ClaimPendingQuote(ctx, "quote-account", "chat-1", "buyer-1", "item-1", "order-1", 1000)
+	if !errors.Is(duplicateErr, ErrAIBargainQuoteAlreadyClaimed) || duplicate != nil {
+		t.Fatalf("重复订单应返回已领取标识: quote=%+v err=%v", duplicate, duplicateErr)
 	}
 	if err = store.AIReply.FinishQuote(ctx, claimed.ID, "adjusted", ""); err != nil {
 		t.Fatal(err)

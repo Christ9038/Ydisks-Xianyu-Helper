@@ -37,7 +37,7 @@ func (r chatRepository) ListMessages(ctx context.Context, userID int64, accountI
 		messages = append(messages, chatapp.Message{
 			ID: row.ID, AccountID: row.CookieID, ChatID: row.ChatID, MessageKey: row.MessageKey,
 			Direction: row.Direction, SenderID: row.SenderID, SenderName: row.SenderName,
-			MessageType: row.MessageType, Content: row.Content, Status: row.Status,
+			MessageType: row.MessageType, Content: row.Content, MediaDuration: row.MediaDuration, Status: row.Status,
 			ReadStatus: row.ReadStatus, ReadAt: row.ReadAt, SentAt: row.SentAt,
 		})
 	}
@@ -58,7 +58,7 @@ func (r chatRepository) ListSessions(ctx context.Context, userID int64, accountI
 		sessions = append(sessions, chatapp.Session{
 			AccountID: row.CookieID, ChatID: row.ChatID, BuyerID: row.BuyerID,
 			BuyerName: row.BuyerName, BuyerAvatar: row.BuyerAvatar, ItemID: row.ItemID,
-			ItemTitle: row.ItemTitle, LastMessage: row.LastMessage, LastMessageAt: row.LastMessageAt,
+			ItemTitle: row.ItemTitle, ItemImageURL: row.ItemImageURL, LastMessage: row.LastMessage, LastMessageAt: row.LastMessageAt,
 			UnreadCount: row.UnreadCount,
 		})
 	}

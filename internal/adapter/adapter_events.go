@@ -31,7 +31,7 @@ func (a *Adapter) HandleChatMessage(ctx context.Context, message engine.ChatMess
 	// selfID 保存当前账号从 Cookie 解析出的平台用户标识，用于过滤同账号 WebSocket 回显。
 	if selfID := protocol.TransCookies(message.CookieStr)["unb"]; selfID != "" &&
 		strings.TrimSuffix(strings.TrimSpace(message.SenderUserID), "@goofish") == strings.TrimSuffix(strings.TrimSpace(selfID), "@goofish") {
-		a.logger.Info("忽略账号自身发送的聊天回显", "account", message.AccountID, "chat_id", message.ChatID, "sender_id", message.SenderUserID)
+		a.logger.Debug("忽略账号自身发送的聊天回显", "account", message.AccountID, "chat_id", message.ChatID, "sender_id", message.SenderUserID)
 		return nil
 	}
 	// stored、inserted、err 保存落库消息、是否首次插入及持久化错误。
@@ -77,7 +77,7 @@ func (a *Adapter) HandleMessageRead(ctx context.Context, event engine.MessageRea
 		return err
 	}
 	if err == nil && message != nil {
-		a.logger.Info("聊天出站消息已标记已读", "account", event.AccountID, "chat_id", event.ChatID,
+		a.logger.Debug("聊天出站消息已标记已读", "account", event.AccountID, "chat_id", event.ChatID,
 			"message_id", event.MessageID, "message_key", message.MessageKey, "read_status", message.ReadStatus)
 	}
 	return nil

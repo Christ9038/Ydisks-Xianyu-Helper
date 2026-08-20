@@ -5,6 +5,7 @@ Search,Send,Smile,UserRound,Wifi,WifiOff,X,
 import React from 'react';
 import Lightbox from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
+import { AudioMessage } from '../components/AudioMessage';
 import { useChat } from '../hooks';
 import { unreadBadgeClassName,unreadBadgeLabel } from '../state';
 
@@ -96,20 +97,23 @@ const Chat: React.FC = () => {
             <div className="min-h-0 flex-1 overflow-y-auto">
               {filteredSessions.map(/* 当前回调处理集合中的单个元素。 */ session => (
                 <button key={session.chat_id} type="button" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => setActiveChatID(session.chat_id)}
-                  className={`flex w-full gap-3 border-b border-slate-100 p-4 text-left transition-colors ${session.chat_id === activeChatID ? 'bg-white shadow-chat-active' : 'hover:bg-white/80'}`}>
+                  className={`flex w-full gap-3 border-b border-slate-100 p-3.5 text-left transition-colors ${session.chat_id === activeChatID ? 'bg-white shadow-chat-active' : 'hover:bg-white/80'}`}>
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-slate-500">
                     {session.buyer_avatar_url ? <img src={session.buyer_avatar_url} alt="" className="h-full w-full object-cover" /> : <UserRound className="h-5 w-5" />}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm font-extrabold text-slate-900">{session.buyer_name || `用户 ${session.buyer_id}`}</span>
-                      <span className="ml-auto shrink-0 text-[10px] font-medium text-slate-400">{formatClock(session.last_message_at)}</span>
                     </div>
                     <div className="mt-1 flex items-center gap-2">
                       <span className="truncate text-xs text-slate-500">{session.last_message || '暂无消息'}</span>
                       {session.unread_count > 0 && <span aria-label={`未读消息 ${unreadBadgeLabel(session.unread_count)} 条`} className={`ml-auto ${unreadBadgeClassName(session.unread_count)}`}>{unreadBadgeLabel(session.unread_count)}</span>}
                     </div>
                     {session.item_title && <div className="mt-1.5 truncate text-[10px] font-medium text-sky-700">商品 · {session.item_title}</div>}
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    <span className="text-[10px] font-medium text-slate-400">{formatClock(session.last_message_at)}</span>
+                    {session.item_image_url && <img src={session.item_image_url} alt="" className="h-9 w-11 rounded-[4px] border border-slate-200 object-cover" />}
                   </div>
                 </button>
               ))}
@@ -171,6 +175,8 @@ const Chat: React.FC = () => {
                             </button>
                           ) : message.message_type === 'video' ? (
                             <video src={message.content} controls preload="metadata" className="max-h-80 max-w-full rounded-2xl bg-black" />
+                          ) : message.message_type === 'audio' ? (
+                            <AudioMessage messageKey={message.message_key} src={message.content} outgoing={outgoing} initialDuration={message.media_duration} />
                           ) : (
                             <div className={`rounded-2xl px-4 py-2.5 text-sm leading-6 shadow-sm ${outgoing ? 'rounded-br-md bg-sky-500 text-white' : 'rounded-bl-md border border-slate-200 bg-white text-slate-800'}`}>{renderXianyuText(message.content)}</div>
                           )}

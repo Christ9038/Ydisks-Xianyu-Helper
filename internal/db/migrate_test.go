@@ -107,7 +107,7 @@ func TestMigrate_AppliesCleanSchema(t *testing.T) {
 }
 
 // TestMigrate_UpgradesDatabaseWithMainChatVersions 验证已发布 main 的 00029/00030
-// 聊天迁移可以原样升级到包含 AI 议价自动改价状态的 00034 最终版本。
+// 聊天迁移可以原样升级到包含聊天媒体展示字段的 00035 最终版本。
 func TestMigrate_UpgradesDatabaseWithMainChatVersions(t *testing.T) {
 	// tmpDir 保存隔离的已发布 main 数据库目录，测试结束后由 testing 清理。
 	tmpDir := t.TempDir()
@@ -133,23 +133,23 @@ func TestMigrate_UpgradesDatabaseWithMainChatVersions(t *testing.T) {
 
 	// ctx 提供迁移 API 所需的调用上下文；升级本身不依赖请求生命周期。
 	ctx := context.Background()
-	// migrateErr 保存从 main 00030 接续 dev 00031 至 00034 时的迁移失败。
+	// migrateErr 保存从 main 00030 接续 dev 00031 至 00035 时的迁移失败。
 	if migrateErr := Migrate(ctx, rawDB, DialectSQLite); migrateErr != nil {
 		t.Fatalf("upgrade from main 00030: %v", migrateErr)
 	}
 	if !tableExists(t, rawDB, "order_reconciliations") {
 		t.Fatal("order_reconciliations should be created by the dev schema baseline migration")
 	}
-	if !columnExists(t, rawDB, "chat_messages", "read_status") || !columnExists(t, rawDB, "chat_messages", "read_at") {
-		t.Fatal("chat read tracking columns should remain after dev schema baseline upgrade")
+	if !columnExists(t, rawDB, "chat_messages", "read_status") || !columnExists(t, rawDB, "chat_messages", "read_at") || !columnExists(t, rawDB, "chat_messages", "media_duration") || !columnExists(t, rawDB, "chat_sessions", "item_image_url") {
+		t.Fatal("chat read tracking and media presentation columns should remain after dev schema baseline upgrade")
 	}
 	// finalVersion 验证迁移账本已推进到包含批量发布间隔的最新 dev schema 版本。
 	finalVersion, versionErr := goose.GetDBVersion(rawDB)
 	if versionErr != nil {
 		t.Fatalf("read final migration version: %v", versionErr)
 	}
-	if finalVersion != 34 {
-		t.Fatalf("final migration version=%d, want 34", finalVersion)
+	if finalVersion != 35 {
+		t.Fatalf("final migration version=%d, want 35", finalVersion)
 	}
 }
 
@@ -267,9 +267,11 @@ func TestLatestMigrationsDownUpSQLite(t *testing.T) {
 		{"account_task_settings", "auto_rate_enabled"},
 		{"account_task_runs", "run_key"},
 		{"chat_sessions", "unread_count"},
+		{"chat_sessions", "item_image_url"},
 		{"chat_messages", "message_key"},
 		{"chat_messages", "read_status"},
 		{"chat_messages", "read_at"},
+		{"chat_messages", "media_duration"},
 		{"notification_outbox", "uncertain_at"},
 	} {
 		if !columnExists(t, d, c.table, c.col) {

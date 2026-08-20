@@ -103,7 +103,7 @@ func chatApplicationSession(session *db.ChatSession) chatapp.Session {
 	return chatapp.Session{
 		AccountID: session.CookieID, ChatID: session.ChatID, BuyerID: session.BuyerID,
 		BuyerName: session.BuyerName, BuyerAvatar: session.BuyerAvatar, ItemID: session.ItemID,
-		ItemTitle: session.ItemTitle, LastMessage: session.LastMessage, LastMessageAt: session.LastMessageAt,
+		ItemTitle: session.ItemTitle, ItemImageURL: session.ItemImageURL, LastMessage: session.LastMessage, LastMessageAt: session.LastMessageAt,
 		UnreadCount: session.UnreadCount,
 	}
 }

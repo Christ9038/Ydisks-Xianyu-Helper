@@ -6,6 +6,9 @@ import (
 	"errors"
 )
 
+// ErrAIBargainQuoteAlreadyClaimed 表示同一订单已绑定过 AI 报价，重复事件不得再次执行外部改价。
+var ErrAIBargainQuoteAlreadyClaimed = errors.New("AI 议价报价已被该订单领取")
+
 // AIConversationMessage 是一个账号会话中的 AI 对话消息。
 type AIConversationMessage struct {
 	Role         string
@@ -200,7 +203,7 @@ func (a *AIReply) ClaimPendingQuote(ctx context.Context, cookieID, chatID, buyer
 		return nil, err
 	}
 	if existingCount > 0 {
-		return nil, nil
+		return nil, ErrAIBargainQuoteAlreadyClaimed
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE ai_bargain_quotes SET status='expired',updated_at=CURRENT_TIMESTAMP
 		WHERE cookie_id=? AND status='pending' AND expires_at<?`, cookieID, now); err != nil {

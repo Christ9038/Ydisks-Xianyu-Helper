@@ -74,6 +74,8 @@ type chatSessionDTO struct {
 	ItemID string `json:"item_id"`
 	// ItemTitle 是会话关联商品标题。
 	ItemTitle string `json:"item_title"`
+	// ItemImageURL 是会话关联商品主图的公开地址。
+	ItemImageURL string `json:"item_image_url"`
 	// LastMessage 是最近一条消息摘要。
 	LastMessage string `json:"last_message"`
 	// LastMessageAt 是最近消息时间的 Unix 秒。
@@ -87,7 +89,7 @@ func newChatSessionDTOFromApplication(session chatapp.Session) chatSessionDTO {
 	return chatSessionDTO{
 		AccountID: session.AccountID, ChatID: session.ChatID, BuyerID: session.BuyerID,
 		BuyerName: session.BuyerName, BuyerAvatar: session.BuyerAvatar, ItemID: session.ItemID,
-		ItemTitle: session.ItemTitle, LastMessage: session.LastMessage,
+		ItemTitle: session.ItemTitle, ItemImageURL: session.ItemImageURL, LastMessage: session.LastMessage,
 		LastMessageAt: session.LastMessageAt, UnreadCount: session.UnreadCount,
 	}
 }
@@ -123,6 +125,8 @@ type chatMessageDTO struct {
 	MessageType string `json:"message_type"`
 	// Content 是消息文本或媒体地址。
 	Content string `json:"content"`
+	// MediaDuration 是语音消息的秒级时长；零值表示平台未提供。
+	MediaDuration int64 `json:"media_duration"`
 	// Status 是消息投递状态。
 	Status string `json:"status"`
 	// ReadStatus 是平台已读回执状态；值为 2 时表示对方已读。
@@ -142,7 +146,7 @@ func newChatMessageDTOFromApplication(message *chatapp.Message) chatMessageDTO {
 		ID: message.ID, AccountID: message.AccountID, ChatID: message.ChatID,
 		MessageKey: message.MessageKey, Direction: message.Direction,
 		SenderID: message.SenderID, SenderName: message.SenderName,
-		MessageType: message.MessageType, Content: message.Content,
+		MessageType: message.MessageType, Content: message.Content, MediaDuration: message.MediaDuration,
 		Status: message.Status, ReadStatus: message.ReadStatus, ReadAt: message.ReadAt, SentAt: message.SentAt,
 	}
 }
@@ -156,7 +160,7 @@ func newChatMessageDTOsFromApplication(messages []chatapp.Message) []chatMessage
 		result = append(result, chatMessageDTO{
 			ID: message.ID, AccountID: message.AccountID, ChatID: message.ChatID,
 			MessageKey: message.MessageKey, Direction: message.Direction, SenderID: message.SenderID,
-			SenderName: message.SenderName, MessageType: message.MessageType, Content: message.Content,
+			SenderName: message.SenderName, MessageType: message.MessageType, Content: message.Content, MediaDuration: message.MediaDuration,
 			Status: message.Status, ReadStatus: message.ReadStatus, ReadAt: message.ReadAt, SentAt: message.SentAt,
 		})
 	}

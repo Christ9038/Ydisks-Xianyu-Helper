@@ -2460,6 +2460,7 @@ export interface components {
             buyer_avatar_url?: string;
             item_id?: string;
             item_title?: string;
+            item_image_url?: string;
             last_message: string;
             last_message_at: number;
             unread_count: number;
@@ -2474,8 +2475,9 @@ export interface components {
             sender_id: string;
             sender_name: string;
             /** @enum {string} */
-            message_type: "text" | "image" | "video" | "system";
+            message_type: "text" | "image" | "video" | "audio" | "system";
             content: string;
+            media_duration?: number;
             /** @enum {string} */
             status: "received" | "sending" | "sent" | "failed";
             read_status?: number;

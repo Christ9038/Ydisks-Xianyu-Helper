@@ -203,7 +203,134 @@ func fieldsFromRaw(raw map[string]any) rawFields {
 			f.orderID = matchOrderID(f.reminderURL)
 		}
 	}
+	// 平台交易卡片会随客户端版本把订单事实移动到不同嵌套层级或 JSON 字符串中；
+	// 固定路径未命中时，只补齐仍为空的明确业务字段，不能覆盖已按优先路径解析出的事实。
+	if f.chatID == "" || f.orderID == "" || f.itemID == "" || f.buyerID == "" {
+		supplementEventFacts(&f, raw, 0)
+	}
 	return f
+}
+
+// fallbackEventFactsMaxDepth 限制平台原始报文递归解析深度，避免异常报文占用无限栈空间。
+const fallbackEventFactsMaxDepth = 16
+
+// supplementEventFacts 从非固定层级的对象、数组和内嵌 JSON 中补齐交易事实。
+// 它只接受具有明确字段名或交易链接语义的值，不会从普通聊天正文猜测订单标识。
+func supplementEventFacts(fields *rawFields, value any, depth int) {
+	if fields == nil || value == nil || depth > fallbackEventFactsMaxDepth {
+		return
+	}
+	switch // typedValue 保存当前原始节点按运行时类型断言后的值。
+	typedValue := value.(type) {
+	case map[string]any:
+		// key、nestedValue 分别是当前对象字段名和待继续解析的字段值。
+		for key, nestedValue := range typedValue {
+			supplementEventFactByKey(fields, key, nestedValue)
+			supplementEventFacts(fields, nestedValue, depth+1)
+		}
+	case []any:
+		// nestedValue 是当前数组中的报文节点。
+		for _, nestedValue := range typedValue {
+			supplementEventFacts(fields, nestedValue, depth+1)
+		}
+	case string:
+		// text 是去除两端空白后的原始字符串，可能是交易链接或内嵌 JSON。
+		text := strings.TrimSpace(typedValue)
+		if fields.orderID == "" {
+			fields.orderID = matchOrderID(text)
+		}
+		if !strings.HasPrefix(text, "{") && !strings.HasPrefix(text, "[") {
+			return
+		}
+		// nestedValue 是内嵌 JSON 反序列化后的节点；解析失败时该字符串不携带可安全识别的结构化事实。
+		var nestedValue any
+		if json.Unmarshal([]byte(text), &nestedValue) == nil {
+			supplementEventFacts(fields, nestedValue, depth+1)
+		}
+	}
+}
+
+// supplementEventFactByKey 按平台字段名补齐一项交易事实，并保留固定路径优先的已有值。
+func supplementEventFactByKey(fields *rawFields, key string, value any) {
+	if fields == nil {
+		return
+	}
+	// normalizedKey 是移除大小写、下划线和短横线差异后的平台字段名。
+	normalizedKey := normalizeEventFactKey(key)
+	// text 是当前字段的字符串形式；数字订单号会由 JSON 解码后的数值统一转换。
+	text := strings.TrimSpace(strAny(value))
+	switch normalizedKey {
+	case "orderid", "bizorderid", "tradeid", "orderno", "tradeno":
+		if fields.orderID == "" {
+			fields.orderID = directOrderID(text)
+		}
+	case "updatekey":
+		if fields.updateKey == "" {
+			fields.updateKey = text
+		}
+		// chatID、orderID 是 updateKey 中稳定编码的会话和订单标识。
+		chatID, orderID := parseUpdateKey(text)
+		if fields.chatID == "" {
+			fields.chatID = chatID
+		}
+		if fields.orderID == "" {
+			fields.orderID = orderID
+		}
+	case "chatid", "sessionid", "sid":
+		if fields.chatID == "" {
+			fields.chatID = trimGoofishSID(text)
+		}
+	case "itemid", "auctionid":
+		if fields.itemID == "" {
+			fields.itemID = text
+		}
+	case "buyerid", "peeruserid", "senderuserid":
+		if fields.buyerID == "" {
+			fields.buyerID = text
+		}
+	case "reminderurl", "targeturl", "url", "deeplink", "link":
+		supplementEventFactsFromURL(fields, text)
+	}
+}
+
+// normalizeEventFactKey 统一平台字段名的大小写和分隔符，兼容同一字段的不同协议命名。
+func normalizeEventFactKey(key string) string {
+	// normalized 是去除字段名分隔符并转为小写后的比较值。
+	normalized := strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(key), "_", ""), "-", "")
+	return strings.ToLower(normalized)
+}
+
+// directOrderID 校验直接字段中的闲鱼订单标识，避免把普通文本或短数字误用为可执行订单号。
+func directOrderID(value string) string {
+	if len(value) < 10 {
+		return ""
+	}
+	// character 是订单标识中的当前字符；闲鱼交易订单号只允许十进制数字。
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return ""
+		}
+	}
+	return value
+}
+
+// supplementEventFactsFromURL 从交易跳转链接补齐订单、商品、买家和会话标识。
+func supplementEventFactsFromURL(fields *rawFields, rawURL string) {
+	if fields == nil || strings.TrimSpace(rawURL) == "" {
+		return
+	}
+	if fields.itemID == "" {
+		fields.itemID = queryValue(rawURL, "itemId")
+	}
+	if fields.buyerID == "" {
+		fields.buyerID = queryValue(rawURL, "peerUserId")
+	}
+	if fields.chatID == "" {
+		fields.chatID = queryValue(rawURL, "sid")
+	}
+	if fields.orderID == "" {
+		fields.orderID = matchOrderID(rawURL)
+	}
 }
 
 // isOrderPaidEvent 封装is订单PaidEvent业务协调。
@@ -224,9 +351,19 @@ func isOrderCreatedEvent(f rawFields) bool {
 	if f.orderRole == "buyer" {
 		return false
 	}
+	if isPriceModifiedEvent(f) {
+		return false
+	}
 	return strings.Contains(f.text, "我已拍下") ||
 		strings.Contains(f.text, "已拍下，待付款") ||
 		strings.Contains(f.redReminder, "等待买家付款")
+}
+
+// isPriceModifiedEvent 判断卖家改价后的确认卡片，避免它沿用“等待买家付款”文案时被重复识别为拍下事件。
+func isPriceModifiedEvent(f rawFields) bool {
+	// displayText 汇总卡片的业务键和展示文本；这些字段都不包含用户聊天正文。
+	displayText := strings.ToUpper(strings.Join([]string{f.updateKey, f.text, f.redReminder, f.title, f.detail}, "\n"))
+	return strings.Contains(displayText, "TRADE_MODIFY_FEE") || strings.Contains(displayText, "我已修改价格")
 }
 
 // isBuyerReviewedEvent 封装is买家ReviewedEvent业务协调。
@@ -340,7 +477,8 @@ var orderIDPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`orderId[=:](\d{10,})`),
 	regexp.MustCompile(`order_detail\?id=(\d{10,})`),
 	regexp.MustCompile(`bizOrderId[=:](\d{10,})`),
-	regexp.MustCompile(`id=(\d{10,})`),
+	// 独立 id 参数必须位于查询参数边界，不能把 sid= 中的后缀误判为订单号。
+	regexp.MustCompile(`(?:^|[?&])id=(\d{10,})(?:[&#]|$)`),
 }
 
 // extractOrderRoleFromContent 封装extract订单RoleFrom内容业务协调。

@@ -153,6 +153,46 @@ func TestExtractTaskFromWS_OrderCreated(t *testing.T) {
 	}
 }
 
+// TestExtractTaskFromWS_OrderCreatedUsesNestedFallbackFacts 验证新版卡片将交易字段放入非固定嵌套 JSON 时，仍能生成完整的真实改价任务。
+func TestExtractTaskFromWS_OrderCreatedUsesNestedFallbackFacts(t *testing.T) {
+	// raw 是保留既有展示文案、但把订单主键移动到扩展 JSON 的新版卖家交易卡片。
+	raw := mustMap(t, `{
+	  "1": {
+	    "2": "63107041124@goofish",
+	    "10": {
+	      "redReminder": "等待买家付款",
+	      "reminderContent": "[我已拍下，待付款]",
+	      "senderUserId": "2222315258815",
+	      "reminderUrl": "fleamarket://message_chat?itemId=1063177864132&peerUserId=2222315258815&sid=63107041124"
+	    },
+	    "8": {"extra": "{\"trade\":{\"bizOrderId\":\"3310145690545023994\"}}"}
+	  }
+	}`)
+	// task 是解析后的订单创建任务，必须具备领取 AI 报价和调用真实改价所需的四项事实。
+	task := ExtractTaskFromWS("acc1", "cookie", raw)
+	if task == nil || task.TriggerType != TriggerOrderCreated || task.OrderID != "3310145690545023994" ||
+		task.ChatID != "63107041124" || task.ItemID != "1063177864132" || task.BuyerID != "2222315258815" {
+		t.Fatalf("新版卡片任务=%+v", task)
+	}
+}
+
+// TestExtractTaskFromWS_PriceModifiedEventIgnored 验证改价确认卡片不会因“等待买家付款”提示被重复识别为订单创建。
+func TestExtractTaskFromWS_PriceModifiedEventIgnored(t *testing.T) {
+	// raw 是闲鱼在卖家改价成功后推送的确认卡片，沿用待付款提醒但业务键明确为改价。
+	raw := mustMap(t, `{
+	  "1": {"2": "65854441361@goofish", "10": {
+	    "redReminder": "等待买家付款",
+	    "reminderContent": "[我已修改价格，等待你付款]",
+	    "extJson": "{\"updateKey\":\"65854441361:5127636708304071608:2:TRADE_MODIFY_FEE_SELLER:26\"}"
+	  }}
+	}`)
+	// task 是改价确认卡片的自动化解析结果，正确行为是不产生任何订单创建任务。
+	task := ExtractTaskFromWS("acc1", "cookie", raw)
+	if task != nil {
+		t.Fatalf("改价确认卡片不应触发自动改价: %+v", task)
+	}
+}
+
 // TestExtractTaskFromWS_BuyerOrderCreatedIgnored 校验买家角色的拍下卡片不进入卖家自动化。
 func TestExtractTaskFromWS_BuyerOrderCreatedIgnored(t *testing.T) {
 	// raw 是当前账号自己下单产生的买家角色拍下卡片样本。
