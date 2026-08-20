@@ -129,6 +129,50 @@ func TestExtractTaskFromWS_BuyerOrderPaidTaskNameIgnored(t *testing.T) {
 	}
 }
 
+// TestExtractTaskFromWS_OrderCreated 校验买家拍下未付款卡片解析为 order_created 事件。
+func TestExtractTaskFromWS_OrderCreated(t *testing.T) {
+	// raw 是卖家收到的买家拍下待付款交易卡片样本。
+	raw := mustMap(t, `{
+	  "1": {
+	    "2": "63107041124@goofish",
+	    "10": {
+	      "redReminder": "等待买家付款",
+	      "reminderContent": "[我已拍下，待付款]",
+	      "senderUserId": "2222315258815",
+	      "reminderUrl": "fleamarket://message_chat?itemId=1063177864132&peerUserId=2222315258815&sid=63107041124",
+	      "extJson": "{\"updateKey\":\"63107041124:3310145690545023994:10:BUYER_CREATE_ORDER:26\",\"contentType\":\"26\"}"
+	    },
+	    "6": {"3": {"5": "{\"dxCard\":{\"item\":{\"main\":{\"targetUrl\":\"fleamarket://order_detail?id=3310145690545023994&role=seller\"}}}}"}}
+	  }
+	}`)
+	// task 是解析出的自动化任务。
+	task := ExtractTaskFromWS("acc1", "cookie", raw)
+	if task == nil || task.TriggerType != TriggerOrderCreated || task.OrderID != "3310145690545023994" ||
+		task.ChatID != "63107041124" || task.ItemID != "1063177864132" || task.BuyerID != "2222315258815" {
+		t.Fatalf("task=%+v", task)
+	}
+}
+
+// TestExtractTaskFromWS_BuyerOrderCreatedIgnored 校验买家角色的拍下卡片不进入卖家自动化。
+func TestExtractTaskFromWS_BuyerOrderCreatedIgnored(t *testing.T) {
+	// raw 是当前账号自己下单产生的买家角色拍下卡片样本。
+	raw := mustMap(t, `{
+	  "1": {
+	    "2": "63107041124@goofish",
+	    "10": {
+	      "redReminder": "等待买家付款",
+	      "reminderContent": "[我已拍下，待付款]",
+	      "senderUserId": "2222315258815"
+	    },
+	    "6": {"3": {"5": "{\"dxCard\":{\"item\":{\"main\":{\"targetUrl\":\"fleamarket://order_detail?id=3310145690545023994&role=buyer\"}}}}"}}
+	  }
+	}`)
+	if // task 是不应产生的自动化任务。
+	task := ExtractTaskFromWS("acc1", "cookie", raw); task != nil {
+		t.Fatalf("买家拍下订单不应进入卖家自动化: %+v", task)
+	}
+}
+
 // mustMap 封装mustMap业务协调。
 func mustMap(t *testing.T, s string) map[string]any {
 	t.Helper()

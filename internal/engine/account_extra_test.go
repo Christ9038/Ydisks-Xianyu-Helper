@@ -76,6 +76,11 @@ func (m *responseCookieRiskMTop) FetchUserProfile(context.Context, string) (*mto
 	return nil, nil
 }
 
+// AdjustOrderPriceContext 满足 MTOP 客户端接口，风控恢复测试不关心订单改价。
+func (m *responseCookieRiskMTop) AdjustOrderPriceContext(context.Context, string, string, int64) (bool, []string, string, error) {
+	return true, nil, "", nil
+}
+
 // ConsignContext 封装Consign上下文业务协调。
 func (m *responseCookieRiskMTop) ConsignContext(context.Context, string, string) (bool, []string, string, error) {
 	return true, nil, "", nil

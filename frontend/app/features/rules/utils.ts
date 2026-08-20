@@ -1,4 +1,4 @@
-import { Clock3,Gift,PackageCheck } from 'lucide-react';
+import { CircleDollarSign,Clock3,Gift,PackageCheck } from 'lucide-react';
 import type {
 AccountDetail,
 AutomationAction,
@@ -10,6 +10,14 @@ import type { TriggerMeta } from './types';
 
 // triggerMeta 是自动化触发类型的统一展示元数据，供列表和编辑器复用。
 export const triggerMeta: Record<AutomationTriggerType, TriggerMeta> = {
+  order_created: {
+    label: '拍下未付款自动改价',
+    shortLabel: '拍下改价',
+    description: '买家拍下商品未付款时，把该笔待付款订单的价格自动修改为目标价格。',
+    flow: ['拍下待付款卡片', '匹配商品规则', '修改订单价格', '可选提醒买家'],
+    accent: 'violet',
+    icon: CircleDollarSign,
+  },
   order_paid: {
     label: '付款后自动发货',
     shortLabel: '自动发货',
@@ -37,7 +45,7 @@ export const triggerMeta: Record<AutomationTriggerType, TriggerMeta> = {
 };
 
 // triggerOrder 固定自动化类型在创建面板和筛选器中的排序。
-export const triggerOrder: AutomationTriggerType[] = ['order_paid', 'buyer_reviewed', 'review_missing_timeout'];
+export const triggerOrder: AutomationTriggerType[] = ['order_paid', 'order_created', 'buyer_reviewed', 'review_missing_timeout'];
 
 // reviewRequestText 是超时未评价规则的默认提醒文案。
 export const reviewRequestText = '亲，商品使用满意的话，麻烦给个评价，谢谢～';
@@ -95,8 +103,39 @@ export const shouldReplaceGeneratedName = (name?: string) => {
   );
 };
 
+// buildAdjustPriceConfig 把目标价格文本序列化为改价动作配置 JSON。
+export const buildAdjustPriceConfig = (targetPrice: string) => JSON.stringify({ target_price: targetPrice.trim() });
+
+// adjustPriceTarget 从动作列表读取改价动作的目标价格文本。
+export const adjustPriceTarget = (actions?: AutomationAction[]): string => {
+  // action 是动作列表中的改价动作。
+  const action = (actions || []).find(
+    // 改价动作匹配器只查找订单改价类型。
+    candidate => candidate.action_type === 'adjust_price',
+  );
+  return String(parseJSONObject(action?.config_json).target_price ?? '');
+};
+
+// isValidAdjustPrice 校验目标价格是否为 0.01 到 1000000 元、最多两位小数的金额。
+export const isValidAdjustPrice = (raw: string): boolean => {
+  // trimmed 是去掉首尾空白后的金额文本。
+  const trimmed = raw.trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return false;
+  // cents 是金额折算出的整数分。
+  const cents = Math.round(Number(trimmed) * 100);
+  return cents >= 1 && cents <= 100000000;
+};
+
 // cardActionsForTrigger 根据触发类型创建默认动作链。
 export const cardActionsForTrigger = (trigger: AutomationTriggerType, cardID = 0): AutomationAction[] => {
+  if (trigger === 'order_created') {
+    return [{
+      action_type: 'adjust_price',
+      config_json: buildAdjustPriceConfig(''),
+      enabled: true,
+      sort_order: 1,
+    }];
+  }
   if (trigger === 'review_missing_timeout') {
     return [{
       action_type: 'send_text',
@@ -123,6 +162,11 @@ export const cardActionsForTrigger = (trigger: AutomationTriggerType, cardID = 0
 
 // actionSummary 将规则动作转换成列表中的简短摘要。
 export const actionSummary = (rule: ShippingRule) => {
+  if (rule.trigger_type === 'order_created') {
+    // target 是规则配置的改价目标价格。
+    const target = adjustPriceTarget(rule.actions);
+    return target ? `拍下后改价为 ¥${target}` : '未配置目标价格';
+  }
   if (rule.trigger_type === 'review_missing_timeout') {
     return rule.actions?.find(
       // 文案动作匹配器只查找发送文字动作。
@@ -148,6 +192,7 @@ export const accentClasses = (accent: TriggerMeta['accent'], selected = false) =
     blue: selected ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-blue-100 bg-blue-50/60 text-blue-700 hover:border-blue-300',
     emerald: selected ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-emerald-100 bg-emerald-50/60 text-emerald-700 hover:border-emerald-300',
     amber: selected ? 'border-amber-500 bg-amber-50 text-amber-700' : 'border-amber-100 bg-amber-50/60 text-amber-700 hover:border-amber-300',
+    violet: selected ? 'border-violet-500 bg-violet-50 text-violet-700' : 'border-violet-100 bg-violet-50/60 text-violet-700 hover:border-violet-300',
   };
   return map[accent] || map.blue;
 };

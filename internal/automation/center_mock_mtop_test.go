@@ -28,6 +28,28 @@ type fakeMTop struct {
 	consignStarted chan struct{}
 	// consignRelease 控制测试外部 Consign 调用何时返回。
 	consignRelease chan struct{}
+	// adjustErr 是订单改价调用的预置传输错误。
+	adjustErr error
+	// adjustOk 是订单改价调用的预置业务成功标志。
+	adjustOk bool
+	// adjustRet 是订单改价调用的预置业务返回。
+	adjustRet []string
+	// adjustUpdated 是订单改价调用返回的扁平 Cookie 更新。
+	adjustUpdated string
+	// adjustCalls 统计订单改价被调用的次数。
+	adjustCalls int
+	// adjustCookies 按调用顺序记录订单改价使用的凭证，供续期重试断言。
+	adjustCookies []string
+	// adjustOrderIn 记录最后一次订单改价的订单号入参。
+	adjustOrderIn string
+	// adjustCentsIn 记录最后一次订单改价的整数分价格入参。
+	adjustCentsIn int64
+	// adjustResults 是按调用顺序消费的订单改价预置结果。
+	adjustResults []fakeAdjustPriceResult
+	// adjustStarted 通知测试订单改价外部调用已经开始。
+	adjustStarted chan struct{}
+	// adjustRelease 控制测试订单改价外部调用何时返回。
+	adjustRelease chan struct{}
 }
 
 // fakeConsignResult 用于本次流程后续判断的fakeConsign结果
@@ -38,9 +60,42 @@ type fakeConsignResult struct {
 	err     error
 }
 
+// fakeAdjustPriceResult 是单次订单改价调用的预置业务结果、Cookie 更新与传输错误。
+type fakeAdjustPriceResult struct {
+	// ok 是平台是否明确确认改价成功。
+	ok bool
+	// ret 是平台返回的业务结果码。
+	ret []string
+	// updated 是平台下发的扁平 Cookie 更新。
+	updated string
+	// err 是请求或响应解析阶段的传输错误。
+	err error
+}
+
 // FetchUserProfile 封装Fetch用户Profile业务协调。
 func (f *fakeMTop) FetchUserProfile(context.Context, string) (*mtop.UserProfileResult, error) {
 	return nil, nil
+}
+
+// AdjustOrderPriceContext 返回测试预置的订单改价结果并记录入参。
+func (f *fakeMTop) AdjustOrderPriceContext(_ context.Context, cookiesStr, orderID string, priceCents int64) (bool, []string, string, error) {
+	if f.adjustStarted != nil {
+		close(f.adjustStarted)
+	}
+	if f.adjustRelease != nil {
+		<-f.adjustRelease
+	}
+	f.adjustCalls++
+	f.adjustCookies = append(f.adjustCookies, cookiesStr)
+	f.adjustOrderIn = orderID
+	f.adjustCentsIn = priceCents
+	if len(f.adjustResults) > 0 {
+		// result 是当前调用消费的预置改价结果。
+		result := f.adjustResults[0]
+		f.adjustResults = f.adjustResults[1:]
+		return result.ok, result.ret, result.updated, result.err
+	}
+	return f.adjustOk, f.adjustRet, f.adjustUpdated, f.adjustErr
 }
 
 // ConsignContext 封装Consign上下文业务协调。

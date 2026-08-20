@@ -23,6 +23,7 @@ func (n deliveryNotifier) notifyResult(ctx context.Context, task Task, runID int
 	}
 	// triggerName 是面向用户展示的自动化触发类型名称。
 	triggerName := map[string]string{
+		TriggerOrderCreated:         "拍下改价",
 		TriggerOrderPaid:            "付款发货",
 		TriggerBuyerReviewed:        "评价赠品",
 		TriggerReviewMissingTimeout: "求评价",

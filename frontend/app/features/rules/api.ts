@@ -146,6 +146,7 @@ export const updateShippingRule = async (rule: Partial<ShippingRule>): Promise<O
     const triggerType = rule.trigger_type || 'order_paid';
     // triggerName 触发名称，用于当前 API 处理流程。
     const triggerName: Record<string, string> = {
+      order_created: '拍下未付款自动改价',
       order_paid: '付款后自动发货',
       buyer_reviewed: '评价后发送赠品',
       review_missing_timeout: '超时未评价求评价',

@@ -81,7 +81,7 @@ func (s *Server) listAutomationRules(w http.ResponseWriter, r *http.Request) {
 	triggerType := strings.TrimSpace(query.Get("trigger_type"))
 	if triggerType != "" {
 		switch triggerType {
-		case automationapp.TriggerOrderPaid, automationapp.TriggerBuyerReviewed, automationapp.TriggerReviewMissingTimeout:
+		case automationapp.TriggerOrderCreated, automationapp.TriggerOrderPaid, automationapp.TriggerBuyerReviewed, automationapp.TriggerReviewMissingTimeout:
 		default:
 			writeErr(w, http.StatusBadRequest, "不支持的触发类型")
 			return
@@ -269,7 +269,7 @@ func automationRuleDraft(req automationRuleRequest) automationapp.RuleDraft {
 // defaultAutomationRuleName 保留旧测试和兼容调用所需的默认名称函数。
 func defaultAutomationRuleName(triggerType, itemID string) string {
 	// name 保存按触发类型选择的默认规则名称，必要时附加商品标识。
-	name := map[string]string{automationapp.TriggerOrderPaid: "付款后自动发货", automationapp.TriggerBuyerReviewed: "评价后发送赠品", automationapp.TriggerReviewMissingTimeout: "超时未评价求评价"}[triggerType]
+	name := map[string]string{automationapp.TriggerOrderCreated: "拍下未付款自动改价", automationapp.TriggerOrderPaid: "付款后自动发货", automationapp.TriggerBuyerReviewed: "评价后发送赠品", automationapp.TriggerReviewMissingTimeout: "超时未评价求评价"}[triggerType]
 	if name == "" {
 		name = "自动化规则"
 	}

@@ -89,6 +89,11 @@ func (f *fakeMtop) FetchUserProfile(context.Context, string) (*mtop.UserProfileR
 	return nil, nil
 }
 
+// AdjustOrderPriceContext 满足 MTOP 客户端接口，账号管理测试不关心订单改价。
+func (f *fakeMtop) AdjustOrderPriceContext(context.Context, string, string, int64) (bool, []string, string, error) {
+	return true, nil, "", nil
+}
+
 // ConsignContext 封装Consign上下文业务协调。
 func (f *fakeMtop) ConsignContext(context.Context, string, string) (bool, []string, string, error) {
 	return false, nil, "", nil

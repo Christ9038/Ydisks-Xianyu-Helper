@@ -163,6 +163,60 @@ func TestRuleServiceRejectsInvalidAction(t *testing.T) {
 	}
 }
 
+// TestRuleServiceNormalizeOrderCreatedAdjustPrice 验证拍下未付款改价规则的合法输入和默认名称。
+func TestRuleServiceNormalizeOrderCreatedAdjustPrice(t *testing.T) {
+	// service 是绑定测试端口的规则应用服务。
+	service := NewRuleService(&ruleRepositoryFake{}, &ruleOwnershipFake{})
+	// input、err 分别是规范化结果和校验错误。
+	input, err := service.Normalize(context.Background(), 42, RuleDraft{
+		CookieID: "account-1", TriggerType: TriggerOrderCreated, Actions: []ActionDraft{
+			{ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"9.9"}`},
+			{ActionType: ActionSendText, MessageTemplate: "已为您改价，请尽快支付"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input.TriggerType != TriggerOrderCreated || input.Name != "拍下未付款自动改价" || len(input.Actions) != 2 {
+		t.Fatalf("拍下改价规则规范化错误: %+v", input)
+	}
+}
+
+// TestRuleServiceRejectsInvalidOrderCreatedRules 验证拍下未付款规则的动作组合和目标价格校验。
+func TestRuleServiceRejectsInvalidOrderCreatedRules(t *testing.T) {
+	// cases 保存非法拍下改价规则输入和预期错误。
+	cases := []struct {
+		// name 是测试分支名称。
+		name string
+		// draft 是待校验规则。
+		draft RuleDraft
+		// want 是预期错误片段。
+		want string
+	}{
+		{name: "missing adjust price", draft: RuleDraft{CookieID: "a", TriggerType: TriggerOrderCreated, Actions: []ActionDraft{{ActionType: ActionSendText, MessageTemplate: "x"}}}, want: "至少需要一个已启用的改价动作"},
+		{name: "send card forbidden", draft: RuleDraft{CookieID: "a", TriggerType: TriggerOrderCreated, Actions: []ActionDraft{{ActionType: ActionSendCard, CardID: 1}, {ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"1"}`}}}, want: "只能包含改价和文本动作"},
+		{name: "confirm shipment forbidden", draft: RuleDraft{CookieID: "a", TriggerType: TriggerOrderCreated, Actions: []ActionDraft{{ActionType: ActionConfirmShipment}, {ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"1"}`}}}, want: "只能包含改价和文本动作"},
+		{name: "missing price", draft: RuleDraft{CookieID: "a", TriggerType: TriggerOrderCreated, Actions: []ActionDraft{{ActionType: ActionAdjustPrice, ConfigJSON: `{}`}}}, want: "必须填写目标价格"},
+		{name: "bad price format", draft: RuleDraft{CookieID: "a", TriggerType: TriggerOrderCreated, Actions: []ActionDraft{{ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"1.234"}`}}}, want: "最多两位小数"},
+		{name: "zero price", draft: RuleDraft{CookieID: "a", TriggerType: TriggerOrderCreated, Actions: []ActionDraft{{ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"0"}`}}}, want: "0.01 到 1000000"},
+		{name: "too high price", draft: RuleDraft{CookieID: "a", TriggerType: TriggerOrderCreated, Actions: []ActionDraft{{ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"1000000.01"}`}}}, want: "0.01 到 1000000"},
+		{name: "adjust price on paid trigger", draft: RuleDraft{CookieID: "a", TriggerType: TriggerOrderPaid, Actions: []ActionDraft{{ActionType: ActionSendCard, CardID: 1}, {ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"1"}`}}}, want: "只能用于拍下未付款规则"},
+		{name: "adjust price on review trigger", draft: RuleDraft{CookieID: "a", TriggerType: TriggerReviewMissingTimeout, Actions: []ActionDraft{{ActionType: ActionSendText, MessageTemplate: "x"}, {ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"1"}`}}}, want: "求评价规则只能发送文本"},
+	}
+	// testCase 是当前非法拍下改价规则分支及其预期错误的测试样例。
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// service 是当前分支使用的规则应用服务。
+			service := NewRuleService(&ruleRepositoryFake{}, &ruleOwnershipFake{})
+			// _, err 保存规则校验错误。
+			_, err := service.Normalize(context.Background(), 42, testCase.draft)
+			if err == nil || !containsRuleError(err, testCase.want) {
+				t.Fatalf("错误=%v，期望包含=%q", err, testCase.want)
+			}
+		})
+	}
+}
+
 // TestRuleServiceNormalizesPageLimit 验证分页大小和偏移量被应用层归一化。
 func TestRuleServiceNormalizesPageLimit(t *testing.T) {
 	// repository 保存分页调用条件。
