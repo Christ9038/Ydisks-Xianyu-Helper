@@ -1,0 +1,159 @@
+# 唯一的 CI：构建并发布 linux/amd64 Docker 镜像到 GHCR。
+# 镜像先本地加载并通过 Chromium 启动与服务健康检查后再推送，避免发布损坏镜像。
+name: 构建并发布 Docker 镜像
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: 构建并推送 amd64 镜像
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 配置 Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: 恢复 Docker Chromium runtime 缓存
+        id: cache-docker-playwright
+        uses: actions/cache/restore@v5
+        with:
+          path: .docker/playwright-runtime/amd64
+          key: ydisks-playwright-runtime-v6-docker-amd64-debian13-x64-${{ hashFiles('go.mod', 'go.sum', 'cmd/browser-install/**') }}
+
+      - name: 准备 Docker Chromium runtime
+        if: steps.cache-docker-playwright.outputs.cache-hit != 'true'
+        shell: bash
+        env:
+          PLAYWRIGHT_HOST_PLATFORM_OVERRIDE: debian13-x64
+        run: |
+          set -Eeuo pipefail
+          mkdir -p .docker/playwright-runtime/amd64/playwright-driver .docker/playwright-runtime/amd64/playwright-browsers
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
+            -trimpath -ldflags='-s -w' \
+            -o "$RUNNER_TEMP/browser-install" ./cmd/browser-install
+          "$RUNNER_TEMP/browser-install" \
+            -driver-dir "$PWD/.docker/playwright-runtime/amd64/playwright-driver" \
+            -browser-dir "$PWD/.docker/playwright-runtime/amd64/playwright-browsers"
+
+      - name: 校验 Docker Chromium runtime
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          runtime_dir=".docker/playwright-runtime/amd64"
+          test -x "$runtime_dir/playwright-driver/node"
+          test -f "$runtime_dir/playwright-driver/package/cli.js"
+          chromium_path="$(find "$runtime_dir/playwright-browsers" -type f \
+            \( -name chrome -o -name headless_shell -o -name chrome-headless-shell \) -perm -111 -print -quit)"
+          test -n "$chromium_path"
+
+      - name: 保存 Docker Chromium runtime 缓存
+        if: steps.cache-docker-playwright.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .docker/playwright-runtime/amd64
+          key: ${{ steps.cache-docker-playwright.outputs.cache-primary-key }}
+
+      - name: 配置 Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: 登录 GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 生成镜像名称与版本
+        id: image
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "app_version=${GITHUB_REF_NAME}-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: 构建 amd64 镜像并加载到本地
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile.debian13
+          platforms: linux/amd64
+          load: true
+          tags: |
+            ${{ steps.image.outputs.name }}:main
+            ${{ steps.image.outputs.name }}:sha-${{ github.sha }}
+          build-args: |
+            APP_VERSION=${{ steps.image.outputs.app_version }}
+            VCS_REF=${{ github.sha }}
+            BUILD_TIME=${{ steps.image.outputs.build_time }}
+          cache-from: type=gha,scope=ydisks-docker-amd64
+          cache-to: type=gha,mode=max,scope=ydisks-docker-amd64
+
+      - name: 验证镜像中的 Chromium 与服务健康检查
+        shell: bash
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.name }}:main
+        run: |
+          set -Eeuo pipefail
+          docker run --rm --entrypoint sh "$IMAGE_REF" -ec '
+            chromium_path="$(find /ms-playwright/chromium-* -type f \
+              -name chrome -perm -111 -print -quit)"
+            test -n "$chromium_path"
+            timeout 45 "$chromium_path" \
+              --headless --no-sandbox --disable-gpu --disable-dev-shm-usage \
+              --dump-dom about:blank | grep -q "<html"
+          '
+
+          container_id="$(docker run -d -p 127.0.0.1::59188 "$IMAGE_REF")"
+          cleanup() {
+            docker logs "$container_id" || true
+            docker rm -f "$container_id" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          host_port="$(docker port "$container_id" 59188/tcp | sed -n 's/.*://p' | head -n 1)"
+          test -n "$host_port"
+          for attempt in $(seq 1 60); do
+            if health="$(curl --fail --silent --show-error "http://127.0.0.1:$host_port/health" 2>/dev/null)"; then
+              printf '%s' "$health" | grep -q '"status":"ok"'
+              printf '%s' "$health" | grep -q '"database":"ok"'
+              exit 0
+            fi
+            if ! docker inspect -f '{{.State.Running}}' "$container_id" | grep -q true; then
+              echo '镜像中的服务提前退出。' >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          echo '镜像未能在 60 秒内通过健康检查。' >&2
+          exit 1
+
+      - name: 推送镜像
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+        run: |
+          set -Eeuo pipefail
+          docker push "$IMAGE_NAME:main"
+          docker push "$IMAGE_NAME:sha-$GITHUB_SHA"
