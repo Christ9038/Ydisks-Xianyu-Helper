@@ -16,7 +16,7 @@ updateShippingRule,
 } from './api';
 import { finishRuleSubmission,idleRuleSubmitState,startRuleSubmission,type RuleSubmitState } from './interactionState';
 import type { AutomationTriggerType,Card,DefaultReplyForm,Item,ReplyRule,RulesProps,RulesTab,ShippingRule,ShippingVariant } from './types';
-import { boolFlag,buildReviewConfig,cardActionsForTrigger,defaultRuleName,emptyVariant,parseJSONObject,shouldReplaceGeneratedName,triggerMeta } from './utils';
+import { adjustPriceTarget,boolFlag,buildAdjustPriceConfig,buildReviewConfig,cardActionsForTrigger,defaultRuleName,emptyVariant,isValidAdjustPrice,parseJSONObject,shouldReplaceGeneratedName,triggerMeta } from './utils';
 
 // RuleActionsOptions 描述规则动作协调器依赖的页面数据、刷新函数和外部联动目标。
 export interface RuleActionsOptions {
@@ -106,6 +106,10 @@ export interface RuleActionsState {
   handleAutomationItemChange: (itemID: string) => void;
   // updateVariant 更新指定发货规格的字段。
   updateVariant: (index: number, patch: Partial<ShippingVariant>) => void;
+  // updateAdjustPriceTarget 更新拍下改价草稿的目标价格。
+  updateAdjustPriceTarget: (targetPrice: string) => void;
+  // updateAdjustPriceNotifyText 更新拍下改价草稿的可选买家提醒文案。
+  updateAdjustPriceNotifyText: (text: string) => void;
   // appendDeliveryContent 追加一行发货规格。
   appendDeliveryContent: () => void;
   // handleSaveAutomationRule 保存当前自动化规则。
@@ -198,7 +202,7 @@ export const useRuleActions = ({
       name: defaultRuleName(trigger, itemLabel), trigger_type: trigger, cookie_id: cookieID, item_id: itemID,
       item_title: item?.item_title || '', item_keyword: itemLabel, card_group_id: 0, priority: 100, enabled: true,
       config_json: trigger === 'review_missing_timeout' ? buildReviewConfig() : '{}', actions: cardActionsForTrigger(trigger),
-      variants: trigger === 'review_missing_timeout' ? [] : [emptyVariant()],
+      variants: trigger === 'review_missing_timeout' || trigger === 'order_created' ? [] : [emptyVariant()],
     };
   }, [items, selectedAccountId]);
 
@@ -211,7 +215,7 @@ export const useRuleActions = ({
       trigger_type: trigger,
       config_json: trigger === 'review_missing_timeout' ? buildReviewConfig(rule.config_json) : (rule.config_json || '{}'),
       actions: rule.actions?.length ? rule.actions.map(/* 当前回调复制自动化动作。 */ action => ({ ...action })) : cardActionsForTrigger(trigger, rule.card_group_id),
-      variants: rule.variants?.length ? rule.variants.map(/* 当前回调复制发货规格。 */ variant => ({ ...variant })) : (trigger === 'review_missing_timeout' ? [] : [emptyVariant()]),
+      variants: rule.variants?.length ? rule.variants.map(/* 当前回调复制发货规格。 */ variant => ({ ...variant })) : (trigger === 'review_missing_timeout' || trigger === 'order_created' ? [] : [emptyVariant()]),
     });
     setShowAutomationModal(true);
   }, []);
@@ -288,7 +292,7 @@ export const useRuleActions = ({
       name: shouldReplaceGeneratedName(editingAutomationRule.name) ? defaultRuleName(trigger, itemLabel) : editingAutomationRule.name,
       card_group_id: currentCardID, config_json: trigger === 'review_missing_timeout' ? buildReviewConfig(editingAutomationRule.config_json) : '{}',
       actions: cardActionsForTrigger(trigger, currentCardID),
-      variants: trigger === 'review_missing_timeout' ? [] : (editingAutomationRule.variants?.length ? editingAutomationRule.variants : [{ ...emptyVariant(), card_id: currentCardID }]),
+      variants: trigger === 'review_missing_timeout' || trigger === 'order_created' ? [] : (editingAutomationRule.variants?.length ? editingAutomationRule.variants : [{ ...emptyVariant(), card_id: currentCardID }]),
     });
   }, [editingAutomationRule, selectedRuleItem]);
 
@@ -313,6 +317,35 @@ export const useRuleActions = ({
     setEditingAutomationRule({ ...editingAutomationRule, variants: next, card_group_id: next[0]?.card_id || 0 });
   }, [displayVariants, editingAutomationRule]);
 
+  // updateAdjustPriceTarget 更新拍下改价草稿中的目标价格。
+  const updateAdjustPriceTarget = useCallback(/* adjustPriceAction 更新改价目标价格。 */ (targetPrice: string) => {
+    if (!editingAutomationRule) return;
+    // baseActions 保存至少包含改价动作的当前动作列表。
+    const baseActions = editingAutomationRule.actions?.some(/* 当前回调查找改价动作。 */ action => action.action_type === 'adjust_price')
+      ? editingAutomationRule.actions
+      : cardActionsForTrigger('order_created');
+    setEditingAutomationRule({
+      ...editingAutomationRule,
+      actions: baseActions.map(/* 当前回调把新目标价格写入改价动作配置。 */ action =>
+        action.action_type === 'adjust_price' ? { ...action, config_json: buildAdjustPriceConfig(targetPrice) } : action),
+    });
+  }, [editingAutomationRule]);
+
+  // updateAdjustPriceNotifyText 更新拍下改价草稿中的可选买家提醒文案。
+  const updateAdjustPriceNotifyText = useCallback(/* adjustNotifyAction 更新改价提醒文案。 */ (text: string) => {
+    if (!editingAutomationRule) return;
+    // actions 保存当前动作列表副本。
+    const actions = (editingAutomationRule.actions || []).slice();
+    // textIndex 是可选提醒动作在列表中的位置。
+    const textIndex = actions.findIndex(/* 当前回调查找提醒文案动作。 */ action => action.action_type === 'send_text');
+    if (textIndex >= 0) {
+      actions[textIndex] = { ...actions[textIndex], message_template: text };
+    } else {
+      actions.push({ action_type: 'send_text', message_template: text, enabled: true, sort_order: actions.length + 1 });
+    }
+    setEditingAutomationRule({ ...editingAutomationRule, actions });
+  }, [editingAutomationRule]);
+
   // appendDeliveryContent 在规格编辑器末尾追加一行。
   const appendDeliveryContent = useCallback(/* appendVariantAction 追加规则规格。 */ () => {
     if (!editingAutomationRule) return;
@@ -332,7 +365,7 @@ export const useRuleActions = ({
     if (!editingAutomationRule.cookie_id) return alert('请选择账号');
     // variants 保存当前规格列表。
     const variants = editingAutomationRule.variants?.length ? editingAutomationRule.variants : [];
-    if (trigger !== 'review_missing_timeout') {
+    if (trigger !== 'review_missing_timeout' && trigger !== 'order_created') {
       if (!variants.length || variants.some(/* 当前回调校验卡密组是否已选择。 */ variant => !variant.card_id)) return alert(trigger === 'buyer_reviewed' ? '请选择评价赠品卡密库存' : '请选择发货卡密库存');
       if (isMultiSpecRule && variants.some(/* 当前回调校验多规格字段。 */ variant => !variant.spec_name.trim() || !variant.spec_value.trim())) return alert('多规格商品必须填写每一行的规格名称和规格值');
     }
@@ -341,13 +374,19 @@ export const useRuleActions = ({
       const text = editingAutomationRule.actions?.find(/* 当前回调查找求评价文案动作。 */ action => action.action_type === 'send_text')?.message_template || '';
       if (!text.trim()) return alert('请填写求评价文案');
     }
+    // saveActions 保存实际提交的动作列表；拍下改价规则会剔除未填写文案的可选提醒动作。
+    let saveActions = editingAutomationRule.actions?.length ? editingAutomationRule.actions : cardActionsForTrigger(trigger, editingAutomationRule.card_group_id || 0);
+    if (trigger === 'order_created') {
+      if (!isValidAdjustPrice(adjustPriceTarget(saveActions))) return alert('请填写 0.01 到 1000000 元、最多两位小数的目标价格');
+      saveActions = saveActions.filter(/* 当前回调剔除空文案的可选提醒动作。 */ action => action.action_type !== 'send_text' || Boolean(action.message_template?.trim()));
+    }
     // saveVariants 保存归一化后的发货规格。
-    const saveVariants = trigger === 'review_missing_timeout' ? [] : variants.map(/* 当前回调归一化发货规格字段。 */ variant => ({ ...variant, spec_name: isMultiSpecRule ? variant.spec_name.trim() : '', spec_value: isMultiSpecRule ? variant.spec_value.trim() : '', delivery_count: Math.max(1, Number(variant.delivery_count) || 1), enabled: variant.enabled !== false }));
+    const saveVariants = trigger === 'review_missing_timeout' || trigger === 'order_created' ? [] : variants.map(/* 当前回调归一化发货规格字段。 */ variant => ({ ...variant, spec_name: isMultiSpecRule ? variant.spec_name.trim() : '', spec_value: isMultiSpecRule ? variant.spec_value.trim() : '', delivery_count: Math.max(1, Number(variant.delivery_count) || 1), enabled: variant.enabled !== false }));
     setAutomationSubmitState(startRuleSubmission(automationSubmitState));
     // succeeded 记录保存是否成功。
     let succeeded = false;
     try {
-      await updateShippingRule({ ...editingAutomationRule, trigger_type: trigger, name: (editingAutomationRule.name || '').trim() || defaultRuleName(trigger, selectedRuleItem?.item_title || editingAutomationRule.item_id || ''), config_json: trigger === 'review_missing_timeout' ? buildReviewConfig(editingAutomationRule.config_json) : (editingAutomationRule.config_json || '{}'), actions: editingAutomationRule.actions?.length ? editingAutomationRule.actions : cardActionsForTrigger(trigger, saveVariants[0]?.card_id || editingAutomationRule.card_group_id || 0), variants: saveVariants });
+      await updateShippingRule({ ...editingAutomationRule, trigger_type: trigger, name: (editingAutomationRule.name || '').trim() || defaultRuleName(trigger, selectedRuleItem?.item_title || editingAutomationRule.item_id || ''), config_json: trigger === 'review_missing_timeout' ? buildReviewConfig(editingAutomationRule.config_json) : (editingAutomationRule.config_json || '{}'), actions: trigger === 'order_created' ? saveActions : (editingAutomationRule.actions?.length ? editingAutomationRule.actions : cardActionsForTrigger(trigger, saveVariants[0]?.card_id || editingAutomationRule.card_group_id || 0)), variants: saveVariants });
       setShowAutomationModal(false);
       await Promise.all([loadAutomationRules(), loadReferenceData()]);
       alert('保存成功');
@@ -451,7 +490,7 @@ export const useRuleActions = ({
     automationSubmitState, replySubmitState, defaultReplySubmitState, editingAutomationRule, setEditingAutomationRule,
     editingReplyRule, setEditingReplyRule, defaultForm, setDefaultForm, selectedRuleItem, isMultiSpecRule, currentTrigger,
     currentMeta, reviewConfig, displayVariants, buildAutomationDraft, openAutomationRule, openNewAutomationRule,
-    handleTriggerChange, handleAutomationItemChange, updateVariant, appendDeliveryContent, handleSaveAutomationRule,
+    handleTriggerChange, handleAutomationItemChange, updateVariant, updateAdjustPriceTarget, updateAdjustPriceNotifyText, appendDeliveryContent, handleSaveAutomationRule,
     handleDeleteAutomation, handleToggleAutomation, handleResolveRunIssue, handleResolveDeferredIssue, handleAddReplyRule,
     handleSaveReplyRule, handleDeleteReply, openDefaultReplyModal, handleSaveDefaultReply, handleDeleteDefaultReply,
     handleClearDefaultReplyRecords,

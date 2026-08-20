@@ -28,6 +28,18 @@ type fakeMTop struct {
 	consignStarted chan struct{}
 	// consignRelease 控制测试外部 Consign 调用何时返回。
 	consignRelease chan struct{}
+	// adjustErr 是订单改价调用的预置传输错误。
+	adjustErr error
+	// adjustOk 是订单改价调用的预置业务成功标志。
+	adjustOk bool
+	// adjustRet 是订单改价调用的预置业务返回。
+	adjustRet []string
+	// adjustCalls 统计订单改价被调用的次数。
+	adjustCalls int
+	// adjustOrderIn 记录最后一次订单改价的订单号入参。
+	adjustOrderIn string
+	// adjustCentsIn 记录最后一次订单改价的整数分价格入参。
+	adjustCentsIn int64
 }
 
 // fakeConsignResult 用于本次流程后续判断的fakeConsign结果
@@ -41,6 +53,14 @@ type fakeConsignResult struct {
 // FetchUserProfile 封装Fetch用户Profile业务协调。
 func (f *fakeMTop) FetchUserProfile(context.Context, string) (*mtop.UserProfileResult, error) {
 	return nil, nil
+}
+
+// AdjustOrderPriceContext 返回测试预置的订单改价结果并记录入参。
+func (f *fakeMTop) AdjustOrderPriceContext(_ context.Context, _ string, orderID string, priceCents int64) (bool, []string, string, error) {
+	f.adjustCalls++
+	f.adjustOrderIn = orderID
+	f.adjustCentsIn = priceCents
+	return f.adjustOk, f.adjustRet, "", f.adjustErr
 }
 
 // ConsignContext 封装Consign上下文业务协调。

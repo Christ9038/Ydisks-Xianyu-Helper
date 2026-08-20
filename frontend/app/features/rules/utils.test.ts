@@ -4,11 +4,14 @@ import {
 accentClasses,
 accountLabel,
 actionSummary,
+adjustPriceTarget,
 boolFlag,
+buildAdjustPriceConfig,
 buildReviewConfig,
 cardActionsForTrigger,
 defaultRuleName,
 emptyVariant,
+isValidAdjustPrice,
 parseJSONObject,
 shouldReplaceGeneratedName,
 statusPill,
@@ -49,9 +52,12 @@ describe('规则工具函数', /* 当前回调处理规则配置和展示状态�
     expect(shouldReplaceGeneratedName('我自定义的规则')).toBe(false);
   });
 
-  test('创建三类触发器的默认动作链', /* 当前回调处理规则配置和展示状态。 */ () => {
+  test('创建各类触发器的默认动作链', /* 当前回调处理规则配置和展示状态。 */ () => {
     expect(cardActionsForTrigger('review_missing_timeout')).toEqual([{
       action_type: 'send_text', message_template: '亲，商品使用满意的话，麻烦给个评价，谢谢～', enabled: true, sort_order: 1,
+    }]);
+    expect(cardActionsForTrigger('order_created')).toEqual([{
+      action_type: 'adjust_price', config_json: '{"target_price":""}', enabled: true, sort_order: 1,
     }]);
     expect(cardActionsForTrigger('order_paid', 7)).toEqual([
       { action_type: 'send_card', card_id: 7, delivery_count: 1, enabled: true, sort_order: 1 },
@@ -60,6 +66,23 @@ describe('规则工具函数', /* 当前回调处理规则配置和展示状态�
     expect(cardActionsForTrigger('buyer_reviewed', 8)).toEqual([
       { action_type: 'send_card', card_id: 8, delivery_count: 1, enabled: true, sort_order: 1 },
     ]);
+  });
+
+  test('校验并读取拍下改价的目标价格', /* 当前回调处理规则配置和展示状态。 */ () => {
+    expect(buildAdjustPriceConfig(' 9.9 ')).toBe('{"target_price":"9.9"}');
+    expect(adjustPriceTarget([{ action_type: 'adjust_price', config_json: '{"target_price":"12.5"}', enabled: true }])).toBe('12.5');
+    expect(adjustPriceTarget([{ action_type: 'send_text', message_template: 'x', enabled: true }])).toBe('');
+    expect(adjustPriceTarget()).toBe('');
+    expect(isValidAdjustPrice('9.9')).toBe(true);
+    expect(isValidAdjustPrice('0.01')).toBe(true);
+    expect(isValidAdjustPrice('1000000')).toBe(true);
+    expect(isValidAdjustPrice('0')).toBe(false);
+    expect(isValidAdjustPrice('')).toBe(false);
+    expect(isValidAdjustPrice('1.234')).toBe(false);
+    expect(isValidAdjustPrice('abc')).toBe(false);
+    expect(isValidAdjustPrice('1000000.01')).toBe(false);
+    expect(actionSummary(rule({ trigger_type: 'order_created', actions: [{ action_type: 'adjust_price', config_json: '{"target_price":"9.9"}', enabled: true }] }))).toBe('拍下后改价为 ¥9.9');
+    expect(actionSummary(rule({ trigger_type: 'order_created', actions: [] }))).toBe('未配置目标价格');
   });
 
   test('汇总动作、主题样式和布尔标志', /* 当前回调处理规则配置和展示状态。 */ () => {

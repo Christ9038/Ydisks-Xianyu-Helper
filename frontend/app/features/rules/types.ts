@@ -68,7 +68,7 @@ export interface TriggerMeta {
   // flow 是该触发类型的步骤摘要。
   flow: string[];
   // accent 是页面使用的主题色名称。
-  accent: 'blue' | 'emerald' | 'amber';
+  accent: 'blue' | 'emerald' | 'amber' | 'violet';
   // icon 是触发类型对应的图标组件。
   icon: ElementType;
 }

@@ -4,6 +4,7 @@ Bot,
 CheckCircle2,
 ChevronLeft,
 ChevronRight,
+CircleDollarSign,
 Clock3,
 Edit,
 Layers3,
@@ -25,7 +26,7 @@ import { useRulesData } from '../hooks';
 import { filterAutomationIssues } from '../issueState';
 import { useRuleActions } from '../ruleActions';
 import type { AutomationTriggerType,RulesProps,RulesTab } from '../types';
-import { accentClasses,accountLabel,actionSummary,buildReviewConfig,cardActionsForTrigger,statusPill,triggerMeta,triggerOrder } from '../utils';
+import { accentClasses,accountLabel,actionSummary,adjustPriceTarget,buildReviewConfig,cardActionsForTrigger,statusPill,triggerMeta,triggerOrder } from '../utils';
 
 // Rules 是规则 feature 在旧页面目录下保留的兼容入口组件。
 const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHandled }) => {
@@ -105,7 +106,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
     editingAutomationRule, setEditingAutomationRule,
     editingReplyRule, setEditingReplyRule, defaultForm, setDefaultForm, selectedRuleItem, isMultiSpecRule, currentTrigger,
     currentMeta, reviewConfig, displayVariants, openAutomationRule, openNewAutomationRule, handleTriggerChange,
-    handleAutomationItemChange, updateVariant, appendDeliveryContent, handleSaveAutomationRule, handleDeleteAutomation,
+    handleAutomationItemChange, updateVariant, updateAdjustPriceTarget, updateAdjustPriceNotifyText, appendDeliveryContent, handleSaveAutomationRule, handleDeleteAutomation,
     handleToggleAutomation, handleResolveRunIssue, handleResolveDeferredIssue, handleAddReplyRule, handleSaveReplyRule,
     handleDeleteReply, openDefaultReplyModal, handleSaveDefaultReply, handleDeleteDefaultReply, handleClearDefaultReplyRecords,
   } = ruleActions;
@@ -722,7 +723,7 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                       </div>
                     </div>
 
-                    {selectedRuleItem && currentTrigger !== 'review_missing_timeout' && (
+                    {selectedRuleItem && currentTrigger !== 'review_missing_timeout' && currentTrigger !== 'order_created' && (
                       <div className="mt-4 rounded-2xl bg-gray-50 border border-gray-100 p-4">
                         <div className="flex flex-wrap items-center gap-2 mb-2">
                           <span className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 text-xs font-bold">{selectedRuleItem.item_title || selectedRuleItem.item_id}</span>
@@ -738,7 +739,43 @@ const Rules: React.FC<RulesProps> = ({ initialDeliveryTarget, onDeliveryTargetHa
                     )}
                   </section>
 
-                  {currentTrigger !== 'review_missing_timeout' ? (
+                  {currentTrigger === 'order_created' ? (
+                    <section className="bg-white rounded-3xl border border-gray-100 p-5">
+                      <div className="flex items-center gap-2 mb-4">
+                        <CircleDollarSign className="w-5 h-5 text-violet-600" />
+                        <h4 className="font-black text-gray-900">改价设置</h4>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-2">目标价格（元）</label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={adjustPriceTarget(editingAutomationRule.actions)}
+                            onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => updateAdjustPriceTarget(event.target.value)}
+                            placeholder="例如：9.9"
+                            className="w-full ios-input px-4 py-3 rounded-xl"
+                          />
+                          <p className="text-xs text-gray-500 mt-2">买家拍下未付款后，系统会把该笔订单价格修改为此金额（0.01 - 1000000 元，最多两位小数）。</p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-2">改价后提醒买家（可选）</label>
+                          <textarea
+                            value={editingAutomationRule.actions?.find(/* 当前回调处理集合中的单个元素。 */ action => action.action_type === 'send_text')?.message_template || ''}
+                            onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => updateAdjustPriceNotifyText(event.target.value)}
+                            placeholder="例如：已为您改好价格，请尽快支付哦～"
+                            className="w-full ios-input px-4 py-3 rounded-xl h-24 resize-none"
+                          />
+                          <p className="text-xs text-gray-500 mt-2">留空则只改价不发送消息。</p>
+                        </div>
+                      </div>
+                      <div className="mt-4 rounded-2xl bg-violet-50 border border-violet-100 p-4">
+                        <p className="text-xs leading-5 text-violet-700">
+                          改价仅对买家尚未付款的订单生效；订单已付款、已关闭或平台限制改价时任务会记录失败原因。建议配合商品说明引导买家「先拍下再等改价」。
+                        </p>
+                      </div>
+                    </section>
+                  ) : currentTrigger !== 'review_missing_timeout' ? (
                     <section className="bg-white rounded-3xl border border-gray-100 p-5">
                       <div className="flex items-start justify-between gap-4 mb-4">
                         <div>

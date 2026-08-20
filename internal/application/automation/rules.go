@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -13,6 +14,9 @@ var ErrRuleNotFound = errors.New("自动化规则不存在")
 
 // ErrRuleActive 表示规则仍有待处理运行，不能直接删除。
 var ErrRuleActive = errors.New("规则仍有待处理的自动化运行")
+
+// TriggerOrderCreated 表示买家拍下未付款触发器。
+const TriggerOrderCreated = "order_created"
 
 // TriggerOrderPaid 表示付款后触发器。
 const TriggerOrderPaid = "order_paid"
@@ -31,6 +35,9 @@ const ActionSendCard = "send_card"
 
 // ActionSendText 表示发送文本动作。
 const ActionSendText = "send_text"
+
+// ActionAdjustPrice 表示把待付款订单价格修改为目标价格的动作。
+const ActionAdjustPrice = "adjust_price"
 
 // ActionDraft 是 HTTP/应用边界使用的自动化动作输入。
 type ActionDraft struct {
@@ -268,7 +275,7 @@ func (s *RuleService) Normalize(ctx context.Context, userID int64, draft RuleDra
 	draft.ItemID = strings.TrimSpace(draft.ItemID)
 	draft.Name = strings.TrimSpace(draft.Name)
 	draft.TriggerType = strings.TrimSpace(draft.TriggerType)
-	if draft.TriggerType != TriggerOrderPaid && draft.TriggerType != TriggerBuyerReviewed && draft.TriggerType != TriggerReviewMissingTimeout {
+	if draft.TriggerType != TriggerOrderCreated && draft.TriggerType != TriggerOrderPaid && draft.TriggerType != TriggerBuyerReviewed && draft.TriggerType != TriggerReviewMissingTimeout {
 		return RuleInput{}, errors.New("不支持的触发类型")
 	}
 	// owned 表示账号是否归当前用户所有；err 表示归属查询失败。
@@ -303,16 +310,40 @@ func (s *RuleService) Normalize(ctx context.Context, userID int64, draft RuleDra
 	if draft.Name == "" {
 		draft.Name = defaultRuleName(draft.TriggerType, draft.ItemID)
 	}
-	// actions 保存规范化后的动作；三个布尔值记录启用动作类型，供规则完整性校验使用。
-	actions := make([]ActionInput, 0, len(draft.Actions))
+	// actions 是规范化后的动作列表；flags 汇总启用动作类型，供触发类型组合校验使用。
+	actions, flags, actionsErr := s.normalizeDraftActions(ctx, userID, draft.Actions)
+	if actionsErr != nil {
+		return RuleInput{}, actionsErr
+	}
+	// combinationErr 表示触发类型与启用动作组合不满足业务约束。
+	if combinationErr := validateTriggerActionCombination(draft.TriggerType, flags); combinationErr != nil {
+		return RuleInput{}, combinationErr
+	}
+	return RuleInput{UserID: userID, CookieID: draft.CookieID, ItemID: draft.ItemID, Name: draft.Name,
+		TriggerType: draft.TriggerType, Enabled: draft.Enabled, Priority: draft.Priority,
+		ConfigJSON: draft.ConfigJSON, Actions: actions}, nil
+}
+
+// ruleActionFlags 汇总规则草稿中各类启用动作的存在情况，供触发类型组合校验使用。
+type ruleActionFlags struct {
 	// hasSendCard 表示是否存在启用的发卡动作。
-	hasSendCard := false
+	hasSendCard bool
 	// hasSendText 表示是否存在启用的文本动作。
-	hasSendText := false
+	hasSendText bool
 	// hasConfirmShipment 表示是否存在启用的确认发货动作。
-	hasConfirmShipment := false
+	hasConfirmShipment bool
+	// hasAdjustPrice 表示是否存在启用的订单改价动作。
+	hasAdjustPrice bool
+}
+
+// normalizeDraftActions 逐个校验并规范化规则草稿中的动作，同时汇总启用动作类型标志。
+func (s *RuleService) normalizeDraftActions(ctx context.Context, userID int64, draftActions []ActionDraft) ([]ActionInput, ruleActionFlags, error) {
+	// actions 保存规范化后的动作；flags 记录启用动作类型，供规则完整性校验使用。
+	actions := make([]ActionInput, 0, len(draftActions))
+	// flags 汇总当前草稿中启用的动作类型。
+	var flags ruleActionFlags
 	// index 是当前动作在草稿中的位置；draftAction 是待校验和规范化的动作。
-	for index, draftAction := range draft.Actions {
+	for index, draftAction := range draftActions {
 		// enabled 表示当前动作是否参与运行；未提供时默认启用。
 		enabled := true
 		if draftAction.Enabled != nil {
@@ -321,71 +352,102 @@ func (s *RuleService) Normalize(ctx context.Context, userID int64, draft RuleDra
 		draftAction.ActionType = strings.TrimSpace(draftAction.ActionType)
 		switch draftAction.ActionType {
 		case ActionConfirmShipment:
-			hasConfirmShipment = hasConfirmShipment || enabled
+			flags.hasConfirmShipment = flags.hasConfirmShipment || enabled
 		case ActionSendCard:
-			if draftAction.CardID <= 0 {
-				return RuleInput{}, errors.New("发送卡密动作必须选择卡密组")
+			// cardErr 表示卡密选择缺失、读取失败或类型不支持。
+			if cardErr := s.validateSendCardAction(ctx, userID, draftAction); cardErr != nil {
+				return nil, flags, cardErr
 			}
-			// card 是归属校验通过的卡密摘要；cardErr 表示卡密读取或归属校验失败。
-			card, cardErr := s.ownership.GetCard(ctx, userID, draftAction.CardID)
-			if cardErr != nil {
-				if !errors.Is(cardErr, ErrRuleNotFound) {
-					return RuleInput{}, cardErr
-				}
-				return RuleInput{}, errors.New("卡密组不存在或不属于当前用户")
-			}
-			if card.Type == "api" {
-				return RuleInput{}, errors.New("API 卡密暂不支持自动发货，请选择文本、批量数据或图片卡密")
-			}
-			hasSendCard = hasSendCard || enabled
+			flags.hasSendCard = flags.hasSendCard || enabled
 		case ActionSendText:
 			if strings.TrimSpace(draftAction.MessageTemplate) == "" {
-				return RuleInput{}, errors.New("发送文本动作必须填写文案")
+				return nil, flags, errors.New("发送文本动作必须填写文案")
 			}
-			hasSendText = hasSendText || enabled
+			flags.hasSendText = flags.hasSendText || enabled
+		case ActionAdjustPrice:
+			// priceErr 表示改价动作目标价格缺失或格式非法。
+			if priceErr := validateAdjustPriceConfig(draftAction.ConfigJSON); priceErr != nil {
+				return nil, flags, priceErr
+			}
+			flags.hasAdjustPrice = flags.hasAdjustPrice || enabled
 		default:
-			return RuleInput{}, errors.New("不支持的动作类型")
+			return nil, flags, errors.New("不支持的动作类型")
 		}
 		if draftAction.DeliveryCount <= 0 {
 			draftAction.DeliveryCount = 1
 		}
 		if draftAction.DelaySeconds < 0 || draftAction.DelaySeconds > 3600 {
-			return RuleInput{}, errors.New("动作延时必须在 0 到 3600 秒之间")
+			return nil, flags, errors.New("动作延时必须在 0 到 3600 秒之间")
 		}
 		if draftAction.ConfigJSON == "" {
 			draftAction.ConfigJSON = "{}"
 		}
 		if !isJSONObject(draftAction.ConfigJSON) {
-			return RuleInput{}, errors.New("动作配置必须是 JSON 对象")
+			return nil, flags, errors.New("动作配置必须是 JSON 对象")
 		}
 		actions = append(actions, ActionInput{ActionType: draftAction.ActionType, CardID: draftAction.CardID,
 			DeliveryCount: draftAction.DeliveryCount, MessageTemplate: draftAction.MessageTemplate,
 			DelaySeconds: draftAction.DelaySeconds, ConfigJSON: draftAction.ConfigJSON, Enabled: enabled,
 			SortOrder: firstRuleNonZero(draftAction.SortOrder, index+1)})
 	}
-	switch draft.TriggerType {
+	return actions, flags, nil
+}
+
+// validateSendCardAction 校验发卡动作的卡密选择、归属和类型限制。
+func (s *RuleService) validateSendCardAction(ctx context.Context, userID int64, draftAction ActionDraft) error {
+	if draftAction.CardID <= 0 {
+		return errors.New("发送卡密动作必须选择卡密组")
+	}
+	// card 是归属校验通过的卡密摘要；cardErr 表示卡密读取或归属校验失败。
+	card, cardErr := s.ownership.GetCard(ctx, userID, draftAction.CardID)
+	if cardErr != nil {
+		if !errors.Is(cardErr, ErrRuleNotFound) {
+			return cardErr
+		}
+		return errors.New("卡密组不存在或不属于当前用户")
+	}
+	if card.Type == "api" {
+		return errors.New("API 卡密暂不支持自动发货，请选择文本、批量数据或图片卡密")
+	}
+	return nil
+}
+
+// validateTriggerActionCombination 校验触发类型允许的动作组合和必需动作。
+func validateTriggerActionCombination(triggerType string, flags ruleActionFlags) error {
+	switch triggerType {
+	case TriggerOrderCreated:
+		if flags.hasConfirmShipment || flags.hasSendCard {
+			return errors.New("拍下未付款规则只能包含改价和文本动作")
+		}
+		if !flags.hasAdjustPrice {
+			return errors.New("拍下未付款规则至少需要一个已启用的改价动作")
+		}
 	case TriggerOrderPaid:
-		if !hasSendCard {
-			return RuleInput{}, errors.New("付款后自动发货至少需要一个已启用的发送卡密动作")
+		if flags.hasAdjustPrice {
+			return errors.New("改价动作只能用于拍下未付款规则")
+		}
+		if !flags.hasSendCard {
+			return errors.New("付款后自动发货至少需要一个已启用的发送卡密动作")
 		}
 	case TriggerBuyerReviewed:
-		if hasConfirmShipment {
-			return RuleInput{}, errors.New("评价后规则不能包含确认发货动作")
+		if flags.hasConfirmShipment {
+			return errors.New("评价后规则不能包含确认发货动作")
 		}
-		if !hasSendCard && !hasSendText {
-			return RuleInput{}, errors.New("评价后规则至少需要一个已启用的发送动作")
+		if flags.hasAdjustPrice {
+			return errors.New("改价动作只能用于拍下未付款规则")
+		}
+		if !flags.hasSendCard && !flags.hasSendText {
+			return errors.New("评价后规则至少需要一个已启用的发送动作")
 		}
 	case TriggerReviewMissingTimeout:
-		if hasConfirmShipment || hasSendCard {
-			return RuleInput{}, errors.New("求评价规则只能发送文本")
+		if flags.hasConfirmShipment || flags.hasSendCard || flags.hasAdjustPrice {
+			return errors.New("求评价规则只能发送文本")
 		}
-		if !hasSendText {
-			return RuleInput{}, errors.New("求评价规则至少需要一个已启用的文本动作")
+		if !flags.hasSendText {
+			return errors.New("求评价规则至少需要一个已启用的文本动作")
 		}
 	}
-	return RuleInput{UserID: userID, CookieID: draft.CookieID, ItemID: draft.ItemID, Name: draft.Name,
-		TriggerType: draft.TriggerType, Enabled: draft.Enabled, Priority: draft.Priority,
-		ConfigJSON: draft.ConfigJSON, Actions: actions}, nil
+	return nil
 }
 
 // Create 创建已校验的自动化规则。
@@ -412,6 +474,56 @@ func (s *RuleService) Delete(ctx context.Context, userID, ruleID int64) error {
 	return s.repository.Delete(ctx, userID, ruleID)
 }
 
+// validateAdjustPriceConfig 校验改价动作配置中的目标价格。
+// 金额使用十进制字符串校验：0.01 到 1000000 元、至多两位小数，禁止浮点解析。
+func validateAdjustPriceConfig(configJSON string) error {
+	// cfg 保存改价动作的目标价格配置；target_price 以元为单位的字符串。
+	var cfg struct {
+		TargetPrice string `json:"target_price"`
+	}
+	if json.Unmarshal([]byte(configJSON), &cfg) != nil {
+		return errors.New("改价动作配置必须是 JSON 对象")
+	}
+	// raw 是去空白后的目标价格文本。
+	raw := strings.TrimSpace(cfg.TargetPrice)
+	if raw == "" {
+		return errors.New("改价动作必须填写目标价格")
+	}
+	// wholeText、fracText 分别是金额的整数部分与小数部分文本。
+	wholeText, fracText := raw, ""
+	if // dot 是小数点在金额文本中的位置。
+	dot := strings.IndexByte(raw, '.'); dot >= 0 {
+		wholeText, fracText = raw[:dot], raw[dot+1:]
+	}
+	if wholeText == "" || len(fracText) > 2 {
+		return errors.New("目标价格必须是最多两位小数的金额")
+	}
+	// whole、wholeErr 分别是整数元部分的数值和解析错误。
+	whole, wholeErr := strconv.ParseInt(wholeText, 10, 64)
+	if wholeErr != nil || whole < 0 {
+		return errors.New("目标价格必须是最多两位小数的金额")
+	}
+	// frac 是小数部分折算出的分值。
+	frac := int64(0)
+	if fracText != "" {
+		// fracValue、fracErr 分别是小数部分的数值和解析错误。
+		fracValue, fracErr := strconv.ParseInt(fracText, 10, 64)
+		if fracErr != nil || fracValue < 0 {
+			return errors.New("目标价格必须是最多两位小数的金额")
+		}
+		frac = fracValue
+		if len(fracText) == 1 {
+			frac *= 10
+		}
+	}
+	// cents 是目标价格的整数分结果。
+	cents := whole*100 + frac
+	if cents <= 0 || cents > 100000000 {
+		return errors.New("目标价格必须在 0.01 到 1000000 元之间")
+	}
+	return nil
+}
+
 // isJSONObject 判断配置是否为 JSON 对象。
 func isJSONObject(raw string) bool {
 	// value 是 JSON 对象解析结果，仅用于确认配置顶层类型，不保存业务状态。
@@ -422,7 +534,7 @@ func isJSONObject(raw string) bool {
 // defaultRuleName 根据触发类型和商品标识生成默认规则名称。
 func defaultRuleName(triggerType, itemID string) string {
 	// name 是按触发类型选择的默认显示名称，必要时再附加商品标识。
-	name := map[string]string{TriggerOrderPaid: "付款后自动发货", TriggerBuyerReviewed: "评价后发送赠品", TriggerReviewMissingTimeout: "超时未评价求评价"}[triggerType]
+	name := map[string]string{TriggerOrderCreated: "拍下未付款自动改价", TriggerOrderPaid: "付款后自动发货", TriggerBuyerReviewed: "评价后发送赠品", TriggerReviewMissingTimeout: "超时未评价求评价"}[triggerType]
 	if name == "" {
 		name = "自动化规则"
 	}

@@ -37,7 +37,7 @@ type automationActionExecutor struct {
 	cardLocks sync.Map
 }
 
-// shipmentConsignSession 保存一次确认发货请求开始前固定的凭证视图和响应 Cookie 会话；Cookie 明文只在本次 MTOP 调用及条件写回期间存在，禁止记录到日志或任务快照。
+// shipmentConsignSession 保存一次交易类 MTOP 请求（确认发货、订单改价共用）开始前固定的凭证视图和响应 Cookie 会话；Cookie 明文只在本次 MTOP 调用及条件写回期间存在，禁止记录到日志或任务快照。
 type shipmentConsignSession struct {
 	// requestContext 是携带完整 Cookie Jar 或扁平 Cookie 的 MTOP 请求上下文。
 	requestContext context.Context
@@ -49,7 +49,7 @@ type shipmentConsignSession struct {
 	credentialFingerprint string
 }
 
-// shipmentConsignResult 保存 Consign 的业务结果、响应 Cookie 和传输错误，供后续会话状态与订单事实分别收口。
+// shipmentConsignResult 保存交易类 MTOP 调用（Consign、订单改价共用）的业务结果、响应 Cookie 和传输错误，供后续会话状态与订单事实分别收口。
 type shipmentConsignResult struct {
 	// succeeded 表示平台明确确认订单已发货。
 	succeeded bool
@@ -76,6 +76,8 @@ func (e *automationActionExecutor) executeAction(ctx context.Context, task Task,
 	switch action.ActionType {
 	case ActionConfirmShipment:
 		return 0, e.confirmShipment(ctx, task)
+	case ActionAdjustPrice:
+		return e.adjustOrderPrice(ctx, task, action)
 	case ActionSendCard:
 		return e.sendCard(ctx, task, action)
 	case ActionSendText:
@@ -169,6 +171,135 @@ func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, t
 		return uncertainAction(fmt.Errorf("闲鱼已确认发货，但本地状态保存失败: %w", errors.Join(persistenceErrs...)))
 	}
 	return nil
+}
+
+// adjustOrderPrice 把买家已拍下未付款订单的价格修改为动作配置的目标价格。
+// 成功返回 1 作为外部结果数量，供运行统计与结果通知使用。
+func (e *automationActionExecutor) adjustOrderPrice(ctx context.Context, task Task, action db.AutomationAction) (int, error) {
+	if task.OrderID == "" {
+		return 0, fmt.Errorf("%w: 订单改价缺少订单ID", errActionNotPerformed)
+	}
+	// priceCents 是目标价格的整数分表示；parseErr 表示动作配置缺失或金额格式非法。
+	priceCents, parseErr := adjustPriceCentsFromConfig(action.ConfigJSON)
+	if parseErr != nil {
+		return 0, fmt.Errorf("%w: %v", errActionNotPerformed, parseErr)
+	}
+	// attemptErr 表示改价请求或恢复流程的最终失败原因。
+	if attemptErr := e.adjustOrderPriceAttempt(ctx, task, priceCents, true); attemptErr != nil {
+		return 0, attemptErr
+	}
+	return 1, nil
+}
+
+// adjustOrderPriceAttempt 使用凭证快照调用订单改价，并以指纹条件写回响应 Cookie；Session 失效时最多执行一次凭证恢复后重试。
+func (e *automationActionExecutor) adjustOrderPriceAttempt(ctx context.Context, task Task, priceCents int64, allowCredentialRecovery bool) error {
+	// session 固定本次 MTOP 请求的最小凭证视图，外部调用期间不持有账号凭证锁。
+	session, err := e.openShipmentConsignSession(ctx, task.AccountID)
+	if err != nil {
+		return err
+	}
+	// succeeded、returns、updatedCookie、callErr 分别是改价的业务成功标记、业务返回、扁平 Cookie 更新和调用错误。
+	succeeded, returns, updatedCookie, callErr := e.mtop().AdjustOrderPriceContext(session.requestContext, session.cookieStr, task.OrderID, priceCents)
+	// result 归并 MTOP 远端结果，Cookie 写回随后独立处理。
+	result := shipmentConsignResult{succeeded: succeeded, returns: returns, updatedCookie: updatedCookie, callErr: callErr}
+	// cookiePersistence 收集响应 Cookie 的条件写回结果，并在锁外同步在线运行时。
+	cookiePersistence := e.persistShipmentConsignCookies(ctx, task.AccountID, session, result)
+	// persistenceErrs 收集本地 Cookie 写回失败；改价结果本身不依赖本地事实写入。
+	persistenceErrs := cookiePersistence.errors
+	// sessionErr 将请求层错误和远端业务失败统一为凭证状态判断输入。
+	sessionErr := result.callErr
+	if sessionErr == nil && !result.succeeded {
+		sessionErr = errors.New(strings.Join(result.returns, "; "))
+	}
+	if mtop.IsSessionExpiredErr(sessionErr) {
+		if len(persistenceErrs) > 0 {
+			return errors.Join(fmt.Errorf("订单改价 Session 已失效: %w", sessionErr), errors.Join(persistenceErrs...))
+		}
+		// recoverer 是当前生效的凭证恢复器快照，避免一次判断期间被替换两次。
+		recoverer := e.recoverer()
+		if allowCredentialRecovery && recoverer != nil && recoverer.RecoverExpiredCredential(ctx, task.AccountID) {
+			e.logger.Info("订单改价凭证恢复成功，重新执行改价", "account", task.AccountID, "order_id", task.OrderID)
+			return e.adjustOrderPriceAttempt(ctx, task, priceCents, false)
+		}
+		if !allowCredentialRecovery {
+			return fmt.Errorf("%w: 订单改价在凭证恢复后仍返回 Session 失效: %v", errActionNotPerformed, sessionErr)
+		}
+		return fmt.Errorf("%w: 订单改价 Session 已失效且凭证恢复失败: %v", errActionNotPerformed, sessionErr)
+	}
+	if result.callErr != nil {
+		if len(persistenceErrs) > 0 {
+			result.callErr = errors.Join(result.callErr, errors.Join(persistenceErrs...))
+		}
+		return uncertainAction(result.callErr)
+	}
+	if !result.succeeded {
+		// failure 是远端拒绝改价的业务错误，例如订单已付款或已关闭。
+		failure := fmt.Errorf("订单改价失败: %s", strings.Join(result.returns, "; "))
+		if len(persistenceErrs) > 0 {
+			return errors.Join(failure, errors.Join(persistenceErrs...))
+		}
+		return failure
+	}
+	if len(persistenceErrs) > 0 {
+		return uncertainAction(fmt.Errorf("闲鱼已完成订单改价，但响应凭证保存失败: %w", errors.Join(persistenceErrs...)))
+	}
+	return nil
+}
+
+// adjustPriceCentsFromConfig 从动作配置解析目标价格并转换为整数分。
+// 金额使用十进制字符串解析，最多两位小数，禁止浮点运算引入误差。
+func adjustPriceCentsFromConfig(configJSON string) (int64, error) {
+	// cfg 保存改价动作的目标价格配置；target_price 以元为单位的字符串。
+	var cfg struct {
+		TargetPrice string `json:"target_price"`
+	}
+	if // err 是动作配置 JSON 的解析错误。
+	err := json.Unmarshal([]byte(configJSON), &cfg); err != nil {
+		return 0, fmt.Errorf("解析改价动作配置: %w", err)
+	}
+	return parseYuanToCents(cfg.TargetPrice)
+}
+
+// parseYuanToCents 把以元为单位的十进制金额文本转换为整数分。
+// 允许 0.01 到 1000000 元、至多两位小数；非法格式返回错误。
+func parseYuanToCents(raw string) (int64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, errors.New("改价动作缺少目标价格")
+	}
+	// wholeText、fracText 分别是金额的整数部分与小数部分文本。
+	wholeText, fracText := raw, ""
+	if // dot 是小数点在金额文本中的位置。
+	dot := strings.IndexByte(raw, '.'); dot >= 0 {
+		wholeText, fracText = raw[:dot], raw[dot+1:]
+	}
+	if wholeText == "" || len(fracText) > 2 {
+		return 0, fmt.Errorf("目标价格格式非法: %q", raw)
+	}
+	// whole、wholeErr 分别是整数元部分的数值和解析错误。
+	whole, wholeErr := strconv.ParseInt(wholeText, 10, 64)
+	if wholeErr != nil || whole < 0 {
+		return 0, fmt.Errorf("目标价格格式非法: %q", raw)
+	}
+	// frac 是小数部分折算出的分值。
+	frac := int64(0)
+	if fracText != "" {
+		// fracValue、fracErr 分别是小数部分的数值和解析错误。
+		fracValue, fracErr := strconv.ParseInt(fracText, 10, 64)
+		if fracErr != nil || fracValue < 0 {
+			return 0, fmt.Errorf("目标价格格式非法: %q", raw)
+		}
+		frac = fracValue
+		if len(fracText) == 1 {
+			frac *= 10
+		}
+	}
+	// cents 是目标价格的整数分结果。
+	cents := whole*100 + frac
+	if cents <= 0 || cents > 100000000 {
+		return 0, fmt.Errorf("目标价格必须在 0.01 到 1000000 元之间: %q", raw)
+	}
+	return cents, nil
 }
 
 // openShipmentConsignSession 在账号凭证锁内读取最小运行时视图，再在锁外构造 MTOP 会话；返回的 Cookie 只供当前确认发货请求使用。

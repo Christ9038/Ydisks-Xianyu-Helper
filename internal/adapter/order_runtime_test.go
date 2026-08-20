@@ -55,6 +55,11 @@ func (f *orderRuntimeMTopFake) ConsignContext(ctx context.Context, cookies, orde
 	return f.consign(ctx, cookies, orderID)
 }
 
+// AdjustOrderPriceContext 满足基础 MTOP 客户端接口但不参与订单测试。
+func (f *orderRuntimeMTopFake) AdjustOrderPriceContext(context.Context, string, string, int64) (bool, []string, string, error) {
+	return false, nil, "", errors.New("订单测试未预期改价请求")
+}
+
 // FetchItemsPage 满足基础 MTOP 客户端接口但不参与订单测试。
 func (f *orderRuntimeMTopFake) FetchItemsPage(context.Context, string, int, int) (*mtop.ItemListResult, error) {
 	return nil, errors.New("订单测试未预期商品分页请求")

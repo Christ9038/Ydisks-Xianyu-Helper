@@ -326,8 +326,8 @@ export interface Item {
   is_multi_qty_ship?: number | boolean;
 }
 
-export type AutomationTriggerType = 'order_paid' | 'buyer_reviewed' | 'review_missing_timeout';
-export type AutomationActionType = 'confirm_shipment' | 'send_card' | 'send_text';
+export type AutomationTriggerType = 'order_created' | 'order_paid' | 'buyer_reviewed' | 'review_missing_timeout';
+export type AutomationActionType = 'confirm_shipment' | 'send_card' | 'send_text' | 'adjust_price';
 
 // Rules
 export interface ShippingRule {

@@ -110,6 +110,44 @@ describe('useRuleActions', /* 当前回调验证规则页面动作协调器的�
     hook.unmount();
   });
 
+  test('拍下改价规则校验目标价格并剔除空提醒动作', /* 当前回调验证拍下改价草稿与保存边界。 */ async () => {
+    // hook 是规则动作 Hook 的真实 React 状态实例。
+    const hook = renderHook(() => useRuleActionsHarness());
+    act(/* 当前回调打开拍下改价规则弹窗。 */ () => hook.result.current.openNewAutomationRule('order_created'));
+    expect(hook.result.current.editingAutomationRule?.variants).toEqual([]);
+
+    // 目标价格为空时保存被拒绝且不触达接口。
+    await act(/* 当前回调执行空价格保存。 */ async () => hook.result.current.handleSaveAutomationRule());
+    expect(updateShippingMock).not.toHaveBeenCalled();
+
+    act(/* 当前回调写入合法目标价格。 */ () => hook.result.current.updateAdjustPriceTarget('9.9'));
+    act(/* 当前回调写入空白提醒文案。 */ () => hook.result.current.updateAdjustPriceNotifyText('  '));
+    await act(/* 当前回调执行拍下改价保存。 */ async () => hook.result.current.handleSaveAutomationRule());
+    expect(updateShippingMock).toHaveBeenCalledWith(expect.objectContaining({
+      trigger_type: 'order_created',
+      variants: [],
+      actions: [expect.objectContaining({ action_type: 'adjust_price', config_json: '{"target_price":"9.9"}' })],
+    }));
+    hook.unmount();
+  });
+
+  test('拍下改价规则保存带文案的可选提醒动作', /* 当前回调验证改价提醒文案的保存。 */ async () => {
+    // hook 是规则动作 Hook 的真实 React 状态实例。
+    const hook = renderHook(() => useRuleActionsHarness());
+    act(/* 当前回调打开拍下改价规则弹窗。 */ () => hook.result.current.openNewAutomationRule('order_created'));
+    act(/* 当前回调写入合法目标价格。 */ () => hook.result.current.updateAdjustPriceTarget('12'));
+    act(/* 当前回调写入买家提醒文案。 */ () => hook.result.current.updateAdjustPriceNotifyText('已改价，请支付'));
+    await act(/* 当前回调执行拍下改价保存。 */ async () => hook.result.current.handleSaveAutomationRule());
+    expect(updateShippingMock).toHaveBeenCalledWith(expect.objectContaining({
+      trigger_type: 'order_created',
+      actions: [
+        expect.objectContaining({ action_type: 'adjust_price', config_json: '{"target_price":"12"}' }),
+        expect.objectContaining({ action_type: 'send_text', message_template: '已改价，请支付' }),
+      ],
+    }));
+    hook.unmount();
+  });
+
   test('关键词和默认回复动作分别读取、保存并刷新', /* 当前回调验证两个回复页签的动作边界。 */ async () => {
     // hook 是规则动作 Hook 的真实 React 状态实例。
     const hook = renderHook(() => useRuleActionsHarness());

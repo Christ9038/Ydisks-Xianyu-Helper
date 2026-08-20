@@ -43,6 +43,11 @@ func (f *fakeRunMtop) ConsignContext(context.Context, string, string) (bool, []s
 	return true, nil, "", nil
 }
 
+// AdjustOrderPriceContext 满足 MTOP 客户端接口，引擎测试不关心订单改价。
+func (f *fakeRunMtop) AdjustOrderPriceContext(context.Context, string, string, int64) (bool, []string, string, error) {
+	return true, nil, "", nil
+}
+
 // FetchItemsPage 封装Fetch商品列表页码业务协调。
 func (f *fakeRunMtop) FetchItemsPage(context.Context, string, int, int) (*mtop.ItemListResult, error) {
 	return nil, nil
@@ -73,6 +78,11 @@ func (f *fakeFailTokenMtop) FetchUserProfile(context.Context, string) (*mtop.Use
 
 // ConsignContext 封装Consign上下文业务协调。
 func (f *fakeFailTokenMtop) ConsignContext(context.Context, string, string) (bool, []string, string, error) {
+	return true, nil, "", nil
+}
+
+// AdjustOrderPriceContext 满足 MTOP 客户端接口，token 失败测试不关心订单改价。
+func (f *fakeFailTokenMtop) AdjustOrderPriceContext(context.Context, string, string, int64) (bool, []string, string, error) {
 	return true, nil, "", nil
 }
 

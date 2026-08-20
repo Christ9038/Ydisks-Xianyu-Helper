@@ -55,6 +55,7 @@ const (
 type Client interface {
 	FetchUserProfile(ctx context.Context, cookiesStr string) (*UserProfileResult, error)
 	ConsignContext(ctx context.Context, cookiesStr, orderID string) (ok bool, ret []string, updatedCookies string, err error)
+	AdjustOrderPriceContext(ctx context.Context, cookiesStr, orderID string, priceCents int64) (ok bool, ret []string, updatedCookies string, err error)
 	FetchItemsPage(ctx context.Context, cookiesStr string, pageNumber, pageSize int) (*ItemListResult, error)
 	FetchAllItems(ctx context.Context, cookiesStr string, pageSize, maxPages int) (*ItemListResult, error)
 	PublishItem(ctx context.Context, cookiesStr string, req PublishItemRequest) (*PublishItemResult, error)
@@ -69,8 +70,10 @@ type ClientImpl struct {
 	// Logger 记录 MTOP 请求的安全摘要（不会输出 Cookie、签名或响应正文）。
 	// 未设置时使用 slog.Default，测试可传入丢弃日志的 logger。
 	Logger              *slog.Logger
-	TokenURL            string
-	ConsignURL          string
+	TokenURL   string
+	ConsignURL string
+	// AdjustPriceURL 覆盖订单改价端点，仅供测试注入本地 HTTP 服务。
+	AdjustPriceURL      string
 	OrderDetailURL      string
 	SoldOrdersURL       string
 	ItemDetailURL       string

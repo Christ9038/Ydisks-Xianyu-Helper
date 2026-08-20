@@ -17,6 +17,7 @@ import (
 
 // TriggerOrderPaid 用于本次流程后续判断的Trigger订单Paid
 const (
+	TriggerOrderCreated         = "order_created"
 	TriggerOrderPaid            = "order_paid"
 	TriggerBuyerReviewed        = "buyer_reviewed"
 	TriggerReviewMissingTimeout = "review_missing_timeout"
@@ -24,6 +25,8 @@ const (
 	ActionConfirmShipment = "confirm_shipment"
 	ActionSendCard        = "send_card"
 	ActionSendText        = "send_text"
+	// ActionAdjustPrice 表示把待付款订单价格修改为动作配置中的目标价格。
+	ActionAdjustPrice = "adjust_price"
 )
 
 // Task 是自动化中心的统一输入。它可以来自 WS 系统事件、计划任务或手动触发。
@@ -90,6 +93,8 @@ func ExtractTaskFromWS(accountID, cookieStr string, raw map[string]any) *Task {
 	switch {
 	case isOrderPaidEvent(f):
 		task.TriggerType = TriggerOrderPaid
+	case isOrderCreatedEvent(f):
+		task.TriggerType = TriggerOrderCreated
 	case isBuyerReviewedEvent(f):
 		task.TriggerType = TriggerBuyerReviewed
 	default:
@@ -210,6 +215,18 @@ func isOrderPaidEvent(f rawFields) bool {
 		strings.Contains(f.text, "已付款，待发货") ||
 		strings.Contains(f.text, "记得及时发货") ||
 		strings.Contains(f.redReminder, "等待卖家发货")
+}
+
+// isOrderCreatedEvent 判定买家已拍下但尚未付款的交易卡片。
+// 闲鱼拍下样本：reminderContent=[我已拍下，待付款]，或红色提醒“等待买家付款”。
+// 买家角色的同类卡片属于当前账号自己下单，不进入卖家自动化。
+func isOrderCreatedEvent(f rawFields) bool {
+	if f.orderRole == "buyer" {
+		return false
+	}
+	return strings.Contains(f.text, "我已拍下") ||
+		strings.Contains(f.text, "已拍下，待付款") ||
+		strings.Contains(f.redReminder, "等待买家付款")
 }
 
 // isBuyerReviewedEvent 封装is买家ReviewedEvent业务协调。
