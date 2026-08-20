@@ -46,6 +46,17 @@ type Store struct {
 
 	credentialMu    sync.Mutex
 	credentialLocks map[string]*credentialLockEntry
+	// pricingModeMu 串行化 AI 议价与固定规则改价的互斥配置写入；锁内只允许短数据库事务，禁止外部 I/O。
+	pricingModeMu sync.Mutex
+}
+
+// LockPricingMode 串行化当前进程内的互斥改价模式检查与写入。
+func (s *Store) LockPricingMode() func() {
+	if s == nil {
+		return func() {}
+	}
+	s.pricingModeMu.Lock()
+	return s.pricingModeMu.Unlock
 }
 
 // credentialLockEntry 保存单个账号凭证锁及当前排队/持有者数量。

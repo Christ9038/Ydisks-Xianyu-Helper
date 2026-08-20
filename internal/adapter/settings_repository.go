@@ -208,11 +208,36 @@ func (r *SettingsRepository) UpsertAIReply(ctx context.Context, cookieID string,
 	if err := r.validate(); err != nil {
 		return err
 	}
+	// unlock 串行化 AI 议价与固定规则改价的最终冲突检查和写入。
+	unlock := r.store.LockPricingMode()
+	defer unlock()
+	if settings.AIEnabled {
+		// conflict 表示最终写入时账号是否已有启用的固定改价规则；conflictErr 是查询错误。
+		conflict, conflictErr := r.store.Automation.HasEnabledAdjustPriceRule(ctx, cookieID)
+		if conflictErr != nil {
+			return conflictErr
+		}
+		if conflict {
+			return settingsapp.ErrPricingModeConflict
+		}
+	}
 	return r.store.AIReply.UpsertSettings(ctx, cookieID, db.AIReplySettings{
-		CookieID: cookieID, AIEnabled: settings.AIEnabled,
+		CookieID: cookieID, AIEnabled: settings.AIEnabled, AutoAdjustPriceEnabled: settings.AutoAdjustPriceEnabled,
 		MaxDiscountPercent: settings.MaxDiscountPercent, MaxDiscountAmount: settings.MaxDiscountAmount,
 		MaxBargainRounds: settings.MaxBargainRounds, CustomPrompts: settings.CustomPrompts,
 	})
+}
+
+// HasEnabledAdjustPriceRule 判断账号是否存在启用的固定自动改价规则。
+func (r *SettingsRepository) HasEnabledAdjustPriceRule(ctx context.Context, cookieID string) (bool, error) {
+	// err 表示设置数据库适配器未装配。
+	if err := r.validate(); err != nil {
+		return false, err
+	}
+	if r.store.Automation == nil {
+		return false, errors.New("自动化规则存储未初始化")
+	}
+	return r.store.Automation.HasEnabledAdjustPriceRule(ctx, strings.TrimSpace(cookieID))
 }
 
 // validate 检查设置适配器及其数据库子仓储是否完整装配。
@@ -238,7 +263,7 @@ func (r *SettingsRepository) validateAudit() error {
 // aiReplyModel 将不含 API 密钥的数据库摘要转换为应用模型。
 func aiReplyModel(record db.AIReplySettings) settingsapp.AIReplySettings {
 	return settingsapp.AIReplySettings{
-		CookieID: record.CookieID, AIEnabled: record.AIEnabled,
+		CookieID: record.CookieID, AIEnabled: record.AIEnabled, AutoAdjustPriceEnabled: record.AutoAdjustPriceEnabled,
 		MaxDiscountPercent: record.MaxDiscountPercent, MaxDiscountAmount: record.MaxDiscountAmount,
 		MaxBargainRounds: record.MaxBargainRounds, CustomPrompts: record.CustomPrompts,
 	}

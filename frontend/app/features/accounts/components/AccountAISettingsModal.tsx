@@ -24,7 +24,12 @@ export const AccountAISettingsModal: React.FC<AccountAISettingsModalProps> = ({ 
   // updateSettings 使用最新草稿合并单个 AI 字段变化。
   const updateSettings = (patch: Partial<AIReplySettings>) => onChange({ ...settings, ...patch });
   // handleEnabledChange 切换 AI 自动回复开关。
-  const handleEnabledChange = () => updateSettings({ ai_enabled: !settings.ai_enabled });
+  const handleEnabledChange = () => updateSettings(settings.ai_enabled ? { ai_enabled: false, auto_adjust_price_enabled: false } : { ai_enabled: true });
+  // handleAutoAdjustChange 切换真实订单自动改价开关，AI 议价关闭时不允许单独开启。
+  const handleAutoAdjustChange = () => {
+    if (!settings.ai_enabled) return;
+    updateSettings({ auto_adjust_price_enabled: !settings.auto_adjust_price_enabled });
+  };
   // handleDiscountPercentChange 更新最大折扣比例。
   const handleDiscountPercentChange = (event: React.ChangeEvent<HTMLInputElement>) => updateSettings({ max_discount_percent: parseInt(event.target.value, 10) || 0 });
   // handleDiscountAmountChange 更新最大折扣金额。
@@ -53,6 +58,13 @@ export const AccountAISettingsModal: React.FC<AccountAISettingsModalProps> = ({ 
             </button>
           </div>
 
+          <div className="flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-xl">
+            <div className="pr-4"><div className="font-bold text-gray-900">自动执行 AI 报价改价</div><div className="text-xs text-gray-600 mt-1">AI 明确报价后，买家在 30 分钟内拍下对应商品时自动修改待付款订单价格。开启 AI 议价后，固定自动化规则改价将不能同时启用。</div></div>
+            <button type="button" onClick={handleAutoAdjustChange} disabled={!settings.ai_enabled} className={`w-14 h-8 rounded-full transition-colors duration-300 relative flex-shrink-0 ${settings.auto_adjust_price_enabled ? 'bg-amber-500' : 'bg-gray-300'} ${!settings.ai_enabled ? 'opacity-50 cursor-not-allowed' : ''}`} aria-label="切换 AI 自动改价">
+              <span className={`absolute left-1 top-1 w-6 h-6 bg-white rounded-full shadow-md transition-transform duration-300 ${settings.auto_adjust_price_enabled ? 'translate-x-6' : 'translate-x-0'}`} />
+            </button>
+          </div>
+
           <div className="border-t border-gray-200 pt-6">
             <h3 className="text-lg font-bold text-gray-900 mb-4">砍价策略</h3>
             <div className="grid grid-cols-3 gap-4">
@@ -65,7 +77,7 @@ export const AccountAISettingsModal: React.FC<AccountAISettingsModalProps> = ({ 
           <div><label className="block text-sm font-bold text-gray-700 mb-2">自定义提示词（可选）</label><textarea value={settings.custom_prompts} onChange={handlePromptChange} placeholder="输入自定义的AI回复规则或风格指引...&#10;&#10;例如：回复时保持礼貌专业、使用简洁的语言、强调产品质量等" className="w-full ios-input px-4 py-3 rounded-xl h-40 resize-none" /></div>
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
             <h4 className="font-bold text-blue-900 mb-2 flex items-center gap-2"><Settings className="w-4 h-4" />AI如何工作</h4>
-            <ul className="text-xs text-blue-800 space-y-1"><li>• 自动识别买家的砍价请求</li><li>• 根据设定的策略智能回复</li><li>• 在合理范围内同意降价或礼貌拒绝</li><li>• 保持专业友好的沟通风格</li></ul>
+            <ul className="text-xs text-blue-800 space-y-1"><li>• 自动识别买家的砍价请求</li><li>• 根据设定的策略智能回复</li><li>• 在合理范围内同意降价或礼貌拒绝</li><li>• 只有开启自动改价后，已发送给买家的有效报价才会用于真实订单改价</li></ul>
           </div>
         </div>
 

@@ -41,7 +41,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
   // bindingsLoadError 保存通知绑定加载错误。
   const [bindingsLoadError, setBindingsLoadError] = useState('');
   // aiSettings 保存账号 AI 编辑草稿。
-  const [aiSettings, setAiSettings] = useState<AIReplySettings>({ ai_enabled: false, max_discount_percent: 10, max_discount_amount: 100, max_bargain_rounds: 3, custom_prompts: '' });
+  const [aiSettings, setAiSettings] = useState<AIReplySettings>({ ai_enabled: false, auto_adjust_price_enabled: false, max_discount_percent: 10, max_discount_amount: 100, max_bargain_rounds: 3, custom_prompts: '' });
   // saving 表示编辑、AI 或暂停动作是否正在保存。
   const [saving, setSaving] = useState(false);
   // passwordLoginView 保存密码登录刷新授权状态。
@@ -168,7 +168,7 @@ export const useAccountSubmodules = ({ editingAccount, setEditingAccount, setAct
       // settings 保存当前账号的 AI 设置。
       const settings = await getAccountAISettings(account.id, { signal: controller.signal });
       if (!isCurrentAccountRequest(sequence, aiSequence.current, account.id, account.id)) return;
-      setAiSettings({ ai_enabled: settings.ai_enabled ?? false, max_discount_percent: settings.max_discount_percent ?? 10, max_discount_amount: settings.max_discount_amount ?? 100, max_bargain_rounds: settings.max_bargain_rounds ?? 3, custom_prompts: settings.custom_prompts ?? '' });
+      setAiSettings({ ai_enabled: settings.ai_enabled ?? false, auto_adjust_price_enabled: settings.auto_adjust_price_enabled ?? false, max_discount_percent: settings.max_discount_percent ?? 10, max_discount_amount: settings.max_discount_amount ?? 100, max_bargain_rounds: settings.max_bargain_rounds ?? 3, custom_prompts: settings.custom_prompts ?? '' });
     } catch (/* error 保存 AI 设置读取请求的失败原因，过期请求不会更新当前界面。 */ error) {
       // error 保存 AI 设置读取失败原因。
       if (isCurrentAccountRequest(sequence, aiSequence.current, account.id, account.id)) console.error('加载 AI 设置失败:', error);

@@ -13,7 +13,7 @@ OperationResponse,
 ShippingRule
 } from './models';
 import { ApiError, type RequestControlOptions } from '../../../shared/http/client';
-import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
+import { contractClient, contractMultipartBody, runContractRequest } from '../../../shared/api-contract/client';
 import { collectionFrom } from '../../../shared/http/contract';
 export type * from './models';
 import { getPublishLocations as queryPublishLocations,type PublishLocationRequestOptions } from './amapLocation';
@@ -115,7 +115,7 @@ export const publishItem = async (form: {
 file of form.images) {
       body.append('images', file);
     }
-    return runContractRequest(/* signal 控制商品发布上传请求的取消和超时。 */ signal => contractClient.POST('/api/v1/items/publish', { body: body as never, signal })) as unknown as Promise<ItemPublishResponse>;
+    return runContractRequest(/* signal 控制商品发布上传请求的取消和超时。 */ signal => contractClient.POST('/api/v1/items/publish', { body: contractMultipartBody(body), signal })) as unknown as Promise<ItemPublishResponse>;
 }
 
 // recommendPublishCategory 推荐商品发布分类。
@@ -157,7 +157,7 @@ export const previewItemPublishBatch = async (form: {
     body.set('fallback_tb_category_id', form.fallbackCategory.tbCatId || '');
 	if (form.location) body.set('location', JSON.stringify(form.location));
 	body.set('publish_interval_seconds', String(form.publishIntervalSeconds ?? 5));
-	return runContractRequest(/* signal 控制批量发布预览上传的取消和超时。 */ signal => contractClient.POST('/api/v1/items/publish-batches/preview', { body: body as never, signal }), options) as unknown as Promise<ItemPublishBatchPreviewResponse>;
+	return runContractRequest(/* signal 控制批量发布预览上传的取消和超时。 */ signal => contractClient.POST('/api/v1/items/publish-batches/preview', { body: contractMultipartBody(body), signal }), options) as unknown as Promise<ItemPublishBatchPreviewResponse>;
 }
 
 // startItemPublishBatch 启动商品批量发布。

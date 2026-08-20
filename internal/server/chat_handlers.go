@@ -108,10 +108,8 @@ func (s *Server) sendChatImage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "聊天服务未启用")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
-	if // err 用于本次流程后续判断的err
-	err := r.ParseMultipartForm(10 << 20); err != nil {
-		writeErr(w, http.StatusBadRequest, "图片不能为空且不能超过 10MB")
+	// 单张图片上限仍为 10 MiB，总请求额外保留 multipart 元数据空间，避免恰好 10 MiB 的合法图片被包装开销拒绝。
+	if !parseMultipartRequest(w, r, maxChatImageMultipartBytes, maxChatImageMultipartBytes, "图片上传内容不能超过 11 MiB") {
 		return
 	}
 	// accountID 用于本次流程后续判断的账号ID
@@ -142,8 +140,8 @@ func (s *Server) sendChatImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// data、err 用于本次流程后续判断的data、err
-	data, err := io.ReadAll(io.LimitReader(file, (10<<20)+1))
-	if err != nil || len(data) == 0 || len(data) > 10<<20 {
+	data, err := io.ReadAll(io.LimitReader(file, maxChatImageBytes+1))
+	if err != nil || len(data) == 0 || len(data) > maxChatImageBytes {
 		writeErr(w, http.StatusBadRequest, "图片不能为空且不能超过 10MB")
 		return
 	}

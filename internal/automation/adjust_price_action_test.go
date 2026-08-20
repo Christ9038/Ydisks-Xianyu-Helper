@@ -10,6 +10,122 @@ import (
 	"xianyu-go/internal/db"
 )
 
+// TestAIBargainQuoteAutomaticallyAdjustsCreatedOrder 验证订单创建事件会消费四维匹配的 AI 报价并复用真实改价能力。
+func TestAIBargainQuoteAutomaticallyAdjustsCreatedOrder(t *testing.T) {
+	// store、cleanup 保存自动改价测试数据库及清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是 AI 报价和订单事件共用的测试上下文。
+	ctx := context.Background()
+	// err 是保存 AI 议价与真实改价开关时不应出现的错误。
+	if err := store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: true, AutoAdjustPriceEnabled: true, MaxDiscountPercent: 10, MaxDiscountAmount: 20, MaxBargainRounds: 3}); err != nil {
+		t.Fatal(err)
+	}
+	// quote 是已经成功发送给指定买家和会话的 9.90 元报价。
+	quote := db.AIBargainQuote{CookieID: "cid", ChatID: "chat-ai", BuyerID: "buyer-ai", ItemID: "item-ai", PriceCents: 990}
+	// err 是保存待消费 AI 报价时不应出现的错误。
+	if err := store.AIReply.ReplacePendingQuote(ctx, quote, time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	// fake 是明确确认订单改价成功的平台客户端。
+	fake := &fakeMTop{adjustOk: true, adjustRet: []string{"SUCCESS::调用成功"}}
+	// center 是启用真实改价能力的自动化中心。
+	center := NewWithDependencies(store, nil, nil, CenterDependencies{MTop: fake})
+	// task 是买家拍下未付款订单事件的完整事实。
+	task := Task{AccountID: "cid", TriggerType: TriggerOrderCreated, OrderID: "order-ai", ChatID: "chat-ai", BuyerID: "buyer-ai", ItemID: "item-ai", Quantity: "2"}
+	// err 是处理完整订单创建事件时不应出现的错误。
+	if err := center.HandleTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	if fake.adjustCalls != 1 || fake.adjustOrderIn != "order-ai" || fake.adjustCentsIn != 1980 {
+		t.Fatalf("AI 自动改价入参错误: calls=%d order=%q cents=%d", fake.adjustCalls, fake.adjustOrderIn, fake.adjustCentsIn)
+	}
+	// status 是报价真实改价完成后的持久化终态。
+	var status string
+	// err 是读取报价终态时不应出现的数据库错误。
+	if err := store.DB.QueryRowContext(ctx, `SELECT status FROM ai_bargain_quotes WHERE order_id='order-ai'`).Scan(&status); err != nil || status != "adjusted" {
+		t.Fatalf("quote status=%q err=%v", status, err)
+	}
+}
+
+// TestAIBargainQuoteRetriesTransientBusy 验证 AI 自动改价会等待订单状态同步，并复用规则改价的暂时性失败重试能力。
+func TestAIBargainQuoteRetriesTransientBusy(t *testing.T) {
+	// previousGap 保存生产重试间隔，测试结束后必须恢复，避免影响同包其他用例的等待语义。
+	previousGap := adjustPriceTransientRetryGap
+	adjustPriceTransientRetryGap = time.Millisecond
+	t.Cleanup(func() {
+		adjustPriceTransientRetryGap = previousGap
+	})
+	// store、cleanup 保存自动改价测试数据库及清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是 AI 报价和订单事件共用的测试上下文。
+	ctx := context.Background()
+	// err 是保存 AI 议价与真实改价开关时不应出现的错误。
+	if err := store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: true, AutoAdjustPriceEnabled: true, MaxDiscountPercent: 10, MaxDiscountAmount: 20, MaxBargainRounds: 3}); err != nil {
+		t.Fatal(err)
+	}
+	// quote 是已发送、尚待买家拍下后消费的 AI 单件报价。
+	quote := db.AIBargainQuote{CookieID: "cid", ChatID: "chat-retry", BuyerID: "buyer-retry", ItemID: "item-retry", PriceCents: 792}
+	// err 是保存待消费 AI 报价时不应出现的错误。
+	if err := store.AIReply.ReplacePendingQuote(ctx, quote, time.Now().Add(time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	// fake 模拟闲鱼在订单创建后的短暂状态同步延迟，第三次请求才允许修改价格。
+	fake := &fakeMTop{adjustResults: []fakeAdjustPriceResult{
+		{ret: []string{"FAIL_BIZ_CANNOT_MODIFY_FEE::暂无法修改价格，请稍后重试"}},
+		{ret: []string{"FAIL_BIZ_CANNOT_MODIFY_FEE::暂无法修改价格，请稍后重试"}},
+		{ok: true, ret: []string{"SUCCESS::调用成功"}},
+	}}
+	// center 是启用真实 AI 自动改价能力的自动化中心。
+	center := NewWithDependencies(store, nil, nil, CenterDependencies{MTop: fake})
+	// task 是包含 AI 报价匹配维度的买家拍下订单事实。
+	task := Task{AccountID: "cid", TriggerType: TriggerOrderCreated, OrderID: "order-retry", ChatID: "chat-retry", BuyerID: "buyer-retry", ItemID: "item-retry"}
+	// err 是短暂失败被重试并最终成功后不应出现的处理错误。
+	if err := center.HandleTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	if fake.adjustCalls != 3 || fake.adjustCentsIn != 792 {
+		t.Fatalf("AI 自动改价重试入参错误: calls=%d cents=%d", fake.adjustCalls, fake.adjustCentsIn)
+	}
+	// status 是 AI 报价在平台最终确认改价成功后应保存的终态。
+	var status string
+	// err 是读取 AI 报价终态时不应出现的数据库错误。
+	if err := store.DB.QueryRowContext(ctx, `SELECT status FROM ai_bargain_quotes WHERE order_id='order-retry'`).Scan(&status); err != nil || status != "adjusted" {
+		t.Fatalf("quote status=%q err=%v", status, err)
+	}
+}
+
+// TestAINegotiationSuppressesLegacyFixedPriceRule 验证升级前遗留冲突配置也由 AI 模式优先，固定价格规则不会执行。
+func TestAINegotiationSuppressesLegacyFixedPriceRule(t *testing.T) {
+	// store、cleanup 保存遗留冲突配置测试数据库及清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是遗留规则和订单事件共用的测试上下文。
+	ctx := context.Background()
+	// owner 是测试账号所属用户，用于创建一条模拟升级前遗留的固定改价规则。
+	owner, err := store.Users.GetByUsername(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Automation.Create(ctx, db.AutomationRuleInput{UserID: owner.ID, CookieID: "cid", Name: "遗留改价", TriggerType: TriggerOrderCreated, Enabled: true, Actions: []db.AutomationActionInput{{ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"8.80"}`, Enabled: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.AIReply.UpsertSettings(ctx, "cid", db.AIReplySettings{AIEnabled: true, AutoAdjustPriceEnabled: false, MaxDiscountPercent: 10, MaxDiscountAmount: 20, MaxBargainRounds: 3}); err != nil {
+		t.Fatal(err)
+	}
+	// fake 统计是否有任何固定规则改价请求触达平台。
+	fake := &fakeMTop{adjustOk: true}
+	// center 是读取遗留冲突配置的自动化中心。
+	center := NewWithDependencies(store, nil, nil, CenterDependencies{MTop: fake})
+	if err = center.HandleTask(ctx, Task{AccountID: "cid", TriggerType: TriggerOrderCreated, OrderID: "legacy-order", ChatID: "legacy-chat", BuyerID: "legacy-buyer", ItemID: "legacy-item"}); err != nil {
+		t.Fatal(err)
+	}
+	if fake.adjustCalls != 0 {
+		t.Fatalf("AI 议价启用时不应执行遗留固定改价规则: calls=%d", fake.adjustCalls)
+	}
+}
+
 // TestAdjustOrderPriceActionSuccess 验证改价动作成功时返回一个外部结果并传递整数分价格。
 func TestAdjustOrderPriceActionSuccess(t *testing.T) {
 	// store、cleanup 保存测试数据库及其清理函数。
@@ -27,6 +143,32 @@ func TestAdjustOrderPriceActionSuccess(t *testing.T) {
 	}
 	if fake.adjustCalls != 1 || fake.adjustOrderIn != "order-1" || fake.adjustCentsIn != 990 {
 		t.Fatalf("改价入参错误: calls=%d order=%q cents=%d", fake.adjustCalls, fake.adjustOrderIn, fake.adjustCentsIn)
+	}
+}
+
+// TestAdjustOrderPriceActionRetriesTransientBusy 验证规则改价和 AI 自动改价共享同一暂时性失败重试语义。
+func TestAdjustOrderPriceActionRetriesTransientBusy(t *testing.T) {
+	// previousGap 保存生产重试间隔，测试结束后恢复，避免对其他用例产生全局副作用。
+	previousGap := adjustPriceTransientRetryGap
+	adjustPriceTransientRetryGap = time.Millisecond
+	t.Cleanup(func() {
+		adjustPriceTransientRetryGap = previousGap
+	})
+	// store、cleanup 保存测试数据库及其清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// fake 模拟首次订单状态尚未可改价、第二次成功的远端行为。
+	fake := &fakeMTop{adjustResults: []fakeAdjustPriceResult{
+		{ret: []string{"FAIL_BIZ_CANNOT_MODIFY_FEE::暂无法修改价格，请稍后重试"}},
+		{ok: true, ret: []string{"SUCCESS::调用成功"}},
+	}}
+	// center 保存注入测试 MTOP 客户端的自动化中心。
+	center := NewWithDependencies(store, nil, nil, CenterDependencies{MTop: fake})
+	// sent、err 分别是暂时性失败重试后的外部结果数量和执行错误。
+	sent, err := center.executeAction(context.Background(), Task{AccountID: "cid", OrderID: "order-rule-retry"},
+		db.AutomationAction{ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"9.9"}`})
+	if err != nil || sent != 1 || fake.adjustCalls != 2 {
+		t.Fatalf("sent=%d calls=%d err=%v", sent, fake.adjustCalls, err)
 	}
 }
 

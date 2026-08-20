@@ -243,7 +243,7 @@ func TestAIReplySettings(t *testing.T) {
 	cookie := loginHelper(t, h)
 
 	// body 用于本次流程后续判断的请求体
-	body := `{"ai_enabled":true,"max_discount_percent":12,"max_discount_amount":88,"max_bargain_rounds":4,"custom_prompts":"按商品信息回复"}`
+	body := `{"ai_enabled":true,"auto_adjust_price_enabled":true,"max_discount_percent":12,"max_discount_amount":88,"max_bargain_rounds":4,"custom_prompts":"按商品信息回复"}`
 	// req 用于本次流程后续判断的req
 	req := httptest.NewRequest(http.MethodPut, "/ai-reply-settings/acc1", strings.NewReader(body))
 	req.AddCookie(cookie)
@@ -264,6 +264,7 @@ func TestAIReplySettings(t *testing.T) {
 	var cfg map[string]any
 	json.Unmarshal(rec2.Body.Bytes(), &cfg)
 	if cfg["ai_enabled"] != true ||
+		cfg["auto_adjust_price_enabled"] != true ||
 		cfg["max_discount_percent"] != float64(12) ||
 		cfg["max_discount_amount"] != float64(88) ||
 		cfg["max_bargain_rounds"] != float64(4) ||
@@ -288,7 +289,7 @@ func TestAIReplySettings(t *testing.T) {
 	// all 用于本次流程后续判断的all
 	var all map[string]map[string]any
 	json.Unmarshal(rec3.Body.Bytes(), &all)
-	if all["acc1"]["ai_enabled"] != true {
+	if all["acc1"]["ai_enabled"] != true || all["acc1"]["auto_adjust_price_enabled"] != true {
 		t.Fatalf("AI 设置列表异常: %+v", all)
 	}
 }

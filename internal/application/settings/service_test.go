@@ -25,6 +25,8 @@ type settingsRepositoryFake struct {
 	aiSettings map[string]AIReplySettings
 	// systemValues 保存系统设置读取值。
 	systemValues map[string]string
+	// adjustRuleEnabled 表示测试账号是否已有启用的固定自动改价规则。
+	adjustRuleEnabled bool
 }
 
 // IsSensitiveSettingKey 判断测试设置键是否属于敏感集合。
@@ -139,6 +141,11 @@ func (r *settingsRepositoryFake) UpsertAIReply(_ context.Context, cookieID strin
 	return nil
 }
 
+// HasEnabledAdjustPriceRule 返回测试配置的固定自动改价规则状态。
+func (r *settingsRepositoryFake) HasEnabledAdjustPriceRule(context.Context, string) (bool, error) {
+	return r.adjustRuleEnabled, nil
+}
+
 // modelClientFake 是 AI 模型客户端测试替身。
 type modelClientFake struct {
 	// calls 保存收到的端点和密钥，测试只比较是否传递，不输出秘密。
@@ -235,4 +242,28 @@ func TestServiceListAIModelsFailsClosedWhenAuditUnavailable(t *testing.T) {
 }
 
 var _ Repository = (*settingsRepositoryFake)(nil)
+
+// TestServiceRejectsConflictingPricingModes 验证自动改价依赖 AI 议价，且 AI 议价不能与固定改价规则同时启用。
+func TestServiceRejectsConflictingPricingModes(t *testing.T) {
+	// ctx 是 AI 设置互斥校验测试上下文。
+	ctx := context.Background()
+	// repository 模拟账号已存在启用的固定自动改价规则。
+	repository := &settingsRepositoryFake{ownerID: 7, adjustRuleEnabled: true}
+	// service 是待验证的设置应用服务。
+	service := NewService(repository, nil)
+	// settings 是开启 AI 议价的有效数值配置。
+	settings := AIReplySettings{AIEnabled: true, MaxDiscountPercent: 10, MaxDiscountAmount: 100, MaxBargainRounds: 3}
+	// err 是启用冲突 AI 模式时返回的互斥错误。
+	if err := service.UpsertAIReply(ctx, 7, "account-1", settings); !errors.Is(err, ErrPricingModeConflict) {
+		t.Fatalf("固定规则冲突应被拒绝: %v", err)
+	}
+	repository.adjustRuleEnabled = false
+	settings.AIEnabled = false
+	settings.AutoAdjustPriceEnabled = true
+	// err 是脱离 AI 议价单独启用真实改价时返回的依赖错误。
+	if err := service.UpsertAIReply(ctx, 7, "account-1", settings); err == nil || !strings.Contains(err.Error(), "必须先启用 AI 议价") {
+		t.Fatalf("独立开启 AI 自动改价应被拒绝: %v", err)
+	}
+}
+
 var _ ModelClient = (*modelClientFake)(nil)

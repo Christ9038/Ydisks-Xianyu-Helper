@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"xianyu-go/internal/db"
 )
@@ -69,6 +70,40 @@ func (r *recordingSender) SendImage(_ context.Context, chatID, toUserID, url str
 	}
 	r.images = append(r.images, imageSent{chatID, toUserID, url, cardID})
 	return nil
+}
+
+// TestAIQuoteSavedOnlyAfterTextDelivery 验证 AI 报价只有在回复发送成功后才成为可执行报价。
+func TestAIQuoteSavedOnlyAfterTextDelivery(t *testing.T) {
+	// store、cleanup 是回复链测试仓储及清理函数。
+	store, cleanup := newReplyStore(t)
+	defer cleanup()
+	// ctx 是回复发送与报价领取共用的测试上下文。
+	ctx := context.Background()
+	// result 是模拟 AI 已给出 9.90 元有效报价的回复结果。
+	result := &ReplyResult{Text: "可以，9.90 元成交", AutoPriceQuote: &AIPriceQuoteProposal{PriceCents: 990}}
+	// failedSender 模拟文本没有成功交给买家。
+	failedSender := &recordingSender{textErr: errors.New("send failed")}
+	// failedService 是注入发送失败替身的 AI 回复链。
+	failedService := NewReplyService("cid", store, failedSender, nil, &fakeAIReplier{result: result}, nil)
+	// err 是模拟发送失败时必须向调用方返回的错误。
+	if err := failedService.Handle(ctx, chatMsg("能便宜吗", "item-1", "chat-1")); err == nil {
+		t.Fatal("发送失败应返回错误")
+	}
+	// failedQuote 是发送失败后尝试领取的报价，必须为空。
+	failedQuote, err := store.AIReply.ClaimPendingQuote(ctx, "cid", "chat-1", "buyer1", "item-1", "order-failed", time.Now().Unix())
+	if err != nil || failedQuote != nil {
+		t.Fatalf("发送失败不应保存报价: quote=%+v err=%v", failedQuote, err)
+	}
+	// successService 是文本发送成功的 AI 回复链。
+	successService := NewReplyService("cid", store, &recordingSender{}, nil, &fakeAIReplier{result: result}, nil)
+	if err = successService.Handle(ctx, chatMsg("能便宜吗", "item-1", "chat-1")); err != nil {
+		t.Fatal(err)
+	}
+	// successQuote 是发送成功后与订单事实匹配的可执行报价。
+	successQuote, err := store.AIReply.ClaimPendingQuote(ctx, "cid", "chat-1", "buyer1", "item-1", "order-success", time.Now().Unix())
+	if err != nil || successQuote == nil || successQuote.PriceCents != 990 {
+		t.Fatalf("发送成功应保存报价: quote=%+v err=%v", successQuote, err)
+	}
 }
 
 // TestReplyOnceRetriesOnlyFailedParts 封装Test回复OnceRetriesOnly失败Parts业务协调。

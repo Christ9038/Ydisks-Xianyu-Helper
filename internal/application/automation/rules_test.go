@@ -51,6 +51,8 @@ type ruleOwnershipFake struct {
 	itemErr error
 	// cardErr 是卡密组查询需要返回的基础设施错误。
 	cardErr error
+	// aiEnabled 表示测试账号是否启用了 AI 议价。
+	aiEnabled bool
 }
 
 // OwnsAccount 返回账号归属通过。
@@ -78,6 +80,28 @@ func (r *ruleOwnershipFake) GetCard(context.Context, int64, int64) (CardInfo, er
 		return CardInfo{Type: "data"}, nil
 	}
 	return CardInfo{Type: r.cardType}, nil
+}
+
+// AIReplyEnabled 返回测试账号的 AI 议价开关。
+func (r *ruleOwnershipFake) AIReplyEnabled(context.Context, string) (bool, error) {
+	return r.aiEnabled, nil
+}
+
+// TestRuleServiceRejectsAdjustPriceWhenAIEnabled 验证启用 AI 议价的账号不能再启用固定规则改价。
+func TestRuleServiceRejectsAdjustPriceWhenAIEnabled(t *testing.T) {
+	// service 是注入 AI 议价开启状态的规则应用服务。
+	service := NewRuleService(&ruleRepositoryFake{}, &ruleOwnershipFake{aiEnabled: true})
+	// draft 是准备启用的拍下固定价格规则。
+	draft := RuleDraft{CookieID: "account-1", TriggerType: TriggerOrderCreated, Enabled: true, Actions: []ActionDraft{{ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"9.90"}`}}}
+	// err 是启用冲突规则时返回的互斥错误。
+	if _, err := service.Normalize(context.Background(), 7, draft); !errors.Is(err, ErrPricingModeConflict) {
+		t.Fatalf("AI 议价与固定改价规则冲突应被拒绝: %v", err)
+	}
+	draft.Enabled = false
+	// err 是保留停用规则时不应出现的校验错误。
+	if _, err := service.Normalize(context.Background(), 7, draft); err != nil {
+		t.Fatalf("停用的固定规则应允许保留: %v", err)
+	}
 }
 
 // TestRuleServiceNormalizePropagatesOwnershipErrors 验证归属端口的基础设施错误不会伪装成用户输入错误。

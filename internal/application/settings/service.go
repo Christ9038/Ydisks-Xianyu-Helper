@@ -21,6 +21,9 @@ var ErrForbidden = errors.New("无权操作该账号设置")
 // ErrConfigNotFound 表示账号存在但尚未保存 AI 回复设置。
 var ErrConfigNotFound = errors.New("AI 回复设置不存在")
 
+// ErrPricingModeConflict 表示 AI 议价与固定自动改价规则不能同时启用。
+var ErrPricingModeConflict = errors.New("AI 议价与自动化规则改价不能同时启用，请先关闭另一种改价方式")
+
 // SecretChange 描述敏感系统设置的显式三态变更命令。
 type SecretChange struct {
 	// Action 是 retain、replace 或 clear 之一。
@@ -35,6 +38,8 @@ type AIReplySettings struct {
 	CookieID string
 	// AIEnabled 表示账号 AI 回复是否启用。
 	AIEnabled bool
+	// AutoAdjustPriceEnabled 表示是否把有效 AI 报价自动应用到买家新拍订单。
+	AutoAdjustPriceEnabled bool
 	// MaxDiscountPercent 是允许的最大折扣比例。
 	MaxDiscountPercent int
 	// MaxDiscountAmount 是允许的最大折扣金额。
@@ -93,6 +98,8 @@ type Repository interface {
 	GetAIReply(ctx context.Context, userID int64, cookieID string) (AIReplySettings, error)
 	// UpsertAIReply 保存指定账号的 AI 设置摘要。
 	UpsertAIReply(ctx context.Context, cookieID string, settings AIReplySettings) error
+	// HasEnabledAdjustPriceRule 判断账号是否已有启用的固定自动改价规则。
+	HasEnabledAdjustPriceRule(ctx context.Context, cookieID string) (bool, error)
 }
 
 // ModelClient 定义读取远端 AI 模型列表所需的最小网络能力。
@@ -267,6 +274,19 @@ func (s *Service) UpsertAIReply(ctx context.Context, userID int64, cookieID stri
 	}
 	if settings.MaxBargainRounds < 1 || settings.MaxBargainRounds > 10 {
 		return errors.New("最大砍价轮次必须在 1 到 10 之间")
+	}
+	if settings.AutoAdjustPriceEnabled && !settings.AIEnabled {
+		return errors.New("开启 AI 自动改价前必须先启用 AI 议价")
+	}
+	if settings.AIEnabled {
+		// conflict 表示当前账号是否已有启用的固定价格规则；conflictErr 是查询错误。
+		conflict, conflictErr := s.repository.HasEnabledAdjustPriceRule(ctx, strings.TrimSpace(cookieID))
+		if conflictErr != nil {
+			return conflictErr
+		}
+		if conflict {
+			return ErrPricingModeConflict
+		}
 	}
 	settings.CookieID = strings.TrimSpace(cookieID)
 	return s.repository.UpsertAIReply(ctx, settings.CookieID, settings)

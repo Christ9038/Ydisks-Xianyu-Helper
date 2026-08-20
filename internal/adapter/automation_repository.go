@@ -100,6 +100,19 @@ func (r *AutomationRepository) CountByTriggerForUser(ctx context.Context, filter
 
 // Create 将应用层规则输入转换为数据库模型并创建规则。
 func (r *AutomationRepository) Create(ctx context.Context, input automationapp.RuleInput) (int64, error) {
+	// unlock 串行化固定改价规则与 AI 议价设置的最终冲突检查和写入。
+	unlock := r.store.LockPricingMode()
+	defer unlock()
+	if automationInputEnablesAdjustPrice(input) {
+		// aiEnabled 表示最终写入时账号是否已经开启 AI 议价；aiErr 是开关读取错误。
+		aiEnabled, aiErr := r.store.AIReply.IsEnabled(ctx, input.CookieID)
+		if aiErr != nil {
+			return 0, aiErr
+		}
+		if aiEnabled {
+			return 0, automationapp.ErrPricingModeConflict
+		}
+	}
 	return r.store.Automation.Create(ctx, automationRuleInputDB(input))
 }
 
@@ -122,9 +135,36 @@ func (r *AutomationRepository) EnsurePublishRule(ctx context.Context, input auto
 
 // Update 将应用层规则输入转换为数据库模型并更新规则。
 func (r *AutomationRepository) Update(ctx context.Context, userID, ruleID int64, input automationapp.RuleInput) error {
+	// unlock 串行化固定改价规则与 AI 议价设置的最终冲突检查和写入。
+	unlock := r.store.LockPricingMode()
+	defer unlock()
+	if automationInputEnablesAdjustPrice(input) {
+		// aiEnabled 表示最终写入时账号是否已经开启 AI 议价；aiErr 是开关读取错误。
+		aiEnabled, aiErr := r.store.AIReply.IsEnabled(ctx, input.CookieID)
+		if aiErr != nil {
+			return aiErr
+		}
+		if aiEnabled {
+			return automationapp.ErrPricingModeConflict
+		}
+	}
 	// err 保存数据库更新失败原因，随后转换为应用层错误。
 	err := r.store.Automation.Update(ctx, userID, ruleID, automationRuleInputDB(input))
 	return mapAutomationRuleError(err)
+}
+
+// automationInputEnablesAdjustPrice 判断规则输入是否会实际启用固定订单改价动作。
+func automationInputEnablesAdjustPrice(input automationapp.RuleInput) bool {
+	if !input.Enabled {
+		return false
+	}
+	// action 是当前待检查的规则动作。
+	for _, action := range input.Actions {
+		if action.Enabled && action.ActionType == automationapp.ActionAdjustPrice {
+			return true
+		}
+	}
+	return false
 }
 
 // Delete 删除用户拥有的规则并转换数据库错误边界。
@@ -166,6 +206,14 @@ func (r *AutomationRepository) GetCard(ctx context.Context, userID, cardID int64
 		return automationapp.CardInfo{}, err
 	}
 	return automationapp.CardInfo{Type: card.Type}, nil
+}
+
+// AIReplyEnabled 判断账号是否启用了 AI 议价，不读取任何 API 密钥或平台凭证。
+func (r *AutomationRepository) AIReplyEnabled(ctx context.Context, accountID string) (bool, error) {
+	if r == nil || r.store == nil || r.store.AIReply == nil {
+		return false, errors.New("AI 设置存储未初始化")
+	}
+	return r.store.AIReply.IsEnabled(ctx, accountID)
 }
 
 // automationRulesModel 将数据库规则列表转换为应用模型。

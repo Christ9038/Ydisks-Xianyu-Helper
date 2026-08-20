@@ -4,22 +4,10 @@ ChatMessage,
 ChatSession,
 OperationResponse
 } from './models';
-import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
+import { contractClient, contractMultipartBody, runContractRequest } from '../../../shared/api-contract/client';
 import { type RequestControlOptions } from '../../../shared/http/client';
 export type * from './models';
 import type { ChatReadReceipt } from './types';
-
-/** ChatImageFormContract 描述图片发送 operation 的 multipart 字段，仅用于将原生 FormData 交给生成客户端。 */
-type ChatImageFormContract = {
-  /** 账号标识。 */ account_id: string;
-  /** 会话标识。 */ chat_id: string;
-  /** 买家标识。 */ buyer_id: string;
-  /** 买家展示名称。 */ buyer_name?: string;
-  /** 买家头像地址。 */ buyer_avatar_url?: string;
-  /** 关联商品标识。 */ item_id?: string;
-  /** 关联商品标题。 */ item_title?: string;
-  /** 二进制图片字段。 */ image: string;
-};
 
 /** 聊天账号选择器读取非敏感账号摘要。 */
 export const getAccountDetails = async (options?: RequestControlOptions): Promise<AccountDetail[]> => {
@@ -96,12 +84,25 @@ export const sendChatImage = async (input: {
   /** account_id 表示账号标识。 */ account_id: string; /** chat_id 表示聊天标识。 */ chat_id: string; /** buyer_id 表示买家标识。 */ buyer_id: string; /** buyer_name 表示买家名称。 */ buyer_name?: string;
   /** buyer_avatar_url 表示买家头像地址。 */ buyer_avatar_url?: string; /** item_id 表示商品标识。 */ item_id?: string; /** item_title 表示商品标题。 */ item_title?: string; /** image 表示图片数据。 */ image: File;
 }, options?: RequestControlOptions): Promise<{/** message 表示消息数据。 */ message: ChatMessage}> => {
-	// form 消息表单，用于当前 API 处理流程。
+	// form 保存聊天图片的原生 multipart 请求体，浏览器负责生成正确的 boundary。
 	const form = new FormData();
-	Object.entries(input).forEach(/* 当前回调用于处理集合元素或接口响应。 */ ([key, value]) => form.append(key, value));
+	form.set('account_id', input.account_id);
+	form.set('chat_id', input.chat_id);
+	form.set('buyer_id', input.buyer_id);
+	form.set('image', input.image);
+	// optionalFields 保存可空展示字段；仅提交非空值，防止 FormData 将 undefined 字符串化后污染聊天元数据。
+	const optionalFields = [
+		['buyer_name', input.buyer_name],
+		['buyer_avatar_url', input.buyer_avatar_url],
+		['item_id', input.item_id],
+		['item_title', input.item_title],
+	] as const;
+	for (const /* fieldName 和 fieldValue 分别表示可选表单字段名称及其当前用户可见元数据。 */ [fieldName, fieldValue] of optionalFields) {
+		if (fieldValue) form.set(fieldName, fieldValue);
+	}
 	return runContractRequest(/* signal 是本次聊天图片发送请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/chat/images', {
-    // body 保持原生 FormData；类型转换只把 multipart 运行时载荷交给生成 operation。
-    body: form as unknown as ChatImageFormContract,
+		// body 保持原生 FormData；共享契约层仅提供运行时类型适配，不定义业务传输 DTO。
+		body: contractMultipartBody(form),
     signal,
   }), { timeoutMs: 120_000, ...options });
 };

@@ -41,11 +41,8 @@ func (s *Server) mountItemsReal(r chi.Router) {
 
 // publishItem 解析 HTTP 发布请求并调用商品发布应用服务完成单商品发布。
 func (s *Server) publishItem(w http.ResponseWriter, r *http.Request) {
-	// 最多 9 张 10 MiB 图片，额外预留 multipart 元数据空间。
-	r.Body = http.MaxBytesReader(w, r.Body, maxItemPublishBytes)
-	// #nosec G120 -- 请求体已由 MaxBytesReader 限制。
-	if err := r.ParseMultipartForm(maxOrderImportBytes); err != nil {
-		writeErr(w, http.StatusBadRequest, "请求格式错误，请使用 multipart/form-data")
+	// 最多 9 张 10 MiB 图片，额外预留 multipart 元数据空间；解析失败会区分请求格式、boundary 损坏和超限。
+	if !parseMultipartRequest(w, r, maxItemPublishBytes, maxOrderImportBytes, "商品发布图片总大小不能超过 96 MiB") {
 		return
 	}
 	// cookieID 用于本次流程后续判断的登录凭证ID

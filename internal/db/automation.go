@@ -24,6 +24,20 @@ type AutomationRules struct {
 	Dialect Dialect
 }
 
+// HasEnabledAdjustPriceRule 判断账号是否存在会实际执行改价动作的启用规则。
+func (a *AutomationRules) HasEnabledAdjustPriceRule(ctx context.Context, cookieID string) (bool, error) {
+	// exists 表示启用规则下是否至少存在一个启用的订单改价动作。
+	var exists bool
+	// err 是互斥模式查询失败原因。
+	err := a.DB.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM automation_rules r
+		JOIN automation_rule_actions action ON action.rule_id=r.id
+		WHERE r.cookie_id=? AND r.enabled=1 AND r.deleted_at IS NULL
+		  AND action.enabled=1 AND action.action_type='adjust_price'
+	)`, cookieID).Scan(&exists)
+	return exists, err
+}
+
 // ExistsPublishRule 判断指定发布自动化规则是否已经存在，避免重复创建同一规则。
 func (a *AutomationRules) ExistsPublishRule(ctx context.Context, input AutomationRuleInput) (bool, error) {
 	// exists 用于本次流程后续判断的exists

@@ -1760,6 +1760,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: AI 议价与固定规则改价配置冲突
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: 统一错误响应
           content:
@@ -1851,6 +1857,12 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: AI 议价与固定规则改价配置冲突
           content:
             application/json:
               schema:
@@ -3389,6 +3401,12 @@ paths:
       operationId: postApiV1ItemsPublish
       summary: postApiV1ItemsPublish
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ItemPublishRequest'
       responses:
         '200':
           description: 成功
@@ -4749,12 +4767,11 @@ paths:
       requestBody:
         required: true
         content:
-          multipart/form-data:
+          application/json:
             schema:
-              type: object
-              properties:
-                cookie_id: {type: string}
-                status: {type: string}
+              $ref: '#/components/schemas/OrderRefreshRequest'
+          multipart/form-data:
+            schema: {$ref: '#/components/schemas/OrderRefreshRequest'}
       responses:
         '202':
           description: 成功
@@ -6254,6 +6271,12 @@ paths:
             schema:
               type: string
       security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIReplySettingsUpdateRequest'
       responses:
         '200':
           description: 成功
@@ -6281,6 +6304,12 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: 统一错误响应
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: AI 议价与固定规则改价配置冲突
           content:
             application/json:
               schema:
@@ -6907,13 +6936,24 @@ components:
       items: {$ref: '#/components/schemas/ItemReplyResponse'}
     AIReplySettingsResponse:
       type: object
-      required: [ai_enabled, max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts]
+      required: [ai_enabled, auto_adjust_price_enabled, max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts]
       properties:
         cookie_id: {type: string}
         ai_enabled: {type: boolean}
+        auto_adjust_price_enabled: {type: boolean}
         max_discount_percent: {type: integer}
         max_discount_amount: {type: integer}
         max_bargain_rounds: {type: integer}
+        custom_prompts: {type: string}
+    AIReplySettingsUpdateRequest:
+      type: object
+      required: [ai_enabled, auto_adjust_price_enabled, max_discount_percent, max_discount_amount, max_bargain_rounds, custom_prompts]
+      properties:
+        ai_enabled: {type: boolean}
+        auto_adjust_price_enabled: {type: boolean}
+        max_discount_percent: {type: integer, minimum: 0, maximum: 100}
+        max_discount_amount: {type: integer, minimum: 0}
+        max_bargain_rounds: {type: integer, minimum: 1, maximum: 10}
         custom_prompts: {type: string}
     AIReplySettingsMapResponse:
       type: object
@@ -6975,6 +7015,22 @@ components:
         poi_id: {type: string}
         poi_name: {type: string}
         province: {type: string}
+    ItemPublishRequest:
+      type: object
+      required: [cookie_id, title, description, price, original_price, quantity, postage_mode, postage, images]
+      properties:
+        cookie_id: {type: string}
+        title: {type: string}
+        description: {type: string}
+        price: {type: string}
+        original_price: {type: string}
+        quantity: {type: integer, minimum: 1}
+        postage_mode: {type: string}
+        postage: {type: string}
+        location: {type: string}
+        images:
+          type: array
+          items: {type: string, format: binary}
     ItemPublishBatchPreviewRow:
       type: object
       required: [row_no, valid, cookie_id, title, price, quantity, images, category, automation]
@@ -7736,6 +7792,11 @@ components:
         chat_id: {type: string}
         system_shipped: {type: boolean}
         item_title: {type: string}
+    OrderRefreshRequest:
+      type: object
+      properties:
+        cookie_id: {type: string}
+        status: {type: string}
     OrderRefreshDetail:
       type: object
       required: [quantity, spec_name, spec_value, order_status, amount]

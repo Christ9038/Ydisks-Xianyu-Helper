@@ -15,6 +15,9 @@ var ErrRuleNotFound = errors.New("自动化规则不存在")
 // ErrRuleActive 表示规则仍有待处理运行，不能直接删除。
 var ErrRuleActive = errors.New("规则仍有待处理的自动化运行")
 
+// ErrPricingModeConflict 表示启用的 AI 议价账号不能再启用固定规则改价。
+var ErrPricingModeConflict = errors.New("该账号已启用 AI 议价，不能同时启用自动化规则改价")
+
 // TriggerOrderCreated 表示买家拍下未付款触发器。
 const TriggerOrderCreated = "order_created"
 
@@ -221,6 +224,8 @@ type RuleOwnership interface {
 	OwnsItem(ctx context.Context, userID int64, accountID, itemID string) (bool, error)
 	// GetCard 返回用户拥有的卡密组类型。
 	GetCard(ctx context.Context, userID, cardID int64) (CardInfo, error)
+	// AIReplyEnabled 判断账号是否启用了 AI 议价模式。
+	AIReplyEnabled(ctx context.Context, accountID string) (bool, error)
 }
 
 // RuleService 编排自动化规则校验、分页和持久化。
@@ -318,6 +323,16 @@ func (s *RuleService) Normalize(ctx context.Context, userID int64, draft RuleDra
 	// combinationErr 表示触发类型与启用动作组合不满足业务约束。
 	if combinationErr := validateTriggerActionCombination(draft.TriggerType, flags); combinationErr != nil {
 		return RuleInput{}, combinationErr
+	}
+	if draft.Enabled && flags.hasAdjustPrice {
+		// aiEnabled 表示账号是否已经采用 AI 议价；aiErr 是非敏感设置读取错误。
+		aiEnabled, aiErr := s.ownership.AIReplyEnabled(ctx, draft.CookieID)
+		if aiErr != nil {
+			return RuleInput{}, aiErr
+		}
+		if aiEnabled {
+			return RuleInput{}, ErrPricingModeConflict
+		}
 	}
 	return RuleInput{UserID: userID, CookieID: draft.CookieID, ItemID: draft.ItemID, Name: draft.Name,
 		TriggerType: draft.TriggerType, Enabled: draft.Enabled, Priority: draft.Priority,

@@ -389,14 +389,15 @@ func (s *ChatStore) UpdateMessageStatus(ctx context.Context, cookieID, key, stat
 }
 
 // MarkMessageRead 按平台回执把目标出站消息及同会话中更早的出站消息标记为已读，并返回目标消息。
+// 回执若对应本地入站消息则原样返回且不写入，由上层识别为无需处理的跨端状态同步。
 func (s *ChatStore) MarkMessageRead(ctx context.Context, cookieID, key string, readAt int64) (*ChatMessage, error) {
-	// message 保存平台回执对应的出站消息；其会话和发送时间界定本次批量确认范围。
+	// message 保存平台回执对应的本地消息；只有出站方向的会话和发送时间可界定本次批量确认范围。
 	message, err := s.GetMessageByKey(ctx, cookieID, key)
 	if err != nil {
 		return nil, err
 	}
 	if message.Direction != "outgoing" {
-		return nil, ErrNotFound
+		return message, nil
 	}
 	// readAt 保存平台已读时间；缺失时使用本机 UTC 时间作为展示回退。
 	if readAt <= 0 {

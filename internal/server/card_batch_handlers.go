@@ -30,11 +30,8 @@ type cardBatchResultRow struct {
 func (s *Server) batchCreateCards(w http.ResponseWriter, r *http.Request) {
 	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
-	// 表格最大 5 MiB（卡密组定义都很小）。
-	r.Body = http.MaxBytesReader(w, r.Body, maxCardBatchUploadBytes)
-	// err 表示解析 multipart 表单时遇到的格式或大小限制错误。
-	if err := r.ParseMultipartForm(maxCardBatchUploadBytes); err != nil {
-		writeErr(w, http.StatusBadRequest, "解析上传文件失败")
+	// 表格最大 5 MiB（卡密组定义都很小），总请求额外保留 multipart 元数据空间。
+	if !parseMultipartRequest(w, r, maxCardBatchUploadBytes, maxCardBatchUploadBytes, "卡密上传内容不能超过 6 MiB") {
 		return
 	}
 	// source、sourceHeader、err 用于本次流程后续判断的source、sourceHeader、err

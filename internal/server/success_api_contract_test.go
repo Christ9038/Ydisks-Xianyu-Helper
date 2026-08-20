@@ -221,7 +221,7 @@ func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
 	}
 
 	// aiReq 是更新账号 AI 回复设置的请求。
-	aiReq := httptest.NewRequest(http.MethodPut, "/api/v1/settings/ai-reply/acc1", strings.NewReader(`{"ai_enabled":true,"max_discount_percent":12,"max_discount_amount":88,"max_bargain_rounds":4,"custom_prompts":"契约测试"}`))
+	aiReq := httptest.NewRequest(http.MethodPut, "/api/v1/settings/ai-reply/acc1", strings.NewReader(`{"ai_enabled":true,"auto_adjust_price_enabled":true,"max_discount_percent":12,"max_discount_amount":88,"max_bargain_rounds":4,"custom_prompts":"契约测试"}`))
 	aiReq.AddCookie(sessionCookie)
 	// aiRecorder 是捕获账号 AI 设置响应的记录器。
 	aiRecorder := httptest.NewRecorder()
@@ -254,7 +254,7 @@ func TestSettingsCardsNotificationsBatchContracts(t *testing.T) {
 	if aiGetDecodeErr := json.Unmarshal(aiGetRecorder.Body.Bytes(), &aiGetResponse); aiGetDecodeErr != nil {
 		t.Fatalf("decode ai get response: %v", aiGetDecodeErr)
 	}
-	if !aiGetResponse.AIEnabled || aiGetResponse.MaxDiscountPercent != 12 {
+	if !aiGetResponse.AIEnabled || !aiGetResponse.AutoAdjustPriceEnabled || aiGetResponse.MaxDiscountPercent != 12 {
 		t.Fatalf("ai get response=%+v", aiGetResponse)
 	}
 

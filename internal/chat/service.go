@@ -746,10 +746,14 @@ func (s *Service) SetOutgoingStatus(ctx context.Context, accountID, key, status 
 func (s *Service) MarkOutgoingRead(ctx context.Context, accountID, key string, readAt int64) (*db.ChatMessage, error) {
 	// message、err 保存已读更新后的消息及持久化错误。
 	message, err := s.repository.MarkMessageRead(ctx, accountID, key, readAt)
-	if err == nil {
-		s.Publish(accountID, Event{Type: "message.updated", Message: message})
+	if err != nil {
+		return nil, err
 	}
-	return message, err
+	if message == nil || message.Direction != "outgoing" {
+		return nil, nil
+	}
+	s.Publish(accountID, Event{Type: "message.updated", Message: message})
+	return message, nil
 }
 
 // MarkLatestOutgoingRead 在回执未带幂等键时回退标记会话最近待确认的出站消息。

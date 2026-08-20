@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"xianyu-go/internal/db"
 )
@@ -22,7 +23,18 @@ type ReplyResult struct {
 	Source    string // 回复来源：API/关键词/AI/默认
 	Skip      bool   // true 表示匹配到空回复，不发送任何内容
 	ReplyOnce bool   // 仅默认回复使用，发送状态由 Handle 持久化
+	// AutoPriceQuote 是 AI 已明确承诺且通过价格边界校验的可执行报价。
+	AutoPriceQuote *AIPriceQuoteProposal
 }
+
+// AIPriceQuoteProposal 是等待回复发送成功后绑定到会话的 AI 报价。
+type AIPriceQuoteProposal struct {
+	// PriceCents 是以分为单位的单件成交报价；订单执行时按已知购买数量折算总价。
+	PriceCents int64
+}
+
+// aiQuoteValidity 是 AI 报价从成功发送开始允许自动应用到新订单的时长。
+const aiQuoteValidity = 30 * time.Minute
 
 // APIReplier 外部 API 回复（优先级1）。返回 nil 表示无回复。
 type APIReplier interface {
@@ -122,6 +134,16 @@ func (r *ReplyService) Handle(ctx context.Context, m ChatMessage) error {
 			err := r.store.DefaultReps.MarkPartSent(ctx, r.cookieID, m.ChatID, "text"); err != nil {
 				r.markReplyFailure(ctx, res, m, err)
 				return err
+			}
+		}
+		if res.Source == "AI" && res.AutoPriceQuote != nil && m.ChatID != "" && m.SenderUserID != "" && m.ItemID != "" {
+			// quote 把模型承诺价格绑定到当前账号、买家、商品和已成功发送的会话。
+			quote := db.AIBargainQuote{CookieID: r.cookieID, ChatID: m.ChatID, BuyerID: m.SenderUserID, ItemID: m.ItemID, PriceCents: res.AutoPriceQuote.PriceCents}
+			// expiresAt 是固定 30 分钟报价有效期的 Unix 秒时间。
+			expiresAt := time.Now().UTC().Add(aiQuoteValidity).Unix()
+			// err 是已发送报价写入失败原因，失败时必须阻止静默丢失自动改价承诺。
+			if err := r.store.AIReply.ReplacePendingQuote(ctx, quote, expiresAt); err != nil {
+				return fmt.Errorf("保存已发送的 AI 自动改价报价: %w", err)
 			}
 		}
 	}

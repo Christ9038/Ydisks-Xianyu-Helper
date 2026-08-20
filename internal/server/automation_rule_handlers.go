@@ -179,12 +179,20 @@ func (s *Server) createAutomationRule(w http.ResponseWriter, r *http.Request) {
 	// in、err 用于本次流程后续判断的in、err
 	in, err := s.automationRulesApplication().Normalize(r.Context(), sess.UserID, automationRuleDraft(req))
 	if err != nil {
+		if errors.Is(err, automationapp.ErrPricingModeConflict) {
+			writeErr(w, http.StatusConflict, err.Error())
+			return
+		}
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	// id、err 用于本次流程后续判断的id、err
 	id, err := s.automationRulesApplication().Create(r.Context(), in)
 	if err != nil {
+		if errors.Is(err, automationapp.ErrPricingModeConflict) {
+			writeErr(w, http.StatusConflict, err.Error())
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, "创建自动化规则失败")
 		return
 	}
@@ -211,11 +219,19 @@ func (s *Server) updateAutomationRule(w http.ResponseWriter, r *http.Request) {
 	// in、err 用于本次流程后续判断的in、err
 	in, err := s.automationRulesApplication().Normalize(r.Context(), sess.UserID, automationRuleDraft(req))
 	if err != nil {
+		if errors.Is(err, automationapp.ErrPricingModeConflict) {
+			writeErr(w, http.StatusConflict, err.Error())
+			return
+		}
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if // err 用于本次流程后续判断的err
 	err := s.automationRulesApplication().Update(r.Context(), sess.UserID, ruleID, in); err != nil {
+		if errors.Is(err, automationapp.ErrPricingModeConflict) {
+			writeErr(w, http.StatusConflict, err.Error())
+			return
+		}
 		if errors.Is(err, automationapp.ErrRuleNotFound) {
 			writeErr(w, http.StatusNotFound, "自动化规则不存在")
 			return

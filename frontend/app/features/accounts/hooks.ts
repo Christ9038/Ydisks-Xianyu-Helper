@@ -25,6 +25,7 @@ export const mergeAccountAISettings = (
   account => ({
     ...account,
     ai_enabled: allAISettings[account.id]?.ai_enabled ?? false,
+    auto_adjust_price_enabled: allAISettings[account.id]?.auto_adjust_price_enabled ?? false,
     max_discount_percent: allAISettings[account.id]?.max_discount_percent ?? 10,
     max_discount_amount: allAISettings[account.id]?.max_discount_amount ?? 100,
     max_bargain_rounds: allAISettings[account.id]?.max_bargain_rounds ?? 3,

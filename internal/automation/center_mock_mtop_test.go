@@ -452,7 +452,31 @@ func TestCenterConfirmShipment_MockMTopConsigError(t *testing.T) {
 	}
 }
 
-// TestConfirmShipmentQuarantinesKnownRemoteSuccessWhenLocalPersistenceFails 封装TestConfirmShipmentQuarantinesKnownRemoteSuccessWhenLocalPersistenceFails业务协调。
+// TestConfirmShipmentAlreadyDeliveredIsIdempotentSuccess 验证平台明确返回已发货时，确认发货按幂等成功补写本地状态。
+func TestConfirmShipmentAlreadyDeliveredIsIdempotentSuccess(t *testing.T) {
+	// store、cleanup 保存测试数据库及其清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是确认发货和读取本地订单事实共用的测试上下文。
+	ctx := context.Background()
+	// mtopMock 模拟人工或其他渠道已发货后再次请求确认发货的明确平台返回。
+	mtopMock := &fakeMTop{consignRet: []string{"ORDER_ALREADY_DELIVERY::已发货成功，请刷新页面~"}}
+	// center 是注入模拟 MTOP 客户端的自动化中心。
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{MTop: mtopMock})
+	// task 是缺少预存本地订单时仍需由幂等收口创建发货事实的订单任务。
+	task := Task{AccountID: "cid", OrderID: "delivered-order", ItemID: "item", BuyerID: "buyer", ChatID: "chat"}
+	// err 是平台已发货应视为成功时不应出现的处理错误。
+	if err := center.confirmShipment(ctx, task); err != nil {
+		t.Fatalf("订单已发货应按幂等成功处理: %v", err)
+	}
+	// order、getErr 分别是本地订单发货事实和不应出现的读取错误。
+	order, getErr := store.Orders.Get(ctx, task.OrderID)
+	if getErr != nil || order == nil || !order.SystemShipped || order.OrderStatus != "shipped" {
+		t.Fatalf("幂等成功后应补写本地发货事实: order=%+v err=%v", order, getErr)
+	}
+}
+
+// TestConfirmShipmentQuarantinesKnownRemoteSuccessWhenLocalPersistenceFails 封装Test确认发货QuarantinesKnown远端SuccessWhen本地PersistenceFails业务协调。
 func TestConfirmShipmentQuarantinesKnownRemoteSuccessWhenLocalPersistenceFails(t *testing.T) {
 	// store、cleanup 用于本次流程后续判断的store、cleanup
 	store, cleanup := newAutomationTestStore(t)

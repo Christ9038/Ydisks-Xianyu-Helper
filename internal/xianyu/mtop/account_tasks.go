@@ -17,7 +17,7 @@ import (
 const (
 	RateCreateAPI       = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.rate.create/4.0/"
 	PendingRateListAPI  = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.merchant.rate.list/1.0/"
-	PolishItemAPI       = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.item.polish/1.0/"
+	PolishItemAPI       = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.item.polish/2.0/"
 	PolishItemBackupAPI = "https://h5api.m.goofish.com/h5/mtop.idle.item.polish/1.0/"
 )
 
@@ -239,6 +239,11 @@ func (c *ClientImpl) accountTaskRequestOnce(ctx context.Context, cookiesStr, end
 		query.Set("spm_cnt", "a21ybx.im.0.0")
 		query.Set("spm_pre", "a21ybx.home.sidebar.2.4c053da6MpVe1m")
 		query.Set("log_id", "4c053da6MpVe1m")
+	}
+	if api == "mtop.taobao.idle.item.polish" || api == "mtop.idle.item.polish" {
+		query.Set("spm_cnt", "a21ybx.item.0.0")
+		query.Set("spm_pre", "a21ybx.personal.feeds.1.42f86ac21eZ9zd")
+		query.Set("log_id", "42f86ac21eZ9zd")
 	}
 	// req、err 用于本次流程后续判断的req、err
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"?"+query.Encode(),

@@ -11,6 +11,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,11 +28,16 @@ func parseImportedOrders(w http.ResponseWriter, r *http.Request) ([]map[string]a
 	// ct 用于本次流程后续判断的ct
 	ct := r.Header.Get("Content-Type")
 	if strings.HasPrefix(ct, "multipart/form-data") {
-		// 订单文件上限 32 MiB；MaxBytesReader 必须在 ParseMultipartForm 前应用。
-		r.Body = http.MaxBytesReader(w, r.Body, maxOrderImportBytes)
+		// 订单文件上限保持 32 MiB，总请求额外预留 multipart 元数据空间。
+		r.Body = http.MaxBytesReader(w, r.Body, maxOrderImportMultipartBytes)
 		// #nosec G120 -- 请求体已由 MaxBytesReader 限制。
 		if err := r.ParseMultipartForm(maxOrderImportBytes); err != nil {
-			return nil, fmt.Errorf("解析上传文件失败: %w", err)
+			// maxBytesErr 表示上传文件和表单元数据之和超过请求配额。
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				return nil, fmt.Errorf("上传内容不能超过 33 MiB")
+			}
+			return nil, fmt.Errorf("上传表单损坏，请检查后重试")
 		}
 		// file、header、err 用于本次流程后续判断的file、header、err
 		file, header, err := r.FormFile("file")

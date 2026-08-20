@@ -477,3 +477,37 @@ func TestPolishDueHonorsConfiguredTimeAndDate(t *testing.T) {
 		t.Fatal("task must not run twice on the same Beijing date")
 	}
 }
+
+// TestAccountTaskPolishEmptyItemListDoesNotLockDay 验证未获取到在售商品时保留同日重试机会，商品恢复后仍可正常擦亮。
+func TestAccountTaskPolishEmptyItemListDoesNotLockDay(t *testing.T) {
+	// store、cleanup 保存内存测试数据库及其清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// client 初始返回空商品列表，随后模拟商品列表恢复。
+	client := &fakeAccountTaskClient{}
+	// center 是注入商品列表替身的自动化中心。
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{AccountTaskClient: client})
+	// ctx 是两次手动擦亮共用的测试上下文。
+	ctx := context.Background()
+	// err 是启用自动擦亮设置时不应出现的存储错误。
+	if err := store.AccountTasks.Upsert(ctx, db.AccountTaskSettings{CookieID: "cid", AutoPolishEnabled: true, RateContent: "交易愉快", PolishTime: "00:00"}); err != nil {
+		t.Fatal(err)
+	}
+	// first、firstErr 分别是空商品列表时的运行摘要和不应出现的业务错误。
+	first, firstErr := center.RunAccountTask(ctx, "cid", TaskAutoPolish)
+	if firstErr != nil || first.Found != 0 || first.Success != 0 || client.polishCalls != 0 || first.Message == "" {
+		t.Fatalf("first=%+v calls=%d err=%v", first, client.polishCalls, firstErr)
+	}
+	// settings、settingsErr 分别是空列表运行后的账号任务设置和读取错误；当天日期必须保持为空。
+	settings, settingsErr := store.AccountTasks.Get(ctx, "cid")
+	if settingsErr != nil || settings.LastPolishDate != "" {
+		t.Fatalf("空商品运行不能写入擦亮日期: settings=%+v err=%v", settings, settingsErr)
+	}
+	// client.items 模拟商品列表恢复，手动执行必须立即重新领取失败运行并实际擦亮。
+	client.items = []mtop.ItemListItem{{ID: "item-1"}}
+	// second、secondErr 分别是商品恢复后的运行摘要和不应出现的错误。
+	second, secondErr := center.RunAccountTask(ctx, "cid", TaskAutoPolish)
+	if secondErr != nil || second.Success != 1 || client.polishCalls != 1 {
+		t.Fatalf("second=%+v calls=%d err=%v", second, client.polishCalls, secondErr)
+	}
+}

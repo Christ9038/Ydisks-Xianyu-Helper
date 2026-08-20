@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -80,6 +81,38 @@ func TestAccountTaskRequestUsesSignedForm(t *testing.T) {
 	result, err := client.PolishItem(context.Background(), "unb=123; _m_h5_tk=token_1", "item-1")
 	if err != nil || !result.Success {
 		t.Fatalf("duplicate polish should be success: result=%+v err=%v", result, err)
+	}
+}
+
+// TestPolishItemSendsItemPageSpmContext 验证擦亮请求携带商品页上下文，满足闲鱼当前接口对来源参数的校验。
+func TestPolishItemSendsItemPageSpmContext(t *testing.T) {
+	// server 校验擦亮主接口的版本、来源上下文和业务返回。
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("api") != "mtop.taobao.idle.item.polish" || r.URL.Query().Get("v") != "2.0" {
+			t.Fatalf("api=%q version=%q", r.URL.Query().Get("api"), r.URL.Query().Get("v"))
+		}
+		if r.URL.Query().Get("spm_cnt") != "a21ybx.item.0.0" || r.URL.Query().Get("spm_pre") != "a21ybx.personal.feeds.1.42f86ac21eZ9zd" || r.URL.Query().Get("log_id") != "42f86ac21eZ9zd" {
+			t.Fatalf("擦亮来源上下文错误: %v", r.URL.Query())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ret":["SUCCESS::调用成功"],"data":{}}`))
+	}))
+	defer server.Close()
+	// client 使用本地服务替代平台端点，以便断言原始查询参数。
+	client := &ClientImpl{HTTPClient: server.Client(), PolishItemURL: server.URL}
+	// result、err 分别是擦亮结果和不应出现的请求错误。
+	result, err := client.PolishItem(context.Background(), "unb=123; _m_h5_tk=token_1", "item-1")
+	if err != nil || result == nil || !result.Success {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
+// TestPolishItemDefaultEndpointUsesVersionTwoPath 验证未覆盖端点时主擦亮接口路径与协议版本均为 2.0。
+func TestPolishItemDefaultEndpointUsesVersionTwoPath(t *testing.T) {
+	// endpoint 是默认擦亮端点，必须避免路径 1.0 与查询版本 2.0 的不一致请求。
+	endpoint := PolishItemAPI
+	if !strings.HasSuffix(endpoint, "/mtop.taobao.idle.item.polish/2.0/") {
+		t.Fatalf("默认擦亮端点错误: %q", endpoint)
 	}
 }
 

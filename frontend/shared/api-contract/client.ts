@@ -23,32 +23,8 @@ type ContractResult<T> = {
   response: Response;
 };
 
-// contractFetch 为 openapi-fetch 注入现有浏览器 Cookie 与请求地址兼容语义。
-const contractFetch: typeof fetch = async (input, init) => {
-  // response 是使用既有 Cookie 策略发出的 HTTP 响应。
-  // requestURL 是 openapi-fetch 根据 baseUrl 生成的绝对地址；测试环境需还原为相对路径以复用既有 fetch fixture。
-  const requestURL = new URL(typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url);
-  // request 是合并 openapi-fetch 已构造请求与可选 init 后的完整请求对象。
-  const request = input instanceof Request ? input : new Request(input, init);
-  // body 是按内容类型恢复的请求载荷；GET/HEAD 无请求体，multipart 必须保留原始 FormData 边界。
-  const contentType = request.headers.get('content-type') || '';
-  const body: BodyInit | undefined = request.method === 'GET' || request.method === 'HEAD'
-    ? undefined
-    : contentType.includes('multipart/form-data')
-      ? await request.clone().formData()
-      : await request.clone().text();
-  // fetchInput 是测试环境还原后的相对 API 地址，浏览器环境继续保留绝对 origin。
-  const fetchInput = requestURL.origin === 'http://localhost' ? `${requestURL.pathname}${requestURL.search}` : input;
-  // response 是使用旧 client 等价方法、请求体、取消信号和 Cookie 策略发出的 HTTP 响应。
-  const response = await fetch(fetchInput, {
-    method: request.method,
-    headers: request.headers,
-    body,
-    signal: request.signal,
-    credentials: 'include',
-  });
-  return response;
-};
+// contractFetch 为 openapi-fetch 注入浏览器 Cookie；必须原样转发 Request，避免重新编码 FormData 后令 body boundary 与请求头失配。
+export const contractFetch: typeof fetch = (input, init) => fetch(input, { ...init, credentials: 'include' });
 
 // contractClient 是唯一持有生成 paths 类型并执行版本化 HTTP operation 的共享实例。
 // contractBaseUrl 是浏览器生产环境的当前 origin；Node 测试使用可被 fetch fixture 还原的占位 origin。

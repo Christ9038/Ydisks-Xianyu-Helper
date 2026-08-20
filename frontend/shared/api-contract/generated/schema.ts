@@ -1988,6 +1988,15 @@ export interface components {
         AIReplySettingsResponse: {
             cookie_id?: string;
             ai_enabled: boolean;
+            auto_adjust_price_enabled: boolean;
+            max_discount_percent: number;
+            max_discount_amount: number;
+            max_bargain_rounds: number;
+            custom_prompts: string;
+        };
+        AIReplySettingsUpdateRequest: {
+            ai_enabled: boolean;
+            auto_adjust_price_enabled: boolean;
             max_discount_percent: number;
             max_discount_amount: number;
             max_bargain_rounds: number;
@@ -2038,6 +2047,18 @@ export interface components {
             poi_id?: string;
             poi_name?: string;
             province?: string;
+        };
+        ItemPublishRequest: {
+            cookie_id: string;
+            title: string;
+            description: string;
+            price: string;
+            original_price: string;
+            quantity: number;
+            postage_mode: string;
+            postage: string;
+            location?: string;
+            images: string[];
         };
         ItemPublishBatchPreviewRow: {
             row_no: number;
@@ -2553,6 +2574,10 @@ export interface components {
             chat_id?: string;
             system_shipped?: boolean;
             item_title?: string;
+        };
+        OrderRefreshRequest: {
+            cookie_id?: string;
+            status?: string;
         };
         OrderRefreshDetail: {
             quantity: string;
@@ -5206,6 +5231,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description AI 议价与固定规则改价配置冲突 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description 统一错误响应 */
             500: {
                 headers: {
@@ -5266,6 +5300,15 @@ export interface operations {
             };
             /** @description 统一错误响应 */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description AI 议价与固定规则改价配置冲突 */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7464,7 +7507,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["ItemPublishRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -9366,10 +9413,8 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "multipart/form-data": {
-                    cookie_id?: string;
-                    status?: string;
-                };
+                "application/json": components["schemas"]["OrderRefreshRequest"];
+                "multipart/form-data": components["schemas"]["OrderRefreshRequest"];
             };
         };
         responses: {
@@ -11464,7 +11509,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AIReplySettingsUpdateRequest"];
+            };
+        };
         responses: {
             /** @description 成功 */
             200: {
@@ -11504,6 +11553,15 @@ export interface operations {
             };
             /** @description 统一错误响应 */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description AI 议价与固定规则改价配置冲突 */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -11,7 +11,7 @@ OrderRefreshResponse,
 OrderSingleRefreshResponse,
 PaginatedResponse
 } from './models';
-import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
+import { contractClient, contractMultipartBody, runContractRequest } from '../../../shared/api-contract/client';
 import { type RequestControlOptions } from '../../../shared/http/client';
 import { collectionFrom, objectFrom } from '../../../shared/http/contract';
 export type * from './models';
@@ -28,17 +28,6 @@ type OrderListQuery = {
   /** 用户输入的文本搜索条件。 */ search?: string;
   /** 页码，从一开始。 */ page: number;
   /** 每页最大行数。 */ page_size: number;
-};
-
-/** OrderImportFormContract 描述订单文件导入 operation 的 multipart 字段。 */
-type OrderImportFormContract = {
-  /** 二进制导入文件字段。 */ file?: string;
-};
-
-/** OrderRefreshFormContract 描述订单刷新 operation 的 multipart 筛选字段。 */
-type OrderRefreshFormContract = {
-  /** 可选的账号筛选标识。 */ cookie_id?: string;
-  /** 可选的订单状态筛选值。 */ status?: string;
 };
 
 /** OrderBatchTransportResponse 描述生成 operation 返回、尚未归一化状态枚举的批量订单结果。 */
@@ -195,14 +184,10 @@ export const deleteOrder = async (orderId: string): Promise<OperationResponse> =
 
 // syncOrders 同步订单。
 export const syncOrders = async (cookieId?: string, status?: string, options?: OrderRefreshPollOptions): Promise<OrderRefreshResponse> => {
-  // formData 表单数据，用于当前 API 处理流程。
-  const formData = new FormData();
-  if (cookieId) formData.append('cookie_id', cookieId);
-  if (status) formData.append('status', status);
-
 	// start 表示后台订单刷新任务创建响应。
 	const start = await runContractRequest(/* signal 是本次订单刷新任务创建请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/orders/refresh', {
-    body: formData as unknown as OrderRefreshFormContract,
+		// body 是新版 JSON 筛选条件；服务端仍保留 multipart 兼容解析，但新版不再受上传边界影响。
+		body: { cookie_id: cookieId, status },
     signal,
   }), options);
 	// cancelOnAbort 在调用方取消轮询时通知服务端停止同一后台任务；取消命令使用独立信号，主请求已取消也能发出。
@@ -311,7 +296,7 @@ export const importOrders = async (data: Partial<Order>[] | FormData, options?: 
 	if (isFormData) {
 		// response 是生成契约约束的文件导入 transport DTO。
 		const response = await runContractRequest(/* signal 是本次订单表格导入请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/orders/import', {
-			body: data as unknown as OrderImportFormContract,
+			body: contractMultipartBody(data),
 			signal,
 		}), options);
 		return normalizeOrderBatchResponse(response);

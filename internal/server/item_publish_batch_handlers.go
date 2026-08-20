@@ -159,11 +159,8 @@ func (s *Server) previewItemPublishBatch(w http.ResponseWriter, r *http.Request)
 	// sess 用于本次流程后续判断的sess
 	sess := auth.SessionFromContext(r.Context())
 	s.cleanupExpiredPublishUploads(r.Context())
-	// 表格最大 20 MiB，图片压缩包最大 200 MiB，额外预留 multipart 元数据空间。
-	r.Body = http.MaxBytesReader(w, r.Body, maxItemPublishBatchBytes)
-	// #nosec G120 -- 请求体已由 MaxBytesReader 限制。
-	if err := r.ParseMultipartForm(maxItemPublishBatchParseBytes); err != nil {
-		writeErr(w, http.StatusBadRequest, "解析上传文件失败")
+	// 表格最大 20 MiB、图片压缩包最大 200 MiB；总请求和解析内存上限分别由共享 multipart 解析器执行。
+	if !parseMultipartRequest(w, r, maxItemPublishBatchBytes, maxItemPublishBatchParseBytes, "批量发布上传内容不能超过 224 MiB") {
 		return
 	}
 	// defaultCookieID 用于本次流程后续判断的default登录凭证ID

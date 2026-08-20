@@ -61,7 +61,7 @@ const accountFixture = { id: 'account-1', enabled: true, value: 'old-cookie', re
 // editFormFixture 是账号编辑弹窗的初始表单。
 const editFormFixture: AccountEditForm = { remark: '新备注', cookie: 'new-cookie', auto_confirm: true, pause_duration: 60, username: 'user@example.com', login_password: 'new-password', show_browser: true, showLoginPassword: false, clear_password: false };
 // aiFixture 是账号 AI 设置的服务端配置。
-const aiFixture: AIReplySettings = { ai_enabled: true, max_discount_percent: 20, max_discount_amount: 50, max_bargain_rounds: 2, custom_prompts: '请礼貌回复' };
+const aiFixture: AIReplySettings = { ai_enabled: true, auto_adjust_price_enabled: true, max_discount_percent: 20, max_discount_amount: 50, max_bargain_rounds: 2, custom_prompts: '请礼貌回复' };
 
 describe('useAccountSubmodules', /* 当前回调处理账号编辑、AI、通知绑定和密码登录。 */ () => {
   beforeEach(/* 当前回调重置账号子模块 API 替身。 */ () => {

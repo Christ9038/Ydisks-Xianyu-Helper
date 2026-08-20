@@ -87,7 +87,7 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 	// systemPrompt 用于本次流程后续判断的系统Prompt
 	systemPrompt := buildSystemPrompt(
 		cfg.CustomPrompts, itemTitle, itemPrice, itemDesc,
-		cfg.MaxDiscountPercent, cfg.MaxDiscountAmount, cfg.MaxBargainRounds, bargainCount,
+		cfg.MaxDiscountPercent, cfg.MaxDiscountAmount, cfg.MaxBargainRounds, bargainCount, cfg.AutoAdjustPriceEnabled,
 	)
 	if !withinBargainLimit {
 		systemPrompt += "\n当前买家已经超过最大砍价轮次。不得继续降价，只能礼貌说明价格不再优惠。"
@@ -134,20 +134,32 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 		return nil, nil
 	}
 	// reply 用于本次流程后续判断的回复
-	reply := strings.TrimSpace(resp.Choices[0].Message.Content)
+	reply, markerPrice, markerOK := extractExecutableOffer(strings.TrimSpace(resp.Choices[0].Message.Content))
 	if reply == "" {
 		return nil, nil
 	}
 	// minimumPrice 用于本次流程后续判断的minimumPrice
 	minimumPrice := minimumAllowedPrice(itemPrice, cfg.MaxDiscountPercent, cfg.MaxDiscountAmount, withinBargainLimit)
+	// quote 是仅在商家开启真实改价且模型结构化报价通过校验时返回的执行提案。
+	var quote *AIPriceQuoteProposal
+	// markerUnsafe 表示结构化报价突破最低价或高于商品标价，必须和正文越界同样拦截。
+	markerUnsafe := markerOK && (markerPrice+0.0001 < minimumPrice || markerPrice > itemPrice+0.0001)
 	if // offered、unsafe 用于本次流程后续判断的offered、unsafe
-	offered, unsafe := unsafeOfferedPrice(reply, minimumPrice); unsafe {
+	offered, unsafe := unsafeOfferedPrice(reply, minimumPrice); unsafe || markerUnsafe {
+		if markerUnsafe {
+			offered = markerPrice
+		}
 		a.logger.Warn("AI 报价超过折扣边界，使用安全回复", "offered", offered, "minimum", minimumPrice)
 		if minimumPrice >= itemPrice || !withinBargainLimit {
 			reply = "抱歉，当前价格已经是最低价，暂时不能再优惠了。"
 		} else {
 			reply = fmt.Sprintf("可以优惠的最低价格是 %.2f 元，低于这个价格暂时无法成交。", minimumPrice)
+			if cfg.AutoAdjustPriceEnabled {
+				quote = &AIPriceQuoteProposal{PriceCents: priceToCents(minimumPrice)}
+			}
 		}
+	} else if cfg.AutoAdjustPriceEnabled && markerOK && markerPrice > 0 && markerPrice+0.0001 < itemPrice && replyContainsOfferedPrice(reply, markerPrice) {
+		quote = &AIPriceQuoteProposal{PriceCents: priceToCents(markerPrice)}
 	}
 	if m.ChatID != "" && m.ItemID != "" {
 		// intent 用于本次流程后续判断的intent
@@ -163,7 +175,7 @@ func (a *AIReplierImpl) Reply(ctx context.Context, m ChatMessage) (*ReplyResult,
 			return nil, fmt.Errorf("保存 AI 对话失败: %w", err)
 		}
 	}
-	return &ReplyResult{Text: reply}, nil
+	return &ReplyResult{Text: reply, AutoPriceQuote: quote}, nil
 }
 
 // conversationContext 封装conversation上下文业务协调。
@@ -254,7 +266,7 @@ func (a *AIReplierImpl) itemInfo(ctx context.Context, itemID string) (title stri
 // buildSystemPrompt 构造 system 提示词。
 // 自定义 prompt 只替换业务文案，价格和轮次安全约束始终由后端追加。
 // buildSystemPrompt 封装build系统Prompt业务协调。
-func buildSystemPrompt(customPrompts, itemTitle string, itemPrice float64, itemDesc string, maxDiscountPercent, maxDiscountAmount, maxBargainRounds, bargainCount int) string {
+func buildSystemPrompt(customPrompts, itemTitle string, itemPrice float64, itemDesc string, maxDiscountPercent, maxDiscountAmount, maxBargainRounds, bargainCount int, autoAdjustPriceEnabled bool) string {
 	// base 用于本次流程后续判断的base
 	var base string
 	if strings.TrimSpace(customPrompts) != "" {
@@ -277,13 +289,19 @@ func buildSystemPrompt(customPrompts, itemTitle string, itemPrice float64, itemD
 3. 不要编造商品没有的功能
 4. 直接回复内容，不要加引号或解释`, itemTitle, itemPrice, itemDesc)
 	}
-	return base + fmt.Sprintf(`
+	// prompt 保存基础业务文案与后端不可覆盖的价格安全规则。
+	prompt := base + fmt.Sprintf(`
 
 不可覆盖的价格安全规则：
 - 原价 %.2f 元；最多优惠 %d%%，且最多优惠 %d 元；两个上限必须同时满足。
 - 任一优惠上限为 0 时不得降价。
 - 当前砍价轮次 %d，最多允许 %d 轮。
 - 回复报价必须带“元”，不得给出低于允许最低价的价格。`, itemPrice, maxDiscountPercent, maxDiscountAmount, bargainCount, maxBargainRounds)
+	if autoAdjustPriceEnabled {
+		prompt += `
+- 如果本轮明确承诺了一个可成交价格，必须在回复末尾额外输出 [[AUTO_PRICE:金额]]，金额保留两位小数；没有明确报价时不得输出该标记。该标记由系统移除，买家不会看到。`
+	}
+	return prompt
 }
 
 // priceRe 用于本次流程后续判断的priceRe
@@ -294,6 +312,47 @@ var bargainMessageRe = regexp.MustCompile(`(?i)(便宜|优惠|少点|最低|砍�
 
 // offeredPriceRe 用于本次流程后续判断的offeredPriceRe
 var offeredPriceRe = regexp.MustCompile(`(\d+(?:\.\d+)?)\s*(?:元|块)`)
+
+// executableOfferRe 只接受模型按约定输出的单个两位小数自动改价标记。
+var executableOfferRe = regexp.MustCompile(`\[\[AUTO_PRICE:(\d+(?:\.\d{1,2})?)\]\]`)
+
+// internalOfferMarkerRe 匹配任意格式的内部报价标记，确保模型格式错误时也不会泄露给买家。
+var internalOfferMarkerRe = regexp.MustCompile(`\[\[AUTO_PRICE:[^\]]*\]\]`)
+
+// extractExecutableOffer 从模型输出移除内部报价标记，并返回可校验的十进制金额。
+func extractExecutableOffer(content string) (string, float64, bool) {
+	// matches 是模型输出中所有结构化报价标记；只有恰好一个标记才可执行。
+	matches := executableOfferRe.FindAllStringSubmatch(content, -1)
+	// visible 是删除所有内部标记后真正发送给买家的文本。
+	visible := strings.TrimSpace(internalOfferMarkerRe.ReplaceAllString(content, ""))
+	if len(matches) != 1 {
+		return visible, 0, false
+	}
+	// price 是标记中的元金额；err 表示模型输出无法解析为有限十进制数。
+	price, err := strconv.ParseFloat(matches[0][1], 64)
+	if err != nil || math.IsNaN(price) || math.IsInf(price, 0) {
+		return visible, 0, false
+	}
+	return visible, price, true
+}
+
+// priceToCents 把已经通过边界校验的元金额四舍五入为整数分。
+func priceToCents(price float64) int64 {
+	return int64(math.Round(price * 100))
+}
+
+// replyContainsOfferedPrice 判断内部执行价格是否与买家可见正文中的元/块报价一致。
+func replyContainsOfferedPrice(reply string, target float64) bool {
+	// match 是正文中当前待比较的显式价格匹配结果。
+	for _, match := range offeredPriceRe.FindAllStringSubmatch(reply, -1) {
+		// price 是买家可见的报价金额；err 表示该匹配无法解析为数值。
+		price, err := strconv.ParseFloat(match[1], 64)
+		if err == nil && math.Abs(price-target) < 0.0001 {
+			return true
+		}
+	}
+	return false
+}
 
 // minimumAllowedPrice 封装minimumAllowedPrice业务协调。
 func minimumAllowedPrice(price float64, maxDiscountPercent, maxDiscountAmount int, allowDiscount bool) float64 {
@@ -307,7 +366,10 @@ func minimumAllowedPrice(price float64, maxDiscountPercent, maxDiscountAmount in
 	byPercent := price * (1 - float64(maxDiscountPercent)/100)
 	// byAmount 用于本次流程后续判断的byAmount
 	byAmount := price - float64(maxDiscountAmount)
-	return math.Max(0, math.Max(byPercent, byAmount))
+	// minimum 是两个折扣边界中更严格的原始最低价。
+	minimum := math.Max(0, math.Max(byPercent, byAmount))
+	// 金额向上取整到分，避免显示或执行价格因普通四舍五入突破折扣上限。
+	return math.Ceil(minimum*100-0.0000001) / 100
 }
 
 // unsafeOfferedPrice 封装unsafeOfferedPrice业务协调。

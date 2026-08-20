@@ -338,12 +338,13 @@ export const updateAccountAISettings = async (cookieId: string, settings: Partia
   // payload 请求载荷，用于当前 API 处理流程。
   const payload = {
     ai_enabled: settings.ai_enabled ?? false,
+    auto_adjust_price_enabled: settings.auto_adjust_price_enabled ?? false,
     max_discount_percent: settings.max_discount_percent ?? 10,
     max_discount_amount: settings.max_discount_amount ?? 100,
     max_bargain_rounds: settings.max_bargain_rounds ?? 3,
     custom_prompts: settings.custom_prompts ?? ''
   };
-  return runContractRequest(/* signal 控制账号 AI 设置更新的取消和超时。 */ signal => contractClient.PUT('/api/v1/settings/ai-reply/{cookie_id}', { params: { path: { cookie_id: cookieId } }, body: payload as never, signal }), options);
+  return runContractRequest(/* signal 控制账号 AI 设置更新的取消和超时。 */ signal => contractClient.PUT('/api/v1/settings/ai-reply/{cookie_id}', { params: { path: { cookie_id: cookieId } }, body: payload, signal }), options);
 }
 
 

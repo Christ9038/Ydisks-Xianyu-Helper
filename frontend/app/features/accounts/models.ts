@@ -42,6 +42,8 @@ export interface AccountDetail {
   // AI设置
   /** 是否启用账号 AI 回复。 */
   ai_enabled?: boolean;
+  /** 是否把 AI 有效报价自动应用到待付款订单。 */
+  auto_adjust_price_enabled?: boolean;
   /** 允许的最大折扣比例。 */
   max_discount_percent?: number;
   /** 允许的最大折扣金额。 */
@@ -107,6 +109,8 @@ export interface AccountTaskSummary {
 export interface AIReplySettings {
   /** 是否启用账号 AI 回复。 */
   ai_enabled: boolean;
+  /** 是否自动执行 AI 报价对应的真实订单改价。 */
+  auto_adjust_price_enabled: boolean;
   /** 最大折扣比例。 */
   max_discount_percent: number;
   /** 最大折扣金额。 */
@@ -253,6 +257,8 @@ export interface AIReplySettingsResponse {
   cookie_id?: string;
   /** AI 回复是否启用。 */
   ai_enabled: boolean;
+  /** 有效 AI 报价是否会自动触发真实订单改价。 */
+  auto_adjust_price_enabled: boolean;
   /** 最大折扣比例。 */
   max_discount_percent: number;
   /** 最大折扣金额。 */

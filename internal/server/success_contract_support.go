@@ -14,6 +14,8 @@ type aiReplySettingsResponse struct {
 	CookieID string `json:"cookie_id,omitempty"`
 	// AIEnabled 表示账号 AI 回复是否启用。
 	AIEnabled bool `json:"ai_enabled"`
+	// AutoAdjustPriceEnabled 表示有效 AI 报价是否会触发真实订单改价。
+	AutoAdjustPriceEnabled bool `json:"auto_adjust_price_enabled"`
 	// MaxDiscountPercent 是允许的最大折扣比例。
 	MaxDiscountPercent int `json:"max_discount_percent"`
 	// MaxDiscountAmount 是允许的最大折扣金额。

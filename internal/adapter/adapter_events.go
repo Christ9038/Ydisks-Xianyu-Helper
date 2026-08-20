@@ -69,11 +69,18 @@ func (a *Adapter) HandleMessageRead(ctx context.Context, event engine.MessageRea
 	if errors.Is(err, db.ErrNotFound) && event.ChatID != "" {
 		message, err = a.chat.MarkLatestOutgoingRead(ctx, event.AccountID, event.ChatID, event.ReadAt)
 	}
+	if errors.Is(err, db.ErrNotFound) {
+		a.logger.Debug("忽略未持久化或跨端同步的聊天已读回执", "account", event.AccountID, "chat_id", event.ChatID, "message_id", event.MessageID)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
 	if err == nil && message != nil {
 		a.logger.Info("聊天出站消息已标记已读", "account", event.AccountID, "chat_id", event.ChatID,
 			"message_id", event.MessageID, "message_key", message.MessageKey, "read_status", message.ReadStatus)
 	}
-	return err
+	return nil
 }
 
 // OnAccountAlert 把账号告警（token 失效/自动恢复失败/风控验证等）转发给通知器，

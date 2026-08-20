@@ -157,12 +157,16 @@ func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, t
 		return uncertainAction(result.callErr)
 	}
 	if !result.succeeded {
-		// failure 是远端拒绝确认发货的业务错误。
-		failure := fmt.Errorf("确认发货失败: %s", strings.Join(result.returns, "; "))
-		if len(persistenceErrs) > 0 {
-			return errors.Join(failure, errors.Join(persistenceErrs...))
+		if consignAlreadyDelivered(result.returns) {
+			e.logger.Info("订单已处于发货状态，确认发货按幂等成功处理", "account", task.AccountID, "order_id", task.OrderID)
+		} else {
+			// failure 是远端拒绝确认发货的业务错误。
+			failure := fmt.Errorf("确认发货失败: %s", strings.Join(result.returns, "; "))
+			if len(persistenceErrs) > 0 {
+				return errors.Join(failure, errors.Join(persistenceErrs...))
+			}
+			return failure
 		}
-		return failure
 	}
 	// orderPersistence 保存远端成功后本地订单状态和补偿记录的写入结果。
 	orderPersistence := e.persistConfirmedShipment(ctx, task)
@@ -172,6 +176,12 @@ func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, t
 	}
 	return nil
 }
+
+// adjustPriceTransientRetryLimit 是平台明确提示暂时无法改价时允许的最大请求次数，避免短暂订单状态同步延迟直接导致自动化失败。
+const adjustPriceTransientRetryLimit = 5
+
+// adjustPriceTransientRetryGap 是相邻两次暂时性改价失败之间的等待时间；测试可临时缩短它以验证重试分支。
+var adjustPriceTransientRetryGap = 3 * time.Second
 
 // adjustOrderPrice 把买家已拍下未付款订单的价格修改为动作配置的目标价格。
 // 成功返回 1 作为外部结果数量，供运行统计与结果通知使用。
@@ -184,11 +194,53 @@ func (e *automationActionExecutor) adjustOrderPrice(ctx context.Context, task Ta
 	if parseErr != nil {
 		return 0, fmt.Errorf("%w: %v", errActionNotPerformed, parseErr)
 	}
-	// attemptErr 表示改价请求或恢复流程的最终失败原因。
-	if attemptErr := e.adjustOrderPriceAttempt(ctx, task, priceCents, true); attemptErr != nil {
-		return 0, attemptErr
+	// adjustErr 表示包含暂时性平台繁忙重试后的最终改价结果。
+	if adjustErr := e.adjustOrderPriceWithRetry(ctx, task, priceCents); adjustErr != nil {
+		return 0, adjustErr
 	}
 	return 1, nil
+}
+
+// adjustOrderPriceWithRetry 为规则改价和 AI 报价共用平台暂忙重试；传输结果未知和明确业务拒绝均不得自动重放。
+func (e *automationActionExecutor) adjustOrderPriceWithRetry(ctx context.Context, task Task, priceCents int64) error {
+	// attempt 是当前已发送的改价请求次数，最多执行预设次数以避免无限占用自动化工作线程。
+	for attempt := 1; attempt <= adjustPriceTransientRetryLimit; attempt++ {
+		// attemptErr 是本次请求、凭证恢复和 Cookie 条件写回后的最终结果。
+		attemptErr := e.adjustOrderPriceAttempt(ctx, task, priceCents, true)
+		if attemptErr == nil {
+			return nil
+		}
+		// uncertain 表示请求可能已被平台执行，重复提交会造成价格状态无法判定，必须交由人工核对。
+		var uncertain *uncertainActionError
+		if errors.As(attemptErr, &uncertain) || !isAdjustPriceTransientBusy(attemptErr) || attempt == adjustPriceTransientRetryLimit {
+			return attemptErr
+		}
+		e.logger.Info("订单改价暂时不可用，稍后重试", "account", task.AccountID, "order_id", task.OrderID, "attempt", attempt, "limit", adjustPriceTransientRetryLimit)
+		// retryTimer 控制下一次平台请求的最小间隔，并在上下文取消时立即释放本次自动化任务。
+		retryTimer := time.NewTimer(adjustPriceTransientRetryGap)
+		select {
+		case <-ctx.Done():
+			if !retryTimer.Stop() {
+				select {
+				case <-retryTimer.C:
+				default:
+				}
+			}
+			return fmt.Errorf("%w: 订单改价重试等待被取消: %v", errActionNotPerformed, ctx.Err())
+		case <-retryTimer.C:
+		}
+	}
+	return fmt.Errorf("%w: 订单改价重试次数耗尽", errActionNotPerformed)
+}
+
+// isAdjustPriceTransientBusy 判断平台是否明确返回订单状态尚未同步完成的暂时性改价失败。
+func isAdjustPriceTransientBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+	// message 是不含凭证明文的远端业务错误文本，只匹配已验证的暂时性返回而不重试订单关闭等终态错误。
+	message := err.Error()
+	return strings.Contains(message, "CANNOT_MODIFY_FEE") || strings.Contains(message, "稍后重试") || strings.Contains(message, "稍后再试")
 }
 
 // adjustOrderPriceAttempt 使用凭证快照调用订单改价，并以指纹条件写回响应 Cookie；Session 失效时最多执行一次凭证恢复后重试。
@@ -426,6 +478,17 @@ func (e *automationActionExecutor) persistConfirmedShipment(ctx context.Context,
 		return append(persistenceErrs, fmt.Errorf("创建订单发货补偿记录: %w", reconciliationErr))
 	}
 	return append(persistenceErrs, fmt.Errorf("订单发货补偿记录 %s 已创建", reconciliationID))
+}
+
+// consignAlreadyDelivered 判断平台是否明确表示订单已发货；重复确认应按幂等成功处理并补写本地发货事实。
+func consignAlreadyDelivered(returns []string) bool {
+	// returned 是当前平台业务返回文本，只匹配稳定错误码，避免宽泛中文文案误判为已发货。
+	for _, returned := range returns {
+		if strings.Contains(returned, "ORDER_ALREADY_DELIVERY") {
+			return true
+		}
+	}
+	return false
 }
 
 // sendCard 按规格和购买数量分配文本、图片或数据卡密。
