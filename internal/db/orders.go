@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // orderAmountPattern 用于本次流程后续判断的订单AmountPattern
@@ -20,8 +21,11 @@ var groupedOrderAmountPattern = regexp.MustCompile(`^[0-9]{1,3}(?:,[0-9]{3})+(?:
 // ErrOrderConflict 用于本次流程后续判断的Err订单Conflict
 var ErrOrderConflict = errors.New("订单被并发更新，请重试")
 
-// maxOrderUpsertRetries 用于本次流程后续判断的max订单UpsertRetries
-const maxOrderUpsertRetries = 5
+// maxOrderUpsertRetries 限制单次订单写入在乐观锁竞争下的总尝试次数，避免持续竞争无限占用请求协程。
+const maxOrderUpsertRetries = 8
+
+// maxOrderUpsertRetryDelay 限制同一订单竞争时的单次退避时长；上限保持写入恢复及时，同时打破无间隔重试造成的活锁。
+const maxOrderUpsertRetryDelay = 16 * time.Millisecond
 
 // Order 对应 orders 表。
 type Order struct {
@@ -302,7 +306,8 @@ func (o *Orders) SoftDelete(ctx context.Context, orderID string) (bool, error) {
 	return changed > 0, err
 }
 
-// upsertOrder 封装upsert订单业务协调。
+// upsertOrder 写入一条订单并以版本列防止并发更新覆盖状态推进。
+// ctx 控制数据库操作及竞争退避；同一版本竞争会在有界、可取消的等待后重读并重试，超出次数返回 ErrOrderConflict。
 func upsertOrder(ctx context.Context, execer sqlQueryExecer, dialect Dialect, orderID string, opts OrderUpsertOpts) error {
 	if orderID == "" {
 		return errors.New("order_id 不能为空")
@@ -370,8 +375,45 @@ func upsertOrder(ctx context.Context, execer sqlQueryExecer, dialect Dialect, or
 		if n == 1 {
 			return nil
 		}
+		if attempt+1 < maxOrderUpsertRetries {
+			// retryErr 保存等待下一次乐观锁读取期间的取消错误；调用方取消后不得继续占用数据库连接。
+			retryErr := waitOrderUpsertRetry(ctx, attempt)
+			if retryErr != nil {
+				return retryErr
+			}
+		}
 	}
 	return ErrOrderConflict
+}
+
+// waitOrderUpsertRetry 在订单版本比较失败后执行有上限的指数退避。
+// ctx 由 Upsert 调用方拥有；返回其取消或截止错误，成功返回 nil 供调用方重新读取最新版本。
+func waitOrderUpsertRetry(ctx context.Context, attempt int) error {
+	// delay 保存本次冲突后的等待时间，避免两个写入协程立即重复读取同一旧版本。
+	delay := orderUpsertRetryDelay(attempt)
+	// timer 负责在退避到期后唤醒当前调用；函数返回前停止计时器以释放运行时资源。
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// orderUpsertRetryDelay 根据已经失败的次数计算下一次订单乐观锁重试的等待时间。
+// attempt 小于零按首次失败处理；返回值不超过 maxOrderUpsertRetryDelay，避免高竞争时产生不可接受的请求延迟。
+func orderUpsertRetryDelay(attempt int) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+	// delay 保存以 1ms 为起点的指数退避时间；超过上限时统一使用上限，防止位移计算放大等待。
+	delay := time.Millisecond << min(attempt, 4)
+	if delay > maxOrderUpsertRetryDelay {
+		return maxOrderUpsertRetryDelay
+	}
+	return delay
 }
 
 // orderUpsertAssignments 封装订单UpsertAssignments业务协调。
