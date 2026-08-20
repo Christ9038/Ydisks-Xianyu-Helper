@@ -36,6 +36,8 @@ type fakeMTop struct {
 	adjustRet []string
 	// adjustCalls 统计订单改价被调用的次数。
 	adjustCalls int
+	// adjustResults 是按调用次序弹出的预置改价结果序列，用于模拟先暂不可改后成功等场景。
+	adjustResults []fakeConsignResult
 	// adjustOrderIn 记录最后一次订单改价的订单号入参。
 	adjustOrderIn string
 	// adjustCentsIn 记录最后一次订单改价的整数分价格入参。
@@ -55,11 +57,17 @@ func (f *fakeMTop) FetchUserProfile(context.Context, string) (*mtop.UserProfileR
 	return nil, nil
 }
 
-// AdjustOrderPriceContext 返回测试预置的订单改价结果并记录入参。
+// AdjustOrderPriceContext 返回测试预置的订单改价结果并记录入参；配置了序列结果时按调用次序弹出。
 func (f *fakeMTop) AdjustOrderPriceContext(_ context.Context, _ string, orderID string, priceCents int64) (bool, []string, string, error) {
 	f.adjustCalls++
 	f.adjustOrderIn = orderID
 	f.adjustCentsIn = priceCents
+	if len(f.adjustResults) > 0 {
+		// result 是本次调用按次序弹出的预置改价结果。
+		result := f.adjustResults[0]
+		f.adjustResults = f.adjustResults[1:]
+		return result.ok, result.ret, result.updated, result.err
+	}
 	return f.adjustOk, f.adjustRet, "", f.adjustErr
 }
 
@@ -588,5 +596,27 @@ func TestConfirmShipmentKeepsFlatMockFallbackWithoutSnapshot(t *testing.T) {
 	}
 	if len(sender.cookieUpdates) != 1 || sender.cookieUpdates[0] != updated {
 		t.Fatalf("扁平/mock 更新未同步运行实例: %+v", sender.cookieUpdates)
+	}
+}
+
+// TestCenterConfirmShipment_AlreadyDeliveredIsIdempotentSuccess 验证平台返回订单已发货时确认发货按幂等成功收口并补写本地发货事实。
+func TestCenterConfirmShipment_AlreadyDeliveredIsIdempotentSuccess(t *testing.T) {
+	// store、cleanup 分别是内存测试库和其清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// ctx 是测试请求上下文。
+	ctx := context.Background()
+	// mtopMock 返回订单已发货的业务失败，模拟人工或其他渠道已先行发货。
+	mtopMock := &fakeMTop{consignRet: []string{"ORDER_ALREADY_DELIVERY::已发货成功，请刷新页面~"}}
+	// center 是注入 mock MTOP 客户端的自动化中心。
+	center := NewWithDependencies(store, testSenderProvider{sender: &testSender{}}, nil, CenterDependencies{MTop: mtopMock})
+	if // err 表示确认发货收口结果；订单已发货必须按成功处理。
+	err := center.confirmShipment(ctx, Task{AccountID: "cid", OrderID: "delivered-order", ItemID: "item", BuyerID: "buyer", ChatID: "chat"}); err != nil {
+		t.Fatalf("订单已发货应按幂等成功: %v", err)
+	}
+	// order、err 分别是本地订单事实和读取错误。
+	order, err := store.Orders.Get(ctx, "delivered-order")
+	if err != nil || !order.SystemShipped || order.OrderStatus != "shipped" {
+		t.Fatalf("幂等成功后应补写本地发货事实: order=%+v err=%v", order, err)
 	}
 }

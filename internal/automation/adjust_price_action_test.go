@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"xianyu-go/internal/db"
 )
@@ -144,5 +145,71 @@ func TestParseYuanToCents(t *testing.T) {
 		if err != nil || got != c.cents {
 			t.Fatalf("raw=%q got=%d err=%v want %d", c.raw, got, err, c.cents)
 		}
+	}
+}
+
+// TestAdjustOrderPriceActionRetriesTransientBusy 验证平台返回“暂无法修改价格”时动作内短间隔重试直至成功。
+func TestAdjustOrderPriceActionRetriesTransientBusy(t *testing.T) {
+	// store、cleanup 保存测试数据库及其清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// originalGap 保存原始重试间隔，测试结束后恢复。
+	originalGap := adjustPriceTransientRetryGap
+	adjustPriceTransientRetryGap = time.Millisecond
+	defer func() { adjustPriceTransientRetryGap = originalGap }()
+	// fake 先两次返回暂不可改价、第三次返回成功。
+	fake := &fakeMTop{adjustResults: []fakeConsignResult{
+		{ok: false, ret: []string{"FAIL_BIZ_CANNOT_MODIFY_FEE::暂无法修改价格，请稍后重试"}},
+		{ok: false, ret: []string{"FAIL_BIZ_CANNOT_MODIFY_FEE::暂无法修改价格，请稍后重试"}},
+		{ok: true, ret: []string{"SUCCESS::调用成功"}},
+	}}
+	// center 保存注入测试 MTOP 客户端的自动化中心。
+	center := NewWithDependencies(store, nil, nil, CenterDependencies{MTop: fake})
+	// sent、err 分别是动作报告的外部结果数量和执行错误。
+	sent, err := center.executeAction(context.Background(), Task{AccountID: "cid", OrderID: "order-1"},
+		db.AutomationAction{ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"9.9"}`})
+	if err != nil || sent != 1 || fake.adjustCalls != 3 {
+		t.Fatalf("sent=%d calls=%d err=%v", sent, fake.adjustCalls, err)
+	}
+}
+
+// TestAdjustOrderPriceActionTransientBusyExhausted 验证暂不可改价持续存在时按上限停止并返回错误。
+func TestAdjustOrderPriceActionTransientBusyExhausted(t *testing.T) {
+	// store、cleanup 保存测试数据库及其清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// originalGap 保存原始重试间隔，测试结束后恢复。
+	originalGap := adjustPriceTransientRetryGap
+	adjustPriceTransientRetryGap = time.Millisecond
+	defer func() { adjustPriceTransientRetryGap = originalGap }()
+	// fake 始终返回暂不可改价。
+	fake := &fakeMTop{adjustRet: []string{"FAIL_BIZ_CANNOT_MODIFY_FEE::暂无法修改价格，请稍后重试"}}
+	// center 保存注入测试 MTOP 客户端的自动化中心。
+	center := NewWithDependencies(store, nil, nil, CenterDependencies{MTop: fake})
+	// sent、err 分别是动作报告的外部结果数量和执行错误。
+	sent, err := center.executeAction(context.Background(), Task{AccountID: "cid", OrderID: "order-1"},
+		db.AutomationAction{ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"9.9"}`})
+	if sent != 0 || err == nil || !strings.Contains(err.Error(), "CANNOT_MODIFY_FEE") {
+		t.Fatalf("sent=%d err=%v", sent, err)
+	}
+	if fake.adjustCalls != adjustPriceTransientRetryLimit {
+		t.Fatalf("重试次数应达到上限: calls=%d want=%d", fake.adjustCalls, adjustPriceTransientRetryLimit)
+	}
+}
+
+// TestAdjustOrderPriceActionOrderStateFinalSkips 验证订单状态不支持改价时按放弃处理，不重试也不报错。
+func TestAdjustOrderPriceActionOrderStateFinalSkips(t *testing.T) {
+	// store、cleanup 保存测试数据库及其清理函数。
+	store, cleanup := newAutomationTestStore(t)
+	defer cleanup()
+	// fake 返回订单状态不支持改价的终态业务错误。
+	fake := &fakeMTop{adjustRet: []string{"FAIL_BIZ_BAD_REQUEST::当前订单状态不支持改价"}}
+	// center 保存注入测试 MTOP 客户端的自动化中心。
+	center := NewWithDependencies(store, nil, nil, CenterDependencies{MTop: fake})
+	// sent、err 分别是动作报告的外部结果数量和执行错误。
+	sent, err := center.executeAction(context.Background(), Task{AccountID: "cid", OrderID: "order-1"},
+		db.AutomationAction{ActionType: ActionAdjustPrice, ConfigJSON: `{"target_price":"9.9"}`})
+	if sent != 0 || err != nil || fake.adjustCalls != 1 {
+		t.Fatalf("终态失败应放弃且不报错: sent=%d calls=%d err=%v", sent, fake.adjustCalls, err)
 	}
 }

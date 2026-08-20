@@ -157,12 +157,18 @@ func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, t
 		return uncertainAction(result.callErr)
 	}
 	if !result.succeeded {
-		// failure 是远端拒绝确认发货的业务错误。
-		failure := fmt.Errorf("确认发货失败: %s", strings.Join(result.returns, "; "))
-		if len(persistenceErrs) > 0 {
-			return errors.Join(failure, errors.Join(persistenceErrs...))
+		if consignAlreadyDelivered(result.returns) {
+			// 平台已是发货状态（例如人工或其他渠道已发货），重复确认按幂等成功收口并补写本地事实。
+			e.logger.Info("订单已处于发货状态，确认发货按幂等成功处理",
+				"account", task.AccountID, "order_id", task.OrderID)
+		} else {
+			// failure 是远端拒绝确认发货的业务错误。
+			failure := fmt.Errorf("确认发货失败: %s", strings.Join(result.returns, "; "))
+			if len(persistenceErrs) > 0 {
+				return errors.Join(failure, errors.Join(persistenceErrs...))
+			}
+			return failure
 		}
-		return failure
 	}
 	// orderPersistence 保存远端成功后本地订单状态和补偿记录的写入结果。
 	orderPersistence := e.persistConfirmedShipment(ctx, task)
@@ -173,8 +179,16 @@ func (e *automationActionExecutor) confirmShipmentAttempt(ctx context.Context, t
 	return nil
 }
 
+// adjustPriceTransientRetryLimit 是平台返回“暂无法修改价格”时的动作内最大尝试次数（含首次）。
+// 订单刚拍下的几秒内平台会拒绝改价，必须在动作内短间隔重试，否则改价窗口会被买家付款关闭。
+const adjustPriceTransientRetryLimit = 5
+
+// adjustPriceTransientRetryGap 是改价短暂失败的动作内重试间隔；测试可缩短以避免真实等待。
+var adjustPriceTransientRetryGap = 3 * time.Second
+
 // adjustOrderPrice 把买家已拍下未付款订单的价格修改为动作配置的目标价格。
-// 成功返回 1 作为外部结果数量，供运行统计与结果通知使用。
+// 成功返回 1 作为外部结果数量，供运行统计与结果通知使用；
+// 平台明确表示订单状态已不支持改价时按放弃处理，不再自动重试。
 func (e *automationActionExecutor) adjustOrderPrice(ctx context.Context, task Task, action db.AutomationAction) (int, error) {
 	if task.OrderID == "" {
 		return 0, fmt.Errorf("%w: 订单改价缺少订单ID", errActionNotPerformed)
@@ -184,11 +198,49 @@ func (e *automationActionExecutor) adjustOrderPrice(ctx context.Context, task Ta
 	if parseErr != nil {
 		return 0, fmt.Errorf("%w: %v", errActionNotPerformed, parseErr)
 	}
-	// attemptErr 表示改价请求或恢复流程的最终失败原因。
-	if attemptErr := e.adjustOrderPriceAttempt(ctx, task, priceCents, true); attemptErr != nil {
-		return 0, attemptErr
+	for // attempt 是含首次在内的动作内改价尝试序号。
+	attempt := 1; ; attempt++ {
+		// attemptErr 表示本次改价请求或凭证恢复流程的失败原因。
+		attemptErr := e.adjustOrderPriceAttempt(ctx, task, priceCents, true)
+		if attemptErr == nil {
+			return 1, nil
+		}
+		// uncertain 标记远端可能已执行改价但结果未知的错误，禁止动作内重复触达。
+		var uncertain *uncertainActionError
+		if errors.As(attemptErr, &uncertain) {
+			return 0, attemptErr
+		}
+		if isAdjustPriceOrderStateFinal(attemptErr) {
+			e.logger.Warn("订单状态已不支持改价，放弃改价动作",
+				"account", task.AccountID, "order_id", task.OrderID, "err", attemptErr)
+			return 0, nil
+		}
+		if !isAdjustPriceTransientBusy(attemptErr) || attempt >= adjustPriceTransientRetryLimit {
+			return 0, attemptErr
+		}
+		select {
+		case <-ctx.Done():
+			return 0, fmt.Errorf("%w: 订单改价重试等待被取消: %v", errActionNotPerformed, ctx.Err())
+		case <-time.After(adjustPriceTransientRetryGap):
+		}
 	}
-	return 1, nil
+}
+
+// isAdjustPriceTransientBusy 判断平台是否明确表示改价暂不可用、可在动作内短暂重试。
+// 典型返回：FAIL_BIZ_CANNOT_MODIFY_FEE::暂无法修改价格，请稍后重试。
+func isAdjustPriceTransientBusy(err error) bool {
+	// msg 是用于关键字判断的错误文本。
+	msg := err.Error()
+	return strings.Contains(msg, "CANNOT_MODIFY_FEE") ||
+		strings.Contains(msg, "稍后重试") || strings.Contains(msg, "稍后再试")
+}
+
+// isAdjustPriceOrderStateFinal 判断订单状态已越过可改价阶段（例如买家已付款或订单关闭），改价失去业务意义。
+// 典型返回：FAIL_BIZ_BAD_REQUEST::当前订单状态不支持改价。
+func isAdjustPriceOrderStateFinal(err error) bool {
+	// msg 是用于关键字判断的错误文本。
+	msg := err.Error()
+	return strings.Contains(msg, "不支持改价") || strings.Contains(msg, "ORDER_CLOSED")
 }
 
 // adjustOrderPriceAttempt 使用凭证快照调用订单改价，并以指纹条件写回响应 Cookie；Session 失效时最多执行一次凭证恢复后重试。
@@ -567,6 +619,18 @@ func (e *automationActionExecutor) cardContent(_ context.Context, card *db.CardF
 	default:
 		return "", "", fmt.Errorf("未知卡密类型: %s", card.Type)
 	}
+}
+
+// consignAlreadyDelivered 判断平台返回订单已处于发货状态；重复确认发货视为幂等成功。
+// 典型返回：ORDER_ALREADY_DELIVERY::已发货成功，请刷新页面~。
+func consignAlreadyDelivered(returns []string) bool {
+	// item 是当前遍历的平台业务返回文本。
+	for _, item := range returns {
+		if strings.Contains(item, "ORDER_ALREADY_DELIVERY") || strings.Contains(item, "已发货成功") {
+			return true
+		}
+	}
+	return false
 }
 
 // cookieValue 读取账号 Cookie，优先使用测试或运行时覆盖的数据源。
