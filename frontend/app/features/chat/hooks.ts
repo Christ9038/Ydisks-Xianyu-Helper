@@ -49,6 +49,8 @@ export type UseChatResult = ChatFeatureState & {
   handleMessageScroll: () => void;
   /** 发送文本消息。 */
   handleSend: () => Promise<void>;
+  /** 发送快捷回复且保留正在编辑的普通消息草稿。 */
+  handleQuickReply: (content: string) => Promise<void>;
   /** 发送图片消息。 */
   handleImage: (file?: File) => Promise<void>;
   /** 从剪贴板候选文件中选择首张图片进入预览。 */
@@ -508,7 +510,7 @@ export const useChat = (): UseChatResult => {
   }, [activeAccountID, contactCursors, contactsLoading, hasMoreContacts]);
 
   /** 发送文本消息并记录失败重试数据。 */
-  const sendText = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (text: string, rememberRetry: boolean): Promise<void> => {
+  const sendText = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (text: string, rememberRetry: boolean, clearDraft: boolean): Promise<void> => {
     if (!selectedSession || !activeAccountID || sending) return;
     // sequence 请求序号。
     const sequence = ++sendSequence.current;
@@ -522,7 +524,7 @@ export const useChat = (): UseChatResult => {
       // result 处理结果。
       const result = await sendChatMessage({ account_id: activeAccountID, chat_id: selectedSession.chat_id, buyer_id: selectedSession.buyer_id, buyer_name: selectedSession.buyer_name, item_id: selectedSession.item_id, item_title: selectedSession.item_title, text }, { signal: controller.signal });
       if (!isCurrentChatRequest(sendSequence.current, sequence, controller.signal)) return;
-      setDraft('');
+      if (clearDraft) setDraft('');
       setRetryText(null);
       setMessages(/* 当前回调处理用户交互或异步状态变化。 */ current => mergeLiveMessage(current, result.message));
     } catch (/* sendError 表示发送错误。 */ sendError) {
@@ -570,8 +572,16 @@ export const useChat = (): UseChatResult => {
     // text 文本。
     const text = draft.trim();
     if (!text || !selectedSession || !activeAccountID || sending) return;
-    await sendText(text, true);
+    await sendText(text, true, true);
   }, [activeAccountID, draft, selectedSession, sendText, sending]);
+
+  /** 发送侧栏快捷回复，并在成功后保留用户尚未发送的普通草稿。 */
+  const handleQuickReply = useCallback(/* 当前回调将账号级快捷回复交给既有可靠文本发送流程。 */ async (content: string): Promise<void> => {
+    // text 保存去除首尾空白后的快捷回复正文，避免空模板触发发送请求。
+    const text = content.trim();
+    if (!text || !selectedSession || !activeAccountID || sending) return;
+    await sendText(text, true, false);
+  }, [activeAccountID, selectedSession, sendText, sending]);
 
   /** 处理图片选择并进入确认预览，不直接触发平台发送。 */
   const handleImage = useCallback(/* 当前回调接收文件选择结果并创建图片预览。 */ async (file?: File): Promise<void> => {
@@ -608,14 +618,14 @@ export const useChat = (): UseChatResult => {
 
   /** 重试最近一次失败的文本或图片发送。 */
   const retrySend = useCallback(/* 当前回调封装可复用的交互处理逻辑。 */ async (): Promise<void> => {
-    if (retryText) await sendText(retryText, false);
+    if (retryText) await sendText(retryText, false, true);
     else if (retryImage) await sendImage(retryImage, false);
   }, [retryImage, retryText, sendImage, sendText]);
 
   return {
     accounts, activeAccountID, activeSessions, selectedSession, activeAccount, messages, search, unreadOnly, draft, loading, messagesLoading, olderLoading, hasOlder, contactsLoading, hasMoreContacts: hasMoreContacts[activeAccountID] === true, emojiOpen, sending, error, liveState, pendingImage,
     activeChatID, filteredSessions, scrollRef, imageInputRef, setActiveAccountID, setActiveChatID, setSearch, setUnreadOnly, setDraft, setEmojiOpen,
-    reloadSessions, loadMoreContacts, loadOlderMessages, handleMessageScroll, handleSend, handleImage, handlePastedImages, confirmSendImage, closeImagePreview, retrySend, retryAvailable: Boolean(retryText || retryImage), unreadForAccount,
+    reloadSessions, loadMoreContacts, loadOlderMessages, handleMessageScroll, handleSend, handleQuickReply, handleImage, handlePastedImages, confirmSendImage, closeImagePreview, retrySend, retryAvailable: Boolean(retryText || retryImage), unreadForAccount,
     emojiURL, xianyuEmojis, renderXianyuText, formatClock, messageTime,
   };
 };

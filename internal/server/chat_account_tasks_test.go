@@ -67,6 +67,64 @@ func TestChatHistoryAndAccountTaskSettingsEndpoints(t *testing.T) {
 	}
 }
 
+// canceledReadReportPort 在本地已读保存后取消浏览器请求，用于验证平台上报使用独立的短时 Context。
+type canceledReadReportPort struct {
+	// contractChatPort 提供无关聊天能力的稳定测试实现。
+	contractChatPort
+	// cancel 在本地已读状态写入完成后模拟浏览器中止当前 HTTP 请求。
+	cancel context.CancelFunc
+	// reportContextCanceled 记录平台上报调用当刻是否已被取消，不能继承浏览器请求的取消状态。
+	reportContextCanceled bool
+	// reportContextHasDeadline 记录平台上报是否具有有界远端等待截止时间。
+	reportContextHasDeadline bool
+}
+
+// MarkRead 模拟本地未读状态已成功落库后浏览器立即中断连接。
+func (port *canceledReadReportPort) MarkRead(context.Context, int64, string, string) error {
+	port.cancel()
+	return nil
+}
+
+// ReportPlatformRead 记录平台上报使用的 Context，不进行真实外部调用。
+func (port *canceledReadReportPort) ReportPlatformRead(ctx context.Context, _ string, _ string, _ []map[string]any) error {
+	port.reportContextCanceled = ctx.Err() != nil
+	_, port.reportContextHasDeadline = ctx.Deadline()
+	return nil
+}
+
+// TestMarkChatReadKeepsPlatformReportAliveAfterClientCancellation 验证本地已读成功后，浏览器取消不会中断有界的平台已读回执。
+func TestMarkChatReadKeepsPlatformReportAliveAfterClientCancellation(t *testing.T) {
+	// srv、cleanup 分别是聊天路由测试服务器和测试资源释放函数。
+	srv, _, cleanup := newTestServerWithChat(t)
+	defer cleanup()
+	// requestCtx 和 cancel 模拟浏览器请求生命周期；测试端口在本地已读完成后触发取消。
+	requestCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// port 保存会记录平台回执 Context 的聊天应用替身。
+	port := &canceledReadReportPort{cancel: cancel}
+	srv.applications.chat = port
+	// handler 是替换聊天端口后的真实 HTTP Router。
+	handler := srv.Router()
+	// cookie 是通过真实认证流程取得的管理员会话。
+	cookie := loginHelper(t, handler)
+	// request 是带有一条有效平台消息标识的已读请求。
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/chat/read", strings.NewReader(`{"account_id":"acc1","chat_id":"chat-read","message_ids":[{"messageId":"message.PNM"}]}`)).WithContext(requestCtx)
+	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
+	// recorder 保存真实 handler 响应，已取消的浏览器请求不应使本地状态返回失败。
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("已读请求状态=%d，响应=%s", recorder.Code, recorder.Body.String())
+	}
+	if port.reportContextCanceled {
+		t.Fatal("平台已读上报错误继承了浏览器取消")
+	}
+	if !port.reportContextHasDeadline {
+		t.Fatal("平台已读上报缺少独立超时限制")
+	}
+}
+
 // TestChatWebSocketStreamsOnlyAuthenticatedAccountEvents 封装Test聊天WebSocketStreamsOnlyAuthenticated账号Events业务协调。
 func TestChatWebSocketStreamsOnlyAuthenticatedAccountEvents(t *testing.T) {
 	// srv、cleanup 用于本次流程后续判断的srv、cleanup

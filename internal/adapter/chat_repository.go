@@ -93,6 +93,60 @@ func (r chatRepository) FindInboundParsedJSONContaining(ctx context.Context, acc
 	return r.store.WSMessages.FindInboundParsedJSONContaining(ctx, accountID, fragment, limit)
 }
 
+// ListQuickReplies 查询账号级人工快捷回复并转换为应用层非敏感模型。
+func (r chatRepository) ListQuickReplies(ctx context.Context, accountID string) ([]chatapp.QuickReply, error) {
+	// rows 和 listErr 保存数据库快捷回复记录及查询错误。
+	rows, listErr := r.store.Chats.ListQuickReplies(ctx, accountID)
+	if listErr != nil {
+		return nil, listErr
+	}
+	// replies 保存脱离数据库模型的快捷回复列表。
+	replies := make([]chatapp.QuickReply, 0, len(rows))
+	// row 表示当前待转换的快捷回复持久化记录。
+	for _, row := range rows {
+		replies = append(replies, chatapp.QuickReply{ID: row.ID, AccountID: row.CookieID, Content: row.Content, CreatedAt: row.CreatedAt})
+	}
+	return replies, nil
+}
+
+// CreateQuickReply 写入账号级快捷回复并转换数据库上限错误。
+func (r chatRepository) CreateQuickReply(ctx context.Context, accountID, content string) (chatapp.QuickReply, error) {
+	// row 和 createErr 保存数据库写入结果及可能的数量上限错误。
+	row, createErr := r.store.Chats.CreateQuickReply(ctx, accountID, content)
+	if errors.Is(createErr, db.ErrChatQuickReplyLimitReached) {
+		return chatapp.QuickReply{}, chatapp.ErrQuickReplyLimitReached
+	}
+	if createErr != nil {
+		return chatapp.QuickReply{}, createErr
+	}
+	return chatapp.QuickReply{ID: row.ID, AccountID: row.CookieID, Content: row.Content, CreatedAt: row.CreatedAt}, nil
+}
+
+// DeleteQuickReply 删除账号下指定快捷回复并返回是否命中记录。
+func (r chatRepository) DeleteQuickReply(ctx context.Context, accountID string, quickReplyID int64) (bool, error) {
+	return r.store.Chats.DeleteQuickReply(ctx, accountID, quickReplyID)
+}
+
+// GetBuyerNote 读取账号和买家 ID 共同隔离的完整备注。
+func (r chatRepository) GetBuyerNote(ctx context.Context, accountID, buyerID string) (chatapp.BuyerNote, bool, error) {
+	// row、found 和 readErr 保存数据库读取结果、存在状态和错误。
+	row, found, readErr := r.store.Chats.GetBuyerNote(ctx, accountID, buyerID)
+	if readErr != nil || !found {
+		return chatapp.BuyerNote{}, found, readErr
+	}
+	return chatapp.BuyerNote{AccountID: row.CookieID, BuyerID: row.BuyerID, Content: row.Content, UpdatedAt: row.UpdatedAt}, true, nil
+}
+
+// SaveBuyerNote 保存买家备注；空内容由数据库适配器转换为删除语义。
+func (r chatRepository) SaveBuyerNote(ctx context.Context, note chatapp.BuyerNote) (chatapp.BuyerNote, error) {
+	// row 和 saveErr 保存数据库写入后的备注及错误。
+	row, saveErr := r.store.Chats.SaveBuyerNote(ctx, db.ChatBuyerNote{CookieID: note.AccountID, BuyerID: note.BuyerID, Content: note.Content})
+	if saveErr != nil {
+		return chatapp.BuyerNote{}, saveErr
+	}
+	return chatapp.BuyerNote{AccountID: row.CookieID, BuyerID: row.BuyerID, Content: row.Content, UpdatedAt: row.UpdatedAt}, nil
+}
+
 // chatIdentityResolver 在适配器内读取 Cookie 并调用平台身份查询接口。
 type chatIdentityResolver struct {
 	// store 提供账号凭证读取能力，明文只在本次平台调用期间存在。
@@ -138,6 +192,9 @@ func (r chatIdentityResolver) Resolve(ctx context.Context, accountID, chatID str
 
 // 确保数据库聊天适配器覆盖应用层会话端口的全部能力。
 var _ chatapp.SessionRepository = chatRepository{}
+
+// 确保数据库聊天适配器覆盖快捷回复和买家备注的应用层端口。
+var _ chatapp.MetadataRepository = chatRepository{}
 
 // 确保聊天身份适配器覆盖应用层平台身份端口。
 var _ chatapp.IdentityResolver = chatIdentityResolver{}

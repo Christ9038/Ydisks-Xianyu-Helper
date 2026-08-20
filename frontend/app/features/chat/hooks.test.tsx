@@ -100,6 +100,17 @@ describe('useChat', /* 当前回调处理聊天加载、分页、发送和实时
     expect(hook.result.current.messages).toContainEqual(sentMessageFixture);
 
     await act(
+      // retainedDraftAction 写入一段不应被快捷回复发送清空的普通消息草稿。
+      () => hook.result.current.setDraft('仍在编辑的草稿'),
+    );
+    await act(
+      // quickReplyAction 发送账号快捷回复，复用可靠发送但保留普通草稿。
+      async () => hook.result.current.handleQuickReply('快捷回复内容'),
+    );
+    expect(sendMessageMock).toHaveBeenLastCalledWith(expect.objectContaining({ text: '快捷回复内容', chat_id: 'chat-1' }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(hook.result.current.draft).toBe('仍在编辑的草稿');
+
+    await act(
       // imageAction 提交图片消息。
       async () => hook.result.current.handleImage(new File(['image'], 'image.png', { type: 'image/png' })),
     );

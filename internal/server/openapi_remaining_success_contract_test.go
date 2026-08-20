@@ -32,6 +32,7 @@ func TestOpenAPIRemainingVersionedSuccessResponses(t *testing.T) {
 	t.Run("ai-models", testOpenAPIAIModelsSuccess)
 	t.Run("cards-batch", testOpenAPICardsBatchSuccess)
 	t.Run("chat-history-and-read", testOpenAPIChatHistoryAndReadSuccess)
+	t.Run("chat-metadata", testOpenAPIChatMetadataSuccess)
 	t.Run("local-item-and-manual-ship", testOpenAPILocalItemAndManualShipSuccess)
 	t.Run("category-recommendation", testOpenAPIItemCategoryRecommendationSuccess)
 	t.Run("publish-batch-preview", testOpenAPIPublishBatchPreviewSuccess)
@@ -223,6 +224,59 @@ func testOpenAPIChatHistoryAndReadSuccess(t *testing.T) {
 	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/notifications/messages/"+strconv.FormatInt(notificationID, 10), nil)
 	deleteRequest.AddCookie(sessionCookie)
 	// deleteRecorder 保存删除响应。
+	deleteRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(deleteRecorder, deleteRequest)
+	assertOpenAPIRecordedSuccessResponse(t, deleteRequest, deleteRecorder)
+}
+
+// testOpenAPIChatMetadataSuccess 覆盖快捷回复和按买家 ID 隔离备注的所有版本化成功响应。
+func testOpenAPIChatMetadataSuccess(t *testing.T) {
+	// srv、_、cleanup 分别是装配真实聊天元数据用例的服务、无需直接读取的存储和资源释放函数。
+	srv, _, cleanup := newTestServerWithChat(t)
+	defer cleanup()
+	// handler 是当前场景使用的真实版本化 Router。
+	handler := srv.Router()
+	// sessionCookie 是当前管理员认证会话。
+	sessionCookie := loginHelper(t, handler)
+	// createRequest 是创建账号快捷回复的版本化请求。
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/chat/quick-replies", strings.NewReader(`{"account_id":"acc1","content":"契约快捷回复"}`))
+	createRequest.Header.Set("Content-Type", "application/json")
+	createRequest.AddCookie(sessionCookie)
+	// createRecorder 保存快捷回复创建响应。
+	createRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(createRecorder, createRequest)
+	assertOpenAPIRecordedSuccessResponse(t, createRequest, createRecorder)
+	// created 保存创建成功响应中的快捷回复标识，供删除操作精确定位。
+	var created chatQuickReplyResponse
+	// decodeErr 保存解析快捷回复创建响应以取得删除标识时的失败原因。
+	if decodeErr := json.Unmarshal(createRecorder.Body.Bytes(), &created); decodeErr != nil {
+		t.Fatalf("解析快捷回复创建响应失败: %v", decodeErr)
+	}
+	// listRequest 是读取账号快捷回复列表的版本化请求。
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/v1/chat/quick-replies?account_id=acc1", nil)
+	listRequest.AddCookie(sessionCookie)
+	// listRecorder 保存快捷回复列表响应。
+	listRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(listRecorder, listRequest)
+	assertOpenAPIRecordedSuccessResponse(t, listRequest, listRecorder)
+	// noteRequests 保存买家备注读取和保存的版本化请求。
+	noteRequests := []*http.Request{
+		httptest.NewRequest(http.MethodGet, "/api/v1/chat/buyer-notes/buyer-contract?account_id=acc1", nil),
+		httptest.NewRequest(http.MethodPut, "/api/v1/chat/buyer-notes/buyer-contract", strings.NewReader(`{"account_id":"acc1","content":"契约买家备注"}`)),
+	}
+	// noteRequest 表示当前待验证的买家备注 HTTP 请求。
+	for _, noteRequest := range noteRequests {
+		noteRequest.Header.Set("Content-Type", "application/json")
+		noteRequest.AddCookie(sessionCookie)
+		// noteRecorder 保存当前买家备注成功响应。
+		noteRecorder := httptest.NewRecorder()
+		handler.ServeHTTP(noteRecorder, noteRequest)
+		assertOpenAPIRecordedSuccessResponse(t, noteRequest, noteRecorder)
+	}
+	// deleteRequest 是删除刚创建快捷回复的版本化请求。
+	deleteRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/chat/quick-replies/"+strconv.FormatInt(created.ID, 10)+"?account_id=acc1", nil)
+	deleteRequest.AddCookie(sessionCookie)
+	// deleteRecorder 保存快捷回复删除响应。
 	deleteRecorder := httptest.NewRecorder()
 	handler.ServeHTTP(deleteRecorder, deleteRequest)
 	assertOpenAPIRecordedSuccessResponse(t, deleteRequest, deleteRecorder)
@@ -735,6 +789,29 @@ func (contractChatPort) ResolveSessionIdentity(context.Context, chatapp.Session)
 // RefreshSessionIdentities 返回空会话集合。
 func (contractChatPort) RefreshSessionIdentities(context.Context, string, []chatapp.Session) ([]chatapp.Session, error) {
 	return nil, nil
+}
+
+// ListQuickReplies 返回确定性的空快捷回复集合，供只验证消息发送契约的测试端口满足完整接口。
+func (contractChatPort) ListQuickReplies(context.Context, int64, string) ([]chatapp.QuickReply, error) {
+	return []chatapp.QuickReply{}, nil
+}
+
+// CreateQuickReply 返回确定性的测试快捷回复，避免该端口在未来契约场景中依赖数据库。
+func (contractChatPort) CreateQuickReply(context.Context, int64, string, string) (chatapp.QuickReply, error) {
+	return chatapp.QuickReply{ID: 1, AccountID: "acc1", Content: "测试快捷回复", CreatedAt: 1}, nil
+}
+
+// DeleteQuickReply 保持确定性成功，用于满足聊天 HTTP 应用端口。
+func (contractChatPort) DeleteQuickReply(context.Context, int64, string, int64) error { return nil }
+
+// GetBuyerNote 返回逻辑空备注，避免发送契约测试依赖真实备注持久化。
+func (contractChatPort) GetBuyerNote(context.Context, int64, string, string) (chatapp.BuyerNote, error) {
+	return chatapp.BuyerNote{}, nil
+}
+
+// SaveBuyerNote 返回逻辑空备注，避免发送契约测试依赖真实备注持久化。
+func (contractChatPort) SaveBuyerNote(context.Context, int64, string, string, string) (chatapp.BuyerNote, error) {
+	return chatapp.BuyerNote{}, nil
 }
 
 // contractItemPublishPort 是只返回确定性商品结果的单商品发布端口。

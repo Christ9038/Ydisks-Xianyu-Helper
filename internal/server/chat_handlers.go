@@ -29,6 +29,9 @@ type markChatReadRequest struct {
 	MessageIDs []map[string]any `json:"message_ids"`
 }
 
+// platformReadReportTimeout 限制平台已读回执的独立远端等待时间，浏览器断开不应取消该尽力上报。
+const platformReadReportTimeout = 5 * time.Second
+
 // mountChat 封装mount聊天业务协调。
 func (s *Server) mountChat(r chi.Router) {
 	r.Get("/api/chat/sessions", s.listChatSessions)
@@ -326,9 +329,16 @@ func (s *Server) markChatRead(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "更新已读状态失败")
 		return
 	}
+	// reportCtx 和 reportCancel 为尽力上报提供独立的有界生命周期：本地已读提交成功后，浏览器中止请求不应取消平台回执。
+	reportCtx, reportCancel := context.WithTimeout(context.Background(), platformReadReportTimeout)
+	defer reportCancel()
 	// reportErr 表示平台已读上报失败；本地已读状态已成功保存，不能回滚。
-	if reportErr := s.chatApplication().ReportPlatformRead(r.Context(), input.AccountID, input.ChatID, input.MessageIDs); reportErr != nil {
-		slog.Warn("上报闲鱼已读状态失败", "account", input.AccountID, "chat_id", input.ChatID, "err", reportErr)
+	if reportErr := s.chatApplication().ReportPlatformRead(reportCtx, input.AccountID, input.ChatID, input.MessageIDs); reportErr != nil {
+		if errors.Is(reportErr, context.Canceled) {
+			slog.Debug("上报闲鱼已读状态已取消", "account", input.AccountID, "chat_id", input.ChatID)
+		} else {
+			slog.Warn("上报闲鱼已读状态失败", "account", input.AccountID, "chat_id", input.ChatID, "err", reportErr)
+		}
 	}
 	writeJSON(w, http.StatusOK, operationResponse{Success: true})
 }

@@ -1,6 +1,8 @@
 import {
 AccountDetail,
+ChatBuyerNote,
 ChatMessage,
+ChatQuickReply,
 ChatSession,
 OperationResponse
 } from './models';
@@ -71,6 +73,59 @@ export const getChatMessagePage = async (accountId: string, chatId: string, curs
 // getChatMessages 读取聊天消息列表。
 export const getChatMessages = async (accountId: string, chatId: string, beforeId?: number, options?: RequestControlOptions): Promise<ChatMessage[]> =>
 	(await getChatMessagePage(accountId, chatId, undefined, beforeId, options)).messages;
+
+/** 查询当前账号可复用的人工快捷回复。 */
+export const getChatQuickReplies = async (accountId: string, options?: RequestControlOptions): Promise<ChatQuickReply[]> => {
+  // response 保存契约客户端返回的快捷回复列表 DTO，随后转换为 feature UI 模型。
+  const response = await runContractRequest(/* signal 是本次账号快捷回复查询的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/chat/quick-replies', {
+    params: { query: { account_id: accountId } },
+    signal,
+  }), options);
+  return response.quick_replies.map(/* reply 是当前待转换的快捷回复 DTO。 */ reply => ({
+    id: reply.id,
+    account_id: reply.account_id,
+    content: reply.content,
+    created_at: reply.created_at,
+  }));
+};
+
+/** 为当前账号新增人工快捷回复。 */
+export const createChatQuickReply = async (accountId: string, content: string, options?: RequestControlOptions): Promise<ChatQuickReply> => {
+  // response 保存创建接口返回的快捷回复 DTO，转换后不向组件暴露生成类型。
+  const response = await runContractRequest(/* signal 是本次新增快捷回复请求的超时与取消控制信号。 */ signal => contractClient.POST('/api/v1/chat/quick-replies', {
+    body: { account_id: accountId, content },
+    signal,
+  }), options);
+  return { id: response.id, account_id: response.account_id, content: response.content, created_at: response.created_at };
+};
+
+/** 删除当前账号下指定的人工快捷回复。 */
+export const deleteChatQuickReply = async (accountId: string, quickReplyId: number, options?: RequestControlOptions): Promise<OperationResponse> =>
+  runContractRequest(/* signal 是本次删除快捷回复请求的超时与取消控制信号。 */ signal => contractClient.DELETE('/api/v1/chat/quick-replies/{quick_reply_id}', {
+    params: { path: { quick_reply_id: quickReplyId }, query: { account_id: accountId } },
+    signal,
+  }), options);
+
+/** 查询当前账号下指定买家的完整备注；未填写时仍返回空内容。 */
+export const getChatBuyerNote = async (accountId: string, buyerId: string, options?: RequestControlOptions): Promise<ChatBuyerNote> => {
+  // response 保存契约客户端返回的买家备注 DTO，转换后由聊天 feature 管理。
+  const response = await runContractRequest(/* signal 是本次买家备注查询的超时与取消控制信号。 */ signal => contractClient.GET('/api/v1/chat/buyer-notes/{buyer_id}', {
+    params: { path: { buyer_id: buyerId }, query: { account_id: accountId } },
+    signal,
+  }), options);
+  return { account_id: response.account_id, buyer_id: response.buyer_id, content: response.content, updated_at: response.updated_at };
+};
+
+/** 保存当前账号下指定买家的完整备注；空内容会清除已有备注。 */
+export const saveChatBuyerNote = async (accountId: string, buyerId: string, content: string, options?: RequestControlOptions): Promise<ChatBuyerNote> => {
+  // response 保存保存接口返回的最终买家备注 DTO。
+  const response = await runContractRequest(/* signal 是本次买家备注保存请求的超时与取消控制信号。 */ signal => contractClient.PUT('/api/v1/chat/buyer-notes/{buyer_id}', {
+    params: { path: { buyer_id: buyerId } },
+    body: { account_id: accountId, content },
+    signal,
+  }), options);
+  return { account_id: response.account_id, buyer_id: response.buyer_id, content: response.content, updated_at: response.updated_at };
+};
 
 // sendChatMessage 发送聊天文本消息。
 export const sendChatMessage = async (input: {
