@@ -233,6 +233,11 @@ type ChatPort interface {
 	ReportPlatformRead(context.Context, string, string, []map[string]any) error
 	ResolveSessionIdentity(context.Context, chatapp.Session) (chatapp.Session, error)
 	RefreshSessionIdentities(context.Context, string, []chatapp.Session) ([]chatapp.Session, error)
+	ListQuickReplies(context.Context, int64, string) ([]chatapp.QuickReply, error)
+	CreateQuickReply(context.Context, int64, string, string) (chatapp.QuickReply, error)
+	DeleteQuickReply(context.Context, int64, string, int64) error
+	GetBuyerNote(context.Context, int64, string, string) (chatapp.BuyerNote, error)
+	SaveBuyerNote(context.Context, int64, string, string, string) (chatapp.BuyerNote, error)
 }
 
 // UncertainNotificationsPort 定义通知不确定状态的查询能力。

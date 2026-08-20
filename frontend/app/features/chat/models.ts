@@ -125,6 +125,30 @@ export interface ChatMessage {
 	sent_at: number;
 }
 
+/** 由当前 feature adapter 归一后的账号级快捷回复 UI 模型；不直接暴露 HTTP DTO。 */
+export interface ChatQuickReply {
+  /** 快捷回复稳定标识，用于 React 列表和删除请求。 */
+  id: number;
+  /** 快捷回复所属的闲鱼账号标识。 */
+  account_id: string;
+  /** 用户点击发送时提交到当前会话的文本模板。 */
+  content: string;
+  /** 快捷回复创建的 Unix 秒时间戳。 */
+  created_at: number;
+}
+
+/** 由当前 feature adapter 归一后的买家备注 UI 模型；备注按账号与买家 ID 隔离。 */
+export interface ChatBuyerNote {
+  /** 备注所属的闲鱼账号标识。 */
+  account_id: string;
+  /** 备注所属的稳定平台买家标识。 */
+  buyer_id: string;
+  /** 完整备注正文；空字符串表示尚未填写。 */
+  content: string;
+  /** 最近保存的 Unix 秒时间戳；空备注保持零值。 */
+  updated_at: number;
+}
+
 /** 简单资源创建接口的数值主键响应。 */
 /** 由当前 feature adapter 归一后的 MutationIDResponse UI 模型；不直接暴露 HTTP DTO。 */
 export interface MutationIDResponse {

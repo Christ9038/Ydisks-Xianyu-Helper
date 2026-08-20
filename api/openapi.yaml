@@ -2371,6 +2371,126 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  "/api/v1/chat/quick-replies":
+    get:
+      operationId: getApiV1ChatQuickReplies
+      summary: getApiV1ChatQuickReplies
+      security: [{cookieAuth: []}]
+      parameters:
+        - name: account_id
+          in: query
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatQuickReplyList'
+        '400': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '401': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '403': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '500': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+    post:
+      operationId: postApiV1ChatQuickReplies
+      summary: postApiV1ChatQuickReplies
+      security: [{cookieAuth: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatQuickReplyCreateRequest'
+      responses:
+        '201':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatQuickReply'
+        '400': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '401': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '403': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '409': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '500': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  "/api/v1/chat/quick-replies/{quick_reply_id}":
+    delete:
+      operationId: deleteApiV1ChatQuickRepliesByquick_reply_id
+      summary: deleteApiV1ChatQuickRepliesByquick_reply_id
+      security: [{cookieAuth: []}]
+      parameters:
+        - name: quick_reply_id
+          in: path
+          required: true
+          schema: {type: integer}
+        - name: account_id
+          in: query
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationResponse'
+        '400': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '401': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '403': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '404': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '500': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+  "/api/v1/chat/buyer-notes/{buyer_id}":
+    get:
+      operationId: getApiV1ChatBuyerNotesBybuyer_id
+      summary: getApiV1ChatBuyerNotesBybuyer_id
+      security: [{cookieAuth: []}]
+      parameters:
+        - name: buyer_id
+          in: path
+          required: true
+          schema: {type: string}
+        - name: account_id
+          in: query
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatBuyerNote'
+        '400': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '401': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '403': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '500': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+    put:
+      operationId: putApiV1ChatBuyerNotesBybuyer_id
+      summary: putApiV1ChatBuyerNotesBybuyer_id
+      security: [{cookieAuth: []}]
+      parameters:
+        - name: buyer_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatBuyerNoteSaveRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatBuyerNote'
+        '400': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '401': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '403': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
+        '500': {description: 统一错误响应, content: {application/json: {schema: {$ref: '#/components/schemas/ErrorResponse'}}}}
   "/api/v1/chat/messages":
     get:
       operationId: getApiV1ChatMessages
@@ -7734,6 +7854,39 @@ components:
         account_id: {type: string}
         chat_id: {type: string}
         message_ids: {type: array, items: {type: object, additionalProperties: {oneOf: [{type: string}, {type: number}]}}}
+    ChatQuickReply:
+      type: object
+      required: [id, account_id, content, created_at]
+      properties:
+        id: {type: integer}
+        account_id: {type: string}
+        content: {type: string, minLength: 1, maxLength: 2000}
+        created_at: {type: integer}
+    ChatQuickReplyList:
+      type: object
+      required: [quick_replies]
+      properties:
+        quick_replies: {type: array, items: {$ref: '#/components/schemas/ChatQuickReply'}}
+    ChatQuickReplyCreateRequest:
+      type: object
+      required: [account_id, content]
+      properties:
+        account_id: {type: string}
+        content: {type: string, minLength: 1, maxLength: 2000}
+    ChatBuyerNote:
+      type: object
+      required: [account_id, buyer_id, content, updated_at]
+      properties:
+        account_id: {type: string}
+        buyer_id: {type: string}
+        content: {type: string, maxLength: 2000}
+        updated_at: {type: integer}
+    ChatBuyerNoteSaveRequest:
+      type: object
+      required: [account_id, content]
+      properties:
+        account_id: {type: string}
+        content: {type: string, maxLength: 2000}
     OrderDTO:
       type: object
       required: [order_id, item_id, item_title, item_image, buyer_id, quantity, amount, order_status, status, cookie_id, created_at]

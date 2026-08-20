@@ -58,6 +58,10 @@ export default defineConfig({
         manualChunks(id) {
           // modulePath 是统一分隔符后的模块绝对路径，用于稳定匹配依赖目录。
           const modulePath = id.split(path.sep).join('/');
+          // 聊天元数据包含快捷回复和备注弹窗等低频交互，独立分片可避免挤占会话阅读首屏。
+          if (modulePath.includes('/app/features/chat/components/ChatMetadataFeature.') || modulePath.includes('/app/features/chat/metadata.')) {
+            return 'chat-metadata';
+          }
           if (!modulePath.includes('/node_modules/')) {
             return undefined;
           }

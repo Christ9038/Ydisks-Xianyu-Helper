@@ -1,11 +1,12 @@
 import {
-AlertCircle,Check,CheckCheck,ImagePlus,Loader2,MessageCircleMore,RefreshCw,
-Search,Send,Smile,UserRound,Wifi,WifiOff,X,
+AlertCircle,Check,CheckCheck,ImagePlus,Loader2,MessageCircleMore,PanelRightClose,PanelRightOpen,
+RefreshCw,Search,Send,Smile,UserRound,Wifi,WifiOff,X,
 } from 'lucide-react';
 import React from 'react';
 import Lightbox from 'yet-another-react-lightbox';
 import 'yet-another-react-lightbox/styles.css';
 import { AudioMessage } from '../components/AudioMessage';
+import ChatMetadataFeature from '../components/ChatMetadataFeature';
 import { useChat } from '../hooks';
 import { unreadBadgeClassName,unreadBadgeLabel } from '../state';
 
@@ -17,9 +18,10 @@ const Chat: React.FC = () => {
     messages, search, unreadOnly, draft, loading, messagesLoading, olderLoading, hasOlder, contactsLoading,
     hasMoreContacts, emojiOpen, sending, error, liveState, pendingImage, scrollRef, imageInputRef, setActiveAccountID,
     setActiveChatID, setSearch, setUnreadOnly, setDraft, setEmojiOpen, reloadSessions, loadMoreContacts,
-    loadOlderMessages, handleMessageScroll, handleSend, handleImage, handlePastedImages, confirmSendImage, closeImagePreview, retrySend, retryAvailable,
+    loadOlderMessages, handleMessageScroll, handleSend, handleQuickReply, handleImage, handlePastedImages, confirmSendImage, closeImagePreview, retrySend, retryAvailable,
     unreadForAccount, emojiURL, xianyuEmojis, renderXianyuText, formatClock, messageTime,
   } = useChat();
+
 
   // imageMessages 保存当前会话中的图片消息，供灯箱按消息顺序浏览。
   const imageMessages = React.useMemo(/* 当前回调筛选当前会话中的图片消息。 */ () => messages.filter(/* 当前回调判断消息是否为图片类型。 */ message => message.message_type === 'image'), [messages]);
@@ -31,6 +33,8 @@ const Chat: React.FC = () => {
   const openLightbox = React.useCallback(/* 当前回调定位并打开指定聊天图片。 */ (messageKey: string): void => {
     setLightboxIndex(imageMessages.findIndex(/* 当前回调匹配图片消息键。 */ item => item.message_key === messageKey));
   }, [imageMessages]);
+  // quickReplyPanelOpen 保存右侧快捷回复抽屉的展开状态；页面卸载后恢复默认收起。
+  const [quickReplyPanelOpen, setQuickReplyPanelOpen] = React.useState(false);
 
   if (loading) return <div className="flex h-[calc(100vh-4rem)] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-sky-500" /></div>;
 
@@ -127,13 +131,13 @@ const Chat: React.FC = () => {
             </div>
           </aside>
 
-          <main className="flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface-subtle">
+          <main className="relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-surface-subtle">
             {selectedSession ? (
               <>
-                <div className="flex h-16 shrink-0 items-center border-b border-slate-200 bg-white px-5">
+                <div className="flex h-20 shrink-0 items-start border-b border-slate-200 bg-white px-5 pt-4">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-black text-slate-950">{selectedSession.buyer_name || selectedSession.buyer_id}</div>
-                    <div className="mt-0.5 truncate text-xs text-slate-500">用户 ID：{selectedSession.buyer_id}</div>
+                    <div className="mt-0.5 flex flex-col text-xs text-slate-500"><span>用户 ID：</span><span className="truncate">{selectedSession.buyer_id}</span></div>
                   </div>
                   <span className={`ml-auto rounded-full px-2.5 py-1 text-[10px] font-bold ${activeAccount?.runtime_state === 'online' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                     {activeAccount?.runtime_state === 'online' ? '账号在线' : '账号离线'}
@@ -207,6 +211,9 @@ const Chat: React.FC = () => {
                     </div>
                     <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => void handleImage(event.target.files?.[0])} />
                     <button type="button" onClick={/* 当前回调处理用户交互或异步状态变化。 */ () => imageInputRef.current?.click()} disabled={sending || activeAccount?.runtime_state !== 'online'} className="rounded-lg p-2 text-slate-500 transition hover:bg-sky-50 hover:text-sky-600 disabled:opacity-40" title="发送图片（最大 10MB）"><ImagePlus className="h-5 w-5" /></button>
+                    <button type="button" onClick={/* 当前回调依当前渲染状态切换右侧账号快捷回复抽屉，避免页面级外部点击监听与按钮切换相互抵消。 */ () => setQuickReplyPanelOpen(!quickReplyPanelOpen)} className="ml-auto rounded-lg p-2 text-slate-500 transition hover:bg-sky-50 hover:text-sky-600" title={quickReplyPanelOpen ? '收起快捷回复' : '展开快捷回复'} aria-label={quickReplyPanelOpen ? '收起快捷回复' : '展开快捷回复'}>
+                      {quickReplyPanelOpen ? <PanelRightClose className="h-5 w-5" /> : <PanelRightOpen className="h-5 w-5" />}
+                    </button>
                   </div>
                   <div className="flex items-end gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-2 transition focus-within:border-sky-400 focus-within:ring-2 focus-within:ring-sky-100">
                     <textarea value={draft} onChange={/* 当前回调处理用户交互或异步状态变化。 */ event => setDraft(event.target.value)} rows={2} maxLength={2000}
@@ -236,6 +243,7 @@ const Chat: React.FC = () => {
                 <p className="mt-1 text-sm text-slate-400">该账号的新消息会实时出现在左侧列表。</p>
               </div>
             )}
+            <ChatMetadataFeature activeAccountID={activeAccountID} selectedSession={selectedSession} quickReplyPanelOpen={quickReplyPanelOpen} closeQuickReplyPanel={/* 当前回调收起右侧快捷回复抽屉。 */ () => setQuickReplyPanelOpen(false)} sendQuickReply={handleQuickReply} sending={sending} accountOnline={activeAccount?.runtime_state === 'online'} />
           </main>
         </div>
       )}
