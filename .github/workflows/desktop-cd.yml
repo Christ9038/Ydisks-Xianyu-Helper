@@ -3,7 +3,6 @@ name: 构建桌面端安装包
 on:
   push:
     branches:
-      - main
       - dev
   workflow_dispatch:
   workflow_call:
