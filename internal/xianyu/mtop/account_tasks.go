@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -17,7 +18,9 @@ import (
 const (
 	RateCreateAPI       = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.rate.create/4.0/"
 	PendingRateListAPI  = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.merchant.rate.list/1.0/"
-	PolishItemAPI       = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.item.polish/1.0/"
+	// PolishItemAPI 是商品擦亮主端点；该接口实际版本为 2.0，URL 路径必须与 query 的 v=2.0 一致，
+	// 使用 1.0 路径时平台会记录擦亮状态但实际曝光效果不生效。
+	PolishItemAPI       = "https://h5api.m.goofish.com/h5/mtop.taobao.idle.item.polish/2.0/"
 	PolishItemBackupAPI = "https://h5api.m.goofish.com/h5/mtop.idle.item.polish/1.0/"
 )
 
@@ -105,6 +108,7 @@ func (c *ClientImpl) PolishItem(ctx context.Context, cookiesStr, itemID string) 
 	// decoded、updated、err 用于本次流程后续判断的decoded、updated、err
 	decoded, updated, err := c.accountTaskRequest(ctx, cookiesStr, firstNonEmptyURL(c.PolishItemURL, PolishItemAPI),
 		"mtop.taobao.idle.item.polish", "2.0", map[string]any{"itemId": itemID}, "https://www.goofish.com/")
+	c.logPolishOutcome("主接口", itemID, decoded, err)
 	if err == nil {
 		return &AccountTaskResult{Success: true, Message: firstRet(decoded.Ret), UpdatedCookies: updated}, nil
 	}
@@ -123,6 +127,7 @@ func (c *ClientImpl) PolishItem(ctx context.Context, cookiesStr, itemID string) 
 	decoded, backupUpdated, backupErr := c.accountTaskRequest(ctx, updated,
 		firstNonEmptyURL(c.PolishItemBackupURL, PolishItemBackupAPI), "mtop.idle.item.polish", "1.0",
 		map[string]any{"itemId": itemID}, "https://www.goofish.com/")
+	c.logPolishOutcome("备用接口", itemID, decoded, backupErr)
 	if backupErr == nil {
 		return &AccountTaskResult{Success: true, Message: firstRet(decoded.Ret), UpdatedCookies: backupUpdated}, nil
 	}
@@ -130,6 +135,28 @@ func (c *ClientImpl) PolishItem(ctx context.Context, cookiesStr, itemID string) 
 		return &AccountTaskResult{Success: true, Message: "商品今天已经擦亮", UpdatedCookies: backupUpdated}, nil
 	}
 	return nil, fmt.Errorf("擦亮主接口失败: %v；备用接口失败: %w", primaryErr, backupErr)
+}
+
+// logPolishOutcome 记录一次擦亮调用的平台业务返回摘要（ret 与 data，不含 Cookie），
+// 用于区分真实擦亮、重复擦亮和表面成功但未生效的响应。
+func (c *ClientImpl) logPolishOutcome(source, itemID string, decoded *accountTaskResponse, err error) {
+	// logger 是记录擦亮结果的日志器，未注入时使用进程默认日志器。
+	logger := c.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if err != nil {
+		logger.Warn("商品擦亮调用失败", "source", source, "item_id", itemID, "err", err)
+		return
+	}
+	if decoded == nil {
+		logger.Warn("商品擦亮响应为空", "source", source, "item_id", itemID)
+		return
+	}
+	// dataJSON 是响应业务数据的截断 JSON 摘要，只包含平台业务字段。
+	dataJSON, _ := json.Marshal(decoded.Data)
+	logger.Info("商品擦亮响应", "source", source, "item_id", itemID,
+		"ret", firstRet(decoded.Ret), "data", truncate(string(dataJSON), 300))
 }
 
 // duplicatePolishError 封装duplicatePolish错误业务协调。
@@ -239,6 +266,12 @@ func (c *ClientImpl) accountTaskRequestOnce(ctx context.Context, cookiesStr, end
 		query.Set("spm_cnt", "a21ybx.im.0.0")
 		query.Set("spm_pre", "a21ybx.home.sidebar.2.4c053da6MpVe1m")
 		query.Set("log_id", "4c053da6MpVe1m")
+	}
+	// 擦亮请求补充商品页埋点上下文；缺少该上下文时平台可能返回表面成功但不生效的响应。
+	if api == "mtop.taobao.idle.item.polish" || api == "mtop.idle.item.polish" {
+		query.Set("spm_cnt", "a21ybx.item.0.0")
+		query.Set("spm_pre", "a21ybx.personal.feeds.1.42f86ac21eZ9zd")
+		query.Set("log_id", "42f86ac21eZ9zd")
 	}
 	// req、err 用于本次流程后续判断的req、err
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"?"+query.Encode(),
