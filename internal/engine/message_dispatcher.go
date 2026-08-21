@@ -184,6 +184,20 @@ func (d *messageDispatcher) handleMessageContext(ctx context.Context, decrypted 
 		}
 		return
 	}
+	// ownEcho 保存当前账号从官方客户端发出后回显的消息；它必须实时落库，但绝不能进入自动回复防抖链。
+	if ownEcho := extractOwnWebSocketEcho(decrypted, d.cookieID, d.currentCookie()); ownEcho != nil {
+		// handler 保存当前可选业务处理器；旧集成未实现出站观察能力时保持原有仅过滤语义。
+		if handler := d.currentHandler(); handler != nil {
+			// observer、supported 保存出站观察接口及其实现判断，避免扩大基础 Handler 的必选职责。
+			if observer, supported := handler.(outgoingChatHandler); supported {
+				// err 保存自身回显持久化或实时发布失败；失败不应影响 WebSocket 接收循环或误触发自动回复。
+				if err := observer.HandleOutgoingChatMessage(ctx, *ownEcho); err != nil {
+					d.logger.Warn("处理官方客户端出站消息回显失败", "err", err, "chat_id", ownEcho.ChatID)
+				}
+			}
+		}
+		return
+	}
 
 	// chat 用于本次流程后续判断的聊天
 	chat := extractChatMessage(decrypted, d.cookieID, d.currentCookie())

@@ -731,25 +731,6 @@ func (s *Service) CreateOutgoingMedia(ctx context.Context, session db.ChatSessio
 	return stored, err
 }
 
-// RecordOutgoingSent captures automatic replies and automation messages. A
-// supplied key correlates a UI pending message and only updates its status.
-// RecordOutgoingSent 封装RecordOutgoingSent业务协调。
-func (s *Service) RecordOutgoingSent(ctx context.Context, session db.ChatSession, key, text string) (*db.ChatMessage, error) {
-	if strings.TrimSpace(key) != "" {
-		return s.SetOutgoingStatus(ctx, session.CookieID, key, "sent")
-	}
-	// message 用于本次流程后续判断的消息
-	message := db.ChatMessage{MessageKey: "sent-" + randomID(), Direction: "outgoing", SenderID: session.CookieID,
-		SenderName: "我", MessageType: "text", Content: strings.TrimSpace(text), Status: "sent",
-		SentAt: time.Now().UTC().UnixMilli()}
-	// stored、err 用于本次流程后续判断的stored、err
-	stored, _, err := s.repository.SaveMessage(ctx, session, message, false)
-	if err == nil {
-		s.Publish(session.CookieID, Event{Type: "message.created", Message: stored, Session: &session})
-	}
-	return stored, err
-}
-
 // SetOutgoingStatus 设置Outgoing状态。
 func (s *Service) SetOutgoingStatus(ctx context.Context, accountID, key, status string) (*db.ChatMessage, error) {
 	// message、err 用于本次流程后续判断的message、err
