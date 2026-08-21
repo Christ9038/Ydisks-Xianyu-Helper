@@ -146,21 +146,35 @@ func TestHandleMessage_DedupSkipsRepeat(t *testing.T) {
 	}
 }
 
-// TestHandleMessage_IgnoresOwnWebSocketEcho 验证当前账号的 WS 回显不会触发自动回复。
-func TestHandleMessage_IgnoresOwnWebSocketEcho(t *testing.T) {
+// TestHandleMessage_RecordsOwnWebSocketEchoWithoutAutoReply 验证官方客户端回显会走出站观察持久化，但绝不触发自动回复。
+func TestHandleMessage_RecordsOwnWebSocketEchoWithoutAutoReply(t *testing.T) {
 	// acc 是待测账号；h 记录业务处理调用；cleanup 释放测试数据库和运行时资源。
 	acc, h, _, cleanup := newAccountForTest(t)
 	defer cleanup()
 	defer acc.Stop()
 
-	// newAccountForTest 使用 unb=123；模拟同一账号在闲鱼官方客户端发出的
-	// 消息回显，不能进入自动回复或业务消息处理链。
-	acc.handleMessage(plainChatMessage(t, "官方客户端发送", "123", "chat-own"))
+	// decrypted 模拟官方客户端发送的文本回显，深链提供真实买家身份，PNM 键用于后续持久化幂等。
+	decrypted := plainChatMessage(t, "官方客户端发送", "123", "chat-own")
+	// envelope 保存可变测试消息信封，用于补齐官方回显的 PNM 键和对端用户标识。
+	envelope := decrypted["1"].(map[string]any)
+	envelope["3"] = "own-message.PNM"
+	// extension 保存消息展示扩展；深链中的 peerUserId 必须指向买家而不是当前账号。
+	extension := envelope["10"].(map[string]any)
+	extension["reminderUrl"] = "fleamarket://message_chat?itemId=item-chat-own&peerUserId=buyer-own"
+	acc.handleMessage(decrypted)
 	time.Sleep(MessageDebounceDelay + 200*time.Millisecond)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if len(h.chats) != 0 {
 		t.Fatalf("账号自身消息回显不应触发自动回复，got %d", len(h.chats))
+	}
+	if len(h.outgoing) != 1 {
+		t.Fatalf("账号自身消息回显应交给出站观察器，got %d", len(h.outgoing))
+	}
+	// echo 保存观察器收到的出站回显，用于断言会话、买家和平台幂等键未丢失。
+	echo := h.outgoing[0]
+	if echo.AccountID != "cid" || echo.ChatID != "chat-own" || echo.BuyerID != "buyer-own" || echo.MessageKey != "own-message.PNM" || echo.Text != "官方客户端发送" {
+		t.Fatalf("官方客户端出站回显字段错误: %+v", echo)
 	}
 }
 

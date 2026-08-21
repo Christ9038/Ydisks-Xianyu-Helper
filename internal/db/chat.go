@@ -240,12 +240,14 @@ func (s *ChatStore) SaveMessage(ctx context.Context, session ChatSession, messag
 			unreadDelta = 1
 		}
 		if // err 用于本次流程后续判断的err
-		_, err := tx.ExecContext(ctx, `UPDATE chat_sessions SET buyer_id=?,buyer_name=?,buyer_avatar_url=?,
-			item_id=?,item_title=?,item_image_url=CASE WHEN ?<>'' THEN ? ELSE item_image_url END,last_message=CASE WHEN last_message_at<=? THEN ? ELSE last_message END,
+		_, err := tx.ExecContext(ctx, `UPDATE chat_sessions SET buyer_id=CASE WHEN ?<>'' THEN ? ELSE buyer_id END,
+			buyer_name=CASE WHEN ?<>'' THEN ? ELSE buyer_name END,buyer_avatar_url=CASE WHEN ?<>'' THEN ? ELSE buyer_avatar_url END,
+			item_id=CASE WHEN ?<>'' THEN ? ELSE item_id END,item_title=CASE WHEN ?<>'' THEN ? ELSE item_title END,
+			item_image_url=CASE WHEN ?<>'' THEN ? ELSE item_image_url END,last_message=CASE WHEN last_message_at<=? THEN ? ELSE last_message END,
 			last_message_at=CASE WHEN last_message_at<=? THEN ? ELSE last_message_at END,
 			unread_count=unread_count+?,updated_at=?
-			WHERE cookie_id=? AND chat_id=?`, session.BuyerID, session.BuyerName, session.BuyerAvatar,
-			session.ItemID, session.ItemTitle, session.ItemImageURL, session.ItemImageURL, message.SentAt, message.Content, message.SentAt, message.SentAt, unreadDelta, now,
+			WHERE cookie_id=? AND chat_id=?`, session.BuyerID, session.BuyerID, session.BuyerName, session.BuyerName, session.BuyerAvatar, session.BuyerAvatar,
+			session.ItemID, session.ItemID, session.ItemTitle, session.ItemTitle, session.ItemImageURL, session.ItemImageURL, message.SentAt, message.Content, message.SentAt, message.SentAt, unreadDelta, now,
 			session.CookieID, session.ChatID); err != nil {
 			return nil, false, fmt.Errorf("更新聊天会话: %w", err)
 		}

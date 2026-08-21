@@ -70,6 +70,95 @@ func TestRecordHistoryPageParsesDirectionMediaAndDeduplicates(t *testing.T) {
 	}
 }
 
+// TestRecordOutgoingSentCreatesPlatformEcho 验证没有本地待发送记录时，官方客户端的稳定平台键仍会创建并广播出站消息。
+func TestRecordOutgoingSentCreatesPlatformEcho(t *testing.T) {
+	// store、cleanup 保存隔离的 SQLite 聊天存储及其资源释放函数。
+	store, cleanup := chatTestStore(t)
+	defer cleanup()
+	// ctx 保存本次出站回显写入使用的非取消上下文。
+	ctx := context.Background()
+	// service 保存被测聊天领域服务，负责持久化和实时事件发布。
+	service := New(store)
+	// owner 保存账号 account-1 的所有者，用于订阅其应收到的实时消息事件。
+	owner, ownerErr := store.Users.GetByUsername(ctx, "owner")
+	if ownerErr != nil {
+		t.Fatal(ownerErr)
+	}
+	// events、cancel、subscribeErr 保存账号归属过滤后的实时事件流及清理函数。
+	events, cancel, subscribeErr := service.Subscribe(ctx, owner.ID)
+	if subscribeErr != nil {
+		t.Fatal(subscribeErr)
+	}
+	defer cancel()
+	// session 保存官方客户端回显所属的既有会话摘要，不含账号凭证。
+	session := db.ChatSession{CookieID: "account-1", ChatID: "official-client", BuyerID: "buyer-1", BuyerName: "买家"}
+	// message、recordErr 保存首次写入后的出站消息和持久化错误。
+	message, recordErr := service.RecordOutgoingSent(ctx, session, "official-client.PNM", "官方客户端发送")
+	if recordErr != nil {
+		t.Fatal(recordErr)
+	}
+	if message.MessageKey != "official-client.PNM" || message.Direction != "outgoing" || message.Status != "sent" || message.Content != "官方客户端发送" {
+		t.Fatalf("官方客户端回显保存错误: %+v", message)
+	}
+	select {
+	case // event 保存订阅者收到的首次创建事件，必须使用同一平台消息键。
+	event := <-events:
+		if event.Type != "message.created" || event.Message == nil || event.Message.MessageKey != "official-client.PNM" {
+			t.Fatalf("官方客户端回显实时事件错误: %+v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("官方客户端回显未发布实时事件")
+	}
+	// repeated、repeatErr 保存同一平台回显重复到达后的状态更新结果；它必须命中已有消息而不是再插入一条。
+	repeated, repeatErr := service.RecordOutgoingSent(ctx, session, "official-client.PNM", "官方客户端发送")
+	if repeatErr != nil || repeated.ID != message.ID {
+		t.Fatalf("重复官方客户端回显未保持幂等: message=%+v repeated=%+v err=%v", message, repeated, repeatErr)
+	}
+	// rows、listErr 保存会话全部消息，用于确认重复回显没有制造第二个气泡。
+	rows, listErr := store.Chats.ListMessages(ctx, owner.ID, "account-1", "official-client", 0, 20)
+	if listErr != nil || len(rows) != 1 {
+		t.Fatalf("重复官方客户端回显应只有一条消息: rows=%+v err=%v", rows, listErr)
+	}
+}
+
+// TestRecordOutgoingSentKeepsExistingSessionIdentity 验证未携带对端身份的官方回显不会清空已知会话资料。
+func TestRecordOutgoingSentKeepsExistingSessionIdentity(t *testing.T) {
+	// store、cleanup 保存隔离数据库及其清理函数。
+	store, cleanup := chatTestStore(t)
+	defer cleanup()
+	// ctx 保存本次会话和消息写入使用的非取消上下文。
+	ctx := context.Background()
+	// service 保存被测聊天服务。
+	service := New(store)
+	// knownSession 保存联系人历史已经解析出的会话身份。
+	knownSession := db.ChatSession{CookieID: "account-1", ChatID: "known-peer", BuyerID: "buyer-1", BuyerName: "已知买家", ItemID: "item-1", ItemTitle: "已知商品"}
+	// upsertErr 保存预置既有会话身份时的数据库错误。
+	if upsertErr := store.Chats.UpsertSession(ctx, knownSession); upsertErr != nil {
+		t.Fatal(upsertErr)
+	}
+	// incompleteSession 模拟少数官方回显缺少 peerUserId 时只能提供账号和会话 ID 的情形。
+	incompleteSession := db.ChatSession{CookieID: "account-1", ChatID: "known-peer"}
+	// recordErr 保存写入缺失对端身份的官方回显时产生的错误。
+	if _, recordErr := service.RecordOutgoingSent(ctx, incompleteSession, "known-peer.PNM", "缺少对端字段的官方回显"); recordErr != nil {
+		t.Fatal(recordErr)
+	}
+	// owner、ownerErr 保存账号归属用户，用于读取最终会话摘要。
+	owner, ownerErr := store.Users.GetByUsername(ctx, "owner")
+	if ownerErr != nil {
+		t.Fatal(ownerErr)
+	}
+	// sessions、listErr 保存写入回显后的联系人列表；原有买家和商品字段必须仍可展示。
+	sessions, listErr := store.Chats.ListSessions(ctx, owner.ID, "account-1", 20)
+	if listErr != nil || len(sessions) != 1 {
+		t.Fatalf("读取官方回显后的会话失败: sessions=%+v err=%v", sessions, listErr)
+	}
+	// session 保存唯一会话，确认缺失字段没有覆盖已知身份。
+	session := sessions[0]
+	if session.BuyerID != "buyer-1" || session.BuyerName != "已知买家" || session.ItemID != "item-1" || session.ItemTitle != "已知商品" {
+		t.Fatalf("官方回显清空了既有会话资料: %+v", session)
+	}
+}
+
 // TestRecordHistoryPageRepairsStoredAudioPlaceholder 验证历史刷新能把旧版已落库的“[语音]”占位行升级为可播放 AMR 地址。
 func TestRecordHistoryPageRepairsStoredAudioPlaceholder(t *testing.T) {
 	// store 和 cleanup 分别是 SQLite 测试存储及资源释放函数。

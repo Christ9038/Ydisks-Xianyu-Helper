@@ -15,8 +15,13 @@ import (
 
 // recordingHandler 记录收到的聊天消息，用于断言防抖与去重行为。
 type recordingHandler struct {
-	mu      sync.Mutex
-	chats   []ChatMessage
+	// mu 保护聊天回调、出站回显和续期计数，测试中的异步防抖回调可与断言并发执行。
+	mu sync.Mutex
+	// chats 保存进入自动回复旁路的买家入站消息。
+	chats []ChatMessage
+	// outgoing 保存官方客户端或本程序发送后观察到的出站消息回显。
+	outgoing []OutgoingChatMessage
+	// refresh 保存密码登录续期回调次数。
 	refresh int
 }
 
@@ -46,6 +51,14 @@ func (h *recordingHandler) OnPasswordLoginRefresh(_ context.Context, _ string) b
 
 // OnAccountAlert 封装On账号Alert业务协调。
 func (h *recordingHandler) OnAccountAlert(_ context.Context, _, _, _, _ string) {}
+
+// HandleOutgoingChatMessage 记录出站观察消息，供测试确认官方客户端回显不进入自动回复链但仍可被持久化。
+func (h *recordingHandler) HandleOutgoingChatMessage(_ context.Context, message OutgoingChatMessage) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.outgoing = append(h.outgoing, message)
+	return nil
+}
 
 // newAccountForTest 封装new账号ForTest业务协调。
 func newAccountForTest(t *testing.T) (*Account, *recordingHandler, *db.Store, func()) {

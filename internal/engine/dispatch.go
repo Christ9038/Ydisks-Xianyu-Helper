@@ -301,6 +301,69 @@ func extractChatMessage(decrypted map[string]any, accountID, cookieStr string) *
 	}
 }
 
+// extractOwnWebSocketEcho 识别官方客户端发出后回显到当前账号 WebSocket 的普通消息。
+// decrypted 是已解密平台帧；accountID 和 cookieStr 用于归属与自身身份判断；返回值仅供出站持久化观察，绝不进入自动回复链。
+func extractOwnWebSocketEcho(decrypted map[string]any, accountID, cookieStr string) *OutgoingChatMessage {
+	// m1 保存平台聊天信封主体；ok 表示帧是否具备普通聊天的顶层结构。
+	m1, ok := decrypted["1"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	// m10 保存消息展示扩展；缺失时无法安全取得文本和发送者身份。
+	m10, _ := m1["10"].(map[string]any)
+	if m10 == nil {
+		return nil
+	}
+	// text 保存平台通知层给出的消息摘要；空摘要不创建无内容出站记录。
+	text, _ := m10["reminderContent"].(string)
+	if text == "" || isNonUserChatNotice(m1, m10, text) {
+		return nil
+	}
+	// senderUserID 保存归一化后的发送者身份，必须与当前账号身份一致才是自身回显。
+	senderUserID := extractChatSenderUserIDFromMaps(m1, m10)
+	// selfUserID 保存当前账号的非敏感平台身份，仅用于区分自身回显与买家入站消息。
+	selfUserID := protocol.TransCookies(cookieStr)["unb"]
+	if !isSelfUserID(senderUserID, selfUserID) {
+		return nil
+	}
+	// chatID 保存去除协议后缀后的会话标识，供出站消息与既有会话关联。
+	chatID := toString(m1["2"])
+	// suffixIndex 保存会话协议后缀的起始下标，存在时只保留平台原始会话 ID。
+	if suffixIndex := strings.Index(chatID, "@"); suffixIndex >= 0 {
+		chatID = chatID[:suffixIndex]
+	}
+	if strings.TrimSpace(chatID) == "" {
+		return nil
+	}
+	// reminderURL 保存通知深链，用于从 peerUserId 恢复会话对端身份。
+	reminderURL, _ := m10["reminderUrl"].(string)
+	// buyerID 保存深链中的对端用户标识；它不能等于当前账号，缺失时由既有会话保留原身份。
+	buyerID := extractChatPeerUserID(reminderURL, selfUserID)
+	return &OutgoingChatMessage{
+		AccountID:  accountID,
+		ChatID:     chatID,
+		BuyerID:    buyerID,
+		Text:       text,
+		MessageKey: extractMessageID(decrypted),
+	}
+}
+
+// extractChatPeerUserID 从闲鱼聊天深链读取对端用户标识，并拒绝误填为当前账号的值。
+// reminderURL 是平台通知深链；selfUserID 是当前账号身份；返回空字符串表示深链缺失或身份不可信。
+func extractChatPeerUserID(reminderURL, selfUserID string) string {
+	// parsed 保存深链解析结果；parseErr 表示平台提供了无法按 URL 解释的兼容字符串。
+	parsed, parseErr := url.Parse(strings.TrimSpace(reminderURL))
+	if parseErr != nil {
+		return ""
+	}
+	// peerUserID 保存深链查询参数中的会话对端身份，并移除 IM 协议后缀。
+	peerUserID := strings.TrimSuffix(strings.TrimSpace(parsed.Query().Get("peerUserId")), "@goofish")
+	if peerUserID == "" || isSelfUserID(peerUserID, selfUserID) {
+		return ""
+	}
+	return peerUserID
+}
+
 // extractChatSenderUserIDFromMaps 优先读取展示扩展，并兼容紧凑信封中的发送者账号 ID。
 func extractChatSenderUserIDFromMaps(m1, m10 map[string]any) string {
 	if m10 != nil {
