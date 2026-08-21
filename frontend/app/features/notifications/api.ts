@@ -1,4 +1,5 @@
 import type { MutationIDResponse,NotificationBinding,NotificationChannel,NotificationChannelResponse,NotificationEventType,OperationResponse,SystemSettings } from './models';
+import { normalizeSystemSettingsUpdate } from '../../../shared/api-contract/settings';
 import { type RequestControlOptions } from '../../../shared/http/client';
 import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
 export type * from './models';
@@ -128,4 +129,4 @@ export const getSystemSettings = async (options?: RequestControlOptions): Promis
 };
 
 /** 保存通知 SMTP 编辑器提交的系统设置。 */
-export const updateSystemSettings = async (settings: Partial<SystemSettings>, options?: RequestControlOptions): Promise<OperationResponse> => runContractRequest(/* signal 控制系统设置更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/settings/system', { body: settings as never, signal }), options);
+export const updateSystemSettings = async (settings: Partial<SystemSettings>, options?: RequestControlOptions): Promise<OperationResponse> => runContractRequest(/* signal 控制系统设置更新请求的取消和超时。 */ signal => contractClient.PUT('/api/v1/settings/system', { body: normalizeSystemSettingsUpdate(settings), signal }), options);

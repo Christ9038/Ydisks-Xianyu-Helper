@@ -1,7 +1,11 @@
 import type { OperationResponse,SystemSettings } from './models';
 import { contractClient, runContractRequest } from '../../../shared/api-contract/client';
+import { normalizeSystemSettingsUpdate,SENSITIVE_SYSTEM_SETTING_KEYS } from '../../../shared/api-contract/settings';
 import { type RequestControlOptions } from '../../../shared/http/client';
+import type { SystemSettingsUpdate } from '../../../shared/api-contract/settings';
 export type * from './models';
+export { normalizeSystemSettingsUpdate } from '../../../shared/api-contract/settings';
+export type { SensitiveSettingChange,SystemSettingsUpdate } from '../../../shared/api-contract/settings';
 
 /** 设置页面使用的会话状态传输契约，避免跨 feature 依赖。 */
 export interface SettingsSessionStatusResponse {
@@ -16,43 +20,6 @@ export interface SettingsSessionStatusResponse {
   /** 当前用户是否具有管理员权限。 */
   is_admin?: boolean;
 }
-
-/** 敏感系统设置的显式三态变更命令。 */
-export type SensitiveSettingChange = {
-  /** 敏感值的保存策略。 */
-  action: 'retain' | 'replace' | 'clear';
-  /** replace 策略需要保存的新值，只存在于提交请求中。 */
-  value?: string;
-};
-
-/** 系统设置更新请求，将普通配置与敏感命令分开传输。 */
-export type SystemSettingsUpdate = {
-  /** 非敏感配置字段。 */
-  values?: Record<string, string | number | boolean>;
-  /** 由服务端解释的敏感值变更命令。 */
-  secrets?: Record<string, SensitiveSettingChange>;
-};
-
-/** SENSITIVE_SYSTEM_SETTING_KEYS 标识不得写入普通 values 的秘密键。 */
-const SENSITIVE_SYSTEM_SETTING_KEYS = new Set(['ai_api_key', 'smtp_password', 'qq_reply_secret_key', 'captcha.remote_secret_key']);
-
-/** 将历史设置草稿转换为服务端要求的普通值与敏感命令结构。 */
-const normalizeSystemSettingsUpdate = (settings: Partial<SystemSettings> | SystemSettingsUpdate): SystemSettingsUpdate => {
-  if ('values' in settings || 'secrets' in settings) return settings as SystemSettingsUpdate;
-  // values 保存普通设置，永不容纳秘密文本。
-  const values: Record<string, string | number | boolean> = {};
-  // secrets 保存服务端需要独立处理的敏感设置命令。
-  const secrets: Record<string, SensitiveSettingChange> = {};
-  for (const /* key、value 是当前待分流的设置键和值。 */ [key, value] of Object.entries(settings)) {
-    if (value === undefined || value === null) continue;
-    if (SENSITIVE_SYSTEM_SETTING_KEYS.has(key)) {
-      secrets[key] = value === '' ? { action: 'clear' } : { action: 'replace', value: String(value) };
-      continue;
-    }
-    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') values[key] = value;
-  }
-  return Object.keys(secrets).length > 0 ? { values, secrets } : values;
-};
 
 /** 将服务端可兼容的字符串和数值设置归一为 UI 可消费的只读契约。 */
 const normalizeSettings = (settings: Record<string, unknown>): SystemSettings => {
