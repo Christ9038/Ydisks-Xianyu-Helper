@@ -35,6 +35,7 @@ import { clearDefaultReplyRecords,deleteDefaultReply,deleteReplyRule,deleteShipp
 import { initializeAdmin,login,logout,verifySession } from './session/api';
 import { changePassword,fetchAIModels,getSystemSettings,updateLoginCredentials,updateSystemSettings } from './settings/api';
 import { getHealth } from './system/api';
+import { normalizeSystemSettingsUpdate } from '../../shared/api-contract/settings';
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -89,15 +90,41 @@ test('updateSystemSettings separates sensitive values into explicit commands', /
   });
 });
 
+test('normalizeSystemSettingsUpdate separates every sensitive system setting', /* 当前回调验证共享归一器不会遗漏任一敏感系统设置。 */ () => {
+  // payload 是混合普通值和四类敏感值后的系统设置命令。
+  const payload = normalizeSystemSettingsUpdate({
+    theme_color: 'blue',
+    ai_api_key: 'test-ai-key',
+    smtp_password: 'test-smtp-password',
+    qq_reply_secret_key: 'test-qq-secret',
+    'captcha.remote_secret_key': 'test-captcha-secret',
+  });
+  expect(payload.values).toEqual({ theme_color: 'blue' });
+  expect(payload.secrets).toEqual({
+    ai_api_key: { action: 'replace', value: 'test-ai-key' },
+    smtp_password: { action: 'replace', value: 'test-smtp-password' },
+    qq_reply_secret_key: { action: 'replace', value: 'test-qq-secret' },
+    'captcha.remote_secret_key': { action: 'replace', value: 'test-captcha-secret' },
+  });
+});
+
 test('notification SMTP settings separate the authorization code into a secret command', /* 当前回调验证通知页不会把 SMTP 授权码写入普通设置。 */ async () => {
   // fetchMock 是通知页系统设置更新请求的 HTTP 替身。
   const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
   stubContractFetch(fetchMock);
-  await updateNotificationSystemSettings({ smtp_server: 'smtp.example.com', smtp_port: 465, smtp_user: 'sender@example.com', smtp_password: 'test-smtp-secret' });
+  await updateNotificationSystemSettings({
+    smtp_server: 'smtp.example.com', smtp_port: 465, smtp_user: 'sender@example.com',
+    smtp_password: 'test-smtp-secret', qq_reply_secret_key: 'test-qq-secret',
+    'captcha.remote_secret_key': 'test-captcha-secret',
+  });
   // payload 是通知页适配器分流后的普通设置和敏感命令。
   const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
   expect(payload.values).toEqual({ smtp_server: 'smtp.example.com', smtp_port: 465, smtp_user: 'sender@example.com' });
-  expect(payload.secrets).toEqual({ smtp_password: { action: 'replace', value: 'test-smtp-secret' } });
+  expect(payload.secrets).toEqual({
+    smtp_password: { action: 'replace', value: 'test-smtp-secret' },
+    qq_reply_secret_key: { action: 'replace', value: 'test-qq-secret' },
+    'captcha.remote_secret_key': { action: 'replace', value: 'test-captcha-secret' },
+  });
   expect(payload.values).not.toHaveProperty('smtp_password');
 });
 
